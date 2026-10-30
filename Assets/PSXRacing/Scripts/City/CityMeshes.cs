@@ -2477,6 +2477,9 @@ namespace PSXRacing.City
         const float GoreStep = 6f;
         const float GoreReach = 420f;
         const float GoreMaxGap = 4.5f;
+        /// <summary>(signs round 2) The widest gap the painted gore fills: past
+        /// it the gore is open ground, where its gore sign stands.</summary>
+        public const float GorePaintedGapM = GoreMaxGap;
         /// <summary>How far the painted gore reaches under the pavement of the
         /// two roads either side of it (see EmitBranch).</summary>
         const float GoreSeamM = 0.3f;

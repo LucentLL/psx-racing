@@ -22,8 +22,33 @@ namespace PSXRacing.EditorTools
     {
         public static void Run()
         {
+            // (signs round 2) PSX_HSIGN_BOTH=1: the census with round 1's signs
+            // first (every PSX_CITY_SIGNS2 switch off: city_hsigns_r1.txt), then
+            // round 2's (city_hsigns.txt) - the before and after in one run
+            if (System.Environment.GetEnvironmentVariable("PSX_HSIGN_BOTH") == "1")
+            {
+                CitySigns.SetSigns2(false);
+                Census("city_hsigns_r1.txt");
+                CitySigns.SetSigns2(true);
+            }
+            Census("city_hsigns.txt");
+            if (System.Environment.GetEnvironmentVariable("PSX_HSIGN_AUDIT") != "0")
+            {
+                CityAudit.RunSigns();
+                string audit = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_sign_audit.txt");
+                if (File.Exists(audit))
+                {
+                    var tail = File.ReadAllLines(audit);
+                    Debug.Log("[HSigns] sign audit: " + (tail.Length > 0 ? tail[tail.Length - 1] : "(empty)"));
+                }
+            }
+            if (System.Environment.GetEnvironmentVariable("PSX_HSIGN_SHOTS") == "1") CityPreview.RunEyePlay();
+        }
+
+        static void Census(string outName)
+        {
             var log = new System.Text.StringBuilder();
-            string outPath = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_hsigns.txt");
+            string outPath = Path.Combine(Directory.GetParent(Application.dataPath).FullName, outName);
             try
             {
                 var map = CityMap.Get();
@@ -47,7 +72,7 @@ namespace PSXRacing.EditorTools
                         perTile.TryGetValue(tk, out int pq); perTile[tk] = pq + q;
                     }
                     else { string k = what + ": " + why; whys.TryGetValue(k, out int w); whys[k] = w + 1; }
-                    if (what == "ExitGantry") lines.Add($"  ({at.x:0},{at.y:0}) {(ok ? "stands " : "NO ROOM (" + why + ")")} {legend}");
+                    if (what.StartsWith("ExitGantry")) lines.Add($"  ({at.x:0},{at.y:0}) {(ok ? "stands" + what.Substring(10) + " face at (" + face.x.ToString("0.0") + "," + face.y.ToString("0.0") + "," + face.z.ToString("0.0") + ") " : "NO ROOM (" + why + ")")} {legend}");
                     else if (ok) small.Add($"  {what} of the exit at ({at.x:0},{at.y:0}): face at ({face.x:0.0},{face.y:0.0},{face.z:0.0})");
                 });
                 log.AppendLine($"HIGHWAY SIGNS CENSUS ({clock.Elapsed.TotalSeconds:0.0} s): sites by kind, standing / decided");
@@ -62,6 +87,38 @@ namespace PSXRacing.EditorTools
                 log.AppendLine($"  per tile with guide signs ({perTile.Count} tiles of {CityMeshes.TileSize:0} m): mean {(perTile.Count > 0 ? sumQ / perTile.Count : 0)} quads ({(perTile.Count > 0 ? 4 * sumQ / perTile.Count : 0)} vertices), most {maxQ} quads ({4 * maxQ} vertices); one more draw call on each");
                 log.AppendLine("WHY A SITE FOUND NO ROOM:");
                 foreach (var kv in whys) log.AppendLine($"  {kv.Key}: {kv.Value}");
+
+                // ---- signs round 2: the structures, their density, the new signs
+                var s2 = CitySigns.Signs2Stats(map, trims, buildings);
+                float fwyKm = s2.freewayCarriagewayKm * 0.5f;   // divided freeway: two carriageways a km of route
+                int overheadStructures = s2.signBridges + s2.cantilevers;
+                log.AppendLine($"SIGNS ROUND 2 (switches: legs {CitySigns.S2Legs}, glyph {CitySigns.S2Glyph}, density {CitySigns.S2Density}, bridge {CitySigns.S2Bridge}, curves {CitySigns.S2Curves}, exit-only {CitySigns.S2ExitOnly}, night {CitySigns.S2Night}, gores {CitySigns.S2Gores})");
+                log.AppendLine($"  freeway: {s2.freewayCarriagewayKm:0.0} km of one-way carriageway = {fwyKm:0.0} km of route");
+                log.AppendLine($"  OVERHEAD STRUCTURES {overheadStructures} ({s2.signBridges} sign bridges, {s2.cantilevers} cantilevers) = {overheadStructures / Mathf.Max(1f, fwyKm):0.00} per km of freeway (NCDOT ~1.01); with the {s2.bridgeMounted} bridge-mounted signs {(overheadStructures + s2.bridgeMounted) / Mathf.Max(1f, fwyKm):0.00} per km");
+                log.AppendLine($"  advance signs: ground-mounted {s2.groundAdvance}, hung on another exit's sign bridge {s2.shared} ({s2.sharedHosts} hosts); left out by MUTCD 2E.33 (closer than a mile: the 1 MILE sign {s2.droppedMile}; closer than 300 m: no advance sign {s2.droppedHalf}; a minor interchange's 1 MILE sign {s2.droppedMinor})");
+                log.AppendLine($"  EXIT ONLY panels {s2.exitOnlyPanels} (down arrows on the advance signs {s2.exitOnlyArrows})");
+                log.AppendLine($"  curve warnings {s2.curveSigns} ({s2.curveSignsLeft} supplementary on the left), refused {s2.curveRefused}; chevrons {s2.chevrons}, refused {s2.chevronRefused}");
+                log.AppendLine($"    CityCurves spans looked at {s2.spansSeen}: signed {s2.spansSigned}, under 10 mph below the limit {s2.spansSmall}, not a curve (a kink, a junction's turn) {s2.spansKink}, the exit-speed sign's own curve {s2.spansCovered}, one curve carried on across a node {s2.spansCarried}, a second sign at one sign's place {s2.spansTwin}");
+                log.AppendLine($"  gore signs standing {s2.goresPlaced}; on the PAINTED gore (gap under {CityMeshes.GorePaintedGapM:0.0} m) {s2.goresOnPaint}");
+                log.AppendLine($"  sign-lighting luminaires (halo dots at night) {s2.lampHeads}");
+
+                // ---- the layout check: every face's mosaic as built (no legend clips, no layer over another)
+                var lay = CitySigns.LayoutCheck(map, trims, buildings, out int fChecked, out int fClip, out int fOver, out int fTwin);
+                log.AppendLine($"LAYOUT CHECK: {fChecked} faces, legends clipping {fClip}, quads overlapping in a face {fOver}, two signs in one plane {fTwin}" + (fClip + fOver + fTwin == 0 ? " - OK" : " - FAIL"));
+                foreach (var l in lay) log.AppendLine(l);
+                // ---- eye views onto the new signs (CityPreview PSX_EYE_LOOKS), nearest uptown first
+                log.AppendLine("SHOT SPOTS (PSX_EYE_LOOKS lines):");
+                foreach (var l in CitySigns.ShotSpots(map, trims, buildings, new Vector2(-2500f, 5200f), 4)) log.AppendLine("  " + l);
+                // ---- the glyph probe: what stands within a metre and a half of I-85 exit 36's gore sign
+                string probe = System.Environment.GetEnvironmentVariable("PSX_HSIGN_PROBE") ?? "-5760.5,130.2,8388.2";
+                var pv = probe.Split(',');
+                if (pv.Length == 3)
+                {
+                    var ci = System.Globalization.CultureInfo.InvariantCulture;
+                    var at = new Vector3(float.Parse(pv[0], ci), float.Parse(pv[1], ci), float.Parse(pv[2], ci));
+                    log.AppendLine($"GLYPH PROBE at ({at.x:0.0},{at.y:0.0},{at.z:0.0}):");
+                    foreach (var l in CitySigns.QuadProbe(map, trims, buildings, at, 1.5f)) log.AppendLine(l);
+                }
 
                 // the legends against the face: every letter must have a cell
                 int exits = CitySignData.Exits.Length, real = 0, fallback = 0, none = 0, numbered = 0, routed = 0, adv = 0, thruCity = 0, missing = 0;
@@ -90,19 +147,8 @@ namespace PSXRacing.EditorTools
             finally
             {
                 File.WriteAllText(outPath, log.ToString());
-                Debug.Log("[HSigns] " + log.ToString().Split('\n')[0]);
+                Debug.Log("[HSigns] " + outName + ": " + log.ToString().Split('\n')[0]);
             }
-            if (System.Environment.GetEnvironmentVariable("PSX_HSIGN_AUDIT") != "0")
-            {
-                CityAudit.RunSigns();
-                string audit = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_sign_audit.txt");
-                if (File.Exists(audit))
-                {
-                    var tail = File.ReadAllLines(audit);
-                    Debug.Log("[HSigns] sign audit: " + (tail.Length > 0 ? tail[tail.Length - 1] : "(empty)"));
-                }
-            }
-            if (System.Environment.GetEnvironmentVariable("PSX_HSIGN_SHOTS") == "1") CityPreview.RunEyePlay();
         }
     }
 }

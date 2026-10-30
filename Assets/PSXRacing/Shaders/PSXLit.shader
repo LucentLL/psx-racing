@@ -146,6 +146,14 @@ Shader "PSX/Lit"
         // colours after dark (a floodlit or lit-from-inside face), not in a
         // window's flat warm or cool. 0 everywhere else: a facade is unchanged.
         _NightFace ("Night: lit sign faces", Float) = 0
+        // LIT GUIDE SIGNS (signs round 2): the freeway guide signs' overhead
+        // panels, lit from below by the 1990s mercury-vapour luminaires on
+        // their catwalks. Each vertex carries its share of the light in UV2.x
+        // (CitySigns), so a face is brighter toward its lamps; the glow is the
+        // texel in the lamps' colour (_NightTint, mercury white-green). 0 on
+        // every other material: nothing below is read.
+        [HideInInspector] _NightVtx ("Night: lit by its vertices (guide signs)", Float) = 0
+        [HideInInspector] _NightTint ("Night: the sign lamps' colour", Color) = (1,1,1,1)
         // THE SWASH (2026-09-26, the Tidewater pass): 1 on a beach's sand,
         // whose _ShoreY is the sea's height. 0 everywhere else, and then
         // nothing below is read.
@@ -314,6 +322,8 @@ Shader "PSX/Lit"
             float4 _PSXWinOccupancy;    // THE CLOCK'S WINDOWS (TimeOfDay.OccupancyFor): x offices' mean lit share, y home factor, z shop factor
             // ==== END NIGHT-LOOK PASS 5 ====
             float _NightFace;
+            float _NightVtx;            // signs round 2: lit guide signs (UV2.x the light's share)
+            fixed4 _NightTint;
             float _Shore;
             float _ShoreY;
             float _AtlasPx;
@@ -774,6 +784,9 @@ Shader "PSX/Lit"
             #define CW_SPANDREL        0.22   // a curtain floor's dark slab, as a share of the storey
             #define CW_MULLION         0.12   // a curtain bay's mullion, as a share of the bay
             #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
+            #define GUIDE_LIT_GAIN     1.6    // signs round 2: a lit guide panel at its lamps (UV2.x 1), over its headlight-lit face
+            #define GUIDE_LEAD_STEPS   3.0    // signs round 2: a guide legend's depth lead over its backing, 24-bit depth steps
+            #define GUIDE_LEAD_MAX     1.0    // ...and its most, metres: binds only past ~430 m in the cockpit, where nothing a metre in front of a face overlaps it on screen
             #define CROWN_GAIN         0.42   // a floodlit crown's wash at full night, x its texel (leftovers 2026-10-05; 0.55 washed a close crown as bright as its lit windows)
             // THE 1990s CITY (2026-10-29): no LED crowns, no LED lines. A tower
             // top is floodlit WARM (the owner's photograph's floodlit tower,
@@ -1333,6 +1346,26 @@ Shader "PSX/Lit"
                         tl = v.uv2 - float2(512.0 * (1.0 - cov), 0.0);
                     }
                     o.tileUV = float3((tl + 0.5) / 32.0, cov);
+                }
+                // LIT GUIDE SIGNS (signs round 2): the vertex's share of its
+                // luminaires' light rides in tileUV.z (a guide draw is never a
+                // proxy, the only reader of z): no new interpolator
+                if (_NightVtx > 0.5) o.tileUV.z = v.uv2.x;
+                // THE GUIDE LEGENDS LEAD (signs round 2, the glyph fix): a legend
+                // mosaic's vertex (UV2.y 1) is pulled GUIDE_LEAD_STEPS steps of a
+                // 24-bit depth buffer toward the eye along its own ray - the same
+                // pixel - so the green backing a few cm behind it (only there to
+                // fill a hairline crack of the mosaic) never wins the depth test
+                // in bands at a distance (I-85 exit 36's "6"). At most
+                // GUIDE_LEAD_MAX: the catwalk and the luminaires below a panel
+                // (0.85-0.95 m in front) cover its foot on screen only within ~12 m.
+                if (_NightVtx > 0.5 && v.uv2.y > 0.5)
+                {
+                    float3 relL = wpos - _WorldSpaceCameraPos;
+                    float dL = length(relL);
+                    float leadL = min(GUIDE_LEAD_STEPS * 2.0 * dL * dL / (max(_ProjectionParams.y, 1e-3) * 16777216.0), GUIDE_LEAD_MAX);
+                    float4 cL = mul(UNITY_MATRIX_VP, float4(wpos - relL * (leadL / max(dL, 1e-3)), 1.0));
+                    o.pos.z = cL.z / max(cL.w, 1e-6) * o.pos.w;
                 }
                 return o;
             }
@@ -1966,6 +1999,13 @@ Shader "PSX/Lit"
                     float4 m = PSX_NIGHT_MASK(uv);
                     float3 glow = tex.rgb * (m.r * m.a * SIGN_GAIN * _PSXNight);
                     col += glow * (1.0 - WIN_FOG_CUT * i.fog);
+                }
+                // LIT GUIDE SIGNS (signs round 2): the face in its own colours
+                // under its mercury lamps, as bright as its vertices say
+                if (_NightVtx > 0.5 && _PSXNight > 0.01)
+                {
+                    float3 glowG = tex.rgb * _NightTint.rgb * (i.tileUV.z * GUIDE_LIT_GAIN * _PSXNight);
+                    col += glowG * (1.0 - WIN_FOG_CUT * i.fog);
                 }
                 else if (_NightWin > 0.5 && _PSXNight > 0.01)
                 {

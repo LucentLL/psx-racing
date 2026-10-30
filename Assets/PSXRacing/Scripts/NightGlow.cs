@@ -72,6 +72,7 @@ namespace PSXRacing
         readonly List<float> gains = new List<float>();       // per head, Init's (1 when none given)
         readonly List<bool> mercs = new List<bool>();         // per head: a mercury-vapour head (the 1990s city)
         bool explicitHeads;                                   // Init gave them: never re-collect
+        int lampHeads = int.MaxValue;                         // heads past this light nothing (halo only)
         bool built;
         GameObject haloGo;
         Mesh haloMesh;
@@ -127,8 +128,15 @@ namespace PSXRacing
         /// MERCURY-VAPOUR head (the 1990s city, 2026-10-29: Charlotte's streets
         /// by CityMeshes.MercuryStreet): <see cref="StreetLights.MercuryLamp"/>
         /// on the road, in the lamp field and in its halo.</summary>
-        public void Init(IList<Vector3> worldHeads, IList<float> gain, IList<bool> mercury)
+        public void Init(IList<Vector3> worldHeads, IList<float> gain, IList<bool> mercury) => Init(worldHeads, gain, mercury, int.MaxValue);
+
+        /// <summary>As above; the heads from <paramref name="haloOnlyFrom"/> on
+        /// are HALOS ONLY (signs round 2: the freeway guide signs' sign-lighting
+        /// luminaires light their own panel, through its vertices, not the
+        /// road, so they take no slot of the lamp table).</summary>
+        public void Init(IList<Vector3> worldHeads, IList<float> gain, IList<bool> mercury, int haloOnlyFrom)
         {
+            lampHeads = haloOnlyFrom;
             explicitHeads = true;
             heads.Clear(); gains.Clear(); mercs.Clear();
             if (worldHeads != null)
@@ -237,7 +245,7 @@ namespace PSXRacing
         void Register()
         {
             StreetLights.RemoveAll(this);
-            for (int i = 0; i < heads.Count; i++)
+            for (int i = 0; i < heads.Count && i < lampHeads; i++)
             {
                 int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, Merc(i) ? StreetLights.MercuryLamp : StreetLights.Bulb,
                                          StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f), StreetLights.Kind.Street);

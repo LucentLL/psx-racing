@@ -183,6 +183,97 @@ def ring_edge(T, margin, stroke, L=8):
     return big.resize((T, L), Image.Resampling.BOX)
 
 
+def _thick(d, pts, w):
+    """A thick polyline with round joints and caps (supersampled coordinates)."""
+    d.line(pts, fill=255, width=int(round(w)), joint='curve')
+    r = w / 2
+    for (px, py) in (pts[0], pts[-1]):
+        d.ellipse((px - r, py - r, px + r, py + r), fill=255)
+
+
+def _head(d, tip, direction, length, width):
+    """A triangular arrowhead at tip pointing along direction (unit, supersampled px)."""
+    import math
+    dx, dy = direction
+    n = math.hypot(dx, dy)
+    dx, dy = dx / n, dy / n
+    bx, by = tip[0] - dx * length, tip[1] - dy * length
+    px, py = -dy, dx
+    d.polygon([tip, (bx + px * width / 2, by + py * width / 2), (bx - px * width / 2, by - py * width / 2)], fill=255)
+
+
+def warning_symbol(sym, S):
+    """A W1 symbol (black on the diamond), upright, curving to the RIGHT, in an S x S mask."""
+    import math
+    big = Image.new('L', (S, S), 0)
+    d = ImageDraw.Draw(big)
+    u = S / 100.0
+    w = 11 * u            # the shaft
+    hl, hw = 17 * u, 30 * u   # the head
+    if sym == 'turn':
+        pts = [(44 * u, 80 * u), (44 * u, 42 * u), (60 * u, 42 * u)]
+        _thick(d, pts, w)
+        _head(d, (79 * u, 42 * u), (1, 0), hl, hw)
+    elif sym == 'curve':
+        # up, then bending right through 50 degrees on an arc
+        pts = []
+        cx, cy, r = 78 * u, 64 * u, 34 * u
+        pts.append((44 * u, 82 * u))
+        for k in range(0, 13):
+            a = math.radians(180 - k * 4.2)
+            pts.append((cx + r * math.cos(a), cy - r * math.sin(a)))
+        _thick(d, pts, w)
+        a = math.radians(180 - 12 * 4.2)
+        tdir = (math.sin(a), math.cos(a))           # the arc's tangent, going round to the right
+        tip = (pts[-1][0] + tdir[0] * hl * 0.85, pts[-1][1] + tdir[1] * hl * 0.85)
+        _head(d, tip, tdir, hl, hw)
+    elif sym == 'revturn':
+        pts = [(36 * u, 84 * u), (36 * u, 58 * u), (62 * u, 58 * u), (62 * u, 36 * u)]
+        _thick(d, pts, w)
+        _head(d, (62 * u, 16 * u), (0, -1), hl, hw)
+    elif sym == 'revcurve':
+        pts = []
+        for k in range(0, 25):
+            t = k / 24.0
+            y = 84 - 56 * t
+            s = 0.5 - 0.5 * math.cos(math.pi * min(1.0, t * 1.25))
+            x = 38 + 24 * s
+            pts.append((x * u, y * u))
+        _thick(d, pts, w)
+        _head(d, (62 * u, 15 * u), (0, -1), hl, hw)
+    return big
+
+
+def warning_diamond(D, sym):
+    """A W1 sign whole in a D x D cell: the yellow diamond inscribed (its points at the
+    cell's edge midpoints), a black border, the black symbol; black outside the diamond."""
+    S = D * SS
+    img = Image.new('RGB', (S, S), BLACK)
+    d = ImageDraw.Draw(img)
+    c = S / 2
+    d.polygon([(c, 0), (S, c), (c, S), (0, c)], fill=BLACK)
+    t = 0.040 * S                     # the border (1.25 in on a 48 in sign), inset
+    k = t * 1.4142
+    d.polygon([(c, k), (S - k, c), (c, S - k), (k, c)], fill=YELLOW)
+    m = warning_symbol(sym, int(S * 0.58))
+    o = int((S - m.size[0]) / 2)
+    img.paste(Image.new('RGB', m.size, BLACK), (o, o), m)
+    return img.resize((D, D), Image.Resampling.BOX)
+
+
+def chevron_sign(w, h):
+    """MUTCD W1-8, a chevron pointing right: black chevron and border on yellow."""
+    W2, H2 = w * SS, h * SS
+    img = Image.new('RGB', (W2, H2), YELLOW)
+    d = ImageDraw.Draw(img)
+    b = 0.06 * W2
+    d.rectangle((0, 0, W2 - 1, H2 - 1), fill=BLACK)
+    d.rectangle((b, b, W2 - 1 - b, H2 - 1 - b), fill=YELLOW)
+    pts = [(0.20, 0.14), (0.47, 0.14), (0.80, 0.50), (0.47, 0.86), (0.20, 0.86), (0.53, 0.50)]
+    d.polygon([(x * W2, y * H2) for (x, y) in pts], fill=BLACK)
+    return img.resize((w, h), Image.Resampling.BOX)
+
+
 def pack_metal(name, size, tint, lift=0.0, desat=0.0):
     src = Image.open(os.path.join(PACK, name)).convert('RGB').resize((size, size), Image.Resampling.LANCZOS)
     px = src.load()
@@ -237,6 +328,17 @@ def compose():
     x, y = pieces.place(T, 8); paint(img, x, y, ring_edge(T, m, s), WHITE, GREEN); cells['RingGEdge'] = (x, y, T, 8)
     x, y = pieces.place(24, 24); cells['SolidGreen'] = (x, y, 24, 24)
     x, y = pieces.place(24, 24); d.rectangle((x - 2, y - 2, x + 25, y + 25), fill=WHITE); cells['SolidWhite'] = (x, y, 24, 24)
+    # (signs round 2) the curve warnings' faces, whole: MUTCD W1-1 Turn, W1-2
+    # Curve, W1-3 Reverse Turn, W1-4 Reverse Curve, each a yellow diamond with
+    # its black border and symbol inscribed in the cell (the mesh's quad takes
+    # the diamond's four points; flipped for a curve to the left). The cell's
+    # corners and a frame in its gutter are black, the border's colour, so a
+    # far mip of a diamond's tip reads black and not the green round it.
+    for key, sym in (('W1Turn', 'turn'), ('W1Curve', 'curve'), ('W1RevTurn', 'revturn'), ('W1RevCurve', 'revcurve')):
+        x, y = pieces.place(D, D)
+        d.rectangle((x - 3, y - 3, x + D + 2, y + D + 2), fill=BLACK)
+        img.paste(warning_diamond(D, sym), (x, y))
+        cells[key] = (x, y, D, D)
 
     # the yellow field: black letters, the yellow border, plain yellow and black
     y0 = green.y + green.h + GUT
@@ -252,6 +354,12 @@ def compose():
     x, y = ys.place(T2, 8); paint(img, x, y, ring_edge(T2, m2, s2), BLACK, YELLOW); cells['RingYEdge'] = (x, y, T2, 8)
     x, y = ys.place(16, 16); cells['SolidYellow'] = (x, y, 16, 16)
     x, y = ys.place(16, 16); d.rectangle((x - 2, y - 2, x + 17, y + 17), fill=BLACK); cells['SolidBlack'] = (x, y, 16, 16)
+    # (signs round 2) the EXIT ONLY panel's down arrow (black on yellow, one
+    # over each dropped lane: MUTCD E11-1), and the W1-8 Chevron Alignment
+    # sign whole (24 x 30 in: a black chevron and border on yellow), on the
+    # yellow field so their mips stay yellow
+    x, y = ys.place(34, ROW); paint(img, x, y, arrow_down(34, ROW), BLACK, YELLOW); cells['ArrowDownBlack'] = (x, y, 34, ROW)
+    x, y = ys.place(48, ROW); img.paste(chevron_sign(48, ROW), (x, y)); cells['Chevron'] = (x, y, 48, ROW)
 
     # the metal strip (the bottom): the owner's pack
     galv = pack_metal('metal_roofing_pt_1.png', 64, (1.02, 1.02, 1.0), lift=38, desat=0.55)
@@ -278,7 +386,8 @@ def cs_table(cells, adv):
     space = round(FT.getlength(' ') / SS + TRACK * CAP)
     pieces = '\n'.join(f'        public static readonly RectInt {k} = {r(k)};' for k in (
         'ArrowDiag', 'ArrowDown', 'RingGCorner', 'RingGEdge', 'SolidGreen', 'SolidWhite',
-        'RingYCorner', 'RingYEdge', 'SolidYellow', 'SolidBlack', 'Galv', 'Alum', 'Concrete'))
+        'RingYCorner', 'RingYEdge', 'SolidYellow', 'SolidBlack', 'Galv', 'Alum', 'Concrete',
+        'W1Turn', 'W1Curve', 'W1RevTurn', 'W1RevCurve', 'ArrowDownBlack', 'Chevron'))
     return f'''// GENERATED by tools/city/guide_atlas.py - do not edit by hand (run it again).
 using UnityEngine;
 

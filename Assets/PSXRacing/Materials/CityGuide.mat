@@ -40,6 +40,7 @@ Material:
     - _Emission: 0
     - _MainTexRaw: 0
     - _NightFace: 0
+    - _NightVtx: 1
     - _NightWin: 0
     - _Shore: 0
     - _ShoreY: 0
@@ -56,6 +57,7 @@ Material:
     - _ZOffU: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _NightTint: {r: 0.93, g: 1, b: 0.8, a: 1}
     - _PSXDetailMask: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

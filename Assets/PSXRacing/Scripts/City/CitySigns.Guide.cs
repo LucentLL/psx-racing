@@ -73,17 +73,37 @@ namespace PSXRacing.City
         /// <summary>A sign's bottom over the ground at a gore or a ramp (urban 7 ft).</summary>
         const float SmallSignBottomM = 2.13f;
 
-        public enum GuideKind : byte { ExitGantry, Advance, Gore, Advisory }
+        public enum GuideKind : byte { ExitGantry, Advance, Gore, Advisory, Curve, Chevron }
 
         internal struct Site
         {
             public GuideKind kind;
-            /// <summary>The motorway edge ending at the exit's diverge.</summary>
+            /// <summary>The motorway edge ending at the exit's diverge (-1: a curve warning).</summary>
             public int exitEdge;
             /// <summary>An advance sign's station (its edge and arc), and its legend's miles.</summary>
             public int edge;
             public float s, miles;
             public Vector2 nominal;
+            // ---- signs round 2 ----
+            /// <summary>An advance sign tried on the ground first (a right
+            /// exit, no lane drop, three lanes or fewer); <see cref="groundOnly"/>:
+            /// and never overhead (an overhead one would stand within
+            /// <see cref="SiteSpacingM"/> of another structure).</summary>
+            public bool ground, groundOnly;
+            /// <summary>An advance sign hung on another exit's structure: that
+            /// site's index + 1 (0: its own structure).</summary>
+            public int host;
+            /// <summary>The advance panels of other exits this structure carries (site indices), or null.</summary>
+            public List<int> extras;
+            /// <summary>A curve warning or chevron: the traffic's way along the
+            /// edge (+1 a to b), the side it stands on (+1 right of travel), the
+            /// W1 symbol, the curve's hand (true: to the left), the advisory
+            /// (mph), the diamond's side and the plaque's (metres).</summary>
+            public sbyte dir, side;
+            public byte sym;
+            public bool leftHand;
+            public int mph;
+            public float size, plaque;
         }
 
         static readonly List<Site> sites = new List<Site>();
@@ -100,7 +120,8 @@ namespace PSXRacing.City
             if (siteMap == map) return;
             siteMap = map;
             sites.Clear(); siteCells.Clear(); exitInfos.Clear();
-            var overhead = new List<(Vector2 p, Vector2 t)>();
+            droppedMile = droppedHalf = droppedMinor = 0;
+            var overhead = new List<(Vector2 p, Vector2 t, int site)>();
             var exits = new List<int>();
             // ONE exit a diverge node: where two carriageways run into the node
             // (a ramp merging where another leaves, two freeways joining) each
@@ -122,30 +143,90 @@ namespace PSXRacing.City
                 exits.Add(ei);
                 float s0 = GantryS0(e);
                 sites.Add(new Site { kind = GuideKind.ExitGantry, exitEdge = ei, edge = ei, s = s0, nominal = e.PointAt(s0) });
-                overhead.Add((e.PointAt(s0), e.TangentAt(s0)));
+                overhead.Add((e.PointAt(s0), e.TangentAt(s0), sites.Count - 1));
                 var node = map.nodes[e.b];
                 sites.Add(new Site { kind = GuideKind.Gore, exitEdge = ei, edge = ei, s = e.length, nominal = node });
                 sites.Add(new Site { kind = GuideKind.Advisory, exitEdge = ei, edge = ei, s = e.length, nominal = node - e.TangentAt(e.length) * 0.5f });
             }
-            foreach (float miles in new[] { 0.5f, 1f })
+            foreach (float milesNominal in new[] { 0.5f, 1f })
                 foreach (int ei in exits)
                 {
                     var e = map.edges[ei];
-                    if (!BackAlong(map, e, e.length, miles * MileM, out var ae, out float aS)) continue;
+                    float miles = milesNominal, back = miles * MileM;
+                    bool ground = false;
+                    if (S2Density)
+                    {
+                        // MUTCD 2E.33: the advance signs at 1/2 and 1 mile, never
+                        // over the previous exit's own signing - closer than a
+                        // mile, the 1 MILE sign is left out (real urban freeways);
+                        // closer than half a mile, ONE advance sign half way, its
+                        // distance to the nearest quarter mile; under 300 m none
+                        float gap = PrevExitGap(map, e);
+                        if (milesNominal > 0.75f && gap < MileM + 150f) { droppedMile++; continue; }
+                        // ...and "at minor interchanges, only one Advance Guide sign" (2E.33): an
+                        // exit to a street (no route on its sign) keeps its 1/2 MILE sign only
+                        if (milesNominal > 0.75f && MinorInterchange(map, ei)) { droppedMinor++; continue; }
+                        if (milesNominal < 0.75f && gap < 0.5f * MileM + 150f)
+                        {
+                            if (gap < 300f) { droppedHalf++; continue; }
+                            back = gap * 0.5f;
+                            miles = Mathf.Max(0.25f, Mathf.Round(back / MileM * 4f) / 4f);
+                        }
+                        // ground-mounted where real practice puts it (MUTCD 2A.17's
+                        // overhead factors: a left exit, a lane drop, more than three lanes)
+                        var exi = ExitOf(map, ei);
+                        ground = !exi.left && exi.dropped == 0;
+                    }
+                    if (!BackAlong(map, e, e.length, back, out var ae, out float aS)) continue;
+                    // (the lanes where the sign stands: an auxiliary lane begun nearer the exit is not there yet)
+                    if (ground && MinLanesBack(map, ae, 400f) > 3) ground = false;
+                    if (ground)
+                    {
+                        // a ground sign takes no overhead spacing; overhead only
+                        // as a fallback where no structure stands within the spacing
+                        var p = ae.PointAt(aS); var t = ae.TangentAt(aS);
+                        bool near = false;
+                        foreach (var (q, tq, _) in overhead)
+                            if ((q - p).sqrMagnitude < SiteSpacingM * SiteSpacingM && Vector2.Dot(t, tq) > 0.5f) { near = true; break; }
+                        sites.Add(new Site { kind = GuideKind.Advance, exitEdge = ei, edge = ae.index, s = aS, miles = miles, nominal = p, ground = true, groundOnly = near });
+                        continue;
+                    }
                     foreach (float off in new[] { 0f, -40f, 40f, -80f, 80f, -120f })
                     {
                         var se = ae; float ss = aS;
                         if (!Slide(map, ref se, ref ss, off)) continue;
                         var p = se.PointAt(ss); var t = se.TangentAt(ss);
-                        bool clash = false;
-                        foreach (var (q, tq) in overhead)
-                            if ((q - p).sqrMagnitude < SiteSpacingM * SiteSpacingM && Vector2.Dot(t, tq) > 0.5f) { clash = true; break; }
-                        if (clash) continue;
+                        int clash = -1;
+                        foreach (var (q, tq, si) in overhead)
+                            if ((q - p).sqrMagnitude < SiteSpacingM * SiteSpacingM && Vector2.Dot(t, tq) > 0.5f)
+                            {
+                                // (round 2) prefer another exit's sign bridge to share
+                                if (clash < 0 || (S2Density && sites[si].kind == GuideKind.ExitGantry && sites[si].exitEdge != ei && sites[clash].kind != GuideKind.ExitGantry)) clash = si;
+                            }
+                        if (clash >= 0)
+                        {
+                            // (round 2) at its own station within the spacing of another
+                            // exit's sign bridge: its panel hangs on that structure
+                            // (one structure for two exits' signs, as closely spaced
+                            // urban interchanges are signed) instead of a structure of its own
+                            if (S2Density && off == 0f && sites[clash].kind == GuideKind.ExitGantry && sites[clash].exitEdge != ei
+                                && (sites[clash].extras == null || sites[clash].extras.Count == 0))
+                            {
+                                var host = sites[clash];
+                                host.extras = new List<int> { sites.Count };
+                                sites[clash] = host;
+                                sites.Add(new Site { kind = GuideKind.Advance, exitEdge = ei, edge = se.index, s = ss, miles = miles, nominal = p, host = clash + 1 });
+                                break;
+                            }
+                            continue;
+                        }
                         sites.Add(new Site { kind = GuideKind.Advance, exitEdge = ei, edge = se.index, s = ss, miles = miles, nominal = p });
-                        overhead.Add((p, t));
+                        overhead.Add((p, t, sites.Count - 1));
                         break;
                     }
                 }
+            // (round 2) the curve warnings and chevrons (CitySigns.Signs2)
+            if (S2Curves) CurveSites(map);
             for (int i = 0; i < sites.Count; i++)
             {
                 var p = sites[i].nominal;
@@ -249,6 +330,11 @@ namespace PSXRacing.City
             /// <summary>Lanes before the diverge (destination groups summed) and the exit's of them.</summary>
             public int lanes, exitLanes;
             public int advisoryMph;
+            /// <summary>(signs round 2) The through lanes DROPPED at the exit -
+            /// carried onto the ramp and not on along the freeway (the graph's
+            /// lanes before and after the diverge, OSM turn:lanes): the EXIT
+            /// ONLY panel's arrows (MUTCD 2E.24). 0: an ordinary exit.</summary>
+            public int dropped;
         }
         static readonly Dictionary<int, ExitInfo> exitInfos = new Dictionary<int, ExitInfo>();
 
@@ -283,6 +369,7 @@ namespace PSXRacing.City
             else { x.lanes = Mathf.Max(2, e.lanes); x.exitLanes = 1; }
             x.exitLanes = Mathf.Clamp(x.exitLanes, 1, x.lanes - 1);
             x.advisoryMph = x.hasData && x.data.advisory > 0 ? x.data.advisory : CurveMph(map, x.link);
+            if (S2ExitOnly) x.dropped = DroppedLanes(map, e, x);
             exitInfos[ei] = x;
             return x;
         }
@@ -329,17 +416,39 @@ namespace PSXRacing.City
             decided++;
             why = "";
             var site = sites[si];
-            bool small = site.kind == GuideKind.Gore || site.kind == GuideKind.Advisory;
+            bool small = site.kind == GuideKind.Gore || site.kind == GuideKind.Advisory || site.kind == GuideKind.Curve || site.kind == GuideKind.Chevron;
             pu = new Pure { kind = small ? Kind.Guide : Kind.Gantry, breakaway = small };
             pu.sign.owner = site.nominal;
             var was = rec; rec = pu;
+            var wasLight = nightLight; nightLight = null;
             try
             {
+                if (site.kind == GuideKind.Curve || site.kind == GuideKind.Chevron)
+                {
+                    // (round 2) MUTCD W1 + W13-1P, W1-8 (CitySigns.Signs2)
+                    pu.placed = WarnSign(map, trims, pu, site);
+                    if (!pu.placed) { pu.Reset(); whyNot[si] = why; }
+                    pureCache[key] = pu;
+                    return pu;
+                }
                 var ex = ExitOf(map, site.exitEdge);
                 var e = map.edges[site.exitEdge];
                 switch (site.kind)
                 {
                     case GuideKind.ExitGantry:
+                        // (round 2) the exit direction sign POST-MOUNTED past the clear zone
+                        // where no MUTCD 2A.17 overhead factor holds (a right exit, no lane
+                        // drop, three lanes or fewer: NCDOT's simple suburban interchanges)
+                        if (S2Density && !ex.left && ex.dropped == 0 && MinLanesBack(map, e, 400f) <= 3)
+                            foreach (float back in new[] { 0f, 20f, 40f, 60f })
+                            {
+                                float sg = site.s - back;
+                                if (sg < 5f || e.bridge || e.ElevatedAt(sg)) continue;
+                                pu.kind = Kind.Guide; pu.breakaway = true;
+                                pu.placed = GroundGuide(map, trims, pu, e, sg, ex, site);
+                                if (pu.placed) break;
+                                pu.Reset(); pu.kind = Kind.Gantry; pu.breakaway = false;
+                            }
                         // on a deck there is nothing to stand a leg on: step back up the road
                         for (float s = site.s; s > 5f && !pu.placed && site.s - s < 130f; s -= 40f)
                         {
@@ -347,13 +456,40 @@ namespace PSXRacing.City
                             pu.placed = Overhead(map, trims, pu, e, s, ex, site);
                             if (!pu.placed) pu.Reset();
                         }
+                        // (round 2) no ground for legs: on the overpass that crosses
+                        // the freeway before the exit, on its fascia (MUTCD 2E.25)
+                        if (!pu.placed && S2Bridge)
+                        {
+                            pu.Reset();
+                            string whyLegs = why;
+                            pu.placed = BridgeMount(map, trims, pu, e, site.s, ex, site, (e.length - 25f) - site.s, (e.length - 300f) - site.s);
+                            // ...else a sign bridge bolted to its own deck's edges (an elevated freeway's)
+                            for (float s = site.s; !pu.placed && s > 5f && site.s - s < 130f; s -= 20f)
+                            {
+                                if (!(e.bridge || e.ElevatedAt(s))) continue;
+                                pu.Reset(); pu.kind = Kind.Gantry;
+                                pu.placed = Overhead(map, trims, pu, e, s, ex, site, true);
+                            }
+                            if (!pu.placed) why = (whyLegs.Length > 0 ? whyLegs : "no ground for legs") + "; " + why;
+                        }
                         break;
                     case GuideKind.Advance:
+                        if (site.host > 0)
+                        {
+                            // (round 2) its panel hangs on another exit's structure
+                            var hp = PureGuide(map, trims, site.host - 1);
+                            why = hp.placed && hp.extraDrawn ? "shared" : "shared, the host did not stand";
+                            break;
+                        }
                         // the mile sign: on two posts past the clear zone where the
                         // ground is free (NCDOT's suburban habit); the half mile, a
                         // mile sign with no room beside the road, and every sign for a
                         // LEFT exit (a sign on the right for a left exit misleads): overhead
-                        for (int pass = site.miles > 0.75f && !ex.left ? 0 : 1; pass < 2 && !pu.placed; pass++)
+                        // (round 2: the ground first for every sign marked so, the
+                        // overhead fallback only where no structure stands near)
+                        int pass0 = S2Density ? (site.ground ? 0 : 1) : (site.miles > 0.75f && !ex.left ? 0 : 1);
+                        int passEnd = S2Density && site.groundOnly ? 1 : 2;
+                        for (int pass = pass0; pass < passEnd && !pu.placed; pass++)
                             foreach (float off in new[] { 0f, -30f, 30f, -60f, 60f })
                             {
                                 var se = map.edges[site.edge]; float ss = site.s;
@@ -363,9 +499,16 @@ namespace PSXRacing.City
                                 if (pu.placed) break;
                                 pu.Reset();
                             }
+                        // (round 2) an overhead advance sign on a deck: on an overpass near its station
+                        if (!pu.placed && S2Bridge && passEnd == 2)
+                        {
+                            pu.Reset(); pu.kind = Kind.Gantry; pu.breakaway = false;
+                            var se = map.edges[site.edge];
+                            if (se.bridge || se.ElevatedAt(site.s)) pu.placed = BridgeMount(map, trims, pu, se, site.s, ex, site, 120f, -140f);
+                        }
                         break;
                     case GuideKind.Gore:
-                        pu.placed = GoreSign(map, trims, pu, e, ex);
+                        pu.placed = S2Gores ? GoreSign2(map, trims, pu, e, ex) : GoreSign(map, trims, pu, e, ex);
                         break;
                     case GuideKind.Advisory:
                         pu.placed = ex.advisoryMph > 0 && AdvisorySign(map, trims, pu, e, ex);
@@ -373,7 +516,7 @@ namespace PSXRacing.City
                 }
                 if (!pu.placed) { pu.Reset(); whyNot[si] = site.kind == GuideKind.Advisory && ex.advisoryMph <= 0 ? "no advisory (over 45 mph)" : why; }
             }
-            finally { rec = was; }
+            finally { rec = was; nightLight = wasLight; }
             pureCache[key] = pu;
             return pu;
         }
@@ -385,7 +528,7 @@ namespace PSXRacing.City
         /// <summary>A sign bridge or a cantilever at arc s of a carriageway,
         /// with the exit's panels (and at the exit, the pull-through) hung on
         /// its box truss. Records nothing unless it stands.</summary>
-        static bool Overhead(CityMap map, CityMeshes.Trims trims, Pure pu, CityMap.Edge e, float s, ExitInfo ex, Site site)
+        static bool Overhead(CityMap map, CityMeshes.Trims trims, Pure pu, CityMap.Edge e, float s, ExitInfo ex, Site site, bool deck = false)
         {
             if (!ex.hasData && ex.link == null) { why = "no legend"; return false; }
             var p0 = e.PointAt(s);
@@ -395,8 +538,22 @@ namespace PSXRacing.City
             LineModel.ExtentsNoAux(e, s, out float eM, out float eP);   // eM to the right of travel, eP to the left
             LineModel.Extents(e, s, out float pavR, out float pavL);
             // legs: off every pavement and clear zone, each side
-            bool hasR = FindLeg(p0, right, pavR, out var legR);
-            bool hasL = FindLeg(p0, left, pavL, out var legL);
+            Vector2 legR, legL; bool hasR, hasL;
+            if (deck)
+            {
+                // (round 2) ON STRUCTURE: the legs bolted to the deck's edges, outside
+                // its rails (the rail's 0.3 m past the drawn edge, the post's half and a
+                // hand), wherever no other pavement or deck is there
+                legR = p0 + right * (pavR + CityMeshes.RailOverhangM + 0.5f);
+                legL = p0 + left * (pavL + CityMeshes.RailOverhangM + 0.5f);
+                hasR = PavementMargin(map, trims, legR) >= 0.25f - RoadsideOccupancy.DeckMarginM && RoadTopAt(map, trims, legR, 0.1f) < e.YAt(s) - 0.5f;
+                hasL = PavementMargin(map, trims, legL) >= 0.25f - RoadsideOccupancy.DeckMarginM && RoadTopAt(map, trims, legL, 0.1f) < e.YAt(s) - 0.5f;
+            }
+            else
+            {
+                hasR = FindLeg(p0, right, pavR, out legR);
+                hasL = FindLeg(p0, left, pavL, out legL);
+            }
             bool advance = site.kind == GuideKind.Advance;
             bool exitSide = ex.left ? hasL : hasR, farSide = ex.left ? hasR : hasL;
             bool spanOk = hasL && hasR && Vector2.Distance(legL, legR) <= MaxSpanM;
@@ -431,21 +588,48 @@ namespace PSXRacing.City
 
             // the legends
             var d = ex.data;
-            var exitPanel = ExitLegend(ex, advance ? site.miles : 0f, !advance);
+            // (round 2) a LANE DROP: the EXIT ONLY panel (MUTCD 2E.24, the
+            // 1988 manual's black on yellow), on the dropped lanes this station
+            // has; on an advance sign a down arrow over each of them
+            int dropHere = 0; List<float> dropXs = null;
+            if (S2ExitOnly && ex.dropped > 0)
+            {
+                dropHere = Mathf.Clamp(ex.dropped - Mathf.Max(0, LanesOn(map.edges[site.exitEdge]) - LanesOn(e)), 0, Mathf.Min(ex.dropped, total - 1));
+                if (advance && dropHere > 0)
+                {
+                    dropXs = new List<float>();
+                    for (int i = 0; i < dropHere; i++) dropXs.Add(LaneX(ex.left ? i : total - 1 - i) - exitMid);
+                }
+            }
+            var exitPanel = ExitLegend(ex, advance ? site.miles : 0f, !advance, dropHere, dropXs);
             var tab = string.IsNullOrEmpty(d.number) && !ex.left ? null : TabLegend(ex);
+            // (round 2) another exit's advance panel shares this structure: it
+            // hangs over the through lanes, where the pull-through would
+            ExitInfo exX = null; GBlock extraPanel = null, extraTab = null;
+            if (S2Density && site.extras != null && site.extras.Count > 0)
+            {
+                var xsite = sites[site.extras[0]];
+                exX = ExitOf(map, xsite.exitEdge);
+                if (exX.hasData)
+                {
+                    extraPanel = ExitLegend(exX, xsite.miles, false, S2ExitOnly ? Mathf.Min(exX.dropped, 2) : 0, null);
+                    extraTab = string.IsNullOrEmpty(exX.data.number) && !exX.left ? null : TabLegend(exX);
+                }
+            }
             GBlock thruPanel = null;
-            if (!advance && span && ex.hasData && !string.IsNullOrEmpty(d.thru))
+            if (!advance && span && ex.hasData && !string.IsNullOrEmpty(d.thru) && extraPanel == null)
                 thruPanel = ThruLegend(ex, thruLanes, thruMid);
             var panels = new List<(GBlock b, float x)>();   // x: centre, metres rightward from the left edge
             float ePos = exitMid;
             panels.Add((exitPanel, ePos));
-            if (thruPanel != null)
+            var second = thruPanel ?? extraPanel;
+            if (second != null)
             {
                 float tx = thruMid, gap = 0.6f;
-                if (ex.left) tx = Mathf.Max(tx, ePos + exitPanel.w * 0.5f + gap + thruPanel.w * 0.5f);
-                else tx = Mathf.Min(tx, ePos - exitPanel.w * 0.5f - gap - thruPanel.w * 0.5f);
-                ((GThruPanel)thruPanel).shift = tx - thruMid;
-                panels.Add((thruPanel, tx));
+                if (ex.left) tx = Mathf.Max(tx, ePos + exitPanel.w * 0.5f + gap + second.w * 0.5f);
+                else tx = Mathf.Min(tx, ePos - exitPanel.w * 0.5f - gap - second.w * 0.5f);
+                if (thruPanel != null) ((GThruPanel)thruPanel).shift = tx - thruMid;
+                panels.Add((second, tx));
             }
             // within the truss: its ends (in the same left-edge frame); a leg keeps 0.8 m off a panel
             float aX = Vector2.Dot(legA - leftEdge, right), bX = Vector2.Dot(legB - leftEdge, right);
@@ -455,7 +639,12 @@ namespace PSXRacing.City
                 {
                     var (b, x) = panels[i];
                     float lo = aX + 0.8f + b.w * 0.5f, hi = bX - 0.8f - b.w * 0.5f;
-                    if (hi < lo) { why = "span shorter than the panels"; return false; }
+                    if (hi < lo)
+                    {
+                        // (round 2) the shared panel that does not fit goes; the exit's own stays
+                        if (i > 0 && extraPanel != null) { panels.RemoveAt(i); extraPanel = null; break; }
+                        why = "span shorter than the panels"; return false;
+                    }
                     panels[i] = (b, Mathf.Clamp(x, lo, hi));
                 }
             }
@@ -472,16 +661,27 @@ namespace PSXRacing.City
                 }
                 if (armFromRight) { aX = far; legA = leftEdge + right * far; }
                 else { bX = far; legB = leftEdge + right * far; }
-                if (Vector2.Distance(legA, legB) > MaxArmM) { why = "arm over 22 m"; return false; }
+                if (Vector2.Distance(legA, legB) > MaxArmM)
+                {
+                    if (extraPanel == null) { why = "arm over 22 m"; return false; }
+                    // (round 2) without the shared panel the arm may reach
+                    pu.Reset();
+                    var keep = site; keep.extras = null;
+                    bool ok = Overhead(map, trims, pu, e, s, ex, keep);
+                    pu.extraDrawn = false;
+                    return ok;
+                }
             }
             // clear of the utility poles and their wires
             if (!OffPoles(legA, legB, GantryHalfD)) { pu.wireSteps++; why = "a utility wire"; return false; }
-            if (thruPanel != null)
+            if (panels.Count > 1)
             {
                 var (eb, ex0) = panels[0]; var (tb, tx0) = panels[1];
-                if (Mathf.Abs(tx0 - ex0) < (eb.w + tb.w) * 0.5f + 0.3f) { panels.RemoveAt(1); thruPanel = null; }
-                else ((GThruPanel)thruPanel).shift = tx0 - thruMid;
+                if (Mathf.Abs(tx0 - ex0) < (eb.w + tb.w) * 0.5f + 0.3f) { panels.RemoveAt(1); thruPanel = null; extraPanel = null; }
+                else if (thruPanel != null) ((GThruPanel)thruPanel).shift = tx0 - thruMid;
             }
+            if (exitPanel is GPlate ep && ep.dropRow != null) ep.dropRow.shift = panels[0].x - exitMid;
+            pu.extraDrawn = extraPanel != null;
 
             // the highest road under the span and the panels
             var A3 = legA; var B3 = legB;
@@ -500,29 +700,48 @@ namespace PSXRacing.City
             float trussTop = yT + TrussH * 0.5f;
             var n3 = new Vector3(-t.x, 0f, -t.y);
             var r3 = new Vector3(right.x, 0f, right.y);
+            // (round 2) THE 1990s SIGN LIGHTING: a catwalk under the panels and
+            // a mercury-vapour luminaire on its front edge every ~2.8 m of panel,
+            // aimed up at the face (MUTCD 2E.06: overhead signs illuminated)
+            float lowest = yT - maxH * 0.5f;
+            float walkY = lowest - 0.30f;
 
             // ---- record: the panels (and the tab), each a face
             float tallest = 0f;
+            float spanLo = float.MaxValue, spanHi = float.MinValue;
             for (int i = 0; i < panels.Count; i++)
             {
                 var (b, x) = panels[i];
                 var pc = leftEdge + right * x;
                 var centre = V3(pc, yT) + n3 * 0.72f;
-                HangPanel(b, centre, r3, n3);
+                System.Func<Vector3, float> lit = null;
+                if (S2Night)
+                {
+                    var lampXs = LampSpots(b.w);
+                    var bl = centre - r3 * (b.w * 0.5f) - Vector3.up * (b.h * 0.5f);
+                    lit = PanelLight(bl, r3, b.w, b.h, lampXs, false);
+                    foreach (float lx in lampXs) Luminaire(pu, V3(leftEdge + right * (x - b.w * 0.5f + lx), walkY) + n3 * 0.72f, r3, n3, false);
+                    spanLo = Mathf.Min(spanLo, x - b.w * 0.5f); spanHi = Mathf.Max(spanHi, x + b.w * 0.5f);
+                }
+                HangPanel(b, centre, r3, n3, lit);
                 tallest = Mathf.Max(tallest, yT + b.h * 0.5f);
-                pu.faces.Add(new Face { centre = centre, normal = n3, w = b.w, h = b.h, kind = Kind.Gantry,
+                pu.faces.Add(new Face { centre = centre, normal = n3, w = b.w, h = b.h, kind = deck ? Kind.Bridge : Kind.Gantry,
                                         viewer = Driver(map, e, s, -ViewAheadM, x - eP) });
-                if (i == 0 && tab != null)
+                var tb = i == 0 ? tab : (b == extraPanel ? extraTab : null);
+                bool tabLeft = i == 0 ? ex.left : (exX != null && exX.left);
+                if (tb != null)
                 {
                     // the number tab on top, flush with the panel's exit side
-                    float tx = ex.left ? x - b.w * 0.5f + tab.w * 0.5f : x + b.w * 0.5f - tab.w * 0.5f;
-                    var tcentre = V3(leftEdge + right * tx, yT + b.h * 0.5f + tab.h * 0.5f) + n3 * 0.72f;
-                    HangPanel(tab, tcentre, r3, n3);
-                    tallest = Mathf.Max(tallest, yT + b.h * 0.5f + tab.h);
-                    pu.faces.Add(new Face { centre = tcentre, normal = n3, w = tab.w, h = tab.h, kind = Kind.Gantry,
+                    float tx = tabLeft ? x - b.w * 0.5f + tb.w * 0.5f : x + b.w * 0.5f - tb.w * 0.5f;
+                    var tcentre = V3(leftEdge + right * tx, yT + b.h * 0.5f + tb.h * 0.5f) + n3 * 0.72f;
+                    HangPanel(tb, tcentre, r3, n3, lit);
+                    tallest = Mathf.Max(tallest, yT + b.h * 0.5f + tb.h);
+                    pu.faces.Add(new Face { centre = tcentre, normal = n3, w = tb.w, h = tb.h, kind = deck ? Kind.Bridge : Kind.Gantry,
                                             viewer = Driver(map, e, s, -ViewAheadM, tx - eP) });
                 }
             }
+            if (S2Night && spanLo < spanHi)
+                Catwalk(V3(leftEdge + right * (spanLo - 0.3f), walkY) + n3 * 0.72f, V3(leftEdge + right * (spanHi + 0.3f), walkY) + n3 * 0.72f, r3, n3);
             // ---- the box truss, leg to leg (or leg to its arm's end)
             var a3 = V3(legA, yT); var b3 = V3(legB, yT);
             BoxTruss(a3, b3, n3, TrussD, TrussH);
@@ -530,20 +749,32 @@ namespace PSXRacing.City
             var feet = span ? new[] { legA, legB } : new[] { armFromRight ? legB : legA };
             foreach (var leg in feet)
             {
-                float gy = CityMeshes.LatticeAt(map, leg.x, leg.y);
-                EndFrame(V3(leg, gy), trussTop + 0.25f, n3, r3, TrussD);
+                float gy = deck ? e.YAt(s) - 0.6f : CityMeshes.LatticeAt(map, leg.x, leg.y);
+                EndFrame(V3(leg, gy), trussTop + 0.25f, n3, r3, TrussD, deck);
                 float top = trussTop + 0.25f;
-                var lc = V3(leg, (gy - 0.3f + top) * 0.5f);
-                pu.posts.Add((lc, new Vector3(0.7f, top - gy + 0.3f, 1.4f), Mathf.Atan2(t.x, t.y) * Mathf.Rad2Deg));
+                if (S2Legs || deck)
+                {
+                    // (round 2) what is drawn: each round post (a box on its flats,
+                    // 8-sided, 0.17 m) and its concrete footing (0.36 m, 0.55 m up),
+                    // so the air between the two posts of a leg is air
+                    LegPosts(pu, leg, gy, top, n3, TrussD, !deck);
+                }
+                else
+                {
+                    var lc = V3(leg, (gy - 0.3f + top) * 0.5f);
+                    pu.posts.Add((lc, new Vector3(0.7f, top - gy + 0.3f, 1.4f), Mathf.Atan2(t.x, t.y) * Mathf.Rad2Deg));
+                }
+                if (deck) continue;   // on a deck: no ground of its own
                 pu.feet.Add(leg);
                 pu.Take(new Mark { a = leg, b = leg, r = 2f + RoadsideOccupancy.CellPadM, bit = RoadsideOccupancy.Other });
             }
             // and no tree under the truss
-            pu.Take(new Mark { a = legA, b = legB, r = 2f + RoadsideOccupancy.CellPadM, bit = RoadsideOccupancy.Other });
+            if (!deck) pu.Take(new Mark { a = legA, b = legB, r = 2f + RoadsideOccupancy.CellPadM, bit = RoadsideOccupancy.Other });
             var c = (legA + legB) * 0.5f;
+            if (deck) pu.kind = Kind.Bridge;
             pu.sign = new Sign
             {
-                kind = Kind.Gantry, pos = c, ground = CityMeshes.LatticeAt(map, c.x, c.y), bottom = yT - maxH * 0.5f, top = yT + 0.55f,   // the audit's truss box is centred 0.55 under top
+                kind = deck ? Kind.Bridge : Kind.Gantry, pos = c, ground = CityMeshes.LatticeAt(map, c.x, c.y), bottom = yT - maxH * 0.5f, top = yT + 0.55f,   // the audit's truss box is centred 0.55 under top
                 route = -1, edge = e.index, legA = span ? legA : (armFromRight ? legB : legA), legB = span ? legB : (armFromRight ? legB : legA),
                 clearance = yT - maxH * 0.5f - roadTop, firstFace = 0, faces = pu.faces.Count, owner = pu.sign.owner,
             };
@@ -561,7 +792,7 @@ namespace PSXRacing.City
             var t = e.TangentAt(s);
             var right = RightOf(t);
             LineModel.Extents(e, s, out float pavR, out _);
-            var panel = ExitLegend(ex, site.miles, false);
+            var panel = ExitLegend(ex, site.miles, site.kind == GuideKind.ExitGantry);
             var tab = TabLegend(ex);
             float off = pavR + RoadsideOccupancy.ClearZoneOf(e) + 1.0f + panel.w * 0.5f;
             var g = p0 + right * off;
@@ -594,20 +825,25 @@ namespace PSXRacing.City
         /// <summary>A panel: its aluminium box (back and edges), the green
         /// backing a hand inside its face, the legend's mosaic on its face, and
         /// the vertical stiffeners that hold it to the truss.</summary>
-        static void HangPanel(GBlock b, Vector3 centre, Vector3 r3, Vector3 n3)
+        static void HangPanel(GBlock b, Vector3 centre, Vector3 r3, Vector3 n3, System.Func<Vector3, float> lit = null)
         {
             const float depth = 0.10f;
             var up = Vector3.up;
             // the box: aluminium all round but the face
             GBox(centre - n3 * (depth * 0.5f), r3, up, n3, b.w * 0.5f, b.h * 0.5f, depth * 0.5f, CityGuideFont.Alum, false);
+            // (round 2) at night the face takes its luminaires' light (UV2)
+            var keepLight = nightLight; nightLight = lit;
             // the backing (only a crack in the mosaic shows it), at the panel's
             // back plane: 3 cm behind the legend z-fought it from 150 m on a
             // 5 cm near plane; 9.5 cm holds to 450 m on the cockpit's 12 cm
             var bo = centre - n3 * (depth - 0.005f) - r3 * (b.w * 0.5f) + up * (b.h * 0.5f);
-            GQuadAt(bo, bo + r3 * b.w, bo + r3 * b.w - up * b.h, bo - up * b.h, n3, Solid(b.yellow));
+            if (!DbgNoBacking) GQuadAt(bo, bo + r3 * b.w, bo + r3 * b.w - up * b.h, bo - up * b.h, n3, Solid(b.yellow));
             // the legend
             var face = new GFace { o = centre + n3 * 0.001f - r3 * (b.w * 0.5f) + up * (b.h * 0.5f), r = r3, d = -up, n = n3 };
+            legendLead = S2Glyph;
             b.Draw(face, 0f, 0f, b.w, b.h);
+            legendLead = false;
+            nightLight = keepLight;
             // stiffeners behind: one every 1.6 m, from the panel's back to the truss
             int ns = Mathf.Max(2, Mathf.CeilToInt(b.w / 1.6f));
             for (int i = 0; i < ns; i++)
@@ -654,13 +890,20 @@ namespace PSXRacing.City
 
         /// <summary>A sign bridge's end frame: two round posts (front and back
         /// of the truss) on concrete footings, laced like a ladder.</summary>
-        static void EndFrame(Vector3 ground, float top, Vector3 n, Vector3 r, float D)
+        static void EndFrame(Vector3 ground, float top, Vector3 n, Vector3 r, float D, bool deck = false)
         {
             float hd = D * 0.5f;
             var cell = CityGuideFont.Galv;
             foreach (float sz in new[] { -1f, 1f })
             {
                 var g = ground + n * (sz * hd);
+                if (deck)
+                {
+                    // (round 2) bolted to the deck's side: a steel base plate, the post from under the slab
+                    GBox(g + Vector3.up * 0.3f, n, Vector3.up, r, 0.24f, 0.3f, 0.24f, cell, true);
+                    Prism(g, new Vector3(g.x, top, g.z), 0.17f, 8, cell, true);
+                    continue;
+                }
                 Prism(g + Vector3.down * 0.4f, g + Vector3.up * 0.55f, 0.36f, 8, CityGuideFont.Concrete, true);
                 Prism(g + Vector3.up * 0.5f, new Vector3(g.x, top, g.z), 0.17f, 8, cell, true);
             }
@@ -683,7 +926,7 @@ namespace PSXRacing.City
         /// pavement (half a metre) and deck, out of buildings, water, lots,
         /// lamps and race run-off.</summary>
         static bool BreakawayFree(Vector2 p) =>
-            (StaticAt(p) & (RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Other)) == 0 &&
+            (StaticAt(p) & (RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Other | S2BreakawayKeep)) == 0 &&
             PavementMargin(mapNow, trimsNow, p) >= 0.5f && !RaceRunOff.Inside(mapNow, trimsNow, p) && OffPoles(p, p, 0.5f);
 
         /// <summary>How far a plan point is outside every road's pavement (and a
@@ -815,9 +1058,11 @@ namespace PSXRacing.City
             var up = Vector3.up;
             GBox(centre - n3 * (depth * 0.5f), r3, up, n3, b.w * 0.5f, b.h * 0.5f, depth * 0.5f, CityGuideFont.Alum, false);
             var bo = centre - n3 * (depth - 0.004f) - r3 * (b.w * 0.5f) + up * (b.h * 0.5f);
-            GQuadAt(bo, bo + r3 * b.w, bo + r3 * b.w - up * b.h, bo - up * b.h, n3, Solid(b.yellow));
+            if (!DbgNoBacking) GQuadAt(bo, bo + r3 * b.w, bo + r3 * b.w - up * b.h, bo - up * b.h, n3, Solid(b.yellow));
             var face = new GFace { o = centre + n3 * 0.001f - r3 * (b.w * 0.5f) + up * (b.h * 0.5f), r = r3, d = -up, n = n3 };
+            legendLead = S2Glyph;
             b.Draw(face, 0f, 0f, b.w, b.h);
+            legendLead = false;
         }
 
         // ------------------------------------------------------------------
@@ -839,7 +1084,7 @@ namespace PSXRacing.City
         /// <summary>An exit's panel: the route, up to two destinations, the
         /// cardinal word; the up-diagonal arrow on the exit's side (at the
         /// exit), or "1 MILE" / "1/2 MILE" under it (an advance sign).</summary>
-        static GBlock ExitLegend(ExitInfo ex, float miles, bool arrow)
+        static GBlock ExitLegend(ExitInfo ex, float miles, bool arrow, int exitOnly = 0, List<float> onlyXs = null)
         {
             var d = ex.data;
             var lines = new List<GBlock>();
@@ -857,12 +1102,22 @@ namespace PSXRacing.City
             }
             else if (miles > 0f)
             {
-                var dist = miles < 0.75f
-                    ? new GRow(new GBlock[] { new GText("½", CapRoute, false), new GText("MILE", CapTabWord, false) }, CapTabWord * 0.5f)
-                    : new GRow(new GBlock[] { new GText("1", CapRoute, false), new GText("MILE", CapTabWord, false) }, CapTabWord * 0.5f);
+                // (round 2) a quarter, a half, three quarters or a mile (MUTCD 2E.33:
+                // a sign under half a mile out gives the nearest quarter)
+                string num = miles < 0.375f ? "¼" : miles < 0.625f ? "½" : miles < 0.875f ? "¾" : "1";
+                var dist = new GRow(new GBlock[] { new GText(num, CapRoute, false), new GText("MILE", CapTabWord, false) }, CapTabWord * 0.5f);
                 body = new GCol(new List<GBlock> { body, dist }, CapDest * 0.45f);
             }
-            return new GPlate(body, false, RingBig, 0.22f, 0.10f);
+            GExitOnly only = null;
+            if (exitOnly > 0)
+            {
+                // (round 2) the lane drop's EXIT ONLY panel across the sign's foot
+                only = new GExitOnly(onlyXs, body.w);
+                body = new GCol(new List<GBlock> { body, only }, CapDest * 0.35f);
+            }
+            var plate = new GPlate(body, false, RingBig, 0.22f, 0.10f);
+            plate.dropRow = only;
+            return plate;
         }
 
         /// <summary>The exit number tab ("EXIT 11 B"), with the yellow LEFT
@@ -1113,6 +1368,9 @@ namespace PSXRacing.City
         internal sealed class GPlate : GBlock
         {
             readonly GBlock kid; readonly float ring, px, py;
+            /// <summary>(signs round 2) Its EXIT ONLY row, whose arrows follow
+            /// the plate's place over the lanes (null: none).</summary>
+            public GExitOnly dropRow;
             public GPlate(GBlock k, bool onYellow, float ringM, float padX, float padY)
             {
                 kid = k; yellow = onYellow; ring = ringM; px = padX; py = padY;
@@ -1194,25 +1452,44 @@ namespace PSXRacing.City
         //  that has freeway signs)
         // ------------------------------------------------------------------
 
-        internal struct GQuad { public Vector3 a, b, c, d, n; public Vector2 ua, ub, uc, ud; }
+        /// <summary>A quad of the guide mesh; ga..gd its corners' night light
+        /// (signs round 2: the share of a lit panel's luminaires, UV2.x).</summary>
+        internal struct GQuad { public Vector3 a, b, c, d, n; public Vector2 ua, ub, uc, ud; public float ga, gb, gc, gd; public bool lead; }
 
         static readonly List<Vector3> gvs = new List<Vector3>(4096), gns = new List<Vector3>(4096);
         static readonly List<Vector2> guvs = new List<Vector2>(4096);
+        /// <summary>(signs round 2) the night light per vertex (UV2.x), and whether any is lit.</summary>
+        static readonly List<Vector2> guv2s = new List<Vector2>(4096);
+        static bool gLit, gLead;
+        /// <summary>(signs round 2, the glyph fix) While a face's legend mosaic is
+        /// laid: its quads LEAD in depth (UV2.y = 1, PSX/Lit's _NightVtx path pulls
+        /// such a vertex a few depth steps toward the eye along its own ray - it
+        /// stays on its pixel). The green backing behind a mosaic (4.6 cm on a
+        /// small sign, 9.5 cm on a panel) won the depth test over the legend in
+        /// bands once the depth buffer's step at the sign's distance passed that
+        /// gap: I-85 exit 36's gore sign read "3 S" from 56 m.</summary>
+        static bool legendLead;
         static readonly List<int> gtris = new List<int>(8192);
 
         static void GQuadUV(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
         {
-            if (rec != null) { rec.gquads.Add(new GQuad { a = a, b = b, c = c, d = d, n = n, ua = ua, ub = ub, uc = uc, ud = ud }); return; }
-            GQuadNow(a, b, c, d, n, ua, ub, uc, ud);
+            var q = new GQuad { a = a, b = b, c = c, d = d, n = n, ua = ua, ub = ub, uc = uc, ud = ud, lead = legendLead };
+            if (nightLight != null) { q.ga = nightLight(a); q.gb = nightLight(b); q.gc = nightLight(c); q.gd = nightLight(d); }
+            if (rec != null) { rec.gquads.Add(q); return; }
+            GQuadNow(q);
         }
 
         /// <summary>a, b, c, d clockwise as seen from the side n points to.</summary>
-        static void GQuadNow(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
+        static void GQuadNow(GQuad q)
         {
             int v = gvs.Count;
-            gvs.Add(a); gvs.Add(b); gvs.Add(c); gvs.Add(d);
-            gns.Add(n); gns.Add(n); gns.Add(n); gns.Add(n);
-            guvs.Add(ua); guvs.Add(ub); guvs.Add(uc); guvs.Add(ud);
+            gvs.Add(q.a); gvs.Add(q.b); gvs.Add(q.c); gvs.Add(q.d);
+            gns.Add(q.n); gns.Add(q.n); gns.Add(q.n); gns.Add(q.n);
+            guvs.Add(q.ua); guvs.Add(q.ub); guvs.Add(q.uc); guvs.Add(q.ud);
+            float ld = q.lead ? 1f : 0f;
+            guv2s.Add(new Vector2(q.ga, ld)); guv2s.Add(new Vector2(q.gb, ld)); guv2s.Add(new Vector2(q.gc, ld)); guv2s.Add(new Vector2(q.gd, ld));
+            if (q.ga + q.gb + q.gc + q.gd > 0f) gLit = true;
+            if (q.lead) gLead = true;
             gtris.Add(v); gtris.Add(v + 1); gtris.Add(v + 2);
             gtris.Add(v); gtris.Add(v + 2); gtris.Add(v + 3);
         }
@@ -1325,6 +1602,13 @@ namespace PSXRacing.City
             m.SetVertices(gvs);
             m.SetNormals(gns);
             m.SetUVs(0, guvs);
+            // (signs round 2) the lit panels' night light and the legends' lead,
+            // read by PSX/Lit's _NightVtx path: ALWAYS written, zeros where
+            // neither - a guide mesh with no UV2 got another channel fed to the
+            // shader there (Unity's stand-in for a missing channel): with every
+            // switch off round 1's panels glowed in blocks at night and their
+            // legends led at random; in round 2 a tile of chevrons alone did
+            m.SetUVs(2, guv2s);
             m.SetTriangles(gtris, 0, false);
             m.RecalculateBounds();
             return m;
@@ -1350,10 +1634,23 @@ namespace PSXRacing.City
                 var cx = Mathf.FloorToInt(st.nominal.x / CityMeshes.TileSize); var cz = Mathf.FloorToInt(st.nominal.y / CityMeshes.TileSize);
                 Setup(map, trims, buildings, cx, cz);
                 var pu = PureGuide(map, trims, i);
+                if (st.exitEdge < 0)
+                {
+                    // (round 2) a curve warning or a chevron
+                    whyNot.TryGetValue(i, out string wc);
+                    string sym = st.kind == GuideKind.Chevron ? "W1-8" : st.sym == SymTurn ? "W1-1" : st.sym == SymCurve ? "W1-2" : st.sym == SymRevTurn ? "W1-3" : "W1-4";
+                    each(st.kind == GuideKind.Curve ? (st.side > 0 ? "Curve warning (right)" : "Curve warning (left, supplementary)") : "Chevron",
+                         pu.placed, st.nominal, $"{sym} {(st.leftHand ? "L" : "R")} {st.mph} MPH on e{st.edge} '{map.edges[st.edge].name}'", pu.gquads.Count, pu.faces.Count,
+                         pu.faces.Count > 0 ? pu.faces[0].centre : Vector3.zero, wc ?? "");
+                    continue;
+                }
                 var ex = ExitOf(map, st.exitEdge);
-                string what = st.kind == GuideKind.Advance ? (st.miles < 0.75f ? "advance 1/2 mile" : "advance 1 mile") : st.kind.ToString();
-                if (st.kind == GuideKind.Advance && pu.placed) what += pu.kind == Kind.Guide ? " (ground)" : " (overhead)";
-                string legend = ex.hasData ? $"{(ex.left ? "LEFT " : "")}EXIT {ex.data.number} | {ex.data.route} | {ex.data.dest1} | {ex.data.dest2} | {ex.data.cardinal} || {ex.data.thru} {ex.data.thruCity} | adv {ex.advisoryMph}" : "(no legend data)";
+                string what = st.kind == GuideKind.Advance ? (st.miles < 0.375f ? "advance 1/4 mile" : st.miles < 0.625f ? "advance 1/2 mile" : st.miles < 0.875f ? "advance 3/4 mile" : "advance 1 mile") : st.kind.ToString();
+                if (st.kind == GuideKind.Advance && pu.placed) what += pu.kind == Kind.Guide ? " (ground)" : pu.kind == Kind.Bridge ? (pu.sign.legA == pu.sign.legB ? " (on an overpass)" : " (on its own deck)") : " (overhead)";
+                if (st.kind == GuideKind.Advance && st.host > 0) what += " (shared)";
+                if (st.kind == GuideKind.ExitGantry && pu.placed && pu.kind == Kind.Bridge) what += pu.sign.legA == pu.sign.legB ? " (on an overpass)" : " (on its own deck)";
+                if (st.kind == GuideKind.ExitGantry && pu.placed && pu.kind == Kind.Guide) what += " (ground)";
+                string legend = ex.hasData ? $"{(ex.left ? "LEFT " : "")}EXIT {ex.data.number} | {ex.data.route} | {ex.data.dest1} | {ex.data.dest2} | {ex.data.cardinal} || {ex.data.thru} {ex.data.thruCity} | adv {ex.advisoryMph}{(ex.dropped > 0 ? $" | EXIT ONLY x{ex.dropped}" : "")}" : "(no legend data)";
                 whyNot.TryGetValue(i, out string wn);
                 each(what, pu.placed, st.nominal, legend, pu.gquads.Count, pu.faces.Count, pu.faces.Count > 0 ? pu.faces[0].centre : Vector3.zero, wn ?? "");
             }

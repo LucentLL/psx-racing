@@ -137,6 +137,15 @@ namespace PSXRacing.EditorTools
                             into.Add(BoxOn(new Vector3(pp.x, (gy0 + sg.bottom) * 0.5f, pp.y), across, 0.05f, (sg.bottom - gy0) * 0.5f, 0.05f, "a guide sign's post"));
                         }
                         break;
+                    case CitySigns.Kind.Bridge:
+                        // (signs round 2) the panels on an overpass's fascia
+                        for (int i = sg.firstFace; i < sg.firstFace + sg.faces; i++)
+                        {
+                            var fc = st.faces[i];
+                            var n = new Vector3(fc.normal.x, 0f, fc.normal.z).normalized;
+                            into.Add(BoxOn(fc.centre - n * 0.08f, Vector3.Cross(Vector3.up, n), fc.w * 0.5f, fc.h * 0.5f, 0.08f, "a bridge-mounted panel"));
+                        }
+                        break;
                     case CitySigns.Kind.Gantry:
                         for (int i = sg.firstFace; i < sg.firstFace + sg.faces; i++)
                         {
@@ -231,7 +240,7 @@ namespace PSXRacing.EditorTools
                 if (n == 0) badWhere[what] = $"({at.x:0.0},{at.y:0.0}) {LatLon(at.x, at.y)} {detail}";
             }
             var perRoute = new int[CitySignData.Routes.Length];
-            int bulletins = 0, posters = 0, poles = 0, polePoi = 0, gantries = 0, osm = 0, posts = 0, lamps = 0, faces = 0, cantilevers = 0, guideSmall = 0;
+            int bulletins = 0, posters = 0, poles = 0, polePoi = 0, gantries = 0, osm = 0, posts = 0, lamps = 0, faces = 0, cantilevers = 0, guideSmall = 0, bridgeMounted = 0;
             int refusedB = 0, refusedP = 0, refusedG = 0, multiSub = 0, outside = 0, runOff = 0, vetoed = 0, foreign = 0;
             int tilesWith = 0, faceBad = 0, lampBad = 0;
             float worstDot = 1f, worstClear = float.MaxValue, msSum = 0f, msMax = 0f;
@@ -363,6 +372,7 @@ namespace PSXRacing.EditorTools
                     bool breakaway = sg.kind == CitySigns.Kind.Guide;
                     if (sg.kind == CitySigns.Kind.Gantry) { feet.Add(sg.legB); if ((sg.legA - sg.legB).sqrMagnitude > 0.01f) feet.Add(sg.legA); else cantilevers++; }
                     else if (breakaway) { feet.Add(sg.legA); if ((sg.legA - sg.legB).sqrMagnitude > 0.01f) feet.Add(sg.legB); }
+                    else if (sg.kind == CitySigns.Kind.Bridge) { bridgeMounted++; }   // (signs round 2) hung on an overpass: no ground of its own
                     else feet.Add(sg.pos);
                     if (breakaway) guideSmall++;
                     foreach (var f in feet)
@@ -428,6 +438,15 @@ namespace PSXRacing.EditorTools
                                 float clear = fc.centre.y - fc.h * 0.5f - top;
                                 if (clear < worstClear) { worstClear = clear; worstClearAt = $"({q.x:0},{q.y:0}) {LatLon(q.x, q.y)}"; }
                                 if (clear < GantryClearMin) Bad("a gantry panel under 5.5 m over a road", q, $"{clear:0.00} m");
+                            }
+                            else if (fc.kind == CitySigns.Kind.Bridge)
+                            {
+                                // (signs round 2) a bridge-mounted panel: its foot at the bridge's
+                                // soffit, never under 16 ft over the road it serves (the roads
+                                // under it, not the overpass it hangs on)
+                                if (float.IsNegativeInfinity(top) || top > fc.centre.y - fc.h * 0.5f) continue;
+                                float clear = fc.centre.y - fc.h * 0.5f - top;
+                                if (clear < 4.8f) Bad("a bridge-mounted panel under 16 ft over a road", q, $"{clear:0.00} m");
                             }
                             else if (!float.IsNegativeInfinity(top)) Bad("a sign face over pavement", q, fc.kind.ToString());
                         }
@@ -497,13 +516,24 @@ namespace PSXRacing.EditorTools
                     }
                 }
 
-                // every solid post, for the clash check
-                foreach (var p in st.posts)
+                // every solid post, for the clash check - one id per SIGN (signs
+                // round 2: a sign bridge's leg is two posts on two footings, parts
+                // of one structure, not two signs in one another)
+                var postIdOf = new int[st.posts.Count];
+                for (int pIdx = 0; pIdx < postIdOf.Length; pIdx++) postIdOf[pIdx] = ++postId;
+                foreach (var sgPost in st.signs)
+                    if (sgPost.postCount > 1)
+                    {
+                        int oneId = ++postId;
+                        for (int pIdx = sgPost.firstPost; pIdx < sgPost.firstPost + sgPost.postCount && pIdx < postIdOf.Length; pIdx++) postIdOf[pIdx] = oneId;
+                    }
+                for (int pIdx = 0; pIdx < st.posts.Count; pIdx++)
                 {
+                    var p = st.posts[pIdx];
                     var c = new Vector2(p.centre.x, p.centre.z);
                     long k = ((long)Mathf.FloorToInt(c.x / 4f) << 32) ^ (uint)Mathf.FloorToInt(c.y / 4f);
                     if (!postCells.TryGetValue(k, out var l)) postCells[k] = l = new List<(Vector2, float, int)>();
-                    l.Add((c, 0.5f * Mathf.Sqrt(p.size.x * p.size.x + p.size.z * p.size.z), ++postId));
+                    l.Add((c, 0.5f * Mathf.Sqrt(p.size.x * p.size.x + p.size.z * p.size.z), postIdOf[pIdx]));
                 }
                 // commercial frontage along the collectors and bigger in this tile (per side)
                 frontSegs.Clear(); frontEdges.Clear();
@@ -578,7 +608,7 @@ namespace PSXRacing.EditorTools
 
             // billboards counted by route: the OSM ones on their nearest route
             Line($"    {tiles.Count} tiles ({spotTiles} at the shot spots, the rest along the routes and the race routes), {tilesWith} with signs; " +
-                 $"{bulletins} bulletins, {posters} posters ({osm} of them OSM's), {poles} business pole signs, {gantries} exit gantries ({cantilevers} cantilevers); " +
+                 $"{bulletins} bulletins, {posters} posters ({osm} of them OSM's), {poles} business pole signs, {gantries} exit gantries ({cantilevers} cantilevers, {bridgeMounted} on overpasses); " +
                  $"{posts} solid posts and legs, {lamps} floodlights, {faces} faces; place {msSum / Mathf.Max(1, tiles.Count):0.0} ms a tile (max {msMax:0.0})");
             Line($"    candidates that won their spacing but found no free ground: billboards {refusedB}, pole signs {refusedP}, gantries {refusedG}; " +
                  $"gantries and billboards dropped by their own tile on its fill houses or lamps: {vetoed}");

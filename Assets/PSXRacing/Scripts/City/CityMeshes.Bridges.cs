@@ -88,6 +88,11 @@ namespace PSXRacing.City
         static CityMap girderMap;
         static readonly HashSet<int> gpSegs = new HashSet<int>();
 
+        /// <summary>(signs round 2) How deep a deck's girders hang under its
+        /// slab (0 with the bridges pass off): a sign hung on its fascia keeps
+        /// its foot at the soffit.</summary>
+        public static float GirderDepthOf(CityMap map, CityMap.Edge e) => BridgeDetailOn && e != null ? PlanOf(map, e).depth : 0f;
+
         /// <summary>The edge's girders: kind and depth, decided once from the
         /// map alone (every tile draws the same structure).</summary>
         static GirderPlan PlanOf(CityMap map, CityMap.Edge e)
