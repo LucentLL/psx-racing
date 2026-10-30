@@ -6913,7 +6913,7 @@ namespace PSXRacing.EditorTools
         static Bounds AddStationPieceColliders(GameObject root, List<Transform> pumps)
         {
             // Doors on their hinges first, so the piece pass below finds them
-            // already collided and leaves them alone: the 6TWELVE models real
+            // already collided and leaves them alone: the station's shop models real
             // doors on a real interior, and a shop you can walk into is the
             // whole reason the colliders went piece-by-piece. The leaves used
             // to be DISABLED here, which is what "the doors are missing to

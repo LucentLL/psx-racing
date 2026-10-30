@@ -1,0 +1,11 @@
+{
+  "note": "stations.mjs's hand decisions, by OSM element (n node, w way, r relation). Each one is a place the rules read wrongly, with the reason in plain words. No names or brands are used anywhere in the decisions: the ids are the keys.",
+  "merge": [
+    ["w446818144", "w446818145", "the station's site outline and its canopy, drawn in one edit; the outline's bounding-box centre (all the cache holds of it) falls across Clanton Road from the canopy"]
+  ],
+  "apart": [],
+  "skip": {
+    "w324524216": "closed: OSM's fixme calls it an old closed-down, abandoned station"
+  },
+  "class": {}
+}

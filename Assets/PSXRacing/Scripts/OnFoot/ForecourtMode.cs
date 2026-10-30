@@ -326,7 +326,7 @@ namespace PSXRacing.OnFoot
 
             if (storeTarget != null)
             {
-                storeTarget.title = "6TWELVE";
+                storeTarget.title = "PUMPWREN";
                 storeTarget.detail = "Coffee, food, and somewhere to stand out of the rain.";
                 storeTarget.action = "GO INSIDE";
                 storeTarget.verb = "ENTER";
@@ -696,7 +696,7 @@ namespace PSXRacing.OnFoot
         /// <summary>
         /// A DIFFERENT counter, opened from a foot target somewhere in town —
         /// the pizza shop's, today. Its own StoreScreen instance rather than
-        /// the 6TWELVE's with the fields swapped, because the station's shop
+        /// the station's shop's with the fields swapped, because the station's shop
         /// door and this one can both exist in one scene and the last one
         /// configured would win both.
         /// </summary>

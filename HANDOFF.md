@@ -1,3 +1,23 @@
+# HANDOFF - CITY FUEL round 1, PHASE A (2026-10-30): filling stations where the real ones are - the data, the brand-free art, the plan
+
+Branch `city-fuel-r1` (worktree `C:\Users\mcgee\PSX Racing-fuel`, off integration-1030b 82c83a3c = main d73ca5bd +
+heights r11 + junctions r3d). No Unity run (PHASE A); PHASE B needs a sandbox. Full write-up: Docs/CHARLOTTE.md
+"FILLING STATIONS". Sheets: `Docs/shots/city_fuel/fuel_stations_sheet.png`, `Docs/shots/city_fuel/fuel_art_shipped.png`.
+- NEW DATA FILE `Resources/charlotte_fuel.bytes` (PFUL v1, 34 KB, its own .meta) by `tools/city/stations.mjs` (`--check`;
+  reads the shipped city/bld/dem files: RE-RUN IT after an export, before signs.mjs). 319 OSM fuel features -> 302
+  stations -> 300 placed (forecourt 285, truck 7, big-store 8), 2 skipped, 5 misfits listed; 567 driveways; 187 of the
+  stations' own OSM boxes replaced. Hand decisions by id: `tools/city/stations_overrides.json`.
+- `charlotte_signs.bytes` REGENERATED: signs.mjs stands no business cabinet for fuel (the station's own pylon is its
+  sign) - 299 fewer POIs, everything else byte for byte. `signs.mjs --check` OK; `export_osm --check` OK (untouched).
+- NO BRANDS: `tools/city/fuel_art.py` (`--check`) rebuilds the Gas_station pack's store ("6twelve", a real chain's
+  parody) as the made-up PUMPWREN (badge, two-faced 90s lightbox pylon with flip numerals .99 REGULAR 87, emissor) and
+  re-prints soft every legible brand in 13 shelf/fridge/stock/litter/time-clock textures (same names, same GUIDs:
+  the LifeSim town station, circuit fuel stops and the garage's crates change too). `signs_atlas.py` takes the new
+  badge and price box (CitySigns.png recomposed, `--check` OK). UI "6TWELVE" -> "PUMPWREN" (StoreScreen,
+  ForecourtMode, LifeHomeScreen). Typecheck OK.
+- NOT YET (PHASE B): nothing in the game reads charlotte_fuel.bytes, so until it lands the city's fuel businesses show
+  NO sign (their cabinets are gone from the data). Merge PHASE A only together with PHASE B.
+
 # HANDOFF - REAL HEIGHTS round 11 (2026-10-30): the city-wide launches by class; round 10's leftovers
 
 Branch `real-heights-r11` (worktree `C:\Users\mcgee\PSX Racing-heights11`, off integration-1029e 4827fa53 = main

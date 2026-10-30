@@ -175,7 +175,9 @@ namespace PSXRacing.City
         static readonly RectInt LensCell = new RectInt(0, 484, 16, 16), BlackSide = new RectInt(16, 484, 16, 16);
         public const int Bulletins = 6, Posters = 4;
         /// <summary>The cabinets a business kind puts up (atlas pole cells,
-        /// every one of pack pictures: 0 6twelve, 1 the 6twelve price board,
+        /// every one of pack pictures: 0 the filling stations' badge, 1 their
+        /// price box (both brand-free: tools/city/fuel_art.py; a station's own
+        /// pylon carries them now, and signs.mjs lists no fuel cabinets),
         /// 2 a burger, 3 the BURGERS tin, 4 a pizza, 5 the PIZZA banner, 6 EAT
         /// GOOD FOOD, 7 a motel's palm beach, 8 a bank's gold bar, 9 a
         /// pharmacy's prescription label, 10 a car wash's wheel and water, 11

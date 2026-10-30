@@ -31,8 +31,10 @@
 //     carriageway;
 //   * the 46 OSM billboards (advertising=billboard; ODbL), where they are;
 //   * the businesses that would put up a pole sign (OSM shop, fast food,
-//     restaurants, fuel, banks, motels ... within 70 m of a collector or
-//     bigger), each with the kind of sign it would have;
+//     restaurants, banks, motels ... within 70 m of a collector or bigger),
+//     each with the kind of sign it would have - not a filling station
+//     (city fuel r1): its price pylon stands with the station's model
+//     (stations.mjs); a station still counts as a business for the zoning;
 //   * per motorway way that ends at an exit (a motorway_link diverge), the
 //     lanes of each destination group from its OSM destination:lanes, which
 //     is how many panels the exit gantry carries and over which lanes;
@@ -215,7 +217,7 @@ function nearArterial(x, z, r) {
   return best;
 }
 const pois = [];
-let bizAll = 0;
+let bizAll = 0, fuelPylon = 0;
 const kindCount = new Array(KINDS.length).fill(0);
 for (const el of BIZ.elements) {
   const t = el.tags || {};
@@ -227,6 +229,10 @@ for (const el of BIZ.elements) {
   const ix = Math.floor((x - fx0) / fcell), iz = Math.floor((z - fz0) / fcell);
   if (ix >= 0 && iz >= 0 && ix < fnx && iz < fnz) land[iz * fnx + ix] |= 4;
   if (nearArterial(x, z, 70) > 70) continue;
+  // (city fuel r1, 2026-10-30) a filling station's sign is its OWN price pylon, which stands
+  // with the station's model (tools/city/stations.mjs, charlotte_fuel.bytes): no business
+  // cabinet for fuel. It still counts as a business for the zoning and the frontage above.
+  if (k === 0) { fuelPylon++; continue; }
   pois.push([x, z, k]); kindCount[k]++;
 }
 pois.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -576,7 +582,7 @@ console.log(`grid ${lat.nx} x ${lat.nz} at ${lat.cell} m: ${landPolys} landuse p
 console.log(`routes (boards per km of route; OSM boards on it; zoned carriageway km; the rate placed per zoned carriageway km):`);
 for (const r of [...routes].sort((a, b) => b.km - a.km)) if (r.km >= 3)
   console.log(`  ${r.name.padEnd(8)} ${r.cls === 1 ? 'interstate' : 'US/NC     '} ${r.km.toFixed(1).padStart(6)} km  ${r.density.toFixed(2)}/km${r.measured ? ' (NCDOT)' : ' (class) '}  want ${(r.density * r.km).toFixed(0).padStart(3)}  osm ${String(r.osm).padStart(2)}  zoned ${r.zonedKm.toFixed(1).padStart(6)} km  to stand ${r.stand.toFixed(3)}  drawn at ${r.rate.toFixed(3)}`);
-console.log(`OSM billboards ${bills.length}; businesses ${bizAll}, ${pois.length} within 70 m of a collector or bigger: ${KINDS.map((k, i) => k + ' ' + kindCount[i]).join(', ')}`);
+console.log(`OSM billboards ${bills.length}; businesses ${bizAll}, ${pois.length} within 70 m of a collector or bigger: ${KINDS.map((k, i) => k + ' ' + kindCount[i]).join(', ')} (and ${fuelPylon} filling stations: their own pylons, stations.mjs)`);
 console.log(`motorway diverges ${diverges}, ${tagged} with destination:lanes (gantry panels)`);
 console.log(`exit legends ${exitRecs.length} (${exExpress} express/toll ramps left unsigned): numbers ${exNum} (${exNumRamp} from the ramp's junction:ref), routes ${exRoute}, destinations ${exDest} (${exDestFallback} from a fallback), nothing to say ${exNone}; posted advisories ${exAdv}; pull-throughs with a control city ${exThruCity}`);
 if (args.includes('--legends')) for (const r of exitRecs) console.log(`  (${r.x.toFixed(0)},${r.z.toFixed(0)}) f${r.flags} adv${r.adv} | ${r.strs.join(' | ')}`);

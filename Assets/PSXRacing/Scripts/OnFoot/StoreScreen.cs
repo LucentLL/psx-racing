@@ -55,12 +55,14 @@ namespace PSXRacing.OnFoot
             new Item { name = "SANDWICH",     blurb = "Wrapped this morning. Probably.", tier = "regular", price = 12, heal = 14f },
         };
 
-        /// <summary>Custom menu + signage. Left null this is the 6TWELVE the
-        /// forecourts have always opened; the drive-thrus set their own.</summary>
+        /// <summary>Custom menu + signage. Left null this is the filling
+        /// stations' PUMPWREN food mart the forecourts have always opened (a
+        /// made-up name, city fuel r1: the pack's own store was a real chain's
+        /// parody); the drive-thrus set their own.</summary>
         public Item[] stock;
-        public string title = "6TWELVE";
+        public string title = "PUMPWREN";
         public string subtitle = "OPEN 24 HOURS";
-        public string logPlace = "the 6twelve";
+        public string logPlace = "the Pumpwren";
 
         Canvas canvas;
         RectTransform panel;
@@ -154,7 +156,7 @@ namespace PSXRacing.OnFoot
 
             // Without this the shop is mouse- and touch-only: UGUI routes pad
             // navigation to the SELECTED object and nothing here ever selected
-            // one, so a player who walked into the 6TWELVE on a pad could look
+            // one, so a player who walked into the station's shop on a pad could look
             // at the shelves and not buy anything.
             var items = MenuNav.Collect(panel);
             MenuNav.Column(items);
