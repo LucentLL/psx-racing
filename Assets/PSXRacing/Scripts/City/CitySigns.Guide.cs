@@ -1642,9 +1642,9 @@ namespace PSXRacing.City
                 }
                 var ex = ExitOf(map, st.exitEdge);
                 string what = st.kind == GuideKind.Advance ? (st.miles < 0.375f ? "advance 1/4 mile" : st.miles < 0.625f ? "advance 1/2 mile" : st.miles < 0.875f ? "advance 3/4 mile" : "advance 1 mile") : st.kind.ToString();
-                if (st.kind == GuideKind.Advance && pu.placed) what += pu.kind == Kind.Guide ? " (ground)" : pu.kind == Kind.Bridge ? " (bridge-mounted)" : " (overhead)";
+                if (st.kind == GuideKind.Advance && pu.placed) what += pu.kind == Kind.Guide ? " (ground)" : pu.kind == Kind.Bridge ? (pu.sign.legA == pu.sign.legB ? " (on an overpass)" : " (on its own deck)") : " (overhead)";
                 if (st.kind == GuideKind.Advance && st.host > 0) what += " (shared)";
-                if (st.kind == GuideKind.ExitGantry && pu.placed && pu.kind == Kind.Bridge) what += " (bridge-mounted)";
+                if (st.kind == GuideKind.ExitGantry && pu.placed && pu.kind == Kind.Bridge) what += pu.sign.legA == pu.sign.legB ? " (on an overpass)" : " (on its own deck)";
                 if (st.kind == GuideKind.ExitGantry && pu.placed && pu.kind == Kind.Guide) what += " (ground)";
                 string legend = ex.hasData ? $"{(ex.left ? "LEFT " : "")}EXIT {ex.data.number} | {ex.data.route} | {ex.data.dest1} | {ex.data.dest2} | {ex.data.cardinal} || {ex.data.thru} {ex.data.thruCity} | adv {ex.advisoryMph}{(ex.dropped > 0 ? $" | EXIT ONLY x{ex.dropped}" : "")}" : "(no legend data)";
                 whyNot.TryGetValue(i, out string wn);

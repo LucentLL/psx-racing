@@ -1343,12 +1343,15 @@ namespace PSXRacing.City
                     var ex = ExitOf(map, st.exitEdge);
                     if (ex.link != null && ex.main != null)
                     {
+                        // the gap between the ramp's chain and the freeway's at the sign (GoreSign2's own measure)
                         var g = pu.sign.pos;
-                        float sm = ProjectS(ex.main, g), sl = ProjectS(ex.link, g);
-                        LineModel.Extents(ex.main, sm, out float mR, out float mL);
-                        LineModel.Extents(ex.link, sl, out float lR, out float lL);
-                        float gap = Vector2.Distance(ex.main.PointAt(sm), ex.link.PointAt(sl)) - (ex.left ? mL : mR) - (ex.left ? lR : lL);
-                        if (gap < CityMeshes.GorePaintedGapM) s.goresOnPaint++;
+                        if (NearestOn(ChainOf(map, ex.main, false, 600f), g, out var M, out float sm) && NearestOn(ChainOf(map, ex.link, true, 420f), g, out var L, out float sl))
+                        {
+                            LineModel.Extents(M, sm, out float mR, out float mL);
+                            LineModel.Extents(L, sl, out float lR, out float lL);
+                            float gap = Vector2.Distance(M.PointAt(sm), L.PointAt(sl)) - (ex.left ? mL : mR) - (ex.left ? lR : lL);
+                            if (gap < CityMeshes.GorePaintedGapM) s.goresOnPaint++;
+                        }
                     }
                 }
             }
