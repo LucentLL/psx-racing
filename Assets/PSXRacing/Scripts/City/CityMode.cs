@@ -103,6 +103,7 @@ namespace PSXRacing.City
             // traffic and the start lines live, the camera the title's own.
             if (TitleCity.Attach(this))
             {
+                if (!TitleCity.On) return;   // could not carry it: on to the home screen
                 CityRaceStarts.Attach(this);
                 CityTraffic.Attach(this);
                 return;

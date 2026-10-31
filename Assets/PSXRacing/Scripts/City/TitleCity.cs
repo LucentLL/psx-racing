@@ -89,17 +89,29 @@ namespace PSXRacing.City
             if (!CityFrontEnd.FillFreeRoam(spec, TimeOfDay.Night, (int)Weather.Clear, out int scene))
                 return false;
             RaceHandoff.TitleScreen = true;
-            if (TrackCatalog.TryLoadScene(scene, "Charlotte (title)")) return true;
-            RaceHandoff.ClearAll();
-            return false;
+            // Through the gate, like every other way into Charlotte: on the
+            // web the city's data is its own download, and a plain LoadScene
+            // before it lands opened a city with no map - no tiles, no
+            // title, the free-roam HUD over an empty sky (owner, 10-31).
+            SceneGate.Load(scene);
+            return true;
         }
 
         /// <summary>CityMode.Start, before it wakes the car: take the scene
-        /// over when the boot asked for the title.</summary>
+        /// over when the boot asked for the title. True means the scene is
+        /// handled - the title, or (when the city cannot carry it, e.g. its
+        /// data failed to download) straight on to the home screen, never a
+        /// drive nobody asked for.</summary>
         public static bool Attach(CityMode m)
         {
-            if (!RaceHandoff.TitleScreen || m == null || m.IsRace || m.world == null ||
-                m.world.Map == null || m.player == null) return false;
+            if (!RaceHandoff.TitleScreen) return false;
+            if (m == null || m.IsRace || m.world == null || m.world.Map == null || m.player == null)
+            {
+                Debug.LogWarning("[TitleCity] the city cannot carry the title - on to the home screen");
+                RaceHandoff.ClearAll();
+                SceneManager.LoadScene(0);
+                return true;
+            }
             var t = m.gameObject.AddComponent<TitleCity>();
             t.mode = m;
             t.Begin();
