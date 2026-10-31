@@ -193,6 +193,9 @@ namespace PSXRacing
                 foreach (var p in progressMap.Values) p.lapStartTime = Time.time;
                 PizzaCargo.Instance?.ForgetMotion();
             }
+
+            // THE TITLE SCREEN takes the race over (a cold boot only).
+            TitleScreen.Attach(this);
         }
 
         void Update()

@@ -99,15 +99,6 @@ namespace PSXRacing.City
 
         void Start()
         {
-            // THE TITLE SCREEN (a cold boot): the car parked out of sight, the
-            // traffic and the start lines live, the camera the title's own.
-            if (TitleCity.Attach(this))
-            {
-                if (!TitleCity.On) return;   // could not carry it: on to the home screen
-                CityRaceStarts.Attach(this);
-                CityTraffic.Attach(this);
-                return;
-            }
             if (player != null)
             {
                 spawnSeated = SeatOnStreet();
@@ -131,7 +122,7 @@ namespace PSXRacing.City
 
         void Update()
         {
-            if (player == null || TitleCity.On) return;
+            if (player == null) return;
 
             if (!Live)
             {

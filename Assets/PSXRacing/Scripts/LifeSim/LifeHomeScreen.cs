@@ -180,10 +180,10 @@ namespace PSXRacing.LifeSim
                 return;
             }
 
-            // A COLD BOOT opens on the title screen first: uptown at night,
-            // live, behind CONTINUE GAME / NEW GAME (City.TitleCity). Either
-            // button reloads this scene, which then carries on below.
-            if (City.TitleCity.TryBoot()) { enabled = false; return; }
+            // A COLD BOOT opens on the title screen first: the Linn Cove
+            // Viaduct, live, behind CONTINUE GAME / NEW GAME (TitleScreen).
+            // Either button reloads this scene, which then carries on below.
+            if (TitleScreen.TryBoot()) { enabled = false; return; }
 
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "HomeCanvas", 10);

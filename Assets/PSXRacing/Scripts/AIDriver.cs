@@ -62,6 +62,15 @@ namespace PSXRacing
             ShuttingDown = true;
         }
 
+        /// <summary>Back in the race after <see cref="ShutDown"/>: the title
+        /// screen sends a finished racer round the viaduct again.</summary>
+        public void Resume()
+        {
+            driving = true;
+            ShuttingDown = false;
+            ReseedPath();
+        }
+
         /// <summary>
         /// Lock on the road: the steer input that chases a speed-scaled
         /// lookahead point on the path, offset onto this car's own line.
