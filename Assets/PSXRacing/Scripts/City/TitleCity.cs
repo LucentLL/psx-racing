@@ -36,17 +36,22 @@ namespace PSXRacing.City
         public static bool On { get; private set; }
 
         // ---- the drone ------------------------------------------------------
-        // Round uptown's centre (CityMap.uptown) once every ~3 minutes, ABOVE
-        // the towers (only the 265 m crown at the centre stands taller): at
-        // 95 m the first cut flew through the tower field, a wall filling the
-        // frame. Looking down ~37 degrees onto the streets like the footage's
-        // later shots, ~350 m from the centre, so the street grid and its
-        // traffic stay inside the 500 m far plane and the 5x5 tile ring built
-        // round the parked car.
-        const float OrbitRadiusM = 280f;
+        // Round uptown's centre (CityMap.uptown) once every ~3 minutes, looking
+        // ACROSS the skyline ~20 degrees down like the footage, ~400 m from the
+        // centre so the street grid and its traffic stay inside the 500 m far
+        // plane and the 5x5 tile ring built round the parked car.
+        //
+        // No fixed height clears uptown: at 95 m the first cut flew through
+        // the tower field (a wall filling the frame), at 250 m it hung beside
+        // the crown. So the eye FOLLOWS THE ROOFS: a sphere cast down at the
+        // eye and a little ahead along the orbit lifts it to clear whatever
+        // stands there (fast up, slow back down), over a base height.
+        const float OrbitRadiusM = 380f;
         const float OrbitDegPerS = 2.0f;
-        const float EyeUpM = 250f, EyeBobM = 12f, EyeBobPeriodS = 47f;
-        const float LookUpM = 40f;
+        const float EyeUpM = 190f, EyeBobM = 10f, EyeBobPeriodS = 47f;
+        const float LookUpM = 60f;
+        const float ClearM = 45f, ClearProbeR = 40f, ClearUpS = 0.5f, ClearDownS = 4f;
+        static readonly float[] ClearAheadDeg = { 0f, 6f, 12f };
         const float Fov = 52f;
         /// <summary>The parked car's height over the ground: far above
         /// CityTraffic's LevelM, so no traffic car brakes for it.</summary>
@@ -61,6 +66,7 @@ namespace PSXRacing.City
         Camera cam;
         Vector3 centre, park;
         float angle, started, sweepAt;
+        float lift = -1f, liftVel;
         Image fade;
         RectTransform root, confirmRoot;
         Canvas canvas;
@@ -210,6 +216,23 @@ namespace PSXRacing.City
             float rad = angle * Mathf.Deg2Rad;
             float bob = Mathf.Sin((Time.unscaledTime - started) * 2f * Mathf.PI / EyeBobPeriodS) * EyeBobM;
             var eye = centre + new Vector3(Mathf.Cos(rad) * OrbitRadiusM, EyeUpM + bob, Mathf.Sin(rad) * OrbitRadiusM);
+
+            // the roofs under the eye and just ahead of it
+            float need = eye.y;
+            foreach (float ahead in ClearAheadDeg)
+            {
+                float a = rad + ahead * Mathf.Deg2Rad;
+                var top = new Vector3(centre.x + Mathf.Cos(a) * OrbitRadiusM, centre.y + 900f,
+                    centre.z + Mathf.Sin(a) * OrbitRadiusM);
+                if (Physics.SphereCast(top, ClearProbeR, Vector3.down, out var hit, 1000f,
+                        Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    need = Mathf.Max(need, hit.point.y + ClearM);
+            }
+            float want = need - eye.y;
+            if (lift < 0f) lift = want;
+            lift = Mathf.SmoothDamp(lift, want, ref liftVel, want > lift ? ClearUpS : ClearDownS,
+                Mathf.Infinity, Mathf.Max(Time.deltaTime, 1e-4f));
+            eye.y += lift;
             cam.transform.SetPositionAndRotation(eye,
                 Quaternion.LookRotation(centre + Vector3.up * LookUpM - eye, Vector3.up));
         }
