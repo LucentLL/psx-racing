@@ -161,6 +161,10 @@ namespace PSXRacing.City
             foreach (var c in car.GetComponentsInChildren<Collider>(true)) c.enabled = false;
             foreach (var a in car.GetComponentsInChildren<AudioSource>(true)) a.mute = true;
             foreach (var l in car.GetComponentsInChildren<Light>(true)) l.enabled = false;
+            // The car's own physics off too: its yaw damping writes the
+            // kinematic body's angular velocity every step, a warning each
+            // time (editor 10-31: the console filled at 60 a second).
+            car.enabled = false;
             Off<PlayerCarInput>(car); Off<CarLights>(car); Off<EngineAudio>(car); Off<TireAudio>(car);
             Off<TurboAudio>(car); Off<CollisionAudio>(car); Off<SkidMarks>(car); Off<TireSmoke>(car);
             Off<StuckRecovery>(car); Off<FuelTank>(car);
