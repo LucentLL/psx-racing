@@ -36,14 +36,17 @@ namespace PSXRacing.City
         public static bool On { get; private set; }
 
         // ---- the drone ------------------------------------------------------
-        // Round uptown's centre (CityMap.uptown) once every ~3 minutes, high
-        // enough to look ACROSS the towers' middles like the footage, close
-        // enough that the street grid and its traffic stay inside the 500 m
-        // far plane and the 5x5 tile ring built round the parked car.
-        const float OrbitRadiusM = 320f;
+        // Round uptown's centre (CityMap.uptown) once every ~3 minutes, ABOVE
+        // the towers (only the 265 m crown at the centre stands taller): at
+        // 95 m the first cut flew through the tower field, a wall filling the
+        // frame. Looking down ~37 degrees onto the streets like the footage's
+        // later shots, ~350 m from the centre, so the street grid and its
+        // traffic stay inside the 500 m far plane and the 5x5 tile ring built
+        // round the parked car.
+        const float OrbitRadiusM = 280f;
         const float OrbitDegPerS = 2.0f;
-        const float EyeUpM = 95f, EyeBobM = 18f, EyeBobPeriodS = 47f;
-        const float LookUpM = 55f;
+        const float EyeUpM = 250f, EyeBobM = 12f, EyeBobPeriodS = 47f;
+        const float LookUpM = 40f;
         const float Fov = 52f;
         /// <summary>The parked car's height over the ground: far above
         /// CityTraffic's LevelM, so no traffic car brakes for it.</summary>
