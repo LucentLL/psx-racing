@@ -115,6 +115,10 @@ namespace PSXRacing.EditorTools
             // Step two of the wizard, WHAT ARE YOU DRIVING? - the starter lanes
             // (the 240SX and an EG Civic, rough and tidy, then a new car).
             Shoot(outDir, "carpick");
+            // And the close-up a lane opens: the turntable and the full sheet.
+            LifeHomeScreen.PreviewConfirmLane = 2;
+            Shoot(outDir, "carconfirm");
+            LifeHomeScreen.PreviewConfirmLane = -1;
             LifeRules.SeedFallbackCar(LifeSimManager.State);
             var st = LifeSimManager.State;
 
@@ -356,6 +360,7 @@ namespace PSXRacing.EditorTools
             var s = LifeSimManager.State;
             s.streetRacesWon = 3;
             s.streetRep = 10f;
+            s.blInvited = true;   // the RIVALS tab only exists once the player is on the list
             Blacklist.SeedBoard(s);
             {
                 var bd = Blacklist.Board(s);
@@ -432,6 +437,8 @@ namespace PSXRacing.EditorTools
                 s.blChallenge.themLegs = 1;   // a race down, which is the state worth looking at
                 LifeSimManager.Save();
                 Shoot(outDir, "rivals_defend", "rivals");
+                // Race 2 is the player's to name: the road list.
+                Shoot(outDir, "rivals_road", "rivalroad");
                 // And MAIN with the same call-out live: the hub grows a banner
                 // above the race row on the days one is running, and a row
                 // added to the busiest column in the game is exactly the kind

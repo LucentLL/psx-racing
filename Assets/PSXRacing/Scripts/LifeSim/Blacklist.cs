@@ -183,6 +183,42 @@ namespace PSXRacing.LifeSim
         public const int DropRepLoss = 1;
         /// <summary>News lines the board remembers.</summary>
         public const int NewsKeep = 12;
+        /// <summary>Street rep that gets the player asked onto the list: the
+        /// KNOWN tier, about five street wins from a new career.</summary>
+        public const int InviteRep = 25;
+
+        // ---------------- the invitation ----------------
+        /// <summary>
+        /// Ask the player onto the list if they have earned it. Returns the
+        /// headline the first time, else null.
+        ///
+        /// A save from before the invitation existed that has already raced
+        /// the board (a record, or a series live) is invited on the spot —
+        /// taking the tab off a player mid-career would hide a rank they hold.
+        /// </summary>
+        public static string CheckInvite(LifeState s)
+        {
+            if (s == null || s.blInvited) return null;
+            var me = EntryOf(s, PlayerKey);
+            bool raced = (me != null && me.wins + me.losses > 0) ||
+                         (s.blChallenge != null && s.blChallenge.Live);
+            if (!raced && s.streetRep < InviteRep) return null;
+            s.blInvited = true;
+            // Nobody knocks on the first morning.
+            s.blIncomingReadyDay = Mathf.Max(s.blIncomingReadyDay, s.day + IncomingGapDays);
+            if (raced) return null;
+            const string headline = "YOU'RE ON THE BLACKLIST";
+            s.mail.Add(new MailItem
+            {
+                day = s.day,
+                subject = headline,
+                body = "Word gets around. Eleven names, you're the last one. Call out the name " +
+                       "above you to take their spot - best of " + SeriesRaces +
+                       ". The RIVALS tab is open.",
+            });
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + headline);
+            return headline;
+        }
 
         // ---------------- names ----------------
         public static BlacklistRival ByAlias(string alias)
@@ -359,7 +395,7 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static BlacklistRival OpenRival(LifeState s)
         {
-            if (s == null) return null;
+            if (s == null || !s.blInvited) return null;
             var live = Opponent(s);
             return live ?? (CanChallengeUp(s) ? Above(s) : null);
         }
@@ -380,6 +416,7 @@ namespace PSXRacing.LifeSim
         public static string ChallengeRefusal(LifeState s)
         {
             if (s == null) return "no career";
+            if (!s.blInvited) return "you are not on the list yet";
             if (s.blChallenge != null && s.blChallenge.Live)
                 return "one call-out at a time — finish this one";
             var up = Above(s);
@@ -403,7 +440,8 @@ namespace PSXRacing.LifeSim
             Open(s, up, incoming: false);
             string headline = "YOU CALLED OUT #" + RankOf(s, up.alias) + " " + up.alias;
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + headline + " — best of " +
-                              SeriesRaces + " at " + VenueName(s.blChallenge.trackIndex));
+                              SeriesRaces + ", " + up.alias + " names the first road: " +
+                              VenueName(s.blChallenge.trackIndex));
             return headline;
         }
 
@@ -424,9 +462,9 @@ namespace PSXRacing.LifeSim
             {
                 day = s.day,
                 subject = headline,
-                body = "Best of " + SeriesRaces + " at " + VenueName(ch.trackIndex) +
-                       ", by " + LifeRules.LogDate(ch.deadlineDay) +
-                       ". Every race you do not run is a race you lose.",
+                body = "Best of " + SeriesRaces + ", by " + LifeRules.LogDate(ch.deadlineDay) +
+                       ". You were called out, so you name the first road; whoever loses a race " +
+                       "names the next. Every race you do not run is a race you lose.",
                 expiresDay = ch.deadlineDay,
             });
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": CALL-OUT — " + headline);
@@ -435,28 +473,35 @@ namespace PSXRacing.LifeSim
 
         static void Open(LifeState s, BlacklistRival rival, bool incoming)
         {
+            // THE CHALLENGED NAMES THE FIRST ROAD (owner, 2026-10-31). A rival
+            // calling the player out leaves it to the player; the player
+            // calling a rival out races wherever that rival says.
             s.blChallenge = new RankChallenge
             {
                 alias = rival.alias,
                 incoming = incoming,
                 openedDay = s.day,
                 deadlineDay = s.day + ChallengeDays,
-                trackIndex = PickVenue(rival, s.day),
+                yourPick = incoming,
+                trackIndex = incoming ? -1 : PickVenue(rival, s.day, null),
             };
         }
 
         /// <summary>
-        /// The road a series runs on, from the rival's own style. Their
-        /// call-out, their turf — and a fixed one, so three legs are a series
-        /// rather than a tour.
+        /// The road a RIVAL names, from their own style — their turf. Never a
+        /// road already raced in this series: a road used up gives way to
+        /// another from the pool, then to the reverse twin of one (the same
+        /// place the other way round), and only when the build has nothing
+        /// else at all to a repeat.
         ///
         /// Falls back to whatever the player last raced when a build is missing
         /// the venues for a style: a challenge that cannot find a road is still
         /// a challenge.
         /// </summary>
-        static int PickVenue(BlacklistRival rival, int seed)
+        static int PickVenue(BlacklistRival rival, int seed, List<int> used)
         {
             var ids = PoolFor(rival != null ? rival.venue : null);
+            if (ids.Count == 0) return -1;
             // Seeded off the NAME, by a sum this codebase controls: the
             // framework's own string hash is not promised to be the same number
             // twice, and a venue that moves between runs is a series that ran
@@ -465,15 +510,74 @@ namespace PSXRacing.LifeSim
             if (rival != null) foreach (char c in rival.alias) nameSeed = nameSeed * 31 + c;
             var rng = new System.Random(seed * 7919 + nameSeed);
             int start = rng.Next(ids.Count);
+            var forward = new List<int>();
             for (int k = 0; k < ids.Count; k++)
             {
                 // TryIndexOf, not IndexOf: IndexOf answers 0 (Sunset City GP)
                 // for a missing id, so this loop could never skip one.
                 if (TrackCatalog.TryIndexOfShipped(ids[(start + k) % ids.Count], out int idx) &&
                     TrackCatalog.Offered(idx))
-                    return idx;
+                    forward.Add(idx);
             }
-            return -1;
+            if (forward.Count == 0) return -1;
+            foreach (int i in forward) if (used == null || !used.Contains(i)) return i;
+            foreach (int i in forward)
+            {
+                int twin = TwinOf(i);
+                if (twin >= 0 && !used.Contains(twin)) return twin;
+            }
+            return forward[0];
+        }
+
+        /// <summary>The same road the other way round (Name / Name II), or -1
+        /// when it has none in this build.</summary>
+        public static int TwinOf(int trackIndex)
+        {
+            if (trackIndex < 0 || trackIndex >= TrackCatalog.Count) return -1;
+            var def = TrackCatalog.At(trackIndex);
+            string id = def.Reversed ? def.reverseOf : def.id + "Rev";
+            return TrackCatalog.TryIndexOfShipped(id, out int i) && TrackCatalog.Offered(i) ? i : -1;
+        }
+
+        /// <summary>
+        /// The roads the player may name for the next leg: every race venue
+        /// this build offers, less the ones already raced in this series.
+        /// Forward and reverse are different roads.
+        /// </summary>
+        public static List<int> RoadChoices(LifeState s)
+        {
+            var list = new List<int>();
+            var used = s != null && s.blChallenge != null ? s.blChallenge.legRoads : null;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.Offered(i) && (used == null || !used.Contains(i))) list.Add(i);
+            return list;
+        }
+
+        /// <summary>The next leg's road is the player's to name and they have
+        /// not named it yet.</summary>
+        public static bool AwaitingYourPick(LifeState s) =>
+            s != null && s.blChallenge != null && s.blChallenge.Live &&
+            s.blChallenge.yourPick && s.blChallenge.trackIndex < 0;
+
+        /// <summary>The player names the next leg's road. False when it is not
+        /// theirs to name, or the road is not one they may pick.</summary>
+        public static bool PickRoad(LifeState s, int trackIndex)
+        {
+            if (!AwaitingYourPick(s) || !RoadChoices(s).Contains(trackIndex)) return false;
+            s.blChallenge.trackIndex = trackIndex;
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": race " + s.blChallenge.LegNumber +
+                              " vs " + s.blChallenge.alias + " — you picked " + VenueName(trackIndex));
+            return true;
+        }
+
+        /// <summary>Who names the next road, for the series card.</summary>
+        public static string PickerLine(LifeState s)
+        {
+            var ch = s != null ? s.blChallenge : null;
+            if (ch == null || !ch.Live) return "";
+            if (ch.trackIndex < 0) return "YOUR PICK";
+            return VenueName(ch.trackIndex).ToUpperInvariant() +
+                   (ch.yourPick ? " (YOUR PICK)" : " (" + ch.alias + "'S PICK)");
         }
 
         /// <summary>
@@ -529,7 +633,16 @@ namespace PSXRacing.LifeSim
             // load's sanitize re-points it; this is the belt to that brace.
             if (ch == null || !TrackCatalog.Offered(ch.trackIndex))
             {
+                // Still the player's to name (a leg run from a car meet before
+                // they picked): their own road if it is still free, else the
+                // first one that is.
                 int own = s != null ? s.trackIndex : 0;
+                if (ch != null && ch.Live && ch.yourPick)
+                {
+                    var free = RoadChoices(s);
+                    if (free.Contains(own)) return own;
+                    if (free.Count > 0) return free[0];
+                }
                 return TrackCatalog.Offered(own) ? own : TrackCatalog.FirstOffered();
             }
             return ch.trackIndex;
@@ -547,7 +660,7 @@ namespace PSXRacing.LifeSim
             if (ch == null || !ch.Live || ch.trackIndex < 0) return null;
             if (TrackCatalog.Offered(ch.trackIndex)) return null;
             string was = VenueName(ch.trackIndex);
-            int now = PickVenue(ByAlias(ch.alias), ch.openedDay);
+            int now = PickVenue(ByAlias(ch.alias), ch.openedDay, ch.legRoads);
             ch.trackIndex = now >= 0 ? now : TrackCatalog.FirstOffered();
             return was;
         }
@@ -563,7 +676,7 @@ namespace PSXRacing.LifeSim
         {
             var ch = s != null ? s.blChallenge : null;
             if (ch == null) return -1;
-            int now = PickVenue(ByAlias(ch.alias), ch.openedDay);
+            int now = PickVenue(ByAlias(ch.alias), ch.openedDay, ch.legRoads);
             ch.trackIndex = now >= 0 ? now : TrackCatalog.FirstOffered();
             return ch.trackIndex;
         }
@@ -574,8 +687,16 @@ namespace PSXRacing.LifeSim
         /// one that does not involve the calendar.</summary>
         public static void BeginLeg(LifeState s)
         {
-            if (s != null && s.blChallenge != null && s.blChallenge.Live)
-                s.blChallenge.legInFlight = true;
+            if (s == null || s.blChallenge == null || !s.blChallenge.Live) return;
+            var ch = s.blChallenge;
+            if (ch.legInFlight) return;
+            ch.legInFlight = true;
+            // The road is spent at the start line, like the leg: nobody may
+            // name it again in this series.
+            int road = SeriesTrack(s);
+            ch.trackIndex = road;
+            if (ch.legRoads == null) ch.legRoads = new List<int>();
+            ch.legRoads.Add(road);
         }
 
         /// <summary>
@@ -627,7 +748,15 @@ namespace PSXRacing.LifeSim
             var them = EntryOf(s, ch.alias);
             if (playerWon) { ch.youLegs++; if (you != null) you.wins++; if (them != null) them.losses++; }
             else { ch.themLegs++; if (them != null) them.wins++; if (you != null) you.losses++; }
-            if (ch.youLegs >= LegsToWin || ch.themLegs >= LegsToWin) Resolve(s, ch);
+            if (ch.youLegs >= LegsToWin || ch.themLegs >= LegsToWin) { Resolve(s, ch); return; }
+
+            // THE LOSER NAMES THE NEXT ROAD (owner, 2026-10-31). Lost it, and
+            // the next one is yours to pick; won it, and the rival picks from
+            // their turf — never a road this series has already raced.
+            ch.yourPick = !playerWon;
+            ch.trackIndex = playerWon
+                ? PickVenue(ByAlias(ch.alias), ch.openedDay + ch.LegsRun, ch.legRoads)
+                : -1;
         }
 
         /// <summary>"RACE 2 OF 3 · 1-0" — where a series stands. Empty when
@@ -828,7 +957,7 @@ namespace PSXRacing.LifeSim
             //    board that called you out every morning would be a board you
             //    stopped reading.
             if ((s.blChallenge == null || !s.blChallenge.Live) &&
-                s.day >= s.blIncomingReadyDay && Below(s) != null &&
+                s.blInvited && s.day >= s.blIncomingReadyDay && Below(s) != null &&
                 Random.value < IncomingChancePerDay)
             {
                 string knock = ChallengeDown(s);

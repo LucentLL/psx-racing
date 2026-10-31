@@ -388,6 +388,32 @@ namespace PSXRacing.LifeSim
 
         float dragYaw;
 
+        /// <summary>
+        /// One still of a car at the showroom three-quarter, copied out of the
+        /// turntable's texture so several cars can sit side by side — the new
+        /// game's car pick shows all three lanes at once, and one rig can only
+        /// hold one car. The caller owns the texture (Destroy it with the panel).
+        /// Leaves the rig hidden.
+        /// </summary>
+        public RenderTexture Snapshot(CarSpec spec)
+        {
+            EnsureRig();
+            SetVisible(true);
+            Show(spec);
+            float keep = yaw;
+            yaw = 215f;
+            RenderNow();
+            yaw = keep;
+            var copy = new RenderTexture(width, height, 0, rt.format)
+            {
+                name = "CarSnapshot", filterMode = FilterMode.Point, antiAliasing = 1,
+            };
+            copy.Create();
+            Graphics.Blit(rt, copy);
+            SetVisible(false);
+            return copy;
+        }
+
         /// <summary>Nudge the turntable. Called by the drag handler on the panel
         /// and by the arrow keys; the idle spin keeps running underneath so a
         /// released car does not just stop dead.</summary>

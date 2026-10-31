@@ -526,6 +526,12 @@ namespace PSXRacing.LifeSim
             string walkout = Blacklist.SweepInFlight(S);
             if (walkout != null) LifeSimManager.Save();
 
+            // THE INVITATION. Read before the chrome, because it decides
+            // whether the strip has a RIVALS tab at all.
+            string invite = Blacklist.CheckInvite(S);
+            if (S.blInvited) LifeSimManager.Save();
+            if (!S.blInvited && (tab == "rivals" || tab == "rivalroad")) tab = "main";
+
             BuildChrome();
             Rebuild();
             // What the load did to a save from before the editions: a race
@@ -536,6 +542,7 @@ namespace PSXRacing.LifeSim
             if (editionNote != null && raceSummary == null && driveSummary == null && walkout == null)
                 Toast(editionNote);
             if (walkout != null && raceSummary == null) Toast(walkout);
+            if (invite != null && raceSummary == null && walkout == null) Toast(invite + " - SEE RIVALS");
             if (raceSummary != null)
             {
                 // What the race did to the car is the headline, not a footnote —
@@ -763,7 +770,10 @@ namespace PSXRacing.LifeSim
                 15, new Vector2(0.5f, 1f), new Vector2(0f, -66f), TextAnchor.MiddleCenter,
                 MenuKit.Dim, 840f).rectTransform.pivot = new Vector2(0.5f, 1f);
 
-            var lanes = CarMarket.RollStartingLanes(S.basePay, S.creditScore);
+            // Rolled once per new game, so backing out of the close-up comes
+            // back to the same three cars rather than a fresh roll.
+            if (pickLanes == null) pickLanes = CarMarket.RollStartingLanes(S.basePay, S.creditScore);
+            var lanes = pickLanes;
             if (lanes.Count == 0)
             {
                 // No catalog: fall back to the built-in car rather than stranding
@@ -774,6 +784,11 @@ namespace PSXRacing.LifeSim
                 return;
             }
 
+            // A still of each car beside its lane (owner, 2026-10-31: see the
+            // car before you pick it). Stills rather than three turntables:
+            // the viewer is one rig, and the close-up is where it spins.
+            ReleasePickShots();
+            const float ShotW = 176f, ShotH = 110f, TextX = 40f + ShotW + 16f, TextW = 820f - ShotW - 32f;
             float y = -110f;
             foreach (var lane in lanes)
             {
@@ -783,30 +798,163 @@ namespace PSXRacing.LifeSim
                     ? MenuKit.Money(lane.monthly) + "/mo for " + lane.months + " months"
                     : "paid off — no payments";
 
+                // Opens the close-up; nothing is committed until DRIVE THIS ONE.
                 MenuKit.Button(root, "", new Vector2(0f, 1f), new Vector2(40f, y),
                     new Vector2(820f, 118f), () =>
                     {
-                        CarMarket.ApplyStartingLane(S, captured);
-                        LifeSimManager.Save();
-                        SceneManager.LoadScene(0);   // reload home, now in play mode
+                        ReleasePickShots();
+                        Destroy(root.gameObject);
+                        BuildCarConfirm(captured);
                     }, 16);
 
+                var shot = Viewer.Snapshot(lane.spec);
+                pickShots.Add(shot);
+                var frame = MenuKit.Rect(root, "Shot", new Vector2(0f, 1f), new Vector2(0f, 1f),
+                    new Vector2(44f, y - 4f), new Vector2(ShotW, ShotH), new Color(0f, 0f, 0f, 0.55f));
+                var frameImg = frame.GetComponent<Image>();
+                if (frameImg != null) frameImg.raycastTarget = false;
+                var raw = new GameObject("CarShot").AddComponent<RawImage>();
+                raw.transform.SetParent(frame, false);
+                raw.texture = shot;
+                raw.raycastTarget = false;
+                raw.rectTransform.anchorMin = Vector2.zero; raw.rectTransform.anchorMax = Vector2.one;
+                raw.rectTransform.offsetMin = Vector2.zero; raw.rectTransform.offsetMax = Vector2.zero;
+
                 MenuKit.Label(root, lane.label, 20, new Vector2(0f, 1f),
-                    new Vector2(60f, y - 10f), TextAnchor.MiddleLeft, MenuKit.Accent, 400f, bold: true)
+                    new Vector2(TextX, y - 10f), TextAnchor.MiddleLeft, MenuKit.Accent, TextW, bold: true)
                     .raycastTarget = false;
                 MenuKit.Label(root, lane.spec.name, 17, new Vector2(0f, 1f),
-                    new Vector2(60f, y - 38f), TextAnchor.MiddleLeft, Color.white, 780f)
+                    new Vector2(TextX, y - 38f), TextAnchor.MiddleLeft, Color.white, TextW)
                     .raycastTarget = false;
                 MenuKit.Label(root, CarSpec.ToHp(lane.spec.hp) + " hp · " + lane.spec.drv + " · " +
                         DriveSide.Label(lane.spec.id) + " · " +
                         age + " yr · " + lane.odoMiles.ToString("N0") + " mi · cond " + lane.cond,
-                    14, new Vector2(0f, 1f), new Vector2(60f, y - 62f),
-                    TextAnchor.MiddleLeft, MenuKit.Dim, 780f).raycastTarget = false;
+                    14, new Vector2(0f, 1f), new Vector2(TextX, y - 62f),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, TextW).raycastTarget = false;
                 MenuKit.Label(root, money + "   ·   " + lane.blurb, 14, new Vector2(0f, 1f),
-                    new Vector2(60f, y - 86f), TextAnchor.MiddleLeft,
-                    lane.financed ? MenuKit.Bad : MenuKit.Good, 780f).raycastTarget = false;
+                    new Vector2(TextX, y - 86f), TextAnchor.MiddleLeft,
+                    lane.financed ? MenuKit.Bad : MenuKit.Good, TextW).raycastTarget = false;
                 y -= 132f;
             }
+
+            WirePanelNavigation(root);
+
+            // The menu preview photographs the close-up as well (it clears this).
+            if (PreviewConfirmLane >= 0 && PreviewConfirmLane < lanes.Count)
+            {
+                var lane = lanes[PreviewConfirmLane];
+                ReleasePickShots();
+                DestroyImmediate(root.gameObject);
+                BuildCarConfirm(lane);
+            }
+        }
+
+        /// <summary>Editor preview hook: open this lane's close-up straight
+        /// after the pick is built. -1 in play.</summary>
+        public static int PreviewConfirmLane = -1;
+
+        /// <summary>The three lanes rolled for this new game.</summary>
+        System.Collections.Generic.List<CarMarket.StartingLane> pickLanes;
+        /// <summary>The lanes' stills; owned here and released with the panel.</summary>
+        readonly System.Collections.Generic.List<RenderTexture> pickShots =
+            new System.Collections.Generic.List<RenderTexture>();
+
+        void ReleasePickShots()
+        {
+            foreach (var t in pickShots) if (t != null) { t.Release(); Destroy(t); }
+            pickShots.Clear();
+        }
+
+        /// <summary>
+        /// The close-up before committing: the car big on the turntable (drag
+        /// to spin it), the full sheet beside it, and the money in plain words.
+        /// BACK returns to the same three lanes.
+        /// </summary>
+        void BuildCarConfirm(CarMarket.StartingLane lane)
+        {
+            var spec = lane.spec;
+            // As wide as the canvas allows: 1100 on a 16:9 monitor, less on a
+            // 4:3 canvas (960 units), where a fixed 1100 ran off both edges.
+            const float H = 590f;
+            float W = Mathf.Min(1100f, MenuKit.HalfWidth * 2f - 32f);
+            float ViewW = Mathf.Round(W * 0.545f), ViewH = Mathf.Round(ViewW * 0.625f);
+            var root = MenuKit.Rect(canvas.transform, "CarConfirm",
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(W, H), MenuKit.PanelBg);
+
+            MenuKit.Label(root, lane.label, 18, new Vector2(0f, 1f), new Vector2(30f, -14f),
+                TextAnchor.MiddleLeft, MenuKit.Accent, W - 60f, height: 26f, bold: true);
+            MenuKit.Label(root, spec.name, 26, new Vector2(0f, 1f), new Vector2(30f, -42f),
+                TextAnchor.MiddleLeft, Color.white, W - 60f, height: 34f, bold: true);
+
+            var view = MenuKit.Rect(root, "View", new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(30f, -86f), new Vector2(ViewW, ViewH), new Color(0f, 0f, 0f, 0.55f));
+            Viewer.Show(spec);
+            Viewer.AttachTo(view);
+            MenuKit.Label(root, "drag to turn it", 13, new Vector2(0f, 1f),
+                new Vector2(30f, -86f - ViewH - 4f), TextAnchor.MiddleLeft, MenuKit.Dim, ViewW, height: 20f)
+                .raycastTarget = false;
+
+            // The sheet: what the car is, then what it is like now, then what
+            // it costs. US units, the way the rest of the menus read.
+            int age = CarMarket.GameStartYear - spec.modelYear;
+            int lbft = Mathf.RoundToInt(spec.peakTorqueNm * 0.7376f);
+            int lb = Mathf.RoundToInt(spec.kg * 2.2046f);
+            int mph = Mathf.RoundToInt(spec.topSpeedMps * 2.2369f);
+            string engine = ((spec.dispCc > 0 ? (spec.dispCc / 1000f).ToString("0.0") + " L " : "") +
+                             (string.IsNullOrEmpty(spec.eType) ? "" : spec.eType + " ") +
+                             (string.IsNullOrEmpty(spec.asp) ? "" : spec.asp)).Trim();
+            var rows = new System.Collections.Generic.List<(string k, string v)>
+            {
+                ("YEAR", spec.modelYear + "  (" + age + " yr old)"),
+                ("ENGINE", engine.Length > 0 ? engine : "-"),
+                ("POWER", CarSpec.ToHp(spec.hp) + " hp"),
+                ("TORQUE", lbft > 0 ? lbft + " lb-ft" : "-"),
+                ("WEIGHT", lb > 0 ? lb.ToString("N0") + " lb" : "-"),
+                ("DRIVE", spec.drv + "  ·  " + DriveSide.Label(spec.id)),
+                ("GEARBOX", spec.gears + "-speed " + (spec.defaultManual ? "manual" : "automatic")),
+                ("TOP SPEED", mph > 0 ? mph + " mph" : "-"),
+                ("MILEAGE", lane.odoMiles.ToString("N0") + " mi"),
+                ("CONDITION", lane.cond + " / 100"),
+            };
+            if (lane.financed)
+            {
+                rows.Add(("PAYMENT", MenuKit.Money(lane.monthly) + "/mo x " + lane.months));
+                rows.Add(("ALL IN", MenuKit.Money(lane.monthly * lane.months)));
+            }
+            else rows.Add(("PAYMENT", "paid off"));
+
+            float sx = 30f + ViewW + 24f, sw = W - sx - 30f, y = -90f;
+            foreach (var (k, v) in rows)
+            {
+                bool money = k == "PAYMENT" || k == "ALL IN";
+                MenuKit.Label(root, k, 14, new Vector2(0f, 1f), new Vector2(sx, y),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, sw * 0.38f, height: 24f).raycastTarget = false;
+                MenuKit.Label(root, v, 15, new Vector2(0f, 1f), new Vector2(sx + sw * 0.38f, y),
+                    TextAnchor.MiddleLeft, money ? (lane.financed ? MenuKit.Bad : MenuKit.Good) : Color.white,
+                    sw * 0.62f, height: 24f).raycastTarget = false;
+                y -= 28f;
+            }
+            MenuKit.Label(root, lane.blurb, 14, new Vector2(0f, 1f), new Vector2(sx, y - 4f),
+                TextAnchor.MiddleLeft, lane.financed ? MenuKit.Bad : MenuKit.Good, sw, height: 24f)
+                .raycastTarget = false;
+
+            MenuKit.Button(root, "DRIVE THIS ONE", new Vector2(0f, 0f), new Vector2(30f, 22f),
+                new Vector2(ViewW, 58f), () =>
+                {
+                    if (viewer != null) viewer.SetVisible(false);
+                    pickLanes = null;
+                    CarMarket.ApplyStartingLane(S, lane);
+                    LifeSimManager.Save();
+                    SceneManager.LoadScene(0);   // reload home, now in play mode
+                }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
+            MenuKit.Button(root, "BACK", new Vector2(1f, 0f), new Vector2(-30f, 22f),
+                new Vector2(sw, 58f), () =>
+                {
+                    if (viewer != null) viewer.SetVisible(false);
+                    Destroy(root.gameObject);
+                    BuildCarPick();
+                }, MenuKit.Body);
 
             WirePanelNavigation(root);
         }
@@ -845,7 +993,10 @@ namespace PSXRacing.LifeSim
             // ParentTabOf says about anything it has no other answer for.
             //
             // The CALENDAR is not a tab either: it IS MAIN now.
-            tabIds = new[] { "main", "garage", "rivals", "news" };
+            // RIVALS only once the player has been asked onto the blacklist
+            // (owner, 2026-10-31) — before that there is no list to show them.
+            tabIds = S.blInvited ? new[] { "main", "garage", "rivals", "news" }
+                                 : new[] { "main", "garage", "news" };
 
             string[] tabs = tabIds;
             tabButtons.Clear();
@@ -1065,6 +1216,7 @@ namespace PSXRacing.LifeSim
                 case "prerace": BuildPreRace(); break;
                 case "drive": BuildDrive(); break;
                 case "rivals": BuildRivals(); break;
+                case "rivalroad": BuildRivalRoad(); break;
                 case "news": BuildNews(); break;
                 case "options": BuildOptions(); break;
                 case "service": BuildService(); break;
@@ -1290,6 +1442,7 @@ namespace PSXRacing.LifeSim
                 case "toolbox": return "carmenu";
                 case "carmenu":
                 case "debugcars": return "garage";
+                case "rivalroad": return "rivals";
                 default: return "main";
             }
         }
@@ -6674,6 +6827,64 @@ namespace PSXRacing.LifeSim
         /// width follows the height, so a column hard-coded at -460 fits a
         /// monitor and runs off a phone.
         /// </summary>
+        /// <summary>
+        /// Name the next leg's road. The owner's rule, 2026-10-31: the driver
+        /// who was CHALLENGED names the first road and the LOSER of each race
+        /// names the next. Every venue this build carries is on the list except
+        /// the roads this series has already raced — a road's reverse (its
+        /// "II") is a different road, so a series can go back the other way.
+        /// </summary>
+        void BuildRivalRoad()
+        {
+            var ch = S.blChallenge;
+            if (!Blacklist.AwaitingYourPick(S)) { tab = "rivals"; BuildRivals(); return; }
+            float y = -14f, span = ColW;
+            MenuKit.Label(body, "RACE " + ch.LegNumber + " vs " + ch.alias + "  ·  YOUR PICK",
+                MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Accent, span, height: 26f, bold: true);
+            y -= 28f;
+            string raced = "";
+            foreach (int r in ch.legRoads)
+                raced += (raced.Length > 0 ? ", " : "") + TrackCatalog.At(r).name;
+            MenuKit.Label(body, ch.LegNumber == 1
+                    ? "You were called out, so the first road is yours."
+                    : "You lost the last one, so this road is yours." +
+                      (raced.Length > 0 ? " Raced already: " + raced + "." : ""),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, span, height: 24f);
+            y -= 32f;
+
+            const float RowH = 58f;
+            foreach (int idx in Blacklist.RoadChoices(S))
+            {
+                if (!TrackCatalog.SceneShipped(TrackCatalog.SceneIndex(idx))) continue;
+                var def = TrackCatalog.At(idx);
+                int captured = idx;
+                var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f), new Vector2(0f, y),
+                    new Vector2(span, RowH - 6f), () =>
+                    {
+                        if (!Blacklist.PickRoad(S, captured)) return;
+                        LifeSimManager.Save();
+                        tab = "rivals"; Rebuild();
+                        Toast(Clip(TrackCatalog.At(captured).name, 26).ToUpperInvariant() + " - RACE " +
+                              S.blChallenge.LegNumber + " IS SET");
+                    }, MenuKit.Tiny);
+                row.gameObject.name = "Btn_ROAD_" + def.id;
+                var rt = (RectTransform)row.transform;
+                MenuKit.Label(rt, def.name.ToUpperInvariant(), 20, new Vector2(0f, 0.5f),
+                    new Vector2(16f, 10f), TextAnchor.MiddleLeft, Color.white, span * 0.7f,
+                    height: 24f, bold: true);
+                string kind = def.drag || def.dragEvent ? "DRAG"
+                            : def.loop ? def.laps + (def.laps == 1 ? " LAP" : " LAPS") : "SPRINT";
+                float m = def.RaceMeters;
+                string len = m >= 1000f ? (m / 1000f).ToString("0.0") + " KM" : Mathf.RoundToInt(m) + " M";
+                MenuKit.Label(rt, kind + "  ·  " + len + (def.Reversed ? "  ·  REVERSE" : ""),
+                    MenuKit.Tiny, new Vector2(0f, 0.5f), new Vector2(16f, -13f),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, span * 0.7f, height: 22f);
+                y -= RowH;
+            }
+        }
+
         void BuildRivals()
         {
             float y = -14f;
@@ -6868,7 +7079,9 @@ namespace PSXRacing.LifeSim
                 MenuKit.Tiny, new Vector2(1f, 1f), new Vector2(-14f, -6f),
                 TextAnchor.MiddleRight, daysLeft <= 0 ? MenuKit.Bad : Color.white,
                 span * 0.42f, height: 24f, bold: true);
-            MenuKit.Label(box, TrackCatalog.At(Blacklist.SeriesTrack(S)).name.ToUpperInvariant() +
+            // Whose road it is: the challenged names the first, the loser of
+            // each race names the next (owner, 2026-10-31).
+            MenuKit.Label(box, Blacklist.PickerLine(S) +
                     "  ·  " + MenuKit.Money(Blacklist.Purse(Blacklist.StakeRank(S))) + " A RACE",
                 MenuKit.Tiny, new Vector2(0f, 1f), new Vector2(14f, -30f),
                 TextAnchor.MiddleLeft, MenuKit.Dim, span * 0.6f, height: 20f);
@@ -6878,11 +7091,16 @@ namespace PSXRacing.LifeSim
             // of the card. Handing the left one a centre x (the labels' rule)
             // is how a button ends up half-way off the panel it lives in.
             float bw = span * 0.46f, dw = span * 0.32f;
-            MenuKit.Button(box, blocked ?? ("RACE " + ch.LegNumber + " OF " + Blacklist.SeriesRaces),
+            // Your pick and not named yet: the button names the road first.
+            // Picking needs no car or fuel, so it is never blocked.
+            bool toPick = Blacklist.AwaitingYourPick(S);
+            MenuKit.Button(box, toPick ? "PICK RACE " + ch.LegNumber + "'S ROAD"
+                                       : blocked ?? ("RACE " + ch.LegNumber + " OF " + Blacklist.SeriesRaces),
                 new Vector2(0f, 0f), new Vector2(14f, 6f), new Vector2(bw, 38f),
-                blocked != null ? (UnityEngine.Events.UnityAction)null
+                toPick ? () => { tab = "rivalroad"; Rebuild(); }
+                : blocked != null ? (UnityEngine.Events.UnityAction)null
                     : () => StartRace(false, opponent),
-                17, blocked != null ? MenuKit.BtnBgDisabled : (Color?)RaceBg);
+                17, !toPick && blocked != null ? MenuKit.BtnBgDisabled : (Color?)RaceBg);
             // Second press arms it. This button gives away a rank.
             MenuKit.Button(box, confirmDecline ? "SURE? THAT IS A LOSS" : "WALK AWAY",
                 new Vector2(1f, 0f), new Vector2(-14f, 6f), new Vector2(dw, 38f),

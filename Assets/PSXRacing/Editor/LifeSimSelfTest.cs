@@ -1599,6 +1599,7 @@ namespace PSXRacing.EditorTools
             // THE RIVAL takes seat 0 and moves nobody.
             var before = CarMeets.Roster(s, s.day);
             s.streetRacesWon = 99; s.streetRep = 99f;
+            Blacklist.CheckInvite(s);   // the rival only parks once the player is on the list
             var withRival = CarMeets.Roster(s, s.day);
             var rival = withRival.Find(r => r.IsRival);
             Check(rival != null && rival.seat == 0, "the open blacklist rival parks in seat 0",
@@ -12648,6 +12649,47 @@ namespace PSXRacing.EditorTools
                   "with every name on it exactly once");
             Blacklist.SeedBoard(s);
 
+            // ---- the invitation (owner, 2026-10-31) ------------------------
+            Check(!s.blInvited && !Blacklist.CanChallengeUp(s) && Blacklist.OpenRival(s) == null,
+                  "a new career is not on the list: no call-outs, no rival at the meet");
+            Check(Blacklist.CheckInvite(s) == null && !s.blInvited, "and no rep is no invitation");
+            s.streetRep = Blacklist.InviteRep;
+            string inv = Blacklist.CheckInvite(s);
+            Check(inv != null && s.blInvited && s.mail.Exists(m => m.subject == inv),
+                  "KNOWN rep gets the invitation, in the mail", inv);
+            Check(Blacklist.CheckInvite(s) == null, "and it is only sent once");
+            s.streetRep = 0f;
+
+            // ---- who names the road (owner, 2026-10-31) --------------------
+            s.blIncomingReadyDay = 0;
+            Blacklist.ChallengeUp(s);
+            var series = s.blChallenge;
+            Check(!series.yourPick && TrackCatalog.Offered(series.trackIndex),
+                  "calling a rival out: the challenged rival names the first road",
+                  series.trackIndex >= 0 ? TrackCatalog.At(series.trackIndex).id : "-1");
+            int road1 = series.trackIndex;
+            Blacklist.BeginLeg(s);
+            Blacklist.RecordLeg(s, "JUICE", true);
+            Check(!series.yourPick && TrackCatalog.Offered(series.trackIndex) && series.trackIndex != road1,
+                  "the rival lost race 1, so they name race 2 - and not the same road",
+                  series.trackIndex >= 0 ? TrackCatalog.At(series.trackIndex).id : "-1");
+            Blacklist.BeginLeg(s);
+            Blacklist.RecordLeg(s, "JUICE", false);
+            Check(series.yourPick && Blacklist.AwaitingYourPick(s) && series.trackIndex < 0,
+                  "the player lost race 2, so race 3 is theirs to name");
+            Check(!Blacklist.PickRoad(s, road1) && !Blacklist.RoadChoices(s).Contains(road1),
+                  "a road this series already raced cannot be named again");
+            int twin = Blacklist.TwinOf(road1);
+            Check(twin < 0 || Blacklist.RoadChoices(s).Contains(twin),
+                  "but its reverse can", twin >= 0 ? TrackCatalog.At(twin).id : "no twin");
+            var free = Blacklist.RoadChoices(s);
+            Check(free.Count > 0 && Blacklist.PickRoad(s, free[0]) && series.trackIndex == free[0] &&
+                  !Blacklist.AwaitingYourPick(s), "the player names it");
+            Blacklist.Decline(s);
+            s.blChallenge = new RankChallenge();
+            s.blRematchAlias = ""; s.blRematchDay = 0;
+            Blacklist.SeedBoard(s);
+
             // ---- opening a series ----------------------------------------
             Check(Blacklist.CanChallengeUp(s), "the rung above can be called out");
             string head = Blacklist.ChallengeUp(s);
@@ -12725,6 +12767,8 @@ namespace PSXRacing.EditorTools
                   "the rung below can call the player out", knock);
             Check(s.mail.Exists(m => m.expiresDay == s.blChallenge.deadlineDay),
                   "and it lands in the mail with the deadline on it");
+            Check(s.blChallenge.yourPick && Blacklist.AwaitingYourPick(s),
+                  "called out, the player names the first road");
             Blacklist.Decline(s);
             Check(Blacklist.PlayerRank(s) == 11,
                   "declining hands over the rank", Blacklist.PlayerRank(s));

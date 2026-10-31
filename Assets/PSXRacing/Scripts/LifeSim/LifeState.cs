@@ -202,6 +202,14 @@ namespace PSXRacing.LifeSim
         /// whenever a series involving the player ends.</summary>
         public int blIncomingReadyDay;
 
+        /// <summary>The player has been asked onto the blacklist. Until then
+        /// the board runs without them (the names still churn every night)
+        /// but there is no RIVALS tab, nobody calls them out and nobody at a
+        /// meet races them for a rank — the owner, 2026-10-31: the list should
+        /// not be there before the player has been invited to it. Set once,
+        /// by <see cref="Blacklist.CheckInvite"/>, and never cleared.</summary>
+        public bool blInvited;
+
         // ---- legacy (pre-v14) ----
         /// <summary>DEAD, and kept only so the v14 migration can read where a
         /// career already stood. Ranks the player had beaten under the fixed
@@ -815,10 +823,20 @@ namespace PSXRacing.LifeSim
         /// this day closes is forfeited — the owner's rule: declining or
         /// missing a race for any reason counts as a loss.</summary>
         public int deadlineDay;
-        /// <summary>Where the series runs, fixed when it opens so three legs
-        /// are three runs at the same place rather than a tour. Chosen from
-        /// the rival's own style: their call-out, their road.</summary>
+        /// <summary>Where the NEXT leg runs. -1 while it is the player's to
+        /// name and they have not named it yet (<see cref="yourPick"/>).
+        ///
+        /// It used to be one road for all three legs. The owner, 2026-10-31:
+        /// whoever is CHALLENGED names the first road, and the LOSER of each
+        /// leg names the next one — so this is re-chosen after every leg, and
+        /// a road already raced in the series cannot be named again (its
+        /// reverse twin can).</summary>
         public int trackIndex = -1;
+        /// <summary>The next leg's road is the PLAYER's to name.</summary>
+        public bool yourPick;
+        /// <summary>Roads already raced in this series, in leg order — stamped
+        /// at the start line (<see cref="Blacklist.BeginLeg"/>).</summary>
+        public List<int> legRoads = new List<int>();
         /// <summary>A leg has been LAUNCHED and has not reported back. The
         /// same contract <see cref="CarMeets.BeginRun"/> uses: the run is
         /// committed at the start line, so quitting out of it is a loss rather
