@@ -122,10 +122,30 @@ namespace PSXRacing.EditorTools
             int sawFwd = 0, sawBack = 0;
             float worstRide = 0f, worstSide = 0f;
             int shot = 0;
+            // SPEED (owner 2026-10-31: "traffic putters along at 10-20 mph"): how fast the
+            // traffic actually MOVES - metres between samples over the time between them -
+            // beside what its body reports, and the player's own.
+            var lastPos = new System.Collections.Generic.Dictionary<Rigidbody, Vector3>();
+            float lastT = Time.time, movedSum = 0f, velSum = 0f; int moved = 0, under25 = 0, over45 = 0;
+            float playerMoved = 0f, playerVel = 0f; int playerN = 0; Vector3 playerLast = car.transform.position;
             float t0 = Time.time;
             while (Time.time - t0 < 30f)
             {
                 yield return new WaitForSeconds(0.5f);
+                float dtS = Time.time - lastT; lastT = Time.time;
+                var pb = car.GetComponent<Rigidbody>();
+                if (dtS > 0.2f) { playerMoved += (car.transform.position - playerLast).magnitude / dtS; playerVel += pb != null ? pb.linearVelocity.magnitude : 0f; playerN++; }
+                playerLast = car.transform.position;
+                foreach (var rb in ts.Obstacles)
+                {
+                    if (rb == null || !rb.gameObject.activeInHierarchy || rb.useGravity) continue;
+                    if (lastPos.TryGetValue(rb, out Vector3 was) && dtS > 0.2f)
+                    {
+                        float v = (rb.position - was).magnitude / dtS;
+                        if (v < 60f) { movedSum += v; velSum += rb.linearVelocity.magnitude; moved++; if (v * 2.237f < 25f) under25++; if (v * 2.237f > 45f) over45++; }
+                    }
+                    lastPos[rb] = rb.position;
+                }
                 var bodies = ts.Obstacles;
                 maxLive = Mathf.Max(maxLive, bodies.Count);
                 foreach (var rb in bodies)
@@ -153,6 +173,12 @@ namespace PSXRacing.EditorTools
                 }
                 if (Time.time - t0 > 8f && shot < 3 && bodies.Count > 0 && Shoot("traffic_" + shot)) shot++;
             }
+            if (moved > 0)
+                TrafficPlayCheck.Note("traffic SPEED (" + (def != null ? def.speedLimitKmh / 1.609f : 0f).ToString("0") + " mph limit, level " + ts.Level + "): moves " +
+                    (movedSum / moved * 2.237f).ToString("0") + " mph mean, body says " + (velSum / moved * 2.237f).ToString("0") + " mph; " +
+                    under25 + "/" + moved + " samples under 25 mph, " + over45 + " over 45");
+            if (playerN > 0)
+                TrafficPlayCheck.Note("player: moves " + (playerMoved / playerN * 2.237f).ToString("0") + " mph mean, body says " + (playerVel / playerN * 2.237f).ToString("0") + " mph");
             TrafficPlayCheck.Note("peak " + maxLive + " traffic cars live; " + samples + " samples (" +
                                   sawFwd + " with the race, " + sawBack + " oncoming)");
             TrafficPlayCheck.Note(ts.WreckLog.Count + " wrecks in the drive: " + string.Join("; ", ts.WreckLog));
