@@ -100,6 +100,9 @@
         /// owned, the one with the keys is at a shop, or has no engine). The
         /// scene's own car is stood down and the player walks.</summary>
         public static bool NoCar;
+        /// <summary>The cold boot's TITLE SCREEN: Charlotte at night behind
+        /// CONTINUE GAME / NEW GAME (City.TitleCity), not a drive.</summary>
+        public static bool TitleScreen;
         /// <summary>What the free-roam session calls the place it happened in,
         /// for the line the apply-back writes into the diary. Stamped by
         /// CityMode on the way out — the town is not a TrackCatalog entry, so
@@ -455,6 +458,7 @@
             TrafficLevel = -1;
             FreeRoam = false; FreeRoamPlace = null;
             ArriveOnFoot = false; NoCar = false;
+            TitleScreen = false;
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;
             CarryConsumable = 1f;
