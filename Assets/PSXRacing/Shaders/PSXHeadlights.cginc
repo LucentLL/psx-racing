@@ -109,6 +109,9 @@
 // old asphalt 65 -> 92; Samuel Street's concrete 188 -> 193. By day the gain is 1
 // exactly (_PSXHeadNight is 0 through sunset and dawn - CarLights.BeamNight),
 // so no daylight road gets lighter. The street lamps and the sun never take it.
+#define BEAM_DROP_M        1.2     // the deepest a lit surface sits under the lamp at the bumper...
+#define BEAM_DROP_GRADE    0.17    // ...plus this per metre out (a 17% downgrade: steeper than any road we race)...
+#define BEAM_DROP_FADE_M   1.5     // ...fading out over this much more: the ground under a deck is metres deeper
 #define BEAM_ALBEDO_FLOOR     0.16    // linear luminance the beam reads a darker upward texel toward
 #define BEAM_ALBEDO_GAIN_MAX  4.0     // most it multiplies the beam's light on any texel by
 
@@ -242,10 +245,18 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
                     * (1.0 - smoothstep(BEAM_SPILL_CUT_LO, BEAM_SPILL_CUT_HI, slope))
                     * (1.0 - smoothstep(BEAM_SPILL_FROM, BEAM_SPILL_TO, dist));
         // Grazing surfaces take the whole beam; back faces none.
+        // NOT THROUGH A DECK (owner 2026-10-31: "lights go through bridges to
+        // the ground below"). The beam casts no shadow, so its lower half lit
+        // the ground under a viaduct. It now stops at the drop a road could
+        // have: the lamp's height plus a steep grade over the distance.
+        float drop = -d.y;
+        float roadDrop = BEAM_DROP_M + BEAM_DROP_GRADE * length(d.xz);
+        float deck = 1.0 - smoothstep(roadDrop, roadDrop + BEAM_DROP_FADE_M, drop);
+
         float nl = dot(N, -d) / max(dist, 0.05);
         float facing = facingOn > 1.5 ? saturate(nl)
                      : facingOn > 0.5 ? smoothstep(BEAM_FACE_LO, BEAM_FACE_HI, nl) : 1.0;
-        diff += _PSXHeadColor[j].rgb * ((spread * cut * att + spill) * front * facing);
+        diff += _PSXHeadColor[j].rgb * ((spread * cut * att + spill) * front * facing * deck);
 
         if (specOn > 0.5)
         {
@@ -268,7 +279,7 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
             // a lamp just under the plane. A hard step - every lamp above the
             // plane keeps its whole grazing streak.
             float seen = step(0.0, dot(N, l));
-            spec += _PSXHeadColor[j].rgb * (max(_PSXHeadColor[j].w, 0.0) * nh * spread * front * reach * seen);
+            spec += _PSXHeadColor[j].rgb * (max(_PSXHeadColor[j].w, 0.0) * nh * spread * front * reach * seen * deck);
         }
     }
 }

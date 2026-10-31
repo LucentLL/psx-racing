@@ -48,7 +48,7 @@ namespace PSXRacing
         /// <summary>A finished racer goes round again this often (a range,
         /// so it does not feel like a timer), started this far upstream.</summary>
         const float RacerEveryMinS = 45f, RacerEveryMaxS = 90f, RacerUpstreamM = 520f, RacerMps = 27f;
-        const float Fov = 46f;
+        const float Fov = 42f;
 
         RaceManager rm;
         RaceHandoffApplier applier;
@@ -235,42 +235,79 @@ namespace PSXRacing
         // =================== the camera ===================
 
         /// <summary>
-        /// Stand on the open side of the viaduct, a little before its near
-        /// end, looking along it to its middle - the postcard view. Tried at a
-        /// few distances and heights on both sides; the first that sees the
-        /// deck's near end, middle and far end with nothing in the way, and
-        /// stands well clear of the ground, wins. The valley side is tried
-        /// first: the slope behind the deck is the backdrop, not the lens.
+        /// THE POSTCARD (the owner's Linn Cove photo): up the slope at one end
+        /// of the viaduct, close, looking ALONG the deck as it sweeps round the
+        /// mountain, the valley open beyond it. The first cut stood 110 m out
+        /// on the valley side and the deck was a thin band in a lot of empty
+        /// hillside ("too far away ... doesn't capture the iconic view").
+        ///
+        /// Spots are tried closest first, uphill side first, at both ends;
+        /// one is good when it sees at least 4 of 5 points along the deck and
+        /// stands high enough over the ground to be above the canopy (tree
+        /// crowns have no colliders, so the line-of-sight test cannot see
+        /// them). Every good spot is kept: V steps through them (a hidden key,
+        /// for picking the best one off the live build).
         /// </summary>
         void PlaceCamera(TrackPath path)
         {
-            var a = path.GetPoint(i0);
-            var t = path.GetTangent(i0).normalized;
-            var right = Vector3.Cross(Vector3.up, t).normalized;
-            float lowR = GroundAt(a + right * 120f), lowL = GroundAt(a - right * 120f);
-            float first = lowR <= lowL ? 1f : -1f;
+            views.Clear();
+            int n = i1 - i0;
+            var deck = new Vector3[5];
+            foreach (int end in new[] { 0, 1 })
+            {
+                // from the start looking along the way the road runs, or from
+                // the far end looking back
+                int at = end == 0 ? i0 : i1;
+                float dirSign = end == 0 ? 1f : -1f;
+                var a = path.GetPoint(at);
+                var along = path.GetTangent(at).normalized * dirSign;
+                var right = Vector3.Cross(Vector3.up, along).normalized;
+                float upR = GroundAt(a + right * 50f), upL = GroundAt(a - right * 50f);
+                float uphill = upR >= upL ? 1f : -1f;
+                for (int k = 0; k < 5; k++)
+                {
+                    float f = 0.15f + 0.175f * k;
+                    int wi = end == 0 ? i0 + Mathf.RoundToInt(n * f) : i1 - Mathf.RoundToInt(n * f);
+                    deck[k] = path.GetPoint(wi) + Vector3.up * 1.5f;
+                }
+                int li = end == 0 ? i0 + Mathf.RoundToInt(n * 0.6f) : i1 - Mathf.RoundToInt(n * 0.6f);
+                var look = path.GetPoint(li) + Vector3.up * 1f;
 
-            var look = path.GetPoint(im) + Vector3.up * 2f;
-            var targets = new[] { path.GetPoint(i0) + Vector3.up * 1.5f, look, path.GetPoint(i1) + Vector3.up * 1.5f };
-            Vector3 bestEye = a - t * 60f + right * first * 110f + Vector3.up * 35f;
-            int bestScore = -1;
-            foreach (float side in new[] { first, -first })
-                foreach (float dist in new[] { 110f, 80f, 150f, 60f })
-                    foreach (float up in new[] { 30f, 50f, 18f, 75f })
-                    {
-                        var eye = a - t * 60f + right * side * dist + Vector3.up * up;
-                        float g = GroundAt(eye);
-                        if (eye.y - g < 6f) continue;
-                        int score = 0;
-                        foreach (var target in targets)
-                            if (!Physics.Linecast(eye, target, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-                                score++;
-                        if (score > bestScore) { bestScore = score; bestEye = eye; }
-                        if (score == targets.Length) goto found;
-                    }
-            found:
-            cam.transform.SetPositionAndRotation(bestEye, Quaternion.LookRotation(look - bestEye, Vector3.up));
-            Debug.Log($"[TitleScreen] viaduct wp {i0}-{i1}, camera at {bestEye} sees {bestScore}/3");
+                foreach (float side in new[] { uphill, -uphill })
+                    foreach (float dist in new[] { 30f, 45f, 60f, 80f })
+                        foreach (float back in new[] { 15f, 35f })
+                            foreach (float up in new[] { 25f, 35f, 50f })
+                            {
+                                var eye = a - along * back + right * side * dist + Vector3.up * up;
+                                if (eye.y - GroundAt(eye) < CanopyClearM) continue;
+                                int seen = 0;
+                                foreach (var p in deck)
+                                    if (!Physics.Linecast(eye, p, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                                        seen++;
+                                if (seen >= 4) views.Add((eye, look));
+                            }
+            }
+            if (views.Count == 0)
+            {
+                // nothing passed: the old wide view from the valley side
+                var a = path.GetPoint(i0);
+                var t = path.GetTangent(i0).normalized;
+                var right = Vector3.Cross(Vector3.up, t).normalized;
+                views.Add((a - t * 60f + right * 110f + Vector3.up * 35f, path.GetPoint(im) + Vector3.up * 2f));
+            }
+            view = 0;
+            ShowView();
+        }
+
+        const float CanopyClearM = 22f;
+        readonly List<(Vector3 eye, Vector3 look)> views = new List<(Vector3, Vector3)>();
+        int view;
+
+        void ShowView()
+        {
+            var (eye, look) = views[view];
+            cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(look - eye, Vector3.up));
+            Debug.Log($"[TitleScreen] view {view + 1}/{views.Count}: eye {eye} looking at {look} (viaduct wp {i0}-{i1})");
         }
 
         static float GroundAt(Vector3 p)
@@ -381,6 +418,12 @@ namespace PSXRacing
 
         void LateUpdate()
         {
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null && kb.vKey.wasPressedThisFrame && views.Count > 1 && cam != null)
+            {
+                view = (view + 1) % views.Count;
+                ShowView();
+            }
             if (Time.unscaledTime >= sweepAt)
             {
                 SweepCanvases();

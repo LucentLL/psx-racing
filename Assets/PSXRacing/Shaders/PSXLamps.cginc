@@ -120,10 +120,14 @@ float4 _PSXFieldWhite;    // rgb a mercury-vapour head (linear, the bulb's lumin
 float4 _PSXFieldWarm;     // rgb the bulb (linear), w uptown's gain (its heads were white LED: the same light, warm)
 
 // How far under the heads the pool and the glow reach: a street is 6-12 m
-// under its heads; a road 20 m under a lit deck is not lit by it, and a
-// surface above the heads (a tower's upper storeys, the deck over a lit
-// street) takes none of the pool and only the glow's lowest fringe.
-#define FIELD_UNDER_M   22.0
+// under its heads; the ground under a lit deck (6-8 m of clearance, the
+// heads 9 m over the deck: 15-17 m) is not lit by it - at 22 m it was, the
+// owner 2026-10-31: "lights go through bridges to the ground below". Whole
+// to 12 m under, gone by 16. A surface above the heads (a tower's upper
+// storeys, the deck over a lit street) takes none of the pool and only the
+// glow's lowest fringe.
+#define FIELD_UNDER_M    16.0
+#define FIELD_UNDER_RAMP 0.25   // 1 / the metres the reach fades over
 #define FIELD_GLOW_UP_M 8.0
 
 /// The lit street's light at `wpos` on a surface facing `N` (facingOn 0: no
@@ -138,8 +142,8 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     float2 b = saturate(min(uv, 1.0 - uv) * 10.0);
     float headY = _PSXLampFieldY.x + f.b / max(f.g, 1e-4);
     float under = headY - wpos.y;
-    float vertP = saturate((under + 1.0) * 0.5) * saturate((FIELD_UNDER_M - under) * 0.125);
-    float vertG = saturate((under + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - under) * 0.125);
+    float vertP = saturate((under + 1.0) * 0.5) * saturate((FIELD_UNDER_M - under) * FIELD_UNDER_RAMP);
+    float vertG = saturate((under + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - under) * FIELD_UNDER_RAMP);
     // the pool falls from above: a road takes it all, a wall or a car's side
     // 0.55, an underside none; the glow comes from every side
     float upP = facingOn > 0.5 ? saturate(0.55 + 0.45 * N.y) : 1.0;
