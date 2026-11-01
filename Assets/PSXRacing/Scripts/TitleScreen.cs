@@ -475,20 +475,20 @@ namespace PSXRacing
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "TitleCanvas", 50);
 
-            // A dark band low on the screen for the buttons, the view clear above.
-            MenuKit.Stretch(canvas.transform, "Band", new Vector2(0f, 0f), new Vector2(1f, 0f),
-                0f, 0f, 0f, 250f, new Color(0f, 0f, 0f, 0.45f));
+            // The menu down the LEFT, over the valley: the viaduct runs through
+            // the middle and right of the frame, and a centred column of
+            // buttons sat right on the deck (10-31, the postcard camera).
             MenuKit.Scanlines(canvas.transform, 0.10f);
 
             MenuKit.Label(canvas.transform, Application.productName.ToUpperInvariant(), 64,
-                new Vector2(0.5f, 1f), new Vector2(0f, -70f), TextAnchor.MiddleCenter,
+                new Vector2(0f, 1f), new Vector2(48f, -56f), TextAnchor.MiddleLeft,
                 MenuKit.Accent, 900f, 80f, bold: true);
             MenuKit.Label(canvas.transform, "NORTH CAROLINA  ·  1999", MenuKit.Body,
-                new Vector2(0.5f, 1f), new Vector2(0f, -128f), TextAnchor.MiddleCenter,
+                new Vector2(0f, 1f), new Vector2(52f, -112f), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 600f);
 
-            root = MenuKit.Stretch(canvas.transform, "Buttons", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-                -240f, -240f, 30f, 220f);
+            root = MenuKit.Stretch(canvas.transform, "Buttons", new Vector2(0f, 0f), new Vector2(0f, 0f),
+                0f, -520f, 24f, 220f);
             BuildButtons();
 
             // Over everything, the menu included: the seasons fade through it.
@@ -509,11 +509,11 @@ namespace PSXRacing
             float y = 96f;
             if (HasCareer)
             {
-                items.Add(MenuKit.Button(root, "CONTINUE GAME", new Vector2(0.5f, 0f), new Vector2(0f, y),
+                items.Add(MenuKit.Button(root, "CONTINUE GAME", new Vector2(0f, 0f), new Vector2(48f, y),
                     new Vector2(440f, 60f), Leave, MenuKit.Head));
                 y -= 76f;
             }
-            items.Add(MenuKit.Button(root, "NEW GAME", new Vector2(0.5f, 0f), new Vector2(0f, y),
+            items.Add(MenuKit.Button(root, "NEW GAME", new Vector2(0f, 0f), new Vector2(48f, y),
                 new Vector2(440f, 60f), () => { if (HasCareer) Confirm(); else Leave(); }, MenuKit.Head));
             Wire(items);
         }
@@ -524,11 +524,11 @@ namespace PSXRacing
         {
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
             MenuKit.Label(root, "ERASE THIS CAREER? Money, cars and rep are gone.", 18,
-                new Vector2(0.5f, 0f), new Vector2(0f, 180f), TextAnchor.MiddleCenter, MenuKit.Bad, 480f);
-            var yes = MenuKit.Button(root, "YES — START OVER", new Vector2(0.5f, 0f), new Vector2(0f, 120f),
+                new Vector2(0f, 0f), new Vector2(48f, 180f), TextAnchor.MiddleLeft, MenuKit.Bad, 520f);
+            var yes = MenuKit.Button(root, "YES — START OVER", new Vector2(0f, 0f), new Vector2(48f, 120f),
                 new Vector2(440f, 54f), () => { LifeSimManager.DeleteSave(); Leave(); }, 20,
                 new Color(0.42f, 0.12f, 0.12f, 1f));
-            var no = MenuKit.Button(root, "CANCEL", new Vector2(0.5f, 0f), new Vector2(0f, 56f),
+            var no = MenuKit.Button(root, "CANCEL", new Vector2(0f, 0f), new Vector2(48f, 56f),
                 new Vector2(440f, 54f), BuildButtons, 20);
             Wire(new List<Selectable> { no, yes });
         }
