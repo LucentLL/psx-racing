@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl gt_hardtop_73_wheels_f
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/gt_hardtop_73_silver_512x256.png

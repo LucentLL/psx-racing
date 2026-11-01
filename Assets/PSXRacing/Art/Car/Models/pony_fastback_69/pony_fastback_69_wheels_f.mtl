@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl pony_fastback_69_wheels_f
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/pony_fastback_69_blue_512x256.png

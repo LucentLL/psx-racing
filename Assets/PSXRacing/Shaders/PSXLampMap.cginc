@@ -10,12 +10,13 @@
 // A legacy R/G map (<key>_lightmask_rg.png) never has its B/A read: CarLights
 // leaves _HeadLights at 0 for it.
 //
-//   rear = max(R * run colour * run strength * running,
-//              G * brake colour * brake strength * brake) * lens detail,
+//   rear = max(R * run colour * run strength * max(running, brake * (1 - running)),
+//              G * brake colour * brake strength * brake * running) * lens detail,
 //   lens detail = lerp(0.55, 1, saturate(atlas.r * 2)),
 //   head = (B * core + A * scatter * head detail) * low-beam colour * headlights,
 //   head detail = lerp(0.3, 1, saturate(luminance(atlas) * 3)),
-// so braking works with the running lights off and never doubles with them on.
+// so braking works with the running lights off (on the running texels, owner
+// 2026-11-01: the brake texture is too bright by day) and never doubles with them on.
 //
 // His strengths (running 0.8, brake 7, core 3, scatter 0.65) assume an HDR
 // target and a bloom threshold of 1; this camera is LDR (allowHDR false) and
@@ -51,11 +52,17 @@
 #define LENS_REAR_SHARE      0.20   // of the rear emission, onto a tail cover
 
 /// The rear lamps (running/brake) at one texel, before any lens split.
+/// DAYTIME BRAKING (owner, 2026-11-01: "Braking during day should use running
+/// light texture, because brake light texture is too bright during day"):
+/// with the running lights off, the brake lights the RUNNING texels (R) at the
+/// running strength; the brake texels (G) at the brake strength need the
+/// running lights on. A lamp fading between the two blends by `running`.
 inline float3 PSXLampRear(float2 rg, float3 atlas, float running, float brake)
 {
     float lensDetail = lerp(LAMP_DETAIL_LO, 1.0, saturate(atlas.r * 2.0));
-    float3 run = rg.x * LAMP_RUN_COLOR * (LAMP_RUN_STRENGTH * saturate(running));
-    float3 stop = rg.y * LAMP_BRAKE_COLOR * (LAMP_BRAKE_STRENGTH * saturate(brake));
+    float on = saturate(running), brk = saturate(brake);
+    float3 run = rg.x * LAMP_RUN_COLOR * (LAMP_RUN_STRENGTH * max(on, brk * (1.0 - on)));
+    float3 stop = rg.y * LAMP_BRAKE_COLOR * (LAMP_BRAKE_STRENGTH * brk * on);
     return max(run, stop) * lensDetail;
 }
 

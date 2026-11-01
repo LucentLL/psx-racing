@@ -152,6 +152,12 @@ namespace PSXRacing
             // body (RZ, SZ-R). The pack's grand tourer keeps the older rows
             // and the cars scored onto it.
             new Model { key = "gt_liftback_97",   name = "GT Liftback 97",       region = Region.Japan,   year = 1997, body = Body.GT,     kg = 1474, handOnly = true, widthMm = 1810 },
+            // 2026-11-01: the owner's C5 fixed roof (pop-ups; the new catalog row
+            // Chevrolet Corvette Z06 (C5) `99), '69 fastback (the Shelby and its
+            // Cougar twin, off the pack's '67) and KPGC110 hardtop (the `73 GT-R).
+            new Model { key = "fixed_roof_99",    name = "Fixed Roof 99",        region = Region.America, year = 1999, body = Body.Sports, kg = 1408, handOnly = true, widthMm = 1890 },
+            new Model { key = "pony_fastback_69", name = "Pony Fastback 69",     region = Region.America, year = 1969, body = Body.Muscle, kg = 1450, handOnly = true, widthMm = 1830 },
+            new Model { key = "gt_hardtop_73",    name = "GT Hardtop 73",        region = Region.Japan,   year = 1973, body = Body.GT,     kg = 1185, handOnly = true, widthMm = 1695 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -529,6 +535,11 @@ namespace PSXRacing
             (@"^Honda\ ACCORD\ Coupe\ Type\ S\ `99$",                   "coupe_03"),
             (@"^Mitsubishi\ Lancer\ Evolution\ VI\ (RS|GSR|Rally\ Car)\ `99$", "rally_sedan_99"),
             (@"^Nissan\ 240SX\ `96$",                                    "fastback_96"),
+            // 2026-11-01: the owner's C5, '69 fastback and Kenmeri. The Shelby and
+            // its Mercury twin leave the pack's '67 fastback (its own rule below).
+            (@"^Chevrolet\ Corvette\ Z06\ \(C5\)\ `99$",                 "fixed_roof_99"),
+            (@"^Shelby\ Mustang\ G\.T\.\ 350R\ `65$|^Mercury\ Cougar",  "pony_fastback_69"),
+            (@"^Nissan\ SKYLINE\ 2000GT-R\ \(KPGC110\)\ `73$",           "gt_hardtop_73"),
             // 2026-10-06, the owner's Car Models Tracker remap (approved "all look good"):
             // 38 cars moved onto the existing shell closest to the real car. Exact names,
             // first so they win; review page https://claude.ai/artifact/MvczJsa8sF44Jj2YkECfAw

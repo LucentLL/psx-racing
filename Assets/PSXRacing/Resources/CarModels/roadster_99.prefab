@@ -54,28 +54,28 @@ MonoBehaviour:
   - roadster_99_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.4199942, g: 0.17811736, b: 0.18938564, a: 1}
+  - {r: 0.31598163, g: 0.20162459, b: 0.2042885, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.022660714
-  bodyZOffset: -0.00002503395
-  wheelbase: 2.409591
-  trackWidth: 1.419349
-  wheelRadius: 0.3010638
+  bodyYOffset: -0.024569495
+  bodyZOffset: -0.000024974346
+  wheelbase: 2.4132981
+  trackWidth: 1.421533
+  wheelRadius: 0.3009415
   wheelMeshScale: 0.93
-  trackRear: 1.444641
-  tyreRadiusRear: 0.3237245
-  tyreWidthRear: 0.23083699
-  lowerBodyWidth: 1.800512
-  cowlZ: 0.4343756
-  cowlY: 0.83610046
-  noseZ: 2.0237663
-  roofY: 1.2757807
-  headLamp: {x: 0.6455698, y: 0.61454177, z: 1.6733335}
-  headLampNormal: {x: 0.489536, y: 0.6729729, z: 0.55449253}
-  headLampSize: {x: 0.20640025, y: 0.092182964}
-  tailLamp: {x: 0.52904797, y: 0.6774333, z: -2.0215511}
-  tailLampNormal: {x: 0.15455991, y: 0.11812373, z: -0.98089653}
-  tailLampSize: {x: 0.3447181, y: 0.25671145}
+  trackRear: 1.4468629
+  tyreRadiusRear: 0.32359198
+  tyreWidthRear: 0.28547305
+  lowerBodyWidth: 1.816798
+  cowlZ: 0.5073727
+  cowlY: 0.86421216
+  noseZ: 2.019232
+  roofY: 1.2719569
+  headLamp: {x: 0.57086504, y: 0.5906041, z: 1.693787}
+  headLampNormal: {x: 0.19552633, y: 0.8749797, z: 0.442922}
+  headLampSize: {x: 0.47879, y: 0.28}
+  tailLamp: {x: 0.60769504, y: 0.7269072, z: -1.9201574}
+  tailLampNormal: {x: 0.33359817, y: -0.268502, z: -0.9036697}
+  tailLampSize: {x: 0.43091097, y: 0.239395}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.72447675, z: -0.043733954}
-  colliderSize: {x: 1.6713628, y: 1.0288323, z: 3.9489253}
-  blobSize: {x: 2.2284837, y: 4.4244504}
+  colliderCenter: {x: 0, y: 0.72419006, z: -0.0482679}
+  colliderSize: {x: 1.6849725, y: 1.0222731, z: 3.9489253}
+  blobSize: {x: 2.2466302, y: 4.4244504}

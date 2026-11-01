@@ -54,28 +54,28 @@ MonoBehaviour:
   - coupe_03_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.23940541, g: 0.23447508, b: 0.23837708, a: 1}
+  - {r: 0.2525802, g: 0.24911392, b: 0.2552328, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.022444455
+  bodyYOffset: -0.022460932
   bodyZOffset: 0
-  wheelbase: 2.624455
-  trackWidth: 1.5274911
-  wheelRadius: 0.29819104
+  wheelbase: 2.6263769
+  trackWidth: 1.528611
+  wheelRadius: 0.29840955
   wheelMeshScale: 0.93
-  trackRear: 1.507833
-  tyreRadiusRear: 0.32063553
-  tyreWidthRear: 0.20150304
-  lowerBodyWidth: 1.756498
-  cowlZ: 1.1250501
-  cowlY: 0.8956407
-  noseZ: 2.280425
-  roofY: 1.3506004
-  headLamp: {x: 0.55361176, y: 0.6315574, z: 2.0446048}
-  headLampNormal: {x: 0.430738, y: 0.4583872, z: 0.77739686}
-  headLampSize: {x: 0.36739418, y: 0.11752519}
-  tailLamp: {x: 0.5281553, y: 0.8186912, z: -2.1915295}
-  tailLampNormal: {x: 0.27667487, y: 0.36802006, z: -0.88770056}
-  tailLampSize: {x: 0.33376414, y: 0.13138324}
+  trackRear: 1.508937
+  tyreRadiusRear: 0.3208705
+  tyreWidthRear: 0.20165098
+  lowerBodyWidth: 1.757552
+  cowlZ: 1.1559699
+  cowlY: 0.8969629
+  noseZ: 2.282095
+  roofY: 1.3517127
+  headLamp: {x: 0.61386395, y: 0.62489164, z: 1.9154774}
+  headLampNormal: {x: 0.50406903, y: 0.54524255, z: 0.6697948}
+  headLampSize: {x: 0.35658205, y: 0.119024485}
+  tailLamp: {x: 0.5345708, y: 0.8172956, z: -2.2246408}
+  tailLampNormal: {x: 0.21945447, y: 0.23661748, z: -0.9464946}
+  tailLampSize: {x: 0.342304, y: 0.1291784}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.75599355, z: -0.05957496}
-  colliderSize: {x: 1.7502156, y: 1.1065177, z: 4.4694004}
-  blobSize: {x: 2.333621, y: 5.007601}
+  colliderCenter: {x: 0, y: 0.756532, z: -0.057905078}
+  colliderSize: {x: 1.7460982, y: 1.1073276, z: 4.4694004}
+  blobSize: {x: 2.328131, y: 5.007601}

@@ -56,8 +56,8 @@ MonoBehaviour:
   - coupe_96_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.29337633, g: 0.30056998, b: 0.37130618, a: 1}
-  - {r: 0.43522468, g: 0.22634923, b: 0.22735584, a: 1}
+  - {r: 0.2917587, g: 0.29724315, b: 0.36355853, a: 1}
+  - {r: 0.4254015, g: 0.2194547, b: 0.21964188, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.023011727
   bodyZOffset: 0.000000059604645
@@ -68,17 +68,17 @@ MonoBehaviour:
   trackRear: 1.538457
   tyreRadiusRear: 0.33775902
   tyreWidthRear: 0.335755
-  lowerBodyWidth: 1.882914
+  lowerBodyWidth: 1.971166
   cowlZ: 0.3557451
-  cowlY: 0.8146682
+  cowlY: 0.8162483
   noseZ: 2.10887
-  roofY: 1.1778942
-  headLamp: {x: 0.60878253, y: 0.59709305, z: 1.7861246}
-  headLampNormal: {x: 0.04367613, y: 0.8586472, z: 0.51070285}
-  headLampSize: {x: 0.23341203, y: 0.08998364}
-  tailLamp: {x: 0.66719687, y: 0.6352718, z: -2.1655507}
-  tailLampNormal: {x: 0.44544962, y: -0.119761944, z: -0.88726074}
-  tailLampSize: {x: 0.2943565, y: 0.1662888}
+  roofY: 1.1815702
+  headLamp: {x: 0.612697, y: 0.5239109, z: 1.8944738}
+  headLampNormal: {x: 0.3116498, y: 0.66957504, z: 0.67419857}
+  headLampSize: {x: 0.5, y: 0.28}
+  tailLamp: {x: 0.6726929, y: 0.6407003, z: -2.169884}
+  tailLampNormal: {x: 0.37475264, y: -0.21094565, z: -0.90280807}
+  tailLampSize: {x: 0.2978684, y: 0.17707014}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -88,6 +88,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.6501933, z: -0.13512987}
-  colliderSize: {x: 1.8194484, y: 0.9863423, z: 4.28604}
-  blobSize: {x: 2.425931, y: 4.8021603}
+  colliderCenter: {x: 0, y: 0.6543323, z: -0.13512987}
+  colliderSize: {x: 1.8084445, y: 0.99379253, z: 4.28604}
+  blobSize: {x: 2.4112592, y: 4.8021603}

@@ -42,8 +42,14 @@ Material:
     - _LensLayer: 0
     - _MainTexRaw: 0
     - _PSXCabinOwn: 0
+    - _PSXGloss: 1
     - _RunningLights: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _PSXCarRun: {r: 0, g: 0, b: 0, a: 0}
+    - _PSXCarWind: {r: 0, g: 0, b: 0, a: 0}
+    - _PSXOwnLampA: {r: 0, g: 0, b: 0, a: 1}
+    - _PSXOwnLampB: {r: 0, g: 0, b: 0, a: 1}
+    - _PSXOwnLampCol: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

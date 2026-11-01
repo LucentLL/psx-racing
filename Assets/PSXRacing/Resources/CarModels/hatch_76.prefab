@@ -54,28 +54,28 @@ MonoBehaviour:
   - hatch_76_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.5091054, g: 0.50972867, b: 0.50823206, a: 1}
+  - {r: 0.45124298, g: 0.44541648, b: 0.44275507, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.019223649
+  bodyYOffset: -0.019561848
   bodyZOffset: 0
-  wheelbase: 2.328968
-  trackWidth: 1.339157
-  wheelRadius: 0.25540033
+  wheelbase: 2.369936
+  trackWidth: 1.362713
+  wheelRadius: 0.25989315
   wheelMeshScale: 0.93
-  trackRear: 1.2867551
-  tyreRadiusRear: 0.27462402
-  tyreWidthRear: 0.16496903
-  lowerBodyWidth: 1.585406
-  cowlZ: 0.8763898
-  cowlY: 0.83812904
-  noseZ: 1.906843
-  roofY: 1.2830465
-  headLamp: {x: 0.5482118, y: 0.575743, z: 1.8107023}
-  headLampNormal: {x: 0.015247654, y: -0.0063156886, z: 0.9998638}
-  headLampSize: {x: 0.16893458, y: 0.18087202}
-  tailLamp: {x: 0.55602103, y: 0.58847594, z: -1.6989084}
-  tailLampNormal: {x: 0.042875607, y: 0.020205313, z: -0.9988761}
-  tailLampSize: {x: 0.19677465, y: 0.1330257}
+  trackRear: 1.3093901
+  tyreRadiusRear: 0.279455
+  tyreWidthRear: 0.16786999
+  lowerBodyWidth: 1.583322
+  cowlZ: 0.87635785
+  cowlY: 0.8558667
+  noseZ: 1.906811
+  roofY: 1.3066151
+  headLamp: {x: 0.5480461, y: 0.5697962, z: 1.8410101}
+  headLampNormal: {x: 0.0057023293, y: -0.0666819, z: 0.99775803}
+  headLampSize: {x: 0.15026104, y: 0.15427148}
+  tailLamp: {x: 0.5661322, y: 0.60130894, z: -1.7415146}
+  tailLampNormal: {x: 0.05012267, y: 0, z: -0.99874306}
+  tailLampSize: {x: 0.20784517, y: 0.12736654}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.72857887, z: 0.054342985}
-  colliderSize: {x: 1.4970316, y: 1.0340613, z: 3.5382748}
-  blobSize: {x: 1.9960421, y: 3.9643502}
+  colliderCenter: {x: 0, y: 0.72030616, z: 0.054310977}
+  colliderSize: {x: 1.4979721, y: 1.0913562, z: 3.5382748}
+  blobSize: {x: 1.9972962, y: 3.9643502}

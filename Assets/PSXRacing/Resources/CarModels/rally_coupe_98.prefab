@@ -54,28 +54,28 @@ MonoBehaviour:
   - rally_coupe_98_blue_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.21921165, g: 0.2688463, b: 0.37385005, a: 1}
+  - {r: 0.24006884, g: 0.2485099, b: 0.32103202, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.02168506
+  bodyYOffset: -0.021844829
   bodyZOffset: 0
-  wheelbase: 2.51827
-  trackWidth: 1.4789829
-  wheelRadius: 0.28810194
+  wheelbase: 2.49655
+  trackWidth: 1.466228
+  wheelRadius: 0.29022416
   wheelMeshScale: 0.93
-  trackRear: 1.49897
-  tyreRadiusRear: 0.30978703
-  tyreWidthRear: 0.23483801
-  lowerBodyWidth: 1.758322
-  cowlZ: 0.8736496
-  cowlY: 0.87534505
-  noseZ: 2.169509
-  roofY: 1.3411182
-  headLamp: {x: 0.62198347, y: 0.5610503, z: 1.9797498}
-  headLampNormal: {x: 0.5395313, y: 0.17303681, z: 0.82399285}
-  headLampSize: {x: 0.41395742, y: 0.103444606}
-  tailLamp: {x: 0.6071366, y: 0.7157118, z: -2.0425858}
-  tailLampNormal: {x: 0.4904238, y: -0.0774592, z: -0.8680349}
-  tailLampSize: {x: 0.39721948, y: 0.12330437}
+  trackRear: 1.486042
+  tyreRadiusRear: 0.312069
+  tyreWidthRear: 0.22785997
+  lowerBodyWidth: 1.741762
+  cowlZ: 0.8822198
+  cowlY: 0.88589716
+  noseZ: 2.1507978
+  roofY: 1.3291866
+  headLamp: {x: 0.6192468, y: 0.54928064, z: 1.9389015}
+  headLampNormal: {x: 0.40287733, y: -0.024141869, z: 0.9149356}
+  headLampSize: {x: 0.35018823, y: 0.11249027}
+  tailLamp: {x: 0.6076509, y: 0.70816535, z: -2.0524316}
+  tailLampNormal: {x: 0.4258081, y: -0.11853355, z: -0.8970158}
+  tailLampSize: {x: 0.36832568, y: 0.13810232}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.7497984, z: -0.012991071}
-  colliderSize: {x: 1.6915879, y: 1.1008431, z: 4.168575}
-  blobSize: {x: 2.2554507, y: 4.67055}
+  colliderCenter: {x: 0, y: 0.7396897, z: -0.031701922}
+  colliderSize: {x: 1.6769974, y: 1.0975904, z: 4.168575}
+  blobSize: {x: 2.2359965, y: 4.67055}

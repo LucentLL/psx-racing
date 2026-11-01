@@ -148,9 +148,12 @@ const MODELS = [
   // nearer one (CarModelDef.SkinFor), a respray the other.
   // 2026-10-10: revision 06 (3,967 tris, dark plate surround), both paints
   // again on identical geometry and UVs, converted/viper_v06.
-  { key: 'viper_gts',    obj: `${here}/converted/viper_v06/viper_v06.obj`,
-    tex: `${here}/converted/viper_v06`, skins: /^coupe_96_(blue_white|red)_512x256$/,
-    gt4LengthM: 4.488 },
+  // 2026-11-01: revision 08 (Viper_Independent_Textured_v08: body 8,914 tris),
+  // both paints on identical geometry and UVs,
+  // converted/viper_v08. The two clear Headlight_Lens covers are left off.
+  { key: 'viper_gts',    obj: `${here}/converted/viper_v08/viper_v08.obj`,
+    tex: `${here}/converted/viper_v08`, skins: /^coupe_96_(blue_white|red)_512x256$/,
+    gt4LengthM: 4.488, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's FlatSix Coupe (2026-09-26, "add FlatSixCoupe for all Porsche
   // 911's and/or RUF or the Yellowbird one"): an unbranded rear-engined coupe
@@ -206,10 +209,11 @@ const MODELS = [
   // 2026-10-10: revision 05 (stepped hood, seated pop-ups, muffler, brake
   // art; closed 3,788 / raised 3,996 tris). No vertex tint any more: the
   // GLB's atlas is used as is. converted/roadster_na_popup_v05.
-  { key: 'roadster_na_popup', obj: `${here}/converted/roadster_na_popup_v05/roadster_na_popup_v05.obj`,
-    lampsUp: `${here}/converted/roadster_na_popup_v05/roadster_na_popup_v05_up.obj`,
-    tex: `${here}/converted/roadster_na_popup_v05`, skins: /^roadster_na_red_512x256$/,
-    gt4LengthM: 3.955 },
+  // 2026-11-01: Miata_NA_Independent_v08 closed/raised, converted/roadster_na_popup_v08.
+  { key: 'roadster_na_popup', obj: `${here}/converted/roadster_na_popup_v08/roadster_na_popup_v08.obj`,
+    lampsUp: `${here}/converted/roadster_na_popup_v08/roadster_na_popup_v08_up.obj`,
+    tex: `${here}/converted/roadster_na_popup_v08`, skins: /^roadster_na_red_512x256$/,
+    gt4LengthM: 3.955, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
   // 2026-10-05, the owner's 1983 pop-up-lamp hatch (white over black, 3,992
   // tris either way, 512x256 with the underfloor on the right): the catalog's
   // one pop-up variant of that car; its fixed-lamp twin keeps its scored
@@ -239,9 +243,10 @@ const MODELS = [
   // The folder also holds the atlas's source layers, so `skins` names the one
   // sheet. GT4: Golf I GTI `76, 3705 mm, wb 2400.
   // 2026-10-10: Hatch_76_Release_v06 (3,098 tris, white), converted/hatch_76_v06.
-  { key: 'hatch_76',     obj: `${here}/converted/hatch_76_v06/hatch_76_v06.obj`,
-    tex: `${here}/converted/hatch_76_v06`, skins: /^hatch_76_512x256$/,
-    gt4LengthM: 3.705 },
+  // 2026-11-01: Hatch_76_Release_v07 (body 9,026 tris), converted/hatch_76_v07.
+  { key: 'hatch_76',     obj: `${here}/converted/hatch_76_v07/hatch_76_v07.obj`,
+    tex: `${here}/converted/hatch_76_v07`, skins: /^hatch_76_512x256$/,
+    gt4LengthM: 3.705, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's Rally Coupe 98 (2026-10-07, v02 - v01 superseded): an
   // unbadged 1998 widebody turbo-4WD coupe, 3,787 tris with the wheels (Body +
@@ -251,9 +256,11 @@ const MODELS = [
   // way in. GT4: the `98 widebody coupe sheet, 4365 mm, 1770 wide, wb 2520.
   // 2026-10-10: v05 (side glass, screen and rear glass redrawn; 3,891
   // tris), converted/rally_coupe_98_v05.
-  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v05/rally_coupe_98_v05.obj`,
-    tex: `${here}/converted/rally_coupe_98_v05`, skins: /^rally_coupe_98_blue_512x256$/,
-    gt4LengthM: 4.365 },
+  // 2026-11-01: Impreza_22B_Independent_Textured_v06, converted/rally_coupe_98_v06;
+  // its clear Headlight_Lenses are left off.
+  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v06/rally_coupe_98_v06.obj`,
+    tex: `${here}/converted/rally_coupe_98_v06`, skins: /^rally_coupe_98_blue_512x256$/,
+    gt4LengthM: 4.365, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's 2026-10-10 set, three NEW shells (unbadged, Y-up, nose -Z,
   // Body + Wheel_FL/FR/RL/RR, one 512x256 atlas, underbody right), each GLB
@@ -271,10 +278,12 @@ const MODELS = [
   { key: 'rally_sedan_99', obj: `${here}/converted/rally_sedan_99_v07/rally_sedan_99_v07.obj`,
     tex: `${here}/converted/rally_sedan_99_v07`, skins: /^rally_sedan_99_red_512x256$/,
     gt4LengthM: 4.350 },
-  { key: 'fastback_96', obj: `${here}/converted/fastback_96_v04/fastback_96_v04.obj`,
-    lampsUp: `${here}/converted/fastback_96_v04/fastback_96_v04_up.obj`,
-    tex: `${here}/converted/fastback_96_v04`, skins: /^fastback_96_white_512x256$/,
-    gt4LengthM: 4.520 },
+  // 2026-11-01: TypeX_Refined_v08_White headlights down/up, converted/fastback_96_v08;
+  // the clear sealed-beam Lens_L/R faces are left off.
+  { key: 'fastback_96', obj: `${here}/converted/fastback_96_v08/fastback_96_v08.obj`,
+    lampsUp: `${here}/converted/fastback_96_v08/fastback_96_v08_up.obj`,
+    tex: `${here}/converted/fastback_96_v08`, skins: /^fastback_96_white_512x256$/,
+    gt4LengthM: 4.520, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
@@ -298,9 +307,11 @@ const MODELS = [
     lens: `${here}/converted/liftback_95/liftback_95.obj` },
   // 2026-10-10: roadster_99 v07 (3,636 tris), converted/roadster_99_v07, its
   // atlas renamed roadster_99_red_512x256.
-  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v07/roadster_99_v07.obj`,
-    tex: `${here}/converted/roadster_99_v07`, skins: /^roadster_99_red_512x256$/,
-    gt4LengthM: 4.135 },
+  // 2026-11-01: S2000_Independent_Textured_v08, converted/roadster_99_v08; its
+  // clear Headlight_Lenses and Taillight_Lenses covers are left off.
+  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v08/roadster_99_v08.obj`,
+    tex: `${here}/converted/roadster_99_v08`, skins: /^roadster_99_red_512x256$/,
+    gt4LengthM: 4.135, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
   { key: 'coupe_99', obj: `${ownerCars}/Coupe_99_Original/Revision_04/coupe_99.obj`,
     tex: `${ownerCars}/Coupe_99_Original/Revision_04`, skins: /^coupe_512x256$/,
     gt4LengthM: 4.520 },
@@ -334,8 +345,30 @@ const MODELS = [
   { key: 'gtr_89', obj: `${here}/converted/gtr_89_v09/gtr_89_v09.obj`,
     tex: `${here}/converted/gtr_89_v09`, skins: /^gtr_89_512x256$/, gt4LengthM: 4.545,
     parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'ColoredLamp_Lenses'] },
-  { key: 'coupe_03', obj: `${here}/converted/coupe_03/coupe_03.obj`,
-    tex: `${here}/converted/coupe_03`, skins: /^coupe_03_512x256$/, gt4LengthM: 4.680 },
+  // 2026-11-01: Accord_Coupe_Independent_v09 (Nighthawk black), converted/coupe_03_v09;
+  // the clear Headlight_Lens covers are left off.
+  { key: 'coupe_03', obj: `${here}/converted/coupe_03_v09/coupe_03_v09.obj`,
+    tex: `${here}/converted/coupe_03_v09`, skins: /^coupe_03_512x256$/, gt4LengthM: 4.680,
+    parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  // 2026-11-01, three new hand-only shells:
+  //  fixed_roof_99    C5_DarkBowlingGreen_v04 closed/raised pop-ups (a 2000 fixed
+  //                   roof), on the new catalog row Chevrolet Corvette Z06 (C5) `99;
+  //                   GT4's Z06 (C5) is 4566 mm.
+  //  pony_fastback_69 Mustang_WinterBlue_v04 (a 1969 fastback), kept at its
+  //                   delivered 4.755 m (GT4 has no `69 row to scale it to).
+  //  gt_hardtop_73    Kenmeri_Refinement_v03 (KPGC110), built to GT4's own 2610 mm
+  //                   wheelbase and 1395/1375 mm tracks, so kept at its size.
+  // Clear lens covers are left off on all three.
+  { key: 'fixed_roof_99', obj: `${here}/converted/fixed_roof_99_v04/fixed_roof_99_v04.obj`,
+    lampsUp: `${here}/converted/fixed_roof_99_v04/fixed_roof_99_v04_up.obj`,
+    tex: `${here}/converted/fixed_roof_99_v04`, skins: /^fixed_roof_99_green_512x256$/,
+    gt4LengthM: 4.566, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  { key: 'pony_fastback_69', obj: `${here}/converted/pony_fastback_69_v04/pony_fastback_69_v04.obj`,
+    tex: `${here}/converted/pony_fastback_69_v04`, skins: /^pony_fastback_69_blue_512x256$/,
+    parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  { key: 'gt_hardtop_73', obj: `${here}/converted/gt_hardtop_73_v03/gt_hardtop_73_v03.obj`,
+    tex: `${here}/converted/gt_hardtop_73_v03`, skins: /^gt_hardtop_73_silver_512x256$/,
+    parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
   // 2026-10-18: R34_Bayside_Blue v05 (every R34 GT-R) and Charger_Independent
   // v01 (the Charger 440 R/T `70), via glb2obj.py. The R34's two clear covers
   // ride as its lens variant; the Charger's one cover object has no head/tail
