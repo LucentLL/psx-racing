@@ -179,6 +179,19 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarSpecId = cars[b].id;
             RaceHandoff.OpponentSpecIds = cars[b + 1].id + ";" + cars[b + 2].id + ";" + cars[b + 3].id;
             RaceHandoff.OpponentSkills = "1.0;0.95;0.9";
+            // PSX_RACE_FIELD=8: a field of that many cars (player included,
+            // RaceField.MaxCars at most) - the next ones in the catalog.
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_FIELD") ?? "", out int fieldN) && fieldN >= 2)
+            {
+                fieldN = Mathf.Min(fieldN, RaceField.MaxCars);
+                int b0 = Mathf.Clamp(20 + seed * 7, 0, cars.Count - fieldN - 1);
+                var fid = new List<string>(); var fsk = new List<string>();
+                for (int k = 1; k < fieldN; k++) { fid.Add(cars[b0 + k].id); fsk.Add((1.0f - 0.03f * (k - 1)).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)); }
+                RaceHandoff.CarSpecId = cars[b0].id;
+                RaceHandoff.OpponentSpecIds = string.Join(";", fid);
+                RaceHandoff.OpponentSkills = string.Join(";", fsk);
+                log.AppendLine("  field of " + fieldN);
+            }
             // PSX_RACE_CARS="player;rival;rival;rival" (catalog ids): a chosen
             // field instead of the seed's four - e.g. new shells as rivals.
             string pick = System.Environment.GetEnvironmentVariable("PSX_RACE_CARS");
