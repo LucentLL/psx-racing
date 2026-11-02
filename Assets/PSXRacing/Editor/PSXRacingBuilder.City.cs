@@ -251,6 +251,34 @@ namespace PSXRacing.EditorTools
         /// are retroreflective: the headlights light them). Null if the atlas
         /// is missing, and the signs then stand with their renderer off.
         /// </summary>
+        /// <summary>
+        /// The landmark crowns (2026-11-01, CityMeshes.CrownModels): the
+        /// owner's Codex crown atlas, Art/City/Crowns/CrownMaterials.png - four
+        /// 128 px strips at its 512 px authoring size (satin aluminium,
+        /// graphite, pale stone, smoked glass), this 256 px box copy CLASSIC,
+        /// the 512 px original the ENHANCED twin. No affine wobble (a crown's
+        /// faces are tens of metres). After dark the aluminium and the stone
+        /// are washed by floodlights in their own colours (PSX/Lit's lit-face
+        /// path: CrownMaterials_night.png, R = A = 179 over those two strips,
+        /// so the glow is the texel x 0.42, the coded crowns' CROWN_GAIN); the
+        /// graphite and the glass stay dark.
+        /// </summary>
+        internal static Material CityCrownMat()
+        {
+            const string dir = Root + "/Art/City/Crowns";
+            var mat = MakeMat("CityCrown", dir + "/CrownMaterials.png", affine: 0f);
+            if (mat == null) return null;
+            var mask = AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/CrownMaterials_night.png");
+            if (mat.HasProperty("_NightMask") && mat.HasProperty("_NightWin") && mat.HasProperty("_NightFace"))
+            {
+                mat.SetTexture("_NightMask", mask);
+                mat.SetFloat("_NightWin", mask != null ? 1f : 0f);
+                mat.SetFloat("_NightFace", mask != null ? 1f : 0f);
+                EditorUtility.SetDirty(mat);
+            }
+            return mat;
+        }
+
         internal static Material CitySignsMat()
         {
             const string dir = Root + "/Art/City/Signs";
@@ -573,6 +601,7 @@ namespace PSXRacing.EditorTools
             // concrete and steel in bands that tile along a girder)
             m[(int)CityMeshes.Slot.Structure] = MakeMat("CityStructure", CityPackDir + "/city_structure.png", affine: 0f,
                 wet: WetCityConcrete);
+            m[(int)CityMeshes.Slot.Crown] = CityCrownMat();
             m[(int)CityMeshes.Slot.Water] = CityWaterMat();
             // Night windows: the five facades with glass in them carry a mask
             // (Art/City/Night, see WithNightWindows); brick and both roofs are

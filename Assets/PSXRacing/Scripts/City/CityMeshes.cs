@@ -417,6 +417,10 @@ namespace PSXRacing.City
             /// structure atlas (Art/City/Pack/city_structure.png) - the tile's
             /// render-only structure mesh. After the sidewalks, so no slot moves.</summary>
             Structure,
+            /// <summary>The landmark crowns (2026-11-01): the owner's crown
+            /// models (CityMeshes.CrownModels) on their own atlas
+            /// (Art/City/Crowns/CrownMaterials.png). Last, so no slot moves.</summary>
+            Crown,
             COUNT,
         }
 
@@ -2198,6 +2202,7 @@ namespace PSXRacing.City
         {
             Slot.FacadeTower, Slot.FacadeMid, Slot.FacadeBrick, Slot.Shops,
             Slot.FacadeGlass, Slot.FacadeHouse, Slot.RoofTiles, Slot.RoofFlat,
+            Slot.Crown,
         };
 
         /// <summary>Every driving surface plus the structural concrete, in slot
@@ -11208,6 +11213,26 @@ namespace PSXRacing.City
                 if (gf != f) foreach (var p in gf.pts) g = Mathf.Min(g, CityElevation.GroundY(map, p.x, p.y));
                 float y0 = g - BuildingSink;
                 float top = y0 + BuildingSink + f.h;
+                // THE LANDMARK CROWN MODELS (2026-11-01, CityMeshes.CrownModels):
+                // a crowned hero's mapped tiers stop at its model's deck - a tier
+                // wholly above it is the model's, one that rises through it ends
+                // there under a flat roof (its visible part below is kept)
+                bool crownFlat = false;
+                if (hero >= 0)
+                {
+                    float clip = CrownClipH(hero);
+                    if (f.h > clip + 0.01f)
+                    {
+                        if (f.minH >= clip - 0.01f)
+                        {
+                            if (heroAnchorOf[hero] == fi) EmitHeroCrown(map, tm, hero, f, y0 + BuildingSink);
+                            AuditFoot(fi, 4, null, float.NaN, float.NaN, float.NaN, false);
+                            return;
+                        }
+                        top = y0 + BuildingSink + clip;
+                        crownFlat = true;
+                    }
+                }
 
                 if (f.gable)
                 {
@@ -11294,7 +11319,7 @@ namespace PSXRacing.City
                 float outlineTop = standH > f.minH + 0.01f ? floorP + standH : float.NegativeInfinity;
                 bool onOutline = outlineTop > wallY0 + 0.01f;
                 if (onOutline) wallY0 = outlineTop;
-                float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
+                float eaveY = f.roof != 0 && !crownFlat ? Mathf.Max(wallY0, top - f.roofH) : top;
                 // 2026-10-26 (CityMeshes.PartBase.cs): a wall whose foot hangs
                 // over air - its building cut away under it - runs to the ground
                 bool hangs = floating && !onOutline && !proxyBuild && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
@@ -11373,7 +11398,7 @@ namespace PSXRacing.City
                 roofScratch.AddRange(fitPoly);
                 bool underOutline = onOutline && top <= outlineTop + 0.05f;
                 if (underOutline) { }
-                else if (f.roof == 0) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
+                else if (f.roof == 0 || crownFlat) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
                 else
                 {
                     FacadeMetal(true); FacadeCrown(top > facCrownY + 0.3f);

@@ -262,4 +262,7 @@ MonoBehaviour:
   - original: {fileID: 2800000, guid: 8fc0ef95f58bc144d8dcf185525e3b97, type: 3}
     enhanced: TexEnhanced/Resources/TerrainDetail_ov2
     id: Uptown_Tier2/TerrainDetail
+  - original: {fileID: 2800000, guid: eb9b35e11be14ea0a914445887b62507, type: 3}
+    enhanced: TexEnhanced/City/Crowns/CrownMaterials_ov1
+    id: Landmark_Crowns/CrownMaterials
   bundleVersion: 4293c89ce5f58c8a16dd3ce1c85ffae4

@@ -82,3 +82,4 @@ d07fae16f1774e8fb5000b43ad0efbf2	Assets/PSXRacing/Art/City/Pack/city_structure.p
 624a2fcde9f94bec88b8841861fa1ac6	Assets/PSXRacing/Art/City/Furniture/CityFurniture.png	Assets/PSXRacing/EnhancedSrc/TexEnhanced/City/Furniture/CityFurniture_ov2.png	512	512	Uptown_Tier2/CityFurniture	RGB	RGB
 7c3e9a51d2b84f06a1e5c8d4b9f20e63	Assets/PSXRacing/Resources/CityRooms.png	Assets/PSXRacing/EnhancedSrc/TexEnhanced/Resources/CityRooms_ov2.png	512	512	Uptown_Tier2/CityRooms	RGBA	RGBA
 8fc0ef95f58bc144d8dcf185525e3b97	Assets/PSXRacing/Resources/TerrainDetail.png	Assets/PSXRacing/EnhancedSrc/TexEnhanced/Resources/TerrainDetail_ov2.png	512	512	Uptown_Tier2/TerrainDetail	RGBA	RGBA
+eb9b35e11be14ea0a914445887b62507	Assets/PSXRacing/Art/City/Crowns/CrownMaterials.png	Assets/PSXRacing/EnhancedSrc/TexEnhanced/City/Crowns/CrownMaterials_ov1.png	512	256	Landmark_Crowns/CrownMaterials	RGB	RGB

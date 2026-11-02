@@ -50,7 +50,8 @@ namespace PSXRacing.City
         }
 
         /// <summary>The merged skyline: one mesh, a submesh per material
-        /// (the facade atlas, the flat roofs), and where each building's
+        /// (the facade atlas, the flat roofs, the landmark crowns when there
+        /// are any), and where each building's
         /// triangles sit in each submesh's index list, so the skyline can
         /// leave out the buildings the live tiles are drawing.</summary>
         public sealed class SkylineMesh
@@ -80,11 +81,15 @@ namespace PSXRacing.City
             var tm = new TileMeshes { origin = Vector3.zero };
             var fac = buckets[(int)Slot.FacadeGlass];
             var roof = buckets[(int)Slot.RoofFlat];
+            // the landmark crowns (2026-11-01): the owner's crown models, a third submesh
+            var crown = buckets[(int)Slot.Crown];
             int n = elems.Count;
             var rf = new int[n * 2];
             var rr = new int[n * 2];
+            var rc = new int[n * 2];
             var vf = new int[n * 2];
             var vr = new int[n * 2];
+            var vc = new int[n * 2];
             skylineBuild = true;
             skylineElemSet = new HashSet<int>(elems);
             try
@@ -92,30 +97,33 @@ namespace PSXRacing.City
                 for (int e = 0; e < n; e++)
                 {
                     int t0 = fac.t.Count, t1 = roof.t.Count, v0 = fac.Count, v1 = roof.Count;
+                    int t2 = crown.t.Count, v2 = crown.Count;
                     EmitFootprint(map, trims, tm, elems[e]);
                     EndFacade();
                     rf[e * 2] = t0; rf[e * 2 + 1] = fac.t.Count - t0;
                     rr[e * 2] = t1; rr[e * 2 + 1] = roof.t.Count - t1;
                     vf[e * 2] = v0; vf[e * 2 + 1] = fac.Count - v0;
                     vr[e * 2] = v1; vr[e * 2 + 1] = roof.Count - v1;
+                    rc[e * 2] = t2; rc[e * 2 + 1] = crown.t.Count - t2;
+                    vc[e * 2] = v2; vc[e * 2 + 1] = crown.Count - v2;
                 }
             }
             finally { skylineBuild = false; skylineElemSet = null; EndFacade(); }
 
             SkylineMesh sm = null;
-            int total = fac.Count + roof.Count;
+            int total = fac.Count + roof.Count + crown.Count;
             if (total > 0)
             {
                 var mesh = new Mesh { name = "CitySkyline" };
                 if (total > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
                 var verts = new List<Vector3>(total);
-                verts.AddRange(fac.v); verts.AddRange(roof.v);
+                verts.AddRange(fac.v); verts.AddRange(roof.v); verts.AddRange(crown.v);
                 var uvs = new List<Vector2>(total);
-                uvs.AddRange(fac.uv); uvs.AddRange(roof.uv);
+                uvs.AddRange(fac.uv); uvs.AddRange(roof.uv); uvs.AddRange(crown.uv);
                 var cols = new List<Color32>(total);
                 if (fac.col != null && fac.col.Count == fac.Count) cols.AddRange(fac.col);
                 else for (int k = 0; k < fac.Count; k++) cols.Add(new Color32(128, 128, 128, 0));
-                for (int k = 0; k < roof.Count; k++) cols.Add(new Color32(128, 128, 128, 0));
+                for (int k = 0; k < roof.Count + crown.Count; k++) cols.Add(new Color32(128, 128, 128, 0));
                 mesh.SetVertices(verts);
                 mesh.SetUVs(0, uvs);
                 mesh.SetColors(cols);
@@ -123,7 +131,7 @@ namespace PSXRacing.City
                 var facs = new List<Vector4>(total);
                 if (fac.fac != null && fac.fac.Count == fac.Count) facs.AddRange(fac.fac);
                 else for (int k = 0; k < fac.Count; k++) facs.Add(Vector4.zero);
-                for (int k = 0; k < roof.Count; k++) facs.Add(Vector4.zero);
+                for (int k = 0; k < roof.Count + crown.Count; k++) facs.Add(Vector4.zero);
                 mesh.SetUVs(1, facs);
                 // city-popin: each building's tile (UV2), for PSX/Lit's tile
                 // fade - a live tile's copy and this one hand its pixels over
@@ -135,14 +143,19 @@ namespace PSXRacing.City
                     var tl = new Vector2(Mathf.Floor(fc.x / TileSize), Mathf.Floor(fc.y / TileSize));
                     for (int k = vf[e * 2]; k < vf[e * 2] + vf[e * 2 + 1]; k++) tiles[k] = tl;
                     for (int k = vr[e * 2]; k < vr[e * 2] + vr[e * 2 + 1]; k++) tiles[fac.Count + k] = tl;
+                    for (int k = vc[e * 2]; k < vc[e * 2] + vc[e * 2 + 1]; k++) tiles[fac.Count + roof.Count + k] = tl;
                 }
                 mesh.SetUVs(2, tiles);
                 var idxF = fac.t.ToArray();
                 var idxR = new int[roof.t.Count];
                 for (int k = 0; k < idxR.Length; k++) idxR[k] = roof.t[k] + fac.Count;
-                mesh.subMeshCount = 2;
+                var idxC = new int[crown.t.Count];
+                for (int k = 0; k < idxC.Length; k++) idxC[k] = crown.t[k] + fac.Count + roof.Count;
+                bool crowns = idxC.Length > 0;
+                mesh.subMeshCount = crowns ? 3 : 2;
                 mesh.SetTriangles(idxF, 0, false);
                 mesh.SetTriangles(idxR, 1, false);
+                if (crowns) mesh.SetTriangles(idxC, 2, false);
                 mesh.RecalculateNormals();
                 mesh.RecalculateBounds();
                 mesh.MarkDynamic();
@@ -152,21 +165,22 @@ namespace PSXRacing.City
                     bool any = false; var b = new Bounds();
                     for (int k = vf[e * 2]; k < vf[e * 2] + vf[e * 2 + 1]; k++) { if (!any) { b = new Bounds(fac.v[k], Vector3.zero); any = true; } else b.Encapsulate(fac.v[k]); }
                     for (int k = vr[e * 2]; k < vr[e * 2] + vr[e * 2 + 1]; k++) { if (!any) { b = new Bounds(roof.v[k], Vector3.zero); any = true; } else b.Encapsulate(roof.v[k]); }
+                    for (int k = vc[e * 2]; k < vc[e * 2] + vc[e * 2 + 1]; k++) { if (!any) { b = new Bounds(crown.v[k], Vector3.zero); any = true; } else b.Encapsulate(crown.v[k]); }
                     bounds[e] = b;
                 }
                 sm = new SkylineMesh
                 {
                     mesh = mesh,
-                    slots = new[] { Slot.FacadeGlass, Slot.RoofFlat },
-                    indices = new[] { idxF, idxR },
-                    ranges = new[] { rf, rr },
+                    slots = crowns ? new[] { Slot.FacadeGlass, Slot.RoofFlat, Slot.Crown } : new[] { Slot.FacadeGlass, Slot.RoofFlat },
+                    indices = crowns ? new[] { idxF, idxR, idxC } : new[] { idxF, idxR },
+                    ranges = crowns ? new[] { rf, rr, rc } : new[] { rf, rr },
                     bounds = bounds,
-                    triangles = (idxF.Length + idxR.Length) / 3,
+                    triangles = (idxF.Length + idxR.Length + idxC.Length) / 3,
                 };
             }
             int stray = 0;
             for (int s = 0; s < buckets.Length; s++)
-                if (s != (int)Slot.FacadeGlass && s != (int)Slot.RoofFlat) stray += buckets[s].Count;
+                if (s != (int)Slot.FacadeGlass && s != (int)Slot.RoofFlat && s != (int)Slot.Crown) stray += buckets[s].Count;
             if (sm != null)
             {
                 // the heaviest buildings, for the triangle budget
@@ -177,7 +191,7 @@ namespace PSXRacing.City
                 for (int k = 0; k < Mathf.Min(8, n); k++)
                 {
                     int e = order[k]; var f = map.footprints[elems[e]];
-                    sb.Append($" #{elems[e]} {(rf[e * 2 + 1] + rr[e * 2 + 1]) / 3} tris ({f.pts.Length} pts, {f.h:0} m, roof {f.roof}{(f.part ? ", part" : "")})");
+                    sb.Append($" #{elems[e]} {(rf[e * 2 + 1] + rr[e * 2 + 1] + rc[e * 2 + 1]) / 3} tris ({f.pts.Length} pts, {f.h:0} m, roof {f.roof}{(f.part ? ", part" : "")})");
                 }
                 Debug.Log(sb.ToString());
             }

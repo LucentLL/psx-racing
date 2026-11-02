@@ -421,7 +421,8 @@ namespace PSXRacing.City
             {
                 switch (Heroes[hero].shape)
                 {
-                    case HeroShape.SpiredCrown: HeroSpiredCrown(map, tm, hero, floor); break;
+                    // the owner's crown model on the 215 m deck, else the coded fins and needle
+                    case HeroShape.SpiredCrown: if (!EmitCrownModel(tm, hero, floor)) HeroSpiredCrown(map, tm, hero, floor); break;
                     case HeroShape.OpenFrame:   HeroOpenFrame(map, tm, hero, f, floor); break;
                 }
             }
@@ -644,6 +645,13 @@ namespace PSXRacing.City
             Walls(tm, heroP2, ySet1, ySet2);
             EarcutInto(roof, heroP2, ySet2, tm.origin, RoofFlatM);
             Walls(tm, heroP3, ySet2, yCrown);
+            // the owner's crown model (2026-11-01): its lantern, roof and fins
+            // stand on the last setback in place of the coded ones below
+            if (EmitCrownModel(tm, HeroIndexOf(HeroShape.SilverCrown), floor, yCrown - floor))
+            {
+                HeroNoCollide(false);
+                return true;
+            }
             // the lantern: silver grid as metal, sloping out from the last
             // setback's line to the one below it
             facLook = LookSilver;

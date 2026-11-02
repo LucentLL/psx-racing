@@ -16,6 +16,7 @@ namespace PSXRacing.EditorTools
     /// 2000x1125 window. PNGs: Screenshots\far_&lt;spot&gt;_&lt;hour&gt;[_tag].png.
     ///   PSX_FAR_HOURS=night,dusk,noon (default night,dusk)
     ///   PSX_FAR_SPOTS=i77s16,i277s10,i77n30 (default all)
+    ///   PSX_FAR_POSES=name:cx,cz,heightOverGround,distance,bearingDeg,eyeOverGround;... (instead of the road spots)
     ///   PSX_FAR_TAG=before (a suffix)
     /// Headless: -executeMethod PSXRacing.EditorTools.CityFarShots.Run
     /// </summary>
@@ -67,9 +68,68 @@ namespace PSXRacing.EditorTools
                 int lines = PSXQuality.HDLines(dispH);
                 int w = Even(Mathf.RoundToInt(lines * dispW / (float)dispH));
                 bool timeIt = System.Environment.GetEnvironmentVariable("PSX_FAR_TIME") == "1";
+                void Shoot(string name, Vector3 eye, Quaternion rot)
+                {
+                    world.EnsureRing(eye, world.ring);
+                    foreach (int hour in hours)
+                    {
+                        TimeOfDay.Apply(hour, sun);
+                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                        if (globals != null) globals.Apply();
+                        cam.transform.SetPositionAndRotation(eye, rot);
+                        world.RefreshSkyline(cam);
+                        var rt = new RenderTexture(w, lines, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
+                        rt.Create();
+                        StreetLights.Push(cam.transform.position, cam.transform.forward);
+                        PSXTexDecode.StampAll();
+                        RenderPipeline.SubmitRenderRequest(cam, new RenderPipeline.StandardRequest { destination = rt });
+                        var shown = PSXScreenshotTool.Dithered(rt);
+                        var tex = Read(shown);
+                        var big = PointTo(tex, dispW, dispH);
+                        string file = $"far_{name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}{tag}.png";
+                        File.WriteAllBytes(Path.Combine(dir, file), big.EncodeToPNG());
+                        if (big != tex) Object.DestroyImmediate(big);
+                        Object.DestroyImmediate(tex);
+                        if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
+                        rt.Release(); Object.DestroyImmediate(rt);
+                        // THE COST: the camera's render with the far city and without it
+                        if (timeIt && hour == hours[0] && world.Far != null)
+                        {
+                            float withMs = TimeRenders(cam, w, lines, 30);
+                            world.Far.gameObject.SetActive(false);
+                            float withoutMs = TimeRenders(cam, w, lines, 30);
+                            world.Far.gameObject.SetActive(true);
+                            world.RefreshSkyline(cam);
+                            log.Append($"{name} TIME {w}x{lines}: {withMs:0.00} ms with the far city, {withoutMs:0.00} ms without (+{withMs - withoutMs:0.00})\n");
+                        }
+                    }
+                    var sk = world.Skyline;
+                    log.Append($"{name}: eye ({eye.x:0},{eye.y:0.0},{eye.z:0}) {Vector2.Distance(new Vector2(eye.x, eye.z), map.uptown):0} m from uptown, far {cam.farClipPlane:0} m, {w}x{lines}, tiles {world.LiveTiles}, skyline {(sk != null ? sk.Shown + "/" + sk.ElementCount : "none")}" +
+                               $", fog {(globals != null ? globals.fogNear.ToString("0") + "-" + globals.fogFar.ToString("0") : "?")}, far {(world.Far != null ? world.Far.Summary : "none")}\n");
+                    world.DropAll();
+                }
+                // PSX_FAR_POSES (the landmark crowns, 2026-11-01): extra frames of a
+                // point - "name:cx,cz,heightOverGround,distance,bearingDeg,eyeOverGround;..."
+                // (map metres; the bearing is FROM the point TO the eye, 0 = north)
+                var poses = new List<(string name, Vector3 eye, Vector3 look)>();
+                foreach (var ps in (System.Environment.GetEnvironmentVariable("PSX_FAR_POSES") ?? "").Split(';'))
+                {
+                    int colon = ps.IndexOf(':');
+                    if (colon <= 0) continue;
+                    var n = ps.Substring(colon + 1).Split(',');
+                    if (n.Length < 6) continue;
+                    var inv = System.Globalization.CultureInfo.InvariantCulture;
+                    float cx = float.Parse(n[0], inv), cz = float.Parse(n[1], inv), th = float.Parse(n[2], inv);
+                    float dist = float.Parse(n[3], inv), brg = float.Parse(n[4], inv) * Mathf.Deg2Rad, eh = float.Parse(n[5], inv);
+                    float gy = CityElevation.GroundY(map, cx, cz);
+                    var look = new Vector3(cx, gy + th, cz);
+                    float ex = cx + Mathf.Sin(brg) * dist, ez = cz + Mathf.Cos(brg) * dist;
+                    poses.Add((ps.Substring(0, colon), new Vector3(ex, CityElevation.GroundY(map, ex, ez) + eh, ez), look));
+                }
                 foreach (var sp in Spots)
                 {
                     if (only.Count > 0 && !only.Contains(sp.name)) continue;
+                    if (poses.Count > 0 && only.Count == 0) break;
                     float best = float.MaxValue; int bei = -1; float bs = 0f;
                     for (int ei = 0; ei < map.edges.Length; ei++)
                     {
@@ -89,43 +149,12 @@ namespace PSXRacing.EditorTools
                     var eye = new Vector3(at.x, be.YAt(bs) + sp.up, at.y);
                     var core = new Vector3(map.uptown.x, eye.y + 40f, map.uptown.y);
                     var rot = Quaternion.LookRotation(core - eye);
-                    world.EnsureRing(eye, world.ring);
-                    foreach (int hour in hours)
-                    {
-                        TimeOfDay.Apply(hour, sun);
-                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
-                        if (globals != null) globals.Apply();
-                        cam.transform.SetPositionAndRotation(eye, rot);
-                        world.RefreshSkyline(cam);
-                        var rt = new RenderTexture(w, lines, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
-                        rt.Create();
-                        StreetLights.Push(cam.transform.position, cam.transform.forward);
-                        PSXTexDecode.StampAll();
-                        RenderPipeline.SubmitRenderRequest(cam, new RenderPipeline.StandardRequest { destination = rt });
-                        var shown = PSXScreenshotTool.Dithered(rt);
-                        var tex = Read(shown);
-                        var big = PointTo(tex, dispW, dispH);
-                        string file = $"far_{sp.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}{tag}.png";
-                        File.WriteAllBytes(Path.Combine(dir, file), big.EncodeToPNG());
-                        if (big != tex) Object.DestroyImmediate(big);
-                        Object.DestroyImmediate(tex);
-                        if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
-                        rt.Release(); Object.DestroyImmediate(rt);
-                        // THE COST: the camera's render with the far city and without it
-                        if (timeIt && hour == hours[0] && world.Far != null)
-                        {
-                            float withMs = TimeRenders(cam, w, lines, 30);
-                            world.Far.gameObject.SetActive(false);
-                            float withoutMs = TimeRenders(cam, w, lines, 30);
-                            world.Far.gameObject.SetActive(true);
-                            world.RefreshSkyline(cam);
-                            log.Append($"{sp.name} TIME {w}x{lines}: {withMs:0.00} ms with the far city, {withoutMs:0.00} ms without (+{withMs - withoutMs:0.00})\n");
-                        }
-                    }
-                    var sk = world.Skyline;
-                    log.Append($"{sp.name}: eye ({eye.x:0},{eye.y:0.0},{eye.z:0}) {Vector2.Distance(at, map.uptown):0} m from uptown, far {cam.farClipPlane:0} m, {w}x{lines}, tiles {world.LiveTiles}, skyline {(sk != null ? sk.Shown + "/" + sk.ElementCount : "none")}" +
-                               $", fog {(globals != null ? globals.fogNear.ToString("0") + "-" + globals.fogFar.ToString("0") : "?")}, far {(world.Far != null ? world.Far.Summary : "none")}\n");
-                    world.DropAll();
+                    Shoot(sp.name, eye, rot);
+                }
+                foreach (var po in poses)
+                {
+                    if (only.Count > 0 && !only.Contains(po.name)) continue;
+                    Shoot(po.name, po.eye, Quaternion.LookRotation(po.look - po.eye));
                 }
             }
             finally

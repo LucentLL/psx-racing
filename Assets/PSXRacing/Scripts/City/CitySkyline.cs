@@ -166,9 +166,11 @@ namespace PSXRacing.City
             if (elems.Count == 0) return null;
             var sm = CityMeshes.BuildSkyline(map, trims, elems);
             if (sm == null) return null;
-            var mf = matFor(CityMeshes.Slot.FacadeGlass);
-            var mr0 = matFor(CityMeshes.Slot.RoofFlat);
-            if (mf == null || mr0 == null) return null;
+            // one source material per submesh: the facade atlas, the flat
+            // roofs and (2026-11-01) the landmark crowns when the mesh has them
+            int ns = sm.slots.Length;
+            var srcs = new Material[ns];
+            for (int k = 0; k < ns; k++) { srcs[k] = matFor(sm.slots[k]); if (srcs[k] == null) return null; }
 
             var go = new GameObject("CitySkyline") { hideFlags = HideFlags.DontSave };
             go.transform.SetParent(parent, false);
@@ -187,23 +189,23 @@ namespace PSXRacing.City
             // from the first frame, and drawn only once a Refresh has left out
             // what the tiles draw.
             sk.mrs = new MeshRenderer[Draws.Length];
-            sk.mats = new Material[Draws.Length * 2];
+            sk.mats = new Material[Draws.Length * ns];
             for (int d = 0; d < Draws.Length; d++)
             {
                 var dgo = d == 0 ? go : new GameObject(Draws[d].name) { hideFlags = HideFlags.DontSave };
                 if (d > 0) dgo.transform.SetParent(go.transform, false);
                 dgo.AddComponent<MeshFilter>().sharedMesh = sm.mesh;
                 var r = dgo.AddComponent<MeshRenderer>();
-                var pair = new Material[2];
-                for (int k = 0; k < 2; k++)
+                var pair = new Material[ns];
+                for (int k = 0; k < ns; k++)
                 {
-                    var src = k == 0 ? mf : mr0;
+                    var src = srcs[k];
                     var m = new Material(src) { name = src.name + " (" + Draws[d].name + ")", hideFlags = HideFlags.DontSave };
                     SetDraw(m, d);
                     // city-popin: hands its pixels to a live tile's own copy (PSX/Lit)
                     m.SetFloat(CityTileFade.ModeId, CityTileFade.ModeSkyline);
                     pair[k] = m;
-                    sk.mats[d * 2 + k] = m;
+                    sk.mats[d * ns + k] = m;
                 }
                 r.sharedMaterials = pair;
                 r.enabled = false;
@@ -426,7 +428,7 @@ namespace PSXRacing.City
         {
             shown = 0;
             for (int e = 0; e < hidden.Length; e++) if (!hidden[e]) shown++;
-            for (int s = 0; s < 2; s++)
+            for (int s = 0; s < sm.indices.Length; s++)
             {
                 idx.Clear();
                 var all = sm.indices[s]; var rg = sm.ranges[s];

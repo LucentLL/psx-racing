@@ -1811,6 +1811,8 @@ namespace PSXRacing.City
             if (slot == CityMeshes.Slot.Sidewalk) return MatFor(CityMeshes.Slot.Pavement);
             // ...and one built before the bridges pass: the structure wears the concrete
             if (slot == CityMeshes.Slot.Structure) return MatFor(CityMeshes.Slot.Concrete);
+            // ...and one built before the crown models: they wear the flat roofs' concrete
+            if (slot == CityMeshes.Slot.Crown) return MatFor(CityMeshes.Slot.RoofFlat);
             return null;
         }
 
