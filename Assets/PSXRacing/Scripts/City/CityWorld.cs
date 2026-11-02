@@ -419,7 +419,18 @@ namespace PSXRacing.City
         /// debug line and the preview's log.</summary>
         public int LiveTiles => live.Count;
 
-        void Awake() => EnsureInit();
+        void Awake()
+        {
+            // THE PC PROFILE: 9 x 9 tiles, a kilometre of built city each way
+            // (PlatformProfile). Tools set their own ring and never run it.
+            if (PlatformProfile.PC) ring = Mathf.Max(ring, PlatformProfile.CityRing);
+            EnsureInit();
+        }
+
+        /// <summary>The far plane the streamed ring can fill: the nearest the
+        /// ring's edge ever is (the player at its tile's edge), a little in.
+        /// The web build's 2-tile ring and its 500 m plane are the same rule.</summary>
+        float RingFarM => ring * CityMeshes.TileSize - 12f;
 
         /// <summary>City perf round 1: the city's lazy tables and its lots'
         /// models made at load, behind the loading screen (EnsureInit).</summary>
@@ -533,7 +544,11 @@ namespace PSXRacing.City
 
         void LateUpdate()
         {
-            if (Skyline != null || Far != null) RefreshSkyline(Camera.main);
+            var cam = Camera.main;
+            // ...and on the PC the camera sees out to that edge (the scene bakes
+            // 500 m; the far layers read the plane, so they move out with it)
+            if (PlatformProfile.PC && cam != null && cam.farClipPlane < RingFarM) cam.farClipPlane = RingFarM;
+            if (Skyline != null || Far != null) RefreshSkyline(cam);
         }
 
         /// <summary>The key of the tile a plan point stands in (the tile a

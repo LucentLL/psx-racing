@@ -250,7 +250,7 @@ namespace PSXRacing
         {
             get
             {
-                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 0);
+                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, PlatformProfile.PC ? 1 : 0);   // on in the PC profile: that build is for judging the frame rate
                 return cached != 0;
             }
             set
@@ -374,7 +374,9 @@ namespace PSXRacing
         /// <summary>The most lines HD draws: 1440p. A taller display (a 4K
         /// screen at 100%) is upscaled from here, so the fill stays what a
         /// desktop GPU holds at 60.</summary>
-        public const int HDMaxLines = 1440;
+        public const int HDMaxLinesWeb = 1440;
+        /// <summary>1440, or the PC profile's 2160 (a 4K screen drawn at its own lines).</summary>
+        public static int HDMaxLines => PlatformProfile.PC ? PlatformProfile.HDMaxLines : HDMaxLinesWeb;
 
         /// <summary>
         /// HD's line count: the display's OWN lines, as many as the canvas has

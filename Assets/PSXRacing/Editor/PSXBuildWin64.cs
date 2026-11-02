@@ -63,10 +63,16 @@ namespace PSXRacing.EditorTools
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
                 PlayerSettings.runInBackground = true;
-                PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-                PlayerSettings.defaultScreenWidth = 1280;
-                PlayerSettings.defaultScreenHeight = 720;
+                // THE PC PROFILE (PlatformProfile, owner 2026-11-02): full screen at
+                // the desktop's own resolution, the way a release opens.
+                // Alt+Enter or the OPTIONS row goes windowed.
+                PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+                PlayerSettings.defaultIsNativeResolution = true;
+                PlayerSettings.defaultScreenWidth = 1920;
+                PlayerSettings.defaultScreenHeight = 1080;
                 PlayerSettings.resizableWindow = true;
+                PlayerSettings.allowFullscreenSwitch = true;
+                PlayerSettings.visibleInBackground = false;
                 PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
 
                 // the on-demand bundles, built for THIS target (a WebGL bundle does not load here)
