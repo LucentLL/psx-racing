@@ -316,6 +316,7 @@ Shader "PSX/Lit"
             float _NightWin;
             // ==== NIGHT-LOOK PASS 5 (2026-10-28): globals only (PSXGlobals.Apply), never Properties ====
             sampler2D _PSXRoomTex;      // Resources/CityRooms.png: the rooms' surfaces as luminance (FacRoom)
+            float _PSXRoomTexPx;        // its width (PSXGlobals.BindRooms): 256 Classic, 512 the Enhanced twin
             float _PSXRoomsOn;          // 1 = the sheet is bound and the rooms are on
             float _PSXFacInset;         // BUILDING PASS: 1 = punched windows set into the wall (PSX_FAC_INSET=0: flat)
             float4 _PSXDistHaze;        // THE DISTANT HAZE: x amount (0 = off, the default), y start m, z 1/scale m
@@ -991,7 +992,7 @@ Shader "PSX/Lit"
             #define ROOM_AO            0.50   // a room's corners and edges, as a share of the open surface...
             #define ROOM_AO_W          0.14   // ...over this share of the face from its edge
             #define ROOM_GAIN          1.75   // the room's mean x this ~ the flat glow's mean (WIN_DETAIL's)
-            #define ROOM_TEX_PX        256.0  // the sheet's texels a repeat (its mip pick)
+            #define ROOM_TEX_PX        max(_PSXRoomTexPx, 256.0)  // the bound sheet's texels a repeat (its mip pick; 256 before the first bind)
             #define ROOM_TEX_M         1.6    // (the mip pick's metres a repeat)
             // rx, ry: the pixel on the window plane (0..1 across the room, 0..1
             // up the storey: floor to ceiling); d: the eye's ray into the room

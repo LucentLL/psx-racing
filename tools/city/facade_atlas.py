@@ -461,8 +461,14 @@ def main():
                 e[:, x0:x0 + W * 2] = photo_col(k, 2)[0]
             if k != 7:
                 e[:, x0:x0 + W * 2] = match_mean(e[:, x0:x0 + W * 2], cols[k])
-        Image.fromarray(e, "RGB").save(ENH, optimize=True)
-        print("enhanced twin", e.shape)
+        # Since 2026-11-01 the Enhanced twin is the owner's Uptown Tier 2 art
+        # (Environment_Overhaul2_Uptown, painted inside the same window grid):
+        # it is written only on request, so a classic re-run cannot replace it.
+        if "--write-enhanced" in sys.argv:
+            Image.fromarray(e, "RGB").save(ENH, optimize=True)
+            print("enhanced twin", e.shape)
+        else:
+            print("enhanced twin kept (the owner's Tier 2 art; --write-enhanced replaces it)")
     else:
         print("enhanced twin NOT written - a twin is missing")
     if sheet_dir:

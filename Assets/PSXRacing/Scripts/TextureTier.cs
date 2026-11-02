@@ -207,6 +207,19 @@ namespace PSXRacing
             return changed;
         }
 
+        /// <summary>The texture a GLOBAL bound from code should carry on the
+        /// wanted tier (Uptown Tier 2, 2026-11-01: Resources/CityRooms and
+        /// Resources/TerrainDetail are shader globals, not material slots, so
+        /// Swap never sees them): the original's Enhanced twin when ENHANCED is
+        /// on and the twin is in, else the original itself.</summary>
+        public static Texture2D ForTier(Texture2D original)
+        {
+            if (original == null || !WantEnhanced || !EnsureMap()) return original;
+            if (!byOriginal.TryGetValue(original, out int i)) return original;
+            var t = Twin(i);
+            return t != null ? t : original;
+        }
+
         /// <summary>The CLASSIC original an ENHANCED twin stands in for;
         /// <paramref name="t"/> itself for any other texture (what a texture
         /// IS should not depend on the tier: TerrainDetail.KindOf).</summary>
@@ -237,8 +250,10 @@ namespace PSXRacing
         /// switching back really gives the memory back.</summary>
         public static void ApplyAll()
         {
-            // the terrain detail layer rides on the same row
+            // the terrain detail layer rides on the same row, and both code-bound
+            // globals (the detail sheet, the rooms) take the tier's sheet
             TerrainDetail.ApplyGlobals();
+            PSXGlobals.BindRooms();
             PSXTexDecode.StampAll();
             if (!WantEnhanced) Release();
         }

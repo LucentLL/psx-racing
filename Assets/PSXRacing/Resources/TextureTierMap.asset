@@ -247,4 +247,19 @@ MonoBehaviour:
   - original: {fileID: 2800000, guid: 173b6fbeaafe48c4688eccacd2093db8, type: 3}
     enhanced: TexEnhanced/LifeSim/House/Textures/Bush_overhaul1
     id: Tree_Completion_18/Bush_overhaul1
-  bundleVersion: 9a8dd28ff752059e9a0bf4325af38a69
+  - original: {fileID: 2800000, guid: 052b652b15da7c14b9d8e9750080dbc7, type: 3}
+    enhanced: TexEnhanced/City/Pack/concrete_pt_4_walk_ov2
+    id: Uptown_Tier2/concrete_pt_4_walk
+  - original: {fileID: 2800000, guid: d07fae16f1774e8fb5000b43ad0efbf2, type: 3}
+    enhanced: TexEnhanced/City/Pack/city_structure_ov2
+    id: Uptown_Tier2/city_structure
+  - original: {fileID: 2800000, guid: 624a2fcde9f94bec88b8841861fa1ac6, type: 3}
+    enhanced: TexEnhanced/City/Furniture/CityFurniture_ov2
+    id: Uptown_Tier2/CityFurniture
+  - original: {fileID: 2800000, guid: 7c3e9a51d2b84f06a1e5c8d4b9f20e63, type: 3}
+    enhanced: TexEnhanced/Resources/CityRooms_ov2
+    id: Uptown_Tier2/CityRooms
+  - original: {fileID: 2800000, guid: 8fc0ef95f58bc144d8dcf185525e3b97, type: 3}
+    enhanced: TexEnhanced/Resources/TerrainDetail_ov2
+    id: Uptown_Tier2/TerrainDetail
+  bundleVersion: 4293c89ce5f58c8a16dd3ce1c85ffae4

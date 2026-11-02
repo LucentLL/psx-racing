@@ -110,7 +110,9 @@ namespace PSXRacing
         /// and before the editor's edit-mode renders.</summary>
         public static void ApplyGlobals()
         {
-            var t = Sheet;
+            // ENHANCED binds the Uptown Tier 2 sheet (512 px, new grass grain
+            // in R; dirt, rock and snow carried over) once the bundle is in
+            var t = TextureTier.ForTier(Sheet);
             bool on = t != null && Enabled;
             if (t != null) Shader.SetGlobalTexture(TexId, t);
             Shader.SetGlobalVector(ParamsId, new Vector4(1f / RepeatMetres, FadeNear,

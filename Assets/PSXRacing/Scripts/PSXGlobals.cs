@@ -164,14 +164,22 @@ namespace PSXRacing
         static bool roomsTried;
         public static bool RoomsOn = System.Environment.GetEnvironmentVariable("PSX_ROOMS") != "0";
 
-        static void BindRooms()
+        /// <summary>Also called by TextureTier.ApplyAll: ENHANCED binds the
+        /// Uptown Tier 2 sheet (512 px) once the bundle is in, and
+        /// _PSXRoomTexPx follows the bound sheet's size (FacRoom's mip pick).</summary>
+        internal static void BindRooms()
         {
             if (!roomsTried)
             {
                 roomsTried = true;
                 rooms = Resources.Load<Texture2D>("CityRooms");
             }
-            if (rooms != null) Shader.SetGlobalTexture("_PSXRoomTex", rooms);
+            var bound = TextureTier.ForTier(rooms);
+            if (bound != null)
+            {
+                Shader.SetGlobalTexture("_PSXRoomTex", bound);
+                Shader.SetGlobalFloat("_PSXRoomTexPx", bound.width);
+            }
             Shader.SetGlobalFloat("_PSXRoomsOn", rooms != null && RoomsOn ? 1f : 0f);
             // BUILDING PASS (2026-10-28): punched windows set into the wall by day
             Shader.SetGlobalFloat("_PSXFacInset", FacInsetOn ? 1f : 0f);
