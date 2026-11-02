@@ -41,6 +41,8 @@ namespace PSXRacing.City
         public Material[] trees;
         [Tooltip("WP-08: per atlas cell, how far the painted tree reaches out from its trunk below each twentieth of its height (cells x 21 levels, fraction of the card width; the widest of the five dresses).")]
         public float[] treeLowReach;
+        [Tooltip("2026-11-02 roadside understory (CityUnderstory), one per season dress: the owner's grass and shrubs.")]
+        public Material[] understory;
         [Tooltip("WP-15 roadside furniture atlas (poles, arms, cobra-heads).")]
         public Material furniture;
         [Tooltip("WP-17 markings.")]
@@ -96,6 +98,7 @@ namespace PSXRacing.City
             PSXTexDecode.Stamp(kit.lampPost);
             PSXTexDecode.Stamp(kit.bank);
             if (kit.trees != null) foreach (var m in kit.trees) PSXTexDecode.Stamp(m);
+            if (kit.understory != null) foreach (var m in kit.understory) PSXTexDecode.Stamp(m);
             PSXTexDecode.Stamp(kit.furniture);
             PSXTexDecode.Stamp(kit.paint);
             PSXTexDecode.Stamp(kit.signs);

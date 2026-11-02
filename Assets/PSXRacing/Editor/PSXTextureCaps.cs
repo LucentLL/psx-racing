@@ -13,6 +13,7 @@ namespace PSXRacing.EditorTools
             // 256 would halve every tree to 64 px - chunkier than the circuit
             // trees it replaces.
             if (assetPath.Contains("/BRP/Gen/TreeAtlas")) return 512;
+            if (assetPath.Contains("/Art/City/Understory/Understory_")) return 512;
             // Charlotte's sign faces (WP-23): six 48 ft bulletins, four
             // posters, sixteen business cabinets, the gantry panels and the
             // structure metal on one sheet, so every sign of a tile is one

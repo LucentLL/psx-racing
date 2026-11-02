@@ -1054,6 +1054,12 @@ namespace PSXRacing.City
                 System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
                 tile.meshes[tile.meshes.Length - 1] = tt.mesh;
             }
+            if (tt.under != null && tt.under.mesh != null)
+            {
+                AttachUnderstory(tile.go, tt.under, CityUnderstory.MaterialFor(CityTrees.DressNow()));
+                System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
+                tile.meshes[tile.meshes.Length - 1] = tt.under.mesh;
+            }
             if (Trunks != null && tt.solids > 0) Trunks.AddTable(key, tt.Trunks());
             // THE POLES AND WIRES (WP-15): the tile's furniture mesh (its lamp
             // posts drawn with them), the poles solid
@@ -1575,16 +1581,35 @@ namespace PSXRacing.City
         public void Redress()
         {
             var mat = CityTrees.MaterialFor(CityTrees.DressNow());
+            var umat = CityUnderstory.MaterialFor(CityTrees.DressNow());
             foreach (var kv in live)
             {
                 var go = kv.Value.go;
                 if (go == null) continue;
                 var t = go.transform.Find("Trees");
                 var mr = t != null ? t.GetComponent<MeshRenderer>() : null;
-                if (mr == null) continue;
-                mr.sharedMaterial = mat;
-                mr.enabled = mat != null;
+                if (mr != null) { mr.sharedMaterial = mat; mr.enabled = mat != null; }
+                var u = go.transform.Find("Understory");
+                var ur = u != null ? u.GetComponent<MeshRenderer>() : null;
+                if (ur != null) { ur.sharedMaterial = umat; ur.enabled = umat != null; }
             }
+        }
+
+        /// <summary>A tile's roadside understory (CityUnderstory): one render-only
+        /// mesh on the Foliage layer, no sun-map caster (low cards a tile: the
+        /// trees' shadows already fall on them).</summary>
+        public static GameObject AttachUnderstory(GameObject root, CityUnderstory.UnderTile ut, Material mat)
+        {
+            if (ut == null || ut.mesh == null) return null;
+            var g = Child(root, "Understory", CityTrees.FoliageLayer);
+            g.AddComponent<MeshFilter>().sharedMesh = ut.mesh;
+            var mr = g.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.enabled = mat != null;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            SunShadows.Exclude(g);
+            return g;
         }
 
         public static GameObject AttachTrees(GameObject root, CityTrees.TreeTile tt, Material mat)

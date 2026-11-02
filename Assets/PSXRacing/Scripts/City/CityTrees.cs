@@ -231,6 +231,9 @@ namespace PSXRacing.City
             /// junction furniture, poles, lamps, signs, trees); null when there
             /// is none.</summary>
             public CitySignals.SignalTile signals;
+            /// <summary>The tile's roadside understory (CityUnderstory, planted
+            /// on the mask after everything else); null when none stands.</summary>
+            public CityUnderstory.UnderTile under;
             /// <summary>What the canopy asks this tile for (density applied,
             /// before the per-tile cap), and what was planted.</summary>
             public float wanted;
@@ -305,7 +308,8 @@ namespace PSXRacing.City
             // the furniture (WP-15): the poles, and the tile's lamps drawn with them
             bool furniture = CityPoles.Enabled || (tm != null && tm.lamps.Count > 0);
             bool junctions = CitySignals.Enabled && CitySignals.AnyIn(map, trims, tx, tz);
-            if (!trees && !signs && !furniture && !junctions) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
+            bool under = CityUnderstory.Enabled;
+            if (!trees && !signs && !furniture && !junctions && !under) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
@@ -327,7 +331,13 @@ namespace PSXRacing.City
             // THE SIGNS (WP-23; the plan's priority: signs before trees):
             // they take their ground on the mask, and the trees keep off it
             if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
-            if (!trees) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
+            if (!trees)
+            {
+                // the understory still grows on a treeless tile (a freeway's verges)
+                if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); }
+                tt.ms = (float)clock.Elapsed.TotalMilliseconds;
+                yield break;
+            }
             if (signs) { clock.Stop(); yield return 0; clock.Start(); }
             System.Array.Clear(taken, 0, taken.Length);
             float distUp = Vector2.Distance(min + Vector2.one * (CityMeshes.TileSize * 0.5f), map.uptown);
@@ -430,6 +440,8 @@ namespace PSXRacing.City
 
             clock.Stop(); yield return 0; clock.Start();
             BuildMesh(tt);
+            // THE UNDERSTORY (2026-11-02) last: the low grass and shrubs on what is left
+            if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); }
             tt.ms = (float)clock.Elapsed.TotalMilliseconds;
         }
 

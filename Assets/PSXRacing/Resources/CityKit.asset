@@ -457,6 +457,12 @@ MonoBehaviour:
   - 0.49609375
   - 0.49609375
   - 0.49609375
+  understory:
+  - {fileID: 2100000, guid: e1dd4883cd1f1e242a391a4e3cf8b18f, type: 2}
+  - {fileID: 2100000, guid: 08a84a233a669464ca2b054de560ef94, type: 2}
+  - {fileID: 2100000, guid: 08a84a233a669464ca2b054de560ef94, type: 2}
+  - {fileID: 2100000, guid: 233aa7075593be945af13ca5f477827a, type: 2}
+  - {fileID: 2100000, guid: e1dd4883cd1f1e242a391a4e3cf8b18f, type: 2}
   furniture: {fileID: 2100000, guid: b7063e982a5005f4787763a04fe00365, type: 2}
   paint: {fileID: 0}
   signs: {fileID: 2100000, guid: 7fc18ab0222e98d4fb2acb40725701e4, type: 2}

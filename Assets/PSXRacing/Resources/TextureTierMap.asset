@@ -265,4 +265,13 @@ MonoBehaviour:
   - original: {fileID: 2800000, guid: eb9b35e11be14ea0a914445887b62507, type: 3}
     enhanced: TexEnhanced/City/Crowns/CrownMaterials_ov1
     id: Landmark_Crowns/CrownMaterials
-  bundleVersion: 4293c89ce5f58c8a16dd3ce1c85ffae4
+  - original: {fileID: 2800000, guid: 83164548e4d2407e8e51dda1710c92b3, type: 3}
+    enhanced: TexEnhanced/City/Understory/Understory_Green_ov1
+    id: Roadside_LowVegetation/Understory_Green
+  - original: {fileID: 2800000, guid: 3641e87947974ca2a678ba83f0bb51cc, type: 3}
+    enhanced: TexEnhanced/City/Understory/Understory_Fall_ov1
+    id: Roadside_LowVegetation/Understory_Fall
+  - original: {fileID: 2800000, guid: 272b6911378040ff9428b2811641eaf3, type: 3}
+    enhanced: TexEnhanced/City/Understory/Understory_Winter_ov1
+    id: Roadside_LowVegetation/Understory_Winter
+  bundleVersion: 5f9bf9ea6e058c049080e032bb016c8a

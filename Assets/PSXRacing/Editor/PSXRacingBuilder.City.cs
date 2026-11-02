@@ -396,6 +396,27 @@ namespace PSXRacing.EditorTools
         /// like the forest (one winding per card; PSX/Lit's _Cull 0 flips the
         /// normal to the eye). CityTrees.MaterialFor picks the day's.
         /// </summary>
+        /// <summary>
+        /// The roadside understory (2026-11-02, CityUnderstory), one material
+        /// per season dress in <see cref="Seasons"/> order (Winter, Spring,
+        /// Summer, Fall, Snow) over three looks of the owner's Codex pack
+        /// (tools/city/understory/understory_atlas.py): Green in spring and
+        /// summer, Fall (the drying verge), Winter (dormant brown) in winter
+        /// and snow. Cut out at 0.5 and drawn both sides, like the trees.
+        /// </summary>
+        internal static Material[] CityUnderstoryMats()
+        {
+            string[] look = { "Winter", "Green", "Green", "Fall", "Winter" };
+            var mats = new Material[Seasons.DressCount];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                string tex = Root + "/Art/City/Understory/Understory_" + look[d] + ".png";
+                if (AssetDatabase.LoadAssetAtPath<Texture2D>(tex) == null) { Log("WARN: " + tex + " missing - no understory"); continue; }
+                mats[d] = MakeMat("CityUnderstory_" + look[d], tex, cutoff: 0.5f, twoSided: true);
+            }
+            return mats;
+        }
+
         internal static Material[] CityTreeMats()
         {
             var mats = new Material[Seasons.DressCount];
@@ -474,6 +495,7 @@ namespace PSXRacing.EditorTools
             kit.bank = CityBankMat();
             kit.trees = CityTreeMats();
             kit.treeLowReach = CityTreeLowReach();
+            kit.understory = CityUnderstoryMats();
             kit.signs = CitySignsMat();
             kit.guide = CityGuideMat();
             kit.furniture = CityFurnitureMat();
