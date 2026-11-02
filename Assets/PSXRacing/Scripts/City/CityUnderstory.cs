@@ -12,14 +12,21 @@ namespace PSXRacing.City
     /// or a corner spot, or under a deck:
     ///
     ///   THE VERGES of every freeway, expressway and ramp (trunk and motorway,
-    ///   OSM classes 4-5): a continuous strip of tall grass at the clear
+    ///   OSM classes 4-5): two staggered rows of tall grass at the clear
     ///   zone's outer edge (low grass may stand in a clear zone; the mown
-    ///   shoulder runs up to it), fescue and switchgrass clumps scattered
-    ///   beyond it, and mountain laurel where the canopy map says the edge is
-    ///   wooded (<see cref="CityCanopy"/>).
+    ///   shoulder runs up to it), fescue and switchgrass clumps beyond them,
+    ///   and THE SHRUB BELT behind them in the clear zone's outer half (low
+    ///   breakaway shrubs) - clusters of two to four about every 13 m a side,
+    ///   mountain laurel where the canopy map says the
+    ///   edge is wooded (<see cref="CityCanopy"/>), inkberry and azalea where
+    ///   it is open.
     ///   THE MEDIANS AND INFIELDS: free ground lying between two opposed
-    ///   carriageways of an arterial or bigger (class 3+) - a divided road's
-    ///   planted median, an interchange's loop - gets inkberry and azalea.
+    ///   carriageways of a secondary road or bigger - a divided road's planted
+    ///   median (inside its clear zone on an arterial, beyond it on a freeway),
+    ///   an interchange's loop - gets inkberry and azalea.
+    ///   THE ARTERIALS' ROADSIDES: a shrub (a third of the time a pair) about
+    ///   every 18 m a side on free ground 2.5-6 m off the kerb of a secondary
+    ///   or primary road.
     ///
     /// Deterministic from the map and the tile alone (every choice a hash of
     /// the road piece or the cell, and a card belongs to the tile its foot is
@@ -63,6 +70,14 @@ namespace PSXRacing.City
         /// <summary>Medians: the scan's cell, and how near the two opposed
         /// carriageways must both be.</summary>
         const float MedianCellM = 4f, MedianReachM = 16f;
+        /// <summary>Medians: the chance a 4 m cell plants a shrub.</summary>
+        const float MedianPerCell = 0.5f;
+        /// <summary>The freeway shrub belt: the chance a verge step (2.3 m)
+        /// starts a cluster - about one every 13 m a side.</summary>
+        const float BeltPerStep = 0.18f;
+        /// <summary>The arterials' accents: a step along the road, and the
+        /// chance it plants a shrub or a pair a side (about every 18 m).</summary>
+        const float AccentStepM = 8f, AccentPerStep = 0.45f;
         /// <summary>Feet sit this far into the ground (a slope's high side
         /// never shows a gap under the card).</summary>
         const float SinkM = 0.08f;
@@ -75,7 +90,20 @@ namespace PSXRacing.City
         /// <summary>Totals since load, for the tools: pieces walked, cards
         /// planted, and why a verge strip was refused.</summary>
         public static int StatPieces, StatStrips, StatClumps, StatShrubs, StatNotMine, StatForbid, StatOnRoad;
-        public static string Stats => $"pieces {StatPieces}, strips {StatStrips}, clumps {StatClumps}, shrubs {StatShrubs}; strip refusals: other tile {StatNotMine}, mask {StatForbid}, on a road {StatOnRoad}";
+        public static int StatBeltTried, StatAccentTried, StatRejRoad;
+        /// <summary>The tools' list of placed roadside accents (null: not kept).</summary>
+        public static List<Vector2> DebugAccents;
+        static readonly int[] statRejBit = new int[8];
+        static void Reject(byte bits) { for (int i = 0; i < 8; i++) if ((bits & (1 << i)) != 0) { statRejBit[i]++; return; } }
+        public static string Stats
+        {
+            get
+            {
+                var sb = new System.Text.StringBuilder($"pieces {StatPieces}, strips {StatStrips}, clumps {StatClumps}, shrubs {StatShrubs}; strip refusals: other tile {StatNotMine}, mask {StatForbid}, on a road {StatOnRoad}; shrub tries belt {StatBeltTried} accent {StatAccentTried}, refused near a road {StatRejRoad}, by mask:");
+                for (int i = 0; i < 8; i++) if (statRejBit[i] > 0) sb.Append(' ').Append(RoadsideOccupancy.BitNames[i]).Append(' ').Append(statRejBit[i]);
+                return sb.ToString();
+            }
+        }
 
         public class UnderTile
         {
@@ -141,12 +169,89 @@ namespace PSXRacing.City
                                 ut.clumps++;
                             }
                         }
-                        if (CityTrees.Hash01(pc.edge, st, 9 + salt) < 0.22f * density)
+                        // a second row behind it, half a step along (the owner: a single
+                        // strip reads as a pixel line; two staggered rows read as a band)
                         {
-                            var q = c + nrm * (side * (off + 5f + 4f * CityTrees.Hash01(pc.edge, st, 10 + salt)));
-                            if (Mine(q, min) && occ.At(q) == 0 && CityCanopy.Loaded && CityCanopy.CellFraction(q.x, q.y) >= 0.4f)
+                            var mid2 = c + d * (StripStepM * 0.5f) + nrm * (side * (off + 1.3f));
+                            var pa2 = mid2 - half; var pb2 = mid2 + half;
+                            if (Mine(mid2, min) && Free(occ, pa2) && Free(occ, mid2) && Free(occ, pb2) && !OnAnotherRoad(occ, mid2))
                             {
-                                Crossed(map, origin, q, Laurel, 0.8f + 0.4f * CityTrees.Hash01(pc.edge, st, 11 + salt), CityTrees.Hash01(pc.edge, st, 12 + salt) * 180f);
+                                StripCard(map, origin, pa2, pb2, -side * nrm, 0.75f + 0.3f * CityTrees.Hash01(pc.edge, st, 13 + salt));
+                                ut.strips++;
+                            }
+                        }
+                        // THE SHRUB BELT (the owner, 2026-11-02: the shrubs and bushes
+                        // were "the main addition I wanted"): a cluster of two to four
+                        // just past the clear zone about every 20 m a side - mountain
+                        // laurel where the edge is wooded, inkberry and some azalea
+                        // where it is open
+                        if (CityTrees.Hash01(pc.edge, st, 9 + salt) < BeltPerStep * density)
+                        {
+                            float canopy = CityCanopy.Loaded ? CityCanopy.CellFraction(c.x, c.y) : 0f;
+                            int k = 2 + Mathf.FloorToInt(CityTrees.Hash01(pc.edge, st, 10 + salt) * 2.99f);
+                            float along = (CityTrees.Hash01(pc.edge, st, 11 + salt) - 0.5f) * StripStepM;
+                            // right behind the grass, in the clear zone's outer half at least
+                            // (low breakaway shrubs; Charlotte's freeway verges are often all
+                            // clear zone up to the frontage road or the fence)
+                            float back = Mathf.Max(off + 2.2f, pc.hw + pc.clear * 0.5f) + 2.5f * CityTrees.Hash01(pc.edge, st, 12 + salt);
+                            for (int j = 0; j < k; j++)
+                            {
+                                var q = c + d * (along + (j - (k - 1) * 0.5f) * (1.6f + 0.8f * CityTrees.Hash01(pc.edge, st, 20 + j + salt)))
+                                      + nrm * (side * (back + 1.2f * CityTrees.Hash01(pc.edge, st, 30 + j + salt)));
+                                StatBeltTried++;
+                                if (!Mine(q, min)) continue;
+                                byte qb = occ.At(q);
+                                if ((qb & Forbid) != 0) { Reject(qb); continue; }
+                                if (OnAnotherRoad(occ, q)) { StatRejRoad++; continue; }
+                                float r = CityTrees.Hash01(pc.edge, st, 40 + j + salt);
+                                int cell = canopy >= 0.25f ? (r < 0.7f ? Laurel : Inkberry)
+                                         : r < 0.65f ? Inkberry : r < 0.85f ? Azalea : Laurel;
+                                Crossed(map, origin, q, cell, 0.8f + 0.4f * CityTrees.Hash01(pc.edge, st, 50 + j + salt), CityTrees.Hash01(pc.edge, st, 60 + j + salt) * 180f);
+                                ut.shrubs++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // THE ARTERIALS' ROADSIDES: a shrub now and then on free ground a few
+            // metres off the kerb of a secondary or primary road (a landscaped
+            // frontage, a business's bed)
+            foreach (var pc in occ.pieces)
+            {
+                if (pc.deck) continue;
+                int cls = map.edges[pc.edge].cls;
+                if (cls < 2 || cls > 3) continue;
+                var d = pc.b - pc.a;
+                float L = d.magnitude;
+                if (L < 0.1f) continue;
+                d /= L;
+                var nrm = new Vector2(-d.y, d.x);
+                for (float s = Mathf.Ceil(pc.sa / AccentStepM) * AccentStepM; s < pc.sb; s += AccentStepM)
+                {
+                    int st = Mathf.RoundToInt(s / AccentStepM);
+                    var c = pc.a + d * (s - pc.sa);
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        int salt = side < 0 ? 300 : 400;
+                        if (CityTrees.Hash01(pc.edge, st, salt) >= AccentPerStep * density) continue;
+                        var q = c + nrm * (side * (pc.hw + 2.5f + 3.5f * CityTrees.Hash01(pc.edge, st, 1 + salt)));
+                        StatAccentTried++;
+                        if (!Mine(q, min)) continue;
+                        byte qb = occ.At(q);
+                        if ((qb & Forbid) != 0) { Reject(qb); continue; }
+                        if (occ.RoadEdgeDistance(q, 4f, out _, out _, out _) < 2.5f) { StatRejRoad++; continue; }
+                        if (DebugAccents != null && DebugAccents.Count < 50000) DebugAccents.Add(q);
+                        int cell = CityTrees.Hash01(pc.edge, st, 2 + salt) < 0.55f ? Inkberry : Azalea;
+                        Crossed(map, origin, q, cell, 0.7f + 0.4f * CityTrees.Hash01(pc.edge, st, 3 + salt), CityTrees.Hash01(pc.edge, st, 4 + salt) * 180f);
+                        ut.shrubs++;
+                        // a pair, a third of the time: a bed, not a lone plant
+                        if (CityTrees.Hash01(pc.edge, st, 5 + salt) < 0.35f)
+                        {
+                            var q2 = q + d * (1.6f + 0.8f * CityTrees.Hash01(pc.edge, st, 6 + salt));
+                            if (Mine(q2, min) && (occ.At(q2) & Forbid) == 0 && occ.RoadEdgeDistance(q2, 4f, out _, out _, out _) >= 2.5f)
+                            {
+                                Crossed(map, origin, q2, cell, 0.7f + 0.4f * CityTrees.Hash01(pc.edge, st, 7 + salt), CityTrees.Hash01(pc.edge, st, 8 + salt) * 180f);
                                 ut.shrubs++;
                             }
                         }
@@ -160,10 +265,15 @@ namespace PSXRacing.City
                 for (int x = 0; x < n; x++)
                 {
                     int gx = tx * n + x, gz = tz * n + z;
-                    if (CityTrees.Hash01(gx, gz, 50) >= 0.35f * density) continue;
+                    if (CityTrees.Hash01(gx, gz, 50) >= MedianPerCell * density) continue;
                     var p = min + new Vector2((x + CityTrees.Hash01(gx, gz, 51)) * MedianCellM, (z + CityTrees.Hash01(gx, gz, 52)) * MedianCellM);
-                    if (occ.At(p) != 0) continue;   // beyond every clear zone too: a shrub is not a grass
-                    if (!BetweenRoads(map, occ, p)) continue;
+                    int between = BetweenRoads(map, occ, p);
+                    if (between == 0) continue;
+                    // a planted median on an arterial (45 mph and under) has its shrubs
+                    // inside the clear zone; a freeway's stay beyond it
+                    byte bits = occ.At(p);
+                    if (between == 2 ? bits != 0 : (bits & Forbid) != 0) continue;
+                    if (OnAnotherRoad(occ, p)) continue;
                     int cell = CityTrees.Hash01(gx, gz, 53) < 0.6f ? Inkberry : Azalea;
                     Crossed(map, origin, p, cell, 0.8f + 0.4f * CityTrees.Hash01(gx, gz, 54), CityTrees.Hash01(gx, gz, 55) * 180f);
                     ut.shrubs++;
@@ -192,24 +302,29 @@ namespace PSXRacing.City
         static bool OnAnotherRoad(RoadsideOccupancy occ, Vector2 p) =>
             occ.RoadEdgeDistance(p, 2f, out _, out _, out _) < 0.5f;
 
-        /// <summary>A median or an infield: two grounded carriageways of an
-        /// arterial or bigger within reach, on opposite sides of the point.</summary>
-        static bool BetweenRoads(CityMap map, RoadsideOccupancy occ, Vector2 p)
+        /// <summary>A median or an infield: two grounded carriageways of a
+        /// secondary road or bigger within reach, on opposite sides of the
+        /// point - 0 none, 1 arterials only, 2 a freeway or ramp among them.</summary>
+        static int BetweenRoads(CityMap map, RoadsideOccupancy occ, Vector2 p)
         {
             near.Clear();
             occ.NearRoads(p, MedianReachM, near);
+            int found = 0;
             for (int i = 0; i < near.Count; i++)
             {
                 var a = near[i];
-                if (a.deck || map.edges[a.edge].cls < 3) continue;
+                int ca = map.edges[a.edge].cls;
+                if (a.deck || ca < 2) continue;
                 for (int j = i + 1; j < near.Count; j++)
                 {
                     var b = near[j];
-                    if (b.deck || b.edge == a.edge || map.edges[b.edge].cls < 3) continue;
-                    if (Vector2.Dot(a.away, b.away) < -0.5f) return true;
+                    int cb = map.edges[b.edge].cls;
+                    if (b.deck || b.edge == a.edge || cb < 2) continue;
+                    if (Vector2.Dot(a.away, b.away) >= -0.5f) continue;
+                    found = Mathf.Max(found, ca >= 4 || cb >= 4 ? 2 : 1);
                 }
             }
-            return false;
+            return found;
         }
 
         static void StripCard(CityMap map, Vector3 origin, Vector2 pa, Vector2 pb, Vector2 facing, float hs)
