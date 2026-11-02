@@ -182,7 +182,7 @@ namespace PSXRacing.City
                         }
                         // THE SHRUB BELT (the owner, 2026-11-02: the shrubs and bushes
                         // were "the main addition I wanted"): a cluster of two to four
-                        // just past the clear zone about every 20 m a side - mountain
+                        // behind the grass about every 13 m a side - mountain
                         // laurel where the edge is wooded, inkberry and some azalea
                         // where it is open
                         if (CityTrees.Hash01(pc.edge, st, 9 + salt) < BeltPerStep * density)
