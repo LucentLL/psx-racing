@@ -457,16 +457,30 @@ namespace PSXRacing
             }
 
             var ids = Split(RaceHandoff.OpponentSpecIds);
-            if (ids.Length == 0) return;
+            // The venue's own limit (RaceField): an empty list stands the
+            // whole baked grid - but never more than a drag strip or a deck
+            // takes.
+            var rmNow = RaceManager.Instance;
+            int cap = RaceField.MaxFor(rmNow != null ? rmNow.path : null, TrackCatalog.At(RaceHandoff.TrackIndex)) - 1;
+            int racing = Mathf.Min(ids.Length == 0 ? aiCars.Count : ids.Length, cap);
+            if (ids.Length == 0 && racing >= aiCars.Count) return;
 
             var skills = Split(RaceHandoff.OpponentSkills);
+            PSXRacing.City.CityWorld cityWorld = null;
+
+            // Where each slot stands before any car is retired: the grid as
+            // staged (baked, reversed, or the city's), AI in list order, the
+            // player last. A short field closes up into the first of them.
+            var slots = new List<(Vector3 pos, Quaternion rot)>();
+            foreach (var ai in aiCars) if (ai != null) slots.Add((ai.transform.position, ai.transform.rotation));
+            if (playerCar != null) slots.Add((playerCar.transform.position, playerCar.transform.rotation));
 
             for (int i = 0; i < aiCars.Count; i++)
             {
                 var ai = aiCars[i];
                 if (ai == null) continue;
 
-                if (i >= ids.Length)
+                if (i >= racing)
                 {
                     // Retired. Removed from the manager's list first — a
                     // deactivated object still answers GetComponent, so leaving
@@ -474,9 +488,14 @@ namespace PSXRacing
                     // on the grid forever.
                     raceField?.Remove(ai);
                     ai.gameObject.SetActive(false);
+                    // ...and in the city, no longer a car the streamed ground
+                    // is kept round (CityMode anchored the whole baked grid).
+                    if (cityWorld == null) cityWorld = Object.FindFirstObjectByType<PSXRacing.City.CityWorld>();
+                    if (cityWorld != null) cityWorld.anchors.Remove(ai.transform);
                     continue;
                 }
 
+                if (i >= ids.Length) continue;   // the baked car, as built
                 var spec = CarCatalog.Get(ids[i]);
                 if (spec != null) { ApplyShell(ai, spec); ai.ApplySpec(spec); ApplyVoice(ai, spec); }
 
@@ -486,6 +505,24 @@ namespace PSXRacing
                                    System.Globalization.CultureInfo.InvariantCulture,
                                    out float sk))
                     driver.skill = Mathf.Clamp(sk, 0.8f, 1.05f);
+            }
+
+            // CLOSE THE GRID UP: with spares retired the player stood rows
+            // behind the last rival (eight slots baked, four racing). Every
+            // car still racing takes the next slot from the front, the
+            // player last - so a four-car race lines up as it always did.
+            // Only a short field moves; a full one is already there.
+            if (racing < aiCars.Count && slots.Count > racing)
+            {
+                int n = 0;
+                for (int i = 0; i < aiCars.Count && i < racing; i++)
+                {
+                    var ai = aiCars[i];
+                    if (ai == null) continue;
+                    if (n < slots.Count) { ai.TeleportTo(slots[n].pos, slots[n].rot); ai.GetComponent<AIDriver>()?.ReseedPath(); }
+                    n++;
+                }
+                if (playerCar != null && n < slots.Count) playerCar.TeleportTo(slots[n].pos, slots[n].rot);
             }
 
             // A 1v1 lines up SIDE BY SIDE. The grid staggers four cars over four
@@ -867,12 +904,13 @@ namespace PSXRacing
             var field = new List<CarController>(aiCars);
             if (playerCar != null) field.Add(playerCar);
 
-            for (int row = 0; row < field.Count; row++)
+            for (int slot = 0; slot < field.Count; slot++)
             {
-                var car = field[row];
+                var car = field[slot];
                 if (car == null) continue;
 
-                float back = GridFrontM + row * GridRowM;
+                // Two abreast (RaceField): the player's slot is the last.
+                float back = GridFrontM + RaceField.Row(slot) * GridRowM;
                 // NARROWER ON A STAGE, exactly as the builder is. A stage road
                 // is 8.5-9.5 m where a circuit is 12, and Beech Gap's tarmac is
                 // 4.25 m from the crown: at the circuit's 2.6 m the outer wheels
@@ -881,7 +919,7 @@ namespace PSXRacing
                 // And never past the lane centre - the builder's own rule
                 // (real-width roads: 6.1-6.7 m, the two lanes).
                 half = Mathf.Min(half, path.roadWidth * 0.25f);
-                float lateral = (row % 2 == 0) ? -half : half;
+                float lateral = RaceField.Side(slot) * half;
 
                 PointAlong(path, datum, back,
                            out Vector3 centre, out Vector3 fwd, out Vector3 right);
