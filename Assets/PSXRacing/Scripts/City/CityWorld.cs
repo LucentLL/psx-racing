@@ -202,9 +202,12 @@ namespace PSXRacing.City
         void RunCourse()
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            // the baked city: the next tiles read on the workers meanwhile
+            PrefetchCourse();
             while (courseQueue.Count > 0 && clock.Elapsed.TotalMilliseconds < CourseFrameMs)
             {
                 long k = courseQueue[0];
+                if (CourseTileReading(k)) break;   // its worker hands it over next frame
                 courseQueue.RemoveAt(0);
                 int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
                 EnsureTile(tx, tz);

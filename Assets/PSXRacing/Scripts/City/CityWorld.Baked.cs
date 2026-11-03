@@ -212,6 +212,27 @@ namespace PSXRacing.City
             return true;
         }
 
+        /// <summary>The course preload's read-ahead: the next tiles of the
+        /// queue the bake holds, read on the workers while the loading frame
+        /// stands the ones before them up.</summary>
+        void PrefetchCourse()
+        {
+            if (!CityTileCache.On || !CityWorker.Threaded) return;
+            int ahead = 0;
+            for (int i = 0; i < courseQueue.Count && ahead < 2 * BakedInFlight; i++)
+            {
+                long k = courseQueue[i];
+                if (live.ContainsKey(k)) continue;
+                ahead++;
+                if (baked.ContainsKey(k)) continue;
+                int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
+                if (CityTileCache.Has(tx, tz)) StartBaked(k, tx, tz, i);
+            }
+        }
+
+        /// <summary>The course's next tile is still on a worker (read or cooked).</summary>
+        bool CourseTileReading(long k) => baked.TryGetValue(k, out var bl) && (bl.stage == 0 || bl.stage == 2);
+
         /// <summary>Loads in hand outside every ring (the drop rule's +1, the
         /// course's pins, the anchors' rings) let go.</summary>
         void DropBakedOutside(int ptx, int ptz)
