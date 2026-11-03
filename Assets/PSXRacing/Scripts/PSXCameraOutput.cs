@@ -146,7 +146,8 @@ namespace PSXRacing
             builtHeight = Mathf.Max(1, height);
             rt = new RenderTexture(builtWidth, builtHeight, 24, RenderTextureFormat.Default)
             {
-                filterMode = FilterMode.Point,
+                // bilinear only for the PC tier's FXAA (ApplyFilter)
+                filterMode = Application.isPlaying && PSXQuality.PCHD ? FilterMode.Bilinear : FilterMode.Point,
                 antiAliasing = 1,
                 name = "PSXFramebuffer"
             };
@@ -218,6 +219,13 @@ namespace PSXRacing
             if (blit == null) return;
             if (blit.HasProperty("_ColorDepth")) blit.SetFloat("_ColorDepth", PSXQuality.ColorDepth);
             if (blit.HasProperty("_DitherStrength")) blit.SetFloat("_DitherStrength", PSXQuality.Dither);
+            // The PC tier's HD picture smooths its edges (PSX/Blit's FXAA),
+            // whose half-pixel taps need the buffer bilinear - shown one buffer
+            // pixel a screen pixel, that is the same picture as point. Every
+            // other picture stays point: its pixels ARE the look.
+            bool fxaa = Application.isPlaying && PSXQuality.PCHD;
+            if (blit.HasProperty("_Fxaa")) blit.SetFloat("_Fxaa", fxaa ? 1f : 0f);
+            if (rt != null) rt.filterMode = fxaa ? FilterMode.Bilinear : FilterMode.Point;
             // The saved material carries 0, so a scene opened in the editor
             // (and any tool that does not ask) shows the picture ungraded.
             if (Application.isPlaying && blit.HasProperty("_Grade")) blit.SetFloat("_Grade", FilmGradePrefs.Amount);

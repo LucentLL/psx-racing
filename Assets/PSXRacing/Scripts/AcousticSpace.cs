@@ -27,8 +27,13 @@ namespace PSXRacing
     ///              the walls, its delay from their distance;
     ///   OPEN       nothing near: nearly dry (a little ground and verge);
     ///   RIDGE      open with a ridge out there: a faint echo off it, late.
-    /// Cars and tree trunks are not walls (the player's own car stood in the
-    /// chase camera's level rays; a forest is not a street canyon). Menus,
+    /// A stage's tunnel BORE (WeatherShelter.EnsureVenueBores, the catalogue's
+    /// tunnel table) is a TUNNEL whatever the rays find: its drawn roof has no
+    /// collider and the mountain over it is cut away, and at 5.2 m it is as
+    /// low as a deck's slab (2026-11-03: the Little Switzerland Tunnel heard
+    /// as a CANYON). Cars and tree trunks are not walls (the player's own car
+    /// stood in the chase camera's level rays; a forest is not a street
+    /// canyon). Menus,
     /// music and UI bypass the listener's effects (bypassListenerEffects on
     /// their sources). WebGL has no filter DSP at all (see AudioToneChain), so
     /// there the game stays dry; Windows and Android hear the space.
@@ -59,6 +64,8 @@ namespace PSXRacing
         public float Walls { get; private set; }
         public float WallM { get; private set; } = NearM;
         public float RidgeM { get; private set; }
+        /// <summary>Inside one of the venue's tunnel bores (WeatherShelter.InBore).</summary>
+        public bool InBore { get; private set; }
         /// <summary>The blend weights now (tunnel, deck, canyon, open, ridge) - for the FPS overlay and the checks.</summary>
         public readonly float[] Weights = new float[5];
         public string Label { get; private set; } = "OPEN";
@@ -174,6 +181,8 @@ namespace PSXRacing
             upN++; if (roof) up++;
             Cover = up / (float)upN;
             Ceiling = roof ? ceil : 100f;
+            WeatherShelter.EnsureVenueBores();
+            InBore = WeatherShelter.InBore(transform.position);
         }
 
         void ProbeRidge()
@@ -193,8 +202,8 @@ namespace PSXRacing
         void Blend(float dt)
         {
             // the weights of the five spaces from what was measured
-            float covered = Mathf.InverseLerp(0.35f, 0.8f, Cover);
-            float low = Mathf.InverseLerp(6f, 3.6f, Ceiling);                       // a deck's slab vs a tunnel's roof
+            float covered = InBore ? 1f : Mathf.InverseLerp(0.35f, 0.8f, Cover);
+            float low = InBore ? 0f : Mathf.InverseLerp(6f, 3.6f, Ceiling);         // a deck's slab vs a tunnel's roof
             float walled = Mathf.InverseLerp(0.25f, 0.7f, Walls);
             float wTunnel = covered * (1f - low);
             float wDeck = covered * low;
@@ -215,7 +224,7 @@ namespace PSXRacing
             string was = Label;
             Label = top == 0 ? "TUNNEL" : top == 1 ? "DECK" : top == 2 ? "CANYON" : top == 3 ? "OPEN" : "RIDGE";
             if (LogChanges && Label != was)
-                Debug.Log($"[Acoustics] {was} -> {Label} at {transform.position:F0} t={Time.time:F1}: cover {Cover:F2} ceiling {Ceiling:F1} m walls {Walls:F2} at {WallM:F0} m ridge {RidgeM:F0} m");
+                Debug.Log($"[Acoustics] {was} -> {Label} at {transform.position:F0} t={Time.time:F1}: cover {Cover:F2} ceiling {Ceiling:F1} m walls {Walls:F2} at {WallM:F0} m ridge {RidgeM:F0} m{(InBore ? " (tunnel bore)" : "")}");
 
             Preset P(int i) => i == 0 ? Tunnel : i == 1 ? Deck : i == 2 ? Canyon : i == 3 ? Open : Ridge;
             var mix = new Preset();
