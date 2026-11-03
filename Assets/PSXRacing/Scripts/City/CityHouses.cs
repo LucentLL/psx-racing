@@ -642,7 +642,7 @@ namespace PSXRacing.City
             sT = Mathf.Clamp(sT, 0f, e.length);
             if (e.ElevatedAt(sT)) { why = "street on a structure"; return null; }
             var Q = e.PointAt(sT); var tan = e.TangentAt(sT);
-            var left = new Vector2(-tan.y, tan.x);
+            var left = LineModel.SectionLeft(e, sT);
             float sideS = Vector2.Dot(T - Q, left) >= 0f ? 1f : -1f;
             LineModel.Extents(e, sT, out float eM, out float eP);
             var nrm = left * sideS;
@@ -756,7 +756,7 @@ namespace PSXRacing.City
             CityElevation.ProjectOn(e, Fc, out float s0);
             s0 = Mathf.Clamp(s0, 0f, e.length);
             var Q = e.PointAt(s0); var tan = e.TangentAt(s0);
-            var left = new Vector2(-tan.y, tan.x);
+            var left = LineModel.SectionLeft(e, s0);
             float sideS = Vector2.Dot(Fc - Q, left) >= 0f ? 1f : -1f;
             LineModel.Extents(e, s0, out float eM, out float eP);
             var nrm = left * sideS;

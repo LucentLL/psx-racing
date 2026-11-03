@@ -130,7 +130,7 @@ namespace PSXRacing.City
                 float s = Mathf.Clamp(en.s, 0f, e.length);
                 var p = e.PointAt(s);
                 var t = e.TangentAt(s);
-                var left = new Vector2(-t.y, t.x);
+                var left = LineModel.SectionLeft(e, s);
                 LineModel.Extents(e, s, out float eMinus, out float ePlus);
                 float edgeOff = en.side > 0 ? ePlus : eMinus;
                 var side = left * en.side;
@@ -374,7 +374,7 @@ namespace PSXRacing.City
                         bool up = e.ElevatedAt(sk);
                         if (!up)
                         {
-                            var pk = e.PointAt(sk); var tk = e.TangentAt(sk); var left = new Vector2(-tk.y, tk.x);
+                            var pk = e.PointAt(sk); var left = LineModel.SectionLeft(e, sk);
                             LineModel.Extents(e, sk, out float eM, out float eP);
                             L.Add(pk + left * (eP + BandPadM)); R.Add(pk - left * (eM + BandPadM));
                         }

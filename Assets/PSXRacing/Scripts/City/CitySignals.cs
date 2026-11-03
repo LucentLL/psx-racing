@@ -752,6 +752,8 @@ namespace PSXRacing.City
         /// <summary>The approach an edge makes into node n, if it makes one.</summary>
         static readonly List<Crosswalk> cwPending = new List<Crosswalk>(8);
 
+        static readonly List<LineModel.LineAt> stopLines = new List<LineModel.LineAt>(16);
+
         static bool MakeApproach(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int n, out Approach a, float stopBack = StopBackM)
         {
             a = default;
@@ -772,7 +774,20 @@ namespace PSXRacing.City
             float edgeR = e.PaveEdgeM(sStop, sideR), edgeL = e.PaveEdgeM(sStop, -sideR);
             float inL, inR = edgeR - 0.3f;
             int lanesIn;
-            if (e.oneway) { inL = -edgeL + 0.3f; lanesIn = e.lanes; }
+            if (e.oneway)
+            {
+                inL = -edgeL + 0.3f; lanesIn = e.lanes;
+                // medians round 5b (review r5 #10, n10229): a refuge carriageway's
+                // pavement runs on past its inner (yellow) edge line to the
+                // island - the bar stops at that line, as live's does
+                if (LineModel.RefugeOf(e.index) != null)
+                {
+                    LineModel.LinesAt(e, sStop, stopLines);
+                    float left = float.MaxValue;
+                    foreach (var l in stopLines) left = Mathf.Min(left, atB ? -l.lat : l.lat);
+                    if (left < inR - 2.4f) inL = Mathf.Max(inL, left + 0.15f);
+                }
+            }
             else
             {
                 // the middle between the two directions (roads pass L2: the line

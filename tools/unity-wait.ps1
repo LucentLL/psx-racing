@@ -175,7 +175,10 @@ function Get-UnityProcs([string]$ProjectPath, [switch]$Strict) {
     # branch's C:\Users\mcgee\PSXBuildWebGL output folder (2026-09-28: a camera
     # job sat waiting on that branch's WebGL build).
     $leaf = [regex]::Escape((Split-Path -Leaf $ProjectPath))
-    $rx = "[\\/]$leaf(?=[\\/`"'\s]|$)"
+    # ...and only as the -projectPath argument (2026-11-03: a tile bake on
+    # PSXBuild writing to -psxTileDir C:\Users\mcgee\PSXPerf\CityTiles held
+    # every PSXPerf job waiting, and would have been counted as their PID).
+    $rx = "-projectPath`"?\s+`"?[^`"\s]*[\\/]$leaf(?=[\\/`"'\s]|$)"
     @($procs | Where-Object { ($null -eq $_.CommandLine -and -not $Strict) -or $_.CommandLine -match $rx })
 }
 

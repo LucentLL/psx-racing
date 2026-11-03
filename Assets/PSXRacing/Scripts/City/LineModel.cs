@@ -35,7 +35,7 @@ namespace PSXRacing.City
     /// Traffic, the AI and the city race path read <see cref="LaneCentre"/>,
     /// so they drive the lanes the paint shows.
     /// </summary>
-    public static class LineModel
+    public static partial class LineModel
     {
         /// <summary>One TAPR record: a lane-count change on the wide run's
         /// edge at one of its ends (0 a, 1 b). side 0 = the left of a->b moves,
@@ -76,6 +76,14 @@ namespace PSXRacing.City
             /// from auxWN, the ramp's own outer edge there), a smoothstep taper
             /// to 0 over the auxLt before auxXF, nothing past N.</summary>
             public bool aux; public sbyte auxArm; public float auxD, auxWN, auxW, auxLs, auxXF, auxLt; public int auxZone;
+            /// <summary>The medians pass round 2 (2026-11-02), A REFUGE
+            /// ISLAND'S PROFILE: the value is sampled, not eased - prof[k] at
+            /// k * profDs from this edge's near end (chain distance profD0 =
+            /// d0). On a shift ease it is the shift (edge frame); a WIDEN ease
+            /// widens the PAVEMENT only on <see cref="side"/> (like an aux
+            /// lane: the lanes, the lines and traffic never see it) - the
+            /// centre lane's space beside the island.</summary>
+            public float[] prof; public float profD0, profDs; public bool widen;
         }
 
         /// <summary>The tag of the eases one mitred join makes on its wide
@@ -259,10 +267,10 @@ namespace PSXRacing.City
             for (int i = 0; i < ez.Length; i++)
             {
                 if (ez[i].relay) continue;
-                if (ez[i].aux)
+                if (ez[i].aux || ez[i].widen)
                 {
                     if (!pave) continue;
-                    float w = AuxAt(e, ez[i], s);
+                    float w = ez[i].widen ? Reduction(e, ez[i], s) : AuxAt(e, ez[i], s);
                     if (ez[i].side > 0) { if (w > ap) ap = w; } else if (w > am) am = w;
                     continue;
                 }
@@ -344,8 +352,22 @@ namespace PSXRacing.City
         static float Reduction(CityMap.Edge e, in Ease z, float s)
         {
             float d = z.d0 + (z.fromA ? s : e.length - s);
+            if (z.prof != null) return ProfAt(z, d);
             if (d >= z.len) return 0f;
             return z.dw * (1f - Smooth(Mathf.Max(0f, d) / z.len));
+        }
+
+        /// <summary>A profile ease's value at chain distance d (linear between
+        /// its samples, held past its ends).</summary>
+        static float ProfAt(in Ease z, float d)
+        {
+            var p = z.prof;
+            float x = (d - z.profD0) / z.profDs;
+            if (x <= 0f) return p[0];
+            int n = p.Length;
+            if (x >= n - 1) return p[n - 1];
+            int i = (int)x;
+            return p[i] + (p[i + 1] - p[i]) * (x - i);
         }
 
         /// <summary>Half width and centre offset (+ left of a->b) at s: the
@@ -378,6 +400,7 @@ namespace PSXRacing.City
         /// merge zone mapping).</summary>
         public static Vector2 OwnLanePoint(CityMap.Edge e, float s)
         {
+            if (RefugeNormal(e, s, out var nL)) return e.PointAt(s) + nL * LaneCentre(e, s);
             // at a polyline vertex, the bisector (the ribbon's own section)
             var t = e.TangentAt(Mathf.Max(0f, s - 0.01f)) + e.TangentAt(Mathf.Min(e.length, s + 0.01f));
             t = t.sqrMagnitude > 1e-8f ? t.normalized : e.TangentAt(s);
@@ -397,13 +420,25 @@ namespace PSXRacing.City
             foreach (var e in map.edges) e.lmEase = null;
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0;
+            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
             // (roads pass L4): found first, so a relay at one end of an edge
             // knows whether the other end needs its room too
             var relayJoin = new HashSet<int>(); var relayNode = new HashSet<int>();
+            // Round 5: the refuge pairs this build draws (the accepted list) are
+            // known before the relays, so the relay's nose clearance reaches only
+            // their noses - every other split node relays exactly as live does
+            var planClock = System.Diagnostics.Stopwatch.StartNew();
+            var plan = RefugeOn ? PlanRefuges(map, splitAt) : null;
+            RefugePlanMs = (float)planClock.Elapsed.TotalMilliseconds;
+            relayNoses = null;
+            if (plan != null && plan.Count > 0)
+            {
+                relayNoses = new HashSet<int>();
+                foreach (var pl in plan) { relayNoses.Add(pl.sp.node); relayNoses.Add(pl.s2.node); }
+            }
             for (int j = 0; j < joins.Count; j++)
             {
                 var (n, ei, oi) = joins[j];
@@ -551,6 +586,8 @@ namespace PSXRacing.City
             // starts where its lanes are in the undivided road and eases onto
             // its own line over the MUTCD shifting taper - two carriageways,
             // never one road that bulges into two
+            var refuge = RefugeOn ? FindRefuges(map, add, partner, plan) : null;
+            if (!RefugeOn) ClearRefuges();
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
@@ -578,6 +615,12 @@ namespace PSXRacing.City
                     float shift0 = out1 * (uOut - cOut);
                     if (Mathf.Abs(shift0) < 0.02f) continue;
                     float len = Mathf.Max(FloorOf(C), Mathf.Max(10f, sp.rate) * Mathf.Abs(shift0));
+                    // A REFUGE ISLAND (the owner, 2026-11-02): the shift fades
+                    // out by mid-island, so the island is OSM's own width there
+                    // round 2: the island's own profile drew this carriageway end
+                    // to end. Round 5: only accepted pairs are refuges at all (no
+                    // round-1 cap); any other split tapers exactly as live
+                    if (refuge != null && refuge.ContainsKey(RefugeKey(sp.node, ci))) { RefugeTapers++; continue; }
                     PropagateShift(map, add, partner, C, sp.node, shift0, len, 0f, 0);
                     SplitTapers++;
                 }
@@ -600,6 +643,1044 @@ namespace PSXRacing.City
             for (int i = 0; i < add.Length; i++) if (add[i] != null) map.edges[i].lmEase = add[i].ToArray();
         }
         public static int SplitTapers, HeldJoins, CrossedJoins;
+
+        // ================================================================
+        //  Refuge islands (the medians pass, 2026-11-02)
+        // ================================================================
+        // The owner on Beatties Ford: "curbs blocking turn lanes", a wide
+        // grass island where the real one is a 1.5-2 m planted strip. Where
+        // a 5-lane road opens into two carriageways for a short island and
+        // closes again, each split node's median taper shifted its
+        // carriageway out by the undivided road's half width less its own
+        // (5.49 m there) over the whole island: RoomAlong let each taper run
+        // to the far node, and two smoothsteps from opposite ends sum to one,
+        // so the shift was a constant 5.49 m from end to end - an island of
+        // 1.9 + 2 x 5.49 = 12.9 m, the road's outer edges bulging by 5 m.
+        // Now the taper of a REFUGE carriageway (its chain reaches another
+        // split node of the same road within RefugeMaxM, on a road that is
+        // not Barriered, both ends without a lane-count mismatch) is capped
+        // at half the chain: the shift fades to nothing at mid-island and
+        // the island takes OSM's own width there. An island OSM draws
+        // narrower than RefugeMinIslandM keeps that much: the cap is solved
+        // so the two ends' shifts add up to the shortfall at mid.
+
+        /// <summary>PSX_CITY_REFUGE=0: today's tapers (the A/B). Not readonly:
+        /// the medians gate measures both in one run.</summary>
+        public static bool RefugeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_REFUGE") != "0";
+        public const float RefugeMaxM = 150f, RefugeMinIslandM = 1.2f, RefugeMismatchM = 1f;
+        /// <summary>For the audit: carriageway tapers capped, tapers left as
+        /// they were (OSM's island too narrow for the cap to help), pairs.</summary>
+        public static int RefugeTapers, RefugeHeld;
+        /// <summary>Round 2, for the audit: carriageways drawn by the full
+        /// profile, and pairs left on round 1's cap (no room for an island).</summary>
+        public static int RefugeProfiled, RefugeFallback, RefugeFlush;
+        /// <summary>One carriageway of a refuge island: the split node, the
+        /// carriageway edge leaving it into the island, the chain of edges to
+        /// the far split node (in travel order away from this node), its
+        /// length, the island's width in OSM at mid-chain, and how much wider
+        /// than that it is held (round 1's cap). Round 2 (profiled): the
+        /// island's frame - the axis (the undivided road's line carried
+        /// through, a Hermite curve between the two nodes on their approach
+        /// tangents), this carriageway's OUTER side (so: +1 left of the axis
+        /// from node to far), the undivided road's outer half width at each
+        /// end on that side, the lanes' outward move at mid (4-lane case,
+        /// 0 with a centre lane) and its ease length, the island's half width
+        /// at mid, the nose set-backs from each end, its taper and tip
+        /// radius.</summary>
+        public sealed class Refuge
+        {
+            public int node, far, edge; public int[] chain; public float lc, osmIsland, extra;
+            public bool profiled; public int so; public Vector2[] ax; public float[] axS; public float axLen;
+            public float uOut1, uOut2, move, moveLen, half, x0s, x0e, ln, rn;
+            /// <summary>Why a pair is not drawn by the profile (the audit).</summary>
+            public string why;
+            /// <summary>Round 4: the undivided road's outer edge at each node
+            /// once the common-mode shift is on the undivided roads (o1/o2);
+            /// the lanes' reference (the OSM line's place, outward from the
+            /// axis) - constant along the island, so every through lane runs
+            /// straight - and the outer pavement widening at each node where
+            /// the undivided road is wider than the carriageway's lanes reach
+            /// (linear between them: a turn lane's space opening, pavement
+            /// only); the shifts put on the undivided roads (axis-left, at each
+            /// node), their ease lengths asked and given; a real separated
+            /// median (not an island); the self-check's verdict.</summary>
+            public float o1, o2, r1, r2, w1, w2, uShift1, uShift2, uLen1, uLen2, uRoom1, uRoom2;
+            public bool separated; public string check = ""; public long tag;
+            /// <summary>Round 5: the list's mode (1 auto, 2 flush), the pair key,
+            /// and the undivided edges the common-mode shift was put on (the gate
+            /// measures their lines, edges and paths).</summary>
+            public byte mode; public long pk; public int[] uEdges = System.Array.Empty<int>();
+            /// <summary>The undivided road's outer edge at axis arc u (from the axis, outward).</summary>
+            public float OuterTarget(float u) => Mathf.Lerp(o1, o2, axLen > 1e-3f ? Mathf.Clamp01(u / axLen) : 0f);
+            /// <summary>Round 4: where the lanes' reference (the shifted OSM
+            /// line) runs at axis arc u, outward from the axis: a straight line
+            /// between its flush places at the two nodes, plus the 4-lane move.</summary>
+            public float LaneRef(float u) => Mathf.Lerp(r1, r2, axLen > 1e-3f ? Mathf.Clamp01(u / axLen) : 0f) + MoveAt(u);
+            /// <summary>Round 4: the outer pavement widening at axis arc u.</summary>
+            public float OuterWiden(float u) => Mathf.Max(0f, Mathf.Lerp(w1, w2, axLen > 1e-3f ? Mathf.Clamp01(u / axLen) : 0f));
+            public void CopyProfile(Refuge o) { half = o.half; x0s = o.x0s; x0e = o.x0e; ln = o.ln; rn = o.rn; move = o.move; moveLen = o.moveLen; r1 = o.r1; r2 = o.r2; w1 = o.w1; w2 = o.w2; profiled = o.profiled; }
+            /// <summary>The lanes' outward move at axis arc u (4-lane case).</summary>
+            public float MoveAt(float u) => move <= 0f ? 0f : move * Smooth(Mathf.Min(u, axLen - u) / Mathf.Max(1f, moveLen));
+            /// <summary>The island's design half width at axis arc u (before
+            /// the carriageways' own room limits it).</summary>
+            public float NoseHalf(float u)
+            {
+                float x = Mathf.Min(u - x0s, axLen - u - x0e), h = half;
+                if (x <= 0f || h <= 0f) return 0f;
+                if (x >= ln) return h;
+                float r = Mathf.Min(rn, h);
+                // round 5b (load cost): the flank's tangent point once per nose shape
+                if (!nfOk || nfH != h || nfLn != ln || nfR != r) { NoseFlank(h, ln, r, out nfArc, out nfT); nfH = h; nfLn = ln; nfR = r; nfOk = true; }
+                return NoseHalfAt(x, h, ln, r, nfArc, nfT);
+            }
+            float nfH, nfLn, nfR; bool nfOk, nfArc; Vector2 nfT;
+            /// <summary>Axis arc and lateral (outward +) of a world point.</summary>
+            public void Local(Vector2 p, out float u, out float lat)
+            {
+                AxisClosest(ax, axS, p, out u, out var at, out var left);
+                lat = so * Vector2.Dot(p - at, left);
+            }
+            /// <summary>Round 4 (the self-check runs at load): Local, searching
+            /// a few axis pieces about the last answer first (hint: the piece
+            /// index, carried by the caller); the whole axis when the best is at
+            /// the window's edge. Same answer as Local.</summary>
+            public void LocalNear(Vector2 p, ref int hint, out float u, out float lat) { LocalNear(p, ref hint, out u, out lat, out _); }
+            public void LocalNear(Vector2 p, ref int hint, out float u, out float lat, out Vector2 left)
+            {
+                int n = ax.Length - 1, lo = Mathf.Max(1, hint - 3), hi = Mathf.Min(n, hint + 3);
+                int k = ClosestPiece(p, lo, hi, out u, out var at, out left);
+                if (hint <= 0 || (k == lo && lo > 1) || (k == hi && hi < n)) k = ClosestPiece(p, 1, n, out u, out at, out left);
+                hint = k;
+                lat = so * Vector2.Dot(p - at, left);
+            }
+            /// <summary>The last axis piece RefugeNormal found (its search hint).</summary>
+            public int hintK;
+            int ClosestPiece(Vector2 p, int lo, int hi, out float u, out Vector2 at, out Vector2 left)
+            {
+                // round 5b (load cost): plain float arithmetic in the scan (the
+                // editor's Mono does not inline Vector2's operators); the winner's
+                // point, arc and normal are worked out once, after the scan. Not
+                // bit-identical to the Vector2 form: where a point is equally near
+                // two pieces (at an axis vertex) the tie can fall the other way -
+                // the gate's measures moved by a few mm, the decision did not
+                float best = float.MaxValue, bt = 0f; int bk = -1;
+                float px = p.x, py = p.y;
+                var axs = ax;
+                for (int k = lo; k <= hi; k++)
+                {
+                    float ax0 = axs[k - 1].x, ay0 = axs[k - 1].y;
+                    float abx = axs[k].x - ax0, aby = axs[k].y - ay0;
+                    float l2 = abx * abx + aby * aby;
+                    if (l2 < 1e-8f) continue;
+                    float t = ((px - ax0) * abx + (py - ay0) * aby) / l2;
+                    t = t < 0f ? 0f : t > 1f ? 1f : t;
+                    float dx = px - (ax0 + abx * t), dy = py - (ay0 + aby * t);
+                    float d = dx * dx + dy * dy;
+                    if (d < best) { best = d; bk = k; bt = t; }
+                }
+                if (bk < 0) { u = 0f; at = ax[0]; left = Vector2.up; return lo; }
+                Vector2 a = ax[bk - 1], ab = ax[bk] - a;
+                at = a + ab * bt; u = axS[bk - 1] + bt * (axS[bk] - axS[bk - 1]);
+                var tn = ab / Mathf.Sqrt(ab.sqrMagnitude); left = new Vector2(-tn.y, tn.x);
+                return bk;
+            }
+        }
+        public static readonly List<Refuge> Refuges = new List<Refuge>();
+        static long RefugeKey(int node, int edge) => ((long)node << 32) | (uint)edge;
+
+        /// <summary>The taper length that leaves <paramref name="residual"/>
+        /// of a <paramref name="shift"/> at mid-chain (Lc/2): Lc/2 for none,
+        /// at most Lc (two ends then sum to the full shift everywhere).</summary>
+        static float RefugeLen(float lc, float shift, float residual)
+        {
+            float half = 0.5f * lc;
+            if (residual <= 1e-3f || shift <= 1e-3f) return half;
+            if (residual >= 0.5f * shift) return lc;
+            float lo = half, hi = lc;
+            for (int it = 0; it < 24; it++)
+            {
+                float mid = 0.5f * (lo + hi);
+                if (shift * (1f - Smooth(half / mid)) < residual) lo = mid; else hi = mid;
+            }
+            return 0.5f * (lo + hi);
+        }
+
+        /// <summary>Walk a carriageway from a split node along its own road
+        /// (same name, one-way the same way, no link; a side street may join)
+        /// to the next split node within RefugeMaxM.</summary>
+        static bool RefugeChain(CityMap map, Dictionary<int, Split> splitAt, int ei, int node, List<int> chain, out int far, out float len)
+        {
+            chain.Clear(); far = -1; len = 0f;
+            if (ei < 0 || ei >= map.edges.Length) return false;
+            var e = map.edges[ei];
+            int from = node;
+            for (int g = 0; g < 30; g++)
+            {
+                if (e.a == e.b) return false;
+                chain.Add(e.index);
+                len += e.length;
+                far = e.a == from ? e.b : e.a;
+                if (splitAt.ContainsKey(far)) return far != node && len <= RefugeMaxM;
+                if (len > RefugeMaxM) return false;
+                bool arrives = e.b == far;
+                CityMap.Edge next = null; int n = 0;
+                foreach (int i in map.nodeEdges[far])
+                {
+                    if (i == e.index) continue;
+                    var o = map.edges[i];
+                    if (o.name != e.name || !o.oneway || o.link || o.a == o.b || (o.a == far) != arrives) continue;
+                    next = o; n++;
+                }
+                if (n != 1) return false;
+                e = next; from = far;
+            }
+            return false;
+        }
+
+        /// <summary>A point a distance d along a chain from its node.</summary>
+        static Vector2 ChainPoint(CityMap map, int[] chain, int node, float d)
+        {
+            int from = node;
+            for (int k = 0; k < chain.Length; k++)
+            {
+                var e = map.edges[chain[k]];
+                bool fwd = e.a == from;
+                if (d <= e.length || k == chain.Length - 1)
+                {
+                    float s = Mathf.Clamp(fwd ? d : e.length - d, 0f, e.length);
+                    return e.PointAt(s);
+                }
+                d -= e.length; from = fwd ? e.b : e.a;
+            }
+            return map.nodes[node];
+        }
+
+        static float DistToEdge(CityMap.Edge e, Vector2 p)
+        {
+            float best = float.MaxValue;
+            for (int k = 1; k < e.pts.Length; k++)
+            {
+                Vector2 a = e.pts[k - 1], ab = e.pts[k] - a;
+                float l2 = ab.sqrMagnitude;
+                float u = l2 > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                best = Mathf.Min(best, Vector2.Distance(p, a + ab * u));
+            }
+            return best;
+        }
+
+        /// <summary>The refuge carriageways, keyed (split node, carriageway
+        /// edge at it), both ends of every pair: every split node whose two
+        /// carriageway chains reach the same other split node within
+        /// RefugeMaxM. Round 2: each pair's two carriageways get the island's
+        /// own profile (shift + widen eases, <see cref="BuildRefugePair"/>);
+        /// a pair with no room for an island keeps round 1's cap.</summary>
+        // ---- round 5: PER-PAIR ALL-OR-NOTHING ------------------------------
+        // Four rounds left about a dozen pairs (OSM lane-add tapers inside the
+        // island) failing one gate or another while the owner's library and
+        // bend pairs were good. Now a pair is drawn by the profile only if it
+        // is on the ACCEPTED LIST (LineModel.RefugeList.cs), which the medians
+        // gate (CityAudit.RunMedianGates) writes after measuring every pair on
+        // the drawn geometry and reverting each that fails any check. A pair
+        // not on the list is no refuge at all: its split nodes taper, relay and
+        // paint exactly as live does. Each entry carries a fingerprint of the
+        // pair's own data (nodes, chains, widths, line-model extents), and the
+        // list the city's edge and node counts: a pair whose data changed, or
+        // a list from another city export, falls back to live (fail safe), and
+        // the gate fails until the list is regenerated. No check runs at load.
+        public struct RPlan { public Split sp, s2; public int[] ca, cb; public float la, lb; public byte mode; public long pk; }
+        /// <summary>A pair the detection found (accepted or not), for the gate.</summary>
+        public struct RefugeCand { public long pk; public uint fp; public int n1, n2, e1, e2, u1, u2; public int[] ca, cb; }
+        public static readonly List<RefugeCand> RefugeCandidates = new List<RefugeCand>();
+        /// <summary>Editor (the gate's decision runs): pair key -> mode (1 the
+        /// profile's own choice, 2 forced flush) in place of the compiled list.
+        /// Null: the compiled list.</summary>
+        public static Dictionary<long, byte> RefugeOverride;
+        public const byte RefugeModeAuto = 1, RefugeModeFlush = 2;
+        /// <summary>For the gate: pairs found, drawn from the list, not on it,
+        /// on it with a fingerprint that no longer matches; the list made for
+        /// another city export (all pairs live); FindRefuges' cost.</summary>
+        public static int RefugeFound, RefugeListedN, RefugeUnlisted, RefugeStaleFp; public static bool RefugeListStale; public static float RefugeBuildMs;
+        /// <summary>Round 5b: PlanRefuges' cost (detection + fingerprints); the load cost is this plus RefugeBuildMs.</summary>
+        public static float RefugePlanMs;
+        static CityMap refugeLoggedFor;
+        /// <summary>Pairs on the list the builder could not draw (why on pair[0]).</summary>
+        public static readonly List<Refuge> RefugeNotDrawn = new List<Refuge>();
+        public static long RefugePairKey(int a, int b) => ((long)Mathf.Min(a, b) << 32) | (uint)Mathf.Max(a, b);
+
+        static Dictionary<long, (byte mode, uint fp)> compiledList; static CityMap compiledFor;
+        static Dictionary<long, (byte mode, uint fp)> CompiledRefugeList(CityMap map)
+        {
+            if (compiledFor == map && compiledList != null) return compiledList;
+            compiledFor = map; compiledList = new Dictionary<long, (byte, uint)>();
+            RefugeListStale = map.edges.Length != RefugeListEdges || map.nodes.Length != RefugeListNodes;
+            if (RefugeListStale) return compiledList;
+            for (int i = 0; i + 2 < RefugeListData.Length; i += 3)
+                compiledList[RefugeListData[i]] = ((byte)RefugeListData[i + 2], (uint)RefugeListData[i + 1]);
+            return compiledList;
+        }
+
+        /// <summary>The pair's own data, hashed (FNV-1a over ids and mm-rounded widths/extents/positions).</summary>
+        public static uint RefugeFingerprint(CityMap map, Split sp, Split s2, int[] ca, int[] cb)
+        {
+            uint h = 2166136261u;
+            void I(int v) { unchecked { h = (h ^ (uint)v) * 16777619u; } }
+            void F(float v) => I(Mathf.RoundToInt(v * 1000f));
+            // Round 5b (WebGL/IL2CPP): only values read from the city file (or
+            // one float multiply away from it, which every IEEE platform rounds
+            // alike) - never a derived sum (length, lmPlus), whose last bit can
+            // differ between the editor's Mono and wasm and flip a mm rounding.
+            // The profile index stands for width and shoulders (a fixed table).
+            void E(int i)
+            {
+                var e = map.edges[i];
+                I(i); I(e.a); I(e.b); I(e.profile); I(e.cls); I(e.oneway ? 1 : 0); I(e.pts.Length);
+                F(e.lmOff);
+                foreach (var p in e.pts) { F(p.x); F(p.y); }
+            }
+            I(sp.node); I(s2.node); F(sp.offA); F(sp.offB); F(s2.offA); F(s2.offB); F(sp.rate); F(s2.rate);
+            E(sp.u); E(s2.u); E(sp.a); E(sp.b); E(s2.a); E(s2.b);
+            foreach (int i in ca) E(i);
+            foreach (int i in cb) E(i);
+            return h;
+        }
+
+        /// <summary>Every refuge pair the detection finds (RefugeCandidates),
+        /// and of them those to draw: on the override, or on the compiled list
+        /// with a matching fingerprint.</summary>
+        static List<RPlan> PlanRefuges(CityMap map, Dictionary<int, Split> splitAt)
+        {
+            RefugeCandidates.Clear(); RefugeFound = 0; RefugeListedN = 0; RefugeUnlisted = 0; RefugeStaleFp = 0;
+            var plan = new List<RPlan>();
+            var list = RefugeOverride == null ? CompiledRefugeList(map) : null;
+            var done = new HashSet<long>();
+            var ca = new List<int>(8); var cb = new List<int>(8);
+            bool Bad(int i) => i < 0 || i >= map.edges.Length || CityMeshes.Barriered(map.edges[i]);
+            float Nose(Split s) => map.edges[s.u].width - map.edges[s.a].width - map.edges[s.b].width;
+            foreach (var sp in splitAt.Values)
+            {
+                if (Bad(sp.u) || Bad(sp.a) || Bad(sp.b)) continue;
+                if (!RefugeChain(map, splitAt, sp.a, sp.node, ca, out int fa, out float la)) continue;
+                if (!RefugeChain(map, splitAt, sp.b, sp.node, cb, out int fb, out float lb)) continue;
+                if (fa != fb) continue;
+                var s2 = splitAt[fa];
+                if (Bad(s2.u) || Bad(s2.a) || Bad(s2.b)) continue;
+                if (Nose(sp) < -RefugeMismatchM || Nose(s2) < -RefugeMismatchM) continue;
+                long pk = RefugePairKey(sp.node, fa);
+                if (!done.Add(pk)) continue;                 // the far end: built with this one
+                RefugeFound++;
+                var A = ca.ToArray(); var B = cb.ToArray();
+                uint fp = RefugeFingerprint(map, sp, s2, A, B);
+                RefugeCandidates.Add(new RefugeCand { pk = pk, fp = fp, n1 = sp.node, n2 = fa, e1 = A[0], e2 = B[0], u1 = sp.u, u2 = s2.u, ca = A, cb = B });
+                byte mode;
+                if (RefugeOverride != null) { if (!RefugeOverride.TryGetValue(pk, out mode)) { RefugeUnlisted++; continue; } }
+                else
+                {
+                    if (!list.TryGetValue(pk, out var en)) { RefugeUnlisted++; continue; }
+                    if (en.fp != fp) { RefugeStaleFp++; continue; }
+                    mode = en.mode;
+                }
+                RefugeListedN++;
+                plan.Add(new RPlan { sp = sp, s2 = s2, ca = A, cb = B, la = la, lb = lb, mode = mode, pk = pk });
+            }
+            return plan;
+        }
+
+        static Dictionary<long, Refuge> FindRefuges(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, List<RPlan> plan)
+        {
+            ClearRefuges();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var res = new Dictionary<long, Refuge>();
+            foreach (var pl in plan)
+            {
+                var sp = pl.sp; var s2 = pl.s2; int fa = s2.node;
+                var pair = new Refuge[2];
+                for (int c = 0; c < 2; c++)
+                {
+                    var arr = c == 0 ? pl.ca : pl.cb; var other = c == 0 ? pl.cb : pl.ca;
+                    float lc = c == 0 ? pl.la : pl.lb;
+                    var p = ChainPoint(map, arr, sp.node, 0.5f * lc);
+                    float sep = float.MaxValue;
+                    foreach (int oi in other) sep = Mathf.Min(sep, DistToEdge(map.edges[oi], p));
+                    float isl = sep - 0.5f * (map.edges[sp.a].width + map.edges[sp.b].width);
+                    pair[c] = new Refuge { node = sp.node, far = fa, edge = arr[0], chain = arr, lc = lc, osmIsland = isl,
+                                           extra = Mathf.Max(0f, 0.5f * (RefugeMinIslandM - isl)), mode = pl.mode, pk = pl.pk };
+                }
+                pair[0].tag = pair[1].tag = -(Refuges.Count / 2 + RefugeNotDrawn.Count + 1);
+                bool prof = BuildRefugePair(map, add, partner, sp, s2, pair, pl.mode == RefugeModeFlush);
+                if (!prof)
+                {
+                    // round 5: not drawable (or a real separated median, Moores
+                    // Chapel's 24 m): no refuge - the split's ordinary tapers
+                    if (pair[0].separated) { Separated.Add(pair[0]); Separated.Add(pair[1]); }
+                    RefugeNotDrawn.Add(pair[0]); RefugeFallback++;
+                    continue;
+                }
+                RefugeProfiled += 2;
+                for (int c = 0; c < 2; c++)
+                {
+                    var r = pair[c];
+                    Refuges.Add(r);
+                    res[RefugeKey(sp.node, r.chain[0])] = r;
+                    res[RefugeKey(fa, r.chain[r.chain.Length - 1])] = r;
+                }
+            }
+            RefugeBuildMs = (float)clock.Elapsed.TotalMilliseconds;
+            // Round 5b: one line at city load, so a published (WebGL) build can be
+            // checked in the browser console - every listed pair should draw
+            if (RefugeOverride == null && refugeLoggedFor != map)
+            {
+                refugeLoggedFor = map;
+                Debug.Log($"[city] refuge pairs listed {RefugeListedN}/{RefugeListData.Length / 3} (drawn {Refuges.Count / 2}; stale fingerprints {RefugeStaleFp}; list {(RefugeListStale ? "STALE" : "ok")}; plan {RefugePlanMs:0.0} ms + build {RefugeBuildMs:0.0} ms)");
+            }
+            return res;
+        }
+
+        // ---- round 2: the island's own profile ---------------------------
+        static readonly Dictionary<int, Refuge> refugeEdge = new Dictionary<int, Refuge>();
+
+        /// <summary>THE SECTION DIRECTION on a refuge carriageway (round 2):
+        /// the island axis's normal, not the OSM edge's - OSM's centreline
+        /// fans up to 25 degrees off the road there, and a cross-section
+        /// square to IT draws every lateral (lane lines, edges, traffic)
+        /// compressed by the cosine, so no shift could keep them straight.
+        /// left: unit, on the edge's left (its plus side). False: not a
+        /// refuge carriageway (the edge's own normal).</summary>
+        /// <summary>Are two edges the two carriageways of one profiled refuge island?</summary>
+        /// <summary>The profiled refuge island a carriageway edge runs past (round 3: its kerb), or null.</summary>
+        public static Refuge RefugeOf(int edge) => refugeEdge.Count > 0 && refugeEdge.TryGetValue(edge, out var r) ? r : null;
+
+        /// <summary>Round 5: is this a split node of a drawn (accepted) refuge pair?</summary>
+        public static bool IsRefugeNode(int node) => refugeNodeDir.Count > 0 && refugeNodeDir.ContainsKey(node);
+
+        public static bool SameRefuge(int a, int b) =>
+            refugeEdge.Count > 0 && refugeEdge.TryGetValue(a, out var ra) && refugeEdge.TryGetValue(b, out var rb) && ra != rb && ra.node == rb.node && ra.far == rb.far;
+
+        public static bool RefugeNormal(CityMap.Edge e, float s, out Vector2 left)
+        {
+            left = default;
+            if (refugeEdge.Count == 0 || !refugeEdge.TryGetValue(e.index, out var r)) return false;
+            Vector2 lf;
+            // at its split node exactly the undivided road's end cut (round 3:
+            // the 64-piece axis's first chord is a few hundredths off it)
+            if (s <= 1e-3f && (e.a == r.node || e.a == r.far) && refugeNodeDir.TryGetValue(e.a, out var dA)) lf = new Vector2(-dA.y, dA.x);
+            else if (s >= e.length - 1e-3f && (e.b == r.node || e.b == r.far) && refugeNodeDir.TryGetValue(e.b, out var dB)) lf = new Vector2(-dB.y, dB.x);
+            else { int h = r.hintK; r.LocalNear(e.PointAt(s), ref h, out _, out _, out lf); r.hintK = h; }
+            var t = e.TangentAt(s);
+            left = Vector2.Dot(lf, new Vector2(-t.y, t.x)) >= 0f ? lf : -lf;
+            return true;
+        }
+
+        // Round 3: ONE SECTION NORMAL at a profiled split node. The two
+        // carriageways are cut square to the island's axis; the undivided
+        // road's end at that node was still cut on its mitre with one of
+        // them (OSM's fanned centreline), so the two cuts parted in a wedge
+        // across a carriageway - narrow at the nose, a metre at the kerb
+        // (review r2: a tan crack and a kerb gap at every nose). The axis
+        // leaves the node along the undivided road's own approach chord, so
+        // cutting that road's END square to it too closes the wedge.
+        static readonly Dictionary<int, Vector2> refugeNodeDir = new Dictionary<int, Vector2>();
+        /// <summary>Round 4 (review r3): the edges the node cut applies to -
+        /// the undivided road and the two carriageway ends at each profiled
+        /// split node, keyed (node, edge); a side street meeting the node
+        /// keeps its own normal.</summary>
+        static readonly HashSet<long> refugeNodeEdge = new HashSet<long>();
+        /// <summary>Round 4: pairs that are real separated medians (two
+        /// carriageways on their own lines), kept for the audit.</summary>
+        public static readonly List<Refuge> Separated = new List<Refuge>();
+        /// <summary>Round 5b (load cost): FindRefuges' parts, in Stopwatch ticks -
+        /// frame (axis, stray walk, common mode), profile samples, profile plan, eases.</summary>
+        public static readonly long[] RefugeTicks = new long[4];
+        public static string RefugeCostParts()
+        {
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            return $"frame {RefugeTicks[0] * f:0.0} / samples {RefugeTicks[1] * f:0.0} / plan {RefugeTicks[2] * f:0.0} / eases {RefugeTicks[3] * f:0.0} ms";
+        }
+        static void ClearRefuges()
+        {
+            System.Array.Clear(RefugeTicks, 0, RefugeTicks.Length);
+            Refuges.Clear(); Separated.Clear(); RefugeNotDrawn.Clear(); refugeEdge.Clear(); refugeNodeDir.Clear(); refugeNodeEdge.Clear();
+            RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; RefugeFlush = 0; RefugeUShifts = 0;
+        }
+
+        /// <summary>THE SECTION NORMAL every consumer uses (round 3): a refuge
+        /// carriageway's axis normal; the undivided road's end at a profiled
+        /// split node, the axis normal there; false: the edge's own normal
+        /// (the caller's usual rule). left: unit, on e's left (+ side).</summary>
+        public static bool SectionNormal(CityMap.Edge e, float s, out Vector2 left)
+        {
+            if (RefugeNormal(e, s, out left)) return true;
+            if (refugeNodeDir.Count == 0) return false;
+            Vector2 d;
+            if (s <= 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.a, e.index)) && refugeNodeDir.TryGetValue(e.a, out d)) { }
+            else if (s >= e.length - 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.b, e.index)) && refugeNodeDir.TryGetValue(e.b, out d)) { }
+            else return false;
+            var t = e.TangentAt(s);
+            var lf = new Vector2(-d.y, d.x);
+            left = Vector2.Dot(lf, new Vector2(-t.y, t.x)) >= 0f ? lf : -lf;
+            return true;
+        }
+
+        /// <summary>The section's left normal at s: <see cref="SectionNormal"/>,
+        /// else the edge's own tangent's - the shared helper for the Extents
+        /// readers that lay a point off the line.</summary>
+        public static Vector2 SectionLeft(CityMap.Edge e, float s)
+        {
+            if (SectionNormal(e, s, out var l)) return l;
+            var t = e.TangentAt(s);
+            return new Vector2(-t.y, t.x);
+        }
+
+        /// <summary>Extents measured along the OSM line's own normal (the
+        /// scalar readers: PaveEdgeM, "is q within e's pavement"): on a refuge
+        /// carriageway the drawn edge runs along the axis, so its distance
+        /// along OSM's normal is the extent over the cosine between them.</summary>
+        public static void ExtentsAlongOsm(CityMap.Edge e, float s, out float eMinus, out float ePlus)
+        {
+            Extents(e, s, out eMinus, out ePlus);
+            if (refugeEdge.Count == 0 || !RefugeNormal(e, s, out var nL)) return;
+            var t = e.TangentAt(s);
+            float c = Mathf.Max(0.5f, Vector2.Dot(nL, new Vector2(-t.y, t.x)));
+            eMinus /= c; ePlus /= c;
+        }
+
+        /// <summary>THE TRAFFIC PATH'S TANGENT on a refuge carriageway (round
+        /// 3): the way a point lat off the line, keeping its place in the
+        /// shifted band (lat follows ShiftAt), actually moves - the axis
+        /// direction plus the shift's slope - not OSM's centreline tangent,
+        /// which fans up to 24 degrees off it at a nose (cars crabbed). a->b;
+        /// false: not a refuge carriageway.</summary>
+        public static bool RefugeTangent(CityMap.Edge e, float s, float lat, out Vector2 tan)
+        {
+            tan = default;
+            if (refugeEdge.Count == 0 || !refugeEdge.ContainsKey(e.index)) return false;
+            float s0 = Mathf.Max(0f, s - 0.5f), s1 = Mathf.Min(e.length, s + 0.5f);
+            if (s1 - s0 < 1e-3f) return false;
+            // round 4: the lane band's own move (shift + the joins' relays and
+            // tapers on the lanes), not the shift alone
+            float sh = LaneCentre(e, s);
+            Vector2 P(float x)
+            {
+                RefugeNormal(e, x, out var n);
+                return e.PointAt(x) + n * (lat + LaneCentre(e, x) - sh);
+            }
+            var d = P(s1) - P(s0);
+            if (d.sqrMagnitude < 1e-8f) return false;
+            tan = d.normalized;
+            if (Vector2.Dot(tan, e.TangentAt(s)) < 0f) tan = -tan;
+            return true;
+        }
+
+        // The owner, looking at round 1 (2026-11-02): "roads are not made
+        // like this". On the real road the through lanes and the outer
+        // edges run DEAD STRAIGHT past a refuge island; the island sits in
+        // the centre lane's space and tapers to a rounded nose at each end.
+        // Round 1 only capped the taper, so the drawn road still followed
+        // OSM's fanning centrelines (an S-wobble). Now each carriageway's
+        // shift is sampled every RefugeDs along its chain so that its OUTER
+        // edge lies on the undivided road's edge line - carried through
+        // between the two nodes along an axis on their approach tangents -
+        // whatever OSM's line does in between (sh = target - OSM offset). The
+        // centre lane's space between the two carriageways is pavement (a
+        // WIDEN ease, pavement only) except the island: wI = OSM's island
+        // width clamped to RefugeMinIslandM..RefugeMaxIslandM, a rounded
+        // nose RefugeTipM in from each node tapering to full width over
+        // clamp(Lc/4, 4, 10) m. A 4-lane road (no centre lane) has no room:
+        // its lanes move out by what the island needs, eased over at least
+        // RefugeMoveMinM so no lane line slopes more than RefugeSlope.
+        public const float RefugeDs = 0.25f, RefugeMaxIslandM = 2.4f, RefugeTipM = 0.3f, RefugeMoveMinM = 20f, RefugeMoveMaxM = 1.3f, RefugeSlope = 0.06f, RefugeDesignSlope = 0.05f, RefugeMaxStrayM = 12f;
+
+        /// <summary>A rounded nose's half width at x past its tip: 0 before
+        /// it, a kerb arc of radius r at the tip, then a straight flank tangent
+        /// to it reaching h at x = ln, h beyond.</summary>
+        public static float NoseHalf(float x, float h, float ln, float r)
+        {
+            if (x <= 0f || h <= 0f) return 0f;
+            if (x >= ln) return h;
+            r = Mathf.Min(r, h);
+            NoseFlank(h, ln, r, out bool arc, out var T);
+            return NoseHalfAt(x, h, ln, r, arc, T);
+        }
+
+        /// <summary>Round 5b (load cost): NoseHalf's flank tangent point (T),
+        /// which depends on the nose only, not on x - worked out once per nose
+        /// (Refuge.NoseHalf caches it). arc: the flank is too short for a
+        /// tangent (the nose is the arc alone). r is already min(r, h).</summary>
+        static void NoseFlank(float h, float ln, float r, out bool arc, out Vector2 T)
+        {
+            // the flank from (ln, h) tangent to the circle about (r, 0)
+            var C = new Vector2(r, 0f); var Q = new Vector2(ln, h);
+            var v = Q - C; float D = v.magnitude;
+            arc = D <= r + 1e-4f; T = default;
+            if (arc) return;
+            float a = Mathf.Acos(Mathf.Clamp(r / D, -1f, 1f));
+            var vn = v / D;
+            T = C + r * new Vector2(vn.x * Mathf.Cos(a) - vn.y * Mathf.Sin(a), vn.x * Mathf.Sin(a) + vn.y * Mathf.Cos(a));
+        }
+
+        static float NoseHalfAt(float x, float h, float ln, float r, bool arc, Vector2 T)
+        {
+            if (arc) return x <= r ? Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x))) : h;
+            if (x <= T.x) return Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x)));
+            return Mathf.Min(h, T.y + (h - T.y) * (x - T.x) / Mathf.Max(1e-4f, ln - T.x));
+        }
+
+        /// <summary>The closest point of a polyline axis to p: its arc u, the
+        /// point, and the left normal there.</summary>
+        public static void AxisClosest(Vector2[] ax, float[] axS, Vector2 p, out float u, out Vector2 at, out Vector2 left)
+        {
+            // round 5b (load cost): scalar scan, the winner worked out once (as Refuge.ClosestPiece)
+            float best = float.MaxValue, bt = 0f; int bk = -1; u = 0f; at = ax[0]; left = Vector2.up;
+            float px = p.x, py = p.y;
+            for (int k = 1; k < ax.Length; k++)
+            {
+                float ax0 = ax[k - 1].x, ay0 = ax[k - 1].y;
+                float abx = ax[k].x - ax0, aby = ax[k].y - ay0;
+                float l2 = abx * abx + aby * aby;
+                if (l2 < 1e-8f) continue;
+                float t = ((px - ax0) * abx + (py - ay0) * aby) / l2;
+                t = t < 0f ? 0f : t > 1f ? 1f : t;
+                float dx = px - (ax0 + abx * t), dy = py - (ay0 + aby * t);
+                float d = dx * dx + dy * dy;
+                if (d < best) { best = d; bk = k; bt = t; }
+            }
+            if (bk > 0)
+            {
+                Vector2 a = ax[bk - 1], ab = ax[bk] - a;
+                at = a + ab * bt; u = axS[bk - 1] + bt * (axS[bk] - axS[bk - 1]);
+                var tn = ab / Mathf.Sqrt(ab.sqrMagnitude); left = new Vector2(-tn.y, tn.x);
+            }
+        }
+
+        /// <summary>The chain edge (index k) and its s at distance d along a
+        /// chain from its node.</summary>
+        static void ChainAt(CityMap map, int[] chain, int node, float d, out int k, out float s)
+        {
+            int from = node;
+            for (k = 0; k < chain.Length; k++)
+            {
+                var e = map.edges[chain[k]];
+                bool fwd = e.a == from;
+                if (d <= e.length || k == chain.Length - 1)
+                {
+                    s = Mathf.Clamp(fwd ? d : e.length - d, 0f, e.length);
+                    return;
+                }
+                d -= e.length; from = fwd ? e.b : e.a;
+            }
+            k = chain.Length - 1; s = 0f;
+        }
+
+        /// <summary>An undivided road's extent on a side (world vector) at its node.</summary>
+        static float ExtentToward(CityMap.Edge U, int node, Vector2 side)
+        {
+            var t = U.a == node ? U.TangentAt(0f) : U.TangentAt(U.length);
+            return Vector2.Dot(new Vector2(-t.y, t.x), side) > 0f ? U.lmPlus : U.lmMinus;
+        }
+
+        /// <summary>The direction an undivided road runs INTO its node, as a
+        /// chord from 10 m out (or half the edge).</summary>
+        static Vector2 ChordInto(CityMap map, CityMap.Edge U, int node)
+        {
+            float d = Mathf.Min(10f, U.length * 0.49f);
+            var p = U.PointAt(U.a == node ? d : U.length - d);
+            var v = map.nodes[node] - p;
+            if (v.sqrMagnitude > 1e-4f) return v.normalized;
+            return U.a == node ? -U.TangentAt(0f) : U.TangentAt(U.length);
+        }
+
+        /// <summary>Build one refuge pair's profile eases (both carriageways).
+        /// False (nothing added): no room for an island - round 1's cap.</summary>
+        static void Why(Refuge[] pr, string w) { foreach (var r in pr) r.why = w; }
+
+        static bool BuildRefugePair(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Split sp, Split s2, Refuge[] pr, bool forceFlush)
+        {
+            long tk0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            var U1 = map.edges[sp.u]; var U2 = map.edges[s2.u];
+            foreach (var r in pr) foreach (int ei in r.chain) { var e = map.edges[ei]; if (e.lmPlus == 0f && e.lmMinus == 0f) { Why(pr, "no line model"); return false; } }
+            if ((U1.lmPlus == 0f && U1.lmMinus == 0f) || (U2.lmPlus == 0f && U2.lmMinus == 0f)) { Why(pr, "no line model (U)"); return false; }
+            // THE AXIS: the undivided road's line carried through on both approach tangents
+            Vector2 P1 = map.nodes[sp.node], P2 = map.nodes[s2.node];
+            Vector2 t1 = ChordInto(map, U1, sp.node), t2 = -ChordInto(map, U2, s2.node);
+            float L = Vector2.Distance(P1, P2);
+            if (L < 8f || Vector2.Dot(t1, (P2 - P1) / L) < 0.5f || Vector2.Dot(t2, (P2 - P1) / L) < 0.5f) { Why(pr, "axis: short or turned"); return false; }
+            const int NA = 64;
+            var ax = new Vector2[NA + 1]; var axS = new float[NA + 1];
+            for (int i = 0; i <= NA; i++)
+            {
+                float t = i / (float)NA, tt = t * t, t3 = tt * t;
+                ax[i] = (2f * t3 - 3f * tt + 1f) * P1 + (t3 - 2f * tt + t) * L * t1 + (-2f * t3 + 3f * tt) * P2 + (t3 - tt) * L * t2;
+                if (i > 0) axS[i] = axS[i - 1] + Vector2.Distance(ax[i - 1], ax[i]);
+            }
+            float axLen = axS[NA];
+            var left1 = new Vector2(-t1.y, t1.x); var left2 = new Vector2(-t2.y, t2.x);
+            for (int c = 0; c < 2; c++) { pr[c].ax = ax; pr[c].axS = axS; pr[c].axLen = axLen; pr[c].so = 1; }
+            // each carriageway's outer side: SPLT's offset at the first node (U's frame = the axis's)
+            int soA = sp.offA > 0.05f ? 1 : sp.offA < -0.05f ? -1 : 0, soB = sp.offB > 0.05f ? 1 : sp.offB < -0.05f ? -1 : 0;
+            int SideOfMid(Refuge r)
+            {
+                var p = ChainPoint(map, r.chain, r.node, 0.5f * r.lc);
+                AxisClosest(ax, axS, p, out _, out var at, out var lf);
+                return Vector2.Dot(p - at, lf) >= 0f ? 1 : -1;
+            }
+            if (soA == 0 || soB == 0 || soA == soB) { soA = SideOfMid(pr[0]); soB = SideOfMid(pr[1]); }
+            if (soA == soB) { Why(pr, "sides"); return false; }
+            // pr[0] is sp.a's chain (FindRefuges walks sp.a first)
+            int[] so = { soA, soB };
+            for (int c = 0; c < 2; c++)
+            {
+                var r = pr[c];
+                r.so = so[c];
+                // round 4: the undivided road's DRAWN edge at the node (its own eases in)
+                r.uOut1 = DrawnToward(add, U1, sp.node, so[c] * left1);
+                r.uOut2 = DrawnToward(add, U2, s2.node, so[c] * left2);
+            }
+            // a chain that strays far from the axis (or onto the wrong side of
+            // it) is not a refuge island the axis describes. Round 4: that is a
+            // REAL SEPARATED MEDIAN (Moores Chapel's 24 m) - the two
+            // carriageways keep their own lines and the split's ordinary
+            // tapers, never round 1's cap. Round 5b (load cost): only where the
+            // gate decides (RefugeOverride) - a pair drawn from the compiled list
+            // with a matching fingerprint passed this walk on the same data when
+            // the gate decided it, and the gate fails a list its own (walked)
+            // decision differs from
+            if (RefugeOverride != null)
+            foreach (var r in pr)
+            {
+                int hint = 0;
+                for (float d = 0f; d <= r.lc; d += 1f)
+                {
+                    ChainAt(map, r.chain, r.node, d, out int k, out float s);
+                    r.LocalNear(map.edges[r.chain[k]].PointAt(s), ref hint, out float u, out float q);
+                    if (q > RefugeMaxStrayM || q < -3f || u < -1f || u > axLen + 1f)
+                    {
+                        Why(pr, $"stray: q {q:0.0} m at u {u:0.0} of {axLen:0.0}");
+                        if (q > RefugeMaxStrayM) foreach (var rr in pr) rr.separated = true;
+                        return false;
+                    }
+                }
+            }
+            // ROUND 4, THE COMMON MODE: where the undivided road's edges at the
+            // two nodes differ by more than the design slope allows over the
+            // island (its pavement sits off its OSM line by a different amount
+            // at each end - Harris Road +7.62/-0.30 at one node, +-5.79 at the
+            // other), the part both edges share (a sideways move of the whole
+            // road) goes onto the undivided roads as a shift eased over a
+            // length that keeps it under the design slope; only the half-width
+            // change stays on the island (an outer widening, pavement only).
+            float A = RefugeDesignSlope * axLen;
+            int iL = pr[0].so > 0 ? 0 : 1, iR = 1 - iL;
+            // the lanes' flush places' change across the island (each
+            // carriageway's own lane adds in: its drawn extents at the ends)
+            float LaneDelta(Refuge r)
+            {
+                var sm = SampleChain(map, add, r, 4f);
+                return (r.uOut2 - sm[sm.Count - 1].oE) - (r.uOut1 - sm[0].oE);
+            }
+            float dL = LaneDelta(pr[iL]), dR = LaneDelta(pr[iR]);
+            float D = 0f;
+            if (Mathf.Max(Mathf.Abs(dL), Mathf.Abs(dR)) > A)
+            {
+                float lo = Mathf.Max(-A - dL, dR - A), hi = Mathf.Min(A - dL, dR + A);
+                D = lo <= hi ? Mathf.Clamp(0f, lo, hi) : 0.5f * (dR - dL);
+            }
+            float d1 = 0f, d2 = 0f;
+            if (Mathf.Abs(D) > 0.02f)
+            {
+                float rm1 = RoomAlong(map, partner, U1, sp.node, 1, true), rm2 = RoomAlong(map, partner, U2, s2.node, 1, true);
+                float f1 = rm1 + rm2 > 1e-3f ? rm1 / (rm1 + rm2) : 0.5f;
+                d1 = -D * f1; d2 = D * (1f - f1);
+                float l1 = Mathf.Max(RefugeMoveMinM, 1.5f * Mathf.Abs(d1) / RefugeDesignSlope), l2 = Mathf.Max(RefugeMoveMinM, 1.5f * Mathf.Abs(d2) / RefugeDesignSlope);
+                // U's own frame: plus = axis-left where U runs along the axis's direction there
+                shiftLog = new List<int>();
+                if (Mathf.Abs(d1) > 0.01f) PropagateShift(map, add, partner, U1, sp.node, (U1.b == sp.node ? 1f : -1f) * d1, l1, 0f, 0);
+                if (Mathf.Abs(d2) > 0.01f) PropagateShift(map, add, partner, U2, s2.node, (U2.a == s2.node ? 1f : -1f) * d2, l2, 0f, 0);
+                var ue = shiftLog.ToArray(); shiftLog = null;
+                foreach (var r in pr) { r.uShift1 = d1; r.uShift2 = d2; r.uLen1 = l1; r.uLen2 = l2; r.uRoom1 = rm1; r.uRoom2 = rm2; r.uEdges = ue; }
+                RefugeUShifts++;
+            }
+            foreach (var r in pr) { r.o1 = r.uOut1 + r.so * d1; r.o2 = r.uOut2 + r.so * d2; }
+            RefugeTicks[0] += System.Diagnostics.Stopwatch.GetTimestamp() - tk0;
+            RefugeProfile(map, add, pr, forceFlush);
+            foreach (var r in pr) foreach (int ei in r.chain) refugeEdge[ei] = r;
+            refugeNodeDir[sp.node] = t1; refugeNodeDir[s2.node] = -t2;
+            refugeNodeEdge.Add(RefugeKey(sp.node, sp.u)); refugeNodeEdge.Add(RefugeKey(s2.node, s2.u));
+            foreach (var r in pr) { refugeNodeEdge.Add(RefugeKey(r.node, r.chain[0])); refugeNodeEdge.Add(RefugeKey(r.far, r.chain[r.chain.Length - 1])); }
+            return true;
+        }
+        public static int RefugeUShifts;
+
+        /// <summary>Round 4: an undivided road's DRAWN extent on a side (world
+        /// vector) at its node, with the eases built so far.</summary>
+        static float DrawnToward(List<Ease>[] add, CityMap.Edge U, int node, Vector2 side)
+        {
+            float s = U.a == node ? 0f : U.length;
+            var keep = U.lmEase; U.lmEase = add[U.index]?.ToArray();
+            Ext(U, s, true, out float eM, out float eP);
+            U.lmEase = keep;
+            var t = U.TangentAt(s);
+            return Vector2.Dot(new Vector2(-t.y, t.x), side) > 0f ? eP : eM;
+        }
+
+        /// <summary>One sample of a refuge carriageway (round 4): chain
+        /// distance, axis arc, the OSM line's lateral (outward), the drawn
+        /// extents outward / inward with the joins' own eases (no profile).</summary>
+        struct RSmp { public float d, u, q, oE, iE; }
+
+        static List<RSmp> SampleChain(CityMap map, List<Ease>[] add, Refuge r, float step)
+        {
+            var res = new List<RSmp>(Mathf.CeilToInt(r.lc / step) + 4);
+            int from = r.node; float d0 = 0f; int hint = 0;
+            foreach (int ei in r.chain)
+            {
+                var e = map.edges[ei];
+                bool fwd = e.a == from;
+                var keep = e.lmEase; e.lmEase = PreEases(add, e);
+                int se = OuterSign(r, e);
+                int n = Mathf.Max(2, Mathf.CeilToInt(e.length / step) + 1);
+                float ds = e.length / (n - 1);
+                for (int k = 0; k < n; k++)
+                {
+                    float x = k * ds, s = fwd ? x : e.length - x;
+                    r.LocalNear(e.PointAt(s), ref hint, out float u, out float q);
+                    Ext(e, s, true, out float eM, out float eP);
+                    res.Add(new RSmp { d = d0 + x, u = u, q = q, oE = se > 0 ? eP : eM, iE = se > 0 ? eM : eP });
+                }
+                e.lmEase = keep;
+                d0 += e.length; from = fwd ? e.b : e.a;
+            }
+            return res;
+        }
+
+        /// <summary>The eases on an edge so far, less any refuge profile's (the joins' own).</summary>
+        static Ease[] PreEases(List<Ease>[] add, CityMap.Edge e)
+        {
+            var l = add[e.index];
+            if (l == null) return null;
+            var o = new List<Ease>(l.Count);
+            foreach (var z in l) if (z.tag >= 0 || z.prof == null) o.Add(z);
+            return o.Count > 0 ? o.ToArray() : null;
+        }
+
+        /// <summary>+1 when the edge's left (its plus side) is the carriageway's outer side.</summary>
+        static int OuterSign(Refuge r, CityMap.Edge e)
+        {
+            var pm = e.PointAt(0.5f * e.length); var tm = e.TangentAt(0.5f * e.length);
+            AxisClosest(r.ax, r.axS, pm, out _, out _, out var lfm);
+            return Vector2.Dot(new Vector2(-tm.y, tm.x), r.so * lfm) >= 0f ? 1 : -1;
+        }
+
+        /// <summary>Round 4: a pair's profile from its frame (axis, sides,
+        /// node targets o1/o2): the lanes' straight reference, the island's
+        /// size and noses, and the eases (tagged with the pair). forceFlush:
+        /// the self-check's fallback - straight, a flush painted median.
+        /// Always draws (never round 1's cap).</summary>
+        static void RefugeProfile(CityMap map, List<Ease>[] add, Refuge[] pr, bool forceFlush)
+        {
+            long tk = System.Diagnostics.Stopwatch.GetTimestamp();
+            float axLen = pr[0].axLen;
+            var smp = new List<RSmp>[2];
+            for (int c = 0; c < 2; c++)
+            {
+                var r = pr[c];
+                smp[c] = SampleChain(map, add, r, 0.5f);
+                var a = smp[c][0]; var b = smp[c][smp[c].Count - 1];
+                // THE LANES' REFERENCE: a straight line between the places that
+                // put the carriageway flush with the undivided road at each
+                // node (its own lane adds in: the drawn extents). Where that
+                // would slope more than the design allows, the lanes move only
+                // that much and the wider end's rest is an outer widening
+                // (pavement only, linear) - a turn lane's space opening.
+                float R1 = r.o1 - a.oE, R2 = r.o2 - b.oE, dR = R2 - R1, lim = 0.045f * axLen;
+                r.w1 = r.w2 = 0f; r.r1 = R1; r.r2 = R2;
+                if (Mathf.Abs(dR) > 0.055f * axLen)
+                {
+                    if (dR > 0f) { r.r2 = R1 + lim; r.w2 = R2 - r.r2; }
+                    else { r.r1 = R2 + lim; r.w1 = R1 - r.r1; }
+                }
+                r.move = 0f; r.moveLen = 0f;
+            }
+            { long t2 = System.Diagnostics.Stopwatch.GetTimestamp(); RefugeTicks[1] += t2 - tk; tk = t2; }
+            float wI = Mathf.Clamp(0.5f * (pr[0].osmIsland + pr[1].osmIsland), RefugeMinIslandM, RefugeMaxIslandM);
+            float half = 0.5f * wI;
+            // round 5 (load cost): the samples sorted by axis arc, for the
+            // range and nearest queries below (binary search, not a full scan)
+            var su = new float[2][]; var si = new float[2][];
+            for (int c = 0; c < 2; c++)
+            {
+                var l = new List<RSmp>(smp[c]);
+                l.Sort((x, y) => x.u.CompareTo(y.u));
+                su[c] = new float[l.Count]; si[c] = new float[l.Count];
+                for (int i = 0; i < l.Count; i++) { su[c][i] = l[i].u; si[c][i] = l[i].iE; }
+            }
+            int Lower(float[] a, float v) { int lo = 0, hi = a.Length; while (lo < hi) { int m = (lo + hi) >> 1; if (a[m] < v) lo = m + 1; else hi = m; } return lo; }
+            // the least room each carriageway leaves along the island's middle
+            // (its inner edge from the axis with the lanes on their reference)
+            float MinGap(int c, float uLo, float uHi)
+            {
+                var r = pr[c]; float g = float.MaxValue;
+                var U = su[c]; var I = si[c];
+                for (int i = Lower(U, uLo); i < U.Length && U[i] <= uHi; i++) g = Mathf.Min(g, r.LaneRef(U[i]) - I[i]);
+                return g;
+            }
+            float lnG = Mathf.Clamp(0.25f * axLen, 4f, 10f);
+            float uLoG = Mathf.Min(0.5f * axLen, RefugeTipM + lnG), uHiG = Mathf.Max(0.5f * axLen, axLen - RefugeTipM - lnG);
+            // a carriageway's inner edge (outward from the axis) at axis arc u:
+            // a flush median only needs the two not to overlap
+            float GapAtU(int c, float u)
+            {
+                var r = pr[c]; var U = su[c];
+                int k = Mathf.Min(Lower(U, u), U.Length - 1);
+                if (k > 0 && Mathf.Abs(U[k - 1] - u) <= Mathf.Abs(U[k] - u)) k--;
+                return r.LaneRef(u) - si[c][k];
+            }
+            float Overlap()
+            {
+                float o = 0f;
+                for (float u = uLoG; u <= uHiG; u += 0.5f) o = Mathf.Max(o, -(GapAtU(0, u) + GapAtU(1, u)));
+                return o;
+            }
+            void Moves(float want, float shared = -1f)
+            {
+                for (int c = 0; c < 2; c++)
+                {
+                    var r = pr[c];
+                    r.move = 0f; r.moveLen = 0f;
+                    float g = MinGap(c, uLoG, uHiG);
+                    float need = shared >= 0f ? shared : want - g;
+                    if (need <= 0.02f) continue;
+                    // the outer widening already slopes the edge line: the
+                    // lanes' move takes what is left of RefugeSlope (less a margin)
+                    float ds = 0.045f - Mathf.Abs(r.w2 - r.w1) / Mathf.Max(1f, axLen);
+                    if (ds < 0.015f) continue;
+                    ds = Mathf.Min(ds, RefugeDesignSlope);
+                    // 4-LANE: no centre lane - the lanes move out, gently, over RefugeMoveMinM or more
+                    float mlen = Mathf.Min(0.5f * axLen, Mathf.Max(RefugeMoveMinM, 1.5f * need / ds));
+                    if (mlen < RefugeMoveMinM) continue;
+                    r.moveLen = mlen;
+                    r.move = Mathf.Min(need, Mathf.Min(RefugeMoveMaxM, ds * mlen / 1.5f));
+                }
+            }
+            bool flush = forceFlush;
+            float x0s = RefugeTipM, x0e = RefugeTipM, ln = lnG;
+            if (!flush)
+            {
+                Moves(half);
+                // where the lanes have finished moving out (4-lane) - the noses taper inside that
+                float mL = Mathf.Max(pr[0].moveLen, pr[1].moveLen);
+                float lo2 = Mathf.Min(0.5f * axLen, Mathf.Max(uLoG, mL)), hi2 = Mathf.Max(0.5f * axLen, axLen - Mathf.Max(axLen - uHiG, mL));
+                for (int c = 0; c < 2; c++) half = Mathf.Min(half, MinGap(c, lo2, hi2));
+                if (half < 0.5f * RefugeMinIslandM - 0.15f) flush = true;
+            }
+            if (!flush)
+            {
+                // the nose set-backs: RefugeTipM, or (4-lane) where both
+                // carriageways have moved out far enough for the tip
+                float SetBack(bool fromStart)
+                {
+                    if (pr[0].move <= 0f && pr[1].move <= 0f) return RefugeTipM;
+                    for (float u = 0f; u < 0.5f * axLen; u += 0.25f)
+                    {
+                        float uu = fromStart ? u : axLen - u, room = float.MaxValue;
+                        for (int c = 0; c < 2; c++) room = Mathf.Min(room, MinGap(c, uu - 0.3f, uu + 0.3f));
+                        if (room >= 0.6f * half) return Mathf.Max(RefugeTipM, u);
+                    }
+                    return 0.5f * axLen;
+                }
+                x0s = SetBack(true); x0e = SetBack(false);
+                ln = Mathf.Min(lnG, Mathf.Max(1.5f, 0.5f * (axLen - 1f - x0s - x0e)));
+                // ROUND 4 (n12028): both noses must reach the full width before
+                // mid with some island between them - else the flanks meet in a
+                // diamond narrower than designed at mid: flush, straight
+                if (x0s + ln > 0.5f * axLen - 0.5f || x0e + ln > 0.5f * axLen - 0.5f) flush = true;
+            }
+            if (!flush)
+            {
+                // the island never wider than the room either carriageway
+                // leaves anywhere past its noses (so never narrowing toward mid)
+                float uLo = Mathf.Min(0.5f * axLen, x0s + ln), uHi = Mathf.Max(0.5f * axLen, axLen - x0e - ln);
+                for (int c = 0; c < 2; c++) half = Mathf.Min(half, MinGap(c, uLo, uHi));
+                if (half < 0.5f * RefugeMinIslandM - 0.15f) flush = true;
+            }
+            if (flush)
+            {
+                // NO ROOM FOR A KERBED ISLAND: straight carriageways and a flush
+                // painted median (the two pavements meet on the axis). Lanes
+                // that would overlap past the axis move out (gently) to meet there.
+                // round 4: the inner edges meet wherever they do (a turn lane
+                // may cross the axis where the other carriageway leaves room);
+                // only a true overlap moves the lanes
+                half = 0f; Moves(0f, 0f);
+                float ov = Overlap();
+                if (ov > 0.02f) Moves(0f, 0.5f * ov);
+                x0s = x0e = RefugeTipM; ln = lnG;
+                RefugeFlush += 2;
+            }
+            float rn = Mathf.Min(CityMeshes.MedianNoseR, 0.5f * half);
+            foreach (var r in pr) { r.half = half; r.x0s = x0s; r.x0e = x0e; r.ln = ln; r.rn = rn; r.profiled = true; }
+            { long t2 = System.Diagnostics.Stopwatch.GetTimestamp(); RefugeTicks[2] += t2 - tk; tk = t2; }
+            // THE EASES, edge by edge: the shift (edge frame), the inner
+            // widening (the centre lane's space to the island) and the outer
+            // widening (the wider end's extra), sampled every RefugeDs
+            for (int c = 0; c < 2; c++)
+            {
+                var r = pr[c];
+                int from = r.node; float d0 = 0f; int hint = 0;
+                foreach (int ei in r.chain)
+                {
+                    var e = map.edges[ei];
+                    bool fwd = e.a == from;
+                    int se = OuterSign(r, e);
+                    var keep = e.lmEase; e.lmEase = PreEases(add, e);
+                    int n = Mathf.Max(2, Mathf.CeilToInt(e.length / RefugeDs) + 1);
+                    float ds = e.length / (n - 1);
+                    var sh = new float[n]; var wd = new float[n]; var wo = new float[n]; float woMax = 0f;
+                    for (int k = 0; k < n; k++)
+                    {
+                        float x = k * ds, s = fwd ? x : e.length - x;
+                        r.LocalNear(e.PointAt(s), ref hint, out float u, out float q);
+                        Ext(e, s, true, out float eM, out float eP);
+                        float iE = se > 0 ? eM : eP, R = r.LaneRef(u);
+                        sh[k] = se * (R - q);
+                        // flush: the pavement reaches the axis, or the other
+                        // carriageway's inner edge where that crosses it
+                        float to = half > 0f ? r.NoseHalf(u) : Mathf.Max(0f, -GapAtU(1 - c, u));
+                        wd[k] = Mathf.Max(0f, R - iE - to);
+                        wo[k] = r.OuterWiden(u); woMax = Mathf.Max(woMax, wo[k]);
+                    }
+                    e.lmEase = keep;
+                    var list = add[e.index] ??= new List<Ease>(3);
+                    list.Add(new Ease { shift = true, fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = ds, tag = r.tag });
+                    list.Add(new Ease { widen = true, side = (sbyte)(-se), fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = wd, profD0 = d0, profDs = ds, tag = r.tag });
+                    if (woMax > 0.005f)
+                        list.Add(new Ease { widen = true, side = (sbyte)se, fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = wo, profD0 = d0, profDs = ds, tag = r.tag });
+                    d0 += e.length; from = fwd ? e.b : e.a;
+                }
+            }
+            RefugeTicks[3] += System.Diagnostics.Stopwatch.GetTimestamp() - tk;
+        }
+
+        /// <summary>A profile ease's sections: wherever the sampled value
+        /// departs from the chord since the last section by over 1 cm (or
+        /// every 4 m), so the nose's arc and the shift are not faceted.</summary>
+        static void ProfSamples(CityMap.Edge e, in Ease z, float sMin, float sMax, List<float> into)
+        {
+            var p = z.prof; int n = p.Length;
+            int j = 0;
+            for (int i = 2; i < n; i++)
+            {
+                bool cut = (i - j) * z.profDs > 4f;
+                for (int m = j + 1; m < i && !cut; m++)
+                {
+                    float f = (m - j) / (float)(i - j);
+                    if (Mathf.Abs(p[m] - (p[j] + (p[i] - p[j]) * f)) > 0.01f) cut = true;
+                }
+                if (!cut) continue;
+                j = i - 1;
+                float x = j * z.profDs, sv = z.fromA ? x : e.length - x;
+                if (sv > sMin + 0.05f && sv < sMax - 0.05f) into.Add(sv);
+            }
+        }
+
         /// <summary>Roads pass L4, for the audit: joins widened on both sides
         /// by two records (Q4), relays (lines moved between two layouts of one
         /// width), of them shorter than the MUTCD length (no room), and SHIFT
@@ -661,9 +1742,31 @@ namespace PSXRacing.City
             float mph = Mathf.Max(SpeedMph(E), SpeedMph(O));
             float rate = Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
             float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : 0.5f));
-            float Room(CityMap.Edge x) => x.length * (relayNode.Contains(x.a == n ? x.b : x.a) ? 0.45f : 0.9f);
-            float rE = Room(E), rO = Room(O);
+            // Round 4 (review r3 #5): an arm whose far end is a carriageway
+            // split's nose keeps the nose approach (RelayNoseKeepM) clear of the
+            // relay - at n10229 a 46 m relay from the junction behind left the
+            // left-turn bay's line only the last 5 m, a lone hatch bar
+            float Room(CityMap.Edge x, bool keepNose)
+            {
+                int far = x.a == n ? x.b : x.a;
+                float r = x.length * (relayNode.Contains(far) ? 0.45f : 0.9f);
+                if (keepNose && relayNoses != null && relayNoses.Contains(far)) r = Mathf.Min(r, Mathf.Max(0.25f * x.length, x.length - RelayNoseKeepM));
+                return r;
+            }
+            float rE = Room(E, true), rO = Room(O, true);
             float lenE = Mathf.Min(rE, Mathf.Max(0.5f * L, L - rO)), lenO = Mathf.Min(rO, L - lenE);
+            // Round 5 (review r4 #9): the nose clearance may only move the relay
+            // onto the other arm, never shorten it - where it would, the relay
+            // is laid exactly as live (the relay census: Beatties Ford e8621's
+            // yellow line went 0.099 -> 0.179 when the clearance squeezed it)
+            {
+                float rE0 = Room(E, false), rO0 = Room(O, false);
+                float lenE0 = Mathf.Min(rE0, Mathf.Max(0.5f * L, L - rO0)), lenO0 = Mathf.Min(rO0, L - lenE0);
+                if (lenE0 < 0.5f) lenE0 = 0f;
+                if (lenO0 < 0.5f) lenO0 = 0f;
+                float a = (lenE < 0.5f ? 0f : lenE) + (lenO < 0.5f ? 0f : lenO);
+                if (a < lenE0 + lenO0 - 0.01f) { lenE = lenE0; lenO = lenO0; RelayNoseLive++; }
+            }
             // a share under half a metre is no taper: the other arm takes it all
             if (lenE < 0.5f) lenE = 0f;
             if (lenO < 0.5f) lenO = 0f;
@@ -674,6 +1777,13 @@ namespace PSXRacing.City
             AddRelay(add, E, n, lE, pE, fE, lenE);
             AddRelay(add, O, n, lO, pO, 1f - fE, lenO);
         }
+
+        /// <summary>Round 5: the split nodes of the refuge pairs drawn (null: none).</summary>
+        static HashSet<int> relayNoses;
+        /// <summary>Round 5: relays at a drawn pair's nose laid as live (the clearance would have shortened them).</summary>
+        public static int RelayNoseLive;
+        /// <summary>Round 4: the length before a split nose a relay leaves alone (the nose hatch's longest, 30 m).</summary>
+        public const float RelayNoseKeepM = 30f;
 
         static void AddRelay(List<Ease>[] add, CityMap.Edge x, int n, Layout lay, float[] partnerM, float f, float len)
         {
@@ -777,17 +1887,21 @@ namespace PSXRacing.City
         }
         /// <summary>MUTCD shifting-taper rate (metres along per metre across):
         /// S^2/60 to 40 mph, S from 45.</summary>
+        public static float ShiftRateOf(CityMap.Edge e) => ShiftRate(e);
         static float ShiftRate(CityMap.Edge e)
         {
             float mph = e.speedKmh > 0 ? e.speedKmh / 1.609344f : e.link ? 35f : ClassMph[Mathf.Clamp(e.cls, 0, 5)];
             return Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
         }
 
+        /// <summary>Round 5: while a refuge pair's common-mode shift is laid, the edges it reaches.</summary>
+        static List<int> shiftLog;
         static void PropagateShift(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                                    CityMap.Edge e, int fromNode, float shift, float len, float d0, int depth)
         {
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, 1, true)));
             (add[e.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = e.a == fromNode, dw = shift, len = len, d0 = d0 });
+            shiftLog?.Add(e.index);
             if (d0 + e.length >= len || depth >= 12) return;
             int far = e.a == fromNode ? e.b : e.a;
             int pi = partner(e, far);
@@ -874,6 +1988,7 @@ namespace PSXRacing.City
             foreach (var z in ez)
             {
                 if (z.aux) { AuxSamples(e, z, sMin, sMax, into); continue; }
+                if (z.prof != null) { ProfSamples(e, z, sMin, sMax, into); continue; }
                 // the full-width end, in edge s
                 float sEnd = z.fromA ? z.len - z.d0 : e.length - (z.len - z.d0);
                 float sJoin = z.fromA ? -z.d0 : e.length + z.d0;
@@ -1142,7 +2257,7 @@ namespace PSXRacing.City
             if (ez != null)
                 for (int i = 0; i < ez.Length; i++)
                 {
-                    if (ez[i].shift || ez[i].relay || ez[i].aux || ez[i].centreOnly) continue;
+                    if (ez[i].shift || ez[i].relay || ez[i].aux || ez[i].centreOnly || ez[i].widen) continue;
                     float r = Reduction(e, ez[i], s);
                     if (r <= 1e-4f) continue;
                     if (ez[i].side > 0) { if (r > rp) { rp = r; zp = i; } } else if (r > rm) { rm = r; zm = i; }
