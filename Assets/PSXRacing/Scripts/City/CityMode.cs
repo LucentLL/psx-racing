@@ -397,7 +397,7 @@ namespace PSXRacing.City
         /// read off the arc. PSX_CITY_TURN_FILLET=0: the corner as before.
         /// </summary>
         public static bool TurnFilletOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_FILLET") != "0";
-        public const float TurnFilletR = 8f, TurnFilletMinDeg = 45f;
+        public const float TurnFilletR = 6f, TurnFilletMinDeg = 45f, TurnFilletPastTrimM = 1f;
         /// <summary>Corners the last call replaced (for the logs).</summary>
         public static int LastTurnFillets;
 
@@ -405,7 +405,7 @@ namespace PSXRacing.City
         /// vertex indices (where a route passes from one edge to the next), in
         /// place; <paramref name="ys"/> (optional) is interpolated along each
         /// arc. Returns the number of corners filleted.</summary>
-        public static int FilletTurns(List<Vector2> pts, List<float> ys, List<int> joins, float radius = TurnFilletR, float minDeg = TurnFilletMinDeg)
+        public static int FilletTurns(List<Vector2> pts, List<float> ys, List<int> joins, float radius = TurnFilletR, float minDeg = TurnFilletMinDeg, List<float> capT = null)
         {
             LastTurnFillets = 0;
             if (!TurnFilletOn || pts == null || pts.Count < 3 || joins == null || joins.Count == 0) return 0;
@@ -444,6 +444,10 @@ namespace PSXRacing.City
                 if (defl < minDeg || defl > 175f) continue;
                 float half = 0.5f * defl * Mathf.Deg2Rad;
                 float T = Mathf.Min(radius * Mathf.Tan(half), 0.45f * (aJ - prev), 0.45f * (next - aJ));
+                // the arc starts no farther out than the junction's own pavement
+                // (the arms' trims at the node): before it, cutting the corner
+                // runs a wheel off the carriageway's edge (R2: a 49 cm ditch)
+                if (capT != null && k < capT.Count && capT[k] > 0f) T = Mathf.Min(T, capT[k]);
                 if (T < 1f) continue;
                 float r = T / Mathf.Tan(half);
                 var p0 = At(aJ - T, out var t0, out float y0);
@@ -483,6 +487,19 @@ namespace PSXRacing.City
             return cuts.Count;
         }
 
+        /// <summary>The longest tangent a turn at <paramref name="node"/> from
+        /// <paramref name="a"/> into <paramref name="b"/> may have: the nearer
+        /// arm's trim (where the junction's pavement starts) plus
+        /// <see cref="TurnFilletPastTrimM"/>; 0 = no cap (no trims).</summary>
+        public static float JoinCap(CityMap map, CityMeshes.Trims t, CityMap.Edge a, CityMap.Edge b, int node)
+        {
+            if (t == null || a == null || b == null || t.atA == null) return 0f;
+            float ta = a.a == node ? t.atA[a.index] : a.b == node ? t.atB[a.index] : -1f;
+            float tb = b.a == node ? t.atA[b.index] : b.b == node ? t.atB[b.index] : -1f;
+            if (ta < 0f || tb < 0f) return 0f;
+            return Mathf.Max(1f, Mathf.Min(ta, tb) + TurnFilletPastTrimM);
+        }
+
         public static void BuildPath(CityMap map, CityMap.Route route, TrackPath path)
         {
             float spacing = TrackCatalog.Spacing;
@@ -493,11 +510,13 @@ namespace PSXRacing.City
             float acc = 0f;
             var marks = new List<float>(64);
             var joins = new List<int>(route.edges.Length);
+            var caps = new List<float>(route.edges.Length);
+            var trimsNow = CityWorld.SharedTrims;
             for (int k = 0; k < route.edges.Length; k++)
             {
                 var e = map.edges[route.edges[k]];
                 bool fwd = route.dirs[k] >= 0;
-                if (k > 0 && pts.Count > 0) joins.Add(pts.Count - 1);   // the node this edge leaves from
+                if (k > 0 && pts.Count > 0) { joins.Add(pts.Count - 1); caps.Add(JoinCap(map, trimsNow, map.edges[route.edges[k - 1]], e, fwd ? e.a : e.b)); }   // the node this edge leaves from
                 // Every polyline vertex AND every elevation station, in
                 // order along the edge. The height is solved at the 10 m
                 // stations; sampled at the vertices alone, the path ran
@@ -536,7 +555,7 @@ namespace PSXRacing.City
                 }
             }
             // Five Points round 4: a turn at a junction driven on a radius
-            if (FilletTurns(pts, ys, joins) > 0)
+            if (FilletTurns(pts, ys, joins, TurnFilletR, TurnFilletMinDeg, caps) > 0)
             {
                 arcs.Clear(); acc = 0f;
                 for (int i = 0; i < pts.Count; i++) { if (i > 0) acc += Vector2.Distance(pts[i - 1], pts[i]); arcs.Add(acc); }

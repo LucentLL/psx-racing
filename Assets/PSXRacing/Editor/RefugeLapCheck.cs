@@ -225,12 +225,19 @@ namespace PSXRacing.EditorTools
             edges = "";
             var raw = new List<Vector2>();
             var joins = new List<int>(run.edges.Length);
+            var caps = new List<float>(run.edges.Length);
             int n = run.edges.Length;
             for (int i = 0; i < n; i++)
             {
                 var e = map.edges[run.edges[i]];
                 edges += $" e{e.index}";
-                if (i > 0 && raw.Count > 0) joins.Add(raw.Count - 1);
+                if (i > 0 && raw.Count > 0)
+                {
+                    joins.Add(raw.Count - 1);
+                    var pv = map.edges[run.edges[i - 1]];
+                    int nd = pv.b == e.a || pv.a == e.a ? e.a : e.b;
+                    caps.Add(CityMode.JoinCap(map, CityWorld.SharedTrims, pv, e, nd));
+                }
                 bool fwd;
                 if (i + 1 < n) { var nx = map.edges[run.edges[i + 1]]; fwd = e.b == nx.a || e.b == nx.b; }
                 else if (i > 0) { var pv = map.edges[run.edges[i - 1]]; fwd = e.a == pv.a || e.a == pv.b; }
@@ -257,7 +264,7 @@ namespace PSXRacing.EditorTools
             }
             // round 4: the game's own turn path (CityMode.FilletTurns, the race
             // paths' rule): a turn at a junction on a radius, as the AI drives it
-            int fil = CityMode.FilletTurns(raw, null, joins);
+            int fil = CityMode.FilletTurns(raw, null, joins, CityMode.TurnFilletR, CityMode.TurnFilletMinDeg, caps);
             if (fil > 0) RefugeLapCheck.Line($"  turn path: {fil} junction corner(s) on a {CityMode.TurnFilletR:0} m radius");
             // corner cutting: a car's line through each junction, not the lanes' kinks
             for (int it = 0; it < 4 && raw.Count > 2; it++)

@@ -8664,9 +8664,13 @@ namespace PSXRacing.City
                             // round 4: past the shoulder, the median's own plane at
                             // that point - one surface whichever strip lays it (the
                             // fans' chord verges and the link's verges agreed only
-                            // at their own edges: the +4-6 cm patchwork)
+                            // at their own edges: the +4-6 cm patchwork) - and never
+                            // above the strip's own edge: a verge's far band can lie
+                            // under a neighbouring pavement (the link's, the fan's),
+                            // where a lifted band stood 4-8 cm proud of it (T4)
                             float yp = MedianPlaneAt(map, trims, new Vector2(prof[i].x, prof[i].z), yEdge);
-                            if (!float.IsNaN(yp)) flat = Mathf.Clamp(yp, y0 - 0.15f, y0 + 0.15f) - (i == 3 ? RoadsideRules.ToeTuckM : 0f);
+                            if (!float.IsNaN(yp)) flat = Mathf.Clamp(yp, y0 - 0.15f, y0) - (i == 3 ? RoadsideRules.ToeTuckM : 0f);
+                            else flat = Mathf.Min(flat, y0 - (i == 3 ? RoadsideRules.ToeTuckM : 0f));
                         }
                         if (NoseLevelOn || prof[i].y < flat) prof[i].y = Mathf.Lerp(prof[i].y, flat, k);
                     }
