@@ -31,7 +31,7 @@ namespace PSXRacing
     /// screen carries on as it always has. <see cref="Shown"/> keeps the title
     /// to once per run.
     /// </summary>
-    public class TitleScreen : MonoBehaviour
+    public partial class TitleScreen : MonoBehaviour
     {
         /// <summary>The title has had its turn this run (shown or skipped).</summary>
         public static bool Shown;
@@ -103,7 +103,8 @@ namespace PSXRacing
         static int PickHour()
         {
             float r = Random.value;
-            return r < 0.25f ? TimeOfDay.Morning : r < 0.75f ? TimeOfDay.Afternoon : TimeOfDay.Sunset;
+            // golden hour mostly, as the drone film (owner, 2026-11-02)
+            return r < 0.25f ? TimeOfDay.Morning : r < 0.4f ? TimeOfDay.Afternoon : TimeOfDay.Sunset;
         }
 
         /// <summary>Clear mostly; now and then fog in the gaps (the owner's
@@ -112,7 +113,7 @@ namespace PSXRacing
         {
             float r = Random.value;
             if (s == Season.Winter && r < 0.35f) return Weather.Snow;
-            return r > 0.80f ? Weather.Fog : Weather.Clear;
+            return r > 0.90f ? Weather.Fog : Weather.Clear;
         }
 
         /// <summary>RaceManager.Start, last thing: take the race over when
@@ -168,6 +169,8 @@ namespace PSXRacing
                 Ambience(cam.gameObject);
             }
             BuildUI();
+            // the drone film's shots, from the postcard spots found above (TitleScreen.Drone.cs)
+            BeginDrone();
         }
 
         // =================== the parked car ===================
@@ -419,7 +422,7 @@ namespace PSXRacing
         void LateUpdate()
         {
             var kb = UnityEngine.InputSystem.Keyboard.current;
-            if (kb != null && kb.vKey.wasPressedThisFrame && views.Count > 1 && cam != null)
+            if (!droneOn && kb != null && kb.vKey.wasPressedThisFrame && views.Count > 1 && cam != null)
             {
                 view = (view + 1) % views.Count;
                 ShowView();
@@ -439,7 +442,9 @@ namespace PSXRacing
                 SendRacer();
                 nextRacer = Time.time + Random.Range(RacerEveryMinS, RacerEveryMaxS);
             }
-            if (atBlack == null && Time.unscaledTime >= nextSeason)
+            StepDrone();
+            // the drone turns the season over at its own cuts
+            if (!droneOn && atBlack == null && Time.unscaledTime >= nextSeason)
             {
                 nextSeason = Time.unscaledTime + SeasonS;
                 Fade(1f, FadeS, () => { NextSeason(); Fade(0f, FadeS * 1.6f, null); });
@@ -449,7 +454,7 @@ namespace PSXRacing
 
         void Fade(float to, float seconds, System.Action whenDone)
         {
-            if (fade == null) return;
+            if (fade == null) { whenDone?.Invoke(); return; }
             fadeFrom = fade.color.a; fadeTo = to; fadeT0 = Time.unscaledTime; fadeLen = seconds;
             atBlack = whenDone;
         }
