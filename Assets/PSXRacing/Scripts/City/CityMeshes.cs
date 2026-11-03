@@ -4130,6 +4130,12 @@ namespace PSXRacing.City
             // and overpass W-beams, per edge from the divider plan - on through the junction
             // fans, whose arcs no span covers - by the tile each piece's middle is in
             if (DividersOn && divEdges != null)
+            {
+                // the twins beyond the edge set: their median rails, decided over this window
+                stepPhase = 2; stepPart = 7;
+                foreach (var _ in DivTwinRailsSteps(map, trims, tm, edgeScratch, min, max)) yield return 0;
+            }
+            if (DividersOn && divEdges != null)
                 foreach (var ei in edgeScratch)
                 {
                     if (divEdges[ei] == null) continue;
@@ -5387,7 +5393,8 @@ namespace PSXRacing.City
                         // which flicker (a squeeze, a rail, a wedge, an approach).
                         if (side > 0)
                         {
-                            if (ConcreteMedian(e)) sf.median = !nbDraws && !sf.rail;
+                            // (round 3) a cable median's narrow pinch is concrete: its Jersey (DivPinchSpan)
+                            if (ConcreteMedian(e) || DivPinchSpan(e, A.s, B.s)) sf.median = !nbDraws && !sf.rail;
                         }
                         else
                         {
@@ -5568,6 +5575,14 @@ namespace PSXRacing.City
                         }
                         i = j;
                     }
+
+            // (dividers round 3, the review's e1753) A SHORT MEDIAN RAIL IN FRONT OF THE
+            // CABLE: on a cable median's side, a rail run on the ground too short for the
+            // cable to be cut and lapped around (2 x CableLapM) stood in front of a cable
+            // that runs straight on behind it - a 9.6 m piece at a culvert, which touched the
+            // Jersey before the divider type. The cable is the median's barrier there; the
+            // piece is not drawn (StrayMedianRail, the plan's cable past both its ends).
+            StrayMedianRails(e, n);
 
             // THE BRIDGES PASS: the grounded drop rails that are W-beam runs
             // (their ends are planned below as a W-beam's, not a parapet's)
@@ -6215,18 +6230,18 @@ namespace PSXRacing.City
             if (!Barriered(o) || o.ElevatedAt(atO)) return false;
             // only its median barrier is unconditional; a cut wall is a run. A cable or
             // open median stands no Jersey (the divider type): nothing to share
-            return ConcreteMedian(o) && NeighbourSideOpen(map, trims, e, sec, o, atO, out int sideO) && sideO > 0;
+            return (ConcreteMedian(o) || DivPinchAt(o, atO)) && NeighbourSideOpen(map, trims, e, sec, o, atO, out int sideO) && sideO > 0;
         }
 
         /// <summary>Does a median barrier stand on the squeeze strip beside
         /// this section's side — ours (a barriered road's median side,
         /// DecideSideFlags) or the neighbour's, drawn where we can see it?</summary>
         static bool StripBarriered(CityMap map, Trims trims, CityMap.Edge e, Section sec, int side) =>
-            MedianBarriered(e, side) || NeighbourDrawsBarrier(map, trims, e, sec, side);
+            MedianBarriered(e, side, sec.s) || NeighbourDrawsBarrier(map, trims, e, sec, side);
 
         /// <summary>Is this side a barriered road's median, which gets a
         /// Jersey barrier wherever it has no rail (DecideSideFlags)?</summary>
-        static bool MedianBarriered(CityMap.Edge e, int side) => side > 0 && Barriered(e) && DividerAt(e) == DividerKind.Concrete;
+        static bool MedianBarriered(CityMap.Edge e, int side, float s) => side > 0 && Barriered(e) && (DividerAt(e) == DividerKind.Concrete || DivPinchAt(e, s));
         /// <summary>The ledge test's exemption (DropFrom's ledges, CornerFill's Ungraded): a
         /// freeway's median side never took the kerb-high ledge test, and still does not in a
         /// cable or open median - exactly the rule from before the divider type, so the divider
@@ -7883,6 +7898,19 @@ namespace PSXRacing.City
         /// Rebuilds that edge's sections, so call it only for points that
         /// fail.
         /// </summary>
+        /// <summary>(dividers round 3) DescribeSide as the tile holding arc s decides it (its
+        /// window), with the rail end plan (tapers, lead-ins, turned-down W-beam ends).</summary>
+        public static string DescribeSideAt(CityMap map, Trims trims, CityMap.Edge e, float s, int side)
+        {
+            var keep = tileOrigin;
+            var p = e.PointAt(s);
+            tileOrigin = new Vector3(Mathf.Floor(p.x / TileSize) * TileSize, 0f, Mathf.Floor(p.y / TileSize) * TileSize);
+            DescribeEnds = true;
+            try { return DescribeSide(map, trims, e, s, side); }
+            finally { tileOrigin = keep; DescribeEnds = false; }
+        }
+        static bool DescribeEnds;
+
         public static string DescribeSide(CityMap map, Trims trims, CityMap.Edge e, float s, int side)
         {
             var tm = new TileMeshes { origin = tileOrigin };
@@ -7916,6 +7944,11 @@ namespace PSXRacing.City
                 if (strip >= 0f) sb.Append($" squeezed(strip {strip:0.00} nb e{(A.Nb(side) >= 0 ? A.Nb(side) : B.Nb(side))})");
                 if (A.clippedIn || B.clippedIn) sb.Append(" clipped");
                 if (!f.elev && !sf.rail && !sf.cut && !sf.gap && !sf.union && strip < 0f) sb.Append(" verge");
+                if (DescribeEnds)
+                {
+                    var tp = side < 0 ? taperL : taperR; var wu = side < 0 ? wbUL : wbUR; var wd = side < 0 ? wbDL : wbDR; var rn = WbRun(side); var dn = WbDown(side);
+                    sb.Append($" [taper {tp[i - 1]:0.00}/{tp[i]:0.00} lead-in up {wu[i - 1]:0.0}/{wu[i]:0.0} down {wd[i - 1]:0.0}/{wd[i]:0.0} wbRun {(i < rn.Count && rn[i])} turned {(i - 1 < dn.Count ? dn[i - 1] : float.NaN):0.0}/{(i < dn.Count ? dn[i] : float.NaN):0.0} decided {f.decided} approach {f.approach}]");
+                }
                 return sb.ToString();
             }
             return " | span ?";
@@ -8335,10 +8368,15 @@ namespace PSXRacing.City
                 bk.Down(new Vector3(fcA.x, lowA, fcA.z), new Vector3(fcB.x, lowB, fcB.z), new Vector3(baB.x, lowB, baB.z), new Vector3(baA.x, lowA, baA.z),
                         Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
                 var along = new Vector3(fb.x - fa.x, 0f, fb.z - fa.z);
-                bk.Face(new Vector3(fa.x, lowA, fa.z), new Vector3(fa.x, ta, fa.z), new Vector3(baA.x, ta, baA.z), new Vector3(baA.x, lowA, baA.z),
-                        -along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-                bk.Face(new Vector3(fb.x, lowB, fb.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baB.x, lowB, baB.z),
-                        along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                // (dividers round 3) the two ends only where the beam ends (its parapet end and
+                // its terminal): an inner end stood proud at the flare's kinks, square to a car
+                // along the edge line; PSX_CITY_DIVIDERS=0 keeps them, with everything else
+                if (uPrev <= 0.01f || !DividersOn)
+                    bk.Face(new Vector3(fa.x, lowA, fa.z), new Vector3(fa.x, ta, fa.z), new Vector3(baA.x, ta, baA.z), new Vector3(baA.x, lowA, baA.z),
+                            -along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                if (uNext >= WBeamLenM - 0.01f || !DividersOn)
+                    bk.Face(new Vector3(fb.x, lowB, fb.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baB.x, lowB, baB.z),
+                            along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             }
             // posts, at their stations from the parapet end (one span owns
             // each: (u0, u1]); none inside the concrete's taller half

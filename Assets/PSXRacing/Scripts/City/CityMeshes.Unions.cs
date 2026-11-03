@@ -199,7 +199,7 @@ namespace PSXRacing.City
             }
             if (!anyStructure) return;
             // the freeway divider type, per corridor run, before any ground median is laid
-            BuildDividers(map);
+            PlanDividers(map);
             int pairsDrawn = 0, pairsSplit = 0, pairsNone = 0, splitRuns = 0;
             var noRun = new System.Text.StringBuilder();
             float splitWorst = 0f; string splitWorstAt = "";

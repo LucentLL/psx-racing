@@ -211,9 +211,11 @@ namespace PSXRacing.EditorTools
                     i = j; runs++;
                     float len = r1 - r0;
                     if (len >= ShortBarrierM || r0 <= sMin + 0.5f || r1 >= sMax - 0.5f || Touch(r0) || Touch(r1)) continue;
-                    // (dividers) a median-side rail the cable laps behind at both ends is the
-                    // median's barrier there (the Jersey it used to touch is gone), not a stray piece
-                    if (kv.Key.side > 0 && CityMeshes.CableLapsAt(map, e, r0, 12f) && CityMeshes.CableLapsAt(map, e, r1, 12f)) continue;
+                    // (dividers, round 3) a median-side rail the cable was actually CUT and lapped
+                    // around at both ends (the tiles' record, CityMeshes.DividerLappedRails) is the
+                    // median's barrier there, not a stray piece. Round 2 asked only whether any
+                    // cable stood within 12 m, which is true almost everywhere on I-485 and NC 16
+                    if (kv.Key.side > 0 && CityMeshes.RailLappedByCable(e, r0, r1)) continue;
                     bool on = e.ElevatedAt(0.5f * (r0 + r1));
                     if (on) { shortOn++; mOn += len; } else { shortOff++; mOff += len; }
                     var p = e.PointAt(0.5f * (r0 + r1));

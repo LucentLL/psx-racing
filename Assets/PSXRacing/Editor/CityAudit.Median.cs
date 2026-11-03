@@ -29,7 +29,14 @@ namespace PSXRacing.EditorTools
         /// <summary>(dividers) rays across a cable or open median: cable one / none / two+,
         /// overpass zones met by a barrier / by none, open medians (expected none) / with one,
         /// split levels skipped.</summary>
-        static int divOne, divZero, divMany, divZoneOk, divZoneZero, divOpen, divOpenHit, divSplit, divWide;
+        static int divOne, divZero, divMany, divZoneOk, divZoneZero, divOpen, divOpenHit, divSplit, divWide, divLap;
+        /// <summary>(round 3) the two+ rays across a cable median that are no designed lap, by cause.</summary>
+        static readonly SortedDictionary<string, int> divCause = new SortedDictionary<string, int>();
+        /// <summary>(round 3) the last profile's Solid hits: collider bounds, for the notes.</summary>
+        static string profSolid = "";
+        /// <summary>(round 3) the cable medians' "rail at each own edge, no cable between" places
+        /// (owner-visible exceptions), one per 60 m.</summary>
+        static readonly List<string> divWideSpots = new List<string>();
         static readonly Dictionary<string, int[]> medByName = new Dictionary<string, int[]>();
         static readonly List<(Vector2 p, string note)> medSpots = new List<(Vector2, string)>();
         static readonly HashSet<long> medDone = new HashSet<long>();
@@ -50,7 +57,8 @@ namespace PSXRacing.EditorTools
         static void MedianLateralReset(CityMap map)
         {
             medSamples = medZero = medOne = medMany = medSplit = medWide = 0;
-            divOne = divZero = divMany = divZoneOk = divZoneZero = divOpen = divOpenHit = divSplit = divWide = 0;
+            divOne = divZero = divMany = divZoneOk = divZoneZero = divOpen = divOpenHit = divSplit = divWide = divLap = 0;
+            divCause.Clear(); divWideSpots.Clear();
             medV = medWideGeom = fanRays = fanZero = fanZeroCross = fanOne = fanMany = 0;
             fanSpots.Clear();
             medByName.Clear(); medSpots.Clear(); medDone.Clear(); medRouteAt.Clear(); medSeq.Clear();
@@ -131,7 +139,9 @@ namespace PSXRacing.EditorTools
                     float firstHit = -1f, lastHit = -1f;
                     while (n < 8 && RaycastPastLamps(from, dir, out var hit, len - done, solid, QueryTriggerInteraction.Ignore))
                     {
-                        n++;
+                        // (round 3, a cable or open median) a hit within 0.75 m of the last is the
+                        // same barrier line (a parapet end with its W-beam bolted along it)
+                        if (!(dcls >= 0 && lastHit >= 0f && done + hit.distance - lastHit <= 0.75f)) n++;
                         if (hits.Length < 160) hits += $" {hit.collider.name}@{done + hit.distance:0.0}";
                         if (firstHit < 0f) firstHit = done + hit.distance;
                         lastHit = done + hit.distance;
@@ -152,6 +162,13 @@ namespace PSXRacing.EditorTools
                     // stagger - and none or two+ are the defects, never "wide by design"
                     if (dcls == 2 && n >= 1) { divZoneOk++; medSeq.Add((rAt.route, rAt.at + s, 1, p, ei, s)); continue; }
                     if (dcls == 0 && n == 0) { divOpen++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    // (round 3) a DESIGNED LAP, named by the plan and the tiles that built it: the
+                    // cable running on behind a median rail's end and its lead-in (CableLapM into
+                    // the rail; CityMeshes.DividerLaps), or behind a narrow pinch's Jersey end. Two
+                    // barriers there are the install, not a box; every other two+ is a defect and
+                    // is reported by its cause below
+                    if (dcls == 1 && n >= 2 && !(CityMeshes.CableBuiltAt(e, s) && CityMeshes.CableBuiltAt(o, ot)) && (CityMeshes.DividerLapAt(e, s) || CityMeshes.DividerLapAt(o, ot)))
+                    { divLap++; medSeq.Add((rAt.route, rAt.at + s, 1, p, ei, s)); continue; }
                     if (dcls == 2) divZoneZero++;
                     else if (dcls == 0) divOpenHit++;
                     else if (dcls == 1) { if (n == 0) divZero++; else if (n == 1) divOne++; else divMany++; }
@@ -162,8 +179,17 @@ namespace PSXRacing.EditorTools
                     if (dcls < 0 && n >= 2 && (why.StartsWith("gap ") || why.Contains(": gap "))) { medWide++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
                     // (round 9) ...measured from the walls: exactly two, each at its own carriageway's
                     // edge, the edges further apart than the band - whatever the walk's reason reads
-                    if (n == 2 && (dcls < 0 || dcls == 1) && WideByWalls(e, s, sideE, o, ot, sideO, a, dir, firstHit, lastHit)) { if (dcls == 1) { divMany--; divWide++; } medWide++; medWideGeom++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    if (n == 2 && (dcls < 0 || dcls == 1) && WideByWalls(e, s, sideE, o, ot, sideO, a, dir, firstHit, lastHit)) { if (dcls == 1) { divMany--; divWide++; if (divWideSpots.Count < 40 && !divWideSpots.Exists(w => w.Contains($" e{ei} s~{(int)(s / 60f) * 60} "))) divWideSpots.Add($"RAILS EACH EDGE e{ei} s~{(int)(s / 60f) * 60} '{e.name}' at ({p.x:0},{p.y:0}) {LatLon(p.x, p.y)} -> e{o.index} gap {gap:0.0} m:{hits}"); } medWide++; medWideGeom++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
                     medSeq.Add((rAt.route, rAt.at + s, n, p, ei, s));
+                    string cause = "";
+                    if (dcls == 1 && n >= 2)
+                    {
+                        bool cE = CityMeshes.CableBuiltAt(e, s), cO = CityMeshes.CableBuiltAt(o, ot);
+                        bool solidHit = hits.Contains("Solid@");
+                        cause = cE && cO ? "cable on both sides" : solidHit ? "a solid object (pier, post, sign) among the barriers" : (cE || cO) ? "a rail in front of the cable, not lapped" : "two rails, no cable";
+                        divCause.TryGetValue(cause, out int cc); divCause[cause] = cc + 1;
+                        cause = $" | cause: {cause}; {CityMeshes.DescribeDivider(e, s)}; {CityMeshes.DescribeDivider(o, ot)}{profSolid}";
+                    }
                     if (!medByName.TryGetValue(e.name, out var byN)) medByName[e.name] = byN = new int[3];
                     int k = n == 0 ? 0 : n == 1 ? 1 : 2;
                     byN[k]++;
@@ -174,7 +200,7 @@ namespace PSXRacing.EditorTools
                     if (near || medSpots.Count >= 60) continue;
                     string at = medRouteAt.TryGetValue(ei, out var ra) ? $"route {ra.route} at {ra.at + s:0} m" : "";
                     medSpots.Add((p, $"{(n == 0 ? "GAP" : "BOX")} {n} walls across, {at} e{ei} '{e.name}'{(e.bridge ? " B" : "")} s={s:0} -> e{o.index} " +
-                                     $"at ({p.x:0},{p.y:0}) gap {gap:0.0} m centres {od:0.0} m:{hits} | ground twin: {why}"));
+                                     $"at ({p.x:0},{p.y:0}) gap {gap:0.0} m centres {od:0.0} m:{hits} | ground twin: {why}{cause}"));
                 }
                 // (round 9) rays across this carriageway's OWN junction fans (the rays above start
                 // only between its trims): a median that stops at a fan nothing leaves into it from
@@ -209,18 +235,26 @@ namespace PSXRacing.EditorTools
         /// run of Solid hits one barrier, wherever in the ditch it stands.</summary>
         static int ProfileBarriers(Vector3 a, Vector3 b, int solid, out string hits, out float first, out float last)
         {
-            hits = ""; first = last = -1f;
+            hits = ""; first = last = -1f; profSolid = "";
             float top = Mathf.Max(a.y, b.y) + 1.0f;   // a, b are 0.5 m over their lanes
             var d = new Vector3(b.x - a.x, 0f, b.z - a.z);
             float L = d.magnitude;
             if (L < 1f) return 0;   // (first/last: horizontal metres from a, as the cast reports its hits)
             d /= L;
-            int n = 0; bool inRun = false;
+            int n = 0; bool inRun = false; float lastHitT = -1f;
             for (float t = 0.2f; t <= L - 0.2f; t += 0.05f)
             {
                 var p = new Vector3(a.x + d.x * t, top, a.z + d.z * t);
                 bool hit = RaycastPastLamps(p, Vector3.down, out var h, 14f, solid, QueryTriggerInteraction.Ignore);
-                if (hit && !inRun) { n++; if (first < 0f) first = t; last = t; if (hits.Length < 160) hits += $" {h.collider.name}@{t:0.0}"; }
+                // (round 3) under either carriageway's own pavement (the first and last 1.6 m:
+                // the rays start 1.8 m in) and below its surface: a pier under its own deck, no
+                // barrier across the median
+                if (hit && (t < 1.6f || t > L - 1.6f) && h.point.y < Mathf.Min(a.y, b.y) - 1.0f) hit = false;
+                // (round 3) a run starting within 0.75 m of the last one is the same barrier line
+                // (a parapet's end with the W-beam bolted along it, two colliders side by side)
+                if (hit && !inRun && lastHitT >= 0f && t - lastHitT <= 0.75f) inRun = true;
+                if (hit) lastHitT = t;
+                if (hit && !inRun) { n++; if (first < 0f) first = t; last = t; if (hits.Length < 160) hits += $" {h.collider.name}@{t:0.0}"; if (h.collider.name == "Solid" && profSolid.Length < 200) profSolid += $" [Solid {h.collider.GetType().Name} at ({h.collider.bounds.center.x:0.0},{h.collider.bounds.center.y:0.0},{h.collider.bounds.center.z:0.0}) size ({h.collider.bounds.size.x:0.0},{h.collider.bounds.size.y:0.0},{h.collider.bounds.size.z:0.0}) hit y {h.point.y:0.00} lane y {Mathf.Min(a.y, b.y) - 0.5f:0.00}]"; }
                 inRun = hit;
             }
             return n;
@@ -300,6 +334,13 @@ namespace PSXRacing.EditorTools
             Line($"MEDIAN ACROSS round 9: two+ walls that are a split's V (the shared median parting into each carriageway's own Jersey) {medV}; of the wide medians, read from the walls (two, each at its own edge, edges over {CityMeshes.SharedMedianBandM:0.0} m apart) {medWideGeom}; " +
                  $"rays across the routes' own junction fans {fanRays}: one {fanOne}, two+ {fanMany}, none {fanZero} where nothing leaves into the median, none {fanZeroCross} where a road does (an opening)");
             foreach (var fs in fanSpots) Line("    " + fs);
+            // (round 3) the cable medians' two+ rays: the designed laps, and the rest by cause
+            var causes = new StringBuilder();
+            foreach (var kv in divCause) causes.Append($" {kv.Key} {kv.Value};");
+            Line($"MEDIAN ACROSS (dividers, round 3): designed laps (the cable behind a median rail's end and lead-in, or a pinch's Jersey end; CityMeshes.DividerLapAt) {divLap} rays, read as one median; two+ that are no designed lap {divMany} rays, by cause:{(causes.Length > 0 ? causes.ToString() : " none")}");
+            Line($"MEDIAN ACROSS (dividers, round 3): OWNER-VISIBLE EXCEPTION - a rail at each carriageway's own median edge and no cable between (the rails are the barrier) {divWide} rays, at:");
+            foreach (var w in divWideSpots) Line("    " + w);
+            Check(divMany == 0, "no undesigned double barrier across a cable median (MEDIAN ACROSS dividers: two+ outside a designed lap)", divMany);
             MedianClasses();
             Check(medMany == 0, "no box, diamond or double wall between a divided route's carriageways (MEDIAN ACROSS: two or more walls)", medMany);
             Check(medZero == 0, "a divided route keeps one median between its carriageways (MEDIAN ACROSS: none)", medZero);
@@ -348,6 +389,27 @@ namespace PSXRacing.EditorTools
             if (notes.Length > 0) Line(notes.ToString().TrimEnd('\n'));
             Check(breaks == 0, "no median cutout, notch or down-and-up break on a divided route (MEDIAN CLASSES a/b)", breaks);
             Check(boxes == 0, "no empty boxed area in a divided route's median (MEDIAN CLASSES c)", boxes);
+        }
+        /// <summary>(dividers round 3) PSX_DRIVE_DESCRIBE="edge:s0:s1:step;...": what each
+        /// side of each span decided there (CityMeshes.DescribeSide) and the divider plan, for
+        /// the notes of a spot under investigation.</summary>
+        static void DescribeSpots(CityMap map, CityMeshes.Trims trims)
+        {
+            var v = System.Environment.GetEnvironmentVariable("PSX_DRIVE_DESCRIBE");
+            if (string.IsNullOrWhiteSpace(v)) return;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var item in v.Split(';'))
+            {
+                var f = item.Split(':');
+                if (f.Length < 4 || !int.TryParse(f[0], out int ei) || ei < 0 || ei >= map.edges.Length) continue;
+                var e = map.edges[ei];
+                float s0 = float.Parse(f[1], ci), s1 = float.Parse(f[2], ci), st = Mathf.Max(0.5f, float.Parse(f[3], ci));
+                for (float s = s0; s <= Mathf.Min(s1, e.length) + 1e-3f; s += st)
+                {
+                    var p = e.PointAt(s);
+                    Line($"DESCRIBE e{ei} '{e.name}' s {s:0.0} at ({p.x:0.0},{p.y:0.0}) R(median){CityMeshes.DescribeSideAt(map, trims, e, s, 1)} L{CityMeshes.DescribeSideAt(map, trims, e, s, -1)} || {CityMeshes.DescribeDivider(e, s)}");
+                }
+            }
         }
     }
 }

@@ -572,9 +572,15 @@ namespace PSXRacing.EditorTools
             failures = 0;
             var map = CityMap.Get();
             if (map == null) { Fail("charlotte_city.bytes missing from Resources"); FinishTo("city_drive.txt"); return; }
+            // (dividers round 3) the tiles record the cable's designed laps for the median rays
+            CityMeshes.DividerLapRecord = true;
+            CityMeshes.DividerLaps.Clear(); CityMeshes.DividerLappedRails.Clear();
             var trims = CityMeshes.NodeTrims(map);
             var buildings = CityBuildings.Precompute(map);
             routeOfEdge = RouteEdges(map);
+            Line("DIVIDER PLAN: " + CityMeshes.LastDividerReport);
+            Line("DIVIDER PLAN: " + CityMeshes.LastDividerGate);
+            Line($"DIVIDER PLAN: this load {CityMeshes.DividerPlanBuilds} built, {CityMeshes.DividerPlanReuses} reused, {CityMeshes.DividerPlanMsTotal:0.0} ms in all (the planning gate {CityMeshes.DividerGateMsTotal:0.0} ms of it)");
             string want = System.Environment.GetEnvironmentVariable("PSX_DRIVE_ROUTES");
             var ids = new HashSet<string>();
             if (!string.IsNullOrWhiteSpace(want)) foreach (var t in want.Split(',', ';', ' ')) if (t.Trim().Length > 0) ids.Add(t.Trim());
@@ -672,6 +678,7 @@ namespace PSXRacing.EditorTools
             // INVISIBLE COLLIDERS (CityAudit.Invisible.cs; PSX_DRIVE_INVIS=0 skips it):
             // the routes' lanes and every road of the box, the game's own tiles
             if (System.Environment.GetEnvironmentVariable("PSX_DRIVE_INVIS") != "0") InvisibleColliders(map, trims);
+            DescribeSpots(map, trims);
             FinishTo("city_drive.txt");
         }
 
