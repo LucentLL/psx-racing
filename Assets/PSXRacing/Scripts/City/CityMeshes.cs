@@ -2454,8 +2454,8 @@ namespace PSXRacing.City
             long k = LatticeKey(ix, iz);
             if (pavedCache.TryGetValue(k, out bool paved)) return paved;
             var c = new Vector2((ix + 0.5f) * LatticeCell, (iz + 0.5f) * LatticeCell);
-            paved = Vector2.Distance(c, map.uptown) < 1000f || map.AnyFootprintNear(c, 20f, nonHouseOnly: true)
-                    || WalkFrontage(map, c);   // streets pass 4: a walk street's frontage
+            // streets pass 4: a walk street's frontage; the medians pass: a median cell is its median's surface
+            paved = PavedRule(map, c);
             pavedCache[k] = paved;
             return paved;
         }
@@ -2708,6 +2708,11 @@ namespace PSXRacing.City
                     int n = end == 0 ? L.a : L.b;
                     int hostIdx = end == 0 ? trims.branchA[ei] : trims.branchB[ei];
                     if (hostIdx < 0) continue;
+                    // the medians pass round 2: a refuge island's two carriageways
+                    // are not a branch and its host - their pavements meet on the
+                    // island's axis at the nose and part around it; the gore
+                    // painter filled every gap under 4.5 m, i.e. the whole island
+                    if (LineModel.SameRefuge(ei, hostIdx)) continue;
                     var np = map.nodes[n];
                     if (np.x < min.x - GoreReach - 20f || np.x > max.x + GoreReach + 20f ||
                         np.y < min.y - GoreReach - 20f || np.y > max.y + GoreReach + 20f) continue;
@@ -3648,6 +3653,8 @@ namespace PSXRacing.City
         static Vector2 RightAt(CityMap map, Trims trims, CityMap.Edge e, float s, out float widen)
         {
             widen = 1f;
+            // the medians pass round 2: a refuge carriageway is cut square to its island's axis
+            if (LineModel.RefugeNormal(e, s, out var nL)) return nL;
             Vector2 tan;
             int seg = e.SegmentAt(s, out float t);
             bool atVertexA = seg > 0 && t < 1e-3f;

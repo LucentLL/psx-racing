@@ -83,7 +83,7 @@ namespace PSXRacing.City
         }
 
         static CityMap walkMapFor;
-        static sbyte[] walkEdgeCache, walkTwinCache;
+        static sbyte[] walkEdgeCache, walkTwinCache, medTwinCache;
         static HashSet<int> walkSplitNodes;
 
         // ------------------------------------------------------------------
@@ -116,14 +116,99 @@ namespace PSXRacing.City
         /// median side (the cell decides), 1 grass, 2 concrete.</summary>
         public static int MedianSurfaceOf(CityMap map, CityMap.Edge e, int side)
         {
-            if (!MedianGrassOn || side <= 0 || !e.oneway || e.link || e.cls > 3 || Barriered(e) || e.a == e.b) return 0;
+            if (!MedianGrassOn || !e.oneway || e.link || e.cls > 3 || Barriered(e) || e.a == e.b) return 0;
+            // round 2: a refuge island's carriageway knows its median side (its
+            // widen ease's side) - HasTwin's one midpoint test missed short
+            // island edges, which then paved their island by the cell
+            int inner = RefugeInnerSide(e);
+            if (inner != 0) { if (side != inner) return 0; }
+            else if (side <= 0) return 0;
             // inside the paved Uptown disc (PavedCell: 1 km) a median stays as paved as the ground beside it
             if (Vector2.Distance(e.PointAt(e.length * 0.5f), map.uptown) < 1050f) return 0;
-            EnsureWalkCache(map);
-            ref sbyte c = ref walkTwinCache[e.index];
-            if (c == 0) c = (sbyte)(HasTwin(map, e) ? 1 : -1);
-            if (c < 0) return 0;
+            if (inner == 0)
+            {
+                EnsureWalkCache(map);
+                ref sbyte c = ref medTwinCache[e.index];
+                if (c == 0) c = (sbyte)(HasTwin(map, e, 0.5f) || HasTwin(map, e, 0.25f) || HasTwin(map, e, 0.75f) ? 1 : -1);
+                if (c < 0) return 0;
+            }
             return MedianConcreteWays.Contains(e.wayId) ? 2 : 1;
+        }
+
+        /// <summary>The side (+1 plus, -1 minus) a refuge island's widen ease
+        /// lies on (LineModel round 2), 0: not an island carriageway.</summary>
+        static int RefugeInnerSide(CityMap.Edge e)
+        {
+            var ez = e.lmEase;
+            if (ez == null) return 0;
+            foreach (var z in ez) if (z.widen) return z.side > 0 ? 1 : -1;
+            return 0;
+        }
+
+        static readonly HashSet<int> medCellSegs = new HashSet<int>();
+        static readonly List<(CityMap.Edge e, Vector2 dir, float lat)> medCands = new List<(CityMap.Edge, Vector2, float)>(16);
+        /// <summary>THE MEDIAN CELL (round 2): is a lattice cell's centre in
+        /// the median of a divided arterial - projecting square onto a
+        /// one-way of some name on one side and onto one of the same name
+        /// running the other way on the other, both within 30 m, their lines
+        /// at most 45 m apart, not Barriered, no link, outside the paved
+        /// Uptown disc? 0 no, 1 grass, 2 concrete (MedianConcreteWays). The
+        /// cell itself decides, so a carriageway's frontage on its OUTER side
+        /// is never touched.</summary>
+        public static int MedianCellKind(CityMap map, Vector2 c)
+        {
+            if (Vector2.Distance(c, map.uptown) < 1050f) return 0;
+            medCellSegs.Clear();
+            map.EdgeSegsInRect(c - Vector2.one * 30f, c + Vector2.one * 30f, medCellSegs);
+            // the nearest qualifying carriageway A, then the nearest of A's name
+            // running the other way with the cell on ITS OWN same side - i.e.
+            // geometrically on the other side of the cell (both see the
+            // median on their left in right-hand traffic)
+            medCands.Clear();
+            foreach (int packed in medCellSegs)
+            {
+                var o = map.edges[packed >> 12];
+                if (!o.oneway || o.link || o.cls > 3 || o.a == o.b || string.IsNullOrEmpty(o.name) || Barriered(o)) continue;
+                int seg = packed & 0xFFF;
+                if (seg + 1 >= o.pts.Length) continue;
+                Vector2 a = o.pts[seg], ab = o.pts[seg + 1] - a;
+                float l2 = ab.sqrMagnitude;
+                if (l2 < 1e-4f) continue;
+                float u = Vector2.Dot(c - a, ab) / l2;
+                if (u < 0f || u > 1f) continue;
+                var dir = ab / Mathf.Sqrt(l2);
+                float lat = dir.x * (c.y - a.y) - dir.y * (c.x - a.x);      // + : c on o's left
+                float d = Mathf.Abs(lat);
+                if (d > 30f) continue;
+                medCands.Add((o, dir, lat));
+            }
+            // the closest such pair (by the gap between their lines)
+            float best = 45f; int kind = 0;
+            for (int i = 0; i < medCands.Count; i++)
+                for (int j = i + 1; j < medCands.Count; j++)
+                {
+                    var A = medCands[i]; var B = medCands[j];
+                    if (B.e.name != A.e.name || Vector2.Dot(B.dir, A.dir) > -0.7f || (B.lat > 0f) != (A.lat > 0f)) continue;
+                    float gap = Mathf.Abs(A.lat) + Mathf.Abs(B.lat);
+                    if (gap > best) continue;
+                    best = gap; kind = MedianConcreteWays.Contains(A.e.wayId) || MedianConcreteWays.Contains(B.e.wayId) ? 2 : 1;
+                }
+            return kind;
+        }
+
+        /// <summary>PavedCell's rule (uncached): the Uptown disc, a 20 m
+        /// non-house building, a walk street's frontage - and, with the median
+        /// surface on, a median cell is its median's surface whatever stands
+        /// or fronts nearby.</summary>
+        public static bool PavedRule(CityMap map, Vector2 c)
+        {
+            bool core = Vector2.Distance(c, map.uptown) < 1000f;
+            if (!core && MedianGrassOn)
+            {
+                int mk = MedianCellKind(map, c);
+                if (mk != 0) return mk == 2;
+            }
+            return core || map.AnyFootprintNear(c, 20f, nonHouseOnly: true) || WalkFrontage(map, c);
         }
 
         static void EnsureWalkCache(CityMap map)
@@ -132,6 +217,7 @@ namespace PSXRacing.City
             walkMapFor = map;
             walkEdgeCache = new sbyte[map.edges.Length];
             walkTwinCache = new sbyte[map.edges.Length];
+            medTwinCache = new sbyte[map.edges.Length];
             walkSplitNodes = new HashSet<int>();
             if (map.splt != null) foreach (var sp in map.splt) walkSplitNodes.Add(sp.node);
         }
@@ -178,10 +264,10 @@ namespace PSXRacing.City
 
         /// <summary>A one-way carriageway with its other carriageway (same
         /// name, one-way, the other way) within 45 m on its left.</summary>
-        static bool HasTwin(CityMap map, CityMap.Edge e)
+        static bool HasTwin(CityMap map, CityMap.Edge e, float at = 0.5f)
         {
             if (string.IsNullOrEmpty(e.name) || e.length < 1f) return false;
-            float sm = e.length * 0.5f;
+            float sm = e.length * at;
             var p = e.PointAt(sm); var t = e.TangentAt(sm);
             var left = new Vector2(-t.y, t.x);
             walkTwinSegs.Clear();
@@ -834,8 +920,8 @@ namespace PSXRacing.City
             {
                 int surf = MedianSurfaceOf(map, e, 1);
                 if (surf == 0) continue;
-                if (surf == 2) { edgesConcrete++; continue; }
-                edgesMed++;
+                if (surf == 2) edgesConcrete++;
+                else edgesMed++;
                 for (float s = 2f; s < e.length - 1f; s += 4f)
                 {
                     var p = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
@@ -871,43 +957,32 @@ namespace PSXRacing.City
                 }
             }
             foreach (var k in med) outer.Remove(k);
-            int medOff = 0, medOn = 0, medOnFront = 0, frSame = 0, frTwoWay = 0, outChanged = 0, outDisc = 0, outSide = 0;
+            int medOff = 0, medOn = 0, medUnclassed = 0, medUnclassedPaved = 0, outChanged = 0, conc = 0, concOn = 0;
             var notes = new System.Text.StringBuilder();
             foreach (var k in med)
             {
                 var c = CellCentre(k);
-                bool core = Vector2.Distance(c, map.uptown) < 1000f || map.AnyFootprintNear(c, 20f, nonHouseOnly: true);
-                MedianGrassOn = false; bool off = core || WalkFrontage(map, c);
-                MedianGrassOn = true; bool fr = WalkFrontage(map, c); bool on = core || fr;
+                MedianGrassOn = false; bool off = PavedRule(map, c);
+                MedianGrassOn = true; bool on = PavedRule(map, c);
+                int mk = MedianCellKind(map, c);
                 if (off) medOff++;
                 if (on) medOn++;
-                if (fr)
-                {
-                    medOnFront++;
-                    var by = map.edges[frontageBy];
-                    if (!by.oneway) frTwoWay++;
-                    // the same road's own (a carriageway whose twin test failed, or the undivided road)
-                    bool same = !string.IsNullOrEmpty(by.name) && MedianNameAt(map, c, by.name);
-                    if (same) { frSame++; if (notes.Length < 900) notes.Append($" e{by.index}'{by.name}'{(by.oneway ? "ow" : "2w")}@{c.x:0},{c.y:0};"); }
-                }
+                if (mk == 2) { conc++; if (on) concOn++; }
+                if (mk == 0) { medUnclassed++; if (on) { medUnclassedPaved++; if (notes.Length < 900) notes.Append($" {c.x:0},{c.y:0};"); } }
             }
             foreach (var k in outer)
             {
                 var c = CellCentre(k);
-                MedianGrassOn = false; bool off = WalkFrontage(map, c);
-                MedianGrassOn = true; bool on = WalkFrontage(map, c);
+                MedianGrassOn = false; bool off = PavedRule(map, c);
+                MedianGrassOn = true; bool on = PavedRule(map, c);
                 if (off == on) continue;
                 outChanged++;
-                medianSkipMask = 1; bool d1 = WalkFrontage(map, c);
-                medianSkipMask = 2; bool d2 = WalkFrontage(map, c);
-                medianSkipMask = 3;
-                if (!d1) outDisc++;
-                if (!d2) { outSide++; if (notes.Length < 1800) notes.Append($" OUT {c.x:0},{c.y:0};"); }
+                if (notes.Length < 1800) notes.Append($" OUT {c.x:0},{c.y:0};");
             }
             MedianGrassOn = was;
-            return $"MEDIAN CELLS: {med.Count} lattice cells in medians beside {edgesMed} grass-median carriageway sides ({edgesConcrete} concrete-listed left as paved): " +
-                   $"paved {medOff} with the per-side rule OFF, {medOn} ON ({medOnFront} of them still by some street's frontage, {frSame} by a street of the median's own name, {frTwoWay} by a two-way street; the rest the 1 km Uptown disc or a 20 m non-house building); " +
-                   $"{outer.Count} outer-side cells of the same edges, {outChanged} of them changed (goal 0: the frontage stays; {outDisc} by the split-node disc rule, {outSide} by the median-side rule)\n  samples:{notes}";
+            return $"MEDIAN CELLS: {med.Count} lattice cells in medians beside {edgesMed} grass-median carriageway sides and {edgesConcrete} concrete-listed: " +
+                   $"paved {medOff} with the median surface OFF, {medOn} ON ({concOn} of {conc} concrete-listed median cells paved - goal all; {medUnclassedPaved} of {medUnclassed} cells the cell test does not call a median still paved by frontage/buildings); " +
+                   $"{outer.Count} outer-side cells of the same edges, {outChanged} of them changed (goal 0: the frontage stays)\n  samples (unclassed paved / OUT changed):{notes}";
         }
 
         /// <summary>Is a cell in the median of a road of this name (a one-way
@@ -956,23 +1031,14 @@ namespace PSXRacing.City
                 Vector2 a = e.pts[seg], b = e.pts[seg + 1], ab = b - a;
                 float l2 = ab.sqrMagnitude;
                 float uRaw = l2 > 1e-4f ? Vector2.Dot(c - a, ab) / l2 : 0f;
-                if (MedianGrassOn)
-                {
-                    // no disc past an end at a split node: that is the nose
-                    if ((medianSkipMask & 1) != 0 && uRaw < 0f && seg == 0 && walkSplitNodes.Contains(e.a)) continue;
-                    if ((medianSkipMask & 1) != 0 && uRaw > 1f && seg + 2 == e.pts.Length && walkSplitNodes.Contains(e.b)) continue;
-                    // no frontage on a divided carriageway's median side (its left)
-                    if ((medianSkipMask & 2) != 0 && ab.x * (c.y - a.y) - ab.y * (c.x - a.x) > 0f && MedianSurfaceOf(map, e, 1) == 1) continue;
-                }
                 float u = Mathf.Clamp01(uRaw);
                 if (Vector2.Distance(c, a + ab * u) < e.width * 0.5f + WalkW + FrontageM) { frontageBy = e.index; return true; }
             }
             return false;
         }
-        /// <summary>The medians gate's diagnostics: which skips WalkFrontage
-        /// applies (1 the split-node disc, 2 the median side), and the edge
-        /// that paved the last cell it paved.</summary>
-        static int medianSkipMask = 3, frontageBy = -1;
+        /// <summary>The medians gate's diagnostics: the edge that paved the
+        /// last cell WalkFrontage paved.</summary>
+        static int frontageBy = -1;
 
         // ------------------------------------------------------------------
         //  LOT CURBS. A lot was cut flush into the lattice (L8: no lift),

@@ -712,6 +712,8 @@ namespace PSXRacing.City
         static Vector2 PlanPoint(CityMap.Edge e, float s, float lat, out Vector2 tan)
         {
             tan = Bisector(e, s);
+            // the medians pass round 2: a refuge carriageway's laterals run square to its island's axis
+            if (LineModel.RefugeNormal(e, s, out var nL)) return e.PointAt(s) + nL * lat;
             return e.PointAt(s) + new Vector2(-tan.y, tan.x) * lat;
         }
 
