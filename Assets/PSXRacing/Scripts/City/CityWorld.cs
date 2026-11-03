@@ -814,8 +814,11 @@ namespace PSXRacing.City
                     float cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
                     wanted.Add((tx, tz, BuildAhead ? NeedScore(tx, tz, p, dir, speed) : cx * cx + cz * cz));
                 }
-            // the row ahead, at speed (kept: the drop rule holds ring + 1)
-            if (BuildAhead && speed > LookaheadSpeed)
+            // the row ahead, at speed (kept: the drop rule holds ring + 1) - not
+            // on a preloaded course, whose tiles are already all there: the
+            // row was the off-course tiles still built mid-race (the PC tour,
+            // 21 of 34 frames over 33 ms)
+            if (BuildAhead && speed > LookaheadSpeed && pinned.Count == 0)
             {
                 int r1 = ring + 1;
                 for (int dz = -r1; dz <= r1; dz++)
