@@ -67,6 +67,15 @@ namespace PSXRacing
         /// </summary>
         public static bool PCPicture => PC && !HasArg("-psx-ps1-picture");
 
+        /// <summary>
+        /// THE MOUNTAINS' WHOLE FOREST (PCOnly's far forest, fill and crowns;
+        /// StageCulling's forest to the far plane): the PC profile, and a
+        /// browser on a desktop too (owner, 2026-11-03, on the web build in a
+        /// desktop browser: "the PC webGL hasn't even changed the title screen
+        /// to add more trees"). A phone keeps the band of trees by the road.
+        /// </summary>
+        public static bool FullForest => PC || (Application.platform == RuntimePlatform.WebGLPlayer && !Application.isMobilePlatform);
+
         /// <summary>Traffic at its most wherever nobody picked a level.</summary>
         public static bool MaxTraffic
         {

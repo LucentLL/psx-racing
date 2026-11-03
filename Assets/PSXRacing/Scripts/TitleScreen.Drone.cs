@@ -60,9 +60,19 @@ namespace PSXRacing
             return GroundAt(mid + right * 80f) <= GroundAt(mid - right * 80f) ? right : -right;
         }
 
+        /// <summary>A phone has no crown cards (PCOnly, PlatformProfile.FullForest):
+        /// from straight above, its trees' crossed cards read as an X, so it
+        /// flies only the shots that look across the canopy.</summary>
+        static bool Flies(ShotKind k) => PlatformProfile.FullForest || (k != ShotKind.TopDown && k != ShotKind.Follow);
+
+        static int FlownShots
+        {
+            get { int n = 0; foreach (var k in ShotOrder) if (Flies(k)) n++; return n; }
+        }
+
         void NextShot()
         {
-            shotIx = (shotIx + 1) % ShotOrder.Length;
+            do shotIx = (shotIx + 1) % ShotOrder.Length; while (!Flies(ShotOrder[shotIx]));
             shot = ShotOrder[shotIx];
             shotT0 = Time.unscaledTime;
             shotLen = ShotS;
@@ -215,7 +225,7 @@ namespace PSXRacing
                 string file = System.IO.Path.Combine(shotsDir, $"title_{shotIx}_{shot}.png");
                 ScreenCapture.CaptureScreenshot(file);
                 Debug.Log("[TitleScreen] shot photographed: " + file);
-                if (photographed.Count >= ShotOrder.Length) Invoke(nameof(QuitAfterShots), 1.5f);
+                if (photographed.Count >= FlownShots) Invoke(nameof(QuitAfterShots), 1.5f);
             }
         }
 
