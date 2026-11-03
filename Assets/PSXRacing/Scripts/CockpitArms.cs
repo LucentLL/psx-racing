@@ -57,6 +57,23 @@ namespace PSXRacing
     /// (and anything in the air) toward the driver. <see cref="Depths"/>
     /// measures it on the drawn vertices.
     ///
+    /// THE ARMS HANG FROM THE DRIVER'S SHOULDERS (owner, 2026-11-02: "Can
+    /// you improve the arm positioning while driving? It is pretty sporadic
+    /// and arms often overlap unnaturally. maybe pretend they are attached to
+    /// driver's shoulders in the driver seat"; <see cref="Shoulders"/>). Each
+    /// arm is a two-bone chain from a shoulder fixed in the seat
+    /// (<see cref="ShoulderJoint"/>) to the wrist of the hand on the rim: the
+    /// elbow is SOLVED from the arm's own two lengths, hanging down and out
+    /// (<see cref="PoleLow"/>), lifting with the hand on top of the wheel, and
+    /// up and back for the arm crossing over (<see cref="PoleCross"/>) - eased
+    /// in and out (<see cref="CrossEaseSec"/>), never switched. Out of the door,
+    /// console and seat (and the rim) the elbow swings round the
+    /// shoulder-to-wrist line, both bones still joined; and then the two arms
+    /// are kept apart (<see cref="ArmClear"/>), the crossing arm's elbow
+    /// swinging up over the other. Before it, the forearm was aimed at an
+    /// elbow point that jumped with the crossing flag, and the upper arm only
+    /// POINTED at a shoulder it could not reach.
+    ///
     /// FOR OTHER CAMERAS (the windshield reflection): <see cref="Live"/> lists
     /// every arm renderer in the scene. They carry the cabin's layer and
     /// SpeedBlur.CarRenderingLayer, and CockpitInterior hides the whole cabin,
@@ -103,6 +120,63 @@ namespace PSXRacing
             Planner.BlockedL = bl.ToArray();
             Planner.BlockedR = br.ToArray();
         }
+        /// <summary>THE SHOULDERS (see the class): each arm a chain from a
+        /// fixed shoulder to its wrist, the elbow solved. Off = the elbow-aim
+        /// arms before 2026-11-02, for before/after measurements only.</summary>
+        public static bool Shoulders = true;
+        /// <summary>The LEFT shoulder joint from Driver_Eye (model frame; the
+        /// right is the mirror): a seated driver's, out, down and a little
+        /// ahead of the eye - with the arm's 0.255 + 0.313 m it holds the rim
+        /// with the elbows bent.</summary>
+        public static readonly Vector3 ShoulderJoint = new Vector3(-0.18f, -0.28f, 0.02f);
+        /// <summary>How far a shoulder comes forward for a reach the arm
+        /// cannot make from the seat (over the top, across the wheel), and
+        /// how straight the arm gets before it starts to (of its length; a
+        /// near-straight arm swings its elbow centimetres for every
+        /// millimetre of wrist - the snap), easing in over ReachEase metres.</summary>
+        public const float ShoulderReach = 0.14f, ReachBend = 0.88f, ReachEase = 0.05f;
+        /// <summary>Where the elbow hangs, from the shoulder: DOWN (and a
+        /// little forward with the hand low on the rim, back with it on top),
+        /// and to the side AWAY from where the hand reaches (PoleOut) - a
+        /// right hand across at 11 o'clock has its elbow low and to the right,
+        /// never out past the hand (owner, 2026-11-02, the first chain: "right
+        /// arm is on left side of wheel, bending backwards"). The door is
+        /// closer than real shoulders: the cabin swing moves it in.</summary>
+        public static readonly Vector3 PoleLow = new Vector3(0f, -0.30f, 0.12f);
+        public static readonly Vector3 PoleHigh = new Vector3(0f, -0.20f, -0.04f);
+        public const float PoleOut = 0.08f;
+        /// <summary>... less low for the arm crossing over (its forearm rides
+        /// over the other), a little lower for the one under it. (Not much
+        /// back: square to a reach across, back is out past the wrist.)</summary>
+        public static readonly Vector3 PoleCross = new Vector3(0f, 0.14f, -0.06f);
+        public static readonly Vector3 PoleUnder = new Vector3(0f, -0.08f, 0.04f);
+        /// <summary>An elbow out past its own wrist (in the direction the hand
+        /// reached, metres) is bent backwards: no swing may put it there.</summary>
+        public const float BackBend = 0.03f;
+        /// <summary>Seconds the elbow's hang follows its pole in (a low pass:
+        /// the hand moves, the elbow swings after it).</summary>
+        public const float HangLag = 0.06f;
+        /// <summary>Seconds a crossing's lift eases in and out (the elbow
+        /// never jumps).</summary>
+        public const float CrossEaseSec = 0.18f;
+        /// <summary>The arms' bones kept this far apart (centre lines: two
+        /// arm radii and a gap), and how fast an elbow may swing to do it or
+        /// to stay out of the cabin (degrees a second).</summary>
+        public const float ArmClear = 0.075f, SwivelRate = 300f, SwivelRateOut = 600f;
+        /// <summary>The crossing arm starts to lift with the bones this far
+        /// apart (it has a few frames to get there before they would touch).</summary>
+        public const float LiftClear = 0.10f;
+        /// <summary>The arm's radius at the bone, for the cabin and rim checks.</summary>
+        public const float ArmRadius = 0.034f;
+        /// <summary>A hand's flight between grips (Shoulders): off the rim this
+        /// far toward the driver over the first FlightLift of it, across, and
+        /// down onto the rim from FlightLand on.</summary>
+        public const float FlightBack = 0.05f, FlightLift = 0.35f, FlightLand = 0.7f;
+        /// <summary>How fast an elbow drifts back to its own hang when nothing
+        /// is in its way (degrees a second): slowly, so a lift held to keep
+        /// the arms apart is not undone the next frame.</summary>
+        public const float SwivelRateBack = 150f;
+
         /// <summary>The visual wheel's fastest turn, degrees a second (the
         /// physics rack sweeps lock to lock in ~0.15 s; hands cannot).</summary>
         public const float WheelMaxRate = 1080f;
@@ -881,6 +955,16 @@ namespace PSXRacing
             public Quaternion startRot = Quaternion.identity, startForeRot = Quaternion.identity;
             public int gen = -1;
             public bool posed;
+            /// <summary>The chain (Shoulders): shoulder, solved elbow, wrist
+            /// (model frame); the crossing / under weights as eased; the
+            /// elbow's swing about the shoulder-to-wrist line (degrees).</summary>
+            public Vector3 shoulder, elbow, wrist, hang;
+            public float crossW, underW, swivel;
+            /// <summary>The untangle's own swing on top of the swivel (degrees;
+            /// the cabin's swing pulled it back each frame when they shared
+            /// one) and which way it lifts (kept until it is let down).</summary>
+            public float lift, liftSgn;
+            public bool chained;
         }
 
         readonly Transform root;
@@ -945,7 +1029,7 @@ namespace PSXRacing
                 Live.Add(a.mr);
             }
             Plan.Reset(0f);
-            Solve(true);
+            Solve(true, 0f);
         }
 
         public void Destroy()
@@ -977,14 +1061,14 @@ namespace PSXRacing
                 brake = car.handbrakeInput;
             }
             Plan.Step(dt, wheelDeg, shift, brake);
-            Solve(dt <= 0f);
+            Solve(dt <= 0f, dt);
         }
 
         /// <summary>For previews and tests: step the planner with explicit inputs.</summary>
         public void Drive(float dt, float wheelDeg, bool shift, bool brake)
         {
             Plan.Step(dt, wheelDeg, shift, brake);
-            Solve(dt <= 0f);
+            Solve(dt <= 0f, dt);
         }
 
         // ------------------------------------------------------------------
@@ -1023,6 +1107,11 @@ namespace PSXRacing
         /// FOREARM leaves the rim's line by the wrist (TangentLock) to aim at
         /// an elbow out of every view.</summary>
         public void RimPose(bool left, float alpha, float crossLift, float duck, float off, out Vector3 pos, out Quaternion rot, out Quaternion foreRot)
+            => RimPose(left, alpha, crossLift, duck, off, null, out pos, out rot, out foreRot);
+
+        /// <summary>... the hand turned to the arm's SOLVED elbow (the chain's
+        /// last one, <paramref name="elbowAt"/>), not an aim point.</summary>
+        void RimPose(bool left, float alpha, float crossLift, float duck, float off, Vector3? elbowAt, out Vector3 pos, out Quaternion rot, out Quaternion foreRot)
         {
             Vector3 P = RimPoint(alpha);
             Vector3 X = RimTangent(alpha);
@@ -1031,7 +1120,7 @@ namespace PSXRacing
             // (Contact off = the first cut's elbows, out by the door and console.)
             Vector3 lo = Contact ? ElbowAim : new Vector3(-0.22f, -0.74f, 0.16f);
             Vector3 hi = Contact ? ElbowAimHigh : new Vector3(-0.19f, -0.42f, 0.10f);
-            Vector3 A = Eye + Side(left, Vector3.Lerp(lo, hi, high))
+            Vector3 A = elbowAt ?? Eye + Side(left, Vector3.Lerp(lo, hi, high))
                         + Side(left, CrossLift) * crossLift + Side(left, UnderDuck) * duck;
             Vector3 D = P - A;
             Vector3 Z = (D - Mathf.Lerp(TangentLockLow, TangentLockHigh, high) * Vector3.Dot(D, X) * X).normalized;
@@ -1069,7 +1158,7 @@ namespace PSXRacing
             CabinMarker = new Unity.Profiling.ProfilerMarker("CockpitArms.KeepOutOfCabin"),
             PlaceMarker = new Unity.Profiling.ProfilerMarker("CockpitArms.Place");
 
-        void Solve(bool snap)
+        void Solve(bool snap, float dt)
         {
             Hand other = null;
             for (int i = 0; i < 2; i++)
@@ -1082,6 +1171,16 @@ namespace PSXRacing
                 if (a.gen != h.cartGen) { a.gen = h.cartGen; a.startPos = a.pos; a.startRot = a.rot; a.startForeRot = a.foreRot; }
                 float duck = other.crossed && !h.crossed ? 1f : 0f;
                 float lift = h.crossed ? 1f : 0f;
+                if (Shoulders)
+                {
+                    // eased, never switched: the elbow cannot jump
+                    float k = snap ? 1f : dt / CrossEaseSec;
+                    a.crossW = Mathf.MoveTowards(a.crossW, lift, k);
+                    a.underW = Mathf.MoveTowards(a.underW, duck, k);
+                    lift = Planner.Smooth(a.crossW);
+                    duck = Planner.Smooth(a.underW);
+                }
+                Vector3? elbowAt = null;
                 Vector3 tp; Quaternion tr, tf;
                 bool cart = false;
                 float u = 0f;
@@ -1090,7 +1189,7 @@ namespace PSXRacing
                 {
                     case Mode.Grip:
                     case Mode.Slide:
-                        RimPose(h.left, h.alpha, lift, duck, h.mode == Mode.Slide ? 0.012f * h.open : 0f, out tp, out tr, out tf);
+                        RimPose(h.left, h.alpha, lift, duck, h.mode == Mode.Slide ? 0.012f * h.open : 0f, elbowAt, out tp, out tr, out tf);
                         break;
                     case Mode.Move when h.kind == Kind.Cross:
                     {
@@ -1118,7 +1217,7 @@ namespace PSXRacing
                         break;
                     }
                     case Mode.Move:
-                        RimPose(h.left, h.alpha, lift, duck, 0.015f * Mathf.Sin(Mathf.PI * Mathf.Clamp01(h.t / h.dur)) + 0.01f * h.open, out tp, out tr, out tf);
+                        RimPose(h.left, h.alpha, lift, duck, 0.015f * Mathf.Sin(Mathf.PI * Mathf.Clamp01(h.t / h.dur)) + 0.01f * h.open, elbowAt, out tp, out tr, out tf);
                         break;
                     default: // Away
                     {
@@ -1138,7 +1237,21 @@ namespace PSXRacing
                         break;
                     }
                 }
-                if (cart && !snap && a.posed)
+                if (cart && !snap && a.posed && Shoulders && h.mode == Mode.Move)
+                {
+                    // THE FLIGHT (2026-11-02): off the rim toward the driver
+                    // first, across, then down onto it. Straight from rim to
+                    // rim went through the wheel's face, and the contact fit
+                    // shoved the hand back out a few centimetres a frame: the
+                    // snaps in a hand over hand.
+                    float off = Planner.Smooth(Mathf.Clamp01(u / FlightLift)) * (1f - Planner.Smooth(Mathf.Clamp01((u - FlightLand) / (1f - FlightLand))));
+                    float e = Planner.Smooth(Mathf.Clamp01((u - FlightLift * 0.5f) / (1f - FlightLift * 0.5f)));
+                    Vector3 back = lay.wheel.rot * Vector3.back;
+                    a.pos = Vector3.Lerp(a.startPos, tp, e) + (back * FlightBack + Vector3.up * 0.02f) * off + arc * (0.4f * Mathf.Sin(Mathf.PI * e));
+                    a.rot = Quaternion.Slerp(a.startRot, tr, e);
+                    a.foreRot = Quaternion.Slerp(a.startForeRot, tf, e);
+                }
+                else if (cart && !snap && a.posed)
                 {
                     float e = Planner.Smooth(u);
                     a.pos = Vector3.Lerp(a.startPos, tp, e) + arc * Mathf.Sin(Mathf.PI * u);
@@ -1152,9 +1265,312 @@ namespace PSXRacing
                 a.posed = true;
                 if (Contact && data.wheel != null) using (FitMarker.Auto()) Fit(a);
                 else for (int f = 0; f < 5; f++) a.curl[f] = 1f;
+                if (Shoulders) { using (CabinMarker.Auto()) Reach(a, snap, dt); continue; }
                 if (Contact && data.cabin != null) using (CabinMarker.Auto()) KeepOutOfCabin(a);
                 using (PlaceMarker.Auto()) Place(a);
             }
+            if (!Shoulders) return;
+            using (CabinMarker.Auto())
+            {
+                Untangle(snap, dt);
+                LastKeep = "";
+                // A pose no swing of the elbow clears (a hand low by the seat
+                // with the wheel wound round): the forearm turns at the wrist
+                // as it always did, and the elbow goes with it - the upper arm
+                // may then miss its (hidden) shoulder by a little.
+                if (Contact && data.cabin != null)
+                    for (int i = 0; i < 2; i++)
+                    {
+                        var a = arms[i];
+                        // (on the drawn vertices, like the measure; nothing to
+                        // do - one pass - when the arm is clear)
+                        AimFore(a);
+                        KeepOutOfCabin(a);
+                        a.elbow = a.wrist + a.foreRot * (ElbowL(a.hand.left) - a.geo.wrist);
+                    }
+            }
+            using (PlaceMarker.Auto()) { Place(arms[0]); Place(arms[1]); }
+        }
+
+        // ------------------------------------------------------------------
+        //  The shoulders: a two-bone chain from the seat to the wrist
+        // ------------------------------------------------------------------
+
+        Vector3 ElbowL(bool left) => left ? MX(data.elbow) : data.elbow;
+        Vector3 EndL(bool left) => left ? MX(data.shoulderEnd) : data.shoulderEnd;
+
+        /// <summary>The chain's frame for an arm: shoulder (come forward if
+        /// the wrist is out of reach), wrist, the line between them, how far
+        /// along it the elbow's foot is, the elbow's distance off it, and the
+        /// way it hangs (the pole, square to the line).</summary>
+        void Chain(Arm a, out Vector3 S, out Vector3 W, out Vector3 dir, out float along, out float off, out Vector3 hang)
+        {
+            bool left = a.hand.left;
+            Vector3 J = a.geo.wrist, eL = ElbowL(left);
+            float L2 = (eL - J).magnitude, L1 = (EndL(left) - eL).magnitude;
+            W = a.pos + a.rot * J;
+            S = Eye + Side(left, ShoulderJoint);
+            Vector3 d = W - S;
+            float dist = d.magnitude, x = dist - (L1 + L2) * ReachBend;
+            if (x > 0f && dist > 1e-5f)
+            {
+                // a smooth ramp (no kink in the shoulder's speed): x^2/2e, then x - e/2
+                float come = x < ReachEase ? x * x / (2f * ReachEase) : x - ReachEase * 0.5f;
+                S += d / dist * Mathf.Min(come, ShoulderReach);
+                d = W - S;
+                dist = d.magnitude;
+            }
+            dir = dist > 1e-5f ? d / dist : Vector3.forward;
+            dist = Mathf.Clamp(dist, Mathf.Abs(L1 - L2) + 1e-3f, L1 + L2 - 1e-4f);
+            along = (L1 * L1 - L2 * L2 + dist * dist) / (2f * dist);
+            off = Mathf.Sqrt(Mathf.Max(0f, L1 * L1 - along * along));
+            // Down and out; up with the wrist on top of the wheel; up and back
+            // crossing over, down a little under a crossing one.
+            float high = Planner.Smooth(Mathf.Clamp01(Mathf.InverseLerp(lay.wheel.pivot.y - 0.10f, lay.wheel.pivot.y + 0.17f, W.y)));
+            // away from the side the hand reached to (its own side when the
+            // hand is in front of its shoulder)
+            float away = -Mathf.Clamp((W.x - S.x) / 0.12f, -1f, 1f);   // smooth through zero (a flip snapped)
+            Vector3 pole = Vector3.Lerp(PoleLow, PoleHigh, high) + new Vector3(away * PoleOut, 0f, 0f)
+                         + PoleCross * Planner.Smooth(a.crossW) + PoleUnder * Planner.Smooth(a.underW);
+            hang = pole - Vector3.Dot(pole, dir) * dir;
+            if (hang.sqrMagnitude < 1e-8f) hang = Vector3.down - Vector3.Dot(Vector3.down, dir) * dir;
+            hang.Normalize();
+        }
+
+        /// <summary>The hang eased after the pole (HangLag), kept square to
+        /// the shoulder-to-wrist line.</summary>
+        Vector3 Ease(Arm a, Vector3 hang, Vector3 dir, bool snap, float dt)
+        {
+            Vector3 h = snap || !a.chained || a.hang.sqrMagnitude < 0.5f ? hang
+                      : Vector3.Slerp(a.hang, hang, 1f - Mathf.Exp(-dt / HangLag));
+            h -= Vector3.Dot(h, dir) * dir;
+            if (h.sqrMagnitude < 1e-8f) h = hang;
+            return h.normalized;
+        }
+
+        static Vector3 ElbowAt(Vector3 S, Vector3 dir, float along, float off, Vector3 hang, float swivel)
+            => S + dir * along + (Quaternion.AngleAxis(swivel, dir) * hang) * off;
+
+        /// <summary>How far an elbow is out past its own wrist in the direction
+        /// the hand reached from the shoulder (metres; above BackBend the arm
+        /// is bent backwards).</summary>
+        static float PastWrist(Vector3 S, Vector3 E, Vector3 W)
+        {
+            float lat = W.x - S.x;
+            float k = Planner.Smooth(Mathf.Clamp01((Mathf.Abs(lat) - 0.02f) / 0.04f));   // (no step: a step flipped the swing)
+            return (E.x - W.x) * Mathf.Sign(lat) * k;
+        }
+
+        /// <summary>PastWrist for a hand reaching ACROSS the body's middle
+        /// (the owner's backward bend: a right hand at 10 o'clock), in from
+        /// 6 cm short of it; a hand on its own side (low by the door, at the
+        /// lever) swings its elbow as the cabin needs.</summary>
+        float BentAcross(bool left, Vector3 S, Vector3 E, Vector3 W)
+        {
+            float past = left ? W.x - Eye.x : Eye.x - W.x;
+            float k = Planner.Smooth(Mathf.Clamp01((past + 0.06f) / 0.06f));
+            return k > 0f ? PastWrist(S, E, W) * k : 0f;
+        }
+
+        /// <summary>How deep an arm laid shoulder-elbow-wrist is in the door,
+        /// console, seat or rim (metres, the bones' centre lines at the arm's
+        /// radius; the hand's last few cm left to the hand's own fit).</summary>
+        float ChainDepth(Vector3 S, Vector3 E, Vector3 W)
+        {
+            float worst = 0f;
+            var cab = data.cabin;
+            Matrix4x4 toW = data.wheel != null ? WheelMatrix.inverse : Matrix4x4.identity;
+            for (int k = 0; k <= 6; k++)
+            {
+                float t = k / 6f;
+                Vector3 qu = Vector3.Lerp(E, S, t * 0.8f);           // the upper arm (its shoulder end hidden)
+                Vector3 qf = Vector3.Lerp(E, W, 0.10f + t * 0.82f);  // the forearm, to just short of the wrist
+                if (cab != null)
+                {
+                    worst = Mathf.Max(worst, SkinDepth(cab, qu));
+                    worst = Mathf.Max(worst, SkinDepth(cab, qf));
+                }
+                if (data.wheel != null) worst = Mathf.Max(worst, ArmRadius - data.wheel.Sdf(toW.MultiplyPoint3x4(qf)));
+            }
+            return worst;
+        }
+
+        /// <summary>A bone point's depth in the cabin at the arm's radius:
+        /// along each wall's own axis (Depth's margin), and the skin below and
+        /// either side of it - a wall is a heightfield with an edge (the door's
+        /// sill), and a bone just over the edge read clear while the arm's
+        /// underside was in the door.</summary>
+        static float SkinDepth(Cabin cab, Vector3 q)
+        {
+            float d = cab.Depth(q, out _, ArmRadius);
+            d = Mathf.Max(d, cab.Depth(q + Vector3.down * ArmRadius, out _, CabinMargin));
+            d = Mathf.Max(d, cab.Depth(q + Vector3.left * ArmRadius, out _, CabinMargin));
+            d = Mathf.Max(d, cab.Depth(q + Vector3.right * ArmRadius, out _, CabinMargin));
+            return d;
+        }
+
+        static readonly float[] SwingTry = { 0f, 12f, -12f, 25f, -25f, 40f, -40f, 60f, -60f, 85f, -85f, 110f, -110f, 135f, -135f, 180f };
+        static readonly float[] LiftTry = { 0f, 12f, 25f, 40f, 60f, 85f, 110f };
+
+        /// <summary>The arm's chain solved: the elbow where the pole hangs it,
+        /// swung round the shoulder-to-wrist line (from where it was) until
+        /// it is clear of the cabin and the rim, never faster than SwivelRate.</summary>
+        void Reach(Arm a, bool snap, float dt)
+        {
+            Chain(a, out var S, out var W, out var dir, out float along, out float off, out var hang);
+            hang = Ease(a, hang, dir, snap, dt);
+            a.hang = hang;
+            float best = a.swivel, bestCost = float.MaxValue, now = 0f;
+            for (int i = 0; i < SwingTry.Length; i++)
+            {
+                float sw = SwingTry[i];
+                Vector3 E = ElbowAt(S, dir, along, off, hang, sw);
+                float depth = data.cabin != null || data.wheel != null ? ChainDepth(S, E, W) : 0f;
+                float bent = BentAcross(a.hand.left, S, E, W);
+                float cost = depth * 1000f + Mathf.Max(0f, bent - BackBend) * 2000f
+                           + Mathf.Abs(sw) * 0.02f + Mathf.Abs(sw - a.swivel) * 0.01f;
+                if (cost < bestCost) { bestCost = cost; best = sw; }
+                if (depth <= 0f && i == 0 && bent <= BackBend) break;   // the pole's own hang is clear
+            }
+            if (data.cabin != null || data.wheel != null) now = ChainDepth(S, ElbowAt(S, dir, along, off, hang, a.swivel), W);
+            if (snap || !a.chained) { a.lift = 0f; a.liftSgn = 0f; }
+            a.swivel = snap || !a.chained ? best : Mathf.MoveTowards(a.swivel, best, (now > 0f ? SwivelRateOut : SwivelRateBack) * dt);
+            a.shoulder = S;
+            a.wrist = W;
+            a.elbow = ElbowAt(S, dir, along, off, hang, a.swivel + a.lift);
+            a.chained = true;
+        }
+
+        /// <summary>The closest the two arms' bones come (centre lines; the
+        /// forearms from a few cm off the wrist, so two hands near each other
+        /// on the rim do not count).</summary>
+        static float Gap(Vector3 sA, Vector3 eA, Vector3 wA, Vector3 sB, Vector3 eB, Vector3 wB)
+        {
+            Vector3 fA = Vector3.Lerp(wA, eA, 0.40f), fB = Vector3.Lerp(wB, eB, 0.40f);
+            float g = SegDist(fA, eA, fB, eB);
+            g = Mathf.Min(g, SegDist(fA, eA, eB, sB));
+            g = Mathf.Min(g, SegDist(eA, sA, fB, eB));
+            return g;
+        }
+
+        /// <summary>For the shot tool's trace: what the last untangle did,
+        /// and what the last resort (KeepOutOfCabin) pushed out of.</summary>
+        public string LastUntangle = "", LastKeep = "";
+        /// <summary>The shot tool's switch for those (strings every frame are
+        /// garbage in the game).</summary>
+        public static bool TraceSolve;
+
+        /// <summary>The two arms apart: the one crossing over (or the higher
+        /// hand's) swings its elbow up and over until the bones clear.</summary>
+        void Untangle(bool snap, float dt)
+        {
+            Arm A = arms[0], B = arms[1];
+            LastUntangle = "";
+            Arm m = A.crossW > B.crossW + 0.01f ? A : B.crossW > A.crossW + 0.01f ? B : (A.wrist.y >= B.wrist.y ? A : B);
+            Arm o = m == A ? B : A;
+            Settle(o, m, dt);   // the other lets down a lift it held
+            Chain(m, out var S, out var W, out var dir, out float along, out float off, out _);
+            Vector3 hang = m.hang;
+            if (Gap(S, m.elbow, W, o.shoulder, o.elbow, o.wrist) >= LiftClear) { Settle(m, o, dt); return; }
+            // only the way that LIFTS the elbow (up and over), chosen once:
+            // either way each frame flipped it, a snap
+            if (m.liftSgn == 0f)
+            {
+                float up = ElbowAt(S, dir, along, off, hang, m.swivel + 12f).y - ElbowAt(S, dir, along, off, hang, m.swivel - 12f).y;
+                m.liftSgn = up >= 0f ? 1f : -1f;
+            }
+            float best = m.lift, bestCost = float.MaxValue;
+            for (int i = 0; i < LiftTry.Length; i++)
+            {
+                float lf = m.liftSgn * LiftTry[i];
+                Vector3 E = ElbowAt(S, dir, along, off, hang, m.swivel + lf);
+                float gap = Gap(S, E, W, o.shoulder, o.elbow, o.wrist);
+                float depth = ChainDepth(S, E, W);
+                float cost = Mathf.Max(0f, LiftClear - gap) * 1000f + depth * 1000f
+                           + Mathf.Max(0f, BentAcross(m.hand.left, S, E, W) - BackBend) * 2000f + LiftTry[i] * 0.01f;
+                if (cost < bestCost) { bestCost = cost; best = lf; }
+            }
+            m.lift = snap ? best : Mathf.MoveTowards(m.lift, best, SwivelRateOut * dt);
+            m.elbow = ElbowAt(S, dir, along, off, hang, m.swivel + m.lift);
+            if (TraceSolve) LastUntangle = (m.hand.left ? "L" : "R") + " lifts " + m.lift.ToString("0") + " (best " + best.ToString("0") + ")";
+        }
+
+        /// <summary>A lift let down (SwivelRateBack) only as far as the arms
+        /// stay clear.</summary>
+        void Settle(Arm a, Arm o, float dt)
+        {
+            if (a.lift == 0f) { a.liftSgn = 0f; return; }
+            Chain(a, out var S, out var W, out var dir, out float along, out float off, out _);
+            float down = Mathf.MoveTowards(a.lift, 0f, SwivelRateBack * dt);
+            Vector3 E = ElbowAt(S, dir, along, off, a.hang, a.swivel + down);
+            if (Gap(S, E, W, o.shoulder, o.elbow, o.wrist) < LiftClear) return;
+            a.lift = down;
+            a.elbow = E;
+            if (a.lift == 0f) a.liftSgn = 0f;
+        }
+
+        static float SegDist(Vector3 p1, Vector3 q1, Vector3 p2, Vector3 q2)
+        {
+            Vector3 d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
+            float a = Vector3.Dot(d1, d1), e = Vector3.Dot(d2, d2), f = Vector3.Dot(d2, r);
+            float s, t;
+            if (a <= 1e-9f && e <= 1e-9f) return r.magnitude;
+            if (a <= 1e-9f) { s = 0f; t = Mathf.Clamp01(f / e); }
+            else
+            {
+                float c = Vector3.Dot(d1, r);
+                if (e <= 1e-9f) { t = 0f; s = Mathf.Clamp01(-c / a); }
+                else
+                {
+                    float b = Vector3.Dot(d1, d2), den = a * e - b * b;
+                    s = den > 1e-9f ? Mathf.Clamp01((b * f - c * e) / den) : 0f;
+                    t = (b * s + f) / e;
+                    if (t < 0f) { t = 0f; s = Mathf.Clamp01(-c / a); }
+                    else if (t > 1f) { t = 1f; s = Mathf.Clamp01((b - c) / a); }
+                }
+            }
+            return ((p1 + d1 * s) - (p2 + d2 * t)).magnitude;
+        }
+
+        /// <summary>For the shot tool: the arms' chains now (model frame) -
+        /// shoulder joint, elbow, wrist, and where the upper arm's drawn
+        /// shoulder end lands - and the wrist's bend (hand vs forearm, degrees).</summary>
+        public void ChainNow(bool left, out Vector3 shoulder, out Vector3 elbow, out Vector3 wrist, out Vector3 upperEnd, out float wristBend)
+        {
+            var a = arms[left ? 0 : 1];
+            Vector3 eL = ElbowL(left);
+            elbow = a.forePos + a.foreRot * eL;
+            wrist = a.pos + a.rot * a.geo.wrist;
+            shoulder = Shoulders ? a.shoulder : Eye + Side(left, Shoulder);
+            upperEnd = elbow + a.upper.localRotation * (EndL(left) - eL);
+            wristBend = Vector3.Angle(a.rot * Vector3.forward, wrist - elbow);
+        }
+
+        /// <summary>For the shot tool's trace: an arm's crossing weight and swivel.</summary>
+        public void ChainState(bool left, out float crossW, out float underW, out float swivel)
+        {
+            var a = arms[left ? 0 : 1];
+            crossW = a.crossW; underW = a.underW; swivel = a.swivel + a.lift;
+        }
+
+        /// <summary>For the shot tool: the worst elbow out past its wrist now (metres).</summary>
+        public float BentBack()
+        {
+            float worst = 0f;
+            for (int i = 0; i < 2; i++)
+            {
+                ChainNow(i == 0, out var s, out var e, out var w, out _, out _);
+                worst = Mathf.Max(worst, PastWrist(s, e, w));
+            }
+            return worst;
+        }
+
+        /// <summary>For the shot tool: the closest the two arms' bones come now.</summary>
+        public float ArmGap()
+        {
+            ChainNow(true, out var sA, out var eA, out var wA, out _, out _);
+            ChainNow(false, out var sB, out var eB, out var wB, out _, out _);
+            return Gap(sA, eA, wA, sB, eB, wB);
         }
 
         // ------------------------------------------------------------------
@@ -1276,26 +1692,28 @@ namespace PSXRacing
                 Vector3 fp = jw - a.foreRot * J;
                 float worst = 0f;
                 Vector3 at = Vector3.zero, n = Vector3.zero;
+                string what = "";
                 // The upper arm follows its elbow to the shoulder (as Place).
                 Vector3 elbowL = a.hand.left ? MX(data.elbow) : data.elbow;
                 Vector3 e = fp + a.foreRot * elbowL;
-                Vector3 want = Eye + Side(a.hand.left, Shoulder) - e;
+                Vector3 want = (Shoulders && a.chained ? a.shoulder : Eye + Side(a.hand.left, Shoulder)) - e;
                 Quaternion ur = (want.sqrMagnitude > 1e-6f ? Quaternion.FromToRotation(a.foreRot * Vector3.back, want.normalized) : Quaternion.identity) * a.foreRot;
                 for (int i = 0; i < g.pos.Length; i++)
                 {
                     if (g.handW[i] > 0.5f) continue;
                     Vector3 q = g.upper[i] > 0.5f ? e + ur * (g.pos[i] - elbowL) : fp + a.foreRot * g.pos[i];
                     float need = cab.Depth(q, out var o, CabinMargin);
-                    if (need > worst) { worst = need; at = q; n = o; }
+                    if (need > worst) { worst = need; at = q; n = o; what = g.upper[i] > 0.5f ? "cabin/upper" : "cabin/fore"; }
                     // ... and out of the wheel (the rim under a turned wrist).
                     if (data.wheel != null && g.upper[i] < 0.5f)
                     {
                         Vector3 qw = toW.MultiplyPoint3x4(q);
                         float dw = CabinMargin - data.wheel.Sdf(qw);
-                        if (dw > worst) { worst = dw; at = q; n = W.MultiplyVector(data.wheel.Normal(qw)); }
+                        if (dw > worst) { worst = dw; at = q; n = W.MultiplyVector(data.wheel.Normal(qw)); what = "rim"; }
                     }
                 }
                 if (worst <= 1e-4f) break;
+                if (iter == 0 && TraceSolve) LastKeep += $"{(a.hand.left ? "L" : "R")} {what} {worst * 1000f:0}mm at {(at - jw).magnitude * 100f:0}cm from wrist (chain depth {ChainDepth(a.shoulder, a.elbow, a.wrist) * 1000f:0}mm) ";
                 Vector3 r = at - jw;
                 Vector3 axis = Vector3.Cross(r, n);
                 if (axis.sqrMagnitude < 1e-10f || r.sqrMagnitude < 1e-6f) break;
@@ -1391,6 +1809,7 @@ namespace PSXRacing
         void Place(Arm a)
         {
             bool left = a.hand.left;
+            if (Shoulders && a.chained) { PlaceChain(a); return; }
             // The forearm hangs from the hand's wrist joint.
             Vector3 J = a.geo.wrist;
             a.forePos = a.pos + a.rot * J - a.foreRot * J;
@@ -1406,6 +1825,43 @@ namespace PSXRacing
             a.upper.localRotation = bend * a.foreRot;
             Skin(a, Matrix4x4.TRS(a.pos, a.rot, Vector3.one), Matrix4x4.TRS(a.forePos, a.foreRot, Vector3.one),
                  Matrix4x4.TRS(e, a.upper.localRotation, Vector3.one) * Matrix4x4.Translate(-elbowL));
+        }
+
+        /// <summary>The forearm's turn for the chain's elbow (rolled with the hand).</summary>
+        void AimFore(Arm a)
+        {
+            Vector3 J = a.geo.wrist, eL = ElbowL(a.hand.left);
+            Vector3 W = a.pos + a.rot * J;
+            Vector3 Zf = W - a.elbow;
+            Zf = Zf.sqrMagnitude > 1e-8f ? Zf.normalized : a.rot * Vector3.forward;
+            Vector3 palm = a.rot * Vector3.up;
+            Vector3 Yh = palm - Vector3.Dot(palm, Zf) * Zf;
+            if (Yh.sqrMagnitude < 1e-6f) Yh = Vector3.Cross(Zf, a.rot * Vector3.right);
+            Quaternion offFore = Quaternion.FromToRotation(Vector3.forward, (J - eL).normalized);
+            a.foreRot = Quaternion.LookRotation(Zf, Yh.normalized) * Quaternion.Inverse(offFore);
+        }
+
+        /// <summary>The chain's bones: the forearm from the hand's wrist to the
+        /// solved elbow (rolled with the hand: the forearm turns as the hand
+        /// does), the upper arm from the elbow to the shoulder.</summary>
+        void PlaceChain(Arm a)
+        {
+            bool left = a.hand.left;
+            Vector3 J = a.geo.wrist, eL = ElbowL(left), endL = EndL(left);
+            Vector3 W = a.pos + a.rot * J;
+            // the arm frame's own forearm line (elbow pivot -> wrist ring) onto wrist - elbow
+            AimFore(a);
+            a.forePos = W - a.foreRot * J;
+            a.fore.localPosition = a.forePos;
+            a.fore.localRotation = a.foreRot;
+            Vector3 e = a.forePos + a.foreRot * eL;
+            Vector3 want = a.shoulder - e;
+            Vector3 dirU = a.foreRot * (endL - eL).normalized;
+            Quaternion bend = want.sqrMagnitude > 1e-6f ? Quaternion.FromToRotation(dirU, want.normalized) : Quaternion.identity;
+            a.upper.localPosition = e;
+            a.upper.localRotation = bend * a.foreRot;
+            Skin(a, Matrix4x4.TRS(a.pos, a.rot, Vector3.one), Matrix4x4.TRS(a.forePos, a.foreRot, Vector3.one),
+                 Matrix4x4.TRS(e, a.upper.localRotation, Vector3.one) * Matrix4x4.Translate(-eL));
         }
 
         /// <summary>Three bones (hand, forearm, upper arm) and two shapes, by

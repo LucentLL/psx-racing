@@ -266,11 +266,12 @@ namespace PSXRacing.City
             var field = new List<CarController>(aiCars);
             if (player != null) field.Add(player);
             int lineIdx = route.loop ? 0 : TrackCatalog.RouteIndex(route.startM);
-            for (int row = 0; row < field.Count; row++)
+            for (int slot = 0; slot < field.Count; slot++)
             {
-                var car = field[row];
+                var car = field[slot];
                 if (car == null) continue;
-                float back = GridFrontM + row * GridRowM;
+                // Two abreast (RaceField), the player's slot the last.
+                float back = GridFrontM + RaceField.Row(slot) * GridRowM;
                 float fIdx = lineIdx - back / path.spacing;
                 if (path.HasEnds) fIdx = Mathf.Clamp(fIdx, 0f, path.Count - 1.001f);
                 int i0 = Mathf.FloorToInt(fIdx);
@@ -280,7 +281,7 @@ namespace PSXRacing.City
                 var fwd = path.GetTangent(a); fwd.y = 0f;
                 fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
                 var right = Vector3.Cross(Vector3.up, fwd);
-                float lateral = (row % 2 == 0) ? -GridLateralM : GridLateralM;
+                float lateral = RaceField.Side(slot) * Mathf.Min(GridLateralM, path.roadWidth * 0.25f);
                 car.TeleportTo(centre + right * lateral + Vector3.up * GridLiftM,
                                Quaternion.LookRotation(fwd, Vector3.up));
                 car.GetComponent<AIDriver>()?.ReseedPath();
@@ -310,6 +311,19 @@ namespace PSXRacing.City
             }
             if (!string.IsNullOrEmpty(venue.dragLabel)) path.dragLabel = venue.dragLabel;   // the HUD's name for the run
             var world = this.world != null ? this.world : Object.FindFirstObjectByType<CityWorld>();
+            // A DECK races four (RaceField): its roof grid has four places and
+            // its aisles one lane. The rivals past the third go home now,
+            // before physics steps - stood on the roof they would share the
+            // last place.
+            var rmDeck = Object.FindFirstObjectByType<RaceManager>();
+            for (int i = aiCars.Count - 1; i >= RaceField.DragAndDeckCars - 1; i--)
+            {
+                var spare = aiCars[i];
+                aiCars.RemoveAt(i);
+                if (spare == null) continue;
+                rmDeck?.allCars.Remove(spare);
+                spare.gameObject.SetActive(false);
+            }
             var field = new List<CarController>(aiCars);
             if (player != null) field.Add(player);
             for (int row = 0; row < field.Count; row++)

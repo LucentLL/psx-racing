@@ -211,6 +211,139 @@ namespace PSXRacing.EditorTools
                 Check(outOfCabin, "cockpit arms: the forearms stay out of the door trim, console and seat (max depth before -> after, any frame)", cabRows);
             }
             finally { CockpitArms.Contact = keep; }
+
+            // THE ARMS HANG FROM THE SHOULDERS (owner, 2026-11-02: "pretty
+            // sporadic and arms often overlap unnaturally ... pretend they are
+            // attached to driver's shoulders"): the old elbow-aim arms vs the
+            // chain, every sequence at 60 Hz.
+            bool keepS = CockpitArms.Shoulders;
+            try
+            {
+                var old = ChainBattery(lay, false);
+                var now = ChainBattery(lay, true);
+                bool steady = true, apart = true, joined = true, straight = true;
+                string chainRows = "";
+                foreach (var kv in now)
+                {
+                    var o = old[kv.Key]; var c = kv.Value;
+                    var os = Snap[(false, kv.Key)]; var cs = Snap[(true, kv.Key)];
+                    var ow = WristSnap[(false, kv.Key)]; var cw = WristSnap[(true, kv.Key)];
+                    steady &= cs <= cw + 0.005f;   // the arm adds no jerk of its own
+                    apart &= c.y >= Mathf.Min(o.y, 0.063f) - 0.005f;
+                    joined &= c.z <= 0.03f;
+                    var ob = Back[(false, kv.Key)]; var cb = Back[(true, kv.Key)];
+                    straight &= cb <= CockpitArms.BackBend + 0.005f;
+                    chainRows += $"\n         {kv.Key,-22} elbow snap {os * 100f,4:0.0} -> {cs * 100f,4:0.0} cm (wrist's {ow * 100f,4:0.0} -> {cw * 100f,4:0.0}), speed {o.x * 100f,4:0.0} -> {c.x * 100f,4:0.0} cm/frame, arms apart {o.y * 100f,4:0.0} -> {c.y * 100f,4:0.0} cm, " +
+                                 $"upper arm off its shoulder {o.z * 100f,4:0.0} -> {c.z * 100f,4:0.0} cm, wrist bend {o.w,3:0} -> {c.w,3:0} deg, elbow past its wrist {ob * 100f,4:0.0} -> {cb * 100f,4:0.0} cm";
+                }
+                Check(steady && apart && joined && straight,
+                      "cockpit arms: each arm hangs from a fixed shoulder - the elbow snaps no more than its wrist (+5 mm), the arms no closer than before (6.3 cm where they were), the upper arm meets its shoulder within 3 cm, no elbow bent back past its wrist (old elbow-aim -> chain, worst frame)",
+                      chainRows);
+            }
+            finally { CockpitArms.Shoulders = keepS; }
+            log.Append(Trace);
+        }
+
+        /// <summary>Per sequence: x the elbow's biggest move in one frame, y
+        /// the closest the two arms' bones came, z the upper arm's drawn end
+        /// off its shoulder joint (worst), w the wrist's sharpest bend (deg).</summary>
+        /// <summary>Per (chain, sequence): the elbow's worst SNAP - its speed's
+        /// change from one frame to the next (|E - 2E' + E''|, metres).</summary>
+        static readonly Dictionary<(bool, string), float> Snap = new Dictionary<(bool, string), float>();
+        static readonly Dictionary<(bool, string), float> WristSnap = new Dictionary<(bool, string), float>();
+        static readonly Dictionary<(bool, string), float> Back = new Dictionary<(bool, string), float>();
+        /// <summary>The chain's frames through the right-hand crossing (gap,
+        /// crossing weights, swivels, what the untangle did).</summary>
+        static readonly StringBuilder Trace = new StringBuilder();
+
+        static Dictionary<string, Vector4> ChainBattery(CockpitModel.Layout lay, bool shoulders)
+        {
+            CockpitArms.Shoulders = shoulders;
+            CockpitArms.TraceSolve = true;
+            var res = new Dictionary<string, Vector4>();
+            var model = new GameObject("ArmsChainModel") { hideFlags = HideFlags.HideAndDontSave };
+            var arms = CockpitArms.Create(model.transform, lay, 0);
+            try
+            {
+                if (arms == null) return res;
+                Vector3 lastL = Vector3.zero, lastR = Vector3.zero, prevL = Vector3.zero, prevR = Vector3.zero;
+                Vector3 lwL = Vector3.zero, lwR = Vector3.zero, pwL = Vector3.zero, pwR = Vector3.zero;
+                Vector4 w = Vector4.zero;
+                float snap = 0f, wsnap = 0f, back = 0f;
+                int frames = 0;
+                string seq = "";
+                void Sample(bool first)
+                {
+                    arms.ChainNow(true, out var sL, out var eL, out var wL, out var uL, out var bL);
+                    arms.ChainNow(false, out var sR, out var eR, out var wR, out var uR, out var bR);
+                    if (first) frames = 0;
+                    if (frames >= 1) w.x = Mathf.Max(w.x, Mathf.Max((eL - lastL).magnitude, (eR - lastR).magnitude));
+                    float sn = 0f;
+                    if (frames >= 2)
+                    {
+                        sn = Mathf.Max((eL - 2f * lastL + prevL).magnitude, (eR - 2f * lastR + prevR).magnitude);
+                        snap = Mathf.Max(snap, sn);
+                        wsnap = Mathf.Max(wsnap, Mathf.Max((wL - 2f * lwL + pwL).magnitude, (wR - 2f * lwR + pwR).magnitude));
+                    }
+                    prevL = lastL; prevR = lastR;
+                    lastL = eL; lastR = eR;
+                    pwL = lwL; pwR = lwR;
+                    lwL = wL; lwR = wR;
+                    if (shoulders && seq == "hand over hand (right)" && frames < 132)
+                    {
+                        arms.ChainState(true, out float cL, out float dL, out float swL);
+                        arms.ChainState(false, out float cR, out float dR, out float swR);
+                        Trace.Append($"\n    trace f{frames:000} gap {arms.ArmGap() * 100f:0.0} cm, elbow snap {sn * 100f:0.0} cm | L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} a {arms.Plan.L.alpha:0} cross {cL:0.00} under {dL:0.00} swivel {swL:0} | " +
+                                     $"R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} a {arms.Plan.R.alpha:0} cross {cR:0.00} under {dR:0.00} swivel {swR:0} | {arms.LastUntangle}");
+                    }
+                    if (shoulders && seq == "handbrake reach" && (frames < 3 || Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude) > 0.01f))
+                    {
+                        arms.ChainState(true, out float cL, out float dL, out float swL);
+                        Trace.Append($"\n    brake f{frames:000} L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} a {arms.Plan.L.alpha:0} cross {cL:0.00} under {dL:0.00} swivel {swL:0} | R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} a {arms.Plan.R.alpha:0} | off L {(uL - sL).magnitude * 100f:0.0} R {(uR - sR).magnitude * 100f:0.0} cm, gap {arms.ArmGap() * 100f:0.0} cm | {arms.LastUntangle} | keep: {arms.LastKeep}");
+                    }
+                    frames++;
+                    w.y = Mathf.Min(w.y, arms.ArmGap());
+                    back = Mathf.Max(back, arms.BentBack());
+                    w.z = Mathf.Max(w.z, Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude));
+                    w.w = Mathf.Max(w.w, Mathf.Max(bL, bR));
+                }
+                void Run(string name, float seconds, System.Func<float, float> theta, System.Func<float, bool> shift = null,
+                         System.Func<float, bool> brake = null, bool fresh = true)
+                {
+                    if (fresh) { arms.Plan.Reset(theta(0f)); arms.Drive(0f, theta(0f), false, false); }
+                    w = new Vector4(0f, 9f, 0f, 0f);
+                    snap = 0f; wsnap = 0f; back = 0f;
+                    seq = name;
+                    Sample(true);
+                    int n = Mathf.RoundToInt(seconds / Dt);
+                    for (int i = 1; i <= n; i++)
+                    {
+                        float t = i * Dt;
+                        arms.Drive(Dt, theta(t), shift != null && shift(t), brake != null && brake(t));
+                        Sample(false);
+                    }
+                    res[name] = w;
+                    Snap[(shoulders, name)] = snap;
+                    WristSnap[(shoulders, name)] = wsnap;
+                    Back[(shoulders, name)] = back;
+                }
+                Run("rest", 0.5f, t => 0f);
+                Run("small corrections", 4f, t => 30f * Mathf.Sin(t * Mathf.PI));
+                Run("hand over hand (right)", 2.2f, t => -Mathf.Min(450f, 300f * t));
+                Run("unwind", 1.6f, t => Mathf.Min(0f, -450f + 750f * t), fresh: false);
+                Run("hand over hand (left)", 3.0f, t => Mathf.Min(450f, 180f * t));
+                Run("unwind (left, open)", 1.6f, t => Mathf.Max(0f, 450f - 750f * t), fresh: false);
+                Run("shift reach", 1.5f, t => 0f, t => t < 1.5f * Dt);
+                Run("handbrake reach", 2.2f, t => 90f, null, t => t < 1.4f);
+                Run("sweep +/-450", 10f, t => t < 2.5f ? 180f * t : t < 7.5f ? 450f - 180f * (t - 2.5f) : -450f + 180f * (t - 7.5f));
+            }
+            finally
+            {
+                CockpitArms.TraceSolve = false;
+                if (arms != null) arms.Destroy();
+                Object.DestroyImmediate(model);
+            }
+            return res;
         }
 
         /// <summary>Max depth in the wheel (x fingers, y hand, z forearm),

@@ -189,7 +189,7 @@ namespace PSXRacing.LifeSim
                 TextAnchor.UpperLeft, MenuKit.Dim, w);
             y -= ph + 14f;
 
-            Section(ref y, lx, w, "CITY RACES  ·  THREE RIVALS");
+            Section(ref y, lx, w, "CITY RACES  ·  SEVEN RIVALS");
             int shown = 0;
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
@@ -324,7 +324,7 @@ namespace PSXRacing.LifeSim
 
             // ---- right: the card ----
             float ry = y;
-            Section(ref ry, rx, w, RouteGeo.KindOf(t) + (t.IsDeckRun ? "  ·  RACE OR TIME TRIAL" : "  ·  THREE RIVALS"));
+            Section(ref ry, rx, w, RouteGeo.KindOf(t) + (t.IsDeckRun ? "  ·  RACE OR TIME TRIAL" : "  ·  SEVEN RIVALS"));
             var facts = MenuKit.Label(body, EventFacts(t), MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(rx, ry),
                 TextAnchor.MiddleLeft, Color.white, w, height: 28f, bold: true);
             MenuKit.FitOneLine(facts, w);
