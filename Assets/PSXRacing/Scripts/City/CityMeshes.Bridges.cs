@@ -746,7 +746,10 @@ namespace PSXRacing.City
                     botA = ta - WBeamDepthM, topA = ta, botB = tb - WBeamDepthM, topB = tb,
                     endA = q == 0 && openA, endB = q == pieces - 1 && openB,
                 });
-                WBeamColliderPiece(fa, fb, na, nb, ta, tb, q == 0 && openA, q == pieces - 1 && openB);
+                // (round 4) the inner end caps go only on the divider corridors (I-485, NC 16):
+                // every other road's colliders stay exactly as main's
+                bool allCaps = DivOf(e) == null;
+                WBeamColliderPiece(fa, fb, na, nb, ta, tb, allCaps || (q == 0 && openA), allCaps || (q == pieces - 1 && openB));
             }
             // posts at the road's chain distance, so a run reads the same across spans and tiles
             float mA = e.vOff + e.vDir * A.s, mB = e.vOff + e.vDir * B.s;
@@ -795,11 +798,12 @@ namespace PSXRacing.City
             var along = new Vector3(fb.x - fa.x, 0f, fb.z - fa.z);
             // (dividers round 3) end faces only at the beam's own ends: an inner one stood
             // proud at every kink of a flare, square to a car along the edge (the review's
-            // e2508 rail end); PSX_CITY_DIVIDERS=0 keeps them, with everything else
-            if (capA || !DividersOn)
+            // e2508 rail end). Round 4: the callers decide - only a divider corridor's beams
+            // (DivOf non-null: PSX_CITY_DIVIDERS on, I-485 / NC 16) drop their inner caps
+            if (capA)
                 bk.Face(new Vector3(fa.x, lowA, fa.z), new Vector3(fa.x, ta, fa.z), new Vector3(baA.x, ta, baA.z), new Vector3(baA.x, lowA, baA.z),
                         -along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            if (capB || !DividersOn)
+            if (capB)
                 bk.Face(new Vector3(fb.x, lowB, fb.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baB.x, lowB, baB.z),
                         along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
         }

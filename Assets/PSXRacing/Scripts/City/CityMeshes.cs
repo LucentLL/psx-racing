@@ -6360,7 +6360,7 @@ namespace PSXRacing.City
                 for (int dir = -1; dir <= 1; dir += 2)
                 {
                     var wbu = WbList(side, dir);
-                    if (!float.IsNaN(wbu[i - 1]) && !float.IsNaN(wbu[i])) EmitWBeam(tm, A, B, side, wbu[i - 1], wbu[i]);
+                    if (!float.IsNaN(wbu[i - 1]) && !float.IsNaN(wbu[i])) EmitWBeam(tm, A, B, side, wbu[i - 1], wbu[i], DivOf(e) == null);
                 }
             if (f.elev)
             {
@@ -8333,7 +8333,7 @@ namespace PSXRacing.City
         /// verge to the beam's top (the turned-down tip goes into the
         /// ground with it, so no face stands square to the traffic).
         /// </summary>
-        static void EmitWBeam(TileMeshes tm, Section A, Section B, int side, float uA, float uB)
+        static void EmitWBeam(TileMeshes tm, Section A, Section B, int side, float uA, float uB, bool allCaps)
         {
             float u0 = Mathf.Max(0f, Mathf.Min(uA, uB)), u1 = Mathf.Min(WBeamLenM, Mathf.Max(uA, uB));
             if (u1 - u0 < 0.01f || Mathf.Abs(uB - uA) < 1e-4f) return;
@@ -8388,11 +8388,12 @@ namespace PSXRacing.City
                 var along = new Vector3(fb.x - fa.x, 0f, fb.z - fa.z);
                 // (dividers round 3) the two ends only where the beam ends (its parapet end and
                 // its terminal): an inner end stood proud at the flare's kinks, square to a car
-                // along the edge line; PSX_CITY_DIVIDERS=0 keeps them, with everything else
-                if (uPrev <= 0.01f || !DividersOn)
+                // along the edge line. Round 4: on the divider corridors only (allCaps false:
+                // I-485 / NC 16 with PSX_CITY_DIVIDERS on) - every other road keeps main's caps
+                if (uPrev <= 0.01f || allCaps)
                     bk.Face(new Vector3(fa.x, lowA, fa.z), new Vector3(fa.x, ta, fa.z), new Vector3(baA.x, ta, baA.z), new Vector3(baA.x, lowA, baA.z),
                             -along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-                if (uNext >= WBeamLenM - 0.01f || !DividersOn)
+                if (uNext >= WBeamLenM - 0.01f || allCaps)
                     bk.Face(new Vector3(fb.x, lowB, fb.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baB.x, lowB, baB.z),
                             along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             }

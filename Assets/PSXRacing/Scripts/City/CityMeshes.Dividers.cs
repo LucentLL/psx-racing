@@ -114,7 +114,8 @@ namespace PSXRacing.City
             public bool[] draw;         // this side carries the pair's cable at that sample
             public List<Vector2> zones; // crossing decks over the median: core (s0, s1)
             public List<CableIv> ivs;   // the cable as built: arcs on this edge
-            public List<Vector2> laps;      // where the cable laps behind a twin deck's parapet (DivDeckLapM past its projected end)
+            public List<Vector2> laps;      // where the cable laps behind a deck's end: [end - WBeamLenM, end + DivDeckLapM] at each own or projected twin deck end
+            public List<DivLap> lapRefs;    // (round 4) the same arcs, each with the deck edge and end whose parapet and lead-in it laps
             public List<Vector2> dropped;   // cable pieces shorter than CableMinRunM, not built (the gate names them)
             public List<Vector2> pinchRun, pinchCore;   // a narrow pinch's Jersey run and the cable's cut in it
         }
@@ -301,16 +302,64 @@ namespace PSXRacing.City
         /// past the cable's cut. Overpass zones are their own class.</summary>
         public static bool DividerLapAt(CityMap.Edge e, float s)
         {
-            var d = DivOf(e);
-            if (d == null) return false;
-            if (InArcs(d.pinchRun, s) && !InArcs(d.pinchCore, s)) return true;
-            if (InArcs(d.laps, s)) return true;
-            if (InDivZone(d, s, s, WBeamTermM + 2f)) return true;   // behind an overpass beam's terminal
-            return DividerLaps.TryGetValue(e.index, out var l) && InArcs(l, s);
+            divLapTmp.Clear();
+            DividerLapsAt(e, s, divLapTmp);
+            return divLapTmp.Count > 0;
         }
-        /// <summary>The laps the tiles built, per cable edge (arcs of that edge), recorded when
+        static readonly List<DivLap> divLapTmp = new List<DivLap>(4);
+
+        /// <summary>(round 4) One designed lap: over arc (s0, s1) of a cable edge the cable runs
+        /// on behind ONE named barrier - the one standing along edge <c>bar</c> over its arc
+        /// (b0, b1): a median rail's end with its lead-in, a deck's parapet end with its
+        /// approach beam, a pinch's Jersey end, or (latAny) an overpass zone's beam terminal,
+        /// which flares anywhere across the median. The audit counts a lap only when a ray
+        /// across there meets exactly two barriers: the cable, and that one.</summary>
+        public struct DivLap
+        {
+            public float s0, s1;
+            public int bar;
+            public float b0, b1;
+            public bool latAny;
+            public string what;
+        }
+
+        /// <summary>The designed laps at arc s of e (see <see cref="DivLap"/>): the plan's (deck
+        /// ends, zone terminals, pinch ends) and the ones the tiles recorded cutting the cable
+        /// behind a median rail (<see cref="DividerLaps"/>).</summary>
+        public static void DividerLapsAt(CityMap.Edge e, float s, List<DivLap> into)
+        {
+            var d = DivOf(e);
+            if (d == null) return;
+            if (d.pinchRun != null && !InArcs(d.pinchCore, s))
+                foreach (var a in d.pinchRun) if (s >= a.x - 1e-3f && s <= a.y + 1e-3f) into.Add(new DivLap { s0 = a.x, s1 = a.y, bar = e.index, b0 = a.x - 1f, b1 = a.y + 1f, what = "pinch Jersey" });
+            if (d.lapRefs != null) foreach (var l in d.lapRefs) if (s >= l.s0 - 1e-3f && s <= l.s1 + 1e-3f) into.Add(l);
+            // behind an overpass beam's terminal (the zone's own class covers WBeamTermM; the
+            // terminal's last piece and its anchor stand 2 m further)
+            if (d.zones != null)
+                foreach (var z in d.zones)
+                    if (s >= z.x - WBeamTermM - 2f && s <= z.y + WBeamTermM + 2f)
+                        into.Add(new DivLap { s0 = z.x - WBeamTermM - 2f, s1 = z.y + WBeamTermM + 2f, bar = e.index, b0 = z.x - WBeamTermM - 3f, b1 = z.y + WBeamTermM + 3f, latAny = true, what = "overpass beam terminal" });
+            if (DividerLaps.TryGetValue(e.index, out var tl)) foreach (var l in tl) if (s >= l.s0 - 1e-3f && s <= l.s1 + 1e-3f) into.Add(l);
+        }
+
+        /// <summary>(round 4, the audit) Does world point p stand on the plan's cable line of e
+        /// (within tol of the line, where the plan builds the cable)? The cable shares the
+        /// tile's Guardrail collider with the W-beams, so the audit tells it by where it is.</summary>
+        public static bool OnCableLine(CityMap map, Trims trims, CityMap.Edge e, Vector3 p, float tol)
+        {
+            var d = DivOf(e);
+            if (d?.ivs == null) return false;
+            var q = new Vector2(p.x, p.z);
+            CityElevation.ProjectOn(e, q, out float t);
+            if (!CableAt(d, t)) return false;
+            DivEdgePoint(map, trims, e, t, out var ed, out var ow);
+            float lat = Vector2.Dot(q - new Vector2(ed.x, ed.z), ow);
+            return Mathf.Abs(lat - CableOffAt(d, t)) <= tol;
+        }
+
+        /// <summary>The laps the tiles built, per cable edge, recorded when
         /// <see cref="DividerLapRecord"/> is on (the audits).</summary>
-        public static readonly Dictionary<int, List<Vector2>> DividerLaps = new Dictionary<int, List<Vector2>>();
+        public static readonly Dictionary<int, List<DivLap>> DividerLaps = new Dictionary<int, List<DivLap>>();
         public static bool DividerLapRecord;
         /// <summary>Is the cable in the plan at arc s of e (a tile cuts it further behind rails)?</summary>
         public static bool CableBuiltAt(CityMap.Edge e, float s) => CableAt(DivOf(e), s);
@@ -323,7 +372,8 @@ namespace PSXRacing.City
             string ivs = "";
             if (d.ivs != null) foreach (var iv in d.ivs) if (iv.s1 > s - 60f && iv.s0 < s + 60f) ivs += $" [{iv.s0:0}..{iv.s1:0}]";
             string laps = "";
-            if (DividerLaps.TryGetValue(e.index, out var l)) foreach (var a in l) if (a.y > s - 60f && a.x < s + 60f) laps += $" [{a.x:0}..{a.y:0}]";
+            if (DividerLaps.TryGetValue(e.index, out var l)) foreach (var a in l) if (a.s1 > s - 60f && a.s0 < s + 60f) laps += $" [{a.s0:0}..{a.s1:0} {a.what} e{a.bar} {a.b0:0}..{a.b1:0}]";
+            if (d.lapRefs != null) foreach (var a in d.lapRefs) if (a.s1 > s - 60f && a.s0 < s + 60f) laps += $" [{a.s0:0}..{a.s1:0} {a.what} e{a.bar} {a.b0:0}..{a.b1:0}]";
             return $"e{e.index} s {s:0} {d.kind} chain {d.chain} sample {k} gap {d.gap[k]:0.0} twin e{d.twin[k]} y {d.twinS[k]:0} draw {d.draw?[k]} cable{ivs} pinch {InArcs(d.pinchRun, s)}/{InArcs(d.pinchCore, s)} zone {InDivZone(d, s, s, 0f)} laps{laps} offset {CableOffAt(d, s):0.00}";
         }
 
@@ -725,15 +775,42 @@ namespace PSXRacing.City
         static int DivCompileAll()
         {
             int n = 0;
+            foreach (var m in DivPrejitMethods())
+            {
+                try { m.MethodHandle.GetFunctionPointer(); n++; } catch (System.Exception) { }
+            }
+            return n;
+        }
+        /// <summary>The methods the worker compiles (the Editor's DivPrejitCheck scans their
+        /// IL for the classes they touch).</summary>
+        public static List<System.Reflection.MethodInfo> DivPrejitMethods()
+        {
+            var l = new List<System.Reflection.MethodInfo>(80);
             const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly;
             foreach (var m in typeof(CityMeshes).GetMethods(F))
             {
                 string nm = m.Name;
                 if (m.ContainsGenericParameters || !(nm.Contains("Div") || nm == "SegCross" || nm == "Median" || nm == "RampAt" || nm == "InArcs" || nm == "CableAt" || nm == "SideToward")) continue;
-                try { m.MethodHandle.GetFunctionPointer(); n++; } catch (System.Exception) { }
+                l.Add(m);
             }
-            return n;
+            return l;
         }
+        /// <summary>(round 4, the review's item 7) Mono may run a beforefieldinit class's static
+        /// constructor WHILE it compiles a method that reads the class's statics - here, on the
+        /// worker thread. Every project class the compiled methods touch that has a static
+        /// constructor (the Editor's DivPrejitCheck lists them from the methods' IL and fails if
+        /// one is missing here) is initialised on the MAIN thread before the worker starts,
+        /// so no static constructor of ours can run on the worker; the engine and BCL types
+        /// the methods touch are listed by that check with what their constructors do.</summary>
+        public static readonly System.Type[] DivPrejitMainInit =
+        {
+            typeof(CityMeshes), typeof(CityMap), typeof(CityElevation), typeof(LineModel),
+            // the compiler's lambda cache (its constructor only makes the instance)
+            typeof(CityMeshes).GetNestedType("<>c", System.Reflection.BindingFlags.NonPublic),
+            // the engine and runtime classes whose constructors call native code (long
+            // initialised by the time a city loads; forcing them here makes it certain)
+            typeof(Application), typeof(Debug), typeof(System.GC),
+        };
         static bool divPrewarmed;
         /// <summary>Round 3b: start compiling the divider plan's methods on a worker thread
         /// (CityMap.Load calls this before the elevation solve, which takes ~30 s in the
@@ -745,6 +822,8 @@ namespace PSXRacing.City
 #if ENABLE_MONO
             if (divPrewarmed || !DividersOn || System.Environment.GetEnvironmentVariable("PSX_DIV_PREJIT") == "0") return;
             divPrewarmed = true;
+            // (round 4) our static constructors run here, on the main thread, never on the worker
+            foreach (var t in DivPrejitMainInit) System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(t.TypeHandle);
             System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
@@ -1260,15 +1339,22 @@ namespace PSXRacing.City
                 {
                     cut.AddRange(el);
                     // the deck's approach W-beam lead-in stands in front of the cable's last
-                    // WBeamLenM before the abutment: the cable laps behind it there
-                    foreach (var z in el) (d.laps ??= new List<Vector2>()).Add(new Vector2(z.x - WBeamLenM - 1f, z.y + WBeamLenM + 1f));
+                    // WBeamLenM before the abutment: the cable laps behind it there (round 4:
+                    // at each deck END only, [end - WBeamLenM, end + DivDeckLapM] - never
+                    // the whole span)
+                    foreach (var z in el)
+                    {
+                        DivDeckLap(d, z.x - WBeamLenM, z.x + DivDeckLapM, e.index, z.x - WBeamLenM - 1f, z.x + DivDeckLapM + 1f, "own deck start");
+                        DivDeckLap(d, z.y - DivDeckLapM, z.y + WBeamLenM, e.index, z.y - DivDeckLapM - 1f, z.y + WBeamLenM + 1f, "own deck end");
+                    }
                 }
                 if (d.zones != null) cut.AddRange(d.zones);
                 if (d.pinchCore != null) cut.AddRange(d.pinchCore);
                 for (int k = 0; k < d.twin.Length; k++)
                 {
                     if (!d.draw[k] || d.twin[k] < 0) continue;
-                    var ey = DivElevatedOf(E[d.twin[k]]);
+                    int yi = d.twin[k];
+                    var ey = DivElevatedOf(E[yi]);
                     if (ey == null) continue;
                     float sc = Mathf.Min((k + 0.5f) * DivStepM, e.length), ty = d.twinS[k];
                     float lo = k * DivStepM - 0.5f * DivStepM, hi = Mathf.Min(e.length, (k + 1) * DivStepM) + 0.5f * DivStepM;
@@ -1279,7 +1365,11 @@ namespace PSXRacing.City
                         if (b < lo || a > hi) continue;
                         // the cable runs DivDeckLapM on past the deck's end across (the
                         // projection is a few metres out at a node), lapped behind its parapet
-                        (d.laps ??= new List<Vector2>()).Add(new Vector2(a - WBeamLenM - 1f, b + WBeamLenM + 1f));
+                        // and its approach lead-in: round 4, at each projected END only, taken
+                        // from the sample whose window holds that end (the projection is true
+                        // near its sample); our a faces the twin's z.y, our b its z.x
+                        if (a >= lo && a <= hi) DivDeckLap(d, a - WBeamLenM, a + DivDeckLapM, yi, z.y - DivDeckLapM - 1f, z.y + WBeamLenM + 1f, "twin deck end");
+                        if (b >= lo && b <= hi) DivDeckLap(d, b - DivDeckLapM, b + WBeamLenM, yi, z.x - WBeamLenM - 1f, z.x + DivDeckLapM + 1f, "twin deck start");
                         a = Mathf.Max(a + DivDeckLapM, lo); b = Mathf.Min(b - DivDeckLapM, hi);
                         if (b > a) cut.Add(new Vector2(a, b));
                     }
@@ -1367,6 +1457,9 @@ namespace PSXRacing.City
         /// across, the cable on either side. Every sample has exactly one, is in an overpass
         /// zone, is a deliberately open pair, or a lone carriageway's own cable (no twin within
         /// DivReachM); NONE and TWO+ are listed with what each side's plan holds there.</summary>
+        /// <summary>(round 4) The last planning gate's totals over every corridor, km: NONE,
+        /// TWO+ and the deck-lap exemption (the audit checks NONE and TWO+ at 0).</summary>
+        public static float DividerGateNoneKm, DividerGateTwoKm, DividerGateDeckLapKm;
         static string DividerGate(CityMap map, CityMap.Edge[] cand)
         {
             var E = map.edges;
@@ -1378,7 +1471,7 @@ namespace PSXRacing.City
             {
                 var d = divEdges[e.index];
                 if (d == null) continue;
-                if (!per.TryGetValue(e.name, out var a)) per[e.name] = a = new float[7];
+                if (!per.TryGetValue(e.name, out var a)) per[e.name] = a = new float[8];
                 for (int k = 0; k < d.gap.Length; k++)
                 {
                     float s = Mathf.Min((k + 0.5f) * DivStepM, e.length);
@@ -1399,7 +1492,10 @@ namespace PSXRacing.City
                     bool cE = CableAt(d, s), cY = dy != null && !twinDeck && CableAt(dy, d.twinS[k]);
                     if (InDivZone(d, s, s, WBeamTermM) || (dy != null && InDivZone(dy, d.twinS[k], d.twinS[k], WBeamTermM))) cls = 1;
                     else if (pinch) cls = cE && cY ? 4 : 6;   // the Jersey (the cable laps behind its ends)
-                    else if (twinDeck && cE && !cY && InArcs(d.laps, s)) cls = 0;   // the cable lapped behind the deck's parapet across
+                    // (round 4) the cable lapped behind the parapet of a deck across, at its end
+                    // only ([end - WBeamLenM, end + DivDeckLapM]): its own column, and TWO+
+                    // is shown without this exemption too
+                    else if (twinDeck && cE && !cY && InArcs(d.laps, s)) cls = 7;
                     else
                     {
                         int n = (d.kind == DividerKind.Concrete ? 1 : 0) + (ky == DividerKind.Concrete || twinDeck ? 1 : 0) + (cE ? 1 : 0) + (cY ? 1 : 0);
@@ -1416,8 +1512,10 @@ namespace PSXRacing.City
                     }
                 }
             }
+            DividerGateNoneKm = DividerGateTwoKm = DividerGateDeckLapKm = 0f;
+            foreach (var kv in per) { DividerGateNoneKm += kv.Value[3]; DividerGateTwoKm += kv.Value[4]; DividerGateDeckLapKm += kv.Value[7]; }
             var sb = new StringBuilder("divider gate (the plan as built: barriers across each candidate median, carriageway-km off structure):");
-            foreach (var kv in per) sb.Append($" {kv.Key}: one {kv.Value[0]:0.00} zone {kv.Value[1]:0.00} pinch-Jersey {kv.Value[6]:0.00} open {kv.Value[2]:0.00} lone-carriageway cable {kv.Value[5]:0.00} NONE {kv.Value[3]:0.00} TWO+ {kv.Value[4]:0.00};");
+            foreach (var kv in per) sb.Append($" {kv.Key}: one {kv.Value[0]:0.00} zone {kv.Value[1]:0.00} pinch-Jersey {kv.Value[6]:0.00} open {kv.Value[2]:0.00} lone-carriageway cable {kv.Value[5]:0.00} deck-lap {kv.Value[7]:0.00} NONE {kv.Value[3]:0.00} TWO+ {kv.Value[4]:0.00} (TWO+ without the deck-lap exemption {kv.Value[4] + kv.Value[7]:0.00});");
             sb.Append(spots);
             return sb.ToString();
         }
@@ -1725,26 +1823,37 @@ namespace PSXRacing.City
         {
             into.Clear();
             float lo = trims.atA[e.index] + 1f, hi = e.length - trims.atB[e.index] - 1f;
-            void Add(float a, float b, bool lapA, bool lapB, int railEdge, float ra, float rb)
+            // (ra, rb: the rail's own arcs on its edge at our a and our b)
+            // (round 4) lenA/lenB: how far the cable runs on into the rail at that end -
+            // CableLapM, or 0 where the other carriageway's rail stands across the same arcs
+            // (both edges railed: the cable laps their lead-ins only, never runs on between
+            // two rails - a ray there met three barriers)
+            void Add(float a, float b, bool lapA, bool lapB, int railEdge, float ra, float rb, float lenA, float lenB)
             {
-                float a1 = lapA ? a + CableLapM : a, b1 = lapB ? b - CableLapM : b;
+                float a1 = lapA ? a + lenA : a, b1 = lapB ? b - lenB : b;
                 if (b1 - a1 <= 0.05f) return;
                 into.Add(new Vector2(a1, b1));
                 // the audits' record of the designed laps: where the cable runs on behind
                 // the rail's end and its lead-in (a W-beam's WBeamLenM, or the concrete's
-                // sloped end inside that) - only where the plan's cable reaches the cut
+                // sloped end inside that) - only where the plan's cable reaches the cut;
+                // (round 4) each with the rail it laps: its edge, and the arcs of that edge
+                // from the lead-in's start to the lap's end inside the rail
                 if (!DividerLapRecord) return;
                 bool inA = lapA && CableAt(d, a1 - 0.5f), inB = lapB && CableAt(d, b1 + 0.5f);
-                if (inA) DivLapAdd(e.index, a - WBeamLenM, a1 + 0.5f);
-                if (inB) DivLapAdd(e.index, b1 - 0.5f, b + WBeamLenM);
+                float dirIn = rb >= ra ? 1f : -1f;   // into the rail along its own edge, from our a
+                if (inA) DivLapAdd(e.index, a - WBeamLenM, a1 + 0.5f, railEdge,
+                                   Mathf.Min(ra - dirIn * (WBeamLenM + 1f), ra + dirIn * (lenA + 1.5f)), Mathf.Max(ra - dirIn * (WBeamLenM + 1f), ra + dirIn * (lenA + 1.5f)), lenA > 0f ? "median rail start" : "median rail start's lead-in (both edges railed)");
+                if (inB) DivLapAdd(e.index, b1 - 0.5f, b + WBeamLenM, railEdge,
+                                   Mathf.Min(rb + dirIn * (WBeamLenM + 1f), rb - dirIn * (lenB + 1.5f)), Mathf.Max(rb + dirIn * (WBeamLenM + 1f), rb - dirIn * (lenB + 1.5f)), lenB > 0f ? "median rail end" : "median rail end's lead-in (both edges railed)");
                 // ...and the rails the cable is cut and lapped around at both ends (the short
                 // rail census exempts exactly these: they are the median's barrier there)
                 // (an end running on onto structure is no end: the parapet carries on)
-                if ((inA || inB) && (inA || !lapA) && (inB || !lapB)) { var lr = (railEdge, ra, rb); if (!DividerLappedRails.Contains(lr)) DividerLappedRails.Add(lr); }
+                if ((inA || inB) && (inA || !lapA) && (inB || !lapB)) { var lr = (railEdge, Mathf.Min(ra, rb), Mathf.Max(ra, rb)); if (!DividerLappedRails.Contains(lr)) DividerLappedRails.Add(lr); }
             }
+            divRuns.Clear();
             if (divRails.TryGetValue(e.index, out var own))
                 // a rail end where the road goes on onto structure is no end (its parapet carries on)
-                foreach (var r in own) Add(r.x, r.y, r.x > lo && !e.ElevatedAt(r.x - 1f), r.y < hi && !e.ElevatedAt(r.y + 1f), e.index, r.x, r.y);
+                foreach (var r in own) divRuns.Add((r.x, r.y, r.x > lo && !e.ElevatedAt(r.x - 1f), r.y < hi && !e.ElevatedAt(r.y + 1f), e.index, r.x, r.y, false));
             divTwinSet.Clear();
             foreach (int t in d.twin) if (t >= 0) divTwinSet.Add(t);
             foreach (int t in divTwinSet)
@@ -1760,11 +1869,38 @@ namespace PSXRacing.City
                     if (Vector2.Distance(e.PointAt(sa), pa) > 80f && Vector2.Distance(e.PointAt(sb), pb) > 80f) continue;
                     bool lapA = r.x > yLo && !Y.ElevatedAt(r.x - 1f) && sa > 0.5f && sa < e.length - 0.5f, lapB = r.y < yHi && !Y.ElevatedAt(r.y + 1f) && sb > 0.5f && sb < e.length - 0.5f;
                     // antiparallel: the twin's start is our end
-                    if (sa <= sb) Add(sa, sb, lapA, lapB, t, r.x, r.y); else Add(sb, sa, lapB, lapA, t, r.x, r.y);
+                    if (sa <= sb) divRuns.Add((sa, sb, lapA, lapB, t, r.x, r.y, true)); else divRuns.Add((sb, sa, lapB, lapA, t, r.y, r.x, true));
                 }
+            }
+            // (round 4) a rail end with the OTHER carriageway's rail standing across its whole
+            // lap: both edges are railed there, the cable stops at the rail ends (behind their
+            // lead-ins) rather than running CableLapM on between the two rails
+            // (the lap is cut short to where the other rail begins: 0 when it is already there)
+            float LapInto(bool twinSide, float end, int dir)
+            {
+                float len = CableLapM;
+                foreach (var o in divRuns)
+                {
+                    if (o.twin == twinSide) continue;
+                    if (dir > 0 ? (o.a < end + CableLapM && o.b > end) : (o.b > end - CableLapM && o.a < end))
+                        len = Mathf.Min(len, Mathf.Max(0f, dir > 0 ? o.a - end : end - o.b));
+                }
+                return len < 1f ? 0f : len;
+            }
+            foreach (var r in divRuns)
+            {
+                float lenA = r.lapA ? LapInto(r.twin, r.a, 1) : CableLapM;
+                float lenB = r.lapB ? LapInto(r.twin, r.b, -1) : CableLapM;
+                if (lenA < CableLapM) divBothRailed++;
+                if (lenB < CableLapM) divBothRailed++;
+                Add(r.a, r.b, r.lapA, r.lapB, r.edge, r.ra, r.rb, lenA, lenB);
             }
             into.Sort((p, q) => p.x.CompareTo(q.x));
         }
+        static readonly List<(float a, float b, bool lapA, bool lapB, int edge, float ra, float rb, bool twin)> divRuns = new List<(float, float, bool, bool, int, float, float, bool)>(8);
+        /// <summary>(round 4) Rail ends the cable stops at (both edges railed there), counted
+        /// as the tiles cut (a tile counts the ends near its pieces).</summary>
+        public static int divBothRailed;
 
         /// <summary>TILE-INDEPENDENT LAPS (round 3, the review's risk 5): the twin of a cable
         /// edge in this tile whose own spans this tile did not decide (it lies beyond the
@@ -1851,11 +1987,19 @@ namespace PSXRacing.City
             return dy != null && CableAt(dy, Mathf.Clamp(y, 0f, divMap.edges[d.twin[k]].length));
         }
 
-        static void DivLapAdd(int ei, float a, float b)
+        static void DivLapAdd(int ei, float a, float b, int bar, float b0, float b1, string what)
         {
-            if (!DividerLaps.TryGetValue(ei, out var l)) DividerLaps[ei] = l = new List<Vector2>();
-            foreach (var x in l) if (Mathf.Abs(x.x - a) < 0.05f && Mathf.Abs(x.y - b) < 0.05f) return;
-            l.Add(new Vector2(a, b));
+            if (!DividerLaps.TryGetValue(ei, out var l)) DividerLaps[ei] = l = new List<DivLap>();
+            foreach (var x in l) if (x.bar == bar && Mathf.Abs(x.s0 - a) < 0.05f && Mathf.Abs(x.s1 - b) < 0.05f) return;
+            l.Add(new DivLap { s0 = a, s1 = b, bar = bar, b0 = b0, b1 = b1, what = what });
+        }
+
+        /// <summary>(round 4) A deck-end lap of the plan: the arc (s0, s1) of the cable edge, and
+        /// the deck edge's arc (b0, b1) where that end's parapet and approach beam stand.</summary>
+        static void DivDeckLap(DivEdge d, float s0, float s1, int bar, float b0, float b1, string what)
+        {
+            (d.laps ??= new List<Vector2>()).Add(new Vector2(s0, s1));
+            (d.lapRefs ??= new List<DivLap>()).Add(new DivLap { s0 = s0, s1 = s1, bar = bar, b0 = Mathf.Min(b0, b1), b1 = Mathf.Max(b0, b1), what = what });
         }
 
         /// <summary>One cable arc less the rails' arcs; a piece left shorter than CableMinRunM
@@ -1910,7 +2054,7 @@ namespace PSXRacing.City
                 EmitBlock(bk, a + Vector3.down * 0.5f, a + Vector3.up * pt, along * CablePostHalfM, side * (0.8f * CablePostHalfM), CellGalv0, CellGalv1, BandMisc0, BandMisc1);
                 // the post's reflective delineator head (NCDOT cable posts carry one): at the
                 // game's resolution it is what reads the run from the lanes, post by post
-                if (dA >= CableTermM) EmitBlock(bk, a + Vector3.up * (pt - 0.16f), a + Vector3.up * (pt + 0.02f), along * (CablePostHalfM + 0.015f), side * (0.8f * CablePostHalfM + 0.015f), DelinU0, DelinU1, DelinV0, DelinV1);
+                if (dA >= CableTermM) EmitDelineator(bk, a + Vector3.up * (pt - 0.18f), a + Vector3.up * (pt + 0.03f), along * (CablePostHalfM + 0.02f), side * (0.8f * CablePostHalfM + 0.02f));
                 cablePosts++;
             }
             // the anchors at the cable's real ends
@@ -1924,6 +2068,32 @@ namespace PSXRacing.City
                 EmitBlock(bk, p + Vector3.down * 0.4f, p + Vector3.up * 0.2f, along * 0.45f, side * 0.35f, 0f, 0.25f, BandWall0, BandWall1);
             }
         }
+
+        /// <summary>(round 4) A post's delineator head on the OM-3 cell's yellow: the band round
+        /// the post's top and a low four-sided cap over it. The review read round 3's heads
+        /// (the band alone) mustard/olive at noon: PSX/Lit lights a face by lambert from its
+        /// mesh normal, and under a high sun a vertical face gets little of it, so the amber
+        /// texel came out dark. The cap's faces lean ~55 degrees toward the sky (its apex
+        /// <see cref="DelinCapM"/> over the band, inset to the post's axis), so they take the
+        /// noon sun as the sheeting does, and the 1.2 m eye looks down onto the near one.</summary>
+        static void EmitDelineator(Bucket bk, Vector3 bottom, Vector3 top, Vector3 hx, Vector3 hz)
+        {
+            var c = new[] { hx + hz, hx - hz, -hx - hz, -hx + hz };
+            var t0 = new Vector2(DelinU0, DelinV0); var t1 = new Vector2(DelinU0, DelinV1); var t2 = new Vector2(DelinU1, DelinV1); var t3 = new Vector2(DelinU1, DelinV0);
+            var apex = top + Vector3.up * DelinCapM;
+            for (int k = 0; k < 4; k++)
+            {
+                var a = c[k]; var b = c[(k + 1) % 4];
+                var n = a + b; if (n.sqrMagnitude < 1e-8f) n = Vector3.Cross(b - a, Vector3.up);
+                bk.Face(bottom + a, top + a, top + b, bottom + b, n, t0, t1, t2, t3);
+                // the cap's face over this side (Tri(x, y, z) lays x, z, y: front where
+                // cross(z - x, y - x) points along the facing, as Face decides)
+                Vector3 P = top + a, Q = top + b, f = n.normalized + Vector3.up;
+                if (Vector3.Dot(Vector3.Cross(Q - P, apex - P), f) >= 0f) bk.Tri(P, apex, Q, t0, t1, t2);
+                else bk.Tri(P, Q, apex, t0, t2, t1);
+            }
+        }
+        const float DelinCapM = 0.1f;
 
         static void CableColliderPiece(Vector3 a, Vector3 b, Vector3 o3, float lowA, float topA, float lowB, float topB, bool capA, bool capB)
         {

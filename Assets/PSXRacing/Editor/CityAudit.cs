@@ -579,7 +579,15 @@ namespace PSXRacing.EditorTools
             var buildings = CityBuildings.Precompute(map);
             routeOfEdge = RouteEdges(map);
             Line("DIVIDER PLAN: " + CityMeshes.LastDividerReport);
+            // (round 4) the commit the scripts were mirrored from (the run script sets it from a
+            // clean worktree), so every log names the head it gates
+            Line($"BUILD HEAD: {System.Environment.GetEnvironmentVariable("PSX_BUILD_HEAD") ?? "(unset)"}");
             Line("DIVIDER PLAN: " + CityMeshes.LastDividerGate);
+            if (CityMeshes.DividersOn)
+            {
+                Check(CityMeshes.DividerGateNoneKm < 0.005f, "the divider plan leaves no cable-median metre without a barrier (planning gate NONE km)", Mathf.RoundToInt(CityMeshes.DividerGateNoneKm * 1000f));
+                Check(CityMeshes.DividerGateTwoKm < 0.005f, "the divider plan stands no second barrier across a median outside a deck-end lap (planning gate TWO+ km; the deck-lap km reported beside it)", Mathf.RoundToInt(CityMeshes.DividerGateTwoKm * 1000f));
+            }
             Line($"DIVIDER PLAN: this load {CityMeshes.DividerPlanBuilds} built, {CityMeshes.DividerPlanReuses} reused, {CityMeshes.DividerPlanMsTotal:0.0} ms in all (the game's load); the planning gate, made when read (the audits and the editor), {CityMeshes.DividerGateMsTotal:0.0} ms besides");
             string want = System.Environment.GetEnvironmentVariable("PSX_DRIVE_ROUTES");
             var ids = new HashSet<string>();
