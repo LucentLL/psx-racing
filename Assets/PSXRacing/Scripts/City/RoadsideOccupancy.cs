@@ -304,8 +304,7 @@ namespace PSXRacing.City
                                       out Vector2 p, out Vector2 right, out float hwL, out float hwR)
         {
             p = e.PointAt(s);
-            var tan = e.TangentAt(s);
-            right = new Vector2(-tan.y, tan.x);
+            right = LineModel.SectionLeft(e, s);
             LineModel.Extents(e, s, out hwL, out hwR);
         }
 

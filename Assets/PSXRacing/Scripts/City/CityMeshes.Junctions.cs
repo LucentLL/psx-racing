@@ -675,8 +675,7 @@ namespace PSXRacing.City
                     {
                         float s = A.a == mn ? d : A.length - d;
                         var p = A.PointAt(s);
-                        var tn = A.TangentAt(s);
-                        var rgt = new Vector2(-tn.y, tn.x);
+                        var rgt = LineModel.SectionLeft(A, s);
                         LineModel.Extents(A, s, out float eM, out float eP);
                         majHw = Mathf.Max(majHw, Mathf.Max(eM, eP));
                         float y = A.YAt(s);

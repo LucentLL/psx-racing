@@ -39,6 +39,11 @@ namespace PSXRacing.EditorTools
         internal static StringBuilder log;
         internal static string spotsPath;
         internal static string walkSpec;
+        /// <summary>PSX_LAUNCH_HOLD=1 (Five Points, 2026-11-03): the car is held
+        /// on the smoothed line at the spot's speed through the window as well
+        /// (yaw and horizontal velocity; the vertical free), so a tight turn is
+        /// driven where the lane goes and every reading is the ground's.</summary>
+        internal static bool Hold => System.Environment.GetEnvironmentVariable("PSX_LAUNCH_HOLD") == "1";
 
         [MenuItem("PSX Racing/Drive The Launch Spots (play mode)")]
         public static void Run()
@@ -249,6 +254,22 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 if (pts.Count < 10 || brk < 3 || brk >= pts.Count - 3) { CityLaunchDrive.log.AppendLine($"  --  #{li + 1} {f[0]}: path too short{(f.Length > 5 ? " (" + f[5] + ")" : "")}"); continue; }
+                if (CityLaunchDrive.Hold)
+                {
+                    // the walk's line kinks at each node (edge to edge); a car
+                    // rounds it: two passes of a 5-point (8 m) average in plan
+                    for (int pass = 0; pass < 2; pass++)
+                    {
+                        var sm = new List<Vector3>(pts);
+                        for (int q = 2; q < pts.Count - 2; q++)
+                        {
+                            float ax = 0f, az = 0f;
+                            for (int r = -2; r <= 2; r++) { ax += pts[q + r].x; az += pts[q + r].z; }
+                            sm[q] = new Vector3(ax / 5f, pts[q].y, az / 5f);
+                        }
+                        pts = sm;
+                    }
+                }
                 float v = kmh / 3.6f;
                 // The car goes there FIRST, held in the air: the world streams
                 // round the player and drops what is far from it, so rings
@@ -292,6 +313,14 @@ namespace PSXRacing.EditorTools
                 // a step or a kerb is a vertical kick
                 float lastSp = -1f, lastVy = 0f, maxDecel = 0f, maxVAcc = 0f;
                 string hitWhat = "";
+                // (Five Points, 2026-11-03) within 20 m before the break to 40 m
+                // past it: the body's fastest climb or fall less the path's own
+                // grade, and the largest STEP under any wheel - each wheel's
+                // contact swept from its last step's place to this one's every
+                // 5 cm on the colliders (a kerb a wheel rolls over between two
+                // physics steps is still read)
+                float maxVy = 0f, maxStep = 0f; string stepAt = "";
+                var wheelLast = new Vector2[4]; var wheelHas = new bool[4];
                 while (t < 20f)
                 {
                     var pos = player.Body.position;
@@ -307,7 +336,21 @@ namespace PSXRacing.EditorTools
                     var to = pts[la] - pos; to.y = 0f;
                     var along = pts[Mathf.Min(pts.Count - 1, prog + 1)] - pts[prog]; along.y = 0f; along.Normalize();
                     float err = Vector3.SignedAngle(player.transform.forward, to, Vector3.up);
-                    if (prog < winFrom)
+                    if (CityLaunchDrive.Hold && prog >= winFrom)
+                    {
+                        // PSX_LAUNCH_HOLD: the scripted car - held on the (smoothed)
+                        // line at the spot's speed through the window too, yaw and
+                        // horizontal velocity only; pitch, roll and the vertical
+                        // (the suspension's answer to the ground) left free
+                        inWin = true;
+                        var toH = new Vector3(to.x, 0f, to.z).normalized;
+                        var e = player.transform.eulerAngles;
+                        player.Body.MoveRotation(Quaternion.Euler(e.x, Quaternion.LookRotation(toH).eulerAngles.y, e.z));
+                        var lv = player.Body.linearVelocity;
+                        player.Body.linearVelocity = toH * v + Vector3.up * lv.y;
+                        player.steerInput = 0f; player.throttleInput = 0.5f; player.brakeInput = 0f; player.handbrakeInput = false;
+                    }
+                    else if (prog < winFrom)
                     {
                         // on the line and at speed until the window: yaw and speed only
                         var e = player.transform.eulerAngles;
@@ -370,6 +413,38 @@ namespace PSXRacing.EditorTools
                     allOff = grounded == 0 ? allOff + dt : 0f;
                     anyOff = grounded < 4 ? anyOff + dt : 0f;
                     maxAll = Mathf.Max(maxAll, allOff); maxAny = Mathf.Max(maxAny, anyOff);
+                    if (prog <= brk + 20)
+                    {
+                        float gradeV = (pts[Mathf.Min(pts.Count - 1, prog + 1)].y - pts[prog].y) / 2f * hsp;
+                        maxVy = Mathf.Max(maxVy, Mathf.Abs(vel.y - gradeV));
+                        for (int w = 0; w < 4; w++)
+                        {
+                            var wc = player.wheelContacts[w];
+                            // the wheel's place: its contact, or (in the air) under its last
+                            Vector2 now = wc.grounded ? new Vector2(wc.point.x, wc.point.z) : (wheelHas[w] ? wheelLast[w] + new Vector2(vel.x, vel.z) * dt : new Vector2(pos.x, pos.z));
+                            if (wheelHas[w])
+                            {
+                                float L = Vector2.Distance(wheelLast[w], now);
+                                int ns = Mathf.Clamp(Mathf.CeilToInt(L / 0.05f), 1, 40);
+                                float ly = float.NaN;
+                                for (int q = 0; q <= ns; q++)
+                                {
+                                    var sp2 = Vector2.Lerp(wheelLast[w], now, (float)q / ns);
+                                    float topY = float.NegativeInfinity; Collider topC = null;
+                                    foreach (var rh in Physics.RaycastAll(new Vector3(sp2.x, player.Body.position.y + 3f, sp2.y), Vector3.down, 8f, mask, QueryTriggerInteraction.Ignore))
+                                        if (rh.collider.attachedRigidbody == null && rh.point.y > topY) { topY = rh.point.y; topC = rh.collider; }
+                                    if (topC == null) { ly = float.NaN; continue; }
+                                    if (!float.IsNaN(ly) && Mathf.Abs(topY - ly) > maxStep)
+                                    {
+                                        maxStep = Mathf.Abs(topY - ly);
+                                        stepAt = string.Format(CultureInfo.InvariantCulture, "wheel {0} at ({1:0.00},{2:0.00}) on {3}", w, sp2.x, sp2.y, topC.name);
+                                    }
+                                    ly = topY;
+                                }
+                            }
+                            wheelLast[w] = now; wheelHas[w] = true;
+                        }
+                    }
                     if (Physics.Raycast(player.Body.position + Vector3.up * 0.2f, Vector3.down, out var gh, 30f, mask, QueryTriggerInteraction.Ignore) && gh.collider.attachedRigidbody != player.Body)
                     {
                         float air = player.Body.position.y - gh.point.y;
@@ -397,9 +472,9 @@ namespace PSXRacing.EditorTools
                 if (launch) launched++;
                 if (crash) crashed++;
                 CityLaunchDrive.log.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                    "  {0} #{1} {2} at {3:0} km/h (audit sep {4:0.00} m, {5}): all wheels off {6:0.00} s, any wheel off {7:0.00} s, body {8:0.00} m higher over the ground than at the window's start, yaw jerk {9:0} deg/s2, off line {10:0.0} m, {11:0} km/h at the break, hardest speed loss {14:0.0} g, hardest vertical kick {15:0.0} g, {16}/{17} points seated on the colliders{12}{13}",
+                    "  {0} #{1} {2} at {3:0} km/h (audit sep {4:0.00} m, {5}): all wheels off {6:0.00} s, any wheel off {7:0.00} s, body {8:0.00} m higher over the ground than at the window's start, yaw jerk {9:0} deg/s2, off line {10:0.0} m, {11:0} km/h at the break, hardest speed loss {14:0.0} g, hardest vertical kick {15:0.0} g, {16}/{17} points seated on the colliders{12}{13}; junction window: max vertical speed {18:0.00} m/s (less the grade), largest step under a wheel {19:0.000} m {20}",
                     launch ? "LAUNCH" : crash ? "CRASH " : "ok    ", li + 1, f[0], kmh, sepAudit, f.Length > 5 ? f[5] : "", maxAll, maxAny, maxAir, maxJerk, maxLat, vAtBrk * 3.6f, reached ? "" : " (did not reach the end)", hit,
-                    maxDecel / 9.81f, maxVAcc / 9.81f, seated, pts.Count));
+                    maxDecel / 9.81f, maxVAcc / 9.81f, seated, pts.Count, maxVy, maxStep, stepAt));
                 if (crash)
                 {
                     // the road as seated, every 2 m from 10 m before the break to 16 m past

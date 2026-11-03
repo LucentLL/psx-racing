@@ -174,8 +174,7 @@ namespace PSXRacing.City
                     bool fromA = c.a == node;
                     float tr = Mathf.Clamp(fromA ? trims.atA[ci] : trims.atB[ci], 4f, Mathf.Min(30f, c.length * 0.5f));
                     float sc = fromA ? tr : c.length - tr;
-                    var t = c.TangentAt(sc);
-                    var left = new Vector2(-t.y, t.x);
+                    var left = LineModel.SectionLeft(c, sc);
                     LineModel.Extents(c, sc, out _, out float ePlus);
                     var q = c.PointAt(sc) + left * ePlus;
                     var leg = new List<Vector3>();
@@ -1695,6 +1694,9 @@ namespace PSXRacing.City
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
             BuildDeckUnions(map, t);
+            // medians round 5: no refuge self-check at load - the medians gate
+            // decides each pair offline (LineModel.RefugeList.cs), so the
+            // trims above already see every pair as it is drawn
             return t;
         }
 
@@ -2454,8 +2456,8 @@ namespace PSXRacing.City
             long k = LatticeKey(ix, iz);
             if (pavedCache.TryGetValue(k, out bool paved)) return paved;
             var c = new Vector2((ix + 0.5f) * LatticeCell, (iz + 0.5f) * LatticeCell);
-            paved = Vector2.Distance(c, map.uptown) < 1000f || map.AnyFootprintNear(c, 20f, nonHouseOnly: true)
-                    || WalkFrontage(map, c);   // streets pass 4: a walk street's frontage
+            // streets pass 4: a walk street's frontage; the medians pass: a median cell is its median's surface
+            paved = PavedRule(map, c);
             pavedCache[k] = paved;
             return paved;
         }
@@ -2708,6 +2710,11 @@ namespace PSXRacing.City
                     int n = end == 0 ? L.a : L.b;
                     int hostIdx = end == 0 ? trims.branchA[ei] : trims.branchB[ei];
                     if (hostIdx < 0) continue;
+                    // the medians pass round 2: a refuge island's two carriageways
+                    // are not a branch and its host - their pavements meet on the
+                    // island's axis at the nose and part around it; the gore
+                    // painter filled every gap under 4.5 m, i.e. the whole island
+                    if (LineModel.SameRefuge(ei, hostIdx)) continue;
                     var np = map.nodes[n];
                     if (np.x < min.x - GoreReach - 20f || np.x > max.x + GoreReach + 20f ||
                         np.y < min.y - GoreReach - 20f || np.y > max.y + GoreReach + 20f) continue;
@@ -3648,6 +3655,8 @@ namespace PSXRacing.City
         static Vector2 RightAt(CityMap map, Trims trims, CityMap.Edge e, float s, out float widen)
         {
             widen = 1f;
+            // the medians pass round 2: a refuge carriageway is cut square to its island's axis
+            if (LineModel.SectionNormal(e, s, out var nL)) return nL;
             Vector2 tan;
             int seg = e.SegmentAt(s, out float t);
             bool atVertexA = seg > 0 && t < 1e-3f;
@@ -6461,12 +6470,17 @@ namespace PSXRacing.City
                 if (!f.skip) EmitSeam(map, trims, tm, e, eA, eB, outA, outB, false);
                 return;
             }
+            // the medians pass round 3: a refuge island is raised and kerbed
+            if (IslandKerbSpan(map, trims, tm, e, side, eA, eB, outA, outB, A.s, B.s)) return;
             float strip = Mathf.Max(A.Strip(side), B.Strip(side));
             if (strip >= 0f)
             {
                 // squeezed against a neighbour: floor our half of the strip
                 var half = new StripShape { flat = true, fixedRun = true, halfGap = true, maxRun = strip * 0.5f, rise = -RoadsideRules.EdgeDropM };
+                // the medians pass: a median side's strip is one surface end to end
+                stripSurface = MedianSurfaceOf(map, e, side);
                 EmitStrip(map, trims, tm, eA, eB, outA, outB, half);
+                stripSurface = 0;
                 return;
             }
             float shoulder = ShoulderOf(e, side);
@@ -6476,7 +6490,11 @@ namespace PSXRacing.City
             var verge = new StripShape { shoulder = shoulder, maxRun = VergeMaxRunM };
             // streets pass 4: an urban street's curb and sidewalk, the verge behind it
             if (!EmitWalkSpan(map, trims, tm, e, i, side, eA, eB, outA, outB, A.s, B.s, verge))
+            {
+                stripSurface = MedianSurfaceOf(map, e, side);
                 EmitStrip(map, trims, tm, eA, eB, outA, outB, verge);
+                stripSurface = 0;
+            }
             tm.vergeSpans.Add((e.index, side, A.s, B.s));
             tm.vergeMetres += len;
         }
@@ -8653,11 +8671,15 @@ namespace PSXRacing.City
         /// profile point, shared along the strip: a verge is most of a tile's
         /// ground triangles now, and the ground collider is cooked on every
         /// tile build.</summary>
+        /// <summary>The surface a strip being laid is (MedianSurfaceOf: 0 the
+        /// cell under each quad decides, 1 grass, 2 concrete).</summary>
+        static int stripSurface;
+
         static void LayStripQuad(CityMap map, Vector3 o, Vector3[] prof, bool noFins, ref Bucket prevBk, ref int prevBase)
         {
             stripInnerSegs.Add((profPrev[0] - o, prof[0] - o));   // its inner edge (CloseOpenGround: a road edge a verge starts from)
             var cen = (profPrev[1] + profPrev[2] + prof[1] + prof[2]) * 0.25f;
-            bool paved = PavedAt(map, cen.x, cen.z);
+            bool paved = stripSurface == 0 ? PavedAt(map, cen.x, cen.z) : stripSurface == 2;
             var bk = GroundBucket(paved);
             if (bk != prevBk) { prevBase = AddProfile(bk, profPrev, o, paved); prevBk = bk; }
             int curBase = AddProfile(bk, prof, o, paved);
@@ -10397,8 +10419,7 @@ namespace PSXRacing.City
                     {
                         float s = e.length * q * 0.25f;
                         var p = e.PointAt(s);
-                        var tn = e.TangentAt(s);
-                        var rgt = new Vector2(-tn.y, tn.x);
+                        var rgt = LineModel.SectionLeft(e, s);
                         LineModel.Extents(e, s, out float eM, out float eP);
                         RingTakeIn(corners, np, origin, p - rgt * eM, e.YAt(s), ei, -1, e.a);
                         RingTakeIn(corners, np, origin, p + rgt * eP, e.YAt(s), ei, 1, e.a);
