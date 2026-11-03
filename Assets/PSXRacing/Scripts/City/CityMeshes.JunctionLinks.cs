@@ -125,5 +125,43 @@ namespace PSXRacing.City
             }
             return false;
         }
+
+        /// <summary>
+        /// THE KERBS A TURN PASSES (Five Points round 4, 2026-11-03): the plan
+        /// stretches of a fan's perimeter (<see cref="FanCorners"/>) that are
+        /// not an arm's mouth - its curb returns, chords and carried edge
+        /// lines, where the junction's pavement ends - and each arm's two
+        /// edges carried straight back from its mouth <see cref="KerbArmM"/>
+        /// (a triangle island's sides past the fan: R1b ran onto Trade NB's
+        /// island 1.5 m short of the fan's chord), as segment pairs (a0, b0,
+        /// a1, b1, ...). CityMode.FilletTurns keeps a turn's path off them.
+        /// None without the build's trims.
+        /// </summary>
+        public const float KerbArmM = 15f;
+        public static void FanKerbs(CityMap map, Trims trims, int node, List<Vector2> segs)
+        {
+            segs.Clear();
+            if (map == null || trims == null || trims.atA == null || node < 0 || node >= map.nodeEdges.Length) return;
+            var ring = new List<FanCorner>();
+            try { FanCorners(map, trims, node, Vector3.zero, ring); }
+            catch (System.Exception) { return; }
+            if (ring.Count < 3) return;
+            var mid = Vector2.zero;
+            foreach (var c in ring) mid += new Vector2(c.pos.x, c.pos.z);
+            mid /= ring.Count;
+            for (int i = 0; i < ring.Count; i++)
+            {
+                var a3 = ring[i].pos; var b3 = ring[(i + 1) % ring.Count].pos;
+                Vector2 a = new Vector2(a3.x, a3.z), b = new Vector2(b3.x, b3.z);
+                if (!ring[i].mouthNext) { segs.Add(a); segs.Add(b); continue; }
+                // a mouth: its arm's edges, back from the corners
+                var m = b - a;
+                if (m.sqrMagnitude < 1e-4f) continue;
+                var nOut = new Vector2(m.y, -m.x).normalized;
+                if (Vector2.Dot(nOut, 0.5f * (a + b) - mid) < 0f) nOut = -nOut;
+                segs.Add(a); segs.Add(a + nOut * KerbArmM);
+                segs.Add(b); segs.Add(b + nOut * KerbArmM);
+            }
+        }
     }
 }

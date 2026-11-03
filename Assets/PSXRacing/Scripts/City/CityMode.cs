@@ -401,13 +401,82 @@ namespace PSXRacing.City
         /// <summary>Corners the last call replaced (for the logs).</summary>
         public static int LastTurnFillets;
 
+        /// <summary>
+        /// THE TURN PATH KEEPS OFF THE JUNCTION'S KERBS (round 4, second pass).
+        /// Two faults in the first pass: the corner was read at the join's
+        /// vertex, where a route moving from one road's lane to another's jumps
+        /// sideways (Five Points' 124-126 degree turns measured 159-163, and the
+        /// "6 m" arcs came out 1.6 m round, hugging the corner), and a fixed
+        /// radius between two lane lines that meet only 4.3 m from a triangle
+        /// island's point runs over it (R1b: 7-8 cm up onto the island; R2: 49
+        /// cm down off the fan's chord). Now the corner is where the in-lane's
+        /// and the out-lane's lines MEET, and the arc is the largest (up to the
+        /// cap, no tighter than <see cref="TurnFilletMinR"/>; its tangent no
+        /// longer than <see cref="TurnTangentMaxM"/>: a car turns as it enters
+        /// the junction - begun 8-9 m out, the AI's own lookahead turned it in
+        /// 15 m out, over the inside kerb, while 5-7 m drove both turns clean)
+        /// that stays <see cref="TurnKerbClearM"/> off every kerb stretch of the
+        /// fan's perimeter (<see cref="CityMeshes.FanKerbs"/>), or as far as the
+        /// lanes' own corner does where that is less. A sharp right turn (from
+        /// <see cref="TurnSwingSharpDeg"/>), or one where no such arc fits
+        /// between the lanes' lines, swings out across its own lane first, as a
+        /// driver sets up a tight turn - in steps of
+        /// <see cref="TurnSwingStepM"/> up to the lane's room (passed per turn),
+        /// eased over <see cref="TurnSwingEaseM"/> either side - and the arc is
+        /// laid between the swung lines. No arc fits: the corner as before.
+        /// PSX_CITY_TURN_KERBS=0: the first pass's rule (as 82e7fbd2).
+        /// </summary>
+        public static bool TurnKerbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_KERBS") != "0";
+        public static float TurnKerbClearM = 1.4f, TurnFilletMinR = 2.5f, TurnSwingStepM = 0.3f, TurnSwingEaseM = 8f, TurnTangentMaxM = 6f, TurnSwingSharpDeg = 110f;
+        /// <summary>A car's half width and a margin: what a turn's swing leaves
+        /// between the car and its lane's outer edge.</summary>
+        public const float TurnSwingKeepM = 1.15f;
+        /// <summary>Test hook (RefugeLapCheck): a fixed tangent cap in metres
+        /// over every join's own (0 = none).</summary>
+        public static float TurnFilletCapM = 0f;
+        /// <summary>What the last call decided at each turn (for the logs).</summary>
+        public static readonly List<string> LastFilletNotes = new List<string>();
+
+        static float KerbDist(Vector2 q, List<Vector2> segs)
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i + 1 < segs.Count; i += 2)
+            {
+                var a = segs[i]; var ab = segs[i + 1] - a;
+                float t = ab.sqrMagnitude > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, ab) / ab.sqrMagnitude) : 0f;
+                best = Mathf.Min(best, (q - (a + ab * t)).magnitude);
+            }
+            return best;
+        }
+
+        /// <summary>How far a turn from lane <paramref name="a"/> into lane
+        /// <paramref name="b"/> may swing out across them: the narrower lane's
+        /// half width less <see cref="TurnSwingKeepM"/>.</summary>
+        public static float JoinSwingRoom(CityMap.Edge a, CityMap.Edge b)
+        {
+            if (a == null || b == null) return 0f;
+            float la = a.width / Mathf.Max(1, a.lanes), lb = b.width / Mathf.Max(1, b.lanes);
+            return Mathf.Max(0f, 0.5f * Mathf.Min(la, lb) - TurnSwingKeepM);
+        }
+
+        /// <summary>The kerb stretches of the fan at each join's node, for
+        /// <see cref="FilletTurns"/>; null entries where there are none.</summary>
+        public static List<Vector2> JoinKerbs(CityMap map, CityMeshes.Trims t, int node)
+        {
+            if (!TurnKerbsOn || t == null) return null;
+            var segs = new List<Vector2>();
+            CityMeshes.FanKerbs(map, t, node, segs);
+            return segs.Count >= 2 ? segs : null;
+        }
+
         /// <summary>Fillets the corners of <paramref name="pts"/> at the given
         /// vertex indices (where a route passes from one edge to the next), in
         /// place; <paramref name="ys"/> (optional) is interpolated along each
-        /// arc. Returns the number of corners filleted.</summary>
-        public static int FilletTurns(List<Vector2> pts, List<float> ys, List<int> joins, float radius = TurnFilletR, float minDeg = TurnFilletMinDeg, List<float> capT = null)
+        /// arc; capT, kerbs and swing (optional) are per join: the tangent cap, the fan's kerb stretches and the lane's room to swing out. Returns the number of corners filleted.</summary>
+        public static int FilletTurns(List<Vector2> pts, List<float> ys, List<int> joins, float radius = TurnFilletR, float minDeg = TurnFilletMinDeg, List<float> capT = null, List<List<Vector2>> kerbs = null, List<float> swing = null)
         {
             LastTurnFillets = 0;
+            LastFilletNotes.Clear();
             if (!TurnFilletOn || pts == null || pts.Count < 3 || joins == null || joins.Count == 0) return 0;
             int n = pts.Count;
             var arc = new float[n];
@@ -426,54 +495,151 @@ namespace PSXRacing.City
             }
             var js = new List<int>(joins);
             js.Sort();
-            var cuts = new List<(float a0, float a1, Vector2 p0, Vector2 c0, Vector2 c1, Vector2 p1, float y0, float y1)>();
+            // each cut: the arc range it replaces and the points (and heights) laid there
+            var cuts = new List<(float a0, float a1, List<Vector2> p, List<float> y)>();
             float lastA1 = 0f;
+            Vector2 Bez(Vector2 b0, Vector2 b1, Vector2 b2, Vector2 b3, float u) { float v = 1f - u; return v * v * v * b0 + 3f * v * v * u * b1 + 3f * v * u * u * b2 + u * u * u * b3; }
+            float Cr(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
             for (int k = 0; k < js.Count; k++)
             {
                 int j = js[k];
                 if (j <= 0 || j >= n - 1 || (k > 0 && js[k - 1] == j)) continue;
                 float aJ = arc[j];
-                float prev = k > 0 ? Mathf.Max(lastA1, arc[Mathf.Clamp(js[k - 1], 0, n - 1)]) : 0f;
-                float next = k + 1 < js.Count ? arc[Mathf.Clamp(js[k + 1], 0, n - 1)] : arc[n - 1];
+                // the room either side: the last arc's end and the route's (a join
+                // where the route goes straight on bounds nothing - L3's turn off the
+                // 4.6 m median link was held to a 2 m tangent by the link's own start)
+                float prev = TurnKerbsOn ? lastA1 : k > 0 ? Mathf.Max(lastA1, arc[Mathf.Clamp(js[k - 1], 0, n - 1)]) : 0f;
+                float next = TurnKerbsOn ? arc[n - 1] : k + 1 < js.Count ? arc[Mathf.Clamp(js[k + 1], 0, n - 1)] : arc[n - 1];
                 float probe = Mathf.Min(4f, 0.45f * (aJ - prev), 0.45f * (next - aJ));
                 if (probe < 0.5f) continue;
-                var tIn = pts[j] - At(aJ - probe, out _, out _); var tOut = At(aJ + probe, out _, out _) - pts[j];
+                var ks = kerbs != null && k < kerbs.Count ? kerbs[k] : null;
+                if (!TurnKerbsOn)
+                {
+                    // as 82e7fbd2: the corner at the join's own vertex
+                    var tIn0 = pts[j] - At(aJ - probe, out _, out _); var tOut0 = At(aJ + probe, out _, out _) - pts[j];
+                    if (tIn0.sqrMagnitude < 1e-6f || tOut0.sqrMagnitude < 1e-6f) continue;
+                    tIn0.Normalize(); tOut0.Normalize();
+                    float defl0 = Vector2.Angle(tIn0, tOut0);
+                    if (defl0 < minDeg || defl0 > 175f) continue;
+                    float half0 = 0.5f * defl0 * Mathf.Deg2Rad;
+                    float T0 = Mathf.Min(radius * Mathf.Tan(half0), 0.45f * (aJ - prev), 0.45f * (next - aJ));
+                    if (capT != null && k < capT.Count && capT[k] > 0f) T0 = Mathf.Min(T0, capT[k]);
+                    if (TurnFilletCapM > 0f) T0 = Mathf.Min(T0, TurnFilletCapM);
+                    if (T0 < 1f) continue;
+                    float r0 = T0 / Mathf.Tan(half0);
+                    var q0 = At(aJ - T0, out var u0, out float y0); var q1 = At(aJ + T0, out var u1, out float y1);
+                    if (u0 == Vector2.zero) u0 = tIn0;
+                    if (u1 == Vector2.zero) u1 = tOut0;
+                    float h0 = 4f / 3f * Mathf.Tan(0.25f * defl0 * Mathf.Deg2Rad) * r0;
+                    int m0 = Mathf.Max(6, Mathf.CeilToInt(2f * T0));
+                    var lp0 = new List<Vector2>(m0 + 1); var ly0 = ys != null ? new List<float>(m0 + 1) : null;
+                    for (int q = 0; q <= m0; q++) { lp0.Add(Bez(q0, q0 + u0 * h0, q1 - u1 * h0, q1, q / (float)m0)); ly0?.Add(Mathf.Lerp(y0, y1, q / (float)m0)); }
+                    cuts.Add((aJ - T0, aJ + T0, lp0, ly0));
+                    LastFilletNotes.Add($"turn {defl0:0} deg at {pts[j].x:0.0},{pts[j].y:0.0} (old rule) -> arc r {r0:0.0} m");
+                    lastA1 = aJ + T0;
+                    continue;
+                }
+                // THE TWO LANES' LINES: the in-lane's up to the join, the out-lane's
+                // from its first point on. A route moving between the lanes of two
+                // roads jumps sideways at the join, so the corner is where the two
+                // lines MEET, not the join's vertex: read at the vertex, Five
+                // Points' 125 degree turns measured 159-163 and their arcs came out
+                // 1.6 m round.
+                int j1 = j + 1; float aO = arc[j1];
+                var tIn = pts[j] - At(aJ - probe, out _, out _);
+                var tOut = At(Mathf.Min(aO + probe, next), out _, out _) - pts[j1];
                 if (tIn.sqrMagnitude < 1e-6f || tOut.sqrMagnitude < 1e-6f) continue;
                 tIn.Normalize(); tOut.Normalize();
                 float defl = Vector2.Angle(tIn, tOut);
                 if (defl < minDeg || defl > 175f) continue;
-                float half = 0.5f * defl * Mathf.Deg2Rad;
-                float T = Mathf.Min(radius * Mathf.Tan(half), 0.45f * (aJ - prev), 0.45f * (next - aJ));
-                // the arc starts no farther out than the junction's own pavement
-                // (the arms' trims at the node): before it, cutting the corner
-                // runs a wheel off the carriageway's edge (R2: a 49 cm ditch)
-                if (capT != null && k < capT.Count && capT[k] > 0f) T = Mathf.Min(T, capT[k]);
-                if (T < 1f) continue;
-                float r = T / Mathf.Tan(half);
-                var p0 = At(aJ - T, out var t0, out float y0);
-                var p1 = At(aJ + T, out var t1, out float y1);
-                if (t0 == Vector2.zero) t0 = tIn;
-                if (t1 == Vector2.zero) t1 = tOut;
-                float h = 4f / 3f * Mathf.Tan(0.25f * defl * Mathf.Deg2Rad) * r;
-                cuts.Add((aJ - T, aJ + T, p0, p0 + t0 * h, p1 - t1 * h, p1, y0, y1));
-                lastA1 = aJ + T;
+                float den = Cr(tIn, tOut);
+                if (Mathf.Abs(den) < 1e-3f) continue;
+                float tanH = Mathf.Tan(0.5f * defl * Mathf.Deg2Rad), hK = 4f / 3f * Mathf.Tan(0.25f * defl * Mathf.Deg2Rad);
+                // outward: away from the turn's inside
+                var oIn = -Mathf.Sign(den) * new Vector2(-tIn.y, tIn.x);
+                var oOut = -Mathf.Sign(den) * new Vector2(-tOut.y, tOut.x);
+                float Tcap = Mathf.Min(radius * tanH, TurnTangentMaxM);
+                if (capT != null && k < capT.Count && capT[k] > 0f) Tcap = Mathf.Min(Tcap, capT[k]);
+                if (TurnFilletCapM > 0f) Tcap = Mathf.Min(Tcap, TurnFilletCapM);
+                float room = swing != null && k < swing.Count ? Mathf.Max(0f, swing[k]) : 0f;
+                string note = $"turn {defl:0} deg at {pts[j].x:0.0},{pts[j].y:0.0}: cap {Tcap:0.0} m, swing room {room:0.00} m";
+                List<Vector2> bestP = null; List<float> bestY = null;
+                float bestA0 = 0f, bestA1 = 0f, bestR = 0f, bestD = 0f, bestClr = 0f, lineClr = float.MaxValue;
+                // the lanes' own corner's clearance over the span a turn may use
+                if (ks != null)
+                    for (float a = Mathf.Max(prev, aJ - Tcap - TurnSwingEaseM - 8f); a <= Mathf.Min(next, aO + Tcap + TurnSwingEaseM + 8f); a += 0.25f)
+                        lineClr = Mathf.Min(lineClr, KerbDist(At(a, out _, out _), ks));
+                // a sharp RIGHT turn swings out as far as its lane allows first (a
+                // driver sets up wide round the kerb corner, and the car's own line
+                // falls inside the path: R1b clipped the island's point with its
+                // arc 2.1 m clear of it); a left turn has the junction's width
+                // and swings only if nothing else fits (swung, L3 at 28 km/h ran
+                // wide onto Trade SB's verge)
+                int sMax = Mathf.Min(3, Mathf.FloorToInt(room / Mathf.Max(TurnSwingStepM, 0.05f) + 1e-3f));
+                bool sharp = defl >= TurnSwingSharpDeg && den < 0f;   // a right turn (x east, z north)
+                for (int st = 0; st <= sMax && bestP == null; st++)
+                {
+                    float d = (sharp ? sMax - st : st) * TurnSwingStepM;
+                    // the lines offset outward by d meet at Pd
+                    var bIn = pts[j] + oIn * d; var bOut = pts[j1] + oOut * d;
+                    float uP = Cr(bOut - bIn, tOut) / den;          // Pd = bIn + tIn * uP
+                    var Pd = bIn + tIn * uP;
+                    float vP = Vector2.Dot(Pd - bOut, tOut);          // along the out-lane from its first point
+                    if (Mathf.Abs(uP) > 8f || Mathf.Abs(vP) > 8f) continue;   // the lanes do not meet near the join
+                    float ease = d > 0f ? TurnSwingEaseM : 0f;
+                    for (float T = Tcap; T >= 1f - 1e-3f; T -= 0.25f)
+                    {
+                        float r = T / tanH;
+                        if (r < TurnFilletMinR) break;
+                        float a0 = aJ + uP - T, a1 = aO + vP + T;
+                        if (a0 > aJ + 1e-3f || a1 < aO + 0.25f) continue;      // each tangent point on its own lane
+                        float e0 = Mathf.Min(ease, a0 - prev - 0.5f), e1 = Mathf.Min(ease, next - 0.5f - a1);
+                        if (a0 < prev + 0.5f || a1 > next - 0.5f || (d > 0f && (e0 < 3f || e1 < 3f))) continue;
+                        var lp = new List<Vector2>(64); var ly = ys != null ? new List<float>(64) : null;
+                        // ease out to the swing, the arc, ease back
+                        if (d > 0f)
+                            for (float a = a0 - e0; a < a0 - 1e-3f; a += 0.5f)
+                            {
+                                float f = Mathf.SmoothStep(0f, 1f, (a - (a0 - e0)) / e0);
+                                lp.Add(At(a, out _, out float ya) + oIn * d * f); ly?.Add(ya);
+                            }
+                        var p0 = Pd - tIn * T; var p1 = Pd + tOut * T;
+                        At(a0, out _, out float y0); At(a1, out _, out float y1);
+                        float h = hK * r;
+                        int m = Mathf.Max(8, Mathf.CeilToInt(2f * T));
+                        for (int q = 0; q <= m; q++) { lp.Add(Bez(p0, p0 + tIn * h, p1 - tOut * h, p1, q / (float)m)); ly?.Add(Mathf.Lerp(y0, y1, q / (float)m)); }
+                        if (d > 0f)
+                            for (float a = a1 + 0.5f; a <= a1 + e1 + 1e-3f; a += 0.5f)
+                            {
+                                float f = Mathf.SmoothStep(0f, 1f, 1f - (a - a1) / e1);
+                                lp.Add(At(a, out _, out float ya) + oOut * d * f); ly?.Add(ya);
+                            }
+                        float clr = float.MaxValue;
+                        if (ks != null) foreach (var q in lp) clr = Mathf.Min(clr, KerbDist(q, ks));
+                        if (ks == null || clr >= Mathf.Min(TurnKerbClearM, lineClr) - 0.02f)
+                        {
+                            bestP = lp; bestY = ly; bestA0 = d > 0f ? a0 - e0 : a0; bestA1 = d > 0f ? a1 + e1 : a1; bestR = r; bestD = d; bestClr = clr;
+                            break;
+                        }
+                    }
+                }
+                string kn = ks != null ? $", kerbs {ks.Count / 2} (the lanes' corner {lineClr:0.00} m off them)" : "";
+                if (bestP == null) { LastFilletNotes.Add(note + kn + $" -> no arc of {TurnFilletMinR:0.#} m or more fits"); continue; }
+                LastFilletNotes.Add(note + kn + $" -> arc r {bestR:0.0} m, swung {bestD:0.00} m out, {(ks != null ? bestClr.ToString("0.00") : "-")} m off the kerbs");
+                cuts.Add((bestA0, bestA1, bestP, bestY));
+                lastA1 = bestA1;
             }
             if (cuts.Count == 0) return 0;
-            var np = new List<Vector2>(n + cuts.Count * 24);
-            var ny = ys != null ? new List<float>(n + cuts.Count * 24) : null;
+            var np = new List<Vector2>(n + cuts.Count * 48);
+            var ny = ys != null ? new List<float>(n + cuts.Count * 48) : null;
             int ci = 0;
             for (int i = 0; i < n; i++)
             {
                 while (ci < cuts.Count && i < n && arc[i] >= cuts[ci].a0)
                 {
                     var c = cuts[ci];
-                    int m = Mathf.Max(6, Mathf.CeilToInt(c.a1 - c.a0));
-                    for (int q = 0; q <= m; q++)
-                    {
-                        float u = q / (float)m, v = 1f - u;
-                        np.Add(v * v * v * c.p0 + 3f * v * v * u * c.c0 + 3f * v * u * u * c.c1 + u * u * u * c.p1);
-                        ny?.Add(Mathf.Lerp(c.y0, c.y1, u));
-                    }
+                    np.AddRange(c.p);
+                    if (ny != null) ny.AddRange(c.y);
                     while (i < n && arc[i] <= c.a1) i++;
                     ci++;
                 }
@@ -497,6 +663,14 @@ namespace PSXRacing.City
             float ta = a.a == node ? t.atA[a.index] : a.b == node ? t.atB[a.index] : -1f;
             float tb = b.a == node ? t.atA[b.index] : b.b == node ? t.atB[b.index] : -1f;
             if (ta < 0f || tb < 0f) return 0f;
+            // a short link inside the junction complex (a median crossing) is the
+            // junction's own pavement: the other arm's trim bounds the turn
+            if (TurnKerbsOn)
+            {
+                bool ja = CityMeshes.IsJcl(map, a.index), jb = CityMeshes.IsJcl(map, b.index);
+                if (ja && !jb) return Mathf.Max(1f, tb + TurnFilletPastTrimM);
+                if (jb && !ja) return Mathf.Max(1f, ta + TurnFilletPastTrimM);
+            }
             return Mathf.Max(1f, Mathf.Min(ta, tb) + TurnFilletPastTrimM);
         }
 
@@ -511,12 +685,21 @@ namespace PSXRacing.City
             var marks = new List<float>(64);
             var joins = new List<int>(route.edges.Length);
             var caps = new List<float>(route.edges.Length);
+            var kerbs = new List<List<Vector2>>(route.edges.Length);
+            var swing = new List<float>(route.edges.Length);
             var trimsNow = CityWorld.SharedTrims;
             for (int k = 0; k < route.edges.Length; k++)
             {
                 var e = map.edges[route.edges[k]];
                 bool fwd = route.dirs[k] >= 0;
-                if (k > 0 && pts.Count > 0) { joins.Add(pts.Count - 1); caps.Add(JoinCap(map, trimsNow, map.edges[route.edges[k - 1]], e, fwd ? e.a : e.b)); }   // the node this edge leaves from
+                if (k > 0 && pts.Count > 0)
+                {
+                    int jn = fwd ? e.a : e.b;   // the node this edge leaves from
+                    joins.Add(pts.Count - 1);
+                    caps.Add(JoinCap(map, trimsNow, map.edges[route.edges[k - 1]], e, jn));
+                    kerbs.Add(JoinKerbs(map, trimsNow, jn));
+                    swing.Add(JoinSwingRoom(map.edges[route.edges[k - 1]], e));
+                }
                 // Every polyline vertex AND every elevation station, in
                 // order along the edge. The height is solved at the 10 m
                 // stations; sampled at the vertices alone, the path ran
@@ -555,7 +738,7 @@ namespace PSXRacing.City
                 }
             }
             // Five Points round 4: a turn at a junction driven on a radius
-            if (FilletTurns(pts, ys, joins, TurnFilletR, TurnFilletMinDeg, caps) > 0)
+            if (FilletTurns(pts, ys, joins, TurnFilletR, TurnFilletMinDeg, caps, kerbs, swing) > 0)
             {
                 arcs.Clear(); acc = 0f;
                 for (int i = 0; i < pts.Count; i++) { if (i > 0) acc += Vector2.Distance(pts[i - 1], pts[i]); arcs.Add(acc); }
