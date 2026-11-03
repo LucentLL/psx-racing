@@ -187,6 +187,10 @@ Shader "PSX/Lit"
         // fading in, 2 a far-building proxy, 3 a tile's tree-frame object,
         // 4 a tile's buildings, 5 a skyline copy.
         [HideInInspector] _TileFade ("Tile fade mode", Float) = 0
+        // THE FOREST'S CROWN CARDS (the PC forest, 2026-11-03): 1 on the crown
+        // material only. A crown is a level card, so from a grazing angle it
+        // is a sliver floating over the trees; it dithers out below ~25 degrees.
+        [HideInInspector] _CrownFade ("Crown fade", Float) = 0
         // CITY FLICKER (city-popin): a polygon offset toward the eye - 0 on
         // every material but the city's median barriers' copy (CityWorld),
         // which wins the line where its foot meets the road instead of
@@ -351,6 +355,7 @@ Shader "PSX/Lit"
             // frame in; a: its proxies in (0: the tile draws its own buildings
             // out to the far plane). _PSXTileFadeOn.x: 1 while the proxies draw.
             float _TileFade;
+            float _CrownFade;
             sampler2D _PSXTileFadeTex;
             float4 _PSXTileFadeOn;
             // THE FLICKER FINDER (Editor/CityFlickerFinder.cs, city-popin): a
@@ -1676,6 +1681,16 @@ Shader "PSX/Lit"
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
             #endif
                 clip(tex.a - _Cutoff);
+                // A CROWN CARD (_CrownFade): shown from 28 degrees above the
+                // level and steeper, gone under 15, dithered between. The card
+                // faces up and culls its back, so the eye is always above it.
+                if (_CrownFade > 0.5)
+                {
+                    float crownUp = normalize(_WorldSpaceCameraPos - i.wpos).y;
+                    float2 cpx = floor(i.pos.xy);
+                    float cDith = frac(52.9829189 * frac(dot(cpx, float2(0.06711056, 0.00583715))));
+                    clip(saturate((crownUp - 0.26) / 0.21) - cDith - 1e-5);
+                }
                 // THE FAR LAND (CityFarLand): only past the squeeze's start A,
                 // where the streamed world has stopped - in all three draws, so
                 // the depth-only two write nothing over the world's own ground

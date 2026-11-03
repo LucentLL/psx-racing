@@ -7384,9 +7384,20 @@ namespace PSXRacing.EditorTools
                 // The crowns are drawn from ABOVE only (Cull Back; the card
                 // faces up). From the road under a hillside a level card drawn
                 // both sides is the underside of a sheet laid across the trees
-                // (the stage-accuracy pairs, 2026-11-03).
+                // (the stage-accuracy pairs, 2026-11-03); from just above, a
+                // sliver over them, so PSX/Lit's _CrownFade dithers it out at
+                // grazing angles, in every season's dress.
                 crownMat = MakeMat(MeshPrefix + "ForestCrowns", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f);
                 RegisterSeasonalTexture(MeshPrefix + "ForestCrowns", crownMat, DressAtlasPath, "forest", cutoff: 0.5f);
+                var crownDress = new List<Material> { crownMat };
+                foreach (var e in seasonEntries)
+                    if (e.baseMat == crownMat) crownDress.AddRange(e.variants);
+                foreach (var m in crownDress)
+                {
+                    if (m == null || !m.HasProperty("_CrownFade")) continue;
+                    m.SetFloat("_CrownFade", 1f);
+                    EditorUtility.SetDirty(m);
+                }
             }
             int filled = 0, crowned = 0;
 
