@@ -339,11 +339,11 @@ namespace PSXRacing.EditorTools
                 var tf = CityMeshes.Build(map, trims, buildings,
                     Mathf.FloorToInt(p.x / CityMeshes.TileSize), Mathf.FloorToInt(p.y / CityMeshes.TileSize));
                 int bv = tf.barriers != null ? tf.barriers.vertexCount : 0;
-                string what = $"e{fwy.index} {kind} median at ({p.x:0},{p.y:0}): {tf.cablePieces} cable pieces, {tf.wbeams.Count} W-beam pieces, {tf.medianJerseyM:0} m median Jersey, {bv} barrier verts";
+                string what = $"e{fwy.index} {kind} median at ({p.x:0},{p.y:0}): {tf.cablePieces} cable pieces, {tf.wbeams.Count} W-beam pieces, {tf.medianJerseyM:0} m median Jersey on the edge, {tf.unionJerseyM:0} m on a union strip's centre, {bv} barrier verts";
                 if (kind == CityMeshes.DividerKind.Cable)
                     Check(tf.cablePieces > 0, $"a freeway tile carries its median barrier ({road}: the cable)", what);
-                else
-                    Check(tf.medianJerseyM > 0f && bv > 0, $"a freeway tile carries its median barrier ({road}: the Jersey)", what);
+                else   // a concrete median's Jersey stands on the carriageway's edge, or on a flush union strip's centre
+                    Check(tf.medianJerseyM + tf.unionJerseyM > 0f && bv > 0, $"a freeway tile carries its median barrier ({road}: the Jersey)", what);
                 Check(tf.wallFacingErrors == 0, $"every wall faces outward (freeway tile, {road})", tf.wallFacingErrors);
             }
             {

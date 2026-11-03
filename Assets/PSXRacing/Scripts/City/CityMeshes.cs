@@ -987,6 +987,9 @@ namespace PSXRacing.City
             /// per-span sf.median barrier) this tile stood, and the divider cable pieces
             /// (CityMeshes.Dividers EmitCablePiece) it drew into its structure mesh.</summary>
             public float medianJerseyM;
+            /// <summary>Metres of union Jersey (EmitUnionJersey, the centre wall of a
+            /// flush concrete median strip between twin carriageways) on this tile.</summary>
+            public float unionJerseyM;
             public int cablePieces;
             /// <summary>Leftover item 2: the W-beam lead-ins this tile owns
             /// (tile-local), drawn with the tile's furniture by
@@ -1239,6 +1242,8 @@ namespace PSXRacing.City
 
         static readonly Bucket[] buckets = NewBuckets();
         static readonly Bucket barrierBucket = new Bucket();
+        /// <summary>The tile build's union-Jersey metres so far (TileMeshes.unionJerseyM).</summary>
+        static float unionJerseyTally;
         /// <summary>Leftover item 2: the W-beams' collider, never drawn.</summary>
         static readonly Bucket guardBucket = new Bucket();
         static readonly Bucket kerbBucket = new Bucket();
@@ -2053,6 +2058,7 @@ namespace PSXRacing.City
 
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
+            unionJerseyTally = 0f;
             guardBucket.Clear();
             structBucket.Clear();
             kerbBucket.Clear();
@@ -2142,6 +2148,7 @@ namespace PSXRacing.City
             stepPart = 0;
             yield return 0;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
+            tm.unionJerseyM = unionJerseyTally;
             tm.guardrails = MeshFromBucket("guardrails", guardBucket);
             DrawWBeams(tm);   // the bridges pass: galvanized W-beams with the structure
             tm.structure = MeshFromBucket("structure", structBucket);
