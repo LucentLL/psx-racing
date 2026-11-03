@@ -287,7 +287,8 @@ namespace PSXRacing.EditorTools
             {
                 bool sidesOk = row.oneSidedTris == 0;
                 bool xOk = !row.tree || row.flat == 0;
-                bool trunkOk = !row.tree || row.trunked == row.plants;
+                // The far forest stands past the band no car reaches: no trunks by design.
+                bool trunkOk = !row.tree || row.trunked == row.plants || row.what.Contains("FarForest/");
                 bool cardOk = row.cardColliders == 0;
                 bool speciesOk = row.mixed == 0;
                 // A shrub is graded on its sides and nothing else.

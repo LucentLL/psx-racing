@@ -7511,10 +7511,113 @@ namespace PSXRacing.EditorTools
             });
 
             root.AddComponent<TreeTrunks>().SetForest(trunks, trunkCells, ForestTrunkFrac, ForestBrushFrac);
+            BuildStageFarForest(pts, parent, mat);
 
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
                 $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +
                 $"{trunks.Count} trunks in the table; {reseatedOnFill} site(s) stood on a fill tail over the land.");
+        }
+
+        // ---- THE FAR FOREST (owner, 2026-11-02, playing the PC build:
+        // "Distant mountains are still bare, trees still pop-in") ----------
+        //
+        // The roadside forest stops at ForestBand (150 m) and the far slopes
+        // past it were the fall mottle alone: bare ground to the ridgelines.
+        // This plants the same species, from the same atlas and its seasons,
+        // from the band's end out to FarForestTo - clumped (cove forest thick
+        // in the hollows, thinner on the noses), thinning and growing with
+        // distance so the canopy reads as closed while the tree count stays
+        // what a desktop GPU draws without noticing. No trunks: nothing past
+        // the band is reachable from the road. PC profile only for now
+        // (PCOnly), on the Foliage layer.
+        const float FarForestPitch = 16f, FarForestChunk = 480f, FarForestKeep = 0.62f, FarForestScale = 1.2f;
+        /// <summary>How far from the route the far forest reaches (m): the far
+        /// ground's own reach, less a cell, at most this.</summary>
+        const float FarForestMaxM = 2100f;
+
+        /// <summary>The far ground's surface where it is drawn: the field at
+        /// the 60 m grid corners, sunk (GridChunkMesh), read bilinearly - a
+        /// tree stood on the field itself floats over the chord of a ridge.</summary>
+        static float FarGridY(float x, float z)
+        {
+            float gx = Mathf.Floor(x / FarCell) * FarCell, gz = Mathf.Floor(z / FarCell) * FarCell;
+            float tx = (x - gx) / FarCell, tz = (z - gz) / FarCell;
+            float a = StageGroundHeightAt(gx, gz), b = StageGroundHeightAt(gx + FarCell, gz);
+            float c = StageGroundHeightAt(gx, gz + FarCell), d = StageGroundHeightAt(gx + FarCell, gz + FarCell);
+            return Mathf.Lerp(Mathf.Lerp(a, b, tx), Mathf.Lerp(c, d, tx), tz) - FarSink;
+        }
+
+        /// <summary>Where the far forest clumps: slower than the fall colour's
+        /// noise, so a clump is a hollow or a nose, not a tree or two.</summary>
+        static float FarClumpNoise(float x, float z)
+        {
+            return 0.55f * Mathf.Sin(x * 0.0047f + 1.3f) * Mathf.Cos(z * 0.0051f + 0.4f)
+                 + 0.45f * Mathf.Sin((x - z) * 0.0083f + 2.1f);
+        }
+
+        static void BuildStageFarForest(List<Vector3> pts, Transform parent, Material mat)
+        {
+            // A mountain's distance only: a coast's is water and scrub, a
+            // city's its own ground (the far material's own rule).
+            if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return;
+            float to = Mathf.Min(FarForestMaxM, FarCoverage - FarCell);
+            if (to <= ForestBand + FarForestPitch) return;
+            var root = new GameObject("FarForest");
+            root.transform.SetParent(parent, false);
+            root.AddComponent<PCOnly>();
+            var rng = new System.Random(43);
+            var b = new Bounds(pts[0], Vector3.zero);
+            foreach (var p in pts) b.Encapsulate(p);
+            int planted = 0, chunks = 0, cliffSkip = 0, verts0 = 0;
+            ForEachChunk(b, FarForestChunk, to, (cx, cz, ox, oz) =>
+            {
+                float mid = RouteDistanceCoarse(ox + FarForestChunk * 0.5f, oz + FarForestChunk * 0.5f);
+                if (mid > to + FarForestChunk * 0.71f || mid + FarForestChunk * 0.71f < ForestBand) return;
+                var verts = new List<Vector3>();
+                var uvs = new List<Vector2>();
+                var tris = new List<int>();
+                int cells = Mathf.RoundToInt(FarForestChunk / FarForestPitch);
+                for (int gz = 0; gz < cells; gz++)
+                    for (int gx = 0; gx < cells; gx++)
+                    {
+                        float wx = ox + (gx + 0.15f + (float)rng.NextDouble() * 0.7f) * FarForestPitch;
+                        float wz = oz + (gz + 0.15f + (float)rng.NextDouble() * 0.7f) * FarForestPitch;
+                        double keepRoll = rng.NextDouble(), sizeRoll = rng.NextDouble(), yawRoll = rng.NextDouble();
+                        float d = RouteDistanceCoarse(wx, wz);
+                        if (d < ForestBand || d > to) continue;
+                        float t = Mathf.InverseLerp(ForestBand, to, d);
+                        // out of the band's thin end, not a wall of trees at 150 m
+                        float edge = Mathf.Lerp(0.45f, 1f, Mathf.InverseLerp(ForestBand, ForestBand + 120f, d));
+                        float keep = FarForestKeep * (0.7f + 0.4f * FarClumpNoise(wx, wz)) * Mathf.Lerp(1f, 0.55f, t) * edge;
+                        if (keepRoll >= keep) continue;
+                        // true cliffs stay bare, as near the road
+                        float s1 = StageDemY(wx + 8f, wz) - StageDemY(wx - 8f, wz);
+                        float s2 = StageDemY(wx, wz + 8f) - StageDemY(wx, wz - 8f);
+                        if (s1 * s1 + s2 * s2 > 19f * 19f) { cliffSkip++; continue; }
+                        // on the near lattice where that is the ground drawn, else the far grid
+                        float ground = d < NearCoverage - 2f * NearCell ? StageLatticeY(wx, wz) : FarGridY(wx, wz);
+                        int idx = PickSpecies(rng, wx, wz, ground);
+                        var sp = StageTrees[idx];
+                        float h = sp.height * ForestHeightScale * FarForestScale * Mathf.Lerp(1f, 1.5f, t)
+                                * (0.85f + (float)sizeRoll * 0.4f);
+                        AddTreeQuads(verts, uvs, tris, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h,
+                                     (float)yawRoll * 360f);
+                        planted++;
+                    }
+                if (verts.Count == 0) return;
+                verts0 += verts.Count;
+                var mesh = new Mesh
+                {
+                    indexFormat = verts.Count < 65000 ? UnityEngine.Rendering.IndexFormat.UInt16
+                                                      : UnityEngine.Rendering.IndexFormat.UInt32,
+                    vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
+                };
+                var go = ChunkGO(root.transform, "FarTrees_" + cx + "_" + cz, mesh, new[] { mat },
+                                 ox, oz, "StageFarForest_" + cx + "_" + cz);
+                go.layer = FoliageLayer;
+                chunks++;
+            });
+            Log($"Stage far forest (PC profile): {planted} trees in {chunks} chunks to {to:0} m ({verts0} verts), {cliffSkip} cliff sites bare.");
         }
 
         /// <summary>A stage tree's card width: its height for a broadleaf

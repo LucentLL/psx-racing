@@ -7980,7 +7980,8 @@ namespace PSXRacing.EditorTools
             cam.farClipPlane = track != null && track.stage ? theme.farClip : CircuitFarClip;
             cam.clearFlags = CameraClearFlags.Skybox;
             if (track != null && track.stage)
-                camGO.AddComponent<StageCulling>();
+                // the PC profile's plane: the far ground's edge (StageCulling)
+                camGO.AddComponent<StageCulling>().pcFarClip = theme.farCoverage - FarCell;
             camGO.AddComponent<AudioListener>();
             // Master tone chain: Unity has no parametric EQ, so the low shelf,
             // rotary formant and saturation that give the mix weight are done as
