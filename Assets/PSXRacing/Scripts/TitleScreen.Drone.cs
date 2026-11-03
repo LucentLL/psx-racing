@@ -67,6 +67,8 @@ namespace PSXRacing
             shotT0 = Time.unscaledTime;
             shotLen = ShotS;
             follow = null;
+            followInit = false;
+            followHint = -1;
             eyeLift = 0f;
             var path = rm.path;
             var valley = ValleySide(out var along, out var mid);
@@ -158,26 +160,40 @@ namespace PSXRacing
             Vector3 upHint = Vector3.up;
             if ((shot == ShotKind.TopDown || shot == ShotKind.Follow) && follow != null)
             {
-                var path = rm.path;
-                int idx = path.NearestIndex(follow.position);
-                var fwd = path.GetTangent(idx).normalized;
+                // THE ROAD, NOT THE CAR'S BODY (owner, 2026-11-02: "Camera seems
+                // attached to cars and bounces when hitting bumps"): the car's
+                // progress along the road, damped, read back off the road's own
+                // centreline - its suspension never reaches the camera.
+                Vector3 at, fwd;
+                if (!followInit) { followS = TrackS(follow.position); followVel = 0f; followInit = true; }
+                followS = Mathf.SmoothDamp(followS, TrackS(follow.position), ref followVel, 0.8f, 80f, Time.unscaledDeltaTime);
+                RoadAt(followS, out at, out fwd);
                 if (shot == ShotKind.TopDown)
                 {
-                    eye = follow.position + Vector3.up * (TopDownM - 15f * k) - fwd * 8f;
-                    look = follow.position + fwd * 8f;
-                    upHint = fwd;   // the road runs up the frame
+                    // HIGH AND STEEP, NOT STRAIGHT DOWN: from straight above the
+                    // crossed tree cards read as an X; at ~58 degrees they read as
+                    // trees (until every tree carries a crown card on the web too)
+                    float back = 62f - 10f * k, up = TopDownM - 10f * k;
+                    eye = at - fwd * back + Vector3.up * up;
+                    look = at + fwd * 12f;
                 }
                 else
                 {
-                    eye = follow.position - fwd * (34f - 6f * k) + Vector3.up * (24f - 4f * k);
-                    look = follow.position + fwd * 30f;
+                    eye = at - fwd * (34f - 6f * k) + Vector3.up * (24f - 4f * k);
+                    look = at + fwd * 30f + Vector3.up * 1.5f;
                 }
             }
             else
             {
                 eye = Vector3.Lerp(e0, e1, k);
                 look = Vector3.Lerp(l0, l1, k);
-                if (shot == ShotKind.TopDown) { upHint = (l1 - l0).normalized; look = eye - Vector3.up * TopDownM + upHint * 0.01f; }
+                if (shot == ShotKind.TopDown)
+                {
+                    // no car to ride with: the same steep track along the road
+                    var along = (l1 - l0).normalized;
+                    eye = Vector3.Lerp(l0, l1, k) - along * 62f + Vector3.up * TopDownM;
+                    look = Vector3.Lerp(l0, l1, k) + along * 12f;
+                }
             }
             // over the canopy, eased up onto it rather than snapped
             float floor = GroundAt(eye) + CanopyClearM - eye.y;
@@ -204,5 +220,29 @@ namespace PSXRacing
         }
 
         void QuitAfterShots() => Application.Quit();
+
+        float followS, followVel;
+        bool followInit;
+        int followHint = -1;
+
+        /// <summary>Metres along the road of the point nearest <paramref name="p"/>.</summary>
+        float TrackS(Vector3 p)
+        {
+            var path = rm.path;
+            followHint = path.NearestIndex(p, followHint);
+            return followHint * path.spacing + Vector3.Dot(p - path.GetPoint(followHint), path.GetTangent(followHint).normalized);
+        }
+
+        /// <summary>The road's centreline and heading at <paramref name="s"/>
+        /// metres, between its points.</summary>
+        void RoadAt(float s, out Vector3 at, out Vector3 fwd)
+        {
+            var path = rm.path;
+            float f = Mathf.Clamp(s / path.spacing, 1f, path.Count - 2.001f);
+            int i = Mathf.FloorToInt(f);
+            float u = f - i;
+            at = Vector3.Lerp(path.GetPoint(i), path.GetPoint(i + 1), u);
+            fwd = Vector3.Slerp(path.GetTangent(i).normalized, path.GetTangent(i + 1).normalized, u).normalized;
+        }
     }
 }

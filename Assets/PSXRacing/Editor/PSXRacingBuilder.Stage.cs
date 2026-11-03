@@ -7360,6 +7360,29 @@ namespace PSXRacing.EditorTools
             var trunks = new List<Vector4>();
             var trunkCells = new List<byte>();
 
+            // THE PC FOREST (owner, 2026-11-02, the title's aerial shots: "trees
+            // are sparse and land area is plain and boring ... full aerial shots
+            // shows x-formation of plants"): in the PC build's own scene pass
+            // (PCContent) the band is FILLED past ForestDenseTo up to FillKeep,
+            // and every tree gets a CROWN - a level card of its own crown, seen
+            // from above where the crossed cards read as an X. Both under PCOnly
+            // roots; the fill has its own trunk table; the shared forest (and its
+            // random stream) is exactly what it was.
+            bool pc = PCContent;
+            GameObject fillRoot = null, crownRoot = null;
+            var fillTrunks = new List<Vector4>();
+            var fillCells = new List<byte>();
+            if (pc)
+            {
+                fillRoot = new GameObject("ForestFill");
+                fillRoot.transform.SetParent(parent, false);
+                fillRoot.AddComponent<PCOnly>();
+                crownRoot = new GameObject("ForestCrowns");
+                crownRoot.transform.SetParent(parent, false);
+                crownRoot.AddComponent<PCOnly>();
+            }
+            int filled = 0, crowned = 0;
+
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
             {
                 float mid = RouteDistanceCoarse(ox + NearChunk * 0.5f, oz + NearChunk * 0.5f);
@@ -7368,6 +7391,8 @@ namespace PSXRacing.EditorTools
                 var verts = new List<Vector3>();
                 var uvs = new List<Vector2>();
                 var tris = new List<int>();
+                var fv = new List<Vector3>(); var fu = new List<Vector2>(); var ft = new List<int>();
+                var cv = new List<Vector3>(); var cu = new List<Vector2>(); var ct = new List<int>();
 
                 int cells = Mathf.RoundToInt(NearChunk / ForestPitch);
                 for (int gz = 0; gz < cells; gz++)
@@ -7389,7 +7414,14 @@ namespace PSXRacing.EditorTools
                         float keep = d <= ForestDenseTo ? 1f
                                    : d <= 90f ? Mathf.Lerp(1f, ForestFarKeep, (d - ForestDenseTo) / (90f - ForestDenseTo))
                                    : ForestFarKeep * (1f - Mathf.InverseLerp(90f, ForestBand, d) * 0.55f);
-                        if (keepRoll >= keep) continue;
+                        bool fill = false;
+                        if (keepRoll >= keep)
+                        {
+                            if (!pc || d <= ForestDenseTo || keepRoll >= FillKeep) continue;
+                            fill = true;
+                        }
+                        // a fill tree draws from its own stream, so the shared forest's is untouched
+                        var R = fill ? new System.Random(unchecked((int)(wx * 73.856093f) * 486187739 + (int)(wz * 19.349663f))) : rng;
 
                         // On a cut's rock top where there is one: the lattice
                         // under it is held down for a dozen metres behind the
@@ -7421,9 +7453,9 @@ namespace PSXRacing.EditorTools
 
                         // pick the species before the shoulder test — the
                         // height decides whether it fits under a deck
-                        int idx = PickSpecies(rng, wx, wz, ground);
+                        int idx = PickSpecies(R, wx, wz, ground);
                         var sp = StageTrees[idx];
-                        float h = sp.height * ForestHeightScale * (0.85f + (float)rng.NextDouble() * 0.4f);
+                        float h = sp.height * ForestHeightScale * (0.85f + (float)R.NextDouble() * 0.4f);
                         // The understory: young trees under the canopy, where
                         // the roadside forest is thick enough to have one.
                         if (d <= 90f && storyRoll < ForestUnderstory)
@@ -7482,18 +7514,36 @@ namespace PSXRacing.EditorTools
                             continue;
                         }
 
-                        planted++;
-                        if (onFill) reseatedOnFill++;
-                        AddTreeQuads(verts, uvs, tris, sp,
-                            new Vector3(wx - ox, ground - 0.25f, wz - oz), h,
-                            (float)rng.NextDouble() * 360f);
-                        // The card's WIDTH, and the cell it wears: the table
-                        // takes the trunk's radius (and, per season, how far the
-                        // low foliage reaches) off what the billboard paints.
-                        trunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
-                        NoteSkyCrown(wx, ground - 0.25f, wz, StageTreeWidth(sp, h), h, sp.conifer);
-                        trunkCells.Add((byte)idx);
+                        float yaw = (float)R.NextDouble() * 360f;
+                        var basePos = new Vector3(wx - ox, ground - 0.25f, wz - oz);
+                        if (fill)
+                        {
+                            filled++;
+                            AddTreeQuads(fv, fu, ft, sp, basePos, h, yaw);
+                            fillTrunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
+                            fillCells.Add((byte)idx);
+                        }
+                        else
+                        {
+                            planted++;
+                            if (onFill) reseatedOnFill++;
+                            AddTreeQuads(verts, uvs, tris, sp, basePos, h, yaw);
+                            // The card's WIDTH, and the cell it wears: the table
+                            // takes the trunk's radius (and, per season, how far the
+                            // low foliage reaches) off what the billboard paints.
+                            trunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
+                            NoteSkyCrown(wx, ground - 0.25f, wz, StageTreeWidth(sp, h), h, sp.conifer);
+                            trunkCells.Add((byte)idx);
+                        }
+                        if (pc) { AddCrownQuad(cv, cu, ct, sp, basePos, h, yaw); crowned++; }
                     }
+
+                if (fv.Count > 0)
+                    ChunkGO(fillRoot.transform, "Fill_" + cx + "_" + cz, ForestMesh(fv, fu, ft), new[] { mat },
+                            ox, oz, "StageForestFill_" + cx + "_" + cz).layer = FoliageLayer;
+                if (cv.Count > 0)
+                    ChunkGO(crownRoot.transform, "Crowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { mat },
+                            ox, oz, "StageForestCrowns_" + cx + "_" + cz).layer = FoliageLayer;
 
                 if (verts.Count == 0) return;
                 var mesh = new Mesh
@@ -7511,6 +7561,11 @@ namespace PSXRacing.EditorTools
             });
 
             root.AddComponent<TreeTrunks>().SetForest(trunks, trunkCells, ForestTrunkFrac, ForestBrushFrac);
+            if (pc)
+            {
+                fillRoot.AddComponent<TreeTrunks>().SetForest(fillTrunks, fillCells, ForestTrunkFrac, ForestBrushFrac);
+                Log($"Stage forest, PC: {filled} fill trees (band filled to {FillKeep:0.00} past {ForestDenseTo:0} m), {crowned} crowns.");
+            }
             BuildStageFarForest(pts, parent, mat);
 
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
@@ -7530,7 +7585,7 @@ namespace PSXRacing.EditorTools
         // what a desktop GPU draws without noticing. No trunks: nothing past
         // the band is reachable from the road. PC profile only for now
         // (PCOnly), on the Foliage layer.
-        const float FarForestPitch = 16f, FarForestChunk = 480f, FarForestKeep = 0.62f, FarForestScale = 1.2f;
+        const float FarForestPitch = 12f, FarForestChunk = 480f, FarForestKeep = 0.8f, FarForestScale = 1.2f;
         /// <summary>How far from the route the far forest reaches (m): the far
         /// ground's own reach, less a cell, at most this.</summary>
         const float FarForestMaxM = 2100f;
@@ -7559,6 +7614,7 @@ namespace PSXRacing.EditorTools
         {
             // A mountain's distance only: a coast's is water and scrub, a
             // city's its own ground (the far material's own rule).
+            if (!PCContent) return;   // the PC build's scene pass only (see PCContent)
             if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return;
             float to = Mathf.Min(FarForestMaxM, FarCoverage - FarCell);
             if (to <= ForestBand + FarForestPitch) return;
@@ -7576,6 +7632,7 @@ namespace PSXRacing.EditorTools
                 var verts = new List<Vector3>();
                 var uvs = new List<Vector2>();
                 var tris = new List<int>();
+                var cv = new List<Vector3>(); var cu = new List<Vector2>(); var ct = new List<int>();
                 int cells = Mathf.RoundToInt(FarForestChunk / FarForestPitch);
                 for (int gz = 0; gz < cells; gz++)
                     for (int gx = 0; gx < cells; gx++)
@@ -7602,6 +7659,7 @@ namespace PSXRacing.EditorTools
                                 * (0.85f + (float)sizeRoll * 0.4f);
                         AddTreeQuads(verts, uvs, tris, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h,
                                      (float)yawRoll * 360f);
+                        AddCrownQuad(cv, cu, ct, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h, (float)yawRoll * 360f);
                         planted++;
                     }
                 if (verts.Count == 0) return;
@@ -7615,9 +7673,54 @@ namespace PSXRacing.EditorTools
                 var go = ChunkGO(root.transform, "FarTrees_" + cx + "_" + cz, mesh, new[] { mat },
                                  ox, oz, "StageFarForest_" + cx + "_" + cz);
                 go.layer = FoliageLayer;
+                if (cv.Count > 0)
+                    ChunkGO(root.transform, "FarCrowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { mat },
+                            ox, oz, "StageFarCrowns_" + cx + "_" + cz).layer = FoliageLayer;
                 chunks++;
             });
             Log($"Stage far forest (PC profile): {planted} trees in {chunks} chunks to {to:0} m ({verts0} verts), {cliffSkip} cliff sites bare.");
+        }
+
+        /// <summary>The PC build's scene pass (pc_build.ps1 sets PSX_PC_CONTENT=1):
+        /// content the PC profile shows and the web build must not carry - the
+        /// web player's data file sits near GitHub's 100 MB file limit, and
+        /// PCOnly only hides what a scene still ships.</summary>
+        static bool PCContent => System.Environment.GetEnvironmentVariable("PSX_PC_CONTENT") == "1";
+        /// <summary>The PC forest's density past ForestDenseTo: the share of
+        /// the band's 7.5 m candidates that stand, with the shared forest's.</summary>
+        const float FillKeep = 0.85f;
+
+        static Mesh ForestMesh(List<Vector3> v, List<Vector2> u, List<int> t) => new Mesh
+        {
+            indexFormat = v.Count < 65000 ? UnityEngine.Rendering.IndexFormat.UInt16 : UnityEngine.Rendering.IndexFormat.UInt32,
+            vertices = v.ToArray(), uv = u.ToArray(), triangles = t.ToArray(),
+        };
+
+        /// <summary>
+        /// A tree's CROWN seen from above: one level card at crown height,
+        /// wearing the upper part of the species' own cell (the crown, not the
+        /// trunk), a little narrower than the crossed cards, turned with them.
+        /// From the road it is edge-on; from a hillside above, a drone or a
+        /// switchback it is the leaf mass the crossed cards cannot show.
+        /// </summary>
+        static void AddCrownQuad(List<Vector3> verts, List<Vector2> uvs, List<int> tris,
+                                 TreeSpecies sp, Vector3 basePos, float h, float yawDeg)
+        {
+            float w = StageTreeWidth(sp, h) * (sp.conifer ? 0.5f : 0.82f);
+            float y = h * (sp.conifer ? 0.58f : 0.7f);
+            const float pad = 1.5f / 512f;
+            float u0 = sp.col * 0.25f + pad, u1 = (sp.col + 1) * 0.25f - pad;
+            float v0 = sp.row * 0.25f + 0.25f * 0.42f, v1 = (sp.row + 1) * 0.25f - pad;
+            var rot = Quaternion.Euler(0f, yawDeg + 45f, 0f);
+            int i = verts.Count;
+            var c = basePos + Vector3.up * y;
+            verts.Add(c + rot * new Vector3(-w * 0.5f, 0f, -w * 0.5f));
+            verts.Add(c + rot * new Vector3(-w * 0.5f, 0f, w * 0.5f));
+            verts.Add(c + rot * new Vector3(w * 0.5f, 0f, w * 0.5f));
+            verts.Add(c + rot * new Vector3(w * 0.5f, 0f, -w * 0.5f));
+            uvs.Add(new Vector2(u0, v0)); uvs.Add(new Vector2(u0, v1)); uvs.Add(new Vector2(u1, v1)); uvs.Add(new Vector2(u1, v0));
+            tris.Add(i); tris.Add(i + 1); tris.Add(i + 2);
+            tris.Add(i); tris.Add(i + 2); tris.Add(i + 3);
         }
 
         /// <summary>A stage tree's card width: its height for a broadleaf

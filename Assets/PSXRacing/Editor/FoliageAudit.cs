@@ -286,11 +286,14 @@ namespace PSXRacing.EditorTools
             foreach (var row in sorted)
             {
                 bool sidesOk = row.oneSidedTris == 0;
-                bool xOk = !row.tree || row.flat == 0;
+                // The PC forest's crown cards (ForestCrowns/, FarForest/FarCrowns_*)
+                // are level cards on purpose: no X, no trunk, one cell each.
+                bool crowns = row.what.Contains("Crowns");
+                bool xOk = !row.tree || row.flat == 0 || crowns;
                 // The far forest stands past the band no car reaches: no trunks by design.
-                bool trunkOk = !row.tree || row.trunked == row.plants || row.what.Contains("FarForest/");
+                bool trunkOk = !row.tree || row.trunked == row.plants || row.what.Contains("FarForest/") || crowns;
                 bool cardOk = row.cardColliders == 0;
-                bool speciesOk = row.mixed == 0;
+                bool speciesOk = row.mixed == 0 || crowns;
                 // A shrub is graded on its sides and nothing else.
                 bool ok = row.tree ? sidesOk && xOk && trunkOk && cardOk && speciesOk : true;
                 if (!ok) problems++;
