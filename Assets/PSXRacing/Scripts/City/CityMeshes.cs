@@ -4763,6 +4763,9 @@ namespace PSXRacing.City
             /// with the road beside it (<see cref="UnionRun"/>). No rail, Jersey,
             /// cut wall, verge or fascia: its owner draws the median.</summary>
             public bool union;
+            /// <summary>The freeway divider type (CityMeshes.Dividers.cs): this median side
+            /// carries the pair's cable barrier; an overpass zone's W-beam.</summary>
+            public bool cable, beam;
         }
         struct SpanFlags
         {
@@ -5366,7 +5369,19 @@ namespace PSXRacing.City
                         // (see BuildSections), which on a one-way carriageway
                         // is the median. The outside gets a wall only where
                         // the road runs in a CUT (below).
-                        if (side > 0) sf.median = !nbDraws && !sf.rail;
+                        // THE DIVIDER TYPE (2026-11-02): a Jersey only in a concrete
+                        // median; a cable or open median is grass (the cable on one
+                        // carriageway's side, W-beam where an overpass stands in it)
+                        if (side > 0)
+                        {
+                            var dk = DividerAt(e);
+                            if (dk == DividerKind.Concrete) sf.median = !nbDraws && !sf.rail;
+                            else if (dk == DividerKind.Cable && !nbDraws && !sf.rail)
+                            {
+                                sf.cable = CableSpanAt(e, A.s, B.s);
+                                sf.beam = BeamSpanAt(e, A.s, B.s);
+                            }
+                        }
                         else
                         {
                             byte why = 0;
@@ -5446,6 +5461,8 @@ namespace PSXRacing.City
                     medianGapLog?.Add($"{(bare ? (MedianBridgeOn ? "BRIDGED" : "BARE") : "OPEN " + why)} e{e.index} '{e.name}' s {sections[j - 1].s:0}..{sections[k - 1].s:0} ({len:0} m)");
                     i = k;
                 }
+            // the divider type: where each cable run is turned down to its anchor
+            PlanCableEnds(e);
 
             // NO ISOLATED SHORT PIECES (hotfix 2026-10-03, the owner's "stray
             // concrete median blocks between roads where they shouldn't
@@ -5948,7 +5965,7 @@ namespace PSXRacing.City
                 var ed = sec.Edge(side);
                 if (sec.Strip(side) < 0f)
                 {
-                    drop = DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), sec.Out(side), ed.y, ShoulderOf(e, side), !MedianBarriered(e, side));
+                    drop = DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), sec.Out(side), ed.y, ShoulderOf(e, side), !MedianLedgeExempt(e, side));
                     // A CITY STREET'S MEDIAN (2026-10-24, the owner's West Trade
                     // Street frame: a 10 m concrete rail standing where its
                     // grass median falls to the lower carriageway by the I-77
@@ -6043,7 +6060,7 @@ namespace PSXRacing.City
             var ed = (A.Edge(side) + B.Edge(side)) * 0.5f;
             var outw = A.Out(side) + B.Out(side);
             if (outw.sqrMagnitude < 1e-6f) return 0;
-            return DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), outw.normalized, ed.y, ShoulderOf(e, side), !MedianBarriered(e, side));
+            return DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), outw.normalized, ed.y, ShoulderOf(e, side), !MedianLedgeExempt(e, side));
         }
 
         /// <summary>
@@ -6203,7 +6220,12 @@ namespace PSXRacing.City
 
         /// <summary>Is this side a barriered road's median, which gets a
         /// Jersey barrier wherever it has no rail (DecideSideFlags)?</summary>
-        static bool MedianBarriered(CityMap.Edge e, int side) => side > 0 && Barriered(e);
+        static bool MedianBarriered(CityMap.Edge e, int side) => side > 0 && Barriered(e) && DividerAt(e) == DividerKind.Concrete;
+        /// <summary>The ledge test's exemption (DropFrom's ledges): a freeway's median side, as
+        /// before the divider type. A cable or open median grades as verge (StripBarriered reads
+        /// MedianBarriered), but a kerb-high ledge in it warranting a rail stood 10 m rails alone in
+        /// the grass (I-485 e1753, the short rail census): the critical-fall rule still warrants one.</summary>
+        static bool MedianLedgeExempt(CityMap.Edge e, int side) => side > 0 && Barriered(e);
 
         static bool NeighbourSideOpen(CityMap map, Trims trims, CityMap.Edge e, Section sec, CityMap.Edge o, float atO, out int sideO)
         {
@@ -6355,6 +6377,8 @@ namespace PSXRacing.City
 
             if (sf.median) EmitBarrier(eA, eB, outA, v0, v1, sf.capStart, sf.capEnd,
                                        Mathf.Lerp(TaperFootM, BarrierH, taper[i - 1]), Mathf.Lerp(TaperFootM, BarrierH, taper[i]));
+            if (side > 0 && sf.cable) EmitCableSpan(map, trims, tm, e, i);
+            if (side > 0 && sf.beam) EmitMedianBeamSpan(map, trims, tm, e, i);
 
             if (sf.rail && sf.retain)
             {
@@ -10608,7 +10632,7 @@ namespace PSXRacing.City
             // DropAt asks it of that side, so a freeway median behind its
             // Jersey barrier, which keeps its verge, keeps its fill too.
             bool armLaid = SolveStrip(map, trims, cW, yArm, armOut, shArm, profPrev, out bool armGraded, out float armStopped);
-            if (!armLaid || Ungraded(armLaid, armGraded, armStopped, cW, yArm, profPrev, !MedianBarriered(arm, side))) return;
+            if (!armLaid || Ungraded(armLaid, armGraded, armStopped, cW, yArm, profPrev, !MedianLedgeExempt(arm, side))) return;
             if (!SolveStrip(map, trims, cW, corner.y, chordOut, shChord, profCur)) return;
             for (int q = 0; q < 3; q++)
             {

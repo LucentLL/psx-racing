@@ -243,7 +243,7 @@ namespace PSXRacing.City
             for (int xi = 0; xi < E.Length; xi++)
             {
                 var X = E[xi];
-                if (X.a == X.b || !X.oneway || X.link || !Barriered(X) || string.IsNullOrEmpty(X.name)) continue;
+                if (X.a == X.b || !X.oneway || X.link || !Barriered(X) || string.IsNullOrEmpty(X.name) || !ConcreteMedian(X)) continue;
                 var list = t.unions[xi];
                 if (list == null) continue;
                 for (int side = -1; side <= 1; side += 2)
@@ -343,7 +343,7 @@ namespace PSXRacing.City
                     cur = Z;
                 }
                 else x = nx;
-                if (!cur.oneway || !Barriered(cur) || cur.ElevatedAt(x)) return 0;
+                if (!cur.oneway || !Barriered(cur) || !ConcreteMedian(cur) || cur.ElevatedAt(x)) return 0;
                 float lo = t.atA[cur.index], hi = cur.length - t.atB[cur.index];
                 if (x < lo || x > hi) return 0;
                 int k = InRailBand(map, t, cur, x) ? 2 : 1;
@@ -599,6 +599,7 @@ namespace PSXRacing.City
             if (!R9FansOn || e0 == e1 || e0 < 0 || e1 < 0 || side0 <= 0 || side1 <= 0 || node0 != n || node1 != n) return false;
             var A = map.edges[e0]; var B = map.edges[e1];
             if (!A.oneway || !B.oneway || A.link || B.link || !Barriered(A) || !Barriered(B) || string.IsNullOrEmpty(A.name) || A.name != B.name) return false;
+            if (!ConcreteMedian(A) || !ConcreteMedian(B)) return false;   // (dividers) a cable or open median has no Jersey
             if ((A.b == n) == (B.b == n)) return false;   // one arrives, one leaves
             if (Vector2.Dot(OutDir(A, n), OutDir(B, n)) > -0.8f) return false;
             float sa = A.a == n ? 0f : A.length, sb = B.a == n ? 0f : B.length;

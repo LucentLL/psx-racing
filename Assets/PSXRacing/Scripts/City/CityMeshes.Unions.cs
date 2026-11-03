@@ -197,6 +197,8 @@ namespace PSXRacing.City
                 if (anyStructure) break;
             }
             if (!anyStructure) return;
+            // the freeway divider type, per corridor run, before any ground median is laid
+            BuildDividers(map);
             int pairsDrawn = 0, pairsSplit = 0, pairsNone = 0, splitRuns = 0;
             var noRun = new System.Text.StringBuilder();
             float splitWorst = 0f; string splitWorstAt = "";
@@ -745,6 +747,8 @@ namespace PSXRacing.City
             // approach medians only between the twin carriageways of one road
             // (hotfix 2026-10-03): never on between a ramp and its mainline
             if (r.pair < 0 || map.deckPairs[r.pair].kind != DeckPairs.Kind.Dual) return 0f;
+            // (dividers) not on over the ground of a cable or open median: grass there
+            if (!ConcreteMedian(map.edges[r.edge])) return 0f;
             var A = map.edges[r.edge];
             float sEnd = end == 0 ? r.s0 : r.s1;
             int dirA = end == 0 ? -1 : 1;
@@ -1026,6 +1030,7 @@ namespace PSXRacing.City
             foreach (var X in map.edges)
             {
                 if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || string.IsNullOrEmpty(X.name)) continue;
+                if (!ConcreteMedian(X)) continue;   // (dividers) a cable or open median is grass, not a flush strip
                 float lo = t.patch[X.a] ? t.atA[X.index] + UnionFanSetbackM : 0f;
                 float hi = t.patch[X.b] ? X.length - t.atB[X.index] - UnionFanSetbackM : X.length;
                 if (hi - lo < GroundTwinMinRunM) continue;
@@ -1134,6 +1139,7 @@ namespace PSXRacing.City
             }
             // the lower index owns the pair's median: Y's own walk lays it
             if (Y == null) { TwinWhy = "no twin beside"; return false; }
+            if (!ConcreteMedian(X) || !ConcreteMedian(Y)) { TwinWhy = $"divider {DividerAt(X)}/{DividerAt(Y)} (not concrete)"; return false; }
             if (!twinEndsOf.TryGetValue(Y.index, out var endsY)) twinEndsOf[Y.index] = endsY = new List<float>(StructureEndsOf(map, t, Y));
             if (TwinStopsAtBands && InApproachBand(endsY, y)) { TwinWhy = $"twin e{Y.index} in an approach rail band"; return false; }
             // (round 7) ...unless Y's own walk sees ANOTHER twin there (a piece of ours
