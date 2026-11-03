@@ -374,7 +374,8 @@ namespace PSXRacing
                 if (nm.StartsWith("FixedUpdate.")) iFix.Add(i);
                 if (nm.Contains("Canvas") || nm.Contains("UpdateRectTransform") || nm.Contains("UpdateAllRenderers")) iUi.Add(i);
             }
-            CityWorld.TileBuilt += t => { if (recording) evNow = t.tx + ":" + t.tz + (t.treeFrame ? "T" : t.slices > 0 ? "S" : "W"); };
+            // (city-tree-bake: a tree frame's event names its longest step - "T/pass1", "T/prep:signs", "T/baked")
+            CityWorld.TileBuilt += t => { if (recording) evNow = t.tx + ":" + t.tz + (t.treeFrame ? "T" : t.slices > 0 ? "S" : "W") + (t.treeStep != null ? "/" + t.treeStep : ""); };
         }
 
         static float Sys(int i) => i >= 0 && i < PerfClock.SystemMs.Length ? (float)PerfClock.SystemMs[i] : 0f;
@@ -601,6 +602,9 @@ namespace PSXRacing
             sum1.AppendLine($"gc collections {gcN}  heap used MB {heap0 / 1048576.0:0} -> {heap1 / 1048576.0:0}  reserved MB {res0 / 1048576.0:0} -> {res1 / 1048576.0:0}");
             sum1.AppendLine($"settle {settleS:0.0} s; tiles abandoned so far {CityWorld.JobsAbandoned}");
             sum1.AppendLine($"traffic cars live avg {(n > 0 ? carsSum / n : 0):0.0} max {carsMax} (cap {(CityTraffic.Instance != null ? CityTraffic.Instance.Cap : 0)})");
+            // the baked city since load (city-tree-bake): tiles and tree frames off the bake, the verify's verdicts
+            sum1.AppendLine($"baked city: {CityWorld.BakedStood} tiles stood up from the bake ({CityWorld.BakedFailed} files failed), {CityWorld.BakedTreesStood} tree frames stood up from it" +
+                            (CityWorld.VerifyBaked ? $"; verify: tiles {CityWorld.VerifiedEqual} equal {CityWorld.VerifiedDiffer} differ, tree frames {CityWorld.TreesVerifiedEqual} equal {CityWorld.TreesVerifiedDiffer} differ" : ""));
             Post(id + "_frames.csv", csv.ToString());
             Post(id + "_spikes.txt", spikes.ToString());
             Post(id + "_summary.txt", sum1.ToString());

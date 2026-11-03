@@ -94,6 +94,12 @@ namespace PSXRacing.City
             /// same mask, before the trees), and how many.</summary>
             public float signsMs;
             public int colliders, props, trees, signs;
+            /// <summary>A tree frame's longest step this frame and what it was
+            /// (city-tree-bake: CityTrees.StepNow - mask, junctions, poles, signs,
+            /// walls, pass1, pass2, lots, mesh, under; prep:signs / prep:poles for
+            /// a decision slice; baked for a frame stood up off the bake).</summary>
+            public string treeStep;
+            public float treeStepMs;
             /// <summary>This is a tile's trees being planted, not its build.</summary>
             public bool treeFrame;
             /// <summary>WP-09: the frames a sliced build took (0 = built in
@@ -255,8 +261,20 @@ namespace PSXRacing.City
         readonly Dictionary<long, (CityMeshes.TileMeshes tm, Dictionary<long, float> lattice)> treesPending =
             new Dictionary<long, (CityMeshes.TileMeshes, Dictionary<long, float>)>();
 
-        /// <summary>Tiles whose trees are still to plant (the probe's check).</summary>
-        public int TreesPending => treesPending.Count;
+        /// <summary>Tiles whose trees are still to plant, or (the baked city)
+        /// to stand up (the probe's check).</summary>
+        public int TreesPending => treesPending.Count + treesBaked.Count;
+
+        /// <summary>For the tools: the tile's tree frame is waiting, with the
+        /// build it plants on and its lattice; <paramref name="baked"/>: it came
+        /// off the bake (nothing will be planted, only stood up).</summary>
+        public bool TreesWaiting(long key, out CityMeshes.TileMeshes tm, out Dictionary<long, float> lattice, out bool baked)
+        {
+            if (treesPending.TryGetValue(key, out var p)) { tm = p.tm; lattice = p.lattice; baked = false; return true; }
+            if (treesBaked.TryGetValue(key, out var b)) { tm = b.tm; lattice = b.lattice; baked = true; return true; }
+            tm = null; lattice = null; baked = false;
+            return false;
+        }
 
         // ---- city fuel r1: THE FILLING STATIONS, A STATION A FRAME ---------
         //
@@ -939,6 +957,28 @@ namespace PSXRacing.City
                 if (PerfClock.On) PerfClock.Add(PerfClock.Slot.ProxyStep, pcp);
             }
 
+            // THE BAKED TREE FRAMES (city-tree-bake, 2026-11-03): a baked tile's
+            // trees, poles, signals and signs came off disk with it - nothing is
+            // planted or decided, they are only stood up: the nearest frame a
+            // frame of its own (its meshes made, then on the next such frame its
+            // stand-up), never on a frame that built, made or stood a tile up;
+            // a frame a car is IN stands at once (its trunks must stand). It
+            // shares no scratch with a tile job or a planting, so neither waits.
+            if (treesBaked.Count > 0)
+            {
+                long best = 0; float bestD = float.MaxValue; bool urgent = false;
+                foreach (var k in treesBaked.Keys)
+                {
+                    float d2 = TreeOrder(k, p, ptx, ptz, out bool near);
+                    if (d2 < bestD) { bestD = d2; best = k; urgent = near; }
+                }
+                if (urgent || !built)
+                {
+                    using (PlantMarker.Auto()) StandBakedTreesNow(best, urgent);
+                    built = true;   // (a planting waits a frame, unless a car is in its tile)
+                }
+            }
+
             // THE TREES ON A FRAME OF THEIR OWN (WP-08; WP-09's third stage,
             // for the trees): a tile's build and its planting never share a
             // frame. When no tile was built this frame, the nearest tile still
@@ -950,17 +990,7 @@ namespace PSXRacing.City
                 long best = 0; float bestD = float.MaxValue; bool urgent = false;
                 foreach (var k in treesPending.Keys)
                 {
-                    int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
-                    bool near = tx == ptx && tz == ptz;
-                    foreach (var a in anchors)
-                    {
-                        if (near || a == null || !a.gameObject.activeInHierarchy) continue;
-                        near = tx == Mathf.FloorToInt(a.position.x / CityMeshes.TileSize) &&
-                               tz == Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
-                    }
-                    float cx = (tx + 0.5f) * CityMeshes.TileSize - p.x, cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
-                    float d2 = cx * cx + cz * cz - (near ? 1e12f : 0f);
-                    if (NoForcedFinish && !near && NearCar(k, ptx, ptz)) d2 -= 1e11f;   // city-build-hitches: next to a car first
+                    float d2 = TreeOrder(k, p, ptx, ptz, out bool near);
                     if (d2 < bestD) { bestD = d2; best = k; urgent = near; }
                 }
                 // the gantries and billboards that reach it are decided first,
@@ -998,6 +1028,25 @@ namespace PSXRacing.City
 
             // city fuel r1: a filling station a frame (see stationQueue)
             if (stationQueue.Count > 0) StandNextStation(p);
+        }
+
+        /// <summary>The order waiting tree frames go in: a tile a car is IN
+        /// first (<paramref name="near"/>: it plants or stands now), then one
+        /// next to a car (city-build-hitches), then the nearest.</summary>
+        float TreeOrder(long k, Vector3 p, int ptx, int ptz, out bool near)
+        {
+            int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
+            near = tx == ptx && tz == ptz;
+            foreach (var a in anchors)
+            {
+                if (near || a == null || !a.gameObject.activeInHierarchy) continue;
+                near = tx == Mathf.FloorToInt(a.position.x / CityMeshes.TileSize) &&
+                       tz == Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
+            }
+            float cx = (tx + 0.5f) * CityMeshes.TileSize - p.x, cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
+            float d2 = cx * cx + cz * cz - (near ? 1e12f : 0f);
+            if (NoForcedFinish && !near && NearCar(k, ptx, ptz)) d2 -= 1e11f;   // city-build-hitches: next to a car first
+            return d2;
         }
 
         /// <summary>The queued station nearest the car: stood now if a car is
@@ -1060,6 +1109,8 @@ namespace PSXRacing.City
             AbandonTrees();
             DropBaked(null);
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
+            foreach (var bt in treesBaked.Values) bt.Release();
+            treesBaked.Clear();
         }
 
         void DropTile(long key)
@@ -1073,6 +1124,7 @@ namespace PSXRacing.City
         {
             if (treeSteps != null && treeKey == key) AbandonTrees();   // city-build-hitches
             treesPending.Remove(key);
+            if (treesBaked.TryGetValue(key, out var bt)) { treesBaked.Remove(key); bt.Release(); }   // city-tree-bake
             liveSigns.Remove(key);
             livePoles.Remove(key);
             liveSignals.Remove(key);
@@ -1099,6 +1151,9 @@ namespace PSXRacing.City
         public void PlantTrees(long key)
         {
             using var marker = PlantMarker.Auto();
+            // city-tree-bake: a tile whose tree frame came off the bake stands it
+            // up - nothing to plant, and no open frame to finish (it shares nothing)
+            if (treesBaked.ContainsKey(key)) { StandBakedTreesNow(key, true); return; }
             // city-build-hitches: a tree frame still open (sliced) is finished
             // first - the planting's scratch and the lattice are its
             if (treeSteps != null) { bool same = treeKey == key; RunTreeJob(double.MaxValue); if (same) return; }
@@ -1144,13 +1199,25 @@ namespace PSXRacing.City
             if (treeSteps == null) return true;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             bool more;
-            do { more = treeSteps.MoveNext(); } while (more && clock.Elapsed.TotalMilliseconds < budgetMs);
+            // city-tree-bake: the slice's longest step, by name (CityTrees.StepNow)
+            double longest = 0.0, s0 = 0.0;
+            string longestName = null;
+            do
+            {
+                more = treeSteps.MoveNext();
+                double s1 = clock.Elapsed.TotalMilliseconds;
+                if (s1 - s0 > longest) { longest = s1 - s0; longestName = CityTrees.StepNow; }
+                s0 = s1;
+            } while (more && clock.Elapsed.TotalMilliseconds < budgetMs);
             double ms = clock.Elapsed.TotalMilliseconds;
-            if (PerfClock.On) PerfClock.AddMs(budgetMs == double.MaxValue ? PerfClock.Slot.TreeUrgent : PerfClock.Slot.TreeStep, ms);   // city perf round 1
+            // (city perf round 1; city-tree-bake: the paced urgent share - PaceCapMs, a
+            // car in the tile - is the urgent slot's too, not only the one-go finish)
+            if (PerfClock.On) PerfClock.AddMs(budgetMs >= PaceCapMs ? PerfClock.Slot.TreeUrgent : PerfClock.Slot.TreeStep, ms);
             treeWorkMs += ms;
+            lastTreeStep = longestName; lastTreeStepMs = (float)longest;
             if (more)
             {
-                var slice = new TileTiming { tx = treeTile.tx, tz = treeTile.tz, treeFrame = true, treesMs = (float)ms, totalMs = (float)ms };
+                var slice = new TileTiming { tx = treeTile.tx, tz = treeTile.tz, treeFrame = true, treesMs = (float)ms, totalMs = (float)ms, treeStep = longestName, treeStepMs = (float)longest };
                 recentBuilds.Add((Time.realtimeSinceStartup, (float)ms));
                 if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
                 TileBuilt?.Invoke(slice);
@@ -1159,10 +1226,19 @@ namespace PSXRacing.City
             treeSteps.Dispose();
             treeSteps = null;
             long key = treeKey;
-            if (live.TryGetValue(key, out var tile) && tile.go != null) StandTrees(key, tile, treeTile, treeTm, clock);
+            if (live.TryGetValue(key, out var tile) && tile.go != null)
+            {
+                TreeFrameReady?.Invoke(key, treeTile);   // (the bake tool writes it here, the gate hashes it)
+                StandTrees(key, tile, treeTile, treeTm, clock);
+            }
             treeTile = null; treeTm = null;
             return true;
         }
+
+        /// <summary>The longest step of the last tree-frame slice and its name,
+        /// for the stand-up's timing (city-tree-bake).</summary>
+        string lastTreeStep;
+        float lastTreeStepMs;
 
         /// <summary>Give the open tree frame up (its tile was dropped).</summary>
         void AbandonTrees()
@@ -1172,8 +1248,16 @@ namespace PSXRacing.City
             treeSteps = null;
             var tt = treeTile;
             treeTile = null; treeTm = null;
+            KillTreeTile(tt);
+        }
+
+        /// <summary>A tree frame's meshes destroyed (one never stood up: given
+        /// up, dropped, or the verify's own).</summary>
+        static void KillTreeTile(CityTrees.TreeTile tt)
+        {
             if (tt == null) return;
             Kill(tt.mesh);
+            if (tt.under != null) Kill(tt.under.mesh);
             if (tt.poles != null) Kill(tt.poles.mesh);
             if (tt.signals != null) { Kill(tt.signals.mesh); Kill(tt.signals.lamps); Kill(tt.signals.halos); }
             if (tt.signs != null) { Kill(tt.signs.mesh); Kill(tt.signs.guideMesh); }
@@ -1286,7 +1370,9 @@ namespace PSXRacing.City
                 treesMs = (float)clock.Elapsed.TotalMilliseconds, treePlantMs = tt.ms,
                 totalMs = (float)clock.Elapsed.TotalMilliseconds, trees = tt.trees.Count,   // (sliced: the last slice and the stand-up)
                 signsMs = st != null ? st.ms : 0f, signs = st != null ? st.signs.Count : 0,
+                treeStep = lastTreeStep, treeStepMs = lastTreeStepMs,
             };
+            lastTreeStep = null; lastTreeStepMs = 0f;
             recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
             if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
             TileBuilt?.Invoke(timing);
@@ -1311,12 +1397,16 @@ namespace PSXRacing.City
             int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
             var clock = System.Diagnostics.Stopwatch.StartNew();
             int r = CitySigns.Enabled ? CitySigns.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs) : 0;
+            // (city-tree-bake: which of the two the slice decided, for the perf tour)
+            string what = r != 0 ? "prep:signs" : null;
+            float signsPart = (float)clock.Elapsed.TotalMilliseconds;
             // then the tile's poles and wires (WP-15), a slice a frame the same
             // way, so its tree frame only draws them
-            if (r == 0 && CityPoles.Enabled) r = CityPoles.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs);
+            if (r == 0 && CityPoles.Enabled) { r = CityPoles.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs); if (r != 0) what = "prep:poles"; }
             if (r == 0) return 0;
             float ms = (float)clock.Elapsed.TotalMilliseconds;
-            var timing = new TileTiming { tx = tx, tz = tz, treeFrame = true, treesMs = ms, totalMs = ms, signsMs = ms };
+            var timing = new TileTiming { tx = tx, tz = tz, treeFrame = true, treesMs = ms, totalMs = ms, signsMs = ms,
+                                          treeStep = what, treeStepMs = what == "prep:signs" ? signsPart : ms - signsPart };
             recentBuilds.Add((Time.realtimeSinceStartup, ms));
             if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
             TileBuilt?.Invoke(timing);
@@ -1451,8 +1541,17 @@ namespace PSXRacing.City
             // THE TREES (WP-08) come after everything they must keep clear of
             // (the tile's roads, fill houses and lamps are in tm, the lots in
             // the building table) and on a later frame: queued here with the
-            // lattice this build cached, planted by PlantTrees.
-            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0 || tm.mastHeads.Count > 0) treesPending[key] = (tm, CityMeshes.TakeLattice());
+            // lattice this build cached, planted by PlantTrees - or, a baked
+            // tile's (city-tree-bake), its planted frame queued to stand up.
+            var bakedTrees = standUpTrees;
+            standUpTrees = null;
+            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0 || tm.mastHeads.Count > 0)
+            {
+                var lattice = CityMeshes.TakeLattice();
+                if (bakedTrees != null) { bakedTrees.tm = tm; bakedTrees.lattice = lattice; treesBaked[key] = bakedTrees; }
+                else treesPending[key] = (tm, lattice);
+            }
+            else bakedTrees?.Release();
             double tTrees = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A

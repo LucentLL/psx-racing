@@ -47,12 +47,29 @@ namespace PSXRacing.City
     /// here (the bake tool refuses to bake a TileMeshes it does not know -
     /// <see cref="KnownFields"/>); anything a stand-up reads from the
     /// builder's statics must come with the tile the way the lattice does.
+    ///
+    /// FORMAT 2 (city-tree-bake, 2026-11-03): THE TREE FRAME comes with the
+    /// tile. The bake tool plants every tile as play does (its signs and poles
+    /// decided, then CityTrees.BuildSteps: the mask, junction furniture, poles,
+    /// signs, trees, understory) and writes what the planting returned - the
+    /// whole <see cref="CityTrees.TreeTile"/> (its trees, its understory, its
+    /// poles and wires, its signals, lenses and halos, its signs and guide
+    /// signs, every list and count the stand-up reads) - after the lattice. A
+    /// baked tile then plants nothing on the main thread: CityWorld makes the
+    /// frame's meshes and stands it up (StandTrees, the same code a planted
+    /// frame takes). The trees' own mesh is not written: their list is, and a
+    /// worker rebuilds the mesh with the planting's own code
+    /// (<see cref="CityTrees.CardData"/>). A new field on any of the frame's
+    /// classes must be carried or named as left out (<see cref="TreeFields"/>,
+    /// the bake tool refuses otherwise). PSX_CITY_TREEBAKE=0 or
+    /// -psx-treebake-off: baked frames ignored, every tile planted live (the A/B).
     /// </summary>
-    public static class CityTileCache
+    public static partial class CityTileCache
     {
         /// <summary>The file layout. Part of the fingerprint: a change of it
-        /// re-bakes (this file is among the generator's sources anyway).</summary>
-        public const int Format = 1;
+        /// re-bakes (this file is among the generator's sources anyway).
+        /// 2: the tile's tree frame after its lattice.</summary>
+        public const int Format = 2;
         public const string FolderName = "CityTiles";
         public const string ManifestName = "manifest.txt";
         /// <summary>The player's own fingerprint: Resources/citytiles_stamp.txt,
@@ -72,6 +89,7 @@ namespace PSXRacing.City
         static int state = -1;   // -1 not opened, 0 no bake, 1 open
         static HashSet<long> tiles;
         static string dir, why = "not opened";
+        static bool treesOk;
 
         /// <summary>A bake is open and matches this build.</summary>
         public static bool On
@@ -89,8 +107,18 @@ namespace PSXRacing.City
         public static int TileCount => tiles != null ? tiles.Count : 0;
         /// <summary>The tile is in the open bake.</summary>
         public static bool Has(int tx, int tz) => On && tiles.Contains(Key(tx, tz));
+        /// <summary>The open bake's tree frames were planted at this
+        /// runtime's densities (<see cref="TreeDensities"/>): a phone, which
+        /// plants fewer, plants its own on the baked tiles.</summary>
+        public static bool TreesOn => On && treesOk;
         /// <summary>Forget the open bake (a tool baked a new one).</summary>
-        public static void Reset() { state = -1; tiles = null; dir = null; why = "not opened"; }
+        public static void Reset() { state = -1; tiles = null; dir = null; why = "not opened"; treesOk = false; }
+
+        /// <summary>The densities a tree frame is planted at (the trees', the
+        /// understory's: the device's), as the manifest records them.</summary>
+        public static string TreeDensities() =>
+            CityTrees.Density.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "/" +
+            CityUnderstory.Density.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
 
         static long Key(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
         public static string FileName(int tx, int tz) => "t" + tx + "_" + tz + ".bin";
@@ -133,9 +161,10 @@ namespace PSXRacing.City
             "PSX_CITY_PREUPLOAD", "PSX_CITY_BAKE", "PSX_CITY_FASTCOOK", "PSX_CITY_FADE", "PSX_CITY_TRAFFIC",
             "PSX_CITY_PROXIES", "PSX_CITY_FARCOVER", "PSX_CITY_FARFILL", "PSX_CITY_FARJAG", "PSX_CITY_FARLAND",
             "PSX_CITY_FARLIGHTSDAY", "PSX_CITY_FARPREFETCH", "PSX_CITY_FARSTAGE", "PSX_CITY_FARWORKER",
-            "PSX_CITY_FUEL", "PSX_CITY_HTRACE",
+            "PSX_CITY_FUEL", "PSX_CITY_HTRACE", "PSX_CITY_TREEBAKE",
         };
-        static readonly string[] GeneratorPrefixes = { "PSX_CITY_", "PSX_BLD_", "PSX_CROWN_", "PSX_DECK_", "PSX_FAC_", "PSX_HEROES", "PSX_R11_" };
+        /// <summary>(format 2: the tree frame's switches too - the understory's, the signs'.)</summary>
+        static readonly string[] GeneratorPrefixes = { "PSX_CITY_", "PSX_BLD_", "PSX_CROWN_", "PSX_DECK_", "PSX_FAC_", "PSX_HEROES", "PSX_R11_", "PSX_UNDERSTORY", "PSX_SIGNS_" };
 
         /// <summary>The generator switches set in this process's environment,
         /// sorted NAME=value, or "-" for none.</summary>
@@ -160,6 +189,15 @@ namespace PSXRacing.City
         {
             public int format;
             public string fingerprint = "", settings = "-", note = "";
+            /// <summary>The densities its tree frames were planted at
+            /// (<see cref="TreeDensities"/>); empty: no tree frames.</summary>
+            public string trees = "";
+            /// <summary>What the bake set out to cover: "all" (the whole city),
+            /// "radius 4 km" (PSX_TILECACHE_RADIUS_KM) or "tiles N" (a list - the
+            /// gate's). A build takes a bake as fresh only for the cover it asks
+            /// for, so a partial bake is never shipped as the city's. Empty (an
+            /// older manifest): "all".</summary>
+            public string cover = "";
             public readonly List<(int tx, int tz, long bytes)> tiles = new List<(int, int, long)>();
             public long Bytes { get { long b = 0; foreach (var t in tiles) b += t.bytes; return b; } }
 
@@ -180,6 +218,8 @@ namespace PSXRacing.City
                         else if (k == "fingerprint") m.fingerprint = v;
                         else if (k == "settings") m.settings = v;
                         else if (k == "note") m.note = v;
+                        else if (k == "trees") m.trees = v;
+                        else if (k == "cover") m.cover = v;
                         continue;
                     }
                     var parts = line.Split(',');
@@ -197,6 +237,8 @@ namespace PSXRacing.City
                 sb.AppendLine("fingerprint=" + fingerprint);
                 sb.AppendLine("settings=" + settings);
                 sb.AppendLine("note=" + note);
+                sb.AppendLine("trees=" + trees);
+                sb.AppendLine("cover=" + (string.IsNullOrEmpty(cover) ? "all" : cover));
                 sb.AppendLine("tiles=" + tiles.Count);
                 foreach (var t in tiles) sb.Append(t.tx).Append(',').Append(t.tz).Append(',').Append(t.bytes).AppendLine();
                 string tmp = Path.Combine(folder, ManifestName + ".tmp"), dst = Path.Combine(folder, ManifestName);
@@ -233,7 +275,10 @@ namespace PSXRacing.City
                 tiles = new HashSet<long>();
                 foreach (var t in m.tiles) tiles.Add(Key(t.tx, t.tz));
                 state = 1;
-                why = $"{tiles.Count} baked tiles, {m.Bytes / 1048576.0:0} MB at {dir} ({Short(want)})";
+                string dens = TreeDensities();
+                treesOk = m.trees == dens;
+                why = $"{tiles.Count} baked tiles, {m.Bytes / 1048576.0:0} MB at {dir} ({Short(want)}); tree frames " +
+                      (treesOk ? "baked" : string.IsNullOrEmpty(m.trees) ? "not in it (planted live)" : $"planted at {m.trees}, this device plants {dens} (planted live)");
             }
             catch (System.Exception e) { why = "bake unreadable: " + e.Message; state = 0; }
             finally { Debug.Log("[CityTileCache] " + why); }
@@ -245,7 +290,9 @@ namespace PSXRacing.City
         //  THE TILE FILE
         //  header: magic, format, tx, tz (16 bytes), then one deflate stream:
         //  the origin, the 11 meshes, the three slot lists, every list and
-        //  count of TileMeshes, the lattice.
+        //  count of TileMeshes, the lattice, then (format 2) the tree frame's
+        //  byte count (-1: none - nothing was waiting to plant) and the frame
+        //  (WriteTrees), and the magic again.
         // ==================================================================
 
         /// <summary>The meshes of a tile, in file order.</summary>
@@ -302,10 +349,11 @@ namespace PSXRacing.City
             }
         }
 
-        /// <summary>Write a tile: its encoded TileMeshes (<see cref="Encode"/>)
-        /// and the lattice its build cached and its stand-up and planting read.
+        /// <summary>Write a tile: its encoded TileMeshes (<see cref="Encode"/>),
+        /// the lattice its build cached and its stand-up and planting read, and
+        /// its encoded tree frame (<see cref="EncodeTrees"/>; null: none).
         /// Returns the file's size.</summary>
-        public static long Write(string path, int tx, int tz, byte[] body, Dictionary<long, float> lattice)
+        public static long Write(string path, int tx, int tz, byte[] body, Dictionary<long, float> lattice, byte[] trees)
         {
             string tmp = path + ".tmp";
             using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
@@ -320,6 +368,8 @@ namespace PSXRacing.City
                     int nl = lattice != null ? lattice.Count : 0;
                     w.Write(nl);
                     if (lattice != null) foreach (var kv in lattice) { w.Write(kv.Key); w.Write(kv.Value); }
+                    w.Write(trees != null ? trees.Length : -1);
+                    if (trees != null) w.Write(trees);
                     w.Write(Magic);   // the end, read back as a check
                 }
             }
@@ -491,6 +541,9 @@ namespace PSXRacing.City
             public CityMeshes.TileMeshes tm;
             public Dictionary<long, float> lattice;
             internal readonly MeshArrays[] meshes = new MeshArrays[MeshCount];
+            /// <summary>Format 2: the tile's tree frame (null: none baked, or
+            /// not read - the tile is planted live).</summary>
+            public TreeArrays trees;
             /// <summary>The worker's read + inflate + decode, ms; the file's size.</summary>
             public double readMs;
             public long bytes;
@@ -498,8 +551,9 @@ namespace PSXRacing.City
             public string error;
             /// <summary>Vertices over all its meshes.</summary>
             public int Vertices { get { int n = 0; foreach (var m in meshes) if (m != null) n += m.n; return n; } }
-            /// <summary>Hand the arrays back without making meshes (a drop).</summary>
-            public void Release() { foreach (var m in meshes) m?.Release(); }
+            /// <summary>Hand the arrays back without making meshes (a drop),
+            /// the tree frame's with them.</summary>
+            public void Release() { foreach (var m in meshes) m?.Release(); trees?.Release(); trees = null; }
         }
 
         internal sealed class MeshArrays
@@ -507,6 +561,10 @@ namespace PSXRacing.City
             public string name;
             public int n;
             public bool u32;
+            /// <summary>The bounds are the file's (a mesh may carry bounds grown
+            /// past its vertices: a wire stood up in the shader, a halo); false
+            /// for a mesh rebuilt here (the trees: its bounds recalculated).</summary>
+            public bool hasBounds;
             public Vector3[] v, nrm;
             public Vector4[] tan;
             public Color32[] col;
@@ -535,8 +593,10 @@ namespace PSXRacing.City
         [System.ThreadStatic] static ushort[] u16Scratch;
 
         /// <summary>Read a tile's file (any thread). Never throws: a failure
-        /// comes back as <see cref="Decoded.error"/> (the tile is then built live).</summary>
-        public static Decoded Read(string folder, int tx, int tz)
+        /// comes back as <see cref="Decoded.error"/> (the tile is then built
+        /// live). <paramref name="withTrees"/>: its tree frame decoded too (and
+        /// its tree mesh rebuilt), else passed over.</summary>
+        public static Decoded Read(string folder, int tx, int tz, bool withTrees = true)
         {
             var d = new Decoded { tx = tx, tz = tz };
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -610,6 +670,24 @@ namespace PSXRacing.City
                         n = r.ReadInt32();
                         var lat = new Dictionary<long, float>(System.Math.Max(n, 16));
                         for (int i = 0; i < n; i++) { long k = r.ReadInt64(); lat[k] = r.ReadSingle(); }
+                        // format 2: the tree frame, its own byte count first
+                        int tn = r.ReadInt32();
+                        if (tn > 0)
+                        {
+                            var buf = System.Buffers.ArrayPool<byte>.Shared.Rent(tn);
+                            try
+                            {
+                                ReadFully(r, new System.Span<byte>(buf, 0, tn));
+                                if (withTrees)
+                                    using (var ms = new MemoryStream(buf, 0, tn, false))
+                                    using (var tr = new BinaryReader(ms))
+                                    {
+                                        d.trees = ReadTrees(tr, tx, tz);
+                                        if (ms.Position != tn) throw new IOException($"the tree frame read {ms.Position} of its {tn} bytes");
+                                    }
+                            }
+                            finally { System.Buffers.ArrayPool<byte>.Shared.Return(buf); }
+                        }
                         if (r.ReadUInt32() != Magic) throw new IOException("the tile file ends wrong");
                         d.tm = tm;
                         d.lattice = lat;
@@ -619,7 +697,7 @@ namespace PSXRacing.City
             catch (System.Exception e)
             {
                 d.Release();
-                d.tm = null; d.lattice = null;
+                d.tm = null; d.lattice = null; d.trees = null;
                 d.error = e.GetType().Name + ": " + e.Message;
             }
             d.readMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -690,6 +768,7 @@ namespace PSXRacing.City
                 m.idx[s] = ix;
             }
             m.bounds = new Bounds(ReadV3(r), ReadV3(r) * 2f);
+            m.hasBounds = true;
             return m;
         }
 
@@ -730,6 +809,10 @@ namespace PSXRacing.City
             for (int s = 0; s < a.subs; s++)
                 m.SetIndices(a.idx[s], 0, a.idxN[s], MeshTopology.Triangles, s, false, 0);
             m.RecalculateBounds();
+            // the bounds the generator left on it (format 2: the furniture's and
+            // the signals' grown for their wires, the halos' for their glow; a
+            // tile mesh's are its vertices' anyway)
+            if (a.hasBounds) m.bounds = a.bounds;
             return m;
         }
 

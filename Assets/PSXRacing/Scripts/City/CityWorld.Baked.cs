@@ -20,9 +20,76 @@ namespace PSXRacing.City
     ///      job or a tree frame open meanwhile keeps its own).
     /// A tile under a car (EnsureTile) does all four at once. A tile the bake
     /// lacks, or whose file fails, is built live exactly as before.
+    ///
+    /// THE TREE FRAME comes with it (city-tree-bake, 2026-11-03; format 2): the
+    /// worker reads the frame the bake tool planted (trees, understory, poles,
+    /// signals, signs) and rebuilds the trees' mesh; the stand-up queues it in
+    /// <see cref="treesBaked"/> instead of a planting, and a later frame makes
+    /// its meshes and the next stands it up through StandTrees - no sign or
+    /// pole is decided, nothing planted, on the main thread. A car in the tile
+    /// stands it at once. <see cref="BakedTrees"/> off: planted live as before.
     /// </summary>
     public partial class CityWorld
     {
+        // ---- the baked tree frames (city-tree-bake) ---------------------------
+        /// <summary>Stand baked tiles' tree frames up from the bake (default);
+        /// PSX_CITY_TREEBAKE=0 or -psx-treebake-off: plant them live, as before
+        /// (the A/B in one player).</summary>
+        public static bool BakedTrees = System.Environment.GetEnvironmentVariable("PSX_CITY_TREEBAKE") != "0" &&
+                                        System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-psx-treebake-off") < 0;
+
+        /// <summary>A baked tile's tree frame, waiting: the tile's build and
+        /// lattice (as a planting's wait), the frame as read (or made).</summary>
+        sealed class BakedTreeFrame
+        {
+            public CityMeshes.TileMeshes tm;
+            public Dictionary<long, float> lattice;
+            public CityTileCache.TreeArrays arrays;
+            public CityTrees.TreeTile made;
+            public void Release()
+            {
+                arrays?.Release(); arrays = null;
+                KillTreeTile(made); made = null;
+            }
+        }
+
+        /// <summary>Baked tiles whose tree frames wait to stand up.</summary>
+        readonly Dictionary<long, BakedTreeFrame> treesBaked = new Dictionary<long, BakedTreeFrame>();
+        /// <summary>StandUpBaked's tree frame for the stand-up it calls (StandUpNow queues it).</summary>
+        BakedTreeFrame standUpTrees;
+        /// <summary>Tree frames stood up from the bake since load.</summary>
+        public static int BakedTreesStood { get; private set; }
+        /// <summary>A tree frame about to stand up, planted or baked, with its
+        /// meshes made and nothing attached yet (the bake tool writes it; the
+        /// gate hashes it).</summary>
+        public static event System.Action<long, CityTrees.TreeTile> TreeFrameReady;
+
+        /// <summary>A baked tree frame: its meshes made, then stood up the way a
+        /// planted one is (StandTrees). <paramref name="whole"/>: both now (a
+        /// car is in its tile; a course, a grid or a tool loads); else one a
+        /// call - the meshes, and the stand-up on the next call.</summary>
+        void StandBakedTreesNow(long key, bool whole)
+        {
+            if (!treesBaked.TryGetValue(key, out var bt)) return;
+            if (!live.TryGetValue(key, out var tile) || tile.go == null) { treesBaked.Remove(key); bt.Release(); return; }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            if (bt.made == null)
+            {
+                long pc = PerfClock.On ? PerfClock.Now() : 0;
+                bt.made = CityTileCache.MakeTrees(bt.arrays);
+                bt.arrays = null;
+                if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TreeBaked, pc);
+                if (!whole && bt.made != null) return;
+            }
+            treesBaked.Remove(key);
+            var tt = bt.made;
+            bt.made = null;
+            if (tt == null) return;
+            TreeFrameReady?.Invoke(key, tt);
+            lastTreeStep = "baked"; lastTreeStepMs = (float)clock.Elapsed.TotalMilliseconds;
+            StandTrees(key, tile, tt, bt.tm, clock);
+            BakedTreesStood++;
+        }
         sealed class BakedLoad
         {
             public int tx, tz;
@@ -97,8 +164,9 @@ namespace PSXRacing.City
             var bl = new BakedLoad { tx = tx, tz = tz, need = need, stage = 0 };
             baked[k] = bl;
             string folder = CityTileCache.Dir;
+            bool trees = BakedTrees && CityTileCache.TreesOn;
             CityTileCache.Decoded dec = null;
-            CityWorker.Run(() => dec = CityTileCache.Read(folder, tx, tz), () =>
+            CityWorker.Run(() => dec = CityTileCache.Read(folder, tx, tz, trees), () =>
             {
                 if (bl.dropped) { dec?.Release(); return; }
                 bl.dec = dec;
@@ -137,7 +205,7 @@ namespace PSXRacing.City
             bl.stage = 2;
             CityWorker.Run(() => { foreach (var id in ids) Physics.BakeMesh(id, false, opts); }, () =>
             {
-                if (bl.dropped) { KillMeshes(bl.tm); return; }
+                if (bl.dropped) { KillMeshes(bl.tm); bl.dec?.Release(); return; }
                 bl.stage = 3;
             });
         }
@@ -147,13 +215,40 @@ namespace PSXRacing.City
         /// its stations now), as a tile built whole.</summary>
         void StandUpBaked(long k, BakedLoad bl, int slices)
         {
-            if (live.ContainsKey(k)) { KillMeshes(bl.tm); return; }
-            string sig = VerifyBaked && job == null && treeSteps == null ? CityTileCache.DataHash(bl.tm) : null;
+            if (live.ContainsKey(k)) { KillMeshes(bl.tm); bl.dec.Release(); return; }
+            bool verify = VerifyBaked && job == null && treeSteps == null;
+            string sig = verify ? CityTileCache.DataHash(bl.tm) : null;
+            // its TREE FRAME, baked with it (city-tree-bake): the stand-up queues it
+            // to stand later - nothing of it is planted; the verify makes it now and
+            // hashes it before anything stands it up
+            BakedTreeFrame trees = null;
+            string treeSig = null, treeParts = null;
+            if (bl.dec.trees != null)
+            {
+                if (BakedTrees && CityTileCache.TreesOn)
+                {
+                    trees = new BakedTreeFrame { arrays = bl.dec.trees };
+                    if (verify)
+                    {
+                        trees.made = CityTileCache.MakeTrees(trees.arrays);
+                        trees.arrays = null;
+                        treeSig = CityTileCache.TreeHash(trees.made);
+                        treeParts = CityTileCache.TreeHashParts(trees.made);
+                    }
+                }
+                else bl.dec.trees.Release();
+                bl.dec.trees = null;
+            }
             var prev = CityMeshes.SwapLattice(bl.dec.lattice);
+            standUpTrees = trees;
             try { StandUp(k, bl.tx, bl.tz, bl.tm, bl.dec.readMs + bl.makeMs, slices, (float)bl.makeMs); }
-            finally { CityMeshes.SwapLattice(prev); }
+            finally
+            {
+                CityMeshes.SwapLattice(prev);
+                if (standUpTrees != null) { standUpTrees.Release(); standUpTrees = null; }   // (a stand-up that threw)
+            }
             BakedStood++;
-            if (sig != null) Verify(bl.tx, bl.tz, sig);
+            if (sig != null) Verify(bl.tx, bl.tz, sig, treeSig, treeParts);
         }
 
         // ---- the gate in the shipping runtime: -psx-tilecache-verify ---------
@@ -165,13 +260,32 @@ namespace PSXRacing.City
                                          System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-psx-tilecache-verify") >= 0;
         public static int VerifiedEqual { get; private set; }
         public static int VerifiedDiffer { get; private set; }
+        /// <summary>city-tree-bake: baked tree frames planted again by this
+        /// player and found equal / different.</summary>
+        public static int TreesVerifiedEqual { get; private set; }
+        public static int TreesVerifiedDiffer { get; private set; }
 
-        void Verify(int tx, int tz, string bakedSig)
+        void Verify(int tx, int tz, string bakedSig, string bakedTreeSig, string bakedTreeParts)
         {
             // (no job and no tree frame open: the build's scratch and lattice are free)
             var tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
-            CityMeshes.TakeLattice();
             string builtSig = CityTileCache.DataHash(tm);
+            string builtTrees = null, builtParts = null;
+            if (bakedTreeSig != null)
+            {
+                // its tree frame planted here too, as play plants one: the lattice
+                // handed over (StandUp's), the signs and poles that reach the tile
+                // decided on a fresh cache, then planted on its lattice (BeginTrees)
+                var lattice = CityMeshes.TakeLattice();
+                long key = Key(tx, tz);
+                for (int g = 0; g < 400 && PrepareSigns(key) != 0; g++) { }
+                CityMeshes.PutLattice(lattice);
+                var tt = CityTrees.Build(Map, nodeTrims, buildings, tm, tx, tz);
+                builtTrees = CityTileCache.TreeHash(tt);
+                if (builtTrees != bakedTreeSig) builtParts = CityTileCache.TreeHashParts(tt);
+                KillTreeTile(tt);
+            }
+            CityMeshes.TakeLattice();
             KillMeshes(tm);
             if (builtSig == bakedSig) VerifiedEqual++;
             else
@@ -179,8 +293,17 @@ namespace PSXRacing.City
                 VerifiedDiffer++;
                 if (VerifiedDiffer <= 20) Debug.LogWarning($"[CityTileCache] VERIFY tile {tx},{tz}: baked {bakedSig} / built here {builtSig} - DIFFER");
             }
-            if ((VerifiedEqual + VerifiedDiffer) % 25 == 0 || VerifiedDiffer == 1)
-                Debug.Log($"[CityTileCache] verify: {VerifiedEqual} tiles equal, {VerifiedDiffer} differ (baked vs built by this player)");
+            if (bakedTreeSig != null)
+            {
+                if (builtTrees == bakedTreeSig) TreesVerifiedEqual++;
+                else
+                {
+                    TreesVerifiedDiffer++;
+                    if (TreesVerifiedDiffer <= 20) Debug.LogWarning($"[CityTileCache] VERIFY tree frame {tx},{tz}: baked {bakedTreeSig} ({bakedTreeParts}) / planted here {builtTrees} ({builtParts}) - DIFFER");
+                }
+            }
+            if ((VerifiedEqual + VerifiedDiffer) % 25 == 0 || VerifiedDiffer == 1 || TreesVerifiedDiffer == 1)
+                Debug.Log($"[CityTileCache] verify: {VerifiedEqual} tiles equal, {VerifiedDiffer} differ; tree frames {TreesVerifiedEqual} equal, {TreesVerifiedDiffer} differ (baked vs built and planted by this player)");
         }
 
         /// <summary>EnsureTile's half: the tile now, from the bake, if it holds
@@ -197,7 +320,7 @@ namespace PSXRacing.City
                 Cancel(key, bl);
             }
             long pc = PerfClock.On ? PerfClock.Now() : 0;
-            var dec = CityTileCache.Read(CityTileCache.Dir, tx, tz);
+            var dec = CityTileCache.Read(CityTileCache.Dir, tx, tz, BakedTrees && CityTileCache.TreesOn);
             if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileSync, pc);
             if (dec.error != null)
             {
@@ -268,9 +391,10 @@ namespace PSXRacing.City
             baked.Remove(k);
             bl.dropped = true;
             // a worker still holds stage 0 (its apply hands the arrays back) and
-            // stage 2 (its apply destroys the meshes)
+            // stage 2 (its apply destroys the meshes); the tree frame's arrays
+            // go back with the tile's
             if (bl.stage == 1) bl.dec?.Release();
-            else if (bl.stage == 3) KillMeshes(bl.tm);
+            else if (bl.stage == 3) { KillMeshes(bl.tm); bl.dec?.Release(); }
         }
 
         static void KillMeshes(CityMeshes.TileMeshes tm)

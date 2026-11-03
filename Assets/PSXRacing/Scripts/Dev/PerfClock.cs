@@ -34,6 +34,8 @@ namespace PSXRacing
             CarReflect, Minimap,
             // (the baked city: a tile's meshes made from its file - CityTileCache.Apply)
             TileBaked,
+            // (city-tree-bake: a baked tile's tree frame's meshes made - CityTileCache.MakeTrees)
+            TreeBaked,
             COUNT
         }
 
@@ -45,6 +47,7 @@ namespace PSXRacing
             "traffic update", "traffic fixed", "lamp field",
             "car reflections", "minimap",
             "tile baked",
+            "tree baked",
         };
 
         static readonly double ToMs = 1000.0 / Stopwatch.Frequency;

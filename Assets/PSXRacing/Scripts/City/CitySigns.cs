@@ -473,6 +473,12 @@ namespace PSXRacing.City
         static bool OffPoles(Vector2 a, Vector2 b, float r) =>
             !KeepOffPoles || CityPoles.SignClear(mapNow, trimsNow, buildingsNow, a, b, r);
 
+        /// <summary>The ground a gantry, a billboard or a guide or warning sign
+        /// stands on (city-tree-bake): they are decided once, by whichever tile
+        /// asks first, so on the order-free ground (CityMeshes.SharedGroundAt) -
+        /// not the builder's cache, which the tile built last fills.</summary>
+        static float SharedGround(CityMap map, float x, float z) => CityMeshes.SharedGroundAt(map, trimsNow, buildingsNow, x, z);
+
         /// <summary>A business cabinet's half depth (its two faces 0.44 m apart).</summary>
         const float CabinetHalfD = 0.22f;
         /// <summary>A gantry's plan half depth along the road: its legs (1.4 m), the truss (1.1 m).</summary>
@@ -1085,7 +1091,7 @@ namespace PSXRacing.City
                 // heights (NCDOT's total height median is 13.4 m): a freeway
                 // bulletin's face 9.5 m or more over the ground and 8 m over the
                 // road; elsewhere 6.5 m and 5 m
-                float g = CityMeshes.LatticeAt(map, P.x, P.y);
+                float g = SharedGround(map, P.x, P.y);
                 float roadY = e.YAt(c.s);
                 int hk = (int)(CityTrees.Hash01(c.edge, (int)c.s, 47) * 1000f);
                 float bottom = c.freeway ? Mathf.Max(g + 9.5f, roadY + 8f) + (hk % 250) / 100f : Mathf.Max(g + 6.5f, roadY + 5f) + (hk % 250) / 100f;
