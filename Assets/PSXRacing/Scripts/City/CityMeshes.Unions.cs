@@ -179,6 +179,7 @@ namespace PSXRacing.City
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var E = map.edges;
             int ne = E.Length;
+            if (divMap != map) { divEdges = null; divMap = null; }   // (dividers) never another map's table
             t.unions = new List<UnionRun>[ne];
             twinEndsOf.Clear();
             r8ChainPartners = r8Fills = r8Seams = r8DeckEnds = r8Dropped = 0; r8FillM = r8DeckEndM = 0f;

@@ -22,7 +22,14 @@ namespace PSXRacing.EditorTools
     public static partial class CityAudit
     {
         const float MedianTwinM = 40f, MedianGapMaxM = 15f, MedianStepM = 2f, MedianSpotM = 25f;
+        /// <summary>(dividers, 2026-11-02) a cable or open median is read out to this width
+        /// (the concrete rules stop at MedianGapMaxM; I-485's grass runs 10-35 m).</summary>
+        const float MedianTwinDivM = 75f, MedianGapDivM = 45f;
         static int medSamples, medZero, medOne, medMany, medSplit, medWide;
+        /// <summary>(dividers) rays across a cable or open median: cable one / none / two+,
+        /// overpass zones met by a barrier / by none, open medians (expected none) / with one,
+        /// split levels skipped.</summary>
+        static int divOne, divZero, divMany, divZoneOk, divZoneZero, divOpen, divOpenHit, divSplit, divWide;
         static readonly Dictionary<string, int[]> medByName = new Dictionary<string, int[]>();
         static readonly List<(Vector2 p, string note)> medSpots = new List<(Vector2, string)>();
         static readonly HashSet<long> medDone = new HashSet<long>();
@@ -43,6 +50,7 @@ namespace PSXRacing.EditorTools
         static void MedianLateralReset(CityMap map)
         {
             medSamples = medZero = medOne = medMany = medSplit = medWide = 0;
+            divOne = divZero = divMany = divZoneOk = divZoneZero = divOpen = divOpenHit = divSplit = divWide = 0;
             medV = medWideGeom = fanRays = fanZero = fanZeroCross = fanOne = fanMany = 0;
             fanSpots.Clear();
             medByName.Clear(); medSpots.Clear(); medDone.Clear(); medRouteAt.Clear(); medSeq.Clear();
@@ -85,8 +93,10 @@ namespace PSXRacing.EditorTools
                     if (p.x < min.x || p.x >= max.x || p.y < min.y || p.y >= max.y) continue;
                     var tan = e.TangentAt(s);
                     // the opposing twin: same name, one-way, the other way, nearest
+                    bool divE = CityMeshes.DividerAt(e) != CityMeshes.DividerKind.Concrete;
+                    float twinR = divE ? MedianTwinDivM : MedianTwinM;
                     medSegs.Clear();
-                    map.EdgeSegsInRect(p - Vector2.one * MedianTwinM, p + Vector2.one * MedianTwinM, medSegs);
+                    map.EdgeSegsInRect(p - Vector2.one * twinR, p + Vector2.one * twinR, medSegs);
                     CityMap.Edge o = null; float ot = 0f, od = float.MaxValue;
                     foreach (int seg in medSegs)
                     {
@@ -97,16 +107,21 @@ namespace PSXRacing.EditorTools
                         float d = Vector2.Distance(c.PointAt(t), p);
                         if (d < od) { od = d; o = c; ot = t; }
                     }
-                    if (o == null || od > MedianTwinM) continue;
+                    if (o == null) continue;
                     float gap = od - e.HalfMax - o.HalfMax;
-                    if (gap > MedianGapMaxM) continue;
+                    // (dividers) what this median should stand: -1 the concrete rules as before
+                    int dcls = CityMeshes.DividerRayClass(e, s, o, ot);
+                    if (dcls < 0 && (od > MedianTwinM || gap > MedianGapMaxM)) continue;
+                    if (dcls >= 0 && (od > MedianTwinDivM || gap > MedianGapDivM)) continue;
                     var po = o.PointAt(ot);
                     var right = new Vector2(-tan.y, tan.x);
                     int sideE = Vector2.Dot(po - p, right) >= 0f ? 1 : -1;
                     var tanO = o.TangentAt(ot);
                     int sideO = Vector2.Dot(p - po, new Vector2(-tanO.y, tanO.x)) >= 0f ? 1 : -1;
                     medRouteAt.TryGetValue(ei, out var rAt);
-                    if (Mathf.Abs(e.YAt(s) - o.YAt(ot)) > CityMeshes.UnionSplitDyM) { medSplit++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    bool splitLvl = Mathf.Abs(e.YAt(s) - o.YAt(ot)) > CityMeshes.UnionSplitDyM;
+                    if (splitLvl && dcls >= 0) divSplit++;   // (dividers) read from above all the same: a grass median between two levels is still one median
+                    if (splitLvl && dcls < 0) { medSplit++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
                     Vector3 a = MedianLaneIn(map, trims, e, s, sideE, 1.8f), b = MedianLaneIn(map, trims, o, ot, sideO, 1.8f);
                     var dir = b - a; float len = dir.magnitude;
                     if (len < 0.5f) continue;
@@ -124,16 +139,30 @@ namespace PSXRacing.EditorTools
                         if (done >= len) break;
                         from += dir * step;
                     }
+                    // (dividers) a grass median falls to a ditch: the cable stands on its floor,
+                    // under a ray 0.5 m over the lanes. Its barriers are counted from above
+                    // instead - a ray down every 0.1 m across, each run of Solid hits one barrier
+                    if (dcls >= 0) { int np = ProfileBarriers(a, b, solid, out string ph, out float pf, out float pl); if (np >= n) { n = np; hits = ph; firstHit = pf; lastHit = pl; } }
                     medSamples++;
                     // (round 9) a split's V: its two legs are its designed end, as a deck's V is
                     if (n >= 2 && CityMeshes.InSplitV(new Vector2(a.x, a.z), new Vector2(b.x, b.z))) { medV++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    // (dividers) a cable or open median: an overpass zone's W-beam each side is
+                    // the design (and the cable lapping in behind them); an open pair stands none;
+                    // a cable median exactly one - the cable, or the concrete side's Jersey at a
+                    // stagger - and none or two+ are the defects, never "wide by design"
+                    if (dcls == 2 && n >= 1) { divZoneOk++; medSeq.Add((rAt.route, rAt.at + s, 1, p, ei, s)); continue; }
+                    if (dcls == 0 && n == 0) { divOpen++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    if (dcls == 2) divZoneZero++;
+                    else if (dcls == 0) divOpenHit++;
+                    else if (dcls == 1) { if (n == 0) divZero++; else if (n == 1) divOne++; else divMany++; }
                     // a median wider than the shared one's band (Independence's
                     // busway): a wall each side is the design, not a box
                     string why = n == 1 ? "" : CityMeshes.GroundTwinWhy(map, trims, e, s) + " / from e" + o.index + ": " + CityMeshes.GroundTwinWhy(map, trims, o, ot);
-                    if (n >= 2 && (why.StartsWith("gap ") || why.Contains(": gap "))) { medWide++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    if (dcls >= 0 && n != 1) why = $"divider {CityMeshes.DividerAt(e)}/{CityMeshes.DividerAt(o)} ray class {dcls}";
+                    if (dcls < 0 && n >= 2 && (why.StartsWith("gap ") || why.Contains(": gap "))) { medWide++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
                     // (round 9) ...measured from the walls: exactly two, each at its own carriageway's
                     // edge, the edges further apart than the band - whatever the walk's reason reads
-                    if (n == 2 && WideByWalls(e, s, sideE, o, ot, sideO, a, dir, firstHit, lastHit)) { medWide++; medWideGeom++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    if (n == 2 && (dcls < 0 || dcls == 1) && WideByWalls(e, s, sideE, o, ot, sideO, a, dir, firstHit, lastHit)) { if (dcls == 1) { divMany--; divWide++; } medWide++; medWideGeom++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
                     medSeq.Add((rAt.route, rAt.at + s, n, p, ei, s));
                     if (!medByName.TryGetValue(e.name, out var byN)) medByName[e.name] = byN = new int[3];
                     int k = n == 0 ? 0 : n == 1 ? 1 : 2;
@@ -173,6 +202,28 @@ namespace PSXRacing.EditorTools
                     }
                 }
             }
+        }
+
+        /// <summary>(dividers) Barriers across a cable or open median counted from above: rays
+        /// down from 1.5 m over the higher lane every 0.05 m from a to b (lamps skipped), each
+        /// run of Solid hits one barrier, wherever in the ditch it stands.</summary>
+        static int ProfileBarriers(Vector3 a, Vector3 b, int solid, out string hits, out float first, out float last)
+        {
+            hits = ""; first = last = -1f;
+            float top = Mathf.Max(a.y, b.y) + 1.0f;   // a, b are 0.5 m over their lanes
+            var d = new Vector3(b.x - a.x, 0f, b.z - a.z);
+            float L = d.magnitude;
+            if (L < 1f) return 0;   // (first/last: horizontal metres from a, as the cast reports its hits)
+            d /= L;
+            int n = 0; bool inRun = false;
+            for (float t = 0.2f; t <= L - 0.2f; t += 0.05f)
+            {
+                var p = new Vector3(a.x + d.x * t, top, a.z + d.z * t);
+                bool hit = RaycastPastLamps(p, Vector3.down, out var h, 14f, solid, QueryTriggerInteraction.Ignore);
+                if (hit && !inRun) { n++; if (first < 0f) first = t; last = t; if (hits.Length < 160) hits += $" {h.collider.name}@{t:0.0}"; }
+                inRun = hit;
+            }
+            return n;
         }
 
         /// <summary>(round 9) The census ray across a divided road at arc s of e (the main loop's
@@ -243,6 +294,8 @@ namespace PSXRacing.EditorTools
             Line($"MEDIAN ACROSS DIVIDED ROUTES (owner 2026-10-24, boxes and diamonds): {medSamples} rays every {MedianStepM:0} m from a one-way route carriageway's inner lane " +
                  $"to its opposing twin's (inner edges within {MedianGapMaxM:0} m), Solid walls crossed: one {medOne}, two or more {medMany}, none {medZero}; a wall each side of a median wider than the shared one's band (reported) {medWide}; split levels skipped {medSplit};{names}");
             foreach (var sp in medSpots) Line("    " + sp.note);
+            Line($"MEDIAN ACROSS (dividers, CityMeshes.Dividers): cable medians one {divOne}, none {divZero}, two+ {divMany}, a rail at each carriageway's own median edge (no cable between: the rails are the barrier, reported with the wide medians) {divWide}; overpass zones (a W-beam each side by design) met by a barrier {divZoneOk}, by none {divZoneZero}; " +
+                 $"open medians (none expected) {divOpen}, with a barrier {divOpenHit}; between two levels (read from above) {divSplit} (counted in the totals above: one/none/two+ include the cable rays)");
             // (round 9)
             Line($"MEDIAN ACROSS round 9: two+ walls that are a split's V (the shared median parting into each carriageway's own Jersey) {medV}; of the wide medians, read from the walls (two, each at its own edge, edges over {CityMeshes.SharedMedianBandM:0.0} m apart) {medWideGeom}; " +
                  $"rays across the routes' own junction fans {fanRays}: one {fanOne}, two+ {fanMany}, none {fanZero} where nothing leaves into the median, none {fanZeroCross} where a road does (an opening)");
@@ -264,7 +317,10 @@ namespace PSXRacing.EditorTools
         const float MedianBreakM = 16f;
         static void MedianClasses()
         {
-            var seq = new List<(string route, float at, int n, Vector2 p, int edge, float s)>(medSeq);
+            // an edge-set audit (PSX_DRIVE_EDGES) has no route: each edge is its own sequence
+            // (one shared empty route interleaved every edge's rays into false breaks)
+            var seq = new List<(string route, float at, int n, Vector2 p, int edge, float s)>(medSeq.Count);
+            foreach (var x in medSeq) seq.Add((string.IsNullOrEmpty(x.route) ? "e" + x.edge : x.route, x.at, x.n, x.p, x.edge, x.s));
             seq.Sort((x, y) => x.route != y.route ? string.CompareOrdinal(x.route ?? "", y.route ?? "") : x.at.CompareTo(y.at));
             int breaks = 0, gaps = 0, boxes = 0;
             var notes = new StringBuilder();
