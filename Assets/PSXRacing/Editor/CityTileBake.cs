@@ -163,7 +163,7 @@ namespace PSXRacing.EditorTools
             float T = CityMeshes.TileSize;
             int tx0 = Mathf.FloorToInt(x0 / T) - 1, tz0 = Mathf.FloorToInt(z0 / T) - 1, tx1 = Mathf.FloorToInt(x1 / T) + 1, tz1 = Mathf.FloorToInt(z1 / T) + 1;
             // a radius (PSX_TILECACHE_RADIUS_KM) round uptown, for a partial bake
-            float rad = float.TryParse(Environment.GetEnvironmentVariable("PSX_TILECACHE_RADIUS_KM"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float km) ? km * 1000f : float.MaxValue;
+            float rad = RadiusKm(out float km) ? km * 1000f : float.MaxValue;
             for (int tz = tz0; tz <= tz1; tz++)
                 for (int tx = tx0; tx <= tx1; tx++)
                 {
@@ -174,8 +174,16 @@ namespace PSXRacing.EditorTools
             return list;
         }
 
+        static bool RadiusKm(out float km) =>
+            float.TryParse(Environment.GetEnvironmentVariable("PSX_TILECACHE_RADIUS_KM"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out km);
+
+        /// <summary>What <see cref="AllTiles"/> covers in this process: "all", or
+        /// "radius N km" under PSX_TILECACHE_RADIUS_KM (the manifest's cover).</summary>
+        public static string Cover() =>
+            RadiusKm(out float km) ? "radius " + km.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " km" : "all";
+
         /// <summary>The bake in <paramref name="dir"/> is this editor's (same
-        /// fingerprint, every file of its manifest there).</summary>
+        /// fingerprint, the same cover, every file of its manifest there).</summary>
         public static bool IsFresh(string dir, out CityTileCache.Manifest m, out string why)
         {
             m = CityTileCache.Manifest.Load(dir);
@@ -183,6 +191,10 @@ namespace PSXRacing.EditorTools
             if (m.format != CityTileCache.Format) { why = "format " + m.format; return false; }
             string fp = Fingerprint(out string code, out string data);
             if (m.fingerprint != fp) { why = $"STALE: baked {Short(m.fingerprint)}, sources+data now {Short(fp)} (code {Short(code)}, data {Short(data)}, kit {Short(KitHash())}, settings {CityTileCache.Settings()})"; return false; }
+            // a partial bake (a radius, the gate's list) is fresh only for the same cover:
+            // the build of the whole city must not ship a 4 km bake as the city's
+            string cover = string.IsNullOrEmpty(m.cover) ? "all" : m.cover;
+            if (cover != Cover()) { why = $"PARTIAL: baked {cover}, this bake covers {Cover()}"; return false; }
             foreach (var t in m.tiles)
                 if (!File.Exists(CityTileCache.PathOf(dir, t.tx, t.tz))) { why = $"tile {t.tx},{t.tz} missing"; return false; }
             why = $"fresh: {m.tiles.Count} tiles, {m.Bytes / 1048576.0:0} MB ({Short(fp)})";
@@ -292,6 +304,7 @@ namespace PSXRacing.EditorTools
                     format = CityTileCache.Format, fingerprint = fp, settings = CityTileCache.Settings(),
                     note = $"code {Short(code)} data {Short(data)} kit {Short(KitHash())} baked {DateTime.Now:s} unity {Application.unityVersion}",
                     trees = CityTileCache.TreeDensities(),
+                    cover = only != null ? "tiles " + tiles.Count : Cover(),
                 };
                 var keep = new HashSet<string>();
                 long bytes = 0, verts = 0, maxBytes = 0, treeBytes = 0, treeCount = 0;

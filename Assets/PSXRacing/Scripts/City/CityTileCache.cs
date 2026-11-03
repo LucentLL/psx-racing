@@ -192,6 +192,12 @@ namespace PSXRacing.City
             /// <summary>The densities its tree frames were planted at
             /// (<see cref="TreeDensities"/>); empty: no tree frames.</summary>
             public string trees = "";
+            /// <summary>What the bake set out to cover: "all" (the whole city),
+            /// "radius 4 km" (PSX_TILECACHE_RADIUS_KM) or "tiles N" (a list - the
+            /// gate's). A build takes a bake as fresh only for the cover it asks
+            /// for, so a partial bake is never shipped as the city's. Empty (an
+            /// older manifest): "all".</summary>
+            public string cover = "";
             public readonly List<(int tx, int tz, long bytes)> tiles = new List<(int, int, long)>();
             public long Bytes { get { long b = 0; foreach (var t in tiles) b += t.bytes; return b; } }
 
@@ -213,6 +219,7 @@ namespace PSXRacing.City
                         else if (k == "settings") m.settings = v;
                         else if (k == "note") m.note = v;
                         else if (k == "trees") m.trees = v;
+                        else if (k == "cover") m.cover = v;
                         continue;
                     }
                     var parts = line.Split(',');
@@ -231,6 +238,7 @@ namespace PSXRacing.City
                 sb.AppendLine("settings=" + settings);
                 sb.AppendLine("note=" + note);
                 sb.AppendLine("trees=" + trees);
+                sb.AppendLine("cover=" + (string.IsNullOrEmpty(cover) ? "all" : cover));
                 sb.AppendLine("tiles=" + tiles.Count);
                 foreach (var t in tiles) sb.Append(t.tx).Append(',').Append(t.tz).Append(',').Append(t.bytes).AppendLine();
                 string tmp = Path.Combine(folder, ManifestName + ".tmp"), dst = Path.Combine(folder, ManifestName);
