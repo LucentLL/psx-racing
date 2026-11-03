@@ -65,7 +65,14 @@ namespace PSXRacing.EditorTools
                     var lp = LineModel.LanePoint(e, sc);
                     sb.AppendLine($"  s {sc,5:0.0} osm ({p.x:0.00},{p.y:0.00}) left ({l.x:0.00},{l.y:0.00}) shift {LineModel.ShiftAt(e, sc):0.00} ext -{em:0.00}/+{ep:0.00} lane ({lp.x:0.00},{lp.y:0.00}) centre {LineModel.LaneCentre(e, sc):0.00} y {e.YAt(sc):0.000}");
                 }
+                sb.AppendLine(" drawn outline:");
+                sb.Append(CityMeshes.DebugOutline(map, trims, ei));
             }
+            // PSX_JPROBE_NODES="n1,n2,...": each node as the tile builder draws it
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_JPROBE_NODES") ?? "").Split(','))
+                if (int.TryParse(t.Trim().TrimStart('n'), out int nd) && nd >= 0 && nd < map.nodes.Length)
+                    sb.AppendLine($"=== NODE n{nd} at ({map.nodes[nd].x:0.00},{map.nodes[nd].y:0.00}) " + CityMeshes.DescribeNode(map, trims, nd));
+            sb.AppendLine($"FAN DRAPE ({(CityMeshes.FanDrapeOn ? "ON" : "OFF")}): {CityMeshes.FanDrapeN} ribbon vertices put on a fan's height, largest move {CityMeshes.FanDrapeMaxMoved:0.000} m");
             sb.AppendLine($"BRANCH APRONS ({(CityMeshes.BranchApronOn ? "ON" : "OFF")}): {CityMeshes.BranchApronN}, widest {CityMeshes.BranchApronMaxM:0.00} m");
             foreach (var l in CityMeshes.BranchApronAt) sb.AppendLine("  " + l);
             sb.AppendLine($"BRANCH OVERHANGS LEFT: {CityMeshes.BranchApronLeft}");

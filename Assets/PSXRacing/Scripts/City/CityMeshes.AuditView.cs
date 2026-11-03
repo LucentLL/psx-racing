@@ -40,6 +40,18 @@ namespace PSXRacing.City
             return sb.ToString();
         }
 
+        /// <summary>Probe only (CityJunctionProbe, PSX_JPROBE_EDGES): an edge's
+        /// drawn outline, every section's two vertices (world space).</summary>
+        public static string DebugOutline(CityMap map, Trims trims, int ei)
+        {
+            var ol = OutlineOf(map, trims, ei);
+            if (ol == null || ol.L == null) return "  (no outline)";
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < ol.L.Length; i++)
+                sb.Append($"  [{i}] L ({ol.L[i].x:0.00},{ol.L[i].z:0.00},{ol.L[i].y:0.000}) R ({ol.R[i].x:0.00},{ol.R[i].z:0.00},{ol.R[i].y:0.000})\n");
+            return sb.ToString();
+        }
+
         // ---- what the audit records ask the tile builds to keep -------------
         // Null in a build: nothing is recorded and nothing changes. Set only
         // between AuditView.BeginRecord and EndRecord.

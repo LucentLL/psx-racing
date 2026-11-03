@@ -7353,6 +7353,7 @@ namespace PSXRacing.City
             }
             if (EaseSqueezes) EaseSqueeze(map, trims, e, list, sMin, sMax);
             JoinBuriedEnds(map, trims, e, list, sMin, sMax);
+            DrapeOnFans(map, trims, e, list);   // Five Points round 3
             endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
         }
 
