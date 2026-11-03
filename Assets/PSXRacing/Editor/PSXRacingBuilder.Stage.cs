@@ -358,6 +358,12 @@ namespace PSXRacing.EditorTools
         [Serializable] class DemMeta { public float baseM; public DemGridMeta near, far; }
 
         static bool stageDemLoaded;
+        /// <summary>The bake's datum: world y 0 is this many metres above sea
+        /// level (fetch_road.mjs writes heights - baseM), so a point's real
+        /// elevation is stageBaseM + y. SRTM, so it reads the canopy top -
+        /// up to +33 m on these ridges, ~0 on Mount Mitchell's summit road
+        /// (the bake agreed with the survey to a metre there).</summary>
+        static float stageBaseM;
         static short[] demNear, demFar;          // decimetres above baseM
         static DemGridMeta demNearMeta, demFarMeta;
         static List<Vector3> stageWp;            // the waypoints, world space
@@ -394,6 +400,7 @@ namespace PSXRacing.EditorTools
                     + metaPath + ")");
             var meta = JsonUtility.FromJson<DemMeta>(File.ReadAllText(metaPath));
             demNearMeta = meta.near; demFarMeta = meta.far;
+            stageBaseM = meta.baseM;
             demNear = ReadDemBytes(pre + "_dem_near.bytes", meta.near);
             demFar = ReadDemBytes(pre + "_dem_far.bytes", meta.far);
 
@@ -8112,14 +8119,40 @@ namespace PSXRacing.EditorTools
         /// crown, narrower for a spire.</summary>
         static float StageTreeWidth(TreeSpecies sp, float h) => h * (sp.conifer ? 0.62f : 1.0f);
 
+        /// <summary>
+        /// THE SHARE OF SPRUCE-FIR at a real elevation, metres above sea level
+        /// (Docs/reference/blue-ridge-roads.md F9, 2.12). It was the height
+        /// above each stage's OWN base (InverseLerp(35, 105, groundY)), so
+        /// Chimney Rock at 325-586 m, NC 226 and lower NC 226A carried up to
+        /// 36% spruce-fir cards while Mount Mitchell's 1,900-2,000 m summit
+        /// got only 36%. Red spruce and Fraser fir DOMINATE above ~1,700 m
+        /// (near-pure at the summit, dead fir snags among them - the bare
+        /// cell stands in), are MIXED with the northern hardwoods from
+        /// ~1,400 m, and below that are a scattering: a few percent, the
+        /// low venues' white pine and hemlock having no cells of their own.
+        /// Hand-picked breakpoints, linear between: 3% to 1,000 m, 10% at
+        /// 1,400, 65% at 1,700, 85% from 1,900. Read off the bake's datum
+        /// (stageBaseM + the ground's y) - SRTM, so a canopy's worth high
+        /// on a ridge, which these breakpoints are too coarse to mind.
+        /// </summary>
+        internal static float ConiferShareAt(float elevM)
+        {
+            if (elevM <= 1000f) return 0.03f;
+            if (elevM <= 1400f) return Mathf.Lerp(0.03f, 0.10f, (elevM - 1000f) / 400f);
+            if (elevM <= 1700f) return Mathf.Lerp(0.10f, 0.65f, (elevM - 1400f) / 300f);
+            if (elevM <= 1900f) return Mathf.Lerp(0.65f, 0.85f, (elevM - 1700f) / 200f);
+            return 0.85f;
+        }
+
         static int PickSpecies(System.Random rng, float x, float z, float groundY)
         {
             double roll = rng.NextDouble();
-            // Spruce-fir climbs with elevation — the top of the run is real
-            // red-spruce country. groundY is world (baseM-relative).
-            float elev = Mathf.InverseLerp(35f, 105f, groundY);
+            // Spruce-fir by REAL elevation (ConiferShareAt). The draws are the
+            // ones they always were - one roll, one pick - and the density
+            // (the grid, the keep rolls, ForestDenseTo) is untouched.
+            float conifer = ConiferShareAt(stageBaseM + groundY);
             if (roll < 0.05) return BareIdx;
-            if (roll < 0.05 + 0.06f + 0.30f * elev)
+            if (roll < 0.05 + conifer)
                 return ConiferGroup[rng.Next(ConiferGroup.Length)];
             float c = ForestClusterNoise(x, z);
             if (c > 0.42f) return RedGroup[rng.Next(RedGroup.Length)];
