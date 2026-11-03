@@ -160,6 +160,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestNightLook), TestNightLook);
             Guard(nameof(TestDayLook), TestDayLook);
             Guard(nameof(TestTexDecode), TestTexDecode);
+            Guard(nameof(TestArcade), TestArcade);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -204,6 +205,94 @@ namespace PSXRacing.EditorTools
         static void SeatCheck(bool ok, string what, object got = null)
         {
             Line((ok ? "  ok   " : "  SEAT ") + what + " [seat model]" + (got != null ? "  (got " + got + ")" : ""));
+        }
+
+        // ---------------------------------------------------------------
+        //  The arcade (2026-11-03): nothing banked, cars like yours
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// THE ARCADE KEEPS ITS HANDS OFF THE CAREER. While a session is on,
+        /// Edition.HasCareer reads false, so the save cannot be written and
+        /// LifeSimManager.State is a throwaway - and when it ends, the career
+        /// is exactly as it was. Then RACE's field: the count asked for, never
+        /// the player's own car, road cars against a road car, every rival
+        /// near it on power to weight; a parking deck races three; and a time
+        /// trial's best is only ever beaten, never worsened.
+        /// </summary>
+        static void TestArcade()
+        {
+            Line("arcade:");
+            var was = Edition.Simulated;
+            Edition.Simulate(EditionKind.All);
+            bool sessionWas = ArcadeMode.Active;
+            try
+            {
+                LifeSimManager.DeleteSave();
+                LifeSimManager.StartNewGame("ARC", 30, LifeRules.DefaultJobIndex);
+                LifeSimManager.State.money = 12345;
+                LifeSimManager.Save();
+
+                ArcadeMode.Simulate(true);
+                Check(!Edition.HasCareer, "an arcade session reads as no career");
+                Check(!LifeSimManager.Persists && !LifeSimManager.HasSave, "and nothing is saved in it");
+                var scratch = LifeSimManager.State;
+                Check(scratch != null && scratch.playerName != "ARC", "a stray ask gets a throwaway, not the career",
+                      scratch != null ? scratch.playerName : "null");
+                if (scratch != null) scratch.money = 999999;
+                LifeSimManager.Save();
+                ArcadeMode.Simulate(false);
+                Check(Edition.HasCareer, "the career is back when the session ends");
+                Check(LifeSimManager.State.playerName == "ARC" && LifeSimManager.State.money == 12345,
+                      "and exactly as it was", LifeSimManager.State.playerName + " $" + LifeSimManager.State.money);
+
+                if (CarCatalog.Ready)
+                {
+                    var player = CarCatalog.Get(CityFrontEnd.DefaultCarId());
+                    RaceHandoff.ClearAll();
+                    bool filled = ArcadeMode.FillField(player, RaceField.MaxCars - 1);
+                    string[] ids = (RaceHandoff.OpponentSpecIds ?? "").Split(new[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries);
+                    Check(filled && ids.Length == RaceField.MaxCars - 1, "RACE draws the rivals asked for", ids.Length);
+                    float pace = player.hp / Mathf.Max(600f, player.kg), worst = 1f;
+                    bool own = false, classMix = false;
+                    foreach (var id in ids)
+                    {
+                        var c = CarCatalog.Get(id);
+                        if (c == null) continue;
+                        if (c.id == player.id) own = true;
+                        if ((c.IsRaceCar || c.IsRallyCar) != (player.IsRaceCar || player.IsRallyCar)) classMix = true;
+                        float r = (c.hp / Mathf.Max(600f, c.kg)) / pace;
+                        worst = Mathf.Max(worst, r > 1f ? r : 1f / r);
+                    }
+                    Check(!own, "never the player's own car");
+                    Check(!classMix, "road cars against a road car");
+                    Check(worst < 1.6f, "every rival within 1.6x the player's power to weight",
+                          worst.ToString("0.00") + "x for " + player.name);
+                    RaceHandoff.ClearAll();
+                }
+                for (int i = 0; i < TrackCatalog.Count; i++)
+                {
+                    var t = TrackCatalog.At(i);
+                    if (!t.IsDeckRun) continue;
+                    Check(ArcadeMode.RivalsAt(t) <= RaceField.DragAndDeckCars - 1, "a parking deck races three rivals",
+                          ArcadeMode.RivalsAt(t));
+                    break;
+                }
+                const string Probe = "__selftest_course";
+                PlayerPrefs.DeleteKey("psx.arcade.best." + Probe);
+                Check(ArcadeMode.OfferBest(Probe, 100f, "A"), "a first time is a best");
+                Check(!ArcadeMode.OfferBest(Probe, 101f, "B") && Mathf.Approximately(ArcadeMode.Best(Probe), 100f),
+                      "a slower one is not", ArcadeMode.Best(Probe));
+                Check(ArcadeMode.OfferBest(Probe, 99.5f, "C") && ArcadeMode.BestCar(Probe) == "C",
+                      "a faster one is, with its car", ArcadeMode.BestCar(Probe));
+                PlayerPrefs.DeleteKey("psx.arcade.best." + Probe);
+                PlayerPrefs.DeleteKey("psx.arcade.bestcar." + Probe);
+            }
+            finally
+            {
+                ArcadeMode.Simulate(sessionWas);
+                LifeSimManager.DeleteSave();
+                Edition.Simulate(was);
+            }
         }
 
         // ---------------------------------------------------------------

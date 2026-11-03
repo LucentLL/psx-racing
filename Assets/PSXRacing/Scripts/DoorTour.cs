@@ -118,6 +118,9 @@ namespace PSXRacing
             /// to three times): a private seller says no at random, the next
             /// seller may not.</summary>
             public Door retryVia;
+            /// <summary>An ARCADE door: ArcadeFrontEnd.PendingPage, with an
+            /// arcade session on for this door only (ArcadeMode).</summary>
+            public string arcadePage;
         }
 
         /// <summary>MAIN's doors (ALL's too - a tour of an ALL player walks
@@ -185,6 +188,29 @@ namespace PSXRacing
             {
                 label = "free roam (Charlotte)",
                 hop = "charlotte",
+                expectScene = "Charlotte",
+                sentinel = "drive",
+                refuse = edition == EditionKind.Main,
+            });
+            // THE ARCADE (2026-11-03): a race off a course's card, a time trial
+            // on a reverse twin, and a cruise - which MAIN, with no city, must
+            // refuse - each through the arcade's own START.
+            foreach (var (id, mode) in new[] { ("BlueRidge", "race"), ("ChimneyRockRev", "trial") })
+            {
+                if (!TrackCatalog.TryIndexOf(id, out int v) || !Edition.ShipsIn(TrackCatalog.At(v), edition)) continue;
+                doors.Add(new Door
+                {
+                    label = "arcade " + mode + " " + id,
+                    arcadePage = "course:" + id + ":" + mode,
+                    press = "Btn_start",
+                    expectScene = TrackCatalog.SceneIdOf(v),
+                });
+            }
+            doors.Add(new Door
+            {
+                label = "arcade cruise (Charlotte)",
+                arcadePage = "options:cruise",
+                press = "Btn_start",
                 expectScene = "Charlotte",
                 sentinel = "drive",
                 refuse = edition == EditionKind.Main,
@@ -363,6 +389,7 @@ namespace PSXRacing
                 fail + " failed, " + skip + " skipped");
             // Home, and stop: the page stays up for the last picture.
             recording = false;
+            if (ArcadeMode.Active) { ArcadeMode.Simulate(false); RaceHandoff.ClearAll(); }
             SceneManager.LoadScene(0);
         }
 
@@ -370,7 +397,16 @@ namespace PSXRacing
         {
             errors.Clear();
             recording = true;
-            if (Edition.HasCareer)
+            // An ARCADE door opens on the arcade's own front end: a session on
+            // for it alone, and off again (the request with it) for the next.
+            bool arcade = d.arcadePage != null;
+            if (ArcadeMode.Active != arcade) { ArcadeMode.Simulate(arcade); RaceHandoff.ClearAll(); }
+            if (arcade)
+            {
+                d.prepare?.Invoke();
+                ArcadeFrontEnd.PendingPage = d.arcadePage;
+            }
+            else if (Edition.HasCareer)
             {
                 FillUp();
                 d.prepare?.Invoke();
