@@ -29,6 +29,8 @@ namespace PSXRacing
     public static class PlatformProfile
     {
         public const int CityRing = 2;   // ring 4 (2026-11-02) outran the main-thread tile builder on I-277: the bigger view waits for baked, streamed tiles
+        /// <summary>The ring with the baked city open (CityTileCache.On): 9 x 9 tiles, a kilometre each way.</summary>
+        public const int CityRingBaked = 4;
         public const int CityTrafficCap = 96;
         public const int HDMaxLines = 2160;
         public const int ProbeFacesPerFrame = 1;   // 2 cost +1.6 ms a frame on the Uptown tour (2026-11-02)

@@ -522,7 +522,10 @@ namespace PSXRacing.City
         {
             // THE PC PROFILE: 9 x 9 tiles, a kilometre of built city each way
             // (PlatformProfile). Tools set their own ring and never run it.
-            if (PlatformProfile.PC) ring = Mathf.Max(ring, PlatformProfile.CityRing);
+            // With the baked city open (CityTileCache) the ring is 4: tiles come off
+            // disk on the workers, and ring 4 measured full at 173 km/h and 58 fps
+            // (city-bake, 2026-11-02); built live it outran the builder on I-277.
+            if (PlatformProfile.PC) ring = Mathf.Max(ring, CityTileCache.On ? PlatformProfile.CityRingBaked : PlatformProfile.CityRing);
             // the baked city's A/B (a bigger built city once tiles come off disk):
             // PSXRacing.exe -psx-city-ring N
             if (PlatformProfile.PC && RingArg() is int r) ring = r;
