@@ -200,8 +200,16 @@ namespace PSXRacing
             TitleScreen.Attach(this);
         }
 
+        /// <summary>While this answers true the countdown waits where it is:
+        /// a city race's course still being built (CityWorld.PreloadCourse).
+        /// Cleared with the race.</summary>
+        public static System.Func<bool> HoldCountdown;
+
+        void OnDestroy() { HoldCountdown = null; }
+
         void Update()
         {
+            if (State == RaceState.Countdown && HoldCountdown != null && HoldCountdown()) return;
             CountdownRemaining -= Time.deltaTime;
             if (State == RaceState.Countdown)
             {

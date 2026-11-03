@@ -130,6 +130,8 @@ namespace PSXRacing.City
 
         public static float ShareAt(float clock)
         {
+            // THE PC PROFILE's traffic at its most: the peak, round the clock
+            if (PlatformProfile.MaxTraffic) return 1f;
             clock = Mathf.Repeat(clock, 24f);
             int h = Mathf.FloorToInt(clock) % 24;
             return Mathf.Lerp(HourShare[h], HourShare[(h + 1) % 24], clock - Mathf.Floor(clock));
@@ -525,7 +527,8 @@ namespace PSXRacing.City
             map = world.Map;
             trims = world.NodeTrims ?? CityWorld.SharedTrims;
             roadMask = 1 << CityWorld.RoadLayer;
-            cap = CapOverride > 0 ? CapOverride : Application.isMobilePlatform ? CapPhone : CapDesktop;
+            cap = CapOverride > 0 ? CapOverride : Application.isMobilePlatform ? CapPhone
+                : PlatformProfile.MaxTraffic ? PlatformProfile.CityTrafficCap : CapDesktop;
             Prepare();
             firstFillUntil = Time.time + 3f;
             driftAt = Time.time;

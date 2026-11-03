@@ -109,7 +109,13 @@ namespace PSXRacing
         float retryAt;
 #endif
 
-        void OnEnable() => Build();
+        void OnEnable()
+        {
+            Build();
+            // the space the car is in (AcousticSpace): its filters come after this
+            // chain on the listener, so they act on the shaped mix
+            if (AcousticSpace.Enabled && GetComponent<AcousticSpace>() == null) gameObject.AddComponent<AcousticSpace>();
+        }
 
         void Build() => Build(AudioSettings.outputSampleRate);
 

@@ -552,7 +552,7 @@ namespace PSXRacing
             }
             windLastPos = pos;
             windHavePos = true;
-            if (WeatherFx.LensRain <= 0f && WeatherFx.CarSnow <= 0f) return;
+            if (WeatherFx.CarRain <= 0f && WeatherFx.CarSnow <= 0f) return;
             float speed = windVel.magnitude;
             float wind = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(WindNoneMps, WindFullMps, speed));
             Vector3 air = speed > 0.5f ? -windVel / speed : -transform.forward;
@@ -664,7 +664,7 @@ namespace PSXRacing
                 // the rain's water film on every car's paint (THE FINISH)
                 Shader.SetGlobalFloat(PaintGloss.CarWetId, Seasons.CarWetNow);
                 // and the drops and flakes on them (PSXCarDrops)
-                Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(WeatherFx.LensRain, WeatherFx.CarSnow, 0f, 0f));
+                Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(WeatherFx.CarRain, WeatherFx.CarSnow, 0f, 0f));
             }
         }
 
