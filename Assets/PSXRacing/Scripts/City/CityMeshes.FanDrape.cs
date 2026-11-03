@@ -46,6 +46,37 @@ namespace PSXRacing.City
 
         static readonly List<int> drapeNodes = new List<int>(4);
 
+        /// <summary>
+        /// THE FIVE POINTS SCOPE (round 3). Rounds 2 and 3's geometry rules
+        /// (fan drape, branch aprons, flush median noses, walks stopped at a
+        /// branch, the branch seam) were proven by the drive-over at Five Points
+        /// only; city-wide the junction sweep could not show them clean (64
+        /// movements worse, 183 newly flagged against 163 cleared), so they
+        /// apply within <see cref="R23ScopeM"/> of Five Points until each is
+        /// proven elsewhere. PSX_CITY_R23_SCOPE=all: city-wide (for the sweep).
+        /// </summary>
+        public static bool R23ScopeAll = System.Environment.GetEnvironmentVariable("PSX_CITY_R23_SCOPE") == "all";
+        static readonly Vector2 R23Centre = new Vector2(-3725f, 6342f);
+        const float R23ScopeM = 90f;
+        public static bool InR23Scope(Vector2 p) => R23ScopeAll || (p - R23Centre).sqrMagnitude <= R23ScopeM * R23ScopeM;
+
+        /// <summary>A host keeps its own edge height along a branch clipped onto
+        /// it (MeetCandidate). PSX_CITY_BRANCH_SEAM=0: it steps down as before.</summary>
+        public static bool BranchSeamOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCH_SEAM") != "0";
+
+        /// <summary>A branch is clipped onto this edge at one of its nodes.</summary>
+        static bool HostsBranch(CityMap map, Trims trims, CityMap.Edge e)
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                var arms = map.nodeEdges[k == 0 ? e.a : e.b];
+                if (arms == null) continue;
+                foreach (int oi in arms)
+                    if (oi != e.index && (trims.branchA[oi] == e.index || trims.branchB[oi] == e.index)) return true;
+            }
+            return false;
+        }
+
         static void AddDrapeNode(int n) { if (!drapeNodes.Contains(n)) drapeNodes.Add(n); }
 
         static void DrapeNodesOf(CityMap map, Trims trims, CityMap.Edge e, int node)
@@ -117,6 +148,7 @@ namespace PSXRacing.City
         {
             int n = list.Count;
             if (!FanDrapeOn || n < 2 || e.a == e.b || e.tunnel || e.bridge) return;
+            if (!InR23Scope(map.nodes[e.a]) && !InR23Scope(map.nodes[e.b])) return;
             drapeNodes.Clear();
             DrapeNodesOf(map, trims, e, e.a);
             DrapeNodesOf(map, trims, e, e.b);

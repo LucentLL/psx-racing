@@ -2,10 +2,10 @@
   "schema": 1,
   "city": {
     "version": 2,
-    "graph_hash": "15d676ea",
+    "graph_hash": "b2aa3453",
     "nodes": 20567,
     "edges": 25560,
-    "points": 403679,
+    "points": 404007,
     "node_degrees": [
       0,
       975,
@@ -58,18 +58,18 @@
         "length_m": 7014.6
       }
     ],
-    "free_vertices": 357949,
+    "free_vertices": 358238,
     "kinks_per_km": {
-      "ge5": 2.397,
+      "ge5": 2.395,
       "ge10": 0.053,
       "ge25": 0.025
     },
     "kinks": {
-      "ge5": 9441,
+      "ge5": 9433,
       "ge10": 207,
       "ge25": 100,
       "max_deg": 180,
-      "folds_over_10cm": 463
+      "folds_over_10cm": 460
     }
   },
   "dem": {
@@ -101,8 +101,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 8430449,
-      "sha256": "27c74ddb3e5c8d60c075cc33b7179f1c271993bc22216fe161c181a26a952b34"
+      "bytes": 8433701,
+      "sha256": "b7e06a00a70a25803f26b0b4a1e8f703bf3a4c43e902107981f07ae4bf186af1"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,

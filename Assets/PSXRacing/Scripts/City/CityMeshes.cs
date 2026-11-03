@@ -7710,6 +7710,10 @@ namespace PSXRacing.City
             if (clip != null)
                 foreach (var H in clip.host.edges) MeetCandidate(map, trims, e, H.index, -1, p, hw, vL, vR, sec.L.y, sec.R.y);
             bool gored = goreEdges.Contains(e.index);
+            // Five Points round 3: nor onto the painted gore between it and a
+            // branch clipped onto it (W 5th's edge stepped down onto the slip's
+            // gore + the edge drop, 3.7 cm under the slip's clipped edge, R1a)
+            if (gored && BranchSeamOn && InR23Scope(p) && HostsBranch(map, trims, e)) gored = false;
             if (meetEdges.Count == 0 && !gored) return;
             for (int side = -1; side <= 1; side += 2)
             {
@@ -7786,6 +7790,12 @@ namespace PSXRacing.City
                 float near = hw + o.HalfMax + MeetNodeM;
                 if ((map.nodes[node] - p).sqrMagnitude < near * near) return;
             }
+            // Five Points round 3: a host never steps down to a branch clipped
+            // onto it - the clip already lays the branch's edge at the host's
+            // height (ClipSection), so stepping the host down too missed it by
+            // the same amount the other way (W 5th's edge 3.7 cm under the
+            // Trade -> W 5th slip's along their seam, R1a)
+            if (BranchSeamOn && (trims.branchA[oi] == e.index || trims.branchB[oi] == e.index) && InR23Scope(p)) return;
             for (int si = 0; si + 1 < o.pts.Length; si++)
             {
                 Vector2 a = o.pts[si], d = o.pts[si + 1] - a;

@@ -548,7 +548,7 @@ namespace PSXRacing.City
         static float NoseFlushAt(CityMap map, Trims trims, Vector2 edgeW, Vector2 outw, float yEdge, out float yMid)
         {
             yMid = float.NaN;
-            if (!NoseFlushOn) return 0f;
+            if (!NoseFlushOn || !InR23Scope(edgeW)) return 0f;
             if (!MedianAt(map, trims, edgeW + outw, yEdge, out float dTip, out _, out yMid)) return 0f;
             if (dTip <= NoseFlushM) return 1f;
             if (dTip >= NoseFlushM + NoseBlendM) return 0f;
@@ -626,7 +626,11 @@ namespace PSXRacing.City
             walkStopLo[0] = walkStopLo[1] = float.NegativeInfinity; walkStopHi[0] = walkStopHi[1] = float.PositiveInfinity;
             if (!WalkEdge(map, e)) yield break;
             var o = tm.origin;
-            if (BranchWalkStopOn) { BranchWalkStops(map, trims, tm, e, e.a); BranchWalkStops(map, trims, tm, e, e.b); }
+            if (BranchWalkStopOn)
+            {
+                if (InR23Scope(map.nodes[e.a])) BranchWalkStops(map, trims, tm, e, e.a);
+                if (InR23Scope(map.nodes[e.b])) BranchWalkStops(map, trims, tm, e, e.b);
+            }
             const float near = 30f;
             for (int side = -1; side <= 1; side += 2)
             {

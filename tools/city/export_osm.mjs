@@ -245,6 +245,8 @@ function shoulders(base, link, oneway) {
 /// 82% tagged; these cover the rest without inventing a six-lane street.
 /// Unnamed one-way arterial pieces given one lane (a slip lane).
 let slipOneLane = 0;
+/// The slips that rule is proven on: Five Points' West Trade NB -> W 5th slip.
+const SLIP1_WAYS = new Set([1108589752]);
 
 function defaultLanes(base, link, oneway) {
   if (link) return base === 'motorway' && oneway ? 1 : 1;
@@ -422,8 +424,12 @@ function keepWay(w, minor) {
   // carriageway (those carry the road's name): one lane, not the class's two.
   // Five Points' Trade-to-W-5th slip (way 1108589752) was drawn 7.9 m wide
   // and lay on W 5th's lanes for 20 m (owner: "that merge lane is too narrow
-  // to drive on"). PSX_EXPORT_SLIP1=0: the class default.
+  // to drive on"). SCOPED (round 3): city-wide this narrowed 49 ways and the
+  // junction sweep could not prove it clean, so it applies only to the slip it
+  // is proven on (SLIP1_WAYS). PSX_EXPORT_SLIP1=0: the class default
+  // everywhere; =all: every such way (unproven, for audits).
   if ((!Number.isFinite(lanes) || lanes < 1) && oneway && !link && !t.name && !t.ref && process.env.PSX_EXPORT_SLIP1 !== '0'
+      && (process.env.PSX_EXPORT_SLIP1 === 'all' || SLIP1_WAYS.has(Number(w.id)))
       && (base === 'trunk' || base === 'primary' || base === 'secondary')) { lanes = 1; slipOneLane++; }
   if (!Number.isFinite(lanes) || lanes < 1) lanes = defaultLanes(base, link, oneway);
   lanes = Math.min(lanes, oneway ? 6 : 7);
@@ -711,7 +717,7 @@ const LSET = buildLineSets(edges, profileFor, LC.tapr);
   console.log(`BLIPS (2026-10-04, rule ${st.blips_left.rule === 'narrow' ? 'ON, gated (PSX_LC_BLIPS=1): wider pieces that move no lane outside them' : st.blips_left.rule === 'all' ? 'ON, full (PSX_LC_BLIPS=all)' : 'OFF (PSX_LC_BLIPS=1 the gated rule, =all the full rule)'}): street pieces wider or narrower than the layout either side with no room for their MUTCD tapers + a class floor at full width: ${st.blips_left.count} left (${st.blips_left.km} km); taken to their neighbours' layout: ${st.lane_fixes.blip} (${st.lane_fix_km.blip} km)${st.blips_left.kept ? `; kept: narrower ${st.blips_left.kept.narrower}, ribbon shift ${st.blips_left.kept.shift}, chain restored ${st.blips_left.kept.chain || 0} (${st.blips_left.chains_restored || 0} chains)` : ''}`);
   for (const w of st.blips_left.where) console.log(`  blip left: ${w}`);
   console.log(`SLIP LANES: ${slipOneLane} unnamed one-way arterial ways with no lane count drawn as one lane`);
-  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided, ${st.tapr.twoSided} two-sided, ${st.tapr.tagged} side from tags (L4: ${st.tapr.perDirection} two-way changes per direction - each on its own outside, Q4 - from the line set's split; ${st.tapr.mergeSide} one-way sides from a merging/diverging branch, ${st.tapr.mergeSideLeft} of them left), ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off; ${st.tapr.shifts} SHIFT records ease them back past it, L4), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side; one-way turn lanes on both sides (tagSidesBoth): ${st.tapr.owBothSides} split both ways, ${st.tapr.owBothKept} kept one-sided (the split would carry the ribbon farther off its line)`);
+  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided, ${st.tapr.twoSided} two-sided, ${st.tapr.tagged} side from tags (L4: ${st.tapr.perDirection} two-way changes per direction - each on its own outside, Q4 - from the line set's split; ${st.tapr.mergeSide} one-way sides from a merging/diverging branch, ${st.tapr.mergeSideLeft} of them left), ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off, or half a lane on the scoped two-way runs: ${st.tapr.twReanchored ?? 0}; ${st.tapr.shifts} SHIFT records ease them back past it, L4), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side; one-way turn lanes on both sides (tagSidesBoth): ${st.tapr.owBothSides} split both ways, ${st.tapr.owBothKept} kept one-sided (the split would carry the ribbon farther off its line)`);
   console.log(`WP-10 PARA: before ${JSON.stringify(st.para_before)}; after ${JSON.stringify(st.para_after)}; moved ${st.para_moved.chains} chains (max ${st.para_moved.max_offset_m} m)`);
   {
     const rv = LC.review.filter(r => r.kind === 'para');

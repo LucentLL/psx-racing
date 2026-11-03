@@ -923,7 +923,7 @@ namespace PSXRacing.City
             if (!BranchApronOn) return;
             for (int n = 0; n < map.nodes.Length; n++)
             {
-                if (!t.mitre[n]) continue;
+                if (!t.mitre[n] || !InR23Scope(map.nodes[n])) continue;
                 int tA = t.throughA[n], tB = t.throughB[n];
                 if (tA < 0 || tB < 0 || tA == tB) continue;
                 foreach (int bi in map.nodeEdges[n])

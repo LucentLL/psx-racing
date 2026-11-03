@@ -74,8 +74,18 @@ const LANE_REANCHOR = 3.6576 + 0.05;
 /// Beatties Ford Road's mouth and left a sliver of pavement in the corner the
 /// owner circled ("that merge lane is too narrow to drive on"). Past half a
 /// lane at a junction mouth it is re-anchored (a SHIFT record) like a run more
-/// than a lane off. PSX_EXPORT_TW_REANCHOR=0: the one-lane hold for every run.
-const LANE_REANCHOR_TWOWAY = process.env.PSX_EXPORT_TW_REANCHOR === '0' ? LANE_REANCHOR : 3.6576 / 2 + 0.05;
+/// than a lane off.
+/// SCOPED (round 3): city-wide the half-lane hold re-anchored 86 runs, and the
+/// junction sweep could not prove it clean (102 movements worse, 289 newly
+/// flagged), so it applies only to the run it is proven on: Rozzelles Ferry
+/// Road's way 1253633919, the junction mouth from which W 5th / Rozzelles is
+/// carried through Five Points. PSX_EXPORT_TW_REANCHOR=0: the one-lane hold
+/// for every run; =all: the half-lane hold city-wide (unproven, for audits).
+const TW_REANCHOR_MODE = process.env.PSX_EXPORT_TW_REANCHOR || '';
+const TW_REANCHOR_WAYS = new Set([1253633919]);
+const LANE_REANCHOR_TWOWAY_M = 3.6576 / 2 + 0.05;
+const laneReanchorTwoWay = way => TW_REANCHOR_MODE === '0' ? LANE_REANCHOR
+  : TW_REANCHOR_MODE === 'all' || TW_REANCHOR_WAYS.has(Number(way.id)) ? LANE_REANCHOR_TWOWAY_M : LANE_REANCHOR;
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 
 /// Real US lane widths by class (AASHTO / CDOT): freeway and expressway 12 ft,
@@ -853,7 +863,7 @@ export function lineClean(ctx) {
   /// position (t0, t1 may lie beyond it: one shifting taper over several
   /// edges); null = on its line.
   const edgeOffset = new Array(edges.length).fill(null);
-  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, recentred: 0,
+  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, twReanchored: 0, recentred: 0,
                    perDirection: 0, mergeSide: 0, mergeSideLeft: 0, shifts: 0, owBothSides: 0, owBothKept: 0 };
   const taprPass = () => {
   for (const chain of chains) {
@@ -1027,7 +1037,8 @@ export function lineClean(ctx) {
           cur += (dLc[t] - dRc[t]) / 2;
         }
         for (const k of runs[i].items) {
-          if (Math.abs(cur) > (chain[k].e.way.oneway ? LANE_REANCHOR : LANE_REANCHOR_TWOWAY) && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
+          if (Math.abs(cur) > (chain[k].e.way.oneway ? LANE_REANCHOR : laneReanchorTwoWay(chain[k].e.way)) && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
+            if (!chain[k].e.way.oneway && Math.abs(cur) <= LANE_REANCHOR) tStats.twReanchored++;
             reShift.push({ k, cur });
             cur = 0; tStats.reanchored++;
           }
