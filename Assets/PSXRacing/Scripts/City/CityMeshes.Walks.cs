@@ -349,6 +349,65 @@ namespace PSXRacing.City
         const float MedianProbeOutM = 1.5f;
         /// <summary>The widest median a cross street's walk is kept out of.</summary>
         const float MedianMaxSideM = 15f;
+        /// <summary>Publish-1b (the ship review): a walk is kept out of a
+        /// median only at its NOSE - the probe no further in from either
+        /// carriageway's drawn end at a junction than this (MedianAt's dTip;
+        /// negative = in the junction's gap). Five Points' links lie in the
+        /// gap; South Blvd x Scaleybark and E 9th x N Davidson read "in a
+        /// median" alongside it, near the 15 m side limit, and lost their
+        /// walks in a sawtooth.</summary>
+        const float MedianNoseM = 3f;
+        /// <summary>Kept sections this many or fewer between two skipped
+        /// ones are skipped too (one run, no ramp-end pair inside it).</summary>
+        const int MedianFillSecs = 2;
+        /// <summary>Per section of the side PrepareWalks is on: 0 takes no
+        /// walk anyway, 1 a walk candidate, 2 kept out of a median.</summary>
+        static byte[] walkMed = new byte[128];
+#if UNITY_EDITOR
+        static string[] walkMedName = new string[128];
+#endif
+
+        /// <summary>
+        /// Publish-1b: the median skip is all-or-nothing per contiguous run
+        /// of an edge side, and only a run that reaches the edge's end (no
+        /// walk candidate between it and k = 0 or k = n - 1) stays skipped -
+        /// the walk then simply stops at the median's nose, one ramp end like
+        /// any walk at a junction. A run with walk on both sides of it is a
+        /// probe flickering at a limit mid-walk: it keeps its walk, so no
+        /// kept/skipped alternation leaves a sawtooth of ramp-end pairs.
+        /// </summary>
+        static void MedianSkipRuns(int n)
+        {
+            // fill short kept gaps between skipped sections (status-0 sections are neutral)
+            int lastSkip = -1, keptSince = 0;
+            for (int k = 0; k < n; k++)
+            {
+                if (walkMed[k] == 2)
+                {
+                    if (lastSkip >= 0 && keptSince > 0 && keptSince <= MedianFillSecs)
+                        for (int j = lastSkip + 1; j < k; j++) if (walkMed[j] == 1) { walkMed[j] = 2;
+#if UNITY_EDITOR
+                            walkMedName[j] = walkMedName[k];
+#endif
+                        }
+                    lastSkip = k; keptSince = 0;
+                }
+                else if (walkMed[k] == 1) keptSince++;
+            }
+            // a run with walk candidates on both sides keeps its walk
+            for (int k = 0; k < n; )
+            {
+                if (walkMed[k] != 2) { k++; continue; }
+                int r0 = k, r1 = k;
+                for (int j = k + 1; j < n && walkMed[j] != 1; j++) if (walkMed[j] == 2) r1 = j;
+                bool before = false, after = false;
+                for (int j = 0; j < r0 && !before; j++) before = walkMed[j] == 1;
+                for (int j = r1 + 1; j < n && !after; j++) after = walkMed[j] == 1;
+                if (before && after)
+                    for (int j = r0; j <= r1; j++) if (walkMed[j] == 2) walkMed[j] = 1;
+                k = r1 + 1;
+            }
+        }
 
         /// <summary>
         /// FIVE POINTS (2026-11-03, owner: "every time I drive through this
@@ -557,6 +616,11 @@ namespace PSXRacing.City
         {
             int n = sections.Count;
             if (walkL.Length < n) { walkL = new float[n * 2]; walkR = new float[n * 2]; }
+            if (walkMed.Length < n) { walkMed = new byte[n * 2];
+#if UNITY_EDITOR
+                walkMedName = new string[n * 2];
+#endif
+            }
             System.Array.Clear(walkL, 0, n); System.Array.Clear(walkR, 0, n);
             walkEdgeNow = e.index;
             walkStopLo[0] = walkStopLo[1] = float.NegativeInfinity; walkStopHi[0] = walkStopHi[1] = float.PositiveInfinity;
@@ -568,8 +632,11 @@ namespace PSXRacing.City
             {
                 if (!WalkSide(map, e, side)) continue;
                 var arr = WalkArr(side);
+                // pass 1: which sections could take a walk (1), and which of
+                // those stand in a divided road's median gap at its nose (2)
                 for (int k = 0; k < n; k++)
                 {
+                    walkMed[k] = 0;
                     if ((k & 7) == 7) yield return 0;   // WP-09: eight sections a step
                     var S = sections[k];
                     var ed = S.Edge(side);
@@ -582,14 +649,35 @@ namespace PSXRacing.City
                     if (ApronWidenAt(e, S.s, side) > ApronWalkM) continue;
                     // Five Points round 3: none past where a branch leaves this side
                     if (S.s > walkStopHi[side < 0 ? 0 : 1] + 0.01f || S.s < walkStopLo[side < 0 ? 0 : 1] - 0.01f) continue;
+                    walkMed[k] = 1;
+                    // Five Points: a median keeps its verge, a cross street's side in the gap too
+                    if (MedianNoWalkOn && MedianAt(map, trims, new Vector2(wx, wz) + S.Out(side) * MedianProbeOutM, ed.y, out float dTip, out string mName, out _)
+                        && dTip <= MedianNoseM)
+                    {
+                        walkMed[k] = 2;
+#if UNITY_EDITOR
+                        walkMedName[k] = mName;
+#endif
+                    }
+                }
+                if (MedianNoWalkOn) MedianSkipRuns(n);
+                // pass 2: the walk at each kept section
+                for (int k = 0; k < n; k++)
+                {
+                    if ((k & 7) == 7) yield return 0;
+                    if (walkMed[k] == 0) continue;
+                    var S = sections[k];
+                    var ed = S.Edge(side);
+                    float wx = ed.x + o.x, wz = ed.z + o.z;
                     var outw = S.Out(side);
                     var pw = new Vector2(wx, wz);
-                    // Five Points: a median keeps its verge, a cross street's side in the gap too
-                    if (MedianNoWalkOn && MedianAt(map, trims, pw + outw * MedianProbeOutM, ed.y, out _, out string mName, out _))
+                    if (walkMed[k] == 2)
                     {
                         WalkStats.medianSkips++;
+#if UNITY_EDITOR
                         long mk = ((long)e.index << 1) | (side > 0 ? 1L : 0L);
-                        if (!WalkStats.medianSkipAt.ContainsKey(mk)) WalkStats.medianSkipAt[mk] = $"e{e.index} '{e.name}' side {(side > 0 ? "L" : "R")} at ({wx:0.0},{wz:0.0}) y {ed.y:0.00} in the median of '{mName}'";
+                        if (!WalkStats.medianSkipAt.ContainsKey(mk)) WalkStats.medianSkipAt[mk] = $"e{e.index} '{e.name}' side {(side > 0 ? "L" : "R")} at ({wx:0.0},{wz:0.0}) y {ed.y:0.00} in the median of '{walkMedName[k]}'";
+#endif
                         continue;
                     }
                     if (k == 0 || k == n - 1)
@@ -827,9 +915,11 @@ namespace PSXRacing.City
                 {
                     var kc = ci == 0 ? k0 : k1;
                     var pc = (ci == 0 ? p0 : p1) + (ci == 0 ? cw.n0 : cw.n1) * MedianProbeOutM;
-                    if (!MedianAt(map, trims, pc, kc.pos.y + origin.y, out _, out string mName, out _)) continue;
+                    if (!MedianAt(map, trims, pc, kc.pos.y + origin.y, out float dTip, out string mName, out _) || dTip > MedianNoseM) continue;
+#if UNITY_EDITOR
                     long mk = -1L - (((long)node << 8) | (uint)(g0 & 0xFF));
                     if (!WalkStats.medianSkipAt.ContainsKey(mk)) WalkStats.medianSkipAt[mk] = $"corner node {node} e{k0.edge}-e{k1.edge} at ({pc.x:0.0},{pc.y:0.0}) y {kc.pos.y + origin.y:0.00} in the median of '{mName}'";
+#endif
                     return 0;
                 }
             }
