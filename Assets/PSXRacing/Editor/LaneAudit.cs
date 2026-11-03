@@ -87,6 +87,10 @@ namespace PSXRacing.EditorTools
             public readonly List<Paint> lines = new List<Paint>();
             public float uEdgeL = float.NaN, uEdgeR = float.NaN, uCentre = float.NaN;
             public bool twoWay;
+            /// <summary>Painted WITHOUT white edge lines on purpose (the file
+            /// carries PSXRacingBuilder.NoEdgeTexMarker: a stage stretch whose
+            /// real road has none). Its "edges" are the tarmac's, u 0 and 1.</summary>
+            public bool noEdges;
             public Color32[] px;
         }
 
@@ -137,6 +141,12 @@ namespace PSXRacing.EditorTools
             }
             var solidW = tl.lines.Where(l => l.kind == 'W' && !l.dashed).ToList();
             if (solidW.Count >= 2) { tl.uEdgeL = solidW[0].Uc; tl.uEdgeR = solidW[solidW.Count - 1].Uc; }
+            else if (Path.GetFileName(tl.path).Contains(PSXRacingBuilder.NoEdgeTexMarker))
+            {
+                // No edge pair BY DESIGN: the lanes run to the tarmac's edges.
+                tl.noEdges = true;
+                tl.uEdgeL = 0f; tl.uEdgeR = 1f;
+            }
             var yel = tl.lines.Where(l => l.kind == 'Y').ToList();
             tl.twoWay = yel.Count > 0;
             if (tl.twoWay) tl.uCentre = (yel.Min(l => l.U0) + yel.Max(l => l.U1)) * 0.5f;
@@ -587,8 +597,13 @@ namespace PSXRacing.EditorTools
             if (paint != null) Fail("tarmac texture " + Path.GetFileName(tx.path) + ": " + paint);
             if (rb.deckTex != null)
             {
-                bool same = Mathf.Abs(rb.deckTex.uCentre - tx.uCentre) < 1e-4f && Mathf.Abs(rb.deckTex.uEdgeL - tx.uEdgeL) < 1e-4f &&
-                            Mathf.Abs(rb.deckTex.uEdgeR - tx.uEdgeR) < 1e-4f;
+                // Edge lines are compared only where both paint them: a
+                // stretch whose real road has none (the Parkway's decks on a
+                // loop whose other legs are striped) differs there by design.
+                bool bothEdged = !rb.deckTex.noEdges && !tx.noEdges;
+                bool same = Mathf.Abs(rb.deckTex.uCentre - tx.uCentre) < 1e-4f &&
+                            (!bothEdged || (Mathf.Abs(rb.deckTex.uEdgeL - tx.uEdgeL) < 1e-4f &&
+                                            Mathf.Abs(rb.deckTex.uEdgeR - tx.uEdgeR) < 1e-4f));
                 sb.AppendFormat(CI, "  deck texture {0}: {1} ({2})\n", Path.GetFileName(rb.deckTex.path), Layout(rb.deckTex),
                                 same ? "same line positions" : "DIFFERENT line positions");
                 string deckPaint = PaintProblem(rb.deckTex);

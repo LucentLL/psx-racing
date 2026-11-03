@@ -158,6 +158,14 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  Themes — the LOOK of each circuit
         // ------------------------------------------------------------------
+        /// <summary>A stage barrier's kit, per the real road
+        /// (Docs/reference/blue-ridge-roads.md 2.5): galvanised W-beam (NC 226,
+        /// NC 226A, US 221/321), weathering-steel W-beam (NC 215), rustic
+        /// timber post-and-rail (the Chimney Rock park road), the Parkway's
+        /// steel-backed timber guardrail, and the concrete curb with a two-rail
+        /// metal railing on the Parkway's bridges.</summary>
+        internal enum RailKit { Galvanised, Weathering, Rustic, ParkwayTimber, BridgeRail }
+
         /// <summary>
         /// What separates one circuit from another once the shape is decided:
         /// what the ground and the barriers are made of, what grows beside the
@@ -210,13 +218,38 @@ namespace PSXRacing.EditorTools
             /// <summary>
             /// A stage's guard walls drawn as STEEL: a W-beam guardrail on
             /// posts instead of dry stone. Owner, 2026-09-26: "I would like to
-            /// see more guardrails instead of always using stone barriers." The
-            /// Parkway and Mount Mitchell keep their stone - the real roads'
-            /// own masonry - and the state roads get what NCDOT puts up. The
-            /// runs are the same runs and the collider the same solid; only
-            /// what is drawn changes (see DrawGuardrail).
+            /// see more guardrails instead of always using stone barriers."
+            /// Mount Mitchell keeps its stone; the state roads get what NCDOT
+            /// puts up (<see cref="rail"/>), and the Parkway its own timber
+            /// guardrail and bridge railing (2026-11-02, the reference study's
+            /// F2/F5: it was stone everywhere). The runs are the same runs and
+            /// the collider the same solid; only what is drawn changes (see
+            /// DrawGuardrail).
             /// </summary>
             public bool guardrail;
+            /// <summary>
+            /// WHITE EDGE LINES on this road (stages only; the circuits and the
+            /// city paint by their own rules). Per the real road
+            /// (Docs/reference/blue-ridge-roads.md F1, 2.2): the state roads
+            /// have them; NC 215 and the Chimney Rock park road showed none in
+            /// Street View; the Blue Ridge Parkway has none BY DESIGN ("allows
+            /// it to retain a rural feel", Parkway FAQ) - see
+            /// <see cref="parkway"/>, which wins over this. Every tunnel bore
+            /// is striped (StageEdgeLinesAt). The double yellow is always painted.
+            /// </summary>
+            public bool edgeLines = true;
+            /// <summary>The whole venue is the Blue Ridge Parkway: no edge
+            /// lines but in a tunnel, and its own barriers (the timber
+            /// guardrail; the two-rail bridge railing on its decks).</summary>
+            public bool parkway;
+            /// <summary>Or only these stretches are, as (first, last) metres
+            /// along the lap - a loop's Parkway legs, from the bake's own
+            /// Overpass ways (tools/roads/cache), matched waypoint by waypoint.
+            /// Read modulo the lap.</summary>
+            public Vector2[] parkwaySpans;
+            /// <summary>What the guardrail is made of where <see cref="guardrail"/>
+            /// is on and the stretch is not the Parkway.</summary>
+            public RailKit rail = RailKit.Galvanised;
             /// <summary>Chance a candidate site is skipped, so a run of scenery
             /// reads as a street rather than as a fence. The city's trees were
             /// every 28 m with a third skipped and are now every 16 m with a
@@ -353,23 +386,35 @@ namespace PSXRacing.EditorTools
             // the Theme defaults, which were Sunset City GP's downtown look.
 
             // The parkway: real terrain, a fall forest the stage plants
-            // itself, low stone guard walls, and NOTHING built — no lamps, no
-            // buildings, no pumps, which is what the road is like. The zeros
-            // are load-bearing: the stage runs its own forest pass instead of
-            // PlaceTrees, and every other scatter pass stays off.
+            // itself, the Parkway's own barriers, and NOTHING built — no
+            // lamps, no buildings, no pumps, which is what the road is like.
+            // The zeros are load-bearing: the stage runs its own forest pass
+            // instead of PlaceTrees, and every other scatter pass stays off.
+            //
+            // Its barriers (Docs/reference/blue-ridge-roads.md F2, F5): the
+            // steel-backed TIMBER guardrail on its fills and the concrete curb
+            // with a two-rail metal railing on the Linn Cove Viaduct and the
+            // other Grandfather bridges (Street View 36.0934,-81.8130 and
+            // 36.0990,-81.7909) - not the dry stone it wore everywhere. The
+            // stone stays for the retaining walls under a rail.
             ["BlueRidge"] = new Theme
             {
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
-                wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — the parkway's own guard wall
+                wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — retaining walls under the rail
+                guardrail = true,                       // drawn as the Parkway's timber (parkway = true)
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
-                // Reflector posts behind the guard walls every 16 m — the one
-                // near-road vertical a stage can carry without breaking the
-                // "nothing built" rule, and the real parkway has them.
-                postEvery = 4,
+                // NO reflector posts (F4). They stood behind the guard walls
+                // every 16 m on the belief that "the real parkway has them";
+                // it does not - no roadside delineator at any Parkway
+                // checkpoint or in any of the owner's clips. Its only
+                // reflectors are small panels on the tunnel walls.
+                postEvery = 0,
                 gasStation = false,
                 bakedLight = true,
+                // All Parkway: the double yellow and no edge lines (F1).
+                parkway = true,
             },
 
             // Mount Mitchell. The same mountain as the Parkway and the same
@@ -386,10 +431,9 @@ namespace PSXRacing.EditorTools
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
-                // Reflector posts behind the guard walls every 16 m — the one
-                // near-road vertical a stage can carry without breaking the
-                // "nothing built" rule, and the real parkway has them.
-                postEvery = 4,
+                // No reflector posts: none on NC 128 at three Street View
+                // checkpoints (F4), as on the Parkway it leaves.
+                postEvery = 0,
                 gasStation = false,
                 stageDir = Root + "/Art/MtMitchell",
                 stagePrefix = "mtm",
@@ -413,24 +457,44 @@ namespace PSXRacing.EditorTools
                 // "nothing built" rule, and the real parkway has them.
                 postEvery = 4,
                 guardrail = true,                       // NC 215 is a state road
+                // in WEATHERING steel, rust-brown, both sides (Street View
+                // 35.2809,-82.9192; NCDOT's weathering-steel provision).
+                rail = RailKit.Weathering,
                 gasStation = false,
                 stageDir = Root + "/Art/BeechGap",
                 stagePrefix = "beech",
                 artShareDir = Root + "/Art/BRP",
                 bakedLight = true,
+                // A faded double yellow and no edge lines at both Street View
+                // checkpoints (35.2809,-82.9192; 35.2974,-82.9124).
+                edgeLines = false,
             },
 
             // The two Parkway LOOPS: a section of the Parkway and the roads
             // that meet it, closed into a ring. Same mountain look as the
             // three stages above — the DEM folder is the only thing that is
-            // theirs.
-            ["BlowingRock"] = MountainLoopTheme(Root + "/Art/BlowingRock", "brock"),
-            ["LittleSwitzerland"] = MountainLoopTheme(Root + "/Art/Switzerland", "swiss"),
+            // theirs. The Parkway legs, from the bake's Overpass ways
+            // waypoint by waypoint (2026-11-02): Blowing Rock wp 0-1050 (the
+            // Parkway and the NPS Moses Cone access, 0-4204 m) and wp
+            // 2408-2468 (the Parkway over its US 321 bridge, 9632 m to the
+            // line); Little Switzerland wp 0-1200 (Gillespie Gap through the
+            // tunnel to the village link, 0-4804 m) and wp 2418-2420 (9672 m
+            // to the line). Everything between is US 221, Yonahlossee, Main
+            // Street, US 321 and their ramps, or High Ridge, NC 226A and NC 226.
+            ["BlowingRock"] = MountainLoopTheme(Root + "/Art/BlowingRock", "brock",
+                parkwaySpans: new[] { new Vector2(0f, 4204f), new Vector2(9632f, 9880f) }),
+            ["LittleSwitzerland"] = MountainLoopTheme(Root + "/Art/Switzerland", "swiss",
+                parkwaySpans: new[] { new Vector2(0f, 4804f), new Vector2(9672f, 9690f) }),
 
             // The sprints of 2026-09-26 with roads of their own: the same
             // mountain look, each reading its own DEM. (The Blowing Rock
-            // sprint races in the loop's scene and needs none.)
-            ["ChimneyRock"] = MountainLoopTheme(Root + "/Art/ChimneyRock", "chimney"),
+            // sprint races in the loop's scene and needs none.) The park road
+            // showed no markings at all in Aug 2024 (three photospheres); it
+            // keeps its double yellow and loses the edge lines.
+            // Its barriers are rustic timber post-and-rail at the drops and
+            // lots (35.4337,-82.2419), not W-beam.
+            ["ChimneyRock"] = MountainLoopTheme(Root + "/Art/ChimneyRock", "chimney", edgeLines: false,
+                                                rail: RailKit.Rustic),
             ["SwissNC226A"] = MountainLoopTheme(Root + "/Art/Swiss226A", "swa"),
             ["GillespieGap"] = MountainLoopTheme(Root + "/Art/Gillespie", "gap"),
 
@@ -500,7 +564,8 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The Parkway's look, pointed at a loop's own DEM folder -
         /// with the state roads' steel guardrail in place of its stone.</summary>
-        static Theme MountainLoopTheme(string dir, string prefix) => new Theme
+        static Theme MountainLoopTheme(string dir, string prefix, Vector2[] parkwaySpans = null,
+                                       bool edgeLines = true, RailKit rail = RailKit.Galvanised) => new Theme
         {
             ground = Root + "/Art/GasStation/Textures/Ground.jpg",
             wall = Root + "/Art/Roads/T (3).jpg",
@@ -515,6 +580,9 @@ namespace PSXRacing.EditorTools
             stagePrefix = prefix,
             artShareDir = Root + "/Art/BRP",
             bakedLight = true,
+            parkwaySpans = parkwaySpans,
+            edgeLines = edgeLines,
+            rail = rail,
         };
 
         /// <summary>For the self-test: every catalog track needs a theme, and a
@@ -875,7 +943,13 @@ namespace PSXRacing.EditorTools
                 // for a one-way real road: the 277 belt and Independence
                 // are single carriageways.
                 for (int s = 0; s < CityMeshes.SurfaceCount; s++)
+                {
                     EnsureTrackRoadTex(def.roadWidth, def.drag || def.oneWay, (CityMeshes.Surface)s);
+                    // A stage's stretches without edge lines (the Parkway,
+                    // NC 215, Chimney Rock: StageEdgeLinesAt) wear their own.
+                    if (def.stage)
+                        EnsureTrackRoadTex(def.roadWidth, def.drag || def.oneWay, (CityMeshes.Surface)s, edgeLines: false);
+                }
             }
 
             // Bands run ACROSS the direction of travel. BuildKerbs lays u along
@@ -1846,6 +1920,37 @@ namespace PSXRacing.EditorTools
             return m;
         }
 
+        /// <summary>Is metre <paramref name="m"/> of this venue's lap on the
+        /// Blue Ridge Parkway: the whole venue (Theme.parkway) or one of a
+        /// loop's Parkway legs (Theme.parkwaySpans, read modulo the lap)?</summary>
+        internal static bool OnParkwayAt(float m)
+        {
+            if (theme == null || track == null || !track.stage) return false;
+            if (theme.parkway) return true;
+            if (theme.parkwaySpans == null) return false;
+            float lap = Mathf.Max(track.LengthM, 1f);
+            float at = Mathf.Repeat(m, lap);
+            foreach (var s in theme.parkwaySpans)
+                if (at >= s.x && at <= s.y) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Does the REAL road paint white edge lines at metre <paramref name="m"/>?
+        /// Docs/reference/blue-ridge-roads.md F1: the Parkway has none, by
+        /// design, except INSIDE its tunnels (NPS gives the bores' clearances
+        /// "at the edgeline striping"); NC 215 and the Chimney Rock park road
+        /// showed none; the state roads have them. Exactly over the tunnel
+        /// spans, as the bake has them. Circuits and the city: always.
+        /// </summary>
+        internal static bool StageEdgeLinesAt(float m)
+        {
+            if (track == null || !track.stage || theme == null) return true;
+            if (TrackCatalog.InTunnel(track, m)) return true;
+            if (OnParkwayAt(m)) return false;
+            return theme.edgeLines;
+        }
+
         static void BuildRoad(List<Vector3> pts, Transform parent)
         {
             int n = pts.Count;
@@ -1881,6 +1986,16 @@ namespace PSXRacing.EditorTools
             // you actually look at was not.
             var tris = new List<int>();      // submesh 0: tarmac
             var deckTris = new List<int>();  // submesh 1: the spans
+            // And per stretch, the real road's paint: with or without its white
+            // edge lines (StageEdgeLinesAt - the Parkway has none but in its
+            // tunnels, NC 215 and Chimney Rock none). Painted-without
+            // stretches go to their own lists, so a road that is all one kind
+            // keeps its two submeshes; slot 0 is always the tarmac the venue
+            // mostly is (LaneAudit reads it as the road's paint).
+            var plainTris = new List<int>();
+            var plainDeckTris = new List<int>();
+            var edgeAt = new bool[n];
+            for (int i = 0; i < n; i++) edgeAt[i] = StageEdgeLinesAt((i + 0.5f) * Spacing);
 
             // Same BridgeBlend the deck builder reads, so the concrete on the
             // driving surface starts and stops exactly where the structure
@@ -1930,16 +2045,26 @@ namespace PSXRacing.EditorTools
                     // slice is decked with the gap it lies in.
                     int idx = Loop ? ring.gap % n : ring.gap;
                     int nxt = Loop ? (ring.gap + 1) % n : ring.gap + 1;
-                    var into = (onDeck[idx] || onDeck[nxt]) ? deckTris : tris;
+                    bool deckQuad = onDeck[idx] || onDeck[nxt];
+                    var into = edgeAt[Mathf.Clamp(idx, 0, n - 1)]
+                        ? (deckQuad ? deckTris : tris)
+                        : (deckQuad ? plainDeckTris : plainTris);
                     into.AddRange(new[] { l0, l1, c0, c0, l1, c1, c0, c1, r0, r0, c1, r1 });
                 }
             }
 
-            bool anyDeck = deckTris.Count > 0;
+            // The kind the venue mostly is goes first: tarmac then deck, each
+            // painted the way most of the road is; the other paint after them.
+            bool plainFirst = plainTris.Count + plainDeckTris.Count > tris.Count + deckTris.Count;
+            var slots = new List<(List<int> tris, bool deck, bool edges)>();
+            void Slot(List<int> t, bool deck, bool edges) { if (t.Count > 0) slots.Add((t, deck, edges)); }
+            if (plainFirst) { Slot(plainTris, false, false); Slot(plainDeckTris, true, false); Slot(tris, false, true); Slot(deckTris, true, true); }
+            else { Slot(tris, false, true); Slot(deckTris, true, true); Slot(plainTris, false, false); Slot(plainDeckTris, true, false); }
+            if (slots.Count == 0) slots.Add((tris, false, true));
+            bool anyDeck = deckTris.Count + plainDeckTris.Count > 0;
             var mesh = new Mesh { vertices = verts, uv = uvs };
-            mesh.subMeshCount = anyDeck ? 2 : 1;
-            mesh.SetTriangles(tris, 0, false);
-            if (anyDeck) mesh.SetTriangles(deckTris, 1, false);
+            mesh.subMeshCount = slots.Count;
+            for (int k = 0; k < slots.Count; k++) mesh.SetTriangles(slots[k].tris, k, false);
             SaveMesh(mesh, "RoadMesh");
 
             var go = new GameObject("Road");
@@ -1958,18 +2083,20 @@ namespace PSXRacing.EditorTools
             var deckSurf = fresh ? CityMeshes.Surface.ConcreteNew : CityMeshes.Surface.ConcreteOld;
 
             bool oneWay = track != null && (track.drag || track.oneWay);
-            var mat = MakeMat(MeshPrefix + "Road",
-                              EnsureTrackRoadTex(RoadWidth, oneWay, tarmacSurf),
-                              affine: 0f, wet: WetAsphalt);
             var mr = go.AddComponent<MeshRenderer>();
-            if (anyDeck)
+            var mats = new Material[slots.Count];
+            for (int k = 0; k < slots.Count; k++)
             {
-                var deckRoadMat = MakeMat(MeshPrefix + "RoadDeck",
-                                          EnsureTrackRoadTex(RoadWidth, oneWay, deckSurf),
-                                          affine: 0f, wet: WetAsphalt);
-                mr.sharedMaterials = new[] { mat, deckRoadMat };
+                var sl = slots[k];
+                mats[k] = MakeMat(MeshPrefix + (sl.deck ? "RoadDeck" : "Road") + (sl.edges ? "" : "Plain"),
+                                  EnsureTrackRoadTex(RoadWidth, oneWay, sl.deck ? deckSurf : tarmacSurf, sl.edges),
+                                  affine: 0f, wet: WetAsphalt);
             }
-            else mr.sharedMaterial = mat;
+            mr.sharedMaterials = mats;
+            if (slots.Count > 1 || plainTris.Count + plainDeckTris.Count > 0)
+                Log($"Road paint: {(tris.Count + deckTris.Count) / 12} quads with white edge lines, " +
+                    $"{(plainTris.Count + plainDeckTris.Count) / 12} without (the real road's own: StageEdgeLinesAt); " +
+                    $"{slots.Count} road material(s){(anyDeck ? ", decks included" : "")}.");
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.isStatic = true;
 

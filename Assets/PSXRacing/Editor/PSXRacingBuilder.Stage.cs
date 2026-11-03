@@ -358,6 +358,12 @@ namespace PSXRacing.EditorTools
         [Serializable] class DemMeta { public float baseM; public DemGridMeta near, far; }
 
         static bool stageDemLoaded;
+        /// <summary>The bake's datum: world y 0 is this many metres above sea
+        /// level (fetch_road.mjs writes heights - baseM), so a point's real
+        /// elevation is stageBaseM + y. SRTM, so it reads the canopy top -
+        /// up to +33 m on these ridges, ~0 on Mount Mitchell's summit road
+        /// (the bake agreed with the survey to a metre there).</summary>
+        static float stageBaseM;
         static short[] demNear, demFar;          // decimetres above baseM
         static DemGridMeta demNearMeta, demFarMeta;
         static List<Vector3> stageWp;            // the waypoints, world space
@@ -394,6 +400,7 @@ namespace PSXRacing.EditorTools
                     + metaPath + ")");
             var meta = JsonUtility.FromJson<DemMeta>(File.ReadAllText(metaPath));
             demNearMeta = meta.near; demFarMeta = meta.far;
+            stageBaseM = meta.baseM;
             demNear = ReadDemBytes(pre + "_dem_near.bytes", meta.near);
             demFar = ReadDemBytes(pre + "_dem_far.bytes", meta.far);
 
@@ -5291,6 +5298,7 @@ namespace PSXRacing.EditorTools
             var mat = theme.guardrail
                 ? MakeMat(MeshPrefix + "Guardrail", GuardrailTexPath, tint: new Color(1.45f, 1.45f, 1.5f), affine: 0f)
                 : MakeMat(MeshPrefix + "Wall", theme.wall, affine: 0f);
+            PrepareRailKits(mat);
             railPostVerts.Clear(); railPostUvs.Clear(); railPostTris.Clear();
             retainVerts.Clear(); retainUvs.Clear(); retainTris.Clear();
             retainRuns = retainRings = 0; retainM = retainTallest = 0f;
@@ -5322,6 +5330,21 @@ namespace PSXRacing.EditorTools
                 CombinedPosts(railPostVerts, railPostUvs, railPostTris, "RailPosts", "StagePosts",
                               MakeMat("RailPost", GuardrailPostTexPath, affine: 0f), parent);
                 Log($"Guardrail posts: {railPostVerts.Count / PostVerts} timber posts.");
+            }
+            // The other kits' posts (weathering steel, rustic timber, the
+            // bridge railing's steel), one mesh per material, all named as
+            // the timber's are so the obstacle audit reads them the same way.
+            foreach (var kp in kitPosts)
+            {
+                if (kp.Value.v.Count == 0) continue;
+                CombinedPosts(kp.Value.v, kp.Value.u, kp.Value.t, "RailPosts_" + kp.Key.name, "StagePosts", kp.Key, parent);
+                Log($"Guardrail posts: {kp.Value.v.Count / PostVerts} in {kp.Key.name}.");
+            }
+            if (kitChords.Count > 0)
+            {
+                var parts = new List<string>();
+                foreach (var kv in kitChords) parts.Add($"{kv.Key} {kv.Value:0} m");
+                Log("Barrier kits (per the real road, Docs/reference/blue-ridge-roads.md 2.5): " + string.Join(", ", parts) + ".");
             }
             // Every retaining wall under a rail in one mesh, in the stone the
             // Parkway's guard walls wear (the owner's pack sheet, theme.wall).
@@ -5752,7 +5775,7 @@ namespace PSXRacing.EditorTools
         static void DrawGuardrail(List<Vector3> pts, List<WallRing> rings, float[] extra, bool[] retain, float side, float half,
                                   int s, float[] along, List<Vector3> verts, List<Vector2> uvs, List<int> tris)
         {
-            int R = rings.Count, P = RailSection.Length;
+            int R = rings.Count, P = RailSection.Length, n = pts.Count;
             // ON THE CONTACT LINE, not the stone's face. The wall solid's face
             // stands out from the drawn face by a one-station chord's sag on
             // the outside of a bend (up to 0.5 m at a hairpin) so that its
@@ -5777,19 +5800,93 @@ namespace PSXRacing.EditorTools
             // top: two ridges, the bolt row (72) in the valley between them.
             float V(int j) => Mathf.Lerp(1f - 83f / 256f, 1f - 61f / 256f,
                                          1f - RailSection[j].down / RailSection[0].down);
+
+            // WHICH KIT EACH CHORD WEARS (the real road's, ChordKit): a deck
+            // ring is a station a deck covers, or a half ring between two;
+            // a ring's metres along the lap decide the Parkway's stretches.
+            var deckRing = new bool[R];
+            var ringM = new float[R];
+            for (int k = 0; k < R; k++)
+            {
+                if (rings[k].station >= 0)
+                {
+                    deckRing[k] = DeckCoversStation(rings[k].station);
+                    ringM[k] = rings[k].station * Spacing;
+                    continue;
+                }
+                int ka = k - 1, kb = k + 1;
+                while (ka > 0 && rings[ka].station < 0) ka--;
+                while (kb < R - 1 && rings[kb].station < 0) kb++;
+                deckRing[k] = ka >= 0 && kb < R && rings[ka].station >= 0 && rings[kb].station >= 0 &&
+                              DeckCoversStation(rings[ka].station) && DeckCoversStation(rings[kb].station);
+                ringM[k] = (ka >= 0 && rings[ka].station >= 0 ? rings[ka].station * Spacing : 0f) + rings[k].t * Spacing;
+            }
+            var chordKit = new RailKit[R];      // chordKit[k]: the chord from ring k-1 to ring k
+            for (int k = 1; k < R; k++)
+                chordKit[k] = ChordKit(deckRing[k - 1] && deckRing[k], 0.5f * (ringM[k - 1] + ringM[k]));
+            if (R > 1) chordKit[0] = chordKit[1];
+            // A ring's own kit, for its posts and caps: a ring between a deck
+            // chord and an approach chord takes the approach's.
+            RailKit RingKit(int k) => k == 0 ? chordKit[Mathf.Min(1, R - 1)]
+                                    : k == R - 1 ? chordKit[k]
+                                    : (chordKit[k] == RailKit.BridgeRail ? chordKit[k + 1] : chordKit[k]);
+
+            // THE W-BEAM (galvanised, or weathering steel on NC 215): the
+            // real section, both sides, as it always was.
             for (int k = 1; k < R; k++)
             {
+                var kit = chordKit[k];
+                Vector3 step = rings[k].centre - rings[k - 1].centre; step.y = 0f;
+                kitChords[kit] = (kitChords.TryGetValue(kit, out float sofar) ? sofar : 0f) + step.magnitude;
+                if (kit != RailKit.Galvanised && kit != RailKit.Weathering) continue;
+                var into = kit == RailKit.Galvanised ? tris : RunTris(KitMat(kit));
                 Vector3 toRoad = -(rings[k - 1].right + rings[k].right) * side;
                 // One sheet per station; its bolt column at x 50 on the posts.
                 float u0 = along[k - 1] / Spacing + 50f / 256f, u1 = along[k] / Spacing + 50f / 256f;
                 for (int j = 1; j < P; j++)
                     for (int face = 0; face < 2; face++)
-                        WallQuad(verts, uvs, tris,
+                        WallQuad(verts, uvs, into,
                                  Crease(k - 1, j - 1), Crease(k - 1, j),
                                  Crease(k, j), Crease(k, j - 1),
                                  new Vector2(u0, V(j - 1)), new Vector2(u0, V(j)),
                                  new Vector2(u1, V(j)), new Vector2(u1, V(j - 1)),
                                  face == 0 ? toRoad : -toRoad);
+            }
+
+            // THE CLOSED KITS: the Parkway's timber rail on its steel backing,
+            // Chimney Rock's two log rails, the bridge railing's curb and two
+            // steel rails - each a prism of its profile, ring to ring.
+            Vector3 PAt(int k, Vector2 yb, bool fromDeck, Vector3 offset)
+            {
+                var g = rings[k];
+                Vector3 p = g.centre + g.right * (side * (half + Line(k) + yb.y)) + offset;
+                p.y = (fromDeck ? g.centre.y : g.topY) + yb.x + offset.y;
+                return p;
+            }
+            for (int k = 1; k < R; k++)
+            {
+                var kit = chordKit[k];
+                if (kit == RailKit.Galvanised || kit == RailKit.Weathering) continue;
+                foreach (var part in KitParts(kit))
+                {
+                    var into = RunTris(part.mat);
+                    float bump = part.boards ? (Mathf.Max(0, rings[k - 1].station >= 0 ? rings[k - 1].station : StationBefore(k - 1)) % 4) * 0.25f : 0f;
+                    Prism(verts, uvs, into, part, k - 1, k, along, bump, (kk, yb) => PAt(kk, yb, part.fromDeck, Vector3.zero));
+                }
+            }
+            // Caps where a closed kit starts or stops inside the run (a deck's
+            // ends, a Parkway leg's ends), so no prism is seen open-ended.
+            for (int k = 1; k < R; k++)
+            {
+                var prev = chordKit[k - 1 < 1 ? 1 : k - 1];
+                var kit = chordKit[k];
+                if (k == 1 || prev == kit) continue;
+                Vector3 dirA = rings[k - 1].centre - rings[Mathf.Max(0, k - 2)].centre; dirA.y = 0f;
+                Vector3 dirB = rings[k].centre - rings[k - 1].centre; dirB.y = 0f;
+                foreach (var part in KitParts(prev))
+                    CapPrism(verts, uvs, RunTris(part.mat), part, kk => PAt(k - 1, kk, part.fromDeck, Vector3.zero), dirA);
+                foreach (var part in KitParts(kit))
+                    CapPrism(verts, uvs, RunTris(part.mat), part, kk => PAt(k - 1, kk, part.fromDeck, Vector3.zero), -dirB);
             }
 
             // THE BEAM REACHES AS FAR AS ITS COLLIDER. The wall solid runs on
@@ -5798,7 +5895,8 @@ namespace PSXRacing.EditorTools
             // and the solid's end, seen from the road past a run's end - had
             // nothing drawn in front of it (Chimney Rock wp 915 R, where the
             // run hands over to the cut: "held off by 1.40 m of air"). Carried
-            // on as far, and closed with a flat end shoe, both sides.
+            // on as far, and closed with a flat end shoe, both sides - or, for
+            // a closed kit, its prism carried on and capped.
             if (R >= 2)
                 for (int endIx = 0; endIx < 2; endIx++)
                 {
@@ -5806,12 +5904,31 @@ namespace PSXRacing.EditorTools
                     Vector3 dir = Crease(k, 0) - Crease(k2, 0); dir.y = 0f;
                     if (dir.sqrMagnitude < 1e-6f) continue;
                     dir = dir.normalized * WallSolidEndReachM;
+                    var endKit = chordKit[endIx == 0 ? 1 : R - 1];
+                    if (endKit != RailKit.Galvanised && endKit != RailKit.Weathering)
+                    {
+                        foreach (var part in KitParts(endKit))
+                        {
+                            var into = RunTris(part.mat);
+                            var a = new Vector3[part.prof.Length];
+                            var b = new Vector3[part.prof.Length];
+                            for (int j = 0; j < a.Length; j++)
+                            {
+                                a[j] = PAt(k, part.prof[j], part.fromDeck, Vector3.zero);
+                                b[j] = a[j] + dir;
+                            }
+                            Skin(verts, uvs, into, part, a, b, along[k], along[k] + (endIx == 0 ? -1f : 1f) * WallSolidEndReachM, 0f);
+                            CapPrism(verts, uvs, into, part, kk => PAt(k, kk, part.fromDeck, dir), dir);
+                        }
+                        continue;
+                    }
+                    var beam = endKit == RailKit.Galvanised ? tris : RunTris(KitMat(endKit));
                     Vector3 toRoad = -rings[k].right * side;
                     float uA = along[k] / Spacing + 50f / 256f;
                     float uB = uA + (endIx == 0 ? -WallSolidEndReachM : WallSolidEndReachM) / Spacing;
                     for (int j = 1; j < P; j++)
                         for (int face = 0; face < 2; face++)
-                            WallQuad(verts, uvs, tris,
+                            WallQuad(verts, uvs, beam,
                                      Crease(k, j - 1), Crease(k, j), Crease(k, j) + dir, Crease(k, j - 1) + dir,
                                      new Vector2(uA, V(j - 1)), new Vector2(uA, V(j)),
                                      new Vector2(uB, V(j)), new Vector2(uB, V(j - 1)),
@@ -5821,7 +5938,7 @@ namespace PSXRacing.EditorTools
                     Vector3 deep = front + g.right * (side * RailSection[2].back);
                     float yb = g.topY - RailSection[0].down, yt = g.topY - RailSection[RailSection.Length - 1].down;
                     for (int face = 0; face < 2; face++)
-                        WallQuad(verts, uvs, tris,
+                        WallQuad(verts, uvs, beam,
                                  new Vector3(front.x, yb, front.z), new Vector3(front.x, yt, front.z),
                                  new Vector3(deep.x, yt, deep.z), new Vector3(deep.x, yb, deep.z),
                                  new Vector2(uB, V(0)), new Vector2(uB, V(P - 1)),
@@ -5833,49 +5950,307 @@ namespace PSXRacing.EditorTools
             bool NoPost(int station) =>
                 station >= 0 && (DeckCoversStation(station) || rsFaceH[s][station] > 0f);
             // On a retaining wall (retain) the post stands in its coping, not
-            // down the fall to the land.
-            void Post(in WallRing g, float line, bool onWall)
+            // down the fall to the land. Each kit's post is its own: the
+            // W-beam's W6-sized timber behind the valley, the Parkway rail's
+            // square dark timber behind its steel, Chimney Rock's split post
+            // behind the logs, the bridge railing's steel post on the curb.
+            void Post(in WallRing g, float line, bool onWall, RailKit kit)
             {
-                if (g.topY - g.groundY < RailPostMinH) return;
-                Vector3 c = g.centre + g.right * (side * (half + line + RailSection[2].back + RailPostW * 0.5f));
-                float foot = onWall ? g.groundY - RetainPostSinkM : g.baseY;
+                float postW, back, topOver;
+                Material pm;
+                switch (kit)
+                {
+                    case RailKit.ParkwayTimber:
+                        postW = TimberPostW; back = TimberRailDepth + TimberSteelT; topOver = -0.03f; pm = null; break;
+                    case RailKit.Rustic:
+                        postW = RusticPostW; back = RusticLogR * 2f; topOver = RusticPostTopOver; pm = KitMat(kit); break;
+                    case RailKit.BridgeRail:
+                        postW = BridgePostW; back = BridgeRailBack + BridgeRailDepth; topOver = 0f; pm = KitMat(kit); break;
+                    case RailKit.Weathering:
+                        postW = RailPostW; back = RailSection[2].back; topOver = -0.03f; pm = KitMat(kit); break;
+                    default:
+                        postW = RailPostW; back = RailSection[2].back; topOver = -0.03f; pm = null; break;
+                }
+                if (kit != RailKit.BridgeRail && g.topY - g.groundY < RailPostMinH) return;
+                Vector3 c = g.centre + g.right * (side * (half + line + back + postW * 0.5f));
+                float foot = kit == RailKit.BridgeRail ? g.centre.y + BridgeCurbTop
+                           : onWall ? g.groundY - RetainPostSinkM : g.baseY;
+                float top = kit == RailKit.BridgeRail ? g.centre.y + BridgeTopRailTop : g.topY + topOver;
                 c.y = foot;
-                int v0 = railPostUvs.Count;
-                float h = g.topY - 0.03f - foot;
-                AppendPost(railPostVerts, railPostUvs, railPostTris, c, g.right, RailPostW, h);
-                // A strip of the timber sheet a post wide (0.15 m of its 256
-                // texels is about 40), a metre of grain per sheet height, and
-                // each post from a different strip so no two match.
+                float h = top - foot;
+                if (h <= 0.05f) return;
+                var pv = pm == null ? railPostVerts : PostBuf(pm).v;
+                var pu = pm == null ? railPostUvs : PostBuf(pm).u;
+                var pt = pm == null ? railPostTris : PostBuf(pm).t;
+                int v0 = pu.Count;
+                AppendPost(pv, pu, pt, c, g.right, postW, h);
+                // A strip of the sheet a post wide (0.15 m of its 256 texels
+                // is about 40), a metre of grain per sheet height, and each
+                // post from a different strip so no two match.
                 float col = (posts % 6) / 6f;
-                for (int q = v0; q < railPostUvs.Count; q++)
-                    railPostUvs[q] = new Vector2(col + railPostUvs[q].x / 6f, railPostUvs[q].y * h);
+                for (int q = v0; q < pu.Count; q++)
+                    pu[q] = new Vector2(col + pu[q].x / 6f, pu[q].y * h);
                 posts++;
             }
-            bool Allowed(int k) => rings[k].mid
-                ? !NoPost(rings[k - 1].station) && !NoPost(rings[k + 1].station)
-                : !NoPost(rings[k].station);
+            bool Allowed(int k, RailKit kit) => kit == RailKit.BridgeRail
+                ? deckRing[k]
+                : rings[k].mid
+                    ? !NoPost(StationBefore(k)) && !NoPost(StationAfter(k))
+                    : !NoPost(rings[k].station);
+            int StationBefore(int k) { int a = k - 1; while (a > 0 && rings[a].station < 0) a--; return a >= 0 ? rings[a].station : -1; }
+            int StationAfter(int k) { int b = k + 1; while (b < R - 1 && rings[b].station < 0) b++; return b < R ? rings[b].station : -1; }
             // A post at every ring - station, or half ring on a tight inside -
-            // and one between two station rings: every 2 m either way. Between
+            // and, for the W-beam and the bridge railing, one between two
+            // station rings: every 2 m either way (the Parkway's timber and
+            // Chimney Rock's logs stand a post every station, ~4 m). Between
             // two station rings laid on the curve's slices, the one between
             // stands on the curve too, half way along the gap.
-            int n = pts.Count;
             for (int k = 0; k < R; k++)
             {
                 if (rings[k].slice) continue;
-                if (Allowed(k)) Post(rings[k], Line(k), retain[k]);
+                var kitK = deckRing[k] && theme.parkway ? RailKit.BridgeRail : RingKit(k);
+                if (Allowed(k, kitK)) Post(rings[k], Line(k), retain[k], kitK);
                 if (rings[k].mid) continue;
                 int kb = k + 1;
                 while (kb < R && rings[kb].slice) kb++;
-                if (kb >= R || rings[kb].mid || !Allowed(k) || !Allowed(kb)) continue;
+                if (kb >= R || rings[kb].mid) continue;
+                var kitB = chordKit[kb];
+                bool between = kitB == RailKit.Galvanised || kitB == RailKit.Weathering || kitB == RailKit.BridgeRail;
+                if (!between || !Allowed(k, kitB) || !Allowed(kb, kitB)) continue;
                 bool onWall = retain[k] && retain[kb];
                 if (kb == k + 1)
-                    Post(MidWallRing(rings[k], rings[kb]), 0.5f * (Line(k) + Line(kb)), onWall);
+                    Post(MidWallRing(rings[k], rings[kb]), 0.5f * (Line(k) + Line(kb)), onWall, kitB);
                 else
                 {
                     int gap = StationGap(rings[k].station, rings[kb].station, n);
                     if (gap < 0) continue;
-                    Post(CurveWallRing(pts, rings[k], rings[kb], gap, 0.5f, side), 0.5f * (Line(k) + Line(kb)), onWall);
+                    Post(CurveWallRing(pts, rings[k], rings[kb], gap, 0.5f, side), 0.5f * (Line(k) + Line(kb)), onWall, kitB);
                 }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  Barrier kits: what each stretch's rail is made of
+        // ------------------------------------------------------------------
+        /// <summary>The Parkway's steel-backed timber guardrail: a weathered
+        /// silver-grey rail 0.25 m deep in face and 0.15 m thick, its top
+        /// 3 cm under the wall line's top (0.70 m over the tarmac, the real
+        /// rail's "about 0.7 m"), a steel plate behind it, on 0.25 m square
+        /// dark timber posts a station (~4 m) apart. Its face covers the
+        /// ghost audit's 0.6 and 0.8 m samples, as the W-beam's does.</summary>
+        const float TimberRailTop = -0.03f, TimberRailH = 0.25f, TimberRailDepth = 0.15f,
+                    TimberSteelT = 0.012f, TimberPostW = 0.25f;
+        /// <summary>Chimney Rock's rustic post-and-rail: two round log rails
+        /// (hexagonal, 0.15 m across) whose centres stand 0.15 m over and
+        /// 0.25 m under the wall line's top - about 0.88 and 0.48 m over the
+        /// tarmac - on 0.18 m split posts a station apart, rising 0.27 m over
+        /// the line's top. The lower log covers the audit's 0.6 m sample.</summary>
+        const float RusticLogR = 0.075f, RusticTopY = 0.15f, RusticLowY = -0.25f,
+                    RusticPostW = 0.18f, RusticPostTopOver = 0.27f;
+        /// <summary>The Parkway's bridge railing (Linn Cove and the other
+        /// Grandfather bridges, Street View): a concrete curb 0.45 m over the
+        /// waypoint plane (0.33 m over the deck's tarmac) and 0.40 m wide,
+        /// two rectangular steel rails 0.15 m tall, 0.08 m deep, set back
+        /// 0.12 m on the curb's ledge, at 0.53-0.68 and 0.90-1.05 m, on
+        /// 0.10 m square steel posts every 2 m. Heights are off the deck
+        /// (the ring's centre), not the wall line.</summary>
+        const float BridgeCurbTop = 0.45f, BridgeCurbW = 0.40f, BridgeRailBack = 0.12f, BridgeRailDepth = 0.08f,
+                    BridgeLowRailBot = 0.53f, BridgeLowRailTop = 0.68f, BridgeTopRailBot = 0.90f, BridgeTopRailTop = 1.05f,
+                    BridgePostW = 0.10f;
+
+        static string WeatheringTexPath => Root + "/Art/Guardrail/rusty_metal_pt_1.png";
+        static string TimberRailTexPath => Root + "/Art/Guardrail/wooden_board_pt_1.png";
+        static string RusticRailTexPath => Root + "/Art/Guardrail/tree_bark_6.png";
+
+        static Material kitGalv, kitWeather, kitTimber, kitRustic, kitCurb;
+        sealed class KitBuf
+        {
+            public readonly List<Vector3> v = new List<Vector3>();
+            public readonly List<Vector2> u = new List<Vector2>();
+            public readonly List<int> t = new List<int>();
+        }
+        /// <summary>The stage's posts by material (the W-beam's timber posts
+        /// stay in railPostVerts, as ever).</summary>
+        static readonly Dictionary<Material, KitBuf> kitPosts = new Dictionary<Material, KitBuf>();
+        /// <summary>The run being built's triangles by material, beside the
+        /// run's own (the stone, or the galvanised beam).</summary>
+        static readonly Dictionary<Material, List<int>> runTris = new Dictionary<Material, List<int>>();
+        /// <summary>Metres of rail chord each kit drew this stage, for the log.</summary>
+        static readonly Dictionary<RailKit, float> kitChords = new Dictionary<RailKit, float>();
+
+        static void PrepareRailKits(Material runMat)
+        {
+            kitPosts.Clear(); kitChords.Clear(); runTris.Clear();
+            kitGalv = runMat;
+            kitWeather = kitTimber = kitRustic = kitCurb = null;
+        }
+
+        static KitBuf PostBuf(Material m)
+        {
+            if (!kitPosts.TryGetValue(m, out var b)) kitPosts[m] = b = new KitBuf();
+            return b;
+        }
+
+        static List<int> RunTris(Material m)
+        {
+            if (!runTris.TryGetValue(m, out var l)) runTris[m] = l = new List<int>();
+            return l;
+        }
+
+        /// <summary>The material a kit's rail (and, but for the timber kits'
+        /// own, its posts) wears - the owner's pack sheets: PSX Textures II
+        /// rusty_metal_pt_1 (weathering steel), wooden_board_pt_1 (the
+        /// Parkway's silver-grey timber), PSX Nature tree_bark_6 (Chimney
+        /// Rock's grey log rails), the city's concrete for the curb.</summary>
+        static Material KitMat(RailKit kit)
+        {
+            switch (kit)
+            {
+                case RailKit.Weathering:
+                    return kitWeather ?? (kitWeather = MakeMat(MeshPrefix + "GuardrailWeathering", WeatheringTexPath,
+                                                               tint: new Color(1.2f, 1.15f, 1.1f), affine: 0f));
+                case RailKit.ParkwayTimber:
+                    return kitTimber ?? (kitTimber = MakeMat(MeshPrefix + "TimberRail", TimberRailTexPath, affine: 0f));
+                case RailKit.Rustic:
+                    return kitRustic ?? (kitRustic = MakeMat(MeshPrefix + "RusticRail", RusticRailTexPath,
+                                                             tint: new Color(1.15f, 1.05f, 0.95f), affine: 0f));
+                default:
+                    return kitGalv;
+            }
+        }
+
+        static Material CurbMat() => kitCurb ?? (kitCurb = MakeMat(MeshPrefix + "BridgeCurb", EnsureConcreteTex(), affine: 0f));
+
+        /// <summary>
+        /// THE KIT A CHORD OF BARRIER WEARS, per the real road
+        /// (Docs/reference/blue-ridge-roads.md 2.5): on a deck of the Parkway
+        /// (BlueRidge: the Linn Cove Viaduct and the other Grandfather
+        /// bridges) the curb and two-rail bridge railing; anywhere else on the
+        /// Parkway (its stretches on the loops too) its timber guardrail; off
+        /// it, the venue's own rail. A loop's decks keep the venue's rail.
+        /// </summary>
+        static RailKit ChordKit(bool deck, float m)
+        {
+            if (deck) return theme.parkway ? RailKit.BridgeRail : theme.rail;
+            return OnParkwayAt(m) ? RailKit.ParkwayTimber : theme.rail;
+        }
+
+        /// <summary>One closed profile of a kit: (height, back of the line)
+        /// points, wound round the section; the material it wears; whether
+        /// its heights are off the deck (the ring's centre) or the wall
+        /// line's top; and how its UVs run.</summary>
+        sealed class KitPart
+        {
+            public Vector2[] prof;              // x = height over the anchor, y = metres back of the line
+            public Material mat;
+            public bool fromDeck;
+            public bool boards;                 // the timber's butt joints: a new board each station
+            public float alongScale, perimScale;
+            public bool alongIsV;               // the sheet's grain runs up the texture
+        }
+
+        static Vector2[] Box(float y0, float y1, float b0, float b1) =>
+            new[] { new Vector2(y0, b0), new Vector2(y1, b0), new Vector2(y1, b1), new Vector2(y0, b1) };
+
+        static Vector2[] LogSection(float yc, float bc, float r)
+        {
+            var p = new Vector2[6];
+            for (int i = 0; i < 6; i++)
+            {
+                float a = (i * 60f + 30f) * Mathf.Deg2Rad;
+                p[i] = new Vector2(yc + r * Mathf.Sin(a), bc - r * Mathf.Cos(a));
+            }
+            return p;
+        }
+
+        static List<KitPart> KitParts(RailKit kit)
+        {
+            var parts = new List<KitPart>(3);
+            switch (kit)
+            {
+                case RailKit.ParkwayTimber:
+                    parts.Add(new KitPart { prof = Box(TimberRailTop - TimberRailH, TimberRailTop, 0f, TimberRailDepth),
+                                            mat = KitMat(kit), boards = true, alongScale = 2f, perimScale = 1f, alongIsV = true });
+                    parts.Add(new KitPart { prof = Box(TimberRailTop - TimberRailH + 0.02f, TimberRailTop - 0.02f,
+                                                       TimberRailDepth, TimberRailDepth + TimberSteelT),
+                                            mat = kitGalv, alongScale = 4f, perimScale = 1f });
+                    break;
+                case RailKit.Rustic:
+                    parts.Add(new KitPart { prof = LogSection(RusticTopY, RusticLogR, RusticLogR), mat = KitMat(kit),
+                                            alongScale = 1.5f, perimScale = 0.5f, alongIsV = true });
+                    parts.Add(new KitPart { prof = LogSection(RusticLowY, RusticLogR, RusticLogR), mat = KitMat(kit),
+                                            alongScale = 1.5f, perimScale = 0.5f, alongIsV = true });
+                    break;
+                case RailKit.BridgeRail:
+                    parts.Add(new KitPart { prof = Box(-0.45f, BridgeCurbTop, 0f, BridgeCurbW), mat = CurbMat(),
+                                            fromDeck = true, alongScale = 3f, perimScale = 3f });
+                    parts.Add(new KitPart { prof = Box(BridgeLowRailBot, BridgeLowRailTop, BridgeRailBack, BridgeRailBack + BridgeRailDepth),
+                                            mat = kitGalv, fromDeck = true, alongScale = 4f, perimScale = 1f });
+                    parts.Add(new KitPart { prof = Box(BridgeTopRailBot, BridgeTopRailTop, BridgeRailBack, BridgeRailBack + BridgeRailDepth),
+                                            mat = kitGalv, fromDeck = true, alongScale = 4f, perimScale = 1f });
+                    break;
+            }
+            return parts;
+        }
+
+        static Vector2 KitUV(KitPart part, float perim, float along, float bump)
+        {
+            float a = along / part.alongScale, p = perim / part.perimScale + bump;
+            return part.alongIsV ? new Vector2(p, a) : new Vector2(a, p);
+        }
+
+        /// <summary>A kit part's skin between two rings' worth of its profile
+        /// points, each face wound outward from the section's middle.</summary>
+        static void Skin(List<Vector3> verts, List<Vector2> uvs, List<int> tris, KitPart part,
+                         Vector3[] a, Vector3[] b, float alongA, float alongB, float bump)
+        {
+            int m = a.Length;
+            Vector3 ca = Vector3.zero, cb = Vector3.zero;
+            for (int j = 0; j < m; j++) { ca += a[j]; cb += b[j]; }
+            ca /= m; cb /= m;
+            float perim = 0f;
+            for (int j = 0; j < m; j++)
+            {
+                int j1 = (j + 1) % m;
+                float seg = (part.prof[j1] - part.prof[j]).magnitude;
+                Vector3 mid = (a[j] + a[j1] + b[j] + b[j1]) * 0.25f;
+                WallQuad(verts, uvs, tris, a[j], a[j1], b[j1], b[j],
+                         KitUV(part, perim, alongA, bump), KitUV(part, perim + seg, alongA, bump),
+                         KitUV(part, perim + seg, alongB, bump), KitUV(part, perim, alongB, bump),
+                         mid - (ca + cb) * 0.5f);
+                perim += seg;
+            }
+        }
+
+        static void Prism(List<Vector3> verts, List<Vector2> uvs, List<int> tris, KitPart part, int ka, int kb,
+                          float[] along, float bump, Func<int, Vector2, Vector3> at)
+        {
+            int m = part.prof.Length;
+            var a = new Vector3[m];
+            var b = new Vector3[m];
+            for (int j = 0; j < m; j++) { a[j] = at(ka, part.prof[j]); b[j] = at(kb, part.prof[j]); }
+            Skin(verts, uvs, tris, part, a, b, along[ka], along[kb], bump);
+        }
+
+        /// <summary>A kit part's end face, fanned from its first point,
+        /// facing <paramref name="facing"/> (along the run, outward).</summary>
+        static void CapPrism(List<Vector3> verts, List<Vector2> uvs, List<int> tris, KitPart part,
+                             Func<Vector2, Vector3> at, Vector3 facing)
+        {
+            int m = part.prof.Length;
+            if (m < 3 || facing.sqrMagnitude < 1e-8f) return;
+            int v0 = verts.Count;
+            for (int j = 0; j < m; j++)
+            {
+                verts.Add(at(part.prof[j]));
+                uvs.Add(new Vector2(part.prof[j].y / part.perimScale, part.prof[j].x / part.perimScale));
+            }
+            for (int j = 1; j + 1 < m; j++)
+            {
+                int a = v0, b = v0 + j, c = v0 + j + 1;
+                Vector3 nrm = Vector3.Cross(verts[b] - verts[a], verts[c] - verts[a]);
+                if (Vector3.Dot(nrm, facing) >= 0f) { tris.Add(a); tris.Add(b); tris.Add(c); }
+                else { tris.Add(a); tris.Add(c); tris.Add(b); }
             }
         }
 
@@ -6068,6 +6443,7 @@ namespace PSXRacing.EditorTools
         {
             int n = pts.Count, s = SideIx(side);
             float half = RoadWidth * 0.5f;
+            runTris.Clear();
 
             // The rings: one per station, the road's own curve slices between
             // two walled rows (CurveWallRing), a half-station ring on a tight
@@ -6261,16 +6637,32 @@ namespace PSXRacing.EditorTools
                                false, phys, "CollGuard" + no + "_" + sub++, depth);
                 k = k1 + 1;
             }
+            // One submesh per material the run's kits wear (the stone or the
+            // galvanised beam first, then weathering steel, timber, logs,
+            // the bridge curb); a part in the run's own material joins it.
+            var subMats = new List<Material> { mat };
+            var subTris = new List<List<int>> { tris };
+            foreach (var kv in runTris)
+            {
+                if (kv.Value.Count == 0) continue;
+                int at = subMats.IndexOf(kv.Key);
+                if (at >= 0) subTris[at].AddRange(kv.Value);
+                else { subMats.Add(kv.Key); subTris.Add(kv.Value); }
+            }
+            if (subTris[0].Count == 0 && subTris.Count > 1) { subMats.RemoveAt(0); subTris.RemoveAt(0); }
             var mesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
-                vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray(),
+                vertices = verts.ToArray(), uv = uvs.ToArray(),
             };
+            mesh.subMeshCount = subTris.Count;
+            for (int i = 0; i < subTris.Count; i++) mesh.SetTriangles(subTris[i], i, false);
+            mesh.RecalculateBounds();
             SaveMesh(mesh, "StageWall" + no);
             var go = new GameObject("Wall" + no);
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            go.AddComponent<MeshRenderer>().sharedMaterials = subMats.ToArray();
             go.isStatic = true;
         }
 
@@ -7745,14 +8137,40 @@ namespace PSXRacing.EditorTools
         /// crown, narrower for a spire.</summary>
         static float StageTreeWidth(TreeSpecies sp, float h) => h * (sp.conifer ? 0.62f : 1.0f);
 
+        /// <summary>
+        /// THE SHARE OF SPRUCE-FIR at a real elevation, metres above sea level
+        /// (Docs/reference/blue-ridge-roads.md F9, 2.12). It was the height
+        /// above each stage's OWN base (InverseLerp(35, 105, groundY)), so
+        /// Chimney Rock at 325-586 m, NC 226 and lower NC 226A carried up to
+        /// 36% spruce-fir cards while Mount Mitchell's 1,900-2,000 m summit
+        /// got only 36%. Red spruce and Fraser fir DOMINATE above ~1,700 m
+        /// (near-pure at the summit, dead fir snags among them - the bare
+        /// cell stands in), are MIXED with the northern hardwoods from
+        /// ~1,400 m, and below that are a scattering: a few percent, the
+        /// low venues' white pine and hemlock having no cells of their own.
+        /// Hand-picked breakpoints, linear between: 3% to 1,000 m, 10% at
+        /// 1,400, 65% at 1,700, 85% from 1,900. Read off the bake's datum
+        /// (stageBaseM + the ground's y) - SRTM, so a canopy's worth high
+        /// on a ridge, which these breakpoints are too coarse to mind.
+        /// </summary>
+        internal static float ConiferShareAt(float elevM)
+        {
+            if (elevM <= 1000f) return 0.03f;
+            if (elevM <= 1400f) return Mathf.Lerp(0.03f, 0.10f, (elevM - 1000f) / 400f);
+            if (elevM <= 1700f) return Mathf.Lerp(0.10f, 0.65f, (elevM - 1400f) / 300f);
+            if (elevM <= 1900f) return Mathf.Lerp(0.65f, 0.85f, (elevM - 1700f) / 200f);
+            return 0.85f;
+        }
+
         static int PickSpecies(System.Random rng, float x, float z, float groundY)
         {
             double roll = rng.NextDouble();
-            // Spruce-fir climbs with elevation — the top of the run is real
-            // red-spruce country. groundY is world (baseM-relative).
-            float elev = Mathf.InverseLerp(35f, 105f, groundY);
+            // Spruce-fir by REAL elevation (ConiferShareAt). The draws are the
+            // ones they always were - one roll, one pick - and the density
+            // (the grid, the keep rolls, ForestDenseTo) is untouched.
+            float conifer = ConiferShareAt(stageBaseM + groundY);
             if (roll < 0.05) return BareIdx;
-            if (roll < 0.05 + 0.06f + 0.30f * elev)
+            if (roll < 0.05 + conifer)
                 return ConiferGroup[rng.Next(ConiferGroup.Length)];
             float c = ForestClusterNoise(x, z);
             if (c > 0.42f) return RedGroup[rng.Next(RedGroup.Length)];
