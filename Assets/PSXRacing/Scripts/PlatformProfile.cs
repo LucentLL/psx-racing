@@ -31,7 +31,7 @@ namespace PSXRacing
         public const int CityRing = 2;   // ring 4 (2026-11-02) outran the main-thread tile builder on I-277: the bigger view waits for baked, streamed tiles
         public const int CityTrafficCap = 96;
         public const int HDMaxLines = 2160;
-        public const int ProbeFacesPerFrame = 2;
+        public const int ProbeFacesPerFrame = 1;   // 2 cost +1.6 ms a frame on the Uptown tour (2026-11-02)
         public const int ProbeFaceRes = 512;
 
         static int pc = -1, maxTraffic = -1;
