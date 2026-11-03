@@ -25,7 +25,8 @@ namespace PSXRacing.EditorTools
     public static class TextureHDTool
     {
         public const string MapAsset = "Assets/PSXRacing/Resources/TextureHDMap.asset";
-        const string DefaultSrc = @"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Environment_HD";
+        // the RELEASE folder only: Codex's drafts live beside it in _Authoring
+        const string DefaultSrc = @"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Environment_HD\Release";
         const string Suffix = "_overhaul1_hd";
         const string WorkDir = "Temp/TexHDBundle";
 
