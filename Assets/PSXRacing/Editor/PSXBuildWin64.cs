@@ -63,10 +63,16 @@ namespace PSXRacing.EditorTools
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
                 PlayerSettings.runInBackground = true;
-                PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-                PlayerSettings.defaultScreenWidth = 1280;
-                PlayerSettings.defaultScreenHeight = 720;
+                // THE PC PROFILE (PlatformProfile, owner 2026-11-02): full screen at
+                // the desktop's own resolution, the way a release opens.
+                // Alt+Enter or the OPTIONS row goes windowed.
+                PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+                PlayerSettings.defaultIsNativeResolution = true;
+                PlayerSettings.defaultScreenWidth = 1920;
+                PlayerSettings.defaultScreenHeight = 1080;
                 PlayerSettings.resizableWindow = true;
+                PlayerSettings.allowFullscreenSwitch = true;
+                PlayerSettings.visibleInBackground = false;
                 PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
 
                 // the on-demand bundles, built for THIS target (a WebGL bundle does not load here)
@@ -79,6 +85,28 @@ namespace PSXRacing.EditorTools
                 err = EngineBundleBuilder.Build(target, out long enBytes, out var enLines);
                 if (err != null) { Debug.LogError("[PSXBuildWin64] ENGINE BUNDLES FAILED: " + err); return false; }
                 Debug.Log($"[PSXBuildWin64] bundles: tex {texBytes / 1048576f:F1} MB, cockpit {ckBytes / 1048576f:F1} MB, charlotte {chBytes / 1048576f:F1} MB, engines {enBytes / 1048576f:F1} MB");
+                // THE HD TIER (TextureHD): the art workspace's HD sets imported and
+                // mapped before the player; their bundle beside it after
+                err = TextureHDTool.Import(out int hdSets);
+                if (err != null) { Debug.LogError("[PSXBuildWin64] HD IMPORT FAILED: " + err); return false; }
+                Debug.Log($"[PSXBuildWin64] HD tier: {hdSets} PBR sets");
+
+                // THE BAKED CITY (CityTileCache, Editor/CityTileBake.cs): every
+                // Charlotte tile baked again when the city data or the generator
+                // changed, this player stamped with the fingerprint it may load,
+                // the bake copied into its StreamingAssets after the build.
+                // PSX_TILECACHE_BAKE=0: a player without one (every tile built live).
+                string tileDir = PSXRacing.City.CityTileCache.DefaultDir(), tileStamp = null;
+                if (Environment.GetEnvironmentVariable("PSX_TILECACHE_BAKE") != "0")
+                {
+                    var tc = System.Diagnostics.Stopwatch.StartNew();
+                    if (!CityTileBake.EnsureFresh(tileDir, false, out tileStamp, out string tileReport))
+                    {
+                        Debug.LogError("[PSXBuildWin64] CITY TILE BAKE FAILED: " + tileReport);
+                        return false;
+                    }
+                    Debug.Log($"[PSXBuildWin64] {tileReport} ({tc.Elapsed.TotalSeconds:0} s)");
+                }
 
                 Directory.CreateDirectory(outDir);
                 var options = new BuildPlayerOptions
@@ -92,10 +120,11 @@ namespace PSXRacing.EditorTools
                 BuildReport report;
                 try
                 {
+                    if (tileStamp != null) CityTileBake.WriteStamp(tileStamp);
                     EditionParking.Park(EditionKind.All);
                     report = BuildPipeline.BuildPlayer(options);
                 }
-                finally { EditionParking.Restore(); }
+                finally { EditionParking.Restore(); CityTileBake.RemoveStamp(); }
                 var s = report.summary;
                 Debug.Log($"[PSXBuildWin64] Result={s.result} size={s.totalSize / (1024 * 1024)}MB errors={s.totalErrors} time={s.totalTime}");
                 if (s.result != BuildResult.Succeeded)
@@ -106,7 +135,19 @@ namespace PSXRacing.EditorTools
                                 Debug.LogError($"[PSXBuildWin64] {step.name}: {msg.content}");
                     return false;
                 }
-                File.WriteAllText(Path.Combine(outDir, "build_ok.txt"), $"Win64 (Mono) build succeeded {s.totalSize / (1024 * 1024)} MB edition ALL {DateTime.Now:s}\n");
+                err = TextureHDTool.ShipBundle(target, Path.Combine(outDir, "PSXRacing_Data", "StreamingAssets"), out long hdBytes);
+                if (err != null) { Debug.LogError("[PSXBuildWin64] HD BUNDLE FAILED: " + err); return false; }
+                if (hdBytes > 0) Debug.Log($"[PSXBuildWin64] HD bundle: {hdBytes / 1048576f:F1} MB beside the player");
+                string tileNote = "no city tile bake";
+                if (tileStamp != null)
+                {
+                    var tc = System.Diagnostics.Stopwatch.StartNew();
+                    string dst = Path.Combine(outDir, "PSXRacing_Data", "StreamingAssets", PSXRacing.City.CityTileCache.FolderName);
+                    long tileBytes = CityTileBake.CopyTo(tileDir, dst);
+                    tileNote = $"city tiles {tileBytes / 1048576.0:0} MB baked ({tileStamp.Substring(0, 12)})";
+                    Debug.Log($"[PSXBuildWin64] {tileNote} copied to {dst} ({tc.Elapsed.TotalSeconds:0} s)");
+                }
+                File.WriteAllText(Path.Combine(outDir, "build_ok.txt"), $"Win64 (Mono) build succeeded {s.totalSize / (1024 * 1024)} MB edition ALL {DateTime.Now:s}, {tileNote}\n");
                 return true;
             }
             catch (Exception e)

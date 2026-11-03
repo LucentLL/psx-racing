@@ -66,6 +66,20 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>The rain's drops on the cars' paint (PSXCarDrops): <see
+        /// cref="LensRain"/>, except that a tunnel bore keeps them - a car is
+        /// as wet coming out of a tunnel as it went in - and only a building's
+        /// roof takes them off.</summary>
+        public static float CarRain
+        {
+            get
+            {
+                if (instance == null || instance.rainSince < 0f || instance.inRoom) return 0f;
+                float x = Mathf.Clamp01((Time.time - instance.rainSince) / LensRainEase);
+                return x * x * (3f - 2f * x);
+            }
+        }
+
         /// <summary>True while this scene's rain is falling (built as rain,
         /// not snow, and not yet destroyed). TireSpray gates on it, so a car
         /// that outlives the weather stops throwing water.</summary>
@@ -83,7 +97,8 @@ namespace PSXRacing
         {
             get
             {
-                if (instance == null || instance.snowSince < 0f || instance.covered) return 0f;
+                // under a building's roof only: a car through a tunnel keeps its snow
+                if (instance == null || instance.snowSince < 0f || instance.inRoom) return 0f;
                 float x = Mathf.Clamp01((Time.time - instance.snowSince) / CarSnowEase);
                 return x * x * (3f - 2f * x);
             }
@@ -198,7 +213,9 @@ namespace PSXRacing
         /// </summary>
         void CullSheltered(Vector3 eye)
         {
+            WeatherShelter.EnsureVenueBores();
             covered = WeatherShelter.Contains(eye);
+            inRoom = covered && WeatherShelter.ContainsRoom(eye);
             if (ps == null || !WeatherShelter.AnyNear(eye, ShelterReach)) return;
             int max = ps.main.maxParticles;
             if (buf == null || buf.Length < max) buf = new ParticleSystem.Particle[max];
@@ -217,10 +234,11 @@ namespace PSXRacing
         /// to be worth checking: the slab is 48 m across at most.</summary>
         const float ShelterReach = 60f;
         ParticleSystem.Particle[] buf;
-        bool covered;
+        bool covered, inRoom;
 
-        /// <summary>True while the camera is under a building's roof: no drops
-        /// on the lens, and none falling round it. For the checks.</summary>
+        /// <summary>True while the camera is under a roof, a building's or a
+        /// tunnel bore's: no drops on the lens, and none falling round it. For
+        /// the checks.</summary>
         public static bool Covered => instance != null && instance.covered;
 
         /// <summary>

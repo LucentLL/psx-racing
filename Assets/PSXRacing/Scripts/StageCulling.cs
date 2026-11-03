@@ -19,6 +19,9 @@ namespace PSXRacing
     public class StageCulling : MonoBehaviour
     {
         public float foliageDistance = 520f;
+        /// <summary>The PC profile's far plane: the far ground's reach (the
+        /// builder writes it). 0 keeps the scene's.</summary>
+        public float pcFarClip;
 
         void OnEnable()
         {
@@ -26,7 +29,12 @@ namespace PSXRacing
             int layer = LayerMask.NameToLayer("Foliage");
             if (cam == null || layer < 0) return;
             var d = new float[32];
-            d[layer] = foliageDistance;
+            // THE WHOLE FOREST (the PC profile, a desktop browser -
+            // PlatformProfile.FullForest): the forest to the far plane (0 = the
+            // plane), and the plane out to the far ground's edge (owner,
+            // 2026-11-02: "trees still pop-in").
+            d[layer] = PlatformProfile.FullForest ? 0f : foliageDistance;
+            if (PlatformProfile.FullForest && pcFarClip > cam.farClipPlane) cam.farClipPlane = pcFarClip;
             cam.layerCullDistances = d;
             // Spherical rather than planar: on a switchback the next arm of
             // the road is beside you, and planar distance would pop its trees

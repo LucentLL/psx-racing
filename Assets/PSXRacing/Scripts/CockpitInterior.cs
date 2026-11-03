@@ -553,6 +553,53 @@ namespace PSXRacing
             shellHidden = hide;
         }
 
+        /// <summary>
+        /// Draw the built cabin once, off screen, while it is still hidden: the
+        /// first frame a material is drawn is the frame its shaders and
+        /// pipeline states are compiled, and that was the half-second freeze
+        /// on the first switch to the cockpit. Four views from the cabin's
+        /// middle into a small throwaway target, then hidden again.
+        /// </summary>
+        public void Prewarm()
+        {
+            bool was = gameObject.activeSelf;
+            if (!was) gameObject.SetActive(true);
+            var rs = GetComponentsInChildren<Renderer>(false);
+            if (rs.Length == 0) { if (!was) gameObject.SetActive(false); return; }
+            var b = rs[0].bounds;
+            foreach (var r in rs) b.Encapsulate(r.bounds);
+            var go = new GameObject("CockpitPrewarm");
+            var cam = go.AddComponent<Camera>();
+            cam.enabled = false;
+            cam.fieldOfView = 120f;
+            cam.aspect = 1f;
+            cam.nearClipPlane = 0.02f;
+            cam.farClipPlane = 20f;
+            var data = go.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+            data.renderPostProcessing = false;
+            data.renderShadows = false;
+            var rt = RenderTexture.GetTemporary(128, 128, 16, RenderTextureFormat.ARGB32);
+            Vector3 fwd = car != null ? car.transform.forward : Vector3.forward, up = car != null ? car.transform.up : Vector3.up;
+            go.transform.position = b.center;
+            // the cabin draws only for the driver's camera (OnBeginCamera): this one stands in
+            var drv = driver;
+            driver = cam;
+            try
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    go.transform.rotation = Quaternion.AngleAxis(90f * i, up) * Quaternion.LookRotation(fwd, up);
+                    var req = new RenderPipeline.StandardRequest { destination = rt };
+                    if (RenderPipeline.SupportsRenderRequest(cam, req)) RenderPipeline.SubmitRenderRequest(cam, req);
+                    else { cam.targetTexture = rt; cam.Render(); cam.targetTexture = null; }
+                }
+            }
+            finally { driver = drv; }
+            RenderTexture.ReleaseTemporary(rt);
+            Destroy(go);
+            if (!was) gameObject.SetActive(false);
+        }
+
         /// <summary>Cabin on or off; the wheel and hands separately - a phone
         /// has its own wheel under the player's thumb.</summary>
         public void Show(bool on, bool wheelOn)

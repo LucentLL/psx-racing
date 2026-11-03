@@ -92,6 +92,11 @@ Shader "PSX/Lit"
     {
         _MainTex ("Texture", 2D) = "white" {}
         [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
+        // THE HD TIER (TextureHD, the PC build): the PBR set's other maps, put
+        // in at runtime with the PSX_HD keyword, never saved in a material.
+        [HideInInspector] _HDNormal ("HD normal", 2D) = "bump" {}
+        [HideInInspector] _HDRough ("HD roughness", 2D) = "white" {}
+        [HideInInspector] _HDAO ("HD ambient occlusion", 2D) = "white" {}
         // THE TERRAIN DETAIL amounts per channel of the detail sheet (R grass,
         // G dirt, B rock, A snow): stamped at runtime from the main texture by
         // TerrainDetail.cs, never saved. The sheet and its switch are globals
@@ -182,6 +187,10 @@ Shader "PSX/Lit"
         // fading in, 2 a far-building proxy, 3 a tile's tree-frame object,
         // 4 a tile's buildings, 5 a skyline copy.
         [HideInInspector] _TileFade ("Tile fade mode", Float) = 0
+        // THE FOREST'S CROWN CARDS (the PC forest, 2026-11-03): 1 on the crown
+        // material only. A crown is a level card, so from a grazing angle it
+        // is a sliver floating over the trees; it dithers out below ~25 degrees.
+        [HideInInspector] _CrownFade ("Crown fade", Float) = 0
         // CITY FLICKER (city-popin): a polygon offset toward the eye - 0 on
         // every material but the city's median barriers' copy (CityWorld),
         // which wins the line where its foot meets the road instead of
@@ -234,6 +243,12 @@ Shader "PSX/Lit"
             // mesh carries the colour; the atlas/facade variants use COLOR for
             // something else and never take it.
             #pragma shader_feature_local __ PSX_SKYVIS
+            // THE HD TIER (TextureHD, owner 2026-11-02: "PS3-PS4 era visual
+            // fidelity"): the sun per pixel off the PBR set's normal map, its AO
+            // map on the sky's light, a roughness highlight. Set at runtime, so a
+            // multi_compile; fragment-only; HDVariantStripper keeps it out of
+            // every build but the Windows player's.
+            #pragma multi_compile_local_fragment __ PSX_HD
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
@@ -305,6 +320,9 @@ Shader "PSX/Lit"
             #include "PSXTone.cginc"
 
             sampler2D _MainTex;
+        #ifdef PSX_HD
+            sampler2D _HDNormal, _HDRough, _HDAO;
+        #endif
             float4 _MainTex_ST;
             fixed4 _Color;
             float _Cutoff;
@@ -337,6 +355,7 @@ Shader "PSX/Lit"
             // frame in; a: its proxies in (0: the tile draws its own buildings
             // out to the far plane). _PSXTileFadeOn.x: 1 while the proxies draw.
             float _TileFade;
+            float _CrownFade;
             sampler2D _PSXTileFadeTex;
             float4 _PSXTileFadeOn;
             // THE FLICKER FINDER (Editor/CityFlickerFinder.cs, city-popin): a
@@ -1406,6 +1425,10 @@ Shader "PSX/Lit"
                 // fetch (taken here for the same reason)
                 float3 dWx = ddx(i.wpos);
                 float3 dWy = ddy(i.wpos);
+            #ifdef PSX_HD
+                // ...and the uv's, for the HD normal's frame (taken here too)
+                float2 hdDx = ddx(uv), hdDy = ddy(uv);
+            #endif
                 // the repeat the lit-window hash is anchored to: the TILED uv
                 float2 winUV = uv;
             #ifdef PSX_FACADE
@@ -1658,6 +1681,16 @@ Shader "PSX/Lit"
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
             #endif
                 clip(tex.a - _Cutoff);
+                // A CROWN CARD (_CrownFade): shown from 28 degrees above the
+                // level and steeper, gone under 15, dithered between. The card
+                // faces up and culls its back, so the eye is always above it.
+                if (_CrownFade > 0.5)
+                {
+                    float crownUp = normalize(_WorldSpaceCameraPos - i.wpos).y;
+                    float2 cpx = floor(i.pos.xy);
+                    float cDith = frac(52.9829189 * frac(dot(cpx, float2(0.06711056, 0.00583715))));
+                    clip(saturate((crownUp - 0.26) / 0.21) - cDith - 1e-5);
+                }
                 // THE FAR LAND (CityFarLand): only past the squeeze's start A,
                 // where the streamed world has stopped - in all three draws, so
                 // the depth-only two write nothing over the world's own ground
@@ -1708,6 +1741,25 @@ Shader "PSX/Lit"
                 float3 toEye = _WorldSpaceCameraPos - i.wpos;
                 float eyeDist = length(toEye);
                 float3 V = toEye / max(eyeDist, 1e-4);
+            #ifdef PSX_HD
+                // THE HD NORMAL: the set's tangent-space normal in a frame built
+                // from the screen derivatives of position and uv (Schueler's
+                // cotangent frame) - the generated meshes carry no tangents, and
+                // need none. Every light below reads this N.
+                float3 Ngeo = N;
+                float3 hdT, hdB;
+                {
+                    float3 p1 = cross(dWy, N), p2 = cross(N, dWx);
+                    hdT = p1 * hdDx.x + p2 * hdDy.x;
+                    hdB = p1 * hdDx.y + p2 * hdDy.y;
+                    float hdInv = rsqrt(max(max(dot(hdT, hdT), dot(hdB, hdB)), 1e-20));
+                    hdT *= hdInv; hdB *= hdInv;
+                }
+                float3 hdNT = UnpackNormal(tex2D(_HDNormal, uv));
+                N = normalize(hdNT.x * hdT + hdNT.y * hdB + hdNT.z * N);
+                float hdAO = tex2D(_HDAO, uv).r;
+                float hdRough = tex2D(_HDRough, uv).r;
+            #endif
 
                 // THE TERRAIN DETAIL (TerrainDetail.cs): grass, dirt, rock and
                 // snow carry a photographed grain near the eye. The sheet is
@@ -1781,7 +1833,19 @@ Shader "PSX/Lit"
                 skyKeep *= facAO;
                 sunVis *= lerp(1.0, facAO, FST_AO_SUN);
             #endif
-                float3 sunAmb = i.amb.rgb * (skyKeep * PSXCarAmbientKeep(carVis, i.amb.rgb, i.sun, N)) + i.sun * sunVis;
+                float3 sunIn = i.sun;
+                float3 ambIn = i.amb.rgb;
+            #ifdef PSX_HD
+                // the sun at THIS pixel's normal: the vertex's sun, scaled by how
+                // much more (or less) the mapped normal faces it than the face
+                // does - so an hour with no sun still has none - and the sky's
+                // light through the set's AO
+                float3 Ld = normalize(_PSXLightDir.xyz);
+                float geoNdl = saturate(dot(Ngeo, Ld)), hdNdl = saturate(dot(N, Ld));
+                sunIn = i.sun * min(hdNdl / max(geoNdl, 0.05), 3.0);
+                ambIn *= hdAO;
+            #endif
+                float3 sunAmb = ambIn * (skyKeep * PSXCarAmbientKeep(carVis, ambIn, sunIn, N)) + sunIn * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
                 // colour pass's one curve on (_PSXToneOn) the light goes
                 // through unrolled and the curve acts on the radiance below.
@@ -1871,6 +1935,23 @@ Shader "PSX/Lit"
                 }
 
                 float3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
+            #ifdef PSX_HD
+                {
+                    // the sun's highlight on the PBR set: GGX, Smith-Schlick,
+                    // Schlick's Fresnel off a dielectric's 4% - the gloss of wet
+                    // rock, worn asphalt, varnished timber the vertex light
+                    // never had. Shadowed as the sun is.
+                    float3 Hh = normalize(Ld + V);
+                    float nh = saturate(dot(N, Hh)), nv = max(dot(N, V), 1e-3), vh = saturate(dot(V, Hh));
+                    float a = max(hdRough * hdRough, 0.02), a2 = a * a;
+                    float dd = nh * nh * (a2 - 1.0) + 1.0;
+                    float D = a2 / (3.14159 * dd * dd);
+                    float kk = a * 0.5;
+                    float Vis = 0.25 / ((hdNdl * (1.0 - kk) + kk) * (nv * (1.0 - kk) + kk));
+                    float F = 0.04 + 0.96 * pow(1.0 - vh, 5.0);
+                    lit += sunIn * sunVis * (D * Vis * F) * expo;
+                }
+            #endif
             #ifdef PSX_FACADE
                 // THE FACADE'S MATERIALS (the header above FacadeEnv).
                 {

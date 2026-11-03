@@ -28,7 +28,7 @@ namespace PSXRacing.City
     /// away from the player keeps a 3x3 of its own under it for the same
     /// reason: a rigidbody over an unbuilt tile falls through the world.
     /// </summary>
-    public class CityWorld : MonoBehaviour
+    public partial class CityWorld : MonoBehaviour
     {
         public const int RoadLayer = 8;
         public const int SolidLayer = 9;
@@ -130,6 +130,104 @@ namespace PSXRacing.City
         void OnEnable() => Active = this;
         void OnDisable() { if (Active == this) Active = null; }
 
+        // ---- THE COURSE, LOADED BEFORE THE START (owner, 2026-11-02: "Load
+        // times are fine if the end result is seamless courses like Dirty
+        // Rally 2") ---------------------------------------------------------
+        //
+        // A race's route is known before the countdown, so every tile within
+        // CourseAround of it is built - trees, signs and poles planted - while
+        // the countdown is held (RaceManager.HoldCountdown), a frame budget
+        // at a time so the window stays live, and PINNED: never dropped, so
+        // nothing on the course is built while the race runs. The streaming
+        // ring still runs for whatever the course does not cover. It is the
+        // live generator, tile for tile what streaming would have built; a
+        // baked city later only makes the load shorter. PC profile only for
+        // now (memory: a 9 km loop is ~200 tiles); PSX_CITY_COURSE=0 turns it
+        // off, =1 forces it.
+        public static bool CourseOn
+        {
+            get
+            {
+                string e = System.Environment.GetEnvironmentVariable("PSX_CITY_COURSE");
+                if (e == "0") return false;
+                if (e == "1") return true;
+                return PlatformProfile.PC;
+            }
+        }
+        /// <summary>Tiles each side of the route: the streaming ring's own
+        /// reach, so the ring round a car on the course is all built.</summary>
+        public const int CourseAround = 2;
+        /// <summary>Build time a loading frame may spend (ms).</summary>
+        const float CourseFrameMs = 60f;
+        readonly HashSet<long> pinned = new HashSet<long>();
+        readonly List<long> courseQueue = new List<long>();
+        int courseTotal, courseDone;
+        double courseMs;
+        /// <summary>The course is still being built (the countdown waits).</summary>
+        public bool CourseLoading => courseQueue.Count > 0;
+        /// <summary>0..1 of the course built.</summary>
+        public float CourseProgress => courseTotal > 0 ? courseDone / (float)courseTotal : 1f;
+
+        /// <summary>Queue every tile within <paramref name="around"/> tiles of
+        /// the path, in the order a car meets them. Returns how many.</summary>
+        public int PreloadCourse(TrackPath path, int around)
+        {
+            EnsureInit();
+            if (Map == null || path == null || path.Count < 2) return 0;
+            var seen = new HashSet<long>();
+            int step = Mathf.Max(1, Mathf.RoundToInt(CityMeshes.TileSize * 0.25f / Mathf.Max(path.spacing, 0.1f)));
+            for (int i = 0; i < path.Count; i += step)
+            {
+                var p = path.GetPoint(i);
+                int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.z / CityMeshes.TileSize);
+                for (int dz = -around; dz <= around; dz++)
+                    for (int dx = -around; dx <= around; dx++)
+                    {
+                        long k = Key(tx + dx, tz + dz);
+                        if (!seen.Add(k)) continue;
+                        pinned.Add(k);
+                        courseQueue.Add(k);
+                    }
+            }
+            courseTotal = courseQueue.Count;
+            courseDone = 0;
+            courseMs = 0.0;
+            RaceManager.HoldCountdown = () => CourseLoading;
+            Debug.Log($"[CityWorld] course preload: {courseTotal} tiles within {around} of the {path.Count * path.spacing / 1000f:0.0} km route");
+            return courseTotal;
+        }
+
+        /// <summary>A loading frame's share of the course: whole tiles, trees
+        /// and all, until the frame's budget is spent.</summary>
+        void RunCourse()
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            // the baked city: the next tiles read on the workers meanwhile
+            PrefetchCourse();
+            while (courseQueue.Count > 0 && clock.Elapsed.TotalMilliseconds < CourseFrameMs)
+            {
+                long k = courseQueue[0];
+                if (CourseTileReading(k)) break;   // its worker hands it over next frame
+                courseQueue.RemoveAt(0);
+                int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
+                EnsureTile(tx, tz);
+                if (live.ContainsKey(k)) PlantTrees(k);
+                courseDone++;
+            }
+            courseMs += clock.Elapsed.TotalMilliseconds;
+            if (courseQueue.Count == 0)
+                Debug.Log($"[CityWorld] course preload done: {courseDone} tiles in {courseMs / 1000.0:0.0} s, {live.Count} live");
+        }
+
+        void OnGUI()
+        {
+            if (!CourseLoading) return;
+            var r = new Rect(0f, Screen.height * 0.62f, Screen.width, Screen.height * 0.08f);
+            var st = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.Max(14, Screen.height / 30) };
+            st.normal.textColor = Color.white;
+            GUI.Label(r, $"LOADING COURSE  {Mathf.RoundToInt(CourseProgress * 100f)}%", st);
+        }
+
         /// <summary>Colliders on the live tiles (MeshColliders and boxes), and
         /// the tree trunks standing round the cars.</summary>
         public int LiveColliders
@@ -229,6 +327,7 @@ namespace PSXRacing.City
         /// <summary>Drop every live tile (the budget probe, between sites).</summary>
         public void DropAll()
         {
+            DropBaked(null);   // the baked city: every load in hand
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
@@ -419,7 +518,32 @@ namespace PSXRacing.City
         /// debug line and the preview's log.</summary>
         public int LiveTiles => live.Count;
 
-        void Awake() => EnsureInit();
+        void Awake()
+        {
+            // THE PC PROFILE: 9 x 9 tiles, a kilometre of built city each way
+            // (PlatformProfile). Tools set their own ring and never run it.
+            // With the baked city open (CityTileCache) the ring is 4: tiles come off
+            // disk on the workers, and ring 4 measured full at 173 km/h and 58 fps
+            // (city-bake, 2026-11-02); built live it outran the builder on I-277.
+            if (PlatformProfile.PC) ring = Mathf.Max(ring, CityTileCache.On ? PlatformProfile.CityRingBaked : PlatformProfile.CityRing);
+            // the baked city's A/B (a bigger built city once tiles come off disk):
+            // PSXRacing.exe -psx-city-ring N
+            if (PlatformProfile.PC && RingArg() is int r) ring = r;
+            EnsureInit();
+        }
+
+        static int? RingArg()
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "-psx-city-ring" && int.TryParse(args[i + 1], out int r) && r >= 1 && r <= 6) return r;
+            return null;
+        }
+
+        /// <summary>The far plane the streamed ring can fill: the nearest the
+        /// ring's edge ever is (the player at its tile's edge), a little in.
+        /// The web build's 2-tile ring and its 500 m plane are the same rule.</summary>
+        float RingFarM => ring * CityMeshes.TileSize - 12f;
 
         /// <summary>City perf round 1: the city's lazy tables and its lots'
         /// models made at load, behind the loading screen (EnsureInit).</summary>
@@ -466,6 +590,8 @@ namespace PSXRacing.City
                 Debug.Log($"[CityWorld] warmed at load: guide sites {tSigns:0} ms, junction controls {tSignals - tSigns:0} ms, {models} lot models {tModels - tSignals:0} ms, {cars} traffic models {wc.Elapsed.TotalMilliseconds - tModels:0} ms");
             }
             BuildFoodIndex();
+            // the baked city: opened (and its verdict logged) at load, on the main thread
+            if (PlatformProfile.PC || CityTileCache.Force) Debug.Log("[CityWorld] city tiles " + (CityTileCache.On ? "BAKED: " : "built live: ") + CityTileCache.Why);
             // the trunk table, on a child of its own that no scene saves
             var tgo = new GameObject("CityTreeTrunks") { hideFlags = HideFlags.DontSave };
             tgo.transform.SetParent(transform, false);
@@ -533,7 +659,11 @@ namespace PSXRacing.City
 
         void LateUpdate()
         {
-            if (Skyline != null || Far != null) RefreshSkyline(Camera.main);
+            var cam = Camera.main;
+            // ...and on the PC the camera sees out to that edge (the scene bakes
+            // 500 m; the far layers read the plane, so they move out with it)
+            if (PlatformProfile.PC && cam != null && cam.farClipPlane < RingFarM) cam.farClipPlane = RingFarM;
+            if (Skyline != null || Far != null) RefreshSkyline(cam);
         }
 
         /// <summary>The key of the tile a plan point stands in (the tile a
@@ -626,6 +756,8 @@ namespace PSXRacing.City
             CityWorker.Pump();
             // the one clock every signal head in the city runs on
             CitySignals.Tick(Time.timeAsDouble);
+            // the course before the start: the loading frame is the course's
+            if (CourseLoading) { RunCourse(); return; }
             if (player == null || Map == null) return;
             var p = player.position;
             int ptx = Mathf.FloorToInt(p.x / CityMeshes.TileSize);
@@ -676,6 +808,7 @@ namespace PSXRacing.City
                 int tx = (int)(kv.Key >> 24);
                 int tz = (int)((kv.Key << 40) >> 40);
                 if (Mathf.Abs(tx - ptx) <= ring + 1 && Mathf.Abs(tz - ptz) <= ring + 1) continue;
+                if (pinned.Contains(kv.Key)) continue;   // the course stays built
                 bool held = false;
                 foreach (var a in anchors)
                 {
@@ -687,6 +820,7 @@ namespace PSXRacing.City
                 if (!held) toDrop.Add(kv.Key);
             }
             foreach (var k in toDrop) DropTile(k);
+            if (baked.Count > 0) DropBakedOutside(ptx, ptz);   // the baked city's loads in hand, by the same rule
 
             // build the nearest missing tile (WP-09: a slice a frame)
             wanted.Clear();
@@ -701,8 +835,11 @@ namespace PSXRacing.City
                     float cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
                     wanted.Add((tx, tz, BuildAhead ? NeedScore(tx, tz, p, dir, speed) : cx * cx + cz * cz));
                 }
-            // the row ahead, at speed (kept: the drop rule holds ring + 1)
-            if (BuildAhead && speed > LookaheadSpeed)
+            // the row ahead, at speed (kept: the drop rule holds ring + 1) - not
+            // on a preloaded course, whose tiles are already all there: the
+            // row was the off-course tiles still built mid-race (the PC tour,
+            // 21 of 34 frames over 33 ms)
+            if (BuildAhead && speed > LookaheadSpeed && pinned.Count == 0)
             {
                 int r1 = ring + 1;
                 for (int dz = -r1; dz <= r1; dz++)
@@ -744,6 +881,10 @@ namespace PSXRacing.City
                         else wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
                     }
             }
+            // THE BAKED CITY (CityTileCache): every wanted tile the bake holds
+            // comes off disk on a worker and is stood up a tile a frame; only
+            // the rest are left to the builder below
+            if (wanted.Count > 0 || baked.Count > 0) built |= StreamBaked();
             // city-build-hitches: a tile next to a car whose trees still wait
             // plants them before the next tile starts (see NoForcedFinish)
             bool treesFirst = treeSteps != null;   // an open tree frame first (city-build-hitches)
@@ -917,6 +1058,7 @@ namespace PSXRacing.City
         {
             if (job != null) { job.Abandon(); job = null; }
             AbandonTrees();
+            DropBaked(null);
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
@@ -1197,6 +1339,10 @@ namespace PSXRacing.City
             if (Map == null) return false;
             long key = Key(tx, tz);
             if (live.ContainsKey(key)) return false;
+            // THE BAKED CITY: a tile the bake holds is read, made and stood up
+            // now (a car is on it, or a course or a grid is loading), on its own
+            // lattice - an open job or tree frame keeps its scratch
+            if (EnsureBakedNow(key, tx, tz)) return true;
             // A tile still being built a slice a frame is finished first: the
             // builder's scratch belongs to one build at a time (WP-09).
             if (job != null)

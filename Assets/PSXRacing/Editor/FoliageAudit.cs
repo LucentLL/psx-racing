@@ -285,18 +285,23 @@ namespace PSXRacing.EditorTools
             sorted.Sort((a, b) => string.CompareOrdinal(a.what, b.what));
             foreach (var row in sorted)
             {
-                bool sidesOk = row.oneSidedTris == 0;
-                bool xOk = !row.tree || row.flat == 0;
-                bool trunkOk = !row.tree || row.trunked == row.plants;
+                // The PC forest's crown cards (ForestCrowns/, FarForest/FarCrowns_*)
+                // are level cards on purpose: no X, no trunk, one cell each,
+                // and drawn from above only (seen from below, a sheet).
+                bool crowns = row.what.Contains("Crowns");
+                bool sidesOk = row.oneSidedTris == 0 || crowns;
+                bool xOk = !row.tree || row.flat == 0 || crowns;
+                // The far forest stands past the band no car reaches: no trunks by design.
+                bool trunkOk = !row.tree || row.trunked == row.plants || row.what.Contains("FarForest/") || crowns;
                 bool cardOk = row.cardColliders == 0;
-                bool speciesOk = row.mixed == 0;
+                bool speciesOk = row.mixed == 0 || crowns;
                 // A shrub is graded on its sides and nothing else.
                 bool ok = row.tree ? sidesOk && xOk && trunkOk && cardOk && speciesOk : true;
                 if (!ok) problems++;
                 bool forest = row.what.Contains("Forest");
                 log.AppendLine("  " + (ok ? (row.tree || sidesOk ? "ok   " : "note ") : "FAIL ") + row.what +
                                "  x" + row.count + "  tris " + row.tris +
-                               (sidesOk ? "  both sides" : "  ONE-SIDED " + row.oneSidedTris + " tris") +
+                               (row.oneSidedTris == 0 ? "  both sides" : crowns ? "  top side only (crown)" : "  ONE-SIDED " + row.oneSidedTris + " tris") +
                                (row.tree ? "  trees " + row.plants +
                                            (xOk ? " all X" : ", " + row.flat + " FLAT") +
                                            "  trunks " + row.trunked + "/" + row.plants : "") +
