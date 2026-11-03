@@ -34,6 +34,24 @@ namespace PSXRacing.EditorTools
                 if (f.Length < 4) continue;
                 Probe(map, trims, buildings, float.Parse(f[0], inv), float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv), sb, csv);
             }
+            // PSX_JPROBE_EDGES="e1,e2,...": each edge's line model every 2 m (the
+            // drawn ribbon's place against OSM's line: shift, extents, lanes)
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_JPROBE_EDGES") ?? "").Split(','))
+            {
+                if (!int.TryParse(t.Trim(), out int ei) || ei < 0 || ei >= map.edges.Length) continue;
+                var e = map.edges[ei];
+                sb.AppendLine($"=== EDGE e{ei} '{e.name}' n{e.a}->n{e.b} len {e.length:0.0} w {e.width:0.00} lanes {e.lanes} oneway {e.oneway} link {e.link} turnLane {e.turnLane} trims {trims.atA[ei]:0.0}|{trims.atB[ei]:0.0} patch {trims.patch[e.a]}|{trims.patch[e.b]} branch {trims.branchA[ei]}|{trims.branchB[ei]}");
+                for (float s = 0f; s <= e.length + 0.01f; s += 2f)
+                {
+                    float sc = Mathf.Min(s, e.length);
+                    var p = e.PointAt(sc); var l = LineModel.SectionLeft(e, sc);
+                    LineModel.Extents(e, sc, out float em, out float ep);
+                    var lp = LineModel.LanePoint(e, sc);
+                    sb.AppendLine($"  s {sc,5:0.0} osm ({p.x:0.00},{p.y:0.00}) left ({l.x:0.00},{l.y:0.00}) shift {LineModel.ShiftAt(e, sc):0.00} ext -{em:0.00}/+{ep:0.00} lane ({lp.x:0.00},{lp.y:0.00}) centre {LineModel.LaneCentre(e, sc):0.00} y {e.YAt(sc):0.000}");
+                }
+            }
+            sb.AppendLine("WALKS (the tiles this probe built): " + CityMeshes.WalkStats.Line());
+            foreach (var kv in CityMeshes.WalkStats.medianSkipAt) sb.AppendLine("  median skip: " + kv.Value);
             string root = System.IO.Directory.GetParent(Application.dataPath).FullName;
             System.IO.File.WriteAllText(System.IO.Path.Combine(root, "city_junction_probe.txt"), sb.ToString());
             System.IO.File.WriteAllText(System.IO.Path.Combine(root, "city_junction_probe.csv"), csv.ToString());
