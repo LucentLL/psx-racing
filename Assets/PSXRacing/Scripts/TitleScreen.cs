@@ -102,6 +102,11 @@ namespace PSXRacing
 
         static int PickHour()
         {
+            // -psx-title-hour N (TimeOfDay index: 0 dawn .. 6 night): one hour every
+            // run, for side-by-side shots (the A/B of a render setting)
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "-psx-title-hour" && int.TryParse(args[i + 1], out int fixedHour)) return Mathf.Clamp(fixedHour, 0, 6);
             float r = Random.value;
             // golden hour mostly, as the drone film (owner, 2026-11-02)
             return r < 0.25f ? TimeOfDay.Morning : r < 0.4f ? TimeOfDay.Afternoon : TimeOfDay.Sunset;
