@@ -77,9 +77,21 @@ namespace PSXRacing.EditorTools
             {
                 dir = Path.Combine(ProjectDir, CityTileCache.FolderName + "_gate");
                 // in ROWS, as the full bake goes - not in the order the passes stand
-                // the tiles, so another tile than in the passes decides each sign first
-                var rows = new List<Vector2Int>(order);
+                // the tiles - and with every tile within PSX_HITCH_BAKERING (2) of a
+                // route tile: a sign or pole is decided by the first tile within its
+                // reach to ask (a pole's an adjacent tile, a billboard's up to 340 m
+                // off), so with the neighbours baked too each route tile's decisions
+                // are made by the same tile as in the full bake (a bake of the route
+                // alone has the route tiles decide what a neighbour decides there)
+                int bakeRing = (int)EnvF("PSX_HITCH_BAKERING", 2);
+                var bakeSet = new HashSet<Vector2Int>();
+                foreach (var k in order)
+                    for (int dz = -bakeRing; dz <= bakeRing; dz++)
+                        for (int dx = -bakeRing; dx <= bakeRing; dx++)
+                            bakeSet.Add(new Vector2Int(k.x + dx, k.y + dz));
+                var rows = new List<Vector2Int>(bakeSet);
                 rows.Sort((a, b) => a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
+                L($"gate bake: the {order.Count} route tiles and every tile within {bakeRing} of one - {rows.Count} tiles, in rows");
                 bool ok = CityTileBake.Bake(dir, rows, out string rep);
                 L("gate bake: " + rep);
                 if (!ok) { L("BAKE GATE FAIL (the bake failed)"); return; }
