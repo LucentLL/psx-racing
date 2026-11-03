@@ -76,7 +76,8 @@ namespace PSXRacing.EditorTools
             res[1] = new Dictionary<Vector2Int, (string data, string lat, string whole, float ms)>();
             bool wasEnabled = CityTileCache.Enabled, wasForce = CityTileCache.Force;
             string wasDir = System.Environment.GetEnvironmentVariable("PSX_TILECACHE_DIR");
-            int baked = 0;
+            int baked = 0, latExtra = 0;
+            var builtLattice = new Dictionary<Vector2Int, Dictionary<long, float>>();
             try
             {
                 System.Environment.SetEnvironmentVariable("PSX_TILECACHE_DIR", dir);
@@ -108,8 +109,24 @@ namespace PSXRacing.EditorTools
                         }
                         for (int g = 0; g < 400 && world.PrepareSigns(key) != 0; g++) { }
                         world.PlantTrees(key);
-                        // (the lattice once the planting has read it too: what the bake carries)
-                        if (lattice != null) lat = CityTileCache.LatticeHash(lattice);
+                        // the lattice once the planting has read it too. Built: kept; baked:
+                        // every corner the built tile read must be in it, bit for bit (the
+                        // bake may hold a few more - sign sites another order decided on it)
+                        if (lattice != null)
+                        {
+                            if (pass == 0) { builtLattice[k] = new Dictionary<long, float>(lattice); lat = "built " + lattice.Count; }
+                            else if (builtLattice.TryGetValue(k, out var bl))
+                            {
+                                int missing = 0, wrong = 0;
+                                foreach (var kv in bl)
+                                {
+                                    if (!lattice.TryGetValue(kv.Key, out float y)) missing++;
+                                    else if (System.BitConverter.SingleToInt32Bits(y) != System.BitConverter.SingleToInt32Bits(kv.Value)) wrong++;
+                                }
+                                lat = missing == 0 && wrong == 0 ? "built " + bl.Count : $"{missing} corners missing, {wrong} differ of {bl.Count} (baked {lattice.Count})";
+                                latExtra += lattice.Count - bl.Count;
+                            }
+                        }
                         if (liveField.GetValue(world) is IDictionary live && live.Contains(key))
                         {
                             var tile = live[key];
@@ -148,7 +165,7 @@ namespace PSXRacing.EditorTools
             }
             liveMs.Sort(); bakedMs.Sort();
             L($"tile now (EnsureTile, main thread): built p50 {P(liveMs, 50):0.0} p95 {P(liveMs, 95):0.0} max {P(liveMs, 100):0.0} ms / baked (read + make + stand-up, colliders cooked here) p50 {P(bakedMs, 50):0.0} p95 {P(bakedMs, 95):0.0} max {P(bakedMs, 100):0.0} ms");
-            L($"{baked} of {order.Count} tiles stood up from the bake in the baked pass");
+            L($"{baked} of {order.Count} tiles stood up from the bake in the baked pass; the baked lattices hold {latExtra} corners more than the built ones read (sign sites decided in another order)");
             L($"BAKE GATE: {order.Count} tiles, {equal} EQUAL, {differ} DIFFER (data {dData}, ground {dLat}, whole {dWhole})");
             L(differ == 0 && equal == order.Count && baked == order.Count ? "BAKE GATE PASS" : "BAKE GATE FAIL");
         }

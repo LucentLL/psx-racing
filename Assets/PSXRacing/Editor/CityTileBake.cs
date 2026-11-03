@@ -373,10 +373,19 @@ namespace PSXRacing.EditorTools
             {
                 string name = Path.GetFileName(f);
                 if (name.EndsWith(".tmp")) continue;
-                File.Copy(f, Path.Combine(dst, name));
+                string to = Path.Combine(dst, name);
+                // a hard link where both are on one volume (the bake is gigabytes:
+                // the player's copy then takes no space of its own; a re-bake writes
+                // new files, so the player keeps the tiles it was built with)
+                bool linked = false;
+                try { linked = CreateHardLink(to, f, IntPtr.Zero); } catch (Exception) { }
+                if (!linked) File.Copy(f, to);
                 n += new FileInfo(f).Length;
             }
             return n;
         }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
     }
 }
