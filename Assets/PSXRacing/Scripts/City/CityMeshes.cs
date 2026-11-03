@@ -6421,7 +6421,10 @@ namespace PSXRacing.City
             {
                 // squeezed against a neighbour: floor our half of the strip
                 var half = new StripShape { flat = true, fixedRun = true, halfGap = true, maxRun = strip * 0.5f, rise = -RoadsideRules.EdgeDropM };
+                // the medians pass: a median side's strip is one surface end to end
+                stripSurface = MedianSurfaceOf(map, e, side);
                 EmitStrip(map, trims, tm, eA, eB, outA, outB, half);
+                stripSurface = 0;
                 return;
             }
             float shoulder = ShoulderOf(e, side);
@@ -6431,7 +6434,11 @@ namespace PSXRacing.City
             var verge = new StripShape { shoulder = shoulder, maxRun = VergeMaxRunM };
             // streets pass 4: an urban street's curb and sidewalk, the verge behind it
             if (!EmitWalkSpan(map, trims, tm, e, i, side, eA, eB, outA, outB, A.s, B.s, verge))
+            {
+                stripSurface = MedianSurfaceOf(map, e, side);
                 EmitStrip(map, trims, tm, eA, eB, outA, outB, verge);
+                stripSurface = 0;
+            }
             tm.vergeSpans.Add((e.index, side, A.s, B.s));
             tm.vergeMetres += len;
         }
@@ -8585,11 +8592,15 @@ namespace PSXRacing.City
         /// profile point, shared along the strip: a verge is most of a tile's
         /// ground triangles now, and the ground collider is cooked on every
         /// tile build.</summary>
+        /// <summary>The surface a strip being laid is (MedianSurfaceOf: 0 the
+        /// cell under each quad decides, 1 grass, 2 concrete).</summary>
+        static int stripSurface;
+
         static void LayStripQuad(CityMap map, Vector3 o, Vector3[] prof, bool noFins, ref Bucket prevBk, ref int prevBase)
         {
             stripInnerSegs.Add((profPrev[0] - o, prof[0] - o));   // its inner edge (CloseOpenGround: a road edge a verge starts from)
             var cen = (profPrev[1] + profPrev[2] + prof[1] + prof[2]) * 0.25f;
-            bool paved = PavedAt(map, cen.x, cen.z);
+            bool paved = stripSurface == 0 ? PavedAt(map, cen.x, cen.z) : stripSurface == 2;
             var bk = GroundBucket(paved);
             if (bk != prevBk) { prevBase = AddProfile(bk, profPrev, o, paved); prevBk = bk; }
             int curBase = AddProfile(bk, prof, o, paved);

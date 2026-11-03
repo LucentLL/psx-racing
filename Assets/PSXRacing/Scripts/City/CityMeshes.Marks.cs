@@ -67,7 +67,7 @@ namespace PSXRacing.City
         public sealed class MarkTally
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
-                       lsLines, lsEdges, bays, groups, groupsSkipped, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
+                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseSkipped, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
@@ -554,6 +554,10 @@ namespace PSXRacing.City
                     bool forward = dir == 0;
                     int nd = forward ? e.b : e.a;
                     if (map.nodeEdges[nd].Count < 3) { MarkStats.groupsSkipped++; continue; }
+                    // the medians pass (2026-11-02): a lane that runs into the
+                    // nose of a plain carriageway split (no street of another
+                    // name there) turns nowhere - no arrow and ONLY into a kerb
+                    bool nose = PlainSplitNose(map, nd, e);
                     float sEnd = forward ? e.length - t.TrimAt(e, e.b) : t.TrimAt(e, e.a);
                     // behind a crosswalk's stop bar (roads pass L7), else 3 m back
                     float cwBack = CitySignals.CrosswalkStopBack(map, t, e, nd);
@@ -564,6 +568,7 @@ namespace PSXRacing.City
                         if (((bits >> i) & 1) == 0) continue;
                         int turn = i < n - 1 - i ? -1 : i > n - 1 - i ? 1 : 0;
                         if (turn == 0) { MarkStats.groupsSkipped++; continue; }
+                        if (nose && LineModel.RefugeOn) { MarkStats.noseSkipped++; continue; }
                         // the lane's centre, m from the plus edge (RoadProfiles.LinesFor)
                         float m;
                         if (e.oneway) m = pr.shl + (i + 0.5f) * RoadProfiles.LaneM;
@@ -573,10 +578,26 @@ namespace PSXRacing.City
                             float farStart = medStart + (e.lsCentre == 2 ? RoadProfiles.LaneM : 0f);
                             m = forward ? farStart + (i + 0.5f) * RoadProfiles.LaneM : medStart - (i + 0.5f) * RoadProfiles.LaneM;
                         }
-                        Group(map, t, e, sRef, forward, PlusOf(e) - m, turn, 1f, "turn-only");
+                        if (Group(map, t, e, sRef, forward, PlusOf(e) - m, turn, 1f, "turn-only") && nose) MarkStats.noseArrows++;
                     }
                 }
             }
+        }
+
+        static CityMap noseMap; static HashSet<int> noseSplits;
+        /// <summary>Is node nd a carriageway split (section SPLT) whose arms
+        /// all carry e's name - the nose of an island, no side street?</summary>
+        public static bool PlainSplitNose(CityMap map, int nd, CityMap.Edge e)
+        {
+            if (noseMap != map)
+            {
+                noseMap = map; noseSplits = new HashSet<int>();
+                if (map.splt != null) foreach (var sp in map.splt) noseSplits.Add(sp.node);
+            }
+            if (!noseSplits.Contains(nd)) return false;
+            foreach (int i in map.nodeEdges[nd])
+                if (map.edges[i].name != e.name) return false;
+            return true;
         }
 
         // ---- the glyphs (local frame: x to the driver's right, y forward) ----

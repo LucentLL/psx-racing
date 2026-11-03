@@ -551,6 +551,8 @@ namespace PSXRacing.City
             // starts where its lanes are in the undivided road and eases onto
             // its own line over the MUTCD shifting taper - two carriageways,
             // never one road that bulges into two
+            var refuge = RefugeOn ? FindRefuges(map, splitAt) : null;
+            if (!RefugeOn) { Refuges.Clear(); RefugeTapers = 0; RefugeHeld = 0; }
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
@@ -578,6 +580,13 @@ namespace PSXRacing.City
                     float shift0 = out1 * (uOut - cOut);
                     if (Mathf.Abs(shift0) < 0.02f) continue;
                     float len = Mathf.Max(FloorOf(C), Mathf.Max(10f, sp.rate) * Mathf.Abs(shift0));
+                    // A REFUGE ISLAND (the owner, 2026-11-02): the shift fades
+                    // out by mid-island, so the island is OSM's own width there
+                    if (refuge != null && refuge.TryGetValue(RefugeKey(sp.node, ci), out var rf))
+                    {
+                        float cap = RefugeLen(rf.lc, Mathf.Abs(shift0), rf.extra * 0.5f);
+                        if (cap < len) { len = cap; RefugeTapers++; } else RefugeHeld++;
+                    }
                     PropagateShift(map, add, partner, C, sp.node, shift0, len, 0f, 0);
                     SplitTapers++;
                 }
@@ -600,6 +609,159 @@ namespace PSXRacing.City
             for (int i = 0; i < add.Length; i++) if (add[i] != null) map.edges[i].lmEase = add[i].ToArray();
         }
         public static int SplitTapers, HeldJoins, CrossedJoins;
+
+        // ================================================================
+        //  Refuge islands (the medians pass, 2026-11-02)
+        // ================================================================
+        // The owner on Beatties Ford: "curbs blocking turn lanes", a wide
+        // grass island where the real one is a 1.5-2 m planted strip. Where
+        // a 5-lane road opens into two carriageways for a short island and
+        // closes again, each split node's median taper shifted its
+        // carriageway out by the undivided road's half width less its own
+        // (5.49 m there) over the whole island: RoomAlong let each taper run
+        // to the far node, and two smoothsteps from opposite ends sum to one,
+        // so the shift was a constant 5.49 m from end to end - an island of
+        // 1.9 + 2 x 5.49 = 12.9 m, the road's outer edges bulging by 5 m.
+        // Now the taper of a REFUGE carriageway (its chain reaches another
+        // split node of the same road within RefugeMaxM, on a road that is
+        // not Barriered, both ends without a lane-count mismatch) is capped
+        // at half the chain: the shift fades to nothing at mid-island and
+        // the island takes OSM's own width there. An island OSM draws
+        // narrower than RefugeMinIslandM keeps that much: the cap is solved
+        // so the two ends' shifts add up to the shortfall at mid.
+
+        /// <summary>PSX_CITY_REFUGE=0: today's tapers (the A/B). Not readonly:
+        /// the medians gate measures both in one run.</summary>
+        public static bool RefugeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_REFUGE") != "0";
+        public const float RefugeMaxM = 150f, RefugeMinIslandM = 1.2f, RefugeMismatchM = 1f;
+        /// <summary>For the audit: carriageway tapers capped, tapers left as
+        /// they were (OSM's island too narrow for the cap to help), pairs.</summary>
+        public static int RefugeTapers, RefugeHeld;
+        /// <summary>One end of a refuge island: the split node, the carriageway
+        /// edge leaving it into the island, the chain of edges to the far
+        /// split node (in travel order away from this node), its length, the
+        /// island's width in OSM at mid-chain, and how much wider than that
+        /// it is held (per carriageway, both ends together).</summary>
+        public sealed class Refuge { public int node, far, edge; public int[] chain; public float lc, osmIsland, extra; }
+        public static readonly List<Refuge> Refuges = new List<Refuge>();
+        static long RefugeKey(int node, int edge) => ((long)node << 32) | (uint)edge;
+
+        /// <summary>The taper length that leaves <paramref name="residual"/>
+        /// of a <paramref name="shift"/> at mid-chain (Lc/2): Lc/2 for none,
+        /// at most Lc (two ends then sum to the full shift everywhere).</summary>
+        static float RefugeLen(float lc, float shift, float residual)
+        {
+            float half = 0.5f * lc;
+            if (residual <= 1e-3f || shift <= 1e-3f) return half;
+            if (residual >= 0.5f * shift) return lc;
+            float lo = half, hi = lc;
+            for (int it = 0; it < 24; it++)
+            {
+                float mid = 0.5f * (lo + hi);
+                if (shift * (1f - Smooth(half / mid)) < residual) lo = mid; else hi = mid;
+            }
+            return 0.5f * (lo + hi);
+        }
+
+        /// <summary>Walk a carriageway from a split node along its own road
+        /// (same name, one-way the same way, no link; a side street may join)
+        /// to the next split node within RefugeMaxM.</summary>
+        static bool RefugeChain(CityMap map, Dictionary<int, Split> splitAt, int ei, int node, List<int> chain, out int far, out float len)
+        {
+            chain.Clear(); far = -1; len = 0f;
+            if (ei < 0 || ei >= map.edges.Length) return false;
+            var e = map.edges[ei];
+            int from = node;
+            for (int g = 0; g < 30; g++)
+            {
+                if (e.a == e.b) return false;
+                chain.Add(e.index);
+                len += e.length;
+                far = e.a == from ? e.b : e.a;
+                if (splitAt.ContainsKey(far)) return far != node && len <= RefugeMaxM;
+                if (len > RefugeMaxM) return false;
+                bool arrives = e.b == far;
+                CityMap.Edge next = null; int n = 0;
+                foreach (int i in map.nodeEdges[far])
+                {
+                    if (i == e.index) continue;
+                    var o = map.edges[i];
+                    if (o.name != e.name || !o.oneway || o.link || o.a == o.b || (o.a == far) != arrives) continue;
+                    next = o; n++;
+                }
+                if (n != 1) return false;
+                e = next; from = far;
+            }
+            return false;
+        }
+
+        /// <summary>A point a distance d along a chain from its node.</summary>
+        static Vector2 ChainPoint(CityMap map, int[] chain, int node, float d)
+        {
+            int from = node;
+            for (int k = 0; k < chain.Length; k++)
+            {
+                var e = map.edges[chain[k]];
+                bool fwd = e.a == from;
+                if (d <= e.length || k == chain.Length - 1)
+                {
+                    float s = Mathf.Clamp(fwd ? d : e.length - d, 0f, e.length);
+                    return e.PointAt(s);
+                }
+                d -= e.length; from = fwd ? e.b : e.a;
+            }
+            return map.nodes[node];
+        }
+
+        static float DistToEdge(CityMap.Edge e, Vector2 p)
+        {
+            float best = float.MaxValue;
+            for (int k = 1; k < e.pts.Length; k++)
+            {
+                Vector2 a = e.pts[k - 1], ab = e.pts[k] - a;
+                float l2 = ab.sqrMagnitude;
+                float u = l2 > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                best = Mathf.Min(best, Vector2.Distance(p, a + ab * u));
+            }
+            return best;
+        }
+
+        /// <summary>The refuge carriageways, keyed (split node, carriageway
+        /// edge at it): every split node whose two carriageway chains reach
+        /// the same other split node within RefugeMaxM.</summary>
+        static Dictionary<long, Refuge> FindRefuges(CityMap map, Dictionary<int, Split> splitAt)
+        {
+            Refuges.Clear(); RefugeTapers = 0; RefugeHeld = 0;
+            var res = new Dictionary<long, Refuge>();
+            var ca = new List<int>(8); var cb = new List<int>(8);
+            bool Bad(int i) => i < 0 || i >= map.edges.Length || CityMeshes.Barriered(map.edges[i]);
+            float Nose(Split s) => map.edges[s.u].width - map.edges[s.a].width - map.edges[s.b].width;
+            foreach (var sp in splitAt.Values)
+            {
+                if (Bad(sp.u) || Bad(sp.a) || Bad(sp.b)) continue;
+                if (!RefugeChain(map, splitAt, sp.a, sp.node, ca, out int fa, out float la)) continue;
+                if (!RefugeChain(map, splitAt, sp.b, sp.node, cb, out int fb, out float lb)) continue;
+                if (fa != fb) continue;
+                var s2 = splitAt[fa];
+                if (Bad(s2.u) || Bad(s2.a) || Bad(s2.b)) continue;
+                if (Nose(sp) < -RefugeMismatchM || Nose(s2) < -RefugeMismatchM) continue;
+                for (int c = 0; c < 2; c++)
+                {
+                    var mine = c == 0 ? ca : cb; var other = c == 0 ? cb : ca;
+                    float lc = c == 0 ? la : lb;
+                    var arr = mine.ToArray();
+                    var p = ChainPoint(map, arr, sp.node, 0.5f * lc);
+                    float sep = float.MaxValue;
+                    foreach (int oi in other) sep = Mathf.Min(sep, DistToEdge(map.edges[oi], p));
+                    float isl = sep - 0.5f * (map.edges[sp.a].width + map.edges[sp.b].width);
+                    var r = new Refuge { node = sp.node, far = fa, edge = arr[0], chain = arr, lc = lc, osmIsland = isl,
+                                         extra = Mathf.Max(0f, 0.5f * (RefugeMinIslandM - isl)) };
+                    res[RefugeKey(sp.node, arr[0])] = r;
+                    Refuges.Add(r);
+                }
+            }
+            return res;
+        }
         /// <summary>Roads pass L4, for the audit: joins widened on both sides
         /// by two records (Q4), relays (lines moved between two layouts of one
         /// width), of them shorter than the MUTCD length (no room), and SHIFT
