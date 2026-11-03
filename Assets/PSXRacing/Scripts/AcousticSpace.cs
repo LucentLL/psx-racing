@@ -38,6 +38,8 @@ namespace PSXRacing
     {
         /// <summary>PSX_ACOUSTICS=0 turns the spaces off (A/B).</summary>
         public static bool Enabled = System.Environment.GetEnvironmentVariable("PSX_ACOUSTICS") != "0";
+        /// <summary>PSX_ACOUSTICS_LOG=1: every change of space logged with what was measured (the checks).</summary>
+        public static bool LogChanges = System.Environment.GetEnvironmentVariable("PSX_ACOUSTICS_LOG") == "1";
 
         const float ProbeEvery = 0.1f, RidgeEvery = 1f;
         const float NearM = 60f, CoverM = 25f, RidgeMinM = 150f, RidgeMaxM = 850f, LongM = 2500f;
@@ -210,7 +212,10 @@ namespace PSXRacing
             float sum = 0f; for (int i = 0; i < 5; i++) sum += Weights[i];
             if (sum < 1e-4f) { Weights[3] = 1f; sum = 1f; }
             int top = 0; for (int i = 1; i < 5; i++) if (Weights[i] > Weights[top]) top = i;
+            string was = Label;
             Label = top == 0 ? "TUNNEL" : top == 1 ? "DECK" : top == 2 ? "CANYON" : top == 3 ? "OPEN" : "RIDGE";
+            if (LogChanges && Label != was)
+                Debug.Log($"[Acoustics] {was} -> {Label} at {transform.position:F0} t={Time.time:F1}: cover {Cover:F2} ceiling {Ceiling:F1} m walls {Walls:F2} at {WallM:F0} m ridge {RidgeM:F0} m");
 
             Preset P(int i) => i == 0 ? Tunnel : i == 1 ? Deck : i == 2 ? Canyon : i == 3 ? Open : Ridge;
             var mix = new Preset();
