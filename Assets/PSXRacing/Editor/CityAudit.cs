@@ -82,6 +82,11 @@ namespace PSXRacing.EditorTools
                 Finish();
                 return;
             }
+            // (2026-11-03) the tiles record the cable's designed laps here too, as in RunDrive:
+            // without the record the short rail census never excused the rails the cable is cut
+            // and lapped around (RailLappedByCable), so the two audits disagreed (27 vs 26)
+            CityMeshes.DividerLapRecord = true;
+            CityMeshes.DividerLaps.Clear(); CityMeshes.DividerLappedRails.Clear();
 
             Line($"edges {map.edges.Length}, nodes {map.nodes.Length}, waters {map.waters.Length}, " +
                  $"crossings {map.crossings.Length} ({CityElevation.TrenchCount} trenched), wspans {map.wspans.Length}, " +
@@ -320,17 +325,39 @@ namespace PSXRacing.EditorTools
             Check(t1.footprintCount > 8, "uptown tile is built from real footprints", t1.footprintCount);
             Check(t1.wallFacingErrors == 0, "every wall the emitter drew faces outward (uptown)", t1.wallFacingErrors);
 
-            // A freeway tile: barriers, and a merge gore somewhere near.
-            CityMap.Edge fwy = null;
-            foreach (var e in map.edges) if (e.cls >= 5 && !e.link && e.name == "I-485" && e.length > 200f) { fwy = e; break; }
-            if (fwy != null)
+            // A freeway tile carries ITS MEDIAN'S barrier (2026-11-03, the freeway dividers):
+            // the barriers mesh alone was the test, but I-485's median is grass with a cable,
+            // which the tiles draw into the structure mesh (EmitCablePiece) and wall with the
+            // guardrail collider, and a Jersey stands only in a concrete median. So the probe asks
+            // each kind for its own barrier: on I-485 the cable where the plan builds one (the
+            // first I-485 carriageway whose mid-arc the plan cables; the Jersey there with the
+            // dividers off), and on I-77 (a concrete corridor) the Jersey.
+            void FreewayProbe(string road, CityMap.Edge fwy, CityMeshes.DividerKind kind)
             {
+                if (fwy == null) { Check(false, $"a freeway tile carries its median barrier ({road})", "no carriageway found"); return; }
                 var p = fwy.PointAt(fwy.length * 0.5f);
                 var tf = CityMeshes.Build(map, trims, buildings,
                     Mathf.FloorToInt(p.x / CityMeshes.TileSize), Mathf.FloorToInt(p.y / CityMeshes.TileSize));
-                Check(tf.barriers != null && tf.barriers.vertexCount > 0, "a freeway tile carries barriers",
-                      tf.barriers != null ? tf.barriers.vertexCount : 0);
-                Check(tf.wallFacingErrors == 0, "every wall faces outward (freeway tile)", tf.wallFacingErrors);
+                int bv = tf.barriers != null ? tf.barriers.vertexCount : 0;
+                string what = $"e{fwy.index} {kind} median at ({p.x:0},{p.y:0}): {tf.cablePieces} cable pieces, {tf.wbeams.Count} W-beam pieces, {tf.medianJerseyM:0} m median Jersey, {bv} barrier verts";
+                if (kind == CityMeshes.DividerKind.Cable)
+                    Check(tf.cablePieces > 0, $"a freeway tile carries its median barrier ({road}: the cable)", what);
+                else
+                    Check(tf.medianJerseyM > 0f && bv > 0, $"a freeway tile carries its median barrier ({road}: the Jersey)", what);
+                Check(tf.wallFacingErrors == 0, $"every wall faces outward (freeway tile, {road})", tf.wallFacingErrors);
+            }
+            {
+                CityMap.Edge f485 = null, f77 = null;
+                foreach (var e in map.edges)
+                {
+                    if (e.cls < 5 || e.link || e.length <= 200f) continue;
+                    if (f485 == null && e.name == "I-485" &&
+                        (!CityMeshes.DividersOn || (CityMeshes.DividerAt(e) == CityMeshes.DividerKind.Cable && CityMeshes.CableBuiltAt(e, e.length * 0.5f))))
+                        f485 = e;
+                    if (f77 == null && e.name == "I-77" && e.oneway && CityMeshes.Barriered(e) && !e.ElevatedAt(e.length * 0.5f)) f77 = e;
+                }
+                FreewayProbe("I-485", f485, f485 != null ? CityMeshes.DividerAt(f485) : CityMeshes.DividerKind.Cable);
+                FreewayProbe("I-77", f77, f77 != null ? CityMeshes.DividerAt(f77) : CityMeshes.DividerKind.Concrete);
             }
             int gores = 0, tilesTried = 0;
             foreach (var e in map.edges)

@@ -2022,7 +2022,7 @@ namespace PSXRacing.City
         static void EmitCablePiece(TileMeshes tm, int j, int nb)
         {
             var bk = structBucket;
-            cableSpans++;
+            cableSpans++; tm.cablePieces++;
             Vector3 a = divP[j], b = divP[j + 1];
             float dA = divD[j], dB = divD[j + 1];
             var o3 = new Vector3(divO[j].x + divO[j + 1].x, 0f, divO[j].y + divO[j + 1].y).normalized;
