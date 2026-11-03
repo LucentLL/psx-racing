@@ -11,25 +11,17 @@ namespace PSXRacing.City
         /// <summary>Triples: pair key (RefugePairKey), fingerprint, mode (1 auto, 2 flush).</summary>
         static readonly long[] RefugeListData = {
             10187662436439L, 617262810L, 1,   // n2372-n10327 Sunset Road
-            15543486657597L, 983730384L, 2,   // n3619-n13373 East Morehead Street
             15710990378529L, 3842628816L, 1,   // n3658-n9761 Antioch Church Road
             17016660430719L, 4279885165L, 1,   // n3962-n3967 Clanton Road
-            18197776444575L, 81006657L, 1,   // n4237-n11423 Thunder Road Northwest
             30472792973916L, 3051138013L, 1,   // n7095-n8796 North Sharon Amity Road
             33011118647387L, 2121535332L, 1,   // n7686-n10331 Sunset Road
             40634685603484L, 4016921303L, 1,   // n9461-n16028 Lawyers Road
             41725607296980L, 3557279641L, 1,   // n9715-n16340 Oakdale Road
-            43933220481018L, 991837311L, 2,   // n10229-n10234 Beatties Ford Road
             43937515448313L, 4240322471L, 1,   // n10230-n10233 Beatties Ford Road
             43941810415608L, 81883612L, 1,   // n10231-n10232 Beatties Ford Road
-            43963285252094L, 3333849771L, 2,   // n10236-n10238 Beatties Ford Road
             44744969306889L, 222066659L, 1,   // n10418-n17161 Browne Road
             46110768903913L, 4152981358L, 1,   // n10736-n14057 Chestnut Lane
-            47128676149982L, 1030183715L, 2,   // n10973-n10974 Hawthorne Lane
             49211735290422L, 311678604L, 1,   // n11458-n12854 Eastway Drive
-            54112292974904L, 44675069L, 2,   // n12599-n12600 IKEA Boulevard
-            56264071590701L, 1735376033L, 2,   // n13100-n13101 University Pointe Boulevard
-            56667798516619L, 1544215092L, 2,   // n13194-n13195 Highway 160 West
             56826712306609L, 4255791647L, 1,   // n13231-n13233 Shopton Road West
             58282706220291L, 2223308631L, 1,   // n13570-n13571 Beatties Ford Road
             60292750915287L, 2752654307L, 1,   // n14038-n14039 Providence Road West
