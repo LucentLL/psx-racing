@@ -67,11 +67,23 @@ namespace PSXRacing.EditorTools
                 }
                 sb.AppendLine(" drawn outline:");
                 sb.Append(CityMeshes.DebugOutline(map, trims, ei));
+                CityMeshes.EnsureMarks(map, trims);
+                var ml = CityMeshes.MarksOf(ei);
+                sb.AppendLine($" jcl {CityMeshes.IsJcl(map, ei)}; marks {(ml == null ? 0 : ml.Count)}");
+                if (ml != null) foreach (var m in ml) sb.AppendLine($"   mark {CityMeshes.MarkNames[m.style]} s {m.s0:0.00}..{m.s1:0.00} k {m.k} '{m.what}'{(m.yellow ? " yellow" : "")}");
             }
             // PSX_JPROBE_NODES="n1,n2,...": each node as the tile builder draws it
             foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_JPROBE_NODES") ?? "").Split(','))
                 if (int.TryParse(t.Trim().TrimStart('n'), out int nd) && nd >= 0 && nd < map.nodes.Length)
+                {
                     sb.AppendLine($"=== NODE n{nd} at ({map.nodes[nd].x:0.00},{map.nodes[nd].y:0.00}) " + CityMeshes.DescribeNode(map, trims, nd));
+                    sb.AppendLine("  " + CityMeshes.DebugThrough(map, trims, nd));
+                }
+            CityMeshes.EnsureJcl(map);
+            sb.AppendLine($"JUNCTION-COMPLEX LINKS ({(CityMeshes.JclOn ? "ON" : "OFF")}): {CityMeshes.JclCount}, {CityMeshes.JclMetres:0} m");
+            foreach (var l in CityMeshes.JclAt) sb.AppendLine("  jcl: " + l);
+            CityMeshes.EnsureMarks(map, trims);
+            { var ms = CityMeshes.MarkStats; sb.AppendLine($"MOUTHS: {ms.mouths} marked ({ms.mouthsDotted} dotted, {ms.mouthsDottedYellow} of them yellow; the rest stop); shallow joins outside the dotted scope left as before: {ms.mouthsDottedOut}; skipped {ms.mouthsSkipped}"); }
             sb.AppendLine($"FAN DRAPE ({(CityMeshes.FanDrapeOn ? "ON" : "OFF")}): {CityMeshes.FanDrapeN} ribbon vertices put on a fan's height, largest move {CityMeshes.FanDrapeMaxMoved:0.000} m");
             sb.AppendLine($"BRANCH APRONS ({(CityMeshes.BranchApronOn ? "ON" : "OFF")}): {CityMeshes.BranchApronN}, widest {CityMeshes.BranchApronMaxM:0.00} m");
             foreach (var l in CityMeshes.BranchApronAt) sb.AppendLine("  " + l);

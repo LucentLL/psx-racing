@@ -7,7 +7,7 @@ namespace PSXRacing.City
     {
         const int RefugeListEdges = 25560, RefugeListNodes = 20567;
         /// <summary>FNV-1a 64 of charlotte_city.bytes the list was decided on (the gate checks it).</summary>
-        public const string RefugeListCity = "96fe16dab631a0d2";
+        public const string RefugeListCity = "47e7de115cd94a8f";
         /// <summary>Triples: pair key (RefugePairKey), fingerprint, mode (1 auto, 2 flush).</summary>
         static readonly long[] RefugeListData = {
             10187662436439L, 617262810L, 1,   // n2372-n10327 Sunset Road

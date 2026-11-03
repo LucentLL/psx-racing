@@ -437,7 +437,7 @@ namespace PSXRacing.City
         /// </summary>
         static bool MedianAt(CityMap map, Trims trims, Vector2 q, float y, out float dTip, out string name, out float yMid)
         {
-            dTip = float.PositiveInfinity; name = null; yMid = float.NaN;
+            dTip = float.PositiveInfinity; name = null; yMid = float.NaN; medianTipNode = -1; medianPlaneY = float.NaN;
             long tick0 = System.Diagnostics.Stopwatch.GetTimestamp();
             WalkStats.medianCalls++;
             try {
@@ -475,16 +475,24 @@ namespace PSXRacing.City
                 foreach (var B in medianHits)
                 {
                     if (A.Key >= B.Key || A.Value.name != B.Value.name || Vector2.Dot(A.Value.t, B.Value.t) >= -0.5f) continue;
-                    found = true; name = A.Value.name;
                     var oa = map.edges[A.Key]; var ob = map.edges[B.Key];
-                    yMid = 0.5f * (oa.YAt(Mathf.Clamp(A.Value.s, 0f, oa.length)) + ob.YAt(Mathf.Clamp(B.Value.s, 0f, ob.length)));
+                    float yA = oa.YAt(Mathf.Clamp(A.Value.s, 0f, oa.length)), yB = ob.YAt(Mathf.Clamp(B.Value.s, 0f, ob.length));
+                    yMid = 0.5f * (yA + yB);
+                    if (!found)
+                    {
+                        // round 4: the median's own surface here - the two edges'
+                        // heights in proportion to the distance from each
+                        float dA = Mathf.Max(0f, A.Value.lat - oa.HalfMax), dB = Mathf.Max(0f, B.Value.lat - ob.HalfMax);
+                        medianPlaneY = dA + dB > 0.01f ? yA + (yB - yA) * dA / (dA + dB) : yMid;
+                    }
+                    found = true; name = A.Value.name;
                     if (trims == null) continue;
                     for (int k = 0; k < 2; k++)
                     {
                         var o = map.edges[k == 0 ? A.Key : B.Key];
                         float sq = k == 0 ? A.Value.s : B.Value.s;
-                        if (map.nodeEdges[o.a].Count > 2) dTip = Mathf.Min(dTip, sq - trims.atA[o.index]);
-                        if (map.nodeEdges[o.b].Count > 2) dTip = Mathf.Min(dTip, o.length - trims.atB[o.index] - sq);
+                        if (map.nodeEdges[o.a].Count > 2 && sq - trims.atA[o.index] < dTip) { dTip = sq - trims.atA[o.index]; medianTipNode = o.a; }
+                        if (map.nodeEdges[o.b].Count > 2 && o.length - trims.atB[o.index] - sq < dTip) { dTip = o.length - trims.atB[o.index] - sq; medianTipNode = o.b; }
                     }
                 }
             return found;
@@ -544,12 +552,29 @@ namespace PSXRacing.City
         /// the road's own level. PSX_CITY_NOSE_FLUSH=0: as before.
         /// </summary>
         public static bool NoseFlushOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_FLUSH") != "0";
+        /// <summary>Round 4: the nose levelled both ways, with no edge drop in the
+        /// junction's gap (CityMeshes.SolveStripAt). PSX_CITY_NOSE_LEVEL=0: round 2's
+        /// lift-only grading at the edge's drop.</summary>
+        public static bool NoseLevelOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_LEVEL") != "0";
+
+        /// <summary>The junction node of the nose MedianAt last measured dTip to (-1 none).</summary>
+        static int medianTipNode = -1;
+        /// <summary>Round 4: the height of the median's plane at MedianAt's last
+        /// point (its two carriageways' heights, by distance from each edge).</summary>
+        static float medianPlaneY = float.NaN;
+        /// <summary>The median's plane at <paramref name="q"/>, NaN outside a median.</summary>
+        static float MedianPlaneAt(CityMap map, Trims trims, Vector2 q, float y) =>
+            MedianAt(map, trims, q, y, out _, out _, out _) ? medianPlaneY : float.NaN;
 
         static float NoseFlushAt(CityMap map, Trims trims, Vector2 edgeW, Vector2 outw, float yEdge, out float yMid)
         {
             yMid = float.NaN;
-            if (!NoseFlushOn || !InR23Scope(edgeW)) return 0f;
+            // round 4: the scope is per NOSE (its junction node in or out), not
+            // per point - a nose straddling the circle is graded whole or not
+            // at all; the point prefilter only skips what no nose in scope reaches
+            if (!NoseFlushOn || !InR23Scope(edgeW, NoseFlushM + NoseBlendM + MedianMaxSideM)) return 0f;
             if (!MedianAt(map, trims, edgeW + outw, yEdge, out float dTip, out _, out yMid)) return 0f;
+            if (medianTipNode < 0 || !InR23Scope(map.nodes[medianTipNode])) return 0f;
             if (dTip <= NoseFlushM) return 1f;
             if (dTip >= NoseFlushM + NoseBlendM) return 0f;
             return 1f - LineModel.Smooth((dTip - NoseFlushM) / NoseBlendM);

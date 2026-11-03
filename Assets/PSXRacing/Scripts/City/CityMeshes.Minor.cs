@@ -59,6 +59,8 @@ namespace PSXRacing.City
         static readonly Stack<ThroughStrip> throughPool = new Stack<ThroughStrip>();
         static readonly List<LineModel.LineAt> tpLinesA = new List<LineModel.LineAt>(12), tpLinesB = new List<LineModel.LineAt>(12);
         static readonly HashSet<int> tpUsedB = new HashSet<int>();
+        /// <summary>Round 4: while CrossingLines draws a fan holding a junction-complex link.</summary>
+        static bool tpNoEdges;
 
         static void ReleaseStrips()
         {
@@ -98,6 +100,7 @@ namespace PSXRacing.City
                 {
                     var ei = map.edges[list[i]]; var ej = map.edges[list[j]];
                     if (ei.a == ei.b || ej.a == ej.b || ei.link || ej.link) continue;
+                    if (IsJcl(ei) || IsJcl(ej)) continue;   // round 4: never through a junction-complex link
                     float d = Vector2.Dot(OutDir(ei, n), OutDir(ej, n));
                     if (d < best) { best = d; iA = i; iB = j; }
                 }
@@ -161,6 +164,7 @@ namespace PSXRacing.City
                 byte ka = layA.kind[la.k];
                 bool edgeA = ka == LineModel.KEdgeP || ka == LineModel.KEdgeM;
                 float leftA = sgnA > 0f ? la.lat : -la.lat;
+                if (edgeA && tpNoEdges) continue;   // round 4: no edge line across a median crossing
                 // an edge line on the side a street opens on is broken there
                 if (gaps == null && edgeA && ((leftA > 0f && sideLeft) || (leftA < 0f && sideRight))) { if (count) ThroughStats.nearEdgesDropped++; continue; }
                 int match = -1; float bestD = 0.3f;
@@ -277,6 +281,25 @@ namespace PSXRacing.City
         }
         static readonly List<float> tpU = new List<float>(48), tpArc = new List<float>(48);
 
+        /// <summary>Diagnostics (CityJunctionProbe): the through lines a fan
+        /// carries - each strip's ends (world), half width, U and dash quads.</summary>
+        public static string DebugThrough(CityMap map, Trims trims, int n)
+        {
+            var sb = new System.Text.StringBuilder();
+            bool crossing = CrossingsOn && CrossingFan(trims, n);
+            bool any = ThroughLines(map, trims, n, Vector3.zero, false);
+            sb.Append($"through lines {(any ? throughStrips.Count : 0)} ({(crossing ? "crossing fan" : "lone fan")})");
+            if (any)
+                foreach (var s in throughStrips)
+                {
+                    int dashes = 0; foreach (bool p in s.paint) if (!p) dashes++;
+                    var a = s.c[0]; var b = s.c[s.c.Count - 1];
+                    sb.Append($"; ({a.x:0.0},{a.y:0.0})->({b.x:0.0},{b.y:0.0}) half {s.half:0.00} u {s.uR:0.000}..{s.uL:0.000} slot {s.slot} quads {s.paint.Count} gaps {dashes}");
+                }
+            ReleaseStrips();
+            return sb.ToString();
+        }
+
         /// <summary>Does this fan (or its cluster) hold a node where a road
         /// crosses another at a skew (leftover item 3)?</summary>
         static bool CrossingFan(Trims t, int n)
@@ -320,7 +343,9 @@ namespace PSXRacing.City
                     var e = map.edges[ei];
                     if (e.a == e.b || e.length < 0.01f) continue;
                     if (!clEdges.Contains(e)) clEdges.Add(e);
-                    if (!trims.Internal(ei)) clArms.Add((e, m, OutDir(e, m)));
+                    // round 4: a link inside the junction complex is never a
+                    // through arm (its pavement still breaks the lines: clGaps)
+                    if (!trims.Internal(ei) && !IsJcl(e)) clArms.Add((e, m, OutDir(e, m)));
                 }
             }
             for (int i = 0; i < clArms.Count; i++)
@@ -333,6 +358,13 @@ namespace PSXRacing.City
                     clPairs.Add((i, j, d, Mathf.Min(ei.cls, ej.cls)));
                 }
             if (clPairs.Count == 0) return false;
+            // round 4: a divided road's median crossing (a junction-complex
+            // link among the fan's edges) is one intersection - no edge line is
+            // carried across it (its pieces between the crossing's pavement
+            // read as a dashed line along the median: MUTCD carries no edge
+            // line through an intersection); lane lines still are
+            tpNoEdges = false;
+            foreach (var e in clEdges) if (IsJcl(e)) { tpNoEdges = true; break; }
             clPairs.Sort((x, y) => x.cls != y.cls ? y.cls.CompareTo(x.cls) : x.d.CompareTo(y.d));
             int drawn = 0; Vector2 first = Vector2.zero;
             ulong used = 0;
@@ -358,6 +390,7 @@ namespace PSXRacing.City
                 used |= (1UL << i) | (1UL << j);
                 if (first == Vector2.zero) first = travel;
             }
+            tpNoEdges = false;
             if (drawn > 0) CrossingLinesDrawn++;
             return drawn > 0;
         }

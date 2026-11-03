@@ -3750,6 +3750,16 @@ namespace PSXRacing.City
             float tw = tex.texW;
             // roads pass L6: a span carrying lane-use paint is drawn as columns
             bool marks = lay.m.Length > 0 && tex.m.Length > 0 && SpanMarks(e, A.s, B.s);
+            if (IsJcl(e) && !A.collapsed && !B.collapsed)
+            {
+                // Five Points round 4: a short link inside a junction complex
+                // (a crossing of a divided road's median) is part of the
+                // intersection: plain pavement, no centre or edge line
+                float g0 = (tex.bandLo + 0.25f) / tw, g1 = (tex.bandHi + 0.75f) / tw;
+                bk.Quad(A.L, B.L, B.R, A.R, new Vector2(g1, v0), new Vector2(g1, v1), new Vector2(g0, v1), new Vector2(g0, v0));
+                RibbonQuads++;
+                return 0;
+            }
             if (full && lay.isDefault && !marks)
             {
                 // U = 0 on the left of travel (the R vertex), so a one-way
@@ -3974,6 +3984,7 @@ namespace PSXRacing.City
         static void DrawnLines(CityMap.Edge e, LineModel.Layout lay, in Section c, float eM, float eP, float latL, float latR, List<LineModel.LineAt> into)
         {
             LineModel.LinesAt(e, c.s, into);
+            if (IsJcl(e)) { into.Clear(); return; }   // Five Points round 4: no lines inside a junction complex
             float PH = lay.half;
             bool movedL = latL > -eM + 0.01f, movedR = latR < eP - 0.01f;
             bool clipL = c.clippedIn && c.innerSide < 0, clipR = c.clippedIn && c.innerSide > 0;
@@ -8627,7 +8638,14 @@ namespace PSXRacing.City
             // Five Points round 2: a median's nose in a junction gap graded flush
             // (CityMeshes.Walks NoseFlushAt) - the verge held at the edge's drop,
             // its toe a tuck under that, easing back to the swale behind the nose
-            if (!sh.flat && !sh.fixedRun && !sh.seam && !sh.halfGap && prof[2].y < yEdge - RoadsideRules.EdgeDropM - 0.01f)
+            // Round 4 (NoseLevelOn): every verge on the nose, not only one falling
+            // into the swale, and both ways - the BF median nose at Five Points
+            // was a patchwork of the fans' chord verges and the ribbons' verges
+            // 4-6 cm apart (+4 cm humps under the owner's line, T1own 3.4 cm) -
+            // and in the junction's gap with no edge drop: the nose there is
+            // level with the road it lies between, easing back to the drop and
+            // the swale behind it
+            if (!sh.flat && !sh.fixedRun && !sh.seam && !sh.halfGap && (NoseLevelOn || prof[2].y < yEdge - RoadsideRules.EdgeDropM - 0.01f))
             {
                 float k = NoseFlushAt(map, trims, edgeW, outw, yEdge, out float yMid);
                 if (k > 0f)
@@ -8635,12 +8653,22 @@ namespace PSXRacing.City
                     // from the edge's drop at the shoulder to the two carriageways'
                     // mean (less the drop) at the strip's far end: the two sides'
                     // verges meet at one height in the middle, not a step apart
-                    float y0 = yEdge - RoadsideRules.EdgeDropM;
-                    float yFar = float.IsNaN(yMid) ? y0 : Mathf.Clamp(yMid - RoadsideRules.EdgeDropM, y0 - 0.15f, y0 + 0.15f);
+                    float drop = NoseLevelOn ? RoadsideRules.EdgeDropM * (1f - k) : RoadsideRules.EdgeDropM;
+                    float y0 = yEdge - drop;
+                    float yFar = float.IsNaN(yMid) ? y0 : Mathf.Clamp(yMid - drop, y0 - 0.15f, y0 + 0.15f);
                     for (int i = 1; i < 4; i++)
                     {
                         float flat = i == 1 ? y0 : i == 2 ? yFar : yFar - RoadsideRules.ToeTuckM;
-                        if (prof[i].y < flat) prof[i].y = Mathf.Lerp(prof[i].y, flat, k);
+                        if (NoseLevelOn && i > 1)
+                        {
+                            // round 4: past the shoulder, the median's own plane at
+                            // that point - one surface whichever strip lays it (the
+                            // fans' chord verges and the link's verges agreed only
+                            // at their own edges: the +4-6 cm patchwork)
+                            float yp = MedianPlaneAt(map, trims, new Vector2(prof[i].x, prof[i].z), yEdge);
+                            if (!float.IsNaN(yp)) flat = Mathf.Clamp(yp, y0 - 0.15f, y0 + 0.15f) - (i == 3 ? RoadsideRules.ToeTuckM : 0f);
+                        }
+                        if (NoseLevelOn || prof[i].y < flat) prof[i].y = Mathf.Lerp(prof[i].y, flat, k);
                     }
                     WalkStats.noseFlush++;
                 }

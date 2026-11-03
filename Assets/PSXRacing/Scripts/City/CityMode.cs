@@ -380,6 +380,109 @@ namespace PSXRacing.City
         /// along the OSM line (route arcs are OSM arcs: the grid scales its
         /// start line by it).</summary>
         public static float LastArcScale = 1f;
+
+        /// <summary>
+        /// A TURN AT A JUNCTION IS DRIVEN ON A RADIUS (Five Points round 4,
+        /// 2026-11-03). The lanes' centre of a route turns at a junction node
+        /// as a corner: the in-lane's line runs to the node and the out-lane's
+        /// leaves it. On a 110-125 degree turn (Five Points' right turns from
+        /// Trade NB and Beatties Ford SB, the left from W 5th WB) an AIDriver
+        /// following that corner at 20-28 km/h starts to turn only at the node
+        /// and its turning circle carries it 6-8 m wide, onto the far corner's
+        /// kerb. Where consecutive edges meet at a deflection of
+        /// <see cref="TurnFilletMinDeg"/> or more, the corner is replaced by a
+        /// circular arc of <see cref="TurnFilletR"/> tangent to both lanes
+        /// (cubic Bezier), its tangent length capped at 45% of the leg on each
+        /// side: the path a driver takes. The AI's curvature (and speed) is
+        /// read off the arc. PSX_CITY_TURN_FILLET=0: the corner as before.
+        /// </summary>
+        public static bool TurnFilletOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_FILLET") != "0";
+        public const float TurnFilletR = 8f, TurnFilletMinDeg = 45f;
+        /// <summary>Corners the last call replaced (for the logs).</summary>
+        public static int LastTurnFillets;
+
+        /// <summary>Fillets the corners of <paramref name="pts"/> at the given
+        /// vertex indices (where a route passes from one edge to the next), in
+        /// place; <paramref name="ys"/> (optional) is interpolated along each
+        /// arc. Returns the number of corners filleted.</summary>
+        public static int FilletTurns(List<Vector2> pts, List<float> ys, List<int> joins, float radius = TurnFilletR, float minDeg = TurnFilletMinDeg)
+        {
+            LastTurnFillets = 0;
+            if (!TurnFilletOn || pts == null || pts.Count < 3 || joins == null || joins.Count == 0) return 0;
+            int n = pts.Count;
+            var arc = new float[n];
+            for (int i = 1; i < n; i++) arc[i] = arc[i - 1] + Vector2.Distance(pts[i - 1], pts[i]);
+            Vector2 At(float a, out Vector2 tan, out float y)
+            {
+                a = Mathf.Clamp(a, 0f, arc[n - 1]);
+                int i = 0;
+                while (i < n - 2 && arc[i + 1] < a) i++;
+                while (i < n - 2 && arc[i + 1] - arc[i] < 1e-5f) i++;
+                float L = arc[i + 1] - arc[i], t = L > 1e-5f ? Mathf.Clamp01((a - arc[i]) / L) : 0f;
+                var d = pts[i + 1] - pts[i];
+                tan = d.sqrMagnitude > 1e-10f ? d.normalized : Vector2.zero;
+                y = ys != null ? Mathf.Lerp(ys[i], ys[i + 1], t) : 0f;
+                return Vector2.Lerp(pts[i], pts[i + 1], t);
+            }
+            var js = new List<int>(joins);
+            js.Sort();
+            var cuts = new List<(float a0, float a1, Vector2 p0, Vector2 c0, Vector2 c1, Vector2 p1, float y0, float y1)>();
+            float lastA1 = 0f;
+            for (int k = 0; k < js.Count; k++)
+            {
+                int j = js[k];
+                if (j <= 0 || j >= n - 1 || (k > 0 && js[k - 1] == j)) continue;
+                float aJ = arc[j];
+                float prev = k > 0 ? Mathf.Max(lastA1, arc[Mathf.Clamp(js[k - 1], 0, n - 1)]) : 0f;
+                float next = k + 1 < js.Count ? arc[Mathf.Clamp(js[k + 1], 0, n - 1)] : arc[n - 1];
+                float probe = Mathf.Min(4f, 0.45f * (aJ - prev), 0.45f * (next - aJ));
+                if (probe < 0.5f) continue;
+                var tIn = pts[j] - At(aJ - probe, out _, out _); var tOut = At(aJ + probe, out _, out _) - pts[j];
+                if (tIn.sqrMagnitude < 1e-6f || tOut.sqrMagnitude < 1e-6f) continue;
+                tIn.Normalize(); tOut.Normalize();
+                float defl = Vector2.Angle(tIn, tOut);
+                if (defl < minDeg || defl > 175f) continue;
+                float half = 0.5f * defl * Mathf.Deg2Rad;
+                float T = Mathf.Min(radius * Mathf.Tan(half), 0.45f * (aJ - prev), 0.45f * (next - aJ));
+                if (T < 1f) continue;
+                float r = T / Mathf.Tan(half);
+                var p0 = At(aJ - T, out var t0, out float y0);
+                var p1 = At(aJ + T, out var t1, out float y1);
+                if (t0 == Vector2.zero) t0 = tIn;
+                if (t1 == Vector2.zero) t1 = tOut;
+                float h = 4f / 3f * Mathf.Tan(0.25f * defl * Mathf.Deg2Rad) * r;
+                cuts.Add((aJ - T, aJ + T, p0, p0 + t0 * h, p1 - t1 * h, p1, y0, y1));
+                lastA1 = aJ + T;
+            }
+            if (cuts.Count == 0) return 0;
+            var np = new List<Vector2>(n + cuts.Count * 24);
+            var ny = ys != null ? new List<float>(n + cuts.Count * 24) : null;
+            int ci = 0;
+            for (int i = 0; i < n; i++)
+            {
+                while (ci < cuts.Count && i < n && arc[i] >= cuts[ci].a0)
+                {
+                    var c = cuts[ci];
+                    int m = Mathf.Max(6, Mathf.CeilToInt(c.a1 - c.a0));
+                    for (int q = 0; q <= m; q++)
+                    {
+                        float u = q / (float)m, v = 1f - u;
+                        np.Add(v * v * v * c.p0 + 3f * v * v * u * c.c0 + 3f * v * u * u * c.c1 + u * u * u * c.p1);
+                        ny?.Add(Mathf.Lerp(c.y0, c.y1, u));
+                    }
+                    while (i < n && arc[i] <= c.a1) i++;
+                    ci++;
+                }
+                if (i >= n) break;
+                if (ci > 0 && arc[i] <= cuts[ci - 1].a1) continue;
+                np.Add(pts[i]); ny?.Add(ys[i]);
+            }
+            pts.Clear(); pts.AddRange(np);
+            if (ys != null) { ys.Clear(); ys.AddRange(ny); }
+            LastTurnFillets = cuts.Count;
+            return cuts.Count;
+        }
+
         public static void BuildPath(CityMap map, CityMap.Route route, TrackPath path)
         {
             float spacing = TrackCatalog.Spacing;
@@ -389,10 +492,12 @@ namespace PSXRacing.City
             var arcs = new List<float>(4096);
             float acc = 0f;
             var marks = new List<float>(64);
+            var joins = new List<int>(route.edges.Length);
             for (int k = 0; k < route.edges.Length; k++)
             {
                 var e = map.edges[route.edges[k]];
                 bool fwd = route.dirs[k] >= 0;
+                if (k > 0 && pts.Count > 0) joins.Add(pts.Count - 1);   // the node this edge leaves from
                 // Every polyline vertex AND every elevation station, in
                 // order along the edge. The height is solved at the 10 m
                 // stations; sampled at the vertices alone, the path ran
@@ -429,6 +534,12 @@ namespace PSXRacing.City
                     ys.Add(e.YAt(sAt));
                     arcs.Add(acc);
                 }
+            }
+            // Five Points round 4: a turn at a junction driven on a radius
+            if (FilletTurns(pts, ys, joins) > 0)
+            {
+                arcs.Clear(); acc = 0f;
+                for (int i = 0; i < pts.Count; i++) { if (i > 0) acc += Vector2.Distance(pts[i - 1], pts[i]); arcs.Add(acc); }
             }
             float total = acc;
             // the route's start and finish are arcs along its OSM line; the

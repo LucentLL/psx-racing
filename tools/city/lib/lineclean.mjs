@@ -77,15 +77,24 @@ const LANE_REANCHOR = 3.6576 + 0.05;
 /// than a lane off.
 /// SCOPED (round 3): city-wide the half-lane hold re-anchored 86 runs, and the
 /// junction sweep could not prove it clean (102 movements worse, 289 newly
-/// flagged), so it applies only to the run it is proven on: Rozzelles Ferry
-/// Road's way 1253633919, the junction mouth from which W 5th / Rozzelles is
-/// carried through Five Points. PSX_EXPORT_TW_REANCHOR=0: the one-lane hold
-/// for every run; =all: the half-lane hold city-wide (unproven, for audits).
+/// flagged). PSX_EXPORT_TW_REANCHOR=0: the one-lane hold for every run; =all:
+/// the half-lane hold city-wide (unproven, for audits).
+/// ARRIVAL (round 4): round 3 keyed the hold on Rozzelles' way 1253633919, a
+/// kilometre before Five Points, and the re-anchor carried the whole run from
+/// there on its line - 1 km of Rozzelles moved 3.66 m, with new steps at
+/// (-3941,6497) and (-4160,6631) where no Five Points fix reaches. Now the run
+/// keeps its old offset up to the junction complex and is re-anchored ON
+/// ARRIVAL: where the chain enters W 5th's link across the West Trade median
+/// (way 983681413, node n10969) the SHIFT is laid BACKWARD along the approach,
+/// so the ribbon reaches the junction on its line and nothing farther than
+/// TW_ARRIVE_SCOPE_M from it moves. Should the chain run on past the scope,
+/// the old offset is restored the same way (eased back inside it).
 const TW_REANCHOR_MODE = process.env.PSX_EXPORT_TW_REANCHOR || '';
-const TW_REANCHOR_WAYS = new Set([1253633919]);
+const TW_ARRIVE_WAYS = new Set([983681413]);
+const TW_ARRIVE_SCOPE_M = 90;
 const LANE_REANCHOR_TWOWAY_M = 3.6576 / 2 + 0.05;
-const laneReanchorTwoWay = way => TW_REANCHOR_MODE === '0' ? LANE_REANCHOR
-  : TW_REANCHOR_MODE === 'all' || TW_REANCHOR_WAYS.has(Number(way.id)) ? LANE_REANCHOR_TWOWAY_M : LANE_REANCHOR;
+const laneReanchorTwoWay = way => TW_REANCHOR_MODE === 'all' ? LANE_REANCHOR_TWOWAY_M : LANE_REANCHOR;
+const twArrives = way => TW_REANCHOR_MODE !== '0' && TW_REANCHOR_MODE !== 'all' && !way.oneway && TW_ARRIVE_WAYS.has(Number(way.id));
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 
 /// Real US lane widths by class (AASHTO / CDOT): freeway and expressway 12 ft,
@@ -863,8 +872,13 @@ export function lineClean(ctx) {
   /// position (t0, t1 may lie beyond it: one shifting taper over several
   /// edges); null = on its line.
   const edgeOffset = new Array(edges.length).fill(null);
-  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, twReanchored: 0, recentred: 0,
+  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, twReanchored: 0, twArrived: 0, twRestored: 0, recentred: 0,
                    perDirection: 0, mergeSide: 0, mergeSideLeft: 0, shifts: 0, owBothSides: 0, owBothKept: 0 };
+  // ARRIVAL (round 4): off in the blip step's dry pass (the blips are judged
+  // on the old offsets, so the lanes stay as they were); the edges it holds
+  // on their line are not counted as moved by a blip
+  let twArriveOn = true;
+  const twHeld = new Set();
   const taprPass = () => {
   for (const chain of chains) {
     const runs = runsOf(chain);
@@ -997,6 +1011,8 @@ export function lineClean(ctx) {
     // through lane still lines up across it.
     const offItem = new Array(chain.length).fill(0);
     const reShift = [];
+    const backShift = [];   // ARRIVAL (round 4): { k, off } eased back along item k from its END node (chain frame)
+    let twHold = null;      // { pos, drift }: re-anchored on arrival; drift = the old rule's offset less this one
     const startNode = k => chain[k].fwd ? chain[k].e.a : chain[k].e.b;
     {
       let cur = 0;
@@ -1037,12 +1053,29 @@ export function lineClean(ctx) {
           cur += (dLc[t] - dRc[t]) / 2;
         }
         for (const k of runs[i].items) {
+          if (twHold && k > 0) {
+            const p = nodes[startNode(k)];
+            if (!p || dist(p, twHold.pos) > TW_ARRIVE_SCOPE_M) {
+              // past the junction complex: back to the offset the old rule
+              // has here, eased inside the scope (backward from this node)
+              backShift.push({ k: k - 1, off: twHold.drift });
+              cur += twHold.drift; twHold = null; tStats.twRestored++;
+            }
+          }
+          if (!twHold && k > 0 && twArriveOn && twArrives(chain[k].e.way) && Math.abs(cur) > LANE_REANCHOR_TWOWAY_M && Math.abs(cur) <= LANE_REANCHOR
+              && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
+            backShift.push({ k: k - 1, off: -cur });
+            twHold = { pos: nodes[startNode(k)], drift: cur };
+            cur = 0; tStats.twArrived++; tStats.reanchored++;
+          }
           if (Math.abs(cur) > (chain[k].e.way.oneway ? LANE_REANCHOR : laneReanchorTwoWay(chain[k].e.way)) && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
+            twHold = null;   // the old rule re-anchors here too: from here on both agree
             if (!chain[k].e.way.oneway && Math.abs(cur) <= LANE_REANCHOR) tStats.twReanchored++;
             reShift.push({ k, cur });
             cur = 0; tStats.reanchored++;
           }
           offItem[k] = cur;
+          if (twHold) twHeld.add(chain[k].e.id);
         }
       }
     }
@@ -1056,6 +1089,15 @@ export function lineClean(ctx) {
       const len = Math.max(floorOf(e.way), Math.abs(c0) * shiftRate(mphOf(e.way)) / 2);
       tapr.push({ edge: e.id, end: e.a === node ? 0 : 1, node, side: 0, src: 0, flags: 16, dw: Math.abs(c0), len, room: 0, off: fwd ? c0 : -c0 });
       tStats.shifts++;
+    }
+    for (const { k, off } of backShift) {
+      // the same SHIFT record at item k's END node: the ribbon is drawn at its
+      // own offset plus 'off' at that node, eased to nothing back along it
+      const { e, fwd } = chain[k], node = fwd ? e.b : e.a;
+      const len = Math.max(floorOf(e.way), Math.abs(off) * shiftRate(mphOf(e.way)) / 2);
+      tapr.push({ edge: e.id, end: e.a === node ? 0 : 1, node, side: 0, src: 0, flags: 16, dw: Math.abs(off), len, room: 0, off: fwd ? off : -off });
+      tStats.shifts++;
+      if (process.env.PSX_LC_TWDEBUG) console.log(`TW ARRIVAL SHIFT e${e.id} at n${node} off ${off.toFixed(2)} len ${len.toFixed(1)}`);
     }
     // the records, one per side the wide run sticks out on, on the wide
     // run's edge at the node
@@ -1113,7 +1155,9 @@ export function lineClean(ctx) {
   // the ribbon leaves where it entered), then the real pass on the new lanes.
   const pre = new Float64Array(edges.length);
   if (BLIP_MODE === 'narrow') {
+    twArriveOn = false;
     taprPass();
+    twArriveOn = true;
     for (let i = 0; i < edges.length; i++) pre[i] = edgeOffset[i] ? edgeOffset[i].o0 : 0;
     tapr.length = 0; edgeOffset.fill(null);
     for (const k of Object.keys(tStats)) tStats[k] = 0;
@@ -1130,7 +1174,7 @@ export function lineClean(ctx) {
     const moved = new Set();
     for (const chain of new Set(blipUndo.map(u => u.chain)))
       for (const { e } of chain)
-        if (!fixedEdges.has(e) && Math.abs((edgeOffset[e.id] ? edgeOffset[e.id].o0 : 0) - pre[e.id]) > 0.05) { moved.add(chain); break; }
+        if (!fixedEdges.has(e) && !twHeld.has(e.id) && Math.abs((edgeOffset[e.id] ? edgeOffset[e.id].o0 : 0) - pre[e.id]) > 0.05) { moved.add(chain); break; }
     if (moved.size) {
       for (let i = blipUndo.length - 1; i >= 0; i--) {
         const u = blipUndo[i];

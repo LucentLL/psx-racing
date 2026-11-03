@@ -59,6 +59,9 @@ namespace PSXRacing.City
         static readonly Vector2 R23Centre = new Vector2(-3725f, 6342f);
         const float R23ScopeM = 90f;
         public static bool InR23Scope(Vector2 p) => R23ScopeAll || (p - R23Centre).sqrMagnitude <= R23ScopeM * R23ScopeM;
+        /// <summary>Within the scope grown by <paramref name="pad"/> (a prefilter
+        /// for a rule whose feature, not its point, is scoped).</summary>
+        public static bool InR23Scope(Vector2 p, float pad) => R23ScopeAll || (p - R23Centre).sqrMagnitude <= (R23ScopeM + pad) * (R23ScopeM + pad);
 
         /// <summary>A host keeps its own edge height along a branch clipped onto
         /// it (MeetCandidate). PSX_CITY_BRANCH_SEAM=0: it steps down as before.</summary>
