@@ -7370,6 +7370,7 @@ namespace PSXRacing.EditorTools
             // random stream) is exactly what it was.
             bool pc = PCContent;
             GameObject fillRoot = null, crownRoot = null;
+            Material crownMat = null;
             var fillTrunks = new List<Vector4>();
             var fillCells = new List<byte>();
             if (pc)
@@ -7380,6 +7381,12 @@ namespace PSXRacing.EditorTools
                 crownRoot = new GameObject("ForestCrowns");
                 crownRoot.transform.SetParent(parent, false);
                 crownRoot.AddComponent<PCOnly>();
+                // The crowns are drawn from ABOVE only (Cull Back; the card
+                // faces up). From the road under a hillside a level card drawn
+                // both sides is the underside of a sheet laid across the trees
+                // (the stage-accuracy pairs, 2026-11-03).
+                crownMat = MakeMat(MeshPrefix + "ForestCrowns", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f);
+                RegisterSeasonalTexture(MeshPrefix + "ForestCrowns", crownMat, DressAtlasPath, "forest", cutoff: 0.5f);
             }
             int filled = 0, crowned = 0;
 
@@ -7542,7 +7549,7 @@ namespace PSXRacing.EditorTools
                     ChunkGO(fillRoot.transform, "Fill_" + cx + "_" + cz, ForestMesh(fv, fu, ft), new[] { mat },
                             ox, oz, "StageForestFill_" + cx + "_" + cz).layer = FoliageLayer;
                 if (cv.Count > 0)
-                    ChunkGO(crownRoot.transform, "Crowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { mat },
+                    ChunkGO(crownRoot.transform, "Crowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { crownMat },
                             ox, oz, "StageForestCrowns_" + cx + "_" + cz).layer = FoliageLayer;
 
                 if (verts.Count == 0) return;
@@ -7566,7 +7573,7 @@ namespace PSXRacing.EditorTools
                 fillRoot.AddComponent<TreeTrunks>().SetForest(fillTrunks, fillCells, ForestTrunkFrac, ForestBrushFrac);
                 Log($"Stage forest, PC: {filled} fill trees (band filled to {FillKeep:0.00} past {ForestDenseTo:0} m), {crowned} crowns.");
             }
-            BuildStageFarForest(pts, parent, mat);
+            BuildStageFarForest(pts, parent, mat, crownMat);
 
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
                 $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +
@@ -7610,7 +7617,7 @@ namespace PSXRacing.EditorTools
                  + 0.45f * Mathf.Sin((x - z) * 0.0083f + 2.1f);
         }
 
-        static void BuildStageFarForest(List<Vector3> pts, Transform parent, Material mat)
+        static void BuildStageFarForest(List<Vector3> pts, Transform parent, Material mat, Material crownMat)
         {
             // A mountain's distance only: a coast's is water and scrub, a
             // city's its own ground (the far material's own rule).
@@ -7674,7 +7681,7 @@ namespace PSXRacing.EditorTools
                                  ox, oz, "StageFarForest_" + cx + "_" + cz);
                 go.layer = FoliageLayer;
                 if (cv.Count > 0)
-                    ChunkGO(root.transform, "FarCrowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { mat },
+                    ChunkGO(root.transform, "FarCrowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { crownMat },
                             ox, oz, "StageFarCrowns_" + cx + "_" + cz).layer = FoliageLayer;
                 chunks++;
             });
