@@ -575,7 +575,7 @@ namespace PSXRacing.City
             // its own line over the MUTCD shifting taper - two carriageways,
             // never one road that bulges into two
             var refuge = RefugeOn ? FindRefuges(map, splitAt, add) : null;
-            if (!RefugeOn) { Refuges.Clear(); refugeEdge.Clear(); RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; }
+            if (!RefugeOn) { Refuges.Clear(); refugeEdge.Clear(); refugeNodeDir.Clear(); RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; RefugeFlush = 0; }
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
@@ -664,7 +664,7 @@ namespace PSXRacing.City
         public static int RefugeTapers, RefugeHeld;
         /// <summary>Round 2, for the audit: carriageways drawn by the full
         /// profile, and pairs left on round 1's cap (no room for an island).</summary>
-        public static int RefugeProfiled, RefugeFallback;
+        public static int RefugeProfiled, RefugeFallback, RefugeFlush;
         /// <summary>One carriageway of a refuge island: the split node, the
         /// carriageway edge leaving it into the island, the chain of edges to
         /// the far split node (in travel order away from this node), its
@@ -683,6 +683,8 @@ namespace PSXRacing.City
             public int node, far, edge; public int[] chain; public float lc, osmIsland, extra;
             public bool profiled; public int so; public Vector2[] ax; public float[] axS; public float axLen;
             public float uOut1, uOut2, move, moveLen, half, x0s, x0e, ln, rn;
+            /// <summary>Why a pair is not drawn by the profile (the audit).</summary>
+            public string why;
             /// <summary>The undivided road's outer edge at axis arc u (from the axis, outward).</summary>
             public float OuterTarget(float u) => Mathf.Lerp(uOut1, uOut2, axLen > 1e-3f ? Mathf.Clamp01(u / axLen) : 0f);
             /// <summary>The lanes' outward move at axis arc u (4-lane case).</summary>
@@ -788,7 +790,7 @@ namespace PSXRacing.City
         /// a pair with no room for an island keeps round 1's cap.</summary>
         static Dictionary<long, Refuge> FindRefuges(CityMap map, Dictionary<int, Split> splitAt, List<Ease>[] add)
         {
-            Refuges.Clear(); refugeEdge.Clear(); RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0;
+            Refuges.Clear(); refugeEdge.Clear(); refugeNodeDir.Clear(); RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; RefugeFlush = 0;
             var res = new Dictionary<long, Refuge>();
             var done = new HashSet<long>();
             var ca = new List<int>(8); var cb = new List<int>(8);
@@ -846,6 +848,9 @@ namespace PSXRacing.City
         /// left: unit, on the edge's left (its plus side). False: not a
         /// refuge carriageway (the edge's own normal).</summary>
         /// <summary>Are two edges the two carriageways of one profiled refuge island?</summary>
+        /// <summary>The profiled refuge island a carriageway edge runs past (round 3: its kerb), or null.</summary>
+        public static Refuge RefugeOf(int edge) => refugeEdge.Count > 0 && refugeEdge.TryGetValue(edge, out var r) ? r : null;
+
         public static bool SameRefuge(int a, int b) =>
             refugeEdge.Count > 0 && refugeEdge.TryGetValue(a, out var ra) && refugeEdge.TryGetValue(b, out var rb) && ra != rb && ra.node == rb.node && ra.far == rb.far;
 
@@ -853,9 +858,90 @@ namespace PSXRacing.City
         {
             left = default;
             if (refugeEdge.Count == 0 || !refugeEdge.TryGetValue(e.index, out var r)) return false;
-            AxisClosest(r.ax, r.axS, e.PointAt(s), out _, out _, out var lf);
+            Vector2 lf;
+            // at its split node exactly the undivided road's end cut (round 3:
+            // the 64-piece axis's first chord is a few hundredths off it)
+            if (s <= 1e-3f && (e.a == r.node || e.a == r.far) && refugeNodeDir.TryGetValue(e.a, out var dA)) lf = new Vector2(-dA.y, dA.x);
+            else if (s >= e.length - 1e-3f && (e.b == r.node || e.b == r.far) && refugeNodeDir.TryGetValue(e.b, out var dB)) lf = new Vector2(-dB.y, dB.x);
+            else AxisClosest(r.ax, r.axS, e.PointAt(s), out _, out _, out lf);
             var t = e.TangentAt(s);
             left = Vector2.Dot(lf, new Vector2(-t.y, t.x)) >= 0f ? lf : -lf;
+            return true;
+        }
+
+        // Round 3: ONE SECTION NORMAL at a profiled split node. The two
+        // carriageways are cut square to the island's axis; the undivided
+        // road's end at that node was still cut on its mitre with one of
+        // them (OSM's fanned centreline), so the two cuts parted in a wedge
+        // across a carriageway - narrow at the nose, a metre at the kerb
+        // (review r2: a tan crack and a kerb gap at every nose). The axis
+        // leaves the node along the undivided road's own approach chord, so
+        // cutting that road's END square to it too closes the wedge.
+        static readonly Dictionary<int, Vector2> refugeNodeDir = new Dictionary<int, Vector2>();
+
+        /// <summary>THE SECTION NORMAL every consumer uses (round 3): a refuge
+        /// carriageway's axis normal; the undivided road's end at a profiled
+        /// split node, the axis normal there; false: the edge's own normal
+        /// (the caller's usual rule). left: unit, on e's left (+ side).</summary>
+        public static bool SectionNormal(CityMap.Edge e, float s, out Vector2 left)
+        {
+            if (RefugeNormal(e, s, out left)) return true;
+            if (refugeNodeDir.Count == 0) return false;
+            Vector2 d;
+            if (s <= 1e-3f && refugeNodeDir.TryGetValue(e.a, out d)) { }
+            else if (s >= e.length - 1e-3f && refugeNodeDir.TryGetValue(e.b, out d)) { }
+            else return false;
+            var t = e.TangentAt(s);
+            var lf = new Vector2(-d.y, d.x);
+            left = Vector2.Dot(lf, new Vector2(-t.y, t.x)) >= 0f ? lf : -lf;
+            return true;
+        }
+
+        /// <summary>The section's left normal at s: <see cref="SectionNormal"/>,
+        /// else the edge's own tangent's - the shared helper for the Extents
+        /// readers that lay a point off the line.</summary>
+        public static Vector2 SectionLeft(CityMap.Edge e, float s)
+        {
+            if (SectionNormal(e, s, out var l)) return l;
+            var t = e.TangentAt(s);
+            return new Vector2(-t.y, t.x);
+        }
+
+        /// <summary>Extents measured along the OSM line's own normal (the
+        /// scalar readers: PaveEdgeM, "is q within e's pavement"): on a refuge
+        /// carriageway the drawn edge runs along the axis, so its distance
+        /// along OSM's normal is the extent over the cosine between them.</summary>
+        public static void ExtentsAlongOsm(CityMap.Edge e, float s, out float eMinus, out float ePlus)
+        {
+            Extents(e, s, out eMinus, out ePlus);
+            if (refugeEdge.Count == 0 || !RefugeNormal(e, s, out var nL)) return;
+            var t = e.TangentAt(s);
+            float c = Mathf.Max(0.5f, Vector2.Dot(nL, new Vector2(-t.y, t.x)));
+            eMinus /= c; ePlus /= c;
+        }
+
+        /// <summary>THE TRAFFIC PATH'S TANGENT on a refuge carriageway (round
+        /// 3): the way a point lat off the line, keeping its place in the
+        /// shifted band (lat follows ShiftAt), actually moves - the axis
+        /// direction plus the shift's slope - not OSM's centreline tangent,
+        /// which fans up to 24 degrees off it at a nose (cars crabbed). a->b;
+        /// false: not a refuge carriageway.</summary>
+        public static bool RefugeTangent(CityMap.Edge e, float s, float lat, out Vector2 tan)
+        {
+            tan = default;
+            if (refugeEdge.Count == 0 || !refugeEdge.ContainsKey(e.index)) return false;
+            float s0 = Mathf.Max(0f, s - 0.5f), s1 = Mathf.Min(e.length, s + 0.5f);
+            if (s1 - s0 < 1e-3f) return false;
+            float sh = ShiftAt(e, s);
+            Vector2 P(float x)
+            {
+                RefugeNormal(e, x, out var n);
+                return e.PointAt(x) + n * (lat + ShiftAt(e, x) - sh);
+            }
+            var d = P(s1) - P(s0);
+            if (d.sqrMagnitude < 1e-8f) return false;
+            tan = d.normalized;
+            if (Vector2.Dot(tan, e.TangentAt(s)) < 0f) tan = -tan;
             return true;
         }
 
@@ -876,7 +962,7 @@ namespace PSXRacing.City
         // clamp(Lc/4, 4, 10) m. A 4-lane road (no centre lane) has no room:
         // its lanes move out by what the island needs, eased over at least
         // RefugeMoveMinM so no lane line slopes more than RefugeSlope.
-        public const float RefugeDs = 0.25f, RefugeMaxIslandM = 2.4f, RefugeTipM = 1f, RefugeMoveMinM = 20f, RefugeMoveMaxM = 1.3f, RefugeSlope = 0.06f, RefugeDesignSlope = 0.05f, RefugeMaxStrayM = 12f;
+        public const float RefugeDs = 0.25f, RefugeMaxIslandM = 2.4f, RefugeTipM = 0.3f, RefugeMoveMinM = 20f, RefugeMoveMaxM = 1.3f, RefugeSlope = 0.06f, RefugeDesignSlope = 0.05f, RefugeMaxStrayM = 12f;
 
         /// <summary>A rounded nose's half width at x past its tip: 0 before
         /// it, a kerb arc of radius r at the tip, then a straight flank tangent
@@ -957,16 +1043,18 @@ namespace PSXRacing.City
 
         /// <summary>Build one refuge pair's profile eases (both carriageways).
         /// False (nothing added): no room for an island - round 1's cap.</summary>
+        static void Why(Refuge[] pr, string w) { foreach (var r in pr) r.why = w; }
+
         static bool BuildRefugePair(CityMap map, List<Ease>[] add, Split sp, Split s2, Refuge[] pr)
         {
             var U1 = map.edges[sp.u]; var U2 = map.edges[s2.u];
-            foreach (var r in pr) foreach (int ei in r.chain) { var e = map.edges[ei]; if (e.lmPlus == 0f && e.lmMinus == 0f) return false; }
-            if ((U1.lmPlus == 0f && U1.lmMinus == 0f) || (U2.lmPlus == 0f && U2.lmMinus == 0f)) return false;
+            foreach (var r in pr) foreach (int ei in r.chain) { var e = map.edges[ei]; if (e.lmPlus == 0f && e.lmMinus == 0f) { Why(pr, "no line model"); return false; } }
+            if ((U1.lmPlus == 0f && U1.lmMinus == 0f) || (U2.lmPlus == 0f && U2.lmMinus == 0f)) { Why(pr, "no line model (U)"); return false; }
             // THE AXIS: the undivided road's line carried through on both approach tangents
             Vector2 P1 = map.nodes[sp.node], P2 = map.nodes[s2.node];
             Vector2 t1 = ChordInto(map, U1, sp.node), t2 = -ChordInto(map, U2, s2.node);
             float L = Vector2.Distance(P1, P2);
-            if (L < 8f || Vector2.Dot(t1, (P2 - P1) / L) < 0.5f || Vector2.Dot(t2, (P2 - P1) / L) < 0.5f) return false;
+            if (L < 8f || Vector2.Dot(t1, (P2 - P1) / L) < 0.5f || Vector2.Dot(t2, (P2 - P1) / L) < 0.5f) { Why(pr, "axis: short or turned"); return false; }
             const int NA = 64;
             var ax = new Vector2[NA + 1]; var axS = new float[NA + 1];
             for (int i = 0; i <= NA; i++)
@@ -987,7 +1075,7 @@ namespace PSXRacing.City
                 return Vector2.Dot(p - at, lf) >= 0f ? 1 : -1;
             }
             if (soA == 0 || soB == 0 || soA == soB) { soA = SideOfMid(pr[0]); soB = SideOfMid(pr[1]); }
-            if (soA == soB) return false;
+            if (soA == soB) { Why(pr, "sides"); return false; }
             // pr[0] is sp.a's chain (FindRefuges walks sp.a first)
             int[] so = { soA, soB };
             for (int c = 0; c < 2; c++)
@@ -1012,52 +1100,99 @@ namespace PSXRacing.City
                 {
                     ChainAt(map, r.chain, r.node, d, out int k, out float s);
                     r.Local(map.edges[r.chain[k]].PointAt(s), out float u, out float q);
-                    if (q > RefugeMaxStrayM || q < -1f || u < -1f || u > axLen + 1f) return false;
+                    if (q > RefugeMaxStrayM || q < -3f || u < -1f || u > axLen + 1f) { Why(pr, $"stray: q {q:0.0} m at u {u:0.0} of {axLen:0.0}"); return false; }
                 }
             // a carriageway whose lanes change along the island (a bay, a lane
             // added) is not one cross-section the profile can carry: round 1's cap
+            // Round 3: lanes changing on the INNER side (a bay inside the
+            // island's chain) only take room from the island, which the
+            // minimum-room sizing below absorbs; only the OUTER side's change
+            // (the outer edge would step off the edge line) keeps the cap.
+            float OuterOf(Refuge r, CityMap.Edge e)
+            {
+                var pm = e.PointAt(0.5f * e.length); var tm = e.TangentAt(0.5f * e.length);
+                AxisClosest(ax, axS, pm, out _, out _, out var lfm);
+                return Vector2.Dot(new Vector2(-tm.y, tm.x), r.so * lfm) >= 0f ? e.lmPlus : e.lmMinus;
+            }
             foreach (var r in pr)
             {
-                var e0 = map.edges[r.chain[0]];
+                float o0 = OuterOf(r, map.edges[r.chain[0]]);
                 foreach (int ei in r.chain)
-                {
-                    var e = map.edges[ei];
-                    if (Mathf.Abs(e.lmPlus + e.lmMinus - e0.lmPlus - e0.lmMinus) > 0.05f || e.profile != e0.profile) return false;
+                    {
+                    var e = map.edges[ei]; var e0 = map.edges[r.chain[0]];
+                    if (Mathf.Abs(OuterOf(r, e) - o0) > 0.05f) { Why(pr, $"lanes change on the outer side ({o0:0.00} -> {OuterOf(r, e):0.00} m)"); return false; }
+                    // an inner-side change too: the lines step at the joint (South Boulevard, round 3's first run)
+                    if (Mathf.Abs(e.lmPlus + e.lmMinus - e0.lmPlus - e0.lmMinus) > 0.05f) { Why(pr, "lanes change on the inner side"); return false; }
                 }
             }
             float wI = Mathf.Clamp(0.5f * (pr[0].osmIsland + pr[1].osmIsland), RefugeMinIslandM, RefugeMaxIslandM);
             float half = 0.5f * wI;
-            for (int c = 0; c < 2; c++)
+            // ROUND 3, THE ROOM: the least room each carriageway leaves along
+            // the island's middle (its inner edge from the axis with the outer
+            // edge flush), not the room at mid - an island sized at mid came
+            // out up to 0.37 m narrower than designed, and narrowing toward
+            // mid, wherever the room dipped elsewhere (review r2).
+            float MinGap(Refuge r, float uLo, float uHi)
             {
-                var r = pr[c];
-                // the room where the island is widest: the chain point at the axis's mid
-                float dMid = 0.5f * r.lc, bestDu = float.MaxValue;
+                float g = float.MaxValue;
                 for (float d = 0f; d <= r.lc; d += 0.5f)
                 {
                     ChainAt(map, r.chain, r.node, d, out int kk, out float ss);
-                    r.Local(map.edges[r.chain[kk]].PointAt(ss), out float uu, out _);
-                    if (Mathf.Abs(uu - 0.5f * axLen) < bestDu) { bestDu = Mathf.Abs(uu - 0.5f * axLen); dMid = d; }
+                    var e = map.edges[r.chain[kk]];
+                    r.Local(e.PointAt(ss), out float uu, out _);
+                    if (uu < uLo || uu > uHi) continue;
+                    g = Mathf.Min(g, r.OuterTarget(uu) + r.MoveAt(uu) - (e.lmPlus + e.lmMinus));
                 }
-                float g = GapAt(r, dMid);
-                float need = half - g;
-                if (need > 0.02f)
-                {
-                    // the undivided road's own width change already slopes the edge line
-                    float RefugeDesignSlope = Mathf.Max(0.02f, LineModel.RefugeDesignSlope - Mathf.Abs(r.uOut2 - r.uOut1) / Mathf.Max(1f, axLen));
-                    // 4-LANE: no centre lane - the lanes move out, gently
-                    r.moveLen = Mathf.Min(0.5f * axLen, Mathf.Max(RefugeMoveMinM, 1.5f * need / RefugeDesignSlope));
-                    r.move = Mathf.Min(need, Mathf.Min(RefugeMoveMaxM, RefugeDesignSlope * r.moveLen / 1.5f));
-                }
-                else { r.move = 0f; r.moveLen = 0f; }
-                half = Mathf.Min(half, g + r.move);
+                return g;
             }
-            if (half < 0.5f * RefugeMinIslandM - 0.15f) return false;      // no room for a kerbed island
+            float lnG = Mathf.Clamp(0.25f * axLen, 4f, 10f);
+            float uLoG = Mathf.Min(0.5f * axLen, RefugeTipM + lnG), uHiG = Mathf.Max(0.5f * axLen, axLen - RefugeTipM - lnG);
+            void Moves(float want)
+            {
+                for (int c = 0; c < 2; c++)
+                {
+                    var r = pr[c];
+                    r.move = 0f; r.moveLen = 0f;
+                    float g = MinGap(r, uLoG, uHiG);
+                    float need = want - g;
+                    if (need <= 0.02f) continue;
+                    // the undivided road's own width change already slopes the edge line:
+                    // the lanes' move takes what is left of RefugeSlope (less a margin)
+                    float ds = 0.045f - Mathf.Abs(r.uOut2 - r.uOut1) / Mathf.Max(1f, axLen);
+                    if (ds < 0.015f) continue;
+                    ds = Mathf.Min(ds, RefugeDesignSlope);
+                    // 4-LANE: no centre lane - the lanes move out, gently, over RefugeMoveMinM or more
+                    float mlen = Mathf.Min(0.5f * axLen, Mathf.Max(RefugeMoveMinM, 1.5f * need / ds));
+                    if (mlen < RefugeMoveMinM) continue;
+                    r.moveLen = mlen;
+                    r.move = Mathf.Min(need, Mathf.Min(RefugeMoveMaxM, ds * mlen / 1.5f));
+                }
+            }
+            Moves(half);
+            {
+                // where the lanes have finished moving out (4-lane) - the noses taper inside that
+                float mL = Mathf.Max(pr[0].moveLen, pr[1].moveLen);
+                float lo2 = Mathf.Min(0.5f * axLen, Mathf.Max(uLoG, mL)), hi2 = Mathf.Max(0.5f * axLen, axLen - Mathf.Max(axLen - uHiG, mL));
+                for (int c = 0; c < 2; c++) half = Mathf.Min(half, MinGap(pr[c], lo2, hi2));
+            }
+            bool flush = false;
+            if (half < 0.5f * RefugeMinIslandM - 0.15f)
+            {
+                // NO ROOM FOR A KERBED ISLAND: a straight carriageway and a flush
+                // painted median (the two pavements meet on the axis) - better
+                // than round 1's S-wobble, which the owner rejected. Lanes that
+                // would overlap past the axis move out (gently) to meet there.
+                flush = true; half = 0f;
+                Moves(0f);
+                RefugeFlush += 2;
+            }
+            if (half < 0f) half = 0f;
             // the nose set-backs: RefugeTipM, or (4-lane) where both
             // carriageways have moved out far enough for the tip
             float SetBack(bool fromStart)
             {
                 float x0 = RefugeTipM;
-                if (pr[0].move <= 0f && pr[1].move <= 0f) return x0;
+                if (flush || (pr[0].move <= 0f && pr[1].move <= 0f)) return x0;
                 for (float u = 0f; u < 0.5f * axLen; u += 0.25f)
                 {
                     float uu = fromStart ? u : axLen - u, room = float.MaxValue;
@@ -1076,9 +1211,24 @@ namespace PSXRacing.City
             float x0s = SetBack(true), x0e = SetBack(false);
             float ln = Mathf.Clamp(0.25f * axLen, 4f, 10f);
             ln = Mathf.Min(ln, Mathf.Max(1.5f, 0.5f * (axLen - 1f - x0s - x0e)));
-            if (x0s + x0e + 2f >= axLen) return false;
+            if (!flush && x0s + x0e + 2f >= axLen)
+            {
+                // the lanes cannot move out far enough for both noses: flush, straight
+                flush = true; half = 0f; Moves(0f); RefugeFlush += 2;
+                x0s = x0e = RefugeTipM;
+            }
+            // THE SELF-CHECK: the island never wider than the room either
+            // carriageway leaves anywhere past its noses (so never narrowing
+            // toward mid), its noses at most as wide as the flank allows
+            if (!flush)
+            {
+                float uLo = Mathf.Min(0.5f * axLen, x0s + ln), uHi = Mathf.Max(0.5f * axLen, axLen - x0e - ln);
+                for (int c = 0; c < 2; c++) half = Mathf.Min(half, MinGap(pr[c], uLo, uHi));
+                if (half < 0.5f * RefugeMinIslandM - 0.15f) { Why(pr, $"no room after the self-check: half {half:0.00}"); return false; }
+            }
             float rn = Mathf.Min(CityMeshes.MedianNoseR, 0.5f * half);
             foreach (var r in pr) { r.half = half; r.x0s = x0s; r.x0e = x0e; r.ln = ln; r.rn = rn; r.profiled = true; foreach (int ei in r.chain) refugeEdge[ei] = r; }
+            refugeNodeDir[sp.node] = t1; refugeNodeDir[s2.node] = -t2;
             // THE EASES, edge by edge: the shift (edge frame) and the inner widening
             foreach (var r in pr)
             {

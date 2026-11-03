@@ -174,8 +174,7 @@ namespace PSXRacing.City
                     bool fromA = c.a == node;
                     float tr = Mathf.Clamp(fromA ? trims.atA[ci] : trims.atB[ci], 4f, Mathf.Min(30f, c.length * 0.5f));
                     float sc = fromA ? tr : c.length - tr;
-                    var t = c.TangentAt(sc);
-                    var left = new Vector2(-t.y, t.x);
+                    var left = LineModel.SectionLeft(c, sc);
                     LineModel.Extents(c, sc, out _, out float ePlus);
                     var q = c.PointAt(sc) + left * ePlus;
                     var leg = new List<Vector3>();
@@ -3654,7 +3653,7 @@ namespace PSXRacing.City
         {
             widen = 1f;
             // the medians pass round 2: a refuge carriageway is cut square to its island's axis
-            if (LineModel.RefugeNormal(e, s, out var nL)) return nL;
+            if (LineModel.SectionNormal(e, s, out var nL)) return nL;
             Vector2 tan;
             int seg = e.SegmentAt(s, out float t);
             bool atVertexA = seg > 0 && t < 1e-3f;
@@ -6423,6 +6422,8 @@ namespace PSXRacing.City
                 if (!f.skip) EmitSeam(map, trims, tm, e, eA, eB, outA, outB, false);
                 return;
             }
+            // the medians pass round 3: a refuge island is raised and kerbed
+            if (IslandKerbSpan(map, tm, e, side, eA, eB, outA, outB, A.s, B.s)) return;
             float strip = Mathf.Max(A.Strip(side), B.Strip(side));
             if (strip >= 0f)
             {
@@ -10347,8 +10348,7 @@ namespace PSXRacing.City
                     {
                         float s = e.length * q * 0.25f;
                         var p = e.PointAt(s);
-                        var tn = e.TangentAt(s);
-                        var rgt = new Vector2(-tn.y, tn.x);
+                        var rgt = LineModel.SectionLeft(e, s);
                         LineModel.Extents(e, s, out float eM, out float eP);
                         RingTakeIn(corners, np, origin, p - rgt * eM, e.YAt(s), ei, -1, e.a);
                         RingTakeIn(corners, np, origin, p + rgt * eP, e.YAt(s), ei, 1, e.a);

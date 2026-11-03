@@ -69,7 +69,7 @@ namespace PSXRacing.City
         public sealed class MarkTally
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
-                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
+                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
@@ -425,8 +425,7 @@ namespace PSXRacing.City
                     if (c >= cos35) continue;
                     var lay = LineModel.LayoutOf(M);
                     float sN = M.a == node ? 0f : M.length;
-                    var tM = M.TangentAt(sN);
-                    var nM = new Vector2(-tM.y, tM.x);
+                    var nM = LineModel.SectionLeft(M, sN);
                     int sigma = Vector2.Dot(dB, nM) >= 0f ? 1 : -1;
                     int k = LineOfKind(lay, sigma > 0 ? LineModel.KEdgeP : LineModel.KEdgeM);
                     if (k < 0) { MarkStats.mouthsSkipped++; continue; }
@@ -650,9 +649,34 @@ namespace PSXRacing.City
                 }
                 if (kLo < 0 || kHi < 0 || hi - lo < HatchMinW || hi - lo > HatchMaxW) { MarkStats.noseNoRoom++; continue; }
                 float W = hi - lo;
-                float Lh = Mathf.Clamp(LineModel.ShiftRateOf(U) * W, 15f, 30f);
-                Lh = Mathf.Min(Lh, noseNodes.Contains(other) ? 0.45f * drawn : drawn - 2f);
-                if (Lh < 4f) { MarkStats.noseNoRoom++; continue; }
+                // Round 3 (review r2 #7, #8). The hatch covers only where the
+                // centre lane is STEADY: both bounding lines drawn, each within
+                // 0.3 m of where it is at the nose, the lane at least HatchMinW -
+                // a relay or a bay's taper moving them ends it (round 2 laid
+                // every bar at the nose's laterals, and where the lines had
+                // moved the column renderer clamped them into "Z" pieces). And
+                // it takes at most 45 % of the undivided stretch whatever is at
+                // its other end: a cross street there keeps the opposite
+                // direction's left-turn bay (round 2 hatched it end to end).
+                float LhMax = Mathf.Min(Mathf.Clamp(LineModel.ShiftRateOf(U) * W, 15f, 30f), 0.45f * drawn);
+                float dir = forward ? -1f : 1f;                      // from the nose back along U
+                float sh0 = LineModel.ShiftAt(U, sProbe);
+                bool LaneAt(float s, out float l0, out float l1)
+                {
+                    l0 = l1 = float.NaN;
+                    LineModel.LinesAt(U, Mathf.Clamp(s, 0f, U.length), ls);
+                    foreach (var l in ls) { if (l.k == kLo) l0 = l.lat; else if (l.k == kHi) l1 = l.lat; }
+                    if (float.IsNaN(l0) || float.IsNaN(l1)) return false;
+                    float dsh = LineModel.ShiftAt(U, s) - sh0;
+                    return Mathf.Abs(l0 - lo - dsh) <= 0.3f && Mathf.Abs(l1 - hi - dsh) <= 0.3f && l1 - l0 >= HatchMinW;
+                }
+                float Lh = 0f;
+                for (float y = 0.5f; y <= LhMax + 1e-3f; y += 0.5f)
+                {
+                    if (!LaneAt(sEnd + dir * y, out _, out _)) break;
+                    Lh = y;
+                }
+                if (Lh < 4f) { MarkStats.noseNoRoom++; MarkStats.noseUnsteady++; continue; }
                 float s0 = forward ? sEnd - Lh : sEnd, s1 = forward ? sEnd : sEnd + Lh;
                 // the bounding lines solid over the hatch
                 for (int q = 0; q < 2; q++)
@@ -662,18 +686,18 @@ namespace PSXRacing.City
                     if (kind == LineModel.KYellowDash) { AddMark(new PaintMark { style = MkYS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: TWLTL line solid" }); MarkStats.noseSolid++; }
                     else if (kind == LineModel.KWhiteDash) { AddMark(new PaintMark { style = MkLS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: bay line solid" }); MarkStats.noseSolid++; }
                 }
-                // the diagonal bars (45 degrees across the lane), clear of the lines
-                float a = lo + 0.15f, b = hi - 0.15f, rise = b - a;
-                float sh0 = LineModel.ShiftAt(U, sProbe);
+                // the diagonal bars (45 degrees across the lane), each end on the
+                // lines where it is, clear of them; from 0.2 m off the nose (the
+                // island's tip is RefugeTipM in from it)
                 var pieces = new List<Vector2[]>(12); var bps = new List<float>(48);
                 float h = HatchBarW * 1.41421356f;                   // a 0.30 m bar at 45 degrees, measured along s
-                float dir = forward ? -1f : 1f;                      // from the nose back along U
-                for (float y = 1.0f; y + rise + h <= Lh - 0.5f; y += HatchStepM)
+                float rise = W - 0.3f;
+                float A(float s) { LaneAt(s, out float l0, out _); return l0 + 0.15f; }
+                float B(float s) { LaneAt(s, out _, out float l1); return l1 - 0.15f; }
+                for (float y = 0.2f; y + rise + h <= Lh + 1e-3f; y += HatchStepM)
                 {
                     float n0 = sEnd + dir * y, n1 = sEnd + dir * (y + rise);
-                    var pc = new[] { new Vector2(a, n0), new Vector2(a, n0 + dir * h), new Vector2(b, n1 + dir * h), new Vector2(b, n1) };
-                    // a shift on U (if any) moves the lane: the bars ride it
-                    for (int i = 0; i < 4; i++) pc[i].x += LineModel.ShiftAt(U, pc[i].y) - sh0;
+                    var pc = new[] { new Vector2(A(n0), n0), new Vector2(A(n0 + dir * h), n0 + dir * h), new Vector2(B(n1 + dir * h), n1 + dir * h), new Vector2(B(n1), n1) };
                     pieces.Add(pc);
                     foreach (var v in pc) bps.Add(v.y);
                 }
