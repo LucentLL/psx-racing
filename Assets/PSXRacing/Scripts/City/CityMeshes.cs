@@ -1694,6 +1694,9 @@ namespace PSXRacing.City
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
             BuildDeckUnions(map, t);
+            // medians round 4: every refuge pair measured by the gate's own
+            // function on the final eases; a failing pair is rebuilt flush
+            LineModel.VerifyRefuges(map);
             return t;
         }
 
@@ -6423,7 +6426,7 @@ namespace PSXRacing.City
                 return;
             }
             // the medians pass round 3: a refuge island is raised and kerbed
-            if (IslandKerbSpan(map, tm, e, side, eA, eB, outA, outB, A.s, B.s)) return;
+            if (IslandKerbSpan(map, trims, tm, e, side, eA, eB, outA, outB, A.s, B.s)) return;
             float strip = Mathf.Max(A.Strip(side), B.Strip(side));
             if (strip >= 0f)
             {

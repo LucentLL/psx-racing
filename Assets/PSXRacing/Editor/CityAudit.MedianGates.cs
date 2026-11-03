@@ -39,22 +39,25 @@ namespace PSXRacing.EditorTools
             LineModel.RefugeOn = true;
             var tOn = CityMeshes.ComputeTrims(map);
             var refs = new List<LineModel.Refuge>(LineModel.Refuges);
+            var seps = new List<LineModel.Refuge>(LineModel.Separated);
             int profiled = LineModel.RefugeProfiled, fallback = LineModel.RefugeFallback, capped = LineModel.RefugeTapers, flushN = LineModel.RefugeFlush;
-            var mOn = MeasureRefuges(map, refs, out float stepOn, out int linesOn, out string worstOn);
+            int selfFlush = LineModel.RefugeSelfFlush, selfFail = LineModel.RefugeSelfFail; float checkMs = LineModel.RefugeCheckMs;
+            var mOn = LineModel.MeasureRefuges(map, refs, out float stepOn, out int linesOn, out string worstOn);
             // round 3: one section normal at every profiled nose, the traffic's heading
             string wedge = NoseWedges(map, tOn, refs, out float wedgeMax, out int wedgeBad, out int wedgeMet, out int wedgeFan);
             string heading = Headings(map, refs, out float headOn, out float headOsm, out int headN);
+            string diag = DiagPairs(map, refs);
             CityMeshes.EnsureMarks(map, tOn);
             string hatchDump = HatchDump(map, new HashSet<int> { 10229, 10230, 10231, 10232, 10236, 10238 });
             string bendDump = BendCells(map, new[] { 14094, 20695 });
             string timing = PavedTiming(map);
             var ms = CityMeshes.MarkStats;
             int noseOn = ms.noseArrows, noseSkip = ms.noseSkipped, groupsOn = ms.groups;
-            string hatch = $"{ms.noseHatches} nose approaches hatched ({ms.noseHatchBars} bars, {ms.noseSolid} bounding lines made solid, {ms.noseWhiteOnly} on a texture with no solid yellow - white), {ms.noseNoRoom} plain noses with no centre lane to hatch";
+            string hatch = $"{ms.noseHatches} nose approaches hatched ({ms.noseHatchBars} bars, at least {CityMeshes.HatchMinBars} each; {ms.noseSolid} bounding lines that render solid, {ms.noseSolidFallback} that would fall back to the dashed line; {ms.noseWhiteOnly} on a texture with no solid yellow), {ms.noseFlushTip} noses with a centre lane that could not be hatched (it moves, or under {CityMeshes.HatchMinBars} bars: the island kerb is kept back {CityMeshes.KerbFlushTipM:0} m from those tips - a flush tip), {ms.noseNoCentre} plain noses with no centre lane";
             string cells = CityMeshes.MedianCellCensus(map);
             LineModel.RefugeOn = false;
             var tOff = CityMeshes.ComputeTrims(map);
-            var mOff = MeasureRefuges(map, refs, out float stepOff, out int linesOff, out string worstOff);
+            var mOff = LineModel.MeasureRefuges(map, refs, out float stepOff, out int linesOff, out string worstOff);
             CityMeshes.EnsureMarks(map, tOff);
             int noseOff = CityMeshes.MarkStats.noseArrows, groupsOff = CityMeshes.MarkStats.groups;
             LineModel.RefugeOn = refWas;
@@ -67,7 +70,7 @@ namespace PSXRacing.EditorTools
                 float P(float p) => v[Mathf.Clamp(Mathf.FloorToInt(p * (v.Count - 1)), 0, v.Count - 1)];
                 return $"{P(0.1f):0.000}/{P(0.5f):0.000}/{P(0.9f):0.000} (min {v[0]:0.000}, max {v[v.Count - 1]:0.000}, n {v.Count})";
             }
-            List<float> Col(List<RefugeM> m, System.Func<RefugeM, float> f, System.Func<int, bool> keep)
+            List<float> Col(List<LineModel.RefugeM> m, System.Func<LineModel.RefugeM, float> f, System.Func<int, bool> keep)
             {
                 var l = new List<float>();
                 for (int i = 0; i < m.Count; i++) if (keep(i)) l.Add(f(m[i]));
@@ -78,7 +81,7 @@ namespace PSXRacing.EditorTools
             bool Four(int i) => refs[i].profiled && refs[i].move > 0f;
             int nCentre = 0, nFour = 0;
             for (int i = 0; i < refs.Count; i++) { if (Centre(i)) nCentre++; if (Four(i)) nFour++; }
-            Line($"REFUGE ISLANDS round 3 (PSX_CITY_REFUGE): {refs.Count / 2} pairs, {refs.Count} carriageways; {profiled} drawn by the island profile ({nCentre} beside a centre lane, {nFour} 4-lane with the lanes moved out), {fallback} pairs left on round 1's cap; {flushN / 2} profiled pairs with no room for a kerbed island drawn straight with a flush painted median; {capped} split-node tapers replaced");
+            Line($"REFUGE ISLANDS round 4 (PSX_CITY_REFUGE): {refs.Count / 2} pairs, {refs.Count} carriageways; {profiled} drawn by the island profile ({nCentre} beside a centre lane, {nFour} 4-lane with the lanes moved out), {fallback} pairs left on round 1's cap; {flushN / 2} profiled pairs with no room for a kerbed island drawn straight with a flush painted median; {capped} split-node tapers replaced");
             Line($"  outer edge off the undivided road's edge line, centre-lane carriageways: OFF {Q(Col(mOff, m => m.outerDev, Centre))}; ON {Q(Col(mOn, m => m.outerDev, Centre))}");
             Line($"  outer edge's move out (4-lane carriageways): OFF {Q(Col(mOff, m => m.outerDev, Four))}; ON {Q(Col(mOn, m => m.outerDev, Four))}");
             Line($"  lane line move against that edge line, centre-lane: OFF {Q(Col(mOff, m => m.lineMove, Centre))}; ON {Q(Col(mOn, m => m.lineMove, Centre))}");
@@ -99,7 +102,8 @@ namespace PSXRacing.EditorTools
                 Line($"  n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' Lc {r.lc:0.0} ({LatLon(p.x, p.y)}) {(r.profiled ? (r.move > 0f ? $"4-lane move {r.move:0.00} over {r.moveLen:0} m" : "centre lane") : "FALLBACK")}: OSM island {r.osmIsland:0.00}, wI {2f * r.half:0.00}, nose {r.x0s:0.0}/{r.x0e:0.0}+{r.ln:0.0} m r {r.rn:0.00}" +
                      $" | OFF island {a.island:0.00} outer {a.outerDev:0.00} lines {a.lineMove:0.00} slope {a.slope:0.000} | ON island {b.island:0.00} outer {b.outerDev:0.000} lines {b.lineMove:0.000} path {b.pathMove:0.000} slope {b.slope:0.000}");
             }
-            int badOuter = 0, badLine = 0, badSlope = 0, badSlopeOwn = 0, badIsl = 0, badMono = 0, badNose = 0, badFour = 0; string badAt = "";
+            int badOuter = 0, badLine = 0, badSlope = 0, badIsl = 0, badMono = 0, badNose = 0, badFour = 0, badShared = 0; string badAt = "";
+            float worstSlope = 0f; string worstSlopeAt = "-";
             void Bad(ref int n, int i, string what) { n++; if (badAt.Length < 2500) badAt += $" n{refs[i].node}/e{refs[i].edge} {what};"; }
             for (int i = 0; i < refs.Count; i++)
             {
@@ -108,18 +112,22 @@ namespace PSXRacing.EditorTools
                 if (Centre(i) && m.outerDev > 0.05f) Bad(ref badOuter, i, $"outer {m.outerDev:0.000}");
                 if (Centre(i) && m.lineMove > 0.02f) Bad(ref badLine, i, $"line {m.lineMove:0.000}");
                 if (Four(i) && (m.lineMove > 1.31f || refs[i].moveLen < 20f - 1e-3f)) Bad(ref badFour, i, $"4-lane move {m.lineMove:0.00} over {refs[i].moveLen:0.0}");
-                bool own = Mathf.Abs(refs[i].uOut2 - refs[i].uOut1) / Mathf.Max(1f, refs[i].axLen) > 0.05f;
-                if (m.slope > 0.06f && own) Bad(ref badSlopeOwn, i, $"edge-line slope");
-                if (m.slope > 0.06f && !own) Bad(ref badSlope, i, $"slope {m.slope:0.000} (edge line {refs[i].uOut1:0.00}->{refs[i].uOut2:0.00} over {refs[i].axLen:0} m, move {refs[i].move:0.00} over {refs[i].moveLen:0})");
+                // round 4: no exemption - every profiled carriageway (review r3)
+                if (m.slope > worstSlope) { worstSlope = m.slope; worstSlopeAt = $"n{refs[i].node}/e{refs[i].edge} {m.slopeAt}"; }
+                if (m.slope > 0.06f) Bad(ref badSlope, i, $"slope {m.slope:0.000} at {m.slopeAt} (edge line {refs[i].o1:0.00}->{refs[i].o2:0.00} over {refs[i].axLen:0} m, move {refs[i].move:0.00} over {refs[i].moveLen:0})");
                 if (Mathf.Abs(m.islandErr) > 0.1f) Bad(ref badIsl, i, $"island {m.island:0.00} vs {m.wI:0.00}");
                 if (m.nonMono > 0.02f) Bad(ref badMono, i, $"narrows {m.nonMono:0.000}");
                 if (m.noseW > 0.05f) Bad(ref badNose, i, $"nose {m.noseW:0.00}");
+                // the builder's self-check calls the same function: it must agree
+                if ((LineModel.RefugeFails(refs[i], m).Length > 0) != (refs[i].check.Length > 0)) badShared++;
             }
             Check(badOuter == 0, "centre-lane islands: outer edge within 0.05 m of the undivided road's edge line", badOuter);
-            Check(badLine == 0, "centre-lane islands: no lane line moves over 0.02 m", badLine);
+            Check(badLine == 0, "centre-lane islands: no lane line moves over 0.02 m against the lanes' straight reference", badLine);
             Check(badFour == 0, "4-lane islands: lanes move at most 1.3 m, eased over 20 m or more", badFour);
-            Check(badSlope == 0, "no lane edge, line or traffic path slopes over 0.06 (where the undivided road keeps its width across the island)", badSlope);
-            Line($"  OPEN: {badSlopeOwn} carriageways slope over 0.06 where the undivided road itself widens or narrows across the island by over 0.05 m per metre (OSM's widths differ at the two noses: a lane add/drop the profile carries on the edge line, not a wobble)");
+            Check(badSlope == 0, $"no lane edge, line or traffic path slopes over 0.06 on any profiled carriageway (worst {worstSlope:0.000} at {worstSlopeAt})", badSlope);
+            Check(badShared == 0, "the builder's self-check and this gate agree on every carriageway (one measurement)", badShared);
+            Line($"  SELF-CHECK (LineModel.VerifyRefuges, the gate's own measurement): {selfFlush} pairs rebuilt flush, {selfFail} pairs still failing; {checkMs:0.0} ms at load");
+            Check(fallback == 0, "no refuge pair left on round 1's cap", fallback);
             Check(badIsl == 0, "island at mid within 0.1 m of its design width", badIsl);
             Check(badMono == 0, "island never narrows from a nose toward mid", badMono);
             Check(badNose == 0, "no island before its tip (nose width 0 there)", badNose);
@@ -150,7 +158,9 @@ namespace PSXRacing.EditorTools
                 fbs.Append($"\n    n{r.node}->n{r.far} e{r.edge}/e{refs[i + 1].edge} '{map.edges[r.edge].name}' Lc {r.lc:0} ({LatLon(p.x, p.y)}; x {p.x:0} z {p.y:0}) OSM island {r.osmIsland:0.00}: {r.why}");
             }
             Line($"FALLBACK PAIRS (not drawn by the profile): {nFb}{fbs}");
+            Line(RoundFour(map, refs, mOn, seps));
             Line(hatchDump);
+            if (diag.Length > 0) Line(diag);
             FinishTo("city_medians.txt");
         }
 
@@ -159,8 +169,10 @@ namespace PSXRacing.EditorTools
         /// where they meet at the node itself (a mitred pair, no fan) both of
         /// the carriageway's corners must lie on the undivided road's cut line
         /// (one section normal) - the round-2 wedge was up to a metre there.</summary>
+        static string fanAt = "";
         static string NoseWedges(CityMap map, CityMeshes.Trims t, List<LineModel.Refuge> refs, out float worst, out int bad, out int met, out int fan)
         {
+            fanAt = "";
             worst = 0f; bad = 0; met = 0; fan = 0;
             var sb = new StringBuilder();
             var splitU = new Dictionary<int, int>();
@@ -176,7 +188,13 @@ namespace PSXRacing.EditorTools
                     if (!seen.Add(((long)node << 32) | (uint)ei) || !splitU.TryGetValue(node, out int ui)) continue;
                     var U = map.edges[ui]; var C = map.edges[ei];
                     float tu = t.TrimAt(U, node), tc = t.TrimAt(C, node);
-                    if (tu > 0.05f || tc > 0.05f) { fan++; continue; }
+                    if (tu > 0.05f || tc > 0.05f)
+                    {
+                        fan++;
+                        // round 4: where they are (the kerb ramps up from these drawn ends)
+                        if (fanAt.Length < 900 && tc > LineModel.RefugeTipM + 0.05f) { var pn = map.nodes[node]; var pc = C.PointAt(C.a == node ? tc : C.length - tc); fanAt += $" n{node}/e{ei} trim {tc:0.0} m at ({pc.x:0.0},{pc.y:0.0}) half {r.half:0.00};"; }
+                        continue;
+                    }
                     met++;
                     var vu = CityMeshes.AuditView.SectionAt(map, t, U, U.a == node ? 0f : U.length, false);
                     var vc = CityMeshes.AuditView.SectionAt(map, t, C, C.a == node ? 0f : C.length, false);
@@ -192,7 +210,7 @@ namespace PSXRacing.EditorTools
                     if (worstHere > 0.02f) { bad++; if (sb.Length < 600) sb.Append($" n{node}/e{ei} {worstHere:0.00};"); }
                 }
             }
-            return sb.Length > 0 ? "; over 0.02 m:" + sb : "";
+            return (sb.Length > 0 ? "; over 0.02 m:" + sb : "") + (fanAt.Length > 0 ? "\n  FAN ENDS past the tip (kerb ramps up over " + CityMeshes.KerbEndRampM + " m from the drawn end):" + fanAt : "");
         }
 
         /// <summary>Round 3: the heading traffic gives a car on a refuge
@@ -321,7 +339,115 @@ namespace PSXRacing.EditorTools
             return sb.ToString();
         }
 
-        struct RefugeM { public float island, wI, islandErr, nonMono, noseW, outerDev, lineMove, pathMove, slope, step; }
+        /// <summary>Round 4: the common-mode shifts put on undivided roads,
+        /// the real separated medians and their slopes, and the 13 pairs
+        /// round 3 left on round 1's cap.</summary>
+        static string RoundFour(CityMap map, List<LineModel.Refuge> refs, List<LineModel.RefugeM> mOn, List<LineModel.Refuge> seps)
+        {
+            var sb = new StringBuilder();
+            int nU = 0; var su = new StringBuilder();
+            for (int i = 0; i + 1 < refs.Count; i += 2)
+            {
+                var r = refs[i];
+                if (Mathf.Abs(r.uShift1) < 0.01f && Mathf.Abs(r.uShift2) < 0.01f) continue;
+                nU++;
+                // the slope the shift gives the undivided road: smoothstep over the length given (room-capped)
+                float g1 = Mathf.Min(r.uLen1, r.uRoom1), g2 = Mathf.Min(r.uLen2, r.uRoom2);
+                float s1 = Mathf.Abs(r.uShift1) > 0.01f ? 1.5f * Mathf.Abs(r.uShift1) / Mathf.Max(0.5f, g1) : 0f, s2 = Mathf.Abs(r.uShift2) > 0.01f ? 1.5f * Mathf.Abs(r.uShift2) / Mathf.Max(0.5f, g2) : 0f;
+                su.Append($"\n    n{r.node}->n{r.far} '{map.edges[r.edge].name}': U1 shift {r.uShift1:0.00} m over {g1:0} m (asked {r.uLen1:0}, slope {s1:0.000}), U2 shift {r.uShift2:0.00} m over {g2:0} m (asked {r.uLen2:0}, slope {s2:0.000})");
+            }
+            sb.Append($"COMMON-MODE SHIFTS on the undivided roads (round 4: the sideways part of an edge-line change, so the island keeps under the slope): {nU} pairs{su}");
+            sb.Append($"\nSEPARATED MEDIANS (real, not islands: own lines, the split's ordinary tapers): {seps.Count / 2} pairs");
+            foreach (var r in seps)
+            {
+                float worst = 0f;
+                foreach (int ei in r.chain)
+                {
+                    var e = map.edges[ei];
+                    LineModel.Extents(e, 0f, out float pm, out float pp);
+                    for (float s = 0.5f; s <= e.length + 1e-3f; s += 0.5f)
+                    {
+                        LineModel.Extents(e, s, out float em, out float ep);
+                        worst = Mathf.Max(worst, Mathf.Max(Mathf.Abs(ep - pp), Mathf.Abs(em - pm)) / 0.5f);
+                        pm = em; pp = ep;
+                    }
+                }
+                var p = map.nodes[r.node];
+                sb.Append($"\n    n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' ({LatLon(p.x, p.y)}) OSM island {r.osmIsland:0.0} m: largest lateral slope of a drawn edge off its own line {worst:0.000}");
+            }
+            var former = new HashSet<int> { 2225, 2228, 6098, 7198, 7969, 9660, 11419, 13199, 14285, 15853, 16463, 16685, 17325 };
+            sb.Append("\nROUND 3's 13 CAPPED PAIRS, now:");
+            for (int i = 0; i < refs.Count; i++)
+            {
+                var r = refs[i];
+                if (!former.Contains(r.node)) continue;
+                var p = map.nodes[r.node]; var m = mOn[i];
+                string kind = !r.profiled ? "CAP" : r.half <= 0f ? "flush" : r.move > 0f ? "4-lane island" : "island";
+                sb.Append($"\n    n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' ({LatLon(p.x, p.y)}; x {p.x:0} z {p.y:0}) {kind} wI {2f * r.half:0.00} edge line {r.o1:0.00}->{r.o2:0.00} outer widen {r.w1:0.00}/{r.w2:0.00} | slope {m.slope:0.000} at {m.slopeAt} lines {m.lineMove:0.000} outer {m.outerDev:0.000}{(r.check.Length > 0 ? " FAILS" + r.check : "")}");
+            }
+            foreach (var r in seps) if (former.Contains(r.node)) sb.Append($"\n    n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' separated (real {r.osmIsland:0} m median)");
+            return sb.ToString();
+        }
+
+        /// <summary>Round 4 diagnostic (PSX_REFUGE_DIAG=node,node,...): each
+        /// pair at those split nodes - its frame, the undivided roads' base
+        /// and drawn extents at the nodes, every chain edge's layout and eases.</summary>
+        static string DiagPairs(CityMap map, List<LineModel.Refuge> refs)
+        {
+            var env = System.Environment.GetEnvironmentVariable("PSX_REFUGE_DIAG");
+            if (string.IsNullOrEmpty(env)) return "";
+            var want = new HashSet<int>();
+            foreach (var t in env.Split(',')) if (int.TryParse(t, out int v)) want.Add(v);
+            var splitAt = new Dictionary<int, LineModel.Split>();
+            if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
+            string Ez(CityMap.Edge e)
+            {
+                if (e.lmEase == null) return "";
+                var s = "";
+                foreach (var z in e.lmEase) s += $" [{(z.shift ? "shift" : z.widen ? "widen" : z.aux ? "aux" : z.relay ? "relay" : "taper")} sd{z.side} dw{z.dw:0.00} len{z.len:0.0} d0{z.d0:0.0} A{(z.fromA ? 1 : 0)}{(z.prof != null ? " prof" : "")}{(z.centreOnly ? " co" : "")}]";
+                return s;
+            }
+            string Ed(CityMap.Edge e, int node)
+            {
+                float s = e.a == node ? 0f : e.length;
+                LineModel.Extents(e, s, out float eM, out float eP);
+                return $"e{e.index} '{e.name}' a{e.a} b{e.b} len {e.length:0.0} w {e.width:0.00} lanes {e.lanes} shl {e.shl:0.00} shr {e.shr:0.00} lm +{e.lmPlus:0.00}/-{e.lmMinus:0.00} drawn@n{node} +{eP:0.00}/-{eM:0.00} sh {LineModel.ShiftAt(e, s):0.00}{Ez(e)}";
+            }
+            var sb = new StringBuilder("REFUGE DIAG:");
+            foreach (var r in refs)
+            {
+                if (!want.Contains(r.node)) continue;
+                sb.Append($"\n  PAIR n{r.node}->n{r.far} e{r.edge} so {r.so} prof {r.profiled} why '{r.why}' axLen {r.axLen:0.0} uOut {r.uOut1:0.00}/{r.uOut2:0.00} move {r.move:0.00}/{r.moveLen:0} half {r.half:0.00} x0 {r.x0s:0.0}/{r.x0e:0.0} ln {r.ln:0.0} osmIsl {r.osmIsland:0.00}");
+                if (splitAt.TryGetValue(r.node, out var s1)) sb.Append($"\n    U1 {Ed(map.edges[s1.u], r.node)} offA {s1.offA:0.00} offB {s1.offB:0.00}");
+                if (splitAt.TryGetValue(r.far, out var s2)) sb.Append($"\n    U2 {Ed(map.edges[s2.u], r.far)} offA {s2.offA:0.00} offB {s2.offB:0.00}");
+                int from = r.node;
+                foreach (int ei in r.chain)
+                {
+                    var e = map.edges[ei];
+                    sb.Append($"\n    C {Ed(e, from)}");
+                    from = e.a == from ? e.b : e.a;
+                }
+                if (r.profiled && r.ax != null)
+                {
+                    // the drawn edges every 4 m in the frame
+                    from = r.node; sb.Append("\n    drawn (u: outer/inner lat, target, nose):");
+                    foreach (int ei in r.chain)
+                    {
+                        var e = map.edges[ei]; bool fwd = e.a == from;
+                        for (float x = 0f; x <= e.length; x += 4f)
+                        {
+                            float s = fwd ? x : e.length - x;
+                            LineModel.Extents(e, s, out float eM, out float eP);
+                            var p = e.PointAt(s); var lf = LineModel.SectionLeft(e, s);
+                            r.Local(p + lf * eP, out float u1, out float l1); r.Local(p - lf * eM, out float u2, out float l2);
+                            sb.Append($" {u1:0}:{Mathf.Max(l1, l2):0.00}/{Mathf.Min(l1, l2):0.00},{r.OuterTarget(u1):0.00},{r.NoseHalf(u1):0.00}");
+                        }
+                        from = fwd ? e.b : e.a;
+                    }
+                }
+            }
+            return sb.ToString();
+        }
 
         /// <summary>Diagnostic: one refuge carriageway's eases and its drawn outer edge every 2 m.</summary>
         static void DumpRefuge(CityMap map, List<LineModel.Refuge> refs, int edge)
@@ -354,147 +480,5 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        /// <summary>Per refuge carriageway, in its island's frame (see the
-        /// class summary); over all of them the largest step in a drawn edge
-        /// where two chain edges meet or where the chain leaves its split
-        /// node, and the lane lines at each chain edge's mid.</summary>
-        static List<RefugeM> MeasureRefuges(CityMap map, List<LineModel.Refuge> refs, out float worstStep, out int lines, out string worst)
-        {
-            var res = new List<RefugeM>(refs.Count);
-            worstStep = 0f; lines = 0; worst = "-";
-            var la = new List<LineModel.LineAt>(16);
-            var splitU = new Dictionary<int, int>();
-            if (map.splt != null) foreach (var sp in map.splt) splitU[sp.node] = sp.u;
-            void Edges(CityMap.Edge e, float s, out Vector2 pl, out Vector2 mi)
-            {
-                LineModel.Extents(e, s, out float eM, out float eP);
-                var p = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
-                if (LineModel.RefugeNormal(e, s, out var nL)) left = nL;
-                pl = p + left * eP; mi = p - left * eM;
-            }
-            float SetStep(Vector2 a0, Vector2 a1, Vector2 b0, Vector2 b1) =>
-                Mathf.Min(Mathf.Max(Vector2.Distance(a0, b0), Vector2.Distance(a1, b1)), Mathf.Max(Vector2.Distance(a0, b1), Vector2.Distance(a1, b0)));
-            // each carriageway's inner edge along its axis (for the island)
-            var innerOf = new Dictionary<LineModel.Refuge, List<(float u, float lat)>>();
-            var partial = new List<RefugeM>(refs.Count);
-            foreach (var r in refs)
-            {
-                var m = new RefugeM { island = float.NaN, wI = 2f * r.half, islandErr = float.NaN, nonMono = float.NaN, noseW = float.NaN,
-                                      outerDev = float.NaN, lineMove = float.NaN, pathMove = float.NaN, slope = float.NaN };
-                var inner = new List<(float u, float lat)>();
-                innerOf[r] = inner;
-                int from = r.node;
-                Vector2 prevPl = default, prevMi = default; bool havePrev = false; float endStep = 0f;
-                float outerDev = 0f, lineMove = 0f, pathMove = 0f, slope = 0f;
-                for (int k = 0; k < r.chain.Length; k++)
-                {
-                    var e = map.edges[r.chain[k]];
-                    bool fwd = e.a == from;
-                    Edges(e, fwd ? 0f : e.length, out var pl0, out var mi0);
-                    if (havePrev)
-                    {
-                        float st = SetStep(pl0, mi0, prevPl, prevMi);
-                        endStep = Mathf.Max(endStep, st);
-                        if (st > worstStep) { worstStep = st; worst = $"e{e.index} at n{from}"; }
-                    }
-                    else if (splitU.TryGetValue(r.node, out int ui))
-                    {
-                        var U = map.edges[ui];
-                        Edges(U, U.a == r.node ? 0f : U.length, out var upl, out var umi);
-                        float st = Mathf.Min(Mathf.Min(Vector2.Distance(pl0, upl), Vector2.Distance(pl0, umi)),
-                                             Mathf.Min(Vector2.Distance(mi0, upl), Vector2.Distance(mi0, umi)));
-                        if (r.profiled)
-                        {
-                            // round 2: the jog ACROSS the road at the node, in the island's frame (the two
-                            // sections are cut on different normals, so their corners differ along it)
-                            r.Local(upl, out _, out float a1); r.Local(umi, out _, out float a2);
-                            r.Local(pl0, out _, out float b1); r.Local(mi0, out _, out float b2);
-                            st = Mathf.Min(Mathf.Abs(Mathf.Max(a1, a2) - Mathf.Max(b1, b2)), st);
-                        }
-                        endStep = Mathf.Max(endStep, st);
-                        if (st > worstStep) { worstStep = st; worst = $"e{e.index} at split n{from}"; }
-                    }
-                    if (r.profiled)
-                    {
-                        // along the edge every 0.5 m, in the island's frame
-                        var lineMin = new Dictionary<int, float>(); var lineMax = new Dictionary<int, float>();
-                        var prevLine = new Dictionary<int, (float u, float lat)>();
-                        float pMin = float.MaxValue, pMax = float.MinValue; float pu = float.NaN, plat = 0f, ou = float.NaN, olat = 0f;
-                        for (float x = 0.25f; x <= e.length - 0.25f + 1e-3f; x += 0.5f)
-                        {
-                            float s = fwd ? x : e.length - x;
-                            Edges(e, s, out var pl, out var mi);
-                            r.Local(pl, out float u1, out float l1); r.Local(mi, out float u2, out float l2);
-                            float uo = l1 > l2 ? u1 : u2, lo = Mathf.Max(l1, l2), ui = l1 > l2 ? u2 : u1, li = Mathf.Min(l1, l2);
-                            float target = r.OuterTarget(uo);
-                            outerDev = Mathf.Max(outerDev, Mathf.Abs(lo - target));
-                            inner.Add((ui, li));
-                            if (!float.IsNaN(ou) && Mathf.Abs(uo - ou) > 0.3f) slope = Mathf.Max(slope, Mathf.Abs((lo - olat) / (uo - ou)));
-                            ou = uo; olat = lo;
-                            // the lines: against the undivided road's edge line
-                            LineModel.LinesAt(e, s, la);
-                            var p = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
-                            if (LineModel.RefugeNormal(e, s, out var nL2)) left = nL2;
-                            foreach (var l in la)
-                            {
-                                r.Local(p + left * l.lat, out float lu, out float ll);
-                                float off = r.OuterTarget(lu) - ll;
-                                lineMin[l.k] = lineMin.TryGetValue(l.k, out float a0) ? Mathf.Min(a0, off) : off;
-                                lineMax[l.k] = lineMax.TryGetValue(l.k, out float a1) ? Mathf.Max(a1, off) : off;
-                                if (prevLine.TryGetValue(l.k, out var pv) && Mathf.Abs(lu - pv.u) > 0.3f) slope = Mathf.Max(slope, Mathf.Abs((ll - pv.lat) / (lu - pv.u)));
-                                prevLine[l.k] = (lu, ll);
-                            }
-                            // the traffic path
-                            r.Local(LineModel.OwnLanePoint(e, s), out float tu, out float tl);
-                            float toff = r.OuterTarget(tu) - tl;
-                            pMin = Mathf.Min(pMin, toff); pMax = Mathf.Max(pMax, toff);
-                            if (!float.IsNaN(pu) && Mathf.Abs(tu - pu) > 0.3f) slope = Mathf.Max(slope, Mathf.Abs((tl - plat) / (tu - pu)));
-                            pu = tu; plat = tl;
-                        }
-                        foreach (var kv in lineMin) lineMove = Mathf.Max(lineMove, lineMax[kv.Key] - kv.Value);
-                        if (pMax >= pMin) pathMove = Mathf.Max(pathMove, pMax - pMin);
-                    }
-                    Edges(e, fwd ? e.length : 0f, out prevPl, out prevMi); havePrev = true;
-                    LineModel.LinesAt(e, e.length * 0.5f, la); lines += la.Count;
-                    from = fwd ? e.b : e.a;
-                }
-                m.step = endStep;
-                if (r.profiled) { m.outerDev = outerDev; m.lineMove = lineMove; m.pathMove = pathMove; m.slope = slope; }
-                partial.Add(m);
-            }
-            // the island: this carriageway's inner edge plus its partner's at the same axis arc
-            for (int i = 0; i < refs.Count; i++)
-            {
-                var r = refs[i]; var m = partial[i];
-                LineModel.Refuge o = null;
-                foreach (var q in refs) if (q != r && q.node == r.node && q.far == r.far) { o = q; break; }
-                if (r.profiled && o != null)
-                {
-                    var A = innerOf[r]; var B = innerOf[o];
-                    A.Sort((x, y) => x.u.CompareTo(y.u)); B.Sort((x, y) => x.u.CompareTo(y.u));
-                    float At(List<(float u, float lat)> l, float u)
-                    {
-                        if (l.Count == 0) return float.NaN;
-                        if (u <= l[0].u) return l[0].lat;
-                        for (int k = 1; k < l.Count; k++)
-                            if (l[k].u >= u) { float f = (u - l[k - 1].u) / Mathf.Max(1e-4f, l[k].u - l[k - 1].u); return Mathf.Lerp(l[k - 1].lat, l[k].lat, f); }
-                        return l[l.Count - 1].lat;
-                    }
-                    float L = r.axLen, mid = 0.5f * L;
-                    float W(float u) => Mathf.Max(0f, At(A, u) + At(B, u));
-                    m.island = W(mid); m.islandErr = m.island - m.wI;
-                    // never narrower toward mid than nearer a nose; nothing before the tip
-                    float nm = 0f, nw = 0f, best = 0f;
-                    for (float u = 0.5f; u <= mid; u += 0.25f) { float w = W(u); nm = Mathf.Max(nm, best - w); best = Mathf.Max(best, w); }
-                    best = 0f;
-                    for (float u = L - 0.5f; u >= mid; u -= 0.25f) { float w = W(u); nm = Mathf.Max(nm, best - w); best = Mathf.Max(best, w); }
-                    for (float u = 0.5f; u < r.x0s - 0.25f; u += 0.25f) nw = Mathf.Max(nw, W(u));
-                    for (float u = L - 0.5f; u > L - r.x0e + 0.25f; u -= 0.25f) nw = Mathf.Max(nw, W(u));
-                    m.nonMono = nm; m.noseW = nw;
-                }
-                res.Add(m);
-            }
-            return res;
-        }
     }
 }

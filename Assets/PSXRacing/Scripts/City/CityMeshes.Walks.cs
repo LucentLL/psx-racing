@@ -828,36 +828,59 @@ namespace PSXRacing.City
         public static int IslandKerbSpans; public static float IslandKerbM;
         static readonly Vector3[] islProfA = new Vector3[4], islProfB = new Vector3[4];
 
-        static void IslandProfile(Vector3 e, Vector2 outw, float w, Vector3[] p)
+        static void IslandProfile(Vector3 e, Vector2 outw, float w, Vector3[] p, float hm = 1f)
         {
             var o = new Vector3(outw.x, 0f, outw.y);
             float face = Mathf.Min(CurbFaceOut, 0.4f * w), nose = Mathf.Min(CurbNoseOut, 0.8f * w);
             // the tip: the kerb rises over its first 25 cm of width, so a section
             // where the island has not begun (the node) lies flat on the road
-            // (the drive audit's lane probes met a 15 cm sliver on the axis there)
-            float hf = Mathf.Clamp01(w / 0.25f);
+            // (the drive audit's lane probes met a 15 cm sliver on the axis there).
+            // Round 4: hm, the end ramps (a fan end, a flush tip) on top
+            float hf = Mathf.Clamp01(w / 0.25f) * Mathf.Clamp01(hm);
             p[0] = new Vector3(e.x, e.y - RoadsideRules.EdgeDropM, e.z);
             p[1] = e + o * face; p[1].y = e.y + CurbFaceH * hf;
             p[2] = e + o * nose; p[2].y = e.y + CurbH * hf;
             p[3] = e + o * w; p[3].y = e.y + CurbH * hf;
         }
 
-        static bool IslandKerbSpan(CityMap map, TileMeshes tm, CityMap.Edge e, int side, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB)
+        // Round 4 (review r3 risks): THE KERB'S ENDS. Where a carriageway's
+        // end at its split node is cut back by a junction fan further than the
+        // island's tip, the kerb began already wide - an open 15 cm end facing
+        // traffic; it now ramps up from the road over KerbEndRampM from the
+        // drawn end. At a nose whose centre lane could not be hatched
+        // (CityMeshes.NoseFlushTip) the tip stays flush: the kerb rises only
+        // over the KerbFlushTipM past the tip, so no lane runs into it unmarked.
+        public const float KerbEndRampM = 1.5f, KerbFlushTipM = 4f;
+        public static int KerbFanEnds, KerbFlushTips;
+
+        static bool IslandKerbSpan(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, int side, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB)
         {
             var r = LineModel.RefugeOf(e.index);
             if (r == null || RefugeInnerSide(e) != side) return false;
+            EnsureMarks(map, trims);
             var o = tm.origin;
-            float W(Vector3 p)
+            // the drawn end at a refuge node, when a fan cuts it back past the tip
+            float tA = (e.a == r.node || e.a == r.far) ? trims.TrimAt(e, e.a) : 0f, tB = (e.b == r.node || e.b == r.far) ? trims.TrimAt(e, e.b) : 0f;
+            bool fanA = tA > LineModel.RefugeTipM + 0.05f, fanB = tB > LineModel.RefugeTipM + 0.05f;
+            // which axis end is a flush tip (r.node at u 0, r.far at axLen)
+            bool flushS = NoseFlushTip.Contains(r.node), flushE = NoseFlushTip.Contains(r.far);
+            float W(Vector3 p, float s, out float hm)
             {
                 r.Local(new Vector2(p.x + o.x, p.z + o.z), out float u, out float lat);
+                hm = 1f;
+                if (fanA) hm = Mathf.Min(hm, LineModel.Smooth((s - tA) / KerbEndRampM));
+                if (fanB) hm = Mathf.Min(hm, LineModel.Smooth((e.length - tB - s) / KerbEndRampM));
+                if (flushS) hm = Mathf.Min(hm, LineModel.Smooth((u - r.x0s) / KerbFlushTipM));
+                if (flushE) hm = Mathf.Min(hm, LineModel.Smooth((r.axLen - r.x0e - u) / KerbFlushTipM));
                 // past the tips there is no island (the two pavements meet on the axis)
                 if (u < r.x0s - 0.05f || u > r.axLen - r.x0e + 0.05f) return 0f;
                 return Mathf.Max(0f, lat);
             }
-            float wA = W(eA), wB = W(eB);
+            float wA = W(eA, sA, out float hA), wB = W(eB, sB, out float hB);
             if (wA < 0.02f && wB < 0.02f) return false;
-            IslandProfile(eA, outA, wA, islProfA);
-            IslandProfile(eB, outB, wB, islProfB);
+            if ((fanA && sA <= tA + 0.05f) || (fanB && sB >= e.length - tB - 0.05f)) KerbFanEnds++;
+            IslandProfile(eA, outA, wA, islProfA, hA);
+            IslandProfile(eB, outB, wB, islProfB, hB);
             float uA = sA / WalkTexM, uB = sB / WalkTexM;
             // the curb: face and rounded top, the walk's texels
             for (int q = 0; q < 2; q++)
