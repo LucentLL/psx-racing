@@ -6124,7 +6124,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static RailKit ChordKit(bool deck, float m)
         {
-            if (deck) return theme.rail;
+            if (deck) return theme.parkway ? RailKit.BridgeRail : theme.rail;
             return OnParkwayAt(m) ? RailKit.ParkwayTimber : theme.rail;
         }
 
