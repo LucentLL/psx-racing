@@ -1624,9 +1624,13 @@ namespace PSXRacing.City
             // the wanted speed (bends, limits ahead) every third step
             if (c.vTick-- <= 0) { c.vTick = 2; c.vDesCached = DesiredSpeed(c); }
             float vDes = c.vDesCached;
+            long pcL = PerfClock.On ? PerfClock.Now() : 0;
             float gap = LeaderGap(c, out float vL);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TrafficLead, pcL);
             byte why = gap < float.MaxValue ? c.leadKind : (byte)0;
+            long pcC = PerfClock.On ? PerfClock.Now() : 0;
             float g2 = ControlGap(c, now);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TrafficCtl, pcC);
             if (g2 < gap) { gap = g2; vL = 0f; why = (byte)(10 + c.ctlWhy); }
             if (c.deadEnd && !c.offMap)
             {

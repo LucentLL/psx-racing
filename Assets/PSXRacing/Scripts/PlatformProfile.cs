@@ -24,6 +24,7 @@ namespace PSXRacing
     /// For an A/B in the same player:
     ///   PSXRacing.exe -psx-web-profile       everything as the web build has it
     ///   PSXRacing.exe -psx-traffic-by-hour   traffic by the clock again
+    ///   PSXRacing.exe -psx-traffic-cap 64    the city's traffic cap at 64
     /// PSX_PROFILE=PC (or WEB) forces it either way, the editor included.
     /// </summary>
     public static class PlatformProfile
@@ -31,7 +32,16 @@ namespace PSXRacing
         public const int CityRing = 2;   // ring 4 (2026-11-02) outran the main-thread tile builder on I-277: the bigger view waits for baked, streamed tiles
         /// <summary>The ring with the baked city open (CityTileCache.On): 9 x 9 tiles, a kilometre each way.</summary>
         public const int CityRingBaked = 4;
-        public const int CityTrafficCap = 96;
+        /// <summary>
+        /// The city's traffic cap; -psx-traffic-cap N for the A/B. PC6
+        /// (2026-11-03) is where the cap first filled: the denser spawn (cars
+        /// born ahead in view, the ring out to 450 m) took the Uptown course
+        /// tour from 60 fps to 50, the traffic's own step from 0.3 ms to 1.8.
+        /// </summary>
+        public static int CityTrafficCap
+        {
+            get { if (trafficCap < 0) trafficCap = Mathf.Max(1, ArgInt("-psx-traffic-cap", 96)); return trafficCap; }
+        }
         public const int HDMaxLines = 2160;
         public const int ProbeFacesPerFrame = 1;   // 2 cost +1.6 ms a frame on the Uptown tour (2026-11-02)
         public const int ProbeFaceRes = 512;
@@ -44,7 +54,7 @@ namespace PSXRacing
         /// in their lighting), from depth alone (they write no normals).</summary>
         public const float AOIntensity = 0.85f, AORadius = 0.6f;
 
-        static int pc = -1, maxTraffic = -1;
+        static int pc = -1, maxTraffic = -1, trafficCap = -1;
 
         /// <summary>The PC profile is on.</summary>
         public static bool PC
@@ -98,10 +108,19 @@ namespace PSXRacing
             return false;
         }
 
+        static int ArgInt(string a, int fallback)
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (string.Equals(args[i], a, System.StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(args[i + 1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int v)) return v;
+            return fallback;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void LogIt()
         {
-            pc = -1; maxTraffic = -1;
+            pc = -1; maxTraffic = -1; trafficCap = -1;
             Debug.Log("[PlatformProfile] " + Describe());
         }
 

@@ -386,12 +386,16 @@ namespace PSXRacing.City
         /// meets o's; MaxValue within <paramref name="look"/> metres.</summary>
         float SweptHit(Car c, Car o, float look)
         {
+            float hit = float.MaxValue;
+            int steps = 0;
             for (float x = 0f; x <= look; x += 0.5f)
             {
+                steps++;
                 if (!WayPose(c, x, out var p, out var f)) break;
-                if (RectDepth(p, f, c.halfL + 0.15f, c.halfW + 0.15f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) return x;
+                if (RectDepth(p, f, c.halfL + 0.15f, c.halfW + 0.15f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) { hit = x; break; }
             }
-            return float.MaxValue;
+            if (PerfClock.On) PerfClock.AddMs(PerfClock.Slot.TrafficSwept, steps);   // a count, not ms (PerfClock.Slot)
+            return hit;
         }
 
         /// <summary>Where car c's centre is, and its heading, x metres on along its plan.</summary>

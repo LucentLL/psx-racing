@@ -36,6 +36,10 @@ namespace PSXRacing
             TileBaked,
             // (city-tree-bake: a baked tile's tree frame's meshes made - CityTileCache.MakeTrees)
             TreeBaked,
+            // (inside the traffic's step, PC6's superlinear cost: each car's look at the cars ahead
+            // - LeaderGap - and at its junction - ControlGap; SWEPT is a COUNT, the 0.5 m steps
+            // SweptHit marched a body along its way)
+            TrafficLead, TrafficCtl, TrafficSwept,
             COUNT
         }
 
@@ -48,6 +52,7 @@ namespace PSXRacing
             "car reflections", "minimap",
             "tile baked",
             "tree baked",
+            "traffic lead", "traffic ctl", "traffic swept steps",
         };
 
         static readonly double ToMs = 1000.0 / Stopwatch.Frequency;
