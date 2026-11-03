@@ -28,7 +28,7 @@ namespace PSXRacing.City
     /// away from the player keeps a 3x3 of its own under it for the same
     /// reason: a rigidbody over an unbuilt tile falls through the world.
     /// </summary>
-    public class CityWorld : MonoBehaviour
+    public partial class CityWorld : MonoBehaviour
     {
         public const int RoadLayer = 8;
         public const int SolidLayer = 9;
@@ -324,6 +324,7 @@ namespace PSXRacing.City
         /// <summary>Drop every live tile (the budget probe, between sites).</summary>
         public void DropAll()
         {
+            DropBaked(null);   // the baked city: every load in hand
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
@@ -519,7 +520,18 @@ namespace PSXRacing.City
             // THE PC PROFILE: 9 x 9 tiles, a kilometre of built city each way
             // (PlatformProfile). Tools set their own ring and never run it.
             if (PlatformProfile.PC) ring = Mathf.Max(ring, PlatformProfile.CityRing);
+            // the baked city's A/B (a bigger built city once tiles come off disk):
+            // PSXRacing.exe -psx-city-ring N
+            if (PlatformProfile.PC && RingArg() is int r) ring = r;
             EnsureInit();
+        }
+
+        static int? RingArg()
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "-psx-city-ring" && int.TryParse(args[i + 1], out int r) && r >= 1 && r <= 6) return r;
+            return null;
         }
 
         /// <summary>The far plane the streamed ring can fill: the nearest the
@@ -572,6 +584,8 @@ namespace PSXRacing.City
                 Debug.Log($"[CityWorld] warmed at load: guide sites {tSigns:0} ms, junction controls {tSignals - tSigns:0} ms, {models} lot models {tModels - tSignals:0} ms, {cars} traffic models {wc.Elapsed.TotalMilliseconds - tModels:0} ms");
             }
             BuildFoodIndex();
+            // the baked city: opened (and its verdict logged) at load, on the main thread
+            if (PlatformProfile.PC || CityTileCache.Force) Debug.Log("[CityWorld] city tiles " + (CityTileCache.On ? "BAKED: " : "built live: ") + CityTileCache.Why);
             // the trunk table, on a child of its own that no scene saves
             var tgo = new GameObject("CityTreeTrunks") { hideFlags = HideFlags.DontSave };
             tgo.transform.SetParent(transform, false);
@@ -800,6 +814,7 @@ namespace PSXRacing.City
                 if (!held) toDrop.Add(kv.Key);
             }
             foreach (var k in toDrop) DropTile(k);
+            if (baked.Count > 0) DropBakedOutside(ptx, ptz);   // the baked city's loads in hand, by the same rule
 
             // build the nearest missing tile (WP-09: a slice a frame)
             wanted.Clear();
@@ -860,6 +875,10 @@ namespace PSXRacing.City
                         else wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
                     }
             }
+            // THE BAKED CITY (CityTileCache): every wanted tile the bake holds
+            // comes off disk on a worker and is stood up a tile a frame; only
+            // the rest are left to the builder below
+            if (wanted.Count > 0 || baked.Count > 0) built |= StreamBaked();
             // city-build-hitches: a tile next to a car whose trees still wait
             // plants them before the next tile starts (see NoForcedFinish)
             bool treesFirst = treeSteps != null;   // an open tree frame first (city-build-hitches)
@@ -1033,6 +1052,7 @@ namespace PSXRacing.City
         {
             if (job != null) { job.Abandon(); job = null; }
             AbandonTrees();
+            DropBaked(null);
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
@@ -1313,6 +1333,10 @@ namespace PSXRacing.City
             if (Map == null) return false;
             long key = Key(tx, tz);
             if (live.ContainsKey(key)) return false;
+            // THE BAKED CITY: a tile the bake holds is read, made and stood up
+            // now (a car is on it, or a course or a grid is loading), on its own
+            // lattice - an open job or tree frame keeps its scratch
+            if (EnsureBakedNow(key, tx, tz)) return true;
             // A tile still being built a slice a frame is finished first: the
             // builder's scratch belongs to one build at a time (WP-09).
             if (job != null)

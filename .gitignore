@@ -63,3 +63,9 @@ __pycache__/
 /Assets/PSXRacing/HDSrc.meta
 /Assets/PSXRacing/Resources/TextureHDMap.asset
 /Assets/PSXRacing/Resources/TextureHDMap.asset.meta
+# The baked city (CityTileCache / Editor/CityTileBake.cs): a build product of the
+# generator, re-baked when stale, never committed
+/CityTiles/
+/CityTiles_gate/
+Assets/PSXRacing/Resources/citytiles_stamp.txt
+Assets/PSXRacing/Resources/citytiles_stamp.txt.meta

@@ -2383,6 +2383,20 @@ namespace PSXRacing.City
         /// GroundY at every corner.</summary>
         public static Dictionary<long, float> TakeLattice() { var d = latticeCache; latticeCache = new Dictionary<long, float>(4096); latGen++; return d; }
         public static void PutLattice(Dictionary<long, float> d) { if (d != null) latticeCache = d; latGen++; }
+        /// <summary>The city bake (CityTileCache): put a lattice in the
+        /// builder's cache and hand back the one it held - a baked tile is
+        /// stood up on its own lattice while a live job or a tree frame keeps
+        /// its, swapped back after (the array window follows: latGen).</summary>
+        public static Dictionary<long, float> SwapLattice(Dictionary<long, float> d)
+        {
+            var old = latticeCache;
+            latticeCache = d ?? new Dictionary<long, float>(4096);
+            latGen++;
+            return old;
+        }
+        /// <summary>The city bake: the lattice the last build cached, read in
+        /// place (the bake tool writes it with the tile, then takes it).</summary>
+        public static Dictionary<long, float> PeekLattice() => latticeCache;
         static readonly Dictionary<long, bool> pavedCache = new Dictionary<long, bool>(1024);
         static long LatticeKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;
 
