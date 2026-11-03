@@ -218,11 +218,13 @@ namespace PSXRacing.EditorTools
             /// <summary>
             /// A stage's guard walls drawn as STEEL: a W-beam guardrail on
             /// posts instead of dry stone. Owner, 2026-09-26: "I would like to
-            /// see more guardrails instead of always using stone barriers." The
-            /// Parkway and Mount Mitchell keep their stone - the real roads'
-            /// own masonry - and the state roads get what NCDOT puts up. The
-            /// runs are the same runs and the collider the same solid; only
-            /// what is drawn changes (see DrawGuardrail).
+            /// see more guardrails instead of always using stone barriers."
+            /// Mount Mitchell keeps its stone; the state roads get what NCDOT
+            /// puts up (<see cref="rail"/>), and the Parkway its own timber
+            /// guardrail and bridge railing (2026-11-02, the reference study's
+            /// F2/F5: it was stone everywhere). The runs are the same runs and
+            /// the collider the same solid; only what is drawn changes (see
+            /// DrawGuardrail).
             /// </summary>
             public bool guardrail;
             /// <summary>
@@ -384,14 +386,22 @@ namespace PSXRacing.EditorTools
             // the Theme defaults, which were Sunset City GP's downtown look.
 
             // The parkway: real terrain, a fall forest the stage plants
-            // itself, low stone guard walls, and NOTHING built — no lamps, no
-            // buildings, no pumps, which is what the road is like. The zeros
-            // are load-bearing: the stage runs its own forest pass instead of
-            // PlaceTrees, and every other scatter pass stays off.
+            // itself, the Parkway's own barriers, and NOTHING built — no
+            // lamps, no buildings, no pumps, which is what the road is like.
+            // The zeros are load-bearing: the stage runs its own forest pass
+            // instead of PlaceTrees, and every other scatter pass stays off.
+            //
+            // Its barriers (Docs/reference/blue-ridge-roads.md F2, F5): the
+            // steel-backed TIMBER guardrail on its fills and the concrete curb
+            // with a two-rail metal railing on the Linn Cove Viaduct and the
+            // other Grandfather bridges (Street View 36.0934,-81.8130 and
+            // 36.0990,-81.7909) - not the dry stone it wore everywhere. The
+            // stone stays for the retaining walls under a rail.
             ["BlueRidge"] = new Theme
             {
                 ground = Root + "/Art/GasStation/Textures/Ground.jpg",
-                wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — the parkway's own guard wall
+                wall = Root + "/Art/Roads/T (3).jpg",   // dry stone — retaining walls under the rail
+                guardrail = true,                       // drawn as the Parkway's timber (parkway = true)
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
@@ -447,6 +457,9 @@ namespace PSXRacing.EditorTools
                 // "nothing built" rule, and the real parkway has them.
                 postEvery = 4,
                 guardrail = true,                       // NC 215 is a state road
+                // in WEATHERING steel, rust-brown, both sides (Street View
+                // 35.2809,-82.9192; NCDOT's weathering-steel provision).
+                rail = RailKit.Weathering,
                 gasStation = false,
                 stageDir = Root + "/Art/BeechGap",
                 stagePrefix = "beech",
@@ -478,7 +491,10 @@ namespace PSXRacing.EditorTools
             // sprint races in the loop's scene and needs none.) The park road
             // showed no markings at all in Aug 2024 (three photospheres); it
             // keeps its double yellow and loses the edge lines.
-            ["ChimneyRock"] = MountainLoopTheme(Root + "/Art/ChimneyRock", "chimney", edgeLines: false),
+            // Its barriers are rustic timber post-and-rail at the drops and
+            // lots (35.4337,-82.2419), not W-beam.
+            ["ChimneyRock"] = MountainLoopTheme(Root + "/Art/ChimneyRock", "chimney", edgeLines: false,
+                                                rail: RailKit.Rustic),
             ["SwissNC226A"] = MountainLoopTheme(Root + "/Art/Swiss226A", "swa"),
             ["GillespieGap"] = MountainLoopTheme(Root + "/Art/Gillespie", "gap"),
 
@@ -549,7 +565,7 @@ namespace PSXRacing.EditorTools
         /// <summary>The Parkway's look, pointed at a loop's own DEM folder -
         /// with the state roads' steel guardrail in place of its stone.</summary>
         static Theme MountainLoopTheme(string dir, string prefix, Vector2[] parkwaySpans = null,
-                                       bool edgeLines = true) => new Theme
+                                       bool edgeLines = true, RailKit rail = RailKit.Galvanised) => new Theme
         {
             ground = Root + "/Art/GasStation/Textures/Ground.jpg",
             wall = Root + "/Art/Roads/T (3).jpg",
@@ -566,6 +582,7 @@ namespace PSXRacing.EditorTools
             bakedLight = true,
             parkwaySpans = parkwaySpans,
             edgeLines = edgeLines,
+            rail = rail,
         };
 
         /// <summary>For the self-test: every catalog track needs a theme, and a
