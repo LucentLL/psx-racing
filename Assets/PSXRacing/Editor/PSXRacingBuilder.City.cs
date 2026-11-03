@@ -958,22 +958,29 @@ namespace PSXRacing.EditorTools
         /// remainder becoming shoulder. Never stretched.
         /// </summary>
         internal static string EnsureTrackRoadTex(float totalM, bool oneWay,
-            CityMeshes.Surface surf = CityMeshes.Surface.AsphaltOld)
+            CityMeshes.Surface surf = CityMeshes.Surface.AsphaltOld, bool edgeLines = true)
         {
             EnsureCityFolders();
             TrackLaneLadder(totalM, oneWay, out int lanesPerSide, out float shoulderM, out float laneM);
-            string file = TrackRoadTexFile(totalM, oneWay, surf);
-            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf, laneM);
+            string file = TrackRoadTexFile(totalM, oneWay, surf, edgeLines);
+            DrawRoadTexCore(file, lanesPerSide, 0f, false, shoulderM, totalM, 256, oneWay, surf, laneM, edgeLines);
             return CityTexDir + "/" + file;
         }
 
-        static string TrackRoadTexFile(float totalM, bool oneWay, CityMeshes.Surface surf) =>
-            "city_road_track_" + Mathf.RoundToInt(totalM * 10f) + (oneWay ? "_ow" : "") + "_" + SurfaceKey(surf) + ".png";
+        /// <summary>The marker a road PNG painted WITHOUT white edge lines
+        /// carries in its name (a stage stretch whose real road has none:
+        /// the Parkway, NC 215, the Chimney Rock park road). LaneAudit reads
+        /// it: a texture without the marker must have its edge pair.</summary>
+        internal const string NoEdgeTexMarker = "_noedge";
+
+        static string TrackRoadTexFile(float totalM, bool oneWay, CityMeshes.Surface surf, bool edgeLines = true) =>
+            "city_road_track_" + Mathf.RoundToInt(totalM * 10f) + (oneWay ? "_ow" : "") +
+            (edgeLines ? "" : NoEdgeTexMarker) + "_" + SurfaceKey(surf) + ".png";
 
         /// <summary>Where EnsureTrackRoadTex paints a circuit's surface (for
         /// the self-test, which reads it without drawing).</summary>
-        internal static string TrackRoadTexPath(float totalM, bool oneWay, CityMeshes.Surface surf) =>
-            CityTexDir + "/" + TrackRoadTexFile(totalM, oneWay, surf);
+        internal static string TrackRoadTexPath(float totalM, bool oneWay, CityMeshes.Surface surf, bool edgeLines = true) =>
+            CityTexDir + "/" + TrackRoadTexFile(totalM, oneWay, surf, edgeLines);
 
         /// <summary>
         /// The lane ladder a circuit or stage ribbon is painted with: as many
@@ -1032,13 +1039,17 @@ namespace PSXRacing.EditorTools
         /// and the ribbon's u = 0.5 is its centre.</summary>
         static void DrawRoadTexCore(string file, int lanesPerSide, float medianM, bool grassMed,
                                     float shoulderM, float total, int width, bool oneWay,
-                                    CityMeshes.Surface surf, float laneM)
+                                    CityMeshes.Surface surf, float laneM, bool paintEdges = true)
         {
             int laneCount = oneWay ? lanesPerSide : lanesPerSide * 2;
             int h = 64;
 
             var whiteLines = new List<float>();   // dashed lane separators
-            var edgeLines = new List<float> { shoulderM + PaintHalf, total - shoulderM - PaintHalf };
+            // The solid white edge pair, unless this stretch's real road has
+            // none (paintEdges false: TrackRoadTexFile marks the file).
+            var edgeLines = paintEdges
+                ? new List<float> { shoulderM + PaintHalf, total - shoulderM - PaintHalf }
+                : new List<float>();
             float cursor = shoulderM;
             for (int i = 1; i < (oneWay ? laneCount : lanesPerSide); i++)
                 whiteLines.Add(cursor + laneM * i);
