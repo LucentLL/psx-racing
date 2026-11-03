@@ -1690,6 +1690,8 @@ namespace PSXRacing.City
             });
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
+            // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
+            BuildBranchAprons(map, t);
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
@@ -8595,7 +8597,30 @@ namespace PSXRacing.City
         {
             var outw = Vector2.Lerp(outA, outB, t);
             outw = outw.sqrMagnitude > 1e-6f ? outw.normalized : outA;
-            return SolveStrip(map, trims, Vector2.Lerp(pa, pb, t), Mathf.Lerp(ya, yb, t), outw, sh, prof);
+            var edgeW = Vector2.Lerp(pa, pb, t); float yEdge = Mathf.Lerp(ya, yb, t);
+            if (!SolveStrip(map, trims, edgeW, yEdge, outw, sh, prof)) return false;
+            // Five Points round 2: a median's nose in a junction gap graded flush
+            // (CityMeshes.Walks NoseFlushAt) - the verge held at the edge's drop,
+            // its toe a tuck under that, easing back to the swale behind the nose
+            if (!sh.flat && !sh.fixedRun && !sh.seam && !sh.halfGap && prof[2].y < yEdge - RoadsideRules.EdgeDropM - 0.01f)
+            {
+                float k = NoseFlushAt(map, trims, edgeW, outw, yEdge, out float yMid);
+                if (k > 0f)
+                {
+                    // from the edge's drop at the shoulder to the two carriageways'
+                    // mean (less the drop) at the strip's far end: the two sides'
+                    // verges meet at one height in the middle, not a step apart
+                    float y0 = yEdge - RoadsideRules.EdgeDropM;
+                    float yFar = float.IsNaN(yMid) ? y0 : Mathf.Clamp(yMid - RoadsideRules.EdgeDropM, y0 - 0.15f, y0 + 0.15f);
+                    for (int i = 1; i < 4; i++)
+                    {
+                        float flat = i == 1 ? y0 : i == 2 ? yFar : yFar - RoadsideRules.ToeTuckM;
+                        if (prof[i].y < flat) prof[i].y = Mathf.Lerp(prof[i].y, flat, k);
+                    }
+                    WalkStats.noseFlush++;
+                }
+            }
+            return true;
         }
 
         /// <summary>One quad of a strip, from <see cref="profPrev"/> to

@@ -21,6 +21,25 @@ namespace PSXRacing.City
             return o;
         }
 
+        /// <summary>Probe only (CityJunctionProbe, PSX_JPROBE_PAVE): every
+        /// pavement drawn over a plan point - each ribbon's outline height
+        /// (with its trims) and each junction fan's - so a road-on-road step
+        /// names both surfaces (Five Points round 2, 2026-11-03).</summary>
+        public static string DebugPavementAt(CityMap map, Trims trims, Vector2 q)
+        {
+            GatherNear(map, q, q, 1f);
+            GatherPavement(map, trims);
+            var sb = new System.Text.StringBuilder();
+            foreach (int ei in nearEdges)
+            {
+                float h = OutlineHeightAt(OutlineOf(map, trims, ei), q);
+                if (!float.IsNaN(h)) sb.Append($" e{ei}'{map.edges[ei].name}'[{trims.atA[ei]:0.0}|{trims.atB[ei]:0.0}]={h:0.000}");
+            }
+            foreach (int n in nearFans)
+                if (OnFan(FanPolyOf(map, trims, n), q, out float fy)) sb.Append($" fan{n}={fy:0.000}");
+            return sb.ToString();
+        }
+
         // ---- what the audit records ask the tile builds to keep -------------
         // Null in a build: nothing is recorded and nothing changes. Set only
         // between AuditView.BeginRecord and EndRecord.

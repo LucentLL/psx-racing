@@ -36,10 +36,11 @@ namespace PSXRacing.EditorTools
             Line(string.Format(I, "MARKS (roads pass L6: lane-use paint, cut into the ribbon - lift 0, no new draw; {0}): built in {1:0} ms ({2})",
                 CityMeshes.MarksOn ? "ON" : "OFF (PSX_CITY_MARKS=0)", st.buildMs, st.partsMs));
             Line(string.Format(I, "  city-wide: {0} aux lanes dotted ({1:0} m on {2} pieces), {3} gores white to their nose ({4} host / {5} ramp pieces; {6} zones without a gore), " +
-                "{7} exit-only drops ({8:0} m, {9} pieces), {10} mouths stopped ({11} skipped), {12} turn-only lines solid on {13} edges ({14} TAPR bays), " +
+                "{7} exit-only drops ({8:0} m, {9} pieces), {10} mouths stopped or dotted ({11} skipped), {12} turn-only lines solid on {13} edges ({14} TAPR bays), " +
                 "{15} arrow+ONLY groups (left {16}, right {17}; {18} not laid: taper/short/no junction), {19} yield lines ({20} tagged give_way; {21} not laid)",
                 st.auxZones, st.auxM, st.auxMarks, st.goreZones, st.goreHostPieces, st.goreRampPieces, st.noGore, st.exitDrops, st.exitDropM, st.exitDropPieces,
                 st.mouths, st.mouthsSkipped, st.lsLines, st.lsEdges, st.bays, st.groups, st.arrowsL, st.arrowsR, st.groupsSkipped, st.yields, st.yieldsTagged, st.yieldsSkipped));
+            Line(string.Format(I, "  shallow branch mouths (35 deg or less) dotted across the host edge line: {0}", st.mouthsDotted));
 
             // ---- per zone: DW, gores, exit drops ----
             var zoneHasExitDW = new HashSet<int>();

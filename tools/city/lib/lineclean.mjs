@@ -67,6 +67,15 @@ const DEG = 180 / Math.PI;
 /// A chain's ribbon may sit up to one lane off its OSM line (the map's own
 /// error on a widened road); past that it is re-anchored at a junction mouth.
 const LANE_REANCHOR = 3.6576 + 0.05;
+/// A TWO-WAY run is held to half a lane (Five Points, 2026-11-03): its OSM
+/// line is its centre line, where its double yellow belongs. W 5th Street /
+/// Rozzelles Ferry Road, carried a full lane off it through four junctions,
+/// lay wholly on one side of its line: its edge line ran straight across
+/// Beatties Ford Road's mouth and left a sliver of pavement in the corner the
+/// owner circled ("that merge lane is too narrow to drive on"). Past half a
+/// lane at a junction mouth it is re-anchored (a SHIFT record) like a run more
+/// than a lane off. PSX_EXPORT_TW_REANCHOR=0: the one-lane hold for every run.
+const LANE_REANCHOR_TWOWAY = process.env.PSX_EXPORT_TW_REANCHOR === '0' ? LANE_REANCHOR : 3.6576 / 2 + 0.05;
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 
 /// Real US lane widths by class (AASHTO / CDOT): freeway and expressway 12 ft,
@@ -1018,7 +1027,7 @@ export function lineClean(ctx) {
           cur += (dLc[t] - dRc[t]) / 2;
         }
         for (const k of runs[i].items) {
-          if (Math.abs(cur) > LANE_REANCHOR && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
+          if (Math.abs(cur) > (chain[k].e.way.oneway ? LANE_REANCHOR : LANE_REANCHOR_TWOWAY) && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
             reShift.push({ k, cur });
             cur = 0; tStats.reanchored++;
           }

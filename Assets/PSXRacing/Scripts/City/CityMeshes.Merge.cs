@@ -872,6 +872,152 @@ namespace PSXRacing.City
             return false;
         }
 
+        // ----------------------------------------------------------------
+        //  BRANCH APRONS (Five Points round 2, 2026-11-03). n13204, 30 m ESE
+        //  of Five Points: the unnamed one-way link e13402 (2 lanes, drawn
+        //  centred on its OSM line) merges into West 5th Street, whose ribbon
+        //  the export draws a full lane off its OSM line (lmOff -3.66 from
+        //  the lane change at n5103 on through Five Points). At a mitred node
+        //  a branch is clipped against its host and its ribbon ends square on
+        //  the node, so the link's right lane ran 3.3 m past West 5th's drawn
+        //  edge into the land: a ditch 23 cm down and a verge hump 15 cm up
+        //  (22 cm under a wheel at (-3699.8,6327.8)). A merge zone (L5) widens
+        //  its host for a tier-1 ramp; any other branch whose drawn end
+        //  stands past the host's drawn edge now gets the same thing in
+        //  small: the host's pavement widened on that side by the overhang
+        //  at the node, eased out over 8x the overhang (12-40 m, never past
+        //  the next junction) - a merge (or diverge) taper, pavement only
+        //  (the lanes, lines and traffic never see a widen ease).
+        //  PSX_CITY_BRANCH_APRON=0: as before.
+        // ----------------------------------------------------------------
+        public static bool BranchApronOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCH_APRON") != "0";
+        /// <summary>The tag every apron ease carries (not a refuge island's).</summary>
+        public const long ApronTag = long.MinValue + 7;
+        public static int BranchApronN, BranchApronLeft; public static float BranchApronMaxM;
+        public static readonly List<string> BranchApronAt = new List<string>();
+        /// <summary>Overhangs no apron takes (wider than a lane and a half, a
+        /// two-way branch, or the next junction too close for a taper).</summary>
+        public static readonly List<string> BranchApronLeftAt = new List<string>();
+        const float ApronWalkM = 0.5f, ApronMinM = 0.3f, ApronMaxM = 4.5f, ApronRatio = 8f, ApronMinLenM = 12f, ApronMaxLenM = 40f, ApronShortM = 8f;
+        static readonly Dictionary<int, List<LineModel.Ease>> apronAdd = new Dictionary<int, List<LineModel.Ease>>();
+
+        /// <summary>The apron's widening of this edge's pavement on a side
+        /// (+1 its plus/left) at arc s (0: none).</summary>
+        static float ApronWidenAt(CityMap.Edge e, float s, int side)
+        {
+            var ez = e.lmEase;
+            if (ez == null || BranchApronN == 0) return 0f;
+            float w = 0f;
+            foreach (var z in ez)
+            {
+                if (!z.widen || z.tag != ApronTag || (z.side > 0) != (side > 0)) continue;
+                float d = z.d0 + (z.fromA ? s : e.length - s);
+                if (d < z.len) w = Mathf.Max(w, z.dw * (1f - LineModel.Smooth(Mathf.Max(0f, d) / z.len)));
+            }
+            return w;
+        }
+
+        static void BuildBranchAprons(CityMap map, Trims t)
+        {
+            BranchApronN = 0; BranchApronLeft = 0; BranchApronMaxM = 0f; BranchApronAt.Clear(); BranchApronLeftAt.Clear(); apronAdd.Clear();
+            if (!BranchApronOn) return;
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (!t.mitre[n]) continue;
+                int tA = t.throughA[n], tB = t.throughB[n];
+                if (tA < 0 || tB < 0 || tA == tB) continue;
+                foreach (int bi in map.nodeEdges[n])
+                {
+                    var b = map.edges[bi];
+                    if (bi == tA || bi == tB || b.a == b.b || b.bridge || b.tunnel) continue;
+                    if (t.BranchAt(b, n) < 0 || ZoneAt(bi, n) != null) continue;
+                    bool atA = b.a == n;
+                    if ((atA ? t.atA[bi] : t.atB[bi]) > 0.5f) continue;   // its ribbon stops short of the node
+                    float sb = atA ? 0f : b.length;
+                    var dB = atA ? b.TangentAt(0f) : -b.TangentAt(b.length);   // away from the node along the branch
+                    // the host arm the branch's line runs on into through the node
+                    CityMap.Edge h = null; float best = -0.5f;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        var o = map.edges[k == 0 ? tA : tB];
+                        var dO = o.a == n ? o.TangentAt(0f) : -o.TangentAt(o.length);
+                        float d = Vector2.Dot(dB, dO);
+                        if (d < best) { best = d; h = o; }
+                    }
+                    if (h == null || h.bridge || h.tunnel) continue;
+                    bool hA = h.a == n;
+                    float sh = hA ? 0f : h.length;
+                    if (h.ElevatedAt(sh) || b.ElevatedAt(sb)) continue;
+                    var Lb = LineModel.SectionLeft(b, sb);
+                    var Lh = LineModel.SectionLeft(h, sh);
+                    LineModel.Extents(b, sb, out float bm, out float bp);
+                    LineModel.Extents(h, sh, out float hm, out float hp);
+                    float wP = 0f, wM = 0f;
+                    for (int c = 0; c < 2; c++)
+                    {
+                        float lat = Vector2.Dot(Lb * (c == 0 ? bp : -bm), Lh);   // the branch's end corner across the host
+                        wP = Mathf.Max(wP, lat - hp); wM = Mathf.Max(wM, -lat - hm);
+                    }
+                    for (int sd = -1; sd <= 1; sd += 2)
+                    {
+                        float W = Mathf.Min(sd > 0 ? wP : wM, b.width);
+                        if (W < ApronMinM) continue;
+                        string why = !b.oneway ? "a two-way branch" : W > ApronMaxM ? "wider than a lane and a half" : null;
+                        // the host chain from the node: through 2-arm nodes, to the next junction
+                        float chain = 0f; var cur = h; int from = n;
+                        for (int guard = 0; guard < 16 && chain < ApronMaxLenM; guard++)
+                        {
+                            int far = cur.a == from ? cur.b : cur.a;
+                            float farTrim = cur.a == far ? t.atA[cur.index] : t.atB[cur.index];
+                            if (cur.bridge || cur.tunnel) break;
+                            if (map.nodeEdges[far].Count != 2) { chain += cur.length - farTrim; break; }
+                            chain += cur.length;
+                            int nxI = map.nodeEdges[far][0] == cur.index ? map.nodeEdges[far][1] : map.nodeEdges[far][0];
+                            var nx = map.edges[nxI];
+                            if (nx == cur || nx.a == nx.b) break;
+                            cur = nx; from = far;
+                        }
+                        float len = Mathf.Min(Mathf.Clamp(W * ApronRatio, ApronMinLenM, ApronMaxLenM), chain);
+                        if (why == null && len < ApronShortM) why = $"the next junction {chain:0} m on";
+                        if (why != null)
+                        {
+                            BranchApronLeft++;
+                            if (BranchApronLeftAt.Count < 400)
+                                BranchApronLeftAt.Add($"n{n} ({map.nodes[n].x:0.0},{map.nodes[n].y:0.0}) branch e{bi} '{b.name}' host e{h.index} '{h.name}' side {(sd > 0 ? "+" : "-")} {W:0.00} m: {why}");
+                            continue;
+                        }
+                        // lay it: side sd in h's frame is chainSide in the chain's (left of travel away from n)
+                        int chainSide = sd * (hA ? 1 : -1);
+                        float d0 = 0f; cur = h; from = n;
+                        for (int guard = 0; guard < 16 && d0 < len; guard++)
+                        {
+                            bool fA = cur.a == from;
+                            if (!apronAdd.TryGetValue(cur.index, out var list)) apronAdd[cur.index] = list = new List<LineModel.Ease>(2);
+                            list.Add(new LineModel.Ease { widen = true, side = (sbyte)(chainSide * (fA ? 1 : -1)), fromA = fA, dw = W, len = len, d0 = d0, tag = ApronTag });
+                            d0 += cur.length;
+                            int far = fA ? cur.b : cur.a;
+                            if (map.nodeEdges[far].Count != 2) break;
+                            int nxI = map.nodeEdges[far][0] == cur.index ? map.nodeEdges[far][1] : map.nodeEdges[far][0];
+                            var nx = map.edges[nxI];
+                            if (nx == cur || nx.a == nx.b || nx.bridge || nx.tunnel) break;
+                            cur = nx; from = far;
+                        }
+                        BranchApronN++; BranchApronMaxM = Mathf.Max(BranchApronMaxM, W);
+                        if (BranchApronAt.Count < 400)
+                            BranchApronAt.Add($"n{n} ({map.nodes[n].x:0.0},{map.nodes[n].y:0.0}) branch e{bi} '{b.name}' host e{h.index} '{h.name}' side {(sd > 0 ? "+" : "-")} {W:0.00} m over {len:0} m");
+                    }
+                }
+            }
+            foreach (var kv in apronAdd)
+            {
+                var e = map.edges[kv.Key];
+                var all = new List<LineModel.Ease>(e.lmEase ?? System.Array.Empty<LineModel.Ease>());
+                all.AddRange(kv.Value);
+                e.lmEase = all.ToArray();
+            }
+            apronAdd.Clear();
+        }
+
         /// <summary>The race line's samples through a ramp's zone (every 3 m).</summary>
         public static void ZoneSamples(CityMap.Edge e, float sMin, float sMax, List<float> into)
         {

@@ -7,7 +7,7 @@ namespace PSXRacing.City
     {
         const int RefugeListEdges = 25560, RefugeListNodes = 20567;
         /// <summary>FNV-1a 64 of charlotte_city.bytes the list was decided on (the gate checks it).</summary>
-        public const string RefugeListCity = "d8ea54da6f458827";
+        public const string RefugeListCity = "4be91b75614d4d62";
         /// <summary>Triples: pair key (RefugePairKey), fingerprint, mode (1 auto, 2 flush).</summary>
         static readonly long[] RefugeListData = {
             10187662436439L, 617262810L, 1,   // n2372-n10327 Sunset Road
@@ -32,7 +32,7 @@ namespace PSXRacing.City
             56667798516619L, 1544215092L, 2,   // n13194-n13195 Highway 160 West
             56826712306609L, 4255791647L, 1,   // n13231-n13233 Shopton Road West
             58282706220291L, 2223308631L, 1,   // n13570-n13571 Beatties Ford Road
-            60292750915287L, 2752654307L, 1,   // n14038-n14039 Providence Road West
+            60292750915287L, 1555112157L, 2,   // n14038-n14039 Providence Road West
             60833916794709L, 1083292117L, 1,   // n14164-n14165 Sam Newell Road
             62182536525967L, 745928647L, 1,   // n14478-n14479 Oakdale Road
         };

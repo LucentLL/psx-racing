@@ -20,6 +20,10 @@ namespace PSXRacing
         public TrackPath path;
         [Range(0.8f, 1.05f)] public float skill = 0.95f;
         public float lateralOffset = 0f;   // keeps AI cars off each other's line
+        /// <summary>A hard ceiling on the target speed (m/s): the editor's
+        /// drive-over checks hold a junction's movement at a set speed. Unset
+        /// (infinity) in the game.</summary>
+        [System.NonSerialized] public float speedCapMps = float.PositiveInfinity;
 
         CarController car;
         CollisionResponder responder;
@@ -1131,7 +1135,7 @@ namespace PSXRacing
             var rmNow = RaceManager.Instance;
             float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.BuildTopSpeedMps : 0f;
             float planned = PlanSpeed(speed, out bool zone, out float planDecel, out float bendSpeed, out float bendAtM);
-            float freeSpeed = Mathf.Min(planned, TargetSpeedCap(skill, playerVmax));
+            float freeSpeed = Mathf.Min(Mathf.Min(planned, TargetSpeedCap(skill, playerVmax)), speedCapMps);
             float targetSpeed = Mathf.Min(freeSpeed, TrafficCap());
             DebugCapBinds = targetSpeed < freeSpeed - 0.5f && speed > targetSpeed - 1f;
             DebugTarget = targetSpeed;

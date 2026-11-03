@@ -77,11 +77,19 @@ namespace PSXRacing.City
             public static int spans, ramps, cornersPoly, cornersStrip, cornersNone, sideMismatch;
             /// <summary>Walk sections kept out of a divided road's median (Five Points).</summary>
             public static int medianSkips;
-            /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P, paved, lane.</summary>
-            public static readonly int[] noneWhy = new int[9];
-            public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = medianSkips = 0; System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
+            /// <summary>Round 2: where (one per edge side or corner, world plan +
+            /// the median's road name), for the spot checks.</summary>
+            public static readonly Dictionary<long, string> medianSkipAt = new Dictionary<long, string>();
+            /// <summary>Median nose cross-sections graded flush (Five Points round 2).</summary>
+            public static int noseFlush;
+            /// <summary>The median test's cost (MedianAt: calls, Stopwatch ticks).</summary>
+            public static int medianCalls; public static long medianTicks;
+            public static float MedianMs => medianTicks * 1000f / System.Diagnostics.Stopwatch.Frequency;
+            /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P, paved, lane, median.</summary>
+            public static readonly int[] noneWhy = new int[10];
+            public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = medianSkips = noseFlush = medianCalls = 0; medianTicks = 0; medianSkipAt.Clear(); System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
             public static string Line() =>
-                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}), {sideMismatch} side mismatches, {medianSkips} sections kept out of medians, lot curbs {lotCurbM:0} m";
+                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane/median {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}/{noneWhy[9]}), {sideMismatch} side mismatches, {medianSkips} sections kept out of medians ({medianSkipAt.Count} places), {noseFlush} median-nose verge sections graded flush, median test {medianCalls} calls {MedianMs:0.0} ms, lot curbs {lotCurbM:0} m";
         }
 
         static CityMap walkMapFor;
@@ -146,7 +154,7 @@ namespace PSXRacing.City
         {
             var ez = e.lmEase;
             if (ez == null) return 0;
-            foreach (var z in ez) if (z.widen) return z.side > 0 ? 1 : -1;
+            foreach (var z in ez) if (z.widen && z.tag != ApronTag) return z.side > 0 ? 1 : -1;   // a branch apron is no island
             return 0;
         }
 
@@ -354,15 +362,32 @@ namespace PSXRacing.City
         /// the turns take. Read past a carriageway's end by up to 3 m, where
         /// the nose meets the gap.
         /// </summary>
-        static bool InDividedMedian(CityMap map, Vector2 q)
+        static bool InDividedMedian(CityMap map, Trims trims, Vector2 q, float y) => MedianAt(map, trims, q, y, out _, out _, out _);
+
+        /// <summary>
+        /// <see cref="InDividedMedian"/>, and (round 2) how far the point lies
+        /// in from the median's NOSE: the nearer drawn end of either
+        /// carriageway at a junction (its trim), negative past it, in the
+        /// junction's gap. Round 2 guards (the review): a carriageway counts
+        /// only within <see cref="RoadsideRules.CarBandM"/> of the walk's (or
+        /// verge's) height <paramref name="y"/> and not on a deck or in a
+        /// tunnel there, so a street passing UNDER a divided freeway keeps its
+        /// sidewalk (y NaN: no height test).
+        /// </summary>
+        static bool MedianAt(CityMap map, Trims trims, Vector2 q, float y, out float dTip, out string name, out float yMid)
         {
+            dTip = float.PositiveInfinity; name = null; yMid = float.NaN;
+            long tick0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            WalkStats.medianCalls++;
+            try {
+            if (!MedPairBucket(map, q)) return false;   // no two carriageways of one name near: nearly all of the city
             walkTwinSegs.Clear();
             map.EdgeSegsInRect(q - Vector2.one * MedianMaxSideM, q + Vector2.one * MedianMaxSideM, walkTwinSegs);
             medianHits.Clear();
             foreach (int packed in walkTwinSegs)
             {
                 var o = map.edges[packed >> 12];
-                if (!o.oneway || string.IsNullOrEmpty(o.name) || o.link || o.a == o.b) continue;
+                if (!o.oneway || string.IsNullOrEmpty(o.name) || o.link || o.a == o.b || o.tunnel) continue;
                 int seg = packed & 0xFFF;
                 if (seg + 1 >= o.pts.Length) continue;
                 Vector2 a = o.pts[seg], b = o.pts[seg + 1], ab = b - a;
@@ -376,15 +401,98 @@ namespace PSXRacing.City
                 if ((u < 0f && (!first || u < -3f)) || (u > L && (!last || u > L + 3f))) continue;
                 float lat = Vector2.Dot(q - a, new Vector2(-t.y, t.x));   // + = left of travel
                 if (lat <= 0f || lat > MedianMaxSideM) continue;
-                if (!medianHits.TryGetValue(o.index, out var prev) || lat < prev.lat) medianHits[o.index] = (lat, t, o.name);
+                float sq = o.s[seg] + u;
+                if (!float.IsNaN(y))
+                {
+                    float sc = Mathf.Clamp(sq, 0f, o.length);
+                    if (o.bridge || o.ElevatedAt(sc) || Mathf.Abs(o.YAt(sc) - y) > RoadsideRules.CarBandM) continue;
+                }
+                if (!medianHits.TryGetValue(o.index, out var prev) || lat < prev.lat) medianHits[o.index] = (lat, t, o.name, sq);
             }
+            bool found = false;
             foreach (var A in medianHits)
                 foreach (var B in medianHits)
-                    if (A.Key < B.Key && A.Value.name == B.Value.name && Vector2.Dot(A.Value.t, B.Value.t) < -0.5f) return true;
-            return false;
+                {
+                    if (A.Key >= B.Key || A.Value.name != B.Value.name || Vector2.Dot(A.Value.t, B.Value.t) >= -0.5f) continue;
+                    found = true; name = A.Value.name;
+                    var oa = map.edges[A.Key]; var ob = map.edges[B.Key];
+                    yMid = 0.5f * (oa.YAt(Mathf.Clamp(A.Value.s, 0f, oa.length)) + ob.YAt(Mathf.Clamp(B.Value.s, 0f, ob.length)));
+                    if (trims == null) continue;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        var o = map.edges[k == 0 ? A.Key : B.Key];
+                        float sq = k == 0 ? A.Value.s : B.Value.s;
+                        if (map.nodeEdges[o.a].Count > 2) dTip = Mathf.Min(dTip, sq - trims.atA[o.index]);
+                        if (map.nodeEdges[o.b].Count > 2) dTip = Mathf.Min(dTip, o.length - trims.atB[o.index] - sq);
+                    }
+                }
+            return found;
+            } finally { WalkStats.medianTicks += System.Diagnostics.Stopwatch.GetTimestamp() - tick0; }
         }
 
-        static readonly Dictionary<int, (float lat, Vector2 t, string name)> medianHits = new Dictionary<int, (float, Vector2, string)>();
+        /// <summary>MedianAt's prefilter (round 2, the review's perf note): per
+        /// 64 m bucket (+ the median reach), are there two one-way
+        /// carriageways of one name running opposite ways at all?</summary>
+        static bool MedPairBucket(CityMap map, Vector2 q)
+        {
+            if (medPairFor != map) { medPairBuckets.Clear(); medPairFor = map; }
+            int bx = Mathf.FloorToInt(q.x / MedBucketM), bz = Mathf.FloorToInt(q.y / MedBucketM);
+            long key = ((long)bx << 32) ^ (uint)bz;
+            if (medPairBuckets.TryGetValue(key, out bool got)) return got;
+            float r = MedianMaxSideM + 3f;
+            medCellSegs.Clear();
+            map.EdgeSegsInRect(new Vector2(bx * MedBucketM - r, bz * MedBucketM - r), new Vector2((bx + 1) * MedBucketM + r, (bz + 1) * MedBucketM + r), medCellSegs);
+            medPairScratch.Clear();
+            bool pair = false;
+            foreach (int packed in medCellSegs)
+            {
+                var o = map.edges[packed >> 12];
+                if (!o.oneway || string.IsNullOrEmpty(o.name) || o.link || o.a == o.b || o.tunnel) continue;
+                int seg = packed & 0xFFF;
+                if (seg + 1 >= o.pts.Length) continue;
+                var d = o.pts[seg + 1] - o.pts[seg];
+                if (d.sqrMagnitude < 1e-4f) continue;
+                d.Normalize();
+                foreach (var (nm, dd) in medPairScratch) if (nm == o.name && Vector2.Dot(dd, d) < -0.5f) { pair = true; break; }
+                if (pair) break;
+                medPairScratch.Add((o.name, d));
+            }
+            medPairBuckets[key] = pair;
+            return pair;
+        }
+        static CityMap medPairFor;
+        static readonly Dictionary<long, bool> medPairBuckets = new Dictionary<long, bool>();
+        static readonly List<(string, Vector2)> medPairScratch = new List<(string, Vector2)>(64);
+
+        static readonly Dictionary<int, (float lat, Vector2 t, string name, float s)> medianHits = new Dictionary<int, (float, Vector2, string, float)>();
+
+        /// <summary>How far in from a median's nose its verges are graded flush
+        /// with the road, and over how much more they ease back to the swale.</summary>
+        const float NoseFlushM = 3f, NoseBlendM = 3f;
+
+        /// <summary>
+        /// FIVE POINTS ROUND 2 (2026-11-03): the median's NOSE where it sits in
+        /// a junction's gap, graded flush. With the walk gone from Trade's
+        /// nose its verges fell straight into the swale between the two
+        /// carriageways - 22 cm under the road a metre in from the tip, 35-55
+        /// further in - and a left turn's wheels (W 5th WB -> Trade SB) read a
+        /// 0.32 m step there. A verge cross-section on a median whose point a
+        /// metre out lies within <see cref="NoseFlushM"/> of the nose (or in
+        /// the gap past it) is held at the road's edge drop, easing back to
+        /// its graded profile over <see cref="NoseBlendM"/>: the nose reads as
+        /// the road's own level. PSX_CITY_NOSE_FLUSH=0: as before.
+        /// </summary>
+        public static bool NoseFlushOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_FLUSH") != "0";
+
+        static float NoseFlushAt(CityMap map, Trims trims, Vector2 edgeW, Vector2 outw, float yEdge, out float yMid)
+        {
+            yMid = float.NaN;
+            if (!NoseFlushOn) return 0f;
+            if (!MedianAt(map, trims, edgeW + outw, yEdge, out float dTip, out _, out yMid)) return 0f;
+            if (dTip <= NoseFlushM) return 1f;
+            if (dTip >= NoseFlushM + NoseBlendM) return 0f;
+            return 1f - LineModel.Smooth((dTip - NoseFlushM) / NoseBlendM);
+        }
 
         static readonly HashSet<int> walkTwinSegs = new HashSet<int>();
 
@@ -465,10 +573,19 @@ namespace PSXRacing.City
                     if (wx < min.x - near || wx > max.x + near || wz < min.y - near || wz > max.y + near) continue;
                     if (k > 0 && !WalkableSpan(k, side)) continue;
                     if (k + 1 < n && !WalkableSpan(k + 1, side)) continue;
+                    // Five Points round 2: no walk along a branch apron's wide part
+                    // (its ramp end stood on the merging branch's corner)
+                    if (ApronWidenAt(e, S.s, side) > ApronWalkM) continue;
                     var outw = S.Out(side);
                     var pw = new Vector2(wx, wz);
                     // Five Points: a median keeps its verge, a cross street's side in the gap too
-                    if (MedianNoWalkOn && InDividedMedian(map, pw + outw * MedianProbeOutM)) { WalkStats.medianSkips++; continue; }
+                    if (MedianNoWalkOn && MedianAt(map, trims, pw + outw * MedianProbeOutM, ed.y, out _, out string mName, out _))
+                    {
+                        WalkStats.medianSkips++;
+                        long mk = ((long)e.index << 1) | (side > 0 ? 1L : 0L);
+                        if (!WalkStats.medianSkipAt.ContainsKey(mk)) WalkStats.medianSkipAt[mk] = $"e{e.index} '{e.name}' side {(side > 0 ? "L" : "R")} at ({wx:0.0},{wz:0.0}) y {ed.y:0.00} in the median of '{mName}'";
+                        continue;
+                    }
                     if (k == 0 || k == n - 1)
                     {
                         int node = k == 0 ? e.a : e.b;
@@ -639,6 +756,22 @@ namespace PSXRacing.City
             cw.n1 = ArmOut(map, trims, k1, origin);
             var p0 = new Vector2(k0.pos.x + origin.x, k0.pos.z + origin.z);
             var p1 = new Vector2(k1.pos.x + origin.x, k1.pos.z + origin.z);
+            // round 2 (the review): the corner walk takes the arm ends' median
+            // test too - a corner in a divided road's median gap keeps its verge
+            // as the arm's own end does, so the two never disagree
+            if (MedianNoWalkOn)
+            {
+                noneWhyNow = 9;
+                for (int ci = 0; ci < 2; ci++)
+                {
+                    var kc = ci == 0 ? k0 : k1;
+                    var pc = (ci == 0 ? p0 : p1) + (ci == 0 ? cw.n0 : cw.n1) * MedianProbeOutM;
+                    if (!MedianAt(map, trims, pc, kc.pos.y + origin.y, out _, out string mName, out _)) continue;
+                    long mk = -1L - (((long)node << 8) | (uint)(g0 & 0xFF));
+                    if (!WalkStats.medianSkipAt.ContainsKey(mk)) WalkStats.medianSkipAt[mk] = $"corner node {node} e{k0.edge}-e{k1.edge} at ({pc.x:0.0},{pc.y:0.0}) y {kc.pos.y + origin.y:0.00} in the median of '{mName}'";
+                    return 0;
+                }
+            }
             cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, WalkW);
             cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, WalkW);
             noneWhyNow = 3;
