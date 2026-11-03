@@ -474,8 +474,8 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(plan != null, "COCKPIT: the driver's arms were built and drove the race",
                                     cabin == null ? "no cabin" : plan == null ? "no arms" : null);
                 if (plan != null)
-                    RacePlayCheck.Note($"COCKPIT ARMS: wheel up to {wheelMax:0} deg, {plan.Crossings} hand-over-hand crossings, " +
-                                       $"{plan.Unwinds} unwinds, {plan.Reaches} shift/handbrake reaches; now L {plan.L.mode} R {plan.R.mode}");
+                    RacePlayCheck.Note($"COCKPIT ARMS: wheel up to {wheelMax:0} deg, {plan.LetGos} hands let go at a ride's end, " +
+                                       $"{plan.Returns} back on the rim, {plan.Reaches} shift/handbrake reaches; now L {plan.L.mode} R {plan.R.mode}");
             }
             CollisionResponder.HitReported -= OnHit;
             CollisionResponder.HitReportedOn -= OnHitOn;

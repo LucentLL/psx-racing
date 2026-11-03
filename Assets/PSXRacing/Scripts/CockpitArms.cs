@@ -33,13 +33,14 @@ namespace PSXRacing
     /// model's own (CockpitInterior.SetSteer already turns it for RHD).
     ///
     /// THE HANDS (<see cref="Planner"/>, angles only, testable without a
-    /// scene): grip LOW at ~8:30 and ~3:30 and ride the rim for small inputs.
-    /// A big turn goes hand over hand as the clip does: the hand carried down
-    /// lets the rim slide through it at ~5 o'clock; when the hand carried up
-    /// reaches the top, the low one comes up and CROSSES OVER to grab at ~11
-    /// palm down; the top hand then goes OPEN, slides on along the rim and
-    /// drops back to its own side. A fast unwind spins the wheel through
-    /// loose open hands, which then re-grip at rest. The INBOARD hand leaves
+    /// scene): grip just over 9 and 3 and ride the rim for small inputs.
+    /// A big turn is RIDDEN, as the owner's rally clip does (2026-11-02):
+    /// the outside hand holds on and goes up, over the top and down the far
+    /// side; the inside hand lets go low on its own side and rests (the
+    /// shifter, its knee) until the wheel comes back near centre - or until
+    /// the riding hand runs out of reach, when it takes the rim back on its
+    /// own side, clear of the other, and that one lets go. The arms never
+    /// cross, and both are never off the rim at once. The INBOARD hand leaves
     /// the rim for ~1 s on a MANUAL shift (CarController.ManualShifts) and
     /// for as long as the handbrake is held, out of frame below the dash.
     ///
@@ -64,15 +65,17 @@ namespace PSXRacing
     /// arm is a two-bone chain from a shoulder fixed in the seat
     /// (<see cref="ShoulderJoint"/>) to the wrist of the hand on the rim: the
     /// elbow is SOLVED from the arm's own two lengths, hanging down and out
-    /// (<see cref="PoleLow"/>), lifting with the hand on top of the wheel, and
-    /// up and back for the arm crossing over (<see cref="PoleCross"/>) - eased
-    /// in and out (<see cref="CrossEaseSec"/>), never switched. Out of the door,
-    /// console and seat (and the rim) the elbow swings round the
+    /// (<see cref="PoleLow"/>), lifting with the hand on top of the wheel. Out
+    /// of the door, console and seat (and the rim) the elbow swings round the
     /// shoulder-to-wrist line, both bones still joined; and then the two arms
-    /// are kept apart (<see cref="ArmClear"/>), the crossing arm's elbow
+    /// are kept apart (<see cref="ArmClear"/>), the higher arm's elbow
     /// swinging up over the other. Before it, the forearm was aimed at an
     /// elbow point that jumped with the crossing flag, and the upper arm only
     /// POINTED at a shoulder it could not reach.
+    ///
+    /// AND THEY NEVER CROSS (owner, the same day, with a rally clip): no hand
+    /// over hand - one hand rides the rim round, the other lets go; see
+    /// <see cref="Planner.Low"/>.
     ///
     /// FOR OTHER CAMERAS (the windshield reflection): <see cref="Live"/> lists
     /// every arm renderer in the scene. They carry the cabin's layer and
@@ -145,33 +148,27 @@ namespace PSXRacing
         public static readonly Vector3 PoleLow = new Vector3(0f, -0.30f, 0.12f);
         public static readonly Vector3 PoleHigh = new Vector3(0f, -0.20f, -0.04f);
         public const float PoleOut = 0.08f;
-        /// <summary>... less low for the arm crossing over (its forearm rides
-        /// over the other), a little lower for the one under it. (Not much
-        /// back: square to a reach across, back is out past the wrist.)</summary>
-        public static readonly Vector3 PoleCross = new Vector3(0f, 0.14f, -0.06f);
-        public static readonly Vector3 PoleUnder = new Vector3(0f, -0.08f, 0.04f);
         /// <summary>An elbow out past its own wrist (in the direction the hand
         /// reached, metres) is bent backwards: no swing may put it there.</summary>
         public const float BackBend = 0.03f;
         /// <summary>Seconds the elbow's hang follows its pole in (a low pass:
         /// the hand moves, the elbow swings after it).</summary>
         public const float HangLag = 0.06f;
-        /// <summary>Seconds a crossing's lift eases in and out (the elbow
-        /// never jumps).</summary>
-        public const float CrossEaseSec = 0.18f;
         /// <summary>The arms' bones kept this far apart (centre lines: two
         /// arm radii and a gap), and how fast an elbow may swing to do it or
         /// to stay out of the cabin (degrees a second).</summary>
         public const float ArmClear = 0.075f, SwivelRate = 300f, SwivelRateOut = 600f;
-        /// <summary>The crossing arm starts to lift with the bones this far
+        /// <summary>The higher arm starts to lift with the bones this far
         /// apart (it has a few frames to get there before they would touch).</summary>
         public const float LiftClear = 0.10f;
         /// <summary>The arm's radius at the bone, for the cabin and rim checks.</summary>
         public const float ArmRadius = 0.034f;
-        /// <summary>A hand's flight between grips (Shoulders): off the rim this
-        /// far toward the driver over the first FlightLift of it, across, and
-        /// down onto the rim from FlightLand on.</summary>
-        public const float FlightBack = 0.05f, FlightLift = 0.35f, FlightLand = 0.7f;
+        /// <summary>A hand's flight between the rim and where it rests: off the
+        /// rim this far toward the driver over the first FlightLift of it,
+        /// across, and onto the rim (or its rest) from FlightLand on - a hand
+        /// let go on the far side still has its fingers round the rim, and one
+        /// coming back must not come up through a spoke.</summary>
+        public const float FlightBack = 0.06f, FlightLift = 0.35f, FlightLand = 0.7f;
         /// <summary>How fast an elbow drifts back to its own hang when nothing
         /// is in its way (degrees a second): slowly, so a lift held to keep
         /// the arms apart is not undone the next frame.</summary>
@@ -193,13 +190,8 @@ namespace PSXRacing
         /// <summary>... and from here at a hand on TOP of the rim: the elbow up
         /// and back toward the chest at shoulder width, so the forearm comes from
         /// behind and the palm lies DOWN over the rim instead of standing the
-        /// hand on it (and crossed arms make an X in the picture).</summary>
+        /// hand on it.</summary>
         public static readonly Vector3 ElbowAimHigh = new Vector3(-0.11f, -0.42f, 0.10f);
-        /// <summary>The crossing arm's aim: its elbow comes up and back, so its
-        /// forearm passes OVER the other one.</summary>
-        public static readonly Vector3 CrossLift = new Vector3(0.02f, 0.07f, -0.08f);
-        /// <summary>The arm under a crossing one ducks a little.</summary>
-        public static readonly Vector3 UnderDuck = new Vector3(0f, -0.06f, 0.04f);
         /// <summary>The upper arm aims at the shoulder: low and back, so the
         /// upper arm stays under the frame even at full look-over; inboard of the
         /// door trim (the cabin is narrower than a pair of shoulders).</summary>
@@ -208,6 +200,9 @@ namespace PSXRacing
         /// handbrake lever (out of frame below the console), RIGHT arm.</summary>
         public static readonly Vector3 ShiftKnob = new Vector3(0.33f, -0.52f, 0.30f);
         public static readonly Vector3 BrakeLever = new Vector3(0.29f, -0.56f, 0.10f);
+        /// <summary>... and where a free door-side hand rests: on its knee,
+        /// under the wheel and out of frame (RIGHT arm; the left is the mirror).</summary>
+        public static readonly Vector3 KneeRest = new Vector3(0.04f, -0.53f, 0.42f);
         /// <summary>How much of the aim along the rim's tangent is taken out
         /// (1 = knuckles exactly along the rim), for a hand low on the rim and
         /// on top of it. Low, the knuckle line rolls off the rim (~20 deg, as
@@ -563,7 +558,7 @@ namespace PSXRacing
         // ------------------------------------------------------------------
 
         public enum Mode { Grip, Slide, Move, Away }
-        public enum Kind { None, Cross, Return, Home, Reach }
+        public enum Kind { None, Home, Reach }
 
         public sealed class Hand
         {
@@ -576,21 +571,27 @@ namespace PSXRacing
             public float phi;
             /// <summary>Where it is on the RIM now (clock angle in the car).</summary>
             public float alpha;
-            /// <summary>A Move: elapsed, length, the rim path (from -> to; a
-            /// Return slides from -> slideTo, then drops through the air to `to`).</summary>
-            public float t, dur, from, to, slideTo;
-            /// <summary>Where a flight wants to land (world clock angle) before
-            /// it is moved off the spokes (`to`, re-aimed until late in the flight).</summary>
+            /// <summary>A Move along the rim: elapsed, length, from -> to (and
+            /// Away's clock and landing).</summary>
+            public float t, dur, from, to;
+            /// <summary>Where a hand coming back wants to land (clock angle in
+            /// the car) before it is moved off the spokes (`to`).</summary>
             public float want;
             /// <summary>Bumped when a straight-line phase starts (the solver
             /// snapshots its last pose there).</summary>
             public int cartGen;
-            /// <summary>Came over the top of the other arm (aims high).</summary>
-            public bool crossed;
-            /// <summary>Away: 0 release, 1 drop, 2 hold, 3 back; a Return: 0
-            /// slide, 1 drop. brake: the handbrake (else the shifter).</summary>
+            /// <summary>Away: 0 release, 1 drop, 2 hold, 3 back. brake: to the
+            /// handbrake (else the shifter); free: let go at the end of its
+            /// ride, resting (on the shifter, or its knee) until the rim
+            /// wants it back.</summary>
             public int phase;
-            public bool brake;
+            public bool brake, free;
+            /// <summary>Away, phase 1: flying on from one rest to another (the
+            /// lever to the shifter), not off the rim.</summary>
+            public bool fromRest;
+            /// <summary>Slide: the way round the rim it is held from going (+1
+            /// up, -1 down its own side).</summary>
+            public float slideSign;
             public float hold;
             /// <summary>Pose weights 0..1 and where they are heading.</summary>
             public float open, relax, openT, relaxT;
@@ -604,26 +605,55 @@ namespace PSXRacing
             /// side resting on the spoke (2026-10-16 review: the clip's low 8/4
             /// grip sits under this cabin's frame, and the hands must show).</summary>
             public const float RestRise = 20f;
-            /// <summary>In each hand's own angle (beta: 180 = 9 o'clock for the
-            /// left hand and 3 o'clock for the right, smaller = up):</summary>
-            public const float TopBeta = 92f, CrossBeta = 58f, OverBeta = 30f, BottomBeta = 255f;
-            /// <summary>The door-side hand (the model's left) lets the rim slide
-            /// through it sooner: below ~8 o'clock its wrist would be in the
-            /// door trim (the cabin walls, measured).</summary>
-            public const float BottomBetaDoor = 205f;
-            public static float Bottom(Hand h) => h.left ? BottomBetaDoor : BottomBeta;
-            public const float UnwindMin = 50f, UnwindRate = 260f, UnwindExit = 120f, SlideRate = 300f;
-            public const float CrossSec = 0.24f, HomeSec = 0.28f, ReturnSlideDeg = 35f, ReturnSlideSec = 0.14f, ReturnDropSec = 0.26f;
+            /// <summary>THE RIDE (owner, 2026-11-02, with a rally clip: "I can't
+            /// deal with these weirdly placed and backwards bending arms that
+            /// overlap ... refer to this other video of how hands should turn a
+            /// steering wheel"). No hand over hand: a hand HOLDS the rim and goes
+            /// round with it - the outside hand of a turn up, over the top and
+            /// down the far side, the inside hand down its own side until it
+            /// lets go (to the shifter, or its knee) - so the arms never cross.
+            /// Past what one hand can ride (lock is 450 deg), the free hand takes
+            /// the rim back on its OWN side, once the other is clear of it, and
+            /// then the other lets go.
+            /// Measured as a hand's CLIMB: degrees round the rim from 6 o'clock
+            /// up its own side (90 = its own 9 / 3 o'clock, 180 = 12, 270 = the
+            /// far 3 / 9). A hand rides from LowOf to Far; with no hand to take
+            /// over it holds on out to FarHard (or Slip under its low end), then
+            /// the rim slips through it.</summary>
+            public const float Low = 45f, Far = 300f, FarHard = 325f, Slip = 15f;
+            /// <summary>The door-side hand (the model's left) lets go sooner:
+            /// below ~8 o'clock its wrist would be in the door trim (the cabin
+            /// walls, measured).</summary>
+            public const float LowDoor = 65f;
+            public static float LowOf(Hand h) => h.left ? LowDoor : Low;
+            /// <summary>... and holds on no lower (Slip is the inboard hand's).</summary>
+            static float SlipOf(Hand h) => h.left ? 0f : Slip;
+            /// <summary>A free hand comes back to its own rest spot only with the
+            /// other hand this far from it, now and when it lands (degrees of
+            /// rim: the arms stay apart); and only when the wheel is near centre
+            /// (ReturnTheta), calm near it (HomeMaxTheta), or the other hand's
+            /// ride ends within the flight back (BackSec + ReturnLead) and
+            /// ReturnSpare degrees.</summary>
+            public const float ClearDeg = 50f, ReturnTheta = 30f, ReturnLead = 0.05f, ReturnSpare = 15f;
+            /// <summary>The wheel spinning back toward centre carries no hand
+            /// more than this past its own rest, up and over toward its far
+            /// side: the rim slips through it (it gripped at its rest with the
+            /// wheel wound round, and would ride the unwind across the top).</summary>
+            public const float UnwindSlack = 40f;
+            public const float HomeSec = 0.28f;
             public const float ReleaseSec = 0.15f, DropSec = 0.25f, HoldSec = 0.3f, BackSec = 0.3f;
             public const float CalmRate = 45f, CalmSec = 0.3f, HomeMaxTheta = 60f, HomeSlack = 20f;
             public const float PoseTau = 0.05f;
 
             public readonly Hand L = new Hand(true), R = new Hand(false);
             public float Theta, Omega;
-            public bool Unwinding;
-            /// <summary>For the self-test: crossings made, reaches started.</summary>
-            public int Crossings, Reaches, Unwinds;
+            /// <summary>For the self-test: hands let go at a ride's end, hands
+            /// back on the rim, reaches started.</summary>
+            public int LetGos, Returns, Reaches;
             float lastTheta = float.NaN, calm;
+            /// <summary>The handbrake is held with the other hand off the rim:
+            /// that one comes back first.</summary>
+            bool reachWait;
 
             public Planner() { Reset(0f); }
 
@@ -676,20 +706,28 @@ namespace PSXRacing
             public static float Beta(bool left, float alpha) => W360(left ? alpha : 180f - alpha);
             public static float AlphaOf(bool left, float beta) => left ? beta : 180f - beta;
             public float BetaOf(Hand h) => Beta(h.left, h.alpha);
+            /// <summary>A hand's climb (see Low) at clock angle `alpha`, and back.</summary>
+            public static float Climb(bool left, float alpha) => W360(270f - Beta(left, alpha));
+            static float AlphaAtClimb(bool left, float climb) => AlphaOf(left, 270f - climb);
+            public float ClimbOf(Hand h) => Climb(h.left, h.alpha);
+            /// <summary>How fast a hand holding the rim climbs (degrees a second).</summary>
+            float ClimbRate(Hand h) => h.left ? -Omega : Omega;
             Hand Other(Hand h) => h == L ? R : L;
-            static bool OnRim(Hand h) => h.mode == Mode.Grip || h.mode == Mode.Slide;
+            static bool OnRim(Hand h) => h.mode != Mode.Away;
 
-            /// <summary>Both hands gripping at rest on a wheel at `theta`.</summary>
+            /// <summary>Both hands gripping at rest on a wheel at `theta` (at
+            /// their rest spots in the car, off the spokes).</summary>
             public void Reset(float theta)
             {
                 foreach (var h in new[] { L, R })
                 {
-                    h.mode = Mode.Grip; h.kind = Kind.None; h.crossed = false;
-                    h.alpha = RestAlpha(h.left) + theta;
-                    h.phi = RestAlpha(h.left);
+                    h.mode = Mode.Grip; h.kind = Kind.None;
+                    h.phase = 0; h.brake = h.free = false;
+                    h.phi = Snap(h.left, RestAlpha(h.left) - theta);
+                    h.alpha = h.phi + theta;
                     h.open = h.relax = h.openT = h.relaxT = 0f;
                 }
-                Theta = theta; Omega = 0f; lastTheta = theta; Unwinding = false; calm = 0f;
+                Theta = theta; Omega = 0f; lastTheta = theta; calm = 0f; reachWait = false;
             }
 
             /// <summary>One frame: the wheel at `theta` (model degrees), a manual
@@ -702,27 +740,22 @@ namespace PSXRacing
                 lastTheta = theta;
                 Theta = theta;
                 calm = Mathf.Abs(Omega) < CalmRate ? calm + dt : 0f;
-                if (!Unwinding)
-                {
-                    Unwinding = Mathf.Abs(theta) > UnwindMin && theta * Omega < 0f && Mathf.Abs(Omega) > UnwindRate;
-                    if (Unwinding) Unwinds++;
-                }
-                else if (Mathf.Abs(Omega) < UnwindExit || Mathf.Abs(theta) < 12f) Unwinding = false;
 
-                StepAway(dt, shift, brake);
+                // Never both hands off the rim: a reach waits for the other.
+                bool canReach = R.mode == Mode.Away || OnRim(L);
+                reachWait = brake && !canReach;
+                StepAway(L, dt, false, false);
+                StepAway(R, dt, shift && canReach, brake && canReach);
                 StepHand(L, dt);
                 StepHand(R, dt);
-
-                // HAND OVER HAND: the hand carried up reached the top - the
-                // low one crosses over it. Only winding ON (away from centre):
-                // the way back is the unwind's, through loose hands.
-                if (!Unwinding && Mathf.Abs(Omega) > 30f && (theta * Omega > 0f || Mathf.Abs(theta) < UnwindMin) && OnRim(L) && OnRim(R))
-                {
-                    Hand lead = Omega < 0f ? L : R, trail = Other(lead);
-                    if (lead.mode == Mode.Grip && BetaOf(lead) <= TopBeta && !trail.crossed) StartCross(trail);
-                }
-                // Calm again: back to 8 and 4, one hand at a time.
-                if (!Unwinding && calm > CalmSec && L.mode == Mode.Grip && R.mode == Mode.Grip && Mathf.Abs(theta) < HomeMaxTheta)
+                // The ride's ends: a hand there lets go once the other holds the
+                // rim inside its own ride; a free hand comes back to its own side
+                // when the rim wants it and that side is clear.
+                LetGo(L); LetGo(R);
+                Uncross();
+                Return(L); Return(R);
+                // Calm near centre: back to rest, one hand at a time.
+                if (calm > CalmSec && L.mode == Mode.Grip && R.mode == Mode.Grip && Mathf.Abs(theta) < HomeMaxTheta)
                     foreach (var h in new[] { L, R })
                         if (Mathf.Abs(Mathf.DeltaAngle(h.phi, RestAlpha(h.left))) > HomeSlack)
                         {
@@ -766,87 +799,48 @@ namespace PSXRacing
 
             void StepHand(Hand h, float dt)
             {
-                if (h.crossed && (h.mode == Mode.Grip || h.mode == Mode.Slide) && BetaOf(h) > 140f) h.crossed = false;
                 switch (h.mode)
                 {
                     case Mode.Grip:
                     {
                         h.alpha = h.phi + Theta;
                         h.openT = 0f; h.relaxT = 0f;
-                        float b = BetaOf(h);
-                        if (Unwinding) { h.mode = Mode.Slide; h.openT = 1f; }
-                        else if (b > Bottom(h)) { h.mode = Mode.Slide; h.alpha = AlphaOf(h.left, Bottom(h)); h.relaxT = 0.7f; h.crossed = false; }
-                        else if (b < OverBeta) { h.mode = Mode.Slide; h.alpha = AlphaOf(h.left, OverBeta); h.openT = 0.6f; }
+                        // Past the end of its ride with no hand to take over: held
+                        // there, the rim slipping through it.
+                        float c = ClimbOf(h);
+                        if (c > FarHard || c < LowOf(h) - SlipOf(h))
+                        {
+                            h.mode = Mode.Slide;
+                            h.slideSign = c > 180f ? 1f : -1f;
+                            h.alpha = AlphaAtClimb(h.left, c > 180f ? FarHard : LowOf(h) - SlipOf(h));
+                            h.relaxT = 0.6f;
+                        }
+                        else if (Theta * Omega < 0f && Mathf.Abs(Theta) > 5f && ClimbRate(h) > 0f
+                                 && c > Climb(h.left, RestAlpha(h.left)) + UnwindSlack)
+                        {
+                            h.mode = Mode.Slide;
+                            h.slideSign = 1f;
+                            h.relaxT = 0.6f;
+                        }
                         break;
                     }
                     case Mode.Slide:
                     {
-                        if (Unwinding)
-                        {
-                            // The rim spins through an open hand drifting home.
-                            float rest = h.alpha + Mathf.DeltaAngle(h.alpha, RestAlpha(h.left));
-                            h.alpha = Mathf.MoveTowards(h.alpha, rest, SlideRate * dt);
-                            h.openT = 1f; h.relaxT = 0f;
-                            break;
-                        }
-                        float b = BetaOf(h), db = h.left ? Omega : -Omega;
-                        bool bottom = b >= Bottom(h) - 0.5f, top = b <= OverBeta + 0.5f;
-                        if ((bottom && db < -5f) || (top && db > 5f) || (!bottom && !top)) Grip(h, h.alpha);
-                        else { h.openT = top ? 0.6f : 0f; h.relaxT = bottom ? 0.7f : 0f; }
+                        // Grips again as the rim turns back into its ride, or stills.
+                        float dc = ClimbRate(h);
+                        if (dc * h.slideSign < -5f || calm > CalmSec) Grip(h, h.alpha);
+                        else { h.openT = 0f; h.relaxT = 0.6f; }
                         break;
                     }
                     case Mode.Move:
                     {
+                        // Along the rim: home, or off a spoke.
                         h.t += dt;
                         float u = Mathf.Clamp01(h.t / Mathf.Max(1e-3f, h.dur));
-                        // A flight keeps its landing off the spokes where the wheel
-                        // will be (re-aimed until 70% of the way, then held).
-                        if (h.kind == Kind.Cross && u < 0.7f)
-                            h.to = SnapAlphaAt(h.left, h.want, h.dur - h.t);
-                        else if (h.kind == Kind.Return && h.phase == 1)
-                        {
-                            float ud = (h.t - ReturnSlideSec) / ReturnDropSec;
-                            if (ud < 0.7f) h.to = SnapAlphaAt(h.left, h.want, ReturnSlideSec + ReturnDropSec - h.t);
-                        }
-                        if (h.kind == Kind.Cross)
-                        {
-                            // A loose hand in the air, closing round the rim as it lands.
-                            h.relaxT = u < 0.6f ? 0.6f : 0f;
-                            h.openT = 0f;
-                        }
-                        else if (h.kind == Kind.Return)
-                        {
-                            float slide = Mathf.Clamp01(h.t / ReturnSlideSec);
-                            h.alpha = Mathf.Lerp(h.from, h.slideTo, Smooth(slide));
-                            if (slide >= 1f && h.phase == 0)
-                            {
-                                h.phase = 1; h.cartGen++;
-                                h.want = h.to;
-                                h.to = SnapAlphaAt(h.left, h.want, ReturnDropSec);
-                            }
-                            // Open while it slides; closing as it drops to the rim.
-                            h.openT = h.phase == 0 ? 1f : 0f;
-                            h.relaxT = 0f;
-                        }
-                        else
-                        {
-                            h.alpha = Mathf.Lerp(h.from, h.to, Smooth(u));
-                            h.relaxT = 0.6f * Mathf.Sin(Mathf.PI * u);
-                            h.openT = 0f;
-                        }
-                        if (u >= 1f)
-                        {
-                            Kind was = h.kind;
-                            // Where it flew to: the target off the spokes (the solver's too).
-                            Grip(h, h.to);
-                            if (was == Kind.Cross)
-                            {
-                                Crossings++;
-                                // The top hand lets go: open, on along the rim, home.
-                                var o = Other(h);
-                                if (OnRim(o) && BetaOf(o) < 120f) StartReturn(o);
-                            }
-                        }
+                        h.alpha = Mathf.Lerp(h.from, h.to, Smooth(u));
+                        h.relaxT = 0.6f * Mathf.Sin(Mathf.PI * u);
+                        h.openT = 0f;
+                        if (u >= 1f) Grip(h, h.to);
                         break;
                     }
                 }
@@ -854,28 +848,100 @@ namespace PSXRacing
 
             public static float Smooth(float u) => u * u * (3f - 2f * u);
 
-            void StartCross(Hand h)
+            /// <summary>A hand at the end of its ride lets go - only with the
+            /// other gripping inside its own.</summary>
+            void LetGo(Hand h)
             {
-                h.mode = Mode.Move; h.kind = Kind.Cross;
-                h.t = 0f;
-                h.dur = CrossSec * Mathf.Lerp(1f, 0.7f, Mathf.InverseLerp(300f, 1000f, Mathf.Abs(Omega)));
-                h.want = AlphaOf(h.left, CrossBeta);
-                h.to = SnapAlphaAt(h.left, h.want, h.dur);
-                h.crossed = true;
-                h.cartGen++;
+                if (!OnRim(h) || h.mode == Mode.Move) return;
+                float c = ClimbOf(h);
+                if (h.mode != Mode.Slide && c >= LowOf(h) && c <= Far) return;
+                var o = Other(h);
+                if (o.mode != Mode.Grip) return;
+                float co = ClimbOf(o);
+                if (co < LowOf(o) + 10f || co > Far - 10f) return;   // at an end itself
+                Leave(h);
+                h.free = true;
+                LetGos++;
             }
 
-            void StartReturn(Hand h)
+            /// <summary>THE FOREARMS CROSS (an X in the picture): in the rim's
+            /// plane, in rim radii, each forearm a line from its hand the way
+            /// the driver's eye sees it go (down and out to its own corner, a
+            /// third of a radius out per radius down: the shots) - nearer than
+            /// CrossClear. A hand low on the far side is UNDER the other arm,
+            /// not across it (the ride's far end).</summary>
+            public const float CrossClear = 0.2f;
+            static readonly Vector2 ElbowAtL = new Vector2(-1.65f, -1.8f), ElbowAtR = new Vector2(1.65f, -1.8f);
+            static Vector2 OnRimAt(float alpha) => new Vector2(Mathf.Cos(alpha * Mathf.Deg2Rad), Mathf.Sin(alpha * Mathf.Deg2Rad));
+            public static bool Crossed(float alphaL, float alphaR) =>
+                SegDist(OnRimAt(alphaL), ElbowAtL, OnRimAt(alphaR), ElbowAtR) < CrossClear;
+
+            /// <summary>Two hands riding the rim together about to cross (now,
+            /// or a tenth of a second on): the one heading home lets go - the
+            /// other is the one riding out (still: the one further from home).</summary>
+            void Uncross()
             {
-                // On in the wheel's direction, then drop back to its own side.
-                float dir = Mathf.Abs(Omega) > 20f ? Mathf.Sign(Omega) : (h.left ? -1f : 1f);
-                h.mode = Mode.Move; h.kind = Kind.Return;
-                h.t = 0f; h.phase = 0;
-                h.from = h.alpha;
-                h.slideTo = h.alpha + dir * ReturnSlideDeg;
-                h.dur = ReturnSlideSec + ReturnDropSec;
-                h.to = RestAlpha(h.left);
-                h.crossed = false;
+                if (!OnRim(L) || !OnRim(R)) return;
+                float aheadL = L.mode == Mode.Grip ? Omega * 0.1f : 0f, aheadR = R.mode == Mode.Grip ? Omega * 0.1f : 0f;
+                if (!Crossed(L.alpha, R.alpha) && !Crossed(L.alpha + aheadL, R.alpha + aheadR)) return;
+                float rest = Climb(true, RestAlpha(true));
+                Hand go = Mathf.Abs(Omega) > 20f ? (ClimbRate(L) < 0f ? L : R)
+                        : (Mathf.Abs(ClimbOf(L) - rest) > Mathf.Abs(ClimbOf(R) - rest) ? L : R);
+                Leave(go);
+                go.free = true;
+                LetGos++;
+            }
+
+            /// <summary>Does the rim want a free hand back now?</summary>
+            bool Wanted(Hand f)
+            {
+                if (Mathf.Abs(Theta) < ReturnTheta || (calm > CalmSec && Mathf.Abs(Theta) < HomeMaxTheta)) return true;
+                if (f.left && reachWait) return true;
+                var o = Other(f);
+                if (o.mode != Mode.Grip) return true;   // held at an end, sliding home, or away itself
+                float dc = ClimbRate(o), co = ClimbOf(o);
+                float room = dc >= 0f ? Far - co : co - LowOf(o);
+                return room < Mathf.Abs(dc) * (BackSec + ReturnLead) + ReturnSpare;
+            }
+
+            /// <summary>Where on its own side a free hand coming back may land:
+            /// climbs off its rest spot, the rest first.</summary>
+            static readonly float[] LandTry = { 0f, -20f, -35f, 20f, 40f };
+
+            /// <summary>How close the other hand comes to rim angle `at` on its
+            /// way from `now` to `soon` (degrees; 0 if it passes over it).</summary>
+            static float Sweep(float now, float soon, float at)
+            {
+                float d = Mathf.DeltaAngle(now, at), span = soon - now;
+                if (Mathf.Abs(span) > 0.01f && Mathf.Sign(d) == Mathf.Sign(span) && Mathf.Abs(d) <= Mathf.Abs(span)) return 0f;
+                return Mathf.Min(Mathf.Abs(d), Mathf.Abs(Mathf.DeltaAngle(soon, at)));
+            }
+
+            /// <summary>A free hand back on its own side (its rest spot, else
+            /// the nearest of LandTry), if it is wanted and the other hand
+            /// stays clear of the spot - where it is, and all the way round to
+            /// where it will be when this one lands.</summary>
+            void Return(Hand f)
+            {
+                // (from its rest, or most of the way down to it: straight back
+                // from where it let go swept the arm through the seat and console)
+                if (f.mode != Mode.Away || !f.free || !(f.phase == 2 || (f.phase == 1 && f.t >= DropSec * 0.6f)) || !Wanted(f)) return;
+                var o = Other(f);
+                float rest = Climb(f.left, RestAlpha(f.left)), land = float.NaN;
+                float soon = o.mode == Mode.Grip ? o.alpha + Omega * (BackSec + ReturnLead) : o.mode == Mode.Move ? o.to : o.alpha;
+                foreach (float dc in LandTry)
+                {
+                    if (rest + dc < LowOf(f) + 10f) continue;
+                    float at = AlphaAtClimb(f.left, rest + dc);
+                    if (!OnRim(o) || (Sweep(o.alpha, soon, at) >= ClearDeg
+                                      && !Crossed(f.left ? at : o.alpha, f.left ? o.alpha : at)
+                                      && !Crossed(f.left ? at : soon, f.left ? soon : at))) { land = at; break; }
+                }
+                if (float.IsNaN(land)) return;
+                f.phase = 3; f.t = 0f; f.cartGen++;
+                f.want = land;
+                f.to = SnapAlphaAt(f.left, land, BackSec);
+                Returns++;
             }
 
             void StartRim(Hand h, Kind kind, float to, float dur)
@@ -885,42 +951,59 @@ namespace PSXRacing
                 h.from = h.alpha; h.to = to;
             }
 
-            /// <summary>The INBOARD hand (the model's right: the shifter side)
-            /// off the rim: a manual shift (~1 s) or the handbrake (held).</summary>
-            void StepAway(float dt, bool shift, bool brake)
+            /// <summary>Off the rim: released, then down to where it rests.</summary>
+            void Leave(Hand h)
             {
-                var h = R;
+                h.mode = Mode.Away; h.kind = Kind.Reach;
+                h.phase = 0; h.t = 0f; h.hold = HoldSec;
+                h.brake = h.free = false;
+                h.cartGen++;
+            }
+
+            /// <summary>A hand off the rim: the INBOARD hand (the model's right:
+            /// the shifter side) for a manual shift (~1 s) or the handbrake
+            /// (held); either hand let go at the end of its ride (free: on the
+            /// shifter or its knee until Return calls it back).</summary>
+            void StepAway(Hand h, float dt, bool shift, bool brake)
+            {
                 if (h.mode != Mode.Away)
                 {
                     if (!brake && !shift) return;
-                    h.mode = Mode.Away; h.kind = Kind.Reach;
-                    h.phase = 0; h.t = 0f; h.brake = brake; h.hold = HoldSec;
-                    h.crossed = false;
-                    h.cartGen++;
+                    Leave(h);
+                    h.brake = brake;
                     Reaches++;
                 }
-                else if (brake && !h.brake) { h.brake = true; if (h.phase == 3) { h.phase = 1; h.t = 0f; h.cartGen++; } }
+                else if (brake && !h.brake)
+                {
+                    // from the shifter (or on its way back): to the lever
+                    h.brake = true; h.free = false;
+                    if (h.phase != 0) { h.phase = 1; h.t = 0f; h.cartGen++; h.fromRest = true; }
+                }
                 else if (shift)
                 {
-                    h.hold = HoldSec;
-                    if (h.phase == 3) { h.phase = 1; h.t = 0f; h.cartGen++; Reaches++; }
+                    h.hold = HoldSec; h.free = false;
+                    if (h.phase == 3) { h.phase = 1; h.t = 0f; h.cartGen++; h.fromRest = true; Reaches++; }
                 }
                 h.t += dt;
                 switch (h.phase)
                 {
-                    case 0: h.relaxT = 1f; h.openT = 0.2f; if (h.t >= ReleaseSec) { h.phase = 1; h.t = 0f; h.cartGen++; } break;
+                    case 0: h.relaxT = 1f; h.openT = 0.2f; if (h.t >= ReleaseSec) { h.phase = 1; h.t = 0f; h.cartGen++; h.fromRest = false; } break;
                     case 1: h.relaxT = h.brake ? 0.15f : 1f; h.openT = 0f; if (h.t >= DropSec) { h.phase = 2; h.t = 0f; } break;
                     case 2:
                         h.relaxT = h.brake ? 0f : 1f; h.openT = 0f;
                         h.hold -= dt;
-                        if (h.brake && !brake) { h.brake = false; h.hold = Mathf.Max(h.hold, 0f); }
-                        if (!h.brake && h.hold <= 0f) { h.phase = 3; h.t = 0f; h.cartGen++; h.want = RestAlpha(h.left); h.to = SnapAlphaAt(h.left, h.want, BackSec); }
+                        if (h.brake && !brake)
+                        {
+                            // off the lever: to the shifter to wait (Return may call it straight back)
+                            h.brake = false; h.free = true;
+                            h.phase = 1; h.t = 0f; h.cartGen++; h.fromRest = true;
+                        }
+                        else if (!h.brake && h.hold <= 0f) h.free = true;   // the shift done: it waits there
                         break;
                     default:
                         h.relaxT = 0.5f; h.openT = 0f;
                         if (h.t < BackSec * 0.7f) h.to = SnapAlphaAt(h.left, h.want, BackSec - h.t);
-                        // Back on the rim where it left it in the car: 3:30 (LHD).
-                        if (h.t >= BackSec) Grip(h, h.to);
+                        if (h.t >= BackSec) { h.free = false; Grip(h, h.to); }
                         break;
                 }
             }
@@ -956,10 +1039,10 @@ namespace PSXRacing
             public int gen = -1;
             public bool posed;
             /// <summary>The chain (Shoulders): shoulder, solved elbow, wrist
-            /// (model frame); the crossing / under weights as eased; the
-            /// elbow's swing about the shoulder-to-wrist line (degrees).</summary>
+            /// (model frame); the elbow's swing about the shoulder-to-wrist
+            /// line (degrees).</summary>
             public Vector3 shoulder, elbow, wrist, hang;
-            public float crossW, underW, swivel;
+            public float swivel;
             /// <summary>The untangle's own swing on top of the swivel (degrees;
             /// the cabin's swing pulled it back each frame when they shared
             /// one) and which way it lifts (kept until it is let down).</summary>
@@ -1099,19 +1182,19 @@ namespace PSXRacing
         /// <summary>The forearm's pose holding the rim at `alpha`: the grip
         /// centre on the tube, the knuckles along the rim, the forearm aimed
         /// back at its elbow.</summary>
-        public void RimPose(bool left, float alpha, float crossLift, float duck, float off, out Vector3 pos, out Quaternion rot)
-            => RimPose(left, alpha, crossLift, duck, off, out pos, out rot, out _);
+        public void RimPose(bool left, float alpha, float off, out Vector3 pos, out Quaternion rot)
+            => RimPose(left, alpha, off, out pos, out rot, out _);
 
         /// <summary>... and the forearm's turn: the HAND keeps its knuckles
         /// along the rim exactly (the grip fitted to the rim holds), the
         /// FOREARM leaves the rim's line by the wrist (TangentLock) to aim at
         /// an elbow out of every view.</summary>
-        public void RimPose(bool left, float alpha, float crossLift, float duck, float off, out Vector3 pos, out Quaternion rot, out Quaternion foreRot)
-            => RimPose(left, alpha, crossLift, duck, off, null, out pos, out rot, out foreRot);
+        public void RimPose(bool left, float alpha, float off, out Vector3 pos, out Quaternion rot, out Quaternion foreRot)
+            => RimPose(left, alpha, off, null, out pos, out rot, out foreRot);
 
         /// <summary>... the hand turned to the arm's SOLVED elbow (the chain's
         /// last one, <paramref name="elbowAt"/>), not an aim point.</summary>
-        void RimPose(bool left, float alpha, float crossLift, float duck, float off, Vector3? elbowAt, out Vector3 pos, out Quaternion rot, out Quaternion foreRot)
+        void RimPose(bool left, float alpha, float off, Vector3? elbowAt, out Vector3 pos, out Quaternion rot, out Quaternion foreRot)
         {
             Vector3 P = RimPoint(alpha);
             Vector3 X = RimTangent(alpha);
@@ -1120,8 +1203,7 @@ namespace PSXRacing
             // (Contact off = the first cut's elbows, out by the door and console.)
             Vector3 lo = Contact ? ElbowAim : new Vector3(-0.22f, -0.74f, 0.16f);
             Vector3 hi = Contact ? ElbowAimHigh : new Vector3(-0.19f, -0.42f, 0.10f);
-            Vector3 A = elbowAt ?? Eye + Side(left, Vector3.Lerp(lo, hi, high))
-                        + Side(left, CrossLift) * crossLift + Side(left, UnderDuck) * duck;
+            Vector3 A = elbowAt ?? Eye + Side(left, Vector3.Lerp(lo, hi, high));
             Vector3 D = P - A;
             Vector3 Z = (D - Mathf.Lerp(TangentLockLow, TangentLockHigh, high) * Vector3.Dot(D, X) * X).normalized;
             Vector3 Xf = (X - Vector3.Dot(X, Z) * Z).normalized;
@@ -1145,12 +1227,21 @@ namespace PSXRacing
             pos = P - rot * tube + (face * 0.6f - Y * 0.4f) * off;
         }
 
-        /// <summary>The inboard hand's reach target (model frame, right arm).</summary>
-        void AwayPose(bool brake, out Vector3 pos, out Quaternion rot)
+        /// <summary>Where a hand off the rim goes (model frame): the inboard
+        /// hand to the lever or the shifter knob, the door-side hand to its
+        /// knee (the right arm's pose mirrored).</summary>
+        void AwayPose(Hand h, out Vector3 pos, out Quaternion rot)
         {
-            pos = Eye + (brake ? BrakeLever : ShiftKnob);
-            rot = brake ? Quaternion.LookRotation(new Vector3(0f, -0.45f, 1f), new Vector3(-1f, -0.35f, 0f))
-                        : Quaternion.LookRotation(new Vector3(-0.1f, -0.35f, 1f), Vector3.down);
+            if (h.left)
+            {
+                pos = Eye + MX(KneeRest);
+                var q = Quaternion.LookRotation(new Vector3(-0.15f, -0.2f, 1f), Vector3.down);
+                rot = new Quaternion(q.x, -q.y, -q.z, q.w);   // M R M, M = mirror in x
+                return;
+            }
+            pos = Eye + (h.brake ? BrakeLever : ShiftKnob);
+            rot = h.brake ? Quaternion.LookRotation(new Vector3(0f, -0.45f, 1f), new Vector3(-1f, -0.35f, 0f))
+                          : Quaternion.LookRotation(new Vector3(-0.1f, -0.35f, 1f), Vector3.down);
         }
 
         /// <summary>The solve's parts, for the profiler (tools\perf-probe.ps1).</summary>
@@ -1160,26 +1251,13 @@ namespace PSXRacing
 
         void Solve(bool snap, float dt)
         {
-            Hand other = null;
             for (int i = 0; i < 2; i++)
             {
                 var a = arms[i];
                 var h = a.hand;
-                other = arms[1 - i].hand;
                 // A straight-through-the-air phase starts from wherever the
                 // hand was last frame.
                 if (a.gen != h.cartGen) { a.gen = h.cartGen; a.startPos = a.pos; a.startRot = a.rot; a.startForeRot = a.foreRot; }
-                float duck = other.crossed && !h.crossed ? 1f : 0f;
-                float lift = h.crossed ? 1f : 0f;
-                if (Shoulders)
-                {
-                    // eased, never switched: the elbow cannot jump
-                    float k = snap ? 1f : dt / CrossEaseSec;
-                    a.crossW = Mathf.MoveTowards(a.crossW, lift, k);
-                    a.underW = Mathf.MoveTowards(a.underW, duck, k);
-                    lift = Planner.Smooth(a.crossW);
-                    duck = Planner.Smooth(a.underW);
-                }
                 Vector3? elbowAt = null;
                 Vector3 tp; Quaternion tr, tf;
                 bool cart = false;
@@ -1189,42 +1267,17 @@ namespace PSXRacing
                 {
                     case Mode.Grip:
                     case Mode.Slide:
-                        RimPose(h.left, h.alpha, lift, duck, h.mode == Mode.Slide ? 0.012f * h.open : 0f, elbowAt, out tp, out tr, out tf);
+                        RimPose(h.left, h.alpha, h.mode == Mode.Slide ? 0.012f * h.open : 0f, elbowAt, out tp, out tr, out tf);
                         break;
-                    case Mode.Move when h.kind == Kind.Cross:
-                    {
-                        float land = h.to;
-                        RimPose(h.left, land, 1f, 0f, 0f, out tp, out tr, out tf);
-                        cart = true;
-                        u = Mathf.Clamp01(h.t / h.dur);
-                        arc = (lay.wheel.rot * Vector3.back) * 0.07f + Vector3.up * 0.04f;
-                        // Onto the rim from in front and outside, not up through the wheel.
-                        Vector3 outward = (RimPoint(land) - lay.wheel.pivot).normalized;
-                        tp += (outward * 0.05f + lay.wheel.rot * Vector3.back * 0.05f) * (1f - Planner.Smooth(Mathf.Clamp01((u - 0.65f) / 0.35f)));
-                        break;
-                    }
-                    case Mode.Move when h.kind == Kind.Return && h.phase == 1:
-                    {
-                        float land = h.to;
-                        RimPose(h.left, land, 0f, duck, 0f, out tp, out tr, out tf);
-                        cart = true;
-                        u = Mathf.Clamp01((h.t - Planner.ReturnSlideSec) / Planner.ReturnDropSec);
-                        arc = (lay.wheel.rot * Vector3.back) * 0.08f + Vector3.down * 0.03f;
-                        // It comes in to the rim from in front and outside, never
-                        // through the wheel: the landing held off until the end.
-                        Vector3 outward = (RimPoint(land) - lay.wheel.pivot).normalized;
-                        tp += (outward * 0.05f + lay.wheel.rot * Vector3.back * 0.05f) * (1f - Planner.Smooth(Mathf.Clamp01((u - 0.65f) / 0.35f)));
-                        break;
-                    }
                     case Mode.Move:
-                        RimPose(h.left, h.alpha, lift, duck, 0.015f * Mathf.Sin(Mathf.PI * Mathf.Clamp01(h.t / h.dur)) + 0.01f * h.open, elbowAt, out tp, out tr, out tf);
+                        RimPose(h.left, h.alpha, 0.015f * Mathf.Sin(Mathf.PI * Mathf.Clamp01(h.t / h.dur)) + 0.01f * h.open, elbowAt, out tp, out tr, out tf);
                         break;
-                    default: // Away
+                    default: // Away: the shifter, the lever, its knee - and back
                     {
                         cart = true;
                         Vector3 rp; Quaternion rr, rf;
-                        RimPose(h.left, h.phase == 3 ? h.to : Planner.RestAlpha(h.left), 0f, 0f, 0f, out rp, out rr, out rf);
-                        AwayPose(h.brake, out var ap, out var ar);
+                        RimPose(h.left, h.phase == 3 ? h.to : Planner.RestAlpha(h.left), 0f, out rp, out rr, out rf);
+                        AwayPose(h, out var ap, out var ar);
                         if (h.phase == 0)
                         {
                             tp = a.startPos + (lay.wheel.rot * Vector3.back) * 0.05f + Vector3.down * 0.02f;
@@ -1233,21 +1286,23 @@ namespace PSXRacing
                         }
                         else if (h.phase == 1) { tp = ap; tr = tf = ar; u = Mathf.Clamp01(h.t / Planner.DropSec); arc = Vector3.down * 0.04f; }
                         else if (h.phase == 2) { tp = ap; tr = tf = ar; u = 1f; }
-                        else { tp = rp; tr = rr; tf = rf; u = Mathf.Clamp01(h.t / Planner.BackSec); arc = Vector3.down * 0.03f; }
+                        else
+                        {
+                            tp = rp; tr = rr; tf = rf; u = Mathf.Clamp01(h.t / Planner.BackSec); arc = Vector3.down * 0.03f;
+                            // Onto the rim from in front and outside, never up through the wheel.
+                            Vector3 outward = (RimPoint(h.to) - lay.wheel.pivot).normalized;
+                            tp += (outward * 0.05f + lay.wheel.rot * Vector3.back * 0.05f) * (1f - Planner.Smooth(Mathf.Clamp01((u - 0.65f) / 0.35f)));
+                        }
                         break;
                     }
                 }
-                if (cart && !snap && a.posed && Shoulders && h.mode == Mode.Move)
+                // (a reach to the shifter or lever leaves its rest grip cleanly:
+                // the back-off only steered it through the seat and console)
+                if (cart && !snap && a.posed && h.mode == Mode.Away && ((h.phase == 1 && h.free && !h.fromRest) || h.phase == 3))
                 {
-                    // THE FLIGHT (2026-11-02): off the rim toward the driver
-                    // first, across, then down onto it. Straight from rim to
-                    // rim went through the wheel's face, and the contact fit
-                    // shoved the hand back out a few centimetres a frame: the
-                    // snaps in a hand over hand.
                     float off = Planner.Smooth(Mathf.Clamp01(u / FlightLift)) * (1f - Planner.Smooth(Mathf.Clamp01((u - FlightLand) / (1f - FlightLand))));
                     float e = Planner.Smooth(Mathf.Clamp01((u - FlightLift * 0.5f) / (1f - FlightLift * 0.5f)));
-                    Vector3 back = lay.wheel.rot * Vector3.back;
-                    a.pos = Vector3.Lerp(a.startPos, tp, e) + (back * FlightBack + Vector3.up * 0.02f) * off + arc * (0.4f * Mathf.Sin(Mathf.PI * e));
+                    a.pos = Vector3.Lerp(a.startPos, tp, e) + (lay.wheel.rot * Vector3.back) * (FlightBack * off) + arc * Mathf.Sin(Mathf.PI * e);
                     a.rot = Quaternion.Slerp(a.startRot, tr, e);
                     a.foreRot = Quaternion.Slerp(a.startForeRot, tf, e);
                 }
@@ -1324,14 +1379,12 @@ namespace PSXRacing
             dist = Mathf.Clamp(dist, Mathf.Abs(L1 - L2) + 1e-3f, L1 + L2 - 1e-4f);
             along = (L1 * L1 - L2 * L2 + dist * dist) / (2f * dist);
             off = Mathf.Sqrt(Mathf.Max(0f, L1 * L1 - along * along));
-            // Down and out; up with the wrist on top of the wheel; up and back
-            // crossing over, down a little under a crossing one.
+            // Down and out; up with the wrist on top of the wheel.
             float high = Planner.Smooth(Mathf.Clamp01(Mathf.InverseLerp(lay.wheel.pivot.y - 0.10f, lay.wheel.pivot.y + 0.17f, W.y)));
             // away from the side the hand reached to (its own side when the
             // hand is in front of its shoulder)
             float away = -Mathf.Clamp((W.x - S.x) / 0.12f, -1f, 1f);   // smooth through zero (a flip snapped)
-            Vector3 pole = Vector3.Lerp(PoleLow, PoleHigh, high) + new Vector3(away * PoleOut, 0f, 0f)
-                         + PoleCross * Planner.Smooth(a.crossW) + PoleUnder * Planner.Smooth(a.underW);
+            Vector3 pole = Vector3.Lerp(PoleLow, PoleHigh, high) + new Vector3(away * PoleOut, 0f, 0f);
             hang = pole - Vector3.Dot(pole, dir) * dir;
             if (hang.sqrMagnitude < 1e-8f) hang = Vector3.down - Vector3.Dot(Vector3.down, dir) * dir;
             hang.Normalize();
@@ -1460,13 +1513,13 @@ namespace PSXRacing
         /// garbage in the game).</summary>
         public static bool TraceSolve;
 
-        /// <summary>The two arms apart: the one crossing over (or the higher
-        /// hand's) swings its elbow up and over until the bones clear.</summary>
+        /// <summary>The two arms apart: the higher hand's swings its elbow up
+        /// and over until the bones clear.</summary>
         void Untangle(bool snap, float dt)
         {
             Arm A = arms[0], B = arms[1];
             LastUntangle = "";
-            Arm m = A.crossW > B.crossW + 0.01f ? A : B.crossW > A.crossW + 0.01f ? B : (A.wrist.y >= B.wrist.y ? A : B);
+            Arm m = A.wrist.y >= B.wrist.y ? A : B;
             Arm o = m == A ? B : A;
             Settle(o, m, dt);   // the other lets down a lift it held
             Chain(m, out var S, out var W, out var dir, out float along, out float off, out _);
@@ -1509,6 +1562,9 @@ namespace PSXRacing
             if (a.lift == 0f) a.liftSgn = 0f;
         }
 
+        static float SegDist(Vector2 p1, Vector2 q1, Vector2 p2, Vector2 q2)
+            => SegDist((Vector3)p1, (Vector3)q1, (Vector3)p2, (Vector3)q2);
+
         static float SegDist(Vector3 p1, Vector3 q1, Vector3 p2, Vector3 q2)
         {
             Vector3 d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
@@ -1546,21 +1602,23 @@ namespace PSXRacing
             wristBend = Vector3.Angle(a.rot * Vector3.forward, wrist - elbow);
         }
 
-        /// <summary>For the shot tool's trace: an arm's crossing weight and swivel.</summary>
-        public void ChainState(bool left, out float crossW, out float underW, out float swivel)
+        /// <summary>For the shot tool's trace: an arm's elbow swing (degrees).</summary>
+        public float ChainSwivel(bool left)
         {
             var a = arms[left ? 0 : 1];
-            crossW = a.crossW; underW = a.underW; swivel = a.swivel + a.lift;
+            return a.swivel + a.lift;
         }
 
-        /// <summary>For the shot tool: the worst elbow out past its wrist now (metres).</summary>
+        /// <summary>For the shot tool: the worst elbow out past its wrist now
+        /// with the hand reaching across (metres) - what the chain guards
+        /// (BentAcross; a hand low by its own knee may tuck its elbow in).</summary>
         public float BentBack()
         {
             float worst = 0f;
             for (int i = 0; i < 2; i++)
             {
                 ChainNow(i == 0, out var s, out var e, out var w, out _, out _);
-                worst = Mathf.Max(worst, PastWrist(s, e, w));
+                worst = Mathf.Max(worst, BentAcross(i == 0, s, e, w));
             }
             return worst;
         }
@@ -1665,11 +1723,10 @@ namespace PSXRacing
                 // open on the wheel stays on the driver's side of them (their
                 // nearest face can be the dash side, which would sink it through).
                 bool onRim = w.Part(at) == 0;
-                // In the air (crossing, dropping back, reaching): over everything.
-                float uu = h.kind == Kind.Return ? (h.t - Planner.ReturnSlideSec) / Planner.ReturnDropSec : h.t / Mathf.Max(1e-3f, h.dur);
-                bool inAir = h.mode == Mode.Away
-                             || (h.mode == Mode.Move && uu < 0.85f && (h.kind == Kind.Cross || (h.kind == Kind.Return && h.phase == 1)));
-                Vector3 dir = onRim && !inAir ? w.Normal(at) : Vector3.back;
+                // (The rim's own surface even in the air: a relaxed hand let go
+                // points its fingers at the rim, and straight back slides along
+                // them without clearing them.)
+                Vector3 dir = onRim ? w.Normal(at) : Vector3.back;
                 a.pos += W.MultiplyVector(dir) * (worst + 0.0005f);
             }
         }
@@ -1761,6 +1818,30 @@ namespace PSXRacing
                     else forearm = Mathf.Max(forearm, d);
                 }
             }
+        }
+
+        /// <summary>For the self-test: the deepest finger in the wheel now -
+        /// which hand, what of the wheel, what the hand is doing.</summary>
+        public string DeepestFinger()
+        {
+            if (data.wheel == null) return "";
+            Matrix4x4 toW = WheelMatrix.inverse;
+            float worst = 0f; string where = "";
+            foreach (var a in arms)
+            {
+                var g = a.geo;
+                for (int i = 0; i < a.outP.Length; i++)
+                {
+                    if (g.fingerOf[i] < 0) continue;
+                    Vector3 q = toW.MultiplyPoint3x4(a.outP[i]);
+                    float d = -data.wheel.Sdf(q);
+                    if (d <= worst) continue;
+                    worst = d;
+                    var h = a.hand;
+                    where = $"{(h.left ? "L" : "R")} {data.wheel.Which(q)} {d * 1000f:0.0}mm: {h.mode}/{h.phase} t {h.t:0.00} a {h.alpha:0} to {h.to:0} open {h.open:0.00} relax {h.relax:0.00}";
+                }
+            }
+            return where;
         }
 
         /// <summary>A hand's finger curls now (index .. thumb; 1 = GRIP).</summary>
