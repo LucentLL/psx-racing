@@ -332,13 +332,19 @@ namespace PSXRacing
             {
                 var src = listenerHost.AddComponent<AudioSource>();
                 src.clip = wind; src.loop = true; src.spatialBlend = 0f;
+                src.bypassListenerEffects = true;   // the air at the listener, not a sound in the space
                 src.volume = 0.22f * AudioPrefs.Effects;
                 src.Play();
             }
-            var zone = listenerHost.AddComponent<AudioReverbZone>();
-            zone.reverbPreset = AudioReverbPreset.Mountains;
-            zone.minDistance = 60f;
-            zone.maxDistance = 120f;
+            // the mountain's echo: AcousticSpace's own (it hears the ridges); the
+            // fixed Mountains zone only where that is switched off
+            if (listenerHost.GetComponent<AcousticSpace>() == null)
+            {
+                var zone = listenerHost.AddComponent<AudioReverbZone>();
+                zone.reverbPreset = AudioReverbPreset.Mountains;
+                zone.minDistance = 60f;
+                zone.maxDistance = 120f;
+            }
         }
 
         /// <summary>Traffic has no voice of its own: lend each car one loop of

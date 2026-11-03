@@ -94,6 +94,7 @@ namespace PSXRacing
             src.volume = 0f;
             src.playOnAwake = false;
             src.spatialBlend = 0f;        // the airstream is AT the listener
+            src.bypassListenerEffects = true;   // ...so it is not the space's to echo (AcousticSpace)
             src.dopplerLevel = 0f;
             // Deferred: on WebGL the browser has not decoded this clip yet, and
             // a source started against an undecoded clip loops silence forever.
