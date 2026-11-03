@@ -69,7 +69,7 @@ namespace PSXRacing.City
         public sealed class MarkTally
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
-                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
+                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
@@ -576,7 +576,10 @@ namespace PSXRacing.City
                         if (((bits >> i) & 1) == 0) continue;
                         int turn = i < n - 1 - i ? -1 : i > n - 1 - i ? 1 : 0;
                         if (turn == 0) { MarkStats.groupsSkipped++; continue; }
-                        if (nose && LineModel.RefugeOn) { MarkStats.noseSkipped++; continue; }
+                        // round 5b (review r5 #4): only at an accepted (drawn)
+                        // refuge pair's nose - every other plain nose, a reverted
+                        // pair's included, keeps live's arrow and ONLY
+                        if (nose && LineModel.IsRefugeNode(nd)) { MarkStats.noseSkipped++; continue; }
                         // the lane's centre, m from the plus edge (RoadProfiles.LinesFor)
                         float m;
                         if (e.oneway) m = pr.shl + (i + 0.5f) * RoadProfiles.LaneM;
@@ -586,7 +589,11 @@ namespace PSXRacing.City
                             float farStart = medStart + (e.lsCentre == 2 ? RoadProfiles.LaneM : 0f);
                             m = forward ? farStart + (i + 0.5f) * RoadProfiles.LaneM : medStart - (i + 0.5f) * RoadProfiles.LaneM;
                         }
-                        if (Group(map, t, e, sRef, forward, PlusOf(e) - m, turn, 1f, "turn-only") && nose) MarkStats.noseArrows++;
+                        if (Group(map, t, e, sRef, forward, PlusOf(e) - m, turn, 1f, "turn-only") && nose)
+                        {
+                            MarkStats.noseArrows++;
+                            if (LineModel.IsRefugeNode(nd)) MarkStats.noseArrowsRefuge++;
+                        }
                     }
                 }
             }

@@ -79,6 +79,7 @@ namespace PSXRacing.EditorTools
             sw.Restart();
             var tOn = CityMeshes.ComputeTrims(map);
             float onMs = (float)sw.Elapsed.TotalMilliseconds, buildMs = LineModel.RefugeBuildMs;
+            string costParts = LineModel.RefugeCostParts();
             var refs = new List<LineModel.Refuge>(LineModel.Refuges);
             var seps = new List<LineModel.Refuge>(LineModel.Separated);
             int notDrawn = LineModel.RefugeNotDrawn.Count, staleFp = LineModel.RefugeStaleFp; bool stale = LineModel.RefugeListStale;
@@ -93,8 +94,9 @@ namespace PSXRacing.EditorTools
             Line($"  ACCEPTED LIST (LineModel.RefugeList.cs): city export {(LineModel.RefugeListCity == cityHash ? "matches" : $"STALE (list {LineModel.RefugeListCity}, bytes {cityHash})")}; edge/node counts {(stale ? "STALE" : "match")}; {staleFp} listed pairs with a changed fingerprint; {notDrawn} listed pairs the builder could not draw; {listDiff} pairs differ from this run's decision{listDiffAt}. This run's list: refuge_list.generated.cs");
             Check(LineModel.RefugeListCity == cityHash && !stale && staleFp == 0 && notDrawn == 0 && listDiff == 0, "the compiled accepted list is this city export's and this gate's decision (else regenerate: copy refuge_list.generated.cs over LineModel.RefugeList.cs)", listDiff + staleFp + notDrawn + (stale ? 1 : 0));
             Check(noneDiff == 0, "with no pair listed (a stale list's fail-safe) every edge's eases are live's exactly", noneDiff);
-            Line($"  LOAD COST: the refuge pairs' build {buildMs:0.0} ms (FindRefuges: frames, profiles, eases); the trims ON {onMs:0} ms vs OFF {offMs:0} ms (editor, one run each); no self-check at load");
-            Check(buildMs < 50f, "refuge pairs add under 50 ms at city load", $"{buildMs:0.0} ms");
+            float planMs = LineModel.RefugePlanMs, loadMs = planMs + buildMs;
+            Line($"  LOAD COST: PlanRefuges {planMs:0.0} ms (detection of all {cands.Count} pairs + fingerprints + the list) + FindRefuges {buildMs:0.0} ms (frames, profiles, eases) = {loadMs:0.0} ms (FindRefuges: {costParts}; the last decision build drew the same pairs from the override in {decideMs:0.0} ms); the trims ON {onMs:0} ms vs OFF {offMs:0} ms (editor, one run each); no self-check at load");
+            Check(loadMs < 25f, "refuge pairs add under 25 ms at city load (PlanRefuges + FindRefuges, editor)", $"{loadMs:0.0} ms");
 
             var mOn = LineModel.MeasureRefuges(map, refs, out float stepOn, out int linesOn, out string worstOn);
             var pf = PairFails(map, tOn, refs, mOn, offEase, out int relayN, out int relayWorse, out int relayLoose, out float relayWorst, out string relayAt);
@@ -110,14 +112,22 @@ namespace PSXRacing.EditorTools
             string diag = DiagPairs(map, refs);
             CityMeshes.EnsureMarks(map, tOn);
             var ms = CityMeshes.MarkStats;
-            int noseOn = ms.noseArrows, noseSkip = ms.noseSkipped, groupsOn = ms.groups;
+            int noseOn = ms.noseArrows, noseSkip = ms.noseSkipped, groupsOn = ms.groups, noseRefOn = ms.noseArrowsRefuge;
             int flushTipKerbed = 0, flushTipFlush = 0;
+            var tipList = new StringBuilder();
             foreach (int n in CityMeshes.NoseFlushTip)
             {
                 LineModel.Refuge rr = null;
                 foreach (var r in refs) if (r.node == n || r.far == n) { rr = r; break; }
                 if (rr != null && rr.half > 0f) flushTipKerbed++; else flushTipFlush++;
+                var np = map.nodes[n];
+                tipList.Append($"\n    n{n} '{(rr != null ? map.edges[rr.edge].name : "?")}' ({LatLon(np.x, np.y)}; x {np.x:0.0} z {np.y:0.0}): {(rr != null && rr.half > 0f ? "KERBED island" : "flush painted median, no kerb")}");
             }
+            // the accepted pairs' chain and undivided edges (the boxed drive audit's PSX_DRIVE_EDGES)
+            var drvEdges = new SortedSet<int>();
+            foreach (var r in refs) { foreach (int ei in r.chain) drvEdges.Add(ei); if (r.uEdges != null) foreach (int ei in r.uEdges) drvEdges.Add(ei); }
+            foreach (var c in cands) if (decided.ContainsKey(c.pk)) { drvEdges.Add(c.u1); drvEdges.Add(c.u2); }
+            System.IO.File.WriteAllText("refuge_drive_edges.txt", string.Join(",", drvEdges));
             string hatchDump = HatchDump(map, new HashSet<int> { 10229, 10230, 10231, 10232, 10236, 10238 });
             string bendDump = BendCells(map, new[] { 14094, 20695 });
             var noseYs = new HashSet<long>(ms.noseYs);
@@ -238,9 +248,13 @@ namespace PSXRacing.EditorTools
                 Line($"  n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' Lc {r.lc:0.0} ({LatLon(p.x, p.y)}) {(r.half <= 0f ? "flush" : r.move > 0f ? $"4-lane move {r.move:0.00} over {r.moveLen:0} m" : "centre lane")}: wI {2f * r.half:0.00}" +
                      $" | OFF island {a.island:0.00} outer {a.outerDev:0.00} lines {a.lineMoveO:0.00} slope {a.slope:0.000} | ON island {b.island:0.00} outer {b.outerDev:0.000} lines {b.lineMove:0.000}/{b.lineMoveO:0.000} path {b.pathMoveO:0.000} slope {b.slope:0.000}");
             }
-            Line($"ARROWS INTO A NOSE (every plain split nose, round 1's TurnMarks rule - city-wide, not per pair): turn-only arrow groups painted into a plain split's nose OFF {noseOff}, ON {noseOn} ({noseSkip} lanes skipped); all arrow groups OFF {groupsOff}, ON {groupsOn}");
-            Check(noseOn == 0, "no turn arrow painted into a plain split nose", noseOn);
+            Line($"ARROWS INTO A NOSE (round 5b: per accepted pair - only an accepted refuge pair's nose loses its arrow; every other plain nose keeps live's): turn-only arrow groups painted into a plain split's nose OFF {noseOff}, ON {noseOn}, of them into an accepted pair's nose {noseRefOn} ({noseSkip} lanes skipped there); all arrow groups OFF {groupsOff}, ON {groupsOn}");
+            Check(noseRefOn == 0, "no turn arrow painted into an accepted refuge pair's nose", noseRefOn);
+            Check(groupsOn + noseSkip >= groupsOff && noseOn + noseSkip >= noseOff, "arrows are removed only at accepted refuge noses (ON + skipped there >= OFF)", $"groups {groupsOn}+{noseSkip} vs {groupsOff}; nose {noseOn}+{noseSkip} vs {noseOff}");
             Line($"NOSE APPROACHES: {hatch}");
+            Line($"FLUSH-TIP NOSES (a centre lane reaches the nose with no room for a hatch): {flushTipKerbed + flushTipFlush} ({flushTipKerbed} kerbed, {flushTipFlush} flush){tipList}");
+            Check(flushTipKerbed == 0, "no centre lane runs into a kerbed island tip unhatched (round 5b: such a pair fails)", flushTipKerbed);
+            Line($"DRIVE EDGES (accepted pairs' chains + undivided edges, refuge_drive_edges.txt): {drvEdges.Count}");
             Line(cells);
             Line(bendDump);
             Line($"NOSE WEDGES (one section normal at a drawn split node): {wedgeMet} carriageway ends meet the undivided road's end at the node, {wedgeFan} meet a fan; largest corner off the undivided road's cut {wedgeMax:0.000} m{wedge}");
@@ -254,6 +268,8 @@ namespace PSXRacing.EditorTools
             Line($"(gate {clock.Elapsed.TotalSeconds:0} s)");
             FinishTo("city_medians.txt");
         }
+
+        static float decideMs;
 
         static int Count(Dictionary<long, byte> d, byte v) { int n = 0; foreach (var x in d.Values) if (x == v) n++; return n; }
 
@@ -326,6 +342,7 @@ namespace PSXRacing.EditorTools
                     if (mode.TryGetValue(kv.Key, out byte md) && md == LineModel.RefugeModeAuto && island) { mode[kv.Key] = LineModel.RefugeModeFlush; why[kv.Key] = "island:" + kv.Value; toFlush++; }
                     else { mode.Remove(kv.Key); why[kv.Key] = (why.TryGetValue(kv.Key, out var w0) ? w0 + " | flush:" : "") + kv.Value; toLive++; }
                 }
+                decideMs = LineModel.RefugePlanMs + LineModel.RefugeBuildMs;
                 sb.Append($"  decision build {iters + 1}: {refs.Count / 2} pairs drawn, {bad.Count} failing ({toFlush} islands -> flush, {toLive} -> live){(loose > 0 ? $", {loose} census edges near no drawn pair" : "")}\n");
                 if (bad.Count == 0) break;
             }
@@ -352,6 +369,8 @@ namespace PSXRacing.EditorTools
             void Add(long pk, string f) { res[pk] = res.TryGetValue(pk, out var o) ? o + f : f; }
             var la = new List<LineModel.LineAt>(16);
             var chainSet = new HashSet<int>();
+            // round 5b (review r5 #1): the marks of this build, for the nose rule below
+            CityMeshes.EnsureMarks(map, t);
             for (int i = 0; i + 1 < refs.Count; i += 2)
             {
                 var r0 = refs[i]; var r1 = refs[i + 1];
@@ -380,6 +399,16 @@ namespace PSXRacing.EditorTools
                         if (Mathf.Max(t0, t1) > LineModel.RefugeTipM + 0.05f && Mathf.Abs(t0 - t1) > FanEndUnevenM)
                             f += $" kerbed island ends unevenly in a junction fan at n{node} (trims {t0:0.0}/{t1:0.0} m);";
                     }
+                // Round 5b (review r5 #1, n10236): a lane must never run into a
+                // kerb unmarked. A centre lane that reaches a kerbed island's
+                // nose with no room for a hatch of HatchMinBars (a relay moves
+                // its lines there) left the island a 4 m flush tip and then the
+                // kerb - the turn-only lane ran into it with no hatch, bay end
+                // or arrow. The pair fails (tried flush: no kerb at all; else live).
+                if (r0.half > 0f)
+                    foreach (int node in new[] { r0.node, r0.far })
+                        if (CityMeshes.NoseFlushTip.Contains(node))
+                            f += $" a centre lane runs into the kerbed tip at n{node} with no hatch (no room for {CityMeshes.HatchMinBars} bars);";
                 if (f.Length > 0) Add(r0.pk, f);
             }
             censusN = 0; worse = 0; loose = 0; worst = 0f; worstAt = "";

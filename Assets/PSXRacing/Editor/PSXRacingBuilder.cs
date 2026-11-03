@@ -7317,12 +7317,21 @@ namespace PSXRacing.EditorTools
         /// that the model library baked and fitted correctly, without going
         /// through the LifeSim menus to start a real race.
         /// </summary>
+        /// EIGHT CARS (owner, 2026-11-02: "increase the potential racer cap
+        /// per race to 8 (including the player)"): the player and seven
+        /// rivals. A smaller field retires the spares at load
+        /// (RaceHandoffApplier.ApplyField) and closes the grid up; a drag
+        /// strip or a parking deck stands four (RaceField.MaxCars).
         static readonly (string name, string model, string skin, float skill, float offset)[] CarSetups =
         {
             ("RX-7 Player", "rx7_fd",      "silver_tornado_silver", 0f,    0f),
             ("Skyline AI",  "skyline_r32", "rpm_red",               1.00f, -1.6f),
             ("Supra AI",    "supra_a80",   "midnight_purple",       0.95f,  1.6f),
             ("Charger AI",  "charger_69",  "go_mango",              0.90f, -0.8f),
+            ("Civic AI",    "civic_eg",    "",                      0.97f,  0.8f),
+            ("180SX AI",    "nissan_180sx", "",                     0.93f, -1.2f),
+            ("Viper AI",    "viper_gts",   "",                      0.91f,  1.2f),
+            ("FD AI",       "rx7_fd_99",   "",                      0.88f,  0f),
         };
 
         static List<CarController> BuildCars(List<Vector3> pts)
@@ -7367,9 +7376,12 @@ namespace PSXRacing.EditorTools
                         : 0;
                     right = RightAt(pts, lineIdx);
                     tangent = Vector3.Cross(right, Vector3.up).normalized;
-                    float laneW = RoadWidth / (CarSetups.Length + 1);
-                    float lane = (c - (CarSetups.Length - 1) * 0.5f) * laneW;
-                    gridPos = pts[lineIdx] + right * lane + Vector3.up * 0.35f;
+                    const int abreast = RaceField.DragAndDeckCars;
+                    float laneW = RoadWidth / (abreast + 1);
+                    float lane = (c % abreast - (abreast - 1) * 0.5f) * laneW;
+                    // Past four, a row behind: a strip races four abreast and
+                    // the spares are retired at load (RaceField.MaxCars).
+                    gridPos = pts[lineIdx] + right * lane - tangent * (12f * (c / abreast)) + Vector3.up * 0.35f;
                 }
                 else if (track.stage && !track.loop)
                 {
@@ -7381,13 +7393,17 @@ namespace PSXRacing.EditorTools
                     // circuit branch below: its start line is waypoint 0 and
                     // the road behind it is the end of the lap.)
                     int lineIdx = Mathf.RoundToInt(track.stageStartLineM / Spacing);
-                    int row = isPlayer ? 3 : c - 1;
+                    // TWO ABREAST (RaceField.Row): eight cars in the 28.5 m
+                    // four stood in single file, which every stage's lead-in
+                    // has (Stone Wall's is 33 m).
+                    int slot = isPlayer ? CarSetups.Length - 1 : c - 1;
+                    int row = RaceField.Row(slot);
                     float back = 9f + row * 6.5f;
                     // In the two real lanes on a real-width road (owner,
                     // 2026-09-27: lanes realistic): 2.1 m off the crown was
                     // for a 9 m stage, on 6.1 m it is the shoulder.
                     float half = Mathf.Min(2.1f, RoadWidth * 0.25f);
-                    float lateral = (row % 2 == 0) ? -half : half;
+                    float lateral = RaceField.Side(slot) * half;
                     float fIdx = lineIdx - back / Spacing;
                     int i0 = Mathf.Max(0, Mathf.FloorToInt(fIdx));
                     int i1 = Mathf.Min(pts.Count - 1, i0 + 1);
@@ -7398,12 +7414,13 @@ namespace PSXRacing.EditorTools
                 }
                 else
                 {
-                    int row = isPlayer ? 3 : c - 1;
+                    int slot = isPlayer ? CarSetups.Length - 1 : c - 1;
+                    int row = RaceField.Row(slot);
                     float back = 9f + row * 6.5f;
                     // The loops (Blowing Rock, Little Switzerland) come this
                     // way too, on 6.4 m of road: lane centres there, not 2.6.
                     float half = Mathf.Min(2.6f, RoadWidth * 0.25f);
-                    float lateral = (row % 2 == 0) ? -half : half;
+                    float lateral = RaceField.Side(slot) * half;
                     // Interpolated between waypoints rather than snapped to one:
                     // rows are 6.5 m apart and waypoints 4 m, so rounding would
                     // put two of the four rows only 4 m apart.
