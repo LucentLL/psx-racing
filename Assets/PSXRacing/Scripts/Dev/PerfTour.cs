@@ -465,6 +465,13 @@ namespace PSXRacing
             if (old != null) Destroy(old);
             yield return null;
             world.EnsureRing(pos, 1);
+            // course=1: the route preloaded as a race preloads it (CityWorld.PreloadCourse)
+            if ((Request() ?? "").Contains("course=1") && world.PreloadCourse(path, CityWorld.CourseAround) > 0)
+            {
+                float c0 = Time.realtimeSinceStartup;
+                while (world.CourseLoading) yield return null;
+                Say($"COURSE {id}: {world.CourseProgress * 100f:0}% in {Time.realtimeSinceStartup - c0:0.0} s");
+            }
             car.ResetTo(pos, rot, seated: true);
             float settle0 = Time.realtimeSinceStartup;
             while (Time.realtimeSinceStartup - settle0 < 60f)

@@ -288,6 +288,8 @@ namespace PSXRacing.City
 
             // The ground under the whole grid, now, before physics steps.
             if (world != null && player != null) world.EnsureRing(player.transform.position, 1);
+            // ...and the whole course while the countdown waits (CityWorld.CourseOn)
+            if (world != null && CityWorld.CourseOn) world.PreloadCourse(path, CityWorld.CourseAround);
         }
 
         /// <summary>

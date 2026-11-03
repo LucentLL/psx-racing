@@ -130,6 +130,101 @@ namespace PSXRacing.City
         void OnEnable() => Active = this;
         void OnDisable() { if (Active == this) Active = null; }
 
+        // ---- THE COURSE, LOADED BEFORE THE START (owner, 2026-11-02: "Load
+        // times are fine if the end result is seamless courses like Dirty
+        // Rally 2") ---------------------------------------------------------
+        //
+        // A race's route is known before the countdown, so every tile within
+        // CourseAround of it is built - trees, signs and poles planted - while
+        // the countdown is held (RaceManager.HoldCountdown), a frame budget
+        // at a time so the window stays live, and PINNED: never dropped, so
+        // nothing on the course is built while the race runs. The streaming
+        // ring still runs for whatever the course does not cover. It is the
+        // live generator, tile for tile what streaming would have built; a
+        // baked city later only makes the load shorter. PC profile only for
+        // now (memory: a 9 km loop is ~200 tiles); PSX_CITY_COURSE=0 turns it
+        // off, =1 forces it.
+        public static bool CourseOn
+        {
+            get
+            {
+                string e = System.Environment.GetEnvironmentVariable("PSX_CITY_COURSE");
+                if (e == "0") return false;
+                if (e == "1") return true;
+                return PlatformProfile.PC;
+            }
+        }
+        /// <summary>Tiles each side of the route: the streaming ring's own
+        /// reach, so the ring round a car on the course is all built.</summary>
+        public const int CourseAround = 2;
+        /// <summary>Build time a loading frame may spend (ms).</summary>
+        const float CourseFrameMs = 60f;
+        readonly HashSet<long> pinned = new HashSet<long>();
+        readonly List<long> courseQueue = new List<long>();
+        int courseTotal, courseDone;
+        double courseMs;
+        /// <summary>The course is still being built (the countdown waits).</summary>
+        public bool CourseLoading => courseQueue.Count > 0;
+        /// <summary>0..1 of the course built.</summary>
+        public float CourseProgress => courseTotal > 0 ? courseDone / (float)courseTotal : 1f;
+
+        /// <summary>Queue every tile within <paramref name="around"/> tiles of
+        /// the path, in the order a car meets them. Returns how many.</summary>
+        public int PreloadCourse(TrackPath path, int around)
+        {
+            EnsureInit();
+            if (Map == null || path == null || path.Count < 2) return 0;
+            var seen = new HashSet<long>();
+            int step = Mathf.Max(1, Mathf.RoundToInt(CityMeshes.TileSize * 0.25f / Mathf.Max(path.spacing, 0.1f)));
+            for (int i = 0; i < path.Count; i += step)
+            {
+                var p = path.GetPoint(i);
+                int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.z / CityMeshes.TileSize);
+                for (int dz = -around; dz <= around; dz++)
+                    for (int dx = -around; dx <= around; dx++)
+                    {
+                        long k = Key(tx + dx, tz + dz);
+                        if (!seen.Add(k)) continue;
+                        pinned.Add(k);
+                        courseQueue.Add(k);
+                    }
+            }
+            courseTotal = courseQueue.Count;
+            courseDone = 0;
+            courseMs = 0.0;
+            RaceManager.HoldCountdown = () => CourseLoading;
+            Debug.Log($"[CityWorld] course preload: {courseTotal} tiles within {around} of the {path.Count * path.spacing / 1000f:0.0} km route");
+            return courseTotal;
+        }
+
+        /// <summary>A loading frame's share of the course: whole tiles, trees
+        /// and all, until the frame's budget is spent.</summary>
+        void RunCourse()
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (courseQueue.Count > 0 && clock.Elapsed.TotalMilliseconds < CourseFrameMs)
+            {
+                long k = courseQueue[0];
+                courseQueue.RemoveAt(0);
+                int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
+                EnsureTile(tx, tz);
+                if (live.ContainsKey(k)) PlantTrees(k);
+                courseDone++;
+            }
+            courseMs += clock.Elapsed.TotalMilliseconds;
+            if (courseQueue.Count == 0)
+                Debug.Log($"[CityWorld] course preload done: {courseDone} tiles in {courseMs / 1000.0:0.0} s, {live.Count} live");
+        }
+
+        void OnGUI()
+        {
+            if (!CourseLoading) return;
+            var r = new Rect(0f, Screen.height * 0.62f, Screen.width, Screen.height * 0.08f);
+            var st = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.Max(14, Screen.height / 30) };
+            st.normal.textColor = Color.white;
+            GUI.Label(r, $"LOADING COURSE  {Mathf.RoundToInt(CourseProgress * 100f)}%", st);
+        }
+
         /// <summary>Colliders on the live tiles (MeshColliders and boxes), and
         /// the tree trunks standing round the cars.</summary>
         public int LiveColliders
@@ -641,6 +736,8 @@ namespace PSXRacing.City
             CityWorker.Pump();
             // the one clock every signal head in the city runs on
             CitySignals.Tick(Time.timeAsDouble);
+            // the course before the start: the loading frame is the course's
+            if (CourseLoading) { RunCourse(); return; }
             if (player == null || Map == null) return;
             var p = player.position;
             int ptx = Mathf.FloorToInt(p.x / CityMeshes.TileSize);
@@ -691,6 +788,7 @@ namespace PSXRacing.City
                 int tx = (int)(kv.Key >> 24);
                 int tz = (int)((kv.Key << 40) >> 40);
                 if (Mathf.Abs(tx - ptx) <= ring + 1 && Mathf.Abs(tz - ptz) <= ring + 1) continue;
+                if (pinned.Contains(kv.Key)) continue;   // the course stays built
                 bool held = false;
                 foreach (var a in anchors)
                 {
