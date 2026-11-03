@@ -54,6 +54,25 @@ namespace PSXRacing.EditorTools
                     ToUrpLit();
                     Shoot(views, outDir, "urp");
                 }
+                else if (mode == "psx")
+                {
+                    // THE HD TIER CHECK: the PSX shaders as the game draws them at
+                    // an hour (PSX_COMPARE_HOUR, default afternoon: a sun for the
+                    // normal maps), with the HD sets on when PSX_HD=1
+                    // (TextureHD; the sets from PSX_HD_SRC). Tag: PSX_COMPARE_TAG.
+                    int hour = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_COMPARE_HOUR"), out int hh) ? hh : TimeOfDay.Afternoon;
+                    Light sun = RenderSettings.sun;
+                    if (sun == null) foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.type == LightType.Directional) { sun = l; break; }
+                    TimeOfDay.Apply(hour, sun);
+                    if (TextureHD.Want)
+                    {
+                        string err = TextureHDTool.Import(out int sets);
+                        Debug.Log($"[PipelineCompare] HD tier: {sets} sets" + (err != null ? " - " + err : ""));
+                    }
+                    PSXTexDecode.StampAll();
+                    Debug.Log($"[PipelineCompare] HD materials: {TextureHD.Applied}");
+                    Shoot(views, outDir, System.Environment.GetEnvironmentVariable("PSX_COMPARE_TAG") ?? "psx");
+                }
 #if PSX_HDRP
                 else if (mode == "hdrp")
                 {

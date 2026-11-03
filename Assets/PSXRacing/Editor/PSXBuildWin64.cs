@@ -85,6 +85,11 @@ namespace PSXRacing.EditorTools
                 err = EngineBundleBuilder.Build(target, out long enBytes, out var enLines);
                 if (err != null) { Debug.LogError("[PSXBuildWin64] ENGINE BUNDLES FAILED: " + err); return false; }
                 Debug.Log($"[PSXBuildWin64] bundles: tex {texBytes / 1048576f:F1} MB, cockpit {ckBytes / 1048576f:F1} MB, charlotte {chBytes / 1048576f:F1} MB, engines {enBytes / 1048576f:F1} MB");
+                // THE HD TIER (TextureHD): the art workspace's HD sets imported and
+                // mapped before the player; their bundle beside it after
+                err = TextureHDTool.Import(out int hdSets);
+                if (err != null) { Debug.LogError("[PSXBuildWin64] HD IMPORT FAILED: " + err); return false; }
+                Debug.Log($"[PSXBuildWin64] HD tier: {hdSets} PBR sets");
 
                 Directory.CreateDirectory(outDir);
                 var options = new BuildPlayerOptions
@@ -112,6 +117,9 @@ namespace PSXRacing.EditorTools
                                 Debug.LogError($"[PSXBuildWin64] {step.name}: {msg.content}");
                     return false;
                 }
+                err = TextureHDTool.ShipBundle(target, Path.Combine(outDir, "PSXRacing_Data", "StreamingAssets"), out long hdBytes);
+                if (err != null) { Debug.LogError("[PSXBuildWin64] HD BUNDLE FAILED: " + err); return false; }
+                if (hdBytes > 0) Debug.Log($"[PSXBuildWin64] HD bundle: {hdBytes / 1048576f:F1} MB beside the player");
                 File.WriteAllText(Path.Combine(outDir, "build_ok.txt"), $"Win64 (Mono) build succeeded {s.totalSize / (1024 * 1024)} MB edition ALL {DateTime.Now:s}\n");
                 return true;
             }

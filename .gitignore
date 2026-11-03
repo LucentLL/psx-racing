@@ -57,3 +57,9 @@ __pycache__/
 /Assets/StreamingAssets/engines/
 /Assets/StreamingAssets/engines.meta
 /Assets/StreamingAssets.meta
+
+# The HD tier's sets (TextureHDTool): gigabytes, imported from the art workspace by the PC build
+/Assets/PSXRacing/HDSrc/
+/Assets/PSXRacing/HDSrc.meta
+/Assets/PSXRacing/Resources/TextureHDMap.asset
+/Assets/PSXRacing/Resources/TextureHDMap.asset.meta
