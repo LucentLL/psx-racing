@@ -89,6 +89,17 @@ namespace PSXRacing.EditorTools
 
     public class TrafficPlayCheckRunner : MonoBehaviour
     {
+        static Transform FindDeep(Transform t, string name)
+        {
+            foreach (Transform c in t)
+            {
+                if (c.name == name) return c;
+                var f = FindDeep(c, name);
+                if (f != null) return f;
+            }
+            return null;
+        }
+
         IEnumerator Start()
         {
             DontDestroyOnLoad(gameObject);
@@ -122,6 +133,7 @@ namespace PSXRacing.EditorTools
             int sawFwd = 0, sawBack = 0;
             float worstRide = 0f, worstSide = 0f;
             int shot = 0;
+            float yawMax = 0f; int yawTurned = 0;
             // SPEED (owner 2026-10-31: "traffic putters along at 10-20 mph"): how fast the
             // traffic actually MOVES - metres between samples over the time between them -
             // beside what its body reports, and the player's own.
@@ -170,6 +182,15 @@ namespace PSXRacing.EditorTools
                         if (ride > 0.25f) badRide++;
                     }
                     if (rb.linearVelocity.magnitude > limit * 1.15f) tooFast++;
+                    // STEERED, NOT SLID (owner, 2026-11-02): the drawn body's
+                    // turn off the lane while the car moves across it.
+                    var w0 = rb.transform.Find("Wheel0") ?? FindDeep(rb.transform, "Wheel0");
+                    if (w0 != null && w0.parent != null)
+                    {
+                        float yawOff = Mathf.Abs(Vector3.SignedAngle(rb.transform.forward, w0.parent.forward, Vector3.up));
+                        yawMax = Mathf.Max(yawMax, yawOff);
+                        if (yawOff > 1.5f) yawTurned++;
+                    }
                 }
                 if (Time.time - t0 > 8f && shot < 3 && bodies.Count > 0 && Shoot("traffic_" + shot)) shot++;
             }
@@ -182,6 +203,8 @@ namespace PSXRacing.EditorTools
             TrafficPlayCheck.Note("peak " + maxLive + " traffic cars live; " + samples + " samples (" +
                                   sawFwd + " with the race, " + sawBack + " oncoming)");
             TrafficPlayCheck.Note(ts.WreckLog.Count + " wrecks in the drive: " + string.Join("; ", ts.WreckLog));
+            TrafficPlayCheck.Note("drawn body turned toward a move across the road: " + yawTurned + " samples over 1.5 deg, most " + yawMax.ToString("0.0") + " deg");
+            TrafficPlayCheck.Check(yawMax < 20f, "a car moving across the road turns its body a little, not a lot (under 20 deg)", yawMax.ToString("0.0"));
             // "I don't like how often AI crashes into traffic ... Crashes should
             // be less common" (2026-09-26). Three racers on autopilot (the
             // player and two AI) for thirty seconds through the rush hour:
@@ -238,10 +261,18 @@ namespace PSXRacing.EditorTools
                 // winding road leaves its lane before it catches anyone. The
                 // player starts beside the lane, just ahead of the traffic car,
                 // and drives across it.
-                Vector3 vf = victim.transform.forward, vr = victim.transform.right;
-                Vector3 from = victim.position + vr * 5.5f + vf * (victim.linearVelocity.magnitude * 0.35f)
+                // From the OTHER LANE, toward the centreline side of it: 5.5 m
+                // off its right was past the road edge on a mountain road
+                // (into the verge or the guard wall), and the player sat
+                // there, closest 5.8 m, never reaching it.
+                Vector3 vf = victim.transform.forward;
+                int vi = path.NearestIndex(victim.position);
+                Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(vi)).normalized;
+                float vLat = Vector3.Dot(victim.position - path.GetPoint(vi), rr);
+                Vector3 toCentre = rr * (vLat > 0f ? -1f : 1f);
+                Vector3 from = victim.position + toCentre * 4f + vf * (victim.linearVelocity.magnitude * 0.35f)
                                + Vector3.up * 0.4f;
-                car.TeleportTo(from, Quaternion.LookRotation(-vr, Vector3.up));
+                car.TeleportTo(from, Quaternion.LookRotation(-toCentre, Vector3.up));
                 var prog = rm.GetProgress(car);
                 if (prog != null) prog.nearestIdx = path.NearestIndex(from);
                 yield return new WaitForFixedUpdate();

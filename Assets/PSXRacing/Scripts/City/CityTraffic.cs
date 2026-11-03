@@ -78,8 +78,21 @@ namespace PSXRacing.City
 
         // ---- the knobs -------------------------------------------------------
         const float LaneM = RoadProfiles.LaneM;
-        const float SpawnMinM = 140f, SpawnMaxM = 380f, SpawnFirstMinM = 60f;
-        const float DespawnM = 480f, DespawnHardM = 700f;
+        const float SpawnMinM = 140f, SpawnMaxM = 450f, SpawnFirstMinM = 60f;
+        const float DespawnM = 560f, DespawnHardM = 700f;
+        /// <summary>
+        /// THE ROAD AHEAD (owner, 2026-11-02: "I see traffic for about 30
+        /// seconds, then it dies down and I rarely see a single car"). After
+        /// the first three seconds no car could be born anywhere in the
+        /// camera's view out to 600 m - buildings or not - and the spawn ring
+        /// ended at 380 m: every point up the road ahead was refused, the
+        /// opening fill was driven past in half a minute, and new cars only
+        /// appeared behind and beside, to be culled unseen. Now a car may be
+        /// born in view past InViewSpawnM (a car's width is a few pixels
+        /// there), the ring reaches 450 m, and AheadShare of the tries aim
+        /// within AheadConeDeg of where the player is going.
+        /// </summary>
+        const float InViewSpawnM = 280f, AheadShare = 0.5f, AheadConeDeg = 60f;
         const int CapDesktop = 48, CapPhone = 24;
         const int MaxLegs = 9;
         const float RideClear = 0.22f, WreckFloor = 0.01f, WreckSpeed = 1.5f;
@@ -3131,8 +3144,19 @@ namespace PSXRacing.City
             if (CensusMode) { if (!CensusSpawnPoint(out ei, out s)) return; }
             else
             {
-                float r = Random.Range(first ? SpawnFirstMinM : SpawnMinM, SpawnMaxM);
-                float a = Random.value * Mathf.PI * 2f;
+                // Ahead: where the player is going, else where the camera looks.
+                Vector2 playerHeading = playerVel;
+                if (playerHeading.sqrMagnitude < 4f && Camera.main != null)
+                {
+                    var cf = Camera.main.transform.forward;
+                    playerHeading = new Vector2(cf.x, cf.z);
+                }
+                bool aheadTry = !first && Random.value < AheadShare && playerHeading.sqrMagnitude > 0.01f;
+                float r = aheadTry ? Random.Range(InViewSpawnM, SpawnMaxM)
+                                   : Random.Range(first ? SpawnFirstMinM : SpawnMinM, SpawnMaxM);
+                float a = aheadTry
+                    ? Mathf.Atan2(playerHeading.y, playerHeading.x) + Random.Range(-AheadConeDeg, AheadConeDeg) * Mathf.Deg2Rad
+                    : Random.value * Mathf.PI * 2f;
                 var p = playerPos + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
                 if (!map.NearestRoadPoint(p, 45f, false, out ei, out s, out _)) return;
                 if (spawnW[ei] <= 0f || Random.value * maxSpawnW > spawnW[ei]) return;
@@ -3152,7 +3176,7 @@ namespace PSXRacing.City
             if (!CensusMode)
             {
                 if ((q - playerPos).sqrMagnitude < (first ? 40f * 40f : SpawnMinM * SpawnMinM * 0.6f)) return;
-                if (!first && InView(at)) return;
+                if (!first && InView(at) && (q - playerPos).sqrMagnitude < InViewSpawnM * InViewSpawnM) return;
             }
             foreach (var o in live) if ((o.pos - q).sqrMagnitude < 20f * 20f) { if (Log != null) Log.spCrowded++; return; }
 
