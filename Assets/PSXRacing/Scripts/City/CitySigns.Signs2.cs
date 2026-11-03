@@ -950,7 +950,7 @@ namespace PSXRacing.City
         static void WarnFace(CityMap map, CityMeshes.Trims trims, Pure pu, Site site, CityMap.Edge e, Vector2 g, Vector2 look, Vector2[] posts, Vector3 viewer, float roadY, float diag, float faceH)
         {
             bool chevron = site.kind == GuideKind.Chevron;
-            float gy = CityMeshes.LatticeAt(map, g.x, g.y);
+            float gy = SharedGround(map, g.x, g.y);
             float road = Mathf.Max(RoadTopAt(map, trims, g, 4f), roadY);
             float baseY = float.IsNegativeInfinity(road) ? gy : Mathf.Max(gy, road);
             var n3 = new Vector3(look.x, 0f, look.y);
@@ -994,7 +994,7 @@ namespace PSXRacing.City
             }
             foreach (var p in posts)
             {
-                float py = CityMeshes.LatticeAt(map, p.x, p.y);
+                float py = SharedGround(map, p.x, p.y);
                 var foot = new Vector3(p.x, Mathf.Min(py, baseY) - 0.4f, p.y) - n3 * 0.098f;
                 var head = new Vector3(p.x, top - (chevron ? 0.05f : diag * 0.25f), p.y) - n3 * 0.098f;
                 GBox((foot + head) * 0.5f, r3, up, n3, 0.038f, (head.y - foot.y) * 0.5f, 0.038f, CityGuideFont.Galv, true);

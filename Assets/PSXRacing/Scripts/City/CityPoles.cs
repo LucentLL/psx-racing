@@ -528,7 +528,8 @@ namespace PSXRacing.City
                     if (bits != 0) { if (none.why < 0) none.why = bits; continue; }
                     if (!CitySigns.RoadsClear(map, trimsNow, f)) { if (none.why < 0) none.why = WhyRoad; continue; }
                     float roadY = e.YAt(s2);
-                    float ground = Mathf.Min(CityMeshes.LatticeAt(map, f.x, f.y), CityElevation.GroundY(map, f.x, f.y));
+                    // (city-tree-bake: the order-free ground - this decision is cached, made by whichever tile asks first)
+                    float ground = Mathf.Min(CityMeshes.SharedGroundAt(map, trimsNow, buildingsNow, f.x, f.y), CityElevation.GroundY(map, f.x, f.y));
                     if (Mathf.Abs(ground - roadY) > MaxBankM) { if (none.why < 0) none.why = WhyBank; continue; }
                     float h = Mathf.Lerp(MinHeightM, MaxHeightM, Hash01(chain, k, 7));
                     float footY = ground - SinkM;
@@ -601,7 +602,7 @@ namespace PSXRacing.City
                     float road = CitySigns.RoadTopAt(mapNow, trimsNow, q, 0.3f);
                     if (!float.IsNegativeInfinity(road) && wire < road + WireClearM) return 2;
                 }
-                if ((i & 3) == 2 && wire < CityMeshes.LatticeAt(mapNow, q.x, q.y) + WireGroundM) return 3;
+                if ((i & 3) == 2 && wire < CityMeshes.SharedGroundAt(mapNow, trimsNow, buildingsNow, q.x, q.y) + WireGroundM) return 3;   // (cached too: order-free)
             }
             return 0;
         }

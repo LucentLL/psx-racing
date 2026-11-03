@@ -281,6 +281,9 @@ namespace PSXRacing.EditorTools
                 var tiles = only != null ? new List<Vector2Int>(only) : AllTiles(map);
                 string fp = Fingerprint(out string code, out string data);
                 Directory.CreateDirectory(dir);
+                string drive = Path.GetPathRoot(Path.GetFullPath(dir));
+                long free0 = new DriveInfo(drive).AvailableFreeSpace;
+                if (free0 < MinFreeBytes) { report = $"{free0 / 1073741824.0:0.0} GB free on {drive}, under the {MinFreeBytes / 1073741824.0:0} GB floor - not baking"; return false; }
                 // no manifest while it is being written: an interrupted bake is never fresh
                 string man = Path.Combine(dir, CityTileCache.ManifestName);
                 if (File.Exists(man)) File.Delete(man);
@@ -295,7 +298,6 @@ namespace PSXRacing.EditorTools
                 int treeFrames = 0;
                 double buildMs = 0, writeMs = 0, maxBuild = 0, standMs = 0;
                 string maxTile = "";
-                string drive = Path.GetPathRoot(Path.GetFullPath(dir));
                 // THE TREE FRAME (format 2): the planting's result encoded the moment
                 // it ends, before its stand-up attaches anything (CityWorld.TreeFrameReady)
                 long keyNow = long.MinValue;
@@ -358,15 +360,18 @@ namespace PSXRacing.EditorTools
                     {
                         Debug.Log($"[CityTileBake] {i + 1}/{tiles.Count} tiles, {bytes / 1048576.0:0} MB, {clock.Elapsed.TotalSeconds:0} s");
                         // the guard the brief sets: the bake must fit the disk - what is
-                        // still to write must leave 15 GB free on its drive (another
-                        // session's build shares it; an older player's hard links keep
-                        // the bake it was built with alive beside this one)
+                        // still to write must leave 15 GB free on its drive. Projected at
+                        // the rate the disk has really lost space per byte written: a
+                        // rebake over its own files costs about nothing (each file replaces
+                        // one), unless an older player's hard links keep those alive, and
+                        // another session's build sharing the drive counts against it too
                         double projected = bytes / (double)(i + 1) * tiles.Count;
                         long free = new DriveInfo(drive).AvailableFreeSpace;
-                        double left = free - (projected - bytes);
-                        if (left < MinFreeBytes)
+                        double rate = bytes > 0 ? System.Math.Max(0.0, (double)(free0 - free) / bytes) : 1.0;
+                        double left = free - rate * (projected - bytes);
+                        if (free < MinFreeBytes || left < MinFreeBytes)
                         {
-                            report = $"PROJECTED BAKE {projected / 1073741824.0:0.0} GB would leave {left / 1073741824.0:0.0} GB free on {drive} (the floor is {MinFreeBytes / 1073741824.0:0} GB) - stopped at tile {i + 1}";
+                            report = $"PROJECTED BAKE {projected / 1073741824.0:0.0} GB, the disk losing {rate:0.00} of a byte a byte written, would leave {left / 1073741824.0:0.0} GB free on {drive} ({free / 1073741824.0:0.0} now; the floor is {MinFreeBytes / 1073741824.0:0} GB) - stopped at tile {i + 1}";
                             return false;
                         }
                     }

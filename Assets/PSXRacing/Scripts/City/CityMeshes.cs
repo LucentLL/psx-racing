@@ -2439,6 +2439,38 @@ namespace PSXRacing.City
         /// lattice from a verge strip where land stands over a lane.</summary>
         public static float LatticeAt(CityMap map, float x, float z) => LatticeY(map, x, z);
 
+        /// <summary>
+        /// THE GROUND A SHARED DECISION STANDS ON (city-tree-bake, 2026-11-03): a
+        /// utility pole's station, a span's clearance, a gantry, a billboard, a
+        /// guide or warning sign - each decided ONCE a session, by whichever tile
+        /// asks first, and cached. <see cref="LatticeAt"/> reads the builder's
+        /// cache and works a missing corner out under the junction fans of the
+        /// tile built last (<see cref="FanFloor"/>), so such a decision depended on
+        /// the order tiles were built in: the bake gate found a pole 2.4 cm apart
+        /// between the bake's order and a drive's. This is the lattice's own
+        /// triangles over the graded corners every tile computes the same
+        /// (CityHouses.Lattice) without the fans' floors, cached nowhere: the
+        /// same number whatever was built before, and the lattice to the bit
+        /// wherever no fan reaches (a fan only lowers corners inside a junction,
+        /// a decision's feet stand off the pavement, sunk 0.3 m or more).
+        /// </summary>
+        public static float SharedGroundAt(CityMap map, Trims trims, Dictionary<long, List<CityBuildings.B>> buildings, float x, float z)
+        {
+            // (graded corners need the house table bound: a session that has built no tile yet)
+            CityHouses.Bind(map, trims, buildings);
+            float fx = x / LatticeCell, fz = z / LatticeCell;
+            int ix = Mathf.FloorToInt(fx), iz = Mathf.FloorToInt(fz);
+            float tx = fx - ix, tz = fz - iz;
+            float h00 = CityHouses.Lattice(map, ix, iz), h11 = CityHouses.Lattice(map, ix + 1, iz + 1);
+            if (tx >= tz)
+            {
+                float h10 = CityHouses.Lattice(map, ix + 1, iz);
+                return h00 + tx * (h10 - h00) + tz * (h11 - h10);
+            }
+            float h01 = CityHouses.Lattice(map, ix, iz + 1);
+            return h00 + tz * (h01 - h00) + tx * (h11 - h01);
+        }
+
         /// <summary>The ground mesh's height at a plan point: the triangle
         /// BuildGround drew there. Bucket.Up draws every cell's quad with its
         /// diagonal from (0,0) to (1,1). Reads the tile build's cache.</summary>

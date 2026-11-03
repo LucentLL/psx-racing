@@ -16,7 +16,10 @@ namespace PSXRacing.EditorTools
     /// pass with the same 9-tile window, its signs and poles decided and its
     /// trees planted, and compared:
     ///   data   - every field and mesh of the TileMeshes (CityTileCache.DataHash);
-    ///   ground - the tile's lattice once its stand-up and its planting read it;
+    ///   ground - (format 2) every lattice corner the bake and the built tile both
+    ///            hold the same number, and the baked stand-up reading no corner its
+    ///            file lacks (corners only the built build read - a fan worked out
+    ///            first by another tile in the bake's order - are counted, not required);
     ///   trees  - (format 2, city-tree-bake) the tile's TREE FRAME as it is about
     ///            to stand up: PLANTED here in the built pass, read off the bake
     ///            (planted by the bake tool) in the baked pass - everything the
@@ -34,6 +37,10 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class HitchProbe
     {
+        static string V(Vector3 v) => $"({v.x:R}, {v.y:R}, {v.z:R})";
+        /// <summary>Bit for bit (Unity's == on vectors is approximate).</summary>
+        static bool Same(Vector3 a, Vector3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
+
         static void BakeGate()
         {
             var map = CityMap.Get();
@@ -91,6 +98,7 @@ namespace PSXRacing.EditorTools
             bool wasEnabled = CityTileCache.Enabled, wasForce = CityTileCache.Force;
             string wasDir = System.Environment.GetEnvironmentVariable("PSX_TILECACHE_DIR");
             int baked = 0, latExtra = 0, bakedTrees = 0, plantedBaked = 0, plantReads = 0, plantMissing = 0, plantWrong = 0;
+            int buildOnly = 0, buildOnlyTiles = 0, standGrown = 0;
             int[] frames = new int[2];
             var builtLattice = new Dictionary<Vector2Int, Dictionary<long, float>>();
             var standLattice = new Dictionary<Vector2Int, Dictionary<long, float>>();
@@ -98,11 +106,24 @@ namespace PSXRacing.EditorTools
             // the tree frame as it is about to stand up (planted, or off the bake)
             long nowKey = long.MinValue;
             string nowTrees = null, nowParts = null;
+            Dictionary<(int, int), CityPoles.Pole> nowPoles = null;
+            string nowPoleCounts = null;
+            var poles = new[] { new Dictionary<Vector2Int, Dictionary<(int, int), CityPoles.Pole>>(), new Dictionary<Vector2Int, Dictionary<(int, int), CityPoles.Pole>>() };
+            var poleCounts = new[] { new Dictionary<Vector2Int, string>(), new Dictionary<Vector2Int, string>() };
             System.Action<long, CityTrees.TreeTile> onFrame = (k, tt) =>
             {
                 if (k != nowKey) return;
                 nowTrees = CityTileCache.TreeHash(tt);
                 nowParts = CityTileCache.TreeHashParts(tt);
+                // (the poles, for a difference's diagnosis: each by its line and station)
+                nowPoles = new Dictionary<(int, int), CityPoles.Pole>();
+                var pt = tt.poles;
+                if (pt != null)
+                {
+                    foreach (var p in pt.poles) nowPoles[(p.chain, p.k)] = p;
+                    nowPoleCounts = $"stations {pt.stations} refused {pt.refused} wires {pt.wires} spans long/road/ground/blocked {pt.spanLong}/{pt.spanRoad}/{pt.spanGround}/{pt.spanBlocked} lamps {pt.lampsDrawn} verts {(pt.mesh != null ? pt.mesh.vertexCount : 0)}";
+                }
+                else nowPoleCounts = "no poles";
             };
             CityWorld.TreeFrameReady += onFrame;
             try
@@ -127,6 +148,14 @@ namespace PSXRacing.EditorTools
                     foreach (var k in order)
                     {
                         long key = ((long)k.x << 24) ^ (k.y & 0xFFFFFF);
+                        // (baked: the lattice its file holds, before its stand-up reads it)
+                        Dictionary<long, float> fileLat = null;
+                        if (pass == 1)
+                        {
+                            var dec = CityTileCache.Read(dir, k.x, k.y, false);
+                            fileLat = dec.lattice;
+                            dec.Release();
+                        }
                         var clock = System.Diagnostics.Stopwatch.StartNew();
                         world.EnsureTile(k.x, k.y);
                         float ms = (float)clock.Elapsed.TotalMilliseconds;
@@ -141,7 +170,7 @@ namespace PSXRacing.EditorTools
                         }
                         // (built: the lattice as its stand-up left it - what a baked tile reads)
                         if (pass == 0 && lattice != null) standLattice[k] = new Dictionary<long, float>(lattice);
-                        nowKey = key; nowTrees = null; nowParts = null;
+                        nowKey = key; nowTrees = null; nowParts = null; nowPoles = null; nowPoleCounts = null;
                         clock.Restart();
                         // a baked frame decides nothing: only a planted one has signs and poles to decide
                         if (!bakedT) for (int g = 0; g < 400 && world.PrepareSigns(key) != 0; g++) { }
@@ -155,31 +184,43 @@ namespace PSXRacing.EditorTools
                         }
                         string trees = nowTrees ?? "-";
                         if (nowParts != null) parts[pass][k] = nowParts;
+                        if (nowPoles != null) { poles[pass][k] = nowPoles; poleCounts[pass][k] = nowPoleCounts; }
                         // THE GROUND. Built: the lattice its build and stand-up read (kept
                         // before the planting) and the planting's reads past it. Baked: every
-                        // corner the built stand-up read must be in the bake, bit for bit -
-                        // a baked tile reads its lattice for its stand-up and nothing else
-                        // (its frame is planted already). The built planting's own reads are
-                        // counted, not required: only a tile planted live (the A/B) reads them.
+                        // corner the bake and the built tile both hold the same number, and
+                        // the baked stand-up reading no corner its file lacks - a baked tile
+                        // reads its lattice for its stand-up and nothing else (its frame is
+                        // planted already). The rest is counted, not required: corners only the
+                        // built build read (a cache's first use another tile made in the bake),
+                        // and the built planting's own reads (only a tile planted live, the
+                        // A/B, reads them).
                         if (lattice != null)
                         {
                             if (pass == 0) { builtLattice[k] = new Dictionary<long, float>(lattice); lat = "built " + (standLattice.TryGetValue(k, out var s0) ? s0.Count : -1); }
-                            else if (standLattice.TryGetValue(k, out var sl))
+                            else if (standLattice.TryGetValue(k, out var sl) && fileLat != null)
                             {
-                                int missing = 0, wrong = 0;
+                                // a corner both hold must be the same number; the baked stand-up
+                                // must have read no corner its file lacks (it would work one out
+                                // under whatever the builder last built); a corner only the built
+                                // tile holds is one its build read on a cache's first use (a fan
+                                // another tile worked out first in the bake's order): counted
+                                int missing = 0, wrong = 0, grown = 0;
                                 foreach (var kv in sl)
                                 {
-                                    if (!lattice.TryGetValue(kv.Key, out float y)) missing++;
+                                    if (!fileLat.TryGetValue(kv.Key, out float y)) missing++;
                                     else if (System.BitConverter.SingleToInt32Bits(y) != System.BitConverter.SingleToInt32Bits(kv.Value)) wrong++;
                                 }
-                                lat = missing == 0 && wrong == 0 ? "built " + sl.Count : $"{missing} corners missing, {wrong} differ of {sl.Count} (baked {lattice.Count})";
-                                latExtra += lattice.Count - sl.Count;
+                                foreach (var kk in lattice.Keys) if (!fileLat.ContainsKey(kk)) grown++;
+                                buildOnly += missing; standGrown += grown;
+                                if (missing > 0) buildOnlyTiles++;
+                                lat = wrong == 0 && grown == 0 ? "built " + sl.Count : $"{wrong} differ of {sl.Count}, the baked stand-up read {grown} corners its file lacks (file {fileLat.Count})";
+                                latExtra += fileLat.Count - (sl.Count - missing);
                                 if (builtLattice.TryGetValue(k, out var bl))
                                     foreach (var kv in bl)
                                     {
                                         if (sl.ContainsKey(kv.Key)) continue;
                                         plantReads++;
-                                        if (!lattice.TryGetValue(kv.Key, out float y)) plantMissing++;
+                                        if (!fileLat.TryGetValue(kv.Key, out float y)) plantMissing++;
                                         else if (System.BitConverter.SingleToInt32Bits(y) != System.BitConverter.SingleToInt32Bits(kv.Value)) plantWrong++;
                                     }
                             }
@@ -240,6 +281,27 @@ namespace PSXRacing.EditorTools
                 if (differ <= 25)
                     L($"  DIFFERS tile {k.x},{k.y}:{(sd ? "" : $" data built {a.data} / baked {b.data}")}{(sl ? "" : $" ground built {a.lat} / baked {b.lat}")}" +
                       $"{(st ? "" : $" trees planted {a.trees} / baked {b.trees} (differ in:{partNote})")}{(sw ? "" : $" whole built {a.whole} / baked {b.whole}")}");
+                // the poles that differ, each by its line and station (planted / baked)
+                if (partNote.Contains("poles") && poles[0].TryGetValue(k, out var p0) && poles[1].TryGetValue(k, out var p1))
+                {
+                    poleCounts[0].TryGetValue(k, out var c0); poleCounts[1].TryGetValue(k, out var c1);
+                    L($"    poles planted: {c0}");
+                    L($"    poles baked:   {c1}");
+                    int shown = 0;
+                    foreach (var kv in p0)
+                    {
+                        if (shown >= 8) break;
+                        if (!p1.TryGetValue(kv.Key, out var q)) { L($"    pole {kv.Key} planted only: foot {V(kv.Value.foot)} top {kv.Value.top:R}"); shown++; continue; }
+                        var pp = kv.Value;
+                        if (!Same(pp.foot, q.foot) || pp.top != q.top || !Same(pp.lens, q.lens) || pp.s != q.s || pp.edge != q.edge)
+                        {
+                            L($"    pole {kv.Key} planted foot {V(pp.foot)} top {pp.top:R} lens {V(pp.lens)} s {pp.s:R} / baked foot {V(q.foot)} top {q.top:R} lens {V(q.lens)} s {q.s:R}");
+                            shown++;
+                        }
+                    }
+                    foreach (var kv in p1) if (shown < 8 && !p0.ContainsKey(kv.Key)) { L($"    pole {kv.Key} baked only: foot {V(kv.Value.foot)} top {kv.Value.top:R}"); shown++; }
+                    if (shown == 0) L("    (every pole the same: a span or a lamp differs - the furniture mesh)");
+                }
             }
             liveMs.Sort(); bakedMs.Sort(); treeMs[0].Sort(); treeMs[1].Sort();
             L($"tile now (EnsureTile, main thread): built p50 {P(liveMs, 50):0.0} p95 {P(liveMs, 95):0.0} max {P(liveMs, 100):0.0} ms / baked (read + make + stand-up, colliders cooked here) p50 {P(bakedMs, 50):0.0} p95 {P(bakedMs, 95):0.0} max {P(bakedMs, 100):0.0} ms");
@@ -254,6 +316,7 @@ namespace PSXRacing.EditorTools
             }
             L($"{baked} of {order.Count} tiles stood up from the bake in the baked pass; tree frames: {frames[0]} planted in the built pass, {bakedTrees} stood up from the bake in the baked pass ({plantedBaked} planted there instead); the baked lattices hold {latExtra} corners more than the built stand-ups read");
             L($"  the built plantings read {plantReads} corners past their stand-ups (a baked frame reads none): the bake holds all but {plantMissing} of them, {plantWrong} differ");
+            L($"  ground: the baked stand-ups read {standGrown} corners their files lack; {buildOnly} corners on {buildOnlyTiles} tiles only the built builds read (a cache's first use - a fan another tile worked out first in the bake)");
             if (partDiff.Count > 0)
             {
                 var pd = new System.Text.StringBuilder("tree frames differing, by part:");

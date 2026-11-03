@@ -749,7 +749,7 @@ namespace PSXRacing.City
             var feet = span ? new[] { legA, legB } : new[] { armFromRight ? legB : legA };
             foreach (var leg in feet)
             {
-                float gy = deck ? e.YAt(s) - 0.6f : CityMeshes.LatticeAt(map, leg.x, leg.y);
+                float gy = deck ? e.YAt(s) - 0.6f : SharedGround(map, leg.x, leg.y);
                 EndFrame(V3(leg, gy), trussTop + 0.25f, n3, r3, TrussD, deck);
                 float top = trussTop + 0.25f;
                 if (S2Legs || deck)
@@ -774,7 +774,7 @@ namespace PSXRacing.City
             if (deck) pu.kind = Kind.Bridge;
             pu.sign = new Sign
             {
-                kind = deck ? Kind.Bridge : Kind.Gantry, pos = c, ground = CityMeshes.LatticeAt(map, c.x, c.y), bottom = yT - maxH * 0.5f, top = yT + 0.55f,   // the audit's truss box is centred 0.55 under top
+                kind = deck ? Kind.Bridge : Kind.Gantry, pos = c, ground = SharedGround(map, c.x, c.y), bottom = yT - maxH * 0.5f, top = yT + 0.55f,   // the audit's truss box is centred 0.55 under top
                 route = -1, edge = e.index, legA = span ? legA : (armFromRight ? legB : legA), legB = span ? legB : (armFromRight ? legB : legA),
                 clearance = yT - maxH * 0.5f - roadTop, firstFace = 0, faces = pu.faces.Count, owner = pu.sign.owner,
             };
@@ -1022,7 +1022,7 @@ namespace PSXRacing.City
         /// the road beside it, square galvanised posts into the ground.</summary>
         static void SmallSign(CityMap map, CityMeshes.Trims trims, Pure pu, GBlock legend, Vector2 g, Vector2 look, Vector2[] posts, Vector3 viewer, CityMap.Edge e, float postHalf = 0.038f, float roadY = float.NegativeInfinity)
         {
-            float gy = CityMeshes.LatticeAt(map, g.x, g.y);
+            float gy = SharedGround(map, g.x, g.y);
             float road = Mathf.Max(RoadTopAt(map, trims, g, 4f), roadY);
             // the bottom 2.1 m over the ground AND over the road it serves (a
             // road on fill: the panel stands on longer posts, not down the bank)
@@ -1034,7 +1034,7 @@ namespace PSXRacing.City
             HangSmall(legend, centre, r3, n3);
             foreach (var p in posts)
             {
-                float py = CityMeshes.LatticeAt(map, p.x, p.y);
+                float py = SharedGround(map, p.x, p.y);
                 var foot = new Vector3(p.x, Mathf.Min(py, baseY) - 0.4f, p.y) - n3 * (0.06f + postHalf);
                 var head = new Vector3(p.x, bottom + legend.h - 0.05f, p.y) - n3 * (0.06f + postHalf);
                 GBox((foot + head) * 0.5f, r3, Vector3.up, n3, postHalf, (head.y - foot.y) * 0.5f, postHalf, CityGuideFont.Galv, true);
