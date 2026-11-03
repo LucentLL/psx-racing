@@ -90,15 +90,25 @@ namespace PSXRacing.City
         /// last crosses the fan's ring (the parameter from w), or -1.</summary>
         static float RingEntry(List<FanCorner> ring, Vector2 w, Vector2 v)
         {
+            // A section whose outer vertex is itself a ring corner (an arm's own
+            // mouth) runs ALONG the mouth chord to the clipped corner: that
+            // chord is parallel (skipped), the crossing at the outer vertex is
+            // no entry (t ~ 0, skipped), and the next ring edge is met at its
+            // own end point (u ~ 0, accepted within a millimetre).
             float best = -1f; var d = v - w;
+            float dl = d.magnitude;
+            if (dl < 1e-4f) return -1f;
             for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
             {
                 Vector2 a = new Vector2(ring[j].pos.x, ring[j].pos.z), b = new Vector2(ring[i].pos.x, ring[i].pos.z), e = b - a;
+                float el = e.magnitude;
+                if (el < 1e-4f) continue;
                 float den = d.x * e.y - d.y * e.x;
-                if (Mathf.Abs(den) < 1e-8f) continue;
+                if (Mathf.Abs(den) < 0.02f * dl * el) continue;   // parallel within ~1 degree
                 var aw = a - w;
                 float t = (aw.x * e.y - aw.y * e.x) / den, u = (aw.x * d.y - aw.y * d.x) / den;
-                if (t >= 0f && t <= 1f && u >= 0f && u <= 1f && t > best) best = t;
+                float ut = 1e-3f / el;
+                if (t * dl >= 0.05f && t <= 1f && u >= -ut && u <= 1f + ut && t > best) best = t;
             }
             return best;
         }
@@ -137,6 +147,7 @@ namespace PSXRacing.City
                     float t = RingEntry(ring, vout, vin);
                     if (t < 0f) continue;
                     var c = Vector2.Lerp(vout, vin, t);
+                    if (Vector2.Distance(c, vout) < 0.5f) continue;   // never down to a sliver
                     if (!FanY(map, trims, nd, ring, tris, c, out float yc)) continue;
                     yc -= FanProudM;
                     var old = inL ? sec.L : sec.R;
