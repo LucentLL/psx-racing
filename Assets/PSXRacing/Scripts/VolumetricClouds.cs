@@ -29,6 +29,9 @@ namespace PSXRacing
     public static class VolumetricClouds
     {
         public const int MapW = 2048, MapH = 512;
+        /// <summary>The share of a fresh march a texel keeps (after the first
+        /// turn): PSXVolClouds.shader's resolve.</summary>
+        const float HistoryBlend = 0.2f;
         public const string ShaderName = "Hidden/PSX/VolClouds";
         /// <summary>View steps a march takes (the shader's VOL_MAX_STEPS caps it).</summary>
         public const int Steps = 48;
@@ -403,8 +406,13 @@ namespace PSXRacing
             var ph = Order[frame & 15];
             mat.SetVector(idWind, new Vector4(wind.x, wind.y, rise, frame & 1023));
             // A fresh texel replaces its history for the first turn after a
-            // reset, then keeps a third of each new march (~5 samples).
-            mat.SetVector(idPhase, new Vector4(ph.x, ph.y, 0f, sinceReset < 16 ? 1f : 0.35f));
+            // reset, then keeps a fifth of each new march (~9 samples: at a
+            // third the march's jitter stayed as grain - owner, 2026-11-02,
+            // "you can see the individual particles"). A texel is marched one
+            // frame in 16, so it is 63% of the way to a change in ~1.2 s at
+            // 60 fps (was 0.6 s); the eye's move and the wind are reprojected,
+            // not waited for, and a reset re-marches every texel outright.
+            mat.SetVector(idPhase, new Vector4(ph.x, ph.y, 0f, sinceReset < 16 ? 1f : HistoryBlend));
             // The clouds drift against the wind offset (the shader reads the
             // field at xz + wind), so last frame's cloud is a wind step back.
             mat.SetVector(idMove, new Vector4(move.x + dw.x, 0f, move.z + dw.y, reset ? 1f : 0f));

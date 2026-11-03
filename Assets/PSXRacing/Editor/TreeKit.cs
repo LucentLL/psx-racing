@@ -43,6 +43,10 @@ namespace PSXRacing.EditorTools
         /// their name and are matched by path.</summary>
         static readonly Regex TreeTex = new Regex(@"(^|[^a-z])trees?([^a-z]|\d|$)|treeatlas", RegexOptions.IgnoreCase);
         static readonly Regex ShrubTex = new Regex(@"bush|hedge|plant|flower|nature", RegexOptions.IgnoreCase);
+        /// <summary>A tree's BARK ("tree_bark_6", PSX Nature) is the surface of
+        /// a trunk or a log - Chimney Rock's log rails wear it - never a card
+        /// of foliage.</summary>
+        static readonly Regex BarkTex = new Regex(@"bark", RegexOptions.IgnoreCase);
 
         public enum Kind { None, Tree, Shrub }
 
@@ -53,6 +57,7 @@ namespace PSXRacing.EditorTools
             if (t == null) return Kind.None;
             string path = UnityEditor.AssetDatabase.GetAssetPath(t);
             if (path.Contains("/Art/Roads/Ar (")) return Kind.Tree;
+            if (BarkTex.IsMatch(t.name)) return Kind.None;
             if (TreeTex.IsMatch(t.name)) return Kind.Tree;
             if (ShrubTex.IsMatch(t.name)) return Kind.Shrub;
             return Kind.None;

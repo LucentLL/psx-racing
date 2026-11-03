@@ -2365,6 +2365,16 @@ namespace PSXRacing.EditorTools
         /// sample and never reach this.
         /// </summary>
         const float GhostUnderRail = 0.6f;
+        /// <summary>
+        /// AN OPEN RAIL HAS GAPS BETWEEN ITS RAILS (Chimney Rock's two logs, the
+        /// Parkway bridges' two-rail railing): a ray fired out between two logs
+        /// meets the bank behind, or nothing, and read as "held off by 1.44 m
+        /// of air" (stage-accuracy gates, 2026-11-03). Nothing near at a height
+        /// no more than this over a drawn hit is that gap, or just over the top
+        /// rail: the car's front is taller than it and meets the rail below.
+        /// One sample at the audit's pitch; anything higher is judged as before.
+        /// </summary>
+        const float GhostRailOpening = 0.25f;
         /// <summary>How far outside the barrier line a collider can be and
         /// still be this venue's barrier rather than scenery.</summary>
         const float GhostOut = 5f;
@@ -2431,7 +2441,7 @@ namespace PSXRacing.EditorTools
             void Sample(Collider col, int i, Vector3 road, List<(Vector3 origin, Vector3 dir)> faces,
                         float lo, float hi, float top, Vector3 where, bool askHidden = false)
             {
-                float drawnTop = lo - GhostStep, worstGap = 0f;
+                float drawnTop = lo - GhostStep, worstGap = 0f, lastNear = float.NegativeInfinity;
                 bool anyDrawn = false;
                 string hitName = null;
                 var why = trace ? new StringBuilder() : null;
@@ -2461,9 +2471,14 @@ namespace PSXRacing.EditorTools
                     // nothing, or the ground a metre behind - is the open band,
                     // not a barrier held off by air.
                     if (!anyDrawn && y < GhostUnderRail && (hit < 0f || hit - GhostBack > GhostGap)) continue;
+                    // Between an open rail's rails (GhostRailOpening): neither
+                    // air nor the drawn barrier's top.
+                    bool near = hit >= 0f && hit - GhostBack <= GhostGap;
+                    if (!near && anyDrawn && y - lastNear <= GhostRailOpening + 1e-3f) continue;
                     if (hit < 0f) break;
                     anyDrawn = true;
                     drawnTop = y;
+                    if (near) lastNear = y;
                     float gap = Mathf.Max(0f, hit - GhostBack);
                     if (gap > worstGap) { worstGap = gap; hitName = who; }
                 }

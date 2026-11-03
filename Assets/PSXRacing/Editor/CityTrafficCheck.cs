@@ -366,6 +366,7 @@ namespace PSXRacing.EditorTools
             var traffic = CityTraffic.Instance;
             var before = traffic.Stats;
             samples = carSamples = offPave = wrongWay = overlaps = activeSum = activeMax = 0;
+            seenEarly = seenLate = 0f; seenEarlyN = seenLateN = 0;
             activeMin = int.MaxValue;
             offWhat = wrongWhat = overlapWhat = null;
             traffic.ResetTiming();
@@ -389,6 +390,9 @@ namespace PSXRacing.EditorTools
             float mean = samples > 0 ? activeSum / (float)samples : 0f;
             CityTrafficCheck.Line($"{name}: target {traffic.Target} (share {traffic.Share:0.00}, level {TrafficLevels.Name(CityTraffic.LevelAt(CityTraffic.ClockNow))})");
             CityTrafficCheck.Line($"  active cars min {(activeMin == int.MaxValue ? 0 : activeMin)} / mean {mean:0.0} / max {activeMax}; spawned {a.spawned - before.spawned}, recycled {a.recycled - before.recycled}");
+            float sE = seenEarlyN > 0 ? seenEarly / seenEarlyN : 0f, sL = seenLateN > 0 ? seenLate / seenLateN : 0f;
+            CityTrafficCheck.Line($"  cars IN VIEW within 400 m: {sE:0.0} at 10-40 s, {sL:0.0} in the last 30 s");
+            if (rush && drive) CityTrafficCheck.Check(sL >= sE * 0.6f, "the view ahead stays fed while driving (last 30 s >= 0.6 x the first)", $"{sE:0.0} -> {sL:0.0}");
             CityTrafficCheck.Line($"  signals: stopped at red {a.redStops - before.redStops}, went on green {a.greenGoes - before.greenGoes}, on yellow {a.yellowGoes - before.yellowGoes}, RAN RED {a.ranRed - before.ranRed}, right on red {a.rightOnRed - before.rightOnRed}; left turns waiting for oncoming {a.leftYields - before.leftYields}, gone on the yellow {a.sneakLefts - before.sneakLefts}; held short of a full box {a.keepClearHolds - before.keepClearHolds}; longest queue so far {a.maxQueue}");
             CityTrafficCheck.Line($"  stop signs: full stops {a.stopSignStops - before.stopSignStops}, rolled {a.stopRolls - before.stopRolls}; yields at minor roads {a.yields - before.yields}");
             CityTrafficCheck.Line($"  lanes: passing changes {a.laneChanges - before.laneChanges}, mandatory (turn lane / lane ends) {a.mandatory - before.mandatory}, keep right {a.keepRight - before.keepRight}; ramp merges {a.merges - before.merges}, exits {a.exits - before.exits}");
@@ -411,9 +415,27 @@ namespace PSXRacing.EditorTools
             if (rush && drive) CityTrafficCheck.Check(a.laneChanges + a.mandatory + a.keepRight - before.laneChanges - before.mandatory - before.keepRight > 0, "lane changes happen at rush hour");
         }
 
+        // IN VIEW, EARLY AND LATE (owner, 2026-11-02: "I see traffic for about
+        // 30 seconds, then it dies down"): cars in the camera's view within
+        // 400 m, the phase's first 30 s of samples against its last 30 s.
+        float seenEarly, seenLate; int seenEarlyN, seenLateN;
+        readonly Plane[] seenPlanes = new Plane[6];
+
         void Sample(CityTraffic traffic)
         {
             traffic.Snapshot(view);
+            var camS = Camera.main;
+            if (camS != null)
+            {
+                GeometryUtility.CalculateFrustumPlanes(camS, seenPlanes);
+                int seen = 0;
+                foreach (var v in view)
+                    if (!v.wrecked && (v.pos - camS.transform.position).sqrMagnitude < 400f * 400f &&
+                        GeometryUtility.TestPlanesAABB(seenPlanes, new Bounds(v.pos + Vector3.up, new Vector3(4f, 2f, 4f)))) seen++;
+                float tp = Time.time - phaseT0;
+                if (tp < 40f) { seenEarly += seen; seenEarlyN++; }
+                else if (tp > PhaseS - 30f) { seenLate += seen; seenLateN++; }
+            }
             samples++;
             activeSum += view.Count;
             activeMin = Mathf.Min(activeMin, view.Count);

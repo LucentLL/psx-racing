@@ -103,6 +103,10 @@ Shader "PSX/Blit"
         // The halation's glow (Halation.cs builds it; 0 = none built).
         [HideInInspector] _GlowTex ("Halation glow", 2D) = "black" {}
         [HideInInspector] _GlowOn ("Halation built", Float) = 0
+        // 1 = FXAA over the framebuffer before the grade (PSXCameraOutput:
+        // HD in the PC tier's picture, PlatformProfile.PCPicture). 0 in every
+        // saved material.
+        [HideInInspector] _Fxaa ("FXAA", Float) = 0
     }
     SubShader
     {
@@ -113,6 +117,9 @@ Shader "PSX/Blit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            // 3.0 for the FXAA's explicit-LOD taps (tex2Dlod); every target
+            // the game ships (D3D11/12, GLES3, WebGL 2) has it
+            #pragma target 3.0
             #include "UnityCG.cginc"
 
             sampler2D _MainTex;
@@ -123,6 +130,7 @@ Shader "PSX/Blit"
             float _GlowOff;
             sampler2D _GlowTex;     // the halation, built by Halation.cs
             float _GlowOn;          // 1 = _GlowTex was built for this material's frame
+            float _Fxaa;            // 1 = FXAA (the PC tier's HD picture)
             // Globals (PSXGlobals pushes them every frame from the hour;
             // see the header). NOT in Properties, on purpose.
             float _PSXGradeNight;   // 0 day .. 1 night
@@ -327,9 +335,108 @@ Shader "PSX/Blit"
                 return GRADE_LIFT + (c - GRADE_LIFT) * vig - given * (1.0 - vig);
             }
 
+            // THE PC PICTURE'S EDGES (2026-11-03, the PS3-PS4 target). FXAA
+            // 3.11, the quality path's eight-step edge search, on the
+            // framebuffer as it is shown (HD in the PC tier: one buffer pixel a
+            // screen pixel, sampled bilinear - PSXCameraOutput - so the
+            // half-pixel taps blend). Before the grade, so the grade's lift
+            // and vignette are not smeared along an edge; the HUD is in this
+            // buffer too and is smoothed with everything else. Luma is the
+            // square root of linear luminance: near enough the display's
+            // gamma for finding edges, and one sqrt a tap.
+            #define FXAA_EDGE      0.125   // an edge: 1/8 of its brightest neighbour...
+            #define FXAA_EDGE_MIN  0.0625  // ...and never under this (night murk is not an edge)
+            #define FXAA_SUBPIX    0.5     // sub-pixel smoothing (FXAA's default 0.75 softened the HUD's type)
+            // the edge search's strides after the first pixel (FXAA's quality preset 12)
+            static const float FxaaSteps[7] = { 1.5, 2.0, 2.0, 2.0, 2.0, 4.0, 8.0 };
+
+            float FxaaLuma(float3 c) { return sqrt(max(dot(c, float3(0.299, 0.587, 0.114)), 0.0)); }
+            float3 FxaaTap(float2 uv) { return tex2Dlod(_MainTex, float4(uv, 0, 0)).rgb; }
+            float FxaaL(float2 uv) { return FxaaLuma(FxaaTap(uv)); }
+
+            float3 Fxaa(float2 posM)
+            {
+                float2 px = _MainTex_TexelSize.xy;
+                float3 rgbM = FxaaTap(posM);
+                float lumaM = FxaaLuma(rgbM);
+                // FXAA's compass: north is -v
+                float lumaS = FxaaL(posM + float2(0, px.y));
+                float lumaE = FxaaL(posM + float2(px.x, 0));
+                float lumaN = FxaaL(posM - float2(0, px.y));
+                float lumaW = FxaaL(posM - float2(px.x, 0));
+                float rangeMax = max(max(lumaN, lumaW), max(max(lumaE, lumaS), lumaM));
+                float rangeMin = min(min(lumaN, lumaW), min(min(lumaE, lumaS), lumaM));
+                float range = rangeMax - rangeMin;
+                if (range < max(FXAA_EDGE_MIN, rangeMax * FXAA_EDGE)) return rgbM;
+
+                float lumaNW = FxaaL(posM + float2(-px.x, -px.y));
+                float lumaSE = FxaaL(posM + float2( px.x,  px.y));
+                float lumaNE = FxaaL(posM + float2( px.x, -px.y));
+                float lumaSW = FxaaL(posM + float2(-px.x,  px.y));
+
+                // which way the edge runs
+                float lumaNS = lumaN + lumaS, lumaWE = lumaW + lumaE;
+                float edgeHorz = abs(-2.0 * lumaW + lumaNW + lumaSW) + 2.0 * abs(-2.0 * lumaM + lumaNS) + abs(-2.0 * lumaE + lumaNE + lumaSE);
+                float edgeVert = abs(-2.0 * lumaS + lumaSW + lumaSE) + 2.0 * abs(-2.0 * lumaM + lumaWE) + abs(-2.0 * lumaN + lumaNW + lumaNE);
+                bool horzSpan = edgeHorz >= edgeVert;
+
+                // how far the pixel stands from its neighbourhood: the sub-pixel blend
+                float subpixA = 2.0 * (lumaNS + lumaWE) + lumaNW + lumaSE + lumaNE + lumaSW;
+                float subpixC = saturate(abs(subpixA * (1.0 / 12.0) - lumaM) / range);
+                float subpixF = (-2.0 * subpixC + 3.0) * subpixC * subpixC;
+                float subpixH = subpixF * subpixF * FXAA_SUBPIX;
+
+                // the side of the edge M's pair lies on
+                float lengthSign = horzSpan ? px.y : px.x;
+                if (!horzSpan) { lumaN = lumaW; lumaS = lumaE; }
+                float gradientN = lumaN - lumaM, gradientS = lumaS - lumaM;
+                bool pairN = abs(gradientN) >= abs(gradientS);
+                float gradient = max(abs(gradientN), abs(gradientS));
+                if (pairN) lengthSign = -lengthSign;
+                float lumaNN = (pairN ? lumaN : lumaS) + lumaM;
+
+                // walk both ways along the edge until it ends
+                float2 posB = posM;
+                float2 offNP = horzSpan ? float2(px.x, 0) : float2(0, px.y);
+                if (horzSpan) posB.y += lengthSign * 0.5; else posB.x += lengthSign * 0.5;
+                float2 posN = posB - offNP, posP = posB + offNP;
+                float gradientScaled = gradient * 0.25;
+                float lumaMM = lumaM - lumaNN * 0.5;
+                float lumaEndN = FxaaL(posN) - lumaNN * 0.5;
+                float lumaEndP = FxaaL(posP) - lumaNN * 0.5;
+                bool doneN = abs(lumaEndN) >= gradientScaled;
+                bool doneP = abs(lumaEndP) >= gradientScaled;
+                UNITY_UNROLL
+                for (int k = 0; k < 7; k++)
+                {
+                    if (doneN && doneP) break;
+                    if (!doneN) { posN -= offNP * FxaaSteps[k]; lumaEndN = FxaaL(posN) - lumaNN * 0.5; doneN = abs(lumaEndN) >= gradientScaled; }
+                    if (!doneP) { posP += offNP * FxaaSteps[k]; lumaEndP = FxaaL(posP) - lumaNN * 0.5; doneP = abs(lumaEndP) >= gradientScaled; }
+                }
+
+                // where along the span M is, and so how far to slide its sample
+                float dstN = horzSpan ? posM.x - posN.x : posM.y - posN.y;
+                float dstP = horzSpan ? posP.x - posM.x : posP.y - posM.y;
+                bool lumaMLTZero = lumaMM < 0.0;
+                bool goodSpanN = (lumaEndN < 0.0) != lumaMLTZero;
+                bool goodSpanP = (lumaEndP < 0.0) != lumaMLTZero;
+                bool directionN = dstN < dstP;
+                float dst = min(dstN, dstP);
+                bool goodSpan = directionN ? goodSpanN : goodSpanP;
+                float pixelOffset = 0.5 - dst / (dstP + dstN);
+                float offset = max(goodSpan ? pixelOffset : 0.0, subpixH);
+                if (horzSpan) posM.y += offset * lengthSign; else posM.x += offset * lengthSign;
+                return FxaaTap(posM);
+            }
+
             fixed4 frag (v2f i) : SV_Target
             {
-                float3 col = tex2D(_MainTex, i.uv).rgb;
+                // a uniform branch, not ?: - HLSL's select would run the FXAA
+                // on every pixel of the web and phone pictures that never ask
+                float3 col;
+                UNITY_BRANCH
+                if (_Fxaa > 0.5) col = Fxaa(i.uv);
+                else col = tex2D(_MainTex, i.uv).rgb;
 
                 // QUANTIZE IN GAMMA SPACE. The project renders in linear
                 // colour, so the framebuffer sample here is linear, and 31

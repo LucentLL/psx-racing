@@ -73,9 +73,22 @@ float3 VolDir(float2 uv)
 
 /// The cloud along dir, as the map holds it (no mips: a plain fetch has no
 /// seam at the azimuth wrap).
+/// SOFTENED (owner, 2026-11-02: the clouds look "too pixelated, like they're
+/// being viewed through a microscope... you can see the individual particles
+/// from far away"). A map texel is ~0.18 degrees - five or six screen pixels
+/// - and each holds ONE jittered march of its ray, refreshed one frame in
+/// sixteen: neighbouring texels hit and missed a thin cloud on different
+/// slices, and the sky drew that grain texel by texel as soft dots. Four
+/// bilinear taps half a texel off each way (a 1-2-1 tent over 3 x 3 texels):
+/// the grain averages out at the size a texel is drawn, the cloud's shape -
+/// tens of texels across - stays. (A wider 0.75 texel tent smeared the small
+/// far cumulus: three blind judges all chose this one.)
 float4 VolFetch(float3 dir)
 {
-    return tex2D(_PSXVolMap, VolUV(dir));
+    float2 uv = VolUV(dir);
+    float2 o = float2(0.5 / 2048.0, 0.5 / 512.0);   // the map: VolumetricClouds.MapW x MapH
+    return 0.25 * (tex2D(_PSXVolMap, uv + float2( o.x,  o.y)) + tex2D(_PSXVolMap, uv + float2(-o.x,  o.y)) +
+                   tex2D(_PSXVolMap, uv + float2( o.x, -o.y)) + tex2D(_PSXVolMap, uv + float2(-o.x, -o.y)));
 }
 
 /// Roughly how far the clouds are along dir: the range to the middle of the
@@ -115,6 +128,14 @@ float4 _PSXVolSteps;      // x view steps, y step floor (m), z march span cap (m
 #define VOL_SIGMA        0.04      // extinction per metre at density 1
 #define VOL_EROSION      0.30
 #define VOL_MAX_STEPS    64
+// The erosion's detail (13 m cells) is sampled without mips: past a few km a
+// march step and a map texel span hundreds of its cells, and it read as
+// glitter - the "individual particles" seen from far away. It fades to its
+// AVERAGE between these ranges (m) - to nothing, the far clouds lost no
+// density to it and came out fuller than the same clouds near; the body's
+// billows (45 m cells) stay.
+#define VOL_DETAIL_NEAR  5000.0
+#define VOL_DETAIL_FAR   20000.0
 
 struct VolColumn
 {
@@ -225,12 +246,18 @@ float4 VolMarch(float3 dir, float jitter)
         if (c.cov <= 0.0 && _PSXVolCov.z <= 0.0) { t += ds * 2.0; continue; }   // clear air: stride
         float hf;
         float d = VolDensity(c, alt, VolShapeAt(xz, alt), hf);
-        if (d > 0.0)
+        float detFade = 1.0 - saturate((t - VOL_DETAIL_NEAR) * (1.0 / (VOL_DETAIL_FAR - VOL_DETAIL_NEAR)));
+        if (d > 0.0 && detFade <= 0.0)
+        {
+            float m = 0.5 * VOL_EROSION;
+            d = saturate((d - m) / (1.0 - m));
+        }
+        else if (d > 0.0)
         {
             float2 qd = (xz + _PSXVolWind.xy * 1.12) * (1.0 / VOL_DETAIL_TILE);
             float det = tex3Dlod(_PSXVolDetail, float4(qd.x, (alt + _PSXVolWind.z * 1.6) * (1.0 / VOL_DETAIL_TILE), qd.y, 0)).r;
             // wisps under the base, billows over the crown
-            float m = lerp(det, 1.0 - det, saturate(hf * 5.0)) * VOL_EROSION;
+            float m = lerp(0.5, lerp(det, 1.0 - det, saturate(hf * 5.0)), detFade) * VOL_EROSION;
             d = saturate((d - m) / (1.0 - m));
         }
         if (d > 0.002)

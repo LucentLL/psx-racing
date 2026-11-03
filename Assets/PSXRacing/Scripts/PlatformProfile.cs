@@ -56,6 +56,16 @@ namespace PSXRacing
         public static bool PCShadows => PC && !HasArg("-psx-small-shadows");
         /// <summary>The PC tier's ambient occlusion; -psx-no-ao for the A/B.</summary>
         public static bool PCAO => PC && !HasArg("-psx-no-ao");
+        /// <summary>
+        /// THE PC TIER'S PICTURE at HD (2026-11-03, the PS3-PS4 target: "PS1
+        /// look stays as an optional CLASSIC mode; the new look is the
+        /// default"): the display blit keeps all 8 bits a channel instead of
+        /// the PS1's 6 (whose steps, dithered, laid horizontal bands down every
+        /// sunset sky), and smooths edges with FXAA (PSX/Blit). Every other
+        /// preset, the web build and the editor are untouched;
+        /// -psx-ps1-picture is the A/B.
+        /// </summary>
+        public static bool PCPicture => PC && !HasArg("-psx-ps1-picture");
 
         /// <summary>Traffic at its most wherever nobody picked a level.</summary>
         public static bool MaxTraffic
@@ -138,7 +148,7 @@ namespace PSXRacing
 
         /// <summary>One line for the Player.log.</summary>
         public static string Describe() => PC
-            ? $"PC profile: city ring {CityRing} ({(2 * CityRing + 1) * 256} m square), traffic {(MaxTraffic ? "RUSH HOUR / cap " + CityTrafficCap : "by the hour")}, HD to {HDMaxLines} lines, reflections {ProbeFacesPerFrame} faces/frame at {ProbeFaceRes}, sun shadows {(PCShadows ? $"{ShadowHalfExtentM * 2:0} m at {ShadowRes}" : "as web")}, AO {(PCAO ? "after opaques" : "off")}"
+            ? $"PC profile: city ring {CityRing} ({(2 * CityRing + 1) * 256} m square), traffic {(MaxTraffic ? "RUSH HOUR / cap " + CityTrafficCap : "by the hour")}, HD to {HDMaxLines} lines, reflections {ProbeFacesPerFrame} faces/frame at {ProbeFaceRes}, sun shadows {(PCShadows ? $"{ShadowHalfExtentM * 2:0} m at {ShadowRes}" : "as web")}, AO {(PCAO ? "after opaques" : "off")}, picture {(PCPicture ? "8-bit + FXAA at HD" : "as web")}"
             : "web profile";
     }
 }

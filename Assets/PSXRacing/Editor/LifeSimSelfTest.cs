@@ -1172,8 +1172,8 @@ namespace PSXRacing.EditorTools
                 bool ok = CityFrontEnd.FillRace(vi, CityFrontEnd.DefaultCarId(), TimeOfDay.Sunset, 0, out int sc);
                 Check(ok && !RaceHandoff.FreeRoam && RaceHandoff.TrackIndex == vi && sc > 0 &&
                       !string.IsNullOrEmpty(RaceHandoff.OpponentSpecIds) &&
-                      RaceHandoff.OpponentSpecIds.Split(';').Length == 3 && TrackCatalog.At(vi).RaceMeters > 0f,
-                      "CITY's race door for " + id + " fills a three-car field", RaceHandoff.OpponentSpecIds);
+                      RaceHandoff.OpponentSpecIds.Split(';').Length >= LifeRules.FieldOpponentsMin && TrackCatalog.At(vi).RaceMeters > 0f,
+                      "CITY's race door for " + id + " fills its field (3-7 rivals)", RaceHandoff.OpponentSpecIds);
             }
             Check(!CityFrontEnd.FillRace(TrackCatalog.IndexOf("BlueRidge"), CityFrontEnd.DefaultCarId(), 0, 0, out _),
                   "and refuses a venue CITY does not carry");
@@ -12504,8 +12504,8 @@ namespace PSXRacing.EditorTools
             Check(LifeRules.FillOpponentField(s), "a field is chosen for the seeded car");
             var ids = (RaceHandoff.OpponentSpecIds ?? "").Split(';');
             var skills = (RaceHandoff.OpponentSkills ?? "").Split(';');
-            Check(ids.Length == LifeRules.FieldOpponents,
-                  "the grid fills to " + LifeRules.FieldOpponents, ids.Length);
+            Check(ids.Length >= LifeRules.FieldOpponentsMin && ids.Length <= LifeRules.FieldOpponents,
+                  "the grid fills to " + LifeRules.FieldOpponentsMin + "-" + LifeRules.FieldOpponents, ids.Length);
             Check(skills.Length == ids.Length, "skills are parallel to ids", skills.Length);
 
             int unresolved = 0, dupes = 0;

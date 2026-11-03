@@ -1106,10 +1106,13 @@ namespace PSXRacing.LifeSim
         public static bool RacedToday(LifeState s) => s.lastRaceDay == s.day && s.lastRaceDay > 0;
 
         // ---------------- the field (P2) ----------------
-        /// <summary>Cars the player lines up against in a normal street race.
-        /// The scene's grid holds four; anything smaller retires the spares.
-        /// </summary>
-        public const int FieldOpponents = 3;
+        /// <summary>Cars the player lines up against in a normal street race:
+        /// up to seven (owner, 2026-11-02: an eight-car cap, the player
+        /// included - RaceField.MaxCars). The scene's grid holds eight;
+        /// anything smaller retires the spares. A thin corner of the catalog
+        /// races at least <see cref="FieldOpponentsMin"/>.</summary>
+        public const int FieldOpponents = RaceField.MaxCars - 1;
+        public const int FieldOpponentsMin = 3;
 
         /// <summary>
         /// An opponent's sheet top speed may be at most this much over the
@@ -1152,10 +1155,11 @@ namespace PSXRacing.LifeSim
             vmaxTrimmed = true;
             if (pool.Count < FieldOpponents)
             {
-                pool = CarCatalog.InPriceBand(referencePrice / 3, referencePrice * 3);
-                pool.RemoveAll(c => c.topSpeedMps > cap);
+                var wide = CarCatalog.InPriceBand(referencePrice / 3, referencePrice * 3);
+                wide.RemoveAll(c => c.topSpeedMps > cap);
+                if (wide.Count > pool.Count) pool = wide;
             }
-            if (pool.Count < FieldOpponents)
+            if (pool.Count < FieldOpponentsMin)
             {
                 pool = CarCatalog.InPriceBand(referencePrice / 3, referencePrice * 3);
                 vmaxTrimmed = false;
@@ -1199,12 +1203,13 @@ namespace PSXRacing.LifeSim
             float playerVmax = playerSpec != null ? playerSpec.topSpeedMps : 0f;
 
             var pool = OpponentPool(reference, playerVmax, tier, out _);
-            if (pool.Count < FieldOpponents) return false;
+            if (pool.Count < FieldOpponentsMin) return false;
+            int count = Mathf.Min(FieldOpponents, pool.Count);
 
             var ids = new System.Text.StringBuilder();
             var skills = new System.Text.StringBuilder();
             float baseSkill = 0.88f + tier * 0.04f;
-            for (int i = 0; i < FieldOpponents; i++)
+            for (int i = 0; i < count; i++)
             {
                 // Draw without replacement: three copies of one car is a worse
                 // grid than three different ones, and the pool is big enough
@@ -1215,7 +1220,9 @@ namespace PSXRacing.LifeSim
 
                 // Spread so the field is not one wall of equally quick cars —
                 // one to chase, one to race, one to catch.
-                float skill = Mathf.Clamp(baseSkill + 0.04f - i * 0.04f, 0.80f, 1.05f);
+                // Over the whole field, the same 0.08 either side of the
+                // tier's base whatever its size.
+                float skill = Mathf.Clamp(baseSkill + 0.04f - i * (0.08f / Mathf.Max(1, count - 1)), 0.80f, 1.05f);
                 if (i > 0) { ids.Append(';'); skills.Append(';'); }
                 ids.Append(spec.id);
                 skills.Append(skill.ToString("0.###",
@@ -1462,9 +1469,9 @@ namespace PSXRacing.LifeSim
                 else
                 {
                     // Grid races taper by position rather than paying winner-take-
-                    // all (trackRace.ts): in a four-car field, second place still
-                    // covers a tank of fuel, which is what keeps a bad race from
-                    // being a total loss.
+                    // all (trackRace.ts): second place still covers a tank of
+                    // fuel, which is what keeps a bad race from being a total
+                    // loss. By the field's size: of eight, fourth pays 5/8.
                     int field = Mathf.Max(1, RaceHandoff.FieldSize);
                     float scale = Mathf.Max(0f, 1f - (RaceHandoff.FinishPos - 1) / (float)field);
                     // A call-out at a meet is two cars and one pot: second

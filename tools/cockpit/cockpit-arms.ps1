@@ -1,7 +1,8 @@
 # The driver's arms (CockpitArms), tested and photographed in ONE Unity job
 # (PSXRacing.EditorTools.CockpitArmsShots.Run) on an ALREADY-BUILT sandbox:
-# the arms' self-test lines, eight frames (rest LHD/RHD, hand over hand x3,
-# shift, handbrake, look-over x2 - steering is a scripted sweep, the shift and
+# the arms' self-test lines, ten frames (rest LHD/RHD, the ride x5 - right turn
+# top / far side / swap, left turn top / far side - shift, handbrake, look-over;
+# steering is a scripted sweep, the shift and
 # handbrake go through CarController), and the cockpit.bundle rebuilt for
 # WebGL with its size before/after. Copies Scripts, Editor, Shaders,
 # Resources\Cockpit and CockpitSrc in (robocopy /E, never /MIR), the frames to

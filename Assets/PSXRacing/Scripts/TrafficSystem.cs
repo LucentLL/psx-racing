@@ -24,7 +24,11 @@ namespace PSXRacing
     {
         public const int None = 0, Light = 1, Medium = 2, Heavy = 3, RushHour = 4, Count = 5;
         public static readonly string[] Names = { "NONE", "LIGHT", "MEDIUM", "HEAVY", "RUSH HOUR" };
-        /// <summary>Cars per km, per direction.</summary>
+        /// <summary>Cars per km, per LANE (owner, 2026-11-02: "the 'Rush
+        /// Hour' traffic [in Charlotte] feels like normal/light traffic"). It
+        /// was per direction, split across the lanes: a three-lane arterial at
+        /// RUSH HOUR had a car every 230 m in each lane. A two-lane mountain
+        /// road (a lane each way) is as it was.</summary>
         public static readonly float[] PerKm = { 0f, 1.5f, 4.5f, 8f, 13f };
         /// <summary>Cruising speed as a share of the posted limit, the slowest
         /// and the fastest driver.</summary>
@@ -125,6 +129,9 @@ namespace PSXRacing
         /// <summary>The pool: enough for the window at the level's density
         /// with a margin, within these bounds.</summary>
         const int PoolMin = 8, PoolMax = 30;
+        /// <summary>...on a PC: per-lane density on a city route's six lanes
+        /// wants twice the phone's thirty.</summary>
+        const int PoolMaxDesktop = 64;
         /// <summary>How far past the tarmac edge a yielding driver puts its
         /// outer side: onto the 0.9 m paved verge strip, 5 cm short of its
         /// edge (a stage's guard wall stands 1.1 m out).</summary>
@@ -239,7 +246,29 @@ namespace PSXRacing
         /// an oncoming one is.</summary>
         const float NoticeBehindM = 70f, NoticeAheadM = 110f;
         /// <summary>How fast (m/s) a driver moves across its lane.</summary>
-        const float LaneShiftMps = 1.4f;
+        const float LaneShiftMps = 1.8f;
+        /// <summary>
+        /// STEERED, NOT SLID (owner, 2026-11-02: "traffic cars move sideways to
+        /// avoid racers... they just slide sideways"). A move across the road
+        /// was the car's position slewed at a constant rate with the body held
+        /// along the lane, wheels straight. Now the move has a speed profile -
+        /// LaneShiftAccel (m/s^2) up and down, never past the rate it stops in
+        /// - the body faces where the car is going, and the front wheels turn
+        /// for the yaw it makes, in a bend as well. A car can only go across
+        /// as fast as its heading takes it: no more than MaxCrabTan of its
+        /// speed (12 degrees), so a car at a standstill does not move over.
+        /// </summary>
+        const float LaneShiftAccel = 1.5f, MaxCrabTan = 0.21f;
+        /// <summary>Going round a stopped racer: noticed this far ahead (m),
+        /// passed at this crawl (m/s) with this much air (m); a racer's half
+        /// width, about.</summary>
+        const float EdgeLookM = 30f, EdgeCreepMps = 2.5f, EdgeAirM = 0.35f, RacerHalfM = 0.95f;
+        /// <summary>...held out to a car's length past it (m), at no more than
+        /// this (m/s) while beside it.</summary>
+        const float EdgePastM = 5f, EdgePassMps = 6f;
+        /// <summary>Most the front wheels turn (degrees), and how quickly the
+        /// drawn angle follows the one the yaw asks for (1/s).</summary>
+        const float MaxSteerDeg = 32f, SteerFollow = 8f;
 
         class Car
         {
@@ -254,6 +283,22 @@ namespace PSXRacing
             /// the lane centre or, for a Yielder with a racer coming, toward
             /// the shoulder. Place puts the car here.</summary>
             public float latNow;
+            /// <summary>How fast latNow is moving (m/s, + right).</summary>
+            public float latVel;
+            /// <summary>Going round a stopped racer: the line it holds (NaN
+            /// when it is not), until it is at edgeEndS.</summary>
+            public float edgeLat = float.NaN, edgeEndS;
+            /// <summary>The body's heading last step (degrees), for its yaw
+            /// rate; the front wheels' drawn angle; which wheels are the
+            /// fronts, and the wheelbase between the axles.</summary>
+            public float yawWas, steer;
+            public bool haveYaw;
+            public bool[] front;
+            public float wheelBase;
+            /// <summary>The drawn body and its rest pose: it is the SHELL that
+            /// turns toward a move across the road, not the box.</summary>
+            public Transform shell;
+            public Quaternion shellRest;
             public Temper temper;
             public float wanderPhase;
             public float s;          // metres along the path
@@ -323,10 +368,11 @@ namespace PSXRacing
 
             // Enough cars for the window at this density, both ways, with a
             // quarter over for the random gaps; none at all for NONE.
-            int dirs = lanesBack.Count > 0 ? 2 : 1;
-            float expected = (ahead + behind) / 1000f * perKm * dirs;
+            int lanesAll = Mathf.Max(1, lanesFwd.Count + lanesBack.Count);
+            float expected = (ahead + behind) / 1000f * perKm * lanesAll;
+            int poolMax = Application.isMobilePlatform ? PoolMax : PoolMaxDesktop;
             poolSize = Level == TrafficLevels.None ? 0
-                     : Mathf.Clamp(Mathf.CeilToInt(expected * 1.25f) + 3, PoolMin, PoolMax);
+                     : Mathf.Clamp(Mathf.CeilToInt(expected * 1.25f) + 3, PoolMin, poolMax);
             for (int i = 0; i < poolSize; i++) pool.Add(Build(Keys[i % Keys.Length]));
         }
 
@@ -396,10 +442,30 @@ namespace PSXRacing
                     var w = shell.Find("Wheel" + i);
                     if (w != null) wheels.Add(w);
                 }
+            // The fronts: the wheels ahead of the middle of the four (the shell
+            // faces +Z), and the wheelbase between the two axles.
+            var front = new bool[wheels.Count];
+            float wheelBase = 2.6f;
+            if (wheels.Count >= 2)
+            {
+                float mid = 0f;
+                foreach (var w in wheels) mid += w.localPosition.z;
+                mid /= wheels.Count;
+                float zf = 0f, zr = 0f; int nf = 0, nr = 0;
+                for (int i = 0; i < wheels.Count; i++)
+                {
+                    float z = wheels[i].localPosition.z;
+                    front[i] = z > mid;
+                    if (front[i]) { zf += z; nf++; } else { zr += z; nr++; }
+                }
+                if (nf > 0 && nr > 0) wheelBase = Mathf.Max(1.5f, zf / nf - zr / nr);
+            }
             go.SetActive(false);
             return new Car
             {
                 go = go, rb = rb, wheels = wheels.ToArray(), wheelR = Mathf.Max(0.2f, def.wheelRadius),
+                front = front, wheelBase = wheelBase,
+                shell = shell, shellRest = shell != null ? shell.localRotation : Quaternion.identity,
                 halfW = boxW * 0.5f,
                 box = box, rideCenter = box.center, rideSize = box.size,
                 // A WRECK has no suspension to stand on, so its box reaches
@@ -548,16 +614,15 @@ namespace PSXRacing
 
         /// <summary>
         /// The gap to the next car born in a lane: RANDOM (exponential) with
-        /// the level's mean spacing - the level's density split across this
-        /// direction's lanes. At a level with platoons, that share of cars is
+        /// the level's mean spacing in this lane. At a level with platoons, that share of cars is
         /// born nose to tail behind the one before instead, and the rest are
         /// spaced wider so the density comes out the same: bunches with road
         /// between them, the way a slow car gathers a queue.
         /// </summary>
         float Gap(int dir)
         {
-            int lanes = Mathf.Max(1, LanesFor(dir).Count);
-            float mean = 1000f / Mathf.Max(0.05f, perKm / lanes);
+            // Per lane (TrafficLevels.PerKm): the lane's own mean spacing.
+            float mean = 1000f / Mathf.Max(0.05f, perKm);
             float p = TrafficLevels.PlatoonShare[Level];
             if (p > 0f && Random.value < p)
                 return PlatoonGapMin + -Mathf.Log(1f - Random.value * 0.999f) * PlatoonGapMean;
@@ -614,7 +679,8 @@ namespace PSXRacing
             if (free == null) return false;
             free.active = true; free.wrecked = false; free.hasCommand = false; free.lastContact = null;
             free.box.center = free.rideCenter; free.box.size = free.rideSize;
-            free.dir = dir; free.lat = lat; free.latNow = lat; free.s = s; free.hint = -1;
+            free.dir = dir; free.lat = lat; free.latNow = lat; free.latVel = 0f; free.s = s; free.hint = -1;
+            free.haveYaw = false; free.steer = 0f; free.edgeLat = float.NaN;
             free.temper = RollTemper();
             TempersSeen[(int)free.temper]++;
             free.wanderPhase = Random.Range(0f, 6.2832f);
@@ -716,7 +782,7 @@ namespace PSXRacing
             float v = c.cruise * Mathf.Lerp(1f, WetCruise, wet);
             float k = Curvature(c.s, c.dir);
             if (k > 1e-4f) v = Mathf.Min(v, Mathf.Sqrt(CornerAccel * Mathf.Lerp(1f, WetCornerAccel, wet) / k));
-            float gap = LeaderGap(c, out float leaderV);
+            float gap = LeaderGap(c, out float leaderV, out float leaderRacerLat);
             float timeGap = TimeGap * Mathf.Lerp(1f, WetTimeGap, wet);
             if (gap < 120f)
                 v = Mathf.Min(v, Mathf.Max(0f, leaderV + (gap - StopGap - leaderV * timeGap) * 0.5f));
@@ -767,7 +833,43 @@ namespace PSXRacing
                     latTarget = c.lat + Mathf.Sin(Time.time * 0.35f + c.wanderPhase) * 0.35f;
                     break;
             }
-            c.latNow = Mathf.MoveTowards(c.latNow, latTarget, LaneShiftMps * dt);
+            // ROUND A RACER STOPPED IN ITS WAY (owner, 2026-11-02: cars "just
+            // stop... park and wait"): a rival or the player standing with its
+            // nose in this lane - stuck behind a wreck, pulled half out to
+            // pass - held this car still, and this car held IT (a racer
+            // will not pull out round a stopped car with one stopped in the
+            // other lane). Where the rest of the lane and the verge have the
+            // room, it eases over to the outside at a crawl and goes by.
+            if (!float.IsNaN(leaderRacerLat) && leaderV < 1.5f && gap < EdgeLookM)
+            {
+                float side = c.lat >= 0f ? 1f : -1f;
+                float edge = leaderRacerLat + side * (RacerHalfM + c.halfW + EdgeAirM);
+                float outer = path.roadWidth * 0.5f + VergeUseM - c.halfW;
+                float across = (edge - c.latNow) * side;
+                // Only outward, only as far as the verge, and only with the
+                // road to make the move in before the racer is reached.
+                if (side * leaderRacerLat < side * c.latNow + 0.5f && side * edge <= outer &&
+                    gap > Mathf.Max(across, 0f) / MaxCrabTan + 1f)
+                {
+                    // Held out there until it is past the racer: once it is
+                    // over far enough the racer is not "ahead" any more, and
+                    // the lane centre would bring it straight back across.
+                    c.edgeLat = edge;
+                    c.edgeEndS = Wrap(c.s + c.dir * (gap + 4.5f + EdgePastM));
+                    v = Mathf.Max(v, EdgeCreepMps);
+                }
+            }
+            if (!float.IsNaN(c.edgeLat))
+            {
+                if (Delta(c.s, c.edgeEndS) * c.dir > 0f)
+                {
+                    float side = c.lat >= 0f ? 1f : -1f;
+                    latTarget = side * Mathf.Max(side * latTarget, side * c.edgeLat);
+                    v = Mathf.Min(v, EdgePassMps);
+                }
+                else c.edgeLat = float.NaN;
+            }
+            MoveAcross(c, latTarget, dt);
             c.speed = Mathf.MoveTowards(c.speed, v, (v > c.speed ? 2.5f : decel) * dt);
 
             c.s = Wrap(c.s + c.speed * dt * c.dir);
@@ -775,9 +877,24 @@ namespace PSXRacing
             SpinWheels(c, c.speed, dt);
         }
 
+        /// <summary>Move the car across the road toward <paramref name="latTarget"/>
+        /// the way a driver steers there: its sideways speed ramps up at
+        /// LaneShiftAccel and comes down in time to stop on the mark, capped at
+        /// LaneShiftMps and at what its heading allows at its speed.</summary>
+        static void MoveAcross(Car c, float latTarget, float dt)
+        {
+            float d = latTarget - c.latNow;
+            float stopIn = Mathf.Sqrt(2f * LaneShiftAccel * 0.8f * Mathf.Abs(d));
+            float want = Mathf.Sign(d) * Mathf.Min(LaneShiftMps, stopIn, Mathf.Max(c.speed, 0f) * MaxCrabTan);
+            c.latVel = Mathf.MoveTowards(c.latVel, want, LaneShiftAccel * dt);
+            if (Mathf.Abs(d) < 0.005f && Mathf.Abs(c.latVel) < LaneShiftAccel * dt) { c.latVel = 0f; c.latNow = latTarget; return; }
+            c.latNow += c.latVel * dt;
+        }
+
         /// <summary>Put the car at its lane point: the velocity that reaches it
-        /// this step (so the solver sees a real moving body), facing along the
-        /// lane, sitting on the road surface.</summary>
+        /// this step (so the solver sees a real moving body), facing where it
+        /// is going - along the lane, turned by any move across it - sitting
+        /// on the road surface.</summary>
         void Place(Car c, bool teleport)
         {
             Sample(c.s, out Vector3 p, out Vector3 tan);
@@ -794,23 +911,44 @@ namespace PSXRacing
                                 QueryTriggerInteraction.Ignore))
                 y = hit.point.y;
             target.y = y;
-            var rot = Quaternion.LookRotation(fwd, Vector3.up);
+            // Its heading: along the lane, turned toward the side it is moving
+            // to by as much as the move takes at this speed. The DRAWN body
+            // turns; the box stays square to the lane. A turned box swings a
+            // corner toward the centreline (0.3 m at 7 degrees on a 4.8 m car),
+            // and a racer passing an oncoming car at its planned air met that
+            // corner head-on (the first runs with it: head-ons 0.25 -> 0.9 a
+            // race, every one on a straight, 2.0-2.2 m between centres).
+            Vector3 head = fwd * Mathf.Max(c.speed, 0.5f) + right * c.latVel;
+            var rot = Quaternion.LookRotation(head, Vector3.up);
+            var laneRot = Quaternion.LookRotation(fwd, Vector3.up);
+            if (c.shell != null)
+                c.shell.localRotation = Quaternion.Euler(0f, Mathf.DeltaAngle(laneRot.eulerAngles.y, rot.eulerAngles.y), 0f) * c.shellRest;
+            // The front wheels: the angle that makes this yaw rate at this
+            // speed (tan = wheelbase x yaw rate / speed), eased.
+            float yaw = rot.eulerAngles.y;
+            if (c.haveYaw && !teleport && c.speed > 0.5f)
+            {
+                float rate = Mathf.DeltaAngle(c.yawWas, yaw) * Mathf.Deg2Rad / Time.fixedDeltaTime;
+                float want = Mathf.Clamp(Mathf.Atan(c.wheelBase * rate / c.speed) * Mathf.Rad2Deg, -MaxSteerDeg, MaxSteerDeg);
+                c.steer = Mathf.Lerp(c.steer, want, 1f - Mathf.Exp(-SteerFollow * Time.fixedDeltaTime));
+            }
+            c.yawWas = yaw; c.haveYaw = true;
             if (teleport)
             {
-                c.rb.position = target; c.rb.rotation = rot;
-                c.go.transform.SetPositionAndRotation(target, rot);
+                c.rb.position = target; c.rb.rotation = laneRot;
+                c.go.transform.SetPositionAndRotation(target, laneRot);
                 return;
             }
             c.rb.linearVelocity = c.commanded = (target - c.rb.position) / Time.fixedDeltaTime;
             c.hasCommand = true;
-            c.rb.MoveRotation(rot);
+            c.rb.MoveRotation(laneRot);
         }
 
         /// <summary>Distance to the nearest thing ahead in this car's lane, and
         /// its speed along the lane.</summary>
-        float LeaderGap(Car c, out float leaderV)
+        float LeaderGap(Car c, out float leaderV, out float racerLat)
         {
-            float best = float.MaxValue; leaderV = 0f;
+            float best = float.MaxValue; leaderV = 0f; racerLat = float.NaN;
             foreach (var o in live)
             {
                 if (o == c) continue;
@@ -834,6 +972,8 @@ namespace PSXRacing
                 // is not.
                 if (!LateralNear(f.pos, f.s, c.latNow)) continue;
                 best = d;
+                Sample(f.s, out Vector3 fp, out Vector3 ft);
+                racerLat = Vector3.Dot(f.pos - fp, Vector3.Cross(Vector3.up, ft).normalized);
                 Sample(f.s, out _, out Vector3 tan);
                 leaderV = Mathf.Max(0f, Vector3.Dot(f.vel, tan * c.dir));
             }
@@ -955,7 +1095,8 @@ namespace PSXRacing
             for (int i = 0; i < c.wheels.Length; i++)
             {
                 bool left = c.wheels[i].name.EndsWith("0") || c.wheels[i].name.EndsWith("2");
-                c.wheels[i].localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f)
+                float steer = c.front != null && i < c.front.Length && c.front[i] ? c.steer : 0f;
+                c.wheels[i].localRotation = Quaternion.Euler(0f, steer + (left ? 180f : 0f), 0f)
                                           * Quaternion.Euler(left ? -c.spin : c.spin, 0f, 0f);
             }
         }

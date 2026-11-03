@@ -176,7 +176,9 @@ namespace PSXRacing
 
                 var engine = car.GetComponent<EngineAudio>();
                 if (engine != null) engine.PlayStartup(startDelay);
-                startDelay += 0.3f;
+                // Inside the countdown whatever the field: 0.3 s apart for
+                // four, closer for eight (the last cranked at 2.35 s of 3).
+                startDelay += Mathf.Min(0.3f, 1.8f / Mathf.Max(1, allCars.Count));
             }
 
             if (rolling)

@@ -179,6 +179,19 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarSpecId = cars[b].id;
             RaceHandoff.OpponentSpecIds = cars[b + 1].id + ";" + cars[b + 2].id + ";" + cars[b + 3].id;
             RaceHandoff.OpponentSkills = "1.0;0.95;0.9";
+            // PSX_RACE_FIELD=8: a field of that many cars (player included,
+            // RaceField.MaxCars at most) - the next ones in the catalog.
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_FIELD") ?? "", out int fieldN) && fieldN >= 2)
+            {
+                fieldN = Mathf.Min(fieldN, RaceField.MaxCars);
+                int b0 = Mathf.Clamp(20 + seed * 7, 0, cars.Count - fieldN - 1);
+                var fid = new List<string>(); var fsk = new List<string>();
+                for (int k = 1; k < fieldN; k++) { fid.Add(cars[b0 + k].id); fsk.Add((1.0f - 0.03f * (k - 1)).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)); }
+                RaceHandoff.CarSpecId = cars[b0].id;
+                RaceHandoff.OpponentSpecIds = string.Join(";", fid);
+                RaceHandoff.OpponentSkills = string.Join(";", fsk);
+                log.AppendLine("  field of " + fieldN);
+            }
             // PSX_RACE_CARS="player;rival;rival;rival" (catalog ids): a chosen
             // field instead of the seed's four - e.g. new shells as rivals.
             string pick = System.Environment.GetEnvironmentVariable("PSX_RACE_CARS");
@@ -461,8 +474,8 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(plan != null, "COCKPIT: the driver's arms were built and drove the race",
                                     cabin == null ? "no cabin" : plan == null ? "no arms" : null);
                 if (plan != null)
-                    RacePlayCheck.Note($"COCKPIT ARMS: wheel up to {wheelMax:0} deg, {plan.Crossings} hand-over-hand crossings, " +
-                                       $"{plan.Unwinds} unwinds, {plan.Reaches} shift/handbrake reaches; now L {plan.L.mode} R {plan.R.mode}");
+                    RacePlayCheck.Note($"COCKPIT ARMS: wheel up to {wheelMax:0} deg, {plan.LetGos} hands let go at a ride's end, " +
+                                       $"{plan.Returns} back on the rim, {plan.Reaches} shift/handbrake reaches; now L {plan.L.mode} R {plan.R.mode}");
             }
             CollisionResponder.HitReported -= OnHit;
             CollisionResponder.HitReportedOn -= OnHitOn;
@@ -762,6 +775,16 @@ namespace PSXRacing.EditorTools
         readonly Dictionary<string, int> passL = new Dictionary<string, int>(), passLane = new Dictionary<string, int>(),
                                          passR = new Dictionary<string, int>();
         readonly Dictionary<string, float> stuckS = new Dictionary<string, float>();
+        float trafficT0 = -1f, nextTrafficMark;
+        readonly List<string> trafficMarks = new List<string>();
+        /// <summary>Seconds each rival was held under its own pace by the
+        /// traffic cap (AIDriver.TrafficCap), and seconds it lifted or braked
+        /// for traffic (UpdateAvoidance's give).</summary>
+        readonly Dictionary<string, float> capS = new Dictionary<string, float>(), giveS = new Dictionary<string, float>();
+        /// <summary>Rivals' give seconds by the rule that asked for it
+        /// (AIDriver.DebugGiveWhy), and give seconds NOT held up behind a car
+        /// in the lane (the give an onlooker sees no reason for).</summary>
+        readonly Dictionary<string, float> giveWhyS = new Dictionary<string, float>(), giveFreeS = new Dictionary<string, float>();
         int maxTraffic, trafficHitsRivals, trafficHitsPlayer, headOns, hardTrafficHitsRivals;
         int trunkHits, trunkHard, postHits, postHard;
         float lastPassSample;
@@ -788,6 +811,23 @@ namespace PSXRacing.EditorTools
             var ts = TrafficSystem.Instance;
             if (ts == null || rm.State != RaceManager.RaceState.Racing) return;
             maxTraffic = Mathf.Max(maxTraffic, ts.Obstacles.Count);
+            // TRAFFIC OVER TIME (owner, 2026-11-02: "traffic for about 30
+            // seconds, then it dies down"): every 15 s, the cars driving and
+            // those within 300 m of the player.
+            if (trafficT0 < 0f) trafficT0 = Time.fixedTime;
+            if (Time.fixedTime - trafficT0 >= nextTrafficMark && rm.playerCar != null)
+            {
+                nextTrafficMark += 15f;
+                int driving = 0, near = 0;
+                Vector3 pp = rm.playerCar.transform.position;
+                foreach (var rb in ts.Obstacles)
+                {
+                    if (rb == null || !rb.gameObject.activeInHierarchy || rb.useGravity) continue;
+                    driving++;
+                    if ((rb.position - pp).sqrMagnitude < 300f * 300f) near++;
+                }
+                trafficMarks.Add($"{Time.fixedTime - trafficT0:0}s {driving}/{near}");
+            }
             float total = rm.path.TotalLength;
             bool loop = !rm.path.HasEnds;
             float dtS = Time.fixedTime - lastPassSample;
@@ -828,6 +868,21 @@ namespace PSXRacing.EditorTools
                     if (d > 4f && d < 40f && Mathf.Abs(cLat - tLat) < 1.6f && cv <= along + 1f) held = true;
                 }
                 if (held) stuckS[c.name] = (stuckS.TryGetValue(c.name, out float s) ? s : 0f) + dtS;
+                var ai = c.GetComponent<AIDriver>();
+                if (ai != null && ai.enabled)
+                {
+                    if (ai.DebugCapBinds) capS[c.name] = (capS.TryGetValue(c.name, out float k) ? k : 0f) + dtS;
+                    if (ai.DebugLift > 0.05f || ai.DebugTrafficBrake > 0f)
+                    {
+                        giveS[c.name] = (giveS.TryGetValue(c.name, out float g) ? g : 0f) + dtS;
+                        if (!held) giveFreeS[c.name] = (giveFreeS.TryGetValue(c.name, out float gf) ? gf : 0f) + dtS;
+                        if (c != rm.playerCar)
+                        {
+                            string w = (ai.DebugGiveWhy ?? "other") + (held ? "" : "/free");
+                            giveWhyS[w] = (giveWhyS.TryGetValue(w, out float gw) ? gw : 0f) + dtS;
+                        }
+                    }
+                }
             }
             lastPassSample = Time.fixedTime;
         }
@@ -836,7 +891,7 @@ namespace PSXRacing.EditorTools
         {
             var car = rm.playerCar;
             int pl = 0, pln = 0, pr = 0, rivals = 0, retiredTraffic = 0;
-            float stuckSum = 0f, stuckMax = 0f;
+            float stuckSum = 0f, stuckMax = 0f, capSum = 0f, giveSum = 0f, freeSum = 0f; int backUps = 0;
             var parts = new List<string>();
             foreach (var c in rm.allCars)
             {
@@ -849,6 +904,11 @@ namespace PSXRacing.EditorTools
                 rivals++;
                 pl += l; pln += ln; pr += r;
                 stuckSum += st; stuckMax = Mathf.Max(stuckMax, st);
+                capS.TryGetValue(n, out float cs); giveS.TryGetValue(n, out float gs);
+                capSum += cs; giveSum += gs;
+                giveFreeS.TryGetValue(n, out float fs); freeSum += fs;
+                var aiR = c.GetComponent<AIDriver>();
+                if (aiR != null) backUps += aiR.DebugBackUps;
                 if (retiredAt.ContainsKey(c))
                 {
                     var resp = c.GetComponent<CollisionResponder>();
@@ -858,6 +918,11 @@ namespace PSXRacing.EditorTools
             RacePlayCheck.Note("PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: " +
                                string.Join("; ", parts));
             foreach (var h in headOnLines) RacePlayCheck.Note(h);
+            RacePlayCheck.Note("TRAFFIC OVER TIME (driving / within 300 m of the player): " + string.Join(", ", trafficMarks));
+            var whys = new List<string>();
+            foreach (var kv in giveWhyS) whys.Add($"{kv.Key} {kv.Value:0}s");
+            whys.Sort();
+            RacePlayCheck.Note("GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): " + string.Join(", ", whys));
             // The RIVALS' spread: the autopilot player drives in the middle of
             // the traffic window (traffic is born round the player), and its
             // finish says more about that than about the field.
@@ -882,6 +947,7 @@ namespace PSXRacing.EditorTools
             string lvl = string.IsNullOrEmpty(RacePlayCheck.current.traffic) ? "HOUR" : RacePlayCheck.current.traffic.ToUpperInvariant();
             RacePlayCheck.Summary($"{venue,-18} {lvl,-9} seed {RacePlayCheck.current.seed} | raced {raced:0}s | " +
                                   $"passes L {pl} lane {pln} R {pr} | held avg {(rivals > 0 ? stuckSum / rivals : 0f):0}s max {stuckMax:0}s | " +
+                                  $"capped avg {(rivals > 0 ? capSum / rivals : 0f):0}s give avg {(rivals > 0 ? giveSum / rivals : 0f):0}s (not held {(rivals > 0 ? freeSum / rivals : 0f):0}s) backups {backUps} | " +
                                   $"traffic hits rivals {trafficHitsRivals} (hard {hardTrafficHitsRivals}) player {trafficHitsPlayer} | " +
                                   $"head-ons {headOns} | retired {retiredAt.Count} (traffic {retiredTraffic}) | " +
                                   $"wrecks by rivals {wrecksByRivals} | rivals home {rivalsHome}/{rivals} spread {(spread >= 0f ? spread.ToString("0") + "s" : "-")} | " +
