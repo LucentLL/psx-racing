@@ -832,10 +832,14 @@ namespace PSXRacing.City
         {
             var o = new Vector3(outw.x, 0f, outw.y);
             float face = Mathf.Min(CurbFaceOut, 0.4f * w), nose = Mathf.Min(CurbNoseOut, 0.8f * w);
+            // the tip: the kerb rises over its first 25 cm of width, so a section
+            // where the island has not begun (the node) lies flat on the road
+            // (the drive audit's lane probes met a 15 cm sliver on the axis there)
+            float hf = Mathf.Clamp01(w / 0.25f);
             p[0] = new Vector3(e.x, e.y - RoadsideRules.EdgeDropM, e.z);
-            p[1] = e + o * face; p[1].y = e.y + CurbFaceH;
-            p[2] = e + o * nose; p[2].y = e.y + CurbH;
-            p[3] = e + o * w; p[3].y = e.y + CurbH;
+            p[1] = e + o * face; p[1].y = e.y + CurbFaceH * hf;
+            p[2] = e + o * nose; p[2].y = e.y + CurbH * hf;
+            p[3] = e + o * w; p[3].y = e.y + CurbH * hf;
         }
 
         static bool IslandKerbSpan(CityMap map, TileMeshes tm, CityMap.Edge e, int side, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB)
