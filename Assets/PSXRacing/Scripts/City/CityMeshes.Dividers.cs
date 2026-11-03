@@ -201,11 +201,23 @@ namespace PSXRacing.City
         }
         static DivEdge[] divEdges;
         static CityMap divMap;
-        public static string LastDividerReport { get; private set; } = "";
+        /// <summary>A report line made when first read (round 3b): the plan's report and its
+        /// planning gate are the audits' and the editor's - the game's load never reads them,
+        /// so it does not pay for them. Read, they are made from the plan they belong to.</summary>
+        sealed class DivText
+        {
+            System.Func<string> make; string text;
+            public DivText(string t) { text = t ?? ""; }
+            public DivText(System.Func<string> f) { make = f; text = ""; }
+            public string Get() { if (make != null) { var f = make; make = null; text = f(); } return text; }
+        }
+        static DivText divReportT = new DivText(""), divGateT = new DivText("");
+        public static string LastDividerReport => divReportT.Get();
         /// <summary>The planning gate (every candidate median metre, both carriageways):
         /// km with exactly one barrier, in an overpass zone, deliberately open, with none,
-        /// with two or more; and the first places with none or two.</summary>
-        public static string LastDividerGate { get; private set; } = "";
+        /// with two or more; and the first places with none or two. Made on first read, from
+        /// the plan as built (the audits and the editor's log read it on every load).</summary>
+        public static string LastDividerGate => divGateT.Get();
         static readonly HashSet<int> divSegs = new HashSet<int>();
         static readonly StringBuilder divRunLog = new StringBuilder();
         /// <summary>Editor/runtime clock: ms spent emitting the cable and the beams (the tile
@@ -328,10 +340,17 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         /// <summary>The candidate corridors' own segments in 64 m cells: the twin search asks
         /// only these (the city-wide segment grid made the classification ~160 ms).</summary>
-        static readonly Dictionary<long, List<int>> divGrid = new Dictionary<long, List<int>>();
+        static readonly Dictionary<long, List<int>> divGrid = new Dictionary<long, List<int>>(8192);
         const float DivCellM = 64f, DivHintHoldM = 1.5f;
         const int DivFullEvery = 4;
-        static long DivCell(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
+        /// <summary>A cell's key: x in the high word, z mixed with x in the low (round 3b: a
+        /// long's hash is its two words xor'd, and x ^ z put I-485's 4,910 cells on 765 hashes,
+        /// chains up to 34 long, in every grid and set the plan keeps). Unique, and
+        /// <see cref="DivCellZ"/> gives z back.</summary>
+        const uint DivCellMix = 0x9E3779B1u;
+        static long DivCell(int cx, int cz) => ((long)cx << 32) | (uint)(cz ^ (int)((uint)cx * DivCellMix));
+        static int DivCellX(long key) => (int)(key >> 32);
+        static int DivCellZ(long key) => (int)(uint)key ^ (int)((uint)DivCellX(key) * DivCellMix);
 
         /// <summary>Each edge's corridor name as a small number (-1 not a candidate name): the
         /// twin search compares these, not strings.</summary>
@@ -342,10 +361,10 @@ namespace PSXRacing.City
             divGrid.Clear();
             if (divNameOf.Length != map.edges.Length) divNameOf = new int[map.edges.Length];
             var ids = new Dictionary<string, int>();
-            foreach (var c in map.edges)
+            System.Array.Fill(divNameOf, -1);
+            foreach (var c in divOneway)
             {
-                divNameOf[c.index] = -1;
-                if (c.a == c.b || !c.oneway || c.link || string.IsNullOrEmpty(c.name) || !names.Contains(c.name)) continue;
+                if (!names.Contains(c.name)) continue;
                 if (!ids.TryGetValue(c.name, out int id)) ids[c.name] = id = ids.Count;
                 divNameOf[c.index] = id;
                 for (int si = 0; si + 1 < c.pts.Length && si < 0xFFF; si++)
@@ -369,8 +388,13 @@ namespace PSXRacing.City
         static bool DivTwinAt(CityMap map, CityMap.Edge X, float x, CityMap.Edge hint, float hintS, float hintDist, bool full, out CityMap.Edge Y, out float y, out float gap, out float dist)
         {
             Y = null; y = 0f; gap = float.NaN; dist = float.NaN;
-            var p = X.PointAt(x);
-            var tan = X.TangentAt(x);
+            long q0 = DivTwClock ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            // (PointAt and TangentAt, one segment search)
+            int xs = X.SegmentAt(Mathf.Clamp(x, 0f, X.length), out float xt);
+            Vector2 xa = X.pts[xs], xd = X.pts[xs + 1] - xa;
+            var p = Vector2.LerpUnclamped(xa, X.pts[xs + 1], xt);
+            float xm = xd.magnitude;
+            var tan = xm > 1e-5f ? xd / xm : Vector2.up;
             var left = new Vector2(-tan.y, tan.x);
             float r = X.HalfMax + DivReachM + 15f, best = float.MaxValue;
             CityMap.Edge bY = null; float by = 0f;
@@ -400,6 +424,7 @@ namespace PSXRacing.City
                 int s0 = hint.SegmentAt(Mathf.Clamp(hintS - 2f * DivStepM, 0f, hint.length), out _);
                 for (int si = s0; si + 1 < hint.pts.Length && si < 0xFFF && hint.s[si] <= hintS + 2f * DivStepM; si++) Try(hint, si);
             }
+            long q1 = DivTwClock ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             if (best < r) r = best + 0.05f;
             // ...and between full searches (every DivFullEvery samples) the hint's answer is
             // taken while its distance holds within DivHintHoldM of the last one's: the
@@ -409,23 +434,27 @@ namespace PSXRacing.City
             int cx0 = Mathf.FloorToInt((p.x - r) / DivCellM), cx1 = Mathf.FloorToInt((p.x + r) / DivCellM);
             int cz0 = Mathf.FloorToInt((p.y - r) / DivCellM), cz1 = Mathf.FloorToInt((p.y + r) / DivCellM);
             if (trust) cx1 = cx0 - 1;
+            int nameX = divNameOf[X.index];
             for (int cx = cx0; cx <= cx1; cx++)
                 for (int cz = cz0; cz <= cz1; cz++)
                 {
                     if (!divGrid.TryGetValue(DivCell(cx, cz), out var cell)) continue;
                     foreach (int seg in cell)
                     {
-                        var c = map.edges[seg >> 12];
-                        if (c == X || divNameOf[c.index] != divNameOf[X.index]) continue;
-                        Try(c, seg & 0xFFF);
+                        int ci = seg >> 12;
+                        if (ci == X.index || divNameOf[ci] != nameX) continue;
+                        Try(map.edges[ci], seg & 0xFFF);
                     }
                 }
             Y = bY; y = by; dist = best;
+            long q2 = DivTwClock ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if (DivTwClock) { divTw[0] += q1 - q0; divTw[1] += q2 - q1; divTw[3] += full ? 1 : 0; divTw[4]++; }
             if (Y == null) return false;
             if (best > X.HalfMax + Y.HalfMax + DivReachM) { Y = null; return false; }
             LineModel.Extents(X, x, out _, out float xp);
             LineModel.Extents(Y, y, out float ym, out float yp);
             gap = best - xp - (SideToward(Y, y, p) > 0 ? yp : ym);
+            if (DivTwClock) divTw[2] += System.Diagnostics.Stopwatch.GetTimestamp() - q2;
             return true;
         }
 
@@ -530,31 +559,70 @@ namespace PSXRacing.City
         static CityMap divCacheMap;
         static ulong divCacheKey;
         static DivEdge[] divCacheEdges;
-        static string divCacheReport = "", divCacheGate = "";
+        static DivText divCacheReport, divCacheGate;
         /// <summary>Clock: every divider plan request of this load (builds, reuses, the state
         /// check) and the planning gate's share of it, in ms.</summary>
         public static double DividerPlanMsTotal, DividerGateMsTotal;
         public static int DividerPlanBuilds, DividerPlanReuses;
 
-        /// <summary>The solve state the plan is made from: every edge's stations, structure
-        /// flags and heights (to 5 cm).</summary>
+        /// <summary>The solve state the plan is made from: every edge's station count and
+        /// structure flags, and the heights (to 5 cm) of the edges the plan reads them on (the
+        /// candidate carriageways and every edge with structure). ONE pass over the city's
+        /// edges (round 3b: it is most of the plan's memory traffic) also lists what the build
+        /// walks: the candidates (<see cref="divCand"/>), the twin grid's one-way edges
+        /// (<see cref="divOneway"/>) and the edges with structure (<see cref="divStructEdges"/>).
+        /// The flags are read eight at a time (a bool is a byte).</summary>
         static ulong DivStateKey(CityMap map)
         {
             ulong h = 1469598103934665603UL;
-            void Mix(ulong v) { h ^= v; h *= 1099511628211UL; }
-            Mix((ulong)map.edges.Length);
+            const ulong P = 1099511628211UL;
+            h = (h ^ (ulong)map.edges.Length) * P;
+            divStructEdges.Clear(); divCand.Clear(); divOneway.Clear(); divCandNames.Clear();
             foreach (var e in map.edges)
             {
-                // per edge: its station count, structure flags and three heights - the
-                // solve moves a whole edge's profile, so its ends and middle tell
-                if (e.stS == null) { Mix(0xFFFF); continue; }
-                int ns = e.stS.Length;
-                Mix((ulong)ns);
-                if (e.stElev != null) { ulong bits = 0; for (int i = 0; i < e.stElev.Length; i++) if (e.stElev[i]) bits = bits * 31UL + (ulong)i + 1UL; Mix(bits); }
-                if (e.stY != null && e.stY.Length > 0) { Mix((ulong)(long)Mathf.RoundToInt(e.stY[0] * 20f)); Mix((ulong)(long)Mathf.RoundToInt(e.stY[e.stY.Length / 2] * 20f)); Mix((ulong)(long)Mathf.RoundToInt(e.stY[e.stY.Length - 1] * 20f)); }
+                bool cand = false;
+                if (e.oneway && !e.link && e.a != e.b && !string.IsNullOrEmpty(e.name))
+                {
+                    divOneway.Add(e);
+                    if (DivCandidate(e)) { cand = true; divCand.Add(e); divCandNames.Add(e.name); }
+                }
+                // per edge: its station count and structure flags (the solve allocates the
+                // three station arrays together); the heights below
+                var fl = e.stElev;
+                if (fl == null) { h = (h ^ 0xFFFFUL) * P; continue; }
+                h = (h ^ (ulong)fl.Length) * P;
+                ulong any = 0;
+                if (fl.Length >= 16)
+                {
+                    var w = System.Runtime.InteropServices.MemoryMarshal.Cast<bool, ulong>(new System.ReadOnlySpan<bool>(fl));
+                    for (int i = 0; i < w.Length; i++) { ulong v = w[i]; any |= v; h = (h ^ v) * P; }
+                    for (int i = w.Length * 8; i < fl.Length; i++) if (fl[i]) { any = 1; h = (h ^ (ulong)(i + 1)) * P; }
+                }
+                else for (int i = 0; i < fl.Length; i++) if (fl[i]) { any = 1; h = (h ^ (ulong)(i + 1)) * P; }
+                h = (h ^ 0x5bd1e995UL) * P;
+                if (any != 0) divStructEdges.Add(e);
+                // the heights the plan reads (a deck's over a candidate, a candidate's own):
+                // the solve moves a whole edge's profile, so its ends and middle tell
+                var y = e.stY;
+                if ((cand || any != 0) && y != null && y.Length > 0)
+                {
+                    h = (h ^ (ulong)(long)Mathf.RoundToInt(y[0] * 20f)) * P;
+                    h = (h ^ (ulong)(long)Mathf.RoundToInt(y[y.Length / 2] * 20f)) * P;
+                    h = (h ^ (ulong)(long)Mathf.RoundToInt(y[y.Length - 1] * 20f)) * P;
+                }
             }
             return h;
         }
+        static readonly HashSet<string> divCandNames = new HashSet<string>();
+        /// <summary>The edges with any structure station, in index order (filled by
+        /// <see cref="DivStateKey"/>, which runs before every build).</summary>
+        static readonly List<CityMap.Edge> divStructEdges = new List<CityMap.Edge>(4096);
+        /// <summary>This build's candidate carriageways, in index order (every per-edge pass
+        /// of the plan walks these, not the city's 25k edges).</summary>
+        static readonly List<CityMap.Edge> divCand = new List<CityMap.Edge>(512);
+        /// <summary>One-way, non-link, named edges with two ends: the twin grid's candidates
+        /// before the name filter.</summary>
+        static readonly List<CityMap.Edge> divOneway = new List<CityMap.Edge>(4096);
 
         /// <summary>The divider plan for this map (called by BuildDeckUnions once the structure
         /// is marked): built once on the final solve state and reused by every later trims
@@ -564,68 +632,227 @@ namespace PSXRacing.City
             if (DividerSeatPass || !DividersOn || map?.edges == null)
             {
                 divEdges = null; divMap = map;
-                LastDividerReport = DividersOn ? (DividerSeatPass ? "dividers: none in the seat pass" : "") : "dividers off (PSX_CITY_DIVIDERS=0)";
-                LastDividerGate = "";
+                divReportT = new DivText(DividersOn ? (DividerSeatPass ? "dividers: none in the seat pass" : "") : "dividers off (PSX_CITY_DIVIDERS=0)");
+                divGateT = new DivText("");
                 return;
             }
             var clock = System.Diagnostics.Stopwatch.StartNew();
             ulong key = DivStateKey(map);
+            double keyMs = clock.Elapsed.TotalMilliseconds;
             if (divCacheMap == map && divCacheKey == key && divCacheEdges != null)
             {
                 divEdges = divCacheEdges; divMap = map;
-                LastDividerReport = divCacheReport; LastDividerGate = divCacheGate;
+                divReportT = divCacheReport; divGateT = divCacheGate;
                 DividerPlanReuses++;
                 DividerPlanMsTotal += clock.Elapsed.TotalMilliseconds;
                 Debug.Log($"[city] dividers: the plan reused (same map and solve state, {clock.Elapsed.TotalMilliseconds:0.0} ms); this load {DividerPlanBuilds} built, {DividerPlanReuses} reused, {DividerPlanMsTotal:0.0} ms in all");
                 return;
             }
+            if (DivJitProbe) DivJitAll(clock);
+            int gc0 = System.GC.CollectionCount(0);
             BuildDividers(map);
             double first = clock.Elapsed.TotalMilliseconds;
+            divColdGcs = System.GC.CollectionCount(0) - gc0;
             divCacheMap = map; divCacheKey = key; divCacheEdges = divEdges;
-            divCacheReport = LastDividerReport; divCacheGate = LastDividerGate;
+            divCacheReport = divReportT; divCacheGate = divGateT;
             DividerPlanBuilds++;
             DividerPlanMsTotal += clock.Elapsed.TotalMilliseconds;
-            // (the log lines come after the clock: they are the editor's, not the plan's cost)
-            Debug.Log("[city] " + LastDividerReport);
-            Debug.Log("[city] " + LastDividerGate);
-            Debug.Log($"[city] dividers: plan built in {clock.Elapsed.TotalMilliseconds:0.0} ms with the state check (gate {divGateMs:0.0} ms of it); this load {DividerPlanBuilds} built, {DividerPlanReuses} reused, {DividerPlanMsTotal:0.0} ms in all");
+            // the editor (audits, probes, previews) logs the report and the planning gate,
+            // made now, after the clock; a player logs the one line below
+            if (Application.isEditor)
+            {
+                var rc = System.Diagnostics.Stopwatch.StartNew();
+                string rep = LastDividerReport;
+                divSect[7] = rc.Elapsed.TotalMilliseconds;
+                string gate = LastDividerGate;
+                Debug.Log("[city] " + rep);
+                Debug.Log("[city] " + gate);
+            }
+            Debug.Log($"[city] dividers: plan built in {first:0.0} ms with the state check ({divColdGcs} GCs in it); this load {DividerPlanBuilds} built, {DividerPlanReuses} reused, {DividerPlanMsTotal:0.0} ms in all" +
+                      (Application.isEditor ? $" (state key {keyMs:0.0}, {DivSectLine(divGateMs)}; the report and the planning gate are made when read, besides)" : ""));
+            if (DivRunsLog) Debug.Log("[dividers] runs:" + divRunLog);
+            divRunLog.Clear();
             // PSX_DIV_BENCH=1 (measurement only): the same build three more times, warm (the
             // editor's first call carries the JIT of every method it runs; a player build has none)
             if (System.Environment.GetEnvironmentVariable("PSX_DIV_BENCH") == "1")
             {
-                double best = double.MaxValue, bestGate = 0;
+                // (the editor path: the plan, then its report and gate read; the cold numbers
+                // are the first build's above)
+                double best = double.MaxValue, bestEd = double.MaxValue, bestGate = 0, coldGate = divGateMs, coldRep = divSect[7];
+                string coldSect = $"state key {keyMs:0.0}, " + DivSectLine(divGateMs), bestSect = "";
                 for (int b = 0; b < 3; b++)
                 {
+                    if (b == 2) System.Array.Clear(divTw, 0, divTw.Length);
                     var bc = System.Diagnostics.Stopwatch.StartNew();
-                    DivStateKey(map); BuildDividers(map);
+                    DivStateKey(map);
+                    double kms = bc.Elapsed.TotalMilliseconds;
+                    BuildDividers(map);
+                    divRunLog.Clear();
                     double ms = bc.Elapsed.TotalMilliseconds;
-                    if (ms < best) { best = ms; bestGate = divGateMs; }
+                    var rc = System.Diagnostics.Stopwatch.StartNew();
+                    _ = LastDividerReport;
+                    double rms = rc.Elapsed.TotalMilliseconds;
+                    _ = LastDividerGate;
+                    divSect[7] = rms;
+                    double ed = bc.Elapsed.TotalMilliseconds;
+                    if (ms < best) { best = ms; bestSect = $"state key {kms:0.0}, " + DivSectLine(divGateMs); }
+                    if (ed < bestEd) { bestEd = ed; bestGate = divGateMs; }
                 }
-                divCacheEdges = divEdges; divCacheReport = LastDividerReport; divCacheGate = LastDividerGate;
-                Debug.Log($"[city] dividers bench: first build {first:0.0} ms (cold, with the state check), warm best of three {best:0.0} ms (gate {bestGate:0.0} ms of it)");
-                DividerBenchLine = $"first build {first:0.0} ms cold, warm best of three {best:0.0} ms (gate {bestGate:0.0} ms)";
+                Debug.Log($"[city] dividers bench sections: cold {coldSect}; warm {bestSect}; the last build's {DivTwLine()}");
+                divCacheEdges = divEdges; divCacheReport = divReportT; divCacheGate = divGateT;
+                double coldEd = first + coldRep + coldGate;
+                Debug.Log($"[city] dividers bench: first build {first:0.0} ms (cold, with the state check: the game's load), warm best of three {best:0.0} ms; with the report and the planning gate (the editor and audits): cold {coldEd:0.0} ms, warm {bestEd:0.0} ms (gate {bestGate:0.0} ms)");
+                DividerBenchLine = $"first build {first:0.0} ms cold, warm best of three {best:0.0} ms (game path); with report + gate cold {coldEd:0.0}, warm {bestEd:0.0} ms (gate {bestGate:0.0} ms)";
             }
         }
         static double divGateMs;
         public static string DividerBenchLine = "";
+        static int divColdGcs;
+        /// <summary>PSX_DIV_JITPROBE=1 (measurement only): every divider method compiled on the
+        /// main thread before the first build, timed, so the cold build's own share (no JIT)
+        /// shows apart from the JIT's.</summary>
+        static readonly bool DivJitProbe = System.Environment.GetEnvironmentVariable("PSX_DIV_JITPROBE") == "1";
+        static void DivJitAll(System.Diagnostics.Stopwatch clock)
+        {
+            double t0 = clock.Elapsed.TotalMilliseconds;
+            int n = DivCompileAll();
+            Debug.Log($"[city] dividers JIT probe: {n} methods compiled in {clock.Elapsed.TotalMilliseconds - t0:0.0} ms (not counted below: the plan clock restarts)");
+            clock.Restart();
+        }
+        /// <summary>Compile (JIT) the divider plan's methods: what a Mono runtime (the editor,
+        /// the Windows player) otherwise compiles inside the first plan build - 25.7 ms of a
+        /// cold 55 ms build measured in the editor (round 3b).</summary>
+        static int DivCompileAll()
+        {
+            int n = 0;
+            const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly;
+            foreach (var m in typeof(CityMeshes).GetMethods(F))
+            {
+                string nm = m.Name;
+                if (m.ContainsGenericParameters || !(nm.Contains("Div") || nm == "SegCross" || nm == "Median" || nm == "RampAt" || nm == "InArcs" || nm == "CableAt" || nm == "SideToward")) continue;
+                try { m.MethodHandle.GetFunctionPointer(); n++; } catch (System.Exception) { }
+            }
+            return n;
+        }
+        static bool divPrewarmed;
+        /// <summary>Round 3b: start compiling the divider plan's methods on a worker thread
+        /// (CityMap.Load calls this before the elevation solve, which takes ~30 s in the
+        /// editor): on Mono the plan's first build then runs without its JIT on the load's
+        /// main thread. A no-op on IL2CPP (WebGL, Android: compiled ahead of time), with the
+        /// switch off, and with PSX_DIV_PREJIT=0 (to measure the cold build with its JIT).</summary>
+        public static void PrewarmDividers()
+        {
+#if ENABLE_MONO
+            if (divPrewarmed || !DividersOn || System.Environment.GetEnvironmentVariable("PSX_DIV_PREJIT") == "0") return;
+            divPrewarmed = true;
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var c = System.Diagnostics.Stopwatch.StartNew();
+                    int n = DivCompileAll();
+                    Debug.Log($"[city] dividers: {n} plan methods compiled on a worker in {c.Elapsed.TotalMilliseconds:0.0} ms (Mono JIT, beside the elevation solve)");
+                }
+                catch (System.Exception ex) { Debug.LogWarning("[city] dividers: the worker compile stopped: " + ex.Message); }
+            });
+#endif
+        }
+        /// <summary>PSX_DIV_BENCH=1: the twin search's own clock (point+hint, grid, extents;
+        /// full searches, samples).</summary>
+        static readonly bool DivTwClock = System.Environment.GetEnvironmentVariable("PSX_DIV_BENCH") == "1";
+        static readonly long[] divTw = new long[5];
+        static string DivTwLine()
+        {
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            return $"twin search: point+hint {divTw[0] * f:0.0} ms, grid {divTw[1] * f:0.0} ms, extents {divTw[2] * f:0.0} ms; {divTw[3]} full of {divTw[4]} samples";
+        }
 
         static void BuildDividers(CityMap map)
         {
             divEdges = null; divMap = map;
             divElevCache.Clear();
-            LastDividerReport = "";
-            LastDividerGate = "";
+            divReportT = new DivText(""); divGateT = new DivText("");
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var E = map.edges;
             divEdges = new DivEdge[E.Length];
-            var names = new HashSet<string>();
-            foreach (var e in E) if (DivCandidate(e)) names.Add(e.name);
-            BuildDivGrid(map, names);
-            long tGrid = clock.ElapsedMilliseconds;
-            // samples, the twin at each kept
-            foreach (var e in E)
+            DivPhaseGrid(map);
+            double tGrid = clock.Elapsed.TotalMilliseconds;
+            DivPhaseSamples(map);
+            double tSamples = clock.Elapsed.TotalMilliseconds;
+            var chains = DivPhaseRuns(map, out int[] chainKey, out int runsN, out int reconciled);
+            double tRuns = clock.Elapsed.TotalMilliseconds;
+            int loneEdges = DivPhaseDraw(map, chains, chainKey);
+            int pinchRuns = DivAnyNarrow() ? DivPhasePinch(map) : 0;
+            // the structure's own segments in cells (a crossing deck is on structure there)
+            double tDeck0 = clock.Elapsed.TotalMilliseconds;
+            var deckGrid = DivPhaseDeckGrid(map);
+            double tDeck1 = clock.Elapsed.TotalMilliseconds;
+            int zonesN = DivPhaseZones(map, deckGrid, out int narrowN, out string narrowZones);
+            double tZones = clock.Elapsed.TotalMilliseconds;
+            int shortDropped = DivPhaseCable(map);
+            double tIvs = clock.Elapsed.TotalMilliseconds;
+
+            divSect[0] = tGrid; divSect[1] = tSamples - tGrid; divSect[2] = tRuns - tSamples; divSect[3] = tDeck0 - tRuns;
+            divSect[4] = tDeck1 - tDeck0; divSect[5] = tZones - tDeck1; divSect[6] = tIvs - tZones; divSect[7] = 0;
+            divGateMs = 0;
+            // the report and the planning gate, made when read (from this plan: its edges and
+            // candidates are kept for them)
+            var plan = divEdges; var cand = divCand.ToArray();
+            int chainsN = chains.Count;
+            string times = $"{tIvs:0} ms (grid {tGrid:0.0}, samples {tSamples - tGrid:0.0}, runs {tRuns - tSamples:0.0}, zones {tZones - tRuns:0.0} (draw+pinch {tDeck0 - tRuns:0.0}, deck grid {tDeck1 - tDeck0:0.0}), cable {tIvs - tZones:0.0})";
+            divReportT = new DivText(() => DividerReport(plan, cand, chainsN, runsN, reconciled, zonesN, shortDropped, pinchRuns, loneEdges, narrowN, narrowZones, times));
+            divGateT = new DivText(() =>
             {
-                if (!DivCandidate(e)) continue;
+                var keep = divEdges;
+                divEdges = plan;
+                try
+                {
+                    var gclock = System.Diagnostics.Stopwatch.StartNew();
+                    string g = DividerGate(map, cand);
+                    divGateMs = gclock.Elapsed.TotalMilliseconds;
+                    DividerGateMsTotal += divGateMs;
+                    return g;
+                }
+                finally { divEdges = keep; }
+            });
+        }
+
+        /// <summary>The plan's report line: carriageway-km of each kind per corridor, km of
+        /// cable as built.</summary>
+        static string DividerReport(DivEdge[] plan, CityMap.Edge[] cand, int chainsN, int runsN, int reconciled, int zonesN, int shortDropped,
+                                    int pinchRuns, int loneEdges, int narrowN, string narrowZones, string times)
+        {
+            var km = new SortedDictionary<string, float[]>();
+            int drawers = 0;
+            foreach (var e in cand)
+            {
+                var d = plan[e.index];
+                if (d == null) continue;
+                if (!km.TryGetValue(e.name, out var a)) km[e.name] = a = new float[5];
+                a[(int)d.kind] += e.length / 1000f;
+                if (d.ivs != null) { drawers++; foreach (var iv in d.ivs) a[3] += (iv.s1 - iv.s0) / 1000f; }
+                if (d.zones != null) a[4] += d.zones.Count;
+            }
+            var sb = new StringBuilder();
+            sb.Append($"dividers: {chainsN} chains, {runsN} runs, {reconciled} runs given their pair's kind, {zonesN} overpass crossings, {drawers} cable-carrying edges, {shortDropped} short cable pieces dropped, {pinchRuns} narrow-pinch Jersey runs, {loneEdges} lone carriageways (no twin), {times};");
+            foreach (var kv in km) sb.Append($" {kv.Key}: carriageway-km concrete {kv.Value[0]:0.0} cable {kv.Value[1]:0.0} open {kv.Value[2]:0.0}, cable line {kv.Value[3]:0.0} km, {kv.Value[4]:0} zone sides;");
+            sb.Append($" overpass zones in a median under 6 m: {narrowN}{(narrowN > 0 ? ":" + narrowZones : "")}");
+            return sb.ToString();
+        }
+
+        // ---- the plan's phases (round 3b: one method each - the editor's JIT of one 480-line
+        // method was 14 ms of a cold load, and Mono's register allocation grows faster
+        // than the method)
+        static void DivPhaseGrid(CityMap map)
+        {
+            // (the candidate lists come from DivStateKey's pass, which runs before every build)
+            BuildDivGrid(map, divCandNames);
+        }
+        static void DivPhaseSamples(CityMap map)
+        {
+            // samples, the twin at each kept
+            foreach (var e in divCand)
+            {
                 int ns = Mathf.Max(1, Mathf.CeilToInt(e.length / DivStepM));
                 var d = new DivEdge { gap = new float[ns], twin = new int[ns], twinS = new float[ns], kind = DividerKind.Cable };
                 CityMap.Edge hint = null; float hintS = 0f, hintD = float.NaN;
@@ -638,10 +865,12 @@ namespace PSXRacing.City
                 }
                 divEdges[e.index] = d;
             }
-            long tSamples = clock.ElapsedMilliseconds;
+        }
+        static List<List<CityMap.Edge>> DivPhaseRuns(CityMap map, out int[] chainKey, out int runsN, out int reconciled)
+        {
             // chains of one carriageway through plain nodes
             var chains = new List<List<CityMap.Edge>>();
-            foreach (var e in E)
+            foreach (var e in divCand)
             {
                 var d0 = divEdges[e.index];
                 if (d0 == null || d0.chain >= 0) continue;
@@ -661,7 +890,7 @@ namespace PSXRacing.City
                 }
                 chains.Add(ch);
             }
-            int[] chainKey = new int[chains.Count];
+            chainKey = new int[chains.Count];
             for (int c = 0; c < chains.Count; c++) { int m = int.MaxValue; foreach (var x in chains[c]) m = Mathf.Min(m, x.index); chainKey[c] = m; }
             // runs between ramps, decided with hysteresis from the longest one out
             var vals = new List<float>(1024);
@@ -721,7 +950,7 @@ namespace PSXRacing.City
             // are that kind over most of its length; otherwise it is cable (the corridor's
             // kind), and that is iterated until no run changes - so a pair is one kind run
             // for run, and only cable can be what is left at a stagger.
-            int reconciled = 0;
+            reconciled = 0;
             var tally = new int[3];
             for (int iter = 0; iter < 12; iter++)
             {
@@ -748,9 +977,14 @@ namespace PSXRacing.City
             foreach (var rr in allRuns)
             {
                 foreach (var x in rr.edges) divEdges[x.index].kind = rr.kind;
-                divRunLog.Append($"\n  run {rr.edges[0].name} e{rr.edges[0].index}..e{rr.edges[rr.edges.Count - 1].index} {rr.len:0} m median {rr.med:0.0} m found {rr.found:0.00} -> {rr.own}{(rr.own != rr.kind ? " -> " + rr.kind + " (pair)" : "")}");
+                if (DivRunsLog) divRunLog.Append($"\n  run {rr.edges[0].name} e{rr.edges[0].index}..e{rr.edges[rr.edges.Count - 1].index} {rr.len:0} m median {rr.med:0.0} m found {rr.found:0.00} -> {rr.own}{(rr.own != rr.kind ? " -> " + rr.kind + " (pair)" : "")}");
             }
-            long tRuns = clock.ElapsedMilliseconds;
+            runsN = allRuns.Count;
+            return chains;
+        }
+        static int DivPhaseDraw(CityMap map, List<List<CityMap.Edge>> chains, int[] chainKey)
+        {
+            var E = map.edges;
             // WHO CARRIES THE CABLE (round 3): ONE SIDE OF THE PAIR, the same all along the
             // corridor. The chains are coloured by direction from their twin pairings (the
             // corridor's lowest-key chain and every chain running its way side 0, the chains
@@ -766,7 +1000,7 @@ namespace PSXRacing.City
             foreach (var ch in chains) { var nm = ch[0].name; int key = chainKey[divEdges[ch[0].index].chain]; minKey[nm] = minKey.TryGetValue(nm, out int had) ? Mathf.Min(had, key) : key; }
             var colour = DivChainColours(E, chains, chainKey);
             int loneEdges = 0;
-            foreach (var e in E)
+            foreach (var e in divCand)
             {
                 var d = divEdges[e.index];
                 if (d == null) continue;
@@ -805,6 +1039,25 @@ namespace PSXRacing.City
                     d.draw[k] = best >= 0 ? d.draw[best] : chainKey[d.chain] == minKey[e.name];
                 }
             }
+            return loneEdges;
+        }
+        /// <summary>Any cable carriageway's sample under CableMinGapM (the only samples a
+        /// pinch core can start from): none, and the pinch pass has nothing to mark (and is
+        /// not compiled for the load).</summary>
+        static bool DivAnyNarrow()
+        {
+            foreach (var e in divCand)
+            {
+                var d = divEdges[e.index];
+                if (d == null || d.kind != DividerKind.Cable) continue;
+                foreach (float g in d.gap) if (g < CableMinGapM) return true;   // (NaN compares false)
+            }
+            return false;
+        }
+        static int DivPhasePinch(CityMap map)
+        {
+            var E = map.edges;
+            int pinchRuns = 0;
             // NARROW PINCHES (round 3, the review's e2508 at a bridge approach: the two
             // carriageways close to a 1.2-1.4 m gap inside a cable run, and a median rail's
             // end met traffic square there). A cable needs CableMinGapM of median; where the
@@ -814,10 +1067,9 @@ namespace PSXRacing.City
             // CableMinGapM + 1 m, the rails hand over to it as they did, and the cable is cut
             // only at the core - so it laps at least one sample behind the Jersey's end.
             // Marked on both carriageways (each side's samples and its twin's).
-            int pinchRuns = 0;
             {
                 var coreM = new Dictionary<int, bool[]>(); var runM = new Dictionary<int, bool[]>();
-                foreach (var e in E)
+                foreach (var e in divCand)
                 {
                     var d = divEdges[e.index];
                     if (d == null || d.kind != DividerKind.Cable) continue;
@@ -845,7 +1097,7 @@ namespace PSXRacing.City
                     coreM[e.index] = core; runM[e.index] = run;
                 }
                 // ...and across: the twin's samples opposite them
-                var add = new List<(int ei, int k, bool core)>();
+                var add = new List<long>();   // (edge << 32 | sample << 1 | core)
                 foreach (var kv in runM)
                 {
                     var d = divEdges[kv.Key]; var core = coreM[kv.Key];
@@ -854,11 +1106,13 @@ namespace PSXRacing.City
                         if (!kv.Value[k] || d.twin[k] < 0) continue;
                         var dy = divEdges[d.twin[k]];
                         if (dy == null || dy.kind != DividerKind.Cable) continue;
-                        add.Add((d.twin[k], DivSample(dy, d.twinS[k]), core[k]));
+                        add.Add(((long)d.twin[k] << 32) | ((long)DivSample(dy, d.twinS[k]) << 1) | (core[k] ? 1L : 0L));
                     }
                 }
-                foreach (var (ei, k, isCore) in add)
+                foreach (long pk in add)
                 {
+                    int ei = (int)(pk >> 32), k = (int)((pk & 0xFFFFFFFFL) >> 1);
+                    bool isCore = (pk & 1L) != 0;
                     int ns = divEdges[ei].gap.Length;
                     if (!runM.TryGetValue(ei, out var run)) { runM[ei] = run = new bool[ns]; coreM[ei] = new bool[ns]; }
                     run[k] = true;
@@ -872,27 +1126,23 @@ namespace PSXRacing.City
                     if (d.pinchRun != null) pinchRuns += d.pinchRun.Count;
                 }
             }
-            // the overpass zones (cable and open medians)
-            int zonesN = 0;
-            var seen = new HashSet<long>();
-            // the structure's own segments in cells (a crossing deck is on structure there)
-            long tDeck0 = clock.ElapsedMilliseconds;
+            return pinchRuns;
+        }
+        static Dictionary<long, List<int>> DivPhaseDeckGrid(CityMap map)
+        {
             // the candidate corridors' 256 m cells and their ring: structure elsewhere never
             // crosses one, and is not registered
             var nearCoarse = new HashSet<long>();
             foreach (var key in divGrid.Keys)
             {
-                int kx = (int)(key >> 32), kz = (int)(uint)key;
+                int kx = DivCellX(key), kz = DivCellZ(key);
                 for (int dx = -1; dx <= 1; dx++)
                     for (int dz = -1; dz <= 1; dz++)
                         nearCoarse.Add(DivCell((kx + dx) >> 2, (kz + dz) >> 2));
             }
-            var deckGrid = new Dictionary<long, List<int>>();
-            foreach (var c in E)
+            var deckGrid = new Dictionary<long, List<int>>(2048);
+            foreach (var c in divStructEdges)
             {
-                if (c.stElev == null || c.stS == null) continue;
-                bool any = false; foreach (bool b in c.stElev) if (b) { any = true; break; }
-                if (!any) continue;
                 for (int si = 0; si + 1 < c.pts.Length && si < 0xFFF; si++)
                 {
                     Vector2 a = c.pts[si], b = c.pts[si + 1];
@@ -915,8 +1165,13 @@ namespace PSXRacing.City
                         }
                 }
             }
-            long tDeck1 = clock.ElapsedMilliseconds;
-            foreach (var e in E)
+            return deckGrid;
+        }
+        static int DivPhaseZones(CityMap map, Dictionary<long, List<int>> deckGrid, out int narrowN, out string narrowZonesS)
+        {
+            int zonesN = 0;
+            var seen = new HashSet<long>();
+            foreach (var e in divCand)
             {
                 var d = divEdges[e.index];
                 if (d == null || d.kind == DividerKind.Concrete) continue;
@@ -949,7 +1204,14 @@ namespace PSXRacing.City
                 }
                 if (d.zones != null && d.zones.Count > 1)
                 {
-                    d.zones.Sort((p, q) => p.x.CompareTo(q.x));
+                    // (by start; an insertion sort - a few zones an edge, and no generic sort
+                    // instantiated for the load)
+                    for (int a = 1; a < d.zones.Count; a++)
+                    {
+                        var z = d.zones[a]; int b = a - 1;
+                        while (b >= 0 && d.zones[b].x > z.x) { d.zones[b + 1] = d.zones[b]; b--; }
+                        d.zones[b + 1] = z;
+                    }
                     var m = new List<Vector2> { d.zones[0] };
                     for (int k = 1; k < d.zones.Count; k++)
                     {
@@ -962,8 +1224,8 @@ namespace PSXRacing.City
             }
             // the zones in a narrow median (the flare is clamped clear of the cable there)
             var narrowZones = new StringBuilder();
-            int narrowN = 0;
-            foreach (var e in E)
+            narrowN = 0;
+            foreach (var e in divCand)
             {
                 var d = divEdges[e.index];
                 if (d?.zones == null) continue;
@@ -974,7 +1236,12 @@ namespace PSXRacing.City
                     if (narrowN++ < 6) { var p = e.PointAt(Mathf.Clamp(0.5f * (z.x + z.y), 0f, e.length)); narrowZones.Append($" e{e.index} s {z.x:0}..{z.y:0} at ({p.x:0},{p.y:0}) gap {g:0.0};"); }
                 }
             }
-            long tZones = clock.ElapsedMilliseconds;
+            narrowZonesS = narrowZones.ToString();
+            return zonesN;
+        }
+        static int DivPhaseCable(CityMap map)
+        {
+            var E = map.edges;
             // THE CABLE AS BUILT: the drawing samples' arcs, less this carriageway's own
             // structure (exactly where ElevatedAt says so, the rule the gate and the audit
             // read), the twin's structure projected across (its parapet is the barrier
@@ -983,7 +1250,7 @@ namespace PSXRacing.City
             // runs on to the beam's full section, lapped behind its flared terminal, and is
             // turned down there)
             var cut = new List<Vector2>(); var pieces = new List<Vector2>();
-            foreach (var e in E)
+            foreach (var e in divCand)
             {
                 var d = divEdges[e.index];
                 if (d == null || d.kind != DividerKind.Cable) continue;
@@ -1032,7 +1299,7 @@ namespace PSXRacing.City
             }
             // continuity through the nodes: an arc reaching its edge's end carries on into the
             // next edge's arc that starts at the node
-            foreach (var e in E)
+            foreach (var e in divCand)
             {
                 var d = divEdges[e.index];
                 if (d?.ivs == null) continue;
@@ -1049,9 +1316,9 @@ namespace PSXRacing.City
             // the distance to each arc's real ends along the chain (a few edges is enough:
             // past the turn-down length it no longer matters), then the short pieces
             const float far = 1e4f;
-            foreach (var e in E) { var d = divEdges[e.index]; if (d?.ivs == null) continue; for (int k = 0; k < d.ivs.Count; k++) { var iv = d.ivs[k]; iv.extA = iv.contA ? far : 0f; iv.extB = iv.contB ? far : 0f; d.ivs[k] = iv; } }
+            foreach (var e in divCand) { var d = divEdges[e.index]; if (d?.ivs == null) continue; for (int k = 0; k < d.ivs.Count; k++) { var iv = d.ivs[k]; iv.extA = iv.contA ? far : 0f; iv.extB = iv.contB ? far : 0f; d.ivs[k] = iv; } }
             for (int pass = 0; pass < 6; pass++)
-                foreach (var e in E)
+                foreach (var e in divCand)
                 {
                     var d = divEdges[e.index];
                     if (d?.ivs == null) continue;
@@ -1069,7 +1336,7 @@ namespace PSXRacing.City
                     }
                 }
             int shortDropped = 0;
-            foreach (var e in E)
+            foreach (var e in divCand)
             {
                 var d = divEdges[e.index];
                 if (d?.ivs == null) continue;
@@ -1082,33 +1349,16 @@ namespace PSXRacing.City
             }
             // (a dropped piece is a whole chained group shorter than CableMinRunM: its
             // neighbours' ends were real ends already, so nothing else changes)
-            long tIvs = clock.ElapsedMilliseconds;
-
-            // the report: carriageway-km of each kind per corridor, km of cable as built
-            var km = new SortedDictionary<string, float[]>();
-            int drawers = 0;
-            foreach (var e in E)
-            {
-                var d = divEdges[e.index];
-                if (d == null) continue;
-                if (!km.TryGetValue(e.name, out var a)) km[e.name] = a = new float[5];
-                a[(int)d.kind] += e.length / 1000f;
-                if (d.ivs != null) { drawers++; foreach (var iv in d.ivs) a[3] += (iv.s1 - iv.s0) / 1000f; }
-                if (d.zones != null) a[4] += d.zones.Count;
-            }
-            var sb = new StringBuilder();
-            sb.Append($"dividers: {chains.Count} chains, {allRuns.Count} runs, {reconciled} runs given their pair's kind, {zonesN} overpass crossings, {drawers} cable-carrying edges, {shortDropped} short cable pieces dropped, {pinchRuns} narrow-pinch Jersey runs, {loneEdges} lone carriageways (no twin), " +
-                      $"{clock.ElapsedMilliseconds} ms (grid {tGrid}, samples {tSamples - tGrid}, runs {tRuns - tSamples}, zones {tZones - tRuns} (draw+pinch {tDeck0 - tRuns}, deck grid {tDeck1 - tDeck0}), cable {tIvs - tZones});");
-            foreach (var kv in km) sb.Append($" {kv.Key}: carriageway-km concrete {kv.Value[0]:0.0} cable {kv.Value[1]:0.0} open {kv.Value[2]:0.0}, cable line {kv.Value[3]:0.0} km, {kv.Value[4]:0} zone sides;");
-            sb.Append($" overpass zones in a median under 6 m: {narrowN}{(narrowN > 0 ? ":" + narrowZones : "")}");
-            LastDividerReport = sb.ToString();
-            var gclock = System.Diagnostics.Stopwatch.StartNew();
-            DividerGate(map);
-            divGateMs = gclock.Elapsed.TotalMilliseconds;
-            DividerGateMsTotal += divGateMs;
-            if (System.Environment.GetEnvironmentVariable("PSX_DIV_RUNS") == "1") Debug.Log("[dividers] runs:" + divRunLog);
-            divRunLog.Clear();
+            return shortDropped;
         }
+        /// <summary>The plan's sections, ms (the bench's breakdown): grid, samples, runs,
+        /// draw+pinch, deck grid, zones, cable, report.</summary>
+        static readonly double[] divSect = new double[8];
+        /// <summary>PSX_DIV_RUNS=1: the runs are logged (a diagnostic, built only then and
+        /// logged after the plan's clock).</summary>
+        static readonly bool DivRunsLog = System.Environment.GetEnvironmentVariable("PSX_DIV_RUNS") == "1";
+        static string DivSectLine(double gate) =>
+            $"grid {divSect[0]:0.0}, samples {divSect[1]:0.0}, runs {divSect[2]:0.0}, draw+pinch {divSect[3]:0.0}, deck grid {divSect[4]:0.0}, zones {divSect[5]:0.0}, cable {divSect[6]:0.0}, report {divSect[7]:0.0}, gate {gate:0.0}";
 
         /// <summary>THE PLANNING GATE, on the plan as built (the cable's arcs after every cut,
         /// the pinches' Jerseys, the zones): at every DivStepM sample of every candidate
@@ -1117,14 +1367,14 @@ namespace PSXRacing.City
         /// across, the cable on either side. Every sample has exactly one, is in an overpass
         /// zone, is a deliberately open pair, or a lone carriageway's own cable (no twin within
         /// DivReachM); NONE and TWO+ are listed with what each side's plan holds there.</summary>
-        static void DividerGate(CityMap map)
+        static string DividerGate(CityMap map, CityMap.Edge[] cand)
         {
             var E = map.edges;
             var per = new SortedDictionary<string, float[]>();   // one, zone, open, NONE, TWO+, lone, pinch (km)
             var spots = new StringBuilder();
             var seenSpot = new HashSet<long>();
             int spotsN = 0;
-            foreach (var e in E)
+            foreach (var e in cand)
             {
                 var d = divEdges[e.index];
                 if (d == null) continue;
@@ -1169,7 +1419,7 @@ namespace PSXRacing.City
             var sb = new StringBuilder("divider gate (the plan as built: barriers across each candidate median, carriageway-km off structure):");
             foreach (var kv in per) sb.Append($" {kv.Key}: one {kv.Value[0]:0.00} zone {kv.Value[1]:0.00} pinch-Jersey {kv.Value[6]:0.00} open {kv.Value[2]:0.00} lone-carriageway cable {kv.Value[5]:0.00} NONE {kv.Value[3]:0.00} TWO+ {kv.Value[4]:0.00};");
             sb.Append(spots);
-            LastDividerGate = sb.ToString();
+            return sb.ToString();
         }
 
         static bool SegCross(Vector2 a, Vector2 b, Vector2 c, Vector2 d, out float ta, out float tc)

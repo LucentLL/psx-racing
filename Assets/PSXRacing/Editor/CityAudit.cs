@@ -580,7 +580,7 @@ namespace PSXRacing.EditorTools
             routeOfEdge = RouteEdges(map);
             Line("DIVIDER PLAN: " + CityMeshes.LastDividerReport);
             Line("DIVIDER PLAN: " + CityMeshes.LastDividerGate);
-            Line($"DIVIDER PLAN: this load {CityMeshes.DividerPlanBuilds} built, {CityMeshes.DividerPlanReuses} reused, {CityMeshes.DividerPlanMsTotal:0.0} ms in all (the planning gate {CityMeshes.DividerGateMsTotal:0.0} ms of it)");
+            Line($"DIVIDER PLAN: this load {CityMeshes.DividerPlanBuilds} built, {CityMeshes.DividerPlanReuses} reused, {CityMeshes.DividerPlanMsTotal:0.0} ms in all (the game's load); the planning gate, made when read (the audits and the editor), {CityMeshes.DividerGateMsTotal:0.0} ms besides");
             string want = System.Environment.GetEnvironmentVariable("PSX_DRIVE_ROUTES");
             var ids = new HashSet<string>();
             if (!string.IsNullOrWhiteSpace(want)) foreach (var t in want.Split(',', ';', ' ')) if (t.Trim().Length > 0) ids.Add(t.Trim());

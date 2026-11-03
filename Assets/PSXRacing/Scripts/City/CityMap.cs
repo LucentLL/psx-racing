@@ -1209,6 +1209,9 @@ namespace PSXRacing.City
             // the audits - sees them
             CityStations.Install(map);
             LastParseMs = (float)parseClock.Elapsed.TotalMilliseconds;
+            // (dividers round 3b) the divider plan's methods compile on a worker beside the
+            // solve, so the plan's first build after it carries no JIT (Mono only)
+            CityMeshes.PrewarmDividers();
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityElevation.Solve(map);
             LastSolveMs = (float)clock.Elapsed.TotalMilliseconds;
