@@ -305,11 +305,25 @@ namespace PSXRacing.EditorTools
             {
                 yield return null;
                 all = true;
+                var onRoad = new bool[plan.Count];
                 for (int i = 0; i < plan.Count; i++)
+                    if (Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var h, 800f, 1 << 8, QueryTriggerInteraction.Ignore)) { w[i] = h.point; onRoad[i] = true; }
+                // publish 1: a movement's smoothed line may cross a few metres of
+                // drawn ground (Trade NB -> Beatties Ford NB kinks 23 deg at n10966
+                // and its lane line passes over the Beatties Ford median nose). The
+                // tile has streamed when a road stands within 6 points either side
+                // and a tile's Ground is under the point: take that ground (the
+                // drive itself judges the steps), and say so in the log.
+                int offRoad = 0;
+                for (int i = 0; i < plan.Count && all; i++)
                 {
-                    if (Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var h, 800f, 1 << 8, QueryTriggerInteraction.Ignore)) w[i] = h.point;
-                    else { all = false; break; }
+                    if (onRoad[i]) continue;
+                    bool near = false;
+                    for (int j = Mathf.Max(0, i - 6); j <= Mathf.Min(plan.Count - 1, i + 6) && !near; j++) near = onRoad[j];
+                    if (near && Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var g, 800f, ~0, QueryTriggerInteraction.Ignore) && g.collider.name == "Ground") { w[i] = g.point; offRoad++; }
+                    else all = false;
                 }
+                if (all && offRoad > 0) RefugeLapCheck.Line($"  NOTE {run.name}: {offRoad} of {plan.Count} route points stand on drawn Ground, not a road (the line crosses a nose or verge)");
                 // the tiles stream round the car: move it along the route while waiting
                 if (!all) { int k = Mathf.Min(plan.Count - 1, (int)((Time.realtimeSinceStartup - t0) / 4f) * Mathf.Max(25, plan.Count / 10)); car.TeleportTo(new Vector3(plan[k].x, 200f, plan[k].y), Quaternion.LookRotation(look.normalized, Vector3.up)); }
             }
