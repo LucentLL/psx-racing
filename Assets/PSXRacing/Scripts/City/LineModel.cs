@@ -723,7 +723,17 @@ namespace PSXRacing.City
             public float MoveAt(float u) => move <= 0f ? 0f : move * Smooth(Mathf.Min(u, axLen - u) / Mathf.Max(1f, moveLen));
             /// <summary>The island's design half width at axis arc u (before
             /// the carriageways' own room limits it).</summary>
-            public float NoseHalf(float u) => LineModel.NoseHalf(Mathf.Min(u - x0s, axLen - u - x0e), half, ln, rn);
+            public float NoseHalf(float u)
+            {
+                float x = Mathf.Min(u - x0s, axLen - u - x0e), h = half;
+                if (x <= 0f || h <= 0f) return 0f;
+                if (x >= ln) return h;
+                float r = Mathf.Min(rn, h);
+                // round 5b (load cost): the flank's tangent point once per nose shape
+                if (!nfOk || nfH != h || nfLn != ln || nfR != r) { NoseFlank(h, ln, r, out nfArc, out nfT); nfH = h; nfLn = ln; nfR = r; nfOk = true; }
+                return NoseHalfAt(x, h, ln, r, nfArc, nfT);
+            }
+            float nfH, nfLn, nfR; bool nfOk, nfArc; Vector2 nfT;
             /// <summary>Axis arc and lateral (outward +) of a world point.</summary>
             public void Local(Vector2 p, out float u, out float lat)
             {
@@ -747,17 +757,31 @@ namespace PSXRacing.City
             public int hintK;
             int ClosestPiece(Vector2 p, int lo, int hi, out float u, out Vector2 at, out Vector2 left)
             {
-                float best = float.MaxValue; int bk = lo; u = 0f; at = ax[0]; left = Vector2.up;
+                // round 5b (load cost): plain float arithmetic in the scan (the
+                // editor's Mono does not inline Vector2's operators); the winner's
+                // point, arc and normal are worked out once, after the scan. Not
+                // bit-identical to the Vector2 form: where a point is equally near
+                // two pieces (at an axis vertex) the tie can fall the other way -
+                // the gate's measures moved by a few mm, the decision did not
+                float best = float.MaxValue, bt = 0f; int bk = -1;
+                float px = p.x, py = p.y;
+                var axs = ax;
                 for (int k = lo; k <= hi; k++)
                 {
-                    Vector2 a = ax[k - 1], ab = ax[k] - a;
-                    float l2 = ab.sqrMagnitude;
+                    float ax0 = axs[k - 1].x, ay0 = axs[k - 1].y;
+                    float abx = axs[k].x - ax0, aby = axs[k].y - ay0;
+                    float l2 = abx * abx + aby * aby;
                     if (l2 < 1e-8f) continue;
-                    float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2);
-                    var q = a + ab * t;
-                    float d = (p - q).sqrMagnitude;
-                    if (d < best) { best = d; bk = k; at = q; u = axS[k - 1] + t * (axS[k] - axS[k - 1]); var tn = ab / Mathf.Sqrt(l2); left = new Vector2(-tn.y, tn.x); }
+                    float t = ((px - ax0) * abx + (py - ay0) * aby) / l2;
+                    t = t < 0f ? 0f : t > 1f ? 1f : t;
+                    float dx = px - (ax0 + abx * t), dy = py - (ay0 + aby * t);
+                    float d = dx * dx + dy * dy;
+                    if (d < best) { best = d; bk = k; bt = t; }
                 }
+                if (bk < 0) { u = 0f; at = ax[0]; left = Vector2.up; return lo; }
+                Vector2 a = ax[bk - 1], ab = ax[bk] - a;
+                at = a + ab * bt; u = axS[bk - 1] + bt * (axS[bk] - axS[bk - 1]);
+                var tn = ab / Mathf.Sqrt(ab.sqrMagnitude); left = new Vector2(-tn.y, tn.x);
                 return bk;
             }
         }
@@ -1173,13 +1197,29 @@ namespace PSXRacing.City
             if (x <= 0f || h <= 0f) return 0f;
             if (x >= ln) return h;
             r = Mathf.Min(r, h);
+            NoseFlank(h, ln, r, out bool arc, out var T);
+            return NoseHalfAt(x, h, ln, r, arc, T);
+        }
+
+        /// <summary>Round 5b (load cost): NoseHalf's flank tangent point (T),
+        /// which depends on the nose only, not on x - worked out once per nose
+        /// (Refuge.NoseHalf caches it). arc: the flank is too short for a
+        /// tangent (the nose is the arc alone). r is already min(r, h).</summary>
+        static void NoseFlank(float h, float ln, float r, out bool arc, out Vector2 T)
+        {
             // the flank from (ln, h) tangent to the circle about (r, 0)
             var C = new Vector2(r, 0f); var Q = new Vector2(ln, h);
             var v = Q - C; float D = v.magnitude;
-            if (D <= r + 1e-4f) return x <= r ? Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x))) : h;
+            arc = D <= r + 1e-4f; T = default;
+            if (arc) return;
             float a = Mathf.Acos(Mathf.Clamp(r / D, -1f, 1f));
             var vn = v / D;
-            var T = C + r * new Vector2(vn.x * Mathf.Cos(a) - vn.y * Mathf.Sin(a), vn.x * Mathf.Sin(a) + vn.y * Mathf.Cos(a));
+            T = C + r * new Vector2(vn.x * Mathf.Cos(a) - vn.y * Mathf.Sin(a), vn.x * Mathf.Sin(a) + vn.y * Mathf.Cos(a));
+        }
+
+        static float NoseHalfAt(float x, float h, float ln, float r, bool arc, Vector2 T)
+        {
+            if (arc) return x <= r ? Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x))) : h;
             if (x <= T.x) return Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x)));
             return Mathf.Min(h, T.y + (h - T.y) * (x - T.x) / Mathf.Max(1e-4f, ln - T.x));
         }
@@ -1188,20 +1228,26 @@ namespace PSXRacing.City
         /// point, and the left normal there.</summary>
         public static void AxisClosest(Vector2[] ax, float[] axS, Vector2 p, out float u, out Vector2 at, out Vector2 left)
         {
-            float best = float.MaxValue; u = 0f; at = ax[0]; left = Vector2.up;
+            // round 5b (load cost): scalar scan, the winner worked out once (as Refuge.ClosestPiece)
+            float best = float.MaxValue, bt = 0f; int bk = -1; u = 0f; at = ax[0]; left = Vector2.up;
+            float px = p.x, py = p.y;
             for (int k = 1; k < ax.Length; k++)
             {
-                Vector2 a = ax[k - 1], ab = ax[k] - a;
-                float l2 = ab.sqrMagnitude;
+                float ax0 = ax[k - 1].x, ay0 = ax[k - 1].y;
+                float abx = ax[k].x - ax0, aby = ax[k].y - ay0;
+                float l2 = abx * abx + aby * aby;
                 if (l2 < 1e-8f) continue;
-                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2);
-                var q = a + ab * t;
-                float d = (p - q).sqrMagnitude;
-                if (d < best)
-                {
-                    best = d; at = q; u = axS[k - 1] + t * (axS[k] - axS[k - 1]);
-                    var tn = ab / Mathf.Sqrt(l2); left = new Vector2(-tn.y, tn.x);
-                }
+                float t = ((px - ax0) * abx + (py - ay0) * aby) / l2;
+                t = t < 0f ? 0f : t > 1f ? 1f : t;
+                float dx = px - (ax0 + abx * t), dy = py - (ay0 + aby * t);
+                float d = dx * dx + dy * dy;
+                if (d < best) { best = d; bk = k; bt = t; }
+            }
+            if (bk > 0)
+            {
+                Vector2 a = ax[bk - 1], ab = ax[bk] - a;
+                at = a + ab * bt; u = axS[bk - 1] + bt * (axS[bk] - axS[bk - 1]);
+                var tn = ab / Mathf.Sqrt(ab.sqrMagnitude); left = new Vector2(-tn.y, tn.x);
             }
         }
 
