@@ -49,6 +49,7 @@ namespace PSXRacing
         /// road: dawn, dusk and night LIGHT, the day MEDIUM.</summary>
         public static int ForHour(int hour)
         {
+            if (PlatformProfile.MaxTraffic) return RushHour;
             float d = HourPerKm[Mathf.Clamp(hour, 0, HourPerKm.Length - 1)];
             int best = Light;
             for (int i = 0; i < Count; i++)

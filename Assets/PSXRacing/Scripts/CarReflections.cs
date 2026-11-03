@@ -58,7 +58,8 @@ namespace PSXRacing
         /// <summary>How many probe faces frame <paramref name="f"/> draws
         /// (after the cold start's six).</summary>
         public static int ProbeFaces(int f) =>
-            Enabled ? (ProbeFrame(f) ? 1 : 0) : (FrameRatePrefs.Max && !Application.isMobilePlatform ? 2 : 1);
+            PlatformProfile.PC ? (ProbeFrame(f) ? PlatformProfile.ProbeFacesPerFrame : 1)
+            : Enabled ? (ProbeFrame(f) ? 1 : 0) : (FrameRatePrefs.Max && !Application.isMobilePlatform ? 2 : 1);
 
         /// <summary>A door mirror may draw on frame <paramref name="f"/>, and
         /// which of two in view (<paramref name="second"/>) has the turn.</summary>
@@ -248,7 +249,9 @@ namespace PSXRacing
 
         bool Ensure()
         {
-            int res = FaceResOverride > 0 ? FaceResOverride : (Application.isMobilePlatform ? FaceResMobile : FaceResDesktop);
+            int res = FaceResOverride > 0 ? FaceResOverride
+                    : Application.isMobilePlatform ? FaceResMobile
+                    : PlatformProfile.PC ? PlatformProfile.ProbeFaceRes : FaceResDesktop;
             if (faceRes != res) { Release(); faceRes = res; }
             if (stitch == null)
             {

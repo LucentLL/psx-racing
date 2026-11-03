@@ -409,6 +409,19 @@ namespace PSXRacing
         bool Interior3D(bool want)
         {
             bool use = want && cabin == null && car != null;
+            // THE PC PROFILE: the cabin is fetched, built and drawn once while
+            // the car is still in the chase view, so the first switch to the
+            // cockpit is a switch, not a load (owner, 2026-11-02: "the cockpit
+            // still takes a second to load when changing camera views").
+            if (!use && interior == null && cabin == null && car != null && PlatformProfile.PC)
+            {
+                CockpitModel.Request();
+                if (CockpitModel.Ready)
+                {
+                    interior = CockpitInterior.Ensure(car, worldCamera);
+                    if (interior != null) interior.Prewarm();
+                }
+            }
             if (use && interior == null) interior = CockpitInterior.Ensure(car, worldCamera);
             if (interior == null) return false;
             bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;

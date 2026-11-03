@@ -31,7 +31,7 @@ namespace PSXRacing
     /// screen carries on as it always has. <see cref="Shown"/> keeps the title
     /// to once per run.
     /// </summary>
-    public class TitleScreen : MonoBehaviour
+    public partial class TitleScreen : MonoBehaviour
     {
         /// <summary>The title has had its turn this run (shown or skipped).</summary>
         public static bool Shown;
@@ -102,8 +102,14 @@ namespace PSXRacing
 
         static int PickHour()
         {
+            // -psx-title-hour N (TimeOfDay index: 0 dawn .. 6 night): one hour every
+            // run, for side-by-side shots (the A/B of a render setting)
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "-psx-title-hour" && int.TryParse(args[i + 1], out int fixedHour)) return Mathf.Clamp(fixedHour, 0, 6);
             float r = Random.value;
-            return r < 0.25f ? TimeOfDay.Morning : r < 0.75f ? TimeOfDay.Afternoon : TimeOfDay.Sunset;
+            // golden hour mostly, as the drone film (owner, 2026-11-02)
+            return r < 0.25f ? TimeOfDay.Morning : r < 0.4f ? TimeOfDay.Afternoon : TimeOfDay.Sunset;
         }
 
         /// <summary>Clear mostly; now and then fog in the gaps (the owner's
@@ -112,7 +118,7 @@ namespace PSXRacing
         {
             float r = Random.value;
             if (s == Season.Winter && r < 0.35f) return Weather.Snow;
-            return r > 0.80f ? Weather.Fog : Weather.Clear;
+            return r > 0.90f ? Weather.Fog : Weather.Clear;
         }
 
         /// <summary>RaceManager.Start, last thing: take the race over when
@@ -168,6 +174,8 @@ namespace PSXRacing
                 Ambience(cam.gameObject);
             }
             BuildUI();
+            // the drone film's shots, from the postcard spots found above (TitleScreen.Drone.cs)
+            BeginDrone();
         }
 
         // =================== the parked car ===================
@@ -329,13 +337,19 @@ namespace PSXRacing
             {
                 var src = listenerHost.AddComponent<AudioSource>();
                 src.clip = wind; src.loop = true; src.spatialBlend = 0f;
+                src.bypassListenerEffects = true;   // the air at the listener, not a sound in the space
                 src.volume = 0.22f * AudioPrefs.Effects;
                 src.Play();
             }
-            var zone = listenerHost.AddComponent<AudioReverbZone>();
-            zone.reverbPreset = AudioReverbPreset.Mountains;
-            zone.minDistance = 60f;
-            zone.maxDistance = 120f;
+            // the mountain's echo: AcousticSpace's own (it hears the ridges); the
+            // fixed Mountains zone only where that is switched off
+            if (listenerHost.GetComponent<AcousticSpace>() == null)
+            {
+                var zone = listenerHost.AddComponent<AudioReverbZone>();
+                zone.reverbPreset = AudioReverbPreset.Mountains;
+                zone.minDistance = 60f;
+                zone.maxDistance = 120f;
+            }
         }
 
         /// <summary>Traffic has no voice of its own: lend each car one loop of
@@ -419,7 +433,7 @@ namespace PSXRacing
         void LateUpdate()
         {
             var kb = UnityEngine.InputSystem.Keyboard.current;
-            if (kb != null && kb.vKey.wasPressedThisFrame && views.Count > 1 && cam != null)
+            if (!droneOn && kb != null && kb.vKey.wasPressedThisFrame && views.Count > 1 && cam != null)
             {
                 view = (view + 1) % views.Count;
                 ShowView();
@@ -439,7 +453,9 @@ namespace PSXRacing
                 SendRacer();
                 nextRacer = Time.time + Random.Range(RacerEveryMinS, RacerEveryMaxS);
             }
-            if (atBlack == null && Time.unscaledTime >= nextSeason)
+            StepDrone();
+            // the drone turns the season over at its own cuts
+            if (!droneOn && atBlack == null && Time.unscaledTime >= nextSeason)
             {
                 nextSeason = Time.unscaledTime + SeasonS;
                 Fade(1f, FadeS, () => { NextSeason(); Fade(0f, FadeS * 1.6f, null); });
@@ -449,7 +465,7 @@ namespace PSXRacing
 
         void Fade(float to, float seconds, System.Action whenDone)
         {
-            if (fade == null) return;
+            if (fade == null) { whenDone?.Invoke(); return; }
             fadeFrom = fade.color.a; fadeTo = to; fadeT0 = Time.unscaledTime; fadeLen = seconds;
             atBlack = whenDone;
         }

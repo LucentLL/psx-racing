@@ -37,7 +37,7 @@ namespace PSXRacing.EditorTools
     ///     the builder's steps over 8 ms with their labels).
     /// Report: PSXRacing_hitch_TAG.txt at the project root.
     /// </summary>
-    public static class HitchProbe
+    public static partial class HitchProbe
     {
         internal static readonly StringBuilder log = new StringBuilder();
         static string ProjectDir => Path.GetDirectoryName(Application.dataPath);
@@ -55,6 +55,15 @@ namespace PSXRacing.EditorTools
             log.Clear();
             L("HITCH PROBE " + Tag + "  " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + "  unity " + Application.unityVersion + ", " + SystemInfo.processorType);
             string mode = Env("PSX_HITCH_MODE", "all");
+            // THE BAKED CITY'S GATE (HitchProbe.Bake.cs): every tile of the routes
+            // stood up BUILT and BAKED, compared whole
+            if (mode == "bake")
+            {
+                try { BakeGate(); }
+                catch (System.Exception e) { L("BAKE GATE THREW: " + e); }
+                Finish();
+                return;
+            }
             if (mode == "all" || mode == "build")
             {
                 try { BuildPart(); }

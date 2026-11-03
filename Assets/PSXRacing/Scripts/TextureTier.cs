@@ -225,6 +225,8 @@ namespace PSXRacing
         /// IS should not depend on the tier: TerrainDetail.KindOf).</summary>
         public static Texture OriginalOf(Texture t)
         {
+            // an HD colour map stands for its original too (TextureHD)
+            if (TextureHD.OriginalOf(t, out var hdOriginal)) return hdOriginal;
             if (t != null && map != null && byEnhanced.TryGetValue(t, out int i)) return map.pairs[i].original;
             return t;
         }

@@ -338,7 +338,7 @@ namespace PSXRacing
         float[] cT, cMs, cOut, cFix, cPhys, cFixS, cUpd, cLate, cRend, cUi, cUsed, cX, cZ, cV, cAlloc;
         bool allocOk = true;
         long allocWas;
-        byte[] cSteps, cGc, cTiles;
+        byte[] cSteps, cGc, cTiles, cCars;
         float[][] cSlot;
         string[] cEv;
         int n;
@@ -359,7 +359,7 @@ namespace PSXRacing
             cT = new float[Cap]; cMs = new float[Cap]; cOut = new float[Cap]; cFix = new float[Cap]; cPhys = new float[Cap];
             cFixS = new float[Cap]; cUpd = new float[Cap]; cLate = new float[Cap]; cRend = new float[Cap]; cUi = new float[Cap];
             cUsed = new float[Cap]; cX = new float[Cap]; cZ = new float[Cap]; cV = new float[Cap]; cAlloc = new float[Cap];
-            cSteps = new byte[Cap]; cGc = new byte[Cap]; cTiles = new byte[Cap]; cEv = new string[Cap];
+            cSteps = new byte[Cap]; cGc = new byte[Cap]; cTiles = new byte[Cap]; cCars = new byte[Cap]; cEv = new string[Cap];
             cSlot = new float[(int)PerfClock.Slot.COUNT][];
             for (int s = 0; s < cSlot.Length; s++) cSlot[s] = new float[Cap];
             var names = PerfClock.SystemNames;
@@ -412,8 +412,10 @@ namespace PSXRacing
             }
             var w = CityWorld.Active;
             cTiles[i] = (byte)(w != null ? Mathf.Min(255, w.LiveTiles) : 0);
-            // the traffic's physics steps time themselves (CityTraffic.StepMsSum)
+            // the traffic's physics steps time themselves (CityTraffic.StepMsSum);
+            // its cost goes with how many cars are live (PC6: the denser spawn)
             var ct = CityTraffic.Instance;
+            cCars[i] = (byte)(ct != null ? Mathf.Min(255, ct.Active) : 0);
             if (ct != null)
             {
                 double st = ct.StepMsSum;
@@ -465,6 +467,13 @@ namespace PSXRacing
             if (old != null) Destroy(old);
             yield return null;
             world.EnsureRing(pos, 1);
+            // course=1: the route preloaded as a race preloads it (CityWorld.PreloadCourse)
+            if ((Request() ?? "").Contains("course=1") && world.PreloadCourse(path, CityWorld.CourseAround) > 0)
+            {
+                float c0 = Time.realtimeSinceStartup;
+                while (world.CourseLoading) yield return null;
+                Say($"COURSE {id}: {world.CourseProgress * 100f:0}% in {Time.realtimeSinceStartup - c0:0.0} s");
+            }
             car.ResetTo(pos, rot, seated: true);
             float settle0 = Time.realtimeSinceStartup;
             while (Time.realtimeSinceStartup - settle0 < 60f)
@@ -563,7 +572,7 @@ namespace PSXRacing
 
             // ---- the report ----
             var csv = new StringBuilder(n * 160 + 1024);
-            csv.Append("i,t,ms,out,fix,phys,fixs,upd,late,rend,ui,steps,gc,usedMB,x,z,v,tiles,ev,allocKB");
+            csv.Append("i,t,ms,out,fix,phys,fixs,upd,late,rend,ui,steps,gc,usedMB,x,z,v,tiles,cars,ev,allocKB");
             for (int s = 0; s < cSlot.Length; s++) csv.Append(',').Append(PerfClock.SlotNames[s].Replace(' ', '_'));
             csv.Append('\n');
             var ci = CultureInfo.InvariantCulture;
@@ -574,7 +583,7 @@ namespace PSXRacing
                    .Append(cFixS[i].ToString("0.00", ci)).Append(',').Append(cUpd[i].ToString("0.00", ci)).Append(',').Append(cLate[i].ToString("0.00", ci)).Append(',')
                    .Append(cRend[i].ToString("0.00", ci)).Append(',').Append(cUi[i].ToString("0.00", ci)).Append(',').Append(cSteps[i]).Append(',').Append(cGc[i]).Append(',')
                    .Append(cUsed[i].ToString("0.00", ci)).Append(',').Append(cX[i].ToString("0.0", ci)).Append(',').Append(cZ[i].ToString("0.0", ci)).Append(',')
-                   .Append(cV[i].ToString("0.0", ci)).Append(',').Append(cTiles[i]).Append(',').Append(cEv[i] ?? "").Append(',').Append(cAlloc[i].ToString("0.0", ci));
+                   .Append(cV[i].ToString("0.0", ci)).Append(',').Append(cTiles[i]).Append(',').Append(cCars[i]).Append(',').Append(cEv[i] ?? "").Append(',').Append(cAlloc[i].ToString("0.0", ci));
                 for (int s = 0; s < cSlot.Length; s++) csv.Append(',').Append(cSlot[s][i].ToString("0.00", ci));
                 csv.Append('\n');
             }
@@ -582,14 +591,16 @@ namespace PSXRacing
             System.Array.Copy(cMs, ms, n);
             System.Array.Sort(ms);
             float P(float q) => n > 0 ? ms[Mathf.Clamp(Mathf.RoundToInt(q * (n - 1)), 0, n - 1)] : 0f;
-            int over33 = 0, over50 = 0, over100 = 0; double sum = 0;
+            int over33 = 0, over50 = 0, over100 = 0, carsMax = 0; double sum = 0, carsSum = 0;
             for (int i = 0; i < n; i++) { sum += ms[i]; if (ms[i] > 33.4f) over33++; if (ms[i] > 50f) over50++; if (ms[i] > 100f) over100++; }
+            for (int i = 0; i < n; i++) { carsSum += cCars[i]; if (cCars[i] > carsMax) carsMax = cCars[i]; }
             var sum1 = new StringBuilder();
             sum1.AppendLine($"route {id} ({route.name}) {pathM:0} m path; ended: {end}; {secs:0.0} s, {dist:0} m driven, avg {(secs > 0 ? dist / secs * 3.6f : 0):0} km/h" + (nudges > 0 ? $"; set on 50 m {nudges}x (held up)" : ""));
             sum1.AppendLine($"frames {n}  avg fps {(sum > 0 ? n * 1000.0 / sum : 0):0.0}  p50 {P(0.5f):0.0}  p95 {P(0.95f):0.0}  p99 {P(0.99f):0.0}  worst {P(1f):0.0} ms");
             sum1.AppendLine($"over 33 ms {over33}  over 50 ms {over50}  over 100 ms {over100}");
             sum1.AppendLine($"gc collections {gcN}  heap used MB {heap0 / 1048576.0:0} -> {heap1 / 1048576.0:0}  reserved MB {res0 / 1048576.0:0} -> {res1 / 1048576.0:0}");
             sum1.AppendLine($"settle {settleS:0.0} s; tiles abandoned so far {CityWorld.JobsAbandoned}");
+            sum1.AppendLine($"traffic cars live avg {(n > 0 ? carsSum / n : 0):0.0} max {carsMax} (cap {(CityTraffic.Instance != null ? CityTraffic.Instance.Cap : 0)})");
             Post(id + "_frames.csv", csv.ToString());
             Post(id + "_spikes.txt", spikes.ToString());
             Post(id + "_summary.txt", sum1.ToString());

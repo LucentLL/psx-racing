@@ -133,8 +133,9 @@ namespace PSXRacing
             LitShare = Mathf.Max(CityFloor, LitFor(lampSum));
             // INDOORS (a building you can walk into, WeatherShelter): a room at
             // night is lit by its own lamps, which the street registry never
-            // sees - the house and the shops keep the night they had.
-            if (LitShare < 1f && WeatherShelter.Contains(eye)) LitShare = 1f;
+            // sees - the house and the shops keep the night they had. Not a
+            // tunnel bore: the Parkway's are unlit.
+            if (LitShare < 1f && WeatherShelter.ContainsRoom(eye)) LitShare = 1f;
             Target = Enabled && haveBase ? NightGate(bNight) * (1f - LitShare) : 0f;
             bool cut = instant || !haveEye || (eye - lastEye).sqrMagnitude > CutJumpM * CutJumpM;
             haveEye = true;

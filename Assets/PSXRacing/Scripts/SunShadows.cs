@@ -82,8 +82,8 @@ namespace PSXRacing
         public const float HalfExtentM = 90f, AheadM = 58f;
         public const float HalfExtentTouchM = 60f, AheadTouchM = 40f;
         /// <summary>The two in use (the touch panel is up, or it is not).</summary>
-        public static float HalfExtent => small ? HalfExtentTouchM : HalfExtentM;
-        public static float Ahead => small ? AheadTouchM : AheadM;
+        public static float HalfExtent => small ? HalfExtentTouchM : PlatformProfile.PCShadows ? PlatformProfile.ShadowHalfExtentM : HalfExtentM;
+        public static float Ahead => small ? AheadTouchM : PlatformProfile.PCShadows ? PlatformProfile.ShadowAheadM : AheadM;
         /// <summary>The sun column's reach toward the sun and away from it,
         /// from the square's centre. Toward is long for what a low sun does:
         /// at 7 degrees a 50 m tower's shadow is 400 m.</summary>
@@ -121,6 +121,8 @@ namespace PSXRacing
         /// cost of this whole pass. 0.012 is a little under three pixels.
         /// </summary>
         public const float MinCasterAngle = 0.012f;
+        /// <summary>The PC profile's: half that - its map has four times the texels.</summary>
+        static float MinCasterAngleNow => PlatformProfile.PCShadows ? MinCasterAngle * 0.5f : MinCasterAngle;
         /// <summary>How far the square has to move before the sky's map is
         /// drawn again, metres. Nothing in that map moves, its rim fades out
         /// over the last 7 m, and at 300 km/h this is still only one redraw
@@ -538,7 +540,7 @@ namespace PSXRacing
                 if (Mathf.Abs(Vector3.Dot(d, up)) > half + c.radius) continue;
                 float along = Vector3.Dot(d, fwd);
                 if (along < -towardM - c.radius || along > awayM + c.radius) continue;
-                if (!roofsOnly && c.radius < MinCasterAngle * (c.centre - eyeAt).magnitude) continue;
+                if (!roofsOnly && c.radius < MinCasterAngleNow * (c.centre - eyeAt).magnitude) continue;
                 if (!c.r.enabled || !c.r.gameObject.activeInHierarchy) continue;
                 inBox.Add(c);
                 c.drawnAt = now;
@@ -586,8 +588,9 @@ namespace PSXRacing
             bool wasSmall = small;
             small = touch != null && touch.Visible;
             if (small != wasSmall) skyStale = true;
-            Fit(ref map, small ? ResolutionTouch : Resolution, "PSXSunShadowMap");
-            if (Fit(ref skyMap, small ? SkyResolutionTouch : SkyResolution, "PSXSkyShadeMap")) skyStale = true;
+            // THE PC PROFILE: a 360 m square at 4096 - twice the reach, twice as sharp
+            Fit(ref map, small ? ResolutionTouch : PlatformProfile.PCShadows ? PlatformProfile.ShadowRes : Resolution, "PSXSunShadowMap");
+            if (Fit(ref skyMap, small ? SkyResolutionTouch : PlatformProfile.PCShadows ? PlatformProfile.SkyShadowRes : SkyResolution, "PSXSkyShadeMap")) skyStale = true;
             return true;
         }
 

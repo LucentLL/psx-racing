@@ -79,6 +79,8 @@ namespace PSXRacing
             // CLASSIC / ENHANCED first: the flags below are read off the
             // texture the slot holds once the tier is in it.
             bool changed = TextureTier.Swap(m);
+            // ...then the HD tier's PBR set over it, where there is one (TextureHD, PC)
+            changed |= TextureHD.Apply(m);
             changed |= StampOne(m, MainTexRawId);
             changed |= StampOne(m, DeepTexRawId);
             // ...and the terrain detail amounts, off the same texture
