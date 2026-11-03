@@ -291,9 +291,21 @@ namespace PSXRacing.City
         static readonly List<Color32> wc = new List<Color32>();
         static readonly List<int> wi = new List<int>();
 
-        /// <summary>Write a built tile and the lattice its build cached.
+        /// <summary>A built tile's TileMeshes as the file carries it, encoded
+        /// the moment the build returns it (before anything stands it up).</summary>
+        public static byte[] Encode(CityMeshes.TileMeshes tm)
+        {
+            using (var ms = new MemoryStream(1 << 20))
+            {
+                using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, true)) WriteBody(w, tm);
+                return ms.ToArray();
+            }
+        }
+
+        /// <summary>Write a tile: its encoded TileMeshes (<see cref="Encode"/>)
+        /// and the lattice its build cached and its stand-up and planting read.
         /// Returns the file's size.</summary>
-        public static long Write(string path, int tx, int tz, CityMeshes.TileMeshes tm, Dictionary<long, float> lattice)
+        public static long Write(string path, int tx, int tz, byte[] body, Dictionary<long, float> lattice)
         {
             string tmp = path + ".tmp";
             using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
@@ -303,7 +315,13 @@ namespace PSXRacing.City
                 hw.Flush();
                 using (var z = new DeflateStream(fs, System.IO.Compression.CompressionLevel.Optimal, true))
                 using (var w = new BinaryWriter(new BufferedStream(z, 1 << 16)))
-                    WriteBody(w, tm, lattice);
+                {
+                    w.Write(body);
+                    int nl = lattice != null ? lattice.Count : 0;
+                    w.Write(nl);
+                    if (lattice != null) foreach (var kv in lattice) { w.Write(kv.Key); w.Write(kv.Value); }
+                    w.Write(Magic);   // the end, read back as a check
+                }
             }
             if (File.Exists(path)) File.Delete(path);
             File.Move(tmp, path);
@@ -315,11 +333,8 @@ namespace PSXRacing.City
         public static string DataHash(CityMeshes.TileMeshes tm)
         {
             if (tm == null) return "-";
-            using (var ms = new MemoryStream(1 << 20))
-            {
-                using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, true)) WriteBody(w, tm, null);
-                return ms.Length + ":" + Fnv(ms.GetBuffer(), (int)ms.Length).ToString("x16");
-            }
+            var b = Encode(tm);
+            return b.Length + ":" + Fnv(b, b.Length).ToString("x16");
         }
 
         /// <summary>A lattice, order-free (sorted by key), hashed.</summary>
@@ -347,7 +362,7 @@ namespace PSXRacing.City
             return h;
         }
 
-        static void WriteBody(BinaryWriter w, CityMeshes.TileMeshes tm, Dictionary<long, float> lattice)
+        static void WriteBody(BinaryWriter w, CityMeshes.TileMeshes tm)
         {
             WriteV3(w, tm.origin);
             for (int i = 0; i < MeshCount; i++) WriteMesh(w, GetMesh(tm, i));
@@ -393,10 +408,6 @@ namespace PSXRacing.City
                 w.Write(c.groundY); w.Write(c.wallW); w.Write(c.wallH); w.Write(c.pipeD); w.Write(c.backfillM); w.Write(c.pastPave);
                 w.Write(c.edge); w.Write(c.headwall); w.Write(c.backfillMet);
             }
-            int nl = lattice != null ? lattice.Count : 0;
-            w.Write(nl);
-            if (lattice != null) foreach (var kv in lattice) { w.Write(kv.Key); w.Write(kv.Value); }
-            w.Write(Magic);   // the end, read back as a check
         }
 
         static void WriteV3(BinaryWriter w, Vector3 v) { w.Write(v.x); w.Write(v.y); w.Write(v.z); }

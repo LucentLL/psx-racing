@@ -16,7 +16,7 @@ namespace PSXRacing.EditorTools
     /// pass with the same 9-tile window, its signs and poles decided and its
     /// trees planted, and compared:
     ///   data   - every field and mesh of the TileMeshes (CityTileCache.DataHash);
-    ///   ground - the lattice the stand-up handed the trees (after its own reads);
+    ///   ground - the tile's lattice once its stand-up and its planting read it;
     ///   whole  - every mesh under the stood-up tile (FullSig: the tile's, its
     ///            trees', poles', signals' and signs', every prop model's place).
     /// Any difference fails. The full bake is used when it is fresh and holds
@@ -99,14 +99,17 @@ namespace PSXRacing.EditorTools
                         world.EnsureTile(k.x, k.y);
                         float ms = (float)clock.Elapsed.TotalMilliseconds;
                         string data = "-", lat = "-", whole = "-";
+                        Dictionary<long, float> lattice = null;
                         if (pendField.GetValue(world) is IDictionary pend && pend.Contains(key))
                         {
                             var job = ((CityMeshes.TileMeshes tm, Dictionary<long, float> lattice))pend[key];
                             data = CityTileCache.DataHash(job.tm);
-                            lat = CityTileCache.LatticeHash(job.lattice);
+                            lattice = job.lattice;
                         }
                         for (int g = 0; g < 400 && world.PrepareSigns(key) != 0; g++) { }
                         world.PlantTrees(key);
+                        // (the lattice once the planting has read it too: what the bake carries)
+                        if (lattice != null) lat = CityTileCache.LatticeHash(lattice);
                         if (liveField.GetValue(world) is IDictionary live && live.Contains(key))
                         {
                             var tile = live[key];

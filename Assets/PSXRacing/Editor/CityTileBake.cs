@@ -258,22 +258,49 @@ namespace PSXRacing.EditorTools
                 };
                 var keep = new HashSet<string>();
                 long bytes = 0, verts = 0, maxBytes = 0;
-                double buildMs = 0, writeMs = 0, maxBuild = 0;
+                double buildMs = 0, writeMs = 0, maxBuild = 0, standMs = 0;
                 string maxTile = "";
+                // each tile is built, then STOOD UP and PLANTED as play does it (its
+                // signs, poles and trees) before it is written: the lattice it carries
+                // then holds every corner its stand-up and its planting read, each
+                // worked out in this tile's own build - a baked tile never recomputes
+                // one under whatever the builder last built
+                var standUp = typeof(CityWorld).GetMethod("StandUp", BindingFlags.NonPublic | BindingFlags.Instance);
+                var dropTile = typeof(CityWorld).GetMethod("DropTile", BindingFlags.NonPublic | BindingFlags.Instance);
+                var pendField = typeof(CityWorld).GetField("treesPending", BindingFlags.NonPublic | BindingFlags.Instance);
+                bool wasOn = CityTileCache.Enabled;
+                CityTileCache.Enabled = false;
+                try
+                {
                 for (int i = 0; i < tiles.Count; i++)
                 {
                     var t = tiles[i];
+                    long key = ((long)t.x << 24) ^ (t.y & 0xFFFFFF);
                     var c = System.Diagnostics.Stopwatch.StartNew();
                     var tm = CityMeshes.Build(map, trims, blds, t.x, t.y);
                     double b = c.Elapsed.TotalMilliseconds;
                     buildMs += b;
                     if (b > maxBuild) { maxBuild = b; maxTile = t.x + "," + t.y; }
                     c.Restart();
-                    long n = CityTileCache.Write(CityTileCache.PathOf(dir, t.x, t.y), t.x, t.y, tm, CityMeshes.PeekLattice());
-                    writeMs += c.Elapsed.TotalMilliseconds;
-                    CityMeshes.TakeLattice();
                     foreach (var mesh in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.buildingCollider, tm.structure })
-                        if (mesh != null) { verts += mesh.vertexCount; UnityEngine.Object.DestroyImmediate(mesh); }
+                        if (mesh != null) verts += mesh.vertexCount;
+                    var body = CityTileCache.Encode(tm);   // the generator's result as it returned it
+                    writeMs += c.Elapsed.TotalMilliseconds;
+                    c.Restart();
+                    standUp.Invoke(world, new object[] { key, t.x, t.y, tm, b, 0, 0f });
+                    Dictionary<long, float> lattice;
+                    if (pendField.GetValue(world) is System.Collections.IDictionary pend && pend.Contains(key))
+                    {
+                        lattice = (((CityMeshes.TileMeshes tm, Dictionary<long, float> lattice))pend[key]).lattice;
+                        for (int g = 0; g < 400 && world.PrepareSigns(key) != 0; g++) { }
+                        world.PlantTrees(key);   // its reads land in the same dictionary
+                    }
+                    else lattice = CityMeshes.TakeLattice();   // nothing to plant: the build's own
+                    standMs += c.Elapsed.TotalMilliseconds;
+                    c.Restart();
+                    long n = CityTileCache.Write(CityTileCache.PathOf(dir, t.x, t.y), t.x, t.y, body, lattice);
+                    writeMs += c.Elapsed.TotalMilliseconds;
+                    dropTile.Invoke(world, new object[] { key });   // its objects and meshes
                     bytes += n;
                     if (n > maxBytes) maxBytes = n;
                     m.tiles.Add((t.x, t.y, n));
@@ -286,6 +313,8 @@ namespace PSXRacing.EditorTools
                         { report = $"PROJECTED BAKE {bytes / (double)(i + 1) * tiles.Count / 1073741824.0:0.0} GB over 6 GB - stopped at tile {i + 1}"; return false; }
                     }
                 }
+                }
+                finally { CityTileCache.Enabled = wasOn; }
                 // tiles of an older bake that this one does not hold
                 int removed = 0;
                 if (only == null)
@@ -295,7 +324,7 @@ namespace PSXRacing.EditorTools
                 m.Save(dir);
                 CityTileCache.Reset();
                 sb.AppendLine($"baked {tiles.Count} tiles into {dir} in {clock.Elapsed.TotalSeconds:0} s: {bytes / 1048576.0:0.0} MB ({bytes / Math.Max(1, tiles.Count) / 1024.0:0} KB a tile, largest {maxBytes / 1024.0:0} KB), {verts / 1e6:0.0} M vertices");
-                sb.AppendLine($"  build {buildMs / 1000.0:0} s (avg {buildMs / Math.Max(1, tiles.Count):0} ms, worst {maxBuild:0} ms at {maxTile}), write {writeMs / 1000.0:0} s; {removed} stale files removed");
+                sb.AppendLine($"  build {buildMs / 1000.0:0} s (avg {buildMs / Math.Max(1, tiles.Count):0} ms, worst {maxBuild:0} ms at {maxTile}), stand-up + planting {standMs / 1000.0:0} s, write {writeMs / 1000.0:0} s; {removed} stale files removed");
                 sb.AppendLine($"  fingerprint {fp}  (code {Short(code)}, data {Short(data)}, settings {m.settings})");
                 report = sb.ToString().TrimEnd();
                 return true;
