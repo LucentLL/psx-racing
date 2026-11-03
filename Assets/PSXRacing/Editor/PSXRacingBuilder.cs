@@ -395,10 +395,12 @@ namespace PSXRacing.EditorTools
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
-                // Reflector posts behind the guard walls every 16 m — the one
-                // near-road vertical a stage can carry without breaking the
-                // "nothing built" rule, and the real parkway has them.
-                postEvery = 4,
+                // NO reflector posts (F4). They stood behind the guard walls
+                // every 16 m on the belief that "the real parkway has them";
+                // it does not - no roadside delineator at any Parkway
+                // checkpoint or in any of the owner's clips. Its only
+                // reflectors are small panels on the tunnel walls.
+                postEvery = 0,
                 gasStation = false,
                 bakedLight = true,
                 // All Parkway: the double yellow and no edge lines (F1).
@@ -419,10 +421,9 @@ namespace PSXRacing.EditorTools
                 groundTile = 13f,
                 relief = 0f,                            // the DEM is the relief
                 buildingEvery = 0, treeEvery = 0, parkedEvery = 0, lampEvery = 0,
-                // Reflector posts behind the guard walls every 16 m — the one
-                // near-road vertical a stage can carry without breaking the
-                // "nothing built" rule, and the real parkway has them.
-                postEvery = 4,
+                // No reflector posts: none on NC 128 at three Street View
+                // checkpoints (F4), as on the Parkway it leaves.
+                postEvery = 0,
                 gasStation = false,
                 stageDir = Root + "/Art/MtMitchell",
                 stagePrefix = "mtm",
