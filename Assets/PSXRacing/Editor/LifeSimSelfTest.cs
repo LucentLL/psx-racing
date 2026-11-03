@@ -1173,7 +1173,7 @@ namespace PSXRacing.EditorTools
                 Check(ok && !RaceHandoff.FreeRoam && RaceHandoff.TrackIndex == vi && sc > 0 &&
                       !string.IsNullOrEmpty(RaceHandoff.OpponentSpecIds) &&
                       RaceHandoff.OpponentSpecIds.Split(';').Length >= LifeRules.FieldOpponentsMin && TrackCatalog.At(vi).RaceMeters > 0f,
-                      "CITY's race door for " + id + " fills a three-car field", RaceHandoff.OpponentSpecIds);
+                      "CITY's race door for " + id + " fills its field (3-7 rivals)", RaceHandoff.OpponentSpecIds);
             }
             Check(!CityFrontEnd.FillRace(TrackCatalog.IndexOf("BlueRidge"), CityFrontEnd.DefaultCarId(), 0, 0, out _),
                   "and refuses a venue CITY does not carry");

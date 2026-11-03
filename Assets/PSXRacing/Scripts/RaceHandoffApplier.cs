@@ -472,7 +472,10 @@ namespace PSXRacing
             // staged (baked, reversed, or the city's), AI in list order, the
             // player last. A short field closes up into the first of them.
             var slots = new List<(Vector3 pos, Quaternion rot)>();
-            foreach (var ai in aiCars) if (ai != null) slots.Add((ai.transform.position, ai.transform.rotation));
+            // Only cars still on the grid: a deck run sends its spares home
+            // before this (CityMode.SetupDeckRun), and their places are the
+            // street they were baked on - the player stood 8 m under the roof.
+            foreach (var ai in aiCars) if (ai != null && ai.gameObject.activeInHierarchy) slots.Add((ai.transform.position, ai.transform.rotation));
             if (playerCar != null) slots.Add((playerCar.transform.position, playerCar.transform.rotation));
 
             for (int i = 0; i < aiCars.Count; i++)
