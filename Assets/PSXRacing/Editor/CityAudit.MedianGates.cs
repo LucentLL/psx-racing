@@ -144,14 +144,21 @@ namespace PSXRacing.EditorTools
             CityMeshes.YsDrawnKeys = new HashSet<long>(); CityMeshes.YsFallbackKeys = new HashSet<long>();
             CityMeshes.KerbFanEnds = 0; CityMeshes.KerbFanEndMaxH = 0f;
             var noBld = new Dictionary<long, List<CityBuildings.B>>();
+            // round 5c: the flush painted medians' noses (measured after the build of the tile holding the node)
+            var fnAt = FlushNoses(map, refs, out int fnPairs);
+            int fnNoses = 0, fnClipped = 0, fnBadNoses = 0, fnUnmet = 0; float fnGapM = 0f;
+            var fnList = new StringBuilder();
+            var fnMet = new HashSet<long>();
             sw.Restart();
             foreach (long k in tiles)
             {
                 var tm = CityMeshes.Build(map, tOn, noBld, (int)(k >> 32), (int)(uint)k);
+                if (fnAt.Count > 0) FlushNoseYellow(map, tOn, tm, k, fnAt, fnMet, fnList, ref fnNoses, ref fnClipped, ref fnBadNoses, ref fnGapM);
                 foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.banks, tm.buildings })
                     if (m != null) Object.DestroyImmediate(m);
             }
             float tileMs = (float)sw.Elapsed.TotalMilliseconds;
+            foreach (var fa in fnAt) if (!fnMet.Contains(((long)fa.edge << 32) | (uint)fa.node) && (map.edges[fa.edge].a == fa.node || map.edges[fa.edge].b == fa.node)) fnUnmet++;
             int ysOk = 0, ysMissing = 0, ysFell = 0;
             foreach (long key in noseYs)
             {
@@ -253,7 +260,9 @@ namespace PSXRacing.EditorTools
             Check(groupsOn + noseSkip >= groupsOff && noseOn + noseSkip >= noseOff, "arrows are removed only at accepted refuge noses (ON + skipped there >= OFF)", $"groups {groupsOn}+{noseSkip} vs {groupsOff}; nose {noseOn}+{noseSkip} vs {noseOff}");
             Line($"NOSE APPROACHES: {hatch}");
             Line($"FLUSH-TIP NOSES (a centre lane reaches the nose with no room for a hatch): {flushTipKerbed + flushTipFlush} ({flushTipKerbed} kerbed, {flushTipFlush} flush){tipList}");
-            Check(flushTipKerbed == 0, "no centre lane runs into a kerbed island tip unhatched (round 5b: such a pair fails)", flushTipKerbed);
+            Check(flushTipKerbed + flushTipFlush == 0, "no accepted pair has a nose with no room for a hatch (round 5c: such a pair is live, kerbed or flush)", $"{flushTipKerbed} kerbed, {flushTipFlush} flush");
+            Line($"FLUSH-NOSE YELLOW (round 5c, counted at render: each flush painted median's carriageways, every 0.5 m over the first {FlushNoseProbeM:0} m from each nose: the median-side line's place read in the built tile's roads mesh - the topmost driving surface there must show a yellow column of its texture; a flush pair failing it is decided live): {fnNoses} carriageway noses on {fnPairs} flush pairs, {fnClipped} of them clipped by a gore attach, {fnBadNoses} with a line missing, {fnGapM:0.0} m missing in all{fnList}");
+            Check(fnBadNoses == 0 && fnUnmet == 0, "every flush painted median's median-side yellow renders continuous from its noses (counted in the built roads mesh)", $"{fnBadNoses} noses, {fnGapM:0.0} m; {fnUnmet} not met in a built tile");
             Line($"DRIVE EDGES (accepted pairs' chains + undivided edges, refuge_drive_edges.txt): {drvEdges.Count}");
             Line(cells);
             Line(bendDump);
@@ -334,12 +343,29 @@ namespace PSXRacing.EditorTools
                 var m = LineModel.MeasureRefuges(map, refs, out _, out _, out _);
                 var pfs = PairFails(map, tD, refs, m, offEase, out _, out _, out int loose, out _, out _);
                 foreach (var kv in pfs) bad[kv.Key] = kv.Value;
+                // round 5c: a flush painted median whose median-side yellow does
+                // not render continuous from its noses (FLUSH-NOSE YELLOW) is live
+                var fnD = FlushNoses(map, refs, out _);
+                if (fnD.Count > 0)
+                {
+                    var fnBad = new Dictionary<long, string>(); var fnMetD = new HashSet<long>(); var fnSb = new StringBuilder();
+                    int a0 = 0, a1 = 0, a2 = 0; float a3 = 0f;
+                    var noBldD = new Dictionary<long, List<CityBuildings.B>>();
+                    foreach (long tk in new HashSet<long>(fnD.ConvertAll(x => x.tile)))
+                    {
+                        var tmD = CityMeshes.Build(map, tD, noBldD, (int)(tk >> 32), (int)(uint)tk);
+                        FlushNoseYellow(map, tD, tmD, tk, fnD, fnMetD, fnSb, ref a0, ref a1, ref a2, ref a3, fnBad);
+                        foreach (var mm in new[] { tmD.ground, tmD.roads, tmD.barriers, tmD.kerbs, tmD.water, tmD.banks, tmD.buildings })
+                            if (mm != null) Object.DestroyImmediate(mm);
+                    }
+                    foreach (var kv in fnBad) bad[kv.Key] = (bad.TryGetValue(kv.Key, out var b0) ? b0 : "") + kv.Value;
+                }
                 int toFlush = 0, toLive = 0;
                 foreach (var kv in bad)
                 {
                     bool island = false;
                     foreach (var r in refs) if (r.pk == kv.Key && r.half > 0f) island = true;
-                    if (mode.TryGetValue(kv.Key, out byte md) && md == LineModel.RefugeModeAuto && island) { mode[kv.Key] = LineModel.RefugeModeFlush; why[kv.Key] = "island:" + kv.Value; toFlush++; }
+                    if (mode.TryGetValue(kv.Key, out byte md) && md == LineModel.RefugeModeAuto && island && (!kv.Value.Contains(FlushTipTag) || System.Environment.GetEnvironmentVariable("PSX_REFUGE_GATE_R5B_TIPS") == "1")) { mode[kv.Key] = LineModel.RefugeModeFlush; why[kv.Key] = "island:" + kv.Value; toFlush++; }
                     else { mode.Remove(kv.Key); why[kv.Key] = (why.TryGetValue(kv.Key, out var w0) ? w0 + " | flush:" : "") + kv.Value; toLive++; }
                 }
                 decideMs = LineModel.RefugePlanMs + LineModel.RefugeBuildMs;
@@ -361,6 +387,136 @@ namespace PSXRacing.EditorTools
         /// unevenly inside the fan - the island's top met the fan's corner walk
         /// in a sunken pocket (review r4: fan_6551). The pair fails.</summary>
         const float FanEndUnevenM = 3f;
+
+        /// <summary>Round 5c: the failure that sends a pair straight to live
+        /// (no forced-flush retry): a nose with no room for a hatch.</summary>
+        const string FlushTipTag = "[flush tip]";
+        /// <summary>Round 5c: how far from a flush median's nose its lines are
+        /// counted (the gore attach cut ~10 m of the inner yellow at n10236).</summary>
+        const float FlushNoseProbeM = 20f;
+
+        /// <summary>Round 5c: FLUSH-NOSE YELLOW, counted at render. For each
+        /// flush painted median's carriageway end at a nose in tile k (just
+        /// built), every 0.5 m over the first FlushNoseProbeM from its drawn
+        /// end: the carriageway's median-side edge line (the model's line
+        /// nearest the island axis) is placed in the world, and the tile's
+        /// ROADS MESH is read there - the topmost driving-surface triangles
+        /// (within 2 cm of the highest), their U interpolated - and the line
+        /// counts as rendered only if one of them shows a yellow column of its
+        /// own profile's texture there (a two-way's yellows, a one-way's left
+        /// edge). A host's pavement laid over the branch, or a cut ribbon,
+        /// shows its own lane there and counts as missing (round 5b, n10236:
+        /// ~10 m of the inner yellow under the gore attach).</summary>
+        static List<(long tile, int node, int edge, LineModel.Refuge r)> FlushNoses(CityMap map, List<LineModel.Refuge> refs, out int pairs)
+        {
+            var at = new List<(long tile, int node, int edge, LineModel.Refuge r)>(); pairs = 0;
+            for (int i = 0; i + 1 < refs.Count; i += 2)
+            {
+                if (refs[i].half > 0f) continue;
+                pairs++;
+                foreach (var r in new[] { refs[i], refs[i + 1] })
+                    foreach (int n in new[] { r.node, r.far })
+                    {
+                        var p = map.nodes[n];
+                        int ei = n == r.node ? r.chain[0] : r.chain[r.chain.Length - 1];
+                        at.Add((TileKey(Mathf.FloorToInt(p.x / CityMeshes.TileSize), Mathf.FloorToInt(p.y / CityMeshes.TileSize)), n, ei, r));
+                    }
+            }
+            return at;
+        }
+
+        static void FlushNoseYellow(CityMap map, CityMeshes.Trims t, CityMeshes.TileMeshes tm, long k,
+                                    List<(long tile, int node, int edge, LineModel.Refuge r)> at, HashSet<long> met, StringBuilder list,
+                                    ref int noses, ref int clipped, ref int bad, ref float gapM, Dictionary<long, string> badPk = null)
+        {
+            if (tm.roads == null) return;
+            var v = tm.roads.vertices; var uv = new List<Vector2>(); tm.roads.GetUVs(0, uv);
+            var o = tm.origin;
+            var la = new List<LineModel.LineAt>(16); var clips = new List<CityMeshes.AuditView.ClipView>(4);
+            foreach (var fa in at)
+            {
+                if (fa.tile != k) continue;
+                var e = map.edges[fa.edge];
+                if (e.a != fa.node && e.b != fa.node) continue;
+                if (!met.Add(((long)fa.edge << 32) | (uint)fa.node)) continue;
+                noses++;
+                if (CityMeshes.AuditView.ClipsOf(fa.edge, clips) > 0) clipped++;
+                var np = map.nodes[fa.node];
+                // the driving-surface triangles near the nose: (a, b, c indices, profile)
+                var tris = new List<(int a, int b, int c, int prof)>();
+                for (int sm = 0; sm < tm.roads.subMeshCount && sm < tm.roadSlots.Length; sm++)
+                {
+                    int sl = (int)tm.roadSlots[sm] - (int)CityMeshes.Slot.RoadFirst;
+                    if (sl < 0 || tm.roadSlots[sm] >= CityMeshes.Slot.Sidewalk) continue;
+                    int prof = sl / CityMeshes.SurfaceCount;
+                    var tr = tm.roads.GetTriangles(sm);
+                    for (int q = 0; q + 2 < tr.Length; q += 3)
+                    {
+                        var pa = v[tr[q]] + o;
+                        if ((new Vector2(pa.x, pa.z) - np).sqrMagnitude > 45f * 45f) continue;
+                        tris.Add((tr[q], tr[q + 1], tr[q + 2], prof));
+                    }
+                }
+                bool YellowAt(Vector2 x)
+                {
+                    float top = float.NegativeInfinity;
+                    var hits = new List<(float y, float u, int prof)>(4);
+                    foreach (var tq in tris)
+                    {
+                        Vector3 A = v[tq.a] + o, B = v[tq.b] + o, C = v[tq.c] + o;
+                        float d = (B.z - C.z) * (A.x - C.x) + (C.x - B.x) * (A.z - C.z);
+                        if (Mathf.Abs(d) < 1e-8f) continue;
+                        float w0 = ((B.z - C.z) * (x.x - C.x) + (C.x - B.x) * (x.y - C.z)) / d;
+                        float w1 = ((C.z - A.z) * (x.x - C.x) + (A.x - C.x) * (x.y - C.z)) / d;
+                        float w2 = 1f - w0 - w1;
+                        if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
+                        float y = w0 * A.y + w1 * B.y + w2 * C.y;
+                        float u = w0 * uv[tq.a].x + w1 * uv[tq.b].x + w2 * uv[tq.c].x;
+                        hits.Add((y, u, tq.prof)); top = Mathf.Max(top, y);
+                    }
+                    foreach (var h in hits)
+                    {
+                        if (h.y < top - 0.02f || h.prof >= RoadProfiles.Count) continue;
+                        var L0 = LineModel.LayoutOf(h.prof); var T = L0.tex ?? L0;
+                        int px = Mathf.FloorToInt(h.u * T.texW);
+                        for (int j = 0; j < T.kind.Length; j++)
+                        {
+                            byte kd = T.kind[j];
+                            bool yel = kd == LineModel.KYellow || kd == LineModel.KYellowDash || (!T.twoWay && kd == LineModel.KEdgeP);
+                            if (yel && px >= T.x0[j] - 1 && px <= T.x1[j] + 1) return true;
+                        }
+                    }
+                    return false;
+                }
+                float trim = t.TrimAt(e, fa.node), gap = 0f, first = -1f; int samples = 0;
+                for (float y = 0f; y <= FlushNoseProbeM + 1e-3f; y += 0.5f)
+                {
+                    float s = e.a == fa.node ? trim + y : e.length - trim - y;
+                    if (s < 0f || s > e.length) break;
+                    var c = CityMeshes.AuditView.SectionAt(map, t, e, s, true);
+                    LineModel.LinesAt(e, s, la);
+                    var lay = LineModel.LayoutOf(e);
+                    float best = float.MaxValue; Vector2 X = default;
+                    foreach (var l in la)
+                    {
+                        byte kd = lay.kind[l.k];
+                        if (kd != LineModel.KEdgeP && kd != LineModel.KEdgeM) continue;
+                        var w = c.P + c.right * l.lat;
+                        fa.r.Local(w, out _, out float lat);
+                        if (lat < best) { best = lat; X = w; }
+                    }
+                    if (best == float.MaxValue) continue;
+                    samples++;
+                    if (!YellowAt(X)) { gap += 0.5f; if (first < 0f) first = y; }
+                }
+                if (gap > 0.5f + 1e-3f)
+                {
+                    bad++; gapM += gap;
+                    if (badPk != null) badPk[fa.r.pk] = $" {FlushTipTag} flush median n{fa.node}: {gap:0.0} m of the median-side yellow not rendered (e{fa.edge});";
+                    list.Append($"\n    n{fa.node} e{fa.edge} '{e.name}' ({LatLon(np.x, np.y)}): {gap:0.0} m of the median-side yellow not rendered (of {samples} samples), from {first:0.0} m off the nose");
+                }
+            }
+        }
 
         static Dictionary<long, string> PairFails(CityMap map, CityMeshes.Trims t, List<LineModel.Refuge> refs, List<LineModel.RefugeM> m, LineModel.Ease[][] offEase,
                                                   out int censusN, out int worse, out int loose, out float worst, out string worstAt)
@@ -404,11 +560,21 @@ namespace PSXRacing.EditorTools
                 // nose with no room for a hatch of HatchMinBars (a relay moves
                 // its lines there) left the island a 4 m flush tip and then the
                 // kerb - the turn-only lane ran into it with no hatch, bay end
-                // or arrow. The pair fails (tried flush: no kerb at all; else live).
-                if (r0.half > 0f)
+                // or arrow. The pair fails.
+                // Round 5c (review r5b must-fix): the forced-flush retry left
+                // these noses a painted median whose gore attach cut the
+                // carriageway's inner yellow ~10 m back from the nose, white
+                // dashes end-on into a single yellow and stubs - worse than
+                // live's gore. A flush tip does not depend on the island's
+                // width (NoseMarks reads the undivided road's centre lane), so
+                // flush cannot cure it: the pair goes straight to live.
+                // (PSX_REFUGE_GATE_R5B_TIPS=1: round 5b's rule - kerbed only, retried flush - to show the
+                // FLUSH-NOSE YELLOW count catches what round 5b shipped; never for the list)
+                bool r5b = System.Environment.GetEnvironmentVariable("PSX_REFUGE_GATE_R5B_TIPS") == "1";
+                if (!r5b || r0.half > 0f)
                     foreach (int node in new[] { r0.node, r0.far })
                         if (CityMeshes.NoseFlushTip.Contains(node))
-                            f += $" a centre lane runs into the kerbed tip at n{node} with no hatch (no room for {CityMeshes.HatchMinBars} bars);";
+                            f += $" {FlushTipTag} n{node}: a centre lane reaches the nose with no room for {CityMeshes.HatchMinBars} hatch bars;";
                 if (f.Length > 0) Add(r0.pk, f);
             }
             censusN = 0; worse = 0; loose = 0; worst = 0f; worstAt = "";
