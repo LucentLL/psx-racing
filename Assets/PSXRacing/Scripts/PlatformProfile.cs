@@ -28,7 +28,7 @@ namespace PSXRacing
     /// </summary>
     public static class PlatformProfile
     {
-        public const int CityRing = 4;
+        public const int CityRing = 2;   // ring 4 (2026-11-02) outran the main-thread tile builder on I-277: the bigger view waits for baked, streamed tiles
         public const int CityTrafficCap = 96;
         public const int HDMaxLines = 2160;
         public const int ProbeFacesPerFrame = 2;
