@@ -10,8 +10,6 @@ namespace PSXRacing.City
         public const string RefugeListCity = "d8ea54da6f458827";
         /// <summary>Triples: pair key (RefugePairKey), fingerprint, mode (1 auto, 2 flush).</summary>
         static readonly long[] RefugeListData = {
-            3942779988764L, 1712877001L, 1,   // n918-n11036 South Kings Drive
-            5574867556759L, 3429610141L, 1,   // n1298-n6551 Hawthorne Lane
             10187662436439L, 1071373919L, 1,   // n2372-n10327 Sunset Road
             15543486657597L, 38337644L, 2,   // n3619-n13373 East Morehead Street
             15710990378529L, 1572422536L, 1,   // n3658-n9761 Antioch Church Road

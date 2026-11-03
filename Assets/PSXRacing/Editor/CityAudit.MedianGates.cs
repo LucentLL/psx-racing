@@ -97,7 +97,7 @@ namespace PSXRacing.EditorTools
             Check(buildMs < 50f, "refuge pairs add under 50 ms at city load", $"{buildMs:0.0} ms");
 
             var mOn = LineModel.MeasureRefuges(map, refs, out float stepOn, out int linesOn, out string worstOn);
-            var pf = PairFails(map, refs, mOn, offEase, out int relayN, out int relayWorse, out int relayLoose, out float relayWorst, out string relayAt);
+            var pf = PairFails(map, tOn, refs, mOn, offEase, out int relayN, out int relayWorse, out int relayLoose, out float relayWorst, out string relayAt);
             string pfAt = "";
             foreach (var kv in pf) if (pfAt.Length < 1500) pfAt += $"\n    {PairName(map, cands, kv.Key)}: {kv.Value}";
             Check(pf.Count == 0, "every drawn refuge pair passes every check on the drawn geometry (MeasureRefuges/RefugeFails/PairFails)", pf.Count + pfAt);
@@ -311,12 +311,12 @@ namespace PSXRacing.EditorTools
             for (; iters < 20; iters++)
             {
                 LineModel.RefugeOverride = new Dictionary<long, byte>(mode);
-                CityMeshes.ComputeTrims(map);
+                var tD = CityMeshes.ComputeTrims(map);
                 var bad = new Dictionary<long, string>();
                 foreach (var r in LineModel.RefugeNotDrawn) bad[r.pk] = r.separated ? $"a real separated median, not an island ({r.why})" : $"no island frame ({r.why})";
                 var refs = new List<LineModel.Refuge>(LineModel.Refuges);
                 var m = LineModel.MeasureRefuges(map, refs, out _, out _, out _);
-                var pfs = PairFails(map, refs, m, offEase, out _, out _, out int loose, out _, out _);
+                var pfs = PairFails(map, tD, refs, m, offEase, out _, out _, out int loose, out _, out _);
                 foreach (var kv in pfs) bad[kv.Key] = kv.Value;
                 int toFlush = 0, toLive = 0;
                 foreach (var kv in bad)
@@ -339,7 +339,13 @@ namespace PSXRacing.EditorTools
         /// eases differ from live, measured ON and live (EdgeSlope): steeper
         /// than max(0.06, live + 0.005) fails each drawn pair at whose split
         /// node it ends or whose common-mode shift it carries (loose: none).</summary>
-        static Dictionary<long, string> PairFails(CityMap map, List<LineModel.Refuge> refs, List<LineModel.RefugeM> m, LineModel.Ease[][] offEase,
+        /// <summary>Round 5: a kerbed island whose two carriageways a junction
+        /// fan trims back past the tip by lengths more than this apart ends
+        /// unevenly inside the fan - the island's top met the fan's corner walk
+        /// in a sunken pocket (review r4: fan_6551). The pair fails.</summary>
+        const float FanEndUnevenM = 3f;
+
+        static Dictionary<long, string> PairFails(CityMap map, CityMeshes.Trims t, List<LineModel.Refuge> refs, List<LineModel.RefugeM> m, LineModel.Ease[][] offEase,
                                                   out int censusN, out int worse, out int loose, out float worst, out string worstAt)
         {
             var res = new Dictionary<long, string>();
@@ -365,6 +371,15 @@ namespace PSXRacing.EditorTools
                         e.lmEase = keep;
                     }
                 if (on < off) f += $" lane lines {on} vs live {off};";
+                if (r0.half > 0f)
+                    for (int end = 0; end < 2; end++)
+                    {
+                        int node = end == 0 ? r0.node : r0.far;
+                        int e0 = end == 0 ? r0.chain[0] : r0.chain[r0.chain.Length - 1], e1 = end == 0 ? r1.chain[0] : r1.chain[r1.chain.Length - 1];
+                        float t0 = t.TrimAt(map.edges[e0], node), t1 = t.TrimAt(map.edges[e1], node);
+                        if (Mathf.Max(t0, t1) > LineModel.RefugeTipM + 0.05f && Mathf.Abs(t0 - t1) > FanEndUnevenM)
+                            f += $" kerbed island ends unevenly in a junction fan at n{node} (trims {t0:0.0}/{t1:0.0} m);";
+                    }
                 if (f.Length > 0) Add(r0.pk, f);
             }
             censusN = 0; worse = 0; loose = 0; worst = 0f; worstAt = "";
