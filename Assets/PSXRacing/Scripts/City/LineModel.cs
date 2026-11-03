@@ -420,14 +420,23 @@ namespace PSXRacing.City
             foreach (var e in map.edges) e.lmEase = null;
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0;
+            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
             // (roads pass L4): found first, so a relay at one end of an edge
             // knows whether the other end needs its room too
             var relayJoin = new HashSet<int>(); var relayNode = new HashSet<int>();
-            relaySplits = RefugeOn ? splitAt : null;
+            // Round 5: the refuge pairs this build draws (the accepted list) are
+            // known before the relays, so the relay's nose clearance reaches only
+            // their noses - every other split node relays exactly as live does
+            var plan = RefugeOn ? PlanRefuges(map, splitAt) : null;
+            relayNoses = null;
+            if (plan != null && plan.Count > 0)
+            {
+                relayNoses = new HashSet<int>();
+                foreach (var pl in plan) { relayNoses.Add(pl.sp.node); relayNoses.Add(pl.s2.node); }
+            }
             for (int j = 0; j < joins.Count; j++)
             {
                 var (n, ei, oi) = joins[j];
@@ -575,7 +584,7 @@ namespace PSXRacing.City
             // starts where its lanes are in the undivided road and eases onto
             // its own line over the MUTCD shifting taper - two carriageways,
             // never one road that bulges into two
-            var refuge = RefugeOn ? FindRefuges(map, splitAt, add, partner) : null;
+            var refuge = RefugeOn ? FindRefuges(map, add, partner, plan) : null;
             if (!RefugeOn) ClearRefuges();
             foreach (var sp in splitAt.Values)
             {
@@ -606,13 +615,10 @@ namespace PSXRacing.City
                     float len = Mathf.Max(FloorOf(C), Mathf.Max(10f, sp.rate) * Mathf.Abs(shift0));
                     // A REFUGE ISLAND (the owner, 2026-11-02): the shift fades
                     // out by mid-island, so the island is OSM's own width there
-                    if (refuge != null && refuge.TryGetValue(RefugeKey(sp.node, ci), out var rf))
-                    {
-                        // round 2: the island's own profile drew this carriageway end to end
-                        if (rf.profiled) { RefugeTapers++; continue; }
-                        float cap = RefugeLen(rf.lc, Mathf.Abs(shift0), rf.extra * 0.5f);
-                        if (cap < len) { len = cap; RefugeTapers++; } else RefugeHeld++;
-                    }
+                    // round 2: the island's own profile drew this carriageway end
+                    // to end. Round 5: only accepted pairs are refuges at all (no
+                    // round-1 cap); any other split tapers exactly as live
+                    if (refuge != null && refuge.ContainsKey(RefugeKey(sp.node, ci))) { RefugeTapers++; continue; }
                     PropagateShift(map, add, partner, C, sp.node, shift0, len, 0f, 0);
                     SplitTapers++;
                 }
@@ -698,6 +704,10 @@ namespace PSXRacing.City
             /// median (not an island); the self-check's verdict.</summary>
             public float o1, o2, r1, r2, w1, w2, uShift1, uShift2, uLen1, uLen2, uRoom1, uRoom2;
             public bool separated; public string check = ""; public long tag;
+            /// <summary>Round 5: the list's mode (1 auto, 2 flush), the pair key,
+            /// and the undivided edges the common-mode shift was put on (the gate
+            /// measures their lines, edges and paths).</summary>
+            public byte mode; public long pk; public int[] uEdges = System.Array.Empty<int>();
             /// <summary>The undivided road's outer edge at axis arc u (from the axis, outward).</summary>
             public float OuterTarget(float u) => Mathf.Lerp(o1, o2, axLen > 1e-3f ? Mathf.Clamp01(u / axLen) : 0f);
             /// <summary>Round 4: where the lanes' reference (the shifted OSM
@@ -838,10 +848,76 @@ namespace PSXRacing.City
         /// RefugeMaxM. Round 2: each pair's two carriageways get the island's
         /// own profile (shift + widen eases, <see cref="BuildRefugePair"/>);
         /// a pair with no room for an island keeps round 1's cap.</summary>
-        static Dictionary<long, Refuge> FindRefuges(CityMap map, Dictionary<int, Split> splitAt, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner)
+        // ---- round 5: PER-PAIR ALL-OR-NOTHING ------------------------------
+        // Four rounds left about a dozen pairs (OSM lane-add tapers inside the
+        // island) failing one gate or another while the owner's library and
+        // bend pairs were good. Now a pair is drawn by the profile only if it
+        // is on the ACCEPTED LIST (LineModel.RefugeList.cs), which the medians
+        // gate (CityAudit.RunMedianGates) writes after measuring every pair on
+        // the drawn geometry and reverting each that fails any check. A pair
+        // not on the list is no refuge at all: its split nodes taper, relay and
+        // paint exactly as live does. Each entry carries a fingerprint of the
+        // pair's own data (nodes, chains, widths, line-model extents), and the
+        // list the city's edge and node counts: a pair whose data changed, or
+        // a list from another city export, falls back to live (fail safe), and
+        // the gate fails until the list is regenerated. No check runs at load.
+        public struct RPlan { public Split sp, s2; public int[] ca, cb; public float la, lb; public byte mode; public long pk; }
+        /// <summary>A pair the detection found (accepted or not), for the gate.</summary>
+        public struct RefugeCand { public long pk; public uint fp; public int n1, n2, e1, e2, u1, u2; public int[] ca, cb; }
+        public static readonly List<RefugeCand> RefugeCandidates = new List<RefugeCand>();
+        /// <summary>Editor (the gate's decision runs): pair key -> mode (1 the
+        /// profile's own choice, 2 forced flush) in place of the compiled list.
+        /// Null: the compiled list.</summary>
+        public static Dictionary<long, byte> RefugeOverride;
+        public const byte RefugeModeAuto = 1, RefugeModeFlush = 2;
+        /// <summary>For the gate: pairs found, drawn from the list, not on it,
+        /// on it with a fingerprint that no longer matches; the list made for
+        /// another city export (all pairs live); FindRefuges' cost.</summary>
+        public static int RefugeFound, RefugeListedN, RefugeUnlisted, RefugeStaleFp; public static bool RefugeListStale; public static float RefugeBuildMs;
+        /// <summary>Pairs on the list the builder could not draw (why on pair[0]).</summary>
+        public static readonly List<Refuge> RefugeNotDrawn = new List<Refuge>();
+        public static long RefugePairKey(int a, int b) => ((long)Mathf.Min(a, b) << 32) | (uint)Mathf.Max(a, b);
+
+        static Dictionary<long, (byte mode, uint fp)> compiledList; static CityMap compiledFor;
+        static Dictionary<long, (byte mode, uint fp)> CompiledRefugeList(CityMap map)
         {
-            ClearRefuges();
-            var res = new Dictionary<long, Refuge>();
+            if (compiledFor == map && compiledList != null) return compiledList;
+            compiledFor = map; compiledList = new Dictionary<long, (byte, uint)>();
+            RefugeListStale = map.edges.Length != RefugeListEdges || map.nodes.Length != RefugeListNodes;
+            if (RefugeListStale) return compiledList;
+            for (int i = 0; i + 2 < RefugeListData.Length; i += 3)
+                compiledList[RefugeListData[i]] = ((byte)RefugeListData[i + 2], (uint)RefugeListData[i + 1]);
+            return compiledList;
+        }
+
+        /// <summary>The pair's own data, hashed (FNV-1a over ids and mm-rounded widths/extents/positions).</summary>
+        public static uint RefugeFingerprint(CityMap map, Split sp, Split s2, int[] ca, int[] cb)
+        {
+            uint h = 2166136261u;
+            void I(int v) { unchecked { h = (h ^ (uint)v) * 16777619u; } }
+            void F(float v) => I(Mathf.RoundToInt(v * 1000f));
+            void E(int i)
+            {
+                var e = map.edges[i];
+                I(i); I(e.a); I(e.b); I(e.profile); I(e.cls); I(e.oneway ? 1 : 0);
+                F(e.length); F(e.width); F(e.lmPlus); F(e.lmMinus); F(e.shl); F(e.shr);
+                F(map.nodes[e.a].x); F(map.nodes[e.a].y); F(map.nodes[e.b].x); F(map.nodes[e.b].y);
+            }
+            I(sp.node); I(s2.node); F(sp.offA); F(sp.offB); F(s2.offA); F(s2.offB); F(sp.rate); F(s2.rate);
+            E(sp.u); E(s2.u); E(sp.a); E(sp.b); E(s2.a); E(s2.b);
+            foreach (int i in ca) E(i);
+            foreach (int i in cb) E(i);
+            return h;
+        }
+
+        /// <summary>Every refuge pair the detection finds (RefugeCandidates),
+        /// and of them those to draw: on the override, or on the compiled list
+        /// with a matching fingerprint.</summary>
+        static List<RPlan> PlanRefuges(CityMap map, Dictionary<int, Split> splitAt)
+        {
+            RefugeCandidates.Clear(); RefugeFound = 0; RefugeListedN = 0; RefugeUnlisted = 0; RefugeStaleFp = 0;
+            var plan = new List<RPlan>();
+            var list = RefugeOverride == null ? CompiledRefugeList(map) : null;
             var done = new HashSet<long>();
             var ca = new List<int>(8); var cb = new List<int>(8);
             bool Bad(int i) => i < 0 || i >= map.edges.Length || CityMeshes.Barriered(map.edges[i]);
@@ -855,44 +931,66 @@ namespace PSXRacing.City
                 var s2 = splitAt[fa];
                 if (Bad(s2.u) || Bad(s2.a) || Bad(s2.b)) continue;
                 if (Nose(sp) < -RefugeMismatchM || Nose(s2) < -RefugeMismatchM) continue;
-                long pk = ((long)Mathf.Min(sp.node, fa) << 32) | (uint)Mathf.Max(sp.node, fa);
+                long pk = RefugePairKey(sp.node, fa);
                 if (!done.Add(pk)) continue;                 // the far end: built with this one
+                RefugeFound++;
+                var A = ca.ToArray(); var B = cb.ToArray();
+                uint fp = RefugeFingerprint(map, sp, s2, A, B);
+                RefugeCandidates.Add(new RefugeCand { pk = pk, fp = fp, n1 = sp.node, n2 = fa, e1 = A[0], e2 = B[0], u1 = sp.u, u2 = s2.u, ca = A, cb = B });
+                byte mode;
+                if (RefugeOverride != null) { if (!RefugeOverride.TryGetValue(pk, out mode)) { RefugeUnlisted++; continue; } }
+                else
+                {
+                    if (!list.TryGetValue(pk, out var en)) { RefugeUnlisted++; continue; }
+                    if (en.fp != fp) { RefugeStaleFp++; continue; }
+                    mode = en.mode;
+                }
+                RefugeListedN++;
+                plan.Add(new RPlan { sp = sp, s2 = s2, ca = A, cb = B, la = la, lb = lb, mode = mode, pk = pk });
+            }
+            return plan;
+        }
+
+        static Dictionary<long, Refuge> FindRefuges(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, List<RPlan> plan)
+        {
+            ClearRefuges();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var res = new Dictionary<long, Refuge>();
+            foreach (var pl in plan)
+            {
+                var sp = pl.sp; var s2 = pl.s2; int fa = s2.node;
                 var pair = new Refuge[2];
                 for (int c = 0; c < 2; c++)
                 {
-                    var mine = c == 0 ? ca : cb; var other = c == 0 ? cb : ca;
-                    float lc = c == 0 ? la : lb;
-                    var arr = mine.ToArray();
+                    var arr = c == 0 ? pl.ca : pl.cb; var other = c == 0 ? pl.cb : pl.ca;
+                    float lc = c == 0 ? pl.la : pl.lb;
                     var p = ChainPoint(map, arr, sp.node, 0.5f * lc);
                     float sep = float.MaxValue;
                     foreach (int oi in other) sep = Mathf.Min(sep, DistToEdge(map.edges[oi], p));
                     float isl = sep - 0.5f * (map.edges[sp.a].width + map.edges[sp.b].width);
                     pair[c] = new Refuge { node = sp.node, far = fa, edge = arr[0], chain = arr, lc = lc, osmIsland = isl,
-                                           extra = Mathf.Max(0f, 0.5f * (RefugeMinIslandM - isl)) };
+                                           extra = Mathf.Max(0f, 0.5f * (RefugeMinIslandM - isl)), mode = pl.mode, pk = pl.pk };
                 }
-                pair[0].tag = pair[1].tag = -(Refuges.Count / 2 + 1);
-                bool prof = BuildRefugePair(map, add, partner, sp, s2, pair);
-                if (pair[0].separated)
+                pair[0].tag = pair[1].tag = -(Refuges.Count / 2 + RefugeNotDrawn.Count + 1);
+                bool prof = BuildRefugePair(map, add, partner, sp, s2, pair, pl.mode == RefugeModeFlush);
+                if (!prof)
                 {
-                    // ROUND 4: a real separated median (Moores Chapel's 24 m):
-                    // two carriageways on their own lines, the split's ordinary
-                    // tapers - not an island, never round 1's cap
-                    Separated.Add(pair[0]); Separated.Add(pair[1]);
+                    // round 5: not drawable (or a real separated median, Moores
+                    // Chapel's 24 m): no refuge - the split's ordinary tapers
+                    if (pair[0].separated) { Separated.Add(pair[0]); Separated.Add(pair[1]); }
+                    RefugeNotDrawn.Add(pair[0]); RefugeFallback++;
                     continue;
                 }
-                if (prof) RefugeProfiled += 2; else RefugeFallback++;
+                RefugeProfiled += 2;
                 for (int c = 0; c < 2; c++)
                 {
                     var r = pair[c];
                     Refuges.Add(r);
                     res[RefugeKey(sp.node, r.chain[0])] = r;
-                    // the far end's key: the chain's last edge at the far node
-                    // (round 1's cap there measures the chain from that end)
-                    var rc = (int[])r.chain.Clone(); System.Array.Reverse(rc);
-                    var back = new Refuge { node = fa, far = sp.node, edge = rc[0], chain = rc, lc = r.lc, osmIsland = r.osmIsland, extra = r.extra, profiled = r.profiled };
-                    res[RefugeKey(fa, back.edge)] = back;
+                    res[RefugeKey(fa, r.chain[r.chain.Length - 1])] = r;
                 }
             }
+            RefugeBuildMs = (float)clock.Elapsed.TotalMilliseconds;
             return res;
         }
 
@@ -909,6 +1007,9 @@ namespace PSXRacing.City
         /// <summary>Are two edges the two carriageways of one profiled refuge island?</summary>
         /// <summary>The profiled refuge island a carriageway edge runs past (round 3: its kerb), or null.</summary>
         public static Refuge RefugeOf(int edge) => refugeEdge.Count > 0 && refugeEdge.TryGetValue(edge, out var r) ? r : null;
+
+        /// <summary>Round 5: is this a split node of a drawn (accepted) refuge pair?</summary>
+        public static bool IsRefugeNode(int node) => refugeNodeDir.Count > 0 && refugeNodeDir.ContainsKey(node);
 
         public static bool SameRefuge(int a, int b) =>
             refugeEdge.Count > 0 && refugeEdge.TryGetValue(a, out var ra) && refugeEdge.TryGetValue(b, out var rb) && ra != rb && ra.node == rb.node && ra.far == rb.far;
@@ -947,8 +1048,8 @@ namespace PSXRacing.City
         public static readonly List<Refuge> Separated = new List<Refuge>();
         static void ClearRefuges()
         {
-            Refuges.Clear(); Separated.Clear(); refugeEdge.Clear(); refugeNodeDir.Clear(); refugeNodeEdge.Clear();
-            RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; RefugeFlush = 0; RefugeSelfFlush = 0; RefugeSelfFail = 0; RefugeCheckMs = 0f;
+            Refuges.Clear(); Separated.Clear(); RefugeNotDrawn.Clear(); refugeEdge.Clear(); refugeNodeDir.Clear(); refugeNodeEdge.Clear();
+            RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; RefugeFlush = 0; RefugeUShifts = 0;
         }
 
         /// <summary>THE SECTION NORMAL every consumer uses (round 3): a refuge
@@ -1119,7 +1220,7 @@ namespace PSXRacing.City
         /// False (nothing added): no room for an island - round 1's cap.</summary>
         static void Why(Refuge[] pr, string w) { foreach (var r in pr) r.why = w; }
 
-        static bool BuildRefugePair(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Split sp, Split s2, Refuge[] pr)
+        static bool BuildRefugePair(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Split sp, Split s2, Refuge[] pr, bool forceFlush)
         {
             var U1 = map.edges[sp.u]; var U2 = map.edges[s2.u];
             foreach (var r in pr) foreach (int ei in r.chain) { var e = map.edges[ei]; if (e.lmPlus == 0f && e.lmMinus == 0f) { Why(pr, "no line model"); return false; } }
@@ -1166,10 +1267,12 @@ namespace PSXRacing.City
             // carriageways keep their own lines and the split's ordinary
             // tapers, never round 1's cap
             foreach (var r in pr)
+            {
+                int hint = 0;
                 for (float d = 0f; d <= r.lc; d += 1f)
                 {
                     ChainAt(map, r.chain, r.node, d, out int k, out float s);
-                    r.Local(map.edges[r.chain[k]].PointAt(s), out float u, out float q);
+                    r.LocalNear(map.edges[r.chain[k]].PointAt(s), ref hint, out float u, out float q);
                     if (q > RefugeMaxStrayM || q < -3f || u < -1f || u > axLen + 1f)
                     {
                         Why(pr, $"stray: q {q:0.0} m at u {u:0.0} of {axLen:0.0}");
@@ -1177,6 +1280,7 @@ namespace PSXRacing.City
                         return false;
                     }
                 }
+            }
             // ROUND 4, THE COMMON MODE: where the undivided road's edges at the
             // two nodes differ by more than the design slope allows over the
             // island (its pavement sits off its OSM line by a different amount
@@ -1209,13 +1313,15 @@ namespace PSXRacing.City
                 d1 = -D * f1; d2 = D * (1f - f1);
                 float l1 = Mathf.Max(RefugeMoveMinM, 1.5f * Mathf.Abs(d1) / RefugeDesignSlope), l2 = Mathf.Max(RefugeMoveMinM, 1.5f * Mathf.Abs(d2) / RefugeDesignSlope);
                 // U's own frame: plus = axis-left where U runs along the axis's direction there
+                shiftLog = new List<int>();
                 if (Mathf.Abs(d1) > 0.01f) PropagateShift(map, add, partner, U1, sp.node, (U1.b == sp.node ? 1f : -1f) * d1, l1, 0f, 0);
                 if (Mathf.Abs(d2) > 0.01f) PropagateShift(map, add, partner, U2, s2.node, (U2.a == s2.node ? 1f : -1f) * d2, l2, 0f, 0);
-                foreach (var r in pr) { r.uShift1 = d1; r.uShift2 = d2; r.uLen1 = l1; r.uLen2 = l2; r.uRoom1 = rm1; r.uRoom2 = rm2; }
+                var ue = shiftLog.ToArray(); shiftLog = null;
+                foreach (var r in pr) { r.uShift1 = d1; r.uShift2 = d2; r.uLen1 = l1; r.uLen2 = l2; r.uRoom1 = rm1; r.uRoom2 = rm2; r.uEdges = ue; }
                 RefugeUShifts++;
             }
             foreach (var r in pr) { r.o1 = r.uOut1 + r.so * d1; r.o2 = r.uOut2 + r.so * d2; }
-            RefugeProfile(map, add, pr, false);
+            RefugeProfile(map, add, pr, forceFlush);
             foreach (var r in pr) foreach (int ei in r.chain) refugeEdge[ei] = r;
             refugeNodeDir[sp.node] = t1; refugeNodeDir[s2.node] = -t2;
             refugeNodeEdge.Add(RefugeKey(sp.node, sp.u)); refugeNodeEdge.Add(RefugeKey(s2.node, s2.u));
@@ -1244,7 +1350,7 @@ namespace PSXRacing.City
         static List<RSmp> SampleChain(CityMap map, List<Ease>[] add, Refuge r, float step)
         {
             var res = new List<RSmp>(Mathf.CeilToInt(r.lc / step) + 4);
-            int from = r.node; float d0 = 0f;
+            int from = r.node; float d0 = 0f; int hint = 0;
             foreach (int ei in r.chain)
             {
                 var e = map.edges[ei];
@@ -1256,7 +1362,7 @@ namespace PSXRacing.City
                 for (int k = 0; k < n; k++)
                 {
                     float x = k * ds, s = fwd ? x : e.length - x;
-                    r.Local(e.PointAt(s), out float u, out float q);
+                    r.LocalNear(e.PointAt(s), ref hint, out float u, out float q);
                     Ext(e, s, true, out float eM, out float eP);
                     res.Add(new RSmp { d = d0 + x, u = u, q = q, oE = se > 0 ? eP : eM, iE = se > 0 ? eM : eP });
                 }
@@ -1315,16 +1421,24 @@ namespace PSXRacing.City
             }
             float wI = Mathf.Clamp(0.5f * (pr[0].osmIsland + pr[1].osmIsland), RefugeMinIslandM, RefugeMaxIslandM);
             float half = 0.5f * wI;
+            // round 5 (load cost): the samples sorted by axis arc, for the
+            // range and nearest queries below (binary search, not a full scan)
+            var su = new float[2][]; var si = new float[2][];
+            for (int c = 0; c < 2; c++)
+            {
+                var l = new List<RSmp>(smp[c]);
+                l.Sort((x, y) => x.u.CompareTo(y.u));
+                su[c] = new float[l.Count]; si[c] = new float[l.Count];
+                for (int i = 0; i < l.Count; i++) { su[c][i] = l[i].u; si[c][i] = l[i].iE; }
+            }
+            int Lower(float[] a, float v) { int lo = 0, hi = a.Length; while (lo < hi) { int m = (lo + hi) >> 1; if (a[m] < v) lo = m + 1; else hi = m; } return lo; }
             // the least room each carriageway leaves along the island's middle
             // (its inner edge from the axis with the lanes on their reference)
             float MinGap(int c, float uLo, float uHi)
             {
                 var r = pr[c]; float g = float.MaxValue;
-                foreach (var p in smp[c])
-                {
-                    if (p.u < uLo || p.u > uHi) continue;
-                    g = Mathf.Min(g, r.LaneRef(p.u) - p.iE);
-                }
+                var U = su[c]; var I = si[c];
+                for (int i = Lower(U, uLo); i < U.Length && U[i] <= uHi; i++) g = Mathf.Min(g, r.LaneRef(U[i]) - I[i]);
                 return g;
             }
             float lnG = Mathf.Clamp(0.25f * axLen, 4f, 10f);
@@ -1333,10 +1447,10 @@ namespace PSXRacing.City
             // a flush median only needs the two not to overlap
             float GapAtU(int c, float u)
             {
-                var l = smp[c]; var r = pr[c];
-                int k = 0; float bd = float.MaxValue;
-                for (int i = 0; i < l.Count; i++) { float dd = Mathf.Abs(l[i].u - u); if (dd < bd) { bd = dd; k = i; } }
-                return r.LaneRef(u) - l[k].iE;
+                var r = pr[c]; var U = su[c];
+                int k = Mathf.Min(Lower(U, u), U.Length - 1);
+                if (k > 0 && Mathf.Abs(U[k - 1] - u) <= Mathf.Abs(U[k] - u)) k--;
+                return r.LaneRef(u) - si[c][k];
             }
             float Overlap()
             {
@@ -1428,7 +1542,7 @@ namespace PSXRacing.City
             for (int c = 0; c < 2; c++)
             {
                 var r = pr[c];
-                int from = r.node; float d0 = 0f;
+                int from = r.node; float d0 = 0f; int hint = 0;
                 foreach (int ei in r.chain)
                 {
                     var e = map.edges[ei];
@@ -1441,7 +1555,7 @@ namespace PSXRacing.City
                     for (int k = 0; k < n; k++)
                     {
                         float x = k * ds, s = fwd ? x : e.length - x;
-                        r.Local(e.PointAt(s), out float u, out float q);
+                        r.LocalNear(e.PointAt(s), ref hint, out float u, out float q);
                         Ext(e, s, true, out float eM, out float eP);
                         float iE = se > 0 ? eM : eP, R = r.LaneRef(u);
                         sh[k] = se * (R - q);
@@ -1460,69 +1574,6 @@ namespace PSXRacing.City
                     d0 += e.length; from = fwd ? e.b : e.a;
                 }
             }
-        }
-
-        // ---- round 4: THE SELF-CHECK (the gate's own measurement) --------
-        // Round 3's self-check measured the room the profile planned, the gate
-        // the geometry drawn, so n12028 passed one and failed the other. Now
-        // every profiled pair is measured, once every ease is in, by the same
-        // function the medians gate calls (MeasureRefuges + RefugeFails); a
-        // pair that fails is rebuilt straight with a flush painted median and
-        // measured again, keeping whichever fails fewer checks.
-        public static int RefugeSelfFlush, RefugeSelfFail; public static float RefugeCheckMs;
-
-        /// <summary>Called at the end of CityMeshes.ComputeTrims, once every
-        /// ease (merge zones' aux lanes too) is on the edges - the very state
-        /// the gate measures.</summary>
-        public static void VerifyRefuges(CityMap map)
-        {
-            if (!RefugeOn || Refuges.Count == 0) return;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var add = new List<Ease>[map.edges.Length];
-            foreach (var r in Refuges) foreach (int ei in r.chain) if (add[ei] == null) add[ei] = map.edges[ei].lmEase != null ? new List<Ease>(map.edges[ei].lmEase) : new List<Ease>();
-            for (int i = 0; i + 1 < Refuges.Count; i += 2)
-            {
-                var pr = new[] { Refuges[i], Refuges[i + 1] };
-                if (!pr[0].profiled) continue;
-                var two = new List<Refuge>(pr);
-                var m = MeasureRefuges(map, two, out _, out _, out _);
-                string f0 = RefugeFails(pr[0], m[0]) + RefugeFails(pr[1], m[1]);
-                string c0 = RefugeFails(pr[0], m[0]), c1 = RefugeFails(pr[1], m[1]);
-                pr[0].check = c0; pr[1].check = c1;
-                if (f0.Length == 0) continue;
-                if (pr[0].half <= 0f) { RefugeSelfFail++; continue; }
-                // rebuild flush, keep the old eases and profile to revert
-                var old = new Refuge[2]; for (int c = 0; c < 2; c++) { old[c] = new Refuge(); old[c].CopyProfile(pr[c]); }
-                var kept = new Dictionary<int, List<Ease>>();
-                foreach (var r in pr)
-                    foreach (int ei in r.chain)
-                    {
-                        if (kept.ContainsKey(ei)) continue;
-                        kept[ei] = new List<Ease>(add[ei]);
-                        add[ei].RemoveAll(z => z.tag == r.tag && z.prof != null);
-                    }
-                int flushWas = RefugeFlush;
-                RefugeProfile(map, add, pr, true);
-                foreach (var ei in kept.Keys) map.edges[ei].lmEase = add[ei].ToArray();
-                m = MeasureRefuges(map, two, out _, out _, out _);
-                string f1 = RefugeFails(pr[0], m[0]) + RefugeFails(pr[1], m[1]);
-                if (f1.Length == 0 || f1.Split(';').Length < f0.Split(';').Length)
-                {
-                    RefugeSelfFlush++;
-                    pr[0].check = RefugeFails(pr[0], m[0]); pr[1].check = RefugeFails(pr[1], m[1]);
-                    if (f1.Length > 0) RefugeSelfFail++;
-                }
-                else
-                {
-                    // the flush did no better: back to the island
-                    foreach (var kv in kept) { add[kv.Key] = kv.Value; map.edges[kv.Key].lmEase = kv.Value.ToArray(); }
-                    for (int c = 0; c < 2; c++) pr[c].CopyProfile(old[c]);
-                    RefugeFlush = flushWas;
-                    pr[0].check = c0; pr[1].check = c1;
-                    RefugeSelfFail++;
-                }
-            }
-            RefugeCheckMs = (float)sw.Elapsed.TotalMilliseconds;
         }
 
         /// <summary>A profile ease's sections: wherever the sampled value
@@ -1612,15 +1663,27 @@ namespace PSXRacing.City
             // split's nose keeps the nose approach (RelayNoseKeepM) clear of the
             // relay - at n10229 a 46 m relay from the junction behind left the
             // left-turn bay's line only the last 5 m, a lone hatch bar
-            float Room(CityMap.Edge x)
+            float Room(CityMap.Edge x, bool keepNose)
             {
                 int far = x.a == n ? x.b : x.a;
                 float r = x.length * (relayNode.Contains(far) ? 0.45f : 0.9f);
-                if (relaySplits != null && relaySplits.ContainsKey(far)) r = Mathf.Min(r, Mathf.Max(0.25f * x.length, x.length - RelayNoseKeepM));
+                if (keepNose && relayNoses != null && relayNoses.Contains(far)) r = Mathf.Min(r, Mathf.Max(0.25f * x.length, x.length - RelayNoseKeepM));
                 return r;
             }
-            float rE = Room(E), rO = Room(O);
+            float rE = Room(E, true), rO = Room(O, true);
             float lenE = Mathf.Min(rE, Mathf.Max(0.5f * L, L - rO)), lenO = Mathf.Min(rO, L - lenE);
+            // Round 5 (review r4 #9): the nose clearance may only move the relay
+            // onto the other arm, never shorten it - where it would, the relay
+            // is laid exactly as live (the relay census: Beatties Ford e8621's
+            // yellow line went 0.099 -> 0.179 when the clearance squeezed it)
+            {
+                float rE0 = Room(E, false), rO0 = Room(O, false);
+                float lenE0 = Mathf.Min(rE0, Mathf.Max(0.5f * L, L - rO0)), lenO0 = Mathf.Min(rO0, L - lenE0);
+                if (lenE0 < 0.5f) lenE0 = 0f;
+                if (lenO0 < 0.5f) lenO0 = 0f;
+                float a = (lenE < 0.5f ? 0f : lenE) + (lenO < 0.5f ? 0f : lenO);
+                if (a < lenE0 + lenO0 - 0.01f) { lenE = lenE0; lenO = lenO0; RelayNoseLive++; }
+            }
             // a share under half a metre is no taper: the other arm takes it all
             if (lenE < 0.5f) lenE = 0f;
             if (lenO < 0.5f) lenO = 0f;
@@ -1632,7 +1695,10 @@ namespace PSXRacing.City
             AddRelay(add, O, n, lO, pO, 1f - fE, lenO);
         }
 
-        static Dictionary<int, Split> relaySplits;
+        /// <summary>Round 5: the split nodes of the refuge pairs drawn (null: none).</summary>
+        static HashSet<int> relayNoses;
+        /// <summary>Round 5: relays at a drawn pair's nose laid as live (the clearance would have shortened them).</summary>
+        public static int RelayNoseLive;
         /// <summary>Round 4: the length before a split nose a relay leaves alone (the nose hatch's longest, 30 m).</summary>
         public const float RelayNoseKeepM = 30f;
 
@@ -1745,11 +1811,14 @@ namespace PSXRacing.City
             return Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
         }
 
+        /// <summary>Round 5: while a refuge pair's common-mode shift is laid, the edges it reaches.</summary>
+        static List<int> shiftLog;
         static void PropagateShift(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                                    CityMap.Edge e, int fromNode, float shift, float len, float d0, int depth)
         {
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, 1, true)));
             (add[e.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = e.a == fromNode, dw = shift, len = len, d0 = d0 });
+            shiftLog?.Add(e.index);
             if (d0 + e.length >= len || depth >= 12) return;
             int far = e.a == fromNode ? e.b : e.a;
             int pi = partner(e, far);

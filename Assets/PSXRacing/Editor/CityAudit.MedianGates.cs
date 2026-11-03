@@ -29,6 +29,17 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class CityAudit
     {
+        // ROUND 5 (2026-11-03): PER-PAIR ALL-OR-NOTHING, DECIDED HERE. The gate
+        // builds live (OFF), then DECIDES: every refuge pair the detection
+        // finds is drawn, measured on the drawn geometry (MeasureRefuges +
+        // RefugeFails + PairFails), and each failing pair is tried once flush,
+        // then reverted to live; rebuilt and measured again until nothing
+        // fails (a revert can change a neighbour). The accepted pairs are
+        // written as refuge_list.generated.cs (copy it over
+        // Scripts/City/LineModel.RefugeList.cs), and the gate then VERIFIES the
+        // compiled list: same city export (hash), same pairs and modes, every
+        // drawn pair passing, every reverted pair's edges drawing exactly as
+        // live. A stale list fails the gate.
         public static void RunMedianGates()
         {
             outLog = new StringBuilder();
@@ -36,31 +47,149 @@ namespace PSXRacing.EditorTools
             var map = CityMap.Get();
             if (map == null) { Fail("charlotte_city.bytes missing from Resources"); FinishTo("city_medians.txt"); return; }
             bool refWas = LineModel.RefugeOn;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            // ---- OFF: live ----
+            LineModel.RefugeOn = false; LineModel.RefugeOverride = null;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var tOff = CityMeshes.ComputeTrims(map);
+            float offMs = (float)sw.Elapsed.TotalMilliseconds;
+            var offEase = new LineModel.Ease[map.edges.Length][];
+            for (int i = 0; i < map.edges.Length; i++) offEase[i] = map.edges[i].lmEase;
+            // the build must be repeatable: a second OFF build draws the same eases
+            CityMeshes.ComputeTrims(map);
+            int detDiff = 0; string detAt = "";
+            for (int i = 0; i < map.edges.Length; i++)
+                if (!EasesSame(map.edges[i].lmEase, offEase[i]))
+                {
+                    detDiff++;
+                    if (detAt.Length < 1500) detAt += $"\n    e{i} '{map.edges[i].name}': {EaseDump(offEase[i])} || {EaseDump(map.edges[i].lmEase)}";
+                }
+            Line($"REPEATABILITY: a second OFF build differs from the first on {detDiff} edges{detAt}");
+            CityMeshes.EnsureMarks(map, tOff);
+            int noseOff = CityMeshes.MarkStats.noseArrows, groupsOff = CityMeshes.MarkStats.groups;
+            // ---- DECIDE ----
             LineModel.RefugeOn = true;
+            var why = new Dictionary<long, string>();
+            var decided = DecideRefuges(map, offEase, why, out int iters, out var cands, out int noneDiff, out string decideLog);
+            string cityHash = CityHash();
+            string gen = RefugeListSource(map, decided, cands, cityHash);
+            System.IO.File.WriteAllText("refuge_list.generated.cs", gen);
+            // ---- VERIFY: the compiled list ----
+            LineModel.RefugeOverride = null;
+            sw.Restart();
             var tOn = CityMeshes.ComputeTrims(map);
+            float onMs = (float)sw.Elapsed.TotalMilliseconds, buildMs = LineModel.RefugeBuildMs;
             var refs = new List<LineModel.Refuge>(LineModel.Refuges);
             var seps = new List<LineModel.Refuge>(LineModel.Separated);
-            int profiled = LineModel.RefugeProfiled, fallback = LineModel.RefugeFallback, capped = LineModel.RefugeTapers, flushN = LineModel.RefugeFlush;
-            int selfFlush = LineModel.RefugeSelfFlush, selfFail = LineModel.RefugeSelfFail; float checkMs = LineModel.RefugeCheckMs;
+            int notDrawn = LineModel.RefugeNotDrawn.Count, staleFp = LineModel.RefugeStaleFp; bool stale = LineModel.RefugeListStale;
+            Line($"REFUGE ISLANDS round 5 (PSX_CITY_REFUGE; per-pair all-or-nothing): {cands.Count} pairs found; decided in {iters + 1} builds: {decided.Count} accepted ({Count(decided, LineModel.RefugeModeAuto)} as the profile draws them, {Count(decided, LineModel.RefugeModeFlush)} forced flush), {cands.Count - decided.Count} reverted to live");
+            Line(decideLog);
+            // the list in the build is the list just decided, for this city export
+            int listDiff = 0; string listDiffAt = "";
+            var drawn = new Dictionary<long, byte>();
+            for (int i = 0; i < refs.Count; i += 2) drawn[refs[i].pk] = refs[i].mode;
+            foreach (var kv in decided) if (!drawn.TryGetValue(kv.Key, out byte md) || md != kv.Value) { listDiff++; if (listDiffAt.Length < 300) listDiffAt += $" {PairName(map, cands, kv.Key)} decided {kv.Value} drawn {(drawn.ContainsKey(kv.Key) ? drawn[kv.Key].ToString() : "-")};"; }
+            foreach (var kv in drawn) if (!decided.ContainsKey(kv.Key)) { listDiff++; if (listDiffAt.Length < 300) listDiffAt += $" {PairName(map, cands, kv.Key)} drawn, not accepted;"; }
+            Line($"  ACCEPTED LIST (LineModel.RefugeList.cs): city export {(LineModel.RefugeListCity == cityHash ? "matches" : $"STALE (list {LineModel.RefugeListCity}, bytes {cityHash})")}; edge/node counts {(stale ? "STALE" : "match")}; {staleFp} listed pairs with a changed fingerprint; {notDrawn} listed pairs the builder could not draw; {listDiff} pairs differ from this run's decision{listDiffAt}. This run's list: refuge_list.generated.cs");
+            Check(LineModel.RefugeListCity == cityHash && !stale && staleFp == 0 && notDrawn == 0 && listDiff == 0, "the compiled accepted list is this city export's and this gate's decision (else regenerate: copy refuge_list.generated.cs over LineModel.RefugeList.cs)", listDiff + staleFp + notDrawn + (stale ? 1 : 0));
+            Check(noneDiff == 0, "with no pair listed (a stale list's fail-safe) every edge's eases are live's exactly", noneDiff);
+            Line($"  LOAD COST: the refuge pairs' build {buildMs:0.0} ms (FindRefuges: frames, profiles, eases); the trims ON {onMs:0} ms vs OFF {offMs:0} ms (editor, one run each); no self-check at load");
+            Check(buildMs < 50f, "refuge pairs add under 50 ms at city load", $"{buildMs:0.0} ms");
+
             var mOn = LineModel.MeasureRefuges(map, refs, out float stepOn, out int linesOn, out string worstOn);
-            // round 3: one section normal at every profiled nose, the traffic's heading
+            var pf = PairFails(map, refs, mOn, offEase, out int relayN, out int relayWorse, out int relayLoose, out float relayWorst, out string relayAt);
+            string pfAt = "";
+            foreach (var kv in pf) if (pfAt.Length < 1500) pfAt += $"\n    {PairName(map, cands, kv.Key)}: {kv.Value}";
+            Check(pf.Count == 0, "every drawn refuge pair passes every check on the drawn geometry (MeasureRefuges/RefugeFails/PairFails)", pf.Count + pfAt);
+            Line($"  RELAY + SHIFT CENSUS (every edge outside the refuge chains whose eases differ from live): {relayN} edges; ON steeper than max(0.06, OFF + 0.005) on {relayWorse} ({relayLoose} of them near no drawn pair){(relayWorse > 0 ? $"; worst {relayWorst:0.000} at {relayAt}" : "")}");
+            Check(relayWorse == 0, "relay / common-mode shift census: no edge's lane line, edge or path steeper than live (or 0.06)", relayWorse);
+
+            // round 3/4 checks on the drawn pairs
             string wedge = NoseWedges(map, tOn, refs, out float wedgeMax, out int wedgeBad, out int wedgeMet, out int wedgeFan);
             string heading = Headings(map, refs, out float headOn, out float headOsm, out int headN);
             string diag = DiagPairs(map, refs);
             CityMeshes.EnsureMarks(map, tOn);
-            string hatchDump = HatchDump(map, new HashSet<int> { 10229, 10230, 10231, 10232, 10236, 10238 });
-            string bendDump = BendCells(map, new[] { 14094, 20695 });
-            string timing = PavedTiming(map);
             var ms = CityMeshes.MarkStats;
             int noseOn = ms.noseArrows, noseSkip = ms.noseSkipped, groupsOn = ms.groups;
-            string hatch = $"{ms.noseHatches} nose approaches hatched ({ms.noseHatchBars} bars, at least {CityMeshes.HatchMinBars} each; {ms.noseSolid} bounding lines that render solid, {ms.noseSolidFallback} that would fall back to the dashed line; {ms.noseWhiteOnly} on a texture with no solid yellow), {ms.noseFlushTip} noses with a centre lane that could not be hatched (it moves, or under {CityMeshes.HatchMinBars} bars: the island kerb is kept back {CityMeshes.KerbFlushTipM:0} m from those tips - a flush tip), {ms.noseNoCentre} plain noses with no centre lane";
+            int flushTipKerbed = 0, flushTipFlush = 0;
+            foreach (int n in CityMeshes.NoseFlushTip)
+            {
+                LineModel.Refuge rr = null;
+                foreach (var r in refs) if (r.node == n || r.far == n) { rr = r; break; }
+                if (rr != null && rr.half > 0f) flushTipKerbed++; else flushTipFlush++;
+            }
+            string hatchDump = HatchDump(map, new HashSet<int> { 10229, 10230, 10231, 10232, 10236, 10238 });
+            string bendDump = BendCells(map, new[] { 14094, 20695 });
+            var noseYs = new HashSet<long>(ms.noseYs);
+            string hatch = $"{ms.noseHatches} refuge noses hatched ({ms.noseHatchBars} bars, at least {CityMeshes.HatchMinBars} each; {ms.noseSolid} bounding lines forced solid, {noseYs.Count} of them yellow); {ms.noseFlushTip} refuge noses with a centre lane that could not be hatched ({flushTipKerbed} on kerbed islands: the kerb kept back {CityMeshes.KerbFlushTipM:0} m from the tip; {flushTipFlush} on flush painted medians: no kerb at all); {ms.noseNoCentre} refuge noses with no centre lane; {ms.noseNonRefuge} plain noses of no drawn refuge pair left as live (no hatch, no flush tip, live's kerb)";
+            // render-time counts (review r4 #7): build the tiles under every drawn pair
+            var tiles = new HashSet<long>();
+            foreach (var r in refs)
+                foreach (int n in new[] { r.node, r.far })
+                {
+                    var p = map.nodes[n];
+                    for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
+                        tiles.Add(TileKey(Mathf.FloorToInt((p.x + dx * 40f) / CityMeshes.TileSize), Mathf.FloorToInt((p.y + dz * 40f) / CityMeshes.TileSize)));
+                }
+            CityMeshes.YsDrawnKeys = new HashSet<long>(); CityMeshes.YsFallbackKeys = new HashSet<long>();
+            CityMeshes.KerbFanEnds = 0; CityMeshes.KerbFanEndMaxH = 0f;
+            var noBld = new Dictionary<long, List<CityBuildings.B>>();
+            sw.Restart();
+            foreach (long k in tiles)
+            {
+                var tm = CityMeshes.Build(map, tOn, noBld, (int)(k >> 32), (int)(uint)k);
+                foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.banks, tm.buildings })
+                    if (m != null) Object.DestroyImmediate(m);
+            }
+            float tileMs = (float)sw.Elapsed.TotalMilliseconds;
+            int ysOk = 0, ysMissing = 0, ysFell = 0;
+            foreach (long key in noseYs)
+            {
+                bool d = CityMeshes.YsDrawnKeys.Contains(key), f = CityMeshes.YsFallbackKeys.Contains(key);
+                if (f) ysFell++; else if (d) ysOk++; else ysMissing++;
+            }
+            int ysDrawnSpans = CityMeshes.MarkStats.ysDrawn, ysFallbackSpans = CityMeshes.MarkStats.ysFallback;
+            CityMeshes.YsDrawnKeys = null; CityMeshes.YsFallbackKeys = null;
+            Line($"  RENDER-TIME HATCH LINES ({tiles.Count} tiles built, {tileMs / 1000f:0.0} s): of {noseYs.Count} nose lines forced solid yellow, {ysOk} rendered solid, {ysFell} fell back to the layout's line, {ysMissing} not met in the tiles; spans: ysDrawn {ysDrawnSpans}, ysFallback {ysFallbackSpans}");
+            Check(ysFell == 0 && ysFallbackSpans == 0 && ysMissing == 0, "every forced-solid yellow nose line renders solid (counted at render)", ysFell + ysMissing);
+            Line($"  KERB FAN ENDS (a junction fan trims a kerbed carriageway past its island tip): {CityMeshes.KerbFanEnds} end spans; highest kerb top at a drawn end {CityMeshes.KerbFanEndMaxH * 100f:0.0} cm (goal 0: it ramps up over {CityMeshes.KerbEndRampM} m)");
+            Check(CityMeshes.KerbFanEndMaxH <= 0.01f, "no fan end leaves a kerb face standing at the drawn end", $"{CityMeshes.KerbFanEndMaxH:0.000} m");
             string cells = CityMeshes.MedianCellCensus(map);
+            string timing = PavedTiming(map);
+
+            // reverted pairs: their edges must draw exactly as live
+            var revs = new StringBuilder(); int nRev = 0, revDiff = 0;
+            var accEdges = new HashSet<int>();
+            foreach (var r in refs) { foreach (int ei in r.chain) accEdges.Add(ei); foreach (int ei in r.uEdges) accEdges.Add(ei); }
+            foreach (var c in cands)
+            {
+                if (decided.ContainsKey(c.pk)) continue;
+                nRev++;
+                var es = new List<int>(c.ca); es.AddRange(c.cb); es.Add(c.u1); es.Add(c.u2);
+                string d = "";
+                foreach (int ei in es) if (!EasesSame(map.edges[ei].lmEase, offEase[ei])) d += $" e{ei}{(accEdges.Contains(ei) ? "(a drawn pair's)" : "")}";
+                if (d.Length > 0) revDiff++;
+                var p = map.nodes[c.n1];
+                revs.Append($"\n    n{c.n1}-n{c.n2} e{c.e1}/e{c.e2} '{map.edges[c.e1].name}' ({LatLon(p.x, p.y)}; x {p.x:0} z {p.y:0}): {(d.Length == 0 ? "unchanged from live" : "eases differ from live on" + d)}; needs lane-add modelling. Failed: {(why.TryGetValue(c.pk, out var w) ? w : "?")}");
+            }
+            Line($"REVERTED PAIRS (drawn as live): {nRev}{revs}");
+            Check(revDiff == 0, "every reverted pair's chain and undivided edges draw exactly as live", revDiff);
+            var accs = new StringBuilder();
+            foreach (var c in cands)
+            {
+                if (!decided.TryGetValue(c.pk, out byte md)) continue;
+                LineModel.Refuge r = null;
+                foreach (var q in refs) if (q.pk == c.pk) { r = q; break; }
+                var p = map.nodes[c.n1];
+                accs.Append($"\n    n{c.n1}-n{c.n2} '{map.edges[c.e1].name}' ({LatLon(p.x, p.y)}): {(r == null ? "?" : r.half <= 0f ? "flush painted median" : r.move > 0f ? $"4-lane island wI {2f * r.half:0.00}" : $"island wI {2f * r.half:0.00}")}{(md == LineModel.RefugeModeFlush ? " (forced flush; the island failed: " + (why.TryGetValue(c.pk, out var w) ? w : "?") + ")" : "")}");
+            }
+            Line($"ACCEPTED PAIRS: {decided.Count}{accs}");
+
+            // OFF -> ON on the accepted pairs (OFF: live, measured in the same frames)
             LineModel.RefugeOn = false;
-            var tOff = CityMeshes.ComputeTrims(map);
+            var tOff2 = CityMeshes.ComputeTrims(map);
             var mOff = LineModel.MeasureRefuges(map, refs, out float stepOff, out int linesOff, out string worstOff);
-            CityMeshes.EnsureMarks(map, tOff);
-            int noseOff = CityMeshes.MarkStats.noseArrows, groupsOff = CityMeshes.MarkStats.groups;
-            LineModel.RefugeOn = refWas;
+            LineModel.RefugeOn = refWas; LineModel.RefugeOverride = null;
 
             string Q(List<float> v)
             {
@@ -76,22 +205,29 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < m.Count; i++) if (keep(i)) l.Add(f(m[i]));
                 return l;
             }
-            bool Prof(int i) => refs[i].profiled;
-            bool Centre(int i) => refs[i].profiled && refs[i].move <= 0f;
-            bool Four(int i) => refs[i].profiled && refs[i].move > 0f;
-            int nCentre = 0, nFour = 0;
-            for (int i = 0; i < refs.Count; i++) { if (Centre(i)) nCentre++; if (Four(i)) nFour++; }
-            Line($"REFUGE ISLANDS round 4 (PSX_CITY_REFUGE): {refs.Count / 2} pairs, {refs.Count} carriageways; {profiled} drawn by the island profile ({nCentre} beside a centre lane, {nFour} 4-lane with the lanes moved out), {fallback} pairs left on round 1's cap; {flushN / 2} profiled pairs with no room for a kerbed island drawn straight with a flush painted median; {capped} split-node tapers replaced");
-            Line($"  outer edge off the undivided road's edge line, centre-lane carriageways: OFF {Q(Col(mOff, m => m.outerDev, Centre))}; ON {Q(Col(mOn, m => m.outerDev, Centre))}");
-            Line($"  outer edge's move out (4-lane carriageways): OFF {Q(Col(mOff, m => m.outerDev, Four))}; ON {Q(Col(mOn, m => m.outerDev, Four))}");
-            Line($"  lane line move against that edge line, centre-lane: OFF {Q(Col(mOff, m => m.lineMove, Centre))}; ON {Q(Col(mOn, m => m.lineMove, Centre))}");
-            Line($"  lane line move, 4-lane: OFF {Q(Col(mOff, m => m.lineMove, Four))}; ON {Q(Col(mOn, m => m.lineMove, Four))}");
-            Line($"  traffic path move: OFF {Q(Col(mOff, m => m.pathMove, Prof))}; ON {Q(Col(mOn, m => m.pathMove, Prof))}");
-            Line($"  largest lateral slope of a lane edge / line / traffic path: OFF {Q(Col(mOff, m => m.slope, Prof))}; ON {Q(Col(mOn, m => m.slope, Prof))}");
-            Line($"  island at mid minus design wI: ON {Q(Col(mOn, m => m.islandErr, Prof))}; island at mid OFF {Q(Col(mOff, m => m.island, Prof))}, ON {Q(Col(mOn, m => m.island, Prof))}, design wI {Q(Col(mOn, m => m.wI, Prof))}");
-            Line($"  island narrowing from a nose toward mid (m): ON {Q(Col(mOn, m => m.nonMono, Prof))}; widest island before the tip: ON {Q(Col(mOn, m => m.noseW, Prof))}");
-            Line($"  largest step in a drawn edge at a chain joint or its split node: OFF {stepOff:0.000} m ({worstOff}), ON {stepOn:0.000} m ({worstOn})");
+            bool All(int i) => true;
+            bool Centre(int i) => refs[i].move <= 0f && refs[i].half > 0f;
+            bool Four(int i) => refs[i].move > 0f;
+            bool Kerbed(int i) => refs[i].half > 0f;
+            bool Flush(int i) => refs[i].half <= 0f;
+            int nCentre = 0, nFour = 0, nFlush = 0;
+            for (int i = 0; i < refs.Count; i++) { if (Centre(i)) nCentre++; if (Four(i)) nFour++; if (Flush(i)) nFlush++; }
+            Line($"OFF -> ON ON THE ACCEPTED PAIRS ({refs.Count / 2} pairs, {refs.Count} carriageways: {nCentre} beside a centre lane, {nFour} 4-lane with the lanes moved out, {nFlush} flush painted median; p10/p50/p90):");
+            Line($"  outer edge off the undivided road's edge line, centre-lane: OFF {Q(Col(mOff, m => m.outerDev, Centre))}; ON {Q(Col(mOn, m => m.outerDev, Centre))} (goal 0.05)");
+            Line($"  outer edge's move, 4-lane: OFF {Q(Col(mOff, m => m.outerDev, Four))}; ON {Q(Col(mOn, m => m.outerDev, Four))} (goal 1.3)");
+            Line($"  lane line move against the lanes' straight chord, centre-lane: OFF {Q(Col(mOff, m => m.lineMove, Centre))}; ON {Q(Col(mOn, m => m.lineMove, Centre))} (goal 0.02)");
+            Line($"  TOTAL lane line move against the undivided road's edge line (planned 4-lane move included), all: OFF {Q(Col(mOff, m => m.lineMoveO, All))}; ON {Q(Col(mOn, m => m.lineMoveO, All))} (goal 1.3)");
+            Line($"  TOTAL traffic path move against that edge line, all: OFF {Q(Col(mOff, m => m.pathMoveO, All))}; ON {Q(Col(mOn, m => m.pathMoveO, All))} (goal 1.3)");
+            Line($"  largest lateral slope of a lane edge / line / path on the chain: OFF {Q(Col(mOff, m => m.slope, All))}; ON {Q(Col(mOn, m => m.slope, All))} (goal 0.06)");
+            Line($"  largest slope on the undivided edges a common-mode shift reaches (strict, drawn): OFF {Q(Col(mOff, m => m.uSlope, All))}; ON {Q(Col(mOn, m => m.uSlope, All))} (goal 0.06)");
+            Line($"  island at mid minus design wI, kerbed: ON {Q(Col(mOn, m => m.islandErr, Kerbed))} (goal 0.1); island at mid OFF {Q(Col(mOff, m => m.island, Kerbed))}, ON {Q(Col(mOn, m => m.island, Kerbed))}");
+            Line($"  island narrowing toward mid: ON {Q(Col(mOn, m => m.nonMono, Kerbed))}; widest before the tip: ON {Q(Col(mOn, m => m.noseW, Kerbed))}");
+            Line($"  inner edge to inner edge between the tips, least (raw, below 0 = overlap): OFF {Q(Col(mOff, m => m.overlap, All))}; ON {Q(Col(mOn, m => m.overlap, All))} (goal >= -0.01); in the {LineModel.RefugeTipM} m tip zones (pavements joining the undivided road's): ON {Q(Col(mOn, m => m.overlapTip, All))}");
+            Line($"  kerbed islands: inner edge's least distance from the axis (below 0 = across it): ON {Q(Col(mOn, m => m.innerMin, Kerbed))} (goal >= -0.01)");
+            Line($"  largest step in a drawn edge at a chain joint or its split node: OFF {stepOff:0.000} m ({worstOff}), ON {stepOn:0.000} m ({worstOn}) (goal < 0.3)");
             Line($"  lane lines on the chain edges at their mids: OFF {linesOff}, ON {linesOn}");
+            Check(stepOn < 0.3f, "no 0.3 m step on a drawn refuge carriageway", $"{stepOn:0.000}");
+            Check(linesOn == linesOff, "no lane line lost on a drawn refuge carriageway", $"{linesOn} vs {linesOff}");
             var spots = new HashSet<int> { 10229, 10234, 10230, 10233, 10231, 10232, 10236, 10238, 13570, 13571 };
             for (int i = 0; i < refs.Count; i++)
             {
@@ -99,69 +235,196 @@ namespace PSXRacing.EditorTools
                 if (!spots.Contains(r.node)) continue;
                 var p = map.nodes[r.node];
                 var a = mOff[i]; var b = mOn[i];
-                Line($"  n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' Lc {r.lc:0.0} ({LatLon(p.x, p.y)}) {(r.profiled ? (r.move > 0f ? $"4-lane move {r.move:0.00} over {r.moveLen:0} m" : "centre lane") : "FALLBACK")}: OSM island {r.osmIsland:0.00}, wI {2f * r.half:0.00}, nose {r.x0s:0.0}/{r.x0e:0.0}+{r.ln:0.0} m r {r.rn:0.00}" +
-                     $" | OFF island {a.island:0.00} outer {a.outerDev:0.00} lines {a.lineMove:0.00} slope {a.slope:0.000} | ON island {b.island:0.00} outer {b.outerDev:0.000} lines {b.lineMove:0.000} path {b.pathMove:0.000} slope {b.slope:0.000}");
+                Line($"  n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' Lc {r.lc:0.0} ({LatLon(p.x, p.y)}) {(r.half <= 0f ? "flush" : r.move > 0f ? $"4-lane move {r.move:0.00} over {r.moveLen:0} m" : "centre lane")}: wI {2f * r.half:0.00}" +
+                     $" | OFF island {a.island:0.00} outer {a.outerDev:0.00} lines {a.lineMoveO:0.00} slope {a.slope:0.000} | ON island {b.island:0.00} outer {b.outerDev:0.000} lines {b.lineMove:0.000}/{b.lineMoveO:0.000} path {b.pathMoveO:0.000} slope {b.slope:0.000}");
             }
-            int badOuter = 0, badLine = 0, badSlope = 0, badIsl = 0, badMono = 0, badNose = 0, badFour = 0, badShared = 0; string badAt = "";
-            float worstSlope = 0f; string worstSlopeAt = "-";
-            void Bad(ref int n, int i, string what) { n++; if (badAt.Length < 2500) badAt += $" n{refs[i].node}/e{refs[i].edge} {what};"; }
-            for (int i = 0; i < refs.Count; i++)
-            {
-                if (!refs[i].profiled) continue;
-                var m = mOn[i];
-                if (Centre(i) && m.outerDev > 0.05f) Bad(ref badOuter, i, $"outer {m.outerDev:0.000}");
-                if (Centre(i) && m.lineMove > 0.02f) Bad(ref badLine, i, $"line {m.lineMove:0.000}");
-                if (Four(i) && (m.lineMove > 1.31f || refs[i].moveLen < 20f - 1e-3f)) Bad(ref badFour, i, $"4-lane move {m.lineMove:0.00} over {refs[i].moveLen:0.0}");
-                // round 4: no exemption - every profiled carriageway (review r3)
-                if (m.slope > worstSlope) { worstSlope = m.slope; worstSlopeAt = $"n{refs[i].node}/e{refs[i].edge} {m.slopeAt}"; }
-                if (m.slope > 0.06f) Bad(ref badSlope, i, $"slope {m.slope:0.000} at {m.slopeAt} (edge line {refs[i].o1:0.00}->{refs[i].o2:0.00} over {refs[i].axLen:0} m, move {refs[i].move:0.00} over {refs[i].moveLen:0})");
-                if (Mathf.Abs(m.islandErr) > 0.1f) Bad(ref badIsl, i, $"island {m.island:0.00} vs {m.wI:0.00}");
-                if (m.nonMono > 0.02f) Bad(ref badMono, i, $"narrows {m.nonMono:0.000}");
-                if (m.noseW > 0.05f) Bad(ref badNose, i, $"nose {m.noseW:0.00}");
-                // the builder's self-check calls the same function: it must agree
-                if ((LineModel.RefugeFails(refs[i], m).Length > 0) != (refs[i].check.Length > 0)) badShared++;
-            }
-            Check(badOuter == 0, "centre-lane islands: outer edge within 0.05 m of the undivided road's edge line", badOuter);
-            Check(badLine == 0, "centre-lane islands: no lane line moves over 0.02 m against the lanes' straight reference", badLine);
-            Check(badFour == 0, "4-lane islands: lanes move at most 1.3 m, eased over 20 m or more", badFour);
-            Check(badSlope == 0, $"no lane edge, line or traffic path slopes over 0.06 on any profiled carriageway (worst {worstSlope:0.000} at {worstSlopeAt})", badSlope);
-            Check(badShared == 0, "the builder's self-check and this gate agree on every carriageway (one measurement)", badShared);
-            Line($"  SELF-CHECK (LineModel.VerifyRefuges, the gate's own measurement): {selfFlush} pairs rebuilt flush, {selfFail} pairs still failing; {checkMs:0.0} ms at load");
-            Check(fallback == 0, "no refuge pair left on round 1's cap", fallback);
-            Check(badIsl == 0, "island at mid within 0.1 m of its design width", badIsl);
-            Check(badMono == 0, "island never narrows from a nose toward mid", badMono);
-            Check(badNose == 0, "no island before its tip (nose width 0 there)", badNose);
-            if (badAt.Length > 0) Line("  failing carriageways:" + badAt);
-            int worse = 0; string worseAt = "";
-            for (int i = 0; i < refs.Count; i++)
-                if (mOn[i].step > Mathf.Max(0.3f, mOff[i].step + 0.01f)) { worse++; if (worseAt.Length < 300) worseAt += $" n{refs[i].node}/e{refs[i].edge} {mOff[i].step:0.00}->{mOn[i].step:0.00};"; }
-            Check(worse == 0, "no refuge carriageway steps 0.3 m or more (and more than OFF) at a joint or its split node", worse + worseAt);
-            Check(linesOn == linesOff, "no lane line lost on a refuge carriageway", $"{linesOn} vs {linesOff}");
-            Line($"ARROWS INTO A NOSE: turn-only arrow groups painted into a plain split's nose OFF {noseOff}, ON {noseOn} ({noseSkip} lanes skipped); all arrow groups OFF {groupsOff}, ON {groupsOn}");
+            Line($"ARROWS INTO A NOSE (every plain split nose, round 1's TurnMarks rule - city-wide, not per pair): turn-only arrow groups painted into a plain split's nose OFF {noseOff}, ON {noseOn} ({noseSkip} lanes skipped); all arrow groups OFF {groupsOff}, ON {groupsOn}");
             Check(noseOn == 0, "no turn arrow painted into a plain split nose", noseOn);
             Line($"NOSE APPROACHES: {hatch}");
             Line(cells);
             Line(bendDump);
-            // round 3
-            Line($"NOSE WEDGES (one section normal at a profiled split node): {wedgeMet} carriageway ends meet the undivided road's end at the node, {wedgeFan} meet a fan; largest corner off the undivided road's cut {wedgeMax:0.000} m{wedge}");
-            Check(wedgeBad == 0, "no wedge (over 0.02 m) between a profiled carriageway and the undivided road at its nose", wedgeBad);
-            Line($"TRAFFIC HEADING on refuge carriageways ({headN} samples): heading vs the lane path's own direction, max {headOn:0.00} deg (OSM tangent, round 2: max {headOsm:0.00} deg){heading}");
+            Line($"NOSE WEDGES (one section normal at a drawn split node): {wedgeMet} carriageway ends meet the undivided road's end at the node, {wedgeFan} meet a fan; largest corner off the undivided road's cut {wedgeMax:0.000} m{wedge}");
+            Check(wedgeBad == 0, "no wedge (over 0.02 m) between a drawn refuge carriageway and the undivided road at its nose", wedgeBad);
+            Line($"TRAFFIC HEADING on refuge carriageways ({headN} samples): heading vs the lane path's own direction, max {headOn:0.00} deg (OSM tangent: max {headOsm:0.00} deg){heading}");
             Check(headOn <= 2f, "traffic heading within 2 degrees of the path on refuge carriageways", $"{headOn:0.00} deg");
             Line(timing);
-            var fbs = new StringBuilder(); int nFb = 0;
-            for (int i = 0; i + 1 < refs.Count; i += 2)
-            {
-                var r = refs[i];
-                if (r.profiled) continue;
-                nFb++;
-                var p = map.nodes[r.node];
-                fbs.Append($"\n    n{r.node}->n{r.far} e{r.edge}/e{refs[i + 1].edge} '{map.edges[r.edge].name}' Lc {r.lc:0} ({LatLon(p.x, p.y)}; x {p.x:0} z {p.y:0}) OSM island {r.osmIsland:0.00}: {r.why}");
-            }
-            Line($"FALLBACK PAIRS (not drawn by the profile): {nFb}{fbs}");
-            Line(RoundFour(map, refs, mOn, seps));
+            Line($"SEPARATED MEDIANS found (real, not islands: drawn as live): {seps.Count / 2}");
             Line(hatchDump);
             if (diag.Length > 0) Line(diag);
+            Line($"(gate {clock.Elapsed.TotalSeconds:0} s)");
             FinishTo("city_medians.txt");
+        }
+
+        static int Count(Dictionary<long, byte> d, byte v) { int n = 0; foreach (var x in d.Values) if (x == v) n++; return n; }
+
+        static string PairName(CityMap map, List<LineModel.RefugeCand> cands, long pk)
+        {
+            foreach (var c in cands) if (c.pk == pk) return $"n{c.n1}-n{c.n2} '{map.edges[c.e1].name}'";
+            return $"pair {pk}";
+        }
+
+        /// <summary>FNV-1a 64 of charlotte_city.bytes (the export the list is for).</summary>
+        static string CityHash()
+        {
+            var ta = CharlotteData.Load("charlotte_city");
+            if (ta == null) return "missing";
+            ulong h = 14695981039346656037UL;
+            foreach (byte b in ta.bytes) { h ^= b; h *= 1099511628211UL; }
+            return h.ToString("x16");
+        }
+
+        static string RefugeListSource(CityMap map, Dictionary<long, byte> decided, List<LineModel.RefugeCand> cands, string hash)
+        {
+            var sb = new StringBuilder();
+            sb.Append("// GENERATED by PSXRacing.EditorTools.CityAudit.RunMedianGates (medians round 5) - do not edit by hand.\r\n");
+            sb.Append("// The refuge pairs that passed every medians gate on the drawn geometry; any\r\n");
+            sb.Append("// pair not listed (or whose fingerprint no longer matches) is drawn as live.\r\n");
+            sb.Append("namespace PSXRacing.City\r\n{\r\n    public static partial class LineModel\r\n    {\r\n");
+            sb.Append($"        const int RefugeListEdges = {map.edges.Length}, RefugeListNodes = {map.nodes.Length};\r\n");
+            sb.Append("        /// <summary>FNV-1a 64 of charlotte_city.bytes the list was decided on (the gate checks it).</summary>\r\n");
+            sb.Append($"        public const string RefugeListCity = \"{hash}\";\r\n");
+            sb.Append("        /// <summary>Triples: pair key (RefugePairKey), fingerprint, mode (1 auto, 2 flush).</summary>\r\n");
+            sb.Append("        static readonly long[] RefugeListData = {\r\n");
+            foreach (var c in cands)
+                if (decided.TryGetValue(c.pk, out byte md))
+                    sb.Append($"            {c.pk}L, {c.fp}L, {md},   // n{c.n1}-n{c.n2} {map.edges[c.e1].name.Replace("\\", "").Replace("\n", " ")}\r\n");
+            sb.Append("        };\r\n    }\r\n}\r\n");
+            return sb.ToString();
+        }
+
+        /// <summary>The decision: every pair drawn (the profile's own choice),
+        /// measured; each failing pair tried once forced flush (if it was an
+        /// island), then reverted; repeated until nothing fails. noneDiff: with
+        /// no pair listed, the edges whose eases differ from live.</summary>
+        static Dictionary<long, byte> DecideRefuges(CityMap map, LineModel.Ease[][] offEase, Dictionary<long, string> why, out int iters,
+                                                    out List<LineModel.RefugeCand> cands, out int noneDiff, out string log)
+        {
+            var sb = new StringBuilder();
+            LineModel.RefugeOverride = new Dictionary<long, byte>();
+            CityMeshes.ComputeTrims(map);
+            cands = new List<LineModel.RefugeCand>(LineModel.RefugeCandidates);
+            noneDiff = 0;
+            for (int i = 0; i < map.edges.Length; i++) if (!EasesSame(map.edges[i].lmEase, offEase[i])) noneDiff++;
+            var mode = new Dictionary<long, byte>();
+            foreach (var c in cands) mode[c.pk] = LineModel.RefugeModeAuto;
+            iters = 0;
+            for (; iters < 20; iters++)
+            {
+                LineModel.RefugeOverride = new Dictionary<long, byte>(mode);
+                CityMeshes.ComputeTrims(map);
+                var bad = new Dictionary<long, string>();
+                foreach (var r in LineModel.RefugeNotDrawn) bad[r.pk] = r.separated ? $"a real separated median, not an island ({r.why})" : $"no island frame ({r.why})";
+                var refs = new List<LineModel.Refuge>(LineModel.Refuges);
+                var m = LineModel.MeasureRefuges(map, refs, out _, out _, out _);
+                var pfs = PairFails(map, refs, m, offEase, out _, out _, out int loose, out _, out _);
+                foreach (var kv in pfs) bad[kv.Key] = kv.Value;
+                int toFlush = 0, toLive = 0;
+                foreach (var kv in bad)
+                {
+                    bool island = false;
+                    foreach (var r in refs) if (r.pk == kv.Key && r.half > 0f) island = true;
+                    if (mode.TryGetValue(kv.Key, out byte md) && md == LineModel.RefugeModeAuto && island) { mode[kv.Key] = LineModel.RefugeModeFlush; why[kv.Key] = "island:" + kv.Value; toFlush++; }
+                    else { mode.Remove(kv.Key); why[kv.Key] = (why.TryGetValue(kv.Key, out var w0) ? w0 + " | flush:" : "") + kv.Value; toLive++; }
+                }
+                sb.Append($"  decision build {iters + 1}: {refs.Count / 2} pairs drawn, {bad.Count} failing ({toFlush} islands -> flush, {toLive} -> live){(loose > 0 ? $", {loose} census edges near no drawn pair" : "")}\n");
+                if (bad.Count == 0) break;
+            }
+            log = sb.ToString().TrimEnd('\n');
+            return mode;
+        }
+
+        /// <summary>Per drawn pair (key -> what fails): both carriageways'
+        /// RefugeFails, a 0.3 m step, a lane line lost against live; and the
+        /// RELAY + SHIFT CENSUS - every edge outside the refuge chains whose
+        /// eases differ from live, measured ON and live (EdgeSlope): steeper
+        /// than max(0.06, live + 0.005) fails each drawn pair at whose split
+        /// node it ends or whose common-mode shift it carries (loose: none).</summary>
+        static Dictionary<long, string> PairFails(CityMap map, List<LineModel.Refuge> refs, List<LineModel.RefugeM> m, LineModel.Ease[][] offEase,
+                                                  out int censusN, out int worse, out int loose, out float worst, out string worstAt)
+        {
+            var res = new Dictionary<long, string>();
+            void Add(long pk, string f) { res[pk] = res.TryGetValue(pk, out var o) ? o + f : f; }
+            var la = new List<LineModel.LineAt>(16);
+            var chainSet = new HashSet<int>();
+            for (int i = 0; i + 1 < refs.Count; i += 2)
+            {
+                var r0 = refs[i]; var r1 = refs[i + 1];
+                foreach (int ei in r0.chain) chainSet.Add(ei);
+                foreach (int ei in r1.chain) chainSet.Add(ei);
+                string f = LineModel.RefugeFails(r0, m[i]) + LineModel.RefugeFails(r1, m[i + 1]);
+                float st = Mathf.Max(m[i].step, m[i + 1].step);
+                if (st >= 0.3f) f += $" step {st:0.00};";
+                int on = 0, off = 0;
+                foreach (var r in new[] { r0, r1 })
+                    foreach (int ei in r.chain)
+                    {
+                        var e = map.edges[ei];
+                        LineModel.LinesAt(e, 0.5f * e.length, la); on += la.Count;
+                        var keep = e.lmEase; e.lmEase = offEase[ei];
+                        LineModel.LinesAt(e, 0.5f * e.length, la); off += la.Count;
+                        e.lmEase = keep;
+                    }
+                if (on < off) f += $" lane lines {on} vs live {off};";
+                if (f.Length > 0) Add(r0.pk, f);
+            }
+            censusN = 0; worse = 0; loose = 0; worst = 0f; worstAt = "";
+            for (int i = 0; i < map.edges.Length; i++)
+            {
+                var e = map.edges[i];
+                if (chainSet.Contains(i) || EasesSame(e.lmEase, offEase[i])) continue;
+                censusN++;
+                float sOn = LineModel.EdgeSlope(e, out string atOn);
+                var keep = e.lmEase; e.lmEase = offEase[i];
+                float sOff = LineModel.EdgeSlope(e, out _);
+                e.lmEase = keep;
+                if (sOn <= Mathf.Max(0.06f, sOff + 0.005f)) continue;
+                worse++;
+                if (sOn > worst) { worst = sOn; worstAt = $"{atOn} '{e.name}' (live {sOff:0.000})"; }
+                bool hit = false;
+                for (int j = 0; j + 1 < refs.Count; j += 2)
+                {
+                    var r = refs[j];
+                    bool near = r.node == e.a || r.node == e.b || r.far == e.a || r.far == e.b || System.Array.IndexOf(r.uEdges, i) >= 0;
+                    if (!near) continue;
+                    hit = true;
+                    Add(r.pk, $" census e{i} '{e.name}' {sOff:0.000}->{sOn:0.000} ({atOn});");
+                }
+                if (!hit) loose++;
+            }
+            return res;
+        }
+
+        static string EaseDump(LineModel.Ease[] a)
+        {
+            if (a == null) return "null";
+            var sb = new StringBuilder($"[{a.Length}]");
+            foreach (var z in a) sb.Append($" (sh{(z.shift ? 1 : 0)} rl{(z.relay ? 1 : 0)} ax{(z.aux ? 1 : 0)} co{(z.centreOnly ? 1 : 0)} s{z.side} dw{z.dw:0.000} len{z.len:0.00} d0{z.d0:0.0} tag{z.tag} p{(z.partner == null ? -1 : z.partner.Length)})");
+            return sb.ToString();
+        }
+
+        static bool Same(float[] a, float[] b)
+        {
+            if (a == b) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i] && !(float.IsNaN(a[i]) && float.IsNaN(b[i]))) return false;
+            return true;
+        }
+
+        /// <summary>Two eases arrays draw the same (every scalar field and sampled profile equal).</summary>
+        static bool EasesSame(LineModel.Ease[] a, LineModel.Ease[] b)
+        {
+            int na = a?.Length ?? 0, nb = b?.Length ?? 0;
+            if (na != nb) return false;
+            for (int i = 0; i < na; i++)
+            {
+                var x = a[i]; var y = b[i];
+                if (x.side != y.side || x.fromA != y.fromA || x.narrowFlip != y.narrowFlip || x.shift != y.shift || x.relay != y.relay || x.dw != y.dw || x.len != y.len ||
+                    x.d0 != y.d0 || x.span != y.span || x.dwOther != y.dwOther || x.twoRole != y.twoRole || x.narrow != y.narrow || x.tag != y.tag || x.centreOnly != y.centreOnly ||
+                    x.aux != y.aux || x.auxArm != y.auxArm || x.auxD != y.auxD || x.auxWN != y.auxWN || x.auxW != y.auxW || x.auxLs != y.auxLs || x.auxXF != y.auxXF ||
+                    x.auxLt != y.auxLt || x.auxZone != y.auxZone || x.profD0 != y.profD0 || x.profDs != y.profDs || x.widen != y.widen ||
+                    !Same(x.partner, y.partner) || !Same(x.prof, y.prof)) return false;
+            }
+            return true;
         }
 
         /// <summary>Round 3: at every profiled pair's two split nodes, each
@@ -336,56 +599,6 @@ namespace PSXRacing.EditorTools
             }
             CityMeshes.MedianGrassOn = was;
             sb.Append($" mean {tot0 / tiles:0.00}/{tot1 / tiles:0.00}/{tot2 / tiles:0.00} - added per tile cold {(tot1 - tot0) / tiles:+0.00;-0.00} ms, warm {(tot2 - tot0) / tiles:+0.00;-0.00} ms");
-            return sb.ToString();
-        }
-
-        /// <summary>Round 4: the common-mode shifts put on undivided roads,
-        /// the real separated medians and their slopes, and the 13 pairs
-        /// round 3 left on round 1's cap.</summary>
-        static string RoundFour(CityMap map, List<LineModel.Refuge> refs, List<LineModel.RefugeM> mOn, List<LineModel.Refuge> seps)
-        {
-            var sb = new StringBuilder();
-            int nU = 0; var su = new StringBuilder();
-            for (int i = 0; i + 1 < refs.Count; i += 2)
-            {
-                var r = refs[i];
-                if (Mathf.Abs(r.uShift1) < 0.01f && Mathf.Abs(r.uShift2) < 0.01f) continue;
-                nU++;
-                // the slope the shift gives the undivided road: smoothstep over the length given (room-capped)
-                float g1 = Mathf.Min(r.uLen1, r.uRoom1), g2 = Mathf.Min(r.uLen2, r.uRoom2);
-                float s1 = Mathf.Abs(r.uShift1) > 0.01f ? 1.5f * Mathf.Abs(r.uShift1) / Mathf.Max(0.5f, g1) : 0f, s2 = Mathf.Abs(r.uShift2) > 0.01f ? 1.5f * Mathf.Abs(r.uShift2) / Mathf.Max(0.5f, g2) : 0f;
-                su.Append($"\n    n{r.node}->n{r.far} '{map.edges[r.edge].name}': U1 shift {r.uShift1:0.00} m over {g1:0} m (asked {r.uLen1:0}, slope {s1:0.000}), U2 shift {r.uShift2:0.00} m over {g2:0} m (asked {r.uLen2:0}, slope {s2:0.000})");
-            }
-            sb.Append($"COMMON-MODE SHIFTS on the undivided roads (round 4: the sideways part of an edge-line change, so the island keeps under the slope): {nU} pairs{su}");
-            sb.Append($"\nSEPARATED MEDIANS (real, not islands: own lines, the split's ordinary tapers): {seps.Count / 2} pairs");
-            foreach (var r in seps)
-            {
-                float worst = 0f;
-                foreach (int ei in r.chain)
-                {
-                    var e = map.edges[ei];
-                    LineModel.Extents(e, 0f, out float pm, out float pp);
-                    for (float s = 0.5f; s <= e.length + 1e-3f; s += 0.5f)
-                    {
-                        LineModel.Extents(e, s, out float em, out float ep);
-                        worst = Mathf.Max(worst, Mathf.Max(Mathf.Abs(ep - pp), Mathf.Abs(em - pm)) / 0.5f);
-                        pm = em; pp = ep;
-                    }
-                }
-                var p = map.nodes[r.node];
-                sb.Append($"\n    n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' ({LatLon(p.x, p.y)}) OSM island {r.osmIsland:0.0} m: largest lateral slope of a drawn edge off its own line {worst:0.000}");
-            }
-            var former = new HashSet<int> { 2225, 2228, 6098, 7198, 7969, 9660, 11419, 13199, 14285, 15853, 16463, 16685, 17325 };
-            sb.Append("\nROUND 3's 13 CAPPED PAIRS, now:");
-            for (int i = 0; i < refs.Count; i++)
-            {
-                var r = refs[i];
-                if (!former.Contains(r.node)) continue;
-                var p = map.nodes[r.node]; var m = mOn[i];
-                string kind = !r.profiled ? "CAP" : r.half <= 0f ? "flush" : r.move > 0f ? "4-lane island" : "island";
-                sb.Append($"\n    n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' ({LatLon(p.x, p.y)}; x {p.x:0} z {p.y:0}) {kind} wI {2f * r.half:0.00} edge line {r.o1:0.00}->{r.o2:0.00} outer widen {r.w1:0.00}/{r.w2:0.00} | slope {m.slope:0.000} at {m.slopeAt} lines {m.lineMove:0.000} outer {m.outerDev:0.000}{(r.check.Length > 0 ? " FAILS" + r.check : "")}");
-            }
-            foreach (var r in seps) if (former.Contains(r.node)) sb.Append($"\n    n{r.node}->n{r.far} e{r.edge} '{map.edges[r.edge].name}' separated (real {r.osmIsland:0} m median)");
             return sb.ToString();
         }
 

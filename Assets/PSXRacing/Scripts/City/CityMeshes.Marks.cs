@@ -69,14 +69,20 @@ namespace PSXRacing.City
         public sealed class MarkTally
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
-                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
+                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
             public readonly Dictionary<int, (float xP, float tO, float tP)> gore = new Dictionary<int, (float, float, float)>();
             public readonly List<string> notes = new List<string>();
+            /// <summary>Round 5: the nose lines forced solid yellow (edge << 8 | k), to match against the render-time keys.</summary>
+            public readonly HashSet<long> noseYs = new HashSet<long>();
         }
+        /// <summary>Round 5 (review r4 #7): set by the medians gate before it
+        /// builds tiles - every (edge << 8 | k) whose forced-solid yellow span
+        /// rendered solid, or fell back to the layout's line (null: not kept).</summary>
+        public static HashSet<long> YsDrawnKeys, YsFallbackKeys;
         public static MarkTally MarkStats = new MarkTally();
 
         /// <summary>The marks of the map as these trims draw it (built once per
@@ -644,6 +650,10 @@ namespace PSXRacing.City
                 var U = map.edges[sp.u];
                 if (U.a == U.b || U.oneway || U.link || Barriered(U) || CityTier.Of(U) > 2) continue;
                 if (!PlainSplitNose(map, sp.node, U)) continue;
+                // round 5 (review r4 #8): the hatch and the flush tip only at the
+                // noses of drawn (accepted) refuge pairs - every other plain nose
+                // keeps live's paint and its kerb (only its turn arrows are gone)
+                if (!LineModel.IsRefugeNode(sp.node)) { MarkStats.noseNonRefuge++; continue; }
                 bool forward = U.b == sp.node;                         // U runs INTO the nose a->b
                 float trimNear = t.TrimAt(U, sp.node);
                 int other = forward ? U.a : U.b;
@@ -734,6 +744,7 @@ namespace PSXRacing.City
                     if (kind == LineModel.KYellowDash)
                     {
                         AddMark(new PaintMark { style = MkYS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: TWLTL line solid" });
+                        MarkStats.noseYs.Add(((long)U.index << 8) | (uint)k);
                         if (YellowSolidRenders(texL)) MarkStats.noseSolid++; else MarkStats.noseSolidFallback++;
                     }
                     else if (kind == LineModel.KWhiteDash) { AddMark(new PaintMark { style = MkLS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: bay line solid" }); MarkStats.noseSolid++; }
@@ -1127,7 +1138,11 @@ namespace PSXRacing.City
                 byte ov = SpanOverride(sl.k);
                 if (ov == MkOff || ov == MkCH) continue;
                 if (ov == MkLS) { Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, 2, wHi, wLo, sl.k, false); continue; }
-                if (ov == MkYS) { if (jy >= 0) MarkStats.ysDrawn++; else MarkStats.ysFallback++; }
+                if (ov == MkYS)
+                {
+                    if (jy >= 0) MarkStats.ysDrawn++; else MarkStats.ysFallback++;
+                    (jy >= 0 ? YsDrawnKeys : YsFallbackKeys)?.Add(((long)e.index << 8) | (uint)sl.k);
+                }
                 if (ov == MkYS && jy >= 0) { Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, 2, yHi, yLo, sl.k, false); continue; }
                 if (ov == MkDW) { Add(sl.latA - DWHalf, sl.latA + DWHalf, sl.latB - DWHalf, sl.latB + DWHalf, 3, wHi, wLo, sl.k, false); continue; }
                 float uHi = (lay.srcM[sl.k] + PH) / lay.W, uLo = (lay.srcM[sl.k] - PH) / lay.W;

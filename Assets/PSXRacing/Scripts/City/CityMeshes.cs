@@ -1694,9 +1694,9 @@ namespace PSXRacing.City
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
             BuildDeckUnions(map, t);
-            // medians round 4: every refuge pair measured by the gate's own
-            // function on the final eases; a failing pair is rebuilt flush
-            LineModel.VerifyRefuges(map);
+            // medians round 5: no refuge self-check at load - the medians gate
+            // decides each pair offline (LineModel.RefugeList.cs), so the
+            // trims above already see every pair as it is drawn
             return t;
         }
 

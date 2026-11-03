@@ -852,11 +852,18 @@ namespace PSXRacing.City
         // over the KerbFlushTipM past the tip, so no lane runs into it unmarked.
         public const float KerbEndRampM = 1.5f, KerbFlushTipM = 4f;
         public static int KerbFanEnds, KerbFlushTips;
+        /// <summary>Round 5 (review r4 #6): the highest kerb top at a fan end's drawn end section (goal 0: it ramps from the road).</summary>
+        public static float KerbFanEndMaxH;
 
         static bool IslandKerbSpan(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, int side, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB)
         {
             var r = LineModel.RefugeOf(e.index);
             if (r == null || RefugeInnerSide(e) != side) return false;
+            // round 5 (review r4 #1): a flush painted median has no kerb and no
+            // raised fill - the side's ordinary flat strip floors any gap (the
+            // Statesville strip stood on the partner's lane). The gate also
+            // refuses any kerbed pair whose inner edge crosses the axis.
+            if (r.half <= 0f) return false;
             EnsureMarks(map, trims);
             var o = tm.origin;
             // the drawn end at a refuge node, when a fan cuts it back past the tip
@@ -878,7 +885,12 @@ namespace PSXRacing.City
             }
             float wA = W(eA, sA, out float hA), wB = W(eB, sB, out float hB);
             if (wA < 0.02f && wB < 0.02f) return false;
-            if ((fanA && sA <= tA + 0.05f) || (fanB && sB >= e.length - tB - 0.05f)) KerbFanEnds++;
+            if ((fanA && sA <= tA + 0.05f) || (fanB && sB >= e.length - tB - 0.05f))
+            {
+                KerbFanEnds++;
+                if (fanA && sA <= tA + 0.05f) KerbFanEndMaxH = Mathf.Max(KerbFanEndMaxH, CurbH * Mathf.Clamp01(wA / 0.25f) * Mathf.Clamp01(hA));
+                if (fanB && sB >= e.length - tB - 0.05f) KerbFanEndMaxH = Mathf.Max(KerbFanEndMaxH, CurbH * Mathf.Clamp01(wB / 0.25f) * Mathf.Clamp01(hB));
+            }
             IslandProfile(eA, outA, wA, islProfA, hA);
             IslandProfile(eB, outB, wB, islProfB, hB);
             float uA = sA / WalkTexM, uB = sB / WalkTexM;
