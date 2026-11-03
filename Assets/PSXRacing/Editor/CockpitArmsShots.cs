@@ -88,56 +88,92 @@ namespace PSXRacing.EditorTools
                   rig != null ? rig.tris + " tris/arm, " + rig.verts + " verts, upper " + rig.upperLen.ToString("0.00") + " m" : "no arms_geo");
             Check(mirrored, "cockpit arms: the left arm is the right one mirrored (x -> -x)", null);
 
-            // Small corrections ride the rim: no crossing, no letting go.
+            // Small corrections ride the rim: no letting go.
             var p = new CockpitArms.Planner();
             bool held = true;
             Sim(p, 4f, t => 30f * Mathf.Sin(t * Mathf.PI), t =>
                 held &= p.L.mode == CockpitArms.Mode.Grip && p.R.mode == CockpitArms.Mode.Grip);
-            Check(held && p.Crossings == 0 && p.L.open < 0.05f,
-                  "cockpit arms: +/-30 degree corrections - both hands stay gripped and ride the rim", "crossings " + p.Crossings);
+            Check(held && p.LetGos == 0 && p.L.open < 0.05f,
+                  "cockpit arms: +/-30 degree corrections - both hands stay gripped and ride the rim", "let go " + p.LetGos);
 
-            // A big right turn (1.25 turns at the clip's pace, 180 deg/s): hand over hand.
+            // THE RIDE (owner's rally clip, 2026-11-02): never both hands off
+            // the rim; with both on it, never closer than ClearDeg (less what a
+            // landing can drift); the outside hand rides over the top.
+            bool bothOff = false, crossed = false; float closest = 999f, climbL = 0f, climbR = 0f;
+            void Watch(float t)
+            {
+                bool lOn = p.L.mode != CockpitArms.Mode.Away, rOn = p.R.mode != CockpitArms.Mode.Away;
+                bothOff |= !lOn && !rOn;
+                crossed |= lOn && rOn && CockpitArms.Planner.Crossed(p.L.alpha, p.R.alpha);
+                if (lOn && rOn) closest = Mathf.Min(closest, Mathf.Abs(Mathf.DeltaAngle(p.L.alpha, p.R.alpha)));
+                if (p.L.mode == CockpitArms.Mode.Grip) climbL = Mathf.Max(climbL, p.ClimbOf(p.L));
+                if (p.R.mode == CockpitArms.Mode.Grip) climbR = Mathf.Max(climbR, p.ClimbOf(p.R));
+            }
+            float spread = CockpitArms.Planner.ClearDeg - 15f;
+            // A big right turn (1.25 turns at the clip's pace, 180 deg/s).
             p.Reset(0f);
-            bool crossedOver = false; float openMax = 0f; int returns = 0; bool wasReturn = false;
-            Sim(p, 3.2f, t => -Mathf.Min(450f, 180f * t), t =>
-            {
-                crossedOver |= p.R.crossed && p.R.mode == CockpitArms.Mode.Move;
-                bool ret = p.L.mode == CockpitArms.Mode.Move && p.L.kind == CockpitArms.Kind.Return;
-                if (ret) openMax = Mathf.Max(openMax, p.L.open);
-                if (ret && !wasReturn) returns++;
-                wasReturn = ret;
-            });
-            int crossings = p.Crossings;
-            Check(crossings >= 2 && crossedOver && returns >= 2 && openMax > 0.8f,
-                  "cockpit arms: a 1.25-turn right turn goes hand over hand (the right hand crosses over, the left lets go OPEN)",
-                  crossings + " crossings, " + returns + " open returns, open " + openMax.ToString("0.00"));
+            Sim(p, 3.2f, t => -Mathf.Min(450f, 180f * t), Watch);
+            Check(!bothOff && !crossed && closest >= spread && climbL >= 270f && p.LetGos >= 2 && p.Returns >= 1,
+                  "cockpit arms: a 1.25-turn right turn is RIDDEN - the left hand over the top and down the far side, the right lets go and takes the rim back on its own side; never both off, never within " + spread.ToString("0") + " deg of each other",
+                  $"left hand's climb {climbL:0} deg, let go {p.LetGos}, back {p.Returns}, closest {closest:0} deg, both off {bothOff}, crossed {crossed}");
 
-            // A fast unwind (back to centre in 0.6 s): open hands, no crossing, re-grip.
-            bool unwound = false; float openBoth = 0f;
-            Sim(p, 1.6f, t => Mathf.Min(0f, -450f + 750f * t), t =>
-            {
-                unwound |= p.Unwinding;
-                if (p.Unwinding) openBoth = Mathf.Max(openBoth, Mathf.Min(p.L.open, p.R.open));
-            });
+            // ... back to centre fast (0.6 s): ridden back, both at rest after.
+            Sim(p, 2.2f, t => Mathf.Min(0f, -450f + 750f * t), Watch);
             float offL = Mathf.Abs(Mathf.DeltaAngle(p.L.alpha, CockpitArms.Planner.RestAlpha(true)));
             float offR = Mathf.Abs(Mathf.DeltaAngle(p.R.alpha, CockpitArms.Planner.RestAlpha(false)));
-            Check(unwound && openBoth > 0.8f && p.Crossings == crossings && p.L.mode == CockpitArms.Mode.Grip
-                  && p.R.mode == CockpitArms.Mode.Grip && offL <= CockpitArms.Planner.HomeSlack + 1f && offR <= CockpitArms.Planner.HomeSlack + 1f,
-                  "cockpit arms: a fast unwind spins through OPEN hands (no crossing), which re-grip at rest",
-                  $"open {openBoth:0.00}, crossings {p.Crossings - crossings}, rest off L {offL:0} R {offR:0} deg");
+            Check(!bothOff && !crossed && closest >= spread && p.L.mode == CockpitArms.Mode.Grip && p.R.mode == CockpitArms.Mode.Grip
+                  && offL <= CockpitArms.Planner.HomeSlack + 1f && offR <= CockpitArms.Planner.HomeSlack + 1f,
+                  "cockpit arms: a fast unwind is ridden back - never both off, both hands at rest after",
+                  $"rest off L {offL:0} R {offR:0} deg, closest {closest:0} deg, both off {bothOff}");
+
+            // The mirror: a big left turn, the right hand over the top.
+            p.Reset(0f);
+            bothOff = false; closest = 999f; climbR = 0f;
+            int lets0 = p.LetGos;
+            Sim(p, 3.2f, t => Mathf.Min(450f, 180f * t), Watch);
+            Check(!bothOff && !crossed && closest >= spread && climbR >= 270f && p.LetGos - lets0 >= 2,
+                  "cockpit arms: a 1.25-turn left turn is ridden by the right hand over the top, the same way",
+                  $"right hand's climb {climbR:0} deg, let go {p.LetGos - lets0}, closest {closest:0} deg, both off {bothOff}");
+
+            // Drift flicks at the wheel's top rate, and a long random drive:
+            // still never both off, never crossed.
+            foreach (var (name, sec, fn) in new (string, float, System.Func<float, float>)[] {
+                ("flicks +/-400 deg", 3f, t => 400f * Mathf.Sin(t * 4f)),
+                ("a 12 s random drive", 12f, t => 450f * (0.55f * Mathf.Sin(t * 1.3f) + 0.3f * Mathf.Sin(t * 2.9f + 1f) + 0.15f * Mathf.Sin(t * 6.1f + 2f))) })
+            {
+                p.Reset(0f);
+                bothOff = false; crossed = false; closest = 999f;
+                float last = 0f;
+                Sim(p, sec, t => last = last + Mathf.Clamp(fn(t) - last, -CockpitArms.WheelMaxRate * Dt, CockpitArms.WheelMaxRate * Dt), Watch);
+                Check(!bothOff && !crossed && closest >= spread,
+                      "cockpit arms: " + name + " - never both hands off, the arms never cross",
+                      $"closest {closest:0} deg, both off {bothOff}, crossed {crossed}");
+            }
+
+            // The handbrake in a held left turn: the door hand is off - it comes
+            // back (clear of the other) before the inboard one goes to the lever.
+            p.Reset(0f);
+            bothOff = false; closest = 999f;
+            Sim(p, 1.2f, t => Mathf.Min(120f, 240f * t), Watch);
+            bool lFree = p.L.mode == CockpitArms.Mode.Away && p.L.free;
+            Sim(p, 1.5f, t => 120f, Watch, null, t => true);
+            Check(lFree && !bothOff && closest >= spread && p.R.mode == CockpitArms.Mode.Away && p.R.brake && p.L.mode == CockpitArms.Mode.Grip,
+                  "cockpit arms: the handbrake mid-corner - the free door-side hand takes the rim back first, then the inboard one goes to the lever",
+                  $"left off before {lFree}, R {p.R.mode} brake {p.R.brake}, L {p.L.mode}, closest {closest:0} deg, both off {bothOff}");
 
             // A manual shift: the inboard hand away ~1 s, the other holds.
             p.Reset(0f);
             Sim(p, 0.2f, t => 0f);
+            int reaches0 = p.Reaches;
             float away = 0f; bool otherHeld = true;
             Sim(p, 2f, t => 0f, t =>
             {
                 if (p.R.mode == CockpitArms.Mode.Away) away += Dt;
                 otherHeld &= p.L.mode == CockpitArms.Mode.Grip;
             }, t => t < Dt * 0.5f + Dt);
-            Check(p.Reaches == 1 && away >= 0.85f && away <= 1.25f && otherHeld && p.R.mode == CockpitArms.Mode.Grip,
+            Check(p.Reaches - reaches0 == 1 && away >= 0.85f && away <= 1.25f && otherHeld && p.R.mode == CockpitArms.Mode.Grip,
                   "cockpit arms: a manual shift takes the INBOARD hand off the rim for ~1 s; the other hand holds",
-                  $"away {away:0.00} s, reaches {p.Reaches}");
+                  $"away {away:0.00} s, reaches {p.Reaches - reaches0}");
 
             // The handbrake: away while held, back after.
             p.Reset(0f);
@@ -211,6 +247,142 @@ namespace PSXRacing.EditorTools
                 Check(outOfCabin, "cockpit arms: the forearms stay out of the door trim, console and seat (max depth before -> after, any frame)", cabRows);
             }
             finally { CockpitArms.Contact = keep; }
+
+            // THE ARMS HANG FROM THE SHOULDERS (owner, 2026-11-02: "pretty
+            // sporadic and arms often overlap unnaturally ... pretend they are
+            // attached to driver's shoulders"): the old elbow-aim arms vs the
+            // chain, every sequence at 60 Hz.
+            bool keepS = CockpitArms.Shoulders;
+            try
+            {
+                var old = ChainBattery(lay, false);
+                var now = ChainBattery(lay, true);
+                bool steady = true, apart = true, joined = true, straight = true;
+                string chainRows = "";
+                foreach (var kv in now)
+                {
+                    var o = old[kv.Key]; var c = kv.Value;
+                    var os = Snap[(false, kv.Key)]; var cs = Snap[(true, kv.Key)];
+                    var ow = WristSnap[(false, kv.Key)]; var cw = WristSnap[(true, kv.Key)];
+                    steady &= cs <= cw + 0.005f;   // the arm adds no jerk of its own
+                    apart &= c.y >= Mathf.Min(o.y, 0.063f) - 0.005f;
+                    joined &= c.z <= 0.03f;
+                    var ob = Back[(false, kv.Key)]; var cb = Back[(true, kv.Key)];
+                    straight &= cb <= CockpitArms.BackBend + 0.005f;
+                    chainRows += $"\n         {kv.Key,-22} elbow snap {os * 100f,4:0.0} -> {cs * 100f,4:0.0} cm (wrist's {ow * 100f,4:0.0} -> {cw * 100f,4:0.0}), speed {o.x * 100f,4:0.0} -> {c.x * 100f,4:0.0} cm/frame, arms apart {o.y * 100f,4:0.0} -> {c.y * 100f,4:0.0} cm, " +
+                                 $"upper arm off its shoulder {o.z * 100f,4:0.0} -> {c.z * 100f,4:0.0} cm, wrist bend {o.w,3:0} -> {c.w,3:0} deg, elbow past its wrist {ob * 100f,4:0.0} -> {cb * 100f,4:0.0} cm";
+                }
+                Check(steady && apart && joined && straight,
+                      "cockpit arms: each arm hangs from a fixed shoulder - the elbow snaps no more than its wrist (+5 mm), the arms no closer than before (6.3 cm where they were), the upper arm meets its shoulder within 3 cm, no elbow bent back past its wrist reaching across (old elbow-aim -> chain, worst frame)",
+                      chainRows);
+            }
+            finally { CockpitArms.Shoulders = keepS; }
+            log.Append(Trace);
+        }
+
+        /// <summary>Per sequence: x the elbow's biggest move in one frame, y
+        /// the closest the two arms' bones came, z the upper arm's drawn end
+        /// off its shoulder joint (worst), w the wrist's sharpest bend (deg).</summary>
+        /// <summary>Per (chain, sequence): the elbow's worst SNAP - its speed's
+        /// change from one frame to the next (|E - 2E' + E''|, metres).</summary>
+        static readonly Dictionary<(bool, string), float> Snap = new Dictionary<(bool, string), float>();
+        static readonly Dictionary<(bool, string), float> WristSnap = new Dictionary<(bool, string), float>();
+        static readonly Dictionary<(bool, string), float> Back = new Dictionary<(bool, string), float>();
+        /// <summary>The chain's frames through the right-hand crossing (gap,
+        /// crossing weights, swivels, what the untangle did).</summary>
+        static readonly StringBuilder Trace = new StringBuilder();
+
+        static Dictionary<string, Vector4> ChainBattery(CockpitModel.Layout lay, bool shoulders)
+        {
+            CockpitArms.Shoulders = shoulders;
+            CockpitArms.TraceSolve = true;
+            var res = new Dictionary<string, Vector4>();
+            var model = new GameObject("ArmsChainModel") { hideFlags = HideFlags.HideAndDontSave };
+            var arms = CockpitArms.Create(model.transform, lay, 0);
+            try
+            {
+                if (arms == null) return res;
+                Vector3 lastL = Vector3.zero, lastR = Vector3.zero, prevL = Vector3.zero, prevR = Vector3.zero;
+                Vector3 lwL = Vector3.zero, lwR = Vector3.zero, pwL = Vector3.zero, pwR = Vector3.zero;
+                Vector4 w = Vector4.zero;
+                float snap = 0f, wsnap = 0f, back = 0f;
+                int frames = 0, faults = 0;
+                string seq = "";
+                void Sample(bool first)
+                {
+                    arms.ChainNow(true, out var sL, out var eL, out var wL, out var uL, out var bL);
+                    arms.ChainNow(false, out var sR, out var eR, out var wR, out var uR, out var bR);
+                    if (first) frames = 0;
+                    if (frames >= 1) w.x = Mathf.Max(w.x, Mathf.Max((eL - lastL).magnitude, (eR - lastR).magnitude));
+                    float sn = 0f;
+                    if (frames >= 2)
+                    {
+                        sn = Mathf.Max((eL - 2f * lastL + prevL).magnitude, (eR - 2f * lastR + prevR).magnitude);
+                        snap = Mathf.Max(snap, sn);
+                        wsnap = Mathf.Max(wsnap, Mathf.Max((wL - 2f * lwL + pwL).magnitude, (wR - 2f * lwR + pwR).magnitude));
+                    }
+                    prevL = lastL; prevR = lastR;
+                    lastL = eL; lastR = eR;
+                    pwL = lwL; pwR = lwR;
+                    lwL = wL; lwR = wR;
+                    if (shoulders && seq == "big right turn" && frames % 6 == 0)
+                        Trace.Append($"\n    trace f{frames:000} gap {arms.ArmGap() * 100f:0.0} cm, elbow snap {sn * 100f:0.0} cm, past wrist {arms.BentBack() * 100f:0.0} cm | L {arms.Plan.L.mode}/{arms.Plan.L.phase}{(arms.Plan.L.free ? " free" : "")} a {arms.Plan.L.alpha:0} swivel {arms.ChainSwivel(true):0} | " +
+                                     $"R {arms.Plan.R.mode}/{arms.Plan.R.phase}{(arms.Plan.R.free ? " free" : "")} a {arms.Plan.R.alpha:0} swivel {arms.ChainSwivel(false):0} | {arms.LastUntangle}");
+                    if (shoulders && seq == "handbrake reach" && (frames < 3 || Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude) > 0.01f))
+                        Trace.Append($"\n    brake f{frames:000} L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} a {arms.Plan.L.alpha:0} swivel {arms.ChainSwivel(true):0} | R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} a {arms.Plan.R.alpha:0} | off L {(uL - sL).magnitude * 100f:0.0} R {(uR - sR).magnitude * 100f:0.0} cm, gap {arms.ArmGap() * 100f:0.0} cm | {arms.LastUntangle} | keep: {arms.LastKeep}");
+                    if (shoulders && faults < 8 && seq != "big right turn")
+                    {
+                        float gp = arms.ArmGap(), bb = arms.BentBack(), uo = Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude);
+                        if (gp < 0.03f || bb > 0.035f || uo > 0.03f || (frames >= 2 && sn > 0.15f))
+                        {
+                            faults++;
+                            Trace.Append($"\n    {seq} f{frames:000} gap {gp * 100f:0.0} cm, past wrist {bb * 100f:0.0} cm, upper off {uo * 100f:0.0} cm, elbow snap {sn * 100f:0.0} cm | L {arms.Plan.L.mode}/{arms.Plan.L.phase}{(arms.Plan.L.free ? " free" : "")} a {arms.Plan.L.alpha:0} swivel {arms.ChainSwivel(true):0} | " +
+                                         $"R {arms.Plan.R.mode}/{arms.Plan.R.phase}{(arms.Plan.R.free ? " free" : "")} a {arms.Plan.R.alpha:0} swivel {arms.ChainSwivel(false):0} | wheel {arms.Plan.Theta:0} | {arms.LastUntangle} | keep: {arms.LastKeep}");
+                        }
+                    }
+                    frames++;
+                    w.y = Mathf.Min(w.y, arms.ArmGap());
+                    back = Mathf.Max(back, arms.BentBack());
+                    w.z = Mathf.Max(w.z, Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude));
+                    w.w = Mathf.Max(w.w, Mathf.Max(bL, bR));
+                }
+                void Run(string name, float seconds, System.Func<float, float> theta, System.Func<float, bool> shift = null,
+                         System.Func<float, bool> brake = null, bool fresh = true)
+                {
+                    if (fresh) { arms.Plan.Reset(theta(0f)); arms.Drive(0f, theta(0f), false, false); }
+                    w = new Vector4(0f, 9f, 0f, 0f);
+                    snap = 0f; wsnap = 0f; back = 0f; faults = 0;
+                    seq = name;
+                    Sample(true);
+                    int n = Mathf.RoundToInt(seconds / Dt);
+                    for (int i = 1; i <= n; i++)
+                    {
+                        float t = i * Dt;
+                        arms.Drive(Dt, theta(t), shift != null && shift(t), brake != null && brake(t));
+                        Sample(false);
+                    }
+                    res[name] = w;
+                    Snap[(shoulders, name)] = snap;
+                    WristSnap[(shoulders, name)] = wsnap;
+                    Back[(shoulders, name)] = back;
+                }
+                Run("rest", 0.5f, t => 0f);
+                Run("small corrections", 4f, t => 30f * Mathf.Sin(t * Mathf.PI));
+                Run("big right turn", 2.2f, t => -Mathf.Min(450f, 300f * t));
+                Run("unwind", 1.6f, t => Mathf.Min(0f, -450f + 750f * t), fresh: false);
+                Run("big left turn", 3.0f, t => Mathf.Min(450f, 180f * t));
+                Run("unwind (left)", 1.6f, t => Mathf.Max(0f, 450f - 750f * t), fresh: false);
+                Run("shift reach", 1.5f, t => 0f, t => t < 1.5f * Dt);
+                Run("handbrake reach", 2.2f, t => 90f, null, t => t < 1.4f);
+                Run("sweep +/-450", 10f, t => t < 2.5f ? 180f * t : t < 7.5f ? 450f - 180f * (t - 2.5f) : -450f + 180f * (t - 7.5f));
+            }
+            finally
+            {
+                CockpitArms.TraceSolve = false;
+                if (arms != null) arms.Destroy();
+                Object.DestroyImmediate(model);
+            }
+            return res;
         }
 
         /// <summary>Max depth in the wheel (x fingers, y hand, z forearm),
@@ -241,8 +413,7 @@ namespace PSXRacing.EditorTools
                         CabWhy[name0] = $"L {arms.Plan.L.mode}/{arms.Plan.L.kind} a {arms.Plan.L.alpha:0} R {arms.Plan.R.mode}/{arms.Plan.R.kind} a {arms.Plan.R.alpha:0} wheel {theta:0}";
                     cabinWorst = Mathf.Max(cabinWorst, cd);
                     if (f > worst.x + 1e-5f)
-                        why = $"L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} " +
-                              $"u {(arms.Plan.R.mode == CockpitArms.Mode.Move ? arms.Plan.R.t / Mathf.Max(1e-3f, arms.Plan.R.dur) : arms.Plan.L.t / Mathf.Max(1e-3f, arms.Plan.L.dur)):0.00} wheel {theta:0}";
+                        why = $"{arms.DeepestFinger()}; L {arms.Plan.L.mode}/{arms.Plan.L.phase} R {arms.Plan.R.mode}/{arms.Plan.R.phase} wheel {theta:0} at {arms.Plan.Omega:0} deg/s";
                     worst = Vector3.Max(worst, new Vector3(f, h, fa));
                 }
                 void Run(string name, float seconds, System.Func<float, float> theta, System.Func<float, bool> shift = null,
@@ -266,10 +437,10 @@ namespace PSXRacing.EditorTools
                 }
                 Run("rest", 0.5f, t => 0f);
                 Run("small corrections", 4f, t => 30f * Mathf.Sin(t * Mathf.PI));
-                Run("hand over hand (right)", 2.2f, t => -Mathf.Min(450f, 300f * t));
+                Run("big right turn", 2.2f, t => -Mathf.Min(450f, 300f * t));
                 Run("unwind", 1.6f, t => Mathf.Min(0f, -450f + 750f * t), fresh: false);
-                Run("hand over hand (left)", 3.0f, t => Mathf.Min(450f, 180f * t));
-                Run("unwind (left, open)", 1.6f, t => Mathf.Max(0f, 450f - 750f * t), fresh: false);
+                Run("big left turn", 3.0f, t => Mathf.Min(450f, 180f * t));
+                Run("unwind (left)", 1.6f, t => Mathf.Max(0f, 450f - 750f * t), fresh: false);
                 Run("shift reach", 1.5f, t => 0f, t => t < 1.5f * Dt);
                 Run("handbrake reach", 2.2f, t => 90f, null, t => t < 1.4f);
                 // Every 5 degrees (finer, 3 a frame): 0 -> +450 -> -450 -> 0.
@@ -350,8 +521,8 @@ namespace PSXRacing.EditorTools
                 PSXScreenshotTool.ShotAs(cam, "cockpitarms_" + name, t.TransformPoint(eye), rot);
                 var p = ci.Arms.Plan;
                 ci.Arms.Depths(out float sf, out float sh, out _);
-                log.AppendLine($"[Arms] shot {name} (depth fingers {sf * 1000f:0.0} mm, hand {sh * 1000f:0.0}): {(rhd ? "RHD" : "LHD")} wheel {ci.WheelDeg:0} deg; L {p.L.mode}/{p.L.kind} a {p.L.alpha:0} open {p.L.open:0.00} relax {p.L.relax:0.00}" +
-                               $"{(p.L.crossed ? " crossed" : "")}; R {p.R.mode}/{p.R.kind} a {p.R.alpha:0} open {p.R.open:0.00} relax {p.R.relax:0.00}{(p.R.crossed ? " crossed" : "")}");
+                log.AppendLine($"[Arms] shot {name} (depth fingers {sf * 1000f:0.0} mm, hand {sh * 1000f:0.0}): {(rhd ? "RHD" : "LHD")} wheel {ci.WheelDeg:0} deg; L {p.L.mode}/{p.L.kind} a {p.L.alpha:0} climb {p.ClimbOf(p.L):0}{(p.L.free ? " free" : "")} relax {p.L.relax:0.00}" +
+                               $"; R {p.R.mode}/{p.R.kind} a {p.R.alpha:0} climb {p.ClimbOf(p.R):0}{(p.R.free ? " free" : "")} relax {p.R.relax:0.00}; arms {ci.Arms.ArmGap() * 100f:0.0} cm apart");
             }
             // A close-up of one hand: from the eye, and from beside the rim.
             void Close(string name, bool left)
@@ -408,23 +579,28 @@ namespace PSXRacing.EditorTools
                     Shoot(rhd ? "1_rest_rhd" : "1_rest_lhd", rhd);
                 }
 
-                // Hand over hand: a right turn ramped at the clip's pace
-                // (1.25 turns in 2.5 s), LHD.
+                // THE RIDE: a right turn ramped at the clip's pace (1.25 turns
+                // in 2.5 s), LHD - the left hand over the top, down the far side,
+                // the right back on its own side; then the same to the left.
                 Ready(false);
                 Steer(0f, 0f);
                 var plan = ci.Arms.Plan;
                 float clock = 0f;
                 System.Func<float, float> right = tt => Mathf.Min(lockDeg, lockDeg * tt / 2.5f);
-                bool a = Sweep(right, ref clock, 3f, () => plan.R.mode == CockpitArms.Mode.Move && plan.R.kind == CockpitArms.Kind.Cross
-                                                       && plan.R.t / plan.R.dur > 0.8f);
-                Shoot("2_hoh_crossing", false);
-                bool b = Sweep(right, ref clock, 3f, () => plan.L.mode == CockpitArms.Mode.Move && plan.L.kind == CockpitArms.Kind.Return
-                                                       && plan.L.open > 0.8f);
-                Shoot("3_hoh_open_palm", false);
-                bool d = Sweep(right, ref clock, 3f, () => plan.L.mode == CockpitArms.Mode.Grip && plan.R.mode == CockpitArms.Mode.Grip
-                                                       && plan.L.open < 0.15f);
-                Shoot("4_hoh_regrip", false);
-                log.AppendLine($"[Arms] hand-over-hand frames found: crossing {a}, open {b}, regrip {d}; crossings {plan.Crossings}");
+                bool a = Sweep(right, ref clock, 3f, () => plan.L.mode == CockpitArms.Mode.Grip && plan.ClimbOf(plan.L) >= 180f);
+                Shoot("2_ride_right_top", false);
+                bool b = Sweep(right, ref clock, 3f, () => plan.L.mode != CockpitArms.Mode.Away && plan.ClimbOf(plan.L) >= 275f);
+                Shoot("3_ride_right_far", false);
+                bool d = Sweep(right, ref clock, 3f, () => plan.R.mode == CockpitArms.Mode.Grip && plan.L.mode == CockpitArms.Mode.Away);
+                Shoot("4_ride_right_swap", false);
+                Sweep(_ => 0f, ref clock, 2.5f, () => false);
+                float c1 = clock;
+                System.Func<float, float> leftTurn = tt => -Mathf.Min(lockDeg, lockDeg * (tt - c1) / 2.5f);
+                bool lt = Sweep(leftTurn, ref clock, 3f, () => plan.R.mode == CockpitArms.Mode.Grip && plan.ClimbOf(plan.R) >= 200f);
+                Shoot("4b_ride_left_top", false);
+                bool lf = Sweep(leftTurn, ref clock, 3f, () => plan.R.mode != CockpitArms.Mode.Away && plan.ClimbOf(plan.R) >= 275f);
+                Shoot("4c_ride_left_far", false);
+                log.AppendLine($"[Arms] ride frames found: right top {a}, far {b}, swap {d}; left top {lt}, far {lf}; let go {plan.LetGos}, back {plan.Returns}");
 
                 // Back to centre, then a manual upshift: the inboard hand goes.
                 Sweep(_ => 0f, ref clock, 2.5f, () => false);
@@ -456,9 +632,9 @@ namespace PSXRacing.EditorTools
                 Shoot("7_look_over_lhd", false, CockpitLook.MaxYaw);
 
                 // CONTACT close-ups, before (the first cut) and after: the
-                // left hand at rest, the right hand crossed over the top, the
-                // left hand open on the rim - from the driver's eye and from
-                // beside the rim (its cross-section), LHD.
+                // left hand at rest, riding over the top, down the far side -
+                // from the driver's eye and from beside the rim (its
+                // cross-section), LHD.
                 bool keepContact = CockpitArms.Contact;
                 try
                 {
@@ -474,11 +650,10 @@ namespace PSXRacing.EditorTools
                         plan = ci.Arms.Plan;
                         float c0 = clock;
                         System.Func<float, float> turn = tt => Mathf.Min(lockDeg, lockDeg * (tt - c0) / 2.5f);
-                        Sweep(turn, ref clock, 3f, () => plan.R.mode == CockpitArms.Mode.Grip && plan.R.crossed);
-                        Close(tag + "_2_top", false);
-                        Sweep(turn, ref clock, 3f, () => plan.L.mode == CockpitArms.Mode.Move && plan.L.kind == CockpitArms.Kind.Return
-                                                          && plan.L.open > 0.8f);
-                        Close(tag + "_3_open", true);
+                        Sweep(turn, ref clock, 3f, () => plan.L.mode == CockpitArms.Mode.Grip && plan.ClimbOf(plan.L) >= 180f);
+                        Close(tag + "_2_top", true);
+                        Sweep(turn, ref clock, 3f, () => plan.L.mode != CockpitArms.Mode.Away && plan.ClimbOf(plan.L) >= 275f);
+                        Close(tag + "_3_far", true);
                         Sweep(_ => 0f, ref clock, 2.5f, () => false);
                     }
                 }
