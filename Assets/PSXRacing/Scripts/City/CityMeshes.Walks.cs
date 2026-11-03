@@ -116,6 +116,10 @@ namespace PSXRacing.City
         public static int MedianSurfaceOf(CityMap map, CityMap.Edge e, int side)
         {
             if (!MedianGrassOn || !e.oneway || e.link || e.cls > 3 || Barriered(e) || e.a == e.b) return 0;
+            // round 5b (review r5 #5): only an accepted (drawn) refuge pair's
+            // carriageways - every other median, a reverted pair's included,
+            // keeps live's surface
+            if (LineModel.RefugeOf(e.index) == null) return 0;
             // round 2: a refuge island's carriageway knows its median side (its
             // widen ease's side) - HasTwin's one midpoint test missed short
             // island edges, which then paved their island by the cell
@@ -267,8 +271,15 @@ namespace PSXRacing.City
             // where a concrete-topped median might be (its bucket lists one)
             if (!old && !MedBucketConcrete(map, c)) return false;
             int mk = MedianCellKind(map, c);
+            // round 5b: a median cell only between an accepted refuge pair's carriageways
+            if (mk != 0 && !MedCellAccepted()) mk = 0;
             return mk != 0 ? mk == 2 : old;
         }
+
+        /// <summary>Round 5b: is the pair the last MedianCellKind call chose
+        /// an accepted (drawn) refuge pair's carriageway?</summary>
+        static bool MedCellAccepted() =>
+            (MedCellA >= 0 && LineModel.RefugeOf(MedCellA) != null) || (MedCellB >= 0 && LineModel.RefugeOf(MedCellB) != null);
 
         static void EnsureWalkCache(CityMap map)
         {

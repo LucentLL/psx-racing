@@ -430,7 +430,9 @@ namespace PSXRacing.City
             // Round 5: the refuge pairs this build draws (the accepted list) are
             // known before the relays, so the relay's nose clearance reaches only
             // their noses - every other split node relays exactly as live does
+            var planClock = System.Diagnostics.Stopwatch.StartNew();
             var plan = RefugeOn ? PlanRefuges(map, splitAt) : null;
+            RefugePlanMs = (float)planClock.Elapsed.TotalMilliseconds;
             relayNoses = null;
             if (plan != null && plan.Count > 0)
             {
@@ -874,6 +876,9 @@ namespace PSXRacing.City
         /// on it with a fingerprint that no longer matches; the list made for
         /// another city export (all pairs live); FindRefuges' cost.</summary>
         public static int RefugeFound, RefugeListedN, RefugeUnlisted, RefugeStaleFp; public static bool RefugeListStale; public static float RefugeBuildMs;
+        /// <summary>Round 5b: PlanRefuges' cost (detection + fingerprints); the load cost is this plus RefugeBuildMs.</summary>
+        public static float RefugePlanMs;
+        static CityMap refugeLoggedFor;
         /// <summary>Pairs on the list the builder could not draw (why on pair[0]).</summary>
         public static readonly List<Refuge> RefugeNotDrawn = new List<Refuge>();
         public static long RefugePairKey(int a, int b) => ((long)Mathf.Min(a, b) << 32) | (uint)Mathf.Max(a, b);
@@ -896,12 +901,17 @@ namespace PSXRacing.City
             uint h = 2166136261u;
             void I(int v) { unchecked { h = (h ^ (uint)v) * 16777619u; } }
             void F(float v) => I(Mathf.RoundToInt(v * 1000f));
+            // Round 5b (WebGL/IL2CPP): only values read from the city file (or
+            // one float multiply away from it, which every IEEE platform rounds
+            // alike) - never a derived sum (length, lmPlus), whose last bit can
+            // differ between the editor's Mono and wasm and flip a mm rounding.
+            // The profile index stands for width and shoulders (a fixed table).
             void E(int i)
             {
                 var e = map.edges[i];
-                I(i); I(e.a); I(e.b); I(e.profile); I(e.cls); I(e.oneway ? 1 : 0);
-                F(e.length); F(e.width); F(e.lmPlus); F(e.lmMinus); F(e.shl); F(e.shr);
-                F(map.nodes[e.a].x); F(map.nodes[e.a].y); F(map.nodes[e.b].x); F(map.nodes[e.b].y);
+                I(i); I(e.a); I(e.b); I(e.profile); I(e.cls); I(e.oneway ? 1 : 0); I(e.pts.Length);
+                F(e.lmOff);
+                foreach (var p in e.pts) { F(p.x); F(p.y); }
             }
             I(sp.node); I(s2.node); F(sp.offA); F(sp.offB); F(s2.offA); F(s2.offB); F(sp.rate); F(s2.rate);
             E(sp.u); E(s2.u); E(sp.a); E(sp.b); E(s2.a); E(s2.b);
@@ -991,6 +1001,13 @@ namespace PSXRacing.City
                 }
             }
             RefugeBuildMs = (float)clock.Elapsed.TotalMilliseconds;
+            // Round 5b: one line at city load, so a published (WebGL) build can be
+            // checked in the browser console - every listed pair should draw
+            if (RefugeOverride == null && refugeLoggedFor != map)
+            {
+                refugeLoggedFor = map;
+                Debug.Log($"[city] refuge pairs listed {RefugeListedN}/{RefugeListData.Length / 3} (drawn {Refuges.Count / 2}; stale fingerprints {RefugeStaleFp}; list {(RefugeListStale ? "STALE" : "ok")}; plan {RefugePlanMs:0.0} ms + build {RefugeBuildMs:0.0} ms)");
+            }
             return res;
         }
 
@@ -1046,8 +1063,17 @@ namespace PSXRacing.City
         /// <summary>Round 4: pairs that are real separated medians (two
         /// carriageways on their own lines), kept for the audit.</summary>
         public static readonly List<Refuge> Separated = new List<Refuge>();
+        /// <summary>Round 5b (load cost): FindRefuges' parts, in Stopwatch ticks -
+        /// frame (axis, stray walk, common mode), profile samples, profile plan, eases.</summary>
+        public static readonly long[] RefugeTicks = new long[4];
+        public static string RefugeCostParts()
+        {
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            return $"frame {RefugeTicks[0] * f:0.0} / samples {RefugeTicks[1] * f:0.0} / plan {RefugeTicks[2] * f:0.0} / eases {RefugeTicks[3] * f:0.0} ms";
+        }
         static void ClearRefuges()
         {
+            System.Array.Clear(RefugeTicks, 0, RefugeTicks.Length);
             Refuges.Clear(); Separated.Clear(); RefugeNotDrawn.Clear(); refugeEdge.Clear(); refugeNodeDir.Clear(); refugeNodeEdge.Clear();
             RefugeTapers = 0; RefugeHeld = 0; RefugeProfiled = 0; RefugeFallback = 0; RefugeFlush = 0; RefugeUShifts = 0;
         }
@@ -1222,6 +1248,7 @@ namespace PSXRacing.City
 
         static bool BuildRefugePair(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Split sp, Split s2, Refuge[] pr, bool forceFlush)
         {
+            long tk0 = System.Diagnostics.Stopwatch.GetTimestamp();
             var U1 = map.edges[sp.u]; var U2 = map.edges[s2.u];
             foreach (var r in pr) foreach (int ei in r.chain) { var e = map.edges[ei]; if (e.lmPlus == 0f && e.lmMinus == 0f) { Why(pr, "no line model"); return false; } }
             if ((U1.lmPlus == 0f && U1.lmMinus == 0f) || (U2.lmPlus == 0f && U2.lmMinus == 0f)) { Why(pr, "no line model (U)"); return false; }
@@ -1265,7 +1292,12 @@ namespace PSXRacing.City
             // it) is not a refuge island the axis describes. Round 4: that is a
             // REAL SEPARATED MEDIAN (Moores Chapel's 24 m) - the two
             // carriageways keep their own lines and the split's ordinary
-            // tapers, never round 1's cap
+            // tapers, never round 1's cap. Round 5b (load cost): only where the
+            // gate decides (RefugeOverride) - a pair drawn from the compiled list
+            // with a matching fingerprint passed this walk on the same data when
+            // the gate decided it, and the gate fails a list its own (walked)
+            // decision differs from
+            if (RefugeOverride != null)
             foreach (var r in pr)
             {
                 int hint = 0;
@@ -1321,6 +1353,7 @@ namespace PSXRacing.City
                 RefugeUShifts++;
             }
             foreach (var r in pr) { r.o1 = r.uOut1 + r.so * d1; r.o2 = r.uOut2 + r.so * d2; }
+            RefugeTicks[0] += System.Diagnostics.Stopwatch.GetTimestamp() - tk0;
             RefugeProfile(map, add, pr, forceFlush);
             foreach (var r in pr) foreach (int ei in r.chain) refugeEdge[ei] = r;
             refugeNodeDir[sp.node] = t1; refugeNodeDir[s2.node] = -t2;
@@ -1397,6 +1430,7 @@ namespace PSXRacing.City
         /// Always draws (never round 1's cap).</summary>
         static void RefugeProfile(CityMap map, List<Ease>[] add, Refuge[] pr, bool forceFlush)
         {
+            long tk = System.Diagnostics.Stopwatch.GetTimestamp();
             float axLen = pr[0].axLen;
             var smp = new List<RSmp>[2];
             for (int c = 0; c < 2; c++)
@@ -1419,6 +1453,7 @@ namespace PSXRacing.City
                 }
                 r.move = 0f; r.moveLen = 0f;
             }
+            { long t2 = System.Diagnostics.Stopwatch.GetTimestamp(); RefugeTicks[1] += t2 - tk; tk = t2; }
             float wI = Mathf.Clamp(0.5f * (pr[0].osmIsland + pr[1].osmIsland), RefugeMinIslandM, RefugeMaxIslandM);
             float half = 0.5f * wI;
             // round 5 (load cost): the samples sorted by axis arc, for the
@@ -1536,6 +1571,7 @@ namespace PSXRacing.City
             }
             float rn = Mathf.Min(CityMeshes.MedianNoseR, 0.5f * half);
             foreach (var r in pr) { r.half = half; r.x0s = x0s; r.x0e = x0e; r.ln = ln; r.rn = rn; r.profiled = true; }
+            { long t2 = System.Diagnostics.Stopwatch.GetTimestamp(); RefugeTicks[2] += t2 - tk; tk = t2; }
             // THE EASES, edge by edge: the shift (edge frame), the inner
             // widening (the centre lane's space to the island) and the outer
             // widening (the wider end's extra), sampled every RefugeDs
@@ -1574,6 +1610,7 @@ namespace PSXRacing.City
                     d0 += e.length; from = fwd ? e.b : e.a;
                 }
             }
+            RefugeTicks[3] += System.Diagnostics.Stopwatch.GetTimestamp() - tk;
         }
 
         /// <summary>A profile ease's sections: wherever the sampled value
