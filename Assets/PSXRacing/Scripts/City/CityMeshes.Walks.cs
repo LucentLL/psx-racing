@@ -75,11 +75,13 @@ namespace PSXRacing.City
         {
             public static float walkM;
             public static int spans, ramps, cornersPoly, cornersStrip, cornersNone, sideMismatch;
+            /// <summary>Walk sections kept out of a divided road's median (Five Points).</summary>
+            public static int medianSkips;
             /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P, paved, lane.</summary>
             public static readonly int[] noneWhy = new int[9];
-            public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = 0; System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
+            public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = medianSkips = 0; System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
             public static string Line() =>
-                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}), {sideMismatch} side mismatches, lot curbs {lotCurbM:0} m";
+                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}), {sideMismatch} side mismatches, {medianSkips} sections kept out of medians, lot curbs {lotCurbM:0} m";
         }
 
         static CityMap walkMapFor;
@@ -317,6 +319,62 @@ namespace PSXRacing.City
             return c < 0;
         }
 
+        /// <summary>PSX_CITY_MEDIAN_NOWALK=0: a cross street's walk is laid
+        /// into a divided road's median gap again (the before; Five Points,
+        /// 2026-11-03).</summary>
+        public static bool MedianNoWalkOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIAN_NOWALK") != "0";
+
+        /// <summary>How far out from a walk's curb line the median test reads.</summary>
+        const float MedianProbeOutM = 1.5f;
+        /// <summary>The widest median a cross street's walk is kept out of.</summary>
+        const float MedianMaxSideM = 15f;
+
+        /// <summary>
+        /// FIVE POINTS (2026-11-03, owner: "every time I drive through this
+        /// intersection I am launched into the air because a curb juts up from
+        /// the ground"). Is the plan point inside a divided road's median -
+        /// on the LEFT of two one-way carriageways of one name running
+        /// opposite ways, each within <see cref="MedianMaxSideM"/>? A median
+        /// keeps its verge (WalkSide); but a cross street drawn THROUGH the
+        /// median gap (W 5th / Rozzelles Ferry's 5-6 m links between Trade's
+        /// and Beatties Ford's carriageway ends) laid its sidewalk, curb and
+        /// the verge behind it across the median's nose, inside the junction:
+        /// a 15-27 cm kerbed hump beside the lines Trade -&gt; Beatties Ford and
+        /// the turns take. Read past a carriageway's end by up to 3 m, where
+        /// the nose meets the gap.
+        /// </summary>
+        static bool InDividedMedian(CityMap map, Vector2 q)
+        {
+            walkTwinSegs.Clear();
+            map.EdgeSegsInRect(q - Vector2.one * MedianMaxSideM, q + Vector2.one * MedianMaxSideM, walkTwinSegs);
+            medianHits.Clear();
+            foreach (int packed in walkTwinSegs)
+            {
+                var o = map.edges[packed >> 12];
+                if (!o.oneway || string.IsNullOrEmpty(o.name) || o.link || o.a == o.b) continue;
+                int seg = packed & 0xFFF;
+                if (seg + 1 >= o.pts.Length) continue;
+                Vector2 a = o.pts[seg], b = o.pts[seg + 1], ab = b - a;
+                float l2 = ab.sqrMagnitude;
+                if (l2 < 1e-4f) continue;
+                float L = Mathf.Sqrt(l2);
+                var t = ab / L;
+                float u = Vector2.Dot(q - a, t);
+                // beside this segment, or past the carriageway's own end by at most 3 m
+                bool first = seg == 0, last = seg + 2 >= o.pts.Length;
+                if ((u < 0f && (!first || u < -3f)) || (u > L && (!last || u > L + 3f))) continue;
+                float lat = Vector2.Dot(q - a, new Vector2(-t.y, t.x));   // + = left of travel
+                if (lat <= 0f || lat > MedianMaxSideM) continue;
+                if (!medianHits.TryGetValue(o.index, out var prev) || lat < prev.lat) medianHits[o.index] = (lat, t, o.name);
+            }
+            foreach (var A in medianHits)
+                foreach (var B in medianHits)
+                    if (A.Key < B.Key && A.Value.name == B.Value.name && Vector2.Dot(A.Value.t, B.Value.t) < -0.5f) return true;
+            return false;
+        }
+
+        static readonly Dictionary<int, (float lat, Vector2 t, string name)> medianHits = new Dictionary<int, (float, Vector2, string)>();
+
         static readonly HashSet<int> walkTwinSegs = new HashSet<int>();
 
         /// <summary>A one-way carriageway with its other carriageway (same
@@ -398,6 +456,8 @@ namespace PSXRacing.City
                     if (k + 1 < n && !WalkableSpan(k + 1, side)) continue;
                     var outw = S.Out(side);
                     var pw = new Vector2(wx, wz);
+                    // Five Points: a median keeps its verge, a cross street's side in the gap too
+                    if (MedianNoWalkOn && InDividedMedian(map, pw + outw * MedianProbeOutM)) { WalkStats.medianSkips++; continue; }
                     if (k == 0 || k == n - 1)
                     {
                         int node = k == 0 ? e.a : e.b;
