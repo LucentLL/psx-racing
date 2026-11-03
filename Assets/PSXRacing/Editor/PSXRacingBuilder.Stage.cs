@@ -6041,12 +6041,16 @@ namespace PSXRacing.EditorTools
         const float TimberRailTop = -0.03f, TimberRailH = 0.25f, TimberRailDepth = 0.15f,
                     TimberSteelT = 0.012f, TimberPostW = 0.25f;
         /// <summary>Chimney Rock's rustic post-and-rail: two round log rails
-        /// (hexagonal, 0.15 m across) whose centres stand 0.15 m over and
-        /// 0.25 m under the wall line's top - about 0.88 and 0.48 m over the
-        /// tarmac - on 0.18 m split posts a station apart, rising 0.27 m over
-        /// the line's top. The lower log covers the audit's 0.6 m sample.</summary>
-        const float RusticLogR = 0.075f, RusticTopY = 0.15f, RusticLowY = -0.25f,
-                    RusticPostW = 0.18f, RusticPostTopOver = 0.27f;
+        /// (hexagonal, 0.22 m across, a park road's log rail) whose centres
+        /// stand 0.15 m over and 0.25 m under the wall line's top - about 0.88
+        /// and 0.48 m over the tarmac - on 0.18 m split posts a station apart,
+        /// rising 0.30 m over the line's top, a little proud of the top log.
+        /// Each log is taller than the ghost audit's 0.2 m pitch, so one of its
+        /// samples always meets it wherever the line stands; at 0.15 m across
+        /// the lower log (0.41-0.56 m over the tarmac) fell between the 0.4 and
+        /// 0.6 m samples at five chords ("collider over NOTHING drawn").</summary>
+        const float RusticLogR = 0.11f, RusticTopY = 0.15f, RusticLowY = -0.25f,
+                    RusticPostW = 0.18f, RusticPostTopOver = 0.30f;
         /// <summary>The Parkway's bridge railing (Linn Cove and the other
         /// Grandfather bridges, Street View): a concrete curb 0.45 m over the
         /// waypoint plane (0.33 m over the deck's tarmac) and 0.40 m wide,
