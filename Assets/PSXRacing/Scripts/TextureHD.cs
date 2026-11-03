@@ -32,14 +32,14 @@ namespace PSXRacing
         public const string Keyword = "PSX_HD";
         public const string NormalSuffix = "_normal", RoughSuffix = "_rough", AOSuffix = "_ao";
 
-        struct Set { public Texture2D col, nrm, rough, ao; }
+        struct HDSet { public Texture2D col, nrm, rough, ao; }
 
         static TextureHDMap map;
         static bool mapTried, bundleTried;
         static AssetBundle bundle;
         static readonly Dictionary<Texture, int> byOriginal = new Dictionary<Texture, int>();
         static readonly Dictionary<Texture, int> byHD = new Dictionary<Texture, int>();
-        static Set[] sets;
+        static HDSet[] sets;
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int NormalId = Shader.PropertyToID("_HDNormal"), RoughId = Shader.PropertyToID("_HDRough"), AOId = Shader.PropertyToID("_HDAO");
 
@@ -89,7 +89,7 @@ namespace PSXRacing
             mapTried = true;
             map = Resources.Load<TextureHDMap>(TextureHDMap.ResourcePath);
             if (map == null || map.pairs == null || map.pairs.Length == 0) { map = null; return false; }
-            sets = new Set[map.pairs.Length];
+            sets = new HDSet[map.pairs.Length];
             for (int i = 0; i < map.pairs.Length; i++)
                 if (map.pairs[i].original != null) byOriginal[map.pairs[i].original] = i;
             return true;
@@ -121,7 +121,7 @@ namespace PSXRacing
 #endif
         }
 
-        static bool Get(int i, out Set s)
+        static bool Get(int i, out HDSet s)
         {
             s = sets[i];
             if (s.col != null) return true;
