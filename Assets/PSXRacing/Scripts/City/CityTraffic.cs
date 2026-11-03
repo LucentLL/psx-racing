@@ -728,13 +728,28 @@ namespace PSXRacing.City
         static Vector2 PlanPoint(CityMap.Edge e, float s, float lat, out Vector2 tan)
         {
             tan = Bisector(e, s);
+            // the medians pass round 2: a refuge carriageway's laterals run square to its island's axis
+            // round 3: and its heading is the path's own (the axis plus the shift's slope), not OSM's fanned tangent
+            if (LineModel.RefugeNormal(e, s, out var nL))
+            {
+                if (LineModel.RefugeTangent(e, s, lat, out var pt)) tan = pt;
+                return e.PointAt(s) + nL * lat;
+            }
             return e.PointAt(s) + new Vector2(-tan.y, tan.x) * lat;
         }
 
         Vector2 LanePos(CityMap.Edge e, int dir, int lane, float s) =>
             PlanPoint(e, s, LaneLat(e, dir, lane, s), out _);
 
-        static Vector2 TravelTan(CityMap.Edge e, int dir, float s) => Bisector(e, Mathf.Clamp(s, 0f, e.length)) * dir;
+        static Vector2 TravelTan(CityMap.Edge e, int dir, float s)
+        {
+            s = Mathf.Clamp(s, 0f, e.length);
+            // round 3 (medians): a refuge carriageway's lanes run along its island's axis
+            return (LineModel.RefugeTangent(e, s, 0f, out var pt) ? pt : Bisector(e, s)) * dir;
+        }
+
+        /// <summary>The medians gate (round 3): the plan point and the heading traffic uses.</summary>
+        public static Vector2 PlanPointForAudit(CityMap.Edge e, float s, float lat, out Vector2 tan) => PlanPoint(e, s, lat, out tan);
 
         /// <summary>Where a run ends short of its node: the junction's mouth
         /// (the ribbon trim), at least 2 m, at most 45% of the edge.</summary>

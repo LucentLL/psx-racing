@@ -41,22 +41,24 @@ namespace PSXRacing.City
     /// </summary>
     public static partial class CityMeshes
     {
-        public const byte MkOff = 0, MkLS = 1, MkCH = 2, MkDW = 3, MkAuxDW = 4, MkGoreCH = 5, MkGlyph = 6;
-        public static readonly string[] MarkNames = { "off", "LS", "CH", "DW", "aux DW", "gore CH", "glyph" };
+        public const byte MkOff = 0, MkLS = 1, MkCH = 2, MkDW = 3, MkAuxDW = 4, MkGoreCH = 5, MkGlyph = 6, MkYS = 7;
+        public static readonly string[] MarkNames = { "off", "LS", "CH", "DW", "aux DW", "gore CH", "glyph", "YS" };
 
         /// <summary>One mark on one edge over [s0, s1].
         ///   MkOff / MkLS / MkCH / MkDW  override the layout line k there
         ///   MkAuxDW   a line at the through lanes' edge on side (+1 plus)
         ///   MkGoreCH  a line at the ramp's inner lane edge: chain x =
         ///             c0 + (fromA ? s : L - s), lateral sideH * pd(x)
-        ///   MkGlyph   convex polygons in (lat, s)</summary>
+        ///   MkGlyph   convex polygons in (lat, s) (yellow: the yellow
+        ///             line's texels - an obstruction approach's hatch)
+        ///   MkYS      override layout line k there: solid yellow</summary>
         public sealed class PaintMark
         {
             public byte style; public int edge; public float s0, s1;
             public int k = -1, side;
             public float[] px, pd; public bool fromA; public float c0, xN, blend; public int sideH;
             public List<Vector2[]> pieces; public float[] bps; public float hdg;
-            public int zone; public string what;
+            public int zone; public string what; public bool yellow;
         }
 
         public static bool MarksOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MARKS") != "0";
@@ -67,14 +69,20 @@ namespace PSXRacing.City
         public sealed class MarkTally
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
-                       lsLines, lsEdges, bays, groups, groupsSkipped, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
+                       lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
             public readonly Dictionary<int, (float xP, float tO, float tP)> gore = new Dictionary<int, (float, float, float)>();
             public readonly List<string> notes = new List<string>();
+            /// <summary>Round 5: the nose lines forced solid yellow (edge << 8 | k), to match against the render-time keys.</summary>
+            public readonly HashSet<long> noseYs = new HashSet<long>();
         }
+        /// <summary>Round 5 (review r4 #7): set by the medians gate before it
+        /// builds tiles - every (edge << 8 | k) whose forced-solid yellow span
+        /// rendered solid, or fell back to the layout's line (null: not kept).</summary>
+        public static HashSet<long> YsDrawnKeys, YsFallbackKeys;
         public static MarkTally MarkStats = new MarkTally();
 
         /// <summary>The marks of the map as these trims draw it (built once per
@@ -93,6 +101,7 @@ namespace PSXRacing.City
             CrosswalkMarks(map, t);
             float t1 = (float)sw.Elapsed.TotalMilliseconds;
             TurnMarks(map, t);
+            NoseMarks(map, t);
             float t2 = (float)sw.Elapsed.TotalMilliseconds;
             YieldMarks(map, t);
             MarkStats.buildMs = (float)sw.Elapsed.TotalMilliseconds;
@@ -120,7 +129,7 @@ namespace PSXRacing.City
             var l = MarksOf(e.index);
             if (l == null) return 255;
             foreach (var m in l)
-                if (m.k == k && m.style <= MkDW && s >= m.s0 && s <= m.s1) return m.style;
+                if (m.k == k && (m.style <= MkDW || m.style == MkYS) && s >= m.s0 && s <= m.s1) return m.style;
             return 255;
         }
 
@@ -422,8 +431,7 @@ namespace PSXRacing.City
                     if (c >= cos35) continue;
                     var lay = LineModel.LayoutOf(M);
                     float sN = M.a == node ? 0f : M.length;
-                    var tM = M.TangentAt(sN);
-                    var nM = new Vector2(-tM.y, tM.x);
+                    var nM = LineModel.SectionLeft(M, sN);
                     int sigma = Vector2.Dot(dB, nM) >= 0f ? 1 : -1;
                     int k = LineOfKind(lay, sigma > 0 ? LineModel.KEdgeP : LineModel.KEdgeM);
                     if (k < 0) { MarkStats.mouthsSkipped++; continue; }
@@ -554,6 +562,10 @@ namespace PSXRacing.City
                     bool forward = dir == 0;
                     int nd = forward ? e.b : e.a;
                     if (map.nodeEdges[nd].Count < 3) { MarkStats.groupsSkipped++; continue; }
+                    // the medians pass (2026-11-02): a lane that runs into the
+                    // nose of a plain carriageway split (no street of another
+                    // name there) turns nowhere - no arrow and ONLY into a kerb
+                    bool nose = PlainSplitNose(map, nd, e);
                     float sEnd = forward ? e.length - t.TrimAt(e, e.b) : t.TrimAt(e, e.a);
                     // behind a crosswalk's stop bar (roads pass L7), else 3 m back
                     float cwBack = CitySignals.CrosswalkStopBack(map, t, e, nd);
@@ -564,6 +576,10 @@ namespace PSXRacing.City
                         if (((bits >> i) & 1) == 0) continue;
                         int turn = i < n - 1 - i ? -1 : i > n - 1 - i ? 1 : 0;
                         if (turn == 0) { MarkStats.groupsSkipped++; continue; }
+                        // round 5b (review r5 #4): only at an accepted (drawn)
+                        // refuge pair's nose - every other plain nose, a reverted
+                        // pair's included, keeps live's arrow and ONLY
+                        if (nose && LineModel.IsRefugeNode(nd)) { MarkStats.noseSkipped++; continue; }
                         // the lane's centre, m from the plus edge (RoadProfiles.LinesFor)
                         float m;
                         if (e.oneway) m = pr.shl + (i + 0.5f) * RoadProfiles.LaneM;
@@ -573,9 +589,181 @@ namespace PSXRacing.City
                             float farStart = medStart + (e.lsCentre == 2 ? RoadProfiles.LaneM : 0f);
                             m = forward ? farStart + (i + 0.5f) * RoadProfiles.LaneM : medStart - (i + 0.5f) * RoadProfiles.LaneM;
                         }
-                        Group(map, t, e, sRef, forward, PlusOf(e) - m, turn, 1f, "turn-only");
+                        if (Group(map, t, e, sRef, forward, PlusOf(e) - m, turn, 1f, "turn-only") && nose)
+                        {
+                            MarkStats.noseArrows++;
+                            if (LineModel.IsRefugeNode(nd)) MarkStats.noseArrowsRefuge++;
+                        }
                     }
                 }
+            }
+        }
+
+        static CityMap noseMap; static HashSet<int> noseSplits;
+        /// <summary>Is node nd a carriageway split (section SPLT) whose arms
+        /// all carry e's name - the nose of an island, no side street?</summary>
+        public static bool PlainSplitNose(CityMap map, int nd, CityMap.Edge e)
+        {
+            if (noseMap != map)
+            {
+                noseMap = map; noseSplits = new HashSet<int>();
+                if (map.splt != null) foreach (var sp in map.splt) noseSplits.Add(sp.node);
+            }
+            if (!noseSplits.Contains(nd) || string.IsNullOrEmpty(e.name)) return false;
+            foreach (int i in map.nodeEdges[nd])
+                if (map.edges[i].name != e.name) return false;
+            return true;
+        }
+
+        // ================================================================
+        //  THE NOSE APPROACH (the medians pass round 2, 2026-11-02)
+        // ================================================================
+        // The owner on Beatties Ford: a centre left-turn lane running at full
+        // width into a kerb. Where an undivided road's centre lane (a TWLTL
+        // or a left-turn bay) runs into the nose of a plain carriageway split
+        // (every arm the same name - no street to turn into), the lane ends
+        // as MUTCD 3B.10's obstruction approach: over the last
+        // Lh = clamp(rate * W, 15, 30) m its two bounding lines are solid
+        // (a TWLTL's dashed yellow turns solid, a bay's white line solid)
+        // and yellow diagonal bars fill it, up to the island's tip. Where the
+        // undivided road between two noses is short (a median opening) each
+        // nose takes at most 45 % of it, so the opening itself stays open.
+        // Same switch as the islands (PSX_CITY_REFUGE).
+        const float HatchBarW = 0.30f, HatchStepM = 3.0f, HatchMinW = 1.5f, HatchMaxW = 4.6f;
+
+        /// <summary>Round 4 (review r3 #4): the plain noses whose centre lane
+        /// could not be hatched (it moves, or there is room for fewer than 3
+        /// bars): the island's kerb is kept back from these tips (a flush
+        /// painted tip, CityMeshes.Walks IslandKerbSpan) so no centre lane runs
+        /// into a 15 cm kerb unmarked.</summary>
+        public static readonly HashSet<int> NoseFlushTip = new HashSet<int>();
+        public const int HatchMinBars = 3;
+
+        /// <summary>Does a forced-solid yellow line render solid on this
+        /// texture (EmitMarked's own test - it falls back to the layout's line
+        /// when the texture has no solid yellow)?</summary>
+        static bool YellowSolidRenders(LineModel.Layout tex) => LineOfKind(tex, LineModel.KYellow) >= 0;
+
+        static void NoseMarks(CityMap map, Trims t)
+        {
+            NoseFlushTip.Clear();
+            if (!LineModel.RefugeOn || map.splt == null) return;
+            var noseNodes = new HashSet<int>();
+            foreach (var sp in map.splt) noseNodes.Add(sp.node);
+            var ls = new List<LineModel.LineAt>(16);
+            foreach (var sp in map.splt)
+            {
+                if (sp.u < 0 || sp.u >= map.edges.Length) continue;
+                var U = map.edges[sp.u];
+                if (U.a == U.b || U.oneway || U.link || Barriered(U) || CityTier.Of(U) > 2) continue;
+                if (!PlainSplitNose(map, sp.node, U)) continue;
+                // round 5 (review r4 #8): the hatch and the flush tip only at the
+                // noses of drawn (accepted) refuge pairs - every other plain nose
+                // keeps live's paint and its kerb (only its turn arrows are gone)
+                if (!LineModel.IsRefugeNode(sp.node)) { MarkStats.noseNonRefuge++; continue; }
+                bool forward = U.b == sp.node;                         // U runs INTO the nose a->b
+                float trimNear = t.TrimAt(U, sp.node);
+                int other = forward ? U.a : U.b;
+                float trimFar = t.TrimAt(U, other);
+                float drawn = U.length - trimNear - trimFar;
+                if (drawn < 6f) { MarkStats.noseNoRoom++; MarkStats.noseNoCentre++; continue; }
+                float sEnd = forward ? U.length - trimNear : trimNear;
+                // the centre lane at the nose: the lines nearest the axis (U's own line) on each side
+                float sProbe = forward ? sEnd - 2f : sEnd + 2f;
+                LineModel.LinesAt(U, sProbe, ls);
+                var lay = LineModel.LayoutOf(U);
+                int kLo = -1, kHi = -1; float lo = float.MinValue, hi = float.MaxValue;
+                foreach (var l in ls)
+                {
+                    if (l.lat < 0f && l.lat > lo) { lo = l.lat; kLo = l.k; }
+                    if (l.lat > 0f && l.lat < hi) { hi = l.lat; kHi = l.k; }
+                }
+                if (kLo < 0 || kHi < 0 || hi - lo < HatchMinW || hi - lo > HatchMaxW) { MarkStats.noseNoRoom++; MarkStats.noseNoCentre++; continue; }
+                float W = hi - lo;
+                // Round 3 (review r2 #7, #8). The hatch covers only where the
+                // centre lane is STEADY: both bounding lines drawn, each within
+                // 0.3 m of where it is at the nose, the lane at least HatchMinW -
+                // a relay or a bay's taper moving them ends it (round 2 laid
+                // every bar at the nose's laterals, and where the lines had
+                // moved the column renderer clamped them into "Z" pieces). And
+                // it takes at most 45 % of the undivided stretch whatever is at
+                // its other end: a cross street there keeps the opposite
+                // direction's left-turn bay (round 2 hatched it end to end).
+                float LhMax = Mathf.Min(Mathf.Clamp(LineModel.ShiftRateOf(U) * W, 15f, 30f), 0.45f * drawn);
+                float dir = forward ? -1f : 1f;                      // from the nose back along U
+                // Round 4 (review r3 #5): the hatch follows the centre lane where
+                // it IS - both its bounding lines drawn, no other line between
+                // them, its width within the hatch's range, each line moving at
+                // most 0.15 m per half metre (a relay's gentle move is followed;
+                // round 3 stopped at the first 0.3 m and left n10229 a lone bar)
+                float pl0 = lo, pl1 = hi;
+                bool LaneAt(float s, out float l0, out float l1)
+                {
+                    l0 = l1 = float.NaN;
+                    LineModel.LinesAt(U, Mathf.Clamp(s, 0f, U.length), ls);
+                    foreach (var l in ls) { if (l.k == kLo) l0 = l.lat; else if (l.k == kHi) l1 = l.lat; }
+                    if (float.IsNaN(l0) || float.IsNaN(l1)) return false;
+                    foreach (var l in ls) if (l.k != kLo && l.k != kHi && l.lat > l0 + 0.05f && l.lat < l1 - 0.05f) return false;
+                    return l1 - l0 >= HatchMinW && l1 - l0 <= HatchMaxW;
+                }
+                float Lh = 0f;
+                for (float y = 0f; y <= LhMax + 1e-3f; y += 0.5f)
+                {
+                    if (!LaneAt(sEnd + dir * y, out float a0, out float a1)) break;
+                    if (y > 0f && (Mathf.Abs(a0 - pl0) > 0.15f || Mathf.Abs(a1 - pl1) > 0.15f)) break;
+                    pl0 = a0; pl1 = a1;
+                    Lh = y;
+                }
+                // the diagonal bars (45 degrees across the lane), each end on the
+                // lines where it is, clear of them; from 0.2 m off the nose (the
+                // island's tip is RefugeTipM in from it)
+                var pieces = new List<Vector2[]>(12); var bps = new List<float>(48);
+                float h = HatchBarW * 1.41421356f;                   // a 0.30 m bar at 45 degrees, measured along s
+                float rise = W - 0.3f;
+                // a bar end off the line (NaN where the lane is not there: the bar is dropped)
+                float A(float s) => LaneAt(s, out float l0, out _) ? l0 + 0.15f : float.NaN;
+                float B(float s) => LaneAt(s, out _, out float l1) ? l1 - 0.15f : float.NaN;
+                for (float y = 0.2f; y + rise + h <= Lh + 1e-3f; y += HatchStepM)
+                {
+                    float n0 = sEnd + dir * y, n1 = sEnd + dir * (y + rise);
+                    var pc = new[] { new Vector2(A(n0), n0), new Vector2(A(n0 + dir * h), n0 + dir * h), new Vector2(B(n1 + dir * h), n1 + dir * h), new Vector2(B(n1), n1) };
+                    bool ok = true;
+                    foreach (var v in pc) if (float.IsNaN(v.x)) ok = false;
+                    if (!ok) continue;
+                    pieces.Add(pc);
+                    foreach (var v in pc) bps.Add(v.y);
+                }
+                // never a lone bar (review r3 #5): fewer than HatchMinBars and the
+                // nose is not hatched - its island keeps the kerb back from the tip
+                if (pieces.Count < HatchMinBars)
+                {
+                    MarkStats.noseNoRoom++; MarkStats.noseUnsteady++; MarkStats.noseFlushTip++;
+                    NoseFlushTip.Add(sp.node);
+                    continue;
+                }
+                float s0 = forward ? sEnd - Lh : sEnd, s1 = forward ? sEnd : sEnd + Lh;
+                // the bounding lines solid over the hatch (counted as they will render)
+                var texL = lay.tex ?? lay;
+                for (int q = 0; q < 2; q++)
+                {
+                    int k = q == 0 ? kLo : kHi;
+                    byte kind = lay.kind[k];
+                    if (kind == LineModel.KYellowDash)
+                    {
+                        AddMark(new PaintMark { style = MkYS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: TWLTL line solid" });
+                        MarkStats.noseYs.Add(((long)U.index << 8) | (uint)k);
+                        if (YellowSolidRenders(texL)) MarkStats.noseSolid++; else MarkStats.noseSolidFallback++;
+                    }
+                    else if (kind == LineModel.KWhiteDash) { AddMark(new PaintMark { style = MkLS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: bay line solid" }); MarkStats.noseSolid++; }
+                }
+                bps.Sort();
+                var uq = new List<float>(bps.Count);
+                foreach (float v in bps) if (uq.Count == 0 || v - uq[uq.Count - 1] > 1e-3f) uq.Add(v);
+                var tg = U.TangentAt(0.5f * (s0 + s1)); if (!forward) tg = -tg;
+                if (LineOfKind(lay.tex ?? lay, LineModel.KYellow) < 0) MarkStats.noseWhiteOnly++;
+                AddMark(new PaintMark { style = MkGlyph, edge = U.index, s0 = Mathf.Min(s0, s1), s1 = Mathf.Max(s0, s1), pieces = pieces, bps = uq.ToArray(), side = 0, what = "nose hatch", yellow = true,
+                                        hdg = Mathf.Repeat(Mathf.Atan2(tg.x, tg.y) * Mathf.Rad2Deg, 360f) });
+                MarkStats.noseHatches++; MarkStats.noseHatchBars += pieces.Count;
             }
         }
 
@@ -903,7 +1091,7 @@ namespace PSXRacing.City
 
         static byte SpanOverride(int k)
         {
-            foreach (var m in spanMarks) if (m.k == k && m.style <= MkDW) return m.style;
+            foreach (var m in spanMarks) if (m.k == k && (m.style <= MkDW || m.style == MkYS)) return m.style;
             return 255;
         }
 
@@ -916,7 +1104,7 @@ namespace PSXRacing.City
         static readonly List<MCol> mcols = new List<MCol>(24);
         static readonly List<LineModel.LineAt> rawA = new List<LineModel.LineAt>(16), rawB = new List<LineModel.LineAt>(16);
         static readonly List<float> subT = new List<float>(32);
-        static readonly List<(float la0, float la1, float lb0, float lb1)> ivs = new List<(float, float, float, float)>(16);
+        static readonly List<(float la0, float la1, float lb0, float lb1, float u)> ivs = new List<(float, float, float, float, float)>(16);
 
         static bool FindLat(List<LineModel.LineAt> ls, int k, out float lat)
         {
@@ -947,6 +1135,8 @@ namespace PSXRacing.City
             int jw = LineOfKind(tex, LineModel.KEdgeM);
             if (jw < 0) jw = 0;
             float wHi = (tex.x1[jw] + 0.5f) / tw, wLo = (tex.x0[jw] + 0.5f) / tw;
+            int jy = LineOfKind(tex, LineModel.KYellow);
+            float yHi = jy >= 0 ? (tex.x1[jy] + 0.5f) / tw : wHi, yLo = jy >= 0 ? (tex.x0[jy] + 0.5f) / tw : wLo;
             mcols.Clear();
             void Add(float la0, float la1, float lb0, float lb1, byte kind, float uL, float uR, int k, bool extra) =>
                 mcols.Add(new MCol { loA = la0, hiA = la1, loB = lb0, hiB = lb1, kind = kind, uL = uL, uR = uR, k = k, extra = extra });
@@ -955,6 +1145,12 @@ namespace PSXRacing.City
                 byte ov = SpanOverride(sl.k);
                 if (ov == MkOff || ov == MkCH) continue;
                 if (ov == MkLS) { Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, 2, wHi, wLo, sl.k, false); continue; }
+                if (ov == MkYS)
+                {
+                    if (jy >= 0) MarkStats.ysDrawn++; else MarkStats.ysFallback++;
+                    (jy >= 0 ? YsDrawnKeys : YsFallbackKeys)?.Add(((long)e.index << 8) | (uint)sl.k);
+                }
+                if (ov == MkYS && jy >= 0) { Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, 2, yHi, yLo, sl.k, false); continue; }
                 if (ov == MkDW) { Add(sl.latA - DWHalf, sl.latA + DWHalf, sl.latB - DWHalf, sl.latB + DWHalf, 3, wHi, wLo, sl.k, false); continue; }
                 float uHi = (lay.srcM[sl.k] + PH) / lay.W, uLo = (lay.srcM[sl.k] - PH) / lay.W;
                 Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, (byte)(lay.synth[sl.k] ? 1 : 0), uHi, uLo, sl.k, false);
@@ -1158,11 +1354,14 @@ namespace PSXRacing.City
             }
             subT.Add(0f); subT.Add(1f);
             subT.Sort();
-            float wU = 0f;
+            float wU = 0f, yU = -1f;
             {
                 int jw = LineOfKind(tex, LineModel.KEdgeM);
                 if (jw < 0) jw = 0;
                 wU = (tex.x0[jw] + tex.x1[jw] + 1f) * 0.5f / tw;
+                // the medians pass: a yellow glyph (the nose hatch) takes the solid yellow line's texels
+                int jy = LineOfKind(tex, LineModel.KYellow);
+                if (jy >= 0) yU = (tex.x0[jy] + tex.x1[jy] + 1f) * 0.5f / tw;
             }
             for (int i = 0; i + 1 < subT.Count; i++)
             {
@@ -1175,6 +1374,7 @@ namespace PSXRacing.City
                 foreach (var m in spanMarks)
                 {
                     if (m.style != MkGlyph) continue;
+                    float pu = m.yellow && yU >= 0f ? yU : wU;
                     foreach (var pc in m.pieces)
                     {
                         float y0 = float.MaxValue, y1 = float.MinValue;
@@ -1185,7 +1385,7 @@ namespace PSXRacing.City
                         if (a1 - a0 < 1e-3f && b1 - b0 < 1e-3f) continue;
                         if (a1 < a0) a1 = a0;
                         if (b1 < b0) b1 = b0;
-                        ivs.Add((a0, a1, b0, b1));
+                        ivs.Add((a0, a1, b0, b1, pu));
                     }
                 }
                 ivs.Sort((x, y) => (x.la0 + x.lb0).CompareTo(y.la0 + y.lb0));
@@ -1198,7 +1398,7 @@ namespace PSXRacing.City
                     {
                         var p = ivs[w - 1];
                         if (c.la0 <= p.la1 + 2e-3f && c.lb0 <= p.lb1 + 2e-3f)
-                        { ivs[w - 1] = (Mathf.Min(p.la0, c.la0), Mathf.Max(p.la1, c.la1), Mathf.Min(p.lb0, c.lb0), Mathf.Max(p.lb1, c.lb1)); continue; }
+                        { ivs[w - 1] = (Mathf.Min(p.la0, c.la0), Mathf.Max(p.la1, c.la1), Mathf.Min(p.lb0, c.lb0), Mathf.Max(p.lb1, c.lb1), p.u); continue; }
                         if (c.la0 < p.la1 - 2e-3f || c.lb0 < p.lb1 - 2e-3f) continue;   // crossing pieces: the first one wins
                     }
                     ivs[w++] = c;
@@ -1219,7 +1419,7 @@ namespace PSXRacing.City
                     var iv = ivs[j];
                     {
                         Vector3 a = P(ta, iv.la0, out _), b = P(tb, iv.lb0, out _), c = P(tb, iv.lb1, out _), d = P(ta, iv.la1, out _);
-                        bk.Quad(a, b, c, d, new Vector2(wU, va), new Vector2(wU, vb), new Vector2(wU, vb), new Vector2(wU, va));
+                        bk.Quad(a, b, c, d, new Vector2(iv.u, va), new Vector2(iv.u, vb), new Vector2(iv.u, vb), new Vector2(iv.u, va));
                         quads++;
                     }
                     ca = iv.la1; cb = iv.lb1;

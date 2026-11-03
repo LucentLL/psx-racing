@@ -172,7 +172,8 @@ namespace PSXRacing.City
             /// </summary>
             public float PaveEdgeM(float at, int side)
             {
-                LineModel.Extents(this, at, out float eMinus, out float ePlus);
+                // round 3 (medians): along OSM's normal, which every reader lays it on
+                LineModel.ExtentsAlongOsm(this, at, out float eMinus, out float ePlus);
                 return side > 0 ? eMinus : ePlus;
             }
 
