@@ -95,6 +95,7 @@ namespace PSXRacing.City
         readonly List<int> nextSlots = new List<int>();
         readonly int[] nextIBase = new int[(int)CityMeshes.Slot.COUNT], nextICount = new int[(int)CityMeshes.Slot.COUNT], nextIRun = new int[(int)CityMeshes.Slot.COUNT];
         int[] idxScratch = new int[65536];
+        SubMeshDescriptor[] subDesc = new SubMeshDescriptor[(int)CityMeshes.Slot.COUNT];
         float lastSwap = -1e9f;
         const MeshUpdateFlags Quiet = MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontResetBoneBounds |
                                       MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontRecalculateBounds;
@@ -468,17 +469,21 @@ namespace PSXRacing.City
                 // capacity then lies and the next rebuild writes past the buffer's
                 // end (the traffic census: "Accessing ... bytes at offset 227568 for
                 // mesh index buffer of size 215328", 804 times on long jumps).
-                // Submeshes past this rebuild's slots are left empty.
+                // Submeshes past this rebuild's slots are left empty. All are set
+                // in one call: one at a time, a new range met the next submesh's
+                // range from the last rebuild ("SetSubMesh #0 shares part of its
+                // index buffer with SubMesh #1", PC6's tours, every few swaps).
                 int subs = Mathf.Max(back.subMeshCount, nextSlots.Count);
-                back.subMeshCount = subs;
+                if (subDesc.Length < subs) subDesc = new SubMeshDescriptor[subs];
                 for (int i = 0; i < nextSlots.Count; i++)
                 {
                     int s = nextSlots[i];
-                    back.SetSubMesh(i, new SubMeshDescriptor(nextIBase[s], nextICount[s], MeshTopology.Triangles), Quiet);
+                    subDesc[i] = new SubMeshDescriptor(nextIBase[s], nextICount[s], MeshTopology.Triangles);
                     tris += nextICount[s] / 3;
                 }
                 for (int i = nextSlots.Count; i < subs; i++)
-                    back.SetSubMesh(i, new SubMeshDescriptor(0, 0, MeshTopology.Triangles), Quiet);
+                    subDesc[i] = new SubMeshDescriptor(0, 0, MeshTopology.Triangles);
+                back.SetSubMeshes(subDesc, 0, subs, Quiet);
                 back.bounds = new Bounds(Vector3.zero, Vector3.one * 1e5f);
             }
             var oldShown = new HashSet<long>(shown);
