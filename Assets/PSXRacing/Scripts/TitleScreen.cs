@@ -504,7 +504,7 @@ namespace PSXRacing
                 MenuKit.Dim, 600f);
 
             root = MenuKit.Stretch(canvas.transform, "Buttons", new Vector2(0f, 0f), new Vector2(0f, 0f),
-                0f, -520f, 24f, 220f);
+                0f, -520f, 24f, 300f);
             BuildButtons();
 
             // Over everything, the menu included: the seasons fade through it.
@@ -522,7 +522,8 @@ namespace PSXRacing
         {
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
             var items = new List<Selectable>();
-            float y = 96f;
+            // Stacked up from the bottom row (y 20), one 76-unit step a button.
+            float y = 20f + 76f * (HasCareer ? 2 : 1);
             if (HasCareer)
             {
                 items.Add(MenuKit.Button(root, "CONTINUE GAME", new Vector2(0f, 0f), new Vector2(48f, y),
@@ -531,6 +532,10 @@ namespace PSXRacing
             }
             items.Add(MenuKit.Button(root, "NEW GAME", new Vector2(0f, 0f), new Vector2(48f, y),
                 new Vector2(440f, 60f), () => { if (HasCareer) Confirm(); else Leave(); }, MenuKit.Head));
+            y -= 76f;
+            // ARCADE (owner, 2026-11-03): any car, any course, nothing banked.
+            items.Add(MenuKit.Button(root, "ARCADE", new Vector2(0f, 0f), new Vector2(48f, y),
+                new Vector2(440f, 60f), ArcadeMode.Enter, MenuKit.Head));
             Wire(items);
         }
 

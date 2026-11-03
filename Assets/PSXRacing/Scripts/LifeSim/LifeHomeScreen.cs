@@ -165,6 +165,20 @@ namespace PSXRacing.LifeSim
 
         void Start()
         {
+            // ARCADE (ArcadeMode, 2026-11-03): the title's third door - any
+            // car, any course, nothing banked - is its own small front end in
+            // this scene, as the CITY edition's is. FIRST, because a session
+            // reads as no career (Edition.HasCareer) and would otherwise land
+            // on the CITY front end below.
+            if (ArcadeMode.Active)
+            {
+                enabled = false;
+                var ar = GetComponent<ArcadeFrontEnd>();
+                if (ar == null) ar = gameObject.AddComponent<ArcadeFrontEnd>();
+                ar.Open();
+                return;
+            }
+
             // THE CITY EDITION HAS NO HOUSE. The Charlotte test page is the
             // city, its races, a car and the options — no career, no calendar,
             // no save to spend a block from — so this scene is its own small

@@ -495,7 +495,7 @@ namespace PSXRacing.City
             for (int xi = 0; xi < E.Length; xi++)
             {
                 var X = E[xi];
-                if (X.a == X.b || !X.oneway || X.link || !Barriered(X) || string.IsNullOrEmpty(X.name)) continue;
+                if (X.a == X.b || !X.oneway || X.link || !Barriered(X) || string.IsNullOrEmpty(X.name) || !ConcreteMedian(X)) continue;
                 var list = t.unions[xi];
                 for (int side = -1; side <= 1; side += 2)
                 {

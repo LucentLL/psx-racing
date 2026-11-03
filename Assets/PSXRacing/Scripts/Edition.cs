@@ -157,8 +157,10 @@ namespace PSXRacing
         public static bool Ships(TrackCatalog.TrackDef def) => ShipsIn(def, Current);
 
         /// <summary>The career — the house, the calendar, the town, money,
-        /// saves — exists in this edition.</summary>
-        public static bool HasCareer => Current != EditionKind.City;
+        /// saves — exists in this edition, and is the one playing: an ARCADE
+        /// session (<see cref="ArcadeMode"/>) reads as no career, so a drive
+        /// out of it meets every career door shut, as in the CITY edition.</summary>
+        public static bool HasCareer => Current != EditionKind.City && !ArcadeMode.Active;
 
         /// <summary>Charlotte — the free-roam city and its races — exists in
         /// this edition.</summary>
