@@ -292,6 +292,7 @@ namespace PSXRacing.City
             float density = Density;
             bool signs = CitySigns.Enabled && CitySignData.Loaded;
             bool trees = Enabled && CityCanopy.Loaded;
+            StepNow = "mask";
 
             // what the canopy asks for, square by square, and the tile's cap
             float wanted = 0f;
@@ -322,23 +323,24 @@ namespace PSXRacing.City
             // THE JUNCTION FURNITURE FIRST (the plan's priority: junction
             // furniture, poles, lamps, signs, trees): STOP signs and signal
             // poles take their ground on the mask before anything else
-            if (junctions) tt.signals = CitySignals.Build(map, trims, buildings, tm, occ, tx, tz);
+            if (junctions) { tt.signals = CitySignals.Build(map, trims, buildings, tm, occ, tx, tz); StepNow = "junctions"; }
             if (junctions) { clock.Stop(); yield return 0; clock.Start(); }
             // THE POLES NEXT (WP-15): their feet taken on the mask before the
             // signs and trees
-            if (furniture) tt.poles = CityPoles.Build(map, trims, buildings, tm, occ, tx, tz);
+            if (furniture) { tt.poles = CityPoles.Build(map, trims, buildings, tm, occ, tx, tz); StepNow = "poles"; }
             if (furniture) { clock.Stop(); yield return 0; clock.Start(); }
             // THE SIGNS (WP-23; the plan's priority: signs before trees):
             // they take their ground on the mask, and the trees keep off it
-            if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
+            if (signs) { tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz); StepNow = "signs"; }
             if (!trees)
             {
                 // the understory still grows on a treeless tile (a freeway's verges)
-                if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); }
+                if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); StepNow = "under"; }
                 tt.ms = (float)clock.Elapsed.TotalMilliseconds;
                 yield break;
             }
             if (signs) { clock.Stop(); yield return 0; clock.Start(); }
+            StepNow = "walls";
             System.Array.Clear(taken, 0, taken.Length);
             float distUp = Vector2.Distance(min + Vector2.one * (CityMeshes.TileSize * 0.5f), map.uptown);
 
@@ -397,6 +399,7 @@ namespace PSXRacing.City
             // PASS 1: every square plants the rest of its share on its free ground
             float pool = 0f;
             clock.Stop(); yield return 0; clock.Start();
+            StepNow = "pass1";
             for (int z = 0; z < Squares; z++)
             {
                 if (z > 0 && (z & 3) == 0) { clock.Stop(); yield return 0; clock.Start(); }
@@ -420,6 +423,7 @@ namespace PSXRacing.City
             // PASS 2: what the road squares could not plant stands beside the
             // roads, square by square in a scrambled order (97 is prime to 256)
             clock.Stop(); yield return 0; clock.Start();
+            StepNow = "pass2";
             for (int visit = 0; visit < Squares * Squares * 2 && pool >= 1f; visit++)
             {
                 if (visit > 0 && (visit & 63) == 0) { clock.Stop(); yield return 0; clock.Start(); }
@@ -436,14 +440,23 @@ namespace PSXRacing.City
             }
 
             // PASS 3 (the skyline pass): the lots' planted rows
-            if (LotTreesOn) { clock.Stop(); yield return 0; clock.Start(); PlantLots(map, occ, tt, tx, tz, min, density, distUp); }
+            if (LotTreesOn) { clock.Stop(); yield return 0; clock.Start(); PlantLots(map, occ, tt, tx, tz, min, density, distUp); StepNow = "lots"; }
 
             clock.Stop(); yield return 0; clock.Start();
             BuildMesh(tt);
+            StepNow = "mesh";
             // THE UNDERSTORY (2026-11-02) last: the low grass and shrubs on what is left
-            if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); }
+            if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); StepNow = "under"; }
             tt.ms = (float)clock.Elapsed.TotalMilliseconds;
         }
+
+        /// <summary>
+        /// What the step of <see cref="BuildSteps"/> that last ran did (city-tree-bake,
+        /// 2026-11-03: the tree frames' hitches measured by step): mask, junctions,
+        /// poles, signs, walls, pass1, pass2, lots, mesh, under. Read after a
+        /// MoveNext (CityWorld.RunTreeJob names a slice's longest step with it).
+        /// </summary>
+        public static string StepNow = "-";
 
         // ------------------------------------------------------------------
         //  THE LOTS' TREES (the skyline pass, 2026-10-29). The owner's aerial
@@ -638,10 +651,37 @@ namespace PSXRacing.City
         static void BuildMesh(TreeTile tt)
         {
             if (tt.trees.Count == 0) return;
-            vScratch.Clear(); uvScratch.Clear(); tScratch.Clear(); nScratch.Clear();
-            var origin = new Vector3(tt.tx * CityMeshes.TileSize, 0f, tt.tz * CityMeshes.TileSize);
+            CardData(tt.trees, tt.tx, tt.tz, vScratch, nScratch, uvScratch, tScratch);
+            var m = new Mesh { name = MeshName };
+            if (vScratch.Count > MaxU16Vertices) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            m.SetVertices(vScratch);
+            m.SetNormals(nScratch);
+            m.SetUVs(0, uvScratch);
+            m.SetTriangles(tScratch, 0, false);
+            m.RecalculateBounds();
+            tt.mesh = m;
+        }
+
+        /// <summary>The trees' mesh name, and the vertex count past which it
+        /// takes 32-bit indices (BuildMesh's; the baked city rebuilds the mesh
+        /// the same way: CityTileCache).</summary>
+        public const string MeshName = "trees";
+        public const int MaxU16Vertices = 65000;
+
+        /// <summary>
+        /// The trees' two crossed cards each, as the vertex, normal, UV and
+        /// index lists <see cref="BuildMesh"/> makes the tile's tree mesh of.
+        /// Pure arithmetic on the list (any thread): the baked city
+        /// (CityTileCache, city-tree-bake) carries a tile's trees, not their
+        /// mesh, and rebuilds the mesh with this on a worker, so the baked
+        /// tile's cards are its planting's cards bit for bit.
+        /// </summary>
+        public static void CardData(List<Tree> trees, int tx, int tz, List<Vector3> vs, List<Vector3> ns, List<Vector2> uvs, List<int> ts)
+        {
+            vs.Clear(); uvs.Clear(); ts.Clear(); ns.Clear();
+            var origin = new Vector3(tx * CityMeshes.TileSize, 0f, tz * CityMeshes.TileSize);
             const float pad = 1.5f / 512f;
-            foreach (var t in tt.trees)
+            foreach (var t in trees)
             {
                 int col = t.cell % 4, row = t.cell / 4;
                 float u0 = col * 0.25f + pad, u1 = (col + 1) * 0.25f - pad;
@@ -652,27 +692,19 @@ namespace PSXRacing.City
                     float a = (t.yawDeg + q * 90f) * Mathf.Deg2Rad;
                     float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
                     var half = new Vector3(ca, 0f, sa) * (t.w * 0.5f);
-                    int v = vScratch.Count;
-                    vScratch.Add(b - half); vScratch.Add(b - half + Vector3.up * t.h);
-                    vScratch.Add(b + half + Vector3.up * t.h); vScratch.Add(b + half);
+                    int v = vs.Count;
+                    vs.Add(b - half); vs.Add(b - half + Vector3.up * t.h);
+                    vs.Add(b + half + Vector3.up * t.h); vs.Add(b + half);
                     // the card's face normal, as RecalculateNormals made it
                     // (up x half), handed over rather than worked out (WP-09)
                     var nrm = new Vector3(sa, 0f, -ca);
-                    nScratch.Add(nrm); nScratch.Add(nrm); nScratch.Add(nrm); nScratch.Add(nrm);
-                    uvScratch.Add(new Vector2(u0, v0)); uvScratch.Add(new Vector2(u0, v1));
-                    uvScratch.Add(new Vector2(u1, v1)); uvScratch.Add(new Vector2(u1, v0));
-                    tScratch.Add(v); tScratch.Add(v + 1); tScratch.Add(v + 2);
-                    tScratch.Add(v); tScratch.Add(v + 2); tScratch.Add(v + 3);
+                    ns.Add(nrm); ns.Add(nrm); ns.Add(nrm); ns.Add(nrm);
+                    uvs.Add(new Vector2(u0, v0)); uvs.Add(new Vector2(u0, v1));
+                    uvs.Add(new Vector2(u1, v1)); uvs.Add(new Vector2(u1, v0));
+                    ts.Add(v); ts.Add(v + 1); ts.Add(v + 2);
+                    ts.Add(v); ts.Add(v + 2); ts.Add(v + 3);
                 }
             }
-            var m = new Mesh { name = "trees" };
-            if (vScratch.Count > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-            m.SetVertices(vScratch);
-            m.SetNormals(nScratch);
-            m.SetUVs(0, uvScratch);
-            m.SetTriangles(tScratch, 0, false);
-            m.RecalculateBounds();
-            tt.mesh = m;
         }
 
         /// <summary>The dress to plant in: the calendar's (what the scene's

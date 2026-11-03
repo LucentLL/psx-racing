@@ -17,10 +17,19 @@ namespace PSXRacing.EditorTools
     /// trees planted, and compared:
     ///   data   - every field and mesh of the TileMeshes (CityTileCache.DataHash);
     ///   ground - the tile's lattice once its stand-up and its planting read it;
+    ///   trees  - (format 2, city-tree-bake) the tile's TREE FRAME as it is about
+    ///            to stand up: PLANTED here in the built pass, read off the bake
+    ///            (planted by the bake tool) in the baked pass - everything the
+    ///            file carries and the trees' mesh (CityTileCache.TreeHash; a
+    ///            difference names its part: trees, under, poles, signals, signs);
     ///   whole  - every mesh under the stood-up tile (FullSig: the tile's, its
     ///            trees', poles', signals' and signs', every prop model's place).
-    /// Any difference fails. The full bake is used when it is fresh and holds
-    /// every route tile; else the gate bakes the route tiles into CityTiles_gate.
+    /// Every sign and pole is decided afresh in each pass (their caches cleared),
+    /// in the order the pass stands the tiles; the bake decided them in rows - so
+    /// a baked frame that depended on which tile asked first would show here.
+    /// Any difference fails, and so does a baked tile that planted its frame.
+    /// The full bake is used when it is fresh and holds every route tile; else
+    /// the gate bakes the route tiles (in rows) into CityTiles_gate.
     /// Report: PSXRacing_hitch_TAG.txt, the last line BAKE GATE PASS / FAIL.
     /// </summary>
     public static partial class HitchProbe
@@ -60,7 +69,11 @@ namespace PSXRacing.EditorTools
             if (!full || Env("PSX_HITCH_REBAKE", "0") == "1")
             {
                 dir = Path.Combine(ProjectDir, CityTileCache.FolderName + "_gate");
-                bool ok = CityTileBake.Bake(dir, order, out string rep);
+                // in ROWS, as the full bake goes - not in the order the passes stand
+                // the tiles, so another tile than in the passes decides each sign first
+                var rows = new List<Vector2Int>(order);
+                rows.Sort((a, b) => a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
+                bool ok = CityTileBake.Bake(dir, rows, out string rep);
                 L("gate bake: " + rep);
                 if (!ok) { L("BAKE GATE FAIL (the bake failed)"); return; }
             }
@@ -69,15 +82,29 @@ namespace PSXRacing.EditorTools
             var world = go.AddComponent<CityWorld>();
             world.ring = 2;
             var liveField = typeof(CityWorld).GetField("live", NP);
-            var pendField = typeof(CityWorld).GetField("treesPending", NP);
             var dropTile = typeof(CityWorld).GetMethod("DropTile", NP);
-            var res = new Dictionary<Vector2Int, (string data, string lat, string whole, float ms)>[2];
-            res[0] = new Dictionary<Vector2Int, (string data, string lat, string whole, float ms)>();
-            res[1] = new Dictionary<Vector2Int, (string data, string lat, string whole, float ms)>();
+            var res = new Dictionary<Vector2Int, (string data, string lat, string trees, string whole, float ms)>[2];
+            res[0] = new Dictionary<Vector2Int, (string data, string lat, string trees, string whole, float ms)>();
+            res[1] = new Dictionary<Vector2Int, (string data, string lat, string trees, string whole, float ms)>();
+            var parts = new Dictionary<Vector2Int, string>[] { new Dictionary<Vector2Int, string>(), new Dictionary<Vector2Int, string>() };
+            var treeMs = new List<float>[] { new List<float>(), new List<float>() };
             bool wasEnabled = CityTileCache.Enabled, wasForce = CityTileCache.Force;
             string wasDir = System.Environment.GetEnvironmentVariable("PSX_TILECACHE_DIR");
-            int baked = 0, latExtra = 0;
+            int baked = 0, latExtra = 0, bakedTrees = 0, plantedBaked = 0, plantReads = 0, plantMissing = 0, plantWrong = 0;
+            int[] frames = new int[2];
             var builtLattice = new Dictionary<Vector2Int, Dictionary<long, float>>();
+            var standLattice = new Dictionary<Vector2Int, Dictionary<long, float>>();
+            var slowTrees = new[] { new List<(float ms, Vector2Int k)>(), new List<(float ms, Vector2Int k)>() };
+            // the tree frame as it is about to stand up (planted, or off the bake)
+            long nowKey = long.MinValue;
+            string nowTrees = null, nowParts = null;
+            System.Action<long, CityTrees.TreeTile> onFrame = (k, tt) =>
+            {
+                if (k != nowKey) return;
+                nowTrees = CityTileCache.TreeHash(tt);
+                nowParts = CityTileCache.TreeHashParts(tt);
+            };
+            CityWorld.TreeFrameReady += onFrame;
             try
             {
                 System.Environment.SetEnvironmentVariable("PSX_TILECACHE_DIR", dir);
@@ -91,7 +118,11 @@ namespace PSXRacing.EditorTools
                     CityTileCache.Enabled = pass == 1;
                     CityTileCache.Reset();
                     if (pass == 1 && !CityTileCache.On) { L("BAKE GATE FAIL: the bake did not open - " + CityTileCache.Why); return; }
-                    int stood0 = CityWorld.BakedStood;
+                    if (pass == 1 && !CityTileCache.TreesOn) L("  (the bake's tree frames are not used: " + CityTileCache.Why + ")");
+                    // every sign and pole decided afresh, in this pass's order (the bake's were in rows)
+                    CitySigns.ClearCache();
+                    CityPoles.ClearCache();
+                    int stood0 = CityWorld.BakedStood, trees0 = CityWorld.BakedTreesStood;
                     var window = new List<long>();
                     foreach (var k in order)
                     {
@@ -101,30 +132,56 @@ namespace PSXRacing.EditorTools
                         float ms = (float)clock.Elapsed.TotalMilliseconds;
                         string data = "-", lat = "-", whole = "-";
                         Dictionary<long, float> lattice = null;
-                        if (pendField.GetValue(world) is IDictionary pend && pend.Contains(key))
+                        bool bakedT = false;
+                        if (world.TreesWaiting(key, out var wtm, out var wlat, out bakedT))
                         {
-                            var job = ((CityMeshes.TileMeshes tm, Dictionary<long, float> lattice))pend[key];
-                            data = CityTileCache.DataHash(job.tm);
-                            lattice = job.lattice;
+                            data = CityTileCache.DataHash(wtm);
+                            lattice = wlat;
+                            frames[pass]++;
                         }
-                        for (int g = 0; g < 400 && world.PrepareSigns(key) != 0; g++) { }
+                        // (built: the lattice as its stand-up left it - what a baked tile reads)
+                        if (pass == 0 && lattice != null) standLattice[k] = new Dictionary<long, float>(lattice);
+                        nowKey = key; nowTrees = null; nowParts = null;
+                        clock.Restart();
+                        // a baked frame decides nothing: only a planted one has signs and poles to decide
+                        if (!bakedT) for (int g = 0; g < 400 && world.PrepareSigns(key) != 0; g++) { }
+                        if (pass == 1 && !bakedT && data != "-") plantedBaked++;
                         world.PlantTrees(key);
-                        // the lattice once the planting has read it too. Built: kept; baked:
-                        // every corner the built tile read must be in it, bit for bit (the
-                        // bake may hold a few more - sign sites another order decided on it)
+                        if (data != "-")
+                        {
+                            float tms = (float)clock.Elapsed.TotalMilliseconds;
+                            treeMs[pass].Add(tms);
+                            slowTrees[pass].Add((tms, k));
+                        }
+                        string trees = nowTrees ?? "-";
+                        if (nowParts != null) parts[pass][k] = nowParts;
+                        // THE GROUND. Built: the lattice its build and stand-up read (kept
+                        // before the planting) and the planting's reads past it. Baked: every
+                        // corner the built stand-up read must be in the bake, bit for bit -
+                        // a baked tile reads its lattice for its stand-up and nothing else
+                        // (its frame is planted already). The built planting's own reads are
+                        // counted, not required: only a tile planted live (the A/B) reads them.
                         if (lattice != null)
                         {
-                            if (pass == 0) { builtLattice[k] = new Dictionary<long, float>(lattice); lat = "built " + lattice.Count; }
-                            else if (builtLattice.TryGetValue(k, out var bl))
+                            if (pass == 0) { builtLattice[k] = new Dictionary<long, float>(lattice); lat = "built " + (standLattice.TryGetValue(k, out var s0) ? s0.Count : -1); }
+                            else if (standLattice.TryGetValue(k, out var sl))
                             {
                                 int missing = 0, wrong = 0;
-                                foreach (var kv in bl)
+                                foreach (var kv in sl)
                                 {
                                     if (!lattice.TryGetValue(kv.Key, out float y)) missing++;
                                     else if (System.BitConverter.SingleToInt32Bits(y) != System.BitConverter.SingleToInt32Bits(kv.Value)) wrong++;
                                 }
-                                lat = missing == 0 && wrong == 0 ? "built " + bl.Count : $"{missing} corners missing, {wrong} differ of {bl.Count} (baked {lattice.Count})";
-                                latExtra += lattice.Count - bl.Count;
+                                lat = missing == 0 && wrong == 0 ? "built " + sl.Count : $"{missing} corners missing, {wrong} differ of {sl.Count} (baked {lattice.Count})";
+                                latExtra += lattice.Count - sl.Count;
+                                if (builtLattice.TryGetValue(k, out var bl))
+                                    foreach (var kv in bl)
+                                    {
+                                        if (sl.ContainsKey(kv.Key)) continue;
+                                        plantReads++;
+                                        if (!lattice.TryGetValue(kv.Key, out float y)) plantMissing++;
+                                        else if (System.BitConverter.SingleToInt32Bits(y) != System.BitConverter.SingleToInt32Bits(kv.Value)) plantWrong++;
+                                    }
                             }
                         }
                         if (liveField.GetValue(world) is IDictionary live && live.Contains(key))
@@ -132,42 +189,79 @@ namespace PSXRacing.EditorTools
                             var tile = live[key];
                             whole = FullSig(tile.GetType().GetField("go").GetValue(tile) as GameObject);
                         }
-                        res[pass][k] = (data, lat, whole, ms);
+                        res[pass][k] = (data, lat, trees, whole, ms);
                         window.Add(key);
                         while (window.Count > 9) { dropTile.Invoke(world, new object[] { window[0] }); window.RemoveAt(0); }
                     }
                     world.DropAll();
-                    if (pass == 1) baked = CityWorld.BakedStood - stood0;
+                    if (pass == 1) { baked = CityWorld.BakedStood - stood0; bakedTrees = CityWorld.BakedTreesStood - trees0; }
                 }
             }
             finally
             {
+                CityWorld.TreeFrameReady -= onFrame;
                 System.Environment.SetEnvironmentVariable("PSX_TILECACHE_DIR", wasDir);
                 CityTileCache.Enabled = wasEnabled; CityTileCache.Force = wasForce; CityTileCache.Reset();
                 world.DropAll();
                 Object.DestroyImmediate(go);
             }
 
-            int equal = 0, differ = 0, dData = 0, dLat = 0, dWhole = 0;
+            int equal = 0, differ = 0, dData = 0, dLat = 0, dTrees = 0, dWhole = 0;
             var liveMs = new List<float>(); var bakedMs = new List<float>();
+            var partDiff = new Dictionary<string, int>();
             foreach (var k in order)
             {
                 if (!res[0].TryGetValue(k, out var a) || !res[1].TryGetValue(k, out var b)) continue;
                 liveMs.Add(a.ms); bakedMs.Add(b.ms);
-                bool sd = a.data == b.data, sl = a.lat == b.lat, sw = a.whole == b.whole;
-                if (sd && sl && sw && a.whole != "-") { equal++; continue; }
+                bool sd = a.data == b.data, sl = a.lat == b.lat, st = a.trees == b.trees, sw = a.whole == b.whole;
+                if (sd && sl && st && sw && a.whole != "-") { equal++; continue; }
                 differ++;
                 if (!sd) dData++;
                 if (!sl) dLat++;
                 if (!sw) dWhole++;
+                string partNote = "";
+                if (!st)
+                {
+                    dTrees++;
+                    // which parts: the per-part hashes side by side
+                    parts[0].TryGetValue(k, out var pa); parts[1].TryGetValue(k, out var pb);
+                    if (pa != null && pb != null)
+                    {
+                        var xa = pa.Split(' '); var xb = pb.Split(' ');
+                        for (int i = 0; i < xa.Length && i < xb.Length; i++)
+                            if (xa[i] != xb[i])
+                            {
+                                string nm = xa[i].Split('=')[0];
+                                partDiff[nm] = partDiff.TryGetValue(nm, out int c) ? c + 1 : 1;
+                                partNote += " " + nm;
+                            }
+                    }
+                }
                 if (differ <= 25)
-                    L($"  DIFFERS tile {k.x},{k.y}:{(sd ? "" : $" data built {a.data} / baked {b.data}")}{(sl ? "" : $" ground built {a.lat} / baked {b.lat}")}{(sw ? "" : $" whole built {a.whole} / baked {b.whole}")}");
+                    L($"  DIFFERS tile {k.x},{k.y}:{(sd ? "" : $" data built {a.data} / baked {b.data}")}{(sl ? "" : $" ground built {a.lat} / baked {b.lat}")}" +
+                      $"{(st ? "" : $" trees planted {a.trees} / baked {b.trees} (differ in:{partNote})")}{(sw ? "" : $" whole built {a.whole} / baked {b.whole}")}");
             }
-            liveMs.Sort(); bakedMs.Sort();
+            liveMs.Sort(); bakedMs.Sort(); treeMs[0].Sort(); treeMs[1].Sort();
             L($"tile now (EnsureTile, main thread): built p50 {P(liveMs, 50):0.0} p95 {P(liveMs, 95):0.0} max {P(liveMs, 100):0.0} ms / baked (read + make + stand-up, colliders cooked here) p50 {P(bakedMs, 50):0.0} p95 {P(bakedMs, 95):0.0} max {P(bakedMs, 100):0.0} ms");
-            L($"{baked} of {order.Count} tiles stood up from the bake in the baked pass; the baked lattices hold {latExtra} corners more than the built ones read (sign sites decided in another order)");
-            L($"BAKE GATE: {order.Count} tiles, {equal} EQUAL, {differ} DIFFER (data {dData}, ground {dLat}, whole {dWhole})");
-            L(differ == 0 && equal == order.Count && baked == order.Count ? "BAKE GATE PASS" : "BAKE GATE FAIL");
+            L($"tree frame now (main thread, one go): planted (signs and poles decided, then planted, stood up) p50 {P(treeMs[0], 50):0.0} p95 {P(treeMs[0], 95):0.0} max {P(treeMs[0], 100):0.0} ms / " +
+              $"baked (meshes made, stood up) p50 {P(treeMs[1], 50):0.0} p95 {P(treeMs[1], 95):0.0} max {P(treeMs[1], 100):0.0} ms");
+            for (int pass = 0; pass < 2; pass++)
+            {
+                slowTrees[pass].Sort((x, y) => y.ms.CompareTo(x.ms));
+                var sw = new System.Text.StringBuilder(pass == 0 ? "  slowest planted tree frames:" : "  slowest baked tree frames:");
+                for (int i = 0; i < Mathf.Min(6, slowTrees[pass].Count); i++) sw.Append($" {slowTrees[pass][i].k.x},{slowTrees[pass][i].k.y} {slowTrees[pass][i].ms:0.0} ms;");
+                L(sw.ToString());
+            }
+            L($"{baked} of {order.Count} tiles stood up from the bake in the baked pass; tree frames: {frames[0]} planted in the built pass, {bakedTrees} stood up from the bake in the baked pass ({plantedBaked} planted there instead); the baked lattices hold {latExtra} corners more than the built stand-ups read");
+            L($"  the built plantings read {plantReads} corners past their stand-ups (a baked frame reads none): the bake holds all but {plantMissing} of them, {plantWrong} differ");
+            if (partDiff.Count > 0)
+            {
+                var pd = new System.Text.StringBuilder("tree frames differing, by part:");
+                foreach (var kv in partDiff) pd.Append(' ').Append(kv.Key).Append(' ').Append(kv.Value);
+                L(pd.ToString());
+            }
+            L($"BAKE GATE: {order.Count} tiles, {equal} EQUAL, {differ} DIFFER (data {dData}, ground {dLat}, trees {dTrees}, whole {dWhole})");
+            L(differ == 0 && equal == order.Count && baked == order.Count && bakedTrees == frames[0] && plantedBaked == 0 ? "BAKE GATE PASS" : "BAKE GATE FAIL");
         }
     }
 }

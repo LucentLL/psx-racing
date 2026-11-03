@@ -20,10 +20,17 @@ namespace PSXRacing.EditorTools
     ///     - line endings ignored) and the bake's own format,
     ///   * the city data it reads (<see cref="DataFiles"/>),
     ///   * the generator's environment switches (CityTileCache.Settings),
+    ///   * (format 2, city-tree-bake) the planting's one input from an asset: the
+    ///     city kit's tree low-reach table (<see cref="KitHash"/>),
     /// so a change to any of them makes the bake STALE: the editor and a player
     /// built after it ignore it and build live, and the Win64 build
     /// (PSXBuildWin64) bakes again. Nothing here is ever committed (/CityTiles/
     /// is git-ignored); the bake lives in the project (sandbox) folder.
+    ///
+    /// Format 2 (city-tree-bake, 2026-11-03): each tile is planted as play
+    /// plants it and its TREE FRAME is written with it (captured through
+    /// CityWorld.TreeFrameReady the moment the planting ends), so a baked tile
+    /// plants nothing at runtime.
     ///
     ///   Unity.exe -batchmode -projectPath &lt;sandbox&gt; -executeMethod PSXRacing.EditorTools.CityTileBake.BakeFromCommandLine
     ///             [-psxTileDir &lt;dir&gt;] [-psxTileForce]   (PSX_TILECACHE_TILES=x,z;x,z... bakes only those)
@@ -38,6 +45,10 @@ namespace PSXRacing.EditorTools
         static CityTileBake() { CityTileCache.EditorFingerprint = Fingerprint; }
 
         static string ProjectDir => Path.GetDirectoryName(Application.dataPath);
+
+        /// <summary>A bake stops rather than leave less than this free on its
+        /// drive (the owner's floor: other sessions build on the same disk).</summary>
+        public const long MinFreeBytes = 15L * 1024 * 1024 * 1024;
 
         /// <summary>The generator's sources: every .cs under these (recursively).</summary>
         public static readonly string[] CodeDirs = { "Assets/PSXRacing/Scripts/City" };
@@ -75,9 +86,24 @@ namespace PSXRacing.EditorTools
             data = HashFiles(dataFiles, false);
             using (var sha = SHA256.Create())
             {
-                var all = Encoding.UTF8.GetBytes("format " + CityTileCache.Format + "\ncode " + code + "\ndata " + data + "\nsettings " + CityTileCache.Settings() + "\n");
+                var all = Encoding.UTF8.GetBytes("format " + CityTileCache.Format + "\ncode " + code + "\ndata " + data + "\nkit " + KitHash() +
+                                                 "\nsettings " + CityTileCache.Settings() + "\n");
                 return Hex(sha.ComputeHash(all));
             }
+        }
+
+        /// <summary>The city kit's tree low-reach table (CityKit.treeLowReach,
+        /// measured off the tree atlases by the scene build), hashed: the
+        /// planting fits every tree near a road by it, so a new atlas plants
+        /// differently. "none" without a kit.</summary>
+        public static string KitHash()
+        {
+            var kit = CityKit.Get();
+            var t = kit != null ? kit.treeLowReach : null;
+            if (t == null) return "none";
+            var b = new byte[t.Length * 4];
+            Buffer.BlockCopy(t, 0, b, 0, b.Length);
+            using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(b));
         }
 
         static string HashFiles(List<string> files, bool text)
@@ -156,7 +182,7 @@ namespace PSXRacing.EditorTools
             if (m == null) { why = "no manifest at " + dir; return false; }
             if (m.format != CityTileCache.Format) { why = "format " + m.format; return false; }
             string fp = Fingerprint(out string code, out string data);
-            if (m.fingerprint != fp) { why = $"STALE: baked {Short(m.fingerprint)}, sources+data now {Short(fp)} (code {Short(code)}, data {Short(data)}, settings {CityTileCache.Settings()})"; return false; }
+            if (m.fingerprint != fp) { why = $"STALE: baked {Short(m.fingerprint)}, sources+data now {Short(fp)} (code {Short(code)}, data {Short(data)}, kit {Short(KitHash())}, settings {CityTileCache.Settings()})"; return false; }
             foreach (var t in m.tiles)
                 if (!File.Exists(CityTileCache.PathOf(dir, t.tx, t.tz))) { why = $"tile {t.tx},{t.tz} missing"; return false; }
             why = $"fresh: {m.tiles.Count} tiles, {m.Bytes / 1048576.0:0} MB ({Short(fp)})";
@@ -237,6 +263,13 @@ namespace PSXRacing.EditorTools
                     report = $"TileMeshes.{f.Name} is not in the tile file: add it to CityTileCache (WriteBody, Read, KnownFields) - refusing to bake";
                     return false;
                 }
+            // ...and every field the planting returns (format 2: the tree frame)
+            string unknownTree = CityTileCache.UnknownTreeField();
+            if (unknownTree != null)
+            {
+                report = $"{unknownTree} is not in the tile file's tree frame: carry it (CityTileCache.WriteTrees / ReadTrees) or name it left out (CityTileCache.TreeFields) - refusing to bake";
+                return false;
+            }
             var map = CityMap.Get();
             if (map == null) { report = "no city data"; return false; }
             GameObject go = null;
@@ -254,12 +287,25 @@ namespace PSXRacing.EditorTools
                 var m = new CityTileCache.Manifest
                 {
                     format = CityTileCache.Format, fingerprint = fp, settings = CityTileCache.Settings(),
-                    note = $"code {Short(code)} data {Short(data)} baked {DateTime.Now:s} unity {Application.unityVersion}",
+                    note = $"code {Short(code)} data {Short(data)} kit {Short(KitHash())} baked {DateTime.Now:s} unity {Application.unityVersion}",
+                    trees = CityTileCache.TreeDensities(),
                 };
                 var keep = new HashSet<string>();
-                long bytes = 0, verts = 0, maxBytes = 0;
+                long bytes = 0, verts = 0, maxBytes = 0, treeBytes = 0, treeCount = 0;
+                int treeFrames = 0;
                 double buildMs = 0, writeMs = 0, maxBuild = 0, standMs = 0;
                 string maxTile = "";
+                string drive = Path.GetPathRoot(Path.GetFullPath(dir));
+                // THE TREE FRAME (format 2): the planting's result encoded the moment
+                // it ends, before its stand-up attaches anything (CityWorld.TreeFrameReady)
+                long keyNow = long.MinValue;
+                byte[] treeBody = null;
+                System.Action<long, CityTrees.TreeTile> grab = (k, tt) =>
+                {
+                    if (k != keyNow) return;
+                    treeBody = CityTileCache.EncodeTrees(tt);
+                    treeCount += tt.trees.Count;
+                };
                 // each tile is built, then STOOD UP and PLANTED as play does it (its
                 // signs, poles and trees) before it is written: the lattice it carries
                 // then holds every corner its stand-up and its planting read, each
@@ -270,12 +316,14 @@ namespace PSXRacing.EditorTools
                 var pendField = typeof(CityWorld).GetField("treesPending", BindingFlags.NonPublic | BindingFlags.Instance);
                 bool wasOn = CityTileCache.Enabled;
                 CityTileCache.Enabled = false;
+                CityWorld.TreeFrameReady += grab;
                 try
                 {
                 for (int i = 0; i < tiles.Count; i++)
                 {
                     var t = tiles[i];
                     long key = ((long)t.x << 24) ^ (t.y & 0xFFFFFF);
+                    keyNow = key; treeBody = null;
                     var c = System.Diagnostics.Stopwatch.StartNew();
                     var tm = CityMeshes.Build(map, trims, blds, t.x, t.y);
                     double b = c.Elapsed.TotalMilliseconds;
@@ -298,7 +346,8 @@ namespace PSXRacing.EditorTools
                     else lattice = CityMeshes.TakeLattice();   // nothing to plant: the build's own
                     standMs += c.Elapsed.TotalMilliseconds;
                     c.Restart();
-                    long n = CityTileCache.Write(CityTileCache.PathOf(dir, t.x, t.y), t.x, t.y, body, lattice);
+                    if (treeBody != null) { treeFrames++; treeBytes += treeBody.Length; }
+                    long n = CityTileCache.Write(CityTileCache.PathOf(dir, t.x, t.y), t.x, t.y, body, lattice, treeBody);
                     writeMs += c.Elapsed.TotalMilliseconds;
                     dropTile.Invoke(world, new object[] { key });   // its objects and meshes
                     bytes += n;
@@ -308,13 +357,22 @@ namespace PSXRacing.EditorTools
                     if ((i + 1) % 100 == 0)
                     {
                         Debug.Log($"[CityTileBake] {i + 1}/{tiles.Count} tiles, {bytes / 1048576.0:0} MB, {clock.Elapsed.TotalSeconds:0} s");
-                        // the guard the brief sets: the bake must fit the disk
-                        if (bytes / (double)(i + 1) * tiles.Count > 6.0 * 1024 * 1024 * 1024)
-                        { report = $"PROJECTED BAKE {bytes / (double)(i + 1) * tiles.Count / 1073741824.0:0.0} GB over 6 GB - stopped at tile {i + 1}"; return false; }
+                        // the guard the brief sets: the bake must fit the disk - what is
+                        // still to write must leave 15 GB free on its drive (another
+                        // session's build shares it; an older player's hard links keep
+                        // the bake it was built with alive beside this one)
+                        double projected = bytes / (double)(i + 1) * tiles.Count;
+                        long free = new DriveInfo(drive).AvailableFreeSpace;
+                        double left = free - (projected - bytes);
+                        if (left < MinFreeBytes)
+                        {
+                            report = $"PROJECTED BAKE {projected / 1073741824.0:0.0} GB would leave {left / 1073741824.0:0.0} GB free on {drive} (the floor is {MinFreeBytes / 1073741824.0:0} GB) - stopped at tile {i + 1}";
+                            return false;
+                        }
                     }
                 }
                 }
-                finally { CityTileCache.Enabled = wasOn; }
+                finally { CityTileCache.Enabled = wasOn; CityWorld.TreeFrameReady -= grab; }
                 // tiles of an older bake that this one does not hold
                 int removed = 0;
                 if (only == null)
@@ -325,7 +383,8 @@ namespace PSXRacing.EditorTools
                 CityTileCache.Reset();
                 sb.AppendLine($"baked {tiles.Count} tiles into {dir} in {clock.Elapsed.TotalSeconds:0} s: {bytes / 1048576.0:0.0} MB ({bytes / Math.Max(1, tiles.Count) / 1024.0:0} KB a tile, largest {maxBytes / 1024.0:0} KB), {verts / 1e6:0.0} M vertices");
                 sb.AppendLine($"  build {buildMs / 1000.0:0} s (avg {buildMs / Math.Max(1, tiles.Count):0} ms, worst {maxBuild:0} ms at {maxTile}), stand-up + planting {standMs / 1000.0:0} s, write {writeMs / 1000.0:0} s; {removed} stale files removed");
-                sb.AppendLine($"  fingerprint {fp}  (code {Short(code)}, data {Short(data)}, settings {m.settings})");
+                sb.AppendLine($"  tree frames {treeFrames} ({treeCount} trees, {treeBytes / 1048576.0:0.0} MB before deflate) planted at {m.trees}");
+                sb.AppendLine($"  fingerprint {fp}  (code {Short(code)}, data {Short(data)}, kit {Short(KitHash())}, settings {m.settings})");
                 report = sb.ToString().TrimEnd();
                 return true;
             }
