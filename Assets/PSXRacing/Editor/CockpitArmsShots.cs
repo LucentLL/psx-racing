@@ -221,7 +221,7 @@ namespace PSXRacing.EditorTools
             {
                 var old = ChainBattery(lay, false);
                 var now = ChainBattery(lay, true);
-                bool steady = true, apart = true, joined = true;
+                bool steady = true, apart = true, joined = true, straight = true;
                 string chainRows = "";
                 foreach (var kv in now)
                 {
@@ -231,11 +231,13 @@ namespace PSXRacing.EditorTools
                     steady &= cs <= cw + 0.005f;   // the arm adds no jerk of its own
                     apart &= c.y >= Mathf.Min(o.y, 0.063f) - 0.005f;
                     joined &= c.z <= 0.03f;
+                    var ob = Back[(false, kv.Key)]; var cb = Back[(true, kv.Key)];
+                    straight &= cb <= CockpitArms.BackBend + 0.005f;
                     chainRows += $"\n         {kv.Key,-22} elbow snap {os * 100f,4:0.0} -> {cs * 100f,4:0.0} cm (wrist's {ow * 100f,4:0.0} -> {cw * 100f,4:0.0}), speed {o.x * 100f,4:0.0} -> {c.x * 100f,4:0.0} cm/frame, arms apart {o.y * 100f,4:0.0} -> {c.y * 100f,4:0.0} cm, " +
-                                 $"upper arm off its shoulder {o.z * 100f,4:0.0} -> {c.z * 100f,4:0.0} cm, wrist bend {o.w,3:0} -> {c.w,3:0} deg";
+                                 $"upper arm off its shoulder {o.z * 100f,4:0.0} -> {c.z * 100f,4:0.0} cm, wrist bend {o.w,3:0} -> {c.w,3:0} deg, elbow past its wrist {ob * 100f,4:0.0} -> {cb * 100f,4:0.0} cm";
                 }
-                Check(steady && apart && joined,
-                      "cockpit arms: each arm hangs from a fixed shoulder - the elbow snaps no more than its wrist (+5 mm), the arms no closer than before (6.3 cm where they were), the upper arm meets its shoulder within 3 cm (old elbow-aim -> chain, worst frame)",
+                Check(steady && apart && joined && straight,
+                      "cockpit arms: each arm hangs from a fixed shoulder - the elbow snaps no more than its wrist (+5 mm), the arms no closer than before (6.3 cm where they were), the upper arm meets its shoulder within 3 cm, no elbow bent back past its wrist (old elbow-aim -> chain, worst frame)",
                       chainRows);
             }
             finally { CockpitArms.Shoulders = keepS; }
@@ -249,6 +251,7 @@ namespace PSXRacing.EditorTools
         /// change from one frame to the next (|E - 2E' + E''|, metres).</summary>
         static readonly Dictionary<(bool, string), float> Snap = new Dictionary<(bool, string), float>();
         static readonly Dictionary<(bool, string), float> WristSnap = new Dictionary<(bool, string), float>();
+        static readonly Dictionary<(bool, string), float> Back = new Dictionary<(bool, string), float>();
         /// <summary>The chain's frames through the right-hand crossing (gap,
         /// crossing weights, swivels, what the untangle did).</summary>
         static readonly StringBuilder Trace = new StringBuilder();
@@ -256,6 +259,7 @@ namespace PSXRacing.EditorTools
         static Dictionary<string, Vector4> ChainBattery(CockpitModel.Layout lay, bool shoulders)
         {
             CockpitArms.Shoulders = shoulders;
+            CockpitArms.TraceSolve = true;
             var res = new Dictionary<string, Vector4>();
             var model = new GameObject("ArmsChainModel") { hideFlags = HideFlags.HideAndDontSave };
             var arms = CockpitArms.Create(model.transform, lay, 0);
@@ -265,7 +269,7 @@ namespace PSXRacing.EditorTools
                 Vector3 lastL = Vector3.zero, lastR = Vector3.zero, prevL = Vector3.zero, prevR = Vector3.zero;
                 Vector3 lwL = Vector3.zero, lwR = Vector3.zero, pwL = Vector3.zero, pwR = Vector3.zero;
                 Vector4 w = Vector4.zero;
-                float snap = 0f, wsnap = 0f;
+                float snap = 0f, wsnap = 0f, back = 0f;
                 int frames = 0;
                 string seq = "";
                 void Sample(bool first)
@@ -292,8 +296,14 @@ namespace PSXRacing.EditorTools
                         Trace.Append($"\n    trace f{frames:000} gap {arms.ArmGap() * 100f:0.0} cm, elbow snap {sn * 100f:0.0} cm | L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} a {arms.Plan.L.alpha:0} cross {cL:0.00} under {dL:0.00} swivel {swL:0} | " +
                                      $"R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} a {arms.Plan.R.alpha:0} cross {cR:0.00} under {dR:0.00} swivel {swR:0} | {arms.LastUntangle}");
                     }
+                    if (shoulders && seq == "handbrake reach" && (frames < 3 || Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude) > 0.01f))
+                    {
+                        arms.ChainState(true, out float cL, out float dL, out float swL);
+                        Trace.Append($"\n    brake f{frames:000} L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} a {arms.Plan.L.alpha:0} cross {cL:0.00} under {dL:0.00} swivel {swL:0} | R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} a {arms.Plan.R.alpha:0} | off L {(uL - sL).magnitude * 100f:0.0} R {(uR - sR).magnitude * 100f:0.0} cm, gap {arms.ArmGap() * 100f:0.0} cm | {arms.LastUntangle} | keep: {arms.LastKeep}");
+                    }
                     frames++;
                     w.y = Mathf.Min(w.y, arms.ArmGap());
+                    back = Mathf.Max(back, arms.BentBack());
                     w.z = Mathf.Max(w.z, Mathf.Max((uL - sL).magnitude, (uR - sR).magnitude));
                     w.w = Mathf.Max(w.w, Mathf.Max(bL, bR));
                 }
@@ -302,7 +312,7 @@ namespace PSXRacing.EditorTools
                 {
                     if (fresh) { arms.Plan.Reset(theta(0f)); arms.Drive(0f, theta(0f), false, false); }
                     w = new Vector4(0f, 9f, 0f, 0f);
-                    snap = 0f; wsnap = 0f;
+                    snap = 0f; wsnap = 0f; back = 0f;
                     seq = name;
                     Sample(true);
                     int n = Mathf.RoundToInt(seconds / Dt);
@@ -315,6 +325,7 @@ namespace PSXRacing.EditorTools
                     res[name] = w;
                     Snap[(shoulders, name)] = snap;
                     WristSnap[(shoulders, name)] = wsnap;
+                    Back[(shoulders, name)] = back;
                 }
                 Run("rest", 0.5f, t => 0f);
                 Run("small corrections", 4f, t => 30f * Mathf.Sin(t * Mathf.PI));
@@ -328,6 +339,7 @@ namespace PSXRacing.EditorTools
             }
             finally
             {
+                CockpitArms.TraceSolve = false;
                 if (arms != null) arms.Destroy();
                 Object.DestroyImmediate(model);
             }

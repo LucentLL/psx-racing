@@ -135,16 +135,24 @@ namespace PSXRacing
         /// near-straight arm swings its elbow centimetres for every
         /// millimetre of wrist - the snap), easing in over ReachEase metres.</summary>
         public const float ShoulderReach = 0.14f, ReachBend = 0.88f, ReachEase = 0.05f;
-        /// <summary>Where the elbow hangs, from the shoulder (LEFT arm): down
-        /// and a little inboard with the hand low on the rim (the cabin is
-        /// narrower than a pair of shoulders: where ElbowAim put it), up with
-        /// it on top (ElbowAimHigh)...</summary>
-        public static readonly Vector3 PoleLow = new Vector3(0.10f, -0.30f, 0.14f);
-        public static readonly Vector3 PoleHigh = new Vector3(0.07f, -0.14f, 0.08f);
-        /// <summary>... up and back for the arm crossing over (its forearm
-        /// rides over the other), a little lower for the one under it.</summary>
-        public static readonly Vector3 PoleCross = new Vector3(0.02f, 0.22f, -0.10f);
+        /// <summary>Where the elbow hangs, from the shoulder: DOWN (and a
+        /// little forward with the hand low on the rim, back with it on top),
+        /// and to the side AWAY from where the hand reaches (PoleOut) - a
+        /// right hand across at 11 o'clock has its elbow low and to the right,
+        /// never out past the hand (owner, 2026-11-02, the first chain: "right
+        /// arm is on left side of wheel, bending backwards"). The door is
+        /// closer than real shoulders: the cabin swing moves it in.</summary>
+        public static readonly Vector3 PoleLow = new Vector3(0f, -0.30f, 0.12f);
+        public static readonly Vector3 PoleHigh = new Vector3(0f, -0.20f, -0.04f);
+        public const float PoleOut = 0.08f;
+        /// <summary>... less low for the arm crossing over (its forearm rides
+        /// over the other), a little lower for the one under it. (Not much
+        /// back: square to a reach across, back is out past the wrist.)</summary>
+        public static readonly Vector3 PoleCross = new Vector3(0f, 0.14f, -0.06f);
         public static readonly Vector3 PoleUnder = new Vector3(0f, -0.08f, 0.04f);
+        /// <summary>An elbow out past its own wrist (in the direction the hand
+        /// reached, metres) is bent backwards: no swing may put it there.</summary>
+        public const float BackBend = 0.03f;
         /// <summary>Seconds the elbow's hang follows its pole in (a low pass:
         /// the hand moves, the elbow swings after it).</summary>
         public const float HangLag = 0.06f;
@@ -155,6 +163,9 @@ namespace PSXRacing
         /// arm radii and a gap), and how fast an elbow may swing to do it or
         /// to stay out of the cabin (degrees a second).</summary>
         public const float ArmClear = 0.075f, SwivelRate = 300f, SwivelRateOut = 600f;
+        /// <summary>The crossing arm starts to lift with the bones this far
+        /// apart (it has a few frames to get there before they would touch).</summary>
+        public const float LiftClear = 0.10f;
         /// <summary>The arm's radius at the bone, for the cabin and rim checks.</summary>
         public const float ArmRadius = 0.034f;
         /// <summary>A hand's flight between grips (Shoulders): off the rim this
@@ -949,6 +960,10 @@ namespace PSXRacing
             /// elbow's swing about the shoulder-to-wrist line (degrees).</summary>
             public Vector3 shoulder, elbow, wrist, hang;
             public float crossW, underW, swivel;
+            /// <summary>The untangle's own swing on top of the swivel (degrees;
+            /// the cabin's swing pulled it back each frame when they shared
+            /// one) and which way it lifts (kept until it is let down).</summary>
+            public float lift, liftSgn;
             public bool chained;
         }
 
@@ -1258,6 +1273,7 @@ namespace PSXRacing
             using (CabinMarker.Auto())
             {
                 Untangle(snap, dt);
+                LastKeep = "";
                 // A pose no swing of the elbow clears (a hand low by the seat
                 // with the wheel wound round): the forearm turns at the wrist
                 // as it always did, and the elbow goes with it - the upper arm
@@ -1311,8 +1327,11 @@ namespace PSXRacing
             // Down and out; up with the wrist on top of the wheel; up and back
             // crossing over, down a little under a crossing one.
             float high = Planner.Smooth(Mathf.Clamp01(Mathf.InverseLerp(lay.wheel.pivot.y - 0.10f, lay.wheel.pivot.y + 0.17f, W.y)));
-            Vector3 pole = Side(left, Vector3.Lerp(PoleLow, PoleHigh, high))
-                         + Side(left, PoleCross) * Planner.Smooth(a.crossW) + Side(left, PoleUnder) * Planner.Smooth(a.underW);
+            // away from the side the hand reached to (its own side when the
+            // hand is in front of its shoulder)
+            float away = -Mathf.Clamp((W.x - S.x) / 0.12f, -1f, 1f);   // smooth through zero (a flip snapped)
+            Vector3 pole = Vector3.Lerp(PoleLow, PoleHigh, high) + new Vector3(away * PoleOut, 0f, 0f)
+                         + PoleCross * Planner.Smooth(a.crossW) + PoleUnder * Planner.Smooth(a.underW);
             hang = pole - Vector3.Dot(pole, dir) * dir;
             if (hang.sqrMagnitude < 1e-8f) hang = Vector3.down - Vector3.Dot(Vector3.down, dir) * dir;
             hang.Normalize();
@@ -1332,6 +1351,27 @@ namespace PSXRacing
         static Vector3 ElbowAt(Vector3 S, Vector3 dir, float along, float off, Vector3 hang, float swivel)
             => S + dir * along + (Quaternion.AngleAxis(swivel, dir) * hang) * off;
 
+        /// <summary>How far an elbow is out past its own wrist in the direction
+        /// the hand reached from the shoulder (metres; above BackBend the arm
+        /// is bent backwards).</summary>
+        static float PastWrist(Vector3 S, Vector3 E, Vector3 W)
+        {
+            float lat = W.x - S.x;
+            float k = Planner.Smooth(Mathf.Clamp01((Mathf.Abs(lat) - 0.02f) / 0.04f));   // (no step: a step flipped the swing)
+            return (E.x - W.x) * Mathf.Sign(lat) * k;
+        }
+
+        /// <summary>PastWrist for a hand reaching ACROSS the body's middle
+        /// (the owner's backward bend: a right hand at 10 o'clock), in from
+        /// 6 cm short of it; a hand on its own side (low by the door, at the
+        /// lever) swings its elbow as the cabin needs.</summary>
+        float BentAcross(bool left, Vector3 S, Vector3 E, Vector3 W)
+        {
+            float past = left ? W.x - Eye.x : Eye.x - W.x;
+            float k = Planner.Smooth(Mathf.Clamp01((past + 0.06f) / 0.06f));
+            return k > 0f ? PastWrist(S, E, W) * k : 0f;
+        }
+
         /// <summary>How deep an arm laid shoulder-elbow-wrist is in the door,
         /// console, seat or rim (metres, the bones' centre lines at the arm's
         /// radius; the hand's last few cm left to the hand's own fit).</summary>
@@ -1347,12 +1387,26 @@ namespace PSXRacing
                 Vector3 qf = Vector3.Lerp(E, W, 0.10f + t * 0.82f);  // the forearm, to just short of the wrist
                 if (cab != null)
                 {
-                    worst = Mathf.Max(worst, cab.Depth(qu, out _, ArmRadius));
-                    worst = Mathf.Max(worst, cab.Depth(qf, out _, ArmRadius));
+                    worst = Mathf.Max(worst, SkinDepth(cab, qu));
+                    worst = Mathf.Max(worst, SkinDepth(cab, qf));
                 }
                 if (data.wheel != null) worst = Mathf.Max(worst, ArmRadius - data.wheel.Sdf(toW.MultiplyPoint3x4(qf)));
             }
             return worst;
+        }
+
+        /// <summary>A bone point's depth in the cabin at the arm's radius:
+        /// along each wall's own axis (Depth's margin), and the skin below and
+        /// either side of it - a wall is a heightfield with an edge (the door's
+        /// sill), and a bone just over the edge read clear while the arm's
+        /// underside was in the door.</summary>
+        static float SkinDepth(Cabin cab, Vector3 q)
+        {
+            float d = cab.Depth(q, out _, ArmRadius);
+            d = Mathf.Max(d, cab.Depth(q + Vector3.down * ArmRadius, out _, CabinMargin));
+            d = Mathf.Max(d, cab.Depth(q + Vector3.left * ArmRadius, out _, CabinMargin));
+            d = Mathf.Max(d, cab.Depth(q + Vector3.right * ArmRadius, out _, CabinMargin));
+            return d;
         }
 
         static readonly float[] SwingTry = { 0f, 12f, -12f, 25f, -25f, 40f, -40f, 60f, -60f, 85f, -85f, 110f, -110f, 135f, -135f, 180f };
@@ -1363,20 +1417,6 @@ namespace PSXRacing
         /// it is clear of the cabin and the rim, never faster than SwivelRate.</summary>
         void Reach(Arm a, bool snap, float dt)
         {
-            // Off the wheel at the shifter or the handbrake (out of frame): the
-            // hand turns to its forearm, the wrist straight.
-            var h = a.hand;
-            if (h.mode == Mode.Away && a.chained && h.phase >= 1 && h.phase <= 2)
-            {
-                Vector3 grip = a.pos;
-                Vector3 fz = a.wrist - a.elbow;
-                if (fz.sqrMagnitude > 1e-6f)
-                {
-                    float k = h.phase == 1 ? Planner.Smooth(Mathf.Clamp01(h.t / Planner.DropSec)) : 1f;
-                    a.rot = Quaternion.Slerp(a.rot, Quaternion.LookRotation(fz.normalized, a.rot * Vector3.up), k);
-                    a.pos = grip;
-                }
-            }
             Chain(a, out var S, out var W, out var dir, out float along, out float off, out var hang);
             hang = Ease(a, hang, dir, snap, dt);
             a.hang = hang;
@@ -1384,16 +1424,20 @@ namespace PSXRacing
             for (int i = 0; i < SwingTry.Length; i++)
             {
                 float sw = SwingTry[i];
-                float depth = data.cabin != null || data.wheel != null ? ChainDepth(S, ElbowAt(S, dir, along, off, hang, sw), W) : 0f;
-                float cost = depth * 1000f + Mathf.Abs(sw) * 0.02f + Mathf.Abs(sw - a.swivel) * 0.01f;
+                Vector3 E = ElbowAt(S, dir, along, off, hang, sw);
+                float depth = data.cabin != null || data.wheel != null ? ChainDepth(S, E, W) : 0f;
+                float bent = BentAcross(a.hand.left, S, E, W);
+                float cost = depth * 1000f + Mathf.Max(0f, bent - BackBend) * 2000f
+                           + Mathf.Abs(sw) * 0.02f + Mathf.Abs(sw - a.swivel) * 0.01f;
                 if (cost < bestCost) { bestCost = cost; best = sw; }
-                if (depth <= 0f && i == 0) break;   // the pole's own hang is clear
+                if (depth <= 0f && i == 0 && bent <= BackBend) break;   // the pole's own hang is clear
             }
             if (data.cabin != null || data.wheel != null) now = ChainDepth(S, ElbowAt(S, dir, along, off, hang, a.swivel), W);
+            if (snap || !a.chained) { a.lift = 0f; a.liftSgn = 0f; }
             a.swivel = snap || !a.chained ? best : Mathf.MoveTowards(a.swivel, best, (now > 0f ? SwivelRateOut : SwivelRateBack) * dt);
             a.shoulder = S;
             a.wrist = W;
-            a.elbow = ElbowAt(S, dir, along, off, hang, a.swivel);
+            a.elbow = ElbowAt(S, dir, along, off, hang, a.swivel + a.lift);
             a.chained = true;
         }
 
@@ -1409,8 +1453,12 @@ namespace PSXRacing
             return g;
         }
 
-        /// <summary>For the shot tool's trace: what the last untangle did.</summary>
-        public string LastUntangle = "";
+        /// <summary>For the shot tool's trace: what the last untangle did,
+        /// and what the last resort (KeepOutOfCabin) pushed out of.</summary>
+        public string LastUntangle = "", LastKeep = "";
+        /// <summary>The shot tool's switch for those (strings every frame are
+        /// garbage in the game).</summary>
+        public static bool TraceSolve;
 
         /// <summary>The two arms apart: the one crossing over (or the higher
         /// hand's) swings its elbow up and over until the bones clear.</summary>
@@ -1418,28 +1466,47 @@ namespace PSXRacing
         {
             Arm A = arms[0], B = arms[1];
             LastUntangle = "";
-            if (Gap(A.shoulder, A.elbow, A.wrist, B.shoulder, B.elbow, B.wrist) >= ArmClear) return;
             Arm m = A.crossW > B.crossW + 0.01f ? A : B.crossW > A.crossW + 0.01f ? B : (A.wrist.y >= B.wrist.y ? A : B);
             Arm o = m == A ? B : A;
+            Settle(o, m, dt);   // the other lets down a lift it held
             Chain(m, out var S, out var W, out var dir, out float along, out float off, out _);
             Vector3 hang = m.hang;
-            // only the way that LIFTS the elbow (up and over): choosing either
-            // way each frame flipped it, a snap
-            float up = ElbowAt(S, dir, along, off, hang, m.swivel + 12f).y - ElbowAt(S, dir, along, off, hang, m.swivel - 12f).y;
-            float sgn = up >= 0f ? 1f : -1f;
-            float best = m.swivel, bestCost = float.MaxValue;
+            if (Gap(S, m.elbow, W, o.shoulder, o.elbow, o.wrist) >= LiftClear) { Settle(m, o, dt); return; }
+            // only the way that LIFTS the elbow (up and over), chosen once:
+            // either way each frame flipped it, a snap
+            if (m.liftSgn == 0f)
+            {
+                float up = ElbowAt(S, dir, along, off, hang, m.swivel + 12f).y - ElbowAt(S, dir, along, off, hang, m.swivel - 12f).y;
+                m.liftSgn = up >= 0f ? 1f : -1f;
+            }
+            float best = m.lift, bestCost = float.MaxValue;
             for (int i = 0; i < LiftTry.Length; i++)
             {
-                float sw = m.swivel + sgn * LiftTry[i];
-                Vector3 E = ElbowAt(S, dir, along, off, hang, sw);
+                float lf = m.liftSgn * LiftTry[i];
+                Vector3 E = ElbowAt(S, dir, along, off, hang, m.swivel + lf);
                 float gap = Gap(S, E, W, o.shoulder, o.elbow, o.wrist);
                 float depth = ChainDepth(S, E, W);
-                float cost = Mathf.Max(0f, ArmClear - gap) * 1000f + depth * 1000f + LiftTry[i] * 0.01f;
-                if (cost < bestCost) { bestCost = cost; best = sw; }
+                float cost = Mathf.Max(0f, LiftClear - gap) * 1000f + depth * 1000f
+                           + Mathf.Max(0f, BentAcross(m.hand.left, S, E, W) - BackBend) * 2000f + LiftTry[i] * 0.01f;
+                if (cost < bestCost) { bestCost = cost; best = lf; }
             }
-            m.swivel = snap ? best : Mathf.MoveTowards(m.swivel, best, SwivelRate * dt);
-            m.elbow = ElbowAt(S, dir, along, off, hang, m.swivel);
-            LastUntangle = (m.hand.left ? "L" : "R") + " lifts, swivel " + m.swivel.ToString("0") + " (best " + best.ToString("0") + ")";
+            m.lift = snap ? best : Mathf.MoveTowards(m.lift, best, SwivelRateOut * dt);
+            m.elbow = ElbowAt(S, dir, along, off, hang, m.swivel + m.lift);
+            if (TraceSolve) LastUntangle = (m.hand.left ? "L" : "R") + " lifts " + m.lift.ToString("0") + " (best " + best.ToString("0") + ")";
+        }
+
+        /// <summary>A lift let down (SwivelRateBack) only as far as the arms
+        /// stay clear.</summary>
+        void Settle(Arm a, Arm o, float dt)
+        {
+            if (a.lift == 0f) { a.liftSgn = 0f; return; }
+            Chain(a, out var S, out var W, out var dir, out float along, out float off, out _);
+            float down = Mathf.MoveTowards(a.lift, 0f, SwivelRateBack * dt);
+            Vector3 E = ElbowAt(S, dir, along, off, a.hang, a.swivel + down);
+            if (Gap(S, E, W, o.shoulder, o.elbow, o.wrist) < LiftClear) return;
+            a.lift = down;
+            a.elbow = E;
+            if (a.lift == 0f) a.liftSgn = 0f;
         }
 
         static float SegDist(Vector3 p1, Vector3 q1, Vector3 p2, Vector3 q2)
@@ -1483,7 +1550,19 @@ namespace PSXRacing
         public void ChainState(bool left, out float crossW, out float underW, out float swivel)
         {
             var a = arms[left ? 0 : 1];
-            crossW = a.crossW; underW = a.underW; swivel = a.swivel;
+            crossW = a.crossW; underW = a.underW; swivel = a.swivel + a.lift;
+        }
+
+        /// <summary>For the shot tool: the worst elbow out past its wrist now (metres).</summary>
+        public float BentBack()
+        {
+            float worst = 0f;
+            for (int i = 0; i < 2; i++)
+            {
+                ChainNow(i == 0, out var s, out var e, out var w, out _, out _);
+                worst = Mathf.Max(worst, PastWrist(s, e, w));
+            }
+            return worst;
         }
 
         /// <summary>For the shot tool: the closest the two arms' bones come now.</summary>
@@ -1613,6 +1692,7 @@ namespace PSXRacing
                 Vector3 fp = jw - a.foreRot * J;
                 float worst = 0f;
                 Vector3 at = Vector3.zero, n = Vector3.zero;
+                string what = "";
                 // The upper arm follows its elbow to the shoulder (as Place).
                 Vector3 elbowL = a.hand.left ? MX(data.elbow) : data.elbow;
                 Vector3 e = fp + a.foreRot * elbowL;
@@ -1623,16 +1703,17 @@ namespace PSXRacing
                     if (g.handW[i] > 0.5f) continue;
                     Vector3 q = g.upper[i] > 0.5f ? e + ur * (g.pos[i] - elbowL) : fp + a.foreRot * g.pos[i];
                     float need = cab.Depth(q, out var o, CabinMargin);
-                    if (need > worst) { worst = need; at = q; n = o; }
+                    if (need > worst) { worst = need; at = q; n = o; what = g.upper[i] > 0.5f ? "cabin/upper" : "cabin/fore"; }
                     // ... and out of the wheel (the rim under a turned wrist).
                     if (data.wheel != null && g.upper[i] < 0.5f)
                     {
                         Vector3 qw = toW.MultiplyPoint3x4(q);
                         float dw = CabinMargin - data.wheel.Sdf(qw);
-                        if (dw > worst) { worst = dw; at = q; n = W.MultiplyVector(data.wheel.Normal(qw)); }
+                        if (dw > worst) { worst = dw; at = q; n = W.MultiplyVector(data.wheel.Normal(qw)); what = "rim"; }
                     }
                 }
                 if (worst <= 1e-4f) break;
+                if (iter == 0 && TraceSolve) LastKeep += $"{(a.hand.left ? "L" : "R")} {what} {worst * 1000f:0}mm at {(at - jw).magnitude * 100f:0}cm from wrist (chain depth {ChainDepth(a.shoulder, a.elbow, a.wrist) * 1000f:0}mm) ";
                 Vector3 r = at - jw;
                 Vector3 axis = Vector3.Cross(r, n);
                 if (axis.sqrMagnitude < 1e-10f || r.sqrMagnitude < 1e-6f) break;
