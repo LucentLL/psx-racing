@@ -54,6 +54,27 @@ namespace PSXRacing.EditorTools
         }
 
         internal static void Line(string s) { log.AppendLine(s); Debug.Log("[RefugeLap] " + s); }
+        /// <summary>
+        /// Round 5 test hook, moved here from TrafficSystem (round 6): a two-way
+        /// road's traffic system with no race and no cars, its race lanes
+        /// centred on the path (the harness's path is the car's own lane line),
+        /// so an AIDriver steers as a racer on a city route does - pure
+        /// pursuit, the hairpin lookahead cap, lane discipline - not with the
+        /// free-roam law. Set up by reflection, so the game's code carries no
+        /// test entry (and the same harness runs on live's code).
+        /// </summary>
+        internal static TrafficSystem SteerOnlyTraffic()
+        {
+            if (TrafficSystem.Instance != null) return TrafficSystem.Instance;
+            var go = new GameObject("Traffic (steer only)");
+            var ts = go.AddComponent<TrafficSystem>();
+            const System.Reflection.BindingFlags NP = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            typeof(TrafficSystem).GetProperty("Instance").GetSetMethod(true).Invoke(null, new object[] { ts });
+            ((List<float>)typeof(TrafficSystem).GetField("lanesFwd", NP).GetValue(ts)).Add(0f);
+            ((List<float>)typeof(TrafficSystem).GetField("lanesBack", NP).GetValue(ts)).Add(-RoadProfiles.LaneM);
+            return ts;
+        }
+
         internal static void Fail(string s) { failures++; Line("  FAIL " + s); }
         internal static void Finish()
         {
@@ -89,7 +110,7 @@ namespace PSXRacing.EditorTools
             finished = true; RefugeLapCheck.Fail("HUNG"); RefugeLapCheck.Finish();
         }
 
-        struct RunDef { public string name, road; public Vector2 a, b; public int[] edges; public float kmh, off, back, on; public char lane; }
+        struct RunDef { public string name, road, opt; public Vector2 a, b; public int[] edges; public float kmh, off, back, on; public char lane; }
 
         /// <summary>
         /// FIVE POINTS ROUND 2 (2026-11-03): a junction's movements, driven.
@@ -115,7 +136,7 @@ namespace PSXRacing.EditorTools
                 var ids = new List<int>();
                 foreach (var x in f[4].Split(',')) if (int.TryParse(x.Trim().TrimStart('e'), out int id)) ids.Add(id);
                 l.Add(new RunDef { name = f[0].Trim(), kmh = float.Parse(f[1], ci), lane = f[2].Trim().Length > 0 ? f[2].Trim()[0] : 'L', off = float.Parse(f[3], ci),
-                                   edges = ids.ToArray(), back = float.Parse(f[5], ci), on = float.Parse(f[6], ci), road = "(movement)" });
+                                   edges = ids.ToArray(), back = float.Parse(f[5], ci), on = float.Parse(f[6], ci), road = "(movement)", opt = f.Length > 7 ? f[7].Trim() : "" });
             }
             return l;
         }
@@ -224,11 +245,24 @@ namespace PSXRacing.EditorTools
         {
             edges = "";
             var raw = new List<Vector2>();
+            var joins = new List<int>(run.edges.Length);
+            var caps = new List<float>(run.edges.Length);
+            var kerbs = new List<List<Vector2>>(run.edges.Length);
+            var swing = new List<float>(run.edges.Length);
             int n = run.edges.Length;
             for (int i = 0; i < n; i++)
             {
                 var e = map.edges[run.edges[i]];
                 edges += $" e{e.index}";
+                if (i > 0 && raw.Count > 0)
+                {
+                    joins.Add(raw.Count - 1);
+                    var pv = map.edges[run.edges[i - 1]];
+                    int nd = pv.b == e.a || pv.a == e.a ? e.a : e.b;
+                    caps.Add(CityMode.JoinCap(map, CityWorld.TrimsFor(map), pv, e, nd));
+                    kerbs.Add(CityMode.JoinKerbs(map, CityWorld.TrimsFor(map), nd));
+                    swing.Add(CityMode.JoinSwingRoom(pv, e));
+                }
                 bool fwd;
                 if (i + 1 < n) { var nx = map.edges[run.edges[i + 1]]; fwd = e.b == nx.a || e.b == nx.b; }
                 else if (i > 0) { var pv = map.edges[run.edges[i - 1]]; fwd = e.a == pv.a || e.a == pv.b; }
@@ -253,6 +287,19 @@ namespace PSXRacing.EditorTools
                     if (raw.Count == 0 || (q - raw[raw.Count - 1]).sqrMagnitude > 0.25f) raw.Add(q);
                 }
             }
+            // round 4: the game's own turn path (CityMode.FilletTurns, the race
+            // paths' rule): a turn at a junction on a radius, as the AI drives it
+            int fil = CityMode.FilletTurns(raw, null, joins, CityMode.TurnFilletR, CityMode.TurnFilletMinDeg, caps, kerbs, swing);
+            if (fil > 0) RefugeLapCheck.Line($"  turn path: {fil} junction corner(s) on a radius");
+            foreach (var note in CityMode.LastFilletNotes) RefugeLapCheck.Line("  turn path: " + note);
+            if (System.Environment.GetEnvironmentVariable("PSX_LAP_TRACE") == "1")
+                for (int k = 0; k < kerbs.Count; k++)
+                {
+                    if (kerbs[k] == null) continue;
+                    var sb = new System.Text.StringBuilder($"  KERBS join {k}:");
+                    for (int i = 0; i + 1 < kerbs[k].Count; i += 2) sb.Append($" {kerbs[k][i].x:0.0},{kerbs[k][i].y:0.0}>{kerbs[k][i + 1].x:0.0},{kerbs[k][i + 1].y:0.0}");
+                    RefugeLapCheck.Line(sb.ToString());
+                }
             // corner cutting: a car's line through each junction, not the lanes' kinks
             for (int it = 0; it < 4 && raw.Count > 2; it++)
             {
@@ -291,7 +338,30 @@ namespace PSXRacing.EditorTools
 
         IEnumerator Lap(RunDef run, CityMap map, CarController car, Rigidbody rb, GameObject carGo, RefugeLapHits hits)
         {
+            // test options (an 8th move field, comma separated): fil0 = no turn
+            // arcs, kerb0 = the tangent cap alone, capX = a fixed tangent cap,
+            // clrX = the kerb clearance, minrX = the smallest arc, tmaxX = the
+            // longest tangent, stepX = the swing step
+            bool filWas = CityMode.TurnFilletOn, kerbWas = CityMode.TurnKerbsOn;
+            float capWas = CityMode.TurnFilletCapM, clrWas = CityMode.TurnKerbClearM, minrWas = CityMode.TurnFilletMinR, stepWas = CityMode.TurnSwingStepM, tmaxWas = CityMode.TurnTangentMaxM, pastWas = CityMode.TurnFilletPastTrimM;
+            var ciO = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var o in (run.opt ?? "").Split(','))
+            {
+                if (o == "fil0") CityMode.TurnFilletOn = false;
+                else if (o == "kerb0") CityMode.TurnKerbsOn = false;
+                else if (o.StartsWith("cap") && float.TryParse(o.Substring(3), System.Globalization.NumberStyles.Float, ciO, out float cv)) CityMode.TurnFilletCapM = cv;
+                else if (o.StartsWith("clr") && float.TryParse(o.Substring(3), System.Globalization.NumberStyles.Float, ciO, out float kv)) CityMode.TurnKerbClearM = kv;
+                else if (o.StartsWith("tmax") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float tv)) CityMode.TurnTangentMaxM = tv;
+                else if (o.StartsWith("step") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float sv)) CityMode.TurnSwingStepM = sv;
+                else if (o.StartsWith("minr") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float mv)) CityMode.TurnFilletMinR = mv;
+                else if (o.StartsWith("past") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float pv)) CityMode.TurnFilletPastTrimM = pv;
+            }
+            if (!string.IsNullOrEmpty(run.opt)) RefugeLapCheck.Line($"  options: {run.opt}");
             var plan = run.edges != null ? MoveRoute(map, run, out string edges) : Route(map, run, out edges);
+            CityMode.TurnFilletOn = filWas; CityMode.TurnKerbsOn = kerbWas; CityMode.TurnFilletCapM = capWas; CityMode.TurnKerbClearM = clrWas; CityMode.TurnFilletMinR = minrWas; CityMode.TurnSwingStepM = stepWas; CityMode.TurnTangentMaxM = tmaxWas; CityMode.TurnFilletPastTrimM = pastWas;
+            bool trace = System.Environment.GetEnvironmentVariable("PSX_LAP_TRACE") == "1";
+            var traceSb = trace ? new System.Text.StringBuilder() : null;
+            int traceTick = 0;
             if (plan.Count < 20) { RefugeLapCheck.Fail($"{run.name}: no route along '{run.road}' ({plan.Count} points)"); yield break; }
             // park at the start and wait for the tiles along the route
             var start = new Vector3(plan[0].x, 0f, plan[0].y);
@@ -357,11 +427,16 @@ namespace PSXRacing.EditorTools
                 curv[i] = Vector3.Angle(b - a, c - b) * Mathf.Deg2Rad / len;
             }
             tp.waypoints = even; tp.curvatures = curv; tp.spacing = 4f; tp.roadWidth = 3.5f; tp.drag = false; tp.pointToPoint = true;
+            // round 5: PSX_LAP_RACESTEER=1 - a traffic system present (no cars), so
+            // the AI steers by the race law (pure pursuit, hairpin lookahead cap,
+            // lane discipline) as a city racer does, not the free-roam law
+            TrafficSystem steerTs = System.Environment.GetEnvironmentVariable("PSX_LAP_RACESTEER") == "1" ? RefugeLapCheck.SteerOnlyTraffic() : null;
             var ai = carGo.AddComponent<AIDriver>();
             ai.path = tp; ai.skill = 0.95f;
             if (run.kmh > 0f) ai.speedCapMps = run.kmh / 3.6f;
             var tracks = new List<Vector2>[4]; for (int k = 0; k < 4; k++) tracks[k] = new List<Vector2>(512);
             float anyOff = 0f, allOff = 0f, maxVy = 0f, vTop = 0f; string offWhere = "", vyWhere = "";
+            var offLog = new System.Text.StringBuilder();
             hits.hits.Clear();
             float t = 0f, slowFor = 0f, maxOff = 0f, vMax = 0f, worstKerb = 0f; string offAt = "", kerbAt = "";
             int idx = 0, bestI = 0, kerbs = 0, offs = 0, recov = 0;
@@ -373,6 +448,7 @@ namespace PSXRacing.EditorTools
                 yield return new WaitForFixedUpdate();
                 t += Time.fixedDeltaTime;
                 var p = rb.position;
+                if (traceSb != null && (traceTick++ % 10) == 0) traceSb.Append($" {p.x:0.0},{p.z:0.0}");
                 vMax = Mathf.Max(vMax, rb.linearVelocity.magnitude);
                 idx = tp.NearestIndex(p, idx, 12);
                 if (idx > bestI) bestI = idx;
@@ -410,7 +486,17 @@ namespace PSXRacing.EditorTools
                         var wp = carGo.transform.TransformPoint(corners[k]);
                         tracks[k].Add(new Vector2(wp.x, wp.z));
                     }
-                    if (grounded < 4 && t > 1f) { anyOff += Time.fixedDeltaTime; if (offWhere.Length == 0) offWhere = $"{p.x:0.0},{p.z:0.0}"; }
+                    if (grounded < 4 && t > 1f)
+                    {
+                        anyOff += Time.fixedDeltaTime; if (offWhere.Length == 0) offWhere = $"{p.x:0.0},{p.z:0.0}";
+                        // round 5: which wheel, how fast, how hard the car was turning, what lock
+                        if (offLog.Length < 1400)
+                        {
+                            string ws = ""; for (int k = 0; k < 4; k++) if (!car.wheelContacts[k].grounded) ws += k;
+                            var vh = rb.linearVelocity; vh.y = 0f;
+                            offLog.Append($" [t{t:0.00} w{ws} {p.x:0.0},{p.z:0.0} {vh.magnitude * 3.6f:0}kmh lat{rb.angularVelocity.y * vh.magnitude / 9.81f:0.00}g steer{car.SteerAngleDeg:0}deg roll{Vector3.SignedAngle(Vector3.up, carGo.transform.up, carGo.transform.forward):0.0}]");
+                        }
+                    }
                     if (grounded == 0 && t > 1f) allOff += Time.fixedDeltaTime;
                     // the body's vertical speed over the path's own grade there
                     int jg = Mathf.Min(n - 2, idx);
@@ -427,6 +513,7 @@ namespace PSXRacing.EditorTools
                 if (bestI >= n - 3) { done = true; break; }
             }
             Object.Destroy(ai); Object.Destroy(go);
+            if (steerTs != null) Object.DestroyImmediate(steerTs.gameObject);
             rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero;
             float pathM = 0f; for (int i = 1; i < n; i++) pathM += Vector3.Distance(even[i - 1], even[i]);
             RefugeLapCheck.Line($"{run.name} along '{run.road}' ({pathM:0} m,{edges}): {(done ? "COMPLETE" : "INCOMPLETE")} in {t:0.0} s, top {vMax * 3.6f:0} km/h, avg {pathM / Mathf.Max(0.1f, t) * 3.6f:0} km/h; " +
@@ -461,6 +548,8 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 RefugeLapCheck.Line($"  MOVE {run.name} @{run.kmh:0} km/h lane {run.lane}{(run.off != 0f ? $" {run.off:+0.0;-0.0} m" : "")}: top {vTop * 3.6f:0} km/h; any wheel off {anyOff:0.00} s{(offWhere.Length > 0 ? " (first at " + offWhere + ")" : "")}, all four off {allOff:0.00} s; max vertical speed over the grade {maxVy:0.00} m/s at {vyWhere}; largest step under a wheel {worstStep:0.000} m at {stepAt} ({stepsOver} readings over 3 cm)");
+                if (traceSb != null) RefugeLapCheck.Line($"  TRACE {run.name}:{traceSb}");
+                if (offLog.Length > 0) RefugeLapCheck.Line($"  WHEEL OFF {run.name}:{offLog}");
                 if (!done || stuck || hits.hits.Count > 0 || allOff > 0f || anyOff > 0.05f || worstStep > 0.03f) RefugeLapCheck.Fail($"{run.name}: not clean");
             }
             else if (!done || stuck || offs > 0 || kerbs > 0 || hits.hits.Count > 0 || recov > 0) RefugeLapCheck.Fail($"{run.name}: not clean");

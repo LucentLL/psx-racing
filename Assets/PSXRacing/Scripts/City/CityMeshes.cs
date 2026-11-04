@@ -1671,6 +1671,8 @@ namespace PSXRacing.City
             CrossingNodes = crossingCount;
             HostMovesN = HostMoves.Count;
             CrossingNodeFlags = crossFlags;
+            // Five Points round 6: a slip lane's island takes a nose (CurbRadiusAt)
+            FindIslandNoses(map, t);
             // roads pass L7 (plan A10): the curb returns' trims
             var medianX = JunctionTrims(map, t);
             // roads pass L8 (plan A17): the cul-de-sac bulbs
@@ -1700,6 +1702,10 @@ namespace PSXRacing.City
             });
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
+            // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
+            BuildBranchAprons(map, t);
+            // Five Points round 6: a slip lane widened on the inside of its curve
+            BuildSlipWidening(map, t);
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
@@ -3792,6 +3798,16 @@ namespace PSXRacing.City
             float tw = tex.texW;
             // roads pass L6: a span carrying lane-use paint is drawn as columns
             bool marks = lay.m.Length > 0 && tex.m.Length > 0 && SpanMarks(e, A.s, B.s);
+            if (IsJcl(e) && !A.collapsed && !B.collapsed)
+            {
+                // Five Points round 4: a short link inside a junction complex
+                // (a crossing of a divided road's median) is part of the
+                // intersection: plain pavement, no centre or edge line
+                float g0 = (tex.bandLo + 0.25f) / tw, g1 = (tex.bandHi + 0.75f) / tw;
+                bk.Quad(A.L, B.L, B.R, A.R, new Vector2(g1, v0), new Vector2(g1, v1), new Vector2(g0, v1), new Vector2(g0, v0));
+                RibbonQuads++;
+                return 0;
+            }
             if (full && lay.isDefault && !marks)
             {
                 // U = 0 on the left of travel (the R vertex), so a one-way
@@ -4016,6 +4032,7 @@ namespace PSXRacing.City
         static void DrawnLines(CityMap.Edge e, LineModel.Layout lay, in Section c, float eM, float eP, float latL, float latR, List<LineModel.LineAt> into)
         {
             LineModel.LinesAt(e, c.s, into);
+            if (IsJcl(e)) { into.Clear(); return; }   // Five Points round 4: no lines inside a junction complex
             float PH = lay.half;
             bool movedL = latL > -eM + 0.01f, movedR = latR < eP - 0.01f;
             bool clipL = c.clippedIn && c.innerSide < 0, clipR = c.clippedIn && c.innerSide > 0;
@@ -7458,6 +7475,7 @@ namespace PSXRacing.City
             }
             if (EaseSqueezes) EaseSqueeze(map, trims, e, list, sMin, sMax);
             JoinBuriedEnds(map, trims, e, list, sMin, sMax);
+            DrapeOnFans(map, trims, e, list);   // Five Points round 3
             endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
         }
 
@@ -7814,6 +7832,10 @@ namespace PSXRacing.City
             if (clip != null)
                 foreach (var H in clip.host.edges) MeetCandidate(map, trims, e, H.index, -1, p, hw, vL, vR, sec.L.y, sec.R.y);
             bool gored = goreEdges.Contains(e.index);
+            // Five Points round 3: nor onto the painted gore between it and a
+            // branch clipped onto it (W 5th's edge stepped down onto the slip's
+            // gore + the edge drop, 3.7 cm under the slip's clipped edge, R1a)
+            if (gored && BranchSeamOn && InR23Scope(p) && HostsBranch(map, trims, e)) gored = false;
             if (meetEdges.Count == 0 && !gored) return;
             for (int side = -1; side <= 1; side += 2)
             {
@@ -7890,6 +7912,12 @@ namespace PSXRacing.City
                 float near = hw + o.HalfMax + MeetNodeM;
                 if ((map.nodes[node] - p).sqrMagnitude < near * near) return;
             }
+            // Five Points round 3: a host never steps down to a branch clipped
+            // onto it - the clip already lays the branch's edge at the host's
+            // height (ClipSection), so stepping the host down too missed it by
+            // the same amount the other way (W 5th's edge 3.7 cm under the
+            // Trade -> W 5th slip's along their seam, R1a)
+            if (BranchSeamOn && (trims.branchA[oi] == e.index || trims.branchB[oi] == e.index) && InR23Scope(p)) return;
             for (int si = 0; si + 1 < o.pts.Length; si++)
             {
                 Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
@@ -8721,12 +8749,99 @@ namespace PSXRacing.City
 
         /// <summary>A strip's cross-section a fraction <paramref name="t"/>
         /// along its edge (world end points, tarmac heights, outward units).</summary>
+        /// <summary>Round 5: a levelled nose's verge keeps this far under a
+        /// junction fan that lies over it. PSX_CITY_NOSE_UNDERFAN=0: as round 4.</summary>
+        public static bool NoseUnderFanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_UNDERFAN") != "0";
+        const float NoseUnderFanM = 0.02f, NoseFanReachM = 40f;
+        static readonly Dictionary<int, List<int>> noseFans = new Dictionary<int, List<int>>();
+        static CityMap noseFansMap;
+
+        /// <summary>The height of the junction fan over plan point
+        /// <paramref name=q/> among the junctions within <see cref="NoseFanReachM"/>
+        /// of the nose's own node (Five Points is a complex of several).</summary>
+        static bool UnderNoseFan(CityMap map, Trims trims, int tipNode, Vector2 q, out float y)
+        {
+            y = 0f;
+            List<int> fans;
+            lock (noseFans)
+            {
+                if (noseFansMap != map) { noseFans.Clear(); noseFansMap = map; }
+                if (!noseFans.TryGetValue(tipNode, out fans))
+                {
+                    fans = new List<int>();
+                    var c = map.nodes[tipNode];
+                    for (int n = 0; n < map.nodes.Length; n++)
+                        if (map.nodeEdges[n].Count >= 3 && (map.nodes[n] - c).sqrMagnitude <= NoseFanReachM * NoseFanReachM) fans.Add(n);
+                    noseFans[tipNode] = fans;
+                }
+            }
+            bool any = false;
+            foreach (int n in fans)
+                if (InsideFanY(map, trims, n, q, out float fy) && (!any || fy < y)) { y = fy; any = true; }
+            return any;
+        }
+
         static bool SolveStripAt(CityMap map, Trims trims, Vector2 pa, Vector2 pb, float ya, float yb,
                                  Vector2 outA, Vector2 outB, StripShape sh, float t, Vector3[] prof)
         {
             var outw = Vector2.Lerp(outA, outB, t);
             outw = outw.sqrMagnitude > 1e-6f ? outw.normalized : outA;
-            return SolveStrip(map, trims, Vector2.Lerp(pa, pb, t), Mathf.Lerp(ya, yb, t), outw, sh, prof);
+            var edgeW = Vector2.Lerp(pa, pb, t); float yEdge = Mathf.Lerp(ya, yb, t);
+            if (!SolveStrip(map, trims, edgeW, yEdge, outw, sh, prof)) return false;
+            // Five Points round 2: a median's nose in a junction gap graded flush
+            // (CityMeshes.Walks NoseFlushAt) - the verge held at the edge's drop,
+            // its toe a tuck under that, easing back to the swale behind the nose
+            // Round 4 (NoseLevelOn): every verge on the nose, not only one falling
+            // into the swale, and both ways - the BF median nose at Five Points
+            // was a patchwork of the fans' chord verges and the ribbons' verges
+            // 4-6 cm apart (+4 cm humps under the owner's line, T1own 3.4 cm) -
+            // and in the junction's gap with no edge drop: the nose there is
+            // level with the road it lies between, easing back to the drop and
+            // the swale behind it
+            if (!sh.flat && !sh.fixedRun && !sh.seam && !sh.halfGap && (NoseLevelOn || prof[2].y < yEdge - RoadsideRules.EdgeDropM - 0.01f))
+            {
+                float k = NoseFlushAt(map, trims, edgeW, outw, yEdge, out float yMid);
+                int tipNode = medianTipNode;
+                if (k > 0f)
+                {
+                    // from the edge's drop at the shoulder to the two carriageways'
+                    // mean (less the drop) at the strip's far end: the two sides'
+                    // verges meet at one height in the middle, not a step apart
+                    float drop = NoseLevelOn ? RoadsideRules.EdgeDropM * (1f - k) : RoadsideRules.EdgeDropM;
+                    float y0 = yEdge - drop;
+                    float yFar = float.IsNaN(yMid) ? y0 : Mathf.Clamp(yMid - drop, y0 - 0.15f, y0 + 0.15f);
+                    for (int i = 1; i < 4; i++)
+                    {
+                        float flat = i == 1 ? y0 : i == 2 ? yFar : yFar - RoadsideRules.ToeTuckM;
+                        if (NoseLevelOn && i > 1)
+                        {
+                            // round 4: past the shoulder, the median's own plane at
+                            // that point - one surface whichever strip lays it (the
+                            // fans' chord verges and the link's verges agreed only
+                            // at their own edges: the +4-6 cm patchwork) - and never
+                            // above the strip's own edge: a verge's far band can lie
+                            // under a neighbouring pavement (the link's, the fan's),
+                            // where a lifted band stood 4-8 cm proud of it (T4)
+                            float yp = MedianPlaneAt(map, trims, new Vector2(prof[i].x, prof[i].z), yEdge);
+                            if (!float.IsNaN(yp)) flat = Mathf.Clamp(yp, y0 - 0.15f, y0) - (i == 3 ? RoadsideRules.ToeTuckM : 0f);
+                            else flat = Mathf.Min(flat, y0 - (i == 3 ? RoadsideRules.ToeTuckM : 0f));
+                        }
+                        if (NoseLevelOn || prof[i].y < flat) prof[i].y = Mathf.Lerp(prof[i].y, flat, k);
+                    }
+                    // round 5: levelled, the nose's shoulder stood flush with the
+                    // carriageway's edge, and where that edge runs on into the
+                    // junction its band lay 0-1.3 cm OVER the junction's pavement
+                    // (the fan drapes a hair under the ribbons' edges): a broken
+                    // light line along BF SB across the W 5th opening. Under a
+                    // fan the verge keeps below it - the wheel rides the fan there
+                    if (NoseUnderFanOn && NoseLevelOn && tipNode >= 0)
+                        for (int i = 0; i < 4; i++)
+                            if (UnderNoseFan(map, trims, tipNode, new Vector2(prof[i].x, prof[i].z), out float fy) && prof[i].y > fy - NoseUnderFanM)
+                                prof[i].y = fy - NoseUnderFanM;
+                    WalkStats.noseFlush++;
+                }
+            }
+            return true;
         }
 
         /// <summary>One quad of a strip, from <see cref="profPrev"/> to
@@ -10116,13 +10231,25 @@ namespace PSXRacing.City
                         EmitBarrier(k0.pos, k1.pos, nrm, 0f, len / RoadVTile, false, false);
                         r9FanChords++;
                     }
+                    // (Five Points round 5) a chord that faces drawn pavement - the
+                    // next fan or a ribbon carried on past it - is no free edge: its
+                    // verge stood a fan's FanProudM over that road, a light broken
+                    // line along BF's median-side edge across the W 5th opening
+                    float bt0 = 0f, bt1 = 1f;
+                    if (!onStructure && ChordPavedOn && InR23Scope(map.nodes[n]))
+                    {
+                        if (!ChordBareSpan(map, trims, n, k0, k1, tm.origin, out bt0, out bt1)) { chordPavedSkipped++; continue; }
+                        if (bt0 > 0f || bt1 < 1f) chordPavedCut++;
+                    }
                     if (groundLog != null) groundTag = $"fan chord verge node {n} e{k0.edge}-e{k1.edge}";
-                    // a curb return's pieces share their cross-sections (plan A10)
-                    EmitVergeLine(map, trims, tm, k0.pos, k1.pos, RingOut(corners, i, nrm, true), RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
+                    // a curb return's pieces share their cross-sections (plan A10); a
+                    // chord cut back to its bare part ends square at the cut
+                    EmitVergeLine(map, trims, tm, Vector3.Lerp(k0.pos, k1.pos, bt0), Vector3.Lerp(k0.pos, k1.pos, bt1),
+                                  bt0 > 0f ? nrm : RingOut(corners, i, nrm, true), bt1 < 1f ? nrm : RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k0.edge}";
-                    if (!k0.arc) CornerFill(map, trims, tm, k0.node, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
+                    if (!k0.arc && bt0 <= 0f) CornerFill(map, trims, tm, k0.node, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k1.edge}";
-                    if (!k1.arc) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
+                    if (!k1.arc && bt1 >= 1f) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
                 }
             }
         }

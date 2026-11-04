@@ -68,7 +68,7 @@ namespace PSXRacing.City
         /// <summary>The last build's tallies (the PAINT report's MARKS lines).</summary>
         public sealed class MarkTally
         {
-            public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
+            public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped, mouthsDotted, mouthsDottedOut, mouthsDottedYellow,
                        lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
@@ -91,6 +91,7 @@ namespace PSXRacing.City
         {
             if (marksMap == map && marksTrims == t) return;
             marksMap = map; marksTrims = t;
+            EnsureJcl(map);   // Five Points round 4: short links inside a junction complex
             Marks.Clear();
             MarkStats = new MarkTally();
             if (!MarksOn || map == null || t == null) return;
@@ -413,9 +414,25 @@ namespace PSXRacing.City
         //  Mouths: the host's edge line stops across a branch over 35 deg
         // ================================================================
 
+        /// <summary>PSX_CITY_MOUTH_DOTS=0: a branch joining at 35 degrees or
+        /// less keeps the host's solid edge line across its mouth (before).</summary>
+        public static bool MouthDotsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MOUTH_DOTS") != "0";
+        /// <summary>The longest dotted extension one shallow mouth gets.</summary>
+        const float MouthDotsMaxM = 60f;
+
+        /// <summary>
+        /// MOUTHS. A branch clipped onto a mitred host at over 35 degrees: the
+        /// host's edge line stops across its mouth. At 35 degrees or less (a
+        /// slip lane merging: Five Points' Trade-to-W-5th slip at 20 degrees,
+        /// 2026-11-03; owner: "a driver cannot merge through a solid line ...
+        /// roads that intersect should meet at dashed line") the edge line runs
+        /// on across the mouth as a wide DOTTED extension (MUTCD 3B.09's dotted
+        /// line extension through a merge or diverge), no longer solid. A merge
+        /// zone's own aux-lane marks are left as they are.
+        /// </summary>
         static void MouthMarks(CityMap map, Trims t)
         {
-            float cos35 = Mathf.Cos(35f * Mathf.Deg2Rad);
+            float cos35 = Mathf.Cos(35f * Mathf.Deg2Rad), cos5 = Mathf.Cos(5f * Mathf.Deg2Rad);
             foreach (var L in map.edges)
             {
                 if (L.a == L.b) continue;
@@ -428,7 +445,13 @@ namespace PSXRacing.City
                     var M = map.edges[hi];
                     var dB = OutDir(L, node); var dM = OutDir(M, node);
                     float c = Vector2.Dot(dB, dM);
-                    if (c >= cos35) continue;
+                    bool shallow = c >= cos35;
+                    if (shallow && (!MouthDotsOn || c >= cos5)) continue;
+                    // round 4: dotted mouths are proven at Five Points' slip
+                    // (n13203 / n13204) only; elsewhere a shallow join keeps the
+                    // host's line as before (counted: PSX_CITY_R23_SCOPE=all
+                    // draws them city-wide for an audit)
+                    if (shallow && !InR23Scope(map.nodes[node])) { MarkStats.mouthsDottedOut++; continue; }
                     var lay = LineModel.LayoutOf(M);
                     float sN = M.a == node ? 0f : M.length;
                     var nM = LineModel.SectionLeft(M, sN);
@@ -450,10 +473,12 @@ namespace PSXRacing.City
                         x0 = Mathf.Min(x0, xx); x1 = Mathf.Max(x1, xx);
                     }
                     x0 = Mathf.Max(0f, x0 - 0.6f); x1 = Mathf.Min(M.length, x1 + 0.6f);
+                    if (shallow) x1 = Mathf.Min(x1, x0 + MouthDotsMaxM);
                     if (x1 - x0 < 0.3f) { MarkStats.mouthsSkipped++; continue; }
                     float s0 = M.a == node ? x0 : M.length - x1, s1 = M.a == node ? x1 : M.length - x0;
-                    AddMark(new PaintMark { style = MkOff, edge = M.index, s0 = s0, s1 = s1, k = k, what = $"mouth of e{L.index}" });
+                    AddMark(new PaintMark { style = shallow ? MkDW : MkOff, edge = M.index, s0 = s0, s1 = s1, k = k, what = (shallow ? "dotted mouth of e" : "mouth of e") + L.index });
                     MarkStats.mouths++;
+                    if (shallow) { MarkStats.mouthsDotted++; byte lk = lay.kind[k]; if (lk == LineModel.KYellow || lk == LineModel.KYellowDash) MarkStats.mouthsDottedYellow++; }
                 }
             }
         }
@@ -1151,7 +1176,21 @@ namespace PSXRacing.City
                     (jy >= 0 ? YsDrawnKeys : YsFallbackKeys)?.Add(((long)e.index << 8) | (uint)sl.k);
                 }
                 if (ov == MkYS && jy >= 0) { Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, 2, yHi, yLo, sl.k, false); continue; }
-                if (ov == MkDW) { Add(sl.latA - DWHalf, sl.latA + DWHalf, sl.latB - DWHalf, sl.latB + DWHalf, 3, wHi, wLo, sl.k, false); continue; }
+                if (ov == MkDW)
+                {
+                    // round 4 (MUTCD 3B.09): a dotted extension takes the colour of
+                    // the line it extends - a yellow line's from the yellow texels
+                    // (a one-way texture's yellow left edge is its KEdgeP column)
+                    float dHi = wHi, dLo = wLo;
+                    byte lk = lay.kind[sl.k];
+                    if (lk == LineModel.KYellow || lk == LineModel.KYellowDash)
+                    {
+                        int jj = jy >= 0 ? jy : (!tex.twoWay ? LineOfKind(tex, LineModel.KEdgeP) : -1);
+                        if (jj >= 0) { dHi = (tex.x1[jj] + 0.5f) / tw; dLo = (tex.x0[jj] + 0.5f) / tw; }
+                    }
+                    Add(sl.latA - DWHalf, sl.latA + DWHalf, sl.latB - DWHalf, sl.latB + DWHalf, 3, dHi, dLo, sl.k, false);
+                    continue;
+                }
                 float uHi = (lay.srcM[sl.k] + PH) / lay.W, uLo = (lay.srcM[sl.k] - PH) / lay.W;
                 Add(sl.latA - PH, sl.latA + PH, sl.latB - PH, sl.latB + PH, (byte)(lay.synth[sl.k] ? 1 : 0), uHi, uLo, sl.k, false);
             }

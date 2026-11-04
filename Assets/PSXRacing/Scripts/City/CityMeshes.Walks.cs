@@ -80,14 +80,18 @@ namespace PSXRacing.City
             /// <summary>Round 2: where (one per edge side or corner, world plan +
             /// the median's road name), for the spot checks.</summary>
             public static readonly Dictionary<long, string> medianSkipAt = new Dictionary<long, string>();
+            /// <summary>Median nose cross-sections graded flush (Five Points round 2).</summary>
+            public static int noseFlush;
+            /// <summary>Walk spans cut square where a branch leaves (Five Points round 3).</summary>
+            public static int branchStops;
             /// <summary>The median test's cost (MedianAt: calls, Stopwatch ticks).</summary>
             public static int medianCalls; public static long medianTicks;
             public static float MedianMs => medianTicks * 1000f / System.Diagnostics.Stopwatch.Frequency;
             /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P, paved, lane, median.</summary>
             public static readonly int[] noneWhy = new int[10];
-            public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = medianSkips = medianCalls = 0; medianTicks = 0; medianSkipAt.Clear(); System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
+            public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = medianSkips = noseFlush = branchStops = medianCalls = 0; medianTicks = 0; medianSkipAt.Clear(); System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
             public static string Line() =>
-                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane/median {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}/{noneWhy[9]}), {sideMismatch} side mismatches, {medianSkips} sections kept out of medians ({medianSkipAt.Count} places), median test {medianCalls} calls {MedianMs:0.0} ms, lot curbs {lotCurbM:0} m";
+                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane/median {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}/{noneWhy[9]}), {sideMismatch} side mismatches, {medianSkips} sections kept out of medians ({medianSkipAt.Count} places), {noseFlush} median-nose verge sections graded flush, {branchStops} walk spans stopped at a branch, median test {medianCalls} calls {MedianMs:0.0} ms, lot curbs {lotCurbM:0} m";
         }
 
         static CityMap walkMapFor;
@@ -152,7 +156,7 @@ namespace PSXRacing.City
         {
             var ez = e.lmEase;
             if (ez == null) return 0;
-            foreach (var z in ez) if (z.widen) return z.side > 0 ? 1 : -1;
+            foreach (var z in ez) if (z.widen && z.tag != ApronTag && z.tag != SlipWidenTag) return z.side > 0 ? 1 : -1;   // a branch apron is no island
             return 0;
         }
 
@@ -433,7 +437,7 @@ namespace PSXRacing.City
         /// </summary>
         static bool MedianAt(CityMap map, Trims trims, Vector2 q, float y, out float dTip, out string name, out float yMid)
         {
-            dTip = float.PositiveInfinity; name = null; yMid = float.NaN;
+            dTip = float.PositiveInfinity; name = null; yMid = float.NaN; medianTipNode = -1; medianPlaneY = float.NaN;
             long tick0 = System.Diagnostics.Stopwatch.GetTimestamp();
             WalkStats.medianCalls++;
             try {
@@ -471,16 +475,24 @@ namespace PSXRacing.City
                 foreach (var B in medianHits)
                 {
                     if (A.Key >= B.Key || A.Value.name != B.Value.name || Vector2.Dot(A.Value.t, B.Value.t) >= -0.5f) continue;
-                    found = true; name = A.Value.name;
                     var oa = map.edges[A.Key]; var ob = map.edges[B.Key];
-                    yMid = 0.5f * (oa.YAt(Mathf.Clamp(A.Value.s, 0f, oa.length)) + ob.YAt(Mathf.Clamp(B.Value.s, 0f, ob.length)));
+                    float yA = oa.YAt(Mathf.Clamp(A.Value.s, 0f, oa.length)), yB = ob.YAt(Mathf.Clamp(B.Value.s, 0f, ob.length));
+                    yMid = 0.5f * (yA + yB);
+                    if (!found)
+                    {
+                        // round 4: the median's own surface here - the two edges'
+                        // heights in proportion to the distance from each
+                        float dA = Mathf.Max(0f, A.Value.lat - oa.HalfMax), dB = Mathf.Max(0f, B.Value.lat - ob.HalfMax);
+                        medianPlaneY = dA + dB > 0.01f ? yA + (yB - yA) * dA / (dA + dB) : yMid;
+                    }
+                    found = true; name = A.Value.name;
                     if (trims == null) continue;
                     for (int k = 0; k < 2; k++)
                     {
                         var o = map.edges[k == 0 ? A.Key : B.Key];
                         float sq = k == 0 ? A.Value.s : B.Value.s;
-                        if (map.nodeEdges[o.a].Count > 2) dTip = Mathf.Min(dTip, sq - trims.atA[o.index]);
-                        if (map.nodeEdges[o.b].Count > 2) dTip = Mathf.Min(dTip, o.length - trims.atB[o.index] - sq);
+                        if (map.nodeEdges[o.a].Count > 2 && sq - trims.atA[o.index] < dTip) { dTip = sq - trims.atA[o.index]; medianTipNode = o.a; }
+                        if (map.nodeEdges[o.b].Count > 2 && o.length - trims.atB[o.index] - sq < dTip) { dTip = o.length - trims.atB[o.index] - sq; medianTipNode = o.b; }
                     }
                 }
             return found;
@@ -522,6 +534,51 @@ namespace PSXRacing.City
         static readonly List<(string, Vector2)> medPairScratch = new List<(string, Vector2)>(64);
 
         static readonly Dictionary<int, (float lat, Vector2 t, string name, float s)> medianHits = new Dictionary<int, (float, Vector2, string, float)>();
+
+        /// <summary>How far in from a median's nose its verges are graded flush
+        /// with the road, and over how much more they ease back to the swale.</summary>
+        const float NoseFlushM = 3f, NoseBlendM = 3f;
+
+        /// <summary>
+        /// FIVE POINTS ROUND 2 (2026-11-03): the median's NOSE where it sits in
+        /// a junction's gap, graded flush. With the walk gone from Trade's
+        /// nose its verges fell straight into the swale between the two
+        /// carriageways - 22 cm under the road a metre in from the tip, 35-55
+        /// further in - and a left turn's wheels (W 5th WB -> Trade SB) read a
+        /// 0.32 m step there. A verge cross-section on a median whose point a
+        /// metre out lies within <see cref="NoseFlushM"/> of the nose (or in
+        /// the gap past it) is held at the road's edge drop, easing back to
+        /// its graded profile over <see cref="NoseBlendM"/>: the nose reads as
+        /// the road's own level. PSX_CITY_NOSE_FLUSH=0: as before.
+        /// </summary>
+        public static bool NoseFlushOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_FLUSH") != "0";
+        /// <summary>Round 4: the nose levelled both ways, with no edge drop in the
+        /// junction's gap (CityMeshes.SolveStripAt). PSX_CITY_NOSE_LEVEL=0: round 2's
+        /// lift-only grading at the edge's drop.</summary>
+        public static bool NoseLevelOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_LEVEL") != "0";
+
+        /// <summary>The junction node of the nose MedianAt last measured dTip to (-1 none).</summary>
+        static int medianTipNode = -1;
+        /// <summary>Round 4: the height of the median's plane at MedianAt's last
+        /// point (its two carriageways' heights, by distance from each edge).</summary>
+        static float medianPlaneY = float.NaN;
+        /// <summary>The median's plane at <paramref name="q"/>, NaN outside a median.</summary>
+        static float MedianPlaneAt(CityMap map, Trims trims, Vector2 q, float y) =>
+            MedianAt(map, trims, q, y, out _, out _, out _) ? medianPlaneY : float.NaN;
+
+        static float NoseFlushAt(CityMap map, Trims trims, Vector2 edgeW, Vector2 outw, float yEdge, out float yMid)
+        {
+            yMid = float.NaN;
+            // round 4: the scope is per NOSE (its junction node in or out), not
+            // per point - a nose straddling the circle is graded whole or not
+            // at all; the point prefilter only skips what no nose in scope reaches
+            if (!NoseFlushOn || !InR23Scope(edgeW, NoseFlushM + NoseBlendM + MedianMaxSideM)) return 0f;
+            if (!MedianAt(map, trims, edgeW + outw, yEdge, out float dTip, out _, out yMid)) return 0f;
+            if (medianTipNode < 0 || !InR23Scope(map.nodes[medianTipNode])) return 0f;
+            if (dTip <= NoseFlushM) return 1f;
+            if (dTip >= NoseFlushM + NoseBlendM) return 0f;
+            return 1f - LineModel.Smooth((dTip - NoseFlushM) / NoseBlendM);
+        }
 
         static readonly HashSet<int> walkTwinSegs = new HashSet<int>();
 
@@ -591,8 +648,14 @@ namespace PSXRacing.City
             }
             System.Array.Clear(walkL, 0, n); System.Array.Clear(walkR, 0, n);
             walkEdgeNow = e.index;
+            walkStopLo[0] = walkStopLo[1] = float.NegativeInfinity; walkStopHi[0] = walkStopHi[1] = float.PositiveInfinity;
             if (!WalkEdge(map, e)) yield break;
             var o = tm.origin;
+            if (BranchWalkStopOn)
+            {
+                if (InR23Scope(map.nodes[e.a])) BranchWalkStops(map, trims, tm, e, e.a);
+                if (InR23Scope(map.nodes[e.b])) BranchWalkStops(map, trims, tm, e, e.b);
+            }
             const float near = 30f;
             for (int side = -1; side <= 1; side += 2)
             {
@@ -610,6 +673,11 @@ namespace PSXRacing.City
                     if (wx < min.x - near || wx > max.x + near || wz < min.y - near || wz > max.y + near) continue;
                     if (k > 0 && !WalkableSpan(k, side)) continue;
                     if (k + 1 < n && !WalkableSpan(k + 1, side)) continue;
+                    // Five Points round 2: no walk along a branch apron's wide part
+                    // (its ramp end stood on the merging branch's corner)
+                    if (ApronWidenAt(e, S.s, side) > ApronWalkM) continue;
+                    // Five Points round 3: none past where a branch leaves this side
+                    if (S.s > walkStopHi[side < 0 ? 0 : 1] + 0.01f || S.s < walkStopLo[side < 0 ? 0 : 1] - 0.01f) continue;
                     walkMed[k] = 1;
                     // Five Points: a median keeps its verge, a cross street's side in the gap too
                     if (MedianNoWalkOn && MedianAt(map, trims, new Vector2(wx, wz) + S.Out(side) * MedianProbeOutM, ed.y, out float dTip, out string mName, out _)
@@ -661,6 +729,61 @@ namespace PSXRacing.City
                     if (WalkOnPavement(map, trims, new Vector2(em.x + o.x, em.z + o.z), om, Mathf.Max(arr[k - 1], arr[k]), em.y, e.index))
                         arr[k - 1] = arr[k] = 0f;
                 }
+            }
+        }
+
+        /// <summary>
+        /// WALKS STOP WHERE A BRANCH LEAVES (Five Points round 3, 2026-11-03).
+        /// A one-way branch clipped onto its host at a shallow angle is drawn
+        /// from the point where its outer edge leaves the host's edge line -
+        /// which, at 20 degrees, lies a metre or more BEFORE the node, on the
+        /// host's previous edge. That edge knew nothing of the branch: its walk
+        /// ran on to the node over the branch's first metre, a kerb 11 cm over
+        /// the slip's pavement under the right wheels (West Trade NB -> the
+        /// W 5th slip at n13203, R1a). Now an edge's walk on that side stops
+        /// square at that point (a sample-free cut inside the span). Applies to
+        /// a branch whose drawn end lies on this edge's drawn edge (within
+        /// <see cref="BranchStopTolM"/>), not past the node. PSX_CITY_BRANCH_WALKSTOP=0: as before.
+        /// </summary>
+        public static bool BranchWalkStopOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCH_WALKSTOP") != "0";
+        const float BranchStopTolM = 0.3f;
+        static readonly float[] walkStopLo = new float[2], walkStopHi = new float[2];
+
+        static void BranchWalkStops(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, int node)
+        {
+            var arms = map.nodeEdges[node];
+            if (arms == null || trims.patch[node] || sections.Count < 2) return;
+            var o = tm.origin;
+            foreach (int bi in arms)
+            {
+                if (bi == e.index) continue;
+                var b = map.edges[bi];
+                if (b.a == b.b || trims.BranchAt(b, node) < 0 || trims.BranchAt(b, node) == e.index) continue;
+                var ol = OutlineOf(map, trims, bi);
+                if (ol == null || ol.L == null || ol.L.Length < 2) continue;
+                int at = b.a == node ? 0 : ol.L.Length - 1;
+                // the branch's drawn end: its outer vertex there (collapsed: both the same)
+                var pL = new Vector2(ol.L[at].x, ol.L[at].z); var pR = new Vector2(ol.R[at].x, ol.R[at].z);
+                if (Vector2.Distance(pL, pR) > 0.5f) continue;   // not collapsed onto its host
+                var q = 0.5f * (pL + pR);
+                float best = BranchStopTolM; int bestSide = 0; float bestS = 0f;
+                for (int side = -1; side <= 1; side += 2)
+                    for (int k = 1; k < sections.Count; k++)
+                    {
+                        var A3 = sections[k - 1].Edge(side) + o; var B3 = sections[k].Edge(side) + o;
+                        Vector2 A = new Vector2(A3.x, A3.z), B = new Vector2(B3.x, B3.z), ab = B - A;
+                        float l2 = ab.sqrMagnitude;
+                        float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - A, ab) / l2) : 0f;
+                        float d = Vector2.Distance(q, A + ab * t);
+                        if (d < best) { best = d; bestSide = side; bestS = Mathf.Lerp(sections[k - 1].s, sections[k].s, t); }
+                    }
+                if (bestSide == 0) continue;
+                // only a point along this edge, short of the node
+                float sEnd = node == e.b ? sections[sections.Count - 1].s : sections[0].s;
+                if (Mathf.Abs(sEnd - bestS) < 0.05f) continue;
+                int si = bestSide < 0 ? 0 : 1;
+                if (node == e.b) walkStopHi[si] = Mathf.Min(walkStopHi[si], bestS);
+                else walkStopLo[si] = Mathf.Max(walkStopLo[si], bestS);
             }
         }
 
@@ -1184,6 +1307,25 @@ namespace PSXRacing.City
             var arr = WalkArr(side);
             float wA = arr[i - 1], wB = arr[i];
             if (wA <= 0f && wB <= 0f) return false;
+            {
+                // Five Points round 3: the walk ends square where a branch leaves
+                // (or joins) this side, not in a ramp across the branch's start
+                int si = side < 0 ? 0 : 1;
+                float s0 = sections[i - 1].s, s1 = sections[i].s, tLo = 0f, tHi = 1f;
+                if (s1 - s0 > 0.02f)
+                {
+                    if (wA > 0f && walkStopHi[si] > s0 + 0.01f && walkStopHi[si] < s1 - 0.01f) { tHi = (walkStopHi[si] - s0) / (s1 - s0); wB = wA; }
+                    if (wB > 0f && walkStopLo[si] > s0 + 0.01f && walkStopLo[si] < s1 - 0.01f) { tLo = (walkStopLo[si] - s0) / (s1 - s0); wA = wB; }
+                }
+                if (tLo > 0f || tHi < 1f)
+                {
+                    Vector3 a0 = eA, b0 = eB; Vector2 oa0 = outA, ob0 = outB; float ua = sA, ub = sB;
+                    eA = Vector3.Lerp(a0, b0, tLo); eB = Vector3.Lerp(a0, b0, tHi);
+                    outA = Vector2.Lerp(oa0, ob0, tLo).normalized; outB = Vector2.Lerp(oa0, ob0, tHi).normalized;
+                    sA = Mathf.Lerp(ua, ub, tLo); sB = Mathf.Lerp(ua, ub, tHi);
+                    WalkStats.branchStops++;
+                }
+            }
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
             // CURB CUTS: where the walk crosses a lot entrance's apron or a
             // driveway's (ApronAt), its curb drops to a lip, so a car turns

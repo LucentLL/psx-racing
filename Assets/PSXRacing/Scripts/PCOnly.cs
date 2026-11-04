@@ -8,7 +8,8 @@ namespace PSXRacing
     /// mountain stages' far forest, fill and crown cards, which a phone cannot
     /// yet afford. Switched off as the scene loads everywhere else; the
     /// editor's scene view still shows it. (The name stays: every stage scene
-    /// serializes the component.)
+    /// serializes the component.) Only the PC build's scene pass builds these
+    /// (PSX_PC_CONTENT), so a web scene has none to show.
     /// </summary>
     public class PCOnly : MonoBehaviour
     {

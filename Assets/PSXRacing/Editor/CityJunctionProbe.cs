@@ -34,6 +34,22 @@ namespace PSXRacing.EditorTools
                 if (f.Length < 4) continue;
                 Probe(map, trims, buildings, float.Parse(f[0], inv), float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv), sb, csv);
             }
+            // PSX_JPROBE_PAVE="x0:z0:x1:z1:step[;...]": every drawn pavement over
+            // each point along the line (ribbon outlines and fans, with heights)
+            foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_JPROBE_PAVE") ?? "").Split(';'))
+            {
+                var f = item.Trim().Split(':');
+                if (f.Length < 5) continue;
+                Vector2 a = new Vector2(float.Parse(f[0], inv), float.Parse(f[1], inv)), b = new Vector2(float.Parse(f[2], inv), float.Parse(f[3], inv));
+                float st = float.Parse(f[4], inv);
+                int cnt = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) / st));
+                sb.AppendLine($"=== PAVEMENT along ({a.x:0.00},{a.y:0.00}) -> ({b.x:0.00},{b.y:0.00})");
+                for (int i = 0; i <= cnt; i++)
+                {
+                    var q = Vector2.Lerp(a, b, i / (float)cnt);
+                    sb.AppendLine($"  ({q.x:0.00},{q.y:0.00}){CityMeshes.DebugPavementAt(map, trims, q)}");
+                }
+            }
             // PSX_JPROBE_EDGES="e1,e2,...": each edge's line model every 2 m (the
             // drawn ribbon's place against OSM's line: shift, extents, lanes)
             foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_JPROBE_EDGES") ?? "").Split(','))
@@ -49,7 +65,34 @@ namespace PSXRacing.EditorTools
                     var lp = LineModel.LanePoint(e, sc);
                     sb.AppendLine($"  s {sc,5:0.0} osm ({p.x:0.00},{p.y:0.00}) left ({l.x:0.00},{l.y:0.00}) shift {LineModel.ShiftAt(e, sc):0.00} ext -{em:0.00}/+{ep:0.00} lane ({lp.x:0.00},{lp.y:0.00}) centre {LineModel.LaneCentre(e, sc):0.00} y {e.YAt(sc):0.000}");
                 }
+                sb.AppendLine(" drawn outline:");
+                sb.Append(CityMeshes.DebugOutline(map, trims, ei));
+                CityMeshes.EnsureMarks(map, trims);
+                var ml = CityMeshes.MarksOf(ei);
+                sb.AppendLine($" jcl {CityMeshes.IsJcl(map, ei)}; marks {(ml == null ? 0 : ml.Count)}");
+                if (ml != null) foreach (var m in ml) sb.AppendLine($"   mark {CityMeshes.MarkNames[m.style]} s {m.s0:0.00}..{m.s1:0.00} k {m.k} '{m.what}'{(m.yellow ? " yellow" : "")}");
             }
+            // PSX_JPROBE_NODES="n1,n2,...": each node as the tile builder draws it
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_JPROBE_NODES") ?? "").Split(','))
+                if (int.TryParse(t.Trim().TrimStart('n'), out int nd) && nd >= 0 && nd < map.nodes.Length)
+                {
+                    sb.AppendLine($"=== NODE n{nd} at ({map.nodes[nd].x:0.00},{map.nodes[nd].y:0.00}) " + CityMeshes.DescribeNode(map, trims, nd));
+                    sb.AppendLine("  " + CityMeshes.DebugThrough(map, trims, nd));
+                }
+            CityMeshes.EnsureJcl(map);
+            sb.AppendLine($"JUNCTION-COMPLEX LINKS ({(CityMeshes.JclOn ? "ON" : "OFF")}): {CityMeshes.JclCount}, {CityMeshes.JclMetres:0} m");
+            foreach (var l in CityMeshes.JclAt) sb.AppendLine("  jcl: " + l);
+            CityMeshes.EnsureMarks(map, trims);
+            { var ms = CityMeshes.MarkStats; sb.AppendLine($"MOUTHS: {ms.mouths} marked ({ms.mouthsDotted} dotted, {ms.mouthsDottedYellow} of them yellow; the rest stop); shallow joins outside the dotted scope left as before: {ms.mouthsDottedOut}; skipped {ms.mouthsSkipped}"); }
+            sb.AppendLine($"FAN DRAPE ({(CityMeshes.FanDrapeOn ? "ON" : "OFF")}): {CityMeshes.FanDrapeN} ribbon vertices put on a fan's height, largest move {CityMeshes.FanDrapeMaxMoved:0.000} m");
+            sb.AppendLine($"BRANCH APRONS ({(CityMeshes.BranchApronOn ? "ON" : "OFF")}): {CityMeshes.BranchApronN}, widest {CityMeshes.BranchApronMaxM:0.00} m");
+            foreach (var l in CityMeshes.BranchApronAt) sb.AppendLine("  " + l);
+            sb.AppendLine($"ISLAND NOSES ({(CityMeshes.IslandNoseOn ? "ON" : "OFF")}, R {CityMeshes.IslandNoseR:0.0} m): {CityMeshes.IslandNoseAt.Count}");
+            foreach (var l in CityMeshes.IslandNoseAt) sb.AppendLine("  nose: " + l);
+            sb.AppendLine($"SLIP CURVE WIDENING ({(CityMeshes.SlipWidenOn ? "ON" : "OFF")}, K {CityMeshes.SlipWidenK:0.0} m2): {CityMeshes.SlipWidenAt.Count}");
+            foreach (var l in CityMeshes.SlipWidenAt) sb.AppendLine("  widen: " + l);
+            sb.AppendLine($"BRANCH OVERHANGS LEFT: {CityMeshes.BranchApronLeft}");
+            foreach (var l in CityMeshes.BranchApronLeftAt) sb.AppendLine("  left: " + l);
             sb.AppendLine("WALKS (the tiles this probe built): " + CityMeshes.WalkStats.Line());
             foreach (var kv in CityMeshes.WalkStats.medianSkipAt) sb.AppendLine("  median skip: " + kv.Value);
             string root = System.IO.Directory.GetParent(Application.dataPath).FullName;
@@ -126,6 +169,7 @@ namespace PSXRacing.EditorTools
                                         tag = TagAt(top.point);
                                         worst.Add((dy, qx, qz, $"{slot} {tag}"));
                                     }
+                                    else if (tagAll && dy > 0f) tag = TagAt(top.point);
                                 }
                             }
                             else c = 'X';
@@ -137,10 +181,12 @@ namespace PSXRacing.EditorTools
                     sb.AppendLine(row.ToString());
                 }
                 worst.Sort((a, b) => b.dy.CompareTo(a.dy));
-                sb.AppendLine($"  ground over a road by more than 3 cm: {worst.Count} cells");
+                sb.AppendLine($"  ground over a road by more than 3 cm: {worst.Count} cells; fan chords facing pavement so far (PSX_CITY_CHORD_PAVED {(CityMeshes.ChordPavedOn ? "on" : "off")}): {CityMeshes.chordPavedSkipped} left bare, {CityMeshes.chordPavedCut} cut back to their bare part");
                 var seenTag = new Dictionary<string, int>();
                 foreach (var w in worst) { seenTag.TryGetValue(w.what, out int k); seenTag[w.what] = k + 1; }
                 foreach (var kv in seenTag) sb.AppendLine($"    {kv.Value,5} cells  {kv.Key}");
+                foreach (var l in CityMeshes.ChordPavedAt) sb.AppendLine("    chord " + l);
+                CityMeshes.ChordPavedAt.Clear();
                 for (int k = 0; k < Mathf.Min(40, worst.Count); k++)
                     sb.AppendLine($"    {worst[k].dy:+0.000} at ({worst[k].qx:0.00},{worst[k].qz:0.00}) {worst[k].what}");
                 // the junction nodes in the box

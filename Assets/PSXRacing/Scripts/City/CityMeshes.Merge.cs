@@ -872,6 +872,228 @@ namespace PSXRacing.City
             return false;
         }
 
+        // ----------------------------------------------------------------
+        //  BRANCH APRONS (Five Points round 2, 2026-11-03). n13204, 30 m ESE
+        //  of Five Points: the unnamed one-way link e13402 (2 lanes, drawn
+        //  centred on its OSM line) merges into West 5th Street, whose ribbon
+        //  the export draws a full lane off its OSM line (lmOff -3.66 from
+        //  the lane change at n5103 on through Five Points). At a mitred node
+        //  a branch is clipped against its host and its ribbon ends square on
+        //  the node, so the link's right lane ran 3.3 m past West 5th's drawn
+        //  edge into the land: a ditch 23 cm down and a verge hump 15 cm up
+        //  (22 cm under a wheel at (-3699.8,6327.8)). A merge zone (L5) widens
+        //  its host for a tier-1 ramp; any other branch whose drawn end
+        //  stands past the host's drawn edge now gets the same thing in
+        //  small: the host's pavement widened on that side by the overhang
+        //  at the node, eased out over 8x the overhang (12-40 m, never past
+        //  the next junction) - a merge (or diverge) taper, pavement only
+        //  (the lanes, lines and traffic never see a widen ease).
+        //  PSX_CITY_BRANCH_APRON=0: as before.
+        // ----------------------------------------------------------------
+        public static bool BranchApronOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCH_APRON") != "0";
+        /// <summary>The tag every apron ease carries (not a refuge island's).</summary>
+        public const long ApronTag = long.MinValue + 7;
+        public static int BranchApronN, BranchApronLeft; public static float BranchApronMaxM;
+        public static readonly List<string> BranchApronAt = new List<string>();
+        /// <summary>Overhangs no apron takes (wider than a lane and a half, a
+        /// two-way branch, or the next junction too close for a taper).</summary>
+        public static readonly List<string> BranchApronLeftAt = new List<string>();
+        const float ApronWalkM = 0.5f, ApronMinM = 0.3f, ApronMaxM = 4.5f, ApronRatio = 8f, ApronMinLenM = 12f, ApronMaxLenM = 40f, ApronShortM = 8f;
+        static readonly Dictionary<int, List<LineModel.Ease>> apronAdd = new Dictionary<int, List<LineModel.Ease>>();
+
+        /// <summary>The apron's widening of this edge's pavement on a side
+        /// (+1 its plus/left) at arc s (0: none).</summary>
+        static float ApronWidenAt(CityMap.Edge e, float s, int side)
+        {
+            var ez = e.lmEase;
+            if (ez == null || BranchApronN == 0) return 0f;
+            float w = 0f;
+            foreach (var z in ez)
+            {
+                if (!z.widen || z.tag != ApronTag || (z.side > 0) != (side > 0)) continue;
+                float d = z.d0 + (z.fromA ? s : e.length - s);
+                if (d < z.len) w = Mathf.Max(w, z.dw * (1f - LineModel.Smooth(Mathf.Max(0f, d) / z.len)));
+            }
+            return w;
+        }
+
+        static void BuildBranchAprons(CityMap map, Trims t)
+        {
+            BranchApronN = 0; BranchApronLeft = 0; BranchApronMaxM = 0f; BranchApronAt.Clear(); BranchApronLeftAt.Clear(); apronAdd.Clear();
+            if (!BranchApronOn) return;
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (!t.mitre[n] || !InR23Scope(map.nodes[n])) continue;
+                int tA = t.throughA[n], tB = t.throughB[n];
+                if (tA < 0 || tB < 0 || tA == tB) continue;
+                foreach (int bi in map.nodeEdges[n])
+                {
+                    var b = map.edges[bi];
+                    if (bi == tA || bi == tB || b.a == b.b || b.bridge || b.tunnel) continue;
+                    if (t.BranchAt(b, n) < 0 || ZoneAt(bi, n) != null) continue;
+                    bool atA = b.a == n;
+                    if ((atA ? t.atA[bi] : t.atB[bi]) > 0.5f) continue;   // its ribbon stops short of the node
+                    float sb = atA ? 0f : b.length;
+                    var dB = atA ? b.TangentAt(0f) : -b.TangentAt(b.length);   // away from the node along the branch
+                    // the host arm the branch's line runs on into through the node
+                    CityMap.Edge h = null; float best = -0.5f;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        var o = map.edges[k == 0 ? tA : tB];
+                        var dO = o.a == n ? o.TangentAt(0f) : -o.TangentAt(o.length);
+                        float d = Vector2.Dot(dB, dO);
+                        if (d < best) { best = d; h = o; }
+                    }
+                    if (h == null || h.bridge || h.tunnel) continue;
+                    bool hA = h.a == n;
+                    float sh = hA ? 0f : h.length;
+                    if (h.ElevatedAt(sh) || b.ElevatedAt(sb)) continue;
+                    var Lb = LineModel.SectionLeft(b, sb);
+                    var Lh = LineModel.SectionLeft(h, sh);
+                    LineModel.Extents(b, sb, out float bm, out float bp);
+                    LineModel.Extents(h, sh, out float hm, out float hp);
+                    float wP = 0f, wM = 0f;
+                    for (int c = 0; c < 2; c++)
+                    {
+                        float lat = Vector2.Dot(Lb * (c == 0 ? bp : -bm), Lh);   // the branch's end corner across the host
+                        wP = Mathf.Max(wP, lat - hp); wM = Mathf.Max(wM, -lat - hm);
+                    }
+                    for (int sd = -1; sd <= 1; sd += 2)
+                    {
+                        float W = Mathf.Min(sd > 0 ? wP : wM, b.width);
+                        if (W < ApronMinM) continue;
+                        string why = !b.oneway ? "a two-way branch" : W > ApronMaxM ? "wider than a lane and a half" : null;
+                        // the host chain from the node: through 2-arm nodes, to the next junction
+                        float chain = 0f; var cur = h; int from = n;
+                        for (int guard = 0; guard < 16 && chain < ApronMaxLenM; guard++)
+                        {
+                            int far = cur.a == from ? cur.b : cur.a;
+                            float farTrim = cur.a == far ? t.atA[cur.index] : t.atB[cur.index];
+                            if (cur.bridge || cur.tunnel) break;
+                            if (map.nodeEdges[far].Count != 2) { chain += cur.length - farTrim; break; }
+                            chain += cur.length;
+                            int nxI = map.nodeEdges[far][0] == cur.index ? map.nodeEdges[far][1] : map.nodeEdges[far][0];
+                            var nx = map.edges[nxI];
+                            if (nx == cur || nx.a == nx.b) break;
+                            cur = nx; from = far;
+                        }
+                        float len = Mathf.Min(Mathf.Clamp(W * ApronRatio, ApronMinLenM, ApronMaxLenM), chain);
+                        if (why == null && len < ApronShortM) why = $"the next junction {chain:0} m on";
+                        if (why != null)
+                        {
+                            BranchApronLeft++;
+                            if (BranchApronLeftAt.Count < 400)
+                                BranchApronLeftAt.Add($"n{n} ({map.nodes[n].x:0.0},{map.nodes[n].y:0.0}) branch e{bi} '{b.name}' host e{h.index} '{h.name}' side {(sd > 0 ? "+" : "-")} {W:0.00} m: {why}");
+                            continue;
+                        }
+                        // lay it: side sd in h's frame is chainSide in the chain's (left of travel away from n)
+                        int chainSide = sd * (hA ? 1 : -1);
+                        float d0 = 0f; cur = h; from = n;
+                        for (int guard = 0; guard < 16 && d0 < len; guard++)
+                        {
+                            bool fA = cur.a == from;
+                            if (!apronAdd.TryGetValue(cur.index, out var list)) apronAdd[cur.index] = list = new List<LineModel.Ease>(2);
+                            list.Add(new LineModel.Ease { widen = true, side = (sbyte)(chainSide * (fA ? 1 : -1)), fromA = fA, dw = W, len = len, d0 = d0, tag = ApronTag });
+                            d0 += cur.length;
+                            int far = fA ? cur.b : cur.a;
+                            if (map.nodeEdges[far].Count != 2) break;
+                            int nxI = map.nodeEdges[far][0] == cur.index ? map.nodeEdges[far][1] : map.nodeEdges[far][0];
+                            var nx = map.edges[nxI];
+                            if (nx == cur || nx.a == nx.b || nx.bridge || nx.tunnel) break;
+                            cur = nx; from = far;
+                        }
+                        BranchApronN++; BranchApronMaxM = Mathf.Max(BranchApronMaxM, W);
+                        if (BranchApronAt.Count < 400)
+                            BranchApronAt.Add($"n{n} ({map.nodes[n].x:0.0},{map.nodes[n].y:0.0}) branch e{bi} '{b.name}' host e{h.index} '{h.name}' side {(sd > 0 ? "+" : "-")} {W:0.00} m over {len:0} m");
+                    }
+                }
+            }
+            foreach (var kv in apronAdd)
+            {
+                var e = map.edges[kv.Key];
+                var all = new List<LineModel.Ease>(e.lmEase ?? System.Array.Empty<LineModel.Ease>());
+                all.AddRange(kv.Value);
+                e.lmEase = all.ToArray();
+            }
+            apronAdd.Clear();
+        }
+
+        // ----------------------------------------------------------------
+        //  A SLIP LANE WIDENED ON THE INSIDE OF ITS CURVE (Five Points round
+        //  6, 2026-11-04). Round 2 drew the Trade NB -> W 5th slip (e13402)
+        //  as the one lane the owner asked for (4.26 m, was 7.9). Its first
+        //  18 m bend right on a ~15 m radius, and a car's inside rear wheel
+        //  runs inside its front wheels' line there: the drive-over's car
+        //  (R1a, both steering laws) put its inside rear wheel on the face of
+        //  the outer walk's kerb at (-3718.39,6326.13), 2.8 cm (live, with
+        //  the two-lane slip: 1.1). A turning roadway is widened on the
+        //  inside of its curve for exactly this (AASHTO's turning-roadway
+        //  widths): here the pavement only, on the inner side, by
+        //  SlipWidenK / R up to SlipWidenMaxM, smoothed over 6 m and eased in
+        //  and out over the slip's first and last 4 m - the lane, its lines
+        //  and traffic stay one lane (a widen ease is pavement only), and
+        //  the walk and its kerb stand that much further out. Applies to a
+        //  one-lane one-way edge clipped onto a host at both ends (a slip)
+        //  inside the Five Points scope. PSX_CITY_SLIP_WIDEN=0: as before.
+        // ----------------------------------------------------------------
+        public static bool SlipWidenOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN") != "0";
+        public static float SlipWidenK = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN_K"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float swk) && swk > 0f ? swk : 12f;
+        /// <summary>The most a slip is widened (PSX_CITY_SLIP_WIDEN_MAX): 0.9 m pushed the
+        /// outer verge 3.7 cm up over the lot paving behind the walk at (-3714.8,6320.8).</summary>
+        public static float SlipWidenMaxM = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN_MAX"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float swm) && swm > 0f ? swm : 0.5f;
+        const float SlipWidenEndM = 4f, SlipWidenSmoothM = 3f;
+        /// <summary>The tag a slip's curve widening carries (no refuge island's, no apron's).</summary>
+        public const long SlipWidenTag = long.MaxValue - 7;
+        public static readonly List<string> SlipWidenAt = new List<string>();
+
+        static void BuildSlipWidening(CityMap map, Trims t)
+        {
+            SlipWidenAt.Clear();
+            if (!SlipWidenOn) return;
+            foreach (var e in map.edges)
+            {
+                if (e.a == e.b || !e.oneway || e.lanes != 1 || e.link || e.bridge || e.tunnel || e.length < 3f * SlipWidenEndM) continue;
+                if (t.branchA[e.index] < 0 || t.branchB[e.index] < 0) continue;
+                if (!InR23Scope(map.nodes[e.a]) || !InR23Scope(map.nodes[e.b])) continue;
+                const float ds = 1f;
+                int n = Mathf.FloorToInt(e.length / ds) + 1;
+                var k = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    float s0 = Mathf.Clamp(i * ds - 1f, 0f, e.length), s1 = Mathf.Clamp(i * ds + 1f, 0f, e.length);
+                    var t0 = e.TangentAt(s0); var t1 = e.TangentAt(s1);
+                    k[i] = s1 - s0 > 0.1f ? Vector2.SignedAngle(t0, t1) * Mathf.Deg2Rad / (s1 - s0) : 0f;   // + left
+                }
+                var ks = new float[n];
+                int h = Mathf.RoundToInt(SlipWidenSmoothM / ds);
+                for (int i = 0; i < n; i++)
+                {
+                    float sum = 0f; int c = 0;
+                    for (int j = Mathf.Max(0, i - h); j <= Mathf.Min(n - 1, i + h); j++) { sum += k[j]; c++; }
+                    ks[i] = sum / c;
+                }
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var prof = new float[n + 1];
+                    float wMax = 0f;
+                    for (int i = 0; i < n; i++)
+                    {
+                        float kin = side > 0 ? ks[i] : -ks[i];   // curvature toward this side: its inside
+                        float w = kin > 0f ? Mathf.Min(SlipWidenMaxM, SlipWidenK * kin) : 0f;
+                        float s = i * ds;
+                        float f = Mathf.Min(LineModel.Smooth(Mathf.Clamp01(s / SlipWidenEndM)), LineModel.Smooth(Mathf.Clamp01((e.length - s) / SlipWidenEndM)));
+                        prof[i] = w * f; wMax = Mathf.Max(wMax, prof[i]);
+                    }
+                    prof[n] = 0f;
+                    if (wMax < 0.1f) continue;
+                    var all = new List<LineModel.Ease>(e.lmEase ?? System.Array.Empty<LineModel.Ease>());
+                    all.Add(new LineModel.Ease { widen = true, side = (sbyte)side, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = prof, profD0 = 0f, profDs = ds, tag = SlipWidenTag });
+                    e.lmEase = all.ToArray();
+                    SlipWidenAt.Add($"e{e.index} '{e.name}' side {(side > 0 ? "+" : "-")} up to {wMax:0.00} m");
+                }
+            }
+        }
+
         /// <summary>The race line's samples through a ramp's zone (every 3 m).</summary>
         public static void ZoneSamples(CityMap.Edge e, float sMin, float sMax, List<float> into)
         {

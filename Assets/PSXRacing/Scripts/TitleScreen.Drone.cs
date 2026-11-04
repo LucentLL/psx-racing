@@ -44,6 +44,10 @@ namespace PSXRacing
         {
             if (cam == null || views.Count == 0) return;
             droneOn = true;
+            // The crown cards stand (an active PCOnly root: ForestCrowns, the fill,
+            // the far forest) only in a scene the PC build's own pass made, and
+            // only where PCOnly has not hidden them.
+            crowns = Object.FindAnyObjectByType<PCOnly>() != null;
             shotsDir = System.Environment.GetEnvironmentVariable("PSX_TITLE_SHOTS");
             var args = System.Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length - 1; i++) if (args[i] == "-titleshots") shotsDir = args[i + 1];
@@ -60,10 +64,16 @@ namespace PSXRacing
             return GroundAt(mid + right * 80f) <= GroundAt(mid - right * 80f) ? right : -right;
         }
 
-        /// <summary>A phone has no crown cards (PCOnly, PlatformProfile.FullForest):
-        /// from straight above, its trees' crossed cards read as an X, so it
-        /// flies only the shots that look across the canopy.</summary>
-        static bool Flies(ShotKind k) => PlatformProfile.FullForest || (k != ShotKind.TopDown && k != ShotKind.Follow);
+        /// <summary>Crown cards are up in this scene (see BeginDrone).</summary>
+        static bool crowns;
+
+        /// <summary>Without crown cards - a phone, which hides them, and every
+        /// web scene, which never carries them (the PC build's scene pass alone
+        /// builds them: the web player's data file sits near GitHub's 100 MB
+        /// file limit) - a tree's crossed cards read as an X from straight
+        /// above, so the title flies only the shots that look across the
+        /// canopy.</summary>
+        static bool Flies(ShotKind k) => crowns || (k != ShotKind.TopDown && k != ShotKind.Follow);
 
         static int FlownShots
         {

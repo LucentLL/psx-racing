@@ -120,6 +120,8 @@ namespace PSXRacing.City
         /// a split or a widening (over 120 deg), or two ramps.</summary>
         public static float CurbRadiusAt(CityMap.Edge a, int na, CityMap.Edge b, int nb, float phi)
         {
+            // Five Points round 6: a slip lane's island nose (see IslandNoseR)
+            if (islandNoseKeys.Count > 0 && islandNoseKeys.Contains(NosePairKey(a.index, b.index))) return IslandNoseR;
             // two ramps meeting (a fork or a merge of links): the corner is a
             // gore's, not a curb's - a 10 m arc there trimmed node 597's links
             // back 28-33 m and stood the fan's chord over Tyvola Road's drop
@@ -136,6 +138,62 @@ namespace PSXRacing.City
                 if (phi > 120f * Mathf.Deg2Rad) return 0f;
             }
             return CurbRadius(a, b);
+        }
+
+        /// <summary>
+        /// A SLIP LANE'S ISLAND GETS A NOSE (Five Points round 6, 2026-11-04).
+        /// Where one road leaves a junction at a skew beside another, the acute
+        /// corner between them is a gore's point (CurbRadiusAt: no curb under
+        /// 60 deg at a crossing). At Five Points that point is also the tip of
+        /// the island a one-lane slip cuts off (West Trade NB -> the slip e13402
+        /// -> W 5th EB): land, kerbed, on the inside of the 130 deg right turn
+        /// from Trade NB into W 5th EB (R1b), and at 49 deg a car's own line
+        /// runs inside it - the race AI's inside rear wheel went 3.5 cm up onto
+        /// the point at (-3723.6,6340.8), and a wider arc only put it further on.
+        /// A channelising island's nose is set back from the turning path and
+        /// rounded: here the corner takes a curb return of
+        /// <see cref="IslandNoseR"/> (the fan's pavement grows round it, and the
+        /// arms' trims with it, as for any curb), so the point stands ~1.4 R
+        /// further back along the corner's bisector (2 m: R1b clean under both
+        /// steering laws; 2.5 m grew the arms' trims a metre more and moved
+        /// L1/L3 at 28 km/h onto 1.8-2.8 cm). Applies to an acute corner
+        /// of a junction inside the Five Points scope whose two arms' far nodes
+        /// are joined by a one-way edge (the slip that makes the island).
+        /// PSX_CITY_ISLAND_NOSE=0: the point as before; PSX_CITY_ISLAND_NOSE_R: the radius.
+        /// </summary>
+        public static bool IslandNoseOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ISLAND_NOSE") != "0";
+        public static float IslandNoseR = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_ISLAND_NOSE_R"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float inr) && inr > 0f ? inr : 2.0f;
+        static readonly HashSet<long> islandNoseKeys = new HashSet<long>();
+        /// <summary>The noses the last ComputeTrims found (for the probes).</summary>
+        public static readonly List<string> IslandNoseAt = new List<string>();
+        static long NosePairKey(int a, int b) => ((long)Mathf.Min(a, b) << 32) | (uint)Mathf.Max(a, b);
+
+        static void FindIslandNoses(CityMap map, Trims t)
+        {
+            islandNoseKeys.Clear(); IslandNoseAt.Clear();
+            if (!IslandNoseOn) return;
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (!t.patch[n] || !InR23Scope(map.nodes[n])) continue;
+                var arms = map.nodeEdges[n];
+                for (int i = 0; i < arms.Count; i++)
+                    for (int j = i + 1; j < arms.Count; j++)
+                    {
+                        var a = map.edges[arms[i]]; var b = map.edges[arms[j]];
+                        if (a == b || a.a == a.b || b.a == b.b || a.link || b.link) continue;
+                        if (Vector2.Dot(OutDir(a, n), OutDir(b, n)) < 0f) continue;   // an acute corner only
+                        int fa = a.a == n ? a.b : a.a, fb = b.a == n ? b.b : b.a;
+                        if (fa == fb) continue;
+                        foreach (int si in map.nodeEdges[fa])
+                        {
+                            var s = map.edges[si];
+                            if (s == a || s == b || !s.oneway || s.a == s.b) continue;
+                            if (!((s.a == fa && s.b == fb) || (s.a == fb && s.b == fa))) continue;
+                            if (islandNoseKeys.Add(NosePairKey(a.index, b.index)))
+                                IslandNoseAt.Add($"n{n} e{a.index} '{a.name}' / e{b.index} '{b.name}' (slip e{si}) R {IslandNoseR:0.0}");
+                        }
+                    }
+            }
         }
 
         /// <summary>The nodes the last ComputeTrims drew as a road crossing
