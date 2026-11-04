@@ -82,6 +82,8 @@ namespace PSXRacing.EditorTools
             CityMeshes.EnsureJcl(map);
             sb.AppendLine($"JUNCTION-COMPLEX LINKS ({(CityMeshes.JclOn ? "ON" : "OFF")}): {CityMeshes.JclCount}, {CityMeshes.JclMetres:0} m");
             foreach (var l in CityMeshes.JclAt) sb.AppendLine("  jcl: " + l);
+            sb.AppendLine($"MITRES DRAWN AS FANS ({(CityMeshes.MitreFanOn ? "ON" : "OFF")}): {CityMeshes.MitreFanCount}");
+            foreach (var l in CityMeshes.MitreFanAt) sb.AppendLine("  mitrefan: " + l);
             CityMeshes.EnsureMarks(map, trims);
             { var ms = CityMeshes.MarkStats; sb.AppendLine($"MOUTHS: {ms.mouths} marked ({ms.mouthsDotted} dotted, {ms.mouthsDottedYellow} of them yellow; the rest stop); shallow joins outside the dotted scope left as before: {ms.mouthsDottedOut}; skipped {ms.mouthsSkipped}"); }
             sb.AppendLine($"FAN DRAPE ({(CityMeshes.FanDrapeOn ? "ON" : "OFF")}): {CityMeshes.FanDrapeN} ribbon vertices put on a fan's height, largest move {CityMeshes.FanDrapeMaxMoved:0.000} m");

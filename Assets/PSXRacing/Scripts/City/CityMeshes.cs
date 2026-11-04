@@ -1417,7 +1417,124 @@ namespace PSXRacing.City
         /// "is there a patch here" — the full table is <see cref="ComputeTrims"/>.</summary>
         public static Trims NodeTrims(CityMap map) => ComputeTrims(map);
 
+        /// <summary>
+        /// A MITRE THAT A NEIGHBOUR'S FAN REACHES JOINS THAT FAN (road layers,
+        /// 2026-11-04; the owner on Beatties Ford Road at French Street: "I keep
+        /// launching into the air ... roads are layered over one another"). A
+        /// node drawn mitred (a through road with only clipped branches) a few
+        /// metres from a fan node was never one surface with it: clusters only
+        /// join two FANS over a fully trimmed link. The fan's ring was laid round
+        /// its own arms' corners - at n10184 French Street's 16.8 m out and the
+        /// off-ramp's 17.6 m out, Beatties Ford's 6.6 m stub buried between them -
+        /// and its chord ran straight through the mitre n634, taking its height
+        /// from those far corners: a wedge over n634's arms whose leading edge
+        /// was a 17-35 cm vertical face (16 of 19 movements launched there, all
+        /// four wheels off 0.58 s). Such a mitre - 3+ arms, a non-link edge to a
+        /// fan node whose mouth on it stops within the mitre's widest half-width
+        /// + 1 m of it, that the fan BURIES (its neighbours' chord runs past the
+        /// mouth), the chord passing within MitreFanReachM of the mitre node and
+        /// not already MitreFanSwallowM past it - is drawn as a fan and joined
+        /// with its neighbour into one junction cluster: one ring round both
+        /// nodes' outside arms, every corner at its own arm's height, nothing
+        /// drawn over anything. Plan only (the solve's trims and the tiles' must
+        /// agree). Not within Five Points (round 6 is proven as it is), not a
+        /// refuge node, not on a bridge, never a cul-de-sac bulb. City-wide this
+        /// takes n634 and Pavilion Boulevard n12867 (12.9 cm cleared); South
+        /// Caswell n778 (plate 4.6 m short) and Tuckaseege n13224 (already 3.3 m
+        /// under n195's plate) gained steps in the sweep and stay mitred.
+        /// PSX_CITY_MITREFAN=0: drawn as before.
+        /// </summary>
+        public static bool MitreFanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MITREFAN") != "0";
+        /// <summary>For the probe: mitres the last ComputeTrims drew as fans, and where.</summary>
+        public static int MitreFanCount;
+        public static readonly List<string> MitreFanAt = new List<string>();
+        /// <summary>The edges between a mitre drawn as a fan and its neighbour fan (one cluster).</summary>
+        static bool[] mitreFanEdge;
+        /// <summary>While set, FanCorners records here each arm it buries under its neighbours' fan.</summary>
+        static HashSet<int> fanBuriedOut;
+        /// <summary>How near the ring's edge a mitre node outside it still counts as reached.</summary>
+        const float MitreFanReachM = 3f;
+        /// <summary>A mitre node deeper than this inside the fan's ring already has
+        /// its arms' mouths under one plate: no chord crosses them at the node.</summary>
+        const float MitreFanSwallowM = 1f;
+
+        /// <summary>How far point q lies inside a fan ring (FanCorners about a
+        /// zero origin, in plan): + its distance to the ring's edge inside, -
+        /// outside.</summary>
+        static float RingReach(List<FanCorner> ring, Vector2 q)
+        {
+            if (ring == null || ring.Count < 3) return float.NegativeInfinity;
+            bool inside = false; float dMin = float.MaxValue;
+            for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+            {
+                Vector2 a = new Vector2(ring[i].pos.x, ring[i].pos.z), b = new Vector2(ring[j].pos.x, ring[j].pos.z);
+                if ((a.y > q.y) != (b.y > q.y) && q.x < (b.x - a.x) * (q.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+                var ab = b - a; float u = ab.sqrMagnitude > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, ab) / ab.sqrMagnitude) : 0f;
+                dMin = Mathf.Min(dMin, Vector2.Distance(q, a + ab * u));
+            }
+            return inside ? dMin : -dMin;
+        }
+
         public static Trims ComputeTrims(CityMap map)
+        {
+            mitreFanEdge = null;
+            MitreFanCount = 0; MitreFanAt.Clear();
+            var t = ComputeTrimsCore(map, null);
+            if (!MitreFanOn || !ClustersOn) return t;
+            var force = new bool[map.nodes.Length];
+            var pairEdge = new bool[map.edges.Length];
+            var buried = new HashSet<int>();
+            var ringScratch = new List<FanCorner>(32);
+            for (int m = 0; m < map.nodes.Length; m++)
+            {
+                if (!t.mitre[m] || map.nodeEdges[m].Count < 3 || LineModel.IsRefugeNode(m)) continue;
+                if ((map.nodes[m] - R23Centre).sqrMagnitude <= (R23ScopeM + 60f) * (R23ScopeM + 60f)) continue;
+                float hwM = 0f; bool bridge = false;
+                foreach (int ei in map.nodeEdges[m]) { var e = map.edges[ei]; hwM = Mathf.Max(hwM, e.HalfMax); bridge |= e.bridge || e.tunnel; }
+                if (bridge) continue;
+                foreach (int ei in map.nodeEdges[m])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b || e.link) continue;
+                    int f = e.a == m ? e.b : e.a;
+                    if (!t.patch[f] || (t.bulb != null && t.bulb[f]) || map.nodeEdges[f].Count < 3 || LineModel.IsRefugeNode(f)) continue;
+                    bool fBridge = false;
+                    foreach (int fi in map.nodeEdges[f]) fBridge |= map.edges[fi].bridge || map.edges[fi].tunnel;
+                    if (fBridge) continue;
+                    float gap = e.length - t.TrimAt(e, f);
+                    if (gap > hwM + 1f) continue;
+                    // ...and only where the fan BURIES that edge's mouth (its ring's
+                    // chord runs past it, toward the mitre): the plate laid over the
+                    // mitre's arms. Plan only, so the solve's trims and the tiles' agree.
+                    buried.Clear();
+                    fanBuriedOut = buried;
+                    try { FanCorners(map, t, f, Vector3.zero, ringScratch); }
+                    catch (System.Exception) { buried.Clear(); }
+                    finally { fanBuriedOut = null; }
+                    if (!buried.Contains(ei)) continue;
+                    // ...with the ring's edge (its chord) passing within MitreFanReachM
+                    // of the mitre node, and not already far past it: there the
+                    // fan's chord crosses the mitre's own arms at the node
+                    float reach = RingReach(ringScratch, map.nodes[m]);
+                    if (reach < -MitreFanReachM || reach > MitreFanSwallowM)
+                    {
+                        if (MitreFanAt.Count < 200)
+                            MitreFanAt.Add(reach < 0f ? $"(kept mitred) n{m} -> fan n{f} by e{ei} '{e.name}': its plate stops {-reach:0.00} m short of the node"
+                                                      : $"(kept mitred) n{m} -> fan n{f} by e{ei} '{e.name}': its plate already covers the node by {reach:0.00} m");
+                        continue;
+                    }
+                    force[m] = true; pairEdge[ei] = true;
+                    if (MitreFanAt.Count < 200) MitreFanAt.Add($"n{m} ({map.nodes[m].x:0.0},{map.nodes[m].y:0.0}) -> fan n{f} by e{ei} '{e.name}' {e.length:0.0} m, mouth {gap:0.0} m from the mitre, the plate reaches {reach:+0.00;-0.00} m past it");
+                    MitreFanCount++;
+                    break;
+                }
+            }
+            if (MitreFanCount == 0) return t;
+            mitreFanEdge = pairEdge;
+            return ComputeTrimsCore(map, force);
+        }
+
+        static Trims ComputeTrimsCore(CityMap map, bool[] forceFan)
         {
             int ne = map.edges.Length, nn = map.nodes.Length;
             var t = new Trims
@@ -1606,7 +1723,7 @@ namespace PSXRacing.City
                 if (through)
                     for (int i = 0; i < arms.Count && allBranch; i++)
                         if (i != tA && i != tB && clipped[i] < 0) allBranch = false;
-                if (allBranch)
+                if (allBranch && !(forceFan != null && forceFan[n]))
                 {
                     t.mitre[n] = true;
                     t.throughA[n] = arms[tA].e.index; t.throughB[n] = arms[tB].e.index;
@@ -10379,7 +10496,9 @@ namespace PSXRacing.City
                 Vector2 cPlus = p + right * ePlus, cMinus = p - right * eMinus;
                 arms.Add(new FanArm
                 {
-                    edge = ei, node = an, yNode = map.nodeY[an], lateSide = lateSide, trim = trim, hw = hw, yArm = e.YAt(at), outDir = outDir,
+                    // (plan only, MitreFanBuries: called from ComputeTrims before the solve has heights)
+                    edge = ei, node = an, yNode = map.nodeY != null ? map.nodeY[an] : 0f, lateSide = lateSide, trim = trim, hw = hw,
+                    yArm = e.stY != null && e.stY.Length > 0 ? e.YAt(at) : 0f, outDir = outDir,
                     ang = toP.sqrMagnitude > 0.25f ? Mathf.Atan2(toP.y, toP.x) : Mathf.Atan2(outDir.y, outDir.x),
                     early = lateSide > 0 ? cMinus : cPlus, late = lateSide > 0 ? cPlus : cMinus,
                 });
@@ -10402,6 +10521,7 @@ namespace PSXRacing.City
                 bool Under(Vector2 q) =>
                     InFanTri(np, P.early, P.late, q) || InFanTri(np, P.late, N.early, q) || InFanTri(np, N.early, N.late, q);
                 if (!Under(B.early) || !Under(B.late)) continue;
+                fanBuriedOut?.Add(B.edge);
                 arms.RemoveAt(i);
                 // the angle it covered, with any arm already buried either side of it
                 var bLate = N.afterBuried ? N.buriedLate : B.late;
