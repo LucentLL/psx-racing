@@ -1396,8 +1396,11 @@ namespace PSXRacing.City
         /// <summary>PSX_CITY_HTRACE (leftover item 1, debugging): "e1252@0,e230@157,n4116" -
         /// the listed stations' (edge@arc) and nodes' heights after each step of the solve, to the log.</summary>
         static readonly string htraceSpec = System.Environment.GetEnvironmentVariable("PSX_CITY_HTRACE");
+        /// <summary>Diagnostics (Editor/ElevDiffProbe): called at every traced step of the solve.</summary>
+        public static System.Action<CityMap, string> SolveHook;
         static void HTrace(CityMap map, string where)
         {
+            SolveHook?.Invoke(map, where);
             if (string.IsNullOrEmpty(htraceSpec) || map.edges[0].stY == null) return;
             var sb = new System.Text.StringBuilder("[HTRACE] ").Append(where).Append(':');
             foreach (var tok in htraceSpec.Split(','))

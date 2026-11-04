@@ -74,7 +74,7 @@ namespace PSXRacing.City
                 float len = e.length;
                 int endA = Walk(map, e, e.a, run, seen, ref len), endB = Walk(map, e, e.b, run, seen, ref len);
                 if (endA < 0 || endB < 0 || endA == endB || len > JclMaxM) continue;
-                if (!SharesDividedRoad(map, endA, endB, out string road)) continue;
+                if (!SharesDividedRoad(map, endA, endB, e.name, out string road)) continue;
                 foreach (int r in run) jcl[r] = true;
                 JclCount++; JclMetres += len;
                 if (JclAt.Count < 400)
@@ -108,13 +108,17 @@ namespace PSXRacing.City
 
         /// <summary>Both junctions take a one-way, non-link carriageway of one
         /// named road: the crossing is of that divided road's median.</summary>
-        static bool SharesDividedRoad(CityMap map, int nA, int nB, out string road)
+        static bool SharesDividedRoad(CityMap map, int nA, int nB, string linkName, out string road)
         {
             road = null;
             foreach (int ai in map.nodeEdges[nA])
             {
                 var a = map.edges[ai];
                 if (!a.oneway || a.link || string.IsNullOrEmpty(a.name)) continue;
+                // round 5: a two-way stretch carrying the divided road's own name is
+                // that road (its carriageways closing up), not a link across it
+                // (8 cases: Beatties Ford e8617 / e20697, Wilkinson e25096, ...)
+                if (a.name == linkName) continue;
                 foreach (int bi in map.nodeEdges[nB])
                 {
                     var b = map.edges[bi];

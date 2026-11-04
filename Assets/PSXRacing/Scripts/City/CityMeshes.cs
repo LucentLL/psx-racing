@@ -8713,6 +8713,38 @@ namespace PSXRacing.City
 
         /// <summary>A strip's cross-section a fraction <paramref name="t"/>
         /// along its edge (world end points, tarmac heights, outward units).</summary>
+        /// <summary>Round 5: a levelled nose's verge keeps this far under a
+        /// junction fan that lies over it. PSX_CITY_NOSE_UNDERFAN=0: as round 4.</summary>
+        public static bool NoseUnderFanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_UNDERFAN") != "0";
+        const float NoseUnderFanM = 0.02f, NoseFanReachM = 40f;
+        static readonly Dictionary<int, List<int>> noseFans = new Dictionary<int, List<int>>();
+        static CityMap noseFansMap;
+
+        /// <summary>The height of the junction fan over plan point
+        /// <paramref name=q/> among the junctions within <see cref="NoseFanReachM"/>
+        /// of the nose's own node (Five Points is a complex of several).</summary>
+        static bool UnderNoseFan(CityMap map, Trims trims, int tipNode, Vector2 q, out float y)
+        {
+            y = 0f;
+            List<int> fans;
+            lock (noseFans)
+            {
+                if (noseFansMap != map) { noseFans.Clear(); noseFansMap = map; }
+                if (!noseFans.TryGetValue(tipNode, out fans))
+                {
+                    fans = new List<int>();
+                    var c = map.nodes[tipNode];
+                    for (int n = 0; n < map.nodes.Length; n++)
+                        if (map.nodeEdges[n].Count >= 3 && (map.nodes[n] - c).sqrMagnitude <= NoseFanReachM * NoseFanReachM) fans.Add(n);
+                    noseFans[tipNode] = fans;
+                }
+            }
+            bool any = false;
+            foreach (int n in fans)
+                if (InsideFanY(map, trims, n, q, out float fy) && (!any || fy < y)) { y = fy; any = true; }
+            return any;
+        }
+
         static bool SolveStripAt(CityMap map, Trims trims, Vector2 pa, Vector2 pb, float ya, float yb,
                                  Vector2 outA, Vector2 outB, StripShape sh, float t, Vector3[] prof)
         {
@@ -8733,6 +8765,7 @@ namespace PSXRacing.City
             if (!sh.flat && !sh.fixedRun && !sh.seam && !sh.halfGap && (NoseLevelOn || prof[2].y < yEdge - RoadsideRules.EdgeDropM - 0.01f))
             {
                 float k = NoseFlushAt(map, trims, edgeW, outw, yEdge, out float yMid);
+                int tipNode = medianTipNode;
                 if (k > 0f)
                 {
                     // from the edge's drop at the shoulder to the two carriageways'
@@ -8759,6 +8792,16 @@ namespace PSXRacing.City
                         }
                         if (NoseLevelOn || prof[i].y < flat) prof[i].y = Mathf.Lerp(prof[i].y, flat, k);
                     }
+                    // round 5: levelled, the nose's shoulder stood flush with the
+                    // carriageway's edge, and where that edge runs on into the
+                    // junction its band lay 0-1.3 cm OVER the junction's pavement
+                    // (the fan drapes a hair under the ribbons' edges): a broken
+                    // light line along BF SB across the W 5th opening. Under a
+                    // fan the verge keeps below it - the wheel rides the fan there
+                    if (NoseUnderFanOn && NoseLevelOn && tipNode >= 0)
+                        for (int i = 0; i < 4; i++)
+                            if (UnderNoseFan(map, trims, tipNode, new Vector2(prof[i].x, prof[i].z), out float fy) && prof[i].y > fy - NoseUnderFanM)
+                                prof[i].y = fy - NoseUnderFanM;
                     WalkStats.noseFlush++;
                 }
             }

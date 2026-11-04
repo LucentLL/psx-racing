@@ -238,8 +238,8 @@ namespace PSXRacing.EditorTools
                     joins.Add(raw.Count - 1);
                     var pv = map.edges[run.edges[i - 1]];
                     int nd = pv.b == e.a || pv.a == e.a ? e.a : e.b;
-                    caps.Add(CityMode.JoinCap(map, CityWorld.SharedTrims, pv, e, nd));
-                    kerbs.Add(CityMode.JoinKerbs(map, CityWorld.SharedTrims, nd));
+                    caps.Add(CityMode.JoinCap(map, CityWorld.TrimsFor(map), pv, e, nd));
+                    kerbs.Add(CityMode.JoinKerbs(map, CityWorld.TrimsFor(map), nd));
                     swing.Add(CityMode.JoinSwingRoom(pv, e));
                 }
                 bool fwd;
@@ -405,6 +405,10 @@ namespace PSXRacing.EditorTools
                 curv[i] = Vector3.Angle(b - a, c - b) * Mathf.Deg2Rad / len;
             }
             tp.waypoints = even; tp.curvatures = curv; tp.spacing = 4f; tp.roadWidth = 3.5f; tp.drag = false; tp.pointToPoint = true;
+            // round 5: PSX_LAP_RACESTEER=1 - a traffic system present (no cars), so
+            // the AI steers by the race law (pure pursuit, hairpin lookahead cap,
+            // lane discipline) as a city racer does, not the free-roam law
+            TrafficSystem steerTs = System.Environment.GetEnvironmentVariable("PSX_LAP_RACESTEER") == "1" ? TrafficSystem.SteerOnly() : null;
             var ai = carGo.AddComponent<AIDriver>();
             ai.path = tp; ai.skill = 0.95f;
             if (run.kmh > 0f) ai.speedCapMps = run.kmh / 3.6f;
@@ -476,6 +480,7 @@ namespace PSXRacing.EditorTools
                 if (bestI >= n - 3) { done = true; break; }
             }
             Object.Destroy(ai); Object.Destroy(go);
+            if (steerTs != null) Object.DestroyImmediate(steerTs.gameObject);
             rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero;
             float pathM = 0f; for (int i = 1; i < n; i++) pathM += Vector3.Distance(even[i - 1], even[i]);
             RefugeLapCheck.Line($"{run.name} along '{run.road}' ({pathM:0} m,{edges}): {(done ? "COMPLETE" : "INCOMPLETE")} in {t:0.0} s, top {vMax * 3.6f:0} km/h, avg {pathM / Mathf.Max(0.1f, t) * 3.6f:0} km/h; " +

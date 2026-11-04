@@ -431,6 +431,12 @@ namespace PSXRacing.City
         /// <summary>A car's half width and a margin: what a turn's swing leaves
         /// between the car and its lane's outer edge.</summary>
         public const float TurnSwingKeepM = 1.15f;
+        /// <summary>Round 5: the longest tangent a LEFT turn's arc may take (a left
+        /// turn crosses the junction's width; at <see cref="TurnTangentMaxM"/> a
+        /// 123 degree left was a 3.2 m arc, tighter than a car turns, and L3 at
+        /// 28 km/h ran out of it onto Trade SB's verge, 2.9 cm; at 8 m it is a 4.3 m arc
+        /// and L3 stays on the pavement, 1.5 cm). PSX_CITY_TURN_TLEFT.</summary>
+        public static float TurnTangentLeftMaxM = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_TLEFT"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tl) ? tl : 8f;
         /// <summary>Test hook (RefugeLapCheck): a fixed tangent cap in metres
         /// over every join's own (0 = none).</summary>
         public static float TurnFilletCapM = 0f;
@@ -558,7 +564,7 @@ namespace PSXRacing.City
                 // outward: away from the turn's inside
                 var oIn = -Mathf.Sign(den) * new Vector2(-tIn.y, tIn.x);
                 var oOut = -Mathf.Sign(den) * new Vector2(-tOut.y, tOut.x);
-                float Tcap = Mathf.Min(radius * tanH, TurnTangentMaxM);
+                float Tcap = Mathf.Min(radius * tanH, den > 0f ? TurnTangentLeftMaxM : TurnTangentMaxM);
                 if (capT != null && k < capT.Count && capT[k] > 0f) Tcap = Mathf.Min(Tcap, capT[k]);
                 if (TurnFilletCapM > 0f) Tcap = Mathf.Min(Tcap, TurnFilletCapM);
                 float room = swing != null && k < swing.Count ? Mathf.Max(0f, swing[k]) : 0f;
@@ -657,6 +663,16 @@ namespace PSXRacing.City
         /// <paramref name="a"/> into <paramref name="b"/> may have: the nearer
         /// arm's trim (where the junction's pavement starts) plus
         /// <see cref="TurnFilletPastTrimM"/>; 0 = no cap (no trims).</summary>
+        /// <summary>
+        /// Round 5: whether a route's turn at <paramref name="node"/> is laid on
+        /// <see cref="FilletTurns"/>' arc - the junctions inside the Five Points
+        /// circle (<see cref="CityMeshes.InR23Scope(Vector2)"/>, 90 m round
+        /// (-3725, 6342)) only, so no other city race's path moves until the
+        /// rule is proven there. PSX_CITY_R23_SCOPE=all: everywhere (as round 4).
+        /// </summary>
+        public static bool FilletAt(CityMap map, int node)
+            => TurnFilletOn && node >= 0 && node < map.nodes.Length && CityMeshes.InR23Scope(map.nodes[node]);
+
         public static float JoinCap(CityMap map, CityMeshes.Trims t, CityMap.Edge a, CityMap.Edge b, int node)
         {
             if (t == null || a == null || b == null || t.atA == null) return 0f;
@@ -687,14 +703,17 @@ namespace PSXRacing.City
             var caps = new List<float>(route.edges.Length);
             var kerbs = new List<List<Vector2>>(route.edges.Length);
             var swing = new List<float>(route.edges.Length);
-            var trimsNow = CityWorld.SharedTrims;
+            CityMeshes.Trims trimsNow = null;
             for (int k = 0; k < route.edges.Length; k++)
             {
                 var e = map.edges[route.edges[k]];
                 bool fwd = route.dirs[k] >= 0;
-                if (k > 0 && pts.Count > 0)
+                // round 5: only Five Points' junctions are driven on the
+                // fillet; every other route's path is the corner as before
+                if (k > 0 && pts.Count > 0 && FilletAt(map, fwd ? e.a : e.b))
                 {
                     int jn = fwd ? e.a : e.b;   // the node this edge leaves from
+                    if (trimsNow == null) trimsNow = CityWorld.TrimsFor(map);
                     joins.Add(pts.Count - 1);
                     caps.Add(JoinCap(map, trimsNow, map.edges[route.edges[k - 1]], e, jn));
                     kerbs.Add(JoinKerbs(map, trimsNow, jn));

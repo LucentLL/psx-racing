@@ -80,6 +80,22 @@ namespace PSXRacing.City
     public static partial class CityElevation
     {
         public static bool VSmoothOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VSMOOTH") != "0";
+
+        /// <summary>
+        /// THE CHAINS ARE DRAWN IN A FIXED ORDER (Five Points round 5). The
+        /// order was a List.Sort by priority alone - an unstable sort, so chains
+        /// of equal priority (most of the city: one class, one width) came out
+        /// in a permutation that depends on EVERY chain in the list. A change at
+        /// Five Points only (7 edges' stations, one node) re-dealt that
+        /// permutation city-wide, and where two equal chains meet at a node the
+        /// one drawn second eases from the first: 225 edges 0.5-20 km away
+        /// drew a different profile (Editor/ElevDiffProbe; the solve itself
+        /// moved only the 7), e.g. a 4.1 -> 11.3 cm road step at (-8143,-5214).
+        /// Ties now go to the chain holding the lower edge index (chains
+        /// partition the edges, so the key is unique): a chain's place depends
+        /// only on chains that differ from it. PSX_CITY_VS_ORDER=0: the old sort.
+        /// </summary>
+        public static bool VsOrderStable = System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ORDER") != "0";
         /// <summary>What the last presentation pass did, for the load log and the audits.</summary>
         public static string VSmoothReport { get; private set; } = "";
         public static bool VSmoothApplied { get; private set; }
@@ -283,7 +299,13 @@ namespace PSXRacing.City
             {
                 var byPrio = new List<int>(C);
                 for (int c = 0; c < C; c++) byPrio.Add(c);
-                byPrio.Sort((x, y) => prio[y].CompareTo(prio[x]));
+                if (VsOrderStable)
+                {
+                    var minEdge = new int[C];
+                    for (int c = 0; c < C; c++) { int m = int.MaxValue; foreach (var l in chains[c]) m = Mathf.Min(m, l.edge); minEdge[c] = m; }
+                    byPrio.Sort((x, y) => { int k = prio[y].CompareTo(prio[x]); return k != 0 ? k : minEdge[x].CompareTo(minEdge[y]); });
+                }
+                else byPrio.Sort((x, y) => prio[y].CompareTo(prio[x]));
                 var remaining = byPrio;
                 while (remaining.Count > 0)
                 {

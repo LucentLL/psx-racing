@@ -512,6 +512,18 @@ namespace PSXRacing.City
         /// <summary>The trims and building table every tile build reads (set
         /// once a world has initialised) - for tools that call CityMeshes.</summary>
         public static CityMeshes.Trims SharedTrims => cachedTrims;
+        static CityMap trimsFor;
+        /// <summary>The junction trims of <paramref name="map"/>, computed here
+        /// on first use and shared with every world after (Five Points round
+        /// 5: a city race's CityMode.Awake builds its path before this
+        /// world's Awake may have run; it asks for the trims rather than
+        /// reading <see cref="SharedTrims"/> and finding it empty).</summary>
+        public static CityMeshes.Trims TrimsFor(CityMap map)
+        {
+            if (map == null) return null;
+            if (trimsFor != map || cachedTrims == null) { trimsFor = map; cachedTrims = CityMeshes.NodeTrims(map); }
+            return cachedTrims;
+        }
         public static Dictionary<long, List<CityBuildings.B>> SharedBuildings => cachedBuildings;
 
         /// <summary>The tile counts the last build produced, for the HUD's
@@ -564,7 +576,7 @@ namespace PSXRacing.City
             if (cachedFor != Map)
             {
                 cachedFor = Map;
-                cachedTrims = CityMeshes.NodeTrims(Map);
+                cachedTrims = TrimsFor(Map);
                 cachedBuildings = CityBuildings.Precompute(Map);
             }
             nodeTrims = cachedTrims;
