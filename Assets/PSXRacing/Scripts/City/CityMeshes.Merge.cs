@@ -1038,7 +1038,10 @@ namespace PSXRacing.City
         // ----------------------------------------------------------------
         public static bool SlipWidenOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN") != "0";
         public static float SlipWidenK = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN_K"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float swk) && swk > 0f ? swk : 12f;
-        const float SlipWidenMaxM = 0.9f, SlipWidenEndM = 4f, SlipWidenSmoothM = 3f;
+        /// <summary>The most a slip is widened (PSX_CITY_SLIP_WIDEN_MAX): 0.9 m pushed the
+        /// outer verge 3.7 cm up over the lot paving behind the walk at (-3714.8,6320.8).</summary>
+        public static float SlipWidenMaxM = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN_MAX"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float swm) && swm > 0f ? swm : 0.5f;
+        const float SlipWidenEndM = 4f, SlipWidenSmoothM = 3f;
         /// <summary>The tag a slip's curve widening carries (no refuge island's, no apron's).</summary>
         public const long SlipWidenTag = long.MaxValue - 7;
         public static readonly List<string> SlipWidenAt = new List<string>();
