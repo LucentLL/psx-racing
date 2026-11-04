@@ -67,6 +67,12 @@ namespace PSXRacing.EditorTools
             finally { Edition.Simulate(was); }
             var only = Env("PSX_TRACKMAPS");
             if (only != null) jobs.RemoveAll(j => System.Array.IndexOf(only.Split(','), j.key) < 0);
+            // PSX_TRACKMAPS_KIND=city|stage: one half (the stages want a
+            // sandbox whose scenes carry the PC pass's crowns - the forest
+            // seen from above; the city wants the shipped city data)
+            var kind = Env("PSX_TRACKMAPS_KIND");
+            if (kind == "city") jobs.RemoveAll(j => !j.city);
+            else if (kind == "stage") jobs.RemoveAll(j => j.city);
 
             Directory.CreateDirectory(OutDir);
             var frames = ReadFrames();
@@ -190,6 +196,28 @@ namespace PSXRacing.EditorTools
 
         static void Save(Job j, Texture2D tex, Dictionary<string, Vector3> frames, StringBuilder report, string note)
         {
+            // Where the square runs past the built world (a stage's terrain
+            // ends, the city's last tiles) the camera saw only its clear
+            // colour: lay the picture's own mean there, a shade darker,
+            // rather than a black slab across a corner.
+            var px = tex.GetPixels32();
+            Color32 bg = Ground;
+            bool Clear(Color32 c) => Mathf.Abs(c.r - bg.r) <= 2 && Mathf.Abs(c.g - bg.g) <= 2 && Mathf.Abs(c.b - bg.b) <= 2;
+            long r = 0, g = 0, b = 0, n = 0;
+            foreach (var c in px)
+            {
+                if (Clear(c)) continue;
+                r += c.r; g += c.g; b += c.b; n++;
+            }
+            int filled = 0;
+            if (n > 0)
+            {
+                var mean = new Color32((byte)(r * 85 / (n * 100)), (byte)(g * 85 / (n * 100)), (byte)(b * 85 / (n * 100)), 255);
+                for (int i = 0; i < px.Length; i++)
+                    if (Clear(px[i])) { px[i] = mean; filled++; }
+                if (filled > 0) tex.SetPixels32(px);
+            }
+            if (filled > 0) note += $", {filled * 100 / px.Length}% past the built world filled";
             tex.Apply();
             var bytes = tex.EncodeToJPG(JpgQuality);
             File.WriteAllBytes(Path.Combine(OutDir, j.key + ".jpg"), bytes);
