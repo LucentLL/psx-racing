@@ -91,6 +91,20 @@ namespace PSXRacing
             return def.cityRoute;
         }
 
+        /// <summary>The key a venue's photograph from above is stored under
+        /// (StreamingAssets/TrackMaps/key.jpg, Editor/TrackMapShots): the
+        /// streets' key for a city race, else its scene's id - a reverse twin
+        /// and a sprint cut from a loop share the loop's picture.</summary>
+        public static string PhotoKey(TrackCatalog.TrackDef def)
+        {
+            if (def == null || def.IsRoam) return null;
+            string street = StreetKey(def);
+            if (street != null) return street;
+            if (def.Reversed) return def.reverseOf;
+            if (def.IsSprintVariant) return def.sprintOf;
+            return def.id;
+        }
+
         /// <summary>
         /// The start line in plan (x, z metres) and the way the race leaves
         /// it. False for a deck run (its line is inside the deck) and for a
@@ -160,9 +174,16 @@ namespace PSXRacing
             var pts = TrackCatalog.Sample(def, TrackCatalog.Spacing);
             RouteGeo.Frame(def, pts, out var centre, out float span);
 
+            // THE COURSE FROM ABOVE (owner, 2026-11-04: "Selecting/Previewing
+            // track should display the actual top-down view of the map"): the
+            // venue photographed straight down from the game's own world
+            // (Editor/TrackMapShots), fetched the first time a card shows it.
+            // Until it lands, and where a venue has none, the streets below.
+            bool photo = Photo(ground, RouteGeo.PhotoKey(def), centre, span);
+
             // The streets: one baked picture per route, in this frame.
             string key = RouteGeo.StreetKey(def);
-            var streets = key != null ? Resources.Load<Texture2D>("RouteMaps/" + key) : null;
+            var streets = key != null && !photo ? Resources.Load<Texture2D>("RouteMaps/" + key) : null;
             if (streets != null)
             {
                 var go = new GameObject("Streets", typeof(RectTransform));
@@ -202,6 +223,129 @@ namespace PSXRacing
         /// <summary>The baked streets are white with the class in the alpha;
         /// this is the grey they are shown in.</summary>
         static readonly Color StreetTint = new Color(0.62f, 0.64f, 0.70f, 1f);
+
+        // ---- the photographs ------------------------------------------------
+
+        /// <summary>Where the photographs live under StreamingAssets: files
+        /// beside the player, not in its data file (the web one sits near
+        /// GitHub's 100 MB limit), so a card fetches only its own.</summary>
+        public const string PhotoFolder = "TrackMaps";
+        /// <summary>Resources text: "key cx cz span" a line, the square each
+        /// photograph frames, so a venue drawn in another venue's picture is
+        /// drawn in register with it.</summary>
+        public const string FramesResource = "TrackMapFrames";
+        /// <summary>The photograph a shade under full, so the amber line
+        /// over it is the brightest thing on the map.</summary>
+        static readonly Color PhotoTint = new Color(0.86f, 0.86f, 0.86f, 1f);
+
+        static Dictionary<string, Vector3> frames;
+        static readonly Dictionary<string, Texture2D> photos = new Dictionary<string, Texture2D>();
+        static readonly HashSet<string> fetching = new HashSet<string>();
+        static readonly List<(string key, RawImage img)> waiting = new List<(string, RawImage)>();
+
+        /// <summary>The square each photograph frames, or false when the
+        /// venue has none.</summary>
+        static bool FrameOf(string key, out Vector3 frame)
+        {
+            frame = default;
+            if (frames == null)
+            {
+                frames = new Dictionary<string, Vector3>();
+                var txt = Resources.Load<TextAsset>(FramesResource);
+                if (txt != null)
+                    foreach (var line in txt.text.Split('\n'))
+                    {
+                        var f = line.Trim().Split(' ');
+                        if (f.Length < 4) continue;
+                        var ci = System.Globalization.CultureInfo.InvariantCulture;
+                        if (float.TryParse(f[1], System.Globalization.NumberStyles.Float, ci, out float cx) &&
+                            float.TryParse(f[2], System.Globalization.NumberStyles.Float, ci, out float cz) &&
+                            float.TryParse(f[3], System.Globalization.NumberStyles.Float, ci, out float sp) && sp > 1f)
+                            frames[f[0]] = new Vector3(cx, cz, sp);
+                    }
+            }
+            return key != null && frames.TryGetValue(key, out frame);
+        }
+
+        /// <summary>
+        /// The photograph under <paramref name="ground"/>, cropped to this
+        /// venue's square (centre, span) out of the one it was taken in.
+        /// True when there is one to show - at once where the file is on
+        /// disk (the PC player, the editor), when it lands in a browser.
+        /// </summary>
+        static bool Photo(RectTransform ground, string key, Vector2 centre, float span)
+        {
+            if (!FrameOf(key, out var f)) return false;
+            var go = new GameObject("Photo", typeof(RectTransform));
+            go.transform.SetParent(ground, false);
+            var img = go.AddComponent<RawImage>();
+            img.color = PhotoTint;
+            img.raycastTarget = false;
+            var rt = img.rectTransform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            // the venue's square inside the photograph's, in its 0..1
+            float s = span / f.z;
+            img.uvRect = new Rect((centre.x - span * 0.5f - (f.x - f.z * 0.5f)) / f.z,
+                                  (centre.y - span * 0.5f - (f.y - f.z * 0.5f)) / f.z, s, s);
+            var tex = PhotoTexture(key, img);
+            img.texture = tex;
+            img.enabled = tex != null;
+            return true;
+        }
+
+        static string PhotoPath(string key) =>
+            Application.streamingAssetsPath + "/" + PhotoFolder + "/" + key + ".jpg";
+
+        /// <summary>The picture, or null while a browser fetches it (the
+        /// image is filled in when it lands, if its card is still up).</summary>
+        static Texture2D PhotoTexture(string key, RawImage img)
+        {
+            if (photos.TryGetValue(key, out var have) && have != null) return have;
+            string path = PhotoPath(key);
+            if (!path.Contains("://"))
+            {
+                // a file on disk: read it now
+                if (!System.IO.File.Exists(path)) return null;
+                var t = new Texture2D(2, 2, TextureFormat.RGB24, false) { name = "TrackMap " + key, wrapMode = TextureWrapMode.Clamp };
+                if (!t.LoadImage(System.IO.File.ReadAllBytes(path)))
+                {
+                    if (Application.isPlaying) Object.Destroy(t); else Object.DestroyImmediate(t);
+                    return null;
+                }
+                photos[key] = t;
+                return t;
+            }
+            waiting.Add((key, img));
+            if (fetching.Add(key))
+            {
+                var req = UnityEngine.Networking.UnityWebRequestTexture.GetTexture(path, true);
+                req.SendWebRequest().completed += _ =>
+                {
+                    Texture2D got = null;
+                    try
+                    {
+                        if (req.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                            got = UnityEngine.Networking.DownloadHandlerTexture.GetContent(req);
+                        else Debug.LogWarning("[RouteMap] no photograph for " + key + ": " + req.error);
+                    }
+                    finally { req.Dispose(); fetching.Remove(key); }
+                    if (got == null) return;
+                    got.wrapMode = TextureWrapMode.Clamp;
+                    photos[key] = got;
+                    for (int i = waiting.Count - 1; i >= 0; i--)
+                    {
+                        if (waiting[i].key != key) continue;
+                        var w = waiting[i].img;
+                        waiting.RemoveAt(i);
+                        if (w == null) continue;   // its card has gone
+                        w.texture = got;
+                        w.enabled = true;
+                    }
+                };
+            }
+            return null;
+        }
 
         /// <summary>The line under a map, saying what the marks are.</summary>
         public static string LegendFor(TrackCatalog.TrackDef def)

@@ -90,6 +90,7 @@ namespace PSXRacing
             RaceHandoff.CalendarDay = DayIn(Seasons.OfMonth(now.Month), now.Month, Mathf.Min(now.Day, 28));
             RaceHandoff.TimeOfDayIndex = PickHour();
             RaceHandoff.WeatherOverride = (int)PickWeather(Seasons.Of(RaceHandoff.CalendarDay));
+            RaceHandoff.SkyOverride = RaceHandoff.RoadOverride = -1;
             SceneGate.Load(scene);
             return true;
         }

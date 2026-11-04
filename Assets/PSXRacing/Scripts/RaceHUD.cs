@@ -813,7 +813,6 @@ namespace PSXRacing
                              ?? DriveThru.Prompt
                              ?? SeizedPrompt()
                              ?? DryTankPrompt()
-                             ?? RetiredPrompt(rm)
                              ?? "";
                     break;
                 case RaceManager.RaceState.Finished:
@@ -857,6 +856,10 @@ namespace PSXRacing
                     // a solo run to a customer's door would be the circuit's
                     // answer to a question the job did not ask; what the player
                     // wants at that moment is whether the tip survived.
+                    // A rival who crashed out is told HERE and only here (owner,
+                    // 2026-11-04: remove the on-screen "Rival - Wrecked Out"
+                    // while racing - "this can be discovered once a race is
+                    // finished").
                     string head = RaceHandoff.Delivery
                         ? DeliverySheet(p != null ? p.finishTime : 0f)
                         : ladder + "FINISH!  P" + pos + sheet +
@@ -871,16 +874,6 @@ namespace PSXRacing
             }
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
         }
-
-        /// <summary>A rival crashed out (RaceManager.RetireCar): said for a
-        /// few seconds, then the road is the road again.</summary>
-        string RetiredPrompt(RaceManager rm)
-        {
-            if (rm.RetiredCount != seenRetired) { seenRetired = rm.RetiredCount; retiredShownAt = Time.time; }
-            return seenRetired > 0 && Time.time - retiredShownAt < 3f ? "RIVAL OUT - WRECKED" : null;
-        }
-        int seenRetired;
-        float retiredShownAt = -99f;
 
         // =================== the delivery readout ===================
         //

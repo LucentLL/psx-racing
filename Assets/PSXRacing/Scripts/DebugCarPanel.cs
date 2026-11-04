@@ -842,40 +842,75 @@ namespace PSXRacing
             }
             y -= CellH + 20f;
 
-            // ---- the four skies, and the calendar's own ------------------
-            int forced = DebugWorldOps.ForcedWeather;
-            var now = Seasons.CurrentWeather;
+            // ---- the weathers, and the calendar's own ---------------------
+            // The sky and what falls from it, as the climate's layers have
+            // them (2026-11-04: PARTLY CLOUDY, OVERCAST and STORM joined the
+            // old four). The road under them is the next row's.
+            int forced = DebugWorldOps.ForcedWeatherIndex;
+            bool calendar = DebugWorldOps.ForcedWeather < 0;
             var rolled = Seasons.WeatherFor(Seasons.CurrentDay);
             MenuKit.Label(content,
-                "WEATHER   ·   " + DebugWorldOps.WeatherNames[(int)now] +
-                (forced < 0 ? "  (the calendar's own)" : "  (forced)"), MenuKit.Tiny,
+                Clip("WEATHER   ·   " + Seasons.SkyLine(Seasons.Now) +
+                     (calendar ? "  (the calendar's own)" : "  (forced)"), CapsFit(ColW)), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Accent, ColW, height: 26f, bold: true);
             y -= 32f;
             // -1 first: the way back to what the day actually rolled.
-            for (int i = 0; i <= DebugWorldOps.WeatherNames.Length; i++)
+            for (int i = 0; i <= DebugWorldOps.Weathers.Length; i++)
             {
-                int w = i - 1;
+                int k = i - 1;
                 int col = i % cols;
                 if (i > 0 && col == 0) y -= CellH + Gap;
-                string caption = w < 0
+                string caption = k < 0
                     ? "CALENDAR: " + DebugWorldOps.WeatherNames[(int)rolled]
-                    : DebugWorldOps.WeatherNames[w];
+                    : DebugWorldOps.Weathers[k].name;
                 var b = Named(MenuKit.Button(content, Clip(caption, CapsFit(cellW - 16f)),
                     new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
                     new Vector2(cellW, CellH), () =>
                     {
-                        DebugWorldOps.SetWeather(w);
-                        note = w < 0 ? "the sky is the calendar's again"
-                                     : DebugWorldOps.WeatherNames[w] + " — " +
-                                       DebugWorldOps.WeatherLine((Weather)w);
+                        if (k < 0) DebugWorldOps.SetWeather(-1);
+                        else DebugWorldOps.SetWeather(DebugWorldOps.Weathers[k].weather, DebugWorldOps.Weathers[k].sky);
+                        note = k < 0 ? "the sky is the calendar's again"
+                                     : DebugWorldOps.Weathers[k].name + " — " + DebugWorldOps.LayersLine();
                         Rebuild();
                     }, 20), "weather_" + i);
-                if (w == forced) MenuKit.MarkTab(b, true);
+                if (k < 0 ? calendar : k == forced) MenuKit.MarkTab(b, true);
+            }
+            y -= CellH + 20f;
+
+            // ---- the road conditions, decoupled from the weather ---------
+            // The owner, 2026-11-04: "Road Conditions should be individually
+            // selectable in Debug now that they are decoupled from weather.
+            // I.e.: Season: Spring, Weather: Partly Cloudy, Road Conditions:
+            // Wet (from a recent rain)". The open road and the bridges alike.
+            int road = DebugWorldOps.ForcedRoad;
+            MenuKit.Label(content,
+                Clip("ROAD CONDITIONS   ·   " + Seasons.RoadWord(Seasons.Now.road) +
+                     (road < 0 ? "  (as the weather left it)" : "  (forced)"), CapsFit(ColW)), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 32f;
+            for (int i = 0; i <= DebugWorldOps.RoadNames.Length; i++)
+            {
+                int r = i - 1;
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                string caption = r < 0 ? "AS THE WEATHER" : DebugWorldOps.RoadNames[r];
+                var b = Named(MenuKit.Button(content, Clip(caption, CapsFit(cellW - 16f)),
+                    new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH), () =>
+                    {
+                        DebugWorldOps.SetRoad(r);
+                        note = (r < 0 ? "the road is the weather's again" : "road " + DebugWorldOps.RoadNames[r]) +
+                               " — " + DebugWorldOps.LayersLine();
+                        Rebuild();
+                    }, 20), "road_" + i);
+                if (r == road) MenuKit.MarkTab(b, true);
             }
             y -= CellH + 12f;
-            MenuKit.Label(content, Clip(DebugWorldOps.WeatherLine(now), LowerFit(ColW)), MenuKit.Tiny,
+            MenuKit.Label(content, Clip(DebugWorldOps.LayersLine(), LowerFit(ColW)), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW, height: 26f);
             y -= 38f;
