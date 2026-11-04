@@ -779,6 +779,106 @@ namespace PSXRacing.EditorTools
             Debug.Log("[HomePreview] CLIP TOTAL " + clipCount);
         }
 
+        /// <summary>
+        /// THE ARCADE (2026-11-03): every page of its front end at the four
+        /// edition sizes - MODE, the course list in a race and in a time trial
+        /// (with a best on it), a mountain course's card and a city one's,
+        /// the car list whole and cut to one era and drive, the car's own
+        /// page, the driving options for a race and for a cruise, and a race,
+        /// a time-trial and a cruise result. tools\menu-preview.ps1 -Arcade.
+        /// </summary>
+        [MenuItem("PSX Racing/Preview Arcade")]
+        public static void CaptureArcade()
+        {
+            string outDir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots");
+            Directory.CreateDirectory(outDir);
+            clipCount = 0;
+            ShootArcade(outDir, EditionSizes);
+            Debug.Log("[HomePreview] CLIP TOTAL " + clipCount);
+        }
+
+        static void ShootArcade(string outDir, (string name, int w, int h)[] sizes)
+        {
+            var was = Edition.Simulated;
+            Edition.Simulate(EditionKind.All);
+            string[] keys = { "psx.arcade.car", "psx.arcade.hour", "psx.arcade.weather", "psx.arcade.traffic",
+                              "psx.arcade.gearbox", "psx.arcade.aids", "psx.arcade.tyres", "psx.arcade.rivals" };
+            try
+            {
+                foreach (var k in keys) PlayerPrefs.DeleteKey(k);
+                int stage = -1, city = -1;
+                for (int i = 0; i < TrackCatalog.Count; i++)
+                {
+                    var t = TrackCatalog.At(i);
+                    if (!TrackCatalog.Offered(i) || t.Reversed) continue;
+                    if (stage < 0 && t.stage && !t.IsSprintVariant && !t.IsDragEvent && Blacklist.TwinOf(i) >= 0) stage = i;
+                    if (city < 0 && t.IsCityRace && !t.IsDeckRun) city = i;
+                }
+                Shoot(outDir, "arcade_mode", arcadePage: "mode", mustFit: true, sizes: sizes);
+                Shoot(outDir, "arcade_resize_mode", arcadePage: "mode", sizes: new[] { sizes[sizes.Length - 1] },
+                      resizeFrom: sizes[0]);
+                Shoot(outDir, "arcade_courses_race", arcadePage: "courses:race", sizes: sizes);
+                string bestOn = stage >= 0 ? TrackCatalog.At(stage).id : null;
+                if (bestOn != null) ArcadeMode.OfferBest(bestOn, 412.37f, CarCatalog.Get(CityFrontEnd.DefaultCarId())?.name);
+                Shoot(outDir, "arcade_courses_trial", arcadePage: "courses:trial", sizes: sizes);
+                if (stage >= 0)
+                {
+                    Shoot(outDir, "arcade_card_stage", arcadePage: "course:" + TrackCatalog.At(stage).id + ":race", sizes: sizes);
+                    Shoot(outDir, "arcade_card_stage_trial", arcadePage: "course:" + TrackCatalog.At(stage).id + ":trial", sizes: sizes);
+                }
+                if (city >= 0)
+                    Shoot(outDir, "arcade_card_city", arcadePage: "course:" + TrackCatalog.At(city).id + ":race", sizes: sizes);
+                Shoot(outDir, "arcade_cars", arcadePage: "cars", sizes: sizes);
+                Shoot(outDir, "arcade_carcard", arcadePage: "carcard", sizes: sizes);
+                Shoot(outDir, "arcade_options_race", arcadePage: "options:race", sizes: sizes);
+                Shoot(outDir, "arcade_options_cruise", arcadePage: "options:cruise", sizes: sizes);
+                int race = stage >= 0 ? stage : 0;
+                Shoot(outDir, "arcade_result_race", arcadePage: "result", sizes: sizes, before: () =>
+                {
+                    RaceHandoff.ClearAll();
+                    RaceHandoff.FromLifeSim = true;
+                    RaceHandoff.TrackIndex = race;
+                    RaceHandoff.ResultReady = true;
+                    RaceHandoff.FinishPos = 3;
+                    RaceHandoff.FieldSize = 8;
+                    RaceHandoff.RaceTimeSeconds = 401.82f;
+                    RaceHandoff.HardHits = 1;
+                });
+                Shoot(outDir, "arcade_result_trial", arcadePage: "result", sizes: sizes, before: () =>
+                {
+                    RaceHandoff.ClearAll();
+                    RaceHandoff.FromLifeSim = true;
+                    RaceHandoff.TrackIndex = race;
+                    RaceHandoff.Solo = true;
+                    RaceHandoff.CarSpecId = CityFrontEnd.DefaultCarId();
+                    RaceHandoff.ResultReady = true;
+                    RaceHandoff.FinishPos = 1;
+                    RaceHandoff.FieldSize = 1;
+                    RaceHandoff.RaceTimeSeconds = 398.05f;
+                });
+                int roam = TrackCatalog.IndexOf("Charlotte");
+                Shoot(outDir, "arcade_result_cruise", arcadePage: "result", sizes: sizes, before: () =>
+                {
+                    RaceHandoff.ClearAll();
+                    RaceHandoff.FromLifeSim = true;
+                    RaceHandoff.FreeRoam = true;
+                    RaceHandoff.TrackIndex = roam;
+                    RaceHandoff.ResultReady = true;
+                    RaceHandoff.MetersDriven = 12600f;
+                    RaceHandoff.RaceTimeSeconds = 845.2f;
+                });
+                if (bestOn != null) { PlayerPrefs.DeleteKey("psx.arcade.best." + bestOn); PlayerPrefs.DeleteKey("psx.arcade.bestcar." + bestOn); }
+            }
+            finally
+            {
+                foreach (var k in keys) PlayerPrefs.DeleteKey(k);
+                ArcadeMode.Simulate(false);
+                ArcadeFrontEnd.PendingPage = null;
+                Edition.Simulate(was);
+                RaceHandoff.ClearAll();
+            }
+        }
+
         /// <summary>CITY's pages: the door (FREE ROAM, the races, the car, the
         /// hour), a race result, the make index, one make's cars, OPTIONS.
         /// Simulates CITY for the shots and puts the simulation back.</summary>
@@ -1060,7 +1160,7 @@ namespace PSXRacing.EditorTools
                           (string name, int w, int h)[] sizes = null,
                           string cityPage = null, string cityMake = null,
                           System.Action before = null, (string name, object value)[] fields = null,
-                          (string name, int w, int h)? resizeFrom = null)
+                          (string name, int w, int h)? resizeFrom = null, string arcadePage = null)
         {
             foreach (var size in sizes ?? Sizes)
             {
@@ -1147,6 +1247,9 @@ namespace PSXRacing.EditorTools
 
                 if (cityPage != null) CityFrontEnd.PendingPage = cityPage;
                 if (cityMake != null) CityFrontEnd.PendingMake = cityMake;
+                // An ARCADE page: a session on, which hands Start to the
+                // arcade's front end (ArcadeMode), and the page to open on.
+                if (arcadePage != null) { ArcadeMode.Simulate(true); ArcadeFrontEnd.PendingPage = arcadePage; }
                 before?.Invoke();
 
                 // Start() is where the whole UI is constructed. Editor scripts do
@@ -1167,7 +1270,8 @@ namespace PSXRacing.EditorTools
                 {
                     MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
                     var cityFe = host.GetComponent<CityFrontEnd>();
-                    Component target = cityFe != null ? (Component)cityFe : screen;
+                    var arcadeFe = host.GetComponent<ArcadeFrontEnd>();
+                    Component target = arcadeFe != null ? (Component)arcadeFe : cityFe != null ? (Component)cityFe : screen;
                     var tick = target.GetType().GetMethod("TickScreenWatch",
                         BindingFlags.NonPublic | BindingFlags.Instance);
                     bool fired = false;
@@ -1216,7 +1320,7 @@ namespace PSXRacing.EditorTools
                     sr.verticalNormalizedPosition = Mathf.Clamp01(scrollTo);
                     Canvas.ForceUpdateCanvases();
                 }
-                if (sr != null && (tab != null || cityPage != null))
+                if (sr != null && (tab != null || cityPage != null || arcadePage != null))
                 {
                     float contentH = sr.content != null ? sr.content.sizeDelta.y : 0f;
                     float viewH = sr.viewport != null ? sr.viewport.rect.height : 0f;
@@ -1235,9 +1339,12 @@ namespace PSXRacing.EditorTools
                     else Debug.Log(line);
                 }
 
-                // The city front end, when the edition handed the scene to it.
+                // The city front end, when the edition handed the scene to it;
+                // the arcade's, when a session did.
                 var city = host.GetComponent<CityFrontEnd>();
-                CheckNavReach(city != null ? (Component)city : screen, label + "/" + size.name);
+                var arcade = host.GetComponent<ArcadeFrontEnd>();
+                CheckNavReach(arcade != null ? (Component)arcade : city != null ? (Component)city : screen, label + "/" + size.name);
+                if (arcadePage != null) ArcadeMode.Simulate(false);
 
                 cam.Render();
                 var prev = RenderTexture.active;

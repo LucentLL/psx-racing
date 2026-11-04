@@ -2372,7 +2372,12 @@ namespace PSXRacing.City
             seatPairs.Clear();
             SeatStepsSplit = 0;
             foreach (var e in map.edges) e.stSeat = null;
-            var seatTrims = CityMeshes.ComputeTrims(map);
+            // (dividers round 3) no divider plan from these trims: only the OSM bridges
+            // are structure yet, and the one plan is made on the solved state
+            CityMeshes.DividerSeatPass = true;
+            CityMeshes.Trims seatTrims;
+            try { seatTrims = CityMeshes.ComputeTrims(map); }
+            finally { CityMeshes.DividerSeatPass = false; }
             solveTrims = seatTrims;
             var seats = CityMeshes.BranchSeats(map, seatTrims);
             // (round 11, STREETSEAT) a street branch too, where its ribbon runs into its host's pavement

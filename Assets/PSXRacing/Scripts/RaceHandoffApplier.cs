@@ -102,6 +102,9 @@ namespace PSXRacing
                     // ApplySpec builds the gearbox off it.
                     ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
                     SpecPlayerCar(spec);
+                    // ARCADE's driving options: the gearbox it starts in and
+                    // the slide help (the tyres came in with the spec's stages).
+                    if (ArcadeMode.Active) ArcadeMode.ApplyDriving(playerCar);
                 }
                 else ApplyPaint(playerCar, RaceHandoff.CarPaintSkin);
                 ApplyLens(playerCar);

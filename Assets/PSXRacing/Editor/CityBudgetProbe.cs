@@ -79,6 +79,17 @@ namespace PSXRacing.EditorTools
             s.Add(new Site { name = "plaza_midwood", at = LL(35.22019, -80.80899), how = "Central Ave, Plaza Midwood (Street View A11)" });
             s.Add(new Site { name = "i485_south", at = LL(35.06068, -80.76398), how = "I-485, the wooded south-east stretch (Street View A4)" });
             s.Add(new Site { name = "suburb_6km", at = LL(35.18300, -80.79000), how = "Randolph Rd, a prefab suburb 6.9 km out (outside the footprint core)" });
+            // PSX_BUDGET_EXTRA=name:x:z;... (dividers round 2): extra sites in world metres, for
+            // one package's own places (pass PSX_BUDGET_SITES to measure only those)
+            var extra = System.Environment.GetEnvironmentVariable("PSX_BUDGET_EXTRA");
+            if (!string.IsNullOrWhiteSpace(extra))
+                foreach (var t in extra.Split(';'))
+                {
+                    var f = t.Split(':');
+                    var ci = System.Globalization.CultureInfo.InvariantCulture;
+                    if (f.Length >= 3 && float.TryParse(f[1], System.Globalization.NumberStyles.Float, ci, out float x) && float.TryParse(f[2], System.Globalization.NumberStyles.Float, ci, out float z))
+                        s.Add(new Site { name = f[0].Trim(), at = new Vector2(x, z), how = "PSX_BUDGET_EXTRA" });
+                }
             return s;
         }
 
@@ -195,6 +206,7 @@ namespace PSXRacing.EditorTools
                     CityTrees.Enabled = true;
                     CitySigns.Enabled = true;
                     CityMeshes.HydroOff = pass != 0;
+                    CityMeshes.DividerEmitMs = CityMeshes.DividerEmitMaxMs = 0;   // (dividers) the cable's and beams' share
                     if (pass == 0 && !site.extra)
                     {
                     // THE SPAWN SEAT here, by CityMode.SeatOnStreet's rule:
@@ -323,7 +335,8 @@ namespace PSXRacing.EditorTools
                     (pass == 0 ? rows : fullRows).Add($"{site.name,-14} {timings.Count,3} tiles  total p50 {P(tot, 50),5:0.0} p95 {P(tot, 95),5:0.0} max {P(tot, 100),5:0.0} ms  build p95 {P(bld, 95),5:0.0}  cook p95 {P(cook, 95),5:0.0}  " +
                              $"draws {draws[0],4}/{draws[1],4}/{draws[2],4}/{draws[3],4}  casters {casters,4} ({castersNear} in the 90 m box)  verts {verts / 1000,5}k  tris {tris / 1000,5}k  colliders {colliders,4}  props {props,3} ({propsMs:0.0} ms to stand up)  " +
                              $"trees {treeN,5} on {treeViews} tiles, TREE FRAME p50 {P(treeMs, 50):0.0} p95 {P(treeMs, 95):0.0} max {P(treeMs, 100):0.0} ms (planting p95 {P(plantMs, 95):0.0}), {tableTrunks} solid trunks in the table; " +
-                             $"signs {signN,3} on {signViews} tiles (placing p95 {P(signMs, 95):0.0} ms of the tree frame)");
+                             $"signs {signN,3} on {signViews} tiles (placing p95 {P(signMs, 95):0.0} ms of the tree frame); " +
+                             $"dividers emit {CityMeshes.DividerEmitMs:0.0} ms in all ({CityMeshes.DividerEmitMs / Mathf.Max(1, timings.Count):0.00} ms a tile, worst edge-step run {CityMeshes.DividerEmitMaxMs:0.00} ms)");
                     if (pass == 0) L($"{site.name}: {site.how}; eye ({eye.x:0},{eye.y:0.0},{eye.z:0}){(!site.bay && (dist > 30f || site.extra) ? $", {dist:0} m from the site" : "")}{bayNote}{roomNote}");
                     world.DropAll();
                 }
