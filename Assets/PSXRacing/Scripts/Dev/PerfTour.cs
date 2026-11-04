@@ -24,8 +24,14 @@ namespace PSXRacing
     /// CSV, its spikes and a summary (tools\perf-tour.mjs writes them).
     ///
     ///   ?perftour=1[&amp;routes=uptown,tryon,trade,independence,i77s][&amp;secs=150]
-    ///             [&amp;hour=Noon][&amp;tag=name][&amp;traffic=1][&amp;view=chase]
+    ///             [&amp;hour=Noon][&amp;weather=Clear][&amp;tag=name][&amp;traffic=1][&amp;view=chase]
     ///             [&amp;shots=x,z,yawDeg,camHeight;...][&amp;ab=switch:0,...]
+    ///
+    /// The career it seeds is its own (LifeSimManager.UseScratchSave), new
+    /// every run: a Windows player shares the owner's PlayerPrefs, and a tour
+    /// once drove the owner's own career. Pin the hour, the weather and the
+    /// view for runs that are to be compared; the env file records them and
+    /// the picture preset, which stays the owner's.
     ///
     /// The car is the player's own, driven by an AIDriver on a TrackPath built
     /// the way a city race builds one (CityMode.BuildPath); it passes through
@@ -58,7 +64,7 @@ namespace PSXRacing
 #endif
         static string outDir;
 
-        string routesArg, hourArg, tag, viewArg, shotsArg, abArg;
+        string routesArg, hourArg, weatherArg, tag, viewArg, shotsArg, abArg;
         float maxSecs = 150f, snapEvery;
         bool traffic = true;
 
@@ -98,11 +104,13 @@ namespace PSXRacing
             string url = Request();
             if (url == null) return;
             Active = true;
+            LifeSimManager.UseScratchSave("perftour");
             var go = new GameObject("PerfTour");
             DontDestroyOnLoad(go);
             var t = go.AddComponent<PerfTour>();
             t.routesArg = ShotLink.Query(url, "routes") ?? "uptown,tryon,trade,independence,i77s";
             t.hourArg = ShotLink.Query(url, "hour") ?? "";
+            t.weatherArg = ShotLink.Query(url, "weather") ?? "";
             t.tag = ShotLink.Query(url, "tag") ?? "run";
             t.viewArg = ShotLink.Query(url, "view") ?? "";
             t.shotsArg = ShotLink.Query(url, "shots") ?? "";
@@ -133,6 +141,7 @@ namespace PSXRacing
 
         static void SeedCareer()
         {
+            Random.InitState(1104);   // the same starter car (the coin flip in CarMarket.PickStarters) every run
             if (!LifeSimManager.HasSave || string.IsNullOrEmpty(S.playerName))
                 LifeSimManager.StartNewGame("PERF TOUR", 30, LifeRules.DefaultJobIndex);
             if (S.cars.Count == 0)
@@ -161,6 +170,7 @@ namespace PSXRacing
             try { SeedCareer(); }
             catch (System.Exception e) { Say("FAIL the career would not seed: " + e.Message); }
             int hour = HourIndex();
+            int weather = System.Enum.TryParse(weatherArg, true, out Weather w) ? (int)w : -1;
             LifeHomeScreen.PendingTab = "charlotte";
             LifeSimManager.Save();
             SceneManager.LoadScene(0);
@@ -169,6 +179,7 @@ namespace PSXRacing
             while (Time.realtimeSinceStartup - t0 < 180f)
             {
                 if (hour >= 0 && RaceHandoff.FreeRoam) RaceHandoff.TimeOfDayIndex = hour;
+                if (weather >= 0 && RaceHandoff.FreeRoam) RaceHandoff.WeatherOverride = weather;
                 mode = CityMode.Instance;
                 if (mode != null && mode.player != null && mode.world != null && mode.world.Map != null && mode.Live) break;
                 yield return null;
@@ -192,7 +203,7 @@ namespace PSXRacing
             env.AppendLine("os " + SystemInfo.operatingSystem);
             env.AppendLine("gpu " + SystemInfo.graphicsDeviceName + " | " + SystemInfo.graphicsDeviceVersion + " | " + SystemInfo.graphicsDeviceVendor);
             env.AppendLine("screen " + Screen.width + "x" + Screen.height + " dpi " + Screen.dpi);
-            env.AppendLine("hour " + hourName + " (" + h + ") weather " + Seasons.CurrentWeather + " traffic " + (traffic ? "on" : "off") + " view " + ChaseCamera.Current);
+            env.AppendLine("hour " + hourName + " (" + h + ") weather " + Seasons.CurrentWeather + " traffic " + (traffic ? "on" : "off") + " view " + ChaseCamera.Current + " picture " + PSXQuality.Current);
             env.AppendLine("free roam up in " + loadS.ToString("0.0", CultureInfo.InvariantCulture) + " s");
             env.AppendLine("heap used MB " + (System.GC.GetTotalMemory(false) / 1048576.0).ToString("0", CultureInfo.InvariantCulture) +
                            " reserved MB " + (UnityEngine.Profiling.Profiler.GetMonoHeapSizeLong() / 1048576.0).ToString("0", CultureInfo.InvariantCulture) +

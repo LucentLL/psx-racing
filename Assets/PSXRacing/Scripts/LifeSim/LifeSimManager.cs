@@ -14,7 +14,11 @@ namespace PSXRacing.LifeSim
     /// </summary>
     public static class LifeSimManager
     {
-        const string SaveKey = "psxRacingLifeSave";
+        const string CareerKey = "psxRacingLifeSave";
+
+        /// <summary>The PlayerPrefs key the career lives under: the player's
+        /// own, unless a test run moved it aside (<see cref="UseScratchSave"/>).</summary>
+        static string saveKey = CareerKey;
 
         static LifeState state;
 
@@ -60,22 +64,38 @@ namespace PSXRacing.LifeSim
         /// CITY edition, where <see cref="Save"/> writes nothing.</summary>
         public static bool Persists => Edition.HasCareer;
 
-        public static bool HasSave => Persists && PlayerPrefs.HasKey(SaveKey);
+        public static bool HasSave => Persists && PlayerPrefs.HasKey(saveKey);
+
+        /// <summary>
+        /// A TEST RUN'S OWN CAREER (2026-11-04). The perf tour drives a seeded
+        /// career, and a Windows player's PlayerPrefs are the owner's own (one
+        /// registry key that every PC build shares): a tour on the owner's PC
+        /// loaded THEIR career, refuelled its car and saved it back. A test
+        /// calls this before anything loads; its career then lives under its
+        /// own key, emptied first so every run starts from the same new game,
+        /// and the owner's save is never read or written.
+        /// </summary>
+        public static void UseScratchSave(string name)
+        {
+            saveKey = CareerKey + "." + name;
+            PlayerPrefs.DeleteKey(saveKey);
+            state = null;
+        }
 
         public static void Save()
         {
             if (!Persists) return;   // CITY: no career, nothing written (see State)
             if (state == null) return;
-            PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(state));
+            PlayerPrefs.SetString(saveKey, JsonUtility.ToJson(state));
             PlayerPrefs.Save();
         }
 
         public static LifeState Load()
         {
-            if (!PlayerPrefs.HasKey(SaveKey)) return null;
+            if (!PlayerPrefs.HasKey(saveKey)) return null;
             try
             {
-                var s = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(SaveKey));
+                var s = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(saveKey));
                 if (s == null || s.saveVersion < 1) return null;
                 Migrate(s);
                 // After the migration, never inside it: this is not a save
@@ -895,7 +915,7 @@ namespace PSXRacing.LifeSim
 
         public static void DeleteSave()
         {
-            PlayerPrefs.DeleteKey(SaveKey);
+            PlayerPrefs.DeleteKey(saveKey);
             PlayerPrefs.Save();
             state = null;
         }
