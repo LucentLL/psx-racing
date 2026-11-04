@@ -10195,13 +10195,25 @@ namespace PSXRacing.City
                         EmitBarrier(k0.pos, k1.pos, nrm, 0f, len / RoadVTile, false, false);
                         r9FanChords++;
                     }
+                    // (Five Points round 5) a chord that faces drawn pavement - the
+                    // next fan or a ribbon carried on past it - is no free edge: its
+                    // verge stood a fan's FanProudM over that road, a light broken
+                    // line along BF's median-side edge across the W 5th opening
+                    float bt0 = 0f, bt1 = 1f;
+                    if (!onStructure && ChordPavedOn && InR23Scope(map.nodes[n]))
+                    {
+                        if (!ChordBareSpan(map, trims, n, k0, k1, tm.origin, out bt0, out bt1)) { chordPavedSkipped++; continue; }
+                        if (bt0 > 0f || bt1 < 1f) chordPavedCut++;
+                    }
                     if (groundLog != null) groundTag = $"fan chord verge node {n} e{k0.edge}-e{k1.edge}";
-                    // a curb return's pieces share their cross-sections (plan A10)
-                    EmitVergeLine(map, trims, tm, k0.pos, k1.pos, RingOut(corners, i, nrm, true), RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
+                    // a curb return's pieces share their cross-sections (plan A10); a
+                    // chord cut back to its bare part ends square at the cut
+                    EmitVergeLine(map, trims, tm, Vector3.Lerp(k0.pos, k1.pos, bt0), Vector3.Lerp(k0.pos, k1.pos, bt1),
+                                  bt0 > 0f ? nrm : RingOut(corners, i, nrm, true), bt1 < 1f ? nrm : RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k0.edge}";
-                    if (!k0.arc) CornerFill(map, trims, tm, k0.node, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
+                    if (!k0.arc && bt0 <= 0f) CornerFill(map, trims, tm, k0.node, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k1.edge}";
-                    if (!k1.arc) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
+                    if (!k1.arc && bt1 >= 1f) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
                 }
             }
         }

@@ -988,5 +988,71 @@ namespace PSXRacing.City
             var mid = (a + b) * 0.5f + outw * 0.5f;
             return !RoadUnder(map, mid, 0.5f * (k0.pos.y + k1.pos.y));
         }
+
+        /// <summary>Five Points round 5, item 6: the stretch of a fan's free
+        /// chord that faces drawn pavement - the next fan, or a ribbon carried
+        /// on past it - is no free edge and takes no verge or corner fill: laid
+        /// there, they stood the fan's FanProudM over the road beyond, a light
+        /// broken line along BF SB's median-side edge across the W 5th opening.
+        /// The verge is laid over the rest (<see cref="ChordBareSpan"/>). Within
+        /// the Five Points scope (InR23Scope). PSX_CITY_CHORD_PAVED=0: laid
+        /// along the whole chord as before.</summary>
+        public static bool ChordPavedOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CHORD_PAVED") != "0";
+        /// <summary>Chords ChordPavedOn left bare (whole) / cut back to their
+        /// bare part, since the counters' reset (the probe's census).</summary>
+        public static int chordPavedSkipped, chordPavedCut;
+
+        /// <summary>The part [t0, t1] of a fan chord k0-k1 (tile-local corners)
+        /// with no drawn pavement - another fan, a ribbon, or this fan's own
+        /// where a cluster's ring folds back over it - <see cref="PavedOnwardM"/>
+        /// beyond it within <see cref="PavedOnwardDyM"/> of its height, sampled
+        /// every half metre a quarter metre in from each end and cut halfway
+        /// between a bare sample and a paved one. False: all of it faces
+        /// pavement. Where the bare samples are not one run from an end: the
+        /// whole chord, as before.</summary>
+        static bool ChordBareSpan(CityMap map, Trims trims, int n, FanCorner k0, FanCorner k1, Vector3 origin, out float t0, out float t1)
+        {
+            t0 = 0f; t1 = 1f;
+            var a = new Vector2(k0.pos.x + origin.x, k0.pos.z + origin.z);
+            var b = new Vector2(k1.pos.x + origin.x, k1.pos.z + origin.z);
+            var chord = b - a;
+            float len = chord.magnitude;
+            if (len < 0.5f) return true;
+            var outw = new Vector2(chord.y, -chord.x) / len;   // the ring runs anticlockwise: outward is its right
+            GatherNear(map, a, b, PavedOnwardM + 0.5f);
+            GatherPavement(map, trims);
+            float inset = Mathf.Min(0.5f, 0.25f / len);
+            int probes = Mathf.Max(2, Mathf.CeilToInt(len / 0.5f) + 1), nPaved = 0;
+            var paved = new bool[probes]; var ts = new float[probes];
+            for (int q = 0; q < probes; q++)
+            {
+                ts[q] = Mathf.Lerp(inset, 1f - inset, (float)q / (probes - 1));
+                paved[q] = PavementAt(map, trims, Vector2.Lerp(a, b, ts[q]) + outw * PavedOnwardM, Mathf.Lerp(k0.pos.y, k1.pos.y, ts[q]), -1);
+                if (paved[q]) nPaved++;
+            }
+            string what;
+            if (nPaved == probes) { what = "all paved: bare"; t1 = 0f; }
+            else if (nPaved == 0) what = "open: verge";
+            else
+            {
+                int lo = 0, hi = probes - 1;
+                while (paved[lo]) lo++;
+                while (paved[hi]) hi--;
+                bool oneRun = true;
+                for (int q = lo; q <= hi; q++) if (paved[q]) oneRun = false;
+                if (!oneRun || (lo > 0 && hi < probes - 1)) what = "bare samples not one run from an end: verge as before";
+                else
+                {
+                    if (lo > 0) t0 = 0.5f * (ts[lo - 1] + ts[lo]);
+                    if (hi < probes - 1) t1 = 0.5f * (ts[hi] + ts[hi + 1]);
+                    what = $"verge on {t0:0.00}..{t1:0.00}";
+                }
+            }
+            if (ChordPavedAt.Count < 200)
+                ChordPavedAt.Add($"node {n} e{k0.edge}-e{k1.edge} ({a.x:0.0},{a.y:0.0})-({b.x:0.0},{b.y:0.0}) {len:0.0} m: {nPaved}/{probes} samples paved beyond, {what}");
+            return t1 > t0;
+        }
+        /// <summary>For the probe: each scoped chord ChordBareSpan weighed.</summary>
+        public static readonly List<string> ChordPavedAt = new List<string>();
     }
 }

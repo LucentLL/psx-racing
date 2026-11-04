@@ -54,6 +54,14 @@ namespace PSXRacing.EditorTools
                 foreach (var e in m.edges) sb.Append(' ').Append(H(e.vY).ToString("x8"));
                 sb.Append("\nN");
                 foreach (var y in m.nodeY) sb.Append(' ').Append(((uint)System.BitConverter.SingleToInt32Bits(y)).ToString("x8"));
+                // the drawn height at each edge's ends, quarters and middle (mm), for sizes
+                sb.Append("\nY");
+                foreach (var e in m.edges)
+                {
+                    sb.Append(' ');
+                    if (e.stY == null || e.stY.Length < 2) { sb.Append('-'); continue; }
+                    for (int q = 0; q <= 4; q++) sb.Append(q > 0 ? "," : "").Append(Mathf.RoundToInt(e.YAt(0.25f * q * e.length) * 1000f));
+                }
                 // the lanes' centre line, at the edge's ends and middle
                 sb.Append("\nL");
                 foreach (var e in m.edges)
@@ -72,6 +80,25 @@ namespace PSXRacing.EditorTools
                     sb.Append(' ').Append(c.x.ToString("0")).Append(',').Append(c.y.ToString("0"));
                 }
                 sw.WriteLine(sb.ToString());
+                // the drawn profile's report and every edge end it left off its node
+                sw.WriteLine("REPORT " + CityElevation.VSmoothReport);
+                foreach (var o in CityElevation.VsEndsOff)
+                {
+                    var p = m.nodes[o.node]; var e = m.edges[o.edge];
+                    sw.WriteLine($"ENDOFF n{o.node} ({p.x:0.0},{p.y:0.0}) e{o.edge} '{e.name}' end {o.end} off {o.off * 100f:+0.0;-0.0} cm chain {o.chain} pos {o.pos} prio {o.prio:0.0}");
+                }
+                // PSX_ELEVDIFF_NODES="3917,7585": each arm's end there against the node
+                foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_ELEVDIFF_NODES") ?? "").Split(','))
+                {
+                    if (!int.TryParse(t.Trim().TrimStart('n'), out int n) || n < 0 || n >= m.nodes.Length) continue;
+                    sw.WriteLine($"NODE n{n} ({m.nodes[n].x:0.0},{m.nodes[n].y:0.0}) y {m.nodeY[n]:0.000}");
+                    foreach (int ei in m.nodeEdges[n])
+                    {
+                        var e = m.edges[ei]; if (e.stY == null || e.stY.Length < 2) continue;
+                        float s = e.a == n ? 0f : e.length;
+                        sw.WriteLine($"  e{ei} '{e.name}' cls {e.cls} w {e.width:0.0} link {e.link} end {(e.a == n ? "a" : "b")} drawn {e.YAt(s):0.000} station {e.StationYAt(s):0.000} vS {(e.vS == null ? "none" : e.vS.Length.ToString())}");
+                    }
+                }
                 sw.WriteLine("DONE");
             }
             finally { CityElevation.SolveHook = null; sw.Close(); }

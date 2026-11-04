@@ -165,6 +165,7 @@ namespace PSXRacing.EditorTools
                                         tag = TagAt(top.point);
                                         worst.Add((dy, qx, qz, $"{slot} {tag}"));
                                     }
+                                    else if (tagAll && dy > 0f) tag = TagAt(top.point);
                                 }
                             }
                             else c = 'X';
@@ -176,10 +177,12 @@ namespace PSXRacing.EditorTools
                     sb.AppendLine(row.ToString());
                 }
                 worst.Sort((a, b) => b.dy.CompareTo(a.dy));
-                sb.AppendLine($"  ground over a road by more than 3 cm: {worst.Count} cells");
+                sb.AppendLine($"  ground over a road by more than 3 cm: {worst.Count} cells; fan chords facing pavement so far (PSX_CITY_CHORD_PAVED {(CityMeshes.ChordPavedOn ? "on" : "off")}): {CityMeshes.chordPavedSkipped} left bare, {CityMeshes.chordPavedCut} cut back to their bare part");
                 var seenTag = new Dictionary<string, int>();
                 foreach (var w in worst) { seenTag.TryGetValue(w.what, out int k); seenTag[w.what] = k + 1; }
                 foreach (var kv in seenTag) sb.AppendLine($"    {kv.Value,5} cells  {kv.Key}");
+                foreach (var l in CityMeshes.ChordPavedAt) sb.AppendLine("    chord " + l);
+                CityMeshes.ChordPavedAt.Clear();
                 for (int k = 0; k < Mathf.Min(40, worst.Count); k++)
                     sb.AppendLine($"    {worst[k].dy:+0.000} at ({worst[k].qx:0.00},{worst[k].qz:0.00}) {worst[k].what}");
                 // the junction nodes in the box

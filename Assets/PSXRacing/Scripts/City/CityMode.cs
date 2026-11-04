@@ -397,7 +397,9 @@ namespace PSXRacing.City
         /// read off the arc. PSX_CITY_TURN_FILLET=0: the corner as before.
         /// </summary>
         public static bool TurnFilletOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_FILLET") != "0";
-        public const float TurnFilletR = 6f, TurnFilletMinDeg = 45f, TurnFilletPastTrimM = 1f;
+        public const float TurnFilletR = 6f, TurnFilletMinDeg = 45f;
+        /// <summary>How far past the junction trim a turn's tangent may reach (JoinCap).</summary>
+        public static float TurnFilletPastTrimM = 1f;
         /// <summary>Corners the last call replaced (for the logs).</summary>
         public static int LastTurnFillets;
 
@@ -427,12 +429,20 @@ namespace PSXRacing.City
         /// PSX_CITY_TURN_KERBS=0: the first pass's rule (as 82e7fbd2).
         /// </summary>
         public static bool TurnKerbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_KERBS") != "0";
-        public static float TurnKerbClearM = 1.4f, TurnFilletMinR = 2.5f, TurnSwingStepM = 0.3f, TurnSwingEaseM = 8f, TurnTangentMaxM = 6f, TurnSwingSharpDeg = 110f;
+        public static float TurnKerbClearM = 1.4f, TurnFilletMinR = 2.5f, TurnSwingStepM = 0.3f, TurnSwingEaseM = 8f, TurnSwingSharpDeg = 110f;
+        /// <summary>Round 5 (race steering): the longest tangent a RIGHT turn's arc may
+        /// take, 6 m before. At 6 m a 124-130 degree right was a 2.8-3.2 m arc, under
+        /// what a car turns on full lock (2.6 m wheelbase / tan 32 deg = 4.2 m at the
+        /// rear axle): the race AI held full lock and lifted the inside rear wheel
+        /// for 0.13 s (R2 laneL at 28 km/h; at 10 m its arc is 5.3 m and no wheel
+        /// lifts). The junction's own trims still bound it (JoinCap).
+        /// PSX_CITY_TURN_TRIGHT.</summary>
+        public static float TurnTangentMaxM = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_TURN_TRIGHT"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tr) ? tr : 10f;
         /// <summary>A car's half width and a margin: what a turn's swing leaves
         /// between the car and its lane's outer edge.</summary>
         public const float TurnSwingKeepM = 1.15f;
         /// <summary>Round 5: the longest tangent a LEFT turn's arc may take (a left
-        /// turn crosses the junction's width; at <see cref="TurnTangentMaxM"/> a
+        /// turn crosses the junction's width; at the 6 m a right turn then had, a
         /// 123 degree left was a 3.2 m arc, tighter than a car turns, and L3 at
         /// 28 km/h ran out of it onto Trade SB's verge, 2.9 cm; at 8 m it is a 4.3 m arc
         /// and L3 stays on the pavement, 1.5 cm). PSX_CITY_TURN_TLEFT.</summary>

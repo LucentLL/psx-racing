@@ -322,7 +322,7 @@ namespace PSXRacing.EditorTools
             // clrX = the kerb clearance, minrX = the smallest arc, tmaxX = the
             // longest tangent, stepX = the swing step
             bool filWas = CityMode.TurnFilletOn, kerbWas = CityMode.TurnKerbsOn;
-            float capWas = CityMode.TurnFilletCapM, clrWas = CityMode.TurnKerbClearM, minrWas = CityMode.TurnFilletMinR, stepWas = CityMode.TurnSwingStepM, tmaxWas = CityMode.TurnTangentMaxM;
+            float capWas = CityMode.TurnFilletCapM, clrWas = CityMode.TurnKerbClearM, minrWas = CityMode.TurnFilletMinR, stepWas = CityMode.TurnSwingStepM, tmaxWas = CityMode.TurnTangentMaxM, pastWas = CityMode.TurnFilletPastTrimM;
             var ciO = System.Globalization.CultureInfo.InvariantCulture;
             foreach (var o in (run.opt ?? "").Split(','))
             {
@@ -333,10 +333,11 @@ namespace PSXRacing.EditorTools
                 else if (o.StartsWith("tmax") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float tv)) CityMode.TurnTangentMaxM = tv;
                 else if (o.StartsWith("step") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float sv)) CityMode.TurnSwingStepM = sv;
                 else if (o.StartsWith("minr") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float mv)) CityMode.TurnFilletMinR = mv;
+                else if (o.StartsWith("past") && float.TryParse(o.Substring(4), System.Globalization.NumberStyles.Float, ciO, out float pv)) CityMode.TurnFilletPastTrimM = pv;
             }
             if (!string.IsNullOrEmpty(run.opt)) RefugeLapCheck.Line($"  options: {run.opt}");
             var plan = run.edges != null ? MoveRoute(map, run, out string edges) : Route(map, run, out edges);
-            CityMode.TurnFilletOn = filWas; CityMode.TurnKerbsOn = kerbWas; CityMode.TurnFilletCapM = capWas; CityMode.TurnKerbClearM = clrWas; CityMode.TurnFilletMinR = minrWas; CityMode.TurnSwingStepM = stepWas; CityMode.TurnTangentMaxM = tmaxWas;
+            CityMode.TurnFilletOn = filWas; CityMode.TurnKerbsOn = kerbWas; CityMode.TurnFilletCapM = capWas; CityMode.TurnKerbClearM = clrWas; CityMode.TurnFilletMinR = minrWas; CityMode.TurnSwingStepM = stepWas; CityMode.TurnTangentMaxM = tmaxWas; CityMode.TurnFilletPastTrimM = pastWas;
             bool trace = System.Environment.GetEnvironmentVariable("PSX_LAP_TRACE") == "1";
             var traceSb = trace ? new System.Text.StringBuilder() : null;
             int traceTick = 0;
@@ -414,6 +415,7 @@ namespace PSXRacing.EditorTools
             if (run.kmh > 0f) ai.speedCapMps = run.kmh / 3.6f;
             var tracks = new List<Vector2>[4]; for (int k = 0; k < 4; k++) tracks[k] = new List<Vector2>(512);
             float anyOff = 0f, allOff = 0f, maxVy = 0f, vTop = 0f; string offWhere = "", vyWhere = "";
+            var offLog = new System.Text.StringBuilder();
             hits.hits.Clear();
             float t = 0f, slowFor = 0f, maxOff = 0f, vMax = 0f, worstKerb = 0f; string offAt = "", kerbAt = "";
             int idx = 0, bestI = 0, kerbs = 0, offs = 0, recov = 0;
@@ -463,7 +465,17 @@ namespace PSXRacing.EditorTools
                         var wp = carGo.transform.TransformPoint(corners[k]);
                         tracks[k].Add(new Vector2(wp.x, wp.z));
                     }
-                    if (grounded < 4 && t > 1f) { anyOff += Time.fixedDeltaTime; if (offWhere.Length == 0) offWhere = $"{p.x:0.0},{p.z:0.0}"; }
+                    if (grounded < 4 && t > 1f)
+                    {
+                        anyOff += Time.fixedDeltaTime; if (offWhere.Length == 0) offWhere = $"{p.x:0.0},{p.z:0.0}";
+                        // round 5: which wheel, how fast, how hard the car was turning, what lock
+                        if (offLog.Length < 1400)
+                        {
+                            string ws = ""; for (int k = 0; k < 4; k++) if (!car.wheelContacts[k].grounded) ws += k;
+                            var vh = rb.linearVelocity; vh.y = 0f;
+                            offLog.Append($" [t{t:0.00} w{ws} {p.x:0.0},{p.z:0.0} {vh.magnitude * 3.6f:0}kmh lat{rb.angularVelocity.y * vh.magnitude / 9.81f:0.00}g steer{car.SteerAngleDeg:0}deg roll{Vector3.SignedAngle(Vector3.up, carGo.transform.up, carGo.transform.forward):0.0}]");
+                        }
+                    }
                     if (grounded == 0 && t > 1f) allOff += Time.fixedDeltaTime;
                     // the body's vertical speed over the path's own grade there
                     int jg = Mathf.Min(n - 2, idx);
@@ -516,6 +528,7 @@ namespace PSXRacing.EditorTools
                 }
                 RefugeLapCheck.Line($"  MOVE {run.name} @{run.kmh:0} km/h lane {run.lane}{(run.off != 0f ? $" {run.off:+0.0;-0.0} m" : "")}: top {vTop * 3.6f:0} km/h; any wheel off {anyOff:0.00} s{(offWhere.Length > 0 ? " (first at " + offWhere + ")" : "")}, all four off {allOff:0.00} s; max vertical speed over the grade {maxVy:0.00} m/s at {vyWhere}; largest step under a wheel {worstStep:0.000} m at {stepAt} ({stepsOver} readings over 3 cm)");
                 if (traceSb != null) RefugeLapCheck.Line($"  TRACE {run.name}:{traceSb}");
+                if (offLog.Length > 0) RefugeLapCheck.Line($"  WHEEL OFF {run.name}:{offLog}");
                 if (!done || stuck || hits.hits.Count > 0 || allOff > 0f || anyOff > 0.05f || worstStep > 0.03f) RefugeLapCheck.Fail($"{run.name}: not clean");
             }
             else if (!done || stuck || offs > 0 || kerbs > 0 || hits.hits.Count > 0 || recov > 0) RefugeLapCheck.Fail($"{run.name}: not clean");

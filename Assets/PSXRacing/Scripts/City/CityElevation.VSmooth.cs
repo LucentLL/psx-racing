@@ -96,6 +96,19 @@ namespace PSXRacing.City
         /// only on chains that differ from it. PSX_CITY_VS_ORDER=0: the old sort.
         /// </summary>
         public static bool VsOrderStable = System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ORDER") != "0";
+        /// <summary>The most rounds a stale chain end is redrawn in (Five Points
+        /// round 5: 12, was 3 - PSX_CITY_VS_ROUNDS). After 3 rounds 61 chains
+        /// were still stale and 31 edge ends stood off their node, up to 58 cm
+        /// (Potter Road n8685) and 26 cm (Chestnut Lane n7585): a road step where
+        /// the fan met the ribbon. Most settle within 9 rounds; a loop that pumps
+        /// (Bellhaven Boulevard n14072: each redraw moved the node the other end
+        /// reads, 52 cm lower over 12 rounds) is held by <see cref="VsRedrawPerChain"/>.
+        /// 2 ends stay off. Where two chains each end on the other's junction (a
+        /// cycle) the order still decides which eases from which.</summary>
+        public static int VsRedrawRounds = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ROUNDS"), out int vr) && vr >= 0 ? vr : 12;
+        /// <summary>The most times one chain is redrawn (round 5: 4 -
+        /// PSX_CITY_VS_PERCHAIN; before, the 3 rounds alone bounded it).</summary>
+        public static int VsRedrawPerChain = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_VS_PERCHAIN"), out int vp) && vp > 0 ? vp : 4;
         /// <summary>What the last presentation pass did, for the load log and the audits.</summary>
         public static string VSmoothReport { get; private set; } = "";
         public static bool VSmoothApplied { get; private set; }
@@ -111,6 +124,11 @@ namespace PSXRacing.City
             return h;
         }
         public static float VSmoothMs { get; private set; }
+        /// <summary>Diagnostics (Editor/ElevDiffProbe): every edge end the
+        /// census found off its node by more than 1 cm - node, edge, end, the
+        /// end's change less the node's, and its chain, the chain's place in
+        /// the order and its priority.</summary>
+        public static readonly List<(int node, int edge, int end, float off, int chain, int pos, float prio)> VsEndsOff = new List<(int, int, int, float, int, int, float)>();
         /// <summary>The node heights as the solve left them (the pass moves a
         /// node with the curve through it; switching off puts them back).</summary>
         static float[] nodeYSolved;
@@ -673,12 +691,17 @@ namespace PSXRacing.City
             // A chain drawn before the junction it ends at was moved (the order
             // has cycles: two streets each the major road of the other's end)
             // is drawn again with the junction's change, until nothing is stale.
-            int redrawn = 0, rounds = 0;
-            for (int round = 0; round < 3; round++)
+            int redrawn = 0, rounds = 0, frozen = 0;
+            var perRound = new System.Text.StringBuilder();
+            var timesDrawn = new int[C];
+            for (int round = 0; round < VsRedrawRounds; round++)
             {
                 var stale = new List<int>();
                 foreach (int c in order)
                 {
+                    // a chain in a loop that pumps (each redraw moves the node
+                    // the other end reads) is drawn no more than VsRedrawPerChain times
+                    if (timesDrawn[c] >= VsRedrawPerChain) continue;
                     var ch = chains[c];
                     for (int end = 0; end < 2; end++)
                     {
@@ -691,13 +714,18 @@ namespace PSXRacing.City
                 }
                 if (stale.Count == 0) break;
                 rounds++;
-                foreach (int c in stale) DrawChain(c);
+                perRound.Append(rounds > 1 ? "/" : "").Append(stale.Count);
+                foreach (int c in stale) { DrawChain(c); if (++timesDrawn[c] == VsRedrawPerChain) frozen++; }
                 redrawn += stale.Count;
             }
+            if (frozen > 0) perRound.Append($"; {frozen} at the per-chain cap");
 
             // the census of what was drawn
             int edgesDrawn = 0, knots = 0, wins = 0, endMismatch = 0;
-            float maxRaise = 0f, maxLower = 0f;
+            float maxRaise = 0f, maxLower = 0f; string maxRaiseAt = "", maxLowerAt = "";
+            VsEndsOff.Clear();
+            var posOf = new int[C];
+            for (int i = 0; i < order.Count; i++) posOf[order[i]] = i;
             for (int c = 0; c < C; c++) { wins += chainWins[c]; if (chainCapped[c] != null) VsCapped.AddRange(chainCapped[c]); }
             foreach (var e in map.edges)
             {
@@ -707,8 +735,8 @@ namespace PSXRacing.City
                     for (int i = 0; i < e.vS.Length; i++)
                     {
                         float d = e.vY[i] - e.StationYAt(e.vS[i]);
-                        if (d > maxRaise) maxRaise = d;
-                        if (-d > maxLower) maxLower = -d;
+                        if (d > maxRaise) { maxRaise = d; maxRaiseAt = $"e{e.index} s {e.vS[i]:0}"; }
+                        if (-d > maxLower) { maxLower = -d; maxLowerAt = $"e{e.index} s {e.vS[i]:0}"; }
                     }
                 }
                 if (e.a == e.b || e.stY == null || e.stY.Length < 2) continue;
@@ -718,13 +746,18 @@ namespace PSXRacing.City
                     int node = end == 0 ? e.a : e.b;
                     float s = end == 0 ? 0f : e.length;
                     float dEnd = e.YAt(s) - e.StationYAt(s), dNode = map.nodeY[node] - nodeYSolved[node];
-                    if (Mathf.Abs(dEnd - dNode) > 0.01f) endMismatch++;
+                    if (Mathf.Abs(dEnd - dNode) > 0.01f)
+                    {
+                        endMismatch++;
+                        int ci = chainOf[e.index];
+                        VsEndsOff.Add((node, e.index, end, dEnd - dNode, ci, ci >= 0 ? posOf[ci] : -1, ci >= 0 ? prio[ci] : 0f));
+                    }
                 }
             }
             VSmoothApplied = true;
             VSmoothMs = (float)clock.Elapsed.TotalMilliseconds;
             double tk = System.Diagnostics.Stopwatch.Frequency / 1000.0;
-            VSmoothReport = $"drawn profile: {chains.Count} chains, {wins} vertical curves ({VsCapped.Count} short of their road's radius), {shifts} floors dug / crests lifted to make room, {anchorsSeat} seat + {anchorsNode} junction eases, {redrawn} chains redrawn in {rounds} rounds, {edgesDrawn} edges drawn with {knots} knots, raised up to {maxRaise:0.00} m / lowered up to {maxLower:0.00} m, {endMismatch} edge ends off their node, {VSmoothMs:0} ms (points {tPts / tk:0}, curves {tCurves / tk:0}, knots {tKnots / tk:0})";
+            VSmoothReport = $"drawn profile: {chains.Count} chains, {wins} vertical curves ({VsCapped.Count} short of their road's radius), {shifts} floors dug / crests lifted to make room, {anchorsSeat} seat + {anchorsNode} junction eases, {redrawn} chains redrawn in {rounds} rounds ({perRound}), {edgesDrawn} edges drawn with {knots} knots, raised up to {maxRaise:0.00} m ({maxRaiseAt}) / lowered up to {maxLower:0.00} m ({maxLowerAt}), {endMismatch} edge ends off their node, {VSmoothMs:0} ms (points {tPts / tk:0}, curves {tCurves / tk:0}, knots {tKnots / tk:0})";
             vsHi = vsLo = null; vsHiC = vsLoC = null; vsHost = null; vsHostS = null;
         }
 
