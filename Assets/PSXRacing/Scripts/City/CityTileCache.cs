@@ -317,7 +317,10 @@ namespace PSXRacing.City
         }
 
         /// <summary>Every field of TileMeshes this file carries (or leaves
-        /// out on purpose: the smoothness gate's tap). The bake tool refuses a
+        /// out on purpose: the smoothness gate's tap; the city audit's median
+        /// barrier counters - medianJerseyM, unionJerseyM, cablePieces, read by
+        /// Editor/CityAudit on tiles it builds live and by nothing at runtime,
+        /// so a baked tile carries them as zero). The bake tool refuses a
         /// TileMeshes with any other field: it would be lost on the way.</summary>
         public static readonly string[] KnownFields =
         {
@@ -328,7 +331,7 @@ namespace PSXRacing.City
             "footprintsLeftOut", "vergeSpans", "goreNoses", "vergeMetres", "railMetres", "wbeams", "wbeamPosts",
             "guardrails", "structure", "mastHeads", "mastFeet", "railEndsWBeam", "railEndsSloped", "railEndsInside",
             "railEndsConnected", "railEndsKept", "railEndsShort", "tap", "houseBoxes", "houseSeats", "mastTips",
-            "culvertEnds",
+            "culvertEnds", "medianJerseyM", "unionJerseyM", "cablePieces",
         };
 
         // ---- write (the bake tool, main thread) -----------------------------
