@@ -73,6 +73,12 @@ namespace PSXRacing
         /// browser on a desktop too (owner, 2026-11-03, on the web build in a
         /// desktop browser: "the PC webGL hasn't even changed the title screen
         /// to add more trees"). A phone keeps the band of trees by the road.
+        /// NOTE what a browser can show: PCOnly only shows what a scene
+        /// carries, and the far forest, the fill and the crowns are built by
+        /// the PC build's scene pass alone (PSX_PC_CONTENT) - the web player's
+        /// data file sits near GitHub's 100 MB file limit. In a browser this
+        /// lifts the band's 520 m cull and the far plane, nothing more, until
+        /// the far forest is made where the browser runs.
         /// </summary>
         public static bool FullForest => PC || (Application.platform == RuntimePlatform.WebGLPlayer && !Application.isMobilePlatform);
 
