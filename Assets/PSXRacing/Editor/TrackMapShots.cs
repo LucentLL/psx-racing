@@ -223,6 +223,21 @@ namespace PSXRacing.EditorTools
             int filled = (int)(px.Length - n);
             if (filled > 0 && n > 0)
             {
+                // the edge's own pixels too: half sky, half ground, they drew
+                // a dark seam round the mirrored corner
+                var grown = (bool[])hole.Clone();
+                for (int y = 0; y < Size; y++)
+                    for (int x = 0; x < Size; x++)
+                    {
+                        if (!hole[y * Size + x]) continue;
+                        for (int dy = -2; dy <= 2; dy++)
+                            for (int dx = -2; dx <= 2; dx++)
+                            {
+                                int yy = y + dy, xx = x + dx;
+                                if (yy >= 0 && yy < Size && xx >= 0 && xx < Size) grown[yy * Size + xx] = true;
+                            }
+                    }
+                hole = grown;
                 Mirror(px, hole, Size, columns: true);
                 Mirror(px, hole, Size, columns: false);
                 var mean = new Color32((byte)(r * 85 / (n * 100)), (byte)(g * 85 / (n * 100)), (byte)(b * 85 / (n * 100)), 255);
@@ -271,6 +286,39 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        // ---- the water --------------------------------------------------------
+
+        /// <summary>A map's water: one flat dark blue. PSX/Water seen
+        /// straight down from a camera this high turned pale and threw the
+        /// sun back as a white blaze (Emerald Isle's sea, the Sound).</summary>
+        static readonly Color MapWater = new Color(0.10f, 0.19f, 0.25f);
+        static Material mapWater;
+        static readonly HashSet<Renderer> flattened = new HashSet<Renderer>();
+
+        /// <summary>Every PSX/Water slot not yet swapped, swapped for the
+        /// map's water (the scene is never saved; a city tile is dropped).</summary>
+        static void FlatWater()
+        {
+            if (mapWater == null)
+            {
+                var sh = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+                mapWater = new Material(sh) { name = "~mapWater", hideFlags = HideFlags.DontSave };
+                if (mapWater.HasProperty("_BaseColor")) mapWater.SetColor("_BaseColor", MapWater);
+                if (mapWater.HasProperty("_Color")) mapWater.SetColor("_Color", MapWater);
+            }
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (flattened.Contains(r)) continue;
+                var mats = r.sharedMaterials;
+                bool any = false;
+                for (int i = 0; i < mats.Length; i++)
+                    if (mats[i] != null && mats[i].shader != null && mats[i].shader.name == "PSX/Water") { mats[i] = mapWater; any = true; }
+                if (!any) continue;
+                r.sharedMaterials = mats;
+                flattened.Add(r);
+            }
+        }
+
         // ---- Charlotte -------------------------------------------------------
 
         static int ShootCity(List<Job> jobs, Dictionary<string, Vector3> frames, StringBuilder report)
@@ -305,6 +353,7 @@ namespace PSXRacing.EditorTools
                         {
                             var c = new Vector2(j.lo.x + (ix + 0.5f) * sub, j.lo.y + (iz + 0.5f) * sub);
                             world.EnsureRing(new Vector3(c.x, 0f, c.y), ring);
+                            FlatWater();
                             Light(globals, sun);
                             Render(tex, ix * px, iz * px, px, c, sub * 0.5f, CitySupersample);
                         }
@@ -331,6 +380,7 @@ namespace PSXRacing.EditorTools
             if (!File.Exists(Path.Combine(ProjectDir, path))) { report.AppendLine($"  {j.key}: no scene {path} - skipped"); return false; }
             var clock = System.Diagnostics.Stopwatch.StartNew();
             EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
+            flattened.Clear();
             var globals = Object.FindAnyObjectByType<PSXGlobals>();
             var sun = globals != null ? globals.sun : null;
             GameObject made = null;
@@ -360,6 +410,7 @@ namespace PSXRacing.EditorTools
             }
             try
             {
+                FlatWater();
                 Light(globals, sun);
                 var tex = new Texture2D(Size, Size, TextureFormat.RGB24, false);
                 Render(tex, 0, 0, Size, j.Centre, j.Span * 0.5f, StageSupersample);
