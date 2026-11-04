@@ -1697,6 +1697,7 @@ namespace PSXRacing.City
         {
             var bk = barrierBucket;
             Vector3 c0 = 0.5f * (a0 + b0), c1 = 0.5f * (a1 + b1);
+            unionJerseyTally += Vector2.Distance(new Vector2(c0.x, c0.z), new Vector2(c1.x, c1.z));
             var d0 = new Vector3(b0.x - a0.x, 0f, b0.z - a0.z); float g0 = d0.magnitude; d0 = g0 > 1e-4f ? d0 / g0 : Vector3.right;
             var d1 = new Vector3(b1.x - a1.x, 0f, b1.z - a1.z); float g1 = d1.magnitude; d1 = g1 > 1e-4f ? d1 / g1 : Vector3.right;
             float w0 = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g0 - 0.1f)) - inset, w1 = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g1 - 0.1f)) - inset;
