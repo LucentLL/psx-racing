@@ -3900,8 +3900,10 @@ namespace PSXRacing.City
         const float BesideTrimMinM = 4f;
         /// <summary>Junctions that keep the old plane (a spot that cannot pass
         /// reverts to live there): n625, where the link landed on the major
-        /// arm's profile left a new 5.3 cm road-on-road step in the city sweep.</summary>
-        static readonly HashSet<int> PlanePosLive = new HashSet<int> { 625 };
+        /// arm's profile left a new 5.3 cm road-on-road step in the city sweep,
+        /// and n5015 (South Boulevard), where it moved a guardrail end square
+        /// to the boulevard's edge line (boxed drive audit BLUNT rail ends 8 -> 9).</summary>
+        static readonly HashSet<int> PlanePosLive = new HashSet<int> { 625, 5015 };
         /// <summary>The junction landings (leftover item 1 finish): a
         /// measured road is free this far from a junction node; an ease is at
         /// least / at most this long.</summary>
