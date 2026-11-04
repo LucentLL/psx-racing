@@ -54,6 +54,27 @@ namespace PSXRacing.EditorTools
         }
 
         internal static void Line(string s) { log.AppendLine(s); Debug.Log("[RefugeLap] " + s); }
+        /// <summary>
+        /// Round 5 test hook, moved here from TrafficSystem (round 6): a two-way
+        /// road's traffic system with no race and no cars, its race lanes
+        /// centred on the path (the harness's path is the car's own lane line),
+        /// so an AIDriver steers as a racer on a city route does - pure
+        /// pursuit, the hairpin lookahead cap, lane discipline - not with the
+        /// free-roam law. Set up by reflection, so the game's code carries no
+        /// test entry (and the same harness runs on live's code).
+        /// </summary>
+        internal static TrafficSystem SteerOnlyTraffic()
+        {
+            if (TrafficSystem.Instance != null) return TrafficSystem.Instance;
+            var go = new GameObject("Traffic (steer only)");
+            var ts = go.AddComponent<TrafficSystem>();
+            const System.Reflection.BindingFlags NP = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            typeof(TrafficSystem).GetProperty("Instance").GetSetMethod(true).Invoke(null, new object[] { ts });
+            ((List<float>)typeof(TrafficSystem).GetField("lanesFwd", NP).GetValue(ts)).Add(0f);
+            ((List<float>)typeof(TrafficSystem).GetField("lanesBack", NP).GetValue(ts)).Add(-RoadProfiles.LaneM);
+            return ts;
+        }
+
         internal static void Fail(string s) { failures++; Line("  FAIL " + s); }
         internal static void Finish()
         {
@@ -409,7 +430,7 @@ namespace PSXRacing.EditorTools
             // round 5: PSX_LAP_RACESTEER=1 - a traffic system present (no cars), so
             // the AI steers by the race law (pure pursuit, hairpin lookahead cap,
             // lane discipline) as a city racer does, not the free-roam law
-            TrafficSystem steerTs = System.Environment.GetEnvironmentVariable("PSX_LAP_RACESTEER") == "1" ? TrafficSystem.SteerOnly() : null;
+            TrafficSystem steerTs = System.Environment.GetEnvironmentVariable("PSX_LAP_RACESTEER") == "1" ? RefugeLapCheck.SteerOnlyTraffic() : null;
             var ai = carGo.AddComponent<AIDriver>();
             ai.path = tp; ai.skill = 0.95f;
             if (run.kmh > 0f) ai.speedCapMps = run.kmh / 3.6f;

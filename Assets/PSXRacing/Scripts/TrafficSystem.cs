@@ -343,24 +343,6 @@ namespace PSXRacing
 
         void OnDestroy() { if (Instance == this) Instance = null; }
 
-        /// <summary>
-        /// Test hook (Editor/RefugeLapCheck, Five Points round 5): a two-way
-        /// road's traffic system with no race and no cars, its race lanes
-        /// centred on the path (the harness's path is the car's own lane
-        /// line), so an AIDriver steers as a racer on a city route does - pure
-        /// pursuit, the hairpin lookahead cap, lane discipline - not with the
-        /// free-roam law. Destroy the returned object when done.
-        /// </summary>
-        public static TrafficSystem SteerOnly()
-        {
-            if (Instance != null) return Instance;
-            var go = new GameObject("Traffic (steer only)");
-            Instance = go.AddComponent<TrafficSystem>();
-            Instance.lanesFwd.Add(0f);
-            Instance.lanesBack.Add(-LaneM);
-            return Instance;
-        }
-
         void Init(RaceManager race)
         {
             rm = race;

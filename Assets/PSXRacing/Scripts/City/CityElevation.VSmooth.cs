@@ -82,7 +82,7 @@ namespace PSXRacing.City
         public static bool VSmoothOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VSMOOTH") != "0";
 
         /// <summary>
-        /// THE CHAINS ARE DRAWN IN A FIXED ORDER (Five Points round 5). The
+        /// THE CHAINS ARE DRAWN IN LIVE'S ORDER (Five Points rounds 5-6). The
         /// order was a List.Sort by priority alone - an unstable sort, so chains
         /// of equal priority (most of the city: one class, one width) came out
         /// in a permutation that depends on EVERY chain in the list. A change at
@@ -91,23 +91,76 @@ namespace PSXRacing.City
         /// one drawn second eases from the first: 225 edges 0.5-20 km away
         /// drew a different profile (Editor/ElevDiffProbe; the solve itself
         /// moved only the 7), e.g. a 4.1 -> 11.3 cm road step at (-8143,-5214).
-        /// Ties now go to the chain holding the lower edge index (chains
-        /// partition the edges, so the key is unique): a chain's place depends
-        /// only on chains that differ from it. PSX_CITY_VS_ORDER=0: the old sort.
+        /// Round 5 broke ties by the lower edge index: local, but a NEW deal of
+        /// its own against live (a 10 cm step at Chestnut Lane n7585, Arrowood
+        /// n703 10.0 -> 11.8 cm) - where two chains each end on the other's
+        /// junction (a cycle) whichever is drawn first wins, and live's
+        /// permutation is the one every road outside Five Points was checked on.
+        /// Round 6 keeps live's permutation itself: <see cref="VsOrderData"/>
+        /// (CityElevation.VsOrderList.cs, baked by Editor/ElevDiffProbe.BakeVsOrder
+        /// from live's own sort) ranks each chain by its place in live's sorted
+        /// list, keyed by its edges, so every chain live had is drawn in live's
+        /// order whatever changes elsewhere. A chain live did not have (a road
+        /// whose own data changed, so its chain is another chain) takes the
+        /// rank of the live chain whose lowest edge it now holds - the chain it
+        /// replaces (chains partition the edges, so only a chain that is gone
+        /// can match) - and any other goes after the live chains of its
+        /// priority, by its lowest edge. A table
+        /// for another export (edge or node counts) is not used: the round-5
+        /// rule stands in, and the medians gate fails until it is rebaked.
+        /// PSX_CITY_VS_ORDER=0: the old unstable sort; =stable: round 5's rule.
         /// </summary>
-        public static bool VsOrderStable = System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ORDER") != "0";
-        /// <summary>The most rounds a stale chain end is redrawn in (Five Points
-        /// round 5: 12, was 3 - PSX_CITY_VS_ROUNDS). After 3 rounds 61 chains
-        /// were still stale and 31 edge ends stood off their node, up to 58 cm
-        /// (Potter Road n8685) and 26 cm (Chestnut Lane n7585): a road step where
-        /// the fan met the ribbon. Most settle within 9 rounds; a loop that pumps
-        /// (Bellhaven Boulevard n14072: each redraw moved the node the other end
-        /// reads, 52 cm lower over 12 rounds) is held by <see cref="VsRedrawPerChain"/>.
-        /// 2 ends stay off. Where two chains each end on the other's junction (a
-        /// cycle) the order still decides which eases from which.</summary>
-        public static int VsRedrawRounds = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ROUNDS"), out int vr) && vr >= 0 ? vr : 12;
-        /// <summary>The most times one chain is redrawn (round 5: 4 -
-        /// PSX_CITY_VS_PERCHAIN; before, the 3 rounds alone bounded it).</summary>
+        public static readonly string VsOrderMode = (System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ORDER") ?? "").Trim().ToLowerInvariant();
+        public static bool VsOrderStable => VsOrderMode != "0";
+        /// <summary>PSX_CITY_VS_ORDER_DUMP=path: each pass writes its chains'
+        /// keys in the sorted order (one per line: key, priority, first edge) - the bake's input.</summary>
+        static readonly string vsOrderDump = System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ORDER_DUMP");
+        /// <summary>How the last pass ordered its chains (the census reports it).</summary>
+        public static string VsOrderUsed { get; private set; } = "";
+        /// <summary>The chains the last pass placed by the table, and those it did not.</summary>
+        public static int VsOrderPlaced, VsOrderNew;
+        /// <summary>A chain's key: its lowest edge index (high 32 bits) and an
+        /// FNV-1a of its links in travel order (edge, direction).</summary>
+        public static long VsChainKey(List<int> edges, List<bool> fwd)
+        {
+            uint h = 2166136261u; int m = int.MaxValue;
+            for (int i = 0; i < edges.Count; i++)
+            {
+                uint v = (uint)(edges[i] * 2 + (fwd[i] ? 1 : 0));
+                for (int k = 0; k < 4; k++) { h ^= (v >> (8 * k)) & 0xFF; h *= 16777619u; }
+                m = Mathf.Min(m, edges[i]);
+            }
+            return ((long)m << 32) | h;
+        }
+        static Dictionary<long, int> vsOrderRank;
+        /// <summary>The baked table's lowest edge -> live rank (a replaced chain's place).</summary>
+        static Dictionary<int, int> vsOrderRankByEdge;
+        /// <summary>The baked table as key -> live rank, or null where it is not this export's.</summary>
+        static Dictionary<long, int> VsOrderRank(CityMap map)
+        {
+            if (map.edges.Length != VsOrderEdges || map.nodes.Length != VsOrderNodes || VsOrderData.Length == 0) return null;
+            if (vsOrderRank == null)
+            {
+                vsOrderRank = new Dictionary<long, int>(VsOrderData.Length);
+                vsOrderRankByEdge = new Dictionary<int, int>(VsOrderData.Length);
+                for (int i = 0; i < VsOrderData.Length; i++) { vsOrderRank[VsOrderData[i]] = i; vsOrderRankByEdge[(int)(VsOrderData[i] >> 32)] = i; }
+            }
+            return vsOrderRank;
+        }
+        /// <summary>The chains the last pass placed in a replaced chain's rank ("e&lt;lowest&gt;-&gt;rank").</summary>
+        public static readonly List<string> VsOrderReplaced = new List<string>();
+        /// <summary>Is the compiled order table for this export's edge and node
+        /// counts (the medians gate checks its hash and the placed count too)?</summary>
+        public static bool VsOrderTableFits(CityMap map) => VsOrderRank(map) != null;
+        /// <summary>The most rounds a stale chain end is redrawn in: live's 3
+        /// (PSX_CITY_VS_ROUNDS). Round 5 tried 12 with a per-chain cap of 4:
+        /// 31 -> 2 ends off their node, but it re-dealt 517 drawn edges against
+        /// live city-wide, so it is not the default. The 31 ends live leaves
+        /// off (Potter Road n8685 58 cm, Chestnut Lane n7585 26 cm) are a live
+        /// fault for a city-wide round of its own.</summary>
+        public static int VsRedrawRounds = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ROUNDS"), out int vr) && vr >= 0 ? vr : 3;
+        /// <summary>The most times one chain is redrawn (PSX_CITY_VS_PERCHAIN;
+        /// with live's 3 rounds the rounds alone bound it, as in live).</summary>
         public static int VsRedrawPerChain = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_VS_PERCHAIN"), out int vp) && vp > 0 ? vp : 4;
         /// <summary>What the last presentation pass did, for the load log and the audits.</summary>
         public static string VSmoothReport { get; private set; } = "";
@@ -317,13 +370,53 @@ namespace PSXRacing.City
             {
                 var byPrio = new List<int>(C);
                 for (int c = 0; c < C; c++) byPrio.Add(c);
-                if (VsOrderStable)
+                var keyOf = new long[C];
                 {
-                    var minEdge = new int[C];
-                    for (int c = 0; c < C; c++) { int m = int.MaxValue; foreach (var l in chains[c]) m = Mathf.Min(m, l.edge); minEdge[c] = m; }
-                    byPrio.Sort((x, y) => { int k = prio[y].CompareTo(prio[x]); return k != 0 ? k : minEdge[x].CompareTo(minEdge[y]); });
+                    var le = new List<int>(64); var lf = new List<bool>(64);
+                    for (int c = 0; c < C; c++)
+                    {
+                        le.Clear(); lf.Clear();
+                        foreach (var l in chains[c]) { le.Add(l.edge); lf.Add(l.fwd); }
+                        keyOf[c] = VsChainKey(le, lf);
+                    }
                 }
-                else byPrio.Sort((x, y) => prio[y].CompareTo(prio[x]));
+                VsOrderPlaced = VsOrderNew = 0; VsOrderReplaced.Clear();
+                var table = VsOrderMode == "" ? VsOrderRank(map) : null;
+                if (table != null)
+                {
+                    // live's permutation: a chain live had takes live's rank; a
+                    // changed chain the rank of the gone chain it replaces
+                    var rank = new int[C];
+                    for (int c = 0; c < C; c++)
+                    {
+                        if (table.TryGetValue(keyOf[c], out int rk)) { rank[c] = rk; VsOrderPlaced++; continue; }
+                        rank[c] = int.MaxValue; VsOrderNew++;
+                        foreach (var l in chains[c])
+                            if (vsOrderRankByEdge.TryGetValue(l.edge, out int rr) && rr < rank[c]) rank[c] = rr;
+                        if (rank[c] != int.MaxValue) VsOrderReplaced.Add($"e{keyOf[c] >> 32}->{rank[c]}");
+                    }
+                    byPrio.Sort((x, y) =>
+                    {
+                        int k = prio[y].CompareTo(prio[x]);
+                        if (k != 0) return k;
+                        k = rank[x].CompareTo(rank[y]);
+                        return k != 0 ? k : (keyOf[x] >> 32).CompareTo(keyOf[y] >> 32);
+                    });
+                    VsOrderUsed = $"live's order table ({VsOrderPlaced} chains placed as live, {VsOrderNew} not in it, {VsOrderReplaced.Count} of those in the rank of the chain they replace: {string.Join(" ", VsOrderReplaced)})";
+                }
+                else if (VsOrderStable)
+                {
+                    byPrio.Sort((x, y) => { int k = prio[y].CompareTo(prio[x]); return k != 0 ? k : (keyOf[x] >> 32).CompareTo(keyOf[y] >> 32); });
+                    VsOrderUsed = VsOrderMode == "" ? "ORDER TABLE STALE (not this export's): lowest-edge ties" : "lowest-edge ties (PSX_CITY_VS_ORDER=stable)";
+                }
+                else { byPrio.Sort((x, y) => prio[y].CompareTo(prio[x])); VsOrderUsed = "the unstable sort (PSX_CITY_VS_ORDER=0)"; }
+                if (!string.IsNullOrEmpty(vsOrderDump))
+                {
+                    var sbo = new System.Text.StringBuilder();
+                    sbo.Append("# drawn-profile chain order: ").Append(VsOrderUsed).Append('\n');
+                    foreach (int c in byPrio) sbo.Append(keyOf[c]).Append(' ').Append(prio[c].ToString("R", System.Globalization.CultureInfo.InvariantCulture)).Append(' ').Append(chains[c][0].edge).Append('\n');
+                    System.IO.File.WriteAllText(vsOrderDump, sbo.ToString());
+                }
                 var remaining = byPrio;
                 while (remaining.Count > 0)
                 {
@@ -757,7 +850,7 @@ namespace PSXRacing.City
             VSmoothApplied = true;
             VSmoothMs = (float)clock.Elapsed.TotalMilliseconds;
             double tk = System.Diagnostics.Stopwatch.Frequency / 1000.0;
-            VSmoothReport = $"drawn profile: {chains.Count} chains, {wins} vertical curves ({VsCapped.Count} short of their road's radius), {shifts} floors dug / crests lifted to make room, {anchorsSeat} seat + {anchorsNode} junction eases, {redrawn} chains redrawn in {rounds} rounds ({perRound}), {edgesDrawn} edges drawn with {knots} knots, raised up to {maxRaise:0.00} m ({maxRaiseAt}) / lowered up to {maxLower:0.00} m ({maxLowerAt}), {endMismatch} edge ends off their node, {VSmoothMs:0} ms (points {tPts / tk:0}, curves {tCurves / tk:0}, knots {tKnots / tk:0})";
+            VSmoothReport = $"drawn profile: {chains.Count} chains, {wins} vertical curves ({VsCapped.Count} short of their road's radius), {shifts} floors dug / crests lifted to make room, {anchorsSeat} seat + {anchorsNode} junction eases, {redrawn} chains redrawn in {rounds} rounds ({perRound}), order: {VsOrderUsed}, {edgesDrawn} edges drawn with {knots} knots, raised up to {maxRaise:0.00} m ({maxRaiseAt}) / lowered up to {maxLower:0.00} m ({maxLowerAt}), {endMismatch} edge ends off their node, {VSmoothMs:0} ms (points {tPts / tk:0}, curves {tCurves / tk:0}, knots {tKnots / tk:0})";
             vsHi = vsLo = null; vsHiC = vsLoC = null; vsHost = null; vsHostS = null;
         }
 
