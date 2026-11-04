@@ -34,9 +34,11 @@ namespace PSXRacing.EditorTools
         public const int Size = 1024;
         const string OutDir = "Assets/StreamingAssets/" + RouteMap.PhotoFolder;
         const string FramesPath = "Assets/PSXRacing/Resources/" + RouteMap.FramesResource + ".txt";
-        /// <summary>Rendered at twice the picture's pixels and averaged down:
-        /// a 3 m pixel would otherwise stair-step every road.</summary>
-        const int Supersample = 2;
+        /// <summary>Rendered at this many times the picture's pixels and
+        /// averaged down: a 3 m pixel would otherwise stair-step every road,
+        /// and a stage's crowns and the sea's sparkle are finer than one.
+        /// The city's chunks are each a small square already.</summary>
+        const int CitySupersample = 2, StageSupersample = 4;
         /// <summary>The most metres one city chunk's camera covers (its
         /// tiles stand up as a ring round it, kept until the route is done).</summary>
         const float CityChunkM = 1200f;
@@ -44,7 +46,11 @@ namespace PSXRacing.EditorTools
         /// keeps its street picture): tens of thousands of tiles.</summary>
         const float CityMaxSpanM = 9000f;
         const int JpgQuality = 84;
-        const float EyeY = 5000f;
+        /// <summary>The camera's height. High enough that every pixel looks
+        /// straight down: at 5 km the shaders' view rays fanned out twenty
+        /// degrees across a stage's square, and the sea threw the noon sun
+        /// back at the camera as a white blaze (Emerald Isle).</summary>
+        const float EyeY = 60000f;
         static readonly Color Ground = new Color(0.050f, 0.056f, 0.072f);
 
         class Job
@@ -151,9 +157,9 @@ namespace PSXRacing.EditorTools
 
         /// <summary>One square straight down, north up, into
         /// <paramref name="into"/> at (x0, y0), px a side.</summary>
-        static void Render(Texture2D into, int x0, int y0, int px, Vector2 centre, float half)
+        static void Render(Texture2D into, int x0, int y0, int px, Vector2 centre, float half, int ss)
         {
-            int big = px * Supersample;
+            int big = px * ss;
             var camGO = new GameObject("~trackMapCam");
             var cam = camGO.AddComponent<Camera>();
             cam.transform.SetPositionAndRotation(new Vector3(centre.x, EyeY, centre.y),
@@ -162,8 +168,8 @@ namespace PSXRacing.EditorTools
             cam.orthographicSize = half;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Ground;
-            cam.nearClipPlane = 10f;
-            cam.farClipPlane = EyeY + 1000f;
+            cam.nearClipPlane = 100f;
+            cam.farClipPlane = EyeY + 5000f;
             var rt = new RenderTexture(big, big, 24);
             cam.targetTexture = rt;
             cam.Render();
@@ -175,15 +181,15 @@ namespace PSXRacing.EditorTools
             cam.targetTexture = null;
             var src = tmp.GetPixels32();
             var dst = new Color32[px * px];
-            int n = Supersample * Supersample;
+            int n = ss * ss;
             for (int y = 0; y < px; y++)
                 for (int x = 0; x < px; x++)
                 {
                     int r = 0, g = 0, b = 0;
-                    for (int sy = 0; sy < Supersample; sy++)
-                        for (int sx = 0; sx < Supersample; sx++)
+                    for (int sy = 0; sy < ss; sy++)
+                        for (int sx = 0; sx < ss; sx++)
                         {
-                            var c = src[(y * Supersample + sy) * big + x * Supersample + sx];
+                            var c = src[(y * ss + sy) * big + x * ss + sx];
                             r += c.r; g += c.g; b += c.b;
                         }
                     dst[y * px + x] = new Color32((byte)(r / n), (byte)(g / n), (byte)(b / n), 255);
@@ -198,24 +204,30 @@ namespace PSXRacing.EditorTools
         {
             // Where the square runs past the built world (a stage's terrain
             // ends, the city's last tiles) the camera saw only its clear
-            // colour: lay the picture's own mean there, a shade darker,
-            // rather than a black slab across a corner.
+            // colour. A flat colour there read as a slab across the corner
+            // (Beech Gap, 9% of its square), so the picture beside the edge
+            // is mirrored across it - down each column, then along each row
+            // for what the columns could not reach - and only what neither
+            // reaches takes the picture's mean, a shade darker.
             var px = tex.GetPixels32();
             Color32 bg = Ground;
             bool Clear(Color32 c) => Mathf.Abs(c.r - bg.r) <= 2 && Mathf.Abs(c.g - bg.g) <= 2 && Mathf.Abs(c.b - bg.b) <= 2;
+            var hole = new bool[px.Length];
             long r = 0, g = 0, b = 0, n = 0;
-            foreach (var c in px)
+            for (int i = 0; i < px.Length; i++)
             {
-                if (Clear(c)) continue;
-                r += c.r; g += c.g; b += c.b; n++;
+                hole[i] = Clear(px[i]);
+                if (hole[i]) continue;
+                r += px[i].r; g += px[i].g; b += px[i].b; n++;
             }
-            int filled = 0;
-            if (n > 0)
+            int filled = (int)(px.Length - n);
+            if (filled > 0 && n > 0)
             {
+                Mirror(px, hole, Size, columns: true);
+                Mirror(px, hole, Size, columns: false);
                 var mean = new Color32((byte)(r * 85 / (n * 100)), (byte)(g * 85 / (n * 100)), (byte)(b * 85 / (n * 100)), 255);
-                for (int i = 0; i < px.Length; i++)
-                    if (Clear(px[i])) { px[i] = mean; filled++; }
-                if (filled > 0) tex.SetPixels32(px);
+                for (int i = 0; i < px.Length; i++) if (hole[i]) px[i] = mean;
+                tex.SetPixels32(px);
             }
             if (filled > 0) note += $", {filled * 100 / px.Length}% past the built world filled";
             tex.Apply();
@@ -223,6 +235,40 @@ namespace PSXRacing.EditorTools
             File.WriteAllBytes(Path.Combine(OutDir, j.key + ".jpg"), bytes);
             frames[j.key] = new Vector3(j.Centre.x, j.Centre.y, j.Span);
             report.AppendLine($"  {j.key}: {j.Span:0} m square at ({j.Centre.x:0}, {j.Centre.y:0}), {bytes.Length / 1024} KB, {note}  [{j.venues}]");
+        }
+
+        /// <summary>Each run of holes along a column (or a row) that touches
+        /// seen picture takes that picture mirrored across its edge, as far
+        /// as the seen side reaches; filled pixels stop being holes.</summary>
+        static void Mirror(Color32[] px, bool[] hole, int size, bool columns)
+        {
+            int At(int line, int k) => columns ? k * size + line : line * size + k;
+            for (int line = 0; line < size; line++)
+            {
+                int k = 0;
+                while (k < size)
+                {
+                    if (!hole[At(line, k)]) { k++; continue; }
+                    int a = k;
+                    while (k < size && hole[At(line, k)]) k++;
+                    int bEnd = k;   // holes [a, bEnd)
+                    for (int h = a; h < bEnd; h++)
+                    {
+                        int s = -1;
+                        if (a > 0) { int m = 2 * a - 1 - h; if (m >= 0 && !hole[At(line, m)]) s = m; }
+                        if (s < 0 && bEnd < size) { int m = 2 * bEnd - 1 - h; if (m < size && !hole[At(line, m)]) s = m; }
+                        if (s < 0) continue;
+                        px[At(line, h)] = px[At(line, s)];
+                    }
+                    for (int h = a; h < bEnd; h++)
+                    {
+                        // only what found a source stops being a hole
+                        int m1 = a > 0 ? 2 * a - 1 - h : -1, m2 = bEnd < size ? 2 * bEnd - 1 - h : size;
+                        bool got = (m1 >= 0 && !hole[At(line, m1)]) || (m2 < size && !hole[At(line, m2)]);
+                        if (got) hole[At(line, h)] = false;
+                    }
+                }
+            }
         }
 
         // ---- Charlotte -------------------------------------------------------
@@ -260,7 +306,7 @@ namespace PSXRacing.EditorTools
                             var c = new Vector2(j.lo.x + (ix + 0.5f) * sub, j.lo.y + (iz + 0.5f) * sub);
                             world.EnsureRing(new Vector3(c.x, 0f, c.y), ring);
                             Light(globals, sun);
-                            Render(tex, ix * px, iz * px, px, c, sub * 0.5f);
+                            Render(tex, ix * px, iz * px, px, c, sub * 0.5f, CitySupersample);
                         }
                     world.DropAll();
                     Save(j, tex, frames, report, $"{g}x{g} chunks, {clock.Elapsed.TotalSeconds:0} s");
@@ -316,7 +362,7 @@ namespace PSXRacing.EditorTools
             {
                 Light(globals, sun);
                 var tex = new Texture2D(Size, Size, TextureFormat.RGB24, false);
-                Render(tex, 0, 0, Size, j.Centre, j.Span * 0.5f);
+                Render(tex, 0, 0, Size, j.Centre, j.Span * 0.5f, StageSupersample);
                 Save(j, tex, frames, report, $"{lods.Length} LOD groups held at 0, {hidden.Count} sky/weather renderers hidden, {clock.Elapsed.TotalSeconds:0} s");
                 Object.DestroyImmediate(tex);
             }
