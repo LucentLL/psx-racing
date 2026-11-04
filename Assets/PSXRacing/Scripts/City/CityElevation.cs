@@ -3891,6 +3891,17 @@ namespace PSXRacing.City
         /// <summary>PSX_CITY_VPLANES=0: junctions keep their arms' own grades
         /// (a measuring override).</summary>
         static readonly bool FanPlanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VPLANES") != "0";
+        /// <summary>PSX_CITY_PLANEPOS=0: a junction arm's landing plane is the
+        /// arm's grade at the node times its arc length (before 2026-11-04),
+        /// not the junction plane at the arm's own plan position.</summary>
+        static readonly bool PlanePosOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PLANEPOS") != "0";
+        /// <summary>An arm is landed on its major neighbour's profile only when
+        /// its fan corner (its trim) is at least this far out.</summary>
+        const float BesideTrimMinM = 4f;
+        /// <summary>Junctions that keep the old plane (a spot that cannot pass
+        /// reverts to live there): n625, where the link landed on the major
+        /// arm's profile left a new 5.3 cm road-on-road step in the city sweep.</summary>
+        static readonly HashSet<int> PlanePosLive = new HashSet<int> { 625 };
         /// <summary>The junction landings (leftover item 1 finish): a
         /// measured road is free this far from a junction node; an ease is at
         /// least / at most this long.</summary>
@@ -4211,6 +4222,52 @@ namespace PSXRacing.City
                     var u = atA ? e.TangentAt(0f) : -e.TangentAt(e.length);
                     float gp = gAlong * Vector2.Dot(axis, u);
                     float y0 = map.nodeY[n];
+                    // (road layers, 2026-11-04) the plane where the arm IS. It used
+                    // to be the arm's grade at the node (gp, the pair's mean grade
+                    // along the axis) times its arc length, so an arm that curves (a
+                    // link peeling off its host, then running beside it) was held
+                    // on a plane its host never met: at the Josh Birmingham diverge
+                    // n5178 the link ran 1.6% out to its 31.8 m trim while the host
+                    // beside it climbed 3.8%, 62 cm apart where the fan joins them
+                    // (a launch at 50 km/h). Now the plane at a point is the major
+                    // arm on that side of the node at its nearest point (its own
+                    // profile, which the fan's corners on it are drawn from), level
+                    // across, so an arm beside the major road meets its corners at
+                    // their height. Only for a link (a ramp) whose trim is 4 m
+                    // out or more and runs BESIDE the major arm on that side of the node
+                    // (centres within both half widths + 1.5 m): any other arm keeps the
+                    // old plane, which the city sweep found right for them (applied to
+                    // every arm, street arms beside a split moved 0.5 m at n9972 and
+                    // West Boulevard's split at n5212 stepped 25 cm).
+                    // PSX_CITY_PLANEPOS=0: as before everywhere.
+                    Vector2 nodeP = atA ? e.PointAt(0f) : e.PointAt(e.length);
+                    // the major arm on the trim's side of the node (along the axis)
+                    bool beside = false;
+                    CityMap.Edge bm = MQ;
+                    if (PlanePosOn)
+                    {
+                        // (a fan's corner: a mitre's arms end at the node, where
+                        // every arm is beside every other)
+                        float dt = Mathf.Min(solveTrims != null ? solveTrims.TrimAt(e, n) : 0f, e.length);
+                        var pt = e.PointAt(atA ? dt : e.length - dt);
+                        bm = Vector2.Dot(axis, pt - nodeP) >= 0f ? MQ : MP;
+                        beside = e.link && dt >= BesideTrimMinM && Vector2.Distance(pt, bm.PointAt(ArcOn(bm, pt))) <= bm.HalfMax + e.HalfMax + 1.5f;
+                    }
+                    // the major arm's height at its point nearest p (its own profile
+                    // there), no further out than the major arm's trim: the fan's
+                    // corners on it stand at its trim height, and the arm's corners
+                    // must meet them (n5015: a link 7 m past South Boulevard's trim
+                    // took the boulevard's height there and stood 3 cm over it)
+                    float bmTrim = solveTrims != null ? solveTrims.TrimAt(bm, n) : 0f;
+                    if (bmTrim < BesideTrimMinM || PlanePosLive.Contains(n)) beside = false;
+                    float MajorY(Vector2 p)
+                    {
+                        float at = ArcOn(bm, p);
+                        at = bm.a == n ? Mathf.Min(at, bmTrim) : Mathf.Max(at, bm.length - bmTrim);
+                        return bm.YAt(at);
+                    }
+                    float PlaneY(float d) => beside ? MajorY(e.PointAt(atA ? d : e.length - d)) : y0 + gp * d;
+                    float PlaneG(float d) => beside ? (PlaneY(d + 0.5f) - PlaneY(Mathf.Max(0f, d - 0.5f))) / (d + 0.5f - Mathf.Max(0f, d - 0.5f)) : gp;
                     // a street branch running into its host is pinned onto it
                     // (below): the plane only holds its first station, as before
                     bool branch = false;
@@ -4239,13 +4296,14 @@ namespace PSXRacing.City
                         }
                         float firstT = -1f, firstF = -1f, bestF = -1f, bestFScore = float.MaxValue;
                         const float gCap = 0.15f;
+                        float tg0 = PlaneG(d0), tb0 = PlaneY(d0) - tg0 * d0;
                         for (float L = LandingMinM; d0 + L <= dMax + 1e-3f && L <= LandingMaxM; L += Mathf.Max(2f, 0.15f * L))
                         {
-                            Ease(e, atA, y0, gp, d0, L, out float ep0, out float eY1, out float eg1, out float c0, out float c1);
+                            Ease(e, atA, tb0, tg0, d0, L, out float ep0, out float eY1, out float eg1, out float c0, out float c1);
                             // never a ramp past 15% (the audit fails 16%) unless the
                             // plane or the arm itself is that steep (a short ease
                             // between two heights far apart: 18% on Tilley Morris Rd)
-                            if (HermiteMaxGrade(ep0, gp * L, eY1, eg1 * L, L) > Mathf.Max(gCap, Mathf.Max(Mathf.Abs(gp), Mathf.Abs(eg1)) + 0.005f)) continue;
+                            if (HermiteMaxGrade(ep0, tg0 * L, eY1, eg1 * L, L) > Mathf.Max(gCap, Mathf.Max(Mathf.Abs(tg0), Mathf.Abs(eg1)) + 0.005f)) continue;
                             float sT = Mathf.Max(Need(c0, rSagT, rCrest), Need(c1, rSagT, rCrest));
                             float sF = Mathf.Max(Need(c0, rSagF, rCrest), Need(c1, rSagF, rCrest));
                             if (sT <= 1f) { firstT = L; break; }
@@ -4259,7 +4317,7 @@ namespace PSXRacing.City
                     if (Lc <= 0f)
                     {
                         // no room for a landing (or a branch): the plane at the first station, as before
-                        float want = y0 + gp * h;
+                        float want = PlaneY(h);
                         float y1 = e.stY[i1];
                         float to = Mathf.Clamp(want, y1 - VcurveMaxLowerM, y1 + VcurveMaxRaiseM);
                         planeMove = Mathf.Max(planeMove, Mathf.Abs(to - y1));
@@ -4268,7 +4326,8 @@ namespace PSXRacing.City
                         held = true; planeHeld++;
                         continue;
                     }
-                    Ease(e, atA, y0, gp, d0, Lc, out float hp0, out float hY1, out float hg1, out _, out _);
+                    float g0 = PlaneG(d0), b0 = PlaneY(d0) - g0 * d0;
+                    Ease(e, atA, b0, g0, d0, Lc, out float hp0, out float hY1, out float hg1, out _, out _);
                     // an AASHTO ease is held whole (the launch radius is far
                     // tighter, the crest limit has nothing to do there); one
                     // short of room only on the plane, so the limit may round on
@@ -4278,7 +4337,7 @@ namespace PSXRacing.City
                         int i = atA ? k : last - k;
                         float d = Mathf.Abs(e.stS[i] - e.stS[i0]);
                         if (d > d0 + Lc + 1e-3f) break;
-                        float want = d <= d0 ? y0 + gp * d : Hermite(hp0, gp * Lc, hY1, hg1 * Lc, (d - d0) / Lc);
+                        float want = d <= d0 ? PlaneY(d) : Hermite(hp0, g0 * Lc, hY1, hg1 * Lc, (d - d0) / Lc);
                         float yv = e.stY[i];
                         float to = Mathf.Clamp(want, yv - VcurveMaxLowerM, yv + VcurveMaxRaiseM);
                         planeMove = Mathf.Max(planeMove, Mathf.Abs(to - yv));
@@ -4292,6 +4351,21 @@ namespace PSXRacing.City
                     held = true; landedArms++; landLs.Add(Lc);
                 }
                 if (held) nodeMob[n] = 0;
+            }
+            // the arc length on an edge of its plan point nearest p
+            static float ArcOn(CityMap.Edge M, Vector2 p)
+            {
+                float best = float.MaxValue, at = 0f, acc = 0f;
+                for (int i = 0; i + 1 < M.pts.Length; i++)
+                {
+                    Vector2 a = M.pts[i], d = M.pts[i + 1] - a;
+                    float L = d.magnitude;
+                    float t = L > 1e-4f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / (L * L)) : 0f;
+                    float q = (a + d * t - p).sqrMagnitude;
+                    if (q < best) { best = q; at = acc + t * L; }
+                    acc += L;
+                }
+                return Mathf.Clamp(at, 0f, M.length);
             }
             // the ease's shape: the plane (height y0 + gp d0, grade gp) at d0,
             // the arm's own height and grade at d0 + L, a cubic Hermite between;
