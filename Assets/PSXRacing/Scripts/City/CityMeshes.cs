@@ -1671,6 +1671,8 @@ namespace PSXRacing.City
             CrossingNodes = crossingCount;
             HostMovesN = HostMoves.Count;
             CrossingNodeFlags = crossFlags;
+            // Five Points round 6: a slip lane's island takes a nose (CurbRadiusAt)
+            FindIslandNoses(map, t);
             // roads pass L7 (plan A10): the curb returns' trims
             var medianX = JunctionTrims(map, t);
             // roads pass L8 (plan A17): the cul-de-sac bulbs
@@ -1702,6 +1704,8 @@ namespace PSXRacing.City
             BuildMergeZones(map, t);
             // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron
             BuildBranchAprons(map, t);
+            // Five Points round 6: a slip lane widened on the inside of its curve
+            BuildSlipWidening(map, t);
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where

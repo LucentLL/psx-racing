@@ -156,7 +156,7 @@ namespace PSXRacing.City
         {
             var ez = e.lmEase;
             if (ez == null) return 0;
-            foreach (var z in ez) if (z.widen && z.tag != ApronTag) return z.side > 0 ? 1 : -1;   // a branch apron is no island
+            foreach (var z in ez) if (z.widen && z.tag != ApronTag && z.tag != SlipWidenTag) return z.side > 0 ? 1 : -1;   // a branch apron is no island
             return 0;
         }
 

@@ -1018,6 +1018,79 @@ namespace PSXRacing.City
             apronAdd.Clear();
         }
 
+        // ----------------------------------------------------------------
+        //  A SLIP LANE WIDENED ON THE INSIDE OF ITS CURVE (Five Points round
+        //  6, 2026-11-04). Round 2 drew the Trade NB -> W 5th slip (e13402)
+        //  as the one lane the owner asked for (4.26 m, was 7.9). Its first
+        //  18 m bend right on a ~15 m radius, and a car's inside rear wheel
+        //  runs inside its front wheels' line there: the drive-over's car
+        //  (R1a, both steering laws) put its inside rear wheel on the face of
+        //  the outer walk's kerb at (-3718.39,6326.13), 2.8 cm (live, with
+        //  the two-lane slip: 1.1). A turning roadway is widened on the
+        //  inside of its curve for exactly this (AASHTO's turning-roadway
+        //  widths): here the pavement only, on the inner side, by
+        //  SlipWidenK / R up to SlipWidenMaxM, smoothed over 6 m and eased in
+        //  and out over the slip's first and last 4 m - the lane, its lines
+        //  and traffic stay one lane (a widen ease is pavement only), and
+        //  the walk and its kerb stand that much further out. Applies to a
+        //  one-lane one-way edge clipped onto a host at both ends (a slip)
+        //  inside the Five Points scope. PSX_CITY_SLIP_WIDEN=0: as before.
+        // ----------------------------------------------------------------
+        public static bool SlipWidenOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN") != "0";
+        public static float SlipWidenK = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_SLIP_WIDEN_K"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float swk) && swk > 0f ? swk : 12f;
+        const float SlipWidenMaxM = 0.9f, SlipWidenEndM = 4f, SlipWidenSmoothM = 3f;
+        /// <summary>The tag a slip's curve widening carries (no refuge island's, no apron's).</summary>
+        public const long SlipWidenTag = long.MaxValue - 7;
+        public static readonly List<string> SlipWidenAt = new List<string>();
+
+        static void BuildSlipWidening(CityMap map, Trims t)
+        {
+            SlipWidenAt.Clear();
+            if (!SlipWidenOn) return;
+            foreach (var e in map.edges)
+            {
+                if (e.a == e.b || !e.oneway || e.lanes != 1 || e.link || e.bridge || e.tunnel || e.length < 3f * SlipWidenEndM) continue;
+                if (t.branchA[e.index] < 0 || t.branchB[e.index] < 0) continue;
+                if (!InR23Scope(map.nodes[e.a]) || !InR23Scope(map.nodes[e.b])) continue;
+                const float ds = 1f;
+                int n = Mathf.FloorToInt(e.length / ds) + 1;
+                var k = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    float s0 = Mathf.Clamp(i * ds - 1f, 0f, e.length), s1 = Mathf.Clamp(i * ds + 1f, 0f, e.length);
+                    var t0 = e.TangentAt(s0); var t1 = e.TangentAt(s1);
+                    k[i] = s1 - s0 > 0.1f ? Vector2.SignedAngle(t0, t1) * Mathf.Deg2Rad / (s1 - s0) : 0f;   // + left
+                }
+                var ks = new float[n];
+                int h = Mathf.RoundToInt(SlipWidenSmoothM / ds);
+                for (int i = 0; i < n; i++)
+                {
+                    float sum = 0f; int c = 0;
+                    for (int j = Mathf.Max(0, i - h); j <= Mathf.Min(n - 1, i + h); j++) { sum += k[j]; c++; }
+                    ks[i] = sum / c;
+                }
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var prof = new float[n + 1];
+                    float wMax = 0f;
+                    for (int i = 0; i < n; i++)
+                    {
+                        float kin = side > 0 ? ks[i] : -ks[i];   // curvature toward this side: its inside
+                        float w = kin > 0f ? Mathf.Min(SlipWidenMaxM, SlipWidenK * kin) : 0f;
+                        float s = i * ds;
+                        float f = Mathf.Min(LineModel.Smooth(Mathf.Clamp01(s / SlipWidenEndM)), LineModel.Smooth(Mathf.Clamp01((e.length - s) / SlipWidenEndM)));
+                        prof[i] = w * f; wMax = Mathf.Max(wMax, prof[i]);
+                    }
+                    prof[n] = 0f;
+                    if (wMax < 0.1f) continue;
+                    var all = new List<LineModel.Ease>(e.lmEase ?? System.Array.Empty<LineModel.Ease>());
+                    all.Add(new LineModel.Ease { widen = true, side = (sbyte)side, fromA = true, dw = 1f, len = e.length + 1f, d0 = 0f, prof = prof, profD0 = 0f, profDs = ds, tag = SlipWidenTag });
+                    e.lmEase = all.ToArray();
+                    SlipWidenAt.Add($"e{e.index} '{e.name}' side {(side > 0 ? "+" : "-")} up to {wMax:0.00} m");
+                }
+            }
+        }
+
         /// <summary>The race line's samples through a ramp's zone (every 3 m).</summary>
         public static void ZoneSamples(CityMap.Edge e, float sMin, float sMax, List<float> into)
         {

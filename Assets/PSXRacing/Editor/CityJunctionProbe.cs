@@ -87,6 +87,10 @@ namespace PSXRacing.EditorTools
             sb.AppendLine($"FAN DRAPE ({(CityMeshes.FanDrapeOn ? "ON" : "OFF")}): {CityMeshes.FanDrapeN} ribbon vertices put on a fan's height, largest move {CityMeshes.FanDrapeMaxMoved:0.000} m");
             sb.AppendLine($"BRANCH APRONS ({(CityMeshes.BranchApronOn ? "ON" : "OFF")}): {CityMeshes.BranchApronN}, widest {CityMeshes.BranchApronMaxM:0.00} m");
             foreach (var l in CityMeshes.BranchApronAt) sb.AppendLine("  " + l);
+            sb.AppendLine($"ISLAND NOSES ({(CityMeshes.IslandNoseOn ? "ON" : "OFF")}, R {CityMeshes.IslandNoseR:0.0} m): {CityMeshes.IslandNoseAt.Count}");
+            foreach (var l in CityMeshes.IslandNoseAt) sb.AppendLine("  nose: " + l);
+            sb.AppendLine($"SLIP CURVE WIDENING ({(CityMeshes.SlipWidenOn ? "ON" : "OFF")}, K {CityMeshes.SlipWidenK:0.0} m2): {CityMeshes.SlipWidenAt.Count}");
+            foreach (var l in CityMeshes.SlipWidenAt) sb.AppendLine("  widen: " + l);
             sb.AppendLine($"BRANCH OVERHANGS LEFT: {CityMeshes.BranchApronLeft}");
             foreach (var l in CityMeshes.BranchApronLeftAt) sb.AppendLine("  left: " + l);
             sb.AppendLine("WALKS (the tiles this probe built): " + CityMeshes.WalkStats.Line());
