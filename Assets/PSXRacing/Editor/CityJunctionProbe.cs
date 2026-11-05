@@ -251,6 +251,8 @@ namespace PSXRacing.EditorTools
             l.Sort(System.StringComparer.Ordinal);
             sb.AppendLine($"CURB RETURNS PAST THE NODE ({(CityMeshes.CurbPastOn ? "ON" : "OFF")}): {l.Count} tangent points moved over 5 mm (tiles built here)");
             foreach (var t in l) sb.AppendLine("  curbpast: " + t);
+            sb.AppendLine($"BESIDE LINKS SEATED ({(CityMeshes.BesideSeatOn ? "ON" : "OFF")}): {CityMeshes.BesideSeatAt.Count}");
+            foreach (var t in CityMeshes.BesideSeatAt) sb.AppendLine("  besideseat: " + t);
         }
 
         [MenuItem("PSX Racing/Sweep Charlotte Junction Wheel Tracks")]
