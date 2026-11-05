@@ -86,6 +86,7 @@ namespace PSXRacing.EditorTools
             CurbPastLines(sb);
             sb.AppendLine($"MITRES DRAWN AS FANS ({(CityMeshes.MitreFanOn ? "ON" : "OFF")}): {CityMeshes.MitreFanCount}");
             foreach (var l in CityMeshes.MitreFanAt) sb.AppendLine("  mitrefan: " + l);
+            sb.AppendLine($"  branch pairs drawn as fan arms there ({(CityMeshes.MitreFanUnclipOn ? "ON" : "OFF")}): {CityMeshes.MitreFanUnclipped}");
             {
                 var js = CityMeshes.JStats;
                 var tl = new List<string>(); var cl = new List<CityMeshes.CurbRec>();
