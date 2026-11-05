@@ -2383,6 +2383,8 @@ namespace PSXRacing.City
             finally { CityMeshes.DividerSeatPass = false; }
             solveTrims = seatTrims;
             var seats = CityMeshes.BranchSeats(map, seatTrims);
+            // (launch spots 2026-11-05) the links beside their host at a fan, seated like ramps
+            seats.AddRange(CityMeshes.BesideLinkSeats(map, seatTrims, PlanePosLive));
             // (round 11, STREETSEAT) a street branch too, where its ribbon runs into its host's pavement
             R11StreetSeats = 0;
             if (R11StreetSeatOn && CityMeshes.SeatIntoOnly)

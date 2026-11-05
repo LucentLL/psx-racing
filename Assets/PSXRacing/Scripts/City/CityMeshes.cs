@@ -1458,6 +1458,49 @@ namespace PSXRacing.City
         /// its arms' mouths under one plate: no chord crosses them at the node.</summary>
         const float MitreFanSwallowM = 1f;
 
+        /// <summary>
+        /// A MITRE DRAWN AS A FAN DRAWS ITS OTHER CARRIAGEWAY AS A FAN ARM (launch
+        /// spots, 2026-11-05). The clip - a shallow arm hugging its host from the
+        /// node out - is how a MITRE lays a branch; the fan rule above kept it. At
+        /// Pavilion Boulevard n12867 (where Back Creek Church Road's two one-way
+        /// carriageways leave the 4-lane boulevard, 23 deg apart) the clipped
+        /// pair took no trim at all: both mouths stood on the node, 4.3 m wide
+        /// and one over the other (the cluster ring a bow-tie there, its folded
+        /// triangles facing down: no collider), while the boulevard's 15.2 m
+        /// stub between them and n4085 carried the ring out to its own edges -
+        /// two grass holes in the outer lanes either side (the probe's 'g' cells
+        /// at (9596-9599, 14052-14056) and (9603-9608, 14056-14059.5)), wheels
+        /// off 0.10-0.27 s, vy up to 0.84 m/s (7 of 24 movements). At a mitre
+        /// drawn as a fan, a branch that is the OTHER CARRIAGEWAY of its own road
+        /// (both one-way, one in and one out) is not clipped: the pair is trimmed
+        /// clear of each other like any two fan arms (n12867: 15.8 / 9.3 m), and
+        /// the fan paves the boulevard's width down to the two mouths.
+        /// PSX_CITY_MITREFAN_UNCLIP=0: clipped as before.
+        /// </summary>
+        public static bool MitreFanUnclipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MITREFAN_UNCLIP") != "0";
+        /// <summary>
+        /// ...AND A RAMP AS A FAN ARM (launch spots, 2026-11-05, the owner's GPS
+        /// route at n634): the NC 16 on-ramp e348 stayed clipped to Beatties Ford
+        /// NB e13408, and CurbArc and the curb trims skip a branch, so the corner
+        /// of that 117 deg right turn stayed square at both mouths' 11.1 m trims:
+        /// the sweep's turn track ran 0.85 m before the mouth onto the walk (6.3
+        /// cm, 3.1 cm once the carriageways were unclipped). Unclipped, the pair
+        /// takes the ramp terminal's curb return (CurbRadius 15 m, the tangent
+        /// capped at CurbMaxTangentM): the corner is paved round a ~10 m arc.
+        /// Only a link branching off a street at a mitre drawn as a fan (city-
+        /// wide: n634's e348). PSX_CITY_MITREFAN_UNCLIP_RAMP=0: clipped as before.
+        /// </summary>
+        public static bool MitreFanUnclipRampOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MITREFAN_UNCLIP_RAMP") != "0";
+        /// <summary>For the probe: pairs the last ComputeTrims left unclipped at mitres drawn as fans.</summary>
+        public static int MitreFanUnclipped;
+
+        static bool MitreFanUnclips(CityMap.Edge a, CityMap.Edge b, int n)
+        {
+            if (!MitreFanUnclipOn) return false;
+            if (a.link != b.link) return MitreFanUnclipRampOn;
+            return SameRoad(a, b) && a.oneway && b.oneway && ((a.b == n) != (b.b == n));
+        }
+
         /// <summary>How far point q lies inside a fan ring (FanCorners about a
         /// zero origin, in plan): + its distance to the ring's edge inside, -
         /// outside.</summary>
@@ -1478,7 +1521,7 @@ namespace PSXRacing.City
         public static Trims ComputeTrims(CityMap map)
         {
             mitreFanEdge = null;
-            MitreFanCount = 0; MitreFanAt.Clear();
+            MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0;
             var t = ComputeTrimsCore(map, null);
             if (!MitreFanOn || !ClustersOn) return t;
             var force = new bool[map.nodes.Length];
@@ -1616,6 +1659,7 @@ namespace PSXRacing.City
                     {
                         if (Vector2.Dot(arms[i].dir, arms[j].dir) < BranchCos) continue;
                         var ai = arms[i]; var aj = arms[j];
+                        if (forceFan != null && forceFan[n] && MitreFanUnclips(ai.e, aj.e, n)) { MitreFanUnclipped++; continue; }
                         bool iClips;
                         if (ai.e.link != aj.e.link) iClips = ai.e.link;
                         else if (ai.e.cls != aj.e.cls) iClips = ai.e.cls < aj.e.cls;
@@ -3462,6 +3506,95 @@ namespace PSXRacing.City
                     var seat = SeatOf(map, trims, L, map.edges[hostIdx], end == 0 ? L.a : L.b, !streetsOnly && SeatIntoOnly);
                     if (seat != null) result.Add(seat);
                 }
+            return result;
+        }
+
+        /// <summary>
+        /// BESIDE LINKS SEATED (launch spots, 2026-11-05). A link that leaves
+        /// a FAN and runs on inside its host's pavement - an exit lane OSM
+        /// draws as its own way beside the road - is no clipped branch (the
+        /// branch table holds mitres' branches only), so nothing seated it:
+        /// the junction landing held it on the host's plane to just past its
+        /// trim and it eased to its own grade from there, while its ribbon
+        /// went on abutting the host's for tens of metres. At the North Josh
+        /// Birmingham Parkway diverge n5178 the link e14000 (trim 31.8 m)
+        /// stood 5.7 cm under the fan at its mouth and the wall along the
+        /// shared edge grew to 19 cm 8 m further on (the parkway climbs 4.2%,
+        /// the link 1-3%): the review's wrong-way runs met the step at 70.
+        /// Now such a link is seated on its host exactly like a ramp
+        /// (<see cref="SeatOf"/>, into-only: as far as its inner edge stays in
+        /// the host's pavement, contiguous from the node) - a link at a fan
+        /// node (not a branch, not a bulb), trim 4 m or more, whose trim point
+        /// lies within both half widths + 1.5 m of a non-link arm leaving the
+        /// node the same way there (within 45 degrees at the link's trim, the
+        /// arm's trim 4 m or more): the junction landing's own BESIDE test.
+        /// Plan geometry only; deterministic.
+        ///
+        /// SCOPE: city-wide the test finds 169 links, and seating all of
+        /// them left new road-on-road steps in the junction sweep (n11054
+        /// 6.1 cm, n3849 4.4, n11313 3.1; n14078 5.4 -> 7.5, n429 4.5 -> 6.5:
+        /// links seated over 25-133 m whose climb-out lands badly). So the
+        /// rule is held to the spots it was checked at (<see cref="BesideSeatNodes"/>),
+        /// and only on the city export it was checked on (graph hash
+        /// <see cref="BesideSeatGraph"/>; any other export seats none).
+        /// PSX_CITY_BESIDESEAT=0: as before; =all: every link the test finds
+        /// (to measure the city-wide rule).
+        /// </summary>
+        public static readonly bool BesideSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BESIDESEAT") != "0";
+        public static readonly bool BesideSeatAll = System.Environment.GetEnvironmentVariable("PSX_CITY_BESIDESEAT") == "all";
+        static readonly HashSet<int> BesideSeatNodes = new HashSet<int> { 5178 };
+        const uint BesideSeatGraph = 0xb2aa3453u;
+        const float BesideSeatTrimM = 4f;
+        /// <summary>The beside links seated by the last solve (node, link, host, seated metres).</summary>
+        public static readonly List<string> BesideSeatAt = new List<string>();
+
+        public static List<Seat> BesideLinkSeats(CityMap map, Trims trims, ICollection<int> skipNodes)
+        {
+            var result = new List<Seat>();
+            BesideSeatAt.Clear();
+            if (!BesideSeatOn || !SeatIntoOnly || (!BesideSeatAll && map.graphHash != BesideSeatGraph)) return result;
+            float DistTo(CityMap.Edge M, Vector2 q)
+            {
+                float best = float.MaxValue;
+                for (int i = 1; i < M.pts.Length; i++) best = Mathf.Min(best, DistToSeg(q, M.pts[i - 1], M.pts[i]));
+                return best;
+            }
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                var arms = map.nodeEdges[n];
+                if (arms == null || arms.Count < 3 || !trims.patch[n] || (trims.bulb != null && trims.bulb[n]) || skipNodes.Contains(n)) continue;
+                if (!BesideSeatAll && !BesideSeatNodes.Contains(n)) continue;
+                foreach (int ei in arms)
+                {
+                    var L = map.edges[ei];
+                    if (!L.link || L.a == L.b || trims.BranchAt(L, n) >= 0) continue;
+                    float tL = trims.TrimAt(L, n);
+                    if (tL < BesideSeatTrimM || tL > 0.5f * L.length) continue;
+                    float atL = L.a == n ? tL : L.length - tL;
+                    var pt = L.PointAt(atL);
+                    var uL = L.a == n ? L.TangentAt(atL) : -L.TangentAt(atL);
+                    CityMap.Edge host = null; float bestD = float.MaxValue;
+                    foreach (int oj in arms)
+                    {
+                        var M = map.edges[oj];
+                        if (oj == ei || M.link || M.a == M.b) continue;
+                        float tM = trims.TrimAt(M, n);
+                        if (tM < BesideSeatTrimM) continue;
+                        float atM = M.a == n ? tM : M.length - tM;
+                        var uM = M.a == n ? M.TangentAt(atM) : -M.TangentAt(atM);
+                        if (Vector2.Dot(uL, uM) < 0.7f) continue;
+                        float d = DistTo(M, pt);
+                        if (d <= M.HalfMax + L.HalfMax + 1.5f && d < bestD) { bestD = d; host = M; }
+                    }
+                    if (host == null) continue;
+                    var seat = SeatOf(map, trims, L, host, n, true);
+                    if (seat == null) continue;
+                    result.Add(seat);
+                    float metres = 0f;
+                    foreach (var (pe, s0, s1, _) in seat.pieces) metres += s1 - s0;
+                    BesideSeatAt.Add($"n{n} link e{ei} on e{host.index} (trim {tL:0.0} m, {metres:0.0} m seated)");
+                }
+            }
             return result;
         }
 
@@ -10373,6 +10506,30 @@ namespace PSXRacing.City
 
         /// <summary>A fan stands a hair above the arm ends, against z-fighting.</summary>
         const float FanProudM = 0.012f;
+        /// <summary>
+        /// CURB RETURN PAST THE NODE (launch spots, 2026-11-05). A curb
+        /// return's tangent point is carried back along an arm's edge line,
+        /// and its height was read off that arm between its trim and the node
+        /// (Back), held at the node's height for anything further. Where the
+        /// arms meet at a wide angle the tangent point can lie well PAST the
+        /// node: at Idlewild Road n6970 the link e5306 runs in beside the road
+        /// and its curb return to the far arm e8415 ends 5.6 m west of the
+        /// node, on e8415's edge line carried back 14.8 m from a 9.1 m trim.
+        /// It took the node's height (132.47) where the junction surface
+        /// stands at 132.32, and the fan triangle from the centre to it stood
+        /// as a ridge across the westbound lanes and the link's mouth, 5-10 cm
+        /// over the surface either side (a fold the review's 8 drives of the
+        /// spot all lifted a wheel on). Now a tangent point past the node
+        /// carries on along the arm's own grade through the node (its trim's
+        /// height to the node's, extended), no further than twice the trim
+        /// and only for an arm whose trim is 2 m or more (a grade read over
+        /// a shorter run is noise). PSX_CITY_CURBPAST=0: as before.
+        /// </summary>
+        public static readonly bool CurbPastOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBPAST") != "0";
+        const float CurbPastMinTrimM = 2f;
+        /// <summary>The curb-return tangent points this rule moved by over
+        /// 5 mm (node, arm, old y, new y), for the probe's city-wide count.</summary>
+        public static readonly Dictionary<long, string> CurbPastAt = new Dictionary<long, string>();
         /// <summary>The perimeter chords a corner walk laid (streets pass 4).</summary>
         static readonly HashSet<int> walkGroupOf = new HashSet<int>();
 
@@ -10578,6 +10735,16 @@ namespace PSXRacing.City
                 });
             // the height of the arm's surface carried back d metres from its trim toward the node
             float Back(FanArm A, float d) => Mathf.Lerp(A.yArm, A.yNode, d / Mathf.Max(A.trim, 0.01f));
+            // a curb return's tangent point, which may lie past the node (CurbPastOn)
+            float BackArc(FanArm A, float d)
+            {
+                float y = Back(A, d);
+                if (!CurbPastOn || d <= A.trim || A.trim < CurbPastMinTrimM || map.nodeY == null) return y;
+                float yp = Mathf.LerpUnclamped(A.yArm, A.yNode, Mathf.Min(d, 2f * A.trim) / A.trim);
+                if (Mathf.Abs(yp - y) > 0.005f)
+                    lock (CurbPastAt) CurbPastAt[((long)A.node << 24) | (uint)A.edge] = $"n{A.node} e{A.edge} {d - A.trim:0.0} m past the node: {y:0.000} -> {yp:0.000}";
+                return yp;
+            }
             // THE CURB RETURN (roads pass L7, plan A10): the corner between
             // A's edge line and B's, meeting at X (dA back from A's corner along
             // A, dB from B's), rounded by an arc tangent to both, its radius the
@@ -10592,6 +10759,11 @@ namespace PSXRacing.City
                 // a tenth of a metre of each edge line kept straight before the
                 // arc, so the arc's first piece has a straight one to meet
                 float R = CurbRadiusAt(eA, A.node, eB, B.node, phi), room = Mathf.Min(dA, dB) - 0.1f;
+                if (CurbLog != null && ThruNoseLog != null && IsThruNose(eA, A.node, eB, B.node, phi))
+                    ThruNoseLog.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "n{0} e{1}/e{2} '{3}' {4:0} deg, edge lines meet at ({5:0.0},{6:0.0}) {7:0.0}|{8:0.0} m back (trims {9:0.0}|{10:0.0}){11}",
+                        n, A.edge, B.edge, eA.name, phi * Mathf.Rad2Deg, X.x, X.y, dA, dB, A.trim, B.trim,
+                        dA > A.trim + 0.05f || dB > B.trim + 0.05f ? " PAST A NODE" : ""));
                 if (R <= 0f) return false;   // one road going on: no curb there
                 float rEff = Mathf.Min(R, tanH * Mathf.Min(room, CurbMaxTangentM));
                 // the edge lines meet past a mouth (the trims never grew): square
@@ -10602,7 +10774,7 @@ namespace PSXRacing.City
                 Vector2 TA = X + A.outDir * L, TB = X + B.outDir * L;
                 var bis = (A.outDir + B.outDir).normalized;
                 var C = X + bis * (rEff / Mathf.Sin(phi * 0.5f));
-                float yA = Back(A, dA - L), yB = Back(B, dB - L);
+                float yA = BackArc(A, dA - L), yB = BackArc(B, dB - L);
                 float a0 = Mathf.Atan2(TA.y - C.y, TA.x - C.x), a1 = Mathf.Atan2(TB.y - C.y, TB.x - C.x);
                 float sweep = Mathf.DeltaAngle(a0 * Mathf.Rad2Deg, a1 * Mathf.Rad2Deg) * Mathf.Deg2Rad;
                 float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - CurbSagM / rEff));

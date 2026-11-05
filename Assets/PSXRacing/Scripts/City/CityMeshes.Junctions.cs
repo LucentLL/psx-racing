@@ -50,6 +50,13 @@ namespace PSXRacing.City
         /// <summary>REAL HEIGHTS: the major pair's pavement held at its own
         /// profile through a lone fan (<see cref="FanSteiner"/>); PSX_CITY_FANMAJOR=0 off.</summary>
         public static bool FanMajorOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANMAJOR") != "0";
+        /// <summary>LAUNCH SPOTS 11-05 (Weddington Road n6283): a one-way road
+        /// going straight on through a fan is not a median's nose (see
+        /// <see cref="CurbRadiusAt"/>); PSX_CITY_THRUNOSE=0 = before.</summary>
+        public static bool ThruNoNoseOn = System.Environment.GetEnvironmentVariable("PSX_CITY_THRUNOSE") != "0";
+        /// <summary>While set (with <see cref="CurbLog"/>), FanCorners lists here
+        /// each inside corner of a one-way road going on through (the census).</summary>
+        public static List<string> ThruNoseLog;
 
         /// <summary>Plan distance from q to the segment a-b.</summary>
         static float DistToSeg(Vector2 q, Vector2 a, Vector2 b)
@@ -94,6 +101,11 @@ namespace PSXRacing.City
         {
             public int medianCrossings, cornersGrown, edgesLimited, groups, built, rejNodes, rejExtent, rejRise, rejRoad;
             public readonly List<string> rejected = new List<string>();
+            /// <summary>Fan corners between the two halves of a one-way road
+            /// going on through (one in, one out, over 120 deg) that the old
+            /// rule took for a median's nose; how many of them grew a trim.</summary>
+            public int thruNoses, thruNoseGrew;
+            public readonly List<string> thruNoseAt = new List<string>();
         }
         public static JunctionTally JStats = new JunctionTally();
 
@@ -134,11 +146,29 @@ namespace PSXRacing.City
                 ((na >= 0 && na < CrossingNodeFlags.Length && CrossingNodeFlags[na]) || (nb >= 0 && nb < CrossingNodeFlags.Length && CrossingNodeFlags[nb]))) return 0f;
             if (SameRoad(a, b))
             {
+                // One road going on through (over 120 deg) has no corner, and
+                // that is decided before the nose: a ONE-WAY road passing
+                // straight through a node is "one in, one out" too, and took a
+                // 1.2 m nose on the inside of its bend. Weddington Road n6283
+                // (166 deg, its link e5499 beside it): the edge lines meet 9 m
+                // past the node, the arc's ends stood there 0.3 m apart at
+                // 92.01 (e4721's side, held at the node height) and 92.68
+                // (e9409's) - a 0.67 m fin, and the ring's straight line from
+                // e9409's trim corner cut 0.5 m off its right lane (a 1.05 m
+                // drop onto Ground, vy 2-3.5 m/s). Two carriageways parting at
+                // a split are well under 120 deg apart.
+                bool through = phi > 120f * Mathf.Deg2Rad;
+                if (through && ThruNoNoseOn) return 0f;
                 if (a.oneway && b.oneway && ((a.b == na) != (b.b == nb))) return MedianNoseR;
-                if (phi > 120f * Mathf.Deg2Rad) return 0f;
+                if (through) return 0f;
             }
             return CurbRadius(a, b);
         }
+
+        /// <summary>Whether the old rule took this corner for a median's nose
+        /// where it is one one-way road going on through (the census).</summary>
+        static bool IsThruNose(CityMap.Edge a, int na, CityMap.Edge b, int nb, float phi) =>
+            SameRoad(a, b) && phi > 120f * Mathf.Deg2Rad && a.oneway && b.oneway && ((a.b == na) != (b.b == nb));
 
         /// <summary>
         /// A SLIP LANE'S ISLAND GETS A NOSE (Five Points round 6, 2026-11-04).
@@ -303,6 +333,20 @@ namespace PSXRacing.City
                     float sin = Mathf.Sin(phi), cos = Mathf.Cos(phi);
                     float sA = (eB + eA * cos) / sin, sB = (eA + eB * cos) / sin;
                     float R = CurbRadiusAt(A.e, n, B.e, n, phi);
+                    if (IsThruNose(A.e, n, B.e, n, phi))
+                    {
+                        // the census: what the old nose would have grown
+                        JStats.thruNoses++;
+                        float Lo = Mathf.Min(MedianNoseR / Mathf.Tan(phi * 0.5f), CurbMaxTangentM);
+                        float nA = Mathf.Min(sA + Lo + 0.15f, A.e.length * 0.49f), nB = Mathf.Min(sB + Lo + 0.15f, B.e.length * 0.49f);
+                        bool g = nA > (A.e.a == n ? t.atA[A.e.index] : t.atB[A.e.index]) + 1e-3f ||
+                                 nB > (B.e.a == n ? t.atA[B.e.index] : t.atB[B.e.index]) + 1e-3f;
+                        if (g) JStats.thruNoseGrew++;
+                        if (JStats.thruNoseAt.Count < 40)
+                            JStats.thruNoseAt.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "n{0} ({1:0.0},{2:0.0}) e{3}/e{4} '{5}' {6:0} deg{7}", n, map.nodes[n].x, map.nodes[n].y,
+                                A.e.index, B.e.index, A.e.name, phi * Mathf.Rad2Deg, g ? " (grew a trim)" : ""));
+                    }
                     if (R <= 0f) continue;
                     float L = Mathf.Min(R / Mathf.Tan(phi * 0.5f), CurbMaxTangentM);
                     bool grew = false;
