@@ -3452,9 +3452,22 @@ namespace PSXRacing.City
         /// lies within both half widths + 1.5 m of a non-link arm leaving the
         /// node the same way there (within 45 degrees at the link's trim, the
         /// arm's trim 4 m or more): the junction landing's own BESIDE test.
-        /// Plan geometry only; deterministic. PSX_CITY_BESIDESEAT=0: as before.
+        /// Plan geometry only; deterministic.
+        ///
+        /// SCOPE: city-wide the test finds 169 links, and seating all of
+        /// them left new road-on-road steps in the junction sweep (n11054
+        /// 6.1 cm, n3849 4.4, n11313 3.1; n14078 5.4 -> 7.5, n429 4.5 -> 6.5:
+        /// links seated over 25-133 m whose climb-out lands badly). So the
+        /// rule is held to the spots it was checked at (<see cref="BesideSeatNodes"/>),
+        /// and only on the city export it was checked on (graph hash
+        /// <see cref="BesideSeatGraph"/>; any other export seats none).
+        /// PSX_CITY_BESIDESEAT=0: as before; =all: every link the test finds
+        /// (to measure the city-wide rule).
         /// </summary>
         public static readonly bool BesideSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BESIDESEAT") != "0";
+        public static readonly bool BesideSeatAll = System.Environment.GetEnvironmentVariable("PSX_CITY_BESIDESEAT") == "all";
+        static readonly HashSet<int> BesideSeatNodes = new HashSet<int> { 5178 };
+        const uint BesideSeatGraph = 0xb2aa3453u;
         const float BesideSeatTrimM = 4f;
         /// <summary>The beside links seated by the last solve (node, link, host, seated metres).</summary>
         public static readonly List<string> BesideSeatAt = new List<string>();
@@ -3463,7 +3476,7 @@ namespace PSXRacing.City
         {
             var result = new List<Seat>();
             BesideSeatAt.Clear();
-            if (!BesideSeatOn || !SeatIntoOnly) return result;
+            if (!BesideSeatOn || !SeatIntoOnly || (!BesideSeatAll && map.graphHash != BesideSeatGraph)) return result;
             float DistTo(CityMap.Edge M, Vector2 q)
             {
                 float best = float.MaxValue;
@@ -3474,6 +3487,7 @@ namespace PSXRacing.City
             {
                 var arms = map.nodeEdges[n];
                 if (arms == null || arms.Count < 3 || !trims.patch[n] || (trims.bulb != null && trims.bulb[n]) || skipNodes.Contains(n)) continue;
+                if (!BesideSeatAll && !BesideSeatNodes.Contains(n)) continue;
                 foreach (int ei in arms)
                 {
                     var L = map.edges[ei];
