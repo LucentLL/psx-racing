@@ -196,6 +196,9 @@ namespace PSXRacing
                 yield break;
             }
             float loadS = Time.realtimeSinceStartup - t0;
+            // pins first, so env.txt reports the run's real traffic and view
+            if (!traffic && CityTraffic.Instance != null) CityTraffic.Instance.gameObject.SetActive(false);
+            if (!string.IsNullOrEmpty(viewArg) && System.Enum.TryParse(viewArg, true, out ChaseCamera.View v)) ChaseCamera.PreviewView(v);
             int h = RaceHandoff.TimeOfDayIndex;
             string hourName = h >= 0 && h < TimeOfDay.All.Length ? TimeOfDay.All[h].name : "?";
             var env = new StringBuilder();
@@ -212,9 +215,6 @@ namespace PSXRacing
             env.AppendLine("systems " + string.Join(" ", PerfClock.SystemNames));
             Post("env.txt", env.ToString());
             Say("free roam up: " + env.ToString().Replace("\n", " | "));
-
-            if (!traffic && CityTraffic.Instance != null) CityTraffic.Instance.gameObject.SetActive(false);
-            if (!string.IsNullOrEmpty(viewArg) && System.Enum.TryParse(viewArg, true, out ChaseCamera.View v)) ChaseCamera.PreviewView(v);
 
             if (!string.IsNullOrEmpty(shotsArg)) yield return Shots(mode);
             else
