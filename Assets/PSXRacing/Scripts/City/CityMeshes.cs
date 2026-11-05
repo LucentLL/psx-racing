@@ -1478,12 +1478,26 @@ namespace PSXRacing.City
         /// PSX_CITY_MITREFAN_UNCLIP=0: clipped as before.
         /// </summary>
         public static bool MitreFanUnclipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MITREFAN_UNCLIP") != "0";
+        /// <summary>
+        /// ...AND A RAMP AS A FAN ARM (launch spots, 2026-11-05, the owner's GPS
+        /// route at n634): the NC 16 on-ramp e348 stayed clipped to Beatties Ford
+        /// NB e13408, and CurbArc and the curb trims skip a branch, so the corner
+        /// of that 117 deg right turn stayed square at both mouths' 11.1 m trims:
+        /// the sweep's turn track ran 0.85 m before the mouth onto the walk (6.3
+        /// cm, 3.1 cm once the carriageways were unclipped). Unclipped, the pair
+        /// takes the ramp terminal's curb return (CurbRadius 15 m, the tangent
+        /// capped at CurbMaxTangentM): the corner is paved round a ~10 m arc.
+        /// Only a link branching off a street at a mitre drawn as a fan (city-
+        /// wide: n634's e348). PSX_CITY_MITREFAN_UNCLIP_RAMP=0: clipped as before.
+        /// </summary>
+        public static bool MitreFanUnclipRampOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MITREFAN_UNCLIP_RAMP") != "0";
         /// <summary>For the probe: pairs the last ComputeTrims left unclipped at mitres drawn as fans.</summary>
         public static int MitreFanUnclipped;
 
         static bool MitreFanUnclips(CityMap.Edge a, CityMap.Edge b, int n)
         {
             if (!MitreFanUnclipOn) return false;
+            if (a.link != b.link) return MitreFanUnclipRampOn;
             return SameRoad(a, b) && a.oneway && b.oneway && ((a.b == n) != (b.b == n));
         }
 
