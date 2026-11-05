@@ -4400,6 +4400,8 @@ namespace PSXRacing.City
                 foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) yield return 0;
                 // streets pass 4: the walk's width at each section, both sides
                 foreach (var _ in PrepareWalks(map, trims, tm, e, min, max)) yield return 0;
+                // the curbs pass (11-05): a divided city street's raised median island
+                PrepareCurbMedian(map, trims, tm, e, min, max);
                 yield return 0;
                 stepPart = 2;
 
@@ -6728,7 +6730,7 @@ namespace PSXRacing.City
             // on the host's edge exactly where the host's verge stands down.
             // (streets pass 4: not where a full walk's curb rises from under the
             // edge - the face stood inside the curb, a depth tie along its foot)
-            if (!sf.gap && !(sf.rail && sf.retain) && !FullWalkSpan(e, i, side))
+            if (!sf.gap && !(sf.rail && sf.retain) && !FullWalkSpan(e, i, side) && !FullCurbMedianSpan(e, i, side))
                 kerbBucket.WallSloped(eA, eB, eA.y - KerbFaceM, eA.y, eB.y - KerbFaceM, eB.y,
                                       outA, v0, v1, 0f, 0.05f);
 
@@ -6812,6 +6814,8 @@ namespace PSXRacing.City
                 stripSurface = 0;
                 return;
             }
+            // the curbs pass (11-05): a divided city street's median side is a raised curbed island
+            if (CurbMedianSpan(map, tm, e, i, side, eA, eB, outA, outB, A.s, B.s)) return;
             float shoulder = ShoulderOf(e, side);
             // Behind a rail the verge is the whole graded roadside too — the
             // fill slope an approach guardrail stands on. It used to stop past
@@ -8863,6 +8867,12 @@ namespace PSXRacing.City
             /// wide, and at every cross-section a little past the middle of
             /// the gap to the pavement drawn beside it (see SolveStrip).</summary>
             public bool halfGap;
+            /// <summary>The ground behind a walk (CityMeshes.WalkBack): level
+            /// with the walk's back, on to land that comes back up to it.</summary>
+            public bool backing;
+            /// <summary>The backing's share at the strip's two ends (0: the
+            /// plain verge, at a walk's ramp end; 1: the backing).</summary>
+            public float backA, backB;
         }
 
         static readonly Vector3[] profPrev = new Vector3[4], profCur = new Vector3[4];
@@ -9037,6 +9047,7 @@ namespace PSXRacing.City
             var outw = Vector2.Lerp(outA, outB, t);
             outw = outw.sqrMagnitude > 1e-6f ? outw.normalized : outA;
             var edgeW = Vector2.Lerp(pa, pb, t); float yEdge = Mathf.Lerp(ya, yb, t);
+            walkBackK = sh.backing ? Mathf.Lerp(sh.backA, sh.backB, t) : 0f;
             if (!SolveStrip(map, trims, edgeW, yEdge, outw, sh, prof)) return false;
             // Five Points round 2: a median's nose in a junction gap graded flush
             // (CityMeshes.Walks NoseFlushAt) - the verge held at the edge's drop,
@@ -9377,6 +9388,43 @@ namespace PSXRacing.City
                 return true;
             }
             float shoulder = sh.flat ? 0f : sh.shoulder;
+            float crossFall = RoadsideRules.ShoulderCrossFall;
+            // the curbs pass (11-05): behind a walk, the backing (CityMeshes.WalkBack)
+            if (sh.backing && !sh.flat)
+            {
+                if (WalkBackCensus) WalkBackCensusAt(map, s0, outw, y0, run, walkBackK);
+                if (WalkBackOn && walkBackK > 0f)
+                {
+                    WalkBackStats.sections++;
+                    crossFall = 0f;
+                    float fill = WalkBackFill(map, s0, outw, y0, Mathf.Min(run, WalkBackFillM), out float lotAt, out float level);
+                    if (!float.IsNaN(fill))
+                    {
+                        shoulder = fill + VergeSearchStepM;
+                        if (fill <= 0f) WalkBackStats.flush++; else WalkBackStats.filled++;
+                    }
+                    else
+                    {
+                        shoulder = level;
+                        if (!float.IsNaN(lotAt)) WalkBackStats.lotKept++; else WalkBackStats.lower++;
+                        // another road's pavement (a junction's fan) stops it: the level ends
+                        // where its bank still comes down before that pavement, never in a face
+                        // at the pavement's pad (the verge there tucks straight down)
+                        if (blocked)
+                        {
+                            var qr = s0 + outw * run;
+                            float drop = y0 - Mathf.Min(LatticeY(map, qr.x, qr.y), yOther);
+                            if (drop > 0f) { shoulder = Mathf.Min(shoulder, Mathf.Max(0f, run - drop / RoadsideRules.CityFillSlope)); WalkBackStats.padded++; }
+                        }
+                    }
+                    // a ramp end: easing to the plain verge
+                    if (walkBackK < 1f)
+                    {
+                        shoulder = Mathf.Lerp(sh.shoulder, shoulder, walkBackK);
+                        crossFall = Mathf.Lerp(RoadsideRules.ShoulderCrossFall, 0f, walkBackK);
+                    }
+                }
+            }
             // WP-14: past the shoulder the verge falls at the FILL's slope
             // (RoadsideRules.CityFillSlope, 1V:4H, the plan's recoverable
             // foreslope inside the clear zone), the slope the land itself is
@@ -9387,7 +9435,7 @@ namespace PSXRacing.City
             // over a graded 1V:4H bank (Bryant Street). On level ground it
             // meets the lattice 0.1 m sooner.
             float Yv(float e) => sh.flat ? y0
-                : y0 - RoadsideRules.ShoulderCrossFall * Mathf.Min(e, shoulder)
+                : y0 - crossFall * Mathf.Min(e, shoulder)
                      - RoadsideRules.CityFillSlope * Mathf.Max(0f, e - shoulder);
             float Lat(float e) { var q = s0 + outw * e; return LatticeY(map, q.x, q.y); }
 

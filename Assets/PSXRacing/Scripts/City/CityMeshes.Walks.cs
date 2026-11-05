@@ -1167,6 +1167,9 @@ namespace PSXRacing.City
                 float vA1 = q < 2 ? walkBandV[q + 1] : wA / WalkTexM, vB1 = q < 2 ? walkBandV[q + 1] : wB / WalkTexM;
                 if (wA <= 0f) { vA0 = vA1 = 0f; }
                 if (wB <= 0f) { vB0 = vB1 = 0f; }
+                // the curbs pass (11-05): the face in the slab's joint texels, darker
+                if (q == 0 && CurbFaceDarkOn) CurbFaceQuad(bk, pa[0], pa[1], pb[1], pb[0], uA, uB);
+                else
                 bk.Up(pa[q], pa[q + 1], pb[q + 1], pb[q],
                       new Vector2(uA, vA0), new Vector2(uA, vA1), new Vector2(uB, vB1), new Vector2(uB, vB0));
                 LogWalkQuad(" walk band" + q, pa[q], pa[q + 1], pb[q + 1], pb[q]);
@@ -1280,6 +1283,8 @@ namespace PSXRacing.City
             float uA = sA / WalkTexM, uB = sB / WalkTexM;
             // the curb: face and rounded top, the walk's texels
             for (int q = 0; q < 2; q++)
+                if (q == 0 && CurbFaceDarkOn) CurbFaceQuad(WalkBucket, islProfA[0], islProfA[1], islProfB[1], islProfB[0], uA, uB);   // (curbs 11-05) the dark face
+                else
                 WalkBucket.Up(islProfA[q], islProfA[q + 1], islProfB[q + 1], islProfB[q],
                               new Vector2(uA, walkBandV[q]), new Vector2(uA, walkBandV[q + 1]), new Vector2(uB, walkBandV[q + 1]), new Vector2(uB, walkBandV[q]));
             // the top to the axis
@@ -1327,6 +1332,9 @@ namespace PSXRacing.City
                 }
             }
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
+            // the curbs pass (11-05): the ground behind the walk is its backing (CityMeshes.WalkBack)
+            verge.backing = true;
+            walkBackEdge = e.index;
             // CURB CUTS: where the walk crosses a lot entrance's apron or a
             // driveway's (ApronAt), its curb drops to a lip, so a car turns
             // in over 2 cm, not 15; read every metre, eased over one
@@ -1357,6 +1365,11 @@ namespace PSXRacing.City
                 WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1]);
                 WalkProfile(pB, oB, w1, walkProfB, cutC[j]);
                 LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                // the backing fades out with the walk's ramp: at a ramp's end (no walk) it is the verge
+                // the next span lays from the same edge point, so the two strips meet
+                // (and at a junction end, where the corner's own strips meet it, CityMeshes.WalkBack)
+                verge.backA = Mathf.Clamp01(w0 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0));
+                verge.backB = Mathf.Clamp01(w1 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1));
                 EmitStrip(map, trims, tm, WalkBack(pA, oA, w0, cutC[j - 1]), WalkBack(pB, oB, w1, cutC[j]), oA, oB, verge);
             }
             WalkStats.walkM += len; WalkStats.spans++;
@@ -1415,6 +1428,8 @@ namespace PSXRacing.City
                     // the curb's two bands (foot to face top, face top to nose)
                     for (int q = 0; q < 2; q++)
                     {
+                        if (q == 0 && CurbFaceDarkOn) CurbFaceQuad(bk, walkProfA[0], walkProfA[1], walkProfB[1], walkProfB[0], prevU / WalkTexM, (u2 + len) / WalkTexM);   // (curbs 11-05) the dark face
+                        else
                         bk.Up(walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q],
                               new Vector2(prevU / WalkTexM, walkBandV[q]), new Vector2(prevU / WalkTexM, walkBandV[q + 1]),
                               new Vector2((u2 + len) / WalkTexM, walkBandV[q + 1]), new Vector2((u2 + len) / WalkTexM, walkBandV[q]));
