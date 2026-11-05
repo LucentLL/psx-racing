@@ -10341,6 +10341,30 @@ namespace PSXRacing.City
 
         /// <summary>A fan stands a hair above the arm ends, against z-fighting.</summary>
         const float FanProudM = 0.012f;
+        /// <summary>
+        /// CURB RETURN PAST THE NODE (launch spots, 2026-11-05). A curb
+        /// return's tangent point is carried back along an arm's edge line,
+        /// and its height was read off that arm between its trim and the node
+        /// (Back), held at the node's height for anything further. Where the
+        /// arms meet at a wide angle the tangent point can lie well PAST the
+        /// node: at Idlewild Road n6970 the link e5306 runs in beside the road
+        /// and its curb return to the far arm e8415 ends 5.6 m west of the
+        /// node, on e8415's edge line carried back 14.8 m from a 9.1 m trim.
+        /// It took the node's height (132.47) where the junction surface
+        /// stands at 132.32, and the fan triangle from the centre to it stood
+        /// as a ridge across the westbound lanes and the link's mouth, 5-10 cm
+        /// over the surface either side (a fold the review's 8 drives of the
+        /// spot all lifted a wheel on). Now a tangent point past the node
+        /// carries on along the arm's own grade through the node (its trim's
+        /// height to the node's, extended), no further than twice the trim
+        /// and only for an arm whose trim is 2 m or more (a grade read over
+        /// a shorter run is noise). PSX_CITY_CURBPAST=0: as before.
+        /// </summary>
+        public static readonly bool CurbPastOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBPAST") != "0";
+        const float CurbPastMinTrimM = 2f;
+        /// <summary>The curb-return tangent points this rule moved by over
+        /// 5 mm (node, arm, old y, new y), for the probe's city-wide count.</summary>
+        public static readonly Dictionary<long, string> CurbPastAt = new Dictionary<long, string>();
         /// <summary>The perimeter chords a corner walk laid (streets pass 4).</summary>
         static readonly HashSet<int> walkGroupOf = new HashSet<int>();
 
@@ -10546,6 +10570,16 @@ namespace PSXRacing.City
                 });
             // the height of the arm's surface carried back d metres from its trim toward the node
             float Back(FanArm A, float d) => Mathf.Lerp(A.yArm, A.yNode, d / Mathf.Max(A.trim, 0.01f));
+            // a curb return's tangent point, which may lie past the node (CurbPastOn)
+            float BackArc(FanArm A, float d)
+            {
+                float y = Back(A, d);
+                if (!CurbPastOn || d <= A.trim || A.trim < CurbPastMinTrimM || map.nodeY == null) return y;
+                float yp = Mathf.LerpUnclamped(A.yArm, A.yNode, Mathf.Min(d, 2f * A.trim) / A.trim);
+                if (Mathf.Abs(yp - y) > 0.005f)
+                    lock (CurbPastAt) CurbPastAt[((long)A.node << 24) | (uint)A.edge] = $"n{A.node} e{A.edge} {d - A.trim:0.0} m past the node: {y:0.000} -> {yp:0.000}";
+                return yp;
+            }
             // THE CURB RETURN (roads pass L7, plan A10): the corner between
             // A's edge line and B's, meeting at X (dA back from A's corner along
             // A, dB from B's), rounded by an arc tangent to both, its radius the
@@ -10570,7 +10604,7 @@ namespace PSXRacing.City
                 Vector2 TA = X + A.outDir * L, TB = X + B.outDir * L;
                 var bis = (A.outDir + B.outDir).normalized;
                 var C = X + bis * (rEff / Mathf.Sin(phi * 0.5f));
-                float yA = Back(A, dA - L), yB = Back(B, dB - L);
+                float yA = BackArc(A, dA - L), yB = BackArc(B, dB - L);
                 float a0 = Mathf.Atan2(TA.y - C.y, TA.x - C.x), a1 = Mathf.Atan2(TB.y - C.y, TB.x - C.x);
                 float sweep = Mathf.DeltaAngle(a0 * Mathf.Rad2Deg, a1 * Mathf.Rad2Deg) * Mathf.Deg2Rad;
                 float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - CurbSagM / rEff));

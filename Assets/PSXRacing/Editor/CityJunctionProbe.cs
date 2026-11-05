@@ -63,8 +63,9 @@ namespace PSXRacing.EditorTools
                     var p = e.PointAt(sc); var l = LineModel.SectionLeft(e, sc);
                     LineModel.Extents(e, sc, out float em, out float ep);
                     var lp = LineModel.LanePoint(e, sc);
-                    sb.AppendLine($"  s {sc,5:0.0} osm ({p.x:0.00},{p.y:0.00}) left ({l.x:0.00},{l.y:0.00}) shift {LineModel.ShiftAt(e, sc):0.00} ext -{em:0.00}/+{ep:0.00} lane ({lp.x:0.00},{lp.y:0.00}) centre {LineModel.LaneCentre(e, sc):0.00} y {e.YAt(sc):0.000}");
+                    sb.AppendLine($"  s {sc,5:0.0} osm ({p.x:0.00},{p.y:0.00}) left ({l.x:0.00},{l.y:0.00}) shift {LineModel.ShiftAt(e, sc):0.00} ext -{em:0.00}/+{ep:0.00} lane ({lp.x:0.00},{lp.y:0.00}) centre {LineModel.LaneCentre(e, sc):0.00} y {e.YAt(sc):0.000} station {e.StationYAt(sc):0.000}");
                 }
+                { var st = new StringBuilder(" stations:"); for (int k = 0; k < e.stS.Length; k++) st.Append($" {e.stS[k]:0.0}:{e.stY[k]:0.000}"); sb.AppendLine(st.ToString()); }
                 sb.AppendLine(" drawn outline:");
                 sb.Append(CityMeshes.DebugOutline(map, trims, ei));
                 CityMeshes.EnsureMarks(map, trims);
@@ -82,6 +83,7 @@ namespace PSXRacing.EditorTools
             CityMeshes.EnsureJcl(map);
             sb.AppendLine($"JUNCTION-COMPLEX LINKS ({(CityMeshes.JclOn ? "ON" : "OFF")}): {CityMeshes.JclCount}, {CityMeshes.JclMetres:0} m");
             foreach (var l in CityMeshes.JclAt) sb.AppendLine("  jcl: " + l);
+            CurbPastLines(sb);
             sb.AppendLine($"MITRES DRAWN AS FANS ({(CityMeshes.MitreFanOn ? "ON" : "OFF")}): {CityMeshes.MitreFanCount}");
             foreach (var l in CityMeshes.MitreFanAt) sb.AppendLine("  mitrefan: " + l);
             CityMeshes.EnsureMarks(map, trims);
@@ -227,6 +229,17 @@ namespace PSXRacing.EditorTools
         const float SweepStepM = 0.1f, SweepTrackM = 0.8f, SweepRunM = 6f, SweepGateM = 0.03f;
 
         struct Move { public int node, ein, eout; public Vector2[] p; }
+
+        /// <summary>The curb returns past the node the tiles built so far moved
+        /// (CityMeshes.CurbPastOn): count and list.</summary>
+        static void CurbPastLines(StringBuilder sb)
+        {
+            var l = new List<string>();
+            lock (CityMeshes.CurbPastAt) l.AddRange(CityMeshes.CurbPastAt.Values);
+            l.Sort(System.StringComparer.Ordinal);
+            sb.AppendLine($"CURB RETURNS PAST THE NODE ({(CityMeshes.CurbPastOn ? "ON" : "OFF")}): {l.Count} tangent points moved over 5 mm (tiles built here)");
+            foreach (var t in l) sb.AppendLine("  curbpast: " + t);
+        }
 
         [MenuItem("PSX Racing/Sweep Charlotte Junction Wheel Tracks")]
         public static void Sweep()
@@ -377,6 +390,7 @@ namespace PSXRacing.EditorTools
             sb.AppendLine("worst 80 (node, in edge, out edge, x, z, step m, track, high side, low side):");
             for (int i = 0; i < Mathf.Min(80, flagged.Count); i++) sb.AppendLine("  " + flagged[i].line + "  " + CityAudit.LatLon(float.Parse(flagged[i].line.Split(',')[3], inv), float.Parse(flagged[i].line.Split(',')[4], inv)));
             foreach (var f in flagged) csv.AppendLine(f.line);
+            CurbPastLines(sb);
             sb.AppendLine($"{clock.Elapsed.TotalSeconds:0} s");
             string rootDir = System.IO.Directory.GetParent(Application.dataPath).FullName;
             System.IO.File.WriteAllText(System.IO.Path.Combine(rootDir, "city_junction_steps.txt"), sb.ToString());
