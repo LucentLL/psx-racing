@@ -3434,6 +3434,81 @@ namespace PSXRacing.City
         }
 
         /// <summary>
+        /// BESIDE LINKS SEATED (launch spots, 2026-11-05). A link that leaves
+        /// a FAN and runs on inside its host's pavement - an exit lane OSM
+        /// draws as its own way beside the road - is no clipped branch (the
+        /// branch table holds mitres' branches only), so nothing seated it:
+        /// the junction landing held it on the host's plane to just past its
+        /// trim and it eased to its own grade from there, while its ribbon
+        /// went on abutting the host's for tens of metres. At the North Josh
+        /// Birmingham Parkway diverge n5178 the link e14000 (trim 31.8 m)
+        /// stood 5.7 cm under the fan at its mouth and the wall along the
+        /// shared edge grew to 19 cm 8 m further on (the parkway climbs 4.2%,
+        /// the link 1-3%): the review's wrong-way runs met the step at 70.
+        /// Now such a link is seated on its host exactly like a ramp
+        /// (<see cref="SeatOf"/>, into-only: as far as its inner edge stays in
+        /// the host's pavement, contiguous from the node) - a link at a fan
+        /// node (not a branch, not a bulb), trim 4 m or more, whose trim point
+        /// lies within both half widths + 1.5 m of a non-link arm leaving the
+        /// node the same way there (within 45 degrees at the link's trim, the
+        /// arm's trim 4 m or more): the junction landing's own BESIDE test.
+        /// Plan geometry only; deterministic. PSX_CITY_BESIDESEAT=0: as before.
+        /// </summary>
+        public static readonly bool BesideSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BESIDESEAT") != "0";
+        const float BesideSeatTrimM = 4f;
+        /// <summary>The beside links seated by the last solve (node, link, host, seated metres).</summary>
+        public static readonly List<string> BesideSeatAt = new List<string>();
+
+        public static List<Seat> BesideLinkSeats(CityMap map, Trims trims, ICollection<int> skipNodes)
+        {
+            var result = new List<Seat>();
+            BesideSeatAt.Clear();
+            if (!BesideSeatOn || !SeatIntoOnly) return result;
+            float DistTo(CityMap.Edge M, Vector2 q)
+            {
+                float best = float.MaxValue;
+                for (int i = 1; i < M.pts.Length; i++) best = Mathf.Min(best, DistToSeg(q, M.pts[i - 1], M.pts[i]));
+                return best;
+            }
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                var arms = map.nodeEdges[n];
+                if (arms == null || arms.Count < 3 || !trims.patch[n] || (trims.bulb != null && trims.bulb[n]) || skipNodes.Contains(n)) continue;
+                foreach (int ei in arms)
+                {
+                    var L = map.edges[ei];
+                    if (!L.link || L.a == L.b || trims.BranchAt(L, n) >= 0) continue;
+                    float tL = trims.TrimAt(L, n);
+                    if (tL < BesideSeatTrimM || tL > 0.5f * L.length) continue;
+                    float atL = L.a == n ? tL : L.length - tL;
+                    var pt = L.PointAt(atL);
+                    var uL = L.a == n ? L.TangentAt(atL) : -L.TangentAt(atL);
+                    CityMap.Edge host = null; float bestD = float.MaxValue;
+                    foreach (int oj in arms)
+                    {
+                        var M = map.edges[oj];
+                        if (oj == ei || M.link || M.a == M.b) continue;
+                        float tM = trims.TrimAt(M, n);
+                        if (tM < BesideSeatTrimM) continue;
+                        float atM = M.a == n ? tM : M.length - tM;
+                        var uM = M.a == n ? M.TangentAt(atM) : -M.TangentAt(atM);
+                        if (Vector2.Dot(uL, uM) < 0.7f) continue;
+                        float d = DistTo(M, pt);
+                        if (d <= M.HalfMax + L.HalfMax + 1.5f && d < bestD) { bestD = d; host = M; }
+                    }
+                    if (host == null) continue;
+                    var seat = SeatOf(map, trims, L, host, n, true);
+                    if (seat == null) continue;
+                    result.Add(seat);
+                    float metres = 0f;
+                    foreach (var (pe, s0, s1, _) in seat.pieces) metres += s1 - s0;
+                    BesideSeatAt.Add($"n{n} link e{ei} on e{host.index} (trim {tL:0.0} m, {metres:0.0} m seated)");
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
         /// REAL HEIGHTS round 3: on measured data (CityElevation.RealOn) a ramp
         /// is SEATED only where its ribbon runs INTO its host's pavement - its
         /// inner edge inside the host's (within <see cref="SeatIntoGapM"/>),
