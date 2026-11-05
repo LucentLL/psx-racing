@@ -49,11 +49,15 @@ namespace PSXRacing.City
         static bool CurbMedianAll => CurbMedianMode == "all";
         /// <summary>The export the spot list was checked on (map.graphHash).</summary>
         const uint CurbMedianGraph = 0xb2aa3453u;
-        /// <summary>West Trade Street's divided Uptown stretch (both carriageways).</summary>
+        /// <summary>West Trade Street's divided Uptown stretch (both carriageways),
+        /// and Beatties Ford Road from Five Points to n634 (the bank block by
+        /// Johnson C. Smith: a raised island planted with shrubs, opening at the
+        /// side street behind the bank).</summary>
         static readonly HashSet<int> CurbMedianEdges = new HashSet<int>
         {
             1011, 5798, 5799, 5800, 5801, 5802, 5803, 5804, 5805, 5951, 9637, 11389, 11390, 11392,
             14403, 14404, 14405, 14406, 14407,
+            13406, 13407, 13408,
         };
         /// <summary>The island's width from the edge to the twin's edge.</summary>
         const float CurbMedianMinM = 0.8f, CurbMedianMaxM = 12f;
