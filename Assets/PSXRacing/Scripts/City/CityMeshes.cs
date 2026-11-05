@@ -1458,6 +1458,35 @@ namespace PSXRacing.City
         /// its arms' mouths under one plate: no chord crosses them at the node.</summary>
         const float MitreFanSwallowM = 1f;
 
+        /// <summary>
+        /// A MITRE DRAWN AS A FAN DRAWS ITS OTHER CARRIAGEWAY AS A FAN ARM (launch
+        /// spots, 2026-11-05). The clip - a shallow arm hugging its host from the
+        /// node out - is how a MITRE lays a branch; the fan rule above kept it. At
+        /// Pavilion Boulevard n12867 (where Back Creek Church Road's two one-way
+        /// carriageways leave the 4-lane boulevard, 23 deg apart) the clipped
+        /// pair took no trim at all: both mouths stood on the node, 4.3 m wide
+        /// and one over the other (the cluster ring a bow-tie there, its folded
+        /// triangles facing down: no collider), while the boulevard's 15.2 m
+        /// stub between them and n4085 carried the ring out to its own edges -
+        /// two grass holes in the outer lanes either side (the probe's 'g' cells
+        /// at (9596-9599, 14052-14056) and (9603-9608, 14056-14059.5)), wheels
+        /// off 0.10-0.27 s, vy up to 0.84 m/s (7 of 24 movements). At a mitre
+        /// drawn as a fan, a branch that is the OTHER CARRIAGEWAY of its own road
+        /// (both one-way, one in and one out) is not clipped: the pair is trimmed
+        /// clear of each other like any two fan arms (n12867: 15.8 / 9.3 m), and
+        /// the fan paves the boulevard's width down to the two mouths.
+        /// PSX_CITY_MITREFAN_UNCLIP=0: clipped as before.
+        /// </summary>
+        public static bool MitreFanUnclipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MITREFAN_UNCLIP") != "0";
+        /// <summary>For the probe: pairs the last ComputeTrims left unclipped at mitres drawn as fans.</summary>
+        public static int MitreFanUnclipped;
+
+        static bool MitreFanUnclips(CityMap.Edge a, CityMap.Edge b, int n)
+        {
+            if (!MitreFanUnclipOn) return false;
+            return SameRoad(a, b) && a.oneway && b.oneway && ((a.b == n) != (b.b == n));
+        }
+
         /// <summary>How far point q lies inside a fan ring (FanCorners about a
         /// zero origin, in plan): + its distance to the ring's edge inside, -
         /// outside.</summary>
@@ -1478,7 +1507,7 @@ namespace PSXRacing.City
         public static Trims ComputeTrims(CityMap map)
         {
             mitreFanEdge = null;
-            MitreFanCount = 0; MitreFanAt.Clear();
+            MitreFanCount = 0; MitreFanAt.Clear(); MitreFanUnclipped = 0;
             var t = ComputeTrimsCore(map, null);
             if (!MitreFanOn || !ClustersOn) return t;
             var force = new bool[map.nodes.Length];
@@ -1616,6 +1645,7 @@ namespace PSXRacing.City
                     {
                         if (Vector2.Dot(arms[i].dir, arms[j].dir) < BranchCos) continue;
                         var ai = arms[i]; var aj = arms[j];
+                        if (forceFan != null && forceFan[n] && MitreFanUnclips(ai.e, aj.e, n)) { MitreFanUnclipped++; continue; }
                         bool iClips;
                         if (ai.e.link != aj.e.link) iClips = ai.e.link;
                         else if (ai.e.cls != aj.e.cls) iClips = ai.e.cls < aj.e.cls;
