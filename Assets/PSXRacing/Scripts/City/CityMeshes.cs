@@ -4368,6 +4368,8 @@ namespace PSXRacing.City
                 foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) yield return 0;
                 // streets pass 4: the walk's width at each section, both sides
                 foreach (var _ in PrepareWalks(map, trims, tm, e, min, max)) yield return 0;
+                // the curbs pass (11-05): a divided city street's raised median island
+                PrepareCurbMedian(map, trims, tm, e, min, max);
                 yield return 0;
                 stepPart = 2;
 
@@ -6696,7 +6698,7 @@ namespace PSXRacing.City
             // on the host's edge exactly where the host's verge stands down.
             // (streets pass 4: not where a full walk's curb rises from under the
             // edge - the face stood inside the curb, a depth tie along its foot)
-            if (!sf.gap && !(sf.rail && sf.retain) && !FullWalkSpan(e, i, side))
+            if (!sf.gap && !(sf.rail && sf.retain) && !FullWalkSpan(e, i, side) && !FullCurbMedianSpan(e, i, side))
                 kerbBucket.WallSloped(eA, eB, eA.y - KerbFaceM, eA.y, eB.y - KerbFaceM, eB.y,
                                       outA, v0, v1, 0f, 0.05f);
 
@@ -6780,6 +6782,8 @@ namespace PSXRacing.City
                 stripSurface = 0;
                 return;
             }
+            // the curbs pass (11-05): a divided city street's median side is a raised curbed island
+            if (CurbMedianSpan(map, tm, e, i, side, eA, eB, outA, outB, A.s, B.s)) return;
             float shoulder = ShoulderOf(e, side);
             // Behind a rail the verge is the whole graded roadside too — the
             // fill slope an approach guardrail stands on. It used to stop past

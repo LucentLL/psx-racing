@@ -82,7 +82,9 @@ namespace PSXRacing.EditorTools
                     var dir = (q - p).normalized;
                     var line = new StringBuilder($"e{ei} s={s:0.0} ({p.x:0.0},{p.y:0.0}) y {y:0.00}{(e.ElevatedAt(s) ? " DECK" : "")} | twin e{tw.index}{(tw.bridge ? " B" : "")} s={qs:0.0} at {bestD:0.0} m, y {ty:0.00}{(tw.ElevatedAt(qs) ? " DECK" : "")} (dy {ty - y:+0.00;-0.00}) | surface:");
                     string lastName = null;
-                    for (float d = 0f; d <= bestD + 1e-3f; d += 0.5f)
+                    // (curbs 11-05) PSX_MED_DSTEP: the across step (0.5 m by default)
+                    float medStep = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_MED_DSTEP") ?? "", System.Globalization.NumberStyles.Float, ci, out float ds) && ds > 0.01f ? ds : 0.5f;
+                    for (float d = 0f; d <= bestD + 1e-3f; d += medStep)
                     {
                         var w = p + dir * d;
                         int n = Physics.RaycastNonAlloc(new Vector3(w.x, y + 8f, w.y), Vector3.down, hits, 20f, ~0, QueryTriggerInteraction.Ignore);
@@ -90,11 +92,29 @@ namespace PSXRacing.EditorTools
                         for (int i = 0; i < n; i++) if (hits[i].point.y > top) { top = hits[i].point.y; name = hits[i].collider.name; }
                         string nm = name == lastName ? "" : " " + name;
                         lastName = name;
-                        line.Append($" {(float.IsNegativeInfinity(top) ? "none" : (top - y).ToString("+0.00;-0.00", ci))}@{d:0.0}{nm}");
+                        line.Append($" {(float.IsNegativeInfinity(top) ? "none" : (top - y).ToString("+0.00;-0.00", ci))}@{d:0.00}{nm}");
+                    }
+                    // (curbs 11-05) PSX_MED_OUT=<m>: the same surface walk from the centre line
+                    // OUTWARD (away from the twin) - the outer edge, its curb/walk and the ground behind
+                    if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_MED_OUT") ?? "", System.Globalization.NumberStyles.Float, ci, out float outM) && outM > 0f)
+                    {
+                        line.Append(" | OUT:");
+                        lastName = null;
+                        for (float d = 0f; d <= outM + 1e-3f; d += medStep)
+                        {
+                            var w = p - dir * d;
+                            int n = Physics.RaycastNonAlloc(new Vector3(w.x, y + 8f, w.y), Vector3.down, hits, 20f, ~0, QueryTriggerInteraction.Ignore);
+                            float top = float.NegativeInfinity; string name = "-";
+                            for (int i = 0; i < n; i++) if (hits[i].point.y > top) { top = hits[i].point.y; name = hits[i].collider.name; }
+                            string nm = name == lastName ? "" : " " + name;
+                            lastName = name;
+                            line.Append($" {(float.IsNegativeInfinity(top) ? "none" : (top - y).ToString("+0.00;-0.00", ci))}@{d:0.00}{nm}");
+                        }
                     }
                     // the first solid toward the twin from 1.8 m inside the inner edge
                     LineModel.Extents(e, s, out float em, out float ep);
                     float inner = Mathf.Max(0.5f, Mathf.Max(em, ep) - 1.8f);
+                    line.Append($" | extents -{em:0.00}/+{ep:0.00}");
                     foreach (float h in new[] { 0.3f, 0.6f })
                     {
                         var o = p + dir * inner;
@@ -108,6 +128,12 @@ namespace PSXRacing.EditorTools
                 }
             }
             finally { Object.DestroyImmediate(go); }
+            }
+            // (curbs 11-05) the curbed median islands the tiles built laid
+            {
+                var cm = new StringBuilder();
+                lock (CityMeshes.CurbMedianByEdge) foreach (var kv in CityMeshes.CurbMedianByEdge) cm.Append($" e{kv.Key} {kv.Value:0.0}");
+                sb.AppendLine($"graph {map.graphHash:x8} curb medians on={CityMeshes.CurbMedianOn} face dark={CityMeshes.CurbFaceDarkOn}: {CityMeshes.CurbMedianSpans} spans {CityMeshes.CurbMedianM:0} m (tile builds, repeats counted);{cm}");
             }
             string path = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "median_profile.txt");
             File.WriteAllText(path, sb.ToString());

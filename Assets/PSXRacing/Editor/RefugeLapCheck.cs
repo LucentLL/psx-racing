@@ -241,6 +241,28 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A movement's lane line (plan, every 2 m, smoothed through
         /// the junctions by corner cutting).</summary>
+        /// <summary>The clipX@A-B option's offset at metre m of the route (0 without it).</summary>
+        static float ClipDrift(string opt, int m)
+        {
+            if (string.IsNullOrEmpty(opt)) return 0f;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var o in opt.Split(','))
+            {
+                if (!o.StartsWith("clip")) continue;
+                var p = o.Substring(4).Split('@');
+                if (p.Length != 2) continue;
+                // clipX@A-B (out and hold) or clipX@A-B-C-D (out, hold, back between C and D)
+                var r = p[1].Split('-');
+                if ((r.Length != 2 && r.Length != 4) || !float.TryParse(p[0], System.Globalization.NumberStyles.Float, ci, out float x)
+                    || !float.TryParse(r[0], System.Globalization.NumberStyles.Float, ci, out float a) || !float.TryParse(r[1], System.Globalization.NumberStyles.Float, ci, out float b) || b <= a) continue;
+                float k = LineModel.Smooth((m - a) / (b - a));
+                if (r.Length == 4 && float.TryParse(r[2], System.Globalization.NumberStyles.Float, ci, out float c) && float.TryParse(r[3], System.Globalization.NumberStyles.Float, ci, out float d) && d > c)
+                    k *= 1f - LineModel.Smooth((m - c) / (d - c));
+                return x * k;
+            }
+            return 0f;
+        }
+
         static List<Vector2> MoveRoute(CityMap map, RunDef run, out string edges)
         {
             edges = "";
@@ -283,7 +305,11 @@ namespace PSXRacing.EditorTools
                         float inner = e.turnLane ? L : 0.5f * L;
                         off = run.lane == 'R' ? inner + (per - 1) * L : inner;
                     }
-                    var q = p + rightT * (off + run.off);
+                    // (curbs 11-05) option clipX@A-B: a deliberate kerb clip - the line
+                    // eases a further X m to the right of travel (negative: left) between
+                    // A and B metres along the route, and holds it
+                    float drift = ClipDrift(run.opt, raw.Count);
+                    var q = p + rightT * (off + run.off + drift);
                     if (raw.Count == 0 || (q - raw[raw.Count - 1]).sqrMagnitude > 0.25f) raw.Add(q);
                 }
             }
