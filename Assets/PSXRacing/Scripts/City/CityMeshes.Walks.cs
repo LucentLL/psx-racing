@@ -1332,6 +1332,9 @@ namespace PSXRacing.City
                 }
             }
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
+            // the curbs pass (11-05): the ground behind the walk is its backing (CityMeshes.WalkBack)
+            verge.backing = true;
+            walkBackEdge = e.index;
             // CURB CUTS: where the walk crosses a lot entrance's apron or a
             // driveway's (ApronAt), its curb drops to a lip, so a car turns
             // in over 2 cm, not 15; read every metre, eased over one
@@ -1362,6 +1365,11 @@ namespace PSXRacing.City
                 WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1]);
                 WalkProfile(pB, oB, w1, walkProfB, cutC[j]);
                 LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                // the backing fades out with the walk's ramp: at a ramp's end (no walk) it is the verge
+                // the next span lays from the same edge point, so the two strips meet
+                // (and at a junction end, where the corner's own strips meet it, CityMeshes.WalkBack)
+                verge.backA = Mathf.Clamp01(w0 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0));
+                verge.backB = Mathf.Clamp01(w1 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1));
                 EmitStrip(map, trims, tm, WalkBack(pA, oA, w0, cutC[j - 1]), WalkBack(pB, oB, w1, cutC[j]), oA, oB, verge);
             }
             WalkStats.walkM += len; WalkStats.spans++;
