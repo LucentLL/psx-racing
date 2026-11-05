@@ -10560,6 +10560,11 @@ namespace PSXRacing.City
                 // a tenth of a metre of each edge line kept straight before the
                 // arc, so the arc's first piece has a straight one to meet
                 float R = CurbRadiusAt(eA, A.node, eB, B.node, phi), room = Mathf.Min(dA, dB) - 0.1f;
+                if (CurbLog != null && ThruNoseLog != null && IsThruNose(eA, A.node, eB, B.node, phi))
+                    ThruNoseLog.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "n{0} e{1}/e{2} '{3}' {4:0} deg, edge lines meet at ({5:0.0},{6:0.0}) {7:0.0}|{8:0.0} m back (trims {9:0.0}|{10:0.0}){11}",
+                        n, A.edge, B.edge, eA.name, phi * Mathf.Rad2Deg, X.x, X.y, dA, dB, A.trim, B.trim,
+                        dA > A.trim + 0.05f || dB > B.trim + 0.05f ? " PAST A NODE" : ""));
                 if (R <= 0f) return false;   // one road going on: no curb there
                 float rEff = Mathf.Min(R, tanH * Mathf.Min(room, CurbMaxTangentM));
                 // the edge lines meet past a mouth (the trims never grew): square

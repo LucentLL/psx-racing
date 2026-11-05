@@ -84,6 +84,17 @@ namespace PSXRacing.EditorTools
             foreach (var l in CityMeshes.JclAt) sb.AppendLine("  jcl: " + l);
             sb.AppendLine($"MITRES DRAWN AS FANS ({(CityMeshes.MitreFanOn ? "ON" : "OFF")}): {CityMeshes.MitreFanCount}");
             foreach (var l in CityMeshes.MitreFanAt) sb.AppendLine("  mitrefan: " + l);
+            {
+                var js = CityMeshes.JStats;
+                var tl = new List<string>(); var cl = new List<CityMeshes.CurbRec>();
+                CityMeshes.ThruNoseLog = tl; CityMeshes.CurbLog = cl;
+                try { for (int fn = 0; fn < map.nodes.Length; fn++) if (trims.patch[fn] && CityMeshes.FanKey(trims, fn) == fn) CityMeshes.DescribeFan(map, trims, fn); }
+                finally { CityMeshes.ThruNoseLog = null; CityMeshes.CurbLog = null; }
+                int past = 0; foreach (var l in tl) if (l.EndsWith("PAST A NODE")) past++;
+                sb.AppendLine($"ONE-WAY THROUGH CORNERS NOT A MEDIAN NOSE ({(CityMeshes.ThruNoNoseOn ? "ON" : "OFF")}): {tl.Count} fan inside corners city-wide ({past} with the edge lines meeting past a node); trims pass {js.thruNoses} corners, {js.thruNoseGrew} grown by the old nose");
+                foreach (var l in tl) sb.AppendLine("  thrunose: " + l);
+                foreach (var l in js.thruNoseAt) sb.AppendLine("  thrunose-trim: " + l);
+            }
             CityMeshes.EnsureMarks(map, trims);
             { var ms = CityMeshes.MarkStats; sb.AppendLine($"MOUTHS: {ms.mouths} marked ({ms.mouthsDotted} dotted, {ms.mouthsDottedYellow} of them yellow; the rest stop); shallow joins outside the dotted scope left as before: {ms.mouthsDottedOut}; skipped {ms.mouthsSkipped}"); }
             sb.AppendLine($"FAN DRAPE ({(CityMeshes.FanDrapeOn ? "ON" : "OFF")}): {CityMeshes.FanDrapeN} ribbon vertices put on a fan's height, largest move {CityMeshes.FanDrapeMaxMoved:0.000} m");
