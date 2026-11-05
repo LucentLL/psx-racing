@@ -86,13 +86,18 @@ namespace PSXRacing.EditorTools
             // is photographed with a switch thrown on both rows; the CAR page
             // at its index of makes and inside the longest-named make's list.
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Night;
-            RaceHandoff.WeatherOverride = (int)Weather.Rain;
+            // the owner's own example (2026-11-04): a partly cloudy sky over
+            // a road still wet from a shower - a switch thrown on every row
+            RaceHandoff.WeatherOverride = (int)Weather.Clear;
+            RaceHandoff.SkyOverride = (int)SkyKind.PartlyCloudy;
+            RaceHandoff.RoadOverride = (int)SurfaceKind.Wet;
             Shoot(outDir, "bench_world", car, DebugCarPanel.Page.World);
-            // the date rows (2026-10-02), on a winter day, at the page's foot
-            RaceHandoff.CalendarDay = DebugWorldOps.DayIn(Season.Winter);
+            // the date rows (2026-10-02), on a spring day, at the page's foot
+            RaceHandoff.CalendarDay = DebugWorldOps.DayIn(Season.Spring);
             Shoot(outDir, "bench_world_end", car, DebugCarPanel.Page.World, scrollTo: 0f);
             RaceHandoff.CalendarDay = 0;
             RaceHandoff.WeatherOverride = -1;
+            RaceHandoff.SkyOverride = RaceHandoff.RoadOverride = -1;
             // THE MAP (2026-10-02): a debug career's drive in Charlotte, and the
             // Charlotte edition's own bench - no career, WORLD and MAP only.
             Shoot(outDir, "bench_map", car, DebugCarPanel.Page.Map, map: true);

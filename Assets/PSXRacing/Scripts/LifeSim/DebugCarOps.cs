@@ -701,6 +701,41 @@ namespace PSXRacing.LifeSim
 
         public static readonly string[] WeatherNames = { "CLEAR", "FOG", "RAIN", "SNOW" };
 
+        /// <summary>
+        /// THE BENCH'S WEATHERS (2026-11-04): what falls (a <see cref="Weather"/>)
+        /// under which sky (a <see cref="SkyKind"/>; -1 = the one that weather
+        /// brings) - the four old skies plus the climate's broken and grey dry
+        /// days and a storm. The road is its own row (<see cref="RoadNames"/>).
+        /// </summary>
+        public static readonly (string name, int weather, int sky)[] Weathers =
+        {
+            ("CLEAR", (int)Weather.Clear, -1),   // the bench's CLEAR is a clear sky (and the front ends' pick matches it)
+            ("PARTLY CLOUDY", (int)Weather.Clear, (int)SkyKind.PartlyCloudy),
+            ("OVERCAST", (int)Weather.Clear, (int)SkyKind.Overcast),
+            ("FOG", (int)Weather.Fog, -1),
+            ("RAIN", (int)Weather.Rain, -1),
+            ("STORM", (int)Weather.Rain, (int)SkyKind.Storm),
+            ("SNOW", (int)Weather.Snow, -1),
+        };
+
+        /// <summary>Which of <see cref="Weathers"/> is in force, or -1 when
+        /// the calendar's own weather rolls.</summary>
+        public static int ForcedWeatherIndex
+        {
+            get
+            {
+                for (int i = 0; i < Weathers.Length; i++)
+                    if (Weathers[i].weather == RaceHandoff.WeatherOverride && Weathers[i].sky == RaceHandoff.SkyOverride) return i;
+                return -1;
+            }
+        }
+
+        /// <summary>The road conditions, a <see cref="SurfaceKind"/> each.</summary>
+        public static readonly string[] RoadNames = { "DRY", "DAMP", "WET", "SLUSH", "SNOW", "FROST", "ICE" };
+
+        /// <summary>The bench's road, or -1 for what the weather left there.</summary>
+        public static int ForcedRoad => RaceHandoff.RoadOverride;
+
         // ---- the date (owner, 2026-10-02: "change Season/Date in Debug
         // options while driving") ------------------------------------------
         /// <summary>The calendar day the drive reads: the season's dress and
@@ -743,10 +778,31 @@ namespace PSXRacing.LifeSim
 
         /// <param name="weather">A <see cref="Weather"/> value, or -1 to give
         /// the sky back to the calendar.</param>
-        public static void SetWeather(int weather)
+        public static void SetWeather(int weather) => SetWeather(weather, -1);
+
+        /// <param name="sky">A <see cref="SkyKind"/> over it, or -1 for the
+        /// sky that weather brings.</param>
+        public static void SetWeather(int weather, int sky)
         {
             RaceHandoff.WeatherOverride = weather < 0 ? -1 : Mathf.Clamp(weather, 0, (int)Weather.Snow);
+            RaceHandoff.SkyOverride = weather < 0 || sky < 0 ? -1 : Mathf.Clamp(sky, 0, (int)SkyKind.Storm);
             Reapply();
+        }
+
+        /// <param name="road">A <see cref="SurfaceKind"/>, or -1 to give the
+        /// road back to the weather.</param>
+        public static void SetRoad(int road)
+        {
+            RaceHandoff.RoadOverride = road < 0 ? -1 : Mathf.Clamp(road, 0, (int)SurfaceKind.Ice);
+            Reapply();
+        }
+
+        /// <summary>The layers as they stand, for the page: the road's grip
+        /// at a typical patch and the three temperatures with their decks.</summary>
+        public static string LayersLine()
+        {
+            var w = Seasons.Now;
+            return "road grip x" + Seasons.RoadGripMult.ToString("0.00") + "  ·  " + Seasons.TempLine(w);
         }
 
         static void Reapply()

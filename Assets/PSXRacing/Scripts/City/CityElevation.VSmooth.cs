@@ -813,6 +813,36 @@ namespace PSXRacing.City
             }
             if (frozen > 0) perRound.Append($"; {frozen} at the per-chain cap");
 
+            // THE STALE ENDS CLOSED (road layers, 2026-11-04). A chain drawn
+            // before the junction it ends at was moved, and not redrawn within
+            // the rounds above, leaves its end off the node (22 ends on live, all
+            // under it). At a mitre the end section is forced to the node's
+            // height (CityMeshes.SectionAt), so the whole offset fell into the
+            // last knot: East Woodlawn Road at n11268 rose 17 cm over 1.46 m, an
+            // 11.8% kink that lifted a wheel 0.20-0.25 s. More rounds move other
+            // chains (round 6 kept live's three on purpose), so instead each end
+            // still off is eased onto its node on its own edge only - a smoothstep
+            // (C1: value and grade) over at least VsEndEaseMinM, 1% of grade per cm
+            // of offset, never past the edge's middle - leaving node heights and
+            // the chain order as they are. PSX_CITY_VS_ENDEASE=0: as before.
+            int endEased = 0; float endEaseMax = 0f;
+            if (VsEndEaseOn)
+                foreach (var e in map.edges)
+                {
+                    if (e.a == e.b || e.stY == null || e.stY.Length < 2) continue;
+                    for (int end = 0; end < 2; end++)
+                    {
+                        int node = end == 0 ? e.a : e.b;
+                        float s = end == 0 ? 0f : e.length;
+                        float mis = (e.YAt(s) - e.StationYAt(s)) - (map.nodeY[node] - nodeYSolved[node]);
+                        if (Mathf.Abs(mis) <= 0.003f) continue;
+                        float L = Mathf.Min(0.5f * e.length, Mathf.Max(VsEndEaseMinM, Mathf.Abs(mis) * 100f));
+                        EaseEndOntoNode(e, end, -mis, L);
+                        endEased++; endEaseMax = Mathf.Max(endEaseMax, Mathf.Abs(mis));
+                    }
+                }
+            if (endEased > 0) perRound.Append($"; {endEased} stale ends eased onto their nodes (up to {endEaseMax * 100f:0.0} cm)");
+
             // the census of what was drawn
             int edgesDrawn = 0, knots = 0, wins = 0, endMismatch = 0;
             float maxRaise = 0f, maxLower = 0f; string maxRaiseAt = "", maxLowerAt = "";
@@ -867,6 +897,42 @@ namespace PSXRacing.City
         static float ShiftT(float d, float half, float tau) => d <= half ? 1f : d >= half + tau ? 1e-6f : 1f - (d - half) / tau;
 
         static byte[] causeScratch = new byte[0];
+
+        /// <summary>The stale-end ease (see the redraw rounds). PSX_CITY_VS_ENDEASE=0: off.</summary>
+        public static bool VsEndEaseOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VS_ENDEASE") != "0";
+        const float VsEndEaseMinM = 12f;
+
+        /// <summary>Add <paramref name="delta"/> at edge end <paramref name="end"/>
+        /// (0 = a, 1 = b), easing to nothing over <paramref name="L"/> metres on a
+        /// smoothstep (C1), into the edge's drawn profile (its stations, if it had
+        /// none), with a knot every metre of the ease.</summary>
+        static void EaseEndOntoNode(CityMap.Edge e, int end, float delta, float L)
+        {
+            if (L <= 0.05f) return;
+            var ks = new List<float>((e.vS != null ? e.vS.Length : e.stS.Length) + 24);
+            ks.AddRange(e.vS ?? e.stS);
+            int pieces = Mathf.Clamp(Mathf.CeilToInt(L), 4, 60);
+            for (int k = 0; k <= pieces; k++) { float d = L * k / pieces; ks.Add(end == 0 ? d : e.length - d); }
+            ks.Sort();
+            var s2 = new List<float>(ks.Count);
+            foreach (float s in ks)
+            {
+                float c = Mathf.Clamp(s, 0f, e.length);
+                if (s2.Count == 0 || c - s2[s2.Count - 1] > 0.02f) s2.Add(c);
+                else if (c >= e.length - 1e-4f) s2[s2.Count - 1] = c;
+            }
+            if (s2.Count < 2) return;
+            s2[0] = 0f; s2[s2.Count - 1] = e.length;
+            var ys = new float[s2.Count];
+            for (int i = 0; i < s2.Count; i++)
+            {
+                float s = s2[i], d = end == 0 ? s : e.length - s;
+                float y = e.YAt(s);
+                if (d < L) { float x = d / L; y += delta * (1f - x * x * (3f - 2f * x)); }
+                ys[i] = y;
+            }
+            e.vS = s2.ToArray(); e.vY = ys;
+        }
 
         static Link LinkOf(List<Link> ch, int edge)
         {

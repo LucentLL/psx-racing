@@ -353,7 +353,8 @@ namespace PSXRacing.City
             for (int i = 0; i < nn; i++) parent[i] = i;
             int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
             bool Inner(CityMap.Edge e) => e.a != e.b && t.patch[e.a] && t.patch[e.b] &&
-                                          (e.length - t.atA[e.index] - t.atB[e.index] < 0.6f || (medianX != null && medianX[e.index]));
+                                          (e.length - t.atA[e.index] - t.atB[e.index] < 0.6f || (medianX != null && medianX[e.index]) ||
+                                           (mitreFanEdge != null && mitreFanEdge[e.index]));
             foreach (var e in map.edges)
                 if (Inner(e)) { int ra = Find(e.a), rb = Find(e.b); if (ra != rb) parent[System.Math.Max(ra, rb)] = System.Math.Min(ra, rb); }
             var groups = new Dictionary<int, List<int>>();

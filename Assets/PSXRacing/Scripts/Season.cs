@@ -117,9 +117,10 @@ namespace PSXRacing
                 if (Forced.HasValue) return SkyOverPrecip(Forced.Value);
                 int scene = SceneHandle();
                 int d = CurrentDay, h = TimeOfDay.Current, o = RaceHandoff.WeatherOverride;
-                if (!nowValid || d != nowDay || h != nowHour || o != nowOverride || scene != nowScene)
+                int layers = RaceHandoff.SkyOverride * 16 + RaceHandoff.RoadOverride;
+                if (!nowValid || d != nowDay || h != nowHour || o != nowOverride || layers != nowLayers || scene != nowScene)
                 {
-                    nowDay = d; nowHour = h; nowOverride = o; nowScene = scene; nowValid = true;
+                    nowDay = d; nowHour = h; nowOverride = o; nowLayers = layers; nowScene = scene; nowValid = true;
                     VenueNow(out var r, out float elev);
                     now = Resolve(d, h, r, elev, o);
                 }
@@ -128,7 +129,7 @@ namespace PSXRacing
         }
         static WeatherNow now;
         static bool nowValid;
-        static int nowDay, nowHour, nowOverride, nowScene;
+        static int nowDay, nowHour, nowOverride, nowLayers, nowScene;
 
         /// <summary>A tool's (or a test's) whole weather, ahead of everything.
         /// Null = the calendar's.</summary>
@@ -150,7 +151,27 @@ namespace PSXRacing
         {
             var w = Climate.At(r, elev, day, TimeOfDay.ClockHours(hour));
             if (overrideW >= 0 && overrideW <= (int)Weather.Snow) w = BenchWeather((Weather)overrideW, w);
+            w = BenchLayers(w, RaceHandoff.SkyOverride, RaceHandoff.RoadOverride);
             return SkyOverPrecip(EnvOverrides(w));
+        }
+
+        /// <summary>
+        /// The bench's SKY and ROAD, each laid over whatever the weather set
+        /// (owner, 2026-11-04: "Road Conditions should be individually
+        /// selectable in Debug now that they are decoupled from weather").
+        /// The road goes on the open road and the bridge decks alike: a wet
+        /// road after a shower under a partly cloudy sky is both.
+        /// </summary>
+        static WeatherNow BenchLayers(WeatherNow w, int sky, int road)
+        {
+            if (sky >= 0 && sky <= (int)SkyKind.Storm) w.sky = (SkyKind)sky;
+            if (road >= 0 && road <= (int)SurfaceKind.Ice)
+            {
+                string kind = ((SurfaceKind)road).ToString().ToLowerInvariant();
+                w.road = DeckOf(kind, w.road.tempC, out w.treated);
+                w.bridge = DeckOf(kind, w.bridge.tempC, out _);
+            }
+            return w;
         }
 
         /// <summary>

@@ -68,6 +68,18 @@
         /// </summary>
         public static int WeatherOverride = -1;
         /// <summary>
+        /// The bench's SKY over that weather, as a <see cref="SkyKind"/>, or -1
+        /// for the sky the weather brings (owner, 2026-11-04: "Season: Spring,
+        /// Weather: Partly Cloudy, Road Conditions: Wet (from a recent rain)").
+        /// Rain and snow still fall from a closed sky (Seasons.SkyOverPrecip).
+        /// Rides with the request as <see cref="WeatherOverride"/> does.
+        /// </summary>
+        public static int SkyOverride = -1;
+        /// <summary>The bench's ROAD CONDITIONS, decoupled from the weather
+        /// over them: a <see cref="SurfaceKind"/> laid on the open road and the
+        /// bridge decks alike, or -1 for what the weather left there.</summary>
+        public static int RoadOverride = -1;
+        /// <summary>
         /// How much traffic this race has, as a <see cref="TrafficLevels"/>
         /// level (NONE .. RUSH HOUR), or -1 for the level the HOUR puts on the
         /// road (<see cref="TrafficLevels.ForHour"/>) - what a delivery, a
@@ -454,7 +466,7 @@
             // The first race venue, not index 0: that is Charlotte's free
             // roam since the fictional circuits went (v22).
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = TrackCatalog.FirstOffered(); IsPractice = false;
-            WeatherOverride = -1;
+            WeatherOverride = -1; SkyOverride = -1; RoadOverride = -1;
             TrafficLevel = -1;
             FreeRoam = false; FreeRoamPlace = null;
             ArriveOnFoot = false; NoCar = false;

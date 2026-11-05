@@ -1187,6 +1187,7 @@ namespace PSXRacing.LifeSim
             // And the weather is the calendar's again: a sky the debug bench
             // forced belongs to the drive it was forced in.
             RaceHandoff.WeatherOverride = -1;
+            RaceHandoff.SkyOverride = RaceHandoff.RoadOverride = -1;
             // Before the page it points at stops existing. Every button on
             // these screens ends in a Rebuild, so without this the cursor was
             // thrown back to the top of the page on every single press — which
