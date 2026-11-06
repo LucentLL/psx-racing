@@ -98,6 +98,8 @@
         /// apply-back banks metres/fuel/wear but pays no purse and moves no
         /// rep — a drive is not a result.</summary>
         public static bool FreeRoam;
+        /// <summary>This free roam is the guided first drive (City.FirstDrive).</summary>
+        public static bool FirstDrive;
         /// <summary>
         /// Into your own street ON FOOT — "walk into the house" from the menu,
         /// an inspection finished, the keys taken to another car. The
@@ -469,6 +471,7 @@
             WeatherOverride = -1; SkyOverride = -1; RoadOverride = -1;
             TrafficLevel = -1;
             FreeRoam = false; FreeRoamPlace = null;
+            FirstDrive = false;
             ArriveOnFoot = false; NoCar = false;
             TitleScreen = false;
             Delivery = false; DeliveryPay = 0; Solo = false;

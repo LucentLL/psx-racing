@@ -239,6 +239,7 @@ namespace PSXRacing
                   ?? DriveThru.Prompt
                   ?? SeizedPrompt()
                   ?? HotPrompt()
+                  ?? City.FirstDrive.Prompt
                   ?? DryTankPrompt()
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
@@ -294,7 +295,8 @@ namespace PSXRacing
         {
             // No signpost to a counter that does not serve (the CITY edition:
             // DriveThru.Serves). The slot stays empty after the attribution.
-            if (!DriveThru.Serves || world == null || car == null)
+            bool guided = City.FirstDrive.Active;
+            if ((!DriveThru.Serves && !guided) || world == null || car == null)
             {
                 if (minimap != null) minimap.SetDestination(default, false);
                 return "";
@@ -302,8 +304,11 @@ namespace PSXRacing
             if (Time.unscaledTime < foodNext) return foodLine;
             foodNext = Time.unscaledTime + 0.4f;
 
-            if (!world.NearestFood(car.transform.position, out string label,
-                                   out Vector2 at, out float dist))
+            string label = City.FirstDrive.TargetLabel;
+            Vector2 at = City.FirstDrive.Target;
+            float dist = Vector2.Distance(at, new Vector2(car.transform.position.x, car.transform.position.z));
+            if (guided ? !City.FirstDrive.HasTarget
+                       : !world.NearestFood(car.transform.position, out label, out at, out dist))
             {
                 foodLine = "";
                 if (minimap != null) minimap.SetDestination(default, false);

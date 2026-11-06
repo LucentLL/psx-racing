@@ -737,12 +737,53 @@ namespace PSXRacing.LifeSim
                     // cannot type into the field at all.
                     string chosen = wizNameField.text.Trim().ToUpper();
                     if (chosen.Length == 0) chosen = "DRIVER";
-                    LifeSimManager.StartNewGame(chosen, wizAge, wizJob);
-                    Destroy(root.gameObject);
-                    BuildCarPick();
+                    AskLicense(root, chosen);
                 }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
 
             WirePanelNavigation(root);
+        }
+
+        /// <summary>A new career answering NO drives the guided first drive once
+        /// its car is chosen (City.FirstDrive).</summary>
+        static bool wizFirstDrive;
+        /// <summary>Carried across the scene reload into StartFreeRoam.</summary>
+        static bool pendingFirstDrive;
+
+        /// <summary>The owner's question, asked over the name screen before the
+        /// career is made, so backing out of it changes nothing.</summary>
+        void AskLicense(RectTransform root, string chosen)
+        {
+            var ask = MenuKit.Stretch(root, "License", new Vector2(0f, 0f), new Vector2(1f, 1f), 0f, 0f, 0f, 0f,
+                new Color(0.08f, 0.08f, 0.08f, 1f));
+            void Begin(bool firstDrive)
+            {
+                wizFirstDrive = firstDrive;
+                LifeSimManager.StartNewGame(chosen, wizAge, wizJob);
+                Destroy(root.gameObject);
+                BuildCarPick();
+            }
+            void Page(string line, string yes, UnityEngine.Events.UnityAction onYes,
+                      string no, UnityEngine.Events.UnityAction onNo)
+            {
+                // Out of the hierarchy now: the nav graph below is built this frame.
+                for (int i = ask.childCount - 1; i >= 0; i--)
+                {
+                    var old = ask.GetChild(i);
+                    old.SetParent(null);
+                    Destroy(old.gameObject);
+                }
+                MenuKit.Label(ask, line, MenuKit.Head, new Vector2(0.5f, 0.5f), new Vector2(0f, 90f),
+                    TextAnchor.MiddleCenter, MenuKit.Accent, 900f, height: 110f, bold: true);
+                MenuKit.Button(ask, yes, new Vector2(0.5f, 0.5f), new Vector2(-170f, -30f), new Vector2(320f, 62f), onYes, MenuKit.Body);
+                MenuKit.Button(ask, no, new Vector2(0.5f, 0.5f), new Vector2(170f, -30f), new Vector2(320f, 62f), onNo, MenuKit.Body);
+                WirePanelNavigation(ask);
+            }
+            UnityEngine.Events.UnityAction first = null;
+            first = () => Page("DO YOU ALREADY HAVE A LICENSE?",
+                "YES", () => Page("THIS WILL SKIP THE TUTORIAL.\nDO YOU WISH TO CONTINUE?",
+                                  "YES, SKIP IT", () => Begin(false), "GO BACK", first),
+                "NO", () => Begin(true));
+            first();
         }
 
         /// <summary>
@@ -965,6 +1006,12 @@ namespace PSXRacing.LifeSim
                     pickLanes = null;
                     CarMarket.ApplyStartingLane(S, lane);
                     LifeSimManager.Save();
+                    if (wizFirstDrive)
+                    {
+                        wizFirstDrive = false;
+                        pendingFirstDrive = true;
+                        PendingTab = "charlotte";
+                    }
                     SceneManager.LoadScene(0);   // reload home, now in play mode
                 }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
             MenuKit.Button(root, "BACK", new Vector2(1f, 0f), new Vector2(-30f, 22f),
@@ -8169,6 +8216,13 @@ namespace PSXRacing.LifeSim
             RaceHandoff.TrackIndex = roam;
             RaceHandoff.TimeOfDayIndex = RaceHour();
             RaceHandoff.StartFuelPct = S.ActiveCar != null ? S.ActiveCar.fuel : 100f;
+            // The first drive ends at a pump, and a full tank is offered no pump.
+            if (pendingFirstDrive)
+            {
+                pendingFirstDrive = false;
+                RaceHandoff.FirstDrive = true;
+                RaceHandoff.StartFuelPct = Mathf.Min(RaceHandoff.StartFuelPct, 60f);
+            }
 
             FillCarRequest();
 

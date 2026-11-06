@@ -102,6 +102,7 @@ namespace PSXRacing.City
             if (player != null)
             {
                 spawnSeated = SeatOnStreet();
+                if (RaceHandoff.FirstDrive) gameObject.AddComponent<FirstDrive>();
                 // DRIVE TO THE START (the CITY race card): down on the race's
                 // own road just short of its line, the gate ahead.
                 if (RaceHandoff.RoamAtVenue >= 0 && CityRaceStarts.Enabled &&
