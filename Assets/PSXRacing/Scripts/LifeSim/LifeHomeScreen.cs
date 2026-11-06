@@ -763,7 +763,8 @@ namespace PSXRacing.LifeSim
                 BuildCarPick();
             }
             void Page(string line, string yes, UnityEngine.Events.UnityAction onYes,
-                      string no, UnityEngine.Events.UnityAction onNo)
+                      string no, UnityEngine.Events.UnityAction onNo,
+                      UnityEngine.Events.UnityAction onBack = null)
             {
                 // Out of the hierarchy now: the nav graph below is built this frame.
                 for (int i = ask.childCount - 1; i >= 0; i--)
@@ -776,13 +777,21 @@ namespace PSXRacing.LifeSim
                     TextAnchor.MiddleCenter, MenuKit.Accent, 900f, height: 110f, bold: true);
                 MenuKit.Button(ask, yes, new Vector2(0.5f, 0.5f), new Vector2(-170f, -30f), new Vector2(320f, 62f), onYes, MenuKit.Body);
                 MenuKit.Button(ask, no, new Vector2(0.5f, 0.5f), new Vector2(170f, -30f), new Vector2(320f, 62f), onNo, MenuKit.Body);
+                if (onBack != null)
+                    MenuKit.Button(ask, "<  BACK", new Vector2(0.5f, 0.5f), new Vector2(0f, -112f), new Vector2(240f, 52f), onBack, MenuKit.Small);
                 WirePanelNavigation(ask);
             }
             UnityEngine.Events.UnityAction first = null;
             first = () => Page("DO YOU ALREADY HAVE A LICENSE?",
                 "YES", () => Page("THIS WILL SKIP THE TUTORIAL.\nDO YOU WISH TO CONTINUE?",
                                   "YES, SKIP IT", () => Begin(false), "GO BACK", first),
-                "NO", () => Begin(true));
+                "NO", () => Begin(true),
+                () =>
+                {
+                    ask.SetParent(null);
+                    Destroy(ask.gameObject);
+                    WirePanelNavigation(root);
+                });
             first();
         }
 

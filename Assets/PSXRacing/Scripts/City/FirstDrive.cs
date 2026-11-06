@@ -43,7 +43,7 @@ namespace PSXRacing.City
         float stepAt, stoppedFor, praiseUntil, nextScan;
         string praise;
         int greens;
-        bool sawOnFoot;
+        bool sawOnFoot, pumped;
         // The approach being driven into, so a line crossed without stopping can
         // be told from a stop made behind it.
         bool haveLine;
@@ -119,7 +119,7 @@ namespace PSXRacing.City
 
                 case Step.StopSign:
                     Say("STOP AT THE STOP SIGN\nCOME TO A FULL STOP BEHIND THE LINE",
-                        "FOLLOW THE LINE ON THE MAP\nTHE TOP OF THE SCREEN SAYS HOW FAR");
+                        "FOLLOW THE LINE ON THE MAP\nTO QUIT THE LESSON, OPEN THE MENU AND PICK END DRIVE");
                     AimAtNearest(false, "STOP SIGN");
                     if (WatchLine(false, out bool signRan))
                         Enter(Step.Light, "GOOD. A FULL STOP, THEN GO WHEN IT IS CLEAR");
@@ -169,9 +169,23 @@ namespace PSXRacing.City
                     Say("DRIVE TO THE GAS STATION AND STOP AT A PUMP\nTHEN GET OUT AND PUMP GAS",
                         "OUT OF FUEL, THE CAR STOPS\nTHE PAUSE MENU CAN CALL A FUEL TRUCK, BUT IT COSTS MORE");
                     if (Time.time >= nextScan) { nextScan = Time.time + 2f; AimAtStation(); }
-                    if (OnFoot.ForecourtMode.OnFoot) sawOnFoot = true;
+                    if (OnFoot.ForecourtMode.OnFoot)
+                    {
+                        if (!sawOnFoot) { sawOnFoot = true; pumped = false; }
+                        if (GasPump.Fuelling) pumped = true;
+                    }
                     else if (sawOnFoot)
-                        Enter(Step.Done);
+                    {
+                        // Out and back in is not pumping gas; no money is no fault.
+                        var state = LifeSim.LifeSimManager.State;
+                        if (pumped || (state != null && state.money <= 0)) Enter(Step.Done);
+                        else
+                        {
+                            sawOnFoot = false;
+                            praise = "YOU DID NOT PUMP ANY GAS\nGET BACK OUT AT THE PUMP AND FILL IT";
+                            praiseUntil = Time.time + PraiseSeconds;
+                        }
+                    }
                     else
                     {
                         // A full tank is offered no pump and Charlotte has no other
