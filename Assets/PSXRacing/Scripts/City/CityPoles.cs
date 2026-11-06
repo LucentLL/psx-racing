@@ -512,7 +512,15 @@ namespace PSXRacing.City
             int side = L.sideOf[chain] * L.dirOf[ei];
             none.why = -1;
             float clear = RoadsideOccupancy.ClearZoneOf(e);
-            foreach (float back in BackM)
+            // (branchdrop 11-06) by a lane drop held to its node (LineModel.BranchDropAt)
+            // the branch runs on the held lane, its edge and clear zone that far further
+            // out: a station refused at every usual offset tries again that far further
+            // back, so the pole that stood by the old taper stands at the new road edge
+            float heldOut = LineModel.BranchDropHeldShift(e);
+            for (int pass = 0; pass < (heldOut > 0f ? 2 : 1); pass++)
+            foreach (float back0 in BackM)
+            {
+                float back = back0 + (pass == 1 ? heldOut : 0f);
                 foreach (float dS in Nudges)
                 {
                     float s2 = s + dS;
@@ -525,11 +533,12 @@ namespace PSXRacing.City
                     // none uptown or in Myers Park, wherever its road runs
                     if (Uptown(map, f) || InMyersPark(f)) { if (none.why < 0) none.why = WhyZone; continue; }
                     byte bits = RoadsideOccupancy.StaticAt(map, trimsNow, buildingsNow, f);
+                    explain?.AppendLine($"    e{ei} s {s2:0.0} side {side} edgeOff {edgeOff:0.00} back {back:0.0} foot ({f.x:0.00},{f.y:0.00}): bits {bits}{(bits == 0 && !CitySigns.RoadsClear(map, trimsNow, f) ? " road" : "")}");
                     if (bits != 0) { if (none.why < 0) none.why = bits; continue; }
                     if (!CitySigns.RoadsClear(map, trimsNow, f)) { if (none.why < 0) none.why = WhyRoad; continue; }
                     float roadY = e.YAt(s2);
                     float ground = Mathf.Min(CityMeshes.LatticeAt(map, f.x, f.y), CityElevation.GroundY(map, f.x, f.y));
-                    if (Mathf.Abs(ground - roadY) > MaxBankM) { if (none.why < 0) none.why = WhyBank; continue; }
+                    if (Mathf.Abs(ground - roadY) > MaxBankM) { explain?.AppendLine($"      bank {ground - roadY:0.00}"); if (none.why < 0) none.why = WhyBank; continue; }
                     float h = Mathf.Lerp(MinHeightM, MaxHeightM, Hash01(chain, k, 7));
                     float footY = ground - SinkM;
                     float top = footY + h;
@@ -551,6 +560,7 @@ namespace PSXRacing.City
                         },
                     };
                 }
+            }
             return none;
         }
 
@@ -792,6 +802,27 @@ namespace PSXRacing.City
         }
         static readonly HashSet<int> stSegs = new HashSet<int>(), stSeen = new HashSet<int>();
         static readonly List<int> stEdges = new List<int>(256);
+
+        /// <summary>For the probes: every station whose nominal point lies in
+        /// lo..hi, decided afresh, each foot tried and why it was refused.</summary>
+        public static void Explain(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                                   Vector2 lo, Vector2 hi, System.Text.StringBuilder sb)
+        {
+            if (!Enabled || map == null) return;
+            Setup(map, trims, buildings);
+            var near = new List<(int chain, int k)>();
+            StationsIn(map, lo, hi, near);
+            foreach (var (chain, k) in near)
+            {
+                explain = sb;
+                var d = DecideNow(chain, k);
+                explain = null;
+                sb.AppendLine(d.standing
+                    ? $"  station {chain}/{k} e{d.pole.edge} s {d.pole.s:0.0}: pole at ({d.pole.foot.x:0.00},{d.pole.foot.z:0.00},{d.pole.foot.y:0.00}) lens ({d.pole.lens.x:0.00},{d.pole.lens.z:0.00})"
+                    : $"  station {chain}/{k}: none (why {d.why})");
+            }
+        }
+        static System.Text.StringBuilder explain;
 
         // ==================================================================
         //  WHAT A SIGN KEEPS CLEAR OF (the WP-15 review)

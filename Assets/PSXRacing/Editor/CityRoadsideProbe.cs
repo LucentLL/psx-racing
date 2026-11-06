@@ -65,6 +65,16 @@ namespace PSXRacing.EditorTools
                                         float.Parse(f[4], inv), float.Parse(f[5], inv), sb);
                         else if (f.Length == 4 && f[0] == "tris")
                             ColliderTris(map, trims, buildings, float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv), sb);
+                        else if (f.Length == 4 && f[0] == "lamps")
+                            LampsNear(map, trims, buildings, float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv), sb);
+                        else if (f.Length == 4 && f[0] == "poles")
+                        {
+                            // "poles:x:z:r": the pole-line stations round a point, each foot tried
+                            float px = float.Parse(f[1], inv), pz = float.Parse(f[2], inv), pr = float.Parse(f[3], inv);
+                            sb.AppendLine($"=== POLES with a station within {pr:0.0} m of ({px:0.0},{pz:0.0})");
+                            CityPoles.Explain(map, trims, buildings, new Vector2(px - pr, pz - pr), new Vector2(px + pr, pz + pr), sb);
+                            sb.AppendLine();
+                        }
                         else if (f.Length == 4 && f[0] == "pt")
                             LaneProbe(map, trims, buildings, -1, 0f, 0, new Vector3(float.Parse(f[1], inv), float.Parse(f[3], inv), float.Parse(f[2], inv)), sb);
                         else if (f.Length == 5 && f[0] == "fan")
@@ -432,6 +442,43 @@ namespace PSXRacing.EditorTools
                 foreach (var m in built) if (m != null) Object.DestroyImmediate(m);
                 Object.DestroyImmediate(root);
             }
+        }
+
+        /// <summary>(branchdrop 11-06) "lamps:x:z:r": the street lamps the tiles
+        /// round a world point stand within r of it (foot, head, kind), and
+        /// every lamp station of the edges there whose station point lies
+        /// within r: placed, or the first try's refusal.</summary>
+        static void LampsNear(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                              float x, float z, float r, StringBuilder sb)
+        {
+            var q = new Vector2(x, z);
+            var st = new List<string>();
+            CityMeshes.LampTrace = (ei, s, w) =>
+            {
+                if (s < 0f) return;
+                var p = map.edges[ei].PointAt(s);
+                if (Vector2.Distance(p, q) > r) return;
+                st.Add($"  station e{ei} '{map.edges[ei].name}' s {s:0.0} at ({p.x:0.0},{p.y:0.0}): {(w == 0 ? "placed" : w > 0 && w < CityMeshes.LampRejectNames.Length ? CityMeshes.LampRejectNames[w] : "why " + w)}");
+            };
+            try
+            {
+                int tx0 = Mathf.FloorToInt(x / CityMeshes.TileSize), tz0 = Mathf.FloorToInt(z / CityMeshes.TileSize);
+                sb.AppendLine($"=== LAMPS within {r:0.0} m of ({x:0.0},{z:0.0})");
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        var tm = CityMeshes.Build(map, trims, buildings, tx0 + dx, tz0 + dz);
+                        foreach (var l in tm.lamps)
+                        {
+                            var f = tm.origin + l.foot; var h = tm.origin + l.head;
+                            if (Vector2.Distance(new Vector2(f.x, f.z), q) > r) continue;
+                            sb.AppendLine($"  lamp foot ({f.x:0.00},{f.z:0.00},{f.y:0.00}) head ({h.x:0.00},{h.z:0.00},{h.y:0.00}) kind {l.kind} breakaway {l.breakaway}");
+                        }
+                    }
+                foreach (var t in st) sb.AppendLine(t);
+                sb.AppendLine();
+            }
+            finally { CityMeshes.LampTrace = null; }
         }
 
         static float SegDist(Vector2 q, Vector3 a3, Vector3 b3)
