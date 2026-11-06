@@ -623,7 +623,23 @@ namespace PSXRacing
                 ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY";
         }
 
-        void Awake() => HudOnTop.Apply(gameObject);
+        void Awake()
+        {
+            HudOnTop.Apply(gameObject);
+            // NOTHING OVER THE LINE OF SIGHT, even an important notice (owner,
+            // 2026-11-06). In code rather than the builder so that every scene
+            // already baked moves too: the banner hangs under the timer, in the
+            // sky or the cabin roof, and grows downwards.
+            if (centerText != null)
+            {
+                var rt = centerText.rectTransform;
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
+                rt.anchoredPosition = new Vector2(0f, -44f);
+                rt.sizeDelta = new Vector2(640f, 100f);
+                centerText.alignment = TextAnchor.UpperCenter;
+                centerText.fontSize = Mathf.Min(centerText.fontSize, 16);
+            }
+        }
 
         /// <summary>Whether the last frame was drawn for somebody on foot.
         /// Drives the one-shot blank/restore below.</summary>

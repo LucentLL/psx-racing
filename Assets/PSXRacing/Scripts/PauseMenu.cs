@@ -257,8 +257,7 @@ namespace PSXRacing
                 {
                     if (this == null || !open) return;
                     if (panel != null) panel.SetActive(true);
-                    int i = (int)settings.Tab;
-                    MenuNav.Select(i < pageBtns.Count ? pageBtns[i] : (menuItems.Count > 0 ? menuItems[0] : null));
+                    MenuNav.Select(pageBtns.Count > 0 ? pageBtns[0] : (menuItems.Count > 0 ? menuItems[0] : null));
                 };
             }
             if (panel != null) panel.SetActive(false);
@@ -517,31 +516,13 @@ namespace PSXRacing
             // quitting the game.
             exitLabel = Row(ExitLabel(), ExitToMenu).GetComponentInChildren<Text>();
 
-            // The four pages, as one strip under the column: a press opens the
-            // settings menu at that page (where LB / RB walk the others).
-            y -= 6f;
-            var head = LifeSim.MenuKit.Label(panel.transform, "OPTIONS", LifeSim.MenuKit.MinLabelSize, top,
-                                             new Vector2(0f, y), TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim,
-                                             300f, 26f, bold: true);
-            head.name = "OptionsHead";
-            y -= 30f;
-            int pages = SettingsCatalog.TabNames.Length;
+            // One door to the settings menu. A strip of its page names opened
+            // the same strip again on top (owner, 2026-11-06).
+            var optionsBtn = Row("OPTIONS", () => OpenSettings((SettingsTab)0));
+            optionsBtn.name = "Btn_options";
+            pageBtns.Add(optionsBtn);
             float stripW = Mathf.Min(760f, LifeSim.MenuKit.HalfWidth * 2f - 80f);
-            const float Gap = 10f;
-            float cell = (stripW - (pages - 1) * Gap) / pages;
-            for (int i = 0; i < pages; i++)
-            {
-                var page = (SettingsTab)i;
-                var pb = LifeSim.MenuKit.Button(panel.transform, SettingsCatalog.TabNames[i], top,
-                                                new Vector2(-stripW * 0.5f + cell * 0.5f + i * (cell + Gap), y),
-                                                new Vector2(cell, RowH), () => OpenSettings(page),
-                                                LifeSim.MenuKit.Small);
-                pb.name = "Btn_page_" + SettingsCatalog.TabNames[i];
-                LifeSim.MenuKit.FitTabLabel(pb, cell);
-                pageBtns.Add(pb);
-                menuItems.Add(pb);
-            }
-            y -= RowH + 18f;
+            y -= 6f;
 
             var foot = LifeSim.MenuKit.Label(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT",
                                              LifeSim.MenuKit.MinLabelSize, top, new Vector2(0f, y),

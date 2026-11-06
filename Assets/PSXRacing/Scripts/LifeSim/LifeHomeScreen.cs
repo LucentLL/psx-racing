@@ -1050,6 +1050,8 @@ namespace PSXRacing.LifeSim
             // to know which tab is next, which is the only way to get this right
             // in a menu that is assembled and navigated in the same frame.
             MenuNav.Row(tabButtons.ConvertAll(b => (Selectable)b));
+            tabCaption = MenuKit.Label(bar, "", MenuKit.MinLabelSize, new Vector2(0.5f, 0.5f),
+                Vector2.zero, TextAnchor.MiddleCenter, MenuKit.Accent, 600f, height: 30f, bold: true);
         }
 
         /// <summary>
@@ -1275,8 +1277,21 @@ namespace PSXRacing.LifeSim
         void MarkActiveTab()
         {
             string root = RootTab();
+            // ONE LEVEL DOWN THE TABS ARE GONE (owner, 2026-11-06): a stray press
+            // on one, or on a shoulder, threw away the layers the player had
+            // gone down. The strip says where they are until BACK reaches the
+            // base page again.
+            bool deep = System.Array.IndexOf(tabIds, tab) < 0;
             for (int i = 0; i < tabButtons.Count && i < tabIds.Length; i++)
+            {
+                tabButtons[i].gameObject.SetActive(!deep);
                 MenuKit.MarkTab(tabButtons[i], tabIds[i] == root);
+            }
+            if (tabCaption != null)
+            {
+                tabCaption.gameObject.SetActive(deep);
+                tabCaption.text = TabCaption(root);
+            }
         }
 
         /// <summary>
@@ -1295,11 +1310,12 @@ namespace PSXRacing.LifeSim
             // repair buttons gets left/right instead of up/down.
             MenuNav.Column(rows);
 
-            var tabSel = tabButtons.ConvertAll(b => (Selectable)b);
             int idx = System.Array.IndexOf(tabIds, tab);
+            // Below the base level the strip is hidden: nothing may lead to it.
+            var tabSel = idx >= 0 ? tabButtons.ConvertAll(b => (Selectable)b) : new System.Collections.Generic.List<Selectable>();
             // Detail pages ("buy", "service", "tune") are reached FROM a tab and
             // are not tabs themselves, so fall back to the tab that owns them.
-            Selectable active = idx >= 0 && idx < tabSel.Count ? tabSel[idx] : OwningTabButton();
+            Selectable active = idx >= 0 && idx < tabSel.Count ? tabSel[idx] : null;
             MenuNav.Join(tabSel, rows, active);
 
             // Where the player left off, or the first row of content — not the
@@ -1526,7 +1542,7 @@ namespace PSXRacing.LifeSim
                 if (kb.pageDownKey.wasPressedThisFrame) step = 1;
                 else if (kb.pageUpKey.wasPressedThisFrame) step = -1;
             }
-            if (step != 0)
+            if (step != 0 && System.Array.IndexOf(tabIds, tab) >= 0)
             {
                 FlushSetup();
                 int i = System.Array.IndexOf(tabIds, RootTab());
@@ -2284,7 +2300,7 @@ namespace PSXRacing.LifeSim
             // either; a tile can, and that is most of what the fold bought.
             int daysToBills = LifeRules.DaysInMonth(S.day) - LifeRules.DayOfMonth(S.day) + 1;
             const float TileGap = 6f;
-            float tw = (w - TileGap * 3f) / 4f;
+            float tw = (w - TileGap * 4f) / 5f;
             float tileY = y;
             void Tile(int i, string label, string page, Color? bg) =>
                 MenuKit.Button(body, label, new Vector2(0.5f, 1f),
@@ -2294,6 +2310,10 @@ namespace PSXRacing.LifeSim
             Tile(1, "BILLS", "bills", daysToBills <= 3 ? (Color?)DueSoonBg : null);
             Tile(2, "JOB", "jobs", null);
             Tile(3, "OPTIONS", "options", null);
+            // The door to the house, moved here off MY CARS (owner, 2026-11-06).
+            MenuKit.Button(body, "HOUSE", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(x + 4 * (tw + TileGap), tw), tileY),
+                new Vector2(tw, 42f), PSXRacing.OnFoot.HomeWalk.Enter, 16);
             y -= 48f;
 
             // ---- sleep ----
@@ -3115,7 +3135,8 @@ namespace PSXRacing.LifeSim
         /// <summary>
         /// The top of MY CARS: the car the player is in — or was in last, if it
         /// has since gone in for work — on the turntable, with its name, where
-        /// it is, the four numbers a driver wants, and the two doors.
+        /// it is, and the four numbers a driver wants. The row in the list below
+        /// is the way into the car's own page.
         ///
         /// The car on the LEFT and the words on the RIGHT, because a 16:10
         /// window centred in an 1100-unit column is three quarters empty and
@@ -3196,15 +3217,6 @@ namespace PSXRacing.LifeSim
                 known > 0 || worst <= 30f ? MenuKit.Bad : worst > 60f ? MenuKit.Good : MenuKit.Accent,
                 tw, height: 24f);
             ty -= 32f;
-
-            // The two doors: into this car's own page, and into the house.
-            float bw = Mathf.Min(320f, (tw - 10f) * 0.5f);
-            var capturedCar = car;
-            MenuKit.Button(body, "OPEN THIS CAR", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(tx, bw), ty), new Vector2(bw, 46f),
-                () => { garageCarId = capturedCar.id; tab = "carmenu"; Rebuild(); }, 17);
-            HouseDoor(MenuKit.ColLeft(tx + bw + 10f, bw), ty, bw, 46f);
-            ty -= 52f;
 
             // Whichever side ran longer decides where the list starts.
             y = Mathf.Min(ty, y - viewH - (view != null ? 30f : 0f)) - 8f;
@@ -5593,34 +5605,18 @@ namespace PSXRacing.LifeSim
 
         // =================== the settings menu (2026-10-04) ===================
         SettingsPanel settings;
+        Text tabCaption;
 
         /// <summary>
-        /// The four pages of the settings menu, as one line of buttons: a
-        /// press opens <see cref="SettingsPanel"/> at that page - the same
-        /// page the pause menu opens, over the same list, so a setting lives
-        /// in one place. It used to be a list of rows here and a different
-        /// list of rows in the pause menu.
+        /// One door to the settings menu. It was a row of its page names, and
+        /// pressing one opened the same row again on top (owner, 2026-11-06).
         /// </summary>
         void SettingsDoors(ref float y)
         {
-            int n = SettingsCatalog.TabNames.Length;
-            float cw = Mathf.Min(200f, (ColW - 10f * (n - 1)) / n);
-            float total = cw * n + 10f * (n - 1);
-            for (int i = 0; i < n; i++)
-            {
-                var page = (SettingsTab)i;
-                var b = MenuKit.Button(body, SettingsCatalog.TabNames[i], new Vector2(0.5f, 1f),
-                    new Vector2(-total * 0.5f + cw * 0.5f + i * (cw + 10f), y), new Vector2(cw, 52f),
-                    () => OpenSettings(page), MenuKit.Small);
-                b.name = "Btn_page_" + SettingsCatalog.TabNames[i];
-                MenuKit.FitTabLabel(b, cw);
-            }
+            MenuKit.Button(body, "GAME SETTINGS", new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 460f), 52f), () => OpenSettings((SettingsTab)0), MenuKit.Small)
+                .name = "Btn_options";
             y -= 66f;
-            MenuKit.Para(body, "Steering and the instruments, the wheel and rumble, the picture, the sound, the screen. " +
-                "The pause menu in a drive opens the same pages.",
-                MenuKit.MinLabelSize, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float h,
-                TextAnchor.UpperLeft, MenuKit.Dim, ColW);
-            y -= h + 14f;
         }
 
         void OpenSettings(SettingsTab at)
@@ -5633,7 +5629,7 @@ namespace PSXRacing.LifeSim
                 settings.onClosed = () =>
                 {
                     if (this == null || body == null) return;
-                    var b = body.Find("Btn_page_" + SettingsCatalog.TabNames[(int)settings.Tab]);
+                    var b = body.Find("Btn_options");
                     if (b != null) MenuNav.Select(b.GetComponent<Selectable>());
                 };
             }

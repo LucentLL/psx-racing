@@ -329,9 +329,8 @@ namespace PSXRacing.EditorTools
                 }
                 if (!tab.HasValue)
                 {
-                    foreach (var n in SettingsCatalog.TabNames)
-                        if (!Has("Btn_page_" + n))
-                            Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no " + n + " door on the pause screen");
+                    if (!Has("Btn_options"))
+                        Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no OPTIONS door on the pause screen");
                 }
                 else
                 {
