@@ -405,6 +405,9 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < Mathf.Min(80, flagged.Count); i++) sb.AppendLine("  " + flagged[i].line + "  " + CityAudit.LatLon(float.Parse(flagged[i].line.Split(',')[3], inv), float.Parse(flagged[i].line.Split(',')[4], inv)));
             foreach (var f in flagged) csv.AppendLine(f.line);
             CurbPastLines(sb);
+            // (wedlane 11-06) the lane drops the line model finds city-wide, and those held to the node
+            sb.AppendLine($"BRANCH DROPS ({(LineModel.BranchDropOn ? (LineModel.BranchDropAll ? "ALL" : "SCOPED") : "OFF")}): {LineModel.BranchDropFound} found city-wide, {LineModel.BranchDropHeld} held to the node");
+            foreach (var t in LineModel.BranchDropLog) sb.AppendLine("  branchdrop: " + t);
             sb.AppendLine($"{clock.Elapsed.TotalSeconds:0} s");
             string rootDir = System.IO.Directory.GetParent(Application.dataPath).FullName;
             System.IO.File.WriteAllText(System.IO.Path.Combine(rootDir, "city_junction_steps.txt"), sb.ToString());
