@@ -3462,8 +3462,8 @@ namespace PSXRacing.LifeSim
             y -= 52f;
             bool openToday = Inspection.OpenToday(S, car);
             MenuKit.Button(body,
-                away ? "CANNOT INSPECT — IT IS AT " + CarWhere.ShopName(place)
-                : openToday ? "CONTINUE INSPECTION" : "INSPECT (TAKES A TIME SLOT)",
+                away ? "CAN'T INSPECT: NOT HERE"
+                : openToday ? "CONTINUE INSPECTION" : "INSPECT (1 TIME SLOT)",
                 new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 44f),
                 away ? (UnityEngine.Events.UnityAction)null : () =>
                 {
@@ -3504,7 +3504,9 @@ namespace PSXRacing.LifeSim
                     () => { tab = "market"; Rebuild(); }, 16);
             y -= 56f;
 
-            // The notes, under the buttons, where a long list may scroll.
+            // The notes, under the buttons, where a long list may scroll. What to
+            // do about a dead engine comes before how it died.
+            EngineJobBlock(car, ref y, away);
             if (car.engineBlown)
             {
                 MenuKit.Label(body, "It let go out on the road. Nothing else on this car " +
@@ -3524,7 +3526,6 @@ namespace PSXRacing.LifeSim
                 y -= 6f;
             }
             CoolingLine(car, ref y);
-            EngineJobBlock(car, ref y, away);
             var fuel = FuelProfile.For(car);
             MenuKit.Label(body,
                 fuel.tankGal.ToString("0.0") + " gal   ·   " + Mathf.RoundToInt(fuel.mpg) +
@@ -3581,7 +3582,7 @@ namespace PSXRacing.LifeSim
         /// <summary>A condition bar small enough to sit beside the car.</summary>
         void CompactBar(string label, float value, float x, float w, ref float y, bool exact = false)
         {
-            const float NameW = 88f, ReadW = 86f;
+            const float NameW = 98f, ReadW = 86f;
             float trackW = Mathf.Min(300f, w - NameW - ReadW - 8f);
             MenuKit.Label(body, label, 14, new Vector2(0.5f, 1f), new Vector2(x, y),
                 TextAnchor.MiddleLeft, MenuKit.Dim, NameW, height: 20f);
@@ -4978,7 +4979,7 @@ namespace PSXRacing.LifeSim
             string fx = FaultCatalog.EffectSummary(f.id);
             MenuKit.Label(body, "> " + f.label + (fx.Length > 0 ? "   (" + fx + ")" : ""), 16,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                f.severity >= 2f ? MenuKit.Bad : MenuKit.Accent, 820f);
+                f.severity >= 2f ? MenuKit.Bad : MenuKit.Accent, 820f, height: 24f);
             y -= 26f;
 
             float btnW = Mathf.Min(258f, (ColW - 16f) / 3f);

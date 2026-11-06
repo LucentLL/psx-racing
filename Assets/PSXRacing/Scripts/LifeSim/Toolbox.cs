@@ -43,7 +43,7 @@ namespace PSXRacing.LifeSim
         {
             new Tool { id = Jack, name = "FLOOR JACK + STANDS", price = 0, starter = true,
                        blurb = "Gets the car off the ground. Enough to look, not enough to see." },
-            new Tool { id = Lamp, name = "LED SHOP LAMP", price = 35,
+            new Tool { id = Lamp, name = "SHOP LAMP", price = 35,
                        blurb = "+5% on every check. Cheapest advantage in the garage." },
             new Tool { id = Impact, name = "IMPACT WRENCH", price = 180,
                        blurb = "Wheels off in seconds — pads and rotors become checkable." },
