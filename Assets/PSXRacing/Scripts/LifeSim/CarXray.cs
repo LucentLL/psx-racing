@@ -205,7 +205,10 @@ namespace PSXRacing.LifeSim
                 highlight.HasValue && highlight.Value == c ? lit
                 : (isDone != null && isDone(c)) ? done : idle;
 
-            float F = wb * 0.5f, R = -wb * 0.5f;
+            // The outline is centred on the body and the axles sit off its middle
+            // by the shell's own overhangs, as CarViewer places them.
+            float axleZ = shell != null ? -fit.P(shell.colliderCenter).z : 0f;
+            float F = axleZ + wb * 0.5f, R = axleZ - wb * 0.5f;
             float halfTrack = track * 0.5f;
             float diffS = L * 0.055f;
             float barOff = L * 0.045f;

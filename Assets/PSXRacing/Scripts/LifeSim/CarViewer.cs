@@ -118,7 +118,7 @@ namespace PSXRacing.LifeSim
         float yaw = 215f;
         float spin = 20f;   // degrees/second of idle rotation
         float distance = 7.4f;
-        float carLength = 4.1f;
+        float carLength = 4.1f, carWidth = 1.72f, carHeight = 1.3f;
 
         /// <summary>The turntable, or a pinned view for the inspection: the car
         /// from straight above with the nose right (the x-ray's frame), or
@@ -220,10 +220,13 @@ namespace PSXRacing.LifeSim
             var tris = new System.Collections.Generic.List<int>();
             void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector2 t)
             {
+                // Both faces, each with its own vertices: shared ones would have
+                // their normals cancel to zero, which normalizes to NaN in the shader.
                 int n = v.Count;
                 v.Add(a); v.Add(b); v.Add(c); v.Add(d);
-                for (int k = 0; k < 4; k++) uv.Add(t);
-                tris.AddRange(new[] { n, n + 1, n + 2, n, n + 2, n + 3, n, n + 2, n + 1, n, n + 3, n + 2 });
+                v.Add(a); v.Add(b); v.Add(c); v.Add(d);
+                for (int k = 0; k < 8; k++) uv.Add(t);
+                tris.AddRange(new[] { n, n + 1, n + 2, n, n + 2, n + 3, n + 4, n + 6, n + 5, n + 4, n + 7, n + 6 });
             }
             for (int i = 0; i < Sides; i++)
             {
@@ -488,6 +491,8 @@ namespace PSXRacing.LifeSim
             // version used a flat 1.85x and put a 4 m car in the middle of an
             // otherwise empty panel.
             carLength = Mathf.Max(def.colliderSize.z * fit.sz, 3f);
+            carWidth = def.colliderSize.x * fit.sx;
+            carHeight = def.bodyMesh.bounds.max.y + fit.bodyY;
             distance = carLength * 1.22f;
             PlaceCamera();
             if (wheelsOff) SetWheelsOff(true);
@@ -509,8 +514,10 @@ namespace PSXRacing.LifeSim
                 // Level with the hubs, far enough that the whole car fills the
                 // panel's width.
                 cam.orthographic = false;
-                var hubs = rig.position + Vector3.up * 0.55f;
-                float back = carLength * 0.56f / (Mathf.Tan(17f * Mathf.Deg2Rad) * Mathf.Max(poseAspect, 1f));
+                var hubs = rig.position + Vector3.up * Mathf.Max(0.55f, carHeight * 0.5f);
+                // Measured to the near side, which is what runs out of the frame.
+                float tan = Mathf.Tan(17f * Mathf.Deg2Rad);
+                float back = carWidth * 0.55f + Mathf.Max(carLength * 0.56f / (tan * Mathf.Max(poseAspect, 1f)), carHeight * 0.56f / tan);
                 cam.transform.position = hubs + new Vector3(0f, 0.1f, -Mathf.Max(back, 2f));
                 cam.transform.rotation = Quaternion.LookRotation(hubs - cam.transform.position, Vector3.up);
                 return;
