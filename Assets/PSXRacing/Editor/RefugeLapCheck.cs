@@ -176,7 +176,30 @@ namespace PSXRacing.EditorTools
                 if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = false;
             var hits = carGo.AddComponent<RefugeLapHits>();
             RefugeLapCheck.Line($"refuge pairs drawn: {LineModel.Refuges.Count / 2}");
+            RefugeLapCheck.Line($"branch drops (PSX_CITY_BRANCHDROP {(LineModel.BranchDropOn ? (LineModel.BranchDropAll ? "all" : "scoped") : "off")}): {LineModel.BranchDropFound} found, {LineModel.BranchDropHeld} held to the node: {string.Join("; ", LineModel.BranchDropLog)}");
             foreach (var run in Runs()) yield return Lap(run, map, car, rb, carGo, hits);
+            // (wedlane 11-06) PSX_LAP_GRID "x:z:y:half:step;...": the top collider surface in the
+            // world the laps drove (cm against y; '=' Roads, 'g' Ground, 'B' Barriers, 'X' other)
+            foreach (var gs in (System.Environment.GetEnvironmentVariable("PSX_LAP_GRID") ?? "").Split(';', '|'))
+            {
+                var gf = gs.Split(':'); var ci = System.Globalization.CultureInfo.InvariantCulture;
+                if (gf.Length != 5) continue;
+                float gx = float.Parse(gf[0], ci), gz = float.Parse(gf[1], ci), gy = float.Parse(gf[2], ci), gh = float.Parse(gf[3], ci), gst = float.Parse(gf[4], ci);
+                int gn = Mathf.Clamp(Mathf.RoundToInt(gh / gst), 1, 80);
+                RefugeLapCheck.Line($"=== WORLD GRID round ({gx:0.00},{gz:0.00}) y {gy:0.000}, {gst:0.00} m cells, x {gx - gn * gst:0.00}.. left to right, z north at the top");
+                for (int j = gn; j >= -gn; j--)
+                {
+                    var row = new System.Text.StringBuilder($"  {gz + j * gst,9:0.00} ");
+                    for (int i = -gn; i <= gn; i++)
+                    {
+                        float y = TopAt(new Vector2(gx + i * gst, gz + j * gst), out string wn, gy + 3f);
+                        if (float.IsNaN(y)) { row.Append("     ."); continue; }
+                        char c = wn == "Roads" ? '=' : wn == "Ground" ? 'g' : wn == "Barriers" ? 'B' : 'X';
+                        row.Append(string.Format(ci, "{0,5:+0;-0}{1}", (y - gy) * 100f, c));
+                    }
+                    RefugeLapCheck.Line(row.ToString());
+                }
+            }
             finished = true;
             RefugeLapCheck.Finish();
         }
@@ -682,10 +705,11 @@ namespace PSXRacing.EditorTools
             {
                 // every wheel's track on the colliders, every 0.1 m
                 float worstStep = 0f; string stepAt = ""; int stepsOver = 0;
+                Vector2 stepQ = default, stepP = default; float stepFrom = 0f;   // (wedlane 11-06) the worst step's two samples
                 for (int k = 0; k < 4; k++)
                 {
                     var tr = tracks[k]; var trY = tracksY[k];
-                    float prevY = float.NaN, carry = 0f;
+                    float prevY = float.NaN, carry = 0f; Vector2 prevQ = default;
                     for (int j = 1; j < tr.Count; j++)
                     {
                         var a = tr[j - 1]; var b = tr[j]; float L = Vector2.Distance(a, b);
@@ -699,15 +723,26 @@ namespace PSXRacing.EditorTools
                             {
                                 float st = Mathf.Abs(y - prevY);
                                 if (st > 0.03f) stepsOver++;
-                                if (st > worstStep) { worstStep = st; stepAt = $"wheel {k} ({q.x:0.00},{q.y:0.00}) {(y > prevY ? "up" : "down")} onto {what}"; }
+                                if (st > worstStep) { worstStep = st; stepAt = $"wheel {k} ({q.x:0.00},{q.y:0.00}) {(y > prevY ? "up" : "down")} onto {what}"; stepQ = q; stepP = prevQ; stepFrom = Mathf.Lerp(trY[j - 1], trY[j], u / L) + 1.5f; }
                             }
-                            prevY = y;
+                            prevY = y; prevQ = q;
                         }
                         carry = u - L;
                     }
                 }
                 RefugeLapCheck.Line($"  MOVE {run.name} @{run.kmh:0} km/h lane {run.lane}{(run.off != 0f ? $" {run.off:+0.0;-0.0} m" : "")}: top {vTop * 3.6f:0} km/h; any wheel off {anyOff:0.00} s{(offWhere.Length > 0 ? " (first at " + offWhere + ")" : "")}, all four off {allOff:0.00} s; max vertical speed over the grade {maxVy:0.00} m/s at {vyWhere}; largest step under a wheel {worstStep:0.000} m at {stepAt} ({stepsOver} readings over 3 cm)");
                 if (traceSb != null) RefugeLapCheck.Line($"  TRACE {run.name}:{traceSb}");
+                // (wedlane 11-06) PSX_LAP_STEPHITS=1: every collider under the worst step's two samples, from the ray's start down
+                if (worstStep > 0.03f && System.Environment.GetEnvironmentVariable("PSX_LAP_STEPHITS") == "1")
+                    foreach (var sq in new[] { stepP, stepQ })
+                    {
+                        var hsb = new System.Text.StringBuilder($"  STEPHITS {run.name} ({sq.x:0.000},{sq.y:0.000}) from y {stepFrom:0.000}:");
+                        foreach (var h in Physics.RaycastAll(new Vector3(sq.x, stepFrom, sq.y), Vector3.down, stepFrom + 400f, ~0, QueryTriggerInteraction.Ignore))
+                            hsb.Append($" [{h.collider.name}{(h.collider.transform.parent != null ? "@" + h.collider.transform.parent.name : "")} y {h.point.y:0.000} n {h.normal.y:0.00} tri {h.triangleIndex}{(h.collider.attachedRigidbody != null ? " body" : "")}]");
+                        foreach (var h in Physics.RaycastAll(new Vector3(sq.x, 400f, sq.y), Vector3.down, 800f, ~0, QueryTriggerInteraction.Ignore))
+                            hsb.Append($" {{400: {h.collider.name}{(h.collider.transform.parent != null ? "@" + h.collider.transform.parent.name : "")} y {h.point.y:0.000}}}");
+                        RefugeLapCheck.Line(hsb.ToString());
+                    }
                 if (offLog.Length > 0) RefugeLapCheck.Line($"  WHEEL OFF {run.name}:{offLog}");
                 if (diag)
                     for (int k = 0; k < 2; k++)

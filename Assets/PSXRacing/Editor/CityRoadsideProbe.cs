@@ -63,6 +63,8 @@ namespace PSXRacing.EditorTools
                         if (f.Length == 6 && f[0] == "grid")
                             SurfaceGrid(map, trims, buildings, float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv),
                                         float.Parse(f[4], inv), float.Parse(f[5], inv), sb);
+                        else if (f.Length == 4 && f[0] == "tris")
+                            ColliderTris(map, trims, buildings, float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv), sb);
                         else if (f.Length == 4 && f[0] == "pt")
                             LaneProbe(map, trims, buildings, -1, 0f, 0, new Vector3(float.Parse(f[1], inv), float.Parse(f[3], inv), float.Parse(f[2], inv)), sb);
                         else if (f.Length == 5 && f[0] == "fan")
@@ -383,6 +385,69 @@ namespace PSXRacing.EditorTools
                 foreach (var m in built) if (m != null) Object.DestroyImmediate(m);
                 Object.DestroyImmediate(root);
             }
+        }
+
+        /// <summary>(wedlane 11-06) "tris:x:z:r": every collider triangle of the
+        /// 3x3 tiles round a world point that comes within r of it in plan, in
+        /// world mm - for a crack between two surfaces' edges.</summary>
+        static void ColliderTris(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                                 float x, float z, float r, StringBuilder sb)
+        {
+            int tx = Mathf.FloorToInt(x / CityMeshes.TileSize), tz = Mathf.FloorToInt(z / CityMeshes.TileSize);
+            var root = new GameObject("~tris");
+            var built = new List<Mesh>();
+            try
+            {
+                for (int pass = 0; pass < 2; pass++)
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            bool centre = dx == 0 && dz == 0;
+                            if (centre != (pass == 1)) continue;
+                            var tm = CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz);
+                            var go = new GameObject($"tile_{tx + dx}_{tz + dz}");
+                            go.transform.SetParent(root.transform, false);
+                            go.transform.position = tm.origin;
+                            built.AddRange(CityWorld.Attach(go, tm, null));
+                        }
+                var org = new Vector3(tx * CityMeshes.TileSize, 0f, tz * CityMeshes.TileSize);
+                sb.AppendLine($"=== TRIS within {r:0.00} m of ({x:0.000},{z:0.000}), coordinates against tile {tx},{tz}'s corner ({org.x:0},{org.z:0})");
+                var q = new Vector2(x - org.x, z - org.z);
+                foreach (var mc in root.GetComponentsInChildren<MeshCollider>())
+                {
+                    var m = mc.sharedMesh; if (m == null) continue;
+                    var v = m.vertices; var t = m.triangles; var off = mc.transform.position - org; off.y = mc.transform.position.y;
+                    for (int i = 0; i + 2 < t.Length; i += 3)
+                    {
+                        Vector3 a = v[t[i]] + off, b = v[t[i + 1]] + off, c = v[t[i + 2]] + off;
+                        if (SegDist(q, a, b) > r && SegDist(q, b, c) > r && SegDist(q, c, a) > r && !InTri(q, a, b, c)) continue;
+                        var nrm = Vector3.Cross(b - a, c - a);
+                        sb.AppendLine($"  {mc.transform.parent?.name}/{mc.name} tri {i / 3} ny {(nrm.sqrMagnitude > 0 ? nrm.normalized.y : 0f):+0.00;-0.00}: ({a.x:0.0000},{a.z:0.0000},{a.y:0.0000}) ({b.x:0.0000},{b.z:0.0000},{b.y:0.0000}) ({c.x:0.0000},{c.z:0.0000},{c.y:0.0000})");
+                    }
+                }
+                sb.AppendLine();
+            }
+            finally
+            {
+                foreach (var m in built) if (m != null) Object.DestroyImmediate(m);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        static float SegDist(Vector2 q, Vector3 a3, Vector3 b3)
+        {
+            var a = new Vector2(a3.x, a3.z); var b = new Vector2(b3.x, b3.z); var ab = b - a;
+            float t = ab.sqrMagnitude > 1e-12f ? Mathf.Clamp01(Vector2.Dot(q - a, ab) / ab.sqrMagnitude) : 0f;
+            return Vector2.Distance(q, a + ab * t);
+        }
+
+        static bool InTri(Vector2 q, Vector3 a, Vector3 b, Vector3 c)
+        {
+            float d1 = (q.x - b.x) * (a.z - b.z) - (a.x - b.x) * (q.y - b.z);
+            float d2 = (q.x - c.x) * (b.z - c.z) - (b.x - c.x) * (q.y - c.z);
+            float d3 = (q.x - a.x) * (c.z - a.z) - (c.x - a.x) * (q.y - a.z);
+            bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+            return !(neg && pos);
         }
 
         static void Probe(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,

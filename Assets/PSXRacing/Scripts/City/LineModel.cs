@@ -420,6 +420,7 @@ namespace PSXRacing.City
             foreach (var e in map.edges) e.lmEase = null;
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
+            BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear();
             TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
@@ -527,6 +528,8 @@ namespace PSXRacing.City
                         float shLen = Mathf.Max(FloorOf(N), dFix * ShiftRate(N));
                         PropagateShift(map, add, partner, N, n, shiftN, shLen, 0f, 0);
                         int wSide = -fixT * (wForward ? 1 : -1);
+                        // (wedlane 11-06) the lane leaves on the branch: W holds its width to the node
+                        if (BranchDropAt(map, add, partner, W, N, n, wSide)) { HeldJoins++; continue; }
                         float len = LengthFor(W, n, wSide, dMove, out bool fromTapr);
                         EasedJoins++; HeldJoins++; if (!fromTapr) EasedDefault++;
                         Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0);
@@ -572,6 +575,7 @@ namespace PSXRacing.City
                     if (Mathf.Abs(d) <= 0.005f) continue;
                     var W = d > 0f ? E : O; var N = d > 0f ? O : E;
                     int wSide = d > 0f ? eSide : oSide;
+                    if (BranchDropAt(map, add, partner, W, N, n, wSide)) continue;   // (wedlane 11-06)
                     float len = LengthFor(W, n, wSide, Mathf.Abs(d), out bool fromTapr);
                     if (len < 0.5f) { EaseSteps++; continue; }
                     EasedJoins++; if (!fromTapr) EasedDefault++;
@@ -1955,6 +1959,81 @@ namespace PSXRacing.City
         /// a step, so the class default eases it instead); otherwise the
         /// default: L = W S^2 / 60 to 40 mph, W S from 45 (MUTCD 6C-3), floors
         /// street 15, arterial 30, freeway 90 m.</summary>
+        // ------------------------------------------------------------------
+        //  THE LANE THAT LEAVES ON A BRANCH (wedlane 11-06; Weddington Road
+        //  southbound at n4263, 9819,20272: its right lane becomes the link
+        //  e3041 there). The exporter records such a drop as "full width at
+        //  the node", its side from the diverging branch (TAPR src 4, flag
+        //  2). At a mitred join LengthFor tapered it anyway, over the class
+        //  floor (30 m), so the lane narrowed away BEFORE the link began: the
+        //  last 15 m of e9409's right lane were verge, a right-lane car ran
+        //  its right wheels along the tapered edge, and the edge's column
+        //  overlap (run along the centre line, 7.4 deg off a tapered edge)
+        //  left a 0.3 mm hairline to the lattice 0.97 m down under that
+        //  wheel track. Now the wide arm keeps its width to the node and the
+        //  branch leaving on that side is shifted over onto the dropped lane
+        //  (its outer edge flush with the wide arm's, eased out over the
+        //  MUTCD shifting taper), as the through arm already is onto the
+        //  held lanes. A lane ADDED at a merge keeps the class floor taper as
+        //  before. PSX_CITY_BRANCHDROP=0: as before; =all: every drop the
+        //  rule finds (unchecked); PSX_CITY_BRANCHDROP_SHIFT=0: the wide arm
+        //  held but the branch left where it was (the outer corner then
+        //  notches at the node).
+        // ------------------------------------------------------------------
+        public static bool BranchDropOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP") != "0";
+        /// <summary>The rule finds 53 such drops city-wide; some are freeway
+        /// exits whose ramp would move 4-14 m. Until each is checked it runs
+        /// only at the nodes it was driven at, on the export it was checked
+        /// on; PSX_CITY_BRANCHDROP=all runs it everywhere (unchecked).</summary>
+        public static bool BranchDropAll = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP") == "all";
+        public static bool BranchDropShiftOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP_SHIFT") != "0";
+        const uint BranchDropGraph = 0xb2aa3453u;
+        static readonly HashSet<int> BranchDropNodes = new HashSet<int> { 4263 };
+        /// <summary>For the report: the drops the rule finds city-wide, those
+        /// held to the node (in scope), and each one's "node wide-edge ->
+        /// branch shift".</summary>
+        public static int BranchDropHeld, BranchDropFound;
+        public static readonly List<string> BranchDropLog = new List<string>();
+
+        /// <summary>True (and the branch shifted) where the wide arm W, coming
+        /// INTO <paramref name="n"/> in travel, loses its <paramref name="wSide"/>
+        /// lane to a one-way branch leaving n on that side, by the exporter's
+        /// record (src 4: the side from that branch; flag 2: full width at the
+        /// node).</summary>
+        static bool BranchDropAt(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
+                                 CityMap.Edge W, CityMap.Edge N, int n, int wSide)
+        {
+            if (!BranchDropOn || taprAt == null || !W.oneway || W.b != n || W.a == W.b) return false;
+            if (!taprAt.TryGetValue(TaprKey(W.index, 1, wSide > 0 ? 0 : 1), out int ti)) return false;
+            var t = taprMap.tapr[ti];
+            if (t.src != 4 || (t.flags & 2) == 0 || (t.side == 0 ? 1 : -1) != wSide) return false;
+            // W runs a->b into n: its plus side is travel's left
+            var tw = W.TangentAt(W.length);
+            var toSide = new Vector2(-tw.y, tw.x) * wSide;
+            CityMap.Edge br = null; float bestSide = 0f;
+            foreach (int oi in map.nodeEdges[n])
+            {
+                var o = map.edges[oi];
+                if (o == W || o == N || !o.oneway || o.a != n || o.a == o.b) continue;
+                var to = o.TangentAt(0f);
+                float fwd = Vector2.Dot(to, tw), sd = Vector2.Dot(to, toSide);
+                if (fwd < 0.5f || sd <= bestSide) continue;   // diverging ahead, on the dropped lane's side
+                bestSide = sd; br = o;
+            }
+            if (br == null) return false;
+            // the branch's frame is travel's too (a->b out of n): flush its outer edge with W's
+            float wOut = wSide > 0 ? W.lmPlus : W.lmMinus, bOut = wSide > 0 ? br.lmPlus : br.lmMinus;
+            float shift = wSide * (wOut - bOut);
+            bool inScope = BranchDropAll || (map.graphHash == BranchDropGraph && BranchDropNodes.Contains(n));
+            BranchDropFound++;
+            if (BranchDropLog.Count < 400) BranchDropLog.Add($"n{n} e{W.index} -> e{br.index} {shift:+0.00;-0.00}{(inScope ? " HELD" : "")}");
+            if (!inScope) return false;
+            if (BranchDropShiftOn && Mathf.Abs(shift) >= 0.02f)
+                PropagateShift(map, add, partner, br, n, shift, Mathf.Max(FloorOf(br), Mathf.Abs(shift) * ShiftRate(br)), 0f, 0);
+            BranchDropHeld++;
+            return true;
+        }
+
         static float LengthFor(CityMap.Edge w, int node, int side, float dw, out bool fromTapr)
         {
             fromTapr = false;
