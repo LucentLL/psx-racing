@@ -3035,9 +3035,11 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The pages about one owned car. The car stays on screen on
         /// all of them, in a panel the page scrolls beside (owner, 2026-11-06).</summary>
+        /// The tuning pages' rows need the full width, so on a 4:3 window they
+        /// go without it: a value hidden under the panel can't be adjusted.
         static bool CarSidePage(string t) =>
-            t == "carmenu" || t == "specs" || t == "tune" || t == "setup" ||
-            t == "toolbox" || t == "service" || t == "paint";
+            t == "carmenu" || t == "specs" || t == "toolbox" || t == "service" || t == "paint" ||
+            ((t == "tune" || t == "setup") && MenuKit.HalfWidth >= 600f);
 
         void BuildCarSide()
         {
@@ -3061,7 +3063,7 @@ namespace PSXRacing.LifeSim
                     TextAnchor.MiddleCenter, MenuKit.Dim, w, height: 22f);
                 y -= 24f;
             }
-            MenuKit.Label(carSide, Clip(car.displayName, Mathf.FloorToInt(w / 10f)), 16, new Vector2(0.5f, 1f),
+            MenuKit.Label(carSide, Clip(car.displayName, Mathf.FloorToInt(w / 12f)), 16, new Vector2(0.5f, 1f),
                 new Vector2(left, y), TextAnchor.MiddleLeft, MenuKit.Accent, w, height: 24f, bold: true);
             y -= 28f;
             void Row(string name, string value)
