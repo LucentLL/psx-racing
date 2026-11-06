@@ -25,6 +25,11 @@ namespace PSXRacing.City
         enum Step { Wait, Go, StopSign, Light, LightWait, Park, Pump, Done }
 
         const float StopKmh = 1.5f;
+        /// <summary>How long under StopKmh is a stop. A brake pedal held down
+        /// selects reverse 0.4 s after 2 km/h (CarController.UpdateGearbox's
+        /// reverseHold) and is back over StopKmh about 0.5 s after going under it,
+        /// so anything longer never credits a driver who keeps the pedal down.</summary>
+        const float StopDwell = 0.3f;
         const float LessonSeconds = 9f;
         const float PraiseSeconds = 4f;
         const float DoneSeconds = 12f;
@@ -154,7 +159,7 @@ namespace PSXRacing.City
                         "A COOLANT LEAK MAKES AN ENGINE OVERHEAT\nCHECK COOLANT UNDER MY CARS BEFORE A DRIVE");
                     if (Time.time >= nextScan) { nextScan = Time.time + 2f; AimAtLot(); }
                     stoppedFor = InBay() && Kmh < StopKmh ? stoppedFor + Time.deltaTime : 0f;
-                    if (stoppedFor > 1f)
+                    if (stoppedFor > StopDwell)
                         Enter(Step.Pump, "PARKED. BUMPS AND HITS WEAR THE CAR, AND WORN PARTS FAIL\nDELMAR AUTO FIXES THEM");
                     break;
 
@@ -165,11 +170,27 @@ namespace PSXRacing.City
                     if (OnFoot.ForecourtMode.OnFoot) sawOnFoot = true;
                     else if (sawOnFoot)
                         Enter(Step.Done);
+                    else
+                    {
+                        // A full tank is offered no pump and Charlotte has no other
+                        // door (ForecourtMode.TickInCar), and the lesson just above
+                        // offers the truck that fills it: stopped here is enough.
+                        var tank = mode.player.GetComponent<FuelTank>();
+                        bool full = GasPump.AtPump && tank != null && tank.percent >= 99.5f;
+                        stoppedFor = full && Kmh < StopKmh ? stoppedFor + Time.deltaTime : 0f;
+                        if (stoppedFor > StopDwell) Enter(Step.Done);
+                    }
                     break;
 
                 case Step.Done:
                     Prompt = "THAT IS THE BASICS. THE ROAD IS YOURS\nTO GO HOME, OPEN THE MENU AND PICK END DRIVE";
-                    if (Time.time - stepAt > DoneSeconds) { Clear(); enabled = false; }
+                    if (Time.time - stepAt > DoneSeconds)
+                    {
+                        // Over for good: RESTART reloads this scene with the handoff as it stands.
+                        RaceHandoff.FirstDrive = false;
+                        Clear();
+                        enabled = false;
+                    }
                     break;
             }
         }
@@ -239,11 +260,15 @@ namespace PSXRacing.City
             // A light is only a stop while it says stop.
             if (signal && CitySignals.AspectNow(line) == CitySignals.Aspect.Green) stopped = false;
             stoppedFor = stopped ? stoppedFor + Time.deltaTime : 0f;
-            return stoppedFor > 0.5f;
+            return stoppedFor > StopDwell;
         }
 
         void AimAtNearest(bool signal, string label)
         {
+            // A line in hand: it stays the target until it is stopped at or crossed.
+            // The scan below skips anything within 40 m, so it would send the map's
+            // line off to the next junction while the car is braking for this one.
+            if (haveLine) { SetTarget(true, line.at, label); return; }
             if (Time.time < nextScan) return;
             nextScan = Time.time + 2f;
             if (junctions == null) return;
