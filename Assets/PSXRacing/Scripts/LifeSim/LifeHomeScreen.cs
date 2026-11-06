@@ -1290,7 +1290,12 @@ namespace PSXRacing.LifeSim
             // The turntable is off unless the page about to be built asks for
             // it. Rebuild destroys the RawImage that was showing it, so a viewer
             // left running would be a camera rendering into nothing.
-            if (viewer != null) viewer.SetVisible(false);
+            if (viewer != null)
+            {
+                viewer.SetVisible(false);
+                viewer.SetPose(CarViewer.ViewPose.Showroom);
+            }
+            if (tab != "inspectfocus") inspectWheelsOff = false;
 
             switch (tab)
             {
@@ -3828,6 +3833,21 @@ namespace PSXRacing.LifeSim
             var spec = car != null ? CarCatalog.Get(car.specId) : null;
             var shell = spec != null ? CarModelLibrary.LoadFor(spec)
                                      : CarModelLibrary.Load(CarModelLibrary.Default);
+            // THE CAR ITSELF under the x-ray (owner, 2026-11-06): from above and
+            // half see-through, or side-on for the wheels and brakes.
+            bool side = highlight == Inspection.Comp.Wheels;
+            if (car != null && shell != null)
+            {
+                Viewer.SetPose(side ? CarViewer.ViewPose.Side : CarViewer.ViewPose.Plan, panelW / panelH,
+                               panelH / CarXray.PlanScale(panelW, panelH, spec, shell));
+                Viewer.ShowOwned(car, spec);
+                if (Viewer.Shown != null)
+                {
+                    var raw = Viewer.AttachTo(panel);
+                    if (side) { Viewer.SetWheelsOff(inspectWheelsOff); return; }
+                    raw.color = new Color(1f, 1f, 1f, 0.55f);
+                }
+            }
             CarXray.Draw(panel, panelW, panelH, spec, shell, highlight,
                          car == null ? (System.Func<Inspection.Comp, bool>)null
                                      : c => Inspection.ComponentDone(S, car, c));
@@ -4054,6 +4074,8 @@ namespace PSXRacing.LifeSim
 
         /// <summary>One component, zoomed: what you can reach, and what you find
         /// when you reach it.</summary>
+        bool inspectWheelsOff;
+
         void BuildInspectFocus()
         {
             var car = InspectTarget;
@@ -4083,6 +4105,15 @@ namespace PSXRacing.LifeSim
                 new Color(0f, 0f, 0f, 0.55f));
             DrawChassis(panel, diagW, diagH, inspectComp, car);
             y -= diagH + 10f;
+
+            // The wheels come off to show the brakes behind them.
+            if (inspectComp == Inspection.Comp.Wheels)
+            {
+                MenuKit.Button(body, inspectWheelsOff ? "PUT THE WHEELS BACK ON" : "TAKE THE WHEELS OFF",
+                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 340f), 42f),
+                    () => { inspectWheelsOff = !inspectWheelsOff; Rebuild(); }, 16);
+                y -= 50f;
+            }
 
             MenuKit.Para(body, Inspection.AccessLine(S, car, inspectComp), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), out float accessH, TextAnchor.UpperLeft,

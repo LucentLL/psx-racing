@@ -165,6 +165,16 @@ namespace PSXRacing.LifeSim
         /// <param name="panelW">Panel size in canvas units — the scale is solved
         /// from this rather than measured, because a rect created this frame has
         /// not resolved yet.</param>
+        /// <summary>The panel units per metre <see cref="Draw"/> uses, so a plan
+        /// view of the model underneath can be framed to match.</summary>
+        public static float PlanScale(float panelW, float panelH, CarSpec spec, CarModelDef shell)
+        {
+            var fit = CarModelLibrary.Fit(shell, spec);
+            float L = shell != null ? shell.colliderSize.z * fit.sz : 4.1f;
+            float W = shell != null ? shell.colliderSize.x * fit.sx : 1.72f;
+            return Mathf.Min(panelW * 0.94f / L, panelH * 0.94f / W);
+        }
+
         public static void Draw(RectTransform panel, float panelW, float panelH,
                                 CarSpec spec, CarModelDef shell,
                                 Inspection.Comp? highlight,
