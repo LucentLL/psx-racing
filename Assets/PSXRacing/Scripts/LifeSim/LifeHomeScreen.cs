@@ -1050,8 +1050,17 @@ namespace PSXRacing.LifeSim
             // to know which tab is next, which is the only way to get this right
             // in a menu that is assembled and navigated in the same frame.
             MenuNav.Row(tabButtons.ConvertAll(b => (Selectable)b));
-            tabCaption = MenuKit.Label(bar, "", MenuKit.MinLabelSize, new Vector2(0.5f, 0.5f),
-                Vector2.zero, TextAnchor.MiddleCenter, MenuKit.Accent, 600f, height: 30f, bold: true);
+            // The one way out below the base level, where the strip stands: it
+            // never scrolls away, which a button at the foot of a page does.
+            tabBack = MenuKit.Button(bar, "<  BACK", new Vector2(0f, 0.5f), new Vector2(100f, 0f),
+                new Vector2(180f, TabH - 14f), () =>
+                {
+                    FlushSetup();
+                    tab = ParentTab();
+                    buyTarget = null;
+                    walkAwayArmed = null;
+                    Rebuild();
+                }, MenuKit.MinLabelSize);
         }
 
         /// <summary>
@@ -1279,19 +1288,14 @@ namespace PSXRacing.LifeSim
             string root = RootTab();
             // ONE LEVEL DOWN THE TABS ARE GONE (owner, 2026-11-06): a stray press
             // on one, or on a shoulder, threw away the layers the player had
-            // gone down. The strip says where they are until BACK reaches the
-            // base page again.
+            // gone down. The strip holds BACK until that reaches the base page.
             bool deep = System.Array.IndexOf(tabIds, tab) < 0;
             for (int i = 0; i < tabButtons.Count && i < tabIds.Length; i++)
             {
                 tabButtons[i].gameObject.SetActive(!deep);
                 MenuKit.MarkTab(tabButtons[i], tabIds[i] == root);
             }
-            if (tabCaption != null)
-            {
-                tabCaption.gameObject.SetActive(deep);
-                tabCaption.text = TabCaption(root);
-            }
+            if (tabBack != null) tabBack.gameObject.SetActive(deep);
         }
 
         /// <summary>
@@ -3511,10 +3515,6 @@ namespace PSXRacing.LifeSim
             y -= 52f;
 
             y -= 6f;
-            MenuKit.Button(body, "< BACK TO MY CARS", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, 280f), y), new Vector2(280f, 44f),
-                () => { tab = "garage"; Rebuild(); }, 16);
-            y -= 54f;
         }
 
         /// <summary>
@@ -5605,7 +5605,7 @@ namespace PSXRacing.LifeSim
 
         // =================== the settings menu (2026-10-04) ===================
         SettingsPanel settings;
-        Text tabCaption;
+        Button tabBack;
 
         /// <summary>
         /// One door to the settings menu. It was a row of its page names, and
@@ -7775,9 +7775,6 @@ namespace PSXRacing.LifeSim
         {
             MenuKit.Label(body, title, MenuKit.Head, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Accent, ColW - 160f, height: 40f, bold: true);
-            MenuKit.Button(body, "<  BACK", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColRight(ColR, 140f), y - 1f), new Vector2(140f, 38f),
-                () => { tab = ParentTab(); buyTarget = null; Rebuild(); }, 16);
             y -= 48f;
         }
 

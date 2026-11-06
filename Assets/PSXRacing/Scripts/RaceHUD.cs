@@ -626,19 +626,40 @@ namespace PSXRacing
         void Awake()
         {
             HudOnTop.Apply(gameObject);
-            // NOTHING OVER THE LINE OF SIGHT, even an important notice (owner,
-            // 2026-11-06). In code rather than the builder so that every scene
-            // already baked moves too: the banner hangs under the timer, in the
-            // sky or the cabin roof, and grows downwards.
             if (centerText != null)
             {
                 var rt = centerText.rectTransform;
-                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
-                rt.anchoredPosition = new Vector2(0f, -44f);
-                rt.sizeDelta = new Vector2(640f, 100f);
-                centerText.alignment = TextAnchor.UpperCenter;
-                centerText.fontSize = Mathf.Min(centerText.fontSize, 16);
+                midAnchor = rt.anchorMin; midPivot = rt.pivot; midPos = rt.anchoredPosition;
+                midSize = rt.sizeDelta; midAlign = centerText.alignment; midFont = centerText.fontSize;
             }
+            PlaceBanner(false);
+        }
+
+        Vector2 midAnchor, midPivot, midPos, midSize;
+        TextAnchor midAlign;
+        int midFont;
+        bool bannerPlaced, bannerMid;
+
+        /// <summary>
+        /// NOTHING OVER THE LINE OF SIGHT, even an important notice (owner,
+        /// 2026-11-06). In code rather than the builder so that every scene
+        /// already baked moves too: a notice hangs under the timer, in the sky
+        /// or the cabin roof, and grows downwards. The lights and the finish
+        /// sheet share this Text and keep the middle: nobody is driving yet, or
+        /// any more.
+        /// </summary>
+        void PlaceBanner(bool mid)
+        {
+            if (centerText == null || (bannerPlaced && bannerMid == mid)) return;
+            bannerPlaced = true;
+            bannerMid = mid;
+            var rt = centerText.rectTransform;
+            rt.anchorMin = rt.anchorMax = mid ? midAnchor : new Vector2(0.5f, 1f);
+            rt.pivot = mid ? midPivot : new Vector2(0.5f, 1f);
+            rt.anchoredPosition = mid ? midPos : new Vector2(0f, -44f);
+            rt.sizeDelta = mid ? midSize : new Vector2(640f, 100f);
+            centerText.alignment = mid ? midAlign : TextAnchor.UpperCenter;
+            centerText.fontSize = mid ? midFont : Mathf.Min(midFont, 16);
         }
 
         /// <summary>Whether the last frame was drawn for somebody on foot.
@@ -890,6 +911,7 @@ namespace PSXRacing
                              ReplayOffer(touch);
                     break;
             }
+            PlaceBanner(rm.State != RaceManager.RaceState.Racing || center == "GO!");
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
         }
 
