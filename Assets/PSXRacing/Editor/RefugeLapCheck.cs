@@ -101,7 +101,9 @@ namespace PSXRacing.EditorTools
 
     public class RefugeLapRunner : MonoBehaviour
     {
-        const float HangSeconds = 1800f, RunTimeout = 240f, KerbM = 0.08f, OffM = 2.5f;
+        // (launch 7) PSX_LAP_HANG: the whole session's limit in seconds (1800 by default; a long move list needs more)
+        static readonly float HangSeconds = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_LAP_HANG"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float hs) && hs > 0f ? hs : 1800f;
+        const float RunTimeout = 240f, KerbM = 0.08f, OffM = 2.5f;
         float bornAt; bool finished;
         void Awake() { bornAt = Time.realtimeSinceStartup; DontDestroyOnLoad(gameObject); }
         void Update()
@@ -378,20 +380,78 @@ namespace PSXRacing.EditorTools
                 acc += Vector2.Distance(raw[k - 1], raw[k]);
                 if (acc >= 2f) { pts.Add(raw[k]); acc = 0f; }
             }
+            // (launch 7) option mountX@A: a straight-on curb mount - the plan is a
+            // line square across the route at metre A, from 6 m left of the lane
+            // line to X m right of it, so the car meets the right curb head on
+            foreach (var o in (run.opt ?? "").Split(','))
+            {
+                if (!o.StartsWith("mount")) continue;
+                var mp = o.Substring(5).Split('@');
+                var ciM = System.Globalization.CultureInfo.InvariantCulture;
+                if ((mp.Length != 2 && mp.Length != 3) || !float.TryParse(mp[0], System.Globalization.NumberStyles.Float, ciM, out float mx)
+                    || !float.TryParse(mp[1], System.Globalization.NumberStyles.Float, ciM, out float ma) || pts.Count < 3) continue;
+                int mi = Mathf.Clamp(Mathf.RoundToInt(ma / 2f), 1, pts.Count - 2);
+                var P = pts[mi]; var T = (pts[mi + 1] - pts[mi - 1]).normalized; var R = new Vector2(T.y, -T.x);
+                var line = new List<Vector2>();
+                float ms = mp.Length == 3 && float.TryParse(mp[2], System.Globalization.NumberStyles.Float, ciM, out float msv) ? -Mathf.Abs(msv) : -6f;   // mountX@A@S: start S m left
+                for (float d = ms; d <= mx + 1e-3f; d += 0.5f) line.Add(P + R * d);
+                RefugeLapCheck.Line($"  mount: square across the route at {P.x:0.0},{P.y:0.0}, {ms:0.0} .. +{mx:0.0} m right of the lane line");
+                return line;
+            }
             return pts;
         }
 
-        /// <summary>The top collider surface under a plan point (no body's), or NaN.</summary>
-        static float TopAt(Vector2 q, out string what)
+        /// <summary>The top collider surface under a plan point (no body's) no
+        /// higher than <paramref name="below"/>, or NaN. (launch 7) Under a deck
+        /// the top surface is the deck, not what the wheel stands on: the wheel
+        /// tracks pass the wheel's own height + 1.5 m.</summary>
+        static float TopAt(Vector2 q, out string what, float below = float.PositiveInfinity)
         {
             what = "";
             float best = float.NaN;
-            foreach (var h in Physics.RaycastAll(new Vector3(q.x, 400f, q.y), Vector3.down, 800f, ~0, QueryTriggerInteraction.Ignore))
+            // the ray starts at the limit: RaycastAll reports one hit per collider,
+            // and a tile's one Roads collider holds both the deck and the street under it
+            float top = Mathf.Min(400f, below);
+            foreach (var h in Physics.RaycastAll(new Vector3(q.x, top, q.y), Vector3.down, top + 400f, ~0, QueryTriggerInteraction.Ignore))
             {
                 if (h.collider.attachedRigidbody != null) continue;
                 if (float.IsNaN(best) || h.point.y > best) { best = h.point.y; what = h.collider.name; }
             }
             return best;
+        }
+
+        /// <summary>(launch 7) Every route point's road surface by continuity:
+        /// from the first point with one road under it, each point takes the
+        /// road hit nearest its neighbour's height (a street under a deck keeps
+        /// the street). Points on drawn ground keep theirs. The count changed.</summary>
+        static int RouteOnItsOwnRoad(List<Vector2> plan, Vector3[] w)
+        {
+            int n = plan.Count, seed = -1, changed = 0;
+            var cand = new List<float>[n];
+            for (int i = 0; i < n; i++)
+            {
+                cand[i] = new List<float>(2);
+                // ray after ray down through every road surface (RaycastAll gives one
+                // hit per collider, and one tile's Roads collider holds deck and street)
+                float from = 400f;
+                for (int g = 0; g < 8 && Physics.Raycast(new Vector3(plan[i].x, from, plan[i].y), Vector3.down, out var h, from + 400f, 1 << 8, QueryTriggerInteraction.Ignore); g++)
+                {
+                    if (h.collider.attachedRigidbody == null) cand[i].Add(h.point.y);
+                    from = h.point.y - 0.05f;
+                }
+                if (seed < 0 && cand[i].Count == 1) seed = i;
+            }
+            if (seed < 0) return 0;
+            void Pick(int i, float near)
+            {
+                if (cand[i].Count < 2) return;
+                float best = cand[i][0];
+                foreach (float y in cand[i]) if (Mathf.Abs(y - near) < Mathf.Abs(best - near)) best = y;
+                if (Mathf.Abs(best - w[i].y) > 0.01f) { changed++; w[i].y = best; }
+            }
+            for (int i = seed + 1; i < n; i++) Pick(i, w[i - 1].y);
+            for (int i = seed - 1; i >= 0; i--) Pick(i, w[i + 1].y);
+            return changed;
         }
 
         IEnumerator Lap(RunDef run, CityMap map, CarController car, Rigidbody rb, GameObject carGo, RefugeLapHits hits)
@@ -447,8 +507,9 @@ namespace PSXRacing.EditorTools
                 {
                     if (onRoad[i]) continue;
                     bool near = false;
-                    for (int j = Mathf.Max(0, i - 6); j <= Mathf.Min(plan.Count - 1, i + 6) && !near; j++) near = onRoad[j];
-                    if (near && Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var g, 800f, ~0, QueryTriggerInteraction.Ignore) && g.collider.name == "Ground") { w[i] = g.point; offRoad++; }
+                    int win = (run.opt ?? "").Contains("mount") ? plan.Count : 6;   // a mount's line runs on across the walk and its backing
+                    for (int j = Mathf.Max(0, i - win); j <= Mathf.Min(plan.Count - 1, i + win) && !near; j++) near = onRoad[j];
+                    if (near && Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var g, 800f, ~0, QueryTriggerInteraction.Ignore) && (g.collider.name == "Ground" || win > 6)) { w[i] = g.point; offRoad++; }
                     else all = false;
                 }
                 if (all && offRoad > 0) RefugeLapCheck.Line($"  NOTE {run.name}: {offRoad} of {plan.Count} route points stand on drawn Ground, not a road (the line crosses a nose or verge)");
@@ -466,6 +527,12 @@ namespace PSXRacing.EditorTools
                 RefugeLapCheck.Fail($"{run.name}: the route's ground never streamed in (point {miss} of {plan.Count} at {(miss >= 0 ? plan[miss].x.ToString("0.0") + "," + plan[miss].y.ToString("0.0") : "?")}{what})");
                 yield break;
             }
+            // (launch 7) a street under a deck: the route stands on the road it
+            // drives, not the top one (the top road over N Tryon at the I-277
+            // ramps is the freeway deck 9 m up - the route's grade, the AI's
+            // path and the body's vertical speed all read the deck there)
+            int kept = RouteOnItsOwnRoad(plan, w);
+            if (kept > 0) RefugeLapCheck.Line($"  NOTE {run.name}: {kept} of {plan.Count} route points stand under another road; the route keeps its own (the nearest road surface to its neighbour's)");
             car.TeleportTo(w[0] + Vector3.up * 0.5f, Quaternion.LookRotation(new Vector3(w[2].x - w[0].x, 0f, w[2].z - w[0].z).normalized, Vector3.up));
             for (int i = 0; i < 20; i++) yield return null;
             rb.isKinematic = false;
@@ -493,6 +560,25 @@ namespace PSXRacing.EditorTools
             ai.path = tp; ai.skill = 0.95f;
             if (run.kmh > 0f) ai.speedCapMps = run.kmh / 3.6f;
             var tracks = new List<Vector2>[4]; for (int k = 0; k < 4; k++) tracks[k] = new List<Vector2>(512);
+            var tracksY = new List<float>[4]; for (int k = 0; k < 4; k++) tracksY[k] = new List<float>(512);
+            // (launch 7) option diag: each wheel-off tick also logs the surface under
+            // each corner over the path's height there, and the run ends with both
+            // front wheels' surface profiles over the path (where it changes)
+            bool diag = System.Array.IndexOf((run.opt ?? "").Split(','), "diag") >= 0;
+            float PathY(Vector2 q)
+            {
+                int bj = 0; float bd = float.MaxValue;
+                for (int i = 0; i + 1 < n; i++)
+                {
+                    Vector2 a = new Vector2(even[i].x, even[i].z), b = new Vector2(even[i + 1].x, even[i + 1].z);
+                    var ab2 = b - a; float u = Mathf.Clamp01(Vector2.Dot(q - a, ab2) / Mathf.Max(1e-4f, ab2.sqrMagnitude));
+                    float d = (q - (a + ab2 * u)).sqrMagnitude;
+                    if (d < bd) { bd = d; bj = i; }
+                }
+                Vector2 A1 = new Vector2(even[bj].x, even[bj].z), B1 = new Vector2(even[bj + 1].x, even[bj + 1].z);
+                float u1 = Mathf.Clamp01(Vector2.Dot(q - A1, B1 - A1) / Mathf.Max(1e-4f, (B1 - A1).sqrMagnitude));
+                return Mathf.Lerp(even[bj].y, even[bj + 1].y, u1);
+            }
             float anyOff = 0f, allOff = 0f, maxVy = 0f, vTop = 0f; string offWhere = "", vyWhere = "";
             var offLog = new System.Text.StringBuilder();
             hits.hits.Clear();
@@ -542,13 +628,13 @@ namespace PSXRacing.EditorTools
                     {
                         if (car.wheelContacts[k].grounded) grounded++;
                         var wp = carGo.transform.TransformPoint(corners[k]);
-                        tracks[k].Add(new Vector2(wp.x, wp.z));
+                        tracks[k].Add(new Vector2(wp.x, wp.z)); tracksY[k].Add(wp.y);
                     }
                     if (grounded < 4 && t > 1f)
                     {
                         anyOff += Time.fixedDeltaTime; if (offWhere.Length == 0) offWhere = $"{p.x:0.0},{p.z:0.0}";
                         // round 5: which wheel, how fast, how hard the car was turning, what lock
-                        if (offLog.Length < 1400)
+                        if (offLog.Length < (diag ? 6000 : 1400))
                         {
                             string ws = ""; for (int k = 0; k < 4; k++) if (!car.wheelContacts[k].grounded)
                             {
@@ -559,7 +645,15 @@ namespace PSXRacing.EditorTools
                                 ws += $"{k}({wn} {yq - yo:+0.000;-0.000})";
                             }
                             var vh = rb.linearVelocity; vh.y = 0f;
-                            offLog.Append($" [t{t:0.00} w{ws} {p.x:0.0},{p.z:0.0} {vh.magnitude * 3.6f:0}kmh lat{rb.angularVelocity.y * vh.magnitude / 9.81f:0.00}g steer{car.SteerAngleDeg:0}deg roll{Vector3.SignedAngle(Vector3.up, carGo.transform.up, carGo.transform.forward):0.0}]");
+                            string under = "";
+                            if (diag)
+                                for (int k = 0; k < 4; k++)
+                                {
+                                    var wp = carGo.transform.TransformPoint(corners[k]); var q2 = new Vector2(wp.x, wp.z);
+                                    float sy = TopAt(q2, out string wn, wp.y + 1.5f);
+                                    under += $" h{k}{(float.IsNaN(sy) ? "none" : (sy - PathY(q2)).ToString("+0.00;-0.00"))}{(wn.Length > 0 ? wn.Substring(0, 1) : "")}";
+                                }
+                            offLog.Append($" [t{t:0.00} w{ws} {p.x:0.0},{p.z:0.0} {vh.magnitude * 3.6f:0}kmh lat{rb.angularVelocity.y * vh.magnitude / 9.81f:0.00}g steer{car.SteerAngleDeg:0}deg roll{Vector3.SignedAngle(Vector3.up, carGo.transform.up, carGo.transform.forward):0.0} vy{rb.linearVelocity.y:+0.00;-0.00}{under}]");
                         }
                     }
                     if (grounded == 0 && t > 1f) allOff += Time.fixedDeltaTime;
@@ -575,7 +669,7 @@ namespace PSXRacing.EditorTools
                 slowFor = rb.linearVelocity.magnitude < 0.5f ? slowFor + Time.fixedDeltaTime : 0f;
                 if (ai.LastRecoveryWhy != lastWhy) { recov++; lastWhy = ai.LastRecoveryWhy; RefugeLapCheck.Line($"  {run.name}: RECOVERED at wp {idx}: {lastWhy}"); }
                 if (slowFor > 8f) { stuck = true; break; }
-                if (bestI >= n - 3) { done = true; break; }
+                if (bestI >= ((run.opt ?? "").Contains("mount") ? n - 1 : n - 3)) { done = true; break; }   // a mount runs its line to the end
             }
             Object.Destroy(ai); Object.Destroy(go);
             if (steerTs != null) Object.DestroyImmediate(steerTs.gameObject);
@@ -590,7 +684,7 @@ namespace PSXRacing.EditorTools
                 float worstStep = 0f; string stepAt = ""; int stepsOver = 0;
                 for (int k = 0; k < 4; k++)
                 {
-                    var tr = tracks[k];
+                    var tr = tracks[k]; var trY = tracksY[k];
                     float prevY = float.NaN, carry = 0f;
                     for (int j = 1; j < tr.Count; j++)
                     {
@@ -600,7 +694,7 @@ namespace PSXRacing.EditorTools
                         for (; u < L; u += 0.1f)
                         {
                             var q = Vector2.Lerp(a, b, u / L);
-                            float y = TopAt(q, out string what);
+                            float y = TopAt(q, out string what, Mathf.Lerp(trY[j - 1], trY[j], u / L) + 1.5f);
                             if (!float.IsNaN(y) && !float.IsNaN(prevY))
                             {
                                 float st = Mathf.Abs(y - prevY);
@@ -615,6 +709,25 @@ namespace PSXRacing.EditorTools
                 RefugeLapCheck.Line($"  MOVE {run.name} @{run.kmh:0} km/h lane {run.lane}{(run.off != 0f ? $" {run.off:+0.0;-0.0} m" : "")}: top {vTop * 3.6f:0} km/h; any wheel off {anyOff:0.00} s{(offWhere.Length > 0 ? " (first at " + offWhere + ")" : "")}, all four off {allOff:0.00} s; max vertical speed over the grade {maxVy:0.00} m/s at {vyWhere}; largest step under a wheel {worstStep:0.000} m at {stepAt} ({stepsOver} readings over 3 cm)");
                 if (traceSb != null) RefugeLapCheck.Line($"  TRACE {run.name}:{traceSb}");
                 if (offLog.Length > 0) RefugeLapCheck.Line($"  WHEEL OFF {run.name}:{offLog}");
+                if (diag)
+                    for (int k = 0; k < 2; k++)
+                    {
+                        // metres along the wheel's track: surface over the path (cm) and collider, where it changes 2 cm+
+                        var tr = tracks[k]; var trY = tracksY[k];
+                        var sb = new System.Text.StringBuilder($"  PROFILE {run.name} wheel {k}:");
+                        float along = 0f, nextAt = 0f, last = float.NaN; string lastW = "";
+                        for (int j = 1; j < tr.Count && sb.Length < 6000; j++)
+                        {
+                            along += Vector2.Distance(tr[j - 1], tr[j]);
+                            if (along < nextAt) continue;
+                            nextAt = along + 0.25f;
+                            float sy = TopAt(tr[j], out string wn, trY[j] + 1.5f);
+                            float h = float.IsNaN(sy) ? float.NaN : sy - PathY(tr[j]);
+                            if (!float.IsNaN(h) && (float.IsNaN(last) || Mathf.Abs(h - last) >= 0.02f || wn != lastW))
+                            { sb.Append($" {along:0.0}:{h * 100f:0}{(wn != lastW ? wn.Substring(0, Mathf.Min(1, wn.Length)) : "")}"); last = h; lastW = wn; }
+                        }
+                        RefugeLapCheck.Line(sb.ToString());
+                    }
                 if (!done || stuck || hits.hits.Count > 0 || allOff > 0f || anyOff > 0.05f || worstStep > 0.03f) RefugeLapCheck.Fail($"{run.name}: not clean");
             }
             else if (!done || stuck || offs > 0 || kerbs > 0 || hits.hits.Count > 0 || recov > 0) RefugeLapCheck.Fail($"{run.name}: not clean");
