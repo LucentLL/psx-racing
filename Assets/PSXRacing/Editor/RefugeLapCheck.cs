@@ -518,7 +518,14 @@ namespace PSXRacing.EditorTools
                         // round 5: which wheel, how fast, how hard the car was turning, what lock
                         if (offLog.Length < 1400)
                         {
-                            string ws = ""; for (int k = 0; k < 4; k++) if (!car.wheelContacts[k].grounded) ws += k;
+                            string ws = ""; for (int k = 0; k < 4; k++) if (!car.wheelContacts[k].grounded)
+                            {
+                                // (launch-queens 11-05) what stands under the lifted wheel, and
+                                // the surface under its axle partner
+                                var wq = carGo.transform.TransformPoint(corners[k]); var wo = carGo.transform.TransformPoint(corners[k ^ 1]);
+                                float yq = TopAt(new Vector2(wq.x, wq.z), out string wn), yo = TopAt(new Vector2(wo.x, wo.z), out _);
+                                ws += $"{k}({wn} {yq - yo:+0.000;-0.000})";
+                            }
                             var vh = rb.linearVelocity; vh.y = 0f;
                             offLog.Append($" [t{t:0.00} w{ws} {p.x:0.0},{p.z:0.0} {vh.magnitude * 3.6f:0}kmh lat{rb.angularVelocity.y * vh.magnitude / 9.81f:0.00}g steer{car.SteerAngleDeg:0}deg roll{Vector3.SignedAngle(Vector3.up, carGo.transform.up, carGo.transform.forward):0.0}]");
                         }

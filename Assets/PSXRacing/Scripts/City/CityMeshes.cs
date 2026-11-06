@@ -10517,6 +10517,8 @@ namespace PSXRacing.City
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k1.edge}";
                     if (!k1.arc && bt1 >= 1f) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
                 }
+                // (launch spot 11-05 night) a median's nose here filled at grade (Junctions NoseFill)
+                if (!onStructure && NoseFillNode(map, n)) NoseFill(map, trims, tm, n, corners);
             }
         }
 

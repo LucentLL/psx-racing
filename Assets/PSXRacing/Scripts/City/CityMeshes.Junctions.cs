@@ -1225,5 +1225,130 @@ namespace PSXRacing.City
             var m = own + other;
             return m.sqrMagnitude > 1e-4f ? m.normalized : own;
         }
+
+        // ---- a median's nose filled at grade (launch spot, 11-05 night) ------
+
+        /// <summary>
+        /// LAUNCH SPOT, QUEENS ROAD AT QUEENS ROAD EAST / SHARON ROAD (n1230,
+        /// 11-05 night). Queens Road's two carriageways (e7276 SB in, e11230 NB
+        /// out) meet at the junction with a wide grass median between them. Its
+        /// nose - from the fan's curb return back to where the wide-median grass
+        /// (CurbMedian) begins, 4-5 m up each ribbon - was the bare lattice,
+        /// 15-19 cm under the pavement round it: the fan's chord verge and the
+        /// ribbons' median verges fall to it, and the grass's ray stops at the
+        /// fan. A U-turn round the nose put the inside wheels into the hole
+        /// (RL off 0.28 s at 50 km/h, the car rolling 7 deg). Here the nose is
+        /// one sheet of grass at the edges' grade (an inch down, the verge's
+        /// lip): the fan's ring round the nose, each carriageway's median edge
+        /// <see cref="NoseFillUpM"/> back from its drawn end (tucked
+        /// <see cref="NoseFillUnderM"/> under it), heights from the pavement it
+        /// meets, so it slopes from one carriageway to the other as the grass
+        /// behind it does. Keyed to the export it was checked on.
+        /// PSX_CITY_NOSE_FILL=0: as before.
+        /// </summary>
+        public static bool NoseFillOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_FILL") != "0";
+        const uint NoseFillGraph = 0xb2aa3453u;
+        static readonly int[] NoseFillNodes = { 1230 };
+        const float NoseFillUpM = 6f, NoseFillStepM = 1f, NoseFillUnderM = 0.15f;
+        /// <summary>For the probes: noses filled and their triangles since the reset.</summary>
+        public static int NoseFills, NoseFillTris;
+
+        static bool NoseFillNode(CityMap map, int n)
+        {
+            if (!NoseFillOn || map.graphHash != NoseFillGraph) return false;
+            foreach (int k in NoseFillNodes) if (k == n) return true;
+            return false;
+        }
+
+        static readonly List<Vector3> noseRing = new List<Vector3>(48), noseTry = new List<Vector3>(48);
+
+        static void NoseFill(CityMap map, Trims trims, TileMeshes tm, int n, List<FanCorner> corners)
+        {
+            // the carriageway in (A, ending here) and out (B, starting here)
+            CityMap.Edge A = null, B = null;
+            foreach (int i in map.nodeEdges[n])
+                foreach (int j in map.nodeEdges[n])
+                {
+                    var a = map.edges[i]; var b = map.edges[j];
+                    if (a == b || !SameRoad(a, b) || !a.oneway || !b.oneway || a.a == a.b || b.a == b.b) continue;
+                    if (a.b == n && b.a == n) { A = a; B = b; }
+                }
+            if (A == null) return;
+            // the fan's ring from A's median corner round the nose to B's: no mouth between
+            var o = tm.origin;
+            int N = corners.Count;
+            noseRing.Clear();
+            // (the ring runs anticlockwise: A to B, or B to A and read back)
+            for (int pass = 0; pass < 2; pass++)
+            {
+                var from = pass == 0 ? A : B; var to = pass == 0 ? B : A;
+                for (int i = 0; i < N; i++)
+                {
+                    if (corners[i].edge != from.index) continue;
+                    noseTry.Clear(); noseTry.Add(corners[i].pos + o);
+                    int j = i; bool ok = false;
+                    for (int step = 0; step < N; step++)
+                    {
+                        if (corners[j].mouthNext) break;
+                        j = (j + 1) % N; noseTry.Add(corners[j].pos + o);
+                        if (corners[j].edge != to.index) continue;
+                        while (!corners[j].mouthNext && corners[(j + 1) % N].edge == to.index && noseTry.Count <= N) { j = (j + 1) % N; noseTry.Add(corners[j].pos + o); }
+                        ok = true; break;
+                    }
+                    if (!ok || noseTry.Count <= noseRing.Count) continue;
+                    if (pass == 1) noseTry.Reverse();
+                    noseRing.Clear(); noseRing.AddRange(noseTry);
+                }
+            }
+            if (noseRing.Count < 2) return;
+            // the outline: A's median edge down to its drawn end, the ring, B's up from its own
+            var poly = new List<Vector3>(noseRing.Count + 32);
+            float sA = A.length - trims.atB[A.index], sB = trims.atA[B.index];
+            Vector3 EdgeAt(CityMap.Edge e, float s)
+            {
+                LineModel.Extents(e, s, out _, out float eP);
+                var left = LineModel.SectionLeft(e, s);
+                var p = e.PointAt(s) + left * (eP - NoseFillUnderM);
+                return new Vector3(p.x, e.YAt(s), p.y);
+            }
+            for (float d = NoseFillUpM; d > 0.05f; d -= NoseFillStepM) poly.Add(EdgeAt(A, Mathf.Max(0f, sA - d)));
+            poly.AddRange(noseRing);
+            for (float d = NoseFillStepM; d <= NoseFillUpM + 1e-3f; d += NoseFillStepM) poly.Add(EdgeAt(B, Mathf.Min(B.length, sB + d)));
+            for (int i = 0; i < poly.Count; i++) { var v = poly[i]; v.y -= RoadsideRules.EdgeDropM; poly[i] = v; }
+            for (int i = poly.Count - 1; i > 0; i--)
+                if (new Vector2(poly[i].x - poly[i - 1].x, poly[i].z - poly[i - 1].z).sqrMagnitude < 0.01f) poly.RemoveAt(i);
+            if (poly.Count < 3) return;
+            // ear clipping in plan
+            var idx = new List<int>(poly.Count);
+            for (int i = 0; i < poly.Count; i++) idx.Add(i);
+            float area = 0f;
+            for (int i = 0; i < poly.Count; i++) { var p = poly[i]; var q = poly[(i + 1) % poly.Count]; area += p.x * q.z - q.x * p.z; }
+            float sgn = area >= 0f ? 1f : -1f;
+            float Cross(Vector3 a, Vector3 b, Vector3 c) => ((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)) * sgn;
+            bool Inside(Vector3 p, Vector3 a, Vector3 b, Vector3 c) => Cross(a, b, p) > 0f && Cross(b, c, p) > 0f && Cross(c, a, p) > 0f;
+            string tagWas = groundTag;
+            if (groundLog != null) groundTag = $"nose fill node {n} e{A.index}/e{B.index}";
+            int guard = poly.Count * poly.Count, tris = 0;
+            while (idx.Count > 3 && guard-- > 0)
+            {
+                bool cut = false;
+                for (int k = 0; k < idx.Count; k++)
+                {
+                    int ia = idx[(k + idx.Count - 1) % idx.Count], ib = idx[k], ic = idx[(k + 1) % idx.Count];
+                    Vector3 a = poly[ia], b = poly[ib], c = poly[ic];
+                    if (Cross(a, b, c) <= 1e-5f) continue;
+                    bool ear = true;
+                    foreach (int m in idx)
+                        if (m != ia && m != ib && m != ic && Inside(poly[m], a, b, c)) { ear = false; break; }
+                    if (!ear) continue;
+                    FillTri(map, tm, a, b, c); tris++;
+                    idx.RemoveAt(k); cut = true; break;
+                }
+                if (!cut) break;
+            }
+            if (idx.Count == 3) { FillTri(map, tm, poly[idx[0]], poly[idx[1]], poly[idx[2]]); tris++; }
+            groundTag = tagWas;
+            NoseFills++; NoseFillTris += tris;
+        }
     }
 }
