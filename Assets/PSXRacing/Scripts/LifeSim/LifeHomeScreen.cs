@@ -3275,7 +3275,17 @@ namespace PSXRacing.LifeSim
                     "matters until there is an engine in it.", MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 800f, height: 22f);
-                y -= 30f;
+                y -= 24f;
+                // WHY, for a player who is not a car guy: the chain the engine
+                // recorded on the way to letting go (EngineTemp.Story).
+                if (!string.IsNullOrEmpty(car.engineStory))
+                    foreach (var line in car.engineStory.Split('\n'))
+                    {
+                        MenuKit.Label(body, line, MenuKit.Tiny, new Vector2(0.5f, 1f),
+                            new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, height: 22f);
+                        y -= 22f;
+                    }
+                y -= 6f;
             }
             else DrawBar("ENGINE", car.engine, ref y);
             DrawBar("COOLING", CoolingModel.Health(car), ref y);

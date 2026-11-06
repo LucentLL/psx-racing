@@ -394,6 +394,9 @@ namespace PSXRacing.LifeSim
         /// rebuilds it or fits another (see <see cref="LifeRules.EngineJobs"/>).
         /// </summary>
         public bool engineBlown;
+        /// <summary>How the engine came to let go, one line per step (from
+        /// <see cref="EngineTemp.Story"/>), for the garage page.</summary>
+        public string engineStory;
         /// <summary>The livery this car has been RESPRAYED into, by baked
         /// name, or empty for "however it left the factory". A NAME rather
         /// than an index into CarModelDef.skinMaterials, because that array is
