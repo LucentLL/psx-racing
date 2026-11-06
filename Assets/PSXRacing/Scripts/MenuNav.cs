@@ -537,6 +537,13 @@ namespace PSXRacing
             // layout the build frame queued, so these rects are resolved.
             var scroll = cur.GetComponentInParent<ScrollRect>();
             if (scroll != null) EnsureVisible(scroll, cur.GetComponent<RectTransform>());
+            else
+            {
+                // On the fixed strip above the page: show the page's top, or a
+                // pad has no way to read the heading it has just passed.
+                scroll = cur.transform.root.GetComponentInChildren<ScrollRect>();
+                if (scroll != null) scroll.verticalNormalizedPosition = 1f;
+            }
         }
 
         /// <summary>
@@ -596,6 +603,22 @@ namespace PSXRacing
             float want = current;
             if (top - Pad < current) want = top - Pad;
             else if (bottom + Pad > current + viewH) want = bottom + Pad - viewH;
+
+            // THE FIRST AND LAST CONTROLS TAKE THE PAGE TO ITS ENDS. A pad only
+            // scrolls by moving to a control, so words above the first one or
+            // below the last could never be brought back into view (owner: "I
+            // can't move to the top of a car's Parts + Tuning menu").
+            bool above = false, below = false;
+            foreach (var s in content.GetComponentsInChildren<Selectable>(false))
+            {
+                if (!s.IsInteractable() || s.transform == target) continue;
+                float y = content.InverseTransformPoint(
+                    s.transform.TransformPoint(((RectTransform)s.transform).rect.center)).y;
+                if (y > local.y + target.rect.height * 0.5f) above = true;
+                else if (y < local.y - target.rect.height * 0.5f) below = true;
+            }
+            if (!above) want = 0f;
+            else if (!below) want = scrollable;
 
             want = Mathf.Clamp(want, 0f, scrollable);
             scroll.verticalNormalizedPosition = 1f - want / scrollable;
