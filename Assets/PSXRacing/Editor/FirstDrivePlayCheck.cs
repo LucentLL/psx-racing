@@ -219,7 +219,12 @@ namespace PSXRacing.EditorTools
         static void Page(Camera cam, RenderTexture rt, (string name, int w, int h) size, string label, Transform page)
         {
             LifeHomePreview.ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
+            var rows = MenuNav.Collect(page);
+            if (MenuNav.RectsResolved(rows)) MenuNav.Grid(rows); else Line("  rects unresolved at " + size.name);
             Line("  " + label + "/" + size.name + " nav " + Reach(page));
+            string Cap(Selectable x) { if (x == null) return "-"; var t = x.GetComponentInChildren<Text>(); return t != null ? t.text : x.name; }
+            foreach (var r in rows)
+                Line("    " + Cap(r) + ": up " + Cap(r.navigation.selectOnUp) + ", down " + Cap(r.navigation.selectOnDown) + ", left " + Cap(r.navigation.selectOnLeft) + ", right " + Cap(r.navigation.selectOnRight));
             foreach (var t in page.GetComponentsInChildren<Text>())
             {
                 var gs = t.GetGenerationSettings(t.rectTransform.rect.size);
@@ -362,6 +367,87 @@ namespace PSXRacing.EditorTools
                 yield return Frames(3);
                 Check(Named(ask, "YES") != null && Named(ask, "GO BACK") == null, "  GO BACK -> the first page again", Sel());
             }
+            ask = null;
+            ask = wiz.transform.Find("License");
+            Keyboard kbd = null;
+            try { kbd = InputSystem.AddDevice<Keyboard>(); } catch (Exception e) { Note("no virtual keyboard: " + e.Message); }
+            for (int round = 0; round < 4; round++)
+            {
+                Note("  BACK round " + round);
+                var yes = Named(ask, "YES"); var no = Named(ask, "NO"); var bk = Named(ask, "<  BACK");
+                Check(yes != null && no != null && bk != null && bk.isActiveAndEnabled && bk.interactable, "  YES, NO and BACK alive", FirstDrivePlayCheck.Reach(ask));
+                if (bk == null) yield break;
+                if (round != 3)
+                {
+                    Check(yes.navigation.selectOnDown == bk && no.navigation.selectOnDown == bk, "  down from YES and NO reaches BACK");
+                    Check(bk.navigation.selectOnUp == yes || bk.navigation.selectOnUp == no, "  up from BACK reaches YES or NO");
+                }
+                if (pad != null && round == 1)
+                {
+                    UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(bk.gameObject);
+                    yield return Press(GamepadButton.South);
+                    Note("  pad south on BACK -> License " + (wiz.transform.Find("License") != null));
+                    if (wiz.transform.Find("License") != null) bk.onClick.Invoke();
+                }
+                else bk.onClick.Invoke();
+                yield return Frames(3);
+                Check(wiz != null && wiz.transform.Find("License") == null, "  BACK returns to the name page");
+                var f2 = wiz.GetComponentInChildren<InputField>();
+                var nx = Named(wiz.transform, "NEXT: PICK A CAR");
+                Check(f2 != null && f2.text == "tester", "  the typed name is kept", f2 != null ? f2.text : "no field");
+                Check(nx != null && nx.isActiveAndEnabled && nx.interactable, "  NEXT is alive", Sel());
+                Check(!Sel().Contains("nothing") && !Sel().Contains("INACTIVE"), "  a pad has a selection on the name page", Sel());
+                Note("  name page: " + FirstDrivePlayCheck.Reach(wiz.transform));
+                Check(!LifeSimManager.HasSave, "  and still no career");
+                if (pad != null && round == 2)
+                {
+                    UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(nx.gameObject);
+                    yield return Press(GamepadButton.South);
+                    Note("  pad south on NEXT -> License " + (wiz.transform.Find("License") != null));
+                    if (wiz.transform.Find("License") == null) nx.onClick.Invoke();
+                }
+                else nx.onClick.Invoke();
+                // round 3: BACK in the frame the page was built, before its graph has settled
+                if (round != 2) yield return Frames(3);
+                ask = wiz.transform.Find("License");
+                Check(ask != null && Named(ask, "YES") != null && Named(ask, "<  BACK") != null, "  NEXT again: the license page with live buttons", Sel());
+                if (ask == null) yield break;
+            }
+            yield return Frames(4);
+            Check(Sel().Contains("YES") || Sel().Contains("NO") || Sel().Contains("BACK"), "  after the rounds the selection is on the page", Sel());
+            // BACK from the confirm page's flow
+            Named(ask, "YES").onClick.Invoke();
+            yield return Frames(3);
+            Check(Named(ask, "<  BACK") == null && Named(ask, "GO BACK") != null, "the confirm page has GO BACK, no BACK");
+            string conf = FirstDrivePlayCheck.Reach(ask);
+            if (pad != null)
+            {
+                yield return Press(GamepadButton.East);
+                Check(Named(ask, "GO BACK") != null, "B on the confirm page does nothing", conf + ", sel " + Sel());
+            }
+            if (kbd != null)
+            {
+                InputSystem.QueueStateEvent(kbd, new KeyboardState(Key.Escape)); yield return Frames(3);
+                InputSystem.QueueStateEvent(kbd, new KeyboardState()); yield return Frames(3);
+                Check(Named(ask, "GO BACK") != null, "Esc on the confirm page does nothing");
+            }
+            Named(ask, "GO BACK").onClick.Invoke();
+            yield return Frames(3);
+            Check(Named(ask, "YES") != null && Named(ask, "<  BACK") != null, "GO BACK: the first page, BACK included", Sel());
+            Named(ask, "<  BACK").onClick.Invoke();
+            yield return Frames(3);
+            Check(wiz.transform.Find("License") == null, "and its BACK reaches the name page");
+            Named(wiz.transform, "NEXT: PICK A CAR").onClick.Invoke();
+            yield return Frames(3);
+            ask = wiz.transform.Find("License");
+            Check(ask != null, "and NEXT the question");
+            if (kbd != null)
+            {
+                InputSystem.QueueStateEvent(kbd, new KeyboardState(Key.Escape)); yield return Frames(3);
+                InputSystem.QueueStateEvent(kbd, new KeyboardState()); yield return Frames(3);
+                Check(wiz != null && wiz.transform.Find("License") != null, "Esc on the first page does nothing");
+                InputSystem.RemoveDevice(kbd);
+            }
             if (pad != null)
             {
                 // B on the question. It has no cancel of its own: where does it land?
@@ -499,7 +585,7 @@ namespace PSXRacing.EditorTools
         static void Check(bool ok, string what, object got = null) => FirstDrivePlayCheck.Check(ok, what, got);
         static void Note(string s) => FirstDrivePlayCheck.Line(s);
         const BindingFlags Any = FirstDrivePlayCheck.Any;
-        const float HangSeconds = 1500f;
+        const float HangSeconds = 2700f;
         const int Mask = ~(1 << 2);
 
         float bornAt; bool finished;
@@ -654,7 +740,8 @@ namespace PSXRacing.EditorTools
             {
                 "YOUR FIRST DRIVE\nRIGHT TRIGGER TO GO, LEFT TRIGGER TO SLOW AND STOP",
                 "STOP AT THE STOP SIGN\nCOME TO A FULL STOP BEHIND THE LINE",
-                "FOLLOW THE LINE ON THE MAP\nTHE TOP OF THE SCREEN SAYS HOW FAR",
+                "FOLLOW THE LINE ON THE MAP\nTO QUIT THE LESSON, OPEN THE MENU AND PICK END DRIVE",
+                "YOU DID NOT PUMP ANY GAS\nGET BACK OUT AT THE PUMP AND FILL IT",
                 "WATCH THE TEMP GAUGE. IF TEMP BLINKS RED THE ENGINE IS OVERHEATING\nEASE OFF, OR IT WILL LET GO",
                 "A COOLANT LEAK MAKES AN ENGINE OVERHEAT\nCHECK COOLANT UNDER MY CARS BEFORE A DRIVE",
                 "PARKED. BUMPS AND HITS WEAR THE CAR, AND WORN PARTS FAIL\nDELMAR AUTO FIXES THEM",
@@ -665,10 +752,11 @@ namespace PSXRacing.EditorTools
             foreach (var s in lines)
             {
                 var g = new TextGenerator();
-                g.Populate(s, c.GetGenerationSettings(new Vector2(640f, 100f)));
-                var cs = c.canvas != null ? c.canvas.scaleFactor : 1f;
-                float h = g.rectExtents.height;
-                Note($"  fit: {g.lineCount} lines, {h:0} high of 100, font {c.fontSize}  \"{s.Replace("\n", " / ")}\"");
+                var gs = c.GetGenerationSettings(Vector2.zero);
+                float w = g.GetPreferredWidth(s, gs) / c.pixelsPerUnit;
+                float h = g.GetPreferredHeight(s, gs) / c.pixelsPerUnit;
+                bool fits = w <= 640f && h <= 100f;
+                Check(fits, $"fits the banner: {w:0} of 640 wide, {h:0} of 100 high, font {c.fontSize}, \"{s.Replace("\n", " / ")}\"");
             }
         }
 
@@ -899,6 +987,10 @@ namespace PSXRacing.EditorTools
             yield return null;
             yield return Fixed(5);
             TargetReport("StopSign, just entered");
+            Note($"  lesson card on screen: \"{hud.centerText.text.Replace("\n", " / ")}\"");
+            Shot("hud_stop_lesson_phone_wide", 1998, 891, false);
+            Shot("hud_stop_lesson_16x9", 1280, 720, false);
+            Shot("hud_stop_lesson_4x3", 1024, 768, false);
         }
 
         IEnumerator StopSignStep()
@@ -1327,69 +1419,7 @@ namespace PSXRacing.EditorTools
             if (pm2 != null) typeof(PauseMenu).GetMethod("CallFuelTruck", Any).Invoke(pm2, null);
             yield return Fixed(5);
             Note($"  after the truck: tank {tank.percent:0}, step {StepNow}");
-            // ---- 5. full tank at the pump (the truck the lesson advertises) ----
-            Note(" 5. a full tank at the pump (the truck was called)");
-            yield return Fresh();
-            yield return PassStop();
-            yield return PassLight();
-            if (StepNow != "Park") { Check(false, "reached Park for the pump cases", StepNow); yield break; }
-            yield return new WaitForSeconds(2.2f);
-            if (RowAt(FirstDrive.Target)) yield return ParkIn(targetLot, targetRow, report: false);
-            yield return WaitStep("Pump", 4f);
-            if (StepNow != "Pump") { Check(false, "reached Pump for the pump cases", StepNow); yield break; }
-            yield return new WaitForSeconds(2.2f);
-            tank.percent = 100f;
-            if (ParkAtPump(FirstDrive.Target, out _, out _, false))
-            {
-                yield return Settle(50);
-                yield return Fixed(10);
-                yield return null;
-                Note($"  full, at a pump: AtPump {GasPump.AtPump} OfferFuel {ForecourtMode.OfferFuel} OfferGetOut {ForecourtMode.OfferGetOut} hud \"{hud.centerText.text.Replace("\n", " / ")}\"");
-                yield return Press(GamepadButton.South);
-                float t0 = Time.time;
-                while (!ForecourtMode.OnFoot && Time.time - t0 < 4f) yield return null;
-                Check(ForecourtMode.OnFoot || StepNow != "Pump", "a full tank at a pump still has a way on", "onfoot " + ForecourtMode.OnFoot + ", step " + StepNow);
-                if (ForecourtMode.OnFoot)
-                {
-                    var walker = GameObject.Find("Walker");
-                    fm.StartCoroutine((IEnumerator)typeof(ForecourtMode).GetMethod("GetIn", Any).Invoke(fm, null));
-                    float t1 = Time.time;
-                    while (ForecourtMode.OnFoot && Time.time - t1 < 8f) yield return null;
-                }
-                yield return WaitStep("Done", 2f);
-                Note($"  step now {StepNow}");
-            }
-            // ---- 6. out and back with no gas ----
-            Note(" 6. at the pump, getting out and back in without pumping");
-            yield return Fresh();
-            yield return PassStop();
-            yield return PassLight();
-            if (StepNow == "Park")
-            {
-                yield return new WaitForSeconds(2.2f);
-                if (RowAt(FirstDrive.Target)) yield return ParkIn(targetLot, targetRow, report: false);
-                yield return WaitStep("Pump", 4f);
-                yield return new WaitForSeconds(2.2f);
-            }
-            if (StepNow == "Pump" && ParkAtPump(FirstDrive.Target, out _, out _, false))
-            {
-                tank.percent = 50f;
-                yield return Settle(50);
-                yield return Fixed(10);
-                yield return null;
-                yield return Press(GamepadButton.South);
-                float t0 = Time.time;
-                while (!ForecourtMode.OnFoot && Time.time - t0 < 4f) yield return null;
-                if (ForecourtMode.OnFoot)
-                {
-                    yield return new WaitForSeconds(1f);
-                    fm.StartCoroutine((IEnumerator)typeof(ForecourtMode).GetMethod("GetIn", Any).Invoke(fm, null));
-                    t0 = Time.time;
-                    while (ForecourtMode.OnFoot && Time.time - t0 < 8f) yield return null;
-                }
-                yield return WaitStep("Done", 2f);
-                Note($"  step {StepNow}, tank {tank.percent:0}");
-            }
+            yield return PumpCases();
             // ---- 7. RESTART RACE ----
             Note(" 7. RESTART RACE row, then END DRIVE, then Charlotte again");
             if (StepNow == "Done")
@@ -1562,6 +1592,200 @@ namespace PSXRacing.EditorTools
             }
             typeof(HudMinimap).GetField("solvedDest", Any)?.SetValue(mini, new Vector2(float.NaN, float.NaN));
             Note($"  gps sample, {n} road starts within 4 km of uptown: aim up the STOP's arm: route ends heading down it {along}, joins it from the side {side}, heading the wrong way {against}, no pick or route {none}, mean route {routeSum / Mathf.Max(1, along + side + against):0} m; old aim (junction centre): last leg carries the STOP {centreStop}, does not {centreNot}");
+        }
+
+        // ---- the pump step's rule ----
+        IEnumerator ToPump()
+        {
+            yield return Fresh();
+            yield return PassStop();
+            yield return PassLight();
+            if (StepNow != "Park") { Check(false, "reached Park", StepNow); yield break; }
+            yield return new WaitForSeconds(2.2f);
+            if (RowAt(FirstDrive.Target)) yield return ParkIn(targetLot, targetRow, report: false);
+            yield return WaitStep("Pump", 4f);
+            yield return new WaitForSeconds(2.2f);
+            Check(StepNow == "Pump", "reached Pump", StepNow);
+        }
+
+        bool lastAtPump;
+        IEnumerator StandAtPump(float pct)
+        {
+            lastAtPump = ParkAtPump(FirstDrive.Target, out _, out _, false);
+            Check(lastAtPump, "beside a pump");
+            if (pct >= 0f) tank.percent = pct;
+            yield return Settle(50);
+            yield return Fixed(10);
+            yield return null;
+            Note($"  at the pump, tank {tank.percent:0.0}: AtPump {GasPump.AtPump} OfferFuel {ForecourtMode.OfferFuel}, step {StepNow}, hud \"{hud.centerText.text.Replace("\n", " / ")}\"");
+        }
+
+        IEnumerator OutOfCar()
+        {
+            yield return Press(GamepadButton.South);
+            float t0 = Time.time;
+            while (!ForecourtMode.OnFoot && Time.time - t0 < 6f) yield return null;
+            Check(ForecourtMode.OnFoot, "pad south gets out", "tank " + tank.percent.ToString("0.0"));
+            yield return Fixed(5);
+            yield return null;
+        }
+
+        IEnumerator BackInCar()
+        {
+            var walker = GameObject.Find("Walker");
+            if (walker != null) yield return WalkTo(walker, car.transform.position, 2.4f);
+            yield return Fixed(10);
+            yield return null;
+            var it = walker != null ? walker.GetComponent<FootInteractor>() : null;
+            var c = it != null ? it.Current : null;
+            if (c != null && c.name == "CarTarget" && c.onUse != null) c.onUse();
+            else
+            {
+                Note("  (GetIn called: the walker did not face the car)");
+                fm.StartCoroutine((IEnumerator)typeof(ForecourtMode).GetMethod("GetIn", Any).Invoke(fm, null));
+            }
+            float t0 = Time.time;
+            while (ForecourtMode.OnFoot && Time.time - t0 < 8f) yield return null;
+            Check(!ForecourtMode.OnFoot, "back in the car");
+        }
+
+        // Walk to the nearest pump and press FILL UP; press it again after a while.
+        IEnumerator Pump(float seconds)
+        {
+            var walker = GameObject.Find("Walker");
+            if (walker == null) { Check(false, "a walker"); yield break; }
+            Transform claimed = null; float nb = 1e9f;
+            foreach (var gp in GasPump.All)
+            {
+                if (gp == null) continue;
+                float dd = (gp.transform.position - walker.transform.position).sqrMagnitude;
+                if (dd < nb) { nb = dd; claimed = gp.transform; }
+            }
+            if (claimed != null) yield return WalkTo(walker, claimed.position, 1.5f);
+            yield return Fixed(10);
+            yield return null;
+            var it = walker.GetComponent<FootInteractor>();
+            var cur = it != null ? it.Current : null;
+            float pct0 = tank.percent;
+            int money0 = Edition.HasCareer ? LifeSimManager.State.money : 0;
+            Note($"  at the nozzle: current {(cur != null ? cur.name + " action \"" + cur.action + "\" detail \"" + cur.detail + "\"" : "nothing")}");
+            if (cur == null || cur.onUse == null) yield break;
+            cur.onUse();
+            float t0 = Time.time; bool saw = false;
+            while (Time.time - t0 < seconds) { saw |= GasPump.Fuelling; yield return null; }
+            Note($"  pumped {seconds:0.0} s: Fuelling seen {saw}, tank {pct0:0.00} -> {tank.percent:0.00}, money {money0} -> {(Edition.HasCareer ? LifeSimManager.State.money : 0)}, gas prompt \"{GasPump.Prompt}\", FirstDrive.pumped {typeof(FirstDrive).GetField("pumped", Any).GetValue(fd)}");
+            if (GasPump.FillLatched) { cur.onUse(); yield return new WaitForSecondsRealtime(0.3f); }
+        }
+
+        IEnumerator SampleAfterIn(string what)
+        {
+            float t0 = Time.time;
+            foreach (float at in new[] { 0.1f, 0.5f, 1.5f, 3f, 5f })
+            {
+                while (Time.time - t0 < at) yield return null;
+                Note($"  {what} +{at:0.0} s: step {StepNow}, hud \"{hud.centerText.text.Replace("\n", " / ")}\", FirstDrive.Prompt \"{(FirstDrive.Prompt ?? "null").Replace("\n", " / ")}\", OfferFuel {ForecourtMode.OfferFuel}");
+            }
+        }
+
+        IEnumerator PumpCases()
+        {
+            var pm = FindFirstObjectByType<PauseMenu>();
+            var truck = typeof(PauseMenu).GetMethod("CallFuelTruck", Any);
+
+            Note(" 5a. out and back in without pumping, twice; then a real FILL UP");
+            yield return ToPump();
+            if (StepNow == "Pump")
+            {
+                yield return StandAtPump(50f);
+                for (int i = 0; i < 2; i++)
+                {
+                    yield return OutOfCar();
+                    yield return new WaitForSeconds(1f);
+                    yield return BackInCar();
+                    yield return SampleAfterIn("no gas, round " + i);
+                    Check(StepNow == "Pump", "out and back in with no gas stays on Pump", StepNow);
+                    Check(ForecourtMode.OfferFuel, "and the pump still offers the way out");
+                }
+                yield return OutOfCar();
+                yield return Pump(2.5f);
+                yield return BackInCar();
+                yield return WaitStep("Done", 2f);
+                Check(StepNow == "Done", "a real FILL UP then reaches Done", "tank " + tank.percent.ToString("0.0"));
+            }
+
+            Note(" 5b. the truck fills it on the way, then the pump");
+            yield return ToPump();
+            if (StepNow == "Pump" && pm != null)
+            {
+                tank.percent = 60f;
+                truck.Invoke(pm, null);
+                Note($"  truck: tank {tank.percent:0.0}");
+                float t0 = Time.time;
+                yield return StandAtPump(-1f);
+                yield return WaitStep("Done", 3f);
+                Check(StepNow == "Done", "a full tank stopped at a pump ends the step", $"{Time.time - t0:0.0} s, step {StepNow}, OfferFuel {ForecourtMode.OfferFuel} OfferGetOut {ForecourtMode.OfferGetOut}");
+            }
+
+            if (Edition.HasCareer)
+            {
+                var S = LifeSimManager.State;
+                int keep = S.money;
+                Note(" 5c. no money at the pump");
+                yield return ToPump();
+                if (StepNow == "Pump")
+                {
+                    S.money = 0;
+                    yield return StandAtPump(50f);
+                    yield return OutOfCar();
+                    yield return Pump(1.5f);
+                    Check(Mathf.Abs(tank.percent - 50f) < 0.01f, "no money, no fuel", tank.percent.ToString("0.00"));
+                    yield return BackInCar();
+                    yield return WaitStep("Done", 3f);
+                    Check(StepNow == "Done", "no money at the pump ends the step", StepNow);
+                }
+                S.money = keep;
+
+                Note(" 5d. one dollar at the pump");
+                yield return ToPump();
+                if (StepNow == "Pump")
+                {
+                    S.money = 1;
+                    yield return StandAtPump(50f);
+                    yield return OutOfCar();
+                    yield return Pump(3f);
+                    yield return BackInCar();
+                    yield return WaitStep("Done", 3f);
+                    Check(StepNow == "Done", "a dollar's worth pumped ends the step", $"step {StepNow}, tank {tank.percent:0.00}, money {S.money}");
+                }
+                S.money = keep;
+            }
+
+            Note(" 5e. just under what a pump will serve (the truck, then a short drive)");
+            yield return ToPump();
+            if (StepNow == "Pump")
+            {
+                yield return StandAtPump(99.4f);
+                yield return OutOfCar();
+                yield return Pump(1.5f);
+                yield return BackInCar();
+                yield return WaitStep("Done", 3f);
+                Check(StepNow == "Done", "a sip at 99.4% ends the step", $"step {StepNow}, tank {tank.percent:0.00}");
+            }
+
+            Note(" 5f. the truck called while standing at the pump");
+            yield return ToPump();
+            if (StepNow == "Pump" && pm != null)
+            {
+                yield return StandAtPump(60f);
+                yield return OutOfCar();
+                truck.Invoke(pm, null);
+                yield return null;
+                Note($"  truck on foot: tank {tank.percent:0.0}");
+                yield return new WaitForSeconds(0.5f);
+                yield return BackInCar();
+                yield return SampleAfterIn("truck on foot");
+                Check(StepNow == "Done", "nothing left to pump: the step still ends", StepNow);
+            }
         }
 
         IEnumerator PassLight()
