@@ -239,8 +239,8 @@ namespace PSXRacing
                   ?? DriveThru.Prompt
                   ?? SeizedPrompt()
                   ?? HotPrompt()
-                  ?? City.FirstDrive.Prompt
                   ?? DryTankPrompt()
+                  ?? City.FirstDrive.Prompt
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
 

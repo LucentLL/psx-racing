@@ -25,6 +25,13 @@ namespace PSXRacing.City
         enum Step { Wait, Go, StopSign, Light, LightWait, Park, Pump, Done }
 
         const float StopKmh = 1.5f;
+        /// <summary>How long under StopKmh is a stop. A brake pedal held down
+        /// selects reverse 0.4 s after 2 km/h (CarController.UpdateGearbox's
+        /// reverseHold) and is back over StopKmh about 0.5 s after going under it,
+        /// so anything longer never credits a driver who keeps the pedal down.</summary>
+        const float StopDwell = 0.3f;
+        /// <summary>How far up a STOP's arm the map's line aims first.</summary>
+        const float StopRunUpM = 60f;
         const float LessonSeconds = 9f;
         const float PraiseSeconds = 4f;
         const float DoneSeconds = 12f;
@@ -154,7 +161,7 @@ namespace PSXRacing.City
                         "A COOLANT LEAK MAKES AN ENGINE OVERHEAT\nCHECK COOLANT UNDER MY CARS BEFORE A DRIVE");
                     if (Time.time >= nextScan) { nextScan = Time.time + 2f; AimAtLot(); }
                     stoppedFor = InBay() && Kmh < StopKmh ? stoppedFor + Time.deltaTime : 0f;
-                    if (stoppedFor > 1f)
+                    if (stoppedFor > StopDwell)
                         Enter(Step.Pump, "PARKED. BUMPS AND HITS WEAR THE CAR, AND WORN PARTS FAIL\nDELMAR AUTO FIXES THEM");
                     break;
 
@@ -165,11 +172,27 @@ namespace PSXRacing.City
                     if (OnFoot.ForecourtMode.OnFoot) sawOnFoot = true;
                     else if (sawOnFoot)
                         Enter(Step.Done);
+                    else
+                    {
+                        // A full tank is offered no pump and Charlotte has no other
+                        // door (ForecourtMode.TickInCar), and the lesson just above
+                        // offers the truck that fills it: stopped here is enough.
+                        var tank = mode.player.GetComponent<FuelTank>();
+                        bool full = GasPump.AtPump && tank != null && tank.percent >= 99.5f;
+                        stoppedFor = full && Kmh < StopKmh ? stoppedFor + Time.deltaTime : 0f;
+                        if (stoppedFor > StopDwell) Enter(Step.Done);
+                    }
                     break;
 
                 case Step.Done:
                     Prompt = "THAT IS THE BASICS. THE ROAD IS YOURS\nTO GO HOME, OPEN THE MENU AND PICK END DRIVE";
-                    if (Time.time - stepAt > DoneSeconds) { Clear(); enabled = false; }
+                    if (Time.time - stepAt > DoneSeconds)
+                    {
+                        // Over for good: RESTART reloads this scene with the handoff as it stands.
+                        RaceHandoff.FirstDrive = false;
+                        Clear();
+                        enabled = false;
+                    }
                     break;
             }
         }
@@ -239,29 +262,33 @@ namespace PSXRacing.City
             // A light is only a stop while it says stop.
             if (signal && CitySignals.AspectNow(line) == CitySignals.Aspect.Green) stopped = false;
             stoppedFor = stopped ? stoppedFor + Time.deltaTime : 0f;
-            return stoppedFor > 0.5f;
+            return stoppedFor > StopDwell;
         }
 
         void AimAtNearest(bool signal, string label)
         {
+            // A line in hand: it stays the target until it is stopped at or crossed.
+            // The scan below skips anything within 40 m, so it would send the map's
+            // line off to the next junction while the car is braking for this one.
+            if (haveLine) { SetTarget(true, line.at, label); return; }
             if (Time.time < nextScan) return;
             nextScan = Time.time + 2f;
             if (junctions == null) return;
             var p = Plan;
             var f = Forward;
+            if (!signal)
+            {
+                bool got = PickStop(p, f, out var stopAt, out _);
+                SetTarget(got, stopAt, label);
+                return;
+            }
             float best = float.MaxValue;
             bool found = false;
             Vector2 at = default;
             for (int i = 0; i < junctions.Count; i++)
             {
                 var j = junctions[i];
-                if (j.signal != signal) continue;
-                if (!signal)
-                {
-                    bool stopSign = false;
-                    foreach (var a in j.approaches) if (a.ctl == 2) { stopSign = true; break; }
-                    if (!stopSign) continue;
-                }
+                if (!j.signal) continue;
                 var to = j.centre - p;
                 float dist = to.magnitude;
                 if (dist < 40f) continue;
@@ -270,6 +297,59 @@ namespace PSXRacing.City
                 if (score < best) { best = score; at = j.centre; found = true; }
             }
             SetTarget(found, at, label);
+        }
+
+        /// <summary>
+        /// Where the map's line goes for a stop sign. Not the junction's centre: a
+        /// STOP stands on the minor arms only, and a route to the centre arrives
+        /// along the through road, where there is no sign and nothing to stop at
+        /// (52 of 60 sampled starts). So the line goes to a point up the arm that
+        /// carries the STOP, and once the car is coming down that arm, to the line.
+        /// </summary>
+        bool PickStop(Vector2 p, Vector2 f, out Vector2 at, out CitySignals.Approach which)
+        {
+            at = default;
+            which = default;
+            float best = float.MaxValue;
+            bool found = false;
+            for (int i = 0; i < junctions.Count; i++)
+            {
+                var j = junctions[i];
+                if (j.signal) continue;
+                // Nothing on this junction can beat what is already in hand.
+                if ((j.centre - p).magnitude - StopRunUpM - 20f > best) continue;
+                foreach (var a in j.approaches)
+                {
+                    if (a.ctl != 2) continue;
+                    var e = map.edges[a.edge];
+                    float sUp = Mathf.Clamp(a.sStop + (e.b == a.node ? -StopRunUpM : StopRunUpM), 0f, e.length);
+                    var rel = a.at - p;
+                    float along = Vector2.Dot(rel, a.u);
+                    float score;
+                    Vector2 point;
+                    if (Vector2.Dot(a.u, f) > 0.7f && along > 0f && along < Mathf.Abs(a.sStop - sUp) + 20f &&
+                        Mathf.Abs(Vector2.Dot(rel, a.Right)) < 12f)
+                    {
+                        // Coming down this arm already.
+                        point = a.at;
+                        score = along * 0.5f;
+                    }
+                    else
+                    {
+                        point = LineModel.LanePoint(e, sUp);
+                        var to = point - p;
+                        float dist = to.magnitude;
+                        if (dist < 15f) continue;
+                        // Mildly prefer what is ahead: no U-turn for one a little closer.
+                        score = dist * (Vector2.Dot(to / dist, f) > 0f ? 1f : 1.6f);
+                        // An arm whose far end lies behind its line, seen from the
+                        // car, is reached through the junction: heading the wrong way.
+                        if (rel.sqrMagnitude < to.sqrMagnitude) score *= 2.5f;
+                    }
+                    if (score < best) { best = score; at = point; which = a; found = true; }
+                }
+            }
+            return found;
         }
 
         void AimAtLot()
