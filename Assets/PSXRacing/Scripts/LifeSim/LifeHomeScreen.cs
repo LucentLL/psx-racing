@@ -1107,8 +1107,10 @@ namespace PSXRacing.LifeSim
         /// another. The narrowest case is a 4:3 desktop at +/-480; a 2.24:1
         /// phone gives +/-627.
         /// </summary>
-        static float ColL => -MenuKit.HalfWidth * 0.95f;
-        static float ColR => MenuKit.HalfWidth * 0.95f;
+        static float ColL => -(MenuKit.HalfWidth - sideInset * 0.5f) * 0.95f;
+        static float ColR => (MenuKit.HalfWidth - sideInset * 0.5f) * 0.95f;
+        /// <summary>How much of the page's right side the car panel holds.</summary>
+        static float sideInset;
         static float ColW => ColR - ColL;
 
         /// <summary>
@@ -1214,6 +1216,11 @@ namespace PSXRacing.LifeSim
             // than 718 units — which a 2.24:1 phone is.
             bodyViewport = MenuKit.Stretch(canvas.transform, "Body",
                 new Vector2(0f, 0f), new Vector2(1f, 1f), 0f, 0f, 0f, -(HeaderH + TabH));
+            if (carSide != null) Destroy(carSide.gameObject);
+            carSide = null;
+            sideInset = CarSidePage(tab) ? SideW : 0f;
+            sideSkin = -1;
+            bodyViewport.offsetMax = new Vector2(-sideInset, bodyViewport.offsetMax.y);
             // Tabs build into the scroll CONTENT, not the viewport, so a screen
             // taller than the phone column scrolls instead of being cut off.
             body = MenuKit.ScrollBody(bodyViewport);
@@ -1270,6 +1277,7 @@ namespace PSXRacing.LifeSim
                 case "jobs": BuildJobs(); break;
             }
 
+            BuildCarSide();
             MenuKit.FitScrollContent(body, BodyH);
             MarkActiveTab();
             WireNavigation();
@@ -2959,6 +2967,8 @@ namespace PSXRacing.LifeSim
                          string fallbackKey = null, OwnedCar owned = null,
                          int skinOverride = -1)
         {
+            // The car panel draws it: it stays put while the page scrolls.
+            if (CarSidePage(tab)) { sideSkin = skinOverride; return; }
             float w = Mathf.Min(ColW, height * 1.6f);
             if (CarViewPanel(spec, 0f, y, w, height, fallbackKey, owned, skinOverride) == null)
                 return;
@@ -2970,6 +2980,60 @@ namespace PSXRacing.LifeSim
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, y),
                 TextAnchor.MiddleCenter, MenuKit.Dim, ColW, height: 24f);
             y -= 32f;
+        }
+
+        RectTransform carSide, viewParent;
+        int sideSkin = -1;
+        static float SideW => Mathf.Min(360f, MenuKit.HalfWidth * 0.6f);
+
+        /// <summary>The pages about one owned car. The car stays on screen on
+        /// all of them, in a panel the page scrolls beside (owner, 2026-11-06).</summary>
+        static bool CarSidePage(string t) =>
+            t == "carmenu" || t == "specs" || t == "tune" || t == "setup" ||
+            t == "toolbox" || t == "service" || t == "paint";
+
+        void BuildCarSide()
+        {
+            if (!CarSidePage(tab) || carSide != null) return;
+            var car = GarageCar;
+            if (car == null) return;
+            var spec = CarCatalog.Get(car.specId);
+            carSide = MenuKit.Stretch(canvas.transform, "CarSide",
+                new Vector2(1f, 0f), new Vector2(1f, 1f), 0f, 0f, 0f, 0f, new Color(0.07f, 0.06f, 0.12f, 1f));
+            carSide.offsetMin = new Vector2(-SideW, 0f);
+            carSide.offsetMax = new Vector2(0f, -(HeaderH + TabH));
+
+            float w = SideW - 24f, left = -w * 0.5f, y = -10f, h = w / 1.6f;
+            viewParent = carSide;
+            var view = CarViewPanel(spec, 0f, y, w, h, CarModelLibrary.Default, car, sideSkin);
+            viewParent = null;
+            if (view != null)
+            {
+                y -= h + 2f;
+                MenuKit.Label(carSide, "DRAG TO TURN", MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, y),
+                    TextAnchor.MiddleCenter, MenuKit.Dim, w, height: 22f);
+                y -= 24f;
+            }
+            MenuKit.Label(carSide, Clip(car.displayName, Mathf.FloorToInt(w / 10f)), 16, new Vector2(0.5f, 1f),
+                new Vector2(left, y), TextAnchor.MiddleLeft, MenuKit.Accent, w, height: 24f, bold: true);
+            y -= 28f;
+            void Row(string name, string value)
+            {
+                MenuKit.Label(carSide, name, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(left, y),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, w * 0.5f, height: 22f);
+                MenuKit.Label(carSide, value, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(-left, y),
+                    TextAnchor.MiddleRight, Color.white, w * 0.6f, height: 22f);
+                y -= 23f;
+            }
+            if (spec != null)
+            {
+                Row("DRIVETRAIN", DrvSide(spec, car));
+                Row("POWER", CarSpec.ToHp(Upgrades.EffectiveHp(car, spec)) + " hp");
+                Row("WEIGHT", Upgrades.EffectiveKg(car, spec) + " kg");
+            }
+            Row("ODOMETER", car.odoMiles.ToString("N0") + " mi");
+            Row("ENGINE", car.engineBlown ? "DESTROYED" : Mathf.RoundToInt(car.engine) + "%");
+            Row("BODY", Mathf.RoundToInt(car.carHP) + "%");
         }
 
         /// <summary>
@@ -2995,7 +3059,7 @@ namespace PSXRacing.LifeSim
             else return null;
             if (Viewer.Shown == null) return null;
 
-            var panel = MenuKit.Rect(body, "CarViewPanel",
+            var panel = MenuKit.Rect(viewParent != null ? viewParent : body, "CarViewPanel",
                 new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                 new Vector2(centreX, y), new Vector2(w, height), new Color(0f, 0f, 0f, 0.6f));
             Viewer.AttachTo(panel);
@@ -3434,14 +3498,6 @@ namespace PSXRacing.LifeSim
                 () => { tab = "specs"; Rebuild(); }, 16);
             y -= 54f;
 
-            MenuKit.Button(body, "MECHANIC SERVICES", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 44f),
-                () => { tab = "service"; Rebuild(); }, 16);
-            MenuKit.Button(body, "PARTS + TUNING", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 44f),
-                () => { tab = "tune"; Rebuild(); }, 16);
-            y -= 54f;
-
             // INSPECT is the headline action of this pass, so it gets the full
             // width and says what it costs. A car with things wrong that the
             // player has not found is the only reason the button exists, and it
@@ -3475,13 +3531,11 @@ namespace PSXRacing.LifeSim
             MenuKit.Button(body, "TOOLBOX", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
                 () => { tab = "toolbox"; Rebuild(); }, 16);
-            // PAINT + BODY beside it, because a respray is a thing you have
-            // DONE to a car rather than a thing you do to it yourself — the
-            // same shelf as MECHANIC SERVICES, one row down where the rest of
-            // the shop errands live.
-            MenuKit.Button(body, "PAINT + BODY", new Vector2(0.5f, 1f),
+            // The mechanic and the paint shop are not here: the player drives to
+            // those buildings (owner, 2026-11-06; TownVenue opens their pages).
+            MenuKit.Button(body, "PARTS + TUNING", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
-                () => { paintPick = -1; tab = "paint"; Rebuild(); }, 16);
+                () => { tab = "tune"; Rebuild(); }, 16);
             y -= 52f;
 
             // Advertising a car is a MARKET action — the classifieds are where

@@ -681,7 +681,7 @@ namespace PSXRacing.OnFoot
 
             if (rackHook != null) rackHook.onUse = () => GoHome("tune");
             if (toolHook != null) toolHook.onUse = () => GoHome("toolbox");
-            if (benchHook != null) benchHook.onUse = () => GoHome("service");
+            if (benchHook != null) benchHook.onUse = () => GoHome("carmenu");
             if (doorHook != null) doorHook.onUse = () => GoHome("main");
             if (fridgeHook != null) fridgeHook.onUse = EatFromFridge;
 
@@ -833,8 +833,8 @@ namespace PSXRacing.OnFoot
             {
                 benchHook.title = "WORKBENCH";
                 benchHook.detail = BenchLine(activeCar);
-                benchHook.action = "BOOK MECHANIC WORK";
-                benchHook.verb = "BOOK";
+                benchHook.action = "LOOK THE CAR OVER";
+                benchHook.verb = "CHECK";
             }
 
             if (doorHook != null)
