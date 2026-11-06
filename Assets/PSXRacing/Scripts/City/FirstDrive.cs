@@ -30,6 +30,8 @@ namespace PSXRacing.City
         /// reverseHold) and is back over StopKmh about 0.5 s after going under it,
         /// so anything longer never credits a driver who keeps the pedal down.</summary>
         const float StopDwell = 0.3f;
+        /// <summary>How far up a STOP's arm the map's line aims first.</summary>
+        const float StopRunUpM = 60f;
         const float LessonSeconds = 9f;
         const float PraiseSeconds = 4f;
         const float DoneSeconds = 12f;
@@ -274,19 +276,19 @@ namespace PSXRacing.City
             if (junctions == null) return;
             var p = Plan;
             var f = Forward;
+            if (!signal)
+            {
+                bool got = PickStop(p, f, out var stopAt, out _);
+                SetTarget(got, stopAt, label);
+                return;
+            }
             float best = float.MaxValue;
             bool found = false;
             Vector2 at = default;
             for (int i = 0; i < junctions.Count; i++)
             {
                 var j = junctions[i];
-                if (j.signal != signal) continue;
-                if (!signal)
-                {
-                    bool stopSign = false;
-                    foreach (var a in j.approaches) if (a.ctl == 2) { stopSign = true; break; }
-                    if (!stopSign) continue;
-                }
+                if (!j.signal) continue;
                 var to = j.centre - p;
                 float dist = to.magnitude;
                 if (dist < 40f) continue;
@@ -295,6 +297,59 @@ namespace PSXRacing.City
                 if (score < best) { best = score; at = j.centre; found = true; }
             }
             SetTarget(found, at, label);
+        }
+
+        /// <summary>
+        /// Where the map's line goes for a stop sign. Not the junction's centre: a
+        /// STOP stands on the minor arms only, and a route to the centre arrives
+        /// along the through road, where there is no sign and nothing to stop at
+        /// (52 of 60 sampled starts). So the line goes to a point up the arm that
+        /// carries the STOP, and once the car is coming down that arm, to the line.
+        /// </summary>
+        bool PickStop(Vector2 p, Vector2 f, out Vector2 at, out CitySignals.Approach which)
+        {
+            at = default;
+            which = default;
+            float best = float.MaxValue;
+            bool found = false;
+            for (int i = 0; i < junctions.Count; i++)
+            {
+                var j = junctions[i];
+                if (j.signal) continue;
+                // Nothing on this junction can beat what is already in hand.
+                if ((j.centre - p).magnitude - StopRunUpM - 20f > best) continue;
+                foreach (var a in j.approaches)
+                {
+                    if (a.ctl != 2) continue;
+                    var e = map.edges[a.edge];
+                    float sUp = Mathf.Clamp(a.sStop + (e.b == a.node ? -StopRunUpM : StopRunUpM), 0f, e.length);
+                    var rel = a.at - p;
+                    float along = Vector2.Dot(rel, a.u);
+                    float score;
+                    Vector2 point;
+                    if (Vector2.Dot(a.u, f) > 0.7f && along > 0f && along < Mathf.Abs(a.sStop - sUp) + 20f &&
+                        Mathf.Abs(Vector2.Dot(rel, a.Right)) < 12f)
+                    {
+                        // Coming down this arm already.
+                        point = a.at;
+                        score = along * 0.5f;
+                    }
+                    else
+                    {
+                        point = LineModel.LanePoint(e, sUp);
+                        var to = point - p;
+                        float dist = to.magnitude;
+                        if (dist < 15f) continue;
+                        // Mildly prefer what is ahead: no U-turn for one a little closer.
+                        score = dist * (Vector2.Dot(to / dist, f) > 0f ? 1f : 1.6f);
+                        // An arm whose far end lies behind its line, seen from the
+                        // car, is reached through the junction: heading the wrong way.
+                        if (rel.sqrMagnitude < to.sqrMagnitude) score *= 2.5f;
+                    }
+                    if (score < best) { best = score; at = point; which = a; found = true; }
+                }
+            }
+            return found;
         }
 
         void AimAtLot()
