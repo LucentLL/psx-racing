@@ -4046,6 +4046,10 @@ namespace PSXRacing.LifeSim
                         return;
                     }
                     var to = Toolbox.ToggleRaise(S, car);
+                    // The caption changes and the wheels button comes and goes above it,
+                    // so its old name and place would drop the cursor on a check.
+                    focusAfterRebuild = to != Toolbox.Raise.Ground ? "SET IT DOWN"
+                        : best == Toolbox.Raise.Lift ? "PUT IT ON THE LIFT" : "PUT IT ON STANDS";
                     LifeSimManager.Save();
                     Rebuild();
                     Toast(to == Toolbox.Raise.Ground ? "wheels back on the floor"
