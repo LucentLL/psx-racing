@@ -301,6 +301,7 @@ namespace PSXRacing.EditorTools
             var root = new GameObject("~jsweep");
             var live = new Dictionary<long, (GameObject go, Mesh[] meshes, Dictionary<Collider, CityMeshes.Slot[]> slots)>();
             var flagged = new List<(float step, string line, int node)>();
+            var flaggedRor = new List<string>();
             int movesBad = 0;
             var badNodes = new HashSet<int>();
             var slotsOf = new Dictionary<Collider, CityMeshes.Slot[]>();
@@ -338,6 +339,7 @@ namespace PSXRacing.EditorTools
                         foreach (var mv in moves)
                         {
                             float worst = 0f; string worstLine = null;
+                            float worstRor = 0f; string worstRorLine = null;
                             for (int tr = -1; tr <= 1; tr += 2)
                             {
                                 float lastY = float.NaN; string lastC = "", lastS = "";
@@ -352,6 +354,14 @@ namespace PSXRacing.EditorTools
                                     if (!float.IsNaN(lastY))
                                     {
                                         float st = Mathf.Abs(h.point.y - lastY);
+                                        // (night 11-06) road over road, its own worst: a larger step onto land must not hide it
+                                        if (cn == "Roads" && lastC == "Roads" && st > worstRor)
+                                        {
+                                            worstRor = st;
+                                            bool upR = h.point.y > lastY;
+                                            worstRorLine = string.Format(inv, "{0:0.00},{1:0.00},{2:0.000},{3},{4},{5},{6},{7}",
+                                                q.x, q.y, st, tr < 0 ? "left" : "right", upR ? cn : lastC, upR ? sl : lastS, upR ? lastC : cn, upR ? lastS : sl);
+                                        }
                                         if (st > worst)
                                         {
                                             worst = st;
@@ -363,6 +373,7 @@ namespace PSXRacing.EditorTools
                                     lastY = h.point.y; lastC = cn; lastS = sl;
                                 }
                             }
+                            if (worstRor > SweepGateM && worstRorLine != null) flaggedRor.Add($"{mv.node},{mv.ein},{mv.eout},{worstRorLine}");
                             if (worst > SweepGateM && worstLine != null)
                             {
                                 movesBad++; badNodes.Add(mv.node);
@@ -409,6 +420,7 @@ namespace PSXRacing.EditorTools
             string rootDir = System.IO.Directory.GetParent(Application.dataPath).FullName;
             System.IO.File.WriteAllText(System.IO.Path.Combine(rootDir, "city_junction_steps.txt"), sb.ToString());
             System.IO.File.WriteAllText(System.IO.Path.Combine(rootDir, "city_junction_steps.csv"), csv.ToString());
+            System.IO.File.WriteAllText(System.IO.Path.Combine(rootDir, "city_junction_steps_ror.csv"), "node,ein,eout,x,z,step,track,hi,hiSlot,lo,loSlot\n" + string.Join("\n", flaggedRor) + "\n");
             Debug.Log("[JunctionSweep]\n" + sb);
         }
 

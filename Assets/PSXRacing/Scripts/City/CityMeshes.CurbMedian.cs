@@ -361,6 +361,7 @@ namespace PSXRacing.City
                 Vector3 a = cmProfA[q], b = cmProfA[q + 1], c = cmProfB[q + 1], d = cmProfB[q];
                 GroundBucket(conc).Up(a, b, c, d, GroundUV(conc, a.x + o.x, a.z + o.z), GroundUV(conc, b.x + o.x, b.z + o.z),
                                       GroundUV(conc, c.x + o.x, c.z + o.z), GroundUV(conc, d.x + o.x, d.z + o.z));
+                if (groundLog != null) { groundLog.Add((groundTag + " curb median", a + o, b + o, c + o)); groundLog.Add((groundTag + " curb median", a + o, c + o, d + o)); }
             }
             // a stop mid-run: the verge beside falls away under the flat end, so
             // its end is closed by a face down into it

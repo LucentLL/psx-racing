@@ -10351,6 +10351,8 @@ namespace PSXRacing.City
                 {
                     // roads pass L8 (A17): a plain dead end's verge across its end
                     if (BulbsOn && !(np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y)) EmitDeadEnd(map, trims, tm, n);
+                    // (night 11-06) a split's median nose: its sheet (Junctions NoseSheet)
+                    if (!(np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y)) NoseSheetsAt(map, trims, tm, n);
                     continue;
                 }
                 if (np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y) continue;
@@ -10518,6 +10520,7 @@ namespace PSXRacing.City
                     if (!k1.arc && bt1 >= 1f) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
                 }
                 // (launch spot 11-05 night) a median's nose here filled at grade (Junctions NoseFill)
+                if (NoseRingLog != null && !onStructure) LogNoseRings(map, n, corners, tm.origin);
                 if (!onStructure && NoseFillNode(map, n)) NoseFill(map, trims, tm, n, corners);
                 // (round 2) the gore's point there graded, ramping to the ditch behind it (Junctions GoreFillAt)
                 if (!onStructure) GoreFillAt(map, trims, tm, n, corners);
