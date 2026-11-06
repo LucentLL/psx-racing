@@ -1052,15 +1052,17 @@ namespace PSXRacing.LifeSim
             MenuNav.Row(tabButtons.ConvertAll(b => (Selectable)b));
             // The one way out below the base level, where the strip stands: it
             // never scrolls away, which a button at the foot of a page does.
-            tabBack = MenuKit.Button(bar, "<  BACK", new Vector2(0f, 0.5f), new Vector2(100f, 0f),
+            tabBack = MenuKit.Button(bar, "<  BACK", new Vector2(0f, 0.5f), new Vector2(32f, 0f),
                 new Vector2(180f, TabH - 14f), () =>
                 {
                     FlushSetup();
                     tab = ParentTab();
                     buyTarget = null;
+                    confirmNewGame = false;
                     walkAwayArmed = null;
                     Rebuild();
                 }, MenuKit.MinLabelSize);
+            MenuNav.Row(new System.Collections.Generic.List<Selectable> { tabBack });
         }
 
         /// <summary>
@@ -1315,11 +1317,13 @@ namespace PSXRacing.LifeSim
             MenuNav.Column(rows);
 
             int idx = System.Array.IndexOf(tabIds, tab);
-            // Below the base level the strip is hidden: nothing may lead to it.
-            var tabSel = idx >= 0 ? tabButtons.ConvertAll(b => (Selectable)b) : new System.Collections.Generic.List<Selectable>();
+            // Below the base level the strip is BACK alone, and the pad reaches it
+            // like any row: it is the only control on BILLS and THE JOB.
+            var tabSel = idx >= 0 ? tabButtons.ConvertAll(b => (Selectable)b)
+                                  : new System.Collections.Generic.List<Selectable> { tabBack };
             // Detail pages ("buy", "service", "tune") are reached FROM a tab and
             // are not tabs themselves, so fall back to the tab that owns them.
-            Selectable active = idx >= 0 && idx < tabSel.Count ? tabSel[idx] : null;
+            Selectable active = idx >= 0 && idx < tabSel.Count ? tabSel[idx] : tabBack;
             MenuNav.Join(tabSel, rows, active);
 
             // Where the player left off, or the first row of content — not the
@@ -1385,14 +1389,6 @@ namespace PSXRacing.LifeSim
                 foreach (var s in rows) if (s.gameObject.name == navName) return s;
             if (navIndex >= 0) return rows[Mathf.Min(navIndex, rows.Count - 1)];
             return null;
-        }
-
-        /// <summary>The tab a detail page belongs under, for the UP key and for
-        /// CANCEL.</summary>
-        Selectable OwningTabButton()
-        {
-            int i = System.Array.IndexOf(tabIds, RootTab());
-            return i >= 0 && i < tabButtons.Count ? tabButtons[i] : null;
         }
 
         /// <summary>

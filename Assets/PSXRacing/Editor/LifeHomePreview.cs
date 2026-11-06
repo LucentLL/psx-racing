@@ -1388,11 +1388,24 @@ namespace PSXRacing.EditorTools
                 screen, "tabButtons");
             if (body == null) return;
 
-            var rows = MenuNav.Collect(body);
-            if (rows.Count == 0) return;
+            // What the game's graph has on this page: a hidden tab is not on it,
+            // and below the base level the strip is BACK alone.
             var tabSel = tabs != null
-                ? tabs.ConvertAll(b => (UnityEngine.UI.Selectable)b)
+                ? tabs.FindAll(b => b.gameObject.activeInHierarchy)
+                      .ConvertAll(b => (UnityEngine.UI.Selectable)b)
                 : new System.Collections.Generic.List<UnityEngine.UI.Selectable>();
+            var back = Field<UnityEngine.UI.Button>(screen, "tabBack");
+            if (back != null && back.gameObject.activeInHierarchy) tabSel.Add(back);
+
+            var rows = MenuNav.Collect(body);
+            if (rows.Count == 0)
+            {
+                if (tabSel.Count == 0)
+                    Debug.LogError("[HomePreview] " + where + " nav: NO PAD ROW on this page");
+                else
+                    Debug.Log("[HomePreview] " + where + " nav: strip only (" + tabSel.Count + ")");
+                return;
+            }
 
             if (!MenuNav.RectsResolved(rows))
             {
