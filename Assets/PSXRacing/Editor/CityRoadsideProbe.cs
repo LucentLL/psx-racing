@@ -342,6 +342,7 @@ namespace PSXRacing.EditorTools
                 int n = Mathf.Clamp(Mathf.RoundToInt(half / step), 1, 80);
                 sb.AppendLine($"=== GRID round ({x:0.00},{z:0.00}) y {y:0.000}, {step:0.00} m cells, x {x - n * step:0.00}..{x + n * step:0.00} left to right, z north at the top");
                 float gMin = float.PositiveInfinity, gMax = float.NegativeInfinity;
+                bool gridCm = System.Environment.GetEnvironmentVariable("PSX_GRID_CM") == "1";
                 for (int j = n; j >= -n; j--)
                 {
                     var row = new StringBuilder($"  {z + j * step,9:0.00} ");
@@ -364,7 +365,11 @@ namespace PSXRacing.EditorTools
                                 gMin = Mathf.Min(gMin, dy); gMax = Mathf.Max(gMax, dy);
                             }
                             else c = 'X';
+                            // (launch-queens 11-05) PSX_GRID_CM=1: each cell's height in cm
+                            // against y, road cells marked '=' and ground 'g'
+                            if (gridCm) { row.Append(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0,5:+0;-0}{1}", dy * 100f, c == '=' ? '=' : nm == "Ground" ? 'g' : c)); continue; }
                         }
+                        if (gridCm && !found) { row.Append("     ."); continue; }
                         row.Append(c);
                     }
                     sb.AppendLine(row.ToString() + (j == 0 ? "  <- the point's row" : ""));
