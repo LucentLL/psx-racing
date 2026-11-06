@@ -101,7 +101,9 @@ namespace PSXRacing.EditorTools
 
     public class RefugeLapRunner : MonoBehaviour
     {
-        const float HangSeconds = 1800f, RunTimeout = 240f, KerbM = 0.08f, OffM = 2.5f;
+        // (launch 7) PSX_LAP_HANG: the whole session's limit in seconds (1800 by default; a long move list needs more)
+        static readonly float HangSeconds = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_LAP_HANG"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float hs) && hs > 0f ? hs : 1800f;
+        const float RunTimeout = 240f, KerbM = 0.08f, OffM = 2.5f;
         float bornAt; bool finished;
         void Awake() { bornAt = Time.realtimeSinceStartup; DontDestroyOnLoad(gameObject); }
         void Update()
@@ -354,13 +356,14 @@ namespace PSXRacing.EditorTools
                 if (!o.StartsWith("mount")) continue;
                 var mp = o.Substring(5).Split('@');
                 var ciM = System.Globalization.CultureInfo.InvariantCulture;
-                if (mp.Length != 2 || !float.TryParse(mp[0], System.Globalization.NumberStyles.Float, ciM, out float mx)
+                if ((mp.Length != 2 && mp.Length != 3) || !float.TryParse(mp[0], System.Globalization.NumberStyles.Float, ciM, out float mx)
                     || !float.TryParse(mp[1], System.Globalization.NumberStyles.Float, ciM, out float ma) || pts.Count < 3) continue;
                 int mi = Mathf.Clamp(Mathf.RoundToInt(ma / 2f), 1, pts.Count - 2);
                 var P = pts[mi]; var T = (pts[mi + 1] - pts[mi - 1]).normalized; var R = new Vector2(T.y, -T.x);
                 var line = new List<Vector2>();
-                for (float d = -6f; d <= mx + 1e-3f; d += 0.5f) line.Add(P + R * d);
-                RefugeLapCheck.Line($"  mount: square across the route at {P.x:0.0},{P.y:0.0}, -6 .. +{mx:0.0} m right of the lane line");
+                float ms = mp.Length == 3 && float.TryParse(mp[2], System.Globalization.NumberStyles.Float, ciM, out float msv) ? -Mathf.Abs(msv) : -6f;   // mountX@A@S: start S m left
+                for (float d = ms; d <= mx + 1e-3f; d += 0.5f) line.Add(P + R * d);
+                RefugeLapCheck.Line($"  mount: square across the route at {P.x:0.0},{P.y:0.0}, {ms:0.0} .. +{mx:0.0} m right of the lane line");
                 return line;
             }
             return pts;
@@ -472,8 +475,9 @@ namespace PSXRacing.EditorTools
                 {
                     if (onRoad[i]) continue;
                     bool near = false;
-                    for (int j = Mathf.Max(0, i - 6); j <= Mathf.Min(plan.Count - 1, i + 6) && !near; j++) near = onRoad[j];
-                    if (near && Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var g, 800f, ~0, QueryTriggerInteraction.Ignore) && g.collider.name == "Ground") { w[i] = g.point; offRoad++; }
+                    int win = (run.opt ?? "").Contains("mount") ? plan.Count : 6;   // a mount's line runs on across the walk and its backing
+                    for (int j = Mathf.Max(0, i - win); j <= Mathf.Min(plan.Count - 1, i + win) && !near; j++) near = onRoad[j];
+                    if (near && Physics.Raycast(new Vector3(plan[i].x, 400f, plan[i].y), Vector3.down, out var g, 800f, ~0, QueryTriggerInteraction.Ignore) && (g.collider.name == "Ground" || win > 6)) { w[i] = g.point; offRoad++; }
                     else all = false;
                 }
                 if (all && offRoad > 0) RefugeLapCheck.Line($"  NOTE {run.name}: {offRoad} of {plan.Count} route points stand on drawn Ground, not a road (the line crosses a nose or verge)");
@@ -626,7 +630,7 @@ namespace PSXRacing.EditorTools
                 slowFor = rb.linearVelocity.magnitude < 0.5f ? slowFor + Time.fixedDeltaTime : 0f;
                 if (ai.LastRecoveryWhy != lastWhy) { recov++; lastWhy = ai.LastRecoveryWhy; RefugeLapCheck.Line($"  {run.name}: RECOVERED at wp {idx}: {lastWhy}"); }
                 if (slowFor > 8f) { stuck = true; break; }
-                if (bestI >= n - 3) { done = true; break; }
+                if (bestI >= ((run.opt ?? "").Contains("mount") ? n - 1 : n - 3)) { done = true; break; }   // a mount runs its line to the end
             }
             Object.Destroy(ai); Object.Destroy(go);
             if (steerTs != null) Object.DestroyImmediate(steerTs.gameObject);

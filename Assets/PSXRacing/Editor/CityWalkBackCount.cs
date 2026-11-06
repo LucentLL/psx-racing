@@ -62,7 +62,9 @@ namespace PSXRacing.EditorTools
             int passes = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_WALKBACK_PASSES"), out int np) && np >= 2 ? np : 4;
             for (int pass = 0; pass < passes; pass++)
             {
-                CityMeshes.WalkBackOn = (pass & 1) == 1;
+                // (launch 7) PSX_WALKBACK_TOGGLE=wings: the passes toggle the curb cut wings (backing on)
+                if (System.Environment.GetEnvironmentVariable("PSX_WALKBACK_TOGGLE") == "wings") { CityMeshes.WalkBackOn = true; CityMeshes.CurbWingsOn = (pass & 1) == 1; CityMeshes.CurbWingSpans = 0; }
+                else CityMeshes.WalkBackOn = (pass & 1) == 1;
                 CityMeshes.WalkBackCensus = doCensus && pass == 0;
                 CityMeshes.WalkBackStats.Reset();
                 CityMeshes.WalkStats.Reset();
@@ -78,10 +80,10 @@ namespace PSXRacing.EditorTools
                 if (!(doCensus && pass == 0)) { passMs[pass & 1] += ms; passN[pass & 1]++; }   // the census pass is not timed
                 sb.AppendLine($"PASS {pass} backing {((pass & 1) == 1 ? "ON" : "OFF")}: tiles built in {ms / 1000.0:0.0} s ({ms / tiles.Count:0.0} ms a tile), ground triangles {gTris}");
                 sb.AppendLine("  " + CityMeshes.WalkBackStats.Line());
-                sb.AppendLine("  " + CityMeshes.WalkStats.Line());
+                sb.AppendLine("  " + CityMeshes.WalkStats.Line()); sb.AppendLine($"  curb cut wings {(CityMeshes.CurbWingsOn ? "on" : "off")}: {CityMeshes.CurbWingSpans} spans with a cut and its wings");
                 if (pass == 0) { census = new Dictionary<int, (int, int, int, int, float, float, float, Vector2)>(CityMeshes.WalkBackStats.byEdge); censusLine = CityMeshes.WalkBackStats.CensusLine(); }
             }
-            CityMeshes.WalkBackOn = wasOn;
+            CityMeshes.WalkBackOn = wasOn; CityMeshes.CurbWingsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBWINGS") != "0";
             CityMeshes.WalkBackCensus = false;
             double offMs = passMs[0] / passN[0], onMs = passMs[1] / passN[1];
             sb.AppendLine($"BUILD TIME (these tiles): OFF {offMs / 1000.0:0.00} s a pass, ON {onMs / 1000.0:0.00} s a pass ({100.0 * (onMs - offMs) / offMs:+0.0;-0.0}%)");

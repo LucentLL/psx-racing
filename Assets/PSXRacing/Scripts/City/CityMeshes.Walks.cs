@@ -1135,14 +1135,17 @@ namespace PSXRacing.City
         /// at tarmac height): the curb's foot an inch under the edge, the
         /// face's top, the nose, the back of the walk. Collapsed onto the
         /// foot where the width is 0 (a ramp's end).</summary>
-        static void WalkProfile(Vector3 e, Vector2 outw, float w, Vector3[] p, float curb = 1f)
+        static void WalkProfile(Vector3 e, Vector2 outw, float w, Vector3[] p, float curb = 1f, float roll = 0f)
         {
             float yFoot = e.y - RoadsideRules.EdgeDropM;
             if (w <= 0f) { p[0] = p[1] = p[2] = p[3] = new Vector3(e.x, yFoot, e.z); return; }
             var o = new Vector3(outw.x, 0f, outw.y);
+            // (launch 7) the rolled curb (CurbCutWings' note): the face and nose further out
+            roll *= Mathf.Clamp01(w / WalkMinM);
+            float faceOut = Mathf.Lerp(CurbFaceOut, WalkRollFaceOut, roll), noseOut = Mathf.Lerp(CurbNoseOut, WalkRollNoseOut, roll);
             p[0] = new Vector3(e.x, yFoot, e.z);
-            p[1] = e + o * CurbFaceOut; p[1].y = e.y + Mathf.Max(CurbFaceH * curb, -0.5f * RoadsideRules.EdgeDropM);
-            p[2] = e + o * CurbNoseOut; p[2].y = e.y + CurbH * curb;
+            p[1] = e + o * faceOut; p[1].y = e.y + Mathf.Max(CurbFaceH * curb, -0.5f * RoadsideRules.EdgeDropM);
+            p[2] = e + o * noseOut; p[2].y = e.y + CurbH * curb;
             p[3] = e + o * w; p[3].y = e.y + CurbH * curb + WalkCrossFall * (w - CurbNoseOut);
         }
 
@@ -1153,6 +1156,143 @@ namespace PSXRacing.City
         const float CurbCutStepM = 1.0f;
         static readonly List<float> cutT = new List<float>(64);
         static readonly List<float> cutC = new List<float>(64);
+
+        // ------------------------------------------------------------------
+        //  CURB CUT WINGS (launch spots 7, 2026-11-05). A deliberate 50 km/h
+        //  clip 2 m onto the outer walk lifted a wheel for 0.12-0.57 s at
+        //  Beatties Ford SB, N Wendover, E Woodlawn and Tyvola Road, while
+        //  the same clip onto the curbed median (CurbMedianProfile: the same
+        //  foot, face and nose) lifted none. The curb was not the cause: the
+        //  wheel climbed it in 3 m without leaving the ground. The cause was
+        //  the CURB CUTS: at every driveway and lot apron the whole walk
+        //  section (curb and slab) dropped from 15 cm to the 2 cm lip within
+        //  one 1 m read (CurbCutStepM), a 13 cm step down at 13%+ and back
+        //  up at the far side - every driveway a pothole for a wheel on the
+        //  walk (the profiles under the wheel: 15 -> 3 cm within 0.4-0.8 m,
+        //  the wheel off over each). The cut now keeps its 2 cm lip across
+        //  the apron (a car turning in still meets 2 cm, and the walk's back
+        //  still meets the driveway behind it) and eases back to the full
+        //  curb over CurbCutWingM outside it: a smoothstep, under 4% (3 m,
+        //  under 7%, still lifted a wheel at 50 km/h on E Woodlawn, where a
+        //  cut follows the mount within 2 m). Read every half metre and past
+        //  the span's ends, so a cut near a span's end still gets its wing
+        //  in this span. A walk's RAMP END (its width to 0 at a junction
+        //  mouth) rose from the foot to 15 cm within one section span, a 10%
+        //  climb in 1.5-2 m (Beatties Ford SB past Mill Road): it eases in
+        //  over the same wing. And the walk's curb along a street is ROLLED
+        //  (a mountable curb: the same 15 cm, its dark face over 22 cm, the
+        //  nose 40 cm out, not 10 and 25): a wheel stepping off it at a
+        //  shallow angle dropped 13 cm across 10 cm, faster than it could
+        //  follow (Beatties Ford SB, off the walk 4 m after climbing on past
+        //  Mill Road). It eases back to the steep curb over the 8 m before a
+        //  junction (WalkBackEndEase), where the corner's curb return meets
+        //  it, and below a walk 1.2 m wide (a ramp end). The curbed median
+        //  (CurbMedianProfile) keeps its own curb. PSX_CITY_CURBWINGS=0:
+        //  all three as before.
+        // ------------------------------------------------------------------
+        public static bool CurbWingsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBWINGS") != "0";
+        /// <summary>A cut's wing: lip to full curb along the walk, outside the apron.</summary>
+        const float CurbCutWingM = 5.0f;
+        /// <summary>The walk's ROLLED curb along a street (not at a corner): the 11 cm
+        /// face over 22 cm, the nose at 15 cm 40 cm out (the steep one: 10 and 25 cm).</summary>
+        const float WalkRollFaceOut = 0.22f, WalkRollNoseOut = 0.40f;
+        /// <summary>How finely a walk span (and its wings past the ends) is read for cuts.</summary>
+        const float CurbWingStepM = 0.5f;
+        static readonly List<float> wingCutU = new List<float>(64);
+        /// <summary>The walk's ramp ends (a section of width 0 beside one with a walk)
+        /// within a wing of the span, as metres from its start (EmitWalkSpan fills it).</summary>
+        static readonly List<float> wingRampU = new List<float>(8);
+
+        /// <summary>Fills cutT/cutC for a walk span (steps + 1 samples): the
+        /// curb's share at each, the lip on an apron, easing to 1 over the
+        /// wing off it. True where any sample is cut.</summary>
+        static bool CurbCutWings(CityMap map, Vector3 o, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float wA, float wB, float len, int steps)
+        {
+            wingCutU.Clear();
+            float wMax = Mathf.Max(wA, wB);
+            if (len < 1e-3f) { cutT.Add(0f); cutC.Add(1f); cutT.Add(1f); cutC.Add(1f); return false; }
+            // the aprons along the span and a wing past either end (the line extended)
+            bool CutAt(float u)
+            {
+                float t = u / len, tc = Mathf.Clamp01(t);
+                float w = t < 0f || t > 1f ? wMax : Mathf.Lerp(wA, wB, tc);
+                if (w <= 0f) return false;
+                var ou = Vector2.Lerp(outA, outB, tc).normalized;
+                var ep = Vector3.LerpUnclamped(eA, eB, t);
+                return ApronAt(map, ep.x + o.x + ou.x * w * 0.5f, ep.z + o.z + ou.y * w * 0.5f);
+            }
+            // wingCutU: the apron's intervals along the span [u0, u1], their
+            // ends found to 6 cm (both spans either side of a joint find the
+            // same ends, so the walk meets itself there)
+            int n = Mathf.CeilToInt((len + 2f * CurbCutWingM) / CurbWingStepM);
+            float pitch = (len + 2f * CurbCutWingM) / n, uPrev = -CurbCutWingM;
+            bool prev = CutAt(uPrev), open = prev;
+            if (open) wingCutU.Add(float.NegativeInfinity);
+            for (int k = 1; k <= n; k++)
+            {
+                float u = -CurbCutWingM + k * pitch;
+                bool cut = CutAt(u);
+                if (cut != prev)
+                {
+                    float lo = uPrev, hi = u;
+                    for (int b = 0; b < 3; b++) { float mid = 0.5f * (lo + hi); if (CutAt(mid) == prev) lo = mid; else hi = mid; }
+                    wingCutU.Add(0.5f * (lo + hi));
+                    open = cut;
+                }
+                prev = cut; uPrev = u;
+            }
+            if (open) wingCutU.Add(float.PositiveInfinity);
+            if (wingCutU.Count == 0 && wingRampU.Count == 0) { for (int j = 0; j <= steps; j++) { cutT.Add((float)j / steps); cutC.Add(1f); } return false; }
+            bool any = false;
+            for (int j = 0; j <= steps; j++)
+            {
+                float t = (float)j / steps, u = t * len, d = float.MaxValue;
+                for (int q = 0; q + 1 < wingCutU.Count; q += 2)
+                {
+                    float u0 = wingCutU[q], u1 = wingCutU[q + 1];
+                    d = Mathf.Min(d, u < u0 ? u0 - u : u > u1 ? u - u1 : 0f);
+                }
+                // a walk's ramp end (its width to 0, at a junction mouth) eases in the same way
+                foreach (float ru in wingRampU) d = Mathf.Min(d, Mathf.Abs(ru - u));
+                float c = d == float.MaxValue ? 1f : Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(d / CurbCutWingM));
+                // a ramp end's zero width keeps the full share (it is collapsed onto the foot)
+                if (Mathf.Lerp(wA, wB, t) <= 0f) c = 1f;
+                any |= c < 0.999f;
+                cutT.Add(t); cutC.Add(c);
+            }
+            if (any) System.Threading.Interlocked.Increment(ref CurbWingSpans);
+            // keep only the reads the curve needs (within 2% of the share, 3 mm of
+            // the curb, of a straight line between kept ones): read every half metre
+            // and laid every half metre, the wings added a quarter to the walk tiles'
+            // ground triangles
+            if (any && cutT.Count > 2)
+            {
+                int n2 = cutT.Count, a = 0;
+                wingKeep.Clear(); wingKeep.Add(0);
+                while (a < n2 - 1)
+                {
+                    int b = a + 1;
+                    for (; b + 1 < n2; b++)
+                    {
+                        bool fits = true;
+                        for (int k = a + 1; k <= b && fits; k++)
+                        {
+                            float u = (cutT[k] - cutT[a]) / (cutT[b + 1] - cutT[a]);
+                            fits = Mathf.Abs(cutC[k] - Mathf.Lerp(cutC[a], cutC[b + 1], u)) <= CurbWingTol;
+                        }
+                        if (!fits) break;
+                    }
+                    wingKeep.Add(b); a = b;
+                }
+                for (int k = 0; k < wingKeep.Count; k++) { cutT[k] = cutT[wingKeep[k]]; cutC[k] = cutC[wingKeep[k]]; }
+                cutT.RemoveRange(wingKeep.Count, n2 - wingKeep.Count); cutC.RemoveRange(wingKeep.Count, n2 - wingKeep.Count);
+            }
+            return any;
+        }
+        const float CurbWingTol = 0.02f;
+        static readonly List<int> wingKeep = new List<int>(64);
+        /// <summary>Walk spans laid with a cut and its wings (tile builds, repeats counted).</summary>
+        public static int CurbWingSpans;
 
         static readonly float[] walkBandV = { 0f, CurbFaceOut / WalkTexM, CurbNoseOut / WalkTexM };
 
@@ -1340,8 +1480,24 @@ namespace PSXRacing.City
             // in over 2 cm, not 15; read every metre, eased over one
             cutT.Clear(); cutC.Clear();
             var o = tm.origin;
-            int steps = Mathf.Clamp(Mathf.CeilToInt(len / CurbCutStepM), 1, 63);
+            int steps = Mathf.Clamp(Mathf.CeilToInt(len / (CurbWingsOn ? CurbWingStepM : CurbCutStepM)), 1, 63);
             bool anyCut = false;
+            if (CurbWingsOn)
+            {
+                // (launch 7) the walk's ramp ends near the span: its curb rose from the foot to
+                // 15 cm within one section span (1.5-2 m), a 10% climb a clipping wheel met as a kick
+                wingRampU.Clear();
+                float sSpan = sB - sA;
+                if (Mathf.Abs(sSpan) > 1e-3f)
+                    for (int k = 0; k < sections.Count; k++)
+                    {
+                        if (arr[k] > 0f || !((k > 0 && arr[k - 1] > 0f) || (k + 1 < sections.Count && arr[k + 1] > 0f))) continue;
+                        float ru = (sections[k].s - sA) / sSpan * len;
+                        if (ru > -CurbCutWingM && ru < len + CurbCutWingM) wingRampU.Add(ru);
+                    }
+                anyCut = CurbCutWings(map, o, eA, eB, outA, outB, wA, wB, len, steps);
+            }
+            else
             for (int j = 0; j <= steps; j++)
             {
                 float t = (float)j / steps;
@@ -1362,8 +1518,8 @@ namespace PSXRacing.City
                 // a ramp end keeps its zero width: the lerp only reaches it at the end
                 if (j == 1 && wA <= 0f) w0 = 0f;
                 if (j == cutT.Count - 1 && wB <= 0f) w1 = 0f;
-                WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1]);
-                WalkProfile(pB, oB, w1, walkProfB, cutC[j]);
+                WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], CurbWingsOn ? WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0)) : 0f);
+                WalkProfile(pB, oB, w1, walkProfB, cutC[j], CurbWingsOn ? WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1)) : 0f);
                 LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
                 // the backing fades out with the walk's ramp: at a ramp's end (no walk) it is the verge
                 // the next span lays from the same edge point, so the two strips meet
