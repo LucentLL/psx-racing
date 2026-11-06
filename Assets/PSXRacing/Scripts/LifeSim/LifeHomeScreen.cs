@@ -973,6 +973,8 @@ namespace PSXRacing.LifeSim
             string engine = ((spec.dispCc > 0 ? (spec.dispCc / 1000f).ToString("0.0") + " L " : "") +
                              (string.IsNullOrEmpty(spec.eType) ? "" : spec.eType + " ") +
                              (string.IsNullOrEmpty(spec.asp) ? "" : spec.asp)).Trim();
+            // The cam type is what gives way: TURBO matters more, and the value column is narrow on 4:3.
+            if (engine.Length > 22) engine = engine.Replace(" (DOHC)", "").Replace(" (SOHC)", "");
             var rows = new System.Collections.Generic.List<(string k, string v)>
             {
                 ("YEAR", spec.modelYear + "  (" + age + " yr old)"),
