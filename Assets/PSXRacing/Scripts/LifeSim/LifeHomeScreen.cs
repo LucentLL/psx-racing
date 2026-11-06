@@ -1530,7 +1530,7 @@ namespace PSXRacing.LifeSim
                 case "tune":
                 case "specs":
                 case "inspect":
-                case "toolbox": return "carmenu";
+                case "toolbox": return "garage";
                 case "carmenu":
                 case "debugcars": return "garage";
                 case "rivalroad": return "rivals";
@@ -3038,7 +3038,7 @@ namespace PSXRacing.LifeSim
         /// The tuning pages' rows need the full width, so on a 4:3 window they
         /// go without it: a value hidden under the panel can't be adjusted.
         static bool CarSidePage(string t) =>
-            t == "carmenu" || t == "specs" || t == "toolbox" || t == "service" || t == "paint" ||
+            t == "specs" || t == "service" || t == "paint" ||
             ((t == "tune" || t == "setup") && MenuKit.HalfWidth >= 600f);
 
         void BuildCarSide()
@@ -3331,6 +3331,27 @@ namespace PSXRacing.LifeSim
                 tw, height: 24f);
             ty -= 32f;
 
+            // Not about any one car's page (owner, 2026-11-06): the toolbox, and
+            // the truck for the car you are in.
+            float dw = Mathf.Min(320f, (tw - 10f) * 0.5f);
+            MenuKit.Button(body, "TOOLBOX", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(tx, dw), ty), new Vector2(dw, 46f),
+                () => { garageCarId = S.activeCar; tab = "toolbox"; Rebuild(); }, 17);
+            int truck = LifeRules.CallOutRefuelCost(car);
+            bool canFill = car.fuel < 99.5f && S.money >= truck;
+            var truckCar = car;
+            MenuKit.Button(body, car.fuel >= 99.5f ? "TANK FULL" : "CALL FUEL TRUCK - " + MenuKit.Money(truck),
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(tx + dw + 10f, dw), ty), new Vector2(dw, 46f),
+                canFill ? (UnityEngine.Events.UnityAction)(() =>
+                {
+                    S.money -= truck;
+                    truckCar.fuel = 100f;
+                    S.calendarLog.Add(LifeRules.LogDate(S.day) + ": fuel truck call-out - " + MenuKit.Money(truck));
+                    LifeSimManager.Save(); Rebuild();
+                    Toast("TANK FILLED - " + MenuKit.Money(truck));
+                }) : null, 17, canFill ? (Color?)null : MenuKit.BtnBgDisabled);
+            ty -= 52f;
+
             // Whichever side ran longer decides where the list starts.
             y = Mathf.Min(ty, y - viewH - (view != null ? 30f : 0f)) - 8f;
         }
@@ -3356,50 +3377,140 @@ namespace PSXRacing.LifeSim
             bool away = CarWhere.Away(S, car);
             var place = CarWhere.PlaceOf(S, car);
 
-            float y = -20f;
-            DrawCarView(CarCatalog.Get(car.specId), ref y,
-                        fallbackKey: CarModelLibrary.Default, owned: car);
-            MenuKit.Label(body, car.displayName, 23, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, bold: true);
-            y -= 38f;
+            // The car top left, its figures beside it, what can be done under
+            // them with no scrolling, and only then the notes (owner, 2026-11-06).
+            float y = -10f;
+            var spec0 = CarCatalog.Get(car.specId);
+            float viewW = Mathf.Min(300f, ColW * 0.42f), viewH = viewW / 1.6f;
+            var view = CarViewPanel(spec0, MenuKit.ColLeft(ColL, viewW), y, viewW, viewH,
+                                    CarModelLibrary.Default, car);
+            if (view != null)
+                MenuKit.Label(body, "DRAG TO TURN", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, viewW), y - viewH - 2f),
+                    TextAnchor.MiddleCenter, MenuKit.Dim, viewW, height: 20f);
+
+            float tx = view != null ? ColL + viewW + 18f : ColL;
+            float tw = ColR - tx;
+            float ty = y;
+            MenuKit.Label(body, Clip(car.displayName, Mathf.Max(16, Mathf.FloorToInt(tw / 12f))), 20,
+                new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft, MenuKit.Accent,
+                tw, height: 26f, bold: true);
+            ty -= 26f;
             MenuKit.Label(body, away
                     ? CarWhere.Label(place) + "  ·  UNAVAILABLE  ·  " + CarWhere.ReadyLabel(S, car)
-                    : CarWhere.Label(place) + (driving ? "  ·  YOU ARE DRIVING THIS ONE"
-                                                       : "  ·  PARKED"),
-                16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                away ? MenuKit.Bad : driving ? MenuKit.Good : PlaceColor(place), ColW,
-                height: 26f, bold: true);
-            // A debug affordance goes at the TOP of its page, every time: this
-            // one rides the place line's right-hand end, the way ADD ANY CAR
-            // rides the MY CARS heading. The place line is the short one —
-            // the car's name above it can run the width of the column.
+                    : CarWhere.Label(place) + (driving ? "  ·  YOU ARE DRIVING THIS ONE" : "  ·  PARKED"),
+                14, new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft,
+                away ? MenuKit.Bad : driving ? MenuKit.Good : PlaceColor(place), tw,
+                height: 22f, bold: true);
+            ty -= 22f;
+            MenuKit.Label(body, car.odoMiles.ToString("N0") + " mi   ·   paid " + MenuKit.Money(car.paidPrice),
+                14, new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft, MenuKit.Dim, tw, height: 22f);
+            // A debug affordance goes at the TOP of its page, every time.
             if (S.debugMode)
             {
                 var benchCar = car;
                 MenuKit.Button(body, BenchCaption, new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColRight(ColR, 240f), y + 6f), new Vector2(240f, 36f),
-                    () => OpenBench(benchCar), 15, new Color(0.26f, 0.14f, 0.34f, 1f));
+                    new Vector2(MenuKit.ColRight(ColR, 200f), ty), new Vector2(200f, 26f),
+                    () => OpenBench(benchCar), 14, new Color(0.26f, 0.14f, 0.34f, 1f));
             }
-            y -= 28f;
-            MenuKit.Label(body, "Odometer " + car.odoMiles.ToString("N0") + " mi   ·   paid " +
-                MenuKit.Money(car.paidPrice), 16, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 800f);
-            y -= 40f;
-
-            // A destroyed engine replaces its own bar. A condition bar reading
-            // 0% is a car that runs badly; this one does not run, and the two
-            // must not look alike on the page where the player decides what to
-            // do about it.
+            ty -= 26f;
             if (car.engineBlown)
             {
-                MenuKit.Label(body, "ENGINE — DESTROYED", 18, new Vector2(0.5f, 1f),
-                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Bad, 800f,
-                    height: 26f, bold: true);
-                y -= 26f;
+                MenuKit.Label(body, "ENGINE", 14, new Vector2(0.5f, 1f), new Vector2(tx, ty),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, 100f, height: 20f);
+                MenuKit.Label(body, "DESTROYED", 14, new Vector2(0.5f, 1f), new Vector2(tx + 100f, ty),
+                    TextAnchor.MiddleLeft, MenuKit.Bad, 200f, height: 20f, bold: true);
+                ty -= 20f;
+            }
+            else CompactBar("ENGINE", car.engine, tx, tw, ref ty);
+            CompactBar("COOLING", CoolingModel.Health(car), tx, tw, ref ty);
+            CompactBar("TIRES", car.tires, tx, tw, ref ty);
+            CompactBar("BODY", car.carHP, tx, tw, ref ty);
+            CompactBar("PAINT", car.paint, tx, tw, ref ty);
+            CompactBar("COOLANT", car.coolant, tx, tw, ref ty, exact: true);
+            CompactBar("FUEL", car.fuel, tx, tw, ref ty, exact: true);
+            y = Mathf.Min(ty, y - viewH - 22f) - 8f;
+
+            float gBtnW = Mathf.Min(300f, (ColW - 20f) / 3f);
+            float gMid = ColL + gBtnW + 10f;
+            float gRight = gMid + gBtnW + 10f;
+            MenuKit.Button(body, away ? "NOT HERE  ·  " + CarWhere.Label(place)
+                                 : driving ? "IN THIS CAR" : "GET IN  ·  switch",
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, gBtnW), y),
+                new Vector2(gBtnW, 44f),
+                away
+                    ? (UnityEngine.Events.UnityAction)(() =>
+                        Toast(CarWhere.BlockedReason(S, car)))
+                : driving
+                    ? (UnityEngine.Events.UnityAction)(() =>
+                        Toast("already driving " + Clip(car.displayName, 30)))
+                    : () =>
+                    {
+                        S.activeCar = car.id;
+                        LifeSimManager.Save(); Rebuild();
+                        Toast("now driving " + Clip(car.displayName, 30));
+                    },
+                16, away ? MenuKit.BtnBgDisabled
+                  : driving ? new Color(0.42f, 0.34f, 0.10f, 1f)
+                            : new Color(0.20f, 0.30f, 0.24f, 1f));
+            MenuKit.Button(body, "SPECS", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(gMid, gBtnW), y), new Vector2(gBtnW, 44f),
+                () => { tab = "specs"; Rebuild(); }, 16);
+            MenuKit.Button(body, "PARTS + TUNING", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 44f),
+                () => { tab = "tune"; Rebuild(); }, 16);
+            y -= 52f;
+            bool openToday = Inspection.OpenToday(S, car);
+            MenuKit.Button(body,
+                away ? "CANNOT INSPECT — IT IS AT " + CarWhere.ShopName(place)
+                : openToday ? "CONTINUE INSPECTION" : "INSPECT (TAKES A TIME SLOT)",
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 44f),
+                away ? (UnityEngine.Events.UnityAction)null : () =>
+                {
+                    bool wasOpen = Inspection.OpenToday(S, car);
+                    Inspection.Enter(S, car);
+                    inspectComp = Inspection.Comp.Engine;
+                    inspectLine = null;
+                    // Opened from the menu, so FINISH goes back to the menu.
+                    inspectCarId = car.id;
+                    InspectReturnScene = -1;
+                    tab = "inspect";
+                    LifeSimManager.Save();
+                    Rebuild();
+                    // Always toasts, even on a resume: Toast is what drains the
+                    // pager, and spending the last slot of the day here rolls
+                    // the calendar over exactly like going to work does.
+                    Toast(wasOpen ? "back under " + Clip(car.displayName, 30)
+                                  : "inspecting " + Clip(car.displayName, 30));
+                }, 16, away ? MenuKit.BtnBgDisabled : new Color(0.16f, 0.30f, 0.34f, 1f));
+            bool clean = car.dirt < 0.02f;
+            bool canWash = !away && !clean && S.money >= LifeRules.WashCost;
+            MenuKit.Button(body,
+                clean ? "WASH" : "WASH  " + MenuKit.Money(LifeRules.WashCost),
+                new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(gMid, gBtnW), y), new Vector2(gBtnW, 44f),
+                !canWash ? (UnityEngine.Events.UnityAction)null : () =>
+                {
+                    string why = LifeRules.WashCar(S, car);
+                    if (why == null) LifeSimManager.Save();
+                    Rebuild();
+                    Toast(why ?? "washed " + Clip(car.displayName, 30));
+                }, 16, canWash ? (Color?)null : MenuKit.BtnBgDisabled);
+            // Not shown on the last car in the garage: CarMarket refuses that
+            // sale, and a button whose only outcome is a refusal is no button.
+            if (S.cars.Count > 1)
+                MenuKit.Button(body, "SELL / LIST AD", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 44f),
+                    () => { tab = "market"; Rebuild(); }, 16);
+            y -= 56f;
+
+            // The notes, under the buttons, where a long list may scroll.
+            if (car.engineBlown)
+            {
                 MenuKit.Label(body, "It let go out on the road. Nothing else on this car " +
                     "matters until there is an engine in it.", MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                    MenuKit.Dim, 800f, height: 22f);
+                    MenuKit.Dim, ColW, height: 22f);
                 y -= 24f;
                 // WHY, for a player who is not a car guy: the chain the engine
                 // recorded on the way to letting go (EngineTemp.Story).
@@ -3407,33 +3518,13 @@ namespace PSXRacing.LifeSim
                     foreach (var line in car.engineStory.Split('\n'))
                     {
                         MenuKit.Label(body, line, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                            new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, height: 22f);
+                            new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, ColW, height: 22f);
                         y -= 22f;
                     }
                 y -= 6f;
             }
-            else DrawBar("ENGINE", car.engine, ref y);
-            DrawBar("COOLING", CoolingModel.Health(car), ref y);
-            DrawBar("TIRES", car.tires, ref y);
-            DrawBar("BODY", car.carHP, ref y);
-            DrawBar("PAINT", car.paint, ref y);
-            DrawBar("COOLANT", car.coolant, ref y, exact: true);
-            DrawBar("FUEL", car.fuel, ref y, exact: true);
-
-            // The cooling bar is the WORST of three parts, so on its own it
-            // cannot say which. This line does, and it is the only place in the
-            // game outside an inspection that names a cooling part — which is
-            // deliberate: the number is public, the diagnosis is not, and
-            // naming the weak part here is naming the one you can already see
-            // is weak.
             CoolingLine(car, ref y);
             EngineJobBlock(car, ref y, away);
-
-            // A percentage on its own does not answer the question the player
-            // is actually asking, which is whether this car gets to the end of
-            // the thing they picked. Tank and economy are per-car now, so a
-            // half-tank means something different in every car in the garage
-            // and the number of kilometres has to be printed to be known.
             var fuel = FuelProfile.For(car);
             MenuKit.Label(body,
                 fuel.tankGal.ToString("0.0") + " gal   ·   " + Mathf.RoundToInt(fuel.mpg) +
@@ -3441,35 +3532,7 @@ namespace PSXRacing.LifeSim
                 Mathf.RoundToInt(fuel.RangeKm(FuelModel.RacePaceLoad) * car.fuel / 100f) +
                 " km left, driven hard",
                 14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, 800f);
-            y -= 30f;
-
-            // Fuel is bought at the PUMPS now — drive onto the forecourt on any
-            // circuit, stop, and hold the fuel control. What is left here is the
-            // call-out, which exists so that a car too empty to reach a pump is
-            // never a career with no legal move in it. It carries a fee on top
-            // of the fuel precisely so it reads as the expensive answer.
-            int cost = LifeRules.CallOutRefuelCost(car);
-            bool canFill = car.fuel < 99.5f && S.money >= cost;
-            MenuKit.Button(body, car.fuel >= 99.5f ? "TANK FULL"
-                    : "CALL FUEL TRUCK — " + MenuKit.Money(cost),
-                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(360f, 50f),
-                canFill ? (UnityEngine.Events.UnityAction)(() =>
-                {
-                    S.money -= cost;
-                    car.fuel = 100f;
-                    S.calendarLog.Add(LifeRules.LogDate(S.day) + ": fuel truck call-out — " +
-                                      MenuKit.Money(cost));
-                    LifeSimManager.Save(); Rebuild();
-                    Toast("TANK FILLED — " + MenuKit.Money(cost));
-                }) : null, 17, canFill ? (Color?)null : MenuKit.BtnBgDisabled);
-            y -= 56f;
-            MenuKit.Label(body, "Pumps on the circuit cost " +
-                MenuKit.Money(fuel.CostToFill(0f)) +
-                " to fill this one — the truck adds " +
-                MenuKit.Money(LifeRules.FuelCallOutFee) + ".",
-                14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, 800f);
+                MenuKit.Dim, ColW);
             y -= 30f;
 
             // Work in progress, and WHERE. A job at a shop keeps the car — RG2's
@@ -3512,108 +3575,36 @@ namespace PSXRacing.LifeSim
                 y -= 30f;
             }
 
-            y -= 10f;
-            float gBtnW = Mathf.Min(300f, (ColW - 12f) / 2f);
-            float gRight = ColL + gBtnW + 12f;
-
-            // GET IN is the top-left of the grid because it is the one action
-            // that changes which car the rest of the game is about. It is a
-            // no-op on the car you are already in, and says so rather than
-            // being greyed out — a disabled primary action reads as broken.
-            // A car that is away keeps the button — a missing primary action
-            // reads as a broken page — and the button says why it will not
-            // take you anywhere.
-            MenuKit.Button(body, away ? "NOT HERE  ·  " + CarWhere.Label(place)
-                                 : driving ? "IN THIS CAR" : "GET IN  ·  switch",
-                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, gBtnW), y),
-                new Vector2(gBtnW, 44f),
-                away
-                    ? (UnityEngine.Events.UnityAction)(() =>
-                        Toast(CarWhere.BlockedReason(S, car)))
-                : driving
-                    ? (UnityEngine.Events.UnityAction)(() =>
-                        Toast("already driving " + Clip(car.displayName, 30)))
-                    : () =>
-                    {
-                        S.activeCar = car.id;
-                        LifeSimManager.Save(); Rebuild();
-                        Toast("now driving " + Clip(car.displayName, 30));
-                    },
-                16, away ? MenuKit.BtnBgDisabled
-                  : driving ? new Color(0.42f, 0.34f, 0.10f, 1f)
-                            : new Color(0.20f, 0.30f, 0.24f, 1f));
-            MenuKit.Button(body, "SPECS", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 44f),
-                () => { tab = "specs"; Rebuild(); }, 16);
-            y -= 54f;
-
-            // INSPECT is the headline action of this pass, so it gets the full
-            // width and says what it costs. A car with things wrong that the
-            // player has not found is the only reason the button exists, and it
-            // cannot advertise that without giving the answer away — so it
-            // advertises the PRICE instead.
-            bool openToday = Inspection.OpenToday(S, car);
-            MenuKit.Button(body,
-                away ? "CANNOT INSPECT — IT IS AT " + CarWhere.ShopName(place)
-                : openToday ? "CONTINUE INSPECTION" : "INSPECT CAR  (costs a time slot)",
-                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 50f),
-                away ? (UnityEngine.Events.UnityAction)null : () =>
-                {
-                    bool wasOpen = Inspection.OpenToday(S, car);
-                    Inspection.Enter(S, car);
-                    inspectComp = Inspection.Comp.Engine;
-                    inspectLine = null;
-                    // Opened from the menu, so FINISH goes back to the menu.
-                    inspectCarId = car.id;
-                    InspectReturnScene = -1;
-                    tab = "inspect";
-                    LifeSimManager.Save();
-                    Rebuild();
-                    // Always toasts, even on a resume: Toast is what drains the
-                    // pager, and spending the last slot of the day here rolls
-                    // the calendar over exactly like going to work does.
-                    Toast(wasOpen ? "back under " + Clip(car.displayName, 30)
-                                  : "inspecting " + Clip(car.displayName, 30));
-                }, 17, away ? MenuKit.BtnBgDisabled : new Color(0.16f, 0.30f, 0.34f, 1f));
-            y -= 60f;
-
-            MenuKit.Button(body, "TOOLBOX", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
-                () => { tab = "toolbox"; Rebuild(); }, 16);
-            // The mechanic and the paint shop are not here: the player drives to
-            // those buildings (owner, 2026-11-06; TownVenue opens their pages).
-            MenuKit.Button(body, "PARTS + TUNING", new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
-                () => { tab = "tune"; Rebuild(); }, 16);
-            y -= 52f;
-
-            // Advertising a car is a MARKET action — the classifieds are where
-            // the ad runs and where the buyer answers it — so this is a door to
-            // that page rather than a second copy of it. Not shown on the last
-            // car in the garage: CarMarket refuses that sale, and a button whose
-            // only outcome is a refusal is worse than no button.
-            if (S.cars.Count > 1)
-                MenuKit.Button(body, "SELL / LIST AD", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
-                    () => { tab = "market"; Rebuild(); }, 16);
-            // WASH: road dirt dulls the paint's shine (PaintGloss) until the
-            // car is washed. Not at a shop: the car has to be here.
-            bool clean = car.dirt < 0.02f;
-            bool canWash = !away && !clean && S.money >= LifeRules.WashCost;
-            MenuKit.Button(body,
-                clean ? "CLEAN" : "WASH  " + MenuKit.Money(LifeRules.WashCost),
-                new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
-                !canWash ? (UnityEngine.Events.UnityAction)null : () =>
-                {
-                    string why = LifeRules.WashCar(S, car);
-                    if (why == null) LifeSimManager.Save();
-                    Rebuild();
-                    Toast(why ?? "washed " + Clip(car.displayName, 30));
-                }, 16, canWash ? (Color?)null : MenuKit.BtnBgDisabled);
-            y -= 52f;
-
             y -= 6f;
+        }
+
+        /// <summary>A condition bar small enough to sit beside the car.</summary>
+        void CompactBar(string label, float value, float x, float w, ref float y, bool exact = false)
+        {
+            const float NameW = 88f, ReadW = 86f;
+            float trackW = Mathf.Min(300f, w - NameW - ReadW - 8f);
+            MenuKit.Label(body, label, 14, new Vector2(0.5f, 1f), new Vector2(x, y),
+                TextAnchor.MiddleLeft, MenuKit.Dim, NameW, height: 20f);
+            var track = MenuKit.Rect(body, "bar", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(x + NameW, y - 4f), new Vector2(trackW, 12f), new Color(0f, 0f, 0f, 0.5f));
+            Color c = value > 60f ? MenuKit.Good : value > 30f ? MenuKit.Accent : MenuKit.Bad;
+            bool figures = exact || S.debugMode;
+            if (figures)
+                MenuKit.Rect(track, "fill", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                    new Vector2(1f, 0f), new Vector2((trackW - 2f) * Mathf.Clamp01(value / 100f), 10f), c);
+            else
+            {
+                const int Segments = 5;
+                const float Gap = 3f;
+                float seg = (trackW - 2f - Gap * (Segments - 1)) / Segments;
+                int lit = LifeRules.ConditionBand(value) + 1;
+                for (int i = 0; i < lit; i++)
+                    MenuKit.Rect(track, "seg", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                        new Vector2(1f + i * (seg + Gap), 0f), new Vector2(seg, 10f), c);
+            }
+            MenuKit.Label(body, figures ? Mathf.RoundToInt(value) + "%" : LifeRules.ConditionLabel(value), 14,
+                new Vector2(0.5f, 1f), new Vector2(x + NameW + trackW + 8f, y), TextAnchor.MiddleLeft, c, ReadW, height: 20f);
+            y -= 20f;
         }
 
         /// <summary>
@@ -4177,9 +4168,6 @@ namespace PSXRacing.LifeSim
                 y -= 30f;
             }
 
-            MenuKit.Button(body, "< BACK TO THE CAR", new Vector2(0.5f, 1f),
-                new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 44f),
-                () => { tab = "carmenu"; Rebuild(); }, 16);
             y -= 54f;
         }
 
