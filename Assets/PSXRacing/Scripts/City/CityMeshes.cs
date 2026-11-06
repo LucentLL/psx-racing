@@ -10519,6 +10519,8 @@ namespace PSXRacing.City
                 }
                 // (launch spot 11-05 night) a median's nose here filled at grade (Junctions NoseFill)
                 if (!onStructure && NoseFillNode(map, n)) NoseFill(map, trims, tm, n, corners);
+                // (round 2) the gore's point there graded, ramping to the ditch behind it (Junctions GoreFillAt)
+                if (!onStructure) GoreFillAt(map, trims, tm, n, corners);
             }
         }
 
