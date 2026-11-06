@@ -315,7 +315,39 @@ namespace PSXRacing.EditorTools
             }
             // round 4: the game's own turn path (CityMode.FilletTurns, the race
             // paths' rule): a turn at a junction on a radius, as the AI drives it
-            int fil = CityMode.FilletTurns(raw, null, joins, CityMode.TurnFilletR, CityMode.TurnFilletMinDeg, caps, kerbs, swing);
+            // (launch-queens2 11-05) option hpR: a driver's hairpin instead - the
+            // two lane lines (8 m either side of the single join) joined by one arc
+            // of R m tangent to both, in place of the game's turn path (whose kerb
+            // and cap rules leave a 140 deg turn an arc under the car's own lock)
+            float hpR = 0f;
+            foreach (var o in (run.opt ?? "").Split(','))
+                if (o.StartsWith("hp") && float.TryParse(o.Substring(2), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float hv)) hpR = hv;
+            if (hpR > 0f && joins.Count == 1 && joins[0] >= 9 && joins[0] + 8 < raw.Count)
+            {
+                int j = joins[0];
+                Vector2 a0 = raw[j - 9], a1 = raw[j - 1], b0 = raw[j], b1 = raw[j + 8];
+                Vector2 dA = (a1 - a0).normalized, dB = (b1 - b0).normalized;
+                float cr = dA.x * dB.y - dA.y * dB.x, th = Mathf.Acos(Mathf.Clamp(Vector2.Dot(dA, dB), -1f, 1f));
+                // the lines' crossing: a1 + dA u = b0 + dB v
+                float den = dA.x * dB.y - dA.y * dB.x;
+                if (Mathf.Abs(den) > 1e-3f)
+                {
+                    var w0 = b0 - a1; float u = (w0.x * dB.y - w0.y * dB.x) / den;
+                    var X = a1 + dA * u; float T = hpR * Mathf.Tan(th * 0.5f);
+                    Vector2 tA = X - dA * T, tB = X + dB * T;
+                    var nA = cr > 0f ? new Vector2(-dA.y, dA.x) : new Vector2(dA.y, -dA.x);
+                    var C = tA + nA * hpR;
+                    var outPts = new List<Vector2>();
+                    foreach (var p in raw.GetRange(0, j)) if (Vector2.Dot(p - tA, dA) < 0f) outPts.Add(p);
+                    float g0 = Mathf.Atan2(tA.y - C.y, tA.x - C.x), sweep = th * (cr > 0f ? 1f : -1f);
+                    int na = Mathf.Max(4, Mathf.CeilToInt(hpR * th));
+                    for (int k = 0; k <= na; k++) { float g = g0 + sweep * k / na; outPts.Add(C + new Vector2(Mathf.Cos(g), Mathf.Sin(g)) * hpR); }
+                    foreach (var p in raw.GetRange(j, raw.Count - j)) if (Vector2.Dot(p - tB, dB) > 0f) outPts.Add(p);
+                    RefugeLapCheck.Line($"  turn path: hairpin {th * Mathf.Rad2Deg:0} deg on an arc of {hpR:0.0} m, centre {C.x:0.0},{C.y:0.0}, tangents {tA.x:0.0},{tA.y:0.0} / {tB.x:0.0},{tB.y:0.0}");
+                    raw = outPts; joins.Clear(); caps.Clear(); kerbs.Clear(); swing.Clear();
+                }
+            }
+            int fil = joins.Count == 0 ? 0 : CityMode.FilletTurns(raw, null, joins, CityMode.TurnFilletR, CityMode.TurnFilletMinDeg, caps, kerbs, swing);
             if (fil > 0) RefugeLapCheck.Line($"  turn path: {fil} junction corner(s) on a radius");
             foreach (var note in CityMode.LastFilletNotes) RefugeLapCheck.Line("  turn path: " + note);
             if (System.Environment.GetEnvironmentVariable("PSX_LAP_TRACE") == "1")
