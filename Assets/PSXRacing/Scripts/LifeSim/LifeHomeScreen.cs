@@ -4103,11 +4103,14 @@ namespace PSXRacing.LifeSim
             var panel = MenuKit.Rect(body, "Chassis", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                 new Vector2(0f, y), new Vector2(diagW, diagH),
                 new Color(0f, 0f, 0f, 0.55f));
+            bool canWheelsOff = Inspection.WheelsComeOff(Toolbox.AccessFor(S, car));
+            if (!canWheelsOff) inspectWheelsOff = false;
             DrawChassis(panel, diagW, diagH, inspectComp, car);
             y -= diagH + 10f;
 
             // The wheels come off to show the brakes behind them.
-            if (inspectComp == Inspection.Comp.Wheels)
+            // Only by the same rule the checks use: an impact wrench, the car raised.
+            if (canWheelsOff && inspectComp == Inspection.Comp.Wheels)
             {
                 MenuKit.Button(body, inspectWheelsOff ? "PUT THE WHEELS BACK ON" : "TAKE THE WHEELS OFF",
                     new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 340f), 42f),
