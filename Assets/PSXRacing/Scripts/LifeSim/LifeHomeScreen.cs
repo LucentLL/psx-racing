@@ -1100,15 +1100,7 @@ namespace PSXRacing.LifeSim
             // The one way out below the base level, where the strip stands: it
             // never scrolls away, which a button at the foot of a page does.
             tabBack = MenuKit.Button(bar, "<  BACK", new Vector2(0f, 0.5f), new Vector2(32f, 0f),
-                new Vector2(180f, TabH - 14f), () =>
-                {
-                    FlushSetup();
-                    tab = ParentTab();
-                    buyTarget = null;
-                    confirmNewGame = false;
-                    walkAwayArmed = null;
-                    Rebuild();
-                }, MenuKit.MinLabelSize);
+                new Vector2(180f, TabH - 14f), GoBack, MenuKit.MinLabelSize);
             MenuNav.Row(new System.Collections.Generic.List<Selectable> { tabBack });
         }
 
@@ -1624,16 +1616,34 @@ namespace PSXRacing.LifeSim
                 else LookAtNow();
                 Rebuild();
             }
-            else if (tab != "main")
+            else if (tab != "main") GoBack();
+        }
+
+        /// <summary>
+        /// One page back: the strip's BACK and B/Esc. The body shop and the
+        /// mechanic are places the player drove to, so from a forecourt the way
+        /// back is out to the car (the same guard as the meet's way back: a car
+        /// left with the mechanic has no forecourt to return to). Everywhere
+        /// else it is the page's parent.
+        /// </summary>
+        void GoBack()
+        {
+            FlushSetup();
+            bool toCar = (tab == "service" || tab == "paint") &&
+                         Town.TownReturn.Pending && CarWhere.Available(S, S.ActiveCar);
+            buyTarget = null;
+            confirmNewGame = false;
+            // A half-armed WALK AWAY must not still be armed when the
+            // player wanders back tomorrow.
+            walkAwayArmed = null;
+            if (toCar)
             {
-                FlushSetup();
-                tab = ParentTab();
-                buyTarget = null;
-                // A half-armed WALK AWAY must not still be armed when the
-                // player wanders back tomorrow.
-                walkAwayArmed = null;
-                Rebuild();
+                Town.TownReturn.Go();
+                // Go gives up without a town scene: stay in the menu then.
+                if (Town.TownReturn.SpawnAtVenue) return;
             }
+            tab = ParentTab();
+            Rebuild();
         }
 
         // =================== tabs ===================
