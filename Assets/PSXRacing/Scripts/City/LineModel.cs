@@ -420,7 +420,7 @@ namespace PSXRacing.City
             foreach (var e in map.edges) e.lmEase = null;
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
-            BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear();
+            BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
             TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
@@ -529,7 +529,7 @@ namespace PSXRacing.City
                         PropagateShift(map, add, partner, N, n, shiftN, shLen, 0f, 0);
                         int wSide = -fixT * (wForward ? 1 : -1);
                         // (wedlane 11-06) the lane leaves on the branch: W holds its width to the node
-                        if (BranchDropAt(map, add, partner, W, N, n, wSide)) { HeldJoins++; continue; }
+                        if (BranchDropAt(map, add, partner, W, N, n, wSide, shiftN)) { HeldJoins++; continue; }
                         float len = LengthFor(W, n, wSide, dMove, out bool fromTapr);
                         EasedJoins++; HeldJoins++; if (!fromTapr) EasedDefault++;
                         Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0);
@@ -1982,18 +1982,114 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         public static bool BranchDropOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP") != "0";
         /// <summary>The rule finds 53 such drops city-wide; some are freeway
-        /// exits whose ramp would move 4-14 m. Until each is checked it runs
-        /// only at the nodes it was driven at, on the export it was checked
-        /// on; PSX_CITY_BRANCHDROP=all runs it everywhere (unchecked).</summary>
+        /// exits whose ramp would move 4-14 m. It runs only at the nodes it
+        /// was checked at (<see cref="BranchDropNodes"/>), on the export it was
+        /// checked on; PSX_CITY_BRANCHDROP=all runs it everywhere (unchecked);
+        /// PSX_CITY_BRANCHDROP=n,n,... runs it at those nodes only (=4263 is
+        /// the Weddington-only scope of 02e1c602).</summary>
         public static bool BranchDropAll = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP") == "all";
-        public static bool BranchDropShiftOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP_SHIFT") != "0";
-        const uint BranchDropGraph = 0xb2aa3453u;
-        static readonly HashSet<int> BranchDropNodes = new HashSet<int> { 4263 };
+        public static bool BranchDropShiftOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP_SHIFT") != "0";        const uint BranchDropGraph = 0xb2aa3453u;
+        /// <summary>
+        /// THE DROPS HELD (branchdrop-city 11-06), on graph b2aa3453. The
+        /// census (each drop's dropped lane cm-gridded 6 m and 14 m before
+        /// its node on live 02e1c602) found 16 of the 53 where the lane was
+        /// not paved: the old taper had turned it into verge before the
+        /// branch began. Those that passed the drive (out onto the branch and
+        /// straight through from both lanes, 30/50/70: no wheel off over
+        /// 0.10 s, no body vy over 0.5 m/s, no step over 3 cm under a wheel)
+        /// are held here (n4263 Weddington, the first); the others stay as on
+        /// live, each with its cause in <see cref="BranchDropExcluded"/>.
+        /// </summary>
+        static readonly HashSet<int> BranchDropNodes = BranchDropNodesFromEnv() ?? new HashSet<int>
+        {
+            4263,   // Weddington Rd sb -> link e3041 (wedlane, 02e1c602)
+            5126,   // Reese Blvd -> link
+            5737,   // Tuckaseegee Rd -> link (a 3.1-3.6 cm seam 70 m up the approach, as on live)
+            5939,   // Poplar Tent Rd, two-lane drop (dw 7.32) onto a 7.9 m link
+            6021,   // Reese Blvd -> link
+            6137,   // ramp drop -> link (shift taper 46 m: the branch's run; a 39-55 cm step at the
+                    // through arm's far node, 42 m on, is on live too)
+            6227,   // E Independence Blvd -> link (branch moves 7.1 m)
+            7186,   // Mount Holly-Huntersville Rd -> link
+            9863,   // ramp drop -> link
+        };
+        /// <summary>The drops the rule finds that stay as they were, each with
+        /// its cause (printed on its sweep / lap log line). The other 36
+        /// found on b2aa3453 are listed by <see cref="BranchDropPavedCause"/>:
+        /// their dropped lane is already paved on live to the node (the
+        /// census grids: road at 6 m and 14 m back), so holding it changes
+        /// nothing a car meets except the branch's position - including
+        /// every freeway / boulevard exit whose ramp would move 4-14 m.</summary>
+        static readonly Dictionary<int, string> BranchDropExcluded = new Dictionary<int, string>
+        {
+            // Poplar Tent Rd over I-85: the taper's edge is a railed bridge
+            // edge 6.9 m above I-85; the lane cannot be paved there without
+            // widening the structure.
+            { 5636, "taper edge is a railed edge above I-85 (6.9 m drop): no lane without widening the structure" },
+            // Two-lane drops (7.32 m) onto a 6.06 m ramp: with the branch's
+            // outer edge flush, a 1.26 m strip of the held pavement ends at
+            // the node with nothing beyond it (a straight-through car from the
+            // dropped lane met 4-9 cm onto the verge there at n2930, 24 cm at
+            // n11860; widening the branch's pavement over the gap left a 37 cm
+            // hairline hole at n2930 and a 5-6 cm gore crack at n11860).
+            // n2930's exit also steps 16-34 cm 60 m down the branch.
+            { 2930, "branch 6.06 m narrower than the 7.32 m held: a 1.26 m strip ends at the node (straight-through 4-9 cm onto the verge)" },
+            { 11860, "branch 6.06 m narrower than the 7.32 m held: a 1.26 m strip ends at the node (straight-through 24 cm onto the verge)" },
+            // Poplar Tent Rd: the shifted branch and the through arm meet in a
+            // 3 cm road-on-road fold along their seam (exit 3.3-3.4 cm at
+            // 11353.2,24230.6) and a 16 cm hole at the nose (11360,24227).
+            { 5760, "3.3 cm road-on-road fold along the branch / through-arm seam on the exit, 16 cm hole at the nose" },
+            // Single-lane drops whose straight-through from the dropped lane
+            // crosses a seam at the node at 50 km/h (their exits pass):
+            // n4 3.1 cm road-on-road at (-12556.8,-13729.7) - Gold Hill Rd's
+            // bridge e2911 also carries the dropped lane, its rail moved out
+            // with the edge; n13685 4.8 cm onto the verge at the node.
+            { 4, "straight-through from the dropped lane: 3.1 cm seam step at the node at 50 km/h (exit passes)" },
+            { 13685, "straight-through from the dropped lane: 4.8 cm onto the verge at the node at 50 km/h (exit passes)" },
+            // Perimeter Pkwy: straight-through from the dropped lane 3.7-6.7 cm
+            // at (-3180.2,18381.7), the exit 3.1 cm at 50.
+            { 9923, "straight-through from the dropped lane 3.7-6.7 cm 15 m past the node; exit 3.1 cm at 50 km/h" },
+            // Poplar Tent Rd: the exit at 70 lifts the body 0.56 m/s at the
+            // node (live 0.64): a grade break there, not the lane.
+            { 5951, "exit at 70 km/h: body vy 0.56 m/s at the node (live 0.64), a grade break the hold does not cure" },
+        };
+        // Paved on live (excluded, BranchDropPavedCause): n229 236 239 301 346
+        // 364 368 384 394 422 438 467 680 733 1154 1934 2208 2309 2469 2667
+        // 2728 2913 2919 3108 3395 3779 3925 4449 4927 5118 5466 6270 10032
+        // 10062 14664 17150 (the I-85 exits n368 / n680 and the boulevard
+        // exits n364 / n394 / n10062 / n14664 among them).
+        const string BranchDropPavedCause = "lane already paved on live";
+        static HashSet<int> BranchDropNodesFromEnv()
+        {
+            var v = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP");
+            if (string.IsNullOrEmpty(v) || v == "0" || v == "all") return null;
+            var set = new HashSet<int>();
+            foreach (var t in v.Split(',')) if (int.TryParse(t.Trim(), out int k)) set.Add(k);
+            return set.Count > 0 ? set : null;
+        }
         /// <summary>For the report: the drops the rule finds city-wide, those
         /// held to the node (in scope), and each one's "node wide-edge ->
         /// branch shift".</summary>
         public static int BranchDropHeld, BranchDropFound;
         public static readonly List<string> BranchDropLog = new List<string>();
+        /// <summary>Each held drop's node and how far its branch was moved out.</summary>
+        static readonly Dictionary<int, float> BranchDropHeldAt = new Dictionary<int, float>();
+        /// <summary>PSX_CITY_BRANCHDROP_POLES=0: a utility pole (CityPoles) or a
+        /// street lamp (CityMeshes.PlaceLamps) refused beside a held drop is
+        /// not tried further out (as 02e1c602).</summary>
+        public static bool BranchDropPolesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BRANCHDROP_POLES") != "0";
+        /// <summary>(branchdrop 11-06) For the pole line (CityPoles): how far
+        /// the branch of a drop held at either end of <paramref name="e"/> was
+        /// moved out onto the held lane, else 0. At n4263 the pole that stood
+        /// by the old taper (on e3023's right, 9807.7,20273.0) found every
+        /// foot in the shifted link e3041's clear zone and stood none.</summary>
+        public static float BranchDropHeldShift(CityMap.Edge e)
+        {
+            if (!BranchDropPolesOn || BranchDropHeldAt.Count == 0) return 0f;
+            float a = BranchDropHeldAt.TryGetValue(e.a, out float sa) ? sa : 0f;
+            float b = BranchDropHeldAt.TryGetValue(e.b, out float sb) ? sb : 0f;
+            return Mathf.Max(a, b);
+        }
 
         /// <summary>True (and the branch shifted) where the wide arm W, coming
         /// INTO <paramref name="n"/> in travel, loses its <paramref name="wSide"/>
@@ -2001,7 +2097,7 @@ namespace PSXRacing.City
         /// record (src 4: the side from that branch; flag 2: full width at the
         /// node).</summary>
         static bool BranchDropAt(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
-                                 CityMap.Edge W, CityMap.Edge N, int n, int wSide)
+                                 CityMap.Edge W, CityMap.Edge N, int n, int wSide, float shiftN = 0f)
         {
             if (!BranchDropOn || taprAt == null || !W.oneway || W.b != n || W.a == W.b) return false;
             if (!taprAt.TryGetValue(TaprKey(W.index, 1, wSide > 0 ? 0 : 1), out int ti)) return false;
@@ -2026,8 +2122,26 @@ namespace PSXRacing.City
             float shift = wSide * (wOut - bOut);
             bool inScope = BranchDropAll || (map.graphHash == BranchDropGraph && BranchDropNodes.Contains(n));
             BranchDropFound++;
-            if (BranchDropLog.Count < 400) BranchDropLog.Add($"n{n} e{W.index} -> e{br.index} {shift:+0.00;-0.00}{(inScope ? " HELD" : "")}");
+            string why = inScope ? " HELD"
+                : map.graphHash != BranchDropGraph ? " excluded: not the export it was checked on"
+                : BranchDropExcluded.TryGetValue(n, out var cause) ? " excluded: " + cause
+                : BranchDropNodesFromEnv() != null ? " excluded: not in PSX_CITY_BRANCHDROP"
+                : " excluded: " + BranchDropPavedCause;
+            // the shift's taper: as wanted (MUTCD), and as the branch's run lets it go (RoomAlong)
+            float shWant = Mathf.Max(FloorOf(br), Mathf.Abs(shift) * ShiftRate(br));
+            float shRoom = RoomAlong(map, partner, br, n, 1, true);
+            // THE GAP at the node between the through arm's edge and the
+            // shifted branch's inner edge (+: a strip of W's held pavement that
+            // ends at the node with nothing beyond; -: the two overlap and the
+            // branch is clipped), logged for each drop.
+            float brIn = wSide > 0 ? br.lmMinus : br.lmPlus;
+            float nOutX = wSide > 0 ? (N.a == n ? N.lmPlus + shiftN : N.lmMinus - shiftN)
+                                    : (N.a == n ? -N.lmMinus + shiftN : -(N.lmPlus + shiftN));
+            float gap = wSide * ((shift - wSide * brIn) - nOutX);
+            if (BranchDropLog.Count < 400)
+                BranchDropLog.Add($"n{n} e{W.index} -> e{br.index} {shift:+0.00;-0.00} taper {Mathf.Min(shWant, shRoom):0} of {shWant:0} m gap {gap:+0.00;-0.00}{why}");
             if (!inScope) return false;
+            BranchDropHeldAt[n] = Mathf.Max(Mathf.Abs(shift), BranchDropHeldAt.TryGetValue(n, out float was) ? was : 0f);
             if (BranchDropShiftOn && Mathf.Abs(shift) >= 0.02f)
                 PropagateShift(map, add, partner, br, n, shift, Mathf.Max(FloorOf(br), Mathf.Abs(shift) * ShiftRate(br)), 0f, 0);
             BranchDropHeld++;

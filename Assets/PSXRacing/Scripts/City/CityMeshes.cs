@@ -4715,6 +4715,16 @@ namespace PSXRacing.City
                         if (r == 0) { placed = true; break; }
                     }
                 }
+                // (branchdrop 11-06) by a lane drop held to its node the branch runs on the
+                // held lane, over the verge this lamp stood on: it stands that far further out
+                float held = placed || why != LampRejectSide ? 0f : LineModel.BranchDropHeldShift(e);
+                for (int attempt = 0; held > 0f && attempt < (outsideOnly ? 1 : 2) && !placed; attempt++)
+                    foreach (float dS in LampNudges)
+                    {
+                        float s = s0 + dS;
+                        if (Mathf.Abs(dS) > LampNudgeShare * step || s < lo || s > hi) continue;
+                        if (TryLamp(map, trims, tm, e, s, attempt == 0 ? first : -first, height, kind, speed, held) == 0) { placed = true; break; }
+                    }
                 if (!placed && why > 0) tm.lampRejects[why]++;
                 LampTrace?.Invoke(e.index, s0, placed ? 0 : why);
             }
@@ -4742,9 +4752,9 @@ namespace PSXRacing.City
         /// <summary>One lamp at arc <paramref name="s"/> on one side, or the
         /// reason it cannot stand there (0 = placed).</summary>
         static int TryLamp(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, float s, int side,
-                           float height, byte kind, float speed)
+                           float height, byte kind, float speed, float heldOut = 0f)
         {
-            if (!LampSideClear(side, s - LampRunMarginM, s + LampRunMarginM)) return LampRejectSide;
+            if (heldOut <= 0f && !LampSideClear(side, s - LampRunMarginM, s + LampRunMarginM)) return LampRejectSide;
             foreach (float se in lampEnds)
                 if (Mathf.Abs(s - se) < ApproachRailM) return LampRejectStructure;
 
@@ -4764,6 +4774,7 @@ namespace PSXRacing.City
             float off = speed > LampUrbanSpeedKmh
                 ? shoulder + RoadsideRules.ClearZoneM + LampClearZonePadM
                 : shoulder + LampUrbanOffsetM;
+            off += heldOut;
             float arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
             var footP = edgeW + outw * off;
             var headP = footP - outw * arm;
