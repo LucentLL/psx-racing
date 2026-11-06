@@ -607,7 +607,10 @@ namespace PSXRacing
             // THE FIRST AND LAST CONTROLS TAKE THE PAGE TO ITS ENDS. A pad only
             // scrolls by moving to a control, so words above the first one or
             // below the last could never be brought back into view (owner: "I
-            // can't move to the top of a car's Parts + Tuning menu").
+            // can't move to the top of a car's Parts + Tuning menu"). Only when the
+            // control can still be seen from there: a page whose first or only
+            // row sits below the fold keeps the row on screen and takes the page
+            // to whichever end it can (the strip shows the top).
             bool above = false, below = false;
             foreach (var s in content.GetComponentsInChildren<Selectable>(false))
             {
@@ -617,8 +620,8 @@ namespace PSXRacing
                 if (y > local.y + target.rect.height * 0.5f) above = true;
                 else if (y < local.y - target.rect.height * 0.5f) below = true;
             }
-            if (!above) want = 0f;
-            else if (!below) want = scrollable;
+            if (!above && bottom + Pad <= viewH) want = 0f;
+            else if (!below && top - Pad >= scrollable) want = scrollable;
 
             want = Mathf.Clamp(want, 0f, scrollable);
             scroll.verticalNormalizedPosition = 1f - want / scrollable;
