@@ -1630,6 +1630,8 @@ namespace PSXRacing.LifeSim
         {
             if (s == null || car == null || car.engineBlown) return false;
             car.engineBlown = true;
+            car.engineStory = EngineTemp.LastStory ?? "";
+            EngineTemp.LastStory = null;
             // The condition goes with it. A seized engine is not a tired one,
             // and letting it come home at 40% would mean the rebuild that
             // "restores" it was worth less than the engine already in the car.
