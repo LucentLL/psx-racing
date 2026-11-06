@@ -238,6 +238,7 @@ namespace PSXRacing
                   ?? City.CityRaceStarts.Prompt
                   ?? DriveThru.Prompt
                   ?? SeizedPrompt()
+                  ?? HotPrompt()
                   ?? DryTankPrompt()
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
@@ -812,6 +813,7 @@ namespace PSXRacing
                              ?? Town.TownEdge.Prompt
                              ?? DriveThru.Prompt
                              ?? SeizedPrompt()
+                             ?? HotPrompt()
                              ?? DryTankPrompt()
                              ?? "";
                     break;
@@ -1175,7 +1177,23 @@ namespace PSXRacing
             string how = TouchControls.Instance != null && TouchControls.Instance.Visible
                 ? "TAP MENU (TOP LEFT)"
                 : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS START" : "PRESS ESC";
-            return "THE ENGINE HAS LET GO\n" + how + " — IT IS GOING HOME ON A TRUCK";
+            return "THE ENGINE HAS LET GO\n" + how + " AND PICK TOW CAR HOME";
+        }
+
+        /// <summary>
+        /// What to say while heat is cutting power. A playtester lost half the
+        /// car's pace to a coolant leak, read it as a mystery governor holding
+        /// them to 60 mph, and drove on flat out until the engine let go: the
+        /// only clue was a small blinking temperature lamp. This names the cause
+        /// and the cure while it is happening. The derate starts at
+        /// <see cref="EngineTemp.RedMark"/>, the same point the lamp turns red.
+        /// </summary>
+        string HotPrompt()
+        {
+            var t = Temp;
+            if (t == null || t.Seized || !t.Overheating) return null;
+            int cut = Mathf.RoundToInt((1f - t.PowerMult) * 100f);
+            return "ENGINE OVERHEATING — POWER CUT " + cut + "%\nEASE OFF OR IT WILL LET GO";
         }
 
         /// <summary>The temperature lamp's line when the fuel bar is up: the

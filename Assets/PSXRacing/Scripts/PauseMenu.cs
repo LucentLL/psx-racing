@@ -133,6 +133,7 @@ namespace PSXRacing
             // Re-read the fuel row on the way in: its price is a function of
             // how empty the tank is right now.
             if (v && fuelLabel != null) fuelLabel.text = FuelLabel();
+            if (v && exitLabel != null) exitLabel.text = ExitLabel();
             // And the temperatures out there (weather layers, 2026-10-25).
             if (v && weatherLabel != null) weatherLabel.text = Seasons.TempLine(Seasons.Now);
 
@@ -264,6 +265,17 @@ namespace PSXRacing
             settings.Open(at);
         }
         Text fuelLabel;
+        Text exitLabel;
+
+        /// <summary>The leave row names where it goes. A playtester read EXIT
+        /// TO MENU as quitting the game. With a dead engine it is the tow home,
+        /// which the banner on the road tells the player to pick by name.</summary>
+        string ExitLabel()
+        {
+            var engine = playerCar != null ? playerCar.GetComponent<EngineTemp>() : null;
+            if (engine != null && engine.Seized) return "TOW CAR HOME";
+            return City.CityMode.Instance != null ? "END DRIVE (GO HOME)" : "QUIT RACE (GO HOME)";
+        }
         /// <summary>The air, the road and the bridges right now, under the
         /// footer (filled when the menu opens).</summary>
         Text weatherLabel;
@@ -501,7 +513,9 @@ namespace PSXRacing
                 fuelLabel = fuelBtn.GetComponentInChildren<Text>();
             }
             Row("RESTART RACE", RestartRace);
-            Row("EXIT TO MENU", ExitToMenu);
+            // Where it goes, not "menu": a playtester read EXIT TO MENU as
+            // quitting the game.
+            exitLabel = Row(ExitLabel(), ExitToMenu).GetComponentInChildren<Text>();
 
             // The four pages, as one strip under the column: a press opens the
             // settings menu at that page (where LB / RB walk the others).
