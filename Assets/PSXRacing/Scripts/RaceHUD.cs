@@ -238,7 +238,9 @@ namespace PSXRacing
                   ?? City.CityRaceStarts.Prompt
                   ?? DriveThru.Prompt
                   ?? SeizedPrompt()
+                  ?? HotPrompt()
                   ?? DryTankPrompt()
+                  ?? City.FirstDrive.Prompt
                   ?? "";
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
 
@@ -293,7 +295,8 @@ namespace PSXRacing
         {
             // No signpost to a counter that does not serve (the CITY edition:
             // DriveThru.Serves). The slot stays empty after the attribution.
-            if (!DriveThru.Serves || world == null || car == null)
+            bool guided = City.FirstDrive.Active;
+            if ((!DriveThru.Serves && !guided) || world == null || car == null)
             {
                 if (minimap != null) minimap.SetDestination(default, false);
                 return "";
@@ -301,8 +304,11 @@ namespace PSXRacing
             if (Time.unscaledTime < foodNext) return foodLine;
             foodNext = Time.unscaledTime + 0.4f;
 
-            if (!world.NearestFood(car.transform.position, out string label,
-                                   out Vector2 at, out float dist))
+            string label = City.FirstDrive.TargetLabel;
+            Vector2 at = City.FirstDrive.Target;
+            float dist = Vector2.Distance(at, new Vector2(car.transform.position.x, car.transform.position.z));
+            if (guided ? !City.FirstDrive.HasTarget
+                       : !world.NearestFood(car.transform.position, out label, out at, out dist))
             {
                 foodLine = "";
                 if (minimap != null) minimap.SetDestination(default, false);
@@ -622,7 +628,44 @@ namespace PSXRacing
                 ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY";
         }
 
-        void Awake() => HudOnTop.Apply(gameObject);
+        void Awake()
+        {
+            HudOnTop.Apply(gameObject);
+            if (centerText != null)
+            {
+                var rt = centerText.rectTransform;
+                midAnchor = rt.anchorMin; midPivot = rt.pivot; midPos = rt.anchoredPosition;
+                midSize = rt.sizeDelta; midAlign = centerText.alignment; midFont = centerText.fontSize;
+            }
+            PlaceBanner(false);
+        }
+
+        Vector2 midAnchor, midPivot, midPos, midSize;
+        TextAnchor midAlign;
+        int midFont;
+        bool bannerPlaced, bannerMid;
+
+        /// <summary>
+        /// NOTHING OVER THE LINE OF SIGHT, even an important notice (owner,
+        /// 2026-11-06). In code rather than the builder so that every scene
+        /// already baked moves too: a notice hangs under the timer, in the sky
+        /// or the cabin roof, and grows downwards. The lights and the finish
+        /// sheet share this Text and keep the middle: nobody is driving yet, or
+        /// any more.
+        /// </summary>
+        void PlaceBanner(bool mid)
+        {
+            if (centerText == null || (bannerPlaced && bannerMid == mid)) return;
+            bannerPlaced = true;
+            bannerMid = mid;
+            var rt = centerText.rectTransform;
+            rt.anchorMin = rt.anchorMax = mid ? midAnchor : new Vector2(0.5f, 1f);
+            rt.pivot = mid ? midPivot : new Vector2(0.5f, 1f);
+            rt.anchoredPosition = mid ? midPos : new Vector2(0f, -44f);
+            rt.sizeDelta = mid ? midSize : new Vector2(640f, 100f);
+            centerText.alignment = mid ? midAlign : TextAnchor.UpperCenter;
+            centerText.fontSize = mid ? midFont : Mathf.Min(midFont, 16);
+        }
 
         /// <summary>Whether the last frame was drawn for somebody on foot.
         /// Drives the one-shot blank/restore below.</summary>
@@ -812,6 +855,7 @@ namespace PSXRacing
                              ?? Town.TownEdge.Prompt
                              ?? DriveThru.Prompt
                              ?? SeizedPrompt()
+                             ?? HotPrompt()
                              ?? DryTankPrompt()
                              ?? "";
                     break;
@@ -872,6 +916,7 @@ namespace PSXRacing
                              ReplayOffer(touch);
                     break;
             }
+            PlaceBanner(rm.State != RaceManager.RaceState.Racing || center == "GO!");
             if (center != lastCenter) { lastCenter = center; Set(centerText, center); }
         }
 
@@ -1175,7 +1220,23 @@ namespace PSXRacing
             string how = TouchControls.Instance != null && TouchControls.Instance.Visible
                 ? "TAP MENU (TOP LEFT)"
                 : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS START" : "PRESS ESC";
-            return "THE ENGINE HAS LET GO\n" + how + " — IT IS GOING HOME ON A TRUCK";
+            return "THE ENGINE HAS LET GO\n" + how + " AND PICK TOW CAR HOME";
+        }
+
+        /// <summary>
+        /// What to say while heat is cutting power. A playtester lost half the
+        /// car's pace to a coolant leak, read it as a mystery governor holding
+        /// them to 60 mph, and drove on flat out until the engine let go: the
+        /// only clue was a small blinking temperature lamp. This names the cause
+        /// and the cure while it is happening. The derate starts at
+        /// <see cref="EngineTemp.RedMark"/>, the same point the lamp turns red.
+        /// </summary>
+        string HotPrompt()
+        {
+            var t = Temp;
+            if (t == null || t.Seized || !t.Overheating) return null;
+            int cut = Mathf.RoundToInt((1f - t.PowerMult) * 100f);
+            return "ENGINE OVERHEATING — POWER CUT " + cut + "%\nEASE OFF OR IT WILL LET GO";
         }
 
         /// <summary>The temperature lamp's line when the fuel bar is up: the

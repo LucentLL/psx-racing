@@ -27,6 +27,8 @@
         /// or empty for the factory answer. The paint shop writes it onto the
         /// OwnedCar; this is how it reaches the grid. See LifeSim.Paint.</summary>
         public static string CarPaintSkin;
+        /// <summary>The shell whose wheels the car wears (OwnedCar.wheelKey).</summary>
+        public static string CarWheelKey;
         /// <summary>The debug bench's DRIVE SIDE pick for the player's car,
         /// "RHD" / "LHD", or empty for the car's own side
         /// (LifeSim.DebugCarOps.SidePick, written by FillCarRequestFor; put on
@@ -98,6 +100,8 @@
         /// apply-back banks metres/fuel/wear but pays no purse and moves no
         /// rep — a drive is not a result.</summary>
         public static bool FreeRoam;
+        /// <summary>This free roam is the guided first drive (City.FirstDrive).</summary>
+        public static bool FirstDrive;
         /// <summary>
         /// Into your own street ON FOOT — "walk into the house" from the menu,
         /// an inspection finished, the keys taken to another car. The
@@ -460,6 +464,7 @@
             CarId = null;
             CarSpecId = null;
             CarPaintSkin = null;
+            CarWheelKey = null;
             DriveSidePick = null;
             LampLensB = false;
             PurseWin = PurseSecond = PurseThird = 0;
@@ -469,6 +474,7 @@
             WeatherOverride = -1; SkyOverride = -1; RoadOverride = -1;
             TrafficLevel = -1;
             FreeRoam = false; FreeRoamPlace = null;
+            FirstDrive = false;
             ArriveOnFoot = false; NoCar = false;
             TitleScreen = false;
             Delivery = false; DeliveryPay = 0; Solo = false;

@@ -1630,6 +1630,8 @@ namespace PSXRacing.LifeSim
         {
             if (s == null || car == null || car.engineBlown) return false;
             car.engineBlown = true;
+            car.engineStory = EngineTemp.LastStory ?? "";
+            EngineTemp.LastStory = null;
             // The condition goes with it. A seized engine is not a tired one,
             // and letting it come home at 40% would mean the rebuild that
             // "restores" it was worth less than the engine already in the car.
@@ -1849,8 +1851,13 @@ namespace PSXRacing.LifeSim
             string away = CarWhere.BlockedReason(s, car);
             if (away != null) return away;
             if (car.engineBlown) return BlownLine;
+            if (car.noWheels) return NoWheelsLine;
             return null;
         }
+
+        /// <summary>The way out for a car with its wheels in storage, for the
+        /// same reason <see cref="BlownLine"/> names one.</summary>
+        public const string NoWheelsLine = "NO WHEELS ON IT - FIT A SET FROM STORED WHEELS";
 
         /// <summary>What every screen says about a destroyed engine. One
         /// string, because it is going to be read on a page the player did not
@@ -1875,6 +1882,7 @@ namespace PSXRacing.LifeSim
                                          FaultCatalog.Venue venue)
         {
             if (car == null || f == null) return "no car";
+            if (car.noWheels && f.stat == "tires") return "no wheels on it";
             if (s.pendingParts.Exists(p => p.carId == car.id && p.faultId == f.id))
                 return "already booked";
             string elsewhere = CarWhere.RefuseWork(s, car, (int)venue);

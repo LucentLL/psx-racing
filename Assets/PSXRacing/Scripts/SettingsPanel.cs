@@ -102,7 +102,7 @@ namespace PSXRacing
                 if (w != null && w.enabled) { w.enabled = false; stoodDown.Add(w); }
 
             canvas = MenuKit.Canvas(transform, "SettingsCanvas", P.sortOrder);
-            MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.08f, 0.08f, 0.08f, 0.94f));
+            MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.08f, 0.08f, 0.08f, 1f));
             MenuKit.GridBackdrop(canvas.transform);
             BuildChrome();
             ShowPage(at, false);

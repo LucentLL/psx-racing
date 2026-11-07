@@ -286,6 +286,12 @@ namespace PSXRacing
             // scale for as long as anything kept stepping it.
             if (Seized) { load = 0f; overRev = 0f; }
 
+            // The breakdown report's record: when the drive started, what was
+            // in the system, and how hard it was being driven while hot.
+            clock += dt;
+            if (startCoolant < 0f) startCoolant = coolantPct;
+            lastLoad = load;
+
             // ---- airflow: the fan OR the road, whichever is more ----------
             float fanAir = AirFan * CoolingModel.FanEff(fanCond);
             float ramAir = Mathf.Abs(speedKmh) * AirPerKmh;
@@ -349,6 +355,8 @@ namespace PSXRacing
                 Mathf.InverseLerp(RedMark, SeizeFromC, celsius));
 
             if (celsius <= RedMark) return;
+            if (firstRedAt < 0f) firstRedAt = clock;
+            if (lastLoad > 0.8f) redFlatOutSecs += dt;
             OverheatSeconds += dt;
             EngineDamage += DamagePerSec *
                             Mathf.Pow((celsius - RedMark) / 15f, 1.5f) * dt;
@@ -369,6 +377,9 @@ namespace PSXRacing
         {
             if (Seized) return;
             Seized = true;
+            seizedAt = clock;
+            coolantAtSeize = coolantPct;
+            LastStory = Story();
             PowerMult = 0f;
             // Whatever was in it is on the road. Nothing reads this — the
             // engine is already dead — but a car towed home with a full
@@ -398,6 +409,39 @@ namespace PSXRacing
         /// cooked during the race did not. The tank is stamped twice in exactly
         /// this shape for exactly this reason.
         /// </summary>
+        float clock, lastLoad, redFlatOutSecs, coolantAtSeize;
+        float startCoolant = -1f, firstRedAt = -1f, seizedAt = -1f;
+
+        /// <summary>The report of the last seizure, read by
+        /// <see cref="LifeSim.LifeRules.BlowEngine"/> into the save.</summary>
+        public static string LastStory;
+
+        static string Clock(float t) => Mathf.FloorToInt(t / 60f) + ":" + Mathf.FloorToInt(t % 60f).ToString("00");
+
+        /// <summary>
+        /// What happened, in the order it happened, for a player who is "not a
+        /// car guy": a playtester's engine let go and the garage could only say
+        /// that it had. One line per link in the chain, each short enough for
+        /// the garage page, and the last one says what to do differently.
+        /// </summary>
+        public string Story()
+        {
+            var lines = new System.Collections.Generic.List<string>();
+            float start = Mathf.Max(0f, startCoolant);
+            if (start < 60f)
+                lines.Add("You set off with the coolant at " + Mathf.RoundToInt(start) + "%. Top it up before a drive.");
+            else if (start - coolantAtSeize > 10f)
+                lines.Add("Worn hoses leaked coolant once it got hot (" + Mathf.RoundToInt(start) + "% down to " +
+                          Mathf.RoundToInt(coolantAtSeize) + "%).");
+            if (firstRedAt >= 0f)
+                lines.Add("It went into the red at " + Clock(firstRedAt) + " and let go at " + Clock(seizedAt) + ".");
+            if (redFlatOutSecs > 5f)
+                lines.Add(Mathf.RoundToInt(redFlatOutSecs) + " s of that was at full throttle. Easing off lets it cool.");
+            else
+                lines.Add("When the TEMP lamp blinks red, ease off: that is when it starts cutting power.");
+            return string.Join("\n", lines);
+        }
+
         public static void StampResult(CarController car)
         {
             var temp = car != null ? car.GetComponent<EngineTemp>() : null;

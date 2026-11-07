@@ -255,7 +255,9 @@ namespace PSXRacing.OnFoot
                 // nothing anywhere claiming they were the same colour. One
                 // answer now, and it is the one the body shop can change.
                 int skin = Paint.SkinFor(car, spec, def);
-                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec);
+                // A car with no wheels is on stands; this bay's rig draws them.
+                if (car.noWheels && Toolbox.RaiseOf(S, car) == Toolbox.Raise.Ground) Toolbox.ToggleRaise(S, car);
+                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec, car);
                 PaintGloss.WriteAll(st.shell, PaintGloss.Of(car));
 
                 BuildRaiseRig(st, def, spec);
@@ -330,8 +332,10 @@ namespace PSXRacing.OnFoot
         /// SOLIDITY is the one thing the garage cares about specially: the box
         /// is inside the shell, so a car on the lift takes it up and the player
         /// can walk underneath, which is the whole point of the lift.</summary>
-        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, CarSpec spec) =>
-            CarShell.Spawn(bay, def, skin, out roofPoint, widthMm: spec != null ? spec.widthMm : 0, spec: spec);
+        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, CarSpec spec,
+                             OwnedCar owned = null) =>
+            CarShell.Spawn(bay, def, skin, out roofPoint, owned: owned, standsHere: false,
+                           widthMm: spec != null ? spec.widthMm : 0, spec: spec);
 
         // ------------------------------------------------------------------
         //  getting the car in the air
@@ -681,7 +685,7 @@ namespace PSXRacing.OnFoot
 
             if (rackHook != null) rackHook.onUse = () => GoHome("tune");
             if (toolHook != null) toolHook.onUse = () => GoHome("toolbox");
-            if (benchHook != null) benchHook.onUse = () => GoHome("service");
+            if (benchHook != null) benchHook.onUse = () => GoHome("carmenu");
             if (doorHook != null) doorHook.onUse = () => GoHome("main");
             if (fridgeHook != null) fridgeHook.onUse = EatFromFridge;
 
@@ -833,8 +837,8 @@ namespace PSXRacing.OnFoot
             {
                 benchHook.title = "WORKBENCH";
                 benchHook.detail = BenchLine(activeCar);
-                benchHook.action = "BOOK MECHANIC WORK";
-                benchHook.verb = "BOOK";
+                benchHook.action = "LOOK THE CAR OVER";
+                benchHook.verb = "CHECK";
             }
 
             if (doorHook != null)
@@ -964,7 +968,8 @@ namespace PSXRacing.OnFoot
                 : now == Toolbox.Raise.Stands
                     ? name + " is up on stands. Room to get underneath."
                     : name + " is sat on its wheels.";
-            hook.action = up ? "SET IT BACK DOWN"
+            hook.action = up && st.car.noWheels ? "FIT WHEELS FIRST"
+                             : up ? "SET IT BACK DOWN"
                              : best == Toolbox.Raise.Lift ? "RAISE IT ON THE LIFT"
                                                           : "PUT IT UP ON STANDS";
             // RAISE for stands as well as the lift: the button is about which
@@ -977,6 +982,12 @@ namespace PSXRacing.OnFoot
                 if (bay.live && RaiseHere(bay) == Toolbox.Raise.Ground && !LiveInBay())
                 {
                     Scr?.Toast("PARK IT SQUARE IN THE GARAGE FIRST");
+                    return;
+                }
+                // It has nothing to come down on: the menu's raise row refuses too.
+                if (bay.car.noWheels && RaiseHere(bay) != Toolbox.Raise.Ground)
+                {
+                    Scr?.Toast(LifeRules.NoWheelsLine);
                     return;
                 }
                 // Up to the best THIS BAY has, or back down. Toolbox.ToggleRaise

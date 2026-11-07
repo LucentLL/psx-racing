@@ -130,7 +130,7 @@ namespace PSXRacing.OnFoot
             // but never reach — and a shell you could walk through would only
             // ever be noticed by walking through it.
             CarShell.Spawn(anchor, def, Paint.SkinFor(car, spec, def),
-                           out Vector3 roof, solid: true, widthMm: spec != null ? spec.widthMm : 0, spec: spec);
+                           out Vector3 roof, solid: true, owned: car, widthMm: spec != null ? spec.widthMm : 0, spec: spec);
             var focus = new GameObject("Focus");
             focus.transform.SetParent(anchor, false);
             focus.transform.localPosition = roof;
@@ -316,6 +316,7 @@ namespace PSXRacing.OnFoot
 
             var car = S.ActiveCar;
             if (car == null) { screen?.Toast("no car to deliver in"); return; }
+            if (car.noWheels) { screen?.Toast(LifeRules.NoWheelsLine); return; }
             if (car.fuel <= 5f) { screen?.Toast("not enough fuel — the tank is dry"); return; }
             // Belt and braces: the venue is rolled at the counter, and carrying
             // cannot be true without having been there. A -1 reaching

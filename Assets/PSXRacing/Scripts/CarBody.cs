@@ -328,6 +328,28 @@ namespace PSXRacing
             Apply(CarModelLibrary.Load(key), skin);
         }
 
+        /// <summary>Another shell's wheels on this car (WheelSets), kept here so
+        /// a repaint's Apply cannot lose them; empty for its own.</summary>
+        public string wheelKey = "";
+
+        void ApplyWheelDonor(CarModelDef def)
+        {
+            if (string.IsNullOrEmpty(wheelKey) || wheelKey == def.key) return;
+            var donor = CarModelLibrary.Load(wheelKey);
+            if (donor == null || donor.wheelMesh == null) return;
+            var ratio = CarModelLibrary.WheelRatio(def, donor);
+            var mat = CarModelLibrary.WheelMaterial(donor);
+            PSXTexDecode.Stamp(mat);
+            for (int i = 0; i < 4; i++)
+            {
+                if (wheelFilters[i] != null) wheelFilters[i].sharedMesh = donor.wheelMesh;
+                if (wheelRenderers[i] != null && mat != null) wheelRenderers[i].sharedMaterial = mat;
+                CarPaint.DullWheels(wheelRenderers[i]);
+                if (wheelHolders[i] != null)
+                    wheelHolders[i].localScale = Vector3.Scale(wheelHolders[i].localScale, ratio);
+            }
+        }
+
         public void Apply(CarModelDef def, int skin)
         {
             if (def == null) return;
@@ -384,6 +406,7 @@ namespace PSXRacing
                 // stand out past the arch.
                 f.PlaceHolder(wheelHolders[i], i);
             }
+            ApplyWheelDonor(def);
 
             if (blobShadow != null)
             {

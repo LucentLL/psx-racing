@@ -1253,10 +1253,65 @@ namespace PSXRacing.City
         /// <summary>For the probes: noses filled and their triangles since the reset.</summary>
         public static int NoseFills, NoseFillTris;
 
+        /// <summary>
+        /// MEDIAN NOSES CITY-WIDE (night 11-06). The census (Editor
+        /// CityNoseCensus) found the n1230 hole at 67 of the 124 junction
+        /// noses on the export (median 22 cm deep): wherever a divided
+        /// street's carriageways meet a fan, the island or the wide grass
+        /// stops where its ray meets the fan (CurbMedian), and the fan's chord
+        /// verge and the ribbons' median verges fall to the lattice. Every
+        /// such nose is now filled at grade as n1230's was - one in, one out,
+        /// one road, under 120 deg apart (CurbRadiusAt's own nose), the fan's
+        /// ring round it unbroken by a mouth - out to <see cref="NoseAllUpM"/>
+        /// back. Not: Barriered roads (their cable, Jersey and unions), the
+        /// refuge pairs, ramps and decks, Five Points' flush nose
+        /// (NoseFlushAt's scope). PSX_CITY_NOSE_ALL=0: n1230 only, as 522fa8c3.
+        /// </summary>
+        public static bool NoseAllOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE_ALL") != "0";
+        const float NoseAllUpM = 8f;
+        /// <summary>For the probes: noses skipped because their outline crossed itself.</summary>
+        public static int NoseFillTangled;
+
         static bool NoseFillNode(CityMap map, int n)
         {
-            if (!NoseFillOn || map.graphHash != NoseFillGraph) return false;
+            if (!NoseFillOn) return false;
+            if (NoseAllOn) return true;   // the nose test is NoseFill's own
+            if (map.graphHash != NoseFillGraph) return false;
             foreach (int k in NoseFillNodes) if (k == n) return true;
+            return false;
+        }
+
+        /// <summary>A carriageway whose nose the city-wide fill lays: a named
+        /// one-way surface street (not a ramp, deck, tunnel, Barriered road or
+        /// refuge pair).</summary>
+        static bool NoseAllClass(CityMap.Edge e) =>
+            e.oneway && !e.link && !e.bridge && !e.tunnel && e.a != e.b && !string.IsNullOrEmpty(e.name) && !Barriered(e)
+            && LineModel.RefugeOf(e.index) == null;
+
+        /// <summary>The arm's direction out of node n, read 6 m out (as the census).</summary>
+        static Vector2 NoseArmOut(CityMap.Edge e, int n)
+        {
+            float s = e.a == n ? Mathf.Min(6f, e.length) : Mathf.Max(0f, e.length - 6f);
+            var v = e.PointAt(s) - (e.a == n ? e.PointAt(0f) : e.PointAt(e.length));
+            return v.sqrMagnitude > 1e-6f ? v.normalized : (e.a == n ? e.TangentAt(0f) : -e.TangentAt(e.length));
+        }
+
+        /// <summary>The outline's segments cross (a split's carriageways drawn
+        /// into each other): no fill, the triangles would not lie in it.</summary>
+        static bool Tangled(List<Vector3> poly)
+        {
+            int N = poly.Count;
+            for (int i = 0; i < N; i++)
+            {
+                Vector2 a = new Vector2(poly[i].x, poly[i].z), b = new Vector2(poly[(i + 1) % N].x, poly[(i + 1) % N].z);
+                for (int j = i + 2; j < N; j++)
+                {
+                    if (i == 0 && j == N - 1) continue;
+                    Vector2 c = new Vector2(poly[j].x, poly[j].z), d = new Vector2(poly[(j + 1) % N].x, poly[(j + 1) % N].z);
+                    float d1 = Cross2(b - a, c - a), d2 = Cross2(b - a, d - a), d3 = Cross2(d - c, a - c), d4 = Cross2(d - c, b - c);
+                    if (((d1 > 0f && d2 < 0f) || (d1 < 0f && d2 > 0f)) && ((d3 > 0f && d4 < 0f) || (d3 < 0f && d4 > 0f))) return true;
+                }
+            }
             return false;
         }
 
@@ -1265,14 +1320,293 @@ namespace PSXRacing.City
         static void NoseFill(CityMap map, Trims trims, TileMeshes tm, int n, List<FanCorner> corners)
         {
             // the carriageway in (A, ending here) and out (B, starting here)
-            CityMap.Edge A = null, B = null;
-            foreach (int i in map.nodeEdges[n])
-                foreach (int j in map.nodeEdges[n])
+            bool all = NoseAllOn && !(map.graphHash == NoseFillGraph && n == 1230);
+            if (!all)
+            {
+                if (map.graphHash == NoseFillGraph && System.Array.IndexOf(NoseFillNodes, n) >= 0) NoseFillOne(map, trims, tm, n, corners, null, null, NoseFillUpM);
+                return;
+            }
+            // Five Points keeps its flush nose (NoseFlushAt)
+            if (NoseFlushOn && InR23Scope(map.nodes[n])) return;
+            // every node of the fan's cluster (a cluster is drawn by its lowest member)
+            noseMembers.Clear(); noseMembers.Add(n);
+            foreach (var k in corners) if (k.node >= 0 && !noseMembers.Contains(k.node)) noseMembers.Add(k.node);
+            foreach (int m in noseMembers)
+            {
+                if (map.graphHash == NoseFillGraph && m == 1230) continue;   // NoseFill, as shipped
+                foreach (int i in map.nodeEdges[m])
+                    foreach (int j in map.nodeEdges[m])
+                    {
+                        var a = map.edges[i]; var b = map.edges[j];
+                        if (a == b || !SameRoad(a, b) || !a.oneway || !b.oneway || a.a == a.b || b.a == b.b || a.b != m || b.a != m) continue;
+                        if (!NoseAllClass(a) || !NoseAllClass(b) || a.ElevatedAt(a.length) || b.ElevatedAt(0f)) continue;
+                        if (Vector2.Angle(NoseArmOut(a, m), NoseArmOut(b, m)) >= 120f) continue;
+                        NoseSheet(map, trims, tm, m, a, b, corners);
+                    }
+            }
+        }
+        static readonly List<int> noseMembers = new List<int>(8);
+
+        /// <summary>A node with no fan (a split drawn mitred: the two-way road
+        /// parts into its carriageways): its median nose's sheet (BuildJunctions).</summary>
+        static void NoseSheetsAt(CityMap map, Trims trims, TileMeshes tm, int n)
+        {
+            if (!NoseFillOn || !NoseAllOn || (NoseFlushOn && InR23Scope(map.nodes[n]))) return;
+            var ne = map.nodeEdges[n];
+            if (ne == null || ne.Count < 3) return;
+            foreach (int i in ne)
+                foreach (int j in ne)
                 {
                     var a = map.edges[i]; var b = map.edges[j];
-                    if (a == b || !SameRoad(a, b) || !a.oneway || !b.oneway || a.a == a.b || b.a == b.b) continue;
-                    if (a.b == n && b.a == n) { A = a; B = b; }
+                    if (a == b || !SameRoad(a, b) || !a.oneway || !b.oneway || a.a == a.b || b.a == b.b || a.b != n || b.a != n) continue;
+                    if (!NoseAllClass(a) || !NoseAllClass(b) || a.ElevatedAt(a.length) || b.ElevatedAt(0f)) continue;
+                    if (Vector2.Angle(NoseArmOut(a, n), NoseArmOut(b, n)) >= 120f) continue;
+                    NoseSheet(map, trims, tm, n, a, b, null);
                 }
+        }
+
+        /// <summary>
+        /// THE NOSE'S SHEET (night 11-06). From the nose - the fan's ring round
+        /// it, or at a split the point where the carriageways' median edges
+        /// part - back along both median edges, stations every metre: each
+        /// edge an inch under its drawn height (read off the drawn outline, so
+        /// the crossfall is its own), tucked under the pavement, and the middle
+        /// between them at the two edges' grade. It runs back until the
+        /// island (CurbMedian) has taken over - the first station where the
+        /// island's own test passes (the ray out of the edge meets the twin,
+        /// no fan first, past a split's setback) - and
+        /// <see cref="NoseSheetPastM"/> on, under the island's ramp. Where no
+        /// island follows within <see cref="NoseSheetSeekM"/> (a median wider
+        /// than the island's reach, a twin of another class) the sheet is
+        /// held at grade for <see cref="NoseSheetFlatM"/>, then its middle
+        /// ramps down to a hair under the land over <see cref="NoseSheetRampM"/>
+        /// (as GoreFillAt), so it meets the ditch behind with no step.
+        /// </summary>
+        const float NoseSheetPastM = 3f, NoseSheetSeekM = 30f, NoseSheetFlatM = 6f, NoseSheetRampM = 6f;
+        public static int NoseSheets, NoseSheetTris, NoseSheetsNoIsland, NoseSheetsCut;
+        /// <summary>The sheet's edges under the pavement edge (an inch is the verge's lip; the
+        /// sheet is tucked under the edge, so it reads nearer the road's own level).</summary>
+        const float NoseSheetDropM = 0.015f;
+
+        /// <summary>Noses kept as live on the export checked (graph NoseFillGraph):
+        /// n5212 (West Boulevard, a 22 m split with a fan) - its sheet left a new
+        /// 25 cm step onto the land beside node 14126 (sweep e15027/e15032 -> e15034);
+        /// n6815 (South Trade Street) - the split's tip pit, 47 cm deep live, read
+        /// 3.6 cm worse beside the sheet (sweep e5190 -> e17334).</summary>
+        static readonly int[] NoseSheetSkip = { 5212, 6815 };
+
+        static void NoseSheet(CityMap map, Trims trims, TileMeshes tm, int n, CityMap.Edge A, CityMap.Edge B, List<FanCorner> corners)
+        {
+            // spots kept as live on this export (NoseSheetSkip)
+            if (map.graphHash == NoseFillGraph && System.Array.IndexOf(NoseSheetSkip, n) >= 0) return;
+            float tA = trims.TrimAt(A, n), tB = trims.TrimAt(B, n);
+            // A arrives (s falls toward n), B leaves (s grows from n); both median sides are +1 (the left)
+            float SA(float d) => Mathf.Max(0f, A.length - tA - d);
+            float SB(float d) => Mathf.Min(B.length, tB + d);
+            Vector2 EdgeP(CityMap.Edge e, float s, float under)
+            {
+                LineModel.Extents(e, s, out _, out float eP);
+                return e.PointAt(s) + LineModel.SectionLeft(e, s) * (eP - under);
+            }
+            bool InPave(CityMap.Edge e, Vector2 q)
+            {
+                CityElevation.ProjectOn(e, q, out float sq);
+                LineModel.Extents(e, sq, out float eM, out float eP);
+                float lat = Vector2.Dot(q - e.PointAt(sq), LineModel.SectionLeft(e, sq));
+                return lat > -eM - 0.05f && lat < eP + 0.05f;
+            }
+            // where the median edges part: 0 at a fan (the ring closes the nose), else the first
+            // distance out at which each leaves the other's pavement (a split's carriageways overlap)
+            float d0 = 0f;
+            bool ring = corners != null && RingBetween(corners, tm.origin, A.index, B.index);
+            if (corners != null && !ring) return;   // a mouth between them: no nose
+            if (!ring)
+            {
+                d0 = -1f;
+                for (float d = 0f; d < 25f; d += 0.25f)
+                    if (!InPave(B, EdgeP(A, SA(d), 0f)) && !InPave(A, EdgeP(B, SB(d), 0f))) { d0 = d; break; }
+                if (d0 < 0f) return;
+            }
+            // where the island takes over
+            bool split = SplitNode(map, A, n);
+            bool islandClass = CurbMedianOn && CurbMedianEdge(map, A) && CurbMedianEdge(map, B);
+            float dIsl = -1f;
+            if (islandClass)
+                for (float d = d0 + 1f; d <= d0 + NoseSheetSeekM; d += 1f)
+                {
+                    if (split && d < CurbMedianSplitSetbackM) continue;
+                    if (IslandFrom(map, trims, A, SA(d)) && IslandFrom(map, trims, A, SA(d + 1f))) { dIsl = d; break; }
+                }
+            // the cross line from edge to edge meets another road's pavement
+            // first: a turn lane, a side street or driveway meeting the twin, the
+            // next junction's fan. Not the road itself where it parts (a split's
+            // two-way ribbon and its painted gore lie over the sheet's first
+            // metres: their pavement stands on it)
+            bool Blocked(float dd)
+            {
+                var pa = EdgeP(A, SA(dd), 0f); var pb = EdgeP(B, SB(dd), 0f);
+                float L = Vector2.Distance(pa, pb);
+                if (L < 0.5f) return false;
+                float ya = OutlineEdgeY(map, trims, A, pa, A.YAt(SA(dd)));
+                GatherNear(map, pa, pb, 1f);
+                ClearRun(map, trims, pa, (pb - pa) / L, ya, L, out _, out float er, out bool fan);
+                if (float.IsNaN(er) || er >= L - 0.3f) return false;
+                if (fan) return true;
+                int blk = clearRunBlockEdge;
+                if (blk < 0 || blk == B.index || blk == A.index) return false;
+                var o = map.edges[blk];
+                return !(o.name == A.name && !o.oneway && (o.a == n || o.b == n));
+            }
+            float dEnd = dIsl >= 0f ? Mathf.Max(dIsl, d0 + 1f) + NoseSheetPastM : d0 + NoseSheetFlatM + NoseSheetRampM;
+            // no station across other pavement: the sheet ends at the last one clear
+            bool cut = false;
+            for (float d = d0 + NoseFillStepM; d < dEnd + NoseFillStepM - 1e-3f; d += NoseFillStepM)
+            {
+                float dd = Mathf.Min(d, dEnd);
+                if (Blocked(dd)) { dEnd = Mathf.Max(d0, dd - NoseFillStepM); cut = true; break; }
+            }
+            // where no island takes over (or another road cut the sheet short) the
+            // middle ramps down to a hair under the land over its last metres, so
+            // it meets the ditch with no step; under an island it runs on at grade
+            bool islandAtEnd = dIsl >= 0f && !cut && IslandFrom(map, trims, A, SA(dEnd - 0.5f));
+            float rampM = islandAtEnd ? 0f : Mathf.Min(NoseSheetRampM, 0.5f * (dEnd - d0));
+            if (dIsl < 0f) NoseSheetsNoIsland++;
+            if (cut) NoseSheetsCut++;
+            if (NoseRingLog != null) lock (NoseRingLog) NoseSheetLog[$"{n}:{A.index}:{B.index}"] = $"d0 {d0:0.00} island {dIsl:0.0} end {dEnd:0.0} cut {cut} ring {ring} split {split} class {islandClass}";
+            Vector3 V(CityMap.Edge e, float s)
+            {
+                var q = EdgeP(e, s, NoseFillUnderM);
+                return UnderPave(map, trims, new Vector3(q.x, OutlineEdgeY(map, trims, e, EdgeP(e, s, 0f), e.YAt(s)) - NoseSheetDropM, q.y));
+            }
+            string tagWas = groundTag;
+            if (groundLog != null) groundTag = $"nose sheet node {n} e{A.index}/e{B.index}";
+            noseTriConc = MedianConcreteWays.Contains(A.wayId) ? 1 : 0;
+            int tris = 0;
+            try
+            {
+                var a0 = V(A, SA(d0)); var b0 = V(B, SB(d0));
+                var c0 = UnderPave(map, trims, Vector3.Lerp(a0, b0, 0.5f));
+                if (ring)
+                {
+                    // the ring round the nose down to the first station
+                    // the ring, then the first station's edge points and middle; where
+                    // that outline crosses itself, the ring and the middle alone
+                    var poly = new List<Vector3>(noseRing.Count + 4);
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        poly.Clear();
+                        foreach (var r in noseRing) poly.Add(UnderPave(map, trims, new Vector3(r.x, r.y - NoseSheetDropM, r.z)));
+                        if (attempt == 0) { poly.Add(b0); poly.Add(c0); poly.Add(a0); } else poly.Add(c0);
+                        for (int i = poly.Count - 1; i > 0; i--)
+                            if (new Vector2(poly[i].x - poly[i - 1].x, poly[i].z - poly[i - 1].z).sqrMagnitude < 0.01f) poly.RemoveAt(i);
+                        if (poly.Count >= 3 && !Tangled(poly)) { tris += EarFill(map, tm, poly); break; }
+                        if (attempt == 1 && poly.Count >= 3) NoseFillTangled++;
+                    }
+                }
+                else { a0 = c0; b0 = c0; }   // the point where the edges part
+                for (float d = d0 + NoseFillStepM; d < dEnd + NoseFillStepM - 1e-3f; d += NoseFillStepM)
+                {
+                    float dd = Mathf.Min(d, dEnd);
+                    var a1 = V(A, SA(dd)); var b1 = V(B, SB(dd));
+                    var c1 = Vector3.Lerp(a1, b1, 0.5f);
+                    if (rampM > 0.01f)
+                    {
+                        float ramp = Mathf.Clamp01((dd - (dEnd - rampM)) / rampM);
+                        c1.y = Mathf.Lerp(c1.y, Mathf.Min(c1.y, LatticeY(map, c1.x, c1.z) - GoreFillUnderLatticeM), ramp);
+                    }
+                    c1 = UnderPave(map, trims, c1);
+                    EarTri(map, tm, a0, a1, c1); EarTri(map, tm, a0, c1, c0);
+                    EarTri(map, tm, c0, c1, b1); EarTri(map, tm, c0, b1, b0);
+                    tris += 4;
+                    a0 = a1; b0 = b1; c0 = c1;
+                }
+            }
+            finally { noseTriConc = -1; groundTag = tagWas; }
+            NoseSheets++; NoseSheetTris += tris;
+        }
+
+        /// <summary>A sheet's vertex held <see cref="NoseSheetUnderPaveM"/> under
+        /// any pavement drawn over it (a split's two-way ribbon, a fan, a turn
+        /// lane): the grass never shows through a road.</summary>
+        static Vector3 UnderPave(CityMap map, Trims trims, Vector3 v)
+        {
+            var q = new Vector2(v.x, v.z);
+            GatherNear(map, q, q, 1f);
+            GatherPavement(map, trims);
+            float y = v.y;
+            foreach (int ei in nearEdges)
+            {
+                float h = OutlineHeightAt(OutlineOf(map, trims, ei), q);
+                if (!float.IsNaN(h) && h > v.y - 0.5f && h < v.y + 0.5f) y = Mathf.Min(y, h - NoseSheetUnderPaveM);
+            }
+            foreach (int nf in nearFans)
+                if (OnFan(FanPolyOf(map, trims, nf), q, out float fy) && fy > v.y - 0.5f && fy < v.y + 0.5f) y = Mathf.Min(y, fy - NoseSheetUnderPaveM);
+            v.y = y;
+            return v;
+        }
+        const float NoseSheetUnderPaveM = 0.02f;
+
+        /// <summary>CurbMedian's own test at arc s of carriageway e's median
+        /// side, from the drawn edge as the line model gives it: the ray out
+        /// meets the twin (one-way, this name, the other way, of the island's
+        /// class) 0.8-30 m off, no fan first, within half a metre of height.</summary>
+        static bool IslandFrom(CityMap map, Trims trims, CityMap.Edge e, float s)
+        {
+            LineModel.Extents(e, s, out _, out float eP);
+            var left = LineModel.SectionLeft(e, s);
+            var pw = e.PointAt(s) + left * eP;
+            float y = OutlineEdgeY(map, trims, e, pw, e.YAt(s));
+            GatherNear(map, pw, pw, CurbMedianWideMaxM + 1f);
+            ClearRun(map, trims, pw, left, y, CurbMedianWideMaxM, out float oy, out float edgeRun, out bool intoFan);
+            int blk = clearRunBlockEdge;
+            if (float.IsNaN(edgeRun) || intoFan || blk < 0 || edgeRun < CurbMedianMinM || edgeRun > CurbMedianWideMaxM) return false;
+            if (Mathf.Abs(oy - y) > CurbMedianMaxDyM) return false;
+            var tw = map.edges[blk];
+            if (tw.index == e.index || !tw.oneway || tw.name != e.name || !CurbMedianClass(tw)) return false;
+            CityElevation.ProjectOn(tw, pw + left * edgeRun, out float sTw);
+            if (Vector2.Dot(tw.TangentAt(sTw).normalized, e.TangentAt(s).normalized) > -0.7f) return false;
+            // both halves' split setbacks, read from the node (the island's own
+            // test reads the twin's from its node), and the ray back from the twin
+            if ((s < CurbMedianSplitSetbackM && SplitNode(map, e, e.a)) || (e.length - s < CurbMedianSplitSetbackM && SplitNode(map, e, e.b))) return false;
+            if ((sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.a)) || (tw.length - sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.b))) return false;
+            var q = pw + left * edgeRun;
+            ClearRun(map, trims, q, -left, oy, CurbMedianWideMaxM, out _, out float backRun, out bool backFan);
+            return !float.IsNaN(backRun) && !backFan && clearRunBlockEdge == e.index && Mathf.Abs(backRun - edgeRun) <= 1f;
+        }
+
+        /// <summary>The drawn outline's height at its edge nearest p (either
+        /// side, plan distance), else the fallback.</summary>
+        static float OutlineEdgeY(CityMap map, Trims trims, CityMap.Edge e, Vector2 p, float fallback)
+        {
+            var ol = OutlineOf(map, trims, e.index);
+            if (ol == null || ol.L == null) return fallback;
+            float best = 0.5f * 0.5f, y = fallback;
+            for (int side = 0; side < 2; side++)
+            {
+                var P = side == 0 ? ol.L : ol.R;
+                for (int i = 1; i < P.Length; i++)
+                {
+                    Vector2 a = new Vector2(P[i - 1].x, P[i - 1].z), b = new Vector2(P[i].x, P[i].z), ab = b - a;
+                    float l2 = ab.sqrMagnitude;
+                    float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                    float d2 = (a + ab * t - p).sqrMagnitude;
+                    if (d2 < best) { best = d2; y = Mathf.Lerp(P[i - 1].y, P[i].y, t); }
+                }
+            }
+            return y;
+        }
+
+        static void NoseFillOne(CityMap map, Trims trims, TileMeshes tm, int n, List<FanCorner> corners, CityMap.Edge A, CityMap.Edge B, float upM)
+        {
+            bool all = A != null;
+            if (A == null)
+                foreach (int i in map.nodeEdges[n])
+                    foreach (int j in map.nodeEdges[n])
+                    {
+                        var a = map.edges[i]; var b = map.edges[j];
+                        if (a == b || !SameRoad(a, b) || !a.oneway || !b.oneway || a.a == a.b || b.a == b.b) continue;
+                        if (a.b == n && b.a == n) { A = a; B = b; }
+                    }
             if (A == null) return;
             // the fan's ring from A's median corner round the nose to B's: no mouth between
             if (!RingBetween(corners, tm.origin, A.index, B.index)) return;
@@ -1286,18 +1620,42 @@ namespace PSXRacing.City
                 var p = e.PointAt(s) + left * (eP - NoseFillUnderM);
                 return new Vector3(p.x, e.YAt(s), p.y);
             }
-            for (float d = NoseFillUpM; d > 0.05f; d -= NoseFillStepM) poly.Add(EdgeAt(A, Mathf.Max(0f, sA - d)));
+            for (float d = upM; d > 0.05f; d -= NoseFillStepM) poly.Add(EdgeAt(A, Mathf.Max(0f, sA - d)));
             poly.AddRange(noseRing);
-            for (float d = NoseFillStepM; d <= NoseFillUpM + 1e-3f; d += NoseFillStepM) poly.Add(EdgeAt(B, Mathf.Min(B.length, sB + d)));
+            for (float d = NoseFillStepM; d <= upM + 1e-3f; d += NoseFillStepM) poly.Add(EdgeAt(B, Mathf.Min(B.length, sB + d)));
             for (int i = 0; i < poly.Count; i++) { var v = poly[i]; v.y -= RoadsideRules.EdgeDropM; poly[i] = v; }
             for (int i = poly.Count - 1; i > 0; i--)
                 if (new Vector2(poly[i].x - poly[i - 1].x, poly[i].z - poly[i - 1].z).sqrMagnitude < 0.01f) poly.RemoveAt(i);
             if (poly.Count < 3) return;
+            if (all && Tangled(poly)) { NoseFillTangled++; return; }
             string tagWas = groundTag;
             if (groundLog != null) groundTag = $"nose fill node {n} e{A.index}/e{B.index}";
-            int tris = EarFill(map, tm, poly);
+            // city-wide: the median's own top (grass, concrete on MedianConcreteWays), as the island beside it
+            noseTriConc = all ? (MedianConcreteWays.Contains(A.wayId) ? 1 : 0) : -1;
+            int tris;
+            try { tris = EarFill(map, tm, poly); } finally { noseTriConc = -1; }
             groundTag = tagWas;
             NoseFills++; NoseFillTris += tris;
+        }
+
+        /// <summary>For the nose census (Editor CityNoseCensus): when set, each
+        /// fan's ring round a median nose - arm A in, arm B out, one road's
+        /// two one-way carriageways - is kept here, keyed "n:A:B" (world
+        /// points, A's corner first). Diagnostic only: nothing is laid.</summary>
+        public static Dictionary<string, List<Vector3>> NoseRingLog;
+        /// <summary>With NoseRingLog: each nose sheet's stations (census).</summary>
+        public static readonly Dictionary<string, string> NoseSheetLog = new Dictionary<string, string>();
+
+        static void LogNoseRings(CityMap map, int n, List<FanCorner> corners, Vector3 o)
+        {
+            foreach (int i in map.nodeEdges[n])
+                foreach (int j in map.nodeEdges[n])
+                {
+                    var a = map.edges[i]; var b = map.edges[j];
+                    if (a == b || !SameRoad(a, b) || !a.oneway || !b.oneway || a.a == a.b || b.a == b.b || a.b != n || b.a != n) continue;
+                    if (!RingBetween(corners, o, a.index, b.index)) continue;
+                    lock (NoseRingLog) NoseRingLog[$"{n}:{a.index}:{b.index}"] = new List<Vector3>(noseRing);
+                }
         }
 
         /// <summary>The fan's ring from arm ea's corner to arm eb's with no mouth
@@ -1355,13 +1713,28 @@ namespace PSXRacing.City
                     foreach (int m in idx)
                         if (m != ia && m != ib && m != ic && Inside(poly[m], a, b, c)) { ear = false; break; }
                     if (!ear) continue;
-                    FillTri(map, tm, a, b, c); tris++;
+                    EarTri(map, tm, a, b, c); tris++;
                     idx.RemoveAt(k); cut = true; break;
                 }
                 if (!cut) break;
             }
-            if (idx.Count == 3) { FillTri(map, tm, poly[idx[0]], poly[idx[1]], poly[idx[2]]); tris++; }
+            if (idx.Count == 3) { EarTri(map, tm, poly[idx[0]], poly[idx[1]], poly[idx[2]]); tris++; }
             return tris;
+        }
+
+        /// <summary>-1: EarFill lays FillTri's (land by PavedAt); 0 / 1: the
+        /// median's grass / concrete, as the island beside it.</summary>
+        static int noseTriConc = -1;
+
+        static void EarTri(CityMap map, TileMeshes tm, Vector3 a, Vector3 b, Vector3 c)
+        {
+            if (noseTriConc < 0) { FillTri(map, tm, a, b, c); return; }
+            if (Fin(a, b, c)) return;
+            groundLog?.Add((groundTag, a, b, c));
+            bool conc = noseTriConc > 0;
+            if (Vector3.Cross(b - a, c - a).y > 0f) { var t = b; b = c; c = t; }
+            var o = tm.origin;
+            GroundBucket(conc).Tri(a - o, b - o, c - o, GroundUV(conc, a.x, a.z), GroundUV(conc, b.x, b.z), GroundUV(conc, c.x, c.z));
         }
 
         /// <summary>

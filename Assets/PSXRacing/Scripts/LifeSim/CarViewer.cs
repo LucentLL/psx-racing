@@ -118,7 +118,180 @@ namespace PSXRacing.LifeSim
         float yaw = 215f;
         float spin = 20f;   // degrees/second of idle rotation
         float distance = 7.4f;
-        float carLength = 4.1f;
+        float carLength = 4.1f, carWidth = 1.72f, carHeight = 1.3f;
+
+        /// <summary>The turntable, or a pinned view for the inspection: the car
+        /// from straight above with the nose right (the x-ray's frame), or
+        /// side-on for its wheels and brakes.</summary>
+        public enum ViewPose { Showroom, Plan, Side }
+        ViewPose pose;
+        float poseAspect = 1.6f, planHigh = 2f;
+
+        /// <param name="aspect">The panel's width over height: the picture is
+        /// stretched to fill it, so the camera draws for that shape.</param>
+        /// <param name="planMetresHigh">Plan only: metres of ground the panel's
+        /// height covers.</param>
+        public void SetPose(ViewPose p, float aspect = 1.6f, float planMetresHigh = 2f)
+        {
+            if (p == ViewPose.Showroom && pose == ViewPose.Showroom) return;
+            EnsureRig();
+            pose = p;
+            poseAspect = aspect;
+            planHigh = planMetresHigh;
+            if (p == ViewPose.Showroom)
+            {
+                cam.orthographic = false;
+                cam.ResetAspect();
+                yaw = 215f;
+                spin = 20f;
+                SetWheelsOff(false);
+            }
+            else
+            {
+                cam.aspect = aspect;
+                spin = 0f;
+                yaw = 90f;   // the nose points +X, screen right in both views
+                rig.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            }
+            PlaceCamera();
+        }
+
+        string nextWheelKey, shownWheelKey = "";
+        bool shownOwnBrakes;
+
+        /// <summary>Shells with a rotor (or drum) and caliper painted on their own
+        /// wheelhouse walls: taking the wheels off already shows them. Read off a
+        /// render of each shell's walls, both sides, wheels off. The rest get the
+        /// drawn disc: bare walls, and gt_liftback_97, whose wall art is broken into
+        /// spikes and strips, so the disc is the better picture until that is fixed.</summary>
+        static readonly System.Collections.Generic.HashSet<string> PaintedBrakes =
+            new System.Collections.Generic.HashSet<string>
+            {
+                "charger_70", "civic_eg", "coupe_03", "crown_victoria", "fastback_96", "fixed_roof_99",
+                "flatsix_coupe", "fullsize_police", "fullsize_taxi", "fullsize_trooper", "gt_hardtop_73",
+                "gtr_89", "gtr_99", "hatch_76", "hatch_83_popup", "liftback_95", "midship_coupe",
+                "pony_fastback_69", "rally_coupe_98", "roadster_99", "roadster_na_popup",
+                "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "sedan_98", "viper_gts",
+            };
+
+        readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];
+        readonly MeshRenderer[] standRenderers = new MeshRenderer[4];
+        readonly float[] brakeRadius = new float[4];
+        readonly Vector3[] standAt = new Vector3[4], standScale = new Vector3[4];
+        bool wheelsOff;
+
+        /// <summary>The wheels off, showing a disc and caliper at each hub.</summary>
+        public void SetWheelsOff(bool off)
+        {
+            wheelsOff = off;
+            for (int i = 0; i < 4; i++)
+            {
+                if (wheelRenderers[i] != null) wheelRenderers[i].enabled = !off;
+                if (off && standRenderers[i] == null && wheelFilters[i] != null)
+                {
+                    var sg = new GameObject("Stand" + i);
+                    sg.transform.SetParent(wheelFilters[i].transform.parent, false);
+                    sg.AddComponent<MeshFilter>().sharedMesh = OnFoot.CarShell.StandMesh();
+                    standRenderers[i] = sg.AddComponent<MeshRenderer>();
+                    standRenderers[i].sharedMaterial = OnFoot.CarShell.StandMaterial(wheelRenderers[i].sharedMaterial);
+                }
+                if (standRenderers[i] != null)
+                {
+                    standRenderers[i].enabled = off;
+                    if (off)
+                    {
+                        standRenderers[i].transform.localPosition = standAt[i];
+                        standRenderers[i].transform.localScale = standScale[i];
+                    }
+                }
+                bool drawn = off && !shownOwnBrakes;
+                if (drawn && brakeRenderers[i] == null && wheelFilters[i] != null) BuildBrake(i);
+                if (brakeRenderers[i] == null) continue;
+                brakeRenderers[i].enabled = drawn;
+                if (drawn)
+                {
+                    var w = wheelFilters[i].transform;
+                    var b = brakeRenderers[i].transform;
+                    b.localPosition = w.localPosition;
+                    b.localRotation = Quaternion.identity;
+                    b.localScale = Vector3.one * brakeRadius[i] * 0.72f;
+                }
+            }
+        }
+
+        void BuildBrake(int i)
+        {
+            var go = new GameObject("Brake" + i);
+            go.transform.SetParent(wheelFilters[i].transform.parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = BrakeMesh();
+            brakeRenderers[i] = go.AddComponent<MeshRenderer>();
+            brakeRenderers[i].sharedMaterial = BrakeMaterial();
+        }
+
+        static Mesh brakeMesh;
+        Material brakeMaterial;
+
+        /// <summary>Two texels: the disc's steel and the caliper's paint.</summary>
+        Material BrakeMaterial()
+        {
+            if (brakeMaterial != null) return brakeMaterial;
+            brakeMaterial = new Material(wheelRenderers[0].sharedMaterial);
+            var tex = new Texture2D(2, 1, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+            tex.SetPixels32(new[] { new Color32(150, 152, 156, 255), new Color32(120, 30, 26, 255) });
+            tex.Apply(false);
+            brakeMaterial.mainTexture = tex;
+            PSXTexDecode.Stamp(brakeMaterial);
+            return brakeMaterial;
+        }
+
+        /// <summary>A unit-radius disc about X with a block for the caliper, made
+        /// here because the car models have no brakes of their own.</summary>
+        static Mesh BrakeMesh()
+        {
+            if (brakeMesh != null) return brakeMesh;
+            const int Sides = 20;
+            const float HalfW = 0.09f;
+            var steel = new Vector2(0.25f, 0.5f);
+            var paint = new Vector2(0.75f, 0.5f);
+            var v = new System.Collections.Generic.List<Vector3>();
+            var uv = new System.Collections.Generic.List<Vector2>();
+            var tris = new System.Collections.Generic.List<int>();
+            void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector2 t)
+            {
+                // Both faces, each with its own vertices: shared ones would have
+                // their normals cancel to zero, which normalizes to NaN in the shader.
+                int n = v.Count;
+                v.Add(a); v.Add(b); v.Add(c); v.Add(d);
+                v.Add(a); v.Add(b); v.Add(c); v.Add(d);
+                for (int k = 0; k < 8; k++) uv.Add(t);
+                tris.AddRange(new[] { n, n + 1, n + 2, n, n + 2, n + 3, n + 4, n + 6, n + 5, n + 4, n + 7, n + 6 });
+            }
+            for (int i = 0; i < Sides; i++)
+            {
+                float a0 = i * Mathf.PI * 2f / Sides, a1 = (i + 1) * Mathf.PI * 2f / Sides;
+                var p0 = new Vector3(0f, Mathf.Sin(a0), Mathf.Cos(a0));
+                var p1 = new Vector3(0f, Mathf.Sin(a1), Mathf.Cos(a1));
+                var x = new Vector3(HalfW, 0f, 0f);
+                Quad(x, x + p0, x + p1, x, steel);
+                Quad(-x, -x + p0, -x + p1, -x, steel);
+                Quad(-x + p0, x + p0, x + p1, -x + p1, steel);
+            }
+            // The caliper: a block over the disc's trailing upper edge.
+            Vector3 lo = new Vector3(-0.2f, 0.45f, -0.75f), hi = new Vector3(0.2f, 1.08f, -0.2f);
+            Vector3 P(float xx, float yy, float zz) => new Vector3(xx, yy, zz);
+            Quad(P(hi.x, lo.y, lo.z), P(hi.x, hi.y, lo.z), P(hi.x, hi.y, hi.z), P(hi.x, lo.y, hi.z), paint);
+            Quad(P(lo.x, lo.y, lo.z), P(lo.x, hi.y, lo.z), P(lo.x, hi.y, hi.z), P(lo.x, lo.y, hi.z), paint);
+            Quad(P(lo.x, hi.y, lo.z), P(hi.x, hi.y, lo.z), P(hi.x, hi.y, hi.z), P(lo.x, hi.y, hi.z), paint);
+            Quad(P(lo.x, lo.y, lo.z), P(hi.x, lo.y, lo.z), P(hi.x, hi.y, lo.z), P(lo.x, hi.y, lo.z), paint);
+            Quad(P(lo.x, lo.y, hi.z), P(hi.x, lo.y, hi.z), P(hi.x, hi.y, hi.z), P(lo.x, hi.y, hi.z), paint);
+            brakeMesh = new Mesh { name = "ViewerBrake" };
+            brakeMesh.SetVertices(v);
+            brakeMesh.SetUVs(0, uv);
+            brakeMesh.SetTriangles(tris, 0);
+            brakeMesh.RecalculateNormals();
+            brakeMesh.RecalculateBounds();
+            return brakeMesh;
+        }
 
         public Texture Texture => rt;
         /// <summary>The shell on display, for the caption under the panel.</summary>
@@ -277,6 +450,7 @@ namespace PSXRacing.LifeSim
             // turntable is the car on the grid rather than a different colour
             // of it.
             Show(def, Paint.FactorySkin(spec, def), CarModelLibrary.SpecGeometry.Of(spec));
+            SetWheelsOff(false);
         }
 
         /// <summary>
@@ -292,7 +466,10 @@ namespace PSXRacing.LifeSim
         {
             var def = Paint.DefFor(spec);
             if (def == null) return;
+            nextWheelKey = car != null ? car.wheelKey : "";
             Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
+            // A car whose wheels are in storage is shown on its stands, everywhere.
+            SetWheelsOff(car != null && car.noWheels);
         }
 
         /// <param name="widthMm">The real car's width (CarSpec.widthMm), 0 for
@@ -307,7 +484,10 @@ namespace PSXRacing.LifeSim
         {
             if (def == null) return;
             EnsureRig();
-            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo)) return;
+            string wheelKey = nextWheelKey ?? "";
+            nextWheelKey = null;
+            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo) && wheelKey == shownWheelKey) return;
+            shownWheelKey = wheelKey;
             shownGeo = geo;
             var fit = CarModelLibrary.Fit(def, geo);
             float sx = fit.sx;
@@ -318,6 +498,12 @@ namespace PSXRacing.LifeSim
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)] : null;
             var wheelMat = def.wheelMaterial != null ? def.wheelMaterial : mat;
+            var donor = string.IsNullOrEmpty(wheelKey) || wheelKey == def.key ? null : CarModelLibrary.Load(wheelKey);
+            if (donor != null && donor.wheelMesh == null) donor = null;
+            var donorMat = CarModelLibrary.WheelMaterial(donor);
+            var donorRatio = CarModelLibrary.WheelRatio(def, donor);
+            if (donorMat != null) PSXTexDecode.Stamp(donorMat);
+            shownOwnBrakes = PaintedBrakes.Contains(def.key);
 
             // The turntable spins about ITS origin, so the car is placed with
             // its own middle there — otherwise a long car swings, which is what
@@ -334,9 +520,20 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < 4; i++)
             {
                 fit.PlaceWheel(wheelFilters[i].transform, i, new Vector3(0f, 0f, -centre));
+                brakeRadius[i] = fit.Radius(i);
+                OnFoot.CarShell.StandPlace(def, fit, i, out Vector3 sAt, out standScale[i]);
+                standAt[i] = sAt + new Vector3(0f, 0f, -centre);
                 wheelFilters[i].sharedMesh = def.wheelMesh;
                 wheelRenderers[i].sharedMaterial = wheelMat;
                 CarPaint.DullWheels(wheelRenderers[i]);
+                if (donor != null)
+                {
+                    wheelFilters[i].sharedMesh = donor.wheelMesh;
+                    wheelRenderers[i].sharedMaterial = donorMat;
+                    CarPaint.DullWheels(wheelRenderers[i]);
+                    wheelFilters[i].transform.localScale =
+                        Vector3.Scale(wheelFilters[i].transform.localScale, donorRatio);
+                }
             }
 
             if (shadow != null)
@@ -355,13 +552,37 @@ namespace PSXRacing.LifeSim
             // version used a flat 1.85x and put a 4 m car in the middle of an
             // otherwise empty panel.
             carLength = Mathf.Max(def.colliderSize.z * fit.sz, 3f);
+            carWidth = def.colliderSize.x * fit.sx;
+            carHeight = def.bodyMesh.bounds.max.y + fit.bodyY;
             distance = carLength * 1.22f;
             PlaceCamera();
+            if (wheelsOff) SetWheelsOff(true);
         }
 
         void PlaceCamera()
         {
             if (cam == null) return;
+            if (pose == ViewPose.Plan)
+            {
+                cam.orthographic = true;
+                cam.orthographicSize = planHigh * 0.5f;
+                cam.transform.position = rig.position + Vector3.up * 20f;
+                cam.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                return;
+            }
+            if (pose == ViewPose.Side)
+            {
+                // Level with the hubs, far enough that the whole car fills the
+                // panel's width.
+                cam.orthographic = false;
+                var hubs = rig.position + Vector3.up * Mathf.Max(0.55f, carHeight * 0.5f);
+                // Measured to the near side, which is what runs out of the frame.
+                float tan = Mathf.Tan(17f * Mathf.Deg2Rad);
+                float back = carWidth * 0.55f + Mathf.Max(carLength * 0.56f / (tan * Mathf.Max(poseAspect, 1f)), carHeight * 0.56f / tan);
+                cam.transform.position = hubs + new Vector3(0f, 0.1f, -Mathf.Max(back, 2f));
+                cam.transform.rotation = Quaternion.LookRotation(hubs - cam.transform.position, Vector3.up);
+                return;
+            }
             // Three-quarter view from slightly above eye level — the angle every
             // showroom photograph is taken from, because it shows length, width
             // and face at once.
@@ -376,6 +597,7 @@ namespace PSXRacing.LifeSim
             if (!Visible || rig == null) return;
             yaw += spin * Time.unscaledDeltaTime + dragYaw;
             dragYaw = 0f;
+            if (pose != ViewPose.Showroom) yaw = 90f;   // pinned: drags and taps do nothing
             rig.localRotation = Quaternion.Euler(0f, yaw, 0f);
         }
 

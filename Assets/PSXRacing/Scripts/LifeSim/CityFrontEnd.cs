@@ -483,25 +483,10 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             PageHeader(ref y, "OPTIONS", () => Go("drive"));
             float w = Mathf.Min(ColW, 460f);
-            // The four pages of the settings menu, one line: the same page the
-            // pause menu opens (SettingsPanel over SettingsCatalog).
-            int n = SettingsCatalog.TabNames.Length;
-            float cw = Mathf.Min(200f, (ColW - 10f * (n - 1)) / n);
-            float total = cw * n + 10f * (n - 1);
-            for (int i = 0; i < n; i++)
-            {
-                var page = (SettingsTab)i;
-                Named(MenuKit.Button(body, SettingsCatalog.TabNames[i], new Vector2(0.5f, 1f),
-                    new Vector2(-total * 0.5f + cw * 0.5f + i * (cw + 10f), y), new Vector2(cw, 52f),
-                    () => OpenSettings(page), MenuKit.Small), "page_" + SettingsCatalog.TabNames[i]);
-                MenuKit.FitTabLabel(body.Find("Btn_page_" + SettingsCatalog.TabNames[i])?.GetComponent<Button>(), cw);
-            }
+            // One door to the settings menu: the same one the pause menu opens.
+            Named(MenuKit.Button(body, "GAME SETTINGS", new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(w, 52f), () => OpenSettings((SettingsTab)0), MenuKit.Small), "options");
             y -= 66f;
-            MenuKit.Para(body, "Steering and the instruments, the picture, the sound, the screen. " +
-                "The pause menu in a drive opens the same pages.",
-                MenuKit.MinLabelSize, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float sh,
-                TextAnchor.UpperLeft, MenuKit.Dim, ColW);
-            y -= sh + 14f;
             // This edition has no career to keep a debug flag in, so it has a
             // switch of its own (2026-10-02): the pause menu then carries the
             // DEBUG BENCH's WORLD (hour, weather, date) and MAP (jump anywhere).
@@ -526,7 +511,7 @@ namespace PSXRacing.LifeSim
                 settings.onClosed = () =>
                 {
                     if (this == null || body == null) return;
-                    var b = body.Find("Btn_page_" + SettingsCatalog.TabNames[(int)settings.Tab]);
+                    var b = body.Find("Btn_options");
                     if (b != null) MenuNav.Select(b.GetComponent<Selectable>());
                 };
             }

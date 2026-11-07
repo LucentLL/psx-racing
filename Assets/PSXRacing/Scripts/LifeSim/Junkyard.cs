@@ -345,6 +345,11 @@ namespace PSXRacing.LifeSim
         {
             var q = new Quote { available = false, risk = FaultRisk(part.grade) };
             if (car == null) { q.blockedReason = "no car"; return q; }
+            if (car.noWheels && (part.stat == "tires" || part.upgradeKind == "tires"))
+            {
+                q.blockedReason = "no wheels on it";
+                return q;
+            }
 
             if (part.IsUpgrade)
             {
