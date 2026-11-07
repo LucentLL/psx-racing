@@ -3327,9 +3327,9 @@ namespace PSXRacing.LifeSim
             // do, so it is bold and it is the colour of its news.
             MenuKit.Label(body, away
                     ? CarWhere.Label(place) + "  ·  UNAVAILABLE  ·  " + CarWhere.ReadyLabel(S, car)
-                    : CarWhere.Label(place) + "  ·  READY TO DRIVE",
+                    : CarWhere.Label(place) + (car.noWheels ? "  ·  NO WHEELS ON IT" : "  ·  READY TO DRIVE"),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft,
-                away ? MenuKit.Bad : PlaceColor(place), tw, height: 24f, bold: true);
+                away || car.noWheels ? MenuKit.Bad : PlaceColor(place), tw, height: 24f, bold: true);
             ty -= 26f;
             if (away)
             {
