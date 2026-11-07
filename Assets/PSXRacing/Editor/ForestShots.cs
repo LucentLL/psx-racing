@@ -55,6 +55,10 @@ namespace PSXRacing.EditorTools
                 typeof(SeasonDress).GetMethod("Register", System.Reflection.BindingFlags.NonPublic |
                                               System.Reflection.BindingFlags.Instance)?.Invoke(dressing, null);
 
+            // Mesh broadleaf trees (MeshForest, PC scene pass): every shot
+            // twice, "_mesh" and "_cards", for the owner's A/B.
+            var meshForest = Object.FindFirstObjectByType<MeshForest>();
+            Debug.Log("[ForestShots] mesh forest: " + (meshForest != null ? "yes" : "no"));
             var dresses = new[] { ((int)Season.Summer, "summer"), ((int)Season.Winter, "winter"), ((int)Season.Fall, "fall") };
             var stations = new[] { 0.12f, 0.3f, 0.47f, 0.66f, 0.85f };
             foreach (var (dress, dressName) in dresses)
@@ -67,8 +71,17 @@ namespace PSXRacing.EditorTools
                     int at = Mathf.Clamp(Mathf.RoundToInt(stations[s] * path.Count), 2, path.Count - 12);
                     Vector3 eye = path.GetPoint(at) + Vector3.up * 1.5f;
                     Vector3 look = path.GetPoint(at + 10) + Vector3.up * 1.2f;
-                    PSXScreenshotTool.Shot(cam, "forest_" + id + "_" + dressName + "_" + s, eye,
-                                           Quaternion.LookRotation(look - eye));
+                    var rot = Quaternion.LookRotation(look - eye);
+                    if (meshForest == null)
+                    {
+                        PSXScreenshotTool.Shot(cam, "forest_" + id + "_" + dressName + "_" + s, eye, rot);
+                        continue;
+                    }
+                    cam.transform.SetPositionAndRotation(eye, rot);
+                    meshForest.DrawNow(cam);
+                    PSXScreenshotTool.Shot(cam, "forest_" + id + "_" + dressName + "_" + s + "_mesh", eye, rot);
+                    meshForest.CardsNow();
+                    PSXScreenshotTool.Shot(cam, "forest_" + id + "_" + dressName + "_" + s + "_cards", eye, rot);
                 }
             }
             if (dressing != null) dressing.Apply((int)Season.Fall);

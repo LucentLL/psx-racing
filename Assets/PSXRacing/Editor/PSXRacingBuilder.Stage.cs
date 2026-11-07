@@ -3559,7 +3559,12 @@ namespace PSXRacing.EditorTools
                                            string.IsNullOrEmpty(theme.marsh) ? theme.ground : theme.marsh,
                                            affine: 0f, tint: theme.coastGroundTint) : null;
             var nearMats = sandy ? new[] { nearMat, sandMat, marshMat } : new[] { nearMat };
-            if (theme.stageForest)
+            if (theme.stageForest && ApplyNMGround(nearMat, MeshPrefix + "Ground", "ground"))
+            {
+                // PC: the pack's forest floor (PSXRacingBuilder.MeshTrees);
+                // white, the autumn tint warmed a dirt texture no longer here.
+            }
+            else if (theme.stageForest)
                 RegisterSeasonalTexture(MeshPrefix + "Ground", nearMat, DressTurfPath, "ground");
             else
                 RegisterSeasonalGround(MeshPrefix + "Ground", theme.ground, nearMat,
@@ -3742,6 +3747,7 @@ namespace PSXRacing.EditorTools
             if (Loop || pts == null || pts.Count < 2) return;
             Color tint = string.IsNullOrEmpty(theme.sand) ? (theme.groundTint ?? Color.white) : Color.white;
             var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
+            NMGroundRetexture(mat);
             float tile = Mathf.Max(theme.groundTile, 0.01f);
             GroundUvOrigin(pts, out float uox, out float uoz);
             // A metre a cell: flat where it matters, and ~12 KB a pad against a
@@ -4433,6 +4439,7 @@ namespace PSXRacing.EditorTools
 
             Color tint = string.IsNullOrEmpty(theme.sand) ? (theme.groundTint ?? Color.white) : Color.white;
             var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
+            NMGroundRetexture(mat);
             float tile = Mathf.Max(theme.groundTile, 0.01f);
             GroundUvOrigin(pts, out float uox, out float uoz);
             var verts = new List<Vector3>();
@@ -6754,6 +6761,8 @@ namespace PSXRacing.EditorTools
             bool sandy = surfNear != null && !string.IsNullOrEmpty(theme.sand);
             var topMat = MakeMat(MeshPrefix + "Ground", theme.ground, affine: 0f,
                                  tint: sandy ? theme.coastGroundTint : theme.groundTint);
+            // (re-made after BuildStageGround: put the PC forest floor back)
+            if (!sandy) NMGroundRetexture(topMat);
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Banks");
             root.transform.SetParent(parent, false);
@@ -7796,6 +7805,17 @@ namespace PSXRacing.EditorTools
                 }
             }
             int filled = 0, crowned = 0;
+            // MESH broadleaf trees (PC scene pass with the store files; see
+            // PSXRacingBuilder.MeshTrees and Scripts/MeshForest). Every tree is
+            // planted exactly as before - same stream, same trunk table - and
+            // a broadleaf one ALSO goes in the instance table, its card and
+            // crown into the chunk's "B" meshes that MeshForest hides wherever
+            // it draws the meshes. Conifers and the bare tree stay cards.
+            var kit = LoadMeshTreeKit();
+            var mfChunks = new List<MeshForest.Chunk>();
+            var mfInst = new List<Vector4>();
+            var mfScaleVar = new List<Vector2>();
+            int meshTrees = 0, understory = 0;
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
             {
@@ -7807,6 +7827,11 @@ namespace PSXRacing.EditorTools
                 var tris = new List<int>();
                 var fv = new List<Vector3>(); var fu = new List<Vector2>(); var ft = new List<int>();
                 var cv = new List<Vector3>(); var cu = new List<Vector2>(); var ct = new List<int>();
+                var bv = new List<Vector3>(); var bu = new List<Vector2>(); var bt = new List<int>();
+                var bfv = new List<Vector3>(); var bfu = new List<Vector2>(); var bft = new List<int>();
+                var bcv = new List<Vector3>(); var bcu = new List<Vector2>(); var bct = new List<int>();
+                int mfStart = mfInst.Count;
+                float ySum = 0f;
 
                 int cells = Mathf.RoundToInt(NearChunk / ForestPitch);
                 for (int gz = 0; gz < cells; gz++)
@@ -7930,10 +7955,25 @@ namespace PSXRacing.EditorTools
 
                         float yaw = (float)R.NextDouble() * 360f;
                         var basePos = new Vector3(wx - ox, ground - 0.25f, wz - oz);
+                        bool asMesh = kit != null && !sp.conifer && idx != BareIdx;
+                        if (asMesh)
+                        {
+                            int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
+                                             (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
+                            int vi = PickMeshTree(kit, h * MeshTreeHeightScale, hsh, out float sc);
+                            mfInst.Add(new Vector4(wx, ground - 0.25f, wz, yaw));
+                            mfScaleVar.Add(new Vector2(sc, vi));
+                            ySum += ground;
+                            meshTrees++;
+                            int before = mfInst.Count;
+                            AddUnderstory(kit, wx, wz, d, hsh, mfInst, mfScaleVar, ref understory);
+                            ySum += ground * (mfInst.Count - before);
+                        }
                         if (fill)
                         {
                             filled++;
-                            AddTreeQuads(fv, fu, ft, sp, basePos, h, yaw);
+                            if (asMesh) AddTreeQuads(bfv, bfu, bft, sp, basePos, h, yaw);
+                            else AddTreeQuads(fv, fu, ft, sp, basePos, h, yaw);
                             fillTrunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
                             fillCells.Add((byte)idx);
                         }
@@ -7941,7 +7981,8 @@ namespace PSXRacing.EditorTools
                         {
                             planted++;
                             if (onFill) reseatedOnFill++;
-                            AddTreeQuads(verts, uvs, tris, sp, basePos, h, yaw);
+                            if (asMesh) AddTreeQuads(bv, bu, bt, sp, basePos, h, yaw);
+                            else AddTreeQuads(verts, uvs, tris, sp, basePos, h, yaw);
                             // The card's WIDTH, and the cell it wears: the table
                             // takes the trunk's radius (and, per season, how far the
                             // low foliage reaches) off what the billboard paints.
@@ -7949,7 +7990,12 @@ namespace PSXRacing.EditorTools
                             NoteSkyCrown(wx, ground - 0.25f, wz, StageTreeWidth(sp, h), h, sp.conifer);
                             trunkCells.Add((byte)idx);
                         }
-                        if (pc) { AddCrownQuad(cv, cu, ct, sp, basePos, h, yaw); crowned++; }
+                        if (pc)
+                        {
+                            if (asMesh) AddCrownQuad(bcv, bcu, bct, sp, basePos, h, yaw);
+                            else AddCrownQuad(cv, cu, ct, sp, basePos, h, yaw);
+                            crowned++;
+                        }
                     }
 
                 if (fv.Count > 0)
@@ -7958,6 +8004,31 @@ namespace PSXRacing.EditorTools
                 if (cv.Count > 0)
                     ChunkGO(crownRoot.transform, "Crowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { crownMat },
                             ox, oz, "StageForestCrowns_" + cx + "_" + cz).layer = FoliageLayer;
+
+                if (mfInst.Count > mfStart)
+                {
+                    var cardsB = new List<Renderer>();
+                    void B(Transform under, string n, List<Vector3> v3, List<Vector2> u2, List<int> t3, Material m)
+                    {
+                        if (v3.Count == 0) return;
+                        var g = ChunkGO(under, n + "_" + cx + "_" + cz, ForestMesh(v3, u2, t3), new[] { m },
+                                        ox, oz, "Stage" + n + "_" + cx + "_" + cz);
+                        g.layer = FoliageLayer;
+                        var r = g.GetComponent<Renderer>();
+                        if (r != null) cardsB.Add(r);
+                    }
+                    B(root.transform, "ForestB", bv, bu, bt, mat);
+                    if (fillRoot != null) B(fillRoot.transform, "ForestFillB", bfv, bfu, bft, mat);
+                    if (crownRoot != null) B(crownRoot.transform, "ForestCrownsB", bcv, bcu, bct, crownMat);
+                    mfChunks.Add(new MeshForest.Chunk
+                    {
+                        centre = new Vector3(ox + NearChunk * 0.5f, ySum / (mfInst.Count - mfStart), oz + NearChunk * 0.5f),
+                        radius = NearChunk * 0.71f + 20f,
+                        cards = cardsB.ToArray(),
+                        start = mfStart,
+                        count = mfInst.Count - mfStart,
+                    });
+                }
 
                 if (verts.Count == 0) return;
                 var mesh = new Mesh
@@ -7975,6 +8046,18 @@ namespace PSXRacing.EditorTools
             });
 
             root.AddComponent<TreeTrunks>().SetForest(trunks, trunkCells, ForestTrunkFrac, ForestBrushFrac);
+            if (kit != null && mfInst.Count > 0)
+            {
+                var mfc = root.AddComponent<MeshForest>();
+                mfc.variants = kit.variants;
+                mfc.leafByDress = kit.leafByDress;
+                mfc.chunks = mfChunks.ToArray();
+                mfc.inst = mfInst.ToArray();
+                mfc.instScaleVar = mfScaleVar.ToArray();
+                Log($"Stage forest, MESH: {understory} understory plants (small beeches, black cherry) round the canopy.");
+                Log($"Stage forest, MESH trees: {meshTrees} broadleaf trees as NatureManufacture beeches in " +
+                    $"{mfChunks.Count} chunks ({kit.variants.Length} variants, LOD {mfc.lod0To}/{mfc.lod1To}/{mfc.meshRange} m).");
+            }
             if (pc)
             {
                 fillRoot.AddComponent<TreeTrunks>().SetForest(fillTrunks, fillCells, ForestTrunkFrac, ForestBrushFrac);

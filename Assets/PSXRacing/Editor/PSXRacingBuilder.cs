@@ -2539,7 +2539,11 @@ namespace PSXRacing.EditorTools
             Color tint = track.stage && string.IsNullOrEmpty(theme.sand)
                 ? (theme.groundTint ?? Color.white) : Color.white;
             var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
-            if (track.stage && theme.stageForest)
+            if (track.stage && theme.stageForest && ApplyNMGround(mat, MeshPrefix + "RoadEdge", "edge"))
+            {
+                // PC: the verge wears the forest floor too (PSXRacingBuilder.MeshTrees)
+            }
+            else if (track.stage && theme.stageForest)
                 RegisterSeasonalTexture(MeshPrefix + "RoadEdge", mat, DressTurfPath, "edge");
             else
                 RegisterSeasonalGround(MeshPrefix + "RoadEdge", theme.ground, mat, tint, "edge");

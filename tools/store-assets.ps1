@@ -63,7 +63,20 @@ $wanted = @(
          @("745b1ac00b719f74fb3e4abf91a846cd", "NMForest/Ground/T_ground_beech_forest_stones_01_BC_SM.tga"),
          @("692f0a190c8c11043ae938fbed12869e", "NMForest/Ground/T_ground_beech_forest_stones_01_N.png"),
          @("7f7afb2ea25258e48b955e950d68498d", "NMForest/Rocks/T_beech_forest_stones_01_BC_SM.tga"),
-         @("35087183b332c44418e1d4c71262a724", "NMForest/Rocks/T_beech_forest_stones_01_N.png")) },
+         @("35087183b332c44418e1d4c71262a724", "NMForest/Rocks/T_beech_forest_stones_01_N.png"),
+         @("dec5cddd7e32edf409f4410a4fc52b6f", "NMForest/Under/beech_tree_00_A.FBX"),
+         @("35cbd4d9534afde4789fe462a90affac", "NMForest/Under/beech_tree_00_B.FBX"),
+         @("b3f400b7fe747aa4eb3f6ad0ce29bd25", "NMForest/Under/beech_tree_00_C.FBX"),
+         @("991374844a123ac469d5e626031905d3", "NMForest/Under/beech_tree_00_D.FBX"),
+         @("32fbd98a946c7594eadbd4d79680c80e", "NMForest/Under/Forest_black_cherry_00.FBX"),
+         @("53a5f4a5cfed71841863fefa353e96b8", "NMForest/Under/Forest_black_cherry_01.FBX"),
+         @("d4a598ba79e8a1b48b208d38a079ed4e", "NMForest/Under/Forest_black_cherry_02.FBX"),
+         @("48db8f629b5b62046938deb87352149c", "NMForest/Under/Forest_black_cherry_03.FBX"),
+         @("086a7ef964ce4534ab62109983902276", "NMForest/Under/Forest_black_cherry_04.FBX"),
+         @("14835cb9bdb85924299ec60f415cac06", "NMForest/Under/Forest_black_cherry_05.FBX"),
+         @("951631ab54189f643956d255364fe292", "NMForest/Under/Black_cherry_MaskMap.png"),
+         @("2a84d7d5bf042dd49990bde48ed10206", "NMForest/Under/Forest_black_cherry_BC.png"),
+         @("65b4e508c7456014798c1b31f94b24ce", "NMForest/Under/Forest_black_cherry_N.png")) },
     @{ Pkg = "NatureManufacture\3D ModelsEnvironmentsLandscapes\Autumn Valley - Level.unitypackage"
        Files = @(
          ,@("fcfe3543dfe2f474883ede02af1c6adb", "NMForest/Trees/T_beech_atlas_BC_autumn.tga")) }
