@@ -30,6 +30,10 @@ Thumbs.db
 # Paid Asset Store content - the repo is public, do not redistribute
 Assets/PSXShaderKit/
 Assets/PSXShaderKit.meta
+# Store packs the builder uses, extracted from the local Asset Store cache by
+# tools/store-assets.ps1 into every checkout and sandbox that builds.
+Assets/StoreAssets/
+Assets/StoreAssets.meta
 
 tools/brp/cache/
 # The generalised road bake downloads SRTM tiles and Overpass results here.
