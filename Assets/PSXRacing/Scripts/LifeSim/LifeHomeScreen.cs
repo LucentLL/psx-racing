@@ -4090,9 +4090,10 @@ namespace PSXRacing.LifeSim
             float w = Mathf.Min(ColW, 460f);
             if (!can)
             {
-                MenuKit.Button(body, "WHEELS OFF: IMPACT WRENCH + STANDS, OR A LIFT",
+                MenuKit.Button(body, car.noWheels ? "TO FIT A SET: STANDS OR THE LIFT" : "WHEELS OFF: WRENCH + STANDS, OR LIFT",
                     new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
-                    () => Toast("buy the wrench in the toolbox, then put it on stands"), 15, MenuKit.BtnBgDisabled);
+                    () => Toast(car.noWheels ? "put it back up first, the button is just below"
+                                             : "buy the wrench in the toolbox, then put it on stands"), 15, MenuKit.BtnBgDisabled);
                 y -= 50f;
                 return;
             }
