@@ -1072,8 +1072,8 @@ namespace PSXRacing.LifeSim
             // The CALENDAR is not a tab either: it IS MAIN now.
             // RIVALS only once the player has been asked onto the blacklist
             // (owner, 2026-10-31) — before that there is no list to show them.
-            tabIds = S.blInvited ? new[] { "main", "garage", "rivals", "news" }
-                                 : new[] { "main", "garage", "news" };
+            tabIds = S.blInvited ? new[] { "main", "garage", "wheels", "rivals", "news" }
+                                 : new[] { "main", "garage", "wheels", "news" };
 
             string[] tabs = tabIds;
             tabButtons.Clear();
@@ -1126,7 +1126,8 @@ namespace PSXRacing.LifeSim
         /// and what every BACK chain resolves to; a caption is a thing the
         /// player reads, an id is a thing the code does.
         /// </summary>
-        static string TabCaption(string id) => id == "garage" ? "MY CARS" : id.ToUpper();
+        static string TabCaption(string id) =>
+            id == "garage" ? "MY CARS" : id == "wheels" ? "STORED WHEELS" : id.ToUpper();
 
         /// <summary>
         /// Header and tab-bar heights. The body is positioned FROM these rather
@@ -1303,6 +1304,7 @@ namespace PSXRacing.LifeSim
             {
                 case "main": BuildMain(); break;
                 case "garage": BuildGarage(); break;
+                case "wheels": BuildStoredWheels(); break;
                 case "carmenu": BuildCarMenu(); break;
                 case "specs": BuildSpecs(); break;
                 // The old calendar page's id, kept for anything that still
@@ -4035,13 +4037,16 @@ namespace PSXRacing.LifeSim
 
             bool mustAsk = paper && !up && !visit.standsAsked;
             MenuKit.Button(body,
-                up ? "SET IT DOWN"
+                up && car.noWheels ? "FIT WHEELS FIRST"
+                : up ? "SET IT DOWN"
                    : mustAsk ? "ASK FOR STANDS"
                    : best == Toolbox.Raise.Lift ? "PUT IT ON THE LIFT" : "PUT IT ON STANDS",
                 new Vector2(0.5f, 1f), new Vector2(MenuKit.ColRight(ColR, bw), y),
                 new Vector2(bw, 36f),
                 () =>
                 {
+                    // It has nothing to come down on.
+                    if (up && car.noWheels) { Toast("no wheels on it - fit a set from STORED WHEELS"); return; }
                     if (!up && paper && !Viewings.AskStands(S, visit))
                     {
                         LifeSimManager.Save();
@@ -4111,30 +4116,101 @@ namespace PSXRacing.LifeSim
             if (!own || !(inspectWheelsOff || car.noWheels)) return;
             if (!car.noWheels)
             {
-                MenuKit.Button(body, "PUT THESE WHEELS ON THE RACK",
+                MenuKit.Button(body, "PUT THESE WHEELS IN STORAGE",
                     new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
                     () => { WheelSets.Store(S, car, spec); LifeSimManager.Save(); Rebuild(); }, 16);
                 y -= 50f;
             }
-            MenuKit.Label(body, S.wheelRack.Count == 0 ? "THE WHEEL RACK IS EMPTY" : "ON THE WHEEL RACK",
-                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, ColW, height: 22f);
-            y -= 26f;
+            MenuKit.Button(body, "STORED WHEELS (" + S.wheelRack.Count + ")",
+                new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
+                () => { wheelTargetId = car.id; tab = "wheels"; Rebuild(); }, 16);
+            y -= 50f;
+        }
+
+        string wheelTargetId;
+
+        /// <summary>
+        /// The owner's tab: every set in storage, one place, and the car they
+        /// would go on, side-on, so a fit is seen as it happens.
+        /// </summary>
+        void BuildStoredWheels()
+        {
+            float y = -14f;
+            MenuKit.Label(body, "STORED WHEELS", MenuKit.Head, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, MenuKit.Accent, ColW, height: 40f, bold: true);
+            y -= 46f;
+            var car = S.FindCar(wheelTargetId) ?? S.ActiveCar;
+            if (car == null && S.cars.Count > 0) car = S.cars[0];
+            if (car == null)
+            {
+                MenuKit.Label(body, "No cars to fit them to.", 16, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f);
+                return;
+            }
+            wheelTargetId = car.id;
+            var spec = CarCatalog.Get(car.specId);
+
+            // Which car, stepped through what the player owns.
+            float navW = 60f;
+            MenuKit.Button(body, "<", new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, navW), y),
+                new Vector2(navW, 36f), () => StepWheelTarget(-1), 16);
+            MenuKit.Button(body, ">", new Vector2(0.5f, 1f), new Vector2(MenuKit.ColRight(ColR, navW), y),
+                new Vector2(navW, 36f), () => StepWheelTarget(1), 16);
+            MenuKit.Label(body, Clip(car.displayName, Mathf.FloorToInt((ColW - 2f * navW) / 12f)), 18,
+                new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter, Color.white,
+                ColW - 2f * navW - 20f, height: 36f, bold: true);
+            y -= 44f;
+
+            float vw = Mathf.Min(ColW, 460f), vh = vw / 2.6f;
+            var panel = MenuKit.Rect(body, "WheelCar", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, y), new Vector2(vw, vh), new Color(0f, 0f, 0f, 0.55f));
+            Viewer.SetPose(CarViewer.ViewPose.Side, vw / vh);
+            Viewer.ShowOwned(car, spec);
+            if (Viewer.Shown != null) Viewer.AttachTo(panel);
+            y -= vh + 8f;
+
+            bool can = Inspection.WheelsComeOff(Toolbox.AccessFor(S, car));
+            string state = car.noWheels ? "ON STANDS WITH NO WHEELS" : "WEARING " + Clip(WheelSets.Label(WheelSets.Current(car, spec)), 30);
+            MenuKit.Label(body, state, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.MiddleLeft, car.noWheels ? MenuKit.Bad : MenuKit.Dim, ColW, height: 22f);
+            y -= 24f;
+            if (!can)
+            {
+                MenuKit.Label(body, "To fit a set: an impact wrench and stands, or a lift. Raise it under INSPECT.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Accent, ColW, height: 22f);
+                y -= 26f;
+            }
+            if (S.wheelRack.Count == 0)
+            {
+                MenuKit.Label(body, "Nothing in storage. Take a set off a car under INSPECT > WHEELS & BRAKES.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, ColW, height: 22f);
+                y -= 26f;
+            }
+            float bw = Mathf.Min(ColW, 460f);
             foreach (var key in new System.Collections.Generic.List<string>(S.wheelRack))
             {
                 var k = key;
                 MenuKit.Button(body, "FIT " + Clip(WheelSets.Label(k), 32),
-                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 40f),
-                    () =>
+                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(bw, 40f),
+                    can ? (UnityEngine.Events.UnityAction)(() =>
                     {
                         WheelSets.Fit(S, car, spec, k);
-                        inspectWheelsOff = false;
                         LifeSimManager.Save();
                         Rebuild();
                         Toast("fitted " + Clip(WheelSets.Label(k), 30));
-                    }, 15);
+                    }) : () => Toast("needs an impact wrench and stands, or a lift"),
+                    15, can ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 46f;
             }
+        }
+
+        void StepWheelTarget(int step)
+        {
+            int i = S.cars.FindIndex(c => c.id == wheelTargetId);
+            wheelTargetId = S.cars[((i < 0 ? 0 : i) + step + S.cars.Count) % S.cars.Count].id;
+            Rebuild();
         }
 
         void BuildInspectFocus()

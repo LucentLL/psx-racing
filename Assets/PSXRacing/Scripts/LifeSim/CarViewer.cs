@@ -175,6 +175,7 @@ namespace PSXRacing.LifeSim
             };
 
         readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];
+        readonly MeshRenderer[] standRenderers = new MeshRenderer[4];
         readonly float[] brakeRadius = new float[4];
         bool wheelsOff;
 
@@ -185,6 +186,24 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < 4; i++)
             {
                 if (wheelRenderers[i] != null) wheelRenderers[i].enabled = !off;
+                if (off && standRenderers[i] == null && wheelFilters[i] != null)
+                {
+                    var sg = new GameObject("Stand" + i);
+                    sg.transform.SetParent(wheelFilters[i].transform.parent, false);
+                    sg.AddComponent<MeshFilter>().sharedMesh = OnFoot.CarShell.StandMesh();
+                    standRenderers[i] = sg.AddComponent<MeshRenderer>();
+                    standRenderers[i].sharedMaterial = OnFoot.CarShell.StandMaterial(wheelRenderers[i].sharedMaterial);
+                }
+                if (standRenderers[i] != null)
+                {
+                    standRenderers[i].enabled = off;
+                    if (off)
+                    {
+                        var wp = wheelFilters[i].transform.localPosition;
+                        standRenderers[i].transform.localPosition = new Vector3(wp.x * 0.72f, 0f, wp.z);
+                        standRenderers[i].transform.localScale = new Vector3(1f, brakeRadius[i] * 0.8f, 1f);
+                    }
+                }
                 bool drawn = off && !shownOwnBrakes;
                 if (drawn && brakeRenderers[i] == null && wheelFilters[i] != null) BuildBrake(i);
                 if (brakeRenderers[i] == null) continue;
@@ -431,6 +450,7 @@ namespace PSXRacing.LifeSim
             // turntable is the car on the grid rather than a different colour
             // of it.
             Show(def, Paint.FactorySkin(spec, def), CarModelLibrary.SpecGeometry.Of(spec));
+            SetWheelsOff(false);
         }
 
         /// <summary>
@@ -448,6 +468,8 @@ namespace PSXRacing.LifeSim
             if (def == null) return;
             nextWheelKey = car != null ? car.wheelKey : "";
             Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
+            // A car whose wheels are in storage is shown on its stands, everywhere.
+            SetWheelsOff(car != null && car.noWheels);
         }
 
         /// <param name="widthMm">The real car's width (CarSpec.widthMm), 0 for

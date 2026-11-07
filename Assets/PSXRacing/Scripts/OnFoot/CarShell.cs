@@ -69,7 +69,7 @@ namespace PSXRacing.OnFoot
         public static Transform Spawn(Transform at, CarModelDef def, int skin,
                                       out Vector3 roofPoint, bool solid = true,
                                       int missingWheels = 0, Material blockMat = null, int widthMm = 0,
-                                      CarSpec spec = null)
+                                      CarSpec spec = null, OwnedCar owned = null, bool standsHere = true)
         {
             roofPoint = new Vector3(0f, 1.1f, 0f);
             if (at == null || def == null) return null;
@@ -96,9 +96,23 @@ namespace PSXRacing.OnFoot
             var br = body.AddComponent<MeshRenderer>();
             if (mat != null) br.sharedMaterial = mat;
 
+            // The player's own car wears whatever they fitted, or nothing.
+            var donor = owned != null && !string.IsNullOrEmpty(owned.wheelKey) && owned.wheelKey != def.key
+                ? CarModelLibrary.Load(owned.wheelKey) : null;
+            if (donor != null && donor.wheelMesh == null) donor = null;
+            var donorMat = CarModelLibrary.WheelMaterial(donor);
+            if (donorMat != null) PSXTexDecode.Stamp(donorMat);
+            var donorRatio = CarModelLibrary.WheelRatio(def, donor);
+
             for (int i = 0; i < 4; i++)
             {
                 var hub = fit.Hub(i) + slide;
+
+                if (owned != null && owned.noWheels)
+                {
+                    if (standsHere && mat != null) BuildJackStand(shell, "Stand" + i, hub, fit.Radius(i), mat);
+                    continue;
+                }
 
                 if ((missingWheels & (1 << i)) != 0)
                 {
@@ -114,9 +128,14 @@ namespace PSXRacing.OnFoot
                 var w = new GameObject("Wheel" + i);
                 w.transform.SetParent(shell, false);
                 fit.PlaceWheel(w.transform, i, slide);
-                w.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
+                w.AddComponent<MeshFilter>().sharedMesh = donor != null ? donor.wheelMesh : def.wheelMesh;
                 var wr = w.AddComponent<MeshRenderer>();
-                if (wheelMat != null) wr.sharedMaterial = wheelMat;
+                if (donor != null)
+                {
+                    if (donorMat != null) wr.sharedMaterial = donorMat;
+                    w.transform.localScale = Vector3.Scale(w.transform.localScale, donorRatio);
+                }
+                else if (wheelMat != null) wr.sharedMaterial = wheelMat;
             }
 
             if (solid)
@@ -133,6 +152,64 @@ namespace PSXRacing.OnFoot
             // smears one (traffic, the town's cars, the lots).
             SpeedBlur.MarkOtherCar(shell);
             return shell;
+        }
+
+        static Mesh standMesh;
+        static Material standMaterial;
+
+        /// <summary>A unit-high jack stand: a four-sided taper with a cradle
+        /// width at the top, for scaling to the sill it holds up.</summary>
+        public static Mesh StandMesh()
+        {
+            if (standMesh != null) return standMesh;
+            const float Base = 0.17f, Top = 0.045f;
+            var v = new System.Collections.Generic.List<Vector3>();
+            var t = new System.Collections.Generic.List<int>();
+            Vector3 B(float x, float z) => new Vector3(x * Base, 0f, z * Base);
+            Vector3 T(float x, float z) => new Vector3(x * Top, 1f, z * Top);
+            void Side(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+            {
+                int n = v.Count;
+                v.Add(a); v.Add(b); v.Add(c); v.Add(d);
+                t.AddRange(new[] { n, n + 2, n + 1, n, n + 3, n + 2 });
+            }
+            Side(B(-1, -1), B(1, -1), T(1, -1), T(-1, -1));
+            Side(B(1, -1), B(1, 1), T(1, 1), T(1, -1));
+            Side(B(1, 1), B(-1, 1), T(-1, 1), T(1, 1));
+            Side(B(-1, 1), B(-1, -1), T(-1, -1), T(-1, 1));
+            standMesh = new Mesh { name = "JackStand" };
+            standMesh.SetVertices(v);
+            var uv = new Vector2[v.Count];
+            for (int i = 0; i < uv.Length; i++) uv[i] = new Vector2(0.25f, 0.5f);
+            standMesh.uv = uv;
+            standMesh.SetTriangles(t, 0);
+            standMesh.RecalculateNormals();
+            standMesh.RecalculateBounds();
+            return standMesh;
+        }
+
+        /// <summary>The stand's plain steel, made from a material of the shell's
+        /// so no shader has to be found by name in a stripped build.</summary>
+        public static Material StandMaterial(Material from)
+        {
+            if (standMaterial != null) return standMaterial;
+            standMaterial = new Material(from);
+            var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
+            tex.SetPixels32(new[] { new Color32(120, 40, 30, 255) });
+            tex.Apply(false);
+            standMaterial.mainTexture = tex;
+            PSXTexDecode.Stamp(standMaterial);
+            return standMaterial;
+        }
+
+        static void BuildJackStand(Transform shell, string name, Vector3 hub, float radius, Material from)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(shell, false);
+            go.transform.localPosition = new Vector3(hub.x * 0.72f, 0f, hub.z);
+            go.transform.localScale = new Vector3(1f, radius * 0.8f, 1f);
+            go.AddComponent<MeshFilter>().sharedMesh = StandMesh();
+            go.AddComponent<MeshRenderer>().sharedMaterial = StandMaterial(from);
         }
 
         /// <summary>

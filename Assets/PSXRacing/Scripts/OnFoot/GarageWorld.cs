@@ -255,7 +255,9 @@ namespace PSXRacing.OnFoot
                 // nothing anywhere claiming they were the same colour. One
                 // answer now, and it is the one the body shop can change.
                 int skin = Paint.SkinFor(car, spec, def);
-                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec);
+                // A car with no wheels is on stands; this bay's rig draws them.
+                if (car.noWheels && Toolbox.RaiseOf(S, car) == Toolbox.Raise.Ground) Toolbox.ToggleRaise(S, car);
+                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec, car);
                 PaintGloss.WriteAll(st.shell, PaintGloss.Of(car));
 
                 BuildRaiseRig(st, def, spec);
@@ -330,8 +332,10 @@ namespace PSXRacing.OnFoot
         /// SOLIDITY is the one thing the garage cares about specially: the box
         /// is inside the shell, so a car on the lift takes it up and the player
         /// can walk underneath, which is the whole point of the lift.</summary>
-        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, CarSpec spec) =>
-            CarShell.Spawn(bay, def, skin, out roofPoint, widthMm: spec != null ? spec.widthMm : 0, spec: spec);
+        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, CarSpec spec,
+                             OwnedCar owned = null) =>
+            CarShell.Spawn(bay, def, skin, out roofPoint, owned: owned, standsHere: false,
+                           widthMm: spec != null ? spec.widthMm : 0, spec: spec);
 
         // ------------------------------------------------------------------
         //  getting the car in the air
