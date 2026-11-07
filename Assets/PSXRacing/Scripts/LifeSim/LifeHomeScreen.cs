@@ -4106,7 +4106,9 @@ namespace PSXRacing.LifeSim
                     () => { inspectWheelsOff = !inspectWheelsOff; Rebuild(); }, 16);
                 y -= 50f;
             }
-            if (!own || spec == null || !(inspectWheelsOff || car.noWheels)) return;
+            // No spec is fine: the seeded starter has none, a save can outlive a
+            // catalog row, and WheelSets reads either as the default shell.
+            if (!own || !(inspectWheelsOff || car.noWheels)) return;
             if (!car.noWheels)
             {
                 MenuKit.Button(body, "PUT THESE WHEELS ON THE RACK",
