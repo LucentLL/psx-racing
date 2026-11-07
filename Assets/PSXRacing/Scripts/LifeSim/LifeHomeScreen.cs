@@ -7941,9 +7941,9 @@ namespace PSXRacing.LifeSim
                 // reason the dry tank is one: the line at the end of the street
                 // has no answer for a car that cannot get there.
                 bool blown = owned.engineBlown;
-                bool can = CarWhere.Available(S, owned) && !dry && !blown;
+                bool can = CarWhere.Available(S, owned) && !dry && !blown && !owned.noWheels;
                 CarPickRow(ref y, vx, vw, owned, driving,
-                    blown ? "ENGINE IS GONE"
+                    blown ? "ENGINE IS GONE" : owned.noWheels ? "NO WHEELS ON IT"
                     : dry ? "TANK IS DRY" : driving ? "drive it" : "take it and go",
                     can ? (UnityEngine.Events.UnityAction)(() =>
                     {
