@@ -968,7 +968,8 @@ namespace PSXRacing.OnFoot
                 : now == Toolbox.Raise.Stands
                     ? name + " is up on stands. Room to get underneath."
                     : name + " is sat on its wheels.";
-            hook.action = up ? "SET IT BACK DOWN"
+            hook.action = up && st.car.noWheels ? "FIT WHEELS FIRST"
+                             : up ? "SET IT BACK DOWN"
                              : best == Toolbox.Raise.Lift ? "RAISE IT ON THE LIFT"
                                                           : "PUT IT UP ON STANDS";
             // RAISE for stands as well as the lift: the button is about which
@@ -981,6 +982,12 @@ namespace PSXRacing.OnFoot
                 if (bay.live && RaiseHere(bay) == Toolbox.Raise.Ground && !LiveInBay())
                 {
                     Scr?.Toast("PARK IT SQUARE IN THE GARAGE FIRST");
+                    return;
+                }
+                // It has nothing to come down on: the menu's raise row refuses too.
+                if (bay.car.noWheels && RaiseHere(bay) != Toolbox.Raise.Ground)
+                {
+                    Scr?.Toast(LifeRules.NoWheelsLine);
                     return;
                 }
                 // Up to the best THIS BAY has, or back down. Toolbox.ToggleRaise
