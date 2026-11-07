@@ -4169,14 +4169,15 @@ namespace PSXRacing.LifeSim
             if (Viewer.Shown != null) Viewer.AttachTo(panel);
             y -= vh + 8f;
 
-            bool can = Inspection.WheelsComeOff(Toolbox.AccessFor(S, car));
+            bool can = WheelSets.CanFit(S, car);
             string state = car.noWheels ? "ON STANDS WITH NO WHEELS" : "WEARING " + Clip(WheelSets.Label(WheelSets.Current(car, spec)), 30);
             MenuKit.Label(body, state, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, car.noWheels ? MenuKit.Bad : MenuKit.Dim, ColW, height: 22f);
             y -= 24f;
             if (!can)
             {
-                MenuKit.Label(body, "To fit a set: an impact wrench and stands, or a lift. Raise it under INSPECT.",
+                MenuKit.Label(body, car.noWheels ? "To fit a set: raise it under INSPECT."
+                                                 : "To fit a set: an impact wrench and stands, or a lift. Raise it under INSPECT.",
                     MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Accent, ColW, height: 22f);
                 y -= 26f;
@@ -4200,7 +4201,8 @@ namespace PSXRacing.LifeSim
                         LifeSimManager.Save();
                         Rebuild();
                         Toast("fitted " + Clip(WheelSets.Label(k), 30));
-                    }) : () => Toast("needs an impact wrench and stands, or a lift"),
+                    }) : () => Toast(car.noWheels ? "raise it first, under INSPECT"
+                                                  : "needs an impact wrench and stands, or a lift"),
                     15, can ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 46f;
             }
@@ -4248,7 +4250,7 @@ namespace PSXRacing.LifeSim
             // The wheels come off to show the brakes behind them.
             // Only by the same rule the checks use: an impact wrench, the car raised.
             if (inspectComp == Inspection.Comp.Wheels)
-                WheelsOffBlock(car, canWheelsOff, ref y);
+                WheelsOffBlock(car, WheelSets.CanFit(S, car), ref y);
 
             MenuKit.Para(body, Inspection.AccessLine(S, car, inspectComp), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), out float accessH, TextAnchor.UpperLeft,

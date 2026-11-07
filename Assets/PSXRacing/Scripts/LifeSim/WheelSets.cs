@@ -19,6 +19,13 @@ namespace PSXRacing.LifeSim
             return (def != null && !string.IsNullOrEmpty(def.displayName) ? def.displayName : key).ToUpperInvariant();
         }
 
+        /// <summary>Whether a set can go on now. A car already in the air with
+        /// nothing on it does not wait on tools: the wrench is what gets a wheel
+        /// OFF, and a car must never be stuck with no wheels.</summary>
+        public static bool CanFit(LifeState s, OwnedCar car) =>
+            car.noWheels ? Toolbox.RaiseOf(s, car) != Toolbox.Raise.Ground
+                         : Inspection.WheelsComeOff(Toolbox.AccessFor(s, car));
+
         public static void Store(LifeState s, OwnedCar car, CarSpec spec)
         {
             if (car.noWheels) return;
