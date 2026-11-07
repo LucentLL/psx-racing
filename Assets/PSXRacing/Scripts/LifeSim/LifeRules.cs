@@ -1851,6 +1851,7 @@ namespace PSXRacing.LifeSim
             string away = CarWhere.BlockedReason(s, car);
             if (away != null) return away;
             if (car.engineBlown) return BlownLine;
+            if (car.noWheels) return "IT HAS NO WHEELS ON IT - FIT A SET";
             return null;
         }
 

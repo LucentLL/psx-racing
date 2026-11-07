@@ -178,7 +178,8 @@ namespace PSXRacing.LifeSim
         public static void Draw(RectTransform panel, float panelW, float panelH,
                                 CarSpec spec, CarModelDef shell,
                                 Inspection.Comp? highlight,
-                                System.Func<Inspection.Comp, bool> isDone)
+                                System.Func<Inspection.Comp, bool> isDone,
+                                bool overCar = false)
         {
             // Fall back to the reference FD's numbers when a car has no shell
             // baked — every one of these is a real measurement off that mesh.
@@ -225,10 +226,15 @@ namespace PSXRacing.LifeSim
 
             // Body outline, four edges — the running gear has to read as being
             // INSIDE the car rather than painted on top of a filled slab.
-            pen.Box(0f, W * 0.5f - hair * 0.5f, L, hair, bodyC);
-            pen.Box(0f, -W * 0.5f + hair * 0.5f, L, hair, bodyC);
-            pen.Box(L * 0.5f - hair * 0.5f, 0f, hair, W, bodyC);
-            pen.Box(-L * 0.5f + hair * 0.5f, 0f, hair, W, bodyC);
+            // Over the car itself the car is the outline, unless the body is
+            // what is being looked at.
+            if (!overCar || highlight == Inspection.Comp.Body)
+            {
+                pen.Box(0f, W * 0.5f - hair * 0.5f, L, hair, bodyC);
+                pen.Box(0f, -W * 0.5f + hair * 0.5f, L, hair, bodyC);
+                pen.Box(L * 0.5f - hair * 0.5f, 0f, hair, W, bodyC);
+                pen.Box(-L * 0.5f + hair * 0.5f, 0f, hair, W, bodyC);
+            }
 
             // Wheels, at the shell's real axles and track.
             foreach (float ax in new[] { F, R })
@@ -253,12 +259,12 @@ namespace PSXRacing.LifeSim
                 // Transverse on the front axle: block on one side of the bay,
                 // gearbox continuing the same line across to the other.
                 float span = halfTrack * 1.5f;
-                float ex = F + L * 0.03f;
+                float ex = Mathf.Min(F + L * 0.06f, RadiatorBack(L) - L * 0.05f - dims.y * 0.5f);
                 float engCy = -span * 0.5f + dims.x * 0.5f;
                 DrawEngine(pen, ex, engCy, shape, dims, engineC, transverse: true);
                 float gb0 = engCy + dims.x * 0.5f + L * 0.01f;
-                float gb1 = Mathf.Min(span * 0.5f, gb0 + L * 0.10f);
-                pen.Box(ex, (gb0 + gb1) * 0.5f, W * 0.115f, Mathf.Abs(gb1 - gb0), transC);
+                float gb1 = Mathf.Min(span * 0.5f, gb0 + L * 0.12f);
+                pen.Box(ex, (gb0 + gb1) * 0.5f, W * 0.17f, Mathf.Abs(gb1 - gb0), transC);
                 DrawDrivenAxle(pen, F, halfTrack, diffS, driveC);
             }
             else if (layout == "MR")
@@ -279,15 +285,15 @@ namespace PSXRacing.LifeSim
             }
             else
             {
-                // FR and 4WD. The block's FRONT FACE sits just over the front
-                // axle line — accessories ahead of it, crank back over the axle.
-                // A centre-based formula slid long blocks progressively
-                // rearward, which is what made trucks read "engine too far
-                // back" in the source.
-                float ex = F + L * 0.02f - dims.x * 0.5f;
+                // FR and 4WD. The block's FRONT FACE sits a fan's width behind the
+                // radiator, so the block stays out of the firewall (owner,
+                // 2026-11-06), but never far past the axle on a long nose. A
+                // centre-based formula slid long blocks progressively rearward.
+                float front = Mathf.Min(RadiatorBack(L) - L * 0.05f, F + L * 0.12f);
+                float ex = front - dims.x * 0.5f;
                 DrawEngine(pen, ex, 0f, shape, dims, engineC, transverse: false);
                 float gb0 = ex - dims.x * 0.5f;
-                float gb1 = gb0 - L * 0.115f;
+                float gb1 = gb0 - L * 0.17f;
                 DrawGearbox(pen, gb0, gb1, W, transC);
 
                 if (layout == "4WD")
@@ -360,7 +366,10 @@ namespace PSXRacing.LifeSim
         {
             float len = Mathf.Abs(x1 - x0);
             if (len < 1e-4f) return;
-            pen.Box((x0 + x1) * 0.5f, 0f, len, W * 0.115f, c);
+            // The bellhousing against the engine, the case tapering away from it.
+            float bell = (x1 - x0) * 0.4f;
+            pen.Box(x0 + bell * 0.5f, 0f, Mathf.Abs(bell), W * 0.2f, c);
+            pen.Box((x0 + bell + x1) * 0.5f, 0f, len - Mathf.Abs(bell), W * 0.13f, c);
         }
 
         static void DrawDrivenAxle(Pen pen, float axleX, float halfTrack,
@@ -400,6 +409,8 @@ namespace PSXRacing.LifeSim
             pen.Line(x, -half, axleX, -half, w * 0.85f, c);
             pen.Line(x, half, axleX, half, w * 0.85f, c);
         }
+
+        static float RadiatorBack(float L) => L * 0.47f - L * 0.024f;
 
         static void DrawRadiator(Pen pen, float L, float W, Color c)
         {

@@ -872,6 +872,24 @@ namespace PSXRacing
 
         public static CarModelDef LoadFor(CarSpec car) => Load(KeyFor(car));
 
+        /// <summary>What to scale a donor's wheel mesh by so it stands where the
+        /// shell's own wheel would, at the size Fit gave that shell.</summary>
+        public static Vector3 WheelRatio(CarModelDef own, CarModelDef donor)
+        {
+            if (own == null || donor == null || own.wheelMesh == null || donor.wheelMesh == null)
+                return Vector3.one;
+            var a = own.wheelMesh.bounds.size;
+            var b = donor.wheelMesh.bounds.size;
+            float ra = System.Math.Max(a.y, a.z), rb = System.Math.Max(System.Math.Max(b.y, b.z), 0.05f);
+            return new Vector3(a.x / System.Math.Max(b.x, 0.05f), ra / rb, ra / rb);
+        }
+
+        /// <summary>The material a shell's wheel mesh is drawn with: its UVs are
+        /// on that shell's sheet.</summary>
+        public static Material WheelMaterial(CarModelDef def) =>
+            def == null ? null : def.wheelMaterial != null ? def.wheelMaterial
+            : def.SkinCount > 0 ? def.skinMaterials[0] : null;
+
         /// <summary>Drop the loaded shells. Editor-side only: re-baking replaces
         /// the prefab assets under a cache that is still holding the previous
         /// ones, and a scene built off those points at objects that no longer

@@ -27,6 +27,8 @@
         /// or empty for the factory answer. The paint shop writes it onto the
         /// OwnedCar; this is how it reaches the grid. See LifeSim.Paint.</summary>
         public static string CarPaintSkin;
+        /// <summary>The shell whose wheels the car wears (OwnedCar.wheelKey).</summary>
+        public static string CarWheelKey;
         /// <summary>The debug bench's DRIVE SIDE pick for the player's car,
         /// "RHD" / "LHD", or empty for the car's own side
         /// (LifeSim.DebugCarOps.SidePick, written by FillCarRequestFor; put on
@@ -462,6 +464,7 @@
             CarId = null;
             CarSpecId = null;
             CarPaintSkin = null;
+            CarWheelKey = null;
             DriveSidePick = null;
             LampLensB = false;
             PurseWin = PurseSecond = PurseThird = 0;

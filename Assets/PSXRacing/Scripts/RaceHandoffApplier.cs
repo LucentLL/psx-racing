@@ -106,7 +106,7 @@ namespace PSXRacing
                     // the slide help (the tyres came in with the spec's stages).
                     if (ArcadeMode.Active) ArcadeMode.ApplyDriving(playerCar);
                 }
-                else ApplyPaint(playerCar, RaceHandoff.CarPaintSkin);
+                else { ApplyPaint(playerCar, RaceHandoff.CarPaintSkin); ApplyWheels(playerCar); }
                 ApplyLens(playerCar);
 
                 // The tank arrives with whatever is in it. A car sent out on a
@@ -602,6 +602,7 @@ namespace PSXRacing
             if (shell == null) return;
             shell.ApplySpec(spec);
             ApplyPaint(car, paintSkin);
+            ApplyWheels(car);
         }
 
         /// <summary>
@@ -613,6 +614,15 @@ namespace PSXRacing
         /// rather than a catalog row — and ApplyShell above never runs for it.
         /// The first car most players ever paint is that one.
         /// </summary>
+        static void ApplyWheels(CarController car)
+        {
+            if (string.IsNullOrEmpty(RaceHandoff.CarWheelKey)) return;
+            var shell = car.GetComponent<CarBody>();
+            if (shell == null || shell.Def == null) return;
+            shell.wheelKey = RaceHandoff.CarWheelKey;
+            shell.Apply(shell.Def, shell.skinIndex);
+        }
+
         static void ApplyPaint(CarController car, string paintSkin)
         {
             if (string.IsNullOrEmpty(paintSkin)) return;

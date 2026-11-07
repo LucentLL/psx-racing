@@ -156,6 +156,18 @@ namespace PSXRacing.LifeSim
             PlaceCamera();
         }
 
+        string nextWheelKey, shownWheelKey = "";
+        bool shownOwnBrakes;
+
+        /// <summary>Shells with rotors and calipers painted on their own
+        /// wheelhouse walls: taking the wheels off already shows them.</summary>
+        static readonly System.Collections.Generic.HashSet<string> PaintedBrakes =
+            new System.Collections.Generic.HashSet<string>
+            {
+                "civic_eg", "crown_victoria", "fullsize_police", "fullsize_taxi", "fullsize_trooper",
+                "skyline_r32", "gtr_89",
+            };
+
         readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];
         readonly float[] brakeRadius = new float[4];
         bool wheelsOff;
@@ -167,10 +179,11 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < 4; i++)
             {
                 if (wheelRenderers[i] != null) wheelRenderers[i].enabled = !off;
-                if (off && brakeRenderers[i] == null && wheelFilters[i] != null) BuildBrake(i);
+                bool drawn = off && !shownOwnBrakes;
+                if (drawn && brakeRenderers[i] == null && wheelFilters[i] != null) BuildBrake(i);
                 if (brakeRenderers[i] == null) continue;
-                brakeRenderers[i].enabled = off;
-                if (off)
+                brakeRenderers[i].enabled = drawn;
+                if (drawn)
                 {
                     var w = wheelFilters[i].transform;
                     var b = brakeRenderers[i].transform;
@@ -427,6 +440,7 @@ namespace PSXRacing.LifeSim
         {
             var def = Paint.DefFor(spec);
             if (def == null) return;
+            nextWheelKey = car != null ? car.wheelKey : "";
             Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
         }
 
@@ -442,7 +456,10 @@ namespace PSXRacing.LifeSim
         {
             if (def == null) return;
             EnsureRig();
-            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo)) return;
+            string wheelKey = nextWheelKey ?? "";
+            nextWheelKey = null;
+            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo) && wheelKey == shownWheelKey) return;
+            shownWheelKey = wheelKey;
             shownGeo = geo;
             var fit = CarModelLibrary.Fit(def, geo);
             float sx = fit.sx;
@@ -453,6 +470,12 @@ namespace PSXRacing.LifeSim
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)] : null;
             var wheelMat = def.wheelMaterial != null ? def.wheelMaterial : mat;
+            var donor = string.IsNullOrEmpty(wheelKey) || wheelKey == def.key ? null : CarModelLibrary.Load(wheelKey);
+            if (donor != null && donor.wheelMesh == null) donor = null;
+            var donorMat = CarModelLibrary.WheelMaterial(donor);
+            var donorRatio = CarModelLibrary.WheelRatio(def, donor);
+            if (donorMat != null) PSXTexDecode.Stamp(donorMat);
+            shownOwnBrakes = PaintedBrakes.Contains(def.key);
 
             // The turntable spins about ITS origin, so the car is placed with
             // its own middle there — otherwise a long car swings, which is what
@@ -473,6 +496,14 @@ namespace PSXRacing.LifeSim
                 wheelFilters[i].sharedMesh = def.wheelMesh;
                 wheelRenderers[i].sharedMaterial = wheelMat;
                 CarPaint.DullWheels(wheelRenderers[i]);
+                if (donor != null)
+                {
+                    wheelFilters[i].sharedMesh = donor.wheelMesh;
+                    wheelRenderers[i].sharedMaterial = donorMat;
+                    CarPaint.DullWheels(wheelRenderers[i]);
+                    wheelFilters[i].transform.localScale =
+                        Vector3.Scale(wheelFilters[i].transform.localScale, donorRatio);
+                }
             }
 
             if (shadow != null)

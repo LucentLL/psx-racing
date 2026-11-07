@@ -3838,6 +3838,7 @@ namespace PSXRacing.LifeSim
             // THE CAR ITSELF under the x-ray (owner, 2026-11-06): from above and
             // half see-through, or side-on for the wheels and brakes.
             bool side = highlight == Inspection.Comp.Wheels;
+            bool overCar = false;
             if (car != null && shell != null)
             {
                 Viewer.SetPose(side ? CarViewer.ViewPose.Side : CarViewer.ViewPose.Plan, panelW / panelH,
@@ -3846,13 +3847,14 @@ namespace PSXRacing.LifeSim
                 if (Viewer.Shown != null)
                 {
                     var raw = Viewer.AttachTo(panel);
-                    if (side) { Viewer.SetWheelsOff(inspectWheelsOff); return; }
+                    if (side) { Viewer.SetWheelsOff(inspectWheelsOff || car.noWheels); return; }
                     raw.color = new Color(1f, 1f, 1f, 0.55f);
+                    overCar = true;
                 }
             }
             CarXray.Draw(panel, panelW, panelH, spec, shell, highlight,
                          car == null ? (System.Func<Inspection.Comp, bool>)null
-                                     : c => Inspection.ComponentDone(S, car, c));
+                                     : c => Inspection.ComponentDone(S, car, c), overCar);
         }
 
         /// <summary>The whole car, with the eight places worth looking.</summary>
@@ -4082,6 +4084,56 @@ namespace PSXRacing.LifeSim
         /// when you reach it.</summary>
         bool inspectWheelsOff;
 
+        /// <summary>Wheels off, onto the rack, and any set from the rack on.</summary>
+        void WheelsOffBlock(OwnedCar car, bool can, ref float y)
+        {
+            float w = Mathf.Min(ColW, 460f);
+            if (!can)
+            {
+                MenuKit.Button(body, "WHEELS OFF: IMPACT WRENCH + STANDS, OR A LIFT",
+                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
+                    () => Toast("buy the wrench in the toolbox, then put it on stands"), 15, MenuKit.BtnBgDisabled);
+                y -= 50f;
+                return;
+            }
+            var own = S.FindCar(car.id) != null;
+            var spec = CarCatalog.Get(car.specId);
+            if (!car.noWheels)
+            {
+                MenuKit.Button(body, inspectWheelsOff ? "PUT THE WHEELS BACK ON" : "TAKE THE WHEELS OFF",
+                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
+                    () => { inspectWheelsOff = !inspectWheelsOff; Rebuild(); }, 16);
+                y -= 50f;
+            }
+            if (!own || spec == null || !(inspectWheelsOff || car.noWheels)) return;
+            if (!car.noWheels)
+            {
+                MenuKit.Button(body, "PUT THESE WHEELS ON THE RACK",
+                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
+                    () => { WheelSets.Store(S, car, spec); LifeSimManager.Save(); Rebuild(); }, 16);
+                y -= 50f;
+            }
+            MenuKit.Label(body, S.wheelRack.Count == 0 ? "THE WHEEL RACK IS EMPTY" : "ON THE WHEEL RACK",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW, height: 22f);
+            y -= 26f;
+            foreach (var key in new System.Collections.Generic.List<string>(S.wheelRack))
+            {
+                var k = key;
+                MenuKit.Button(body, "FIT " + Clip(WheelSets.Label(k), 32),
+                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 40f),
+                    () =>
+                    {
+                        WheelSets.Fit(S, car, spec, k);
+                        inspectWheelsOff = false;
+                        LifeSimManager.Save();
+                        Rebuild();
+                        Toast("fitted " + Clip(WheelSets.Label(k), 30));
+                    }, 15);
+                y -= 46f;
+            }
+        }
+
         void BuildInspectFocus()
         {
             var car = InspectTarget;
@@ -4116,13 +4168,8 @@ namespace PSXRacing.LifeSim
 
             // The wheels come off to show the brakes behind them.
             // Only by the same rule the checks use: an impact wrench, the car raised.
-            if (canWheelsOff && inspectComp == Inspection.Comp.Wheels)
-            {
-                MenuKit.Button(body, inspectWheelsOff ? "PUT THE WHEELS BACK ON" : "TAKE THE WHEELS OFF",
-                    new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 340f), 42f),
-                    () => { inspectWheelsOff = !inspectWheelsOff; Rebuild(); }, 16);
-                y -= 50f;
-            }
+            if (inspectComp == Inspection.Comp.Wheels)
+                WheelsOffBlock(car, canWheelsOff, ref y);
 
             MenuKit.Para(body, Inspection.AccessLine(S, car, inspectComp), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), out float accessH, TextAnchor.UpperLeft,
@@ -8113,6 +8160,7 @@ namespace PSXRacing.LifeSim
             // has had resprayed, which is the factory answer and the path this
             // took before the body shop existed.
             RaceHandoff.CarPaintSkin = car != null ? car.paintSkin : null;
+            RaceHandoff.CarWheelKey = car != null ? car.wheelKey : null;
             // The debug bench's drive-side pick (empty outside a debug career
             // and on every car that was only ever sold one way).
             RaceHandoff.DriveSidePick = DebugCarOps.SidePick(S, car);

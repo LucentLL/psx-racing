@@ -122,6 +122,8 @@ namespace PSXRacing.LifeSim
         // === Garage ===
         public string activeCar = "";
         public List<OwnedCar> cars = new List<OwnedCar>();
+        /// <summary>Wheels off any car, by the shell they came from (WheelSets).</summary>
+        public List<string> wheelRack = new List<string>();
 
         // === Health / fitness ===
         public float health = 100f;
@@ -394,6 +396,10 @@ namespace PSXRacing.LifeSim
         /// rebuilds it or fits another (see <see cref="LifeRules.EngineJobs"/>).
         /// </summary>
         public bool engineBlown;
+        /// <summary>The shell whose wheels it wears; empty for its own.</summary>
+        public string wheelKey = "";
+        /// <summary>Its wheels are on the rack, so it cannot be driven.</summary>
+        public bool noWheels;
         /// <summary>How the engine came to let go, one line per step (from
         /// <see cref="EngineTemp.Story"/>), for the garage page.</summary>
         public string engineStory;
