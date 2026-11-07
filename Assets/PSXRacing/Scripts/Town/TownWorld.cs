@@ -688,6 +688,7 @@ namespace PSXRacing.Town
             if (car == null) { screen?.Toast("NO CAR TO DELIVER IN"); return; }
             if (car.fuel <= 5f) { screen?.Toast("TANK IS DRY — FILL UP FIRST"); return; }
             if (car.engineBlown) { screen?.Toast(LifeRules.BlownLine); return; }
+            if (car.noWheels) { screen?.Toast(LifeRules.NoWheelsLine); return; }
 
             var toppings = LifeRules.RollOrderToppings(LifeRules.MaxOrderBoxes);
             int bottles = LifeRules.RollOrderBottles(toppings.Length);

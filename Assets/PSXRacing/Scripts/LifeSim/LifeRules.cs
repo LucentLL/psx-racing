@@ -1851,9 +1851,13 @@ namespace PSXRacing.LifeSim
             string away = CarWhere.BlockedReason(s, car);
             if (away != null) return away;
             if (car.engineBlown) return BlownLine;
-            if (car.noWheels) return "IT HAS NO WHEELS ON IT - FIT A SET";
+            if (car.noWheels) return NoWheelsLine;
             return null;
         }
+
+        /// <summary>The way out for a car with its wheels on the rack, for the
+        /// same reason <see cref="BlownLine"/> names one.</summary>
+        public const string NoWheelsLine = "NO WHEELS ON IT - FIT A SET ON ITS INSPECT PAGE";
 
         /// <summary>What every screen says about a destroyed engine. One
         /// string, because it is going to be read on a page the player did not

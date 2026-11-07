@@ -316,6 +316,7 @@ namespace PSXRacing.OnFoot
 
             var car = S.ActiveCar;
             if (car == null) { screen?.Toast("no car to deliver in"); return; }
+            if (car.noWheels) { screen?.Toast(LifeRules.NoWheelsLine); return; }
             if (car.fuel <= 5f) { screen?.Toast("not enough fuel — the tank is dry"); return; }
             // Belt and braces: the venue is rolled at the counter, and carrying
             // cannot be true without having been there. A -1 reaching
