@@ -110,7 +110,7 @@ namespace PSXRacing.OnFoot
 
                 if (owned != null && owned.noWheels)
                 {
-                    if (standsHere && mat != null) BuildJackStand(shell, "Stand" + i, hub, fit.Radius(i), mat);
+                    if (standsHere && mat != null) BuildJackStand(shell, "Stand" + i, def, fit, i, slide, mat);
                     continue;
                 }
 
@@ -202,12 +202,32 @@ namespace PSXRacing.OnFoot
             return standMaterial;
         }
 
-        static void BuildJackStand(Transform shell, string name, Vector3 hub, float radius, Material from)
+        /// <summary>Where stand i goes, before the shell's slide: under the sill,
+        /// inboard of the wheels, up to the shell's own measured floor. The same
+        /// answer as the bay's rig (GarageWorld.BuildRaiseRig), because no one height
+        /// off the tyre reaches both a Land Rover and an NSX, and at the axle there
+        /// is only the empty wheel well to hold up.</summary>
+        public static void StandPlace(CarModelDef def, CarModelLibrary.ShellFit fit, int i,
+                                      out Vector3 at, out Vector3 scale)
+        {
+            float x = Mathf.Max(0.52f, Mathf.Min(fit.trackF, fit.trackR) * 0.42f);
+            float z = Mathf.Max(0.62f, fit.wheelbase * 0.30f);
+            float floor = def.colliderCenter.y + fit.dy - def.colliderSize.y * 0.5f;
+            at = new Vector3((i % 2 == 0 ? -1f : 1f) * x, 0f, (i < 2 ? 1f : -1f) * z);
+            // Into the floor a little, so no angle shows a gap; a short one is narrower.
+            float high = Mathf.Max(0.10f, floor + 0.03f);
+            float wide = Mathf.Clamp(high / 0.3f, 0.65f, 1.15f);
+            scale = new Vector3(wide, high, wide);
+        }
+
+        static void BuildJackStand(Transform shell, string name, CarModelDef def, CarModelLibrary.ShellFit fit,
+                                   int i, Vector3 slide, Material from)
         {
             var go = new GameObject(name);
             go.transform.SetParent(shell, false);
-            go.transform.localPosition = new Vector3(hub.x * 0.72f, 0f, hub.z);
-            go.transform.localScale = new Vector3(1f, radius * 0.8f, 1f);
+            StandPlace(def, fit, i, out Vector3 at, out Vector3 scale);
+            go.transform.localPosition = at + slide;
+            go.transform.localScale = scale;
             go.AddComponent<MeshFilter>().sharedMesh = StandMesh();
             go.AddComponent<MeshRenderer>().sharedMaterial = StandMaterial(from);
         }

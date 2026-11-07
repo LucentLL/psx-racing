@@ -177,6 +177,7 @@ namespace PSXRacing.LifeSim
         readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];
         readonly MeshRenderer[] standRenderers = new MeshRenderer[4];
         readonly float[] brakeRadius = new float[4];
+        readonly Vector3[] standAt = new Vector3[4], standScale = new Vector3[4];
         bool wheelsOff;
 
         /// <summary>The wheels off, showing a disc and caliper at each hub.</summary>
@@ -199,9 +200,8 @@ namespace PSXRacing.LifeSim
                     standRenderers[i].enabled = off;
                     if (off)
                     {
-                        var wp = wheelFilters[i].transform.localPosition;
-                        standRenderers[i].transform.localPosition = new Vector3(wp.x * 0.72f, 0f, wp.z);
-                        standRenderers[i].transform.localScale = new Vector3(1f, brakeRadius[i] * 0.8f, 1f);
+                        standRenderers[i].transform.localPosition = standAt[i];
+                        standRenderers[i].transform.localScale = standScale[i];
                     }
                 }
                 bool drawn = off && !shownOwnBrakes;
@@ -521,6 +521,8 @@ namespace PSXRacing.LifeSim
             {
                 fit.PlaceWheel(wheelFilters[i].transform, i, new Vector3(0f, 0f, -centre));
                 brakeRadius[i] = fit.Radius(i);
+                OnFoot.CarShell.StandPlace(def, fit, i, out Vector3 sAt, out standScale[i]);
+                standAt[i] = sAt + new Vector3(0f, 0f, -centre);
                 wheelFilters[i].sharedMesh = def.wheelMesh;
                 wheelRenderers[i].sharedMaterial = wheelMat;
                 CarPaint.DullWheels(wheelRenderers[i]);
