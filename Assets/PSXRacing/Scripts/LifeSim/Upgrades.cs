@@ -476,6 +476,7 @@ namespace PSXRacing.LifeSim
                                    bool turboKit = false)
         {
             if (car == null || spec == null) return "no car";
+            if (kind == Kind.Tires && car.noWheels) return "no wheels on it";
             string race = RaceCarRefuses(spec, kind);
             if (race != null) return race;
             if (turboKit && kind != Kind.Power) return "a turbo kit is a power part";

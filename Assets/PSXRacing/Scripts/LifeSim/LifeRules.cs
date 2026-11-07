@@ -1882,6 +1882,7 @@ namespace PSXRacing.LifeSim
                                          FaultCatalog.Venue venue)
         {
             if (car == null || f == null) return "no car";
+            if (car.noWheels && f.stat == "tires") return "no wheels on it";
             if (s.pendingParts.Exists(p => p.carId == car.id && p.faultId == f.id))
                 return "already booked";
             string elsewhere = CarWhere.RefuseWork(s, car, (int)venue);

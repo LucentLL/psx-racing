@@ -5209,6 +5209,8 @@ namespace PSXRacing.LifeSim
                     : name + " sk" + q.difficulty;
                 // A car already at one shop can only be given more work THERE.
                 if (usable && CarWhere.RefuseWork(S, car, (int)v) != null) usable = false;
+                // Nothing to do this to on a car with no wheels.
+                if (car.noWheels && f.stat == "tires") { usable = false; label = name + " · NO WHEELS"; }
 
                 var captured = f;
                 var capturedVenue = v;
