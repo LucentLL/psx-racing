@@ -101,6 +101,7 @@ namespace PSXRacing
                     // Shell BEFORE spec: fitting a body writes wheel radius, and
                     // ApplySpec builds the gearbox off it.
                     ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
+                    ApplyWheels(playerCar);
                     SpecPlayerCar(spec);
                     // ARCADE's driving options: the gearbox it starts in and
                     // the slide help (the tyres came in with the spec's stages).
@@ -359,6 +360,7 @@ namespace PSXRacing
             float reachBefore = ShellReach(playerCar);
 
             ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
+            ApplyWheels(playerCar);
             ApplyLens(playerCar);
             SpecPlayerCar(spec);
 
@@ -602,7 +604,18 @@ namespace PSXRacing
             if (shell == null) return;
             shell.ApplySpec(spec);
             ApplyPaint(car, paintSkin);
-            ApplyWheels(car);
+        }
+
+        /// <summary>The player's fitted set (WheelSets). The player's car only:
+        /// the key in the handoff is theirs, and a rival's shell comes through
+        /// ApplyShell too.</summary>
+        static void ApplyWheels(CarController car)
+        {
+            if (string.IsNullOrEmpty(RaceHandoff.CarWheelKey)) return;
+            var shell = car.GetComponent<CarBody>();
+            if (shell == null || shell.Def == null) return;
+            shell.wheelKey = RaceHandoff.CarWheelKey;
+            shell.Apply(shell.Def, shell.skinIndex);
         }
 
         /// <summary>
@@ -614,15 +627,6 @@ namespace PSXRacing
         /// rather than a catalog row — and ApplyShell above never runs for it.
         /// The first car most players ever paint is that one.
         /// </summary>
-        static void ApplyWheels(CarController car)
-        {
-            if (string.IsNullOrEmpty(RaceHandoff.CarWheelKey)) return;
-            var shell = car.GetComponent<CarBody>();
-            if (shell == null || shell.Def == null) return;
-            shell.wheelKey = RaceHandoff.CarWheelKey;
-            shell.Apply(shell.Def, shell.skinIndex);
-        }
-
         static void ApplyPaint(CarController car, string paintSkin)
         {
             if (string.IsNullOrEmpty(paintSkin)) return;
