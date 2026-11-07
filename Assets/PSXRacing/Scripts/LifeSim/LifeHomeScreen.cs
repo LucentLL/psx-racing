@@ -4097,9 +4097,12 @@ namespace PSXRacing.LifeSim
             float w = Mathf.Min(ColW, 460f);
             if (!can)
             {
-                MenuKit.Button(body, car.noWheels ? "TO FIT A SET: STANDS OR THE LIFT" : "WHEELS OFF: WRENCH + STANDS, OR LIFT",
+                bool atShop = CarWhere.Away(S, car);
+                MenuKit.Button(body, atShop ? "AT THE SHOP UNTIL IT IS BACK"
+                                   : car.noWheels ? "TO FIT A SET: STANDS OR THE LIFT" : "WHEELS OFF: WRENCH + STANDS, OR LIFT",
                     new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
-                    () => Toast(car.noWheels ? "put it back up first, the button is just below"
+                    () => Toast(atShop ? CarWhere.BlockedReason(S, car)
+                              : car.noWheels ? "put it back up first, the button is just below"
                                              : "buy the wrench in the toolbox, then put it on stands"), 15, MenuKit.BtnBgDisabled);
                 y -= 50f;
                 return;
@@ -4218,7 +4221,8 @@ namespace PSXRacing.LifeSim
                         LifeSimManager.Save();
                         Rebuild();
                         Toast("fitted " + Clip(WheelSets.Label(k), 30));
-                    }) : () => Toast(car.noWheels ? "raise it first, under INSPECT"
+                    }) : () => Toast(CarWhere.Away(S, car) ? "it is at the shop. sets go on when it is back"
+                              : car.noWheels ? "raise it first, under INSPECT"
                                                   : "needs an impact wrench and stands, or a lift"),
                     15, can ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 46f;
