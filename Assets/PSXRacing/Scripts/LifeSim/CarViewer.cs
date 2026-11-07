@@ -159,13 +159,19 @@ namespace PSXRacing.LifeSim
         string nextWheelKey, shownWheelKey = "";
         bool shownOwnBrakes;
 
-        /// <summary>Shells with rotors and calipers painted on their own
-        /// wheelhouse walls: taking the wheels off already shows them.</summary>
+        /// <summary>Shells with a rotor (or drum) and caliper painted on their own
+        /// wheelhouse walls: taking the wheels off already shows them. Read off a
+        /// render of each shell's walls, both sides, wheels off. The rest get the
+        /// drawn disc: bare walls, and gt_liftback_97, whose wall art is broken into
+        /// spikes and strips, so the disc is the better picture until that is fixed.</summary>
         static readonly System.Collections.Generic.HashSet<string> PaintedBrakes =
             new System.Collections.Generic.HashSet<string>
             {
-                "civic_eg", "crown_victoria", "fullsize_police", "fullsize_taxi", "fullsize_trooper",
-                "skyline_r32", "gtr_89",
+                "charger_70", "civic_eg", "coupe_03", "crown_victoria", "fastback_96", "fixed_roof_99",
+                "flatsix_coupe", "fullsize_police", "fullsize_taxi", "fullsize_trooper", "gt_hardtop_73",
+                "gtr_89", "gtr_99", "hatch_76", "hatch_83_popup", "liftback_95", "midship_coupe",
+                "pony_fastback_69", "rally_coupe_98", "roadster_99", "roadster_na_popup",
+                "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "sedan_98", "viper_gts",
             };
 
         readonly MeshRenderer[] brakeRenderers = new MeshRenderer[4];
