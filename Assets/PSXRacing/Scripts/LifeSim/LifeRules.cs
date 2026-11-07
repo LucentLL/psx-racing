@@ -1855,9 +1855,9 @@ namespace PSXRacing.LifeSim
             return null;
         }
 
-        /// <summary>The way out for a car with its wheels on the rack, for the
+        /// <summary>The way out for a car with its wheels in storage, for the
         /// same reason <see cref="BlownLine"/> names one.</summary>
-        public const string NoWheelsLine = "NO WHEELS ON IT - FIT A SET ON ITS INSPECT PAGE";
+        public const string NoWheelsLine = "NO WHEELS ON IT - FIT A SET FROM STORED WHEELS";
 
         /// <summary>What every screen says about a destroyed engine. One
         /// string, because it is going to be read on a page the player did not
