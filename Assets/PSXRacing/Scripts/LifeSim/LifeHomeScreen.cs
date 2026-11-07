@@ -1298,7 +1298,8 @@ namespace PSXRacing.LifeSim
                 viewer.SetVisible(false);
                 viewer.SetPose(CarViewer.ViewPose.Showroom);
             }
-            if (tab != "inspectfocus") inspectWheelsOff = false;
+            if (tab != "inspectfocus" && tab != "wheels") inspectWheelsOff = false;
+            if (tab != "wheels") wheelsFromInspect = false;
 
             switch (tab)
             {
@@ -1491,6 +1492,7 @@ namespace PSXRacing.LifeSim
             // "carmenu", is the garage page of a car the player owns, which is
             // the reported "back sends me to my home menu and I lose the car".
             if (tab == "inspect" && InspectingAVisit) return "viewing";
+            if (tab == "wheels" && wheelsFromInspect) return "inspectfocus";
             if (tab == "viewing")
             {
                 var v = Viewings.ByKey(S, S.activeViewing);
@@ -4123,11 +4125,12 @@ namespace PSXRacing.LifeSim
             }
             MenuKit.Button(body, "STORED WHEELS (" + S.wheelRack.Count + ")",
                 new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(w, 42f),
-                () => { wheelTargetId = car.id; tab = "wheels"; Rebuild(); }, 16);
+                () => { wheelTargetId = car.id; wheelsFromInspect = true; tab = "wheels"; Rebuild(); }, 16);
             y -= 50f;
         }
 
         string wheelTargetId;
+        bool wheelsFromInspect;
 
         /// <summary>
         /// The owner's tab: every set in storage, one place, and the car they
@@ -4136,6 +4139,11 @@ namespace PSXRacing.LifeSim
         void BuildStoredWheels()
         {
             float y = -14f;
+            // Came from an inspection: back to that car, not to MAIN.
+            if (wheelsFromInspect)
+                MenuKit.Button(body, "<  BACK TO THE INSPECTION", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColRight(ColR, 300f), y - 1f), new Vector2(300f, 38f),
+                    () => { tab = "inspectfocus"; Rebuild(); }, 15);
             MenuKit.Label(body, "STORED WHEELS", MenuKit.Head, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Accent, ColW, height: 40f, bold: true);
             y -= 46f;
@@ -4174,7 +4182,14 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, state, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, car.noWheels ? MenuKit.Bad : MenuKit.Dim, ColW, height: 22f);
             y -= 24f;
-            if (!can)
+            if (CarWhere.Away(S, car))
+            {
+                MenuKit.Label(body, "It is at the shop. Sets go on when it is back.",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Accent, ColW, height: 22f);
+                y -= 26f;
+            }
+            else if (!can)
             {
                 MenuKit.Label(body, car.noWheels ? "To fit a set: raise it under INSPECT."
                                                  : "To fit a set: an impact wrench and stands, or a lift. Raise it under INSPECT.",
@@ -6662,6 +6677,8 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < LifeRules.MechanicServices.Length; i++)
             {
                 var svc = LifeRules.MechanicServices[i];
+                // Nothing to rotate or replace on a car with no wheels.
+                if (car.noWheels && svc.stat == "tires") continue;
                 int price = LifeRules.ServiceCost(car, svc.cost);
                 bool afford = S.money >= price && elsewhere == null;
                 int idx = i;

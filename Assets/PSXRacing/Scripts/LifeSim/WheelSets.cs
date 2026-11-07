@@ -23,6 +23,7 @@ namespace PSXRacing.LifeSim
         /// nothing on it does not wait on tools: the wrench is what gets a wheel
         /// OFF, and a car must never be stuck with no wheels.</summary>
         public static bool CanFit(LifeState s, OwnedCar car) =>
+            CarWhere.Away(s, car) ? false :
             car.noWheels ? Toolbox.RaiseOf(s, car) != Toolbox.Raise.Ground
                          : Inspection.WheelsComeOff(Toolbox.AccessFor(s, car));
 

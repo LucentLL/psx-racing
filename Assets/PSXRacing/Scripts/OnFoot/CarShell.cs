@@ -162,21 +162,27 @@ namespace PSXRacing.OnFoot
         public static Mesh StandMesh()
         {
             if (standMesh != null) return standMesh;
-            const float Base = 0.17f, Top = 0.045f;
             var v = new System.Collections.Generic.List<Vector3>();
             var t = new System.Collections.Generic.List<int>();
-            Vector3 B(float x, float z) => new Vector3(x * Base, 0f, z * Base);
-            Vector3 T(float x, float z) => new Vector3(x * Top, 1f, z * Top);
-            void Side(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+            void Box(float half, float y0, float y1)
             {
-                int n = v.Count;
-                v.Add(a); v.Add(b); v.Add(c); v.Add(d);
-                t.AddRange(new[] { n, n + 2, n + 1, n, n + 3, n + 2 });
+                Vector3 P(float x, float y, float z) => new Vector3(x * half, y, z * half);
+                void Side(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3)
+                {
+                    int n = v.Count;
+                    v.Add(p0); v.Add(p1); v.Add(p2); v.Add(p3);
+                    t.AddRange(new[] { n, n + 2, n + 1, n, n + 3, n + 2 });
+                }
+                Side(P(-1, y0, -1), P(1, y0, -1), P(1, y1, -1), P(-1, y1, -1));
+                Side(P(1, y0, -1), P(1, y0, 1), P(1, y1, 1), P(1, y1, -1));
+                Side(P(1, y0, 1), P(-1, y0, 1), P(-1, y1, 1), P(1, y1, 1));
+                Side(P(-1, y0, 1), P(-1, y0, -1), P(-1, y1, -1), P(-1, y1, 1));
+                Side(P(-1, y1, -1), P(1, y1, -1), P(1, y1, 1), P(-1, y1, 1));
             }
-            Side(B(-1, -1), B(1, -1), T(1, -1), T(-1, -1));
-            Side(B(1, -1), B(1, 1), T(1, 1), T(1, -1));
-            Side(B(1, 1), B(-1, 1), T(-1, 1), T(1, 1));
-            Side(B(-1, 1), B(-1, -1), T(-1, -1), T(-1, 1));
+            // A foot, a post and a saddle, as the garage bay's stands are.
+            Box(0.13f, 0f, 0.08f);
+            Box(0.06f, 0.08f, 0.86f);
+            Box(0.09f, 0.86f, 1f);
             standMesh = new Mesh { name = "JackStand" };
             standMesh.SetVertices(v);
             var uv = new Vector2[v.Count];
@@ -195,7 +201,7 @@ namespace PSXRacing.OnFoot
             if (standMaterial != null) return standMaterial;
             standMaterial = new Material(from);
             var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point };
-            tex.SetPixels32(new[] { new Color32(120, 40, 30, 255) });
+            tex.SetPixels32(new[] { new Color32(165, 38, 30, 255) });
             tex.Apply(false);
             standMaterial.mainTexture = tex;
             PSXTexDecode.Stamp(standMaterial);
