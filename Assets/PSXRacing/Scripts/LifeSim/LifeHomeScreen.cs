@@ -4213,6 +4213,8 @@ namespace PSXRacing.LifeSim
                     can ? (UnityEngine.Events.UnityAction)(() =>
                     {
                         WheelSets.Fit(S, car, spec, k);
+                        // BACK TO THE INSPECTION keeps a wheels-off view, but not past a new set.
+                        if (car == InspectTarget) inspectWheelsOff = false;
                         LifeSimManager.Save();
                         Rebuild();
                         Toast("fitted " + Clip(WheelSets.Label(k), 30));
