@@ -893,7 +893,13 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void BuildTownTrade(Transform parent, TownMats m)
         {
-            var paint = BuildTownUnit(parent, m, "PaintShop", new Vector3(-92f, 0f, -26f),
+            // The owner's spray booth (UAA Paint booth, 2026-11-07) when the
+            // store files are in this checkout; the generic unit otherwise.
+            float chipY = 6.7f, chipZ = -20f + 0.32f;
+            var paint = BuildTownPaintBooth(parent, m, new Vector3(-92f, 0f, -26f),
+                "COLOURWORKS — PAINT + BODY", new Color(0.55f, 0.20f, 0.42f),
+                out townPaintDoor, ref chipY, ref chipZ)
+                ?? BuildTownUnit(parent, m, "PaintShop", new Vector3(-92f, 0f, -26f),
                 "COLOURWORKS — PAINT + BODY", new Color(0.55f, 0.20f, 0.42f),
                 out townPaintDoor);
             // A COLOUR CHART on the board. Nothing in this project can put
@@ -909,7 +915,7 @@ namespace PSXRacing.EditorTools
             };
             for (int i = 0; i < chips.Length; i++)
                 WorldKit.Panel(paint, "PaintChip" + i,
-                    new Vector3(-92f - 3.6f + i * 1.45f, 6.7f, -20f + 0.32f),
+                    new Vector3(-92f - 3.6f + i * 1.45f, chipY, chipZ),
                     1.25f, 1.25f, 0f, MakeMat("TownChip" + i, null, tint: chips[i]), false);
             TownTrigger(parent, "PaintVenue", TownVenue.Kind.PaintShop,
                 new Vector3(-92f, 1.4f, -15f), new Vector3(24f, 3f, 18f));
@@ -1061,6 +1067,228 @@ namespace PSXRacing.EditorTools
                 Vector3.forward);
             Log("[Town] " + name + ": unit " + w + " x " + d + " at " +
                 at.ToString("0") + ", sign " + sign);
+            return unit.transform;
+        }
+
+        // The vendor's PREFAB, not the bare FBX: Unity imports the FBX lying
+        // on its side (3 m of height along X) and the prefab's transforms are
+        // what stand it up.
+        const string PaintBoothFbx = "Assets/StoreAssets/PaintBooth/PaintBooth.prefab";
+        const string PaintBoothTex = "Assets/StoreAssets/PaintBooth/PaintBooth.psd";
+        const string PaintBoothModel = "Assets/StoreAssets/PaintBooth/PaintBooth.fbx";
+        /// <summary>Half-width of the drive-in opening: the door end's door
+        /// panel, its reveals and the wall strips either side all lie inside
+        /// +-2.15 m of the centre line, so the cut takes them whole and leaves
+        /// the two outer wall panels as piers. 4.3 m wide, full height
+        /// (2.93 m): the booth's doors standing open.</summary>
+        const float PaintBoothOpenHalf = 2.16f;
+
+        /// <summary>
+        /// COLOURWORKS as the owner's spray booth (UAA - Business - Paint booth,
+        /// owner 2026-11-07: "Paint booth ... can replace the paint booth in
+        /// town"). The model is a closed 8.8 x 10.5 x 3 m booth shell with a
+        /// personnel double door on one short end and vents low on the other
+        /// three, so the door end faces the street, the apron runs from it to
+        /// the kerb as the generic unit's did, and the venue trigger on the
+        /// apron is unchanged. Paid store content: it lives in the gitignored
+        /// Assets/StoreAssets (tools/store-assets.ps1), and a checkout without
+        /// it returns null here and builds the generic unit instead.
+        ///
+        /// Which end is the door is read from the mesh, not assumed from the
+        /// importer's axes: the door end carries fewer distinct vertex
+        /// POSITIONS within 23 cm of its face than the vent end (136 v 181 in
+        /// the source FBX). Positions, not vertices: Unity splits a vertex per
+        /// normal and UV, which made the two ends tie at 177.
+        /// </summary>
+        static Transform BuildTownPaintBooth(Transform parent, TownMats m, Vector3 at,
+                                             string sign, Color signTint,
+                                             out Transform doorAnchor,
+                                             ref float chipY, ref float chipZ)
+        {
+            doorAnchor = null;
+            // Readable, so the drive-in opening can be cut from a copy.
+            if (AssetImporter.GetAtPath(PaintBoothModel) is ModelImporter imp && !imp.isReadable)
+            {
+                imp.isReadable = true;
+                imp.SaveAndReimport();
+            }
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PaintBoothFbx);
+            if (prefab == null)
+            {
+                Log("[Town] PaintShop: no store booth at " + PaintBoothFbx +
+                    " (tools/store-assets.ps1) - generic unit");
+                return null;
+            }
+            const string name = "PaintShop";
+            var unit = new GameObject(name);
+            unit.transform.SetParent(parent, false);
+
+            var model = (GameObject)UnityEngine.Object.Instantiate(prefab);
+            model.name = "PaintBoothModel";
+            // Two-sided: the booth's walls are wound inward (seen from the
+            // street, the front wall culled away and showed the inside of the
+            // back one). twoSided turns the lit normal toward the camera.
+            var mat = MakeMat("TownPaintBooth", PaintBoothTex, twoSided: true);
+            var pts = new List<Vector3>();
+            var seen = new HashSet<Vector3Int>();
+            foreach (var mf in model.GetComponentsInChildren<MeshFilter>())
+            {
+                if (TreeKit.Read(mf.sharedMesh, 0, out var v, out _))
+                {
+                    var w2 = mf.transform.localToWorldMatrix;
+                    foreach (var p in v)
+                    {
+                        var q = w2.MultiplyPoint3x4(p);
+                        if (seen.Add(Vector3Int.RoundToInt(q * 1000f))) pts.Add(q);
+                    }
+                }
+                var r = mf.GetComponent<MeshRenderer>();
+                if (r != null)
+                {
+                    var mats = new Material[r.sharedMaterials.Length];
+                    for (int i = 0; i < mats.Length; i++) mats[i] = mat;
+                    r.sharedMaterials = mats;
+                }
+            }
+            foreach (var c in model.GetComponentsInChildren<Collider>())
+                UnityEngine.Object.DestroyImmediate(c);
+            if (pts.Count == 0)
+            {
+                UnityEngine.Object.DestroyImmediate(model);
+                UnityEngine.Object.DestroyImmediate(unit);
+                Log("WARN: [Town] PaintShop: booth mesh unreadable - generic unit");
+                return null;
+            }
+            var b = new Bounds(pts[0], Vector3.zero);
+            foreach (var p in pts) b.Encapsulate(p);
+            if (b.size.y > Mathf.Min(b.size.x, b.size.z))
+            {
+                // Lying down: a sideways booth is worse than the old unit.
+                Log("WARN: [Town] PaintShop: booth not upright (" + b.size.ToString("0.0") +
+                    ") - generic unit");
+                UnityEngine.Object.DestroyImmediate(model);
+                UnityEngine.Object.DestroyImmediate(unit);
+                return null;
+            }
+
+            // Door end: the long horizontal axis's end with FEWER face vertices.
+            const float face = 0.23f;
+            bool alongX = b.size.x > b.size.z;
+            int nPlus = 0, nMinus = 0;
+            foreach (var p in pts)
+            {
+                float a = alongX ? p.x : p.z;
+                float lo = alongX ? b.min.x : b.min.z, hi = alongX ? b.max.x : b.max.z;
+                if (a > hi - face) nPlus++;
+                if (a < lo + face) nMinus++;
+            }
+            bool doorPlus = nPlus < nMinus;
+            // Yaw that turns the door's outward direction to +Z (the street).
+            float yaw = alongX ? (doorPlus ? -90f : 90f) : (doorPlus ? 0f : 180f);
+            float w = alongX ? b.size.z : b.size.x;   // frontage
+            float d = alongX ? b.size.x : b.size.z;   // depth
+            float h = b.size.y;
+
+            float fz = at.z + 6f;   // the old unit's front wall plane
+            var pivot = new GameObject("PaintBooth").transform;
+            pivot.SetParent(unit.transform, false);
+            model.transform.SetParent(pivot, true);
+            model.transform.position -= new Vector3(b.center.x, b.min.y, b.center.z);
+            pivot.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            pivot.localPosition = new Vector3(at.x, 0f, fz - d * 0.5f);
+            // THE OPENING (owner 2026-11-07: "open or remove the doors to
+            // allow a car to drive in"). Every triangle on the door end's face
+            // whose centre is within PaintBoothOpenHalf of the centre line
+            // goes; the cut mesh is saved as its own asset.
+            Vector3 L = alongX ? Vector3.right : Vector3.forward;   // pre-yaw frame
+            Vector3 T = alongX ? Vector3.forward : Vector3.right;
+            float sgn = doorPlus ? 1f : -1f;
+            // The pivot's frame: the model was shifted so its footprint is
+            // centred on the pivot, so the door face is at sgn * d / 2.
+            float endA = sgn * d * 0.5f;
+            float midT = 0f;
+            int cutTris = 0;
+            foreach (var mf in model.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh == null || !mf.sharedMesh.isReadable) continue;
+                var mesh = UnityEngine.Object.Instantiate(mf.sharedMesh);
+                var w2 = pivot.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+                var vw = mesh.vertices;
+                for (int i = 0; i < vw.Length; i++) vw[i] = w2.MultiplyPoint3x4(vw[i]);
+                for (int sm = 0; sm < mesh.subMeshCount; sm++)
+                {
+                    var tri = mesh.GetTriangles(sm);
+                    var keep = new List<int>(tri.Length);
+                    for (int t = 0; t < tri.Length; t += 3)
+                    {
+                        Vector3 a0 = vw[tri[t]], a1 = vw[tri[t + 1]], a2 = vw[tri[t + 2]];
+                        bool onFace = true;
+                        foreach (var q in new[] { a0, a1, a2 })
+                            if (sgn * (Vector3.Dot(q, L) - endA) < -0.15f) onFace = false;
+                        var cen = (a0 + a1 + a2) / 3f;
+                        if (onFace && Mathf.Abs(Vector3.Dot(cen, T) - midT) < PaintBoothOpenHalf)
+                        { cutTris++; continue; }
+                        keep.Add(tri[t]); keep.Add(tri[t + 1]); keep.Add(tri[t + 2]);
+                    }
+                    mesh.SetTriangles(keep, sm);
+                }
+                mesh.name = "PaintBoothOpen_" + mf.name;
+                mf.sharedMesh = WorldKit.SaveMesh(mesh, mesh.name);
+            }
+
+            // Colliders, in the pivot's (pre-yaw) frame: back, sides, roof,
+            // the two piers beside the opening, and a ROAD-layer floor so the
+            // inside drives like the bays of the other units, not like grass.
+            const float t2 = 0.3f;
+            void Wall(string n, float lat, float y, float al, float sLat, float sY, float sAl, int layer)
+            {
+                var g = new GameObject(n);
+                g.layer = layer;
+                g.transform.SetParent(pivot, false);
+                var bc = g.AddComponent<BoxCollider>();
+                bc.center = T * lat + Vector3.up * y + L * al;
+                var sz = T * sLat + Vector3.up * sY + L * sAl;
+                bc.size = new Vector3(Mathf.Abs(sz.x), Mathf.Abs(sz.y), Mathf.Abs(sz.z));
+            }
+            Wall("PaintBoothBack", 0f, h * 0.5f, -sgn * d * 0.5f, w, h, t2, WorldKit.SolidLayer);
+            for (int s2 = -1; s2 <= 1; s2 += 2)
+            {
+                Wall("PaintBoothSide" + s2, s2 * w * 0.5f, h * 0.5f, 0f, t2, h, d, WorldKit.SolidLayer);
+                float pierW = w * 0.5f - PaintBoothOpenHalf;
+                Wall("PaintBoothPier" + s2, s2 * (PaintBoothOpenHalf + pierW * 0.5f), h * 0.5f,
+                     sgn * d * 0.5f, pierW, h, t2, WorldKit.SolidLayer);
+            }
+            Wall("PaintBoothRoof", 0f, h, 0f, w, t2, d, WorldKit.SolidLayer);
+            Wall("PaintBoothFloor", 0f, -0.05f + 0.01f, 0f, w, 0.1f, d, WorldKit.RoadLayer);
+
+            // Apron from the door end to the kerb, as BuildTownUnit's.
+            float apronDepth = Mathf.Max(14f, -(TownRoadW * 0.5f) - fz);
+            TownPad(unit.transform, m, name + "Apron",
+                at.x - (w + 8f) * 0.5f, at.x + (w + 8f) * 0.5f, fz, fz + apronDepth,
+                TownApronY, m.drive, 6f, 3f,
+                WorldKit.SlabEdge.MinX | WorldKit.SlabEdge.MaxX | WorldKit.SlabEdge.MinZ,
+                new WorldKit.SlabCut(WorldKit.SlabEdge.MinZ,
+                                     at.x - (w + 0.4f) * 0.5f, at.x + (w + 0.4f) * 0.5f));
+
+            // The board on the roof's front edge, wide enough for the chips.
+            var board = MakeMat("TownSign" + name, null, tint: signTint);
+            WorldKit.Panel(unit.transform, name + "Sign",
+                new Vector3(at.x, h + 1.5f, fz + 0.25f), Mathf.Max(w, 9.2f), 2.0f, 0f,
+                board, false);
+            for (int s = -1; s <= 1; s += 2)
+                WorldKit.Post(unit.transform, name + "SignPost" + s,
+                    new Vector3(at.x + s * w * 0.30f, h, fz + 0.25f), 0.16f, 1.6f, m.metal);
+            chipY = h + 1.5f;
+            chipZ = fz + 0.32f;
+
+            // The walker's hook: one step inside the opening, as the units'.
+            doorAnchor = TownAnchor(unit.transform, name + "DoorAnchor",
+                new Vector3(at.x, 1.2f, fz - 1.6f), Vector3.forward);
+            Log("[Town] PaintShop: store booth " + w.ToString("0.0") + " x " +
+                d.ToString("0.0") + " x " + h.ToString("0.0") + " m, door " +
+                (alongX ? (doorPlus ? "+X" : "-X") : (doorPlus ? "+Z" : "-Z")) +
+                " (face verts " + nPlus + " v " + nMinus + "), yaw " + yaw +
+                ", opening cut " + cutTris + " tris" + ", sign " + sign);
             return unit.transform;
         }
 

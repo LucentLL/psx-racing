@@ -326,6 +326,8 @@ namespace PSXRacing.EditorTools
             // shed with a coloured board over it.
             Shot("town_mechanic", new Vector3(58f, 4f, -3f), new Vector3(0f, -0.22f, -1f));
             Shot("town_paint", new Vector3(-92f, 4f, -3f), new Vector3(0f, -0.22f, -1f));
+            Shot("town_paint_in", new Vector3(-92f, 1.6f, -14f), new Vector3(0f, -0.08f, -1f));
+            Shot("town_paint_side", new Vector3(-74f, 5f, -6f), new Vector3(-0.9f, -0.25f, -0.6f));
             Shot("town_yard", new Vector3(106f, 9f, -56f), new Vector3(0f, -0.32f, 1f));
             // Close on the front row of wrecks, eye height. The stripped
             // corners and their block stacks are 20 cm objects: they exist in
