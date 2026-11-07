@@ -611,10 +611,11 @@ namespace PSXRacing
         /// ApplyShell too.</summary>
         static void ApplyWheels(CarController car)
         {
-            if (string.IsNullOrEmpty(RaceHandoff.CarWheelKey)) return;
             var shell = car.GetComponent<CarBody>();
             if (shell == null || shell.Def == null) return;
-            shell.wheelKey = RaceHandoff.CarWheelKey;
+            string key = RaceHandoff.CarWheelKey ?? "";
+            if (key == (shell.wheelKey ?? "")) return;
+            shell.wheelKey = key;
             shell.Apply(shell.Def, shell.skinIndex);
         }
 
