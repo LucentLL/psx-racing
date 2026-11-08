@@ -522,7 +522,7 @@ namespace PSXRacing.EditorTools
         }
 
         const float LeafCutoff = 0.38f;
-        const float LeafSaturation = 1.3f, LeafBrightness = 1.35f;   // measured: x1.12 left the fall canopy at value 0.26 against the owner's Parkway frame's 0.62
+        const float LeafSaturation = 1.3f, LeafBrightness = 1.6f;   // measured: x1.12 left the fall canopy at value 0.26 against the owner's Parkway frame's 0.62
 
         static string FindTex(string dir, string stem)
         {

@@ -1364,7 +1364,25 @@ Shader "PSX/Lit"
                     // old cards 1.73x, noon 1.03x for both).
                     float canopy = lerp(0.3, 1.0, saturate(lDir.y / 0.55));
                     ndl = saturate(wrapL + transL) * canopy;
-                    amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, 0.6);
+                    // DEFINITION where the sky is most of the light (dusk,
+                    // overcast, shade - owner: "It all just blends to one
+                    // color. No definition or shadows"): the sky by which way
+                    // a leaf faces (crown tops lit, undersides not); the lower
+                    // part of a tree in its own shade (metres above the
+                    // instance's foot); and each tree its own shade of light.
+                    amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y * 0.5 + 0.5));
+                    float hUp = wpos.y - unity_ObjectToWorld._m13;
+                    // and INSIDE the crown: near the trunk's axis a leaf has
+                    // the rest of the crown all round it
+                    float rOut = length(wpos.xz - float2(unity_ObjectToWorld._m03, unity_ObjectToWorld._m23));
+                    float crownAO = lerp(0.38, 1.0, saturate(hUp / 16.0)) * lerp(0.5, 1.0, saturate(rOut / 5.0));
+                    amb *= crownAO;
+                    ndl *= sqrt(crownAO);
+                #ifdef PSX_LODFADE
+                    float treeVar = lerp(0.7, 1.2, o.lodD.y);
+                    amb *= treeVar;
+                    ndl *= treeVar;
+                #endif
                 }
                 half3 sunL = _PSXLightColor.rgb * ndl;
                 // THE FAR LAND'S LOOK (above): its albedo rides on its light (its
