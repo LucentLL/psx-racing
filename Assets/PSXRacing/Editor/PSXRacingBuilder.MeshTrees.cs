@@ -513,14 +513,16 @@ namespace PSXRacing.EditorTools
             // Leaves and plants a good deal more saturated and a little
             // brighter than the scans: the fall forest the owner's Parkway
             // frames show, under the game's matte film grade.
-            mat.SetVector("_LeafVivid", leaves ? new Vector4(LeafSaturation, LeafBrightness, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
+            // z = 1: PSX/Lit's FOLIAGE LIGHT (wrap + translucency), which is
+            // what lifts a canopy in daylight - not the albedo.
+            mat.SetVector("_LeafVivid", leaves ? new Vector4(LeafSaturation, LeafBrightness, 1f, 0f) : new Vector4(1f, 1f, 0f, 0f));
             SetHDNormal(mat, string.IsNullOrEmpty(n) ? null : FindTex(dir, n));
             EditorUtility.SetDirty(mat);
             return mat;
         }
 
         const float LeafCutoff = 0.38f;
-        const float LeafSaturation = 1.45f, LeafBrightness = 2.4f;   // measured: x1.12 left the fall canopy at value 0.26 against the owner's Parkway frame's 0.62
+        const float LeafSaturation = 1.3f, LeafBrightness = 1.35f;   // measured: x1.12 left the fall canopy at value 0.26 against the owner's Parkway frame's 0.62
 
         static string FindTex(string dir, string stem)
         {

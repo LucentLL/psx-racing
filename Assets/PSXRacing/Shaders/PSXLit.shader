@@ -1344,6 +1344,28 @@ Shader "PSX/Lit"
                 // one thing that makes a roof under a blue sky read as being
                 // under a blue sky.
                 half3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
+                // FOLIAGE LIGHT (the mountain forest's leaves, _LeafVivid.z):
+                // a leaf is not a wall. Turned from the sun it still passes
+                // light (wrap), looked at against the sun it glows
+                // (translucency), and it sees the sky all round a crown. All of
+                // it rides on the hour's own sun and sky, so dusk, overcast and
+                // shade dim it (owner 2026-11-08: a flat brightness boost had
+                // the leaves "getting direct sunlight, even when it is dusk").
+                if (_LeafVivid.z > 0.5)
+                {
+                    float3 lDir = normalize(_PSXLightDir.xyz);
+                    float wrapL = saturate((dot(n, lDir) + 0.55) / 1.55);
+                    float3 vDir = normalize(wpos - _WorldSpaceCameraPos);
+                    float transL = pow(saturate(dot(vDir, lDir)), 3.0) * 0.55;
+                    // A FOREST'S OWN SHADE: the lower the sun, the more trees
+                    // stand between it and any one leaf - at dusk a forest is
+                    // lit at its edges and crowns, not all through. Measured:
+                    // without it the leaves held 1.95x the road at dusk (the
+                    // old cards 1.73x, noon 1.03x for both).
+                    float canopy = lerp(0.3, 1.0, saturate(lDir.y / 0.55));
+                    ndl = saturate(wrapL + transL) * canopy;
+                    amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, 0.6);
+                }
                 half3 sunL = _PSXLightColor.rgb * ndl;
                 // THE FAR LAND'S LOOK (above): its albedo rides on its light (its
                 // texture is white), so a far field mottles grass, oak and pine
