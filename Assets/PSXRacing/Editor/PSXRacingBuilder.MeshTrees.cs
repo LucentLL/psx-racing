@@ -94,7 +94,7 @@ namespace PSXRacing.EditorTools
         };
 
         /// <summary>Ground cover is drawn to this (m), no shadows.</summary>
-        const float CoverMaxDist = 60f;
+        const float CoverMaxDist = 120f;
         /// <summary>Ground cover grid (m) and how far from the road it runs.</summary>
         const float CoverPitch = 1.5f, CoverBand = 50f;
         // tree name, bark texture stem (the FBX's first material slot)
@@ -114,7 +114,7 @@ namespace PSXRacing.EditorTools
             "Forest_black_cherry_03", "Forest_black_cherry_04", "Forest_black_cherry_05",
         };
         /// <summary>How far the understory is drawn (m).</summary>
-        const float UnderMaxDist = 150f;
+        const float UnderMaxDist = 220f;
         /// <summary>No understory plant nearer the road's edge than this past
         /// the asphalt (m), nor on the graded roadside: it has no trunk in the
         /// table, so it must stand where only a car already off the road and
@@ -322,6 +322,7 @@ namespace PSXRacing.EditorTools
                 if (v == null) continue;
                 v.leafDress = new[] { null, green, green, fall[n++ % fall.Length], null };
                 v.maxDist = UnderMaxDist;
+                v.thin = 0.45f;
                 small.Add(list.Count); list.Add(v);
             }
             var bushes = new List<int>();
@@ -333,6 +334,7 @@ namespace PSXRacing.EditorTools
                 for (int s = 0; s < v.leafSub.Length; s++) v.leafSub[s] = true;
                 v.leafDress = new[] { null, cherry, cherry, cherryFall, null };
                 v.maxDist = UnderMaxDist;
+                v.thin = 0.45f;
                 bushes.Add(list.Count); list.Add(v);
             }
             var cover = new List<int>();
@@ -352,6 +354,7 @@ namespace PSXRacing.EditorTools
                 for (int s = 0; s < v.leafSub.Length; s++) v.leafSub[s] = true;
                 v.leafDress = dressM;
                 v.maxDist = CoverMaxDist;
+                v.thin = 0.3f;
                 v.shadows = false;
                 cover.Add(list.Count); list.Add(v);
             }
@@ -372,7 +375,8 @@ namespace PSXRacing.EditorTools
                         ?? LoadVariant("Assets/StoreAssets/NMForest/Debris", fbx, dm);
                 if (v == null) continue;
                 v.shadows = kind >= 2;
-                v.maxDist = kind == 0 ? 55f : kind == 1 ? 70f : 160f;
+                v.maxDist = kind == 0 ? 100f : kind == 1 ? 110f : 180f;
+                v.thin = kind <= 1 ? 0.35f : 0.55f;
                 if (kind == 0)
                 {
                     for (int q = 0; q < v.leafSub.Length; q++) v.leafSub[q] = true;

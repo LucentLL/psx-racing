@@ -51,6 +51,11 @@ namespace PSXRacing
             public Material[] impostorDress;
             /// <summary>Drawn no farther than this (m); 0 = the whole range.</summary>
             public float maxDist;
+            /// <summary>&gt; 0: at its draw limit this plant THINS OUT - every
+            /// instance leaves at its own distance between thin x the limit and
+            /// the limit - instead of all of them on one ring (owner 2026-11-08:
+            /// "after the blue line I drew ... there is no foliage").</summary>
+            public float thin;
             /// <summary>Casts shadows at HIGH and MID (trees, not grass).</summary>
             public bool shadows = true;
         }
@@ -82,7 +87,7 @@ namespace PSXRacing
         /// change shape (especially in winter) as they pop-in."</summary>
         public float band0 = 15f, band1 = 25f, band2 = 40f;
         /// <summary>A plant with a draw limit dissolves over this share of it.</summary>
-        public float limitBand = 0.18f;
+        public float limitBand = 0.08f;
 
         public static bool MeshTreesOn = true;
         static MeshForest instance;
@@ -109,8 +114,8 @@ namespace PSXRacing
         float[] maxD2;
         Vector4[][] fadeOf;                        // [variant][lod]: _PSXLodFade
         bool[][] handOver;                         // [variant][lod]: dithers into lod + 1
-        readonly System.Collections.Generic.Dictionary<(Material, Vector4), Material> faded =
-            new System.Collections.Generic.Dictionary<(Material, Vector4), Material>();
+        readonly System.Collections.Generic.Dictionary<(Material, Vector4, float), Material> faded =
+            new System.Collections.Generic.Dictionary<(Material, Vector4, float), Material>();
 
         void Awake() => Init();
 
@@ -342,17 +347,23 @@ namespace PSXRacing
         }
 
         /// <summary>This material with a level's fade band (a copy, made once).</summary>
-        Material Faded(Material m, Vector4 f)
+        Material Faded(Material m, Vector4 f, float thin = 0f)
         {
             if (m == null) return null;
             if (f == Vector4.zero) return m;
-            if (faded.TryGetValue((m, f), out var c) && c != null) return c;
+            if (faded.TryGetValue((m, f, thin), out var c) && c != null) return c;
             c = new Material(m) { name = m.name + "_fade", enableInstancing = true };
             c.SetVector("_PSXLodFade", f);
+            c.SetVector("_PSXLodThin", new Vector4(thin, 0f, 0f, 0f));
             c.EnableKeyword("PSX_LODFADE");
-            faded[(m, f)] = c;
+            faded[(m, f, thin)] = c;
             return c;
         }
+
+        /// <summary>The thinning for a level: only where that level's fade-out
+        /// is the plant's draw limit, not a hand-over to the next level.</summary>
+        float ThinFor(int v, int lod) =>
+            !handOver[v][lod] && fadeOf[v][lod].w > 0f ? variants[v].thin : 0f;
 
         void Draw(Camera only = null)
         {
@@ -370,7 +381,7 @@ namespace PSXRacing
                     int subs = imp ? mesh.subMeshCount : Mathf.Min(mesh.subMeshCount, mats.Length);
                     for (int s = 0; s < subs; s++)
                     {
-                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod]);
+                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod], ThinFor(v, lod));
                         if (mat == null) continue;   // bare: no leaves
                         var rp = new RenderParams(mat)
                         {

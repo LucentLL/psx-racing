@@ -107,6 +107,9 @@ Shader "PSX/Lit"
         // MeshForest's dithered LOD hand-over (PSX_LODFADE): x..y fade in,
         // z..w fade out, metres from the camera; 0 = no fade that side.
         [HideInInspector] _PSXLodFade ("LOD fade", Vector) = (0,0,0,0)
+        // x > 0: the draw limit THINS the plants out instead of ending them on
+        // a ring - each instance leaves at its own distance, down to x of it
+        [HideInInspector] _PSXLodThin ("LOD thin", Vector) = (0,0,0,0)
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -336,6 +339,7 @@ Shader "PSX/Lit"
             fixed4 _Color;
             float _Cutoff;
             float4 _PSXLodFade;
+            float4 _PSXLodThin;
             float _Emission;
             float _Affine;
             float _Cull;
@@ -1165,7 +1169,7 @@ Shader "PSX/Lit"
             #ifdef PSX_LODFADE
                 // the INSTANCE's distance (its origin), not the pixel's: a level
                 // hands over for the whole tree at once (MeshForest buckets by it)
-                float lodD : TEXCOORD10;
+                float2 lodD : TEXCOORD10;   // x: the instance's distance, y: its own 0..1
             #endif
             };
 
@@ -1174,8 +1178,12 @@ Shader "PSX/Lit"
                 v2f o;
                 UNITY_SETUP_INSTANCE_ID(v);
             #ifdef PSX_LODFADE
-                o.lodD = length(float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23)
-                                - _WorldSpaceCameraPos);
+                {
+                    float3 it = float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23);
+                    float3 p3 = frac(it * 0.1031);
+                    p3 += dot(p3, p3.yzx + 33.33);
+                    o.lodD = float2(length(it - _WorldSpaceCameraPos), frac((p3.x + p3.y) * p3.z));
+                }
             #endif
             #ifdef PSX_FURNITURE
                 // A WIRE: the ribbon stood across its line, square to the eye,
@@ -1710,13 +1718,15 @@ Shader "PSX/Lit"
                 // the other's - so a tree changes level without a pop, and a
                 // plant at its draw limit dissolves instead of vanishing.
                 {
-                    float ld = i.lodD;
+                    float ld = i.lodD.x;
+                    // thinned: this instance's own limit somewhere in [x, 1] of the band
+                    float lo = _PSXLodThin.x > 0.0 ? ld / lerp(_PSXLodThin.x, 1.0, i.lodD.y) : ld;
                     float2 lpx = floor(i.pos.xy);
                     float ldith = frac(52.9829189 * frac(dot(lpx, float2(0.06711056, 0.00583715))));
                     if (_PSXLodFade.y > _PSXLodFade.x)
                         clip(ldith - (1.0 - saturate((ld - _PSXLodFade.x) / (_PSXLodFade.y - _PSXLodFade.x))) + 1e-5);
                     if (_PSXLodFade.w > _PSXLodFade.z)
-                        clip((1.0 - saturate((ld - _PSXLodFade.z) / (_PSXLodFade.w - _PSXLodFade.z))) - ldith - 1e-5);
+                        clip((1.0 - saturate((lo - _PSXLodFade.z) / (_PSXLodFade.w - _PSXLodFade.z))) - ldith - 1e-5);
                 }
             #endif
                 // A CROWN CARD (_CrownFade): shown from 28 degrees above the
