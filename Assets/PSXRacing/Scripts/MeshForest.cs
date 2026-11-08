@@ -80,7 +80,7 @@ namespace PSXRacing
         /// PSX_LODFADE) so the two add up to one - no pop, no shape jump.
         /// Owner 2026-11-08: "I see plants, bushes, trees pop-in often. Trees
         /// change shape (especially in winter) as they pop-in."</summary>
-        public float band0 = 8f, band1 = 14f, band2 = 30f;
+        public float band0 = 15f, band1 = 25f, band2 = 40f;
         /// <summary>A plant with a draw limit dissolves over this share of it.</summary>
         public float limitBand = 0.18f;
 
@@ -246,10 +246,10 @@ namespace PSXRacing
 
             var root = transform.localToWorldMatrix;
             Vector3 camPos = cam.transform.position;
-            bool moved = (camPos - lastCam).sqrMagnitude > 9f || root != lastRoot || !lastOn;
-            // The view turns faster than the car moves: re-cull every 4th
+            bool moved = (camPos - lastCam).sqrMagnitude > 1f || root != lastRoot || !lastOn;
+            // The view turns faster than the car moves: re-cull every 2nd
             // frame even standing still.
-            if (moved || (Time.frameCount & 3) == 0) Rebucket(cam, root, camPos);
+            if (moved || (Time.frameCount & 1) == 0) Rebucket(cam, root, camPos);
             if (moved) { lastCam = camPos; lastRoot = root; }
             lastOn = true;
             Draw();
@@ -281,7 +281,12 @@ namespace PSXRacing
         void Rebucket(Camera cam, Matrix4x4 root, Vector3 camPos)
         {
             if (root != bakedRoot) Bake(root);
-            GeometryUtility.CalculateFrustumPlanes(cam, planes);
+            // A WIDER cone than the camera's: a chunk swaps its cards for meshes
+            // before it reaches the screen's edge, not on it (owner 2026-11-08:
+            // "a lot of foliage and tree pop-in even at extremely low speeds").
+            var wide = Matrix4x4.Perspective(Mathf.Min(cam.fieldOfView * 1.5f + 10f, 170f), cam.aspect * 1.3f,
+                                             cam.nearClipPlane, cam.farClipPlane);
+            GeometryUtility.CalculateFrustumPlanes(wide * cam.worldToCameraMatrix, planes);
             for (int i = 0; i < bucketN.Length; i++) bucketN[i] = 0;
             farVisible.Clear();
             float far = Mathf.Max(farRange, meshRange);
@@ -305,15 +310,19 @@ namespace PSXRacing
                     if (d2 > maxD2[vi]) continue;
                     int lod = d2 < l0 ? 0 : d2 < l1 ? 1 : d2 < r2 ? 2 : 3;
                     Put(vi, lod, i);
-                    // inside the hand-over band: the next level too
-                    if (lod < 3)
-                    {
-                        var fo = fadeOf[vi][lod];
-                        if (handOver[vi][lod] && d2 > fo.z * fo.z) Put(vi, lod + 1, i);
-                    }
+                    // Inside a hand-over band - and Margin either side of it, so
+                    // a bucket a metre or two stale never leaves a tree with
+                    // neither level drawn: the neighbouring level too. The
+                    // shader's fade (by the tree's own distance) decides what
+                    // of each shows; out of its band it draws nothing.
+                    float d = Mathf.Sqrt(d2);
+                    if (lod < 3 && handOver[vi][lod] && d > fadeOf[vi][lod].z - Margin) Put(vi, lod + 1, i);
+                    if (lod > 0 && handOver[vi][lod - 1] && d < fadeOf[vi][lod - 1].w + Margin) Put(vi, lod - 1, i);
                 }
             }
         }
+
+        const float Margin = 4f;
 
         void Put(int vi, int lod, int i)
         {

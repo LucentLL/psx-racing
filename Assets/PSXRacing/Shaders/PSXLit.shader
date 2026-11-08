@@ -257,7 +257,7 @@ Shader "PSX/Lit"
             // macros make unity_ObjectToWorld the instance's own matrix after
             // UNITY_SETUP_INSTANCE_ID, so every path below reads it as before.
             #pragma multi_compile_instancing
-            #pragma shader_feature_local_fragment __ PSX_LODFADE
+            #pragma shader_feature_local __ PSX_LODFADE
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
@@ -1162,12 +1162,21 @@ Shader "PSX/Lit"
                 // CITY POP-IN: xy the fade table's texel, z 1 = a proxy of a tile
                 // the proxies wholly draw
                 float3 tileUV : TEXCOORD9;
+            #ifdef PSX_LODFADE
+                // the INSTANCE's distance (its origin), not the pixel's: a level
+                // hands over for the whole tree at once (MeshForest buckets by it)
+                float lodD : TEXCOORD10;
+            #endif
             };
 
             v2f vert (appdata v)
             {
                 v2f o;
                 UNITY_SETUP_INSTANCE_ID(v);
+            #ifdef PSX_LODFADE
+                o.lodD = length(float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23)
+                                - _WorldSpaceCameraPos);
+            #endif
             #ifdef PSX_FURNITURE
                 // A WIRE: the ribbon stood across its line, square to the eye,
                 // at least WIRE_MIN_PX pixels wide, collapsed past WIRE_GONE.
@@ -1701,7 +1710,7 @@ Shader "PSX/Lit"
                 // the other's - so a tree changes level without a pop, and a
                 // plant at its draw limit dissolves instead of vanishing.
                 {
-                    float ld = length(i.wpos - _WorldSpaceCameraPos);
+                    float ld = i.lodD;
                     float2 lpx = floor(i.pos.xy);
                     float ldith = frac(52.9829189 * frac(dot(lpx, float2(0.06711056, 0.00583715))));
                     if (_PSXLodFade.y > _PSXLodFade.x)

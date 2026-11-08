@@ -3747,7 +3747,7 @@ namespace PSXRacing.EditorTools
             if (Loop || pts == null || pts.Count < 2) return;
             Color tint = string.IsNullOrEmpty(theme.sand) ? (theme.groundTint ?? Color.white) : Color.white;
             var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
-            NMGroundRetexture(mat);
+            NMGroundRetexture(mat, verge: true);
             float tile = Mathf.Max(theme.groundTile, 0.01f);
             GroundUvOrigin(pts, out float uox, out float uoz);
             // A metre a cell: flat where it matters, and ~12 KB a pad against a
@@ -4439,7 +4439,7 @@ namespace PSXRacing.EditorTools
 
             Color tint = string.IsNullOrEmpty(theme.sand) ? (theme.groundTint ?? Color.white) : Color.white;
             var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
-            NMGroundRetexture(mat);
+            NMGroundRetexture(mat, verge: true);
             float tile = Mathf.Max(theme.groundTile, 0.01f);
             GroundUvOrigin(pts, out float uox, out float uoz);
             var verts = new List<Vector3>();
@@ -6749,6 +6749,8 @@ namespace PSXRacing.EditorTools
 
         static void BuildStageBanks(List<Vector3> pts, Transform parent)
         {
+            rockLedges.Clear();
+            reliefChords = reliefTris = 0;
             EnsureStageRoadside(pts);
             if (rsBankRuns == null) return;
             string tex = MountainStage ? StageRockTexPath : theme.wall;
@@ -7015,11 +7017,16 @@ namespace PSXRacing.EditorTools
             int M = BankTopSampleE.Length + 1;
             float dist = 0f;
             var toe = new Vector3[R]; var plinthTop = new Vector3[R]; var crest = new Vector3[R];
+            // for the PC rock relief (PSXRacingBuilder.RockRelief)
+            var facedAt = new bool[R]; var distAt = new float[R]; var outwAt = new Vector3[R];
+            var chordT0 = new int[R]; var chordT1 = new int[R];
             for (int k = 0; k < R; k++)
             {
                 int i = st[k];
                 float h = hh[k];
                 Vector3 outw = rsRight[i] * side;
+                outwAt[k] = outw;
+                facedAt[k] = !closing[k] && !graded[k];
                 Vector3 atToe = pts[i] + outw * (half + CutToeE);
                 Vector2[] ring;
                 if (closing[k])
@@ -7059,6 +7066,7 @@ namespace PSXRacing.EditorTools
                     Vector3 step = toe[k] - toe[k - 1]; step.y = 0f;
                     dist += step.magnitude;
                 }
+                distAt[k] = dist;
                 int v = verts.Count;
                 verts.Add(toe[k]); verts.Add(plinthTop[k]); verts.Add(crest[k]);
                 float vSh = (plinthTop[k].y - toe[k].y) / 4.5f;
@@ -7066,6 +7074,7 @@ namespace PSXRacing.EditorTools
                 uvs.Add(new Vector2(dist / 4.5f, 0f));
                 uvs.Add(new Vector2(dist / 4.5f, vSh));
                 uvs.Add(new Vector2(dist / 4.5f, vTop));
+                chordT0[k] = tris.Count;
                 if (k > 0)
                 {
                     // Facing the road: the back of the face is inside the rock
@@ -7074,6 +7083,7 @@ namespace PSXRacing.EditorTools
                     QuadFacingSkipFlat(verts, tris, v - 3, v - 2, v + 1, v, -outw);
                     QuadFacingSkipFlat(verts, tris, v - 2, v - 1, v + 2, v + 1, -outw);
                 }
+                chordT1[k] = tris.Count;
 
                 int c = cVerts.Count;
                 cVerts.Add(toe[k]); cVerts.Add(plinthTop[k]); cVerts.Add(crest[k]);
@@ -7176,6 +7186,9 @@ namespace PSXRacing.EditorTools
                 k = k1 + 1;
             }
 
+            // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
+            if (PCContent && RockReliefOn)
+                ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
             var mesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
@@ -7815,7 +7828,7 @@ namespace PSXRacing.EditorTools
             var mfChunks = new List<MeshForest.Chunk>();
             var mfInst = new List<Vector4>();
             var mfScaleVar = new List<Vector2>();
-            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0;
+            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0, ledgeN = 0;
             var mfTilt = new Dictionary<int, Vector2>();
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
@@ -8021,6 +8034,7 @@ namespace PSXRacing.EditorTools
 
                 if (kit != null) AddGroundCover(kit, ox, oz, NearChunk, mfInst, mfScaleVar, ref coverN, ref ySum);
                 if (kit != null) AddDebris(kit, ox, oz, NearChunk, mfInst, mfScaleVar, mfTilt, ref debrisN, ref ySum);
+                if (kit != null) AddLedgePlants(kit, ox, oz, NearChunk, mfInst, mfScaleVar, ref ledgeN, ref ySum);
                 if (mfInst.Count > mfStart)
                 {
                     var cardsB = new List<Renderer>();
@@ -8078,7 +8092,7 @@ namespace PSXRacing.EditorTools
                     mfc.instTilt = tl;
                 }
                 Log($"Stage forest, MESH: {understory} understory plants, {extraCanopy} extra canopy beeches (with trunks), " +
-                    $"{coverN} ground-cover plants to {CoverBand:0} m, {debrisN} litter/branches/stones/logs/stumps, {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
+                    $"{coverN} ground-cover plants to {CoverBand:0} m, {debrisN} litter/branches/stones/logs/stumps, {ledgeN} plants on {rockLedges.Count} rock ledges ({reliefChords} relief chords, {reliefTris} tris), {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
                 Log($"Stage forest, MESH trees: {meshTrees} broadleaf trees as NatureManufacture beeches in " +
                     $"{mfChunks.Count} chunks ({kit.variants.Length} variants, LOD {mfc.lod0To}/{mfc.lod1To}/{mfc.meshRange} m).");
             }

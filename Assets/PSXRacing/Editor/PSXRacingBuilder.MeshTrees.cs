@@ -153,13 +153,24 @@ namespace PSXRacing.EditorTools
 
         static bool NMGroundOn => NMGroundFor((int)Season.Fall) != null;
 
+        /// <summary>The ROAD-EDGE verge: mowed green in every dress but winter
+        /// (the floor's green-and-brown) and snow (its turf) - the Parkway's
+        /// shoulders stay mown green through the fall (owner's frames,
+        /// 2026-11-08), where the forest floor beyond is leaf litter.</summary>
+        static string NMVergeFor(int dress)
+        {
+            if (NMGroundFor((int)Season.Fall) == null || dress == Seasons.DressSnow) return null;
+            string n = dress == (int)Season.Winter ? "leaves_02" : "plants_01";
+            return NMGroundDir + "/T_ground_beech_forest_" + n + "_BC_SM.tga";
+        }
+
         /// <summary>Puts the fall floor on a ground material MakeMat has just
         /// (re)made - every builder that makes "Ground" or "RoadEdge" resets
         /// the shared asset's texture and tint.</summary>
-        static void NMGroundRetexture(Material m)
+        static void NMGroundRetexture(Material m, bool verge = false)
         {
             if (m == null || !NMGroundOn) return;
-            m.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(NMGroundFor((int)Season.Fall));
+            m.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(verge ? NMVergeFor((int)Season.Fall) : NMGroundFor((int)Season.Fall));
             m.color = Color.white;
             m.mainTextureScale = new Vector2(NMGroundScale, NMGroundScale);
             GroundNormalFor(m);
@@ -167,12 +178,12 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The forest floor on a ground material and its seasons
         /// (snow keeps its turf). False = not this build; register as before.</summary>
-        static bool ApplyNMGround(Material baseMat, string key, string role)
+        static bool ApplyNMGround(Material baseMat, string key, string role, bool verge = false)
         {
             if (!NMGroundOn) return false;
-            NMGroundRetexture(baseMat);
+            NMGroundRetexture(baseMat, verge);
             RegisterSeasonalTexture(key, baseMat,
-                d => d == Seasons.DressSnow ? DressTurfPath(d) : NMGroundFor(d), role);
+                d => d == Seasons.DressSnow ? DressTurfPath(d) : verge ? NMVergeFor(d) : NMGroundFor(d), role);
             foreach (var e in seasonEntries)
             {
                 if (e.baseMat != baseMat || e.variants == null) continue;
