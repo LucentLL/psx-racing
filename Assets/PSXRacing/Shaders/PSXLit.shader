@@ -104,6 +104,9 @@ Shader "PSX/Lit"
         [HideInInspector] _PSXDetailMask ("Terrain detail (set at runtime by TerrainDetail.cs)", Vector) = (0,0,0,0)
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
+        // MeshForest's dithered LOD hand-over (PSX_LODFADE): x..y fade in,
+        // z..w fade out, metres from the camera; 0 = no fade that side.
+        [HideInInspector] _PSXLodFade ("LOD fade", Vector) = (0,0,0,0)
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -249,6 +252,12 @@ Shader "PSX/Lit"
             // multi_compile; fragment-only; HDVariantStripper keeps it out of
             // every build but the Windows player's.
             #pragma multi_compile_local_fragment __ PSX_HD
+            // GPU instancing, for MeshForest's Graphics.RenderMeshInstanced (the
+            // mountain forest's ~250k plants a stage): UnityCG's instancing
+            // macros make unity_ObjectToWorld the instance's own matrix after
+            // UNITY_SETUP_INSTANCE_ID, so every path below reads it as before.
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local_fragment __ PSX_LODFADE
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
@@ -326,6 +335,7 @@ Shader "PSX/Lit"
             float4 _MainTex_ST;
             fixed4 _Color;
             float _Cutoff;
+            float4 _PSXLodFade;
             float _Emission;
             float _Affine;
             float _Cull;
@@ -1107,6 +1117,7 @@ Shader "PSX/Lit"
                 // CITY POP-IN: a proxy's / skyline copy's building tile (+512 in
                 // x: a tile the proxies do not wholly draw); (0, 0) on other meshes
                 float2 uv2 : TEXCOORD2;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct v2f
@@ -1156,6 +1167,7 @@ Shader "PSX/Lit"
             v2f vert (appdata v)
             {
                 v2f o;
+                UNITY_SETUP_INSTANCE_ID(v);
             #ifdef PSX_FURNITURE
                 // A WIRE: the ribbon stood across its line, square to the eye,
                 // at least WIRE_MIN_PX pixels wide, collapsed past WIRE_GONE.
@@ -1681,6 +1693,23 @@ Shader "PSX/Lit"
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
             #endif
                 clip(tex.a - _Cutoff);
+            #ifdef PSX_LODFADE
+                // THE LOD HAND-OVER (MeshForest): one level dithers out over a
+                // band while the next dithers in over the same band, on the
+                // same screen-door pattern - the out side draws where the
+                // pattern is under its share, the in side where it is over
+                // the other's - so a tree changes level without a pop, and a
+                // plant at its draw limit dissolves instead of vanishing.
+                {
+                    float ld = length(i.wpos - _WorldSpaceCameraPos);
+                    float2 lpx = floor(i.pos.xy);
+                    float ldith = frac(52.9829189 * frac(dot(lpx, float2(0.06711056, 0.00583715))));
+                    if (_PSXLodFade.y > _PSXLodFade.x)
+                        clip(ldith - (1.0 - saturate((ld - _PSXLodFade.x) / (_PSXLodFade.y - _PSXLodFade.x))) + 1e-5);
+                    if (_PSXLodFade.w > _PSXLodFade.z)
+                        clip((1.0 - saturate((ld - _PSXLodFade.z) / (_PSXLodFade.w - _PSXLodFade.z))) - ldith - 1e-5);
+                }
+            #endif
                 // A CROWN CARD (_CrownFade): shown from 28 degrees above the
                 // level and steeper, gone under 15, dithered between. The card
                 // faces up and culls its back, so the eye is always above it.

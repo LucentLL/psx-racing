@@ -195,8 +195,10 @@ namespace PSXRacing.EditorTools
                                  new Color(0.80f, 0.86f, 0.78f), maskIsHdrp: false);
             var fallM = NMLitMat("NM_imp_" + tree + "_fall", NMDir, "Autumn/" + stem, "Trees/" + stem + "_N", null, true,
                                  fallTint, maskIsHdrp: false);
-            var bare = NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Autumn/" + stem, "Trees/" + stem + "_N", null, true,
-                                new Color(0.42f, 0.37f, 0.33f), maskIsHdrp: false);
+            var barePath = BareImpostorPath(stem);
+            var bare = barePath != null
+                ? NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Gen/" + stem + "_bare2", null, null, true, new Color(0.85f, 0.82f, 0.80f))
+                : NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Autumn/" + stem, null, null, true, new Color(0.42f, 0.37f, 0.33f));
             v.impostorDress = new[] { bare, green, green, fallM, bare };
         }
 
@@ -230,7 +232,7 @@ namespace PSXRacing.EditorTools
             // Summer green a shade down: lit by URP beside PSX/Lit's world it
             // read lime against the cards and the turf.
             var green = NMLitMat("NM_beech_leaves", NMTreeDir, "T_beech_atlas_BC", "T_beech_atlas_N", "T_beech_atlas_Maskmap",
-                                 true, new Color(0.80f, 0.86f, 0.78f));
+                                 true, Color.white);
             var fall = new[]
             {
                 NMLitMat("NM_beech_leaves_autumn", NMTreeDir, "T_beech_atlas_BC_autumn", "T_beech_atlas_N", "T_beech_atlas_Maskmap", true, Color.white),
@@ -401,58 +403,71 @@ namespace PSXRacing.EditorTools
             return n;
         }
 
+        /// <summary>A forest material: PSX/Lit, like the rest of the world.
+        /// Owner 2026-11-08, on the first URP Lit pass: "The trees don't seem to
+        /// be incorporated in the in-game lighting. They glow at night, but seem
+        /// gray and dull during the day." URP Lit lit them by Unity's ambient
+        /// and light; the game's day, night, lamps, headlights, fog and grade
+        /// are PSX/Lit's own. PSX/Lit has GPU instancing for MeshForest; the
+        /// pack's normal and mask maps go unused (PSX/Lit lights per vertex).
+        /// Leaves: alpha-tested at 0.5 and two-sided (the lit normal turned to
+        /// the camera). The name keeps its NM_ asset (shader switched in place).</summary>
         static Material NMLitMat(string name, string dir, string bc, string n, string mask, bool leaves, Color tint,
                                  bool maskIsHdrp = true)
         {
-            var lit = Shader.Find("Universal Render Pipeline/Lit");
-            string path = MatDir + "/" + name + ".mat";
-            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (mat == null) { mat = new Material(lit); AssetDatabase.CreateAsset(mat, path); }
-            mat.shader = lit;
-            Texture2D T(string stem)
-            {
-                foreach (var ext in new[] { ".tga", ".png" })
-                {
-                    var t = AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/" + stem + ext);
-                    if (t != null) return t;
-                }
-                Log("WARN: mesh forest: texture missing " + dir + "/" + stem);
-                return null;
-            }
-            mat.SetTexture("_BaseMap", T(bc));
-            mat.SetColor("_BaseColor", tint);
-            var nt = T(n);
-            mat.SetTexture("_BumpMap", nt);
-            if (nt) mat.EnableKeyword("_NORMALMAP");
-            // The black cherry's mask is not laid out like the beeches'
-            // (HDRP R metal / G AO / A smooth): read as metallic it turned the
-            // bushes into grey mirrors of the sky. Plain, rough foliage there.
-            var mt = maskIsHdrp && !string.IsNullOrEmpty(mask) ? T(mask) : null;
-            mat.SetTexture("_MetallicGlossMap", mt);
-            mat.SetTexture("_OcclusionMap", mt);
-            if (mt) { mat.EnableKeyword("_METALLICSPECGLOSSMAP"); mat.EnableKeyword("_OCCLUSIONMAP"); }
-            else { mat.DisableKeyword("_METALLICSPECGLOSSMAP"); mat.DisableKeyword("_OCCLUSIONMAP"); }
-            mat.SetFloat("_Metallic", 0f);
-            mat.SetFloat("_Smoothness", mt ? 1f : 0.2f);   // with a map: scaled by its alpha
-            mat.SetFloat("_OcclusionStrength", 1f);
-            if (leaves)
-            {
-                mat.SetFloat("_AlphaClip", 1f);
-                mat.SetFloat("_Cutoff", 0.5f);
-                mat.EnableKeyword("_ALPHATEST_ON");
-                mat.SetFloat("_Cull", (float)CullMode.Off);
-                mat.renderQueue = (int)RenderQueue.AlphaTest;
-            }
-            else
-            {
-                mat.SetFloat("_AlphaClip", 0f);
-                mat.DisableKeyword("_ALPHATEST_ON");
-                mat.SetFloat("_Cull", (float)CullMode.Back);
-                mat.renderQueue = -1;
-            }
+            string path = null;
+            foreach (var ext in new[] { ".tga", ".png" })
+                if (AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/" + bc + ext) != null) { path = dir + "/" + bc + ext; break; }
+            if (path == null) Log("WARN: mesh forest: texture missing " + dir + "/" + bc);
+            var mat = MakeMat(name, path, cutoff: leaves ? 0.5f : 0f, tint: tint, affine: 0f, twoSided: leaves);
             mat.enableInstancing = true;
             EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        /// <summary>A bare beech's impostor for winter, made from the pack's
+        /// autumn sheet of the same tree: the leaves (saturated red, orange,
+        /// yellow, green) keyed out, the grey-brown trunk and limbs kept. The
+        /// pack has no bare impostor, and the darkened leafy one changed shape
+        /// as the bare mesh tree handed over to it (owner: "Trees change shape
+        /// (especially in winter)"). Written beside the store files (never
+        /// committed), once.</summary>
+        static string BareImpostorPath(string stem)
+        {
+            string src = NMDir + "/Autumn/" + stem + ".png";
+            string dst = NMDir + "/Gen/" + stem + "_bare2.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(dst) != null) return dst;
+            if (!System.IO.File.Exists(src)) return null;
+            var t = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            t.LoadImage(System.IO.File.ReadAllBytes(src));
+            var px = t.GetPixels32();
+            int kept = 0;
+            for (int k = 0; k < px.Length; k++)
+            {
+                var c = px[k];
+                if (c.a < 128) { px[k] = new Color32(0, 0, 0, 0); continue; }
+                Color.RGBToHSV(c, out float hh, out float ss, out float vv);
+                bool leaf = ss > 0.30f && vv > 0.10f;
+                if (!leaf) { kept++; continue; }
+                // The crown's twig mass: a third of the leaf pixels stay as a
+                // grey-brown speckle (keyed alone, the far winter hills read
+                // as a field of bare poles).
+                uint hsh = (uint)k * 2654435761u; hsh ^= hsh >> 15;
+                if ((hsh & 1023u) < 340u)
+                {
+                    byte g = (byte)Mathf.Clamp(vv * 150f + 40f, 0f, 255f);
+                    px[k] = new Color32(g, (byte)(g * 0.88f), (byte)(g * 0.78f), 255);
+                    kept++;
+                }
+                else px[k] = new Color32(c.r, c.g, c.b, 0);
+            }
+            t.SetPixels32(px);
+            System.IO.Directory.CreateDirectory(NMDir + "/Gen");
+            System.IO.File.WriteAllBytes(dst, t.EncodeToPNG());
+            Object.DestroyImmediate(t);
+            AssetDatabase.ImportAsset(dst);
+            Log($"Mesh forest: bare impostor {stem}: kept {kept * 100f / px.Length:0.0}% of the sheet as trunk and limbs");
+            return dst;
         }
 
         /// <summary>Ground cover over one near chunk: grass, ferns, plants on a

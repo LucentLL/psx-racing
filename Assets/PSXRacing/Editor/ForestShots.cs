@@ -84,6 +84,29 @@ namespace PSXRacing.EditorTools
                     PSXScreenshotTool.Shot(cam, "forest_" + id + "_" + dressName + "_" + s + "_cards", eye, rot);
                 }
             }
+            // NIGHT, summer, station 1: the forest must darken with the world
+            // (owner 2026-11-08: the first mesh trees "glow at night").
+            if (meshForest != null && sun != null)
+            {
+                int night = -1;
+                for (int h = 0; h < TimeOfDay.Count; h++)
+                    if (TimeOfDay.At(h).name.ToLower() == "night") night = h;
+                if (night >= 0)
+                {
+                    TimeOfDay.Apply(night, sun);
+                    if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+                    if (dressing != null) dressing.Apply((int)Season.Summer);
+                    int at = Mathf.Clamp(Mathf.RoundToInt(stations[1] * path.Count), 2, path.Count - 12);
+                    Vector3 eye = path.GetPoint(at) + Vector3.up * 1.5f;
+                    var rot = Quaternion.LookRotation(path.GetPoint(at + 10) + Vector3.up * 1.2f - eye);
+                    cam.transform.SetPositionAndRotation(eye, rot);
+                    meshForest.DrawNow(cam);
+                    PSXScreenshotTool.Shot(cam, "forest_" + id + "_night_1_mesh", eye, rot);
+                    meshForest.CardsNow();
+                    PSXScreenshotTool.Shot(cam, "forest_" + id + "_night_1_cards", eye, rot);
+                    TimeOfDay.Apply(noon, sun);
+                }
+            }
             if (dressing != null) dressing.Apply((int)Season.Fall);
             Debug.Log("[ForestShots] written to " + outDir);
         }

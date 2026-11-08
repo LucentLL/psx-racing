@@ -71,6 +71,14 @@ namespace PSXRacing
         public Material[] leafByDress = new Material[5];
 
         public float lod0To = 45f, lod1To = 100f, meshRange = 190f, farRange = 2200f;
+        /// <summary>Hand-over bands (m) ending at lod0To, lod1To and meshRange:
+        /// inside one, a plant draws at both levels, each dithered (PSX/Lit's
+        /// PSX_LODFADE) so the two add up to one - no pop, no shape jump.
+        /// Owner 2026-11-08: "I see plants, bushes, trees pop-in often. Trees
+        /// change shape (especially in winter) as they pop-in."</summary>
+        public float band0 = 8f, band1 = 14f, band2 = 30f;
+        /// <summary>A plant with a draw limit dissolves over this share of it.</summary>
+        public float limitBand = 0.18f;
 
         public static bool MeshTreesOn = true;
         static MeshForest instance;
@@ -95,6 +103,10 @@ namespace PSXRacing
         Material[][] matsNow;
         Material[] impNow;
         float[] maxD2;
+        Vector4[][] fadeOf;                        // [variant][lod]: _PSXLodFade
+        bool[][] handOver;                         // [variant][lod]: dithers into lod + 1
+        readonly System.Collections.Generic.Dictionary<(Material, Vector4), Material> faded =
+            new System.Collections.Generic.Dictionary<(Material, Vector4), Material>();
 
         void Awake() => Init();
 
@@ -118,6 +130,8 @@ namespace PSXRacing
             impNow = new Material[variants.Length];
             maxD2 = new float[variants.Length];
             impFix = new Matrix4x4[variants.Length];
+            fadeOf = new Vector4[variants.Length][];
+            handOver = new bool[variants.Length][];
             float far = Mathf.Max(farRange, meshRange);
             for (int v = 0; v < variants.Length; v++)
             {
@@ -126,6 +140,21 @@ namespace PSXRacing
                 if (vr.lods.Length < L || vr.lods[3] == null) m = Mathf.Min(m, meshRange);
                 maxD2[v] = m * m;
                 impFix[v] = vr.pre.inverse * vr.impostorPre;
+                fadeOf[v] = new Vector4[L];
+                handOver[v] = new bool[L];
+                float[] edge = { lod0To, lod1To, meshRange, far };
+                float[] band = { band0, band1, band2, 0f };
+                for (int l = 0; l < L; l++)
+                {
+                    bool has = l < vr.lods.Length && vr.lods[l] != null;
+                    if (!has) continue;
+                    var f = Vector4.zero;
+                    if (l > 0) { f.x = edge[l - 1] - band[l - 1]; f.y = edge[l - 1]; }
+                    bool next = l + 1 < L && l + 1 < vr.lods.Length && vr.lods[l + 1] != null && edge[l] < m;
+                    if (next) { f.z = edge[l] - band[l]; f.w = edge[l]; handOver[v][l] = true; }
+                    else if (m <= edge[l]) { f.z = m * (1f - limitBand); f.w = m; }
+                    fadeOf[v][l] = f;
+                }
             }
             Bake(transform.localToWorldMatrix);
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
@@ -270,12 +299,36 @@ namespace PSXRacing
                     float d2 = (worldP[i] - camPos).sqrMagnitude;
                     if (d2 > maxD2[vi]) continue;
                     int lod = d2 < l0 ? 0 : d2 < l1 ? 1 : d2 < r2 ? 2 : 3;
-                    int b = vi * L + lod;
-                    if (bucketN[b] == bucket[b].Length)
-                        System.Array.Resize(ref bucket[b], bucket[b].Length * 2);
-                    bucket[b][bucketN[b]++] = lod == 3 ? worldM[i] * impFix[vi] : worldM[i];
+                    Put(vi, lod, i);
+                    // inside the hand-over band: the next level too
+                    if (lod < 3)
+                    {
+                        var fo = fadeOf[vi][lod];
+                        if (handOver[vi][lod] && d2 > fo.z * fo.z) Put(vi, lod + 1, i);
+                    }
                 }
             }
+        }
+
+        void Put(int vi, int lod, int i)
+        {
+            int b = vi * L + lod;
+            if (bucketN[b] == bucket[b].Length)
+                System.Array.Resize(ref bucket[b], bucket[b].Length * 2);
+            bucket[b][bucketN[b]++] = lod == 3 ? worldM[i] * impFix[vi] : worldM[i];
+        }
+
+        /// <summary>This material with a level's fade band (a copy, made once).</summary>
+        Material Faded(Material m, Vector4 f)
+        {
+            if (m == null) return null;
+            if (f == Vector4.zero) return m;
+            if (faded.TryGetValue((m, f), out var c) && c != null) return c;
+            c = new Material(m) { name = m.name + "_fade", enableInstancing = true };
+            c.SetVector("_PSXLodFade", f);
+            c.EnableKeyword("PSX_LODFADE");
+            faded[(m, f)] = c;
+            return c;
         }
 
         void Draw(Camera only = null)
@@ -294,7 +347,7 @@ namespace PSXRacing
                     int subs = imp ? mesh.subMeshCount : Mathf.Min(mesh.subMeshCount, mats.Length);
                     for (int s = 0; s < subs; s++)
                     {
-                        var mat = imp ? impNow[v] : mats[s];
+                        var mat = Faded(imp ? impNow[v] : mats[s], fadeOf[v][lod]);
                         if (mat == null) continue;   // bare: no leaves
                         var rp = new RenderParams(mat)
                         {
@@ -315,7 +368,7 @@ namespace PSXRacing
                 for (int v = 0; v < variants.Length; v++)
                 {
                     var arr = lists[v];
-                    var mat = impNow[v];
+                    var mat = Faded(impNow[v], fadeOf[v][3]);
                     if (arr == null || mat == null) continue;
                     var mesh = variants[v].lods[3];
                     var rp = new RenderParams(mat)
