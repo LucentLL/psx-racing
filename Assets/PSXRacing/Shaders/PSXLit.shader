@@ -113,6 +113,9 @@ Shader "PSX/Lit"
         // The mountain forest's leaves (MeshForest): saturation and brightness
         // of the texel before the light - 1, 1 everywhere else.
         [HideInInspector] _LeafVivid ("Leaf vivid", Vector) = (1,1,0,0)
+        // w > 0: the leaf texel RECOLOURED toward this colour by its own
+        // luminance (a green-only scan's autumn: the tulip poplar's yellow)
+        [HideInInspector] _LeafTarget ("Leaf target", Color) = (1,1,1,1)
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -344,6 +347,7 @@ Shader "PSX/Lit"
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _LeafVivid;
+            float4 _LeafTarget;
             float _Emission;
             float _Affine;
             float _Cull;
@@ -1767,6 +1771,8 @@ Shader "PSX/Lit"
                 {
                     float lum = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
                     tex.rgb = max(lerp(lum.xxx, tex.rgb, _LeafVivid.x), 0.0) * _LeafVivid.y;
+                    if (_LeafVivid.w > 0.0)
+                        tex.rgb = lerp(tex.rgb, _LeafTarget.rgb * saturate(lum * _LeafVivid.y * 3.2), _LeafVivid.w);
                 }
                 clip(tex.a - _Cutoff);
             #ifdef PSX_LODFADE

@@ -36,6 +36,19 @@ namespace PSXRacing.EditorTools
         const string NMTreeDir = "Assets/StoreAssets/NMForest/Trees";
         const string NMUnderDir = "Assets/StoreAssets/NMForest/Under";
         const string NMDir = "Assets/StoreAssets/NMForest";
+        /// <summary>The owner's free Objective Environment tulip poplar
+        /// (2026-11-08): a cove's tall, straight, narrow tree that turns clear
+        /// yellow. Its own LOD1-3 serve as HIGH / MID / LOW (LOD0 is 20k
+        /// tris), its billboard as the impostor.</summary>
+        const string OEPoplarDir = "Assets/StoreAssets/OE/Poplar";
+        /// <summary>One canopy tree in this many is a poplar.</summary>
+        const int PoplarEvery = 4;
+        const string OEGrassVerge = "Assets/StoreAssets/OE/Grass/Grass01_BigUV.png";
+        /// <summary>The mowed verge's repeats per ground UV unit (one unit per
+        /// theme.groundTile, 9-13 m): the 4096 "BigUV" sheet reads right at about
+        /// 8 m a repeat. Tile-checked 2026-11-08: seamless both ways, a faint
+        /// grid only at 8x8 reduced.</summary>
+        const float VergeGrassScale = 1.5f;
         const string NMCoverDir = "Assets/StoreAssets/NMForest/Cover";
         /// <summary>Ground cover: FBX stem -> texture stem.</summary>
         static readonly (string fbx, string tex)[] NMCover =
@@ -160,6 +173,8 @@ namespace PSXRacing.EditorTools
         static string NMVergeFor(int dress)
         {
             if (NMGroundFor((int)Season.Fall) == null || dress == Seasons.DressSnow) return null;
+            if (dress != (int)Season.Winter && AssetDatabase.LoadAssetAtPath<Texture2D>(OEGrassVerge) != null)
+                return OEGrassVerge;   // the owner's mowed-grass sheet (Grass Flowers Pack)
             string n = dress == (int)Season.Winter ? "leaves_02" : "plants_01";
             return NMGroundDir + "/T_ground_beech_forest_" + n + "_BC_SM.tga";
         }
@@ -172,7 +187,8 @@ namespace PSXRacing.EditorTools
             if (m == null || !NMGroundOn) return;
             m.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(verge ? NMVergeFor((int)Season.Fall) : NMGroundFor((int)Season.Fall));
             m.color = Color.white;
-            m.mainTextureScale = new Vector2(NMGroundScale, NMGroundScale);
+            float gs = m.mainTexture != null && m.mainTexture.name == "Grass01_BigUV" ? VergeGrassScale : NMGroundScale;
+            m.mainTextureScale = new Vector2(gs, gs);
             GroundNormalFor(m);
         }
 
@@ -193,6 +209,12 @@ namespace PSXRacing.EditorTools
                         vm.mainTextureScale = new Vector2(NMGroundScale, NMGroundScale);
                         GroundNormalFor(vm);
                     }
+                    else if (vm != null && vm.mainTexture != null && vm.mainTexture.name == "Grass01_BigUV")
+                    {
+                        vm.mainTextureScale = new Vector2(VergeGrassScale, VergeGrassScale);
+                        vm.color = Color.white;
+                        vm.DisableKeyword("PSX_HD");
+                    }
             }
             Log("Stage " + role + ", PC: NatureManufacture forest floor (summer plants_01, spring leaves_02, fall/winter leaves_01), x" + NMGroundScale);
             return true;
@@ -203,6 +225,7 @@ namespace PSXRacing.EditorTools
             public MeshForest.Variant[] variants;
             public int treeCount;          // variants[0 .. treeCount) are canopy trees
             public int[] smallBeech, bushes, cover;
+            public int poplar = -1;
             public int[][] debris = new int[5][];   // by kind
             public Material[] leafByDress;
         }
@@ -214,6 +237,40 @@ namespace PSXRacing.EditorTools
         {
             Color.white, new Color(1.0f, 0.58f, 0.48f), new Color(1.0f, 1.12f, 0.62f), new Color(1.08f, 0.98f, 0.55f),
         };
+
+        /// <summary>LOD3 from a single-view billboard (the poplar's): a cross of
+        /// two cards, each the whole sheet, <paramref name="aspect"/> wide for
+        /// its height; fall recoloured, winter the sheet darkened (the pack has
+        /// no bare one).</summary>
+        static void AddBillboardImpostor(MeshForest.Variant v, string dir, string stem, float aspect)
+        {
+            if (FindTex(dir, stem) == null) return;
+            float h = v.height, w = h * aspect;
+            var mesh = new Mesh { name = "OEImpostor_" + stem };
+            var vs = new List<Vector3>(); var uv = new List<Vector2>(); var tr = new List<int>(); var nm = new List<Vector3>();
+            for (int q = 0; q < 2; q++)
+            {
+                var rot = Quaternion.Euler(0f, q * 90f, 0f);
+                int i = vs.Count;
+                vs.Add(rot * new Vector3(-w * 0.5f, 0f, 0f)); vs.Add(rot * new Vector3(-w * 0.5f, h, 0f));
+                vs.Add(rot * new Vector3(w * 0.5f, h, 0f)); vs.Add(rot * new Vector3(w * 0.5f, 0f, 0f));
+                uv.Add(new Vector2(0f, 0f)); uv.Add(new Vector2(0f, 1f)); uv.Add(new Vector2(1f, 1f)); uv.Add(new Vector2(1f, 0f));
+                var n = rot * Vector3.back;
+                for (int k = 0; k < 4; k++) nm.Add((n + Vector3.up * 0.6f).normalized);
+                tr.AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 });
+            }
+            mesh.SetVertices(vs); mesh.SetUVs(0, uv); mesh.SetNormals(nm); mesh.SetTriangles(tr, 0);
+            mesh.RecalculateBounds();
+            v.lods = new[] { v.lods[0], v.lods[1], v.lods[2], WorldKit.SaveMesh(mesh, mesh.name) };
+            v.impostorPre = Matrix4x4.identity;
+            var green = NMLitMat("OE_imp_" + stem, dir, stem, null, null, true, Color.white);
+            var fallM = NMLitMat("OE_imp_" + stem + "_fall", dir, stem, null, null, true, Color.white);
+            fallM.SetColor("_LeafTarget", new Color(1.0f, 0.78f, 0.12f));
+            var lv = fallM.GetVector("_LeafVivid"); lv.w = 0.85f; fallM.SetVector("_LeafVivid", lv);
+            var bare = NMLitMat("OE_imp_" + stem + "_bare", dir, stem, null, null, true, new Color(0.40f, 0.36f, 0.32f));
+            var bv = bare.GetVector("_LeafVivid"); bv.x = 0.15f; bare.SetVector("_LeafVivid", bv);
+            v.impostorDress = new[] { bare, green, green, fallM, bare };
+        }
 
         /// <summary>LOD3: the SAME beech as a cross of two cards, from the
         /// pack's own impostor sheet of it (four views in a 4x1 strip; the
@@ -313,6 +370,23 @@ namespace PSXRacing.EditorTools
             }
             if (list.Count == 0) return null;
             kit.treeCount = list.Count;
+            // THE TULIP POPLAR (after the beeches, so PickMeshTree never picks it)
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(OEPoplarDir + "/PoplarTree001.fbx") != null)
+            {
+                var pBark = NMLitMat("OE_poplar_bark", OEPoplarDir, "Poplar_Bark001", "Poplar_Bark001_N", null, false, Color.white);
+                var pLeaf = NMLitMat("OE_poplar_leaves", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, Color.white);
+                var pFall = NMLitMat("OE_poplar_leaves_fall", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, Color.white);
+                pFall.SetColor("_LeafTarget", new Color(1.0f, 0.78f, 0.12f));
+                var lv = pFall.GetVector("_LeafVivid"); lv.w = 0.85f; pFall.SetVector("_LeafVivid", lv);
+                var pv = LoadVariant(OEPoplarDir, "PoplarTree001", pBark, ".fbx", skip: 1);
+                if (pv != null)
+                {
+                    pv.leafDress = new[] { null, pLeaf, pLeaf, pFall, null };
+                    AddBillboardImpostor(pv, OEPoplarDir, "PoplarTree001_Billboard", 8.7f / 23.2f);
+                    kit.poplar = list.Count;
+                    list.Add(pv);
+                }
+            }
 
             var small = new List<int>();
             var barkSmall = NMLitMat("NM_T_beech_bark_02", NMTreeDir, "T_beech_bark_02_BC", "T_beech_bark_02_N", "T_beech_bark_02_MaskMap", false, Color.white);
@@ -388,7 +462,7 @@ namespace PSXRacing.EditorTools
             kit.smallBeech = small.ToArray();
             kit.bushes = bushes.ToArray();
             kit.variants = list.ToArray();
-            Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, {cover.Count} ground-cover plants, debris " +
+            Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, poplar {(kit.poplar >= 0 ? "yes" : "no")}, {cover.Count} ground-cover plants, debris " +
                 $"{debris[0].Count} litter / {debris[1].Count} branches / {debris[2].Count} stones / {debris[3].Count} logs / {debris[4].Count} stumps.");
             meshTreeKit = kit;
             return kit;
@@ -397,7 +471,7 @@ namespace PSXRacing.EditorTools
         /// <summary>One FBX's LOD meshes, its first slot's material, the leaf
         /// slot last ([bark, leaves] in every one of the pack's beeches, read in
         /// Blender), and its node transform with the base put at y = 0.</summary>
-        static MeshForest.Variant LoadVariant(string dir, string name, Material barkMat, string ext = ".FBX")
+        static MeshForest.Variant LoadVariant(string dir, string name, Material barkMat, string ext = ".FBX", int skip = 0)
         {
             var asset = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "/" + name + ext);
             if (asset == null) { Log("WARN: mesh forest: missing " + name); return null; }
@@ -409,8 +483,10 @@ namespace PSXRacing.EditorTools
                 foreach (var mf in inst.GetComponentsInChildren<MeshFilter>())
                 {
                     string n = mf.name;
-                    int lod = n.EndsWith("_LOD0") ? 0 : n.EndsWith("_LOD1") ? 1 : n.EndsWith("_LOD2") ? 2 : -1;
-                    if (lod < 0) continue;
+                    int lod = n.EndsWith("_LOD0") ? 0 : n.EndsWith("_LOD1") ? 1 : n.EndsWith("_LOD2") ? 2
+                            : n.EndsWith("_LOD3") ? 3 : -1;
+                    lod -= skip;
+                    if (lod < 0 || lod > 2) continue;
                     v.lods[lod] = mf.sharedMesh;
                     if (lod == 0) lod0 = mf.transform;
                 }

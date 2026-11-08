@@ -201,7 +201,18 @@ $wanted = @(
          @("b316ba5d18f55d54c8b4d466287d5c74", "NMForest/Autumn/T_beech_tree_03.png"),
          @("d048d3e310eccce44b7d6b4cd6045b80", "NMForest/Autumn/T_beech_tree_06.png"),
          @("070f112b5aa63d34a8c2abe87702ac52", "NMForest/Autumn/T_beech_tree_07.png"),
-         @("109ffc61c782fb04b81bf70196d89443", "NMForest/Autumn/T_beech_tree_08.png")) }
+         @("109ffc61c782fb04b81bf70196d89443", "NMForest/Autumn/T_beech_tree_08.png")) },
+    @{ Pkg = "Objective Environment\3D ModelsVegetation\Big Poplar Tree FREE.unitypackage"
+       Files = @(
+         @("be915314847e75b49baf8d9aeb050d28", "OE/Poplar/PoplarTree001.fbx"),
+         @("d7e1bc1cf7e548c42ab1a3e87bb7a549", "OE/Poplar/BranchesPoplar001.tga"),
+         @("f0ee2b666bf7b4943a6415517ca86f94", "OE/Poplar/BranchesPoplar001_N.tga"),
+         @("30703dd7617354e4494e425b32656f5d", "OE/Poplar/PoplarTree001_Billboard.tga"),
+         @("e42d5f50ff117174f8da43a7785a4531", "OE/Poplar/Poplar_Bark001.png"),
+         @("8815b262b15479d4d85d57c0552dda18", "OE/Poplar/Poplar_Bark001_N.png")) },
+    @{ Pkg = "Objective Environment\Textures MaterialsNature\Grass Flowers Pack Free.unitypackage"
+       Files = @(
+         ,@("38bb15d6b378aff46b461e248592d1da", "OE/Grass/Grass01_BigUV.png")) }
 )
 
 $root = Join-Path $Dest "Assets\StoreAssets"

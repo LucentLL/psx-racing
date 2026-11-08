@@ -7975,6 +7975,11 @@ namespace PSXRacing.EditorTools
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
                                              (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
                             int vi = PickMeshTree(kit, h * MeshTreeHeightScale, hsh, out float sc);
+                            if (kit.poplar >= 0 && (hsh / 7) % PoplarEvery == 0)
+                            {
+                                vi = kit.poplar;
+                                sc = Mathf.Clamp(h * MeshTreeHeightScale / kit.variants[vi].height, 0.85f, 1.25f);
+                            }
                             mfInst.Add(new Vector4(wx, ground - 0.25f, wz, yaw));
                             mfScaleVar.Add(new Vector2(sc, vi));
                             ySum += ground;
