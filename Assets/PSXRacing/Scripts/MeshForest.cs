@@ -162,6 +162,11 @@ namespace PSXRacing
                 }
             }
             Bake(transform.localToWorldMatrix);
+            // The hidden cards stay the canopy's SHADOW (SunShadows draws its
+            // casters itself and these meshes are no renderers).
+            foreach (var c in chunks)
+                if (c.cards != null)
+                    foreach (var r in c.cards) if (r != null) SunShadows.ShadowStandIns.Add(r);
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
                       $"LOD {lod0To}/{lod1To}/{meshRange} m, impostors to {farRange} m; F8 = A/B.");
         }
@@ -219,6 +224,10 @@ namespace PSXRacing
 
         void OnDestroy()
         {
+            if (chunks != null)
+                foreach (var c in chunks)
+                    if (c.cards != null)
+                        foreach (var r in c.cards) if (r != null) SunShadows.ShadowStandIns.Remove(r);
             if (instance == this) instance = null;
         }
 

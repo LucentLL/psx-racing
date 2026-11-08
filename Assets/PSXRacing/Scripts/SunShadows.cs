@@ -541,7 +541,7 @@ namespace PSXRacing
                 float along = Vector3.Dot(d, fwd);
                 if (along < -towardM - c.radius || along > awayM + c.radius) continue;
                 if (!roofsOnly && c.radius < MinCasterAngleNow * (c.centre - eyeAt).magnitude) continue;
-                if (!c.r.enabled || !c.r.gameObject.activeInHierarchy) continue;
+                if ((!c.r.enabled && !ShadowStandIns.Contains(c.r)) || !c.r.gameObject.activeInHierarchy) continue;
                 inBox.Add(c);
                 c.drawnAt = now;
                 drawn++;
@@ -629,6 +629,13 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         //  Who casts
         // ------------------------------------------------------------------
+
+        /// <summary>Renderers that cast even while switched off: the mountain
+        /// forest's card chunks (MeshForest), hidden where it draws the mesh
+        /// trees but still the canopy's shadow, its dappled light and the
+        /// shade under it - the instanced meshes are not renderers and cast
+        /// nothing here (owner 2026-11-08: the forest floor "faded and dull").</summary>
+        public static readonly HashSet<Renderer> ShadowStandIns = new HashSet<Renderer>();
 
         static void Scan()
         {
