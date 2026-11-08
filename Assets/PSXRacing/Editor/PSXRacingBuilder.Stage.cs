@@ -6751,10 +6751,19 @@ namespace PSXRacing.EditorTools
         {
             rockLedges.Clear();
             reliefChords = reliefTris = 0;
+            cliffPlaces.Clear();
+            cliffsPlaced = 0;
             EnsureStageRoadside(pts);
             if (rsBankRuns == null) return;
             string tex = MountainStage ? StageRockTexPath : theme.wall;
             var mat = MakeMat(MeshPrefix + "Bank", tex, affine: 0f);
+            // PC with the Meadow cliffs: the smooth face behind them is the
+            // shadowed rock between the blocks - dark, cool and grey, not the
+            // brown that read as "dirt walls" (owner 2026-11-08). PSX/Lit's
+            // _LeafVivid (saturation, brightness) does it; reset for the web.
+            bool cliffBacking = PCContent && CliffsOn && AssetDatabase.LoadAssetAtPath<GameObject>(MeadowCliffDir + "/" + CliffNames[0] + ".FBX") != null;
+            mat.SetVector("_LeafVivid", cliffBacking ? new Vector4(0.2f, 0.62f, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
+            if (cliffBacking) mat.color = new Color(0.86f, 0.9f, 0.96f);
             // The rock top IS the hillside: the near ground's own material
             // (BuildStageGround makes the same asset and registers its
             // seasons, which SeasonDress applies to every renderer wearing it)
@@ -7186,6 +7195,20 @@ namespace PSXRacing.EditorTools
                 k = k1 + 1;
             }
 
+            // PC: the Meadow pack's cliffs along the faced stations (PSXRacingBuilder.Cliffs)
+            if (PCContent)
+            {
+                int before = cliffsPlaced;
+                PlaceCliffs(pts, st, hh, facedAt, outwAt, distAt, R, no * 13 + s, crest);
+                // Where cliffs stand, the smooth DRAWN face steps back into the
+                // hill (CliffBackM): the rock in front is the face, the backing
+                // reads as shadowed recesses between blocks. Its collider, the
+                // solid built above from the same stations, does not move.
+                if (cliffsPlaced > before)
+                    for (int k = 0; k < R; k++)
+                        if (facedAt[k] && hh[k] >= CliffMinFaceM)
+                            for (int q = 0; q < 3; q++) verts[3 * k + q] += outwAt[k] * CliffBackM;
+            }
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
             if (PCContent && RockReliefOn)
                 ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
@@ -7825,10 +7848,18 @@ namespace PSXRacing.EditorTools
             // crown into the chunk's "B" meshes that MeshForest hides wherever
             // it draws the meshes. Conifers and the bare tree stay cards.
             var kit = LoadMeshTreeKit();
+            fenceShotAt = null;
+            int fenceSpans = kit != null ? PlanFences(kit, pts) : 0;
+            if (fenceShotAt.HasValue)
+            {
+                var mk = new GameObject("FenceShotMarker");
+                mk.transform.SetParent(parent, false);
+                mk.transform.localPosition = fenceShotAt.Value;
+            }
             var mfChunks = new List<MeshForest.Chunk>();
             var mfInst = new List<Vector4>();
             var mfScaleVar = new List<Vector2>();
-            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0, ledgeN = 0;
+            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0, ledgeN = 0, cliffN = 0, fenceN = 0;
             var mfTilt = new Dictionary<int, Vector2>();
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
@@ -8040,6 +8071,8 @@ namespace PSXRacing.EditorTools
                 if (kit != null) AddGroundCover(kit, ox, oz, NearChunk, mfInst, mfScaleVar, ref coverN, ref ySum);
                 if (kit != null) AddDebris(kit, ox, oz, NearChunk, mfInst, mfScaleVar, mfTilt, ref debrisN, ref ySum);
                 if (kit != null) AddLedgePlants(kit, ox, oz, NearChunk, mfInst, mfScaleVar, ref ledgeN, ref ySum);
+                if (kit != null) AddCliffs(ox, oz, NearChunk, mfInst, mfScaleVar, ref cliffN, ref ySum);
+                if (kit != null) AddFences(ox, oz, NearChunk, mfInst, mfScaleVar, ref fenceN, ref ySum);
                 if (mfInst.Count > mfStart)
                 {
                     var cardsB = new List<Renderer>();
@@ -8097,7 +8130,7 @@ namespace PSXRacing.EditorTools
                     mfc.instTilt = tl;
                 }
                 Log($"Stage forest, MESH: {understory} understory plants, {extraCanopy} extra canopy beeches (with trunks), " +
-                    $"{coverN} ground-cover plants to {CoverBand:0} m, {debrisN} litter/branches/stones/logs/stumps, {ledgeN} plants on {rockLedges.Count} rock ledges ({reliefChords} relief chords, {reliefTris} tris), {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
+                    $"{coverN} ground-cover plants to {CoverBand:0} m, {debrisN} litter/branches/stones/logs/stumps, {cliffN} cliff meshes on the cuts, {fenceN} fence spans, {ledgeN} plants on {rockLedges.Count} rock ledges ({reliefChords} relief chords, {reliefTris} tris), {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
                 Log($"Stage forest, MESH trees: {meshTrees} broadleaf trees as NatureManufacture beeches in " +
                     $"{mfChunks.Count} chunks ({kit.variants.Length} variants, LOD {mfc.lod0To}/{mfc.lod1To}/{mfc.meshRange} m).");
             }

@@ -226,6 +226,8 @@ namespace PSXRacing.EditorTools
             public int treeCount;          // variants[0 .. treeCount) are canopy trees
             public int[] smallBeech, bushes, cover;
             public int poplar = -1;
+            public List<CliffInfo> cliffs;
+            public List<FenceInfo> fences;
             public int[][] debris = new int[5][];   // by kind
             public Material[] leafByDress;
         }
@@ -459,6 +461,27 @@ namespace PSXRacing.EditorTools
                 debris[kind].Add(list.Count); list.Add(v);
             }
             for (int k = 0; k < 5; k++) kit.debris[k] = debris[k].ToArray();
+            // THE MEADOW PACK: maple bushes into the understory (scarlet in
+            // fall - the red at the road's edge in the owner's Parkway frames)
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(MeadowMapleDir + "/maple_bush_01.FBX") != null)
+            {
+                var mGreen = NMLitMat("NM_maple_bush", MeadowMapleDir, "T_maple_bush_BC", "T_maple_bush_N", null, true, Color.white);
+                var mFall = NMLitMat("NM_maple_bush_fall", MeadowMapleDir, "T_maple_bush_BC", "T_maple_bush_N", null, true, Color.white);
+                mFall.SetColor("_LeafTarget", new Color(0.92f, 0.14f, 0.07f));
+                var mlv = mFall.GetVector("_LeafVivid"); mlv.w = 0.8f; mFall.SetVector("_LeafVivid", mlv);
+                for (int m = 1; m <= 4; m++)
+                {
+                    var v = LoadVariant(MeadowMapleDir, "maple_bush_0" + m, mGreen);
+                    if (v == null) continue;
+                    for (int s = 0; s < v.leafSub.Length; s++) v.leafSub[s] = true;
+                    v.leafDress = new[] { null, mGreen, mGreen, mFall, null };
+                    v.maxDist = UnderMaxDist;
+                    v.thin = 0.45f;
+                    bushes.Add(list.Count); list.Add(v);
+                }
+            }
+            kit.cliffs = LoadCliffs(kit, list);
+            kit.fences = LoadFences(list);
             kit.smallBeech = small.ToArray();
             kit.bushes = bushes.ToArray();
             kit.variants = list.ToArray();

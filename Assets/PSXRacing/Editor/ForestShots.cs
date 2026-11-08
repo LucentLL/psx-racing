@@ -112,6 +112,27 @@ namespace PSXRacing.EditorTools
                     Debug.Log($"[ForestShots] tallest cut {best.name}: {best.bounds.size.y:0.0} m");
                 }
             }
+            // A FENCE RUN (PSXRacingBuilder.Fences), from the road beside it
+            var fm = GameObject.Find("FenceShotMarker");
+            if (fm != null)
+            {
+                Vector3 c = fm.transform.position;
+                int at = 2; float bd = float.MaxValue;
+                for (int q = 2; q < path.Count - 12; q++)
+                {
+                    float dq = (path.GetPoint(q) - c).sqrMagnitude;
+                    if (dq < bd) { bd = dq; at = q; }
+                }
+                Vector3 eye = path.GetPoint(Mathf.Max(2, at - 6)) + Vector3.up * 1.5f;
+                var rot = Quaternion.LookRotation(Vector3.Lerp(path.GetPoint(at + 6), c, 0.35f) + Vector3.up * 0.5f - eye);
+                foreach (var (dress, dn) in new[] { ((int)Season.Summer, "summer"), ((int)Season.Fall, "fall") })
+                {
+                    if (dressing != null) dressing.Apply(dress);
+                    cam.transform.SetPositionAndRotation(eye, rot);
+                    if (meshForest != null) meshForest.DrawNow(cam);
+                    PSXScreenshotTool.Shot(cam, "forest_" + id + "_fence_" + dn, eye, rot);
+                }
+            }
             // NIGHT, summer, station 1: the forest must darken with the world
             // (owner 2026-11-08: the first mesh trees "glow at night").
             if (meshForest != null && sun != null)

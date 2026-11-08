@@ -212,7 +212,41 @@ $wanted = @(
          @("8815b262b15479d4d85d57c0552dda18", "OE/Poplar/Poplar_Bark001_N.png")) },
     @{ Pkg = "Objective Environment\Textures MaterialsNature\Grass Flowers Pack Free.unitypackage"
        Files = @(
-         ,@("38bb15d6b378aff46b461e248592d1da", "OE/Grass/Grass01_BigUV.png")) }
+         ,@("38bb15d6b378aff46b461e248592d1da", "OE/Grass/Grass01_BigUV.png")) },
+    @{ Pkg = "NatureManufacture\3D ModelsVegetation\Meadow Environment - Dynamic Nature.unitypackage"
+       Files = @(
+         @("ac475ca2b38de82468e64d316e08d1bd", "Meadow/Maple/T_maple_bush_BC.tga"),
+         @("02c316396b3927340a84d0ffceec55b7", "Meadow/Maple/T_maple_bush_N.tga"),
+         @("6a61f2999d031544e9f8f3dbb0479d97", "Meadow/Maple/maple_bush_01.FBX"),
+         @("78a937e44ed7be74aaf6f1d4faacb723", "Meadow/Maple/maple_bush_02.FBX"),
+         @("f44f971287dc1b64989f2cb895342b92", "Meadow/Maple/maple_bush_03.FBX"),
+         @("10bdf740f77180b4891444f55cd4c0bd", "Meadow/Maple/maple_bush_04.FBX"),
+         @("792508a5d9dfc0a47a874cf73c407350", "Meadow/Cliffs/T_Photoscanned_Cliff_01_BC.tga"),
+         @("95f188ae7ba6fce4dbb61962f00c0b0d", "Meadow/Cliffs/T_Photoscanned_Cliff_01_Normal.tga"),
+         @("4fb810299ebbd644a9a96a4d7f716120", "Meadow/Cliffs/cliff_base_01.FBX"),
+         @("fb9398e39409c0e409233fcf335873db", "Meadow/Cliffs/cliff_base_02.FBX"),
+         @("2133495e3605ea547876fa3180c63436", "Meadow/Cliffs/cliff_base_03.FBX"),
+         @("640cd9d732d11e942833201204703c08", "Meadow/Cliffs/cliff_base_04.FBX"),
+         @("75cb61786c851ed418cbd49e24e27692", "Meadow/Cliffs/cliff_base_05.FBX"),
+         @("34370874dbbc004438fb1e9c8f130e3c", "Meadow/Cliffs/cliff_base_06.FBX"),
+         @("b0b707f469236554e865dbcf955d75ff", "Meadow/Cliffs/cliff_base_07.FBX"),
+         @("5e0507071fc9a7e45be0bb4cb471ecbc", "Meadow/Cliffs/cliff_piece_01.FBX"),
+         @("22f72d18901bf94469c7faf265ea1e6f", "Meadow/Cliffs/cliff_piece_02.FBX"),
+         @("0a4781d8d86a7e94cb6aac4bbc5b2cc3", "Meadow/Cliffs/cliff_piece_03.FBX"),
+         @("5394bac53d2ded840b48871f431cf6dc", "Meadow/Cliffs/cliff_piece_04.FBX"),
+         @("345684cd1bf9d454f9414cbe77ebde02", "Meadow/Cliffs/cliff_piece_05.FBX"),
+         @("8943087ec59bcee458e8eaa7a4a24ba1", "Meadow/Cliffs/cliff_piece_06.FBX"),
+         @("93e915561d452974dae3fec290f31f17", "Meadow/Cliffs/cliff_piece_07.FBX"),
+         @("bdde6ab511ff0f84dbe071bfee136c1b", "Meadow/Cliffs/cliff_piece_08.FBX"),
+         @("2a0450fda6d856c4a95fb23f1441bca2", "Meadow/Cliffs/cliff_piece_09.FBX"),
+         @("a270a66ed15add04da09314148d223c9", "Meadow/Cliffs/cliff_piece_10.FBX"),
+         @("e7df6b595eabc86468b33ac9132c426c", "Meadow/Fence/T_Wood_fence_BC.tga"),
+         @("2ab5455d9bd12804ab61a56706254cf9", "Meadow/Fence/T_Wood_fence_N.tga"),
+         @("28931f0ac6f4c7440b244d3f37ecff7f", "Meadow/Fence/wood_fence_type_03_A.FBX"),
+         @("c6db38cf5a49abd478b8f9c76da19094", "Meadow/Fence/wood_fence_type_03_B.FBX"),
+         @("fddcdd8f8fdd0c8449b9d18362be49d7", "Meadow/Fence/wood_fence_type_03_C.FBX"),
+         @("78f16e48fca1d9247b1a2f9957a6fa67", "Meadow/Fence/wood_fence_type_04_A.FBX"),
+         @("50d9b77f2eda09747beb0663b2e496d8", "Meadow/Fence/wood_fence_type_04_B.FBX")) }
 )
 
 $root = Join-Path $Dest "Assets\StoreAssets"
