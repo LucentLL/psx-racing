@@ -747,7 +747,11 @@ namespace PSXRacing
             ExtraViews.Report(true, doors != null && doors.SeenAny);
             if (mirrorMat == null) return;
             if (mirrorCam == null) EnsureMirrorCamera();
-            if (mirrorCam != null) mirrorCam.enabled = Time.frameCount % MirrorEvery == 0;
+            // the player's rate (ViewRatePrefs), or AUTO: every MirrorEvery-th frame
+            if (mirrorCam != null)
+                mirrorCam.enabled = ViewRatePrefs.Auto(ViewRatePrefs.View.RearMirror)
+                    ? Time.frameCount % MirrorEvery == 0
+                    : ViewRatePrefs.Due(ViewRatePrefs.View.RearMirror);
         }
 
         /// <summary>For the shot tool (edit mode, no frames): the mirror

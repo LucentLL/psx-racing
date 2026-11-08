@@ -297,7 +297,7 @@ namespace PSXRacing.EditorTools
             var cherry = NMLitMat("NM_black_cherry", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
                                   true, new Color(0.82f, 0.88f, 0.80f), maskIsHdrp: false);
             var cherryFall = NMLitMat("NM_black_cherry_fall", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
-                                      true, new Color(1.25f, 0.62f, 0.32f), maskIsHdrp: false);
+                                      true, new Color(1.35f, 0.36f, 0.26f), maskIsHdrp: false);
             var kit = new MeshTreeKit { leafByDress = new[] { null, green, green, fall[0], null } };
 
             var list = new List<MeshForest.Variant>();
@@ -510,12 +510,17 @@ namespace PSXRacing.EditorTools
             if (leaves && path != null) PreserveCoverage(path, LeafCutoff);
             var mat = MakeMat(name, path, cutoff: leaves ? LeafCutoff : 0f, tint: tint, affine: 0f, twoSided: leaves);
             mat.enableInstancing = true;
+            // Leaves and plants a good deal more saturated and a little
+            // brighter than the scans: the fall forest the owner's Parkway
+            // frames show, under the game's matte film grade.
+            mat.SetVector("_LeafVivid", leaves ? new Vector4(LeafSaturation, LeafBrightness, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
             SetHDNormal(mat, string.IsNullOrEmpty(n) ? null : FindTex(dir, n));
             EditorUtility.SetDirty(mat);
             return mat;
         }
 
         const float LeafCutoff = 0.38f;
+        const float LeafSaturation = 1.45f, LeafBrightness = 1.12f;
 
         static string FindTex(string dir, string stem)
         {

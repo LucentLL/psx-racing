@@ -316,6 +316,18 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "REFLECTIONS", () => ReflectionPrefs.Label,
                  "The world in car paint and glass, and in wet roads on PC. OFF saves a little speed.",
                  () => ReflectionPrefs.Toggle());
+            Step(SettingsTab.Visuals, "REAR MIRROR", () => ViewRatePrefs.Label(ViewRatePrefs.View.RearMirror),
+                 "How often the rear-view mirror redraws. AUTO shares one extra view a frame (fastest).",
+                 () => ViewRatePrefs.Cycle(ViewRatePrefs.View.RearMirror));
+            Step(SettingsTab.Visuals, "DRIVER MIRROR", () => ViewRatePrefs.Label(ViewRatePrefs.View.DriverMirror),
+                 "How often the driver's door mirror redraws. Match the others for steady mirrors.",
+                 () => ViewRatePrefs.Cycle(ViewRatePrefs.View.DriverMirror));
+            Step(SettingsTab.Visuals, "PASS. MIRROR", () => ViewRatePrefs.Label(ViewRatePrefs.View.PassengerMirror),
+                 "How often the passenger door mirror redraws.",
+                 () => ViewRatePrefs.Cycle(ViewRatePrefs.View.PassengerMirror));
+            Step(SettingsTab.Visuals, "CAR REFLECT", () => ViewRatePrefs.Label(ViewRatePrefs.View.CarReflections),
+                 "How often the world in every car's paint updates - yours, rivals and traffic share it.",
+                 () => ViewRatePrefs.Cycle(ViewRatePrefs.View.CarReflections));
             Step(SettingsTab.Visuals, "SKY", () => SkyModePrefs.Label,
                  "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
                  () => SkyModePrefs.Toggle());

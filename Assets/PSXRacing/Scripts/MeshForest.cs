@@ -79,15 +79,15 @@ namespace PSXRacing
         public Vector2[] instTilt;
         public Material[] leafByDress = new Material[5];
 
-        public float lod0To = 70f, lod1To = 150f, meshRange = 240f, farRange = 2200f;
+        public float lod0To = 100f, lod1To = 200f, meshRange = 320f, farRange = 2200f;
         /// <summary>Hand-over bands (m) ending at lod0To, lod1To and meshRange:
         /// inside one, a plant draws at both levels, each dithered (PSX/Lit's
         /// PSX_LODFADE) so the two add up to one - no pop, no shape jump.
         /// Owner 2026-11-08: "I see plants, bushes, trees pop-in often. Trees
         /// change shape (especially in winter) as they pop-in."</summary>
-        public float band0 = 15f, band1 = 25f, band2 = 40f;
+        public float band0 = 6f, band1 = 8f, band2 = 12f;
         /// <summary>A plant with a draw limit dissolves over this share of it.</summary>
-        public float limitBand = 0.08f;
+        public float limitBand = 0.2f;
 
         public static bool MeshTreesOn = true;
         static MeshForest instance;

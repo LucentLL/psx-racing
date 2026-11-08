@@ -279,9 +279,17 @@ namespace PSXRacing
             int f = Time.frameCount;
             bool slot = ExtraViews.DoorSlot(f, out bool second);
             bool turns = inView > 1 || (!ExtraViews.Enabled && Application.isMobilePlatform);
+            // The player's rates (ViewRatePrefs), each mirror its own, when
+            // either is set; AUTO for both keeps the shared schedule above.
+            bool own = !ViewRatePrefs.Auto(ViewRatePrefs.View.DriverMirror) ||
+                       !ViewRatePrefs.Auto(ViewRatePrefs.View.PassengerMirror);
             foreach (var s in sides)
             {
-                bool draw = s.seen && slot && (!turns || second == (s.sign >= 0f));
+                bool driverSide = s.sign * CockpitLook.PassengerSign < 0f;
+                var which = driverSide ? ViewRatePrefs.View.DriverMirror : ViewRatePrefs.View.PassengerMirror;
+                bool draw = own
+                    ? s.seen && (ViewRatePrefs.Auto(which) ? slot : ViewRatePrefs.Due(which))
+                    : s.seen && slot && (!turns || second == (s.sign >= 0f));
                 if (draw && s.cam == null) Ensure(s, driver);
                 if (s.cam == null) continue;
                 if (draw) Aim(s);

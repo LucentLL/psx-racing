@@ -110,6 +110,9 @@ Shader "PSX/Lit"
         // x > 0: the draw limit THINS the plants out instead of ending them on
         // a ring - each instance leaves at its own distance, down to x of it
         [HideInInspector] _PSXLodThin ("LOD thin", Vector) = (0,0,0,0)
+        // The mountain forest's leaves (MeshForest): saturation and brightness
+        // of the texel before the light - 1, 1 everywhere else.
+        [HideInInspector] _LeafVivid ("Leaf vivid", Vector) = (1,1,0,0)
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -340,6 +343,7 @@ Shader "PSX/Lit"
             float _Cutoff;
             float4 _PSXLodFade;
             float4 _PSXLodThin;
+            float4 _LeafVivid;
             float _Emission;
             float _Affine;
             float _Cull;
@@ -1183,6 +1187,14 @@ Shader "PSX/Lit"
                     float3 p3 = frac(it * 0.1031);
                     p3 += dot(p3, p3.yzx + 33.33);
                     o.lodD = float2(length(it - _WorldSpaceCameraPos), frac((p3.x + p3.y) * p3.z));
+                    // A THINNED plant at its draw limit SHRINKS to nothing about
+                    // its own origin rather than dissolving in a screen-door
+                    // dither (owner: "a speckled dotted effect" in game).
+                    if (_PSXLodThin.x > 0.0 && _PSXLodFade.w > _PSXLodFade.z)
+                    {
+                        float lv = o.lodD.x / lerp(_PSXLodThin.x, 1.0, o.lodD.y);
+                        v.vertex.xyz *= 1.0 - saturate((lv - _PSXLodFade.z) / (_PSXLodFade.w - _PSXLodFade.z));
+                    }
                 }
             #endif
             #ifdef PSX_FURNITURE
@@ -1709,6 +1721,13 @@ Shader "PSX/Lit"
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
             #endif
+                // LEAF VIVID (the mountain forest, owner 2026-11-08: "the tree
+                // leave colors still seems dull and lifeless")
+                if (_LeafVivid.x != 1.0 || _LeafVivid.y != 1.0)
+                {
+                    float lum = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
+                    tex.rgb = max(lerp(lum.xxx, tex.rgb, _LeafVivid.x), 0.0) * _LeafVivid.y;
+                }
                 clip(tex.a - _Cutoff);
             #ifdef PSX_LODFADE
                 // THE LOD HAND-OVER (MeshForest): one level dithers out over a
@@ -1725,7 +1744,7 @@ Shader "PSX/Lit"
                     float ldith = frac(52.9829189 * frac(dot(lpx, float2(0.06711056, 0.00583715))));
                     if (_PSXLodFade.y > _PSXLodFade.x)
                         clip(ldith - (1.0 - saturate((ld - _PSXLodFade.x) / (_PSXLodFade.y - _PSXLodFade.x))) + 1e-5);
-                    if (_PSXLodFade.w > _PSXLodFade.z)
+                    if (_PSXLodFade.w > _PSXLodFade.z && _PSXLodThin.x <= 0.0)
                         clip((1.0 - saturate((lo - _PSXLodFade.z) / (_PSXLodFade.w - _PSXLodFade.z))) - ldith - 1e-5);
                 }
             #endif

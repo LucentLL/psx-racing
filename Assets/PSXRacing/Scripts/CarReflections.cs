@@ -333,7 +333,10 @@ namespace PSXRacing
             // in the chase views, the odd frames the door mirrors leave it in
             // the cockpit) - it was two a frame at MAX, and each face is a
             // whole camera render (the perf probe, 2026-10-25).
-            int n = drawn < 6 ? 6 : ExtraViews.ProbeFaces(Time.frameCount);
+            int n = drawn < 6 ? 6
+                  : ViewRatePrefs.Auto(ViewRatePrefs.View.CarReflections) ? ExtraViews.ProbeFaces(Time.frameCount)
+                  : ViewRatePrefs.ProbeFaces();
+            if (n <= 0) return;
             RenderAround(ch.targetCar.transform, view, n);
         }
 
