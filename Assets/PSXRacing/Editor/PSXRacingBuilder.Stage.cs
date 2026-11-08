@@ -7815,7 +7815,8 @@ namespace PSXRacing.EditorTools
             var mfChunks = new List<MeshForest.Chunk>();
             var mfInst = new List<Vector4>();
             var mfScaleVar = new List<Vector2>();
-            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0;
+            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0;
+            var mfTilt = new Dictionary<int, Vector2>();
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
             {
@@ -8019,6 +8020,7 @@ namespace PSXRacing.EditorTools
                             ox, oz, "StageForestCrowns_" + cx + "_" + cz).layer = FoliageLayer;
 
                 if (kit != null) AddGroundCover(kit, ox, oz, NearChunk, mfInst, mfScaleVar, ref coverN, ref ySum);
+                if (kit != null) AddDebris(kit, ox, oz, NearChunk, mfInst, mfScaleVar, mfTilt, ref debrisN, ref ySum);
                 if (mfInst.Count > mfStart)
                 {
                     var cardsB = new List<Renderer>();
@@ -8069,8 +8071,14 @@ namespace PSXRacing.EditorTools
                 mfc.chunks = mfChunks.ToArray();
                 mfc.inst = mfInst.ToArray();
                 mfc.instScaleVar = mfScaleVar.ToArray();
+                if (mfTilt.Count > 0)
+                {
+                    var tl = new Vector2[mfInst.Count];
+                    foreach (var kv in mfTilt) tl[kv.Key] = kv.Value;
+                    mfc.instTilt = tl;
+                }
                 Log($"Stage forest, MESH: {understory} understory plants, {extraCanopy} extra canopy beeches (with trunks), " +
-                    $"{coverN} ground-cover plants to {CoverBand:0} m, {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
+                    $"{coverN} ground-cover plants to {CoverBand:0} m, {debrisN} litter/branches/stones/logs/stumps, {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
                 Log($"Stage forest, MESH trees: {meshTrees} broadleaf trees as NatureManufacture beeches in " +
                     $"{mfChunks.Count} chunks ({kit.variants.Length} variants, LOD {mfc.lod0To}/{mfc.lod1To}/{mfc.meshRange} m).");
             }

@@ -55,10 +55,48 @@ namespace PSXRacing.EditorTools
             ("shaggy_soldier_beech_forest_01_2", "T_shaggy_soldier_beech_forest_01"),
             ("shaggy_soldier_beech_forest_01_3", "T_shaggy_soldier_beech_forest_01"),
         };
+        const string NMDebrisDir = "Assets/StoreAssets/NMForest/Debris";
+        /// <summary>The forest floor's litter and wood (owner 2026-11-08: "the
+        /// ground doesn't [look] anywhere nearly as detailed as the asset pack
+        /// displayed"): FBX, texture stem (dir-relative), kind - 0 litter
+        /// patch (alpha-cut, two-sided, gone under snow), 1 fallen branch,
+        /// 2 stone, 3 log, 4 stump.</summary>
+        static readonly (string fbx, string dir, string tex, int kind)[] NMDebris =
+        {
+            ("beech_forest_detail_leaves_01", NMDebrisDir, "T_beech_forest_details_01", 0),
+            ("beech_forest_detail_leaves_02", NMDebrisDir, "T_beech_forest_details_01", 0),
+            ("beech_forest_detail_leaves_03", NMDebrisDir, "T_beech_forest_details_01", 0),
+            ("beech_forest_detail_branches_01", NMDebrisDir, "T_beech_forest_details_01", 0),
+            ("beech_forest_detail_branches_02", NMDebrisDir, "T_beech_forest_details_01", 0),
+            ("beech_forest_detail_branches_03", NMDebrisDir, "T_beech_forest_details_01", 0),
+            ("beech_forest_branch_01_1", NMDebrisDir, "T_beech_forest_branches_01", 1),
+            ("beech_forest_branch_01_2", NMDebrisDir, "T_beech_forest_branches_01", 1),
+            ("beech_forest_branch_01_3", NMDebrisDir, "T_beech_forest_branches_01", 1),
+            ("beech_forest_branch_01_4", NMDebrisDir, "T_beech_forest_branches_01", 1),
+            ("beech_forest_branch_01_5", NMDebrisDir, "T_beech_forest_branches_01", 1),
+            ("beech_forest_stones_01_1", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_2", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_3", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_4", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_5", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_6", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_7", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_8", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_9", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("beech_forest_stones_01_10", "Assets/StoreAssets/NMForest/Rocks", "T_beech_forest_stones_01", 2),
+            ("dead_log_01", NMDebrisDir, "T_beech_dead_logs_01", 3),
+            ("dead_log_02", NMDebrisDir, "T_beech_dead_logs_01", 3),
+            ("dead_log_03", NMDebrisDir, "T_beech_dead_logs_01", 3),
+            ("dead_log_04", NMDebrisDir, "T_beech_dead_logs_01", 3),
+            ("beech_forest_stump_01_1", NMDebrisDir, "T_beech_forest_stumps_01", 4),
+            ("beech_forest_stump_01_2", NMDebrisDir, "T_beech_forest_stumps_01", 4),
+            ("beech_forest_stump_01_3", NMDebrisDir, "T_beech_forest_stumps_01", 4),
+        };
+
         /// <summary>Ground cover is drawn to this (m), no shadows.</summary>
-        const float CoverMaxDist = 45f;
+        const float CoverMaxDist = 60f;
         /// <summary>Ground cover grid (m) and how far from the road it runs.</summary>
-        const float CoverPitch = 2.2f, CoverBand = 38f;
+        const float CoverPitch = 1.5f, CoverBand = 50f;
         // tree name, bark texture stem (the FBX's first material slot)
         static readonly (string tree, string bark)[] NMTrees =
         {
@@ -124,6 +162,7 @@ namespace PSXRacing.EditorTools
             m.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(NMGroundFor((int)Season.Fall));
             m.color = Color.white;
             m.mainTextureScale = new Vector2(NMGroundScale, NMGroundScale);
+            GroundNormalFor(m);
         }
 
         /// <summary>The forest floor on a ground material and its seasons
@@ -139,7 +178,10 @@ namespace PSXRacing.EditorTools
                 if (e.baseMat != baseMat || e.variants == null) continue;
                 foreach (var vm in e.variants)
                     if (vm != null && vm.mainTexture != null && vm.mainTexture.name.StartsWith("T_ground_beech"))
+                    {
                         vm.mainTextureScale = new Vector2(NMGroundScale, NMGroundScale);
+                        GroundNormalFor(vm);
+                    }
             }
             Log("Stage " + role + ", PC: NatureManufacture forest floor (summer plants_01, spring leaves_02, fall/winter leaves_01), x" + NMGroundScale);
             return true;
@@ -150,6 +192,7 @@ namespace PSXRacing.EditorTools
             public MeshForest.Variant[] variants;
             public int treeCount;          // variants[0 .. treeCount) are canopy trees
             public int[] smallBeech, bushes, cover;
+            public int[][] debris = new int[5][];   // by kind
             public Material[] leafByDress;
         }
 
@@ -302,10 +345,36 @@ namespace PSXRacing.EditorTools
                 cover.Add(list.Count); list.Add(v);
             }
             kit.cover = cover.ToArray();
+            var debris = new List<int>[5];
+            for (int k = 0; k < 5; k++) debris[k] = new List<int>();
+            var debrisMats = new Dictionary<string, Material>();
+            foreach (var (fbx, ddir, tex, kind) in NMDebris)
+            {
+                string bcStem = FindTex(ddir, tex + "_BC_M") != null ? tex + "_BC_M"
+                              : FindTex(ddir, tex + "_BC_SM") != null ? tex + "_BC_SM" : tex + "_BC";
+                if (!debrisMats.TryGetValue(tex, out var dm))
+                {
+                    dm = NMLitMat("NM_" + tex, ddir, bcStem, tex + "_N", null, kind == 0, Color.white, maskIsHdrp: false);
+                    debrisMats[tex] = dm;
+                }
+                var v = LoadVariant(NMDebrisDir, fbx, dm, ".fbx") ?? LoadVariant(NMDebrisDir, fbx, dm, ".FBX")
+                        ?? LoadVariant("Assets/StoreAssets/NMForest/Debris", fbx, dm);
+                if (v == null) continue;
+                v.shadows = kind >= 2;
+                v.maxDist = kind == 0 ? 55f : kind == 1 ? 70f : 160f;
+                if (kind == 0)
+                {
+                    for (int q = 0; q < v.leafSub.Length; q++) v.leafSub[q] = true;
+                    v.leafDress = new[] { dm, dm, dm, dm, null };
+                }
+                debris[kind].Add(list.Count); list.Add(v);
+            }
+            for (int k = 0; k < 5; k++) kit.debris[k] = debris[k].ToArray();
             kit.smallBeech = small.ToArray();
             kit.bushes = bushes.ToArray();
             kit.variants = list.ToArray();
-            Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, {cover.Count} ground-cover plants.");
+            Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, {cover.Count} ground-cover plants, debris " +
+                $"{debris[0].Count} litter / {debris[1].Count} branches / {debris[2].Count} stones / {debris[3].Count} logs / {debris[4].Count} stumps.");
             meshTreeKit = kit;
             return kit;
         }
@@ -419,10 +488,58 @@ namespace PSXRacing.EditorTools
             foreach (var ext in new[] { ".tga", ".png" })
                 if (AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/" + bc + ext) != null) { path = dir + "/" + bc + ext; break; }
             if (path == null) Log("WARN: mesh forest: texture missing " + dir + "/" + bc);
-            var mat = MakeMat(name, path, cutoff: leaves ? 0.5f : 0f, tint: tint, affine: 0f, twoSided: leaves);
+            // FULLER CROWNS (owner 2026-11-08: "The trees leaves seemed
+            // sparse"): the cut a little lower than PSX/Lit's 0.5, and mips
+            // that keep the alpha-tested coverage - plain mips average the
+            // leaf edges away, so a crown thinned with every halving.
+            if (leaves && path != null) PreserveCoverage(path, LeafCutoff);
+            var mat = MakeMat(name, path, cutoff: leaves ? LeafCutoff : 0f, tint: tint, affine: 0f, twoSided: leaves);
             mat.enableInstancing = true;
+            SetHDNormal(mat, string.IsNullOrEmpty(n) ? null : FindTex(dir, n));
             EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        const float LeafCutoff = 0.38f;
+
+        static string FindTex(string dir, string stem)
+        {
+            foreach (var ext in new[] { ".tga", ".png" })
+                if (AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/" + stem + ext) != null) return dir + "/" + stem + ext;
+            return null;
+        }
+
+        /// <summary>Mips that keep an alpha-tested texture's coverage at the cut.</summary>
+        static void PreserveCoverage(string path, float cutoff)
+        {
+            if (!(AssetImporter.GetAtPath(path) is TextureImporter imp)) return;
+            if (imp.mipMapsPreserveCoverage && Mathf.Abs(imp.alphaTestReferenceValue - cutoff) < 0.005f) return;
+            imp.mipMapsPreserveCoverage = true;
+            imp.alphaTestReferenceValue = cutoff;
+            imp.SaveAndReimport();
+        }
+
+        /// <summary>The pack's tangent-space normal map on PSX/Lit's HD path
+        /// (PSX_HD: the sun per pixel off it, a cotangent frame from screen
+        /// derivatives, no mesh tangents needed). TextureHD leaves a PSX_HD it
+        /// did not set alone in the PC player; off the PC profile it turns it
+        /// off, as it does every HD set.</summary>
+        static void SetHDNormal(Material m, string normalPath)
+        {
+            if (m == null) return;
+            var nt = string.IsNullOrEmpty(normalPath) ? null : AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
+            if (nt == null) { m.DisableKeyword("PSX_HD"); return; }
+            m.SetTexture("_HDNormal", nt);
+            m.EnableKeyword("PSX_HD");
+        }
+
+        /// <summary>The ground floor texture's own normal map (..._BC_SM -> ..._N).</summary>
+        static void GroundNormalFor(Material m)
+        {
+            if (m == null || m.mainTexture == null) return;
+            string tp = AssetDatabase.GetAssetPath(m.mainTexture);
+            if (!tp.Contains("T_ground_beech_forest_")) { m.DisableKeyword("PSX_HD"); return; }
+            SetHDNormal(m, tp.Replace("_BC_SM.tga", "_N.png"));
         }
 
         /// <summary>A bare beech's impostor for winter, made from the pack's
@@ -502,6 +619,60 @@ namespace PSXRacing.EditorTools
                     ySum += gy;
                     added++;
                 }
+        }
+
+        /// <summary>The forest floor's litter and wood over one near chunk, each
+        /// piece laid on the lattice's slope. Stones, logs and stumps stand
+        /// clear of the graded roadside and well off the asphalt (no
+        /// colliders: they must sit where only a car already in the trees
+        /// could reach them).</summary>
+        static void AddDebris(MeshTreeKit kit, float ox, float oz, float size, List<Vector4> inst, List<Vector2> scaleVar,
+                              Dictionary<int, Vector2> tilts, ref int added, ref float ySum)
+        {
+            float roadHalf = RoadWidth * 0.5f;
+            // kind: pitch, nearest past the asphalt, farthest from the centreline, keep, scale, sink
+            var layers = new (int kind, float pitch, float near, float far, float keep, float s0, float s1, float sink)[]
+            {
+                (0, 2.6f, 1.2f, 55f, 0.55f, 0.9f, 1.6f, 0.02f),
+                (1, 6.0f, 2.5f, 60f, 0.35f, 0.9f, 1.3f, 0.03f),
+                (2, 9.0f, 4.0f, 120f, 0.25f, 0.6f, 1.8f, 0.12f),
+                (3, 16f, 6.0f, 120f, 0.25f, 0.9f, 1.3f, 0.08f),
+                (4, 22f, 6.0f, 120f, 0.20f, 0.9f, 1.2f, 0.05f),
+            };
+            foreach (var L in layers)
+            {
+                var pool = kit.debris[L.kind];
+                if (pool == null || pool.Length == 0) continue;
+                int cells = Mathf.CeilToInt(size / L.pitch);
+                for (int gz = 0; gz < cells; gz++)
+                    for (int gx = 0; gx < cells; gx++)
+                    {
+                        uint h = (uint)(Mathf.FloorToInt(ox) * 73856093) ^ (uint)(Mathf.FloorToInt(oz) * 19349663)
+                               ^ (uint)(gx * 83492791) ^ (uint)gz * 2971215073u ^ (uint)(L.kind * 1640531527);
+                        h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+                        if (((h >> 20) & 1023u) / 1023f > L.keep) continue;
+                        float x = ox + (gx + ((h & 1023u) / 1023f)) * L.pitch;
+                        float z = oz + (gz + (((h >> 10) & 1023u) / 1023f)) * L.pitch;
+                        if (!StageCorridor(x, z, L.far + 4f, out RoadFoot f)) continue;
+                        if (f.d < roadHalf + L.near || f.d > L.far) continue;
+                        if (BridgeAt(f.station) > 0.35f) continue;
+                        float lat = StageLatticeY(x, z), top = StageBankTopY(f);
+                        bool graded = OnGradedRoadside(f);
+                        if (graded && (L.kind >= 2 || top > lat + 0.3f)) continue;
+                        float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
+                        float hx = (StageLatticeY(x + 1f, z) - StageLatticeY(x - 1f, z)) * 0.5f;
+                        float hz = (StageLatticeY(x, z + 1f) - StageLatticeY(x, z - 1f)) * 0.5f;
+                        var n = new Vector3(-hx, 1f, -hz).normalized;
+                        if (n.y < 0.6f && L.kind >= 3) continue;   // no log or stump on a 53-degree face
+                        int vi = pool[(int)((h >> 5) % (uint)pool.Length)];
+                        float sc = Mathf.Lerp(L.s0, L.s1, ((h >> 3) & 255u) / 255f);
+                        tilts[inst.Count] = new Vector2(Mathf.Atan2(n.z, n.y) * Mathf.Rad2Deg, -Mathf.Atan2(n.x, n.y) * Mathf.Rad2Deg);
+                        inst.Add(new Vector4(x, gy - L.sink, z, (h % 360u)));
+                        scaleVar.Add(new Vector2(sc, vi));
+                        ySum += gy;
+                        added++;
+                    }
+            }
         }
 
         /// <summary>One more canopy beech beside a planted one, in the dense

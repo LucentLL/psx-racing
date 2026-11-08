@@ -68,9 +68,13 @@ namespace PSXRacing
         public Chunk[] chunks;
         public Vector4[] inst;                     // local x, y, z, yaw (deg)
         public Vector2[] instScaleVar;             // x = scale, y = variant index
+        /// <summary>Optional per plant (empty = all upright): pitch and roll
+        /// in degrees, laying ground litter, branches, logs and stones on
+        /// the slope.</summary>
+        public Vector2[] instTilt;
         public Material[] leafByDress = new Material[5];
 
-        public float lod0To = 45f, lod1To = 100f, meshRange = 190f, farRange = 2200f;
+        public float lod0To = 70f, lod1To = 150f, meshRange = 240f, farRange = 2200f;
         /// <summary>Hand-over bands (m) ending at lod0To, lod1To and meshRange:
         /// inside one, a plant draws at both levels, each dithered (PSX/Lit's
         /// PSX_LODFADE) so the two add up to one - no pop, no shape jump.
@@ -118,8 +122,9 @@ namespace PSXRacing
             {
                 var p = inst[i];
                 float s = instScaleVar[i].x;
+                var tl = instTilt != null && i < instTilt.Length ? instTilt[i] : Vector2.zero;
                 localM[i] = Matrix4x4.TRS(new Vector3(p.x, p.y, p.z),
-                    Quaternion.Euler(0f, p.w, 0f), new Vector3(s, s, s))
+                    Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, p.w, 0f), new Vector3(s, s, s))
                     * variants[(int)instScaleVar[i].y].pre;
             }
             int nb = variants.Length * L;
