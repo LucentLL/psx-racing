@@ -35,6 +35,30 @@ namespace PSXRacing.EditorTools
     {
         const string NMTreeDir = "Assets/StoreAssets/NMForest/Trees";
         const string NMUnderDir = "Assets/StoreAssets/NMForest/Under";
+        const string NMDir = "Assets/StoreAssets/NMForest";
+        const string NMCoverDir = "Assets/StoreAssets/NMForest/Cover";
+        /// <summary>Ground cover: FBX stem -> texture stem.</summary>
+        static readonly (string fbx, string tex)[] NMCover =
+        {
+            ("grass_beech_forest_01_1", "T_grass_beech_forest_01"), ("grass_beech_forest_01_2", "T_grass_beech_forest_01"),
+            ("grass_beech_forest_01_3", "T_grass_beech_forest_01"), ("grass_beech_forest_01_4", "T_grass_beech_forest_01"),
+            ("grass_beech_forest_02_1", "T_grass_beech_forest_02"), ("grass_beech_forest_02_2", "T_grass_beech_forest_02"),
+            ("grass_beech_forest_02_3", "T_grass_beech_forest_02"),
+            ("grass_beech_forest_03_1", "T_grass_beech_forest_03"), ("grass_beech_forest_03_2", "T_grass_beech_forest_03"),
+            ("grass_beech_forest_03_3", "T_grass_beech_forest_03"),
+            ("foliage_fern_01_1", "T_fern_beech_forest_01"), ("foliage_fern_01_2", "T_fern_beech_forest_01"),
+            ("foliage_fern_01_3", "T_fern_beech_forest_01"), ("foliage_fern_01_4", "T_fern_beech_forest_01"),
+            ("plant_beech_forest_01_1", "T_plant_beech_forest_01"), ("plant_beech_forest_01_2", "T_plant_beech_forest_01"),
+            ("plant_beech_forest_01_3", "T_plant_beech_forest_01"), ("plant_beech_forest_01_4", "T_plant_beech_forest_01"),
+            ("plant_beech_forest_02_1", "T_plant_beech_forest_02"), ("plant_beech_forest_02_2", "T_plant_beech_forest_02"),
+            ("shaggy_soldier_beech_forest_01_1", "T_shaggy_soldier_beech_forest_01"),
+            ("shaggy_soldier_beech_forest_01_2", "T_shaggy_soldier_beech_forest_01"),
+            ("shaggy_soldier_beech_forest_01_3", "T_shaggy_soldier_beech_forest_01"),
+        };
+        /// <summary>Ground cover is drawn to this (m), no shadows.</summary>
+        const float CoverMaxDist = 45f;
+        /// <summary>Ground cover grid (m) and how far from the road it runs.</summary>
+        const float CoverPitch = 2.2f, CoverBand = 38f;
         // tree name, bark texture stem (the FBX's first material slot)
         static readonly (string tree, string bark)[] NMTrees =
         {
@@ -52,7 +76,7 @@ namespace PSXRacing.EditorTools
             "Forest_black_cherry_03", "Forest_black_cherry_04", "Forest_black_cherry_05",
         };
         /// <summary>How far the understory is drawn (m).</summary>
-        const float UnderMaxDist = 110f;
+        const float UnderMaxDist = 150f;
         /// <summary>No understory plant nearer the road's edge than this past
         /// the asphalt (m), nor on the graded roadside: it has no trunk in the
         /// table, so it must stand where only a car already off the road and
@@ -125,11 +149,56 @@ namespace PSXRacing.EditorTools
         {
             public MeshForest.Variant[] variants;
             public int treeCount;          // variants[0 .. treeCount) are canopy trees
-            public int[] smallBeech, bushes;
+            public int[] smallBeech, bushes, cover;
             public Material[] leafByDress;
         }
 
         static MeshTreeKit meshTreeKit;
+
+        /// <summary>The four fall leaf tints, for the impostors to match.</summary>
+        static readonly Color[] FallTints =
+        {
+            Color.white, new Color(1.0f, 0.58f, 0.48f), new Color(1.0f, 1.12f, 0.62f), new Color(1.08f, 0.98f, 0.55f),
+        };
+
+        /// <summary>LOD3: the SAME beech as a cross of two cards, from the
+        /// pack's own impostor sheet of it (four views in a 4x1 strip; the
+        /// tree fills each square cell's height). Spring and summer: the green
+        /// sheet; fall: the Autumn Valley sheet in the variant's fall tint;
+        /// winter and snow: that sheet darkened to a bare grey-brown (the pack
+        /// has no bare impostor).</summary>
+        static void AddImpostor(MeshForest.Variant v, string tree, Color fallTint)
+        {
+            string stem = tree.Replace("beech_tree_", "T_beech_tree_");
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(NMTreeDir + "/" + stem + "_BC_A.png") == null) return;
+            float h = v.height, w = h;   // square cells
+            var mesh = new Mesh { name = "NMImpostor_" + tree };
+            var vs = new List<Vector3>(); var uv = new List<Vector2>(); var tr = new List<int>(); var nm = new List<Vector3>();
+            for (int q = 0; q < 2; q++)
+            {
+                var rot = Quaternion.Euler(0f, q * 90f, 0f);
+                float u0 = q * 0.25f + 0.002f, u1 = (q + 1) * 0.25f - 0.002f;
+                int i = vs.Count;
+                vs.Add(rot * new Vector3(-w * 0.5f, 0f, 0f)); vs.Add(rot * new Vector3(-w * 0.5f, h, 0f));
+                vs.Add(rot * new Vector3(w * 0.5f, h, 0f)); vs.Add(rot * new Vector3(w * 0.5f, 0f, 0f));
+                uv.Add(new Vector2(u0, 0f)); uv.Add(new Vector2(u0, 1f)); uv.Add(new Vector2(u1, 1f)); uv.Add(new Vector2(u1, 0f));
+                var n = rot * Vector3.back;
+                for (int k = 0; k < 4; k++) nm.Add((n + Vector3.up * 0.6f).normalized);
+                tr.AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 });
+            }
+            mesh.SetVertices(vs); mesh.SetUVs(0, uv); mesh.SetNormals(nm); mesh.SetTriangles(tr, 0);
+            mesh.RecalculateBounds();
+            mesh.RecalculateTangents();
+            v.lods = new[] { v.lods[0], v.lods[1], v.lods[2], WorldKit.SaveMesh(mesh, mesh.name) };
+            v.impostorPre = Matrix4x4.identity;   // built in the tree's own frame: base at 0, metres
+            var green = NMLitMat("NM_imp_" + tree, NMDir, "Trees/" + stem + "_BC_A", "Trees/" + stem + "_N", null, true,
+                                 new Color(0.80f, 0.86f, 0.78f), maskIsHdrp: false);
+            var fallM = NMLitMat("NM_imp_" + tree + "_fall", NMDir, "Autumn/" + stem, "Trees/" + stem + "_N", null, true,
+                                 fallTint, maskIsHdrp: false);
+            var bare = NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Autumn/" + stem, "Trees/" + stem + "_N", null, true,
+                                new Color(0.42f, 0.37f, 0.33f), maskIsHdrp: false);
+            v.impostorDress = new[] { bare, green, green, fallM, bare };
+        }
 
         /// <summary>The variant nearest the wanted height (one of the two
         /// nearest, by hash), scaled toward it by no more than 0.8-1.2 so its
@@ -181,7 +250,9 @@ namespace PSXRacing.EditorTools
             {
                 var v = LoadVariant(NMTreeDir, tree, NMLitMat("NM_" + bark, NMTreeDir, bark + "_BC", bark + "_N", bark + "_MaskMap", false, Color.white));
                 if (v == null) continue;
-                v.leafDress = new[] { null, green, green, fall[n++ % fall.Length], null };
+                int fi = n++ % fall.Length;
+                v.leafDress = new[] { null, green, green, fall[fi], null };
+                AddImpostor(v, tree, FallTints[fi]);
                 list.Add(v);
             }
             if (list.Count == 0) return null;
@@ -208,10 +279,31 @@ namespace PSXRacing.EditorTools
                 v.maxDist = UnderMaxDist;
                 bushes.Add(list.Count); list.Add(v);
             }
+            var cover = new List<int>();
+            var coverMats = new Dictionary<string, Material[]>();
+            foreach (var (fbx, tex) in NMCover)
+            {
+                if (!coverMats.TryGetValue(tex, out var dressM))
+                {
+                    var baseM = NMLitMat("NM_" + tex, NMCoverDir, tex + "_BC_M", tex + "_N", null, true, Color.white, maskIsHdrp: false);
+                    var fallM = NMLitMat("NM_" + tex + "_fall", NMCoverDir, tex + "_BC_M", tex + "_N", null, true, new Color(1.10f, 0.86f, 0.55f), maskIsHdrp: false);
+                    var winM = NMLitMat("NM_" + tex + "_winter", NMCoverDir, tex + "_BC_M", tex + "_N", null, true, new Color(0.78f, 0.64f, 0.46f), maskIsHdrp: false);
+                    dressM = new[] { winM, baseM, baseM, fallM, null };
+                    coverMats[tex] = dressM;
+                }
+                var v = LoadVariant(NMCoverDir, fbx, dressM[2], ".fbx");
+                if (v == null) continue;
+                for (int s = 0; s < v.leafSub.Length; s++) v.leafSub[s] = true;
+                v.leafDress = dressM;
+                v.maxDist = CoverMaxDist;
+                v.shadows = false;
+                cover.Add(list.Count); list.Add(v);
+            }
+            kit.cover = cover.ToArray();
             kit.smallBeech = small.ToArray();
             kit.bushes = bushes.ToArray();
             kit.variants = list.ToArray();
-            Log($"Mesh forest kit: {kit.treeCount} canopy beeches, {small.Count} small beeches, {bushes.Count} cherry bushes.");
+            Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, {cover.Count} ground-cover plants.");
             meshTreeKit = kit;
             return kit;
         }
@@ -219,9 +311,9 @@ namespace PSXRacing.EditorTools
         /// <summary>One FBX's LOD meshes, its first slot's material, the leaf
         /// slot last ([bark, leaves] in every one of the pack's beeches, read in
         /// Blender), and its node transform with the base put at y = 0.</summary>
-        static MeshForest.Variant LoadVariant(string dir, string name, Material barkMat)
+        static MeshForest.Variant LoadVariant(string dir, string name, Material barkMat, string ext = ".FBX")
         {
-            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "/" + name + ".FBX");
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "/" + name + ext);
             if (asset == null) { Log("WARN: mesh forest: missing " + name); return null; }
             var inst = (GameObject)Object.Instantiate(asset);
             try
@@ -239,14 +331,23 @@ namespace PSXRacing.EditorTools
                 if (lod0 == null || v.lods[0] == null) { Log("WARN: mesh forest: " + name + " has no LOD0"); return null; }
                 for (int i = 1; i < 3; i++) if (v.lods[i] == null) v.lods[i] = v.lods[i - 1];
                 int subs = v.lods[0].subMeshCount;
+                var pre = lod0.localToWorldMatrix;
+                // WHICH submesh is the leaves, read off the geometry rather than
+                // assumed from Blender's slot order: the trunk reaches the ground,
+                // the leaves start higher. (Assuming [bark, leaves] drew the small
+                // beeches' leaf cards as opaque grey bark: pale blotches low in
+                // the forest, 2026-11-07.)
+                int leaf = LeafSubmesh(v.lods[0], pre);
+                for (int l = 1; l < 3; l++)
+                    if (v.lods[l] != v.lods[0] && v.lods[l].subMeshCount == subs && LeafSubmesh(v.lods[l], pre) != leaf)
+                        Log($"WARN: mesh forest: {name} LOD{l} has its leaves in another submesh than LOD0");
                 v.mats = new Material[subs];
                 v.leafSub = new bool[subs];
                 for (int s = 0; s < subs; s++)
                 {
-                    v.leafSub[s] = s == subs - 1 && subs > 1;
+                    v.leafSub[s] = subs > 1 && s == leaf;
                     v.mats[s] = barkMat;
                 }
-                var pre = lod0.localToWorldMatrix;
                 var bb = v.lods[0].bounds;
                 float minY = float.MaxValue, maxY = float.MinValue;
                 for (int c = 0; c < 8; c++)
@@ -259,10 +360,38 @@ namespace PSXRacing.EditorTools
                 var p0 = pre.MultiplyPoint3x4(bb.center);
                 v.pre = Matrix4x4.Translate(new Vector3(-p0.x, -minY, -p0.z)) * pre;
                 v.height = Mathf.Max(0.3f, maxY - minY);
-                Log($"Mesh forest: {name} {v.height:0.0} m, LOD tris {Tris(v.lods[0])}/{Tris(v.lods[1])}/{Tris(v.lods[2])}, {subs} submesh(es)");
+                Log($"Mesh forest: {name} {v.height:0.0} m, LOD tris {Tris(v.lods[0])}/{Tris(v.lods[1])}/{Tris(v.lods[2])}, {subs} submesh(es), leaves = submesh {leaf}");
                 return v;
             }
             finally { Object.DestroyImmediate(inst); }
+        }
+
+        /// <summary>The leaf submesh of a two-material plant: the one whose
+        /// lowest vertex stands higher (the trunk meets the ground). Ties (both
+        /// within 3% of the height of the base) fall back to the last slot.</summary>
+        static int LeafSubmesh(Mesh m, Matrix4x4 pre)
+        {
+            int subs = m.subMeshCount;
+            if (subs < 2) return 0;
+            var low = new float[subs];
+            float top = float.MinValue, bottom = float.MaxValue;
+            for (int s = 0; s < subs; s++)
+            {
+                low[s] = float.MaxValue;
+                if (!TreeKit.Read(m, s, out var verts, out var tris)) continue;
+                foreach (int i in tris)
+                {
+                    float y = pre.MultiplyPoint3x4(verts[i]).y;
+                    if (y < low[s]) low[s] = y;
+                    if (y > top) top = y;
+                    if (y < bottom) bottom = y;
+                }
+            }
+            if (subs != 2 || low[0] == float.MaxValue || low[1] == float.MaxValue) return subs - 1;
+            float eps = 0.03f * Mathf.Max(0.01f, top - bottom);
+            if (low[0] > low[1] + eps) return 0;
+            if (low[1] > low[0] + eps) return 1;
+            return 1;
         }
 
         static long Tris(Mesh m)
@@ -298,7 +427,7 @@ namespace PSXRacing.EditorTools
             // The black cherry's mask is not laid out like the beeches'
             // (HDRP R metal / G AO / A smooth): read as metallic it turned the
             // bushes into grey mirrors of the sky. Plain, rough foliage there.
-            var mt = maskIsHdrp ? T(mask) : null;
+            var mt = maskIsHdrp && !string.IsNullOrEmpty(mask) ? T(mask) : null;
             mat.SetTexture("_MetallicGlossMap", mt);
             mat.SetTexture("_OcclusionMap", mt);
             if (mt) { mat.EnableKeyword("_METALLICSPECGLOSSMAP"); mat.EnableKeyword("_OCCLUSIONMAP"); }
@@ -326,6 +455,55 @@ namespace PSXRacing.EditorTools
             return mat;
         }
 
+        /// <summary>Ground cover over one near chunk: grass, ferns, plants on a
+        /// jittered CoverPitch grid from the shoulder out to CoverBand, thinning
+        /// with distance, never on the tarmac, a bridge deck or a cut face.</summary>
+        static void AddGroundCover(MeshTreeKit kit, float ox, float oz, float size,
+                                   List<Vector4> inst, List<Vector2> scaleVar, ref int added, ref float ySum)
+        {
+            if (kit.cover == null || kit.cover.Length == 0) return;
+            float roadHalf = RoadWidth * 0.5f;
+            int cells = Mathf.CeilToInt(size / CoverPitch);
+            for (int gz = 0; gz < cells; gz++)
+                for (int gx = 0; gx < cells; gx++)
+                {
+                    uint h = (uint)(Mathf.FloorToInt(ox) * 92837111) ^ (uint)(Mathf.FloorToInt(oz) * 689287499)
+                           ^ (uint)(gx * 83492791) ^ (uint)gz * 2971215073u;
+                    h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+                    float x = ox + (gx + ((h & 1023u) / 1023f)) * CoverPitch;
+                    float z = oz + (gz + (((h >> 10) & 1023u) / 1023f)) * CoverPitch;
+                    if (!StageCorridor(x, z, CoverBand + 4f, out RoadFoot f)) continue;
+                    if (f.d < roadHalf + 0.9f || f.d > CoverBand) continue;
+                    if (BridgeAt(f.station) > 0.35f) continue;
+                    float keep = Mathf.Lerp(0.95f, 0.55f, Mathf.InverseLerp(roadHalf + 3f, CoverBand, f.d));
+                    if (((h >> 20) & 1023u) / 1023f > keep) continue;
+                    float lat = StageLatticeY(x, z), top = StageBankTopY(f);
+                    if (OnGradedRoadside(f) && top > lat + 0.3f) continue;   // a cut face
+                    float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
+                    int vi = kit.cover[(int)((h >> 5) % (uint)kit.cover.Length)];
+                    float sc = Mathf.Lerp(1.5f, 2.6f, ((h >> 3) & 255u) / 255f);
+                    inst.Add(new Vector4(x, gy - 0.03f, z, (h % 360u)));
+                    scaleVar.Add(new Vector2(sc, vi));
+                    ySum += gy;
+                    added++;
+                }
+        }
+
+        /// <summary>One more canopy beech beside a planted one, in the dense
+        /// part of the band: true, and where, when it fits.</summary>
+        static bool ExtraCanopySite(float wx, float wz, int hsh, out float x, out float z, out float gy)
+        {
+            uint h = (uint)hsh * 2246822519u + 3266489917u; h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12;
+            float ang = (h % 3600u) * 0.1f * Mathf.Deg2Rad, r = 3.4f + ((h >> 12) % 100u) * 0.02f;
+            x = wx + Mathf.Cos(ang) * r; z = wz + Mathf.Sin(ang) * r; gy = 0f;
+            if ((h >> 24) % 10u >= 7u) return false;            // 70% of trees get one
+            if (!StageCorridor(x, z, ForestBand + 10f, out RoadFoot f)) return false;
+            if (f.d < RoadWidth * 0.5f + 4.5f || f.d > 90f) return false;
+            if (BridgeAt(f.station) > 0.35f || OnGradedRoadside(f)) return false;
+            gy = Mathf.Max(Mathf.Max(StageLatticeY(x, z), StageBankTopY(f)), StageFillY(x, z));
+            return true;
+        }
+
         /// <summary>Understory round one canopy tree at (wx, wz): 1-3 small
         /// beeches and cherry bushes, by the same hash every build.</summary>
         static void AddUnderstory(MeshTreeKit kit, float wx, float wz, float d, int hsh,
@@ -333,7 +511,7 @@ namespace PSXRacing.EditorTools
         {
             if (kit.smallBeech.Length == 0 && kit.bushes.Length == 0) return;
             float roadHalf = RoadWidth * 0.5f;
-            int count = d <= ForestDenseTo ? 3 : d <= 90f ? 2 : 1;
+            int count = d <= ForestDenseTo ? 4 : d <= 90f ? 3 : 2;
             for (int k = 0; k < count; k++)
             {
                 uint h = (uint)hsh * 2654435761u + (uint)k * 40503u + 12345u;

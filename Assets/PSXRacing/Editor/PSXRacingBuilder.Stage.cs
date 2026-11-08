@@ -7815,7 +7815,7 @@ namespace PSXRacing.EditorTools
             var mfChunks = new List<MeshForest.Chunk>();
             var mfInst = new List<Vector4>();
             var mfScaleVar = new List<Vector2>();
-            int meshTrees = 0, understory = 0;
+            int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0;
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
             {
@@ -7968,6 +7968,19 @@ namespace PSXRacing.EditorTools
                             int before = mfInst.Count;
                             AddUnderstory(kit, wx, wz, d, hsh, mfInst, mfScaleVar, ref understory);
                             ySum += ground * (mfInst.Count - before);
+                            // DENSITY (owner: "increase tree density (use lower
+                            // LOD as necessary)"): a second canopy beech beside
+                            // most trees in the first 90 m, with its own trunk.
+                            if (ExtraCanopySite(wx, wz, hsh, out float ex, out float ez, out float eg))
+                            {
+                                int evi = PickMeshTree(kit, h * MeshTreeHeightScale * 0.9f, hsh >> 1, out float esc);
+                                mfInst.Add(new Vector4(ex, eg - 0.25f, ez, (yaw + 137f) % 360f));
+                                mfScaleVar.Add(new Vector2(esc, evi));
+                                ySum += eg;
+                                extraCanopy++;
+                                (fill ? fillTrunks : trunks).Add(new Vector4(ex, eg - 0.25f, ez, StageTreeWidth(sp, h)));
+                                (fill ? fillCells : trunkCells).Add((byte)idx);
+                            }
                         }
                         if (fill)
                         {
@@ -8005,6 +8018,7 @@ namespace PSXRacing.EditorTools
                     ChunkGO(crownRoot.transform, "Crowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { crownMat },
                             ox, oz, "StageForestCrowns_" + cx + "_" + cz).layer = FoliageLayer;
 
+                if (kit != null) AddGroundCover(kit, ox, oz, NearChunk, mfInst, mfScaleVar, ref coverN, ref ySum);
                 if (mfInst.Count > mfStart)
                 {
                     var cardsB = new List<Renderer>();
@@ -8046,6 +8060,7 @@ namespace PSXRacing.EditorTools
             });
 
             root.AddComponent<TreeTrunks>().SetForest(trunks, trunkCells, ForestTrunkFrac, ForestBrushFrac);
+            int farImp = BuildStageFarForest(pts, parent, mat, crownMat, kit, mfChunks, mfInst, mfScaleVar);
             if (kit != null && mfInst.Count > 0)
             {
                 var mfc = root.AddComponent<MeshForest>();
@@ -8054,7 +8069,8 @@ namespace PSXRacing.EditorTools
                 mfc.chunks = mfChunks.ToArray();
                 mfc.inst = mfInst.ToArray();
                 mfc.instScaleVar = mfScaleVar.ToArray();
-                Log($"Stage forest, MESH: {understory} understory plants (small beeches, black cherry) round the canopy.");
+                Log($"Stage forest, MESH: {understory} understory plants, {extraCanopy} extra canopy beeches (with trunks), " +
+                    $"{coverN} ground-cover plants to {CoverBand:0} m, {farImp} far-slope beeches as impostors to {mfc.farRange:0} m.");
                 Log($"Stage forest, MESH trees: {meshTrees} broadleaf trees as NatureManufacture beeches in " +
                     $"{mfChunks.Count} chunks ({kit.variants.Length} variants, LOD {mfc.lod0To}/{mfc.lod1To}/{mfc.meshRange} m).");
             }
@@ -8063,7 +8079,6 @@ namespace PSXRacing.EditorTools
                 fillRoot.AddComponent<TreeTrunks>().SetForest(fillTrunks, fillCells, ForestTrunkFrac, ForestBrushFrac);
                 Log($"Stage forest, PC: {filled} fill trees (band filled to {FillKeep:0.00} past {ForestDenseTo:0} m), {crowned} crowns.");
             }
-            BuildStageFarForest(pts, parent, mat, crownMat);
 
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
                 $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +
@@ -8107,14 +8122,17 @@ namespace PSXRacing.EditorTools
                  + 0.45f * Mathf.Sin((x - z) * 0.0083f + 2.1f);
         }
 
-        static void BuildStageFarForest(List<Vector3> pts, Transform parent, Material mat, Material crownMat)
+        static int BuildStageFarForest(List<Vector3> pts, Transform parent, Material mat, Material crownMat,
+                                       MeshTreeKit kit = null, List<MeshForest.Chunk> mfChunks = null,
+                                       List<Vector4> mfInst = null, List<Vector2> mfScaleVar = null)
         {
             // A mountain's distance only: a coast's is water and scrub, a
             // city's its own ground (the far material's own rule).
-            if (!PCContent) return;   // the PC build's scene pass only (see PCContent)
-            if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return;
+            if (!PCContent) return 0;   // the PC build's scene pass only (see PCContent)
+            if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return 0;
             float to = Mathf.Min(FarForestMaxM, FarCoverage - FarCell);
-            if (to <= ForestBand + FarForestPitch) return;
+            if (to <= ForestBand + FarForestPitch) return 0;
+            int farMesh = 0;
             var root = new GameObject("FarForest");
             root.transform.SetParent(parent, false);
             root.AddComponent<PCOnly>();
@@ -8130,6 +8148,11 @@ namespace PSXRacing.EditorTools
                 var uvs = new List<Vector2>();
                 var tris = new List<int>();
                 var cv = new List<Vector3>(); var cu = new List<Vector2>(); var ct = new List<int>();
+                // broadleaf: the SAME beeches as the band, as their impostors
+                // (MeshForest LOD3); their cards in a "B" mesh it hides
+                var bv = new List<Vector3>(); var bu = new List<Vector2>(); var bt = new List<int>();
+                int mfStart = mfInst != null ? mfInst.Count : 0;
+                float ySum = 0f;
                 int cells = Mathf.RoundToInt(FarForestChunk / FarForestPitch);
                 for (int gz = 0; gz < cells; gz++)
                     for (int gx = 0; gx < cells; gx++)
@@ -8154,11 +8177,42 @@ namespace PSXRacing.EditorTools
                         var sp = StageTrees[idx];
                         float h = sp.height * ForestHeightScale * FarForestScale * Mathf.Lerp(1f, 1.5f, t)
                                 * (0.85f + (float)sizeRoll * 0.4f);
-                        AddTreeQuads(verts, uvs, tris, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h,
-                                     (float)yawRoll * 360f);
+                        bool asMesh = kit != null && mfInst != null && !sp.conifer && idx != BareIdx;
+                        if (asMesh)
+                        {
+                            int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
+                                             (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
+                            int vi = PickMeshTree(kit, h * 1.25f, hsh, out float sc);
+                            mfInst.Add(new Vector4(wx, ground - 0.5f, wz, (float)yawRoll * 360f));
+                            mfScaleVar.Add(new Vector2(sc, vi));
+                            ySum += ground;
+                            farMesh++;
+                            AddTreeQuads(bv, bu, bt, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h, (float)yawRoll * 360f);
+                        }
+                        else
+                            AddTreeQuads(verts, uvs, tris, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h,
+                                         (float)yawRoll * 360f);
                         AddCrownQuad(cv, cu, ct, sp, new Vector3(wx - ox, ground - 0.5f, wz - oz), h, (float)yawRoll * 360f);
                         planted++;
                     }
+                if (mfInst != null && mfInst.Count > mfStart)
+                {
+                    var bgo = ChunkGO(root.transform, "FarTreesB_" + cx + "_" + cz, ForestMesh(bv, bu, bt), new[] { mat },
+                                      ox, oz, "StageFarForestB_" + cx + "_" + cz);
+                    bgo.layer = FoliageLayer;
+                    var br = bgo.GetComponent<Renderer>();
+                    mfChunks.Add(new MeshForest.Chunk
+                    {
+                        centre = new Vector3(ox + FarForestChunk * 0.5f, ySum / (mfInst.Count - mfStart), oz + FarForestChunk * 0.5f),
+                        radius = FarForestChunk * 0.71f + 30f,
+                        cards = br != null ? new[] { br } : new Renderer[0],
+                        start = mfStart,
+                        count = mfInst.Count - mfStart,
+                    });
+                }
+                if (cv.Count > 0 && verts.Count == 0)
+                    ChunkGO(root.transform, "FarCrowns_" + cx + "_" + cz, ForestMesh(cv, cu, ct), new[] { crownMat },
+                            ox, oz, "StageFarCrowns_" + cx + "_" + cz).layer = FoliageLayer;
                 if (verts.Count == 0) return;
                 verts0 += verts.Count;
                 var mesh = new Mesh
@@ -8175,7 +8229,8 @@ namespace PSXRacing.EditorTools
                             ox, oz, "StageFarCrowns_" + cx + "_" + cz).layer = FoliageLayer;
                 chunks++;
             });
-            Log($"Stage far forest (PC profile): {planted} trees in {chunks} chunks to {to:0} m ({verts0} verts), {cliffSkip} cliff sites bare.");
+            Log($"Stage far forest (PC profile): {planted} trees in {chunks} chunks to {to:0} m ({verts0} verts), {cliffSkip} cliff sites bare; {farMesh} as beech impostors.");
+            return farMesh;
         }
 
         /// <summary>The PC build's scene pass (pc_build.ps1 sets PSX_PC_CONTENT=1):
