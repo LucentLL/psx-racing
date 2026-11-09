@@ -33,8 +33,6 @@ namespace PSXRacing.EditorTools
         /// first: height, crest, the rock-top shelf.</summary>
         const bool CliffsOn = true;
         const float CliffMinFaceM = 1.2f;
-        /// <summary>How far the drawn smooth face steps back behind the cliffs (m).</summary>
-        const float CliffBackM = 1.0f;
 
         struct CliffInfo { public int v; public float frontAngle, front, length; }
         struct CliffPlace { public Vector3 pos; public float yaw, scale; public int v; }

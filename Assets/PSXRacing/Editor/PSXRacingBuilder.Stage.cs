@@ -7197,19 +7197,12 @@ namespace PSXRacing.EditorTools
             }
 
             // PC: the Meadow pack's cliffs along the faced stations (PSXRacingBuilder.Cliffs)
+            // The drawn face stays where it is. (Stepping it 1 m back into the
+            // hill behind the cliffs opened see-through slits against its own
+            // rock top, the cut's ends and the walls beside it - owner
+            // 2026-11-09: "transparent gaps between rockfaces and wall edges".)
             if (PCContent)
-            {
-                int before = cliffsPlaced;
                 PlaceCliffs(pts, st, hh, facedAt, outwAt, distAt, R, no * 13 + s, crest);
-                // Where cliffs stand, the smooth DRAWN face steps back into the
-                // hill (CliffBackM): the rock in front is the face, the backing
-                // reads as shadowed recesses between blocks. Its collider, the
-                // solid built above from the same stations, does not move.
-                if (cliffsPlaced > before)
-                    for (int k = 0; k < R; k++)
-                        if (facedAt[k] && hh[k] >= CliffMinFaceM)
-                            for (int q = 0; q < 3; q++) verts[3 * k + q] += outwAt[k] * CliffBackM;
-            }
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
             if (PCContent && RockReliefOn)
                 ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
