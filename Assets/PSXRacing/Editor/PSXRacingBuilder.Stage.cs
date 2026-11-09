@@ -355,7 +355,7 @@ namespace PSXRacing.EditorTools
         //  Stage DEM state
         // ------------------------------------------------------------------
         [Serializable] class DemGridMeta { public float originX, originZ, cell; public int cols, rows; }
-        [Serializable] class DemMeta { public float baseM; public DemGridMeta near, far; }
+        [Serializable] class DemMeta { public float baseM; public DemGridMeta near, far, wide; }
 
         static bool stageDemLoaded;
         /// <summary>The bake's datum: world y 0 is this many metres above sea
@@ -366,6 +366,11 @@ namespace PSXRacing.EditorTools
         static float stageBaseM;
         static short[] demNear, demFar;          // decimetres above baseM
         static DemGridMeta demNearMeta, demFarMeta;
+        /// <summary>The real land out to the horizon (tools/roads/bake_wide.mjs:
+        /// 240 m cells, 36 km past the far grid), or null where a stage has none -
+        /// only the PC pass's horizon reads it (PSXRacingBuilder.Horizon).</summary>
+        static short[] demWide;
+        static DemGridMeta demWideMeta;
         static List<Vector3> stageWp;            // the waypoints, world space
         static Vector3[] stageRight;             // RightAt per waypoint
         static Dictionary<long, List<int>> stageHash;
@@ -382,7 +387,8 @@ namespace PSXRacing.EditorTools
         static void StageUnloadDem()
         {
             stageDemLoaded = false;
-            demNear = demFar = null;
+            demNear = demFar = demWide = null;
+            demWideMeta = null;
             surfNear = null;
             stageWp = null; stageHash = null; stageRight = null;
             tunnelIn = null; hasTunnels = false;
@@ -403,6 +409,12 @@ namespace PSXRacing.EditorTools
             stageBaseM = meta.baseM;
             demNear = ReadDemBytes(pre + "_dem_near.bytes", meta.near);
             demFar = ReadDemBytes(pre + "_dem_far.bytes", meta.far);
+            demWide = null; demWideMeta = null;
+            if (meta.wide != null && meta.wide.cols > 1 && File.Exists(ProjectRootPath(pre + "_dem_wide.bytes")))
+            {
+                demWideMeta = meta.wide;
+                demWide = ReadDemBytes(pre + "_dem_wide.bytes", meta.wide);
+            }
 
             // The surface mask is optional: a stage inland has nothing to
             // classify. Its absence is not an error, but a mask that does not
@@ -3589,10 +3601,17 @@ namespace PSXRacing.EditorTools
             var farMat = !string.IsNullOrEmpty(theme.farGround)
                 ? MakeMat(MeshPrefix + "GroundFar", theme.farGround, affine: 0f)
                 : string.IsNullOrEmpty(theme.sand)
-                ? MakeMat(MeshPrefix + "GroundFar", StageGenDir + "/FallMottle.png", affine: 0f)
+                ? MakeMat(MeshPrefix + "GroundFar", FarGroundPath((int)Season.Fall), affine: 0f)
                 : MakeMat(MeshPrefix + "GroundFar", theme.ground, affine: 0f, tint: theme.coastGroundTint);
             if (string.IsNullOrEmpty(theme.farGround) && string.IsNullOrEmpty(theme.sand))
-                RegisterSeasonalTexture(MeshPrefix + "GroundFar", farMat, DressMottlePath, "far");
+            {
+                // PC: the far ground is the near ground's own forest floor (the
+                // owner's packs) - no seam where the 12 m lattice hands over to
+                // the 60 m one - and PSXRacingBuilder.Horizon gives it its
+                // canopy at distance. Elsewhere, the mottle as ever.
+                if (!(PCContent && theme.stageForest && ApplyNMGround(farMat, MeshPrefix + "GroundFar", "far")))
+                    RegisterSeasonalTexture(MeshPrefix + "GroundFar", farMat, FarGroundPath, "far");
+            }
 
             var b = new Bounds(pts[0], Vector3.zero);
             foreach (var p in pts) b.Encapsulate(p);
@@ -3650,10 +3669,16 @@ namespace PSXRacing.EditorTools
                                          NearCoverage - FarCell);
                 if (mesh == null) return;
                 farVerts += mesh.vertexCount;
-                ChunkGO(root.transform, "GroundF_" + cx + "_" + cz, mesh,
-                        new[] { farMat }, ox, oz, "StageGroundF_" + cx + "_" + cz);
+                var fgo = ChunkGO(root.transform, "GroundF_" + cx + "_" + cz, mesh,
+                                  new[] { farMat }, ox, oz, "StageGroundF_" + cx + "_" + cz);
+                // The land draws to the horizon where a camera gives that layer
+                // its own distance (StageCulling, the PC profile's horizon).
+                if (HorizonLayer >= 0) fgo.layer = HorizonLayer;
                 farChunks++;
             });
+
+            // THE HORIZON (PSXRacingBuilder.Horizon): the land past the far ring
+            BuildStageHorizon(b, root.transform, farMat);
 
             Log($"Stage ground: {nearChunks} near chunks ({nearVerts} verts, {withColl} with colliders), " +
                 $"{farChunks} far chunks ({farVerts} verts).");
@@ -7651,6 +7676,8 @@ namespace PSXRacing.EditorTools
             // trunk stands where the trunk collider does, plus their grounds.
             ComposeForestAtlases();
             WriteSeasonGroundTextures();
+            // and the land the PC pass draws to the horizon (PSXRacingBuilder.Horizon)
+            WriteFarLandTextures();
 
             // The far slopes: an autumn mottle so terrain past the tree band
             // still reads as forest. Low-frequency colour clumps, like the

@@ -834,6 +834,8 @@ namespace PSXRacing
             // plane, over the road, coming and going with the culling: the
             // black wedges in the owner's video.
             mirrorCam.farClipPlane = src.farClipPlane;
+            // and the driver's per-layer distances (a stage's horizon: StageCulling)
+            if (StageCulling.LayerDistances != null) mirrorCam.layerCullDistances = StageCulling.LayerDistances;
             mirrorCam.depth = src.depth - 1f;
             mirrorCam.useOcclusionCulling = false;
             mirrorCam.allowHDR = false;

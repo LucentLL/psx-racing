@@ -41,7 +41,7 @@ namespace PSXRacing
     /// else the PC is doing). INERT anywhere but a player served from this
     /// machine (127.0.0.1 / localhost) whose URL asks for it.
     /// </summary>
-    public class PerfTour : MonoBehaviour
+    public partial class PerfTour : MonoBehaviour
     {
         public static bool Active { get; private set; }
 
@@ -115,6 +115,11 @@ namespace PSXRacing
             t.viewArg = ShotLink.Query(url, "view") ?? "";
             t.shotsArg = ShotLink.Query(url, "shots") ?? "";
             t.abArg = ShotLink.Query(url, "ab") ?? "";
+            // a mountain stage instead of the city (PerfTour.Stage.cs)
+            t.stageArg = ShotLink.Query(url, "stage") ?? "";
+            t.fromArg = ShotLink.Query(url, "from") ?? "";
+            t.dayArg = ShotLink.Query(url, "day") ?? "";
+            t.capArg = ShotLink.Query(url, "cap") ?? "";
             string secs = ShotLink.Query(url, "secs");
             if (!string.IsNullOrEmpty(secs)) float.TryParse(secs, NumberStyles.Float, CultureInfo.InvariantCulture, out t.maxSecs);
             // &snap=N: a picture of the drive every N seconds (a LOOK run: the
@@ -171,6 +176,19 @@ namespace PSXRacing
             catch (System.Exception e) { Say("FAIL the career would not seed: " + e.Message); }
             int hour = HourIndex();
             int weather = System.Enum.TryParse(weatherArg, true, out Weather w) ? (int)w : -1;
+            if (!string.IsNullOrEmpty(stageArg))
+            {
+                yield return StageTour(hour, weather);
+                Post("done.txt", "DONE " + tag);
+                Say("DONE " + tag);
+                yield return new WaitForSecondsRealtime(1f);
+#if UNITY_EDITOR
+                UnityEditor.EditorApplication.Exit(0);
+#elif !UNITY_WEBGL
+                Application.Quit();
+#endif
+                yield break;
+            }
             LifeHomeScreen.PendingTab = "charlotte";
             LifeSimManager.Save();
             SceneManager.LoadScene(0);

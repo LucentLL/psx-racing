@@ -13,6 +13,8 @@ namespace PSXRacing.EditorTools
             // 256 would halve every tree to 64 px - chunkier than the circuit
             // trees it replaces.
             if (assetPath.Contains("/BRP/Gen/TreeAtlas")) return 512;
+            // The stage horizon's land (PSXRacingBuilder.Horizon): written at 512
+            if (IsFarLand(assetPath)) return 512;
             if (assetPath.Contains("/Art/City/Understory/Understory_")) return 512;
             // Charlotte's sign faces (WP-23): six 48 ft bulletins, four
             // posters, sixteen business cabinets, the gantry panels and the
@@ -54,9 +56,16 @@ namespace PSXRacing.EditorTools
         /// whole strokes - EXIT 36's "6" read as an "S" from 55 m; everything
         /// else keeps the PSX point filter.</summary>
         public static UnityEngine.FilterMode FilterFor(string assetPath) =>
-            assetPath.EndsWith("/Art/City/Signs/CityGuide.png") ? UnityEngine.FilterMode.Trilinear : UnityEngine.FilterMode.Point;
+            assetPath.EndsWith("/Art/City/Signs/CityGuide.png") || IsFarLand(assetPath) ? UnityEngine.FilterMode.Trilinear : UnityEngine.FilterMode.Point;
+
+        /// <summary>THE STAGE HORIZON (2026-11-09): the land a PC stage draws
+        /// from 150 m to tens of kilometres. Point-sampled and unmipped, the old
+        /// mottle at 5 km was a moire of its own tile; this one is trilinear
+        /// with mips, like the sky it stands against.</summary>
+        public static bool IsFarLand(string assetPath) => assetPath.Contains("/Gen/FarLand_");
 
         public static bool MipsFor(string assetPath) =>
+            IsFarLand(assetPath) ||
             assetPath.Contains("/Art/City/Facade/city_facade_atlas") ||
             // the guide signs' letters: without mips a legend 200 m off sparkles
             assetPath.EndsWith("/Art/City/Signs/CityGuide.png") ||

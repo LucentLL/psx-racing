@@ -365,6 +365,7 @@ namespace PSXRacing
             // The driver's far plane, as the rear-view's (the skyline is
             // squeezed for it and culled by its bounds).
             s.cam.farClipPlane = src.farClipPlane;
+            if (StageCulling.LayerDistances != null) s.cam.layerCullDistances = StageCulling.LayerDistances;
             s.cam.depth = src.depth - 1f;
             s.cam.useOcclusionCulling = false;
             s.cam.allowHDR = false;

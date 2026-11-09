@@ -92,6 +92,11 @@ namespace PSXRacing
         /// </summary>
         public static bool FullForest => PC || (Application.platform == RuntimePlatform.WebGLPlayer && !Application.isMobilePlatform);
 
+        /// <summary>A stage's land drawn to its horizon (StageCulling, the
+        /// builder's BuildStageHorizon); -psx-no-horizon is the A/B: the far
+        /// plane back at the detail's edge with the end-of-view fade.</summary>
+        public static bool StageHorizon => FullForest && !HasArg("-psx-no-horizon");
+
         /// <summary>Traffic at its most wherever nobody picked a level.</summary>
         public static bool MaxTraffic
         {

@@ -215,6 +215,7 @@ $wanted = @(
          ,@("38bb15d6b378aff46b461e248592d1da", "OE/Grass/Grass01_BigUV.png")) },
     @{ Pkg = "NatureManufacture\3D ModelsVegetation\Meadow Environment - Dynamic Nature.unitypackage"
        Files = @(
+         @("a258be2ed1511214b84b1864ea422611", "Meadow/Hills/T_Meadow_Hill_01_A.png"),
          @("ac475ca2b38de82468e64d316e08d1bd", "Meadow/Maple/T_maple_bush_BC.tga"),
          @("02c316396b3927340a84d0ffceec55b7", "Meadow/Maple/T_maple_bush_N.tga"),
          @("6a61f2999d031544e9f8f3dbb0479d97", "Meadow/Maple/maple_bush_01.FBX"),
@@ -263,8 +264,10 @@ $root = Join-Path $Dest "Assets\StoreAssets"
 foreach ($w in $wanted) {
     $pkg = Join-Path $cache $w.Pkg
     if (-not (Test-Path $pkg)) { Write-Warning "missing package: $($w.Pkg) (download it in Package Manager > My Assets)"; continue }
-    $need = $w.Files | Where-Object { -not (Test-Path (Join-Path $root $_[1])) }
-    if (-not $need) { Write-Host "up to date: $($w.Pkg)"; continue }
+    # a list of pairs, even when ONE file is missing (a lone pair would unroll into its two strings)
+    $need = New-Object System.Collections.ArrayList
+    foreach ($f in $w.Files) { if (-not (Test-Path (Join-Path $root $f[1]))) { [void]$need.Add($f) } }
+    if ($need.Count -eq 0) { Write-Host "up to date: $($w.Pkg)"; continue }
     $tmp = Join-Path $env:TEMP ("storeassets_" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force $tmp | Out-Null
     try {

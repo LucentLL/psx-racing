@@ -110,7 +110,7 @@ namespace PSXRacing.EditorTools
         static SkyRole SkyRoleOf(string meshName)
         {
             string n = meshName.StartsWith(MeshPrefix) ? meshName.Substring(MeshPrefix.Length) : meshName;
-            if (n.StartsWith("Coll") || n.Contains("Coll") || n.StartsWith("StageGroundF") || n.StartsWith("StageSea")
+            if (n.StartsWith("Coll") || n.Contains("Coll") || n.StartsWith("StageGroundF") || n.StartsWith("StageHorizon") || n.StartsWith("StageSea")
                 || n.Contains("Post") || n.StartsWith("Tunnel")) return SkyRole.None;
             if (n.StartsWith("StageForest")) return SkyRole.Card;
             // A circuit's trees share ONE card mesh between every tree: a

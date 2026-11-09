@@ -13,5 +13,12 @@
     "cell": 60,
     "cols": 354,
     "rows": 370
+  },
+  "wide": {
+    "originX": -46560,
+    "originZ": -47520,
+    "cell": 240,
+    "cols": 390,
+    "rows": 396
   }
 }

@@ -51,6 +51,14 @@ namespace PSXRacing
         /// <summary>The camera's far plane where a scene draws past the hour
         /// table's band (StageCulling on the PC profile); 0 = the table's.</summary>
         public static float FarEdgeM;
+        /// <summary>The far plane of a scene that draws its LAND past the
+        /// detail's edge (StageCulling with a horizon, the PC profile): the
+        /// real mountains stand where the fade used to be, so a clear day has
+        /// no fade at all short of this. 0 = no horizon.</summary>
+        public static float HorizonM;
+        /// <summary>The blue distance (LookChoices.AerialDepth): where it starts,
+        /// and the share of the air's colour a ridge takes at AerialFarM.</summary>
+        public const float AerialNearM = 2500f, AerialFarM = 40000f, AerialMax = 0.45f;
         public static bool FogOnlyWhenFoggy = true;
 
         public struct Preset
@@ -420,6 +428,7 @@ namespace PSXRacing
             {
                 globals.ambient = p.ambient;
                 float scale = Mathf.Max(0.01f, globals.fogScale);
+                float curve = FogCurve;
                 if (weather == Weather.Fog || !FogOnlyWhenFoggy)
                 {
                     // A FOGGY DAY: the hour's band as signed off. Through the
@@ -462,15 +471,50 @@ namespace PSXRacing
                     // brightness by day and a third at night ("at night you would
                     // expect things to get darker, not whiter"). Rain keeps the
                     // pale wash ("That effect would look good during fog or rain").
-                    float dark = weather == Weather.Rain ? 1f : Mathf.Lerp(0.68f, 0.32f, NightFor(index));
+                    bool rain = weather == Weather.Rain;
+                    float dark = rain ? 1f : Mathf.Lerp(0.68f, 0.32f, NightFor(index));
                     var hz = p.skyHorizon;
                     globals.fogColor = new Color(hz.r * dark, hz.g * dark, hz.b * dark, hz.a);
                     globals.fogNear = edge * (farView ? 0.9f : EdgeFadeStart);
                     globals.fogFar = edge;
                     // and the sky's own pale horizon band mostly gone (rain keeps it)
-                    Shader.SetGlobalFloat("_PSXHorizonBandCut", weather == Weather.Rain ? 0f : 0.8f);
+                    float bandCut = rain ? 0f : 0.8f;
+                    // THE HORIZON (StageCulling, owner 2026-11-09: "I still see the
+                    // haze on the dusk horizon and haze on distant mountains").
+                    // Measured (Editor/HazeProbe): that last tenth of the view WAS
+                    // the haze - a ridge 2.0-2.24 km off painted in this colour,
+                    // which the horizon ring turns up to three times brighter
+                    // toward a low sun: the twilight's pink on a mountain. Where the
+                    // land is drawn on to the real horizon there is nothing to
+                    // hide: no fade short of the apron's own last stretch, and no
+                    // band in the sky. Rain keeps its wash, closing at the
+                    // detail's edge, so the far ridges stand as flat shapes in it.
+                    if (HorizonM > edge && !rain)
+                    {
+                        globals.fogNear = HorizonM * 0.97f;
+                        globals.fogFar = HorizonM;
+                        bandCut = 1f;
+                        // THE BLUE DISTANCE (LookChoices.AerialDepth, OFF until the
+                        // owner picks it from an A/B - his rule for any haze): with
+                        // the land drawn for tens of kilometres, the air between is
+                        // what says how far a ridge is. Nothing inside AerialNearM;
+                        // from there a straight ramp that reaches AerialMax only at
+                        // AerialFarM - about a tenth at 10 km - toward the sky's own
+                        // blue by day (never its pale horizon) and toward the dark
+                        // at night.
+                        if (LookChoices.AerialDepth)
+                        {
+                            float nt = NightFor(index);
+                            var air = Color.Lerp(p.skyHorizon, p.skyTop, 0.55f) * Mathf.Lerp(0.9f, 0.4f, nt);
+                            globals.fogColor = new Color(air.r, air.g, air.b, hz.a);
+                            globals.fogNear = AerialNearM;
+                            globals.fogFar = AerialNearM + (AerialFarM - AerialNearM) / AerialMax;
+                            curve = 1f;
+                        }
+                    }
+                    Shader.SetGlobalFloat("_PSXHorizonBandCut", bandCut);
                 }
-                globals.fogCurve = FogCurve;
+                globals.fogCurve = curve;
                 globals.skyAmbient = SkyAmbientFor(p);
                 // What the hour means beyond its light (2026-09-21, the NFS
                 // pass). FIELDS, not Shader.SetGlobal: PSXGlobals re-pushes

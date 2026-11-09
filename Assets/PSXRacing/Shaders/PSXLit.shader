@@ -200,6 +200,25 @@ Shader "PSX/Lit"
         // skyline copies only - drawn where the streamed world cannot reach
         // (past the squeeze's start), never over it. 0 everywhere else.
         [HideInInspector] _SkyFarLand ("Far land", Float) = 0
+        // THE STAGE HORIZON's corridor stand-in (the builder's BuildStageHorizon,
+        // PSXRacingBuilder.Horizon): the far grid's coarse cells over the road
+        // corridor, drawn only past this many metres - where the near ground
+        // that owns the corridor is at its draw limit. 0 = off.
+        [HideInInspector] _NearCut ("Near cut (m)", Float) = 0
+        // 1 = the LAND a stage draws to its horizon (the far ring, the horizon
+        // tiers, the stand-ins): it never takes the detail's dissolve below.
+        [HideInInspector] _Horizon ("Horizon land", Float) = 0
+        // THE LAND AT DISTANCE (owner 2026-11-09: the Meadow and Forest packs
+        // first, "especially for distant mountain terrain"). Up close the land
+        // is the pack's forest floor, the near ground's own; from far away a
+        // mountainside is its CANOPY, so past _HorizonFade.x metres it turns,
+        // by .y, into _HorizonCanopy (the dress's forest seen from above: rgb,
+        // a = how much) shaped by the Meadow pack's background-hill map laid
+        // top-down and mirrored (_HorizonMacro; .z = tiles per metre, .w = the
+        // map's mean luminance, so the canopy colour is the mean).
+        [HideInInspector] [NoScaleOffset] _HorizonMacro ("Horizon macro", 2D) = "gray" {}
+        [HideInInspector] _HorizonCanopy ("Horizon canopy", Color) = (0,0,0,0)
+        [HideInInspector] _HorizonFade ("Horizon fade", Vector) = (300, 1800, 0.000167, 0.34)
         // CITY POP-IN (city-popin, 2026-10-28; CityTileFade.cs): how this draw
         // takes part in Charlotte's tile fade. 0 on every material (the other
         // venues never read the table); set per renderer by a
@@ -393,6 +412,17 @@ Shader "PSX/Lit"
             float _Skyline;
             float _SkylinePass;
             float _SkyFarLand;
+            float _NearCut;
+            float _Horizon;
+            sampler2D _HorizonMacro;
+            fixed4 _HorizonCanopy;
+            float4 _HorizonFade;
+            // THE DETAIL'S EDGE (StageCulling, a stage with a horizon): everything
+            // but the land dissolves between x and y metres from the eye, on the
+            // screen-door pattern, so nothing pops where its layer stops being
+            // drawn - the land behind it is already there. Zero = off (every
+            // other scene, every other platform).
+            float4 _PSXDetailFade;
             // CITY POP-IN (CityTileFade.cs): the fade table, 32 x 32 tiles
             // wrapped (texel = tile mod 32; point, repeat). r: a live tile's
             // buildings in, its proxies out; g: its objects in; b: its tree
@@ -1802,6 +1832,28 @@ Shader "PSX/Lit"
                     tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb, bm);
                 }
             #endif
+                // THE LAND AT DISTANCE (see _HorizonMacro): the floor turns into
+                // the canopy over it, shaped by the pack's hill map; without the
+                // map (no store files) the tile is blended with itself at a
+                // seventh of the scale, so one tile never draws its own grid
+                // over a mountainside.
+                if (_Horizon > 0.5)
+                {
+                    if (_HorizonCanopy.a > 0.0)
+                    {
+                        float hd = length(i.wpos - _WorldSpaceCameraPos);
+                        float hf = saturate((hd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0)) * _HorizonCanopy.a;
+                        if (hf > 0.0)
+                        {
+                            float2 mu = abs(frac(i.wpos.xz * (_HorizonFade.z * 0.5)) * 2.0 - 1.0);
+                            float3 macro = tex2D(_HorizonMacro, mu).rgb;
+                            float ml = dot(macro, float3(0.2126, 0.7152, 0.0722)) / max(_HorizonFade.w, 0.01);
+                            tex.rgb = lerp(tex.rgb, _HorizonCanopy.rgb * ml, hf);
+                        }
+                    }
+                    else
+                        tex.rgb = tex.rgb * 0.5 + PSXMainTex(_MainTex, uv * 0.137 + float2(0.31, 0.17)).rgb * _Color.rgb * 0.5;
+                }
                 // LEAF VIVID (the mountain forest, owner 2026-11-08: "the tree
                 // leave colors still seems dull and lifeless")
                 if (_LeafVivid.x != 1.0 || _LeafVivid.y != 1.0)
@@ -1840,6 +1892,19 @@ Shader "PSX/Lit"
                     float2 cpx = floor(i.pos.xy);
                     float cDith = frac(52.9829189 * frac(dot(cpx, float2(0.06711056, 0.00583715))));
                     clip(saturate((crownUp - 0.26) / 0.21) - cDith - 1e-5);
+                }
+                // THE STAGE HORIZON's corridor stand-in: nothing nearer than its cut
+                if (_NearCut > 0.0) clip(length(i.wpos - _WorldSpaceCameraPos) - _NearCut);
+                // and the detail's edge: all but the land dissolves into it
+                if (_PSXDetailFade.y > 0.0 && _Horizon < 0.5)
+                {
+                    float dd = length(i.wpos - _WorldSpaceCameraPos);
+                    if (dd > _PSXDetailFade.x)
+                    {
+                        float2 dpx2 = floor(i.pos.xy);
+                        float ddith = frac(52.9829189 * frac(dot(dpx2, float2(0.06711056, 0.00583715))));
+                        clip((1.0 - saturate((dd - _PSXDetailFade.x) / max(_PSXDetailFade.y - _PSXDetailFade.x, 1.0))) - ddith - 1e-5);
+                    }
                 }
                 // THE FAR LAND (CityFarLand): only past the squeeze's start A,
                 // where the streamed world has stopped - in all three draws, so

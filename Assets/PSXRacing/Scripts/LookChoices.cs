@@ -62,6 +62,16 @@ namespace PSXRacing
         /// until the owner picks it from the sheet (Editor/SkylineMatchShots
         /// with PSX_SKYM_AB=1). PSX_CLEARDAY=1 in a tool; a tool may also force
         /// it per shot (<see cref="ClearDayForce"/>).</summary>
+        /// <summary>THE BLUE DISTANCE (the stage horizon, 2026-11-09): past
+        /// 2.5 km a ridge takes a little of the sky's blue with distance, about a
+        /// tenth at 10 km (TimeOfDay.Apply, only in a scene that draws its land
+        /// to the horizon). The owner's rule for any haze is an A/B first, so it
+        /// ships OFF: clear air to the horizon. PSX_AERIAL=1 in a tool, or
+        /// <see cref="AerialForce"/> per shot.</summary>
+        public const bool AerialDepthDefault = false;
+        public static bool? AerialForce;
+        public static bool AerialDepth => AerialForce ?? Env("PSX_AERIAL") ?? AerialDepthDefault;
+
         public const bool ClearDayDefault = false;
         public static bool? ClearDayForce;
         public static bool ClearDay => ClearDayForce ?? Env("PSX_CLEARDAY") ?? ClearDayDefault;

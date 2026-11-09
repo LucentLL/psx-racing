@@ -144,7 +144,10 @@ namespace PSXRacing
             var old = rt;
             builtWidth = w;
             builtHeight = Mathf.Max(1, height);
-            rt = new RenderTexture(builtWidth, builtHeight, 24, RenderTextureFormat.Default)
+            // 32-bit depth on the PC profile: a stage's land runs to a far plane
+            // tens of kilometres out (StageCulling's horizon), and 24 bits there
+            // resolve a metre at 2 km and twenty at 10.
+            rt = new RenderTexture(builtWidth, builtHeight, PlatformProfile.PC ? 32 : 24, RenderTextureFormat.Default)
             {
                 // bilinear only for the PC tier's FXAA (ApplyFilter)
                 filterMode = Application.isPlaying && PSXQuality.PCHD ? FilterMode.Bilinear : FilterMode.Point,

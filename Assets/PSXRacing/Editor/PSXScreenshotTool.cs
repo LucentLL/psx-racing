@@ -1293,7 +1293,7 @@ namespace PSXRacing.EditorTools
             var oldRot = cam.transform.rotation;
             cam.transform.SetPositionAndRotation(pos, rot);
 
-            var rt = new RenderTexture(ShotWidth, ShotHeight, 24, RenderTextureFormat.ARGB32)
+            var rt = new RenderTexture(ShotWidth, ShotHeight, PlatformProfile.PC ? 32 : 24, RenderTextureFormat.ARGB32)
             {
                 filterMode = FilterMode.Point,
             };
