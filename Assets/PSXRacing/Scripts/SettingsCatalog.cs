@@ -316,6 +316,9 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "REFLECTIONS", () => ReflectionPrefs.Label,
                  "The world in car paint and glass, and in wet roads on PC. OFF saves a little speed.",
                  () => ReflectionPrefs.Toggle());
+            Step(SettingsTab.Visuals, "FOREST DETAIL", () => ForestDetailPrefs.Label,
+                 "How far the mountain forest keeps full detail. LOW for speed, HIGH for less pop-in. Next race.",
+                 () => ForestDetailPrefs.Cycle());
             Step(SettingsTab.Visuals, "REAR MIRROR", () => ViewRatePrefs.Label(ViewRatePrefs.View.RearMirror),
                  "How often the rear-view mirror redraws. AUTO shares one extra view a frame (fastest).",
                  () => ViewRatePrefs.Cycle(ViewRatePrefs.View.RearMirror));

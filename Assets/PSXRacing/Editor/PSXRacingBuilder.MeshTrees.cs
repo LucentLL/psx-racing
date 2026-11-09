@@ -357,7 +357,17 @@ namespace PSXRacing.EditorTools
                                   true, new Color(0.82f, 0.88f, 0.80f), maskIsHdrp: false);
             var cherryFall = NMLitMat("NM_black_cherry_fall", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
                                       true, new Color(1.35f, 0.36f, 0.26f), maskIsHdrp: false);
-            var kit = new MeshTreeKit { leafByDress = new[] { null, green, green, fall[0], null } };
+            // WINTER TWIGS (owner 2026-11-08, a winter frame: the bare beeches
+            // read as a burned forest - a beech's fine twigs live in its leaf
+            // texture). The autumn atlas with the leaves keyed to a grey-brown
+            // twig speckle (Gen/, made beside the store files); no translucency.
+            Material bare = null;
+            if (FindTex(NMDir, "Gen/T_beech_atlas_bare") != null)
+            {
+                bare = NMLitMat("NM_beech_twigs", NMDir, "Gen/T_beech_atlas_bare", null, null, true, new Color(0.86f, 0.82f, 0.78f));
+                bare.SetVector("_LeafVivid", new Vector4(1f, 1f, 0f, 0f));
+            }
+            var kit = new MeshTreeKit { leafByDress = new[] { bare, green, green, fall[0], bare } };
 
             var list = new List<MeshForest.Variant>();
             int n = 0;
@@ -366,7 +376,7 @@ namespace PSXRacing.EditorTools
                 var v = LoadVariant(NMTreeDir, tree, NMLitMat("NM_" + bark, NMTreeDir, bark + "_BC", bark + "_N", bark + "_MaskMap", false, Color.white));
                 if (v == null) continue;
                 int fi = n++ % fall.Length;
-                v.leafDress = new[] { null, green, green, fall[fi], null };
+                v.leafDress = new[] { bare, green, green, fall[fi], bare };
                 AddImpostor(v, tree, FallTints[fi]);
                 list.Add(v);
             }
@@ -396,7 +406,7 @@ namespace PSXRacing.EditorTools
             {
                 var v = LoadVariant(NMUnderDir, name, barkSmall);
                 if (v == null) continue;
-                v.leafDress = new[] { null, green, green, fall[n++ % fall.Length], null };
+                v.leafDress = new[] { bare, green, green, fall[n++ % fall.Length], bare };
                 v.maxDist = UnderMaxDist;
                 v.thin = 0.45f;
                 small.Add(list.Count); list.Add(v);
@@ -731,7 +741,7 @@ namespace PSXRacing.EditorTools
                     float keep = Mathf.Lerp(0.95f, 0.55f, Mathf.InverseLerp(roadHalf + 3f, CoverBand, f.d));
                     if (((h >> 20) & 1023u) / 1023f > keep) continue;
                     float lat = StageLatticeY(x, z), top = StageBankTopY(f);
-                    if (OnGradedRoadside(f) && top > lat + 0.3f) continue;   // a cut face
+                    if (OnGradedRoadside(f) && top > lat + 0.3f && !OnRockTop(f)) continue;   // a cut face (its top may grow)
                     float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
                     int vi = kit.cover[(int)((h >> 5) % (uint)kit.cover.Length)];
                     float sc = Mathf.Lerp(1.5f, 2.6f, ((h >> 3) & 255u) / 255f);
@@ -778,7 +788,7 @@ namespace PSXRacing.EditorTools
                         if (f.d < roadHalf + L.near || f.d > L.far) continue;
                         if (BridgeAt(f.station) > 0.35f) continue;
                         float lat = StageLatticeY(x, z), top = StageBankTopY(f);
-                        bool graded = OnGradedRoadside(f);
+                        bool graded = OnGradedRoadside(f) && !OnRockTop(f);
                         if (graded && (L.kind >= 2 || top > lat + 0.3f)) continue;
                         float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
                         float hx = (StageLatticeY(x + 1f, z) - StageLatticeY(x - 1f, z)) * 0.5f;
@@ -806,7 +816,7 @@ namespace PSXRacing.EditorTools
             if ((h >> 24) % 10u >= 7u) return false;            // 70% of trees get one
             if (!StageCorridor(x, z, ForestBand + 10f, out RoadFoot f)) return false;
             if (f.d < RoadWidth * 0.5f + 4.5f || f.d > 90f) return false;
-            if (BridgeAt(f.station) > 0.35f || OnGradedRoadside(f)) return false;
+            if (BridgeAt(f.station) > 0.35f || (OnGradedRoadside(f) && !OnRockTop(f))) return false;
             gy = Mathf.Max(Mathf.Max(StageLatticeY(x, z), StageBankTopY(f)), StageFillY(x, z));
             return true;
         }
@@ -828,7 +838,7 @@ namespace PSXRacing.EditorTools
                 float ux = wx + Mathf.Cos(ang) * r, uz = wz + Mathf.Sin(ang) * r;
                 if (!StageCorridor(ux, uz, ForestBand + 10f, out RoadFoot f2)) continue;
                 if (f2.d < roadHalf + UnderClearM || f2.d > ForestBand) continue;
-                if (BridgeAt(f2.station) > 0.35f || OnGradedRoadside(f2)) continue;
+                if (BridgeAt(f2.station) > 0.35f || (OnGradedRoadside(f2) && !OnRockTop(f2))) continue;
                 float gy = Mathf.Max(Mathf.Max(StageLatticeY(ux, uz), StageBankTopY(f2)), StageFillY(ux, uz));
                 bool bush = kit.bushes.Length > 0 && (kit.smallBeech.Length == 0 || (h & 0x10000u) != 0);
                 int[] pool = bush ? kit.bushes : kit.smallBeech;

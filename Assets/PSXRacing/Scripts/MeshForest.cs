@@ -30,6 +30,24 @@ namespace PSXRacing
     ///
     /// F8 flips between the mesh forest and the old cards everywhere (A/B).
     /// </summary>
+    /// <summary>FOREST DETAIL (VISUALS): how far the mesh forest keeps its
+    /// detail. Read when a stage loads.</summary>
+    public static class ForestDetailPrefs
+    {
+        const string Key = "psx.forestdetail";
+        static readonly string[] Names = { "LOW", "MEDIUM", "HIGH" };
+        static readonly float[] Scales = { 0.65f, 1f, 1.5f };
+        static int cached = -1;
+        public static int Level
+        {
+            get { if (cached < 0) cached = Mathf.Clamp(PlayerPrefs.GetInt(Key, 1), 0, 2); return cached; }
+            set { cached = Mathf.Clamp(value, 0, 2); PlayerPrefs.SetInt(Key, cached); PlayerPrefs.Save(); }
+        }
+        public static float Scale => Scales[Level];
+        public static string Label => Names[Level];
+        public static void Cycle() => Level = (Level + 1) % 3;
+    }
+
     public class MeshForest : MonoBehaviour
     {
         [System.Serializable]
@@ -79,7 +97,9 @@ namespace PSXRacing
         public Vector2[] instTilt;
         public Material[] leafByDress = new Material[5];
 
-        public float lod0To = 100f, lod1To = 200f, meshRange = 320f, farRange = 2200f;
+        // The MEDIUM distances (ForestDetailPrefs scales them): the 100/200/320
+        // of the pop-in round dropped the owner under 20 FPS with leaves on.
+        public float lod0To = 50f, lod1To = 120f, meshRange = 230f, farRange = 2200f;
         /// <summary>Hand-over bands (m) ending at lod0To, lod1To and meshRange:
         /// inside one, a plant draws at both levels, each dithered (PSX/Lit's
         /// PSX_LODFADE) so the two add up to one - no pop, no shape jump.
@@ -122,6 +142,9 @@ namespace PSXRacing
         void Init()
         {
             instance = this;
+            float q = ForestDetailPrefs.Scale;
+            lod0To *= q; lod1To *= q; meshRange *= q;
+            band0 *= q; band1 *= q; band2 *= q;
             localM = new Matrix4x4[inst.Length];
             for (int i = 0; i < inst.Length; i++)
             {
@@ -146,7 +169,7 @@ namespace PSXRacing
             for (int v = 0; v < variants.Length; v++)
             {
                 var vr = variants[v];
-                float m = vr.maxDist > 0f ? Mathf.Min(vr.maxDist, far) : far;
+                float m = vr.maxDist > 0f ? Mathf.Min(vr.maxDist * ForestDetailPrefs.Scale, far) : far;
                 if (vr.lods.Length < L || vr.lods[3] == null) m = Mathf.Min(m, meshRange);
                 maxD2[v] = m * m;
                 impFix[v] = vr.pre.inverse * vr.impostorPre;
@@ -385,7 +408,7 @@ namespace PSXRacing
                         if (mat == null) continue;   // bare: no leaves
                         var rp = new RenderParams(mat)
                         {
-                            shadowCastingMode = vr.shadows && lod < 2 ? ShadowCastingMode.On : ShadowCastingMode.Off,
+                            shadowCastingMode = ShadowCastingMode.Off,   // the sun's shadow: SunShadows' card stand-ins
                             receiveShadows = true,
                             layer = gameObject.layer,
                             camera = only,

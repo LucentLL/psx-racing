@@ -158,6 +158,31 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>On the TOP of a real rock face (a faced cut 1.5 m or more,
+        /// past its crest): out of the clear zone in fact, since nothing drives
+        /// up a rock face. The forest may come to the edge there - in the
+        /// Parkway's photographs trees and shrubs crowd the top of every cut,
+        /// where the clear-zone rule left a bare band (owner 2026-11-08).</summary>
+        static bool OnRockTop(in RoadFoot f)
+        {
+            if (!PCContent || rsKind == null || rsCutFaced == null || rsFaceH == null) return false;
+            int s = SideIx(f.side);
+            int st = WrapIdx(Mathf.RoundToInt(f.station), stageWp.Count);
+            if (rsKind[s][st] != Roadside.Cut) return false;
+            rockTopAsk[0]++;
+            if (!rsCutFaced[s][st]) return false;
+            rockTopAsk[1]++;
+            if (rsFaceH[s][st] < 1.5f) return false;
+            rockTopAsk[2]++;
+            if (rsCutGraded != null && rsCutGraded[s][st]) return false;
+            rockTopAsk[3]++;
+            bool past = f.d - RoadWidth * 0.5f >= CutCrestE(s, st) + 0.15f;
+            if (past) rockTopAsk[4]++;
+            return past;
+        }
+
+        static readonly int[] rockTopAsk = new int[5];
+
         static void AddLedge(Vector3 p, int kind) { rockLedges.Add(p); rockLedgeKind.Add(kind); }
 
         /// <summary>The cliffs standing in one near chunk, into MeshForest's table.</summary>

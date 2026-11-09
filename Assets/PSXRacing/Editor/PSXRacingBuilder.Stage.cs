@@ -7988,7 +7988,7 @@ namespace PSXRacing.EditorTools
                             underDeck++;
                         }
                         else if (d < roadHalf + 2.6f || (d < StageWallOffset + 1.2f && f > 0.35f)
-                                 || OnGradedRoadside(foot))
+                                 || (OnGradedRoadside(foot) && !OnRockTop(foot)))
                         {
                             // On the tarmac, the shoulder, or through a
                             // parapet. 2.6 m past the kerb is the same margin
@@ -8115,6 +8115,8 @@ namespace PSXRacing.EditorTools
             });
 
             root.AddComponent<TreeTrunks>().SetForest(trunks, trunkCells, ForestTrunkFrac, ForestBrushFrac);
+            Log($"Rock tops: asked on a cut {rockTopAsk[0]}, faced {rockTopAsk[1]}, >=1.5 m {rockTopAsk[2]}, not graded {rockTopAsk[3]}, past the crest {rockTopAsk[4]}.");
+            System.Array.Clear(rockTopAsk, 0, rockTopAsk.Length);
             int farImp = BuildStageFarForest(pts, parent, mat, crownMat, kit, mfChunks, mfInst, mfScaleVar);
             if (kit != null && mfInst.Count > 0)
             {
