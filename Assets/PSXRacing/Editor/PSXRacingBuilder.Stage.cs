@@ -8157,7 +8157,7 @@ namespace PSXRacing.EditorTools
         // what a desktop GPU draws without noticing. No trunks: nothing past
         // the band is reachable from the road. PC profile only for now
         // (PCOnly), on the Foliage layer.
-        const float FarForestPitch = 12f, FarForestChunk = 480f, FarForestKeep = 0.95f, FarForestScale = 1.2f;
+        const float FarForestPitch = 10f, FarForestChunk = 480f, FarForestKeep = 0.95f, FarForestScale = 1.2f;
         /// <summary>How far from the route the far forest reaches (m): the far
         /// ground's own reach, less a cell, at most this.</summary>
         const float FarForestMaxM = 2100f;
@@ -8224,8 +8224,14 @@ namespace PSXRacing.EditorTools
                         if (d < ForestBand || d > to) continue;
                         float t = Mathf.InverseLerp(ForestBand, to, d);
                         // out of the band's thin end, not a wall of trees at 150 m
-                        float edge = Mathf.Lerp(0.45f, 1f, Mathf.InverseLerp(ForestBand, ForestBand + 120f, d));
-                        float keep = FarForestKeep * (0.75f + 0.35f * FarClumpNoise(wx, wz)) * Mathf.Lerp(1f, 0.85f, t) * edge;   // denser far (owner: far mountains 'completely bare')
+                        // NO THIN BELT where the roadside band ends (owner 2026-11-09,
+                        // with and without the mesh forest: "mountain tops bare in
+                        // both"): the far forest used to start at 45% and 12 m
+                        // pitch against the band's 85% at 7.5 m - a sixth of the
+                        // density from 150 to 270 m, the ridge above the road.
+                        // Now it starts full and closes up near the band.
+                        float edge = Mathf.Lerp(1.25f, 1f, Mathf.InverseLerp(ForestBand, ForestBand + 250f, d));
+                        float keep = FarForestKeep * (0.85f + 0.25f * FarClumpNoise(wx, wz)) * Mathf.Lerp(1f, 0.85f, t) * edge;   // denser far (owner: far mountains 'completely bare')
                         if (keepRoll >= keep) continue;
                         // true cliffs stay bare, as near the road
                         float s1 = StageDemY(wx + 8f, wz) - StageDemY(wx - 8f, wz);
