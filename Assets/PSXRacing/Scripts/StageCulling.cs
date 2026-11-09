@@ -18,6 +18,7 @@ namespace PSXRacing
     [RequireComponent(typeof(Camera))]
     public class StageCulling : MonoBehaviour
     {
+        void OnDisable() => TimeOfDay.FarEdgeM = 0f;
         public float foliageDistance = 520f;
         /// <summary>The PC profile's far plane: the far ground's reach (the
         /// builder writes it). 0 keeps the scene's.</summary>
@@ -35,6 +36,8 @@ namespace PSXRacing
             // 2026-11-02: "trees still pop-in").
             d[layer] = PlatformProfile.FullForest ? 0f : foliageDistance;
             if (PlatformProfile.FullForest && pcFarClip > cam.farClipPlane) cam.farClipPlane = pcFarClip;
+            // the end-of-view fade belongs at this far plane, not the table's band
+            TimeOfDay.FarEdgeM = PlatformProfile.FullForest ? cam.farClipPlane : 0f;
             cam.layerCullDistances = d;
             // Spherical rather than planar: on a switchback the next arm of
             // the road is beside you, and planar distance would pop its trees

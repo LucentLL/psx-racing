@@ -48,6 +48,9 @@ namespace PSXRacing
         /// every day (the before-pictures; nothing in the game sets it).
         /// </summary>
         public const float EdgeFadeStart = 0.80f;
+        /// <summary>The camera's far plane where a scene draws past the hour
+        /// table's band (StageCulling on the PC profile); 0 = the table's.</summary>
+        public static float FarEdgeM;
         public static bool FogOnlyWhenFoggy = true;
 
         public struct Preset
@@ -446,8 +449,22 @@ namespace PSXRacing
                     // circuit and in Charlotte, inside the city's two-tile
                     // ring; 1,500 m on a stage), so nothing pops in.
                     float edge = All[Noon].fogFar * scale;
-                    globals.fogColor = p.skyHorizon;
-                    globals.fogNear = edge * EdgeFadeStart;
+                    // THE PC VIEW: the camera draws further (StageCulling's far
+                    // plane), so the edge fade belongs at THAT edge, only over
+                    // its last tenth - it washed every slope past 1.1 km into
+                    // the horizon colour (owner 2026-11-09: "barren mountain
+                    // tops", the horizon "completely whited out by a haze").
+                    bool farView = FarEdgeM > edge;
+                    if (farView) edge = FarEdgeM;
+                    // DARKER THAN THE SKY, not paler: the land at the edge of the
+                    // view takes the horizon's hue at about two-thirds of its
+                    // brightness by day and a third at night ("at night you would
+                    // expect things to get darker, not whiter"). Rain keeps the
+                    // pale wash ("That effect would look good during fog or rain").
+                    float dark = weather == Weather.Rain ? 1f : Mathf.Lerp(0.68f, 0.32f, NightFor(index));
+                    var hz = p.skyHorizon;
+                    globals.fogColor = new Color(hz.r * dark, hz.g * dark, hz.b * dark, hz.a);
+                    globals.fogNear = edge * (farView ? 0.9f : EdgeFadeStart);
                     globals.fogFar = edge;
                 }
                 globals.fogCurve = FogCurve;
