@@ -8001,7 +8001,7 @@ namespace PSXRacing.EditorTools
 
                         float yaw = (float)R.NextDouble() * 360f;
                         var basePos = new Vector3(wx - ox, ground - 0.25f, wz - oz);
-                        bool asMesh = kit != null && !sp.conifer && idx != BareIdx;
+                        bool asMesh = kit != null && !sp.conifer;   // the bare late-fall species too: a winter beech is bare
                         if (asMesh)
                         {
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
@@ -8240,7 +8240,7 @@ namespace PSXRacing.EditorTools
                         var sp = StageTrees[idx];
                         float h = sp.height * ForestHeightScale * FarForestScale * Mathf.Lerp(1f, 1.5f, t)
                                 * (0.85f + (float)sizeRoll * 0.4f);
-                        bool asMesh = kit != null && mfInst != null && !sp.conifer && idx != BareIdx;
+                        bool asMesh = kit != null && mfInst != null && !sp.conifer;
                         if (asMesh)
                         {
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^

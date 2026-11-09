@@ -166,6 +166,31 @@ namespace PSXRacing.EditorTools
 
         static bool NMGroundOn => NMGroundFor((int)Season.Fall) != null;
 
+        const string MeadowGroundDir = "Assets/StoreAssets/Meadow/Ground";
+
+        /// <summary>The second ground layer for a dress, from the Meadow pack
+        /// (tile-checked 2026-11-08, all five pass): grassy patches in spring and
+        /// summer, the darker leaf litter in fall and winter; none under snow.</summary>
+        static string MeadowBlendFor(int dress)
+        {
+            if (dress == Seasons.DressSnow) return null;
+            string n = dress == (int)Season.Summer || dress == (int)Season.Spring
+                ? "T_forest_ground_grass_01_A_SM" : "T_forest_ground_leaves_01_A_SM";
+            string p = MeadowGroundDir + "/" + n + ".tga";
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(p) != null ? p : null;
+        }
+
+        static void SetGroundBlend(Material m, int dress)
+        {
+            if (m == null) return;
+            string bp = PCContent ? MeadowBlendFor(dress) : null;
+            var bt = bp != null ? AssetDatabase.LoadAssetAtPath<Texture2D>(bp) : null;
+            if (bt == null) { m.DisableKeyword("PSX_GROUNDBLEND"); return; }
+            m.SetTexture("_BlendTex", bt);
+            m.SetVector("_BlendParams", new Vector4(0.24f, 13f, 0.42f, 0f));
+            m.EnableKeyword("PSX_GROUNDBLEND");
+        }
+
         /// <summary>The ROAD-EDGE verge: mowed green in every dress but winter
         /// (the floor's green-and-brown) and snow (its turf) - the Parkway's
         /// shoulders stay mown green through the fall (owner's frames,
@@ -190,6 +215,8 @@ namespace PSXRacing.EditorTools
             float gs = m.mainTexture != null && m.mainTexture.name == "Grass01_BigUV" ? VergeGrassScale : NMGroundScale;
             m.mainTextureScale = new Vector2(gs, gs);
             GroundNormalFor(m);
+            if (!verge) SetGroundBlend(m, (int)Season.Fall);
+            else m.DisableKeyword("PSX_GROUNDBLEND");
         }
 
         /// <summary>The forest floor on a ground material and its seasons
@@ -200,6 +227,14 @@ namespace PSXRacing.EditorTools
             NMGroundRetexture(baseMat, verge);
             RegisterSeasonalTexture(key, baseMat,
                 d => d == Seasons.DressSnow ? DressTurfPath(d) : verge ? NMVergeFor(d) : NMGroundFor(d), role);
+            if (!verge)
+            {
+                SetGroundBlend(baseMat, (int)Season.Fall);
+                foreach (var e in seasonEntries)
+                    if (e.baseMat == baseMat && e.variants != null)
+                        for (int d = 0; d < e.variants.Length; d++)
+                            if (e.variants[d] != baseMat) SetGroundBlend(e.variants[d], d);
+            }
             foreach (var e in seasonEntries)
             {
                 if (e.baseMat != baseMat || e.variants == null) continue;

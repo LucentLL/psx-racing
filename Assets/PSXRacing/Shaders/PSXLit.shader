@@ -116,6 +116,11 @@ Shader "PSX/Lit"
         // w > 0: the leaf texel RECOLOURED toward this colour by its own
         // luminance (a green-only scan's autumn: the tulip poplar's yellow)
         [HideInInspector] _LeafTarget ("Leaf target", Color) = (1,1,1,1)
+        // A SECOND GROUND LAYER (PSX_GROUNDBLEND, the mountain stages on PC):
+        // _BlendTex in world-space patches over the main texture.
+        // _BlendParams: x its repeats a metre, y the patches' size (m), z cover 0..1
+        [HideInInspector] _BlendTex ("Blend layer", 2D) = "white" {}
+        [HideInInspector] _BlendParams ("Blend params", Vector) = (0.25, 14, 0.45, 0)
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -267,6 +272,7 @@ Shader "PSX/Lit"
             // UNITY_SETUP_INSTANCE_ID, so every path below reads it as before.
             #pragma multi_compile_instancing
             #pragma shader_feature_local __ PSX_LODFADE
+            #pragma shader_feature_local_fragment __ PSX_GROUNDBLEND
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
@@ -348,6 +354,17 @@ Shader "PSX/Lit"
             float4 _PSXLodThin;
             float4 _LeafVivid;
             float4 _LeafTarget;
+            sampler2D _BlendTex;
+            float4 _BlendParams;
+            float PSXBlendHash(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+            float PSXBlendNoise(float2 p)
+            {
+                float2 i0 = floor(p), f = frac(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float a = PSXBlendHash(i0), b = PSXBlendHash(i0 + float2(1, 0));
+                float c = PSXBlendHash(i0 + float2(0, 1)), d = PSXBlendHash(i0 + float2(1, 1));
+                return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+            }
             float _Emission;
             float _Affine;
             float _Cull;
@@ -1764,6 +1781,19 @@ Shader "PSX/Lit"
             #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
+            #endif
+            #ifdef PSX_GROUNDBLEND
+                // THE SECOND LAYER, in patches (owner 2026-11-08: the ground "not
+                // anywhere nearly as detailed as the asset pack displayed" - the
+                // pack's own terrain blends several layers): two octaves of
+                // world-space noise, a soft edge, the layer at its own scale.
+                {
+                    float2 wq = i.wpos.xz / max(_BlendParams.y, 1.0);
+                    float bn = PSXBlendNoise(wq) * 0.65 + PSXBlendNoise(wq * 2.7 + 17.3) * 0.35;
+                    float bm = smoothstep(1.0 - _BlendParams.z - 0.12, 1.0 - _BlendParams.z + 0.12, bn);
+                    float4 bt = PSXMainTex(_BlendTex, i.wpos.xz * _BlendParams.x);
+                    tex.rgb = lerp(tex.rgb, bt.rgb * _Color.rgb, bm);
+                }
             #endif
                 // LEAF VIVID (the mountain forest, owner 2026-11-08: "the tree
                 // leave colors still seems dull and lifeless")

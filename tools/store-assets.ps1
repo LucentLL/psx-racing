@@ -246,7 +246,17 @@ $wanted = @(
          @("c6db38cf5a49abd478b8f9c76da19094", "Meadow/Fence/wood_fence_type_03_B.FBX"),
          @("fddcdd8f8fdd0c8449b9d18362be49d7", "Meadow/Fence/wood_fence_type_03_C.FBX"),
          @("78f16e48fca1d9247b1a2f9957a6fa67", "Meadow/Fence/wood_fence_type_04_A.FBX"),
-         @("50d9b77f2eda09747beb0663b2e496d8", "Meadow/Fence/wood_fence_type_04_B.FBX")) }
+         @("50d9b77f2eda09747beb0663b2e496d8", "Meadow/Fence/wood_fence_type_04_B.FBX"),
+         @("1f97ea21868807847aafc8516834ded7", "Meadow/Ground/T_forest_ground_grass_01_A_SM.tga"),
+         @("dc799eaceb0934442bdad22840e196b3", "Meadow/Ground/T_forest_ground_grass_01_N.png"),
+         @("9c30581f43556f545a014cf4d9179265", "Meadow/Ground/T_forest_ground_leaves_01_A_SM.tga"),
+         @("f0465c816db0a7d45bc908b0c3fa31c6", "Meadow/Ground/T_forest_ground_leaves_01_N.png"),
+         @("211cf1761d6159142891c536074c08a1", "Meadow/Ground/T_forest_ground_needles_01_A_SM.tga"),
+         @("6dd57bb2cf9450e45ad405c82801c859", "Meadow/Ground/T_forest_ground_needles_01_N.png"),
+         @("e003e969c645eb7469595bf8140f0988", "Meadow/Ground/T_ground_meadow_grass_01_A_SM.tga"),
+         @("5a2a364351bbb2245a45c344799805a7", "Meadow/Ground/T_ground_meadow_grass_01_N.png"),
+         @("3d22ddd82c1120b41b60455e124e074a", "Meadow/Ground/T_ground_meadow_grass_02_A_SM.tga"),
+         @("16d9471febc948547b653ae363485aa2", "Meadow/Ground/T_ground_meadow_grass_02_N.png")) }
 )
 
 $root = Join-Path $Dest "Assets\StoreAssets"
