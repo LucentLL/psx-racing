@@ -307,6 +307,7 @@ namespace PSXRacing.EditorTools
             var bare = NMLitMat("OE_imp_" + stem + "_bare", dir, stem, null, null, true, new Color(0.40f, 0.36f, 0.32f));
             var bv = bare.GetVector("_LeafVivid"); bv.x = 0.15f; bare.SetVector("_LeafVivid", bv);
             v.impostorDress = new[] { bare, green, green, fallM, bare };
+            foreach (var im in v.impostorDress) FarGrow(im);
         }
 
         /// <summary>LOD3: the SAME beech as a cross of two cards, from the
@@ -348,6 +349,7 @@ namespace PSXRacing.EditorTools
                 ? NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Gen/" + stem + "_bare2", null, null, true, new Color(0.85f, 0.82f, 0.80f))
                 : NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Autumn/" + stem, null, null, true, new Color(0.42f, 0.37f, 0.33f));
             v.impostorDress = new[] { bare, green, green, fallM, bare };
+            foreach (var im in v.impostorDress) FarGrow(im);
         }
 
         /// <summary>The variant nearest the wanted height (one of the two
@@ -644,6 +646,15 @@ namespace PSXRacing.EditorTools
             if (low[0] > low[1] + eps) return 0;
             if (low[1] > low[0] + eps) return 1;
             return 1;
+        }
+
+        /// <summary>Far impostors grow from 450 m to 2.4x at 1.8 km, so a slope
+        /// of them stays a closed canopy instead of sub-pixel cards.</summary>
+        static void FarGrow(Material m)
+        {
+            if (m == null) return;
+            m.SetVector("_PSXFarGrow", new Vector4(450f, 1800f, 2.4f, 0f));
+            EditorUtility.SetDirty(m);
         }
 
         static long Tris(Mesh m)

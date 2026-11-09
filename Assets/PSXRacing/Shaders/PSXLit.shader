@@ -110,6 +110,10 @@ Shader "PSX/Lit"
         // x > 0: the draw limit THINS the plants out instead of ending them on
         // a ring - each instance leaves at its own distance, down to x of it
         [HideInInspector] _PSXLodThin ("LOD thin", Vector) = (0,0,0,0)
+        // A FAR impostor GROWS with distance (x from, y to, z the factor): a
+        // narrow tree card under a pixel wide vanishes in its own alpha test,
+        // and the far slopes read bare (owner 2026-11-09)
+        [HideInInspector] _PSXFarGrow ("Far grow", Vector) = (0,0,1,0)
         // The mountain forest's leaves (MeshForest): saturation and brightness
         // of the texel before the light - 1, 1 everywhere else.
         [HideInInspector] _LeafVivid ("Leaf vivid", Vector) = (1,1,0,0)
@@ -352,6 +356,7 @@ Shader "PSX/Lit"
             float _Cutoff;
             float4 _PSXLodFade;
             float4 _PSXLodThin;
+            float4 _PSXFarGrow;
             float4 _LeafVivid;
             float4 _LeafTarget;
             sampler2D _BlendTex;
@@ -1211,6 +1216,8 @@ Shader "PSX/Lit"
                     // A THINNED plant at its draw limit SHRINKS to nothing about
                     // its own origin rather than dissolving in a screen-door
                     // dither (owner: "a speckled dotted effect" in game).
+                    if (_PSXFarGrow.z > 1.0 && _PSXFarGrow.y > _PSXFarGrow.x)
+                        v.vertex.xyz *= lerp(1.0, _PSXFarGrow.z, saturate((o.lodD.x - _PSXFarGrow.x) / (_PSXFarGrow.y - _PSXFarGrow.x)));
                     if (_PSXLodThin.x > 0.0 && _PSXLodFade.w > _PSXLodFade.z)
                     {
                         float lv = o.lodD.x / lerp(_PSXLodThin.x, 1.0, o.lodD.y);
