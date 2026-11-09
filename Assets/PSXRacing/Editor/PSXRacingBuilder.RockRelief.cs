@@ -36,6 +36,8 @@ namespace PSXRacing.EditorTools
         const float ReliefAlong = 0.6f, ReliefUp = 0.4f, ReliefProud = 0.15f;
         /// <summary>Up-facing relief cells this stage (stage-parent frame).</summary>
         static readonly List<Vector3> rockLedges = new List<Vector3>();
+        /// <summary>Per ledge: 0 any, 1 over a crest (bush, young tree), 2 out of a face (fern, grass), 3 a cut's foot.</summary>
+        static readonly List<int> rockLedgeKind = new List<int>();
         static int reliefChords, reliefTris;
 
         static float RHash(int a, int b, int c)
@@ -173,10 +175,14 @@ namespace PSXRacing.EditorTools
                                    List<Vector2> scaleVar, ref int added, ref float ySum)
         {
             if (rockLedges.Count == 0) return;
-            foreach (var p in rockLedges)
+            for (int li = 0; li < rockLedges.Count; li++)
             {
+                var p = rockLedges[li];
                 if (p.x < ox || p.x >= ox + size || p.z < oz || p.z >= oz + size) continue;
+                int kind = li < rockLedgeKind.Count ? rockLedgeKind[li] : 0;
                 float r = RHash(Mathf.FloorToInt(p.x * 10f), Mathf.FloorToInt(p.z * 10f), 91);
+                if (kind == 1) r = 0.55f + r * 0.45f;          // bushes and young trees
+                else if (kind >= 2) r = r * 0.62f;            // mostly fern and grass, a bush now and then
                 int[] pool; float s0, s1;
                 if (r < 0.55f && kit.cover.Length > 0) { pool = kit.cover; s0 = 1.4f; s1 = 2.4f; }
                 else if (r < 0.88f && kit.bushes.Length > 0) { pool = kit.bushes; s0 = 1.0f; s1 = 1.8f; }

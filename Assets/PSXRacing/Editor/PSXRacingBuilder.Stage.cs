@@ -6750,6 +6750,7 @@ namespace PSXRacing.EditorTools
         static void BuildStageBanks(List<Vector3> pts, Transform parent)
         {
             rockLedges.Clear();
+            rockLedgeKind.Clear();
             reliefChords = reliefTris = 0;
             cliffPlaces.Clear();
             cliffsPlaced = 0;
@@ -6762,8 +6763,8 @@ namespace PSXRacing.EditorTools
             // brown that read as "dirt walls" (owner 2026-11-08). PSX/Lit's
             // _LeafVivid (saturation, brightness) does it; reset for the web.
             bool cliffBacking = PCContent && CliffsOn && AssetDatabase.LoadAssetAtPath<GameObject>(MeadowCliffDir + "/" + CliffNames[0] + ".FBX") != null;
-            mat.SetVector("_LeafVivid", cliffBacking ? new Vector4(0.2f, 0.62f, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
-            if (cliffBacking) mat.color = new Color(0.86f, 0.9f, 0.96f);
+            mat.SetVector("_LeafVivid", cliffBacking ? new Vector4(0.45f, 0.72f, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
+            if (cliffBacking) mat.color = new Color(0.9f, 0.9f, 0.92f);
             // The rock top IS the hillside: the near ground's own material
             // (BuildStageGround makes the same asset and registers its
             // seasons, which SeasonDress applies to every renderer wearing it)
