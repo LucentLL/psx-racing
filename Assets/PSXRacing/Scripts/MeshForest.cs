@@ -99,13 +99,13 @@ namespace PSXRacing
 
         // The MEDIUM distances (ForestDetailPrefs scales them): the 100/200/320
         // of the pop-in round dropped the owner under 20 FPS with leaves on.
-        public float lod0To = 50f, lod1To = 120f, meshRange = 230f, farRange = 2200f;
+        public float lod0To = 65f, lod1To = 140f, meshRange = 240f, farRange = 2200f;
         /// <summary>Hand-over bands (m) ending at lod0To, lod1To and meshRange:
         /// inside one, a plant draws at both levels, each dithered (PSX/Lit's
         /// PSX_LODFADE) so the two add up to one - no pop, no shape jump.
         /// Owner 2026-11-08: "I see plants, bushes, trees pop-in often. Trees
         /// change shape (especially in winter) as they pop-in."</summary>
-        public float band0 = 6f, band1 = 8f, band2 = 12f;
+        public float band0 = 12f, band1 = 16f, band2 = 20f;
         /// <summary>A plant with a draw limit dissolves over this share of it.</summary>
         public float limitBand = 0.2f;
 

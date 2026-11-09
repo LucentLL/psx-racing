@@ -428,6 +428,7 @@ namespace PSXRacing
                     // stage) bakes the multiplier into its PSXGlobals instead
                     // of into seven copied presets.
                     globals.fogColor = p.fogColor;
+                    Shader.SetGlobalFloat("_PSXHorizonBandCut", 0f);
                     float s = scale * Seasons.FogMul(weather);
                     globals.fogNear = p.fogNear * s;
                     globals.fogFar = p.fogFar * s;
@@ -466,6 +467,8 @@ namespace PSXRacing
                     globals.fogColor = new Color(hz.r * dark, hz.g * dark, hz.b * dark, hz.a);
                     globals.fogNear = edge * (farView ? 0.9f : EdgeFadeStart);
                     globals.fogFar = edge;
+                    // and the sky's own pale horizon band mostly gone (rain keeps it)
+                    Shader.SetGlobalFloat("_PSXHorizonBandCut", weather == Weather.Rain ? 0f : 0.8f);
                 }
                 globals.fogCurve = FogCurve;
                 globals.skyAmbient = SkyAmbientFor(p);

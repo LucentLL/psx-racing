@@ -84,6 +84,10 @@ Shader "PSX/Sky"
             float4 _PSXLightDir;
             float4 _PSXFogSun;
             float4 _PSXFogColor;
+            // CLEAR-WEATHER BAND CUT (TimeOfDay): 0 = the full horizon band (fog,
+            // rain, any scene that never applied an hour), 1 = none. Owner
+            // 2026-11-09: a pale haze band in the dusk sky outside fog and rain.
+            float _PSXHorizonBandCut;
             #define SKY_SUN_GLOW 0.45
             // The horizon ring (PSXFogRing.cginc): the band below is the fog's
             // colour, so it takes the fog's ratio by bearing - through this
@@ -328,7 +332,7 @@ Shader "PSX/Sky"
                 float adapt = PSXAdaptGain();
                 float3 upper = col * (adapt * keep);
                 if (_Dynamic < 0.5) upper = PSXToneSky(upper);
-                col = lerp(upper, PSXToneSky((bandCol * PSXFogRing(dir, _Rotation) + sunHaze) * adapt), hz * hz);
+                col = lerp(upper, PSXToneSky((bandCol * PSXFogRing(dir, _Rotation) + sunHaze) * adapt), hz * hz * (1.0 - saturate(_PSXHorizonBandCut)));
                 // THE CITY'S GLOW (above), over the band and the sky alike
                 col += CityGlow(dir) * adapt;
                 // And below is the ground colour, not a mirror of the sky —

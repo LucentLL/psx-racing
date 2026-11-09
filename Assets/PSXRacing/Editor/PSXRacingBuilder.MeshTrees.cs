@@ -316,7 +316,7 @@ namespace PSXRacing.EditorTools
         /// sheet; fall: the Autumn Valley sheet in the variant's fall tint;
         /// winter and snow: that sheet darkened to a bare grey-brown (the pack
         /// has no bare impostor).</summary>
-        static void AddImpostor(MeshForest.Variant v, string tree, Color fallTint)
+        static void AddImpostor(MeshForest.Variant v, string tree, Color fallTint, bool greenFall = false)
         {
             string stem = tree.Replace("beech_tree_", "T_beech_tree_");
             if (AssetDatabase.LoadAssetAtPath<Texture2D>(NMTreeDir + "/" + stem + "_BC_A.png") == null) return;
@@ -342,8 +342,10 @@ namespace PSXRacing.EditorTools
             v.impostorPre = Matrix4x4.identity;   // built in the tree's own frame: base at 0, metres
             var green = NMLitMat("NM_imp_" + tree, NMDir, "Trees/" + stem + "_BC_A", "Trees/" + stem + "_N", null, true,
                                  new Color(0.80f, 0.86f, 0.78f), maskIsHdrp: false);
-            var fallM = NMLitMat("NM_imp_" + tree + "_fall", NMDir, "Autumn/" + stem, "Trees/" + stem + "_N", null, true,
-                                 fallTint, maskIsHdrp: false);
+            // the LATE (still green) fall tint's impostor from the green sheet,
+            // or a green tree "pops in" where an orange one stood (owner 2026-11-09)
+            var fallM = NMLitMat("NM_imp_" + tree + "_fall", NMDir, greenFall ? "Trees/" + stem + "_BC_A" : "Autumn/" + stem,
+                                 "Trees/" + stem + "_N", null, true, fallTint, maskIsHdrp: false);
             var barePath = BareImpostorPath(stem);
             var bare = barePath != null
                 ? NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Gen/" + stem + "_bare2", null, null, true, new Color(0.85f, 0.82f, 0.80f))
@@ -414,7 +416,7 @@ namespace PSXRacing.EditorTools
                 if (v == null) continue;
                 int fi = n++ % fall.Length;
                 v.leafDress = new[] { bare, green, green, fall[fi], bare };
-                AddImpostor(v, tree, FallTints[fi]);
+                AddImpostor(v, tree, FallTints[fi], fi == 3);
                 list.Add(v);
             }
             if (list.Count == 0) return null;
@@ -443,7 +445,7 @@ namespace PSXRacing.EditorTools
             {
                 var v = LoadVariant(NMUnderDir, name, barkSmall);
                 if (v == null) continue;
-                v.leafDress = new[] { bare, green, green, fall[n++ % fall.Length], bare };
+                v.leafDress = new[] { bare, green, green, fall[n++ % 3], bare };   // no late green: they end at 220 m
                 v.maxDist = UnderMaxDist;
                 v.thin = 0.45f;
                 small.Add(list.Count); list.Add(v);
