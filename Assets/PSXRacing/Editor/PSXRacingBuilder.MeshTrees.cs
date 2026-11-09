@@ -588,8 +588,30 @@ namespace PSXRacing.EditorTools
                     minY = Mathf.Min(minY, y); maxY = Mathf.Max(maxY, y);
                 }
                 var p0 = pre.MultiplyPoint3x4(bb.center);
-                v.pre = Matrix4x4.Translate(new Vector3(-p0.x, -minY, -p0.z)) * pre;
-                v.height = Mathf.Max(0.3f, maxY - minY);
+                float baseY = minY;
+                // A TREE STANDS ON ITS TRUNK, not on its bounds' centre (owner
+                // 2026-11-09: "floating trees ... trees that aren't fully in the
+                // ground"): a lopsided crown moved the trunk off its spot - and
+                // off its collider - and roots below the base lifted it. The
+                // trunk's foot is the bark's lowest band: its centre, its height.
+                if (subs > 1 && TreeKit.Read(v.lods[0], leaf == 0 ? 1 : 0, out var bv, out var bt))
+                {
+                    var ys = new List<float>();
+                    foreach (int ti in bt) ys.Add(pre.MultiplyPoint3x4(bv[ti]).y);
+                    ys.Sort();
+                    float footY = ys[Mathf.Min(ys.Count - 1, ys.Count / 50)];   // the 2nd percentile: past the root tips
+                    double sx = 0, sz = 0; int cnt = 0;
+                    foreach (int ti in bt)
+                    {
+                        var q = pre.MultiplyPoint3x4(bv[ti]);
+                        if (q.y > footY + 0.6f) continue;
+                        sx += q.x; sz += q.z; cnt++;
+                    }
+                    if (cnt > 0) { p0.x = (float)(sx / cnt); p0.z = (float)(sz / cnt); }
+                    baseY = footY;
+                }
+                v.pre = Matrix4x4.Translate(new Vector3(-p0.x, -baseY, -p0.z)) * pre;
+                v.height = Mathf.Max(0.3f, maxY - baseY);
                 Log($"Mesh forest: {name} {v.height:0.0} m, LOD tris {Tris(v.lods[0])}/{Tris(v.lods[1])}/{Tris(v.lods[2])}, {subs} submesh(es), leaves = submesh {leaf}");
                 return v;
             }
@@ -665,7 +687,7 @@ namespace PSXRacing.EditorTools
             return mat;
         }
 
-        const float LeafCutoff = 0.38f;
+        const float LeafCutoff = 0.33f;
         const float LeafSaturation = 1.3f, LeafBrightness = 1.6f;   // measured: x1.12 left the fall canopy at value 0.26 against the owner's Parkway frame's 0.62
 
         static string FindTex(string dir, string stem)
@@ -856,6 +878,15 @@ namespace PSXRacing.EditorTools
             return true;
         }
 
+        /// <summary>How far to sink a trunk of radius <paramref name="r"/> so its
+        /// downhill side meets the slope (m).</summary>
+        static float SlopeSink(float x, float z, float r)
+        {
+            float hx = (StageLatticeY(x + 1f, z) - StageLatticeY(x - 1f, z)) * 0.5f;
+            float hz = (StageLatticeY(x, z + 1f) - StageLatticeY(x, z - 1f)) * 0.5f;
+            return Mathf.Min(1.6f, Mathf.Sqrt(hx * hx + hz * hz) * r);
+        }
+
         /// <summary>Understory round one canopy tree at (wx, wz): 1-3 small
         /// beeches and cherry bushes, by the same hash every build.</summary>
         static void AddUnderstory(MeshTreeKit kit, float wx, float wz, float d, int hsh,
@@ -880,7 +911,7 @@ namespace PSXRacing.EditorTools
                 int vi = pool[(int)((h >> 20) % (uint)pool.Length)];
                 float t = ((h >> 4) % 100u) * 0.01f;
                 float sc = bush ? Mathf.Lerp(1.4f, 2.3f, t) : Mathf.Lerp(0.8f, 1.4f, t);
-                inst.Add(new Vector4(ux, gy - 0.1f, uz, (h % 360u)));
+                inst.Add(new Vector4(ux, gy - 0.1f - SlopeSink(ux, uz, 0.35f), uz, (h % 360u)));
                 scaleVar.Add(new Vector2(sc, vi));
                 added++;
             }

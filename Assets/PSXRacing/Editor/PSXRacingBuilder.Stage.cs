@@ -8012,7 +8012,7 @@ namespace PSXRacing.EditorTools
                                 vi = kit.poplar;
                                 sc = Mathf.Clamp(h * MeshTreeHeightScale / kit.variants[vi].height, 0.85f, 1.25f);
                             }
-                            mfInst.Add(new Vector4(wx, ground - 0.25f, wz, yaw));
+                            mfInst.Add(new Vector4(wx, ground - 0.25f - SlopeSink(wx, wz, 0.8f * sc), wz, yaw));
                             mfScaleVar.Add(new Vector2(sc, vi));
                             ySum += ground;
                             meshTrees++;
@@ -8022,10 +8022,14 @@ namespace PSXRacing.EditorTools
                             // DENSITY (owner: "increase tree density (use lower
                             // LOD as necessary)"): a second canopy beech beside
                             // most trees in the first 90 m, with its own trunk.
-                            if (ExtraCanopySite(wx, wz, hsh, out float ex, out float ez, out float eg))
+                            // ...and nearer the road a third (owner 2026-11-09: "trees
+                            // thinning out as I move forward" - the far cards and
+                            // impostors are denser than the open mesh crowns)
+                            for (int xc = 0; xc < (d <= ForestDenseTo ? 2 : 1); xc++)
+                            if (ExtraCanopySite(wx, wz, xc == 0 ? hsh : hsh * 31 + 7, out float ex, out float ez, out float eg))
                             {
                                 int evi = PickMeshTree(kit, h * MeshTreeHeightScale * 0.9f, hsh >> 1, out float esc);
-                                mfInst.Add(new Vector4(ex, eg - 0.25f, ez, (yaw + 137f) % 360f));
+                                mfInst.Add(new Vector4(ex, eg - 0.25f - SlopeSink(ex, ez, 0.8f * esc), ez, (yaw + 137f + xc * 91f) % 360f));
                                 mfScaleVar.Add(new Vector2(esc, evi));
                                 ySum += eg;
                                 extraCanopy++;
@@ -8246,7 +8250,7 @@ namespace PSXRacing.EditorTools
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
                                              (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
                             int vi = PickMeshTree(kit, h * 1.25f, hsh, out float sc);
-                            mfInst.Add(new Vector4(wx, ground - 0.5f, wz, (float)yawRoll * 360f));
+                            mfInst.Add(new Vector4(wx, ground - 0.5f - SlopeSink(wx, wz, 1f), wz, (float)yawRoll * 360f));
                             mfScaleVar.Add(new Vector2(sc, vi));
                             ySum += ground;
                             farMesh++;

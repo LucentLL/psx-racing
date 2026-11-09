@@ -122,6 +122,14 @@ namespace PSXRacing
         // made once, per chunk per variant: no per-tree work at distance.
         Matrix4x4[][][] farLists;                  // [chunk][variant]
         readonly System.Collections.Generic.List<int> farVisible = new System.Collections.Generic.List<int>();
+        // THE OTHER CAMERAS (mirrors, the car-reflection probe's faces): the
+        // canopy near the car as impostors only - two cards a tree, one draw a
+        // species. Owner 2026-11-09: "performance is very poor when leaves are
+        // on trees ... especially in cockpit view with mirrors" - every one of
+        // those cameras drew the WHOLE mesh forest again.
+        Matrix4x4[][] mirrorM;
+        int[] mirrorN;
+        Camera mainCam;
         Matrix4x4[][] bucket;                      // [variant * L + lod]
         int[] bucketN;
         Vector3 lastCam = new Vector3(1e9f, 0f, 0f);
@@ -195,6 +203,9 @@ namespace PSXRacing
             foreach (var c in chunks)
                 if (c.cards != null)
                     foreach (var r in c.cards) if (r != null) SunShadows.ShadowStandIns.Add(r);
+            mirrorM = new Matrix4x4[variants.Length][];
+            mirrorN = new int[variants.Length];
+            for (int v = 0; v < variants.Length; v++) mirrorM[v] = new Matrix4x4[256];
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
                       $"LOD {lod0To}/{lod1To}/{meshRange} m, impostors to {farRange} m; F8 = A/B.");
         }
@@ -250,6 +261,30 @@ namespace PSXRacing
             foreach (var c in chunks) SetCards(c, true);
         }
 
+        void OnEnable() => RenderPipelineManager.beginCameraRendering += OtherCamera;
+        void OnDisable() => RenderPipelineManager.beginCameraRendering -= OtherCamera;
+
+        void OtherCamera(ScriptableRenderContext ctx, Camera cam)
+        {
+            if (!MeshTreesOn || cam == null || cam == mainCam || mainCam == null || mirrorM == null) return;
+            if (cam.cameraType != CameraType.Game || (cam.cullingMask & (1 << gameObject.layer)) == 0) return;
+            for (int v = 0; v < variants.Length; v++)
+            {
+                int n = mirrorN[v];
+                var mat = impNow != null ? impNow[v] : null;
+                if (n == 0 || mat == null) continue;
+                var mesh = variants[v].lods[3];
+                var rp = new RenderParams(mat)
+                {
+                    shadowCastingMode = ShadowCastingMode.Off, receiveShadows = true,
+                    layer = gameObject.layer, camera = cam,
+                };
+                for (int s = 0; s < mesh.subMeshCount; s++)
+                    for (int at = 0; at < n; at += 1023)
+                        Graphics.RenderMeshInstanced(rp, mesh, s, mirrorM[v], Mathf.Min(1023, n - at), at);
+            }
+        }
+
         void OnDestroy()
         {
             if (chunks != null)
@@ -289,7 +324,8 @@ namespace PSXRacing
             if (moved || (Time.frameCount & 1) == 0) Rebucket(cam, root, camPos);
             if (moved) { lastCam = camPos; lastRoot = root; }
             lastOn = true;
-            Draw();
+            mainCam = cam;
+            Draw(cam);
         }
 
         static void SetCards(Chunk c, bool on)
@@ -325,6 +361,9 @@ namespace PSXRacing
                                              cam.nearClipPlane, cam.farClipPlane);
             GeometryUtility.CalculateFrustumPlanes(wide * cam.worldToCameraMatrix, planes);
             for (int i = 0; i < bucketN.Length; i++) bucketN[i] = 0;
+            for (int v = 0; v < mirrorN.Length; v++) mirrorN[v] = 0;
+            if (lastPut == null || lastPut.Length != variants.Length) lastPut = new int[variants.Length];
+            for (int v = 0; v < lastPut.Length; v++) lastPut[v] = -1;
             farVisible.Clear();
             float far = Mathf.Max(farRange, meshRange);
             float r2 = meshRange * meshRange, l0 = lod0To * lod0To, l1 = lod1To * lod1To;
@@ -360,13 +399,23 @@ namespace PSXRacing
         }
 
         const float Margin = 4f;
+        int[] lastPut;   // per species: the instance last put in the other cameras' list (a hand-over puts one twice)
 
         void Put(int vi, int lod, int i)
         {
             int b = vi * L + lod;
             if (bucketN[b] == bucket[b].Length)
                 System.Array.Resize(ref bucket[b], bucket[b].Length * 2);
-            bucket[b][bucketN[b]++] = lod == 3 ? worldM[i] * impFix[vi] : worldM[i];
+            var m = lod == 3 ? worldM[i] * impFix[vi] : worldM[i];
+            bucket[b][bucketN[b]++] = m;
+            // the other cameras: a canopy tree once, as its impostor
+            var vr = variants[vi];
+            if (vr.lods.Length > 3 && vr.lods[3] != null && vr.maxDist <= 0f && lastPut[vi] != i)
+            {
+                if (mirrorN[vi] == mirrorM[vi].Length) System.Array.Resize(ref mirrorM[vi], mirrorM[vi].Length * 2);
+                mirrorM[vi][mirrorN[vi]++] = lod == 3 ? m : m * impFix[vi];
+                lastPut[vi] = i;
+            }
         }
 
         /// <summary>This material with a level's fade band (a copy, made once).</summary>
