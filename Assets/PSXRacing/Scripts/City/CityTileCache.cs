@@ -52,7 +52,7 @@ namespace PSXRacing.City
     {
         /// <summary>The file layout. Part of the fingerprint: a change of it
         /// re-bakes (this file is among the generator's sources anyway).</summary>
-        public const int Format = 1;
+        public const int Format = 2;   // 2: the median dress's plants (TileMeshes.medianPlants)
         public const string FolderName = "CityTiles";
         public const string ManifestName = "manifest.txt";
         /// <summary>The player's own fingerprint: Resources/citytiles_stamp.txt,
@@ -249,14 +249,14 @@ namespace PSXRacing.City
         // ==================================================================
 
         /// <summary>The meshes of a tile, in file order.</summary>
-        public const int MeshCount = 11;
+        public const int MeshCount = 12;
         static Mesh GetMesh(CityMeshes.TileMeshes tm, int i)
         {
             switch (i)
             {
                 case 0: return tm.ground; case 1: return tm.roads; case 2: return tm.barriers; case 3: return tm.kerbs;
                 case 4: return tm.water; case 5: return tm.banks; case 6: return tm.buildings; case 7: return tm.buildingCollider;
-                case 8: return tm.lampPosts; case 9: return tm.guardrails; default: return tm.structure;
+                case 8: return tm.lampPosts; case 9: return tm.guardrails; case 10: return tm.structure; default: return tm.medianPlants;
             }
         }
         static void SetMesh(CityMeshes.TileMeshes tm, int i, Mesh m)
@@ -265,7 +265,7 @@ namespace PSXRacing.City
             {
                 case 0: tm.ground = m; break; case 1: tm.roads = m; break; case 2: tm.barriers = m; break; case 3: tm.kerbs = m; break;
                 case 4: tm.water = m; break; case 5: tm.banks = m; break; case 6: tm.buildings = m; break; case 7: tm.buildingCollider = m; break;
-                case 8: tm.lampPosts = m; break; case 9: tm.guardrails = m; break; default: tm.structure = m; break;
+                case 8: tm.lampPosts = m; break; case 9: tm.guardrails = m; break; case 10: tm.structure = m; break; default: tm.medianPlants = m; break;
             }
         }
 
@@ -281,7 +281,7 @@ namespace PSXRacing.City
             "footprintsLeftOut", "vergeSpans", "goreNoses", "vergeMetres", "railMetres", "wbeams", "wbeamPosts",
             "guardrails", "structure", "mastHeads", "mastFeet", "railEndsWBeam", "railEndsSloped", "railEndsInside",
             "railEndsConnected", "railEndsKept", "railEndsShort", "tap", "houseBoxes", "houseSeats", "mastTips",
-            "culvertEnds",
+            "culvertEnds", "medianPlants",
         };
 
         // ---- write (the bake tool, main thread) -----------------------------

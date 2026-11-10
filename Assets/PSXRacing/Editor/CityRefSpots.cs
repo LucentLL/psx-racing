@@ -110,6 +110,24 @@ namespace PSXRacing.EditorTools
             new Spot("dip_freedom_morehead", Kind.Crest, 35.2274, -80.8670, "Freedom", 0f, "Freedom Dr dip by W Morehead, 10.6 m real"),
             new Spot("crest_i485_park", Kind.Crest, 35.0872, -80.8743, "I-485", 0f, "I-485 crest near Park Rd, 15.7 m real"),
             new Spot("dip_tyvola_park", Kind.Crest, 35.1553, -80.8514, "Tyvola", 0f, "Tyvola dip by Park Rd, 15.9 m real"),
+
+            // ---- the divided arterials' medians (the median dress, 2026-11-09): each point is ON
+            // one carriageway, the heading 12 degrees to the median's side of its travel
+            // (PSX_REF_ONLY=med_... shoots these alone)
+            new Spot("med_brookshire_crigler_nw", Kind.StreetView, 35.26456, -80.88093, "Brookshire", 322f, "NC-16 Brookshire Blvd by N Crigler St, outbound: the planted bed"),
+            new Spot("med_brookshire_crigler_se", Kind.StreetView, 35.26560, -80.88162, "Brookshire", 149f, "NC-16 Brookshire Blvd by N Crigler St, inbound: bed, pocket, nose"),
+            new Spot("med_brookshire_nw78", Kind.StreetView, 35.27847, -80.89374, "Brookshire", 292f, "Brookshire Blvd north-west of I-85"),
+            new Spot("med_brookshire_n34", Kind.StreetView, 35.28758, -80.90888, "Brookshire", 122f, "Brookshire Blvd, the 55 mph part: grass, no curb"),
+            new Spot("med_albemarle_e", Kind.StreetView, 35.20901, -80.70606, "Albemarle", 240f, "Albemarle Rd east"),
+            new Spot("med_wilkinson", Kind.StreetView, 35.22421, -80.88659, "Wilkinson", 260f, "Wilkinson Blvd: a concrete median"),
+            new Spot("med_southblvd", Kind.StreetView, 35.12136, -80.88029, "South Boulevard", 191f, "South Blvd south: a concrete median"),
+            new Spot("med_providence", Kind.StreetView, 35.13864, -80.78400, "Providence", 328f, "Providence Rd"),
+            new Spot("med_wtharris", Kind.StreetView, 35.23020, -80.72833, "Harris", 304f, "E W.T. Harris Blvd: mulch, trees"),
+            new Spot("med_wtharris_s", Kind.StreetView, 35.17658, -80.73582, "Harris", 16f, "E W.T. Harris Blvd south: mulch, trees"),
+            new Spot("med_billygraham", Kind.StreetView, 35.20069, -80.92207, "Billy Graham", 165f, "Billy Graham Pkwy: wide grass, no curb, no wall"),
+            new Spot("med_johnston", Kind.StreetView, 35.04955, -80.84885, "Johnston", 334f, "Johnston Rd: curbed grass, a tree row"),
+            new Spot("med_ucity", Kind.StreetView, 35.31490, -80.69680, "University City", 251f, "University City Blvd: wide grass, no curb"),
+            new Spot("med_ntryon", Kind.StreetView, 35.32102, -80.73456, "North Tryon", 209f, "N Tryon St north: a concrete median"),
         };
 
         const float EyeM = 1.2f, FovDeg = 58f, FarM = 500f;

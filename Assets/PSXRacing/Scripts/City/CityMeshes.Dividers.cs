@@ -56,7 +56,26 @@ namespace PSXRacing.City
     public static partial class CityMeshes
     {
         public static bool DividersOn = System.Environment.GetEnvironmentVariable("PSX_CITY_DIVIDERS") != "0";
-        public enum DividerKind : byte { Concrete, Cable, Open }
+        public enum DividerKind : byte { Concrete, Cable, Open, Island }
+
+        /// <summary>
+        /// THE SURFACE TRUNKS (the median dress, 2026-11-09; the owner's NC-16 Brookshire Blvd
+        /// by N Crigler St: a planted, curbed island where the game stood a Jersey on a flush
+        /// strip). A one-way class-4 trunk carriageway is <see cref="Barriered"/>, so it took
+        /// the freeway's concrete median. At road level (37 places on 13 arterials, the
+        /// hand-back's table) none of Brookshire Blvd, Albemarle Rd, Billy Graham Pkwy,
+        /// Johnston Rd or University City Blvd has a wall in its median: they are signalised
+        /// arterials with a curbed island (45 mph and under) or open grass (55 mph). Their
+        /// divider is ISLAND: no Jersey, no union strip; the median side is the curbed median
+        /// of CityMeshes.CurbMedian, dressed by CityMeshes.MedianDress. Not a plan entry (no
+        /// samples, no cable): a rule of the edge alone, read wherever the plan is. The
+        /// corridors of <see cref="ConcreteCorridors"/> (the US 74 expressway and its
+        /// boulevard, the race routes) stay concrete. <see cref="Barriered"/> is untouched:
+        /// the elevation solve reads it. PSX_CITY_TRUNK_ISLAND=0: the Jersey as before.
+        /// </summary>
+        public static readonly bool TrunkIslandOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TRUNK_ISLAND") != "0";
+        public static bool TrunkIsland(CityMap.Edge e) =>
+            TrunkIslandOn && e.cls == 4 && e.oneway && !e.link && e.a != e.b && !string.IsNullOrEmpty(e.name) && !ConcreteCorridors.Contains(e.name);
 
         /// <summary>Corridors whose real median is concrete wall (the 2026-11-02 design
         /// review's owner-set table: OSM tags 14 km of Jersey in I-77's median, 10.8 km in the
@@ -234,7 +253,8 @@ namespace PSXRacing.City
         {
             if (!DividersOn || divEdges == null || e.index >= divEdges.Length) return DividerKind.Concrete;
             var d = divEdges[e.index];
-            return d == null ? DividerKind.Concrete : d.kind;
+            if (d != null) return d.kind;
+            return TrunkIsland(e) ? DividerKind.Island : DividerKind.Concrete;
         }
         static bool ConcreteMedian(CityMap.Edge e) => DividerAt(e) == DividerKind.Concrete;
         static DivEdge DivOf(CityMap.Edge e) =>
@@ -287,6 +307,8 @@ namespace PSXRacing.City
         public static int DividerRayClass(CityMap.Edge e, float s, CityMap.Edge o, float ot)
         {
             var d = DivOf(e); var q = o != null ? DivOf(o) : null;
+            // (the median dress) an island median stands no wall: none expected, as an open one
+            if (d == null && q == null && DividerAt(e) == DividerKind.Island && (o == null || DividerAt(o) == DividerKind.Island)) return 0;
             if (d == null && q == null) return -1;
             var kd = d?.kind ?? DividerKind.Concrete; var kq = q?.kind ?? DividerKind.Concrete;
             if (kd == DividerKind.Concrete && kq == DividerKind.Concrete) return -1;

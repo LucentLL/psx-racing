@@ -282,7 +282,7 @@ namespace PSXRacing.EditorTools
                     buildMs += b;
                     if (b > maxBuild) { maxBuild = b; maxTile = t.x + "," + t.y; }
                     c.Restart();
-                    foreach (var mesh in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.buildingCollider, tm.structure })
+                    foreach (var mesh in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.buildingCollider, tm.structure, tm.medianPlants })
                         if (mesh != null) verts += mesh.vertexCount;
                     var body = CityTileCache.Encode(tm);   // the generator's result as it returned it
                     writeMs += c.Elapsed.TotalMilliseconds;

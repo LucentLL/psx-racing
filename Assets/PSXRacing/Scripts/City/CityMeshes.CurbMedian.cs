@@ -113,7 +113,7 @@ namespace PSXRacing.City
             if (e.bridge) return "bridge (deck)";
             if (e.tunnel) return "tunnel";
             if (e.cls >= 5) return "motorway";
-            if (Barriered(e)) return "trunk one-way (Barriered)";
+            if (Barriered(e) && DividerAt(e) != DividerKind.Island) return "trunk one-way (Barriered)";
             if (LineModel.RefugeOf(e.index) != null) return "refuge pair";
             if (CurbMedianSkipped(e)) return "launch spot kept as live (n6970)";
             if (!CurbMedianClass(e)) return "other";
@@ -132,7 +132,9 @@ namespace PSXRacing.City
         /// one-way trunks keep their own medians: cable, Jersey, unions), not
         /// one of the refuge pairs (their own kerb).</summary>
         static bool CurbMedianClass(CityMap.Edge e) =>
-            e.oneway && !e.link && e.cls <= 3 && !e.bridge && !e.tunnel && e.a != e.b && !string.IsNullOrEmpty(e.name) && !Barriered(e)
+            e.oneway && !e.link && !e.bridge && !e.tunnel && e.a != e.b && !string.IsNullOrEmpty(e.name)
+            // (the median dress, 11-09) and a surface trunk, whose divider is an island (CityMeshes.Dividers TrunkIsland)
+            && (e.cls <= 3 ? !Barriered(e) : DividerAt(e) == DividerKind.Island)
             && LineModel.RefugeOf(e.index) == null && !CurbMedianSkipped(e);
 
         static bool CurbMedianSkipped(CityMap.Edge e)
@@ -174,10 +176,14 @@ namespace PSXRacing.City
             int n = sections.Count;
             if (cmW.Length < n) { cmW = new float[n * 2]; cmY = new float[n * 2]; cmH = new float[n * 2]; cmC = new float[n * 2]; cmK = new float[n * 2]; cmT = new float[n * 2]; }
             System.Array.Clear(cmW, 0, n); System.Array.Clear(cmH, 0, n); System.Array.Clear(cmC, 0, n);
+            MedianDressSize(n);
+            System.Array.Clear(cmEv, 0, n);
             cmEdgeNow = e.index;
             if (!CurbMedianEdge(map, e)) return;
             const int side = +1;
-            const float near = 30f;
+            // (the median dress) read further past the tile: a stop within the pocket's length of a drawn section is known
+            float near = MedianDressOn ? MedianEvalNearM : 30f;
+            bool fastE = MedianDressOn && MedianFast(map, e);
             float sFrom = sections[0].s, sTo = sections[n - 1].s;
             if (CurbMedianAll)
             {
@@ -192,6 +198,7 @@ namespace PSXRacing.City
                 var ed = S.Edge(side);
                 float wx = ed.x + o.x, wz = ed.z + o.z;
                 if (wx < min.x - near || wx > max.x + near || wz < min.y - near || wz > max.y + near) continue;
+                cmEv[k] = true; cmTw[k] = -1;
                 if (S.s < sFrom || S.s > sTo) continue;
                 if (k > 0 && !WalkableSpan(k, side)) continue;
                 if (k + 1 < n && !WalkableSpan(k + 1, side)) continue;
@@ -232,6 +239,8 @@ namespace PSXRacing.City
                     if (CurbMedianStops(map, tw, tw.b)) dTw = Mathf.Min(dTw, tw.length - sTw);
                 }
                 cmT[k] = dTw;
+                cmG[k] = edgeRun; cmTw[k] = tw.index; cmTwS[k] = sTw;
+                cmFast[k] = fastE && MedianFast(map, tw);
                 cmW[k] = 0.5f * edgeRun;
                 // the mean of the two edges: the curbed island's top 15 cm over
                 // it, a wide grass median's at the edges' own grade
@@ -261,6 +270,8 @@ namespace PSXRacing.City
                 // (and in where it narrows): the change half way between
                 if (dc < float.MaxValue) cmC[k] = cmK[k] > 0.5f ? 0.5f + 0.5f * LineModel.Smooth(dc / KerbEndRampM) : 0.5f - 0.5f * LineModel.Smooth(dc / KerbEndRampM);
             }
+            // the median dress: each section's top (concrete, a planted bed, grass)
+            PrepareMedianDress(map, e, n);
         }
 
         /// <summary>A node where a two-way edge of this name parts into (or
@@ -353,23 +364,31 @@ namespace PSXRacing.City
                 WalkBucket.Up(cmProfA[1], cmProfA[2], cmProfB[2], cmProfB[1],
                               new Vector2(uA, walkBandV[1]), new Vector2(uA, walkBandV[2]), new Vector2(uB, walkBandV[2]), new Vector2(uB, walkBandV[1]));
             }
-            // the top to the axis and the tuck past it: grass (the planted island)
-            bool conc = MedianConcreteWays.Contains(e.wayId);
+            // the top to the axis and the tuck past it: the median dress (11-09) - concrete
+            // at a nose, beside a turn pocket and where it is narrow, a planted bed, or grass
+            int top = MedianSpanTop(i);
+            var tb = MedianTopBucket(top);
             var o = tm.origin;
             for (int q = curbed ? 2 : 0; q < 4; q++)
             {
                 Vector3 a = cmProfA[q], b = cmProfA[q + 1], c = cmProfB[q + 1], d = cmProfB[q];
-                GroundBucket(conc).Up(a, b, c, d, GroundUV(conc, a.x + o.x, a.z + o.z), GroundUV(conc, b.x + o.x, b.z + o.z),
-                                      GroundUV(conc, c.x + o.x, c.z + o.z), GroundUV(conc, d.x + o.x, d.z + o.z));
+                tb.Up(a, b, c, d, MedianTopUV(top, a.x + o.x, a.z + o.z), MedianTopUV(top, b.x + o.x, b.z + o.z),
+                      MedianTopUV(top, c.x + o.x, c.z + o.z), MedianTopUV(top, d.x + o.x, d.z + o.z));
                 if (groundLog != null) { groundLog.Add((groundTag + " curb median", a + o, b + o, c + o)); groundLog.Add((groundTag + " curb median", a + o, c + o, d + o)); }
             }
             // a stop mid-run: the verge beside falls away under the flat end, so
             // its end is closed by a face down into it
-            if (cmW[i - 1] <= 0f) CurbMedianCap(conc, o, cmProfA, -Flat2(eB - eA));
-            if (cmW[i] <= 0f) CurbMedianCap(conc, o, cmProfB, Flat2(eB - eA));
+            if (cmW[i - 1] <= 0f) CurbMedianCap(tb, o, cmProfA, -Flat2(eB - eA));
+            if (cmW[i] <= 0f) CurbMedianCap(tb, o, cmProfB, Flat2(eB - eA));
+            // a bed's plants, on the risen island only
+            if (top == MedianTopBed && cmW[i - 1] > 0f && cmW[i] > 0f && hA > 0.99f && hB > 0.99f)
+                MedianPlantSpan(e, i, eA, eB, outA, outB, sA, sB, cmProfA, cmProfB, wA, wB);
             CurbMedianSpans++;
             if (!curbed) CurbMedianFlatSpans++;
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
+            if (top == MedianTopConcrete) { MedianConcreteSpans++; MedianConcreteM += len; }
+            else if (top == MedianTopBed) { MedianBedSpans++; MedianBedM += len; }
+            else { MedianGrassSpans++; MedianGrassM += len; }
             CurbMedianM += len;
             if (!curbed) CurbMedianFlatM += len;
             lock (CurbMedianByEdge)
@@ -382,9 +401,8 @@ namespace PSXRacing.City
 
         static Vector2 Flat2(Vector3 v) { var f = new Vector2(v.x, v.z); return f.sqrMagnitude > 1e-8f ? f.normalized : Vector2.up; }
 
-        static void CurbMedianCap(bool conc, Vector3 o, Vector3[] p, Vector2 facing)
+        static void CurbMedianCap(Bucket bk, Vector3 o, Vector3[] p, Vector2 facing)
         {
-            var bk = GroundBucket(conc);
             for (int q = 0; q < 4; q++)
             {
                 var a = p[q]; var b = p[q + 1];

@@ -497,7 +497,7 @@ namespace PSXRacing.City
             j.Abandon();
             var r = j.Result;
             if (r != null)
-                foreach (var m in new[] { r.ground, r.roads, r.barriers, r.guardrails, r.kerbs, r.lampPosts, r.banks, r.water, r.buildings, r.buildingCollider })
+                foreach (var m in new[] { r.ground, r.roads, r.barriers, r.guardrails, r.kerbs, r.lampPosts, r.banks, r.water, r.buildings, r.buildingCollider, r.medianPlants })
                     Kill(m);
             JobsAbandoned++;
         }
@@ -1609,6 +1609,23 @@ namespace PSXRacing.City
                 SunShadows.Exclude(g);
                 meshes.Add(tm.structure);
             }
+            if (tm.medianPlants != null)
+            {
+                // THE MEDIAN DRESS (2026-11-09): the planted medians' grasses and
+                // shrubs - RENDER-ONLY cards on the understory's atlas in the
+                // day's dress, on the foliage layer. No collider: a car drives
+                // through a shrub; the island's curb is in the ground mesh.
+                var g = Child(root, "MedianPlants", CityTrees.FoliageLayer);
+                g.AddComponent<MeshFilter>().sharedMesh = tm.medianPlants;
+                var mr = g.AddComponent<MeshRenderer>();
+                var um = CityUnderstory.MaterialFor(CityTrees.DressNow());
+                mr.sharedMaterial = um;
+                mr.enabled = um != null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                SunShadows.Exclude(g);
+                meshes.Add(tm.medianPlants);
+            }
             if (tm.kerbs != null)
             {
                 // RENDER-ONLY, deliberately: the inch of face under a grounded
@@ -1750,6 +1767,10 @@ namespace PSXRacing.City
                 var u = go.transform.Find("Understory");
                 var ur = u != null ? u.GetComponent<MeshRenderer>() : null;
                 if (ur != null) { ur.sharedMaterial = umat; ur.enabled = umat != null; }
+                // the median dress's plants wear the understory's dress
+                var mp = go.transform.Find("MedianPlants");
+                var mpr = mp != null ? mp.GetComponent<MeshRenderer>() : null;
+                if (mpr != null) { mpr.sharedMaterial = umat; mpr.enabled = umat != null; }
             }
         }
 
@@ -1996,6 +2017,8 @@ namespace PSXRacing.City
             if (slot == CityMeshes.Slot.Structure) return MatFor(CityMeshes.Slot.Concrete);
             // ...and one built before the crown models: they wear the flat roofs' concrete
             if (slot == CityMeshes.Slot.Crown) return MatFor(CityMeshes.Slot.RoofFlat);
+            // ...and one built before the median dress: a bed wears the ground's grass, as before
+            if (slot == CityMeshes.Slot.MedianBed) return MatFor(CityMeshes.Slot.Ground);
             return null;
         }
 
