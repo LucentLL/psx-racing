@@ -1,6 +1,6 @@
 // fetch_3dep.mjs - the USGS 3DEP 1/3 arc-second ground under Charlotte (plan WP-04)
 //
-//   node tools/city/fetch/fetch_3dep.mjs [--force]
+//   node tools/city/fetch/fetch_3dep.mjs [--force] [--out <dir>] [--box w,s,e,n]
 //
 // Charlotte's ground used to be the AWS Terrain Tiles "skadi" 1" tiles, run
 // through an opening, a closing and a blur that took out 66% of the core's
@@ -28,140 +28,38 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dem3depDir } from '../lib/dem3dep.mjs';
+import { makeFetcher, readIfds, assertFloatLzw, lzwDecode, undoFloatPredictor } from '../lib/cog.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = dem3depDir();
+const arg = n => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : null; };
+// --out <dir> and --box w,s,e,n fetch another box into another folder (the
+// defaults are Charlotte's, unchanged); the cells are worked out from the box.
+const OUT = arg('--out') || dem3depDir();
 const BASE = 'https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current';
-const CELLS = ['n36w081', 'n36w082', 'n35w081', 'n35w082'];
+const CITY_CELLS = ['n36w081', 'n36w082', 'n35w081', 'n35w082'];
 const UA = 'psx-racing-city-bake/1.0 (game map data; https://github.com/LucentLL/psx-racing)';
 /// [west, south, east, north] degrees: the DEM box (lat 34.9875..35.4815,
 /// lon -81.1052..-80.5710) padded, so the 60 m area means of its edge nodes
 /// and the creek beds near its rim are inside.
-const BOX = [-81.12, 34.975, -80.555, 35.495];
+const BOX = arg('--box') ? arg('--box').split(',').map(Number) : [-81.12, 34.975, -80.555, 35.495];
+if (BOX.length !== 4 || BOX.some(v => !Number.isFinite(v)) || BOX[0] >= BOX[2] || BOX[1] >= BOX[3]) throw new Error('--box w,s,e,n in degrees');
+const CELLS = arg('--box') ? (() => {
+  const c = [];
+  for (let lat = Math.ceil(BOX[3]); lat > Math.floor(BOX[1]); lat--)
+    for (let lon = Math.floor(BOX[0]); lon < Math.ceil(BOX[2]); lon++) c.push(`n${String(lat).padStart(2, '0')}w${String(-lon).padStart(3, '0')}`);
+  return c;
+})() : CITY_CELLS;
 const RES = 1 / 10800;          // one third of an arc-second
 const force = process.argv.includes('--force');
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function fetchRange(url, start, end) {
-  let last;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, Range: `bytes=${start}-${end}` } });
-      if (r.status !== 206 && r.status !== 200) throw new Error(`HTTP ${r.status}`);
-      const b = Buffer.from(await r.arrayBuffer());
-      if (b.length !== end - start + 1) throw new Error(`short read ${b.length} of ${end - start + 1}`);
-      return b;
-    } catch (e) { last = e; await sleep(1500 * (attempt + 1)); }
-  }
-  throw new Error(`${url} [${start}-${end}]: ${last.message}`);
-}
-async function head(url) {
-  const r = await fetch(url, { method: 'HEAD', headers: { 'User-Agent': UA } });
-  if (!r.ok) throw new Error(`HEAD ${url}: HTTP ${r.status}`);
-  return { bytes: +r.headers.get('content-length'), lastModified: r.headers.get('last-modified'), etag: r.headers.get('etag') };
-}
-
-// ---------------------------------------------------------------- TIFF
-/// The first image directory of a classic little-endian TIFF: the tags this
-/// needs, arrays read in full (fetching more of the header when an array lies
-/// past what was read).
+// The range reader, the TIFF directory reader, the LZW decoder and the
+// floating-point predictor live in lib/cog.mjs now, shared with the mountain
+// stages' 3DEP reads (tools/roads/lib3dep.mjs). Same code, same bytes.
+const { fetchRange, head } = makeFetcher(UA);
 async function readIfd(url) {
-  let buf = await fetchRange(url, 0, 65535);
-  const ensure = async n => { if (n > buf.length) buf = Buffer.concat([buf, await fetchRange(url, buf.length, n + 65535)]); };
-  if (buf.toString('latin1', 0, 2) !== 'II' || buf.readUInt16LE(2) !== 42) throw new Error(`${url}: not a classic little-endian TIFF`);
-  const off = buf.readUInt32LE(4);
-  await ensure(off + 2);
-  const n = buf.readUInt16LE(off);
-  await ensure(off + 2 + n * 12 + 4);
-  const SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 11: 4, 12: 8, 16: 8 };
-  const tags = {};
-  for (let k = 0; k < n; k++) {
-    const p = off + 2 + k * 12;
-    const tag = buf.readUInt16LE(p), type = buf.readUInt16LE(p + 2), count = buf.readUInt32LE(p + 4);
-    const bytes = (SIZE[type] || 1) * count;
-    let at = p + 8;
-    if (bytes > 4) { at = buf.readUInt32LE(p + 8); await ensure(at + bytes); }
-    const vals = [];
-    for (let i = 0; i < count && i < 1e6; i++) {
-      if (type === 3) vals.push(buf.readUInt16LE(at + 2 * i));
-      else if (type === 4) vals.push(buf.readUInt32LE(at + 4 * i));
-      else if (type === 12) vals.push(buf.readDoubleLE(at + 8 * i));
-      else if (type === 16) vals.push(Number(buf.readBigUInt64LE(at + 8 * i)));
-      else if (type === 2) { vals.push(buf.toString('latin1', at, at + count).replace(/\0+$/, '')); break; }
-      else vals.push(buf[at + i]);
-    }
-    tags[tag] = vals;
-  }
-  const one = t => tags[t]?.[0];
-  const d = {
-    width: one(256), height: one(257), bits: one(258), compression: one(259), predictor: one(317) || 1,
-    tileW: one(322), tileH: one(323), offsets: tags[324], counts: tags[325], format: one(339) || 1,
-    scale: tags[33550], tie: tags[33922], nodata: tags[42113] ? parseFloat(tags[42113][0]) : null,
-  };
-  if (d.compression !== 5 || d.predictor !== 3 || d.bits !== 32 || d.format !== 3 || !d.tileW)
-    throw new Error(`${url}: expected tiled float32 LZW with the floating-point predictor, got ${JSON.stringify({ c: d.compression, p: d.predictor, b: d.bits, f: d.format, t: d.tileW })}`);
+  const d = (await readIfds(fetchRange, url, { firstOnly: true })).ifds[0];
+  assertFloatLzw(url, d);
   return d;
-}
-
-/// TIFF LZW (MSB-first codes, 9-12 bits, early change: the width grows when
-/// the next free code reaches 2^width - 1, as libtiff decodes it).
-function lzwDecode(src, expected) {
-  const out = new Uint8Array(expected);
-  const prefix = new Int32Array(4096), suffix = new Uint8Array(4096), first = new Uint8Array(4096), len = new Int32Array(4096);
-  for (let i = 0; i < 256; i++) { prefix[i] = -1; suffix[i] = i; first[i] = i; len[i] = 1; }
-  let next = 258, width = 9, old = -1, op = 0, bit = 0;
-  const nbits = src.length * 8;
-  const emit = code => {
-    const L = len[code];
-    if (op + L > out.length) throw new Error('LZW: output overrun');
-    let c = code;
-    for (let k = op + L - 1; k >= op; k--) { out[k] = suffix[c]; c = prefix[c]; }
-    op += L;
-  };
-  for (;;) {
-    if (bit + width > nbits) break;
-    let v = 0, need = width, p = bit;
-    while (need > 0) {
-      const off = p & 7, avail = 8 - off, take = avail < need ? avail : need;
-      v = (v << take) | ((src[p >> 3] >> (avail - take)) & ((1 << take) - 1));
-      need -= take; p += take;
-    }
-    bit += width;
-    const code = v;
-    if (code === 257) break;
-    if (code === 256) { next = 258; width = 9; old = -1; continue; }
-    if (old < 0) {
-      if (code > 255) throw new Error('LZW: bad first code');
-      emit(code); old = code; continue;
-    }
-    if (code < next) {
-      emit(code);
-      if (next < 4096) { prefix[next] = old; suffix[next] = first[code]; first[next] = first[old]; len[next] = len[old] + 1; next++; }
-    } else if (code === next) {
-      if (next < 4096) { prefix[next] = old; suffix[next] = first[old]; first[next] = first[old]; len[next] = len[old] + 1; next++; }
-      emit(code);
-    } else throw new Error(`LZW: code ${code} past the table (${next})`);
-    old = code;
-    if (next + 1 >= (1 << width) && width < 12) width++;
-  }
-  if (op !== expected) throw new Error(`LZW: ${op} bytes, expected ${expected}`);
-  return out;
-}
-
-/// Undo TIFF predictor 3 (floating point, TIFF Technical Note 3) on one tile:
-/// per row, a byte-wise running sum, then the byte planes (most significant
-/// first) re-interleaved into little-endian float32.
-function undoFloatPredictor(bytes, w, h) {
-  const out = new Float32Array(w * h);
-  const le = new Uint8Array(out.buffer);
-  const rowB = w * 4;
-  for (let y = 0; y < h; y++) {
-    const r = y * rowB;
-    for (let i = 1; i < rowB; i++) bytes[r + i] = (bytes[r + i] + bytes[r + i - 1]) & 255;
-    for (let i = 0; i < w; i++)
-      for (let b = 0; b < 4; b++) le[r + 4 * i + b] = bytes[r + (3 - b) * w + i];
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------- mosaic
@@ -232,7 +130,7 @@ writeSync(fd, bytes);
 closeSync(fd);
 const meta = {
   schema: 1,
-  what: 'USGS 3DEP 1/3 arc-second DEM (public domain), the Charlotte DEM box, float32 metres NAVD88, rows north to south',
+  what: 'USGS 3DEP 1/3 arc-second DEM (public domain), ' + (arg('--box') ? 'box ' + BOX.join(',') : 'the Charlotte DEM box') + ', float32 metres NAVD88, rows north to south',
   credit: 'U.S. Geological Survey, 3D Elevation Program',
   res_deg: RES, col0, row0, cols, rows,
   west: col0 * RES - 180, north: 90 - row0 * RES,
