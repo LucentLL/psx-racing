@@ -4,9 +4,9 @@
 
 ## The answer
 
-**To scale: yes, they already were.** Plan length was checked earlier (within 0.09% on seven stages). This audit adds NC 226A (`swa`; its source is `overpass_swiss226a.json`): where the mapped line cut the inside of bends the real road is 20 m longer in 11.9 km (0.17%).
+**To scale: yes, they already were.** Plan length was checked earlier on seven stages (within 0.09%). The eighth, NC 226A (`swa`), was not matched to its source then; it is `overpass_swiss226a.json`, and the same check gives +0.008% against the distance on the globe, with the bake a median 0.1 m (worst 1.2 m) off the OSM line. What the lidar adds: the mapped line cuts the inside of some bends, so the real NC 226A is 20 m longer in 11.9 km (0.17%).
 
-**Accurate: mostly, with four real faults.** The heights the stages were baked from are labelled "SRTM", but the tiles in `tools/roads/cache` (the AWS "skadi" set) are bare-earth USGS data resampled to 30 m in the United States, not radar treetops: along all eight roads the raw source is within 0.3 m of the lidar road on average (RMS 1.0 to 1.6 m). The note in the builder that says it "reads the canopy top, up to +33 m on these ridges" is wrong. So the land was never tens of metres off. What is off:
+**Accurate: mostly, with four real faults.** The heights the stages were baked from are labelled "SRTM", but they do not behave like radar: along all eight roads the bake's raw source is within 0.3 m of the lidar road on average (RMS 1.0 to 1.6 m), where treetop radar would stand metres high in forest. The tiles in `tools/roads/cache` are the AWS "skadi" set, which inside the United States is compiled from bare-earth USGS data at 30 m. The note in the builder that says it "reads the canopy top, up to +33 m on these ridges" is wrong. So the land was never tens of metres off. What is off:
 
 1. **Bridge decks sag into the ground under them (Blue Ridge Parkway, `brp`).** The bake smoothed the bare ground and laid the road on it, bridges included. The Linn Cove Viaduct (4488-4880 m) dips 16 m in the middle: the game goes down it at 8.5% and climbs out at 5%, where the real deck is a steady 2% descent. The other seven spans sit 1.7 to 3.9 m low.
 2. **A hole in Beech Gap's far land (`beech`).** The far grid's western 2 km (33 columns, the whole 24 km height, everything west of longitude 83 W) is at sea level: a wall 850 to 1,830 m high, 8 km west of the road. The bake only loaded the tiles its road's box touched.
@@ -15,7 +15,7 @@
 
 Everything else is small: road heights within 1 m RMS of the lidar on six stages, grades softened (short steep pitches lose 1 to 3% of grade over about a quarter of each route), the mapped centreline a median 0.75 to 1.25 m from the middle of the lidar bench, which is about what the method can resolve.
 
-**Corrected in this branch: NC 226A (`swa`)**, re-baked from lidar (line, heights, both grids). See "The correction" below. Blue Ridge is the next worst and is not corrected yet.
+**Corrected in this branch:** NC 226A (`swa`: line, heights, both grids) and the Blue Ridge Parkway (`brp`: heights and both grids, which puts the decks of fault 1 straight). Each was built once in the lab sandbox with all stage audits passing and before/after pictures looked at; neither has been driven. Faults 2, 3 and 4 are reported, not fixed.
 
 ## The table
 
@@ -35,6 +35,140 @@ Game = the shipped bake. Real = USGS 3DEP. Line offsets are of the lidar bench c
 <!-- TABLE:END -->
 
 One sheet for all eight (real against game profile, and the difference): `mountain_lidar_audit_sheet.png` in the session scratchpad (path in the hand-back).
+
+## The correction: NC 226A (`swa`)
+
+`node tools/roads/bake_3dep.mjs swa` re-bakes the stage from lidar in the same four files the builder already reads (`Resources/swa_stage.json`, `Art/Swiss226A/swa_dem_near.bytes`, `swa_dem_far.bytes`, `swa_dem_meta.json`). `--check` re-derives them from the tile cache with no network and compares byte for byte (passes). The SRTM bake is kept in `tools/roads/srtm_bakes/swa_srtm/` (outside Assets, so nothing ships twice); every re-bake starts from that copy.
+
+**The line.** 15 stretches (628 m of road) moved onto the lidar bench, by 2.2 to 4.7 m, each faded in and out over 24 m:
+
+| From - to (m, old stations) | Length | Moved |
+|---|---|---|
+| 44 - 68 | 28 m | 2.4 m right |
+| 160 - 184 | 28 m | 2.2 m left |
+| 412 - 488 | 80 m | 2.4 m left |
+| 528 - 556 | 32 m | 2.5 m left |
+| 1884 - 1904 | 24 m | 2.4 m left |
+| 3652 - 3712 | 64 m | 3.4 m left |
+| 3848 - 3884 | 40 m | 4.0 m left |
+| 4248 - 4268 | 24 m | 2.5 m right |
+| 4604 - 4628 | 28 m | 2.3 m right |
+| 7120 - 7176 | 60 m | 2.6 m left |
+| 7760 - 7780 | 24 m | 2.2 m left |
+| 9172 - 9220 | 52 m | 3.0 m left |
+| 10212 - 10260 | 52 m | 3.0 m left |
+| 10408 - 10432 | 28 m | 2.9 m left |
+| 11136 - 11196 | 64 m | 4.7 m left |
+
+19 more stretches read over 2 m off and were left alone, because the evidence there is not good enough to move a road on: at eleven the shelf was found at fewer than half the stations, at six it is 13 to 17.5 m wide (a junction mouth or a pull-off pulls the shelf's middle sideways), two are under 16 m long. The largest of those: 9320-9348 m (4.9 m, at a side road), 9692-9736 m (4.5 m, a 17.5 m wide spot), 11696-11752 m (4.3 m), 8880-8904 m (4.3 m), 5452-5500 m (4.1 m). They want a look at imagery before anyone moves them.
+
+Moving the line outward on bends made the road 20 m longer (11,917 to 11,937 m): the mapped line had cut the inside of those bends. The tightest corner went from 11.2 m to 11.7 m (the switchback at 6.9 km). The start line is where it was (33 m); the finish is the same place, now at 11,738 m. The three sprint cuts in `TrackCatalog` are the same places at their new distances: 3688 to 3696, 7832 to 7848, 11721 to 11738; the MIDDLE/LOWER boundary reads 635 m on the lidar, not 636.
+
+**The heights.** The lidar ground on the bench under every waypoint, with one gaussian of sigma 8 m along the road and no grade clamp. Why 8 m: it is the smallest sigma at which the tightest vertical curve clears the game's own floor (`LifeSimSelfTest.CheckElevation` refuses under 200 m because the 9 m ground lattice cuts through a sharper crest; the bake asks for 230 m and got 347 m at the first sigma tried). The SRTM bake used sigma 60 m, three more 22 m passes and an 11% clamp.
+
+| | SRTM bake | 3DEP bake | Real (lidar) |
+|---|---|---|---|
+| Height against the lidar road: bias / RMS / worst | +0.33 / 0.82 / +2.95 m | 0 / 0 / 0.04 m (same instrument: a consistency check, not an independent one) | |
+| First waypoint / last waypoint | 1041.3 / 469.5 m | 1043.5 / 469.1 m | 1043.5 / 469.1 m |
+| Descent / climb | 571.7 / 0.0 m | 576.9 / 2.6 m | 577.4 / 3.0 m |
+| Grade mean / p95 / max | 4.79 / 7.47 / 8.55% | 4.85 / 7.89 / 9.29% | 4.86 / 7.94 / 9.51% |
+| Road over 8.5% | 32 m | 120 m | 168 m |
+| Grade more than 1% off the real road | 24% of the route (60 stretches) | 0% | |
+| Stretches with the line over 2 m off the bench | 34 (1412 m) | 19 (852 m), the ones left alone | |
+
+What a driver gets: the short steep pitches are back (the SRTM bake had turned 7 to 8% pitches of 50 m into 4 to 5%, and a 130 m nearly level stretch (1%) at 11.0-11.1 km into a 4% descent), and the three small rises near the bottom exist (2.6 m of climb on a road the game had as pure descent).
+
+**The land.** Near grid (12 m, 465 x 542) from the 1/3" DEM at full resolution; far grid (60 m, 354 x 370) from its 4x overview; same lattices, same `baseM` (429), so the world did not move. Against the SRTM bake the near grid changed by 2.16 m RMS (largest 14.6 m, on a crest 500 m off the road) and the far grid by 2.56 m RMS (largest 66.7 m, the quarry). `swa_dem_wide.bytes` (240 m, `bake_wide.mjs`) is untouched and still SRTM: at 240 m cells the difference is below a cell's own relief.
+
+**Lab build and pictures.** One `StageLab` build of SwissNC226A in PSXLab (PC content) with the SRTM bake and one with the 3DEP bake, same code (this branch), then `HazeProbe` pictures at eight places, each as the chase view and as a 25 m high view turned 60 degrees to the open side (noon, fall dress). The after stations are the same places on the re-baked line.
+
+| StageLab | SRTM bake | 3DEP bake |
+|---|---|---|
+| Roadside checks | 0 failing | 0 failing |
+| Obstacle audit (edge drop, edge face, edge falls, barriers, run ends, surface, facing, barrier faces, wall solids) | all ok | all ok |
+| Terrain audit: road clear of the ground at its tightest; probes buried | 0.344 m; 0 of 8,943 | 0.331 m; 0 of 8,958 |
+| Ground lattice under the shoulder | ok on 49,280 probes | ok on 67,276 probes |
+| Lane audit | ok (2.990 m lanes) | ok (2.990 m lanes) |
+| Near-grid vertices the builder lowered under the road shelf | 588 (up to 1.51 m) | 784 (up to 1.26 m) |
+| Half-sections with a barrier within 8 m | 5,258 of 5,962 | 4,660 of 5,972 |
+| Guard posts | 5,472 (459 / km) | 4,148 (347 / km) |
+| Wall runs / rock cuts | 51 / 31 | 78 / 23 |
+| Benched shoulders over 2.5 m; mean drivable shoulder | 378; 2.1 m | 883; 2.7 m |
+| "warn edge slope" (steeper than 1V:6H for over 1 m inside the clear zone; a warning, not a failure) | 97 half-sections, 388 m of edge | 637 half-sections, 2,548 m of edge |
+
+Nothing fails. **The roadside did change, and that is the thing to look at.** The lidar land has the real bench and verge in it, so the ground beside the tarmac stays level for longer before it falls. The builder's own roadside rules then warrant a barrier at fewer places (a quarter fewer guard posts) and leave six times as much edge in the "steep but not guarded" warning band. That is the rules reacting to truer ground, not a fault in the bake, but it is a visible change to the stage: for example the guardrail on the right at 9,360 m is now open grass shoulder, and the wooden fence at 10,200 m is gone where the lidar has a level wide spot. If the owner wants the old density of rail on this road, that is a `RoadsideRules` threshold, not the data.
+
+What the pictures show (all in `Docs/shots/lidar_audit/`, `swa_ba_<station>_chase.jpg` and `_vista.jpg`, before on the left):
+
+- The road sits on its bench in all eight chase views: no floating or buried tarmac, shoulders flush, kerb strip and paint unbroken.
+- Rock cuts stand on the uphill side where the lidar has a cut face (8,400, 9,360, 5,450, 11,100 and 11,160 m), taller than before; at 6,900 m (into the 11 m switchback) the cut became a grass bank.
+- Guardrails and fences that remain are seated on the shoulder; trees are seated; nothing hangs in the air.
+- At 11,160 m, where the line moved 4.7 m, the bend the mapped line had straightened is there.
+- The high views show the same hills: no hole, spike or step, near or far. The land changed by about 2 m RMS, which a wide view cannot show.
+- Steepest stretch (8,400 and 9,360 m), tightest hairpin (6,900 m) and the valley (10,200 m) are among the eight.
+
+These are stills from an editor probe. Nobody has driven it. The full StageLab reports are in `Docs/lidar_audit/stage_lab_*.txt`.
+
+## The second correction: Blue Ridge Parkway (`brp`)
+
+`node tools/roads/bake_3dep.mjs brp --keep-line`. The SRTM bake is kept in `tools/roads/srtm_bakes/brp_srtm/`.
+
+**The line was not moved.** The Parkway's shelf is 11 m wide around 6.4 m of pavement, and its grass shoulders are not the same width on both sides, so the shelf's middle does not locate the pavement to better than about 2.3 m. The lidar reads the shelf more than 2 m off the mapped line at 11 places (the longest: 980-1124 m at an overlook, 2484-2644 m, 3572-3820 m across two bridges, 5624-5744 m, 6776-6880 m); none is evidence enough to move this road. Plan, bridge spans, start and finish lines are unchanged to the centimetre.
+
+**The heights.** Lidar ground on the shelf, sigma 8 m (tightest vertical curve 599 m), no clamp, and a straight line across each of the eight bridge spans from abutment to abutment. That last part is an assumption: bare-earth lidar has no decks in it, so a deck's true profile between its abutments is not measured.
+
+| | SRTM bake | 3DEP bake | Real (lidar) |
+|---|---|---|---|
+| Height against the lidar road: bias / RMS / worst | -1.69 / 3.30 / -15.96 m | 0 / 0 / 0 (same instrument) | |
+| Linn Cove Viaduct (4488-4880 m) | dips 16 m: down at 8.5%, up at 5% | 1342.2 to 1334.2 m, a steady 2.05% | |
+| The other seven spans | 1.7 to 3.9 m low | straight between abutments | |
+| Climb / descent | 65.3 / 121.3 m | 59.3 / 114.1 m | 59.6 / 114.3 m |
+| Grade p95 / max | 4.98 / 8.49% | 4.91 / 6.05% | 4.91 / 6.13% |
+| Grade more than 1% off the real road | 31% of the route | 0% | |
+| First / last waypoint | 1331.1 / 1275.1 m | 1328.2 / 1273.4 m | 1328.2 / 1273.4 m |
+
+With the decks where they belong, the bare ground is up to 23 m under the Linn Cove deck line (it was 7.5 m under the sagging one) and 9 to 20 m under the others.
+
+**The land.** Near grid 613 x 401, far grid 384 x 341, same lattices, `baseM` 1235. Against the SRTM bake: near 2.04 m RMS (largest 31.9 m: Grandfather's crags, which the 30 m data had clipped), far 2.49 m RMS.
+
+**Lab build and pictures.** One `StageLab` build of BlueRidge with each bake, same code, then pictures at five places (the approach to the viaduct at 4,460 m, mid-span at 4,660 m, its far end at 4,800 m, and the spans at 2,740 and 1,660 m).
+
+| StageLab | SRTM bake | 3DEP bake |
+|---|---|---|
+| Roadside checks | 0 failing | 0 failing |
+| Obstacle audit, deck rails (796 deck and approach half-sections), barrier on both sides of every span station (318) | all ok | all ok |
+| Terrain audit: road clear of the ground at its tightest; probes buried | 0.309 m; 0 of 4,722 | 0.294 m; 0 of 4,722 |
+| Gorge under the full-depth spans (238 waypoints) | 11.2 m deep | 22.8 m deep |
+| Lane audit | ok (3.200 m lanes) | ok (3.200 m lanes) |
+| Near-grid vertices lowered under the road shelf | 398 (up to 0.84 m) | 448 (up to 0.71 m) |
+| Half-sections with a barrier within 8 m; guard posts | 2,965 of 3,624; 2,528 | 2,791 of 3,624; 2,495 |
+| Rock cuts | 29 | 26 |
+| Mean drivable shoulder | 2.9 m | 3.8 m |
+| "warn edge slope" | 190 half-sections, 760 m of edge | 154 half-sections, 616 m of edge |
+
+Nothing fails, and here the roadside barely changed (33 fewer posts in 7.2 km).
+
+What the pictures show (`Docs/shots/lidar_audit/brp_ba_<station>_chase.jpg` and `_vista.jpg`):
+
+- **Mid-viaduct (4,660 m):** before, the car is at the bottom of the dip with the deck climbing ahead and trees crowding the rail; after, the deck runs out level-to-falling with open sky and the piedmont beyond it.
+- **Approach (4,460 m) and far end (4,800 m):** before, the road drops onto the deck and climbs off it; after, it carries straight on.
+- **The spans at 2,740 and 1,660 m:** 2 to 4 m higher, no visible change of character.
+- Rails are continuous and seated on every deck in view; trees and the land beside the approaches are seated.
+
+Not looked at: the underside of the decks and the piers now that there is up to 23 m under them, and the title screen, which flies this stage.
+
+## Not done, not verified
+
+- **Six stages are not corrected**: `gap`, `mtm`, `beech`, `chimney`, `swiss`, `brock`. `node tools/roads/bake_3dep.mjs <pre>` will re-bake each from the tiles already in the cache (no download); each then needs its own lab build and a look. By the audit the order is `gap` (the clamp), `beech` (the hole in the far grid: any re-bake fixes it), then `swiss`, `brock`, `chimney`, `mtm`. Loops (`swiss`, `brock`) keep their mapped line; the bake does not move a loop's line.
+- **Chimney Rock's real grade reaches 14.7%** (1772-1836 m) against the self-test's 15% limit; its re-bake will sit close to that limit and wants a drive.
+- **Bridge deck heights are interpolated**, not measured (see above). The lidar point cloud would settle them; it was not downloaded.
+- **The pavement's own width and edge** cannot be read from a bare-earth DEM. No width was changed. The Blowing Rock bypass (fault 4) is reported, not fixed: it is a road-type change (a divided highway), which is the stage builder's work, not a bake's.
+- **Overlooks and viewpoints** were not checked: the cached Overpass files hold highway ways only. The game builds none; the lidar's wide spots per stage (in the per-stage sections) are where the real ones are.
+- **The 19 line stretches left alone on NC 226A**, and every line offset on the other seven stages, were not checked against imagery.
+- **No drive test.** The lab build's audits (roadside, obstacles, terrain, lanes) and still pictures only; no race-play-check, no AI lap, no player build. The sprint cut lines moved 8 to 17 m in distance (same places): `SwissNC226AUpper/Middle/Lower` and their twins have not been raced since.
+- **`<pre>_dem_wide.bytes` stays SRTM** on every stage (240 m cells).
+- **The datum question** (OSM WGS84 against the DEM's NAD83, about 1 m) is left open; no shift is applied.
+- The comment in `PSXRacingBuilder.Stage.cs` ("SRTM, so it reads the canopy top - up to +33 m on these ridges") is wrong and was left as it is (another branch is editing that file).
 
 ## How it was measured
 
@@ -66,6 +200,39 @@ The lidar cannot separate asphalt from a gravel shoulder, so no stage's paved wi
 - Near grids (12 m): 1.8 to 3.0 m RMS everywhere, no bias (-0.5 to +0.2 m). Within 100 m of the road 1.3 to 2.6 m RMS, worst single points 6 to 13 m. That is 30 m data failing to hold sharp shapes, not misplaced land: the worst points are crests and cliff lines. Chimney Rock has the largest (the cliff under the Chimney, game 39 m too high at one lattice point 100-500 m from the road, 6 m too high as a 240 m block mean); Grandfather Mountain's crags are 32 m low at one point 500 m off the Parkway; Mount Mitchell's ridge 17 m low.
 - Far grids (60 m): 2.5 to 3.0 m RMS, the comparison's floor. No missing gorge and no ridge 40 m low on any stage. The exceptions are quarries dug since the game's data was made: the Woodlawn quarry 5.6 km south-east of the foot of NC 226A (game 67 m high; it is in the far grids of `swa`, `gap` and `swiss`), one near Boone on Blowing Rock's grid (59 m) and one near Swannanoa on Mount Mitchell's (41 m). 6 to 11 lattice points each out of about 125,000.
 - Beech Gap's hole (fault 2) is the one wrong landform, and it is at the far grid's edge.
+
+## Downloads
+
+All from the public USGS bucket `prd-tnm.s3.amazonaws.com`, by HTTP range request, with the User-Agent `psx-racing-mountain-bake/1.0 (game map data; USGS 3DEP elevation)`, on 2026-11-09. **149.6 MB in all** (the owner's ceiling was about 200 MB): 105.2 MB of 1 m lidar DEM in 176 tiles of 512 x 512 m, 42.8 MB of 1/3" DEM in 56 tiles, 1.6 MB of file headers and one check tile. The cache and its ledger (every URL, Last-Modified, ETag, tile and byte count) are in the main checkout, git-ignored: `tools/roads/cache/3dep/sources.json`.
+
+| Source file | Tiles | Read | Of |
+|---|---|---|---|
+| `StagedProducts/Elevation/13/TIFF/current/n36w083/USGS_13_n36w083.tif` | 39 | 31.0 MB | 482 MB |
+| `.../13/TIFF/current/n37w082/USGS_13_n37w082.tif` | 13 | 9.4 MB | 477 MB |
+| `.../13/TIFF/current/n36w082/USGS_13_n36w082.tif` | 2 | 1.8 MB | 482 MB |
+| `.../13/TIFF/current/n36w084/USGS_13_n36w084.tif` | 2 | 0.6 MB | 482 MB |
+| `StagedProducts/Elevation/1m/Projects/NC_Phase5_2018_A18/TIFF/USGS_1M_17_x40y397_NC_Phase5_2018_A18.tif` (NC 226A, NC 226, the loop) | 59 | 38.2 MB | 342 MB |
+| `..._x32y391_...` (NC 215) | 32 | 19.5 MB | 312 MB |
+| `..._x42y400_...` (Parkway, Linn Cove) | 24 | 13.5 MB | 306 MB |
+| `..._x38y396_...` (Mount Mitchell) | 21 | 12.6 MB | 325 MB |
+| `..._x38y393_...` (Chimney Rock) | 10 | 6.9 MB | 345 MB |
+| `..._x43y401_...`, `..._x43y400_...`, `..._x44y401_...` (Blowing Rock) | 30 | 14.4 MB | 968 MB |
+
+The corridor read is 60 m either side of each route. Nothing more is needed to re-bake the other six stages. Whole 1 m tiles for all eight would be about 2.6 GB.
+
+## Running it again
+
+```
+set PSX_ROADS_CACHE=C:\Users\mcgee\PSX Racing\tools\roads\cache
+node tools/roads/audit_3dep.mjs all --offline            numbers -> Docs/lidar_audit/<pre>_audit.json
+py -I tools/roads/audit_3dep_plots.py Docs/lidar_audit Docs/shots/lidar_audit --sheet sheet.png
+py -I tools/roads/audit_3dep_report.py Docs/lidar_audit Docs/mountain_lidar_audit.md
+node tools/roads/bake_3dep.mjs <pre> [--keep-line]       re-bake one stage into Assets
+node tools/roads/bake_3dep.mjs <pre> --check             re-derive and compare, no network
+node tools/roads/audit_3dep.mjs <pre> --res tools/roads/srtm_bakes/<pre>_srtm --art tools/roads/srtm_bakes/<pre>_srtm    audit the old bake
+```
+
+`Docs/lidar_audit/*.json` are the audits of the SRTM bakes (the "before" of every stage); `Docs/lidar_audit/after/` holds the audits of the two re-baked stages. Running `audit_3dep.mjs all` now would overwrite the `swa` and `brp` "before" files with "after" numbers: pass `--out`.
 
 ## Per stage
 
@@ -464,5 +631,3 @@ Largest wrong landforms (block means): near grid 240 m block at (-1161, -1595), 
 **Structures.** Stage bridges: 9688-9808 m (in OSM). Stage tunnels: none. OSM bridge ways on the route: 1124-1148 m (ground 4.82 m below the deck line; NOT in the stage); 9432-9456 m (ground 5.42 m below the deck line; NOT in the stage); 9716-9764 m (ground 8.42 m below the deck line; in the stage); 9768-9796 m (ground 8.29 m below the deck line; in the stage). OSM tunnels: none. Places the lidar ground drops away under the road with no bridge mapped: none.
 
 <!-- STAGES:END -->
-
-<!-- PHASE2 -->

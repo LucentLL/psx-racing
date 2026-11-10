@@ -90,7 +90,7 @@ def structures(p, d):
     for g in d['structures']['gameBridges'] + d['structures']['gameTunnels']:
         p.band(g['fromM'], g['toM'], '#efeee9')
 
-def profile_png(d, path, S=2):
+def profile_png(d, path, S=2, game_label='Game (shipped SRTM bake)'):
     W, H = 1280 * S, 760 * S
     im = Image.new('RGB', (W, H), SURFACE); dr = ImageDraw.Draw(im)
     s = d['series']; x = s['sM']; pr = d['profile']
@@ -104,7 +104,7 @@ def profile_png(d, path, S=2):
     a = Panel(dr, (L, 84 * S, R, 360 * S), xr, pad_range(lo, hi), S); structures(a, d)
     a.frame(ylabel='Height above sea level (m)', xticks=False, ny=6)
     a.line(x, s['real'], REAL); a.line(x, s['game'], GAME)
-    legend(dr, R - 330 * S, 72 * S, [('Real road (1 m lidar)', REAL), ('Game (shipped bake)', GAME)], S)
+    legend(dr, R - 330 * S, 72 * S, [('Real road (1 m lidar)', REAL), (game_label, GAME)], S)
     # B: difference
     dh = [g - r for g, r in zip(s['game'], s['real'])]
     m = max(2.0, max(abs(v) for v in dh))
@@ -225,7 +225,7 @@ def main():
         p = os.path.join(src, pre + '_audit.json')
         if not os.path.exists(p): continue
         d = json.load(open(p, encoding='utf8')); ds.append(d)
-        profile_png(d, os.path.join(out, f'{pre}_profile{suffix}.png'))
+        profile_png(d, os.path.join(out, f'{pre}_profile{suffix}.png'), game_label='Game (re-baked from 3DEP lidar)' if suffix else 'Game (shipped SRTM bake)')
         plan_png(d, os.path.join(out, f'{pre}_plan{suffix}.png'))
         print('drew', pre)
     if '--sheet' in a:

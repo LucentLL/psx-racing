@@ -20,7 +20,11 @@
 //   line as it was: the bench's middle is not the pavement's middle to better
 //   than about a metre, so smaller "corrections" would only add wobble.
 //   --keep-line leaves the plan alone (loops are always left alone: their
-//   closing seam and crossings are fetch_loop.mjs's business).
+//   closing seam and crossings are fetch_loop.mjs's business). Use it where
+//   the shelf is much wider than the pavement (the Parkway: 11 m of shelf
+//   around 6.4 m of road, grass shoulders that are not the same width on
+//   both sides), because there the shelf's middle does not say where the
+//   pavement is to better than a couple of metres.
 //
 //   THE HEIGHTS are the lidar ground on the bench under each waypoint (median
 //   of the ground within 1.5 m of the bench's middle), straight across bridges,
@@ -126,7 +130,10 @@ const rib0 = ribbon(S.wp, loop, sampleXZ);
 const b0 = findBench(rib0, { skip: skip0 });
 const moves = [];
 let wp = S.wp.map(p => ({ x: p.x, z: p.z }));
-const KEEP_LINE = flag('--keep-line') || loop;
+// --check bakes the way the files on disk were baked: a stage baked with --keep-line says so in its meta.
+const metaPath = join(outArt, `${pre}_dem_meta.json`);
+const bakedKeepLine = CHECK && existsSync(metaPath) && /^as mapped/.test(JSON.parse(readFileSync(metaPath, 'utf8')).source?.line || '');
+const KEEP_LINE = flag('--keep-line') || loop || bakedKeepLine;
 if (!KEEP_LINE) {
   const widths = []; for (let i = 0; i < n; i++) if (b0.conf[i]) widths.push(b0.width[i]);
   widths.sort((a, b) => a - b);
@@ -159,7 +166,12 @@ if (!KEEP_LINE) {
   if (done.length) wp = splineResample(shifted, SP).map(p => ({ x: p.x, z: p.z }));
   console.log(`  line: ${done.length} stretch(es) moved onto the bench (${done.reduce((s, m) => s + m.lengthM, 0)} m of road), ${moves.length - done.length} left alone`);
   for (const m of moves) console.log(`    ${String(m.fromM).padStart(6)}-${String(m.toM).padEnd(6)} ${String(m.lengthM).padStart(4)} m  ${m.peakM > 0 ? 'left ' : 'right'} ${Math.abs(m.peakM).toFixed(1)} m  ${m.moved ? 'MOVED' : 'left alone: ' + m.why}`);
-} else console.log(`  line: left as mapped (${loop ? 'a loop' : '--keep-line'})`);
+} else {
+  // say what was NOT moved, so the choice is on record
+  let a = -1; const over = [];
+  for (let i = 0; i <= n; i++) { const on = i < n && Math.abs(b0.offF[i]) > 2; if (on && a < 0) a = i; if (!on && a >= 0) { if ((i - a) * SP >= 16) over.push(`${a * SP}-${(i - 1) * SP} m`); a = -1; } }
+  console.log(`  line: left as mapped (${loop ? 'a loop' : '--keep-line'}); the bench reads over 2 m off it for 16 m or more at ${over.length} place(s)${over.length ? ': ' + over.join(', ') : ''}`);
+}
 const N = wp.length;
 const t0 = tightestPlan(S.wp, 12, { loop }), t1 = tightestPlan(wp, 12, { loop });
 const len0 = arcPositions(S.wp).at(-1), len1 = arcPositions(wp).at(-1);
@@ -263,7 +275,7 @@ const metaOut = {
     near: 'USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice',
     far: 'USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice',
     wide: meta.wide ? 'unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs' : undefined,
-    line: moved ? `${moves.filter(m => m.moved).length} stretch(es) moved onto the lidar bench (${moves.filter(m => m.moved).reduce((s, m) => s + m.lengthM, 0)} m of road)` : 'as mapped',
+    line: moved ? `${moves.filter(m => m.moved).length} stretch(es) moved onto the lidar bench (${moves.filter(m => m.moved).reduce((s, m) => s + m.lengthM, 0)} m of road)` : 'as mapped' + (KEEP_LINE && !loop ? ' (--keep-line)' : ''),
     before: `tools/roads/srtm_bakes/${pre}_srtm/ (the SRTM bake this replaced)`,
     files1m: tilesOf('1m_'), files13: tilesOf('13_'),
   },
