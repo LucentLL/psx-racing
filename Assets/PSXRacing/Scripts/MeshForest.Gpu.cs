@@ -64,6 +64,16 @@ namespace PSXRacing
             return false;
         }
 
+        /// <summary>A/B (perf tour ab=MeshForest.BaseFromArgs:1): each draw finds its
+        /// list through its draw command's startInstance instead of a number in a
+        /// MaterialPropertyBlock. Without the block, draws that share a material
+        /// need no state change between them (measured 2026-11-10: one set-pass
+        /// call a draw with it). Off until it has been seen on screen.</summary>
+        public static bool BaseFromArgs;
+        bool argsHaveBase;
+        GraphicsBuffer.IndirectDrawIndexedArgs[] cmdArgs;
+        uint[] cmdBase;
+
         /// <summary>The instance frustum is this much wider than the view's
         /// (tan of the half angles): slack for nothing in particular - the cull
         /// runs after every camera script of the frame.</summary>
@@ -422,6 +432,10 @@ namespace PSXRacing
                     };
                 }
                 cmdBucketBuf.SetData(cb);
+                cmdArgs = args;
+                cmdBase = new uint[cmds.Length];
+                for (int c = 0; c < cmds.Length; c++) cmdBase[c] = buckets[cmds[c].bucket].start;
+                argsHaveBase = false;
                 argsBuf.SetData(args);
                 countBuf.SetData(new uint[bucketCount]);
                 chunkFlag = new uint[chunks.Length + 1];
@@ -537,7 +551,7 @@ namespace PSXRacing
                     shadowCastingMode = ShadowCastingMode.Off,   // the sun's shadow: SunShadows' card stand-ins
                     receiveShadows = true,
                     layer = gameObject.layer,
-                    matProps = cmdProps[c],
+                    matProps = argsHaveBase ? null : cmdProps[c],
                 };
             }
         }
@@ -551,6 +565,14 @@ namespace PSXRacing
             if (root != gpuRoot) BakeGpu(root);
             Shader.SetGlobalBuffer(IdMat, matBuf);
             Shader.SetGlobalBuffer(IdVis, visBuf);
+            if (argsHaveBase != BaseFromArgs)
+            {
+                // where a list begins: in the draw command, or in the draw's property block
+                argsHaveBase = BaseFromArgs;
+                for (int c = 0; c < cmdArgs.Length; c++) cmdArgs[c].startInstance = argsHaveBase ? cmdBase[c] : 0u;
+                argsBuf.SetData(cmdArgs);
+                GpuDressChanged();
+            }
             Vector3 camPos = cam.transform.position;
             // THE CHUNKS, by the old path's own rule: a WIDER cone than the
             // camera's (a chunk swaps its cards for plants before it reaches

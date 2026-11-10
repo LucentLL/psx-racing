@@ -107,6 +107,7 @@ namespace PSXRacing.EditorTools
                     if (noShade) mode = mode.Substring(0, mode.Length - 1);
                     MeshForest.GpuDriven = !mode.StartsWith("cpu");
                     MeshForest.DebugExact = mode == "gpux";
+                    MeshForest.BaseFromArgs = mode == "gpub";    // (gpub: each list found through its draw command)
                     forest.DrawNow(cam, mode == "gpuv");
                     SunShadows.RenderFor(cam);
                     forest.DrawNow(cam, mode == "gpuv");
@@ -126,6 +127,7 @@ namespace PSXRacing.EditorTools
                     }
                     PSXScreenshotTool.ShotAs(cam, name + "_" + mode, eye, rot);
                     MeshForest.DebugExact = false;
+                    MeshForest.BaseFromArgs = false;
                     if (noShade) { sStr.SetValue(null, keepStr); sSky.SetValue(null, keepSky); }
                     // PSX_FP_DUMPSHADOW=1: the sun's and the sky's maps as this shot read them
                     if (Env("PSX_FP_DUMPSHADOW", "0") == "1")

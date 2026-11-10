@@ -384,18 +384,29 @@ Shader "PSX/Lit"
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
-        #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+            // (desktop APIs only - D3D11 covers D3D12: should a procedural
+            // variant ever be compiled for a web or phone API, it is an empty one)
+        #if defined(UNITY_PROCEDURAL_INSTANCING_ENABLED) && (defined(SHADER_API_D3D11) || defined(SHADER_API_VULKAN) || defined(SHADER_API_METAL) || defined(SHADER_API_GLCORE))
+            #define PSX_FOREST_PROCEDURAL 1
+        #endif
+        #ifdef PSX_FOREST_PROCEDURAL
             // The forest's buffers: three rows a plant (object to world, as
             // MeshForest baked them), and this draw's list of the plants the
-            // cull kept (PSXForestCull.compute), from _ForestBase on.
+            // cull kept (PSXForestCull.compute). The list begins at _ForestBase
+            // (a number on the draw) plus the draw command's own startInstance
+            // (UnityIndirect.cginc reads it from the command buffer): MeshForest
+            // uses one or the other (MeshForest.BaseFromArgs).
+            #define UNITY_INDIRECT_DRAW_ARGS IndirectDrawIndexedArgs
+            #include "UnityIndirect.cginc"
             StructuredBuffer<float4> _ForestMat;
             StructuredBuffer<uint> _ForestVis;
             float _ForestBase;
         #endif
             void PSXForestSetup()
             {
-            #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
-                uint fe = _ForestVis[(uint)(_ForestBase + 0.5) + unity_InstanceID] * 3;
+            #ifdef PSX_FOREST_PROCEDURAL
+                InitIndirectDrawArgs(0);
+                uint fe = _ForestVis[(uint)(_ForestBase + 0.5) + GetIndirectInstanceID_Base(unity_InstanceID)] * 3;
                 float4 f0 = _ForestMat[fe], f1 = _ForestMat[fe + 1], f2 = _ForestMat[fe + 2];
                 unity_ObjectToWorld = float4x4(f0, f1, f2, float4(0.0, 0.0, 0.0, 1.0));
                 // its inverse (affine): the columns are the rows' cross products over the determinant
