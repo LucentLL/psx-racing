@@ -117,10 +117,10 @@ namespace PSXRacing.City
         /// <summary>What the last builds dressed (the reference shots print it).</summary>
         public static class DressStats
         {
-            public static int stations, grates, noWalk, lane, building, drive, pavement, otherTile, movedOut, bridge;
-            public static void Reset() { stations = grates = noWalk = lane = building = drive = pavement = otherTile = movedOut = bridge = 0; }
+            public static int stations, grates, noWalk, lane, building, drive, pavement, otherTile, movedOut, bridge, fan;
+            public static void Reset() { stations = grates = noWalk = lane = building = drive = pavement = otherTile = movedOut = bridge = fan = 0; }
             public static string Line() =>
-                $"street dress: {grates} grates on {stations} stations in walk spans ({movedOut} of them stood further back for a wider road model; none for: no whole walk {noWalk}, no room off the lane {lane}, under a skybridge {bridge}, building {building}, driveway or apron {drive}, another road {pavement}; {otherTile} another tile's)";
+                $"street dress: {grates} grates on {stations} stations in walk spans ({movedOut} of them stood further back for a wider road model; none for: no whole walk {noWalk}, no room off the lane {lane}, under or beside a skybridge or a road deck {bridge}, on a junction's fan disc {fan}, building {building}, driveway or apron {drive}, another road {pavement}; {otherTile} another tile's)";
         }
 
         static CityMap dressMapFor;
@@ -218,18 +218,26 @@ namespace PSXRacing.City
                 var outw = Vector2.Lerp(outA, outB, t).normalized;
                 var edW = new Vector2(ed.x + o.x, ed.z + o.z);
                 // how far out: TreeOutM, and further where the road's model is wider than its drawn edge here
-                float own = float.MaxValue;
-                for (int q = -1; q <= 1; q++) own = Mathf.Min(own, OffRoadModel(e, trims, s + q * 8f, edW + outw * TreeOutM));
-                float dTree = TreeOutM + Mathf.Max(0f, TreeLaneClearM - own);
+                // (a section's way out is not always square to the map line: step out until it is clear)
+                float dTree = TreeOutM;
                 var footW = edW + outw * dTree;
+                for (int it = 0; it < 5; it++)
+                {
+                    float own = float.MaxValue;
+                    for (int q = -2; q <= 2; q++) own = Mathf.Min(own, OffRoadModel(e, trims, s + q * 4f, footW));
+                    if (own >= TreeLaneClearM) break;
+                    dTree += (TreeLaneClearM - own) * 1.05f + 0.01f;
+                    footW = edW + outw * dTree;
+                }
                 // the tile that holds the trunk owns the tree
                 if (footW.x < o.x || footW.x >= o.x + TileSize || footW.y < o.z || footW.y >= o.z + TileSize) { DressStats.otherTile++; continue; }
                 DressStats.stations++;
                 float w = Mathf.Lerp(wA, wB, t);
                 if (wA < TreeMinWalkM || wB < TreeMinWalkM || len < 0.5f) { DressStats.noWalk++; continue; }
                 if (dTree > Mathf.Min(wA, wB) - 0.7f) { DressStats.lane++; continue; }
-                // no crown up through a skybridge's floor
-                if (UnderSkybridge(map, footW, TreeBridgeClearM)) { DressStats.bridge++; continue; }
+                // no crown up through a skybridge's floor or a road deck, no trunk on a junction's fan
+                if (UnderSkybridge(map, footW, TreeBridgeClearM) || NearDeck(map, trims, footW, TreeBridgeClearM)) { DressStats.bridge++; continue; }
+                if (InFanDisc(map, trims, footW, 0.3f)) { DressStats.fan++; continue; }
                 if (dTree > TreeOutM + 0.01f) DressStats.movedOut++;
                 // clear of every wall, of a driveway or a lot's apron a car turns over, and of any
                 // other road's pavement or junction fan (the trunk and the grate's two ends)
@@ -403,6 +411,57 @@ namespace PSXRacing.City
                 var b = Skybridges[i];
                 var h = b.u * (b.len * 0.5f + SkybridgeIntoM);
                 if (RoadsideOccupancy.DistToSeg(p, b.c - h, b.c + h) < b.wide * 0.5f + pad) return true;
+            }
+            return false;
+        }
+
+        static readonly HashSet<int> dressSegs = new HashSet<int>();
+
+        /// <summary>Is plan point p under a road deck (a bridge, an elevated stretch) or within
+        /// <paramref name="pad"/> of its side, as the tree audit measures a deck (the map line and
+        /// the wider half width)?</summary>
+        static bool NearDeck(CityMap map, Trims trims, Vector2 p, float pad)
+        {
+            dressSegs.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * 30f, p + Vector2.one * 30f, dressSegs);
+            foreach (int packed in dressSegs)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var o = map.edges[ei];
+                if (o.tunnel) continue;
+                Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                float l2 = d.sqrMagnitude;
+                float tq = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / l2) : 0f;
+                float at = o.s[si] + Mathf.Sqrt(l2) * tq;
+                if (!o.bridge && !o.ElevatedAt(at)) continue;
+                RoadsideOccupancy.RoadEdgeAt(o, trims, at, out _, out _, out float hl, out float hr);
+                if (Vector2.Distance(p, a + d * tq) - Mathf.Max(hl, hr) < RoadsideOccupancy.DeckMarginM + pad) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Is plan point p inside a junction's fan disc (the tree audit's measure: the
+        /// node, out to the farthest drawn corner of any arm's mouth), or within <paramref name="pad"/> of it?</summary>
+        static bool InFanDisc(CityMap map, Trims trims, Vector2 p, float pad)
+        {
+            dressSegs.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * 40f, p + Vector2.one * 40f, dressSegs);
+            foreach (int packed in dressSegs)
+            {
+                var o = map.edges[packed >> 12];
+                for (int end = 0; end < 2; end++)
+                {
+                    int nd = end == 0 ? o.a : o.b;
+                    if (!trims.patch[nd]) continue;
+                    float reach = 0f;
+                    foreach (int oi in map.nodeEdges[nd])
+                    {
+                        var arm = map.edges[oi];
+                        float tr = trims.TrimAt(arm, nd), hw = arm.width * 0.5f;
+                        reach = Mathf.Max(reach, Mathf.Sqrt(tr * tr + hw * hw));
+                    }
+                    if (Vector2.Distance(map.nodes[nd], p) < reach + pad) return true;
+                }
             }
             return false;
         }

@@ -162,9 +162,10 @@ namespace PSXRacing.EditorTools
                     if (p.x < min.x || p.y < min.y || p.x >= min.x + ts || p.y >= min.y + ts) { outside++; Bad("outside its tile", t.foot, ""); }
                     // (the Uptown street dress) a STREET TREE stands in a grate on the walk a metre behind
                     // the curb, where its walk put it: the mask's pavement pad, clear zone and run-off are
-                    // not its rule (a wall, water or a deck still is; the pavement and its leaves are measured below)
+                    // not its rule (water or a deck still is; the walls, the pavement and its leaves are measured below)
                     byte bits = tt.occ.At(p);
-                    if (t.street) { streetTrees++; bits &= RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Deck; }
+                    // (the walls are measured exactly below: the mask's 2 m cells with their pad read a wall 2-3 m off as "building")
+                    if (t.street) { streetTrees++; bits &= RoadsideOccupancy.Water | RoadsideOccupancy.Deck; }
                     if (bits != 0) Bad("on a reserved cell of the mask", t.foot, "bits " + bits);
                     // race run-off, measured against the route marks themselves
                     bool inRunOff = RaceRunOff.Inside(map, trims, p);
