@@ -185,6 +185,28 @@ namespace PSXRacing.City
             return lo + j * step;
         }
 
+        /// <summary>How far plan point p (beside arc s of its own street) stands off that street's
+        /// model, the least over the map line's pieces within 14 m of s - each measured as the tree
+        /// audit measures it (the nearest point of the piece, the model there, p's own side) and at
+        /// its two ends, so a lane tapering in or a bend of the line beside the tree is seen.</summary>
+        static float OffOwnRoad(CityMap.Edge e, Trims trims, float s, Vector2 p)
+        {
+            float least = float.MaxValue;
+            for (int si = 0; si + 1 < e.pts.Length; si++)
+            {
+                if (e.s[si + 1] < s - 14f || e.s[si] > s + 14f) continue;
+                Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
+                float l2 = d.sqrMagnitude;
+                float tq = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / l2) : 0f;
+                float len = Mathf.Sqrt(l2);
+                least = Mathf.Min(least, OffRoadModel(e, trims, e.s[si] + len * tq, p));
+                least = Mathf.Min(least, OffRoadModel(e, trims, Mathf.Max(e.s[si], s - 14f), p));
+                least = Mathf.Min(least, OffRoadModel(e, trims, Mathf.Min(e.s[si + 1], s + 14f), p));
+            }
+            for (int q = -2; q <= 2; q++) least = Mathf.Min(least, OffRoadModel(e, trims, s + q * 4f, p));
+            return least;
+        }
+
         static readonly Vector3[] dressProf = new Vector3[4];
 
         /// <summary>A point on the walk's slab (tile-local): at the drawn edge
@@ -223,8 +245,16 @@ namespace PSXRacing.City
                 var footW = edW + outw * dTree;
                 for (int it = 0; it < 5; it++)
                 {
-                    float own = float.MaxValue;
-                    for (int q = -2; q <= 2; q++) own = Mathf.Min(own, OffRoadModel(e, trims, s + q * 4f, footW));
+                    float own = OffOwnRoad(e, trims, s, footW);
+                    // ...and the next piece of the street past a node this near (its model may be wider)
+                    for (int end = 0; end < 2; end++)
+                    {
+                        int nd = end == 0 ? e.a : e.b;
+                        if ((end == 0 ? s : e.length - s) > 14f) continue;
+                        foreach (int oi in map.nodeEdges[nd])
+                            if (oi != e.index && !map.edges[oi].tunnel)
+                                own = Mathf.Min(own, OffOwnRoad(map.edges[oi], trims, map.edges[oi].a == nd ? 0f : map.edges[oi].length, footW));
+                    }
                     if (own >= TreeLaneClearM) break;
                     dTree += (TreeLaneClearM - own) * 1.05f + 0.01f;
                     footW = edW + outw * dTree;
