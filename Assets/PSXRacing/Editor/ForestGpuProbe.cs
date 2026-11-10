@@ -88,8 +88,12 @@ namespace PSXRacing.EditorTools
                 {
                     cam.transform.SetPositionAndRotation(eye, rot);
                     if (SkyModePrefs.Dynamic) DynamicSky.PrimeClouds(eye);
+                    // the player's order: the forest sets which chunks show their
+                    // cards, THEN the sun's shadow map is drawn for this eye (the
+                    // hidden cards its stand-in casters), then the view
+                    MeshForest.GpuDriven = !mode.StartsWith("cpu");
+                    forest.DrawNow(cam, mode == "gpuv");
                     SunShadows.RenderFor(cam);
-                    MeshForest.GpuDriven = mode != "cpu";
                     forest.DrawNow(cam, mode == "gpuv");
                     PSXScreenshotTool.ShotAs(cam, name + "_" + mode, eye, rot);
                 }
@@ -117,7 +121,7 @@ namespace PSXRacing.EditorTools
                             rot = Quaternion.LookRotation(p + Vector3.up * 0.8f + f * 20f - eye);
                         }
                         string name = $"fp_{hourName}_{ms.Trim()}_{view}";
-                        foreach (string mode in new[] { "cpu", "gpu", "gpuv" }) Shoot(name, eye, rot, mode);
+                        foreach (string mode in Env("PSX_FP_MODES", "cpu,gpu,gpuv,cpu2").Split(',')) Shoot(name, eye, rot, mode);
                         log.AppendLine($"{name}: eye ({eye.x:0.0},{eye.y:0.0},{eye.z:0.0}) yaw {rot.eulerAngles.y:0.0} pitch {rot.eulerAngles.x:0.0}");
                     }
                 }

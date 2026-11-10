@@ -27,6 +27,7 @@ struct VarInfo
     int4 misc;       // x: the other cameras' list (-1 none), y: flags (1,2,4 = LOD 0,1,2 hands over to the next; 8 = canopy: far chunks draw it)
     float4 sphere;   // the meshes' bounding sphere, object space
     float4 impSphere; // the impostor's, in the same space
+    float4 thin;     // _PSXLodThin.x of LOD 0, 1, 2 (0: that level does not thin out at a draw limit)
 };
 
 struct DrawArgs
@@ -66,6 +67,27 @@ void Emit(int b, uint value)
     InterlockedAdd(_ForestCount[b], 1, slot);
     uint2 bc = _ForestBucket[b];
     if (slot < bc.y) _ForestVis[bc.x + slot] = value;
+}
+
+// PSX/Lit's per-plant 0..1 (its vertex shader's, from the instance's origin)
+float PlantHash(float3 it)
+{
+    float3 p3 = frac(it * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.x + p3.y) * p3.z);
+}
+
+// A THINNED plant past its own draw limit is drawn at zero size (PSX/Lit:
+// "at its draw limit SHRINKS to nothing about its own origin"; its limit is
+// the level's fade.w x lerp(thin, 1, its hash)). Not drawing it at all is
+// the same picture. The hash here is taken as an upper bound (and as 1 near
+// the wrap), the limit a little long: only a plant the shader has certainly
+// shrunk to nothing is left out.
+bool ShrunkAway(float thin, float limit, float d, float h)
+{
+    if (thin <= 0.0) return false;
+    float hu = (h < 0.03 || h > 0.97) ? 1.0 : h + 0.03;
+    return d > limit * lerp(thin, 1.0, hu) * 1.01 + 0.5;
 }
 
 bool InView(float3 c, float r)
@@ -116,19 +138,24 @@ void Cull(uint3 id : SV_DispatchThreadID)
     int bk[4] = { vi.bucket.x, vi.bucket.y, vi.bucket.z, vi.bucket.w };
     float fz[3] = { vi.a.y, vi.a.z, vi.a.w };
     float fw[3] = { vi.b.x, vi.b.y, vi.b.z };
-    if (lod == 3 ? seenI : seenM) Emit(bk[lod], lod == 3 ? meta.y : i);
-    // Inside a hand-over band (and Margin either side of it): the
+    float th[3] = { vi.thin.x, vi.thin.y, vi.thin.z };
+    float d = sqrt(d2);
+    float h = PlantHash(float3(r0.w, r1.w, r2.w));
+    if (lod == 3) { if (seenI) Emit(bk[3], meta.y); }
+    else if (seenM && !ShrunkAway(th[min(lod, 2)], fw[min(lod, 2)], d, h)) Emit(bk[lod], i);
+    // Inside a hand-over band (and a margin either side of it): the
     // neighbouring level too. The shader's fade, by the plant's own
     // distance, decides what of each shows.
-    float d = sqrt(d2);
-    if (lod < 3 && (flags & (1u << lod)) != 0 && d > fz[lod] - _ForestLod.w)
+    // (HLSL's && evaluates both sides: every index stays inside its array)
+    int cl = min(lod, 2), nl = min(lod + 1, 2), pl = max(lod - 1, 0);
+    if (lod < 3 && (flags & (1u << cl)) != 0 && d > fz[cl] - _ForestLod.w)
     {
-        int nl = lod + 1;
-        if (nl == 3 ? seenI : seenM) Emit(bk[nl], nl == 3 ? meta.y : i);
+        if (lod == 2) { if (seenI) Emit(bk[3], meta.y); }
+        else if (seenM && !ShrunkAway(th[nl], fw[nl], d, h)) Emit(bk[nl], i);
     }
-    if (lod > 0 && (flags & (1u << (lod - 1))) != 0 && d < fw[lod - 1] + _ForestLod.w)
+    if (lod > 0 && (flags & (1u << pl)) != 0 && d < fw[pl] + _ForestLod.w)
     {
-        if (seenM) Emit(bk[lod - 1], i);
+        if (seenM && !ShrunkAway(th[pl], fw[pl], d, h)) Emit(bk[pl], i);
     }
 }
 

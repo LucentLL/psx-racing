@@ -295,7 +295,8 @@ namespace PSXRacing
 
         void OtherCamera(ScriptableRenderContext ctx, Camera cam)
         {
-            if (!MeshTreesOn || cam == null || cam == mainCam || mainCam == null) return;
+            if (!MeshTreesOn || cam == null || mainCam == null) return;
+            if (cam == mainCam) { if (StatsOn && UseGpu) StatsView(cam); return; }
             if (cam.cameraType != CameraType.Game || (cam.cullingMask & (1 << gameObject.layer)) == 0) return;
             long pc = PerfClock.On ? PerfClock.Now() : 0;
             if (UseGpu) GpuOtherCamera(cam);
@@ -527,7 +528,7 @@ namespace PSXRacing
                         };
                         for (int at = 0; at < n; at += 1023)
                             Graphics.RenderMeshInstanced(rp, mesh, s, bucket[b], Mathf.Min(1023, n - at), at);
-                        if (StatsOn) { statTris += (long)(mesh.GetIndexCount(s) / 3) * n; statDraws += (n + 1022) / 1023; if (s == 0) statPlants += n; }
+                        if (StatsOn) { long st = (long)(mesh.GetIndexCount(s) / 3) * n; statTris += st; StatAdd(v, lod, st); statDraws += (n + 1022) / 1023; if (s == 0) statPlants += n; }
                     }
                 }
             }
@@ -552,7 +553,7 @@ namespace PSXRacing
                     {
                         for (int at = 0; at < arr.Length; at += 1023)
                             Graphics.RenderMeshInstanced(rp, mesh, s, arr, Mathf.Min(1023, arr.Length - at), at);
-                        if (StatsOn) { statTris += (long)(mesh.GetIndexCount(s) / 3) * arr.Length; statDraws += (arr.Length + 1022) / 1023; if (s == 0) statPlants += arr.Length; }
+                        if (StatsOn) { long st = (long)(mesh.GetIndexCount(s) / 3) * arr.Length; statTris += st; StatAdd(v, 3, st); statDraws += (arr.Length + 1022) / 1023; if (s == 0) statPlants += arr.Length; }
                     }
                 }
             }

@@ -49,13 +49,30 @@ namespace PSXRacing
         public ComputeShader cullShader;
 
         /// <summary>A/B: false = the old per-frame re-bucket and
-        /// RenderMeshInstanced.</summary>
-        public static bool GpuDriven = true;
+        /// RenderMeshInstanced (a perf tour's ab=MeshForest.GpuDriven:0, or
+        /// -psx-forest-cpu on the player's command line).</summary>
+        public static bool GpuDriven = !CpuArg();
+
+        static bool CpuArg()
+        {
+            try
+            {
+                foreach (var s in System.Environment.GetCommandLineArgs())
+                    if (string.Equals(s, "-psx-forest-cpu", System.StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch (System.Exception) { }
+            return false;
+        }
 
         /// <summary>The instance frustum is this much wider than the view's
         /// (tan of the half angles): slack for nothing in particular - the cull
         /// runs after every camera script of the frame.</summary>
         const float FrustumSlack = 1.06f;
+        /// <summary>The cull's margin either side of a hand-over band (m). The
+        /// CPU path's is 4 m because its lists go a metre or two stale between
+        /// re-buckets; these are made every frame from the eye the frame is
+        /// drawn from, and outside its band a level draws nothing anyway.</summary>
+        const float GpuMargin = 0.5f;
 
         [StructLayout(LayoutKind.Sequential)]
         struct VarInfo
@@ -64,6 +81,7 @@ namespace PSXRacing
             public int b0, b1, b2, b3;
             public int mirror, flags, pad0, pad1;
             public Vector4 sphere, impSphere;
+            public Vector4 thin;
         }
         [StructLayout(LayoutKind.Sequential)] struct MetaInfo { public uint packed, imp; }
         [StructLayout(LayoutKind.Sequential)] struct BucketInfo { public uint start, cap; }
@@ -114,14 +132,55 @@ namespace PSXRacing
         public static double SumTris, SumPlants, SumDraws;
         public static long MaxTris, UnreachedTris;
         public static int StatFrames;
+        public static readonly double[] SumTrisLod = new double[L];
+        static double[] sumTrisVar = new double[0];
+        static string[] varNames = new string[0];
         long statTris, statPlants;
         int statDraws;
-        public static void StatsReset() { SumTris = SumPlants = SumDraws = 0; MaxTris = UnreachedTris = 0; StatFrames = 0; }
+        public static void StatsReset()
+        {
+            SumTris = SumPlants = SumDraws = 0; MaxTris = UnreachedTris = 0; StatFrames = 0;
+            ViewTurnedDeg = ViewMovedM = ViewLensChanged = 0f;
+            System.Array.Clear(SumTrisLod, 0, L); System.Array.Clear(sumTrisVar, 0, sumTrisVar.Length);
+        }
+        // (did anything move the view between the cull and the draw? the cull's frustum has FrustumSlack to spare)
+        public static float ViewTurnedDeg, ViewMovedM, ViewLensChanged;
+        Vector3 cullPos, cullFwd;
+        float cullLens;
+        void StatsView(Camera cam)
+        {
+            ViewTurnedDeg = Mathf.Max(ViewTurnedDeg, Vector3.Angle(cullFwd, cam.transform.forward));
+            ViewMovedM = Mathf.Max(ViewMovedM, Vector3.Distance(cullPos, cam.transform.position));
+            ViewLensChanged = Mathf.Max(ViewLensChanged, Mathf.Abs(cam.projectionMatrix.m11 - cullLens));
+        }
         void StatsFrame()
         {
             SumTris += statTris; SumPlants += statPlants; SumDraws += statDraws; StatFrames++;
             if (statTris > MaxTris) MaxTris = statTris;
             statTris = statPlants = 0; statDraws = 0;
+        }
+        void StatAdd(int v, int lod, long tris)
+        {
+            if (sumTrisVar.Length != variants.Length)
+            {
+                sumTrisVar = new double[variants.Length];
+                varNames = new string[variants.Length];
+                for (int k = 0; k < variants.Length; k++) varNames[k] = variants[k].lods[0] != null ? variants[k].lods[0].name : "?";
+            }
+            SumTrisLod[lod] += tris; sumTrisVar[v] += tris;
+        }
+        /// <summary>Mean triangles a sample by level, and the heaviest species.</summary>
+        public static string StatsBreakdown()
+        {
+            int sf = Mathf.Max(1, StatFrames);
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"by level HIGH {SumTrisLod[0] / sf / 1e6:0.00} M, MID {SumTrisLod[1] / sf / 1e6:0.00} M, LOW {SumTrisLod[2] / sf / 1e6:0.00} M, impostors {SumTrisLod[3] / sf / 1e6:0.00} M; heaviest:");
+            var order = new int[sumTrisVar.Length];
+            for (int k = 0; k < order.Length; k++) order[k] = k;
+            System.Array.Sort(order, (x, y) => sumTrisVar[y].CompareTo(sumTrisVar[x]));
+            for (int k = 0; k < Mathf.Min(10, order.Length); k++)
+                sb.Append($" {varNames[order[k]]} {sumTrisVar[order[k]] / sf / 1e6:0.00}");
+            return sb.ToString();
         }
 
         string GpuDescribe() =>
@@ -233,6 +292,7 @@ namespace PSXRacing
                     b0 = bk[0], b1 = bk[1], b2 = bk[2], b3 = bk[3],
                     mirror = mb, flags = flags,
                     sphere = sph, impSphere = isph,
+                    thin = new Vector4(ThinFor(v, 0), ThinFor(v, 1), ThinFor(v, 2), 0f),
                 };
             }
             if (buckets.Count == 0 || visN == 0) return false;
@@ -329,7 +389,7 @@ namespace PSXRacing
             cullShader.SetInt(IdN, inst.Length);
             cullShader.SetInt(IdBuckets, bucketCount);
             cullShader.SetInt(IdCmds, cmds.Length);
-            cullShader.SetVector(IdLod, new Vector4(lod0To * lod0To, lod1To * lod1To, meshRange * meshRange, Margin));
+            cullShader.SetVector(IdLod, new Vector4(lod0To * lod0To, lod1To * lod1To, meshRange * meshRange, GpuMargin));
         }
 
         /// <summary>Every plant's matrix under this root, exactly as the CPU
@@ -464,6 +524,7 @@ namespace PSXRacing
                 var pn = instPlanes[k].normal;
                 planeVec[k] = new Vector4(pn.x, pn.y, pn.z, instPlanes[k].distance);
             }
+            cullPos = camPos; cullFwd = cam.transform.forward; cullLens = cam.projectionMatrix.m11;
             cullShader.SetVector(IdCam, camPos);
             cullShader.SetVectorArray(IdPlanes, planeVec);
             cullShader.Dispatch(kClear, (bucketCount + 63) / 64, 1, 1);
@@ -532,7 +593,7 @@ namespace PSXRacing
                 for (int c = 0; c < state.Length && c < a.Length; c++)
                 {
                     long t = (long)(mine[c].indexCount / 3) * a[c].instanceCount;
-                    if (state[c] == 1) { tris += t; if (mine[c].sub == 0) plants += a[c].instanceCount; }
+                    if (state[c] == 1) { tris += t; if (mine[c].sub == 0) plants += a[c].instanceCount; if (this != null) StatAdd(mine[c].variant, mine[c].lod, t); }
                     else if (state[c] == 2) missed += t;     // must stay 0: the reach test may only skip empty lists
                 }
                 SumTris += tris; SumPlants += plants; SumDraws += drawn; StatFrames++;

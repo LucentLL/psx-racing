@@ -60,6 +60,24 @@ namespace PSXRacing
                 req.WaitForCompletion();
                 PerfClock.Add(PerfClock.Slot.OffscreenGpu, t0);
             }
+
+            /// <summary>The texture as last drawn, at half size, as a PNG (snap=N in a run with no window).</summary>
+            public byte[] Snap()
+            {
+                int w = Mathf.Max(16, rt.width / 2), h = Mathf.Max(16, rt.height / 2);
+                var small = RenderTexture.GetTemporary(w, h, 0, rt.format);
+                Graphics.Blit(rt, small);
+                var prev = RenderTexture.active;
+                RenderTexture.active = small;
+                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(small);
+                var png = tex.EncodeToPNG();
+                Destroy(tex);
+                return png;
+            }
         }
 
         IEnumerator StageTour(int hour, int weather)
@@ -196,10 +214,15 @@ namespace PSXRacing
                     if (Time.realtimeSinceStartup - recT0 >= nextSnap)
                     {
                         nextSnap += snapEvery;
-                        yield return new WaitForEndOfFrame();
-                        var tex = ScreenCapture.CaptureScreenshotAsTexture();
-                        var png = tex.EncodeToPNG();
-                        Destroy(tex);
+                        byte[] png;
+                        if (off != null) png = off.Snap();
+                        else
+                        {
+                            yield return new WaitForEndOfFrame();
+                            var tex = ScreenCapture.CaptureScreenshotAsTexture();
+                            png = tex.EncodeToPNG();
+                            Destroy(tex);
+                        }
                         PSXPerfTour_Post(tag + "_" + id + "_snap" + (++snapN).ToString("00") + "_" + (ai.PathIndex * path.spacing).ToString("0") + "m.png", png, png.Length);
                         evNow = "SNAP";
                     }
@@ -287,6 +310,8 @@ namespace PSXRacing
                 int sf = Mathf.Max(1, MeshForest.StatFrames);
                 sum1.AppendLine($"mesh forest ({(mfo == null ? "none" : !MeshForest.MeshTreesOn ? "cards" : MeshForest.GpuDriven ? "GPU lists" : "CPU lists")}): mean ms cull {fCull / dn:0.000} draw {fDraw / dn:0.000} other cameras {fOther / dn:0.000} (inside car reflections {fRefl / dn:0.000})");
                 sum1.AppendLine($"mesh forest on the GPU: triangles avg {MeshForest.SumTris / sf / 1e6:0.00} M max {MeshForest.MaxTris / 1e6:0.00} M, plants avg {MeshForest.SumPlants / sf:0}, draw calls avg {MeshForest.SumDraws / sf:0} ({MeshForest.StatFrames} samples; in lists no drawn chunk reached: {MeshForest.UnreachedTris} triangles)");
+                sum1.AppendLine("mesh forest triangles " + MeshForest.StatsBreakdown());
+                sum1.AppendLine($"main view between the forest's cull and its draw: turned at most {MeshForest.ViewTurnedDeg:0.0000} deg, moved {MeshForest.ViewMovedM:0.0000} m, lens changed {MeshForest.ViewLensChanged:0.00000} (0 = the cull saw the view as drawn; only measured when the main view is drawn)");
                 if (off != null)
                 {
                     System.Array.Sort(oG);
