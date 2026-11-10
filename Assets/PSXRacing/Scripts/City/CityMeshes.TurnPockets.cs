@@ -38,11 +38,16 @@ namespace PSXRacing.City
     //  (the median dress). The paint: the yellow left edge line rides the
     //  pocket; a solid white lane line (MkAuxLS) between the pocket and the
     //  through lanes over the storage; a left arrow in the pocket.
-    //  PSX_CITY_TURNPOCKETS=0: as before.
+    //  OFF BY DEFAULT (PSX_CITY_TURNPOCKETS=1 draws them), 2026-11-10: on the
+    //  merged head the city-wide launch audit kept its 91 LAUNCH spots but
+    //  counted 3 new UNLOAD spots (6-10 cm, each on a pocket junction's wider
+    //  fan: 565 -> 568). Those junctions are in PocketSkipNodes now, but the
+    //  audit was not run again, nor the traffic check or the flicker finder
+    //  (the session was wound down): default ON once those three are green.
     // ======================================================================
     public static partial class CityMeshes
     {
-        public static readonly bool TurnPocketsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURNPOCKETS") != "0";
+        public static readonly bool TurnPocketsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURNPOCKETS") == "1";
         /// <summary>The tag a pocket's aux ease carries (no merge zone's).</summary>
         public const long PocketTag = long.MinValue + 11;
         /// <summary>The pocket's lane (11 ft), the least it is drawn at (10 ft), and the island left beside it.</summary>
@@ -53,8 +58,11 @@ namespace PSXRacing.City
         const float PocketCrossingM = 45f;
         /// <summary>Junctions kept as they were on this export (CurbMedianGraph): the city-wide
         /// launch audit found a new spot on the junction's fan with the pocket's wider mouth.
-        /// n11655, North Graham St into University City Blvd at (2214,12389): 0.38 m.</summary>
-        static readonly HashSet<int> PocketSkipNodes = new HashSet<int> { 11655 };
+        /// n11655, North Graham St into University City Blvd at (2214,12389): 0.38 m.
+        /// And three junctions where a path through the wider fan newly left the road by
+        /// 6-10 cm (UNLOAD): Providence Rd at (4776,-17056) n5055 / n4919, Matthews Township
+        /// Pkwy at (10070,-6628) n8143 / n11147, Mallard Creek Rd at (2411,14117) n4378.</summary>
+        static readonly HashSet<int> PocketSkipNodes = new HashSet<int> { 11655, 5055, 4919, 8143, 11147, 4378 };
         /// <summary>Clear of the junction or opening the run starts at.</summary>
         const float PocketStartClearM = 6f;
 

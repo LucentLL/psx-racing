@@ -89,6 +89,7 @@ namespace PSXRacing.EditorTools
                     cam.targetTexture = rt;
                     var tex = new Texture2D(8, 8, TextureFormat.RGB24, false);
                     double sum = 0; int nF = 0;
+                    var times = new System.Collections.Generic.List<double>(Frames);
                     for (int k = 0; k < Frames + 8; k++)
                     {
                         var c = System.Diagnostics.Stopwatch.StartNew();
@@ -96,9 +97,11 @@ namespace PSXRacing.EditorTools
                         RenderTexture.active = rt;
                         tex.ReadPixels(new Rect(W / 2, H / 2, 8, 8), 0, 0);   // waits for the frame
                         RenderTexture.active = null;
-                        if (k >= 8) { sum += c.Elapsed.TotalMilliseconds; nF++; }
+                        if (k >= 8) { sum += c.Elapsed.TotalMilliseconds; nF++; times.Add(c.Elapsed.TotalMilliseconds); }
                     }
-                    sb.AppendLine(string.Format(ci, "  frame at the driver's eye, {0} x {1}, editor: {2:0.000} ms mean of {3}", W, H, sum / Mathf.Max(1, nF), nF));
+                    times.Sort();
+                    sb.AppendLine(string.Format(ci, "  frame at the driver's eye, {0} x {1}, editor: {2:0.000} ms mean of {3}, median {4:0.000}, worst {5:0.000}", W, H, sum / Mathf.Max(1, nF), nF,
+                        times.Count > 0 ? times[times.Count / 2] : 0.0, times.Count > 0 ? times[times.Count - 1] : 0.0));
                     cam.targetTexture = null;
                     Object.DestroyImmediate(tex); Object.DestroyImmediate(rt); Object.DestroyImmediate(camGO);
                     world.DropAll();
