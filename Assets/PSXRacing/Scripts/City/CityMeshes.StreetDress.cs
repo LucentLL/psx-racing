@@ -160,7 +160,7 @@ namespace PSXRacing.City
             float b = e.length - (trims.patch[e.b] ? trims.TrimAt(e, e.b) + TreeCornerClearM : 0f);
             float run = b - a;
             if (run < 5f) return false;
-            float pitch = kind == DressMain ? TreePitchMainM : TreePitchSideM;
+            float pitch = kind == DressMain ? TreePitchMainM : SidePitchOf(e);   // (the corrections: a side street's own pitch)
             n = Mathf.Max(1, Mathf.RoundToInt(run / pitch));
             step = run / n; lo = a;
             return true;
@@ -523,6 +523,8 @@ namespace PSXRacing.City
                     g = Mathf.Max(g, CityElevation.GroundY(map, q.x, q.y));
                 }
                 float y0 = g + b.clear, y1 = y0 + b.tall;
+                // the corrections (CityMeshes.StreetFurniture.cs): a walkway that is its own - sloped, banded, glass-roofed
+                if (EmitSkybridgeLook(tm, b, y0, y1)) continue;
                 float hu = b.len * 0.5f + SkybridgeIntoM, hv = b.wide * 0.5f;
                 const float band = 0.75f, proud = 0.12f;
                 SkyRect(skyPoly, b.c, b.u, hu, hv);

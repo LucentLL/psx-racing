@@ -1183,10 +1183,33 @@ namespace PSXRacing.City
         // ---- the street lamps, drawn on the atlas (CityMeshes.EmitLamp's shapes)
         const float LampPostW = 0.26f, LampArmW = 0.12f, LampHeadL = 0.75f, LampHeadH = 0.18f, LampHeadW = 0.40f, LampPostCapM = 0.2f;
         const float AcornPostW = 0.14f, AcornBaseW = 0.34f, AcornBaseH = 0.6f, AcornGlobeW = 0.36f, AcornGlobeH = 0.46f;
+        /// <summary>The twin-globe post's crossarm, globe centre to globe centre.</summary>
+        const float TwinArmM = 0.95f;
 
         /// <summary>One of the tile's street lamps, world foot and lens.</summary>
         static void EmitLamp(Vector3 foot, Vector3 head, byte kind)
         {
+            if (kind == CityMeshes.LampTwin)
+            {
+                // Tryon and Trade Streets' twin globes: a black post and base, a crossarm along the kerb, a globe and cap at each end
+                var twAl = Vector3.right;
+                if (mapNow != null && mapNow.NearestRoadPoint(new Vector2(foot.x, foot.z), 25f, true, out int tei, out float ts, out _))
+                { var tg = mapNow.edges[tei].TangentAt(ts); twAl = new Vector3(tg.x, 0f, tg.y); }
+                var twAc = new Vector3(-twAl.z, 0f, twAl.x);
+                float twinY = head.y - AcornGlobeH * 0.5f - 0.10f;
+                Box(new Vector3(foot.x, (foot.y + twinY) * 0.5f, foot.z), twAl * (AcornPostW * 0.5f), Vector3.up * ((twinY - foot.y) * 0.5f), twAc * (AcornPostW * 0.5f), CellBlack, true);
+                Box(new Vector3(foot.x, foot.y + AcornBaseH * 0.5f, foot.z), twAl * (AcornBaseW * 0.5f), Vector3.up * (AcornBaseH * 0.5f), twAc * (AcornBaseW * 0.5f), CellBlack, true);
+                Box(new Vector3(foot.x, twinY, foot.z), twAl * (TwinArmM * 0.5f + 0.06f), Vector3.up * 0.045f, twAc * 0.045f, CellBlack, false);
+                Box(new Vector3(foot.x, twinY + 0.25f, foot.z), twAl * 0.05f, Vector3.up * 0.20f, twAc * 0.05f, CellBlack, false);
+                for (int g = -1; g <= 1; g += 2)
+                {
+                    var gc = new Vector3(foot.x, head.y, foot.z) + twAl * (g * TwinArmM * 0.5f);
+                    Box(gc - Vector3.up * (AcornGlobeH * 0.5f + 0.05f), twAl * 0.06f, Vector3.up * 0.05f, twAc * 0.06f, CellBlack, false);
+                    Box(gc, twAl * (AcornGlobeW * 0.5f), Vector3.up * (AcornGlobeH * 0.5f), twAc * (AcornGlobeW * 0.5f), CellMetal, false);
+                    Box(gc + Vector3.up * (AcornGlobeH * 0.5f + 0.06f), twAl * 0.12f, Vector3.up * 0.06f, twAc * 0.12f, CellBlack, false);
+                }
+                return;
+            }
             if (kind == CityMeshes.LampAcorn)
             {
                 // a black post, a fluted base, a globe (the lens) and its cap

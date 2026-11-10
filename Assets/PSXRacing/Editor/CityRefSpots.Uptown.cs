@@ -52,11 +52,27 @@ namespace PSXRacing.EditorTools
             new Spot("up_e_mlk", Kind.StreetView, 35.22455, -80.84595, "Martin Luther King", 140f, "E MLK Blvd, Tryon to College (a skybridge)"),
             new Spot("up_stonewall", Kind.StreetView, 35.22310, -80.84810, "Brooklyn Village", 140f, "E Brooklyn Village Ave (Stonewall), Tryon to College"),
             new Spot("up_s_tryon_400", Kind.StreetView, 35.22460, -80.84690, "Tryon", 230f, "S Tryon St, MLK to Levine"),
+            // the ground floors' round (charlotte-ground-floors, 2026-11-10): Church, College, Brevard, Brooklyn Village by the loop, Trade's far blocks, the Square
+            new Spot("up_square", Kind.StreetView, 35.22700, -80.84338, "Tryon", 50f, "The Square (Trade and Tryon) from S Tryon St"),
+            new Spot("up_n_church_500", Kind.StreetView, 35.22932, -80.84247, "Church", 50f, "N Church St, 5th to 6th"),
+            new Spot("up_s_church_mlk", Kind.StreetView, 35.22623, -80.84692, "Church", 50f, "S Church St, MLK to 3rd"),
+            new Spot("up_s_college_mlk", Kind.StreetView, 35.22325, -80.84636, "College", 50f, "S College St, Brooklyn Village to MLK"),
+            new Spot("up_n_college_700", Kind.StreetView, 35.22896, -80.83818, "College", 50f, "N College St, 7th to 8th"),
+            new Spot("up_s_brevard_3rd", Kind.StreetView, 35.22265, -80.84282, "Brevard", 50f, "S Brevard St, MLK to 3rd"),
+            new Spot("up_n_brevard_600", Kind.StreetView, 35.22654, -80.83725, "Brevard", 50f, "N Brevard St, 6th to 7th"),
+            new Spot("up_stonewall_e", Kind.StreetView, 35.22165, -80.84647, "Brooklyn Village", 140f, "E Brooklyn Village Ave by the I-277 loop, College to Brevard"),
+            new Spot("up_e_trade_brevard", Kind.StreetView, 35.22540, -80.84101, "Trade", 140f, "E Trade St, College to Brevard (under the rail bridge)"),
+            new Spot("up_w_trade_church", Kind.StreetView, 35.22855, -80.84464, "Trade", 320f, "W Trade St, Church to Poplar"),
+            // the owner's skyline photos (day and night): the ramp signed Sixth St / McDowell St (OSM way 159022597, a motorway_link
+            // whose destination names them), its eye raised as the photographer's is
+            new Spot("up_ramp_6th", Kind.StreetView, 35.22158, -80.83060, "", 287f, "The skyline from the Sixth St / McDowell St ramp (the owner's photos)"),
         };
 
         const int UpW = 960, UpH = 540;
 
-        static void UptownDress(bool on) { CityMeshes.StreetDressOn = on; CityMeshes.SkybridgesOn = on; }
+        /// <summary>BEFORE: the city as origin/main draws it (the street dress and the skybridges on, as live);
+        /// AFTER: with this round's ground floors, street furniture and dress corrections.</summary>
+        static void UptownDress(bool on) { CityMeshes.GroundFloorsOn = on; CityMeshes.StreetFurnitureOn = on; CityMeshes.DressFixOn = on; }
 
         public static void RunUptown()
         {
@@ -74,7 +90,7 @@ namespace PSXRacing.EditorTools
             Shader.SetGlobalVector("_PSXLightDir", new Vector4(-0.4f, 0.8f, -0.3f, 0f).normalized);
             Shader.SetGlobalColor("_PSXLightColor", new Color(0.9f, 0.87f, 0.8f));
 
-            bool dressWas = CityMeshes.StreetDressOn, skyWas = CityMeshes.SkybridgesOn;
+            bool gfWas = CityMeshes.GroundFloorsOn, furnWas = CityMeshes.StreetFurnitureOn, fixWas = CityMeshes.DressFixOn;
             var go = new GameObject("~cityUptownSpots");
             var world = go.AddComponent<CityWorld>();
             var log = new StringBuilder("id\tsnapped_to\teye_x\teye_y\teye_z\thdg\twhat\n");
@@ -83,6 +99,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 CityMeshes.DressStats.Reset(); CityTrees.StreetPlantedTotal = CityTrees.StreetNoFitTotal = 0;
+                CityMeshes.GroundStats.Reset(); CityMeshes.FurnitureStats.Reset();
                 foreach (var sp in UptownSpots)
                 {
                     if (!string.IsNullOrEmpty(only) && System.Array.IndexOf(only.Split(','), sp.id) < 0) continue;
@@ -92,6 +109,7 @@ namespace PSXRacing.EditorTools
                     float hr = sp.hdg * Mathf.Deg2Rad;
                     var eye = new Vector3(p.x, e.YAt(s) + EyeM, p.y);
                     var look = eye + new Vector3(Mathf.Sin(hr), 0f, Mathf.Cos(hr)) * 50f + Vector3.down * 1.0f;
+                    if (sp.id.StartsWith("up_ramp")) { eye.y += 2.6f; look = eye + new Vector3(Mathf.Sin(hr), 0f, Mathf.Cos(hr)) * 50f + Vector3.up * 5.0f; }
                     for (int pass = 0; pass < 2; pass++)
                     {
                         UptownDress(pass == 1);
@@ -103,13 +121,16 @@ namespace PSXRacing.EditorTools
                     log.Append($"{sp.id}\te{e.index} '{e.name}' s={s:0}{(named ? "" : " (NOT the named road)")}\t{eye.x:0.0}\t{eye.y:0.00}\t{eye.z:0.0}\t{sp.hdg:0}\t{sp.what}\n");
                 }
                 log.Append("\n" + CityMeshes.DressStats.Line() + $"; street trees planted {CityTrees.StreetPlantedTotal}, grates left empty (no crown fits clear of the lane) {CityTrees.StreetNoFitTotal} (the after passes of the spots above, tiles counted once a spot){(CityTrees.StreetNoFitWhy.Length > 0 ? "; first empty:" + CityTrees.StreetNoFitWhy : "")}\n");
+                log.Append("\n" + CityMeshes.GroundStats.Line() + " (the after passes of the spots above)\n");
+                log.Append(CityMeshes.FurnitureStats.Line() + "\n");
                 UptownDress(true);
+                log.Append("\n" + CityMeshes.GroundFloorReport(map));
                 log.Append("\n" + CityMeshes.SkybridgeReport(map));
                 if (System.Environment.GetEnvironmentVariable("PSX_UPTOWN_COST") != "0") log.Append("\n" + UptownCost(map, world));
             }
             finally
             {
-                CityMeshes.StreetDressOn = dressWas; CityMeshes.SkybridgesOn = skyWas;
+                CityMeshes.GroundFloorsOn = gfWas; CityMeshes.StreetFurnitureOn = furnWas; CityMeshes.DressFixOn = fixWas;
                 if (world != null) world.DropAll();
                 Object.DestroyImmediate(go);
             }
@@ -145,7 +166,7 @@ namespace PSXRacing.EditorTools
                         for (int sm = 0; sm < mf.sharedMesh.subMeshCount; sm++) t += mf.sharedMesh.GetIndexCount(sm) / 3;
                     }
                     float m = RenderMedianMs(eye, rot, 240);
-                    sb.Append($"  round {round + 1} dress {(pass == 1 ? "ON " : "off")}: {t} triangles in {r} renderers, ring build {buildMs:0} ms, render median {m:0.000} ms\n");
+                    sb.Append($"  round {round + 1} ground floors + furniture {(pass == 1 ? "ON " : "off")}: {t} triangles in {r} renderers, ring build {buildMs:0} ms, render median {m:0.000} ms\n");
                     med[pass] = Mathf.Min(med[pass], m); build[pass] = Mathf.Min(build[pass], buildMs); tris[pass] = t; rends[pass] = r;
                     world.DropAll();
                 }

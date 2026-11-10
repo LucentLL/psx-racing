@@ -122,7 +122,10 @@ namespace PSXRacing.City
                 var a = poly[i]; var c = poly[(i + 1) % n];
                 var d = c - a;
                 if (d.sqrMagnitude < 0.04f) continue;
-                EmitFacadeQuad(tm, Slot.FacadeGlass, a, c, y0, y1, new Vector2(d.y, -d.x).normalized);
+                var wn = new Vector2(d.y, -d.x).normalized;
+                // the ground floors (CityMeshes.GroundFloors.cs): a ring that stands on the building's foot takes its band
+                float wy0 = gfActive && Mathf.Abs(y0 - gfY0) < 0.01f ? GroundBand(tm, a, c, y0, y1, wn) : y0;
+                if (y1 > wy0 + 0.05f) EmitFacadeQuad(tm, Slot.FacadeGlass, a, c, wy0, y1, wn);
             }
         }
 

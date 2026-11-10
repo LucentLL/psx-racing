@@ -52,7 +52,7 @@ namespace PSXRacing.City
     {
         /// <summary>The file layout. Part of the fingerprint: a change of it
         /// re-bakes (this file is among the generator's sources anyway).</summary>
-        public const int Format = 3;   // 2: the median dress's plants (TileMeshes.medianPlants); 3: and the street trees (the Uptown street dress)
+        public const int Format = 4;   // 2: the median dress's plants (TileMeshes.medianPlants); 3: and the street trees (the Uptown street dress); 4: the Uptown ground floors, furniture and twin-globe lamps (a new lamp kind, the buildings mesh)
         public const string FolderName = "CityTiles";
         public const string ManifestName = "manifest.txt";
         /// <summary>The player's own fingerprint: Resources/citytiles_stamp.txt,

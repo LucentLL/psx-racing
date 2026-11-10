@@ -1730,7 +1730,7 @@ namespace PSXRacing.City
                     // road; square to the world it stays inside the drawn post
                     // within 4 cm) - never a box wider than what is drawn
                     var bc = c.AddComponent<BoxCollider>();
-                    float pw = l.kind == CityMeshes.LampAcorn ? AcornPostColliderM : LampColliderM;
+                    float pw = CityMeshes.IsAcornKind(l.kind) ? AcornPostColliderM : LampColliderM;
                     bc.center = l.foot + Vector3.up * (l.height * 0.5f);
                     bc.size = new Vector3(pw, l.height, pw);
                 }
@@ -1915,7 +1915,7 @@ namespace PSXRacing.City
         /// cobra-head's: uptown's acorn posts are pedestrian lamps, lower and a
         /// fraction of the wattage, and there are twice as many of them.</summary>
         public const float AcornLightGain = 0.25f;
-        static float LampGain(CityMeshes.Lamp l) => l.kind == CityMeshes.LampAcorn ? AcornLightGain : l.kind == CityMeshes.LampDeck ? DeckLightGain : 1f;
+        static float LampGain(CityMeshes.Lamp l) => l.kind == CityMeshes.LampAcorn ? AcornLightGain : l.kind == CityMeshes.LampTwin ? AcornLightGain * 1.5f : l.kind == CityMeshes.LampDeck ? DeckLightGain : 1f;
         /// <summary>A parking deck's ceiling fixture or roof pole (2026-10-05):
         /// a fluorescent strip, dimmer than a cobra-head; 0.6 with the
         /// ceilings concrete burnt the night interior white (the field is flat:
