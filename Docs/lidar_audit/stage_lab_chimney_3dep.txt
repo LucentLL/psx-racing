@@ -1,0 +1,163 @@
+=== ChimneyRock -> Assets/PSXRacing/Scenes/ChimneyRock.unity
+roadside checks: 0 failing
+  ok   ChimneyRock Track root carries the path it was built from
+  ok   ChimneyRock kerb colliders have no vertical face (a ramp or a flat strip, never a box)  (got 0 boxes, 0 of 9692 triangles steeper than a landing)
+  ok   ChimneyRock has a shoulder ribbon (RoadEdge) beside its tarmac  (got 19)
+  ok   ChimneyRock every shoulder chunk collides on the mesh it draws, off the Road layer  (got 0 of 19 chunks wrong)
+  ok   ChimneyRock no shoulder triangle faces down  (got 0 of 60495)
+  ok   ChimneyRock every shoulder row starts on the kerb strip's outer edge and runs strictly outward  (got 2244 rows (+19371 vertices on a bend's slices), 0 vertices outside a row, 0 rows folding back)
+  ok   ChimneyRock no shoulder chunk carries more than 240 m of road  (got 61 stations in the widest)
+  ok   ChimneyRock every shoulder starts flush on the kerb strip's top  (got 2244 rows)
+  ok   ChimneyRock inside the clear zone no shoulder falls steeper than 1V:4H for more than an edge drop  (got 2244 rows)
+  ok   ChimneyRock inside the clear zone no shoulder rises steeper than 1V:3H for more than an edge drop  (got 2244 rows)
+  ok   ChimneyRock every rock cut has a solid rock top (BankTop, off the Road layer)  (got 28 cuts, 0 without)
+  ok   ChimneyRock every rock cut has a solid rock top (BankTop, off the Road layer)  (got 28 cuts, 0 without)
+
+
+track obstacle audit — ChimneyRock
+  on track: +/-4.0 m (tarmac + kerb)   run-off: out to +/-4.0 m (the barrier line)
+  FACING OK — all 22 single-sided surfaces face the driver
+  edge: 2208 half-sections measured, every 4 m station both sides (0 with no tarmac under the probe); a barrier within 8 m on 1528; 0 deck stations, 0 with their approaches
+  ok   edge drop: nothing beside the tarmac or strip falls more than 0.025 m (+0.003 m slack)
+  FAIL EDGE FACE on 3 half-sections in 3 runs (12 m of edge): a rise of more than 0.06 m within 0.13 m, a wall to the body box at the lowest ride height
+  info buried terminal on 8 half-sections in 8 runs (32 m of edge): a warranted barrier run's flared end sinking into the foreslope, lower than the barrier rays (RoadsideRules.EndFlareStations; not counted as an edge face)
+  info edge face past the reach on 22 half-sections in 13 runs (88 m of edge): the same rise past 8 m on something that is not the half-section's own ribbon — another stretch of road's shoulder or wall, this road's rock top, the lattice itself (reported with whose it is, not failed)
+  ok   edge face past the reach: every open half-section's own shoulder ribbon meets the land, however far out it ends (walked to 12.4 m, and on while a ribbon is underfoot)
+  warn edge slope on 96 half-sections in 29 runs (384 m of edge): steeper than 1V:6H for more than 1.0 m
+  ok   edge slope: recoverable (1V:6H or flatter) across the clear zone
+  ok   edge falls: none unguarded
+  FAIL UNWARRANTED BARRIER on 1 half-sections in 1 runs (4 m of edge): a barrier with drivable land within 0.3 m of road height 1.5 m behind it (a pocket)
+  ok   deck rails: no structure on this venue
+  ok   barrier run ends: none stops short of a critical fall
+  worst 20 of 54 edge runs:
+    FAIL EDGE FACE left wp 1019 (4 m): 0.12 m rise within 0.13 m at 6.95 m past the tarmac edge (running wide), on Track/Ground/GroundN_-2_-1 (worst at wp 1019)  [-335.7, 279.2, -89.6]
+    FAIL EDGE FACE right wp 661 (4 m): 0.10 m rise within 0.13 m at 7.10 m past the tarmac edge (running wide), on Track/Ground/GroundN_-1_-1 (worst at wp 661)  [-42.0, 186.9, -101.7]
+    FAIL EDGE FACE left wp 1021 (4 m): 0.08 m rise within 0.13 m at 7.15 m past the tarmac edge (running wide), on Track/Banks/BankTop5 (worst at wp 1021)  [-344.1, 279.7, -86.1]
+    FAIL UNWARRANTED BARRIER right wp 0 (4 m): land -0.29 m from road height 1.5 m behind Track/Walls/WallColl (1.10 m out), on Track/EndPad0 (worst at wp 0)  [-381.4, 41.0, 730.4]
+    info edge face past the reach left wp 709 (4 m): 1.75 m rise within 0.13 m at 12.25 m past the tarmac edge (running wide), on Track/RoadEdge (a neighbouring station's shoulder, wp 723) (worst at wp 709)  [-94.8, 199.0, -70.4]
+    info edge face past the reach left wp 1047-1048 (8 m): 1.65 m rise within 0.13 m at 9.25 m past the tarmac edge (running wide), on Track/Walls/WallColl (this road's roadside, nearest wp 1054) (worst at wp 1048)  [-387.4, 288.1, 9.7]
+    info edge face past the reach right wp 676-677 (8 m): 0.53 m rise within 0.13 m at 13.20 m past the tarmac edge (climbing back in), on Track/RoadEdge (a neighbouring station's shoulder, wp 684) (worst at wp 676)  [-24.6, 191.2, -156.9]
+    info buried terminal left wp 817 (4 m): 0.29 m of sinking stone at 2.10 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 817)  [-146.4, 227.5, -411.5]
+    info buried terminal right wp 717 (4 m): 0.29 m of sinking stone at 2.10 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 717)  [-118.6, 201.1, -56.8]
+    info buried terminal left wp 966 (4 m): 0.29 m of sinking stone at 2.10 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 966)  [-289.7, 267.3, -265.1]
+    info buried terminal right wp 530 (4 m): 0.27 m of sinking stone at 2.00 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 530)  [238.7, 153.0, -23.5]
+    info buried terminal right wp 637 (4 m): 0.27 m of sinking stone at 2.00 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 637)  [29.9, 180.8, -43.8]
+    info buried terminal left wp 739 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 739)  [-100.9, 205.5, -136.5]
+    warn edge slope left wp 913-915 (12 m): foreslope steeper than 1V:6H for 3.60 m inside the clear zone (worst at wp 914)  [-264.9, 253.7, -71.3]
+    warn edge slope left wp 715 (4 m): foreslope steeper than 1V:6H for 2.80 m inside the clear zone (worst at wp 715)  [-109.3, 200.5, -57.3]
+    warn edge slope left wp 1048 (4 m): foreslope steeper than 1V:6H for 2.25 m inside the clear zone (worst at wp 1048)  [-387.4, 288.1, 9.7]
+    warn edge slope left wp 420-440 (84 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 420)  [652.9, 124.8, 11.2]
+    warn edge slope left wp 697-710 (56 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 699)  [-68.5, 196.6, -100.7]
+    info edge face past the reach left wp 907 (4 m): 0.12 m rise within 0.13 m at 9.70 m past the tarmac edge (running wide), on Track/RoadEdge (a neighbouring station's shoulder, wp 916) (worst at wp 907)  [-248.8, 252.4, -72.6]
+    info edge face past the reach left wp 1020-1021 (8 m): 0.11 m rise within 0.13 m at 11.95 m past the tarmac edge (running wide), on Track/Ground/GroundN_-2_-1 (the lattice itself, nearest wp 1021) (worst at wp 1021)  [-344.1, 279.7, -86.1]
+  surface profile: 63080 probes in 5 lanes, worst rise 0.08 m per 0.35 m on Track/EndPad1
+  SURFACE OK — nothing on the driving line rises more than 0.12 m in 0.35 m
+  posts: 1019 (231/km), none in front of a barrier inside the band
+  BARRIER FACES OK — all 1517 barrier colliders have the thing they stand for drawn where a car meets them
+  ok   wall solids: 41 run(s), every one closed and wound outward
+  checked 41 measurable non-car colliders
+    not measurable (concave mesh — a surface, not an obstacle): Track/ApexPad
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop12
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop13
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop14
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop15
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop16
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop17
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop18
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop19
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop20
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop21
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop22
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop23
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop24
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop25
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop26
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop27
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop9
+    not measurable (concave mesh — a surface, not an obstacle): Track/EndPad0
+    not measurable (concave mesh — a surface, not an obstacle): Track/EndPad1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_-2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_-2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_-2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_-3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_2_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_2_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_2_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_-2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_-3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_3_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_3_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_3
+    not measurable (concave mesh — a surface, not an obstacle): Track/KerbL
+    not measurable (concave mesh — a surface, not an obstacle): Track/KerbR
+    not measurable (concave mesh — a surface, not an obstacle): Track/Road
+    not measurable (concave mesh — a surface, not an obstacle): Track/RoadEdge
+  CLEAR — nothing solid stands inside the barrier line
+
+=== ChimneyRock ===
+  ok   road stands 0.330 m clear of the ground at its tightest (waypoint 264, GroundN_0_0); 0 of 3312 probes buried
+  ..   climbs 263.0 m (40.5 to 303.4)
+  info shoulder is drivable for 4.1 m past the tarmac on average (widest 16.9 m at waypoint 7); 469 of 1926 shoulders on a benched road over 2.5 m, 282 not benched and not counted
+  ok   ground lattice stays at least 0.03 m under the shoulder surface on 17752 of 17752 probes (tightest +0.034 m, waypoint 587 R, 9.28 m past the tarmac edge, under GroundN_0_-1); 6 probes in the designed crossing into the toe not counted; 30 half-sections end where the ribbon under the probe becomes another station's or another road's
+  ok   grass through the shoulder: 0 of 17752 probes meet Ground more than 0.01 m over the RoadEdge surface
+
+down-facing roadside triangles:
+
+lane audit:
+ChimneyRock (CHIMNEY ROCK — PARK ROAD) catalog width 6.10 m, TrackPath.roadWidth 6.10, stage True, loop False, oneWay/drag False, scene 2026-11-10 02:13
+  tarmac texture city_road_track_61_noedge_asphalt_new.png (256x64): Y[120-124] Y[131-135]
+    u: edgeL 0.0000 centre 0.5000 edgeR 1.0000  => metres from the left edge 0.000 / 3.050 / 6.100 (ribbon half 3.050)
+  ribbon: 2424 rings, 3 vertices a ring (left | centre | right); 1104 on waypoints (1104 waypoints), 1320 slicing a bend's gaps
+  4846 sections over 4412 m
+  lanes     left mean 3.050 min 3.047 max 3.050 | right mean 3.050 min 3.047 max 3.050
+            |L-R| max 0.0000 m (wp 77 ring, 310 m) p95 0.0000; ratio L/R mean 1.000
+  centre    painted centre - ribbon centre: mean +0.0000 max|.| 0.0000 m (wp 10 mid)
+            ribbon centre - TrackPath waypoint (rings): mean +0.0000 max|.| 0.0000 m
+  edges     asphalt outside the edge lines: left mean 0.000 max 0.000 | right mean 0.000 max 0.000 m
+  smooth    paint zig (mid-quad, any line) max 0.0000 p95 0.0000 m (wp 10); centre line max 0.0000
+  corners   tarmac edge L      chord sagitta max 0.0166 m (wp 401, 1604 m), 0 of 2423 over 0.025; turn at a ring max 10.9 deg (wp 1)
+  corners   edge line L        chord sagitta max 0.0166 m (wp 401, 1604 m), 0 of 2423 over 0.025; turn at a ring max 10.9 deg (wp 1)
+  corners   centre line        chord sagitta max 0.0156 m (wp 400, 1603 m), 0 of 2423 over 0.025; turn at a ring max 9.1 deg (wp 1)
+  corners   edge line R        chord sagitta max 0.0155 m (wp 0, 3 m), 0 of 2423 over 0.025; turn at a ring max 8.0 deg (wp 1)
+  corners   tarmac edge R      chord sagitta max 0.0155 m (wp 0, 3 m), 0 of 2423 over 0.025; turn at a ring max 8.0 deg (wp 1)
+  corners   KerbL outer edge   chord sagitta max 0.0169 m (wp 401, 1604 m), 0 of 2423 over 0.025; turn at a ring max 11.7 deg (wp 1)
+  corners   KerbR outer edge   chord sagitta max 0.0159 m (wp 0, 3 m), 0 of 2423 over 0.025; turn at a ring max 7.8 deg (wp 1)
+    KerbL: 2 verts/station, width mean 0.900 min 0.900 max 0.900 m, surface dirt_pt_5.png
+    KerbR: 2 verts/station, width mean 0.900 min 0.900 max 0.900 m, surface dirt_pt_5.png
+  ok   ChimneyRock: lanes even, centre line on the centre, lines smooth, no corners
+
+venue                    W texture                                stride    left   right maxDiff  maxOff   zigMax   wpOff  sagMax verdict
+ChimneyRock            6.1 city_road_track_61_noedge_asphalt_new.png      3   3.050   3.050  0.0000  0.0000   0.0000  0.0000  0.0169 ok
+LANE AUDIT OK
+
