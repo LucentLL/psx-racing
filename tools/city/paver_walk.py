@@ -22,8 +22,10 @@ PACKDIR = os.path.join(ROOT, "Assets", "PSXRacing", "Art", "City", "Pack")
 OUT = os.path.join(PACKDIR, "brick_paver_walk.png")
 WALK = os.path.join(PACKDIR, "concrete_pt_4_walk.png")
 # a clay paver's hue (red-brown), at two thirds of the walk's luminance (brick is darker than a broomed slab)
-BRICK = (0.58, 0.31, 0.24)
-KEEP = 0.30       # how much of the pack texel's own colour variation survives the grade
+# (2026-11-10, the ground floors round: the first grade (0.58, 0.31, 0.24) at 0.66 of the walk read brighter and redder
+# than the streets own pavers - a weathered red-brown, greyed by its mortar and dust)
+BRICK = (0.50, 0.365, 0.315)
+KEEP = 0.42       # how much of the pack texel's own colour variation survives the grade
 
 
 def lum(c):
@@ -33,7 +35,7 @@ def lum(c):
 def build():
     src = Image.open(os.path.join(PACK, "cobblestone_floor_pt_1.png")).convert("RGB")
     assert src.size == (256, 256), src.size
-    target = lum(ImageStat.Stat(Image.open(WALK).convert("RGB")).mean) * 0.66
+    target = lum(ImageStat.Stat(Image.open(WALK).convert("RGB")).mean) * 0.60
     mean = lum(ImageStat.Stat(src).mean)
     bl = lum([c * 255 for c in BRICK])
     px = src.load()

@@ -628,7 +628,7 @@ namespace PSXRacing.EditorTools
                             var f = new Vector2(f3.x, f3.z);
                             if (Vector2.Distance(f, eye) > SpotFeetM) continue;
                             lamps++;
-                            if (l.kind == CityMeshes.LampAcorn) acorns++;
+                            if (CityMeshes.IsAcornKind(l.kind)) acorns++;
                             if (l.breakaway) breakaway++;
                             float pave = PaveAt(f);
                             lampPave = Mathf.Min(lampPave, pave);

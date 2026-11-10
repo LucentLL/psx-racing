@@ -748,6 +748,7 @@ namespace PSXRacing.City
         {
             Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; facLed = 0;
             Bucket.FacOn = false; facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
+            gfActive = false;   // the ground floors: the building is done
         }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
@@ -4634,7 +4635,9 @@ namespace PSXRacing.City
             if (CityPoles.IsAcornEdge(map, e))
             {
                 // both sides, alternating: a post every AcornPitchM on each side
-                gap = AcornPitchM * 0.5f; height = AcornHeightM; kind = LampAcorn; outsideOnly = false;
+                gap = AcornPitchM * 0.5f; height = AcornHeightM; outsideOnly = false;
+                // Tryon and Trade Streets: the twin-globe post (CityMeshes.StreetFurniture.cs)
+                kind = StreetFurnitureOn && StreetDressOn && StreetDressOf(map, e) == DressMain ? LampTwin : LampAcorn;
                 return;
             }
             if (e.cls >= 5) { gap = LampPitchFreewayM; height = LampHeightFreewayM; kind = 2; }
@@ -4798,7 +4801,7 @@ namespace PSXRacing.City
                 ? shoulder + RoadsideRules.ClearZoneM + LampClearZonePadM
                 : shoulder + LampUrbanOffsetM;
             off += heldOut;
-            float arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
+            float arm = IsAcornKind(kind) ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
             var footP = edgeW + outw * off;
             var headP = footP - outw * arm;
 
@@ -4828,7 +4831,7 @@ namespace PSXRacing.City
             // in a city race route's run-off it breaks away (the WP-15 review)
             bool breakaway = RaceRunOff.Inside(map, trims, footP);
             tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind, breakaway = breakaway, mercury = MercuryStreet(e) });
-            if (kind == LampAcorn) EmitAcorn(foot, head);
+            if (IsAcornKind(kind)) EmitAcorn(foot, head);
             else EmitLamp(foot, head, outw);
             return 0;
         }
@@ -11800,6 +11803,7 @@ namespace PSXRacing.City
         static IEnumerable<int> BuildFootprints(CityMap map, Trims trims, TileMeshes tm, int tx, int tz)
         {
             EmitSkybridges(map, tm, tx, tz);   // the Uptown street dress: the walkways over the streets (a table of places)
+            EmitStreetFurniture(map, trims, tm, tx, tz);   // ...and the main streets' benches, bins, planters, the Square's statues
             var list = map.FootprintsInTile(tx, tz);
             if (list == null) yield break;
             stackPlans.Clear();   // floored parts: their buildings' plans on this tile's pavement
@@ -11982,10 +11986,15 @@ namespace PSXRacing.City
                         if (dt > bestDot) { bestDot = dt; frontWall = i; }
                     }
                 }
+                // THE UPTOWN GROUND FLOORS (CityMeshes.GroundFloors.cs): what this building's
+                // street walls are at the sidewalk, decided once (EndFacade ends it)
+                if (wallSlot == Slot.FacadeGlass && !retail && !floating && !onOutline && !hangs)
+                    GfBegin(map, trims, tm, fi, f, gf, fitPoly, wallY0, floorP, eaveY + parapet);
+                bool gfDeck = gfActive && gfKind == GfDeck;
                 // Uptown B3: a tower with no parts of its own stands as a
                 // podium, a shaft set back from it and a roof treatment
                 if (wallSlot == Slot.FacadeGlass && !retail && !floating && f.roof == 0 && !f.part &&
-                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH &&
+                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH && !gfDeck &&
                     EmitMassing(tm, f, fitPoly, y0, floorP, top))
                 {
                     EndFacade();
@@ -11994,12 +12003,15 @@ namespace PSXRacing.City
                 }
                 // Uptown C: a landmark hero drawn whole (its shaft, crown or bowl)
                 bool heroAnchor = hero >= 0 && heroAnchorOf[hero] == fi;
+                bool gfKeep = gfActive;
+                if (heroAnchor) gfActive = false;   // a hero's body is its own
                 if (heroAnchor && EmitHeroBody(tm, hero, f, fitPoly, y0, floorP))
                 {
                     EndFacade();
                     tm.footprintCount++;
                     return;
                 }
+                gfActive = gfKeep;
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
@@ -12012,16 +12024,22 @@ namespace PSXRacing.City
                     facCornerB = CornerKind(a, c, fitPoly[(i + 2) % n0]);
                     facWallTop = eaveY + parapet;
                     if (eaveY > wallY0 + 0.05f)
-                        EmitWallStyled(tm, a, c, hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
-                                       covShop ? fi : -1);
+                    {
+                        float wy0 = hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0;
+                        // the ground floors: a street wall's band stands in the wall's place to its storey line
+                        if (gfActive) wy0 = GroundBand(tm, a, c, wy0, eaveY + parapet, outward);
+                        if (eaveY + parapet > wy0 + 0.05f)
+                            EmitWallStyled(tm, a, c, wy0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
+                                           covShop ? fi : -1);
+                    }
                     facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
                     // the parapet's inner face (seen from a deck's roof)
                     if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }
                 // BUILDING PASS (CityMeshes.BuildingDetail.cs): a low or mid-rise's
                 // cornice, and its belt course over the ground floor (tiles only)
-                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi))
-                    EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail);
+                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck)
+                    EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail || gfActive);
 
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);
