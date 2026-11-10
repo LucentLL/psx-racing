@@ -15,7 +15,7 @@
 
 Everything else is small: road heights within 1 m RMS of the lidar on six stages, grades softened (short steep pitches lose 1 to 3% of grade over about a quarter of each route), the mapped centreline a median 0.75 to 1.25 m from the middle of the lidar bench, which is about what the method can resolve.
 
-**Corrected in this branch:** NC 226A (`swa`: line, heights, both grids) and the Blue Ridge Parkway (`brp`: heights and both grids, which puts the decks of fault 1 straight). Each was built once in the lab sandbox with all stage audits passing and before/after pictures looked at; neither has been driven. Faults 2, 3 and 4 are reported, not fixed.
+**Corrected in this branch (round 1 and round 2):** all eight stages are re-baked from lidar. Five pass every stage audit in a lab build and have before/after pictures: NC 226A (`swa`), Blue Ridge (`brp`), Gillespie Gap (`gap`), the Little Switzerland loop (`swiss`, bar one terrain-audit line that is the tunnel under the horizon stand-in, not the bake) and the Blowing Rock loop (`brock`). **Three are re-baked but fail a few audit lines on the new land and are not release-ready: Beech Gap (`beech`, 2 half-sections), Chimney Rock (`chimney`, 4) and Mount Mitchell (`mtm`, 1)**; each is its own commit and reverts cleanly. Fault 1 (decks), fault 2 (Beech Gap's hole) and fault 3 (the clamp) are fixed in the data; fault 4 (the Blowing Rock bypass) is not. See "Round 2" and "Guardrails" below.
 
 ## The table
 
@@ -109,6 +109,8 @@ What the pictures show (all in `Docs/shots/lidar_audit/`, `swa_ba_<station>_chas
 
 These are stills from an editor probe. Nobody has driven it. The full StageLab reports are in `Docs/lidar_audit/stage_lab_*.txt`.
 
+**Round 2: rebuilt once more with the surveyed rail** (256-372 m left). Roadside checks 0 failing, every obstacle, terrain and lane audit ok, 4,176 guard posts; the rail is in the picture `shots/lidar_audit/swa_rail_264_chase.jpg`, on the left through the bend with the cut bank on the right, as on the real road.
+
 ## The second correction: Blue Ridge Parkway (`brp`)
 
 `node tools/roads/bake_3dep.mjs brp --keep-line`. The SRTM bake is kept in `tools/roads/srtm_bakes/brp_srtm/`.
@@ -155,20 +157,132 @@ What the pictures show (`Docs/shots/lidar_audit/brp_ba_<station>_chase.jpg` and 
 - **The spans at 2,740 and 1,660 m:** 2 to 4 m higher, no visible change of character.
 - Rails are continuous and seated on every deck in view; trees and the land beside the approaches are seated.
 
-Not looked at: the underside of the decks and the piers now that there is up to 23 m under them, and the title screen, which flies this stage.
+Round 2, from below (`shots/lidar_audit/brp_under_<station>.jpg`, five views on the open side, 9 m under the road): at 4,700 m the Linn Cove deck stands on a tall pier that reaches the ground, slab and rail intact; the other four views are mostly the forest that grows under the spans, with the deck seen through it at 2,750 and 5,510 m. Nothing hangs or is cut off in what can be seen. The title screen, which flies this stage, was not rendered: there is no batch harness for it (it takes its positions from the path, so it follows the new deck).
+
+## Round 2: the other six stages (2026-11-10)
+
+Each re-baked by `node tools/roads/bake_3dep.mjs <pre>` (`--check` passes for all eight), built once in the lab sandbox with this branch's code, and photographed at the same places as the scene that was in the sandbox before (built 2026-11-09 from the SRTM bakes). The SRTM bakes are kept in `tools/roads/srtm_bakes/<pre>_srtm/`.
+
+| Stage | Height before: bias / RMS / worst | Grade p95 / max: before, after (real) | Grade > 1% off: before, after | Climb + descent: before, after (real) | Lab build: roadside checks, other audits | Road clear of ground, buried probes | Guard posts, edge with a barrier |
+|---|---|---|---|---|---|---|---|
+| NC 226 to Gillespie Gap (`gap`) | -1.42 / 2.37 / -4.9 m | 10.0 / 10.0%, 11.4 / 12.7% (11.5 / 13.0%) | 26%, 0% | 411, 418 m (419) | 0 failing; all ok | 0.331 m, 0 | 1,338; 1,845 of 3,344 half-sections |
+| NC 215 from Beech Gap (`beech`) | -0.17 / 0.90 / -2.7 m | 8.9 / 9.3%, 8.5 / 9.4% (8.6 / 9.5%) | 19%, 1% | 736, 737 m (738) | 0 failing; SEE TEXT (3 FAIL lines) | 0.329 m, 0 | 4,451; 3,949 of 5,640 half-sections |
+| Chimney Rock Park Road (`chimney`) | +0.07 / 0.71 / +1.9 m | 7.9 / 8.6%, 8.3 / 14.2% (8.6 / 14.7%) | 38%, 0% | 263, 263 m (264) | 0 failing; SEE TEXT (6 FAIL lines) | 0.330 m, 0 | 1,019; 1,528 of 2,208 half-sections |
+| NC 128, Mount Mitchell (`mtm`) | -0.33 / 0.56 / -1.6 m | 8.8 / 9.2%, 8.7 / 9.4% (8.7 / 9.7%) | 10%, 0% | 431, 435 m (435) | 0 failing; SEE TEXT (2 FAIL lines) | 0.339 m, 0 | not reported; 2,984 of 3,742 half-sections |
+| Little Switzerland - Gillespie Gap loop (`swiss`) | +0.18 / 0.85 / +4.2 m | 8.0 / 9.5%, 7.6 / 8.5% (7.6 / 8.8%) | 25%, 0% | 472, 481 m (482) | 0 failing; SEE TEXT (1 FAIL lines) | -28.145 m, 115 | 2,263; 3,190 of 4,842 half-sections |
+| Blowing Rock - Moses Cone loop (`brock`) | -0.39 / 0.96 / +3.2 m | 7.0 / 8.1%, 6.9 / 7.2% (6.9 / 7.4%) | 25%, 0% | 350, 366 m (367) | 0 failing; all ok | 0.350 m, 0 | 1,962; 2,224 of 4,938 half-sections |
+
+After a re-bake the height error against the lidar is zero by construction (the same instrument), so it is not listed.
+
+**NC 226 to Gillespie Gap (`gap`, GillespieGap).** Line: 4 stretches (132 m) moved onto the bench, 10 left alone, two of them because they are within 120 m of the finish (`--hold-ends 120`, after the first re-bake failed finish-play-check; see "Drive checks"); tightest corner 8.6 to 9.5 m. Built twice: the numbers and pictures here are the second build. The 10.0% clamp is gone: the climb from 2.6 to 5.9 km now holds 10 to 13% as the road does. Plots: [profile after](shots/lidar_audit/gap_profile_after.png), [plan after](shots/lidar_audit/gap_plan_after.png); pictures `shots/lidar_audit/gap_ba_*.jpg`; lab report `lidar_audit/stage_lab_gap_3dep.txt`.
+
+**NC 215 from Beech Gap (`beech`, BeechGap).** Line: 2 stretches (88 m) moved (the shelf is 9 m wide here, so a stretch must be 2.45 m off to move), 14 left alone. **The sea-level strip west of 83 W in the far grid is gone** (it is 3DEP land now). The two OSM bridges the old bake dropped (8,652-8,668 m and 10,656-10,676 m) are carried straight across in height; they are not built as decks (see "Not done"). Plots: [profile after](shots/lidar_audit/beech_profile_after.png), [plan after](shots/lidar_audit/beech_plan_after.png); pictures `shots/lidar_audit/beech_ba_*.jpg`; lab report `lidar_audit/stage_lab_beech_3dep.txt`.
+
+**Chimney Rock Park Road (`chimney`, ChimneyRock).** Line: 2 stretches (60 m) moved, 2 left alone; top hairpin 6.1 to 6.3 m. The real 13 to 15% pitch at 1,772-1,836 m is back (the old bake had 8.5%); the bake's steepest 4 m is 14.8%, under the self-test's 15%. Plots: [profile after](shots/lidar_audit/chimney_profile_after.png), [plan after](shots/lidar_audit/chimney_plan_after.png); pictures `shots/lidar_audit/chimney_ba_*.jpg`; lab report `lidar_audit/stage_lab_chimney_3dep.txt`.
+
+**NC 128, Mount Mitchell (`mtm`, MtMitchell).** Line: 15 stretches (1,672 m) moved 2 to 5 m onto the bench, 5 left alone; the route is 15 m longer (7,461 to 7,476 m). This road's mapped line sat to one side of the shelf for long stretches. Plots: [profile after](shots/lidar_audit/mtm_profile_after.png), [plan after](shots/lidar_audit/mtm_plan_after.png); pictures `shots/lidar_audit/mtm_ba_*.jpg`; lab report `lidar_audit/stage_lab_mtm_3dep.txt`.
+
+**Little Switzerland - Gillespie Gap loop (`swiss`, LittleSwitzerland).** A loop: the line is kept as mapped (the shelf reads over 2 m off it at 17 places). Heights straight through the tunnel (3,992-4,180 m), across the bridge at the start line and across the 40 m dip at 2,744-2,780 m, where the bare earth drops 5.9 m under the Parkway; road-level imagery from 60 m back shows no bridge parapet there, so it is carried as an embankment, not added as a deck. The one failing line in its lab report is the terrain audit reading the tunnel under the horizon stand-in mesh (see "Not done"); the first lab build of this stage compiled the code of another branch after a lock race and was discarded and run again. Plots: [profile after](shots/lidar_audit/swiss_profile_after.png), [plan after](shots/lidar_audit/swiss_plan_after.png); pictures `shots/lidar_audit/swiss_ba_*.jpg`; lab report `lidar_audit/stage_lab_swiss_3dep.txt`.
+
+**Blowing Rock - Moses Cone loop (`brock`, BlowingRock).** A loop: the line is kept as mapped (22 places over 2 m off). Sigma 10 m here (8 m left one vertical curve under 230 m). The two short OSM bridges (1,124-1,148 m, 9,432-9,456 m) are carried straight across in height. **The US 221/321 bypass (7,944-9,432 m) is still built as a 6.4 m two-lane road** (see "Not done"). Plots: [profile after](shots/lidar_audit/brock_profile_after.png), [plan after](shots/lidar_audit/brock_plan_after.png); pictures `shots/lidar_audit/brock_ba_*.jpg`; lab report `lidar_audit/stage_lab_brock_3dep.txt`.
+
+## Guardrails against the real road (round 2, 2026-11-10)
+
+The lidar re-bake of NC 226A took away a quarter of the guard posts, and the after-picture at 9,360 m shows a verge that falls away with no rail. Is that wrong? **No: the real road has no rail there, or almost anywhere.**
+
+Seventeen places on NC 226A were looked at on public road-level imagery (Google Street View, captures of May 2024 and, at the bottom, February 2025; reference only, nothing saved or copied): fourteen where the SRTM bake had a rail and the lidar bake has none, the 10,200 m fence, and two where both have one. (The three short stretches where the lidar bake has a rail the SRTM bake lacked, 4,068-4,112 m left, 10,812-10,836 m and 11,212-11,248 m right, were not looked at.) Stations are on the re-baked line.
+
+| Place (m, side) | Real road | SRTM bake | Lidar bake | Lidar ground: drop within 5 / 10 / 20 m of the shelf edge | Bend |
+|---|---|---|---|---|---|
+| 264 L | **rail**: W-beam rail on the left, from about 260 m round the bend to at least 360 m | rail | rail | 3.2 / 5.2 / 9.6 m | straight |
+| 1,964 L | none: grass verge falling into woods | rail (wrong) | none | 3.0 / 6.2 / 11.2 m | straight |
+| 3,604 L | none: grass verge and a utility pole | rail (wrong) | none | 3.1 / 6.1 / 10.7 m | outside, R 84 m |
+| 3,976 L | none: wide level verge with trees | rail (wrong) | none | 1.7 / 5.9 / 11.2 m | inside, R 111 m |
+| 4,428 R | none: grass verge, trees | rail (wrong) | none | 3.2 / 4.7 / 9.3 m | straight |
+| 4,788 R | none: grass verge, a curve sign | rail (wrong) | none | 2.2 / 3.6 / 5.6 m | straight |
+| 4,920 R | none: grass verge, trees (view not sharp) | rail (wrong) | none | 3.4 / 6.7 / 12.0 m | inside, R 122 m |
+| 5,744 R | none: grass verge falling away | rail (wrong) | none | 4.0 / 7.3 / 14.7 m | outside, R 112 m |
+| 6,536 R | none: grass shoulder into the bend | rail (wrong) | none | 1.1 / 3.1 / 9.9 m | inside, R 34 m |
+| 8,032 R | none: grass verge under trees | rail (wrong) | none | 3.8 / 8.8 / 13.2 m | inside, R 93 m |
+| 8,592 R | none: a house and its lawn | rail (wrong) | none | 0.7 / 2.6 / 4.0 m | straight |
+| 9,372 R | none: grass shoulder, trees | rail (wrong) | none | 3.5 / 6.2 / 12.3 m | outside, R 93 m |
+| 9,464 R | none: grass verge | rail (wrong) | none | 2.1 / 4.3 / 7.2 m | inside, R 175 m |
+| 10,588 R | none: cleared level ground (Feb 2025) | rail (wrong) | none | 0.6 / 1.1 / 1.3 m | straight |
+| 10,216 R | none: a shed and a dirt yard at road level (Feb 2025) | none | none | 2.0 / 2.1 / 2.2 m | inside, R 67 m |
+| 6,900 R | none: grass verge, steep woods below, into the 11 m switchback | rail (wrong) | rail (wrong) | 2.2 / 3.7 / 6.3 m | outside, R 40 m |
+| 8,416 R | none: grass fill slope and a utility pole | rail (wrong) | rail (wrong) | 3.6 / 5.8 / 8.0 m | inside, R 103 m |
+| **Right, of 17** | | **2** | **15** | | |
+
+- **The real road has a guardrail at one of the seventeen**: on the left through the first bend below the village, from about 260 m to at least 360 m (its lower end was not seen). Everywhere else it is a grass verge and trees, including drops of 10 to 15 m within 20 m of the road.
+- **The SRTM bake was wrong at fifteen.** Its plan walled 11.3 km of the 23.8 km of road edge (the whole downhill side) because 30 m ground carries the hillside's slope straight through the road, so five metres out is always "a critical fall".
+- **The lidar bake is right at fourteen without help and fifteen with the one surveyed rail.** It is still wrong at 6,900 m and 8,416 m right, where the game's fall warrant puts a rail and the real road has none.
+- **The fence at 10,200 m** is rightly gone: the real ground there is a yard at road level.
+
+**No rule on the land reproduces the real rails.** The lidar section at the one real rail (3 m down within 5 m of the shelf, 5 to 7 m within 10 m, 10 to 14 m within 20 m, inside of a bend) is the section at 1,964 L, 3,604 L (outside of a bend), 5,744 R (outside of a bend, 14.7 m in 20 m), 8,032 R and 9,372 R, none of which has a rail. Drop height, slope beyond the shelf, fill or cut side and the side of the bend were all tried; nothing separates the one from the dozen. Where NCDOT put a rail on this road is not a function of the ground, so it cannot be warranted by a rule that reads the ground. It has to be looked at.
+
+What was built instead:
+
+- **Surveyed rails.** `Art/<stage>/<pre>_rails.json` lists spans the real road has (metres along the route, side, what was seen). `PlanStageRoadside` walls them in addition to its own warrant (reason 8). NC 226A has the one span, 256-372 m left; the plan now walls it (it had been open).
+- **The plan as a table**, and a way to get it in a minute: the lab build and the new `StageLab.Plan` (no scene build) write `PSXRacing_roadside_<id>.csv`, one row per station with what each side is and why. Both plans of NC 226A are in `Docs/lidar_audit/rails/`; `tools/roads/rails_compare.py` scores a plan against the surveyed places, `rails_features.py` prints the lidar section at any station.
+- **The fall warrant was left as it is.** It is the owner's rule of 2026-09-13 (a barrier where a slope or drop cannot be graded recoverable), every stage audit polices it ("edge falls: none unguarded"), and taking rails off real 10 m drops is a decision about how the game plays, not a correction of data.
+
+**The decision this leaves for the owner.** The game still walls 9.3 km of NC 226A's edge; the real road walls perhaps a few hundred metres. If the stage should look like the photographs, most of that rail has to go, and then a car that leaves the road goes down the mountain as it would in life. The tools to do it are here (survey list, plan table); the choice is not mine to make.
+
+Only NC 226A was surveyed. The other seven stages have no survey list; their rails are the fall warrant's.
+
+## Drive checks (round 2, 2026-11-10)
+
+All in the lab sandbox on the re-baked scenes, hidden (`-batchmode`, `-NoWatch`), with this branch's code. Reports are in `Docs/lidar_audit/drive/`.
+
+**`race-play-check`, every stage raced to the finish** (the harness drives the player; three AI rivals; the hour's own traffic; seed 0; three times game speed, physics at its fixed step; a 900 s cap).
+
+| Venue | Raced | Rivals home of 3 (mean time) | Retired | Recoveries | Hard hits | The check's own failures |
+|---|---|---|---|---|---|---|
+| SwissNC226A | 678 s | 3 (629 s) | 0 | 3 | 2 | 1: a rival drove the wrong way for 5.5 s |
+| BlueRidge | 241 s | 2 (239 s) | 1 | 0 | 1 | none |
+| GillespieGap | 298 s | 3 (292 s) | 0 | 0 | 0 | none |
+| BeechGap | 446 s | 1 (385 s) | 2 | 1 | 4 | 1: two rivals retired (at most one allowed) |
+| ChimneyRock | 481 s | 3 (474 s) | 0 | 5 | 4 | 1: a rival drove the wrong way for 13.5 s |
+| MtMitchell | 343 s | 3 (337 s) | 0 | 0 | 0 | none |
+| LittleSwitzerland | 900 s (the cap) | 2 (371 s) | 1 | 0 | 2 | 1: the player's car drove the wrong way for 11 s |
+| BlowingRock | 533 s | 3 (487 s) | 0 | 1 | 2 | 1: a rival drove the wrong way for 5.5 s |
+
+Every stage loads, grids, and is driven end to end by AI on the new road: at least one rival finishes everywhere, all three on five stages. **Five of the eight races trip one line of the check each.** There is no baseline to set them against: the SRTM scenes were not raced before they were rebuilt, and the tools' own notes (`tools/unity-wait.ps1`) say a race's story varies between runs with the same seed. So these are recorded, not attributed. Beech Gap's two retirements and Little Switzerland's run to the time cap are the two worth a second run before anyone trusts those stages.
+
+**The NC 226A thirds whose cut lines moved** (`SwissNC226AUpper`, `Middle`, `Lower`, `UpperRev`), same check: all three rivals home in each (267, 196, 242 and 202 s raced), nobody retired, **no failures**.
+
+**`sprint-check`** (every sprint staged on its road, line to line): 72 ok, 0 FAIL, "EVERY SPRINT RUNS ON ITS LOOP, LINE TO LINE".
+
+**`reverse-check`** (every reverse twin's grid): 36 ok, 0 FAIL, "ALL REVERSE RACES LINE UP".
+
+**`finish-play-check`** (the car carried to 32 m before the flag and let roll; does the race end, and does the player keep the car): NC 226A, Mount Mitchell, Beech Gap and Chimney Rock pass (14 ok each). **Gillespie Gap failed it on its first re-bake** ("the car crosses the line and the race ends": still racing after 15 s). Cause: a 16 m stretch moved 2.2 m onto the bench 36 m before the flag, on the bend at the gap, put an S into the approach. The bake now has `--hold-ends <m>` (no stretch is moved within that distance of the start or finish line); Gillespie Gap was re-baked with `--hold-ends 120`, rebuilt, and passes (14 ok), with the stage audits still clean. Its full race above was run on the first build and not repeated on the second. Blue Ridge and the two loops were not put through this check.
+
+Not run: any drive by a person, a player build, night or weather, and a second seed.
 
 ## Not done, not verified
 
-- **Six stages are not corrected**: `gap`, `mtm`, `beech`, `chimney`, `swiss`, `brock`. `node tools/roads/bake_3dep.mjs <pre>` will re-bake each from the tiles already in the cache (no download); each then needs its own lab build and a look. By the audit the order is `gap` (the clamp), `beech` (the hole in the far grid: any re-bake fixes it), then `swiss`, `brock`, `chimney`, `mtm`. Loops (`swiss`, `brock`) keep their mapped line; the bake does not move a loop's line.
-- **Chimney Rock's real grade reaches 14.7%** (1772-1836 m) against the self-test's 15% limit; its re-bake will sit close to that limit and wants a drive.
-- **Bridge deck heights are interpolated**, not measured (see above). The lidar point cloud would settle them; it was not downloaded.
-- **The pavement's own width and edge** cannot be read from a bare-earth DEM. No width was changed. The Blowing Rock bypass (fault 4) is reported, not fixed: it is a road-type change (a divided highway), which is the stage builder's work, not a bake's.
-- **Overlooks and viewpoints** were not checked: the cached Overpass files hold highway ways only. The game builds none; the lidar's wide spots per stage (in the per-stage sections) are where the real ones are.
-- **The 19 line stretches left alone on NC 226A**, and every line offset on the other seven stages, were not checked against imagery.
-- **No drive test.** The lab build's audits (roadside, obstacles, terrain, lanes) and still pictures only; no race-play-check, no AI lap, no player build. The sprint cut lines moved 8 to 17 m in distance (same places): `SwissNC226AUpper/Middle/Lower` and their twins have not been raced since.
+Round 2 additions first.
+
+- **Three re-bakes fail audit lines and are not release-ready.** Beech Gap: UNWARRANTED BARRIER at wp 59 right and wp 681 left (a rock top 0.18 m over the road two stations into a cut run; a cut face at a wall's buried terminal with level land behind). Chimney Rock: EDGE FACE at wp 1019 L, 661 R, 1021 L (0.08 to 0.12 m in 0.13 m, about 7 m past the tarmac edge) and UNWARRANTED BARRIER at wp 0 R (the end pad 0.29 m under the road, 1 cm inside the pocket band). Mount Mitchell: EDGE FACE at wp 1544-1545 R (0.07 m against 0.06). All are the builder's cut-run ends and lattice rise holds meeting new ground a few centimetres the wrong side of a threshold; they were not fixed. Whether the SRTM scenes of these stages failed anything was not run (the old scenes were photographed, not audited).
+- **Little Switzerland's terrain audit line** ("road stands -28.1 m clear ... StandIn_-2_0; 115 probes buried") is the 188 m tunnel under the PC horizon's stand-in mesh. `TerrainAudit` has no tunnel exemption for that mesh. Not caused by the bake; not fixed; not run on the SRTM scene.
+- **The Blowing Rock bypass is not built at its real width.** The builder has one `RoadWidth` for a whole track (`track.roadWidth`, read in about 80 places: ribbon, kerb strip, shoulder profile, wall and rail offsets, lane paint, posts, end pads, the AI line's lateral offsets, the minimap stroke). A stretch at another width and lane count needs a width per station through all of them, plus a second carriageway or a median for the divided part. That is a builder feature, not a bake, and it was not started.
+- **No short bridge was added as a deck.** A span must be longer than 52 m (two 26 m approach ramps: `TrackCatalog.BridgeRampM`, enforced by the self-test), and the real ones are 16 to 24 m (NC 215 at 8,652-8,668 and 10,656-10,676 m; Blowing Rock at 1,124-1,148 and 9,432-9,456 m). Their heights are carried straight across, so the road no longer dips into the creek, and the land under them is an embankment. Building them as decks needs the ramp to scale with the span.
+- **The unmapped dip on the Little Switzerland loop (2,744-2,780 m)**: one road-level view from 60 m back shows the Parkway on grass with no parapet; not confirmed as a bridge, carried as an embankment.
+- **Guardrails were surveyed on NC 226A only**, at 17 places, not along its whole length; the other seven stages have no survey. The fall warrant still walls about 9.3 km of NC 226A's edge where the real road has almost none (the owner's call, see "Guardrails").
+- **The title screen's flight over Blue Ridge was not rendered** (no batch harness).
+- **Short moved stretches can put an S into a straight.** The bake moves a stretch only where it is over the threshold and fades the move to nothing 24 m either side, even when the line beside it is still 1.9 m off. That is what broke Gillespie Gap's finish approach. `--hold-ends` keeps it away from the lines; the proper cure (grow each moved stretch outward until the offset is small, then fade) was not written, because it would change the NC 226A, Mount Mitchell, Beech Gap and Chimney Rock bakes that are already built. NC 226A has such a stretch at 44-68 m, just past its start line; its races and its finish check pass.
+- **The race check was not repeated** on the second builds of NC 226A (with the surveyed rail) and Gillespie Gap (ends held); their stage audits and, for Gillespie Gap, the finish check were.
+- **Beech Gap's road renders black** in two of its chase pictures (10,668 and 6,080 m), before and after alike; not looked into.
+- Before-pictures of the six round-2 stages are of the scenes that were in the sandbox (built 2026-11-09 18:27-19:07 from the SRTM bakes by the PC scene pass), not of a fresh build on this branch's code.
+
+Still true from round 1:
+
+- **Bridge deck heights are interpolated**, not measured: bare-earth lidar has no decks.
+- **The pavement's own width and edge** cannot be read from a bare-earth DEM. No width was changed.
+- **Overlooks and viewpoints** were not checked: the cached Overpass files hold highway ways only. The game builds none; the lidar's wide spots per stage are where the real ones are.
+- **The line stretches left alone** on every stage (junction mouths, pull-offs, no clear shelf) were not checked against imagery.
 - **`<pre>_dem_wide.bytes` stays SRTM** on every stage (240 m cells).
 - **The datum question** (OSM WGS84 against the DEM's NAD83, about 1 m) is left open; no shift is applied.
-- The comment in `PSXRacingBuilder.Stage.cs` ("SRTM, so it reads the canopy top - up to +33 m on these ridges") is wrong and was left as it is (another branch is editing that file).
 
 ## How it was measured
 

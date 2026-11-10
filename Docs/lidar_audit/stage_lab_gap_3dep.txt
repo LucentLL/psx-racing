@@ -1,11 +1,11 @@
 === GillespieGap -> Assets/PSXRacing/Scenes/GillespieGap.unity
 roadside checks: 0 failing
   ok   GillespieGap Track root carries the path it was built from
-  ok   GillespieGap kerb colliders have no vertical face (a ramp or a flat strip, never a box)  (got 0 boxes, 0 of 10264 triangles steeper than a landing)
+  ok   GillespieGap kerb colliders have no vertical face (a ramp or a flat strip, never a box)  (got 0 boxes, 0 of 10232 triangles steeper than a landing)
   ok   GillespieGap has a shoulder ribbon (RoadEdge) beside its tarmac  (got 28)
   ok   GillespieGap every shoulder chunk collides on the mesh it draws, off the Road layer  (got 0 of 28 chunks wrong)
-  ok   GillespieGap no shoulder triangle faces down  (got 0 of 65763)
-  ok   GillespieGap every shoulder row starts on the kerb strip's outer edge and runs strictly outward  (got 3398 rows (+11857 vertices on a bend's slices), 0 vertices outside a row, 0 rows folding back)
+  ok   GillespieGap no shoulder triangle faces down  (got 0 of 65554)
+  ok   GillespieGap every shoulder row starts on the kerb strip's outer edge and runs strictly outward  (got 3398 rows (+11746 vertices on a bend's slices), 0 vertices outside a row, 0 rows folding back)
   ok   GillespieGap no shoulder chunk carries more than 240 m of road  (got 61 stations in the widest)
   ok   GillespieGap every shoulder starts flush on the kerb strip's top  (got 3398 rows)
   ok   GillespieGap inside the clear zone no shoulder falls steeper than 1V:4H for more than an edge drop  (got 3398 rows)
@@ -17,7 +17,7 @@ roadside checks: 0 failing
 track obstacle audit — GillespieGap
   on track: +/-4.3 m (tarmac + kerb)   run-off: out to +/-4.3 m (the barrier line)
   FACING OK — all 31 single-sided surfaces face the driver
-  edge: 3344 half-sections measured, every 4 m station both sides (0 with no tarmac under the probe); a barrier within 8 m on 1847; 0 deck stations, 0 with their approaches
+  edge: 3344 half-sections measured, every 4 m station both sides (0 with no tarmac under the probe); a barrier within 8 m on 1845; 0 deck stations, 0 with their approaches
   ok   edge drop: nothing beside the tarmac or strip falls more than 0.025 m (+0.003 m slack)
   ok   edge face: nothing across the edge rises like a wall
   info buried terminal on 23 half-sections in 23 runs (92 m of edge): a warranted barrier run's flared end sinking into the foreslope, lower than the barrier rays (RoadsideRules.EndFlareStations; not counted as an edge face)
@@ -35,7 +35,7 @@ track obstacle audit — GillespieGap
     info buried terminal left wp 1477 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1477)  [-617.4, 410.6, 1277.6]
     info buried terminal left wp 838 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 838)  [217.0, 154.9, -174.6]
     info buried terminal left wp 667 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 667)  [0.1, 86.2, -793.4]
-    info buried terminal left wp 1637 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1637)  [-389.5, 451.6, 1553.7]
+    info buried terminal left wp 1637 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1637)  [-390.4, 451.6, 1553.4]
     info buried terminal right wp 1594 (4 m): 0.26 m of sinking stone at 1.90 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1594)  [-264.6, 440.3, 1444.5]
     info buried terminal left wp 1240 (4 m): 0.26 m of sinking stone at 1.90 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1240)  [86.2, 319.1, 1073.3]
     info buried terminal right wp 468 (4 m): 0.26 m of sinking stone at 1.90 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 468)  [19.7, 59.9, -1497.8]
@@ -53,9 +53,9 @@ track obstacle audit — GillespieGap
   surface profile: 95530 probes in 5 lanes, worst rise 0.05 m per 0.35 m on Track/KerbL
   SURFACE OK — nothing on the driving line rises more than 0.12 m in 0.35 m
   posts: 1338 (200/km), nearest exposed vertex 1.77 m off the centreline (StagePosts near wp 1219)  12 VERTICES INSIDE THE KERB + 0.2 m BAND
-  BARRIER FACES OK — all 1828 barrier colliders have the thing they stand for drawn where a car meets them
-  ok   wall solids: 48 run(s), every one closed and wound outward
-  checked 48 measurable non-car colliders
+  BARRIER FACES OK — all 1826 barrier colliders have the thing they stand for drawn where a car meets them
+  ok   wall solids: 47 run(s), every one closed and wound outward
+  checked 47 measurable non-car colliders
     not measurable (concave mesh — a surface, not an obstacle): Track/ApexPad
     not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop0
     not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop1
@@ -157,36 +157,36 @@ track obstacle audit — GillespieGap
 === GillespieGap ===
   ok   road stands 0.331 m clear of the ground at its tightest (waypoint 1480, GroundN_-3_5); 0 of 5016 probes buried
   ..   climbs 414.3 m (37.5 to 451.7)
-  info shoulder is drivable for 5.2 m past the tarmac on average (widest 16.5 m at waypoint 4); 952 of 2710 shoulders on a benched road over 2.5 m, 634 not benched and not counted
-  ok   ground lattice stays at least 0.03 m under the shoulder surface on 40539 of 40539 probes (tightest +0.030 m, waypoint 1302 L, 7.03 m past the tarmac edge, under GroundN_-1_5); 38 probes in the designed crossing into the toe not counted; 0 half-sections end where the ribbon under the probe becomes another station's or another road's
-  ok   grass through the shoulder: 0 of 40539 probes meet Ground more than 0.01 m over the RoadEdge surface
+  info shoulder is drivable for 5.2 m past the tarmac on average (widest 16.5 m at waypoint 4); 953 of 2708 shoulders on a benched road over 2.5 m, 636 not benched and not counted
+  ok   ground lattice stays at least 0.03 m under the shoulder surface on 40540 of 40540 probes (tightest +0.030 m, waypoint 1302 L, 7.03 m past the tarmac edge, under GroundN_-1_5); 37 probes in the designed crossing into the toe not counted; 0 half-sections end where the ribbon under the probe becomes another station's or another road's
+  ok   grass through the shoulder: 0 of 40540 probes meet Ground more than 0.01 m over the RoadEdge surface
 
 down-facing roadside triangles:
 
 lane audit:
-GillespieGap (GILLESPIE GAP — NC 226) catalog width 6.70 m, TrackPath.roadWidth 6.70, stage True, loop False, oneWay/drag False, scene 2026-11-10 01:14
+GillespieGap (GILLESPIE GAP — NC 226) catalog width 6.70 m, TrackPath.roadWidth 6.70, stage True, loop False, oneWay/drag False, scene 2026-11-10 05:55
   tarmac texture city_road_track_67_asphalt_new.png (256x64): W[0-4] Y[121-125] Y[130-134] W[251-255]
     u: edgeL 0.0098 centre 0.5000 edgeR 0.9902  => metres from the left edge 0.065 / 3.350 / 6.635 (ribbon half 3.350)
-  ribbon: 2567 rings, 3 vertices a ring (left | centre | right); 1672 on waypoints (1672 waypoints), 895 slicing a bend's gaps
-  5132 sections over 6684 m
+  ribbon: 2559 rings, 3 vertices a ring (left | centre | right); 1672 on waypoints (1672 waypoints), 887 slicing a bend's gaps
+  5116 sections over 6684 m
   lanes     left mean 3.284 min 3.283 max 3.285 | right mean 3.284 min 3.283 max 3.285
             |L-R| max 0.0004 m (wp 1642 mid, 6570 m) p95 0.0000; ratio L/R mean 1.000
   centre    painted centre - ribbon centre: mean +0.0000 max|.| 0.0001 m (wp 62 mid)
             ribbon centre - TrackPath waypoint (rings): mean +0.0000 max|.| 0.0000 m
   edges     asphalt outside the edge lines: left mean 0.000 max 0.000 | right mean 0.000 max 0.000 m
-  smooth    paint zig (mid-quad, any line) max 0.0003 p95 0.0001 m (wp 1641); centre line max 0.0001
-  corners   tarmac edge L      chord sagitta max 0.0177 m (wp 1109, 4439 m), 0 of 2566 over 0.025; turn at a ring max 8.4 deg (wp 1110)
-  corners   edge line L        chord sagitta max 0.0177 m (wp 1109, 4439 m), 0 of 2566 over 0.025; turn at a ring max 8.4 deg (wp 1110)
-  corners   centre line        chord sagitta max 0.0178 m (wp 1110, 4440 m), 0 of 2566 over 0.025; turn at a ring max 8.0 deg (wp 1110)
-  corners   edge line R        chord sagitta max 0.0188 m (wp 1110, 4440 m), 0 of 2566 over 0.025; turn at a ring max 8.4 deg (wp 1642)
-  corners   tarmac edge R      chord sagitta max 0.0189 m (wp 1110, 4440 m), 0 of 2566 over 0.025; turn at a ring max 8.5 deg (wp 1642)
-  corners   KerbL outer edge   chord sagitta max 0.0177 m (wp 1109, 4439 m), 0 of 2566 over 0.025; turn at a ring max 8.5 deg (wp 1110)
-  corners   KerbR outer edge   chord sagitta max 0.0191 m (wp 1110, 4440 m), 0 of 2566 over 0.025; turn at a ring max 9.0 deg (wp 1642)
+  smooth    paint zig (mid-quad, any line) max 0.0002 p95 0.0001 m (wp 1641); centre line max 0.0001
+  corners   tarmac edge L      chord sagitta max 0.0177 m (wp 1109, 4439 m), 0 of 2558 over 0.025; turn at a ring max 8.4 deg (wp 1110)
+  corners   edge line L        chord sagitta max 0.0177 m (wp 1109, 4439 m), 0 of 2558 over 0.025; turn at a ring max 8.4 deg (wp 1110)
+  corners   centre line        chord sagitta max 0.0178 m (wp 1110, 4440 m), 0 of 2558 over 0.025; turn at a ring max 8.0 deg (wp 1110)
+  corners   edge line R        chord sagitta max 0.0188 m (wp 1110, 4440 m), 0 of 2558 over 0.025; turn at a ring max 8.0 deg (wp 1642)
+  corners   tarmac edge R      chord sagitta max 0.0189 m (wp 1110, 4440 m), 0 of 2558 over 0.025; turn at a ring max 8.1 deg (wp 1642)
+  corners   KerbL outer edge   chord sagitta max 0.0177 m (wp 1109, 4439 m), 0 of 2558 over 0.025; turn at a ring max 8.5 deg (wp 1110)
+  corners   KerbR outer edge   chord sagitta max 0.0191 m (wp 1110, 4440 m), 0 of 2558 over 0.025; turn at a ring max 8.5 deg (wp 1642)
     KerbL: 2 verts/station, width mean 0.900 min 0.900 max 0.900 m, surface dirt_pt_5.png
     KerbR: 2 verts/station, width mean 0.900 min 0.900 max 0.900 m, surface dirt_pt_5.png
   ok   GillespieGap: lanes even, centre line on the centre, lines smooth, no corners
 
 venue                    W texture                                stride    left   right maxDiff  maxOff   zigMax   wpOff  sagMax verdict
-GillespieGap           6.7 city_road_track_67_asphalt_new.png          3   3.284   3.284  0.0004  0.0001   0.0003  0.0000  0.0191 ok
+GillespieGap           6.7 city_road_track_67_asphalt_new.png          3   3.284   3.284  0.0004  0.0001   0.0002  0.0000  0.0191 ok
 LANE AUDIT OK
 

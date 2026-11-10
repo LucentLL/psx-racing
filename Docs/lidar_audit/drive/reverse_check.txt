@@ -1,0 +1,47 @@
+UNITY TARGET: WebGL
+BlueRidgeRev (BLUE RIDGE PARKWAY II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 1.00]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+MtMitchellRev (MOUNT MITCHELL â€” NC 128 II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 0.99]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+BeechGapRev (BEECH GAP â€” NC 215 II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 1.00]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+TryonSprintRev (TRYON STREET SPRINT II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 1.00]
+  ok   the whole field is on one grid  [8 m apart]
+  ok   nobody starts past the finish  [0 past it]
+BlowingRockRev (BLOWING ROCK â€” MOSES CONE LOOP II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 1.00]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+LittleSwitzerlandRev (LITTLE SWITZERLAND â€” GILLESPIE GAP II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 1.00]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+SwissNC226ARev (LITTLE SWITZERLAND â€” NC 226A II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 0.99]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+GillespieGapRev (GILLESPIE GAP â€” NC 226 II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 1.00]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+ChimneyRockRev (CHIMNEY ROCK â€” PARK ROAD II):
+  ok   the path is turned round
+  ok   every car faces the reversed path  [4/4, worst dot 0.99]
+  ok   the whole field is on one grid  [7 m apart]
+  ok   nobody starts past the finish  [0 past it]
+ALL REVERSE RACES LINE UP.

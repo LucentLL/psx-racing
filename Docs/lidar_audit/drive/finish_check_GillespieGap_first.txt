@@ -1,0 +1,7 @@
+UNITY TARGET: WebGL
+  ok   the scene has a race, a player and a path
+  ok   this venue finishes on a distance  [1643]
+  ok   the race goes live  [Racing]
+  ok   and hands the player the car
+  FAIL the car crosses the line and the race ends  [Racing]
+1 FAILURE(S).

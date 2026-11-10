@@ -1,0 +1,82 @@
+UNITY TARGET: WebGL
+BlowingRockSprint (BLOWING ROCK â€” PARKWAY SPRINT) on BlowingRock:
+  ok   the whole road stands - no part of it cut away  [2469 of 2469]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [6328 m vs 6328]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   a finish band is painted across the road there
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 23.6 s]
+BlowingRockSprintRev (BLOWING ROCK â€” PARKWAY SPRINT II) on BlowingRock:
+  ok   the whole road stands - no part of it cut away  [2469 of 2469]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [6328 m vs 6328]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   it finishes on a line the road already has
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 23.5 s]
+SwissNC226AUpper (NC 226A â€” UPPER) on SwissNC226A:
+  ok   the whole road stands - no part of it cut away  [2986 of 2986]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [3664 m vs 3663]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   a finish band is painted across the road there
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 14.5 s]
+SwissNC226AUpperRev (NC 226A â€” UPPER II) on SwissNC226A:
+  ok   the whole road stands - no part of it cut away  [2986 of 2986]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [3664 m vs 3663]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   it finishes on a line the road already has
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 14.7 s]
+SwissNC226AMiddle (NC 226A â€” MIDDLE) on SwissNC226A:
+  ok   the whole road stands - no part of it cut away  [2986 of 2986]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [4152 m vs 4152]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   a finish band is painted across the road there
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 17.3 s]
+SwissNC226AMiddleRev (NC 226A â€” MIDDLE II) on SwissNC226A:
+  ok   the whole road stands - no part of it cut away  [2986 of 2986]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [4152 m vs 4152]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   a finish band is painted across the road there
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 17.1 s]
+SwissNC226ALower (NC 226A â€” LOWER) on SwissNC226A:
+  ok   the whole road stands - no part of it cut away  [2986 of 2986]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [3888 m vs 3890]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   it finishes on a line the road already has
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 15.3 s]
+SwissNC226ALowerRev (NC 226A â€” LOWER II) on SwissNC226A:
+  ok   the whole road stands - no part of it cut away  [2986 of 2986]
+  ok   the race starts at the sprint's start  [0.00 m]
+  ok   and finishes at its quoted distance  [3888 m vs 3890]
+  ok   at the finish the catalog names  [0.0 m]
+  ok   a finish band is painted across the road there
+  ok   every car faces down the sprint  [4/4]
+  ok   and stands behind its line  [4/4]
+  ok   on one grid  [7 m]
+  ok   driven from the line, the player is timed out at the finish  [ET 15.4 s]
+EVERY SPRINT RUNS ON ITS LOOP, LINE TO LINE.

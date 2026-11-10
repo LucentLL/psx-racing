@@ -28,7 +28,8 @@
     "near": "USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice",
     "far": "USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice",
     "wide": "unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs",
-    "line": "5 stretch(es) moved onto the lidar bench (148 m of road)",
+    "line": "4 stretch(es) moved onto the lidar bench (132 m of road)",
+    "holdEndsM": 120,
     "before": "tools/roads/srtm_bakes/gap_srtm/ (the SRTM bake this replaced)",
     "files1m": [
       {

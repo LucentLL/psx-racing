@@ -1,0 +1,18 @@
+UNITY TARGET: WebGL
+  ok   the scene has a race, a player and a path
+  ok   this venue finishes on a distance  [1080]
+  ok   the race goes live  [Racing]
+  ok   and hands the player the car
+  ok   the car crosses the line and the race ends  [Finished]
+  ok   with a result stamped for the LifeSim
+  ok   past the flag the player still has the car
+  ok   the game is not braking it for them  [0.000]
+  ok   and is not asking for throttle either  [0.000]
+  note no opponent finished inside the window on this venue â€” shutdown entered by hand
+  ok   there is an opponent to shut down
+  ok   rolling, it eases off rather than standing on the brake  [0.22]
+  note shutdown steer on this venue (a straight strip reads ~0): 0.06
+  ok   a pad past the flag opens the throttle  [1.00]
+  ok   and turns the wheel  [0.80]
+  ok   pad X on the results screen does not also respawn the car  [0]
+THE FLAG DOES NOT TAKE THE WHEEL.

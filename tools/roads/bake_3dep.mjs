@@ -1,6 +1,6 @@
 // bake_3dep.mjs - re-bake a mountain stage from USGS 3DEP lidar ground.
 //
-//   node tools/roads/bake_3dep.mjs <prefix> [--check] [--offline] [--keep-line] [--out <dir>]
+//   node tools/roads/bake_3dep.mjs <prefix> [--check] [--offline] [--keep-line] [--hold-ends <m>] [--out <dir>]
 //
 // The stages were baked from OpenStreetMap lines and "SRTM" heights
 // (fetch_road.mjs / fetch_loop.mjs / tools/brp). This reads that bake and
@@ -134,6 +134,12 @@ let wp = S.wp.map(p => ({ x: p.x, z: p.z }));
 const metaPath = join(outArt, `${pre}_dem_meta.json`);
 const bakedKeepLine = CHECK && existsSync(metaPath) && /^as mapped/.test(JSON.parse(readFileSync(metaPath, 'utf8')).source?.line || '');
 const KEEP_LINE = flag('--keep-line') || loop || bakedKeepLine;
+// --hold-ends <m>: no stretch is moved if it, or its 24 m fade, comes within <m> of the start or finish line. The grid
+// and the flag then stand on the road exactly as they did. (NC 226 to Gillespie Gap: a 16 m stretch moved 2.2 m, 36 m
+// before the flag on the bend at the gap, left an S in the approach and finish-play-check stopped passing.) Recorded in
+// the meta and honoured by --check.
+const bakedHold = CHECK && existsSync(metaPath) ? (JSON.parse(readFileSync(metaPath, 'utf8')).source?.holdEndsM || 0) : 0;
+const HOLD_ENDS = +opt('--hold-ends', bakedHold) || 0;
 if (!KEEP_LINE) {
   const widths = []; for (let i = 0; i < n; i++) if (b0.conf[i]) widths.push(b0.width[i]);
   widths.sort((a, b) => a - b);
@@ -157,7 +163,8 @@ if (!KEEP_LINE) {
       for (let k = a; k <= z; k++) { if (b0.conf[k]) { conf++; w.push(b0.width[k]); } if (Math.abs(b0.offF[k]) > Math.abs(pk)) pk = b0.offF[k]; }
       w.sort((p, q) => p - q);
       const wRun = w.length ? w[w.length >> 1] : NaN;
-      const why = len < 16 ? 'shorter than 16 m' : conf / (z - a + 1) < 0.5 ? 'bench found at under half its stations' : !(wRun <= wMed + 4) ? `bench ${wRun} m wide against ${wMed} m (a junction or a pull-off)` : null;
+      const nearLine = HOLD_ENDS > 0 && [json.startLineM, json.finishM].some(m => Number.isFinite(m) && m > 0 && a * SP - 24 < m + HOLD_ENDS && z * SP + 24 > m - HOLD_ENDS);
+      const why = nearLine ? `within ${HOLD_ENDS} m of the start or finish line (--hold-ends)` : len < 16 ? 'shorter than 16 m' : conf / (z - a + 1) < 0.5 ? 'bench found at under half its stations' : !(wRun <= wMed + 4) ? `bench ${wRun} m wide against ${wMed} m (a junction or a pull-off)` : null;
       moves.push({ fromM: a * SP, toM: z * SP, lengthM: len, peakM: +pk.toFixed(2), moved: !why, why });
       if (!why) for (let k = a - TAPER; k <= z + TAPER; k++) {
         if (k < 0 || k >= n) continue;
@@ -284,6 +291,7 @@ const metaOut = {
     far: 'USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice',
     wide: meta.wide ? 'unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs' : undefined,
     line: moved ? `${moves.filter(m => m.moved).length} stretch(es) moved onto the lidar bench (${moves.filter(m => m.moved).reduce((s, m) => s + m.lengthM, 0)} m of road)` : 'as mapped' + (KEEP_LINE && !loop ? ' (--keep-line)' : ''),
+    ...(HOLD_ENDS > 0 ? { holdEndsM: HOLD_ENDS } : {}),
     before: `tools/roads/srtm_bakes/${pre}_srtm/ (the SRTM bake this replaced)`,
     files1m: tilesOf('1m_'), files13: tilesOf('13_'),
   },

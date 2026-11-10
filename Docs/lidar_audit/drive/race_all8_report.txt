@@ -1,0 +1,443 @@
+race on SwissNC226A:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   SwissNC226A is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.1 m, two-way True
+    recover Charger AI at 33s (pinned), wp 83: 7 stations on, lat +1.3
+    hit  99.2s Charger AI: 11.0 m/s glancing into Traffic_crown_victoria at wp 421  car lat +0.3, its lat -1.9, road straight (-1 deg over 20 m) | it was +4.0 m ahead, -2.4 right, moving -39 km/h along our heading
+      before Charger AI's hit: 118.28s lat +1.5 23kmh st -0.01 sl +0 hd +0 vx +0.0 line +1.3 bias +0.2 LIM -0.3 th 0.00 br 0.48 g 1 give 1.00/0.48 | 118.53s lat +1.5 22kmh st -0.06 sl -1 hd +0 vx -0.1 line +1.3 bias +0.0 LIM -0.3 th 1.00 br 0.00 g 1 | 118.78s lat +1.4 27kmh st -0.03 sl +0 hd +0 vx -0.1 line +1.3 bias +0.0 LIM -0.3 th 1.00 br 0.00 g 1 | 119.03s lat +1.4 33kmh st -0.02 sl +0 hd -1 vx -0.1 line +1.3 bias +0.0 LIM -0.3 th 1.00 br 0.00 g 1 | 119.28s lat +1.3 39kmh st -0.03 sl +0 hd +0 vx +0.0 line +1.3 bias -0.2 LIM -0.3 th 1.00 br 0.00 g 1 | 119.53s lat +1.3 45kmh st +0.06 sl +0 hd +1 vx +0.3 line +1.3 bias +0.2 LIM +0.2 th 1.00 br 0.00 g 1 | 119.78s lat +1.4 52kmh st +0.02 sl +0 hd +2 vx +0.5 line +1.3 bias +0.2 LIM +0.2 th 1.00 br 0.00 g 1 | 120.03s lat +1.5 57kmh st -0.04 sl +0 hd +0 vx -0.1 line +1.3 bias +0.2 LIM +0.2 th 1.00 br 0.00 g 1 | 120.28s lat +1.3 60kmh st -0.09 sl +0 hd -6 vx -1.5 line +1.3 bias +0.2 LIM +0.2 th 1.00 br 0.00 g 2 | 120.53s lat +0.9 63kmh st -0.11 sl +1 hd -8 vx -2.1 line +1.3 bias +0.2 LIM +0.2 th 0.00 br 0.07 g 2 | 120.78s lat +0.6 56kmh st -0.09 sl +1 hd -1 vx -0.1 line +1.3 bias +0.2 LIM +0.2 th 0.00 br 1.00 g 2 give 1.00/1.00 | 121.03s lat +0.6 48kmh st -0.11 sl +1 hd +3 vx +0.9 line +1.3 bias +0.2 LIM +0.2 th 0.00 br 1.00 g 2 give 1.00/1.00
+    hit 121.1s Charger AI: 17.8 m/s HARD into Traffic_crown_victoria at wp 533  car lat +0.7, its lat -1.9, road bends LEFT (-55 deg over 20 m) | it was +4.4 m ahead, -2.5 right, moving -5 km/h along our heading
+  WRONG WAY Supra AI at 140s, wp 527, 12 km/h
+  WRONG WAY RX-7 Player at 143s, wp 529, 11 km/h
+  WRONG WAY Skyline AI at 241s, wp 845, 15 km/h
+  SPIN Skyline AI at wp 845: wp846(-3) 3kmh lat+1.2 st-0.06 th0.0 br0.5 hb0 rs+0.23 fs+0.25 cs+0.00 up1.00 | wp846(-3) 3kmh lat+1.2 st-0.07 th1.0 br0.0 hb0 rs+0.23 fs+0.18 cs+0.00 up1.00 | wp846(-3) 3kmh lat+1.2 st-0.07 th0.0 br0.5 hb0 rs+0.20 fs+0.20 cs+0.00 up1.00 | wp846(-3) 4kmh lat+1.2 st-0.06 th0.0 br0.5 hb0 rs+0.14 fs+0.14 cs-3.04 up1.00 | wp846(-3) 5kmh lat+1.2 st-0.03 th0.0 br0.5 hb0 rs+0.11 fs+0.12 cs-3.06 up1.00 | wp846(-3) 6kmh lat+1.1 st-0.03 th1.0 br0.0 hb0 rs+0.03 fs+0.03 cs-3.11 up1.00 | wp846(-3) 6kmh lat+1.1 st-0.03 th0.0 br0.5 hb0 rs+0.01 fs+0.02 cs-3.12 up1.00 | wp846(-3) 7kmh lat+1.1 st-0.03 th0.0 br0.5 hb0 rs+0.00 fs+0.00 cs-3.13 up1.00 | wp846(-3) 7kmh lat+1.1 st-0.03 th0.0 br0.5 hb0 rs+0.00 fs+0.00 cs-3.13 up1.00 | wp846(-3) 7kmh lat+1.0 st-0.03 th0.0 br0.5 hb0 rs+0.00 fs+0.00 cs-3.13 up1.00 | wp845(-4) 8kmh lat+1.0 st+0.00 th0.0 br1.0 hb0 rs+0.00 fs+0.00 cs+3.14 up1.00 | wp845(-4) 11kmh lat+1.0 st+0.00 th0.0 br1.0 hb0 rs+0.00 fs+0.00 cs+3.14 up1.00 | wp845(-4) 13kmh lat+0.9 st+0.00 th0.0 br1.0 hb0 rs+0.00 fs+0.00 cs+3.14 up1.00 | wp845(-4) 16kmh lat+0.8 st+0.01 th0.0 br1.0 hb0 rs+0.00 fs+0.00 cs+3.14 up1.00
+  SPIN Skyline AI at wp 839: wp844(-4) 22kmh lat+0.6 st-1.00 th0.0 br1.0 hb0 rs-0.01 fs-0.06 cs+3.11 up1.00 | wp844(-4) 24kmh lat+0.5 st+1.00 th0.0 br1.0 hb0 rs+0.01 fs+0.06 cs-3.12 up1.00 | wp844(-4) 27kmh lat+0.4 st+1.00 th0.0 br1.0 hb0 rs-0.02 fs+0.14 cs-3.13 up1.00 | wp843(-3) 29kmh lat+0.3 st+1.00 th0.0 br1.0 hb0 rs-0.01 fs+0.14 cs-3.14 up1.00 | wp843(-3) 31kmh lat+0.2 st+1.00 th0.0 br0.5 hb0 rs-0.02 fs+0.14 cs-3.13 up1.00 | wp842(-3) 31kmh lat+0.1 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.15 cs-3.13 up1.00 | wp842(-3) 30kmh lat+0.0 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.15 cs-3.14 up1.00 | wp842(-3) 29kmh lat-0.1 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00 | wp841(-3) 28kmh lat-0.1 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00 | wp841(-3) 27kmh lat-0.2 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00 | wp841(-3) 26kmh lat-0.2 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00 | wp840(-5) 25kmh lat-0.1 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00 | wp840(-5) 24kmh lat-0.1 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00 | wp839(-8) 23kmh lat+0.1 st+1.00 th0.0 br0.0 hb0 rs-0.02 fs+0.14 cs-3.14 up1.00
+    recover RX-7 Player at 246s (pinned), wp 848: 0 stations on, lat +1.5
+    recover Skyline AI at 252s (crawling), wp 848: 0 stations on, lat +1.0
+  MISTAKE Skyline AI at 298s, wp 1059, 106 km/h
+  MISTAKE Skyline AI at 389s, wp 1480, 143 km/h
+  MISTAKE Skyline AI at 461s, wp 1763, 90 km/h
+    recover RX-7 Player at 483s (pinned), wp 1894: 0 stations on, lat +1.5
+    recover Supra AI at 489s (pinned), wp 1896: 0 stations on, lat +2.0
+  FINISHED Charger AI at 534s
+    hit 537.7s Charger AI: 12.5 m/s HARD into WallColl at wp 2953  car lat +4.1, its lat -26.9, road straight (0 deg over 20 m) | it was -1529.9 m ahead, -2111.1 right, moving +0 km/h along our heading
+  FINISHED Supra AI at 674s
+  FINISHED RX-7 Player (player, autopilot) at 678s
+  FINISHED Skyline AI at 678s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 11748 m, damage 58, hard hits 1, worst 9.4 into Traffic_ford_transit
+  Skyline AI: 11748 m, damage 38, hard hits 0, worst 0.0 into 
+  Supra AI: 11796 m, damage 23, hard hits 0, worst 0.0 into 
+  Charger AI: 11816 m, damage 54, hard hits 2, worst 17.8 into Traffic_crown_victoria
+  3 traffic wrecks: oncoming hit by Charger AI (Ignore Raycast), knocked 4.4 m/s; with hit by RX-7 Player (Ignore Raycast), knocked 1.5 m/s; with hit by Supra AI (Ignore Raycast), knocked 2.7 m/s
+  hits by kind: traffic 3, wall 1
+  raced 678 s; 0 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [0]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [4 finished]
+  FAIL no car drives the wrong way for more than 2 s  [Skyline AI 5.5 s]
+  FRAMES (WP-09; city streaming SLICED): 26526 frames, over 33 ms 10, over 50 ms 1, over 100 ms 0, worst 76 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 44 g/limit 0.57 (0.79 g) vmin/vlim 0.74 | brakes 67 early x12.73 at 143 m peak 0.69 (0.58 g) no-reason 19 | full gas 54% brake 36% | slides 0 hb 1 spins 0 rec 2 hard 1 | home 677.8s
+  AI Skyline AI skill 1.00 F0.00: corners 40 g/limit 0.53 (0.83 g) vmin/vlim 0.72 | brakes 59 early x13.37 at 147 m peak 0.66 (0.48 g) no-reason 12 | full gas 59% brake 31% | slides 2 hb 2 spins 2 rec 1 hard 0 | home 678.3s
+  AI Supra AI skill 0.95 F1.00: corners 50 g/limit 0.55 (0.85 g) vmin/vlim 0.72 | brakes 58 early x12.94 at 132 m peak 0.68 (0.57 g) no-reason 19 | full gas 59% brake 33% | slides 0 hb 0 spins 0 rec 1 hard 0 | home 673.7s
+  AI Charger AI skill 0.90 F0.00: corners 81 g/limit 0.65 (1.01 g) vmin/vlim 0.83 | brakes 104 early x12.28 at 154 m peak 0.62 (0.56 g) no-reason 17 | full gas 56% brake 34% | slides 2 hb 6 spins 0 rec 1 hard 2 | home 533.6s
+SUMMARY AI SwissNC226A        HOUR      seed 0 | g/limit 0.60 (0.92 g, 171 bends) vmin/vlim 0.77 | brake early x12.74 peak 0.64 (0.54 g) n 221 no-reason 48 | full gas 58% brake 33% | slides 4 hb 8 spins 2 | recoveries 3 hard hits 2 retired 0 | rivals home 3 mean 628.5s best 533.6s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L7/lane2/R1 held 3s; Skyline AI L5/lane0/R8 held 17s; Supra AI L8/lane1/R0 held 35s; Charger AI L5/lane0/R0 held 7s
+  HEAD-ON Charger AI at 99s, 11.0 m/s into Traffic_crown_victoria
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 6/1, 15s 8/5, 30s 10/6, 45s 6/4, 60s 6/2, 75s 10/7, 90s 6/3, 105s 7/6, 120s 7/6, 135s 8/6, 150s 9/7, 165s 12/12, 180s 8/8, 195s 7/5, 210s 7/6, 225s 10/10, 240s 9/6, 255s 10/8, 270s 6/6, 285s 3/2, 300s 5/1, 315s 6/5, 330s 11/6, 345s 10/9, 360s 6/5, 375s 6/3, 390s 10/6, 405s 12/9, 420s 10/7, 435s 11/7, 450s 10/7, 465s 7/7, 480s 8/3, 495s 10/4, 510s 10/6, 525s 11/3, 540s 12/12, 555s 9/6, 570s 8/5, 585s 4/2, 600s 4/3, 615s 4/3, 630s 3/3, 645s 2/1, 660s 2/1, 675s 1/1
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort 0s, abort/free 2s, alongside/free 1s, follow 25s, follow/free 315s, in-way 1s, in-way/free 31s, pass-close/free 39s, pass-late/free 21s, pass-lift 0s, pass-lift/free 34s, racer/free 17s
+SUMMARY SwissNC226A        HOUR      seed 0 | raced 678s | passes L 18 lane 1 R 8 | held avg 20s max 35s | capped avg 5s give avg 162s (not held 153s) backups 9 | traffic hits rivals 2 (hard 2) player 1 | head-ons 1 | retired 0 (traffic 0) | wrecks by rivals 2 | rivals home 3/3 spread 145s | player L7/lane2/R1 held 3s | max traffic 13 | fails 1
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 2565 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+1 FAILURE(S).
+
+race on BlueRidge:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   BlueRidge is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.4 m, two-way True
+  WRONG WAY Charger AI at 42s, wp 213, 11 km/h
+  WRONG WAY Supra AI at 64s, wp 422, 11 km/h
+  MISTAKE Charger AI at 140s, wp 1039, 149 km/h
+  MISTAKE Charger AI at 165s, wp 1249, 145 km/h
+      before Charger AI's hit: 166.28s lat -2.2 151kmh st +0.10 sl -1 hd -10 vx -7.9 line +1.4 bias +0.0 th 1.00 br 0.00 g 3 | 166.53s lat -3.4 142kmh st +0.05 sl +0 hd -2 vx -1.2 line +1.4 bias -1.3 pass L th 0.00 br 0.42 g 3 give 1.00/0.42 | 166.78s lat -3.4 136kmh st +0.07 sl +0 hd -3 vx -2.2 line +1.4 bias -2.6 pass L th 0.00 br 0.34 g 3 give 1.00/0.34 | 167.03s lat -3.4 130kmh st +0.06 sl +0 hd -3 vx -1.5 line +1.4 bias -2.9 pass L th 0.00 br 0.30 g 3 give 1.00/0.30 | 167.28s lat -3.4 125kmh st +0.05 sl +0 hd -1 vx -1.0 line +1.4 bias -2.9 pass L th 0.00 br 0.26 g 3 give 1.00/0.26 | 167.53s lat -3.4 120kmh st +0.05 sl +0 hd -2 vx -0.9 line +1.4 bias -3.0 pass L th 0.00 br 0.25 g 3 give 1.00/0.25 | 167.78s lat -3.5 117kmh st +0.06 sl +0 hd -2 vx -1.1 line +1.4 bias -3.0 pass L th 0.00 br 0.24 g 3 give 1.00/0.24 | 168.03s lat -3.8 110kmh st +0.06 sl -1 hd -5 vx -3.1 line +1.4 bias -3.4 th 0.00 br 1.00 g 3 give 0.00/1.00 | 168.28s lat -4.4 104kmh st +0.07 sl -2 hd -5 vx -3.6 line +1.4 bias -3.4 th 0.00 br 1.00 g 3 give 0.00/1.00 | 168.53s lat -5.1 99kmh st +0.09 sl -2 hd -5 vx -3.2 line +1.4 bias -3.4 th 0.00 br 1.00 g 3 give 0.00/1.00 | 168.78s lat -5.8 96kmh st +0.09 sl -2 hd -7 vx -3.8 line +1.4 bias -3.6 pass L th 0.00 br 0.34 g 3 give 1.00/0.34 | 169.03s lat -6.7 92kmh st +0.90 sl -2 hd -6 vx -3.5 line +1.4 bias -3.3 pass L th 0.00 br 0.60 g 3 give 1.00/0.36
+    hit 169.2s Charger AI: 19.8 m/s HARD into Trunks at wp 1281  car lat -7.2, its lat -336.3, road bends right (8 deg over 20 m) | it was -807.6 m ahead, +264.2 right, moving +0 km/h along our heading
+  RETIRED Charger AI at 169s, wp 1282 (5128 m): worst hit 19.8 m/s into Trunks, damage 71
+  WRONG WAY RX-7 Player at 172s, wp 1295, 11 km/h
+    recover RX-7 Player at 185s (pinned), wp 1296: 0 stations on, lat +1.6
+  FINISHED Supra AI at 237s
+  FINISHED RX-7 Player (player, autopilot) at 240s
+  FINISHED Skyline AI at 241s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 7008 m, damage 23, hard hits 1, worst 9.4 into Traffic_camry_2001
+  Skyline AI: 6964 m, damage 43, hard hits 0, worst 0.0 into 
+  Supra AI: 7104 m, damage 18, hard hits 0, worst 0.0 into 
+  Charger AI: 5148 m, damage 71, hard hits 1, worst 19.8 into Trunks, RETIRED
+  4 traffic wrecks: with hit by Charger AI (Ignore Raycast), knocked 2.2 m/s; with hit by Supra AI (Ignore Raycast), knocked 1.6 m/s; with hit by Skyline AI (Ignore Raycast), knocked 1.6 m/s; with hit by RX-7 Player (Ignore Raycast), knocked 1.9 m/s
+  hits by kind: traffic 1, Trunks 1
+  raced 241 s; 1 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [1]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [3 finished]
+  ok   no car drives the wrong way for more than 2 s  [Supra AI 1.0 s]
+  FRAMES (WP-09; city streaming SLICED): 10122 frames, over 33 ms 0, over 50 ms 0, over 100 ms 0, worst 32 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 30 g/limit 0.57 (0.89 g) vmin/vlim 0.76 | brakes 9 early x14.61 at 124 m peak 0.75 (0.61 g) no-reason 12 | full gas 73% brake 20% | slides 0 hb 0 spins 0 rec 1 hard 1 | home 240.4s
+  AI Skyline AI skill 1.00 F0.00: corners 37 g/limit 0.53 (0.90 g) vmin/vlim 0.68 | brakes 10 early x19.54 at 201 m peak 0.74 (0.67 g) no-reason 13 | full gas 80% brake 16% | slides 0 hb 0 spins 0 rec 0 hard 0 | home 241.4s
+  AI Supra AI skill 0.95 F1.00: corners 38 g/limit 0.57 (0.97 g) vmin/vlim 0.73 | brakes 8 early x8.14 at 159 m peak 0.60 (0.66 g) no-reason 9 | full gas 79% brake 16% | slides 0 hb 0 spins 0 rec 0 hard 0 | home 236.8s
+  AI Charger AI skill 0.90 F0.00: corners 30 g/limit 0.59 (1.01 g) vmin/vlim 0.80 | brakes 14 early x8.50 at 137 m peak 0.68 (0.57 g) no-reason 5 | full gas 71% brake 18% | slides 0 hb 0 spins 0 rec 0 hard 1 | RETIRED
+SUMMARY AI BlueRidge          HOUR      seed 0 | g/limit 0.56 (0.96 g, 105 bends) vmin/vlim 0.73 | brake early x11.86 peak 0.68 (0.62 g) n 32 no-reason 27 | full gas 77% brake 16% | slides 0 hb 0 spins 0 | recoveries 0 hard hits 1 retired 1 | rivals home 2 mean 239.1s best 236.8s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L17/lane2/R0 held 0s; Skyline AI L15/lane0/R0 held 0s; Supra AI L7/lane0/R0 held 0s; Charger AI L2/lane0/R0 held 1s
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 6/3, 15s 6/4, 30s 7/3, 45s 6/2, 60s 4/3, 75s 3/3, 90s 4/3, 105s 1/0, 120s 2/1, 135s 2/1, 150s 3/2, 165s 2/1, 180s 1/0, 195s 2/0, 210s 2/0, 225s 4/2
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): follow/free 24s, in-way/free 6s, pass-close/free 23s, pass-late/free 10s, pass-lift 0s, pass-lift/free 10s, racer/free 11s
+SUMMARY BlueRidge          HOUR      seed 0 | raced 241s | passes L 24 lane 0 R 0 | held avg 0s max 1s | capped avg 6s give avg 28s (not held 28s) backups 4 | traffic hits rivals 0 (hard 0) player 1 | head-ons 0 | retired 1 (traffic 0) | wrecks by rivals 3 | rivals home 2/3 spread 5s | player L17/lane2/R0 held 0s | max traffic 8 | fails 0
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 916 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+RACE CHECK OK.
+
+race on GillespieGap:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   GillespieGap is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.7 m, two-way True
+  FINISHED Supra AI at 284s
+  FINISHED RX-7 Player (player, autopilot) at 295s
+  FINISHED Charger AI at 295s
+  FINISHED Skyline AI at 298s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 6616 m, damage 14, hard hits 0, worst 0.0 into 
+  Skyline AI: 6572 m, damage 11, hard hits 0, worst 0.0 into 
+  Supra AI: 6596 m, damage 11, hard hits 0, worst 0.0 into 
+  Charger AI: 6572 m, damage 21, hard hits 0, worst 0.0 into 
+  0 traffic wrecks: 
+  hits by kind: 
+  raced 298 s; 0 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [0]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [4 finished]
+  ok   no car drives the wrong way for more than 2 s  [none]
+  FRAMES (WP-09; city streaming SLICED): 12549 frames, over 33 ms 1, over 50 ms 0, over 100 ms 0, worst 34 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 32 g/limit 0.53 (0.75 g) vmin/vlim 0.72 | brakes 9 early x7.57 at 75 m peak 0.56 (0.60 g) no-reason 9 | full gas 71% brake 17% | slides 0 hb 1 spins 0 rec 0 hard 0 | home 294.5s
+  AI Skyline AI skill 1.00 F0.00: corners 38 g/limit 0.49 (0.76 g) vmin/vlim 0.68 | brakes 9 early x9.21 at 108 m peak 0.63 (0.61 g) no-reason 13 | full gas 78% brake 16% | slides 0 hb 0 spins 0 rec 0 hard 0 | home 297.6s
+  AI Supra AI skill 0.95 F1.00: corners 37 g/limit 0.50 (0.77 g) vmin/vlim 0.69 | brakes 13 early x6.39 at 77 m peak 0.60 (0.64 g) no-reason 10 | full gas 79% brake 16% | slides 1 hb 0 spins 0 rec 0 hard 0 | home 284.3s
+  AI Charger AI skill 0.90 F0.00: corners 29 g/limit 0.53 (0.81 g) vmin/vlim 0.71 | brakes 15 early x12.04 at 149 m peak 0.56 (0.56 g) no-reason 12 | full gas 69% brake 20% | slides 1 hb 0 spins 0 rec 0 hard 0 | home 295.1s
+SUMMARY AI GillespieGap       HOUR      seed 0 | g/limit 0.51 (0.78 g, 104 bends) vmin/vlim 0.69 | brake early x9.36 peak 0.59 (0.60 g) n 37 no-reason 35 | full gas 75% brake 17% | slides 2 hb 0 spins 0 | recoveries 0 hard hits 0 retired 0 | rivals home 3 mean 292.3s best 284.3s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L17/lane0/R0 held 19s; Skyline AI L9/lane1/R0 held 6s; Supra AI L20/lane1/R0 held 17s; Charger AI L13/lane2/R0 held 6s
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 6/1, 15s 8/5, 30s 9/4, 45s 9/3, 60s 11/4, 75s 12/6, 90s 9/6, 105s 8/5, 120s 7/4, 135s 6/5, 150s 6/5, 165s 4/3, 180s 3/3, 195s 4/3, 210s 4/3, 225s 2/1, 240s 3/3, 255s 4/2, 270s 3/3, 285s 2/2
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort/free 1s, follow 10s, follow/free 60s, in-way/free 7s, pass-close/free 17s, pass-late/free 15s, pass-lift 1s, pass-lift/free 16s, racer 0s, racer/free 28s
+SUMMARY GillespieGap       HOUR      seed 0 | raced 298s | passes L 42 lane 4 R 0 | held avg 10s max 17s | capped avg 2s give avg 52s (not held 48s) backups 0 | traffic hits rivals 0 (hard 0) player 0 | head-ons 0 | retired 0 (traffic 0) | wrecks by rivals 0 | rivals home 3/3 spread 13s | player L17/lane0/R0 held 19s | max traffic 13 | fails 0
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 1129 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+RACE CHECK OK.
+
+race on BeechGap:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   BeechGap is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.1 m, two-way True
+      before Skyline AI's hit: 14.05s lat +2.4 128kmh st -0.02 sl +1 hd +0 vx +0.4 line +1.0 bias +0.5 LIM +0.5 th 1.00 br 0.00 g 3 | 14.30s lat +2.3 129kmh st +0.01 sl +1 hd -2 vx -0.6 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 0.01 g 3 | 14.55s lat +2.1 130kmh st +0.07 sl +0 hd -2 vx -1.2 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 0.02 g 3 | 14.80s lat +1.7 130kmh st +0.09 sl +0 hd -3 vx -1.7 line +1.0 bias +0.5 LIM +0.5 th 1.00 br 0.00 g 3 | 15.05s lat +1.3 129kmh st +0.12 sl +0 hd -2 vx -1.7 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 0.00 g 3 | 15.30s lat +0.9 128kmh st +0.15 sl +0 hd -2 vx -1.5 line +1.0 bias +0.5 LIM +0.5 th 1.00 br 0.00 g 3 | 15.55s lat +0.6 121kmh st +0.15 sl +0 hd -1 vx -1.1 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 1.00 g 3 give 0.00/1.00 | 15.80s lat +0.3 116kmh st +0.26 sl +0 hd -1 vx -0.7 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 1.00 g 3 give 0.00/1.00 | 16.05s lat +0.2 113kmh st +0.38 sl +1 hd -3 vx -0.7 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 1.00 g 3 give 0.00/1.00 | 16.30s lat +0.0 109kmh st +0.44 sl +2 hd -4 vx -1.0 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 1.00 g 3 give 1.00/1.00 | 16.55s lat -0.3 106kmh st +0.61 sl +2 hd -5 vx -1.3 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 1.00 g 3 give 1.00/1.00 | 16.80s lat -0.7 98kmh st +0.23 sl +1 hd -4 vx -1.4 line +1.0 bias +0.5 LIM +0.5 th 0.00 br 1.00 g 3 give 1.00/1.00
+    hit  16.8s Skyline AI: 36.4 m/s HARD into Traffic_sedan_98 at wp 112  car lat -0.8, its lat -1.9, road straight (0 deg over 20 m) | it was +4.3 m ahead, -0.9 right, moving -16 km/h along our heading
+  RETIRED Skyline AI at 17s, wp 112 (448 m): worst hit 36.4 m/s into Traffic_sedan_98, damage 76
+  WRONG WAY Charger AI at 23s, wp 112, 11 km/h
+    recover Charger AI at 28s (pinned), wp 111: 0 stations on, lat +1.3
+      before Supra AI's hit: 192.80s lat +1.9 98kmh st -0.12 sl +1 hd +1 vx +1.2 line +2.0 bias +0.0 th 1.00 br 0.00 g 3 | 193.05s lat +2.1 99kmh st -0.17 sl +1 hd +2 vx +1.5 line +2.0 bias +0.0 th 1.00 br 0.00 g 3 | 193.30s lat +2.2 101kmh st -0.32 sl +2 hd +2 vx +2.0 line +2.0 bias +0.0 th 1.00 br 0.00 g 3 | 193.55s lat +2.4 100kmh st -0.26 sl +2 hd -1 vx +0.8 line +2.0 bias +0.0 th 0.00 br 0.13 g 3 | 193.80s lat +2.4 98kmh st -0.31 sl +3 hd +2 vx +2.1 line +2.0 bias +0.0 th 1.00 br 0.00 g 3 | 194.05s lat +2.7 99kmh st -0.39 sl +2 hd +0 vx +1.0 line +2.0 bias +0.0 th 1.00 br 0.00 g 3 | 194.30s lat +3.0 100kmh st -0.53 sl +2 hd +3 vx +2.2 line +2.0 bias +0.0 th 0.97 br 0.00 g 3 | 194.55s lat +3.4 98kmh st -0.64 sl +2 hd +5 vx +3.4 line +2.0 bias +0.0 th 0.00 br 0.08 g 3 | 194.80s lat +3.9 95kmh st -0.80 sl +3 hd +2 vx +2.3 line +2.0 bias +0.0 th 0.00 br 0.35 g 3 | 195.05s lat +4.4 90kmh st -1.00 sl +3 hd +8 vx +4.5 line +2.0 bias +0.0 th 0.00 br 0.96 g 3 | 195.30s lat +5.4 85kmh st -1.00 sl +1 hd +13 vx +5.5 line +2.0 bias +0.0 th 0.00 br 0.60 g 3 | 195.55s lat +6.8 80kmh st -1.00 sl +0 hd +16 vx +5.8 line +2.0 bias +0.0 th 0.00 br 0.60 g 3
+    hit 195.7s Supra AI: 21.1 m/s HARD into Trunks at wp 1435  car lat +7.8, its lat -766.1, road bends LEFT (-6 deg over 20 m) | it was +716.4 m ahead, -1021.5 right, moving +0 km/h along our heading
+    hit 258.9s RX-7 Player: 10.1 m/s HARD into Traffic_ford_transit at wp 1440  car lat -0.4, its lat +1.5, road straight (1 deg over 20 m) | it was +4.1 m ahead, +2.0 right, moving +40 km/h along our heading
+  WRONG WAY Supra AI at 291s, wp 2049, 11 km/h
+  FINISHED Supra AI at 385s
+  MISTAKE Charger AI at 387s, wp 2366, 140 km/h
+  RETIRED Charger AI at 389s, wp 2381 (9524 m): worst hit 0.0 m/s into , damage 2
+      before Charger AI's hit: 386.32s lat +1.3 131kmh st -0.03 sl +1 hd -1 vx +0.1 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 386.57s lat +1.3 133kmh st -0.02 sl +1 hd -1 vx -0.1 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 386.82s lat +1.2 136kmh st -0.04 sl +0 hd +0 vx +0.1 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 387.07s lat +1.2 138kmh st -0.04 sl +1 hd +0 vx +0.0 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 387.32s lat +1.2 140kmh st -0.02 sl +1 hd +0 vx +0.7 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 387.57s lat +1.3 142kmh st -0.03 sl +0 hd +2 vx +1.5 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 387.82s lat +1.8 144kmh st -0.04 sl +0 hd +3 vx +2.5 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 388.07s lat +2.5 146kmh st -0.05 sl +1 hd +6 vx +4.5 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 388.32s lat +3.6 148kmh st -0.06 sl +1 hd +5 vx +4.4 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 388.57s lat +4.5 149kmh st -0.09 sl +1 hd +5 vx +4.4 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 388.82s lat +5.7 151kmh st -0.09 sl +2 hd +6 vx +5.7 line +1.3 bias +0.0 th 1.00 br 0.00 g 3 | 389.07s lat +7.1 144kmh st -0.98 sl +1 hd +8 vx +6.4 line +1.3 bias +0.4 th 0.00 br 0.60 g 3
+    hit 389.2s Charger AI: 39.2 m/s HARD into Trunks at wp 2384  car lat +7.9, its lat -766.1, road bends LEFT (-10 deg over 20 m) | it was -1758.6 m ahead, -1018.3 right, moving +0 km/h along our heading
+  FINISHED RX-7 Player (player, autopilot) at 446s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 11044 m, damage 34, hard hits 1, worst 10.1 into Traffic_ford_transit
+  Skyline AI: 456 m, damage 76, hard hits 1, worst 36.4 into Traffic_sedan_98, RETIRED
+  Supra AI: 11244 m, damage 64, hard hits 2, worst 21.1 into Trunks
+  Charger AI: 9536 m, damage 65, hard hits 1, worst 39.2 into Trunks, RETIRED
+  2 traffic wrecks: oncoming hit by Skyline AI (Ignore Raycast), knocked 5.2 m/s; with hit by Charger AI (Ignore Raycast), knocked 1.9 m/s
+  hits by kind: traffic 2, Trunks 3
+  raced 446 s; 2 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  FAIL at most one rival retires in the run  [2]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [2 finished]
+  ok   no car drives the wrong way for more than 2 s  [Supra AI 1.5 s]
+  FRAMES (WP-09; city streaming SLICED): 18995 frames, over 33 ms 37, over 50 ms 10, over 100 ms 0, worst 85 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 50 g/limit 0.62 (0.91 g) vmin/vlim 0.78 | brakes 43 early x8.98 at 133 m peak 0.60 (0.52 g) no-reason 23 | full gas 62% brake 27% | slides 0 hb 0 spins 0 rec 0 hard 1 | home 446.0s
+  AI Skyline AI skill 1.00 F0.00: corners 3 g/limit 0.54 (0.72 g) vmin/vlim 0.41 | brakes 0 early x0.00 at 0 m peak 0.00 (0.00 g) no-reason 0 | full gas 87% brake 9% | slides 0 hb 0 spins 0 rec 0 hard 1 | RETIRED
+  AI Supra AI skill 0.95 F1.00: corners 71 g/limit 0.68 (1.11 g) vmin/vlim 0.82 | brakes 54 early x8.61 at 119 m peak 0.63 (0.57 g) no-reason 14 | full gas 71% brake 22% | slides 0 hb 0 spins 0 rec 0 hard 2 | home 384.8s
+  AI Charger AI skill 0.90 F0.00: corners 38 g/limit 0.63 (1.00 g) vmin/vlim 0.73 | brakes 32 early x11.89 at 146 m peak 0.59 (0.51 g) no-reason 14 | full gas 58% brake 32% | slides 0 hb 0 spins 0 rec 1 hard 1 | RETIRED
+SUMMARY AI BeechGap           HOUR      seed 0 | g/limit 0.66 (1.06 g, 112 bends) vmin/vlim 0.78 | brake early x9.83 peak 0.61 (0.54 g) n 86 no-reason 28 | full gas 65% brake 26% | slides 0 hb 0 spins 0 | recoveries 1 hard hits 4 retired 2 | rivals home 1 mean 384.8s best 384.8s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L19/lane0/R0 held 13s; Skyline AI L0/lane0/R0 held 0s; Supra AI L9/lane0/R0 held 15s; Charger AI L16/lane2/R0 held 17s
+  HEAD-ON Skyline AI at 17s, 36.4 m/s into Traffic_sedan_98
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 6/2, 15s 14/7, 30s 11/8, 45s 7/4, 60s 7/4, 75s 8/6, 90s 9/7, 105s 9/7, 120s 6/4, 135s 7/4, 150s 8/6, 165s 7/4, 180s 7/2, 195s 10/4, 210s 12/4, 225s 10/6, 240s 7/6, 255s 8/6, 270s 8/4, 285s 5/3, 300s 6/4, 315s 5/3, 330s 3/3, 345s 2/2, 360s 1/1, 375s 0/0, 390s 0/0, 405s 0/0, 420s 0/0, 435s 0/0
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort/free 1s, follow 13s, follow/free 78s, in-way/free 6s, pass-close/free 11s, pass-late/free 8s, pass-lift 0s, pass-lift/free 11s, racer/free 4s
+SUMMARY BeechGap           HOUR      seed 0 | raced 446s | passes L 25 lane 2 R 0 | held avg 11s max 17s | capped avg 2s give avg 43s (not held 39s) backups 3 | traffic hits rivals 1 (hard 1) player 1 | head-ons 1 | retired 2 (traffic 1) | wrecks by rivals 2 | rivals home 1/3 spread - | player L19/lane0/R0 held 13s | max traffic 14 | fails 1
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 1695 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+1 FAILURE(S).
+
+race on ChimneyRock:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   ChimneyRock is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.1 m, two-way True
+  WRONG WAY Charger AI at 37s, wp 122, 12 km/h
+  WRONG WAY Skyline AI at 102s, wp 252, 13 km/h
+  WRONG WAY RX-7 Player at 111s, wp 258, 13 km/h
+    recover Skyline AI at 118s (pinned), wp 260: 2 stations on, lat +1.0
+    recover Supra AI at 270s (pinned), wp 712: 0 stations on, lat +2.0
+    recover Supra AI at 289s (pinned), wp 717: 3 stations on, lat +2.0
+    recover Skyline AI at 291s (pinned), wp 656: 0 stations on, lat +1.0
+  MISTAKE Supra AI at 375s, wp 945, 76 km/h
+  WRONG WAY Supra AI at 381s, wp 965, 13 km/h
+  SPIN Supra AI at wp 964: wp965(+95) 0kmh lat-2.3 st-0.85 th0.0 br0.6 hb0 rs+0.05 fs-0.05 cs+0.00 up1.00 | wp965(+95) 0kmh lat-2.3 st-0.85 th0.0 br0.6 hb0 rs+0.07 fs-0.04 cs+0.00 up1.00 | wp965(+95) 2kmh lat-2.2 st-0.85 th0.0 br0.6 hb0 rs+0.21 fs+0.11 cs+0.00 up1.00 | wp965(+95) 4kmh lat-2.1 st-0.85 th0.0 br0.6 hb0 rs+0.16 fs+0.07 cs-2.75 up1.00 | wp965(+95) 5kmh lat-1.8 st-0.85 th0.0 br0.6 hb0 rs+0.06 fs+0.01 cs-2.80 up1.00 | wp965(+95) 7kmh lat-1.5 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.02 cs-2.83 up1.00 | wp965(+95) 9kmh lat-1.1 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.03 cs-2.83 up1.00 | wp965(+95) 10kmh lat-0.6 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.03 cs-2.84 up1.00 | wp965(+95) 11kmh lat+0.0 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.03 cs-2.84 up1.00 | wp965(+95) 13kmh lat+0.5 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.03 cs-2.84 up1.00 | wp964(+91) 14kmh lat+0.5 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.03 cs-2.84 up0.99 | wp964(+91) 15kmh lat+0.9 st-0.85 th0.0 br0.6 hb0 rs+0.00 fs-0.02 cs-2.83 up1.00 | wp964(+91) 16kmh lat+1.2 st-0.85 th0.0 br0.6 hb0 rs+0.01 fs-0.01 cs-2.83 up1.00 | wp964(+91) 18kmh lat+1.4 st-0.85 th0.0 br0.6 hb0 rs+0.02 fs-0.01 cs-2.82 up1.00
+    recover Supra AI at 414s (stuck), wp 962: 0 stations on, lat +2.0
+  FINISHED RX-7 Player (player, autopilot) at 436s
+  MISTAKE Supra AI at 437s, wp 1033, 66 km/h
+      before RX-7 Player's hit: 436.76s lat +1.8 89kmh st +0.12 sl -1 hd -4 vx -2.2 line +1.5 bias +0.0 th 1.00 br 0.00 g 2 | 437.01s lat +1.4 91kmh st +0.09 sl -1 hd -3 vx -1.6 line +1.5 bias +0.0 th 1.00 br 0.00 g 2 | 437.26s lat +1.1 93kmh st +0.06 sl -1 hd -2 vx -1.1 line +1.5 bias +0.0 th 1.00 br 0.00 g 2 | 437.51s lat +1.0 95kmh st +0.04 sl -1 hd +0 vx -0.2 line +1.5 bias +0.0 th 1.00 br 0.00 g 2 | 437.76s lat +1.0 96kmh st +0.03 sl +0 hd +1 vx +0.2 line +1.5 bias +0.0 th 1.00 br 0.00 g 2 | 438.01s lat +1.1 97kmh st +0.02 sl +0 hd +1 vx +0.4 line +1.5 bias +0.0 th 1.00 br 0.00 g 3 | 438.26s lat +1.2 97kmh st +0.01 sl +0 hd +2 vx +0.7 line +1.5 bias +0.0 th 1.00 br 0.00 g 3 | 438.51s lat +1.4 98kmh st +0.01 sl +0 hd +1 vx +0.6 line +1.5 bias +0.0 th 1.00 br 0.00 g 3 | 438.76s lat +1.5 99kmh st -0.89 sl +0 hd -1 vx -0.1 line +1.5 bias +0.0 th 1.00 br 0.00 g 3 | 439.01s lat +1.2 94kmh st -1.00 sl +2 hd -7 vx -2.1 line +1.5 bias +0.0 th 0.00 br 0.59 g 3 | 439.26s lat +0.4 83kmh st +1.00 sl +2 hd -12 vx -4.1 line +1.5 bias +0.0 th 0.00 br 0.36 g 2 | 439.51s lat -0.6 80kmh st +1.00 sl -2 hd -8 vx -3.7 line +1.5 bias +0.0 th 1.00 br 0.00 g 2
+    hit 439.6s RX-7 Player: 22.2 m/s HARD into Trunks at wp 1103  car lat -0.9, its lat +56.0, road straight (0 deg over 20 m) | it was -103.8 m ahead, -377.5 right, moving +0 km/h along our heading
+    recover RX-7 Player at 448s (), wp 1103: 0 stations on, lat +1.5
+    recover RX-7 Player at 452s (), wp 1103: 3 stations on, lat +1.5
+    recover RX-7 Player at 456s (), wp 1103: 6 stations on, lat +1.5
+    recover RX-7 Player at 456s (crawling), wp 1103: 9 stations on, lat +1.5
+    recover RX-7 Player at 460s (crawling), wp 1103: NO clear station, seated on the centreline (asked lat +1.5)
+    recover RX-7 Player at 466s (crawling), wp 1103: NO clear station, seated on the centreline (asked lat +1.5)
+  FINISHED Skyline AI at 467s
+    recover RX-7 Player at 470s (crawling), wp 1103: NO clear station, seated on the centreline (asked lat +1.5)
+    recover RX-7 Player at 474s (crawling), wp 1103: NO clear station, seated on the centreline (asked lat +1.5)
+    recover RX-7 Player at 474s (crawling), wp 1103: NO clear station, seated on the centreline (asked lat +1.5)
+  FINISHED Charger AI at 475s
+    recover RX-7 Player at 478s (crawling), wp 1103: NO clear station, seated on the centreline (asked lat +1.5)
+  FINISHED Supra AI at 481s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 4412 m, damage 79, hard hits 1, worst 22.2 into Trunks
+  Skyline AI: 4368 m, damage 33, hard hits 0, worst 4.4 into Traffic_fullsize_taxi
+  Supra AI: 4320 m, damage 42, hard hits 2, worst 9.5 into Traffic_fullsize_trooper
+  Charger AI: 4360 m, damage 37, hard hits 2, worst 6.3 into Traffic_fullsize_taxi
+  7 traffic wrecks: oncoming hit by RX-7 Player (Ignore Raycast), knocked 2.0 m/s; oncoming hit by Supra AI (Ignore Raycast), knocked 3.4 m/s; oncoming hit by Skyline AI (Ignore Raycast), knocked 2.1 m/s; with hit by Traffic_fullsize_police (Ignore Raycast), knocked 2.2 m/s; oncoming hit by Traffic_ford_transit (Ignore Raycast), knocked 2.2 m/s; oncoming hit by Charger AI (Ignore Raycast), knocked 1.7 m/s; with hit by GroundN_-2_-1 (Default), knocked 2.4 m/s
+  hits by kind: traffic 4, Trunks 1
+  raced 481 s; 0 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [0]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [4 finished]
+  FAIL no car drives the wrong way for more than 2 s  [Charger AI 13.5 s]
+  FRAMES (WP-09; city streaming SLICED): 13726 frames, over 33 ms 49, over 50 ms 14, over 100 ms 1, worst 116 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 9 g/limit 0.52 (0.61 g) vmin/vlim 0.58 | brakes 21 early x8.67 at 97 m peak 0.75 (0.68 g) no-reason 1 | full gas 57% brake 32% | slides 0 hb 1 spins 0 rec 10 hard 1 | home 436.1s
+  AI Skyline AI skill 1.00 F0.00: corners 7 g/limit 0.43 (0.60 g) vmin/vlim 0.61 | brakes 12 early x8.39 at 111 m peak 0.63 (0.48 g) no-reason 0 | full gas 58% brake 31% | slides 0 hb 0 spins 0 rec 2 hard 0 | home 466.9s
+  AI Supra AI skill 0.95 F1.00: corners 10 g/limit 0.45 (0.58 g) vmin/vlim 0.50 | brakes 10 early x20.10 at 188 m peak 0.64 (0.62 g) no-reason 0 | full gas 55% brake 36% | slides 0 hb 0 spins 1 rec 3 hard 2 | home 480.8s
+  AI Charger AI skill 0.90 F0.00: corners 14 g/limit 0.57 (0.72 g) vmin/vlim 0.61 | brakes 24 early x7.04 at 110 m peak 0.66 (0.59 g) no-reason 5 | full gas 51% brake 35% | slides 9 hb 6 spins 0 rec 0 hard 2 | home 475.2s
+SUMMARY AI ChimneyRock        HOUR      seed 0 | g/limit 0.50 (0.65 g, 31 bends) vmin/vlim 0.58 | brake early x10.23 peak 0.65 (0.57 g) n 46 no-reason 5 | full gas 55% brake 34% | slides 9 hb 6 spins 1 | recoveries 5 hard hits 4 retired 0 | rivals home 3 mean 474.3s best 466.9s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L8/lane1/R1 held 54s; Skyline AI L11/lane1/R1 held 50s; Supra AI L10/lane0/R0 held 108s; Charger AI L4/lane1/R1 held 18s
+  HEAD-ON Charger AI at 328s, 6.1 m/s into Traffic_crown_victoria
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 9/3, 15s 13/8, 30s 12/11, 45s 13/9, 60s 11/11, 75s 10/9, 90s 10/8, 105s 9/7, 120s 8/5, 135s 10/9, 150s 11/9, 165s 12/7, 180s 12/8, 195s 12/10, 210s 11/9, 225s 9/8, 240s 10/10, 255s 11/11, 270s 11/11, 285s 10/10, 300s 6/6, 315s 6/6, 330s 6/5, 345s 7/7, 360s 8/5, 375s 8/8, 390s 7/7, 405s 7/7, 420s 3/3, 435s 1/1
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort 0s, abort/free 3s, alongside/free 0s, follow 79s, follow/free 324s, in-way 1s, in-way/free 14s, pass-close/free 6s, pass-late 0s, pass-late/free 8s, pass-lift 1s, pass-lift/free 30s, racer/free 28s
+SUMMARY ChimneyRock        HOUR      seed 0 | raced 481s | passes L 25 lane 2 R 2 | held avg 59s max 108s | capped avg 0s give avg 165s (not held 138s) backups 19 | traffic hits rivals 4 (hard 0) player 0 | head-ons 1 | retired 0 (traffic 0) | wrecks by rivals 3 | rivals home 3/3 spread 14s | player L8/lane1/R1 held 54s | max traffic 13 | fails 1
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 1782 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+1 FAILURE(S).
+
+race on MtMitchell:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   MtMitchell is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.1 m, two-way True
+  WRONG WAY Supra AI at 93s, wp 422, 11 km/h
+  MISTAKE Skyline AI at 288s, wp 1508, 93 km/h
+  MISTAKE Skyline AI at 330s, wp 1793, 107 km/h
+  FINISHED RX-7 Player (player, autopilot) at 331s
+  FINISHED Charger AI at 333s
+  FINISHED Skyline AI at 336s
+  FINISHED Supra AI at 343s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 7480 m, damage 10, hard hits 0, worst 0.0 into 
+  Skyline AI: 7396 m, damage 56, hard hits 0, worst 0.0 into 
+  Supra AI: 7328 m, damage 34, hard hits 0, worst 0.0 into 
+  Charger AI: 7372 m, damage 26, hard hits 0, worst 0.0 into 
+  0 traffic wrecks: 
+  hits by kind: 
+  raced 343 s; 0 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [0]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [4 finished]
+  ok   no car drives the wrong way for more than 2 s  [Supra AI 0.5 s]
+  FRAMES (WP-09; city streaming SLICED): 14512 frames, over 33 ms 3, over 50 ms 0, over 100 ms 0, worst 41 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 30 g/limit 0.58 (0.83 g) vmin/vlim 0.74 | brakes 16 early x8.81 at 89 m peak 0.66 (0.65 g) no-reason 10 | full gas 71% brake 21% | slides 0 hb 1 spins 0 rec 0 hard 0 | home 331.3s
+  AI Skyline AI skill 1.00 F0.00: corners 35 g/limit 0.50 (0.80 g) vmin/vlim 0.72 | brakes 12 early x9.36 at 149 m peak 0.85 (0.76 g) no-reason 5 | full gas 80% brake 14% | slides 2 hb 0 spins 0 rec 0 hard 0 | home 335.9s
+  AI Supra AI skill 0.95 F1.00: corners 39 g/limit 0.45 (0.73 g) vmin/vlim 0.67 | brakes 14 early x10.64 at 155 m peak 0.64 (0.65 g) no-reason 11 | full gas 76% brake 13% | slides 0 hb 0 spins 0 rec 0 hard 0 | home 342.5s
+  AI Charger AI skill 0.90 F0.00: corners 33 g/limit 0.52 (0.84 g) vmin/vlim 0.74 | brakes 29 early x12.43 at 132 m peak 0.72 (0.62 g) no-reason 6 | full gas 65% brake 24% | slides 4 hb 0 spins 0 rec 0 hard 0 | home 333.3s
+SUMMARY AI MtMitchell         HOUR      seed 0 | g/limit 0.49 (0.79 g, 107 bends) vmin/vlim 0.70 | brake early x11.30 peak 0.73 (0.66 g) n 55 no-reason 22 | full gas 74% brake 17% | slides 6 hb 0 spins 0 | recoveries 0 hard hits 0 retired 0 | rivals home 3 mean 337.3s best 333.3s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L12/lane0/R0 held 51s; Skyline AI L4/lane1/R0 held 54s; Supra AI L2/lane1/R0 held 47s; Charger AI L6/lane1/R0 held 21s
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 4/0, 15s 4/1, 30s 4/0, 45s 9/5, 60s 9/6, 75s 9/5, 90s 9/7, 105s 10/6, 120s 9/5, 135s 12/6, 150s 11/8, 165s 6/4, 180s 3/1, 195s 4/3, 210s 3/2, 225s 3/1, 240s 4/3, 255s 3/2, 270s 3/3, 285s 2/2, 300s 1/1, 315s 1/1, 330s 1/1
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort/free 3s, follow 18s, follow/free 64s, in-way 0s, in-way/free 9s, pass-close 0s, pass-close/free 11s, pass-late 0s, pass-late/free 9s, pass-lift 1s, pass-lift/free 21s, racer 3s, racer/free 41s
+SUMMARY MtMitchell         HOUR      seed 0 | raced 343s | passes L 12 lane 3 R 0 | held avg 41s max 54s | capped avg 6s give avg 60s (not held 53s) backups 1 | traffic hits rivals 0 (hard 0) player 0 | head-ons 0 | retired 0 (traffic 0) | wrecks by rivals 0 | rivals home 3/3 spread 9s | player L12/lane0/R0 held 51s | max traffic 13 | fails 0
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 1302 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+RACE CHECK OK.
+
+race on LittleSwitzerland:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   LittleSwitzerland is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.4 m, two-way True
+    hit  16.5s Skyline AI: 12.7 m/s HARD into Traffic_ford_transit at wp 75  car lat -3.4, its lat -2.3, road straight (0 deg over 20 m) | it was +4.1 m ahead, +1.2 right, moving -8 km/h along our heading
+  WRONG WAY Skyline AI at 20s, wp 74, 13 km/h
+      before RX-7 Player's hit: 67.53s lat +3.8 71kmh st -0.57 sl +1 hd +4 vx +1.7 line +1.6 bias +0.6 LIM -0.1 th 0.77 br 0.00 g 2 | 67.78s lat +4.0 71kmh st -0.65 sl +1 hd +3 vx +1.5 line +1.6 bias +0.6 LIM -0.1 th 0.56 br 0.00 g 2 | 68.03s lat +4.2 70kmh st -0.78 sl +1 hd +3 vx +1.3 line +1.6 bias +0.6 LIM -0.1 th 0.30 br 0.00 g 2 | 68.28s lat +4.4 69kmh st -0.67 sl +1 hd +3 vx +1.4 line +1.6 bias +0.6 LIM -0.1 th 0.54 br 0.00 g 2 | 68.53s lat +4.6 68kmh st -0.66 sl +1 hd +2 vx +1.3 line +1.6 bias +0.6 LIM -0.1 th 0.53 br 0.00 g 2 | 68.78s lat +4.8 66kmh st -0.76 sl +1 hd +2 vx +1.0 line +1.6 bias +0.6 th 0.29 br 0.00 g 2 | 69.03s lat +5.0 64kmh st -0.70 sl +1 hd +1 vx +0.5 line +1.6 bias +0.6 th 0.43 br 0.00 g 2 | 69.28s lat +5.0 64kmh st -0.55 sl +1 hd -2 vx -0.2 line +1.6 bias +0.4 th 0.79 br 0.00 g 2 | 69.53s lat +4.8 65kmh st -0.37 sl +1 hd -3 vx -0.5 line +1.6 bias +0.0 LIM -0.6 th 1.00 br 0.00 g 2 | 69.78s lat +4.6 67kmh st -0.36 sl +1 hd -3 vx -0.8 line +1.6 bias +0.0 LIM -0.6 th 1.00 br 0.00 g 2 | 70.03s lat +4.4 68kmh st -0.33 sl +0 hd -2 vx -0.5 line +1.6 bias +0.0 LIM -0.6 th 1.00 br 0.00 g 2 | 70.28s lat +4.1 70kmh st -0.50 sl +0 hd -3 vx -0.7 line +1.6 bias +0.0 LIM -0.6 th 0.95 br 0.00 g 2
+    hit  70.5s RX-7 Player: 19.2 m/s HARD into WallColl at wp 366  car lat +3.7, its lat +39.4, road bends LEFT (-20 deg over 20 m) | it was +1016.9 m ahead, +24.4 right, moving +0 km/h along our heading
+  WRONG WAY RX-7 Player at 76s, wp 366, 13 km/h
+    recover RX-7 Player at 108s (pinned), wp 365: 0 stations on, lat +1.6
+  MISTAKE Skyline AI at 226s, wp 1161, 144 km/h
+      before Skyline AI's hit: 226.03s lat +1.2 144kmh st -0.01 sl +0 hd +0 vx +0.2 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 226.28s lat +1.2 144kmh st -0.01 sl +0 hd +1 vx +0.5 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 226.53s lat +1.4 145kmh st +0.00 sl +0 hd +1 vx +0.5 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 226.78s lat +1.5 145kmh st -0.01 sl +0 hd +0 vx +0.1 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 227.03s lat +1.5 145kmh st +0.00 sl +0 hd +0 vx -0.1 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 227.28s lat +1.4 146kmh st +0.00 sl +0 hd -1 vx -0.7 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 227.53s lat +1.2 146kmh st +0.02 sl +0 hd -2 vx -1.2 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 227.78s lat +0.8 146kmh st +0.04 sl +0 hd -3 vx -2.0 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 228.03s lat +0.2 147kmh st +0.06 sl -1 hd -6 vx -4.8 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 228.28s lat -1.1 147kmh st +0.08 sl -1 hd -7 vx -5.8 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 228.53s lat -2.5 147kmh st +0.10 sl -1 hd -9 vx -7.3 line +1.1 bias +0.0 th 1.00 br 0.00 g 4 | 228.78s lat -4.4 147kmh st +0.10 sl -2 hd -14 vx -10.8 line +1.1 bias +0.0 th 1.00 br 0.00 g 4
+    hit 229.0s Skyline AI: 37.8 m/s HARD into Trunks at wp 1193  car lat -6.4, its lat +39.4, road bends right (16 deg over 20 m) | it was -772.4 m ahead, -1587.2 right, moving +0 km/h along our heading
+  RETIRED Skyline AI at 229s, wp 1193 (4772 m): worst hit 37.8 m/s into Trunks, damage 88
+    recover RX-7 Player at 281s (pinned), wp 1187: 1 stations on, lat +1.6
+    recover RX-7 Player at 311s (pinned), wp 1195: 7 stations on, lat +1.6
+  FINISHED Supra AI at 353s
+  WRONG WAY Charger AI at 374s, wp 2399, 12 km/h
+  FINISHED Charger AI at 388s
+    recover RX-7 Player at 544s (stuck), wp 2404: 0 stations on, lat -0.2
+    recover RX-7 Player at 585s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 619s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 656s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 677s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 698s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 720s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 741s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 762s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 784s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 805s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 826s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 848s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 869s (stuck), wp 2401: 0 stations on, lat +1.6
+    recover RX-7 Player at 890s (stuck), wp 2401: 0 stations on, lat +1.6
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 9604 m, damage 52, hard hits 1, worst 19.2 into WallColl
+  Skyline AI: 4768 m, damage 88, hard hits 2, worst 37.8 into Trunks, RETIRED
+  Supra AI: 16 m, damage 7, hard hits 0, worst 0.0 into 
+  Charger AI: 24 m, damage 9, hard hits 0, worst 0.0 into 
+  1 traffic wrecks: oncoming hit by Skyline AI (Ignore Raycast), knocked 1.5 m/s
+  STALLED RX-7 Player: 0 km/h, trail: 897.32s lat +1.4 0kmh st +0.31 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 897.57s lat +1.4 0kmh st +0.31 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 897.82s lat +1.4 0kmh st +0.31 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 898.07s lat +1.4 0kmh st +0.32 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 898.32s lat +1.4 0kmh st +0.32 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 898.57s lat +1.4 0kmh st +0.32 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 898.82s lat +1.4 0kmh st +0.32 sl +0 hd -5 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 899.07s lat +1.4 0kmh st +0.32 sl +0 hd -6 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 899.32s lat +1.4 0kmh st +0.32 sl +0 hd -6 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 899.57s lat +1.4 0kmh st +0.32 sl +0 hd -6 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 899.82s lat +1.4 0kmh st +0.33 sl +0 hd -6 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00 | 900.07s lat +1.4 0kmh st +0.33 sl +0 hd -6 vx +0.0 line +1.6 bias -0.1 th 0.00 br 0.45 g 1 give 1.00/0.00
+      traffic Traffic_crown_victoria 12 m ahead, lat +1.6, 0 km/h
+      traffic Traffic_crown_victoria 24 m ahead, lat +1.6, 0 km/h
+      traffic Traffic_sedan_98 34 m ahead, lat +1.6, 0 km/h
+      traffic Traffic_sedan_98 41 m ahead, lat +1.7, 0 km/h
+      traffic Traffic_camry_2001 39 m ahead, lat +1.6, 0 km/h
+      traffic Traffic_ford_transit 31 m ahead, lat +1.6, 0 km/h
+      racer Supra AI 19 m ahead, +50.5 across, 0 km/h
+      racer Charger AI 10 m ahead, +53.2 across, 0 km/h
+  hits by kind: traffic 1, wall 1, Trunks 1
+  raced 900 s; 1 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [1]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [2 finished]
+  FAIL no car drives the wrong way for more than 2 s  [RX-7 Player 11.0 s]
+  FRAMES (WP-09; city streaming SLICED): 21224 frames, over 33 ms 237, over 50 ms 12, over 100 ms 0, worst 68 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 34 g/limit 0.58 (0.82 g) vmin/vlim 0.74 | brakes 37 early x11.38 at 146 m peak 0.63 (0.54 g) no-reason 13 | full gas 37% brake 54% | slides 0 hb 0 spins 0 rec 18 hard 1 | not home
+  AI Skyline AI skill 1.00 F0.00: corners 16 g/limit 0.36 (0.61 g) vmin/vlim 0.55 | brakes 0 early x0.00 at 0 m peak 0.00 (0.00 g) no-reason 3 | full gas 73% brake 21% | slides 0 hb 0 spins 0 rec 0 hard 2 | RETIRED
+  AI Supra AI skill 0.95 F1.00: corners 59 g/limit 0.64 (1.02 g) vmin/vlim 0.80 | brakes 42 early x8.15 at 130 m peak 0.65 (0.62 g) no-reason 9 | full gas 75% brake 21% | slides 0 hb 0 spins 0 rec 0 hard 0 | home 353.3s
+  AI Charger AI skill 0.90 F0.00: corners 57 g/limit 0.62 (0.97 g) vmin/vlim 0.79 | brakes 48 early x7.49 at 130 m peak 0.61 (0.61 g) no-reason 6 | full gas 67% brake 25% | slides 2 hb 3 spins 0 rec 0 hard 0 | home 388.0s
+SUMMARY AI LittleSwitzerland  HOUR      seed 0 | g/limit 0.60 (0.95 g, 132 bends) vmin/vlim 0.77 | brake early x7.79 peak 0.62 (0.61 g) n 90 no-reason 18 | full gas 72% brake 22% | slides 2 hb 3 spins 0 | recoveries 0 hard hits 2 retired 1 | rivals home 2 mean 370.6s best 353.3s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L8/lane4/R3 held 17s; Skyline AI L2/lane7/R5 held 4s; Supra AI L3/lane2/R1 held 24s; Charger AI L1/lane3/R1 held 12s
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 6/1, 15s 13/6, 30s 12/9, 45s 9/5, 60s 10/6, 75s 13/7, 90s 13/6, 105s 11/6, 120s 8/4, 135s 8/5, 150s 8/5, 165s 10/6, 180s 9/7, 195s 6/3, 210s 6/2, 225s 6/3, 240s 6/3, 255s 10/7, 270s 9/9, 285s 9/7, 300s 9/7, 315s 10/7, 330s 8/3, 345s 11/3, 360s 10/8, 375s 8/6, 390s 6/4, 405s 5/5, 420s 4/2, 435s 4/2, 450s 4/2, 465s 8/3, 480s 7/3, 495s 7/7, 510s 7/6, 525s 9/6, 540s 8/6, 555s 6/6, 570s 6/6, 585s 6/6, 600s 6/6, 615s 6/6, 630s 6/6, 645s 6/6, 660s 6/6, 675s 6/6, 690s 6/6, 705s 6/6, 720s 6/6, 735s 6/6, 750s 6/6, 765s 6/6, 780s 6/6, 795s 6/6, 810s 6/6, 825s 6/6, 840s 6/6, 855s 6/6, 870s 6/6, 885s 6/6, 900s 6/6
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort/free 1s, follow 15s, follow/free 79s, in-way/free 3s, pass-close 1s, pass-close/free 15s, pass-late/free 7s, pass-lift/free 12s, racer/free 17s
+SUMMARY LittleSwitzerland  HOUR      seed 0 | raced 900s | passes L 6 lane 12 R 7 | held avg 13s max 24s | capped avg 1s give avg 50s (not held 45s) backups 2 | traffic hits rivals 1 (hard 1) player 0 | head-ons 0 | retired 1 (traffic 0) | wrecks by rivals 1 | rivals home 2/3 spread 35s | player L8/lane4/R3 held 17s DNF | max traffic 14 | fails 1
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 3256 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+1 FAILURE(S).
+
+race on BlowingRock:
+  edition ALL
+  seed 0, city trees on, signs on, poles on
+  ok   BlowingRock is a venue this edition ships
+  hour MORNING
+  traffic by the hour
+  seed 0
+  ok   the scene has a race, a player and a path
+    time scale x3
+  ok   the race goes live  [Racing]
+    road grip x1.00, road 6.4 m, two-way True
+  WRONG WAY Supra AI at 87s, wp 438, 13 km/h
+  WRONG WAY RX-7 Player at 120s, wp 584, 12 km/h
+    recover RX-7 Player at 126s (pinned), wp 585: 1 stations on, lat +1.6
+  WRONG WAY Skyline AI at 245s, wp 1057, 12 km/h
+    recover Supra AI at 306s (pinned), wp 1063: 5 stations on, lat +2.1
+    recover RX-7 Player at 329s (stuck), wp 1056: 0 stations on, lat +1.6
+  FINISHED Charger AI at 411s
+  FINISHED Skyline AI at 520s
+  FINISHED Supra AI at 530s
+  FINISHED RX-7 Player (player, autopilot) at 533s
+  THE EYE (C10): not traced (no graphics device; cameras off)
+  RX-7 Player (player, autopilot): 4 m, damage 29, hard hits 1, worst 8.3 into Traffic_camry_2001
+  Skyline AI: 132 m, damage 36, hard hits 1, worst 8.0 into Traffic_crown_victoria
+  Supra AI: 76 m, damage 22, hard hits 0, worst 5.7 into Traffic_crown_victoria
+  Charger AI: 160 m, damage 19, hard hits 1, worst 6.8 into Traffic_ford_transit
+  4 traffic wrecks: with hit by RX-7 Player (Ignore Raycast), knocked 2.2 m/s; with hit by Charger AI (Ignore Raycast), knocked 2.2 m/s; oncoming hit by Supra AI (Ignore Raycast), knocked 2.0 m/s; oncoming hit by Supra AI (Ignore Raycast), knocked 1.6 m/s
+  hits by kind: traffic 3
+  raced 533 s; 0 of 3 rivals retired
+  city tree trunks hit: 0 (hard 0); posts hit (billboards, gantries, utility poles: CityPost): 0 (hard 0)
+  ok   at most one rival retires in the run  [0]
+  ok   every rival reaches the finish (or retires) within the run  [3 of 3]
+  ok   and the finishers are counted  [4 finished]
+  FAIL no car drives the wrong way for more than 2 s  [Skyline AI 5.5 s]
+  FRAMES (WP-09; city streaming SLICED): 20621 frames, over 33 ms 24, over 50 ms 7, over 100 ms 0, worst 72 ms
+  AI RX-7 Player* skill 0.90 F1.00: corners 25 g/limit 0.52 (0.72 g) vmin/vlim 0.68 | brakes 19 early x6.94 at 118 m peak 0.65 (0.53 g) no-reason 17 | full gas 58% brake 32% | slides 0 hb 0 spins 0 rec 2 hard 1 | home 533.3s
+  AI Skyline AI skill 1.00 F0.00: corners 25 g/limit 0.52 (0.81 g) vmin/vlim 0.67 | brakes 14 early x6.29 at 106 m peak 0.68 (0.66 g) no-reason 11 | full gas 62% brake 30% | slides 4 hb 3 spins 0 rec 0 hard 1 | home 520.3s
+  AI Supra AI skill 0.95 F1.00: corners 24 g/limit 0.52 (0.74 g) vmin/vlim 0.67 | brakes 20 early x7.62 at 134 m peak 0.74 (0.64 g) no-reason 7 | full gas 65% brake 26% | slides 0 hb 0 spins 0 rec 1 hard 0 | home 530.2s
+  AI Charger AI skill 0.90 F0.00: corners 29 g/limit 0.65 (1.07 g) vmin/vlim 0.84 | brakes 21 early x6.48 at 119 m peak 0.62 (0.65 g) no-reason 13 | full gas 66% brake 29% | slides 3 hb 3 spins 0 rec 0 hard 1 | home 411.3s
+SUMMARY AI BlowingRock        HOUR      seed 0 | g/limit 0.57 (0.88 g, 78 bends) vmin/vlim 0.74 | brake early x6.84 peak 0.68 (0.65 g) n 55 no-reason 31 | full gas 64% brake 28% | slides 7 hb 6 spins 0 | recoveries 1 hard hits 2 retired 0 | rivals home 3 mean 487.3s best 411.3s
+  PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: RX-7 Player* L14/lane3/R1 held 33s; Skyline AI L18/lane4/R0 held 53s; Supra AI L14/lane4/R1 held 30s; Charger AI L10/lane3/R0 held 58s
+  TRAFFIC OVER TIME (driving / within 300 m of the player): 0s 6/0, 15s 9/3, 30s 11/4, 45s 8/5, 60s 11/4, 75s 11/7, 90s 11/6, 105s 10/5, 120s 9/5, 135s 10/3, 150s 10/4, 165s 11/6, 180s 11/5, 195s 10/4, 210s 8/2, 225s 10/9, 240s 12/8, 255s 10/6, 270s 8/4, 285s 6/5, 300s 7/5, 315s 6/4, 330s 6/3, 345s 2/0, 360s 7/2, 375s 8/4, 390s 8/5, 405s 8/4, 420s 6/4, 435s 5/4, 450s 3/3, 465s 2/2, 480s 0/0, 495s 0/0, 510s 0/0, 525s 0/0
+  GIVE BY RULE (rivals, all together; /free = not held behind a car in its lane): abort 0s, abort/free 5s, follow 59s, follow/free 232s, in-way/free 13s, pass-close/free 30s, pass-late/free 18s, pass-lift 1s, pass-lift/free 35s, racer 0s, racer/free 15s
+SUMMARY BlowingRock        HOUR      seed 0 | raced 533s | passes L 42 lane 11 R 1 | held avg 47s max 58s | capped avg 6s give avg 136s (not held 116s) backups 10 | traffic hits rivals 2 (hard 0) player 1 | head-ons 0 | retired 0 (traffic 0) | wrecks by rivals 3 | rivals home 3/3 spread 119s | player L14/lane3/R1 held 33s | max traffic 13 | fails 1
+  UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): 2009 samples at 4 Hz, 0 with a solid Guardrail within 40 m of a car and nothing drawn for it, 0 rails, nearest -
+  ok   no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)  [0]
+1 FAILURE(S).
+
