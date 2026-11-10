@@ -352,7 +352,7 @@ namespace PSXRacing.City
         }
         static readonly Vector3 DarkGrey = new Vector3(0.36f, 0.80f, 1.12f), DarkBlack = new Vector3(0.36f, 0.62f, 0.88f),
                                 DarkRed = new Vector3(1.99f, 0.48f, 0.46f), DarkDoor = new Vector3(0.80f, 1.60f, 1.99f), DarkBronze = new Vector3(0.70f, 0.95f, 0.80f),
-                                DarkLeaf = new Vector3(0.40f, 1.99f, 0.80f);   // a clipped shrub's dark green
+                                DarkLeaf = new Vector3(0.36f, 0.90f, 0.46f);   // a clipped shrub's dark green (the tint multiplies the texel as stored)
         const float GfDarkU0 = 0.474f, GfDarkU1 = 0.487f, GfDarkV0 = 0.771f, GfDarkV1 = 0.779f;
         static bool gfDarkUv;
 
