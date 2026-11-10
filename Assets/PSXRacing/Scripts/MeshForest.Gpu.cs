@@ -129,7 +129,7 @@ namespace PSXRacing
         // ---- what was drawn, for the perf tour (its own count: Unity's
         // triangle counter does not see an indirect draw's instances) ----
         public static bool StatsOn;
-        public static double SumTris, SumPlants, SumDraws;
+        public static double SumTris, SumPlants, SumDraws, SumLiveDraws;
         public static long MaxTris, UnreachedTris;
         public static int StatFrames;
         public static readonly double[] SumTrisLod = new double[L];
@@ -139,7 +139,7 @@ namespace PSXRacing
         int statDraws;
         public static void StatsReset()
         {
-            SumTris = SumPlants = SumDraws = 0; MaxTris = UnreachedTris = 0; StatFrames = 0;
+            SumTris = SumPlants = SumDraws = SumLiveDraws = 0; MaxTris = UnreachedTris = 0; StatFrames = 0;
             ViewTurnedDeg = ViewMovedM = ViewLensChanged = 0f;
             System.Array.Clear(SumTrisLod, 0, L); System.Array.Clear(sumTrisVar, 0, sumTrisVar.Length);
         }
@@ -180,6 +180,86 @@ namespace PSXRacing
             System.Array.Sort(order, (x, y) => sumTrisVar[y].CompareTo(sumTrisVar[x]));
             for (int k = 0; k < Mathf.Min(10, order.Length); k++)
                 sb.Append($" {varNames[order[k]]} {sumTrisVar[order[k]] / sf / 1e6:0.00}");
+            return sb.ToString();
+        }
+
+        // ---- ForestGpuProbe's exact comparison: the cull with the CPU path's own
+        // margin, no frustum test and no shrunk-away test must fill every list
+        // with exactly the plants MeshForest.Rebucket puts in it ----
+        public static bool DebugExact;
+        /// <summary>Plants per species and level as last listed (after DrawNow): "v:l0,l1,l2,l3" lines.</summary>
+        public string DebugCounts()
+        {
+            var sb = new System.Text.StringBuilder();
+            if (UseGpu)
+            {
+                var counts = new uint[bucketCount];
+                countBuf.GetData(counts);
+                var per = new long[variants.Length, L];
+                var has = new bool[variants.Length];
+                for (int c = 0; c < mainCmds; c++)
+                    if (cmds[c].sub == 0) { per[cmds[c].variant, cmds[c].lod] = counts[cmds[c].bucket]; has[cmds[c].variant] = true; }
+                for (int v = 0; v < variants.Length; v++)
+                    if (has[v]) sb.Append(v).Append(':').Append(per[v, 0]).Append(',').Append(per[v, 1]).Append(',').Append(per[v, 2]).Append(',').Append(per[v, 3]).Append('\n');
+            }
+            else
+            {
+                // (the far chunks' impostors are drawn from their own lists: add them to
+                // level 3 - those inside the draw limit; past it the shader draws nothing
+                // of one, and the GPU cull does not list it)
+                var far3 = new long[variants.Length];
+                foreach (int ci in farVisible)
+                    for (int v = 0; v < variants.Length; v++)
+                    {
+                        var arr = farLists[ci][v];
+                        if (arr == null) continue;
+                        for (int k = 0; k < arr.Length; k++)
+                        {
+                            float dx = arr[k].m03 - bucketCam.x, dy = arr[k].m13 - bucketCam.y, dz = arr[k].m23 - bucketCam.z;
+                            if (dx * dx + dy * dy + dz * dz <= maxD2[v]) far3[v]++;
+                        }
+                    }
+                for (int v = 0; v < variants.Length; v++)
+                {
+                    long a = bucketN[v * L], b = bucketN[v * L + 1], c2 = bucketN[v * L + 2], d = bucketN[v * L + 3] + far3[v];
+                    bool any = false;
+                    for (int l = 0; l < L; l++) any |= l < variants[v].lods.Length && variants[v].lods[l] != null;
+                    if (any) sb.Append(v).Append(':').Append(a).Append(',').Append(b).Append(',').Append(c2).Append(',').Append(d).Append('\n');
+                }
+            }
+            return sb.ToString();
+        }
+        /// <summary>Which chunks show their cards: how many, and a hash of the set.</summary>
+        public string DebugCards()
+        {
+            int shown = 0, hidden = 0; uint h = 2166136261u;
+            for (int ci = 0; ci < chunks.Length; ci++)
+            {
+                var cs = chunks[ci].cards;
+                if (cs == null) continue;
+                foreach (var r in cs)
+                {
+                    if (r == null) continue;
+                    if (r.enabled) shown++; else hidden++;
+                    h = (h ^ (uint)(ci * 2 + (r.enabled ? 1 : 0))) * 16777619u;
+                }
+            }
+            return "cards shown " + shown + " hidden " + hidden + " set " + h.ToString("x8");
+        }
+
+        /// <summary>Each species: its name, the sign of its matrix (a mirrored one draws inside out unless its culling is turned), its materials' culling.</summary>
+        public string DebugVariants()
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int v = 0; v < variants.Length; v++)
+            {
+                var vr = variants[v];
+                sb.Append(v).Append(' ').Append(vr.lods[0] != null ? vr.lods[0].name : "?")
+                  .Append(" det ").Append((transform.localToWorldMatrix * vr.pre).determinant.ToString("0.###E0"))
+                  .Append(" maxDist ").Append(vr.maxDist).Append(" thin ").Append(vr.thin).Append(" cull");
+                foreach (var m in vr.mats) sb.Append(' ').Append(m != null && m.HasProperty("_Cull") ? m.GetFloat("_Cull").ToString("0") : "-");
+                sb.Append('\n');
+            }
             return sb.ToString();
         }
 
@@ -228,6 +308,7 @@ namespace PSXRacing
             }
 
             // the lists: one a species and level that has a mesh, one more a canopy species for the other cameras
+            float[] levelFrom = { 0f, lod0To, lod1To, meshRange };
             var infos = new VarInfo[nv];
             var buckets = new System.Collections.Generic.List<BucketInfo>();
             var cmdList = new System.Collections.Generic.List<Cmd>();
@@ -237,10 +318,14 @@ namespace PSXRacing
             {
                 var vr = variants[v];
                 var bk = new int[L];
+                float reachM = Mathf.Sqrt(maxD2[v]);
                 for (int l = 0; l < L; l++)
                 {
                     bk[l] = -1;
                     if (countV[v] == 0 || !HasLod(v, l)) continue;
+                    // a level that begins past the species' own draw limit (ground cover's LOW:
+                    // it ends at 120 m, LOW begins at 140) never holds a plant: no list, no draw
+                    if (l > 0 && reachM <= levelFrom[l]) continue;
                     bk[l] = buckets.Count;
                     buckets.Add(new BucketInfo { start = visN, cap = (uint)countV[v] });
                     visN += (uint)countV[v];
@@ -353,9 +438,8 @@ namespace PSXRacing
                 cmdOn = new bool[cmds.Length];
                 for (int c = 0; c < cmds.Length; c++)
                 {
+                    // (the buffers themselves are global - GpuFrame - so a draw changes one number, not two bindings)
                     var mpb = new MaterialPropertyBlock();
-                    mpb.SetBuffer(IdMat, matBuf);
-                    mpb.SetBuffer(IdVis, visBuf);
                     mpb.SetFloat(IdBase, buckets[cmds[c].bucket].start);
                     cmdProps[c] = mpb;
                 }
@@ -465,6 +549,8 @@ namespace PSXRacing
             long pc = PerfClock.On ? PerfClock.Now() : 0;
             var root = transform.localToWorldMatrix;
             if (root != gpuRoot) BakeGpu(root);
+            Shader.SetGlobalBuffer(IdMat, matBuf);
+            Shader.SetGlobalBuffer(IdVis, visBuf);
             Vector3 camPos = cam.transform.position;
             // THE CHUNKS, by the old path's own rule: a WIDER cone than the
             // camera's (a chunk swaps its cards for plants before it reaches
@@ -512,7 +598,8 @@ namespace PSXRacing
             if (dirty) chunkBuf.SetData(chunkFlag);
 
             // THE PLANTS, on the GPU, against the view as it stands now.
-            if (wideInstances) for (int k = 0; k < 6; k++) instPlanes[k] = planes[k];
+            if (DebugExact) for (int k = 0; k < 6; k++) instPlanes[k] = new Plane(Vector3.zero, 0f);
+            else if (wideInstances) for (int k = 0; k < 6; k++) instPlanes[k] = planes[k];
             else
             {
                 var pj = cam.projectionMatrix;
@@ -525,7 +612,8 @@ namespace PSXRacing
                 planeVec[k] = new Vector4(pn.x, pn.y, pn.z, instPlanes[k].distance);
             }
             cullPos = camPos; cullFwd = cam.transform.forward; cullLens = cam.projectionMatrix.m11;
-            cullShader.SetVector(IdCam, camPos);
+            cullShader.SetVector(IdCam, new Vector4(camPos.x, camPos.y, camPos.z, DebugExact ? 1f : 0f));
+            cullShader.SetVector(IdLod, new Vector4(lod0To * lod0To, lod1To * lod1To, meshRange * meshRange, DebugExact ? Margin : GpuMargin));
             cullShader.SetVectorArray(IdPlanes, planeVec);
             cullShader.Dispatch(kClear, (bucketCount + 63) / 64, 1, 1);
             cullShader.Dispatch(kCull, (inst.Length + 63) / 64, 1, 1);
@@ -590,13 +678,15 @@ namespace PSXRacing
                 if (req.hasError || !StatsOn) return;
                 var a = req.GetData<GraphicsBuffer.IndirectDrawIndexedArgs>();
                 long tris = 0, plants = 0, missed = 0;
+                int live = 0;
                 for (int c = 0; c < state.Length && c < a.Length; c++)
                 {
                     long t = (long)(mine[c].indexCount / 3) * a[c].instanceCount;
+                    if (state[c] == 1 && a[c].instanceCount > 0) live++;
                     if (state[c] == 1) { tris += t; if (mine[c].sub == 0) plants += a[c].instanceCount; if (this != null) StatAdd(mine[c].variant, mine[c].lod, t); }
                     else if (state[c] == 2) missed += t;     // must stay 0: the reach test may only skip empty lists
                 }
-                SumTris += tris; SumPlants += plants; SumDraws += drawn; StatFrames++;
+                SumTris += tris; SumPlants += plants; SumDraws += drawn; SumLiveDraws += live; StatFrames++;
                 if (tris > MaxTris) MaxTris = tris;
                 UnreachedTris += missed;
             });

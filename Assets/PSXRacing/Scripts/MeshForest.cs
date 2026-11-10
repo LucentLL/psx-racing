@@ -415,9 +415,12 @@ namespace PSXRacing
             }
         }
 
+        Vector3 bucketCam;   // the eye the lists were last made for
+
         void Rebucket(Camera cam, Matrix4x4 root, Vector3 camPos)
         {
             if (root != bakedRoot) Bake(root);
+            bucketCam = camPos;
             // A WIDER cone than the camera's: a chunk swaps its cards for meshes
             // before it reaches the screen's edge, not on it (owner 2026-11-08:
             // "a lot of foliage and tree pop-in even at extremely low speeds").

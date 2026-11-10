@@ -84,18 +84,68 @@ namespace PSXRacing.EditorTools
                 TimeOfDay.Apply(hour, sun);
                 globals.Apply();
 
+                var counts = new System.Collections.Generic.Dictionary<string, string>();
+                bool saidVariants = false;
                 void Shoot(string name, Vector3 eye, Quaternion rot, string mode)
                 {
+                    if (!saidVariants) { saidVariants = true; forest.DrawNow(cam); log.AppendLine("species:\n" + forest.DebugVariants()); }
                     cam.transform.SetPositionAndRotation(eye, rot);
                     if (SkyModePrefs.Dynamic) DynamicSky.PrimeClouds(eye);
                     // the player's order: the forest sets which chunks show their
                     // cards, THEN the sun's shadow map is drawn for this eye (the
                     // hidden cards its stand-in casters), then the view
+                    // (gpux: the GPU cull with the CPU path's own margin and no
+                    // frustum or shrunk-away test - list for list the same plants)
+                    // (a trailing n: no sun or sky shadow at all; s: no sun shadow; k: no sky shade -
+                    // which map is a difference in?)
+                    string shadeOff = mode.EndsWith("n") || mode.EndsWith("s") || mode.EndsWith("k") ? mode.Substring(mode.Length - 1) : "";
+                    bool noShade = shadeOff.Length > 0;
+                    var sStr = typeof(SunShadows).GetProperty("Strength"); var sSky = typeof(SunShadows).GetProperty("SkyStrength");
+                    float keepStr = SunShadows.Strength, keepSky = SunShadows.SkyStrength;
+                    if (shadeOff == "n" || shadeOff == "s") sStr.SetValue(null, 0f);
+                    if (shadeOff == "n" || shadeOff == "k") sSky.SetValue(null, 0f);
+                    if (noShade) mode = mode.Substring(0, mode.Length - 1);
                     MeshForest.GpuDriven = !mode.StartsWith("cpu");
+                    MeshForest.DebugExact = mode == "gpux";
                     forest.DrawNow(cam, mode == "gpuv");
                     SunShadows.RenderFor(cam);
                     forest.DrawNow(cam, mode == "gpuv");
+                    if (noShade) mode += shadeOff;
+                    log.AppendLine("  " + name + "_" + mode + ": " + forest.DebugCards());
+                    if (mode == "cpu" || mode == "gpux") counts[mode] = forest.DebugCounts();
+                    if (mode == "gpux" && counts.ContainsKey("cpu"))
+                    {
+                        var a = counts["cpu"].Split('\n'); var b = counts["gpux"].Split('\n');
+                        int bad = 0;
+                        for (int k = 0; k < Mathf.Max(a.Length, b.Length); k++)
+                        {
+                            string la = k < a.Length ? a[k] : "", lb = k < b.Length ? b[k] : "";
+                            if (la != lb) { bad++; if (bad <= 12) log.AppendLine($"  {name} LISTS DIFFER: cpu {la} | gpu {lb}"); }
+                        }
+                        log.AppendLine($"  {name}: plants per species and level, CPU lists against the GPU cull with the same rule: {(bad == 0 ? "identical" : bad + " species differ")} ({a.Length - 1} species)");
+                    }
                     PSXScreenshotTool.ShotAs(cam, name + "_" + mode, eye, rot);
+                    MeshForest.DebugExact = false;
+                    if (noShade) { sStr.SetValue(null, keepStr); sSky.SetValue(null, keepSky); }
+                    // PSX_FP_DUMPSHADOW=1: the sun's and the sky's maps as this shot read them
+                    if (Env("PSX_FP_DUMPSHADOW", "0") == "1")
+                    {
+                        foreach (string g in new[] { "_PSXShadowMap", "_PSXSkyMap" })
+                        {
+                            if (!(Shader.GetGlobalTexture(g) is RenderTexture sm)) continue;
+                            var prev = RenderTexture.active;
+                            RenderTexture.active = sm;
+                            var tex = new Texture2D(sm.width, sm.height, TextureFormat.RGBA32, false, true);
+                            tex.ReadPixels(new Rect(0, 0, sm.width, sm.height), 0, 0);
+                            tex.Apply();
+                            RenderTexture.active = prev;
+                            File.WriteAllBytes(Path.Combine(outDir, name + "_" + mode + g + ".png"), tex.EncodeToPNG());
+                            Object.DestroyImmediate(tex);
+                        }
+                        log.AppendLine($"  {name}_{mode}: casters drawn {SunShadows.DrawnLast}, calls {SunShadows.DrawCallsLast}; shadow params {Shader.GetGlobalVector("_PSXShadowParams")} sky params {Shader.GetGlobalVector("_PSXSkyParams")} car params {Shader.GetGlobalVector("_PSXCarShadowParams")}");
+                        log.AppendLine($"    shadow matrix {Shader.GetGlobalMatrix("_PSXShadowMatrix").ToString("0.000000").Replace("\n", " | ")}");
+                        log.AppendLine($"    sky matrix {Shader.GetGlobalMatrix("_PSXSkyMatrix").ToString("0.000000").Replace("\n", " | ")}");
+                    }
                 }
 
                 string[] views = Env("PSX_FP_VIEWS", "chase,vista,rev").Split(',');
@@ -121,7 +171,7 @@ namespace PSXRacing.EditorTools
                             rot = Quaternion.LookRotation(p + Vector3.up * 0.8f + f * 20f - eye);
                         }
                         string name = $"fp_{hourName}_{ms.Trim()}_{view}";
-                        foreach (string mode in Env("PSX_FP_MODES", "cpu,gpu,gpuv,cpu2").Split(',')) Shoot(name, eye, rot, mode);
+                        foreach (string mode in Env("PSX_FP_MODES", "cpu,gpux,gpu,gpuv,cpu2").Split(',')) Shoot(name, eye, rot, mode);
                         log.AppendLine($"{name}: eye ({eye.x:0.0},{eye.y:0.0},{eye.z:0.0}) yaw {rot.eulerAngles.y:0.0} pitch {rot.eulerAngles.x:0.0}");
                     }
                 }

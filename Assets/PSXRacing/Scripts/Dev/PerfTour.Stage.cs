@@ -251,6 +251,7 @@ namespace PSXRacing
                 recording = false;
                 PerfClock.FrameDone = null;
                 MeshForest.StatsOn = false;
+                bool wasOff = off != null;
                 if (off != null) { var ort = off.rt; Destroy(off.gameObject); yield return null; if (ort != null) { ort.Release(); Destroy(ort); } }
                 float secs = Time.realtimeSinceStartup - recT0;
                 int gcN = System.GC.CollectionCount(0) - gc0;
@@ -309,10 +310,10 @@ namespace PSXRacing
                 var mfo = FindFirstObjectByType<MeshForest>();
                 int sf = Mathf.Max(1, MeshForest.StatFrames);
                 sum1.AppendLine($"mesh forest ({(mfo == null ? "none" : !MeshForest.MeshTreesOn ? "cards" : MeshForest.GpuDriven ? "GPU lists" : "CPU lists")}): mean ms cull {fCull / dn:0.000} draw {fDraw / dn:0.000} other cameras {fOther / dn:0.000} (inside car reflections {fRefl / dn:0.000})");
-                sum1.AppendLine($"mesh forest on the GPU: triangles avg {MeshForest.SumTris / sf / 1e6:0.00} M max {MeshForest.MaxTris / 1e6:0.00} M, plants avg {MeshForest.SumPlants / sf:0}, draw calls avg {MeshForest.SumDraws / sf:0} ({MeshForest.StatFrames} samples; in lists no drawn chunk reached: {MeshForest.UnreachedTris} triangles)");
+                sum1.AppendLine($"mesh forest on the GPU: triangles avg {MeshForest.SumTris / sf / 1e6:0.00} M max {MeshForest.MaxTris / 1e6:0.00} M, plants avg {MeshForest.SumPlants / sf:0}, draw calls avg {MeshForest.SumDraws / sf:0} (with a plant in them {MeshForest.SumLiveDraws / sf:0}; {MeshForest.StatFrames} samples; in lists no drawn chunk reached: {MeshForest.UnreachedTris} triangles)");
                 sum1.AppendLine("mesh forest triangles " + MeshForest.StatsBreakdown());
                 sum1.AppendLine($"main view between the forest's cull and its draw: turned at most {MeshForest.ViewTurnedDeg:0.0000} deg, moved {MeshForest.ViewMovedM:0.0000} m, lens changed {MeshForest.ViewLensChanged:0.00000} (0 = the cull saw the view as drawn; only measured when the main view is drawn)");
-                if (off != null)
+                if (wasOff)
                 {
                     System.Array.Sort(oG);
                     float OP(float q) => n > 0 ? oG[Mathf.Clamp(Mathf.RoundToInt(q * (n - 1)), 0, n - 1)] : 0f;

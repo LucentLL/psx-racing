@@ -49,7 +49,7 @@ RWStructuredBuffer<uint> _ForestCount;    // per list
 RWStructuredBuffer<uint> _ForestVis;      // every list's slots
 RWStructuredBuffer<DrawArgs> _ForestArgs;
 
-float4 _ForestCam;        // the eye
+float4 _ForestCam;        // the eye; w > 0.5: leave no shrunk-away plant out (ForestGpuProbe's exact comparison)
 float4 _ForestPlanes[5];  // left, right, bottom, top, near (inward normals)
 float4 _ForestLod;        // lod0To^2, lod1To^2, meshRange^2, Margin
 uint _ForestN, _ForestBuckets, _ForestCmds;
@@ -85,7 +85,7 @@ float PlantHash(float3 it)
 // shrunk to nothing is left out.
 bool ShrunkAway(float thin, float limit, float d, float h)
 {
-    if (thin <= 0.0) return false;
+    if (thin <= 0.0 || _ForestCam.w > 0.5) return false;
     float hu = (h < 0.03 || h > 0.97) ? 1.0 : h + 0.03;
     return d > limit * lerp(thin, 1.0, hu) * 1.01 + 0.5;
 }
