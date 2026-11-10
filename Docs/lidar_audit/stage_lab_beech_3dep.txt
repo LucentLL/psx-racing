@@ -1,0 +1,249 @@
+=== BeechGap -> Assets/PSXRacing/Scenes/BeechGap.unity
+roadside checks: 0 failing
+  ok   BeechGap Track root carries the path it was built from
+  ok   BeechGap kerb colliders have no vertical face (a ramp or a flat strip, never a box)  (got 0 boxes, 0 of 17140 triangles steeper than a landing)
+  ok   BeechGap has a shoulder ribbon (RoadEdge) beside its tarmac  (got 47)
+  ok   BeechGap every shoulder chunk collides on the mesh it draws, off the Road layer  (got 0 of 47 chunks wrong)
+  ok   BeechGap no shoulder triangle faces down  (got 0 of 105620)
+  ok   BeechGap every shoulder row starts on the kerb strip's outer edge and runs strictly outward  (got 5732 rows (+20992 vertices on a bend's slices), 0 vertices outside a row, 0 rows folding back)
+  ok   BeechGap no shoulder chunk carries more than 240 m of road  (got 61 stations in the widest)
+  ok   BeechGap every shoulder starts flush on the kerb strip's top  (got 5732 rows)
+  ok   BeechGap inside the clear zone no shoulder falls steeper than 1V:4H for more than an edge drop  (got 5732 rows)
+  ok   BeechGap inside the clear zone no shoulder rises steeper than 1V:3H for more than an edge drop  (got 5732 rows)
+  ok   BeechGap every rock cut has a solid rock top (BankTop, off the Road layer)  (got 40 cuts, 0 without)
+  ok   BeechGap every rock cut has a solid rock top (BankTop, off the Road layer)  (got 40 cuts, 0 without)
+
+
+track obstacle audit — BeechGap
+  on track: +/-4.0 m (tarmac + kerb)   run-off: out to +/-4.0 m (the barrier line)
+  FACING OK — all 50 single-sided surfaces face the driver
+  edge: 5640 half-sections measured, every 4 m station both sides (0 with no tarmac under the probe); a barrier within 8 m on 3949; 0 deck stations, 0 with their approaches
+  ok   edge drop: nothing beside the tarmac or strip falls more than 0.025 m (+0.003 m slack)
+  ok   edge face: nothing across the edge rises like a wall
+  info buried terminal on 27 half-sections in 27 runs (108 m of edge): a warranted barrier run's flared end sinking into the foreslope, lower than the barrier rays (RoadsideRules.EndFlareStations; not counted as an edge face)
+  info edge face past the reach on 6 half-sections in 4 runs (24 m of edge): the same rise past 8 m on something that is not the half-section's own ribbon — another stretch of road's shoulder or wall, this road's rock top, the lattice itself (reported with whose it is, not failed)
+  ok   edge face past the reach: every open half-section's own shoulder ribbon meets the land, however far out it ends (walked to 12.4 m, and on while a ribbon is underfoot)
+  warn edge slope on 317 half-sections in 75 runs (1268 m of edge): steeper than 1V:6H for more than 1.0 m
+  ok   edge slope: recoverable (1V:6H or flatter) across the clear zone
+  ok   edge falls: none unguarded
+  FAIL UNWARRANTED BARRIER on 2 half-sections in 2 runs (8 m of edge): a barrier with drivable land within 0.3 m of road height 1.5 m behind it (a pocket)
+  ok   deck rails: no structure on this venue
+  ok   barrier run ends: none stops short of a critical fall
+  worst 20 of 108 edge runs:
+    FAIL UNWARRANTED BARRIER right wp 59 (4 m): land +0.18 m from road height 1.5 m behind Track/Banks/BankTop7 (4.04 m out), on Track/Banks/BankTop7 (worst at wp 59)  [-31.9, 765.2, 3346.1]
+    FAIL UNWARRANTED BARRIER left wp 681 (4 m): land -0.01 m from road height 1.5 m behind Track/Banks/BankColl (2.94 m out), on Track/Banks/BankTop1 (worst at wp 681)  [-664.2, 593.1, 1557.0]
+    info buried terminal left wp 1686 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1686)  [-711.4, 297.8, -1593.7]
+    info buried terminal left wp 22 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 22)  [94.0, 775.1, 3414.6]
+    info buried terminal left wp 1597 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 1597)  [-820.5, 328.1, -1360.7]
+    info buried terminal left wp 2159 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 2159)  [604.9, 149.4, -1118.8]
+    info buried terminal right wp 2388 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 2388)  [1335.9, 111.8, -1557.6]
+    info buried terminal right wp 2162 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 2162)  [618.6, 149.2, -1119.1]
+    info buried terminal left wp 682 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 682)  [-666.1, 592.8, 1553.4]
+    info buried terminal left wp 2447 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 2447)  [1568.2, 99.9, -1544.3]
+    info buried terminal right wp 471 (4 m): 0.26 m of sinking stone at 1.95 m past the tarmac edge, on Track/Walls/WallColl (worst at wp 471)  [-675.7, 660.3, 2318.2]
+    warn edge slope right wp 2253-2274 (88 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 2253)  [904.4, 137.9, -1294.8]
+    warn edge slope right wp 2408-2428 (84 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 2409)  [1417.8, 107.8, -1560.1]
+    warn edge slope right wp 2295-2312 (72 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 2295)  [1067.9, 131.6, -1333.0]
+    warn edge slope right wp 2340-2352 (52 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 2341)  [1171.9, 121.6, -1469.9]
+    warn edge slope right wp 2240-2251 (48 m): foreslope steeper than 1V:6H for 2.10 m inside the clear zone (worst at wp 2240)  [861.0, 140.1, -1265.5]
+    info edge face past the reach right wp 716 (4 m): 0.08 m rise within 0.13 m at 12.05 m past the tarmac edge (running wide), on Track/Banks/BankTop15 (this road's roadside, nearest wp 716) (worst at wp 716)  [-708.9, 582.1, 1428.7]
+    info edge face past the reach right wp 1467-1468 (8 m): 0.07 m rise within 0.13 m at 12.00 m past the tarmac edge (running wide), on Track/Banks/BankTop23 (this road's roadside, nearest wp 1467) (worst at wp 1467)  [-671.7, 372.2, -977.1]
+    info edge face past the reach left wp 955 (4 m): 0.06 m rise within 0.13 m at 9.55 m past the tarmac edge (climbing back in), on Track/Ground/GroundN_-3_2 (the lattice itself, nearest wp 955) (worst at wp 955)  [-569.4, 512.1, 668.6]
+    info edge face past the reach left wp 602-603 (8 m): 0.06 m rise within 0.13 m at 10.05 m past the tarmac edge (climbing back in), on Track/Ground/GroundN_-4_7 (the lattice itself, nearest wp 602) (worst at wp 602)  [-765.0, 618.5, 1822.4]
+  surface profile: 161170 probes in 5 lanes, worst rise 0.01 m per 0.35 m on Track/KerbL
+  SURFACE OK — nothing on the driving line rises more than 0.12 m in 0.35 m
+  posts: 4451 (395/km), none in front of a barrier inside the band
+  BARRIER FACES OK — all 3919 barrier colliders have the thing they stand for drawn where a car meets them
+  ok   wall solids: 57 run(s), every one closed and wound outward
+  checked 57 measurable non-car colliders
+    not measurable (concave mesh — a surface, not an obstacle): Track/ApexPad
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop12
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop13
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop14
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop15
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop16
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop17
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop18
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop19
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop20
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop21
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop22
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop23
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop24
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop25
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop26
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop27
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop28
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop29
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop30
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop31
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop32
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop33
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop34
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop35
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop36
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop37
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop38
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop39
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Banks/BankTop9
+    not measurable (concave mesh — a surface, not an obstacle): Track/EndPad0
+    not measurable (concave mesh — a surface, not an obstacle): Track/EndPad1
+    not measurable (concave mesh — a surface, not an obstacle): Track/FillTail
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_13
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_14
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_15
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_0_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_12
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_13
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_14
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_14
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_1_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-1_9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_10_-10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_10_-11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_10_-9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_11_-10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_11_-11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_12
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_13
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_2_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_2_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_2_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-2_9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_3_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_3_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_3_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-3_9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_4_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-5
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_4_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_4_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-4_9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-5_0
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-5_-1
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-5_-2
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-5_-3
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-5_-4
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_5_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_-5_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_5_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_5_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_6_-6
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_6_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_6_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_7_-7
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_7_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_7_-9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_8_-10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_8_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_8_-9
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_9_-10
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_9_-11
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_9_-8
+    not measurable (concave mesh — a surface, not an obstacle): Track/Ground/GroundN_9_-9
+    not measurable (concave mesh — a surface, not an obstacle): Track/KerbL
+    not measurable (concave mesh — a surface, not an obstacle): Track/KerbR
+    not measurable (concave mesh — a surface, not an obstacle): Track/Road
+    not measurable (concave mesh — a surface, not an obstacle): Track/RoadEdge
+  CLEAR — nothing solid stands inside the barrier line
+
+=== BeechGap ===
+  ok   road stands 0.329 m clear of the ground at its tightest (waypoint 1306, GroundN_-4_-3); 0 of 8460 probes buried
+  ..   climbs 735.4 m (40.6 to 776.1)
+  info shoulder is drivable for 4.4 m past the tarmac on average (widest 16.9 m at waypoint 3); 1264 of 4962 shoulders on a benched road over 2.5 m, 678 not benched and not counted
+  ok   ground lattice stays at least 0.03 m under the shoulder surface on 49645 of 49645 probes (tightest +0.030 m, waypoint 2289 R, 7.03 m past the tarmac edge, under GroundN_4_-6); 27 probes in the designed crossing into the toe not counted; 0 half-sections end where the ribbon under the probe becomes another station's or another road's
+  ok   grass through the shoulder: 0 of 49645 probes meet Ground more than 0.01 m over the RoadEdge surface
+
+down-facing roadside triangles:
+
+lane audit:
+BeechGap (BEECH GAP — NC 215) catalog width 6.10 m, TrackPath.roadWidth 6.10, stage True, loop False, oneWay/drag False, scene 2026-11-10 01:50
+  tarmac texture city_road_track_61_noedge_asphalt_old.png (256x64): Y[120-124] Y[131-135]
+    u: edgeL 0.0000 centre 0.5000 edgeR 1.0000  => metres from the left edge 0.000 / 3.050 / 6.100 (ribbon half 3.050)
+  ribbon: 4286 rings, 3 vertices a ring (left | centre | right); 2820 on waypoints (2820 waypoints), 1466 slicing a bend's gaps
+  8570 sections over 11276 m
+  lanes     left mean 3.050 min 3.049 max 3.050 | right mean 3.050 min 3.049 max 3.050
+            |L-R| max 0.0001 m (wp 2610 ring, 10440 m) p95 0.0000; ratio L/R mean 1.000
+  centre    painted centre - ribbon centre: mean +0.0000 max|.| 0.0002 m (wp 2610 mid)
+            ribbon centre - TrackPath waypoint (rings): mean +0.0000 max|.| 0.0000 m
+  edges     asphalt outside the edge lines: left mean 0.000 max 0.000 | right mean 0.000 max 0.000 m
+  smooth    paint zig (mid-quad, any line) max 0.0002 p95 0.0001 m (wp 2610); centre line max 0.0002
+  corners   tarmac edge L      chord sagitta max 0.0131 m (wp 2171, 8687 m), 0 of 4285 over 0.025; turn at a ring max 4.7 deg (wp 2660)
+  corners   edge line L        chord sagitta max 0.0131 m (wp 2171, 8687 m), 0 of 4285 over 0.025; turn at a ring max 4.7 deg (wp 2660)
+  corners   centre line        chord sagitta max 0.0122 m (wp 2171, 8687 m), 0 of 4285 over 0.025; turn at a ring max 4.8 deg (wp 2172)
+  corners   edge line R        chord sagitta max 0.0127 m (wp 1684, 6738 m), 0 of 4285 over 0.025; turn at a ring max 5.1 deg (wp 2172)
+  corners   tarmac edge R      chord sagitta max 0.0127 m (wp 1684, 6738 m), 0 of 4285 over 0.025; turn at a ring max 5.1 deg (wp 2172)
+  corners   KerbL outer edge   chord sagitta max 0.0133 m (wp 2171, 8687 m), 0 of 4285 over 0.025; turn at a ring max 4.7 deg (wp 2660)
+  corners   KerbR outer edge   chord sagitta max 0.0129 m (wp 1684, 6738 m), 0 of 4285 over 0.025; turn at a ring max 5.2 deg (wp 2172)
+    KerbL: 2 verts/station, width mean 0.900 min 0.900 max 0.900 m, surface dirt_pt_5.png
+    KerbR: 2 verts/station, width mean 0.900 min 0.900 max 0.900 m, surface dirt_pt_5.png
+  ok   BeechGap: lanes even, centre line on the centre, lines smooth, no corners
+
+venue                    W texture                                stride    left   right maxDiff  maxOff   zigMax   wpOff  sagMax verdict
+BeechGap               6.1 city_road_track_61_noedge_asphalt_old.png      3   3.050   3.050  0.0001  0.0002   0.0002  0.0000  0.0133 ok
+LANE AUDIT OK
+
