@@ -199,7 +199,7 @@ def sheet_png(ds, path, S=2, title='Mountain stages against USGS 3DEP lidar: rea
             f"Grade off by > 1% on {pr['gradeOff1pctShare']:.0f}% of the route",
             f"Line vs bench: median {ln['medianAbsM']:.1f} m, p95 {ln['p95AbsM']:.1f}, worst {ln['worstAbsM']:.1f} m",
             f"Terrain RMS: {tn['near']['bands'][1]['rmsM']:.1f} m at 30-100 m, {tn['near']['bands'][2]['rmsM']:.1f} m to 500 m, far grid "
-            + (f"{tn['far']['all']['rmsM']:.1f} m" if tn['far']['all']['rmsM'] < 20 else f"{tn['far']['bands'][2]['rmsM']:.1f} m to 2.3 km, then a HOLE (worst {tn['far']['all']['worstM']:.0f} m)"),
+            + (f"{tn['far']['all']['rmsM']:.1f} m" if tn['far']['all']['rmsM'] < 20 else f"{tn['far']['bands'][2]['rmsM']:.1f} m + a HOLE at its edge"),
         ]
         for j, t in enumerate(lines): dr.text((30 * S, y0 + (34 + j * 17) * S), t, fill=INK2, font=f, anchor='ls')
         xr = (0, d['lengthM'])
