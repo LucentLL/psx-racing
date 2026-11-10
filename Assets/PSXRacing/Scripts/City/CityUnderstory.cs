@@ -356,7 +356,10 @@ namespace PSXRacing.City
                     if (b.deck || b.edge == a.edge || cb < 2) continue;
                     if (Vector2.Dot(a.away, b.away) >= -0.5f) continue;
                     found = Mathf.Max(found, ca >= 4 || cb >= 4 ? 2 : 1);
-                    if (CityMeshes.MedianDressOn && a.off + b.off <= CityMeshes.CurbMedianMaxW && CityMeshes.MedianPair(map.edges[a.edge], map.edges[b.edge])) betweenIsland = true;
+                    // (the arterials pass) a grass island wider than a bed keeps the scattered shrubs,
+                    // clear of the concrete at its noses and off the roads whose island is concrete
+                    if (CityMeshes.MedianDressOn && a.off + b.off <= CityMeshes.CurbMedianMaxW && CityMeshes.MedianPair(map.edges[a.edge], map.edges[b.edge])
+                        && (a.off + b.off <= CityMeshes.MedianOwnDressMaxW || !CityMeshes.MedianShrubOk(map, map.edges[a.edge], p))) betweenIsland = true;
                 }
             }
             return found;

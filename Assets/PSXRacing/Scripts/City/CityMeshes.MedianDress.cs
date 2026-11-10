@@ -78,6 +78,51 @@ namespace PSXRacing.City
 
         public const int MedianTopGrass = 0, MedianTopConcrete = 1, MedianTopBed = 2;
 
+        // ---- the arterials pass (2026-11-10): what the median pass left ----------
+        /// <summary>TREE ROWS. The survey's two tree-lined medians (E W.T. Harris
+        /// Blvd: mulch and trees; Johnston Rd: mown grass and a tree row): one
+        /// tree on the island's axis every MedianTreePitchM, where the island
+        /// is MedianTreeMinW wide or more and MedianTreeEndM clear of the
+        /// concrete at a nose or pocket (the sight line at an opening). Planted
+        /// as the city's street trees are (CityTrees.PlantStreet: a clear stem,
+        /// the trunk solid by the city's rule, breakaway inside a race route's
+        /// run-off). PSX_CITY_MEDIANTREES=0: none.</summary>
+        public static readonly bool MedianTreesOn = MedianDressOn && System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANTREES") != "0";
+        public const int DressMedian = 3;
+        public const float MedianTreePitchM = 13.5f, MedianTreeMinW = 3f, MedianTreeEndM = 5f;
+        static readonly HashSet<string> MedianTreeRoads = new HashSet<string>
+        {
+            "East W T Harris Boulevard", "West W T Harris Boulevard", "Johnston Road",
+        };
+        public static int MedianTreeCount;
+        /// <summary>NO CURB ON A FAST TRUNK'S GRASS. The survey's 55 mph trunks
+        /// (Billy Graham Pkwy, Brookshire Blvd north of I-85, University City
+        /// Blvd): grass between the carriageways at their own grade, no curb.
+        /// A fast pair's median of MedianConcreteMaxW and over is laid as the
+        /// wide median's flat grass. PSX_CITY_FASTMEDIAN_CURB=1: curbed as before.</summary>
+        public static readonly bool FastMedianFlatOn = MedianDressOn && System.Environment.GetEnvironmentVariable("PSX_CITY_FASTMEDIAN_CURB") != "1";
+        /// <summary>THE REFUGE ISLANDS (the 17 kerbed pairs of LineModel.RefugeList)
+        /// take the dress too. PSX_CITY_REFUGEDRESS=0: grass as before.</summary>
+        public static readonly bool RefugeDressOn = MedianDressOn && System.Environment.GetEnvironmentVariable("PSX_CITY_REFUGEDRESS") != "0";
+        public static int RefugeDressSpans;
+        /// <summary>THE SCATTERED SHRUBS on a grass island (wider than a bed):
+        /// the understory's own, as before the median dress. PSX_CITY_MEDIANSHRUBS=0:
+        /// none on any island.</summary>
+        public static readonly bool MedianShrubsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANSHRUBS") != "0";
+        /// <summary>For the understory: may a shrub stand on this carriageway's
+        /// grass island at p - not on a road whose island is concrete, not
+        /// within the concrete of a nose or pocket (from the map alone).</summary>
+        public static bool MedianShrubOk(CityMap map, CityMap.Edge e, Vector2 p)
+        {
+            if (MedianConcreteRoads.Contains(e.name) || MedianConcreteWays.Contains(e.wayId)) return false;
+            CityElevation.ProjectOn(e, p, out float s);
+            float ba = MedianBeyond(map, e, e.a), bb = MedianBeyond(map, e, e.b);
+            float d = Mathf.Min(ba == float.MaxValue ? float.MaxValue : s + ba, bb == float.MaxValue ? float.MaxValue : e.length - s + bb);
+            return d >= MedianPocketM + 8f;
+        }
+        /// <summary>For the understory: an island up to this wide is dressed by its own rule.</summary>
+        public static float MedianOwnDressMaxW => MedianShrubsOn ? MedianBedMaxW : CurbMedianMaxW;
+
         /// <summary>For the understory (CityUnderstory): the curbed island's widest.</summary>
         public const float CurbMedianMaxW = CurbMedianMaxM;
         /// <summary>For the understory: is this carriageway's left a surface
@@ -101,9 +146,9 @@ namespace PSXRacing.City
 
         public static int MedianBedSpans, MedianConcreteSpans, MedianGrassSpans, MedianPlantCount;
         public static float MedianBedM, MedianConcreteM, MedianGrassM;
-        public static void MedianDressReset() { MedianBedSpans = MedianConcreteSpans = MedianGrassSpans = MedianPlantCount = 0; MedianBedM = MedianConcreteM = MedianGrassM = 0f; }
+        public static void MedianDressReset() { MedianBedSpans = MedianConcreteSpans = MedianGrassSpans = MedianPlantCount = MedianTreeCount = 0; MedianBedM = MedianConcreteM = MedianGrassM = 0f; }
         public static string MedianDressLine() =>
-            $"median dress {(MedianDressOn ? "on" : "OFF")} (plants {(MedianPlantsOn ? "on" : "off")}, trunk islands {(TrunkIslandOn ? "on" : "OFF")}): island halves concrete {MedianConcreteM:0} m in {MedianConcreteSpans} spans, bed {MedianBedM:0} m in {MedianBedSpans}, grass {MedianGrassM:0} m in {MedianGrassSpans}; {MedianPlantCount} plants";
+            $"median dress {(MedianDressOn ? "on" : "OFF")} (plants {(MedianPlantsOn ? "on" : "off")}, trunk islands {(TrunkIslandOn ? "on" : "OFF")}, trees {(MedianTreesOn ? "on" : "off")}, fast grass flat {(FastMedianFlatOn ? "on" : "off")}): island halves concrete {MedianConcreteM:0} m in {MedianConcreteSpans} spans, bed {MedianBedM:0} m in {MedianBedSpans}, grass {MedianGrassM:0} m in {MedianGrassSpans}; {MedianPlantCount} plants, {MedianTreeCount} trees";
 
         static void MedianDressSize(int n)
         {
@@ -281,6 +326,32 @@ namespace PSXRacing.City
         /// <summary>World-planar like the ground's (GroundUV): the bed's bark 4 m a repeat.</summary>
         static Vector2 MedianTopUV(int kind, float wx, float wz) =>
             kind == MedianTopBed ? new Vector2(wx / 4f, wz / 4f) : GroundUV(kind == MedianTopConcrete, wx, wz);
+
+        // ---- the tree row ----------------------------------------------------
+
+        /// <summary>A span's trees on the island's axis (the lower-numbered
+        /// carriageway of the pair plants them), on a fixed grid of its arc.</summary>
+        static void MedianTreeSpan(TileMeshes tm, CityMap.Edge e, int i, float sA, float sB, Vector3[] pA, Vector3[] pB)
+        {
+            if (!MedianTreesOn || !StreetDressOn || sB - sA < 0.05f || !MedianTreeRoads.Contains(e.name)) return;
+            int tw = cmTw[i - 1] >= 0 ? cmTw[i - 1] : cmTw[i];
+            if (tw < 0 || tw < e.index) return;
+            var o = tm.origin;
+            for (int k = Mathf.CeilToInt(sA / MedianTreePitchM - 0.5f); (k + 0.5f) * MedianTreePitchM < sB; k++)
+            {
+                float s = (k + 0.5f) * MedianTreePitchM;
+                if (s < sA) continue;
+                float f = (s - sA) / (sB - sA);
+                if (Mathf.Lerp(cmG[i - 1], cmG[i], f) < MedianTreeMinW) continue;
+                float db = Mathf.Lerp(Mathf.Min(cmDb[i - 1], 1000f), Mathf.Min(cmDb[i], 1000f), f), df = Mathf.Lerp(Mathf.Min(cmDf[i - 1], 1000f), Mathf.Min(cmDf[i], 1000f), f);
+                if (Mathf.Min(db, df) < MedianPocketM + MedianTreeEndM) continue;
+                var foot = Vector3.Lerp(pA[3], pB[3], f);
+                float wx = foot.x + o.x, wz = foot.z + o.z;
+                if (wx < o.x || wx >= o.x + TileSize || wz < o.z || wz >= o.z + TileSize) continue;
+                tm.streetTrees.Add(new StreetTree { foot = foot, edge = e.index, side = 1, dress = (byte)DressMedian, station = (short)k });
+                MedianTreeCount++;
+            }
+        }
 
         // ---- the plants ------------------------------------------------------
 

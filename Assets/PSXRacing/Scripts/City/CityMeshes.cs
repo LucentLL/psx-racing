@@ -1882,6 +1882,8 @@ namespace PSXRacing.City
             BuildBranchAprons(map, t);
             // Five Points round 6: a slip lane widened on the inside of its curve
             BuildSlipWidening(map, t);
+            // the arterials pass (11-10): a left-turn pocket before a median opening
+            BuildTurnPockets(map, t);
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where

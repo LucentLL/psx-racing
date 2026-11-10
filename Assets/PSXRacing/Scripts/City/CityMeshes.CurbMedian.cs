@@ -246,6 +246,8 @@ namespace PSXRacing.City
                 // it, a wide grass median's at the edges' own grade
                 cmY[k] = 0.5f * (ed.y + oy);
                 cmK[k] = cmC[k] = edgeRun <= CurbMedianMaxM ? 1f : 0f;
+                // (the arterials pass) a fast trunk's grass has no curb: laid as the wide median's flat grass
+                if (FastMedianFlatOn && cmFast[k] && edgeRun >= MedianConcreteMaxW) cmK[k] = cmC[k] = 0f;
                 any = true;
             }
             if (!any) return;
@@ -383,6 +385,9 @@ namespace PSXRacing.City
             // a bed's plants, on the risen island only
             if (top == MedianTopBed && cmW[i - 1] > 0f && cmW[i] > 0f && hA > 0.99f && hB > 0.99f)
                 MedianPlantSpan(e, i, eA, eB, outA, outB, sA, sB, cmProfA, cmProfB, wA, wB);
+            // (the arterials pass) a tree row on the axis, bed or grass, curbed or flat
+            if (top != MedianTopConcrete && cmW[i - 1] > 0f && cmW[i] > 0f && hA > 0.99f && hB > 0.99f)
+                MedianTreeSpan(tm, e, i, sA, sB, cmProfA, cmProfB);
             CurbMedianSpans++;
             if (!curbed) CurbMedianFlatSpans++;
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));

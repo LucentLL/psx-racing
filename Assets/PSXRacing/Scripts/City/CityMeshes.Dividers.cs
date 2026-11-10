@@ -75,7 +75,26 @@ namespace PSXRacing.City
         /// </summary>
         public static readonly bool TrunkIslandOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TRUNK_ISLAND") != "0";
         public static bool TrunkIsland(CityMap.Edge e) =>
-            TrunkIslandOn && e.cls == 4 && e.oneway && !e.link && e.a != e.b && !string.IsNullOrEmpty(e.name) && !ConcreteCorridors.Contains(e.name);
+            TrunkIslandOn && e.cls == 4 && e.oneway && !e.link && e.a != e.b && !string.IsNullOrEmpty(e.name) && (!ConcreteCorridors.Contains(e.name) || SurfaceIndependence(e));
+
+        /// <summary>The arterials pass (2026-11-10): East Independence Blvd EAST OF THE
+        /// EXPRESSWAY is a surface arterial with signals and a grass median, no wall (the
+        /// median survey's two road-level views). The corridor's name is in
+        /// <see cref="ConcreteCorridors"/> for the expressway's sake; its trunk carriageways
+        /// wholly east of IndependenceSurfaceX (where the road's name changes from Expressway, x 6206-6228, and
+        /// the race route that uses the corridor ends 1.9 km west of that) take the island.
+        /// OFF BY DEFAULT (PSX_CITY_INDEP_ISLAND=1 draws it): with the wall gone a 17 m rail
+        /// is left standing at (7552,-2945), where the carriageway e2401 stands on a retaining
+        /// face over its own median turn link e3471 (the short rail census 27 -> 28) - the
+        /// two need one height before the island can ship.</summary>
+        public static readonly bool IndependenceIslandOn = System.Environment.GetEnvironmentVariable("PSX_CITY_INDEP_ISLAND") == "1";
+        const float IndependenceSurfaceX = 6200f;
+        static bool SurfaceIndependence(CityMap.Edge e)
+        {
+            if (!IndependenceIslandOn || e.name != "East Independence Boulevard" || e.pts == null) return false;
+            foreach (var p in e.pts) if (p.x < IndependenceSurfaceX) return false;
+            return true;
+        }
 
         /// <summary>Corridors whose real median is concrete wall (the 2026-11-02 design
         /// review's owner-set table: OSM tags 14 km of Jersey in I-77's median, 10.8 km in the

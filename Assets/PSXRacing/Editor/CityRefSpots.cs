@@ -128,6 +128,12 @@ namespace PSXRacing.EditorTools
             new Spot("med_johnston", Kind.StreetView, 35.04955, -80.84885, "Johnston", 334f, "Johnston Rd: curbed grass, a tree row"),
             new Spot("med_ucity", Kind.StreetView, 35.31490, -80.69680, "University City", 251f, "University City Blvd: wide grass, no curb"),
             new Spot("med_ntryon", Kind.StreetView, 35.32102, -80.73456, "North Tryon", 209f, "N Tryon St north: a concrete median"),
+            // the arterials pass (2026-11-10): the left-turn pockets and the median leftovers (PSX_REF_ONLY=pk_...,rail_...)
+            new Spot("pk_brookshire_hoskins", Kind.StreetView, 35.26603, -80.88162, "Brookshire", 342f, "Brookshire Blvd outbound to N Hoskins Rd: the left-turn pocket"),
+            new Spot("pk_providence", Kind.StreetView, 35.12228, -80.78035, "Providence", 350f, "Providence Rd northbound to Old Providence Rd: the left-turn pocket beside a narrow island"),
+            new Spot("pk_southblvd", Kind.StreetView, 35.12024, -80.88092, "South Boulevard", 206f, "South Blvd south at Sharon Rd West: the left-turn pocket"),
+            new Spot("med_eindep", Kind.StreetView, 35.16935, -80.74410, "East Independence", 154f, "E Independence Blvd east of the expressway: a curbed grass median, no wall"),
+            new Spot("rail_johnston_485", Kind.StreetView, 35.06419, -80.84609, "Johnston", 24f, "Johnston Rd northbound to the I-485 bridge: the short rail piece"),
         };
 
         const float EyeM = 1.2f, FovDeg = 58f, FarM = 500f;

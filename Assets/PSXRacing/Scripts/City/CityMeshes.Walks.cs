@@ -1434,6 +1434,20 @@ namespace PSXRacing.City
             // the top to the axis
             bool conc = MedianSurfaceOf(map, e, side) == 2;
             Vector3 a = islProfA[2], b = islProfA[3], c = islProfB[3], d = islProfB[2];
+            if (!conc && RefugeDressOn)
+            {
+                // (the arterials pass) the median dress on a refuge island: concrete where it is
+                // narrow and for the pocket's length from each tip, a bed between, grass where wide
+                r.Local(new Vector2(eA.x + o.x, eA.z + o.z), out float ua, out _);
+                r.Local(new Vector2(eB.x + o.x, eB.z + o.z), out float ub, out _);
+                float dTip = Mathf.Min(Mathf.Min(ua, ub) - r.x0s, r.axLen - r.x0e - Mathf.Max(ua, ub));
+                int top = 2f * Mathf.Min(wA, wB) < MedianConcreteMaxW || dTip < MedianPocketM ? MedianTopConcrete
+                        : 2f * Mathf.Max(wA, wB) < MedianBedMaxW ? MedianTopBed : MedianTopGrass;
+                MedianTopBucket(top).Up(a, b, c, d, MedianTopUV(top, a.x + o.x, a.z + o.z), MedianTopUV(top, b.x + o.x, b.z + o.z),
+                                        MedianTopUV(top, c.x + o.x, c.z + o.z), MedianTopUV(top, d.x + o.x, d.z + o.z));
+                RefugeDressSpans++;
+            }
+            else
             GroundBucket(conc).Up(a, b, c, d, GroundUV(conc, a.x + o.x, a.z + o.z), GroundUV(conc, b.x + o.x, b.z + o.z),
                                   GroundUV(conc, c.x + o.x, c.z + o.z), GroundUV(conc, d.x + o.x, d.z + o.z));
             IslandKerbSpans++; IslandKerbM += Vector3.Distance(eA, eB);
