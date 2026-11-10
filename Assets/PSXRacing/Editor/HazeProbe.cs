@@ -146,6 +146,15 @@ namespace PSXRacing.EditorTools
                                 eye = p - f * 8f + Vector3.up * 2.6f;
                                 rot = Quaternion.LookRotation(p + Vector3.up * 0.8f + f * 20f - eye);
                             }
+                            else if (view == "under")
+                            {
+                                // A deck from below: 34 m out on the open side, 9 m under the
+                                // road and 30 m back, looking along the span at its underside
+                                // and piers (the lidar re-bake put up to 23 m of air under Linn Cove).
+                                Vector3 side = Quaternion.Euler(0f, OpenSide(path, at) * 90f, 0f) * fwd;
+                                eye = p + side * 34f - Vector3.up * 9f - fwd * 30f;
+                                rot = Quaternion.LookRotation(p - Vector3.up * 3f + fwd * 20f - eye);
+                            }
                             else
                             {
                                 eye = p + Vector3.up * 25f;
