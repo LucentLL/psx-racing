@@ -191,6 +191,10 @@ namespace PSXRacing.EditorTools
                         float at = e.s[si] + Mathf.Sqrt(L2) * tq;
                         RoadsideOccupancy.RoadEdgeAt(e, trims, at, out var cp, out _, out float hwL, out float hwR);
                         float off = Vector2.Distance(p, a + d * tq) - Mathf.Max(hwL, hwR);
+                        // (the Uptown street dress) a street tree is measured off the road's model on ITS side
+                        // of the map line (the walk stood it a metre behind that side's drawn edge), not off
+                        // the wider of the two half widths
+                        if (t.street) off = Mathf.Max(off, CityMeshes.OffRoadModel(e, trims, at, p));
                         bool deck = e.bridge || e.ElevatedAt(at);
                         if (deck) { if (off < RoadsideOccupancy.DeckMarginM - 0.05f) Bad("under a deck", t.foot, $"e{ei} '{e.name}' {off:0.00} m"); }
                         else if (off < 0f) Bad("on pavement", t.foot, $"e{ei} '{e.name}' {off:0.00} m");

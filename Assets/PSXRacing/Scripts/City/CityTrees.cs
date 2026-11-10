@@ -220,8 +220,9 @@ namespace PSXRacing.City
         /// wear), this share of the card's width either side of its middle;
         /// the crown is everything above.</summary>
         public const float StreetTrunkV0 = 0.01f, StreetCrownV0 = 0.05f, StreetTrunkHalf = 0.05f;
-        /// <summary>The oak cells whose lowest twentieth is bare trunk (the kit's low-reach table).</summary>
-        static readonly byte[] StreetCells = { 8, 9, 11 };
+        /// <summary>The oak cells whose lowest twentieth is a bare brown trunk in every dress (the kit's
+        /// low-reach table; cell 11's is a thin green stem, cell 10's carries leaves to the ground).</summary>
+        static readonly byte[] StreetCells = { 8, 9 };
 
         /// <summary>How far from its trunk a tree paints anything at or below
         /// <paramref name="aboveFoot"/> metres over its foot, in metres along
@@ -611,9 +612,9 @@ namespace PSXRacing.City
                 {
                     t.stem = StreetStemM + 0.5f * a;
                     t.h = t.stem + (1f - StreetCrownV0) * w;
-                    fit = StreetOverhang(p, t) <= 0f;
+                    fit = StreetOverhang(p, t, st.edge) <= 0f;
                 }
-                if (!fit) { tt.streetNoFit++; StreetNoFitTotal++; if (StreetNoFitWhy.Length < 600) StreetNoFitWhy += $" ({p.x:0},{p.y:0}) e{st.edge} over {StreetOverhang(p, t):0.00} roads {nearRoads.Count};"; continue; }
+                if (!fit) { tt.streetNoFit++; StreetNoFitTotal++; if (StreetNoFitWhy.Length < 600) StreetNoFitWhy += $" ({p.x:0},{p.y:0}) e{st.edge} over {StreetOverhang(p, t, st.edge):0.00} roads {nearRoads.Count};"; continue; }
                 t.dbh = TrunkDiameterM(Species.Oak, t.h, false);
                 t.r = Mathf.Clamp(t.dbh * 0.5f, TreeTrunks.MinRadius, 0.5f);
                 bool runOff = RaceRunOff.Inside(map, trims, p);
@@ -630,13 +631,22 @@ namespace PSXRacing.City
         /// crown: <see cref="LowReachM"/>): how far past the 0.65 m margin
         /// the worst road in <see cref="nearRoads"/> has it paint anything
         /// below 4.2 m (0 or less: it fits).</summary>
-        static float StreetOverhang(Vector2 p, in Tree t)
+        /// <remarks>Its OWN street is not asked through the mask (whose pieces carry the wider of
+        /// the road's two half widths): the walk stood the trunk TreeOutM behind the drawn edge
+        /// and TreeLaneClearM off the model on its side (CityMeshes.DressSpan), so only the stem
+        /// is checked against it - the crown must start above the lane's clearance.</remarks>
+        static float StreetOverhang(Vector2 p, in Tree t, int ownEdge)
         {
             float worst = float.MinValue;
             var u0 = new Vector2(Mathf.Cos(t.yawDeg * Mathf.Deg2Rad), Mathf.Sin(t.yawDeg * Mathf.Deg2Rad));
             var u1 = new Vector2(-u0.y, u0.x);
             foreach (var r in nearRoads)
             {
+                if (r.edge == ownEdge)
+                {
+                    worst = Mathf.Max(worst, r.y + OverhangClearM - t.foot.y > t.stem ? 0.01f : -0.01f);
+                    continue;
+                }
                 float reach = LowReachM(t, r.y + OverhangClearM - t.foot.y);
                 if (reach + LeafMarginM < r.off) { worst = Mathf.Max(worst, reach + LeafMarginM - r.off); continue; }
                 float d = Mathf.Min(RoadsideOccupancy.SegSegDistance(p - u0 * reach, p + u0 * reach, r.a, r.b),

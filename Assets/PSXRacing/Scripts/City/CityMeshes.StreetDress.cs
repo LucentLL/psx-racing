@@ -74,11 +74,21 @@ namespace PSXRacing.City
         public const float TreeOutM = 1.0f;
         /// <summary>A walk narrower than this there takes no tree.</summary>
         const float TreeMinWalkM = 2.0f;
-        /// <summary>The trunk also stands this far off the road as the roadside mask and the tree
-        /// audit measure it (the map line and the WIDER of the road's two half widths: a road with
-        /// a lane added on its other side reads wider than it is drawn here), so the trunk's cards
-        /// clear the city's 0.65 m leaf margin by that measure too; a walk too narrow for it takes no tree.</summary>
+        /// <summary>The trunk also stands this far off its road's MODEL on its own side (the map line
+        /// and the line model's half width on that side, the widest within a mask piece's 8 m either
+        /// way: a lane tapering in beside the station), so the trunk's cards clear the city's 0.65 m
+        /// leaf margin there as well as off the drawn edge; a walk too narrow for it takes no tree.</summary>
         const float TreeLaneClearM = 0.95f;
+
+        /// <summary>How far plan point p stands off an edge's road model at arc s, on p's own side
+        /// of the map line (the line model's extent on that side - not the wider of the two, which
+        /// is what the roadside mask keeps free-ground trees off).</summary>
+        public static float OffRoadModel(CityMap.Edge e, Trims trims, float s, Vector2 p)
+        {
+            RoadsideOccupancy.RoadEdgeAt(e, trims, Mathf.Clamp(s, 0f, e.length), out var c, out var right, out float hl, out float hr);
+            float lat = Vector2.Dot(p - c, right);
+            return Mathf.Abs(lat) - (lat >= 0f ? hr : hl);
+        }
         /// <summary>The grate: this long along the street, from just behind the curb's top this far across, this proud of the slab.</summary>
         const float GrateAlongM = 1.5f, GrateAcrossM = 1.1f, GrateInM = 0.06f, GrateLiftM = 0.03f;
         /// <summary>One repeat of the paver texture, metres (eight basket-weave units: a brick 22 x 11 cm).</summary>
@@ -107,10 +117,10 @@ namespace PSXRacing.City
         /// <summary>What the last builds dressed (the reference shots print it).</summary>
         public static class DressStats
         {
-            public static int stations, grates, noWalk, lane, building, drive, pavement, otherTile, movedOut;
-            public static void Reset() { stations = grates = noWalk = lane = building = drive = pavement = otherTile = movedOut = 0; }
+            public static int stations, grates, noWalk, lane, building, drive, pavement, otherTile, movedOut, bridge;
+            public static void Reset() { stations = grates = noWalk = lane = building = drive = pavement = otherTile = movedOut = bridge = 0; }
             public static string Line() =>
-                $"street dress: {grates} grates on {stations} stations in walk spans ({movedOut} of them stood further back for a wider road model; none for: no whole walk {noWalk}, no room off the lane {lane}, building {building}, driveway or apron {drive}, another road {pavement}; {otherTile} another tile's)";
+                $"street dress: {grates} grates on {stations} stations in walk spans ({movedOut} of them stood further back for a wider road model; none for: no whole walk {noWalk}, no room off the lane {lane}, under a skybridge {bridge}, building {building}, driveway or apron {drive}, another road {pavement}; {otherTile} another tile's)";
         }
 
         static CityMap dressMapFor;
@@ -208,13 +218,8 @@ namespace PSXRacing.City
                 var outw = Vector2.Lerp(outA, outB, t).normalized;
                 var edW = new Vector2(ed.x + o.x, ed.z + o.z);
                 // how far out: TreeOutM, and further where the road's model is wider than its drawn edge here
-                float hwMax = 0f;
-                for (int q = -1; q <= 1; q++)
-                {
-                    RoadsideOccupancy.RoadEdgeAt(e, trims, Mathf.Clamp(s + q * 8f, 0f, e.length), out _, out _, out float hl, out float hr);
-                    hwMax = Mathf.Max(hwMax, Mathf.Max(hl, hr));
-                }
-                float own = Vector2.Distance(edW + outw * TreeOutM, e.PointAt(s)) - hwMax;
+                float own = float.MaxValue;
+                for (int q = -1; q <= 1; q++) own = Mathf.Min(own, OffRoadModel(e, trims, s + q * 8f, edW + outw * TreeOutM));
                 float dTree = TreeOutM + Mathf.Max(0f, TreeLaneClearM - own);
                 var footW = edW + outw * dTree;
                 // the tile that holds the trunk owns the tree
@@ -223,6 +228,8 @@ namespace PSXRacing.City
                 float w = Mathf.Lerp(wA, wB, t);
                 if (wA < TreeMinWalkM || wB < TreeMinWalkM || len < 0.5f) { DressStats.noWalk++; continue; }
                 if (dTree > Mathf.Min(wA, wB) - 0.7f) { DressStats.lane++; continue; }
+                // no crown up through a skybridge's floor
+                if (UnderSkybridge(map, footW, TreeBridgeClearM)) { DressStats.bridge++; continue; }
                 if (dTree > TreeOutM + 0.01f) DressStats.movedOut++;
                 // clear of every wall, of a driveway or a lot's apron a car turns over, and of any
                 // other road's pavement or junction fan (the trunk and the grate's two ends)
@@ -373,6 +380,31 @@ namespace PSXRacing.City
                 sb.Append($"  {b.id} (way {b.way}, {b.street}{(b.since > 0 ? ", " + b.since : "")}): {(ok ? "BUILT" : "LEFT OUT - " + why)}\n");
             }
             return $"skybridges: {built} of {Skybridges.Length} built\n" + sb;
+        }
+
+        /// <summary>A street tree stands this far clear of a skybridge's side (its crown is 3-4 m in radius).</summary>
+        const float TreeBridgeClearM = 4.5f;
+        static CityMap skyOkFor;
+        static bool[] skyOk;
+
+        /// <summary>Is plan point p under a skybridge the game builds, or within <paramref name="pad"/> of its side?</summary>
+        static bool UnderSkybridge(CityMap map, Vector2 p, float pad)
+        {
+            if (!SkybridgesOn) return false;
+            if (skyOkFor != map || skyOk == null)
+            {
+                skyOk = new bool[Skybridges.Length];
+                for (int i = 0; i < Skybridges.Length; i++) skyOk[i] = SkybridgeCheck(map, Skybridges[i], out _);
+                skyOkFor = map;
+            }
+            for (int i = 0; i < Skybridges.Length; i++)
+            {
+                if (!skyOk[i]) continue;
+                var b = Skybridges[i];
+                var h = b.u * (b.len * 0.5f + SkybridgeIntoM);
+                if (RoadsideOccupancy.DistToSeg(p, b.c - h, b.c + h) < b.wide * 0.5f + pad) return true;
+            }
+            return false;
         }
 
         static readonly List<Vector2> skyPoly = new List<Vector2>(4), skyBand = new List<Vector2>(4);

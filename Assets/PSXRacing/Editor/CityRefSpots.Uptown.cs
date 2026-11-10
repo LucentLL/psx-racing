@@ -22,10 +22,10 @@ namespace PSXRacing.EditorTools
     ///
     ///   COST. The densest Uptown site (the Square, Trade and Tryon) is stood
     ///   up as the game does (EnsureRing 2: 25 tiles) with the dress off and
-    ///   on, twice each (A B A B): every mesh's triangles and renderers are
+    ///   on, five times each (A B A B ...): every mesh's triangles and renderers are
     ///   counted, and one 1920x1080 driver's-eye camera is rendered 240 times
     ///   with a pixel read back each time (the GPU must finish the frame) -
-    ///   the median milliseconds. An editor batch number on this machine's
+    ///   the median milliseconds, the best round of each reported (a shared machine). An editor batch number on this machine's
     ///   GPU, for the DIFFERENCE between the two, not a frame rate.
     ///
     /// Headless (with graphics): -executeMethod PSXRacing.EditorTools.CityRefSpots.RunUptown
@@ -127,8 +127,9 @@ namespace PSXRacing.EditorTools
             var eye = new Vector3(p.x, e.YAt(s) + EyeM, p.y);
             float hr = 50f * Mathf.Deg2Rad;
             var rot = Quaternion.LookRotation(new Vector3(Mathf.Sin(hr), -0.02f, Mathf.Cos(hr)));
-            var med = new float[2]; var tris = new long[2]; var rends = new int[2]; var build = new float[2];
-            for (int round = 0; round < 2; round++)
+            var med = new float[] { float.MaxValue, float.MaxValue }; var tris = new long[2]; var rends = new int[2]; var build = new float[] { float.MaxValue, float.MaxValue };
+            const int Rounds = 5;
+            for (int round = 0; round < Rounds; round++)
                 for (int pass = 0; pass < 2; pass++)
                 {
                     UptownDress(pass == 1);
@@ -145,11 +146,10 @@ namespace PSXRacing.EditorTools
                     }
                     float m = RenderMedianMs(eye, rot, 240);
                     sb.Append($"  round {round + 1} dress {(pass == 1 ? "ON " : "off")}: {t} triangles in {r} renderers, ring build {buildMs:0} ms, render median {m:0.000} ms\n");
-                    if (round == 1) { med[pass] = m; tris[pass] = t; rends[pass] = r; build[pass] = buildMs; }
-                    else { med[pass] = m; }
+                    med[pass] = Mathf.Min(med[pass], m); build[pass] = Mathf.Min(build[pass], buildMs); tris[pass] = t; rends[pass] = r;
                     world.DropAll();
                 }
-            sb.Append($"  second round: triangles {tris[0]} -> {tris[1]} ({(tris[1] - tris[0]) * 100f / Mathf.Max(1, tris[0]):+0.0;-0.0}%), renderers {rends[0]} -> {rends[1]}, render median {med[0]:0.000} -> {med[1]:0.000} ms, ring build {build[0]:0} -> {build[1]:0} ms\n");
+            sb.Append($"  best of {Rounds} rounds each (the machine is shared: the least-disturbed round): triangles {tris[0]} -> {tris[1]} ({(tris[1] - tris[0]) * 100f / Mathf.Max(1, tris[0]):+0.0;-0.0}%), renderers {rends[0]} -> {rends[1]}, render median {med[0]:0.000} -> {med[1]:0.000} ms, ring build {build[0]:0} -> {build[1]:0} ms\n");
             return sb.ToString();
         }
 
