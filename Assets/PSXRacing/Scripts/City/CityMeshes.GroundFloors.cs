@@ -106,9 +106,12 @@ namespace PSXRacing.City
         struct GfPlace
         {
             public string id, what; public Vector2 at; public int style; public Vector3 stone; public bool docks;
-            public GfPlace(string id, double lat, double lon, float hdg, float ahead, float right, int style, Vector3 stone, bool docks, string what)
+            /// <summary>What the building is, where OSM does not say (-1: its tags'), and a parking mouth in the bay beside its door
+            /// (a hotel over its own deck); with either, its FRONT is the street wall nearest the row's point.</summary>
+            public int kind; public bool mouth;
+            public GfPlace(string id, double lat, double lon, float hdg, float ahead, float right, int style, Vector3 stone, bool docks, string what, int kind = -1, bool mouth = false)
             {
-                this.id = id; this.what = what; this.style = style; this.stone = stone; this.docks = docks;
+                this.id = id; this.what = what; this.style = style; this.stone = stone; this.docks = docks; this.kind = kind; this.mouth = mouth;
                 float hr = hdg * Mathf.Deg2Rad;
                 var p = new Vector2((float)((lon + 80.81770185962013) * 111320.0 * System.Math.Cos(35.18456 * System.Math.PI / 180.0)),
                                     (float)((lat - 35.18456015184093) * 111132.0));
@@ -119,6 +122,7 @@ namespace PSXRacing.City
                                 StoneGrey = new Vector3(0.90f, 0.90f, 0.92f), StoneRed = new Vector3(0.95f, 0.62f, 0.52f);
         static readonly GfPlace[] GfPlaces =
         {
+            new GfPlace("e3rd_hotel_and_deck", 35.22548, -80.84508, 135f, 14f, -24f, StLobby, StoneGrey, false, "East 3rd Street, north side (the owner's photo): a hotel's glazed lobby under a canopy, two white planters, a blade sign; its deck's mouth beside it - red bollards, a red blade sign", GfHotel, true),
             new GfPlace("e3rd_south_arcade", 35.22548, -80.84508, 135f, 45f, 24f, StArcade, StoneBuff, false, "East 3rd Street, south side: square buff piers, glazing set well back"),
             new GfPlace("scollege_white_podium", 35.22525, -80.84345, 230f, 45f, 26f, StBlank, StoneWhite, false, "South College Street, 4th to 3rd: a white concrete podium, strip windows over it"),
             new GfPlace("e5th_north_hall", 35.22765, -80.84150, 140f, 35f, -24f, StBlank, StoneBuff, true, "East 5th Street: blank precast and brick hall walls, loading docks"),
@@ -271,6 +275,8 @@ namespace PSXRacing.City
             gfBid = GfBuilding(map, fi);
             gfKind = gfKindOf.TryGetValue(gfBid, out byte k) ? k : GfOffice;
             gfPlace = gfPlaceOf.TryGetValue(gfBid, out int pl) ? pl : -1;
+            bool placeFront = gfPlace >= 0 && (GfPlaces[gfPlace].kind >= 0 || GfPlaces[gfPlace].mouth);
+            if (gfPlace >= 0 && GfPlaces[gfPlace].kind >= 0) gfKind = GfPlaces[gfPlace].kind;
             gfHash = FacadeHash(gf.centre + new Vector2(-4.4f, 9.1f));
             gfFloor = floor; gfY0 = y0; gfTop = top;
             gfTall = Mathf.Max(top - floor, gf.h) >= 30f;
@@ -294,6 +300,7 @@ namespace PSXRacing.City
                 }
                 maxG = Mathf.Max(maxG, map.edges[ei].YAt(arc) + 0.28f);
                 float score = len * (dress == DressMain ? 1.6f : 1f) * (off < 9f ? 1f : 0.6f);
+                if (placeFront) score = len < 12f ? 0.01f : 1000f - RoadsideOccupancy.DistToSeg(GfPlaces[gfPlace].at, a, c);   // a place's front: the wall its point is beside
                 if (score > best) { best = score; gfFrontMid = (a + c) * 0.5f; gfHasFront = true; gfMainFront = dress == DressMain; }
             }
             if (gfKind != GfDeck && streetWalls == 0) return false;
@@ -536,6 +543,8 @@ namespace PSXRacing.City
             else { gLook = LookBlue; gK = new Vector3(1.20f, 1.32f, 1.50f); }
             float rows = gfSplit - gfFloor > 5.5f ? 2f : 1f;
             int doorBay = front ? nb / 2 : -1;
+            // a place's parking mouth: the bay after the door (before it where the door's is the last)
+            int mouthBay = front && nb >= 2 && gfPlace >= 0 && GfPlaces[gfPlace].mouth ? (doorBay + 1 < nb ? doorBay + 1 : doorBay - 1) : -1;
             for (int b = 0; b <= nb; b++)
             {
                 // pier b stands at the left of bay b (the two end blocks reach the corners)
@@ -555,6 +564,7 @@ namespace PSXRacing.City
                 float sm = (s1 + e1) * 0.5f;
                 bool open = GfInside(sm, -recess - 0.4f);
                 if (!open) { GfFront(s1, e1, 0f, y0, yH); continue; }
+                if (b == mouthBay) { GfDeckDoor(s1, e1, sm, yH); continue; }
                 float gy = GfFloorAt(sm, recess);
                 GfFront(s1, e1, 0f, y0, gy);                              // the step at the wall line
                 GfStone(stone * 0.80f);
