@@ -120,6 +120,7 @@ namespace PSXRacing
             t.fromArg = ShotLink.Query(url, "from") ?? "";
             t.dayArg = ShotLink.Query(url, "day") ?? "";
             t.capArg = ShotLink.Query(url, "cap") ?? "";
+            t.offscreenArg = ShotLink.Query(url, "offscreen") ?? "";
             string secs = ShotLink.Query(url, "secs");
             if (!string.IsNullOrEmpty(secs)) float.TryParse(secs, NumberStyles.Float, CultureInfo.InvariantCulture, out t.maxSecs);
             // &snap=N: a picture of the drive every N seconds (a LOOK run: the

@@ -294,6 +294,14 @@ Shader "PSX/Lit"
             // macros make unity_ObjectToWorld the instance's own matrix after
             // UNITY_SETUP_INSTANCE_ID, so every path below reads it as before.
             #pragma multi_compile_instancing
+            // THE GPU-DRIVEN FOREST (MeshForest.Gpu.cs, 2026-11-09): the same
+            // plants from buffers made once a stage, drawn with
+            // Graphics.RenderMeshIndirect - PSXForestSetup (below) reads the
+            // instance's matrix where the instancing arrays held it. Its
+            // variants (PROCEDURAL_INSTANCING_ON) ship in the Windows player
+            // only (ForestVariantStripper): no web or phone build compiles them.
+            #pragma instancing_options procedural:PSXForestSetup
+            #pragma target 4.5 PROCEDURAL_INSTANCING_ON
             #pragma shader_feature_local __ PSX_LODFADE
             #pragma shader_feature_local_fragment __ PSX_GROUNDBLEND
             // the furniture draws from the prop atlas too
@@ -376,6 +384,29 @@ Shader "PSX/Lit"
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
+        #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+            // The forest's buffers: three rows a plant (object to world, as
+            // MeshForest baked them), and this draw's list of the plants the
+            // cull kept (PSXForestCull.compute), from _ForestBase on.
+            StructuredBuffer<float4> _ForestMat;
+            StructuredBuffer<uint> _ForestVis;
+            float _ForestBase;
+        #endif
+            void PSXForestSetup()
+            {
+            #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
+                uint fe = _ForestVis[(uint)(_ForestBase + 0.5) + unity_InstanceID] * 3;
+                float4 f0 = _ForestMat[fe], f1 = _ForestMat[fe + 1], f2 = _ForestMat[fe + 2];
+                unity_ObjectToWorld = float4x4(f0, f1, f2, float4(0.0, 0.0, 0.0, 1.0));
+                // its inverse (affine): the columns are the rows' cross products over the determinant
+                float3 c0 = cross(f1.xyz, f2.xyz), c1 = cross(f2.xyz, f0.xyz), c2 = cross(f0.xyz, f1.xyz);
+                float fdet = dot(f0.xyz, c0);
+                float finv = abs(fdet) > 1e-20 ? 1.0 / fdet : 0.0;
+                float3 i0 = float3(c0.x, c1.x, c2.x) * finv, i1 = float3(c0.y, c1.y, c2.y) * finv, i2 = float3(c0.z, c1.z, c2.z) * finv;
+                float3 ft = float3(f0.w, f1.w, f2.w);
+                unity_WorldToObject = float4x4(float4(i0, -dot(i0, ft)), float4(i1, -dot(i1, ft)), float4(i2, -dot(i2, ft)), float4(0.0, 0.0, 0.0, 1.0));
+            #endif
+            }
             float4 _LeafVivid;
             float4 _LeafTarget;
             sampler2D _BlendTex;

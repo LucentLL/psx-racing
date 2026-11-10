@@ -40,6 +40,13 @@ namespace PSXRacing
             // - LeaderGap - and at its junction - ControlGap; SWEPT is a COUNT, the 0.5 m steps
             // SweptHit marched a body along its way)
             TrafficLead, TrafficCtl, TrafficSwept,
+            // (the mountain stages' mesh forest, MeshForest: choosing what is drawn - the old
+            // re-bucket, or the chunk pass and the GPU cull's dispatch; issuing the main view's
+            // draws; the same for the mirrors' and the reflection faces' cameras)
+            ForestCull, ForestDraw, ForestOther,
+            // (PerfTour.Stage &offscreen=WxH: the main view drawn into a texture of that size
+            // with no window - the render call, then the wait for the GPU to finish it)
+            OffscreenCpu, OffscreenGpu,
             COUNT
         }
 
@@ -53,6 +60,8 @@ namespace PSXRacing
             "tile baked",
             "tree baked",
             "traffic lead", "traffic ctl", "traffic swept steps",
+            "forest cull", "forest draw", "forest other cams",
+            "offscreen cpu", "offscreen gpu wait",
         };
 
         static readonly double ToMs = 1000.0 / Stopwatch.Frequency;

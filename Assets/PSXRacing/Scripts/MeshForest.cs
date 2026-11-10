@@ -48,7 +48,10 @@ namespace PSXRacing
         public static void Cycle() => Level = (Level + 1) % 3;
     }
 
-    public class MeshForest : MonoBehaviour
+    // (after the chase camera's LateUpdate at 0 and the cockpit's at 1000:
+    // the GPU path culls against the view as this frame will draw it)
+    [DefaultExecutionOrder(1500)]
+    public partial class MeshForest : MonoBehaviour
     {
         [System.Serializable]
         public class Variant
@@ -111,6 +114,7 @@ namespace PSXRacing
 
         public static bool MeshTreesOn = true;
         static MeshForest instance;
+        bool inited;
 
         const int L = 4;
         Matrix4x4[] localM;
@@ -150,23 +154,10 @@ namespace PSXRacing
         void Init()
         {
             instance = this;
+            inited = true;
             float q = ForestDetailPrefs.Scale;
             lod0To *= q; lod1To *= q; meshRange *= q;
             band0 *= q; band1 *= q; band2 *= q;
-            localM = new Matrix4x4[inst.Length];
-            for (int i = 0; i < inst.Length; i++)
-            {
-                var p = inst[i];
-                float s = instScaleVar[i].x;
-                var tl = instTilt != null && i < instTilt.Length ? instTilt[i] : Vector2.zero;
-                localM[i] = Matrix4x4.TRS(new Vector3(p.x, p.y, p.z),
-                    Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, p.w, 0f), new Vector3(s, s, s))
-                    * variants[(int)instScaleVar[i].y].pre;
-            }
-            int nb = variants.Length * L;
-            bucket = new Matrix4x4[nb][];
-            bucketN = new int[nb];
-            for (int i = 0; i < nb; i++) bucket[i] = new Matrix4x4[256];
             matsNow = new Material[variants.Length][];
             impNow = new Material[variants.Length];
             maxD2 = new float[variants.Length];
@@ -197,17 +188,47 @@ namespace PSXRacing
                     fadeOf[v][l] = f;
                 }
             }
-            Bake(transform.localToWorldMatrix);
             // The hidden cards stay the canopy's SHADOW (SunShadows draws its
             // casters itself and these meshes are no renderers).
             foreach (var c in chunks)
                 if (c.cards != null)
                     foreach (var r in c.cards) if (r != null) SunShadows.ShadowStandIns.Add(r);
+            // THE GPU PATH (MeshForest.Gpu.cs) where the machine has compute
+            // shaders and the scene carries the cull; the old per-frame
+            // re-bucket everywhere else, and its tables only when it runs.
+            bool gpu = GpuDriven && InitGpu();
+            if (!gpu) EnsureLegacy();
+            Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
+                      $"LOD {lod0To}/{lod1To}/{meshRange} m, impostors to {farRange} m; F8 = A/B; " +
+                      (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") + ".");
+        }
+
+        /// <summary>A plant's matrix under the forest's root, as the builder placed it.</summary>
+        Matrix4x4 LocalOf(int i)
+        {
+            var p = inst[i];
+            float s = instScaleVar[i].x;
+            var tl = instTilt != null && i < instTilt.Length ? instTilt[i] : Vector2.zero;
+            return Matrix4x4.TRS(new Vector3(p.x, p.y, p.z),
+                Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, p.w, 0f), new Vector3(s, s, s))
+                * variants[(int)instScaleVar[i].y].pre;
+        }
+
+        /// <summary>The CPU path's tables (a matrix a plant, twice): made the
+        /// first time that path draws.</summary>
+        void EnsureLegacy()
+        {
+            if (localM != null) return;
+            localM = new Matrix4x4[inst.Length];
+            for (int i = 0; i < inst.Length; i++) localM[i] = LocalOf(i);
+            int nb = variants.Length * L;
+            bucket = new Matrix4x4[nb][];
+            bucketN = new int[nb];
+            for (int i = 0; i < nb; i++) bucket[i] = new Matrix4x4[256];
             mirrorM = new Matrix4x4[variants.Length][];
             mirrorN = new int[variants.Length];
             for (int v = 0; v < variants.Length; v++) mirrorM[v] = new Matrix4x4[256];
-            Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
-                      $"LOD {lod0To}/{lod1To}/{meshRange} m, impostors to {farRange} m; F8 = A/B.");
+            Bake(transform.localToWorldMatrix);
         }
 
         /// <summary>World matrices and the far chunks' impostor lists under
@@ -245,12 +266,19 @@ namespace PSXRacing
         /// <summary>Edit-mode shots (ForestShots): Update never runs there, so
         /// bucket and queue the plants for this one camera now, before its
         /// Render.</summary>
-        public void DrawNow(Camera cam)
+        public void DrawNow(Camera cam, bool viewFrustum = false)
         {
-            if (localM == null) Init();
+            if (!inited) Init();
             int dress = SeasonDress.AppliedDress;
             DressMaterials(dress);
             lastDress = dress;
+            // (a shot's camera takes its aspect from the texture it is about
+            // to be drawn into: the chunk pass's wide cone for the plants too,
+            // unless the caller has set the camera's aspect and asks for the
+            // player's own cull - viewFrustum)
+            if (UseGpu) { GpuDressChanged(); GpuFrame(cam, !viewFrustum); return; }
+            EnsureLegacy();
+            cardsKnown = false;
             Rebucket(cam, transform.localToWorldMatrix, cam.transform.position);
             Draw(cam);
         }
@@ -259,6 +287,7 @@ namespace PSXRacing
         public void CardsNow()
         {
             foreach (var c in chunks) SetCards(c, true);
+            cardsKnown = false;
         }
 
         void OnEnable() => RenderPipelineManager.beginCameraRendering += OtherCamera;
@@ -266,8 +295,17 @@ namespace PSXRacing
 
         void OtherCamera(ScriptableRenderContext ctx, Camera cam)
         {
-            if (!MeshTreesOn || cam == null || cam == mainCam || mainCam == null || mirrorM == null) return;
+            if (!MeshTreesOn || cam == null || cam == mainCam || mainCam == null) return;
             if (cam.cameraType != CameraType.Game || (cam.cullingMask & (1 << gameObject.layer)) == 0) return;
+            long pc = PerfClock.On ? PerfClock.Now() : 0;
+            if (UseGpu) GpuOtherCamera(cam);
+            else OtherCameraLegacy(cam);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.ForestOther, pc);
+        }
+
+        void OtherCameraLegacy(Camera cam)
+        {
+            if (mirrorM == null) return;
             for (int v = 0; v < variants.Length; v++)
             {
                 int n = mirrorN[v];
@@ -287,6 +325,7 @@ namespace PSXRacing
 
         void OnDestroy()
         {
+            ReleaseGpu();
             if (chunks != null)
                 foreach (var c in chunks)
                     if (c.cards != null)
@@ -303,29 +342,53 @@ namespace PSXRacing
                 Debug.Log("[MeshForest] " + (MeshTreesOn ? "MESH forest" : "CARD trees (old)"));
             }
 
-            var cam = Camera.main;
-            if (cam == null || variants == null || variants.Length == 0) return;
-
-            if (!MeshTreesOn)
-            {
-                if (lastOn) foreach (var c in chunks) SetCards(c, true);
-                lastOn = false;
-                return;
-            }
-
-            int dress = SeasonDress.AppliedDress;
-            if (dress != lastDress) { DressMaterials(dress); lastDress = dress; }
+            if (UseGpu) return;     // that path draws from LateUpdate, once the camera has moved
+            var cam = FrameStart();
+            if (cam == null) return;
+            EnsureLegacy();
+            if (cardsKnown) { cardsKnown = false; lastOn = false; }   // the GPU path was drawing: bucket afresh
 
             var root = transform.localToWorldMatrix;
             Vector3 camPos = cam.transform.position;
             bool moved = (camPos - lastCam).sqrMagnitude > 1f || root != lastRoot || !lastOn;
             // The view turns faster than the car moves: re-cull every 2nd
             // frame even standing still.
+            long pc = PerfClock.On ? PerfClock.Now() : 0;
             if (moved || (Time.frameCount & 1) == 0) Rebucket(cam, root, camPos);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.ForestCull, pc);
             if (moved) { lastCam = camPos; lastRoot = root; }
             lastOn = true;
             mainCam = cam;
+            pc = PerfClock.On ? PerfClock.Now() : 0;
             Draw(cam);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.ForestDraw, pc);
+        }
+
+        void LateUpdate()
+        {
+            if (!UseGpu) return;
+            var cam = FrameStart();
+            if (cam == null) return;
+            GpuFrame(cam);
+            lastOn = true;
+            mainCam = cam;
+        }
+
+        /// <summary>The frame's camera and dress; null when nothing is to be
+        /// drawn (no camera, or the A/B switch shows the old cards).</summary>
+        Camera FrameStart()
+        {
+            var cam = Camera.main;
+            if (cam == null || variants == null || variants.Length == 0) return null;
+            if (!MeshTreesOn)
+            {
+                if (lastOn) { foreach (var c in chunks) SetCards(c, true); cardsKnown = false; }
+                lastOn = false;
+                return null;
+            }
+            int dress = SeasonDress.AppliedDress;
+            if (dress != lastDress) { DressMaterials(dress); lastDress = dress; GpuDressChanged(); }
+            return cam;
         }
 
         static void SetCards(Chunk c, bool on)
@@ -464,6 +527,7 @@ namespace PSXRacing
                         };
                         for (int at = 0; at < n; at += 1023)
                             Graphics.RenderMeshInstanced(rp, mesh, s, bucket[b], Mathf.Min(1023, n - at), at);
+                        if (StatsOn) { statTris += (long)(mesh.GetIndexCount(s) / 3) * n; statDraws += (n + 1022) / 1023; if (s == 0) statPlants += n; }
                     }
                 }
             }
@@ -485,10 +549,14 @@ namespace PSXRacing
                         camera = only,
                     };
                     for (int s = 0; s < mesh.subMeshCount; s++)
+                    {
                         for (int at = 0; at < arr.Length; at += 1023)
                             Graphics.RenderMeshInstanced(rp, mesh, s, arr, Mathf.Min(1023, arr.Length - at), at);
+                        if (StatsOn) { statTris += (long)(mesh.GetIndexCount(s) / 3) * arr.Length; statDraws += (arr.Length + 1022) / 1023; if (s == 0) statPlants += arr.Length; }
+                    }
                 }
             }
+            if (StatsOn) StatsFrame();
         }
     }
 }

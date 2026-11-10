@@ -15,7 +15,8 @@ namespace PSXRacing
     /// been measured in a player at all.
     ///
     ///   -perftour "stage=SwissNC226A[,BlueRidge][&amp;from=7832][&amp;secs=90][&amp;hour=Dusk]
-    ///              [&amp;weather=Clear][&amp;day=50][&amp;view=chase][&amp;cap=0][&amp;snap=10][&amp;tag=name]"
+    ///              [&amp;weather=Clear][&amp;day=50][&amp;view=chase][&amp;cap=0][&amp;snap=10][&amp;tag=name]
+    ///              [&amp;offscreen=3832x2054]"
     ///
     /// The stage loads the way ARCADE's time trial loads it (a loaner, alone
     /// on the road), the race AI drives the player's car from <c>from</c>
@@ -24,10 +25,42 @@ namespace PSXRacing
     /// calls, triangles). The frame cap is lifted for the run (cap=0; cap=60
     /// to measure under the owner's own cap): a capped run can only say
     /// "60", not how much room there is over it.
+    ///
+    /// <c>offscreen=WxH</c> (2026-11-09, for a run with NO WINDOW: -batchmode
+    /// draws no main view at all): the main camera is drawn into a texture of
+    /// that size every frame from a late LateUpdate, and the frame then WAITS
+    /// for the GPU to finish it (a one-pixel read-back). The frame's time is
+    /// then the main thread plus the GPU, one after the other - slower than a
+    /// windowed run, where the two overlap, but it puts a number on the GPU's
+    /// share of a view at the owner's resolution without opening anything on
+    /// his screen, and an A/B in one player compares like with like.
     /// </summary>
     public partial class PerfTour
     {
-        string stageArg, fromArg, dayArg, capArg;
+        string stageArg, fromArg, dayArg, capArg, offscreenArg;
+
+        /// <summary>The main view drawn into a texture and waited for (offscreen=WxH).</summary>
+        [DefaultExecutionOrder(20000)]
+        class OffscreenView : MonoBehaviour
+        {
+            public Camera cam;
+            public RenderTexture rt;
+            RenderTexture was;
+            void OnEnable() { if (cam != null) { was = cam.targetTexture; cam.targetTexture = rt; } }
+            void OnDisable() { if (cam != null) cam.targetTexture = was; }
+            void LateUpdate()
+            {
+                if (cam == null || rt == null) return;
+                if (cam.targetTexture != rt) cam.targetTexture = rt;
+                long t0 = PerfClock.Now();
+                cam.Render();
+                PerfClock.Add(PerfClock.Slot.OffscreenCpu, t0);
+                t0 = PerfClock.Now();
+                var req = UnityEngine.Rendering.AsyncGPUReadback.Request(rt, 0, 0, 1, 0, 1, 0, 1, TextureFormat.RGBA32, null);
+                req.WaitForCompletion();
+                PerfClock.Add(PerfClock.Slot.OffscreenGpu, t0);
+            }
+        }
 
         IEnumerator StageTour(int hour, int weather)
         {
@@ -99,6 +132,24 @@ namespace PSXRacing
                     Say("stage up: " + env.ToString().Replace("\n", " | "));
                 }
 
+                // offscreen=WxH: the main view into a texture of that size, waited for (see the header)
+                OffscreenView off = null;
+                if (!string.IsNullOrEmpty(offscreenArg) && Camera.main != null)
+                {
+                    var wh = offscreenArg.ToLowerInvariant().Split('x');
+                    if (wh.Length == 2 && int.TryParse(wh[0], out int ow) && int.TryParse(wh[1], out int oh) && ow >= 16 && oh >= 16)
+                    {
+                        var ort = new RenderTexture(ow, oh, PlatformProfile.PC ? 32 : 24, RenderTextureFormat.Default) { antiAliasing = 1, name = "PerfTourOffscreen" };
+                        ort.Create();
+                        var holder = new GameObject("PerfTourOffscreen");
+                        holder.SetActive(false);
+                        off = holder.AddComponent<OffscreenView>();
+                        off.cam = Camera.main; off.rt = ort;
+                        holder.SetActive(true);
+                        Say("offscreen view " + ow + "x" + oh + " (depth " + ort.depthStencilFormat + "), drawn and waited for every frame");
+                    }
+                }
+
                 // the race AI at the wheel, from the asked metre
                 var input = car.GetComponent<PlayerCarInput>();
                 if (input != null) { input.inputEnabled = false; input.enabled = false; }
@@ -118,6 +169,8 @@ namespace PSXRacing
                 ai.ReseedPath();
 
                 Alloc();
+                MeshForest.StatsReset();
+                MeshForest.StatsOn = true;
                 n = 0; spikes.Length = 0; spikeLines = 0;
                 gcWas = System.GC.CollectionCount(0);
                 int gc0 = gcWas;
@@ -174,6 +227,8 @@ namespace PSXRacing
                 }
                 recording = false;
                 PerfClock.FrameDone = null;
+                MeshForest.StatsOn = false;
+                if (off != null) { var ort = off.rt; Destroy(off.gameObject); yield return null; if (ort != null) { ort.Release(); Destroy(ort); } }
                 float secs = Time.realtimeSinceStartup - recT0;
                 int gcN = System.GC.CollectionCount(0) - gc0;
                 batches.Dispose(); setPass.Dispose(); tris.Dispose();
@@ -192,7 +247,7 @@ namespace PSXRacing
                        .Append(cRend[i].ToString("0.00", ci)).Append(',').Append(cUi[i].ToString("0.00", ci)).Append(',').Append(cSteps[i]).Append(',').Append(cGc[i]).Append(',')
                        .Append(cX[i].ToString("0.0", ci)).Append(',').Append(cZ[i].ToString("0.0", ci)).Append(',').Append(cV[i].ToString("0.0", ci)).Append(',')
                        .Append(cEv[i] ?? "").Append(',').Append(cAlloc[i].ToString("0.0", ci));
-                    for (int s = 0; s < cSlot.Length; s++) csv.Append(',').Append(cSlot[s][i].ToString("0.00", ci));
+                    for (int s = 0; s < cSlot.Length; s++) csv.Append(',').Append(cSlot[s][i].ToString("0.000", ci));
                     csv.Append('\n');
                 }
                 var ms = new float[n];
@@ -217,6 +272,27 @@ namespace PSXRacing
                 sum1.AppendLine($"mean ms: scripts update {mUpd / dn:0.00} late {mLate / dn:0.00} fixed {mFix / dn:0.00} ui {mUi / dn:0.00}; render submit {mRend / dn:0.00}; outside the loop (present, GPU wait) {mOut / dn:0.00}");
                 sum1.AppendLine($"drawn: batches avg {(rn > 0 ? bSum / rn : 0):0} max {bMax}; set-pass avg {(rn > 0 ? sSum / rn : 0):0}; triangles avg {(rn > 0 ? tSum / rn / 1e6 : 0):0.00} M max {tMax / 1e6:0.00} M");
                 sum1.AppendLine($"gc collections {gcN}");
+                // the mesh forest's own share (PerfClock slots) and what it put on the GPU
+                // (its own count: Unity's triangle counter does not see an indirect draw's instances)
+                double fCull = 0, fDraw = 0, fOther = 0, fRefl = 0, oCpu = 0, oGpu = 0;
+                var oG = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    fCull += cSlot[(int)PerfClock.Slot.ForestCull][i]; fDraw += cSlot[(int)PerfClock.Slot.ForestDraw][i];
+                    fOther += cSlot[(int)PerfClock.Slot.ForestOther][i]; fRefl += cSlot[(int)PerfClock.Slot.CarReflect][i];
+                    oCpu += cSlot[(int)PerfClock.Slot.OffscreenCpu][i]; oGpu += cSlot[(int)PerfClock.Slot.OffscreenGpu][i];
+                    oG[i] = cSlot[(int)PerfClock.Slot.OffscreenCpu][i] + cSlot[(int)PerfClock.Slot.OffscreenGpu][i];
+                }
+                var mfo = FindFirstObjectByType<MeshForest>();
+                int sf = Mathf.Max(1, MeshForest.StatFrames);
+                sum1.AppendLine($"mesh forest ({(mfo == null ? "none" : !MeshForest.MeshTreesOn ? "cards" : MeshForest.GpuDriven ? "GPU lists" : "CPU lists")}): mean ms cull {fCull / dn:0.000} draw {fDraw / dn:0.000} other cameras {fOther / dn:0.000} (inside car reflections {fRefl / dn:0.000})");
+                sum1.AppendLine($"mesh forest on the GPU: triangles avg {MeshForest.SumTris / sf / 1e6:0.00} M max {MeshForest.MaxTris / 1e6:0.00} M, plants avg {MeshForest.SumPlants / sf:0}, draw calls avg {MeshForest.SumDraws / sf:0} ({MeshForest.StatFrames} samples; in lists no drawn chunk reached: {MeshForest.UnreachedTris} triangles)");
+                if (off != null)
+                {
+                    System.Array.Sort(oG);
+                    float OP(float q) => n > 0 ? oG[Mathf.Clamp(Mathf.RoundToInt(q * (n - 1)), 0, n - 1)] : 0f;
+                    sum1.AppendLine($"offscreen view {offscreenArg}: mean ms render call {oCpu / dn:0.00} + GPU wait {oGpu / dn:0.00}; together p50 {OP(0.5f):0.00} p95 {OP(0.95f):0.00} p99 {OP(0.99f):0.00}");
+                }
                 Post(id + "_frames.csv", csv.ToString());
                 Post(id + "_spikes.txt", spikes.ToString());
                 Post(id + "_summary.txt", sum1.ToString());
