@@ -8238,6 +8238,8 @@ namespace PSXRacing.EditorTools
                 mfc.chunks = mfChunks.ToArray();
                 mfc.inst = mfInst.ToArray();
                 mfc.instScaleVar = mfScaleVar.ToArray();
+                // the GPU cull (MeshForest.Gpu.cs): PC scene pass only, as this whole component is
+                mfc.cullShader = ForestGpuBuild.Cull();
                 if (mfTilt.Count > 0)
                 {
                     var tl = new Vector2[mfInst.Count];

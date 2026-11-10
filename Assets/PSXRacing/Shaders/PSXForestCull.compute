@@ -1,0 +1,169 @@
+// THE MESH FOREST'S CULL, ON THE GPU (MeshForest.Gpu.cs; owner 2026-11-09:
+// "60FPS minimum, 144FPS target"). The forest's plants (about a million a
+// stage) live in buffers made once when the stage loads. Every frame this
+// puts each plant that the view can see into the list of its species and
+// level of detail - the same rule MeshForest.Rebucket ran on the main thread
+// every second frame (3.9 ms a pass in the Windows player) - and writes how
+// many each list holds into the indirect draw arguments. The CPU never sees
+// a plant: it marks which CHUNKS are drawn (a few hundred spheres) and
+// issues one draw per list.
+//
+//   Clear  the lists' counts to zero
+//   Cull   one thread a plant: chunk drawn? in range? which level (and the
+//          neighbouring level inside a hand-over band)? in the frustum?
+//   Args   each draw command's instance count from its list's count
+//
+// D3D11/12 and Vulkan/Metal desktop only: referenced by the PC scene pass's
+// MeshForest component, so no web or phone build carries it.
+#pragma kernel Clear
+#pragma kernel Cull
+#pragma kernel Args
+
+struct VarInfo
+{
+    float4 a;        // maxD2, fade.z of LOD 0, 1, 2 (the hand-over band's near edge)
+    float4 b;        // fade.w of LOD 0, 1, 2 (its far edge), unused
+    int4 bucket;     // the list of LOD 0..3 (-1: no mesh at that level)
+    int4 misc;       // x: the other cameras' list (-1 none), y: flags (1,2,4 = LOD 0,1,2 hands over to the next; 8 = canopy: far chunks draw it)
+    float4 sphere;   // the meshes' bounding sphere, object space
+    float4 impSphere; // the impostor's, in the same space
+    float4 thin;     // _PSXLodThin.x of LOD 0, 1, 2 (0: that level does not thin out at a draw limit)
+};
+
+struct DrawArgs
+{
+    uint indexCount;
+    uint instanceCount;
+    uint startIndex;
+    uint baseVertex;
+    uint startInstance;
+};
+
+StructuredBuffer<float4> _ForestMat;      // 3 rows a plant (object to world), then the impostors' own
+StructuredBuffer<uint2> _ForestMeta;      // x: species | chunk << 10, y: its impostor's matrix (entry index)
+StructuredBuffer<VarInfo> _ForestVar;
+StructuredBuffer<uint> _ForestChunk;      // per chunk: 0 not drawn, 1 near (by plant), 2 far (canopy impostors)
+StructuredBuffer<uint2> _ForestBucket;    // per list: first slot, slots
+StructuredBuffer<uint> _ForestCmdBucket;  // per draw command: its list
+RWStructuredBuffer<uint> _ForestCount;    // per list
+RWStructuredBuffer<uint> _ForestVis;      // every list's slots
+RWStructuredBuffer<DrawArgs> _ForestArgs;
+
+float4 _ForestCam;        // the eye; w > 0.5: leave no shrunk-away plant out (ForestGpuProbe's exact comparison)
+float4 _ForestPlanes[5];  // left, right, bottom, top, near (inward normals)
+float4 _ForestLod;        // lod0To^2, lod1To^2, meshRange^2, Margin
+uint _ForestN, _ForestBuckets, _ForestCmds;
+
+[numthreads(64, 1, 1)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _ForestBuckets) _ForestCount[id.x] = 0;
+}
+
+void Emit(int b, uint value)
+{
+    if (b < 0) return;
+    uint slot;
+    InterlockedAdd(_ForestCount[b], 1, slot);
+    uint2 bc = _ForestBucket[b];
+    if (slot < bc.y) _ForestVis[bc.x + slot] = value;
+}
+
+// PSX/Lit's per-plant 0..1 (its vertex shader's, from the instance's origin)
+float PlantHash(float3 it)
+{
+    float3 p3 = frac(it * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.x + p3.y) * p3.z);
+}
+
+// A THINNED plant past its own draw limit is drawn at zero size (PSX/Lit:
+// "at its draw limit SHRINKS to nothing about its own origin"; its limit is
+// the level's fade.w x lerp(thin, 1, its hash)). Not drawing it at all is
+// the same picture. The hash here is taken as an upper bound (and as 1 near
+// the wrap), the limit a little long: only a plant the shader has certainly
+// shrunk to nothing is left out.
+bool ShrunkAway(float thin, float limit, float d, float h)
+{
+    if (thin <= 0.0 || _ForestCam.w > 0.5) return false;
+    float hu = (h < 0.03 || h > 0.97) ? 1.0 : h + 0.03;
+    return d > limit * lerp(thin, 1.0, hu) * 1.01 + 0.5;
+}
+
+bool InView(float3 c, float r)
+{
+    for (int k = 0; k < 5; k++)
+        if (dot(_ForestPlanes[k].xyz, c) + _ForestPlanes[k].w < -r) return false;
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void Cull(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= _ForestN) return;
+    uint2 meta = _ForestMeta[i];
+    uint cf = _ForestChunk[meta.x >> 10];
+    if (cf == 0) return;
+    VarInfo vi = _ForestVar[meta.x & 1023];
+    uint flags = (uint)vi.misc.y;
+    if (cf == 2 && (flags & 8) == 0) return;
+
+    float4 r0 = _ForestMat[i * 3], r1 = _ForestMat[i * 3 + 1], r2 = _ForestMat[i * 3 + 2];
+    float3 dv = float3(r0.w, r1.w, r2.w) - _ForestCam.xyz;
+    float d2 = dot(dv, dv);
+    if (d2 > vi.a.x) return;
+
+    float sc = sqrt(max(dot(float3(r0.x, r1.x, r2.x), float3(r0.x, r1.x, r2.x)),
+                    max(dot(float3(r0.y, r1.y, r2.y), float3(r0.y, r1.y, r2.y)),
+                        dot(float3(r0.z, r1.z, r2.z), float3(r0.z, r1.z, r2.z)))));
+    float3 cM = float3(dot(r0.xyz, vi.sphere.xyz) + r0.w, dot(r1.xyz, vi.sphere.xyz) + r1.w, dot(r2.xyz, vi.sphere.xyz) + r2.w);
+    float3 cI = float3(dot(r0.xyz, vi.impSphere.xyz) + r0.w, dot(r1.xyz, vi.impSphere.xyz) + r1.w, dot(r2.xyz, vi.impSphere.xyz) + r2.w);
+    bool seenM = InView(cM, vi.sphere.w * sc);
+    bool seenI = InView(cI, vi.impSphere.w * sc);
+
+    if (cf == 2)
+    {
+        // a far chunk: its canopy as impostors, each tree by its own place
+        if (seenI) Emit(vi.bucket.w, meta.y);
+        return;
+    }
+
+    // the other cameras (mirrors, the paint's reflection faces): a canopy
+    // tree of a drawn near chunk once, as its impostor, whatever the main
+    // view's frustum says
+    if ((flags & 8) != 0) Emit(vi.misc.x, meta.y);
+
+    int lod = d2 < _ForestLod.x ? 0 : d2 < _ForestLod.y ? 1 : d2 < _ForestLod.z ? 2 : 3;
+    int bk[4] = { vi.bucket.x, vi.bucket.y, vi.bucket.z, vi.bucket.w };
+    float fz[3] = { vi.a.y, vi.a.z, vi.a.w };
+    float fw[3] = { vi.b.x, vi.b.y, vi.b.z };
+    float th[3] = { vi.thin.x, vi.thin.y, vi.thin.z };
+    float d = sqrt(d2);
+    float h = PlantHash(float3(r0.w, r1.w, r2.w));
+    if (lod == 3) { if (seenI) Emit(bk[3], meta.y); }
+    else if (seenM && !ShrunkAway(th[min(lod, 2)], fw[min(lod, 2)], d, h)) Emit(bk[lod], i);
+    // Inside a hand-over band (and a margin either side of it): the
+    // neighbouring level too. The shader's fade, by the plant's own
+    // distance, decides what of each shows.
+    // (HLSL's && evaluates both sides: every index stays inside its array)
+    int cl = min(lod, 2), nl = min(lod + 1, 2), pl = max(lod - 1, 0);
+    if (lod < 3 && (flags & (1u << cl)) != 0 && d > fz[cl] - _ForestLod.w)
+    {
+        if (lod == 2) { if (seenI) Emit(bk[3], meta.y); }
+        else if (seenM && !ShrunkAway(th[nl], fw[nl], d, h)) Emit(bk[nl], i);
+    }
+    if (lod > 0 && (flags & (1u << pl)) != 0 && d < fw[pl] + _ForestLod.w)
+    {
+        if (seenM && !ShrunkAway(th[pl], fw[pl], d, h)) Emit(bk[pl], i);
+    }
+}
+
+[numthreads(64, 1, 1)]
+void Args(uint3 id : SV_DispatchThreadID)
+{
+    uint c = id.x;
+    if (c >= _ForestCmds) return;
+    uint b = _ForestCmdBucket[c];
+    _ForestArgs[c].instanceCount = min(_ForestCount[b], _ForestBucket[b].y);
+}
