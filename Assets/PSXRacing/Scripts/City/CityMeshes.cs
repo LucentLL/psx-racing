@@ -6318,7 +6318,7 @@ namespace PSXRacing.City
                     // wrecks"): a one-way street's left side (the median of a
                     // divided street), graded, warrants no rail. A freeway's
                     // keeps it; a retaining face (ungraded) keeps it anywhere.
-                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && !Barriered(e))
+                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && (!Barriered(e) || DividerAt(e) == DividerKind.Island))   // (the median dress) a surface trunk's island median is a city street's
                         drop = 0;
                 }
                 else
@@ -6339,7 +6339,7 @@ namespace PSXRacing.City
                     // (2026-10-24, West Trade Street by the I-77 underpass: a
                     // 10 m rail on the strip where they meet to merge, at two
                     // heights - one street, no rail between its halves).
-                    if (!Barriered(e) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
+                    if ((!Barriered(e) || DividerAt(e) == DividerKind.Island) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
                         drop = 0;
                 }
             }

@@ -66,7 +66,7 @@ namespace PSXRacing.City
         const float MedianEvalNearM = 45f;
         /// <summary>The plants' block along the road, their step in it, how
         /// far in from the curb's nose they stand and from a bed's end.</summary>
-        const float MedianBlockM = 12f, MedianPlantStepM = 1.5f, MedianPlantInM = 0.7f, MedianPlantEndM = 2f;
+        const float MedianBlockM = 12f, MedianPlantStepM = 0.9f, MedianPlantInM = 0.55f, MedianPlantEndM = 2f;
 
         /// <summary>Roads whose median the survey found concrete at every
         /// place looked at (2026-11-09: Wilkinson Blvd 3 of 3, N Tryon St 3 of
@@ -224,12 +224,13 @@ namespace PSXRacing.City
         /// top's kind.</summary>
         static void PrepareMedianDress(CityMap map, CityMap.Edge e, int n)
         {
-            bool concRoad = MedianConcreteWays.Contains(e.wayId) || (MedianDressOn && MedianConcreteRoads.Contains(e.name));
+            // a listed way is concrete whatever its width (as before); a listed road where it is curbed
+            bool concWay = MedianConcreteWays.Contains(e.wayId), concRoad = MedianDressOn && MedianConcreteRoads.Contains(e.name);
             float s0 = sections[0].s, s1 = sections[n - 1].s;
             float beyA = MedianDressOn ? MedianBeyond(map, e, e.a) : 0f, beyB = MedianDressOn ? MedianBeyond(map, e, e.b) : 0f;
             for (int k = 0; k < n; k++)
             {
-                cmTop[k] = (byte)(concRoad ? MedianTopConcrete : MedianTopGrass);
+                cmTop[k] = (byte)(concWay ? MedianTopConcrete : MedianTopGrass);
                 if (cmW[k] <= 0f || !MedianDressOn) continue;
                 float sk = sections[k].s;
                 float db = beyA == float.MaxValue ? float.MaxValue : sk - s0 + beyA;
@@ -249,8 +250,9 @@ namespace PSXRacing.City
                     if (ta != float.MaxValue) df = Mathf.Min(df, cmTwS[k] + ta);
                 }
                 cmDb[k] = db; cmDf[k] = df;
-                if (concRoad) continue;
+                if (concWay) continue;
                 if (cmK[k] < 0.5f) continue;                                    // grass at grade: no curb, no bed
+                if (concRoad) { cmTop[k] = MedianTopConcrete; continue; }
                 float w = cmG[k];
                 if (w < MedianConcreteMaxW) { cmTop[k] = MedianTopConcrete; continue; }
                 if (cmFast[k]) continue;                                        // a fast trunk: grass
@@ -305,9 +307,10 @@ namespace PSXRacing.City
         /// A bed span's plants (its own half of the island: the twin plants
         /// the other), on a fixed grid of the edge's arc so two tiles and two
         /// spans never plant one place twice: by 12 m block a mass of
-        /// ornamental grass (switchgrass and fescue, a metre high, a step
-        /// apart), a group of low shrubs (inkberry and azalea kept under a
-        /// metre, every other step) or bare mulch. Feet on the island's top.
+        /// ornamental grass (switchgrass and fescue, a metre and more high,
+        /// a step apart, two deep where the half is wide), a group of low
+        /// shrubs (inkberry and azalea kept about a metre, every other step)
+        /// or bare mulch. Feet on the island's top.
         /// </summary>
         static void MedianPlantSpan(CityMap.Edge e, int i, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB, Vector3[] pA, Vector3[] pB, float wA, float wB)
         {
@@ -321,27 +324,33 @@ namespace PSXRacing.City
                 float db = Mathf.Lerp(cmDb[i - 1], cmDb[i], f), df = Mathf.Lerp(cmDf[i - 1], cmDf[i], f);
                 if (Mathf.Min(db, df) < MedianPocketM + MedianPlantEndM) continue;
                 float bt = CityTrees.Hash01(e.index, block, 700);
-                int kind = bt < 0.50f ? 0 : bt < 0.78f ? 1 : 2;       // grass mass, shrubs, bare
+                int kind = bt < 0.55f ? 0 : bt < 0.80f ? 1 : 2;       // grass mass, shrubs, bare
                 if (kind == 2) continue;
                 if (kind == 1 && (st & 1) != 0) continue;
-                float r = CityTrees.Hash01(e.index, st, 701);
-                if (r >= (kind == 0 ? 0.9f : 0.8f) * density) continue;
                 float w = Mathf.Lerp(wA, wB, f);
                 float inMin = CurbNoseOut + MedianPlantInM;
                 if (w < inMin + 0.1f) continue;
-                // across its half: from behind the curb to the axis
-                float lat = Mathf.Lerp(inMin, w, CityTrees.Hash01(e.index, st, 702));
                 var edge = Vector3.Lerp(eA, eB, f);
                 var o = Vector2.Lerp(outA, outB, f).normalized;
                 float yNose = Mathf.Lerp(pA[2].y, pB[2].y, f), yAxis = Mathf.Lerp(pA[3].y, pB[3].y, f);
-                float y = Mathf.Lerp(yNose, yAxis, Mathf.Clamp01((lat - CurbNoseOut) / Mathf.Max(0.05f, w - CurbNoseOut)));
-                var foot = new Vector3(edge.x + o.x * lat, y, edge.z + o.y * lat);
-                float h2 = CityTrees.Hash01(e.index, st, 703), h3 = CityTrees.Hash01(e.index, st, 704);
-                int cell; float scale;
-                if (kind == 0) { cell = h2 < 0.7f ? CityUnderstory.CellSwitchgrass : CityUnderstory.CellFescue; scale = 0.8f + 0.3f * h3; }
-                else { cell = h2 < 0.6f ? CityUnderstory.CellInkberry : CityUnderstory.CellAzalea; scale = 0.45f + 0.15f * h3; }
-                CityUnderstory.Card(mpV, mpN, mpUV, mpT, foot, cell, scale, CityTrees.Hash01(e.index, st, 705) * 180f);
-                MedianPlantCount++;
+                // a mass stands two deep where its half is wide enough: a band each
+                int rows = kind == 0 && w - inMin > 0.9f ? 2 : 1;
+                for (int row = 0; row < rows; row++)
+                {
+                    int salt = 710 + row * 10;
+                    if (CityTrees.Hash01(e.index, st, salt) >= (kind == 0 ? 0.92f : 0.8f) * density) continue;
+                    // across its half: from behind the curb to the axis
+                    float lat = Mathf.Lerp(inMin, w, (row + CityTrees.Hash01(e.index, st, salt + 1)) / rows);
+                    float y = Mathf.Lerp(yNose, yAxis, Mathf.Clamp01((lat - CurbNoseOut) / Mathf.Max(0.05f, w - CurbNoseOut)));
+                    float along = (CityTrees.Hash01(e.index, st, salt + 2) - 0.5f) * 0.5f;
+                    var foot = new Vector3(edge.x + o.x * lat - o.y * along, y, edge.z + o.y * lat + o.x * along);
+                    float h2 = CityTrees.Hash01(e.index, st, salt + 3), h3 = CityTrees.Hash01(e.index, st, salt + 4);
+                    int cell; float scale;
+                    if (kind == 0) { cell = h2 < 0.7f ? CityUnderstory.CellSwitchgrass : CityUnderstory.CellFescue; scale = 0.95f + 0.4f * h3; }
+                    else { cell = h2 < 0.6f ? CityUnderstory.CellInkberry : CityUnderstory.CellAzalea; scale = 0.5f + 0.2f * h3; }
+                    CityUnderstory.Card(mpV, mpN, mpUV, mpT, foot, cell, scale, CityTrees.Hash01(e.index, st, salt + 5) * 180f);
+                    MedianPlantCount++;
+                }
             }
         }
     }
