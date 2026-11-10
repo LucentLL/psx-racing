@@ -223,6 +223,8 @@ namespace PSXRacing.City
         /// <summary>The oak cells whose lowest twentieth is a bare brown trunk in every dress (the kit's
         /// low-reach table; cell 11's is a thin green stem, cell 10's carries leaves to the ground).</summary>
         static readonly byte[] StreetCells = { 8, 9 };
+        /// <summary>The cell every street tree's trunk rows are read from.</summary>
+        const int StreetTrunkCell = 8;
 
         /// <summary>How far from its trunk a tree paints anything at or below
         /// <paramref name="aboveFoot"/> metres over its foot, in metres along
@@ -801,7 +803,9 @@ namespace PSXRacing.City
                 if (t.stem > 0f)
                 {
                     // a street tree: the cell's trunk rows up the clear stem, its crown above
-                    float ch = v1 - v0, um = (u0 + u1) * 0.5f, uh = (u1 - u0) * StreetTrunkHalf;
+                    float ch = v1 - v0, uh = (u1 - u0) * StreetTrunkHalf;
+                    // the trunk is always StreetTrunkCell's (a brown bole in every dress), whatever crown the tree wears
+                    float um = (StreetTrunkCell % 4 + 0.5f) * 0.25f, tv0 = (StreetTrunkCell / 4) * 0.25f + pad;
                     for (int q = 0; q < 2; q++)
                     {
                         float a = (t.yawDeg + q * 90f) * Mathf.Deg2Rad;
@@ -813,7 +817,7 @@ namespace PSXRacing.City
                             var half = dir * (part == 0 ? t.w * StreetTrunkHalf : t.w * 0.5f);
                             float y0 = part == 0 ? 0f : t.stem, y1 = part == 0 ? t.stem : t.h;
                             float pu0 = part == 0 ? um - uh : u0, pu1 = part == 0 ? um + uh : u1;
-                            float pv0 = v0 + ch * (part == 0 ? StreetTrunkV0 : StreetCrownV0), pv1 = part == 0 ? v0 + ch * StreetCrownV0 : v1;
+                            float pv0 = part == 0 ? tv0 + ch * StreetTrunkV0 : v0 + ch * StreetCrownV0, pv1 = part == 0 ? tv0 + ch * StreetCrownV0 : v1;
                             int v = vScratch.Count;
                             vScratch.Add(b - half + Vector3.up * y0); vScratch.Add(b - half + Vector3.up * y1);
                             vScratch.Add(b + half + Vector3.up * y1); vScratch.Add(b + half + Vector3.up * y0);
