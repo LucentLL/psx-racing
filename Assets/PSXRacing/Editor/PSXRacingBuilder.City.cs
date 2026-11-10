@@ -624,6 +624,11 @@ namespace PSXRacing.EditorTools
             m[(int)CityMeshes.Slot.Structure] = MakeMat("CityStructure", CityPackDir + "/city_structure.png", affine: 0f,
                 wet: WetCityConcrete);
             m[(int)CityMeshes.Slot.Crown] = CityCrownMat();
+            // the median dress (2026-11-09): a planted median's bark mulch - the
+            // owner's PSX Textures v3.1 dirt_6 (its chips read as bark), warmed and
+            // lifted to the sun-bleached mulch of the road-level photos
+            // (tools/city/median_mulch.py; the tile sheet is Docs/shots/median_dress)
+            m[(int)CityMeshes.Slot.MedianBed] = MakeMat("CityMedianBed", CityPackDir + "/mulch_dirt_6_city.png", affine: 0f);
             // the Uptown street dress (2026-11-09): Tryon and Trade Streets' brick pavers - the
             // pack's basket-weave paver graded to clay (tools/city/paver_walk.py)
             m[(int)CityMeshes.Slot.WalkPaver] = MakeMat("CityWalkPaver", CityPackDir + "/brick_paver_walk.png", affine: 0f,

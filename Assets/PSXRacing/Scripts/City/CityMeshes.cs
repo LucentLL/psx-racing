@@ -420,6 +420,10 @@ namespace PSXRacing.City
             /// models (CityMeshes.CrownModels) on their own atlas
             /// (Art/City/Crowns/CrownMaterials.png). Last, so no slot moves.</summary>
             Crown,
+            /// <summary>The median dress (2026-11-09): a planted median's bark
+            /// mulch (CityMeshes.MedianDress), a submesh of the ground. Last, so
+            /// no slot moves.</summary>
+            MedianBed,
             /// <summary>The Uptown street dress (2026-11-09): the brick pavers of
             /// Tryon and Trade Streets' sidewalks (CityMeshes.StreetDress), a
             /// submesh of the ground like <see cref="Sidewalk"/>. Last, so no slot moves.</summary>
@@ -1012,6 +1016,10 @@ namespace PSXRacing.City
             /// columns and caps, abutments, guardrail object markers, high
             /// masts. Null where the tile has none.</summary>
             public Mesh structure;
+            /// <summary>The median dress (2026-11-09): the planted medians'
+            /// grasses and shrubs, cards on the understory's atlas - render-only,
+            /// no collider. Null where the tile has no bed.</summary>
+            public Mesh medianPlants;
             /// <summary>The bridges pass's high masts on this tile: their floods'
             /// heads (tile-local, for the night glow) and their feet (world plan,
             /// for the roadside mask).</summary>
@@ -2239,6 +2247,7 @@ namespace PSXRacing.City
             stripInner.Clear(); stripInnerSegs.Clear();
             lampBucket.Clear();
             bankBucket.Clear();
+            MedianPlantsClear();
             lampBuildings = buildings;
             goreGaps.Clear();
             goreQuads.Clear(); goreGroups.Clear();
@@ -2305,7 +2314,7 @@ namespace PSXRacing.City
             stepItem = 6;
             yield return 0;
             stepItem = 0;
-            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk, Slot.WalkPaver }, out var gSlots, false);
+            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk, Slot.MedianBed, Slot.WalkPaver }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;
             stepPart = 1;   // city-build-hitches: the normals a chunk a step
@@ -2329,6 +2338,7 @@ namespace PSXRacing.City
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.banks = MeshFromBucket("banks", bankBucket);
+            tm.medianPlants = MedianPlantsMesh();
             tm.water = MeshFrom("water", new[] { Slot.Water }, out _);
             yield return 0;
             stepItem = 3;
@@ -2353,7 +2363,7 @@ namespace PSXRacing.City
                 }
             // city perf round 1: each mesh sent to the GPU a step each (CityMeshes.PreUpload)
             if (PreUpload && Application.isPlaying)
-                foreach (var um in new[] { tm.ground, tm.roads, tm.buildings, tm.water, tm.structure, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks })
+                foreach (var um in new[] { tm.ground, tm.roads, tm.buildings, tm.water, tm.structure, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.medianPlants })
                 {
                     if (um == null) continue;
                     yield return 0;
@@ -6319,7 +6329,7 @@ namespace PSXRacing.City
                     // wrecks"): a one-way street's left side (the median of a
                     // divided street), graded, warrants no rail. A freeway's
                     // keeps it; a retaining face (ungraded) keeps it anywhere.
-                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && !Barriered(e))
+                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && (!Barriered(e) || DividerAt(e) == DividerKind.Island))   // (the median dress) a surface trunk's island median is a city street's
                         drop = 0;
                 }
                 else
@@ -6340,7 +6350,7 @@ namespace PSXRacing.City
                     // (2026-10-24, West Trade Street by the I-77 underpass: a
                     // 10 m rail on the strip where they meet to merge, at two
                     // heights - one street, no rail between its halves).
-                    if (!Barriered(e) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
+                    if ((!Barriered(e) || DividerAt(e) == DividerKind.Island) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
                         drop = 0;
                 }
             }

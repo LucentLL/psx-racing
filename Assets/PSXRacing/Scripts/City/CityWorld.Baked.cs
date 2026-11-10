@@ -123,7 +123,7 @@ namespace PSXRacing.City
             bl.tm = CityTileCache.Apply(bl.dec);
             // city perf round 1: each mesh sent to the GPU ahead, as a build sends them
             if (CityMeshes.PreUpload && Application.isPlaying && bl.tm != null)
-                foreach (var m in new[] { bl.tm.ground, bl.tm.roads, bl.tm.buildings, bl.tm.water, bl.tm.structure, bl.tm.barriers, bl.tm.guardrails, bl.tm.kerbs, bl.tm.lampPosts, bl.tm.banks })
+                foreach (var m in new[] { bl.tm.ground, bl.tm.roads, bl.tm.buildings, bl.tm.water, bl.tm.structure, bl.tm.barriers, bl.tm.guardrails, bl.tm.kerbs, bl.tm.lampPosts, bl.tm.banks, bl.tm.medianPlants })
                     if (m != null) m.UploadMeshData(false);
             bl.makeMs = clock.Elapsed.TotalMilliseconds;
             if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileBaked, pc);
@@ -276,7 +276,7 @@ namespace PSXRacing.City
         static void KillMeshes(CityMeshes.TileMeshes tm)
         {
             if (tm == null) return;
-            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.buildingCollider, tm.structure })
+            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.buildingCollider, tm.structure, tm.medianPlants })
                 Kill(m);
         }
     }

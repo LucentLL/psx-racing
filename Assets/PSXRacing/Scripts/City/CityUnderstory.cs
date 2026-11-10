@@ -60,6 +60,31 @@ namespace PSXRacing.City
             new Cell { u0 = 0.25f, v0 = 0.0f, u1 = 0.75f, v1 = 0.5f, w = 2.40f, h = 1.17f, crossed = false },  // 5 the verge strip
         };
         const int Fescue = 0, Switchgrass = 1, Inkberry = 2, Laurel = 3, Azalea = 4, Strip = 5;
+        /// <summary>The cells the median dress plants (CityMeshes.MedianDress).</summary>
+        public const int CellFescue = Fescue, CellSwitchgrass = Switchgrass, CellInkberry = Inkberry, CellAzalea = Azalea;
+
+        /// <summary>One crossed pair of a cell's cards into the caller's
+        /// lists, its foot given (tile space, on the surface it stands on):
+        /// the median dress's plants, lit as the understory's own.</summary>
+        public static void Card(List<Vector3> v, List<Vector3> n, List<Vector2> uv, List<int> t, Vector3 foot, int cell, float scale, float yawDeg)
+        {
+            var c = Cells[cell];
+            foot.y -= SinkM;
+            float w = c.w * scale, h = c.h * scale;
+            float u0 = c.u0 + PadU, u1 = c.u1 - PadU, v0 = c.v0 + PadV, v1 = c.v1 - PadV;
+            for (int q = 0; q < 2; q++)
+            {
+                float a = (yawDeg + q * 90f) * Mathf.Deg2Rad;
+                var half = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * (w * 0.5f);
+                var nrm = LitNormal(new Vector3(Mathf.Sin(a), 0f, -Mathf.Cos(a)), cell);
+                int b = v.Count;
+                v.Add(foot - half); v.Add(foot - half + Vector3.up * h); v.Add(foot + half + Vector3.up * h); v.Add(foot + half);
+                n.Add(nrm); n.Add(nrm); n.Add(nrm); n.Add(nrm);
+                uv.Add(new Vector2(u0, v0)); uv.Add(new Vector2(u0, v1)); uv.Add(new Vector2(u1, v1)); uv.Add(new Vector2(u1, v0));
+                t.Add(b); t.Add(b + 1); t.Add(b + 2);
+                t.Add(b); t.Add(b + 2); t.Add(b + 3);
+            }
+        }
 
         /// <summary>A verge strip's step along its road (a hair under its
         /// 2.4 m repeat, so neighbours overlap rather than gap on a curve).</summary>
@@ -139,12 +164,16 @@ namespace PSXRacing.City
                 d /= L;
                 var nrm = new Vector2(-d.y, d.x);
                 float off0 = pc.hw + Mathf.Max(StripMinOffM, pc.clear * StripClearShare);
+                // the median dress (11-09): a surface trunk's median is a mown or planted
+                // island (CityMeshes.MedianDress), no freeway verge's tall grass on it
+                bool islandLeft = CityMeshes.IslandMedianSide(map, e);
                 for (float s = Mathf.Ceil(pc.sa / StripStepM) * StripStepM; s < pc.sb; s += StripStepM)
                 {
                     int st = Mathf.RoundToInt(s / StripStepM);
                     var c = pc.a + d * (s - pc.sa);
                     for (int side = -1; side <= 1; side += 2)
                     {
+                        if (side > 0 && islandLeft) continue;
                         int salt = side < 0 ? 0 : 100;
                         float off = off0 + CityTrees.Hash01(pc.edge, st, 1 + salt) * 0.8f;
                         var mid = c + nrm * (side * off);
@@ -269,6 +298,9 @@ namespace PSXRacing.City
                     var p = min + new Vector2((x + CityTrees.Hash01(gx, gz, 51)) * MedianCellM, (z + CityTrees.Hash01(gx, gz, 52)) * MedianCellM);
                     int between = BetweenRoads(map, occ, p);
                     if (between == 0) continue;
+                    // the median dress (11-09): a curbed island is dressed by its own rule
+                    // (concrete, a planted bed, grass) - no shrub scattered on it
+                    if (betweenIsland) continue;
                     // a planted median on an arterial (45 mph and under) has its shrubs
                     // inside the clear zone; a freeway's stay beyond it
                     byte bits = occ.At(p);
@@ -305,11 +337,13 @@ namespace PSXRacing.City
         /// <summary>A median or an infield: two grounded carriageways of a
         /// secondary road or bigger within reach, on opposite sides of the
         /// point - 0 none, 1 arterials only, 2 a freeway or ramp among them.</summary>
+        static bool betweenIsland;
         static int BetweenRoads(CityMap map, RoadsideOccupancy occ, Vector2 p)
         {
             near.Clear();
             occ.NearRoads(p, MedianReachM, near);
             int found = 0;
+            betweenIsland = false;
             for (int i = 0; i < near.Count; i++)
             {
                 var a = near[i];
@@ -322,6 +356,7 @@ namespace PSXRacing.City
                     if (b.deck || b.edge == a.edge || cb < 2) continue;
                     if (Vector2.Dot(a.away, b.away) >= -0.5f) continue;
                     found = Mathf.Max(found, ca >= 4 || cb >= 4 ? 2 : 1);
+                    if (CityMeshes.MedianDressOn && a.off + b.off <= CityMeshes.CurbMedianMaxW && CityMeshes.MedianPair(map.edges[a.edge], map.edges[b.edge])) betweenIsland = true;
                 }
             }
             return found;
