@@ -51,6 +51,10 @@ namespace PSXRacing.City
         public const float PocketMinStorageM = 12f, PocketMinTaperM = 15f;
         /// <summary>The piece of a carriageway between a divided cross street's two carriageways is at most this long.</summary>
         const float PocketCrossingM = 45f;
+        /// <summary>Junctions kept as they were on this export (CurbMedianGraph): the city-wide
+        /// launch audit found a new spot on the junction's fan with the pocket's wider mouth.
+        /// n11655, North Graham St into University City Blvd at (2214,12389): 0.38 m.</summary>
+        static readonly HashSet<int> PocketSkipNodes = new HashSet<int> { 11655 };
         /// <summary>Clear of the junction or opening the run starts at.</summary>
         const float PocketStartClearM = 6f;
 
@@ -161,6 +165,11 @@ namespace PSXRacing.City
         {
             TurnPockets.Clear(); TurnPocketLeftAt.Clear(); TurnPocketLeftWhy.Clear(); pocketOfEdge.Clear();
             if (!TurnPocketsOn || !CurbMedianOn || !CurbMedianAll) return;
+            // NOT IN THE ELEVATION SOLVE'S TRIMS (CityElevation.PrepareSeats): the solve seats
+            // branches against their hosts' extents, and a pocket there moved 14 seat stations
+            // and with them a launch spot (the city-wide launch audit, 91 -> 92). The heights
+            // are solved on the roads as they were; the pockets are laid on the solved state.
+            if (DividerSeatPass) return;
             var add = new Dictionary<int, List<LineModel.Ease>>();
             var chain = new List<CityMap.Edge>(8);
             foreach (var e in map.edges)
@@ -182,6 +191,7 @@ namespace PSXRacing.City
                 if (!junction) { PocketLeft(map, e, "the opening is a link leaving a through road (no junction)"); continue; }
                 if (SplitNode(map, e, n)) continue;
                 if (t.Internal(e.index)) continue;
+                if (map.graphHash == CurbMedianGraph && PocketSkipNodes.Contains(n)) { PocketLeft(map, e, "kept as it was (a launch spot on its fan)"); continue; }
                 TurnOnly(e, out int fwd, out _, out _, out _, out _);
                 if ((fwd & 1) != 0) { PocketLeft(map, e, "its left lane is a turn lane already"); continue; }
                 float trim = t.atB[e.index];
