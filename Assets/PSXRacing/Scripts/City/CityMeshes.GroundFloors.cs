@@ -350,10 +350,10 @@ namespace PSXRacing.City
             Bucket.Tint = new Color32(TintR(k.x, LookBrick), TintByte(k.y), TintByte(k.z), (byte)(LookBrick * 32));
             Bucket.FacOn = false;
         }
-        static readonly Vector3 DarkGrey = new Vector3(0.36f, 0.80f, 1.12f), DarkBlack = new Vector3(0.36f, 0.50f, 0.60f),
+        static readonly Vector3 DarkGrey = new Vector3(0.36f, 0.80f, 1.12f), DarkBlack = new Vector3(0.36f, 0.62f, 0.88f),
                                 DarkRed = new Vector3(1.99f, 0.48f, 0.46f), DarkDoor = new Vector3(0.80f, 1.60f, 1.99f), DarkBronze = new Vector3(0.70f, 0.95f, 0.80f),
                                 DarkLeaf = new Vector3(0.40f, 1.99f, 0.80f);   // a clipped shrub's dark green
-        const float GfDarkV0 = 0.715f, GfDarkV1 = 0.785f;
+        const float GfDarkU0 = 0.474f, GfDarkU1 = 0.487f, GfDarkV0 = 0.771f, GfDarkV1 = 0.779f;
         static bool gfDarkUv;
 
         /// <summary>A vertical quad parallel to the wall, <paramref name="o"/> out of it (negative: set back), facing the street (or the building: back).</summary>
@@ -381,7 +381,8 @@ namespace PSXRacing.City
         }
         static void GfUv(float a0, float a1, float b0, float b1, out float u0, out float u1, out float v0, out float v1)
         {
-            if (gfDarkUv) { u0 = a0 * 0.05f; u1 = a1 * 0.05f; v0 = GfDarkV0; v1 = GfDarkV1; return; }
+            // (a few texels inside one brick of the strip: a flat dark colour, no courses showing on a bollard)
+            if (gfDarkUv) { u0 = GfDarkU0; u1 = GfDarkU1; v0 = GfDarkV0; v1 = GfDarkV1; return; }
             u0 = a0 * 0.5f; u1 = a1 * 0.5f; v0 = b0 / 8f; v1 = b1 / 8f;
         }
         /// <summary>A box in the wall's frame: faces 1 front, 2 back, 4 start side, 8 end side, 16 top, 32 underside.</summary>
