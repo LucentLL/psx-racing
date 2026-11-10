@@ -359,10 +359,15 @@ namespace PSXRacing.EditorTools
 
         static bool stageDemLoaded;
         /// <summary>The bake's datum: world y 0 is this many metres above sea
-        /// level (fetch_road.mjs writes heights - baseM), so a point's real
-        /// elevation is stageBaseM + y. SRTM, so it reads the canopy top -
-        /// up to +33 m on these ridges, ~0 on Mount Mitchell's summit road
-        /// (the bake agreed with the survey to a metre there).</summary>
+        /// level (the bakes write heights - baseM), so a point's real
+        /// elevation is stageBaseM + y. BARE EARTH, not treetops: the "SRTM"
+        /// tiles the first bakes read are bare-earth USGS data at 30 m inside
+        /// the United States (measured 2026-11-09 against the 1 m lidar road
+        /// on all eight mountain stages: within 0.3 m on average, RMS 1.0-1.6
+        /// m; Docs/mountain_lidar_audit.md), and a stage re-baked by
+        /// tools/roads/bake_3dep.mjs is USGS 3DEP lidar. This note used to
+        /// say "reads the canopy top, up to +33 m on these ridges"; that was
+        /// never measured and is wrong.</summary>
         static float stageBaseM;
         static short[] demNear, demFar;          // decimetres above baseM
         static DemGridMeta demNearMeta, demFarMeta;
@@ -2060,6 +2065,11 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static bool[][] rsCutHold;
         static Vector3[] rsRight;
+        /// <summary>Per side and station: WHY the last laying wanted a wall
+        /// there (LayPlan's `reason`: 0 none, 1 deck, 2 critical fill, 3 water,
+        /// 4 approach, 5 tunnel mouth, 6 theme, 7 critical on the built
+        /// section, 8 the lidar section). Kept for DumpStageRoadside only.</summary>
+        static byte[][] rsReason;
         static List<(int from, int len, float side)> rsWallRuns;
         static List<(int[] stations, float side)> rsBankRuns;
         /// <summary>The rock top laid over each Cut station — (e, world y)
@@ -2073,8 +2083,76 @@ namespace PSXRacing.EditorTools
             rsKind = null;
             rsCatchE = rsWallE = rsWallUp = rsFaceH = rsRelease = null;
             rsCutGraded = rsCutHold = rsCutFaced = null;
-            rsRight = null;
+            rsRight = null; rsReason = null;
             rsWallRuns = null; rsBankRuns = null; rsBankTop = null;
+        }
+
+        // ------------------------------------------------------------------
+        //  Rails the real road has (surveyed)
+        // ------------------------------------------------------------------
+        [Serializable] class RailSpan { public float fromM, toM; public string side; public string seen; }
+        [Serializable] class RailSurvey { public string source; public RailSpan[] spans; }
+
+        /// <summary>
+        /// GUARDRAILS THE REAL ROAD HAS, from Art/(stage)/(prefix)_rails.json:
+        /// spans in metres along the route with a side, each looked up on
+        /// public road-level imagery (reference only: nothing of it is in the
+        /// project). The plan walls them (reason 8) in addition to its own
+        /// warrant.
+        ///
+        /// Why a list and not a rule on the land: 2026-11-10, NC 226A, 17
+        /// places looked at where the SRTM and lidar bakes disagreed or both
+        /// railed. The real road has a rail at ONE (about 260-370 m, left)
+        /// and none at the other 16 - and the lidar section at that one
+        /// (3 m down within 5 m of the shelf, 5-7 m within 10 m, 10-14 m
+        /// within 20 m) is the section at a dozen of the unguarded ones
+        /// (1964 L, 3604 L, 5744 R on the outside of a bend, 8032 R, 9372 R).
+        /// Nothing in drop, slope, side or curvature separates them, so where
+        /// NCDOT put a rail on this road cannot be worked out from the ground;
+        /// it has to be looked at. Docs/mountain_lidar_audit.md has the table.
+        /// </summary>
+        static bool[][] SurveyedRails(int n)
+        {
+            var by = new[] { new bool[n], new bool[n] };
+            string file = ProjectRootPath(StageArtDir + "/" + StagePrefix + "_rails.json");
+            if (!File.Exists(file)) return by;
+            var survey = JsonUtility.FromJson<RailSurvey>(File.ReadAllText(file));
+            if (survey?.spans == null) return by;
+            float lap = n * Spacing;
+            foreach (var sp in survey.spans)
+            {
+                int si = (sp.side ?? "").Trim().ToUpperInvariant().StartsWith("L") ? 0 : 1;
+                for (float m = sp.fromM; m <= sp.toM + 1e-3f; m += Spacing)
+                {
+                    int i = Mathf.RoundToInt((Loop ? Mathf.Repeat(m, lap) : m) / Spacing);
+                    if (i >= 0 && i < n) by[si][i] = true;
+                }
+            }
+            return by;
+        }
+
+        /// <summary>
+        /// The roadside plan as a table, one row per station: what each side
+        /// is (Open, Walled, Cut, Deck, Tunnel), why a wall was wanted, and how
+        /// much of the stone stands (1 = full height, less on a buried
+        /// terminal). Written to PSXRacing_roadside_(id).csv beside the
+        /// project by the lab build and by StageLab.Plan, so two bakes of one
+        /// road can be compared station by station, and a plan checked against
+        /// the real road without building the scene.
+        /// </summary>
+        internal static string DumpStageRoadside(List<Vector3> pts)
+        {
+            if (rsKind == null || pts == null) return "no roadside plan";
+            var sb = new System.Text.StringBuilder("station,m,x,y,z,kindL,whyL,upL,kindR,whyR,upR\n");
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            for (int i = 0; i < pts.Count; i++)
+                sb.Append(i).Append(',').Append((i * Spacing).ToString("0", inv)).Append(',')
+                  .Append(pts[i].x.ToString("0.00", inv)).Append(',').Append(pts[i].y.ToString("0.00", inv)).Append(',').Append(pts[i].z.ToString("0.00", inv)).Append(',')
+                  .Append(rsKind[0][i]).Append(',').Append(rsReason != null ? rsReason[0][i] : (byte)0).Append(',').Append(rsWallUp[0][i].ToString("0.00", inv)).Append(',')
+                  .Append(rsKind[1][i]).Append(',').Append(rsReason != null ? rsReason[1][i] : (byte)0).Append(',').Append(rsWallUp[1][i].ToString("0.00", inv)).Append('\n');
+            string file = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_roadside_" + track.id + ".csv");
+            File.WriteAllText(file, sb.ToString());
+            return file;
         }
 
         static void EnsureStageRoadside(List<Vector3> pts)
@@ -2460,6 +2538,8 @@ namespace PSXRacing.EditorTools
                     waterBy[si][i] = WaterBeside(pts, i, sd);
                 }
             }
+            // Rails the real road has (SurveyedRails), per side.
+            var surveyedBy = SurveyedRails(n);
             // Stations the walk over the built section found critical that the
             // DEM's own test did not (BuiltSectionCritical), per side.
             var builtCriticalBy = new[] { new bool[n], new bool[n] };
@@ -2470,7 +2550,7 @@ namespace PSXRacing.EditorTools
             var softRockBy = new[] { new bool[n], new bool[n] };
 
             // walled metres by warrant, indexed like `reason`
-            var metresBy = new float[8];
+            var metresBy = new float[9];
             float openM = 0f, cutM = 0f;
             int flaredOpen = 0, flaredRock = 0;
             var catches = new List<float>();
@@ -2482,6 +2562,7 @@ namespace PSXRacing.EditorTools
                 rsKind = new Roadside[2][];
                 rsCatchE = new float[2][]; rsWallE = new float[2][]; rsWallUp = new float[2][];
                 rsFaceH = new float[2][]; rsRelease = new float[2][]; rsCutHold = new bool[2][];
+                rsReason = new byte[2][];
                 rsCutGraded = null;
                 rsWallRuns = new List<(int from, int len, float side)>();
                 rsBankRuns = new List<(int[] stations, float side)>();
@@ -2534,6 +2615,12 @@ namespace PSXRacing.EditorTools
                             Want(WrapIdx(j, n), why);
                         }
                     }
+                    // A rail the real road has: its own length, no more (its
+                    // flared, buried terminals are its own first and last
+                    // stations, as a guardrail's are). Not on a deck or in a
+                    // tube, which have their own.
+                    for (int i = 0; i < n; i++)
+                        if (surveyedBy[s][i] && !deck[i]) Want(i, 8);
                     // Past each deck end, onto the approach: "all sections of
                     // bridges should have walls", and the abutment is where a car
                     // gets outboard of a parapet.
@@ -2821,6 +2908,7 @@ namespace PSXRacing.EditorTools
                         if (kind[i] == Roadside.Open) { openM += Spacing; catches.Add(catchE[i]); }
                     }
                     rsKind[s] = kind; rsCatchE[s] = catchE; rsWallE[s] = wallE; rsWallUp[s] = wallUp;
+                    rsReason[s] = reason;
                     rsFaceH[s] = faceH; rsRelease[s] = release; rsCutHold[s] = hold;
                 }
             }
@@ -2907,7 +2995,7 @@ namespace PSXRacing.EditorTools
             Log($"Stage roadside plan: {rsWallRuns.Count} warranted wall runs over {wallM:0} m " +
                 $"(deck {metresBy[1]:0}, approach {metresBy[4]:0}, critical fill {metresBy[2]:0}, " +
                 $"critical on the built section {metresBy[7]:0}, " +
-                $"water {metresBy[3]:0}, tunnel mouth {metresBy[5]:0}" +
+                $"water {metresBy[3]:0}, tunnel mouth {metresBy[5]:0}, the real road's own rails {metresBy[8]:0}" +
                 (metresBy[6] > 0f ? $", theme {metresBy[6]:0}" : "") + $"); " +
                 $"{wallsTooTight} hairpin-inside station-side(s) left unwalled out of another stretch's kerb band, " +
                 $"{squaredEnds} run end(s) carried square on a hairpin's inside; {rockFlarePockets} flared-to-rock end(s) buried instead over level land; {squaredNearLeg} square beside another leg; " +

@@ -67,6 +67,31 @@ namespace PSXRacing.EditorTools
             Debug.Log(sb.ToString());
         }
 
+        /// <summary>The roadside plan of each venue in PSX_LAB_IDS, without
+        /// building it (PSXRacingBuilder.PlanRoadsideForLab): a csv per venue
+        /// beside the project, and the plan's own log.</summary>
+        public static void Plan()
+        {
+            var sb = new StringBuilder();
+            string ids = System.Environment.GetEnvironmentVariable("PSX_LAB_IDS") ?? "";
+            try
+            {
+                foreach (var raw in ids.Split(','))
+                {
+                    string id = raw.Trim();
+                    if (id.Length == 0) continue;
+                    TrackCatalog.TrackDef def = null;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == id) def = d;
+                    foreach (var d in TrackCatalog.HeldBack) if (d.id == id) def = d;
+                    if (def == null) { sb.AppendLine("no venue " + id); continue; }
+                    sb.AppendLine("=== " + id + " plan -> " + PSXRacingBuilder.PlanRoadsideForLab(def));
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_stage_plan.txt"), sb.ToString());
+            Debug.Log(sb.ToString());
+        }
+
         /// <summary>Every roadside triangle that faces DOWN (a fold), with the
         /// nearest waypoint, the side and how far out it is.</summary>
         static string DownFaces(string scenePath)

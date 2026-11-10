@@ -138,11 +138,18 @@ if (!KEEP_LINE) {
   const widths = []; for (let i = 0; i < n; i++) if (b0.conf[i]) widths.push(b0.width[i]);
   widths.sort((a, b) => a - b);
   const wMed = widths[widths.length >> 1] ?? 8;
+  // HOW FAR OFF IS OFF. The shelf is pavement plus shoulders, and the
+  // shoulders need not be the same width on both sides, so the shelf's middle
+  // can sit (shelf - pavement) / 2 from the pavement's middle with the mapped
+  // line dead right. A stretch is moved when the filtered offset is over 2 m
+  // AND over that slack plus a metre (NC 226A: 7 m shelf, 6.1 m road, so 2 m;
+  // NC 215: 9 m shelf, so 2.45 m).
+  const moveOverM = Math.max(2, (wMed - st.paved) / 2 + 1);
   const weight = new Float64Array(n);
   const TAPER = 6;                                       // stations: 24 m
   let a = -1;
   for (let i = 0; i <= n; i++) {
-    const on = i < n && Math.abs(b0.offF[i]) > 2;
+    const on = i < n && Math.abs(b0.offF[i]) > moveOverM;
     if (on && a < 0) a = i;
     if (!on && a >= 0) {
       const z = i - 1, len = (z - a + 1) * SP;
@@ -164,6 +171,7 @@ if (!KEEP_LINE) {
   // keep the first point exactly (waypoint 0 is the stage's own origin for the grid); re-space to 4 m through a spline
   const done = moves.filter(m => m.moved);
   if (done.length) wp = splineResample(shifted, SP).map(p => ({ x: p.x, z: p.z }));
+  console.log(`  line: shelf ${wMed} m around ${st.paved} m of road, so a stretch moves when it is over ${moveOverM.toFixed(2)} m off`);
   console.log(`  line: ${done.length} stretch(es) moved onto the bench (${done.reduce((s, m) => s + m.lengthM, 0)} m of road), ${moves.length - done.length} left alone`);
   for (const m of moves) console.log(`    ${String(m.fromM).padStart(6)}-${String(m.toM).padEnd(6)} ${String(m.lengthM).padStart(4)} m  ${m.peakM > 0 ? 'left ' : 'right'} ${Math.abs(m.peakM).toFixed(1)} m  ${m.moved ? 'MOVED' : 'left alone: ' + m.why}`);
 } else {

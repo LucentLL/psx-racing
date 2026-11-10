@@ -732,8 +732,41 @@ namespace PSXRacing.EditorTools
             psxLit = Shader.Find("PSX/Lit");
             if (psxLit == null) throw new Exception("PSX/Lit shader not found");
             string path = BuildTrack(def);
+            if (def.stage && stageWp != null) DumpStageRoadside(stageWp);
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_build_log.txt"), log.ToString());
             return path;
+        }
+
+        /// <summary>
+        /// A stage's ROADSIDE PLAN and nothing else: the same steps BuildTrack
+        /// takes up to PlanStageRoadside (waypoints, the DEM, the terrain
+        /// field, the fuel stop), then the plan's table (DumpStageRoadside).
+        /// A minute instead of a half-hour scene build, for comparing where
+        /// two bakes of one road put their rails, or a rule against the real
+        /// road, before anything is built from it.
+        /// </summary>
+        public static string PlanRoadsideForLab(TrackCatalog.TrackDef def)
+        {
+            log = new StringBuilder();
+            if (!def.stage) return def.id + " is not a stage";
+            EnsureFolders();
+            GenerateTrackTextures();
+            EnsureRoadLayer();
+            psxLit = Shader.Find("PSX/Lit");
+            track = def;
+            theme = ThemeFor(def);
+            matByTex.Clear();
+            matByKey.Clear();
+            ClearSeasonEntries();
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var waypoints = BuildWaypoints(out _);
+            StageLoadDem();
+            BuildTerrainField(waypoints);
+            PlanFuelStop(waypoints);
+            PlanStageRoadside(waypoints);
+            string file = DumpStageRoadside(waypoints);
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_plan_log_" + def.id + ".txt"), log.ToString());
+            return file;
         }
 
         static string BuildTrack(TrackCatalog.TrackDef def)

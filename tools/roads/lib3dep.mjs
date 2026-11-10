@@ -307,16 +307,17 @@ export function dem1m(store, level = 0, project = PROJECT_1M) {
 
 // --------------------------------------------------------------- stages
 /// The eight mountain stages: bake prefix, art folder, TrackCatalog id, the
-/// bake that made them and the Overpass cache file the line came from.
+/// paved width the game builds (TrackCatalog roadWidth, metres), the bake that
+/// made them and the Overpass cache file the line came from.
 export const STAGES = {
-  swa:     { id: 'SwissNC226A',       art: 'Swiss226A',   road: 'NC 226A, Little Switzerland',          baker: 'fetch_road.mjs swiss226a', osm: 'overpass_swiss226a.json' },
-  gap:     { id: 'GillespieGap',      art: 'Gillespie',   road: 'NC 226 to Gillespie Gap',              baker: 'fetch_road.mjs gillespie', osm: 'overpass_gillespie.json' },
-  mtm:     { id: 'MtMitchell',        art: 'MtMitchell',  road: 'NC 128, Mount Mitchell',               baker: 'fetch_road.mjs mtmitchell', osm: 'overpass_mtmitchell.json' },
-  beech:   { id: 'BeechGap',          art: 'BeechGap',    road: 'NC 215 from Beech Gap',                baker: 'fetch_road.mjs nc215', osm: 'overpass_nc215.json' },
-  chimney: { id: 'ChimneyRock',       art: 'ChimneyRock', road: 'Chimney Rock Park Road',               baker: 'fetch_road.mjs chimney', osm: 'overpass_chimney.json' },
-  brp:     { id: 'BlueRidge',         art: 'BRP',         road: 'Blue Ridge Parkway, Linn Cove',        baker: 'tools/brp/fetch_brp.mjs', osm: '../../brp/cache/overpass_brp.json' },
-  swiss:   { id: 'LittleSwitzerland', art: 'Switzerland', road: 'Little Switzerland - Gillespie Gap loop', baker: 'fetch_loop.mjs switzerland', osm: 'loopprobe_switzerland.json' },
-  brock:   { id: 'BlowingRock',       art: 'BlowingRock', road: 'Blowing Rock - Moses Cone loop',       baker: 'fetch_loop.mjs blowingrock', osm: 'loopprobe_blowingrock.json' },
+  swa:     { paved: 6.1, id: 'SwissNC226A',       art: 'Swiss226A',   road: 'NC 226A, Little Switzerland',          baker: 'fetch_road.mjs swiss226a', osm: 'overpass_swiss226a.json' },
+  gap:     { paved: 6.7, id: 'GillespieGap',      art: 'Gillespie',   road: 'NC 226 to Gillespie Gap',              baker: 'fetch_road.mjs gillespie', osm: 'overpass_gillespie.json' },
+  mtm:     { paved: 6.1, id: 'MtMitchell',        art: 'MtMitchell',  road: 'NC 128, Mount Mitchell',               baker: 'fetch_road.mjs mtmitchell', osm: 'overpass_mtmitchell.json' },
+  beech:   { paved: 6.1, id: 'BeechGap',          art: 'BeechGap',    road: 'NC 215 from Beech Gap',                baker: 'fetch_road.mjs nc215', osm: 'overpass_nc215.json' },
+  chimney: { paved: 6.1, id: 'ChimneyRock',       art: 'ChimneyRock', road: 'Chimney Rock Park Road',               baker: 'fetch_road.mjs chimney', osm: 'overpass_chimney.json' },
+  brp:     { paved: 6.4, id: 'BlueRidge',         art: 'BRP',         road: 'Blue Ridge Parkway, Linn Cove',        baker: 'tools/brp/fetch_brp.mjs', osm: '../../brp/cache/overpass_brp.json' },
+  swiss:   { paved: 6.4, id: 'LittleSwitzerland', art: 'Switzerland', road: 'Little Switzerland - Gillespie Gap loop', baker: 'fetch_loop.mjs switzerland', osm: 'loopprobe_switzerland.json' },
+  brock:   { paved: 6.4, id: 'BlowingRock',       art: 'BlowingRock', road: 'Blowing Rock - Moses Cone loop',       baker: 'fetch_loop.mjs blowingrock', osm: 'loopprobe_blowingrock.json' },
 };
 
 /// A baked stage as the tools want it: waypoints in metres, heights ASL, the
