@@ -444,10 +444,13 @@ namespace PSXRacing.EditorTools
             if (pm == null || set == null) { CityPlayCheck.Fail("no pause menu to open"); yield break; }
             set.Invoke(pm, new object[] { true });
             yield return null;
-            bool exit = false;
-            foreach (var tx in pm.GetComponentsInChildren<UnityEngine.UI.Text>(false))
-                if (tx.text == "EXIT TO MENU") exit = true;
-            CityPlayCheck.Check(PauseMenu.IsOpen && exit, "the pause menu opens over the drive with EXIT TO MENU");
+            // The row is named for where it goes since uix-1106 (END DRIVE (GO HOME), QUIT RACE (GO HOME),
+            // TOW CAR HOME ...), so the check reads the menu's own leave row rather than one wording.
+            var leave = typeof(PauseMenu).GetField("exitLabel",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(pm) as UnityEngine.UI.Text;
+            bool exit = leave != null && leave.gameObject.activeInHierarchy && !string.IsNullOrEmpty(leave.text);
+            CityPlayCheck.Check(PauseMenu.IsOpen && exit, "the pause menu opens over the drive with its leave row",
+                                leave != null ? leave.text : "no leave row");
             set.Invoke(pm, new object[] { false });
             yield return null;
         }
