@@ -1996,6 +1996,8 @@ namespace PSXRacing.City
             if (slot == CityMeshes.Slot.Structure) return MatFor(CityMeshes.Slot.Concrete);
             // ...and one built before the crown models: they wear the flat roofs' concrete
             if (slot == CityMeshes.Slot.Crown) return MatFor(CityMeshes.Slot.RoofFlat);
+            // ...and one built before the Uptown street dress: the pavers wear the walk's slab
+            if (slot == CityMeshes.Slot.WalkPaver) return MatFor(CityMeshes.Slot.Sidewalk);
             return null;
         }
 

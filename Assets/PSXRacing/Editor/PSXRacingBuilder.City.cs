@@ -624,6 +624,10 @@ namespace PSXRacing.EditorTools
             m[(int)CityMeshes.Slot.Structure] = MakeMat("CityStructure", CityPackDir + "/city_structure.png", affine: 0f,
                 wet: WetCityConcrete);
             m[(int)CityMeshes.Slot.Crown] = CityCrownMat();
+            // the Uptown street dress (2026-11-09): Tryon and Trade Streets' brick pavers - the
+            // pack's basket-weave paver graded to clay (tools/city/paver_walk.py)
+            m[(int)CityMeshes.Slot.WalkPaver] = MakeMat("CityWalkPaver", CityPackDir + "/brick_paver_walk.png", affine: 0f,
+                wet: WetCityPavement);
             m[(int)CityMeshes.Slot.Water] = CityWaterMat();
             // Night windows: the five facades with glass in them carry a mask
             // (Art/City/Night, see WithNightWindows); brick and both roofs are

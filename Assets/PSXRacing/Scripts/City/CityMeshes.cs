@@ -420,6 +420,10 @@ namespace PSXRacing.City
             /// models (CityMeshes.CrownModels) on their own atlas
             /// (Art/City/Crowns/CrownMaterials.png). Last, so no slot moves.</summary>
             Crown,
+            /// <summary>The Uptown street dress (2026-11-09): the brick pavers of
+            /// Tryon and Trade Streets' sidewalks (CityMeshes.StreetDress), a
+            /// submesh of the ground like <see cref="Sidewalk"/>. Last, so no slot moves.</summary>
+            WalkPaver,
             COUNT,
         }
 
@@ -950,6 +954,9 @@ namespace PSXRacing.City
             /// where there are none). The post colliders are CityWorld.Attach's,
             /// from this list.</summary>
             public List<Lamp> lamps = new List<Lamp>();
+            /// <summary>The Uptown street dress: the street trees this tile's
+            /// walks stood a grate for (CityMeshes.DressSpan); CityTrees plants them.</summary>
+            public List<StreetTree> streetTrees = new List<StreetTree>();
             /// <summary>A parking deck's dark parts (soffits, spandrel joints, fixtures,
             /// roof poles), tile-local quads as a, b, c, d, facing: drawn by the
             /// furniture mesh (CityPoles, CellBlack), which replaces the Lamps mesh.</summary>
@@ -2298,7 +2305,7 @@ namespace PSXRacing.City
             stepItem = 6;
             yield return 0;
             stepItem = 0;
-            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk }, out var gSlots, false);
+            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk, Slot.WalkPaver }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;
             stepPart = 1;   // city-build-hitches: the normals a chunk a step
@@ -4696,6 +4703,8 @@ namespace PSXRacing.City
             for (int k = 0; k < count; k++)
             {
                 float s0 = lo + (k + 0.5f) * step;
+                // (street dress) on a dressed Uptown street a lamp stands in the middle of a gap between two trees
+                if (StreetDressOn) s0 = Mathf.Clamp(LampBetweenTrees(map, trims, e, s0), lo, hi);
                 var p0 = e.PointAt(s0);
                 if (p0.x < min.x || p0.x >= max.x || p0.y < min.y || p0.y >= max.y) continue;   // another tile's lamp
                 tm.lampStations++;
@@ -4755,6 +4764,8 @@ namespace PSXRacing.City
                            float height, byte kind, float speed, float heldOut = 0f)
         {
             if (heldOut <= 0f && !LampSideClear(side, s - LampRunMarginM, s + LampRunMarginM)) return LampRejectSide;
+            // (street dress) never where a street tree stands (its grate is 1.5 m long)
+            if (StreetDressOn && StreetTreeGap(map, trims, e, s) < 2f) return LampRejectSide;
             foreach (float se in lampEnds)
                 if (Mathf.Abs(s - se) < ApproachRailM) return LampRejectStructure;
 
@@ -11776,6 +11787,7 @@ namespace PSXRacing.City
 
         static IEnumerable<int> BuildFootprints(CityMap map, Trims trims, TileMeshes tm, int tx, int tz)
         {
+            EmitSkybridges(map, tm, tx, tz);   // the Uptown street dress: the walkways over the streets (a table of places)
             var list = map.FootprintsInTile(tx, tz);
             if (list == null) yield break;
             stackPlans.Clear();   // floored parts: their buildings' plans on this tile's pavement

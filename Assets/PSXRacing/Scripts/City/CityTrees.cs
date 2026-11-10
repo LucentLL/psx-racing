@@ -202,6 +202,37 @@ namespace PSXRacing.City
             /// <summary>Stands a collider: within reach of a road, and a trunk
             /// of <see cref="SolidTrunkM"/> or more (Q15).</summary>
             public bool solid;
+            /// <summary>An Uptown STREET TREE (the street dress, 2026-11-09):
+            /// it stands in a grate on the sidewalk a metre behind the curb,
+            /// where its walk put it (CityMeshes.DressSpan) - not on free
+            /// ground of the mask - and breaks away in a race route's run-off.</summary>
+            public bool street;
+            /// <summary>A street tree's CLEAR STEM, metres above its foot
+            /// (0: an ordinary tree, its billboard from the ground up): the
+            /// billboard's trunk drawn this high, its crown above it
+            /// (<see cref="LowReachM"/>, BuildMesh).</summary>
+            public float stem;
+        }
+
+        /// <summary>A street tree's billboard, cut in two: the trunk is the
+        /// cell's rows from <see cref="StreetTrunkV0"/> to <see cref="StreetCrownV0"/>
+        /// of its height (bare trunk in every dress of the cells street trees
+        /// wear), this share of the card's width either side of its middle;
+        /// the crown is everything above.</summary>
+        public const float StreetTrunkV0 = 0.01f, StreetCrownV0 = 0.05f, StreetTrunkHalf = 0.05f;
+        /// <summary>The oak cells whose lowest twentieth is bare trunk (the kit's low-reach table).</summary>
+        static readonly byte[] StreetCells = { 8, 9, 11 };
+
+        /// <summary>How far from its trunk a tree paints anything at or below
+        /// <paramref name="aboveFoot"/> metres over its foot, in metres along
+        /// a card: the atlas's low reach - and for a street tree the trunk
+        /// alone up to its clear stem, the crown's own reach above it.</summary>
+        public static float LowReachM(in Tree t, float aboveFoot)
+        {
+            if (t.stem <= 0f) return LowReach(t.cell, aboveFoot / t.h) * t.w;
+            if (aboveFoot <= t.stem) return StreetTrunkHalf * t.w;
+            float frac = StreetCrownV0 + (aboveFoot - t.stem) / Mathf.Max(t.h - t.stem, 0.1f) * (1f - StreetCrownV0);
+            return Mathf.Max(StreetTrunkHalf, LowReach(t.cell, frac)) * t.w;
         }
 
         public const int RejectOverhang = 8, RejectSpacing = 9, RejectCount = 10;
@@ -238,6 +269,9 @@ namespace PSXRacing.City
             /// before the per-tile cap), and what was planted.</summary>
             public float wanted;
             public int solids, grown, shrunk, lined;
+            /// <summary>The street dress: street trees planted, and grates left
+            /// empty because no size of the tree keeps its low leaves off the lane.</summary>
+            public int streetPlanted, streetNoFit;
             /// <summary>Trees within reach of a road that break away (Q15).</summary>
             public int breakaway;
             /// <summary>The solid trunks as the city's TreeTrunks table wants
@@ -309,7 +343,9 @@ namespace PSXRacing.City
             bool furniture = CityPoles.Enabled || (tm != null && tm.lamps.Count > 0);
             bool junctions = CitySignals.Enabled && CitySignals.AnyIn(map, trims, tx, tz);
             bool under = CityUnderstory.Enabled;
-            if (!trees && !signs && !furniture && !junctions && !under) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
+            // the street dress: the trees this tile's walks stood grates for
+            bool street = Enabled && CityMeshes.StreetDressOn && tm != null && tm.streetTrees.Count > 0;
+            if (!trees && !signs && !furniture && !junctions && !under && !street) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
@@ -333,6 +369,13 @@ namespace PSXRacing.City
             if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
             if (!trees)
             {
+                // the street trees stand whatever the canopy map says of the tile
+                if (street)
+                {
+                    System.Array.Clear(taken, 0, taken.Length);
+                    PlantStreet(map, trims, occ, tt, tm);
+                    BuildMesh(tt);
+                }
                 // the understory still grows on a treeless tile (a freeway's verges)
                 if (under) { clock.Stop(); yield return 0; clock.Start(); tt.under = CityUnderstory.Build(map, occ, tx, tz); }
                 tt.ms = (float)clock.Elapsed.TotalMilliseconds;
@@ -341,6 +384,8 @@ namespace PSXRacing.City
             if (signs) { clock.Stop(); yield return 0; clock.Start(); }
             System.Array.Clear(taken, 0, taken.Length);
             float distUp = Vector2.Distance(min + Vector2.one * (CityMeshes.TileSize * 0.5f), map.uptown);
+            // THE STREET TREES FIRST (the street dress): the canopy's own trees then keep their spacing from them
+            if (street) PlantStreet(map, trims, occ, tt, tm);
 
             // every square's share
             for (int z = 0; z < Squares; z++)
@@ -505,6 +550,102 @@ namespace PSXRacing.City
             }
         }
 
+        // ------------------------------------------------------------------
+        //  THE STREET TREES (the Uptown street dress, 2026-11-09). The
+        //  road-level photos of every Uptown block have a row of trees in
+        //  grates a metre behind the curb - the game had none: a sidewalk is
+        //  pavement on the mask, and the canopy map reads near zero between
+        //  towers. The walk decides where (CityMeshes.DressSpan: the block's
+        //  even stations, clear of corners, driveways, walls and other
+        //  roads, a grate laid at each); here each gets its tree.
+        //
+        //  A STREET TREE IS PRUNED UP. Every billboard of the atlas is an
+        //  open-grown tree whose crown starts at a tenth of its height (the
+        //  kit's low-reach table: leaves 0.3-0.5 of the card out by 15%), so
+        //  none can stand a metre from a lane with its leaves 4.2 m over it -
+        //  which is why Uptown's kerbs had no trees. A street tree wears the
+        //  same billboard cut in two (BuildMesh): the trunk rows drawn up a
+        //  clear stem (StreetStemM: the crown's foot 4.3 m over the walk), the
+        //  crown above it at its own proportions - a willow oak with a clear
+        //  bole and a crown 7-8.5 m across on Tryon and Trade (10.8-12.2 m
+        //  tall, the photos' size), 6-7.5 m on the side streets. The cards
+        //  stand at 45 degrees to the road like every tree beside one, and
+        //  the low-leaf rule is the city's own (nothing painted under 4.2 m
+        //  within 0.65 m of the pavement), measured with the stem. Solid by
+        //  Q15 like any city trunk a car can reach; in a race route's
+        //  run-off it BREAKS AWAY, as the lamp posts there do
+        //  (CityMeshes.Lamp.breakaway). A grate whose tree cannot be fitted
+        //  stays empty (counted).
+        // ------------------------------------------------------------------
+        /// <summary>The clear stem over the tree's (sunk) foot: the crown starts 4.3 m over the walk.</summary>
+        public const float StreetStemM = 4.3f + SinkM;
+        /// <summary>Every street tree planted / left out since a tool last reset them.</summary>
+        public static int StreetPlantedTotal, StreetNoFitTotal;
+        /// <summary>The first few grates left empty: where, the edge and by how much the fit failed (tools print it).</summary>
+        public static string StreetNoFitWhy = "";
+
+        static void PlantStreet(CityMap map, CityMeshes.Trims trims, RoadsideOccupancy occ, TreeTile tt, CityMeshes.TileMeshes tm)
+        {
+            foreach (var st in tm.streetTrees)
+            {
+                var w3 = tm.origin + st.foot;
+                var p = new Vector2(w3.x, w3.z);
+                bool main = st.dress == CityMeshes.DressMain;
+                int salt = st.side > 0 ? 31 : 37;
+                float w = Mathf.Lerp(main ? 7f : 6f, main ? 8.5f : 7.5f, Hash01(st.edge, st.station, 300 + salt));
+                float ground = w3.y - SinkM;
+                float road = occ.RoadEdgeDistance(p, RoadsideOccupancy.NearReachM, out _, out _, out var roadDir);
+                if (roadDir.sqrMagnitude < 1e-6f) roadDir = map.edges[st.edge].TangentAt(0f);
+                float yaw = Mathf.Atan2(roadDir.y, roadDir.x) * Mathf.Rad2Deg + 45f;
+                nearRoads.Clear();
+                occ.NearRoads(p, w * 0.5f + 1f, nearRoads);
+                int first = Mathf.Min(StreetCells.Length - 1, (int)(Hash01(st.edge, st.station, 200 + salt) * StreetCells.Length));
+                var t = new Tree
+                {
+                    foot = new Vector3(p.x, ground, p.y), w = w, yawDeg = yaw, cell = StreetCells[first],
+                    species = Species.Oak, road = road, street = true,
+                };
+                // a road standing higher than the walk (a crossfall, a ramp beside it) takes a longer stem
+                bool fit = false;
+                for (int a = 0; a < 3 && !fit; a++)
+                {
+                    t.stem = StreetStemM + 0.5f * a;
+                    t.h = t.stem + (1f - StreetCrownV0) * w;
+                    fit = StreetOverhang(p, t) <= 0f;
+                }
+                if (!fit) { tt.streetNoFit++; StreetNoFitTotal++; if (StreetNoFitWhy.Length < 600) StreetNoFitWhy += $" ({p.x:0},{p.y:0}) e{st.edge} over {StreetOverhang(p, t):0.00} roads {nearRoads.Count};"; continue; }
+                t.dbh = TrunkDiameterM(Species.Oak, t.h, false);
+                t.r = Mathf.Clamp(t.dbh * 0.5f, TreeTrunks.MinRadius, 0.5f);
+                bool runOff = RaceRunOff.Inside(map, trims, p);
+                t.solid = road <= TrunkReachM && t.dbh >= SolidTrunkM && !runOff;
+                if (t.solid) tt.solids++;
+                else if (road <= TrunkReachM) tt.breakaway++;
+                tt.trees.Add(t);
+                Take(occ, p);
+                tt.streetPlanted++; StreetPlantedTotal++;
+            }
+        }
+
+        /// <summary><see cref="Overhang"/> for a street tree (its stem and
+        /// crown: <see cref="LowReachM"/>): how far past the 0.65 m margin
+        /// the worst road in <see cref="nearRoads"/> has it paint anything
+        /// below 4.2 m (0 or less: it fits).</summary>
+        static float StreetOverhang(Vector2 p, in Tree t)
+        {
+            float worst = float.MinValue;
+            var u0 = new Vector2(Mathf.Cos(t.yawDeg * Mathf.Deg2Rad), Mathf.Sin(t.yawDeg * Mathf.Deg2Rad));
+            var u1 = new Vector2(-u0.y, u0.x);
+            foreach (var r in nearRoads)
+            {
+                float reach = LowReachM(t, r.y + OverhangClearM - t.foot.y);
+                if (reach + LeafMarginM < r.off) { worst = Mathf.Max(worst, reach + LeafMarginM - r.off); continue; }
+                float d = Mathf.Min(RoadsideOccupancy.SegSegDistance(p - u0 * reach, p + u0 * reach, r.a, r.b),
+                                    RoadsideOccupancy.SegSegDistance(p - u1 * reach, p + u1 * reach, r.a, r.b));
+                worst = Mathf.Max(worst, r.hw + LeafMarginM - d);
+            }
+            return worst;
+        }
+
         static bool InRing(Vector2[] ring, Vector2 p)
         {
             bool inside = false;
@@ -647,6 +788,34 @@ namespace PSXRacing.City
                 float u0 = col * 0.25f + pad, u1 = (col + 1) * 0.25f - pad;
                 float v0 = row * 0.25f + pad, v1 = (row + 1) * 0.25f - pad;
                 var b = t.foot - origin;
+                if (t.stem > 0f)
+                {
+                    // a street tree: the cell's trunk rows up the clear stem, its crown above
+                    float ch = v1 - v0, um = (u0 + u1) * 0.5f, uh = (u1 - u0) * StreetTrunkHalf;
+                    for (int q = 0; q < 2; q++)
+                    {
+                        float a = (t.yawDeg + q * 90f) * Mathf.Deg2Rad;
+                        float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                        var dir = new Vector3(ca, 0f, sa);
+                        var nrm = new Vector3(sa, 0f, -ca);
+                        for (int part = 0; part < 2; part++)
+                        {
+                            var half = dir * (part == 0 ? t.w * StreetTrunkHalf : t.w * 0.5f);
+                            float y0 = part == 0 ? 0f : t.stem, y1 = part == 0 ? t.stem : t.h;
+                            float pu0 = part == 0 ? um - uh : u0, pu1 = part == 0 ? um + uh : u1;
+                            float pv0 = v0 + ch * (part == 0 ? StreetTrunkV0 : StreetCrownV0), pv1 = part == 0 ? v0 + ch * StreetCrownV0 : v1;
+                            int v = vScratch.Count;
+                            vScratch.Add(b - half + Vector3.up * y0); vScratch.Add(b - half + Vector3.up * y1);
+                            vScratch.Add(b + half + Vector3.up * y1); vScratch.Add(b + half + Vector3.up * y0);
+                            nScratch.Add(nrm); nScratch.Add(nrm); nScratch.Add(nrm); nScratch.Add(nrm);
+                            uvScratch.Add(new Vector2(pu0, pv0)); uvScratch.Add(new Vector2(pu0, pv1));
+                            uvScratch.Add(new Vector2(pu1, pv1)); uvScratch.Add(new Vector2(pu1, pv0));
+                            tScratch.Add(v); tScratch.Add(v + 1); tScratch.Add(v + 2);
+                            tScratch.Add(v); tScratch.Add(v + 2); tScratch.Add(v + 3);
+                        }
+                    }
+                    continue;
+                }
                 for (int q = 0; q < 2; q++)
                 {
                     float a = (t.yawDeg + q * 90f) * Mathf.Deg2Rad;

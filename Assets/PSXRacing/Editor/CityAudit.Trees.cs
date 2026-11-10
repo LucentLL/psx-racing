@@ -111,7 +111,7 @@ namespace PSXRacing.EditorTools
                         Add(e.PointAt(e.length), "route " + r.id);
                     }
 
-            int trees = 0, solids = 0, emptyTiles = 0, breakaway = 0, runOffTrees = 0, routeTiles = tiles.Count - bandTiles;
+            int trees = 0, solids = 0, emptyTiles = 0, breakaway = 0, runOffTrees = 0, streetTrees = 0, routeTiles = tiles.Count - bandTiles;
             int qBad = 0; string qBadAt = "";
             var solidBySpecies = new int[6];
             var bad = new Dictionary<string, int>();
@@ -160,13 +160,19 @@ namespace PSXRacing.EditorTools
                 {
                     var p = new Vector2(t.foot.x, t.foot.z);
                     if (p.x < min.x || p.y < min.y || p.x >= min.x + ts || p.y >= min.y + ts) { outside++; Bad("outside its tile", t.foot, ""); }
+                    // (the Uptown street dress) a STREET TREE stands in a grate on the walk a metre behind
+                    // the curb, where its walk put it: the mask's pavement pad, clear zone and run-off are
+                    // not its rule (a wall, water or a deck still is; the pavement and its leaves are measured below)
                     byte bits = tt.occ.At(p);
+                    if (t.street) { streetTrees++; bits &= RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Deck; }
                     if (bits != 0) Bad("on a reserved cell of the mask", t.foot, "bits " + bits);
                     // race run-off, measured against the route marks themselves
-                    if (RaceRunOff.Inside(map, trims, p)) { runOffTrees++; Bad("in race run-off", t.foot, why); }
+                    bool inRunOff = RaceRunOff.Inside(map, trims, p);
+                    if (inRunOff && !t.street) { runOffTrees++; Bad("in race run-off", t.foot, why); }
+                    if (inRunOff && t.street && t.solid) { runOffTrees++; Bad("a solid street tree in race run-off", t.foot, why); }
                     // Q15: solid only for a trunk of 30 cm or more, within reach of a road
                     if (t.solid) solidBySpecies[(int)t.species]++;
-                    bool q15 = t.solid == (t.road <= CityTrees.TrunkReachM && t.dbh >= CityTrees.SolidTrunkM)
+                    bool q15 = t.solid == (t.road <= CityTrees.TrunkReachM && t.dbh >= CityTrees.SolidTrunkM && !(t.street && inRunOff))
                                && !(t.solid && (t.species == CityTrees.Species.Myrtle || t.species == CityTrees.Species.Bare));
                     if (!q15) { qBad++; if (qBad == 1) qBadAt = $"({t.foot.x:0},{t.foot.z:0}) {t.species} dbh {t.dbh:0.00} road {t.road:0.0} solid {t.solid}"; }
 
@@ -188,12 +194,13 @@ namespace PSXRacing.EditorTools
                         bool deck = e.bridge || e.ElevatedAt(at);
                         if (deck) { if (off < RoadsideOccupancy.DeckMarginM - 0.05f) Bad("under a deck", t.foot, $"e{ei} '{e.name}' {off:0.00} m"); }
                         else if (off < 0f) Bad("on pavement", t.foot, $"e{ei} '{e.name}' {off:0.00} m");
+                        else if (t.street) { if (off < CityMeshes.TreeOutM - 0.35f) Bad("a street tree nearer the pavement than its grate", t.foot, $"e{ei} '{e.name}' {off:0.00} m"); }
                         else if (off < RoadsideOccupancy.ClearZoneOf(e) - 0.05f) Bad("in a clear zone", t.foot, $"e{ei} '{e.name}' cls{e.cls} {off:0.00} m of {RoadsideOccupancy.ClearZoneOf(e)}");
                         if (off < t.w * 0.5f + 0.4f)
                         {
                             // the painted leaves under 4.2 m over this road, toward it, on either card
                             float need = e.YAt(at) + CityTrees.OverhangClearM - t.foot.y;
-                            float reach = CityTrees.LowReach(t.cell, need / t.h) * t.w;
+                            float reach = CityTrees.LowReachM(t, need);
                             float hw = Vector2.Distance(p, a + d * tq) - off;
                             for (int q = 0; q < 2; q++)
                             {
@@ -271,6 +278,7 @@ namespace PSXRacing.EditorTools
             Line("    candidates refused: " + string.Join(", ", rj));
             foreach (var kv in bad) Line($"    {kv.Key}: {kv.Value}  e.g. {badWhere[kv.Key]}");
             int badTotal = 0; foreach (var v in bad.Values) badTotal += v;
+            Line($"    street trees (the Uptown street dress, in grates on the walk): {streetTrees}");
             Check(trees > 0, "the city plants trees (tree audit)", trees);
             Check(badTotal == 0, "no trunk on pavement, in a clear zone or fan, a building or lot, water, under a deck, or on a reserved cell; no low leaves over a road (tree audit)", badTotal);
             Check(outside == 0, "every tree stands in the tile that planted it: none doubled across a seam (tree audit)", outside);

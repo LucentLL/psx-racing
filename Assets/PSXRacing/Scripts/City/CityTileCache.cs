@@ -52,7 +52,7 @@ namespace PSXRacing.City
     {
         /// <summary>The file layout. Part of the fingerprint: a change of it
         /// re-bakes (this file is among the generator's sources anyway).</summary>
-        public const int Format = 1;
+        public const int Format = 2;   // 2: the street trees (the Uptown street dress)
         public const string FolderName = "CityTiles";
         public const string ManifestName = "manifest.txt";
         /// <summary>The player's own fingerprint: Resources/citytiles_stamp.txt,
@@ -281,7 +281,7 @@ namespace PSXRacing.City
             "footprintsLeftOut", "vergeSpans", "goreNoses", "vergeMetres", "railMetres", "wbeams", "wbeamPosts",
             "guardrails", "structure", "mastHeads", "mastFeet", "railEndsWBeam", "railEndsSloped", "railEndsInside",
             "railEndsConnected", "railEndsKept", "railEndsShort", "tap", "houseBoxes", "houseSeats", "mastTips",
-            "culvertEnds",
+            "culvertEnds", "streetTrees",
         };
 
         // ---- write (the bake tool, main thread) -----------------------------
@@ -371,6 +371,8 @@ namespace PSXRacing.City
             foreach (var s in tm.solids) { WriteV3(w, s.center); WriteV3(w, s.size); w.Write(s.yawDeg); w.Write(s.round); w.Write(s.radius); }
             w.Write(tm.lamps.Count);
             foreach (var l in tm.lamps) { WriteV3(w, l.foot); WriteV3(w, l.head); w.Write(l.height); w.Write(l.kind); w.Write(l.breakaway); w.Write(l.mercury); }
+            w.Write(tm.streetTrees.Count);
+            foreach (var t in tm.streetTrees) { WriteV3(w, t.foot); w.Write(t.edge); w.Write(t.side); w.Write(t.dress); w.Write(t.station); }
             WriteList(w, tm.deckDark);
             foreach (int v in new[] { tm.lampStations, tm.wallFacingErrors, tm.footprintCount, tm.houseCount, tm.goreCount, tm.patchCount, tm.branchCount,
                                       tm.footprintsCut, tm.footprintsLeftOut, tm.railEndsWBeam, tm.railEndsSloped, tm.railEndsInside, tm.railEndsConnected,
@@ -563,6 +565,9 @@ namespace PSXRacing.City
                         n = r.ReadInt32();
                         for (int i = 0; i < n; i++)
                             tm.lamps.Add(new CityMeshes.Lamp { foot = ReadV3(r), head = ReadV3(r), height = r.ReadSingle(), kind = r.ReadByte(), breakaway = r.ReadBoolean(), mercury = r.ReadBoolean() });
+                        n = r.ReadInt32();
+                        for (int i = 0; i < n; i++)
+                            tm.streetTrees.Add(new CityMeshes.StreetTree { foot = ReadV3(r), edge = r.ReadInt32(), side = r.ReadSByte(), dress = r.ReadByte(), station = r.ReadInt16() });
                         ReadList(r, tm.deckDark);
                         tm.lampStations = r.ReadInt32(); tm.wallFacingErrors = r.ReadInt32(); tm.footprintCount = r.ReadInt32();
                         tm.houseCount = r.ReadInt32(); tm.goreCount = r.ReadInt32(); tm.patchCount = r.ReadInt32(); tm.branchCount = r.ReadInt32();
