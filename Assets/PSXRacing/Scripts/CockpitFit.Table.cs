@@ -29,9 +29,9 @@ namespace PSXRacing
             new Row("flatsix_coupe_87", 0.1003f, 1.1841f, 0.6757f, 0.7117f),
             new Row("flatsix_turbo_96", 0.0413f, 1.2995f, 0.6951f, 0.7854f),
             new Row("ford_transit", 0.6866f, 1.9779f, 0.8026f, 1.3608f),
-            new Row("fullsize_police", -0.2163f, 1.6133f, 0.5596f, 1.2619f),
-            new Row("fullsize_taxi", -0.2349f, 1.6027f, 0.5317f, 1.2648f),
-            new Row("fullsize_trooper", -0.2163f, 1.6133f, 0.5596f, 1.2619f),
+            new Row("fullsize_police", -0.2152f, 1.6133f, 0.8258f, 0.7964f),
+            new Row("fullsize_taxi", -0.2352f, 1.6030f, 0.8258f, 0.7964f),
+            new Row("fullsize_trooper", -0.2152f, 1.6133f, 0.8258f, 0.7964f),
             new Row("gt_hardtop_73", 0.0737f, 1.2709f, 0.7326f, 0.7929f),
             new Row("gt_liftback_97", -0.1209f, 1.2230f, 0.7079f, 0.8171f),
             new Row("gto_66", 0.1299f, 1.3270f, 0.8922f, 0.9101f),
@@ -62,8 +62,8 @@ namespace PSXRacing
             new Row("viper_gts", -0.3690f, 1.1483f, 0.7486f, 0.7246f),
             new Row("volvo_estate", 0.3310f, 1.3941f, 0.7558f, 0.8440f),
         };
-        /// <summary>The catalogue's median windscreen against his pane (48 shells): his cabin's own
+        /// <summary>The catalogue's median windscreen against his pane (52 shells): his cabin's own
         /// proportion, so the fit moves each car from the middle of the catalogue, not from the probe's header line.</summary>
-        public const float CalibZ = 1.1290f, CalibY = 1.2048f;
+        public const float CalibZ = 1.1444f, CalibY = 1.2141f;
     }
 }
