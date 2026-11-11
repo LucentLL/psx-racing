@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing.City
@@ -214,6 +214,8 @@ namespace PSXRacing.City
         static int Hash(long k, int mask) => (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 33) & mask;
         static long Q(float x) => (long)((x + 16f) * 500f + 0.5f);
         static long Key3(Vector3 v) => (Q(v.x) << 38) | ((Q(v.z) & 0x3FFFF) << 20) | ((long)((v.y + 200f) * 500f + 0.5f) & 0xFFFFF);
+        /// <summary>(The road slab) a 0.5 mm weld: two sheets 2 mm apart are not one.</summary>
+        static long Key3Fine(Vector3 v) => ((long)((v.x + 16f) * 2000f + 0.5f) << 41) | (((long)((v.z + 16f) * 2000f + 0.5f) & 0xFFFFF) << 21) | ((long)((v.y + 200f) * 2000f + 0.5f) & 0x1FFFFF);
         static long KeyXZ(Vector3 v) => (Q(v.x) << 32) | (Q(v.z) & 0xFFFFFFFF);
 
         static void ClearTable(ref long[] keys, int cap)
@@ -370,6 +372,7 @@ namespace PSXRacing.City
             var con = cb;
             skirtRoadPass = true;
             edgeN = 0;
+            slabTaken.Clear();   // (the road slab) the pieces this pass decides
             foreach (var (A0, B0, nrm, bi) in skirtOpen)
             {
             if (++edgeN % SkirtEdgesAStep == 0)
@@ -396,6 +399,7 @@ namespace PSXRacing.City
                 // other pavement carries on past it at its height
                 if (PavedPast(A, B, nrm)) continue;
                 skirtRoadCounts[3]++;
+                slabTaken.Add(KeyXZ(M));   // (the road slab) this pass's piece from here on
                 // a road under it: only a drop of a metre or more can clear one
                 bool deck = M.y - lM > StructureDropM || (M.y - lM > 1f && RoadUnder(map, new Vector2(M.x + o.x + nrm.x * 0.5f, M.z + o.z + nrm.y * 0.5f), M.y));
                 if (deck)
@@ -426,6 +430,11 @@ namespace PSXRacing.City
             }
             }
             skirtPhase[5] += sw.Elapsed.TotalMilliseconds;
+            yield return 0;
+            // THE ROAD SLAB (owner 2026-11-11): every paved sheet's open edge a
+            // face down past what lies beside it, or a tongue under the
+            // pavement it joins (CityMeshes.RoadSlab)
+            foreach (var _ in RoadSlab(map, tm)) yield return 0;
         }
 
         static readonly List<Bucket> skirtSheets = new List<Bucket>(96), roadSheets = new List<Bucket>(96);
@@ -487,10 +496,12 @@ namespace PSXRacing.City
         /// border, with its outward unit (away from its triangle) and the index
         /// of its bucket. Into <see cref="skirtOpen"/>; <paramref name="keepTris"/>
         /// keeps the triangles (global vertex indices) for <see cref="roadGrid"/>.</summary>
-        static void OpenEdges(List<Bucket> sheets, bool keepTris, int[] sheetV0 = null, int[] sheetT0 = null)
+        static void OpenEdges(List<Bucket> sheets, bool keepTris, int[] sheetV0 = null, int[] sheetT0 = null, bool fine = false)
         {
             skirtOpen.Clear();
+            skirtOpenOwn.Clear();
             skirtTriCount = 0;
+            if (openSheetOff.Length < sheets.Count) openSheetOff = new int[sheets.Count + 8];
             // each sheet's [start, end): from after the lattice (ground) to
             // what the pass found there (never the faces it adds itself)
             int n = 0, nEff = 0, ntEff = 0;
@@ -514,7 +525,7 @@ namespace PSXRacing.City
                     int gi = off + i;
                     var v = vs[i];
                     skirtPos[gi] = v;
-                    long key = Key3(v);
+                    long key = fine ? Key3Fine(v) : Key3(v);
                     int h = Hash(key, tMask);
                     while (tKeys[h] != EmptyKey && tKeys[h] != key) h = (h + 1) & tMask;
                     if (tKeys[h] == EmptyKey) { tKeys[h] = key; tVal[h] = gi; }
@@ -524,10 +535,12 @@ namespace PSXRacing.City
             }
             int ec = Cap(ntEff); ClearTable(ref eKeys, ec); eMask = ec - 1;
             if (eCnt.Length < ec) { eCnt = new int[ec]; eThird = new int[ec]; eBk = new byte[ec]; }
+            if (eOwnA.Length < ec) { eOwnA = new int[ec]; eOwnB = new int[ec]; }
             if (keepTris && skirtTri.Length < ntEff) skirtTri = new int[ntEff + ntEff / 2];
             off = 0;
             for (int bi = 0; bi < sheets.Count; bi++)
             {
+                openSheetOff[bi] = off;
                 var t = sheets[bi].t;
                 int v0 = sheetV0 != null ? sheetV0[bi] : 0, v1 = PassV(sheets[bi]), t1 = PassT(sheets[bi]);
                 for (int i = sheetT0 != null ? sheetT0[bi] - sheetT0[bi] % 3 : 0; i + 2 < t1; i += 3)
@@ -542,7 +555,7 @@ namespace PSXRacing.City
                         long ek = a < c ? ((long)a << 32) | (uint)c : ((long)c << 32) | (uint)a;
                         int h = Hash(ek, eMask);
                         while (eKeys[h] != EmptyKey && eKeys[h] != ek) h = (h + 1) & eMask;
-                        if (eKeys[h] == EmptyKey) { eKeys[h] = ek; eCnt[h] = 1; eThird[h] = t[i + (k + 2) % 3] + off; eBk[h] = (byte)Mathf.Min(bi, 255); }
+                        if (eKeys[h] == EmptyKey) { eKeys[h] = ek; eCnt[h] = 1; eThird[h] = t[i + (k + 2) % 3] + off; eBk[h] = (byte)Mathf.Min(bi, 255); eOwnA[h] = t[i + k] + off; eOwnB[h] = t[i + (k + 1) % 3] + off; }
                         else eCnt[h]++;
                     }
                 }
@@ -561,8 +574,17 @@ namespace PSXRacing.City
                 var nrm = new Vector2(-d2.y, d2.x) / len;
                 if (Vector2.Dot(new Vector2(C.x - A.x, C.z - A.z), nrm) > 0f) nrm = -nrm;   // away from its sheet
                 skirtOpen.Add((A, B, nrm, eBk[h]));
+                // (the road slab) the edge's own two vertices, in A, B order
+                bool ownFirst = skirtId[eOwnA[h]] == (int)(ek >> 32);
+                skirtOpenOwn.Add(ownFirst ? (eOwnA[h], eOwnB[h]) : (eOwnB[h], eOwnA[h]));
             }
         }
+        /// <summary>(The road slab) per <see cref="skirtOpen"/> entry, the open
+        /// edge's own triangle's two vertices (global over the sheets, see
+        /// <see cref="openSheetOff"/>): A's and B's, unwelded.</summary>
+        static readonly List<(int a, int b)> skirtOpenOwn = new List<(int, int)>(1024);
+        static int[] openSheetOff = new int[128];
+        static int[] eOwnA = new int[1 << 17], eOwnB = new int[1 << 17];
 
         static int PassV(Bucket b) => b.passV;
         static int PassT(Bucket b) => b.passT;

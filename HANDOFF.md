@@ -361,6 +361,35 @@ Branch `charlotte-curbs-drains` (worktree `C:\Users\mcgee\PSX Racing-curbs`) off
 - Re-bake needed (tile geometry: walk mesh + structure mesh). No new Slot, mesh, material, TileMeshes field or format change; everything rides Slot.Sidewalk (walk) and the structure mesh (Slot.Structure). Tiles with no bridge now also have a structure mesh.
 - Seams interface: my side starts at the drawn road edge (Section.L/R). The curb foot is at the drawn edge, 2.5 cm under it; the gutter pan is a render-only plate ON the road from the edge to 0.6 m inside it, 1 cm proud, built from the span's own L/R heights; manholes likewise on the ribbon. Nothing of mine touches the ribbon, fan or skirts.
 - Shared-file edits: `CityMeshes.cs` one line (after PlaceLamps). New files with .meta: CityMeshes.Curbs2.cs, Editor/CityCurbDrive.cs, Editor/CityRefSpots.Curbs.cs.
+﻿# HANDOFF - ROAD SEAMS / ROAD SLAB (charlotte-road-seams, 2026-11-11; NOT pushed, NOT merged)
+
+Branch `charlotte-road-seams` (worktree `C:\Users\mcgee\PSX Racing-seams`) off mountain-nm c81f2a59. Sandbox PSXBuild (lock "seams", removed). Owner 2026-11-11, N Graham St: "I see through gaps in the road at every intersection ... I asked for roads to have real thickness".
+
+## Cause (measured)
+- The owner's line: a junction fan's mouth edge stands FanProudM = 12 mm over the ribbon's end row (CityMeshes.cs:10600; corners CityMeshes.cs:10825; centre CityMeshes.cs:9901) and nothing filled the step. Approaching a junction the eye looks through the 12 mm slot under the fan onto the lattice 10 cm down (pale dirt): a hairline across the whole road. Reproduced in editor frames at N Graham St node 14254 (arm e20287), 15 m short, noon and sunset.
+- Also: sheets meeting at one height with vertices that do not coincide (T-junctions, slivers the closing pass's 2 mm weld took as shared; ~26 km in the six place tiles, mostly lots and fans), and road edges standing 2-10 cm over a verge/land (the closing pass, CityMeshes.Skirts.cs, faced only edges > SkirtMinM 0.10 m over the lattice, none with pavement past).
+- NOT the bake: a tile written and read back through CityTileCache (Encode/Write/Read/Apply) is bit-exact (roads/ground/kerbs vertices, normals, indices), slab off and on. Tile borders: matched road vertices differ <= 0.046 mm; 14-34 of ~400 border vertices have no partner within 0.5 mm (T-junctions across a border; the slab skips border-aligned edges). There are no LOD road meshes.
+
+## Fix (PSX_CITY_ROADSLAB=0 = before; CityMeshes.RoadSlabOn settable)
+- Scripts/City/CityMeshes.RoadSlab.cs (new), run at the end of the closing pass, a tile-job step every 256 edges. The road sheets' open edges re-found at a 0.5 mm weld (Key3Fine). Each gets a vertical FACE in its own bucket (material, draw call unchanged):
+  - STEP (land or pavement past lower by > 2 mm, <= 0.6 m): down to 3 cm under it, top ON the edge (the owner's fan risers). From a kerb's foot where a kerb face runs along the edge.
+  - JOIN (pavement past -3 mm .. +10 cm): 3 cm deep, 4 mm in under the edge, top 1 mm under (a tie-free line); the two sheets' faces look at each other across the crack. Steps under 6 mm are inset the same way.
+  - Not where the closing pass, or another sheet's slab face turned the same way, already stands on that line (5 mm inset where it stands in part). Collinear runs merged. Normals set straight up after the roads mesh's (SlabNormals) so a face shades as the road.
+  - A first version laid sloping tongues under joins: clean picture but the flicker finder counted 456 -> 899 tie px (they started level with the pavement past). Replaced.
+- Shared-file edits: CityMeshes.cs one line after FinishMeshSteps(tm.roads) (SlabNormals). CityMeshes.Skirts.cs: OpenEdges records each open edge's own vertices (skirtOpenOwn, openSheetOff) and takes `fine` (Key3Fine); the road loop adds slabTaken keys; RoadSlab enumerated after the road faces. No curb/walk file touched; the curb faces (ground mesh, Sidewalk slot) are not seen by the slab: where a road edge meets a curb a face may end up inside the curb (hidden).
+- Collider: the faces are in the Roads mesh (no render-only road collider exists; one would be a bake-format change). A face stands in the plane under the sheet's existing edge (that step was already the sheet's edge in the collider).
+
+## Proof
+- Sheet: scratchpad seams\seams_before_after.png (6 places x noon/sunset; eye 15 m, eye 40 m, chase 1.0 m at 25 m; before | 3.3x centre zoom | after | zoom; seam at frame centre). Owner_graham: pale line gone at noon and sunset (checked at 5x); uptown_4leg, res_t (dark line), ramp_term sunset lines gone; divided_x shows none either way; the slope place's seam is behind a crest (weak pick); 40 m / chase zooms mostly land above the seam (frame centre).
+- Seam audit (Editor/CitySeamAudit.cs; open metres before -> after): owner tile 3295 -> 68; six place tiles 30674 -> 294; Uptown 4x4 77544 -> 2894; 60-tile city sample 90632 -> 516 (99.4 %). NOT 0. Residual: joins where the pavement past is just 2-3 mm off (band edges), Uptown steps onto rising ground; listed in the report.
+- CityAudit.RunDrive (uptown route; owner's e20287 + 8 neighbours): all 26 ok/FAIL lines identical before/after (walls in lanes 0, fall holes 0; the one FAIL, INVISIBLE COLLIDERS solids 88, is there before too). Run on the 2 mm-inset build (229eecf5); the last two commits change only face insets.
+- Flicker finder (uptown0, uptown1, tryon0; OpenGL core): 456 tie px before -> 575 after (+119 of 6.1 M drawn). 97 of them at one fan mouth (S Tryon at Winona, junction | tw3t asphalt, 13 m): the riser face's line against the ribbon under it. NOT 0.
+- CityRoadMeshHash ALL fefe884bcf0482fb -> (final build not re-hashed; 229eecf5: e7af04817a1be839). Only Roads change; Kerbs/Barriers/Ground identical.
+- Cost: road triangles +37-45 % a tile (owner tile 4349 -> 7771); slab pass 14 ms a tile (city sample), 106 ms (Uptown mean), worst ~600 ms on a lot-heavy Uptown tile (sliced). Draw calls unchanged.
+
+## Coordinator
+- Re-bake the tiles (road geometry changed). No CityTileCache.Format change, no new slot, no asset files (new .cs + .meta only).
+
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 
 Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
