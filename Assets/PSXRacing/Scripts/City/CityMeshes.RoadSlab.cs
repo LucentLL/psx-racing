@@ -25,9 +25,11 @@ namespace PSXRacing.City
         //   - a FACE straight down from the edge to under whatever lies beside
         //     it lower (the fan's step onto the ribbon; a verge 2 cm under; the
         //     land), tucked SlabTuckM under it: the slab's edge;
-        //   - a TONGUE where pavement past it stands level with it or higher:
-        //     from the edge out under that pavement, falling 1 in 12, so a ray
-        //     through any crack at the join lands on asphalt.
+        //   - where pavement past it stands level with it or higher (a JOIN), a
+        //     face JoinFaceM deep: the two sheets' faces look at each other
+        //     across the crack, so a ray through it lands on asphalt.
+        //     (A sloping tongue under the pavement past was tried first: it
+        //     started level with that pavement and z-fought it.)
         //  Both are drawn with the road's own up normal and the edge's own UV,
         //  so what shows of them shades as the road beside them. Their top edge
         //  is the sheet's own two vertices (bit for bit): no new crack.
@@ -53,6 +55,8 @@ namespace PSXRacing.City
         /// <summary>The tongue: out under the pavement past, falling 1 in 12;
         /// the short one where that pavement is narrower than the long one.</summary>
         const float TongueRunM = 0.25f, TongueShortM = 0.08f, TongueFall = 1f / 12f;
+        /// <summary>How deep a join's face reaches under the lower of its two corners.</summary>
+        const float JoinFaceM = 0.03f;
 
         /// <summary>The tile's last build: tongues and faces laid, metres, triangles, ms.</summary>
         public static int slabTongues, slabFaces, slabTris; public static float slabTongueM, slabFaceM; public static double slabMs;
@@ -171,11 +175,19 @@ namespace PSXRacing.City
                     }
                 if (slabProbeAt.x > -1e8f && Vector2.Distance(new Vector2(A.x + o.x, A.z + o.z), slabProbeAt) < 6f)
                     slabProbeLog?.Add($"SLAB PROBE edge ({A.x + o.x:0.00},{A.y + o.y:0.000},{A.z + o.z:0.00})-({B.x + o.x:0.00},{B.y + o.y:0.000},{B.z + o.z:0.00}) nrm ({nrm.x:0.00},{nrm.y:0.00}) bucket {bi} taken {taken} level {level} far {levelFar} lower {lower} lowest {lowest + o.y:0.000} under {under} kerb {SlabKerbAlong(A, B, A0, B0)}");
-                int cover = lower && !under && top - lowest <= SlabMaxM ? SlabFaceCover(A, B) : 0;
+                // A JOIN (pavement past level with it or higher) takes a face too, JoinFaceM deep:
+                // a ray through a crack between two sheets meets the face of the sheet across it
+                // (each sheet's face looks across the crack at the other, so whichever side the
+                // eye is on, the face it meets is turned to it). The first version laid a tongue
+                // out under the pavement past, falling 1 in 12: it started level with that
+                // pavement and the flicker finder counted the depth ties (456 -> 899 px).
+                bool faceLow = lower && !under && top - lowest <= SlabMaxM;
+                int cover = faceLow || level ? SlabFaceCover(A, B) : 0;
                 taken = cover > 0;
-                if (lower && !under && top - lowest <= SlabMaxM && cover < slabProbe.Length)
+                if ((faceLow || level) && cover < slabProbe.Length)
                 {
-                    float bot = lowest - SlabTuckM;
+                    float bot = faceLow ? lowest - SlabTuckM : float.PositiveInfinity;
+                    if (level) bot = Mathf.Min(bot, Mathf.Min(A.y, B.y) - JoinFaceM);
                     // a kerb face drawn along it already (a fan's chord): from its foot
                     bool kerb = SlabKerbAlong(A, B, A0, B0);
                     float yA = kerb ? A.y - KerbFaceM : A.y, yB = kerb ? B.y - KerbFaceM : B.y;
@@ -185,8 +197,6 @@ namespace PSXRacing.City
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
                         SlabAdd(new SlabPiece { A = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset, B = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : taken ? 3 : 1, bot = bot });
                 }
-                if (level)
-                    SlabAdd(new SlabPiece { A = A, B = B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = 0, run = levelFar ? TongueRunM : TongueShortM });
             }
             clock.Stop(); yield return 0; clock.Start();
             SlabEmit();

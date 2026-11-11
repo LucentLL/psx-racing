@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -39,7 +39,7 @@ namespace PSXRacing.EditorTools
                 CityTileCache.Enabled = false;
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_RAILBOX", "0");
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_BARRIERS", "0");
-                foreach (var mode in new[] { "before", "after" })
+                foreach (var mode in (System.Environment.GetEnvironmentVariable("PSX_SEAMGATE_MODES") ?? "before,after").Split(','))
                 {
                     CityMeshes.RoadSlabOn = mode == "after";
                     if (!skip.Contains("drive"))

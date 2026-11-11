@@ -300,9 +300,20 @@ namespace PSXRacing.EditorTools
                         {
                             st.joinM += segM;
                             if (dy <= 0.002f) st.joinLevelM += segM; else if (dy <= 0.02f) st.joinRiserM += segM; else st.joinHighM += segM;
-                            // the crack: straight down from just under the edge, 2 cm out
-                            bool ok = Physics.Raycast(P + n3 * 0.02f + Vector3.down * 0.001f, Vector3.down, out var h2, 0.06f, mask, QueryTriggerInteraction.Ignore)
-                                      && h2.collider.name == "Roads";
+                            // the crack, as an eye on the pavement past sees into it: a ray already in
+                            // the crack (2 mm out, a millimetre under the edge, or half way up a slot
+                            // under a higher sheet past), heading back under this sheet 3 and 15 degrees
+                            // down. Closed when it meets drawn paving (or a face turned to it) within
+                            // 10 cm; open when it runs on under the sheet to the ground or the sky.
+                            bool ok = true;
+                            var S = P + n3 * 0.002f + Vector3.up * (Mathf.Max(dy, 0f) * 0.5f - 0.001f);
+                            foreach (float deg in new[] { 3f, 15f })
+                            {
+                                var dir = (-n3 * Mathf.Cos(deg * Mathf.Deg2Rad) + Vector3.down * Mathf.Sin(deg * Mathf.Deg2Rad)).normalized;
+                                bool closed = Physics.Raycast(S, dir, out var h2, 0.1f, mask, QueryTriggerInteraction.Ignore)
+                                              && (h2.collider.name == "Roads" || h2.collider.name == "Kerbs" || Vector3.Dot(h2.normal, n3) > 0.3f);
+                                if (!closed) { ok = false; break; }
+                            }
                             if (!ok)
                             {
                                 st.joinOpenM += segM;
