@@ -104,8 +104,10 @@ Shader "PSX/Lit"
         [HideInInspector] _RoadBaseTex ("Road base colour", 2D) = "grey" {}
         [HideInInspector] _RoadPaint ("Road paint mask (R white, G yellow, B rumble/2)", 2D) = "black" {}
         [HideInInspector] _RoadBaseRepeat ("Base tiles per uv (x across, y along), z mask on", Vector) = (1,1,0,0)
-        [HideInInspector] _RoadPaintW ("Paint white (linear)", Color) = (0.58,0.58,0.55,1)
-        [HideInInspector] _RoadPaintY ("Paint yellow (linear)", Color) = (0.55,0.35,0.02,1)
+        // Vector, not Color: a Color property is gamma-converted on the way
+        // in (first frames, 08:31: the yellow came out orange); these are linear
+        [HideInInspector] _RoadPaintW ("Paint white (linear)", Vector) = (0.578,0.578,0.552,1)
+        [HideInInspector] _RoadPaintY ("Paint yellow (linear)", Vector) = (0.552,0.352,0.021,1)
         // THE TERRAIN DETAIL amounts per channel of the detail sheet (R grass,
         // G dirt, B rock, A snow): stamped at runtime from the main texture by
         // TerrainDetail.cs, never saved. The sheet and its switch are globals
