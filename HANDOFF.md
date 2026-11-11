@@ -1,3 +1,56 @@
+# HANDOFF - TEXTURES ROUND 4: SHOPFRONTS AT SOURCE RES, R2 ROADS/WALKS, GLASS c00-c02 (tex-round4, 2026-11-11; agent "tex4"; NOT pushed, NOT merged)
+
+Branch `tex-round4` (worktree `C:\Users\mcgee\PSX Racing-tex4`) off mountain-nm b970153d. Sandbox PSXCity (lock "tex4", released). Sheet: scratchpad `tex4\tex4_before_after.png` (also art workspace `Charlotte_Texture_Context\2026-11-11\G_00_tex4_sheet.png`).
+
+## Owner report
+"why are building textures so blurry when I had Codex overhaul them to 2k resolution?" (Uptown shopfronts, BRICKMOON / PET SALON).
+
+## Causes
+- `Editor/PSXRacingBuilder.City.cs` ComposeShops (~1140): the four 1508-1747 px fictional storefronts squeezed into 256 px cells of `Art/City/city_shops.png` (1024x256), once.
+- Then the PC import: `ConfigureTextureImporters` (PSXRacingBuilder.cs ~1162) sets the DEFAULT platform max to `PSXTextureCaps.MaxFor` = 256 and Standalone is not overridden, so the PC exe ships city_shops at **256x64 = 64 px per 6 m front, point, no mips** (verified in PSXLab/PSXBuild/PSXCity .meta). Same cap hits every Art texture without an Enhanced twin or HD set (sweep below).
+- Aspect: a front is drawn ~6 m x 4.2 m (1.43:1; real walls give 3.4-9 m a front: `FacadeMeters` Shops 24 m / 4 fronts, `EmitWallStyled` reps = round(wall/24)); sources are 1.45/1.74/1.93/1.94:1, so three fronts are squashed ~25% horizontally. The UV rule is in CityMeshes.cs (fingerprinted): NOT changed, for the re-bake round (e.g. 30 m a repeat, or Codex authors at 1.43:1 - asked).
+- Shopfront geometry: the storefront canopy/sign band (`EmitStorefront`) covers the top ~0.8 m of each front, cutting most signs in half, and shades the windows (re-bake item).
+
+## Changes (no fingerprinted file touched: `git diff b970153d -- Assets/PSXRacing/Scripts/City Assets/PSXRacing/Scripts/RoadsideRules.cs` = 0 lines; KitHash untouched)
+- `tools/city/shops_hd.py`: `city_shops_overhaul1_hd.png` 4096x1024 (each source whole in a 1024 cell, exactly the old cell; registration vs shipped atlas: mean diff 2.2/255 at 0 px shift, 9.7 at +-1 px) + `_rough` (glass 0.30 from the night mask, else 0.85). The shipped `city_shops_night.png` rides as `_hd_night` (uncapped 1024x256, point).
+- `Scripts/TextureHD.cs`: HD sets may carry `_night` (PSX/Lit `_NightMask`, restored on Off); `PSX_HD_SKIP=city_shops,city_facade_hd` A/B switch (env, not a generator prefix). Facade arrays now hold only delivered columns (`_FacadeHDOn[c]` = slice+1): 3 columns = 24 MB instead of 128 MB.
+- `Editor/TextureHDTool.cs`: imports `_night`, ships it; compact arrays.
+- `Shaders/PSXLit.shader` (shared, 4 lines ~1803): slice from `_FacadeHDOn`.
+- `Scripts/TextureHDMap.cs`: `AsphaltNewGain` default 1 (R2 asphalt_new authored at 0.040); `PSX_HD_ASPHALT_GAIN` env for A/B.
+- `Editor/CityRefSpots.Tex4.cs`: `RunTex4` shots (modes = HD stage folders, shop spots found from OSM shop footprints).
+
+## Stage: `C:\Users\mcgee\PSXHDStage\texb02` (62 PNGs, 102 MB, `stage_manifest.json` with sources + sha256)
+= R2 Release (40, Codex `Environment_HD\Release\HD_02_Charlotte`; NOT NewBindings R1) + rock_pt_2 set (4, from texb01) + city_shops HD (3) + glass candidates c00-c02 (15, verdict MEETS). texb01 is now superseded (keep until the exe is verified).
+
+## Proof (editor, PSXCity, same poses, today = texb01 + gain 3.1, after = texb02)
+- Shops: CityShops main texture after = city_shops 4096x1024 Trilinear aniso 8, 13 mips, PSX_HD on. Signs legible from the chase cam (BRICKMOON, CURBKITE); night windows registered.
+- R2: road in tower shade at noon same as R1+gain (linear 0.017 vs 0.018); Square at dusk/night 1.5x brighter (gain was day-only); other streets within 2%. Pavers darker joints / browner. No magenta.
+- Glass: crisp mullions/spandrels near and far, night windows unchanged. Verdict written at top of art workspace `Charlotte_Texture_Feedback_2026-11-11.md` (+ storefront request, R2 verdict).
+- Still soft: column 07 parts (stone band/canopy over shops, ~10 cm blocks), the canopy cutting signs, shop interiors dark under it; glass reads clean/CG-flat near.
+
+## Sweep (PC profile: what ships below its source)
+| Art | Source | Ships on PC | Where | Fix |
+|---|---|---|---|---|
+| city_shops (+night) | 4 x ~1700x950 | 256x64 point | core retail walls, strip-centre bays | DONE (HD tier) |
+| facade atlas col 07 parts | (Enhanced 256x512/col) | Enhanced 4096x512 point+mips | Uptown ground floors, canopies, sign bands | new art: Codex `city_facade_parts` (binding ready) |
+| facade atlas other cols | Enhanced 256x512/col | same | all OSM walls | new art: c03-c15 (c00-02 DONE) |
+| Art default cap 256 (PSXTextureCaps.MaxFor) | 169 LifeSim + 18 GasStation + Buildings pack (to 1747 px), Guardrail rusty_metal/wooden_board 512, Engines LS1 1536 | 256, point, no mips | on-foot scenes, gas station interiors, stage guardrails | texture-only possible via an HD passthrough set (`<name>_overhaul1_hd.png` = source) per texture; not done (not Charlotte street view) |
+| CitySigns.png | pack pictures (larger) | 512 composed (tools/city/signs_atlas.py, layout in Scripts/City/CitySigns.cs) | billboards, pole cabinets | texture-only possible: compose at 2048 with the same fractions + HD pair; not done this round |
+| CityFurniture / CitySignals | 256 composed (furniture_atlas.py, BOX) | 256 (Enh 512), PSX_FURNITURE (HD skips it) | poles, lamps, signals | needs HD binding for PSX_FURNITURE + cell size in shader; next round |
+| city_house/station/trailer atlases | pack textures | 256 box-filtered (CityPropBaker.AtlasPx) | suburban props | re-bake of prop meshes/atlas (ATLAS_RECT) |
+| tree atlases | stage tree PNGs | 512 (128 cells), Enh 1024 | billboard trees | re-bake (CityTreeLowReach -> KitHash) |
+| traffic cars | 512 atlases / 128 paints | at source | traffic | new art (car HD tier for traffic) |
+| terrain detail | - | 256 (TerrainDetailTool) | grass detail | low priority |
+| QualitySettings PC | - | no mip limit, aniso forced, streaming off | - | fine |
+
+## Memory added (PC, BC7/BC5)
+Shops 5.6 MB colour + 0.2 rough + 1.0 night = ~6.8 MB. Glass arrays 3 slices x (2.7 col + 2.7 nrm + 2.7 mask) = ~24 MB (would have been 128 MB with 16 slices). R2: 0 (same sizes). Classic/phone path: city_shops.png, its .meta and the Classic night mask unchanged; HD variants are PC-only (HDVariantStripper).
+
+## Coordinator, to reach the exe with a player-only build
+1. Merge `tex-round4`. Shared-file edit: PSXLit.shader ~1803 (facade slice).
+2. Build with **`PSX_HD_SRC=C:\Users\mcgee\PSXHDStage\texb02`** (replaces texb01; pc26c.ps1 sets it). The HD import (TextureHDTool.Import) runs in the build and re-stacks the facade arrays; no scene build, no re-bake, no new committed asset files. Do NOT set PSX_HD_ASPHALT_GAIN.
+3. Check the log line `[TextureHD] 8 HD sets + 4 road base sets` and `city_facade_hd_col ... x 3 slices`; expect texhd.bundle ~+30 MB.
+Not verified: a Windows player (BC7, bundle contents, all variants compiling outside the editor), frame cost, the night mask through the bundle.
 # HANDOFF - HD CAR TIER + CLEAR LAMP COVERS (car-hd-tier, 2026-11-11; agent "carhd"; NOT pushed, NOT merged)
 
 Branch `car-hd-tier` (worktree `C:\Users\mcgee\PSX Racing-carhd`) off mountain-nm c81f2a59. Sandbox PSXLab (lock "carhd", released). Sheet: scratchpad `carhd\carhd_before_after.png` (+ `_contrast.json`, `_clip.json`). Artist contract: art workspace `Cars\CODEX_HANDOFF_car_hd_tier.md`.
