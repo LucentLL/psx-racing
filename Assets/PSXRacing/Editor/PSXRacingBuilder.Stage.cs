@@ -7473,6 +7473,9 @@ namespace PSXRacing.EditorTools
             if (runs.Count == 0) return;
             string tex = MountainStage ? StageRockTexPath : theme.wall;
             var mat = MakeMat(MeshPrefix + "Tunnel", tex, affine: 0f, tint: new Color(0.62f, 0.60f, 0.58f));
+            // PC: the bore and the portal's rock as the cuts' rock (PSX_ROCKFACE)
+            if (MountainStage) SetRockFace(mat);
+            portalStoneTris = 0;
             var phys = GetOrCreatePhysMat("WallPhys", 0.05f, 0.05f);
             var root = new GameObject("Tunnels");
             root.transform.SetParent(parent, false);
@@ -7483,7 +7486,7 @@ namespace PSXRacing.EditorTools
                 BuildOneTunnel(pts, run.from, run.len, root.transform, mat, phys, no++);
                 metres += run.len * (int)Spacing;
             }
-            Log($"Stage tunnels: {no} tube(s), {metres} m bored, {wallSolidCount - solids0} wall solid(s).");
+            Log($"Stage tunnels: {no} tube(s), {metres} m bored, {wallSolidCount - solids0} wall solid(s), portals in stone {portalStoneTris} tris.");
         }
 
         static void BuildOneTunnel(List<Vector3> pts, int from, int stations, Transform parent,
@@ -7594,6 +7597,12 @@ namespace PSXRacing.EditorTools
             Portal(pts, WrapIdx(from + stations - 1, n), 1f, halfW, verts, uvs, tris);
             PortalColliders(pts, WrapIdx(from, n), -1f, halfW, parent, phys);
             PortalColliders(pts, WrapIdx(from + stations - 1, n), 1f, halfW, parent, phys);
+            // PC: each mouth in dressed stone (PSXRacingBuilder.RockRelief)
+            if (PCContent && MountainStage)
+            {
+                BuildPortalStone(pts, WrapIdx(from, n), -1f, halfW, parent, no * 2);
+                BuildPortalStone(pts, WrapIdx(from + stations - 1, n), 1f, halfW, parent, no * 2 + 1);
+            }
 
             var mesh = new Mesh
             {

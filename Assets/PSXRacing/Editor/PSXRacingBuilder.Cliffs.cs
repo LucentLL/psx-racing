@@ -35,7 +35,12 @@ namespace PSXRacing.EditorTools
         const float CliffMinFaceM = 1.2f;
 
         struct CliffInfo { public int v; public float frontAngle, front, length; }
-        struct CliffPlace { public Vector3 pos; public float yaw, scale; public int v; }
+        /// <summary>r &gt; 0: re-tested at the forest pass against walls and
+        /// portals (a sphere of r, lift over pos); solid: its collider object.</summary>
+        struct CliffPlace { public Vector3 pos; public float yaw, scale, r, lift; public int v; public GameObject solid; }
+        static int rockDropped;
+        /// <summary>Reset by BuildStageBanks' boulder pass (PlaceBoulders).</summary>
+        static bool rockSynced;
         static readonly List<CliffPlace> cliffPlaces = new List<CliffPlace>();
         static int cliffsPlaced;
 
@@ -152,7 +157,7 @@ namespace PSXRacing.EditorTools
                         Vector3 tp = toe + outw * (br - 0.1f) + side * ((RHash(q, k + 5, 229) - 0.5f) * 4f);
                         tp.y = pts[i].y - bvar.height * bs * Mathf.Lerp(0.15f, 0.45f, RHash(q + 3, k, 233));
                         if (!RockClearOfSolids(tp + Vector3.up * (bvar.height * bs * 0.4f), br, rockOk: true)) continue;
-                        cliffPlaces.Add(new CliffPlace { pos = tp, yaw = tq * 1000f, scale = bs, v = bv });
+                        cliffPlaces.Add(new CliffPlace { pos = tp, yaw = tq * 1000f, scale = bs, v = bv, r = br, lift = bvar.height * bs * 0.4f });
                         talusN++;
                     }
                     // and leaf litter banked against the foot
@@ -164,7 +169,7 @@ namespace PSXRacing.EditorTools
                         // (clear of a wall's stone and rail by its own reach)
                         if (RockClearOfSolids(lp + Vector3.up * 0.3f, 1.6f, rockOk: true))
                         {
-                            cliffPlaces.Add(new CliffPlace { pos = lp, yaw = RHash(k, 4, 243) * 360f, scale = Mathf.Lerp(0.7f, 1.1f, heap), v = lv });
+                            cliffPlaces.Add(new CliffPlace { pos = lp, yaw = RHash(k, 4, 243) * 360f, scale = Mathf.Lerp(0.7f, 1.1f, heap), v = lv, r = 1.6f, lift = 0.3f });
                             talusN++;
                         }
                     }
@@ -234,6 +239,7 @@ namespace PSXRacing.EditorTools
         static void LoadBoulders(List<MeshForest.Variant> list)
         {
             boulderVars.Clear();
+            boulderLying.Clear();
             const string dir = "Assets/StoreAssets/NMForest/Rocks";
             var mat = NMLitMat("NM_boulder", dir, "T_beech_forest_stones_01_BC_SM", "T_beech_forest_stones_01_N", null, false,
                                new Color(0.86f, 0.86f, 0.84f), maskIsHdrp: false);
@@ -246,9 +252,21 @@ namespace PSXRacing.EditorTools
                 v.shadows = true;
                 v.maxDist = 0f;
                 v.thin = 0f;
+                // lying or standing: the model's height against its widest
+                // level extent (after its node transform)
+                var bb = v.lods[0].bounds;
+                Vector3 lo = Vector3.positiveInfinity, hi = Vector3.negativeInfinity;
+                for (int cc = 0; cc < 8; cc++)
+                {
+                    var q = v.pre.MultiplyPoint3x4(new Vector3((cc & 1) == 0 ? bb.min.x : bb.max.x,
+                        (cc & 2) == 0 ? bb.min.y : bb.max.y, (cc & 4) == 0 ? bb.min.z : bb.max.z));
+                    lo = Vector3.Min(lo, q); hi = Vector3.Max(hi, q);
+                }
+                float wMax = Mathf.Max(hi.x - lo.x, hi.z - lo.z);
+                if ((hi.y - lo.y) <= 0.8f * wMax) boulderLying.Add(list.Count);
                 boulderVars.Add(list.Count); list.Add(v);
             }
-            Log($"Boulders: {boulderVars.Count} forest stone meshes for boulders and talus.");
+            Log($"Boulders: {boulderVars.Count} forest stone meshes for boulders and talus, {boulderLying.Count} of them lying (the boulders' pool).");
         }
 
         /// <summary>The cliffs standing in one near chunk, into MeshForest's table.</summary>
@@ -258,6 +276,22 @@ namespace PSXRacing.EditorTools
             foreach (var c in cliffPlaces)
             {
                 if (c.pos.x < ox || c.pos.x >= ox + size || c.pos.z < oz || c.pos.z >= oz + size) continue;
+                // A boulder, a talus stone or a litter patch, tested AGAIN now
+                // that the tunnels are built: at the banks the portal walls did
+                // not exist yet (Little Switzerland's foot litter grew through
+                // one, station 1045). One that meets a wall, rail or portal goes,
+                // and its solid with it.
+                if (c.r > 0f)
+                {
+                    if (!rockSynced) { Physics.SyncTransforms(); rockSynced = true; }
+                    if (!RockClearOfSolids(c.pos + Vector3.up * c.lift, c.r, rockOk: true))
+                    {
+                        if (c.solid != null) Object.DestroyImmediate(c.solid);
+                        rockDropped++;
+                        Log($"Rock: dropped a {(c.solid != null ? "boulder" : "talus/litter")} by a wall or portal at ({c.pos.x:0.0}, {c.pos.y:0.0}, {c.pos.z:0.0}).");
+                        continue;
+                    }
+                }
                 inst.Add(new Vector4(c.pos.x, c.pos.y, c.pos.z, c.yaw));
                 scaleVar.Add(new Vector2(c.scale, c.v));
                 ySum += c.pos.y;

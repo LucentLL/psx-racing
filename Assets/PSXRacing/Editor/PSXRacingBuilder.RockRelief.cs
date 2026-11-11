@@ -336,6 +336,171 @@ namespace PSXRacing.EditorTools
             go.isStatic = true;
         }
 
+        // ------------------------------------------------------------------
+        //  Tunnel portals in dressed stone
+        // ------------------------------------------------------------------
+        /// <summary>The ring springs this far under the tube's ceiling: the
+        /// opening reads as an elliptical arch, the tube's square top corners
+        /// behind its stones. At the tarmac edge the intrados stands ~4.8 m
+        /// over the road, over the shoulder's outer edge 4.0 m.</summary>
+        const float PortalSpringDrop = 1.2f, PortalRingW = 0.65f, PortalStoneOut = 0.12f, PortalStoneIn = 0.55f;
+        const float PortalStoneTexM = 2.2f;
+
+        /// <summary>THE PORTAL IN STONE (owner's Parkway photographs: a dressed
+        /// arch ring round the bore, a masonry headwall): over the rock portal
+        /// face, at one mouth - a headwall of the guard walls' dry stone
+        /// (theme.wall) 0.06 m proud of the face, round the bore and to 2.6 m
+        /// past it each side and 2.4 m over it; quoined jambs and an elliptical
+        /// ring of 15 voussoirs, lighter dressed stone, standing 0.12 m proud
+        /// and 0.55 m into the tube. Drawn only: the portal's and the tube's
+        /// colliders are unchanged (the stones sit beside and over the bore,
+        /// none in front of the solid by more than 0.12 m, none within reach
+        /// of a car under 4 m over the road).</summary>
+        static void BuildPortalStone(List<Vector3> pts, int i, float dir, float halfW, Transform parent, int no)
+        {
+            Vector3 right = RightAt(pts, i);
+            Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
+            Vector3 face = fwd * dir;                 // out of the mountain
+            Vector3 c = pts[i];
+            var wv = new List<Vector3>(); var wuv = new List<Vector2>(); var wt = new List<int>();
+            var rv = new List<Vector3>(); var ruv = new List<Vector2>(); var rt = new List<int>();
+            Vector3 P(float x, float y, float d) => c + right * x + Vector3.up * y + face * d;
+
+            // the headwall, around the bore (left, right, over)
+            float wallX = halfW + 2.6f, wallTop = TunnelH + 2.4f, d0 = 0.06f;
+            void Panel(float x0, float x1, float y0, float y1)
+            {
+                int b = wv.Count;
+                wv.Add(P(x0, y0, d0)); wv.Add(P(x0, y1, d0)); wv.Add(P(x1, y1, d0)); wv.Add(P(x1, y0, d0));
+                wuv.Add(new Vector2(x0, y0) / PortalStoneTexM); wuv.Add(new Vector2(x0, y1) / PortalStoneTexM);
+                wuv.Add(new Vector2(x1, y1) / PortalStoneTexM); wuv.Add(new Vector2(x1, y0) / PortalStoneTexM);
+                QuadFacing(wv, wt, b, b + 1, b + 2, b + 3, face);
+            }
+            // beside the jambs to the springing, beside the ring over it, and
+            // over the ring down to its extrados (no corner of the square bore
+            // left showing between the ring and the wall)
+            float yS0 = TunnelH - PortalSpringDrop, aE0 = halfW + PortalRingW, bE0 = PortalSpringDrop + PortalRingW;
+            Panel(-wallX, -halfW, -1.0f, yS0);
+            Panel(halfW, wallX, -1.0f, yS0);
+            Panel(-wallX, -aE0, yS0, wallTop);
+            Panel(aE0, wallX, yS0, wallTop);
+            const int FanN = 24;
+            for (int q = 0; q < FanN; q++)
+            {
+                float t0 = Mathf.PI * q / FanN, t1 = Mathf.PI * (q + 1) / FanN;
+                float x0 = aE0 * Mathf.Cos(t0), x1 = aE0 * Mathf.Cos(t1);
+                float y0 = yS0 + bE0 * Mathf.Sin(t0), y1 = yS0 + bE0 * Mathf.Sin(t1);
+                int b = wv.Count;
+                wv.Add(P(x0, y0, d0)); wv.Add(P(x0, wallTop, d0)); wv.Add(P(x1, wallTop, d0)); wv.Add(P(x1, y1, d0));
+                wuv.Add(new Vector2(x0, y0) / PortalStoneTexM); wuv.Add(new Vector2(x0, wallTop) / PortalStoneTexM);
+                wuv.Add(new Vector2(x1, wallTop) / PortalStoneTexM); wuv.Add(new Vector2(x1, y1) / PortalStoneTexM);
+                QuadFacing(wv, wt, b, b + 1, b + 2, b + 3, face);
+            }
+            // its coping: a projecting course along the top
+            Block(wv, wuv, wt, P(-wallX - 0.15f, wallTop - 0.05f, -0.4f), right * (2f * wallX + 0.3f), Vector3.up * 0.35f, face * 0.62f, c, right, face);
+
+            // the jambs: quoins in courses, long and short by turns
+            float yS = TunnelH - PortalSpringDrop;
+            for (int s = -1; s <= 1; s += 2)
+            {
+                int course = 0;
+                for (float y = -0.4f; y < yS - 0.05f; y += 0.6f, course++)
+                {
+                    float y1 = Mathf.Min(y + 0.6f, yS);
+                    float w = (course & 1) == 0 ? PortalRingW + 0.25f : PortalRingW;
+                    float x0 = s * halfW, x1 = s * (halfW + w);
+                    Vector3 o = P(Mathf.Min(x0, x1), y, -PortalStoneIn);
+                    Block(rv, ruv, rt, o, right * Mathf.Abs(x1 - x0) * 0.985f, Vector3.up * (y1 - y) * 0.97f,
+                          face * (PortalStoneIn + PortalStoneOut), c, right, face);
+                }
+            }
+            // the ring: 15 voussoirs on an elliptical arch from the springing
+            // (x = +-halfW at yS) to the crown at the ceiling
+            const int N = 15;
+            float bI = PortalSpringDrop, aE = halfW + PortalRingW, bE = PortalSpringDrop + PortalRingW;
+            for (int q = 0; q < N; q++)
+            {
+                float t0 = Mathf.PI * q / N, t1 = Mathf.PI * (q + 1) / N;
+                // (no gap between voussoirs: one would be a slit into the
+                // bore's dark corner behind the ring; the faces' own shading
+                // marks the joints)
+                Vector3 i0 = P(halfW * Mathf.Cos(t0), yS + bI * Mathf.Sin(t0), 0f), i1 = P(halfW * Mathf.Cos(t1), yS + bI * Mathf.Sin(t1), 0f);
+                float kE = q == N / 2 ? 0.18f : 0f;   // the keystone stands a little taller
+                Vector3 e0 = P(aE * Mathf.Cos(t0), yS + (bE + kE) * Mathf.Sin(t0), 0f), e1 = P(aE * Mathf.Cos(t1), yS + (bE + kE) * Mathf.Sin(t1), 0f);
+                Prism(rv, ruv, rt, new[] { i0, i1, e1, e0 }, face, PortalStoneOut, PortalStoneIn, c, right, face);
+            }
+
+            var wallMat = MakeMat(MeshPrefix + "PortalStone", theme.wall, affine: 0f, tint: new Color(0.9f, 0.88f, 0.85f));
+            var ringMat = MakeMat(MeshPrefix + "PortalRing", theme.wall, affine: 0f, tint: new Color(1.18f, 1.15f, 1.08f));
+            foreach (var (vv, uu, tt, mat, nm) in new[] { (wv, wuv, wt, wallMat, "PortalStone"), (rv, ruv, rt, ringMat, "PortalRing") })
+            {
+                var mesh = new Mesh { vertices = vv.ToArray(), uv = uu.ToArray(), triangles = tt.ToArray() };
+                SaveMesh(mesh, "Tunnel" + nm + no);
+                var go = new GameObject(nm + no);
+                go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                go.isStatic = true;
+                portalStoneTris += tt.Count / 3;
+            }
+        }
+
+        static int portalStoneTris;
+
+        /// <summary>A box from corner o along three edges, every face its own
+        /// (faceted), turned out from its centre; uv planar in the portal's
+        /// frame (c, right, face).</summary>
+        static void Block(List<Vector3> v, List<Vector2> uv, List<int> t, Vector3 o, Vector3 ex, Vector3 ey, Vector3 ez,
+                          Vector3 c, Vector3 right, Vector3 face)
+        {
+            var corners = new Vector3[8];
+            for (int k = 0; k < 8; k++) corners[k] = o + ((k & 1) != 0 ? ex : Vector3.zero) + ((k & 2) != 0 ? ey : Vector3.zero) + ((k & 4) != 0 ? ez : Vector3.zero);
+            BoxFaces(v, uv, t, corners, c, right, face);
+        }
+
+        /// <summary>A quad outline in the portal plane (offset 0) pushed out
+        /// <paramref name="outM"/> and back <paramref name="inM"/> along
+        /// <paramref name="n"/>: a voussoir.</summary>
+        static void Prism(List<Vector3> v, List<Vector2> uv, List<int> t, Vector3[] q, Vector3 n, float outM, float inM,
+                          Vector3 c, Vector3 right, Vector3 face)
+        {
+            // corner order as Block's: bit0 along the outline's first edge,
+            // bit1 across to the far edge, bit2 front/back
+            var corners = new Vector3[8];
+            Vector3[] quad = { q[0], q[1], q[3], q[2] };
+            for (int k = 0; k < 4; k++)
+            {
+                corners[k] = quad[k] - n * inM;
+                corners[k + 4] = quad[k] + n * outM;
+            }
+            BoxFaces(v, uv, t, corners, c, right, face);
+        }
+
+        static void BoxFaces(List<Vector3> v, List<Vector2> uv, List<int> t, Vector3[] k8, Vector3 c, Vector3 right, Vector3 face)
+        {
+            Vector3 mid = Vector3.zero;
+            foreach (var p in k8) mid += p;
+            mid /= 8f;
+            int[][] faces = { new[] { 0, 1, 3, 2 }, new[] { 4, 5, 7, 6 }, new[] { 0, 1, 5, 4 }, new[] { 2, 3, 7, 6 }, new[] { 0, 2, 6, 4 }, new[] { 1, 3, 7, 5 } };
+            foreach (var f in faces)
+            {
+                Vector3 fc = (k8[f[0]] + k8[f[1]] + k8[f[2]] + k8[f[3]]) * 0.25f;
+                Vector3 n = Vector3.Cross(k8[f[1]] - k8[f[0]], k8[f[3]] - k8[f[0]]);
+                if (n.sqrMagnitude < 1e-10f) continue;
+                n.Normalize();
+                int b = v.Count;
+                foreach (int idx in f)
+                {
+                    Vector3 p = k8[idx], l = p - c;
+                    float lx = Vector3.Dot(l, right), ly = l.y, ld = Vector3.Dot(l, face);
+                    Vector2 u = Mathf.Abs(Vector3.Dot(n, face)) > 0.7f ? new Vector2(lx, ly)
+                              : Mathf.Abs(n.y) > 0.7f ? new Vector2(lx, ld) : new Vector2(ld + lx, ly);
+                    v.Add(p); uv.Add(u / PortalStoneTexM);
+                }
+                QuadFacing(v, t, b, b + 1, b + 2, b + 3, fc - mid);
+            }
+        }
+
         const string RockFaceBC = MeadowCliffDir + "/T_Photoscanned_Cliff_01_BC.tga";
         const string RockFaceN = MeadowCliffDir + "/T_Photoscanned_Cliff_01_Normal.tga";
 
@@ -383,6 +548,8 @@ namespace PSXRacing.EditorTools
         {
             bouldersPlaced = 0;
             boulderSpots.Clear();
+            rockSynced = false;
+            rockDropped = 0;
             Physics.SyncTransforms();
             var kit = LoadMeshTreeKit();
             if (kit == null || boulderVars.Count == 0 || rsKind == null) return;
@@ -401,7 +568,11 @@ namespace PSXRacing.EditorTools
                     if (kind != Roadside.Open && kind != Roadside.Walled) continue;
                     float r1 = RHash(i, s, 301), r2 = RHash(s, i, 303), r3 = RHash(i + 11, s, 307);
                     if (r1 > 0.42f) continue;
-                    int v = boulderVars[(int)(r2 * 9973f) % boulderVars.Count];
+                    // only the stones that LIE (longest axis level, so within
+                    // ~25 degrees of a slope's surface): an upright one stood
+                    // at the road edge like a monolith (SwissNC226A 8.4 km)
+                    var pool = boulderLying.Count > 0 ? boulderLying : boulderVars;
+                    int v = pool[(int)(r2 * 9973f) % pool.Count];
                     var vr = kit.variants[v];
                     float rad0 = BoulderRadius(vr);
                     // 0.9-2.4 m tall, no wider than the band allows
@@ -410,6 +581,13 @@ namespace PSXRacing.EditorTools
                     if (rad0 * sc > maxR) sc = maxR / rad0;
                     float rad = rad0 * sc;
                     float e = Mathf.Lerp(BoulderNearE + rad, BoulderFarE - rad, r2);
+                    // within 4 m of the edge nothing over 1.2 m tall
+                    if (e - rad < 4f && vr.height * sc > 1.2f)
+                    {
+                        sc = 1.2f / Mathf.Max(vr.height, 0.1f);
+                        rad = rad0 * sc;
+                        e = Mathf.Lerp(BoulderNearE + rad, BoulderFarE - rad, r2);
+                    }
                     Vector3 right = RightAt(pts, i);
                     Vector3 fwd = Vector3.Cross(right, Vector3.up).normalized;
                     Vector3 p = pts[i] + right * (side * (half + e)) + fwd * ((r1 - 0.21f) * 6f);
@@ -430,7 +608,7 @@ namespace PSXRacing.EditorTools
                         float qx = p.x + (q == 4 ? 0f : Mathf.Cos(ang) * rad * 0.8f), qz = p.z + (q == 4 ? 0f : Mathf.Sin(ang) * rad * 0.8f);
                         y = Mathf.Min(y, Mathf.Min(StageGroundHeightAt(qx, qz), StageLatticeY(qx, qz)));
                     }
-                    y -= vr.height * sc * (0.3f + 0.15f * r1);
+                    y -= vr.height * sc * (0.15f + 0.15f * r1);   // sunk 15-30%
                     p.y = y;
                     // clear of a wall, a rail, a rock face and the last boulders
                     if (!RockClearOfSolids(p + Vector3.up * (vr.height * sc * 0.5f), rad + 0.3f)) continue;
@@ -439,9 +617,10 @@ namespace PSXRacing.EditorTools
                     if (crowded) continue;
                     boulderSpots.Add(p);
                     float yaw = r3 * 360f;
-                    cliffPlaces.Add(new CliffPlace { pos = p, yaw = yaw, scale = sc, v = v });
                     // THE SOLID: the stone's own convex hull, as MeshForest draws it
                     var go = new GameObject("Boulder");
+                    cliffPlaces.Add(new CliffPlace { pos = p, yaw = yaw, scale = sc, v = v, r = rad, solid = go,
+                                                     lift = vr.height * sc * 0.5f });
                     go.transform.SetParent(root.transform, false);
                     go.transform.localPosition = p;
                     go.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
@@ -467,6 +646,9 @@ namespace PSXRacing.EditorTools
         }
 
         static readonly List<Vector3> boulderSpots = new List<Vector3>();
+        /// <summary>The boulder stones that lie: their model no taller than
+        /// 0.8 x their widest level extent.</summary>
+        static readonly List<int> boulderLying = new List<int>();
 
         /// <summary>Nothing built solid (a wall, rail, rock face, deck or
         /// pier) within <paramref name="r"/> of <paramref name="c"/>.</summary>
