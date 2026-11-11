@@ -133,27 +133,115 @@ namespace PSXRacing.City
                     bool kerb = skirtKerb.Contains(KeyXZ(A)) && skirtKerb.Contains(KeyXZ(B));
                     float yA = kerb ? A.y - KerbFaceM : A.y, yB = kerb ? B.y - KerbFaceM : B.y;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
-                    {
-                        int v0 = bk.v.Count;
-                        var Ab = new Vector3(A.x, bot, A.z); var Bb = new Vector3(B.x, bot, B.z);
-                        var At = kerb ? new Vector3(A.x, yA, A.z) : A; var Bt = kerb ? new Vector3(B.x, yB, B.z) : B;
-                        bk.Face(Ab, At, Bt, Bb, new Vector3(nrm.x, 0f, nrm.y), uA, uA, uB, uB);
-                        SlabMark(bk, v0);
-                        slabFaces++; slabFaceM += len; slabTris += 2;
-                    }
+                        SlabAdd(new SlabPiece { A = kerb ? new Vector3(A.x, yA, A.z) : A, B = kerb ? new Vector3(B.x, yB, B.z) : B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : 1, bot = bot });
                 }
                 if (level)
-                {
-                    float run = levelFar ? TongueRunM : TongueShortM;
-                    var off = new Vector3(nrm.x * run, -run * TongueFall, nrm.y * run);
-                    int v0 = bk.v.Count;
-                    // facing up and out (the side a ray through the join comes from above)
-                    bk.Face(A, A + off, B + off, B, new Vector3(nrm.x * TongueFall, 1f, nrm.y * TongueFall), uA, uA, uB, uB);
-                    SlabMark(bk, v0);
-                    slabTongues++; slabTongueM += len; slabTris += 2;
-                }
+                    SlabAdd(new SlabPiece { A = A, B = B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = 0, run = levelFar ? TongueRunM : TongueShortM });
             }
+            SlabEmit();
             slabMs = clock.Elapsed.TotalMilliseconds;
+        }
+
+        struct SlabPiece { public Vector3 A, B; public Vector2 uA, uB, nrm; public Bucket bk; public int kind; public float run, bot; public bool used; }
+        static readonly List<SlabPiece> slabPieces = new List<SlabPiece>(4096);
+        static readonly Dictionary<(Bucket, int, long), int> slabStartAt = new Dictionary<(Bucket, int, long), int>();
+
+        /// <summary>A piece, oriented so its outward side is on its right in
+        /// plan (A to B), so the next piece along the same edge starts where it ends.</summary>
+        static void SlabAdd(SlabPiece p)
+        {
+            if ((p.B.x - p.A.x) * p.nrm.y - (p.B.z - p.A.z) * p.nrm.x < 0f)
+            { var t = p.A; p.A = p.B; p.B = t; var u = p.uA; p.uA = p.uB; p.uB = u; }
+            slabPieces.Add(p);
+        }
+
+        /// <summary>The pieces laid, runs of them along one straight edge of
+        /// one sheet merged into one quad (the ribbons' sections every metre or
+        /// two made a quad each: twice the triangles for nothing). A run goes
+        /// on only while the next piece starts on this one's end (0.1 mm),
+        /// turns under half a degree, and its corner lies within a millimetre
+        /// of the run's chord and not under it (in a sag the chord would stand
+        /// over the pavement); at most 24 m.</summary>
+        static void SlabEmit()
+        {
+            slabStartAt.Clear();
+            for (int i = 0; i < slabPieces.Count; i++)
+            {
+                var p = slabPieces[i];
+                slabStartAt[(p.bk, p.kind, KeyFine(p.A))] = i;
+            }
+            slabEndAt.Clear();
+            foreach (var p in slabPieces) slabEndAt.Add((p.bk, p.kind, KeyFine(p.B)));
+            // runs start at a piece nothing ends on first, then whatever is left (a closed ring)
+            for (int pass = 0; pass < 2; pass++)
+            for (int i = 0; i < slabPieces.Count; i++)
+            {
+                var p = slabPieces[i];
+                if (p.used) continue;
+                if (pass == 0 && slabEndAt.Contains((p.bk, p.kind, KeyFine(p.A)))) continue;
+                p.used = true;
+                var run = p;
+                float bot = p.bot;
+                var dir = new Vector2(p.B.x - p.A.x, p.B.z - p.A.z).normalized;
+                int cur = i; int guard = 0;
+                var corners = slabCorners; corners.Clear();
+                while (guard++ < 64 && slabStartAt.TryGetValue((p.bk, p.kind, KeyFine(run.B)), out int nx) && nx != i)
+                {
+                    var q = slabPieces[nx];
+                    if (q.used || Mathf.Abs(q.run - p.run) > 1e-4f) break;
+                    var qd = new Vector2(q.B.x - q.A.x, q.B.z - q.A.z);
+                    if (qd.sqrMagnitude < 1e-8f || Vector2.Dot(qd.normalized, dir) < 0.99996f) break;
+                    if (Vector2.Distance(new Vector2(p.A.x, p.A.z), new Vector2(q.B.x, q.B.z)) > 24f) break;
+                    // every corner so far within a millimetre of the new chord, never under it
+                    corners.Add(run.B);
+                    bool fits = true;
+                    foreach (var c in corners)
+                    {
+                        float t = ChordT(p.A, q.B, c);
+                        var on = Vector3.Lerp(p.A, q.B, t);
+                        if (new Vector2(on.x - c.x, on.z - c.z).sqrMagnitude > 1e-6f || on.y > c.y + 0.0002f || on.y < c.y - 0.0003f) { fits = false; break; }
+                    }
+                    if (!fits) { corners.RemoveAt(corners.Count - 1); break; }
+                    q.used = true; slabPieces[nx] = q;
+                    run.B = q.B; run.uB = q.uB; bot = Mathf.Min(bot, q.bot);
+                    cur = nx;
+                }
+                slabPieces[i] = p;
+                run.bot = bot;
+                Lay(run);
+            }
+            slabPieces.Clear();
+        }
+        static readonly List<Vector3> slabCorners = new List<Vector3>(64);
+        static readonly HashSet<(Bucket, int, long)> slabEndAt = new HashSet<(Bucket, int, long)>();
+        static long KeyFine(Vector3 v) => ((long)Mathf.RoundToInt(v.x * 10000f) << 32) ^ (uint)Mathf.RoundToInt(v.z * 10000f) ^ ((long)Mathf.RoundToInt(v.y * 1000f) << 20);
+        static float ChordT(Vector3 a, Vector3 b, Vector3 c)
+        {
+            var d = new Vector2(b.x - a.x, b.z - a.z);
+            float L2 = d.sqrMagnitude;
+            return L2 < 1e-10f ? 0f : Mathf.Clamp01(Vector2.Dot(new Vector2(c.x - a.x, c.z - a.z), d) / L2);
+        }
+
+        static void Lay(SlabPiece p)
+        {
+            var bk = p.bk;
+            int v0 = bk.v.Count;
+            float len = Vector2.Distance(new Vector2(p.A.x, p.A.z), new Vector2(p.B.x, p.B.z));
+            if (p.kind == 0)
+            {
+                var off = new Vector3(p.nrm.x * p.run, -p.run * TongueFall, p.nrm.y * p.run);
+                // facing up and out (the side a ray through the join comes from above)
+                bk.Face(p.A, p.A + off, p.B + off, p.B, new Vector3(p.nrm.x * TongueFall, 1f, p.nrm.y * TongueFall), p.uA, p.uA, p.uB, p.uB);
+                slabTongues++; slabTongueM += len;
+            }
+            else
+            {
+                var Ab = new Vector3(p.A.x, p.bot, p.A.z); var Bb = new Vector3(p.B.x, p.bot, p.B.z);
+                bk.Face(Ab, p.A, p.B, Bb, new Vector3(p.nrm.x, 0f, p.nrm.y), p.uA, p.uA, p.uB, p.uB);
+                slabFaces++; slabFaceM += len;
+            }
+            SlabMark(bk, v0);
+            slabTris += 2;
         }
         static readonly float[] slabProbe = { 0.02f, 0.25f, 0.5f, 0.75f, 0.98f };
 
