@@ -52,7 +52,7 @@ namespace PSXRacing.City
             // a ground-standing shop block (EmitFootprint's retail) bare, and the
             // skyline - which never calls anything retail - gave it the kit; now it
             // is bare far too, so its lights stand on the same roof near and far
-            if (skylineBuild && !proxyBuild && CityBeacons.V2 && f.style == 4 && f.minH <= 0.05f) return;
+            if (skylineBuild && !proxyBuild && CityBeacons.V2 && (f.style == 4 || f.minH > 0.05f)) return;   // (and a floating outline: no kit near either)
             uint h = FacadeHash(f.centre + new Vector2(17.3f, -5.1f));   // the massing's stream
             Parapet(tm, roof, top, ParapetLipM);
             RoofPlant(tm, f, roof, top, 0.34f + 0.12f * (((h >> 24) & 0xFF) / 255f), 1.3f * facFloorH, h, towerH);

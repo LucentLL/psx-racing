@@ -45,6 +45,10 @@ namespace PSXRacing.City
         /// </summary>
         static bool EmitMassing(TileMeshes tm, CityMap.Footprint f, List<Vector2> poly, float y0, float floor, float top)
         {
+            // the far skyline as the tile (2026-11-11, CityBeacons): a tile never
+            // masses a ground-standing shop block (EmitFootprint's retail), and the
+            // skyline - which never calls anything retail - did, parapet and all
+            if (skylineBuild && !proxyBuild && CityBeacons.V2 && (f.style == 4 || f.minH > 0.05f)) return false;   // (and a floating outline, which a tile never masses either)
             // the polygon without its near-duplicate points (a cut leaves some)
             massPoly.Clear();
             foreach (var p in poly)

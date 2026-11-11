@@ -191,7 +191,8 @@ namespace PSXRacing.EditorTools
             {
                 float brg = 215f * Mathf.Deg2Rad;
                 float ex = map.uptown.x + Mathf.Sin(brg) * km * 1000f, ez = map.uptown.y + Mathf.Cos(brg) * km * 1000f;
-                var eye = new Vector3(ex, CityElevation.GroundY(map, ex, ez) + 30f, ez);
+                // 10 km: over the trees (a hill or a tall roof's view)
+                var eye = new Vector3(ex, CityElevation.GroundY(map, ex, ez) + (km > 6f ? 150f : 30f), ez);
                 var look = new Vector3(map.uptown.x, CityElevation.GroundY(map, map.uptown.x, map.uptown.y) + (km < 3f ? 140f : 110f), map.uptown.y);
                 list.Add((nm, eye, look, new[] { TimeOfDay.Night, TimeOfDay.Dusk }));
                 log.Append($"pose {nm}: eye ({eye.x:0},{eye.y:0},{eye.z:0}) {km} km SW\n");
