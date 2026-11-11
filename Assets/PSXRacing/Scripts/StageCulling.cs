@@ -98,6 +98,27 @@ namespace PSXRacing
                 // land alone runs on to the horizon.
                 for (int i = 0; i < d.Length; i++) d[i] = detail;
                 d[horizon] = 0f;
+                // THE ROAD IS NEVER CULLED BY DISTANCE (owner 2026-11-11, PC26:
+                // "Mountain tracks roughly first and last 800m has no road. Its
+                // like I'm driving on dirt"). A layer distance is measured to a
+                // renderer's centre, and the tarmac, its kerbs, the rail posts
+                // and the apex pads are each ONE renderer the length of the
+                // stage, centred mid-route: with the eye more than the detail's
+                // 2.24 km from that centre - the first and last 150-1300 m of
+                // every stage with ends - the whole ribbon was culled and the
+                // car drove over the lattice under it (0.45 m down, its baked
+                // sky at the floor: black-brown "dirt"). The colliders stayed,
+                // so the grip was the road's all along. The road layer gets no
+                // distance, and every stage-long ribbon with no collider of its
+                // own (a visual-only mesh: nothing reads its layer) joins it.
+                // Past the detail's edge the shader still dissolves them
+                // (_PSXDetailFade), so nothing new shows at distance.
+                int road = LayerMask.NameToLayer("Road");
+                if (road >= 0)
+                {
+                    d[road] = 0f;
+                    KeepRibbons(road, detail * 0.5f);
+                }
                 cam.farClipPlane = horizonFarClip;
             }
             // the end-of-view fade belongs at the edge of what is drawn
@@ -114,6 +135,31 @@ namespace PSXRacing
             // the road is beside you, and planar distance would pop its trees
             // by camera yaw.
             cam.layerCullSpherical = true;
+        }
+
+        /// <summary>How many visual-only ribbons the last Configure moved
+        /// onto the road layer (for the probes).</summary>
+        public static int RibbonsKept { get; private set; }
+
+        /// <summary>Every renderer longer than <paramref name="minRadius"/>
+        /// (bounds radius) on a distance-culled layer, with no collider on its
+        /// own GameObject, onto <paramref name="roadLayer"/>, whose distance is
+        /// the far plane. A renderer that shares its GameObject with a collider
+        /// keeps its layer: the wheels read a collider's layer for the grip.</summary>
+        void KeepRibbons(int roadLayer, float minRadius)
+        {
+            int foliage = LayerMask.NameToLayer("Foliage"), horizon = LayerMask.NameToLayer(HorizonLayerName);
+            int kept = 0;
+            var scene = gameObject.scene;
+            foreach (var r in FindObjectsByType<MeshRenderer>(FindObjectsInactive.Include))
+            {
+                var go = r.gameObject;
+                if (go.scene != scene || go.layer == roadLayer || go.layer == foliage || go.layer == horizon || go.layer == 5) continue;
+                if (r.bounds.extents.magnitude < minRadius || go.GetComponent<Collider>() != null) continue;
+                go.layer = roadLayer;
+                kept++;
+            }
+            RibbonsKept = kept;
         }
     }
 }
