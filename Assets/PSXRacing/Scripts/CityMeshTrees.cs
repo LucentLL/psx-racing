@@ -305,13 +305,16 @@ namespace PSXRacing.City
             // MOVE before giving up: up to 3.5 m away from the wall the crown met
             // (the trunk, and its collider, go with it)
             var away = Vector2.zero;
-            for (int mv = 0; mv < 3; mv++)
+            for (int mv = 0; mv < 7; mv++)
             {
                 var foot = t.foot;
                 if (mv > 0)
                 {
                     if (away.sqrMagnitude < 0.5f) break;
-                    var q = new Vector2(t.foot.x, t.foot.z) + away.normalized * (mv == 1 ? 2f : 3.5f);
+                    // straight away, then 45 degrees either side; 2 m, then 3.5 m
+                    float ang = mv == 1 || mv == 4 ? 0f : mv == 2 || mv == 5 ? 45f : -45f;
+                    var dir2 = (Vector2)(Quaternion.Euler(0f, 0f, ang) * (Vector3)away.normalized);
+                    var q = new Vector2(t.foot.x, t.foot.z) + dir2 * (mv < 4 ? 2f : 3.5f);
                     if (!GroundAt(q, t.foot.y, out float gy)) continue;
                     foot = new Vector3(q.x, gy - CityTrees.SinkM, q.y);
                 }
@@ -327,9 +330,11 @@ namespace PSXRacing.City
         {
             y = nearY;
             int n = Physics.RaycastNonAlloc(new Vector3(q.x, nearY + 12f, q.y), Vector3.down, rayHits, 30f, 1 | (1 << CityWorld.RoadLayer) | (1 << CityWorld.SolidLayer), QueryTriggerInteraction.Ignore);
-            float best = float.MinValue; string what = null;
-            for (int i = 0; i < n; i++) if (rayHits[i].point.y > best) { best = rayHits[i].point.y; what = rayHits[i].collider.gameObject.name; }
-            if (what != "Ground" || Mathf.Abs(best - nearY) > 2.5f) return false;
+            float best = float.MinValue; Collider what = null;
+            for (int i = 0; i < n; i++) if (rayHits[i].point.y > best) { best = rayHits[i].point.y; what = rayHits[i].collider; }
+            // the topmost thing there must be ground: not a road, not a building, wall or post
+            if (what == null || what.gameObject.layer == CityWorld.SolidLayer || what.gameObject.layer == CityWorld.RoadLayer ||
+                what.gameObject.name == "Roads" || what.gameObject.name == "Kerbs" || Mathf.Abs(best - nearY) > 2.5f) return false;
             y = best;
             return true;
         }
