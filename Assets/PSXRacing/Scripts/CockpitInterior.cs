@@ -148,8 +148,9 @@ namespace PSXRacing
             CockpitFit.Pane(out pb, out pt);
             float cowlZ = def.cowlZ * ls, cowlY = def.cowlY + lift;
             float hz = r.headerZ * ls, hy = r.headerY + lift - CockpitFit.Inset;
-            float sz = (cowlZ - hz) / Mathf.Max(0.05f, pb.z - pt.z);
-            float sy = (hy - cowlY) / Mathf.Max(0.05f, pt.y - pb.y);
+            // against the catalogue's middle (CockpitFit.CalibZ/Y, written by the probe)
+            float sz = (cowlZ - hz) / Mathf.Max(0.05f, pb.z - pt.z) / CockpitFit.CalibZ;
+            float sy = (hy - cowlY) / Mathf.Max(0.05f, pt.y - pb.y) / CockpitFit.CalibY;
             sz = Mathf.Clamp(sz, CockpitFit.MinScale, CockpitFit.MaxScale);
             sy = Mathf.Clamp(sy, CockpitFit.MinScale, CockpitFit.MaxScale);
             float an = Mathf.Clamp(sy / sz, 1f / CockpitFit.MaxAniso, CockpitFit.MaxAniso);

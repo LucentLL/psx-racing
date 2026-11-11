@@ -62,5 +62,8 @@ namespace PSXRacing
             new Row("viper_gts", -0.3690f, 1.1483f, 0.7486f, 0.7246f),
             new Row("volvo_estate", 0.3310f, 1.3941f, 0.7558f, 0.8440f),
         };
+        /// <summary>The catalogue's median windscreen against his pane (48 shells): his cabin's own
+        /// proportion, so the fit moves each car from the middle of the catalogue, not from the probe's header line.</summary>
+        public const float CalibZ = 1.1290f, CalibY = 1.2048f;
     }
 }
