@@ -703,6 +703,14 @@ namespace PSXRacing.City
             return res;
         }
 
+        bool TilesStand(int t, Transform worldT)
+        {
+            if (worldT == null) return false;
+            foreach (long key in snapB.tiles[t])
+                if (worldT.Find($"Tile_{(int)(key >> 24)}_{(int)((key << 40) >> 40)}") == null) return false;
+            return true;
+        }
+
         /// <summary>(Round 3) every frame from CitySkyline: probe a tower's near
         /// tile once it stands up (re-read when the live set changes), and move
         /// its lights and fixtures by that offset times the blend - whole once
@@ -719,9 +727,9 @@ namespace PSXRacing.City
                 int n = 0;
                 for (int t = 0; t < towerDelta.Length; t++)
                 {
-                    // only towers near enough for the ring to have stood their tiles
-                    if ((fixAt[t] - cam.transform.position).sqrMagnitude > 4000f * 4000f) { towerDelta[t] = null; continue; }
-                    towerDelta[t] = ProbeTower(t, worldT);
+                    // probed once while its tiles stand (a tile gone: back to the far points)
+                    if (towerDelta[t] != null && TilesStand(t, worldT)) { foreach (var d in towerDelta[t]) if (d != Vector3.zero) { n++; break; } continue; }
+                    towerDelta[t] = TilesStand(t, worldT) ? ProbeTower(t, worldT) : null;
                     if (towerDelta[t] != null) foreach (var d in towerDelta[t]) if (d != Vector3.zero) { n++; break; }
                 }
                 SnapTowers = n;
