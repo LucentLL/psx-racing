@@ -41,8 +41,42 @@ namespace PSXRacing.EditorTools
         /// yellow. Its own LOD1-3 serve as HIGH / MID / LOW (LOD0 is 20k
         /// tris), its billboard as the impostor.</summary>
         const string OEPoplarDir = "Assets/StoreAssets/OE/Poplar";
-        /// <summary>One canopy tree in this many is a poplar.</summary>
-        const int PoplarEvery = 4;
+        /// <summary>THE POPLAR'S SHARE (owner 2026-11-11, the title's drone over
+        /// Linn Cove: "poplars seem very repetitive, clumped"). It was one canopy
+        /// tree in four by a hash, the one model of it a narrow 23 m column - and
+        /// a hillside of columns is not the Blue Ridge, whose "yellow poplar" is
+        /// the broad-crowned tulip tree. Now at most ONE site in each
+        /// PoplarBlock x PoplarBlock block of the forest grid (30 m square) is a
+        /// poplar, by a chance that leans toward the coves (the cluster noise,
+        /// softly): never two side by side, about one grid site in 23 (4.4%,
+        /// from 25%). The tulip yellow lives on in the broad crowns (FallTulip).</summary>
+        const int PoplarBlock = 4;
+        const float PoplarChanceLow = 0.4f, PoplarChanceHigh = 1.0f;
+        /// <summary>Tulip-poplar yellow on this share of the fall canopy beeches,
+        /// tree by tree (PSX/Lit _LeafTulip; the share is the alpha). A share
+        /// this small on the green dresses carries only the per-tree hue spread.</summary>
+        static readonly Color FallTulip = new Color(1.0f, 0.80f, 0.16f, 0.22f);
+        static readonly Color GreenSpread = new Color(1f, 1f, 1f, 0.0001f);
+        /// <summary>The poplar's sheets against the beeches' (texture means of the
+        /// alpha-tested texels, scratchpad texstats.py): leaves 0.405 v the beech
+        /// atlas's 0.323, the billboard 0.564 v the beech impostor sheets' 0.32 -
+        /// the poplar's albedo scaled to the beeches', so one light reads alike.</summary>
+        const float PoplarLeafGain = 0.80f, PoplarSheetGain = 0.57f;
+
+        /// <summary>Whether the canopy site at grid cell (gx, gz) of the chunk at
+        /// (ox, oz) is a poplar: the one chosen cell of its block, at a chance by
+        /// the cove noise.</summary>
+        static bool PoplarSite(float ox, float oz, int gx, int gz, float wx, float wz)
+        {
+            int GX = Mathf.RoundToInt(ox / ForestPitch) + gx, GZ = Mathf.RoundToInt(oz / ForestPitch) + gz;
+            int sx = Mathf.FloorToInt(GX / (float)PoplarBlock), sz = Mathf.FloorToInt(GZ / (float)PoplarBlock);
+            uint h = (uint)sx * 0x8da6b343u ^ (uint)sz * 0xd8163841u ^ 0x5bd1e995u;
+            h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
+            int pick = (int)(h % (uint)(PoplarBlock * PoplarBlock));
+            if ((GX - sx * PoplarBlock) + (GZ - sz * PoplarBlock) * PoplarBlock != pick) return false;
+            float cove = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.4f, -0.6f, ForestClusterNoise(wx, wz)));
+            return ((h >> 8) & 1023u) / 1023f < Mathf.Lerp(PoplarChanceLow, PoplarChanceHigh, cove);
+        }
         const string OEGrassVerge = "Assets/StoreAssets/OE/Grass/Grass01_BigUV.png";
         /// <summary>The mowed verge's repeats per ground UV unit (one unit per
         /// theme.groundTile, 9-13 m): the 4096 "BigUV" sheet reads right at about
@@ -296,14 +330,19 @@ namespace PSXRacing.EditorTools
                 for (int k = 0; k < 4; k++) nm.Add((n + Vector3.up * 0.6f).normalized);
                 tr.AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 });
             }
+            ShareMeshOrigin(v, vs);
             mesh.SetVertices(vs); mesh.SetUVs(0, uv); mesh.SetNormals(nm); mesh.SetTriangles(tr, 0);
             mesh.RecalculateBounds();
             v.lods = new[] { v.lods[0], v.lods[1], v.lods[2], WorldKit.SaveMesh(mesh, mesh.name) };
-            v.impostorPre = Matrix4x4.identity;
-            var green = NMLitMat("OE_imp_" + stem, dir, stem, null, null, true, Color.white);
-            var fallM = NMLitMat("OE_imp_" + stem + "_fall", dir, stem, null, null, true, Color.white);
+            // the sheet is a bright pre-lit billboard (texel mean 0.56): scaled to
+            // the beech impostors' albedo, with their green impostor's cast
+            float g = PoplarSheetGain;
+            var green = NMLitMat("OE_imp_" + stem, dir, stem, null, null, true, new Color(0.80f * g / 0.84f, 0.86f * g / 0.84f, 0.78f * g / 0.84f));
+            var fallM = NMLitMat("OE_imp_" + stem + "_fall", dir, stem, null, null, true, new Color(g, g, g));
             fallM.SetColor("_LeafTarget", new Color(1.0f, 0.78f, 0.12f));
             var lv = fallM.GetVector("_LeafVivid"); lv.w = 0.85f; fallM.SetVector("_LeafVivid", lv);
+            green.SetColor("_LeafTulip", GreenSpread);
+            fallM.SetColor("_LeafTulip", GreenSpread);
             var bare = NMLitMat("OE_imp_" + stem + "_bare", dir, stem, null, null, true, new Color(0.40f, 0.36f, 0.32f));
             var bv = bare.GetVector("_LeafVivid"); bv.x = 0.15f; bare.SetVector("_LeafVivid", bv);
             v.impostorDress = new[] { bare, green, green, fallM, bare };
@@ -335,11 +374,11 @@ namespace PSXRacing.EditorTools
                 for (int k = 0; k < 4; k++) nm.Add((n + Vector3.up * 0.6f).normalized);
                 tr.AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 });
             }
+            ShareMeshOrigin(v, vs);
             mesh.SetVertices(vs); mesh.SetUVs(0, uv); mesh.SetNormals(nm); mesh.SetTriangles(tr, 0);
             mesh.RecalculateBounds();
             mesh.RecalculateTangents();
             v.lods = new[] { v.lods[0], v.lods[1], v.lods[2], WorldKit.SaveMesh(mesh, mesh.name) };
-            v.impostorPre = Matrix4x4.identity;   // built in the tree's own frame: base at 0, metres
             var green = NMLitMat("NM_imp_" + tree, NMDir, "Trees/" + stem + "_BC_A", "Trees/" + stem + "_N", null, true,
                                  new Color(0.80f, 0.86f, 0.78f), maskIsHdrp: false);
             // the LATE (still green) fall tint's impostor from the green sheet,
@@ -350,8 +389,31 @@ namespace PSXRacing.EditorTools
             var bare = barePath != null
                 ? NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Gen/" + stem + "_bare2", null, null, true, new Color(0.85f, 0.82f, 0.80f))
                 : NMLitMat("NM_imp_" + tree + "_bare", NMDir, "Autumn/" + stem, null, null, true, new Color(0.42f, 0.37f, 0.33f));
+            green.SetColor("_LeafTulip", GreenSpread);
+            fallM.SetColor("_LeafTulip", greenFall ? GreenSpread : FallTulip);
             v.impostorDress = new[] { bare, green, green, fallM, bare };
             foreach (var im in v.impostorDress) FarGrow(im);
+        }
+
+        /// <summary>THE IMPOSTOR ON THE MESH'S ORIGIN. PSX/Lit gives each tree
+        /// its own shade, hue and (fall) its tulip yellow from the instance
+        /// matrix's origin, and lights the crown's AO from it; the mesh levels'
+        /// origin is the FBX's own (the plant's matrix x pre), the impostor's was
+        /// the trunk's foot - so a tree changed shade, and could change colour,
+        /// as it handed over to its impostor. The cards are built in the tree's
+        /// frame (foot at 0); moved by minus pre's translation and drawn with
+        /// impostorPre = that translation, they land where they did, and the
+        /// matrix's origin is the mesh's.</summary>
+        static void ShareMeshOrigin(MeshForest.Variant v, List<Vector3> verts)
+        {
+            Vector3 t = v.pre.GetColumn(3);
+            v.impostorPre = Matrix4x4.identity;
+            // (a far impostor GROWS about its origin, _PSXFarGrow: an origin far
+            // off the foot would walk the grown card off its tree - keep the foot)
+            if (t.magnitude > 1.5f) { Log($"Mesh forest: impostor keeps its own origin, pre offset {t.magnitude:0.00} m"); return; }
+            for (int i = 0; i < verts.Count; i++) verts[i] -= t;
+            v.impostorPre = Matrix4x4.Translate(t);
+            Log($"Mesh forest: impostor on the mesh's origin ({t.x:0.00}, {t.y:0.00}, {t.z:0.00})");
         }
 
         /// <summary>The variant nearest the wanted height (one of the two
@@ -392,6 +454,8 @@ namespace PSXRacing.EditorTools
                 NMLitMat("NM_beech_leaves_autumn_gold", NMTreeDir, "T_beech_atlas_BC_autumn", "T_beech_atlas_N", "T_beech_atlas_Maskmap", true, new Color(1.0f, 1.12f, 0.62f)),
                 NMLitMat("NM_beech_leaves_late", NMTreeDir, "T_beech_atlas_BC", "T_beech_atlas_N", "T_beech_atlas_Maskmap", true, new Color(1.08f, 0.98f, 0.55f)),
             };
+            green.SetColor("_LeafTulip", GreenSpread);
+            for (int f = 0; f < fall.Length; f++) fall[f].SetColor("_LeafTulip", f == 3 ? GreenSpread : FallTulip);
             var cherry = NMLitMat("NM_black_cherry", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
                                   true, new Color(0.82f, 0.88f, 0.80f), maskIsHdrp: false);
             var cherryFall = NMLitMat("NM_black_cherry_fall", NMUnderDir, "Forest_black_cherry_BC", "Forest_black_cherry_N", "Black_cherry_MaskMap",
@@ -425,8 +489,11 @@ namespace PSXRacing.EditorTools
             if (AssetDatabase.LoadAssetAtPath<GameObject>(OEPoplarDir + "/PoplarTree001.fbx") != null)
             {
                 var pBark = NMLitMat("OE_poplar_bark", OEPoplarDir, "Poplar_Bark001", "Poplar_Bark001_N", null, false, Color.white);
-                var pLeaf = NMLitMat("OE_poplar_leaves", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, Color.white);
-                var pFall = NMLitMat("OE_poplar_leaves_fall", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, Color.white);
+                var pGain = new Color(PoplarLeafGain, PoplarLeafGain, PoplarLeafGain);
+                var pLeaf = NMLitMat("OE_poplar_leaves", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, pGain);
+                var pFall = NMLitMat("OE_poplar_leaves_fall", OEPoplarDir, "BranchesPoplar001", "BranchesPoplar001_N", null, true, pGain);
+                pLeaf.SetColor("_LeafTulip", GreenSpread);
+                pFall.SetColor("_LeafTulip", GreenSpread);
                 pFall.SetColor("_LeafTarget", new Color(1.0f, 0.78f, 0.12f));
                 var lv = pFall.GetVector("_LeafVivid"); lv.w = 0.85f; pFall.SetVector("_LeafVivid", lv);
                 var pv = LoadVariant(OEPoplarDir, "PoplarTree001", pBark, ".fbx", skip: 1);

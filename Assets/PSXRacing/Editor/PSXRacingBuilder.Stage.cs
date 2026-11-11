@@ -8142,7 +8142,7 @@ namespace PSXRacing.EditorTools
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
                                              (uint)(Mathf.FloorToInt(wz * 5.17f) * 19349663)) % 1000003u);
                             int vi = PickMeshTree(kit, h * MeshTreeHeightScale, hsh, out float sc);
-                            if (kit.poplar >= 0 && (hsh / 7) % PoplarEvery == 0)
+                            if (kit.poplar >= 0 && PoplarSite(ox, oz, gx, gz, wx, wz))
                             {
                                 vi = kit.poplar;
                                 sc = Mathf.Clamp(h * MeshTreeHeightScale / kit.variants[vi].height, 0.85f, 1.25f);
