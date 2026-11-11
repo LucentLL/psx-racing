@@ -102,9 +102,28 @@ namespace PSXRacing.EditorTools
                 Vector2 lotA = Vector2.zero, lotC = Vector2.zero;
                 if (lot != null) FindLot(map, out lotA, out lotC);
 
+                ShootAll(hours, modes, only);
+                // THE VARIANTS (A/B only, never a default): PSX_TEXB_VARIANTS =
+                // "Name=<folder of the full set list with the variant swapped in>=place,place;..."
+                string vars = System.Environment.GetEnvironmentVariable("PSX_TEXB_VARIANTS");
+                if (!string.IsNullOrEmpty(vars))
+                    foreach (var v in vars.Split(';'))
+                    {
+                        var parts = v.Split('=');
+                        if (parts.Length < 3) continue;
+                        System.Environment.SetEnvironmentVariable("PSX_HD_SRC", parts[1]);
+                        TextureHD.OffAll();
+                        string verr = TextureHDTool.Import(out int vsets);
+                        TextureHD.ResetMap();
+                        log.Append($"VARIANT {parts[0]}: {vsets} sets from {parts[1]}{(verr != null ? " ERROR " + verr : "")}\n");
+                        ShootAll(Pick("PSX_TEXB_VARIANT_HOURS", "noon,night"), new[] { "v" + parts[0] }, parts[2]);
+                    }
+
+                void ShootAll(string[] hoursA, string[] modesA, string onlyA)
+                {
                 foreach (var pl in places)
                 {
-                    if (!string.IsNullOrEmpty(only) && System.Array.IndexOf(only.Split(','), pl.id) < 0) continue;
+                    if (!string.IsNullOrEmpty(onlyA) && System.Array.IndexOf(onlyA.Split(','), pl.id) < 0) continue;
                     NightLookShots.Stand(pl.e, pl.s, out Vector3 pos, out Quaternion rot);
                     Vector3 fwd = rot * Vector3.forward;
                     if (!float.IsNaN(pl.hdg))
@@ -142,10 +161,10 @@ namespace PSXRacing.EditorTools
                         }
                     }
                     log.Append($"{pl.id}\t'{pl.e.name}' cls {pl.e.cls} profile {pl.e.profile} width {pl.e.width:0.0} m{(pl.e.oneway ? " one-way" : "")}\tcar ({pos.x:0.0}, {pos.y:0.00}, {pos.z:0.0}) fwd ({fl.x:0.00}, {fl.z:0.00})\t{pl.what}\n");
-                    shots += ShootSet(cam, sun, dir, pl.id, poses, hours, modes, log, pl.id == "up_square");
+                    shots += ShootSet(cam, sun, dir, pl.id, poses, hoursA, modesA, log, pl.id == "up_square");
                     world.DropAll();
                 }
-                if (lot != null && (string.IsNullOrEmpty(only) || System.Array.IndexOf(only.Split(','), "lot") >= 0))
+                if (lot != null && (string.IsNullOrEmpty(onlyA) || System.Array.IndexOf(onlyA.Split(','), "lot") >= 0))
                 {
                     float gy = GroundY(lotA);
                     Vector3 a = new Vector3(lotA.x, gy, lotA.y), c = new Vector3(lotC.x, GroundY(lotC), lotC.y);
@@ -161,8 +180,9 @@ namespace PSXRacing.EditorTools
                         ("high", a - dirL * 10f + Vector3.up * 8f, Quaternion.LookRotation(dirL * 80f + Vector3.down * 8f)),
                     };
                     log.Append($"lot\tbox {lot.box}\tcorner ({a.x:0.0}, {a.y:0.00}, {a.z:0.0}) toward ({c.x:0.0}, {c.z:0.0})\tthe largest surface lot near Uptown\n");
-                    shots += ShootSet(cam, sun, dir, "lot", poses, hours, modes, log);
+                    shots += ShootSet(cam, sun, dir, "lot", poses, hoursA, modesA, log);
                     world.DropAll();
+                }
                 }
                 log.Append($"{shots} frames to {dir}\nTEXB01 SHOTS OK\n");
             }
@@ -203,7 +223,7 @@ namespace PSXRacing.EditorTools
                 foreach (var lights in Object.FindObjectsByType<CarLights>(FindObjectsInactive.Exclude)) lights.PreviewBuild(hd.lightsOn);
                 foreach (var m in ms)
                 {
-                    bool after = m == "after" || m == "jset";
+                    bool after = m != "before";
                     System.Environment.SetEnvironmentVariable("PSX_HD", after ? "1" : "0");
                     TextureHD.JunctionOnBase = m != "jset";
                     TextureHD.OffAll();
