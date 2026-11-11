@@ -72,6 +72,23 @@ namespace PSXRacing.EditorTools
 
         public static IReadOnlyList<string> LastLog => log;
 
+        /// <summary>Bake only these shells (a sandbox job that changed a few
+        /// cars; the HD car tier's tool). Same work as <see cref="Bake"/>.</summary>
+        public static void BakeKeys(ICollection<string> keys)
+        {
+            log.Clear();
+            var shader = Shader.Find("PSX/CarPaint");
+            if (shader == null) throw new Exception("PSX/CarPaint shader not found");
+            foreach (var m in CarModelLibrary.Models)
+            {
+                if (!keys.Contains(m.key)) continue;
+                try { BakeOne(m, shader); }
+                catch (Exception e) { log.Add($"FAIL {m.key}: {e.Message}"); }
+            }
+            AssetDatabase.SaveAssets();
+            CarModelLibrary.ClearCache();
+        }
+
         public static void Bake()
         {
             log.Clear();
@@ -632,6 +649,9 @@ namespace PSXRacing.EditorTools
             m.uv = src.uv;
             m.triangles = src.triangles;
             m.RecalculateNormals();
+            // MikkTSpace tangents, as the body's OBJ import has them: the HD
+            // car tier's normal map reads the wheel through them (CarHD).
+            if (m.uv != null && m.uv.Length == verts.Length) m.RecalculateTangents();
             m.RecalculateBounds();
 
             string p = GenDir + "/" + m.name + ".asset";
@@ -678,6 +698,8 @@ namespace PSXRacing.EditorTools
                 // the chase camera moves, which is the one place the player is
                 // guaranteed to be looking.
                 mat.SetFloat("_Affine", 0f);
+                // The HD car tier is a runtime swap (CarHD): never saved on a livery.
+                mat.DisableKeyword("PSX_CAR_HD");
                 // The paint's shine. Every skin the same: a sheet is a colour,
                 // not a finish, and the glass mask inside the shader is what
                 // tells a window from a door.

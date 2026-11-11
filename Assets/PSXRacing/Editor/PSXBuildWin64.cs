@@ -90,6 +90,10 @@ namespace PSXRacing.EditorTools
                 err = TextureHDTool.Import(out int hdSets);
                 if (err != null) { Debug.LogError("[PSXBuildWin64] HD IMPORT FAILED: " + err); return false; }
                 Debug.Log($"[PSXBuildWin64] HD tier: {hdSets} PBR sets");
+                // THE HD CAR TIER (CarHD): the staged car sets (PSX_CAR_HD_SRC) the same way
+                err = CarHDTool.Import(out int carSets);
+                if (err != null) { Debug.LogError("[PSXBuildWin64] CAR HD IMPORT FAILED: " + err); return false; }
+                Debug.Log($"[PSXBuildWin64] HD car tier: {carSets} livery sets");
 
                 // THE BAKED CITY (CityTileCache, Editor/CityTileBake.cs): every
                 // Charlotte tile baked again when the city data or the generator
@@ -138,6 +142,9 @@ namespace PSXRacing.EditorTools
                 err = TextureHDTool.ShipBundle(target, Path.Combine(outDir, "PSXRacing_Data", "StreamingAssets"), out long hdBytes);
                 if (err != null) { Debug.LogError("[PSXBuildWin64] HD BUNDLE FAILED: " + err); return false; }
                 if (hdBytes > 0) Debug.Log($"[PSXBuildWin64] HD bundle: {hdBytes / 1048576f:F1} MB beside the player");
+                err = CarHDTool.ShipBundle(target, Path.Combine(outDir, "PSXRacing_Data", "StreamingAssets"), out long carBytes);
+                if (err != null) { Debug.LogError("[PSXBuildWin64] CAR HD BUNDLE FAILED: " + err); return false; }
+                if (carBytes > 0) Debug.Log($"[PSXBuildWin64] HD car bundle: {carBytes / 1048576f:F1} MB beside the player");
                 string tileNote = "no city tile bake";
                 if (tileStamp != null)
                 {

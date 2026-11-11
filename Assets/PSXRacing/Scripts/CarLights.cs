@@ -375,10 +375,16 @@ namespace PSXRacing
                 tex = Resources.Load<Texture2D>(LampMapDir + "/" + modelKey + LampMapSuffix);
                 if (tex != null) headMaps.Add(modelKey);
                 else tex = Resources.Load<Texture2D>(LampMapDir + "/" + modelKey + LegacyLampMapSuffix);
+                // THE HD CAR TIER: the same map at the HD sheet's size (CarHD; PC only)
+                var hd = tex != null ? CarHD.LampMap(modelKey) : null;
+                if (hd != null) tex = hd;
                 lampMaps[modelKey] = tex;
             }
             return tex;
         }
+
+        /// <summary>TOOLS: forget the cached maps (the HD car tier switched).</summary>
+        public static void ForgetLampMaps() { lampMaps.Clear(); headMaps.Clear(); }
 
         /// <summary>The model's map carries the headlamps (B/A: an RGBA
         /// <see cref="LampMapSuffix"/> file, not a legacy R/G one).</summary>

@@ -81,6 +81,8 @@ namespace PSXRacing
             bool changed = TextureTier.Swap(m);
             // ...then the HD tier's PBR set over it, where there is one (TextureHD, PC)
             changed |= TextureHD.Apply(m);
+            // ...and a car livery's HD set (CarHD, PC; PSX/CarPaint only)
+            changed |= CarHD.Apply(m);
             changed |= StampOne(m, MainTexRawId);
             changed |= StampOne(m, DeepTexRawId);
             // ...and the terrain detail amounts, off the same texture
