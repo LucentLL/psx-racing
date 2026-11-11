@@ -86,31 +86,38 @@ namespace PSXRacing.City
         // ---- THE COLLIDER'S CHAMFER (measured, Editor/CityCurbDrive, 11-11) ----
         // The wheels are rays straight down from the hub: over a plumb 15 cm
         // face a ray steps the whole height in one tick, where a real 0.3 m
-        // tyre climbs it over ~26 cm of its tread. Driven at the drawn curb
-        // (collider = mesh) the RX-7 met it as a blow: square on at 10 km/h a
-        // vertical kick of 11.8 g, a wheel off for 0.52 s and two jounce-stop
-        // strikes (2.7 m/s), against 2.3 g / 0.07 s / 1.3 m/s on the old
-        // 45-degree curb; at 30 deg 10 km/h seven strikes up to 9.4 m/s (old:
-        // 0.5 g, one at 1.4); at 45 deg 10 km/h 5.9 g and 0.42 s (old 0.8 g,
-        // 0 s). A face top 6 cm out still struck (9.9 g square on); 12 cm out
-        // drove as the old curb did (2.8 g / 0 s square on; 1.0 g at 45 deg;
-        // 0.5 g at 30 deg; 1.4 g at 15 deg 30 km/h). So the COLLIDER keeps a
-        // 12 cm chamfer - about the path a tyre's contact takes up a 15 cm
-        // step - and the curb is DRAWN plumb in front of it, render-only (the
-        // structure mesh: Cs2RenderFace): the chamfer lies wholly behind the
-        // drawn face and under its nose. A wheel sits up to 12 cm into the
-        // drawn curb's top edge for the instant it climbs.
+        // tyre climbs it over ~26 cm of its tread. Driven at the North Graham
+        // curb (RX-7; measured from the first wheel over the curb line to the
+        // car wholly up; PSXRacing_curb_drive.txt) with the collider as drawn
+        // (plumb) the car met it as a blow: square on at 10 km/h a vertical
+        // kick of 10.3 g, a front wheel off 0.42 s, two jounce-stop strikes
+        // (2.7 m/s) and 16 deg of yaw, where the old street curb (11 cm face
+        // over 22 cm, nose 40 cm out) gave 0.8 g, 0 s, no strike; 45 deg 10
+        // km/h 5.9 g / 0.42 s (old 0.3 g / 0); 15 deg 30 km/h 5.8 g, two
+        // strikes (old 0.4 g, none). A face top 9 cm or 12 cm out was better
+        // at 10 km/h (2.8-2.9 g, no strike) but launched the car square on at
+        // 30 km/h (all four wheels off 0.35 s, 23 g, body 1.0 m up; old: 4.7 g,
+        // no air) and at 30 deg 50 km/h kicked 10 g (old 1.8 g). Only the old
+        // profile drove as well as the old curb - so the COLLIDER keeps
+        // exactly the old street curb's chamfer (launch 7's: CFaceOut, CFaceY,
+        // CNoseOut), and the curb is DRAWN plumb in front of it, render-only
+        // (the structure mesh, Cs2RenderFace), the chamfer wholly behind the
+        // drawn face and under its top. Collider and drawing agree at the foot
+        // and from 40 cm back; between, the collider is up to 4 cm under the
+        // drawn top and the drawn face up to 22 cm in front of the collider's
+        // slope: a wheel climbing reads its rise over 22 cm, as a tyre would.
         // PSX_CITY_CURBCHAMFER=0: the collider plumb as drawn.
         public static bool CurbChamferOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBCHAMFER") != "0";
-        /// <summary>The vertical curb's collider: the face top this far out, the nose at CNoseOut.</summary>
-        public const float CFaceOut = 0.12f, CNoseOut = 0.15f;
+        /// <summary>The vertical curb's collider (the old street curb, WalkRoll*): the face top
+        /// this far out at CFaceY, the nose at CNoseOut.</summary>
+        public const float CFaceOut = 0.22f, CFaceY = 0.11f, CNoseOut = 0.40f;
 
         static void Cs2Shape(float r, out float faceOut, out float faceY, out float noseOut, out float h)
         {
-            float vf = CurbChamferOn ? CFaceOut : VFaceOut, vn = CurbChamferOn ? CNoseOut : VNoseOut;
-            if (Cs2TestFaceOut >= 0f) { vf = Cs2TestFaceOut; vn = Mathf.Max(VNoseOut, Cs2TestFaceOut + 0.03f); }
+            float vf = CurbChamferOn ? CFaceOut : VFaceOut, vn = CurbChamferOn ? CNoseOut : VNoseOut, vy = CurbChamferOn ? CFaceY : VFaceY;
+            if (Cs2TestFaceOut >= 0f) { vf = Cs2TestFaceOut; vn = Mathf.Max(VNoseOut, Cs2TestFaceOut + 0.03f); vy = VFaceY; }
             faceOut = Mathf.Lerp(vf, RFaceOut, r);
-            faceY = Mathf.Lerp(VFaceY, RFaceY, r);
+            faceY = Mathf.Lerp(vy, RFaceY, r);
             noseOut = Mathf.Lerp(vn, RNoseOut, r);
             h = Mathf.Lerp(VCurbH, RCurbH, r);
         }
@@ -561,7 +568,7 @@ namespace PSXRacing.City
             float proud = rolled ? 0.03f : 0.02f;
             float yThroat = rolled ? 0.045f : 0.065f; // the opening's height over the gutter
             float yTop = h + 0.01f;
-            float back = rolled ? noseOut + 0.03f : noseOut + 0.06f;
+            float back = rolled ? noseOut + 0.03f : Mathf.Max(VNoseOut + 0.25f, noseOut + 0.02f);   // the hood's cast top, ~0.3 m deep
             Vector3 Hd(float along, float lat, float y)
             {
                 var ea = Ed(along);
