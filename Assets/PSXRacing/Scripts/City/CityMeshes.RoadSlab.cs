@@ -196,7 +196,10 @@ namespace PSXRacing.City
                     // it that every ray flatter than 14 degrees - the driver's - looked through to the
                     // lattice (the owner's line came back, round 5). The sheet past is lower there:
                     // nothing to tie with.
-                    var inset = !faceLow ? new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.006f : 0.004f) + Vector3.down * 0.001f
+                    // (a step of under 6 mm is a join's sliver: inset like one - its top on the edge
+                    // met the sheet a few mm under it in a line of pixels, S Tryon at Winona)
+                    bool smallStep = faceLow && Mathf.Min(A.y, B.y) - lowest < 0.006f;
+                    var inset = !faceLow || smallStep ? new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.006f : 0.004f) + Vector3.down * 0.001f
                               : taken ? new Vector3(-nrm.x, 0f, -nrm.y) * 0.005f : Vector3.zero;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
                     {
