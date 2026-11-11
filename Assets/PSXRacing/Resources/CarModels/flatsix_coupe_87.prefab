@@ -54,7 +54,7 @@ MonoBehaviour:
   - flatsix_coupe_87_yellow_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.36555263, g: 0.35629496, b: 0.2312099, a: 1}
+  - {r: 0.36859205, g: 0.35825673, b: 0.22958264, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.020093044
   bodyZOffset: 0
@@ -85,6 +85,9 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: -2432090755550338912, guid: 77877cae3c3b40db84a08542134c3443, type: 3}
+  coverUpMesh: {fileID: 0}
+  coverMaterial: {fileID: 2100000, guid: b31fda65da3d5c34882c24d1f61253d4, type: 2}
   colliderCenter: {x: 0, y: 0.67159146, z: -0.047248006}
   colliderSize: {x: 1.5982525, y: 1.0091294, z: 3.964205}
   blobSize: {x: 2.1310034, y: 4.4415703}

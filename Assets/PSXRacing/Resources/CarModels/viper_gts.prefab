@@ -56,8 +56,8 @@ MonoBehaviour:
   - coupe_96_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.26045093, g: 0.29179627, b: 0.38355657, a: 1}
-  - {r: 0.43338484, g: 0.19196747, b: 0.19293804, a: 1}
+  - {r: 0.26044035, g: 0.2917759, b: 0.38351455, a: 1}
+  - {r: 0.43332198, g: 0.19197048, b: 0.19293863, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.02300826
   bodyZOffset: 0
@@ -76,7 +76,7 @@ MonoBehaviour:
   headLamp: {x: 0.6129711, y: 0.5292718, z: 1.8894906}
   headLampNormal: {x: 0.3025091, y: 0.69011474, z: 0.657442}
   headLampSize: {x: 0.5, y: 0.28}
-  tailLamp: {x: 0.66284716, y: 0.6369584, z: -2.1792748}
+  tailLamp: {x: 0.6628471, y: 0.636958, z: -2.179275}
   tailLampNormal: {x: 0.43312618, y: 0.10857446, z: -0.89476997}
   tailLampSize: {x: 0.28489736, y: 0.17681697}
   lampsUpMesh: {fileID: 0}
@@ -88,6 +88,9 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: -2432090755550338912, guid: 191507e435cf4b66aec713e3b31e66c9, type: 3}
+  coverUpMesh: {fileID: 0}
+  coverMaterial: {fileID: 2100000, guid: 77a9a157a9d5b3c46a878fb115cbe617, type: 2}
   colliderCenter: {x: 0, y: 0.65853125, z: -0.13544703}
   colliderSize: {x: 1.8092533, y: 0.98333544, z: 4.28604}
   blobSize: {x: 2.4123378, y: 4.8021603}

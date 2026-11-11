@@ -54,7 +54,7 @@ MonoBehaviour:
   - fd_shared_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.63682115, g: 0.5051065, b: 0.16567111, a: 1}
+  - {r: 0.63793814, g: 0.5056621, b: 0.16551869, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.022687284
   bodyZOffset: 0
@@ -73,18 +73,21 @@ MonoBehaviour:
   headLamp: {x: 0.5767054, y: 0.53818035, z: 1.8349942}
   headLampNormal: {x: 0.16873382, y: 0.8275264, z: 0.53547084}
   headLampSize: {x: 0.48368838, y: 0.28}
-  tailLamp: {x: 0.5546028, y: 0.6466613, z: -2.0293074}
-  tailLampNormal: {x: 0.18956555, y: -0.08261167, z: -0.9783866}
-  tailLampSize: {x: 0.272058, y: 0.28}
+  tailLamp: {x: 0.54248977, y: 0.6439899, z: -2.0568366}
+  tailLampNormal: {x: 0.16015403, y: -0.14117235, z: -0.9769448}
+  tailLampSize: {x: 0.24326752, y: 0.28}
   lampsUpMesh: {fileID: -2432090755550338912, guid: dd7fba4009b07d54e9c08d936f5d3008, type: 3}
-  headLampUp: {x: 0.5879153, y: 0.6461253, z: 1.7606837}
-  headLampUpNormal: {x: 0.013631878, y: 0.000006644586, z: 0.99990714}
-  headLampUpSize: {x: 0.2246996, y: 0.17033881}
+  headLampUp: {x: 0.5824081, y: 0.673959, z: 1.7607582}
+  headLampUpNormal: {x: 0.013565204, y: 0.000087918495, z: 0.999908}
+  headLampUpSize: {x: 0.22904424, y: 0.16346201}
   lensBodyMesh: {fileID: 0}
   lensHeadMesh: {fileID: 0}
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: -2432090755550338912, guid: 830181f5f81d415eb91c2579a34a1bf5, type: 3}
+  coverUpMesh: {fileID: -2432090755550338912, guid: d4bc16e9f6c74218ad93e6badfbc4994, type: 3}
+  coverMaterial: {fileID: 2100000, guid: f584afe91b7eb4c4daeb71d38056e683, type: 2}
   colliderCenter: {x: 0, y: 0.66657424, z: -0.1003989}
   colliderSize: {x: 1.7022111, y: 0.97554505, z: 4.0873995}
   blobSize: {x: 2.269615, y: 4.5796}

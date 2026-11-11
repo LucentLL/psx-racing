@@ -66,10 +66,10 @@ MonoBehaviour:
   tyreRadiusRear: 0.33729148
   tyreWidthRear: 0.24592203
   lowerBodyWidth: 1.942152
-  cowlZ: -0.18127026
-  cowlY: 1.4419432
+  cowlZ: 0.794761
+  cowlY: 1.0063946
   noseZ: 2.5617142
-  roofY: 1.6132736
+  roofY: 1.4419432
   headLamp: {x: 0.57769096, y: 0.7230153, z: 2.3131826}
   headLampNormal: {x: 0.2657067, y: 0.10179782, z: 0.95866424}
   headLampSize: {x: 0.27647597, y: 0.1221526}
@@ -85,6 +85,9 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: 0}
+  coverUpMesh: {fileID: 0}
+  coverMaterial: {fileID: 0}
   colliderCenter: {x: 0, y: 0.89259315, z: -0.13078606}
   colliderSize: {x: 1.9904765, y: 1.3332248, z: 5.142675}
   blobSize: {x: 2.6539686, y: 5.7619505}
