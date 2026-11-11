@@ -120,6 +120,10 @@ Shader "PSX/Lit"
         // w > 0: the leaf texel RECOLOURED toward this colour by its own
         // luminance (a green-only scan's autumn: the tulip poplar's yellow)
         [HideInInspector] _LeafTarget ("Leaf target", Color) = (1,1,1,1)
+        // a > 0 (PSX_LODFADE, the canopy in fall): that share of the trees,
+        // each by its own number, turns to this colour at the texel's own
+        // luminance - the tulip tree's clear yellow on the broad crowns
+        [HideInInspector] _LeafTulip ("Leaf tulip", Color) = (0,0,0,0)
         // A SECOND GROUND LAYER (PSX_GROUNDBLEND, the mountain stages on PC):
         // _BlendTex in world-space patches over the main texture.
         // _BlendParams: x its repeats a metre, y the patches' size (m), z cover 0..1
@@ -432,6 +436,21 @@ Shader "PSX/Lit"
             }
             float4 _LeafVivid;
             float4 _LeafTarget;
+            float4 _LeafTulip;
+            // A leaf texel in another colour AT ITS OWN LUMINANCE (owner
+            // 2026-11-11, the title's drone: the poplars "not following the
+            // same lighting as the other trees"). The recolour this replaced,
+            // target x saturate(lum x 5.1), was the flat target colour on any
+            // texel brighter than a fifth: a textureless albedo of 0.76 where
+            // the beeches' fall leaves average 0.51 - an even glow, sun side
+            // and shade side alike. Kept in gamut: a deep red cannot carry a
+            // pale texel's luminance, so it stops at full red.
+            float3 LeafRecolour(float3 target, float lumV)
+            {
+                float lt = max(dot(target, float3(0.2126, 0.7152, 0.0722)), 0.05);
+                float mx = max(max(target.r, target.g), max(target.b, 1e-3));
+                return target * min(lumV / lt, 1.0 / mx);
+            }
             sampler2D _BlendTex;
             float4 _BlendParams;
             float PSXBlendHash(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
@@ -1929,8 +1948,22 @@ Shader "PSX/Lit"
                 {
                     float lum = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
                     tex.rgb = max(lerp(lum.xxx, tex.rgb, _LeafVivid.x), 0.0) * _LeafVivid.y;
+                    float lumV = lum * _LeafVivid.y;   // (the saturation step keeps luminance)
                     if (_LeafVivid.w > 0.0)
-                        tex.rgb = lerp(tex.rgb, _LeafTarget.rgb * saturate(lum * _LeafVivid.y * 3.2), _LeafVivid.w);
+                        tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTarget.rgb, lumV), _LeafVivid.w);
+                #ifdef PSX_LODFADE
+                    // EACH TREE ITS OWN (lodD.y: the instance's own number, the
+                    // same at every level - the impostor shares the mesh's
+                    // origin): a share of the canopy in tulip-poplar yellow, and
+                    // every crown a little warmer or cooler than the next
+                    if (_LeafTulip.a > 0.0)
+                    {
+                        if (frac(i.lodD.y * 7.31 + 0.27) < _LeafTulip.a)
+                            tex.rgb = lerp(tex.rgb, LeafRecolour(_LeafTulip.rgb, lumV), 0.85);
+                        float hv = frac(i.lodD.y * 13.7 + 0.61) - 0.5;
+                        tex.rgb *= 1.0 + hv * float3(0.16, 0.03, -0.16);
+                    }
+                #endif
                 }
                 clip(tex.a - _Cutoff);
             #ifdef PSX_LODFADE
