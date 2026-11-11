@@ -32,7 +32,7 @@ namespace PSXRacing.EditorTools
     {
         /// <summary>Triangle budget of the near, mid and low mesh levels.</summary>
         internal static readonly int[] CTBudget = { 6500, 3000, 1300 };
-        internal static readonly int[] CTOakBudget = { 8000, 3600, 1500 };
+        internal static readonly int[] CTOakBudget = { 10000, 3600, 1800 };
 
         /// <summary>A street form: width of the crown (share), and where the
         /// crown starts afterwards (share of the new height).</summary>
@@ -62,29 +62,37 @@ namespace PSXRacing.EditorTools
                 var v = list[i];
                 if (roles[i] == CityTreeKit.Role.Shrub || roles[i] == CityTreeKit.Role.Small) continue;
                 var keep = new float[3];
+                var bkeep = new float[3];
                 bool any = false;
+                // Big Oak's bark is most of it (27.9k of 37.6k at its nearest): its coarsest
+                // pack level (16.8k) for every mesh level, cut to each level's budget below
+                if (roles[i] == CityTreeKit.Role.Oak && v.lods[2] != null)
+                    v.lods = new[] { v.lods[2], v.lods[2], v.lods[2], v.lods.Length > 3 ? v.lods[3] : null };
                 // the hero oak (one willow oak in five, parks and yards) keeps more near the car
                 var budget = roles[i] == CityTreeKit.Role.Oak ? CTOakBudget : CTBudget;
                 for (int l = 0; l < 3; l++)
                 {
-                    keep[l] = 1f;
+                    keep[l] = 1f; bkeep[l] = 1f;
                     var m = v.lods[l];
                     if (m == null) continue;
                     int t = (int)Tris(m);
                     if (t <= budget[l]) continue;
                     int leaf = LeafTris(m, v.leafSub);
                     int bark = t - leaf;
-                    keep[l] = leaf > 0 ? Mathf.Clamp((budget[l] - bark) / (float)leaf, 0.2f, 1f) : 1f;
+                    // bark over three quarters of the budget: its smallest triangles (twigs) go first
+                    if (bark > 0.75f * budget[l]) bkeep[l] = Mathf.Clamp(0.75f * budget[l] / bark, 0.15f, 1f);
+                    keep[l] = leaf > 0 ? Mathf.Clamp((budget[l] - bark * bkeep[l]) / (float)leaf, 0.2f, 1f) : 1f;
+                    if (bkeep[l] < 0.98f) any = true;
                     sb.Append($"\n  {names[i]} L{l}: {t} tris = bark {bark} + leaves {leaf}");
                     if (keep[l] < 0.98f) any = true;
                 }
                 if (!any) continue;
                 // clones (snag, pine stand-in) share their source's meshes: rework the meshes once
-                var nv = ReworkVariant(v, names[i], keep, null);
+                var nv = ReworkVariant(v, names[i], keep, null, bkeep);
                 if (nv == null) continue;
                 nv.leafDress = v.leafDress; nv.impostorDress = v.impostorDress;
                 list[i] = nv;
-                sb.Append($"\n  {names[i]}: {Tris(v.lods[0])}/{Tris(v.lods[1])}/{Tris(v.lods[2])} -> {Tris(nv.lods[0])}/{Tris(nv.lods[1])}/{Tris(nv.lods[2])} (leaves kept {keep[0]:0.00}/{keep[1]:0.00}/{keep[2]:0.00})");
+                sb.Append($"\n  {names[i]}: {Tris(v.lods[0])}/{Tris(v.lods[1])}/{Tris(v.lods[2])} -> {Tris(nv.lods[0])}/{Tris(nv.lods[1])}/{Tris(nv.lods[2])} (leaves kept {keep[0]:0.00}/{keep[1]:0.00}/{keep[2]:0.00}, bark {bkeep[0]:0.00}/{bkeep[1]:0.00}/{bkeep[2]:0.00})");
             }
             Log(sb.ToString());
 
@@ -172,7 +180,7 @@ namespace PSXRacing.EditorTools
         /// <summary>A variant's levels baked into its foot frame: leaves
         /// thinned per level (<paramref name="keep"/>), and for a street form
         /// cut, lifted and narrowed (impostor included).</summary>
-        static MeshForest.Variant ReworkVariant(MeshForest.Variant src, string name, float[] keep, CTForm? form)
+        static MeshForest.Variant ReworkVariant(MeshForest.Variant src, string name, float[] keep, CTForm? form, float[] barkKeep = null)
         {
             CTCut cut = default;
             if (form.HasValue && !StreetCut(src, form.Value, out cut)) { Log("WARN: city trees: no street form of " + name); return null; }
@@ -188,13 +196,14 @@ namespace PSXRacing.EditorTools
                 var m = src.lods[l];
                 if (m == null) continue;
                 // a level that shares its mesh with the one before shares the result too
-                if (l > 0 && m == src.lods[l - 1] && (l == 3 || keep[l] == keep[l - 1])) { nv.lods[l] = nv.lods[l - 1]; continue; }
+                float bk = l < 3 && barkKeep != null ? barkKeep[l] : 1f;
+                if (l > 0 && m == src.lods[l - 1] && (l == 3 || (keep[l] == keep[l - 1] && (barkKeep == null || barkKeep[l] == barkKeep[l - 1])))) { nv.lods[l] = nv.lods[l - 1]; continue; }
                 var P = l == 3 ? src.impostorPre : src.pre;
                 float k = l < 3 ? keep[l] : 1f;
-                string key = name + "_L" + l + "_" + m.name + "#" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(m) + "_" + k.ToString("0.00");
+                string key = name + "_L" + l + "_" + m.name + "#" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(m) + "_" + k.ToString("0.00") + "_" + bk.ToString("0.00");
                 if (!ctReworked.TryGetValue(key, out var outM) || outM == null)
                 {
-                    outM = ReworkMesh(m, P, src.leafSub, k, form.HasValue ? cut : (CTCut?)null, l == 3, "CT2_" + name + "_L" + l);
+                    outM = ReworkMesh(m, P, src.leafSub, k, form.HasValue ? cut : (CTCut?)null, l == 3, "CT2_" + name + "_L" + l, bk);
                     if (outM != null) outM = WorldKit.SaveMesh(outM, outM.name);
                     ctReworked[key] = outM;
                 }
@@ -215,7 +224,7 @@ namespace PSXRacing.EditorTools
         };
 
         /// <summary>One level reworked (see ReworkVariant). Output in the foot frame.</summary>
-        static Mesh ReworkMesh(Mesh src, Matrix4x4 P, bool[] leafSub, float keep, CTCut? cut, bool impostor, string name)
+        static Mesh ReworkMesh(Mesh src, Matrix4x4 P, bool[] leafSub, float keep, CTCut? cut, bool impostor, string name, float barkKeep = 1f)
         {
             var nrm = ReadNormals(src); var uv = ReadUV(src);
             Color[] col = null;
@@ -270,11 +279,29 @@ namespace PSXRacing.EditorTools
                         clusterKeep[c4] = CityTreesHash(c4, 7717) < keep;
                     }
                 }
-                float grow = keep < 0.98f ? Mathf.Min(1.6f, 1f / Mathf.Sqrt(Mathf.Max(0.2f, keep))) : 1f;
+                // ---- bark (thinning): its smallest triangles - twigs - go, down to barkKeep of them ----
+                float minArea = -1f;
+                if (!leaf && !impostor && barkKeep < 0.98f && tris.Length >= 3)
+                {
+                    var areas = new float[tris.Length / 3];
+                    for (int q = 0; q < areas.Length; q++)
+                    {
+                        Vector3 a0 = verts[tris[q * 3]], a1 = verts[tris[q * 3 + 1]], a2 = verts[tris[q * 3 + 2]];
+                        areas[q] = Vector3.Cross(a1 - a0, a2 - a0).sqrMagnitude;
+                    }
+                    System.Array.Sort(areas);
+                    minArea = areas[Mathf.Clamp((int)(areas.Length * (1f - barkKeep)), 0, areas.Length - 1)];
+                }
+                float grow = keep < 0.98f ?Mathf.Min(1.6f, 1f / Mathf.Sqrt(Mathf.Max(0.2f, keep))) : 1f;
                 var tri = new CTV[3];
                 for (int t = 0; t < tris.Length / 3; t++)
                 {
                     if (clusterOf != null && !clusterKeep[clusterOf[t]]) continue;
+                    if (minArea >= 0f)
+                    {
+                        Vector3 a0 = verts[tris[t * 3]], a1 = verts[tris[t * 3 + 1]], a2 = verts[tris[t * 3 + 2]];
+                        if (Vector3.Cross(a1 - a0, a2 - a0).sqrMagnitude < minArea) continue;
+                    }
                     for (int j = 0; j < 3; j++)
                     {
                         tri[j] = V(tris[t * 3 + j]);
