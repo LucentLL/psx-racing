@@ -1,3 +1,31 @@
+# HANDOFF - HOUSES ROUND 2: ROOFS, UNIT ROWS, PARTS (agent "roofs", charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
+
+On top of round 1 (a6e1db67). Shares the branch with agent "types" (non-house classes). Sandbox PSXCity (lock "roofs", removed).
+
+## Causes
+- FLAT-ROOFED HOUSES: a house polygon with over 10 corners is not gabled by the exporter (tools/city/export_osm.mjs:1599) and EmitFootprint's polygon path drew it with EarcutInto (CityMeshes.cs, roof branch); round 1's low blocks of any plan (polySiding) too. 212 flat house roofs on the 93-tile sample (1,074 house polygons city-wide).
+- N GRAHAM = ONE BOX: blocks were drawn as one wall per side, one flat or plain roof (no units, no gables, no doors).
+- SILENT TINT: the tint path works (frame A/B with the material flag off changes the siding pixels), the round 1 palette was just too close to the painted beige.
+
+## Changes (new switches; =0 = round 1's picture)
+- `Scripts/City/CityMeshes.HouseParts.cs` (NEW). PSX_CITY_HOUSEROOFS: a house polygon / low block is split into up to 5 rectangles on its own axes (the corners' coordinates are the grid), each roofed along its long axis: gable or hip at an outside end, a hip where another rectangle covers the end (L corners), a buried cross gable at an inside end; a flat ceiling at the eave under it closes what the rectangles miss; slope by era (Uptown distance: <3.8 km pre-war 0.55, <8 km ranch 0.38, beyond 0.5), rise <= 3.5 m (block 4.5). The gabled boxes take a hip by era/hash (pre-war 25 %, ranch 55 %, new 33 %).
+- PSX_CITY_HOUSEUNITS: siding blocks (box and polygon) = units of ~6.5 m on every wall >= 9 m; on a street wall (a street within 35 m in front of that wall) every second unit steps out 0.5 m with siding returns under its own front gable (attic window), every unit a door + stoop; window pair a storey; brick ground storey on half the blocks by hash (two atlas bays a unit, the door on the pier), base band <= 2.9 m, block brick windows at 0.8 width.
+- PSX_CITY_HOUSEPARTS: chimneys (atlas brick pier strip + concrete cap; 70 % old/ranch, 33 % new), front porches on 3 of 4 pre-war houses (deck, white posts + beam, shed roof fitted between the window heads and the next storey's sills, step; door added when the porch is on a gable end), concrete foundation band to 0.2 m over the floor on siding walls. Porches are added to tm.houseBoxes so trees keep their 2 m margin from them.
+- Round-1 file edits: CityMeshes.HouseWalls.cs (unit dispatch, bays, brick widths, foundation, HouseBrickChoose/HouseDoor skip unit rows, stronger SidingCols incl. navy/charcoal/slate).
+- Shared CityMeshes.cs (commit 1d9aa5ac, 9 lines): HouseBlockBegin/End at the sidingBlock and polySiding lines, `pitched` + HousePolyEave after eaveY, HousePolyRoof before the flat EarcutInto (+ flat counter), HouseBoxRoof first line in EmitGableHouse's eaves branch.
+- Tools: CityAudit.Windows.cs (build ms per tile class, PSX_WIN_RING 5x5 ring, round-2 counters), CityRefSpots.Bldg.cs (poses side/sidel/top/row, PSX_BLDG_POSES, PSX_BLDG_TINTAB tint A/B frame).
+
+## Proof (93 tiles = round 1's 73 + a 5x5 ring at Plaza Midwood)
+- Windows CUT/BURIED: base 10,568/5,762 -> r1 0/0 -> r2 0/0. Style-3 flat roofs: r1 212 -> r2 0 (212 polygons pitched, 492 rectangles, 0 fallbacks). r2: 1,239 hips, 379 units, 56 front gables, 958 porches, 2,104 chimneys. House census: GAP 0, buried p95 0.60 (= r1).
+- Cost: building tris a tile 1,773 (base) / 3,761 (r1) / 4,820 (r2, +28 % on r1). Build ms a tile, base/r1/r2: ring 310/226/293, OSM house tiles 216/214/219, fill 88/84/88, shot places 386/362/493 (max 1,266/1,220/1,823 = the Graham tile). Frame/GPU time (PerfTour) NOT measured.
+- Sheet: scratchpad `roofs\houses_round2.png` (real | base | r1 | r2, 9 rows, + tint A/B + 4 night frames). Tint A/B: siding pixels change 2-7 % of frame, mean 18-20 RGB-sum - works but still subtle (most picks white/cream).
+
+## Seen wrong / not done
+- Dilworth, Shamrock, south subdivision frames do not show houses side-on (trees, the types agent's frontage block): their change is unproven in pictures; the owner's own frame (graham) shows the block too far. No street views taken for myers/pmw_north.
+- Dormers, garages/carports, shutters, corner trim, a distance rule (120 m) not done. Brick atlas window position under porch roofs on brick houses unverified. The tree audit was NOT re-run (trunks keep 2 m from footprints and porch boxes; stoops 1 m and unit steps 0.5 m are inside that margin; crowns are not audited in the city at all). Player build not run.
+
+## At merge
+- Tile geometry changed: re-bake. No new Slot/material/bucket, no format change; tm.houseBoxes now also holds porches (already a baked field). Codex: shingles in 3 colours, porch boards/columns, garage door still wanted.
 # HANDOFF - CHARLOTTE HOUSES + LOW-RISE BUILDINGS (charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
 
 Branch `charlotte-buildings-1111` (worktree `C:\Users\mcgee\PSX Racing-bldg`) off mountain-nm c81f2a59. Sandbox PSXCity (lock "buildings", removed). The owner: "replacing these very unrealistic generic textures with windows going through roofs needs to be a top priority".
