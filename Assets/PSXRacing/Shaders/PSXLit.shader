@@ -228,6 +228,7 @@ Shader "PSX/Lit"
         // DEPTH, in vert): 0 everywhere else. The render state below is the
         // three draws' too; every other material keeps On / LEqual / RGBA.
         [HideInInspector] _SkylinePass ("Skyline pass", Float) = 0
+        [HideInInspector] _HouseTint ("House siding colour from the vertex colour (CityMeshes.HouseWalls)", Float) = 0
         [HideInInspector] _SkyZWrite ("Skyline ZWrite", Float) = 1
         [HideInInspector] _SkyZTest ("Skyline ZTest", Float) = 4
         [HideInInspector] _SkyColorMask ("Skyline ColorMask", Float) = 15
@@ -546,6 +547,7 @@ Shader "PSX/Lit"
             float _AtlasPx;
             float _Skyline;
             float _SkylinePass;
+            float _HouseTint;   // HOUSE WALLS: x2 the vertex colour on the siding's light (0 = off)
             float _SkyFarLand;
             float _NearCut;
             float _Horizon;
@@ -1600,6 +1602,8 @@ Shader "PSX/Lit"
                 // No hour applied (an interior): the old light, clamped HERE
                 // and handed on whole, so the pixel shader's sum is the very
                 // number it used to be given.
+                // HOUSE WALLS (CityMeshes.HouseWalls.cs): a house's siding colour, x2 the vertex colour (128 grey = as painted)
+                if (_HouseTint > 0.5) { half3 hk = (half3)(v.color.rgb * 2.0); amb *= hk; sunL *= hk; }
                 if (_PSXSunModel < 0.5) { amb = saturate(amb + sunL); sunL = half3(0, 0, 0); }
             #ifdef PSX_BAKEDSKY
                 // no hour applied, the sun is inside amb: leave it whole

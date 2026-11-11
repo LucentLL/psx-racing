@@ -186,6 +186,77 @@ namespace PSXRacing.City
             }
         }
 
+        // ---- HOUSE COLOURS + FRONT DOOR (PSX_CITY_HOUSETINT, PSX_CITY_HOUSEDOOR) ----
+        public static bool HouseTintOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSETINT") != "0";
+        public static bool HouseDoorOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEDOOR") != "0";
+
+        /// <summary>Siding colours as multipliers of the painted off-white
+        /// (linear-ish, x the texel; PSX/Lit x2 the vertex colour): white, cream,
+        /// pale yellow, sage, grey-blue, light grey, tan, pale blue, clay, slate green.</summary>
+        static readonly Vector3[] SidingCols =
+        {
+            new Vector3(1.10f, 1.10f, 1.10f), new Vector3(1.06f, 1.02f, 0.90f), new Vector3(1.08f, 1.00f, 0.72f),
+            new Vector3(0.84f, 0.94f, 0.80f), new Vector3(0.80f, 0.88f, 1.00f), new Vector3(0.86f, 0.86f, 0.86f),
+            new Vector3(1.00f, 0.88f, 0.72f), new Vector3(0.88f, 0.98f, 1.08f), new Vector3(0.86f, 0.72f, 0.60f),
+            new Vector3(0.70f, 0.80f, 0.74f),
+        };
+
+        static uint HouseHash(int x, int z, uint salt)
+        {
+            uint h = (uint)x * 0x9E3779B1u ^ (uint)z * 0x85EBCA6Bu ^ salt * 0xC2B2AE35u;
+            h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+            return h;
+        }
+
+        /// <summary>A house's siding colour: a neighbourhood (a 350 m cell)
+        /// draws from four of the palette's colours - an older street mostly
+        /// white and cream, another pastel - and each house picks one of them.</summary>
+        static Color32 HouseTintOf(Vector2 c)
+        {
+            if (!HouseTintOn) return new Color32(128, 128, 128, 0);
+            int cx = Mathf.FloorToInt(c.x / 350f), cz = Mathf.FloorToInt(c.y / 350f);
+            uint nb = HouseHash(cx, cz, 7u);
+            uint hh = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 11u);
+            // white is common everywhere (a third of houses); the rest from the cell's four
+            int pick = (hh & 7u) < 3u ? 0 : (int)((nb >> (int)(((hh >> 3) & 3u) * 4u)) % (uint)SidingCols.Length);
+            var k = SidingCols[pick];
+            return new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), 0);
+        }
+
+        /// <summary>The front door and its stoop on a gabled house's long wall
+        /// that faces the nearest street: a glazed door (the siding's own
+        /// window cell, whole, 0.95 x 2.05 m, 3 cm proud of the wall) on the bay
+        /// line nearest the wall's middle - between two windows, never over
+        /// one - and a concrete step under it from the floor to the ground.</summary>
+        static void HouseDoor(TileMeshes tm, Vector2 centre, Vector2 u, Vector2 v, float hu, float hv, float y0, float floor)
+        {
+            if (!HouseDoorOn || hwMap == null || float.IsNaN(floor)) return;
+            if (!hwMap.NearestRoadPoint(centre, 60f, true, out int ei, out float s, out _)) return;
+            var q = hwMap.edges[ei].PointAt(s);
+            float side = Vector2.Dot(q - centre, v) >= 0f ? 1f : -1f;
+            float W = 2f * hu;
+            int bays = W < HouseMinWinWallM ? 0 : Mathf.Max(1, Mathf.RoundToInt(W / HouseBayM));
+            if (bays < 2) return;
+            float along = -hu + (bays / 2) * (W / bays);
+            Vector2 n = v * side;
+            Vector2 mid = centre + u * along + n * (hv + 0.03f);
+            Vector2 a = mid - u * 0.475f, c = mid + u * 0.475f;
+            var bk = buckets[(int)Slot.FacadeHouse];
+            bk.Wall(L(a, 0f, tm), L(c, 0f, tm), floor, floor + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
+            // the stoop: floor - 0.02 down to the walls' foot, 1.5 m wide, 1.0 m out
+            float top = floor - 0.02f;
+            if (top <= y0 + 0.05f) return;
+            var st = buckets[(int)Slot.RoofFlat];
+            Vector2 s0 = centre + u * (along - 0.75f) + n * hv, s1 = centre + u * (along + 0.75f) + n * hv;
+            Vector2 o0 = s0 + n * 1.0f, o1 = s1 + n * 1.0f;
+            st.Up(L(s0, top, tm), L(s1, top, tm), L(o1, top, tm), L(o0, top, tm),
+                  new Vector2(0f, 0f), new Vector2(0.19f, 0f), new Vector2(0.19f, 0.13f), new Vector2(0f, 0.13f));
+            float hgt = (top - y0) / RoofFlatM;
+            st.Wall(L(o0, 0f, tm), L(o1, 0f, tm), y0, top, n, 0f, 0.19f, 0f, hgt);
+            st.Wall(L(s0, 0f, tm), L(o0, 0f, tm), y0, top, -u, 0f, 0.13f, 0f, hgt);
+            st.Wall(L(o1, 0f, tm), L(s1, 0f, tm), y0, top, u, 0f, 0.13f, 0f, hgt);
+        }
+
         const float EaveOverM = 0.35f, RakeOverM = 0.25f;
 
         /// <summary>The gable roof with its overhangs: the two planes reach

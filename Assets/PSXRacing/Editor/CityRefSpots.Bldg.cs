@@ -59,6 +59,11 @@ namespace PSXRacing.EditorTools
                 var output = Object.FindFirstObjectByType<PSXCameraOutput>();
                 if (output != null) output.height = TexShotHeight;
                 TexturePrefs.Enhanced = true;   // the PC default
+                // the siding's colour flag (the scene pass sets it in the builder; this sandbox's
+                // kit material predates it): neutral vertex colour = as painted, so before is unchanged
+                var kit = CityKit.Get();
+                if (kit != null && kit.slots != null && kit.slots.Length > (int)CityMeshes.Slot.FacadeHouse && kit.slots[(int)CityMeshes.Slot.FacadeHouse] != null)
+                    kit.slots[(int)CityMeshes.Slot.FacadeHouse].SetFloat("_HouseTint", CityMeshes.HouseTintOn && tag != "before" ? 1f : 0f);
                 var world = Object.FindAnyObjectByType<CityWorld>();
                 var map = CityMap.Get();
                 if (world == null || map == null) throw new System.Exception("no CityWorld / city data");

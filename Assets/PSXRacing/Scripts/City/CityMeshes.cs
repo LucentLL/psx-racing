@@ -1274,6 +1274,7 @@ namespace PSXRacing.City
             for (int i = 0; i < b.Length; i++) b[i] = new Bucket();
             b[(int)Slot.FacadeGlass].col = new List<Color32>(512);   // the facade atlas (Uptown B1)
             b[(int)Slot.FacadeGlass].fac = new List<Vector4>(512);   // its walls (facade structure)
+            b[(int)Slot.FacadeHouse].col = new List<Color32>(512);   // HOUSE WALLS: the siding's colour (PSX/Lit _HouseTint)
             return b;
         }
 
@@ -12054,7 +12055,7 @@ namespace PSXRacing.City
                     return;
                 }
                 gfActive = gfKeep;
-                if (wallSlot == Slot.FacadeHouse) { houseFloorY = floorP; hwMap = proxyBuild ? null : map; }   // HOUSE WALLS: storeys from the pad
+                if (wallSlot == Slot.FacadeHouse) { houseFloorY = floorP; hwMap = proxyBuild ? null : map; Bucket.Tint = HouseTintOf(f.centre); }   // HOUSE WALLS: storeys from the pad, its colour
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
@@ -12580,10 +12581,13 @@ namespace PSXRacing.City
             var c3 = centre - u * hu - v * hv;   // -u -v
             var c4 = centre + u * hu - v * hv;   // +u -v
             houseFloorY = floor;   // HOUSE WALLS: the storeys stand on the pad, not on the walls' foot
+            var tintKeep = Bucket.Tint;
+            if (wallSlot == Slot.FacadeHouse) Bucket.Tint = HouseTintOf(centre);   // its siding colour
             EmitFacadeQuad(tm, wallSlot, c2, c1, y0, eave, v);
             EmitFacadeQuad(tm, wallSlot, c1, c4, y0, eave, u);
             EmitFacadeQuad(tm, wallSlot, c4, c3, y0, eave, -v);
             EmitFacadeQuad(tm, wallSlot, c3, c2, y0, eave, -u);
+            if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && !proxyBuild) HouseDoor(tm, centre, u, v, hu, hv, y0, floor);
             houseFloorY = float.NaN;
 
             var rN = centre + u * hu;   // ridge ends
@@ -12594,6 +12598,7 @@ namespace PSXRacing.City
                 var gw = buckets[(int)wallSlot];
                 EmitGableTri(gw, tm, c1, rN, c4, eave, ridge, u);
                 EmitGableTri(gw, tm, c3, rS, c2, eave, ridge, -u);
+                Bucket.Tint = tintKeep;
                 return;
             }
             var roof = buckets[(int)Slot.RoofTiles];
@@ -12609,7 +12614,7 @@ namespace PSXRacing.City
             var wall = buckets[(int)wallSlot];
             EmitGableTri(wall, tm, c1, rN, c4, eave, ridge, u);
             EmitGableTri(wall, tm, c3, rS, c2, eave, ridge, -u);
-
+            Bucket.Tint = tintKeep;
         }
 
         static void EmitGableTri(Bucket bk, TileMeshes tm, Vector2 a, Vector2 apex, Vector2 c,
