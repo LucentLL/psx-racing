@@ -118,8 +118,8 @@ namespace PSXRacing.City
             float uPlain = bays > 0 ? bays : Mathf.Max(1f, Mathf.Round(W / HouseRepU));
             // storeys: whole floor-to-floor pitches between the floor and the eave
             float avail = y1 - floor;
-            int storeys = bays == 0 ? 0 : Mathf.Max(0, Mathf.FloorToInt(avail / HouseMinStoreyM + 0.0001f));
-            float pitch = storeys > 0 ? Mathf.Min(avail / storeys, 3.3f) : 0f;
+            int storeys = bays == 0 ? 0 : Mathf.Max(0, Mathf.FloorToInt(avail / houseStoreyM + 0.0001f));
+            float pitch = storeys > 0 ? Mathf.Min(avail / storeys, houseStoreyM > HouseMinStoreyM ? 3.4f : 3.3f) : 0f;
             float winH = Mathf.Clamp(pitch * 0.5f, 1.0f, 1.55f);
             float sill = Mathf.Min((pitch - winH - HouseHeadClearM) * 0.6f + 0.15f, 0.95f);
             // the drawn ground along the wall, highest (a sill under it is buried)
@@ -226,6 +226,15 @@ namespace PSXRacing.City
         /// <summary>...on its ground storey only (a siding block's brick base).</summary>
         static bool houseBrickBase;
         static Vector2 houseBrickAt;
+        /// <summary>The least floor-to-floor pitch of the walls being emitted (a block's storeys are taller).</summary>
+        static float houseStoreyM = HouseMinStoreyM;
+        /// <summary>A block small enough to be a low condo / townhouse building (under 4,000 m2).</summary>
+        public static bool HouseBlockLowArea(CityMap.Footprint f)
+        {
+            float a = 0f;
+            for (int i = 0, n = f.pts.Length; i < n; i++) { var p = f.pts[i]; var q = f.pts[(i + 1) % n]; a += p.x * q.y - q.x * p.y; }
+            return Mathf.Abs(a) * 0.5f < 4000f;
+        }
         /// <summary>The house brick columns: the old brick, red-brown sash, mottled, tan brick.</summary>
         static readonly int[] HouseBrickLooks = { LookBrick, LookRedSash, LookMottled, LookTanBrick };
 
