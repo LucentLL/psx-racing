@@ -296,7 +296,8 @@ namespace PSXRacing.EditorTools
             finally { EndSolids(); }
             foreach (var kv in r.hits) r.total += kv.Value;
             var gl = new List<(int, float)>();
-            foreach (var kv in gapBy) gl.Add((kv.Key, kv.Value));
+            // (keyed by 40 m of road: back to a station)
+            foreach (var kv in gapBy) gl.Add((kv.Key * Mathf.RoundToInt(40f / TrackCatalog.Spacing), kv.Value));
             gl.Sort((a, b) => a.Item2.CompareTo(b.Item2));
             // the closest few, each at least 250 m from the others
             foreach (var g in gl)
@@ -316,7 +317,7 @@ namespace PSXRacing.EditorTools
         static void TestPlant(Result r, string cls, Matrix4x4 M, Vector3[] pts, float height,
                               Dictionary<int, float> gapBy, bool envCheck)
         {
-            string what = Probe(M, pts, height, cls == "litter", envCheck, gapBy, out float depth, out Vector3 at, out int atSt);
+            string what = ProbePlant(M, pts, height, cls == "litter", envCheck, gapBy, out float depth, out Vector3 at, out int atSt);
             if (what != null)
             {
                 r.hits[cls] = r.hits.TryGetValue(cls, out int hc) ? hc + 1 : 1;
@@ -390,10 +391,10 @@ namespace PSXRacing.EditorTools
         internal static string Blocked(Matrix4x4 M, Vector3[] pts, float height, bool litter)
         {
             if (cats == null) return null;
-            return Probe(M, pts, height, litter, true, null, out _, out _, out _);
+            return ProbePlant(M, pts, height, litter, true, null, out _, out _, out _);
         }
 
-        static string Probe(Matrix4x4 M, Vector3[] pts, float height, bool litter, bool envCheck, Dictionary<int, float> gapBy,
+        static string ProbePlant(Matrix4x4 M, Vector3[] pts, float height, bool litter, bool envCheck, Dictionary<int, float> gapBy,
                             out float oDepth, out Vector3 oAt, out int oSt)
         {
             var cats = PlantSolidAudit.cats;
