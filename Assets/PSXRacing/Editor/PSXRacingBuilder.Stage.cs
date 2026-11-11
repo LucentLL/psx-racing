@@ -6878,6 +6878,8 @@ namespace PSXRacing.EditorTools
             bool cliffBacking = PCContent && CliffsOn && AssetDatabase.LoadAssetAtPath<GameObject>(MeadowCliffDir + "/" + CliffNames[0] + ".FBX") != null;
             mat.SetVector("_LeafVivid", cliffBacking ? new Vector4(0.45f, 0.72f, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
             if (cliffBacking) mat.color = new Color(0.9f, 0.9f, 0.92f);
+            // PC: the face itself as rock (PSXRacingBuilder.RockRelief: PSX_ROCKFACE)
+            SetRockFace(mat);
             // The rock top IS the hillside: the near ground's own material
             // (BuildStageGround makes the same asset and registers its
             // seasons, which SeasonDress applies to every renderer wearing it)
@@ -6900,6 +6902,8 @@ namespace PSXRacing.EditorTools
                 BuildOneStageBank(pts, run.stations, run.side, root.transform, mat, topMat, phys, runs++);
                 banked += run.stations.Length;
             }
+            // PC: boulders and outcrops on the steep forest slopes by the road
+            if (PCContent) PlaceBoulders(pts, root.transform);
             Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder, " +
                 "each with a solid rock top over its released hillside; " +
                 $"{wallSolidCount - solids0} rock-face solid(s), {wallSolidM - solidM0:0} m of collider face.");

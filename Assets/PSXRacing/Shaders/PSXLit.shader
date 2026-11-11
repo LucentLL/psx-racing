@@ -125,6 +125,14 @@ Shader "PSX/Lit"
         // _BlendParams: x its repeats a metre, y the patches' size (m), z cover 0..1
         [HideInInspector] _BlendTex ("Blend layer", 2D) = "white" {}
         [HideInInspector] _BlendParams ("Blend params", Vector) = (0.25, 14, 0.45, 0)
+        // THE ROAD CUT'S ROCK (PSX_ROCKFACE, the mountain stages on PC): a
+        // photoscanned cliff projected in world space on the face's own plane
+        // at two scales, stained, streaked, mossed on what faces up, with its
+        // normal map lighting the sun per pixel. _RockParams: x 1 / fine repeat
+        // (m), y 1 / coarse repeat (m), z normal strength, w moss amount.
+        [HideInInspector] _RockTex ("Rock albedo", 2D) = "grey" {}
+        [HideInInspector] _RockNrm ("Rock normal", 2D) = "bump" {}
+        [HideInInspector] _RockParams ("Rock params", Vector) = (0.14, 0.045, 1.0, 1.0)
         _Emission ("Emission", Range(0,1)) = 0
         // 1 = full PS1 affine texture warping, 0 = perspective correct.
         //
@@ -132,7 +140,7 @@ Shader "PSX/Lit"
         // transform depending on the camera angle. this should not happen in
         // any part of the game." The warp is only ever right on small
         // triangles, and almost nothing in this game is made of small
-        // triangles — a door leaf, a wall, a road ribbon and a building facade
+        // triangles â€” a door leaf, a wall, a road ribbon and a building facade
         // are all one or two quads each, and on those it reads as a bug rather
         // than as a PlayStation. The look survives without it: the vertex
         // snapping below and the low-resolution framebuffer are what actually
@@ -148,7 +156,7 @@ Shader "PSX/Lit"
         // tree the builders plant is two crossed quads, and under Cull Back a
         // crossed pair drawn one side only is an X from a quarter of the
         // compass, a single flat card from half of it, and NOTHING from the
-        // last quarter — the reported bug exactly. Drawing both faces costs no
+        // last quarter â€” the reported bug exactly. Drawing both faces costs no
         // geometry, where emitting a mirrored twin of every quad would double
         // sixty thousand trees' worth of forest mesh against a build that is
         // already 86 MB of GitHub's 100.
@@ -304,6 +312,7 @@ Shader "PSX/Lit"
             #pragma target 4.5 PROCEDURAL_INSTANCING_ON
             #pragma shader_feature_local __ PSX_LODFADE
             #pragma shader_feature_local_fragment __ PSX_GROUNDBLEND
+            #pragma shader_feature_local_fragment __ PSX_ROCKFACE
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
@@ -429,6 +438,21 @@ Shader "PSX/Lit"
                 f = f * f * (3.0 - 2.0 * f);
                 float a = PSXBlendHash(i0), b = PSXBlendHash(i0 + float2(1, 0));
                 float c = PSXBlendHash(i0 + float2(0, 1)), d = PSXBlendHash(i0 + float2(1, 1));
+                return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+            }
+            sampler2D _RockTex;
+            sampler2D _RockNrm;
+            float4 _RockParams;
+            // the lattice folded into a 512-cell period first (seamless, the
+            // fold is on the integer corners): the sine hash loses its digits
+            // on a coordinate in the thousands
+            float PSXRockHash(float2 q) { q -= 512.0 * floor(q / 512.0); return frac(sin(dot(q, float2(127.1, 311.7))) * 43758.5453); }
+            float PSXRockNoise(float2 p)
+            {
+                float2 i0 = floor(p), f = frac(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float a = PSXRockHash(i0), b = PSXRockHash(i0 + float2(1, 0));
+                float c = PSXRockHash(i0 + float2(0, 1)), d = PSXRockHash(i0 + float2(1, 1));
                 return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
             }
             float _Emission;
@@ -1432,7 +1456,7 @@ Shader "PSX/Lit"
                 float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 // A face drawn from both sides is lit from the side you SEE.
                 // The vertex normal points out of the front, so from behind
-                // every card would take the light of the face turned away —
+                // every card would take the light of the face turned away â€”
                 // the sunlit side of a tree drawn in shadow. Per vertex is
                 // exact here: the camera is on one side of a flat card, so all
                 // four corners agree. Only when culling is off; a closed mesh
@@ -2017,6 +2041,80 @@ Shader "PSX/Lit"
                 float hdAO = tex2D(_HDAO, uv).r;
                 float hdRough = tex2D(_HDRough, uv).r;
             #endif
+            #ifdef PSX_ROCKFACE
+                // THE ROAD CUT'S ROCK (owner 2026-11-11: the cuts read as "just
+                // flat rock textures. Very bland, repetitive"; his Parkway
+                // photographs: grey-brown gneiss, tan iron staining, dark seep
+                // streaks down from the ledges, moss and lichen on what faces
+                // up). The pack's photoscanned cliff, projected in WORLD space
+                // on the two vertical planes (weighted by the facet's normal,
+                // so a block's side takes the other projection) at a fine and
+                // a coarse scale on a turned frame - no tile reads twice - and
+                // its normal map lighting the sun per pixel below.
+                float3 rkN0 = N;
+                float rkSun = 1.0, rkAO = 1.0;
+                {
+                    float3 an = abs(N);
+                    float2 wSide = pow(an.xz + 1e-3, 4.0); wSide /= (wSide.x + wSide.y);
+                    float s1 = _RockParams.x, s2 = _RockParams.y;
+                    // fine: on each plane; coarse: the same planes turned 31 degrees
+                    const float2x2 rkRot = float2x2(0.857, -0.515, 0.515, 0.857);
+                    float2 pX = i.wpos.zy, pZ = i.wpos.xy;
+                    float2 gXx = dWx.zy, gXy = dWy.zy, gZx = dWx.xy, gZy = dWy.xy;
+                    float3 aX = tex2Dgrad(_RockTex, pX * s1, gXx * s1, gXy * s1).rgb;
+                    float3 aZ = tex2Dgrad(_RockTex, pZ * s1 + 0.37, gZx * s1, gZy * s1).rgb;
+                    float3 cX = tex2Dgrad(_RockTex, mul(rkRot, pX) * s2 + 0.11, mul(rkRot, gXx) * s2, mul(rkRot, gXy) * s2).rgb;
+                    float3 cZ = tex2Dgrad(_RockTex, mul(rkRot, pZ) * s2 + 0.71, mul(rkRot, gZx) * s2, mul(rkRot, gZy) * s2).rgb;
+                    float3 fine = aX * wSide.x + aZ * wSide.y;
+                    float3 coarse = cX * wSide.x + cZ * wSide.y;
+                    // the fine's detail on the coarse's tone: the coarse sets the
+                    // light and dark masses, the fine the grain
+                    float lf = dot(fine, float3(0.2126, 0.7152, 0.0722));
+                    float lc = dot(coarse, float3(0.2126, 0.7152, 0.0722));
+                    float3 rock = fine * lerp(1.0, lc / max(lf, 0.03), 0.45);
+                    rkAO = saturate(0.55 + 0.9 * lc);
+                    // along the face (whichever plane it is drawn on), and height
+                    float along = i.wpos.z * wSide.x + i.wpos.x * wSide.y;
+                    float hY = i.wpos.y;
+                    // THE STAIN: grey gneiss and tan iron-stained rock in broad
+                    // patches (12-30 m), a warmer weathered band here and there
+                    float stain = PSXRockNoise(float2(along, hY) / 13.0) * 0.6 + PSXRockNoise(float2(along, hY) / 31.0 + 5.3) * 0.4;
+                    float lum = dot(rock, float3(0.2126, 0.7152, 0.0722));
+                    float3 rkGrey = float3(0.47, 0.465, 0.45), rkTan = float3(0.70, 0.58, 0.42);
+                    float3 hue = lerp(rkGrey, rkTan, smoothstep(0.38, 0.72, stain));
+                    rock = lerp(rock, lum * hue * 2.4, 0.62);
+                    // SEEP STREAKS: narrow dark runs down the face (stretched
+                    // noise, 0.6 m wide, 12 m long), wetter and darker low down
+                    float seep = PSXRockNoise(float2(along * 1.7, hY * 0.085 + 3.1)) * 0.7 + PSXRockNoise(float2(along * 4.3, hY * 0.2)) * 0.3;
+                    float seepM = smoothstep(0.6, 0.8, seep) * (0.55 + 0.45 * PSXRockNoise(float2(along / 9.0, 1.7)));
+                    rock *= lerp(1.0, 0.42, seepM);
+                    rock = lerp(rock, rock * float3(0.85, 0.95, 0.80), seepM * 0.5);
+                    // MOSS where the rock faces up (the ledges, the block tops)
+                    // and a mossy band in patches; LICHEN as pale flecks
+                    float up = saturate((rkN0.y - 0.28) / 0.35);
+                    float mossN = PSXRockNoise(float2(along, hY) * 0.7) * 0.6 + PSXRockNoise(float2(along, hY) / 6.0 + 2.2) * 0.4;
+                    // (in patches, never a whole ledge: a lit up-facing facet
+                    // took the moss to a lime band the length of the cut)
+                    float moss = saturate(up * smoothstep(0.45, 0.7, mossN) * 0.75 + smoothstep(0.78, 0.9, mossN) * 0.45) * _RockParams.w;
+                    float3 mossC = float3(0.11, 0.135, 0.055) * (0.8 + 0.6 * lf);
+                    rock = lerp(rock, mossC, moss);
+                    float lichen = smoothstep(0.83, 0.92, PSXRockNoise(float2(along, hY) * 5.0 + 7.7)) * (1.0 - moss);
+                    rock = lerp(rock, float3(0.58, 0.59, 0.55), lichen * 0.25);
+                    tex.rgb = rock * _Color.rgb;
+
+                    // THE NORMAL: the scan's own, on whichever plane carries it
+                    float3 nX = UnpackNormal(tex2Dgrad(_RockNrm, pX * s1, gXx * s1, gXy * s1));
+                    float3 nZ = UnpackNormal(tex2Dgrad(_RockNrm, pZ * s1 + 0.37, gZx * s1, gZy * s1));
+                    float sx = rkN0.x >= 0.0 ? 1.0 : -1.0, sz = rkN0.z >= 0.0 ? 1.0 : -1.0;
+                    // plane x: tangent along z (flipped with the face), up y
+                    float3 dX = float3(0.0, nX.y, nX.x * sx);
+                    float3 dZ = float3(nZ.x * -sz, nZ.y, 0.0);
+                    float rkK = _RockParams.z * (1.0 - moss * 0.6);
+                    N = normalize(N + (dX * wSide.x + dZ * wSide.y) * rkK);
+                    float3 Ld0 = normalize(_PSXLightDir.xyz);
+                    rkSun = min(saturate(dot(N, Ld0)) / max(saturate(dot(rkN0, Ld0)), 0.08), 2.5);
+                }
+            #endif
 
                 // THE TERRAIN DETAIL (TerrainDetail.cs): grass, dirt, rock and
                 // snow carry a photographed grain near the eye. The sheet is
@@ -2101,6 +2199,10 @@ Shader "PSX/Lit"
                 float geoNdl = saturate(dot(Ngeo, Ld)), hdNdl = saturate(dot(N, Ld));
                 sunIn = i.sun * min(hdNdl / max(geoNdl, 0.05), 3.0);
                 ambIn *= hdAO;
+            #endif
+            #ifdef PSX_ROCKFACE
+                sunIn *= rkSun;
+                ambIn *= rkAO;
             #endif
                 float3 sunAmb = ambIn * (skyKeep * PSXCarAmbientKeep(carVis, ambIn, sunIn, N)) + sunIn * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
