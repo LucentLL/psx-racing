@@ -188,7 +188,7 @@ namespace PSXRacing
             if (s.nrm != null) Set(m, NormalId, s.nrm);
             if (s.rough != null) Set(m, RoughId, s.rough);
             if (s.ao != null) Set(m, AOId, s.ao);
-            m.EnableKeyword(Keyword);
+            Kw(m, true);
             Applied++;
             return true;
         }
@@ -196,11 +196,36 @@ namespace PSXRacing
         static void Off(Material m)
         {
             var main = m.GetTexture(MainTexId);
-            if (main != null && map != null && byHD.TryGetValue(main, out int i) && map.pairs[i].original != null)
+            int i = -1;
+            if (main != null && map != null && !byHD.TryGetValue(main, out i))
+            {
+                // an HD colour this session has not loaded (a material that kept
+                // one from an earlier editor run): known by its key
+                i = -1;
+                for (int k = 0; k < map.pairs.Length; k++) if (map.pairs[k].key == main.name) { i = k; break; }
+            }
+            if (i >= 0 && map.pairs[i].original != null)
                 Set(m, MainTexId, TextureTier.ForTier(map.pairs[i].original));
             if (m.HasProperty(RoadOnId) && m.GetFloat(RoadOnId) != 0f) SetF(m, RoadOnId, 0f);
-            m.DisableKeyword(Keyword);
+            Kw(m, false);
             Applied = Mathf.Max(0, Applied - 1);
+        }
+
+        /// <summary>The keyword, kept off a material ASSET's saved state in the
+        /// editor like every other swap here (an editor run that saved assets
+        /// while the tier was on once left road materials saved with PSX_HD).</summary>
+        static void Kw(Material m, bool on)
+        {
+#if UNITY_EDITOR
+            if (UnityEditor.EditorUtility.IsPersistent(m))
+            {
+                bool wasDirty = UnityEditor.EditorUtility.IsDirty(m);
+                if (on) m.EnableKeyword(Keyword); else m.DisableKeyword(Keyword);
+                if (!wasDirty) UnityEditor.EditorUtility.ClearDirty(m);
+                return;
+            }
+#endif
+            if (on) m.EnableKeyword(Keyword); else m.DisableKeyword(Keyword);
         }
 
         /// <summary>Take the HD tier off every material in memory (an A/B in
@@ -254,7 +279,7 @@ namespace PSXRacing
             SetV(m, PaintWId, map.paintWhite);
             SetV(m, PaintYId, map.paintYellow);
             SetF(m, RoadOnId, 1f);
-            m.EnableKeyword(Keyword);
+            Kw(m, true);
             Applied++;
             return true;
         }
