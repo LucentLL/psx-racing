@@ -203,7 +203,9 @@ namespace PSXRacing.EditorTools
                 foreach (var mf in go.GetComponentsInChildren<MeshFilter>(true))
                 {
                     if (mf.sharedMesh == null || mf.GetComponent<Collider>() != null) continue;
-                    if (mf.gameObject.name == "MedianPlants") continue;
+                    // the render-only closing faces (paint, trees and furniture would only stand in the probes' way)
+                    string nm = mf.gameObject.name;
+                    if (nm != "Kerbs" && nm != "Banks" && nm != "Structure" && nm != "Water") continue;
                     mf.gameObject.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
                 }
                 Physics.SyncTransforms();

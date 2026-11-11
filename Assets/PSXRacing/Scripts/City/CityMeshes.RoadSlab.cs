@@ -120,8 +120,10 @@ namespace PSXRacing.City
                     land = Mathf.Max(land, groundGrid.Between(n1x, n1z, land, q.y + 0.3f));
                     land = Mathf.Max(land, roadGrid.Between(n1x, n1z, land, q.y + 0.3f));
                     if (land < q.y - RiserMinM) { lower = true; lowest = Mathf.Min(lowest, land); }
-                    // a lower road reaching in under the sheet: a face would stand in its lanes
-                    if (roadGrid.Between(q.x - nrm.x * 0.1f, q.z - nrm.y * 0.1f, q.y - SlabMaxM - 0.1f, q.y - 0.004f, true) > float.NegativeInfinity) under = true;
+                    // a lower road reaching in under the sheet, more than a hand down: a face
+                    // would stand in its lanes (a ribbon poking a few cm under a fan's mouth
+                    // is the step itself: its face is what closes it)
+                    if (roadGrid.Between(q.x - nrm.x * 0.1f, q.z - nrm.y * 0.1f, q.y - SlabMaxM - 0.1f, q.y - 0.05f, true) > float.NegativeInfinity) under = true;
                 }
                 if (under) continue;
                 if (lower && top - lowest <= SlabMaxM)
