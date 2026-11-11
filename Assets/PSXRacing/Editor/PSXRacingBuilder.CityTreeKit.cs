@@ -342,7 +342,7 @@ namespace PSXRacing.EditorTools
                     bool leaf = n.IndexOf("leaves", System.StringComparison.OrdinalIgnoreCase) >= 0;
                     var m = root.worldToLocalMatrix * mf.transform.localToWorldMatrix;
                     for (int s = 0; s < mf.sharedMesh.subMeshCount; s++)
-                        (leaf ? leafCi : barkCi)[lod].Add(new CombineInstance { mesh = mf.sharedMesh, subMeshIndex = s, transform = m });
+                        (leaf ? leafCi : barkCi)[lod].Add(new CombineInstance { mesh = ReadableCopy(mf.sharedMesh), subMeshIndex = s, transform = m });
                 }
                 string stem = file.Substring(0, file.LastIndexOf('.'));
                 var v = new MeshForest.Variant();
@@ -372,6 +372,7 @@ namespace PSXRacing.EditorTools
                     var ys = new List<float>();
                     foreach (int ti in bt) ys.Add(bv[ti].y);
                     ys.Sort();
+                    if (ys.Count == 0) ys.Add(baseY);
                     float footY = ys[Mathf.Min(ys.Count - 1, ys.Count / 50)];
                     double sx = 0, sz = 0; int cnt = 0;
                     foreach (int ti in bt) { var q = bv[ti]; if (q.y > footY + 0.6f) continue; sx += q.x; sz += q.z; cnt++; }
@@ -384,6 +385,44 @@ namespace PSXRacing.EditorTools
                 return v;
             }
             finally { Object.DestroyImmediate(inst); }
+        }
+
+        static readonly Dictionary<Mesh, Mesh> readableCopies = new Dictionary<Mesh, Mesh>();
+
+        /// <summary>A readable copy of a pack mesh (the packs import with
+        /// Read/Write off, and CombineMeshes skips such a mesh): positions,
+        /// normals, UV0, colours and every submesh, through the read-only
+        /// MeshData the editor may see.</summary>
+        static Mesh ReadableCopy(Mesh src)
+        {
+            if (src == null || src.isReadable) return src;
+            if (readableCopies.TryGetValue(src, out var have) && have != null) return have;
+            var m = new Mesh { name = src.name + "_rw", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            using (var data = Mesh.AcquireReadOnlyMeshData(src))
+            {
+                var md = data[0];
+                int n = md.vertexCount;
+                var v = new Unity.Collections.NativeArray<Vector3>(n, Unity.Collections.Allocator.Temp);
+                md.GetVertices(v); m.SetVertices(v); v.Dispose();
+                if (md.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Normal))
+                { var nn = new Unity.Collections.NativeArray<Vector3>(n, Unity.Collections.Allocator.Temp); md.GetNormals(nn); m.SetNormals(nn); nn.Dispose(); }
+                if (md.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord0))
+                { var uv = new Unity.Collections.NativeArray<Vector2>(n, Unity.Collections.Allocator.Temp); md.GetUVs(0, uv); m.SetUVs(0, uv); uv.Dispose(); }
+                if (md.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color))
+                { var c = new Unity.Collections.NativeArray<Color>(n, Unity.Collections.Allocator.Temp); md.GetColors(c); m.SetColors(c); c.Dispose(); }
+                m.subMeshCount = md.subMeshCount;
+                for (int s = 0; s < md.subMeshCount; s++)
+                {
+                    var sm = md.GetSubMesh(s);
+                    var idx = new Unity.Collections.NativeArray<int>(sm.indexCount, Unity.Collections.Allocator.Temp);
+                    md.GetIndices(idx, s);
+                    m.SetIndices(idx, sm.topology, s);
+                    idx.Dispose();
+                }
+            }
+            m.RecalculateBounds();
+            readableCopies[src] = m;
+            return m;
         }
 
         /// <summary>The crown as a volume: the farthest vertex of LOD0 from the
