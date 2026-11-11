@@ -50,7 +50,7 @@ namespace PSXRacing.EditorTools
             var pairs = new List<TextureHDMap.Pair>();
             // PSX_HD_SRC may name several folders, ';' between (a stage plus a test set)
             var dirs = new List<string>();
-            foreach (var d in SrcDir.Split(';')) if (!string.IsNullOrWhiteSpace(d) && Directory.Exists(d.Trim())) dirs.Add(d.Trim());
+            foreach (var d in SrcDir.Split(';', '|')) if (!string.IsNullOrWhiteSpace(d) && Directory.Exists(d.Trim())) dirs.Add(d.Trim());
             if (dirs.Count == 0)
             {
                 WriteMap(pairs);
