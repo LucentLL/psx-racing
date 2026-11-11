@@ -12593,7 +12593,7 @@ namespace PSXRacing.City
             EmitFacadeQuad(tm, wallSlot, c1, c4, y0, eave, u);
             EmitFacadeQuad(tm, wallSlot, c4, c3, y0, eave, -v);
             EmitFacadeQuad(tm, wallSlot, c3, c2, y0, eave, -u);
-            if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && !proxyBuild) HouseDoor(tm, centre, u, v, hu, hv, y0, floor);
+            if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && !proxyBuild) HouseDoor(tm, centre, u, v, hu, hv, y0, floor, eave);
             houseFloorY = float.NaN;
             houseBrickLook = -1; houseBrickBase = false; houseStoreyM = HouseMinStoreyM;
 

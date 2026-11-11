@@ -321,7 +321,7 @@ namespace PSXRacing.City
         /// window cell, whole, 0.95 x 2.05 m, 3 cm proud of the wall) on the bay
         /// line nearest the wall's middle - between two windows, never over
         /// one - and a concrete step under it from the floor to the ground.</summary>
-        static void HouseDoor(TileMeshes tm, Vector2 centre, Vector2 u, Vector2 v, float hu, float hv, float y0, float floor)
+        static void HouseDoor(TileMeshes tm, Vector2 centre, Vector2 u, Vector2 v, float hu, float hv, float y0, float floor, float eave)
         {
             if (!HouseDoorOn || hwMap == null || float.IsNaN(floor)) return;
             if (!hwMap.NearestRoadPoint(centre, 60f, true, out int ei, out float s, out _)) return;
@@ -335,7 +335,11 @@ namespace PSXRacing.City
             Vector2 mid = centre + u * along + n * (hv + 0.03f);
             Vector2 a = mid - u * 0.475f, c = mid + u * 0.475f;
             var bk = buckets[(int)Slot.FacadeHouse];
-            bk.Wall(L(a, 0f, tm), L(c, 0f, tm), floor, floor + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
+            // its foot on the floor, or on the drawn ground where a sunk pad's ground stands over the floor
+            float foot = floor;
+            for (int k = 0; k <= 4; k++) { var p = Vector2.Lerp(a, c, k / 4f); foot = Mathf.Max(foot, LatticeY(hwMap, p.x, p.y) + 0.04f); }
+            if (foot + 2.05f > eave - 0.2f) return;
+            bk.Wall(L(a, 0f, tm), L(c, 0f, tm), foot, foot + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
             // the stoop: floor - 0.02 down to the walls' foot, 1.5 m wide, 1.0 m out
             float top = floor - 0.02f;
             if (top <= y0 + 0.05f) return;

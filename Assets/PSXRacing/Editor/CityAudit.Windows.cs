@@ -31,6 +31,22 @@ namespace PSXRacing.EditorTools
     {
         public static void WindowsOnly() => WindowsAudit(true);
 
+        /// <summary>Before and after in one editor: the switches flipped between
+        /// the two passes (the tiles are built fresh each time):
+        /// windows_audit_before.txt, windows_audit_after.txt.</summary>
+        public static void WindowsBoth()
+        {
+            int code = 0;
+            foreach (var on in new[] { false, true })
+            {
+                CityMeshes.HouseWallsOn = CityMeshes.HouseClassOn = CityMeshes.HouseEavesOn = on;
+                CityMeshes.HouseBrickOn = CityMeshes.HouseTintOn = CityMeshes.HouseDoorOn = on;
+                System.Environment.SetEnvironmentVariable("PSX_BLDG_TAG", on ? "after" : "before");
+                code |= WindowsAudit(false);
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
         public static int WindowsAudit(bool exit)
         {
             outLog = new System.Text.StringBuilder();
@@ -160,7 +176,7 @@ namespace PSXRacing.EditorTools
             float rectA = (u1 - u0) * (v1 - v0);
             // the planes: a wall or a gable is one plane, its UVs one frame
             var groups = new Dictionary<(int, int, int, int), List<int>>();
-            var frames = new Dictionary<(int, int, int, int), List<(Vector2, List<int>)>>();
+            var frameList = new List<(Vector3 n, float d, Vector2 du, Vector2 dt, Vector2 off, List<int> tris)>();
             for (int k = 0; k + 2 < tri.Length; k += 3)
             {
                 Vector3 a = V[tri[k]], b = V[tri[k + 1]], c = V[tri[k + 2]];
@@ -180,12 +196,16 @@ namespace PSXRacing.EditorTools
                 Vector2 dt = ((uc - ua) * (q1.x - q0.x) - (ub - ua) * (q2.x - q0.x)) / det;   // d(uv)/dt
                 Vector2 off = ua - du * q0.x - dt * q0.y;                                      // uv at s = t = 0
                 // (the offset by tolerance, not by rounding: one wall's panels share it to float noise)
-                var key4 = (Mathf.RoundToInt(nr.x * 50f) * 1000 + Mathf.RoundToInt(nr.y * 50f), Mathf.RoundToInt(nr.z * 50f), Mathf.RoundToInt(d * 20f),
-                            Mathf.RoundToInt(du.x * 500f) * 7919 + Mathf.RoundToInt(du.y * 500f) * 131 + Mathf.RoundToInt(dt.x * 500f) * 523 + Mathf.RoundToInt(dt.y * 500f) * 1031);
-                if (!frames.TryGetValue(key4, out var fl)) frames[key4] = fl = new List<(Vector2, List<int>)>();
+                // every quantity by tolerance (rounding splits a frame where float noise straddles a step)
                 List<int> l = null;
-                foreach (var fr in fl) if (Mathf.Abs(fr.Item1.x - off.x) < 0.03f && Mathf.Abs(fr.Item1.y - off.y) < 0.03f) { l = fr.Item2; break; }
-                if (l == null) { l = new List<int>(); fl.Add((off, l)); groups[(groups.Count, 0, 0, 0)] = l; }
+                foreach (var fr in frameList)
+                {
+                    if (Vector3.Dot(fr.n, nr) < 0.9995f || Mathf.Abs(fr.d - d) > 0.05f) continue;
+                    if ((fr.du - du).sqrMagnitude > 1e-6f || (fr.dt - dt).sqrMagnitude > 1e-6f) continue;
+                    if (Mathf.Abs(fr.off.x - off.x) > 0.03f || Mathf.Abs(fr.off.y - off.y) > 0.03f) continue;
+                    l = fr.tris; break;
+                }
+                if (l == null) { l = new List<int>(); frameList.Add((nr, d, du, dt, off, l)); groups[(groups.Count, 0, 0, 0)] = l; }
                 l.Add(k);
             }
             foreach (var g in groups.Values)
