@@ -73,9 +73,13 @@ namespace PSXRacing.EditorTools
                         else
                         {
                             var gr = Grain(x, y, surf);
+                            // the rumble within 2 codes: on the concrete motorways
+                            // ~1% of the band's texels round a code off this float
+                            // arithmetic (measured offline over all 80 PNGs: 660 exact
+                            // misses, 0 left within 2)
                             if (Same(c, gr)) b = 128;
-                            else if (Same(c, Scaled(gr, 0.70f))) b = 89;
-                            else if (Same(c, Scaled(gr, 1.40f))) b = 179;
+                            else if (Near(c, Scaled(gr, 0.70f), 2)) b = 89;
+                            else if (Near(c, Scaled(gr, 1.40f), 2)) b = 179;
                             else unknown++;
                         }
                         o[y * w + x] = new Color32(r, g, b, 255);
@@ -89,6 +93,8 @@ namespace PSXRacing.EditorTools
         }
 
         static bool Same(Color32 a, Color32 b) => a.r == b.r && a.g == b.g && a.b == b.b;
+        static bool Near(Color32 a, Color32 b, int d) =>
+            Mathf.Abs(a.r - b.r) <= d && Mathf.Abs(a.g - b.g) <= d && Mathf.Abs(a.b - b.b) <= d;
 
         // exactly DrawProfileTex's rumble arithmetic
         static Color32 Scaled(Color32 px, float k) =>
