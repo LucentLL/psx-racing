@@ -1,3 +1,47 @@
+# HANDOFF - TOWER LIGHTS ON THEIR FITTINGS ("beacons", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+The owner (PC26, N Graham St pic): "aviation red lights on buildings are outdated and not actually connected to buildings". Sheet: scratchpad `beacons\beacons_before_after.png` (raw frames: PSXLab `Screenshots\beacons\`, log `beacons_log.txt`).
+
+## Cause (measured)
+- `CityBeacons.cs` (old lines 59-97) placed the lights from the far skyline's per-element BOUNDING BOX (top centre + 0.5 m) and the tallest part's PLAN OUTLINE corners at `ground + shaft.h + 0.4` - written before the hero crowns, pyramid, rooftop kit and masts. On anything but a flat box that is air. BeaconProbe, 135 lights before: distance to the nearest drawn surface p50 0.50 m, p90 6.6 m, max 25.1 m, 52 lights more than 2 m off (far mesh; near tiles the same). Worst: the teal pyramid (C4) 4 corners 24-25 m out in the air beside the pyramid; #30236 (184 m) and #31084 (169 m) corners 12-14 m off; the 7.2 m beacon over #30236; the silver crown (C3) 5-6 m off.
+- PINK: PSX/Halo is additive (Blend One One) and the lights ran with the street lamps (`NightGlow.On`, already on at SUNSET with the sun up): red (1, .06, .03) added to a pale sky clamps to pink. A beacon halo was 2.6 m each way at any distance (the disc in the crown close-up).
+- Not an old cache or data file: the skyline and beacons are built at runtime from the map (CitySkyline.Create).
+
+## Fix (PSX_CITY_BEACONS2=0 = the old lights exactly)
+- `CityBeacons.PlaceOnDrawn`: each light on a VERTEX of a real (non-degenerate) triangle of its building in the skyline mesh (facade, roofs, crown submeshes). Top light: the highest vertex (spire tip, mast cap, crown apex; on a flat top the highest vertex nearest its middle). Corner lights: along the tallest ground part's axes, the extreme of the upper 40% of the tower toward each diagonal, there the highest drawn vertex (parapet corner, pyramid eave, setback corner). Lights 12 m apart at least.
+- Count (FAA practice, L-864 flashing 30/min over ~150 m, L-810 steady below): towers 150 m+ = slow-flashing top beacon (per-tower phase, as before) + 4 steady corners; 90-150 m = steady top light + 2 opposite corners. Before 135 lights (35 flashers + 100 corners); after 121 (9 flashers, 27 steady tops, 85 corners on 36 towers).
+- FIXTURES: a galvanized stub (0.55 m) and a red glass lens (octahedron r 0.38 / 0.27 m) on each light's vertex, light in the lens. One runtime mesh (1,936 tris), ONE draw, PSX/Lit = a clone of the Structure slot material with a 4x4 runtime texture; per tower it is drawn only within 700 m of the eye (index list re-picked every 25 m) - past that it would be sub-pixel sparkle. Not baked.
+- Near = far: the far skyline now draws the rooftop kit's MAST (`CityMeshes.Rooftops.cs` Mast) and the PARAPET/LEDGE lip (`CityMeshes.Massing.cs` Parapet) as the tiles do (skyline only, not proxies), and leaves a ground-standing shop block (style 4) without the kit as the tile does (`EmitRoofKit`). So the top light is on the mast tip and corners on the parapet corner at every distance - no jump at hand-over. Cost: a few hundred skyline triangles.
+- PSX/Halo (`PSXHalo.shader`): `Blend [_SrcBlend] [_DstBlend], One One` (default One One = every other halo unchanged), `_MaxPixels`, `_GainFloor`. The tower-light material draws OVER the sky (OneMinusSrcAlpha), aviation red in linear (1, .014, .008), size clamped 1.2-4 ref px, never dimmer than its colour. Depth test as before (squeezed with the tower far, real near).
+- On only DAWN / DUSK / NIGHT (`CityBeacons.LitNow`: TimeOfDay.NightFor >= 0.5) - off at SUNSET with the sun up, as a photocell; fixtures stay by day. Off in fog as before.
+
+## Proof / gates
+- BeaconProbe after: fixture foot to nearest drawn surface - far skyline p50 0.000, p90 0.000, 119/121 <= 5 cm; near tiles p50 0.000, p90 0.000, 111/121 <= 5 cm. Typecheck OK. Glows still 1 draw; fixtures +1 draw near uptown.
+- Exceptions: (1) 7 corner/top lights on 3 towers (#13197 137 m, #22 115 m, #6486 93 m) are on the far mesh but 1.2-2.2 m off the NEAR tile - the near tile trims the footprint at the pavement (`FitFootprint`, CityMeshes.cs:11931; the skyline does not), a pre-existing near/far building mismatch, likely cause, not fixed. (2) The open-frame tower (C2) top and one corner read 0.7 / 3.6 m in the probe: its frame members are widened in the shader from thin mesh members, so the mesh-distance number is not meaningful there; not inspected in a frame.
+- Frames (before | after): N Graham sunset (before: pink dots in the sky round the pyramid; after: none), dusk + night (red points on roof corners and tips), three tops close by noon (fixtures visible on pyramid spire, needle tip, crown fin) and night (lens lit on the fitting; before: dots metres off, a big pink disc), 5.5 km night. No light seen through a building in these frames.
+
+## Not done / not verified
+- No player build, no play-mode drive across the near/far hand-over (positions agree by the measure, not by a moving test). Frame cost not timed (2 tiny draws). Flash phase in stills is as the clock stood (about half the flashers lit).
+
+## At merge
+- Runtime only: NO tile re-bake, no CityTileCache format change, no new slot. Shared files touched: `CityMeshes.Rooftops.cs` (Mast + EmitRoofKit guards), `CityMeshes.Massing.cs` (Parapet guard), `PSXHalo.shader` (blend/max-size/gain-floor properties). New: `Editor/BeaconProbe.cs` (no .meta committed; Unity mints it).
+
+# HANDOFF - THE LEFT CAR + 11-11 NOSE-UP ("parked" agent, branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Owner: "I parked my Honda at a car meet and it rolled away, lights on, front suspension lifted like a monster truck" and "the front suspension of every car recently added is lifted". Sandbox PSXRec (lock "parked"). Check: `tools\parked-play-check.ps1` (Editor/ParkedPlayCheck.cs; WATCHED editor - a hidden batch editor crashes in RenderTexture::Create in play mode); every-row arch sweep `ParkedPlayCheck.ArchSweep` -> PSXRacing_arch_sweep.txt.
+
+## Causes
+1. ROLLED AWAY: PlayerCarInput (the `!inputEnabled` block) parks a car with brake 0.3 + lever; CarController.TireForces swaps the pedals in R (`accelPedal = currentGear == -1 ? brakeInput : throttleInput`), so a car left in R (owner's HUD: AT R) got 30% reverse throttle, the park hold stood aside (`accelPedal < 0.02` gate) and the lever holds only the rear of a FWD car: 0.3 m/s backwards into the car behind (1.0-1.6 m on the lot), off a 15% slope at 150 m/s. Also, in D, the hold crept 5.5 mm/s on 15% (16 cm per 30 s).
+2. LIGHTS ON: lamps were one static switch owned by the hour (CarLights.SetAll); nothing knew the car was empty; the lever also lit the brake lamps.
+3. NOSE-UP: ArchHubs (ArchProbe.BakeExact) swept the tyre -90..+90 deg, so the 11-11 HD shells' inner wheelhouse / sill faces behind the front tyre (binds at -39..-81 deg) read as the arch: highest front hub 3-13 cm UNDER the hub's static ride, and CarBodyLean.Seat lifted the shell that far at rest (CTR/Yellowbird 120 mm, 2.7 deg nose-up; FD 14 mm; del Sol on the EG shell 9 cm; old euro_hatch rows 75 mm). Physics ride height was never wrong (chassis level, hubs 328 mm).
+
+## Fix (switches: PSX_PARKED=0, PSX_ARCH_CROWN=0 = as before)
+- PlayerCarInput: game holding a car in R brakes with the R brake pedal; stopped, the box goes to 1st. CarController: hold pulls back to its latch point (ParkHoldStiff 16, re-latch past 25 cm). Unattended flag (ForecourtMode GetOut/BeginAfoot/GetIn) -> CarLights.LitNow off, no brake lamp, pop-ups down. Covers every place you leave the car (all go through ForecourtMode + PlayerCarInput).
+- ArchCeilings.CrownHalfDeg 35: field + exact bake sample the tyre crown only; ArchHubs.bytes re-baked (commit 1b665555).
+
+## Results (13 cars, lot + 15% slope, left in R, 30 s): before drift 0.7-1.6 m lot / 9-362 m slope, lamps on; after 0.000 m lot, <=0.003 m slope, lamps off, back in 0.00 m/s, gaps unchanged. At-rest shell lift after: 0 for all but Viper 11 mm (its own front arch is ~1 cm lower than its tyre at the crown, same in the old model - artist data) and BTR 7.7 mm. Sweep: 152 -> 127 rows with a tyre over its arch at rest (all old-pack crown binds, unchanged).
+Sheet: scratchpad parked\parked_before_after.png. Blue blocks = TownWorld zone-line knots (PSXRacingBuilder.Town.cs EdgeMarkers, owner-chosen self-lit dots), not a fault.
+Coordinator: scripts + ArchHubs.bytes only; no scene rebuild, no car re-bake.
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 
 Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
