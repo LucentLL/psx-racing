@@ -70,6 +70,7 @@ namespace PSXRacing.EditorTools
                 return null;   // no sets: an empty tier, not an error
             }
             Directory.CreateDirectory(CarHD.EditorSrcRoot);
+            byHash.Clear();
             foreach (var colour in Directory.GetFiles(src, "*__*" + ColourSuffix + ".png"))
             {
                 string key = Path.GetFileNameWithoutExtension(colour);
@@ -81,24 +82,24 @@ namespace PSXRacing.EditorTools
                 string nrm = Path.Combine(src, key + ColourSuffix + "_normal.png"), orm = Path.Combine(src, key + ColourSuffix + "_orm.png");
                 if (!File.Exists(nrm) || !File.Exists(orm)) { log.AppendLine($"  {key}: normal or ORM missing - skipped"); continue; }
                 var c = Copy(colour, key, Kind.Colour);
-                var n = Copy(nrm, key + CarHD.NormalSuffix, Kind.Normal);
-                var o = Copy(orm, key + CarHD.OrmSuffix, Kind.Data);
+                var n = CopyShared(nrm, key + CarHD.NormalSuffix, Kind.Normal, out string nKey);
+                var o = CopyShared(orm, key + CarHD.OrmSuffix, Kind.Data, out string oKey);
                 if (c == null || n == null || o == null) { log.AppendLine($"  {key}: import failed - skipped"); continue; }
                 // the HD sheet must be the 512 sheet at a whole multiple, same aspect (same UVs)
                 if (c.width % original.width != 0 || c.width / original.width != c.height / original.height || n.width != c.width || o.width != c.width)
                 { log.AppendLine($"  {key}: sizes {c.width}x{c.height} / normal {n.width} / orm {o.width} do not match the game sheet {original.width}x{original.height} - skipped"); continue; }
-                sheets.Add(new CarHDMap.Sheet { original = original, body = body, key = key });
-                log.AppendLine($"  {key}: {c.width}x{c.height} {c.format} / {n.format} / {o.format} over {AssetDatabase.GetAssetPath(original)}");
+                sheets.Add(new CarHDMap.Sheet { original = original, body = body, key = key, normalKey = nKey, ormKey = oKey });
+                log.AppendLine($"  {key}: {c.width}x{c.height} {c.format} / {n.format} ({nKey}) / {o.format} ({oKey}) over {AssetDatabase.GetAssetPath(original)}");
             }
             foreach (var lamp in Directory.GetFiles(src, "*" + LampSuffix + ".png"))
             {
                 string key = Path.GetFileNameWithoutExtension(lamp);
                 string body = key.Substring(0, key.Length - LampSuffix.Length);
                 if (!Directory.Exists(ModelDir + body)) { log.AppendLine($"  {key}: no body {body} - skipped"); continue; }
-                var t = Copy(lamp, key, Kind.Data);
+                var t = CopyShared(lamp, key, Kind.Data, out string lKey);
                 if (t == null) continue;
-                lamps.Add(new CarHDMap.Lamp { body = body, key = key });
-                log.AppendLine($"  {key}: lamp map {t.width}x{t.height} {t.format}");
+                lamps.Add(new CarHDMap.Lamp { body = body, key = lKey });
+                log.AppendLine($"  {key}: lamp map {t.width}x{t.height} {t.format} ({lKey})");
             }
             WriteMap(sheets, lamps);
             CarHD.ResetMap();
@@ -109,6 +110,29 @@ namespace PSXRacing.EditorTools
         }
 
         enum Kind { Colour, Normal, Data }
+
+        /// <summary>A map that is byte-identical to one already imported this
+        /// run (two paints of one body share a normal and an ORM map; the three
+        /// FD bodies share a lamp map) is not copied again: its name is the
+        /// first one's.</summary>
+        static readonly Dictionary<string, string> byHash = new Dictionary<string, string>();
+        static Texture2D CopyShared(string src, string name, Kind kind, out string usedName)
+        {
+            usedName = name;
+            if (!File.Exists(src)) return null;
+            string hash;
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+                hash = kind + ":" + System.BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(src)));
+            if (byHash.TryGetValue(hash, out var prior))
+            {
+                usedName = prior;
+                string stale = CarHD.EditorSrcRoot + name + ".png";
+                if (name != prior && File.Exists(stale)) AssetDatabase.DeleteAsset(stale);
+                return AssetDatabase.LoadAssetAtPath<Texture2D>(CarHD.EditorSrcRoot + prior + ".png");
+            }
+            byHash[hash] = name;
+            return Copy(src, name, kind);
+        }
 
         static Texture2D Copy(string src, string name, Kind kind)
         {
@@ -169,11 +193,12 @@ namespace PSXRacing.EditorTools
         static void Contents(CarHDMap map, List<string> paths, List<string> names)
         {
             foreach (var s in map.sheets)
-                foreach (var suffix in new[] { "", CarHD.NormalSuffix, CarHD.OrmSuffix })
+                foreach (var name in new[] { s.key, string.IsNullOrEmpty(s.normalKey) ? s.key + CarHD.NormalSuffix : s.normalKey,
+                                             string.IsNullOrEmpty(s.ormKey) ? s.key + CarHD.OrmSuffix : s.ormKey })
                 {
-                    string p = CarHD.EditorSrcRoot + s.key + suffix + ".png";
-                    if (AssetDatabase.LoadAssetAtPath<Texture2D>(p) == null) continue;
-                    paths.Add(p); names.Add(s.key + suffix);
+                    string p = CarHD.EditorSrcRoot + name + ".png";
+                    if (names.Contains(name) || AssetDatabase.LoadAssetAtPath<Texture2D>(p) == null) continue;
+                    paths.Add(p); names.Add(name);
                 }
             if (map.lamps != null)
                 foreach (var l in map.lamps)

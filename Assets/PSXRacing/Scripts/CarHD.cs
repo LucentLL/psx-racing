@@ -51,6 +51,16 @@ namespace PSXRacing
         public const string NormalSuffix = "_normal", OrmSuffix = "_orm";
 
         struct HDSet { public Texture2D col, nrm, orm; }
+        static readonly Dictionary<string, Texture2D> loadedByName = new Dictionary<string, Texture2D>();
+        /// <summary>One load per bundle name: shared normal / ORM / lamp maps are one texture.</summary>
+        static Texture2D LoadShared(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            if (loadedByName.TryGetValue(name, out var t) && t != null) return t;
+            t = Load(name);
+            loadedByName[name] = t;
+            return t;
+        }
 
         static CarHDMap map;
         static bool mapTried, bundleTried;
@@ -109,7 +119,7 @@ namespace PSXRacing
         public static void ResetMap()
         {
             map = null; mapTried = false; sets = null; Loaded = 0;
-            byOriginal.Clear(); byHD.Clear(); lampByBody.Clear();
+            byOriginal.Clear(); byHD.Clear(); lampByBody.Clear(); loadedByName.Clear();
         }
 
         static bool EnsureMap()
@@ -157,12 +167,13 @@ namespace PSXRacing
         {
             s = sets[i];
             if (s.col != null) return true;
-            string key = map.sheets[i].key;
+            var sh = map.sheets[i];
+            string key = sh.key;
             float t0 = Time.realtimeSinceStartup;
             s.col = Load(key);
             if (s.col == null) return false;
-            s.nrm = Load(key + NormalSuffix);
-            s.orm = Load(key + OrmSuffix);
+            s.nrm = LoadShared(string.IsNullOrEmpty(sh.normalKey) ? key + NormalSuffix : sh.normalKey);
+            s.orm = LoadShared(string.IsNullOrEmpty(sh.ormKey) ? key + OrmSuffix : sh.ormKey);
             sets[i] = s;
             byHD[s.col] = i;
             Loaded++;
@@ -177,7 +188,7 @@ namespace PSXRacing
             if (string.IsNullOrEmpty(body) || !Want || !EnsureMap() || !EnsureBundle()) return null;
             if (lampByBody.TryGetValue(body, out var t)) return t;
             t = null;
-            foreach (var l in map.lamps) if (l.body == body) { t = Load(l.key); break; }
+            foreach (var l in map.lamps) if (l.body == body) { t = LoadShared(l.key); break; }
             lampByBody[body] = t;
             return t;
         }
@@ -222,6 +233,9 @@ namespace PSXRacing
                     Kw(m, s.nrm != null && s.orm != null);
                     return true;
                 }
+                // a material COPIED from an HD livery and given another texture
+                // (CarShell's jack stands): not this car's maps any more
+                if (on) { Kw(m, false); changed = true; }
             }
             // A Classic sheet (no HD set): point sampled as it ships, or - the
             // A/B, SmoothSheets - a mipped trilinear copy.
