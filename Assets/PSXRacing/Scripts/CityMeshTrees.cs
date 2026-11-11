@@ -288,7 +288,7 @@ namespace PSXRacing.City
             else if (young) { role = CityTreeKit.Role.Small; want = t.h * 1.2f; }
             else switch (t.species)
             {
-                case CityTrees.Species.Oak: role = roll < 0.2f ? CityTreeKit.Role.Oak : roll < 0.78f ? CityTreeKit.Role.Broad : CityTreeKit.Role.Poplar;   // (Big Oak is 37.6k tris at its nearest: a share, not every willow oak) want = t.h * 1.35f; break;
+                case CityTrees.Species.Oak: role = roll < 0.2f ? CityTreeKit.Role.Oak : roll < 0.78f ? CityTreeKit.Role.Broad : CityTreeKit.Role.Poplar; want = t.h * 1.35f; break;   // (Big Oak is 37.6k tris at its nearest: a share, not every willow oak)
                 case CityTrees.Species.Hardwood: role = roll < 0.6f ? CityTreeKit.Role.Broad : roll < 0.95f ? CityTreeKit.Role.Poplar : roll < 0.98f ? CityTreeKit.Role.Oak : CityTreeKit.Role.Columnar; want = t.h * 1.3f; break;
                 case CityTrees.Species.Pine: role = CityTreeKit.Role.PineStandIn; want = t.h * 1.1f; break;
                 case CityTrees.Species.Myrtle: role = CityTreeKit.Role.Shrub; want = t.h * 0.9f; break;
