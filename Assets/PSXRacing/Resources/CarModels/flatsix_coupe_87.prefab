@@ -1,0 +1,90 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &228304821310881332
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2784605210813665341}
+  - component: {fileID: 6152146725049093023}
+  m_Layer: 0
+  m_Name: flatsix_coupe_87
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2784605210813665341
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 228304821310881332}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6152146725049093023
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 228304821310881332}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: flatsix_coupe_87
+  displayName: Flat-six coupe 87 (whale tail)
+  bodyMesh: {fileID: -2432090755550338912, guid: 6900e8d4ad5af1e4394fbdde96a1abd0, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 914a1f59b1f48664e9609b24c4006441, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: c5229b13af390524786bdcb06313726d, type: 2}
+  skinNames:
+  - flatsix_coupe_87_yellow_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.36555263, g: 0.35629496, b: 0.2312099, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.020093044
+  bodyZOffset: 0
+  wheelbase: 2.265466
+  trackWidth: 1.3704829
+  wheelRadius: 0.26695046
+  wheelMeshScale: 0.93
+  trackRear: 1.492353
+  tyreRadiusRear: 0.2870435
+  tyreWidthRear: 0.237701
+  lowerBodyWidth: 1.746724
+  cowlZ: 0.6402615
+  cowlY: 0.8016631
+  noseZ: 2.0282521
+  roofY: 1.2121426
+  headLamp: {x: 0.6299299, y: 0.56058466, z: 1.6800718}
+  headLampNormal: {x: -0.033517998, y: 0.69388145, z: 0.71930873}
+  headLampSize: {x: 0.18408799, y: 0.07640967}
+  tailLamp: {x: 0.5468137, y: 0.4423731, z: -2.0000892}
+  tailLampNormal: {x: 0.33645558, y: 0.3385462, z: -0.8787401}
+  tailLampSize: {x: 0.38118982, y: 0.09876557}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
+  colliderCenter: {x: 0, y: 0.67159146, z: -0.047248006}
+  colliderSize: {x: 1.5982525, y: 1.0091294, z: 3.964205}
+  blobSize: {x: 2.1310034, y: 4.4415703}

@@ -168,7 +168,7 @@ namespace PSXRacing.LifeSim
             new System.Collections.Generic.HashSet<string>
             {
                 "charger_70", "civic_eg", "coupe_03", "crown_victoria", "fastback_96", "fixed_roof_99",
-                "flatsix_coupe", "fullsize_police", "fullsize_taxi", "fullsize_trooper", "gt_hardtop_73",
+                "flatsix_coupe", "flatsix_coupe_87", "fullsize_police", "fullsize_taxi", "fullsize_trooper", "gt_hardtop_73",
                 "gtr_89", "gtr_99", "hatch_76", "hatch_83_popup", "liftback_95", "midship_coupe",
                 "pony_fastback_69", "rally_coupe_98", "roadster_99", "roadster_na_popup",
                 "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "sedan_98", "viper_gts",

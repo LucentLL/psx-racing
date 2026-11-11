@@ -85,8 +85,13 @@ const MODELS = [
   // hatch_93_red_512x256. The body keeps the mirror inserts and the OPAQUE
   // Taillight_Lenses (they carry the tail-lamp art); the 4.5%-opaque clear
   // Headlight_Lenses cover is left off (the OBJ path would paint it opaque).
-  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v07/hatch_93_v07.obj`,
-    tex: `${here}/converted/hatch_93_v07`, skins: /^hatch_93_red_512x256$/,
+  // 2026-11-11: revision 21 (EG_Independent_Textured_v21, 9,990 tris, an HD
+  // 2048x1024 PBR delivery): converted/hatch_93_v21. The game keeps its 512x256
+  // sheet: the HD colour is box-filtered 4x4 there and its alpha (a material
+  // class) takes each block's commonest value; the normal/roughness/AO maps are
+  // not read by PSX/CarPaint. Same parts as v07.
+  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v21/hatch_93_v21.obj`,
+    tex: `${here}/converted/hatch_93_v21`, skins: /^hatch_93_red_512x256$/,
     gt4LengthM: 4.070, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'Taillight_Lenses'] },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
@@ -122,17 +127,21 @@ const MODELS = [
   // (the raised sheet differs only in 201 lid-shading texels; one sheet a
   // shell). The body keeps the mirror inserts; the nine clear LensCover_*
   // objects are left off (the lamp art is on the recessed backing).
-  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t14/rx7_fd_93_t14.obj`,
-    lampsUp: `${here}/converted/rx7_fd_93_t14/rx7_fd_93_t14_up.obj`,
-    tex: `${here}/converted/rx7_fd_93_t14`, skins: /^fd_shared_512x256$/,
+  // 2026-11-11: Textured_17 (raised-lamp housing reworked, front fascia and
+  // lower rear bumper rebuilt, hidden bay contained; 9,613-9,809 tris; HD
+  // 2048x1024 PBR), converted/rx7_fd_*_t17, each spoiler's DOWN sheet box-
+  // filtered to fd_shared_512x256 (see civic_eg). Covers left off as before.
+  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t17/rx7_fd_93_t17.obj`,
+    lampsUp: `${here}/converted/rx7_fd_93_t17/rx7_fd_93_t17_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t17`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
-  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t14/rx7_fd_99_t14.obj`,
-    lampsUp: `${here}/converted/rx7_fd_99_t14/rx7_fd_99_t14_up.obj`,
-    tex: `${here}/converted/rx7_fd_99_t14`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t17/rx7_fd_99_t17.obj`,
+    lampsUp: `${here}/converted/rx7_fd_99_t17/rx7_fd_99_t17_up.obj`,
+    tex: `${here}/converted/rx7_fd_99_t17`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
-  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t14/rx7_fd_nowing_t14.obj`,
-    lampsUp: `${here}/converted/rx7_fd_nowing_t14/rx7_fd_nowing_t14_up.obj`,
-    tex: `${here}/converted/rx7_fd_nowing_t14`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t17/rx7_fd_nowing_t17.obj`,
+    lampsUp: `${here}/converted/rx7_fd_nowing_t17/rx7_fd_nowing_t17_up.obj`,
+    tex: `${here}/converted/rx7_fd_nowing_t17`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
@@ -151,9 +160,15 @@ const MODELS = [
   // 2026-11-01: revision 08 (Viper_Independent_Textured_v08: body 8,914 tris),
   // both paints on identical geometry and UVs,
   // converted/viper_v08. The two clear Headlight_Lens covers are left off.
-  { key: 'viper_gts',    obj: `${here}/converted/viper_v08/viper_v08.obj`,
-    tex: `${here}/converted/viper_v08`, skins: /^coupe_96_(blue_white|red)_512x256$/,
-    gt4LengthM: 4.488, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  // 2026-11-11: Viper_GTS_RearOptics_v13 (rear optics rebuilt; 9,939 tris; HD
+  // 2048x1024 PBR, both paints on identical geometry and UVs),
+  // converted/viper_v13, sheets box-filtered to 512x256 (see civic_eg). Its
+  // Headlight_Lens_L/R objects carry the clear cover AND atlas-painted faces:
+  // those stay, the Clear_headlight_cover faces go (dropMtl).
+  { key: 'viper_gts',    obj: `${here}/converted/viper_v13/viper_v13.obj`,
+    tex: `${here}/converted/viper_v13`, skins: /^coupe_96_(blue_white|red)_512x256$/,
+    gt4LengthM: 4.488, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'Headlight_Lens_L', 'Headlight_Lens_R'],
+    dropMtl: /^Clear_headlight_cover$/ },
 
   // The owner's FlatSix Coupe (2026-09-26, "add FlatSixCoupe for all Porsche
   // 911's and/or RUF or the Yellowbird one"): an unbranded rear-engined coupe
@@ -164,9 +179,20 @@ const MODELS = [
   // (3,946 tris with the wheels, one 512x256 atlas, underbody right), GLB ->
   // converted/flatsix_coupe_v06. Now sized to the GT4 sheet its two wearers
   // share (the `86 BTR and `87 CTR: 4151 mm, wb 2272).
-  { key: 'flatsix_coupe', obj: `${here}/converted/flatsix_coupe_v06/flatsix_coupe_v06.obj`,
-    tex: `${here}/converted/flatsix_coupe_v06`, skins: /^flatsix_coupe_yellow_512x256$/,
-    gt4LengthM: 4.151 },
+  // 2026-11-11: the HD rebuild in two equipment/paint variants of ONE body
+  // (CTR_Blue_HD_Spoilerless_v05 9,970 tris, and CTR_Yellowbird_HD_v01 9,968:
+  // the blue car's body with its engine-lid grille swapped for a whale-tail
+  // Spoiler, yellow paint). Different geometry, so two shells, each on its own
+  // catalog row: the blue spoilerless car on the RUF BTR `86 (flatsix_coupe),
+  // the yellow whale-tail car on the CTR "Yellow Bird" `87 (flatsix_coupe_87).
+  // Sheets box-filtered to 512x256 (see civic_eg); the clear Headlight_Cover_L/R
+  // are left off. Same GT4 sheet length as before.
+  { key: 'flatsix_coupe', obj: `${here}/converted/flatsix_coupe_v05/flatsix_coupe_v05.obj`,
+    tex: `${here}/converted/flatsix_coupe_v05`, skins: /^flatsix_coupe_blue_512x256$/,
+    gt4LengthM: 4.151, parts: ['Body'] },
+  { key: 'flatsix_coupe_87', obj: `${here}/converted/flatsix_coupe_87_v01/flatsix_coupe_87_v01.obj`,
+    tex: `${here}/converted/flatsix_coupe_87_v01`, skins: /^flatsix_coupe_87_yellow_512x256$/,
+    gt4LengthM: 4.151, parts: ['Body', 'Spoiler'] },
 
   // The owner's 2026-10-01 set ("I made more"), same spec and layout as the
   // FlatSix Coupe (Body + Wheel_FL/FR/RL/RR, nose -Z, one 256 atlas, matte
@@ -275,9 +301,13 @@ const MODELS = [
   { key: 'longnose_71', obj: `${here}/converted/longnose_71_v01/longnose_71_v01.obj`,
     tex: `${here}/converted/longnose_71_v01`, skins: /^longnose_71_brown_512x256$/,
     gt4LengthM: 4.305 },
-  { key: 'rally_sedan_99', obj: `${here}/converted/rally_sedan_99_v07/rally_sedan_99_v07.obj`,
-    tex: `${here}/converted/rally_sedan_99_v07`, skins: /^rally_sedan_99_red_512x256$/,
-    gt4LengthM: 4.350 },
+  // 2026-11-11: EvoVI_HD_Textured_v17 (GSR, reference blue; 10,000 tris; HD
+  // 2048x1024 PBR), converted/rally_sedan_99_v17, sheet box-filtered to
+  // rally_sedan_99_blue_512x256 (see civic_eg). The clear Headlight_Cover_L/R
+  // are left off; the mirror inserts stay.
+  { key: 'rally_sedan_99', obj: `${here}/converted/rally_sedan_99_v17/rally_sedan_99_v17.obj`,
+    tex: `${here}/converted/rally_sedan_99_v17`, skins: /^rally_sedan_99_blue_512x256$/,
+    gt4LengthM: 4.350, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
   // 2026-11-01: TypeX_Refined_v08_White headlights down/up, converted/fastback_96_v08;
   // the clear sealed-beam Lens_L/R faces are left off.
   { key: 'fastback_96', obj: `${here}/converted/fastback_96_v08/fastback_96_v08.obj`,
@@ -309,8 +339,11 @@ const MODELS = [
   // atlas renamed roadster_99_red_512x256.
   // 2026-11-01: S2000_Independent_Textured_v08, converted/roadster_99_v08; its
   // clear Headlight_Lenses and Taillight_Lenses covers are left off.
-  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v08/roadster_99_v08.obj`,
-    tex: `${here}/converted/roadster_99_v08`, skins: /^roadster_99_red_512x256$/,
+  // 2026-11-11: S2000_Independent_Textured_v12 (9,997 tris; HD 2048x1024 PBR),
+  // converted/roadster_99_v12, sheet box-filtered to 512x256 (see civic_eg);
+  // its clear Headlight_Lenses / Taillight_Lenses covers are left off.
+  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v12/roadster_99_v12.obj`,
+    tex: `${here}/converted/roadster_99_v12`, skins: /^roadster_99_red_512x256$/,
     gt4LengthM: 4.135, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
   { key: 'coupe_99', obj: `${ownerCars}/Coupe_99_Original/Revision_04/coupe_99.obj`,
     tex: `${ownerCars}/Coupe_99_Original/Revision_04`, skins: /^coupe_512x256$/,
@@ -409,23 +442,32 @@ const NOT_A_SKIN = new Set(['metallic', 'shade', 'pickup', 'uv', 'windows', 'lin
 function parseObj(file) {
   const txt = fs.readFileSync(file, 'utf8');
   const v = [], vt = [], vn = [], objects = [];
-  let cur = null;
+  let cur = null, mtl = '';
   for (const raw of txt.split(/\r?\n/)) {
     const line = raw.trim();
     if (line.startsWith('v ')) { const p = line.split(/\s+/); v.push([+p[1], +p[2], +p[3]]); }
     else if (line.startsWith('vt ')) { const p = line.split(/\s+/); vt.push([+p[1], +p[2]]); }
     else if (line.startsWith('vn ')) { const p = line.split(/\s+/); vn.push([+p[1], +p[2], +p[3]]); }
     else if (line.startsWith('o ')) { cur = { name: line.slice(2).trim(), faces: [] }; objects.push(cur); }
+    else if (line.startsWith('usemtl ')) mtl = line.slice(7).trim();
     else if (line.startsWith('f ')) {
       if (!cur) { cur = { name: 'body', faces: [] }; objects.push(cur); }
-      cur.faces.push(line.split(/\s+/).slice(1).map(c => {
+      const f = line.split(/\s+/).slice(1).map(c => {
         const [a, b, n] = c.split('/');
         return { v: +a, vt: b ? +b : 0, vn: n ? +n : 0 };
-      }));
+      });
+      f.mtl = mtl;
+      cur.faces.push(f);
     }
   }
   return { v, vt, vn, objects };
 }
+
+/// `dropMtl` (2026-11-11): an object that mixes a clear cover with atlas-painted
+/// faces (the Viper v13's Headlight_Lens_L/R carry their gasket on the body
+/// sheet) keeps the painted faces and loses only the faces of the cover's own
+/// material, which the OBJ path would paint opaque.
+const keepFace = (m, f) => !m.dropMtl || !m.dropMtl.test(f.mtl || '');
 
 /// Group name -> the game's wheel slot, or null for bodywork. The pack spells
 /// these four different ways across its folders — WheelFL, wheel_FL, wheel.FR,
@@ -502,7 +544,7 @@ for (const m of MODELS) {
     const slot = wheelSlot(o.name);
     if (slot) { corners.add(slot); axle[slot[6]].push(...o.faces); continue; }
     if (m.parts && !m.parts.includes(o.name)) continue;
-    bodyFaces.push(...o.faces);
+    bodyFaces.push(...o.faces.filter(f => keepFace(m, f)));
   }
   if (corners.size !== 4) throw new Error(`${m.key}: expected 4 wheels, got ${[...corners]}`);
   if (bodyFaces.length === 0) throw new Error(`${m.key}: no body faces`);
@@ -543,7 +585,7 @@ for (const m of MODELS) {
     for (const p of up.v) { p[0] *= s; p[1] *= s; p[2] *= s; }
     const upFaces = [];
     for (const o of up.objects)
-      if (!wheelSlot(o.name) && (!m.parts || m.parts.includes(o.name))) upFaces.push(...o.faces);
+      if (!wheelSlot(o.name) && (!m.parts || m.parts.includes(o.name))) upFaces.push(...o.faces.filter(f => keepFace(m, f)));
     if (upFaces.length === 0) throw new Error(`${m.key}: no lamps-up body faces`);
     const mtl = m.key + '_lampsup';
     stats[mtl] = writeObj(path.join(dir, mtl + '.obj'), up, [{ name: mtl, faces: upFaces }], mtl);

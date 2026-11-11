@@ -79,7 +79,11 @@ namespace PSXRacing
             new Model { key = "viper_gts",    name = "Dodge Viper GTS",           region = Region.America, year = 1996, body = Body.Sports,   kg = 1532, handOnly = true, widthMm = 1923 },
             // The owner's FlatSix Coupe (2026-09-26): the 911 shape, for every
             // RUF (all three are 911s underneath) and any Porsche 911.
-            new Model { key = "flatsix_coupe", name = "Flat-six coupe (911)",     region = Region.Europe,  year = 1987, body = Body.Sports,   kg = 1272, handOnly = true, widthMm = 1652 },
+            // 2026-11-11: the owner's HD rebuild comes as two variants of one
+            // body - the blue spoilerless car (the BTR `86 row) and the yellow
+            // whale-tail car (the CTR "Yellow Bird" `87 row, flatsix_coupe_87).
+            new Model { key = "flatsix_coupe", name = "Flat-six coupe (911)",     region = Region.Europe,  year = 1986, body = Body.Sports,   kg = 1221, handOnly = true, widthMm = 1652 },
+            new Model { key = "flatsix_coupe_87", name = "Flat-six coupe 87 (whale tail)", region = Region.Europe, year = 1987, body = Body.Sports, kg = 1272, handOnly = true, widthMm = 1652 },
             // The owner's 2026-10-01 set, each sized to its GT4 sheet: the
             // 993-era FlatSix Turbo (RUF CTR2 `96), the Midship Coupe (every
             // NSX) and the Classic Roadster (every MX-5 Miata).
@@ -671,6 +675,9 @@ namespace PSXRacing
             // The CTR2 `96 is a 993 and wears the owner's FlatSix Turbo 96
             // (2026-10-01); first, so the rule below cannot take it.
             ("RUF CTR2",                                         "flatsix_turbo_96"),
+            // 2026-11-11: the Yellow Bird wears the whale-tail variant of the
+            // owner's HD flat-six body; the BTR and any 911 keep the plain one.
+            ("RUF CTR \"Yellow Bird\"",                          "flatsix_coupe_87"),
             (@"RUF |Porsche 911|Porsche.*911|\b911\b",       "flatsix_coupe"),
             // E30-class German compact saloons: the 2002 is its ancestor, the
             // 190 E its period rival, and the DTM cars are those two.

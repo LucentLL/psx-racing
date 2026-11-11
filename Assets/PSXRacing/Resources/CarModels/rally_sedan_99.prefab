@@ -51,31 +51,31 @@ MonoBehaviour:
   skinMaterials:
   - {fileID: 2100000, guid: 81911e4a80e4f3043a2007ebd5fea770, type: 2}
   skinNames:
-  - rally_sedan_99_red_512x256
+  - rally_sedan_99_blue_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.38692006, g: 0.20915383, b: 0.20474316, a: 1}
+  - {r: 0.21172865, g: 0.24120808, b: 0.37030256, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.022179622
+  bodyYOffset: -0.022151917
   bodyZOffset: 0
-  wheelbase: 2.507694
-  trackWidth: 1.5096121
-  wheelRadius: 0.29467887
+  wheelbase: 2.504508
+  trackWidth: 1.5096891
+  wheelRadius: 0.29430407
   wheelMeshScale: 0.93
-  trackRear: 1.504617
-  tyreRadiusRear: 0.316859
-  tyreWidthRear: 0.218799
-  lowerBodyWidth: 1.728138
-  cowlZ: 0.9643697
-  cowlY: 0.90399647
-  noseZ: 2.147026
-  roofY: 1.3964348
-  headLamp: {x: 0.5591301, y: 0.5825429, z: 1.9134282}
-  headLampNormal: {x: 0.5631142, y: 0.4533223, z: 0.6909423}
-  headLampSize: {x: 0.45540187, y: 0.11877197}
-  tailLamp: {x: 0.4533222, y: 0.97508043, z: -2.075989}
-  tailLampNormal: {x: 0.11220133, y: 0.028811492, z: -0.9932677}
-  tailLampSize: {x: 0.30169448, y: 0.28}
+  trackRear: 1.5047
+  tyreRadiusRear: 0.316456
+  tyreWidthRear: 0.21652597
+  lowerBodyWidth: 1.76937
+  cowlZ: 1.0190017
+  cowlY: 0.8690895
+  noseZ: 2.147283
+  roofY: 1.3946124
+  headLamp: {x: 0.49414676, y: 0.57041556, z: 1.9014878}
+  headLampNormal: {x: -0.24568027, y: -0.07300369, z: 0.96659803}
+  headLampSize: {x: 0.3733104, y: 0.107920915}
+  tailLamp: {x: 0.6211267, y: 0.8392884, z: -2.0603776}
+  tailLampNormal: {x: 0.25570914, y: 0.03396844, z: -0.96615684}
+  tailLampSize: {x: 0.23198777, y: 0.23512596}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.79708534, z: -0.02797401}
-  colliderSize: {x: 1.6875381, y: 1.114974, z: 4.15425}
-  blobSize: {x: 2.2500508, y: 4.6545005}
+  colliderCenter: {x: 0, y: 0.7890806, z: -0.027716994}
+  colliderSize: {x: 1.6872197, y: 1.1260719, z: 4.15425}
+  blobSize: {x: 2.2496264, y: 4.6545005}
