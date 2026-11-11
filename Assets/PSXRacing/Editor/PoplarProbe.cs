@@ -64,6 +64,8 @@ namespace PSXRacing.EditorTools
             TrackCatalog.TrackDef def = null;
             for (int i = 0; i < TrackCatalog.Count; i++) if (TrackCatalog.At(i).id == id) def = TrackCatalog.At(i);
             if (def == null || !PSXScreenshotTool.Open(def, out var cam, out _)) { log.AppendLine("no scene " + id); return; }
+            TrackCatalog.EnsureStage(def);   // the bridges (the title's viaduct) come with the stage's data
+            log.AppendLine($"{id}: {(def.bridges != null ? def.bridges.Length : 0)} bridge span(s)");
             var path = Object.FindFirstObjectByType<TrackPath>();
             var sun = GameObject.Find("Sun")?.GetComponent<Light>();
             var dressing = Object.FindFirstObjectByType<SeasonDress>();
