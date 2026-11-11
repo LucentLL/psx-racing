@@ -90,7 +90,8 @@ namespace PSXRacing
                 Vector3 eye = PathAt(path, m - 6.5f) + Vector3.up * 2.3f;
                 Vector3 at = PathAt(path, m + 14f) + Vector3.up * 1.0f;
                 rig.pos = eye; rig.rot = Quaternion.LookRotation(at - eye, Vector3.up); rig.on = true;
-                Vector3 cp = PathAt(path, m), cf = PathAt(path, m + 2f) - cp; cf.y = 0f;
+                // the car (hidden, but some of it is drawn by its own scripts) 30 m behind the eye: out of the view
+                Vector3 cp = PathAt(path, m - 36f), cf = PathAt(path, m - 34f) - cp; cf.y = 0f;
                 if (cf.sqrMagnitude > 1e-4f)
                 {
                     var cr = Quaternion.LookRotation(cf, Vector3.up);

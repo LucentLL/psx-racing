@@ -120,6 +120,8 @@ namespace PSXRacing
         /// drew it): the pop-in round of 2026-11-11.</summary>
         public static bool PopFix = true;
         const float BandShare = 0.3f;
+        public static Vector3 TourLodMul = Vector3.one;
+        public static float TourBandShare = -1f;
         static MeshForest instance;
         bool inited;
 
@@ -165,13 +167,19 @@ namespace PSXRacing
             float q = ForestDetailPrefs.Scale;
             lod0To *= q; lod1To *= q; meshRange *= q;
             band0 *= q; band1 *= q; band2 *= q;
-            if (PopFix)
+            // the pop measure's knobs (perf tour lodmul=a,b,c&bandshare=s): each level's distance x, bands as a share
+            lod0To *= TourLodMul.x; lod1To *= TourLodMul.y; meshRange *= TourLodMul.z;
+            float share = TourBandShare >= 0f ? TourBandShare : PopFix ? BandShare : 0f;
+            if (share > 0f)
             {
                 // a hand-over band as a share of its distance, not a fixed few metres
-                band0 = Mathf.Max(band0, lod0To * BandShare);
-                band1 = Mathf.Max(band1, lod1To * BandShare);
-                band2 = Mathf.Max(band2, meshRange * BandShare);
+                band0 = Mathf.Max(band0, lod0To * share);
+                band1 = Mathf.Max(band1, lod1To * share);
+                band2 = Mathf.Max(band2, meshRange * share);
             }
+            band0 = Mathf.Min(band0, lod0To * 0.6f);
+            band1 = Mathf.Min(band1, (lod1To - lod0To) * 0.9f);
+            band2 = Mathf.Min(band2, (meshRange - lod1To) * 0.9f);
             matsNow = new Material[variants.Length][];
             impNow = new Material[variants.Length];
             maxD2 = new float[variants.Length];

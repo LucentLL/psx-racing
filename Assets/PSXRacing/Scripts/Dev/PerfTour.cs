@@ -132,6 +132,17 @@ namespace PSXRacing
                 t.popKeep = new System.Collections.Generic.HashSet<int>();
                 foreach (var s in pk.Split('.')) if (int.TryParse(s, out int pj)) t.popKeep.Add(pj);
             }
+            string lm = ShotLink.Query(url, "lodmul");
+            if (!string.IsNullOrEmpty(lm))
+            {
+                var p3 = lm.Split(',');
+                if (p3.Length == 3 && float.TryParse(p3[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float l0) &&
+                    float.TryParse(p3[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float l1) &&
+                    float.TryParse(p3[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float l2))
+                    MeshForest.TourLodMul = new Vector3(l0, l1, l2);
+            }
+            string bsh = ShotLink.Query(url, "bandshare");
+            if (!string.IsNullOrEmpty(bsh)) float.TryParse(bsh, NumberStyles.Float, CultureInfo.InvariantCulture, out MeshForest.TourBandShare);
             string pl = ShotLink.Query(url, "poplag");
             if (!string.IsNullOrEmpty(pl)) float.TryParse(pl, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popLag);
             string pm = ShotLink.Query(url, "popm");
