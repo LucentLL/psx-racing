@@ -31,7 +31,7 @@ namespace PSXRacing.EditorTools
             // the owner's frame (images/1.webp): N Graham St south-west past W 10th St toward Uptown,
             // the Fourth Ward residential blocks (OSM building=residential, 3 levels, 11.76 m) on the right
             new BldgPlace { id = "graham", lat = 35.235364, lon = -80.840411, road = "Graham", hdg = 229f, ahead = 0f, what = "N Graham St SW at W 10th St (the owner's frame)" },
-            new BldgPlace { id = "graham_b", lat = 35.234700, lon = -80.841150, road = "Graham", hdg = 229f, ahead = 0f, what = "N Graham St SW between W 10th and W 6th" },
+            new BldgPlace { id = "graham_b", lat = 35.23456, lon = -80.84152, road = "Graham", hdg = 229f, ahead = 0f, what = "N Graham St SW between W 10th and W 6th" },
             new BldgPlace { id = "dilworth", lat = 35.20225, lon = -80.84758, road = "Dilworth", hdg = 192f, what = "Dilworth Rd E: streetcar-suburb houses" },
         };
 

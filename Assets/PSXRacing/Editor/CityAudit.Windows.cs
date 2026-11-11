@@ -167,8 +167,22 @@ namespace PSXRacing.EditorTools
                 if (nr.sqrMagnitude < 1e-10f) continue;
                 nr.Normalize();
                 float d = Vector3.Dot(nr, a);
-                var key = (Mathf.RoundToInt(nr.x * 50f), Mathf.RoundToInt(nr.y * 50f), Mathf.RoundToInt(nr.z * 50f), Mathf.RoundToInt(d * 20f));
-                if (!groups.TryGetValue(key, out var l)) groups[key] = l = new List<int>();
+                // the UV FRAME too: a gable on its end wall's plane is its own frame
+                // (texture coordinates as an affine function of the plane's s, t)
+                var e1 = Mathf.Abs(nr.y) > 0.9f ? Vector3.right : Vector3.Cross(Vector3.up, nr).normalized;
+                var e2 = Vector3.Cross(nr, e1);
+                Vector2 q0 = new Vector2(Vector3.Dot(a, e1), Vector3.Dot(a, e2)), q1 = new Vector2(Vector3.Dot(b, e1), Vector3.Dot(b, e2)), q2 = new Vector2(Vector3.Dot(c, e1), Vector3.Dot(c, e2));
+                Vector2 ua = U[tri[k]], ub = U[tri[k + 1]], uc = U[tri[k + 2]];
+                float det = (q1.x - q0.x) * (q2.y - q0.y) - (q2.x - q0.x) * (q1.y - q0.y);
+                if (Mathf.Abs(det) < 1e-8f) continue;
+                Vector2 du = ((ub - ua) * (q2.y - q0.y) - (uc - ua) * (q1.y - q0.y)) / det;   // d(uv)/ds
+                Vector2 dt = ((uc - ua) * (q1.x - q0.x) - (ub - ua) * (q2.x - q0.x)) / det;   // d(uv)/dt
+                Vector2 off = ua - du * q0.x - dt * q0.y;                                      // uv at s = t = 0
+                var key = (Mathf.RoundToInt(nr.x * 50f), Mathf.RoundToInt(nr.y * 50f), Mathf.RoundToInt(nr.z * 50f), Mathf.RoundToInt(d * 20f),
+                           Mathf.RoundToInt(du.x * 500f), Mathf.RoundToInt(du.y * 500f), Mathf.RoundToInt(dt.x * 500f), Mathf.RoundToInt(dt.y * 500f),
+                           Mathf.RoundToInt(off.x * 20f), Mathf.RoundToInt(off.y * 20f));
+                var key4 = (key.Item1, key.Item2, key.Item3, key.Item4 * 7919 + key.Item5 * 31 + key.Item6 * 131 + key.Item7 * 523 + key.Item8 * 1031 + key.Item9 * 7 + key.Item10 * 4099);
+                if (!groups.TryGetValue(key4, out var l)) groups[key4] = l = new List<int>();
                 l.Add(k);
             }
             foreach (var g in groups.Values)
