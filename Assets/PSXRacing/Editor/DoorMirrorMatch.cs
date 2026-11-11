@@ -99,6 +99,30 @@ namespace PSXRacing.EditorTools
             EditorApplication.Exit(fails == 0 && fitFails == 0 ? 0 : 1);
         }
 
+        /// <summary>Round 2's last proof: the shots (PSX_MIRROR_TAG), the mirror
+        /// check, the fit gates as it was (no width fit, no windscreen fit,
+        /// tag final_base) and as it is (tag final).</summary>
+        public static void R2Final()
+        {
+            int fails = -1, fitFails = -1;
+            try
+            {
+                Shots();
+                Check(out fails);
+                CockpitFit.On = false;
+                System.Environment.SetEnvironmentVariable("PSX_COCKPIT_WIDTHFIT", "0");
+                System.Environment.SetEnvironmentVariable("PSX_COCKPITFIT_TAG", "final_base");
+                CockpitFitProbe.Run(true);
+                CockpitFit.On = true;
+                System.Environment.SetEnvironmentVariable("PSX_COCKPIT_WIDTHFIT", "1");
+                System.Environment.SetEnvironmentVariable("PSX_COCKPITFIT_TAG", "final");
+                fitFails = CockpitFitProbe.Run(true);
+            }
+            catch (System.Exception e) { Debug.LogException(e); }
+            Debug.Log($"[R2] mirror check fails {fails}, fit fails {fitFails}");
+            EditorApplication.Exit(fails == 0 && fitFails == 0 ? 0 : 1);
+        }
+
         public static string Check(out int fails)
         {
             var sb = new StringBuilder();

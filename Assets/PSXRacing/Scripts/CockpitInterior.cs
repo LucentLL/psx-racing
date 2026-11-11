@@ -151,12 +151,25 @@ namespace PSXRacing
             // against the catalogue's middle (CockpitFit.CalibZ/Y, written by the probe)
             float sz = (cowlZ - hz) / Mathf.Max(0.05f, pb.z - pt.z) / CockpitFit.CalibZ;
             float sy = (hy - cowlY) / Mathf.Max(0.05f, pt.y - pb.y) / CockpitFit.CalibY;
-            sz = Mathf.Clamp(sz, CockpitFit.MinScale, CockpitFit.MaxScale);
-            sy = Mathf.Clamp(sy, CockpitFit.MinScale, CockpitFit.MaxScale);
+            sz = Mathf.Clamp(sz, CockpitFit.MinScale, CockpitFit.MaxScaleZ);
+            sy = Mathf.Clamp(sy, CockpitFit.MinScaleY, CockpitFit.MaxScaleY);
             float an = Mathf.Clamp(sy / sz, 1f / CockpitFit.MaxAniso, CockpitFit.MaxAniso);
             float g = Mathf.Sqrt(sy * sz);
             sy = g * Mathf.Sqrt(an);
             sz = g / Mathf.Sqrt(an);
+            // the seat stays behind the car's own door mirrors (a door mirror
+            // stands ahead of the driver: CockpitFit.MirrorAhead at least)
+            if (DoorMirrors.TryGet(def.key, out var dm))
+            {
+                var yawQ = Quaternion.Euler(0f, def.bodyYaw, 0f);
+                float mz = float.MaxValue;
+                foreach (var gl in dm.glass) mz = Mathf.Min(mz, ((yawQ * gl.centre).z + def.bodyZOffset) * ls);
+                if (mz < float.MaxValue)
+                {
+                    float szMin = (cowlZ - (mz - CockpitFit.MirrorAhead)) / Mathf.Max(0.05f, pb.z - L.eye.z);
+                    sz = Mathf.Clamp(Mathf.Max(sz, szMin), CockpitFit.MinScale, CockpitFit.MaxScale);
+                }
+            }
             // across: the car's mirrors and its own side glass, never wider
             if (WidthFitOn && r.sideX > 0f)
                 sAcross = Mathf.Min(sAcross, (r.sideX * Mathf.Abs(ws) - CockpitFit.Inset) / Mathf.Max(0.01f, AuthoredGlassX));
