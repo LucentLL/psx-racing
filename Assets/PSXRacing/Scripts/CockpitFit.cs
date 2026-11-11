@@ -60,6 +60,17 @@ namespace PSXRacing
         public const float Inset = 0.015f;
         /// <summary>The range of each scale and of height against length.</summary>
         public const float MinScale = 0.75f, MaxScale = 1.25f, MaxAniso = 1.18f;
+        /// <summary>Fore-aft, the seat moves FORWARD freely (a short upright
+        /// screen - a 911, a Charger - puts the driver nearer the glass) but
+        /// back only a little: a long raked screen (an EG, an Evo) is glass
+        /// laid over the bonnet, not a longer cabin, and moving the seat back
+        /// by it lost the bonnet from view (round 2's first cut). Height: a
+        /// hand either way.</summary>
+        public const float MaxScaleZ = 1.05f, MinScaleY = 0.85f, MaxScaleY = 1.12f;
+        /// <summary>The car's own door mirror stands at least this far ahead
+        /// of the driver's eye, metres: a short screen moves the seat forward,
+        /// never past the mirrors (the '70 Charger's went behind the eye).</summary>
+        public const float MirrorAhead = 0.30f;
 
         /// <summary>His windscreen pane in his model's frame: base (front,
         /// low) and top (rear, high).</summary>
