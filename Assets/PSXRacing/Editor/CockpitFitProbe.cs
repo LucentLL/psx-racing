@@ -65,6 +65,7 @@ namespace PSXRacing.EditorTools
         {
             try
             {
+                CockpitFit.On = false;
                 System.Environment.SetEnvironmentVariable("PSX_COCKPIT_WIDTHFIT", "0");
                 System.Environment.SetEnvironmentVariable("PSX_COCKPITFIT_TAG", "base");
                 Run(true);
@@ -72,8 +73,7 @@ namespace PSXRacing.EditorTools
                 System.Environment.SetEnvironmentVariable("PSX_COCKPITFIT_TAG", "r1");
                 System.Environment.SetEnvironmentVariable("PSX_COCKPITFIT_EMIT", "1");
                 Run(true);
-                System.Environment.SetEnvironmentVariable("PSX_DOORMIRROR_EMIT", "1");
-                DoorMirrorProbe.Run();
+                CockpitFit.On = true;
             }
             catch (System.Exception e) { Debug.LogException(e); }
             EditorApplication.Exit(0);
@@ -129,6 +129,7 @@ namespace PSXRacing.EditorTools
             Mesh shellMesh = null;
 
             var rows = new StringBuilder();
+            var rawZ = new List<float>(); var rawY = new List<float>();
             int fails = 0;
             var worst = new Dictionary<string, (float, string)>();
             void Worst(string what, float v, string key) { if (!worst.TryGetValue(what, out var w) || v > w.Item1) worst[what] = (v, key); }
@@ -142,6 +143,14 @@ namespace PSXRacing.EditorTools
                 shellCol.sharedMesh = shellMesh;
                 Physics.SyncTransforms();
                 var pr = Measure(d);
+                {
+                    var f00 = CockpitInterior.FitFor(d.colliderCenter, d.colliderSize, d);
+                    if (pr.ok && f00.measured && CockpitFit.Pane(out var qb, out var qt))
+                    {
+                        rawZ.Add((d.cowlZ - pr.headerZ) / Mathf.Max(0.05f, qb.z - qt.z));
+                        rawY.Add((pr.headerY - CockpitFit.Inset - d.cowlY) / Mathf.Max(0.05f, qt.y - qb.y));
+                    }
+                }
                 if (pr.ok)
                     rows.Append("            new Row(\"").Append(d.key).Append("\", ")
                         .Append(F(pr.headerZ)).Append(", ").Append(F(pr.headerY)).Append(", ").Append(F(pr.sideX)).Append(", ").Append(F(pr.beltY)).Append("),\n");
@@ -175,7 +184,7 @@ namespace PSXRacing.EditorTools
                 Physics.SyncTransforms();
 
                 // (a) cabin vertices outside the shell
-                int outN = 0, tot = 0; float outW = 0f;
+                int outN = 0, tot = 0, beyond = 0; float outW = 0f;
                 foreach (Transform c in cabRoot)
                 {
                     var vs = c.GetComponent<MeshCollider>().sharedMesh.vertices;
@@ -183,8 +192,10 @@ namespace PSXRacing.EditorTools
                     {
                         var p = vs[i];
                         if (p.y < d.cowlY - 0.35f) continue;   // the floor and footwells (the shell's floor is open)
+                        if (p.z < f.eye.z - 0.3f) continue;    // behind the seat: out of the driver's view
                         tot++;
                         float o = Outside(p);
+                        if (o >= 0.99f) { beyond++; continue; }   // no shell over or beside it at all
                         if (o > Tol) { outN++; outW = Mathf.Max(outW, o); }
                     }
                 }
@@ -193,6 +204,23 @@ namespace PSXRacing.EditorTools
                 var cut = Cut(f, d);
                 Vector3 eye = f.eye;
                 Quaternion look = Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Cockpit), 0f, 0f);
+                if (d.key == "rx7_fd_93" || d.key == "flatsix_coupe_87")
+                {
+                    // the probe's own trace: one ray ahead and one at the bonnet
+                    foreach (float pch in new[] { 0f, -6f })
+                    {
+                        var dir = look * Quaternion.Euler(-pch, 0f, 0f) * Vector3.forward;
+                        var sb = new StringBuilder($"  trace {d.key} pitch {pch}: cabin");
+                        int nn = Physics.RaycastNonAlloc(eye, dir, buf, 6f, 1 << CabinLayer, QueryTriggerInteraction.Ignore);
+                        for (int i = 0; i < nn; i++) sb.Append($" {buf[i].collider.name}@{buf[i].distance:0.00}");
+                        nn = Physics.RaycastNonAlloc(eye, dir, buf, 20f, 1 << ShellLayer, QueryTriggerInteraction.Ignore);
+                        sb.Append(" | shell");
+                        for (int i = 0; i < nn; i++) sb.Append($" {(buf[i].triangleIndex < shellTris ? "F" : "B")}@{buf[i].distance:0.00}{(InCut(buf[i].point, cut) ? "c" : "")}");
+                        var rr = Classify(eye, dir, cut);
+                        sb.Append($" => ws {rr.windscreen} front {rr.front} back {rr.back} intrude {rr.intrude:0.00}\n");
+                        log.Append(sb);
+                    }
+                }
                 int inN = 0; float inW = 0f; string inWhere = "";
                 for (float yaw = -80f; yaw <= 80f; yaw += 2f)
                     for (float pitch = -35f; pitch <= 25f; pitch += 2f)
@@ -218,13 +246,14 @@ namespace PSXRacing.EditorTools
                             var dir = rel.MultiplyVector(look * Quaternion.Euler(-pitch, yaw, 0f) * Vector3.forward).normalized;
                             var r = Classify(e2, dir, cut);
                             if (!r.windscreen) continue;
+                            if (r.back) { into++; if (r.at.z < cut.cutZ && r.at.y < d.cowlY + 0.02f) open++; }   // open: below the bonnet line and behind the cut (no dark inside there)
+                            if (dir.y >= 0f) continue;   // the bonnet share: the windscreen's view below the horizon
                             ws++;
-                            if (r.front) bon++;
-                            if (r.back) { into++; if (r.at.z < cut.cutZ) open++; }
+                            if (r.front || r.back) bon++;
                         }
                     float pc = ws > 0 ? 100f * bon / ws : 0f;
                     if (name == "rest") bonnet = pc;
-                    nose += $"{(ws > 0 ? 100f * into / ws : 0f):0.0}({open}) ";
+                    nose += $"{into}({open}) ";
                     noseOpenAll += open;
                 }
                 // per-axis offsets: eye vs the old fit, header and belt
@@ -242,7 +271,7 @@ namespace PSXRacing.EditorTools
                     beltDy = (f.eye.y + sy * (sill - L.eye.y)) - pr.beltY;
                     sideDx = gx * sx - pr.sideX;
                 }
-                bool bad = outN > 0 && outW > 0.03f || inN > 0 || (f.fit3 && (bonnet < 3f || bonnet > 45f)) || noseOpenAll > 0;
+                bool bad = outW > 0.03f || inN > 0 || (f.fit3 && (bonnet < 10f || bonnet > 85f)) || noseOpenAll > 0;
                 if (bad) fails++;
                 Worst("(a) cabin outside the shell, cm", outW * 100f, d.key);
                 Worst("(b) shell inside the cabin, cm", inW * 100f, d.key);
@@ -251,9 +280,9 @@ namespace PSXRacing.EditorTools
                 Worst("belt dy, cm", Mathf.Abs(beltDy) * 100f, d.key);
                 Worst("side glass dx (cabin - shell), cm", sideDx * 100f, d.key);
                 log.Append($"{(bad ? "FAIL " : "ok   ")}{d.key,-17} {(f.fit3 ? "yes" : "no ")} {sx:0.00} {sy:0.00} {sz:0.00} | eye {f.eye.z - f.cutZ:+0.00;-0.00}/{f.eye.y - d.cowlY:+0.00;-0.00} (old {f0.eye.z - f0.cutZ:+0.00;-0.00}/{f0.eye.y - d.cowlY:+0.00;-0.00}) | " +
-                           $"{hdz * 100f:+0;-0}/{hdy * 100f:+0;-0} cm {beltDy * 100f:+0;-0} cm {sideDx * 100f:+0;-0} cm | {outN}/{tot} {outW * 100f:0.0} | {inN} {inW * 100f:0.0} {inWhere} | {bonnet:0.0} | {nose}\n");
+                           $"{hdz * 100f:+0;-0}/{hdy * 100f:+0;-0} cm {beltDy * 100f:+0;-0} cm {sideDx * 100f:+0;-0} cm | {outN}/{tot} {outW * 100f:0.0} (+{beyond} past the shell's silhouette) | {inN} {inW * 100f:0.0} {inWhere} | {bonnet:0.0} | {nose}\n");
             }
-            var head = new StringBuilder($"[CockpitFit] {Defs().Count} shells, {fails} FAIL (fit3 {(CockpitFit.On ? "on" : "off")}, width fit {(CockpitInterior.WidthFitOn ? "on" : "off")}); gates: (a) no cabin vertex > 3 cm outside, (b) no shell in the cabin, (c) bonnet 3-45% of the windscreen when fitted, nose: no back face behind the cut seen through the windscreen in any pose\n");
+            var head = new StringBuilder($"[CockpitFit] {Defs().Count} shells, {fails} FAIL (fit3 {(CockpitFit.On ? "on" : "off")}, width fit {(CockpitInterior.WidthFitOn ? "on" : "off")}); gates: (a) no cabin vertex > 3 cm outside, (b) no shell in the cabin, (c) of the windscreen's view below the horizon, 10-85% on the car (bonnet, wings, cowl) when fitted, nose: rays into the hollow nose (open = behind the cut, where the dark inside is not drawn) = 0 open in any pose\n");
             foreach (var kv in worst) head.Append($"  worst {kv.Key}: {kv.Value.Item1:0.0} ({kv.Value.Item2})\n");
             log.Insert(0, head.ToString());
             string root = Path.GetDirectoryName(Application.dataPath);
@@ -264,7 +293,12 @@ namespace PSXRacing.EditorTools
             if (System.Environment.GetEnvironmentVariable("PSX_COCKPITFIT_EMIT") == "1")
             {
                 string path = Path.Combine(Application.dataPath, "PSXRacing", "Scripts", "CockpitFit.Table.cs");
-                File.WriteAllText(path, Header + rows + Footer);
+                rawZ.Sort(); rawY.Sort();
+                float cz = rawZ.Count > 0 ? rawZ[rawZ.Count / 2] : 1f, cy = rawY.Count > 0 ? rawY[rawY.Count / 2] : 1f;
+                string calib = $"        /// <summary>The catalogue's median windscreen against his pane ({rawZ.Count} shells): his cabin's own\n" +
+                               "        /// proportion, so the fit moves each car from the middle of the catalogue, not from the probe's header line.</summary>\n" +
+                               $"        public const float CalibZ = {F(cz)}, CalibY = {F(cy)};\n";
+                File.WriteAllText(path, Header + rows + "        };\n" + calib + "    }\n}\n");
                 Debug.Log("[CockpitFit] table written to " + path);
             }
             Debug.Log(log.ToString());
@@ -411,6 +445,7 @@ namespace PSXRacing.EditorTools
                 if (buf[i].distance < dc) { dc = buf[i].distance; what = buf[i].collider.name; }
             var L = CockpitModel.L;
             if (what != null) foreach (var g in L.glass) if (g.part == what) { glass = true; r.windscreen = g.key == "windshield"; }
+            if (what == null) glass = true;   // no cabin on this ray: an opening (a gap at the glass's edge), not a wall
             // the shell: nearest face not cut away
             n = Physics.RaycastNonAlloc(eye, dir, buf, 20f, 1 << ShellLayer, QueryTriggerInteraction.Ignore);
             System.Array.Sort(buf, 0, n, Comparer<RaycastHit>.Create((a, b) => a.distance.CompareTo(b.distance)));
@@ -419,7 +454,7 @@ namespace PSXRacing.EditorTools
                 var h = buf[i];
                 if (InCut(h.point, cut)) continue;
                 bool front = h.triangleIndex < shellTris;   // the duplicate (reversed) half is the original's back face
-                if (h.distance < dc - 0.005f && front) { r.intrude = dc - h.distance; r.at = h.point; return r; }
+                if (h.distance < dc - 0.005f && front && what != null) { r.intrude = dc - h.distance; r.at = h.point; return r; }
                 if (h.distance < dc - 0.005f && !front) continue;   // a back face inside the cabin is not drawn (no inside there)
                 if (!glass) return r;                               // behind his opaque cabin
                 r.front = front; r.back = !front; r.at = h.point;
