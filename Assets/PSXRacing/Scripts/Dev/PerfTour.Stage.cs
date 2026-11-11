@@ -215,7 +215,7 @@ namespace PSXRacing
                    .Append(mean.ToString("0.00000", CultureInfo.InvariantCulture)).Append(',').Append(top.ToString("0.0000", CultureInfo.InvariantCulture)).Append(',')
                    .Append(pops).Append(',').Append(mass.ToString("0.0000", CultureInfo.InvariantCulture)).Append('\n');
                 bool asked = popKeep != null && popKeep.Contains(j);
-                if ((pops > 0 && mass > 0.04f && saved < 160) || asked)
+                if ((pops > 0 && mass > 0.12f && saved < 120) || asked)
                 {
                     if (!asked) saved++;
                     SaveJpg(img[j % 3], "pop" + j.ToString("0000") + "a");
