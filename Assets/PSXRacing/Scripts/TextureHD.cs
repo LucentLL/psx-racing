@@ -174,8 +174,10 @@ namespace PSXRacing
                 Off(m);
                 return true;
             }
-            // atlas cells and facades keep their tier (their cells are not HD yet)
-            if (m.IsKeywordEnabled("PSX_ATLAS_RECT") || m.IsKeywordEnabled("PSX_FACADE") || m.IsKeywordEnabled("PSX_FURNITURE")) return false;
+            // atlas cells keep their tier (their cells are not HD yet); the facade
+            // atlas only for its column 7 parts, when that set is delivered
+            if (m.IsKeywordEnabled("PSX_ATLAS_RECT") || m.IsKeywordEnabled("PSX_FURNITURE")) return false;
+            if (m.IsKeywordEnabled("PSX_FACADE")) return ApplyFacadeParts(m, on);
             var main = m.GetTexture(MainTexId);
             if (main == null) return false;
             if (on && byHD.ContainsKey(main)) return false;   // already HD
@@ -207,6 +209,7 @@ namespace PSXRacing
             if (i >= 0 && map.pairs[i].original != null)
                 Set(m, MainTexId, TextureTier.ForTier(map.pairs[i].original));
             if (m.HasProperty(RoadOnId) && m.GetFloat(RoadOnId) != 0f) SetF(m, RoadOnId, 0f);
+            if (m.HasProperty(PartsOnId) && m.GetFloat(PartsOnId) != 0f) SetF(m, PartsOnId, 0f);
             Kw(m, false);
             Applied = Mathf.Max(0, Applied - 1);
         }
@@ -251,6 +254,45 @@ namespace PSXRacing
                             RoadPaintId = Shader.PropertyToID("_RoadPaint"), RoadRepeatId = Shader.PropertyToID("_RoadBaseRepeat"),
                             PaintWId = Shader.PropertyToID("_RoadPaintW"), PaintYId = Shader.PropertyToID("_RoadPaintY");
 
+        static readonly int GutterTexId = Shader.PropertyToID("_GutterTex"), GutterNrmId = Shader.PropertyToID("_GutterNrm"),
+                            RoadGutterId = Shader.PropertyToID("_RoadGutter"), PartsOnId = Shader.PropertyToID("_FacadePartsOn"),
+                            PartsId = Shader.PropertyToID("_FacadeParts");
+
+        /// <summary>A set with no game texture of its own (the gutter pan, the
+        /// facade parts), loaded once by its key.</summary>
+        static bool Special(string key, out HDSet s)
+        {
+            s = default;
+            if (string.IsNullOrEmpty(key)) return false;
+            if (baseSets.TryGetValue(key, out s) && s.col != null) return true;
+            s.col = Load(key);
+            if (s.col == null) return false;
+            s.nrm = Load(key + NormalSuffix);
+            s.rough = Load(key + RoughSuffix);
+            s.ao = Load(key + AOSuffix);
+            baseSets[key] = s;
+            return true;
+        }
+
+        /// <summary>THE COLUMN 7 PARTS (round 2): the facade atlas keeps its tier
+        /// for every column; column 7 (ground floors, furniture, skybridge bands,
+        /// cornices, canopies) reads Codex's city_facade_parts set and its maps
+        /// (PSX/Lit _FacadePartsOn; the other columns take no HD maps).</summary>
+        static bool ApplyFacadeParts(Material m, bool on)
+        {
+            if (!m.HasProperty(PartsOnId)) return false;
+            if (on && m.GetFloat(PartsOnId) > 0.5f) return false;
+            if (!Special(map.facadeParts, out var s)) return false;
+            Set(m, PartsId, s.col);
+            if (s.nrm != null) Set(m, NormalId, s.nrm);
+            if (s.rough != null) Set(m, RoughId, s.rough);
+            if (s.ao != null) Set(m, AOId, s.ao);
+            SetF(m, PartsOnId, 1f);
+            Kw(m, true);
+            Applied++;
+            return true;
+        }
+
         /// <summary>Road base textures in the table (the log's count).</summary>
         public static int RoadCount => map != null && map.roads != null ? map.roads.Length : 0;
 
@@ -275,7 +317,11 @@ namespace PSXRacing
             if (s.nrm != null) Set(m, NormalId, s.nrm);
             if (s.rough != null) Set(m, RoughId, s.rough);
             if (s.ao != null) Set(m, AOId, s.ao);
-            SetV(m, RoadRepeatId, new Vector4(r.repeat.x, r.repeat.y, mask != null ? 1f : 0f, 0f));
+            SetV(m, RoadRepeatId, new Vector4(r.repeat.x, r.repeat.y, mask != null ? 1f : 0f, TextureHDMap.BaseGain(r.baseKey)));
+            HDSet gs = default;
+            bool gut = r.gutter && Special(map.gutter, out gs);
+            if (gut) { Set(m, GutterTexId, gs.col); Set(m, GutterNrmId, gs.nrm); }
+            SetV(m, RoadGutterId, new Vector4(gut ? 1f : 0f, r.widthM, 0f, 0f));
             SetV(m, PaintWId, map.paintWhite);
             SetV(m, PaintYId, map.paintYellow);
             SetF(m, RoadOnId, 1f);

@@ -48,7 +48,10 @@ namespace PSXRacing.EditorTools
         {
             sets = 0;
             var pairs = new List<TextureHDMap.Pair>();
-            if (!Directory.Exists(SrcDir))
+            // PSX_HD_SRC may name several folders, ';' between (a stage plus a test set)
+            var dirs = new List<string>();
+            foreach (var d in SrcDir.Split(';', '|')) if (!string.IsNullOrWhiteSpace(d) && Directory.Exists(d.Trim())) dirs.Add(d.Trim());
+            if (dirs.Count == 0)
             {
                 WriteMap(pairs);
                 return null;   // no HD sets yet: an empty tier, not an error
@@ -56,18 +59,26 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(TextureHD.EditorSrcRoot);
             var log = new System.Text.StringBuilder();
             var bases = new HashSet<string>();
-            foreach (var colour in Directory.GetFiles(SrcDir, "*" + Suffix + ".png", SearchOption.AllDirectories))
+            string facadeParts = null, gutter = null;
+            var seen = new HashSet<string>();
+            var colours = new List<string>();
+            foreach (var d in dirs) colours.AddRange(Directory.GetFiles(d, "*" + Suffix + ".png", SearchOption.AllDirectories));
+            foreach (var colour in colours)
             {
                 string key = Path.GetFileNameWithoutExtension(colour);
                 key = key.Substring(0, key.Length - Suffix.Length);
+                if (!seen.Add(key)) { log.AppendLine("  " + key + ": a second copy at " + colour + " - skipped (the first found wins)"); continue; }
                 if (key.StartsWith(RoadBasePrefix))
                 {
                     // a road BASE set has no game texture of its own: the road path binds it (RoadBases)
-                    if (!bases.Add(key)) { log.AppendLine("  " + key + ": a second copy at " + colour + " - skipped"); continue; }
+                    bases.Add(key);
                     CopySet(colour, key);
                     log.AppendLine($"  {key}: road base set");
                     continue;
                 }
+                // the facade atlas's column 7 parts and the road's gutter pan: bound by the shader (TextureHDMap)
+                if (key == TextureHDMap.FacadePartsKey) { facadeParts = key; CopySet(colour, key); log.AppendLine($"  {key}: facade column 7 parts set"); continue; }
+                if (key == TextureHDMap.GutterKey) { gutter = key; CopySet(colour, key); log.AppendLine($"  {key}: gutter pan set"); continue; }
                 var original = FindOriginal(key);
                 if (original == null) { log.AppendLine("  no game texture named " + key + " - skipped"); continue; }
                 CopySet(colour, key);
@@ -75,9 +86,10 @@ namespace PSXRacing.EditorTools
                 log.AppendLine($"  {key}: {AssetDatabase.GetAssetPath(original)}");
             }
             var roads = RoadBases(bases, log);
-            WriteMap(pairs, roads);
-            sets = pairs.Count + bases.Count;
-            Debug.Log($"[TextureHD] {pairs.Count} HD sets + {bases.Count} road base sets ({roads.Count} road textures drawn on them) from {SrcDir}\n{log}");
+            WriteMap(pairs, roads, facadeParts, gutter);
+            sets = pairs.Count + bases.Count + (facadeParts != null ? 1 : 0) + (gutter != null ? 1 : 0);
+            Debug.Log($"[TextureHD] {pairs.Count} HD sets + {bases.Count} road base sets ({roads.Count} road textures drawn on them)" +
+                      $"{(facadeParts != null ? " + facade parts" : "")}{(gutter != null ? " + gutter pan" : "")} from {SrcDir}\n{log}");
             return null;
         }
 
@@ -129,7 +141,8 @@ namespace PSXRacing.EditorTools
                 if (unk > 0) log.AppendLine($"  {name}: {unk} texels neither paint, grain nor rumble (drawn as pavement)");
                 float w = PSXRacingBuilder.RoadProfileWidth(profile);
                 roads.Add(new TextureHDMap.Road { original = original, paint = maskKey, baseKey = baseKey,
-                                                  repeat = new Vector2(w, City.CityMeshes.RoadVTile) / TextureHDMap.TileM });
+                                                  repeat = new Vector2(w, City.CityMeshes.RoadVTile) / TextureHDMap.TileM,
+                                                  widthM = w, gutter = PSXRacingBuilder.RoadProfileCurbed(profile) });
             }
             log.AppendLine($"  road base: {masks} paint masks, {roads.Count - masks} junction slabs, {unknown} unclassified texels in all");
             return roads;
@@ -217,12 +230,12 @@ namespace PSXRacing.EditorTools
             return found;
         }
 
-        static void WriteMap(List<TextureHDMap.Pair> pairs) => WriteMap(pairs, new List<TextureHDMap.Road>());
+        static void WriteMap(List<TextureHDMap.Pair> pairs) => WriteMap(pairs, new List<TextureHDMap.Road>(), null, null);
 
-        static void WriteMap(List<TextureHDMap.Pair> pairs, List<TextureHDMap.Road> roads)
+        static void WriteMap(List<TextureHDMap.Pair> pairs, List<TextureHDMap.Road> roads, string facadeParts, string gutter)
         {
             var map = AssetDatabase.LoadAssetAtPath<TextureHDMap>(MapAsset);
-            if (pairs.Count == 0 && roads.Count == 0)
+            if (pairs.Count == 0 && roads.Count == 0 && facadeParts == null && gutter == null)
             {
                 if (map != null) AssetDatabase.DeleteAsset(MapAsset);
                 return;
@@ -236,6 +249,8 @@ namespace PSXRacing.EditorTools
             map.roads = roads.ToArray();
             map.paintWhite = PSXRacingBuilder.PaintWhiteLinear;
             map.paintYellow = PSXRacingBuilder.PaintYellowLinear;
+            map.facadeParts = facadeParts;
+            map.gutter = gutter;
             EditorUtility.SetDirty(map);
             AssetDatabase.SaveAssets();
         }
@@ -246,11 +261,14 @@ namespace PSXRacing.EditorTools
         {
             bytes = 0;
             var map = AssetDatabase.LoadAssetAtPath<TextureHDMap>(MapAsset);
-            if (map == null || ((map.pairs == null || map.pairs.Length == 0) && (map.roads == null || map.roads.Length == 0))) return null;
+            if (map == null || ((map.pairs == null || map.pairs.Length == 0) && (map.roads == null || map.roads.Length == 0)
+                                && string.IsNullOrEmpty(map.facadeParts) && string.IsNullOrEmpty(map.gutter))) return null;
             var names = new List<string>();
             var paths = new List<string>();
             var keys = new List<string>();
             if (map.pairs != null) foreach (var p in map.pairs) keys.Add(p.key);
+            if (!string.IsNullOrEmpty(map.facadeParts)) keys.Add(map.facadeParts);
+            if (!string.IsNullOrEmpty(map.gutter)) keys.Add(map.gutter);
             if (map.roads != null)
                 foreach (var r in map.roads)
                 {

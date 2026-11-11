@@ -172,7 +172,7 @@ namespace PSXRacing.EditorTools
                     world.EnsureRing(new Vector3(lotA.x, 0f, lotA.y), 2);
                     float gy = map.NearestRoadPoint(lotA, 400f, false, out int lei, out float les, out _) ? map.edges[lei].YAt(les) : 0f;
                     float hitY = GroundY(lotA);
-                    if (hitY > gy - 20f && hitY < gy + 20f) gy = hitY;   // the lot's own surface, when a collider is there
+                    if (hitY > gy - 1.5f && hitY < gy + 1.5f) gy = hitY;   // the lot's own surface (not a roof over it)
                     Vector3 a = new Vector3(lotA.x, gy, lotA.y), c = new Vector3(lotC.x, gy, lotC.y);
                     // the car out of the way: parked at the corner, facing in
                     var dirL = (c - a); dirL.y = 0f; dirL.Normalize();
@@ -198,6 +198,68 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(dir, "texb01_log.txt"), log.ToString());
                 Debug.Log("[TexB01]\n" + log);
             }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        /// <summary>THE BLACK ROAD IN SHADE (round 2): the Square's chase pose,
+        /// HD on, with each suspect switched off in turn - base, sky map off
+        /// (SunShadows sky strength 0), sun map off - to
+        /// Screenshots/texb01/diag_&lt;hour&gt;_&lt;variant&gt;.png.</summary>
+        public static void RunRoadShadeDiag()
+        {
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "texb01");
+            Directory.CreateDirectory(dir);
+            var log = new StringBuilder("ROAD SHADE DIAG " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + "\n");
+            int code = 0;
+            try
+            {
+                System.Environment.SetEnvironmentVariable("PSX_HD", "1");
+                TextureHDTool.Import(out int sets);
+                TextureHD.ResetMap();
+                var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
+                if (!PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
+                var output = Object.FindFirstObjectByType<PSXCameraOutput>();
+                if (output != null) output.height = TexShotHeight;
+                TexturePrefs.Enhanced = true;
+                var world = Object.FindAnyObjectByType<CityWorld>();
+                var map = CityMap.Get();
+                var sun = NightLookShots.FindSun();
+                var car = player.GetComponent<CarController>();
+                var tp = TexPlaces[0];
+                Snap(map, LL(tp.lat, tp.lon), tp.road, out var e, out float s, out _);
+                float hr = tp.hdg * Mathf.Deg2Rad;
+                var want = new Vector3(Mathf.Sin(hr), 0f, Mathf.Cos(hr));
+                var t2 = e.TangentAt(s); var fh = new Vector3(t2.x, 0f, t2.y).normalized;
+                if (Vector3.Dot(fh, want) < 0f) fh = -fh;
+                Vector2 p = e.PointAt(s);
+                var pos = new Vector3(p.x, e.YAt(s) + 0.35f, p.y) + Vector3.Cross(Vector3.up, fh) * (e.oneway ? 0f : e.width * 0.25f);
+                var rot = Quaternion.LookRotation(fh, Vector3.up);
+                world.EnsureRing(pos, 2);
+                if (car != null) car.TeleportTo(pos, rot);
+                Vector3 eye = pos - fh * 8f + Vector3.up * 2.6f;
+                var look = Quaternion.LookRotation(pos + Vector3.up * 0.8f + fh * 20f - eye);
+                foreach (var h in Pick("PSX_TEXB_HOURS", "noon"))
+                {
+                    TimeOfDay.Apply(HourOf(h), sun);
+                    var globals = Object.FindAnyObjectByType<PSXGlobals>();
+                    if (globals != null) globals.Apply();
+                    float sunS = SunShadows.Strength, skyS = SunShadows.SkyStrength;
+                    Vector3 toSun = Shader.GetGlobalVector("_PSXLightDir");
+                    foreach (var v in new[] { ("base", sunS, skyS), ("nosky", sunS, 0f), ("nosun", 0f, skyS), ("none", 0f, 0f) })
+                    {
+                        if (globals != null) globals.Apply();
+                        NightGlow.PreviewAll(TimeOfDay.At(HourOf(h)).lightsOn);
+                        SunShadows.Configure(v.Item2, v.Item3, toSun);
+                        TextureHD.OffAll(); PSXTexDecode.StampAll();
+                        CarLights.PushGlobals();
+                        PSXScreenshotTool.ShotAs(cam, $"texb01/diag_{h}_{v.Item1}", eye, look);
+                        log.Append($"diag_{h}_{v.Item1}: sun map {v.Item2:0.00}, sky map {v.Item3:0.00}; after: sun {SunShadows.Strength:0.00} sky {SunShadows.SkyStrength:0.00}; ambient {Shader.GetGlobalColor("_PSXAmbient")} tone {Shader.GetGlobalFloat("_PSXToneOn")}\n");
+                    }
+                }
+                log.Append("ROAD SHADE DIAG OK\n");
+            }
+            catch (System.Exception ex) { log.Append("FAILED " + ex + "\n"); code = 1; }
+            finally { File.WriteAllText(Path.Combine(dir, "diag_log.txt"), log.ToString()); }
             if (Application.isBatchMode) EditorApplication.Exit(code);
         }
 
@@ -281,7 +343,17 @@ namespace PSXRacing.EditorTools
             }
             if (best == null) return null;
             centre = new Vector2((best.box.x + best.box.z) * 0.5f, (best.box.y + best.box.w) * 0.5f);
-            // a ring vertex pulled 15% toward the centre: inside the lot, at its edge
+            if (best.runFoot != null && best.runFoot.Length > 0)
+            {
+                // in the aisle beside the first stall run (the stalls stand to the
+                // left of their row direction), looking down the row: always paved,
+                // never inside a building hole of the lot (round 1 stood on a roof)
+                var u = (best.runU != null && best.runU.Length > 0 ? best.runU[0] : best.u).normalized;
+                var right = new Vector2(u.y, -u.x);
+                corner = best.runFoot[0] + right * 3f;
+                centre = corner + u * 30f;
+                return best;
+            }
             var v = best.ring[0];
             corner = Vector2.Lerp(v, centre, 0.15f);
             return best;
