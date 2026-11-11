@@ -448,6 +448,7 @@ namespace PSXRacing.City
         /// <summary>Street trees refused by the road envelope, by the crown band that met it.</summary>
         public static readonly int[] RoadBand = new int[32];
         int lastBand;
+        bool fitStreet;
         public const float RoadClearM = 4.6f, DeckUnderM = 1.5f, Margin = 0.35f, BuildingMargin = 0.6f, HouseMargin = 1.6f;
         static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 0.9f, 0.8f, 0.7f, 0.6f, 0.52f };
         static readonly float[] StreetScalesR1 = { 1f, 1.15f, 1.3f, 1.45f, 0.9f, 0.8f, 0.7f };
@@ -506,6 +507,7 @@ namespace PSXRacing.City
             plant = default;
             lastAway = Vector2.zero;
             lastWhy = -1; lastHit = null;
+            fitStreet = t.street;
             bool young = t.dbh <= 0.125f && t.species != CityTrees.Species.Myrtle && t.species != CityTrees.Species.Bare && t.stem <= 0f;
             float roll = H(t.foot, 11);
             CityTreeKit.Role role; float want;
@@ -779,7 +781,10 @@ namespace PSXRacing.City
                 {
                     if (y0 > r.y + RoadClearM || y1 < r.y - DeckUnderM) continue;
                     // (hw is already 0.3 m past the pavement: the trunk of a grate tree a metre off the curb fits)
-                    if (SegDist(p, r.a, r.b) < r.hw + R + (Round1Mode ? Margin : RoadMargin)) { lastBand = b; return y1 < r.y ? 5 : 0; }
+                    // a GRATE tree's trunk stands on the walk by design: held off the pavement
+                    // itself by 0.1 m (the audit's line), not by the general 0.35 m past it
+                    float clear = Round1Mode ? r.hw + Margin : fitStreet ? r.hw - 0.2f : r.hw + RoadMargin;
+                    if (SegDist(p, r.a, r.b) < clear + R) { lastBand = b; return y1 < r.y ? 5 : 0; }
                 }
                 foreach (var bx in boxes)
                 {
