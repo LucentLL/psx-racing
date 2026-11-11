@@ -38,6 +38,151 @@ namespace PSXRacing
     public partial class PerfTour
     {
         string stageArg, fromArg, dayArg, capArg, offscreenArg;
+        float popStep, popLen = 600f;
+
+        // ------------------------------------------------------------------
+        // THE POP MEASURE (&popwalk=STEP&popm=M; 2026-11-11, owner: "pop-in is
+        // still constantly happening on low-high forest settings"). A chase
+        // view is stepped down the road STEP metres a frame - the same views
+        // every run, nothing timed - and each frame's picture is compared with
+        // the next. Motion changes a picture a little every frame; a POP
+        // changes one spot in one frame and not in the frames either side.
+        // Per frame the change is kept as 8x8-pixel blocks of a 480x270
+        // luminance picture (<tag>_<id>_popblocks.bin: int32 frames, w, h,
+        // then frames x h x w float32, mean |dL| 0..1 of the pair k, k+1);
+        // the pairs whose change stands out from both neighbours are kept
+        // as JPGs at 960x540 for the sheet. Analysis: scratchpad popscore.py.
+        // ------------------------------------------------------------------
+        [DefaultExecutionOrder(1400)]   // after the chase (0) and cockpit (1000) cameras, before MeshForest's cull (1500)
+        class PopRig : MonoBehaviour
+        {
+            public Camera cam; public Vector3 pos; public Quaternion rot; public bool on;
+            void LateUpdate() { if (on && cam != null) cam.transform.SetPositionAndRotation(pos, rot); }
+        }
+
+        static Vector3 PathAt(TrackPath p, float m)
+        {
+            float f = m / Mathf.Max(0.5f, p.spacing);
+            int i = Mathf.FloorToInt(f); float t = f - i;
+            Vector3 a = p.GetPoint(i - 1), b = p.GetPoint(i), c = p.GetPoint(i + 1), d = p.GetPoint(i + 2);
+            return 0.5f * (2f * b + (-a + c) * t + (2f * a - 5f * b + 4f * c - d) * (t * t) + (-a + 3f * b - 3f * c + d) * (t * t * t));
+        }
+
+        IEnumerator PopWalk(string id, TrackPath path, float m0, OffscreenView off)
+        {
+            const int QW = 480, QH = 270, HW = 960, HH = 540, BS = 8;
+            int bw = QW / BS, bh = QH / BS;
+            var cam = off.cam;
+            var rb = car.GetComponent<Rigidbody>();
+            bool wasKin = rb != null && rb.isKinematic;
+            var wasInterp = rb != null ? rb.interpolation : RigidbodyInterpolation.None;
+            if (rb != null) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; rb.isKinematic = true; rb.interpolation = RigidbodyInterpolation.None; }
+            var hidden = new System.Collections.Generic.List<Renderer>();
+            foreach (var r in car.GetComponentsInChildren<Renderer>()) if (r.enabled) { r.enabled = false; hidden.Add(r); }
+            var rigGo = new GameObject("PopRig");
+            var rig = rigGo.AddComponent<PopRig>();
+            rig.cam = cam;
+            float endM = Mathf.Min(m0 + popLen, path.TotalLength - 60f);
+            int frames = Mathf.Max(4, Mathf.FloorToInt((endM - m0) / popStep));
+            void Pose(float m)
+            {
+                Vector3 eye = PathAt(path, m - 6.5f) + Vector3.up * 2.3f;
+                Vector3 at = PathAt(path, m + 14f) + Vector3.up * 1.0f;
+                rig.pos = eye; rig.rot = Quaternion.LookRotation(at - eye, Vector3.up); rig.on = true;
+                Vector3 cp = PathAt(path, m), cf = PathAt(path, m + 2f) - cp; cf.y = 0f;
+                if (cf.sqrMagnitude > 1e-4f)
+                {
+                    var cr = Quaternion.LookRotation(cf, Vector3.up);
+                    car.transform.SetPositionAndRotation(cp + Vector3.up * 0.4f, cr);
+                    if (rb != null) { rb.position = cp + Vector3.up * 0.4f; rb.rotation = cr; }
+                }
+            }
+            // settle: the dress, the far lists, the shadows' first maps
+            Pose(m0);
+            for (int s = 0; s < 40; s++) yield return null;
+
+            var half = RenderTexture.GetTemporary(HW, HH, 0, off.rt.format);
+            var quart = RenderTexture.GetTemporary(QW, QH, 0, off.rt.format);
+            var texH = new Texture2D(HW, HH, TextureFormat.RGB24, false);
+            var texQ = new Texture2D(QW, QH, TextureFormat.RGB24, false);
+            var img = new Color32[3][]; var lum = new float[3][];
+            var blk = new float[frames][];
+            int saved = 0;
+            var csv = new StringBuilder("k,m,mean,top,popblocks,popmass\n");
+            float[] Bk(int k) => k >= 0 && k < frames ? blk[k] : null;
+            float t0 = Time.realtimeSinceStartup;
+            for (int k = 0; k <= frames; k++)
+            {
+                Pose(m0 + k * popStep);
+                yield return null;      // drawn in that frame's LateUpdate (OffscreenView), read here in the next
+                Graphics.Blit(off.rt, half);
+                Graphics.Blit(half, quart);
+                var prev = RenderTexture.active;
+                RenderTexture.active = half; texH.ReadPixels(new Rect(0, 0, HW, HH), 0, 0, false);
+                RenderTexture.active = quart; texQ.ReadPixels(new Rect(0, 0, QW, QH), 0, 0, false);
+                RenderTexture.active = prev;
+                int slot = k % 3;
+                img[slot] = texH.GetPixels32();
+                var qp = texQ.GetPixels32();
+                var L = lum[slot] ?? (lum[slot] = new float[QW * QH]);
+                for (int p = 0; p < L.Length; p++) L[p] = (0.2126f * qp[p].r + 0.7152f * qp[p].g + 0.0722f * qp[p].b) / 255f;
+                if (k == 0) continue;
+                // the change from k-1 to k, by block
+                var a = lum[(k - 1) % 3];
+                var B = new float[bw * bh];
+                for (int y = 0; y < bh * BS; y++)
+                    for (int x = 0; x < bw * BS; x++)
+                    {
+                        int p = y * QW + x;
+                        B[(y / BS) * bw + x / BS] += Mathf.Abs(L[p] - a[p]);
+                    }
+                for (int b = 0; b < B.Length; b++) B[b] /= BS * BS;
+                blk[k - 1] = B;
+                // pair j = k-2 (k-2 -> k-1) now has both neighbours
+                int j = k - 2;
+                if (j < 1) continue;
+                var bj = Bk(j); var bp = Bk(j - 1); var bn = Bk(j + 1);
+                int pops = 0; float mass = 0f, mean = 0f, top = 0f;
+                for (int b = 0; b < bj.Length; b++)
+                {
+                    mean += bj[b]; if (bj[b] > top) top = bj[b];
+                    float nb = Mathf.Max(bp[b], bn[b]);
+                    if (bj[b] > 0.02f && bj[b] > 2.5f * nb + 0.006f) { pops++; mass += bj[b] - nb; }
+                }
+                mean /= bj.Length;
+                csv.Append(j).Append(',').Append((m0 + j * popStep).ToString("0.0", CultureInfo.InvariantCulture)).Append(',')
+                   .Append(mean.ToString("0.00000", CultureInfo.InvariantCulture)).Append(',').Append(top.ToString("0.0000", CultureInfo.InvariantCulture)).Append(',')
+                   .Append(pops).Append(',').Append(mass.ToString("0.0000", CultureInfo.InvariantCulture)).Append('\n');
+                if (pops > 0 && mass > 0.04f && saved < 160)
+                {
+                    saved++;
+                    foreach (int f in new[] { j, j + 1 })
+                    {
+                        var tex = new Texture2D(HW, HH, TextureFormat.RGB24, false);
+                        tex.SetPixels32(img[f % 3]); tex.Apply(false);
+                        var jpg = tex.EncodeToJPG(88);
+                        Destroy(tex);
+                        PSXPerfTour_Post(tag + "_" + id + "_pop" + j.ToString("0000") + (f == j ? "a" : "b") + ".jpg", jpg, jpg.Length);
+                    }
+                }
+            }
+            float secs = Time.realtimeSinceStartup - t0;
+            RenderTexture.ReleaseTemporary(half); RenderTexture.ReleaseTemporary(quart);
+            Destroy(texH); Destroy(texQ);
+            // the block dump
+            int nf = frames;
+            var bin = new byte[12 + (long)nf * bw * bh * 4];
+            System.Buffer.BlockCopy(new[] { nf, bw, bh }, 0, bin, 0, 12);
+            for (int k = 0; k < nf; k++)
+                if (blk[k] != null) System.Buffer.BlockCopy(blk[k], 0, bin, 12 + k * bw * bh * 4, bw * bh * 4);
+            PSXPerfTour_Post(tag + "_" + id + "_popblocks.bin", bin, bin.Length);
+            Post(id + "_pop.csv", csv.ToString());
+            Say($"POPWALK {id} {m0:0}-{endM:0} m step {popStep} m: {frames} frames in {secs:0} s, {saved} pairs kept, forest {ForestDetailPrefs.Label}, fov {cam.fieldOfView:0.0}");
+            Destroy(rigGo);
+            foreach (var r in hidden) if (r != null) r.enabled = true;
+            if (rb != null) { rb.isKinematic = wasKin; rb.interpolation = wasInterp; }
+            yield return null;
+        }
 
         /// <summary>The main view drawn into a texture and waited for (offscreen=WxH).</summary>
         [DefaultExecutionOrder(20000)]
@@ -167,6 +312,10 @@ namespace PSXRacing
                         Say("offscreen view " + ow + "x" + oh + " (depth " + ort.depthStencilFormat + "), drawn and waited for every frame");
                     }
                 }
+
+                // &popwalk=STEP: the pop measure first (the drive's timings follow it)
+                if (popStep > 0f && off != null)
+                    yield return PopWalk(id, path, Mathf.Clamp(Mathf.RoundToInt(fromM / Mathf.Max(0.5f, path.spacing)), 2, path.Count - 40) * path.spacing, off);
 
                 // the race AI at the wheel, from the asked metre
                 var input = car.GetComponent<PlayerCarInput>();

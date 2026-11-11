@@ -38,9 +38,12 @@ namespace PSXRacing
         static readonly string[] Names = { "LOW", "MEDIUM", "HIGH" };
         static readonly float[] Scales = { 0.65f, 1f, 1.5f };
         static int cached = -1;
+        /// <summary>A perf tour's forest=0|1|2: this run only, never saved
+        /// (-1: the player's own setting).</summary>
+        public static int Override = -1;
         public static int Level
         {
-            get { if (cached < 0) cached = Mathf.Clamp(PlayerPrefs.GetInt(Key, 1), 0, 2); return cached; }
+            get { if (Override >= 0) return Mathf.Clamp(Override, 0, 2); if (cached < 0) cached = Mathf.Clamp(PlayerPrefs.GetInt(Key, 1), 0, 2); return cached; }
             set { cached = Mathf.Clamp(value, 0, 2); PlayerPrefs.SetInt(Key, cached); PlayerPrefs.Save(); }
         }
         public static float Scale => Scales[Level];
@@ -113,6 +116,10 @@ namespace PSXRacing
         public float limitBand = 0.2f;
 
         public static bool MeshTreesOn = true;
+        /// <summary>A/B (perf tour ab=MeshForest.PopFix:0 = the forest as PC26
+        /// drew it): the pop-in round of 2026-11-11.</summary>
+        public static bool PopFix = true;
+        const float BandShare = 0.22f;
         static MeshForest instance;
         bool inited;
 
@@ -158,6 +165,13 @@ namespace PSXRacing
             float q = ForestDetailPrefs.Scale;
             lod0To *= q; lod1To *= q; meshRange *= q;
             band0 *= q; band1 *= q; band2 *= q;
+            if (PopFix)
+            {
+                // a hand-over band as a share of its distance, not a fixed few metres
+                band0 = Mathf.Max(band0, lod0To * BandShare);
+                band1 = Mathf.Max(band1, lod1To * BandShare);
+                band2 = Mathf.Max(band2, meshRange * BandShare);
+            }
             matsNow = new Material[variants.Length][];
             impNow = new Material[variants.Length];
             maxD2 = new float[variants.Length];

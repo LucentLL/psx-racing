@@ -121,6 +121,13 @@ namespace PSXRacing
             t.dayArg = ShotLink.Query(url, "day") ?? "";
             t.capArg = ShotLink.Query(url, "cap") ?? "";
             t.offscreenArg = ShotLink.Query(url, "offscreen") ?? "";
+            // &forest=0|1|2: FOREST DETAIL for this run only; &popwalk=STEP[&popm=M]: the pop measure (PerfTour.Stage.cs)
+            string fo = ShotLink.Query(url, "forest");
+            if (!string.IsNullOrEmpty(fo) && int.TryParse(fo, out int foi)) ForestDetailPrefs.Override = foi;
+            string pw = ShotLink.Query(url, "popwalk");
+            if (!string.IsNullOrEmpty(pw)) float.TryParse(pw, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popStep);
+            string pm = ShotLink.Query(url, "popm");
+            if (!string.IsNullOrEmpty(pm)) float.TryParse(pm, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popLen);
             string secs = ShotLink.Query(url, "secs");
             if (!string.IsNullOrEmpty(secs)) float.TryParse(secs, NumberStyles.Float, CultureInfo.InvariantCulture, out t.maxSecs);
             // &snap=N: a picture of the drive every N seconds (a LOOK run: the
