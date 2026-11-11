@@ -54,28 +54,28 @@ MonoBehaviour:
   - hatch_93_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.4039879, g: 0.18374364, b: 0.19114132, a: 1}
+  - {r: 0.37288213, g: 0.17154104, b: 0.17474152, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.020920653
+  bodyYOffset: -0.020619743
   bodyZOffset: 0
-  wheelbase: 2.579637
-  trackWidth: 1.480531
-  wheelRadius: 0.27794585
+  wheelbase: 2.542592
+  trackWidth: 1.4622381
+  wheelRadius: 0.27395475
   wheelMeshScale: 0.93
-  trackRear: 1.4704931
-  tyreRadiusRear: 0.2988665
-  tyreWidthRear: 0.19573098
-  lowerBodyWidth: 1.704924
-  cowlZ: 0.9638613
-  cowlY: 0.8755458
-  noseZ: 2.09583
-  roofY: 1.3290476
-  headLamp: {x: 0.61230195, y: 0.57728523, z: 1.8490659}
-  headLampNormal: {x: 0.580989, y: 0, z: 0.81391144}
-  headLampSize: {x: 0.2846256, y: 0.095838755}
-  tailLamp: {x: 0.6116271, y: 0.58314216, z: -1.8425703}
-  tailLampNormal: {x: 0.2952345, y: 0.32414526, z: -0.8987583}
-  tailLampSize: {x: 0.32569438, y: 0.26880893}
+  trackRear: 1.452344
+  tyreRadiusRear: 0.294575
+  tyreWidthRear: 0.19094199
+  lowerBodyWidth: 1.670312
+  cowlZ: 0.9656193
+  cowlY: 0.8591225
+  noseZ: 2.097588
+  roofY: 1.3068708
+  headLamp: {x: 0.6490234, y: 0.57667065, z: 1.8160143}
+  headLampNormal: {x: 0.40969476, y: 0.48828724, z: 0.77053607}
+  headLampSize: {x: 0.3249218, y: 0.11647901}
+  tailLamp: {x: 0.60417426, y: 0.7021756, z: -1.8055404}
+  tailLampNormal: {x: 0.26663563, y: -0.015586897, z: -0.9636713}
+  tailLampSize: {x: 0.3903358, y: 0.1985977}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.7468734, z: 0.060829997}
-  colliderSize: {x: 1.763388, y: 1.0840499, z: 3.8868496}
-  blobSize: {x: 2.351184, y: 4.3549}
+  colliderCenter: {x: 0, y: 0.7348872, z: 0.062588036}
+  colliderSize: {x: 1.7442462, y: 1.0656954, z: 3.88685}
+  blobSize: {x: 2.3256617, y: 4.3549004}

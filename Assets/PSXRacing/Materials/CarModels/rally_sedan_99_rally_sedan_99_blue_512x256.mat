@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: rally_sedan_99_rally_sedan_99_red_512x256
+  m_Name: rally_sedan_99_rally_sedan_99_blue_512x256
   m_Shader: {fileID: 4800000, guid: f6c0dfc7e80b0564dacbd7b9dfb6db5d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -42,8 +42,14 @@ Material:
     - _LensLayer: 0
     - _MainTexRaw: 0
     - _PSXCabinOwn: 0
+    - _PSXGloss: 1
     - _RunningLights: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _PSXCarRun: {r: 0, g: 0, b: 0, a: 0}
+    - _PSXCarWind: {r: 0, g: 0, b: 0, a: 0}
+    - _PSXOwnLampA: {r: 0, g: 0, b: 0, a: 1}
+    - _PSXOwnLampB: {r: 0, g: 0, b: 0, a: 1}
+    - _PSXOwnLampCol: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
