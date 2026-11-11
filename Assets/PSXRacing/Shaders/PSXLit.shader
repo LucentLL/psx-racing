@@ -97,6 +97,15 @@ Shader "PSX/Lit"
         [HideInInspector] _HDNormal ("HD normal", 2D) = "bump" {}
         [HideInInspector] _HDRough ("HD roughness", 2D) = "white" {}
         [HideInInspector] _HDAO ("HD ambient occlusion", 2D) = "white" {}
+        // THE ROAD BASE (TextureHD road path, Charlotte texture batch 01): a
+        // carriageway drawn as the HD base surface along/across its ribbon
+        // with the lane paint from a mask over it - set at runtime, never saved.
+        [HideInInspector] _RoadBaseOn ("Road base on", Float) = 0
+        [HideInInspector] _RoadBaseTex ("Road base colour", 2D) = "grey" {}
+        [HideInInspector] _RoadPaint ("Road paint mask (R white, G yellow, B rumble/2)", 2D) = "black" {}
+        [HideInInspector] _RoadBaseRepeat ("Base tiles per uv (x across, y along), z mask on", Vector) = (1,1,0,0)
+        [HideInInspector] _RoadPaintW ("Paint white (linear)", Color) = (0.58,0.58,0.55,1)
+        [HideInInspector] _RoadPaintY ("Paint yellow (linear)", Color) = (0.55,0.35,0.02,1)
         // THE TERRAIN DETAIL amounts per channel of the detail sheet (R grass,
         // G dirt, B rock, A snow): stamped at runtime from the main texture by
         // TerrainDetail.cs, never saved. The sheet and its switch are globals
@@ -386,6 +395,9 @@ Shader "PSX/Lit"
             sampler2D _MainTex;
         #ifdef PSX_HD
             sampler2D _HDNormal, _HDRough, _HDAO;
+            sampler2D _RoadBaseTex, _RoadPaint;
+            float _RoadBaseOn;
+            float4 _RoadBaseRepeat, _RoadPaintW, _RoadPaintY;
         #endif
             float4 _MainTex_ST;
             fixed4 _Color;
@@ -1635,7 +1647,14 @@ Shader "PSX/Lit"
                 float3 dWy = ddy(i.wpos);
             #ifdef PSX_HD
                 // ...and the uv's, for the HD normal's frame (taken here too)
-                float2 hdDx = ddx(uv), hdDy = ddy(uv);
+                float2 uvDx = ddx(uv), uvDy = ddy(uv);
+                // THE ROAD BASE (TextureHD road path): the HD maps tile
+                // _RoadBaseRepeat times per unit of the road's own uv (4 m along
+                // and across the ribbon); every other HD material samples at uv
+                float2 rbRep = _RoadBaseOn > 0.5 ? _RoadBaseRepeat.xy : float2(1.0, 1.0);
+                float2 hdUV = uv * rbRep;
+                float2 hdDx = uvDx * rbRep, hdDy = uvDy * rbRep;
+                float rbPaint = 0.0;
             #endif
                 // the repeat the lit-window hash is anchored to: the TILED uv
                 float2 winUV = uv;
@@ -1887,6 +1906,21 @@ Shader "PSX/Lit"
             #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
+              #ifdef PSX_HD
+                // THE ROAD BASE: the carriageway is the HD base surface, the lane
+                // paint laid over it from the mask (R white, G yellow) in the
+                // painter's own colours, the freeway shoulder's rumble grooves
+                // (B = factor / 2) on the base; the Classic grain is not drawn
+                [branch] if (_RoadBaseOn > 0.5)
+                {
+                    float3 rb = tex2Dgrad(_RoadBaseTex, hdUV, hdDx, hdDy).rgb;
+                    float4 pm = _RoadBaseRepeat.z > 0.5 ? tex2Dgrad(_RoadPaint, uv, uvDx, uvDy) : float4(0.0, 0.0, 0.5, 1.0);
+                    float cov = saturate(pm.r + pm.g);
+                    float3 paint = (_RoadPaintW.rgb * pm.r + _RoadPaintY.rgb * pm.g) / max(cov, 1e-3);
+                    tex.rgb = lerp(rb * (pm.b * 2.0), paint, cov) * _Color.rgb;
+                    rbPaint = cov;
+                }
+              #endif
             #endif
             #ifdef PSX_GROUNDBLEND
                 // THE SECOND LAYER, in patches (owner 2026-11-08: the ground "not
@@ -2039,10 +2073,13 @@ Shader "PSX/Lit"
                     float hdInv = rsqrt(max(max(dot(hdT, hdT), dot(hdB, hdB)), 1e-20));
                     hdT *= hdInv; hdB *= hdInv;
                 }
-                float3 hdNT = UnpackNormal(tex2D(_HDNormal, uv));
+                float3 hdNT = UnpackNormal(tex2Dgrad(_HDNormal, hdUV, hdDx, hdDy));
+                // road paint: thermoplastic fills the aggregate - flatter,
+                // smoother, no cavities (rbPaint 0 off the road base)
+                hdNT = lerp(hdNT, float3(0.0, 0.0, 1.0), rbPaint * 0.7);
                 N = normalize(hdNT.x * hdT + hdNT.y * hdB + hdNT.z * N);
-                float hdAO = tex2D(_HDAO, uv).r;
-                float hdRough = tex2D(_HDRough, uv).r;
+                float hdAO = lerp(tex2Dgrad(_HDAO, hdUV, hdDx, hdDy).r, 1.0, rbPaint);
+                float hdRough = lerp(tex2Dgrad(_HDRough, hdUV, hdDx, hdDy).r, 0.55, rbPaint);
             #endif
             #ifdef PSX_ROCKFACE
                 // THE ROAD CUT'S ROCK (owner 2026-11-11: the cuts read as "just
