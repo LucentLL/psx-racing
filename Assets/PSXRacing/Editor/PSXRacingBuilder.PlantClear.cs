@@ -82,7 +82,25 @@ namespace PSXRacing.EditorTools
 
         /// <summary>Could a plant of this reach meet anything solid here?</summary>
         static bool PlantNearRoad(float x, float z, float reach) =>
-            StageCorridor(x, z, RoadWidth * 0.5f + PlantReachM + reach, out RoadFoot _);
+            StageCorridor(x, z, RoadWidth * 0.5f + PlantReachM + reach, out RoadFoot _) || NearPortal(x, z, reach);
+
+        /// <summary>The tunnel mouths' portal walls (PortalColliders): road
+        /// centre at each mouth. A portal reaches PortalHalfW (18 m) from the
+        /// centreline, past PlantReachM: a plant beside a mouth, 13-18 m out,
+        /// was never tested and grew through the portal (Little Switzerland,
+        /// station 1045, 2026-11-11).</summary>
+        static readonly List<Vector3> portalSpots = new List<Vector3>();
+
+        static bool NearPortal(float x, float z, float reach)
+        {
+            float r = PortalHalfW + 2f + reach;
+            foreach (var p in portalSpots)
+            {
+                float dx = p.x - x, dz = p.z - z;
+                if (dx * dx + dz * dz < r * r) return true;
+            }
+            return false;
+        }
 
         /// <summary>What the plant, base at (x, y, z) and scale s, first meets:
         /// 0 nothing, 1 the envelope, 2 a deck, 3 a wall or rail, 4 rock, 5 a
@@ -91,14 +109,20 @@ namespace PSXRacing.EditorTools
         {
             float R = sh.rMax * s;
             float roadHalf = RoadWidth * 0.5f;
-            if (!StageCorridor(x, z, roadHalf + PlantReachM + R, out RoadFoot f)) return 0;
-            int k = BlockedFrame(f, y, s, sh);
-            if (k != 0) return k;
-            // a switchback's other leg, a grade separation
-            if (OtherRoadNear(x, z, roadHalf + PlantReachM + R, Mathf.RoundToInt(f.station), out RoadFoot g))
+            bool inCorridor = StageCorridor(x, z, roadHalf + PlantReachM + R, out RoadFoot f);
+            // past the corridor only a portal wall can still be met: straight to the collider test
+            if (!inCorridor && !NearPortal(x, z, R)) return 0;
+            int k;
+            if (inCorridor)
             {
-                k = BlockedFrame(g, y, s, sh);
+                k = BlockedFrame(f, y, s, sh);
                 if (k != 0) return k;
+                // a switchback's other leg, a grade separation
+                if (OtherRoadNear(x, z, roadHalf + PlantReachM + R, Mathf.RoundToInt(f.station), out RoadFoot g))
+                {
+                    k = BlockedFrame(g, y, s, sh);
+                    if (k != 0) return k;
+                }
             }
             float pr = PierHalf * 1.415f + PlantSlackM;
             foreach (var p in pierSpots)

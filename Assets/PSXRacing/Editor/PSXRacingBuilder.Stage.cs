@@ -7467,6 +7467,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void BuildStageTunnels(List<Vector3> pts, Transform parent)
         {
+            portalSpots.Clear();
             if (!hasTunnels) return;
             var runs = StationRuns(tunnelIn, 3);
             if (runs.Count == 0) return;
@@ -7650,6 +7651,7 @@ namespace PSXRacing.EditorTools
             Vector3 into = -fwd * dir;          // the face looks along fwd * dir
             float width = PortalHalfW - halfW;
             float y0 = pts[i].y - 1.5f, y1 = pts[i].y + PortalCollH;
+            portalSpots.Add(pts[i]);
             foreach (float side in new[] { -1f, 1f })
             {
                 Vector3 p = pts[i] + right * (side * (halfW + width * 0.5f)) + into * (StageWallCollThick * 0.5f);
