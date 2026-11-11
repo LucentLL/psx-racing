@@ -62,6 +62,26 @@ namespace PSXRacing.EditorTools
             EditorApplication.Exit(0);
         }
 
+        /// <summary>The nose-closing proof (inside off, then on) for a few
+        /// shells, then the catalog check; exit 0 / 1.</summary>
+        public static void ProofBatch()
+        {
+            int fails = -1;
+            try
+            {
+                System.Environment.SetEnvironmentVariable("PSX_MIRROR_SHELLS", "roadster_99,flatsix_coupe_87,viper_gts,rx7_fd_93,civic_eg");
+                System.Environment.SetEnvironmentVariable("PSX_COCKPIT_INSIDE", "0");
+                System.Environment.SetEnvironmentVariable("PSX_MIRROR_TAG", "noinside");
+                Shots();
+                System.Environment.SetEnvironmentVariable("PSX_COCKPIT_INSIDE", "1");
+                System.Environment.SetEnvironmentVariable("PSX_MIRROR_TAG", "inside");
+                Shots();
+                Check(out fails);
+            }
+            catch (System.Exception e) { Debug.LogException(e); }
+            EditorApplication.Exit(fails == 0 ? 0 : 1);
+        }
+
         public static string Check(out int fails)
         {
             var sb = new StringBuilder();
@@ -120,6 +140,8 @@ namespace PSXRacing.EditorTools
                     why.Add($"cabin glass {glass1:0.000} m outside the mirrors' inner edge {inner:0.000}");
                 fitLog.Append($"{d.key,-20} scale {fit.scale:0.000} widthFit {sx:0.000} cabin glass x {glass0:0.000} -> {glass1:0.000} mirror inner x {(inner > 0f ? inner.ToString("0.000") : "-")}" +
                               $" {(inner > 0f && glass0 > inner ? "MIRROR INSIDE CABIN before" : "")}  sightline under the shell at the cut {slot * 100f:+0.0;-0.0} cm{(slot > 0f ? " (view into the nose: dark inside)" : "")}\n");
+                if (found.Count == 2 && Mathf.Abs(found[0].w - found[1].w) > Tol)
+                    fitLog.Append($"   note {d.key}: its two mirror glasses differ ({found[0].w * 100f:0.0} / {found[1].w * 100f:0.0} cm wide)\n");
                 string line = $"{d.key,-20} mirrors {found.Count}";
                 for (int i = 0; i < found.Count; i++)
                     line += $"  {(found[i].centre.x < 0f ? "L" : "R")} glass {found[i].w * 100f:0.0}x{found[i].h * 100f:0.0} cm {found[i].faceTris} tris";
@@ -162,7 +184,7 @@ namespace PSXRacing.EditorTools
             foreach (var v in mv)
             {
                 var p = rot * v + off;
-                if (p.z < fit.cutZ || p.z > fit.cutZ + 0.05f || Mathf.Abs(p.x - fit.eye.x) > 0.15f) continue;
+                if (p.z < fit.cutZ || p.z > fit.cutZ + 0.12f || Mathf.Abs(p.x - fit.eye.x) > 0.25f) continue;
                 top = Mathf.Max(top, p.y);
             }
             if (top == float.MinValue) return 0f;
@@ -276,6 +298,12 @@ namespace PSXRacing.EditorTools
                     cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, 0f);
                     ci.HideShell(true);
                     PSXScreenshotTool.ShotAs(cam, $"MirrorMatch/{tag}/{key}_in_D", t.TransformPoint(eye), rot);
+                    ci.HideShell(false);
+                    // the eye 6 cm high against the cabin (a dive, a bump, a
+                    // nose-up stance): the line over the dash passes under the
+                    // bonnet's back edge into the nose
+                    ci.HideShell(true);
+                    PSXScreenshotTool.ShotAs(cam, $"MirrorMatch/{tag}/{key}_in_D6", t.TransformPoint(eye + new Vector3(0f, 0.06f, 0f)), rot);
                     ci.HideShell(false);
                 }
                 if (rv != null) SaveRT(rv, Path.Combine(dir, $"{key}_rearview.png"));
