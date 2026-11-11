@@ -89,6 +89,9 @@ namespace PSXRacing.City
         /// corner lights fade over the first two real distances; the least
         /// glow size falls to FarMinShare of itself, and a beacon's extra size
         /// to none, over the other two.</summary>
+        /// <summary>(Round 3) a top light's least half-size in real framebuffer
+        /// pixels (2 px across), a flasher's x1.4 (the tallest read first).</summary>
+        public const float TopFloorPx = 1.0f, TopFlashMul = 1.4f;
         public const float CornerFadeFromM = 1500f, CornerFadeToM = 2500f, FarShrinkFromM = 1500f, FarShrinkToM = 6000f, FarMinShare = 0.5f;
         /// <summary>The fixture set is re-picked when the eye has moved this far.</summary>
         const float FixtureMoveM = 25f;
@@ -111,6 +114,8 @@ namespace PSXRacing.City
             public int building;
             public bool top, flash;
             public float towerH;
+            /// <summary>(Round 3) how far it stands moved onto its near tile now.</summary>
+            public Vector3 nearOffset;
         }
         public readonly List<Light> Lights = new List<Light>();
         public bool IsV2 { get; private set; }
@@ -127,6 +132,21 @@ namespace PSXRacing.City
         bool[] fixOn;
         Vector3 fixEye;
         bool fixValid;
+        // ---- (round 3) THE NEAR SNAP: a tower whose near tile stands draws its
+        // roof as the tile builds it; where that differs from the far skyline's
+        // (a metre or two on a few towers), its lights and fixtures move onto
+        // the tile's own drawn points, blended in over the hand-over ----
+        FixtureBuild snapB;
+        Vector3[] fixBase, fixNow;
+        Vector3[] haloBase, haloNow;
+        Vector3[][] towerDelta;   // per tower: per light, null = not probed / no tile
+        float[] towerW;
+        int snapVersion = int.MinValue;
+        /// <summary>The blend: the near position whole this far inside the
+        /// world's fade start, none at it.</summary>
+        const float SnapBlendM = 150f;
+        public int SnapTowers { get; private set; }
+
         public int FixtureTriangles => fixAll != null ? fixAll.Length / 3 : 0;
         public int FixturesShown { get; private set; }
 
@@ -169,6 +189,8 @@ namespace PSXRacing.City
             cb.FlashCount = flashes;
             cb.Lights.AddRange(lights);
             cb.mesh = BuildMesh(centres, uv1, cols, map.uptown);
+            cb.haloBase = cb.mesh.vertices;
+            cb.haloNow = cb.mesh.vertices;
             go.AddComponent<MeshFilter>().sharedMesh = cb.mesh;
             cb.mat = new Material(sh) { name = "SkylineLights", hideFlags = HideFlags.HideAndDontSave };
             cb.mat.SetColor("_Color", Color.white);
@@ -193,6 +215,9 @@ namespace PSXRacing.City
                 cb.mat.SetFloat("_FarShrinkFrom", FarShrinkFromM);
                 cb.mat.SetFloat("_FarShrinkTo", FarShrinkToM);
                 cb.mat.SetFloat("_FarMinShare", FarMinShare);
+                // (round 3) a top light stays a clear point at any distance
+                cb.mat.SetFloat("_TopFloorPx", TopFloorPx);
+                cb.mat.SetFloat("_TopFlashMul", TopFlashMul);
                 cb.mat.SetFloat("_GainFloor", 1f);
             }
             cb.mr = go.AddComponent<MeshRenderer>();
@@ -271,6 +296,11 @@ namespace PSXRacing.City
             public readonly List<int> t = new List<int>();
             public readonly List<int> start = new List<int>(), count = new List<int>();
             public readonly List<Vector3> at = new List<Vector3>();
+            /// <summary>(Round 3) per light: its fixture's first vertex and count.</summary>
+            public readonly List<int> lv0 = new List<int>(), lvn = new List<int>();
+            /// <summary>(Round 3) per tower: its first light, its light count, the tiles its parts stand in.</summary>
+            public readonly List<int> tl0 = new List<int>(), tln = new List<int>();
+            public readonly List<long[]> tiles = new List<long[]>();
         }
 
         /// <summary>V2: every light on the skyline's drawn triangles - see the
@@ -346,7 +376,10 @@ namespace PSXRacing.City
                 var lightAt = apex + Vector3.up * (StubBeaconM + lensT);
                 Add(centres, uv1, cols, lightAt, BeaconSize2, flash ? -(1f + 0.999f * phase) : -0.6f, AviationRed);
                 lights.Add(new Light { pos = lightAt, anchor = apex, building = key, top = true, flash = flash, towerH = towerH });
+                int towerL0 = lights.Count - 1;
+                fb.lv0.Add(fb.v.Count);
                 Fixture(fb, apex, lensT, StubBeaconM, StubHalfBeaconM);
+                fb.lvn.Add(fb.v.Count - fb.lv0[fb.lv0.Count - 1]);
                 tops++;
                 if (flash) flashes++;
 
@@ -391,11 +424,18 @@ namespace PSXRacing.City
                     var cAt = at + Vector3.up * (StubCornerM + LensCornerM);
                     Add(centres, uv1, cols, cAt, CornerSize2, -0.5f, AviationRed);
                     lights.Add(new Light { pos = cAt, anchor = at, building = key, top = false, flash = false, towerH = towerH });
+                    fb.lv0.Add(fb.v.Count);
                     Fixture(fb, at, LensCornerM, StubCornerM, StubHalfCornerM);
+                    fb.lvn.Add(fb.v.Count - fb.lv0[fb.lv0.Count - 1]);
                     corners++;
                 }
                 fb.start.Add(fixT0); fb.count.Add(fb.t.Count - fixT0);
                 fb.at.Add(new Vector3(apex.x, top, apex.z));
+                fb.tl0.Add(towerL0); fb.tln.Add(lights.Count - towerL0);
+                var tks = new HashSet<long>();
+                foreach (int e in list) tks.Add(CityWorld.TileKeyAt(fs[elems[e]].centre));
+                var tka = new long[tks.Count]; tks.CopyTo(tka);
+                fb.tiles.Add(tka);
             }
         }
 
@@ -515,6 +555,11 @@ namespace PSXRacing.City
             fixMesh.RecalculateBounds();
             fixMesh.MarkDynamic();
             fixStart.AddRange(fb.start); fixCount.AddRange(fb.count); fixAt.AddRange(fb.at);
+            snapB = fb;
+            fixBase = fb.v.ToArray();
+            fixNow = fb.v.ToArray();
+            towerDelta = new Vector3[fb.tl0.Count][];
+            towerW = new float[fb.tl0.Count];
             fixOn = new bool[fixStart.Count];
 
             // the fixture's two materials in one 4x4 texture: galvanized steel
@@ -581,6 +626,114 @@ namespace PSXRacing.City
             }
             FixturesShown = shown;
             fixR.enabled = shown > 0;
+        }
+
+        /// <summary>(Round 3) the light of tower t, light k's near-tile offset:
+        /// the drawn vertex of the tile's buildings mesh nearest the far anchor
+        /// (within 4 m) with nothing of the tile drawn over it - the same rule as
+        /// the far pick, on the tile's own geometry. Zero where the tile agrees.</summary>
+        Vector3[] ProbeTower(int t, Transform worldT)
+        {
+            var b = snapB;
+            int l0 = b.tl0[t], ln = b.tln[t];
+            var res = new Vector3[ln];
+            var near = new List<Vector3>(4096);
+            bool any = false;
+            foreach (long key in b.tiles[t])
+            {
+                int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
+                var root = worldT != null ? worldT.Find($"Tile_{tx}_{tz}") : null;
+                if (root == null) return null;   // a tile not stood up yet
+                var bt = root.Find("Buildings");
+                if (bt == null) continue;
+                foreach (var mf in bt.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    var m = mf.sharedMesh;
+                    if (m == null || !m.isReadable) continue;
+                    var vv = m.vertices; var tr = m.triangles; var l2w = mf.transform.localToWorldMatrix;
+                    for (int k = 0; k + 2 < tr.Length; k += 3)
+                    {
+                        Vector3 a = l2w.MultiplyPoint3x4(vv[tr[k]]), c1 = l2w.MultiplyPoint3x4(vv[tr[k + 1]]), c2 = l2w.MultiplyPoint3x4(vv[tr[k + 2]]);
+                        bool keep = false;
+                        for (int i = 0; i < ln && !keep; i++)
+                        {
+                            var an = Lights[l0 + i].anchor;
+                            if (Mathf.Abs(a.x - an.x) < 8f && Mathf.Abs(a.z - an.z) < 8f) keep = true;
+                        }
+                        if (!keep) continue;
+                        if (Vector3.Cross(c1 - a, c2 - a).sqrMagnitude < 1e-6f) continue;
+                        near.Add(a); near.Add(c1); near.Add(c2); any = true;
+                    }
+                }
+            }
+            if (!any) return res;
+            for (int i = 0; i < ln; i++)
+            {
+                var an = Lights[l0 + i].anchor;
+                float r = Lights[l0 + i].top ? LensBeaconM : LensCornerM;
+                float best = float.MaxValue; Vector3 at = an;
+                foreach (var p in near)
+                {
+                    float d = (p - an).sqrMagnitude;
+                    if (d >= best || d > 16f) continue;
+                    if (!ClearAbove(near, p, r)) continue;
+                    best = d; at = p;
+                }
+                res[i] = best < 0.0025f || best == float.MaxValue ? Vector3.zero : at - an;
+            }
+            return res;
+        }
+
+        /// <summary>(Round 3) every frame from CitySkyline: probe a tower's near
+        /// tile once it stands up (re-read when the live set changes), and move
+        /// its lights and fixtures by that offset times the blend - whole once
+        /// the tower is <see cref="SnapBlendM"/> inside the world's fade start
+        /// (where the tile draws it), none at the fade start (the far skyline).
+        /// PSX_CITY_BEACONS2=0 has no snap.</summary>
+        public void SnapNear(Camera cam, float fadeStart, int liveVersion)
+        {
+            if (snapB == null || cam == null || towerDelta == null) return;
+            var worldT = transform.parent != null ? transform.parent.parent : null;
+            if (liveVersion != snapVersion)
+            {
+                snapVersion = liveVersion;
+                int n = 0;
+                for (int t = 0; t < towerDelta.Length; t++)
+                {
+                    // only towers near enough for the ring to have stood their tiles
+                    if ((fixAt[t] - cam.transform.position).sqrMagnitude > 4000f * 4000f) { towerDelta[t] = null; continue; }
+                    towerDelta[t] = ProbeTower(t, worldT);
+                    if (towerDelta[t] != null) foreach (var d in towerDelta[t]) if (d != Vector3.zero) { n++; break; }
+                }
+                SnapTowers = n;
+            }
+            bool haloDirty = false, fixDirty = false;
+            var eye = cam.transform.position;
+            for (int t = 0; t < towerDelta.Length; t++)
+            {
+                var dl = towerDelta[t];
+                float w = 0f;
+                if (dl != null)
+                {
+                    float d = Vector2.Distance(new Vector2(eye.x, eye.z), new Vector2(fixAt[t].x, fixAt[t].z));
+                    w = Mathf.Clamp01((fadeStart - d) / SnapBlendM);
+                }
+                if (Mathf.Abs(w - towerW[t]) < 0.01f && !(w == 0f && towerW[t] != 0f) && !(w == 1f && towerW[t] != 1f)) continue;
+                towerW[t] = w;
+                int l0 = snapB.tl0[t], ln = snapB.tln[t];
+                for (int i = 0; i < ln; i++)
+                {
+                    var off = dl != null ? dl[i] * w : Vector3.zero;
+                    int li = l0 + i;
+                    for (int k = 0; k < 4; k++) haloNow[li * 4 + k] = haloBase[li * 4 + k] + off;
+                    for (int k = 0; k < snapB.lvn[li]; k++) fixNow[snapB.lv0[li] + k] = fixBase[snapB.lv0[li] + k] + off;
+                    var L = Lights[li]; L.nearOffset = off; Lights[li] = L;
+                    haloDirty = true; fixDirty = true;
+                }
+            }
+            // (the halo mesh's bounds are the whole city's, as built: kept)
+            if (haloDirty) { var hb = mesh.bounds; mesh.vertices = haloNow; mesh.bounds = hb; }
+            if (fixDirty && fixMesh != null) { fixMesh.vertices = fixNow; fixMesh.RecalculateBounds(); }
         }
 
         /// <summary>The ground a building stands on, as the tiles find it

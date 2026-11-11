@@ -67,7 +67,7 @@ namespace PSXRacing.EditorTools
                         if (cb == null) throw new System.Exception("no skyline beacons");
                         log.Append($"\n=== {mode.ToUpperInvariant()} (PSX_CITY_BEACONS2={(mode == "before" ? "0" : "1")}): {cb.Lights.Count} lights, {cb.BeaconCount} top, {cb.CornerCount} corner, V2 {cb.IsV2}, towers {cb.TowerCount}, flashing {cb.FlashCount}, fixture tris {cb.FixtureTriangles}\n");
                         if (poses == null) poses = Poses(map, cb, log);
-                        if (measure) Measure(map, world, sk, cb, mode, log);
+                        if (measure) Measure(map, world, sk, cb, mode, log, cam);
                         if (shots)
                         {
                             world.DropAll();
@@ -262,6 +262,7 @@ namespace PSXRacing.EditorTools
                 float minPx = 1.2f * Mathf.Lerp(1f, CityBeacons.FarMinShare, t) * (l.flash ? Mathf.Lerp(1.8f, 1f, t) : 1f) * refScale;
                 float natPx = NightGlow.HaloSize * (l.top ? 0.42f : 0.27f) * lines * p11 / (2f * sp.z);
                 float h = Mathf.Min(Mathf.Max(natPx, minPx), Mathf.Max(4f * refScale, minPx));
+                if (l.top) h = Mathf.Max(h, CityBeacons.TopFloorPx * (l.flash ? CityBeacons.TopFlashMul : 1f));
                 pts.Add((new Vector2(sx, sy), h, l.top));
             }
             int quad = 0, core = 0;
@@ -287,7 +288,7 @@ namespace PSXRacing.EditorTools
 
         struct Tri { public Vector3 a, b, c; }
 
-        static void Measure(CityMap map, CityWorld world, CitySkyline sk, CityBeacons cb, string mode, StringBuilder log)
+        static void Measure(CityMap map, CityWorld world, CitySkyline sk, CityBeacons cb, string mode, StringBuilder log, Camera cam)
         {
             var fs = map.footprints;
             var sm = sk.MeshData; var elems = sk.Elements;
@@ -341,6 +342,13 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < vv.Length; i++) vv[i] = l2w.MultiplyPoint3x4(vv[i]);
                 near.Add((r.bounds, vv, m.triangles, mf.name));
             }
+            // (round 3) the near snap, whole (as when the tile draws the tower)
+            if (cb.IsV2)
+            {
+                cam.transform.position = new Vector3(map.uptown.x, 300f, map.uptown.y);
+                cb.SnapNear(cam, 1e6f, -987654);
+                log.Append($"near snap: {cb.SnapTowers} towers moved onto their near tiles\n");
+            }
             log.Append($"measure: {stood.Count} tiles stood for {buildingsLit.Count} lit buildings, {near.Count} near meshes\n");
 
             var rows = new List<(CityBeacons.Light l, float farL, float farA, float nearL, float nearA)>();
@@ -367,8 +375,8 @@ namespace PSXRacing.EditorTools
                         if (l.pos.x < mnx - 30f || l.pos.x > mxx + 30f) continue;
                         float mnz = Mathf.Min(a.z, Mathf.Min(b.z, c.z)), mxz = Mathf.Max(a.z, Mathf.Max(b.z, c.z));
                         if (l.pos.z < mnz - 30f || l.pos.z > mxz + 30f) continue;
-                        nearL = Mathf.Min(nearL, Dist(l.pos, a, b, c));
-                        nearA = Mathf.Min(nearA, Dist(l.anchor, a, b, c));
+                        nearL = Mathf.Min(nearL, Dist(l.pos + l.nearOffset, a, b, c));
+                        nearA = Mathf.Min(nearA, Dist(l.anchor + l.nearOffset, a, b, c));
                     }
                 }
                 rows.Add((l, farL, farA, nearL, nearA));

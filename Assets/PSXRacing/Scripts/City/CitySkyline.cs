@@ -333,6 +333,8 @@ namespace PSXRacing.City
             float fadeStart = Mathf.Min(Shader.GetGlobalFloat(FogNearId), fadeEnd - 30f);
             if (fadeStart < 50f) fadeStart = Mathf.Min(50f, fadeEnd * 0.5f);
             float bandEnd = fadeStart + (fadeEnd - fadeStart) * BandShare;
+            // (2026-11-11 round 3) the lights onto a near tile's own roof
+            if (beacons != null) beacons.SnapNear(cam, fadeStart, LiveVersion);
             Vector3 eye = cam.transform.position;
             var eye2 = new Vector2(eye.x, eye.z);
 

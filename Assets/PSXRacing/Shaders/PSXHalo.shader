@@ -99,6 +99,12 @@ Shader "PSX/Halo"
         [HideInInspector] _FarShrinkFrom ("Far shrink from (m)", Float) = 0
         [HideInInspector] _FarShrinkTo ("Far shrink to (m)", Float) = 1
         [HideInInspector] _FarMinShare ("Far least size share", Float) = 1
+        // (round 3) a tower's TOP light (a flasher uv1.y <= -1, a steady top -0.6)
+        // never smaller than this many real framebuffer pixels each way (a
+        // flasher _TopFlashMul times it), with a flat core there so the point
+        // reads at any distance (0: off)
+        [HideInInspector] _TopFloorPx ("Top light floor (fb px, half)", Float) = 0
+        [HideInInspector] _TopFlashMul ("Flasher floor x", Float) = 1
     }
     SubShader
     {
@@ -146,6 +152,7 @@ Shader "PSX/Halo"
             float _MaxPixels;
             float _GainFloor;
             float _CornerFadeFrom, _CornerFadeTo, _FarShrinkFrom, _FarShrinkTo, _FarMinShare;
+            float _TopFloorPx, _TopFlashMul;
 
             float _PSXWetness;
             float _PSXFogFar;
@@ -267,6 +274,15 @@ Shader "PSX/Halo"
                 // a tower light held at its minimum size gets a soft core, so
                 // the dot carries colour rather than one hot pixel
                 o.core = skyLight ? lerp(HALO_CORE_K, SKY_CORE_K, saturate(minM / max(natural, 1e-3) - 0.5)) : HALO_CORE_K;
+                // (round 3) a top light keeps a floor in REAL pixels and a flat
+                // core there: a clear red point from 10 km and more
+                bool topLight = v.uv1.y <= -1.0 || abs(v.uv1.y + 0.6) < 0.02;
+                if (skyLight && !own && topLight && _TopFloorPx > 0.0)
+                {
+                    float fbM = 2.0 * zScale / max(_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                    float floorM = _TopFloorPx * fbM * (v.uv1.y <= -1.0 ? _TopFlashMul : 1.0);
+                    if (floorM >= size) { size = floorM; o.core = 1.6; }
+                }
 
                 float2 q = v.uv * 2.0 - 1.0;
                 vc.xy += q * size;
