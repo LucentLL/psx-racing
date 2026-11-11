@@ -1306,9 +1306,8 @@ Shader "PSX/Lit"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
-            #if defined(PSX_ATLAS) || defined(PSX_FACADE) || defined(PSX_BAKEDSKY)
+            // (HOUSE WALLS 2026-11-11: read in every variant now - the house siding's colour, _HouseTint)
                 float4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column; PSX_BAKEDSKY: r = the sky seen) - full precision: its bytes are decoded bit by bit
-            #endif
             #ifdef PSX_FURNITURE
                 float2 wire : TEXCOORD1;    // (side -1/+1, half width m); (0, 0) off a wire
             #endif
