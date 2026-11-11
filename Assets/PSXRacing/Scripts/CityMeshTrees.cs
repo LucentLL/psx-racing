@@ -470,7 +470,7 @@ namespace PSXRacing.City
         int lastBand;
         bool fitStreet;
         public const float RoadClearM = 4.6f, DeckUnderM = 1.5f, Margin = 0.35f, BuildingMargin = 0.6f, HouseMargin = 1.6f;
-        static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 0.9f, 0.8f, 0.7f, 0.6f, 0.52f };
+        static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 0.9f, 0.8f, 0.7f, 0.6f, 0.52f, 1.45f, 1.6f };   // (last: taller, its crown higher over a wide street)
         static readonly float[] StreetScalesR1 = { 1f, 1.15f, 1.3f, 1.45f, 0.9f, 0.8f, 0.7f };
         static readonly float[] Scales = { 1f, 0.86f, 0.74f, 0.62f, 0.52f, 0.44f };
         static readonly Collider[] hits = new Collider[256];

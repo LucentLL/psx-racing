@@ -43,6 +43,8 @@ namespace PSXRacing.EditorTools
             // (Uptown's grate trees: 10-14 m, limbed to 4.5-5.5 m over the walk = 0.42-0.47 of the height)
             new CTForm { tag = "vase", w = 0.62f, baseFrac = 0.46f, cutShare = 0.12f },
             new CTForm { tag = "column", w = 0.42f, baseFrac = 0.43f, cutShare = 0.16f },
+            // (a wide street's grates: the crown starts past half the height)
+            new CTForm { tag = "high", w = 0.48f, baseFrac = 0.53f, cutShare = 0.22f },
         };
 
         /// <summary>The source models of the street trees (kit names).</summary>

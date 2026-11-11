@@ -468,7 +468,7 @@ namespace PSXRacing.EditorTools
             var sets = new List<(string name, Vector3 lod)>
             {
                 ("now", Vector3.zero),
-                ("round1 65/140/240", new Vector3(65f, 140f, 240f)),
+                ("round1_65-140-240", new Vector3(65f, 140f, 240f)),
             };
             var keepOverride = CityMeshTrees.LodOverride;
             foreach (var set in sets)
