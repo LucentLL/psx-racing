@@ -121,7 +121,7 @@ namespace PSXRacing.EditorTools
                     {
                         bool on = mode != "before", r2 = mode == "r2";
                         CityMeshes.Curbs2On = on;
-                        CityMeshes.Roll2On = r2; CityMeshes.CornerPanOn = r2; CityMeshes.LidToneOn = r2; CityMeshes.LidMarksOn = r2; CityMeshes.PanWetOn = r2;
+                        CityMeshes.Roll2On = r2; CityMeshes.CornerPanOn = r2; CityMeshes.LidToneOn = r2; CityMeshes.LidMarksOn = r2; CityMeshes.PanWetOn = r2; CityMeshes.PanSideOn = r2;
                         CityMeshes.RecordHardware = on;
                         CityMeshes.InletsBuilt.Clear(); CityMeshes.LidsBuilt.Clear();
                         CityMeshes.Curbs2Stats.Reset();
@@ -210,7 +210,7 @@ namespace PSXRacing.EditorTools
                         RaceHandoff.WeatherOverride = -1;
                     }
                 }
-                CityMeshes.Curbs2On = true; CityMeshes.Roll2On = CityMeshes.CornerPanOn = CityMeshes.LidToneOn = CityMeshes.LidMarksOn = CityMeshes.PanWetOn = true;
+                CityMeshes.Curbs2On = true; CityMeshes.Roll2On = CityMeshes.CornerPanOn = CityMeshes.LidToneOn = CityMeshes.LidMarksOn = CityMeshes.PanWetOn = CityMeshes.PanSideOn = true;
                 CityMeshes.RecordHardware = false;
                 log.Append($"{shots} frames to {dir}\nCURBS ROUND 2 SHOTS OK\n");
             }
