@@ -202,8 +202,8 @@ namespace PSXRacing.City
         // ==================================================================
 
         public const float RoadClearM = 4.6f, DeckUnderM = 1.5f, Margin = 0.35f, BuildingMargin = 0.6f, HouseMargin = 1.6f;
-        static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 1.45f, 0.9f };
-        static readonly float[] Scales = { 1f, 0.86f, 0.74f, 0.62f };
+        static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 1.45f, 0.9f, 0.8f, 0.7f };
+        static readonly float[] Scales = { 1f, 0.86f, 0.74f, 0.62f, 0.52f, 0.44f };
         static readonly Collider[] hits = new Collider[256];
 
         struct RoadSeg { public Vector2 a, b; public float hw, y; }
@@ -316,7 +316,7 @@ namespace PSXRacing.City
                     {
                         float s = s0 * f;
                         if (s < 0.3f || s > 2.2f) continue;
-                        if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - SinkFix) continue;
+                        if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - StemSlack) continue;
                         int why = Conflict(v, s, t.foot);
                         if (why >= 0) { RejectBy[why]++; if (why == 4 && lastHit != null) { RejectColliders.TryGetValue(lastHit, out int rc); RejectColliders[lastHit] = rc + 1; } continue; }
                         plant = new MeshForest.PoolPlant { pos = t.foot, yaw = yaw, scale = s, variant = v };
@@ -330,7 +330,9 @@ namespace PSXRacing.City
             return false;
         }
 
-        const float SinkFix = 0.3f;
+        /// <summary>A street tree's crown may start this much under the card's clear stem
+        /// (the road envelope still holds 4.6 m over the pavement on the lane side).</summary>
+        const float StemSlack = 1.2f;
         static int BigMask => (1 << CityWorld.SolidLayer) | (1 << CityWorld.RoadLayer) | 1;
 
         static IEnumerable<CityTreeKit.Role> RoleChain(CityTreeKit.Role r)
@@ -339,6 +341,8 @@ namespace PSXRacing.City
             if (r == CityTreeKit.Role.Shrub || r == CityTreeKit.Role.Snag) yield break;
             if (r != CityTreeKit.Role.Poplar && r != CityTreeKit.Role.PineStandIn) yield return CityTreeKit.Role.Poplar;
             if (r != CityTreeKit.Role.Small) yield return CityTreeKit.Role.Small;
+            // last: a multi-stem bush where no tree's crown clears what stands round it
+            yield return CityTreeKit.Role.Shrub;
         }
 
         /// <summary>Everything a crown standing at <paramref name="foot"/> could
