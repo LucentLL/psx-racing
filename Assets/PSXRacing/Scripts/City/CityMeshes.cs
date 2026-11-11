@@ -2331,6 +2331,7 @@ namespace PSXRacing.City
             yield return 0;
             stepPart = 1;   // city-build-hitches
             foreach (var _ in FinishMeshSteps(tm.roads)) yield return 0;
+            SlabNormals(tm, roadSlots);   // the road slab's faces and tongues shade as the road (RoadSlab.cs)
             stepPart = 0;
             yield return 0;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
