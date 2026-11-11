@@ -22,6 +22,14 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class CitySeamShots
     {
+        /// <summary>The seam audit (city_seam_audit.txt), then the pictures.</summary>
+        public static void RunAll()
+        {
+            CitySeamAudit.NoExit = true;
+            try { CitySeamAudit.Run(); } finally { CitySeamAudit.NoExit = false; }
+            Run();
+        }
+
         public static void Run()
         {
             var log = new StringBuilder("SEAM SHOTS " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + "\n");

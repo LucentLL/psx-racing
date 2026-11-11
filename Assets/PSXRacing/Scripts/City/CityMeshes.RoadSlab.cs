@@ -100,7 +100,7 @@ namespace PSXRacing.City
                 bool taken = false;
                 for (int pc = 0; pc < pieces && !taken; pc++)
                     taken = slabTaken.Contains(KeyXZ(Vector3.Lerp(A0, B0, (pc + 0.5f) / pieces)));   // as that pass cut it (welded corners)
-                if (taken) continue;
+                // (a piece that pass decided still takes a tongue: it lies under the pavement past, clear of any face)
 
                 // what lies beside it, at five points along it
                 bool level = false, levelFar = true, lower = false;
@@ -111,10 +111,10 @@ namespace PSXRacing.City
                     var q = Vector3.Lerp(A, B, probes[k]);
                     float n1x = q.x + nrm.x * 0.05f, n1z = q.z + nrm.y * 0.05f;
                     float n3x = q.x + nrm.x * 0.3f, n3z = q.z + nrm.y * 0.3f;
-                    bool lv = roadGrid.Between(n1x, n1z, q.y - RiserMinM, q.y + SeamHiM, true) > float.NegativeInfinity;
-                    bool lvFar = roadGrid.Between(n3x, n3z, q.y - RiserMinM, q.y + SeamHiM, true) > float.NegativeInfinity;
+                    // (the bands overlap by a millimetre: pavement 2-3 mm under gets both)
+                    bool lv = roadGrid.Between(n1x, n1z, q.y - RiserMinM - 0.001f, q.y + SeamHiM, true) > float.NegativeInfinity;
+                    bool lvFar = roadGrid.Between(n3x, n3z, q.y - RiserMinM - 0.001f, q.y + SeamHiM, true) > float.NegativeInfinity;
                     if (k > 0 && k < probes.Length - 1) { level |= lv; if (lv && !lvFar) levelFar = false; }
-                    if (lv) continue;
                     // the land beside: the lattice, the ground's sheets, lower pavement
                     float land = LatticeY(map, n1x + o.x, n1z + o.z);
                     land = Mathf.Max(land, groundGrid.Between(n1x, n1z, land, q.y + 0.3f));
@@ -125,8 +125,7 @@ namespace PSXRacing.City
                     // is the step itself: its face is what closes it)
                     if (roadGrid.Between(q.x - nrm.x * 0.1f, q.z - nrm.y * 0.1f, q.y - SlabMaxM - 0.1f, q.y - 0.05f, true) > float.NegativeInfinity) under = true;
                 }
-                if (under) continue;
-                if (lower && top - lowest <= SlabMaxM)
+                if (lower && !under && !taken && top - lowest <= SlabMaxM)
                 {
                     float bot = lowest - SlabTuckM;
                     // a kerb face drawn along it already (a fan's chord): from its foot

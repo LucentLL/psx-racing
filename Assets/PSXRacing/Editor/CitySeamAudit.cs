@@ -179,8 +179,10 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(file, sb.ToString());
                 Debug.Log("[SeamAudit]\n" + sb);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            if (Application.isBatchMode && !NoExit) EditorApplication.Exit(code);
         }
+        /// <summary>CitySeamShots.RunAll: the audit, then the pictures, in one editor.</summary>
+        public static bool NoExit;
 
         struct Vector3d
         {
