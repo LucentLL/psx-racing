@@ -208,7 +208,10 @@ namespace PSXRacing.City
 
         struct RoadSeg { public Vector2 a, b; public float hw, y; }
         struct VSeg { public Vector2 a, b; public float y0a, y1a, y0b, y1b, r; public int why; }
-        struct Box { public Vector2 c, u, v; public float hu, hv, y0, y1; public int why; }
+        struct Box { public Vector2 c, u, v; public float hu, hv, y0, y1; public int why; public string name; }
+        /// <summary>Candidates refused by a collider, by its object's name (the tools print it).</summary>
+        public static readonly Dictionary<string, int> RejectColliders = new Dictionary<string, int>();
+        string lastHit;
 
         readonly List<RoadSeg> roads = new List<RoadSeg>(64);
         readonly List<VSeg> segs = new List<VSeg>(64);
@@ -315,7 +318,7 @@ namespace PSXRacing.City
                         if (s < 0.3f || s > 2.2f) continue;
                         if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - SinkFix) continue;
                         int why = Conflict(v, s, t.foot);
-                        if (why >= 0) { RejectBy[why]++; continue; }
+                        if (why >= 0) { RejectBy[why]++; if (why == 4 && lastHit != null) { RejectColliders.TryGetValue(lastHit, out int rc); RejectColliders[lastHit] = rc + 1; } continue; }
                         plant = new MeshForest.PoolPlant { pos = t.foot, yaw = yaw, scale = s, variant = v };
                         if (!first || k > 0) Swapped++;
                         if (f > 1f) Grown++; else if (f < 1f) Shrunk++;
@@ -442,7 +445,7 @@ namespace PSXRacing.City
                 boxes.Add(new Box
                 {
                     c = new Vector2(bb.center.x, bb.center.z), u = Vector2.right, v = Vector2.up,
-                    hu = bb.extents.x + Margin, hv = bb.extents.z + Margin, y0 = bb.min.y - Margin, y1 = bb.max.y + Margin, why = 4,
+                    hu = bb.extents.x + Margin, hv = bb.extents.z + Margin, y0 = bb.min.y - Margin, y1 = bb.max.y + Margin, why = 4, name = nm + "/" + LayerMask.LayerToName(col.gameObject.layer),
                 });
             }
         }
@@ -469,7 +472,7 @@ namespace PSXRacing.City
                     if (y0 > bx.y1 || y1 < bx.y0) continue;
                     var q = p - bx.c;
                     float du = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(q, bx.u)) - bx.hu), dv = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(q, bx.v)) - bx.hv);
-                    if (du * du + dv * dv < R * R) return bx.why;
+                    if (du * du + dv * dv < R * R) { lastHit = bx.name; return bx.why; }
                 }
                 foreach (var sg in segs)
                 {
@@ -478,21 +481,21 @@ namespace PSXRacing.City
                     if (y0 > sy1 || y1 < sy0) continue;
                     if (SegDist(p, sg.a, sg.b) < R + sg.r + Margin) return sg.why;
                 }
-                if (bigSolids.Count > 0 && y1 > foot.y + 0.8f)
+                if (bigSolids.Count > 0 && y1 > foot.y + 0.3f)
                 {
-                    float rr = R + Margin, lo = Mathf.Max(y0, foot.y + 0.8f);
+                    float rr = R + Margin, lo = Mathf.Max(y0, foot.y + 0.3f);
                     var c0 = new Vector3(foot.x, lo + rr, foot.z);
                     var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, y1 - rr), foot.z);
                     int n = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
-                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i])) return 4;
+                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i])) { lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer); return 4; }
                 }
-                if (bigSolids.Count > 0 && y1 > foot.y + 0.8f)
+                if (bigSolids.Count > 0 && y1 > foot.y + 0.3f)
                 {
-                    float rr = R + Margin, lo = Mathf.Max(y0, foot.y + 0.8f);
+                    float rr = R + Margin, lo = Mathf.Max(y0, foot.y + 0.3f);
                     var c0 = new Vector3(foot.x, lo + rr, foot.z);
                     var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, y1 - rr), foot.z);
                     int n = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
-                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i])) return 4;
+                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i])) { lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer); return 4; }
                 }
             }
             return -1;
@@ -510,6 +513,7 @@ namespace PSXRacing.City
             Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = 0; FitMs = 0;
             System.Array.Clear(RejectBy, 0, RejectBy.Length);
             System.Array.Clear(PlacedByRole, 0, PlacedByRole.Length);
+            RejectColliders.Clear();
         }
     }
 }
