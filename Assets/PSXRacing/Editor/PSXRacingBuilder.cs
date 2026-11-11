@@ -5001,6 +5001,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void BuildBridges(List<Vector3> pts, Transform parent)
         {
+            pierSpots.Clear();
             if (track.drag || track.bridges == null || track.bridges.Length == 0) return;
 
             int n = pts.Count;
@@ -5291,6 +5292,8 @@ namespace PSXRacing.EditorTools
                     go.GetComponent<MeshRenderer>().sharedMaterial = mat;
                     go.layer = SolidLayer;
                     go.isStatic = true;
+                    // for the forest: no plant through a pier (PlantClear)
+                    pierSpots.Add(new Vector4(go.transform.position.x, go.transform.position.z, baseY, deckBottom));
                     placed++;
                 }
             }

@@ -54,6 +54,9 @@ namespace PSXRacing.EditorTools
                         // of a centre line on the ribbon's centre, lines smooth.
                         sb.AppendLine(LaneAudit.AuditForLab(def, path));
                     }
+                    // And no plant through a deck, a pier, a wall or rail, a
+                    // rock face, or the lanes up to 4.5 m (owner 2026-11-10).
+                    sb.AppendLine(PlantSolidAudit.AuditForLab(def, path));
                     string probes = System.Environment.GetEnvironmentVariable("PSX_LAB_WP") ?? "";
                     foreach (var pr in probes.Split(','))
                         if (pr.Trim().Length > 1) sb.AppendLine(Section(path, pr.Trim()));

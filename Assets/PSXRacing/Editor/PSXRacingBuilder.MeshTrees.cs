@@ -815,7 +815,11 @@ namespace PSXRacing.EditorTools
                     float gy = Mathf.Max(Mathf.Max(lat, top), StageFillY(x, z));
                     int vi = kit.cover[(int)((h >> 5) % (uint)kit.cover.Length)];
                     float sc = Mathf.Lerp(1.5f, 2.6f, ((h >> 3) & 255u) / 255f);
-                    inst.Add(new Vector4(x, gy - 0.03f, z, (h % 360u)));
+                    float cy = gy - 0.03f;
+                    // no plant through a deck, a wall or into the lanes (PlantClear)
+                    if (FitPlant(PlantClass.Cover, kit, ref x, ref z, ref cy, ref sc, ref vi, CoverBaseAt, 0.4f,
+                                 new[] { new PlantSwap { pool = kit.cover, s0 = 0.7f, s1 = 1.3f } }, h % 360u) == PlantFit.Dropped) continue;
+                    inst.Add(new Vector4(x, cy, z, (h % 360u)));
                     scaleVar.Add(new Vector2(sc, vi));
                     ySum += gy;
                     added++;
@@ -867,8 +871,13 @@ namespace PSXRacing.EditorTools
                         if (n.y < 0.6f && L.kind >= 3) continue;   // no log or stump on a 53-degree face
                         int vi = pool[(int)((h >> 5) % (uint)pool.Length)];
                         float sc = Mathf.Lerp(L.s0, L.s1, ((h >> 3) & 255u) / 255f);
-                        tilts[inst.Count] = new Vector2(Mathf.Atan2(n.z, n.y) * Mathf.Rad2Deg, -Mathf.Atan2(n.x, n.y) * Mathf.Rad2Deg);
-                        inst.Add(new Vector4(x, gy - L.sink, z, (h % 360u)));
+                        // laid on its own slope: shortened or dropped, never moved (PlantClear)
+                        float dy = gy - L.sink;
+                        var tilt = new Vector2(Mathf.Atan2(n.z, n.y) * Mathf.Rad2Deg, -Mathf.Atan2(n.x, n.y) * Mathf.Rad2Deg);
+                        if (FitPlant(PlantClass.Debris, kit, ref x, ref z, ref dy, ref sc, ref vi, (px, pz, ps) => gy - L.sink, 0.4f, null,
+                                     h % 360u, tilt, canMove: false, tilted: true, envFloor: L.kind <= 1 ? 0.3f : 0.02f) == PlantFit.Dropped) continue;
+                        tilts[inst.Count] = tilt;
+                        inst.Add(new Vector4(x, dy, z, (h % 360u)));
                         scaleVar.Add(new Vector2(sc, vi));
                         ySum += gy;
                         added++;
@@ -924,7 +933,14 @@ namespace PSXRacing.EditorTools
                 int vi = pool[(int)((h >> 20) % (uint)pool.Length)];
                 float t = ((h >> 4) % 100u) * 0.01f;
                 float sc = bush ? Mathf.Lerp(1.4f, 2.3f, t) : Mathf.Lerp(0.8f, 1.4f, t);
-                inst.Add(new Vector4(ux, gy - 0.1f - SlopeSink(ux, uz, 0.35f), uz, (h % 360u)));
+                float uy = gy - 0.1f - SlopeSink(ux, uz, 0.35f);
+                // no plant through a deck, a wall or into the lanes (PlantClear)
+                var swaps = bush
+                    ? new[] { new PlantSwap { pool = kit.cover, s0 = 1.0f, s1 = 2.0f } }
+                    : new[] { new PlantSwap { pool = kit.bushes, s0 = 1.0f, s1 = 2.0f }, new PlantSwap { pool = kit.cover, s0 = 1.0f, s1 = 2.0f } };
+                if (FitPlant(bush ? PlantClass.Bush : PlantClass.SmallBeech, kit, ref ux, ref uz, ref uy, ref sc, ref vi, UnderBaseAt, 0.4f,
+                             swaps, h % 360u) == PlantFit.Dropped) continue;
+                inst.Add(new Vector4(ux, uy, uz, (h % 360u)));
                 scaleVar.Add(new Vector2(sc, vi));
                 added++;
             }

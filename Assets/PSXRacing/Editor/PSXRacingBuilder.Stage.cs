@@ -7969,6 +7969,11 @@ namespace PSXRacing.EditorTools
             var mfInst = new List<Vector4>();
             var mfScaleVar = new List<Vector2>();
             int meshTrees = 0, understory = 0, extraCanopy = 0, coverN = 0, debrisN = 0, ledgeN = 0, cliffN = 0, fenceN = 0;
+            ResetPlantFit();
+            PlantShape.ClearCache();
+            // the decks, piers, walls and rock faces built so far, for the planting rule
+            PlantSolidAudit.BeginForBuilder(pts, RoadWidth);
+            try {
             var mfTilt = new Dictionary<int, Vector2>();
 
             ForEachChunk(b, NearChunk, ForestBand + 20f, (cx, cz, ox, oz) =>
@@ -8108,8 +8113,12 @@ namespace PSXRacing.EditorTools
                         }
 
                         float yaw = (float)R.NextDouble() * 360f;
-                        var basePos = new Vector3(wx - ox, ground - 0.25f, wz - oz);
                         bool asMesh = kit != null && !sp.conifer;   // the bare late-fall species too: a winter beech is bare
+                        // THE TREE'S SITE once the solids rule has had it (PlantClear):
+                        // moved out from the road, shortened, or - a mesh tree - swapped
+                        // for a smaller kind, which then has no card and no trunk
+                        float tx = wx, tz = wz, tGround = ground;
+                        bool treeStands = true;
                         if (asMesh)
                         {
                             int hsh = (int)(((uint)(Mathf.FloorToInt(wx * 7.31f) * 73856093) ^
@@ -8120,10 +8129,21 @@ namespace PSXRacing.EditorTools
                                 vi = kit.poplar;
                                 sc = Mathf.Clamp(h * MeshTreeHeightScale / kit.variants[vi].height, 0.85f, 1.25f);
                             }
-                            mfInst.Add(new Vector4(wx, ground - 0.25f - SlopeSink(wx, wz, 0.8f * sc), wz, yaw));
-                            mfScaleVar.Add(new Vector2(sc, vi));
-                            ySum += ground;
-                            meshTrees++;
+                            float sc0 = sc, ty = ground - 0.25f - SlopeSink(wx, wz, 0.8f * sc);
+                            var fit = FitPlant(PlantClass.Canopy, kit, ref tx, ref tz, ref ty, ref sc, ref vi,
+                                               CanopyBaseAt, 0.45f, CanopySwaps(kit), yaw);
+                            if (fit != PlantFit.Dropped)
+                            {
+                                if (fit == PlantFit.Moved && StageCorridor(tx, tz, ForestBand + 10f, out RoadFoot mvf))
+                                    tGround = StageStandY(tx, tz, mvf);
+                                if (fit == PlantFit.Shortened) h *= sc / sc0;
+                                treeStands = fit != PlantFit.Swapped;
+                                mfInst.Add(new Vector4(tx, ty, tz, yaw));
+                                mfScaleVar.Add(new Vector2(sc, vi));
+                                ySum += ground;
+                                meshTrees++;
+                            }
+                            else treeStands = false;
                             int before = mfInst.Count;
                             AddUnderstory(kit, wx, wz, d, hsh, mfInst, mfScaleVar, ref understory);
                             ySum += ground * (mfInst.Count - before);
@@ -8137,20 +8157,34 @@ namespace PSXRacing.EditorTools
                             if (ExtraCanopySite(wx, wz, xc == 0 ? hsh : hsh * 31 + 7, out float ex, out float ez, out float eg))
                             {
                                 int evi = PickMeshTree(kit, h * MeshTreeHeightScale * 0.9f, hsh >> 1, out float esc);
-                                mfInst.Add(new Vector4(ex, eg - 0.25f - SlopeSink(ex, ez, 0.8f * esc), ez, (yaw + 137f + xc * 91f) % 360f));
+                                float esc0 = esc, ey = eg - 0.25f - SlopeSink(ex, ez, 0.8f * esc);
+                                var efit = FitPlant(PlantClass.ExtraCanopy, kit, ref ex, ref ez, ref ey, ref esc, ref evi,
+                                                    ExtraCanopyBaseAt, 0.45f, CanopySwaps(kit), (yaw + 137f + xc * 91f) % 360f);
+                                if (efit == PlantFit.Dropped) continue;
+                                mfInst.Add(new Vector4(ex, ey, ez, (yaw + 137f + xc * 91f) % 360f));
                                 mfScaleVar.Add(new Vector2(esc, evi));
                                 ySum += eg;
                                 extraCanopy++;
-                                (fill ? fillTrunks : trunks).Add(new Vector4(ex, eg - 0.25f, ez, StageTreeWidth(sp, h)));
+                                if (efit == PlantFit.Swapped) continue;   // a young tree or a bush now: no trunk
+                                (fill ? fillTrunks : trunks).Add(new Vector4(ex, ey + SlopeSink(ex, ez, 0.8f * esc), ez, StageTreeWidth(sp, h * esc / esc0)));
                                 (fill ? fillCells : trunkCells).Add((byte)idx);
                             }
+                            if (!treeStands) continue;   // dropped, or a bush in its place: no card, crown or trunk
                         }
+                        else
+                        {
+                            // a billboard tree (a conifer on the PC build, every tree on the web's)
+                            var cfit = FitCard(ref tx, ref tz, ref tGround, ref h, sp.conifer ? 0.62f : 1f, sp.conifer ? 0.10f : 0.28f, yaw,
+                                               (px, pz) => CardGroundAt(px, pz, deckOver));
+                            if (cfit == PlantFit.Dropped) continue;
+                        }
+                        var basePos = new Vector3(tx - ox, tGround - 0.25f, tz - oz);
                         if (fill)
                         {
                             filled++;
                             if (asMesh) AddTreeQuads(bfv, bfu, bft, sp, basePos, h, yaw);
                             else AddTreeQuads(fv, fu, ft, sp, basePos, h, yaw);
-                            fillTrunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
+                            fillTrunks.Add(new Vector4(tx, tGround - 0.25f, tz, StageTreeWidth(sp, h)));
                             fillCells.Add((byte)idx);
                         }
                         else
@@ -8162,8 +8196,8 @@ namespace PSXRacing.EditorTools
                             // The card's WIDTH, and the cell it wears: the table
                             // takes the trunk's radius (and, per season, how far the
                             // low foliage reaches) off what the billboard paints.
-                            trunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
-                            NoteSkyCrown(wx, ground - 0.25f, wz, StageTreeWidth(sp, h), h, sp.conifer);
+                            trunks.Add(new Vector4(tx, tGround - 0.25f, tz, StageTreeWidth(sp, h)));
+                            NoteSkyCrown(tx, tGround - 0.25f, tz, StageTreeWidth(sp, h), h, sp.conifer);
                             trunkCells.Add((byte)idx);
                         }
                         if (pc)
@@ -8257,6 +8291,8 @@ namespace PSXRacing.EditorTools
                 Log($"Stage forest, PC: {filled} fill trees (band filled to {FillKeep:0.00} past {ForestDenseTo:0} m), {crowned} crowns.");
             }
 
+            } finally { PlantSolidAudit.EndForBuilder(); }
+            Log(PlantFitLine());
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
                 $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +
                 $"{trunks.Count} trunks in the table; {reseatedOnFill} site(s) stood on a fill tail over the land.");

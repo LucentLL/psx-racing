@@ -129,13 +129,27 @@ namespace PSXRacing.EditorTools
                     var wn = Seasons.Now;
                     log.AppendLine($"hour {hourName.Trim()}: sky {wn.sky}, precip {wn.precip}, fog {wn.fog}, headline {Seasons.CurrentWeather}");
                     if (dyn) { DynamicSky.PrimeClouds(path.GetPoint(path.Count / 2) + Vector3.up * 3f); DumpSky(Path.Combine(outDir, "hz_sky_" + hourName.Trim() + ".png")); }
-                    foreach (string ms in Env("PSX_HAZE_M", "8400,9000,9600,10200").Split(','))
+                    // PSX_HAZE_SHOTS ("4608:chase,4608:under,7000:cockpit"): those poses
+                    // alone, in place of every station x every view
+                    var poses = new System.Collections.Generic.List<(string ms, string view)>();
+                    string shotList = Env("PSX_HAZE_SHOTS", "");
+                    if (shotList.Length > 0)
+                    {
+                        foreach (var sp in shotList.Split(','))
+                        {
+                            var kv = sp.Split(':');
+                            if (kv.Length == 2) poses.Add((kv[0].Trim(), kv[1].Trim()));
+                        }
+                    }
+                    else
+                        foreach (string ms0 in Env("PSX_HAZE_M", "8400,9000,9600,10200").Split(','))
+                            foreach (string view0 in views) poses.Add((ms0, view0));
+                    foreach (var (ms, view) in poses)
                     {
                         float m = float.Parse(ms, CultureInfo.InvariantCulture);
                         int at = Mathf.Clamp(Mathf.RoundToInt(m / TrackCatalog.Spacing), 2, path.Count - 12);
                         Vector3 p = path.GetPoint(at);
                         Vector3 fwd = path.GetTangent(at); fwd.y = 0f; fwd.Normalize();
-                        foreach (string view in views)
                         {
                             // chase: the game's camera behind the car. vista: 25 m up, level,
                             // turned 60 degrees off the road toward the open side - distance in frame.
@@ -145,6 +159,18 @@ namespace PSXRacing.EditorTools
                                 Vector3 f = view == "rev" ? -fwd : fwd;      // rev: driving the road the other way
                                 eye = p - f * 8f + Vector3.up * 2.6f;
                                 rot = Quaternion.LookRotation(p + Vector3.up * 0.8f + f * 20f - eye);
+                            }
+                            else if (view == "cockpit")
+                            {
+                                // the driver's eye: the right-hand lane, the left-hand seat,
+                                // 1.15 m over the tarmac, looking down the road 30 m ahead
+                                Vector3 right = Vector3.Cross(Vector3.up, fwd);
+                                float lane = path.roadWidth * 0.25f - 0.37f;
+                                eye = p + right * lane + Vector3.up * (PSXRacingBuilder.RoadLift + 1.15f);
+                                int ahead = Mathf.Clamp(at + 8, 0, path.Count - 1);
+                                Vector3 pa = path.GetPoint(ahead);
+                                Vector3 fa = path.GetTangent(ahead); fa.y = 0f; fa.Normalize();
+                                rot = Quaternion.LookRotation(pa + Vector3.Cross(Vector3.up, fa) * lane + Vector3.up * (PSXRacingBuilder.RoadLift + 0.9f) - eye);
                             }
                             else if (view == "under")
                             {

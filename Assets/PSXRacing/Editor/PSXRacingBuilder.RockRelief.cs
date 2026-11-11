@@ -171,6 +171,10 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The ledges' plants over one near chunk: grass and ferns,
         /// black cherry, now and then a young beech.</summary>
+        /// <summary>A ledge plant's moves: toward the road first (out of the
+        /// rock it was set into), then away.</summary>
+        static readonly float[] LedgeSteps = { -0.4f, -0.8f, -1.2f, 1f };
+
         static void AddLedgePlants(MeshTreeKit kit, float ox, float oz, float size, List<Vector4> inst,
                                    List<Vector2> scaleVar, ref int added, ref float ySum)
         {
@@ -189,8 +193,16 @@ namespace PSXRacing.EditorTools
                 else if (kit.smallBeech.Length > 0) { pool = kit.smallBeech; s0 = 0.5f; s1 = 0.9f; }
                 else continue;
                 float r2 = RHash(Mathf.FloorToInt(p.z * 10f), Mathf.FloorToInt(p.x * 10f), 93);
-                inst.Add(new Vector4(p.x, p.y - 0.05f, p.z, r2 * 360f));
-                scaleVar.Add(new Vector2(Mathf.Lerp(s0, s1, r2), pool[(int)(r2 * 9973f) % pool.Length]));
+                // NOT OUT THROUGH THE ROCK (PlantClear): a plant set into the face
+                // comes forward onto it, then shrinks, then is a fern instead
+                float lx = p.x, lz = p.z, ly = p.y - 0.05f, ls = Mathf.Lerp(s0, s1, r2);
+                int lv = pool[(int)(r2 * 9973f) % pool.Length];
+                float keepY = ly;
+                if (FitPlant(PlantClass.Ledge, kit, ref lx, ref lz, ref ly, ref ls, ref lv, (px, pz, ps) => keepY, 0.4f,
+                             new[] { new PlantSwap { pool = kit.cover, s0 = 0.8f, s1 = 1.6f } }, r2 * 360f,
+                             steps: LedgeSteps) == PlantFit.Dropped) continue;
+                inst.Add(new Vector4(lx, ly, lz, r2 * 360f));
+                scaleVar.Add(new Vector2(ls, lv));
                 ySum += p.y;
                 added++;
             }
