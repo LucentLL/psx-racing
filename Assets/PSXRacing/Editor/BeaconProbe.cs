@@ -100,9 +100,18 @@ namespace PSXRacing.EditorTools
         {
             var list = new List<(string, Vector3, Vector3, int[])>();
             var fs = map.footprints;
-            // the owner's frame: N Graham St about 1.1 km out, looking down it toward uptown
+            var tops = new Dictionary<int, (Vector3 top, float h)>();
+            foreach (var l in cb.Lights)
+                if (l.top && (!tops.TryGetValue(l.building, out var t0) || l.anchor.y > t0.top.y)) tops[l.building] = (l.anchor, l.towerH);
+            int tallest = -1; float th = 0f;
+            foreach (var kv in tops) if (kv.Value.h > th) { th = kv.Value.h; tallest = kv.Key; }
+            int Hero(byte lm) { foreach (var kv in tops) if (fs[kv.Key].landmark == lm) return kv.Key; return -1; }
+            int pyr = Hero(5), spire = Hero(1);
+            // the owner's frame: N Graham St 0.9-1.5 km from the towers, on a
+            // straight run pointing at them (the tallest ahead, the teal pyramid left)
             {
-                float best = float.MaxValue; CityMap.Edge be = null; float bs = 0f;
+                float best = float.MinValue; CityMap.Edge be = null; float bs = 0f;
+                Vector2 aim = tallest >= 0 ? new Vector2(tops[tallest].top.x, tops[tallest].top.z) : map.uptown;
                 foreach (var e in map.edges)
                 {
                     if (e == null || e.link || e.name == null || e.name.IndexOf("Graham", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
@@ -110,8 +119,11 @@ namespace PSXRacing.EditorTools
                     {
                         var p = e.PointAt(s);
                         if (p.y < map.uptown.y) continue;   // north of uptown
-                        float d = Mathf.Abs(Vector2.Distance(p, map.uptown) - 1150f);
-                        if (d < best) { best = d; be = e; bs = s; }
+                        float dd = Vector2.Distance(p, aim);
+                        if (dd < 900f || dd > 1500f) continue;
+                        var tg = e.TangentAt(s).normalized;
+                        float score = Mathf.Abs(Vector2.Dot(tg, (aim - p).normalized)) - Mathf.Abs(dd - 1150f) / 4000f;
+                        if (score > best) { best = score; be = e; bs = s; }
                     }
                 }
                 if (be != null)
@@ -122,30 +134,41 @@ namespace PSXRacing.EditorTools
                     var right = new Vector2(t.y, -t.x);
                     var at = p + right * (be.oneway ? 0f : be.width * 0.25f);
                     var eye = new Vector3(at.x, be.YAt(bs) + 1.15f, at.y);
-                    list.Add(("graham", eye, eye + new Vector3(t.x, 0.045f, t.y) * 100f, new[] { TimeOfDay.Sunset, TimeOfDay.Night }));
+                    list.Add(("graham", eye, eye + new Vector3(t.x, 0.045f, t.y) * 100f, new[] { TimeOfDay.Sunset, TimeOfDay.Dusk, TimeOfDay.Night }));
                     log.Append($"pose graham: '{be.name}' {Vector2.Distance(p, map.uptown):0} m from uptown, eye ({eye.x:0.0},{eye.y:0.0},{eye.z:0.0}) {LatLon(eye)}\n");
                 }
                 else log.Append("pose graham: no Graham St found\n");
             }
             // the tower tops: the teal pyramid (C4), the tallest, a spired crown (C1; or C3 if C1 is the tallest)
-            var tops = new Dictionary<int, (Vector3 top, float h)>();
-            foreach (var l in cb.Lights)
-                if (l.top && (!tops.TryGetValue(l.building, out var t) || l.anchor.y > t.top.y)) tops[l.building] = (l.anchor, l.towerH);
-            int tallest = -1; float th = 0f;
-            foreach (var kv in tops) if (kv.Value.h > th) { th = kv.Value.h; tallest = kv.Key; }
-            int Hero(byte lm) { foreach (var kv in tops) if (fs[kv.Key].landmark == lm) return kv.Key; return -1; }
-            int pyr = Hero(5), spire = Hero(1);
             if (spire == tallest) spire = Hero(3);
             foreach (var (name, key) in new[] { ("top_pyramid", pyr), ("top_tallest", tallest), ("top_crown", spire) })
             {
                 if (key < 0 || !tops.ContainsKey(key)) { log.Append($"pose {name}: none\n"); continue; }
                 var top = tops[key].top; float h = tops[key].h;
-                var outw = new Vector2(top.x, top.z) - map.uptown;
-                if (outw.sqrMagnitude < 100f) outw = new Vector2(0.6f, -0.8f);
-                outw = (outw.normalized + new Vector2(0.35f, -0.25f)).normalized;
-                float dist = 120f + 0.15f * h;
-                var eye = new Vector3(top.x + outw.x * dist, top.y - 0.10f * h, top.z + outw.y * dist);
-                var look = new Vector3(top.x, top.y - 0.12f * h, top.z);
+                float dist = 55f + 0.08f * h;
+                // the bearing with the clearest view: no other tower's top over
+                // the sight line (within 35 m of it in plan and taller than it there)
+                Vector2 outw = Vector2.up; float bestClear = float.MinValue;
+                for (int b = 0; b < 16; b++)
+                {
+                    float a = b * Mathf.PI / 8f;
+                    var dir = new Vector2(Mathf.Sin(a), Mathf.Cos(a));
+                    var e2 = new Vector2(top.x, top.z) + dir * dist * 3f;
+                    float clear = 0f;
+                    foreach (var kv in tops)
+                    {
+                        if (kv.Key == key) continue;
+                        var o = new Vector2(kv.Value.top.x, kv.Value.top.z);
+                        var seg = e2 - new Vector2(top.x, top.z);
+                        float tt = Mathf.Clamp01(Vector2.Dot(o - new Vector2(top.x, top.z), seg) / seg.sqrMagnitude);
+                        float dPlan = Vector2.Distance(o, new Vector2(top.x, top.z) + seg * tt);
+                        if (dPlan < 40f && kv.Value.top.y > top.y - 0.25f * h) clear -= 1f + (40f - dPlan) / 40f;
+                    }
+                    clear -= 0.02f * Vector2.Angle(dir, new Vector2(top.x, top.z) - map.uptown) / 180f;
+                    if (clear > bestClear) { bestClear = clear; outw = dir; }
+                }
+                var eye = new Vector3(top.x + outw.x * dist, top.y - 0.05f * h, top.z + outw.y * dist);
+                var look = new Vector3(top.x, top.y - 0.07f * h, top.z);
                 list.Add((name, eye, look, new[] { TimeOfDay.Noon, TimeOfDay.Night }));
                 log.Append($"pose {name}: building #{key} ({Describe(map, key)}), top ({top.x:0.0},{top.y:0.0},{top.z:0.0}), tower {h:0} m, eye {dist:0} m off\n");
             }

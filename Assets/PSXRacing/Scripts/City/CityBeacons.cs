@@ -77,7 +77,7 @@ namespace PSXRacing.City
 
         /// <summary>The fixture: a stub this tall under the lens, the lens's
         /// radius (a beacon's, a corner light's), the stub's half width.</summary>
-        const float StubM = 0.45f, LensBeaconM = 0.32f, LensCornerM = 0.22f, StubHalfM = 0.07f;
+        const float StubM = 0.55f, LensBeaconM = 0.38f, LensCornerM = 0.27f, StubHalfM = 0.08f;
         /// <summary>Fixtures are drawn for towers this near the eye: past it a
         /// 0.6 m lens is under a pixel and would only sparkle.</summary>
         public const float FixtureDrawM = 700f;
@@ -174,7 +174,8 @@ namespace PSXRacing.City
                 // pale dusk sky is red, not pink. Never larger than a few pixels
                 // each way, never dimmer than its own colour.
                 cb.mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                cb.mat.SetFloat("_MaxPixels", 7f);
+                cb.mat.SetFloat("_MaxPixels", 4f);
+                cb.mat.SetFloat("_MinPixels", 1.2f);
                 cb.mat.SetFloat("_GainFloor", 1f);
             }
             cb.mr = go.AddComponent<MeshRenderer>();
@@ -286,7 +287,14 @@ namespace PSXRacing.City
                     foreach (int e in list)
                     {
                         int a = rg[e * 2], c = rg[e * 2 + 1];
-                        for (int k = 0; k < c; k++) vs.Add(verts[idx[a + k]]);
+                        // the corners of real triangles only (a degenerate one,
+                        // a member's end cap of no area, draws nothing there)
+                        for (int k = 0; k + 2 < c; k += 3)
+                        {
+                            Vector3 p0 = verts[idx[a + k]], p1 = verts[idx[a + k + 1]], p2 = verts[idx[a + k + 2]];
+                            if (Vector3.Cross(p1 - p0, p2 - p0).sqrMagnitude < 1e-6f) continue;
+                            vs.Add(p0); vs.Add(p1); vs.Add(p2);
+                        }
                     }
                 }
                 if (vs.Count < 3) continue;
@@ -300,16 +308,13 @@ namespace PSXRacing.City
                 towers++;
                 int fixT0 = fb.t.Count;
 
-                // THE TOP LIGHT: on the highest drawn point. A tip (a spire, a
-                // mast's cap) is its few highest vertices' middle; a flat top
-                // (a plant box, a slab) its highest vertex nearest that middle
+                // THE TOP LIGHT: on the highest drawn point - always a drawn
+                // vertex: a spire's tip, a mast cap's corner, or on a flat top
+                // (a plant box, a slab) the highest vertex nearest its middle
                 Vector3 mid = Vector3.zero; int nTop = 0;
                 foreach (var p in vs) if (p.y > top - 0.05f) { mid += p; nTop++; }
                 mid /= Mathf.Max(1, nTop);
-                float spread = 0f;
-                foreach (var p in vs) if (p.y > top - 0.05f) spread = Mathf.Max(spread, Flat(p - mid).magnitude);
                 Vector3 apex = mid;
-                if (spread > 1.2f)
                 {
                     float best = float.MaxValue;
                     foreach (var p in vs)
