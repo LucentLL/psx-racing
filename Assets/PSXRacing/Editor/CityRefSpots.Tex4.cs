@@ -16,7 +16,8 @@ namespace PSXRacing.EditorTools
     ///
     ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunTex4
     ///   PSX_TEX4_MODES = "name=folder[;folder]=gain|name=..." (default
-    ///     r1 = texb01 at 3.1, new = texb02 + tex4_glass at 1)
+    ///     r1 = texb01 at 3.1, new = texb02 at 1; the 11-11 shots used texb02
+    ///     with the glass candidates in a separate folder, since merged into it)
     ///   PSX_TEXB_HOURS = noon,dusk,night; PSX_TEX4_ONLY = place,place
     ///   PSX_TEX4_SHOPS = how many shop buildings to shoot (default 6)
     /// Output: Screenshots/tex4/&lt;place&gt;_&lt;pose&gt;_&lt;hour&gt;_&lt;mode&gt;.png + tex4_log.txt
@@ -43,7 +44,7 @@ namespace PSXRacing.EditorTools
             {
                 string modesEnv = System.Environment.GetEnvironmentVariable("PSX_TEX4_MODES");
                 if (string.IsNullOrEmpty(modesEnv))
-                    modesEnv = @"r1=C:\Users\mcgee\PSXHDStage\texb01=3.1|new=C:\Users\mcgee\PSXHDStage\texb02;C:\Users\mcgee\PSXHDStage\tex4_glass=1";
+                    modesEnv = @"r1=C:\Users\mcgee\PSXHDStage\texb01=3.1|new=C:\Users\mcgee\PSXHDStage\texb02=1";
                 var modes = new List<(string name, string src, float gain)>();
                 foreach (var m in modesEnv.Split('|'))
                 {
