@@ -749,6 +749,7 @@ namespace PSXRacing.City
             Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; facLed = 0;
             Bucket.FacOn = false; facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
             gfActive = false;   // the ground floors: the building is done
+            lrActive = false;   // the low-rise shed (CityMeshes.LowRise.cs)
         }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
@@ -1274,6 +1275,7 @@ namespace PSXRacing.City
             for (int i = 0; i < b.Length; i++) b[i] = new Bucket();
             b[(int)Slot.FacadeGlass].col = new List<Color32>(512);   // the facade atlas (Uptown B1)
             b[(int)Slot.FacadeGlass].fac = new List<Vector4>(512);   // its walls (facade structure)
+            b[(int)Slot.FacadeHouse].col = new List<Color32>(512);   // HOUSE WALLS: the siding's colour (PSX/Lit _HouseTint)
             return b;
         }
 
@@ -11588,7 +11590,8 @@ namespace PSXRacing.City
                         y0 = lo - BuildingSink; y1 = floorG + b.h;
                     }
                     // a suburban house: the long side faces the road
-                    EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, floorG - BuildingSink + b.h * 0.7f, y1, Slot.FacadeHouse);
+                    hwMap = map;
+                    EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, floorG - BuildingSink + b.h * 0.7f, y1, Slot.FacadeHouse, floorG);
                     tm.houseSeats.Add(new HouseSeat { kind = 3, c = b.pos, u = rgt, hu = b.w * 0.5f, hv = b.d * 0.5f, y0 = y0, floor = floorG });
                     continue;
                 }
@@ -11668,6 +11671,8 @@ namespace PSXRacing.City
         static void EmitFacadeQuad(TileMeshes tm, Slot style, Vector2 a, Vector2 c,
                                    float y0, float y1, Vector2 outward)
         {
+            // HOUSE WALLS (CityMeshes.HouseWalls.cs): whole windows per bay and storey
+            if (style == Slot.FacadeHouse && HouseWallsOn) { HouseWall(tm, a, c, y0, y1, outward); return; }
             if (style == Slot.FacadeGlass)
             {
                 // the facade atlas: whole repeats along the wall, and V in
@@ -11901,7 +11906,12 @@ namespace PSXRacing.City
                     }
                 }
 
-                if (f.gable)
+                // HOUSE CLASS (CityMeshes.HouseWalls.cs): a "house" with a footprint
+                // or height no house has is drawn as the residential block it is
+                bool block = HouseBlock(f);
+                // ...a low block on a plain oblong (N Graham's 3-storey condos): siding over a brick ground storey under a gable roof
+                bool sidingBlock = block && HouseBlockSiding(f);
+                if ((f.gable && !block) || sidingBlock)
                 {
                     var centre = f.centre; var u = f.u;
                     float hu = f.hu, hv = f.hv;
@@ -11918,13 +11928,17 @@ namespace PSXRacing.City
                         floorG = CityHouses.Floor(map, f.centre, centre, u, hu, hv, out float lo);
                         y0 = lo - BuildingSink; top = floorG + f.h;
                     }
-                    float eave = floorG + f.h * 0.68f;
+                    float eave = floorG + f.h * (sidingBlock ? 0.76f : 0.68f);
                     if (proxyBuild) y0 -= ProxySkirtM;
-                    EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse);
+                    hwMap = proxyBuild ? null : map;
+                    if (sidingBlock && !skylineBuild) HouseBlockBegin(f, centre, (top - eave) / Mathf.Max(hv, 1f));   // its brick base, its units (CityMeshes.HouseParts.cs)
+                    EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse, floorG);
                     tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
+                    HouseBlockEnd();
                     tm.footprintCount++;
                     return;
                 }
+                if (LowRiseChurch(map, trims, tm, fi, f, y0, top)) return;   // LOW-RISE CLASSES: a church's gabled nave and steeple (CityMeshes.LowRise.cs)
                 fitPoly.Clear();
                 fitPoly.AddRange(f.pts);
                 if (skylineBuild) SimplifyPoly(fitPoly, SkylineSimplifyM);
@@ -11953,7 +11967,9 @@ namespace PSXRacing.City
                 // facade atlas (one material), each in its own look and tint
                 // (shops: the shopfront strip on the street wall, the atlas
                 // above it and round the other walls, brick or stone)
-                Slot wallSlot = f.style == 3 ? Slot.FacadeHouse : Slot.FacadeGlass;
+                // (HOUSE CLASS: a low block of any plan - an L, a U - in siding over a brick ground storey too)
+                bool polySiding = block && !skylineBuild && f.h <= 14f && HouseBlockLowArea(f);
+                Slot wallSlot = f.style == 3 && (!block || polySiding) ? Slot.FacadeHouse : Slot.FacadeGlass;
                 if (wallSlot == Slot.FacadeGlass)
                 {
                     facLed = NightFloodOf(gf.landmark);   // the crown's own flood (the 1990s city: NightCrowns)
@@ -11961,7 +11977,11 @@ namespace PSXRacing.City
                     // a part keeps its tower's measured colour, the tower's height
                     // class, and a landmark wears its cladding of today)
                     FacadeArgs(map, fi, f, gf, top - floorP, out byte pfMat, out Color32 pfCol, out byte pfRh, out float pfH);
-                    PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, pfMat, pfCol, floorP, pfH, pfRh);
+                    // (HOUSE CLASS: a residential block wears the brick block's family, home storeys;
+                    // OSM's "wood" on one is its siding - brick reads truer at this scale)
+                    if (block) PickFacade(gf.centre, 2, 2, pfMat == 5 ? (byte)0 : pfMat, pfCol, floorP, pfH, pfRh);
+                    else PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, pfMat, pfCol, floorP, pfH, pfRh);
+                    if (!block && hero < 0) LowRiseLook(map, fi, f, gf.centre, floorP, pfH, pfMat);   // LOW-RISE CLASSES: apartments, mills, schools, halls
                     if (hero >= 0) StadiumPartLook(hero, f, fi);
                     // the tower's floodlit crown: its top band, whichever part reaches it
                     // (none on a tower whose light is on its frame - NightCrowns: the
@@ -11993,13 +12013,17 @@ namespace PSXRacing.City
                 // 2026-10-26 (CityMeshes.PartBase.cs): a wall whose foot hangs
                 // over air - its building cut away under it - runs to the ground
                 bool hangs = floating && !onOutline && !proxyBuild && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
+                bool pitched = !crownFlat && !floating && HousePolyPitched(f, block, polySiding);   // ROUND 2: no flat-roofed house (CityMeshes.HouseParts.cs)
+                if (pitched) eaveY = HousePolyEave(f, floorP, block);
                 AuditFoot(fi, 0, fitPoly, floorP, floating ? wallY0 : floorP, top, hangs);
                 bool retail = f.style == 4 && !floating && !skylineBuild;
                 // Coverage (2026-10-06): a shop outside the core is a strip
                 // centre or a big box - plain bays (no lettering) and a flat
                 // roof behind a parapet
                 bool covShop = retail && !map.footprintBounds.Contains(f.centre);
-                float parapet = covShop && f.roof == 0 ? CovParapetM : 0f;
+                if (retail && !covShop && LrIs(fi, LcStrip)) covShop = true;   // LOW-RISE CLASSES: a shop outside the loop is a strip centre
+                bool lrShed = wallSlot == Slot.FacadeGlass && !retail && LowRiseBegin(map, tm, fi, f, fitPoly, floorP, floating, hero);
+                float parapet = (covShop || lrShed) && f.roof == 0 ? CovParapetM : 0f;
                 // A shopfront goes on the wall that faces the nearest street.
                 // Coverage (2026-10-06): outside the core a shopping centre
                 // faces its parking lot (often 100 m back from the street).
@@ -12025,13 +12049,13 @@ namespace PSXRacing.City
                 }
                 // THE UPTOWN GROUND FLOORS (CityMeshes.GroundFloors.cs): what this building's
                 // street walls are at the sidewalk, decided once (EndFacade ends it)
-                if (wallSlot == Slot.FacadeGlass && !retail && !floating && !onOutline && !hangs)
+                if (wallSlot == Slot.FacadeGlass && !retail && !floating && !onOutline && !hangs && !block)
                     GfBegin(map, trims, tm, fi, f, gf, fitPoly, wallY0, floorP, eaveY + parapet);
                 bool gfDeck = gfActive && gfKind == GfDeck;
                 // Uptown B3: a tower with no parts of its own stands as a
                 // podium, a shaft set back from it and a roof treatment
                 if (wallSlot == Slot.FacadeGlass && !retail && !floating && f.roof == 0 && !f.part &&
-                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH && !gfDeck &&
+                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH && !gfDeck && !block &&
                     EmitMassing(tm, f, fitPoly, y0, floorP, top))
                 {
                     EndFacade();
@@ -12049,6 +12073,7 @@ namespace PSXRacing.City
                     return;
                 }
                 gfActive = gfKeep;
+                if (wallSlot == Slot.FacadeHouse) { houseFloorY = floorP; hwMap = proxyBuild ? null : map; Bucket.Tint = HouseTintOf(f.centre); if (HouseWallsOn && !skylineBuild) { if (polySiding) HouseBlockBegin(f, f.centre, houseMainSlope, hpHalfDepth); else { houseBrickLook = HouseBrickChoose(f.centre, f.h < 6.5f); houseBrickBase = false; houseStoreyM = HouseMinStoreyM; houseBrickAt = f.centre; } } }   // HOUSE WALLS: storeys from the pad, its colour, brick or siding
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
@@ -12065,6 +12090,7 @@ namespace PSXRacing.City
                         float wy0 = hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0;
                         // the ground floors: a street wall's band stands in the wall's place to its storey line
                         if (gfActive) wy0 = GroundBand(tm, a, c, wy0, eaveY + parapet, outward);
+                        if (lrActive) wy0 = LowRiseWall(tm, map, a, c, wy0, eaveY + parapet, outward, i);
                         if (eaveY + parapet > wy0 + 0.05f)
                             EmitWallStyled(tm, a, c, wy0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
                                            covShop ? fi : -1);
@@ -12073,9 +12099,10 @@ namespace PSXRacing.City
                     // the parapet's inner face (seen from a deck's roof)
                     if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }
+                houseFloorY = float.NaN; houseBrickLook = -1; houseBrickBase = false; houseStoreyM = HouseMinStoreyM; HouseBlockEnd();
                 // BUILDING PASS (CityMeshes.BuildingDetail.cs): a low or mid-rise's
                 // cornice, and its belt course over the ground floor (tiles only)
-                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck)
+                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck && !lrShed)
                     EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail || gfActive);
 
                 roofScratch.Clear();
@@ -12088,6 +12115,8 @@ namespace PSXRacing.City
                     FacadeMetal(true); FacadeCrown(top > facCrownY + 0.3f);
                     var roofKeep = Bucket.Tint;
                     int roofLookKeep = facLook;
+                else if (pitched) HousePolyRoof(tm, f, roofScratch, eaveY, block);
+                else if ((f.roof == 0 || crownFlat) && f.style == 3 && !skylineBuild && (!block || polySiding) && ++HouseFlatLeft < 0) { }
                     StadiumRoofLook(hero, f);   // (the skyline pass: the gate towers' white domes)
                     GlassCrownLook(wallSlot == Slot.FacadeGlass && !LookFixOff && f.roof == 1 && FacadeArgsMat(map, fi, f) == MatGlass);
                     EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
@@ -12565,20 +12594,37 @@ namespace PSXRacing.City
         /// fill's, so they cannot look like two kinds of house.
         /// </summary>
         static void EmitGableHouse(TileMeshes tm, Vector2 centre, Vector2 u, float hu, float hv,
-                                   float y0, float eave, float ridge, Slot wallSlot)
+                                   float y0, float eave, float ridge, Slot wallSlot, float floor = float.NaN)
         {
             var v = new Vector2(-u.y, u.x);
             var c1 = centre + u * hu + v * hv;   // +u +v
             var c2 = centre - u * hu + v * hv;   // -u +v
             var c3 = centre - u * hu - v * hv;   // -u -v
             var c4 = centre + u * hu - v * hv;   // +u -v
+            houseFloorY = floor;   // HOUSE WALLS: the storeys stand on the pad, not on the walls' foot
+            var tintKeep = Bucket.Tint;
+            if (wallSlot == Slot.FacadeHouse) Bucket.Tint = HouseTintOf(centre);   // its siding colour
+            if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && houseBrickLook < 0) { houseBrickLook = HouseBrickChoose(centre, eave - (float.IsNaN(floor) ? y0 + BuildingSink : floor) < 4.6f); houseBrickAt = centre; }
             EmitFacadeQuad(tm, wallSlot, c2, c1, y0, eave, v);
             EmitFacadeQuad(tm, wallSlot, c1, c4, y0, eave, u);
             EmitFacadeQuad(tm, wallSlot, c4, c3, y0, eave, -v);
             EmitFacadeQuad(tm, wallSlot, c3, c2, y0, eave, -u);
+            if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && !proxyBuild) HouseDoor(tm, centre, u, v, hu, hv, y0, floor, eave);
+            houseFloorY = float.NaN;
+            houseBrickLook = -1; houseBrickBase = false; houseStoreyM = HouseMinStoreyM;
 
             var rN = centre + u * hu;   // ridge ends
             var rS = centre - u * hu;
+            if (HouseEavesOn && wallSlot == Slot.FacadeHouse && !skylineBuild)
+            {
+                HouseRoofEaves(tm, centre, u, v, hu, hv, eave, ridge);
+                var gw = buckets[(int)wallSlot];
+                EmitGableTri(gw, tm, c1, rN, c4, eave, ridge, u);
+                EmitGableTri(gw, tm, c3, rS, c2, eave, ridge, -u);
+                Bucket.Tint = tintKeep;
+                return;
+                if (HouseRoofsOn) { HouseBoxRoof(tm, centre, u, hu, hv, eave, ridge, floor); Bucket.Tint = tintKeep; return; }   // ROUND 2: gable or hip (CityMeshes.HouseParts.cs)
+            }
             var roof = buckets[(int)Slot.RoofTiles];
             float uRep = Mathf.Max(1f, Mathf.Round(hu * 2f / RoofTileM));
             float vRep = Mathf.Max(1f, Mathf.Round(Mathf.Sqrt(hv * hv + (ridge - eave) * (ridge - eave)) / RoofTileM));
@@ -12592,7 +12638,7 @@ namespace PSXRacing.City
             var wall = buckets[(int)wallSlot];
             EmitGableTri(wall, tm, c1, rN, c4, eave, ridge, u);
             EmitGableTri(wall, tm, c3, rS, c2, eave, ridge, -u);
-
+            Bucket.Tint = tintKeep;
         }
 
         static void EmitGableTri(Bucket bk, TileMeshes tm, Vector2 a, Vector2 apex, Vector2 c,
@@ -12602,6 +12648,7 @@ namespace PSXRacing.City
             Vector2 d = c - a;
             Vector2 left = new Vector2(-d.y, d.x);
             if (Vector2.Dot(left, outward) < 0f) { var t = a; a = c; c = t; }
+            if (HouseWallsOn && bk == buckets[(int)Slot.FacadeHouse]) { HouseGableTri(bk, tm, a, apex, c, eave, ridge); return; }   // plain siding, no window cut by a slope
             var fm = FacadeMeters[(int)Slot.FacadeHouse - (int)Slot.FacadeTower];
             float uRep = Mathf.Max(1f, Mathf.Round(Vector2.Distance(a, c) / fm.x));
             bk.Tri(L(a, eave, tm), L(apex, ridge, tm), L(c, eave, tm),
@@ -12641,7 +12688,8 @@ namespace PSXRacing.City
                         g = Mathf.Min(g, CityElevation.GroundY(map, corner.x, corner.y));
                     y0 = g - BuildingSink; floor = g;
                 }
-                EmitGableHouse(tm, c, u, hu, hv, y0, floor + h.eaveH, floor + h.eaveH + h.riseH, Slot.FacadeHouse);
+                hwMap = map;
+                EmitGableHouse(tm, c, u, hu, hv, y0, floor + h.eaveH, floor + h.eaveH + h.riseH, Slot.FacadeHouse, floor);
                 tm.houseCount++;
                 tm.houseBoxes.Add((c, u, hu, hv));
                 tm.houseSeats.Add(new HouseSeat { kind = 4, c = c, u = u, hu = hu, hv = hv, y0 = y0, floor = floor });

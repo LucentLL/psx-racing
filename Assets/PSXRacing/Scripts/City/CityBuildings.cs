@@ -47,6 +47,9 @@ namespace PSXRacing.City
             var occupied = new HashSet<long>();      // 18 m occupancy cells
             var scratch = new HashSet<int>();
             int placed = 0;
+            // LOW-RISE CLASSES (CityMeshes.LowRise.cs): the real buildings' classes and heights, before anything reads them
+            CityMeshes.LowRiseApply(map);
+            int frontRemoved = 0, frontLowered = 0;
 
             // city fuel r1: the filling stations' lots claim their cells
             // before anything else stands (a restaurant, a store, a house)
@@ -99,6 +102,13 @@ namespace PSXRacing.City
                         if (map.footprintBounds.Contains(c)) { at += step; continue; }
                         // ...and, outside it, their own sites (coverage: a campus, a shopping centre's lot)
                         if (CityHouses.OnRealSite(map, c, Mathf.Max(bw, bd) * 0.6f + 4f)) { at += step; continue; }
+                        // LOW-RISE CLASSES (PSX_CITY_LRFRONTAGE): never a block on a house street - none within
+                        // 60 m of a mapped house - and one or two storeys out here
+                        if (FrontageRuleOn && kind == 0 && !gable && distUp >= 900f)
+                        {
+                            if (HouseNear(map, c, HouseClearM)) { frontRemoved++; at += step; continue; }
+                            if (bh > TwoStoreyM) { bh = 6.2f + Hash01(e.index, slot, 6) * 1.3f; frontLowered++; }
+                        }
 
                         // never inside another road's corridor
                         scratch.Clear();
@@ -150,8 +160,35 @@ namespace PSXRacing.City
                     }
                 }
             }
-            Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants, {towers} pack towers on real lots, {map.footprints.Length} footprints; {map.stations.Length} filling stations claimed {stationCells} cells)");
+            FrontageReport = $"frontage boxes: {placed} placed; low-rise rule (PSX_CITY_LRFRONTAGE {(FrontageRuleOn ? "on" : "off")}): {frontRemoved} removed within {HouseClearM:0} m of a mapped house, {frontLowered} lowered to two storeys";
+            Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants, {towers} pack towers on real lots, {map.footprints.Length} footprints; {map.stations.Length} filling stations claimed {stationCells} cells); {FrontageReport}");
             return byTile;
+        }
+
+        /// <summary>PSX_CITY_LRFRONTAGE=0: the frontage boxes as they were (a 3-storey block among ranches).</summary>
+        public static bool FrontageRuleOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LRFRONTAGE") != "0";
+        public static string FrontageReport = "";
+        const float HouseClearM = 60f, TwoStoreyM = 7.6f;
+
+        /// <summary>A mapped house (OSM: a style-3 or gabled footprint) within <paramref name="r"/> m of p.</summary>
+        static bool HouseNear(CityMap map, Vector2 p, float r)
+        {
+            int x0 = Mathf.FloorToInt((p.x - r - 40f) / CityMap.FootCell), x1 = Mathf.FloorToInt((p.x + r + 40f) / CityMap.FootCell);
+            int z0 = Mathf.FloorToInt((p.y - r - 40f) / CityMap.FootCell), z1 = Mathf.FloorToInt((p.y + r + 40f) / CityMap.FootCell);
+            for (int tz = z0; tz <= z1; tz++)
+                for (int tx = x0; tx <= x1; tx++)
+                {
+                    var list = map.FootprintsInTile(tx, tz);
+                    if (list == null) continue;
+                    foreach (int fi in list)
+                    {
+                        var f = map.footprints[fi];
+                        if (f.style != 3 && !f.gable) continue;
+                        float reach = r + Mathf.Max(f.hu, f.hv);
+                        if ((f.centre - p).sqrMagnitude < reach * reach) return true;
+                    }
+                }
+            return false;
         }
 
         /// <summary>

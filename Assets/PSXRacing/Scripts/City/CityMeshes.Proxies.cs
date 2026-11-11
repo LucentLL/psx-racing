@@ -126,7 +126,8 @@ namespace PSXRacing.City
             bool gable = b.kind == 0 ? b.gable : CityProps.IsHome(b.kind);
             if (gable)
             {
-                EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, g - BuildingSink + b.h * 0.7f, y1, Slot.FacadeHouse);
+                hwMap = null;
+                EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, g - BuildingSink + b.h * 0.7f, y1, Slot.FacadeHouse, g);
                 return;
             }
             PickFacade(b.pos, (byte)(b.style == 0 ? (b.h > 40f ? 0 : 1) : b.style == 1 ? 1 : 2), 0, 0, default, g, b.h);
