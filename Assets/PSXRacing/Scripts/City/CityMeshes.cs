@@ -12109,14 +12109,17 @@ namespace PSXRacing.City
                 roofScratch.AddRange(fitPoly);
                 bool underOutline = onOutline && top <= outlineTop + 0.05f;
                 if (underOutline) { }
+                // (cityinteg 11-11: the branch head had these two lines spliced inside the
+                // roof block below - a broken merge of the roofs and types commits; order as
+                // in the buildings worktree: pitched house polygons, the flat counter, flat)
+                else if (pitched) HousePolyRoof(tm, f, roofScratch, eaveY, block);
+                else if ((f.roof == 0 || crownFlat) && f.style == 3 && !skylineBuild && (!block || polySiding) && ++HouseFlatLeft < 0) { }
                 else if (f.roof == 0 || crownFlat) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
                 else
                 {
                     FacadeMetal(true); FacadeCrown(top > facCrownY + 0.3f);
                     var roofKeep = Bucket.Tint;
                     int roofLookKeep = facLook;
-                else if (pitched) HousePolyRoof(tm, f, roofScratch, eaveY, block);
-                else if ((f.roof == 0 || crownFlat) && f.style == 3 && !skylineBuild && (!block || polySiding) && ++HouseFlatLeft < 0) { }
                     StadiumRoofLook(hero, f);   // (the skyline pass: the gate towers' white domes)
                     GlassCrownLook(wallSlot == Slot.FacadeGlass && !LookFixOff && f.roof == 1 && FacadeArgsMat(map, fi, f) == MatGlass);
                     EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
