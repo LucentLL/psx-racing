@@ -420,6 +420,14 @@ namespace PSXRacing.City
             /// models (CityMeshes.CrownModels) on their own atlas
             /// (Art/City/Crowns/CrownMaterials.png). Last, so no slot moves.</summary>
             Crown,
+            /// <summary>The median dress (2026-11-09): a planted median's bark
+            /// mulch (CityMeshes.MedianDress), a submesh of the ground. Last, so
+            /// no slot moves.</summary>
+            MedianBed,
+            /// <summary>The Uptown street dress (2026-11-09): the brick pavers of
+            /// Tryon and Trade Streets' sidewalks (CityMeshes.StreetDress), a
+            /// submesh of the ground like <see cref="Sidewalk"/>. Last, so no slot moves.</summary>
+            WalkPaver,
             COUNT,
         }
 
@@ -740,6 +748,7 @@ namespace PSXRacing.City
         {
             Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; facLed = 0;
             Bucket.FacOn = false; facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
+            gfActive = false;   // the ground floors: the building is done
         }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
@@ -950,6 +959,9 @@ namespace PSXRacing.City
             /// where there are none). The post colliders are CityWorld.Attach's,
             /// from this list.</summary>
             public List<Lamp> lamps = new List<Lamp>();
+            /// <summary>The Uptown street dress: the street trees this tile's
+            /// walks stood a grate for (CityMeshes.DressSpan); CityTrees plants them.</summary>
+            public List<StreetTree> streetTrees = new List<StreetTree>();
             /// <summary>A parking deck's dark parts (soffits, spandrel joints, fixtures,
             /// roof poles), tile-local quads as a, b, c, d, facing: drawn by the
             /// furniture mesh (CityPoles, CellBlack), which replaces the Lamps mesh.</summary>
@@ -1005,6 +1017,10 @@ namespace PSXRacing.City
             /// columns and caps, abutments, guardrail object markers, high
             /// masts. Null where the tile has none.</summary>
             public Mesh structure;
+            /// <summary>The median dress (2026-11-09): the planted medians'
+            /// grasses and shrubs, cards on the understory's atlas - render-only,
+            /// no collider. Null where the tile has no bed.</summary>
+            public Mesh medianPlants;
             /// <summary>The bridges pass's high masts on this tile: their floods'
             /// heads (tile-local, for the night glow) and their feet (world plan,
             /// for the roadside mask).</summary>
@@ -1867,6 +1883,8 @@ namespace PSXRacing.City
             BuildBranchAprons(map, t);
             // Five Points round 6: a slip lane widened on the inside of its curve
             BuildSlipWidening(map, t);
+            // the arterials pass (11-10): a left-turn pocket before a median opening
+            BuildTurnPockets(map, t);
             // leftover item 4: the bulbs' necks, on the street's final extents
             BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
@@ -2232,6 +2250,7 @@ namespace PSXRacing.City
             stripInner.Clear(); stripInnerSegs.Clear();
             lampBucket.Clear();
             bankBucket.Clear();
+            MedianPlantsClear();
             lampBuildings = buildings;
             goreGaps.Clear();
             goreQuads.Clear(); goreGroups.Clear();
@@ -2298,7 +2317,7 @@ namespace PSXRacing.City
             stepItem = 6;
             yield return 0;
             stepItem = 0;
-            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk }, out var gSlots, false);
+            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk, Slot.MedianBed, Slot.WalkPaver }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;
             stepPart = 1;   // city-build-hitches: the normals a chunk a step
@@ -2322,6 +2341,7 @@ namespace PSXRacing.City
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.banks = MeshFromBucket("banks", bankBucket);
+            tm.medianPlants = MedianPlantsMesh();
             tm.water = MeshFrom("water", new[] { Slot.Water }, out _);
             yield return 0;
             stepItem = 3;
@@ -2346,7 +2366,7 @@ namespace PSXRacing.City
                 }
             // city perf round 1: each mesh sent to the GPU a step each (CityMeshes.PreUpload)
             if (PreUpload && Application.isPlaying)
-                foreach (var um in new[] { tm.ground, tm.roads, tm.buildings, tm.water, tm.structure, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks })
+                foreach (var um in new[] { tm.ground, tm.roads, tm.buildings, tm.water, tm.structure, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.medianPlants })
                 {
                     if (um == null) continue;
                     yield return 0;
@@ -4647,7 +4667,9 @@ namespace PSXRacing.City
             if (CityPoles.IsAcornEdge(map, e))
             {
                 // both sides, alternating: a post every AcornPitchM on each side
-                gap = AcornPitchM * 0.5f; height = AcornHeightM; kind = LampAcorn; outsideOnly = false;
+                gap = AcornPitchM * 0.5f; height = AcornHeightM; outsideOnly = false;
+                // Tryon and Trade Streets: the twin-globe post (CityMeshes.StreetFurniture.cs)
+                kind = StreetFurnitureOn && StreetDressOn && StreetDressOf(map, e) == DressMain ? LampTwin : LampAcorn;
                 return;
             }
             if (e.cls >= 5) { gap = LampPitchFreewayM; height = LampHeightFreewayM; kind = 2; }
@@ -4728,6 +4750,8 @@ namespace PSXRacing.City
             for (int k = 0; k < count; k++)
             {
                 float s0 = lo + (k + 0.5f) * step;
+                // (street dress) on a dressed Uptown street a lamp stands in the middle of a gap between two trees
+                if (StreetDressOn) s0 = Mathf.Clamp(LampBetweenTrees(map, trims, e, s0), lo, hi);
                 var p0 = e.PointAt(s0);
                 if (p0.x < min.x || p0.x >= max.x || p0.y < min.y || p0.y >= max.y) continue;   // another tile's lamp
                 tm.lampStations++;
@@ -4787,6 +4811,8 @@ namespace PSXRacing.City
                            float height, byte kind, float speed, float heldOut = 0f)
         {
             if (heldOut <= 0f && !LampSideClear(side, s - LampRunMarginM, s + LampRunMarginM)) return LampRejectSide;
+            // (street dress) never where a street tree stands (its grate is 1.5 m long)
+            if (StreetDressOn && StreetTreeGap(map, trims, e, s) < 2f) return LampRejectSide;
             foreach (float se in lampEnds)
                 if (Mathf.Abs(s - se) < ApproachRailM) return LampRejectStructure;
 
@@ -4807,7 +4833,7 @@ namespace PSXRacing.City
                 ? shoulder + RoadsideRules.ClearZoneM + LampClearZonePadM
                 : shoulder + LampUrbanOffsetM;
             off += heldOut;
-            float arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
+            float arm = IsAcornKind(kind) ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
             var footP = edgeW + outw * off;
             var headP = footP - outw * arm;
 
@@ -4837,7 +4863,7 @@ namespace PSXRacing.City
             // in a city race route's run-off it breaks away (the WP-15 review)
             bool breakaway = RaceRunOff.Inside(map, trims, footP);
             tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind, breakaway = breakaway, mercury = MercuryStreet(e) });
-            if (kind == LampAcorn) EmitAcorn(foot, head);
+            if (IsAcornKind(kind)) EmitAcorn(foot, head);
             else EmitLamp(foot, head, outw);
             return 0;
         }
@@ -6340,7 +6366,7 @@ namespace PSXRacing.City
                     // wrecks"): a one-way street's left side (the median of a
                     // divided street), graded, warrants no rail. A freeway's
                     // keeps it; a retaining face (ungraded) keeps it anywhere.
-                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && !Barriered(e))
+                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && (!Barriered(e) || DividerAt(e) == DividerKind.Island))   // (the median dress) a surface trunk's island median is a city street's
                         drop = 0;
                 }
                 else
@@ -6361,7 +6387,7 @@ namespace PSXRacing.City
                     // (2026-10-24, West Trade Street by the I-77 underpass: a
                     // 10 m rail on the strip where they meet to merge, at two
                     // heights - one street, no rail between its halves).
-                    if (!Barriered(e) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
+                    if ((!Barriered(e) || DividerAt(e) == DividerKind.Island) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
                         drop = 0;
                 }
             }
@@ -11808,6 +11834,8 @@ namespace PSXRacing.City
 
         static IEnumerable<int> BuildFootprints(CityMap map, Trims trims, TileMeshes tm, int tx, int tz)
         {
+            EmitSkybridges(map, tm, tx, tz);   // the Uptown street dress: the walkways over the streets (a table of places)
+            EmitStreetFurniture(map, trims, tm, tx, tz);   // ...and the main streets' benches, bins, planters, the Square's statues
             var list = map.FootprintsInTile(tx, tz);
             if (list == null) yield break;
             stackPlans.Clear();   // floored parts: their buildings' plans on this tile's pavement
@@ -11990,10 +12018,15 @@ namespace PSXRacing.City
                         if (dt > bestDot) { bestDot = dt; frontWall = i; }
                     }
                 }
+                // THE UPTOWN GROUND FLOORS (CityMeshes.GroundFloors.cs): what this building's
+                // street walls are at the sidewalk, decided once (EndFacade ends it)
+                if (wallSlot == Slot.FacadeGlass && !retail && !floating && !onOutline && !hangs)
+                    GfBegin(map, trims, tm, fi, f, gf, fitPoly, wallY0, floorP, eaveY + parapet);
+                bool gfDeck = gfActive && gfKind == GfDeck;
                 // Uptown B3: a tower with no parts of its own stands as a
                 // podium, a shaft set back from it and a roof treatment
                 if (wallSlot == Slot.FacadeGlass && !retail && !floating && f.roof == 0 && !f.part &&
-                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH &&
+                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH && !gfDeck &&
                     EmitMassing(tm, f, fitPoly, y0, floorP, top))
                 {
                     EndFacade();
@@ -12002,12 +12035,15 @@ namespace PSXRacing.City
                 }
                 // Uptown C: a landmark hero drawn whole (its shaft, crown or bowl)
                 bool heroAnchor = hero >= 0 && heroAnchorOf[hero] == fi;
+                bool gfKeep = gfActive;
+                if (heroAnchor) gfActive = false;   // a hero's body is its own
                 if (heroAnchor && EmitHeroBody(tm, hero, f, fitPoly, y0, floorP))
                 {
                     EndFacade();
                     tm.footprintCount++;
                     return;
                 }
+                gfActive = gfKeep;
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
@@ -12020,16 +12056,22 @@ namespace PSXRacing.City
                     facCornerB = CornerKind(a, c, fitPoly[(i + 2) % n0]);
                     facWallTop = eaveY + parapet;
                     if (eaveY > wallY0 + 0.05f)
-                        EmitWallStyled(tm, a, c, hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
-                                       covShop ? fi : -1);
+                    {
+                        float wy0 = hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0;
+                        // the ground floors: a street wall's band stands in the wall's place to its storey line
+                        if (gfActive) wy0 = GroundBand(tm, a, c, wy0, eaveY + parapet, outward);
+                        if (eaveY + parapet > wy0 + 0.05f)
+                            EmitWallStyled(tm, a, c, wy0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
+                                           covShop ? fi : -1);
+                    }
                     facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
                     // the parapet's inner face (seen from a deck's roof)
                     if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }
                 // BUILDING PASS (CityMeshes.BuildingDetail.cs): a low or mid-rise's
                 // cornice, and its belt course over the ground floor (tiles only)
-                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi))
-                    EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail);
+                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck)
+                    EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail || gfActive);
 
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);

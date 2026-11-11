@@ -1628,6 +1628,19 @@ namespace PSXRacing.EditorTools
                     Wrap(root, tm.ground, mats, tm.groundSlots);
                     Wrap(root, tm.roads, mats, tm.roadSlots);
                     Wrap(root, tm.barriers, mats, new[] { CityMeshes.Slot.Concrete });
+                    // the median dress (11-09): the planted medians' cards are the tile's own
+                    // (the preview stands no trees or understory, but an island's bed is the road's)
+                    if (tm.medianPlants != null)
+                    {
+                        var um = CityUnderstory.MaterialFor(CityTrees.DressNow());
+                        if (um != null)
+                        {
+                            var pg = new GameObject("MedianPlants");
+                            pg.transform.SetParent(root.transform, false);
+                            pg.AddComponent<MeshFilter>().sharedMesh = tm.medianPlants;
+                            pg.AddComponent<MeshRenderer>().sharedMaterial = um;
+                        }
+                    }
                     // leftover item 2: the W-beam lead-ins at parapet ends (the
                     // game draws them with the tile's furniture; the preview
                     // stands no poles, lamps or trees, so it draws them alone)

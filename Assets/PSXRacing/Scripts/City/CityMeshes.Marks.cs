@@ -41,8 +41,8 @@ namespace PSXRacing.City
     /// </summary>
     public static partial class CityMeshes
     {
-        public const byte MkOff = 0, MkLS = 1, MkCH = 2, MkDW = 3, MkAuxDW = 4, MkGoreCH = 5, MkGlyph = 6, MkYS = 7;
-        public static readonly string[] MarkNames = { "off", "LS", "CH", "DW", "aux DW", "gore CH", "glyph", "YS" };
+        public const byte MkOff = 0, MkLS = 1, MkCH = 2, MkDW = 3, MkAuxDW = 4, MkGoreCH = 5, MkGlyph = 6, MkYS = 7, MkAuxLS = 8;
+        public static readonly string[] MarkNames = { "off", "LS", "CH", "DW", "aux DW", "gore CH", "glyph", "YS", "aux LS" };
 
         /// <summary>One mark on one edge over [s0, s1].
         ///   MkOff / MkLS / MkCH / MkDW  override the layout line k there
@@ -70,8 +70,8 @@ namespace PSXRacing.City
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped, mouthsDotted, mouthsDottedOut, mouthsDottedYellow,
                        lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
-                       crosswalks, crosswalkBars, crosswalksSkipped;
-            public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
+                       crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines;
+            public float auxM, exitDropM, lsM, buildMs, pocketM; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
             public readonly Dictionary<int, (float xP, float tO, float tP)> gore = new Dictionary<int, (float, float, float)>();
@@ -102,6 +102,7 @@ namespace PSXRacing.City
             CrosswalkMarks(map, t);
             float t1 = (float)sw.Elapsed.TotalMilliseconds;
             TurnMarks(map, t);
+            PocketMarks(map, t);
             NoseMarks(map, t);
             float t2 = (float)sw.Elapsed.TotalMilliseconds;
             YieldMarks(map, t);
@@ -148,6 +149,11 @@ namespace PSXRacing.City
         {
             // ---- AUX DW: over the aux lane's full width, N to the taper start
             bool any = false;
+            // (the arterials pass) a link leaving a divided street's carriageway on its MEDIAN side - a
+            // crossover, a left turn through the median - is fed by a LEFT-TURN LANE, not an exit lane:
+            // its line is solid white and it carries a left arrow (Brookshire Blvd by N Crigler St)
+            bool leftTurn = TurnPocketsOn && !z.merge && z.branch >= 0 && map.edges[z.branch].link;
+            CityMap.Edge arrowE = null; float arrowS = 0f, arrowW = 0f, arrowLen = 0f;
             foreach (int ei in z.auxEdges)
             {
                 var e = map.edges[ei];
@@ -160,11 +166,14 @@ namespace PSXRacing.City
                     float b = q.fromA ? dHi - q.d0 : e.length - (dLo - q.d0);
                     a = Mathf.Max(0f, a); b = Mathf.Min(e.length, b);
                     if (b - a < 0.3f) continue;
-                    AddMark(new PaintMark { style = MkAuxDW, edge = ei, s0 = a, s1 = b, side = q.side, zone = z.id });
+                    bool pocket = leftTurn && q.side > 0 && PocketClass(map, e);
+                    AddMark(new PaintMark { style = pocket ? MkAuxLS : MkAuxDW, edge = ei, s0 = a, s1 = b, side = q.side, zone = z.id });
                     MarkStats.auxMarks++; MarkStats.auxM += b - a; any = true;
+                    if (pocket) { MarkStats.pocketZoneLines++; if (b - a > arrowLen) { arrowLen = b - a; arrowE = e; arrowS = b - 6f; arrowW = q.auxW; } }
                 }
             }
             if (any) MarkStats.auxZones++;
+            if (arrowE != null && arrowLen >= ArrowH + 8f && PocketArrow(t, arrowE, arrowS, Mathf.Min(arrowW, PocketLaneM))) MarkStats.pocketArrows++;
 
             // ---- GORE CH: from N to the physical nose P
             var host = z.hostChain;
@@ -856,9 +865,11 @@ namespace PSXRacing.City
             {
                 float sc = Mathf.Min(s, sHi);
                 LineModel.Extents(e, sc, out float eM, out float eP);
-                if ((e.lmPlus != 0f || e.lmMinus != 0f) && (Mathf.Abs(eM - e.lmMinus) > 1e-3f || Mathf.Abs(eP - e.lmPlus) > 1e-3f))
+                // (a left-turn pocket beside the lanes is not a change of theirs)
+                float pkW = PocketWidthAt(e, sc);
+                if ((e.lmPlus != 0f || e.lmMinus != 0f) && (Mathf.Abs(eM - e.lmMinus) > 1e-3f || Mathf.Abs(eP - pkW - e.lmPlus) > 1e-3f))
                 { MarkStats.groupsSkipped++; return false; }
-                if (LineModel.Relayed(e, sc) || Mathf.Abs(LineModel.ShiftAt(e, sc) - shMid) > 0.05f || AuxActive(e, sc)) { MarkStats.groupsSkipped++; return false; }
+                if (LineModel.Relayed(e, sc) || Mathf.Abs(LineModel.ShiftAt(e, sc) - shMid) > 0.05f || (pkW > 0f ? AuxActiveBesidePocket(e, sc, pkW) : AuxActive(e, sc))) { MarkStats.groupsSkipped++; return false; }
             }
             laneLat += shMid;
             glyphLocal.Clear();
@@ -900,6 +911,9 @@ namespace PSXRacing.City
 
         static bool AuxActive(CityMap.Edge e, float s) =>
             LineModel.AuxWidth(e, s, 1) > 1e-3f || LineModel.AuxWidth(e, s, -1) > 1e-3f;
+        /// <summary>An aux lane other than the left-turn pocket's.</summary>
+        static bool AuxActiveBesidePocket(CityMap.Edge e, float s, float pocketW) =>
+            LineModel.AuxWidth(e, s, 1) > pocketW + 1e-3f || LineModel.AuxWidth(e, s, -1) > 1e-3f;
 
         // ================================================================
         //  Yield lines (shark teeth) where a tier-1 link ends at a yield
@@ -1209,6 +1223,13 @@ namespace PSXRacing.City
                     float la = AuxThroughLat(e, A.s, m.side), lb = AuxThroughLat(e, B.s, m.side);
                     if (float.IsNaN(la) || float.IsNaN(lb)) continue;
                     Add(la - DWHalf, la + DWHalf, lb - DWHalf, lb + DWHalf, 3, wHi, wLo, -1, true);
+                }
+                else if (m.style == MkAuxLS)
+                {
+                    // a left-turn pocket's lane line: solid white at the through lanes' edge
+                    float la = AuxThroughLat(e, A.s, m.side), lb = AuxThroughLat(e, B.s, m.side);
+                    if (float.IsNaN(la) || float.IsNaN(lb)) continue;
+                    Add(la - PH, la + PH, lb - PH, lb + PH, 2, wHi, wLo, -1, true);
                 }
                 else if (m.style == MkGoreCH)
                 {

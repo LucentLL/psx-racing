@@ -208,7 +208,7 @@ namespace PSXRacing.City
         static int skirtTriCount;
         /// <summary>The ground buckets' vertex and index counts when BuildGround
         /// ends (the lattice, the lots, the driveways: laid on the lattice).</summary>
-        static readonly int[] groundBaseV = new int[2], groundBaseT = new int[2];
+        static readonly int[] groundBaseV = new int[3], groundBaseT = new int[3];   // ground, pavement, and the median dress's bed (nothing of it on the lattice: 0)
 
         static int Cap(int n) { int c = 1 << 12; while (c < n * 2) c <<= 1; return c; }
         static int Hash(long k, int mask) => (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 33) & mask;
@@ -329,7 +329,7 @@ namespace PSXRacing.City
             roadSheets.Clear();
             foreach (var s in RoadAndStructureSlots) roadSheets.Add(buckets[(int)s]);
             roadGrid.Build(roadSheets);
-            skirtSheets.Clear(); skirtSheets.Add(g); skirtSheets.Add(pv);
+            skirtSheets.Clear(); skirtSheets.Add(g); skirtSheets.Add(pv); skirtSheets.Add(buckets[(int)Slot.MedianBed]);   // (the median dress) a bed's top is the island's sheet as the grass was: welded with its neighbours
             groundGrid.Build(skirtSheets, groundBaseT);
             OpenEdges(skirtSheets, false, groundBaseV, groundBaseT);
             skirtPhase[1] += sw.Elapsed.TotalMilliseconds;

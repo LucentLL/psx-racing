@@ -1,3 +1,44 @@
+# HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
+
+Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
+
+## The rule (Scripts/City/CityMeshes.GroundFloors.cs; data Scripts/City/CityGroundFloors.Data.cs from tools/city/groundfloors.py)
+- A wall of a building inside the freeway loop that FACES A STREET (open air in front, a street's pavement within reach square to it, nothing between) takes a ground-floor BAND from its floor to a storey line; the atlas wall starts at that line (the band replaces the wall there: never a decal).
+- What the building is comes from OpenStreetMap's tags (413 tagged buildings round Uptown, 359 matched to a footprint, 206 inside the loop): parking DECK, HOTEL, WORSHIP, CIVIC hall, SHOP, HOMES; untagged = office. With its height, its street (Tryon/Trade = main; side) and its hash:
+  - DECK: every wall, every level - precast spandrels proud of dark openings, columns; the entrance where OSM's driveway crosses the outline (43 mapped; else the middle of its front): a two-lane mouth, five red bollards, a clearance bar, a red blade sign (PARK), a light.
+  - LOBBY: square piers, a fascia, glazing set back 1.2 m; on the building's front a canopy and a downlight; a hotel: two white planters and a blade sign in a made-up name (ARDEN, CALDER, WRENLY, MERRIT, HOLLIS, TARLOW).
+  - ARCADE: the same, glazing 3 m back behind free piers.
+  - SHOPS: a shopfront a bay - glass over a stall riser, a plain sign band, an awning on most; on a main street's wide walk a patio rail or a hedge planter before some.
+  - BLANK: a solid base under a string course, a loading dock or two on a long wall.
+- The places the rule cannot know: `GfPlaces` (9 rows: a point in the building + the style; East 3rd's south arcade, South College's white podium, the East 5th and East MLK hall walls and docks, ...). `GroundFloorReport` lists what each found.
+- Everything rides the facade atlas's bucket: no material, no draw call, no object. Stone/metal = column 7; the dark parts = a flat patch of the brick column under a dark tint; glazing = the curtain-wall columns. Piers, risers, glazing, bollards, planters are solid as drawn; canopies, awnings, signs, soffits drawn only; anything on the walk is drawn only in a race route's run-off.
+
+## Street furniture and corrections (Scripts/City/CityMeshes.StreetFurniture.cs)
+- Tryon and Trade: TWIN-GLOBE posts (lamp kind `LampTwin` 5, the acorn's placement, light x1.5 and collider; CityPoles draws it), a bench + bin and a planter every fourth tree gap on each side, the Square's four corner statues and bollards.
+- Corrections to the first dress: a side street's tree pitch is its own (`SidePitches`: 3rd 25 m, 4th and Church 20, MLK 18, 6th 15, College 13, others 14; was 12 everywhere); six skybridges are themselves (`SkyLooks`: West 4th's climbs under a glass roof, East Trade's banded and mostly opaque, South College's a white box with a ribbon, ...); the paver regraded (tools/city/paver_walk.py: mean 142,89,74 -> 106,86,78; tile sheet Docs/shots/ground_floors/paver_tile_sheet.png).
+
+## Switches (all ON; `=0` is the picture as it was)
+`PSX_CITY_GROUNDFLOORS`, `PSX_CITY_STREETFURN`, `PSX_CITY_DRESSFIX`. With all three off the 17 first-round frames are pixel-identical to main's. (The paver's colour is the texture file: no switch.) CityTileCache Format 4 (take the next free number at merge if the arterials branch also bumped it).
+
+## Gates (PSXRec, before = main d635bb9f code, after = this branch)
+- `CityAudit.RunDrive` (uptown + tryon routes, the Uptown box): before 3 FAILURES = blunt rail ends 8, short rails 27, collider-only solids 72 (of 1,531,341 samples); after 3 FAILURES = 8, 27, 72 (of 1,946,267 samples: the new geometry is sampled, none of it collider-only; Buildings (MeshCollider) 6 -> 6). Every ok/FAIL line of the two reports is the same: walls in lanes 0 -> 0, fall holes 0 -> 0.
+- Flicker finder (`tools\city-flicker.ps1`, the route spots): 1204 -> 1206 depth-tie px of 18.14 M; no surface pair moved by 8 px.
+- Frame cost at the Square (EnsureRing 2, 25 tiles, editor batch, best of 5 A/B rounds): triangles 767,350 -> 831,278 (+8.3%), renderers 227 -> 227, ring build 10.9 -> 11.5 s, render median 15.16 -> 14.32 ms (inside the shared machine's noise).
+- `tools\city-traffic-check.ps1 -NoWatch -CityPlay`: CITY TRAFFIC OK (traffic-on-traffic wrecks 0, bumps 0), CITY SPAWNS OK, no FAIL line.
+- Night: seven spots rendered through the game's own night (CityFarShots, PSX_FAR_POSES): door lights pool on the walk, lobby and shop glazing lights as an office floor does, skybridge glazing fluorescent, sodium and mercury street heads only.
+- `=0`: with the three switches off, the 17 first-round spots are pixel-identical to main's frames.
+- These gates ran on fb4d4cf6's geometry. After them: colour-only commits (the dark surfaces' UV patch, the shrub green) and ONE place row (`e3rd_hotel_and_deck`: the owner's photo - a hotel front and a deck mouth on one building), rendered but not re-gated.
+
+## NOT done / NOT verified
+- Not built or run: the WebGL player, the PC exe (its city bake is stale: Format 4), `CityAudit.RunTrees` after the pitch change (placement rules untouched; only the pitch).
+- Night: lobby and shop glazing is lit as an office floor (the clock's share), not always on. An always-lit shopfront needs a cell of the facade atlas with the shop mask (atlas + night mask + Enhanced twin): not done.
+- Bus shelters: none (none seen in the frames looked at). Benches, bins, planters: Tryon and Trade only. Bollards: the Square and deck mouths only (South Tryon's kerb-line bollards are not drawn).
+- Deck mouths: no hanging ENTRANCE sign box, no public-parking sign boxes or painted arrows (West 4th). West 6th's arched-grille garage screen is a plain deck; its garden wall and iron fence are not drawn (no fences or low walls anywhere).
+- The five hero towers' own bodies, model-swapped lots and OSM retail blocks (style 4) keep their old ground floors. A building takes ONE place row for all its street walls (footprint 13191: East 3rd's arcade also faces East MLK).
+- Lettering is block letters on blade signs only (PARK, six made-up hotel names); shop sign bands are blank.
+- Not in the game at all, seen in the frames: the light-rail bridge over East Trade and East Brooklyn Village, the streetcar track (post-2000: left out on purpose), North Brevard's wood pole line (not checked).
+- THE SKYLINE RAMP (owner's photos 04/05): the motorway_link whose destination names Sixth Street and McDowell Street is OSM way 16664396 (101 m, a bridge) + 159022597 (171 m), off the Independence expressway at 35.2217,-80.8300; spot `up_ramp_6th` + day/night frames are on the sheet. It does NOT match the photo: from the link the road bends RIGHT and Uptown sits to the left; the photo's road bends LEFT with the towers dead ahead and the camera is above the road - its vantage was not found. What differs in the game's frame: a dense tree line on the outside of the curve hides the skyline (real: mown grass embankments, one ornamental tree); a Jersey wall on the ramp's right (real: W-beam on the outside of the curve); rough unmown ground; an EXIT sign on the left, no ground-mounted "Sixth St / McDowell St NEXT RIGHT" guide sign; the towers that do show are small, one crown lit. None of that is this piece's (roadside, trees, signs).
+
 # HANDOFF - ROAD LOGIC JUNCTIONS ROUND 3e (2026-10-30; MERGEABLE: yes)
 
 Branch `road-logic-junctions-r3e` (worktree `C:\Users\mcgee\PSX Racing-junctions`), head code e7d7429d + this docs commit, base 82c83a3c (integration-1030b = main d73ca5bd + heights r11 + round 3d). Sandbox PSXRec (lock "road-logic-junctions-r3e", removed; no Unity on it). Data = 82c83a3c's new data (code only, no data change). Scope cut by the coordinator mid-round (usage): items 1-3 kept, the rest are next steps below. Scratchpad tools in `r3e\` (r3e_tool.ps1 / r3e_job.ps1 lock-safe runners, r3e_trace.ps1, r3e_table.py, r3e_worse.py, nodes_near.mjs / edge_dump.mjs / rampgap.mjs, out\ every report / trace / check, runs\ the intermediate censuses).

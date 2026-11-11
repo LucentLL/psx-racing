@@ -652,9 +652,11 @@ namespace PSXRacing.EditorTools
 
                 // every launch spot, for the record
                 var csv = new StringBuilder("sep_m,liftoff_kmh,judged_kmh,x,z,y,lat,lon,kind,cause,route,edge,edge_name,cls,node,g_in,g_out,mesh_minus_data\n");
+                // PSX_LAUNCH_CSV_ALL=1: the UNLOAD spots too (a before/after diff of every spot)
+                bool csvAll = System.Environment.GetEnvironmentVariable("PSX_LAUNCH_CSV_ALL") == "1";
                 foreach (var s in city)
                 {
-                    if (s.sep < LaunchSepM) continue;
+                    if (s.sep < LaunchSepM && !csvAll) continue;
                     var e = map.edges[s.edge];
                     csv.Append(string.Format(CultureInfo.InvariantCulture, "{0:0.000},{1:0},{2:0},{3:0.0},{4:0.0},{5:0.00},{6},{7},{8},{9},{10},{11},\"{12}\",{13},{14},{15:0.000},{16:0.000},{17:0.00}\n",
                         s.sep, s.liftKmh, s.v * 3.6f, s.x, s.z, s.y, CityAudit.LatLon(s.x, s.z).Replace(",", " "), "", KindName(s.kind), s.cause, s.routeMask, s.edge, e.name, e.cls, s.node, s.gIn, s.gOut, s.meshOff));

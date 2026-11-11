@@ -714,7 +714,7 @@ namespace PSXRacing.City
                         int node = k == 0 ? e.a : e.b;
                         if (!WalkEndKeeps(map, trims, e, node, side, pw)) continue;
                     }
-                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, WalkW);
+                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, WalkWOf(map, e));
                     if (w < WalkMinM || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
                     arr[k] = w;
                 }
@@ -952,8 +952,8 @@ namespace PSXRacing.City
                     return 0;
                 }
             }
-            cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, WalkW);
-            cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, WalkW);
+            cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, WalkWOf(map, map.edges[k0.edge]));
+            cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, WalkWOf(map, map.edges[k1.edge]));
             noneWhyNow = 3;
             if (cw.w0 < WalkMinM || cw.w1 < WalkMinM) return 0;
             noneWhyNow = 1;
@@ -1309,6 +1309,10 @@ namespace PSXRacing.City
                 if (wB <= 0f) { vB0 = vB1 = 0f; }
                 // the curbs pass (11-05): the face in the slab's joint texels, darker
                 if (q == 0 && CurbFaceDarkOn) CurbFaceQuad(bk, pa[0], pa[1], pb[1], pb[0], uA, uB);
+                else if (q == 2 && walkPaverNow)
+                // (street dress) Tryon and Trade: the slab behind the curb is brick pavers
+                PaverBucket.Up(pa[q], pa[q + 1], pb[q + 1], pb[q],
+                      new Vector2(uA, vA0) * PaverUV, new Vector2(uA, vA1) * PaverUV, new Vector2(uB, vB1) * PaverUV, new Vector2(uB, vB0) * PaverUV);
                 else
                 bk.Up(pa[q], pa[q + 1], pb[q + 1], pb[q],
                       new Vector2(uA, vA0), new Vector2(uA, vA1), new Vector2(uB, vB1), new Vector2(uB, vB0));
@@ -1430,6 +1434,20 @@ namespace PSXRacing.City
             // the top to the axis
             bool conc = MedianSurfaceOf(map, e, side) == 2;
             Vector3 a = islProfA[2], b = islProfA[3], c = islProfB[3], d = islProfB[2];
+            if (!conc && RefugeDressOn)
+            {
+                // (the arterials pass) the median dress on a refuge island: concrete where it is
+                // narrow and for the pocket's length from each tip, a bed between, grass where wide
+                r.Local(new Vector2(eA.x + o.x, eA.z + o.z), out float ua, out _);
+                r.Local(new Vector2(eB.x + o.x, eB.z + o.z), out float ub, out _);
+                float dTip = Mathf.Min(Mathf.Min(ua, ub) - r.x0s, r.axLen - r.x0e - Mathf.Max(ua, ub));
+                int top = 2f * Mathf.Min(wA, wB) < MedianConcreteMaxW || dTip < MedianPocketM ? MedianTopConcrete
+                        : 2f * Mathf.Max(wA, wB) < MedianBedMaxW ? MedianTopBed : MedianTopGrass;
+                MedianTopBucket(top).Up(a, b, c, d, MedianTopUV(top, a.x + o.x, a.z + o.z), MedianTopUV(top, b.x + o.x, b.z + o.z),
+                                        MedianTopUV(top, c.x + o.x, c.z + o.z), MedianTopUV(top, d.x + o.x, d.z + o.z));
+                RefugeDressSpans++;
+            }
+            else
             GroundBucket(conc).Up(a, b, c, d, GroundUV(conc, a.x + o.x, a.z + o.z), GroundUV(conc, b.x + o.x, b.z + o.z),
                                   GroundUV(conc, c.x + o.x, c.z + o.z), GroundUV(conc, d.x + o.x, d.z + o.z));
             IslandKerbSpans++; IslandKerbM += Vector3.Distance(eA, eB);
@@ -1446,6 +1464,16 @@ namespace PSXRacing.City
         /// has no walk (the verge as before).
         /// </summary>
         static bool EmitWalkSpan(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, int i, int side,
+                                 Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB, StripShape verge)
+        {
+            // (street dress) a dressed Uptown street's slab is brick pavers
+            walkPaverNow = StreetDressOn && StreetDressOf(map, e) == DressMain;
+            bool laid = EmitWalkSpanCore(map, trims, tm, e, i, side, eA, eB, outA, outB, sA, sB, verge);
+            walkPaverNow = false;
+            return laid;
+        }
+
+        static bool EmitWalkSpanCore(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, int i, int side,
                                  Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB, StripShape verge)
         {
             if (walkEdgeNow != e.index || i < 1 || i >= sections.Count) return false;
@@ -1530,6 +1558,8 @@ namespace PSXRacing.City
             }
             WalkStats.walkM += len; WalkStats.spans++;
             if (wA <= 0f || wB <= 0f) WalkStats.ramps++;
+            // (street dress) the street trees' grates on this span, and the trees for CityTrees
+            if (StreetDressOn && !anyCut) DressSpan(map, trims, tm, e, side, eA, eB, outA, outB, sA, sB, wA, wB);
             return true;
         }
 
@@ -1539,6 +1569,14 @@ namespace PSXRacing.City
         /// strip round the ring (kind 2), and the verges behind it.
         /// </summary>
         static void EmitCornerWalk(CityMap map, Trims trims, TileMeshes tm, List<FanCorner> ring, int kind, in CornerWalk cw)
+        {
+            // (street dress) a corner on a dressed Uptown street is paved as that street is
+            walkPaverNow = StreetDressOn && (StreetDressOf(map, map.edges[ring[cw.g0].edge]) == DressMain || StreetDressOf(map, map.edges[ring[cw.g1].edge]) == DressMain);
+            EmitCornerWalkCore(map, trims, tm, ring, kind, cw);
+            walkPaverNow = false;
+        }
+
+        static void EmitCornerWalkCore(CityMap map, Trims trims, TileMeshes tm, List<FanCorner> ring, int kind, in CornerWalk cw)
         {
             var o = tm.origin;
             var bk = WalkBucket;
@@ -1573,7 +1611,10 @@ namespace PSXRacing.City
             var B0 = WalkBack(k0.pos, cw.n0, cw.w0); B0.y -= RoadsideRules.EdgeDropM;
             var B1 = WalkBack(k1.pos, cw.n1, cw.w1); B1.y -= RoadsideRules.EdgeDropM;
             P3.y = 0.5f * (B0.y + B1.y);
-            Vector2 UV(Vector3 p) => new Vector2((p.x + o.x) / WalkTexM, (p.z + o.z) / WalkTexM);
+            // (street dress) the fan to P in the pavers on a dressed street (the curb stays the slab's)
+            var slab = walkPaverNow ? PaverBucket : bk;
+            float texM = walkPaverNow ? PaverTexM : WalkTexM;
+            Vector2 UV(Vector3 p) => new Vector2((p.x + o.x) / texM, (p.z + o.z) / texM);
             for (int j = cw.g0; ; j = (j + 1) % nR)
             {
                 var kp = ring[j].pos;
@@ -1592,7 +1633,7 @@ namespace PSXRacing.City
                         LogWalkQuad(" curb band" + q, walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q]);
                     }
                     // ... and the walk from the nose back to P
-                    UpTri(bk, P3, walkProfA[2], walkProfB[2], UV(P3), UV(walkProfA[2]), UV(walkProfB[2]));
+                    UpTri(slab, P3, walkProfA[2], walkProfB[2], UV(P3), UV(walkProfA[2]), UV(walkProfB[2]));
                     u2 += len;
                 }
                 System.Array.Copy(walkProfB, walkProfA, 4);
@@ -1601,9 +1642,9 @@ namespace PSXRacing.City
             }
             // the two ends: from each arm's nose out to its back-of-walk point, to P
             WalkProfile(k0.pos, cw.n0, CurbNoseOut + 0.01f, walkProfA);
-            UpTri(bk, P3, B0, walkProfA[2], UV(P3), UV(B0), UV(walkProfA[2]));
+            UpTri(slab, P3, B0, walkProfA[2], UV(P3), UV(B0), UV(walkProfA[2]));
             WalkProfile(k1.pos, cw.n1, CurbNoseOut + 0.01f, walkProfB);
-            UpTri(bk, P3, walkProfB[2], B1, UV(P3), UV(walkProfB[2]), UV(B1));
+            UpTri(slab, P3, walkProfB[2], B1, UV(P3), UV(walkProfB[2]), UV(B1));
             // the verges behind: T0' to P to T1', mitred on P's bisector
             var bis = cw.n0 + cw.n1;
             bis = bis.sqrMagnitude > 1e-6f ? bis.normalized : cw.n0;

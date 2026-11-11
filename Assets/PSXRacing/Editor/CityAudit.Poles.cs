@@ -150,7 +150,7 @@ namespace PSXRacing.EditorTools
                 int tileBreakaway = 0;
                 foreach (var l in tm.lamps)
                 {
-                    if (l.kind == CityMeshes.LampAcorn) { acorns++; if (why == "uptown") uptownAcorns++; }
+                    if (CityMeshes.IsAcornKind(l.kind)) { acorns++; if (why == "uptown") uptownAcorns++; }
                     // a lamp post in a race route's run-off breaks away (no
                     // collider; the WP-15 review), every other one is solid
                     var lf = tm.origin + l.foot;
@@ -158,7 +158,7 @@ namespace PSXRacing.EditorTools
                     if (inRun && !l.breakaway) Bad("a solid lamp post in race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
                     // (a deck's light is the deck's, no post: breakaway anywhere)
                     if (!inRun && l.breakaway && l.kind != CityMeshes.LampDeck) Bad("a breakaway lamp post outside race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
-                    if (l.breakaway) { lampsBreakaway++; tileBreakaway++; if (l.kind == CityMeshes.LampAcorn) acornsBreakaway++; } else lampsSolid++;
+                    if (l.breakaway) { lampsBreakaway++; tileBreakaway++; if (CityMeshes.IsAcornKind(l.kind)) acornsBreakaway++; } else lampsSolid++;
                     var lh = tm.origin + l.head;
                     AddLight(new Vector2(lh.x, lh.z));
                 }

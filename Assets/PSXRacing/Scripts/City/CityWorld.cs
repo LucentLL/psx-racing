@@ -515,7 +515,7 @@ namespace PSXRacing.City
             j.Abandon();
             var r = j.Result;
             if (r != null)
-                foreach (var m in new[] { r.ground, r.roads, r.barriers, r.guardrails, r.kerbs, r.lampPosts, r.banks, r.water, r.buildings, r.buildingCollider })
+                foreach (var m in new[] { r.ground, r.roads, r.barriers, r.guardrails, r.kerbs, r.lampPosts, r.banks, r.water, r.buildings, r.buildingCollider, r.medianPlants })
                     Kill(m);
             JobsAbandoned++;
         }
@@ -1708,6 +1708,23 @@ namespace PSXRacing.City
                 SunShadows.Exclude(g);
                 meshes.Add(tm.structure);
             }
+            if (tm.medianPlants != null)
+            {
+                // THE MEDIAN DRESS (2026-11-09): the planted medians' grasses and
+                // shrubs - RENDER-ONLY cards on the understory's atlas in the
+                // day's dress, on the foliage layer. No collider: a car drives
+                // through a shrub; the island's curb is in the ground mesh.
+                var g = Child(root, "MedianPlants", CityTrees.FoliageLayer);
+                g.AddComponent<MeshFilter>().sharedMesh = tm.medianPlants;
+                var mr = g.AddComponent<MeshRenderer>();
+                var um = CityUnderstory.MaterialFor(CityTrees.DressNow());
+                mr.sharedMaterial = um;
+                mr.enabled = um != null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                SunShadows.Exclude(g);
+                meshes.Add(tm.medianPlants);
+            }
             if (tm.kerbs != null)
             {
                 // RENDER-ONLY, deliberately: the inch of face under a grounded
@@ -1812,7 +1829,7 @@ namespace PSXRacing.City
                     // road; square to the world it stays inside the drawn post
                     // within 4 cm) - never a box wider than what is drawn
                     var bc = c.AddComponent<BoxCollider>();
-                    float pw = l.kind == CityMeshes.LampAcorn ? AcornPostColliderM : LampColliderM;
+                    float pw = CityMeshes.IsAcornKind(l.kind) ? AcornPostColliderM : LampColliderM;
                     bc.center = l.foot + Vector3.up * (l.height * 0.5f);
                     bc.size = new Vector3(pw, l.height, pw);
                 }
@@ -1849,6 +1866,10 @@ namespace PSXRacing.City
                 var u = go.transform.Find("Understory");
                 var ur = u != null ? u.GetComponent<MeshRenderer>() : null;
                 if (ur != null) { ur.sharedMaterial = umat; ur.enabled = umat != null; }
+                // the median dress's plants wear the understory's dress
+                var mp = go.transform.Find("MedianPlants");
+                var mpr = mp != null ? mp.GetComponent<MeshRenderer>() : null;
+                if (mpr != null) { mpr.sharedMaterial = umat; mpr.enabled = umat != null; }
             }
         }
 
@@ -1993,7 +2014,7 @@ namespace PSXRacing.City
         /// cobra-head's: uptown's acorn posts are pedestrian lamps, lower and a
         /// fraction of the wattage, and there are twice as many of them.</summary>
         public const float AcornLightGain = 0.25f;
-        static float LampGain(CityMeshes.Lamp l) => l.kind == CityMeshes.LampAcorn ? AcornLightGain : l.kind == CityMeshes.LampDeck ? DeckLightGain : 1f;
+        static float LampGain(CityMeshes.Lamp l) => l.kind == CityMeshes.LampAcorn ? AcornLightGain : l.kind == CityMeshes.LampTwin ? AcornLightGain * 1.5f : l.kind == CityMeshes.LampDeck ? DeckLightGain : 1f;
         /// <summary>A parking deck's ceiling fixture or roof pole (2026-10-05):
         /// a fluorescent strip, dimmer than a cobra-head; 0.6 with the
         /// ceilings concrete burnt the night interior white (the field is flat:
@@ -2095,6 +2116,10 @@ namespace PSXRacing.City
             if (slot == CityMeshes.Slot.Structure) return MatFor(CityMeshes.Slot.Concrete);
             // ...and one built before the crown models: they wear the flat roofs' concrete
             if (slot == CityMeshes.Slot.Crown) return MatFor(CityMeshes.Slot.RoofFlat);
+            // ...and one built before the median dress: a bed wears the ground's grass, as before
+            if (slot == CityMeshes.Slot.MedianBed) return MatFor(CityMeshes.Slot.Ground);
+            // ...and one built before the Uptown street dress: the pavers wear the walk's slab
+            if (slot == CityMeshes.Slot.WalkPaver) return MatFor(CityMeshes.Slot.Sidewalk);
             return null;
         }
 
