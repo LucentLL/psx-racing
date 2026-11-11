@@ -86,6 +86,7 @@ namespace PSXRacing.EditorTools
                 list.Add(v);
             }
             Log($"Cliffs: {infos.Count} Meadow cliff meshes for the road cuts.");
+            LoadBoulders(list);
             return infos;
         }
 
@@ -129,6 +130,45 @@ namespace PSXRacing.EditorTools
                 // THE FOOT: a dense fringe where the verge meets the rock
                 AddLedge(toe - outw * 0.25f + side * ((r3 - 0.5f) * 2f), 3);
                 if (r1 > 0.35f) AddLedge(toe - outw * 0.6f + side * ((r1 - 0.5f) * 2f), 3);
+                // TALUS: fallen blocks at the foot of a rock face, set into it
+                // (at most 0.15 m in front of its solid: a car scraping the
+                // face is not to drive through stone it cannot touch)
+                // In CLUSTERS along the cut (a slow noise sets how much falls
+                // here), each stone anywhere along the chord: the ground line
+                // is not a straight edge.
+                if (boulderVars.Count > 0 && h >= 1.5f)
+                {
+                    float heap = RNoise(distAt[k] / 9f, 0.4f, seed + 231);
+                    int tries = 2 + Mathf.RoundToInt(heap * 5f * Mathf.InverseLerp(1.5f, 6f, h));
+                    for (int q = 0; q < tries; q++)
+                    {
+                        float tq = RHash(k * 7 + q, seed, 221);
+                        if (tq > 0.25f + 0.6f * heap) continue;
+                        int bv = boulderVars[(int)(RHash(q, k, 223) * 9973f) % boulderVars.Count];
+                        var bvar = kit.variants[bv];
+                        float sz = RHash(k, q, 227);
+                        float bs = Mathf.Lerp(0.18f, 0.95f, sz * sz) / Mathf.Max(bvar.height, 0.1f);
+                        float br = BoulderRadius(bvar) * bs;
+                        Vector3 tp = toe + outw * (br - 0.1f) + side * ((RHash(q, k + 5, 229) - 0.5f) * 4f);
+                        tp.y = pts[i].y - bvar.height * bs * Mathf.Lerp(0.15f, 0.45f, RHash(q + 3, k, 233));
+                        if (!RockClearOfSolids(tp + Vector3.up * (bvar.height * bs * 0.4f), br, rockOk: true)) continue;
+                        cliffPlaces.Add(new CliffPlace { pos = tp, yaw = tq * 1000f, scale = bs, v = bv });
+                        talusN++;
+                    }
+                    // and leaf litter banked against the foot
+                    if (kit.debris[0].Length > 0 && RHash(k, seed, 237) < 0.3f + 0.5f * heap)
+                    {
+                        int lv = kit.debris[0][(int)(RHash(seed, k, 239) * 9973f) % kit.debris[0].Length];
+                        Vector3 lp = toe - outw * 0.35f + side * ((RHash(k, 2, 241) - 0.5f) * 3f);
+                        lp.y = pts[i].y - 0.05f;
+                        // (clear of a wall's stone and rail by its own reach)
+                        if (RockClearOfSolids(lp + Vector3.up * 0.3f, 1.6f, rockOk: true))
+                        {
+                            cliffPlaces.Add(new CliffPlace { pos = lp, yaw = RHash(k, 4, 243) * 360f, scale = Mathf.Lerp(0.7f, 1.1f, heap), v = lv });
+                            talusN++;
+                        }
+                    }
+                }
 
                 // ROCK BY THE CUT'S HEIGHT (the Parkway's own survey photographs,
                 // HAER, Wikimedia Commons; owner 2026-11-08: "review real photos
@@ -142,7 +182,9 @@ namespace PSXRacing.EditorTools
                 var ci = kit.cliffs[(int)(r1 * 9973f) % kit.cliffs.Count];
                 float ht = kit.variants[ci.v].height;
                 // tall: about the face's height (its top uneven); low: a part of it
-                float sc = Mathf.Clamp(h * Mathf.Lerp(Mathf.Lerp(0.45f, 0.85f, rocky), Mathf.Lerp(0.8f, 1.15f, rocky), r2) / ht, 0.35f, 2.6f);
+                // (to 1.3 x the face on a tall one: blocks standing over the
+                // crest break the cut's skyline, as in the photographs)
+                float sc = Mathf.Clamp(h * Mathf.Lerp(Mathf.Lerp(0.45f, 0.85f, rocky), Mathf.Lerp(0.8f, 1.3f, rocky), r2) / ht, 0.35f, 2.6f);
                 // sunk well in on a low bank (only its bulges break the soil), barely on a tall face
                 Vector3 pos = toe + outw * (ci.front * sc + Mathf.Lerp(0.4f, 0.08f, rocky));
                 pos.y = toe.y - 0.4f + r1 * Mathf.Max(0f, h - ht * sc) * Mathf.Lerp(0.6f, 0.15f, rocky);
@@ -182,6 +224,32 @@ namespace PSXRacing.EditorTools
         static readonly int[] rockTopAsk = new int[5];
 
         static void AddLedge(Vector3 p, int kind) { rockLedges.Add(p); rockLedgeKind.Add(kind); }
+
+        /// <summary>The forest pack's stones again as BOULDERS and the cuts'
+        /// TALUS: their own variants, drawn to the near forest's whole range
+        /// (the litter stones thin out from 100 m - a boulder that shrank away
+        /// there would be pop-in), shadows on.</summary>
+        static readonly List<int> boulderVars = new List<int>();
+
+        static void LoadBoulders(List<MeshForest.Variant> list)
+        {
+            boulderVars.Clear();
+            const string dir = "Assets/StoreAssets/NMForest/Rocks";
+            var mat = NMLitMat("NM_boulder", dir, "T_beech_forest_stones_01_BC_SM", "T_beech_forest_stones_01_N", null, false,
+                               new Color(0.86f, 0.86f, 0.84f), maskIsHdrp: false);
+            for (int k = 1; k <= 10; k++)
+            {
+                string fbx = "beech_forest_stones_01_" + k;
+                var v = LoadVariant(NMDebrisDir, fbx, mat, ".fbx") ?? LoadVariant(NMDebrisDir, fbx, mat, ".FBX")
+                        ?? LoadVariant(dir, fbx, mat, ".fbx");
+                if (v == null) continue;
+                v.shadows = true;
+                v.maxDist = 0f;
+                v.thin = 0f;
+                boulderVars.Add(list.Count); list.Add(v);
+            }
+            Log($"Boulders: {boulderVars.Count} forest stone meshes for boulders and talus.");
+        }
 
         /// <summary>The cliffs standing in one near chunk, into MeshForest's table.</summary>
         static void AddCliffs(float ox, float oz, float size, List<Vector4> inst, List<Vector2> scaleVar,

@@ -6878,6 +6878,8 @@ namespace PSXRacing.EditorTools
             bool cliffBacking = PCContent && CliffsOn && AssetDatabase.LoadAssetAtPath<GameObject>(MeadowCliffDir + "/" + CliffNames[0] + ".FBX") != null;
             mat.SetVector("_LeafVivid", cliffBacking ? new Vector4(0.45f, 0.72f, 0f, 0f) : new Vector4(1f, 1f, 0f, 0f));
             if (cliffBacking) mat.color = new Color(0.9f, 0.9f, 0.92f);
+            // PC: the face itself as rock (PSXRacingBuilder.RockRelief: PSX_ROCKFACE)
+            SetRockFace(mat);
             // The rock top IS the hillside: the near ground's own material
             // (BuildStageGround makes the same asset and registers its
             // seasons, which SeasonDress applies to every renderer wearing it)
@@ -6900,6 +6902,8 @@ namespace PSXRacing.EditorTools
                 BuildOneStageBank(pts, run.stations, run.side, root.transform, mat, topMat, phys, runs++);
                 banked += run.stations.Length;
             }
+            // PC: boulders and outcrops on the steep forest slopes by the road
+            if (PCContent) PlaceBoulders(pts, root.transform);
             Log($"Stage cut banks: {runs} runs closing {banked * Spacing:0} m of uphill shoulder, " +
                 "each with a solid rock top over its released hillside; " +
                 $"{wallSolidCount - solids0} rock-face solid(s), {wallSolidM - solidM0:0} m of collider face.");
@@ -7318,7 +7322,10 @@ namespace PSXRacing.EditorTools
                 PlaceCliffs(pts, st, hh, facedAt, outwAt, distAt, R, no * 13 + s, crest);
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
             if (PCContent && RockReliefOn)
+            {
                 ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
+                BuildCrestLip(parent, topMat, no, crest, outwAt, facedAt, distAt, R, no * 7 + s);
+            }
             var mesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
@@ -7460,6 +7467,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void BuildStageTunnels(List<Vector3> pts, Transform parent)
         {
+            portalSpots.Clear();
             if (!hasTunnels) return;
             var runs = StationRuns(tunnelIn, 3);
             if (runs.Count == 0) return;
@@ -7643,6 +7651,7 @@ namespace PSXRacing.EditorTools
             Vector3 into = -fwd * dir;          // the face looks along fwd * dir
             float width = PortalHalfW - halfW;
             float y0 = pts[i].y - 1.5f, y1 = pts[i].y + PortalCollH;
+            portalSpots.Add(pts[i]);
             foreach (float side in new[] { -1f, 1f })
             {
                 Vector3 p = pts[i] + right * (side * (halfW + width * 0.5f)) + into * (StageWallCollThick * 0.5f);

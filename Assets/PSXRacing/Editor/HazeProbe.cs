@@ -172,6 +172,17 @@ namespace PSXRacing.EditorTools
                                 Vector3 fa = path.GetTangent(ahead); fa.y = 0f; fa.Normalize();
                                 rot = Quaternion.LookRotation(pa + Vector3.Cross(Vector3.up, fa) * lane + Vector3.up * (PSXRacingBuilder.RoadLift + 0.9f) - eye);
                             }
+                            else if (view == "nearL" || view == "nearR")
+                            {
+                                // a driver's eye on the SHOULDER, 0.6 m past the
+                                // tarmac edge on that side - about 2.5 m from a cut's
+                                // face - looking 15 m down the road, turned 18
+                                // degrees toward the face
+                                float sd = view == "nearR" ? 1f : -1f;
+                                Vector3 right = Vector3.Cross(Vector3.up, fwd);
+                                eye = p + right * (sd * (path.roadWidth * 0.5f + 0.6f)) + Vector3.up * (PSXRacingBuilder.RoadLift + 1.15f);
+                                rot = Quaternion.Euler(0f, sd * 18f, 0f) * Quaternion.LookRotation(fwd * 15f + Vector3.up * 0.2f);
+                            }
                             else if (view == "under")
                             {
                                 // A deck from below: 34 m out on the open side, 9 m under the

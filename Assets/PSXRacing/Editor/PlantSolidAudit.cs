@@ -48,6 +48,8 @@ namespace PSXRacing.EditorTools
         {
             string n = c.gameObject.name;
             if (n.StartsWith("BridgeDeck") || n == "Pier" || n.StartsWith("WallColl") || n.StartsWith("WallPortal")) return Cat.Thin;
+            // a boulder (PSXRacingBuilder.PlaceBoulders): a plant may not cross it either way
+            if (n == "Boulder" && c is MeshCollider) return Cat.Thin;
             if (n.StartsWith("BankColl") || n.StartsWith("WallTunnel")) return Cat.Rock;
             // a rock top carries two colliders: its top (ground a plant stands
             // in) and its FACE (BankTopColl); only the face is the cut
@@ -71,6 +73,9 @@ namespace PSXRacing.EditorTools
         static string ClassOf(MeshForest.Variant v)
         {
             string n = v.lods[0] != null ? v.lods[0].name.ToLowerInvariant() : "";
+            // the boulders and the cuts' talus (PSXRacingBuilder.LoadBoulders):
+            // rock itself, like the cliffs - placed clear of walls by the builder
+            if (v.mats != null && v.mats.Length > 0 && v.mats[0] != null && v.mats[0].name.ToLowerInvariant().Contains("boulder")) return "cliff";
             if (n.Contains("beech_tree_00")) return "small beech";
             if (n.Contains("beech_tree_") || n.Contains("poplar")) return "canopy";
             if (n.Contains("black_cherry") || n.Contains("maple_bush")) return "bush";
@@ -248,6 +253,8 @@ namespace PSXRacing.EditorTools
                         if (shape == null) continue;
                         var basePos = root.MultiplyPoint3x4(new Vector3(p.x, p.y, p.z));
                         int near = Nearest(basePos, roadHalf + 12f + shape.rMax * s, out float pd);
+                        // a tunnel's portal wall reaches 18 m from the centreline: out to 20 m, solids only
+                        if (near < 0) near = Nearest(basePos, 20f + shape.rMax * s, out pd);
                         if (near < 0) continue;
                         r.checkedNear++;
                         var tl = forest.instTilt != null && i < forest.instTilt.Length ? forest.instTilt[i] : Vector2.zero;
