@@ -4480,6 +4480,7 @@ namespace PSXRacing.City
                 yield return 0;
                 stepPart = 3;
                 PlaceLamps(map, trims, tm, e, min, max);
+                EmitStreetHardware(map, trims, tm, e, min, max);   // (curbs2, 11-11) inlets, manholes, lids: CityMeshes.Curbs2
             }
 
             // THE FREEWAY DIVIDER (CityMeshes.Dividers.cs): each cable or open median's cable
