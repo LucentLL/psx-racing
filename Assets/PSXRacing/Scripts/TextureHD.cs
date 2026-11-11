@@ -106,11 +106,26 @@ namespace PSXRacing
             if (map.pairs.Length == 0 && map.roads.Length == 0 && !anyFacade && string.IsNullOrEmpty(map.gutter)) { map = null; return false; }
             sets = new HDSet[map.pairs.Length];
             for (int i = 0; i < map.pairs.Length; i++)
-                if (map.pairs[i].original != null) byOriginal[map.pairs[i].original] = i;
+                if (map.pairs[i].original != null && !Skip(map.pairs[i].key)) byOriginal[map.pairs[i].original] = i;
             for (int i = 0; i < map.roads.Length; i++)
                 if (map.roads[i].original != null) roadByOriginal[map.roads[i].original] = i;
             return true;
         }
+
+        /// <summary>TEX4 (2026-11-11): one HD set left out for an A/B, by its
+        /// key: PSX_HD_SKIP=city_shops,city_facade_hd (the facade arrays) puts
+        /// the picture back to the tier below for those sets only.</summary>
+        public static bool Skip(string key)
+        {
+            if (skip == null)
+            {
+                skip = new HashSet<string>();
+                string e = System.Environment.GetEnvironmentVariable("PSX_HD_SKIP");
+                if (!string.IsNullOrEmpty(e)) foreach (var k in e.Split(',')) if (k.Trim().Length > 0) skip.Add(k.Trim());
+            }
+            return key != null && skip.Contains(key);
+        }
+        static HashSet<string> skip;
 
         static bool EnsureBundle()
         {
@@ -297,7 +312,7 @@ namespace PSXRacing
             bool parts = Special(map.facadeParts, out var s);
             // round 3: the other columns from the three arrays (TextureHDMap.facadeCols)
             bool arrays = false;
-            if (map.facadeCols != null && System.Array.IndexOf(map.facadeCols, true) >= 0)
+            if (map.facadeCols != null && System.Array.IndexOf(map.facadeCols, true) >= 0 && !Skip(TextureHDMap.FacadeArrayKey))
             {
                 if (facArrCol == null) { facArrCol = LoadArray(TextureHDMap.FacadeArrayKey + "_col"); facArrNrm = LoadArray(TextureHDMap.FacadeArrayKey + "_nrm"); facArrMask = LoadArray(TextureHDMap.FacadeArrayKey + "_mask"); }
                 arrays = facArrCol != null && facArrNrm != null && facArrMask != null;
