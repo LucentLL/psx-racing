@@ -168,9 +168,12 @@ namespace PSXRacing.EditorTools
                 }
                 if (lot != null && (string.IsNullOrEmpty(onlyA) || System.Array.IndexOf(onlyA.Split(','), "lot") >= 0))
                 {
-                    float gy = GroundY(lotA);
-                    Vector3 a = new Vector3(lotA.x, gy, lotA.y), c = new Vector3(lotC.x, GroundY(lotC), lotC.y);
-                    world.EnsureRing(a, 2);
+                    // the lot's height: the nearest road's (a lot is paved at its street's level)
+                    world.EnsureRing(new Vector3(lotA.x, 0f, lotA.y), 2);
+                    float gy = map.NearestRoadPoint(lotA, 400f, false, out int lei, out float les, out _) ? map.edges[lei].YAt(les) : 0f;
+                    float hitY = GroundY(lotA);
+                    if (hitY > gy - 20f && hitY < gy + 20f) gy = hitY;   // the lot's own surface, when a collider is there
+                    Vector3 a = new Vector3(lotA.x, gy, lotA.y), c = new Vector3(lotC.x, gy, lotC.y);
                     // the car out of the way: parked at the corner, facing in
                     var dirL = (c - a); dirL.y = 0f; dirL.Normalize();
                     var carPos = a + Vector3.up * 0.35f;
