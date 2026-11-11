@@ -261,7 +261,10 @@ namespace PSXRacing.Town
                 string where = edge != null && edge.mode == TownEdge.Mode.AskWhereTo
                     ? " — DRIVE THROUGH THE LINE"
                     : " — DRIVE OUT OF TOWN";
-                label = "DELIVERY" + where;
+                // A CAR-MEET ORDER says whose garage night it is going to.
+                var meetFor = Clubs.ById(PizzaRun.MeetClub);
+                string what = meetFor != null ? meetFor.shortName + " CLUB DELIVERY" : "DELIVERY";
+                label = what + where;
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
                 {
                     // The edible share and the edible boxes' condition
@@ -276,7 +279,7 @@ namespace PSXRacing.Town
                     // time the driver gets back in, and its count starts again.
                     if (PizzaCargo.Instance.Impacts > 0) PizzaRun.CarryHit = true;
                     if (PizzaRun.CarryCondition < LifeRules.PizzaPerfectCondition || PizzaRun.CarryConsumable < 1f)
-                        label = "DELIVERY (" +
+                        label = what + " (" +
                                 LifeRules.PizzaConditionLabel(PizzaRun.CarryCondition, PizzaRun.CarryConsumable) +
                                 ")" + where;
                 }
@@ -708,6 +711,9 @@ namespace PSXRacing.Town
             // rolls the clock: a night pickup must not arrive in tomorrow's
             // morning light.
             int tod = TimeOfDay.ForSlot(s.slotIndex, s.day);
+            // A CAR-MEET ORDER (Clubs.MeetOrderFor), decided at the counter
+            // and announced before the player sets off.
+            var meetClub = Clubs.MeetOrderFor(s);
 
             // The shift costs the evening whether or not the box arrives, and
             // clocking on must precede the spend — spending the last slot of
@@ -717,6 +723,7 @@ namespace PSXRacing.Town
             // The whole shift, two blocks or to closing (six-block day, v21).
             LifeRules.SpendShift(s);
             PizzaRun.StartRun(toppings, bottles, pay, trackIndex, par, tod, drop);
+            PizzaRun.MeetClub = meetClub != null ? meetClub.id : "";
             // Already standing at the shop. SpawnAtShop is for a scene load
             // that is no longer happening, and leaving it set would teleport
             // the car onto the kerb the next time the town loaded.
@@ -729,7 +736,8 @@ namespace PSXRacing.Town
             screen?.Toast("ORDER UP — " + (toppings.Length == 1 ? "ONE BOX" : toppings.Length + " BOXES") + drinks +
                           " TO " + venue.ToUpperInvariant() + ", $" + pay +
                           ". BEAT " + LifeRules.DeliveryClock(par) +
-                          " FOR MORE. OUT TO THE CAR, THEN OUT OF TOWN.");
+                          " FOR MORE." + (meetClub != null ? " " + Clubs.MeetOrderLine(meetClub) + "." : "") +
+                          " OUT TO THE CAR, THEN OUT OF TOWN.");
             RefreshPizzaDoor();
             screen?.Invalidate();
         }
@@ -871,14 +879,16 @@ namespace PSXRacing.Town
         void RefreshClubCar(OnFoot.FootTarget t, ClubDef club, string alias, CarSpec spec)
         {
             if (t == null || club == null) return;
-            string car = spec != null ? spec.name.ToUpperInvariant() : "A CAR";
-            if (car.Length > 26) car = car.Substring(0, 25).TrimEnd() + "…";
-            t.title = club.shortName + " CLUB  —  " + alias + "'S " + car;
+            // The title is the DRIVER and the club - short, never cut (a walk-up
+            // title has room for about fifty capitals, and a catalogue name
+            // alone can be more); the car is on the line under it.
+            t.title = alias + "  —  " + club.shortName + " CLUB";
             bool member = Clubs.IsMember(S, club);
             string no = Clubs.JoinRefusal(S, club);
-            t.detail = member ? "Your club. You are #" + Clubs.PlayerRank(S, club) + " on the board."
-                     : no == null ? club.rule + " cars only. Meets " + club.MeetWhen + ", races " + club.RaceWhen + "."
-                     : "Not today: " + no + ".";
+            string car = spec != null ? spec.name : "a car";
+            t.detail = car + ".  " + (member ? "Your club. You are #" + Clubs.PlayerRank(S, club) + " on the board."
+                     : no == null ? club.rule.ToLowerInvariant() + (club.rule.EndsWith("MODELS") ? " only." : " cars only.")
+                     : "Not today: " + no + ".");
             bool open = !member;
             t.action = open ? "TALK ABOUT JOINING" : "";
             t.verb = open ? "TALK" : "";

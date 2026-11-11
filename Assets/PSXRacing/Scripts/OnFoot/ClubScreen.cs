@@ -67,14 +67,14 @@ namespace PSXRacing.OnFoot
             float y = -14f;
             void Say(string text, int size, Color ink, float h, bool bold = false)
             {
-                var l = MenuKit.Label(panel, text, size, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                    TextAnchor.MiddleCenter, ink, wide, height: h, bold: bold);
-                MenuKit.FitOneLine(l, wide);
-                y -= h + 6f;
+                // WRAPS rather than being cut: no text may clip.
+                MenuKit.Para(panel, text, size, new Vector2(0.5f, 1f), new Vector2(0f, y), out float ph,
+                    TextAnchor.UpperCenter, ink, wide, bold: bold);
+                y -= Mathf.Max(h, ph) + 6f;
             }
 
             Say("THE " + club.name, MenuKit.Head, MenuKit.Accent, 40f, true);
-            Say(alias + "  ·  " + (spec != null ? Short(spec.name, 40).ToUpperInvariant() : "A CAR"),
+            Say(alias + "  ·  " + (spec != null ? spec.name.ToUpperInvariant() : "A CAR"),
                 MenuKit.Tiny, Color.white, 24f);
             Say("\"" + Pitch(club) + "\"", MenuKit.Tiny, MenuKit.Dim, 24f);
             y -= 6f;

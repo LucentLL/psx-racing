@@ -349,6 +349,20 @@ namespace PSXRacing.LifeSim
 
         public const string PerkPaint = "PAINT", PerkMechanic = "MECHANIC", PerkLoaner = "LOANER";
 
+        /// <summary>CAR-MEET ORDERS (owner, 2026-11-11: "You can receive an
+        /// invitation to a car club by making a fast delivery without damaging
+        /// the pizza"). Shifts are MON-THU and meets are at the weekend, so
+        /// the order goes to a club's mid-week GARAGE NIGHT instead: every Nth
+        /// scheduled shift day (counted MON-THU from the career's first week)
+        /// the shift's order is for a club, rotating through the ordinary
+        /// clubs the player is not in and has not been asked into.</summary>
+        public const int MeetOrderEveryNthShift = 2;
+        /// <summary>"Fast enough": at or under this share of the drop's par.</summary>
+        public const float MeetOrderParShare = 1.0f;
+        /// <summary>"Without damaging the pizza": every pizza still edible and
+        /// the order at least this condition (1 = as it left the counter).</summary>
+        public const float MeetOrderMinCondition = 0.90f;
+
         static bool IsEuro(CarSpec c) =>
             c.origin == "eur" || c.origin == "ger" || c.origin == "gbr" || c.origin == "ita" ||
             c.origin == "fra" || c.origin == "swe";
@@ -414,24 +428,24 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static readonly ClubPerk[] Perks =
         {
-            new ClubPerk("american", 7, PerkPaint, 0.15f, "15% OFF A RESPRAY, AMERICAN CARS"),
-            new ClubPerk("american", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK, AMERICAN CARS"),
-            new ClubPerk("american", 1, PerkLoaner, 0f, "A LOANER WHILE YOUR CAR IS IN THE SHOP", live: false),
-            new ClubPerk("japanese", 7, PerkPaint, 0.15f, "15% OFF A RESPRAY, JAPANESE CARS"),
-            new ClubPerk("japanese", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK, JAPANESE CARS"),
-            new ClubPerk("japanese", 1, PerkLoaner, 0f, "A LOANER WHILE YOUR CAR IS IN THE SHOP", live: false),
-            new ClubPerk("euro", 7, PerkPaint, 0.15f, "15% OFF A RESPRAY, EUROPEAN CARS"),
-            new ClubPerk("euro", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK, EUROPEAN CARS"),
-            new ClubPerk("euro", 1, PerkLoaner, 0f, "A LOANER WHILE YOUR CAR IS IN THE SHOP", live: false),
-            new ClubPerk("vintage", 7, PerkPaint, 0.20f, "20% OFF A RESPRAY, 1979 OR OLDER"),
-            new ClubPerk("vintage", 4, PerkMechanic, 0.25f, "CLUB MECHANIC: 25% OFF, +25% WORK, CLASSICS"),
-            new ClubPerk("vintage", 1, PerkLoaner, 0f, "A LOANER WHILE YOUR CAR IS IN THE SHOP", live: false),
-            new ClubPerk("future", 7, PerkPaint, 0.15f, "15% OFF A RESPRAY, 1999 MODELS"),
-            new ClubPerk("future", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK, 1999 MODELS"),
-            new ClubPerk("future", 1, PerkLoaner, 0f, "A LOANER WHILE YOUR CAR IS IN THE SHOP", live: false),
-            new ClubPerk("elite", 10, PerkPaint, 0.25f, "25% OFF A RESPRAY, ANY CAR"),
-            new ClubPerk("elite", 5, PerkMechanic, 0.30f, "CLUB MECHANIC: 30% OFF, +25% WORK, ANY CAR"),
-            new ClubPerk("elite", 1, PerkLoaner, 0f, "A LOANER WHILE YOUR CAR IS IN THE SHOP", live: false),
+            new ClubPerk("american", 7, PerkPaint, 0.15f, "15% OFF RESPRAYS"),
+            new ClubPerk("american", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK"),
+            new ClubPerk("american", 1, PerkLoaner, 0f, "A LOANER WHILE YOURS IS IN THE SHOP", live: false),
+            new ClubPerk("japanese", 7, PerkPaint, 0.15f, "15% OFF RESPRAYS"),
+            new ClubPerk("japanese", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK"),
+            new ClubPerk("japanese", 1, PerkLoaner, 0f, "A LOANER WHILE YOURS IS IN THE SHOP", live: false),
+            new ClubPerk("euro", 7, PerkPaint, 0.15f, "15% OFF RESPRAYS"),
+            new ClubPerk("euro", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK"),
+            new ClubPerk("euro", 1, PerkLoaner, 0f, "A LOANER WHILE YOURS IS IN THE SHOP", live: false),
+            new ClubPerk("vintage", 7, PerkPaint, 0.20f, "20% OFF RESPRAYS"),
+            new ClubPerk("vintage", 4, PerkMechanic, 0.25f, "CLUB MECHANIC: 25% OFF, +25% WORK"),
+            new ClubPerk("vintage", 1, PerkLoaner, 0f, "A LOANER WHILE YOURS IS IN THE SHOP", live: false),
+            new ClubPerk("future", 7, PerkPaint, 0.15f, "15% OFF RESPRAYS"),
+            new ClubPerk("future", 4, PerkMechanic, 0.20f, "CLUB MECHANIC: 20% OFF, +25% WORK"),
+            new ClubPerk("future", 1, PerkLoaner, 0f, "A LOANER WHILE YOURS IS IN THE SHOP", live: false),
+            new ClubPerk("elite", 10, PerkPaint, 0.25f, "25% OFF RESPRAYS"),
+            new ClubPerk("elite", 5, PerkMechanic, 0.30f, "CLUB MECHANIC: 30% OFF, +25% WORK"),
+            new ClubPerk("elite", 1, PerkLoaner, 0f, "A LOANER WHILE YOURS IS IN THE SHOP", live: false),
         };
 
         /// <summary>Ten regulars per club, strongest first (the order a new
@@ -1049,6 +1063,95 @@ namespace PSXRacing.LifeSim
             }
         }
 
+        // ---------------- the car-meet order: the way in ----------------
+
+        /// <summary>Could this club ask the player in off a delivery? Not a
+        /// member, not already asked, not inside a drop's 14 days, not elite.</summary>
+        public static bool CanBeAskedIn(LifeState s, ClubDef c)
+        {
+            if (s == null || c == null || c.elite || IsMember(s, c)) return false;
+            var st = StandingOf(s, c);
+            return st == null || (!st.invited && !(st.readmitDay > 0 && s.day < st.readmitDay));
+        }
+
+        /// <summary>
+        /// Is the order rolled at the counter NOW a car-meet order, and for
+        /// which club? A club queued by name (LifeState.nextMeetOrderClub, the
+        /// intro's hook) goes first and is used up; otherwise the rota. Null
+        /// for an ordinary order. Call once per order, at the counter.
+        /// </summary>
+        public static ClubDef MeetOrderFor(LifeState s)
+        {
+            if (s == null) return null;
+            if (!string.IsNullOrEmpty(s.nextMeetOrderClub))
+            {
+                var q = ById(s.nextMeetOrderClub);
+                s.nextMeetOrderClub = "";
+                if (CanBeAskedIn(s, q)) return q;
+            }
+            int col = LifeRules.WeekCol(s.day);
+            if (WorkSchedule.ShiftStartOn(s.playerJob, s.day) < 0) return null;
+            int k = WeekIndex(s.day) * 4 + Mathf.Max(0, col - 1);
+            if (k % MeetOrderEveryNthShift != 0) return null;
+            var pool = new List<ClubDef>();
+            foreach (var c in All) if (!c.elite) pool.Add(c);
+            int start = (k / MeetOrderEveryNthShift) % pool.Count;
+            for (int i = 0; i < pool.Count; i++)
+            {
+                var c = pool[(start + i) % pool.Count];
+                if (CanBeAskedIn(s, c)) return c;
+            }
+            return null;
+        }
+
+        /// <summary>Queue the next order for this club's garage night (the
+        /// intro: "the shop sends the player to a matching meet").</summary>
+        public static void QueueMeetOrder(LifeState s, ClubDef c)
+        {
+            if (s != null && c != null) s.nextMeetOrderClub = c.id;
+        }
+
+        /// <summary>The announcement, for the counter's toast and the cue.</summary>
+        public static string MeetOrderLine(ClubDef c) =>
+            c == null ? "" : "FOR THE " + c.name + "'S GARAGE NIGHT - DRIVE IT WELL";
+
+        /// <summary>"Drove well": inside the time AND nothing damaged.
+        /// <paramref name="consumable"/> below 0 means no cargo rig reported
+        /// (then the condition alone decides).</summary>
+        public static bool DroveWell(float seconds, float parSeconds, float condition, float consumable, bool refused) =>
+            !refused && parSeconds > 0f && seconds > 0f && seconds <= parSeconds * MeetOrderParShare &&
+            condition >= MeetOrderMinCondition && (consumable < 0f || consumable >= 0.999f);
+
+        /// <summary>
+        /// The drop has arrived at the garage night. Driven well, the club
+        /// asks the player in (Invite: accepted from the CLUBS page; its events
+        /// still need a car it takes, and the invitation says which). Otherwise
+        /// a line that the club was not impressed - and the next car-meet order
+        /// can try again. Returns the line for the result, or null for an
+        /// ordinary order.
+        /// </summary>
+        public static string JudgeMeetDelivery(LifeState s, string clubId, float seconds, float parSeconds,
+                                               float condition, float consumable, bool refused)
+        {
+            var c = ById(clubId);
+            if (s == null || c == null) return null;
+            if (!CanBeAskedIn(s, c)) return null;
+            if (DroveWell(seconds, parSeconds, condition, consumable, refused))
+            {
+                Invite(s, c, "You brought the pizza to their garage night fast and in one piece. They run " +
+                             RuleCarsWords(c) + "; join on the CLUBS page.");
+                return "THE " + c.shortName + " CLUB WAS IMPRESSED - AN INVITATION";
+            }
+            string why = refused || condition < MeetOrderMinCondition || (consumable >= 0f && consumable < 0.999f)
+                ? "the pizza was damaged" : "it was late";
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the " + c.shortName.ToLowerInvariant() +
+                              " club was not impressed - " + why);
+            return "THE " + c.shortName + " CLUB WAS NOT IMPRESSED - " + why.ToUpperInvariant();
+        }
+
+        static string RuleCarsWords(ClubDef c) =>
+            c.rule.EndsWith("MODELS") ? c.rule.ToLowerInvariant() : c.rule.ToLowerInvariant() + " cars";
+
         /// <summary>A line on the club news strip, dated by the day it happened.</summary>
         public static void Post(LifeState s, int day, string line)
         {
@@ -1271,6 +1374,16 @@ namespace PSXRacing.LifeSim
             return r.outcome == Missed ? what + " MISSED" : what + " - " + r.outcome;
         }
 
+        /// <summary>A miss in a calendar block's few characters: "SHIFT
+        /// MISSED", "MEET MISSED", "MEET: WRONG CAR", "RACE: NO CAR". The
+        /// club is on the planner (MissLine); a day row has no room for it.</summary>
+        public static string MissShort(DutyRecord r)
+        {
+            if (r == null) return "";
+            string what = r.kind == KindShift ? "SHIFT" : r.kind == KindMeet ? "MEET" : "RACE";
+            return r.outcome == Missed ? what + " MISSED" : what + ": " + r.outcome;
+        }
+
         /// <summary>Mail, the diary line and the pager, at once. There is no
         /// mail PAGE in the game: the line in RECENTLY and the pager toast are
         /// how a player reads it.</summary>
@@ -1298,6 +1411,23 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The notices since the home screen last toasted, read once.</summary>
         public static string lastNotice;
+
+        /// <summary>RequiredNow as one short line for the DRIVE button:
+        /// "REQUIRED: SHIFT AT TONY'S", "REQUIRED: JAPANESE MEET", or a
+        /// clash, "CLASH NOW: JAPANESE + FUTURE". Null when nothing is owed.</summary>
+        public static string RequiredLine(LifeState s)
+        {
+            if (s == null) return null;
+            var due = new List<Obligation>();
+            foreach (var o in At(s, s.day, s.slotIndex))
+                if (RecordFor(s, o) == null && !(o.kind == KindShift && s.workedToday)) due.Add(o);
+            if (due.Count == 0) return null;
+            if (due.Count == 1) return "REQUIRED: " + (due[0].kind == KindShift ? "SHIFT AT TONY'S" : Word(due[0]));
+            var names = new List<string>();
+            foreach (var o in due)
+                names.Add(o.kind == KindShift ? "SHIFT" : Clubs.ById(o.club) != null ? Clubs.ById(o.club).shortName : o.kind);
+            return "CLASH NOW: " + string.Join(" + ", names.ToArray());
+        }
 
         /// <summary>What is owed in the block the clock is in and not yet
         /// done, as a short line ("SHIFT AT TONY'S", "JAPANESE MEET + FUTURE

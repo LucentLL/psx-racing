@@ -279,6 +279,9 @@
         public static string ClubOpponent;
         /// <summary>Which club's race (Clubs id): the player may be in several.</summary>
         public static string ClubRaceClub;
+        /// <summary>A delivery to a club's garage night (Clubs.MeetOrderFor):
+        /// the club, judged at the door. Empty for an ordinary drop.</summary>
+        public static string DeliveryMeetClub;
         /// <summary>The day the club race was owed on, which a NIGHT race's
         /// apply-back cannot read off the clock.</summary>
         public static int ClubRaceDay;
@@ -505,7 +508,7 @@
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null; RivalSeries = null;
             MeetRace = false; MeetAlias = null;
-            ClubRace = false; ClubOpponent = null; ClubRaceDay = 0; ClubRaceClub = null;
+            ClubRace = false; ClubOpponent = null; ClubRaceDay = 0; ClubRaceClub = null; DeliveryMeetClub = null;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = UpSeat = 0;
             // A payload left out of here does not go stale, it goes to the NEXT
             // car: these statics survive a scene load by design, so the tune the

@@ -326,6 +326,91 @@ namespace PSXRacing.EditorTools
             Duty.lastNotice = null;
         }
 
+        /// <summary>THE WAY IN (owner, 2026-11-11): a car-meet delivery - fast
+        /// and undamaged - and the club asks you in.</summary>
+        static void TestMeetOrders()
+        {
+            Line("the enforced week - car-meet orders:");
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(s);
+            // ---- the rota: which shifts carry a car-meet order, for whom ----
+            var seen = new System.Collections.Generic.HashSet<string>();
+            int orders = 0, shiftDays = 0, offDays = 0;
+            for (int d = 1; d <= 42; d++)
+            {
+                s.day = d; s.slotIndex = LifeRules.AfternoonSlot;
+                var c = Clubs.MeetOrderFor(s);
+                bool shiftDay = WorkSchedule.ShiftStartOn(s.playerJob, d) >= 0;
+                if (shiftDay) shiftDays++;
+                if (c != null) { orders++; seen.Add(c.id); if (!shiftDay) offDays++; }
+            }
+            Check(offDays == 0, "a car-meet order only comes on a shift day", offDays);
+            Check(orders * Clubs.MeetOrderEveryNthShift == shiftDays,
+                  "one shift day in " + Clubs.MeetOrderEveryNthShift + " carries one", orders + " of " + shiftDays);
+            Check(Clubs.All.Where(c => !c.elite).All(c => seen.Contains(c.id)) && !seen.Contains("elite"),
+                  "and over six weeks every ordinary club sends one (never the elite)", string.Join(",", seen));
+            Check(Clubs.MeetOrderLine(Clubs.ById("euro")).Contains("EURO CLUB"), "the order is announced naming the club",
+                  Clubs.MeetOrderLine(Clubs.ById("euro")));
+
+            // ---- judging ----
+            Check(Clubs.DroveWell(80f, 100f, 1f, 1f, false), "under par, nothing damaged: drove well");
+            Check(!Clubs.DroveWell(120f, 100f, 1f, 1f, false), "over par: not");
+            Check(!Clubs.DroveWell(80f, 100f, 0.8f, 1f, false), "a shaken pizza: not");
+            Check(!Clubs.DroveWell(80f, 100f, 1f, 0.5f, false), "a pizza lost out of its box: not");
+            Check(!Clubs.DroveWell(80f, 100f, 1f, 1f, true), "refused: not");
+
+            var am = Clubs.ById("american");
+            string late = Clubs.JudgeMeetDelivery(s, am.id, 130f, 100f, 1f, 1f, false);
+            Check(late != null && late.Contains("NOT IMPRESSED") && late.Contains("LATE") &&
+                  (Clubs.StandingOf(s, am) == null || !Clubs.StandingOf(s, am).invited),
+                  "late: the club is not impressed, no invitation", late);
+            string dmg = Clubs.JudgeMeetDelivery(s, am.id, 50f, 100f, 0.5f, 1f, false);
+            Check(dmg != null && dmg.Contains("DAMAGED") && Clubs.JoinRefusal(s, am) != null,
+                  "damaged: not impressed either, and it can be tried again", dmg);
+            string good = Clubs.JudgeMeetDelivery(s, am.id, 70f, 100f, 1f, 1f, false);
+            Check(good != null && good.Contains("INVITATION") && Clubs.StandingOf(s, am).invited &&
+                  s.mail.Exists(m => m.subject == "AN INVITATION FROM THE AMERICAN CLUB" && m.body.Contains("american-built cars")),
+                  "fast and in one piece: an invitation by mail, saying what cars the club takes", good);
+            int mails = s.mail.Count(m => m.subject.StartsWith("AN INVITATION"));
+            Check(Clubs.JudgeMeetDelivery(s, am.id, 70f, 100f, 1f, 1f, false) == null &&
+                  s.mail.Count(m => m.subject.StartsWith("AN INVITATION")) == mails,
+                  "no second invitation while one is waiting");
+            Check(!Clubs.CanBeAskedIn(s, am), "and the rota skips a club that has already asked");
+            var usSpec = FirstSpec(x => am.Fits(x));
+            CarMarket.MakeOwnedCar(s, usSpec, 80, 1000f, usSpec.price);
+            Clubs.Join(s, am);
+            Check(Clubs.IsMember(s, am) && Clubs.JudgeMeetDelivery(s, am.id, 70f, 100f, 1f, 1f, false) == null,
+                  "accepted from the CLUBS page; a member is never invited again");
+
+            // ---- the intro's hook: the next order, for a club picked by name ----
+            var eu = Clubs.ById("euro");
+            s.day = 2;   // a Saturday: no shift, no rota
+            Clubs.QueueMeetOrder(s, eu);
+            Check(Clubs.MeetOrderFor(s) == eu && s.nextMeetOrderClub == "" && Clubs.MeetOrderFor(s) == null,
+                  "a club queued by name gets the next order, once");
+
+            // ---- through the real apply-back ----
+            var jp = Clubs.ById("japanese");
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.Delivery = true;
+            RaceHandoff.IsPractice = true;
+            RaceHandoff.ResultReady = true;
+            RaceHandoff.CarId = s.activeCar;
+            RaceHandoff.TrackIndex = LifeRules.DeliveryTrackIndex(s);
+            RaceHandoff.DeliveryPay = 30;
+            RaceHandoff.DeliveryDropFraction = 1f;
+            RaceHandoff.RaceTimeSeconds = LifeRules.DeliveryParSeconds(RaceHandoff.TrackIndex, 1f) * 0.6f;
+            RaceHandoff.CargoReported = true; RaceHandoff.CargoCondition = 1f; RaceHandoff.CargoConsumable = 1f;
+            RaceHandoff.CargoBoxes = 1; RaceHandoff.CargoImpacts = 0;
+            RaceHandoff.DeliveryMeetClub = jp.id;
+            string sum = LifeRules.ApplyRaceResult(s);
+            Check(sum != null && sum.Contains("JAPANESE CLUB WAS IMPRESSED") && Clubs.StandingOf(s, jp).invited,
+                  "a fast, clean car-meet delivery through the apply-back brings the invitation", sum);
+            RaceHandoff.ClearAll();
+            Duty.lastNotice = null;
+        }
+
         static void TestEnforcedWeekSave()
         {
             Line("the enforced week - save v23:");

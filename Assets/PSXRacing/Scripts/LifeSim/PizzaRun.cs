@@ -79,9 +79,14 @@ namespace PSXRacing.LifeSim
         /// hit while it was aboard — see LifeRules.ScoreDelivery — and "aboard"
         /// starts at the shop's kerb, not on the grid.</summary>
         public static bool CarryHit;
+        /// <summary>A CAR-MEET ORDER (Clubs.MeetOrderFor): the club whose
+        /// garage night this order is for, or empty. Driven well, the club
+        /// asks the player in.</summary>
+        public static string MeetClub = "";
 
         public static void ClearRun()
         {
+            MeetClub = "";
             Carrying = false;
             SpawnAtShop = false;
             Toppings = null;
@@ -182,6 +187,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.CarryCondition = Mathf.Clamp01(CarryCondition);
             RaceHandoff.CarryConsumable = Mathf.Clamp01(CarryConsumable);
             RaceHandoff.CarryHit = CarryHit;
+            RaceHandoff.DeliveryMeetClub = MeetClub ?? "";
             // The shape of the run. The fraction was rolled with the venue at
             // the counter and the par quoted there was sized to it, so the
             // race has to end where the quote said it would; and the car

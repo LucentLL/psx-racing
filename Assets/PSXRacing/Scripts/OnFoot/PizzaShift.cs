@@ -335,7 +335,9 @@ namespace PSXRacing.OnFoot
             LifeRules.ClockOnShift(S);
             // The whole shift, two blocks or to closing (six-block day, v21).
             LifeRules.SpendShift(S);
+            var meetClub = Clubs.MeetOrderFor(S);
             PizzaRun.StartRun(toppings, bottles, pay, trackIndex, parSeconds, tod, dropFraction);
+            PizzaRun.MeetClub = meetClub != null ? meetClub.id : "";
             LifeSimManager.Save();
 
             // A build without the town (or a career caught mid-update) still

@@ -1106,6 +1106,12 @@ namespace PSXRacing.EditorTools
                 int plain = System.Text.RegularExpressions.Regex.Replace(t.text, "<[^>]+>", "").Replace("\n", "").Length;
                 if (t.verticalOverflow == VerticalWrapMode.Truncate && shown < plain - 1)
                     issues.Add("TRUNCATED: " + shown + " of " + plain + " characters drawn");
+                // AN ELLIPSIS IS A CLIP (coordinator, 2026-11-11): a label cut to
+                // fit by MenuKit.FitOneLine or a Clip() helper has lost words
+                // the player was meant to read.
+                string drawnText = t.text.TrimEnd();
+                if (drawnText.EndsWith("…") || drawnText.EndsWith("..."))
+                    issues.Add("ELLIPSIS: cut to fit");
                 // For the overlap test, only the part of the text the player
                 // can SEE: a scrolled row that has slid under the page header
                 // is hidden by its list's mask, not printed over the header.

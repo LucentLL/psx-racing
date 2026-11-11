@@ -139,6 +139,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestShiftRoster), TestShiftRoster);
             Guard(nameof(TestWorkSchedule), TestWorkSchedule);
             Guard(nameof(TestCarClubs), TestCarClubs);
+            Guard(nameof(TestMeetOrders), TestMeetOrders);
             Guard(nameof(TestEnforcedWeekSave), TestEnforcedWeekSave);
             Guard(nameof(TestCalendar), TestCalendar);
             Guard(nameof(TestDiary), TestDiary);

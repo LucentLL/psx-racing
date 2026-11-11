@@ -1732,9 +1732,9 @@ namespace PSXRacing.LifeSim
             // WHAT IS REQUIRED NOW comes first (v23): a scheduled shift, the
             // club's meet or its race. Everything else is an option.
             string required = Duty.RequiredNow(S);
-            if (required != null)
-                bits.Add(required.Contains(" + ") ? "CLASH: " + (required.Split('+').Length) + " REQUIRED NOW - KEEP ONE"
-                                                    : "REQUIRED: " + required);
+            // ALONE: it is the line that matters, and the button has room for
+            // one short line and no more (no text may clip).
+            if (required != null) return Duty.RequiredLine(S);
             if (CarMeets.OnNow(S)) bits.Add("CAR MEET");
             else if (Clubs.AnyMeetNow(S) && required == null) bits.Add("CLUB MEET AT THE LOT");
             // Short, because it is drawn INSIDE the DRIVE button at Tiny and a
@@ -2113,7 +2113,7 @@ namespace PSXRacing.LifeSim
                 // THE RECORD FIRST (v23): a missed shift, meet or club race is
                 // the loudest thing a past block can say, and it stays.
                 var recs = Duty.RecordsAt(S, day, slot);
-                if (recs.Count > 0 && recs[0].IsMiss) return (did, dc, Duty.MissLine(recs[0]), MenuKit.Bad);
+                if (recs.Count > 0 && recs[0].IsMiss) return (did, dc, Duty.MissShort(recs[0]), MenuKit.Bad);
                 if (act == LifeRules.ActRace && venue != null) return (did, dc, venue, MenuKit.Dim);
                 if (booking != null) return (did, dc, "RACE MISSED", MenuKit.Bad);
                 if (recs.Count > 0)
@@ -2165,22 +2165,24 @@ namespace PSXRacing.LifeSim
                 var o = ob.Value;
                 var rec = Duty.RecordFor(S, o);
                 if (o.kind == Duty.KindShift)
-                    return ("SHIFT · " + S.playerJob, MenuKit.Accent,
+                    // "SHIFT · TONY'S": the job's name is long and the row is
+                    // narrow beside the NOW tag; no text may clip.
+                    return ("SHIFT · TONY'S", MenuKit.Accent,
                             meet ? MeetLine2 : backLine ?? WorkSchedule.HoursLine(o.slot),
                             meet ? MeetInk : backLine != null ? MenuKit.Good : MenuKit.Dim);
                 var club = Clubs.ById(o.club);
                 string cname = club != null ? club.shortName : "CLUB";
                 if (o.kind == Duty.KindMeet)
-                    return ("CLUB MEET · " + cname, MeetInk,
-                            rec != null ? (rec.IsMiss ? Duty.MissLine(rec) : "SIGNED IN") : CarMeets.PlaceName,
+                    return (cname + " MEET", MeetInk,
+                            rec != null ? (rec.IsMiss ? Duty.MissShort(rec) : "SIGNED IN") : "EASTSIDE LOT",
                             rec != null && rec.IsMiss ? MenuKit.Bad : MenuKit.Dim);
                 int cv = Clubs.RaceVenue(club, day);
                 var opp = Clubs.RaceOpponent(S, club, day);
                 string vs = Clubs.IsFixtureWeek(day)
-                    ? "FIXTURE VS " + (opp.club != null ? opp.club.shortName : "A CLUB")
-                    : opp.Valid ? "VS #" + opp.rank + " " + opp.alias : "CLUB RACE";
-                return ("CLUB RACE · " + TrackCatalog.At(cv).name, MenuKit.Good,
-                        rec != null ? (rec.IsMiss ? Duty.MissLine(rec) : "ON THE GRID") : vs,
+                    ? "VS " + (opp.club != null ? opp.club.shortName : "A CLUB")
+                    : opp.Valid ? "VS #" + opp.rank + " " + opp.alias : "RACE";
+                return (cname + " RACE", MenuKit.Good,
+                        rec != null ? (rec.IsMiss ? Duty.MissShort(rec) : "ON THE GRID") : vs,
                         rec != null && rec.IsMiss ? MenuKit.Bad : MenuKit.Good);
             }
             // Laid off: the day's shift is not there to be worked.
@@ -2315,8 +2317,8 @@ namespace PSXRacing.LifeSim
             bool calloutLeads = live != null && bookedNow == null && !clubDue;
             if (clubDue)
             {
-                raceLabel = Clip(dueClub.shortName + " RACE — " +
-                                 TrackCatalog.At(Clubs.RaceVenue(dueClub, S.day)).name, 30);
+                // The club and nothing else: the road is on the page behind.
+                raceLabel = dueClub.shortName + " CLUB RACE";
                 raceAct = () => { tab = "prerace"; Rebuild(); };
                 raceBg = RaceBg;
             }
@@ -5448,11 +5450,17 @@ namespace PSXRacing.LifeSim
             if (line.StartsWith("SHIFT · ")) return "SHIFT";
             if (line == "SHIFT SKIPPED") return "SKIPPED";
             // The enforced week (v23).
-            if (line.StartsWith("CLUB MEET · ")) return "CLUB MEET";
-            if (line.StartsWith("CLUB RACE · ")) return "CLUB RACE";
+            foreach (var cl in Clubs.All)
+            {
+                if (line == cl.shortName + " MEET") return "CLUB MEET";
+                if (line == cl.shortName + " RACE") return "CLUB RACE";
+            }
+            if (line.StartsWith("VS #")) { int sp = line.IndexOf(' ', 4); return sp > 0 ? line.Substring(0, sp) : line; }
+            if (line.StartsWith("VS ")) return "FIXTURE";   // VS AMERICAN is 11 capitals; a cell holds 10
+            if (line == "EASTSIDE LOT") return "";
             if (line.EndsWith(" MISSED")) return "MISSED";
-            if (line.EndsWith(" - " + Duty.WrongCar)) return "WRONG CAR";
-            if (line.EndsWith(" - " + Duty.NoCar)) return "NO CAR";
+            if (line.EndsWith(" - " + Duty.WrongCar) || line.EndsWith(": " + Duty.WrongCar)) return "WRONG CAR";
+            if (line.EndsWith(" - " + Duty.NoCar) || line.EndsWith(": " + Duty.NoCar)) return "NO CAR";
             if (line.StartsWith("CLASHES WITH")) return "CLASH";
             if (line.StartsWith("FIXTURE VS ")) return "FIXTURE";
             if (line.Contains(" + ")) return "2 AT ONCE";   // a conflict's clubs

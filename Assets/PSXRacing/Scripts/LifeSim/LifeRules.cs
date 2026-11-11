@@ -1431,6 +1431,11 @@ namespace PSXRacing.LifeSim
                                          consumable: RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f,
                                          carryConsumable: RaceHandoff.CarryConsumable);
                 s.money += drop.tip;
+                // A CAR-MEET ORDER is judged at the garage night's door: fast
+                // and undamaged, and the club asks the player in (Clubs).
+                string meetLine = Clubs.JudgeMeetDelivery(s, RaceHandoff.DeliveryMeetClub, drop.seconds,
+                    drop.parSeconds, drop.condition,
+                    RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f, drop.refused);
                 // Attendance was banked at the counter (ClockOnShift, from
                 // PizzaShift) — turning up is what the shop counts, and a night
                 // run has already rolled the day by the time this runs. What is
@@ -1458,6 +1463,7 @@ namespace PSXRacing.LifeSim
                       (OrderLabel(drop, RaceHandoff.CargoBoxes).Length > 0
                           ? OrderLabel(drop, RaceHandoff.CargoBoxes).ToLower() : "intact") + ", +" +
                       MenuKit.Money(drop.tip);
+                if (!string.IsNullOrEmpty(meetLine)) summary = meetLine + "  ·  " + summary;
             }
             else if (RaceHandoff.IsPractice)
             {

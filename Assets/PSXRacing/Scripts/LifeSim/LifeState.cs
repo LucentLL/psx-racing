@@ -376,6 +376,10 @@ namespace PSXRacing.LifeSim
         /// page, newest last. Kept beside blNews, not in it: the blacklist is
         /// left as it is.</summary>
         public List<string> clubNews = new List<string>();
+        /// <summary>The club the NEXT delivery is a car-meet order for, picked
+        /// by something outside the rota (the hook for an intro where the shop
+        /// sends the player to a matching meet). Empty = the rota decides.</summary>
+        public string nextMeetOrderClub = "";
 
         public OwnedCar FindCar(string id) =>
             cars.Find(c => c.id == id);
