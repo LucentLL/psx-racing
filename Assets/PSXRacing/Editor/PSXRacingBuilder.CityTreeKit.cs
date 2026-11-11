@@ -290,7 +290,7 @@ namespace PSXRacing.EditorTools
             kit.cull = AssetDatabase.LoadAssetAtPath<ComputeShader>("Assets/PSXRacing/Shaders/PSXForestCull.compute");
             // the stages' MEDIUM distances (FOREST DETAIL and PopFix scale them alike);
             // impostors out past the baked city's ring (CityRingBaked: 9 x 9 tiles)
-            kit.lod0To = 65f; kit.lod1To = 140f; kit.meshRange = 240f; kit.farRange = 1200f;
+            kit.lod0To = 55f; kit.lod1To = 140f; kit.meshRange = 240f; kit.farRange = 1200f;   // (round 2: nearest level 65 -> 55 m = 102 m on MEDIUM after PopFix; cost v pop measured in ctrees2_log)
             if (fresh) AssetDatabase.CreateAsset(kit, CityTreeKitPath);
             EditorUtility.SetDirty(kit);
             AssetDatabase.SaveAssets();

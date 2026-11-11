@@ -348,6 +348,13 @@ namespace PSXRacing.City
                     if (t.street) StreetDropped++;
                     int why = lastWhy >= 0 ? lastWhy : 6;
                     DropWhy[t.street ? 1 : 0, why]++;
+                    if (t.street && DropSamples.Count < 60)
+                    {
+                        // where a grate tree stands against its road: off the pavement's edge by (negative: on it)
+                        float off = 99f; string rn = "";
+                        foreach (var r in roads) { float d = SegDist(new Vector2(t.foot.x, t.foot.z), r.a, r.b) - (r.hw - 0.3f); if (d < off) { off = d; rn = $"w {2f * (r.hw - 0.3f):0.0} m, y {r.y - t.foot.y:+0.0;-0.0}"; } }
+                        DropSamples.Add($"  grate {off:0.00} m off the nearest pavement ({rn})");
+                    }
                     if (DropSamples.Count < 60)
                         DropSamples.Add($"{(t.street ? "STREET" : t.species.ToString())} h{t.h:0.0} at ({t.foot.x:0.0}, {t.foot.y:0.0}, {t.foot.z:0.0}): {(why < 6 ? RejectNames[why] : "no size meets the clear stem")}{(lastHit != null && why == 4 ? " (" + lastHit + ")" : "")}");
                 }

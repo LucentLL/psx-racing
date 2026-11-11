@@ -441,7 +441,7 @@ namespace PSXRacing.EditorTools
         /// pop in that 6 m. A same-eye pair every fifth step is the noise.</summary>
         static void PopWalk(Camera cam, CityMeshTrees mt, string place, CityMap.Edge e, Vector3 eye, Vector3 fwd, string dir, StringBuilder log)
         {
-            const int W = 960, Hh = 540, BS = 16;
+            const int W = 960, Hh = 528, BS = 16;
             var rt = new RenderTexture(W, Hh, 24, RenderTextureFormat.ARGB32);
             var old = cam.targetTexture;
             cam.targetTexture = rt;
@@ -468,7 +468,7 @@ namespace PSXRacing.EditorTools
             var sets = new List<(string name, Vector3 lod)>
             {
                 ("now", Vector3.zero),
-                ("x1.5", (CityMeshTrees.LodOverride.x > 0f ? CityMeshTrees.LodOverride : new Vector3(mt.Kit.lod0To, mt.Kit.lod1To, mt.Kit.meshRange)) * 1.5f),
+                ("round1 65/140/240", new Vector3(65f, 140f, 240f)),
             };
             var keepOverride = CityMeshTrees.LodOverride;
             foreach (var set in sets)
