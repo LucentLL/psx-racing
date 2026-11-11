@@ -135,7 +135,10 @@ namespace PSXRacing.City
         /// the roof (at the band's foot) closes the top.</summary>
         static void Parapet(TileMeshes tm, List<Vector2> poly, float roofY, float rise)
         {
-            if (skylineBuild) return;   // a metre or two, kilometres off
+            // a metre or two, kilometres off - but the far skyline draws it since
+            // 2026-11-11 (CityBeacons: a corner light stands on the parapet's
+            // corner near and far); PSX_CITY_BEACONS2=0 and the far proxies: none
+            if (skylineBuild && (proxyBuild || !CityBeacons.V2)) return;
             FacadeMetal(true);
             Walls(tm, poly, roofY, roofY + rise);
             FacadeMetal(false);

@@ -80,13 +80,25 @@ Shader "PSX/Halo"
         [HideInInspector] _OwnDepth ("Far lights: the skyline's own depth", Float) = 0
         [HideInInspector] _FarFall ("Far lights: dim past (m)", Float) = 0
         [HideInInspector] _FarLead ("Far lights: depth lead (m)", Float) = 0
+        // THE TOWER LIGHTS ON THEIR FITTINGS (CityBeacons V2, 2026-11-11): the
+        // blend (One One, additive, by default; CityBeacons sets One
+        // OneMinusSrcAlpha so a red lamp is drawn OVER a pale dusk sky rather
+        // than added to it - added, it clamped pink), a tower light's largest
+        // size in framebuffer pixels (0: no limit) and the least the eye's
+        // adaptation may scale it (0: none, as before)
+        [HideInInspector] _SrcBlend ("Blend src", Float) = 1
+        [HideInInspector] _DstBlend ("Blend dst", Float) = 1
+        [HideInInspector] _MaxPixels ("Tower light: largest size (framebuffer px)", Float) = 0
+        [HideInInspector] _GainFloor ("Least adaptation gain", Float) = 0
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" "PreviewType"="Plane" }
         Pass
         {
-            Blend One One
+            // the colour by the material's blend (One One, as before, unless a
+            // material says otherwise); the alpha - the emitter mask - always added
+            Blend [_SrcBlend] [_DstBlend], One One
             ZWrite Off
             ZTest LEqual
             Cull Off
@@ -122,6 +134,8 @@ Shader "PSX/Halo"
             float _OwnDepth;
             float _FarFall;
             float _FarLead;
+            float _MaxPixels;
+            float _GainFloor;
 
             float _PSXWetness;
             float _PSXFogFar;
@@ -226,6 +240,13 @@ Shader "PSX/Halo"
                 if (v.uv1.y <= -1.0) minM *= SKY_BEACON_PX;
                 float natural = _Size * v.uv1.x * (1.0 + HALO_WET_GROW * saturate(_PSXWetness));
                 float size = max(natural, minM);
+                // a tower light near the eye is a lamp with a little mist, not
+                // a disc metres across: no larger than _MaxPixels each way
+                if (skyLight && _MaxPixels > 0.0)
+                {
+                    float pxM = 2.0 * zScale / max(min(_ScreenParams.y, HALO_REF_LINES) * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                    size = min(size, max(_MaxPixels * pxM, minM));
+                }
                 // a tower light held at its minimum size gets a soft core, so
                 // the dot carries colour rather than one hot pixel
                 o.core = skyLight ? lerp(HALO_CORE_K, SKY_CORE_K, saturate(minM / max(natural, 1e-3) - 0.5)) : HALO_CORE_K;
@@ -319,7 +340,7 @@ Shader "PSX/Halo"
                 float win = saturate(1.0 - r2);
                 win *= win;
                 float a = exp(-r2 * i.core) + exp(-r2 * HALO_SOFT_K) * _HaloAmt * win;
-                return fixed4(i.col.rgb * (a * PSXAdaptGain()), saturate(a * i.col.a));
+                return fixed4(i.col.rgb * (a * max(PSXAdaptGain(), _GainFloor)), saturate(a * i.col.a));
             }
             ENDCG
         }

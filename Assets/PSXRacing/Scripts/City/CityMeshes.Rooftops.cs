@@ -91,7 +91,10 @@ namespace PSXRacing.City
         /// beacons.</summary>
         static void Mast(TileMeshes tm, Vector2 at, float y, float tall)
         {
-            if (skylineBuild) return;
+            // the far skyline draws it too since 2026-11-11 (CityBeacons: the top
+            // light stands on its tip near and far); PSX_CITY_BEACONS2=0 and the
+            // far proxies leave it out, as before
+            if (skylineBuild && (proxyBuild || !CityBeacons.V2)) return;
             var keep = Bucket.Tint;
             HeroTint(HeroMetalCol, true, 0.62f, 0.63f, 0.66f, crown: false);
             HeroBox(tm, at, Vector2.right, 0.3f, 0.3f, y, y + tall, HeroMetalUV);
