@@ -54,7 +54,11 @@ namespace PSXRacing.EditorTools
         public static void BakeImport()
         {
             var sb = new System.Text.StringBuilder();
+            // the nine HD bodies, and every shell whose export now has clear covers
             var keys = new HashSet<string> { "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "viper_gts", "flatsix_coupe", "flatsix_coupe_87", "rally_sedan_99", "civic_eg", "roadster_99" };
+            foreach (var m in CarModelLibrary.Models)
+                if (File.Exists("Assets/PSXRacing/Art/Car/Models/" + m.key + "/" + m.key + "_covers.obj")) keys.Add(m.key);
+            sb.AppendLine("baking: " + string.Join(" ", keys));
             try
             {
                 CarModelBaker.BakeKeys(keys);
@@ -94,6 +98,7 @@ namespace PSXRacing.EditorTools
         static void Shoot()
         {
             TangentCheck();
+            CoverReport();
 
             EditorSceneManager.OpenScene(SellerLotSceneBuilder.ScenePath, OpenSceneMode.Single);
             var world = Object.FindFirstObjectByType<SellerLotWorld>();
@@ -120,6 +125,9 @@ namespace PSXRacing.EditorTools
                 int skin = def != null && def.skinNames != null ? System.Array.IndexOf(def.skinNames, sheet) : -1;
                 if (skin < 0) { log.AppendLine($"{key}: no skin {sheet} (has {(def != null && def.skinNames != null ? string.Join(",", def.skinNames) : "-")})"); continue; }
                 var shell = Park(def, skin, out var body);
+                CarHD.ForceOff = false; Restamp();
+                log.AppendLine($"{key}: {CarHD.Diag(body != null ? body.sharedMaterial : null)}");
+                if (System.Environment.GetEnvironmentVariable("PSX_CARHD_DIAG") == "1") { Object.DestroyImmediate(shell.gameObject); continue; }
                 string mask = MaskPath(key, sheet);
                 foreach (var (view, pos, rot) in Views())
                 {
@@ -152,6 +160,8 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(shell.gameObject);
             }
 
+            if (System.Environment.GetEnvironmentVariable("PSX_CARHD_DIAG") == "1") { log.AppendLine("DIAG ONLY"); return; }
+            LensShots();
             // OLDER CARS: the Classic sheet point sampled (as it ships) vs CarHD.SmoothSheets
             foreach (var key in OldCars)
             {
@@ -191,6 +201,82 @@ namespace PSXRacing.EditorTools
             var dir = (-f * 0.75f + r * 0.66f * side).normalized;
             var eye = c + dir * d + Vector3.up * h;
             return (eye, Quaternion.LookRotation(c + Vector3.up * 0.65f - eye));
+        }
+
+        static readonly (string key, string sheet)[] LensCars =
+        {
+            ("viper_gts", "coupe_96_blue_white_512x256"),
+            ("rx7_fd_93", "fd_shared_512x256"),
+            ("roadster_99", "roadster_99_red_512x256"),
+            ("flatsix_coupe", "flatsix_coupe_blue_512x256"),
+        };
+
+        /// <summary>THE CLEAR LAMP COVERS (CarCovers), before (off) | after
+        /// (on), with the HD tier on in both: a close view of the head and the
+        /// tail lamps by day, at dusk with the lamps lit and at night; a pop-up
+        /// shell shows its raised body with the lamps lit.</summary>
+        static void LensShots()
+        {
+            var keepFov = cam.fieldOfView;
+            cam.fieldOfView = 32f;
+            CarHD.ForceOff = false;
+            foreach (var (key, sheet) in LensCars)
+            {
+                var def = CarModelLibrary.Load(key);
+                int skin = def != null && def.skinNames != null ? System.Array.IndexOf(def.skinNames, sheet) : -1;
+                if (skin < 0) { log.AppendLine("lens: no " + key + " " + sheet); continue; }
+                var shell = Park(def, skin, out var body);
+                var mf = body.GetComponent<MeshFilter>();
+                float half = def.colliderSize.z * 0.5f;
+                Vector3 c = spot.position, f = spot.forward, r = spot.right;
+                foreach (var (end, sgn) in new[] { ("head", 1f), ("tail", -1f) })
+                {
+                    var aim = c + f * (sgn * (half - 0.25f)) + r * 0.55f + Vector3.up * 0.68f;
+                    var eye = aim + f * (sgn * 2.2f) + r * 0.9f + Vector3.up * 0.35f;
+                    var rot = Quaternion.LookRotation(aim - eye);
+                    foreach (var (hour, lit, tag) in new[] { (TimeOfDay.Noon, false, "day"), (TimeOfDay.Dusk, true, "dusk"), (TimeOfDay.Night, true, "night") })
+                    {
+                        Hour(hour);
+                        // the lamps: a pop-up shell raises its lamps with them on
+                        mf.sharedMesh = def.BodyMeshFor(lit);
+                        foreach (bool covers in new[] { false, true })
+                        {
+                            CarCovers.Override = covers ? 1 : 0;
+                            CarCovers.Dress(mf, def);
+                            Restamp();
+                            Lamps(body, key, lit);
+                            Save(Render(eye, rot, true, true), $"lens_{key}_{end}_{tag}_{(covers ? "after" : "before")}");
+                        }
+                        Lamps(body, key, false);
+                    }
+                }
+                mf.sharedMesh = def.bodyMesh;
+                Object.DestroyImmediate(shell.gameObject);
+            }
+            CarCovers.Override = -1;
+            Hour(TimeOfDay.Noon);
+            cam.fieldOfView = keepFov;
+        }
+
+        /// <summary>Every shell: covers in its delivery (an exported
+        /// `_covers.obj`) and in the game (the baked def).</summary>
+        static void CoverReport()
+        {
+            log.AppendLine("CLEAR LAMP COVERS (export file / baked def / tris / raised):");
+            int bad = 0, with = 0;
+            foreach (var m in CarModelLibrary.Models)
+            {
+                string dir = "Assets/PSXRacing/Art/Car/Models/" + m.key + "/";
+                bool file = File.Exists(dir + m.key + "_covers.obj");
+                var def = CarModelLibrary.Load(m.key);
+                bool baked = def != null && def.coverMesh != null && def.coverMaterial != null;
+                bool upFile = File.Exists(dir + m.key + "_covers_up.obj");
+                if (!file && !baked) continue;
+                with++;
+                if (file != baked || (upFile && (def == null || def.coverUpMesh == null))) bad++;
+                log.AppendLine($"  {m.key,-17} file {file} baked {baked} tris {CarCovers.Tris(def)} raised {(upFile ? (def != null && def.coverUpMesh != null ? "yes" : "MISSING") : "-")}");
+            }
+            log.AppendLine($"  {with} shells with covers, {bad} with covers in the source but not in the game");
         }
 
         static Transform Park(CarModelDef def, int skin, out Renderer body)
@@ -241,10 +327,15 @@ namespace PSXRacing.EditorTools
         /// and the seam mask's pass when there is one.</summary>
         static void PairShot(string name, Vector3 pos, Quaternion rot, Renderer body, string maskPath, string lamps = null)
         {
+            // before = the game as it shipped (512 point sheet, no clear covers);
+            // after = this branch (the HD tier and the covers)
+            var cov = body != null ? body.transform.Find(CarCovers.ChildName) : null;
             CarHD.ForceOff = true; Restamp();
+            if (cov != null) cov.gameObject.SetActive(false);
             if (lamps != null) Lamps(body, lamps, true);
             Save(Render(pos, rot, true, true), name + "_before");
             CarHD.ForceOff = false; Restamp();
+            if (cov != null) cov.gameObject.SetActive(true);
             if (lamps != null) Lamps(body, lamps, true);
             Save(Render(pos, rot, true, true), name + "_after");
             if (maskPath != null && body != null) MaskShot(name, pos, rot, body, maskPath);

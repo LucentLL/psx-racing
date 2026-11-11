@@ -193,6 +193,19 @@ namespace PSXRacing
             return t;
         }
 
+        /// <summary>TOOLS: one line on why a material is or is not in the tier.</summary>
+        public static string Diag(Material m)
+        {
+            if (m == null) return "no material";
+            var main = m.GetTexture(MainTexId);
+            bool mapOk = EnsureMap();
+            var to = main != null ? TextureTier.OriginalOf(main) : null;
+            return $"shader {m.shader.name} hasNormalProp {m.HasProperty(NormalId)} want {Want} map {mapOk} sheets {SheetCount} " +
+                   $"main {(main != null ? main.name + "#" + main.GetHashCode() : "null")} inMap {(to != null && byOriginal.ContainsKey(to))} " +
+                   $"isHD {(main != null && byHD.ContainsKey(main))} tierOrig {(to != null ? to.name + "#" + to.GetHashCode() : "-")} kw {m.IsKeywordEnabled(Keyword)} loaded {Loaded}" +
+                   (map != null && map.sheets.Length > 0 ? $" first original {(map.sheets[0].original != null ? map.sheets[0].original.name + "#" + map.sheets[0].original.GetHashCode() : "NULL")}" : "");
+        }
+
         /// <summary>The 512 sheet an HD colour sheet stands for (or the
         /// texture itself): the tools' and the swatch's question.</summary>
         public static Texture OriginalOf(Texture t)
@@ -225,7 +238,9 @@ namespace PSXRacing
             else if (main != null)
             {
                 if (on && byHD.ContainsKey(main)) return changed;   // already HD
-                if (byOriginal.TryGetValue(main, out int i) && Get(i, out var s))
+                // (the sheet may wear its Classic/Enhanced twin: asked by its original)
+                var orig = TextureTier.OriginalOf(main);
+                if (orig != null && byOriginal.TryGetValue(orig, out int i) && Get(i, out var s))
                 {
                     Set(m, MainTexId, s.col);
                     if (s.nrm != null) Set(m, NormalId, s.nrm);

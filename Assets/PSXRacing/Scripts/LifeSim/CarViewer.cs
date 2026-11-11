@@ -515,6 +515,7 @@ namespace PSXRacing.LifeSim
 
             bodyFilter.sharedMesh = def.bodyMesh;
             bodyRenderer.sharedMaterial = mat;
+            CarCovers.Dress(bodyFilter, def);   // the clear lamp covers
             fit.PlaceBody(bodyRoot, def, new Vector3(0f, 0f, -centre));
 
             for (int i = 0; i < 4; i++)

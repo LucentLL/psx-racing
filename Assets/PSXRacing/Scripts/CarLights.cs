@@ -814,6 +814,8 @@ namespace PSXRacing
             // Only ever trade one of this shell's two bodies for the other.
             if (f.sharedMesh == want || (f.sharedMesh != def.bodyMesh && f.sharedMesh != def.lampsUpMesh)) return;
             f.sharedMesh = want;
+            // ...and its clear covers with it (CarCovers: the raised lamps' own)
+            CarCovers.Dress(f, def);
             // The swap is not a new shell: ShellChanged must not re-fit on it.
             if (body != null) fittedMesh = want;
         }

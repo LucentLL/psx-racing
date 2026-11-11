@@ -247,6 +247,7 @@ namespace PSXRacing
             if (bodyFilter != null && !on && bodyFilter.sharedMesh == def.lensBodyMesh)
                 bodyFilter.sharedMesh = def.bodyMesh;
             DressLenses(def);
+            CarCovers.Dress(bodyFilter, def);
         }
 
         /// <summary>
@@ -377,6 +378,8 @@ namespace PSXRacing
             // The lens variant (B), when picked and when this shell has one;
             // A otherwise, covers put away.
             DressLenses(def);
+            // The clear lamp covers over the body (CarCovers; none on B).
+            CarCovers.Dress(bodyFilter, def);
             if (bodyRoot != null)
             {
                 bodyRoot.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);

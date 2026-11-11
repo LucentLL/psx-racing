@@ -469,6 +469,32 @@ function parseObj(file) {
 /// material, which the OBJ path would paint opaque.
 const keepFace = (m, f) => !m.dropMtl || !m.dropMtl.test(f.mtl || '');
 
+/// THE CLEAR LAMP COVERS (owner, 2026-11-11: "Why don't I see the headlight
+/// lens on cars? I specifically made these layers to cover the headlight
+/// textures"). Until then every clear cover was left off - the OBJ path paints
+/// a mesh with the body's opaque material. Now the rule is the import's, not a
+/// car's: every face of a cover material that the body does NOT keep (an
+/// object outside `parts`, or a face `dropMtl` takes off a kept object) goes to
+/// `${key}_covers.obj` (and `${key}_covers_up.obj` from the lamps-up source),
+/// through exactly the transform the body went through (the same file, the same
+/// scale), and the baker draws it with PSX/CarLens over the body.
+/// A cover material is named clear / cover / glass, and is not a coloured or
+/// opaque part or the body's own atlas material.
+const isCoverMtl = n => /clear|cover|glass/i.test(n || '') && !/opaque|colou?red|atlas|enamel|paint|mirror/i.test(n || '');
+function coverFaces(m, src) {
+  const out = [];
+  for (const o of src.objects) {
+    if (wheelSlot(o.name)) continue;
+    const kept = !m.parts || m.parts.includes(o.name);
+    for (const f of o.faces) {
+      if (!isCoverMtl(f.mtl)) continue;
+      if (!kept || !keepFace(m, f)) out.push(f);
+    }
+  }
+  return out;
+}
+const coverReport = [];
+
 /// Group name -> the game's wheel slot, or null for bodywork. The pack spells
 /// these four different ways across its folders — WheelFL, wheel_FL, wheel.FR,
 /// and one typo'd `wheell_.RL` — so match on letters only and read the corner
@@ -576,6 +602,23 @@ for (const m of MODELS) {
       `# PSX Racing car model\nnewmtl ${mtl}\nKa 1 1 1\nKd 1 1 1\nillum 1\nmap_Kd textures/${first}.png\n`);
   }
 
+  // THE CLEAR LAMP COVERS (coverFaces above): written beside the body, or any
+  // stale file removed when the source has none.
+  const writeCovers = (faces, suffix, from) => {
+    const file = path.join(dir, m.key + suffix + '.obj');
+    if (faces.length === 0) {
+      for (const ext of ['.obj', '.mtl', '.obj.meta', '.mtl.meta']) { const p = path.join(dir, m.key + suffix + ext); if (fs.existsSync(p)) fs.unlinkSync(p); }
+      return 0;
+    }
+    const mtl = m.key + suffix;
+    stats[mtl] = writeObj(file, from, [{ name: mtl, faces }], mtl);
+    fs.writeFileSync(path.join(dir, mtl + '.mtl'), `# PSX Racing car model\nnewmtl ${mtl}\nKa 1 1 1\nKd 1 1 1\nillum 1\n`);
+    return faces.length;
+  };
+  const nCovers = writeCovers(coverFaces(m, src), '_covers', src);
+  coverReport.push(`${m.key.padEnd(17)} covers ${String(nCovers).padStart(4)}f` +
+    (nCovers ? '  [' + [...new Set(src.objects.filter(o => o.faces.some(f => isCoverMtl(f.mtl) && (!(!m.parts || m.parts.includes(o.name)) || !keepFace(m, f)))).map(o => o.name))].join(', ') + ']' : ''));
+
   // POP-UP LAMPS: the lamps-raised body, `${key}_lampsup.obj`. Scaled by the
   // DOWN body's factor, never its own: a raised lamp could stand proud of the
   // nose and change the longest extent, and then the two bodies would no
@@ -598,6 +641,8 @@ illum 1
 map_Kd textures/${first}.png
 `);
     report.push(`${m.key.padEnd(14)} lamps-up body=${stats[mtl].faces}f (x${s.toFixed(4)}, the body's scale)`);
+    const nUp = writeCovers(coverFaces(m, up), '_covers_up', up);
+    if (nCovers || nUp) coverReport.push(`${m.key.padEnd(17)} covers on the lamps-up body ${String(nUp).padStart(4)}f`);
   }
 
   // LENS VARIANT (CarModelDef.lensBodyMesh / lensHeadMesh / lensTailMesh): the
@@ -644,4 +689,9 @@ map_Kd textures/${first}.png
               `skins=${String(skins.length).padStart(2)}  ${m.parts ? 'parts=' + m.parts.join('+') : ''}`);
 }
 console.log(report.join('\n'));
+// THE COVER CHECK: every exported shell, with its covers; a shell whose source
+// has cover faces the export did not write is a failure, named.
+console.log('\nCLEAR LAMP COVERS\n' + coverReport.join('\n'));
+const missing = coverReport.filter(l => / covers +0f/.test(l));
+console.log(`${coverReport.filter(l => !/ +0f/.test(l) && !/lamps-up/.test(l)).length} shells with covers, ${missing.length} without (their sources have none)`);
 console.log(`\n${MODELS.length} models -> ${path.relative(project, outRoot)}`);

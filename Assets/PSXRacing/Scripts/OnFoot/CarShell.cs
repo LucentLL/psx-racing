@@ -95,6 +95,8 @@ namespace PSXRacing.OnFoot
             body.AddComponent<MeshFilter>().sharedMesh = def.bodyMesh;
             var br = body.AddComponent<MeshRenderer>();
             if (mat != null) br.sharedMaterial = mat;
+            // The clear lamp covers over it (CarCovers).
+            CarCovers.Dress(body.GetComponent<MeshFilter>(), def);
 
             // The player's own car wears whatever they fitted, or nothing.
             var donor = owned != null && !string.IsNullOrEmpty(owned.wheelKey) && owned.wheelKey != def.key
