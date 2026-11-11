@@ -318,10 +318,18 @@ namespace PSXRacing.EditorTools
                             var from = P + n3 * 0.004f + Vector3.down * (depth * 0.5f);
                             bool any = Physics.Raycast(from, -n3, out var h3, 0.012f, mask, QueryTriggerInteraction.Ignore);
                             bool ok = any && Vector3.Dot(h3.normal, n3) > 0.3f;
-                            // ...or, into the slot under the edge and down (a shallow step's slot looks onto the
-                            // slab's tongue under it): drawn paving or a closing face within 3 cm
-                            if (!ok && Physics.Raycast(from, (-n3 + Vector3.down).normalized, out var h4, 0.03f, mask, QueryTriggerInteraction.Ignore))
-                                ok = h4.collider.name == "Roads" || h4.collider.name == "Kerbs" || Vector3.Dot(h4.normal, n3) > 0.3f;
+                            if (!ok)
+                            {
+                                // ...or the eye's view of the slot: from 30 cm out and 5 cm up at the slot's middle
+                                // under the edge. Closed when something blocks the view before it, or what it
+                                // meets at or past the slot is paving or a closing face (a shallow step's slab
+                                // tongue lies just outside the edge, over the lower sheet)
+                                var eye = P + n3 * 0.3f + Vector3.up * 0.05f;
+                                var aim = P + Vector3.down * (depth * 0.5f) - n3 * 0.001f;
+                                float L = (aim - eye).magnitude;
+                                if (Physics.Raycast(eye, (aim - eye) / L, out var h4, L + 0.5f, mask, QueryTriggerInteraction.Ignore))
+                                    ok = h4.distance < L - 0.003f || h4.collider.name == "Roads" || h4.collider.name == "Kerbs" || Vector3.Dot(h4.normal, n3) > 0.3f;
+                            }
                             if (!ok)
                             {
                                 st.stepOpenM += segM;
