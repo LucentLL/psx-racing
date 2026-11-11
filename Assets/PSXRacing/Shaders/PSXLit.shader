@@ -1800,8 +1800,11 @@ Shader "PSX/Lit"
                   #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
                     // ROUND 3: every other column from its array slice (same
                     // column-local uv: the column 8x across and 8x up)
-                    facSlice = clamp(floor(facCol + 0.5), 0.0, 15.0);
-                    facArr = (_FacadeHDArr > 0.5 && facPartsK < 0.5 && facC7 < 0.5) ? _FacadeHDOn[(int)facSlice] : 0.0;
+                    // (tex4: _FacadeHDOn is the column's slice + 1, 0 = none: the
+                    // arrays hold only the delivered columns)
+                    float facOnV = _FacadeHDOn[(int)clamp(floor(facCol + 0.5), 0.0, 15.0)];
+                    facSlice = max(facOnV - 1.0, 0.0);
+                    facArr = (_FacadeHDArr > 0.5 && facPartsK < 0.5 && facC7 < 0.5) ? step(0.5, facOnV) : 0.0;
                     [branch] if (facArr > 0.5)
                     {
                         texF.rgb = _FacadeHDCol.SampleGrad(sampler_HDNormal, float3(hdUV, facSlice), hdDx, hdDy).rgb;

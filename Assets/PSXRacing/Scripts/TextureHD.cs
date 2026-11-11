@@ -31,8 +31,15 @@ namespace PSXRacing
 #endif
         public const string Keyword = "PSX_HD";
         public const string NormalSuffix = "_normal", RoughSuffix = "_rough", AOSuffix = "_ao";
+        /// <summary>TEX4 (2026-11-11): an optional night-window mask in the set
+        /// (the shopfronts: their Classic mask is capped at 256 x 64 on PC, the
+        /// lit windows' edges in 9 cm steps on the HD colour). Same UV as the
+        /// colour; PSX/Lit's _NightMask while the set is on.</summary>
+        public const string NightSuffix = "_night";
 
-        struct HDSet { public Texture2D col, nrm, rough, ao; }
+        struct HDSet { public Texture2D col, nrm, rough, ao, night; }
+        static readonly int NightMaskId = Shader.PropertyToID("_NightMask");
+        static readonly Dictionary<Material, Texture> nightWas = new Dictionary<Material, Texture>();
 
         static TextureHDMap map;
         static bool mapTried, bundleTried;
@@ -172,6 +179,7 @@ namespace PSXRacing
             s.nrm = Load(key + NormalSuffix);
             s.rough = Load(key + RoughSuffix);
             s.ao = Load(key + AOSuffix);
+            s.night = Load(key + NightSuffix);
             sets[i] = s;
             byHD[s.col] = i;
             return true;
@@ -216,6 +224,11 @@ namespace PSXRacing
             if (s.nrm != null) Set(m, NormalId, s.nrm);
             if (s.rough != null) Set(m, RoughId, s.rough);
             if (s.ao != null) Set(m, AOId, s.ao);
+            if (s.night != null && m.HasProperty(NightMaskId) && m.GetTexture(NightMaskId) != null)
+            {
+                if (!nightWas.ContainsKey(m)) nightWas[m] = m.GetTexture(NightMaskId);
+                Set(m, NightMaskId, s.night);
+            }
             Kw(m, true);
             Applied++;
             return true;
@@ -223,6 +236,7 @@ namespace PSXRacing
 
         static void Off(Material m)
         {
+            if (nightWas.TryGetValue(m, out var nw)) { Set(m, NightMaskId, nw); nightWas.Remove(m); }
             var main = m.GetTexture(MainTexId);
             int i = -1;
             if (main != null && map != null && !byHD.TryGetValue(main, out i))
@@ -331,8 +345,11 @@ namespace PSXRacing
                 m.SetTexture(FacArrColId, facArrCol);
                 m.SetTexture(FacArrNrmId, facArrNrm);
                 m.SetTexture(FacArrMaskId, facArrMask);
+                // the column's slice + 1 (0 = no art): the arrays hold the delivered
+                // columns only, in column order (TextureHDTool.FacadeArrays)
                 var onCols = new float[TextureHDMap.FacadeCols];
-                for (int c = 0; c < onCols.Length && c < map.facadeCols.Length; c++) onCols[c] = map.facadeCols[c] ? 1f : 0f;
+                int slice = 0;
+                for (int c = 0; c < onCols.Length && c < map.facadeCols.Length; c++) onCols[c] = map.facadeCols[c] ? ++slice : 0f;
                 m.SetFloatArray(FacOnColsId, onCols);
                 SetF(m, FacArrOnId, 1f);
                 // the HD maps' shared sampler is the HD normal's: give it a texture
