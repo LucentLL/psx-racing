@@ -151,6 +151,7 @@ namespace PSXRacing
             var f = Applied;
             if (bodyRoot != null) bodyRoot.localPosition = new Vector3(0f, f.bodyY, f.bodyZ);
             if (box != null && car != null) box.center = f.P(def.colliderCenter);
+            ArchFlare.Stamp(bodyRenderer, def, f);
         }
 
         // ------------------------------------------------------------------
@@ -374,6 +375,9 @@ namespace PSXRacing
             if (bodyFilter != null) bodyFilter.sharedMesh = def.bodyMesh;
             PSXTexDecode.Stamp(mat);   // a livery's 16-bit sheet is decoded in the shader
             if (bodyRenderer != null && mat != null) bodyRenderer.sharedMaterial = mat;
+            // The arches raised to take the sheet's tyres where this shell is a
+            // stand-in too small for them (ArchFlare; 0 = untouched).
+            ArchFlare.Stamp(bodyRenderer, def, f);
             // The lens variant (B), when picked and when this shell has one;
             // A otherwise, covers put away.
             DressLenses(def);

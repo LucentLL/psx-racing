@@ -39,11 +39,23 @@ if ($BuildTarget) { $uargs += @("-buildTarget", $BuildTarget) }
 Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\parkedcheck.log" -MaxMinutes $MaxMinutes -UnityArgs $uargs | Out-Null
 
 Select-String -Path "$proj\parkedcheck.log" -Pattern "error CS" | Select-Object -First 15 | ForEach-Object { $_.Line }
-if (Test-Path "$proj\PSXRacing_parked_play_check.txt") {
-    Get-Content "$proj\PSXRacing_parked_play_check.txt" | Where-Object { $_ -notmatch "^    " }
-    if (Select-String -Path "$proj\PSXRacing_parked_play_check.txt" -Pattern "FAIL" -CaseSensitive -Quiet) { exit 1 }
-    exit 0
+if (-not (Test-Path "$proj\PSXRacing_parked_play_check.txt")) {
+    "NO REPORT - the run threw. Tail of parkedcheck.log:"
+    Get-Content "$proj\parkedcheck.log" -Tail 40
+    exit 1
 }
-"NO REPORT - the run threw. Tail of parkedcheck.log:"
-Get-Content "$proj\parkedcheck.log" -Tail 40
-exit 1
+Get-Content "$proj\PSXRacing_parked_play_check.txt" | Where-Object { $_ -notmatch "^    " }
+$failed = Select-String -Path "$proj\PSXRacing_parked_play_check.txt" -Pattern "FAIL" -CaseSensitive -Quiet
+
+# THE GATE OVER EVERY CATALOGUE ROW (no play mode): no drawn tyre over its arch at
+# the static ride, i.e. no shell CarBodyLean would hold up off its tyres at rest.
+Remove-Item "$proj\PSXRacing_arch_sweep.txt" -ErrorAction SilentlyContinue
+$sargs = @("-quit","-batchmode","-projectPath",$proj,"-executeMethod","PSXRacing.EditorTools.ParkedPlayCheck.ArchSweep",
+    "-logFile","$proj\archsweep.log","-accept-apiupdate")
+if ($BuildTarget) { $sargs += @("-buildTarget", $BuildTarget) }
+Invoke-UnityJob -Log "$proj\archsweep.log" -MaxMinutes 30 -UnityArgs $sargs | Out-Null
+if (-not (Test-Path "$proj\PSXRacing_arch_sweep.txt")) { "ARCH SWEEP DID NOT RUN"; exit 1 }
+Get-Content "$proj\PSXRacing_arch_sweep.txt" -TotalCount 2
+if (Select-String -Path "$proj\PSXRacing_arch_sweep.txt" -Pattern "GATE FAIL" -Quiet) { $failed = $true }
+if ($failed) { exit 1 }
+exit 0
