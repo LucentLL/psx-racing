@@ -1,3 +1,45 @@
+# HANDOFF - HD CAR TIER + CLEAR LAMP COVERS (car-hd-tier, 2026-11-11; agent "carhd"; NOT pushed, NOT merged)
+
+Branch `car-hd-tier` (worktree `C:\Users\mcgee\PSX Racing-carhd`) off mountain-nm c81f2a59. Sandbox PSXLab (lock "carhd", released). Sheet: scratchpad `carhd\carhd_before_after.png` (+ `_contrast.json`, `_clip.json`). Artist contract: art workspace `Cars\CODEX_HANDOFF_car_hd_tier.md`.
+
+## Owner reports
+- "why are body panel lines so smeared? I used bitmap for these to give the cars depth" (yellow FD, seller's drive).
+- "Why don't I see the headlight lens on cars? I specifically made these layers to cover the headlight textures" (blue Viper, dusk).
+
+## Causes
+- Every car draws one 512x256 sheet (the HD sheet box-filtered 4x), point sampled with no mips (`Editor/CarModelBaker.cs` PointFilter), lit from vertex normals only (`Shaders/PSXCarPaint.shader` had no normal sampler). A 2 px line became half a texel; the groove depth in `_hd_normal` was never read.
+- `tools/carmodels/export_models.mjs` left every clear cover off ("the OBJ path would paint it opaque"; Viper `dropMtl`).
+- Three HD bodies imported with `tangentImportMode: 2` (none): viper_gts, flatsix_coupe, civic_eg (now 3 = Mikk).
+- PC profile today: no vertex snap (`_PSXSnap` never set), cars `_Affine` 0, the picture is 8-bit + FXAA at the HD preset (Bayer at 1/255: invisible); at SHARP/CLASSIC presets the 6-bit dither (0.35/0.6) does show. The HD path forces no snap and no affine regardless.
+
+## What changed
+- `Scripts/CarHD.cs` + `CarHDMap.cs` (new): on the PC profile a PSX/CarPaint livery whose 512 sheet has an HD set gets the 2048 colour (BC7, mips, trilinear, 16x aniso), `_CarHDNormal` (BC5), `_CarHDORM` (R AO, G rough, B metal, A coat) and keyword `PSX_CAR_HD`; HD lamp maps through `CarLights.LampMapFor`. Hooked in `PSXTexDecode.Stamp` (one line), so every assembler (CarBody: player/rivals/AI/replay/inspection; CarShell: garage/seller/dealer/junkyard/meets/traffic; CarViewer) gets it via the shared skin materials. Sets load per body when CarModelLibrary.Load first stamps it; shared normal/ORM/lamp maps loaded once. A/B `-psx-no-car-hd`; editor `PSX_CAR_HD=1`.
+- `Shaders/PSXCarPaint.shader`: `multi_compile_local __ PSX_CAR_HD` (stripped from non-Windows builds by `CarHDVariantStripper`); MikkTSpace TBN off the mapped normal for light/reflection/glints; AO on sky (1.0) / reflection (0.8) / sun (0.35); roughness above 0.5 removes lacquer (to 25%) and blurs the reflection; colour read -0.75 mip, normal -0.5 mip; debug 14. No existing #define changed.
+- Older cars: `CarHD.SmoothSheets` (mipped trilinear copy of a Classic sheet, 565 bin-centred) - OFF by default; `-psx-car-sheet-smooth` / `PSX_CAR_SHEET_SMOOTH=1`. A/B (gtr_99 512, charger_69 128): smoother at 30 m, not clearly better: left off.
+- `Editor/CarHDTool.cs` (new): import from `PSX_CAR_HD_SRC` (default `C:\Users\mcgee\PSXHDStage\carhd`) into gitignored HDSrc/CarHD + Resources/CarHDMap.asset (gitignored), ship `carhd.bundle`. Hooked in `PSXBuildWin64` beside TextureHDTool (Import before the player, ShipBundle after).
+- Stage: `tools/carmodels/stage_carhd.py <repo> <Cars dir> <stage>` makes the stage from the six deliveries (ORM repacked, lamp maps with the 512 corrections copied in). Stage already built: `C:\Users\mcgee\PSXHDStage\carhd` (32 MB).
+- Covers: `export_models.mjs` rule `isCoverMtl` (clear/cover/glass, not opaque/coloured/atlas) writes `key_covers.obj` (+ `_covers_up.obj` on pop-ups) through the body's own scale; bodies byte-identical (only EOL). `CarModelDef.coverMesh/coverUpMesh/coverMaterial` (new fields), `CarModelBaker.BakeCovers` (PSX/CarLens, opacity 0.06, no tint), `Scripts/CarCovers.cs` (new) drawn by CarBody.Apply/SetLensCovers, CarShell.Spawn, CarViewer, CarLights.PopUps (swaps with the pop-up body). On every profile; `-psx-no-lamp-covers` / `PSX_CAR_COVERS=0`.
+- Shared-file edits (small): PSXTexDecode.cs (1 line), CarLights.cs (LampMapFor 3 lines, ForgetLampMaps, PopUps 1 line), CarBody.cs (2 lines), CarShell.cs (1 line), CarViewer.cs (1 line), CarModelDef.cs (3 fields), CarModelBaker.cs (wheel RecalculateTangents, DisableKeyword PSX_CAR_HD, BakeKeys, BakeCovers), PSXBuildWin64.cs (2 calls), 3 OBJ metas (tangents), .gitignore.
+
+## Covers (20 shells, 0 with covers in the source but not in the game)
+civic_eg 164, rx7_fd_93/99/nowing 440 (+440 raised), viper_gts 295, flatsix_coupe 444, flatsix_coupe_87 444, hatch_83_popup 32 (+32), rally_coupe_98 82, rally_sedan_99 344, fastback_96 32 (+32), liftback_95 375, roadster_99 338, gtr_89 280, coupe_03 273, gtr_99 206, charger_70 66, gt_liftback_97 456, fixed_roof_99 56 (+56), gt_hardtop_73 240. Cost: +1 draw, +32..456 tris a car (20-car grid <= +20 draws, ~+9k tris). Not measured on a phone.
+
+## Proof / numbers
+- Shut-line contrast 5/15/40 m before -> after: FD .14/.11/.23 -> .26/.14/.08; Viper .12/.22/.33 -> .25/.25/.32; Evo .21/.18/.23 -> .32/.26/.18; EG .18/.10/.12 -> .27/.16/.04; S2000 .16/.14/.11 -> .21/.18/.03; CTR negative (its seams read lighter than paint). 40 m loss = sub-pixel lines averaged (the old "contrast" was aliasing).
+- Clip: 0% of paint pixels >= 0.97 in every after frame, p99 max channel 0.88.
+- Tangents (CPU, per triangle, both sides and mirrored islands): T along +U 99.7-100%, B along +V 95.7-100% on all six bodies; normal maps are grooves in +Y/OpenGL on all six (seams.py).
+- Bundle 27.3 MB (LZ4), 34 textures; GPU 2.67 MB each (2048x1024 BC7/BC5 + mips) = ~10.7 MB a body, ~91 MB if all nine are loaded. Load 5-16 ms a set (editor, from assets). Cost probe (9 FDs, 1920x1080, editor): no measurable difference (29-42 ms off, 28-37 ms on; noise).
+- Self-test (PSXLab, tier off): 66 failures = base (66 old + 2 Evo lamp checks was 68); paint pins ok, PSX/CarPaint compiles.
+
+## Not verified
+Anything in a player: bundle load from StreamingAssets, BC7/BC5 on the Win64 target (PSXLab's editor is on WebGL: DXT5 there), the variant surviving the stripper, real GPU cost, the CarReflections panorama in the paint (off in edit-mode frames), night with street lamps (SellerLot has none), the cockpit view, mirrors, phone cost of covers.
+
+## At merge / to reach the exe
+1. Copy nothing by hand: covers OBJ/MTL + metas and the 3 metas are committed.
+2. In the PC build sandbox: `CarModelBaker.Bake` (or `CarHDShots.BakeImport` for the 20 changed shells) so the prefabs carry wheel tangents, covers and cover materials (Materials/CarModels/*_covers.mat are made by the bake).
+3. Set `PSX_CAR_HD_SRC=C:\Users\mcgee\PSXHDStage\carhd` for the PC build (PSXBuildWin64 imports and ships carhd.bundle itself). Rebuild the stage with stage_carhd.py when deliveries change.
+4. No full scene pass needed (CarBody/CarShell dress at runtime); no tile re-bake.
+
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 
 Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
