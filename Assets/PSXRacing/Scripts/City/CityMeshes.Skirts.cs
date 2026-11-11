@@ -434,7 +434,7 @@ namespace PSXRacing.City
             // THE ROAD SLAB (owner 2026-11-11): every paved sheet's open edge a
             // face down past what lies beside it, or a tongue under the
             // pavement it joins (CityMeshes.RoadSlab)
-            RoadSlab(map, tm);
+            foreach (var _ in RoadSlab(map, tm)) yield return 0;
         }
 
         static readonly List<Bucket> skirtSheets = new List<Bucket>(96), roadSheets = new List<Bucket>(96);

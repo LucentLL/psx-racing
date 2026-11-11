@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing.City
@@ -74,12 +74,12 @@ namespace PSXRacing.City
         /// <see cref="skirtOpen"/> holds the road sheets' open edges (and
         /// <see cref="skirtOpenOwn"/> their own vertices), <see cref="skirtSheets"/>
         /// the road buckets and <see cref="roadGrid"/> their lying triangles.</summary>
-        static void RoadSlab(CityMap map, TileMeshes tm)
+        static IEnumerable<int> RoadSlab(CityMap map, TileMeshes tm)
         {
             slabTongues = slabFaces = slabTris = 0; slabTongueM = slabFaceM = 0f; slabMs = 0;
             foreach (var l in slabVerts.Values) l.Clear();
             slabFor = tm;
-            if (!RoadSlabOn) return;
+            if (!RoadSlabOn) yield break;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var o = tm.origin;
             var probes = slabProbe;
@@ -119,6 +119,9 @@ namespace PSXRacing.City
             }
             for (int ei = 0; ei < skirtOpen.Count && ei < skirtOpenOwn.Count; ei++)
             {
+                // a step of the tile job every SlabEdgesAStep edges (city-build-hitches: an
+                // Uptown lot tile's pass ran 450-600 ms in one go)
+                if (ei > 0 && ei % SlabEdgesAStep == 0) { clock.Stop(); yield return 0; clock.Start(); }
                 var (A0, B0, nrm, bi) = skirtOpen[ei];
                 var (ga, gb) = skirtOpenOwn[ei];
                 if (bi >= skirtSheets.Count) continue;
@@ -185,6 +188,7 @@ namespace PSXRacing.City
                 if (level)
                     SlabAdd(new SlabPiece { A = A, B = B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = 0, run = levelFar ? TongueRunM : TongueShortM });
             }
+            clock.Stop(); yield return 0; clock.Start();
             SlabEmit();
             slabMs = clock.Elapsed.TotalMilliseconds;
         }
@@ -290,6 +294,7 @@ namespace PSXRacing.City
             SlabMark(bk, v0);
             slabTris += 2;
         }
+        const int SlabEdgesAStep = 256;
         static readonly float[] slabProbe = { 0.15f, 0.5f, 0.85f };
         static readonly HashSet<(long, long)> slabKerbPairs = new HashSet<(long, long)>();
         static readonly List<(Vector2 a, Vector2 b, float yTop)> slabFaceSegs = new List<(Vector2, Vector2, float)>(1024);
