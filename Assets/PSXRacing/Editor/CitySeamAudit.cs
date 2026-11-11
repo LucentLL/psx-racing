@@ -133,7 +133,7 @@ namespace PSXRacing.EditorTools
                             tot.joinM += st.joinM; tot.joinOpenM += st.joinOpenM; tot.stepM += st.stepM; tot.stepOpenM += st.stepOpenM;
                             tot.joinLevelM += st.joinLevelM; tot.joinRiserM += st.joinRiserM; tot.joinHighM += st.joinHighM;
                             tot.tris += st.tris; tot.slabTris += st.slabTris; tot.buildMs += st.buildMs; tot.slabMs += st.slabMs;
-                            if (tiles.Count <= 16) sb.AppendLine($"   tile {tx},{tz}: joins {st.joinM:0} m open {st.joinOpenM:0.0} | steps {st.stepM:0} m open {st.stepOpenM:0.0} | road tris {st.tris} (slab {st.slabTris}) build {st.buildMs:0} ms (slab {st.slabMs:0.0} ms)");
+                            if (tiles.Count <= 16) sb.AppendLine($"   tile {tx},{tz}: joins {st.joinM:0} m open {st.joinOpenM:0.0} | steps {st.stepM:0} m open {st.stepOpenM:0.0} | road tris {st.tris} (slab {st.slabTris}: {CityMeshes.slabTongues} tongues {CityMeshes.slabTongueM:0} m, {CityMeshes.slabFaces} faces {CityMeshes.slabFaceM:0} m) build {st.buildMs:0} ms (slab {st.slabMs:0.0} ms)");
                         }
                         int n = Mathf.Max(1, tiles.Count);
                         sb.AppendLine($"-- {name}: {tiles.Count} tiles in {clock.Elapsed.TotalSeconds:0} s");
@@ -141,8 +141,13 @@ namespace PSXRacing.EditorTools
                         sb.AppendLine($"   STEPS (the land or pavement past lower by > 2 mm) {tot.stepM:0} m");
                         sb.AppendLine($"   GATE {name}: OPEN JOIN {tot.joinOpenM:0.0} m + OPEN STEP {tot.stepOpenM:0.0} m = {tot.joinOpenM + tot.stepOpenM:0.0} m {(tot.joinOpenM + tot.stepOpenM < 0.01f ? "PASS" : "FAIL")}");
                         sb.AppendLine($"   cost: road triangles {tot.tris / n} a tile, of them slab {tot.slabTris / n} ({100f * tot.slabTris / Mathf.Max(1, tot.tris):0.0} %); build {tot.buildMs / n:0} ms a tile, slab pass {tot.slabMs / n:0.00} ms a tile");
-                        worst.Sort((a, b) => b.m.CompareTo(a.m));
-                        for (int i = 0; i < worst.Count && i < 25; i++) sb.AppendLine("     " + worst[i].line);
+                        int shownJ = 0, shownS = 0;
+                        foreach (var w in worst)
+                        {
+                            bool j = w.line.StartsWith("OPEN JOIN");
+                            if (j ? shownJ++ >= 15 : shownS++ >= 15) continue;
+                            sb.AppendLine("     " + w.line);
+                        }
                     }
                     // borders two scanned tiles share: a road vertex on one that the other lacks
                     int bv = 0, bmiss = 0; double bworst = 0;
@@ -304,11 +309,12 @@ namespace PSXRacing.EditorTools
                             st.stepM += segM;
                             float depth = Mathf.Min(-dy, 0.3f);
                             var from = P + n3 * 0.06f + Vector3.down * (depth * 0.5f);
-                            bool ok = Physics.Raycast(from, -n3, out var h3, 0.07f, mask, QueryTriggerInteraction.Ignore) && Vector3.Dot(h3.normal, n3) > 0.3f;
+                            bool any = Physics.Raycast(from, -n3, out var h3, 0.07f, mask, QueryTriggerInteraction.Ignore);
+                            bool ok = any && Vector3.Dot(h3.normal, n3) > 0.3f;
                             if (!ok)
                             {
                                 st.stepOpenM += segM;
-                                worst.Add((segM * 0.5f, $"OPEN STEP tile {tx},{tz} at ({P.x:0.0},{P.y:0.000},{P.z:0.0}) {-dy * 1000f:0} mm down onto {hit.collider.name}, edge {len:0.0} m{Near(map, P)}"));
+                                worst.Add((segM * 0.5f, $"OPEN STEP tile {tx},{tz} at ({P.x:0.0},{P.y:0.000},{P.z:0.0}) {-dy * 1000f:0} mm down onto {hit.collider.name} (n.y {hit.normal.y:0.00}), edge {len:0.0} m facing ({nrm.x:+0.00;-0.00},{nrm.y:+0.00;-0.00}); back ray {(any ? $"met {h3.collider.name} {Vector3.Dot(h3.normal, n3):+0.00;-0.00} at {h3.distance:0.000}" : "met nothing")}{Near(map, P)}"));
                             }
                         }
                     }
@@ -414,11 +420,12 @@ namespace PSXRacing.EditorTools
                     foreach (var ei in map.nodeEdges[n])
                     {
                         var e = map.edges[ei];
-                        if (e.name == null || !e.name.Contains("Graham") || e.oneway || !Long(ei, n)) continue;
+                        if (e.name == null || !e.name.Contains("North Graham") || e.oneway || !Long(ei, n)) continue;
                         // approaching toward Uptown: the arm's far end further out than the node
                         int far = e.a == n ? e.b : e.a;
                         if (Vector2.Distance(map.nodes[far], map.uptown) < du) continue;
-                        float score = Mathf.Abs(du - 1700f) + (e.lanes >= 4 ? 0f : 2000f);
+                        float score = Mathf.Abs(du - 1700f) + (e.lanes >= 4 || e.width >= 12f ? 0f : 2000f);
+                        log?.AppendLine($"  candidate n{n} e{ei} '{e.name}' lanes {e.lanes} width {e.width:0.0} {du:0} m from Uptown");
                         if (score < bestScore) { bestScore = score; bn = n; be = ei; }
                     }
                 }
