@@ -48,6 +48,11 @@ namespace PSXRacing.EditorTools
         /// can touch: the relief stays within <see cref="ReliefContactM"/> of
         /// the collider there (no invisible wall in front of recessed rock).</summary>
         const float ReliefContactH = 1.3f, ReliefContactM = 0.12f;
+        /// <summary>In that band the rock may stand back of the smooth face by
+        /// this much at most (cracks, undercuts, set-back blocks): a car on the
+        /// solid sees at most a hand's breadth or so of air.</summary>
+        const float ReliefBandIn = 0.35f;
+        static int reliefLedges, lipTris, lipPlants, talusN;
         /// <summary>Up-facing relief cells this stage (stage-parent frame).</summary>
         static readonly List<Vector3> rockLedges = new List<Vector3>();
         /// <summary>Per ledge: 0 any, 1 over a crest (bush, young tree), 2 out of a face (fern, grass), 3 a cut's foot.</summary>
@@ -160,6 +165,8 @@ namespace PSXRacing.EditorTools
                 int na = Mathf.Max(1, Mathf.CeilToInt(step.magnitude / ReliefAlong));
                 var cols = new List<Vector3[]>(na + 1);
                 var cuvs = new List<Vector2[]>(na + 1);
+                var cdps = new List<float[]>(na + 1);
+                float toeMid = (toe[k - 1].y + toe[k].y) * 0.5f;
                 Vector3 inward = Vector3.zero, facing = Vector3.zero;
                 // a station where the relief ENDS (a flat chord beyond it) is
                 // met at depth 0, so the two meet edge to edge
@@ -177,6 +184,7 @@ namespace PSXRacing.EditorTools
                     int nu = Mathf.Clamp(Mathf.CeilToInt(lenAt / ReliefUp), 2, 48);
                     var col = new Vector3[nu + 1];
                     var cuv = new Vector2[nu + 1];
+                    var cdp = new float[nu + 1];
                     for (int iu = 0; iu <= nu; iu++)
                     {
                         float u = iu / (float)nu;
@@ -189,49 +197,143 @@ namespace PSXRacing.EditorTools
                         // road - 0.5): the drawn rock within a hand's breadth of
                         // the solid, and never in front of it
                         float hy = p.y - (toeY + 0.5f);
-                        // (where the full relief starts wanders 1.3-2.5 m along
+                        // (where the full relief starts wanders 0.4-2.5 m along
                         // the cut: one level shelf the length of it read as a
-                        // course of masonry)
-                        float bandH = ReliefContactH + RNoise(a / 5f, 0.71f, seed + 9) * 1.2f;
-                        float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(bandH, bandH + 0.5f + RNoise(a / 3f, 0.3f, seed + 13) * 1.2f, hy));
-                        dpt = Mathf.Lerp(Mathf.Clamp(dpt, 0f, ReliefContactM), dpt, band);
+                        // course of masonry). Inside the band the SAME field,
+                        // scaled down - the same blocks, tilts and cracks, so no
+                        // seam - recessed at most ReliefBandIn behind the
+                        // smooth face and proud of it at most ReliefContactM.
+                        float bandH = 0.4f + RNoise(a / 4.5f, 0.71f, seed + 9) * 2.1f;
+                        float band = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(bandH, bandH + 0.4f + RNoise(a / 3f, 0.3f, seed + 13) * 0.8f, hy));
+                        float inBand = Mathf.Clamp(dpt * 0.32f, -ReliefContactM, ReliefBandIn);
+                        dpt = Mathf.Lerp(inBand, dpt, band);
                         p += inward * dpt;
                         col[iu] = p;
+                        cdp[iu] = dpt;
                         cuv[iu] = new Vector2(a / 4.5f, (p.y - toeY) / 4.5f);
                     }
-                    cols.Add(col); cuvs.Add(cuv);
+                    cols.Add(col); cuvs.Add(cuv); cdps.Add(cdp);
                 }
                 facing.Normalize();
                 // FACETED: every triangle its own corners, so the normals
                 // SaveMesh computes are the facet's own - the block edges stay
                 // edges instead of being smoothed round. A zip up each pair of
                 // columns: always step the side whose next row is lower.
-                // (No ledge plants: a recessed ledge is behind the face's
-                // solid, and a plant fitted out of that solid would hang in the
-                // air in front of it. PSX_ROCKFACE mosses the ledges; the
-                // plants are PlaceCliffs'.)
+                // LEDGE PLANTS: only on a ledge (a facet facing up) whose rock
+                // stands no deeper than the smooth face - a block standing
+                // out of it. One deeper is behind the face's solid, and the
+                // plant fit would move its plant out of the solid into the air
+                // in front of it. Each goes through PlantClear (AddLedgePlants).
                 for (int ia = 0; ia < na; ia++)
                 {
                     Vector3[] L = cols[ia], Rr = cols[ia + 1];
                     Vector2[] Lu = cuvs[ia], Ru = cuvs[ia + 1];
+                    float[] Ld = cdps[ia], Rd = cdps[ia + 1];
                     int nl = L.Length - 1, nr = Rr.Length - 1, i = 0, j = 0;
                     while (i < nl || j < nr)
                     {
                         bool stepL = j >= nr || (i < nl && (i + 1) / (float)nl <= (j + 1) / (float)nr);
                         int b = verts.Count;
+                        float dMax = Mathf.Max(Ld[i], Rd[j]);
                         verts.Add(L[i]); uvs.Add(Lu[i]);
                         verts.Add(Rr[j]); uvs.Add(Ru[j]);
-                        if (stepL) { verts.Add(L[i + 1]); uvs.Add(Lu[i + 1]); i++; }
-                        else { verts.Add(Rr[j + 1]); uvs.Add(Ru[j + 1]); j++; }
+                        if (stepL) { verts.Add(L[i + 1]); uvs.Add(Lu[i + 1]); dMax = Mathf.Max(dMax, Ld[i + 1]); i++; }
+                        else { verts.Add(Rr[j + 1]); uvs.Add(Ru[j + 1]); dMax = Mathf.Max(dMax, Rd[j + 1]); j++; }
                         var nrm = Vector3.Cross(verts[b + 1] - verts[b], verts[b + 2] - verts[b]);
                         if (nrm.sqrMagnitude < 1e-10f) { verts.RemoveRange(b, 3); uvs.RemoveRange(b, 3); continue; }
                         if (Vector3.Dot(nrm, facing) >= 0f) tris.AddRange(new[] { b, b + 1, b + 2 });
                         else tris.AddRange(new[] { b, b + 2, b + 1 });
+                        var c = (verts[b] + verts[b + 1] + verts[b + 2]) / 3f;
+                        if (dMax <= 0.05f && Mathf.Abs(nrm.normalized.y) > 0.7f && c.y > toeMid + 1.3f
+                            && RHash(ia + k * 131, i + j * 17, seed + 17) < 0.5f)
+                        { AddLedge(c, 2); reliefLedges++; }
                     }
                 }
             }
             reliefChords += chords;
             reliefTris += (tris.Count - t0) / 3;
+        }
+
+        /// <summary>THE CREST LIP (owner's photographs: soil, leaf litter and
+        /// plants spilling over the top of every cut, never a clean edge): a
+        /// ribbon of the hillside's own ground over each faced stretch's crest -
+        /// hanging a little down the face, standing 0.15-1.1 m over the crest in
+        /// lumps of its own along the cut, and tucked back into the rock top
+        /// 1.2 m in. Drawn only (it is above anything a car can reach; the rock
+        /// top's collider is unchanged). Plant spots on its top and nose go
+        /// through PlantClear like every ledge.</summary>
+        static void BuildCrestLip(Transform parent, Material topMat, int no, Vector3[] crest, Vector3[] outw,
+                                  bool[] faced, float[] distAt, int R, int seed)
+        {
+            var v = new List<Vector3>(); var uv = new List<Vector2>(); var tr = new List<int>();
+            float g = Mathf.Max(theme.groundTile, 0.01f);
+            const int P = 5;
+            for (int k = 1; k < R; k++)
+            {
+                if (!faced[k - 1] || !faced[k]) continue;
+                float wA = k - 2 >= 0 && faced[k - 2] ? 1f : 0f;
+                float wB = k + 1 < R && faced[k + 1] ? 1f : 0f;
+                Vector3 step = crest[k] - crest[k - 1]; step.y = 0f;
+                int na = Mathf.Max(1, Mathf.CeilToInt(step.magnitude / ReliefAlong));
+                int first = v.Count;
+                for (int ia = 0; ia <= na; ia++)
+                {
+                    float t = ia / (float)na;
+                    float w = Mathf.SmoothStep(0f, 1f, Mathf.Lerp(wA, wB, t));
+                    Vector3 I = Vector3.Lerp(outw[k - 1], outw[k], t); I.y = 0f; I.Normalize();
+                    Vector3 C = Vector3.Lerp(crest[k - 1], crest[k], t);
+                    float a = Mathf.Lerp(distAt[k - 1], distAt[k], t);
+                    // lumps: a few metres each, and a finer break-up
+                    float n1 = RNoise(a / 3.2f, 0.17f, seed + 61) * 0.7f + RNoise(a / 0.9f, 0.53f, seed + 67) * 0.3f;
+                    float n2 = RNoise(a / 2.3f, 0.83f, seed + 71);
+                    // GAPS: stretches with no lip at all, where the rock's own
+                    // edge is the skyline (one unbroken lip read as a band)
+                    float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.6f, RNoise(a / 7f, 0.91f, seed + 87)));
+                    w *= gate;
+                    float rise = (0.15f + n1 * 0.95f) * w;
+                    float over = (0.1f + n2 * 0.4f) * w;
+                    var col = new[]
+                    {
+                        C - I * (over * 0.5f) - Vector3.up * (0.02f + (0.2f + 0.35f * n2) * w) + I * 0.05f,   // hanging down the face
+                        C - I * over + Vector3.up * (rise * 0.55f),                                    // the nose
+                        C + I * 0.25f + Vector3.up * (rise - 0.15f * (1f - w)),                         // the top
+                        C + I * 0.7f + Vector3.up * (rise * 0.6f - 0.1f - 0.15f * (1f - w)),
+                        C + I * 1.2f - Vector3.up * 0.45f,                                              // tucked into the rock top
+                    };
+                    // uv: along the cut, and down the lip's own profile (a plan
+                    // projection streaked the hanging front like thatch)
+                    float sp = 0f;
+                    for (int q = 0; q < P; q++)
+                    {
+                        if (q > 0) sp += Vector3.Distance(col[q - 1], col[q]);
+                        v.Add(col[q]); uv.Add(new Vector2(a / g, sp / g));
+                    }
+                    // plants on it: on the top now and then, in the nose's grass
+                    if (w > 0.5f && RHash(ia + k * 37, 3, seed + 73) < 0.32f) { AddLedge(col[2], RHash(ia, k, seed + 79) < 0.35f ? 1 : 2); lipPlants++; }
+                    if (w > 0.5f && RHash(ia + k * 37, 5, seed + 83) < 0.18f) { AddLedge(col[1] + I * 0.15f, 2); lipPlants++; }
+                }
+                for (int ia = 0; ia < na; ia++)
+                    for (int q = 0; q + 1 < P; q++)
+                    {
+                        int a0 = first + ia * P + q, a1 = a0 + 1, b0 = a0 + P, b1 = b0 + 1;
+                        Vector3 I = Vector3.Lerp(outw[k - 1], outw[k], (ia + 0.5f) / na); I.y = 0f;
+                        int t0 = tr.Count;
+                        QuadFacingSkipFlat(v, tr, a0, a1, b1, b0, Vector3.up * 0.6f - I.normalized);
+                        lipTris += (tr.Count - t0) / 3;
+                    }
+            }
+            if (tr.Count == 0) return;
+            var mesh = new Mesh
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
+                vertices = v.ToArray(), uv = uv.ToArray(), triangles = tr.ToArray(),
+            };
+            SaveMesh(mesh, "StageBankLip" + no);
+            var go = new GameObject("BankLip" + no);
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = topMat;
+            go.isStatic = true;
         }
 
         const string RockFaceBC = MeadowCliffDir + "/T_Photoscanned_Cliff_01_BC.tga";
@@ -359,7 +461,9 @@ namespace PSXRacing.EditorTools
                 }
             }
             Physics.SyncTransforms();
-            Log($"Boulders: {bouldersPlaced} on the steep slopes beside the road (solid, {boulderVars.Count} stone meshes).");
+            Log($"Boulders: {bouldersPlaced} on the steep slopes beside the road (solid, {boulderVars.Count} stone meshes); " +
+                $"rock cuts: {talusN} talus stones and litter at the foot, crest lip {lipTris} tris with {lipPlants} plant spots, {reliefLedges} relief ledge spots.");
+            reliefLedges = lipTris = lipPlants = talusN = 0;
         }
 
         static readonly List<Vector3> boulderSpots = new List<Vector3>();

@@ -133,20 +133,42 @@ namespace PSXRacing.EditorTools
                 // TALUS: fallen blocks at the foot of a rock face, set into it
                 // (at most 0.15 m in front of its solid: a car scraping the
                 // face is not to drive through stone it cannot touch)
+                // In CLUSTERS along the cut (a slow noise sets how much falls
+                // here), each stone anywhere along the chord: the ground line
+                // is not a straight edge.
                 if (boulderVars.Count > 0 && h >= 1.5f)
-                    for (int q = 0; q < 2; q++)
+                {
+                    float heap = RNoise(distAt[k] / 9f, 0.4f, seed + 231);
+                    int tries = 2 + Mathf.RoundToInt(heap * 5f * Mathf.InverseLerp(1.5f, 6f, h));
+                    for (int q = 0; q < tries; q++)
                     {
-                        float tq = RHash(k * 3 + q, seed, 221);
-                        if (tq > Mathf.Lerp(0.35f, 0.75f, Mathf.InverseLerp(1.5f, 8f, h))) continue;
+                        float tq = RHash(k * 7 + q, seed, 221);
+                        if (tq > 0.25f + 0.6f * heap) continue;
                         int bv = boulderVars[(int)(RHash(q, k, 223) * 9973f) % boulderVars.Count];
                         var bvar = kit.variants[bv];
-                        float bs = Mathf.Lerp(0.3f, 0.85f, RHash(k, q, 227)) / Mathf.Max(bvar.height, 0.1f);
+                        float sz = RHash(k, q, 227);
+                        float bs = Mathf.Lerp(0.18f, 0.95f, sz * sz) / Mathf.Max(bvar.height, 0.1f);
                         float br = BoulderRadius(bvar) * bs;
-                        Vector3 tp = toe + outw * (br - 0.1f) + side * ((tq - 0.35f) * 4f);
-                        tp.y = pts[i].y - bvar.height * bs * 0.3f;
+                        Vector3 tp = toe + outw * (br - 0.1f) + side * ((RHash(q, k + 5, 229) - 0.5f) * 4f);
+                        tp.y = pts[i].y - bvar.height * bs * Mathf.Lerp(0.15f, 0.45f, RHash(q + 3, k, 233));
                         if (!RockClearOfSolids(tp + Vector3.up * (bvar.height * bs * 0.4f), br, rockOk: true)) continue;
                         cliffPlaces.Add(new CliffPlace { pos = tp, yaw = tq * 1000f, scale = bs, v = bv });
+                        talusN++;
                     }
+                    // and leaf litter banked against the foot
+                    if (kit.debris[0].Length > 0 && RHash(k, seed, 237) < 0.3f + 0.5f * heap)
+                    {
+                        int lv = kit.debris[0][(int)(RHash(seed, k, 239) * 9973f) % kit.debris[0].Length];
+                        Vector3 lp = toe - outw * 0.35f + side * ((RHash(k, 2, 241) - 0.5f) * 3f);
+                        lp.y = pts[i].y - 0.05f;
+                        // (clear of a wall's stone and rail by its own reach)
+                        if (RockClearOfSolids(lp + Vector3.up * 0.3f, 1.6f, rockOk: true))
+                        {
+                            cliffPlaces.Add(new CliffPlace { pos = lp, yaw = RHash(k, 4, 243) * 360f, scale = Mathf.Lerp(0.7f, 1.1f, heap), v = lv });
+                            talusN++;
+                        }
+                    }
+                }
 
                 // ROCK BY THE CUT'S HEIGHT (the Parkway's own survey photographs,
                 // HAER, Wikimedia Commons; owner 2026-11-08: "review real photos

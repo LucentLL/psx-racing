@@ -7322,7 +7322,10 @@ namespace PSXRacing.EditorTools
                 PlaceCliffs(pts, st, hh, facedAt, outwAt, distAt, R, no * 13 + s, crest);
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
             if (PCContent && RockReliefOn)
+            {
                 ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
+                BuildCrestLip(parent, topMat, no, crest, outwAt, facedAt, distAt, R, no * 7 + s);
+            }
             var mesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32,
