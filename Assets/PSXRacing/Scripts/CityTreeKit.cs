@@ -40,7 +40,16 @@ namespace PSXRacing
             PineStandIn,
             /// <summary>A beech always bare: the dead snags.</summary>
             Snag,
+            /// <summary>ROUND 2: a STREET TREE made from an owned model - its crown
+            /// narrowed (width scaled apart from height: vase or column) and
+            /// limbed up (the lowest branch rings cut, the trunk drawn taller),
+            /// as Uptown's grate trees are pruned clear of buses and awnings.</summary>
+            Street,
         }
+
+        /// <summary>Per variant: the triangles of each mesh level (0-2) at
+        /// the kit build (the cost tools read it).</summary>
+        public int[] lodTris;
 
         public MeshForest.Variant[] variants;
         public string[] names;

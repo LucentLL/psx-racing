@@ -269,6 +269,8 @@ namespace PSXRacing.EditorTools
             }
 
             if (list.Count == 0) return null;
+            // ---- ROUND 2: the LOD ladder on every tree, and the street trees ----
+            CTRound2(list, names, roles);
             // ---- the crowns ----
             var crown = new float[list.Count * CityTreeKit.Bands];
             var cbase = new float[list.Count];
@@ -282,6 +284,9 @@ namespace PSXRacing.EditorTools
             kit.roles = roles.ToArray();
             kit.crown = crown;
             kit.crownBase = cbase;
+            kit.lodTris = new int[list.Count * 3];
+            for (int v = 0; v < list.Count; v++)
+                for (int l = 0; l < 3; l++) kit.lodTris[v * 3 + l] = list[v].lods[l] != null ? (int)Tris(list[v].lods[l]) : 0;
             kit.cull = AssetDatabase.LoadAssetAtPath<ComputeShader>("Assets/PSXRacing/Shaders/PSXForestCull.compute");
             // the stages' MEDIUM distances (FOREST DETAIL and PopFix scale them alike);
             // impostors out past the baked city's ring (CityRingBaked: 9 x 9 tiles)
@@ -331,14 +336,18 @@ namespace PSXRacing.EditorTools
             try
             {
                 var root = inst.transform;
-                var barkCi = new List<CombineInstance>[3];
-                var leafCi = new List<CombineInstance>[3];
-                for (int l = 0; l < 3; l++) { barkCi[l] = new List<CombineInstance>(); leafCi[l] = new List<CombineInstance>(); }
+                // ROUND 2: all five of the pack's levels read; the ladder takes the
+                // first inside each level's triangle budget (CTBudget)
+                const int NL = 5;
+                var barkCi = new List<CombineInstance>[NL];
+                var leafCi = new List<CombineInstance>[NL];
+                for (int l = 0; l < NL; l++) { barkCi[l] = new List<CombineInstance>(); leafCi[l] = new List<CombineInstance>(); }
+                bool ladder = System.Environment.GetEnvironmentVariable("PSX_CT_R2KIT") != "0";
                 foreach (var mf in inst.GetComponentsInChildren<MeshFilter>())
                 {
                     string n = mf.name;
                     int li = n.LastIndexOf("_LOD", System.StringComparison.OrdinalIgnoreCase);
-                    if (li < 0 || !int.TryParse(n.Substring(li + 4), out int lod) || lod > 2 || mf.sharedMesh == null) continue;
+                    if (li < 0 || !int.TryParse(n.Substring(li + 4), out int lod) || lod >= (ladder ? NL : 3) || mf.sharedMesh == null) continue;
                     bool leaf = n.IndexOf("leaves", System.StringComparison.OrdinalIgnoreCase) >= 0;
                     var m = root.worldToLocalMatrix * mf.transform.localToWorldMatrix;
                     for (int s = 0; s < mf.sharedMesh.subMeshCount; s++)
@@ -346,9 +355,10 @@ namespace PSXRacing.EditorTools
                 }
                 string stem = file.Substring(0, file.LastIndexOf('.'));
                 var v = new MeshForest.Variant();
-                for (int l = 0; l < 3; l++)
+                var all = new Mesh[NL];
+                for (int l = 0; l < NL; l++)
                 {
-                    if (barkCi[l].Count == 0 || leafCi[l].Count == 0) { v.lods[l] = l > 0 ? v.lods[l - 1] : null; continue; }
+                    if (barkCi[l].Count == 0 || leafCi[l].Count == 0) { all[l] = null; continue; }
                     // merged by hand (CombineMeshes cannot read the packs' Read/Write-off meshes)
                     var pv = new List<Vector3>(); var pn = new List<Vector3>(); var pu = new List<Vector2>();
                     var idx = new[] { new List<int>(), new List<int>() };
@@ -377,7 +387,31 @@ namespace PSXRacing.EditorTools
                     c.subMeshCount = 2;
                     c.SetTriangles(idx[0], 0, false); c.SetTriangles(idx[1], 1, false);
                     c.RecalculateBounds();
-                    v.lods[l] = WorldKit.SaveMesh(c, c.name);
+                    all[l] = c;
+                }
+                // the ladder: level k = the first pack level (at or after the one before) inside its budget
+                {
+                    int from = 0;
+                    var used = new HashSet<int>();
+                    var tl = new System.Text.StringBuilder();
+                    for (int l = 0; l < NL; l++) tl.Append(all[l] != null ? Tris(all[l]).ToString() : "-").Append(l < NL - 1 ? "/" : "");
+                    for (int k = 0; k < 3; k++)
+                    {
+                        int pick = -1, last = -1;
+                        for (int l = from; l < NL; l++)
+                        {
+                            if (all[l] == null) continue;
+                            last = l;
+                            if (!ladder && l == k) { pick = l; break; }
+                            if (ladder && Tris(all[l]) <= CTBudget[k]) { pick = l; break; }
+                        }
+                        if (pick < 0) pick = last;
+                        if (pick < 0) { v.lods[k] = k > 0 ? v.lods[k - 1] : null; continue; }
+                        if (!used.Contains(pick)) { all[pick] = WorldKit.SaveMesh(all[pick], all[pick].name); used.Add(pick); }
+                        v.lods[k] = all[pick];
+                        from = pick;
+                    }
+                    Log($"City trees: {stem} pack levels {tl} tris -> ladder {v.lods[0]?.name}/{v.lods[1]?.name}/{v.lods[2]?.name}");
                 }
                 if (v.lods[0] == null) { Log("WARN: city trees: " + file + " has no LOD0 trunk + leaves"); return null; }
                 v.mats = new[] { bark, bark };

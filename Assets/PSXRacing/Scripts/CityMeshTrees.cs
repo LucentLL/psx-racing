@@ -16,17 +16,21 @@ namespace PSXRacing.City
     /// (MeshForest, streamed: MeshForest.Pool.cs), one slot a live tile, with
     /// each model's own LODs and its own impostor at distance. The tile's card
     /// mesh stays as the chunk's cards: drawn only where the slot is not (out
-    /// of the wide view cone, past the far range) and still the sun shadow's
-    /// caster, as on the stages.
+    /// of the wide view cone, past the far range, and until the tile's fit is
+    /// done) and still the sun shadow's caster, as on the stages.
     ///
     /// WHICH MODEL: by what the planting chose for the spot (CityTrees.Species,
     /// a street tree's clear stem, a young understory tree) and a hash of the
-    /// foot - Big Oak for the old city's willow oaks and park/yard hero trees,
-    /// the Forest beeches for woods and mixed hardwood, the Meadow poplars for
-    /// the tulip-tree share and every street and median tree (a clear stem, the
-    /// crown high), small beeches for young trees, grey willow for crape
+    /// foot - Big Oak for a share of the old city's willow oaks, the Forest
+    /// beeches for woods and mixed hardwood, the Meadow poplars for the
+    /// tulip-tree share, small beeches for young trees, grey willow for crape
     /// myrtles, Big Poplar's column at 3% of the hardwoods. Pines have no owned
     /// model: a Meadow poplar kept in leaf all year, darker, stands in.
+    /// ROUND 2: every STREET tree is a street form (CityTreeKit.Role.Street:
+    /// an owned poplar or beech with its lowest branch rings cut, its trunk
+    /// drawn taller and its crown narrowed - vase or column), sized to its
+    /// gap; any other tree that meets a wall tries those forms before a
+    /// smaller tree, a bush or nothing (round 1 dropped 72% of Uptown's trees).
     ///
     /// NOTHING THROUGH SOLIDS (psx-racing-no-foliage-through-solids): each tree
     /// is tested as a VOLUME - its model's crown radius in twelve height bands,
@@ -35,10 +39,14 @@ namespace PSXRacing.City
     /// building footprints with their roofs (houses with a porch/roof margin),
     /// utility poles, their wires and cobra-heads, signal poles and mast arms,
     /// and every collider standing round it (lamp posts, sign posts, walls,
-    /// skybridges). Larger first for a street tree (its crown climbs above the
-    /// lane), then smaller; then another model of its kind, a poplar, a small
-    /// beech; and if none fits, the tree is not planted - its trunk leaves the
-    /// collider table with it (nothing solid that is not drawn).
+    /// skybridges). If none fits, the tree is not planted - its trunk leaves
+    /// the collider table with it (nothing solid that is not drawn).
+    ///
+    /// ROUND 2: THE FIT IS SLICED. A tile's frame is queued when it stands up
+    /// (its cards and trunks stand as they always did) and fitted a few
+    /// milliseconds a frame (<see cref="SliceMs"/>); when it is done its slot
+    /// is filled, its cards hand over, and its trunk table is replaced if a
+    /// tree moved or went. PSX_CT_SLICE_MS=0: the whole tile in its frame (round 1).
     ///
     /// PSX_CITY_MESHTREES=0: the cards as before. Phones and the web never have
     /// the kit (CityTreeKit is PC content) and keep the cards.
@@ -49,10 +57,26 @@ namespace PSXRacing.City
         public static bool Enabled = System.Environment.GetEnvironmentVariable("PSX_CITY_MESHTREES") != "0";
         public static CityMeshTrees Instance { get; private set; }
 
+        /// <summary>Milliseconds of fitting a frame may spend (play mode); 0 = a
+        /// whole tile in the frame it stands up (round 1).</summary>
+        public static float SliceMs = ReadF("PSX_CT_SLICE_MS", 3f);
+        /// <summary>Slots filled a frame at most (a pool's growth refills every
+        /// live tile: spread over frames, cards meanwhile).</summary>
+        public static int FillsPerFrame = 4;
+        /// <summary>ROUND 1's fit, for the before/after frames: no street forms,
+        /// the old collider skip, the old capsule test.</summary>
+        public static bool Round1Mode = System.Environment.GetEnvironmentVariable("PSX_CT_ROUND1") == "1";
+
+        static float ReadF(string k, float d)
+        {
+            var s = System.Environment.GetEnvironmentVariable(k);
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) ? f : d;
+        }
+
         /// <summary>Plants a slot holds (a tile plants at most CityTrees.MaxPerTile,
         /// plus its street trees).</summary>
         const int PerSlot = 480;
-        const int FirstSlots = 96;   // the baked city's 9 x 9 ring (PlatformProfile.CityRingBaked) and its anchors
+        const int FirstSlots = 128;   // the baked city's 9 x 9 ring (PlatformProfile.CityRingBaked), its anchors and the tiles leaving
 
         CityTreeKit kit;
         CityWorld world;
@@ -68,12 +92,39 @@ namespace PSXRacing.City
         public CityTreeKit Kit => kit;
         int[][] byRole;
 
+        /// <summary>A tile's fit in progress (sliced across frames).</summary>
+        sealed class Job
+        {
+            public long key;
+            public CityTrees.TreeTile tt;
+            public List<CityTrees.Tree> src;
+            public int next;
+            public List<MeshForest.PoolPlant> plants;
+            public List<CityTrees.Tree> keep;
+            public int solids;
+            public bool changed;
+            public double ms;
+            public int frames;
+        }
+        readonly List<Job> jobs = new List<Job>();
+        public int JobsPending => jobs.Count;
+
         // ---- what the fitting did, since load (the tools print it) ----
         public static int Placed, Grown, Shrunk, Swapped, Dropped, DroppedSolid, Fitted;
+        public static int StreetIn, StreetDropped, StreetAsStreetForm, StreetAsShrub, StreetAsOther, NarrowedOther;
         public static readonly int[] RejectBy = new int[6];
         public static readonly string[] RejectNames = { "road envelope", "building", "pole/wire", "signal", "collider", "deck" };
-        public static double FitMs;
-        public static int[] PlacedByRole = new int[8];
+        /// <summary>Dropped trees by the last thing that refused them: [street 0/1][why 0-5, 6 = no size meets the clear stem].</summary>
+        public static readonly int[,] DropWhy = new int[2, 7];
+        public static readonly List<string> DropSamples = new List<string>();
+        public static double FitMs, FitMsMaxFrame, FitMsMaxTile;
+        public static int[] PlacedByRole = new int[16];
+
+        // ---- the per-frame trace (play mode, PSX_CT_TRACE=path or a perf tour) ----
+        static System.Text.StringBuilder trace;
+        static string tracePath;
+        double frameFitMs;
+        int frameFills;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Hook()
@@ -111,7 +162,7 @@ namespace PSXRacing.City
                 EnsureFor(w);
                 if (Instance == null) return;
             }
-            Instance.Fit(key, tt);
+            Instance.Queue(key, tt);
         }
 
         void Setup(CityWorld w)
@@ -126,13 +177,30 @@ namespace PSXRacing.City
             byRole = new int[nr][];
             for (int r = 0; r < nr; r++) byRole[r] = lists[r].ToArray();
             MakeForest(FirstSlots);
+            string tp = System.Environment.GetEnvironmentVariable("PSX_CT_TRACE");
+            if (string.IsNullOrEmpty(tp) && PerfTour.Active)
+            {
+                string od = System.Environment.GetEnvironmentVariable("PSX_PERFOUT");
+                if (!string.IsNullOrEmpty(od)) tp = System.IO.Path.Combine(od, "ctrees_trace.csv");
+            }
+            if (!string.IsNullOrEmpty(tp) && Application.isPlaying)
+            {
+                tracePath = tp;
+                trace = new System.Text.StringBuilder("frame,time,dt_ms,fit_ms,fills,jobs,live_tiles,slots,slots_used,plants,car_x,car_z\n");
+            }
         }
 
         void MakeForest(int slots)
         {
-            if (forest != null) { if (Application.isPlaying) Destroy(forest.gameObject); else DestroyImmediate(forest.gameObject); }
-            forest = MeshForest.CreatePool(null, kit.variants, slots, PerSlot, kit.lod0To, kit.lod1To, kit.meshRange, kit.farRange,
-                                           CityTrees.DressNow, kit.cull);
+            if (forest != null)
+            {
+                // the old forest's slots given back first: each tile's cards stand up again
+                foreach (var kv in slotOf) forest.PoolRelease(kv.Value);
+                if (Application.isPlaying) Destroy(forest.gameObject); else DestroyImmediate(forest.gameObject);
+            }
+            float l0 = kit.lod0To, l1 = kit.lod1To, mr = kit.meshRange, fr = kit.farRange;
+            if (LodOverride.x > 0f) { l0 = LodOverride.x; l1 = LodOverride.y; mr = LodOverride.z; }
+            forest = MeshForest.CreatePool(null, kit.variants, slots, PerSlot, l0, l1, mr, fr, CityTrees.DressNow, kit.cull);
             slotOf.Clear();
             if (forest == null) { Debug.LogWarning("[CityMeshTrees] no GPU forest: the city keeps its card trees."); return; }
             foreach (var k in plantsOf.Keys) if (!pending.Contains(k)) pending.Add(k);
@@ -142,13 +210,154 @@ namespace PSXRacing.City
         {
             if (forest != null) { if (Application.isPlaying) Destroy(forest.gameObject); else DestroyImmediate(forest.gameObject); }
             if (Instance == this) Instance = null;
+            WriteTrace();
         }
 
-        void LateUpdate() => Flush();
+        void OnApplicationQuit() => WriteTrace();
+
+        static void WriteTrace()
+        {
+            if (trace == null || string.IsNullOrEmpty(tracePath)) return;
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(tracePath));
+                System.IO.File.WriteAllText(tracePath, trace.ToString());
+                Debug.Log("[CityMeshTrees] trace -> " + tracePath);
+            }
+            catch (System.Exception e) { Debug.Log("[CityMeshTrees] trace write failed: " + e.Message); }
+            trace = null;
+        }
+
+        void LateUpdate()
+        {
+            frameFitMs = 0; frameFills = 0;
+            Work(SliceMs > 0f ? SliceMs : float.MaxValue);
+            Flush(FillsPerFrame);
+            if (frameFitMs > FitMsMaxFrame) FitMsMaxFrame = frameFitMs;
+            if (trace != null)
+            {
+                var car = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+                trace.Append(Time.frameCount).Append(',').Append(Time.realtimeSinceStartup.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                     .Append((Time.unscaledDeltaTime * 1000f).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                     .Append(frameFitMs.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                     .Append(frameFills).Append(',').Append(jobs.Count).Append(',').Append(slotOf.Count).Append(',')
+                     .Append(forest != null ? forest.PoolSlots : 0).Append(',').Append(forest != null ? forest.PoolUsed : 0).Append(',')
+                     .Append(LivePlants()).Append(',').Append(car.x.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                     .Append(car.z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+            }
+        }
+
+        /// <summary>A tile's tree frame stood up: its fit queued (or, unsliced,
+        /// done now - before the frame stands up, as round 1 did).</summary>
+        public void Queue(long key, CityTrees.TreeTile tt)
+        {
+            for (int i = jobs.Count - 1; i >= 0; i--) if (jobs[i].key == key) jobs.RemoveAt(i);
+            var job = new Job
+            {
+                key = key, tt = tt, src = new List<CityTrees.Tree>(tt.trees),
+                plants = new List<MeshForest.PoolPlant>(tt.trees.Count), keep = new List<CityTrees.Tree>(tt.trees.Count),
+            };
+            frames[key] = tt;
+            // unsliced, or an edit-mode tool: the whole tile now (its trunks follow before they stand up)
+            if (SliceMs <= 0f || !Application.isPlaying)
+            {
+                Step(job, float.MaxValue);
+                Finish(job, false);
+                return;
+            }
+            jobs.Add(job);
+        }
+
+        /// <summary>Fit queued tiles for up to <paramref name="budgetMs"/>.</summary>
+        void Work(float budgetMs)
+        {
+            if (jobs.Count == 0 || world == null) return;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (jobs.Count > 0 && clock.Elapsed.TotalMilliseconds < budgetMs)
+            {
+                var job = jobs[0];
+                if (!TileAlive(job.key)) { jobs.RemoveAt(0); frames.Remove(job.key); continue; }
+                Step(job, budgetMs - (float)clock.Elapsed.TotalMilliseconds);
+                if (job.next >= job.src.Count) { jobs.RemoveAt(0); Finish(job, true); }
+            }
+        }
+
+        bool TileAlive(long key)
+        {
+            int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
+            return world != null && world.transform.Find("Tile_" + tx + "_" + tz) != null;
+        }
+
+        /// <summary>Fit trees of a job until done or out of time.</summary>
+        void Step(Job job, float budgetMs)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var map = world.Map;
+            Physics.SyncTransforms();
+            TileBuildings(job.tt.tx, job.tt.tz);
+            job.frames++;
+            while (job.next < job.src.Count)
+            {
+                var t = job.src[job.next++];
+                if (t.street) StreetIn++;
+                if (TryTree(map, job.tt, t, out var p))
+                {
+                    job.plants.Add(p);
+                    var kt = t; kt.foot = p.pos;
+                    if ((p.pos - t.foot).sqrMagnitude > 1e-4f) job.changed = true;
+                    job.keep.Add(kt);
+                    if (t.solid) job.solids++;
+                    Placed++;
+                    var role = kit.roles[p.variant];
+                    PlacedByRole[(int)role]++;
+                    if (t.street)
+                    {
+                        if (role == CityTreeKit.Role.Street) StreetAsStreetForm++;
+                        else if (role == CityTreeKit.Role.Shrub) StreetAsShrub++;
+                        else StreetAsOther++;
+                    }
+                    else if (role == CityTreeKit.Role.Street) NarrowedOther++;
+                }
+                else
+                {
+                    job.changed = true;
+                    Dropped++; if (t.solid) DroppedSolid++;
+                    if (t.street) StreetDropped++;
+                    int why = lastWhy >= 0 ? lastWhy : 6;
+                    DropWhy[t.street ? 1 : 0, why]++;
+                    if (DropSamples.Count < 60)
+                        DropSamples.Add($"{(t.street ? "STREET" : t.species.ToString())} h{t.h:0.0} at ({t.foot.x:0.0}, {t.foot.y:0.0}, {t.foot.z:0.0}): {(why < 6 ? RejectNames[why] : "no size meets the clear stem")}{(lastHit != null && why == 4 ? " (" + lastHit + ")" : "")}");
+                }
+                if (clock.Elapsed.TotalMilliseconds >= budgetMs) break;
+            }
+            double ms = clock.Elapsed.TotalMilliseconds;
+            job.ms += ms; FitMs += ms; frameFitMs += ms;
+        }
+
+        /// <summary>A tile's fit done: its frame rewritten (trees that went,
+        /// trees that moved), its trunks replaced if it already stood, its
+        /// plants queued for a slot.</summary>
+        void Finish(Job job, bool stood)
+        {
+            var tt = job.tt;
+            tt.trees.Clear();
+            tt.trees.AddRange(job.keep);
+            int oldSolids = tt.solids;
+            tt.solids = job.solids;
+            if (stood && (job.changed || oldSolids != job.solids) && world.Trunks != null && TileAlive(job.key))
+                world.Trunks.AddTable(job.key, tt.Trunks());
+            plantsOf[job.key] = job.plants;
+            if (!pending.Contains(job.key)) pending.Add(job.key);
+            Fitted++;
+            if (job.ms > FitMsMaxTile) FitMsMaxTile = job.ms;
+        }
 
         /// <summary>Tiles given back, tiles stood up: the pool kept in step
-        /// with the live city (every frame; an edit-mode tool calls it itself).</summary>
-        public void Flush()
+        /// with the live city (every frame; an edit-mode tool calls it itself,
+        /// which also finishes every fit still queued).</summary>
+        public void Flush() { Work(float.MaxValue); Flush(int.MaxValue); }
+
+        void Flush(int maxFills)
         {
             if (forest == null || world == null) return;
             // a tile dropped: its card renderer went with it
@@ -157,52 +366,64 @@ namespace PSXRacing.City
                 if (!tileOf.TryGetValue(kv.Key, out var tr) || tr == null) (gone ??= new List<long>()).Add(kv.Key);
             if (gone != null)
                 foreach (var k in gone) { forest.PoolRelease(slotOf[k]); slotOf.Remove(k); plantsOf.Remove(k); frames.Remove(k); tileOf.Remove(k); }
+            int fills = 0;
             for (int i = pending.Count - 1; i >= 0; i--)
             {
+                if (fills >= maxFills) break;
                 long key = pending[i];
                 if (!plantsOf.TryGetValue(key, out var plants)) { pending.RemoveAt(i); continue; }
                 int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
                 var tile = world.transform.Find("Tile_" + tx + "_" + tz);
-                if (tile == null) { if (Application.isPlaying && Time.frameCount % 120 == 0) { pending.RemoveAt(i); plantsOf.Remove(key); } continue; }
+                if (tile == null) { if (Application.isPlaying && Time.frameCount % 120 == 0) { pending.RemoveAt(i); plantsOf.Remove(key); frames.Remove(key); } continue; }
                 var cardT = tile.Find("Trees");
                 var cards = cardT != null ? cardT.GetComponents<Renderer>() : null;
                 if (plants.Count == 0) { pending.RemoveAt(i); continue; }
                 tileOf[key] = tile;   // (the slot is given back when the tile is destroyed)
                 if (slotOf.TryGetValue(key, out int old)) { forest.PoolRelease(old); slotOf.Remove(key); }
                 var c = new Vector3((tx + 0.5f) * CityMeshes.TileSize, 0f, (tz + 0.5f) * CityMeshes.TileSize);
-                float lo = float.MaxValue, hi = float.MinValue, rad = 0f;
-                foreach (var p in plants) { lo = Mathf.Min(lo, p.pos.y); hi = Mathf.Max(hi, p.pos.y + 30f * p.scale); }
-                if (plants.Count == 0) { lo = 0f; hi = 1f; }
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var p in plants) { lo = Mathf.Min(lo, p.pos.y); hi = Mathf.Max(hi, p.pos.y + kit.variants[p.variant].height * p.scale); }
                 c.y = (lo + hi) * 0.5f;
-                rad = Mathf.Sqrt(2f) * CityMeshes.TileSize * 0.5f + 20f + (hi - lo) * 0.5f;
+                float rad = Mathf.Sqrt(2f) * CityMeshes.TileSize * 0.5f + 20f + (hi - lo) * 0.5f;
                 int slot = forest.PoolFill(c, rad, cards, plants, out int kept);
                 if (slot < 0)
                 {
-                    // full: twice the slots, every live tile again
+                    // full: twice the slots, every live tile again (spread over the frames to come)
                     int want = forest.PoolSlots * 2;
                     Debug.Log($"[CityMeshTrees] pool full at {forest.PoolSlots} tiles: growing to {want}");
+                    PoolGrowths++;
                     MakeForest(want);
                     if (forest == null) return;
                     i = pending.Count;   // start over (MakeForest queued every tile)
                     continue;
                 }
+                fills++; frameFills++;
                 slotOf[key] = slot;
                 pending.RemoveAt(i);
             }
         }
 
+        public static int PoolGrowths;
+        /// <summary>The MEDIUM level distances in place of the kit's (tools'
+        /// pop measure; x = 0: the kit's own).</summary>
+        public static Vector3 LodOverride = Vector3.zero;
+
+        /// <summary>The forest made again (new distances or FOREST DETAIL),
+        /// every fitted tile refilled.</summary>
+        public void Rebuild() { MakeForest(forest != null ? forest.PoolSlots : FirstSlots); Flush(); }
         public MeshForest Forest => forest;
         public int LiveTiles => slotOf.Count;
 
-        /// <summary>Plants in the live tiles, and their triangles at LOD0 (a bound).</summary>
-        public int LivePlants() { int n = 0; foreach (var l in plantsOf.Values) n += l.Count; return n; }
+        /// <summary>Plants in the live tiles.</summary>
+        public int LivePlants() { int n = 0; foreach (var kv in plantsOf) if (slotOf.ContainsKey(kv.Key)) n += kv.Value.Count; return n; }
 
         // ==================================================================
         //  THE FIT
         // ==================================================================
 
         public const float RoadClearM = 4.6f, DeckUnderM = 1.5f, Margin = 0.35f, BuildingMargin = 0.6f, HouseMargin = 1.6f;
-        static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 1.45f, 0.9f, 0.8f, 0.7f };
+        static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 0.9f, 0.8f, 0.7f, 0.6f, 0.52f };
+        static readonly float[] StreetScalesR1 = { 1f, 1.15f, 1.3f, 1.45f, 0.9f, 0.8f, 0.7f };
         static readonly float[] Scales = { 1f, 0.86f, 0.74f, 0.62f, 0.52f, 0.44f };
         static readonly Collider[] hits = new Collider[256];
 
@@ -212,6 +433,7 @@ namespace PSXRacing.City
         /// <summary>Candidates refused by a collider, by its object's name (the tools print it).</summary>
         public static readonly Dictionary<string, int> RejectColliders = new Dictionary<string, int>();
         string lastHit;
+        int lastWhy;
         Vector2 lastAway;
         public static readonly List<string> DiagLines = new List<string>();
 
@@ -221,37 +443,6 @@ namespace PSXRacing.City
         readonly List<Collider> bigSolids = new List<Collider>(8);
         static readonly Collider[] bandHits = new Collider[64];
         readonly HashSet<int> segScratch = new HashSet<int>();
-        readonly List<MeshForest.PoolPlant> cand = new List<MeshForest.PoolPlant>();
-
-        /// <summary>Choose, size and fit every tree of a tile frame, and hold
-        /// the result for the pool; trees that cannot be fitted leave the
-        /// frame (and with them their trunks) before it stands up.</summary>
-        public void Fit(long key, CityTrees.TreeTile tt)
-        {
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            var map = world.Map;
-            Physics.SyncTransforms();
-            TileBuildings(tt.tx, tt.tz);
-            var plants = new List<MeshForest.PoolPlant>(tt.trees.Count);
-            var keep = new List<CityTrees.Tree>(tt.trees.Count);
-            int solids = 0;
-            foreach (var t in tt.trees)
-            {
-                if (TryTree(map, tt, t, out var p)) { plants.Add(p); var kt = t; kt.foot = p.pos; keep.Add(kt); if (t.solid) solids++; Placed++; PlacedByRole[(int)kit.roles[p.variant]]++; }
-                else { Dropped++; if (t.solid) DroppedSolid++; }
-            }
-            if (true)
-            {
-                tt.trees.Clear();
-                tt.trees.AddRange(keep);
-                tt.solids = solids;
-            }
-            plantsOf[key] = plants;
-            frames[key] = tt;
-            if (!pending.Contains(key)) pending.Add(key);
-            FitMs += clock.Elapsed.TotalMilliseconds;
-            Fitted++;
-        }
 
         /// <summary>The plants a tile frame was given (tools).</summary>
         public List<MeshForest.PoolPlant> PlantsOf(long key) => plantsOf.TryGetValue(key, out var l) ? l : null;
@@ -287,14 +478,16 @@ namespace PSXRacing.City
         {
             plant = default;
             lastAway = Vector2.zero;
+            lastWhy = -1; lastHit = null;
             bool young = t.dbh <= 0.125f && t.species != CityTrees.Species.Myrtle && t.species != CityTrees.Species.Bare && t.stem <= 0f;
             float roll = H(t.foot, 11);
             CityTreeKit.Role role; float want;
-            if (t.stem > 0f) { role = CityTreeKit.Role.Poplar; want = t.h; }
+            bool streetForms = !Round1Mode && byRole.Length > (int)CityTreeKit.Role.Street && byRole[(int)CityTreeKit.Role.Street].Length > 0;
+            if (t.stem > 0f) { role = streetForms ? CityTreeKit.Role.Street : CityTreeKit.Role.Poplar; want = streetForms ? t.h * 1.1f : t.h; }
             else if (young) { role = CityTreeKit.Role.Small; want = t.h * 1.2f; }
             else switch (t.species)
             {
-                case CityTrees.Species.Oak: role = roll < 0.2f ? CityTreeKit.Role.Oak : roll < 0.78f ? CityTreeKit.Role.Broad : CityTreeKit.Role.Poplar; want = t.h * 1.35f; break;   // (Big Oak is 37.6k tris at its nearest: a share, not every willow oak)
+                case CityTrees.Species.Oak: role = roll < 0.2f ? CityTreeKit.Role.Oak : roll < 0.78f ? CityTreeKit.Role.Broad : CityTreeKit.Role.Poplar; want = t.h * 1.35f; break;   // (Big Oak is the heaviest: a share, not every willow oak)
                 case CityTrees.Species.Hardwood: role = roll < 0.6f ? CityTreeKit.Role.Broad : roll < 0.95f ? CityTreeKit.Role.Poplar : roll < 0.98f ? CityTreeKit.Role.Oak : CityTreeKit.Role.Columnar; want = t.h * 1.3f; break;
                 case CityTrees.Species.Pine: role = CityTreeKit.Role.PineStandIn; want = t.h * 1.1f; break;
                 case CityTrees.Species.Myrtle: role = CityTreeKit.Role.Shrub; want = t.h * 0.9f; break;
@@ -303,9 +496,11 @@ namespace PSXRacing.City
             }
             float yaw = H(t.foot, 13) * 360f;
             // MOVE before giving up: up to 3.5 m away from the wall the crown met
-            // (the trunk, and its collider, go with it)
+            // (the trunk, and its collider, go with it). A street tree stays in its grate.
             var away = Vector2.zero;
-            for (int mv = 0; mv < 7; mv++)
+            int moves = t.street && !Round1Mode ? 1 : 7;
+            int firstWhy = -1; string firstHit = null;
+            for (int mv = 0; mv < moves; mv++)
             {
                 var foot = t.foot;
                 if (mv > 0)
@@ -319,8 +514,10 @@ namespace PSXRacing.City
                     foot = new Vector3(q.x, gy - CityTrees.SinkM, q.y);
                 }
                 if (TryAt(map, tt, t, role, want, yaw, foot, out plant)) { if (mv > 0) Moved++; return true; }
-                if (mv == 0) away = lastAway;
+                if (mv == 0) { away = lastAway; firstWhy = lastWhy; firstHit = lastHit; }
             }
+            // (the drop is booked on what refused the tree where it was planted)
+            if (firstWhy >= 0) { lastWhy = firstWhy; lastHit = firstHit; }
             return false;
         }
 
@@ -358,17 +555,19 @@ namespace PSXRacing.City
             plant = default;
             Gather(map, tt, foot, 16f);
             bool first = true;
-            foreach (var r in RoleChain(role))
+            foreach (var r in RoleChain(role, t.street))
             {
                 var list = byRole[(int)r];
                 if (list.Length == 0) continue;
                 int start = Mathf.Min(list.Length - 1, (int)(H(t.foot, 17 + (int)r) * list.Length));
+                // a street form stands for whatever was planted: as tall as the card wanted
+                float w = r == CityTreeKit.Role.Street && role != CityTreeKit.Role.Street ? t.h * 1.1f : want;
                 for (int k = 0; k < list.Length; k++)
                 {
                     int v = list[(start + k) % list.Length];
-                    float s0 = want / Mathf.Max(0.5f, kit.variants[v].height);
+                    float s0 = w / Mathf.Max(0.5f, kit.variants[v].height);
                     s0 = Mathf.Clamp(s0, 0.45f, 1.7f);
-                    var scales = t.stem > 0f ? StreetScales : Scales;
+                    var scales = t.stem > 0f ? (Round1Mode ? StreetScalesR1 : StreetScales) : Scales;
                     foreach (float f in scales)
                     {
                         float s = s0 * f;
@@ -376,7 +575,12 @@ namespace PSXRacing.City
                         if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - StemSlack) continue;
                         int why = Conflict(v, s, foot);
                         if (why == 1 || why == 4) { if (why == 1) lastAway = AwayFromBox(new Vector2(foot.x, foot.z)); }
-                        if (why >= 0) { RejectBy[why]++; if (why == 4 && lastHit != null) { RejectColliders.TryGetValue(lastHit, out int rc); RejectColliders[lastHit] = rc + 1; } continue; }
+                        if (why >= 0)
+                        {
+                            RejectBy[why]++; lastWhy = why;
+                            if (why == 4 && lastHit != null) { RejectColliders.TryGetValue(lastHit, out int rc); RejectColliders[lastHit] = rc + 1; }
+                            continue;
+                        }
                         plant = new MeshForest.PoolPlant { pos = foot, yaw = yaw, scale = s, variant = v };
                         if (!first || k > 0) Swapped++;
                         if (f > 1f) Grown++; else if (f < 1f) Shrunk++;
@@ -393,11 +597,22 @@ namespace PSXRacing.City
         const float StemSlack = 1.2f;
         static int BigMask => (1 << CityWorld.SolidLayer) | (1 << CityWorld.RoadLayer) | 1;
 
-        static IEnumerable<CityTreeKit.Role> RoleChain(CityTreeKit.Role r)
+        static IEnumerable<CityTreeKit.Role> RoleChain(CityTreeKit.Role r, bool street)
         {
             yield return r;
             if (r == CityTreeKit.Role.Shrub || r == CityTreeKit.Role.Snag) yield break;
-            if (r != CityTreeKit.Role.Poplar && r != CityTreeKit.Role.PineStandIn) yield return CityTreeKit.Role.Poplar;
+            if (Round1Mode)
+            {
+                if (r != CityTreeKit.Role.Poplar && r != CityTreeKit.Role.PineStandIn) yield return CityTreeKit.Role.Poplar;
+                if (r != CityTreeKit.Role.Small) yield return CityTreeKit.Role.Small;
+                yield return CityTreeKit.Role.Shrub;
+                yield break;
+            }
+            // a street tree: its forms first (r), then a poplar, and only then smaller
+            if (r != CityTreeKit.Role.Poplar && r != CityTreeKit.Role.PineStandIn && r != CityTreeKit.Role.Small && r != CityTreeKit.Role.Street) yield return CityTreeKit.Role.Poplar;
+            // any other tree against a wall: the narrow, limbed-up forms before a smaller tree
+            if (r != CityTreeKit.Role.Street) yield return CityTreeKit.Role.Street;
+            if (street && r == CityTreeKit.Role.Street) yield return CityTreeKit.Role.Poplar;
             if (r != CityTreeKit.Role.Small) yield return CityTreeKit.Role.Small;
             // last: a multi-stem bush where no tree's crown clears what stands round it
             yield return CityTreeKit.Role.Shrub;
@@ -426,7 +641,7 @@ namespace PSXRacing.City
                 roads.Add(new RoadSeg { a = a, b = b, hw = hw, y = e.YAt(e.s[si] + Mathf.Sqrt(L2) * tt0) });
             }
             // BUILDINGS of this tile and its neighbours (data: drawn or not yet;
-            // the tile's own short list, made once a frame - TileBuildings)
+            // the tile's own short list - TileBuildings)
             foreach (var b in tileBlds)
             {
                 float r = Mathf.Max(b.w, b.d) * 0.75f;
@@ -502,8 +717,12 @@ namespace PSXRacing.City
                     if (!bigSolids.Contains(col)) bigSolids.Add(col);
                     continue;
                 }
-                // the ground under the tree itself (a small lattice piece, a verge strip)
-                if (bb.max.y < foot.y + 0.6f) continue;
+                // the ground under the tree itself (a small lattice piece, a verge strip).
+                // ROUND 2 (THE AUDIT'S 11): round 1 let every small collider lower than
+                // 0.6 m over the foot go, and the audit counts crown points from 0.4 m -
+                // Big Oak's low limbs and flare met a low wall or kerb block standing
+                // 0.4-0.6 m high. Now only what lies under LowestCrown is ground.
+                if (bb.max.y < foot.y + (Round1Mode ? 0.6f : LowestCrown)) continue;
                 boxes.Add(new Box
                 {
                     c = new Vector2(bb.center.x, bb.center.z), u = Vector2.right, v = Vector2.up,
@@ -511,6 +730,10 @@ namespace PSXRacing.City
                 });
             }
         }
+
+        /// <summary>A crown's points this low over the foot are its roots and
+        /// flare in the ground (the audit skips under 0.4 m).</summary>
+        public const float LowestCrown = 0.3f;
 
         /// <summary>The first thing (RejectNames) a crown of species
         /// <paramref name="v"/> at scale <paramref name="s"/> standing at
@@ -543,75 +766,61 @@ namespace PSXRacing.City
                     if (y0 > sy1 || y1 < sy0) continue;
                     if (SegDist(p, sg.a, sg.b) < R + sg.r + Margin) return sg.why;
                 }
-                if (bigSolids.Count > 0 && y1 > foot.y + 0.3f)
+                if (bigSolids.Count > 0 && y1 > foot.y + LowestCrown && BigHit(foot, R + Margin, Mathf.Max(y0, foot.y + LowestCrown), y1, v, s, b, out var hit))
                 {
-                    float rr = R + Margin, lo = Mathf.Max(y0, foot.y + 0.3f);
-                    var c0 = new Vector3(foot.x, lo + rr, foot.z);
-                    var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, y1 - rr), foot.z);
-                    int n = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
-                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i]))
-                    {
-                        lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer);
-                        {
-                            float bd = 99f; Vector3 bdir = Vector3.zero; float hy = (y0 + y1) * 0.5f;
-                            for (int k = 0; k < 16; k++)
-                            {
-                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
-                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, hy, foot.z), dir), out var rh0, rr + 1.5f) && rh0.distance < bd) { bd = rh0.distance; bdir = dir; }
-                            }
-                            if (bd < 99f) lastAway = new Vector2(-bdir.x, -bdir.z);
-                        }
-                        if (DiagLines.Count < 40)
-                        {
-                            // where the solid is: the nearest of 16 rays out from the band's middle
-                            float best = 99f; Vector3 bp = Vector3.zero; float my = (lo + Mathf.Max(lo + rr, y1 - rr) + 2f * rr) * 0.5f;
-                            for (int k = 0; k < 16; k++)
-                            {
-                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
-                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, my, foot.z), dir), out var rh, rr + 1f) && rh.distance < best) { best = rh.distance; bp = rh.point; }
-                            }
-                            var down = bandHits[i].Raycast(new Ray(new Vector3(foot.x, foot.y + 40f, foot.z), Vector3.down), out var dh, 80f) ? dh.point.y - foot.y : -99f;
-                            DiagLines.Add($"BIG {bandHits[i].name} foot ({foot.x:0.0},{foot.y:0.0},{foot.z:0.0}) v{v} s{s:0.00} band {b} y {y0 - foot.y:0.0}-{y1 - foot.y:0.0} rr {rr:0.0}: nearest ray hit {best:0.0} m at y+{bp.y - foot.y:0.0}; solid above/below the foot at y{down:+0.0;-0.0}");
-                        }
-                        return 4;
-                    }
-                }
-                if (bigSolids.Count > 0 && y1 > foot.y + 0.3f)
-                {
-                    float rr = R + Margin, lo = Mathf.Max(y0, foot.y + 0.3f);
-                    var c0 = new Vector3(foot.x, lo + rr, foot.z);
-                    var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, y1 - rr), foot.z);
-                    int n = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
-                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i]))
-                    {
-                        lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer);
-                        {
-                            float bd = 99f; Vector3 bdir = Vector3.zero; float hy = (y0 + y1) * 0.5f;
-                            for (int k = 0; k < 16; k++)
-                            {
-                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
-                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, hy, foot.z), dir), out var rh0, rr + 1.5f) && rh0.distance < bd) { bd = rh0.distance; bdir = dir; }
-                            }
-                            if (bd < 99f) lastAway = new Vector2(-bdir.x, -bdir.z);
-                        }
-                        if (DiagLines.Count < 40)
-                        {
-                            // where the solid is: the nearest of 16 rays out from the band's middle
-                            float best = 99f; Vector3 bp = Vector3.zero; float my = (lo + Mathf.Max(lo + rr, y1 - rr) + 2f * rr) * 0.5f;
-                            for (int k = 0; k < 16; k++)
-                            {
-                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
-                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, my, foot.z), dir), out var rh, rr + 1f) && rh.distance < best) { best = rh.distance; bp = rh.point; }
-                            }
-                            var down = bandHits[i].Raycast(new Ray(new Vector3(foot.x, foot.y + 40f, foot.z), Vector3.down), out var dh, 80f) ? dh.point.y - foot.y : -99f;
-                            DiagLines.Add($"BIG {bandHits[i].name} foot ({foot.x:0.0},{foot.y:0.0},{foot.z:0.0}) v{v} s{s:0.00} band {b} y {y0 - foot.y:0.0}-{y1 - foot.y:0.0} rr {rr:0.0}: nearest ray hit {best:0.0} m at y+{bp.y - foot.y:0.0}; solid above/below the foot at y{down:+0.0;-0.0}");
-                        }
-                        return 4;
-                    }
+                    lastHit = "BIG " + hit.gameObject.name + "/" + LayerMask.LayerToName(hit.gameObject.layer);
+                    return 4;
                 }
             }
             return -1;
         }
+
+        static readonly Quaternion Eighth = Quaternion.Euler(0f, 45f, 0f);
+
+        /// <summary>A tile-wide solid in the crown's band: the band is a
+        /// cylinder (radius <paramref name="rr"/>, <paramref name="lo"/> to
+        /// <paramref name="hi"/>). ROUND 2: asked as two boxes, one turned 45
+        /// degrees - their common part is an octagon round the cylinder, so
+        /// nothing in the band is missed (round 1's capsule was a sphere where
+        /// the band was shorter than its width: it missed the band's rim).</summary>
+        bool BigHit(Vector3 foot, float rr, float lo, float hi, int v, float s, int b, out Collider hit)
+        {
+            hit = null;
+            if (Round1Mode)
+            {
+                var c0 = new Vector3(foot.x, lo + rr, foot.z);
+                var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, hi - rr), foot.z);
+                int n0 = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
+                for (int i = 0; i < n0; i++) if (bigSolids.Contains(bandHits[i])) { hit = bandHits[i]; break; }
+            }
+            else
+            {
+                var centre = new Vector3(foot.x, (lo + hi) * 0.5f, foot.z);
+                var half = new Vector3(rr, Mathf.Max(0.01f, (hi - lo) * 0.5f), rr);
+                int n1 = Physics.OverlapBoxNonAlloc(centre, half, bandHits, Quaternion.identity, BigMask, QueryTriggerInteraction.Ignore);
+                for (int i = 0; i < n1 && hit == null; i++)
+                {
+                    var c = bandHits[i];
+                    if (!bigSolids.Contains(c)) continue;
+                    // the same solid in the turned box too (an octagon about the cylinder)
+                    int n2 = Physics.OverlapBoxNonAlloc(centre, half, bandHits2, Eighth, BigMask, QueryTriggerInteraction.Ignore);
+                    for (int j = 0; j < n2; j++) if (bandHits2[j] == c) { hit = c; break; }
+                }
+            }
+            if (hit == null) return false;
+            // the way away from it: the nearest of 16 rays out from the band's middle
+            float bd = 99f; Vector3 bdir = Vector3.zero; float hy = (lo + hi) * 0.5f;
+            for (int k = 0; k < 16; k++)
+            {
+                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
+                if (hit.Raycast(new Ray(new Vector3(foot.x, hy, foot.z), dir), out var rh0, rr + 1.5f) && rh0.distance < bd) { bd = rh0.distance; bdir = dir; }
+            }
+            if (bd < 99f) lastAway = new Vector2(-bdir.x, -bdir.z);
+            if (DiagLines.Count < 40)
+                DiagLines.Add($"BIG {hit.name} foot ({foot.x:0.0},{foot.y:0.0},{foot.z:0.0}) v{v} s{s:0.00} band {b} y {lo - foot.y:0.0}-{hi - foot.y:0.0} rr {rr:0.0}: nearest ray hit {bd:0.0} m");
+            return true;
+        }
+        static readonly Collider[] bandHits2 = new Collider[64];
 
         static float SegT(Vector2 p, Vector2 a, Vector2 b)
         {
@@ -622,9 +831,12 @@ namespace PSXRacing.City
 
         public static void ResetCounts()
         {
-            Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = Moved = 0; FitMs = 0;
+            Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = Moved = 0; FitMs = 0; FitMsMaxFrame = 0; FitMsMaxTile = 0;
+            StreetIn = StreetDropped = StreetAsStreetForm = StreetAsShrub = StreetAsOther = NarrowedOther = 0;
             System.Array.Clear(RejectBy, 0, RejectBy.Length);
             System.Array.Clear(PlacedByRole, 0, PlacedByRole.Length);
+            System.Array.Clear(DropWhy, 0, DropWhy.Length);
+            DropSamples.Clear();
             RejectColliders.Clear();
         }
     }
