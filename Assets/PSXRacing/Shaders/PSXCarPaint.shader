@@ -289,6 +289,8 @@ Shader "PSX/CarPaint"
             sampler2D _CarHDORM;
             #endif
             #define HD_NORMAL_GAIN     1.0    // the normal map's tilt, as delivered (1 = the artist's bake)
+            #define HD_COLOUR_LOD_BIAS -0.75  // the HD sheet read this many mips sharper (shut lines hold to the chase camera)
+            #define HD_NORMAL_LOD_BIAS -0.5   // ...and the normal map (a groove's two walls average flat a mip early)
             #define HD_AO_SKY          1.0    // the AO's share on the sky light (ambient)...
             #define HD_AO_REFLECT      0.8    // ...and on what the lacquer mirrors (a groove sees less world)
             #define HD_AO_SUN          0.35   // ...and a little on the sun (the AO bakes a crevice's own shadow)
@@ -644,7 +646,14 @@ Shader "PSX/CarPaint"
             fixed4 frag (v2f i) : SV_Target
             {
                 PSXCabinClip(i.wpos);
+            #ifdef PSX_CAR_HD
+                // (a shut line is 2-3 texels at 2048: read a little sharper than the
+                // mip the pixel's footprint asks for, so it holds out to the chase
+                // camera instead of averaging away a mip early; 16x aniso keeps it clean)
+                fixed4 tex = tex2Dbias(_MainTex, float4(i.uvw.xy / i.uvw.z, 0.0, HD_COLOUR_LOD_BIAS)) * _Color;
+            #else
                 fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
+            #endif
                 clip(tex.a - _Cutoff);
 
                 float3 N = normalize(i.wnrm);
@@ -655,7 +664,7 @@ Shader "PSX/CarPaint"
             #ifdef PSX_CAR_HD
                 {
                     float2 uvHD = i.uvw.xy / i.uvw.z;
-                    float3 tn = UnpackNormal(tex2D(_CarHDNormal, uvHD));
+                    float3 tn = UnpackNormal(tex2Dbias(_CarHDNormal, float4(uvHD, 0.0, HD_NORMAL_LOD_BIAS)));
                     tn.xy *= HD_NORMAL_GAIN;
                     float tl = dot(i.wtan.xyz, i.wtan.xyz);
                     if (tl > 1e-8)

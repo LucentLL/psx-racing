@@ -227,12 +227,14 @@ namespace PSXRacing.EditorTools
                 if (skin < 0) { log.AppendLine("lens: no " + key + " " + sheet); continue; }
                 var shell = Park(def, skin, out var body);
                 var mf = body.GetComponent<MeshFilter>();
-                float half = def.colliderSize.z * 0.5f;
-                Vector3 c = spot.position, f = spot.forward, r = spot.right;
+                Vector3 f = spot.forward, r = spot.right;
                 foreach (var (end, sgn) in new[] { ("head", 1f), ("tail", -1f) })
                 {
-                    var aim = c + f * (sgn * (half - 0.25f)) + r * 0.55f + Vector3.up * 0.68f;
-                    var eye = aim + f * (sgn * 2.2f) + r * 0.9f + Vector3.up * 0.35f;
+                    // the measured right-hand lamp (CarModelDef.headLamp / tailLamp: the rig
+                    // frame, whose origin is the axle midpoint; the shell is centred on its box)
+                    var lp = sgn > 0 ? def.headLamp : def.tailLamp;
+                    var aim = spot.TransformPoint(new Vector3(lp.x, lp.y, lp.z - def.colliderCenter.z));
+                    var eye = aim + f * (sgn * 1.15f) + r * 0.45f + Vector3.up * 0.18f;
                     var rot = Quaternion.LookRotation(aim - eye);
                     foreach (var (hour, lit, tag) in new[] { (TimeOfDay.Noon, false, "day"), (TimeOfDay.Dusk, true, "dusk"), (TimeOfDay.Night, true, "night") })
                     {
