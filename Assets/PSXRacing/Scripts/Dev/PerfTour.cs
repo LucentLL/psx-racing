@@ -126,6 +126,12 @@ namespace PSXRacing
             if (!string.IsNullOrEmpty(fo) && int.TryParse(fo, out int foi)) ForestDetailPrefs.Override = foi;
             string pw = ShotLink.Query(url, "popwalk");
             if (!string.IsNullOrEmpty(pw)) float.TryParse(pw, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popStep);
+            string pk = ShotLink.Query(url, "popkeep");
+            if (!string.IsNullOrEmpty(pk))
+            {
+                t.popKeep = new System.Collections.Generic.HashSet<int>();
+                foreach (var s in pk.Split('.')) if (int.TryParse(s, out int pj)) t.popKeep.Add(pj);
+            }
             string pm = ShotLink.Query(url, "popm");
             if (!string.IsNullOrEmpty(pm)) float.TryParse(pm, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popLen);
             string secs = ShotLink.Query(url, "secs");

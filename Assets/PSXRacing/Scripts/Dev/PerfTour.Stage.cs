@@ -39,6 +39,7 @@ namespace PSXRacing
     {
         string stageArg, fromArg, dayArg, capArg, offscreenArg;
         float popStep, popLen = 600f;
+        System.Collections.Generic.HashSet<int> popKeep;   // &popkeep=j,j: pairs kept whatever they show (an after run at the before run's worst)
 
         // ------------------------------------------------------------------
         // THE POP MEASURE (&popwalk=STEP&popm=M; 2026-11-11, owner: "pop-in is
@@ -153,9 +154,10 @@ namespace PSXRacing
                 csv.Append(j).Append(',').Append((m0 + j * popStep).ToString("0.0", CultureInfo.InvariantCulture)).Append(',')
                    .Append(mean.ToString("0.00000", CultureInfo.InvariantCulture)).Append(',').Append(top.ToString("0.0000", CultureInfo.InvariantCulture)).Append(',')
                    .Append(pops).Append(',').Append(mass.ToString("0.0000", CultureInfo.InvariantCulture)).Append('\n');
-                if (pops > 0 && mass > 0.04f && saved < 160)
+                bool asked = popKeep != null && popKeep.Contains(j);
+                if ((pops > 0 && mass > 0.04f && saved < 160) || asked)
                 {
-                    saved++;
+                    if (!asked) saved++;
                     foreach (int f in new[] { j, j + 1 })
                     {
                         var tex = new Texture2D(HW, HH, TextureFormat.RGB24, false);
