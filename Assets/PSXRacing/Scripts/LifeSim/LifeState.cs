@@ -677,6 +677,10 @@ namespace PSXRacing.LifeSim
         /// owned and paid for, so no service sweep may cancel it, even when it
         /// is replacing a named fault.</summary>
         public bool fromShelf;
+        /// <summary>The spare itself while it is going on, so a car sold in
+        /// the middle of the job gives the part back to the shelf
+        /// (Spares.ReturnJobsToShelf). Empty id on every other job.</summary>
+        public SparePart spare;
 
         public bool IsUpgrade => !string.IsNullOrEmpty(upgradeKind);
 

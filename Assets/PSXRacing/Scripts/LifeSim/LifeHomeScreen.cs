@@ -3214,9 +3214,11 @@ namespace PSXRacing.LifeSim
                     TextAnchor.MiddleCenter, MenuKit.Dim, w, height: 22f);
                 y -= 24f;
             }
-            MenuKit.Label(carSide, Clip(car.displayName, Mathf.FloorToInt(w / 12f)), 16, new Vector2(0.5f, 1f),
-                new Vector2(left, y), TextAnchor.MiddleLeft, MenuKit.Accent, w, height: 24f, bold: true);
-            y -= 28f;
+            // Wrapped, never cut: the full name on two lines where the panel is
+            // narrow (4:3) - "no text may clip" (the mechanic's page lives here).
+            MenuKit.Para(carSide, car.displayName, 16, new Vector2(0.5f, 1f),
+                new Vector2(left, y - 2f), out float nameH, TextAnchor.UpperLeft, MenuKit.Accent, w, bold: true);
+            y -= nameH + 6f;
             void Row(string name, string value)
             {
                 MenuKit.Label(carSide, name, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(left, y),
@@ -6873,9 +6875,10 @@ namespace PSXRacing.LifeSim
             var car = GarageCar;
             if (car == null) return;
             float y = -20f;
-            MenuKit.Label(body, "MECHANIC — " + car.displayName, 20, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 800f, bold: true);
-            y -= 40f;
+            // Two lines rather than past the column on a narrow screen.
+            MenuKit.Para(body, "MECHANIC — " + car.displayName, 20, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y - 8f), out float headH, TextAnchor.UpperLeft, MenuKit.Accent, ColW, bold: true);
+            y -= headH + 16f;
 
             // A car standing at the dealership or in the spray booth cannot
             // be serviced here until it is back. Said once, above the rows it

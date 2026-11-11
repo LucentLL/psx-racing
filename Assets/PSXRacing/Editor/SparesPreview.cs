@@ -93,6 +93,14 @@ namespace PSXRacing.EditorTools
             second.faults.Add(new CarFault { id = "tire_wear", label = "Uneven Tire Wear", stat = "tires",
                                              add = 30, cost = 180, days = 1, repairType = "delivery",
                                              hidden = false, diagnosed = true });
+            // The pad walk with FIT live on every row: in the stock Civic at
+            // skill 100 (the owner's state greys every FIT, so only KEEP is
+            // a control there).
+            s.activeCar = second.id; s.mechSkill = 100f;
+            LifeSimManager.Save();
+            ShootWreck(outDir, "wreck_pad", wreck);
+            s.activeCar = maxed.id; s.mechSkill = 7.5f;
+            LifeSimManager.Save();
             // Three parts on the shelf, off this very wreck: the clean turbo,
             // the semi-slicks, the subframe.
             var shelve = spares.GetMethod("Shelve");
@@ -213,6 +221,12 @@ namespace PSXRacing.EditorTools
                 // The yard at dusk stands in for the world behind the page.
                 cam.backgroundColor = new Color(0.30f, 0.29f, 0.26f);
                 cam.orthographic = true;
+                // One world unit = one pixel, as on the game's overlay canvas:
+                // MenuNav's line test has a 4-unit floor in WORLD units, and at
+                // the default size (5) the whole page is under 10 units tall and
+                // reads as one line - which is the pad graph the walk would test.
+                cam.orthographicSize = size.h * 0.5f;
+                cam.farClipPlane = 100f;
                 var rt = new RenderTexture(size.w, size.h, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
                 cam.targetTexture = rt;
                 MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
@@ -267,12 +281,83 @@ namespace PSXRacing.EditorTools
                 string path = Path.Combine(outDir, "menu_" + label + "_" + size.name + ".png");
                 File.WriteAllBytes(path, tex.EncodeToPNG());
                 Debug.Log("[Spares] wrote " + path);
+                PadWalk(screen, label + "/" + size.name);
                 Object.DestroyImmediate(tex);
                 cam.targetTexture = null;
                 rt.Release();
                 Object.DestroyImmediate(rt);
                 MenuKit.ScreenSizeOverride = Vector2.zero;
             }
+        }
+
+        /// <summary>
+        /// The wreck page with a pad, without play mode: the geometric graph
+        /// MenuNavWatch would build (MenuNav.Grid), flooded from the first
+        /// control - every control must be reached, each row's FIT must go
+        /// RIGHT to its KEEP and back LEFT, DOWN from row i must land in row
+        /// i+1 - and the list's focus rule: the cursor on the last row scrolls
+        /// that whole block into view on a block edge, with the cues counting.
+        /// </summary>
+        static void PadWalk(PSXRacing.OnFoot.WreckScreen screen, string where)
+        {
+            var panel = typeof(PSXRacing.OnFoot.WreckScreen).GetField("panel", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(screen) as RectTransform;
+            var snap = typeof(PSXRacing.OnFoot.WreckScreen).GetField("rowsSnap", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(screen) as BlockSnap;
+            if (panel == null) { Debug.Log("[Spares] pad " + where + ": no panel"); return; }
+            var rows = MenuNav.Collect(panel);
+            if (!MenuNav.RectsResolved(rows)) { Debug.Log("[Spares] pad " + where + ": rects unresolved"); return; }
+            MenuNav.Grid(rows);
+            var seen = new HashSet<Selectable>();
+            var q = new Queue<Selectable>();
+            if (rows.Count > 0) { seen.Add(rows[0]); q.Enqueue(rows[0]); }
+            while (q.Count > 0)
+            {
+                var n = q.Dequeue().navigation;
+                foreach (var nx in new[] { n.selectOnUp, n.selectOnDown, n.selectOnLeft, n.selectOnRight })
+                    if (nx != null && seen.Add(nx)) q.Enqueue(nx);
+            }
+            var lost = rows.FindAll(r => !seen.Contains(r)).ConvertAll(r => r.name);
+            int pairs = 0, pairsOk = 0;
+            foreach (var r in rows)
+            {
+                if (!r.name.StartsWith("Btn_fit_")) continue;
+                var k = rows.Find(x => x.name == "Btn_keep_" + r.name.Substring(8));
+                if (k == null) continue;
+                pairs++;
+                if (r.navigation.selectOnRight == k && k.navigation.selectOnLeft == r) pairsOk++;
+            }
+            string line = "[Spares] pad " + where + ": " + seen.Count + "/" + rows.Count + " reached" +
+                          (lost.Count > 0 ? " UNREACHABLE: " + string.Join(", ", lost) : "") +
+                          "; FIT<->KEEP left/right " + pairsOk + "/" + pairs;
+            if (lost.Count > 0 || pairsOk < pairs) Debug.LogError(line); else Debug.Log(line);
+            foreach (var r in rows)
+            {
+                if (!r.name.EndsWith("_0") && !r.name.Contains("STRAIGHTEN")) continue;
+                var n = r.navigation;
+                var rt = (RectTransform)r.transform;
+                Debug.Log("[Spares] nav " + where + " " + r.name + " y " + rt.TransformPoint(rt.rect.center).y.ToString("0.000") +
+                          " x " + rt.TransformPoint(rt.rect.center).x.ToString("0.000") + " mode " + n.mode +
+                          " L " + (n.selectOnLeft ? n.selectOnLeft.name : "-") + " R " + (n.selectOnRight ? n.selectOnRight.name : "-") +
+                          " U " + (n.selectOnUp ? n.selectOnUp.name : "-") + " D " + (n.selectOnDown ? n.selectOnDown.name : "-") +
+                          " lines " + MenuNav.Lines(rows).Count);
+            }
+
+            if (snap == null) return;
+            Selectable last = null;
+            foreach (var r in rows) if (r.name.StartsWith("Btn_keep_") || r.name.StartsWith("Btn_fit_")) last = r;
+            if (last == null) return;
+            snap.ShowBlockOf(last.gameObject);
+            int bi = snap.BlockIndexOf(last.gameObject);
+            string focus = "[Spares] focus " + where + ": cursor on block " + bi + " of " + snap.count +
+                           " (" + snap.shown + " shown) -> list at y " + snap.content.anchoredPosition.y.ToString("0") +
+                           ", block fully shown " + snap.BlockFullyShown(bi) +
+                           ", on a block edge " + (Mathf.Abs(snap.content.anchoredPosition.y % snap.step) < 0.5f) +
+                           ", cues '" + (snap.above != null ? snap.above.text : "") + "' / '" +
+                           (snap.below != null ? snap.below.text : "") + "'";
+            if (!snap.BlockFullyShown(bi)) Debug.LogError(focus); else Debug.Log(focus);
+            snap.content.anchoredPosition = Vector2.zero;
+            snap.Cues();
         }
 
         static void SetText(object o, string field, string value)
