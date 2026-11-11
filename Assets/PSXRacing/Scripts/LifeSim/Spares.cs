@@ -318,6 +318,8 @@ namespace PSXRacing.LifeSim
             {
                 if (want == Use.Restore) { f.reason = "it is hardware"; return f; }
                 if (spec == null) { f.reason = "nothing on paper for this car"; return f; }
+                string race = Upgrades.RaceCarRefuses(spec, kind);
+                if (race != null) { f.reason = race.ToLowerInvariant(); return f; }
                 var plan = Upgrades.NextStagePlan(s, car, spec, kind);
                 if (p.IsTurbo && !spec.OnTurboPath(car.turbo))
                 {
