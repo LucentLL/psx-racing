@@ -36,6 +36,17 @@ namespace PSXRacing
         public const string FacadePartsKey = "city_facade_parts", GutterKey = "city_gutter_pan";
         public const float GutterAlongM = 4f, GutterAcrossM = 1f;
 
+        /// <summary>Round 3 (2026-11-11): THE FACADE ATLAS IN HD, per column.
+        /// Codex delivers <c>city_facade_cNN</c> (NN = the atlas column 00-15,
+        /// 1024 x 2048: the column 8x across and 8x up) with colour, normal,
+        /// rough, ao and an optional <c>_glass</c> mask; the importer stacks them
+        /// into three Texture2DArrays (colour; normal; rough/ao/glass packed),
+        /// one slice per column, and <see cref="facadeCols"/> says which slices
+        /// hold art. Column 7 stays <see cref="facadeParts"/>.</summary>
+        public bool[] facadeCols;
+        public const string FacadeColPrefix = "city_facade_c", FacadeArrayKey = "city_facade_hd";
+        public const int FacadeCols = 16, FacadeSliceW = 1024, FacadeSliceH = 2048;
+
         /// <summary>THE BLACK ROAD IN SHADE (round 2, measured): R1 kept the old
         /// palette's fresh-asphalt albedo, linear 0.013 (sRGB 30) - a quarter
         /// of real fresh asphalt's ~0.04-0.05 - so wherever a tower shades an

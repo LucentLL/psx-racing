@@ -90,6 +90,7 @@ namespace PSXRacing
         {
             map = null; mapTried = false; sets = null;
             byOriginal.Clear(); byHD.Clear(); roadByOriginal.Clear(); baseSets.Clear(); masks.Clear();
+            facArrCol = facArrNrm = facArrMask = null;
         }
 
         static bool EnsureMap()
@@ -101,7 +102,8 @@ namespace PSXRacing
             if (map == null) return false;
             if (map.pairs == null) map.pairs = new TextureHDMap.Pair[0];
             if (map.roads == null) map.roads = new TextureHDMap.Road[0];
-            if (map.pairs.Length == 0 && map.roads.Length == 0) { map = null; return false; }
+            bool anyFacade = !string.IsNullOrEmpty(map.facadeParts) || (map.facadeCols != null && System.Array.IndexOf(map.facadeCols, true) >= 0);
+            if (map.pairs.Length == 0 && map.roads.Length == 0 && !anyFacade && string.IsNullOrEmpty(map.gutter)) { map = null; return false; }
             sets = new HDSet[map.pairs.Length];
             for (int i = 0; i < map.pairs.Length; i++)
                 if (map.pairs[i].original != null) byOriginal[map.pairs[i].original] = i;
@@ -133,6 +135,15 @@ namespace PSXRacing
             return UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(EditorSrcRoot + name + ".png");
 #else
             return bundle != null ? bundle.LoadAsset<Texture2D>(name) : null;
+#endif
+        }
+
+        static Texture2DArray LoadArray(string name)
+        {
+#if UNITY_EDITOR
+            return UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2DArray>(EditorSrcRoot + name + ".asset");
+#else
+            return bundle != null ? bundle.LoadAsset<Texture2DArray>(name) : null;
 #endif
         }
 
@@ -210,6 +221,7 @@ namespace PSXRacing
                 Set(m, MainTexId, TextureTier.ForTier(map.pairs[i].original));
             if (m.HasProperty(RoadOnId) && m.GetFloat(RoadOnId) != 0f) SetF(m, RoadOnId, 0f);
             if (m.HasProperty(PartsOnId) && m.GetFloat(PartsOnId) != 0f) SetF(m, PartsOnId, 0f);
+            if (m.HasProperty(FacArrOnId) && m.GetFloat(FacArrOnId) != 0f) SetF(m, FacArrOnId, 0f);
             Kw(m, false);
             Applied = Mathf.Max(0, Applied - 1);
         }
@@ -281,17 +293,45 @@ namespace PSXRacing
         static bool ApplyFacadeParts(Material m, bool on)
         {
             if (!m.HasProperty(PartsOnId)) return false;
-            if (on && m.GetFloat(PartsOnId) > 0.5f) return false;
-            if (!Special(map.facadeParts, out var s)) return false;
-            Set(m, PartsId, s.col);
-            if (s.nrm != null) Set(m, NormalId, s.nrm);
-            if (s.rough != null) Set(m, RoughId, s.rough);
-            if (s.ao != null) Set(m, AOId, s.ao);
-            SetF(m, PartsOnId, 1f);
+            if (on && (m.GetFloat(PartsOnId) > 0.5f || m.GetFloat(FacArrOnId) > 0.5f)) return false;
+            bool parts = Special(map.facadeParts, out var s);
+            // round 3: the other columns from the three arrays (TextureHDMap.facadeCols)
+            bool arrays = false;
+            if (map.facadeCols != null && System.Array.IndexOf(map.facadeCols, true) >= 0)
+            {
+                if (facArrCol == null) { facArrCol = LoadArray(TextureHDMap.FacadeArrayKey + "_col"); facArrNrm = LoadArray(TextureHDMap.FacadeArrayKey + "_nrm"); facArrMask = LoadArray(TextureHDMap.FacadeArrayKey + "_mask"); }
+                arrays = facArrCol != null && facArrNrm != null && facArrMask != null;
+            }
+            if (!parts && !arrays) return false;
+            if (parts)
+            {
+                Set(m, PartsId, s.col);
+                if (s.nrm != null) Set(m, NormalId, s.nrm);
+                if (s.rough != null) Set(m, RoughId, s.rough);
+                if (s.ao != null) Set(m, AOId, s.ao);
+                SetF(m, PartsOnId, 1f);
+            }
+            if (arrays)
+            {
+                m.SetTexture(FacArrColId, facArrCol);
+                m.SetTexture(FacArrNrmId, facArrNrm);
+                m.SetTexture(FacArrMaskId, facArrMask);
+                var onCols = new float[TextureHDMap.FacadeCols];
+                for (int c = 0; c < onCols.Length && c < map.facadeCols.Length; c++) onCols[c] = map.facadeCols[c] ? 1f : 0f;
+                m.SetFloatArray(FacOnColsId, onCols);
+                SetF(m, FacArrOnId, 1f);
+                // the HD maps' shared sampler is the HD normal's: give it a texture
+                // with the HD import (trilinear, 8x aniso) when column 7 has none
+                if (!parts) foreach (var b in baseSets.Values) if (b.nrm != null) { Set(m, NormalId, b.nrm); break; }
+            }
             Kw(m, true);
             Applied++;
             return true;
         }
+        static Texture2DArray facArrCol, facArrNrm, facArrMask;
+        static readonly int FacArrColId = Shader.PropertyToID("_FacadeHDCol"), FacArrNrmId = Shader.PropertyToID("_FacadeHDNrm"),
+                            FacArrMaskId = Shader.PropertyToID("_FacadeHDMask"), FacOnColsId = Shader.PropertyToID("_FacadeHDOn"),
+                            FacArrOnId = Shader.PropertyToID("_FacadeHDArr");
 
         /// <summary>Road base textures in the table (the log's count).</summary>
         public static int RoadCount => map != null && map.roads != null ? map.roads.Length : 0;
