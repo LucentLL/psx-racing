@@ -289,7 +289,7 @@ namespace PSXRacing.Town
             // out" settled the rest. Nothing is declared any more, so the
             // question is which is rarer: Tony's will hand over a run in
             // fourteen blocks a week and the lot is full for two.
-            else if (CarMeets.OnNow(S) && !CarMeets.ArrivedTonight(S))
+            else if (CarMeets.LotLiveNow(S) && !CarMeets.ArrivedTonight(S))
             {
                 if (meetSign != null)
                 {
@@ -300,13 +300,16 @@ namespace PSXRacing.Town
                         CarMeets.MarkArrived(S);
                         // Said for a few seconds rather than for one tick of
                         // this 0.4 s timer: it is the only instruction the
-                        // meet gives, and the player is busy parking.
-                        flash = "THE MEET — PARK UP, GET OUT, WALK ROUND";
+                        // meet gives, and the player is busy parking. The
+                        // player's own CLUB meet says whether this counted.
+                        flash = CarMeets.ClubLine ?? "THE MEET — PARK UP, GET OUT, WALK ROUND";
+                        CarMeets.ClubLine = null;
                         flashUntil = Time.unscaledTime + 7f;
                         return flash;
                     }
                     anchor = meetSign;
-                    label = "CAR MEET — " + CarMeets.PlaceName;
+                    label = CarMeets.OnNow(S) ? "CAR MEET — " + CarMeets.PlaceName
+                                              : "CLUB MEET — " + CarMeets.PlaceName;
                 }
                 else
                 {
@@ -418,9 +421,7 @@ namespace PSXRacing.Town
         /// allowed and the door still offers it; the ARROW stops pointing once
         /// the day's work is done.
         /// </summary>
-        bool CanTakeARun() =>
-            S != null && !string.IsNullOrEmpty(S.playerJob) &&
-            LifeRules.ShopOpen(S) && !S.workedToday;
+        bool CanTakeARun() => WorkSchedule.CanClockOn(S);
 
         /// <summary>Whichever end of the street is nearer. The town has two and
         /// both launch a delivery, so pointing at the far one would send a
@@ -537,7 +538,9 @@ namespace PSXRacing.Town
                 t.detail = CarMeets.OnNow(S)
                     ? "Meet night. Walk up to a car and call its driver out — " +
                       CarMeets.MaxRunsPerMeet + " runs a night."
-                    : "Car meets, Friday and Saturday nights. It is on your calendar.";
+                    : Clubs.AnyMeetNow(S)
+                    ? "A club meet. Walk up to a club car to join - in a car the club takes."
+                    : "Car meets, Friday and Saturday nights. Clubs meet here too. It is on your calendar.";
                 t.action = "";
                 t.verb = "";
                 t.onUse = null;
@@ -579,8 +582,9 @@ namespace PSXRacing.Town
         {
             if (pizzaDoorTargets.Count == 0) return;
             lastDoorCarrying = PizzaRun.Carrying;
-            bool canClockOn = S != null && !string.IsNullOrEmpty(S.playerJob) &&
-                              LifeRules.ShopOpen(S);
+            // THE SCHEDULE (v23): the counter hands over a run only inside a
+            // scheduled shift, once, while on the roster.
+            bool canClockOn = WorkSchedule.CanClockOn(S);
             foreach (var t in pizzaDoorTargets)
             {
                 if (t == null) continue;
@@ -613,8 +617,8 @@ namespace PSXRacing.Town
                     // There is one job and it is always the player's (nobody
                     // is fired any more; Migrate re-hires), so the only reason
                     // to be here with no run on offer is the hour.
-                    t.detail = "No runs this morning. Back at noon, or sleep to the afternoon.  ·  " +
-                               LifeRules.ShiftHoursShort;
+                    string why = WorkSchedule.ClockOnRefusal(S) ?? "no runs right now";
+                    t.detail = "No run for you: " + why + ".";
                     t.onUse = OpenPizzaCounter;
                 }
             }
@@ -789,11 +793,15 @@ namespace PSXRacing.Town
         /// </summary>
         void FillMeet()
         {
-            if (meetSpots == null || meetSpots.Length == 0 || S == null || !CarMeets.OnNow(S)) return;
+            if (meetSpots == null || meetSpots.Length == 0 || S == null) return;
+            // THE CLUBS' CARS (v23) take the far end of the lot, a few per club
+            // meeting in this block; the regular crowd gives up those stalls.
+            int clubSeats = FillClubCars();
+            if (!CarMeets.OnNow(S)) return;
 
             foreach (var racer in CarMeets.Roster(S, S.day))
             {
-                if (racer.seat < 0 || racer.seat >= meetSpots.Length) continue;
+                if (racer.seat < 0 || racer.seat >= meetSpots.Length - clubSeats) continue;
                 var spot = meetSpots[racer.seat];
                 if (spot == null || racer.spec == null) continue;
                 var def = CarShell.DefFor(racer.spec);
@@ -818,6 +826,82 @@ namespace PSXRacing.Town
                 meetHooks.Add((t, racer));
                 RefreshMeetCar(t, racer);
             }
+        }
+
+        /// <summary>Club cars a club brings to its own meet.</summary>
+        public const int ClubLotCars = 5;
+
+        /// <summary>
+        /// A club meeting in this block parks its members at the far end of
+        /// the lot. Walking up to one is how the player JOINS (OnFoot.ClubScreen)
+        /// - in a car the club takes - and, for a member, says where they
+        /// stand. Returns how many stalls the clubs took.
+        /// </summary>
+        int FillClubCars()
+        {
+            var clubs = Clubs.MeetingAt(S.day, S.slotIndex);
+            int seat = meetSpots.Length - 1, used = 0;
+            foreach (var club in clubs)
+            {
+                var roster = Clubs.Roster(club);
+                for (int k = 0; k < ClubLotCars && k < roster.Length && seat >= 0; k++, seat--, used++)
+                {
+                    var spot = meetSpots[seat];
+                    var spec = Clubs.MemberCar(club, roster[k]);
+                    if (spot == null || spec == null) continue;
+                    var def = CarShell.DefFor(spec);
+                    if (def == null) continue;
+                    int skin = CarShell.SkinFor(def, spec, (club.id + roster[k]).GetHashCode());
+                    CarShell.Spawn(spot, def, skin, out Vector3 roof, widthMm: spec.widthMm, spec: spec);
+                    var go = new GameObject("ClubCarTarget");
+                    go.transform.SetParent(spot, false);
+                    var focus = new GameObject("Focus");
+                    focus.transform.SetParent(spot, false);
+                    focus.transform.localPosition = roof;
+                    var t = go.AddComponent<OnFoot.FootTarget>();
+                    t.range = 4.6f;
+                    t.focus = focus.transform;
+                    t.ignoreRoot = spot;
+                    RefreshClubCar(t, club, roster[k], spec);
+                }
+            }
+            return used;
+        }
+
+        void RefreshClubCar(OnFoot.FootTarget t, ClubDef club, string alias, CarSpec spec)
+        {
+            if (t == null || club == null) return;
+            string car = spec != null ? spec.name.ToUpperInvariant() : "A CAR";
+            if (car.Length > 26) car = car.Substring(0, 25).TrimEnd() + "…";
+            t.title = club.shortName + " CLUB  —  " + alias + "'S " + car;
+            bool member = Clubs.IsMember(S, club);
+            string no = Clubs.JoinRefusal(S, club);
+            t.detail = member ? "Your club. You are #" + Clubs.PlayerRank(S, club) + " on the board."
+                     : no == null ? club.rule + " cars only. Meets " + club.MeetWhen + ", races " + club.RaceWhen + "."
+                     : "Not today: " + no + ".";
+            bool open = !member;
+            t.action = open ? "TALK ABOUT JOINING" : "";
+            t.verb = open ? "TALK" : "";
+            t.onUse = open ? (System.Action)(() => OpenClub(t, club, alias, spec)) : null;
+        }
+
+        void OpenClub(OnFoot.FootTarget t, ClubDef club, string alias, CarSpec spec)
+        {
+            var screen = gameObject.AddComponent<OnFoot.ClubScreen>();
+            screen.club = club;
+            screen.alias = alias;
+            screen.spec = spec;
+            var walk = OnFoot.FirstPersonWalk.Current;
+            if (walk != null) walk.enabled = false;
+            screen.onClosed = () =>
+            {
+                if (walk != null) walk.enabled = true;
+                RefreshClubCar(t, club, alias, spec);
+                var foot = FindFirstObjectByType<OnFoot.FootScreen>();
+                if (foot != null) foot.Invalidate();
+                Destroy(screen);
+            };
+            screen.Open();
         }
 
         /// <summary>One driver's prompt, from the night as it stands. Rewritten

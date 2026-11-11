@@ -344,6 +344,8 @@ namespace PSXRacing.EditorTools
                 LifeSimManager.Save();
             }
 
+            ShootEnforcedWeek(outDir);
+
             LifeSimManager.State.debugMode = false;
             LifeSimManager.State.garageSlots = 1;
             LifeSimManager.Save();
@@ -1153,6 +1155,122 @@ namespace PSXRacing.EditorTools
         /// city front end when the simulated edition has no career).</param>
         /// <param name="before">Run before each size's Start — a result
         /// planted in the handoff, say, which the front end consumes.</param>
+        /// <summary>
+        /// THE ENFORCED WEEK (v23): the job's fixed shifts, a club's meet and
+        /// race on the calendar, a missed shift, a race booked over a shift,
+        /// the JOB page, the club board and the club list, the club race's own
+        /// pre-race page, and the laid-off and called-back JOB page. Shot on a
+        /// copy of the save, which is put back afterwards.
+        /// </summary>
+        static void ShootEnforcedWeek(string outDir)
+        {
+            var es = LifeSimManager.State;
+            string snap = JsonUtility.ToJson(es);
+            try
+            {
+                var jp = Clubs.ById("japanese");
+                var fu = Clubs.ById("future");
+                if (CarCatalog.Ready)
+                {
+                    CarSpec jpSpec = null, fuSpec = null;
+                    foreach (var c in CarCatalog.All)
+                    {
+                        if (c.IsRaceCar || c.IsRallyCar) continue;
+                        if (jpSpec == null && jp.Fits(c) && c.modelYear < 1999) jpSpec = c;
+                        if (fuSpec == null && fu.Fits(c) && !jp.Fits(c)) fuSpec = c;
+                    }
+                    if (!Clubs.Fits(jp, es.ActiveCar) && jpSpec != null)
+                        es.activeCar = CarMarket.MakeOwnedCar(es, jpSpec, 80, 9000f, jpSpec.price).id;
+                    if (fuSpec != null) CarMarket.MakeOwnedCar(es, fuSpec, 90, 2000f, fuSpec.price);
+                }
+                // A member of TWO clubs whose Saturday-night meets clash.
+                if (es.clubs == null) es.clubs = new System.Collections.Generic.List<ClubStanding>();
+                es.clubs.Clear();
+                foreach (var c in new[] { jp, fu })
+                {
+                    Clubs.Invite(es, c, "preview");
+                    Clubs.Join(es, c);
+                    Clubs.StandingOf(es, c).from = Duty.NowOrd(es);
+                }
+                // The Japanese board with the player at #6: the paint perk is
+                // theirs and the mechanic (#4) is next.
+                var b = Clubs.Board(es, jp);
+                var me = b[b.Count - 1]; b.RemoveAt(b.Count - 1); b.Insert(5, me);
+                // TUE 5 JAN: the shift raced through (MISSED, the warning),
+                // then WED's shift is the block the clock stands in.
+                int guard = 0;
+                while (es.slotIndex < LifeRules.NightSlot && ++guard < 10)
+                    LifeRules.SpendActivitySlot(es, es.slotIndex == LifeRules.AfternoonSlot ? LifeRules.ActRace : LifeRules.ActDrive);
+                LifeRules.Sleep(es);                                                     // -> WED MORNING
+                LifeRules.SpendActivitySlot(es, LifeRules.ActDrive);                     // WED MORNING
+                LifeRules.SpendActivitySlot(es, LifeRules.ActDrive);                     // WED NOON -> AFTERNOON
+                LifeRules.Book(es, es.day + 7, LifeRules.AfternoonSlot, es.trackIndex, false);   // next WED: over the shift
+                Clubs.Post(es, es.day - 1, "KAZ PASSES MIYU FOR #1 (JAPANESE)");
+                Clubs.Post(es, es.day - 1, "JAPANESE 6 - 4 EURO (YOU LOST YOUR PAIR)");
+                es.health = 100f; es.daysSinceEat = 0;
+                es.debugMode = false;   // a player's header, not the debug one
+                Duty.lastNotice = null;
+                LifeSimManager.Save();
+                int wed = es.day;
+                Debug.Log("[HomePreview] enforced week at " + LifeRules.DateLabel(es.day) + " " +
+                          LifeRules.SlotNames[es.slotIndex] + " misses=" + WorkSchedule.MissesInWindow(es, es.day) +
+                          " clubs=" + Clubs.Mine(es).Count);
+
+                Shoot(outDir, "duty_home_shift", "main", mustFit: true);
+                Shoot(outDir, "duty_week", "main", mustFit: true, calView: "Week");
+                Shoot(outDir, "duty_week_next", "main", mustFit: true, calView: "Week",
+                      fields: new[] { ("calWeekDay", (object)(wed + 5)) });
+                Shoot(outDir, "duty_month", "main", calView: "Month");
+                int sat = wed; while (LifeRules.WeekCol(sat) != WorkSchedule.Sat) sat++;
+                Shoot(outDir, "duty_plan_clash", "main", mustFit: true, calDay: sat, calSlot: jp.meetSlot);
+                Shoot(outDir, "duty_plan_race", "main", mustFit: true, calDay: sat + 1, calSlot: jp.raceSlot);
+                Shoot(outDir, "duty_plan_booked_shift", "main", mustFit: true, calDay: wed + 7, calSlot: LifeRules.AfternoonSlot);
+                Shoot(outDir, "duty_plan_missed", "main", mustFit: true, calDay: wed - 1, calSlot: LifeRules.AfternoonSlot);
+                Shoot(outDir, "jobs_week", "jobs");
+                Shoot(outDir, "club_list_member", "club", fields: new[] { ("clubView", (object)"") });
+                Shoot(outDir, "club_board", "club", fields: new[] { ("clubView", (object)jp.id) });
+                Shoot(outDir, "club_elite", "club", fields: new[] { ("clubView", (object)"elite") });
+                Shoot(outDir, "news_clubs", "news");
+
+                // The club race, due NOW: the hub's race row and its page.
+                es.day = sat + 1; es.slotIndex = jp.raceSlot;
+                LifeSimManager.Save();
+                Shoot(outDir, "duty_home_clubrace", "main", mustFit: true);
+                Shoot(outDir, "prerace_club", "prerace");
+
+                // The clash, NOW: two clubs' meets in the block the clock is in.
+                es.day = sat; es.slotIndex = jp.meetSlot;
+                LifeSimManager.Save();
+                Shoot(outDir, "duty_home_clash", "main", mustFit: true);
+
+                // Laid off, then called back.
+                es.day = wed; es.slotIndex = LifeRules.AfternoonSlot;
+                es.laidOff = true; es.layoffDay = wed; es.callBackDay = wed + 6; es.callBackOffered = false;
+                LifeSimManager.Save();
+                Shoot(outDir, "jobs_laidoff", "jobs");
+                Shoot(outDir, "duty_week_laidoff", "main", mustFit: true, calView: "Week");
+                es.callBackOffered = true;
+                LifeSimManager.Save();
+                Shoot(outDir, "jobs_callback", "jobs");
+
+                // No club: the six, and who meets where; and a club meet morning.
+                es.laidOff = false; es.callBackOffered = false;
+                es.clubs.Clear();
+                LifeSimManager.Save();
+                Shoot(outDir, "club_list", "club", fields: new[] { ("clubView", (object)"") });
+                Shoot(outDir, "club_join_info", "club", fields: new[] { ("clubView", (object)"euro") });
+                es.day = sat + 1; es.slotIndex = LifeRules.MorningSlot;
+                LifeSimManager.Save();
+                Shoot(outDir, "duty_home_clubmeets", "main", mustFit: true);
+            }
+            finally
+            {
+                JsonUtility.FromJsonOverwrite(snap, es);
+                Duty.lastNotice = null;
+                LifeSimManager.Save();
+            }
+        }
+
         static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
                           bool mustFit = false, SetupPage? setupPage = null,
                           string calView = null, int calDay = 0, int calSlot = -1,

@@ -17,7 +17,7 @@ namespace PSXRacing.LifeSim
     /// a camera and this component. First run (no player name) shows the
     /// new-game wizard instead.
     /// </summary>
-    public class LifeHomeScreen : MonoBehaviour
+    public partial class LifeHomeScreen : MonoBehaviour
     {
         Canvas canvas;
         RectTransform body;
@@ -338,7 +338,9 @@ namespace PSXRacing.LifeSim
             if (tab == "work")
             {
                 tab = "main";
-                if (!string.IsNullOrEmpty(S.playerJob) && LifeRules.ShopOpen(S))
+                // THE SCHEDULE (v23): only inside a scheduled shift.
+                string noShift = WorkSchedule.ClockOnRefusal(S);
+                if (noShift == null)
                 {
                     BuildChrome();
                     DoWork();
@@ -346,9 +348,7 @@ namespace PSXRacing.LifeSim
                 }
                 BuildChrome();
                 Rebuild();
-                Toast(string.IsNullOrEmpty(S.playerJob)
-                    ? "you have no job to clock on to"
-                    : "the shop is shut — it opens at noon");
+                Toast(noShift);
                 return;
             }
 
@@ -446,6 +446,20 @@ namespace PSXRacing.LifeSim
                 tab = "prerace";
                 raceFromLine = true;
                 driveUnpaid = true;
+                // AT THE LINE FOR THE CLUB RACE IN THE WRONG CAR. The owner's
+                // rule: "considered missing event even if showing up with
+                // wrong car" - so it is recorded the moment the player turns
+                // up in it, and the page below is the ordinary pre-race page.
+                // With several clubs racing at once, a car one of them takes
+                // runs that one (the pre-race page); only a car NONE of them
+                // takes is a wrong car for all of them, here.
+                var due = Clubs.RacesDueNow(S);
+                if (due.Count > 0 && !due.Exists(c => Clubs.RaceCarRefusal(S, c) == null))
+                {
+                    clubWrongCar = Clubs.RaceCarRefusal(S, due[0]) + " - COUNTS AS A MISSED CLUB RACE";
+                    foreach (var c in due) Clubs.BeginRace(S, c);
+                    LifeSimManager.Save();
+                }
             }
 
             // "deliverrun" is the second hop of the same journey: the junction
@@ -561,6 +575,7 @@ namespace PSXRacing.LifeSim
             if (editionNote != null && raceSummary == null && driveSummary == null && walkout == null)
                 Toast(editionNote);
             if (walkout != null && raceSummary == null) Toast(walkout);
+            if (clubWrongCar != null) { Toast(clubWrongCar); clubWrongCar = null; }
             if (invite != null && raceSummary == null && walkout == null) Toast(invite + " - SEE RIVALS");
             if (raceSummary != null)
             {
@@ -1333,6 +1348,7 @@ namespace PSXRacing.LifeSim
                 case "eat": BuildEat(); break;
                 case "bills": BuildBills(); break;
                 case "jobs": BuildJobs(); break;
+                case "club": BuildClub(); break;
             }
 
             BuildCarSide();
@@ -1713,9 +1729,14 @@ namespace PSXRacing.LifeSim
             var bookedNow = LifeRules.BookingAt(S, S.day, S.slotIndex);
             if (bookedNow != null)
                 bits.Add("RACE — " + TrackCatalog.At(bookedNow.trackIndex).name.ToUpperInvariant());
+            // WHAT IS REQUIRED NOW comes first (v23): a scheduled shift, the
+            // club's meet or its race. Everything else is an option.
+            string required = Duty.RequiredNow(S);
+            if (required != null)
+                bits.Add(required.Contains(" + ") ? "CLASH: " + (required.Split('+').Length) + " REQUIRED NOW - KEEP ONE"
+                                                    : "REQUIRED: " + required);
             if (CarMeets.OnNow(S)) bits.Add("CAR MEET");
-            if (!string.IsNullOrEmpty(S.playerJob) && LifeRules.ShopOpen(S))
-                bits.Add(S.workedToday ? "ANOTHER RUN AT TONY'S" : "SHIFT AT TONY'S");
+            else if (Clubs.AnyMeetNow(S) && required == null) bits.Add("CLUB MEET AT THE LOT");
             // Short, because it is drawn INSIDE the DRIVE button at Tiny and a
             // sentence there is a clipped sentence. The long version of this
             // thought lives on the DRIVE page, which has the width for it.
@@ -1726,7 +1747,8 @@ namespace PSXRacing.LifeSim
         /// <summary>A meet is the rare one, so it gets the colour; a booked
         /// race is the loud one. Anything else is a note.</summary>
         Color DriveLineInk() =>
-            CarMeets.OnNow(S) ? MeetInk
+            Duty.RequiredNow(S) != null ? MenuKit.Accent
+            : CarMeets.OnNow(S) || Clubs.AnyMeetNow(S) ? MeetInk
             : LifeRules.BookingAt(S, S.day, S.slotIndex) != null ? MenuKit.Accent
             : MenuKit.Dim;
 
@@ -2080,7 +2102,6 @@ namespace PSXRacing.LifeSim
         {
             var when = WhenIs(day, slot);
             var booking = LifeRules.BookingAt(S, day, slot);
-            bool shift = !string.IsNullOrEmpty(S.playerJob) && LifeRules.ShiftSlot(slot);
             string act = LifeRules.SlotAct(S, day, slot);
             string venue = booking != null ? TrackCatalog.At(booking.trackIndex).name : null;
 
@@ -2089,12 +2110,30 @@ namespace PSXRacing.LifeSim
                 if (act.Length == 0) return ("—", MenuKit.Dim, "", MenuKit.Dim);
                 string did = LifeRules.ActLabel(act);
                 Color dc = act == LifeRules.ActRace ? MenuKit.Good : Color.white;
+                // THE RECORD FIRST (v23): a missed shift, meet or club race is
+                // the loudest thing a past block can say, and it stays.
+                var recs = Duty.RecordsAt(S, day, slot);
+                if (recs.Count > 0 && recs[0].IsMiss) return (did, dc, Duty.MissLine(recs[0]), MenuKit.Bad);
                 if (act == LifeRules.ActRace && venue != null) return (did, dc, venue, MenuKit.Dim);
                 if (booking != null) return (did, dc, "RACE MISSED", MenuKit.Bad);
-                if (shift && act == LifeRules.ActWork) return (did, dc, S.playerJob, MenuKit.Dim);
-                if (LifeRules.ShiftSkipped(S, day, slot)) return (did, dc, "SHIFT SKIPPED", MenuKit.Bad);
+                if (recs.Count > 0)
+                    return (did, dc, recs[0].kind == Duty.KindShift ? S.playerJob : recs[0].kind,
+                            recs[0].kind == Duty.KindShift ? MenuKit.Dim : MeetInk);
                 return (did, dc, "", MenuKit.Dim);
             }
+
+            // THE ENFORCED WEEK (v23): what the job and the club REQUIRE in
+            // this block. Two at once is a CONFLICT, said before it happens.
+            var obs = Duty.At(S, day, slot);
+            if (obs.Count >= 2)
+            {
+                var words = new System.Collections.Generic.List<string>();
+                foreach (var o in obs)
+                    words.Add(o.kind == Duty.KindShift ? "SHIFT"
+                              : Clubs.ById(o.club) != null ? Clubs.ById(o.club).shortName : o.kind);
+                return ("CONFLICT", MenuKit.Bad, string.Join(" + ", words.ToArray()), MenuKit.Bad);
+            }
+            Duty.Obligation? ob = obs.Count == 1 ? obs[0] : (Duty.Obligation?)null;
 
             // Two things the calendar writes in BY ITSELF, from rules rather
             // than from anything the player booked: a car meet (Friday and
@@ -2116,12 +2155,42 @@ namespace PSXRacing.LifeSim
             // IN SHIFT HOURS at the moment of booking.)
             if (booking != null)
                 return ("RACE · " + venue, MenuKit.Good,
-                        meet ? MeetLine2
+                        // A race booked over something required clashes with it.
+                        ob.HasValue ? "CLASHES WITH " + Duty.Word(ob.Value)
+                        : meet ? MeetLine2
                              : backLine ?? "AT " + TimeOfDay.Label(LifeRules.BookingHour(booking)),
-                        meet ? MeetInk : MenuKit.Good);
-            if (shift)
-                return ("SHIFT · " + S.playerJob, MenuKit.Accent,
-                        meet ? MeetLine2 : backLine ?? "", meet ? MeetInk : MenuKit.Good);
+                        ob.HasValue ? MenuKit.Bad : meet ? MeetInk : MenuKit.Good);
+            if (ob.HasValue)
+            {
+                var o = ob.Value;
+                var rec = Duty.RecordFor(S, o);
+                if (o.kind == Duty.KindShift)
+                    return ("SHIFT · " + S.playerJob, MenuKit.Accent,
+                            meet ? MeetLine2 : backLine ?? WorkSchedule.HoursLine(o.slot),
+                            meet ? MeetInk : backLine != null ? MenuKit.Good : MenuKit.Dim);
+                var club = Clubs.ById(o.club);
+                string cname = club != null ? club.shortName : "CLUB";
+                if (o.kind == Duty.KindMeet)
+                    return ("CLUB MEET · " + cname, MeetInk,
+                            rec != null ? (rec.IsMiss ? Duty.MissLine(rec) : "SIGNED IN") : CarMeets.PlaceName,
+                            rec != null && rec.IsMiss ? MenuKit.Bad : MenuKit.Dim);
+                int cv = Clubs.RaceVenue(club, day);
+                var opp = Clubs.RaceOpponent(S, club, day);
+                string vs = Clubs.IsFixtureWeek(day)
+                    ? "FIXTURE VS " + (opp.club != null ? opp.club.shortName : "A CLUB")
+                    : opp.Valid ? "VS #" + opp.rank + " " + opp.alias : "CLUB RACE";
+                return ("CLUB RACE · " + TrackCatalog.At(cv).name, MenuKit.Good,
+                        rec != null ? (rec.IsMiss ? Duty.MissLine(rec) : "ON THE GRID") : vs,
+                        rec != null && rec.IsMiss ? MenuKit.Bad : MenuKit.Good);
+            }
+            // Laid off: the day's shift is not there to be worked.
+            if (WorkSchedule.Employed(S) && S.laidOff &&
+                WorkSchedule.ShiftStartAt(S.playerJob, day, slot) >= 0)
+                return ("LAID OFF", MenuKit.Dim, S.callBackOffered ? "CALLED BACK" : "NO SHIFT", MenuKit.Dim);
+            // No club yet: the clubs' own meets are where you join one.
+            if (!meet && Clubs.MeetingAt(day, slot).Exists(c => !c.elite && !Clubs.IsMember(S, c)))
+                return ("CLUB MEETS", MeetInk, backLine ?? "JOIN AT THE LOT",
+                        backLine != null ? MenuKit.Good : MenuKit.Dim);
             if (meet)
                 return ("CAR MEET", MeetInk, backLine ?? CarMeets.PlaceName,
                         backLine != null ? MenuKit.Good : MenuKit.Dim);
@@ -2239,8 +2308,19 @@ namespace PSXRacing.LifeSim
             // burn the one-purse-race-a-day cap, so "RACED TODAY — BACK
             // TOMORROW" would be the house refusing a race it is perfectly
             // happy to run.
-            bool calloutLeads = live != null && bookedNow == null;
-            if (calloutLeads)
+            // THE CLUB RACE (v23) is REQUIRED, so it takes the row over
+            // anything merely booked or offered.
+            var dueClub = Clubs.RaceDueNow(S);
+            bool clubDue = dueClub != null;
+            bool calloutLeads = live != null && bookedNow == null && !clubDue;
+            if (clubDue)
+            {
+                raceLabel = Clip(dueClub.shortName + " RACE — " +
+                                 TrackCatalog.At(Clubs.RaceVenue(dueClub, S.day)).name, 30);
+                raceAct = () => { tab = "prerace"; Rebuild(); };
+                raceBg = RaceBg;
+            }
+            else if (calloutLeads)
             {
                 raceLabel = Clip((live.incoming ? "DEFEND #" + Blacklist.StakeRank(S) + " vs "
                                                 : "CALL-OUT — ") + live.alias, 28);
@@ -2366,12 +2446,13 @@ namespace PSXRacing.LifeSim
             // three days still has to be able to earn, and DoWork's walking
             // branch is that floor. It is not a second way out of the house: it
             // never leaves it.
-            bool shopOpen = LifeRules.ShopOpen(S);
+            // THE SCHEDULE (v23): only inside a scheduled shift.
+            bool shopOpen = WorkSchedule.CanClockOn(S);
             if (!anyCarFuelled && !string.IsNullOrEmpty(S.playerJob))
             {
                 MenuKit.Button(body,
                     shopOpen ? "WALK TO WORK — " + Clip(S.playerJob, 14)
-                             : "SHOP SHUT — OPENS AT NOON",
+                             : S.laidOff ? "LAID OFF — NO SHIFTS" : "NO SHIFT NOW",
                     new Vector2(0.5f, 1f), new Vector2(cx, y), new Vector2(w, 46f),
                     shopOpen ? DoWork : (UnityEngine.Events.UnityAction)null,
                     17, shopOpen ? (Color?)null : MenuKit.BtnBgDisabled);
@@ -2415,9 +2496,13 @@ namespace PSXRacing.LifeSim
             y -= 22f;
             // Only while today has no shift in it: a driver who worked the
             // afternoon skips nothing by sleeping the night (ShiftSkipped).
-            if (shiftNow && !S.workedToday)
+            // THE SCHEDULE (v23): whatever is REQUIRED now and not yet done.
+            string owedNow = Duty.RequiredNow(S);
+            if (owedNow != null)
             {
-                MenuKit.Label(body, "SLEEPING NOW SKIPS THE SHIFT", MenuKit.Tiny,
+                string what = owedNow.StartsWith("SHIFT") ? "THE SHIFT" : "THE " + owedNow;
+                if (owedNow.Contains(" + ")) what = "WHAT IS REQUIRED";
+                MenuKit.Label(body, "SLEEPING NOW MISSES " + what, MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
                     MenuKit.Accent, w, height: 22f);
                 y -= 22f;
@@ -2462,7 +2547,8 @@ namespace PSXRacing.LifeSim
             int day = calSelDay, slot = calSelSlot;
             var when = WhenIs(day, slot);
             var bk = LifeRules.BookingOn(S, day);
-            bool shift = !string.IsNullOrEmpty(S.playerJob) && LifeRules.ShiftSlot(slot);
+            var owed = Duty.At(S, day, slot);
+            bool shift = owed.Exists(o => o.kind == Duty.KindShift);
 
             MenuKit.Label(body, LifeRules.SlotNames[slot] + "  ·  " + LifeRules.SlotHours[slot], 22,
                 new Vector2(0.5f, 1f), new Vector2(x, y), TextAnchor.MiddleLeft, MenuKit.Accent, w,
@@ -2478,18 +2564,24 @@ namespace PSXRacing.LifeSim
             int lines = 0;
             void Note(string s, Color c)
             {
-                MenuKit.Label(body, Clip(s, 40), MenuKit.Tiny, new Vector2(0.5f, 1f),
-                    new Vector2(x, ny), TextAnchor.MiddleLeft, c, w, height: 24f);
+                // Fitted to the column, not just counted: the club lines are
+                // capitals, and forty capitals run past a 4:3 half-column.
+                MenuKit.FitOneLine(MenuKit.Label(body, Clip(s, 44), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    new Vector2(x, ny), TextAnchor.MiddleLeft, c, w, height: 24f), w);
                 ny -= 26f; lines++;
             }
 
             if (when == BlockWhen.Past)
             {
                 string act = LifeRules.SlotAct(S, day, slot);
-                bool skipped = LifeRules.ShiftSkipped(S, day, slot);
-                if (act.Length > 0)
-                    Note(LifeRules.ActLabel(act) + (skipped ? " — SHIFT SKIPPED" : ""),
-                         skipped ? MenuKit.Bad : Color.white);
+                if (act.Length > 0) Note(LifeRules.ActLabel(act), Color.white);
+                // What was owed here and what came of it (v23).
+                foreach (var r in Duty.RecordsAt(S, day, slot))
+                    Note(r.IsMiss ? Duty.MissLine(r) + (r.note.Length > 0 ? " — " + r.note : "")
+                                  : r.kind + " — " + (r.kind == Duty.KindShift ? "WORKED"
+                                    : r.kind == Duty.KindMeet ? "SIGNED IN"
+                                    : r.result.Length > 0 ? r.result : "RACED"),
+                         r.IsMiss ? MenuKit.Bad : MenuKit.Good);
                 if (bk != null && bk.slot == slot && act != LifeRules.ActRace)
                     Note("RACE MISSED — " + TrackCatalog.At(bk.trackIndex).name, MenuKit.Bad);
             }
@@ -2504,9 +2596,30 @@ namespace PSXRacing.LifeSim
                 }
                 else if (bk != null)
                     Note("Race booked for the " + LifeRules.SlotNames[bk.slot] + " block", MenuKit.Dim);
-                if (shift) Note("SHIFT — " + S.playerJob, MenuKit.Accent);
+                // REQUIRED (v23): the shift, the club's meet or race. Two at
+                // once is a conflict, said here before it happens.
+                if (owed.Count >= 2) Note("CONFLICT — KEEP ONE, MISS THE OTHER", MenuKit.Bad);
+                foreach (var o in owed)
+                {
+                    var c = Clubs.ById(o.club);
+                    if (o.kind == Duty.KindShift)
+                        Note("SHIFT — " + S.playerJob + "  " + WorkSchedule.HoursLine(o.slot), MenuKit.Accent);
+                    else if (o.kind == Duty.KindMeet)
+                        Note(c.shortName + " MEET — IN A " + c.rule + " CAR", MeetInk);
+                    else
+                    {
+                        var opp = Clubs.RaceOpponent(S, c, day);
+                        Note(c.shortName + " RACE — " + TrackCatalog.At(Clubs.RaceVenue(c, day)).name, MenuKit.Good);
+                        if (owed.Count < 2)
+                            Note((Clubs.IsFixtureWeek(day) ? "FIXTURE · " : "") + "VS " +
+                                 (opp.club != null ? opp.club.shortName + " " : "") + "#" + opp.rank + " " + opp.alias +
+                                 "  ·  " + c.rule + " CAR", MenuKit.Good);
+                    }
+                }
             }
-            if (when != BlockWhen.Past && CarMeets.MeetAt(day, slot))
+            // (A club meet in the same block already says where: the lot.)
+            bool clubMeetHere = owed.Exists(o => o.kind == Duty.KindMeet);
+            if (when != BlockWhen.Past && CarMeets.MeetAt(day, slot) && !clubMeetHere)
                 Note("CAR MEET — " + CarMeets.PlaceName, MeetInk);
             // A live call-out runs out on a DAY, not in a block — any of the
             // three will do to race a leg in — so it is noted on every block of
@@ -2541,7 +2654,7 @@ namespace PSXRacing.LifeSim
             // Nothing to book and nothing to pay: a meet is somewhere you turn
             // up. The one line says how, because the calendar is the only
             // place a player learns that meets exist.
-            if (when != BlockWhen.Past && CarMeets.MeetAt(day, slot))
+            if (when != BlockWhen.Past && CarMeets.MeetAt(day, slot) && !clubMeetHere)
                 Note("Drive into town and walk up to a car.", MenuKit.Dim);
             y = ny - 8f;
 
@@ -2615,7 +2728,8 @@ namespace PSXRacing.LifeSim
             // (shift + meet + payday) put the warning 15 units off the bottom
             // of a column that must not scroll. It is also the better place
             // for it — it is read at the moment of pressing, not after.
-            MenuKit.Button(body, shift ? "WRITE IT IN  ·  IN SHIFT HOURS" : "WRITE IT IN",
+            MenuKit.Button(body, shift ? "WRITE IT IN  ·  MISSES THE SHIFT"
+                                 : owed.Count > 0 ? "WRITE IT IN  ·  MISSES THE CLUB" : "WRITE IT IN",
                 new Vector2(0.5f, 1f), new Vector2(cx, y),
                 new Vector2(w, 50f), () =>
                 {
@@ -5333,6 +5447,19 @@ namespace PSXRacing.LifeSim
             if (line.StartsWith("RACE · ")) return "RACE";
             if (line.StartsWith("SHIFT · ")) return "SHIFT";
             if (line == "SHIFT SKIPPED") return "SKIPPED";
+            // The enforced week (v23).
+            if (line.StartsWith("CLUB MEET · ")) return "CLUB MEET";
+            if (line.StartsWith("CLUB RACE · ")) return "CLUB RACE";
+            if (line.EndsWith(" MISSED")) return "MISSED";
+            if (line.EndsWith(" - " + Duty.WrongCar)) return "WRONG CAR";
+            if (line.EndsWith(" - " + Duty.NoCar)) return "NO CAR";
+            if (line.StartsWith("CLASHES WITH")) return "CLASH";
+            if (line.StartsWith("FIXTURE VS ")) return "FIXTURE";
+            if (line.Contains(" + ")) return "2 AT ONCE";   // a conflict's clubs
+            if (line == "JOIN AT THE LOT") return "";
+            if (line == "SIGNED IN") return "SIGNED IN";
+            if (line == "ON THE GRID") return "RACED";
+            if (line.Contains(" - ") && line.Contains(":")) return line.Replace(":00", "");   // a shift's hours
             if (line == "SKIPS THE SHIFT") return "NO SHIFT";
             if (line == "VIEWED A CAR") return "VIEWING";
             // A booked race's hour, "AT NIGHT 23:15": the row already names
@@ -5455,8 +5582,12 @@ namespace PSXRacing.LifeSim
                     if (now) NowBar(rt);
                     // One line a cell on a phone: a skipped shift has no second
                     // line to say so, so the word itself goes red.
-                    Color w1 = !twoLines && l2 == "SHIFT SKIPPED" ? MenuKit.Bad : c1;
-                    MenuKit.Label(btn.transform, Clip(CellWord(l1), 10), MenuKit.Tiny,
+                    Color w1 = !twoLines && c2 == MenuKit.Bad ? MenuKit.Bad : c1;
+                    // ...and on one line a miss or a clash says ITSELF, not
+                    // what the block went on.
+                    string first = !twoLines && c2 == MenuKit.Bad && l2.Length > 0 && l1 != "CONFLICT"
+                        ? CellWord(l2) : CellWord(l1);
+                    MenuKit.Label(btn.transform, Clip(first, 10), MenuKit.Tiny,
                         new Vector2(0.5f, 0.5f), new Vector2(now ? 3f : 0f, twoLines ? 11f : 0f),
                         TextAnchor.MiddleCenter, w1, cellW - 10f, height: 22f, bold: true);
                     string second = now ? "NOW" : CellWord(l2);
@@ -5568,7 +5699,9 @@ namespace PSXRacing.LifeSim
                 var bk = LifeRules.BookingOn(S, day);
                 Color bg = today ? MenuKit.TabOnBg : sel ? SelectedBg : past ? PastBg : MenuKit.BtnBg;
                 int cd = day;
+                var dueFirst = Duty.StartingOn(S, day);
                 int cslot = bk != null ? bk.slot : today ? S.slotIndex
+                          : dueFirst.Count > 0 ? dueFirst[0].slot
                           : CarMeets.MeetOn(day) ? CarMeets.MeetSlot : LifeRules.NoonSlot;
                 var btn = MenuKit.Button(grid, "", new Vector2(0f, 1f), Vector2.zero, Vector2.zero,
                     () => { LookAt(cd, cslot); calView = CalView.Day; Rebuild(); }, MenuKit.Tiny, bg);
@@ -5606,7 +5739,29 @@ namespace PSXRacing.LifeSim
                     }
                 }
                 else if (bk != null) word = "RACE";
-                else if (CarMeets.MeetOn(day)) { word = "MEET"; wordInk = MeetInk; }
+                // THE ENFORCED WEEK (v23): a clash first, then the club's
+                // race and meet, then the regular meet, then a shift.
+                if (past)
+                {
+                    if (Duty.MissedOn(S, day)) { word = "MISSED"; wordInk = MenuKit.Bad; }
+                }
+                else
+                {
+                    var due = Duty.StartingOn(S, day);
+                    bool clash = false;
+                    for (int s = 0; s < LifeRules.SlotCount && !clash; s++)
+                        clash = Duty.ConflictAt(S, day, s);
+                    if (clash) { word = "CONFLICT"; wordInk = MenuKit.Bad; }
+                    else if (bk == null)
+                    {
+                        // Short: a 4:3 month cell is ~115 units, and CLUB RACE
+                        // in bold at the type floor is ~120.
+                        if (due.Exists(o => o.kind == Duty.KindRace)) { word = "C.RACE"; wordInk = MenuKit.Good; }
+                        else if (due.Exists(o => o.kind == Duty.KindMeet)) { word = "C.MEET"; wordInk = MeetInk; }
+                        else if (CarMeets.MeetOn(day)) { word = "MEET"; wordInk = MeetInk; }
+                        else if (due.Exists(o => o.kind == Duty.KindShift)) { word = "SHIFT"; wordInk = MenuKit.Accent; }
+                    }
+                }
                 if (word.Length > 0)
                     MenuKit.Label(btn.transform, word, MenuKit.Tiny, new Vector2(0.5f, 0f),
                         new Vector2(today ? 3f : 0f, 2f), TextAnchor.MiddleCenter, wordInk,
@@ -5716,10 +5871,34 @@ namespace PSXRacing.LifeSim
             // results to print, and printing them here is how a player who has
             // not opened RIVALS all week still notices the order has changed
             // under them.
-            MenuKit.Label(body, "MOTORING — nothing filed this week.", 17,
-                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, ColW);
-            y -= 26f;
+            // MOTORING is the CLUBS (v23): their races, their fixtures, and a
+            // way in to who meets where.
+            var clubWire = S.clubNews;
+            if (clubWire != null && clubWire.Count > 0)
+            {
+                MenuKit.Label(body, "MOTORING — the clubs:", 17, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+                y -= 26f;
+                for (int i = clubWire.Count - 1, shown = 0; i >= 0 && shown < 2; i--, shown++)
+                {
+                    MenuKit.FitOneLine(MenuKit.Label(body, "   " + Clip(clubWire[i], 60), 17, new Vector2(0.5f, 1f),
+                        new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, ColW), ColW);
+                    y -= 24f;
+                }
+            }
+            else
+            {
+                MenuKit.Label(body, "MOTORING — nothing filed this week.", 17,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, ColW);
+                y -= 26f;
+            }
+            y -= 6f;
+            MenuKit.Button(body, Clubs.Mine(S).Count > 0 ? "YOUR CLUBS (" + Clubs.Mine(S).Count + ")" : "CAR CLUBS — WHO MEETS WHERE",
+                new Vector2(0.5f, 1f), new Vector2(0f, y),
+                new Vector2(Mathf.Min(ColW, 460f), 52f),
+                () => { tab = "club"; clubView = ""; Rebuild(); }, 18);
+            y -= 64f;
             var wire = S.blNews;
             if (wire != null && wire.Count > 0)
             {
@@ -6681,17 +6860,27 @@ namespace PSXRacing.LifeSim
                     TextAnchor.MiddleLeft, MenuKit.Bad, ColW, height: 24f);
                 y -= 30f;
             }
+            // THE CLUB MECHANIC (Clubs.Perks): a club perk on a car that club takes.
+            float clubOff = Clubs.BestPerk(S, car, Clubs.PerkMechanic, out ClubDef mechClub);
+            if (clubOff > 0f)
+            {
+                MenuKit.FitOneLine(MenuKit.Label(body, "THE " + mechClub.shortName + " CLUB'S MECHANIC: " +
+                        Mathf.RoundToInt(clubOff * 100f) + "% OFF, +" + Mathf.RoundToInt(Clubs.MechanicSkillBonus * 100f) +
+                        "% WORK", MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, MenuKit.Good, ColW, height: 24f), ColW);
+                y -= 30f;
+            }
 
             for (int i = 0; i < LifeRules.MechanicServices.Length; i++)
             {
                 var svc = LifeRules.MechanicServices[i];
                 // Nothing to rotate or replace on a car with no wheels.
                 if (car.noWheels && svc.stat == "tires") continue;
-                int price = LifeRules.ServiceCost(car, svc.cost);
+                int price = Clubs.MechanicPrice(S, car, LifeRules.ServiceCost(car, svc.cost));
                 bool afford = S.money >= price && elsewhere == null;
                 int idx = i;
                 MenuKit.Button(body, svc.name + " — " + MenuKit.Money(price) +
-                        "  (+" + svc.add + " " + svc.stat + ")",
+                        "  (+" + Mathf.RoundToInt(svc.add * Clubs.MechanicWork(S, car)) + " " + svc.stat + ")",
                     new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, Mathf.Min(560f, ColW)), y), new Vector2(Mathf.Min(560f, ColW), 44f),
                     afford ? (UnityEngine.Events.UnityAction)(() =>
                     {
@@ -6717,7 +6906,7 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < LifeRules.CoolingServices.Length; i++)
             {
                 var svc = LifeRules.CoolingServices[i];
-                int price = LifeRules.ServiceCost(car, svc.cost);
+                int price = Clubs.MechanicPrice(S, car, LifeRules.ServiceCost(car, svc.cost));
                 float cond = LifeRules.CoolPartCond(car, svc.part);
                 bool fresh = cond >= 99.5f;
                 bool afford = S.money >= price && elsewhere == null && !fresh;
@@ -6870,7 +7059,7 @@ namespace PSXRacing.LifeSim
             }
             y -= 52f;
 
-            int price = Paint.Cost(car);
+            int price = Clubs.PaintPrice(S, car, Paint.Cost(car));
             bool sameColour = show == worn;
             // IN THE BOOTH ALREADY, or standing at somebody else's shop: the
             // button becomes the reason, because a press that can only be
@@ -7537,54 +7726,6 @@ namespace PSXRacing.LifeSim
             y -= 38f;
         }
 
-        void BuildJobs()
-        {
-            float y = -14f;
-            PageHeader(ref y, "THE JOB");
-            if (!string.IsNullOrEmpty(S.playerJob))
-            {
-                Row("CURRENT JOB", S.playerJob, ref y, MenuKit.Accent);
-                Row("ROSTER", "NOON TO 4AM", ref y,
-                    LifeRules.ShopOpen(S) ? MenuKit.Good : MenuKit.Dim);
-                Row("OPEN", "SEVEN DAYS", ref y);
-                Row("TYPICAL DAY", MenuKit.Money(Mathf.RoundToInt(S.basePay * S.payMultiplier)), ref y);
-                Row("WORK REP", Mathf.RoundToInt(S.workRep) + "/100", ref y,
-                    S.workRep >= 50 ? MenuKit.Good : MenuKit.Bad);
-                Row("ATTENDANCE", S.workDaysPresent + "/" + S.workDaysTotal, ref y);
-                y -= 16f;
-                // Broken into short lines on purpose: MenuKit.Label overflows
-                // rather than wrapping, so one long sentence runs off the right
-                // of a 4:3 canvas instead of folding onto a second row.
-                // THE ONE JOB, AND ITS RULE. There is no job board and no
-                // applying: the delivery job is the player's for the whole
-                // career, and the "You were FIRED, apply for work (55% hire
-                // odds)" page that used to live below this branch was a
-                // leftover from a port with several jobs. The owner's rule is
-                // the third line, and it is the whole of the discipline.
-                foreach (string line in new[]
-                {
-                    "Shifts run noon to four in the morning, weekends included.",
-                    "Tips are paid at the door, per drop — there is no salary.",
-                    LifeRules.FreeDaysOff + " days off in a row are yours to take. Each missed day",
-                    "past that docks a day's tips (" + MenuKit.Money(LifeRules.MissedDayDock(S)) +
-                        ") from Friday's pay. That is all it costs:",
-                    "it is the only job in town, and nobody gets let go from it.",
-                })
-                {
-                    MenuKit.Label(body, line, 17, new Vector2(0.5f, 1f),
-                        new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
-                    y -= 26f;
-                }
-                return;
-            }
-            // Unreachable on any save that has been through Migrate, which
-            // re-hires — kept as a plain line rather than a job board, so a
-            // state that should not exist reads as what it is.
-            MenuKit.Label(body, "Not on the roster. Sleep once and the shop takes you back on.",
-                17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, ColW);
-        }
-
         // =================== the pre-race screen ===================
         /// <summary>
         /// The venue, the hour, the purse, and the car — the page the RACE and
@@ -7600,6 +7741,9 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void BuildPreRace()
         {
+            // THE CLUB RACE, when it is due in this block (v23): the club's
+            // road, opponent and purse. Still this page, still the one launcher.
+            if (Clubs.RaceDueNow(S) != null) { BuildClubPreRace(); return; }
             var bookedNow = LifeRules.BookingAt(S, S.day, S.slotIndex);
             bool booked = bookedNow != null;
             int venue = booked ? bookedNow.trackIndex
@@ -8524,6 +8668,13 @@ namespace PSXRacing.LifeSim
             {
                 msg = "PAGER — " + LifeRules.lastPage + "  ·  " + msg;
                 LifeRules.lastPage = null;
+            }
+            // The enforced week's mail (v23): warnings, lay-offs, call-backs,
+            // strikes and drops. There is no mail page; this is where it is read.
+            if (!string.IsNullOrEmpty(Duty.lastNotice))
+            {
+                msg = "MAIL — " + Duty.lastNotice + "  ·  " + msg;
+                Duty.lastNotice = null;
             }
             // The same ride for a car that came home from a shop while the
             // clock moved. It is the thing that changed about what the player
