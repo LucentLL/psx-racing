@@ -55,7 +55,9 @@ namespace PSXRacing.EditorTools
         {
             var sb = new System.Text.StringBuilder();
             // the nine HD bodies, and every shell whose export now has clear covers
-            var keys = new HashSet<string> { "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "viper_gts", "flatsix_coupe", "flatsix_coupe_87", "rally_sedan_99", "civic_eg", "roadster_99" };
+            var keys = new HashSet<string> { "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "viper_gts", "flatsix_coupe", "flatsix_coupe_87", "rally_sedan_99", "civic_eg", "roadster_99",
+                // cars2 (11-11 afternoon): the baker's roof-fixture rule re-measures their cowl
+                "fullsize_police", "fullsize_taxi", "fullsize_trooper" };
             foreach (var m in CarModelLibrary.Models)
                 if (File.Exists("Assets/PSXRacing/Art/Car/Models/" + m.key + "/" + m.key + "_covers.obj")) keys.Add(m.key);
             sb.AppendLine("baking: " + string.Join(" ", keys));
