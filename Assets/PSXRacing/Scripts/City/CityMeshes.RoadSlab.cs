@@ -81,7 +81,7 @@ namespace PSXRacing.City
         /// the road buckets and <see cref="roadGrid"/> their lying triangles.</summary>
         static IEnumerable<int> RoadSlab(CityMap map, TileMeshes tm)
         {
-            slabTongues = slabFaces = slabTris = 0; slabTongueM = slabFaceM = 0f; slabMs = 0;
+            slabTongues = slabFaces = slabTris = slabSeated = 0; slabTongueM = slabFaceM = 0f; slabMs = 0;
             foreach (var l in slabVerts.Values) l.Clear();
             slabFor = tm;
             if (!RoadSlabOn) yield break;
@@ -201,6 +201,25 @@ namespace PSXRacing.City
                     bool smallStep = faceLow && Mathf.Min(A.y, B.y) - lowest < 0.006f;
                     var inset = !faceLow || smallStep ? new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.006f : 0.004f) + Vector3.down * 0.001f
                               : taken ? new Vector3(-nrm.x, 0f, -nrm.y) * 0.005f : Vector3.zero;
+                    // SEATED STEP (cityinteg 2026-11-11): where the sheet past is a ROAD sheet whose
+                    // edge runs on this line (a fan's mouth 12 mm over a ribbon's end row), the face
+                    // stops ON that sheet's edge, its foot at the ribbon's own height at each end,
+                    // instead of 3 cm through it. Through it, the face met the ribbon's last row in
+                    // one line of pixels the width of the road (the flicker finder, S Tryon at
+                    // Winona: junction | tw3t 97 px); seated, the two share the line and the riser
+                    // is closed from the ribbon to the fan's edge (no slot, no see-through).
+                    // PSX_CITY_SLABSEAT=0: through, as the seams round left it.
+                    if (faceLow && !level && !kerb && cover == 0 && SlabSeatOn && top - lowest < SeatMaxStepM)
+                    {
+                        float sA = SlabSeatY(A, nrm), sB = SlabSeatY(B, nrm);
+                        if (!float.IsNaN(sA) && !float.IsNaN(sB) && A.y - sA > 0.0005f && B.y - sB > 0.0005f)
+                        {
+                            SlabLaySeated(A, B, sA, sB, uA, uB, nrm, bk);
+                            SlabFaceSeg(A, B, Mathf.Max(A.y, B.y), nrm);
+                            slabSeated++;
+                            continue;
+                        }
+                    }
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
                     {
                         var pA = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset; var pB = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset;
@@ -212,6 +231,32 @@ namespace PSXRacing.City
             clock.Stop(); yield return 0; clock.Start();
             SlabEmit();
             slabMs = clock.Elapsed.TotalMilliseconds;
+        }
+
+        /// <summary>PSX_CITY_SLABSEAT=0: step faces go 3 cm through a ribbon under them (the seams round's own).</summary>
+        public static bool SlabSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SLABSEAT") != "0";
+        /// <summary>Seat only risers up to this (a fan's 12 mm; never a verge or a kerb).</summary>
+        const float SeatMaxStepM = 0.05f;
+        public static int slabSeated;
+
+        /// <summary>The height of the road sheet lying just past an edge end
+        /// (3 mm out), lower than the end by 0.5 mm to 6 cm; NaN where there is none.</summary>
+        static float SlabSeatY(Vector3 P, Vector2 nrm)
+        {
+            float y = roadGrid.Between(P.x + nrm.x * 0.003f, P.z + nrm.y * 0.003f, P.y - 0.06f, P.y - 0.0005f, true);
+            return y > float.NegativeInfinity ? y : float.NaN;
+        }
+
+        /// <summary>A step face from the sheet's edge down to the sheet past's own edge heights (not merged into runs).</summary>
+        static void SlabLaySeated(Vector3 A, Vector3 B, float sA, float sB, Vector2 uA, Vector2 uB, Vector2 nrm, Bucket bk)
+        {
+            if ((B.x - A.x) * nrm.y - (B.z - A.z) * nrm.x < 0f)
+            { var t = A; A = B; B = t; var u = uA; uA = uB; uB = u; float s = sA; sA = sB; sB = s; }
+            int v0 = bk.v.Count;
+            bk.Face(new Vector3(A.x, sA, A.z), A, B, new Vector3(B.x, sB, B.z), new Vector3(nrm.x, 0f, nrm.y), uA, uA, uB, uB);
+            slabFaces++; slabFaceM += Vector2.Distance(new Vector2(A.x, A.z), new Vector2(B.x, B.z));
+            SlabMark(bk, v0);
+            slabTris += 2;
         }
 
         struct SlabPiece { public Vector3 A, B; public Vector2 uA, uB, nrm; public Bucket bk; public int kind; public float run, bot; public bool used; }

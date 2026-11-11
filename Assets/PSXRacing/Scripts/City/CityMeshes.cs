@@ -4081,6 +4081,39 @@ namespace PSXRacing.City
                 RibbonQuads++;
                 return 0;
             }
+            // NO EDGE LINE BESIDE A CURB (cityinteg 2026-11-11, CityMeshes.Curbs2.cs CurbNoEdgeLines):
+            // the full quad would paint the texture's edge line; on a curbed side the strip
+            // from the drawn edge to that line's inner side takes paint-free texels and the
+            // rest stays one strip at the texture's own U (3 quads at most, not 1 per line)
+            int noEdge = lay.m.Length > 0 ? CurbNoEdgeLines(e) : 0;
+            if (noEdge != 0 && full && lay.isDefault && !marks && !IsJcl(e))
+            {
+                int kEm = (noEdge & 2) != 0 ? LineOfKind(lay, LineModel.KEdgeM) : -1;
+                int kEp = (noEdge & 1) != 0 ? LineOfKind(lay, LineModel.KEdgeP) : -1;
+                if (kEm >= 0 || kEp >= 0)
+                {
+                    float pl = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
+                    float PHe = lay.half;
+                    float uPL = (tex.bandHi + 0.75f) / tw, uPR = (tex.bandLo + 0.25f) / tw;
+                    float xA = latLA, xB = latLB, yA = latRA, yB = latRB;
+                    int qn = 0;
+                    if (kEm >= 0)
+                    {
+                        float lin = Mathf.Clamp(pl - lay.m[kEm] + PHe + 0.002f, Mathf.Max(latLA, latLB), Mathf.Min(latRA, latRB));
+                        Strip(bk, A, B, latLA, latRA, latLB, latRB, latLA, latLB, lin, lin, uPL, uPR, v0, v1); qn++;
+                        xA = xB = lin;
+                    }
+                    if (kEp >= 0)
+                    {
+                        float lin = Mathf.Clamp(pl - lay.m[kEp] - PHe - 0.002f, Mathf.Max(xA, xB), Mathf.Min(latRA, latRB));
+                        Strip(bk, A, B, latLA, latRA, latLB, latRB, lin, lin, latRA, latRB, uPL, uPR, v0, v1); qn++;
+                        yA = yB = lin;
+                    }
+                    qn += IdentStrip(bk, A, B, latLA, latRA, latLB, latRB, xA, xB, yA, yB, pl, lay.W, v0, v1);
+                    RibbonColumnSpans++; RibbonStrips += qn;
+                    return qn;
+                }
+            }
             if (full && lay.isDefault && !marks)
             {
                 // U = 0 on the left of travel (the R vertex), so a one-way
@@ -4110,8 +4143,8 @@ namespace PSXRacing.City
                 RibbonQuads++;
                 return 0;
             }
-            DrawnLines(e, lay, A, eMA, ePA, latLA, latRA, linesA);
-            DrawnLines(e, lay, B, eMB, ePB, latLB, latRB, linesB);
+            DrawnLines(e, lay, A, eMA, ePA, latLA, latRA, linesA, noEdge);
+            DrawnLines(e, lay, B, eMB, ePB, latLB, latRB, linesB, noEdge);
             // the span draws a line only where both sections have it
             spanLines.Clear();
             for (int i = 0, j = 0; i < linesA.Count && j < linesB.Count;)
@@ -4302,10 +4335,22 @@ namespace PSXRacing.City
         /// edge line on a squeezed side moved in with the edge (a clipped inner
         /// side has none: it runs into its host), and nothing beyond an edge
         /// line or within 2 cm of a drawn edge.</summary>
-        static void DrawnLines(CityMap.Edge e, LineModel.Layout lay, in Section c, float eM, float eP, float latL, float latR, List<LineModel.LineAt> into)
+        static void DrawnLines(CityMap.Edge e, LineModel.Layout lay, in Section c, float eM, float eP, float latL, float latR, List<LineModel.LineAt> into, int noEdge = 0)
         {
             LineModel.LinesAt(e, c.s, into);
             if (IsJcl(e)) { into.Clear(); return; }   // Five Points round 4: no lines inside a junction complex
+            // (cityinteg 11-11) a curbed side paints no edge line (Curbs2.cs CurbNoEdgeLines)
+            if (noEdge != 0)
+            {
+                int wq = 0;
+                for (int i = 0; i < into.Count; i++)
+                {
+                    byte kq = lay.kind[into[i].k];
+                    if ((kq == LineModel.KEdgeP && (noEdge & 1) != 0) || (kq == LineModel.KEdgeM && (noEdge & 2) != 0)) continue;
+                    into[wq++] = into[i];
+                }
+                into.RemoveRange(wq, into.Count - wq);
+            }
             float PH = lay.half;
             bool movedL = latL > -eM + 0.01f, movedR = latR < eP - 0.01f;
             bool clipL = c.clippedIn && c.innerSide < 0, clipR = c.clippedIn && c.innerSide > 0;

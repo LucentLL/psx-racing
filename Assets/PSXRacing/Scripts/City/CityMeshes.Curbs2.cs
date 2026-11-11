@@ -250,6 +250,37 @@ namespace PSXRacing.City
             return c > 0;
         }
 
+        // ---- no edge line beside a curb (cityinteg 2026-11-11) ----------------
+        // The rule the curbs round left for the road owner: a curbed city street
+        // has a gutter pan (or a rolled curb's valley, or Uptown's granite off the
+        // asphalt) and NO painted edge line beside the curb - street view at N
+        // Graham St, W 10th St and Central Ave shows none. The ribbon painted the
+        // profile texture's edge line on every street; on a curbed side it ran a
+        // lane line's width inside the pan. Now a side with a walk (and so a curb)
+        // drops its edge line (CityMeshes.EmitRibbon / DrawnLines); uncurbed roads,
+        // freeways and a divided road's median side keep theirs.
+        // PSX_CITY_CURBNOEDGE=0: the edge line everywhere, as before.
+        public static bool CurbNoEdgeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBNOEDGE") != "0";
+        static sbyte[] noEdgeCache; static CityMap noEdgeMap;
+        /// <summary>Bit 1: no left-of-travel edge line (LineModel.KEdgeP); bit 2: no right one (KEdgeM).</summary>
+        static int CurbNoEdgeLines(CityMap.Edge e)
+        {
+            if (!Curbs2On || !CurbNoEdgeOn || e == null) return 0;
+            var map = CityMap.Get();
+            if (map == null || e.index < 0 || e.index >= map.edges.Length) return 0;
+            if (noEdgeMap != map || noEdgeCache == null || noEdgeCache.Length != map.edges.Length)
+            { noEdgeMap = map; noEdgeCache = new sbyte[map.edges.Length]; }
+            ref sbyte c = ref noEdgeCache[e.index];
+            if (c == 0)
+            {
+                int f = 0;
+                if (WalkSide(map, e, 1)) f |= 1;
+                if (WalkSide(map, e, -1)) f |= 2;
+                c = (sbyte)(f + 1);
+            }
+            return c - 1;
+        }
+
         /// <summary>A corner's class at a node: rolled only where every walk street there is.</summary>
         static bool RolledNode(CityMap map, int node)
         {
