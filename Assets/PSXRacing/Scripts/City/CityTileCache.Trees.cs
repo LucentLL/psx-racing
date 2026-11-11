@@ -41,10 +41,11 @@ namespace PSXRacing.City
         public static readonly (System.Type type, string[] carried, string[] leftOut)[] TreeFields =
         {
             (typeof(CityTrees.TreeTile),
-                new[] { "tx", "tz", "lotPlanted", "trees", "mesh", "signs", "poles", "signals", "under", "wanted", "solids", "grown", "shrunk", "lined", "breakaway", "rejects" },
+                new[] { "tx", "tz", "lotPlanted", "trees", "mesh", "signs", "poles", "signals", "under", "wanted", "solids", "grown", "shrunk", "lined", "breakaway", "rejects",
+                        "streetPlanted", "streetNoFit" },
                 new[] { "occ", "ms", "occMs" }),
             (typeof(CityTrees.Tree),
-                new[] { "foot", "h", "w", "r", "yawDeg", "cell", "species", "road", "dbh", "solid" }, new string[0]),
+                new[] { "foot", "h", "w", "r", "yawDeg", "cell", "species", "road", "dbh", "solid", "street", "stem" }, new string[0]),
             (typeof(CityUnderstory.UnderTile),
                 new[] { "mesh", "strips", "clumps", "shrubs" }, new string[0]),
             (typeof(CityPoles.PoleTile),
@@ -135,12 +136,13 @@ namespace PSXRacing.City
             w.Write(tt.tx); w.Write(tt.tz);
             w.Write(tt.lotPlanted); w.Write(tt.wanted);
             w.Write(tt.solids); w.Write(tt.grown); w.Write(tt.shrunk); w.Write(tt.lined); w.Write(tt.breakaway);
+            w.Write(tt.streetPlanted); w.Write(tt.streetNoFit);
             w.Write(tt.rejects.Length); foreach (int v in tt.rejects) w.Write(v);
             w.Write(tt.trees.Count);
             foreach (var t in tt.trees)
             {
                 WriteV3(w, t.foot); w.Write(t.h); w.Write(t.w); w.Write(t.r); w.Write(t.yawDeg);
-                w.Write(t.cell); w.Write((byte)t.species); w.Write(t.road); w.Write(t.dbh); w.Write(t.solid);
+                w.Write(t.cell); w.Write((byte)t.species); w.Write(t.road); w.Write(t.dbh); w.Write(t.solid); w.Write(t.street); w.Write(t.stem);
             }
             // (the hash only: the file rebuilds it from the list)
             if (withTreeMesh) WriteMesh(w, tt.mesh);
@@ -250,6 +252,7 @@ namespace PSXRacing.City
                 if (tt.tx != tx || tt.tz != tz) throw new IOException($"the tree frame is tile {tt.tx},{tt.tz}'s");
                 tt.lotPlanted = br.ReadInt32(); tt.wanted = br.ReadSingle();
                 tt.solids = br.ReadInt32(); tt.grown = br.ReadInt32(); tt.shrunk = br.ReadInt32(); tt.lined = br.ReadInt32(); tt.breakaway = br.ReadInt32();
+                tt.streetPlanted = br.ReadInt32(); tt.streetNoFit = br.ReadInt32();
                 int n = br.ReadInt32();
                 for (int i = 0; i < n; i++) { int v = br.ReadInt32(); if (i < tt.rejects.Length) tt.rejects[i] = v; }
                 n = br.ReadInt32();
@@ -258,7 +261,7 @@ namespace PSXRacing.City
                     tt.trees.Add(new CityTrees.Tree
                     {
                         foot = ReadV3(br), h = br.ReadSingle(), w = br.ReadSingle(), r = br.ReadSingle(), yawDeg = br.ReadSingle(),
-                        cell = br.ReadByte(), species = (CityTrees.Species)br.ReadByte(), road = br.ReadSingle(), dbh = br.ReadSingle(), solid = br.ReadBoolean(),
+                        cell = br.ReadByte(), species = (CityTrees.Species)br.ReadByte(), road = br.ReadSingle(), dbh = br.ReadSingle(), solid = br.ReadBoolean(), street = br.ReadBoolean(), stem = br.ReadSingle(),
                     });
                 // the trees' mesh: rebuilt from them by the planting's own code
                 a.trees = CardArrays(tt);
