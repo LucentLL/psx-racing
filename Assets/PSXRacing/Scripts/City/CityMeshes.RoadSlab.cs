@@ -32,7 +32,7 @@ namespace PSXRacing.City
         //     started level with that pavement and z-fought it.)
         //  Both are drawn with the road's own up normal and the edge's own UV,
         //  so what shows of them shades as the road beside them. A face stands
-        //  2 mm in under its sheet's edge, its top half a millimetre under it
+        //  4 mm in under its sheet's edge, its top a millimetre under it
         //  (never in one depth with the sheet across the join).
         //  The collider: a face lies in the plane under the sheet's edge, the
         //  step a car met there already; a tongue lies under the pavement past
@@ -188,10 +188,10 @@ namespace PSXRacing.City
                     float yA = kerb ? A.y - KerbFaceM : A.y, yB = kerb ? B.y - KerbFaceM : B.y;
                     // where the closing pass laid part of a face along it, the slab's stands 5 mm in
                     // under the sheet's edge: never in the same plane as that one's
-                    // Every face stands 2 mm in under its sheet's edge and starts half a millimetre
+                    // Every face stands 4 mm in under its sheet's edge and starts a millimetre
                     // under it: a face whose top WAS the edge met the sheet across the join in one
                     // line of pixels (the flicker finder, S Tryon at Winona: junction | tw3t 0 -> 97 px)
-                    var inset = new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.005f : 0.002f) + Vector3.down * 0.0005f;
+                    var inset = new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.006f : 0.004f) + Vector3.down * 0.001f;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
                     {
                         var pA = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset; var pB = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset;
