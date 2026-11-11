@@ -452,6 +452,19 @@ namespace PSXRacing.City
         // ==================================================================
 
         public const float RoadMargin = 0.05f;
+        /// <summary>CityMeshes.StreetDress's TreeLaneClearM: a grate's trunk stands at
+        /// least this far off the DRAWN pavement of every road near it.</summary>
+        public const float GrateLaneClearM = 0.95f;
+
+        /// <summary>The pavement's half width as drawn, for a GRATE tree whose
+        /// trunk is <paramref name="trunkD"/> from the road's line: the map's
+        /// width is the road's model, and where its drawn edge is narrower (trims,
+        /// sections) the street dress stepped the grate out from the drawn curb, not
+        /// the model's - 17% of Uptown/Graham grates stand 0.4-0.8 m inside the
+        /// model's half width. The dress kept the trunk GrateLaneClearM off the
+        /// drawn pavement, so the drawn edge is no farther out than that. (The
+        /// city foliage audit takes the same edge for grate trees.)</summary>
+        public static float GratePave(float modelHalf, float trunkD) => Mathf.Min(modelHalf, trunkD - GrateLaneClearM);
         /// <summary>Street trees refused by the road envelope, by the crown band that met it.</summary>
         public static readonly int[] RoadBand = new int[32];
         int lastBand;
@@ -790,8 +803,9 @@ namespace PSXRacing.City
                     // (hw is already 0.3 m past the pavement: the trunk of a grate tree a metre off the curb fits)
                     // a GRATE tree's trunk stands on the walk by design: held off the pavement
                     // itself by 0.1 m (the audit's line), not by the general 0.35 m past it
-                    float clear = Round1Mode ? r.hw + Margin : fitStreet ? r.hw - 0.2f : r.hw + RoadMargin;
-                    if (SegDist(p, r.a, r.b) < clear + R) { lastBand = b; return y1 < r.y ? 5 : 0; }
+                    float dd = SegDist(p, r.a, r.b);
+                    float clear = Round1Mode ? r.hw + Margin : fitStreet ? GratePave(r.hw - 0.3f, dd) + 0.1f : r.hw + RoadMargin;
+                    if (dd < clear + R) { lastBand = b; return y1 < r.y ? 5 : 0; }
                 }
                 foreach (var bx in boxes)
                 {

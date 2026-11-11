@@ -560,8 +560,10 @@ namespace PSXRacing.EditorTools
                 var frame = mt.FrameOf(key);
                 if (plants == null) continue;
                 sum.tiles++;
-                foreach (var pp in plants)
+                for (int pi = 0; pi < plants.Count; pi++)
                 {
+                    var pp = plants[pi];
+                    bool grate = frame != null && pi < frame.trees.Count && frame.trees[pi].street;
                     sum.trees++; ringTrees++;
                     var v = kit.variants[pp.variant];
                     var M = Matrix4x4.TRS(pp.pos, Quaternion.Euler(0f, pp.yaw, 0f), Vector3.one * pp.scale) * v.pre;
@@ -577,7 +579,10 @@ namespace PSXRacing.EditorTools
                         int ei = packed >> 12, si = packed & 0xFFF;
                         var e = map.edges[ei];
                         if (e.tunnel) continue;
-                        rs.Add((e.pts[si], e.pts[si + 1], e.width * 0.5f, e, e.s[si], Vector2.Distance(e.pts[si], e.pts[si + 1])));
+                        float half = e.width * 0.5f;
+                        // a grate tree: the drawn pavement, as the fit takes it (CityMeshTrees.GratePave)
+                        if (grate) half = CityMeshTrees.GratePave(half, SegDistA(p2, e.pts[si], e.pts[si + 1]));
+                        rs.Add((e.pts[si], e.pts[si + 1], half, e, e.s[si], Vector2.Distance(e.pts[si], e.pts[si + 1])));
                     }
                     var bl = new List<CityBuildings.B>();
                     int tx = Mathf.FloorToInt(pp.pos.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(pp.pos.z / CityMeshes.TileSize);
@@ -644,6 +649,13 @@ namespace PSXRacing.EditorTools
                 }
             }
             log.Append($"  audit: {ringTrees} mesh trees in this ring's new tiles, {ringBad} through a solid\n");
+        }
+
+        static float SegDistA(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var d = b - a; float L2 = d.sqrMagnitude;
+            float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+            return Vector2.Distance(p, a + d * t);
         }
 
         static bool Eligible(Collider c)
