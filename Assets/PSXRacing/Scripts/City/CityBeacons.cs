@@ -91,7 +91,7 @@ namespace PSXRacing.City
         /// to none, over the other two.</summary>
         /// <summary>(Round 3) a top light's least half-size in real framebuffer
         /// pixels (2 px across), a flasher's x1.4 (the tallest read first).</summary>
-        public const float TopFloorPx = 1.0f, TopFlashMul = 1.4f;
+        public const float TopFloorPx = 1.2f, TopFlashMul = 1.35f;
         public const float CornerFadeFromM = 1500f, CornerFadeToM = 2500f, FarShrinkFromM = 1500f, FarShrinkToM = 6000f, FarMinShare = 0.5f;
         /// <summary>The fixture set is re-picked when the eye has moved this far.</summary>
         const float FixtureMoveM = 25f;
@@ -671,6 +671,7 @@ namespace PSXRacing.City
             {
                 var an = Lights[l0 + i].anchor;
                 float r = Lights[l0 + i].top ? LensBeaconM : LensCornerM;
+                // a drawn vertex of the tile with clear sky over it, within 4 m...
                 float best = float.MaxValue; Vector3 at = an;
                 foreach (var p in near)
                 {
@@ -679,6 +680,24 @@ namespace PSXRacing.City
                     if (!ClearAbove(near, p, r)) continue;
                     best = d; at = p;
                 }
+                // ...or, nearer, the tile's top surface straight under (or just
+                // over) the far point - a roof the far copy draws a lip or a
+                // step above
+                float dropY = float.MinValue;
+                for (int k = 0; k + 2 < near.Count; k += 3)
+                {
+                    Vector3 ta = near[k], tb = near[k + 1], tc = near[k + 2];
+                    float area = (tb.x - ta.x) * (tc.z - ta.z) - (tc.x - ta.x) * (tb.z - ta.z);
+                    if (Mathf.Abs(area) < 1e-3f) continue;
+                    float w1 = ((tb.x - an.x) * (tc.z - an.z) - (tc.x - an.x) * (tb.z - an.z)) / area;
+                    float w2 = ((tc.x - an.x) * (ta.z - an.z) - (ta.x - an.x) * (tc.z - an.z)) / area;
+                    float w3 = 1f - w1 - w2;
+                    if (w1 < -1e-4f || w2 < -1e-4f || w3 < -1e-4f) continue;
+                    float y = w1 * ta.y + w2 * tb.y + w3 * tc.y;
+                    if (y > an.y + 0.5f || y < an.y - 4f) continue;
+                    dropY = Mathf.Max(dropY, y);
+                }
+                if (dropY > float.MinValue && (an.y - dropY) * (an.y - dropY) < best) { best = (an.y - dropY) * (an.y - dropY); at = new Vector3(an.x, dropY, an.z); }
                 res[i] = best < 0.0025f || best == float.MaxValue ? Vector3.zero : at - an;
             }
             return res;

@@ -262,7 +262,8 @@ namespace PSXRacing.EditorTools
                 float minPx = 1.2f * Mathf.Lerp(1f, CityBeacons.FarMinShare, t) * (l.flash ? Mathf.Lerp(1.8f, 1f, t) : 1f) * refScale;
                 float natPx = NightGlow.HaloSize * (l.top ? 0.42f : 0.27f) * lines * p11 / (2f * sp.z);
                 float h = Mathf.Min(Mathf.Max(natPx, minPx), Mathf.Max(4f * refScale, minPx));
-                if (l.top) h = Mathf.Max(h, CityBeacons.TopFloorPx * (l.flash ? CityBeacons.TopFlashMul : 1f));
+                float floorPx = CityBeacons.TopFloorPx * (l.flash ? CityBeacons.TopFlashMul : 1f);
+                if (l.top) h = d > CityBeacons.FarShrinkFromM && floorPx >= natPx ? floorPx : Mathf.Max(h, floorPx);
                 pts.Add((new Vector2(sx, sy), h, l.top));
             }
             int quad = 0, core = 0;

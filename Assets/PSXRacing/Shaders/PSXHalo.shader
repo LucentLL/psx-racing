@@ -281,7 +281,10 @@ Shader "PSX/Halo"
                 {
                     float fbM = 2.0 * zScale / max(_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]), 1e-3);
                     float floorM = _TopFloorPx * fbM * (v.uv1.y <= -1.0 ? _TopFlashMul : 1.0);
-                    if (floorM >= size) { size = floorM; o.core = 1.6; }
+                    // past the shrink's start the floor IS its size (a flat-cored
+                    // point, never the faint soft dot the shrunk minimum drew)
+                    if (realDist > _FarShrinkFrom && floorM >= natural) { size = floorM; o.core = 1.6; }
+                    else if (floorM >= size) { size = floorM; o.core = 1.6; }
                 }
 
                 float2 q = v.uv * 2.0 - 1.0;
