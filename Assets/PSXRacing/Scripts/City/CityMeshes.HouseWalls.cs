@@ -113,8 +113,9 @@ namespace PSXRacing.City
         {
             float W = Vector2.Distance(a, c);
             if (W < 0.05f || y1 <= y0 + 0.02f) return;
+            if (HouseUnitWall(tm, a, c, y0, y1, outward)) return;   // ROUND 2 (CityMeshes.HouseParts.cs): a block's wall as units
             float floor = float.IsNaN(houseFloorY) ? y0 + BuildingSink : Mathf.Clamp(houseFloorY, y0, y1);
-            int bays = W < HouseMinWinWallM ? 0 : Mathf.Max(1, Mathf.RoundToInt(W / HouseBayM));
+            int bays = W < HouseMinWinWallM ? 0 : houseUnitInner ? 2 : Mathf.Max(1, Mathf.RoundToInt(W / HouseBayM));
             float uPlain = bays > 0 ? bays : Mathf.Max(1f, Mathf.Round(W / HouseRepU));
             // storeys: whole floor-to-floor pitches between the floor and the eave
             float avail = y1 - floor;
@@ -143,18 +144,26 @@ namespace PSXRacing.City
                 // brick base) the ground storey only
                 int stB = Mathf.Max(1, Mathf.FloorToInt(avail / HouseMinStoreyM + 0.0001f));
                 int nb = houseBrickBase ? 1 : stB;
-                float pb = houseBrickBase ? pitch : Mathf.Min(avail / stB, 3.0f);
+                float pb = houseBrickBase ? (HouseUnitsOn ? Mathf.Min(pitch, 2.9f) : pitch) : Mathf.Min(avail / stB, 3.0f);
                 if (floor > y0 + 0.01f) HouseFoundation(tm, a, c, y0, floor, outward);
                 var keep = Bucket.Tint;
                 PickFacade(houseBrickAt, 2, 2, 2, default, floor, pb);
                 HouseBrickLookSet(houseBrickAt);
                 var lk = FacadeLooks[houseBrickLook];
                 // a house's windows: the column's repeat at 0.55 of its width (the atlas's are a block's)
-                float ur = Mathf.Max(1f, Mathf.Round(W / (lk.uM * 0.55f)));
+                // (ROUND 2: a unit's two bays, a pier at its middle for its door; a block's base at 0.8)
+                float ur = houseUnitInner ? 2f / HouseLookBays(houseBrickLook)
+                         : Mathf.Max(1f, Mathf.Round(W / (lk.uM * (houseBrickBase && HouseUnitsOn ? 0.8f : 0.55f))));
                 for (int k = 0; k < nb; k++) EmitPanels(tm, Slot.FacadeGlass, a, c, floor + k * pb, floor + (k + 1) * pb, outward, ur, 1f / lk.floors, 0f);
                 Bucket.Tint = keep; Bucket.FacOn = false;
                 y = floor + nb * pb; s0 = nb;
                 if (!houseBrickBase) { if (y1 > y + 0.01f) HousePlain(tm, a, c, y, y1, outward, uPlain, true); return; }   // the frieze over the brick: siding
+            }
+            // ROUND 2 (PSX_CITY_HOUSEPARTS): a siding house's foundation, concrete to 0.2 m over its floor
+            if (HousePartsOn && s0 == 0 && floor + 0.2f > y0 + 0.05f && floor + 0.2f < y1 - 1.5f)
+            {
+                HouseFoundation(tm, a, c, y0, floor + 0.2f, outward);
+                y = floor + 0.2f;
             }
             for (int s = s0; s < storeys; s++)
             {
@@ -247,7 +256,7 @@ namespace PSXRacing.City
         /// streetcar suburbs); a one-storey house is a little likelier brick.</summary>
         static int HouseBrickChoose(Vector2 c, bool oneStorey)
         {
-            if (!HouseBrickOn) return -1;
+            if (!HouseBrickOn || houseUnitRow) return -1;   // (a block of units: its base was decided by HouseBlockBegin)
             int cx = Mathf.FloorToInt(c.x / 350f), cz = Mathf.FloorToInt(c.y / 350f);
             uint nb = HouseHash(cx, cz, 23u);
             float share = (nb & 3u) == 0u ? 0.15f : (nb & 3u) == 1u ? 0.45f : 0.75f;
@@ -288,10 +297,12 @@ namespace PSXRacing.City
         /// pale yellow, sage, grey-blue, light grey, tan, pale blue, clay, slate green.</summary>
         static readonly Vector3[] SidingCols =
         {
-            new Vector3(1.10f, 1.10f, 1.10f), new Vector3(1.06f, 1.02f, 0.90f), new Vector3(1.08f, 1.00f, 0.72f),
-            new Vector3(0.84f, 0.94f, 0.80f), new Vector3(0.80f, 0.88f, 1.00f), new Vector3(0.86f, 0.86f, 0.86f),
-            new Vector3(1.00f, 0.88f, 0.72f), new Vector3(0.88f, 0.98f, 1.08f), new Vector3(0.86f, 0.72f, 0.60f),
-            new Vector3(0.70f, 0.80f, 0.74f),
+            // ROUND 2 (item 6): stronger, from street views - the round 1 set read as one beige at
+            // driving distance; and three darker paints (navy, charcoal, forest) a street has a few of
+            new Vector3(1.12f, 1.12f, 1.12f), new Vector3(1.08f, 1.02f, 0.84f), new Vector3(1.12f, 0.98f, 0.60f),
+            new Vector3(0.78f, 0.92f, 0.72f), new Vector3(0.72f, 0.84f, 1.02f), new Vector3(0.86f, 0.86f, 0.88f),
+            new Vector3(1.00f, 0.84f, 0.64f), new Vector3(0.82f, 0.96f, 1.12f), new Vector3(0.88f, 0.62f, 0.50f),
+            new Vector3(0.60f, 0.74f, 0.64f), new Vector3(0.48f, 0.56f, 0.76f), new Vector3(0.56f, 0.58f, 0.60f),
         };
 
         static uint HouseHash(int x, int z, uint salt)
@@ -323,7 +334,7 @@ namespace PSXRacing.City
         /// one - and a concrete step under it from the floor to the ground.</summary>
         static void HouseDoor(TileMeshes tm, Vector2 centre, Vector2 u, Vector2 v, float hu, float hv, float y0, float floor, float eave)
         {
-            if (!HouseDoorOn || hwMap == null || float.IsNaN(floor)) return;
+            if (!HouseDoorOn || hwMap == null || float.IsNaN(floor) || houseUnitRow) return;   // (a block of units: a door a unit)
             if (!hwMap.NearestRoadPoint(centre, 60f, true, out int ei, out float s, out _)) return;
             var q = hwMap.edges[ei].PointAt(s);
             float side = Vector2.Dot(q - centre, v) >= 0f ? 1f : -1f;

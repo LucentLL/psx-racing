@@ -96,6 +96,16 @@ namespace PSXRacing.EditorTools
                         if (p.Length >= 2 && float.TryParse(p[0], NumberStyles.Float, I, out float x) && float.TryParse(p[1], NumberStyles.Float, I, out float z))
                             Add(Mathf.FloorToInt(x / CityMeshes.TileSize), Mathf.FloorToInt(z / CityMeshes.TileSize), "shot place");
                     }
+                // ROUND 2 (cost): PSX_WIN_RING = "x,z": the 5 x 5 tiles round that point, timed as a ring
+                string ring = System.Environment.GetEnvironmentVariable("PSX_WIN_RING");
+                if (!string.IsNullOrEmpty(ring))
+                {
+                    var p = ring.Split(',');
+                    if (p.Length >= 2 && float.TryParse(p[0], NumberStyles.Float, I, out float rx) && float.TryParse(p[1], NumberStyles.Float, I, out float rz))
+                        for (int dz = -2; dz <= 2; dz++)
+                            for (int dx = -2; dx <= 2; dx++)
+                                Add(Mathf.FloorToInt(rx / CityMeshes.TileSize) + dx, Mathf.FloorToInt(rz / CityMeshes.TileSize) + dz, "ring");
+                }
                 int want = 64;
                 if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_WIN_SAMPLE"), out int w) && w > 0) want = w;
                 // two thirds from the tiles holding OSM house footprints (core), one third fill suburbs
@@ -125,10 +135,16 @@ namespace PSXRacing.EditorTools
                 long whole = 0, cut = 0, buried = 0, tileTris = 0, houseTris = 0, roofTris = 0;
                 int tilesWithHouses = 0;
                 var worst = new List<string>();
+                var msBy = new Dictionary<string, (double ms, int n, double max)>();
+                CityMeshes.HousePolyRoofs = CityMeshes.HousePolyRects = CityMeshes.HousePolyFallback = CityMeshes.HouseHipRoofs = 0;
+                CityMeshes.HouseUnitsLaid = CityMeshes.HouseCrossGables = CityMeshes.HousePorches = CityMeshes.HouseChimneys = CityMeshes.HouseFlatLeft = 0;
                 foreach (var t in tiles)
                 {
                     CityMeshes.HouseWinLaid = 0; CityMeshes.HouseWinGroundDropped = 0;
+                    var tsw = System.Diagnostics.Stopwatch.StartNew();
                     var tm = CityMeshes.Build(map, trims, proc, t.tx, t.tz);
+                    double tms = tsw.Elapsed.TotalMilliseconds;
+                    msBy.TryGetValue(t.why, out var mb); msBy[t.why] = (mb.ms + tms, mb.n + 1, System.Math.Max(mb.max, tms));
                     int tw = 0, tc = 0, tb = 0;
                     if (tm.buildings != null && tm.buildingSlots != null)
                     {
@@ -155,6 +171,10 @@ namespace PSXRacing.EditorTools
                 Line(string.Format(I, "WINDOWS: {0} tiles ({1} with siding): whole {2}, CUT {3}, BURIED {4}; building triangles {5} (siding {6}, roof tiles {7}), {8:0} a tile",
                     tiles.Count, tilesWithHouses, whole, cut, buried, tileTris, houseTris, roofTris, tiles.Count > 0 ? (double)tileTris / tiles.Count : 0));
                 for (int i = 0; i < Mathf.Min(25, worst.Count); i++) Line("    " + worst[i]);
+                foreach (var kv in msBy)
+                    Line(string.Format(I, "BUILD TIME {0}: {1} tiles, {2:0} ms total, {3:0} ms a tile, max {4:0} ms", kv.Key, kv.Value.n, kv.Value.ms, kv.Value.ms / kv.Value.n, kv.Value.max));
+                Line($"ROUND 2: ROOFS {CityMeshes.HouseRoofsOn} UNITS {CityMeshes.HouseUnitsOn} PARTS {CityMeshes.HousePartsOn}: house polygons pitched {CityMeshes.HousePolyRoofs} ({CityMeshes.HousePolyRects} rectangles, {CityMeshes.HousePolyFallback} box hips), " +
+                     $"style-3 FLAT roofs left {CityMeshes.HouseFlatLeft}, hip roofs {CityMeshes.HouseHipRoofs}, units {CityMeshes.HouseUnitsLaid}, front gables {CityMeshes.HouseCrossGables}, porches {CityMeshes.HousePorches}, chimneys {CityMeshes.HouseChimneys}");
                 if (System.Environment.GetEnvironmentVariable("PSX_WIN_HOUSES") == "1") HouseCensusBoth(map, trims, proc, false);
                 Line($"audit in {sw.ElapsedMilliseconds} ms");
                 Line(cut + buried == 0 ? "WINDOWS OK" : $"WINDOWS CUT {cut + buried}");

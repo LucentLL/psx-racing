@@ -53,7 +53,7 @@ namespace PSXRacing.EditorTools
             if (string.IsNullOrEmpty(tag)) tag = "after";
             try
             {
-                log.Append($"tag {tag}: HOUSEWALLS {CityMeshes.HouseWallsOn} HOUSECLASS {CityMeshes.HouseClassOn} HOUSEEAVES {CityMeshes.HouseEavesOn}\n");
+                log.Append($"tag {tag}: HOUSEWALLS {CityMeshes.HouseWallsOn} HOUSECLASS {CityMeshes.HouseClassOn} HOUSEEAVES {CityMeshes.HouseEavesOn} HOUSEROOFS {CityMeshes.HouseRoofsOn} HOUSEUNITS {CityMeshes.HouseUnitsOn} HOUSETINT {CityMeshes.HouseTintOn}\n");
                 var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
                 if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
                 var output = Object.FindFirstObjectByType<PSXCameraOutput>();
@@ -63,7 +63,7 @@ namespace PSXRacing.EditorTools
                 // kit material predates it): neutral vertex colour = as painted, so before is unchanged
                 var kit = CityKit.Get();
                 if (kit != null && kit.slots != null && kit.slots.Length > (int)CityMeshes.Slot.FacadeHouse && kit.slots[(int)CityMeshes.Slot.FacadeHouse] != null)
-                    kit.slots[(int)CityMeshes.Slot.FacadeHouse].SetFloat("_HouseTint", CityMeshes.HouseTintOn && tag != "before" ? 1f : 0f);
+                    kit.slots[(int)CityMeshes.Slot.FacadeHouse].SetFloat("_HouseTint", CityMeshes.HouseTintOn && tag != "before" && !tag.StartsWith("base") ? 1f : 0f);
                 var world = Object.FindAnyObjectByType<CityWorld>();
                 var map = CityMap.Get();
                 if (world == null || map == null) throw new System.Exception("no CityWorld / city data");
@@ -107,7 +107,14 @@ namespace PSXRacing.EditorTools
                         ("eye", eye, Quaternion.LookRotation(fh * 40f + Vector3.up * 1.2f)),
                         ("right", eye, Quaternion.LookRotation(Quaternion.AngleAxis(40f, Vector3.up) * fh * 30f + Vector3.up * 3f)),
                         ("left", eye, Quaternion.LookRotation(Quaternion.AngleAxis(-40f, Vector3.up) * fh * 30f + Vector3.up * 3f)),
+                        // ROUND 2 (roofs): side-on, the frontage filling the frame; and a row of houses from a raised eye
+                        ("side", eye, Quaternion.LookRotation(Quaternion.AngleAxis(75f, Vector3.up) * fh * 25f + Vector3.up * 3.5f)),
+                        ("sidel", eye, Quaternion.LookRotation(Quaternion.AngleAxis(-75f, Vector3.up) * fh * 25f + Vector3.up * 3.5f)),
+                        ("top", eye + Vector3.up * 55f + rightV * 25f + fh * 10f, Quaternion.LookRotation(Vector3.down * 3f + fh * 0.8f + rightV * 0.2f, fh)),
+                        ("row", eye + Vector3.up * 5f, Quaternion.LookRotation(Quaternion.AngleAxis(55f, Vector3.up) * fh * 45f - Vector3.up * 3f)),
                     };
+                    string wantPoses = System.Environment.GetEnvironmentVariable("PSX_BLDG_POSES");
+                    if (!string.IsNullOrEmpty(wantPoses)) poses.RemoveAll(q => System.Array.IndexOf(wantPoses.Split(','), q.name) < 0);
                     log.Append(string.Format(I, "{0}\t'{1}'{2} cls {3} width {4:0.0}\teye ({5:0.0}, {6:0.00}, {7:0.0}) heading {8:0}\t{9}\n",
                         pl.id, e.name, named ? "" : " (NOT the named road)", e.cls, e.width, eye.x, eye.y, eye.z,
                         (Mathf.Atan2(fh.x, fh.z) * Mathf.Rad2Deg + 360f) % 360f, pl.what));
@@ -127,6 +134,16 @@ namespace PSXRacing.EditorTools
                             CarLights.PushGlobals();
                             PSXScreenshotTool.ShotAs(cam, $"bldg/{pl.id}_{p.name}_{h}_{tag}", p.eye, p.r);
                             shots++;
+                            // ROUND 2 (the siding tint, item 6): the same frame with the material's tint flag off
+                            if (System.Environment.GetEnvironmentVariable("PSX_BLDG_TINTAB") == "1" && p.name == "row" && h == "noon" && kit != null && kit.slots[(int)CityMeshes.Slot.FacadeHouse] != null)
+                            {
+                                var hm = kit.slots[(int)CityMeshes.Slot.FacadeHouse];
+                                float was = hm.GetFloat("_HouseTint");
+                                hm.SetFloat("_HouseTint", 0f);
+                                PSXScreenshotTool.ShotAs(cam, $"bldg/{pl.id}_{p.name}_{h}_{tag}tint0", p.eye, p.r);
+                                hm.SetFloat("_HouseTint", was);
+                                log.Append($"  tint A/B {pl.id} {p.name} {h}: _HouseTint was {was}\n");
+                            }
                         }
                     }
                     world.DropAll();
