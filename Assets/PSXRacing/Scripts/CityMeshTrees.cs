@@ -117,7 +117,13 @@ namespace PSXRacing.City
         /// <summary>Dropped trees by the last thing that refused them: [street 0/1][why 0-5, 6 = no size meets the clear stem].</summary>
         public static readonly int[,] DropWhy = new int[2, 7];
         public static readonly List<string> DropSamples = new List<string>();
-        public static double FitMs, FitMsMaxFrame, FitMsMaxTile;
+        public static double FitMs, FitMsMaxFrame, FitMsMaxTile, TreeMsMax;
+        /// <summary>Volume tests one tree may take (sizes x species x places) before it
+        /// is given up: what bounds a frame's fitting past its budget.</summary>
+        public const int MaxTests = 160;
+        public static int TestsMax, CappedTrees;
+        int tests;
+        double frameSyncMs;
         public static int[] PlacedByRole = new int[16];
 
         // ---- the per-frame trace (play mode, PSX_CT_TRACE=path or a perf tour) ----
@@ -186,7 +192,7 @@ namespace PSXRacing.City
             if (!string.IsNullOrEmpty(tp) && Application.isPlaying)
             {
                 tracePath = tp;
-                trace = new System.Text.StringBuilder("frame,time,dt_ms,fit_ms,fills,jobs,live_tiles,slots,slots_used,plants,car_x,car_z,mesh_on\n");
+                trace = new System.Text.StringBuilder("frame,time,dt_ms,fit_ms,fills,jobs,live_tiles,slots,slots_used,plants,car_x,car_z,mesh_on,sync_ms\n");
             }
         }
 
@@ -239,7 +245,7 @@ namespace PSXRacing.City
 
         void LateUpdate()
         {
-            frameFitMs = 0; frameFills = 0;
+            frameFitMs = 0; frameFills = 0; frameSyncMs = 0;
             Work(SliceMs > 0f ? SliceMs : float.MaxValue);
             Flush(FillsPerFrame);
             if (frameFitMs > FitMsMaxFrame) FitMsMaxFrame = frameFitMs;
@@ -262,7 +268,7 @@ namespace PSXRacing.City
                      .Append(frameFills).Append(',').Append(jobs.Count).Append(',').Append(slotOf.Count).Append(',')
                      .Append(forest != null ? forest.PoolSlots : 0).Append(',').Append(forest != null ? forest.PoolUsed : 0).Append(',')
                      .Append(LivePlants()).Append(',').Append(car.x.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
-                     .Append(car.z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(MeshForest.MeshTreesOn ? 1 : 0).Append('\n');
+                     .Append(car.z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(MeshForest.MeshTreesOn ? 1 : 0).Append(',').Append(frameSyncMs.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
                 if (Time.frameCount % 300 == 0) WriteTrace();
             }
         }
@@ -296,6 +302,12 @@ namespace PSXRacing.City
         {
             if (jobs.Count == 0 || world == null) return;
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            // the physics scene brought up to date once a frame (a tile that just stood
+            // up dirties thousands of transforms: its cost is the stand-up's, timed apart)
+            Physics.SyncTransforms();
+            double sync = clock.Elapsed.TotalMilliseconds;
+            frameSyncMs += sync;
+            clock.Restart();
             while (jobs.Count > 0 && clock.Elapsed.TotalMilliseconds < budgetMs)
             {
                 var job = jobs[0];
@@ -316,14 +328,22 @@ namespace PSXRacing.City
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var map = world.Map;
-            Physics.SyncTransforms();
+            if (!Application.isPlaying || SliceMs <= 0f) Physics.SyncTransforms();
             TileBuildings(job.tt.tx, job.tt.tz);
             job.frames++;
             while (job.next < job.src.Count)
             {
+                // (a frame's budget half gone: the next tree waits - one tree is at most MaxTests tests)
+                if (budgetMs < float.MaxValue && clock.Elapsed.TotalMilliseconds > budgetMs * 0.6f && job.next > 0) break;
                 var t = job.src[job.next++];
                 if (t.street) StreetIn++;
-                if (TryTree(map, job.tt, t, out var p))
+                var tc = System.Diagnostics.Stopwatch.StartNew();
+                tests = 0;
+                bool ok = TryTree(map, job.tt, t, out var p);
+                double tms = tc.Elapsed.TotalMilliseconds;
+                if (tms > TreeMsMax) TreeMsMax = tms;
+                if (tests > TestsMax) TestsMax = tests;
+                if (ok)
                 {
                     job.plants.Add(p);
                     var kt = t; kt.foot = p.pos;
@@ -622,6 +642,7 @@ namespace PSXRacing.City
                         float s = s0 * f;
                         if (s < 0.3f || s > 2.2f) continue;
                         if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - StemSlack) continue;
+                        if (!Round1Mode && ++tests > MaxTests) { CappedTrees++; return false; }
                         int why = Conflict(v, s, foot);
                         if (why == 1 || why == 4) { if (why == 1) lastAway = AwayFromBox(new Vector2(foot.x, foot.z)); }
                         if (why >= 0)
@@ -886,7 +907,7 @@ namespace PSXRacing.City
 
         public static void ResetCounts()
         {
-            Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = Moved = 0; FitMs = 0; FitMsMaxFrame = 0; FitMsMaxTile = 0;
+            Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = Moved = 0; FitMs = 0; FitMsMaxFrame = 0; FitMsMaxTile = 0; TreeMsMax = 0; TestsMax = 0; CappedTrees = 0;
             StreetIn = StreetDropped = StreetAsStreetForm = StreetAsShrub = StreetAsOther = NarrowedOther = 0;
             System.Array.Clear(RejectBy, 0, RejectBy.Length);
             System.Array.Clear(PlacedByRole, 0, PlacedByRole.Length);

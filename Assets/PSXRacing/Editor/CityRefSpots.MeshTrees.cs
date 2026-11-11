@@ -113,7 +113,7 @@ namespace PSXRacing.EditorTools
                             world.EnsureRing(pos, 2); mt.Flush();
                             int all = CityMeshTrees.Placed + CityMeshTrees.Dropped;
                             tot[mode, 0] += all; tot[mode, 1] += CityMeshTrees.Dropped; tot[mode, 2] += CityMeshTrees.StreetIn; tot[mode, 3] += CityMeshTrees.StreetDropped;
-                            line.Append($" | {(mode == 0 ? "r1" : "r2")}: {all} trees, dropped {CityMeshTrees.Dropped} ({Pct(CityMeshTrees.Dropped, all)}), street {CityMeshTrees.StreetIn} dropped {CityMeshTrees.StreetDropped} ({Pct(CityMeshTrees.StreetDropped, CityMeshTrees.StreetIn)}) as street form {CityMeshTrees.StreetAsStreetForm} as bush {CityMeshTrees.StreetAsShrub}; fit {CityMeshTrees.FitMs:0} ms, worst tile {CityMeshTrees.FitMsMaxTile:0.0} ms");
+                            line.Append($" | {(mode == 0 ? "r1" : "r2")}: {all} trees, dropped {CityMeshTrees.Dropped} ({Pct(CityMeshTrees.Dropped, all)}), street {CityMeshTrees.StreetIn} dropped {CityMeshTrees.StreetDropped} ({Pct(CityMeshTrees.StreetDropped, CityMeshTrees.StreetIn)}) as street form {CityMeshTrees.StreetAsStreetForm} as bush {CityMeshTrees.StreetAsShrub}; fit {CityMeshTrees.FitMs:0} ms, worst tile {CityMeshTrees.FitMsMaxTile:0.0} ms, worst tree {CityMeshTrees.TreeMsMax:0.00} ms / {CityMeshTrees.TestsMax} tests, trees given up at {CityMeshTrees.MaxTests} tests {CityMeshTrees.CappedTrees}");
                             if (mode == 1)
                             {
                                 AuditRing(mt, map, world, audit, line);
