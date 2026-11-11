@@ -49,8 +49,15 @@ namespace PSXRacing.EditorTools
                     CityMap.Edge best = null; float bd = float.MaxValue;
                     foreach (var e in map.edges)
                     {
-                        if (e.name != "North Graham Street" || e.length < 50f || !CityMeshes.WalkEdge(map, e)) continue;
-                        float d = Mathf.Abs(Vector2.Distance(e.PointAt(e.length * 0.5f), map.uptown) - 1000f);
+                        if (e.name != "North Graham Street" || e.length < 60f || !CityMeshes.WalkEdge(map, e)) continue;
+                        var mid = e.PointAt(e.length * 0.5f);
+                        // not under or beside a deck (the I-277 overpass)
+                        var near = new HashSet<int>();
+                        map.EdgeSegsInRect(mid - Vector2.one * 60f, mid + Vector2.one * 60f, near);
+                        bool deck = false;
+                        foreach (int pk in near) { var o = map.edges[pk >> 12]; if (o.bridge || o.cls >= 4) { deck = true; break; } }
+                        if (deck) continue;
+                        float d = Mathf.Abs(Vector2.Distance(mid, map.uptown) - 1400f);
                         if (d < bd) { bd = d; best = e; }
                     }
                     if (best != null)
@@ -91,7 +98,7 @@ namespace PSXRacing.EditorTools
                     var poses = new List<(string name, Vector3 eye, Quaternion r)>();
                     Vector3 chase = pos - fh * 8f + Vector3.up * 2.6f;
                     poses.Add(("chase", chase, Quaternion.LookRotation(pos + Vector3.up * 0.8f + fh * 20f - chase)));
-                    Vector3 eye = pos + Vector3.up * 0.85f + fh * 0.3f;
+                    Vector3 eye = pos + Vector3.up * 0.75f + fh * 2.4f;   // the driver's height, just ahead of the bonnet
                     poses.Add(("eye", eye, Quaternion.LookRotation(fh * 30f + Vector3.down * 1.1f)));
                     Vector3 lineP = new Vector3(p.x, pl.e.YAt(pl.s), p.y);
                     Vector3 curbEye = lineP + rightV * (half - 2.2f) + Vector3.up * 1.0f;
@@ -177,6 +184,9 @@ namespace PSXRacing.EditorTools
                             foreach (var ps in poses)
                             {
                                 if (h != "noon" && ps.name != "eye" && ps.name != "chase" && ps.name != "inlet") continue;
+                                // the car in the chase frame; out of every other (60 m back down the street)
+                                var cp = ps.name == "chase" ? pos : pos - fh * 60f;
+                                if (car != null) car.TeleportTo(cp, rot); else player.transform.SetPositionAndRotation(cp, rot);
                                 CarLights.PushGlobals();
                                 PSXScreenshotTool.ShotAs(cam, $"curbs/{pl.id}_{ps.name}_{h}_{mode}", ps.eye, ps.r);
                                 shots++;

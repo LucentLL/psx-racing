@@ -118,6 +118,8 @@ namespace PSXRacing.City
         /// <summary>The rolled share of the walk being laid (LayWalk's caller sets it):
         /// under 0.5 the vertical curb is drawn over the collider's chamfer.</summary>
         static float cs2FaceR = 1f;
+        /// <summary>Set while an Uptown (street dress) walk or corner is laid: the granite curb.</summary>
+        static bool cs2Granite;
 
         /// <summary>
         /// THE DRAWN CURB over the chamfered collider, between two walk
@@ -132,7 +134,9 @@ namespace PSXRacing.City
         {
             if (!CurbChamferOn || Cs2TestFaceOut >= 0f || cs2FaceR >= 0.5f) return;
             if (!RenderProfile(pa, rfA) || !RenderProfile(pb, rfB)) return;
-            Vector2 U(float u, float f) => new Vector2(u, UvPan.y + UvPan.height * f);
+            // Uptown's granite: the under-deck band's darker grey; elsewhere the girder band's light concrete
+            var band = cs2Granite ? UvCollar : UvPan;
+            Vector2 U(float u, float f) => new Vector2(u, band.y + band.height * f);
             float ua = uA * WalkTexM / 8f, ub = uB * WalkTexM / 8f;
             var outA = rfA[4]; var outB = rfB[4];
             structBucket.Face(rfA[0], rfA[1], rfB[1], rfB[0], -(outA + outB), U(ua, 0f), U(ua, 0.25f), U(ub, 0.25f), U(ub, 0f));
@@ -360,6 +364,9 @@ namespace PSXRacing.City
         {
             if (rA > 0.5f && rB > 0.5f) return;
             if (i < 1 || i >= sections.Count) return;
+            // a section skewed across its edge (a junction mouth's turn) would lay the pan across the road
+            var run = new Vector2(pB.x - pA.x, pB.z - pA.z);
+            if (run.sqrMagnitude < 1e-4f || Mathf.Abs(Vector2.Dot(run.normalized, oA)) > 0.35f || Mathf.Abs(Vector2.Dot(run.normalized, oB)) > 0.35f) return;
             var A = sections[i - 1]; var B = sections[i];
             Vector3 iA = pA - new Vector3(oA.x, 0f, oA.y) * CurbGutterM, iB = pB - new Vector3(oB.x, 0f, oB.y) * CurbGutterM;
             iA.y = RoadYIn(A, B, iA) + GutterLiftM; iB.y = RoadYIn(A, B, iB) + GutterLiftM;
@@ -740,7 +747,7 @@ namespace PSXRacing.City
                     float len = Mathf.Abs(sp.sB - sp.sA);
                     if (len < 2f || sp.cut || sp.wA < 2f || sp.wB < 2f) continue;
                     float smid = 0.5f * (sp.sA + sp.sB);
-                    if (Cs2Rand(e.index * 7 + (sp.side + 1), Mathf.FloorToInt(smid / 10f)) > 0.06f) continue;
+                    if (Cs2Rand(e.index * 7 + (sp.side + 1), Mathf.FloorToInt(smid / 10f)) > 0.025f) continue;
                     if (StreetTreeGap(map, trims, e, smid) < 2.5f) continue;
                     var ed = Vector3.Lerp(sp.eA, sp.eB, 0.5f);
                     var ow = Vector2.Lerp(sp.outA, sp.outB, 0.5f).normalized;
