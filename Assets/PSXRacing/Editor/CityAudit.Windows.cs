@@ -136,6 +136,7 @@ namespace PSXRacing.EditorTools
                 int tilesWithHouses = 0;
                 var worst = new List<string>();
                 var msBy = new Dictionary<string, (double ms, int n, double max)>();
+                int roofHoles = 0, roofPts = 0; var holeList = new List<string>();
                 CityMeshes.HousePolyRoofs = CityMeshes.HousePolyRects = CityMeshes.HousePolyFallback = CityMeshes.HouseHipRoofs = 0;
                 CityMeshes.HouseUnitsLaid = CityMeshes.HouseCrossGables = CityMeshes.HousePorches = CityMeshes.HouseChimneys = CityMeshes.HouseFlatLeft = 0;
                 foreach (var t in tiles)
@@ -160,6 +161,7 @@ namespace PSXRacing.EditorTools
                             WindowCells(map, tm.origin, V, U, tri, ref tw, ref tc, ref tb, worst);
                         }
                     }
+                    if (tm.buildings != null && tm.buildingSlots != null) roofHoles += RoofHoles(map, tm, t.tx, t.tz, ref roofPts, holeList);
                     if (tw + tc + tb > 0) tilesWithHouses++;
                     whole += tw; cut += tc; buried += tb;
                     Line(string.Format(I, "  tile {0},{1} ({2}, {3}): windows whole {4}, CUT {5}, BURIED {6}; laid {7}, bands left plain for the ground {8}",
@@ -171,10 +173,13 @@ namespace PSXRacing.EditorTools
                 Line(string.Format(I, "WINDOWS: {0} tiles ({1} with siding): whole {2}, CUT {3}, BURIED {4}; building triangles {5} (siding {6}, roof tiles {7}), {8:0} a tile",
                     tiles.Count, tilesWithHouses, whole, cut, buried, tileTris, houseTris, roofTris, tiles.Count > 0 ? (double)tileTris / tiles.Count : 0));
                 for (int i = 0; i < Mathf.Min(25, worst.Count); i++) Line("    " + worst[i]);
+                Line($"ROOF CLOSURE: {roofPts} points inside house plans tested from above, {roofHoles} see no roof (daylight into the house)");
+                for (int i = 0; i < Mathf.Min(15, holeList.Count); i++) Line("    " + holeList[i]);
                 foreach (var kv in msBy)
                     Line(string.Format(I, "BUILD TIME {0}: {1} tiles, {2:0} ms total, {3:0} ms a tile, max {4:0} ms", kv.Key, kv.Value.n, kv.Value.ms, kv.Value.ms / kv.Value.n, kv.Value.max));
                 Line($"ROUND 2: ROOFS {CityMeshes.HouseRoofsOn} UNITS {CityMeshes.HouseUnitsOn} PARTS {CityMeshes.HousePartsOn}: house polygons pitched {CityMeshes.HousePolyRoofs} ({CityMeshes.HousePolyRects} rectangles, {CityMeshes.HousePolyFallback} box hips), " +
-                     $"style-3 FLAT roofs left {CityMeshes.HouseFlatLeft}, hip roofs {CityMeshes.HouseHipRoofs}, units {CityMeshes.HouseUnitsLaid}, front gables {CityMeshes.HouseCrossGables}, porches {CityMeshes.HousePorches}, chimneys {CityMeshes.HouseChimneys}");
+                     $"style-3 FLAT roofs left {CityMeshes.HouseFlatLeft}, hip roofs {CityMeshes.HouseHipRoofs}, units {CityMeshes.HouseUnitsLaid}, front gables {CityMeshes.HouseCrossGables}, porches {CityMeshes.HousePorches}, chimneys {CityMeshes.HouseChimneys}; " +
+                     $"ROUND 3: dormers {CityMeshes.HouseDormers}, garage doors {CityMeshes.HouseGarages}, shutter pairs {CityMeshes.HouseShutterPairs}, houses past 45 m (no small parts) {CityMeshes.HouseFarSkips}");
                 if (System.Environment.GetEnvironmentVariable("PSX_WIN_HOUSES") == "1") HouseCensusBoth(map, trims, proc, false);
                 Line($"audit in {sw.ElapsedMilliseconds} ms");
                 Line(cut + buried == 0 ? "WINDOWS OK" : $"WINDOWS CUT {cut + buried}");
@@ -184,6 +189,69 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, string.IsNullOrEmpty(tagW) ? "windows_audit.txt" : $"windows_audit_{tagW}.txt"), outLog.ToString());
             if (exit && Application.isBatchMode) EditorApplication.Exit(code);
             return code;
+        }
+
+        /// <summary>ROUND 3, ROOF CLOSURE: points every 1.5 m inside each house plan of the tile
+        /// (0.6 m in from its walls) cast down from the sky onto the tile's building mesh; a point
+        /// whose highest hit is under its ground + 2.2 m sees into the house (a roof hole).</summary>
+        static int RoofHoles(CityMap map, CityMeshes.TileMeshes tm, int tx, int tz, ref int pts, List<string> list)
+        {
+            var list0 = map.FootprintsInTile(tx, tz);
+            if (list0 == null) return 0;
+            var V = tm.buildings.vertices; var o = tm.origin;
+            var bins = new Dictionary<long, List<int>>();
+            var all = new List<int>();
+            for (int si = 0; si < tm.buildingSlots.Length; si++) all.AddRange(tm.buildings.GetTriangles(si));
+            for (int k = 0; k + 2 < all.Count; k += 3)
+            {
+                Vector3 a = V[all[k]], b = V[all[k + 1]], c = V[all[k + 2]];
+                int x0 = Mathf.FloorToInt(Mathf.Min(a.x, Mathf.Min(b.x, c.x)) / 2f), x1 = Mathf.FloorToInt(Mathf.Max(a.x, Mathf.Max(b.x, c.x)) / 2f);
+                int z0 = Mathf.FloorToInt(Mathf.Min(a.z, Mathf.Min(b.z, c.z)) / 2f), z1 = Mathf.FloorToInt(Mathf.Max(a.z, Mathf.Max(b.z, c.z)) / 2f);
+                if ((x1 - x0) * (z1 - z0) > 400) continue;
+                for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++)
+                { long key = ((long)x << 32) ^ (uint)z; if (!bins.TryGetValue(key, out var l)) bins[key] = l = new List<int>(8); l.Add(k); }
+            }
+            int holes = 0;
+            foreach (int fi in list0)
+            {
+                var f = map.footprints[fi];
+                if (f == null || f.style != 3 || f.hidden || f.pts == null || f.pts.Length < 3) continue;
+                int tcx = Mathf.FloorToInt(f.centre.x / CityMeshes.TileSize), tcz = Mathf.FloorToInt(f.centre.y / CityMeshes.TileSize);
+                if (tcx != tx || tcz != tz) continue;
+                float g = float.MaxValue; foreach (var p in f.pts) g = Mathf.Min(g, CityElevation.GroundY(map, p.x, p.y));
+                Vector2 lo = f.pts[0], hi = f.pts[0]; foreach (var p in f.pts) { lo = Vector2.Min(lo, p); hi = Vector2.Max(hi, p); }
+                int fh = 0;
+                for (float x = lo.x + 0.75f; x < hi.x; x += 1.5f)
+                    for (float z = lo.y + 0.75f; z < hi.y; z += 1.5f)
+                    {
+                        var q = new Vector2(x, z);
+                        if (!CityMap.PointInPoly(f.pts, q)) continue;
+                        bool edge = false;
+                        for (int i = 0, j = f.pts.Length - 1; i < f.pts.Length && !edge; j = i++) edge = PtSegD(q, f.pts[j], f.pts[i]) < 0.6f;
+                        if (edge) continue;
+                        pts++;
+                        float lx = x - o.x, lz = z - o.z, top = float.NegativeInfinity;
+                        if (bins.TryGetValue(((long)Mathf.FloorToInt(lx / 2f) << 32) ^ (uint)Mathf.FloorToInt(lz / 2f), out var cand))
+                            foreach (int k in cand)
+                            {
+                                Vector3 a = V[all[k]], b = V[all[k + 1]], c = V[all[k + 2]];
+                                float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+                                if (Mathf.Abs(d) < 1e-6f) continue;
+                                float w0 = ((b.z - c.z) * (lx - c.x) + (c.x - b.x) * (lz - c.z)) / d, w1 = ((c.z - a.z) * (lx - c.x) + (a.x - c.x) * (lz - c.z)) / d;
+                                if (w0 < -1e-4f || w1 < -1e-4f || w0 + w1 > 1f + 1e-4f) continue;
+                                top = Mathf.Max(top, w0 * a.y + w1 * b.y + (1f - w0 - w1) * c.y + o.y);
+                            }
+                        if (top < g + 2.2f) { holes++; fh++; }
+                    }
+                if (fh > 0 && list.Count < 40) list.Add($"footprint {fi} ({(f.gable ? "gable" : "polygon")}, h {f.h:0.0}) {LatLon(f.centre.x, f.centre.y)}: {fh} open points");
+            }
+            return holes;
+        }
+
+        static float PtSegD(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var ab = b - a; float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
+            return Vector2.Distance(p, a + ab * t);
         }
 
         static readonly List<Vector2> winClip = new List<Vector2>(8), winTmp = new List<Vector2>(8);
