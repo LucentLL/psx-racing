@@ -1914,9 +1914,17 @@ Shader "PSX/Lit"
                 [branch] if (_RoadBaseOn > 0.5)
                 {
                     float3 rb = tex2Dgrad(_RoadBaseTex, hdUV, hdDx, hdDy).rgb;
-                    float4 pm = _RoadBaseRepeat.z > 0.5 ? tex2Dgrad(_RoadPaint, uv, uvDx, uvDy) : float4(0.0, 0.0, 0.5, 1.0);
-                    float cov = saturate(pm.r + pm.g);
-                    float3 paint = (_RoadPaintW.rgb * pm.r + _RoadPaintY.rgb * pm.g) / max(cov, 1e-3);
+                    // the mask's mip by its ACROSS footprint: at a driver's
+                    // grazing angle the along-road derivative is many times the
+                    // across one, and a mip picked by it blurred a 12 cm line
+                    // across into a dim brown smear (first frames, 08:30);
+                    // the Classic paint was point-sampled and crisp. A line's
+                    // coverage is lifted half again so a filtered edge keeps
+                    // the painted brightness.
+                    float2 pDx = float2(uvDx.x, uvDx.y * 0.25), pDy = float2(uvDy.x, uvDy.y * 0.25);
+                    float4 pm = _RoadBaseRepeat.z > 0.5 ? tex2Dgrad(_RoadPaint, uv, pDx, pDy) : float4(0.0, 0.0, 0.5, 1.0);
+                    float cov = saturate((pm.r + pm.g) * 1.5);
+                    float3 paint = (_RoadPaintW.rgb * pm.r + _RoadPaintY.rgb * pm.g) / max(pm.r + pm.g, 1e-3);
                     tex.rgb = lerp(rb * (pm.b * 2.0), paint, cov) * _Color.rgb;
                     rbPaint = cov;
                 }

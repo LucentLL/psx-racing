@@ -151,8 +151,10 @@ namespace PSXRacing.EditorTools
                         poses.Add(("eye", e2, Quaternion.LookRotation(fl * 40f + Vector3.down * 1.4f)));
                         if (pl.walk)
                         {
-                            Vector3 e3 = pos + rightV * (pl.e.width * 0.5f + (pl.e.oneway ? 2.0f : 2.0f + pl.e.width * 0.25f)) + Vector3.up * 1.45f;
-                            poses.Add(("walk", e3, Quaternion.LookRotation(fl * 20f + Vector3.down * 1.6f)));
+                            // 1.3 m in from the curb line (the car stands a quarter of the
+                            // width in from the centre on a two-way street, at it on a one-way)
+                            Vector3 e3 = pos + rightV * ((pl.e.oneway ? pl.e.width * 0.5f : pl.e.width * 0.25f) + 1.3f) + Vector3.up * 1.45f;
+                            poses.Add(("walk", e3, Quaternion.LookRotation(fl * 12f - rightV * 1.5f + Vector3.down * 1.75f)));
                         }
                         if (pl.high)
                         {
