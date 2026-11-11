@@ -186,7 +186,7 @@ namespace PSXRacing.City
             if (!string.IsNullOrEmpty(tp) && Application.isPlaying)
             {
                 tracePath = tp;
-                trace = new System.Text.StringBuilder("frame,time,dt_ms,fit_ms,fills,jobs,live_tiles,slots,slots_used,plants,car_x,car_z\n");
+                trace = new System.Text.StringBuilder("frame,time,dt_ms,fit_ms,fills,jobs,live_tiles,slots,slots_used,plants,car_x,car_z,mesh_on\n");
             }
         }
 
@@ -215,18 +215,27 @@ namespace PSXRacing.City
 
         void OnApplicationQuit() => WriteTrace();
 
+        static bool traceStarted;
+        /// <summary>The trace so far appended to its file (every few seconds:
+        /// a tour may end the editor without a quit message).</summary>
         static void WriteTrace()
         {
-            if (trace == null || string.IsNullOrEmpty(tracePath)) return;
+            if (trace == null || string.IsNullOrEmpty(tracePath) || trace.Length == 0) return;
             try
             {
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(tracePath));
-                System.IO.File.WriteAllText(tracePath, trace.ToString());
-                Debug.Log("[CityMeshTrees] trace -> " + tracePath);
+                if (!traceStarted) System.IO.File.WriteAllText(tracePath, trace.ToString());
+                else System.IO.File.AppendAllText(tracePath, trace.ToString());
+                traceStarted = true;
+                trace.Clear();
             }
             catch (System.Exception e) { Debug.Log("[CityMeshTrees] trace write failed: " + e.Message); }
-            trace = null;
         }
+
+        /// <summary>PSX_CT_FLIP=seconds: F8's A/B flipped on a timer (a tour's
+        /// pictures show both).</summary>
+        static readonly float FlipEvery = ReadF("PSX_CT_FLIP", 0f);
+        float nextFlip = -1f;
 
         void LateUpdate()
         {
@@ -234,6 +243,16 @@ namespace PSXRacing.City
             Work(SliceMs > 0f ? SliceMs : float.MaxValue);
             Flush(FillsPerFrame);
             if (frameFitMs > FitMsMaxFrame) FitMsMaxFrame = frameFitMs;
+            if (FlipEvery > 0f && Application.isPlaying)
+            {
+                if (nextFlip < 0f) nextFlip = Time.realtimeSinceStartup + FlipEvery;
+                else if (Time.realtimeSinceStartup > nextFlip)
+                {
+                    nextFlip = Time.realtimeSinceStartup + FlipEvery;
+                    MeshForest.MeshTreesOn = !MeshForest.MeshTreesOn;
+                    Debug.Log("[CityMeshTrees] F8 flip: mesh trees " + (MeshForest.MeshTreesOn ? "ON" : "OFF (cards)") + " at frame " + Time.frameCount);
+                }
+            }
             if (trace != null)
             {
                 var car = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
@@ -243,7 +262,8 @@ namespace PSXRacing.City
                      .Append(frameFills).Append(',').Append(jobs.Count).Append(',').Append(slotOf.Count).Append(',')
                      .Append(forest != null ? forest.PoolSlots : 0).Append(',').Append(forest != null ? forest.PoolUsed : 0).Append(',')
                      .Append(LivePlants()).Append(',').Append(car.x.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
-                     .Append(car.z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+                     .Append(car.z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(MeshForest.MeshTreesOn ? 1 : 0).Append('\n');
+                if (Time.frameCount % 300 == 0) WriteTrace();
             }
         }
 
@@ -258,8 +278,11 @@ namespace PSXRacing.City
                 plants = new List<MeshForest.PoolPlant>(tt.trees.Count), keep = new List<CityTrees.Tree>(tt.trees.Count),
             };
             frames[key] = tt;
-            // unsliced, or an edit-mode tool: the whole tile now (its trunks follow before they stand up)
-            if (SliceMs <= 0f || !Application.isPlaying)
+            // unsliced (round 1, play mode): the whole tile now, before it stands up. An
+            // edit-mode tool queues it like play mode and Flush() fits it after the
+            // stand-up: the tile's sign posts and lamps are colliders by then (the
+            // audit's one tree through a CityPost was fitted before its post stood)
+            if (SliceMs <= 0f && Application.isPlaying)
             {
                 Step(job, float.MaxValue);
                 Finish(job, false);
@@ -421,6 +444,10 @@ namespace PSXRacing.City
         //  THE FIT
         // ==================================================================
 
+        public const float RoadMargin = 0.05f;
+        /// <summary>Street trees refused by the road envelope, by the crown band that met it.</summary>
+        public static readonly int[] RoadBand = new int[32];
+        int lastBand;
         public const float RoadClearM = 4.6f, DeckUnderM = 1.5f, Margin = 0.35f, BuildingMargin = 0.6f, HouseMargin = 1.6f;
         static readonly float[] StreetScales = { 1f, 1.15f, 1.3f, 0.9f, 0.8f, 0.7f, 0.6f, 0.52f };
         static readonly float[] StreetScalesR1 = { 1f, 1.15f, 1.3f, 1.45f, 0.9f, 0.8f, 0.7f };
@@ -578,6 +605,7 @@ namespace PSXRacing.City
                         if (why >= 0)
                         {
                             RejectBy[why]++; lastWhy = why;
+                            if (why == 0 && t.street) RoadBand[Mathf.Clamp(lastBand, 0, RoadBand.Length - 1)]++;
                             if (why == 4 && lastHit != null) { RejectColliders.TryGetValue(lastHit, out int rc); RejectColliders[lastHit] = rc + 1; }
                             continue;
                         }
@@ -750,7 +778,8 @@ namespace PSXRacing.City
                 foreach (var r in roads)
                 {
                     if (y0 > r.y + RoadClearM || y1 < r.y - DeckUnderM) continue;
-                    if (SegDist(p, r.a, r.b) < r.hw + R + Margin) return y1 < r.y ? 5 : 0;
+                    // (hw is already 0.3 m past the pavement: the trunk of a grate tree a metre off the curb fits)
+                    if (SegDist(p, r.a, r.b) < r.hw + R + (Round1Mode ? Margin : RoadMargin)) { lastBand = b; return y1 < r.y ? 5 : 0; }
                 }
                 foreach (var bx in boxes)
                 {
@@ -836,6 +865,7 @@ namespace PSXRacing.City
             System.Array.Clear(RejectBy, 0, RejectBy.Length);
             System.Array.Clear(PlacedByRole, 0, PlacedByRole.Length);
             System.Array.Clear(DropWhy, 0, DropWhy.Length);
+            System.Array.Clear(RoadBand, 0, RoadBand.Length);
             DropSamples.Clear();
             RejectColliders.Clear();
         }

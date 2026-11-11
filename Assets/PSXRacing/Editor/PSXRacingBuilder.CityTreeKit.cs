@@ -406,10 +406,11 @@ namespace PSXRacing.EditorTools
                             if (ladder && Tris(all[l]) <= CTBudget[k]) { pick = l; break; }
                         }
                         if (pick < 0) pick = last;
+                        // (no pack level left past the one before: that one again; CTRound2 thins it to the budget)
                         if (pick < 0) { v.lods[k] = k > 0 ? v.lods[k - 1] : null; continue; }
                         if (!used.Contains(pick)) { all[pick] = WorldKit.SaveMesh(all[pick], all[pick].name); used.Add(pick); }
                         v.lods[k] = all[pick];
-                        from = pick;
+                        from = ladder ? pick + 1 : pick;   // each level a coarser pack level than the one before, while there is one
                     }
                     Log($"City trees: {stem} pack levels {tl} tris -> ladder {v.lods[0]?.name}/{v.lods[1]?.name}/{v.lods[2]?.name}");
                 }

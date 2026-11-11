@@ -40,8 +40,9 @@ namespace PSXRacing.EditorTools
 
         static readonly CTForm[] CTForms =
         {
-            new CTForm { tag = "vase", w = 0.62f, baseFrac = 0.40f, cutShare = 0.10f },
-            new CTForm { tag = "column", w = 0.42f, baseFrac = 0.36f, cutShare = 0.14f },
+            // (Uptown's grate trees: 10-14 m, limbed to 4.5-5.5 m over the walk = 0.42-0.47 of the height)
+            new CTForm { tag = "vase", w = 0.62f, baseFrac = 0.46f, cutShare = 0.12f },
+            new CTForm { tag = "column", w = 0.42f, baseFrac = 0.43f, cutShare = 0.16f },
         };
 
         /// <summary>The source models of the street trees (kit names).</summary>
@@ -141,12 +142,19 @@ namespace PSXRacing.EditorTools
             lowR.Sort();
             float trunkR = lowR.Count > 0 ? lowR[lowR.Count / 2] : 0.2f;
             float lift = Mathf.Max(0f, (f.baseFrac * h - cutY) / (1f - f.baseFrac));
-            c = new CTCut { cutY = cutY, lift = lift, trunkCut = Mathf.Max(0.3f, trunkR * 2.2f), h = h, f = f };
+            c = new CTCut { cutY = cutY, lift = lift, trunkCut = Mathf.Max(0.3f, trunkR * 1.8f), h = h, f = f };
             return true;
         }
 
         static Vector3 StreetMap(in CTCut c, Vector3 q, out Vector2 kn)
         {
+            // a tree in a grate: the root flare drawn in to the trunk (it stands a metre off the curb)
+            float flare = c.trunkCut * 0.6f;
+            if (q.y < 1.2f)
+            {
+                float rr = Mathf.Sqrt(q.x * q.x + q.z * q.z);
+                if (rr > flare) { q.x *= flare / rr; q.z *= flare / rr; }
+            }
             float sy = q.y < c.cutY ? (c.cutY + c.lift) / Mathf.Max(0.05f, c.cutY) : 1f;
             float y = q.y < c.cutY ? q.y * sy : q.y + c.lift;
             float b = c.cutY + c.lift;

@@ -18,7 +18,7 @@ namespace PSXRacing
     public class CityTreeKit : ScriptableObject
     {
         public const string ResourcePath = "CityTreeKit";
-        public const int Bands = 12;
+        public const int Bands = 16;   // (round 2: 12 -> 16, a street tree's crown base read finer against the 4.6 m envelope)
 
         /// <summary>What a species stands for (CityMeshTrees picks by it).</summary>
         public enum Role : byte

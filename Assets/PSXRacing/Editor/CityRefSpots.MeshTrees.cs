@@ -119,6 +119,10 @@ namespace PSXRacing.EditorTools
                                 AuditRing(mt, map, world, audit, line);
                                 line.Append("\n      r2 drops by cause (other | street):");
                                 for (int w = 0; w < 7; w++) if (CityMeshTrees.DropWhy[0, w] + CityMeshTrees.DropWhy[1, w] > 0) line.Append($" {(w < 6 ? CityMeshTrees.RejectNames[w] : "no size meets the clear stem")} {CityMeshTrees.DropWhy[0, w]}|{CityMeshTrees.DropWhy[1, w]};");
+                                line.Append("\n      candidates refused by:");
+                                for (int w = 0; w < 6; w++) line.Append($" {CityMeshTrees.RejectNames[w]} {CityMeshTrees.RejectBy[w]};");
+                                line.Append("\n      street candidates refused by the road envelope, by crown band (of 16):");
+                                for (int w = 0; w < CityTreeKit.Bands; w++) if (CityMeshTrees.RoadBand[w] > 0) line.Append($" b{w} {CityMeshTrees.RoadBand[w]};");
                                 for (int k = 0; k < Mathf.Min(8, CityMeshTrees.DropSamples.Count); k++) line.Append("\n        " + CityMeshTrees.DropSamples[k]);
                             }
                         }

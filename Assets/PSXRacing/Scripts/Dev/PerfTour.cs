@@ -378,6 +378,10 @@ namespace PSXRacing
                 case "i77s": return FollowRoad(map, id, LL(35.2290, -80.8600), LL(35.1000, -80.8900), "I-77", 14000f);
                 // I-77 north from uptown toward the north side
                 case "i77n": return FollowRoad(map, id, LL(35.2290, -80.8580), LL(35.3200, -80.8400), "I-77", 14000f);
+                // (ctrees round 2: the city's mesh trees streamed at speed) South Blvd out of Uptown through
+                // South End / Dilworth's edge to the south side; Providence Rd through Myers Park's oaks to the wooded south
+                case "ctr_south": return FollowRoad(map, id, LL(35.2200, -80.8480), LL(35.1200, -80.8600), "South Boulevard", 9000f);
+                case "ctr_prov": return FollowRoad(map, id, LL(35.2060, -80.8250), LL(35.1000, -80.7700), "Providence Road", 10000f);
             }
             return null;
         }
