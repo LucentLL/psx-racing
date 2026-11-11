@@ -1,3 +1,35 @@
+# HANDOFF - THE COCKPIT FITS ITS CAR ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Owner (PC26): "mirrors don't match the updated mirrors of the new car models imported"; then "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window" and "I can see the road ahead under my hood in cockpit mode". Sheets: scratchpad `mirrors\mirrors_before_after.png` (11 shells: ahead / over the dash / look left / look right, before|after, each mirror from outside, the rear-view picture) and `mirrors\nose_closing.png`.
+
+## Causes
+- The cockpit's door mirrors ARE the shell's own housings (CabinClip keeps them); only the live GLASS is a table, `DoorMirrors.Table.cs`, written by `Editor/DoorMirrorProbe.cs`. Its glass was the biggest WELDED rearward patch (`GlassPatches`, DoorMirrorProbe.cs:268): on shells whose glass sits flush in a bezel ring and housing (all the HD deliveries: FD 13.8x7.2 cm glass measured 18.0x9.4, Viper 18x12 -> 27x18, S2000 12.5x7 -> 15x10.6) the picture covered the bezel and the housing's back - "a generic red teardrop with an oval glass". 26 of 44 mirrored shells, not only the six new ones. The table was current (the car batch re-probed it), the RULE was wrong.
+- The cabin was fitted by LENGTH only (`CockpitInterior.FitFor`, uniform scale about the eye): every car got the cabin's 1.43 m between side glasses. On 13 narrow shells the car's mirror stands inside that (CTR/Yellowbird inner edge 0.645 m vs cabin glass 0.713, E30 0.638, jdm_pickup 0.656, hatch_76 0.677 ...): the mirror was hidden behind the cabin's door / A-pillar ("no door mirror anywhere in the side window").
+- The rear-view camera was placed once, when made (`EnsureMirrorCamera`), and kept the first fit's place through body swaps.
+- The shell is drawn Cull Back and cut at the windscreen base: any sightline under the bonnet's back edge saw out through the hollow nose.
+- (3) one rigid thing: already true. `CockpitInterior.Ride()` poses the cabin from `CarBody.bodyRoot`'s own local pose every LateUpdate (order 1000, after CarBodyLean), bodyRoot is a direct child of the car (PSXRacingBuilder.cs:7665). The eye follows the body 25% (EyeFollow, by the owner's 10-24 request), so the eye moves against the dash, but dash and bonnet never move against each other. The nose-high stance of the new cars is the "parked" agent's.
+
+## Fix (switches: PSX_DOORMIRROR_GLASSPART=0 old glass rule in the probe, PSX_COCKPIT_WIDTHFIT=0, PSX_COCKPIT_INSIDE=0)
+- DoorMirrorProbe.GlassPart: within the welded patch, the pieces joined by the mesh's own shared vertices; the biggest flat one (tie: the rearmost) is the glass when it is half the patch's width and height or more. Table re-emitted (26 shells changed; the housing boxes unchanged).
+- CockpitInterior.WidthFitFor: the cabin narrowed (never widened, min 0.8) until its side glass stands 1 cm inboard of the car's own mirrors' inner edge (housing box from the table x the body's WidthScale); the eye moves in with the seat (EyeShiftX, added in RideEye/PreviewRide/PreviewStep), the wheel kept round, the cargo seat moved with it. CTRs 0.842 (eye 6.4 cm in), E30 0.880.
+- Rear-view camera re-placed on every fit (PlaceMirrorCamera).
+- Dark inside of the nose: a second renderer of the body mesh ("CabinInside", child of the body filter, made by the cockpit) on a copy of the body material with `_PSXCull`=1 and `_PSXInside`=1 in PSX/CarPaint: back faces, near-black, only while the cockpit's cut is open for the driver's camera, only ahead of the cut. PSX/CarPaint gained `Cull [_PSXCull]` (default 2 = Back, every other material unchanged) and a 6-line early-out branch.
+- Show(true) re-sorts every renderer under the car (one added after the fit stood inside the cabin uncut).
+- Editor/DoorMirrorMatch.cs: CheckBatch (re-run after every car batch: every shell re-measured against the table: glass centre, size, tris, housing box within 1 cm; the lamps-up body's mirrors; the cabin's glass inside the mirrors; a per-shell fit line), Shots (cockpit + exterior frames), ReprobeBatch, ProofBatch.
+
+## Measured
+- Check: old rule 44/44 match; new rule against the old table 26 FAIL; new table 0 FAIL (52 shells, 8 without a separable mirror: camry_2001, classic_roadster, coupe_99, flatsix_turbo_96, fullsize_police/taxi/trooper, gt_hardtop_73 - their housings show, no live glass). Note: nissan_180sx's two glasses differ (17.8 / 9.5 cm) in the model itself.
+- Cabin glass vs mirror inner edge, worst before: E30 7.5 cm INSIDE the mirror, CTRs 6.8, jdm_pickup 5.7, hatch_76 3.6, roadster_na_popup 3.4; after: every shell 1 cm inboard.
+- Windscreen base: the dash front lands on the baked cowl by construction (unchanged); roof / A-pillar offsets were NOT measured.
+
+## Not done / unverified
+- The dark inside closes nothing visible in the edit-mode shots: no slot under the bonnet reproduces at rest even with the eye 6 cm high (nose_closing.png, before = after). The owner's slot is likely the nose-high stance in play ("parked" agent). The inside pass is a rule that costs one draw of the body only in cockpit view; its effect in play is unproven.
+- The CTR's yellow scrap at the driver's A-pillar foot is still there (shell geometry just ahead of the cut, above the dash); the owner's rear-view "car insides" at HOME did not reproduce in the editor (rear-view frames all show the road); possibly a second, unmarked copy of the car at home (CarShell) or a renderer added after the fit (now re-sorted on Show).
+- Passenger mirror of the narrowed CTR is above the frame in my look-right pose. Arms grip a wheel 0.84 wide in x scale: up to 2 cm off the rim on the CTRs. No player build, no night, no RHD shot, no frame-cost measurement (the inside renderer is one extra draw of the player's body in cockpit view only).
+
+## Merge
+- Code only + one generated table: Scripts/DoorMirrors.Table.cs, Scripts/CockpitInterior.cs, Shaders/PSXCarPaint.shader, Editor/DoorMirrorProbe.cs, Editor/DoorMirrorMatch.cs(+meta). No car re-bake (CarModelBaker), no scene rebuild, no tile bake, no format bump, no new shader (CarPaint is already always-included). A normal player build carries it.
+
 # HANDOFF - TOWER LIGHTS ON THEIR FITTINGS ("beacons", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
 
 The owner (PC26, N Graham St pic): "aviation red lights on buildings are outdated and not actually connected to buildings". Sheet: scratchpad `beacons\beacons_before_after.png` (raw frames: PSXLab `Screenshots\beacons\`, log `beacons_log.txt`).
