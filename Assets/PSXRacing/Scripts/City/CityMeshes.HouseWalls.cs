@@ -126,7 +126,7 @@ namespace PSXRacing.City
             float groundHi = float.NegativeInfinity;
             if (hwMap != null && storeys > 0)
             {
-                int n = Mathf.Max(2, Mathf.CeilToInt(W / 2f));
+                int n = Mathf.Max(2, Mathf.CeilToInt(W / 0.5f));
                 for (int k = 0; k <= n; k++)
                 {
                     var p = Vector2.Lerp(a, c, k / (float)n);
@@ -157,7 +157,7 @@ namespace PSXRacing.City
             {
                 float ws = floor + s * pitch + sill, we = ws + winH;
                 if (we > y1 - HouseHeadClearM + 0.001f) break;
-                if (ws < groundHi + 0.1f) { HouseWinGroundDropped += bays; continue; }   // the ground reaches it: plain
+                if (ws < groundHi + 0.15f) { HouseWinGroundDropped += bays; continue; }   // the ground reaches it: plain
                 if (ws > y + 0.01f) HousePlain(tm, a, c, y, ws, outward, uPlain, false);
                 EmitPanels(tm, Slot.FacadeHouse, a, c, ws, we, outward, bays, HouseWinV1 - HouseWinV0, HouseWinV0);
                 HouseWinLaid += bays;

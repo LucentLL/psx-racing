@@ -160,6 +160,7 @@ namespace PSXRacing.EditorTools
             float rectA = (u1 - u0) * (v1 - v0);
             // the planes: a wall or a gable is one plane, its UVs one frame
             var groups = new Dictionary<(int, int, int, int), List<int>>();
+            var frames = new Dictionary<(int, int, int, int), List<(Vector2, List<int>)>>();
             for (int k = 0; k + 2 < tri.Length; k += 3)
             {
                 Vector3 a = V[tri[k]], b = V[tri[k + 1]], c = V[tri[k + 2]];
@@ -178,11 +179,13 @@ namespace PSXRacing.EditorTools
                 Vector2 du = ((ub - ua) * (q2.y - q0.y) - (uc - ua) * (q1.y - q0.y)) / det;   // d(uv)/ds
                 Vector2 dt = ((uc - ua) * (q1.x - q0.x) - (ub - ua) * (q2.x - q0.x)) / det;   // d(uv)/dt
                 Vector2 off = ua - du * q0.x - dt * q0.y;                                      // uv at s = t = 0
-                var key = (Mathf.RoundToInt(nr.x * 50f), Mathf.RoundToInt(nr.y * 50f), Mathf.RoundToInt(nr.z * 50f), Mathf.RoundToInt(d * 20f),
-                           Mathf.RoundToInt(du.x * 500f), Mathf.RoundToInt(du.y * 500f), Mathf.RoundToInt(dt.x * 500f), Mathf.RoundToInt(dt.y * 500f),
-                           Mathf.RoundToInt(off.x * 20f), Mathf.RoundToInt(off.y * 20f));
-                var key4 = (key.Item1, key.Item2, key.Item3, key.Item4 * 7919 + key.Item5 * 31 + key.Item6 * 131 + key.Item7 * 523 + key.Item8 * 1031 + key.Item9 * 7 + key.Item10 * 4099);
-                if (!groups.TryGetValue(key4, out var l)) groups[key4] = l = new List<int>();
+                // (the offset by tolerance, not by rounding: one wall's panels share it to float noise)
+                var key4 = (Mathf.RoundToInt(nr.x * 50f) * 1000 + Mathf.RoundToInt(nr.y * 50f), Mathf.RoundToInt(nr.z * 50f), Mathf.RoundToInt(d * 20f),
+                            Mathf.RoundToInt(du.x * 500f) * 7919 + Mathf.RoundToInt(du.y * 500f) * 131 + Mathf.RoundToInt(dt.x * 500f) * 523 + Mathf.RoundToInt(dt.y * 500f) * 1031);
+                if (!frames.TryGetValue(key4, out var fl)) frames[key4] = fl = new List<(Vector2, List<int>)>();
+                List<int> l = null;
+                foreach (var fr in fl) if (Mathf.Abs(fr.Item1.x - off.x) < 0.03f && Mathf.Abs(fr.Item1.y - off.y) < 0.03f) { l = fr.Item2; break; }
+                if (l == null) { l = new List<int>(); fl.Add((off, l)); groups[(groups.Count, 0, 0, 0)] = l; }
                 l.Add(k);
             }
             foreach (var g in groups.Values)
