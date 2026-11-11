@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.InputSystem;
 
@@ -119,7 +119,7 @@ namespace PSXRacing
         /// <summary>A/B (perf tour ab=MeshForest.PopFix:0 = the forest as PC26
         /// drew it): the pop-in round of 2026-11-11.</summary>
         public static bool PopFix = true;
-        const float BandShare = 0.22f;
+        const float BandShare = 0.3f;
         static MeshForest instance;
         bool inited;
 
