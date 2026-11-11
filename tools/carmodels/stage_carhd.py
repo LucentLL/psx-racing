@@ -18,10 +18,11 @@ os.makedirs(stage, exist_ok=True)
 MODELS = os.path.join(repo, 'Assets', 'PSXRacing', 'Art', 'Car', 'Models')
 LAMPS = os.path.join(repo, 'Assets', 'PSXRacing', 'Resources', 'CarLights')
 
-FD = 'FD_Shared_Independent_v01/Textured_17/'
-VIP = 'Viper_GTS_RearOptics_v13/'
-CTRB = 'CTR_Blue_HD_Spoilerless_v05/Maps/'
-CTRY = 'CTR_Yellowbird_HD_v01/Maps/'
+# 2026-11-11 afternoon: FD Textured_18, Viper v14, CTR blue v06, Yellowbird v02.
+FD = 'FD_Shared_Independent_v01/Textured_18/'
+VIP = 'Viper_GTS_HoodSightline_v14/'
+CTRB = 'CTR_Blue_HD_Spoilerless_v06/Maps/'
+CTRY = 'CTR_Yellowbird_HD_v02/Maps/'
 EVO = 'EvoVI_HD_Textured_v17/'
 EG = 'EG_Independent_Textured_v21/'
 S2K = 'S2000_Independent_Textured_v12/'

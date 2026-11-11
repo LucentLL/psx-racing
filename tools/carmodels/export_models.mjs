@@ -131,17 +131,21 @@ const MODELS = [
   // lower rear bumper rebuilt, hidden bay contained; 9,613-9,809 tris; HD
   // 2048x1024 PBR), converted/rx7_fd_*_t17, each spoiler's DOWN sheet box-
   // filtered to fd_shared_512x256 (see civic_eg). Covers left off as before.
-  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t17/rx7_fd_93_t17.obj`,
-    lampsUp: `${here}/converted/rx7_fd_93_t17/rx7_fd_93_t17_up.obj`,
-    tex: `${here}/converted/rx7_fd_93_t17`, skins: /^fd_shared_512x256$/,
+  // 2026-11-11 afternoon: Textured_18 (spoiler feet rebuilt, false tail-lamp
+  // projection off the raised hatch, amber optics moved inboard, 6.5 mm pop-up
+  // lid edges, optical mouth 18 mm lower; 9,787-9,991 tris; bounds, wheels and
+  // mirrors unchanged, so the same scale), converted/rx7_fd_*_t18.
+  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t18/rx7_fd_93_t18.obj`,
+    lampsUp: `${here}/converted/rx7_fd_93_t18/rx7_fd_93_t18_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t18`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
-  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t17/rx7_fd_99_t17.obj`,
-    lampsUp: `${here}/converted/rx7_fd_99_t17/rx7_fd_99_t17_up.obj`,
-    tex: `${here}/converted/rx7_fd_99_t17`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t18/rx7_fd_99_t18.obj`,
+    lampsUp: `${here}/converted/rx7_fd_99_t18/rx7_fd_99_t18_up.obj`,
+    tex: `${here}/converted/rx7_fd_99_t18`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
-  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t17/rx7_fd_nowing_t17.obj`,
-    lampsUp: `${here}/converted/rx7_fd_nowing_t17/rx7_fd_nowing_t17_up.obj`,
-    tex: `${here}/converted/rx7_fd_nowing_t17`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t18/rx7_fd_nowing_t18.obj`,
+    lampsUp: `${here}/converted/rx7_fd_nowing_t18/rx7_fd_nowing_t18_up.obj`,
+    tex: `${here}/converted/rx7_fd_nowing_t18`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
@@ -165,8 +169,11 @@ const MODELS = [
   // converted/viper_v13, sheets box-filtered to 512x256 (see civic_eg). Its
   // Headlight_Lens_L/R objects carry the clear cover AND atlas-painted faces:
   // those stay, the Clear_headlight_cover faces go (dropMtl).
-  { key: 'viper_gts',    obj: `${here}/converted/viper_v13/viper_v13.obj`,
-    tex: `${here}/converted/viper_v13`, skins: /^coupe_96_(blue_white|red)_512x256$/,
+  // 2026-11-11 afternoon: Viper_GTS_HoodSightline_v14 (cowl-side inlets and
+  // centre intake rebuilt, 9,999 tris; bounds, wheels, lenses unchanged),
+  // converted/viper_v14 (from the red GLB, as v13).
+  { key: 'viper_gts',    obj: `${here}/converted/viper_v14/viper_v14.obj`,
+    tex: `${here}/converted/viper_v14`, skins: /^coupe_96_(blue_white|red)_512x256$/,
     gt4LengthM: 4.488, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'Headlight_Lens_L', 'Headlight_Lens_R'],
     dropMtl: /^Clear_headlight_cover$/ },
 
@@ -187,11 +194,15 @@ const MODELS = [
   // the yellow whale-tail car on the CTR "Yellow Bird" `87 (flatsix_coupe_87).
   // Sheets box-filtered to 512x256 (see civic_eg); the clear Headlight_Cover_L/R
   // are left off. Same GT4 sheet length as before.
-  { key: 'flatsix_coupe', obj: `${here}/converted/flatsix_coupe_v05/flatsix_coupe_v05.obj`,
-    tex: `${here}/converted/flatsix_coupe_v05`, skins: /^flatsix_coupe_blue_512x256$/,
+  // 2026-11-11 afternoon: CTR_Blue_HD_Spoilerless_v06 (9,998) and
+  // CTR_Yellowbird_HD_v02 (9,996): mirror heads 28 mm outboard on new necks,
+  // front shoulders refilled; bounds and wheels unchanged, so the same scale.
+  // converted/flatsix_coupe_hd06 (flatsix_coupe_v06 is the 10-10 coupe).
+  { key: 'flatsix_coupe', obj: `${here}/converted/flatsix_coupe_hd06/flatsix_coupe_hd06.obj`,
+    tex: `${here}/converted/flatsix_coupe_hd06`, skins: /^flatsix_coupe_blue_512x256$/,
     gt4LengthM: 4.151, parts: ['Body'] },
-  { key: 'flatsix_coupe_87', obj: `${here}/converted/flatsix_coupe_87_v01/flatsix_coupe_87_v01.obj`,
-    tex: `${here}/converted/flatsix_coupe_87_v01`, skins: /^flatsix_coupe_87_yellow_512x256$/,
+  { key: 'flatsix_coupe_87', obj: `${here}/converted/flatsix_coupe_87_v02/flatsix_coupe_87_v02.obj`,
+    tex: `${here}/converted/flatsix_coupe_87_v02`, skins: /^flatsix_coupe_87_yellow_512x256$/,
     gt4LengthM: 4.151, parts: ['Body', 'Spoiler'] },
 
   // The owner's 2026-10-01 set ("I made more"), same spec and layout as the
