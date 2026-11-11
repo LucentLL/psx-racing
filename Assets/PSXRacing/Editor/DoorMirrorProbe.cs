@@ -183,10 +183,17 @@ namespace PSXRacing.EditorTools
                 Island main = default; bool have = false;
                 foreach (var isl in cand)
                     if (Mathf.Sign((isl.min.x + isl.max.x) * 0.5f) == side && (!have || isl.area > main.area)) { main = isl; have = true; }
+                bool merged = false;
+                if (!have && MergedRule && Merged(d, P, tris, weld, side, halfW, out main))
+                {
+                    have = merged = true;
+                    log.Append($"   {(side < 0 ? "L" : "R")}: no separate housing - the glass found in the body ({main.tris.Count} rearward tris)\n");
+                }
                 if (!have) { log.Append($"   {(side < 0 ? "L" : "R")}: none\n"); continue; }
                 var parts = new List<Island> { main };
                 foreach (var isl in cand)
                 {
+                    if (merged) break;
                     if (ReferenceEquals(isl.tris, main.tris) || Mathf.Sign((isl.min.x + isl.max.x) * 0.5f) != side) continue;
                     Vector3 gap = Vector3.Max(Vector3.Max(main.min - isl.max, isl.min - main.max), Vector3.zero);
                     if (gap.x <= Merge && gap.y <= Merge && gap.z <= Merge) parts.Add(isl);
@@ -257,6 +264,30 @@ namespace PSXRacing.EditorTools
                            $"pieces {parts.Count} faceTris {face.Count} box x {amin.x:+0.00;-0.00}..{amax.x:+0.00;-0.00} " +
                            $"y {amin.y:0.00}..{amax.y:0.00} dz {amin.z - d.cowlZ:+0.00;-0.00}..{amax.z - d.cowlZ:+0.00;-0.00}\n");
             }
+            // TWO MIRRORS, ONE GLASS (2026-11-11 round 2: the 180SX's left glass
+            // measured 9.5 cm against its right's 17.8). A car's mirrors are
+            // each other's mirror image: the bigger glass, reflected across,
+            // serves both, when it sits inside the other housing's box (+1 cm).
+            if (result.Count == 2 && Mathf.Abs(result[0].w - result[1].w) > 0.01f)
+            {
+                int big = result[0].w * result[0].h >= result[1].w * result[1].h ? 0 : 1, small = 1 - big;
+                var b = result[big]; var s = result[small];
+                Vector3 X(Vector3 v) => new Vector3(-v.x, v.y, v.z);
+                var mt = new Vector3[b.tris.Length];
+                for (int i = 0; i < mt.Length; i += 3) { mt[i] = X(b.tris[i]); mt[i + 1] = X(b.tris[i + 2]); mt[i + 2] = X(b.tris[i + 1]); }
+                Vector3 gmin = Vector3.positiveInfinity, gmax = Vector3.negativeInfinity;
+                foreach (var v in mt) { gmin = Vector3.Min(gmin, v); gmax = Vector3.Max(gmax, v); }
+                bool fits = gmin.x >= s.min.x - 0.01f && gmin.y >= s.min.y - 0.01f && gmin.z >= s.min.z - 0.01f &&
+                            gmax.x <= s.max.x + 0.01f && gmax.y <= s.max.y + 0.01f && gmax.z <= s.max.z + 0.01f;
+                if (fits)
+                {
+                    s.tris = mt; s.centre = X(b.centre);
+                    s.across = X(b.across); s.up = X(b.up); s.normal = X(b.normal); s.w = b.w; s.h = b.h; s.faceTris = b.faceTris;
+                    result[small] = s;
+                    log.Append($"   {(small == 0 ? "L" : "R")}: the other side's glass reflected across (it was the smaller)\n");
+                }
+                else log.Append($"   the two glasses differ ({result[0].w * 100f:0.0} / {result[1].w * 100f:0.0} cm) and the bigger does not fit the other housing\n");
+            }
             return result;
         }
 
@@ -311,6 +342,78 @@ namespace PSXRacing.EditorTools
                 if (c == prim || (area[c] >= 0.002f && rearmost[c] >= rearmost[prim] - 0.01f)) face.Add(near[i]);
             }
             return face;
+        }
+
+        /// <summary>PSX_DOORMIRROR_MERGED=0: a shell whose mirrors are part of
+        /// the body keeps them dead (no live glass), as before 2026-11-11 round 2.</summary>
+        public static bool MergedRule => System.Environment.GetEnvironmentVariable("PSX_DOORMIRROR_MERGED") != "0";
+
+        /// <summary>
+        /// A MIRROR MERGED INTO THE BODY (2026-11-11 round 2: eight shells had a
+        /// housing on screen and no live glass - camry_2001, classic_roadster,
+        /// coupe_99, flatsix_turbo_96, the three fullsize cars, gt_hardtop_73).
+        /// No island is small enough to be a mirror, so: the body's own
+        /// rearward faces (normal z under -0.4) in the mirror's place - out at
+        /// 80% of the half-width or more, from 15 cm under the cowl to 30 cm
+        /// over it, from 90 cm behind it to 10 cm ahead - joined by welded
+        /// corners; the biggest patch of mirror size (5 x 3 to 35 cm) is the
+        /// housing's back, and the glass is found in it as on any other.
+        /// </summary>
+        static bool Merged(CarModelDef d, Vector3[] P, int[] tris, int[] weld, float side, float halfW, out Island main)
+        {
+            main = default;
+            var sel = new List<int>();
+            for (int t = 0; t < tris.Length; t += 3)
+            {
+                Vector3 a = P[tris[t]], b = P[tris[t + 1]], c = P[tris[t + 2]];
+                var n = Vector3.Cross(b - a, c - a);
+                if (n.sqrMagnitude < 1e-12f || n.normalized.z >= RearNz) continue;
+                var m = (a + b + c) / 3f;
+                if (Mathf.Sign(m.x) != side || Mathf.Abs(m.x) < 0.8f * halfW) continue;
+                if (m.y < d.cowlY - 0.15f || m.y > d.cowlY + 0.30f) continue;
+                if (m.z < d.cowlZ - 0.9f || m.z > d.cowlZ + 0.1f) continue;
+                sel.Add(t);
+            }
+            if (sel.Count == 0) return false;
+            var comp = new int[sel.Count];
+            for (int i = 0; i < comp.Length; i++) comp[i] = -1;
+            int nc = 0;
+            for (int s0 = 0; s0 < sel.Count; s0++)
+            {
+                if (comp[s0] >= 0) continue;
+                comp[s0] = nc;
+                var open = new Stack<int>(); open.Push(s0);
+                while (open.Count > 0)
+                {
+                    int i = open.Pop(), ti = sel[i];
+                    for (int j = 0; j < sel.Count; j++)
+                    {
+                        if (comp[j] >= 0) continue;
+                        int tj = sel[j]; bool shares = false;
+                        for (int a = 0; a < 3 && !shares; a++) for (int b = 0; b < 3; b++) if (weld[tris[ti + a]] == weld[tris[tj + b]]) { shares = true; break; }
+                        if (shares) { comp[j] = nc; open.Push(j); }
+                    }
+                }
+                nc++;
+            }
+            float bestA = 0f;
+            for (int c = 0; c < nc; c++)
+            {
+                var isl = new Island { tris = new List<int>(), min = Vector3.positiveInfinity, max = Vector3.negativeInfinity };
+                for (int i = 0; i < sel.Count; i++)
+                {
+                    if (comp[i] != c) continue;
+                    int t = sel[i];
+                    isl.tris.Add(t);
+                    for (int k = 0; k < 3; k++) { isl.min = Vector3.Min(isl.min, P[tris[t + k]]); isl.max = Vector3.Max(isl.max, P[tris[t + k]]); }
+                    isl.area += Vector3.Cross(P[tris[t + 1]] - P[tris[t]], P[tris[t + 2]] - P[tris[t]]).magnitude * 0.5f;
+                }
+                var sz = isl.max - isl.min;
+                float w = Mathf.Max(sz.x, sz.z), h = sz.y;
+                if (w < 0.05f || h < 0.03f || w > 0.35f || h > 0.35f) continue;
+                if (isl.area > bestA) { bestA = isl.area; main = isl; }
+            }
+            return bestA > 0f;
         }
 
         /// <summary>PSX_DOORMIRROR_GLASSPART=0: the glass as it was measured

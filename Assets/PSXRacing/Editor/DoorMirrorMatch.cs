@@ -82,6 +82,23 @@ namespace PSXRacing.EditorTools
             EditorApplication.Exit(fails == 0 ? 0 : 1);
         }
 
+        /// <summary>Round 2's proof job: the shots (PSX_MIRROR_TAG), the mirror
+        /// check, then the fit gates (CockpitFitProbe, tag the same).</summary>
+        public static void R2Batch()
+        {
+            int fails = -1, fitFails = -1;
+            try
+            {
+                Shots();
+                Check(out fails);
+                System.Environment.SetEnvironmentVariable("PSX_COCKPITFIT_TAG", System.Environment.GetEnvironmentVariable("PSX_MIRROR_TAG"));
+                fitFails = CockpitFitProbe.Run(true);
+            }
+            catch (System.Exception e) { Debug.LogException(e); }
+            Debug.Log($"[R2] mirror check fails {fails}, fit fails {fitFails}");
+            EditorApplication.Exit(fails == 0 && fitFails == 0 ? 0 : 1);
+        }
+
         public static string Check(out int fails)
         {
             var sb = new StringBuilder();
@@ -156,6 +173,34 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(dir, "match.txt"), sb.ToString());
             Debug.Log(sb.ToString());
             return sb.ToString();
+        }
+
+        /// <summary>THE HANDS ON THE RIM (round 2): each grip's centre against
+        /// the DRAWN rim's centre line (the wheel as it stands under the
+        /// cabin's fit), the worse hand, metres. The arms plan the grip in the
+        /// model's frame; a wheel scaled apart from the cabin moved it off.</summary>
+        public static float GripGap(CockpitInterior ci)
+        {
+            var arms = ci != null ? ci.Arms : null;
+            var lay = CockpitModel.L;
+            if (arms == null || lay == null || ci.Model == null || ci.WheelTransform == null) return -1f;
+            float worst = 0f;
+            foreach (bool left in new[] { true, false })
+            {
+                if (arms.Plan != null && (left ? arms.Plan.L : arms.Plan.R).mode != CockpitArms.Mode.Grip) continue;
+                arms.Probe(left, out var grip, out _, out _);
+                Vector3 g = ci.Model.TransformPoint(grip);
+                float best = float.MaxValue;
+                for (int a = 0; a < 360; a++)
+                {
+                    Vector3 m = arms.RimPoint(a);
+                    Vector3 wl = Quaternion.Inverse(lay.wheel.rot) * (m - lay.wheel.pivot);
+                    best = Mathf.Min(best, (ci.WheelTransform.TransformPoint(wl) - g).magnitude);
+                }
+                // the grip's centre sits on the tube's centre line when it holds
+                worst = Mathf.Max(worst, best);
+            }
+            return worst;
         }
 
         static void SaveRT(RenderTexture rt, string path)
@@ -276,8 +321,9 @@ namespace PSXRacing.EditorTools
                 ci.PreviewDoorMirrors(cam);
                 Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, c, s, shell, body.LengthScale, body.BodyLift, false);
                 log.Append($"{key}: rig mirrors {(doors != null ? doors.Count : 0)} probe {mirrors.Count} cabinHalfW {ci.Current.cabinHalfW:0.000} scale {ci.Current.scale:0.000}\n");
-                log.Append($"   widthFit {ci.Current.widthFit:0.000} eye shift {ci.EyeShiftX * 100f:0.0} cm\n");
-                eye.x += ci.EyeShiftX;
+                log.Append($"   fit3 {ci.Current.fit3} scale x/y/z {ci.Current.scale * ci.Current.widthFit:0.000}/{ci.Current.ScaleY:0.000}/{ci.Current.scale:0.000} eye shift {ci.EyeShift.x * 100f:0.0},{ci.EyeShift.y * 100f:0.0},{ci.EyeShift.z * 100f:0.0} cm\n");
+                eye += ci.EyeShift;
+                log.Append($"   grip off the drawn rim: {GripGap(ci) * 1000f:0.0} mm\n");
                 ci.PreviewMirror(cam);
                 var rv = ci.MirrorTexture;
                 var looks = new (string, float)[] { ("in_F", 0f), ("in_L", -42f), ("in_R", 52f) };
@@ -305,6 +351,48 @@ namespace PSXRacing.EditorTools
                     ci.HideShell(true);
                     PSXScreenshotTool.ShotAs(cam, $"MirrorMatch/{tag}/{key}_in_D6", t.TransformPoint(eye + new Vector3(0f, 0.06f, 0f)), rot);
                     ci.HideShell(false);
+                }
+                // the passenger mirror with the head level (the look-right pose dips)
+                {
+                    float yaw = 52f * CockpitLook.PassengerSign;
+                    var rot = t.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Cockpit), yaw, 0f);
+                    cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, 52f / CockpitLook.MaxYaw);
+                    ci.HideShell(true);
+                    if (doors != null) doors.Pose();
+                    PSXScreenshotTool.ShotAs(cam, $"MirrorMatch/{tag}/{key}_in_R0", t.TransformPoint(eye), rot);
+                    ci.HideShell(false);
+                }
+                // FORCED POSES (round 2): the body pitched 3 deg nose up / down
+                // about the rear axle, the cabin riding it, the eye a quarter
+                // (EyeFollow) - over the dash, the dark inside off and on.
+                var br = body.bodyRoot;
+                if (br != null && System.Environment.GetEnvironmentVariable("PSX_MIRROR_FORCED") != "0")
+                {
+                    Vector3 p0 = br.localPosition; Quaternion q0 = br.localRotation;
+                    var piv = new Vector3(0f, 0f, -shell.wheelbase * 0.5f);
+                    foreach (var (pname, deg) in new[] { ("up", -3f), ("dn", 3f) })
+                    {
+                        var q = Quaternion.Euler(deg, 0f, 0f);
+                        br.localRotation = q * q0;
+                        br.localPosition = piv + q * (p0 - piv);
+                        Physics.SyncTransforms();
+                        foreach (bool ins in new[] { false, true })
+                        {
+                            CockpitInterior.InsideOn = ins;
+                            Vector3 pos = t.TransformPoint(eye - ci.EyeShift);
+                            var rot = t.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Cockpit) + 6f, 0f, 0f);
+                            ci.PreviewStep(0f, ref pos, ref rot, true);
+                            cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, 0f);
+                            ci.HideShell(true);
+                            PSXScreenshotTool.ShotAs(cam, $"MirrorMatch/{tag}/{key}_in_{pname}_i{(ins ? 1 : 0)}", pos, rot);
+                            ci.HideShell(false);
+                        }
+                    }
+                    br.localPosition = p0; br.localRotation = q0;
+                    CockpitInterior.InsideOn = System.Environment.GetEnvironmentVariable("PSX_COCKPIT_INSIDE") != "0";
+                    Physics.SyncTransforms();
+                    Vector3 dp = Vector3.zero; Quaternion dq = Quaternion.identity;
+                    ci.PreviewRide(ref dp, ref dq);
                 }
                 if (rv != null) SaveRT(rv, Path.Combine(dir, $"{key}_rearview.png"));
                 ci.Show(false, false);
