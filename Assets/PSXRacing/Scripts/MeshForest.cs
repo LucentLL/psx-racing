@@ -120,8 +120,13 @@ namespace PSXRacing
         /// drew it): the pop-in round of 2026-11-11.</summary>
         public static bool PopFix = true;
         /// <summary>PopFix: each FOREST DETAIL's level distances x (LOW, MEDIUM,
-        /// HIGH): LOW 65/109/203 m, MEDIUM 91/140/240 m, HIGH 97.5/210/360 m.</summary>
-        static readonly Vector3[] PopLodMul = { new Vector3(1.55f, 1.2f, 1.3f), new Vector3(1.4f, 1f, 1f), Vector3.one };
+        /// HIGH): LOW 91/109/203 m, MEDIUM 120/140/240 m, HIGH 146/210/360 m.
+        /// Second step (fall runs from the PC26 exe): the nearest-level switch
+        /// (crowns losing branches) is the only forest level change the lag pair
+        /// can see on any setting, so only it moves again: LOW 0.40 -> 0.27 for
+        /// +0.7 M triangles, HIGH 0.12 -> 0.05 for +2.2 M (+0.55 ms GPU at 1080p);
+        /// the middle switch and the impostor swap measured no part of it.</summary>
+        static readonly Vector3[] PopLodMul = { new Vector3(2.15f, 1.2f, 1.3f), new Vector3(1.85f, 1f, 1f), new Vector3(1.5f, 1f, 1f) };
         public static Vector3 TourLodMul = Vector3.one;
         public static float TourBandShare = -1f;
         static MeshForest instance;
