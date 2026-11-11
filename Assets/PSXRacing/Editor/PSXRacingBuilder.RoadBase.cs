@@ -50,6 +50,17 @@ namespace PSXRacing.EditorTools
         internal static float RoadProfileWidth(int profile) => RoadProfiles.All[profile].Width;
         internal static string RoadSurfaceKey(CityMeshes.Surface s) => SurfaceKey(s);
 
+        /// <summary>Does this profile run between curbs (a gutter pan inside
+        /// each edge)? The city streets, two-way and one-way. Ramps, the
+        /// divided expressway rows and motorways have shoulders, not gutters;
+        /// a divided arterial drawn with an expressway row (Brookshire) gets
+        /// none until the tiles say which edges are curbed.</summary>
+        internal static bool RoadProfileCurbed(int profile)
+        {
+            var k = RoadProfiles.All[profile].kind;
+            return k == RoadProfiles.Kind.Street || k == RoadProfiles.Kind.OneWayStreet;
+        }
+
         /// <summary>The mask for one shipped road PNG (see the class comment).
         /// <paramref name="unknown"/>: texels that were neither paint, grain nor
         /// rumble.</summary>

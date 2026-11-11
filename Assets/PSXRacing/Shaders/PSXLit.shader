@@ -108,6 +108,13 @@ Shader "PSX/Lit"
         // in (first frames, 08:31: the yellow came out orange); these are linear
         [HideInInspector] _RoadPaintW ("Paint white (linear)", Vector) = (0.578,0.578,0.552,1)
         [HideInInspector] _RoadPaintY ("Paint yellow (linear)", Vector) = (0.552,0.352,0.021,1)
+        // ROUND 2: the gutter pan on a curbed street's road base, and the facade
+        // atlas's column 7 parts (TextureHD; runtime only, never saved)
+        [HideInInspector] _RoadGutter ("Gutter: x on, y road width m", Vector) = (0,0,0,0)
+        [HideInInspector] _GutterTex ("Gutter pan colour", 2D) = "grey" {}
+        [HideInInspector] _GutterNrm ("Gutter pan normal", 2D) = "bump" {}
+        [HideInInspector] _FacadePartsOn ("Facade column 7 parts on", Float) = 0
+        [HideInInspector] _FacadeParts ("Facade column 7 parts colour", 2D) = "grey" {}
         // THE TERRAIN DETAIL amounts per channel of the detail sheet (R grass,
         // G dirt, B rock, A snow): stamped at runtime from the main texture by
         // TerrainDetail.cs, never saved. The sheet and its switch are globals
@@ -400,6 +407,9 @@ Shader "PSX/Lit"
             sampler2D _RoadBaseTex, _RoadPaint;
             float _RoadBaseOn;
             float4 _RoadBaseRepeat, _RoadPaintW, _RoadPaintY;
+            sampler2D _GutterTex, _GutterNrm, _FacadeParts;
+            float4 _RoadGutter;
+            float _FacadePartsOn;
         #endif
             float4 _MainTex_ST;
             fixed4 _Color;
@@ -1657,6 +1667,11 @@ Shader "PSX/Lit"
                 float2 hdUV = uv * rbRep;
                 float2 hdDx = uvDx * rbRep, hdDy = uvDy * rbRep;
                 float rbPaint = 0.0;
+                // the gutter pan (road base) and the facade parts: where the
+                // HD maps do NOT apply on a material that wears PSX_HD (hdOff 1:
+                // a facade column other than 7), and the gutter's own normal
+                float hdOff = 0.0, rbGutter = 0.0, gSide = 1.0;
+                float2 gUV = float2(0.0, 0.0), gDx = float2(0.0, 0.0), gDy = float2(0.0, 0.0);
             #endif
                 // the repeat the lit-window hash is anchored to: the TILED uv
                 float2 winUV = uv;
@@ -1725,6 +1740,21 @@ Shader "PSX/Lit"
                 // ==== END BUILDING PASS ====
                 float4 texF = tex2Dgrad(_MainTex, uv, fdx * float2(facSub, 1.0), fdy * float2(facSub, 1.0));
                 texF.rgb = PSXTexDecode(texF.rgb, _MainTexRaw);
+              #ifdef PSX_HD
+                // THE COLUMN 7 PARTS (round 2, TextureHD): Codex's HD set for
+                // the atlas's column 7 - the same layout, 4x across and 8x up
+                // (512 x 2048) - read at the column's own coordinate; every
+                // other column keeps the atlas and takes no HD maps (hdOff)
+                {
+                    float facPartsK = facC7 * step(0.5, _FacadePartsOn);
+                    hdOff = 1.0 - facPartsK;
+                    hdUV = float2(uv.x * FACADE_COLS - facCol, uv.y);
+                    hdDx = float2(fdx.x * FACADE_COLS * facSub, fdx.y);
+                    hdDy = float2(fdy.x * FACADE_COLS * facSub, fdy.y);
+                    [branch] if (facPartsK > 0.5)
+                        texF.rgb = tex2Dgrad(_FacadeParts, hdUV, hdDx, hdDy).rgb;
+                }
+              #endif
                 fixed4 tex = texF * _Color;
                 tex.rgb *= i.facade.rgb;
                 tex.rgb *= lerp(1.0, facRevealK, facReveal);   // BUILDING PASS: a reveal, as its face is lit
@@ -1927,7 +1957,26 @@ Shader "PSX/Lit"
                     float4 pm = _RoadBaseRepeat.z > 0.5 ? tex2Dgrad(_RoadPaint, uv, pDx, pDy) : float4(0.0, 0.0, 0.5, 1.0);
                     float cov = saturate((pm.r + pm.g) * 1.5);
                     float3 paint = (_RoadPaintW.rgb * pm.r + _RoadPaintY.rgb * pm.g) / max(pm.r + pm.g, 1e-3);
-                    tex.rgb = lerp(rb * (pm.b * 2.0), paint, cov) * _Color.rgb;
+                    // the rumble, and the surface's albedo gain (TextureHDMap.BaseGain)
+                    rb *= pm.b * 2.0 * (_RoadBaseRepeat.w > 0.0 ? _RoadBaseRepeat.w : 1.0);
+                    // THE GUTTER PAN (round 2): on a curbed street, the outer metre
+                    // of each edge is Codex's gutter set (4 m along x 1 m across,
+                    // y 0 at the curb), fully over the base to 0.62 m out, gone by
+                    // 0.80 m; the lane paint still goes on top
+                    [branch] if (_RoadGutter.x > 0.5)
+                    {
+                        float wM = _RoadGutter.y;
+                        float acr = uv.x * wM;
+                        float dEdge = min(acr, wM - acr);
+                        gSide = acr < wM - acr ? 1.0 : -1.0;
+                        rbGutter = 1.0 - smoothstep(0.62, 0.80, dEdge);
+                        gUV = float2(hdUV.y, dEdge / 1.0);
+                        gDx = float2(hdDx.y, uvDx.x * wM * gSide);
+                        gDy = float2(hdDy.y, uvDy.x * wM * gSide);
+                        if (rbGutter > 0.0)
+                            rb = lerp(rb, tex2Dgrad(_GutterTex, gUV, gDx, gDy).rgb, rbGutter);
+                    }
+                    tex.rgb = lerp(rb, paint, cov) * _Color.rgb;
                     rbPaint = cov;
                 }
               #endif
@@ -2086,10 +2135,18 @@ Shader "PSX/Lit"
                 float3 hdNT = UnpackNormal(tex2Dgrad(_HDNormal, hdUV, hdDx, hdDy));
                 // road paint: thermoplastic fills the aggregate - flatter,
                 // smoother, no cavities (rbPaint 0 off the road base)
-                hdNT = lerp(hdNT, float3(0.0, 0.0, 1.0), rbPaint * 0.7);
+                // the gutter pan's own relief, turned into the road's frame (its
+                // x runs along = the road's y; its y runs away from the curb)
+                if (rbGutter > 0.0)
+                {
+                    float3 gN = UnpackNormal(tex2Dgrad(_GutterNrm, gUV, gDx, gDy));
+                    hdNT = lerp(hdNT, float3(gN.y * gSide, gN.x, gN.z), rbGutter);
+                }
+                hdNT = lerp(hdNT, float3(0.0, 0.0, 1.0), max(rbPaint * 0.7, hdOff));
                 N = normalize(hdNT.x * hdT + hdNT.y * hdB + hdNT.z * N);
-                float hdAO = lerp(tex2Dgrad(_HDAO, hdUV, hdDx, hdDy).r, 1.0, rbPaint);
-                float hdRough = lerp(tex2Dgrad(_HDRough, hdUV, hdDx, hdDy).r, 0.55, rbPaint);
+                float hdAO = lerp(tex2Dgrad(_HDAO, hdUV, hdDx, hdDy).r, 1.0, max(rbPaint, max(hdOff, rbGutter)));
+                float hdRough = lerp(lerp(tex2Dgrad(_HDRough, hdUV, hdDx, hdDy).r, 0.80, rbGutter), 0.55, rbPaint);
+                hdRough = lerp(hdRough, 1.0, hdOff);
             #endif
             #ifdef PSX_ROCKFACE
                 // THE ROAD CUT'S ROCK (owner 2026-11-11: the cuts read as "just
