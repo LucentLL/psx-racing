@@ -283,6 +283,9 @@ namespace PSXRacing.EditorTools
             kit.crown = crown;
             kit.crownBase = cbase;
             kit.cull = AssetDatabase.LoadAssetAtPath<ComputeShader>("Assets/PSXRacing/Shaders/PSXForestCull.compute");
+            // the stages' MEDIUM distances (FOREST DETAIL and PopFix scale them alike);
+            // impostors out past the baked city's ring (CityRingBaked: 9 x 9 tiles)
+            kit.lod0To = 65f; kit.lod1To = 140f; kit.meshRange = 240f; kit.farRange = 1200f;
             if (fresh) AssetDatabase.CreateAsset(kit, CityTreeKitPath);
             EditorUtility.SetDirty(kit);
             AssetDatabase.SaveAssets();

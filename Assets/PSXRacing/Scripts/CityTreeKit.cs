@@ -53,7 +53,7 @@ namespace PSXRacing
         public ComputeShader cull;
         /// <summary>The MEDIUM level distances (ForestDetailPrefs and PopFix scale
         /// them as the stages').</summary>
-        public float lod0To = 65f, lod1To = 140f, meshRange = 240f, farRange = 700f;
+        public float lod0To = 65f, lod1To = 140f, meshRange = 240f, farRange = 1200f;
 
         static CityTreeKit cached;
         static bool tried;

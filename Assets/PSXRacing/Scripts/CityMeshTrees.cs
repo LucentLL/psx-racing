@@ -52,13 +52,14 @@ namespace PSXRacing.City
         /// <summary>Plants a slot holds (a tile plants at most CityTrees.MaxPerTile,
         /// plus its street trees).</summary>
         const int PerSlot = 480;
-        const int FirstSlots = 40;
+        const int FirstSlots = 96;   // the baked city's 9 x 9 ring (PlatformProfile.CityRingBaked) and its anchors
 
         CityTreeKit kit;
         CityWorld world;
         MeshForest forest;
         readonly Dictionary<long, List<MeshForest.PoolPlant>> plantsOf = new Dictionary<long, List<MeshForest.PoolPlant>>();
         readonly Dictionary<long, int> slotOf = new Dictionary<long, int>();
+        readonly Dictionary<long, Transform> tileOf = new Dictionary<long, Transform>();
         readonly List<long> pending = new List<long>();
         readonly Dictionary<long, CityTrees.TreeTile> frames = new Dictionary<long, CityTrees.TreeTile>();
         /// <summary>The tree frame a tile was fitted from (tools: its poles and signals).</summary>
@@ -129,7 +130,7 @@ namespace PSXRacing.City
 
         void MakeForest(int slots)
         {
-            if (forest != null) Destroy(forest.gameObject);
+            if (forest != null) { if (Application.isPlaying) Destroy(forest.gameObject); else DestroyImmediate(forest.gameObject); }
             forest = MeshForest.CreatePool(null, kit.variants, slots, PerSlot, kit.lod0To, kit.lod1To, kit.meshRange, kit.farRange,
                                            CityTrees.DressNow, kit.cull);
             slotOf.Clear();
@@ -153,9 +154,9 @@ namespace PSXRacing.City
             // a tile dropped: its card renderer went with it
             List<long> gone = null;
             foreach (var kv in slotOf)
-                if (forest.PoolCardsGone(kv.Value)) (gone ??= new List<long>()).Add(kv.Key);
+                if (!tileOf.TryGetValue(kv.Key, out var tr) || tr == null) (gone ??= new List<long>()).Add(kv.Key);
             if (gone != null)
-                foreach (var k in gone) { forest.PoolRelease(slotOf[k]); slotOf.Remove(k); plantsOf.Remove(k); frames.Remove(k); }
+                foreach (var k in gone) { forest.PoolRelease(slotOf[k]); slotOf.Remove(k); plantsOf.Remove(k); frames.Remove(k); tileOf.Remove(k); }
             for (int i = pending.Count - 1; i >= 0; i--)
             {
                 long key = pending[i];
@@ -164,16 +165,9 @@ namespace PSXRacing.City
                 var tile = world.transform.Find("Tile_" + tx + "_" + tz);
                 if (tile == null) { if (Application.isPlaying && Time.frameCount % 120 == 0) { pending.RemoveAt(i); plantsOf.Remove(key); } continue; }
                 var cardT = tile.Find("Trees");
-                var cards = cardT != null ? cardT.GetComponents<Renderer>() : new Renderer[0];
-                if (cards.Length == 0)
-                {
-                    // no card mesh (nothing left to draw): the slot still needs something to watch
-                    var mr = tile.GetComponentInChildren<Renderer>();
-                    cards = mr != null ? new[] { mr } : new Renderer[0];
-                    if (cards.Length == 0) { pending.RemoveAt(i); continue; }
-                    // (that renderer is not a card: the slot must never hide it)
-                    if (plants.Count == 0) { pending.RemoveAt(i); continue; }
-                }
+                var cards = cardT != null ? cardT.GetComponents<Renderer>() : null;
+                if (plants.Count == 0) { pending.RemoveAt(i); continue; }
+                tileOf[key] = tile;   // (the slot is given back when the tile is destroyed)
                 if (slotOf.TryGetValue(key, out int old)) { forest.PoolRelease(old); slotOf.Remove(key); }
                 var c = new Vector3((tx + 0.5f) * CityMeshes.TileSize, 0f, (tz + 0.5f) * CityMeshes.TileSize);
                 float lo = float.MaxValue, hi = float.MinValue, rad = 0f;
@@ -181,7 +175,7 @@ namespace PSXRacing.City
                 if (plants.Count == 0) { lo = 0f; hi = 1f; }
                 c.y = (lo + hi) * 0.5f;
                 rad = Mathf.Sqrt(2f) * CityMeshes.TileSize * 0.5f + 20f + (hi - lo) * 0.5f;
-                int slot = forest.PoolFill(c, rad, cardT != null ? cards : null, plants, out int kept);
+                int slot = forest.PoolFill(c, rad, cards, plants, out int kept);
                 if (slot < 0)
                 {
                     // full: twice the slots, every live tile again
@@ -232,6 +226,7 @@ namespace PSXRacing.City
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var map = world.Map;
             Physics.SyncTransforms();
+            TileBuildings(tt.tx, tt.tz);
             var plants = new List<MeshForest.PoolPlant>(tt.trees.Count);
             var keep = new List<CityTrees.Tree>(tt.trees.Count);
             int solids = 0;
@@ -256,6 +251,30 @@ namespace PSXRacing.City
         /// <summary>The plants a tile frame was given (tools).</summary>
         public List<MeshForest.PoolPlant> PlantsOf(long key) => plantsOf.TryGetValue(key, out var l) ? l : null;
         public IEnumerable<long> FittedKeys => plantsOf.Keys;
+
+        readonly List<CityBuildings.B> tileBlds = new List<CityBuildings.B>(256);
+
+        /// <summary>The buildings any crown of tile (tx, tz) could reach: its own
+        /// and its neighbours' within 40 m of it.</summary>
+        void TileBuildings(int tx, int tz)
+        {
+            tileBlds.Clear();
+            var blds = world.Buildings;
+            if (blds == null) return;
+            float x0 = tx * CityMeshes.TileSize - 40f, z0 = tz * CityMeshes.TileSize - 40f, x1 = x0 + CityMeshes.TileSize + 80f, z1 = z0 + CityMeshes.TileSize + 80f;
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    long k = ((long)(tx + dx) << 24) ^ ((tz + dz) & 0xFFFFFF);
+                    if (!blds.TryGetValue(k, out var list)) continue;
+                    foreach (var b in list)
+                    {
+                        float r = Mathf.Max(b.w, b.d);
+                        if (b.pos.x + r < x0 || b.pos.x - r > x1 || b.pos.y + r < z0 || b.pos.y - r > z1) continue;
+                        tileBlds.Add(b);
+                    }
+                }
+        }
 
         static float H(Vector3 f, int salt) => CityTrees.Hash01(Mathf.RoundToInt(f.x * 4f), Mathf.RoundToInt(f.z * 4f), salt);
 
@@ -341,31 +360,21 @@ namespace PSXRacing.City
                 if (Vector2.Distance(p, a + d * tt0) > reach + hw) continue;
                 roads.Add(new RoadSeg { a = a, b = b, hw = hw, y = e.YAt(e.s[si] + Mathf.Sqrt(L2) * tt0) });
             }
-            // BUILDINGS of this tile and its neighbours (data: drawn or not yet)
-            var blds = world.Buildings;
-            if (blds != null)
+            // BUILDINGS of this tile and its neighbours (data: drawn or not yet;
+            // the tile's own short list, made once a frame - TileBuildings)
+            foreach (var b in tileBlds)
             {
-                int tx = Mathf.FloorToInt(foot.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(foot.z / CityMeshes.TileSize);
-                for (int dz = -1; dz <= 1; dz++)
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        long k = ((long)(tx + dx) << 24) ^ ((tz + dz) & 0xFFFFFF);
-                        if (!blds.TryGetValue(k, out var list)) continue;
-                        foreach (var b in list)
-                        {
-                            float r = Mathf.Max(b.w, b.d) * 0.75f;
-                            if ((b.pos - p).sqrMagnitude > (reach + r + 3f) * (reach + r + 3f)) continue;
-                            float cy = Mathf.Cos(b.yaw), sy = Mathf.Sin(b.yaw);
-                            bool house = b.gable || CityProps.IsHome(b.kind);
-                            float m = house ? HouseMargin : BuildingMargin;
-                            float roof = b.gable ? 0.45f * Mathf.Min(b.w, b.d) : 0f;
-                            boxes.Add(new Box
-                            {
-                                c = b.pos, u = new Vector2(cy, -sy), v = new Vector2(sy, cy), hu = b.w * 0.5f + m, hv = b.d * 0.5f + m,
-                                y0 = foot.y - 3f, y1 = foot.y + b.h + roof + (house ? 1.5f : 1f), why = 1,
-                            });
-                        }
-                    }
+                float r = Mathf.Max(b.w, b.d) * 0.75f;
+                if ((b.pos - p).sqrMagnitude > (reach + r + 3f) * (reach + r + 3f)) continue;
+                float cy = Mathf.Cos(b.yaw), sy = Mathf.Sin(b.yaw);
+                bool house = b.gable || CityProps.IsHome(b.kind);
+                float m = house ? HouseMargin : BuildingMargin;
+                float roof = b.gable ? 0.45f * Mathf.Min(b.w, b.d) : 0f;
+                boxes.Add(new Box
+                {
+                    c = b.pos, u = new Vector2(cy, -sy), v = new Vector2(sy, cy), hu = b.w * 0.5f + m, hv = b.d * 0.5f + m,
+                    y0 = foot.y - 3f, y1 = foot.y + b.h + roof + (house ? 1.5f : 1f), why = 1,
+                });
             }
             // POLES, WIRES AND COBRA-HEADS (this tile's)
             if (tt.poles != null)
