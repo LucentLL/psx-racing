@@ -218,9 +218,12 @@ namespace PSXRacing
         public static float HubMax(CarModelDef def, CarModelLibrary.ShellFit f, int i, float steerDeg = 0f)
         {
             if (def == null) return float.PositiveInfinity;
+            // + the arch flare the fit gave this axle (ArchFlare: a borrowed
+            // shell's arch raised to take the sheet's tyre).
             if (ArchHubs.TryShellHubMax(f, i, steerDeg, out float exact))
-                return float.IsPositiveInfinity(exact) ? exact : exact + f.dy;
-            return FieldHubMax(def, f, i, steerDeg);
+                return float.IsPositiveInfinity(exact) ? exact : exact + f.dy + f.Flare(i);
+            float field = FieldHubMax(def, f, i, steerDeg);
+            return float.IsPositiveInfinity(field) ? field : field + f.Flare(i);
         }
 
         /// <summary>HubMax off the field alone (the bake compares against it).</summary>

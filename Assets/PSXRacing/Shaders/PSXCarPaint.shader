@@ -556,6 +556,7 @@ Shader "PSX/CarPaint"
             // 1) at night, at dusk and in every scene that set no hour.
             #include "PSXSunShadow.cginc"
             #include "PSXFogRing.cginc"
+            #include "PSXArchFlare.cginc"
 
             struct appdata
             {
@@ -585,6 +586,7 @@ Shader "PSX/CarPaint"
             v2f vert (appdata v)
             {
                 v2f o;
+                v.vertex.xyz = PSXArchFlare(v.vertex.xyz);   // borrowed shell, bigger tyre (ArchFlare.cs)
                 float4 clipPos = UnityObjectToClipPos(v.vertex);
 
             #ifndef PSX_CAR_HD

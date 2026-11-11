@@ -313,6 +313,12 @@ namespace PSXRacing
             /// and the sheet's whole-millimetre geometry. Null on a default fit.</summary>
             public string tableKey;
 
+            /// <summary>How far the bodywork over each axle is raised so the
+            /// sheet's tyre fits a borrowed shell's arch at rest (m, 0 = fits).
+            /// See <see cref="ArchFlare"/>.</summary>
+            public float flareF, flareR;
+            public float Flare(int i) => i < 2 ? flareF : flareR;
+
             public float Track(int i) => i < 2 ? trackF : trackR;
             public float Radius(int i) => i < 2 ? radiusF : radiusR;
             public float Camber(int i) => i < 2 ? camberF : camberR;
@@ -387,12 +393,16 @@ namespace PSXRacing
             public int widthMm, wheelbaseMm, trackFMm, trackRMm;
             public int tyreFDiaMm, tyreRDiaMm, tyreFWidthMm, tyreRWidthMm;
             public string drv;
+            /// <summary>The sheet's ride rake (m, rear minus front), so the arch
+            /// flare knows each axle's static hub (ArchFlare.Solve).</summary>
+            public float rakeM;
 
             public static SpecGeometry Of(CarSpec s) => s == null ? default : new SpecGeometry
             {
                 widthMm = s.widthMm, wheelbaseMm = s.wheelbaseMm, trackFMm = s.trackFMm, trackRMm = s.trackRMm,
                 tyreFDiaMm = s.tyreFDiaMm, tyreRDiaMm = s.tyreRDiaMm,
                 tyreFWidthMm = s.tyreFWidthMm, tyreRWidthMm = s.tyreRWidthMm, drv = s.drv,
+                rakeM = CarController.RideRakeOf(s),
             };
             public static SpecGeometry WidthOnly(int widthMm) => new SpecGeometry { widthMm = widthMm };
         }
@@ -469,6 +479,7 @@ namespace PSXRacing
             }
             ReportFence(def, f, wantX, wantZ);
             f.tableKey = TableKey(def.key, g);
+            ArchFlare.Solve(def, ref f, g.rakeM);
             return f;
         }
 

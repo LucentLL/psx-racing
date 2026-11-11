@@ -107,16 +107,20 @@ namespace PSXRacing.EditorTools
         public static void ArchSweep()
         {
             var sb = new StringBuilder();
-            int bad = 0, field = 0, rows = 0;
+            int bad = 0, field = 0, rows = 0, flared = 0;
             sb.AppendLine("row | shell | source | hubMax F / R mm | hub at rest F / R mm | room F / R mm");
             foreach (var spec in CarCatalog.All)
             {
                 var def = CarShell.DefFor(spec);
                 if (def == null) continue;
                 rows++;
-                var f = CarModelLibrary.Fit(def, spec);
+                // As a DRIVEN car wears it: seated on hubs at StockHubRest
+                // (CarBody.Lifted) - the frame CarBodyLean seats in.
+                var f = CarBody.Lifted(CarModelLibrary.Fit(def, spec));
                 bool exact = ArchHubs.TryShellHubMax(f, 0, 0f, out _);
-                float hF = ArchCeilings.HubMax(def, f, 0), hR = ArchCeilings.HubMax(def, f, 2);
+                // both wheels of an axle, less the seat's 2 mm paint margin
+                float hF = Mathf.Min(ArchCeilings.HubMax(def, f, 0), ArchCeilings.HubMax(def, f, 1)) - 0.002f;
+                float hR = Mathf.Min(ArchCeilings.HubMax(def, f, 2), ArchCeilings.HubMax(def, f, 3)) - 0.002f;
                 float split = CarController.RideRakeOf(spec) + (f.radiusF - f.radiusR);
                 float restF = CarController.StockHubRest + 0.5f * split, restR = CarController.StockHubRest - 0.5f * split;
                 // the physics' hub is the same height whatever the tyre: the mounts
@@ -125,12 +129,14 @@ namespace PSXRacing.EditorTools
                 bool low = roomF < 0f || roomR < 0f;
                 if (!exact) field++;
                 if (low) bad++;
-                if (low || !exact)
-                    sb.AppendLine(string.Format("{0} | {1} | {2} | {3:0} / {4:0} | {5:0} / {6:0} | {7:0} / {8:0}{9}",
+                if (f.flareF > 0f || f.flareR > 0f) flared++;
+                if (low || !exact || f.flareF > 0f || f.flareR > 0f)
+                    sb.AppendLine(string.Format("{0} | {1} | {2} | {3:0} / {4:0} | {5:0} / {6:0} | {7:0} / {8:0} | arch flare {10:0} / {11:0} mm{9}",
                         spec.id, def.key, exact ? "exact" : "FIELD", hF * 1000f, hR * 1000f, restF * 1000f, restR * 1000f,
-                        roomF * 1000f, roomR * 1000f, low ? "   <- SEATED HIGH AT REST" : ""));
+                        roomF * 1000f, roomR * 1000f, low ? "   <- SEATED HIGH AT REST" : "", f.flareF * 1000f, f.flareR * 1000f));
             }
-            sb.Insert(0, string.Format("{0} rows; {1} on the field (no exact ArchHubs row for their sheet); {2} with a tyre over its arch at rest\n", rows, field, bad));
+            sb.Insert(0, string.Format("{0} rows; {1} on the field (no exact ArchHubs row for their sheet); {2} with a tyre over its arch at rest; {3} with an arch flare (ArchFlare)\n{4}\n",
+                rows, field, bad, flared, bad == 0 ? "GATE ok: no row seated high at rest" : "GATE FAIL: " + bad + " row(s) seated high at rest"));
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_arch_sweep.txt"), sb.ToString());
             Debug.Log(sb.ToString());
         }
@@ -139,6 +145,7 @@ namespace PSXRacing.EditorTools
         /// <paramref name="key"/>.</summary>
         internal static CarSpec SpecFor(string key)
         {
+            if (key.Contains("__") && CarCatalog.Get(key) != null) return CarCatalog.Get(key);   // a catalogue row by id
             // The rows the owner drives / the sweep's worst for each new shell
             // (PSXRacing_arch_sweep.txt), else the first road car wearing it.
             var pick = new Dictionary<string, string>
@@ -262,8 +269,10 @@ namespace PSXRacing.EditorTools
             {
                 bool after = mode == "after";
                 CarController.LeftCarRules = after;
+                ArchFlare.On = after;
                 foreach (var key in keys)
                 {
+                    if (key == "none") continue;
                     var spec = ParkedPlayCheck.SpecFor(key);
                     if (spec == null) { Check(false, key + ": no catalogue car wears it"); continue; }
                     foreach (var surface in new[] { "lot", "slope" })
@@ -274,7 +283,116 @@ namespace PSXRacing.EditorTools
                 }
             }
             Time.timeScale = 1f;
+            yield return SideOn(modes);
+            ArchFlare.On = true;
             Done();
+        }
+
+        /// <summary>
+        /// TRUE SIDE-ON at noon on open level ground: each PSX_PARK_SIDE car
+        /// (a body key or a catalogue id) settled with the driver in, the camera
+        /// square to its left flank at hub height. Writes side_{mode}_{car}.png
+        /// and a sidecar .txt with the screen pixels of each tyre top and each
+        /// arch crown (as the shell stands now), so the sheet can draw the line.
+        /// </summary>
+        IEnumerator SideOn(string[] modes)
+        {
+            var list = ParkedPlayCheck.Env("PSX_PARK_SIDE", new[] {
+                "toyota_celica_1600gt__ta22___70", "alpine_a110_1600s__73", "minolta_toyota_88c_v_race_car__89",
+                "civic_eg", "flatsix_coupe", "viper_gts" });
+            if (list.Length == 1 && list[0] == "none") yield break;
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            if (globals != null && globals.sun != null) { TimeOfDay.Apply(TimeOfDay.Noon, globals.sun); globals.Apply(); }
+            var pad = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            pad.name = "ParkCheckPad";
+            pad.transform.position = new Vector3(-400f, 300f, -250f);
+            pad.transform.localScale = new Vector3(60f, 1f, 60f);
+            pad.layer = 0;
+            Log.AppendLine("SIDE-ON (noon, level pad): mode car row | lift over front axle mm | shell pitch deg | gapF gapR mm | flare F/R mm");
+            foreach (var mode in modes)
+            {
+                bool after = mode == "after";
+                CarController.LeftCarRules = after;
+                ArchFlare.On = after;
+                foreach (var item in list)
+                {
+                    var spec = CarCatalog.Get(item) ?? ParkedPlayCheck.SpecFor(item);
+                    if (spec == null) { Log.AppendLine("  no car " + item); continue; }
+                    yield return GetIn();
+                    RaceHandoff.CarSpecId = spec.id;
+                    applier.SwapCar();
+                    body = car.GetComponent<CarBody>();
+                    car.ResetTo(pad.transform.position + Vector3.up * 0.8f, Quaternion.identity);
+                    yield return Wait(3f);
+                    var fit = CarModelLibrary.Fit(body.Def, spec);
+                    Log.AppendLine(string.Format("  {0} {1} {2} | {3:0.0} | {4:+0.00;-0.00} | {5:0.0} {6:0.0} | {7:0} / {8:0}",
+                        mode, body.Def.key, spec.id, ShellLiftFront() * 1000f, ShellPitchDeg(), GapAxle(true) * 1000f, GapAxle(false) * 1000f,
+                        fit.flareF * 1000f, fit.flareR * 1000f));
+                    if (after)
+                        Check(Mathf.Abs(ShellLiftFront()) < 0.003f && Mathf.Abs(ShellPitchDeg()) < 0.1f,
+                              spec.id + ": level on its seat at rest (side-on pad)",
+                              string.Format("lift {0:0.0} mm, pitch {1:+0.00;-0.00} deg", ShellLiftFront() * 1000f, ShellPitchDeg()));
+                    string name = "side_" + mode + "_" + (item.Contains("__") ? item : body.Def.key);
+                    yield return SideShot(name);
+                }
+            }
+            Object.Destroy(pad);
+        }
+
+        IEnumerator SideShot(string name)
+        {
+            yield return new WaitForEndOfFrame();
+            var cam = fm.raceCamera != null ? fm.raceCamera : Camera.main;
+            if (cam == null) yield break;
+            var keepPos = cam.transform.position; var keepRot = cam.transform.rotation;
+            float keepFov = cam.fieldOfView;
+            Transform t = car.transform;
+            float hubY = 0.5f * (car.PhysicsHubY(0) + car.PhysicsHubY(2));
+            Vector3 aim = t.TransformPoint(new Vector3(0f, hubY + 0.25f, 0f));
+            Vector3 eye = t.TransformPoint(new Vector3(-9f, hubY + 0.25f, 0f));
+            cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(aim - eye, Vector3.up));
+            cam.fieldOfView = 30f;
+            var target = cam.targetTexture;
+            int w = target != null ? target.width : 960, h = target != null ? target.height : 540;
+            // the marks: each tyre top (drawn hub + radius) and each arch crown as the shell stands
+            var sbm = new StringBuilder();
+            sbm.AppendLine(w + " " + h);
+            for (int i = 0; i < 4; i += 2)
+            {
+                var hub = car.wheelHubs[i] != null ? car.wheelHubs[i].localPosition : Vector3.zero;
+                Vector3 tyre = t.TransformPoint(new Vector3(hub.x, hub.y + car.WheelRadiusOf(i), hub.z));
+                Vector3 arch = t.TransformPoint(new Vector3(hub.x, hub.y + Gap(i) + car.WheelRadiusOf(i), hub.z));
+                Vector3 st = cam.WorldToScreenPoint(tyre), sa = cam.WorldToScreenPoint(arch);
+                // ScreenPoint is for the camera's pixel rect; scale to the shot
+                float kx = w / (float)cam.pixelWidth, ky = h / (float)cam.pixelHeight;
+                sbm.AppendLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0} tyre {1:0.0} {2:0.0} arch {3:0.0} {4:0.0}",
+                    i < 2 ? "F" : "R", st.x * kx, h - st.y * ky, sa.x * kx, h - sa.y * ky));
+            }
+            Directory.CreateDirectory(OutDir);
+            File.WriteAllText(Path.Combine(OutDir, name + ".txt"), sbm.ToString());
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
+            rt.Create();
+            StreetLights.Push(cam.transform.position, cam.transform.forward);
+            var request = new RenderPipeline.StandardRequest { destination = rt };
+            if (RenderPipeline.SupportsRenderRequest(cam, request))
+            {
+                RenderPipeline.SubmitRenderRequest(cam, request);
+                var shown = PSXScreenshotTool.Dithered(rt);
+                var prev = RenderTexture.active;
+                RenderTexture.active = shown;
+                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev == rt || prev == shown ? null : prev;
+                if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
+                File.WriteAllBytes(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
+                Object.DestroyImmediate(tex);
+            }
+            cam.targetTexture = target;
+            cam.transform.SetPositionAndRotation(keepPos, keepRot);
+            cam.fieldOfView = keepFov;
+            rt.Release();
+            Object.DestroyImmediate(rt);
         }
 
         /// <summary>A free stall (not a meet seat) whose back-to-back partner
@@ -405,7 +523,7 @@ namespace PSXRacing.EditorTools
                 0.5f * (car.HubMax(0) + car.HubMax(1)) * 1000f, 0.5f * (car.HubMax(2) + car.HubMax(3)) * 1000f));
             if (grade && surface == "lot")
             {
-                Check(Mathf.Abs(shellPitch0) < 0.5f && Mathf.Abs(lift0) < 0.010f,
+                Check(Mathf.Abs(shellPitch0) < 0.1f && Mathf.Abs(lift0) < 0.003f,
                       key + ": at rest the shell sits on its plain seat (no nose-up)", string.Format("lift {0:0.0} mm, pitch {1:+0.00;-0.00} deg", lift0 * 1000f, shellPitch0));
                 Check(Mathf.Abs(chassisPitch0) < 1.0f, key + ": at rest the chassis is level within 1 deg", chassisPitch0.ToString("+0.00;-0.00"));
             }
