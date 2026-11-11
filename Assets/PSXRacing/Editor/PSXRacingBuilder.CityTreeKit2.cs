@@ -32,7 +32,7 @@ namespace PSXRacing.EditorTools
     {
         /// <summary>Triangle budget of the near, mid and low mesh levels.</summary>
         internal static readonly int[] CTBudget = { 6500, 3000, 1300 };
-        internal static readonly int[] CTOakBudget = { 11000, 4500, 2000 };
+        internal static readonly int[] CTOakBudget = { 8000, 3600, 1500 };
 
         /// <summary>A street form: width of the crown (share), and where the
         /// crown starts afterwards (share of the new height).</summary>

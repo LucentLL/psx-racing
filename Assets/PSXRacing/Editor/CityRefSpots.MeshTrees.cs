@@ -328,7 +328,17 @@ namespace PSXRacing.EditorTools
             float sf = Mathf.Clamp(s - 150f * dirSign, 0f, e.length);
             var pf = e.PointAt(sf);
             farEye = new Vector3(pf.x, e.YAt(sf) + 1.6f, pf.y) + right * (-lane);
-            if (Vector3.Distance(farEye, eye) < 60f) farEye = eye - fwd * 150f + Vector3.up * 0.5f;
+            // (a short edge: the road nearest the point 150 m back, not a spot by a wall)
+            if (Vector3.Distance(farEye, eye) < 140f)
+            {
+                var back = new Vector2(eye.x, eye.z) - new Vector2(fwd.x, fwd.z) * 150f;
+                if (map.NearestRoadPoint(back, 80f, false, out int bi, out float bs, out _))
+                {
+                    var be = map.edges[bi]; var bp = be.PointAt(bs);
+                    farEye = new Vector3(bp.x, be.YAt(bs) + 1.6f, bp.y);
+                }
+                else farEye = eye - fwd * 150f + Vector3.up * 0.5f;
+            }
             return true;
         }
 
