@@ -1,3 +1,12 @@
+# HANDOFF - THE PARTS SHELF, ROUND 2 (junkyard-spares, 2026-11-11; layout by "no text may clip")
+
+- Lists that never rest on a cut row: `LifeSim/BlockSnap.cs` (new). A whole number of fixed-height blocks per viewport, one wheel notch = one block, drags settle on a block edge, the pad/keyboard cursor scrolls its whole block into view, "N MORE ABOVE / BELOW" cues. Used by the wreck page (block 94 + 4: five parts at 16:9 and 4:3, three on a phone; list from under the header to the footer) and by STORED PARTS (100 + 6) and PICK A CAR (76 + 6), each a list inside its page sized to the room above the exit row.
+- One line per reason, with shorter fallbacks chosen by measured width (no ellipsis anywhere). Turbo refusal is now "turbo part - this engine is NA". The pick-a-car row has no empty line above its reason.
+- Mechanic page: the side panel's car name wraps instead of being cut; the page header wraps to the column.
+- Selling a car with a spare going on: `Spares.ReturnJobsToShelf` (job carries `PendingPart.spare`) in QuickSell, AcceptOffer and the debug loaner swap. QuickSell already refused a car with work on it; a buyer's offer did not, and that path lost the part. It comes back even past capacity; mechanic labour is not refunded.
+- Pad: `SparesPreview.PadWalk` (camera at 1 world unit = 1 px so MenuNav's line test is the game's): wreck page 11/11 controls reached, FIT<->KEEP left/right 5/5, last row's block fully shown on a block edge (phone: list moves 196 = 2 blocks, cue "2 MORE ABOVE"). STORED PARTS 10/10, PICK 3/3, car page 10/10, parts page 16/16, MY CARS 10/10, mechanic with BRING YOUR OWN PART 18/18 (LifeHomePreview.CheckNavReach). Not driven in play mode.
+- Checks: CLIP total 0 on every new shot; self-test 65 failures = the base's set; spares checks all ok incl. the sale path.
+
 # HANDOFF - THE PARTS SHELF (junkyard-spares, 2026-11-11; NOT pushed, NOT merged)
 
 Branch `junkyard-spares` (worktree `C:\Users\mcgee\PSX Racing-parts`) off mountain-nm c81f2a59. Sandbox PSXRec (lock "spares", released). Owner, at a wreck refusing four pulls with "already maxed": "What if I want a spare part for when the Civic part needs to be replaced? What if I have multiple Civics? What if I don't have a Civic right now, but I plan to buy one and want to store parts in preparation?"

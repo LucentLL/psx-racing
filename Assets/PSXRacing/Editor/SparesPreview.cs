@@ -221,6 +221,12 @@ namespace PSXRacing.EditorTools
                 // The yard at dusk stands in for the world behind the page.
                 cam.backgroundColor = new Color(0.30f, 0.29f, 0.26f);
                 cam.orthographic = true;
+                // One world unit = one pixel, as on the game's overlay canvas:
+                // MenuNav's line test has a 4-unit floor in WORLD units, and at
+                // the default size (5) the whole page is under 10 units tall and
+                // reads as one line - which is the pad graph the walk would test.
+                cam.orthographicSize = size.h * 0.5f;
+                cam.farClipPlane = 100f;
                 var rt = new RenderTexture(size.w, size.h, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
                 cam.targetTexture = rt;
                 MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
@@ -325,6 +331,17 @@ namespace PSXRacing.EditorTools
                           (lost.Count > 0 ? " UNREACHABLE: " + string.Join(", ", lost) : "") +
                           "; FIT<->KEEP left/right " + pairsOk + "/" + pairs;
             if (lost.Count > 0 || pairsOk < pairs) Debug.LogError(line); else Debug.Log(line);
+            foreach (var r in rows)
+            {
+                if (!r.name.EndsWith("_0") && !r.name.Contains("STRAIGHTEN")) continue;
+                var n = r.navigation;
+                var rt = (RectTransform)r.transform;
+                Debug.Log("[Spares] nav " + where + " " + r.name + " y " + rt.TransformPoint(rt.rect.center).y.ToString("0.000") +
+                          " x " + rt.TransformPoint(rt.rect.center).x.ToString("0.000") + " mode " + n.mode +
+                          " L " + (n.selectOnLeft ? n.selectOnLeft.name : "-") + " R " + (n.selectOnRight ? n.selectOnRight.name : "-") +
+                          " U " + (n.selectOnUp ? n.selectOnUp.name : "-") + " D " + (n.selectOnDown ? n.selectOnDown.name : "-") +
+                          " lines " + MenuNav.Lines(rows).Count);
+            }
 
             if (snap == null) return;
             Selectable last = null;
