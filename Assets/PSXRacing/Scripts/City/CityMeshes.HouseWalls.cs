@@ -67,6 +67,20 @@ namespace PSXRacing.City
             return Mathf.Abs(a) * 0.5f >= BlockMinAreaM2;
         }
 
+        /// <summary>A block drawn as Charlotte's 1980s-90s condo / townhouse
+        /// row (the N Graham St pair: lap siding over a brick ground storey,
+        /// a pitched roof): four storeys at most, under 4,000 m2, and an oblong
+        /// (its plan fills 85 % of its oriented box, so the gable roof on the
+        /// box covers it). Others stay the flat-roofed brick block.</summary>
+        public static bool HouseBlockSiding(CityMap.Footprint f)
+        {
+            if (f == null || f.h > 14f || f.hu <= 0f || f.hv <= 0f) return false;
+            float a = 0f;
+            for (int i = 0, n = f.pts.Length; i < n; i++) { var p = f.pts[i]; var q = f.pts[(i + 1) % n]; a += p.x * q.y - q.x * p.y; }
+            a = Mathf.Abs(a) * 0.5f;
+            return a < 4000f && a >= 0.85f * 4f * f.hu * f.hv && f.hv >= 4f;
+        }
+
         // ---- the siding texture's layout (city_facade_house, every tier) ----
         const float HouseRepU = 6f, HouseRepV = 3.1f;
         public const float HouseWinU0 = 0.3125f, HouseWinU1 = 0.6875f, HouseWinV0 = 0.25f, HouseWinV1 = 0.75f;
@@ -120,7 +134,26 @@ namespace PSXRacing.City
                 }
             }
             float y = y0;
-            for (int s = 0; s < storeys; s++)
+            int s0 = 0;
+            if (houseBrickLook >= 0 && avail > 2.2f && (!houseBrickBase || storeys > 1))
+            {
+                // BRICK: the atlas's brick column, one whole floor row a storey
+                // (whole repeats along, so its windows are whole), the courses
+                // under the floor in concrete block; all storeys, or (a block's
+                // brick base) the ground storey only
+                int stB = Mathf.Max(1, Mathf.FloorToInt(avail / HouseMinStoreyM + 0.0001f));
+                int nb = houseBrickBase ? 1 : stB;
+                float pb = houseBrickBase ? pitch : avail / stB;
+                if (floor > y0 + 0.01f) HouseFoundation(tm, a, c, y0, floor, outward);
+                var keep = Bucket.Tint;
+                PickFacade(houseBrickAt, 2, 2, 2, default, floor, pb);
+                HouseBrickLookSet(houseBrickAt);
+                for (int k = 0; k < nb; k++) EmitFacadeQuad(tm, Slot.FacadeGlass, a, c, floor + k * pb, floor + (k + 1) * pb, outward);
+                Bucket.Tint = keep; Bucket.FacOn = false;
+                y = floor + nb * pb; s0 = nb;
+                if (!houseBrickBase) { if (y1 > y + 0.01f) HousePlain(tm, a, c, y, y1, outward, uPlain, true); return; }
+            }
+            for (int s = s0; s < storeys; s++)
             {
                 float ws = floor + s * pitch + sill, we = ws + winH;
                 if (we > y1 - HouseHeadClearM + 0.001f) break;
@@ -184,6 +217,54 @@ namespace PSXRacing.City
                     bk.Tri(L(lb, t, tm), L(rb, t, tm), L(ra, y, tm), new Vector2(uLb, v1), new Vector2(uRb, v1), new Vector2(uRa, v0));
                 }
             }
+        }
+
+        // ---- BRICK HOUSES (PSX_CITY_HOUSEBRICK) ----
+        public static bool HouseBrickOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEBRICK") != "0";
+        /// <summary>The atlas brick column the house being emitted wears (-1: siding).</summary>
+        static int houseBrickLook = -1;
+        /// <summary>...on its ground storey only (a siding block's brick base).</summary>
+        static bool houseBrickBase;
+        static Vector2 houseBrickAt;
+        /// <summary>The house brick columns: the old brick, red-brown sash, mottled, tan brick.</summary>
+        static readonly int[] HouseBrickLooks = { LookBrick, LookRedSash, LookMottled, LookTanBrick };
+
+        /// <summary>Is the house at <paramref name="c"/> brick? A neighbourhood
+        /// (a 350 m cell) is mostly brick, mixed or mostly siding (the brick
+        /// ranch streets of the 1950s-60s beside the siding bungalows of the
+        /// streetcar suburbs); a one-storey house is a little likelier brick.</summary>
+        static int HouseBrickChoose(Vector2 c, bool oneStorey)
+        {
+            if (!HouseBrickOn) return -1;
+            int cx = Mathf.FloorToInt(c.x / 350f), cz = Mathf.FloorToInt(c.y / 350f);
+            uint nb = HouseHash(cx, cz, 23u);
+            float share = (nb & 3u) == 0u ? 0.15f : (nb & 3u) == 1u ? 0.45f : 0.75f;
+            if (oneStorey) share += 0.1f;
+            uint hh = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 29u);
+            if ((hh & 0xFFFF) / 65536f >= share) return -1;
+            // one or two brick colours a neighbourhood
+            int i = (int)(((nb >> 4) + ((hh >> 16) & 1u)) % (uint)HouseBrickLooks.Length);
+            return HouseBrickLooks[i];
+        }
+
+        /// <summary>After PickFacade: the chosen brick column, its palette tint, a home's lights.</summary>
+        static void HouseBrickLookSet(Vector2 c)
+        {
+            int look = houseBrickLook;
+            uint h = FacadeHash(c);
+            facLook = look;
+            FacadeStructure(look, 0, h, facFloorH);
+            var pal = LookPalette[look];
+            var k = pal[(int)((h >> 8) % (uint)pal.Length)];
+            Bucket.Tint = new Color32(TintR(k.x, look), TintByte(k.y), TintByte(k.z), (byte)((look & 7) * 32 + FacadeHomeBit));
+        }
+
+        /// <summary>The courses under a brick house's floor: concrete block (the flat-roof concrete).</summary>
+        static void HouseFoundation(TileMeshes tm, Vector2 a, Vector2 c, float y0, float y1, Vector2 outward)
+        {
+            var st = buckets[(int)Slot.RoofFlat];
+            float W = Vector2.Distance(a, c);
+            st.Wall(L(a, 0f, tm), L(c, 0f, tm), y0, y1, outward, 0f, W / RoofFlatM, 0f, (y1 - y0) / RoofFlatM);
         }
 
         // ---- HOUSE COLOURS + FRONT DOOR (PSX_CITY_HOUSETINT, PSX_CITY_HOUSEDOOR) ----

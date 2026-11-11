@@ -11906,7 +11906,9 @@ namespace PSXRacing.City
                 // HOUSE CLASS (CityMeshes.HouseWalls.cs): a "house" with a footprint
                 // or height no house has is drawn as the residential block it is
                 bool block = HouseBlock(f);
-                if (f.gable && !block)
+                // ...a low block on a plain oblong (N Graham's 3-storey condos): siding over a brick ground storey under a gable roof
+                bool sidingBlock = block && HouseBlockSiding(f);
+                if ((f.gable && !block) || sidingBlock)
                 {
                     var centre = f.centre; var u = f.u;
                     float hu = f.hu, hv = f.hv;
@@ -11923,9 +11925,10 @@ namespace PSXRacing.City
                         floorG = CityHouses.Floor(map, f.centre, centre, u, hu, hv, out float lo);
                         y0 = lo - BuildingSink; top = floorG + f.h;
                     }
-                    float eave = floorG + f.h * 0.68f;
+                    float eave = floorG + f.h * (sidingBlock ? 0.76f : 0.68f);
                     if (proxyBuild) y0 -= ProxySkirtM;
                     hwMap = proxyBuild ? null : map;
+                    if (sidingBlock && !skylineBuild) { houseBrickLook = HouseBrickLooks[(int)(FacadeHash(centre) % (uint)HouseBrickLooks.Length)]; houseBrickBase = true; houseBrickAt = centre; }
                     EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse, floorG);
                     tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     tm.footprintCount++;
@@ -12055,7 +12058,7 @@ namespace PSXRacing.City
                     return;
                 }
                 gfActive = gfKeep;
-                if (wallSlot == Slot.FacadeHouse) { houseFloorY = floorP; hwMap = proxyBuild ? null : map; Bucket.Tint = HouseTintOf(f.centre); }   // HOUSE WALLS: storeys from the pad, its colour
+                if (wallSlot == Slot.FacadeHouse) { houseFloorY = floorP; hwMap = proxyBuild ? null : map; Bucket.Tint = HouseTintOf(f.centre); if (HouseWallsOn && !skylineBuild) { houseBrickLook = HouseBrickChoose(f.centre, f.h < 6.5f); houseBrickAt = f.centre; } }   // HOUSE WALLS: storeys from the pad, its colour, brick or siding
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
@@ -12080,7 +12083,7 @@ namespace PSXRacing.City
                     // the parapet's inner face (seen from a deck's roof)
                     if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }
-                houseFloorY = float.NaN;
+                houseFloorY = float.NaN; houseBrickLook = -1;
                 // BUILDING PASS (CityMeshes.BuildingDetail.cs): a low or mid-rise's
                 // cornice, and its belt course over the ground floor (tiles only)
                 if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck)
@@ -12583,12 +12586,14 @@ namespace PSXRacing.City
             houseFloorY = floor;   // HOUSE WALLS: the storeys stand on the pad, not on the walls' foot
             var tintKeep = Bucket.Tint;
             if (wallSlot == Slot.FacadeHouse) Bucket.Tint = HouseTintOf(centre);   // its siding colour
+            if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && houseBrickLook < 0) { houseBrickLook = HouseBrickChoose(centre, eave - (float.IsNaN(floor) ? y0 + BuildingSink : floor) < 4.6f); houseBrickAt = centre; }
             EmitFacadeQuad(tm, wallSlot, c2, c1, y0, eave, v);
             EmitFacadeQuad(tm, wallSlot, c1, c4, y0, eave, u);
             EmitFacadeQuad(tm, wallSlot, c4, c3, y0, eave, -v);
             EmitFacadeQuad(tm, wallSlot, c3, c2, y0, eave, -u);
             if (wallSlot == Slot.FacadeHouse && HouseWallsOn && !skylineBuild && !proxyBuild) HouseDoor(tm, centre, u, v, hu, hv, y0, floor);
             houseFloorY = float.NaN;
+            houseBrickLook = -1; houseBrickBase = false;
 
             var rN = centre + u * hu;   // ridge ends
             var rS = centre - u * hu;
