@@ -55,10 +55,14 @@ namespace PSXRacing
         /// 0.055; sun on, in shade: 0.042; the sky map changes nothing). The
         /// base set of that surface is drawn this much brighter (paint not);
         /// 1 everywhere else. Codex is asked to author asphalt_new at ~0.04 so
-        /// this can return to 1.</summary>
+        /// this can return to 1. TEX4 (2026-11-11): Codex's R2 asphalt_new is
+        /// authored at linear 0.040, so the gain is 1 again (3.1 only for an
+        /// A/B against the R1 stage: PSX_HD_ASPHALT_GAIN=3.1).</summary>
         public static float BaseGain(string baseKey) =>
             baseKey != null && baseKey.EndsWith("asphalt_new") ? AsphaltNewGain : 1f;
-        public static float AsphaltNewGain = 3.1f;
+        public static float AsphaltNewGain =
+            float.TryParse(System.Environment.GetEnvironmentVariable("PSX_HD_ASPHALT_GAIN"), System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture, out float g) ? g : 1f;
         /// <summary>The paint colours the masks stand for (linear): the road
         /// painter's white and yellow, so the lines keep the Classic colours.</summary>
         public Color paintWhite, paintYellow;

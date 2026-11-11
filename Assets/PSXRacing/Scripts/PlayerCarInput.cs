@@ -279,6 +279,21 @@ namespace PSXRacing
                 kbSteer = 0f; analogSteer = null; throttle = 0f; brake = 0.3f;
                 handbrake = Mathf.Abs(car.forwardSpeed) < 1f;
                 wheelDeg = null;
+                // LEFT IN REVERSE (owner 2026-11-11: got out at a meet, the
+                // car drove itself out of its bay backwards). In R the pedals
+                // swap - CarController.TireForces reads brakeInput as the
+                // ACCELERATOR - so the 0.3 of "brake" above was 30% reverse
+                // throttle, the parking hold stood aside for it (it yields to
+                // any accelPedal) and the handbrake held only the rear axle of
+                // a front-driven car. While it is still rolling the 0.3 goes on
+                // the pedal that brakes in R; once stopped the box goes back to
+                // first, where the hold and the lever do their job and the
+                // player gets in to a car that drives forward.
+                if (CarController.LeftCarRules && car.currentGear == -1)
+                {
+                    if (Mathf.Abs(car.forwardSpeed) < 1f) car.currentGear = 1;
+                    else { throttle = brake; brake = 0f; }
+                }
             }
 
             // Three things take the throttle off the player, and all of them

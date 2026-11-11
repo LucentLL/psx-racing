@@ -277,7 +277,7 @@ namespace PSXRacing.EditorTools
                       chainRows);
             }
             finally { CockpitArms.Shoulders = keepS; }
-            log.Append(Trace);
+            log?.Append(Trace);   // null when run by the self-test (it threw here: TestCockpitArms THREW)
         }
 
         /// <summary>Per sequence: x the elbow's biggest move in one frame, y

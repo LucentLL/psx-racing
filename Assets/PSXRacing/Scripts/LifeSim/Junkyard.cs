@@ -376,12 +376,15 @@ namespace PSXRacing.LifeSim
                     if (no != null)
                     {
                         q.blockedReason = spec.IsSupercharged || spec.IsBuiltToTune ? no
-                                        : "turbo hardware — this engine is an NA build";
+                                        : "turbo part - this engine is NA";
                         return q;
                     }
                     plan = Upgrades.TurboKitPlan(s, car, spec);
                 }
-                if (!plan.valid) { q.blockedReason = "already maxed"; return q; }
+                // Not "already maxed" (owner, 2026-11-11: a pull refused for
+                // that "doesn't make any sense"). It is a reason not to FIT it
+                // to this car; the part still comes home as a spare (Spares).
+                if (!plan.valid) { q.blockedReason = "fully built - nothing to step up"; return q; }
                 if (plan.toStage > part.maxStage)
                 {
                     // The pull is not good enough for where this car already is.
@@ -433,6 +436,52 @@ namespace PSXRacing.LifeSim
             }
             q.available = true;
             return q;
+        }
+
+        /// <summary>
+        /// What a part is worth with NO car in the picture - the $15k
+        /// reference car every multiplier in the game is built around. A
+        /// service part: its base price by grade, as the shelf quotes it on a
+        /// 1.0x car. Hardware: the reference price of the highest stage it
+        /// serves (Upgrades.RefDiyPrice), by grade, at the same third-to-two-
+        /// thirds the shelf takes off a car's own stage price.
+        /// </summary>
+        public static int PartValue(YardPart part)
+        {
+            if (part == null) return 0;
+            float g = Mathf.Clamp01(part.grade / 100f);
+            if (part.IsUpgrade)
+                return Mathf.RoundToInt(Upgrades.RefDiyPrice(Upgrades.KindFromKey(part.upgradeKind),
+                                                             Mathf.Max(1, part.maxStage)) * (0.30f + 0.30f * g));
+            return Mathf.RoundToInt(part.basePrice * (0.5f + 0.5f * g));
+        }
+
+        /// <summary>A part off the RACK to keep as a spare: its value, never
+        /// under the rack's own $8 floor.</summary>
+        public static int RackKeepPrice(YardPart part) => Mathf.Max(8, PartValue(part));
+
+        /// <summary>A part pulled off a WRECK to keep as a spare: the same
+        /// pull discount a fit gets, plus the tool rental.</summary>
+        public static int PullKeepPrice(LifeState s, YardPart part) =>
+            Mathf.Max(5, Mathf.RoundToInt(PartValue(part) * PullPriceMult)) + ToolRental(s);
+
+        /// <summary>
+        /// Buy a racked part to keep (v24, Spares): no car involved, so
+        /// nothing about any car can refuse it. Returns null or the reason.
+        /// </summary>
+        public static string BuyToShelf(LifeState s, YardPart part)
+        {
+            if (part == null) return "gone";
+            if (!s.junkyard.Contains(part)) return "someone else took it";
+            if (Spares.Full(s)) return "the shelf is full (" + Spares.Capacity + ") - sell something";
+            int price = RackKeepPrice(part);
+            if (s.money < price) return "need " + MenuKit.Money(price);
+            s.money -= price;
+            Spares.Shelve(s, part, "", "THE YARD'S RACK", price);
+            s.junkyard.Remove(part);
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": bought " + part.label + " at the yard to keep (" +
+                              MenuKit.Money(price) + ", " + GradeWord(part.grade).ToLowerInvariant() + ")");
+            return null;
         }
 
         public static string StatWord(string stat) =>
@@ -651,9 +700,17 @@ namespace PSXRacing.LifeSim
         {
             public YardPart part;
             public Quote quote;
+            /// <summary>price / can / blocked are the FIT action: pull it and
+            /// put it straight on the car you are in.</summary>
             public int slot, price, rental, skillReq;
             public bool can, pulled, stripped;
             public string blocked;
+            /// <summary>The KEEP action (v24): pull it onto the garage shelf.
+            /// No car is asked anything, so only money and shelf room can
+            /// refuse it.</summary>
+            public int keepPrice;
+            public bool canKeep;
+            public string keepBlocked;
         }
 
         public static PullOffer GetPull(LifeState s, OwnedCar car, CarSpec carSpec,
@@ -680,9 +737,18 @@ namespace PSXRacing.LifeSim
                 return o;
             }
 
-            o.quote = GetQuote(s, car, carSpec, o.part);
             o.rental = ToolRental(s);
-            o.price = Mathf.Max(5, Mathf.RoundToInt(o.quote.price * PullPriceMult)) + o.rental;
+            o.keepPrice = PullKeepPrice(s, o.part);
+            if (Spares.Full(s)) o.keepBlocked = "the shelf is full (" + Spares.Capacity + ")";
+            else if (s.money < o.keepPrice) o.keepBlocked = "need " + MenuKit.Money(o.keepPrice);
+            else o.canKeep = true;
+
+            o.quote = GetQuote(s, car, carSpec, o.part);
+            // Never dearer than keeping it: a part fitted today and the same
+            // part kept and fitted next week are the same part, so the fit
+            // takes the lower of its car-scaled quote and the part's own price.
+            o.price = Mathf.Min(Mathf.Max(5, Mathf.RoundToInt(o.quote.price * PullPriceMult)) + o.rental,
+                                o.keepPrice);
             o.skillReq = PullSkillReq(o.part, o.quote);
             if (!o.quote.available) { o.blocked = o.quote.blockedReason; return o; }
             if (s.mechSkill < o.skillReq)
@@ -738,6 +804,36 @@ namespace PSXRacing.LifeSim
                               (o.rental > 0 ? " incl. tool rental" : "") + ", " +
                               GradeWord(o.part.grade).ToLowerInvariant() + ", " +
                               o.quote.days + "d)");
+            return null;
+        }
+
+        /// <summary>
+        /// Pull it and KEEP it (v24): onto the garage shelf as a spare, for a
+        /// car you own, a car you will own, or a part that will wear out.
+        /// Whatever you drive and whatever stage it is at: no car is asked.
+        /// The yard's loan tools are what the rental pays for, so skill is the
+        /// FIT's question, asked when it goes on. Returns null or the reason.
+        /// </summary>
+        public static string PullToShelf(LifeState s, int wreck, int slot,
+                                         string donorSpec, string donorName)
+        {
+            var o = GetPull(s, s != null ? s.ActiveCar : null,
+                            s != null && s.ActiveCar != null ? CarCatalog.Get(s.ActiveCar.specId) : null,
+                            wreck, slot);
+            if (o.part == null || o.stripped || o.pulled) return o.blocked ?? "nothing there";
+            if (!o.canKeep) return o.keepBlocked;
+
+            s.money -= o.keepPrice;
+            // Getting it off a shell is half the trade.
+            s.mechSkill = Mathf.Min(100f, s.mechSkill + FaultCatalog.DiySkillGain(s.mechSkill, 8));
+            Spares.Shelve(s, o.part, donorSpec, donorName, o.keepPrice - o.rental);
+
+            Forget(s);
+            s.yardPulls.Add(PullKey(s, wreck, slot));
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": pulled " + o.part.label +
+                              " off a wreck to keep (" + MenuKit.Money(o.keepPrice) +
+                              (o.rental > 0 ? " incl. tool rental" : "") + ", " +
+                              GradeWord(o.part.grade).ToLowerInvariant() + ")");
             return null;
         }
     }

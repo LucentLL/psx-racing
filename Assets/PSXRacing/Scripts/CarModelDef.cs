@@ -197,6 +197,17 @@ namespace PSXRacing
         public bool HasLensVariant => lensBodyMesh != null && lensHeadMesh != null && lensTailMesh != null &&
                                       lensHeadMaterial != null && lensTailMaterial != null;
 
+        /// <summary>THE CLEAR LAMP COVERS over the ordinary body (owner,
+        /// 2026-11-11: "Why don't I see the headlight lens on cars?"): every
+        /// clear cover the delivery carries, head and tail in one mesh, in the
+        /// body's own frame (export_models.mjs `_covers.obj`), and the same over
+        /// the lamps-up body for a pop-up shell. Drawn by CarCovers with
+        /// <see cref="coverMaterial"/> (PSX/CarLens). Null for a shell whose
+        /// source has none.</summary>
+        public Mesh coverMesh;
+        public Mesh coverUpMesh;
+        public Material coverMaterial;
+
         public Vector3 colliderCenter = new Vector3(0f, 0.72f, 0.05f);
         public Vector3 colliderSize = new Vector3(1.72f, 1.0f, 4.1f);
         /// <summary>Width/length of the blob shadow quad.</summary>

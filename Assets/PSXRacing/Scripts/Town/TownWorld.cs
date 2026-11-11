@@ -1173,6 +1173,7 @@ namespace PSXRacing.Town
             var screen = gameObject.AddComponent<OnFoot.WreckScreen>();
             screen.wreck = wreckIndex;
             screen.donorName = t.title;
+            screen.donorSpecId = donor != null ? donor.id : "";
             var walk = OnFoot.FirstPersonWalk.Current;
             if (walk != null) walk.enabled = false;
             screen.onClosed = () =>

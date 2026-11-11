@@ -63,8 +63,12 @@ namespace PSXRacing.LifeSim
         ///     lay-off, call-back) and car clubs arrive (membership, board,
         ///     strikes). All ADDED fields; the migration sets dutyFromDay/Slot
         ///     to the clock it finds so nothing is missed retroactively.
+        /// v24: THE PARTS SHELF. A part pulled off a wreck is a thing you own
+        ///     (partsShelf, see Spares) rather than only a discount route to
+        ///     the next stage of the car you are in. ADDED fields; the
+        ///     migration gives an old career an empty shelf.
         /// </summary>
-        public int saveVersion = 23;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 24;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
@@ -128,6 +132,12 @@ namespace PSXRacing.LifeSim
         public List<OwnedCar> cars = new List<OwnedCar>();
         /// <summary>Wheels off any car, by the shell they came from (WheelSets).</summary>
         public List<string> wheelRack = new List<string>();
+        /// <summary>Spare parts on the garage shelf (v24, see Spares): pulled
+        /// off a wreck or bought off the yard's rack and not fitted yet.</summary>
+        public List<SparePart> partsShelf = new List<SparePart>();
+        /// <summary>Counter behind SparePart.id, so two identical pulls are
+        /// still two parts.</summary>
+        public int spareSeq;
 
         // === Health / fitness ===
         public float health = 100f;
@@ -663,6 +673,15 @@ namespace PSXRacing.LifeSim
         /// on every job in a save written before the yard existed.</summary>
         public int junkRisk;
 
+        /// <summary>A part off the garage shelf going on (v24, see Spares):
+        /// owned and paid for, so no service sweep may cancel it, even when it
+        /// is replacing a named fault.</summary>
+        public bool fromShelf;
+        /// <summary>The spare itself while it is going on, so a car sold in
+        /// the middle of the job gives the part back to the shelf
+        /// (Spares.ReturnJobsToShelf). Empty id on every other job.</summary>
+        public SparePart spare;
+
         public bool IsUpgrade => !string.IsNullOrEmpty(upgradeKind);
 
         /// <summary>A respray at the paint shop. Told by the VENUE rather than
@@ -682,8 +701,8 @@ namespace PSXRacing.LifeSim
         /// it carries no fault id either, and a $4,000 rebuild swept away by a
         /// $50 oil change would be the most expensive silent bug in the
         /// game.</summary>
-        public bool IsYardPart => !IsUpgrade && !IsRespray && !IsEngineJob &&
-                                  string.IsNullOrEmpty(faultId);
+        public bool IsYardPart => fromShelf || (!IsUpgrade && !IsRespray && !IsEngineJob &&
+                                  string.IsNullOrEmpty(faultId));
     }
 
     /// <summary>

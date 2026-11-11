@@ -72,6 +72,23 @@ namespace PSXRacing.EditorTools
 
         public static IReadOnlyList<string> LastLog => log;
 
+        /// <summary>Bake only these shells (a sandbox job that changed a few
+        /// cars; the HD car tier's tool). Same work as <see cref="Bake"/>.</summary>
+        public static void BakeKeys(ICollection<string> keys)
+        {
+            log.Clear();
+            var shader = Shader.Find("PSX/CarPaint");
+            if (shader == null) throw new Exception("PSX/CarPaint shader not found");
+            foreach (var m in CarModelLibrary.Models)
+            {
+                if (!keys.Contains(m.key)) continue;
+                try { BakeOne(m, shader); }
+                catch (Exception e) { log.Add($"FAIL {m.key}: {e.Message}"); }
+            }
+            AssetDatabase.SaveAssets();
+            CarModelLibrary.ClearCache();
+        }
+
         public static void Bake()
         {
             log.Clear();
@@ -274,6 +291,7 @@ namespace PSXRacing.EditorTools
             CarLampFinder.Apply(d, log);
             // After the skins: the covers take the first livery's sheet.
             BakeLensVariant(d, dir, model.key, bodyMesh);
+            BakeCovers(d, dir, model.key);
 
             string prefabPath = OutDir + "/" + model.key + ".prefab";
             PrefabUtility.SaveAsPrefabAsset(def, prefabPath);
@@ -333,6 +351,33 @@ namespace PSXRacing.EditorTools
             log.Add($"{key,-13} lens variant: body {bodyTris} tris ({bodyTris - aTris:+0;-0} over A), covers " +
                     $"{d.lensHeadMesh.triangles.Length / 3} head + {d.lensTailMesh.triangles.Length / 3} tail tris, " +
                     $"bounds off the body by {off * 1000f:0.0} mm");
+        }
+
+        /// <summary>
+        /// THE CLEAR LAMP COVERS (owner, 2026-11-11; CarCovers): `key_covers.obj`
+        /// (and `key_covers_up.obj` over a pop-up shell's raised body), every
+        /// clear cover of the delivery in the body's own frame and scale
+        /// (export_models.mjs). One PSX/CarLens material a shell: the lens
+        /// test's front numbers (opacity 0.06, smoothness 0.90), no atlas tint
+        /// (a cover's UVs are its own, not the body sheet's), no lamp share of
+        /// its own (the body's lit lamps show through it).
+        /// </summary>
+        static void BakeCovers(CarModelDef d, string dir, string key)
+        {
+            Mesh Part(string suffix)
+            {
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "/" + key + suffix + ".obj");
+                return go != null ? go.GetComponentInChildren<MeshFilter>()?.sharedMesh : null;
+            }
+            d.coverMesh = Part("_covers");
+            d.coverUpMesh = d.lampsUpMesh != null ? Part("_covers_up") : null;
+            d.coverMaterial = null;
+            if (d.coverMesh == null) return;
+            var shader = Shader.Find("PSX/CarLens");
+            if (shader == null) { log.Add($"FAIL {key}: PSX/CarLens missing - covers not baked"); d.coverMesh = d.coverUpMesh = null; return; }
+            d.coverMaterial = LensMaterial(key + "_covers", shader, null, 0.06f, 0f);
+            log.Add($"{key,-13} clear lamp covers: {d.coverMesh.triangles.Length / 3} tris" +
+                    (d.coverUpMesh != null ? $", raised {d.coverUpMesh.triangles.Length / 3}" : d.lampsUpMesh != null ? ", RAISED BODY HAS NONE" : ""));
         }
 
         static Material LensMaterial(string name, Shader shader, Texture sheet, float opacity, float tint)
@@ -632,6 +677,9 @@ namespace PSXRacing.EditorTools
             m.uv = src.uv;
             m.triangles = src.triangles;
             m.RecalculateNormals();
+            // MikkTSpace tangents, as the body's OBJ import has them: the HD
+            // car tier's normal map reads the wheel through them (CarHD).
+            if (m.uv != null && m.uv.Length == verts.Length) m.RecalculateTangents();
             m.RecalculateBounds();
 
             string p = GenDir + "/" + m.name + ".asset";
@@ -678,6 +726,8 @@ namespace PSXRacing.EditorTools
                 // the chase camera moves, which is the one place the player is
                 // guaranteed to be looking.
                 mat.SetFloat("_Affine", 0f);
+                // The HD car tier is a runtime swap (CarHD): never saved on a livery.
+                mat.DisableKeyword("PSX_CAR_HD");
                 // The paint's shine. Every skin the same: a sheet is a colour,
                 // not a finish, and the glass mask inside the shader is what
                 // tells a window from a door.

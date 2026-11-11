@@ -545,6 +545,7 @@ namespace PSXRacing.LifeSim
             if (old != null)
             {
                 s.carLoans.RemoveAll(l => l.carId == old.id);
+                Spares.ReturnJobsToShelf(s, old);
                 s.pendingParts.RemoveAll(p => p.carId == old.id);
                 s.carAds.RemoveAll(a => a.carId == old.id);
                 s.cars.Remove(old);

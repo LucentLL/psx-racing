@@ -27,6 +27,134 @@ Pop-in measurement (popwalk/poplag) not run (distances = the stages' PopFix x FO
 2. With PSX_PC_CONTENT=1: run `PSXRacing.EditorTools.PSXRacingBuilder.BuildCityTreeKit` (or the city scene pass, which calls it). Full scene pass NOT needed. Resources/CityTreeKit.asset rides in the player's resources (not a bundle; the mountain forest ships in its stage scenes). Any non-PC scene pass deletes it.
 3. No tile re-bake, no CityTileCache.Format change, no kit slot.
 4. Shared-file edits: `Editor/PSXRacingBuilder.City.cs` (1 line), `Scripts/MeshForest.cs`, `Scripts/MeshForest.Gpu.cs` (pooled guards). New script metas committed (stable GUIDs).
+# HANDOFF - TEXTURES ROUND 4: SHOPFRONTS AT SOURCE RES, R2 ROADS/WALKS, GLASS c00-c02 (tex-round4, 2026-11-11; agent "tex4"; NOT pushed, NOT merged)
+
+Branch `tex-round4` (worktree `C:\Users\mcgee\PSX Racing-tex4`) off mountain-nm b970153d. Sandbox PSXCity (lock "tex4", released). Sheet: scratchpad `tex4\tex4_before_after.png` (also art workspace `Charlotte_Texture_Context\2026-11-11\G_00_tex4_sheet.png`).
+
+## Owner report
+"why are building textures so blurry when I had Codex overhaul them to 2k resolution?" (Uptown shopfronts, BRICKMOON / PET SALON).
+
+## Causes
+- `Editor/PSXRacingBuilder.City.cs` ComposeShops (~1140): the four 1508-1747 px fictional storefronts squeezed into 256 px cells of `Art/City/city_shops.png` (1024x256), once.
+- Then the PC import: `ConfigureTextureImporters` (PSXRacingBuilder.cs ~1162) sets the DEFAULT platform max to `PSXTextureCaps.MaxFor` = 256 and Standalone is not overridden, so the PC exe ships city_shops at **256x64 = 64 px per 6 m front, point, no mips** (verified in PSXLab/PSXBuild/PSXCity .meta). Same cap hits every Art texture without an Enhanced twin or HD set (sweep below).
+- Aspect: a front is drawn ~6 m x 4.2 m (1.43:1; real walls give 3.4-9 m a front: `FacadeMeters` Shops 24 m / 4 fronts, `EmitWallStyled` reps = round(wall/24)); sources are 1.45/1.74/1.93/1.94:1, so three fronts are squashed ~25% horizontally. The UV rule is in CityMeshes.cs (fingerprinted): NOT changed, for the re-bake round (e.g. 30 m a repeat, or Codex authors at 1.43:1 - asked).
+- Shopfront geometry: the storefront canopy/sign band (`EmitStorefront`) covers the top ~0.8 m of each front, cutting most signs in half, and shades the windows (re-bake item).
+
+## Changes (no fingerprinted file touched: `git diff b970153d -- Assets/PSXRacing/Scripts/City Assets/PSXRacing/Scripts/RoadsideRules.cs` = 0 lines; KitHash untouched)
+- `tools/city/shops_hd.py`: `city_shops_overhaul1_hd.png` 4096x1024 (each source whole in a 1024 cell, exactly the old cell; registration vs shipped atlas: mean diff 2.2/255 at 0 px shift, 9.7 at +-1 px) + `_rough` (glass 0.30 from the night mask, else 0.85). The shipped `city_shops_night.png` rides as `_hd_night` (uncapped 1024x256, point).
+- `Scripts/TextureHD.cs`: HD sets may carry `_night` (PSX/Lit `_NightMask`, restored on Off); `PSX_HD_SKIP=city_shops,city_facade_hd` A/B switch (env, not a generator prefix). Facade arrays now hold only delivered columns (`_FacadeHDOn[c]` = slice+1): 3 columns = 24 MB instead of 128 MB.
+- `Editor/TextureHDTool.cs`: imports `_night`, ships it; compact arrays.
+- `Shaders/PSXLit.shader` (shared, 4 lines ~1803): slice from `_FacadeHDOn`.
+- `Scripts/TextureHDMap.cs`: `AsphaltNewGain` default 1 (R2 asphalt_new authored at 0.040); `PSX_HD_ASPHALT_GAIN` env for A/B.
+- `Editor/CityRefSpots.Tex4.cs`: `RunTex4` shots (modes = HD stage folders, shop spots found from OSM shop footprints).
+
+## Stage: `C:\Users\mcgee\PSXHDStage\texb02` (62 PNGs, 102 MB, `stage_manifest.json` with sources + sha256)
+= R2 Release (40, Codex `Environment_HD\Release\HD_02_Charlotte`; NOT NewBindings R1) + rock_pt_2 set (4, from texb01) + city_shops HD (3) + glass candidates c00-c02 (15, verdict MEETS). texb01 is now superseded (keep until the exe is verified).
+
+## Proof (editor, PSXCity, same poses, today = texb01 + gain 3.1, after = texb02)
+- Shops: CityShops main texture after = city_shops 4096x1024 Trilinear aniso 8, 13 mips, PSX_HD on. Signs legible from the chase cam (BRICKMOON, CURBKITE); night windows registered.
+- R2: road in tower shade at noon same as R1+gain (linear 0.017 vs 0.018); Square at dusk/night 1.5x brighter (gain was day-only); other streets within 2%. Pavers darker joints / browner. No magenta.
+- Glass: crisp mullions/spandrels near and far, night windows unchanged. Verdict written at top of art workspace `Charlotte_Texture_Feedback_2026-11-11.md` (+ storefront request, R2 verdict).
+- Still soft: column 07 parts (stone band/canopy over shops, ~10 cm blocks), the canopy cutting signs, shop interiors dark under it; glass reads clean/CG-flat near.
+
+## Sweep (PC profile: what ships below its source)
+| Art | Source | Ships on PC | Where | Fix |
+|---|---|---|---|---|
+| city_shops (+night) | 4 x ~1700x950 | 256x64 point | core retail walls, strip-centre bays | DONE (HD tier) |
+| facade atlas col 07 parts | (Enhanced 256x512/col) | Enhanced 4096x512 point+mips | Uptown ground floors, canopies, sign bands | new art: Codex `city_facade_parts` (binding ready) |
+| facade atlas other cols | Enhanced 256x512/col | same | all OSM walls | new art: c03-c15 (c00-02 DONE) |
+| Art default cap 256 (PSXTextureCaps.MaxFor) | 169 LifeSim + 18 GasStation + Buildings pack (to 1747 px), Guardrail rusty_metal/wooden_board 512, Engines LS1 1536 | 256, point, no mips | on-foot scenes, gas station interiors, stage guardrails | texture-only possible via an HD passthrough set (`<name>_overhaul1_hd.png` = source) per texture; not done (not Charlotte street view) |
+| CitySigns.png | pack pictures (larger) | 512 composed (tools/city/signs_atlas.py, layout in Scripts/City/CitySigns.cs) | billboards, pole cabinets | texture-only possible: compose at 2048 with the same fractions + HD pair; not done this round |
+| CityFurniture / CitySignals | 256 composed (furniture_atlas.py, BOX) | 256 (Enh 512), PSX_FURNITURE (HD skips it) | poles, lamps, signals | needs HD binding for PSX_FURNITURE + cell size in shader; next round |
+| city_house/station/trailer atlases | pack textures | 256 box-filtered (CityPropBaker.AtlasPx) | suburban props | re-bake of prop meshes/atlas (ATLAS_RECT) |
+| tree atlases | stage tree PNGs | 512 (128 cells), Enh 1024 | billboard trees | re-bake (CityTreeLowReach -> KitHash) |
+| traffic cars | 512 atlases / 128 paints | at source | traffic | new art (car HD tier for traffic) |
+| terrain detail | - | 256 (TerrainDetailTool) | grass detail | low priority |
+| QualitySettings PC | - | no mip limit, aniso forced, streaming off | - | fine |
+
+## Memory added (PC, BC7/BC5)
+Shops 5.6 MB colour + 0.2 rough + 1.0 night = ~6.8 MB. Glass arrays 3 slices x (2.7 col + 2.7 nrm + 2.7 mask) = ~24 MB (would have been 128 MB with 16 slices). R2: 0 (same sizes). Classic/phone path: city_shops.png, its .meta and the Classic night mask unchanged; HD variants are PC-only (HDVariantStripper).
+
+## Coordinator, to reach the exe with a player-only build
+1. Merge `tex-round4`. Shared-file edit: PSXLit.shader ~1803 (facade slice).
+2. Build with **`PSX_HD_SRC=C:\Users\mcgee\PSXHDStage\texb02`** (replaces texb01; pc26c.ps1 sets it). The HD import (TextureHDTool.Import) runs in the build and re-stacks the facade arrays; no scene build, no re-bake, no new committed asset files. Do NOT set PSX_HD_ASPHALT_GAIN.
+3. Check the log line `[TextureHD] 8 HD sets + 4 road base sets` and `city_facade_hd_col ... x 3 slices`; expect texhd.bundle ~+30 MB.
+Not verified: a Windows player (BC7, bundle contents, all variants compiling outside the editor), frame cost, the night mask through the bundle.
+# HANDOFF - HD CAR TIER + CLEAR LAMP COVERS (car-hd-tier, 2026-11-11; agent "carhd"; NOT pushed, NOT merged)
+
+Branch `car-hd-tier` (worktree `C:\Users\mcgee\PSX Racing-carhd`) off mountain-nm c81f2a59. Sandbox PSXLab (lock "carhd", released). Sheet: scratchpad `carhd\carhd_before_after.png` (+ `_contrast.json`, `_clip.json`). Artist contract: art workspace `Cars\CODEX_HANDOFF_car_hd_tier.md`.
+
+## Owner reports
+- "why are body panel lines so smeared? I used bitmap for these to give the cars depth" (yellow FD, seller's drive).
+- "Why don't I see the headlight lens on cars? I specifically made these layers to cover the headlight textures" (blue Viper, dusk).
+
+## Causes
+- Every car draws one 512x256 sheet (the HD sheet box-filtered 4x), point sampled with no mips (`Editor/CarModelBaker.cs` PointFilter), lit from vertex normals only (`Shaders/PSXCarPaint.shader` had no normal sampler). A 2 px line became half a texel; the groove depth in `_hd_normal` was never read.
+- `tools/carmodels/export_models.mjs` left every clear cover off ("the OBJ path would paint it opaque"; Viper `dropMtl`).
+- Three HD bodies imported with `tangentImportMode: 2` (none): viper_gts, flatsix_coupe, civic_eg (now 3 = Mikk).
+- PC profile today: no vertex snap (`_PSXSnap` never set), cars `_Affine` 0, the picture is 8-bit + FXAA at the HD preset (Bayer at 1/255: invisible); at SHARP/CLASSIC presets the 6-bit dither (0.35/0.6) does show. The HD path forces no snap and no affine regardless.
+
+## What changed
+- `Scripts/CarHD.cs` + `CarHDMap.cs` (new): on the PC profile a PSX/CarPaint livery whose 512 sheet has an HD set gets the 2048 colour (BC7, mips, trilinear, 16x aniso), `_CarHDNormal` (BC5), `_CarHDORM` (R AO, G rough, B metal, A coat) and keyword `PSX_CAR_HD`; HD lamp maps through `CarLights.LampMapFor`. Hooked in `PSXTexDecode.Stamp` (one line), so every assembler (CarBody: player/rivals/AI/replay/inspection; CarShell: garage/seller/dealer/junkyard/meets/traffic; CarViewer) gets it via the shared skin materials. Sets load per body when CarModelLibrary.Load first stamps it; shared normal/ORM/lamp maps loaded once. A/B `-psx-no-car-hd`; editor `PSX_CAR_HD=1`.
+- `Shaders/PSXCarPaint.shader`: `multi_compile_local __ PSX_CAR_HD` (stripped from non-Windows builds by `CarHDVariantStripper`); MikkTSpace TBN off the mapped normal for light/reflection/glints; AO on sky (1.0) / reflection (0.8) / sun (0.35); roughness above 0.5 removes lacquer (to 25%) and blurs the reflection; colour read -0.75 mip, normal -0.5 mip; debug 14. No existing #define changed.
+- Older cars: `CarHD.SmoothSheets` (mipped trilinear copy of a Classic sheet, 565 bin-centred) - OFF by default; `-psx-car-sheet-smooth` / `PSX_CAR_SHEET_SMOOTH=1`. A/B (gtr_99 512, charger_69 128): smoother at 30 m, not clearly better: left off.
+- `Editor/CarHDTool.cs` (new): import from `PSX_CAR_HD_SRC` (default `C:\Users\mcgee\PSXHDStage\carhd`) into gitignored HDSrc/CarHD + Resources/CarHDMap.asset (gitignored), ship `carhd.bundle`. Hooked in `PSXBuildWin64` beside TextureHDTool (Import before the player, ShipBundle after).
+- Stage: `tools/carmodels/stage_carhd.py <repo> <Cars dir> <stage>` makes the stage from the six deliveries (ORM repacked, lamp maps with the 512 corrections copied in). Stage already built: `C:\Users\mcgee\PSXHDStage\carhd` (32 MB).
+- Covers: `export_models.mjs` rule `isCoverMtl` (clear/cover/glass, not opaque/coloured/atlas) writes `key_covers.obj` (+ `_covers_up.obj` on pop-ups) through the body's own scale; bodies byte-identical (only EOL). `CarModelDef.coverMesh/coverUpMesh/coverMaterial` (new fields), `CarModelBaker.BakeCovers` (PSX/CarLens, opacity 0.06, no tint), `Scripts/CarCovers.cs` (new) drawn by CarBody.Apply/SetLensCovers, CarShell.Spawn, CarViewer, CarLights.PopUps (swaps with the pop-up body). On every profile; `-psx-no-lamp-covers` / `PSX_CAR_COVERS=0`.
+- Shared-file edits (small): PSXTexDecode.cs (1 line), CarLights.cs (LampMapFor 3 lines, ForgetLampMaps, PopUps 1 line), CarBody.cs (2 lines), CarShell.cs (1 line), CarViewer.cs (1 line), CarModelDef.cs (3 fields), CarModelBaker.cs (wheel RecalculateTangents, DisableKeyword PSX_CAR_HD, BakeKeys, BakeCovers), PSXBuildWin64.cs (2 calls), 3 OBJ metas (tangents), .gitignore.
+
+## Covers (20 shells, 0 with covers in the source but not in the game)
+civic_eg 164, rx7_fd_93/99/nowing 440 (+440 raised), viper_gts 295, flatsix_coupe 444, flatsix_coupe_87 444, hatch_83_popup 32 (+32), rally_coupe_98 82, rally_sedan_99 344, fastback_96 32 (+32), liftback_95 375, roadster_99 338, gtr_89 280, coupe_03 273, gtr_99 206, charger_70 66, gt_liftback_97 456, fixed_roof_99 56 (+56), gt_hardtop_73 240. Cost: +1 draw, +32..456 tris a car (20-car grid <= +20 draws, ~+9k tris). Not measured on a phone.
+
+## Proof / numbers
+- Shut-line contrast 5/15/40 m before -> after: FD .14/.11/.23 -> .26/.14/.08; Viper .12/.22/.33 -> .25/.25/.32; Evo .21/.18/.23 -> .32/.26/.18; EG .18/.10/.12 -> .27/.16/.04; S2000 .16/.14/.11 -> .21/.18/.03; CTR negative (its seams read lighter than paint). 40 m loss = sub-pixel lines averaged (the old "contrast" was aliasing).
+- Clip: 0% of paint pixels >= 0.97 in every after frame, p99 max channel 0.88.
+- Tangents (CPU, per triangle, both sides and mirrored islands): T along +U 99.7-100%, B along +V 95.7-100% on all six bodies; normal maps are grooves in +Y/OpenGL on all six (seams.py).
+- Bundle 27.3 MB (LZ4), 34 textures; GPU 2.67 MB each (2048x1024 BC7/BC5 + mips) = ~10.7 MB a body, ~91 MB if all nine are loaded. Load 5-16 ms a set (editor, from assets). Cost probe (9 FDs, 1920x1080, editor): no measurable difference (29-42 ms off, 28-37 ms on; noise).
+- Self-test (PSXLab, tier off): 66 failures = base (66 old + 2 Evo lamp checks was 68); paint pins ok, PSX/CarPaint compiles.
+
+## Not verified
+Anything in a player: bundle load from StreamingAssets, BC7/BC5 on the Win64 target (PSXLab's editor is on WebGL: DXT5 there), the variant surviving the stripper, real GPU cost, the CarReflections panorama in the paint (off in edit-mode frames), night with street lamps (SellerLot has none), the cockpit view, mirrors, phone cost of covers.
+
+## At merge / to reach the exe
+1. Copy nothing by hand: covers OBJ/MTL + metas and the 3 metas are committed.
+2. In the PC build sandbox: `CarModelBaker.Bake` (or `CarHDShots.BakeImport` for the 20 changed shells) so the prefabs carry wheel tangents, covers and cover materials (Materials/CarModels/*_covers.mat are made by the bake).
+3. Set `PSX_CAR_HD_SRC=C:\Users\mcgee\PSXHDStage\carhd` for the PC build (PSXBuildWin64 imports and ships carhd.bundle itself). Rebuild the stage with stage_carhd.py when deliveries change.
+4. No full scene pass needed (CarBody/CarShell dress at runtime); no tile re-bake.
+# HANDOFF - THE PARTS SHELF, ROUND 2 (junkyard-spares, 2026-11-11; layout by "no text may clip")
+
+- Lists that never rest on a cut row: `LifeSim/BlockSnap.cs` (new). A whole number of fixed-height blocks per viewport, one wheel notch = one block, drags settle on a block edge, the pad/keyboard cursor scrolls its whole block into view, "N MORE ABOVE / BELOW" cues. Used by the wreck page (block 94 + 4: five parts at 16:9 and 4:3, three on a phone; list from under the header to the footer) and by STORED PARTS (100 + 6) and PICK A CAR (76 + 6), each a list inside its page sized to the room above the exit row.
+- One line per reason, with shorter fallbacks chosen by measured width (no ellipsis anywhere). Turbo refusal is now "turbo part - this engine is NA". The pick-a-car row has no empty line above its reason.
+- Mechanic page: the side panel's car name wraps instead of being cut; the page header wraps to the column.
+- Selling a car with a spare going on: `Spares.ReturnJobsToShelf` (job carries `PendingPart.spare`) in QuickSell, AcceptOffer and the debug loaner swap. QuickSell already refused a car with work on it; a buyer's offer did not, and that path lost the part. It comes back even past capacity; mechanic labour is not refunded.
+- Pad: `SparesPreview.PadWalk` (camera at 1 world unit = 1 px so MenuNav's line test is the game's): wreck page 11/11 controls reached, FIT<->KEEP left/right 5/5, last row's block fully shown on a block edge (phone: list moves 196 = 2 blocks, cue "2 MORE ABOVE"). STORED PARTS 10/10, PICK 3/3, car page 10/10, parts page 16/16, MY CARS 10/10, mechanic with BRING YOUR OWN PART 18/18 (LifeHomePreview.CheckNavReach). Not driven in play mode.
+- Checks: CLIP total 0 on every new shot; self-test 65 failures = the base's set; spares checks all ok incl. the sale path.
+
+# HANDOFF - THE PARTS SHELF (junkyard-spares, 2026-11-11; NOT pushed, NOT merged)
+
+Branch `junkyard-spares` (worktree `C:\Users\mcgee\PSX Racing-parts`) off mountain-nm c81f2a59. Sandbox PSXRec (lock "spares", released). Owner, at a wreck refusing four pulls with "already maxed": "What if I want a spare part for when the Civic part needs to be replaced? What if I have multiple Civics? What if I don't have a Civic right now, but I plan to buy one and want to store parts in preparation?"
+
+## Causes
+- `Junkyard.GetQuote` (Junkyard.cs ~384 at base): a pull was priced and gated as the NEXT stage of the ACTIVE car (`Upgrades.NextStagePlan`); `!plan.valid` -> "already maxed" refused the whole pull. A yard part did not exist as a thing; there was no inventory. The "$30" on refused rows was the $5 floor + $25 tool rental on a zero quote.
+- Ghost text: `TownWorld.OpenWreck` disabled the walker but left the walk-up prompt (`OnFoot/FootScreen`, its own overlay canvas, sort order 90) printing the wreck's title and "5 parts still on it, yours for the pulling." under `WreckScreen` (order 140), whose backdrop and panel are each 90% opaque on purpose (GT2 grid), so it ghosted through.
+- Reasons between rows: `WreckScreen.Build` drew each row as a 42-unit button then a free label 46 units lower, 30 units above the next button, so the red line sat in the gap. The 44 pt title also ran edge to edge at 16:9 and off the screen at 4:3.
+- Fitment rule found (unchanged): nothing matches a yard part to make or model. A service part goes on any car; hardware goes on any catalog car whose next stage of that category is no higher than the part's `maxStage`; a used turbo only onto a turbo engine or an unbuilt NA engine (`TurboKitRefuses`); race cars refuse stages; no tyres on a car with no wheels. The donor is recorded and shown, not enforced.
+
+## What was built
+- `LifeSim/Spares.cs`: `SparePart` (kind/stage, grade, donor spec + name, paid, day) on `LifeState.partsShelf` (+ `spareSeq`); `Plan`/`Fit` with three uses: UPGRADE (next stage, turbo rules), REPLACE (a known fault the part covers, part stage >= the car's in that category; fault table per hardware kind and per service label), RESTORE (a service part's lane, as before). DIY = skill-gated, no charge; mechanic = labour only (stage: shop - DIY price; service: 60% of the new part on that car; club mechanic discount applies), car kept for the days. Grade keeps its meaning: `EffectiveAdd` and `FaultRisk` ride the job (`fromShelf` jobs count as `IsYardPart`, so no service sweep cancels them).
+- `Junkyard`: `PartValue` (car-free: service base price by grade; hardware `Upgrades.RefDiyPrice(kind, maxStage)` x 0.30-0.60 by grade), `PullKeepPrice` = 55% of that + rental, `RackKeepPrice`, `PullToShelf`, `BuyToShelf`; `GetPull` gains keepPrice/canKeep/keepBlocked; FIT price = min(car quote, keep price), so fitting now is never dearer than keeping. "already maxed" -> "fully built - nothing to step up" (a FIT reason only).
+- Numbers: shelf capacity 20 (a garage wall; scrap makes room). Scrap = 40% of what the part cost (rental excluded). The owner's wreck (found exactly: week 3, shell 4): SCRAP turbo keep $444, CLEAN turbo $657, CLEAN subframe $277, SOLID semi-slicks ~$251; scrap of the clean turbo $253.
+- Screens: `OnFoot/WreckScreen.cs` rebuilt: one block per slot, FIT TO <car> | KEEP AS A SPARE side by side, each button's outcome or reason (red) inside the block under it; rows scroll, footer pinned; title at Head size; prompt hidden while open. `LifeHomeScreen.Spares.cs`: STORED PARTS (tab `parts`) and pick-a-car (`partfit`); STORED PARTS (n) + STORED WHEELS (n) doors at the MY CARS base; car page "ON THE SHELF FOR THIS CAR" + a fit button under each fault a spare replaces; parts page "ON THE SHELF" under the next stage; mechanic BRING YOUR OWN PART rows; the yard's rack keeps a part it cannot fit. `TownWorld` passes the donor's catalog id.
+- Save v24: `LifeSimManager.MigrateToPartsShelf` (old saves load with an empty shelf). The old migration tests now compare against the current version.
+
+## Proof
+- Sheet: scratchpad `spares\spares_before_after.png` (wreck before|after at 16:9 and 4:3, STORED PARTS, pick-a-car with two Civics, car page "on the shelf", parts page, MY CARS door). Tool: `Editor/SparesPreview.Capture` (PSX_SPARES_TAG=before|after; compiles against the base too). CLIP report: before 6 (the ghost overlaps, STRAIGHTEN UP off the phone's bottom); after 0 on the new pages, 1 older ellipsis on the mechanic header at 4:3.
+- Self-test PSXRec: base 65 FAIL, new 65 FAIL, the identical set (scene/packaging, not this work); 53 new checks pass (TestPartsShelf, TestPartsShelfSave; quick runner `LifeSimSelfTest.RunSpares`).
+
+## Not done / next steps
+- The preview's maxed Civic is on the NA ladder, so its turbo rows say "NA build" where the owner's said "already maxed"; the gate is the same code. The two turbo rows on an NA-maxed car cannot be fitted (correct) but can now be kept.
+- Out of scope: selling a car with spares fitted (QuickSell drops a car's in-progress jobs, a shelf job included), taking a fitted part back off to the shelf, tyre wear per set, a pick-a-car step at the mechanic (it lists the car you brought), any make/model fitment. Not driven in play mode; no player build.
+- Merge: scripts only (no scenes, no Resources, no bake). Save version 24: if another branch also bumps it, renumber at merge. Shared files touched: LifeState.cs, LifeSimManager.cs, Upgrades.cs (two helpers), Junkyard.cs, LifeHomeScreen.cs (switch, parent tabs, five hook lines, rack row), TownWorld.cs (one line), LifeSimSelfTest.cs/.Clubs.cs (version checks + two Guards).
 
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 

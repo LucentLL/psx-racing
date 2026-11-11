@@ -204,7 +204,9 @@ namespace PSXRacing.EditorTools
             {
                 if (g.laneRho[l] <= 0f) continue;
                 float x = (g.laneX0 + (l + 0.5f) * g.laneW) * scale.x, rho = g.laneRho[l] * scale.y;
-                for (float deg = -90f; deg <= 90f + 1e-3f; deg += SweepStepDeg)
+                // The crown only (ArchCeilings.CrownHalfDeg says why).
+                float half = ArchCeilings.CrownRule ? ArchCeilings.CrownHalfDeg : 90f;
+                for (float deg = -half; deg <= half + 1e-3f; deg += SweepStepDeg)
                 {
                     float a = deg * Mathf.Deg2Rad;
                     var p = new Vector3(x, rho * Mathf.Cos(a), rho * Mathf.Sin(a));
@@ -271,7 +273,8 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 rows.Add(row);
-                if ((sg.wheelbaseMm == 0 && sg.widthMm == 0) || def.key == System.Environment.GetEnvironmentVariable("PSX_ARCH_DIAG"))
+                if ((sg.wheelbaseMm == 0 && sg.widthMm == 0) ||
+                    ("," + System.Environment.GetEnvironmentVariable("PSX_ARCH_DIAG") + ",").Contains("," + def.key + ","))
                     for (int i = 0; i < 4; i += 2)
                     {
                         float h = ExactShellHub(g, f, i, 0f, out string why);
@@ -419,6 +422,44 @@ namespace PSXRacing.EditorTools
             float sagSplit = CarController.RideRakeOf(spec) + (f.radiusF - f.radiusR);
             return CarController.DefaultMountHeight - CarController.DefaultRestLength +
                    CarController.StaticSagRef + (axle == 0 ? 0.5f : -0.5f) * sagSplit;
+        }
+
+        /// <summary>
+        /// Every catalogue row whose drawn tyre stands over its arch at the
+        /// static ride (the shell would be seated high at rest), and WHY: the
+        /// tyre (the sheet's or the model's own), how far the fit stretched a
+        /// borrowed shell (sx, sz), the camber the fit tucked in, and where
+        /// the tyre binds (angle off top, across, bodywork height over the
+        /// model hub). PSXRacing_arch_classify.txt.
+        /// </summary>
+        public static void Classify()
+        {
+            ArchCeilings.ClearCache(); ArchHubs.ClearCache();
+            var sb = new StringBuilder();
+            sb.AppendLine("row | shell | tyre F/R mm (src) | model tyre mm | sx sz | camber F/R | lift F/R mm | pitch deg | bind F ; bind R");
+            var geoms = new Dictionary<string, ShellGeom>();
+            int n = 0;
+            foreach (var spec in CarCatalog.All)
+            {
+                var def = CarModelLibrary.LoadFor(spec);
+                if (def == null || def.bodyMesh == null || def.wheelMesh == null) continue;
+                // As a DRIVEN car wears it: seated on hubs at StockHubRest (CarBody.Lifted).
+                var f = CarBody.Lifted(CarModelLibrary.Fit(def, CarModelLibrary.SpecGeometry.Of(spec)));
+                float liftF = Mathf.Max(0f, StockHubRest(f, spec, 0) + 0.002f - Mathf.Min(ArchCeilings.HubMax(def, f, 0), ArchCeilings.HubMax(def, f, 1)));
+                float liftR = Mathf.Max(0f, StockHubRest(f, spec, 1) + 0.002f - Mathf.Min(ArchCeilings.HubMax(def, f, 2), ArchCeilings.HubMax(def, f, 3)));
+                if (liftF <= 0f && liftR <= 0f) continue;
+                n++;
+                if (!geoms.TryGetValue(def.key, out var g)) geoms[def.key] = g = Geometry(def);
+                ExactShellHub(g, f, 0, 0f, out string whyF);
+                ExactShellHub(g, f, 2, 0f, out string whyR);
+                float pitch = Mathf.Atan2(liftF - liftR, Mathf.Max(f.wheelbase, 1f)) * Mathf.Rad2Deg;
+                sb.AppendLine(string.Format("{0} | {1} | {2:0}/{3:0} ({4}) | {5:0} | {6:0.00} {7:0.00} | {8:0.0}/{9:0.0} | {10:0}/{11:0} | {12:+0.00;-0.00} | {13} ; {14}",
+                    spec.id, def.key, f.radiusF * 2000f, f.radiusR * 2000f, spec.tyreFDiaMm > 0 ? "sheet" : "model",
+                    def.wheelRadius * 2000f, f.sx, f.sz, f.camberF, f.camberR, liftF * 1000f, liftR * 1000f, pitch, whyF, whyR));
+            }
+            sb.Insert(0, n + " rows seated high at rest (crown rule " + (ArchCeilings.CrownRule ? "on" : "off") + ")\n");
+            File.WriteAllText("PSXRacing_arch_classify.txt", sb.ToString());
+            Debug.Log(sb.ToString());
         }
 
         [MenuItem("Tools/PSX Racing/Report Arch Room")]

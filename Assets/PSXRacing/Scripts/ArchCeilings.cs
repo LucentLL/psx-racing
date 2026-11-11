@@ -62,7 +62,30 @@ namespace PSXRacing
         /// last few degrees either side are its front and back, which move
         /// into the arch's own opening and never meet a ceiling.</summary>
         const int TreadLanes = 7;
-        const float ArcHalfDeg = 84f, ArcStepDeg = 3f;
+        const float ArcStepDeg = 3f;
+        static float ArcHalfDeg => CrownRule ? CrownHalfDeg : 84f;
+
+        /// <summary>
+        /// THE CROWN, NOT THE WALLS (owner 2026-11-11: "the front suspension
+        /// of every car recently added is lifted ... like a monster truck").
+        /// A hub that RISES meets the bodywork over the top of its tyre. The
+        /// arch's front and rear walls, the sill ahead of a rear tyre and the
+        /// wheelhouse liner behind a front one are met by the tyre's front and
+        /// back edges - a tyre too long for its opening, a fit no ride height
+        /// cures, like a steered tyre's corner in the side of its arch. The
+        /// 11-11 HD shells model those inner faces, and a sheet tyre a few per
+        /// cent larger than the model's reached them at -39..-81 deg: the table
+        /// put their highest hub 3-13 cm under the hub's own static ride, and
+        /// CarBodyLean lifted the shell off its tyres that far, at rest, for
+        /// good (the EG, the FD, both CTRs; the del Sol on the EG shell 9 cm).
+        /// So the tyre is sampled over its crown only, +/-35 deg of top: every
+        /// true arch bind the bake reports sits inside +/-25 deg, every wall
+        /// bind outside 39. Editor/ArchProbe bakes ArchHubs on the same arc.
+        /// PSX_ARCH_CROWN=0 = the old +/-84 / +/-90 sweep.
+        /// </summary>
+        public const float CrownHalfDeg = 35f;
+        public static readonly bool CrownRule =
+            System.Environment.GetEnvironmentVariable("PSX_ARCH_CROWN") != "0";
 
         public sealed class Shell
         {
@@ -195,9 +218,12 @@ namespace PSXRacing
         public static float HubMax(CarModelDef def, CarModelLibrary.ShellFit f, int i, float steerDeg = 0f)
         {
             if (def == null) return float.PositiveInfinity;
+            // + the arch flare the fit gave this axle (ArchFlare: a borrowed
+            // shell's arch raised to take the sheet's tyre).
             if (ArchHubs.TryShellHubMax(f, i, steerDeg, out float exact))
-                return float.IsPositiveInfinity(exact) ? exact : exact + f.dy;
-            return FieldHubMax(def, f, i, steerDeg);
+                return float.IsPositiveInfinity(exact) ? exact : exact + f.dy + f.Flare(i);
+            float field = FieldHubMax(def, f, i, steerDeg);
+            return float.IsPositiveInfinity(field) ? field : field + f.Flare(i);
         }
 
         /// <summary>HubMax off the field alone (the bake compares against it).</summary>

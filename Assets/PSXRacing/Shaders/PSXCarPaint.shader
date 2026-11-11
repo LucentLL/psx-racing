@@ -167,7 +167,7 @@
 // term at a time: 1 = N.L, 2 = the normal, 3 = the light before the knee,
 // 4 = the reflection alone, 5 = the sheet, 6 = what the lacquer sees in
 // direction R (before how much and the tint), 7 = how much (k), 8 = the paint
-// without its reflection, 13 = the glints (sun and lamps). When a picture disagrees with the
+// without its reflection, 13 = the glints (sun and lamps), 14 = the HD tier's AO / lacquer share. When a picture disagrees with the
 // arithmetic, this is how to find out which of them is lying.
 Shader "PSX/CarPaint"
 {
@@ -211,16 +211,34 @@ Shader "PSX/CarPaint"
         // 1 on the PLAYER'S renderers only (a property block, CabinClip): cut at
         // the windscreen for a camera inside the car (PSXCabinClip.cginc).
         [HideInInspector] _PSXCabinOwn ("Cut for a camera inside 0/1", Float) = 0
+        // THE HD CAR TIER (CarHD.cs, PC only): set at runtime with the
+        // PSX_CAR_HD keyword, never saved in a material.
+        [HideInInspector][NoScaleOffset] _CarHDNormal ("HD tangent normal (+Y)", 2D) = "bump" {}
+        [HideInInspector][NoScaleOffset] _CarHDORM ("HD R ao, G rough, B metal, A coat (linear)", 2D) = "white" {}
+        // THE SHELL'S INSIDE, DARK (2026-11-11, owner: from the seat "I can see
+        // the road ahead under my hood ... I should [not] be able to see
+        // through the front bumper area"). A second renderer of the player's
+        // body (CockpitInterior.InsideShell) on a copy of its material with
+        // _PSXCull 1 (front faces culled: the BACK faces draw) and _PSXInside
+        // 1: drawn only while the cockpit's cut is open and only AHEAD of the
+        // windscreen's base, as a dark engine bay / hood underside / bumper
+        // inside. Every other material keeps Cull Back (2) and 0.
+        [HideInInspector] _PSXCull ("Cull mode (2 back, 1 front)", Float) = 2
+        [HideInInspector] _PSXInside ("Inside of the shell 0/1", Float) = 0
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
-            Cull Back
+            Cull [_PSXCull]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            // THE HD CAR TIER (2026-11-11; CarHD.cs): the artist's 2048 sheet,
+            // its normal map and its AO/roughness on the PC profile. Stripped
+            // from every non-Windows build (Editor/CarHDTool.cs).
+            #pragma multi_compile_local __ PSX_CAR_HD
             #include "UnityCG.cginc"
             // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
             #include "PSXTexDecode.cginc"
@@ -261,6 +279,36 @@ Shader "PSX/CarPaint"
             }
             float _HeadLights;
             float _LensLayer;
+            float _PSXInside;
+
+            // THE HD CAR TIER (owner, 2026-11-11, a yellow FD at a seller's drive:
+            // "why are body panel lines so smeared? I used bitmap for these to give
+            // the cars depth, but in game they are just blurry lines that fade
+            // away"). The Classic sheet is 512 x 256, point sampled, no mips, lit
+            // from vertex normals: the artist's 2 px shut lines at 2048 are half a
+            // texel there, and the groove's depth is in a normal map nothing read.
+            // Under PSX_CAR_HD (CarHD.cs, the PC profile, a body with a delivered
+            // set) _MainTex is the 2048 sheet itself (mipped, trilinear, 16x
+            // aniso), the light, the reflection and the glints are all taken off
+            // the MAPPED normal, and the packed map's AO and roughness answer the
+            // two things a groove does to paint: it sees less sky, and the
+            // lacquer does not lie flat in it. Everything else - glass by
+            // luminance, matte by alpha, the lamps, the rain, the wheels' _Dull -
+            // reads the same inputs it always did.
+            #ifdef PSX_CAR_HD
+            sampler2D _CarHDNormal;
+            sampler2D _CarHDORM;
+            #endif
+            #define HD_NORMAL_GAIN     1.0    // the normal map's tilt, as delivered (1 = the artist's bake)
+            #define HD_COLOUR_LOD_BIAS -0.75  // the HD sheet read this many mips sharper (shut lines hold to the chase camera)
+            #define HD_NORMAL_LOD_BIAS -0.5   // ...and the normal map (a groove's two walls average flat a mip early)
+            #define HD_AO_SKY          1.0    // the AO's share on the sky light (ambient)...
+            #define HD_AO_REFLECT      0.8    // ...and on what the lacquer mirrors (a groove sees less world)
+            #define HD_AO_SUN          0.35   // ...and a little on the sun (the AO bakes a crevice's own shadow)
+            #define HD_ROUGH_LO        0.50   // a texel rougher than this starts to lose its lacquer (the six
+            #define HD_ROUGH_HI        0.85   //   deliveries' PAINT sits at 0.17-0.43: untouched) - all of it by this...
+            #define HD_ROUGH_KEEP      0.25   // ...down to this share of the reflection and the glints
+            #define HD_ROUGH_LOD       3.0    // and this many panorama mips softer
 
             // THE LOOK. Linear-space numbers; see the header for what each
             // one is answering.
@@ -508,12 +556,16 @@ Shader "PSX/CarPaint"
             // 1) at night, at dusk and in every scene that set no hour.
             #include "PSXSunShadow.cginc"
             #include "PSXFogRing.cginc"
+            #include "PSXArchFlare.cginc"
 
             struct appdata
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
+            #ifdef PSX_CAR_HD
+                float4 tangent : TANGENT;   // the OBJ importer's MikkTSpace (tangentImportMode 3), as Blender bakes
+            #endif
             };
 
             struct v2f
@@ -526,13 +578,19 @@ Shader "PSX/CarPaint"
                 float hgt : TEXCOORD4;      // metres above the model's ground (mesh y, scaled)
                 float3 bpos : TEXCOORD5;    // the body's frame, metres (PSXCarDrops)
                 float3 bnrm : TEXCOORD6;
+            #ifdef PSX_CAR_HD
+                float4 wtan : TEXCOORD7;    // world tangent, w = the bitangent's sign (mirror and scale folded in)
+            #endif
             };
 
             v2f vert (appdata v)
             {
                 v2f o;
+                v.vertex.xyz = PSXArchFlare(v.vertex.xyz);   // borrowed shell, bigger tyre (ArchFlare.cs)
                 float4 clipPos = UnityObjectToClipPos(v.vertex);
 
+            #ifndef PSX_CAR_HD
+                // (the HD tier never snaps or warps: a PS3-PS4 car is still)
                 if (_PSXSnap > 0.5 && clipPos.w > 0.0)
                 {
                     float2 grid = _ScreenParams.xy * 0.5;
@@ -540,8 +598,13 @@ Shader "PSX/CarPaint"
                     ndc = floor(ndc * grid + 0.5) / grid;
                     clipPos.xy = ndc * clipPos.w;
                 }
-                o.pos = clipPos;
                 float k = lerp(1.0, max(clipPos.w, 1e-4), _Affine);
+            #else
+                float k = 1.0;
+                o.wtan = float4(UnityObjectToWorldDir(v.tangent.xyz) * step(1e-6, dot(v.tangent.xyz, v.tangent.xyz)),
+                                v.tangent.w * unity_WorldTransformParams.w);
+            #endif
+                o.pos = clipPos;
                 o.uvw = float3(TRANSFORM_TEX(v.uv, _MainTex) * k, k);
 
                 float3 rawN = UnityObjectToWorldNormal(v.normal);
@@ -596,10 +659,51 @@ Shader "PSX/CarPaint"
             fixed4 frag (v2f i) : SV_Target
             {
                 PSXCabinClip(i.wpos);
+                if (_PSXInside > 0.5)
+                {
+                    float3 cp = mul(_PSXCabinW2L, float4(i.wpos, 1.0)).xyz;
+                    if (_PSXCabinOn * _PSXCabinOwn < 0.5 || cp.z < _PSXCabinBox.x) discard;
+                    return fixed4(0.018, 0.018, 0.02, _PSXEmitWrite > 0.5 ? 0.0 : 1.0);
+                }
+            #ifdef PSX_CAR_HD
+                // (a shut line is 2-3 texels at 2048: read a little sharper than the
+                // mip the pixel's footprint asks for, so it holds out to the chase
+                // camera instead of averaging away a mip early; 16x aniso keeps it clean)
+                fixed4 tex = tex2Dbias(_MainTex, float4(i.uvw.xy / i.uvw.z, 0.0, HD_COLOUR_LOD_BIAS)) * _Color;
+            #else
                 fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
+            #endif
                 clip(tex.a - _Cutoff);
 
                 float3 N = normalize(i.wnrm);
+                // THE HD CAR TIER: the groove's shape, off the artist's normal map
+                // (tangent space, +Y = +V, the convention Unity unpacks), its AO
+                // and roughness. 1 / 1 / 0 without the tier, and nothing below changes.
+                float hdAO = 1.0, hdRoughK = 1.0, hdRoughLod = 0.0;
+            #ifdef PSX_CAR_HD
+                {
+                    float2 uvHD = i.uvw.xy / i.uvw.z;
+                    float3 tn = UnpackNormal(tex2Dbias(_CarHDNormal, float4(uvHD, 0.0, HD_NORMAL_LOD_BIAS)));
+                    tn.xy *= HD_NORMAL_GAIN;
+                    float tl = dot(i.wtan.xyz, i.wtan.xyz);
+                    if (tl > 1e-8)
+                    {
+                        float3 T = i.wtan.xyz - N * dot(i.wtan.xyz, N);
+                        float tt = dot(T, T);
+                        if (tt > 1e-10)
+                        {
+                            T *= rsqrt(tt);
+                            float3 B = cross(N, T) * (i.wtan.w < 0.0 ? -1.0 : 1.0);
+                            N = normalize(T * tn.x + B * tn.y + N * max(tn.z, 1e-3));
+                        }
+                    }
+                    float4 orm = tex2D(_CarHDORM, uvHD);
+                    hdAO = orm.r;
+                    float rough = smoothstep(HD_ROUGH_LO, HD_ROUGH_HI, orm.g);
+                    hdRoughK = lerp(1.0, HD_ROUGH_KEEP, rough);
+                    hdRoughLod = HD_ROUGH_LOD * rough;
+                }
+            #endif
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
                 float3 L = normalize(_PSXLightDir.xyz);
 
@@ -640,12 +744,12 @@ Shader "PSX/CarPaint"
                 // roof-to-sill gradient (not on a wheel, whose mesh is centred
                 // on its axle).
                 float occ = lerp(lerp(SILL_SKY, 1.0, smoothstep(SILL_LO, SILL_HI, i.hgt)), 1.0, dull);
-                amb *= PAINT_AMBIENT * skyOpen * occ;
+                amb *= PAINT_AMBIENT * skyOpen * occ * lerp(1.0, hdAO, HD_AO_SKY);
                 // What the shadow map lets through: the sun's lambert, its
                 // glint and the flake's sheen all go with it - a shadowed
                 // bonnet has no sun in the lacquer either.
                 float sunVis = PSXSunShadow(i.wpos, N, length(_WorldSpaceCameraPos - i.wpos), 0.0);
-                float ndl = saturate(dot(N, L)) * sunVis;
+                float ndl = saturate(dot(N, L)) * sunVis * lerp(1.0, hdAO, HD_AO_SUN);
                 // Each lamp table walked ONCE for both what it lights and
                 // what it glints (the *Both functions share the distance and
                 // attenuation between the two). The glint power doubles on
@@ -714,7 +818,7 @@ Shader "PSX/CarPaint"
                 coatFMax = lerp(coatFMax * dullK, max(WET_COAT_FMAX, coatFMax), wetC);
                 // how much of a clear mirror the top of the paint is: clean or wet
                 float clearC = max(shine, wetC) * dayC * (1.0 - _Dull);
-                float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, SHINE_LOD, shine), WET_COAT_LOD, wetC);
+                float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, SHINE_LOD, shine), WET_COAT_LOD, wetC) + hdRoughLod;
                 float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn), glassFMax = lerp(GLASS_FMAX, ENV_GLASS_FMAX, envOn);
                 float3 R = reflect(-V, N);
                 float kCoat = coatF0 + (coatFMax - coatF0) * fres;
@@ -777,6 +881,8 @@ Shader "PSX/CarPaint"
                 }
                 if (softW > 0.001)
                     k = lerp(lerp(kCoat, coatF0 + (coatFMax - coatF0) * pow(1.0 - ndv, CLEAR_POW), softW), kGlass, glass) * dullR;
+                // (HD: a rough texel - a groove's floor, rubber, a seal - loses its lacquer)
+                k *= hdRoughK;
                 // ...except by day (2026-10-01): the paint under it is exposed
                 // (0.55 at a clear noon) and a full-brightness sky over an
                 // exposed panel is the white wash on every roof and boot.
@@ -801,14 +907,15 @@ Shader "PSX/CarPaint"
                 // (the world BELOW the horizon is not the sky: the fall-off down
                 // the body is the sky's, so it goes on the upper half only)
                 float3 refl = sky * tint * (k * (_PSXEnvOn > 0.5 ? 1.0 : skyOpen)
-                                              * lerp(lerp(occ, 1.0, glass), 1.0, envOn * (1.0 - upW)));
+                                              * lerp(lerp(occ, 1.0, glass), 1.0, envOn * (1.0 - upW)))
+                           * lerp(1.0, hdAO, HD_AO_REFLECT);
 
                 // THE SUN: a glint a few degrees across in the lacquer - a
                 // spark on a curve, nothing at all across a flat roof - and
                 // under it the flake's broad sheen, weak and paint-coloured.
                 float3 H = normalize(L + V);
                 float ndh = saturate(dot(N, H));
-                float glint = pow(ndh, SUN_GLINT_POW * (1.0 + glass)) * SUN_GLINT * (1.0 + glass * 0.8);
+                float glint = pow(ndh, SUN_GLINT_POW * (1.0 + glass)) * SUN_GLINT * (1.0 + glass * 0.8) * hdRoughK;
                 float sheen = pow(ndh, FLAKE_POW) * FLAKE_SHEEN * (1.0 - glass) * step(0.0001, ndl);
                 float dullSpec = lerp(1.0, DULL_SPEC, dull);
                 float3 hi = _PSXLightColor.rgb * ((glint + sheen * body) * dullSpec * sunVis);
@@ -920,7 +1027,8 @@ Shader "PSX/CarPaint"
                                      upW, R.y * 0.5 + 0.5);
                     else if (_PSXPaintDebug < 11.5) col = float3(0, 0, 0); // the car's mask: this...
                     else if (_PSXPaintDebug < 12.5) col = float3(1.0, 1.0 - dull, 1.0 - glass); // ...against this
-                    else col = hi;                                        // 13: the glints (sun + lamps), exposed
+                    else if (_PSXPaintDebug < 13.5) col = hi;             // 13: the glints (sun + lamps), exposed
+                    else col = float3(hdAO, hdRoughK, 0);                 // 14: the HD tier's AO and lacquer share
                     return fixed4(col, 1);
                 }
 

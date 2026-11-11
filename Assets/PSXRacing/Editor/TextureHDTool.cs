@@ -138,10 +138,18 @@ namespace PSXRacing.EditorTools
             }
             if (!any) { foreach (var k in new[] { "_col", "_nrm", "_mask" }) AssetDatabase.DeleteAsset(TextureHD.EditorSrcRoot + TextureHDMap.FacadeArrayKey + k + ".asset"); return null; }
             var on = new bool[n];
-            bool ok = BuildArray(TextureHDMap.FacadeArrayKey + "_col", col, false, log)
-                    & BuildArray(TextureHDMap.FacadeArrayKey + "_nrm", nrm, true, log)
-                    & BuildArray(TextureHDMap.FacadeArrayKey + "_mask", msk, true, log);
+            // tex4: the arrays hold the DELIVERED columns only, in column order
+            // (16 slices of 1024 x 2048 were 128 MB for three columns of art);
+            // TextureHD hands PSX/Lit each column's slice + 1
+            var cc = new List<Texture2D>(); var cn = new List<Texture2D>(); var cm = new List<Texture2D>();
+            for (int c = 0; c < n; c++) if (col[c] != null) { cc.Add(col[c]); cn.Add(nrm[c]); cm.Add(msk[c]); }
+            var ca = cc.ToArray(); var na = cn.ToArray(); var ma = cm.ToArray();
+            bool ok = BuildArray(TextureHDMap.FacadeArrayKey + "_col", ca, false, log)
+                    & BuildArray(TextureHDMap.FacadeArrayKey + "_nrm", na, true, log)
+                    & BuildArray(TextureHDMap.FacadeArrayKey + "_mask", ma, true, log);
             if (!ok) return null;
+            // (a slice BuildArray had to leave empty - format/mips mismatch, in its
+            // log - keeps its place so the numbering holds; it draws black)
             for (int c = 0; c < n; c++) on[c] = col[c] != null;
             return on;
         }
@@ -224,6 +232,35 @@ namespace PSXRacing.EditorTools
             Copy(Path.Combine(dir, key + Suffix + "_normal.png"), key + TextureHD.NormalSuffix, TexKind.Normal);
             Copy(Path.Combine(dir, key + Suffix + "_rough.png"), key + TextureHD.RoughSuffix, TexKind.Data);
             Copy(Path.Combine(dir, key + Suffix + "_ao.png"), key + TextureHD.AOSuffix, TexKind.Data);
+            // tex4: an optional night-window mask (the shopfronts), as the
+            // Classic masks are imported - linear, exact, point, no mips - but
+            // never capped at 256 (TextureHD.NightSuffix)
+            string night = Path.Combine(dir, key + Suffix + TextureHD.NightSuffix + ".png");
+            string nd = TextureHD.EditorSrcRoot + key + TextureHD.NightSuffix + ".png";
+            if (!File.Exists(night)) { if (File.Exists(nd)) AssetDatabase.DeleteAsset(nd); return; }
+            if (!File.Exists(nd) || new FileInfo(nd).Length != new FileInfo(night).Length || File.GetLastWriteTimeUtc(nd) < File.GetLastWriteTimeUtc(night))
+                File.Copy(night, nd, true);
+            AssetDatabase.ImportAsset(nd, ImportAssetOptions.ForceSynchronousImport);
+            var imp = AssetImporter.GetAtPath(nd) as TextureImporter;
+            if (imp == null) return;
+            bool dirty = false;
+            void Want<T>(T now, T want, System.Action<T> set) { if (!EqualityComparer<T>.Default.Equals(now, want)) { set(want); dirty = true; } }
+            Want(imp.textureType, TextureImporterType.Default, v => imp.textureType = v);
+            Want(imp.sRGBTexture, false, v => imp.sRGBTexture = v);
+            Want(imp.mipmapEnabled, false, v => imp.mipmapEnabled = v);
+            Want(imp.filterMode, FilterMode.Point, v => imp.filterMode = v);
+            Want(imp.alphaSource, TextureImporterAlphaSource.FromInput, v => imp.alphaSource = v);
+            Want(imp.npotScale, TextureImporterNPOTScale.None, v => imp.npotScale = v);
+            Want(imp.maxTextureSize, 4096, v => imp.maxTextureSize = v);
+            Want(imp.textureCompression, TextureImporterCompression.Uncompressed, v => imp.textureCompression = v);
+            var ps = imp.GetPlatformTextureSettings("Standalone");
+            if (!ps.overridden || ps.format != TextureImporterFormat.RGBA32 || ps.maxTextureSize != 4096)
+            {
+                ps.overridden = true; ps.format = TextureImporterFormat.RGBA32; ps.maxTextureSize = 4096;
+                imp.SetPlatformTextureSettings(ps);
+                dirty = true;
+            }
+            if (dirty) imp.SaveAndReimport();
         }
 
         // ---- THE ROAD BASE (Charlotte texture batch 01; TextureHDMap.Road) ----
@@ -414,7 +451,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
             foreach (var key in keys)
-                foreach (var suffix in new[] { "", TextureHD.NormalSuffix, TextureHD.RoughSuffix, TextureHD.AOSuffix })
+                foreach (var suffix in new[] { "", TextureHD.NormalSuffix, TextureHD.RoughSuffix, TextureHD.AOSuffix, TextureHD.NightSuffix })
                 {
                     string path = TextureHD.EditorSrcRoot + key + suffix + ".png";
                     if (AssetDatabase.LoadAssetAtPath<Texture2D>(path) == null) continue;

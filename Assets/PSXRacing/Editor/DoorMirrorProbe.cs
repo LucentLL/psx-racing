@@ -183,10 +183,17 @@ namespace PSXRacing.EditorTools
                 Island main = default; bool have = false;
                 foreach (var isl in cand)
                     if (Mathf.Sign((isl.min.x + isl.max.x) * 0.5f) == side && (!have || isl.area > main.area)) { main = isl; have = true; }
+                bool merged = false;
+                if (!have && MergedRule && Merged(d, P, tris, weld, side, halfW, out main))
+                {
+                    have = merged = true;
+                    log.Append($"   {(side < 0 ? "L" : "R")}: no separate housing - the glass found in the body ({main.tris.Count} rearward tris)\n");
+                }
                 if (!have) { log.Append($"   {(side < 0 ? "L" : "R")}: none\n"); continue; }
                 var parts = new List<Island> { main };
                 foreach (var isl in cand)
                 {
+                    if (merged) break;
                     if (ReferenceEquals(isl.tris, main.tris) || Mathf.Sign((isl.min.x + isl.max.x) * 0.5f) != side) continue;
                     Vector3 gap = Vector3.Max(Vector3.Max(main.min - isl.max, isl.min - main.max), Vector3.zero);
                     if (gap.x <= Merge && gap.y <= Merge && gap.z <= Merge) parts.Add(isl);
@@ -216,6 +223,7 @@ namespace PSXRacing.EditorTools
                     if (Vector3.Dot(n, N) >= cone) near.Add(t);
                 }
                 var face = GlassPatches(near, weld, P, tris, N);
+                if (GlassPartRule) face = GlassPart(face, P, tris, log, side);
                 N = Normal(face, P, tris, out Vector3 C);
                 Vector3 A = Vector3.Cross(Vector3.up, N);
                 if (A.sqrMagnitude < 1e-6f) { log.Append($"   {(side < 0 ? "L" : "R")}: glass faces up/down\n"); continue; }
@@ -255,6 +263,30 @@ namespace PSXRacing.EditorTools
                            $"{f.w * 100f:0.0}x{f.h * 100f:0.0} cm n ({N.x:+0.00;-0.00},{N.y:+0.00;-0.00},{N.z:+0.00;-0.00}) " +
                            $"pieces {parts.Count} faceTris {face.Count} box x {amin.x:+0.00;-0.00}..{amax.x:+0.00;-0.00} " +
                            $"y {amin.y:0.00}..{amax.y:0.00} dz {amin.z - d.cowlZ:+0.00;-0.00}..{amax.z - d.cowlZ:+0.00;-0.00}\n");
+            }
+            // TWO MIRRORS, ONE GLASS (2026-11-11 round 2: the 180SX's left glass
+            // measured 9.5 cm against its right's 17.8). A car's mirrors are
+            // each other's mirror image: the bigger glass, reflected across,
+            // serves both, when it sits inside the other housing's box (+1 cm).
+            if (result.Count == 2 && Mathf.Abs(result[0].w - result[1].w) > 0.01f)
+            {
+                int big = result[0].w * result[0].h >= result[1].w * result[1].h ? 0 : 1, small = 1 - big;
+                var b = result[big]; var s = result[small];
+                Vector3 X(Vector3 v) => new Vector3(-v.x, v.y, v.z);
+                var mt = new Vector3[b.tris.Length];
+                for (int i = 0; i < mt.Length; i += 3) { mt[i] = X(b.tris[i]); mt[i + 1] = X(b.tris[i + 2]); mt[i + 2] = X(b.tris[i + 1]); }
+                Vector3 gmin = Vector3.positiveInfinity, gmax = Vector3.negativeInfinity;
+                foreach (var v in mt) { gmin = Vector3.Min(gmin, v); gmax = Vector3.Max(gmax, v); }
+                bool fits = gmin.x >= s.min.x - 0.01f && gmin.y >= s.min.y - 0.01f && gmin.z >= s.min.z - 0.01f &&
+                            gmax.x <= s.max.x + 0.01f && gmax.y <= s.max.y + 0.01f && gmax.z <= s.max.z + 0.01f;
+                if (fits)
+                {
+                    s.tris = mt; s.centre = X(b.centre);
+                    s.across = X(b.across); s.up = X(b.up); s.normal = X(b.normal); s.w = b.w; s.h = b.h; s.faceTris = b.faceTris;
+                    result[small] = s;
+                    log.Append($"   {(small == 0 ? "L" : "R")}: the other side's glass reflected across (it was the smaller)\n");
+                }
+                else log.Append($"   the two glasses differ ({result[0].w * 100f:0.0} / {result[1].w * 100f:0.0} cm) and the bigger does not fit the other housing\n");
             }
             return result;
         }
@@ -310,6 +342,169 @@ namespace PSXRacing.EditorTools
                 if (c == prim || (area[c] >= 0.002f && rearmost[c] >= rearmost[prim] - 0.01f)) face.Add(near[i]);
             }
             return face;
+        }
+
+        /// <summary>PSX_DOORMIRROR_MERGED=0: a shell whose mirrors are part of
+        /// the body keeps them dead (no live glass), as before 2026-11-11 round 2.</summary>
+        public static bool MergedRule => System.Environment.GetEnvironmentVariable("PSX_DOORMIRROR_MERGED") != "0";
+
+        /// <summary>
+        /// A MIRROR MERGED INTO THE BODY (2026-11-11 round 2: eight shells had a
+        /// housing on screen and no live glass - camry_2001, classic_roadster,
+        /// coupe_99, flatsix_turbo_96, the three fullsize cars, gt_hardtop_73).
+        /// No island is small enough to be a mirror, so: the body's own
+        /// rearward faces (normal z under -0.4) in the mirror's place - out at
+        /// 80% of the half-width or more, from 15 cm under the cowl to 30 cm
+        /// over it, from 90 cm behind it to 10 cm ahead - joined by welded
+        /// corners; the biggest patch of mirror size (5 x 3 to 35 cm) is the
+        /// housing's back, and the glass is found in it as on any other.
+        /// </summary>
+        static bool Merged(CarModelDef d, Vector3[] P, int[] tris, int[] weld, float side, float halfW, out Island main)
+        {
+            main = default;
+            var sel = new List<int>();
+            for (int t = 0; t < tris.Length; t += 3)
+            {
+                Vector3 a = P[tris[t]], b = P[tris[t + 1]], c = P[tris[t + 2]];
+                var n = Vector3.Cross(b - a, c - a);
+                if (n.sqrMagnitude < 1e-12f || n.normalized.z >= RearNz) continue;
+                var m = (a + b + c) / 3f;
+                if (Mathf.Sign(m.x) != side || Mathf.Abs(m.x) < 0.8f * halfW) continue;
+                if (m.y < d.cowlY - 0.15f || m.y > d.cowlY + 0.30f) continue;
+                if (m.z < d.cowlZ - 0.9f || m.z > d.cowlZ + 0.1f) continue;
+                sel.Add(t);
+            }
+            if (sel.Count == 0) return false;
+            var comp = new int[sel.Count];
+            for (int i = 0; i < comp.Length; i++) comp[i] = -1;
+            int nc = 0;
+            for (int s0 = 0; s0 < sel.Count; s0++)
+            {
+                if (comp[s0] >= 0) continue;
+                comp[s0] = nc;
+                var open = new Stack<int>(); open.Push(s0);
+                while (open.Count > 0)
+                {
+                    int i = open.Pop(), ti = sel[i];
+                    for (int j = 0; j < sel.Count; j++)
+                    {
+                        if (comp[j] >= 0) continue;
+                        int tj = sel[j]; bool shares = false;
+                        for (int a = 0; a < 3 && !shares; a++) for (int b = 0; b < 3; b++) if (weld[tris[ti + a]] == weld[tris[tj + b]]) { shares = true; break; }
+                        if (shares) { comp[j] = nc; open.Push(j); }
+                    }
+                }
+                nc++;
+            }
+            float bestA = 0f;
+            for (int c = 0; c < nc; c++)
+            {
+                var isl = new Island { tris = new List<int>(), min = Vector3.positiveInfinity, max = Vector3.negativeInfinity };
+                for (int i = 0; i < sel.Count; i++)
+                {
+                    if (comp[i] != c) continue;
+                    int t = sel[i];
+                    isl.tris.Add(t);
+                    for (int k = 0; k < 3; k++) { isl.min = Vector3.Min(isl.min, P[tris[t + k]]); isl.max = Vector3.Max(isl.max, P[tris[t + k]]); }
+                    isl.area += Vector3.Cross(P[tris[t + 1]] - P[tris[t]], P[tris[t + 2]] - P[tris[t]]).magnitude * 0.5f;
+                }
+                var sz = isl.max - isl.min;
+                float w = Mathf.Max(sz.x, sz.z), h = sz.y;
+                if (w < 0.05f || h < 0.03f || w > 0.35f || h > 0.35f) continue;
+                if (isl.area > bestA) { bestA = isl.area; main = isl; }
+            }
+            return bestA > 0f;
+        }
+
+        /// <summary>PSX_DOORMIRROR_GLASSPART=0: the glass as it was measured
+        /// before 2026-11-11 (the whole welded rearward patch).</summary>
+        public static bool GlassPartRule => System.Environment.GetEnvironmentVariable("PSX_DOORMIRROR_GLASSPART") != "0";
+
+        /// <summary>
+        /// THE MODEL'S OWN GLASS PART (2026-11-11, owner: "mirrors don't match
+        /// the updated mirrors of the new car models"). The welded patch takes
+        /// in everything rearward that touches the glass: on the HD shells
+        /// (each mirror a housing, a black bezel ring, the glass and a backing
+        /// copy, all flush at the rim) it grew to the bezel's outer edge and
+        /// over the housing's back - the FD's 13.8 x 7.2 cm glass measured
+        /// 18.0 x 9.4, the Viper's 18 x 12 measured 27 x 18 - and the live
+        /// picture painted over the bezel and housing as one big generic oval.
+        /// The modeller's glass is its own piece: it shares no vertex with
+        /// the bezel (its own UVs). So, within the patch, the pieces joined by
+        /// the mesh's own shared vertices (no welding); the biggest FLAT one
+        /// (90% of its area within 15 degrees of its mean normal; a tie, the
+        /// rearmost, the glass over its backing) is the glass, when it is a
+        /// real part of the patch (half its width and height or more). A
+        /// shell whose glass and housing are one piece keeps the patch.
+        /// </summary>
+        static List<int> GlassPart(List<int> face, Vector3[] P, int[] tris, StringBuilder log, float side)
+        {
+            if (face.Count < 2) return face;
+            var parent = new Dictionary<int, int>();
+            int Find(int a)
+            {
+                if (!parent.ContainsKey(a)) { parent[a] = a; return a; }
+                while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+                return a;
+            }
+            foreach (int t in face)
+            {
+                int a = Find(tris[t]), b = Find(tris[t + 1]), c = Find(tris[t + 2]);
+                parent[b] = a; parent[Find(c)] = a;
+            }
+            var groups = new Dictionary<int, List<int>>();
+            foreach (int t in face)
+            {
+                int r = Find(tris[t]);
+                if (!groups.TryGetValue(r, out var g)) groups[r] = g = new List<int>();
+                g.Add(t);
+            }
+            if (groups.Count < 2) return face;
+            Vector3 Nall = Normal(face, P, tris, out _);
+            Extents(face, P, tris, Nall, out float wAll, out float hAll);
+            List<int> best = null; float bestA = 0f, bestRear = float.MinValue;
+            float cos15 = Mathf.Cos(15f * Mathf.Deg2Rad);
+            foreach (var g in groups.Values)
+            {
+                Vector3 n = Normal(g, P, tris, out _);
+                float area = 0f, flat = 0f, rear = float.MinValue;
+                foreach (int t in g)
+                {
+                    var cr = Vector3.Cross(P[tris[t + 1]] - P[tris[t]], P[tris[t + 2]] - P[tris[t]]);
+                    float a = cr.magnitude * 0.5f;
+                    area += a;
+                    if (a > 0f && Vector3.Dot(cr.normalized, n) >= cos15) flat += a;
+                    for (int k = 0; k < 3; k++) rear = Mathf.Max(rear, Vector3.Dot(P[tris[t + k]], Nall));
+                }
+                if (area <= 0f || flat < 0.9f * area) continue;
+                bool tie = best != null && Mathf.Abs(area - bestA) <= 0.02f * Mathf.Max(area, bestA);
+                if (best == null || (tie ? rear > bestRear : area > bestA)) { best = g; bestA = area; bestRear = rear; }
+            }
+            if (best == null || best.Count == face.Count) return face;
+            Extents(best, P, tris, Normal(best, P, tris, out _), out float w, out float h);
+            if (w < 0.5f * wAll || h < 0.5f * hAll || w < 0.05f || h < 0.03f)
+            {
+                log.Append($"   {(side < 0 ? "L" : "R")}: glass part {w * 100f:0.0}x{h * 100f:0.0} cm too small in the patch {wAll * 100f:0.0}x{hAll * 100f:0.0}, patch kept\n");
+                return face;
+            }
+            log.Append($"   {(side < 0 ? "L" : "R")}: glass part {best.Count} of {face.Count} tris, {w * 100f:0.0}x{h * 100f:0.0} cm in the patch {wAll * 100f:0.0}x{hAll * 100f:0.0}\n");
+            return best;
+        }
+
+        static void Extents(List<int> sel, Vector3[] P, int[] tris, Vector3 N, out float w, out float h)
+        {
+            Vector3 A = Vector3.Cross(Vector3.up, N);
+            if (A.sqrMagnitude < 1e-6f) A = Vector3.right;
+            A.Normalize();
+            Vector3 B = Vector3.Cross(N, A).normalized;
+            float a0 = float.MaxValue, a1 = float.MinValue, b0 = float.MaxValue, b1 = float.MinValue;
+            foreach (int t in sel)
+                for (int k = 0; k < 3; k++)
+                {
+                    float a = Vector3.Dot(P[tris[t + k]], A), b = Vector3.Dot(P[tris[t + k]], B);
+                    a0 = Mathf.Min(a0, a); a1 = Mathf.Max(a1, a); b0 = Mathf.Min(b0, b); b1 = Mathf.Max(b1, b);
+                }
+            w = a1 - a0; h = b1 - b0;
         }
 
         static Vector3 Normal(List<int> sel, Vector3[] P, int[] tris, out Vector3 centroid)
