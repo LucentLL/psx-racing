@@ -248,6 +248,8 @@ namespace PSXRacing.EditorTools
                         if (shape == null) continue;
                         var basePos = root.MultiplyPoint3x4(new Vector3(p.x, p.y, p.z));
                         int near = Nearest(basePos, roadHalf + 12f + shape.rMax * s, out float pd);
+                        // a tunnel's portal wall reaches 18 m from the centreline: out to 20 m, solids only
+                        if (near < 0) near = Nearest(basePos, 20f + shape.rMax * s, out pd);
                         if (near < 0) continue;
                         r.checkedNear++;
                         var tl = forest.instTilt != null && i < forest.instTilt.Length ? forest.instTilt[i] : Vector2.zero;
