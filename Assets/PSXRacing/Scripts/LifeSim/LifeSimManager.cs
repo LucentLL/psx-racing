@@ -757,6 +757,23 @@ namespace PSXRacing.LifeSim
             }
 
             if (s.saveVersion < 23) MigrateToEnforcedWeek(s);
+            if (s.saveVersion < 24) MigrateToPartsShelf(s);
+        }
+
+        /// <summary>
+        /// v24, THE PARTS SHELF: a pulled part became a thing you own (see
+        /// Spares). Nothing an old career did is re-read: every part it ever
+        /// pulled was fitted the day it was paid for, so the shelf starts
+        /// empty. The fields are ADDED; this only makes sure the list is a
+        /// list. Public for the self-test.
+        /// </summary>
+        public static void MigrateToPartsShelf(LifeState s)
+        {
+            if (s == null) return;
+            if (s.partsShelf == null) s.partsShelf = new System.Collections.Generic.List<SparePart>();
+            s.partsShelf.RemoveAll(p => p == null);
+            if (s.spareSeq < s.partsShelf.Count) s.spareSeq = s.partsShelf.Count;
+            s.saveVersion = 24;
         }
 
         /// <summary>

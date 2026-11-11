@@ -123,6 +123,8 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestMarket), TestMarket);
             Guard(nameof(TestViewings), TestViewings);
             Guard(nameof(TestJunkyard), TestJunkyard);
+            Guard(nameof(TestPartsShelf), TestPartsShelf);
+            Guard(nameof(TestPartsShelfSave), TestPartsShelfSave);
             Guard(nameof(TestRaceField), TestRaceField);
             Guard(nameof(TestBlacklist), TestBlacklist);
             Guard(nameof(TestTracks), TestTracks);
@@ -538,7 +540,7 @@ namespace PSXRacing.EditorTools
             LifeSimManager.Migrate(back);
             string note = LifeSimManager.TakeEditionNote();
             LifeSimManager.EditionSanitize(back);
-            Check(back.saveVersion == 23, "a v21 save migrates to the current version (v23)", back.saveVersion);
+            Check(back.saveVersion == CurrentSaveVersion, "a v21 save migrates to the current version (v23)", back.saveVersion);
             Check(back.bookings.Count == 2 &&
                   back.bookings.Any(b => b.trackIndex == TrackCatalog.IndexOf("EmeraldIsle")) &&
                   back.bookings.Any(b => b.trackIndex == TrackCatalog.IndexOf("DeckRunUnivThree")),
@@ -807,7 +809,7 @@ namespace PSXRacing.EditorTools
             old.pendingParts.Add(new PendingPart { carId = "x", faultId = "y", readyDay = 12, readySlot = 0 });
             old.pendingParts.Add(new PendingPart { carId = "x", faultId = "z", readyDay = 11, readySlot = 1 });
             LifeSimManager.Migrate(old);
-            Check(old.saveVersion == 23, "a v20 save is migrated through v21 and v22 to v23", old.saveVersion);
+            Check(old.saveVersion == CurrentSaveVersion, "a v20 save is migrated through v21 and v22 to v23", old.saveVersion);
             Check(old.slotIndex == N, "the clock in the old DAY block is at NOON, the start of it",
                   LifeRules.SlotNames[old.slotIndex]);
             Check(old.slotActs.Count == 6 && old.slotActs[Dw] == LifeRules.ActSleep &&
@@ -838,7 +840,7 @@ namespace PSXRacing.EditorTools
             var json = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(old));
             Check(json.slotActs.Count == 6 && json.dayLog[0].Act(Ni) == LifeRules.ActRace &&
                   json.bookings[0].slot == Ni, "and the migrated career saves and loads");
-            Check(new LifeState().saveVersion == 23 && new LifeState().slotActs.Count == 6,
+            Check(new LifeState().saveVersion == CurrentSaveVersion && new LifeState().slotActs.Count == 6,
                   "a new career is born on six blocks");
             // An old NIGHT clock: the whole of the night is still ahead of it.
             var night = new LifeState { saveVersion = 20, day = 5, slotIndex = 2 };
@@ -7898,7 +7900,7 @@ namespace PSXRacing.EditorTools
                 Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
                       firstWrong ?? "all three");
                 LifeSimManager.Migrate(mig19);
-                Check(mig19.saveVersion == 23 && new LifeState().saveVersion == 23, "a v19 save migrates through to v23, where new careers start");
+                Check(mig19.saveVersion == CurrentSaveVersion && new LifeState().saveVersion == CurrentSaveVersion, "a v19 save migrates through to v23, where new careers start");
                 Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
                 Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.V21IndexOf("GillespieGap"),
                       "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));
