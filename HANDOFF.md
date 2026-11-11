@@ -1,3 +1,44 @@
+﻿# HANDOFF - CURBS BY CONTEXT, GUTTER PAN, STORM INLETS, MANHOLES (charlotte-curbs-drains, 2026-11-11; NOT pushed, NOT merged)
+
+Branch `charlotte-curbs-drains` (worktree `C:\Users\mcgee\PSX Racing-curbs`) off mountain-nm c81f2a59. Sandbox PSXPerf (lock "curbs", removed). The owner: "Curbs are sloped and not 90 deg like in real cities. neighborhoods have gentle sloping curbs to park on. i also still don't see storm drains or manholes in roads".
+
+## Causes
+- Every walk street had ONE curb profile: 11 cm face over 10 cm then nose to 15 cm at 25 cm (`CityMeshes.Walks.cs` CurbFaceOut/CurbFaceH/CurbNoseOut, ~l.55-59), along streets ROLLED further (face over 22 cm, nose 40 cm out: `WalkRollFaceOut/WalkRollNoseOut`, launch 7) and its face drawn in the slab's darkest joint column (`CityMeshes.CurbMedian.cs` CurbFaceU, curbs 11-05): from the cockpit a dark 45-degree ramp, what he arrowed.
+- No code anywhere drew a gutter pan, inlet, manhole or valve lid (grep: none).
+
+## What changed (switch `PSX_CITY_CURBS2=0` = all of it off; sub-switches `PSX_CITY_DRAINS=0`, `PSX_CITY_LIDS=0`, `PSX_CITY_CURBROLL=0`, `PSX_CITY_CURBCHAMFER=0`)
+- New `Scripts/City/CityMeshes.Curbs2.cs` (all the rules, profiles, details, counts). Edits: `CityMeshes.Walks.cs` (WalkProfile/WalkBack branch to the pass, LayWalk UVs + drawn face, span record, gutter call, corner class), `CityMeshes.StreetDress.cs` (2 lines: roll argument), `CityMeshes.cs` (ONE line after PlaceLamps: `EmitStreetHardware(...)`).
+- CLASS per edge: ROLLED = a walk street of cls 0 outside the Uptown loop with no non-house building within 40 m (it has a walk only for being near the Square: Dilworth, Fourth Ward...); every other walk street VERTICAL. A corner is rolled only if every walk street at its node is; a street eases to its corners' class over the 8 m before a junction (no step).
+- VERTICAL curb DRAWN plumb: 15 cm, face 1.2 cm off plumb, 4.5 cm rounded nose, light concrete (Uptown: granite grey), render-only on the structure atlas. The COLLIDER (walk mesh) keeps exactly the old street curb's chamfer (face top 22 cm out at 11 cm, nose 40 cm) - see physics. Gutter pan: render-only 0.6 m concrete plate on the road's outer 0.6 m (1 cm proud), not in Uptown (S Tryon at road level: granite straight off the asphalt), not within 4 m of a junction mouth nor on a walk narrower than 1.2 m. It covers the 0.36 m edge line on curbed streets (as real curb-and-gutter streets have none).
+- ROLLED curb: 10 cm over 45 cm (valley to 2.5 cm at 22 cm, roll to 10 cm at 45 cm, max 33%), collider = drawn.
+- INLETS (Charlotte combination inlet): at sags of the real profile, 5.5 m before the low end's corner (both ends on the level), every 90-120 m on grade; both sides; not on aprons/driveways, ramp ends (<1.6 m walk), tree grates (2.2 m), lamp posts (1.6 m); nudged up to 3 m. Grate in the gutter (frame, 11 bars + spine, dark under), black hood 2 cm proud with a dark throat under it, concrete top slab + round lid in the walk; rolled streets get a low hood over the roll. Render-only.
+- MANHOLES 24 in (collar + waffle lid) every 95-125 m by hash in a lane centre or wheel path, >25 m from junction mouths, >0.5 m + radius from every painted line, never in the pan, never on decks/tunnels/links/freeways (cls>3); valve lids 30-45 m on, 1.3 m in from an edge; ~2.5% of walk spans get a lid in the slab. Render-only, tilted to the road plane.
+- Tools: `Editor/CityCurbDrive.cs` (`PSXRacing.EditorTools.CityCurbDrive.Run`, play mode; PSX_CURB_MODES old,v,ch,cNN), `Editor/CityRefSpots.Curbs.cs` (`CityRefSpots.RunCurbs`).
+
+## Physics (RX-7, N Graham e14122 and Lexington Ave e21451; 4 angles x 5 speeds on, 2 x 3 off; scratchpad curbs\drive2.txt, drive3.txt)
+- Plumb collider ("v"): square on 10 km/h vertical kick 10.3 g, front wheel off 0.42 s, 2 jounce strikes 2.7 m/s, 16 deg yaw (old curb 0.8 g, 0 s, none); 45 deg 10 km/h 5.9 g / 0.42 s (old 0.3 / 0); 15 deg 30 km/h 5.8 g, 2 strikes (old 0.4 g). Ray wheels step the whole 15 cm in one tick.
+- Chamfer 9 / 12 cm: fine at 10 km/h (2.8 g, no strike) but launched square on at 30 km/h (all wheels off 0.35 s, 23 g, body +1.0 m; old 4.7 g, no air); 30 deg 50 km/h 10 g (old 1.8 g).
+- Shipped: collider = old street curb profile -> every N Graham run identical to before (drive3: old vs ch equal to 0.1 g in all 26 runs). Rolled residential vs old there: equal or better to 50 km/h (90 deg 50 km/h: all-off 0.37 s -> 0, 27 g -> 10 g); worse at 80 km/h 45 deg (all-off 0.02 -> 0.42 s). Off-the-walk drops (0.1-0.3 s all off at 15-30 deg) are the same before and after.
+- Ramp end crossings: no new step (N Graham 45/30: old wheel step 0.052 m -> 0.008 m). No driveway apron within 60 m of either test site: aprons NOT driven.
+
+## Gates
+- Typecheck OK. Drive audit (uptown route + 9 default tiles, PSX_DRIVE_BARRIERS=0) before == after: walls 0, steps 0, holes 0, fall holes 0, invisible in lanes 0; 2 failures in both (8 blunt rail ends on bridge approaches, 68 collider-only solids) - pre-existing. `city-traffic-check -NoWatch` (PSXPerf): CITY TRAFFIC OK, 0 traffic-on-traffic wrecks.
+- Counts on 4 rings of 9 tiles (shots log): N Graham 5131 m vertical / 885 m rolled / 4772 m pan, 56 inlets, 24 manholes, 13 valves, 16 walk lids; S Tryon 11167 m vertical, 110 inlets, 34 manholes; Lexington 7545 / 1327 m, 87 inlets (20 rolled), 34 manholes; Central 6921 m, 68 inlets, 39 manholes. Ring build ms after/before: 11089/3166 (first, cold), 5447/4538, 4961/4099, 2979/2470 (+12-20 %; triangles per tile not measured).
+
+## Proof
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\curbs\curbs_drains_before_after.png` (before | after: N Graham eye, chase, curb, inlet, manhole, night, rain; S Tryon inlet; Central curb + corner; Lexington rolled curb + inlet). Street level (reference only): Central Ave at 35.2202,-80.8088 (vertical curb + concrete pan, no edge line: matches), S Tryon 237 (granite curb straight off asphalt: pan removed for Uptown), Lexington Ave 716 (low residential curb).
+
+## Not done / caveats
+- The N Graham spot is the one-way N Graham piece ~1.4 km out (the shot picker skips edges near decks); the owner's 4-lane two-way spot was not pinned exactly. Night frames are blown out by the editor's preview lighting before AND after.
+- Everything new is placeholder art on the structure atlas (grate bars low contrast, lids rust). Texture request appended to the art workspace `Charlotte_Texture_Feedback_2026-11-11.md` section 5; context frames `Charlotte_Texture_Context\2026-11-11\C_*`.
+- Render-only details are not WetReflections-tagged (the structure mesh is not): the pan stays matte in rain. Corner curb returns get no pan and no drawn plumb face changes their collider (corner collider is now the 22/40 cm chamfer, was 10/25: gentler). Medians, refuge islands, lot curbs unchanged. No freeway drop inlets, no junction-centre manholes, no sidewalk curb ramps' detectable warnings.
+- A wheel climbing the curb sits up to 4 cm under the drawn top for 22 cm (collider vs drawing); driving along the gutter it is exact.
+- Not run: player build, city-wide launch audit (the collider of vertical streets equals the old one; residential and corners changed).
+
+## Merge notes
+- Re-bake needed (tile geometry: walk mesh + structure mesh). No new Slot, mesh, material, TileMeshes field or format change; everything rides Slot.Sidewalk (walk) and the structure mesh (Slot.Structure). Tiles with no bridge now also have a structure mesh.
+- Seams interface: my side starts at the drawn road edge (Section.L/R). The curb foot is at the drawn edge, 2.5 cm under it; the gutter pan is a render-only plate ON the road from the edge to 0.6 m inside it, 1 cm proud, built from the span's own L/R heights; manholes likewise on the ribbon. Nothing of mine touches the ribbon, fan or skirts.
+- Shared-file edits: `CityMeshes.cs` one line (after PlaceLamps). New files with .meta: CityMeshes.Curbs2.cs, Editor/CityCurbDrive.cs, Editor/CityRefSpots.Curbs.cs.
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 
 Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
