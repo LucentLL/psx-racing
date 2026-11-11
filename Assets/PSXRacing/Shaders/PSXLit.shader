@@ -1681,7 +1681,7 @@ Shader "PSX/Lit"
                 // the gutter pan (road base) and the facade parts: where the
                 // HD maps do NOT apply on a material that wears PSX_HD (hdOff 1:
                 // a facade column other than 7), and the gutter's own normal
-                float hdOff = 0.0, rbGutter = 0.0, gSide = 1.0;
+                float hdOff = 0.0, rbGutter = 0.0, gSide = 1.0, rbDayGain = 1.0;
                 float2 gUV = float2(0.0, 0.0), gDx = float2(0.0, 0.0), gDy = float2(0.0, 0.0);
             #endif
                 // the repeat the lit-window hash is anchored to: the TILED uv
@@ -1968,8 +1968,7 @@ Shader "PSX/Lit"
                     float4 pm = _RoadBaseRepeat.z > 0.5 ? tex2Dgrad(_RoadPaint, uv, pDx, pDy) : float4(0.0, 0.0, 0.5, 1.0);
                     float cov = saturate((pm.r + pm.g) * 1.5);
                     float3 paint = (_RoadPaintW.rgb * pm.r + _RoadPaintY.rgb * pm.g) / max(pm.r + pm.g, 1e-3);
-                    // the rumble, and the surface's albedo gain (TextureHDMap.BaseGain)
-                    rb *= pm.b * 2.0 * (_RoadBaseRepeat.w > 0.0 ? _RoadBaseRepeat.w : 1.0);
+                    rb *= pm.b * 2.0;
                     // THE GUTTER PAN (round 2): on a curbed street, the outer metre
                     // of each edge is Codex's gutter set (4 m along x 1 m across,
                     // y 0 at the curb), fully over the base to 0.62 m out, gone by
@@ -1989,6 +1988,11 @@ Shader "PSX/Lit"
                     }
                     tex.rgb = lerp(rb, paint, cov) * _Color.rgb;
                     rbPaint = cov;
+                    // THE BLACK ROAD IN SHADE (round 2): the surface's DAYLIGHT gain
+                    // (TextureHDMap.BaseGain) on the pavement, not the paint; applied
+                    // to the sun and sky below, never to the lamps or the beams (the
+                    // night look already reads a dark road at a real reflectance)
+                    rbDayGain = lerp(_RoadBaseRepeat.w > 0.0 ? _RoadBaseRepeat.w : 1.0, 1.0, cov);
                 }
               #endif
             #endif
@@ -2317,6 +2321,12 @@ Shader "PSX/Lit"
                 float geoNdl = saturate(dot(Ngeo, Ld)), hdNdl = saturate(dot(N, Ld));
                 sunIn = i.sun * min(hdNdl / max(geoNdl, 0.05), 3.0);
                 ambIn *= hdAO;
+                // the road base's daylight gain, faded out by dusk (_PSXNight 0.75)
+                // so the lamp-lit dusk and night roads stay exactly as tuned
+                {
+                    float dayG = lerp(rbDayGain, 1.0, saturate(_PSXNight / 0.75));
+                    sunIn *= dayG; ambIn *= dayG;
+                }
             #endif
             #ifdef PSX_ROCKFACE
                 sunIn *= rkSun;
