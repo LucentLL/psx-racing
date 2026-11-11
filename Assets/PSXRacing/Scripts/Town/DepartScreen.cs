@@ -199,6 +199,8 @@ namespace PSXRacing.Town
                     !canDrive ? "Not enough fuel to get there."
                     : CarMeets.OnNow(S) ? "Car meet tonight at " + CarMeets.PlaceName.ToLowerInvariant() +
                                           " — east end of the main street."
+                    : Clubs.AnyMeetNow(S) ? "A club meet at " + CarMeets.PlaceName.ToLowerInvariant() +
+                                            " — east end of the main street."
                     : "The shop, the pumps, the lot and the yard. A few minutes down the road.",
                     canDrive, () => Leave("town"));
 
@@ -232,9 +234,14 @@ namespace PSXRacing.Town
                 // already made the drive, so the answer has to be on this side
                 // of it.
                 var booked = LifeRules.BookingAt(S, S.day, S.slotIndex);
-                bool racedToday = LifeRules.RacedToday(S);
-                Row(panel, ref y, "GO RACING",
+                // THE CLUB RACE (v23) is required, so the cap does not shut it.
+                var dueClub = Clubs.RaceDueNow(S);
+                bool clubDue = dueClub != null;
+                bool racedToday = LifeRules.RacedToday(S) && !clubDue;
+                Row(panel, ref y, clubDue ? dueClub.shortName + " CLUB RACE" : "GO RACING",
                     !canDrive ? "Not enough fuel to go anywhere."
+                    : clubDue ? TrackCatalog.At(Clubs.RaceVenue(dueClub, S.day)).name +
+                                "  ·  required now, in a " + dueClub.rule.ToLowerInvariant() + " car."
                     : racedToday ? "One purse a day, and today's is won. Back tomorrow."
                     : booked != null
                         ? TrackCatalog.At(booked.trackIndex).name + "  ·  in the diary for " +

@@ -137,6 +137,10 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCarXray), TestCarXray);
             Guard(nameof(TestHousingAndJobs), TestHousingAndJobs);
             Guard(nameof(TestShiftRoster), TestShiftRoster);
+            Guard(nameof(TestWorkSchedule), TestWorkSchedule);
+            Guard(nameof(TestCarClubs), TestCarClubs);
+            Guard(nameof(TestMeetOrders), TestMeetOrders);
+            Guard(nameof(TestEnforcedWeekSave), TestEnforcedWeekSave);
             Guard(nameof(TestCalendar), TestCalendar);
             Guard(nameof(TestDiary), TestDiary);
             Guard(nameof(TestRetiredVenues), TestRetiredVenues);
@@ -534,7 +538,7 @@ namespace PSXRacing.EditorTools
             LifeSimManager.Migrate(back);
             string note = LifeSimManager.TakeEditionNote();
             LifeSimManager.EditionSanitize(back);
-            Check(back.saveVersion == 22, "a v21 save migrates to v22", back.saveVersion);
+            Check(back.saveVersion == 23, "a v21 save migrates to the current version (v23)", back.saveVersion);
             Check(back.bookings.Count == 2 &&
                   back.bookings.Any(b => b.trackIndex == TrackCatalog.IndexOf("EmeraldIsle")) &&
                   back.bookings.Any(b => b.trackIndex == TrackCatalog.IndexOf("DeckRunUnivThree")),
@@ -603,7 +607,9 @@ namespace PSXRacing.EditorTools
             Check(LifeRules.SlotAct(s, d, N) == LifeRules.ActRace,
                   "a noon block raced says RACE", LifeRules.SlotAct(s, d, N));
             Check(LifeRules.SlotAct(s, d, A) == "", "and the block not reached yet says nothing");
-            Check(LifeRules.ShiftSkipped(s, d, N), "racing through NOON with no shift worked skips it");
+            // THE SCHEDULE (v23): day 1 is a Friday and pizza delivery works
+            // MON-THU, so a Friday noon raced away skips nothing.
+            Check(!LifeRules.ShiftSkipped(s, d, N), "a Friday has no scheduled shift to skip");
             Check(!LifeRules.ShiftSkipped(s, d, M), "the morning is not a shift");
             Check(!LifeRules.ShiftSkipped(s, d, A), "and a block not yet spent is not skipped yet");
 
@@ -636,8 +642,10 @@ namespace PSXRacing.EditorTools
 
             // The log is pruned, oldest first.
             for (int i = 0; i < LifeRules.DayLogKeep + 10; i++) LifeRules.SleepUntilMorning(s);
-            Check(LifeRules.ShiftSkipped(s, s.day - 1, Ni),
-                  "a day slept away with no shift in it reads SHIFT SKIPPED", LifeRules.SlotAct(s, s.day - 1, Ni));
+            // Weeks slept away with scheduled shifts in them: two misses inside
+            // the window and the shop lays the driver off (v23).
+            Check(s.laidOff && !string.IsNullOrEmpty(s.playerJob),
+                  "weeks slept through the schedule end in a lay-off, not a sacking", s.laidOff);
             // Nobody unemployed skips a shift.
             s.playerJob = "";
             Check(!LifeRules.ShiftSkipped(s, s.day - 1, Ni), "no job, no shift to skip");
@@ -799,7 +807,7 @@ namespace PSXRacing.EditorTools
             old.pendingParts.Add(new PendingPart { carId = "x", faultId = "y", readyDay = 12, readySlot = 0 });
             old.pendingParts.Add(new PendingPart { carId = "x", faultId = "z", readyDay = 11, readySlot = 1 });
             LifeSimManager.Migrate(old);
-            Check(old.saveVersion == 22, "a v20 save is migrated through v21 to v22", old.saveVersion);
+            Check(old.saveVersion == 23, "a v20 save is migrated through v21 and v22 to v23", old.saveVersion);
             Check(old.slotIndex == N, "the clock in the old DAY block is at NOON, the start of it",
                   LifeRules.SlotNames[old.slotIndex]);
             Check(old.slotActs.Count == 6 && old.slotActs[Dw] == LifeRules.ActSleep &&
@@ -830,7 +838,7 @@ namespace PSXRacing.EditorTools
             var json = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(old));
             Check(json.slotActs.Count == 6 && json.dayLog[0].Act(Ni) == LifeRules.ActRace &&
                   json.bookings[0].slot == Ni, "and the migrated career saves and loads");
-            Check(new LifeState().saveVersion == 22 && new LifeState().slotActs.Count == 6,
+            Check(new LifeState().saveVersion == 23 && new LifeState().slotActs.Count == 6,
                   "a new career is born on six blocks");
             // An old NIGHT clock: the whole of the night is still ahead of it.
             var night = new LifeState { saveVersion = 20, day = 5, slotIndex = 2 };
@@ -1844,56 +1852,30 @@ namespace PSXRacing.EditorTools
             Check(TimeOfDay.At(TimeOfDay.ForSlot(LifeRules.NightSlot, 1)).lightsOn,
                   "the NIGHT block is dark enough for headlights");
 
-            // ---- the absence ladder ----
-            // Two days off cost nothing; the third starts the ladder and the
-            // fifth ends the job. Driven through the real rollover rather than
-            // by poking consecutiveAbsences, because the rollover is what a
-            // player actually experiences and what the old rule lived in.
+            // ---- the absence ladder: RETIRED BY THE SCHEDULE (v23) ----
+            // The owner, 2026-11-11: "laid off from work, called back when
+            // there is opening". Days that are not shifts cost nothing at all
+            // (the old dock read every day off as an absence); a missed
+            // SCHEDULED shift is a strike instead - see TestWorkSchedule.
             var t = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
-            float startRep = t.workRep;
-            for (int i = 0; i < LifeRules.FreeDaysOff; i++) LifeRules.SleepUntilMorning(t);
-            Check(t.workRep == startRep && !string.IsNullOrEmpty(t.playerJob),
-                  LifeRules.FreeDaysOff + " days off cost nothing", t.workRep);
-
-            // THE DAY AFTER THE ALLOWANCE DOCKS PAY, AND ONLY PAY. Something
-            // has to be pending for a dock to show, so a shift is worked
-            // first. The night that follows rolls the WORKED day over — the
-            // latch ClockOnShift set means it is not an absence — so it is
-            // slept separately, before the free days and the one that costs.
-            // (Day 1 is a Friday and this runs days 3-7; the next payout is
-            // day 8's rollover, so nothing here can zero the pay for us.)
             LifeRules.WorkOneDay(t);
-            LifeRules.SleepUntilMorning(t);
             int pending = t.pendingSalary;
-            int dock = LifeRules.MissedDayDock(t);
-            for (int i = 0; i < LifeRules.FreeDaysOff; i++) LifeRules.SleepUntilMorning(t);
-            Check(t.pendingSalary == pending,
-                  "the free days after a shift dock nothing", t.pendingSalary + " from " + pending);
-            LifeRules.SleepUntilMorning(t);
-            Check(dock > 0 && t.pendingSalary == pending - dock,
-                  "the day after the allowance docks Friday's pay by one day's tips",
-                  t.pendingSalary + " from " + pending + " (dock " + dock + ")");
-            Check(t.calendarLog.Exists(l => l.Contains("missed a shift (\u2212$" + dock)),
-                  "and says so in the diary");
-            Check(Mathf.Approximately(t.workRep, startRep + 3f) || t.workRep >= startRep,
-                  "and costs no rep", t.workRep);
-
-            // AND NOBODY IS EVER FIRED. Twenty days without turning up: the
-            // job is still there, and the dock cannot go below zero.
+            // Days 1-3 are FRI, SAT, SUN: no shifts, nothing docked, no strike.
+            LifeRules.SleepUntilMorning(t); LifeRules.SleepUntilMorning(t); LifeRules.SleepUntilMorning(t);
+            // (Friday's payday pays the pending tips out on the first rollover.)
+            Check(!t.calendarLog.Exists(l => l.Contains("missed a shift")) &&
+                  WorkSchedule.MissesInWindow(t, t.day) == 0 && t.money >= 0,
+                  "a weekend off (no shifts on it) docks nothing and strikes nothing",
+                  pending);
+            Check(t.consecutiveAbsences == 0, "and the old absence counter stays out of it",
+                  t.consecutiveAbsences);
+            // AND NOBODY IS FIRED: weeks without turning up end in a LAY-OFF,
+            // the job title kept for the call-back.
             for (int i = 0; i < 20; i++) LifeRules.SleepUntilMorning(t);
-            Check(!string.IsNullOrEmpty(t.playerJob) && !t.fired,
-                  "a driver who never turns up still has the job — nobody is fired",
-                  t.playerJob);
-            Check(t.pendingSalary >= 0, "and the dock never goes negative", t.pendingSalary);
-
-            // And a single shift clears the counter, which is the half that
-            // makes the allowance a rolling one rather than a countdown to
-            // being sacked.
-            var u = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
-            LifeRules.SleepUntilMorning(u); LifeRules.SleepUntilMorning(u);
-            LifeRules.WorkOneDay(u);
-            LifeRules.SleepUntilMorning(u);
-            Check(u.consecutiveAbsences == 0, "one shift resets the ladder", u.consecutiveAbsences);
+            Check(!string.IsNullOrEmpty(t.playerJob) && !t.fired && t.laidOff,
+                  "a driver who never turns up is laid off, not fired - the job waits for the call-back",
+                  t.playerJob + " laidOff=" + t.laidOff);
+            Check(t.pendingSalary >= 0, "and pay never goes negative", t.pendingSalary);
 
             // ---- the save migration ----
             // An old career is holding a job title the table no longer has. It
@@ -7916,7 +7898,7 @@ namespace PSXRacing.EditorTools
                 Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
                       firstWrong ?? "all three");
                 LifeSimManager.Migrate(mig19);
-                Check(mig19.saveVersion == 22 && new LifeState().saveVersion == 22, "a v19 save migrates through v20 and v21 to v22, where new careers start");
+                Check(mig19.saveVersion == 23 && new LifeState().saveVersion == 23, "a v19 save migrates through to v23, where new careers start");
                 Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
                 Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.V21IndexOf("GillespieGap"),
                       "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));

@@ -755,6 +755,41 @@ namespace PSXRacing.LifeSim
                 RetireFictionalVenues(s);
                 s.saveVersion = 22;
             }
+
+            if (s.saveVersion < 23) MigrateToEnforcedWeek(s);
+        }
+
+        /// <summary>
+        /// v23, THE ENFORCED WEEK: the job onto its schedule, no club, and
+        /// NOTHING missed retroactively - obligations are owed from the block
+        /// the save is standing in. The fields are all ADDED, so JsonUtility
+        /// has already left them at their defaults; this writes the clock in
+        /// and makes the nested ones non-null (the empty-alias pattern: no
+        /// club is "", never a null object). Public for the self-test.
+        /// </summary>
+        public static void MigrateToEnforcedWeek(LifeState s)
+        {
+            if (s == null) return;
+            int now = Duty.NowOrd(s);
+            s.dutyFrom = now;
+            s.jobFrom = now;
+            if (s.dutyLog == null) s.dutyLog = new System.Collections.Generic.List<DutyRecord>();
+            s.dutyLog.Clear();
+            s.laidOff = false;
+            s.callBackOffered = false;
+            if (s.clubs == null) s.clubs = new System.Collections.Generic.List<ClubStanding>();
+            s.clubs.Clear();
+            if (s.clubNews == null) s.clubNews = new System.Collections.Generic.List<string>();
+            // The old absence ladder is retired for a scheduled job; its
+            // counter means nothing now.
+            s.consecutiveAbsences = 0;
+            if (!string.IsNullOrEmpty(s.playerJob) && WorkSchedule.HasSchedule(s.playerJob))
+            {
+                if (s.calendarLog == null) s.calendarLog = new System.Collections.Generic.List<string>();
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": Tony's put you on a schedule - " +
+                                  WorkSchedule.RosterShort(s.playerJob).ToLowerInvariant());
+            }
+            s.saveVersion = 23;
         }
 
         /// <summary>

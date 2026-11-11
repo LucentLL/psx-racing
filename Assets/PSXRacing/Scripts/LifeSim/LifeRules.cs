@@ -350,7 +350,11 @@ namespace PSXRacing.LifeSim
         {
             if (s == null) return;
             int day = s.day;
-            for (int i = 0; i < ShiftBlocks && s.day == day && ShiftSlot(s.slotIndex); i++)
+            // To the end of the SCHEDULED shift (v23): a driver who clocks on
+            // in its second block works what is left of it. No schedule
+            // covering the block (a debug path) is the old whole shift.
+            int blocks = WorkSchedule.BlocksToSpend(s);
+            for (int i = 0; i < blocks && s.day == day && ShiftSlot(s.slotIndex); i++)
                 SpendActivitySlot(s, ActWork);
         }
         /// <summary>The roster in words, for every screen that has to say it.
@@ -449,12 +453,13 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static bool ShiftSkipped(LifeState s, int day, int slot)
         {
-            if (s == null || string.IsNullOrEmpty(s.playerJob) || !ShiftSlot(slot)) return false;
-            string act = SlotAct(s, day, slot);
-            if (act.Length == 0 || act == ActWork) return false;
-            for (int k = 0; k < SlotCount; k++)
-                if (SlotAct(s, day, k) == ActWork) return false;
-            return true;
+            // THE SCHEDULE (v23): a shift is a fixed (weekday, block) on the
+            // job's roster, and skipping one is a MISS the record holds - read
+            // back from Duty rather than re-derived, so the calendar says
+            // exactly what the strike was counted for.
+            if (s == null || string.IsNullOrEmpty(s.playerJob)) return false;
+            var rec = Duty.RecordAt(s, day, slot, Duty.KindShift);
+            return rec != null && rec.IsMiss;
         }
 
         /// <summary>
@@ -1270,6 +1275,15 @@ namespace PSXRacing.LifeSim
             float meters = RaceHandoff.MetersDriven;
             var car = s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;
 
+            // 0. A CLUB RACE is banked on the club's board BEFORE the block is
+            // spent below: a NIGHT race rolls the day there, and the rollover
+            // scores the fortnight's fixture off this very result.
+            string clubLine = null;
+            if (RaceHandoff.ClubRace && !RaceHandoff.FreeRoam && !RaceHandoff.Delivery)
+                clubLine = Clubs.RecordRaceResult(s, Clubs.ById(RaceHandoff.ClubRaceClub),
+                                                  RaceHandoff.ClubRaceDay, RaceHandoff.ClubOpponent,
+                                                  RaceHandoff.FinishPos == 1);
+
             // 1. the race consumed a slot (may roll the day)
             //
             // EXCEPT a delivery, which already paid for its slot at the counter.
@@ -1417,6 +1431,11 @@ namespace PSXRacing.LifeSim
                                          consumable: RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f,
                                          carryConsumable: RaceHandoff.CarryConsumable);
                 s.money += drop.tip;
+                // A CAR-MEET ORDER is judged at the garage night's door: fast
+                // and undamaged, and the club asks the player in (Clubs).
+                string meetLine = Clubs.JudgeMeetDelivery(s, RaceHandoff.DeliveryMeetClub, drop.seconds,
+                    drop.parSeconds, drop.condition,
+                    RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f, drop.refused);
                 // Attendance was banked at the counter (ClockOnShift, from
                 // PizzaShift) — turning up is what the shop counts, and a night
                 // run has already rolled the day by the time this runs. What is
@@ -1444,6 +1463,7 @@ namespace PSXRacing.LifeSim
                       (OrderLabel(drop, RaceHandoff.CargoBoxes).Length > 0
                           ? OrderLabel(drop, RaceHandoff.CargoBoxes).ToLower() : "intact") + ", +" +
                       MenuKit.Money(drop.tip);
+                if (!string.IsNullOrEmpty(meetLine)) summary = meetLine + "  ·  " + summary;
             }
             else if (RaceHandoff.IsPractice)
             {
@@ -1476,7 +1496,8 @@ namespace PSXRacing.LifeSim
                     float scale = Mathf.Max(0f, 1f - (RaceHandoff.FinishPos - 1) / (float)field);
                     // A call-out at a meet is two cars and one pot: second
                     // place is last place, and last place pays nothing.
-                    payout = RaceHandoff.MeetRace ? 0 : Mathf.RoundToInt(purse * scale);
+                    // A club race is the same: one on one, one pot.
+                    payout = RaceHandoff.MeetRace || RaceHandoff.ClubRace ? 0 : Mathf.RoundToInt(purse * scale);
                     s.streetRep = Mathf.Min(100f, s.streetRep + LossRepGain);
                 }
                 s.money += payout;
@@ -1492,7 +1513,10 @@ namespace PSXRacing.LifeSim
                 // NOT burn the cap"). What stops a meet being a fountain here
                 // is CarMeets.MaxRunsPerMeet, and that each driver lines up
                 // once a night.
-                if (string.IsNullOrEmpty(RaceHandoff.RivalAlias) && !RaceHandoff.MeetRace)
+                // A CLUB RACE is required by the calendar, so it cannot be
+                // refused by the cap either - and it does not burn it.
+                if (string.IsNullOrEmpty(RaceHandoff.RivalAlias) && !RaceHandoff.MeetRace &&
+                    !RaceHandoff.ClubRace)
                     s.lastRaceDay = s.day;
 
                 summary = RaceHandoff.MeetRace && !string.IsNullOrEmpty(RaceHandoff.MeetAlias)
@@ -1512,6 +1536,8 @@ namespace PSXRacing.LifeSim
                                                         RaceHandoff.FinishPos == 1);
                     if (!string.IsNullOrEmpty(ladder)) summary = ladder + "  ·  " + summary;
                 }
+                if (!string.IsNullOrEmpty(clubLine))
+                    summary = clubLine + (payout > 0 ? " - won " + MenuKit.Money(payout) : "");
             }
 
             // A pit stop is part of the story of the race, so it goes in the
@@ -2130,10 +2156,11 @@ namespace PSXRacing.LifeSim
             string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenueMechanic);
             if (elsewhere != null) return elsewhere;
             var svc = MechanicServices[serviceIdx];
-            int price = ServiceCost(car, svc.cost);
+            // A club MECHANIC perk (Clubs.Perks): cheaper, and more work done.
+            int price = Clubs.MechanicPrice(s, car, ServiceCost(car, svc.cost));
             if (s.money < price) return "need " + MenuKit.Money(price);
             s.money -= price;
-            AddToStat(car, svc.stat, svc.add);
+            AddToStat(car, svc.stat, Mathf.RoundToInt(svc.add * Clubs.MechanicWork(s, car)));
             car.faults.RemoveAll(f => f.stat == svc.stat);
             // A service supersedes any repair queued for the same stat lane —
             // new tyres make a booked tyre job pointless. Two kinds of job are
@@ -2221,7 +2248,7 @@ namespace PSXRacing.LifeSim
             string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenueMechanic);
             if (elsewhere != null) return elsewhere;
             var svc = CoolingServices[idx];
-            int price = ServiceCost(car, svc.cost);
+            int price = Clubs.MechanicPrice(s, car, ServiceCost(car, svc.cost));
             if (s.money < price) return "need " + MenuKit.Money(price);
             s.money -= price;
             SetCoolPart(car, svc.part, 100f);
@@ -2558,6 +2585,9 @@ namespace PSXRacing.LifeSim
             // moved on has to as well, or a car promised for this afternoon
             // stays at the dealership until tomorrow.
             else TickPendingParts(s);
+            // And whatever was owed in the block just spent is settled now,
+            // not at midnight: the calendar says MISSED as soon as it is.
+            Duty.Settle(s);
         }
 
         /// <summary>
@@ -2594,6 +2624,14 @@ namespace PSXRacing.LifeSim
         /// up at NIGHT with the plans still ahead, as any other block would be.
         /// </summary>
         public static void Sleep(LifeState s)
+        {
+            SleepCore(s);
+            // Whatever was owed in the blocks slept through is settled (a nap
+            // through a shift is a missed shift, at once).
+            Duty.Settle(s);
+        }
+
+        static void SleepCore(LifeState s)
         {
             if (s == null) return;
             // (A line here used to clear PizzaRun.DriveToShop — the player's
@@ -2687,7 +2725,8 @@ namespace PSXRacing.LifeSim
         /// or the calendar keeps - a car meet or a booked race - so an early
         /// night from EVENING would sleep through it (see <see cref="Sleep"/>).</summary>
         public static bool NightHasPlans(LifeState s) =>
-            s != null && (CarMeets.MeetAt(s.day, NightSlot) || BookingAt(s, s.day, NightSlot) != null);
+            s != null && (CarMeets.MeetAt(s.day, NightSlot) || BookingAt(s, s.day, NightSlot) != null ||
+                          Duty.At(s, s.day, NightSlot).Count > 0);
 
         /// <summary>Whether SLEEP from here is a night's sleep — the one the
         /// health ladder counts — rather than a nap.</summary>
@@ -2746,7 +2785,15 @@ namespace PSXRacing.LifeSim
             // for Friday, and nothing else happens — no rep, no dismissal, no
             // credit score. It cannot go below zero: you cannot owe the shop
             // for tips you never collected.
-            if (!string.IsNullOrEmpty(s.playerJob) && !s.workedToday)
+            //
+            // RETIRED BY THE SCHEDULE (v23, owner 2026-11-11: "laid off from
+            // work, called back when there is opening"). The job now has fixed
+            // shifts and a missed one is a strike (Duty.Settle, below), so a
+            // day not worked is no longer an absence by itself: Friday to
+            // Sunday are not shifts at all. Kept only for a job with no
+            // roster row, which today is none.
+            if (!string.IsNullOrEmpty(s.playerJob) && !s.workedToday &&
+                !WorkSchedule.HasSchedule(s.playerJob))
             {
                 s.consecutiveAbsences++;
                 int over = s.consecutiveAbsences - FreeDaysOff;
@@ -2773,6 +2820,13 @@ namespace PSXRacing.LifeSim
             s.slotIndex = 0;
             s.slotsActiveToday = 0;
             for (int i = 0; i < acts.Count; i++) acts[i] = "";
+
+            // 4b. THE ENFORCED WEEK: everything owed yesterday is settled (the
+            // closed day reads from dayLog now), the call-back arrives on its
+            // day, and the club's board moves for the club race just run.
+            Duty.Settle(s);
+            WorkSchedule.Tick(s);
+            Clubs.Tick(s);
 
             // 5. payday (Friday) — flat-rate withheld tax
             if (IsPayday(s.day - 1) && s.pendingSalary > 0)

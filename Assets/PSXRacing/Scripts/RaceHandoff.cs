@@ -269,6 +269,23 @@
         /// </summary>
         public static string MeetAlias;
 
+        // ---- car club race (LifeSim.Clubs) ----
+        /// <summary>This race is the player's CLUB RACE: one on one against a
+        /// member (or, in a fixture week, another club's opposite number). It
+        /// spends its block like any race but does not burn the daily cap, and
+        /// the apply-back banks it on the club's board before the block is
+        /// spent (a NIGHT race rolls the day).</summary>
+        public static bool ClubRace;
+        public static string ClubOpponent;
+        /// <summary>Which club's race (Clubs id): the player may be in several.</summary>
+        public static string ClubRaceClub;
+        /// <summary>A delivery to a club's garage night (Clubs.MeetOrderFor):
+        /// the club, judged at the door. Empty for an ordinary drop.</summary>
+        public static string DeliveryMeetClub;
+        /// <summary>The day the club race was owed on, which a NIGHT race's
+        /// apply-back cannot read off the clock.</summary>
+        public static int ClubRaceDay;
+
         // ---- tuning stages (the parts the player bought) ----
         // Passed as stages rather than as finished hp/kg numbers so the race
         // scene derives the effective car through the same Upgrades curves the
@@ -491,6 +508,7 @@
             OpponentSpecIds = OpponentSkills = null;
             RivalRank = 0; RivalAlias = null; RivalSeries = null;
             MeetRace = false; MeetAlias = null;
+            ClubRace = false; ClubOpponent = null; ClubRaceDay = 0; ClubRaceClub = null; DeliveryMeetClub = null;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = UpSeat = 0;
             // A payload left out of here does not go stale, it goes to the NEXT
             // car: these statics survive a scene load by design, so the tune the

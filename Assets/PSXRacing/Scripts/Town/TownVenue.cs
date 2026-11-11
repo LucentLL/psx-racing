@@ -315,8 +315,7 @@ namespace PSXRacing.Town
         static bool HasBeenOut =>
             City.CityMode.Instance != null && City.CityMode.Instance.MetersDriven > 40f;
 
-        bool CanClockOn =>
-            S != null && !string.IsNullOrEmpty(S.playerJob) && LifeRules.ShopOpen(S);
+        bool CanClockOn => WorkSchedule.CanClockOn(S);
 
         /// <summary>
         /// Buying a pizza rather than delivering one.
