@@ -215,13 +215,23 @@ Shader "PSX/CarPaint"
         // PSX_CAR_HD keyword, never saved in a material.
         [HideInInspector][NoScaleOffset] _CarHDNormal ("HD tangent normal (+Y)", 2D) = "bump" {}
         [HideInInspector][NoScaleOffset] _CarHDORM ("HD R ao, G rough, B metal, A coat (linear)", 2D) = "white" {}
+        // THE SHELL'S INSIDE, DARK (2026-11-11, owner: from the seat "I can see
+        // the road ahead under my hood ... I should [not] be able to see
+        // through the front bumper area"). A second renderer of the player's
+        // body (CockpitInterior.InsideShell) on a copy of its material with
+        // _PSXCull 1 (front faces culled: the BACK faces draw) and _PSXInside
+        // 1: drawn only while the cockpit's cut is open and only AHEAD of the
+        // windscreen's base, as a dark engine bay / hood underside / bumper
+        // inside. Every other material keeps Cull Back (2) and 0.
+        [HideInInspector] _PSXCull ("Cull mode (2 back, 1 front)", Float) = 2
+        [HideInInspector] _PSXInside ("Inside of the shell 0/1", Float) = 0
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
-            Cull Back
+            Cull [_PSXCull]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -269,6 +279,7 @@ Shader "PSX/CarPaint"
             }
             float _HeadLights;
             float _LensLayer;
+            float _PSXInside;
 
             // THE HD CAR TIER (owner, 2026-11-11, a yellow FD at a seller's drive:
             // "why are body panel lines so smeared? I used bitmap for these to give
@@ -646,6 +657,12 @@ Shader "PSX/CarPaint"
             fixed4 frag (v2f i) : SV_Target
             {
                 PSXCabinClip(i.wpos);
+                if (_PSXInside > 0.5)
+                {
+                    float3 cp = mul(_PSXCabinW2L, float4(i.wpos, 1.0)).xyz;
+                    if (_PSXCabinOn * _PSXCabinOwn < 0.5 || cp.z < _PSXCabinBox.x) discard;
+                    return fixed4(0.018, 0.018, 0.02, _PSXEmitWrite > 0.5 ? 0.0 : 1.0);
+                }
             #ifdef PSX_CAR_HD
                 // (a shut line is 2-3 texels at 2048: read a little sharper than the
                 // mip the pixel's footprint asks for, so it holds out to the chase
