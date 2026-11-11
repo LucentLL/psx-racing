@@ -60,6 +60,7 @@ namespace PSXRacing.EditorTools
             var log = new System.Text.StringBuilder();
             var bases = new HashSet<string>();
             string facadeParts = null, gutter = null;
+            var facadeColour = new string[TextureHDMap.FacadeCols];
             var seen = new HashSet<string>();
             var colours = new List<string>();
             foreach (var d in dirs) colours.AddRange(Directory.GetFiles(d, "*" + Suffix + ".png", SearchOption.AllDirectories));
@@ -79,6 +80,13 @@ namespace PSXRacing.EditorTools
                 // the facade atlas's column 7 parts and the road's gutter pan: bound by the shader (TextureHDMap)
                 if (key == TextureHDMap.FacadePartsKey) { facadeParts = key; CopySet(colour, key); log.AppendLine($"  {key}: facade column 7 parts set"); continue; }
                 if (key == TextureHDMap.GutterKey) { gutter = key; CopySet(colour, key); log.AppendLine($"  {key}: gutter pan set"); continue; }
+                // round 3: one facade atlas column in HD (city_facade_c00..c15), stacked below
+                if (key.StartsWith(TextureHDMap.FacadeColPrefix) && key.Length == TextureHDMap.FacadeColPrefix.Length + 2
+                    && int.TryParse(key.Substring(TextureHDMap.FacadeColPrefix.Length), out int fcol) && fcol >= 0 && fcol < TextureHDMap.FacadeCols && fcol != 7)
+                {
+                    facadeColour[fcol] = colour;
+                    continue;
+                }
                 var original = FindOriginal(key);
                 if (original == null) { log.AppendLine("  no game texture named " + key + " - skipped"); continue; }
                 CopySet(colour, key);
@@ -86,11 +94,127 @@ namespace PSXRacing.EditorTools
                 log.AppendLine($"  {key}: {AssetDatabase.GetAssetPath(original)}");
             }
             var roads = RoadBases(bases, log);
+            var facadeCols = FacadeArrays(facadeColour, log);
             WriteMap(pairs, roads, facadeParts, gutter);
+            {
+                var m = AssetDatabase.LoadAssetAtPath<TextureHDMap>(MapAsset);
+                if (m == null && facadeCols != null) { m = ScriptableObject.CreateInstance<TextureHDMap>(); m.pairs = pairs.ToArray(); m.roads = roads.ToArray(); AssetDatabase.CreateAsset(m, MapAsset); }
+                if (m != null) { m.facadeCols = facadeCols; EditorUtility.SetDirty(m); AssetDatabase.SaveAssets(); }
+            }
             sets = pairs.Count + bases.Count + (facadeParts != null ? 1 : 0) + (gutter != null ? 1 : 0);
             Debug.Log($"[TextureHD] {pairs.Count} HD sets + {bases.Count} road base sets ({roads.Count} road textures drawn on them)" +
                       $"{(facadeParts != null ? " + facade parts" : "")}{(gutter != null ? " + gutter pan" : "")} from {SrcDir}\n{log}");
             return null;
+        }
+
+        // ---- THE FACADE ATLAS IN HD (round 3; TextureHDMap.facadeCols) ----
+        /// <summary>Stack the delivered facade columns into three
+        /// Texture2DArrays beside the sets (colour; normal; R rough, G ao,
+        /// B glass), one slice per atlas column. Null when none was delivered.</summary>
+        static bool[] FacadeArrays(string[] colourOf, System.Text.StringBuilder log)
+        {
+            int n = TextureHDMap.FacadeCols, W = TextureHDMap.FacadeSliceW, H = TextureHDMap.FacadeSliceH;
+            var col = new Texture2D[n]; var nrm = new Texture2D[n]; var msk = new Texture2D[n];
+            bool any = false;
+            for (int c = 0; c < n; c++)
+            {
+                string src = colourOf[c];
+                if (src == null) continue;
+                string key = TextureHDMap.FacadeColPrefix + c.ToString("00");
+                string dir = Path.GetDirectoryName(src);
+                Copy(src, key, TexKind.Colour, readable: true);
+                Copy(Path.Combine(dir, key + Suffix + "_normal.png"), key + TextureHD.NormalSuffix, TexKind.Normal, readable: true);
+                string maskPath = TextureHD.EditorSrcRoot + key + "_mask.png";
+                if (!PackMask(Path.Combine(dir, key + Suffix), maskPath, W, H, out string why)) { log.AppendLine($"  {key}: SKIPPED - {why}"); continue; }
+                AssetDatabase.ImportAsset(maskPath, ImportAssetOptions.ForceSynchronousImport);
+                MaskSliceImport(maskPath);
+                var tc = AssetDatabase.LoadAssetAtPath<Texture2D>(TextureHD.EditorSrcRoot + key + ".png");
+                var tn = AssetDatabase.LoadAssetAtPath<Texture2D>(TextureHD.EditorSrcRoot + key + TextureHD.NormalSuffix + ".png");
+                var tm = AssetDatabase.LoadAssetAtPath<Texture2D>(maskPath);
+                if (tc == null || tn == null || tm == null) { log.AppendLine($"  {key}: SKIPPED - colour, normal or packed mask missing"); continue; }
+                if (tc.width != W || tc.height != H || tn.width != W || tn.height != H) { log.AppendLine($"  {key}: SKIPPED - must be {W} x {H} (colour {tc.width} x {tc.height}, normal {tn.width} x {tn.height})"); continue; }
+                col[c] = tc; nrm[c] = tn; msk[c] = tm; any = true;
+                log.AppendLine($"  {key}: facade column {c} set");
+            }
+            if (!any) { foreach (var k in new[] { "_col", "_nrm", "_mask" }) AssetDatabase.DeleteAsset(TextureHD.EditorSrcRoot + TextureHDMap.FacadeArrayKey + k + ".asset"); return null; }
+            var on = new bool[n];
+            bool ok = BuildArray(TextureHDMap.FacadeArrayKey + "_col", col, false, log)
+                    & BuildArray(TextureHDMap.FacadeArrayKey + "_nrm", nrm, true, log)
+                    & BuildArray(TextureHDMap.FacadeArrayKey + "_mask", msk, true, log);
+            if (!ok) return null;
+            for (int c = 0; c < n; c++) on[c] = col[c] != null;
+            return on;
+        }
+
+        /// <summary>R = rough, G = ao, B = glass (0 without a _glass map), at the
+        /// slice size; false when rough or ao is missing or the wrong size.</summary>
+        static bool PackMask(string stem, string dst, int W, int H, out string why)
+        {
+            string err = null;
+            Color32[] Read(string p, bool need)
+            {
+                if (!File.Exists(p)) { if (need) err = "no " + Path.GetFileName(p); return null; }
+                var t = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+                t.LoadImage(File.ReadAllBytes(p));
+                if (t.width != W || t.height != H) { err = Path.GetFileName(p) + $" is {t.width} x {t.height}"; Object.DestroyImmediate(t); return null; }
+                var px = t.GetPixels32(); Object.DestroyImmediate(t); return px;
+            }
+            var r = Read(stem + "_rough.png", true);
+            var a = r != null ? Read(stem + "_ao.png", true) : null;
+            var g = a != null ? Read(stem + "_glass.png", false) : null;
+            why = err;
+            if (r == null || a == null || err != null) return false;
+            var o = new Color32[W * H];
+            for (int i = 0; i < o.Length; i++) o[i] = new Color32(r[i].r, a[i].r, g != null ? g[i].r : (byte)0, 255);
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false, true);
+            tex.SetPixels32(o); tex.Apply();
+            byte[] png = tex.EncodeToPNG(); Object.DestroyImmediate(tex);
+            if (!File.Exists(dst) || !SameBytes(File.ReadAllBytes(dst), png)) File.WriteAllBytes(dst, png);
+            return true;
+        }
+
+        static void MaskSliceImport(string path)
+        {
+            var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (imp == null) return;
+            bool dirty = false;
+            void Want<T>(T now, T want, System.Action<T> set) { if (!EqualityComparer<T>.Default.Equals(now, want)) { set(want); dirty = true; } }
+            Want(imp.textureType, TextureImporterType.Default, v => imp.textureType = v);
+            Want(imp.sRGBTexture, false, v => imp.sRGBTexture = v);
+            Want(imp.mipmapEnabled, true, v => imp.mipmapEnabled = v);
+            Want(imp.isReadable, true, v => imp.isReadable = v);
+            Want(imp.maxTextureSize, 4096, v => imp.maxTextureSize = v);
+            Want(imp.textureCompression, TextureImporterCompression.Compressed, v => imp.textureCompression = v);
+            var ps = imp.GetPlatformTextureSettings("Standalone");
+            if (!ps.overridden || ps.format != TextureImporterFormat.BC7) { ps.overridden = true; ps.format = TextureImporterFormat.BC7; ps.maxTextureSize = 4096; imp.SetPlatformTextureSettings(ps); dirty = true; }
+            if (dirty) imp.SaveAndReimport();
+        }
+
+        /// <summary>One Texture2DArray asset from same-size, same-format slices
+        /// (null = a column with no art: left empty, never sampled).</summary>
+        static bool BuildArray(string name, Texture2D[] slices, bool linear, System.Text.StringBuilder log)
+        {
+            Texture2D first = null;
+            foreach (var s in slices) if (s != null) { first = s; break; }
+            if (first == null) return false;
+            var arr = new Texture2DArray(first.width, first.height, slices.Length, first.format, first.mipmapCount, linear)
+            {
+                name = name, wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Trilinear, anisoLevel = 8,
+            };
+            for (int c = 0; c < slices.Length; c++)
+            {
+                var s = slices[c];
+                if (s == null) continue;
+                if (s.format != first.format || s.mipmapCount != first.mipmapCount) { log.AppendLine($"  {name}: slice {c} is {s.format}/{s.mipmapCount} mips, the array {first.format}/{first.mipmapCount} - left empty"); slices[c] = null; continue; }
+                for (int mip = 0; mip < first.mipmapCount; mip++) Graphics.CopyTexture(s, 0, mip, arr, c, mip);
+            }
+            arr.Apply(false, false);
+            string path = TextureHD.EditorSrcRoot + name + ".asset";
+            var old = AssetDatabase.LoadAssetAtPath<Texture2DArray>(path);
+            if (old != null) { EditorUtility.CopySerialized(arr, old); EditorUtility.SetDirty(old); Object.DestroyImmediate(arr); }
+            else AssetDatabase.CreateAsset(arr, path);
+            log.AppendLine($"  {name}: {first.width} x {first.height} x {slices.Length} slices, {first.format}");
+            return true;
         }
 
         static void CopySet(string colour, string key)
@@ -184,7 +308,7 @@ namespace PSXRacing.EditorTools
 
         enum TexKind { Colour, Normal, Data }
 
-        static void Copy(string src, string name, TexKind kind)
+        static void Copy(string src, string name, TexKind kind, bool readable = false)
         {
             if (!File.Exists(src)) return;
             string dst = TextureHD.EditorSrcRoot + name + ".png";
@@ -198,7 +322,9 @@ namespace PSXRacing.EditorTools
             Want(imp.textureType, kind == TexKind.Normal ? TextureImporterType.NormalMap : TextureImporterType.Default, v => imp.textureType = v);
             Want(imp.sRGBTexture, kind == TexKind.Colour, v => imp.sRGBTexture = v);
             Want(imp.mipmapEnabled, true, v => imp.mipmapEnabled = v);
-            Want(imp.streamingMipmaps, true, v => imp.streamingMipmaps = v);
+            // a facade slice is stacked into an array (CPU copy): readable, not streamed
+            Want(imp.streamingMipmaps, !readable, v => imp.streamingMipmaps = v);
+            Want(imp.isReadable, readable, v => imp.isReadable = v);
             Want(imp.anisoLevel, 8, v => imp.anisoLevel = v);
             Want(imp.filterMode, FilterMode.Trilinear, v => imp.filterMode = v);
             Want(imp.maxTextureSize, 4096, v => imp.maxTextureSize = v);
@@ -262,9 +388,17 @@ namespace PSXRacing.EditorTools
             bytes = 0;
             var map = AssetDatabase.LoadAssetAtPath<TextureHDMap>(MapAsset);
             if (map == null || ((map.pairs == null || map.pairs.Length == 0) && (map.roads == null || map.roads.Length == 0)
-                                && string.IsNullOrEmpty(map.facadeParts) && string.IsNullOrEmpty(map.gutter))) return null;
+                                && string.IsNullOrEmpty(map.facadeParts) && string.IsNullOrEmpty(map.gutter)
+                                && (map.facadeCols == null || System.Array.IndexOf(map.facadeCols, true) < 0))) return null;
             var names = new List<string>();
             var paths = new List<string>();
+            // the facade columns' three arrays
+            if (map.facadeCols != null && System.Array.IndexOf(map.facadeCols, true) >= 0)
+                foreach (var k in new[] { "_col", "_nrm", "_mask" })
+                {
+                    string ap = TextureHD.EditorSrcRoot + TextureHDMap.FacadeArrayKey + k + ".asset";
+                    if (AssetDatabase.LoadAssetAtPath<Texture2DArray>(ap) != null) { names.Add(TextureHDMap.FacadeArrayKey + k); paths.Add(ap); }
+                }
             var keys = new List<string>();
             if (map.pairs != null) foreach (var p in map.pairs) keys.Add(p.key);
             if (!string.IsNullOrEmpty(map.facadeParts)) keys.Add(map.facadeParts);

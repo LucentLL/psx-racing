@@ -115,6 +115,11 @@ Shader "PSX/Lit"
         [HideInInspector] _GutterNrm ("Gutter pan normal", 2D) = "bump" {}
         [HideInInspector] _FacadePartsOn ("Facade column 7 parts on", Float) = 0
         [HideInInspector] _FacadeParts ("Facade column 7 parts colour", 2D) = "grey" {}
+        // ROUND 3: the facade atlas's other columns in HD, one array slice a column
+        [HideInInspector] _FacadeHDArr ("Facade HD columns on", Float) = 0
+        [HideInInspector] _FacadeHDCol ("Facade HD colour (array)", 2DArray) = "" {}
+        [HideInInspector] _FacadeHDNrm ("Facade HD normal (array)", 2DArray) = "" {}
+        [HideInInspector] _FacadeHDMask ("Facade HD rough/ao/glass (array)", 2DArray) = "" {}
         // THE TERRAIN DETAIL amounts per channel of the detail sheet (R grass,
         // G dirt, B rock, A snow): stamped at runtime from the main texture by
         // TerrainDetail.cs, never saved. The sheet and its switch are globals
@@ -422,6 +427,12 @@ Shader "PSX/Lit"
             float4 _RoadBaseRepeat, _RoadPaintW, _RoadPaintY;
             float4 _RoadGutter;
             float _FacadePartsOn;
+            // ROUND 3: the facade columns in HD (TextureHDMap.facadeCols)
+            float _FacadeHDArr;
+            float _FacadeHDOn[16];
+          #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
+            Texture2DArray _FacadeHDCol, _FacadeHDNrm, _FacadeHDMask;
+          #endif
         #endif
             float4 _MainTex_ST;
             fixed4 _Color;
@@ -1683,6 +1694,8 @@ Shader "PSX/Lit"
                 // HD maps do NOT apply on a material that wears PSX_HD (hdOff 1:
                 // a facade column other than 7), and the gutter's own normal
                 float hdOff = 0.0, rbGutter = 0.0, gSide = 1.0, rbDayGain = 1.0;
+                // ROUND 3: a facade pixel on an HD column (its slice), and its glass mask
+                float facArr = 0.0, facGlassHD = 0.0, facSlice = 0.0;
                 float2 gUV = float2(0.0, 0.0), gDx = float2(0.0, 0.0), gDy = float2(0.0, 0.0);
             #endif
                 // the repeat the lit-window hash is anchored to: the TILED uv
@@ -1765,6 +1778,17 @@ Shader "PSX/Lit"
                     hdDy = float2(fdy.x * FACADE_COLS * facSub, fdy.y);
                     [branch] if (facPartsK > 0.5)
                         texF.rgb = PSX_RB_GRAD(_FacadeParts, hdUV, hdDx, hdDy).rgb;
+                  #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
+                    // ROUND 3: every other column from its array slice (same
+                    // column-local uv: the column 8x across and 8x up)
+                    facSlice = clamp(floor(facCol + 0.5), 0.0, 15.0);
+                    facArr = (_FacadeHDArr > 0.5 && facPartsK < 0.5 && facC7 < 0.5) ? _FacadeHDOn[(int)facSlice] : 0.0;
+                    [branch] if (facArr > 0.5)
+                    {
+                        texF.rgb = _FacadeHDCol.SampleGrad(sampler_HDNormal, float3(hdUV, facSlice), hdDx, hdDy).rgb;
+                        hdOff = 0.0;
+                    }
+                  #endif
                 }
               #endif
                 fixed4 tex = texF * _Color;
@@ -2148,7 +2172,17 @@ Shader "PSX/Lit"
                     float hdInv = rsqrt(max(max(dot(hdT, hdT), dot(hdB, hdB)), 1e-20));
                     hdT *= hdInv; hdB *= hdInv;
                 }
-                float3 hdNT = UnpackNormal(PSX_RB_GRAD(_HDNormal, hdUV, hdDx, hdDy));
+                float4 hdN4 = PSX_RB_GRAD(_HDNormal, hdUV, hdDx, hdDy);
+                float hdAOs = PSX_RB_GRAD(_HDAO, hdUV, hdDx, hdDy).r, hdRs = PSX_RB_GRAD(_HDRough, hdUV, hdDx, hdDy).r;
+              #if defined(PSX_FACADE) && defined(UNITY_SEPARATE_TEXTURE_SAMPLER)
+                [branch] if (facArr > 0.5)
+                {
+                    hdN4 = _FacadeHDNrm.SampleGrad(sampler_HDNormal, float3(hdUV, facSlice), hdDx, hdDy);
+                    float4 fmk = _FacadeHDMask.SampleGrad(sampler_HDNormal, float3(hdUV, facSlice), hdDx, hdDy);
+                    hdRs = fmk.r; hdAOs = fmk.g; facGlassHD = fmk.b;
+                }
+              #endif
+                float3 hdNT = UnpackNormal(hdN4);
                 // road paint: thermoplastic fills the aggregate - flatter,
                 // smoother, no cavities (rbPaint 0 off the road base)
                 // the gutter pan's own relief, turned into the road's frame (its
@@ -2160,8 +2194,8 @@ Shader "PSX/Lit"
                 }
                 hdNT = lerp(hdNT, float3(0.0, 0.0, 1.0), max(rbPaint * 0.7, hdOff));
                 N = normalize(hdNT.x * hdT + hdNT.y * hdB + hdNT.z * N);
-                float hdAO = lerp(PSX_RB_GRAD(_HDAO, hdUV, hdDx, hdDy).r, 1.0, max(rbPaint, max(hdOff, rbGutter)));
-                float hdRough = lerp(lerp(PSX_RB_GRAD(_HDRough, hdUV, hdDx, hdDy).r, 0.80, rbGutter), 0.55, rbPaint);
+                float hdAO = lerp(hdAOs, 1.0, max(rbPaint, max(hdOff, rbGutter)));
+                float hdRough = lerp(lerp(hdRs, 0.80, rbGutter), 0.55, rbPaint);
                 hdRough = lerp(hdRough, 1.0, hdOff);
             #endif
             #ifdef PSX_ROCKFACE
@@ -2453,6 +2487,11 @@ Shader "PSX/Lit"
                     float paneCW = 1.0 - smoothstep(lerp(0.14, 0.16, silver), lerp(0.30, 0.42, silver), lumT) * lerp(0.85, 1.0, silver);
                     float paneM = (1.0 - smoothstep(0.045, 0.11, lumT)) * (1.0 - smoothstep(0.20, 0.45, chromaT));
                     float glass = lerp(paneM, paneCW, curtain);
+                  #ifdef PSX_HD
+                    // ROUND 3: an HD column says where its glass is (the mask's B),
+                    // instead of guessing it from the colour
+                    glass = lerp(glass, facGlassHD, facArr);
+                  #endif
                     // BUILDING PASS: near, a punched window is glass where its mask
                     // says (a pale curtain behind the pane still mirrors the sky)
                     glass = max(glass, facWinMask * FAC_WIN_MASK_GLASS);

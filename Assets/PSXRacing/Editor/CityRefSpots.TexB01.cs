@@ -32,7 +32,20 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class CityRefSpots
     {
-        struct TexPlace { public string id, road, what; public double lat, lon; public float hdg; public bool walk, high, ctx; }
+        struct TexPlace { public string id, road, what; public double lat, lon; public float hdg; public bool walk, high, ctx, bld; }
+
+        /// <summary>Round 3, the BUILDING BATCH's context (PSX_TEXB_BLD=1): today's
+        /// buildings from the driver's eye, from across the street and looking
+        /// up a facade, at noon, dusk and night (B_ prefix).</summary>
+        static readonly TexPlace[] BldPlaces =
+        {
+            new TexPlace { id = "B_glass_towers", lat = 35.22660, lon = -80.84395, road = "Tryon", hdg = 50f, bld = true, what = "S Tryon St, 4th to Trade: glass curtain-wall towers" },
+            new TexPlace { id = "B_stone_towers", lat = 35.22930, lon = -80.84010, road = "Tryon", hdg = 230f, bld = true, what = "N Tryon St, 7th back to 6th: granite / precast office towers" },
+            new TexPlace { id = "B_storefronts", lat = 35.22690, lon = -80.84272, road = "Trade", hdg = 140f, bld = true, what = "E Trade St, Tryon to College: storefront ground floors, a skybridge" },
+            new TexPlace { id = "B_midrise_decks", lat = 35.22654, lon = -80.83725, road = "Brevard", hdg = 50f, bld = true, what = "N Brevard St, 6th to 7th: mid-rises, parking decks" },
+            new TexPlace { id = "B_brick_blocks", lat = 35.22019, lon = -80.80899, road = "Central", hdg = 94f, bld = true, what = "Central Ave, Plaza Midwood: low brick commercial blocks" },
+            new TexPlace { id = "B_houses", lat = 35.20225, lon = -80.84758, road = "Dilworth", hdg = 192f, bld = true, what = "Dilworth Rd E: a suburban street of houses" },
+        };
 
         /// <summary>Context frames for the artist's NEXT list (PSX_TEXB_CTX=1):
         /// the surfaces batch 01 does not touch, as the game draws them with
@@ -87,11 +100,12 @@ namespace PSXRacing.EditorTools
                 var modes = Pick("PSX_TEXB_MODES", "before,after");
 
                 var places = new List<(string id, string what, CityMap.Edge e, float s, float hdg, bool walk, bool high)>();
-                bool ctxRun = System.Environment.GetEnvironmentVariable("PSX_TEXB_CTX") == "1";
-                foreach (var tp in ctxRun ? CtxPlaces : TexPlaces)
+                bool bldRun = System.Environment.GetEnvironmentVariable("PSX_TEXB_BLD") == "1";
+                bool ctxRun = bldRun || System.Environment.GetEnvironmentVariable("PSX_TEXB_CTX") == "1";
+                foreach (var tp in bldRun ? BldPlaces : ctxRun ? CtxPlaces : TexPlaces)
                 {
                     if (!Snap(map, LL(tp.lat, tp.lon), tp.road, out var e, out float s, out bool named)) { log.Append($"{tp.id}: no road near\n"); continue; }
-                    places.Add((tp.id, tp.what + (named ? "" : " (NOT the named road)"), e, s, tp.hdg, tp.walk, false));
+                    places.Add((tp.id, tp.what + (named ? "" : " (NOT the named road)"), e, s, tp.hdg, tp.walk, tp.bld));
                 }
                 // a concrete freeway: the longest elevated motorway run nearest Uptown
                 if (ctxRun) { }
@@ -144,6 +158,20 @@ namespace PSXRacing.EditorTools
                     Vector3 f = rot * Vector3.forward, fl = new Vector3(f.x, 0f, f.z).normalized;
                     Vector3 rightV = Vector3.Cross(Vector3.up, fl).normalized;
                     var poses = new List<(string name, Vector3 eye, Quaternion r)>();
+                    if (bldRun)
+                    {
+                        // the driver's eye down the street; from the far curb across it
+                        // at the right-hand facades; from the right walk up a facade
+                        float half = pl.e.oneway ? pl.e.width * 0.5f : pl.e.width * 0.25f;
+                        Vector3 e2 = pos + fl * 4f + Vector3.up * 0.95f;
+                        poses.Add(("eye", e2, Quaternion.LookRotation(fl * 40f + Vector3.up * 2.0f)));
+                        float lat0 = pl.e.oneway ? 0f : pl.e.width * 0.25f;   // the car's offset right of the centre line
+                        Vector3 eA = pos - rightV * (lat0 + pl.e.width * 0.5f - 1.0f) + Vector3.up * 1.6f;
+                        poses.Add(("across", eA, Quaternion.LookRotation(rightV * 20f + fl * 9f + Vector3.up * 6f)));
+                        Vector3 eU = pos + rightV * (half + 1.5f) + Vector3.up * 1.6f;
+                        poses.Add(("up", eU, Quaternion.LookRotation(fl * 14f + rightV * 7f + Vector3.up * 13f)));
+                    }
+                    else
                     {
                         Vector3 eye = pos - fl * 8f + Vector3.up * 2.6f;
                         poses.Add(("chase", eye, Quaternion.LookRotation(pos + Vector3.up * 0.8f + fl * 20f - eye)));
