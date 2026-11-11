@@ -211,13 +211,23 @@ Shader "PSX/CarPaint"
         // 1 on the PLAYER'S renderers only (a property block, CabinClip): cut at
         // the windscreen for a camera inside the car (PSXCabinClip.cginc).
         [HideInInspector] _PSXCabinOwn ("Cut for a camera inside 0/1", Float) = 0
+        // THE SHELL'S INSIDE, DARK (2026-11-11, owner: from the seat "I can see
+        // the road ahead under my hood ... I should [not] be able to see
+        // through the front bumper area"). A second renderer of the player's
+        // body (CockpitInterior.InsideShell) on a copy of its material with
+        // _PSXCull 1 (front faces culled: the BACK faces draw) and _PSXInside
+        // 1: drawn only while the cockpit's cut is open and only AHEAD of the
+        // windscreen's base, as a dark engine bay / hood underside / bumper
+        // inside. Every other material keeps Cull Back (2) and 0.
+        [HideInInspector] _PSXCull ("Cull mode (2 back, 1 front)", Float) = 2
+        [HideInInspector] _PSXInside ("Inside of the shell 0/1", Float) = 0
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
-            Cull Back
+            Cull [_PSXCull]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -261,6 +271,7 @@ Shader "PSX/CarPaint"
             }
             float _HeadLights;
             float _LensLayer;
+            float _PSXInside;
 
             // THE LOOK. Linear-space numbers; see the header for what each
             // one is answering.
@@ -596,6 +607,12 @@ Shader "PSX/CarPaint"
             fixed4 frag (v2f i) : SV_Target
             {
                 PSXCabinClip(i.wpos);
+                if (_PSXInside > 0.5)
+                {
+                    float3 cp = mul(_PSXCabinW2L, float4(i.wpos, 1.0)).xyz;
+                    if (_PSXCabinOn * _PSXCabinOwn < 0.5 || cp.z < _PSXCabinBox.x) discard;
+                    return fixed4(0.018, 0.018, 0.02, _PSXEmitWrite > 0.5 ? 0.0 : 1.0);
+                }
                 fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
                 clip(tex.a - _Cutoff);
 
