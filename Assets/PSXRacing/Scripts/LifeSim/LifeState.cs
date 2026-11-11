@@ -59,8 +59,12 @@ namespace PSXRacing.LifeSim
         ///     it was going to run at, the hour written in so the race runs
         ///     under the same sky), and each job's ready block. See
         ///     LifeSimManager.Migrate.
+        /// v23: THE ENFORCED WEEK. The job runs to a fixed schedule (misses,
+        ///     lay-off, call-back) and car clubs arrive (membership, board,
+        ///     strikes). All ADDED fields; the migration sets dutyFromDay/Slot
+        ///     to the clock it finds so nothing is missed retroactively.
         /// </summary>
-        public int saveVersion = 22;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 23;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
@@ -330,6 +334,48 @@ namespace PSXRacing.LifeSim
         /// list's LENGTH is how many runs the night has had — the lot thins
         /// out after <see cref="CarMeets.MaxRunsPerMeet"/>.</summary>
         public List<string> meetRaced = new List<string>();
+
+        // === The enforced week (v23: work schedule + car clubs) ===
+        // See WorkSchedule, Clubs and Duty. Nothing here stores an EVENT:
+        // shifts, club meets and club races fall on the calendar by rule.
+        // What is stored is standing — on the roster or laid off, which club,
+        // the club's order — and the record of what was owed and what was
+        // done about it (dutyLog), which is also where the strikes are read.
+
+        /// <summary>Obligations are only owed from this block on, as a block
+        /// ordinal (Duty.Ord: day x 6 + block). A new career owes from day 1;
+        /// the v23 migration sets it to the clock it found, so nothing before
+        /// the rule existed is "missed".</summary>
+        public int dutyFrom;
+        /// <summary>What each obligation came to: one record per shift, club
+        /// meet and club race once it has been settled (or attended early).
+        /// Pruned to <see cref="LifeRules.DayLogKeep"/> days. A rank is NOT
+        /// stored here — see <see cref="clubBoard"/>.</summary>
+        public List<DutyRecord> dutyLog = new List<DutyRecord>();
+
+        /// <summary>Taken off the roster after too many missed shifts. The job
+        /// title stays (it is still the player's trade); there are no shifts
+        /// and no pay until the call-back is accepted.</summary>
+        public bool laidOff;
+        public int layoffDay;
+        /// <summary>The day the shop calls back with an opening.</summary>
+        public int callBackDay;
+        /// <summary>The call-back has arrived and waits on the JOBS page.</summary>
+        public bool callBackOffered;
+        /// <summary>Shifts are owed (and misses counted) from this block
+        /// ordinal on - moved to the next block when a call-back is accepted,
+        /// which is what clears the misses.</summary>
+        public int jobFrom;
+
+        /// <summary>The player's standing with each club they have had to do
+        /// with - several at once, like guilds (owner, 2026-11-11). One entry
+        /// per club id; a club never joined has none. A LIST, never a null
+        /// object (JsonUtility).</summary>
+        public List<ClubStanding> clubs = new List<ClubStanding>();
+        /// <summary>Club results for the paper's MOTORING line and the board
+        /// page, newest last. Kept beside blNews, not in it: the blacklist is
+        /// left as it is.</summary>
+        public List<string> clubNews = new List<string>();
 
         public OwnedCar FindCar(string id) =>
             cars.Find(c => c.id == id);
@@ -857,6 +903,57 @@ namespace PSXRacing.LifeSim
         public int LegsRun => youLegs + themLegs;
         /// <summary>Which leg the next race is, 1-3.</summary>
         public int LegNumber => LegsRun >= 2 ? 3 : LegsRun + 1;
+    }
+
+    /// <summary>
+    /// The player and one club. Membership, the club's board (the rank is a
+    /// POSITION in it - the blBoard rule - and stored nowhere else), a drop's
+    /// re-admission day, and an invitation. Strikes are read off dutyLog.
+    /// </summary>
+    [Serializable]
+    public class ClubStanding
+    {
+        public string id = "";
+        public bool member;
+        /// <summary>The block (Duty.Ord) the player joined in; nothing before
+        /// it is owed to the club.</summary>
+        public int from;
+        /// <summary>Top first, the player in it as Blacklist.PlayerKey.</summary>
+        public List<RankEntry> board = new List<RankEntry>();
+        /// <summary>Out (dropped or walked out): the first day they will have
+        /// the player back, at the bottom. 0 = never out.</summary>
+        public int readmitDay;
+        /// <summary>Asked to join: an invitation can be accepted from the club
+        /// page without turning up at a meet (the elite club's only door, and
+        /// the hook for a story that hands one out).</summary>
+        public bool invited;
+    }
+
+    /// <summary>
+    /// One obligation of the enforced week, settled: a scheduled SHIFT, a
+    /// CLUB MEET or a CLUB RACE, the block it started in, and what came of
+    /// it. Written when the player attends (the meet lot, the start line, the
+    /// counter) or when the block has passed without them (Duty.Settle).
+    /// </summary>
+    [Serializable]
+    public class DutyRecord
+    {
+        public int day;
+        /// <summary>The block the obligation STARTS in (a shift covers two).</summary>
+        public int slot;
+        /// <summary>Duty.KindShift / KindMeet / KindRace.</summary>
+        public string kind = "";
+        /// <summary>Duty.Done, Missed, WrongCar or NoCar.</summary>
+        public string outcome = "";
+        /// <summary>The club it was owed to (empty for a shift).</summary>
+        public string club = "";
+        /// <summary>A club race's result once it is known: WON / LOST, or
+        /// empty (not run, or never reported back).</summary>
+        public string result = "";
+        /// <summary>The line that says why, for the planner.</summary>
+        public string note = "";
+
+        public bool IsMiss => outcome != Duty.Done && outcome.Length > 0;
     }
 
     /// <summary>

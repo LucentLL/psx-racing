@@ -158,7 +158,8 @@ namespace PSXRacing.LifeSim
             string elsewhere = CarWhere.RefuseWork(s, car, CarWhere.VenuePaint);
             if (elsewhere != null) return elsewhere;
 
-            int price = Cost(car);
+            // A club PAINT perk (Clubs.Perks) on a car that club takes.
+            int price = Clubs.PaintPrice(s, car, Cost(car));
             if (s.money < price) return "need " + MenuKit.Money(price);
 
             s.money -= price;

@@ -240,6 +240,9 @@ namespace PSXRacing.OnFoot
         void Collect()
         {
             if (carrying || S == null) return;
+            // THE SCHEDULE (v23): a run only inside a scheduled shift.
+            string no = WorkSchedule.ClockOnRefusal(S);
+            if (no != null) { screen?.Toast(no.ToUpperInvariant()); return; }
             carrying = true;
             // Rolled ONCE per shift. Coming back to the counter after putting a
             // box down hands you the same ticket, so the numbers below are the

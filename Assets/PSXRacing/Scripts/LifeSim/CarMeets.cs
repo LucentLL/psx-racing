@@ -244,8 +244,21 @@ namespace PSXRacing.LifeSim
         /// they came in by.</summary>
         public static void MarkArrived(LifeState s)
         {
-            if (s != null) ArrivedDay = s.day;
+            if (s == null) return;
+            ArrivedDay = s.day;
+            // THE CLUB MEET (v23) is attended by pulling in here, in a car the
+            // club takes - or missed, in one it does not.
+            ClubLine = Clubs.ArrivedAtLot(s);
+            if (ClubLine != null) LifeSimManager.Save();
         }
+
+        /// <summary>What signing in at the lot meant for the player's club
+        /// meet, for the town's cue slot. Read once by TownWorld.</summary>
+        public static string ClubLine;
+
+        /// <summary>A meet of any kind in this block: the regular Friday and
+        /// Saturday nights, or a club's own (Clubs.MeetingAt).</summary>
+        public static bool LotLiveNow(LifeState s) => OnNow(s) || Clubs.AnyMeetNow(s);
 
         /// <summary>The line the town shows when the player comes back from
         /// the start line. Read once by TownWorld, then cleared.</summary>
