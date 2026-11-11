@@ -414,6 +414,12 @@ namespace PSXRacing.EditorTools
         /// </summary>
         const float ScreenGrade = 0.25f;
 
+        /// <summary>A step off the roof anchor that ends less than this under
+        /// it is a fixture on the roof (a light bar, a taxi sign), not the
+        /// windscreen: every real cowl in the catalogue is 0.32 m or more
+        /// under its roof.</summary>
+        const float RoofFixture = 0.25f;
+
         /// <summary>
         /// The car's top surface along its length: for each slice, the highest
         /// bodywork a vertical ray down the centreline strikes.
@@ -560,14 +566,32 @@ namespace PSXRacing.EditorTools
             }
 
             int cowlK = roofK;
-            bool onScreen = false;
-            for (int k = roofK - 1; k >= 0; k--)
+            // A FIXTURE ON THE ROOF (2026-11-11, cars2): the full-size police,
+            // taxi and trooper carry a light bar / sign 17 cm over the roof; the
+            // walk came down off it onto the roof, flattened there and called the
+            // roof the bonnet (cowl 1.44 m against a 1.61 m "roof", the driver
+            // seated under it and no door-mirror found). A step that leaves the
+            // walk less than RoofFixture under its anchor is not a windscreen:
+            // the roof is where it landed, and the walk goes on from there.
+            // PSX_COWL_ROOFSTEP=0: as before.
+            bool fixtureRule = System.Environment.GetEnvironmentVariable("PSX_COWL_ROOFSTEP") != "0";
+            for (int pass = 0; pass < 3; pass++)
             {
-                int i = Slice(k), j = Slice(k + 1);
-                if (!InRange(i) || !InRange(j)) break;
-                if ((top[j] - top[i]) / dz >= ScreenGrade) { cowlK = k; onScreen = true; continue; }
-                if (onScreen) break;    // flattened onto the bonnet: done
-                cowlK = k;              // still crossing the crown of the roof
+                cowlK = roofK;
+                bool onScreen = false;
+                for (int k = roofK - 1; k >= 0; k--)
+                {
+                    int i = Slice(k), j = Slice(k + 1);
+                    if (!InRange(i) || !InRange(j)) break;
+                    if ((top[j] - top[i]) / dz >= ScreenGrade) { cowlK = k; onScreen = true; continue; }
+                    if (onScreen) break;    // flattened onto the bonnet: done
+                    cowlK = k;              // still crossing the crown of the roof
+                }
+                int landed = Slice(cowlK);
+                if (!fixtureRule || cowlK == roofK || !InRange(landed) || roofTop - top[landed] >= RoofFixture) break;
+                roofTop = top[landed];
+                d.roofY = roofTop + bodyY;
+                roofK = cowlK;
             }
             // Never let it reach the bumper. A cowl in the first few percent of
             // the car is only true of a cab-over, and a cab-over's roof starts
