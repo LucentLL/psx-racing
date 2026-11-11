@@ -232,12 +232,13 @@ namespace PSXRacing.EditorTools
                         if (!borderV.TryGetValue(k, out var l)) borderV[k] = l = new List<Vector3d>();
                         l.Add(new Vector3d { x = (double)o.x + p.x, y = (double)o.y + p.y, z = (double)o.z + p.z });
                     }
-                // weld at 0.1 mm
+                // weld at 0.5 mm, on the slab pass's own grid (CityMeshes.Key3Fine), so a
+                // pair of vertices one calls the same the other does too
                 var ids = new int[v.Length];
                 var weld = new Dictionary<(long, long, long), int>(v.Length);
                 for (int i = 0; i < v.Length; i++)
                 {
-                    var q = ((long)System.Math.Round(v[i].x / WeldM), (long)System.Math.Round(v[i].y / WeldM), (long)System.Math.Round(v[i].z / WeldM));
+                    var q = ((long)((v[i].x + 16f) / WeldM + 0.5f), (long)((v[i].y + 200f) / WeldM + 0.5f), (long)((v[i].z + 16f) / WeldM + 0.5f));
                     if (!weld.TryGetValue(q, out int id)) weld[q] = id = i;
                     ids[i] = id;
                 }
@@ -317,6 +318,10 @@ namespace PSXRacing.EditorTools
                             var from = P + n3 * 0.004f + Vector3.down * (depth * 0.5f);
                             bool any = Physics.Raycast(from, -n3, out var h3, 0.012f, mask, QueryTriggerInteraction.Ignore);
                             bool ok = any && Vector3.Dot(h3.normal, n3) > 0.3f;
+                            // ...or, into the slot under the edge and down (a shallow step's slot looks onto the
+                            // slab's tongue under it): drawn paving or a closing face within 3 cm
+                            if (!ok && Physics.Raycast(from, (-n3 + Vector3.down).normalized, out var h4, 0.03f, mask, QueryTriggerInteraction.Ignore))
+                                ok = h4.collider.name == "Roads" || h4.collider.name == "Kerbs" || Vector3.Dot(h4.normal, n3) > 0.3f;
                             if (!ok)
                             {
                                 st.stepOpenM += segM;
