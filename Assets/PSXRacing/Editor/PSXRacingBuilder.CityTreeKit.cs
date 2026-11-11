@@ -342,22 +342,41 @@ namespace PSXRacing.EditorTools
                     bool leaf = n.IndexOf("leaves", System.StringComparison.OrdinalIgnoreCase) >= 0;
                     var m = root.worldToLocalMatrix * mf.transform.localToWorldMatrix;
                     for (int s = 0; s < mf.sharedMesh.subMeshCount; s++)
-                        (leaf ? leafCi : barkCi)[lod].Add(new CombineInstance { mesh = ReadableCopy(mf.sharedMesh), subMeshIndex = s, transform = m });
+                        (leaf ? leafCi : barkCi)[lod].Add(new CombineInstance { mesh = mf.sharedMesh, subMeshIndex = s, transform = m });
                 }
                 string stem = file.Substring(0, file.LastIndexOf('.'));
                 var v = new MeshForest.Variant();
                 for (int l = 0; l < 3; l++)
                 {
                     if (barkCi[l].Count == 0 || leafCi[l].Count == 0) { v.lods[l] = l > 0 ? v.lods[l - 1] : null; continue; }
-                    var a = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
-                    a.CombineMeshes(barkCi[l].ToArray(), true, true);
-                    var b = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
-                    b.CombineMeshes(leafCi[l].ToArray(), true, true);
-                    var c = new Mesh { name = "CT_" + stem + "_LOD" + l, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
-                    c.CombineMeshes(new[] { new CombineInstance { mesh = a, transform = Matrix4x4.identity }, new CombineInstance { mesh = b, transform = Matrix4x4.identity } }, false, true);
-                    if (c.vertexCount < 65000) c.indexFormat = UnityEngine.Rendering.IndexFormat.UInt16;
+                    // merged by hand (CombineMeshes cannot read the packs' Read/Write-off meshes)
+                    var pv = new List<Vector3>(); var pn = new List<Vector3>(); var pu = new List<Vector2>();
+                    var idx = new[] { new List<int>(), new List<int>() };
+                    for (int part = 0; part < 2; part++)
+                        foreach (var ci in part == 0 ? barkCi[l] : leafCi[l])
+                        {
+                            if (!TreeKit.Read(ci.mesh, ci.subMeshIndex, out var vv, out var tt)) continue;
+                            var nrm = ReadNormals(ci.mesh); var uv = ReadUV(ci.mesh);
+                            var nm = ci.transform.inverse.transpose;
+                            var remap = new Dictionary<int, int>();
+                            foreach (int ti in tt)
+                            {
+                                if (!remap.TryGetValue(ti, out int ni))
+                                {
+                                    ni = pv.Count; remap[ti] = ni;
+                                    pv.Add(ci.transform.MultiplyPoint3x4(vv[ti]));
+                                    pn.Add(nrm != null && ti < nrm.Length ? nm.MultiplyVector(nrm[ti]).normalized : Vector3.up);
+                                    pu.Add(uv != null && ti < uv.Length ? uv[ti] : Vector2.zero);
+                                }
+                                idx[part].Add(ni);
+                            }
+                        }
+                    var c = new Mesh { name = "CT_" + stem + "_LOD" + l };
+                    c.indexFormat = pv.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
+                    c.SetVertices(pv); c.SetNormals(pn); c.SetUVs(0, pu);
+                    c.subMeshCount = 2;
+                    c.SetTriangles(idx[0], 0, false); c.SetTriangles(idx[1], 1, false);
                     c.RecalculateBounds();
-                    Object.DestroyImmediate(a); Object.DestroyImmediate(b);
                     v.lods[l] = WorldKit.SaveMesh(c, c.name);
                 }
                 if (v.lods[0] == null) { Log("WARN: city trees: " + file + " has no LOD0 trunk + leaves"); return null; }
@@ -385,6 +404,29 @@ namespace PSXRacing.EditorTools
                 return v;
             }
             finally { Object.DestroyImmediate(inst); }
+        }
+
+        static Vector3[] ReadNormals(Mesh m)
+        {
+            if (m.isReadable) return m.normals;
+            using (var d = Mesh.AcquireReadOnlyMeshData(m))
+            {
+                var md = d[0];
+                if (!md.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Normal)) return null;
+                var a = new Unity.Collections.NativeArray<Vector3>(md.vertexCount, Unity.Collections.Allocator.Temp);
+                md.GetNormals(a); var r = a.ToArray(); a.Dispose(); return r;
+            }
+        }
+        static Vector2[] ReadUV(Mesh m)
+        {
+            if (m.isReadable) return m.uv;
+            using (var d = Mesh.AcquireReadOnlyMeshData(m))
+            {
+                var md = d[0];
+                if (!md.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord0)) return null;
+                var a = new Unity.Collections.NativeArray<Vector2>(md.vertexCount, Unity.Collections.Allocator.Temp);
+                md.GetUVs(0, a); var r = a.ToArray(); a.Dispose(); return r;
+            }
         }
 
         static readonly Dictionary<Mesh, Mesh> readableCopies = new Dictionary<Mesh, Mesh>();
