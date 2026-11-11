@@ -83,6 +83,33 @@ namespace PSXRacing.City
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var o = tm.origin;
             var probes = slabProbe;
+            // the road sheets' open edges again, welded at 0.5 mm (the closing pass's 2 mm
+            // weld took two sheets a millimetre apart for one: a sliver of a crack)
+            OpenEdges(skirtSheets, false, null, null, true);
+            // the standing faces the closing pass laid (a piece it decided may have one, or not)
+            slabFaceSegs.Clear(); slabFaceCells.Clear();
+            foreach (var fb in new[] { buckets[(int)Slot.Ground], buckets[(int)Slot.Pavement], buckets[(int)Slot.MedianBed], buckets[(int)Slot.Concrete], kerbBucket })
+                for (int i = fb == kerbBucket ? 0 : fb.passT - fb.passT % 3; i + 2 < fb.t.Count; i += 3)
+                {
+                    Vector3 c0 = fb.v[fb.t[i]], c1 = fb.v[fb.t[i + 1]], c2 = fb.v[fb.t[i + 2]];
+                    var n3 = Vector3.Cross(c1 - c0, c2 - c0);
+                    if (Mathf.Abs(n3.y) > 0.3f * n3.magnitude) continue;
+                    // its plan extent: the two corners furthest apart in plan
+                    Vector3 p = c0, q = c1; float best = PlanD2(c0, c1);
+                    if (PlanD2(c1, c2) > best) { p = c1; q = c2; best = PlanD2(c1, c2); }
+                    if (PlanD2(c0, c2) > best) { p = c0; q = c2; }
+                    float yTop = Mathf.Max(c0.y, Mathf.Max(c1.y, c2.y));
+                    int si = slabFaceSegs.Count;
+                    slabFaceSegs.Add((new Vector2(p.x, p.z), new Vector2(q.x, q.z), yTop));
+                    int x0 = Mathf.FloorToInt(Mathf.Min(p.x, q.x) / 2f), x1 = Mathf.FloorToInt(Mathf.Max(p.x, q.x) / 2f);
+                    int z0 = Mathf.FloorToInt(Mathf.Min(p.z, q.z) / 2f), z1 = Mathf.FloorToInt(Mathf.Max(p.z, q.z) / 2f);
+                    for (int cz = z0; cz <= z1; cz++) for (int cx = x0; cx <= x1; cx++)
+                        {
+                            long ck = ((long)cx << 32) ^ (uint)cz;
+                            if (!slabFaceCells.TryGetValue(ck, out var cl)) slabFaceCells[ck] = cl = new List<int>(4);
+                            cl.Add(si);
+                        }
+                }
             // the kerb faces' top edges in plan (a kerb drawn ALONG an edge, not one that only meets its corners)
             slabKerbPairs.Clear();
             for (int i = 0; i + 2 < kerbBucket.t.Count; i += 3)
@@ -130,7 +157,7 @@ namespace PSXRacing.City
                     land = Mathf.Max(land, roadGrid.Between(n1x, n1z, land, q.y + 0.3f));
                     if (land < q.y - RiserMinM) { lower = true; lowest = Mathf.Min(lowest, land); }
                 }
-                if (lower && !taken && top - lowest <= SlabMaxM)
+                if (lower && top - lowest <= SlabMaxM)
                     for (int k = 0; k < probes.Length && !under; k++)
                     {
                         // a lower road reaching in under the sheet, more than a hand down: a face
@@ -141,14 +168,19 @@ namespace PSXRacing.City
                     }
                 if (slabProbeAt.x > -1e8f && Vector2.Distance(new Vector2(A.x + o.x, A.z + o.z), slabProbeAt) < 6f)
                     slabProbeLog?.Add($"SLAB PROBE edge ({A.x + o.x:0.00},{A.y + o.y:0.000},{A.z + o.z:0.00})-({B.x + o.x:0.00},{B.y + o.y:0.000},{B.z + o.z:0.00}) nrm ({nrm.x:0.00},{nrm.y:0.00}) bucket {bi} taken {taken} level {level} far {levelFar} lower {lower} lowest {lowest + o.y:0.000} under {under} kerb {SlabKerbAlong(A, B, A0, B0)}");
-                if (lower && !under && !taken && top - lowest <= SlabMaxM)
+                int cover = lower && !under && top - lowest <= SlabMaxM ? SlabFaceCover(A, B) : 0;
+                taken = cover > 0;
+                if (lower && !under && top - lowest <= SlabMaxM && cover < slabProbe.Length)
                 {
                     float bot = lowest - SlabTuckM;
                     // a kerb face drawn along it already (a fan's chord): from its foot
                     bool kerb = SlabKerbAlong(A, B, A0, B0);
                     float yA = kerb ? A.y - KerbFaceM : A.y, yB = kerb ? B.y - KerbFaceM : B.y;
+                    // where the closing pass laid part of a face along it, the slab's stands 5 mm in
+                    // under the sheet's edge: never in the same plane as that one's
+                    var inset = taken ? new Vector3(-nrm.x, 0f, -nrm.y) * 0.005f : Vector3.zero;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
-                        SlabAdd(new SlabPiece { A = kerb ? new Vector3(A.x, yA, A.z) : A, B = kerb ? new Vector3(B.x, yB, B.z) : B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : 1, bot = bot });
+                        SlabAdd(new SlabPiece { A = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset, B = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : taken ? 3 : 1, bot = bot });
                 }
                 if (level)
                     SlabAdd(new SlabPiece { A = A, B = B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = 0, run = levelFar ? TongueRunM : TongueShortM });
@@ -260,6 +292,34 @@ namespace PSXRacing.City
         }
         static readonly float[] slabProbe = { 0.15f, 0.5f, 0.85f };
         static readonly HashSet<(long, long)> slabKerbPairs = new HashSet<(long, long)>();
+        static readonly List<(Vector2 a, Vector2 b, float yTop)> slabFaceSegs = new List<(Vector2, Vector2, float)>(1024);
+        static readonly Dictionary<long, List<int>> slabFaceCells = new Dictionary<long, List<int>>();
+        static float PlanD2(Vector3 a, Vector3 b) { float dx = a.x - b.x, dz = a.z - b.z; return dx * dx + dz * dz; }
+        /// <summary>Does a standing face the closing pass laid run along A..B
+        /// (within a centimetre in plan, its top within a centimetre of the
+        /// edge) at its three probe points? Then the slab lays none there (two
+        /// faces in one plane would fight for the pixels).</summary>
+        static int SlabFaceCover(Vector3 A, Vector3 B)
+        {
+            int n = 0;
+            foreach (float f in slabProbe)
+            {
+                var q = Vector3.Lerp(A, B, f);
+                var q2 = new Vector2(q.x, q.z);
+                bool hit = false;
+                if (slabFaceCells.TryGetValue(((long)Mathf.FloorToInt(q.x / 2f) << 32) ^ (uint)Mathf.FloorToInt(q.z / 2f), out var cl))
+                    foreach (int si in cl)
+                    {
+                        var (a, b, yTop) = slabFaceSegs[si];
+                        if (yTop < q.y - 0.01f) continue;
+                        var d = b - a; float L2 = d.sqrMagnitude;
+                        float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q2 - a, d) / L2) : 0f;
+                        if ((a + d * t - q2).sqrMagnitude < 1e-4f) { hit = true; break; }
+                    }
+                if (hit) n++;
+            }
+            return n;
+        }
         static bool SlabKerbAlong(Vector3 A, Vector3 B, Vector3 A0, Vector3 B0) =>
             slabKerbPairs.Contains(PairXZ(A, B)) || slabKerbPairs.Contains(PairXZ(A0, B0));
         /// <summary>Probe only: PSX_SLAB_PROBE=x,z logs every open edge within 6 m of it.</summary>

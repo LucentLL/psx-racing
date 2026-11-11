@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEditor;
@@ -14,8 +14,8 @@ namespace PSXRacing.EditorTools
     /// collider for the probe, back faces never hit, as the PSX shaders cull
     /// them). The Roads mesh's LYING triangles (the sheets: ribbons, fans,
     /// decks, lots in the fans' slot; the slab's own tongues left out) are
-    /// welded at 0.1 mm - two sheets share an edge only where their vertices
-    /// are the same to a tenth of a millimetre, so a 2 mm weld's sliver or a
+    /// welded at 0.5 mm - two sheets share an edge only where their vertices
+    /// are the same to half a millimetre, so a 2 mm weld's sliver or a
     /// T-junction's vertex counts as unshared - and every edge one triangle
     /// uses is walked every 0.25 m (off the tile's border):
     /// <list type="bullet">
@@ -44,7 +44,7 @@ namespace PSXRacing.EditorTools
     public static class CitySeamAudit
     {
         const float StepM = 0.25f, BorderPadM = 0.4f;
-        const float WeldM = 0.0001f;
+        const float WeldM = 0.0005f;   // a gap under half a millimetre is under a tenth of a pixel at 5 m on 720 lines
 
         struct TileStat
         {

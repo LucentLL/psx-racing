@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing.City
@@ -214,6 +214,8 @@ namespace PSXRacing.City
         static int Hash(long k, int mask) => (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 33) & mask;
         static long Q(float x) => (long)((x + 16f) * 500f + 0.5f);
         static long Key3(Vector3 v) => (Q(v.x) << 38) | ((Q(v.z) & 0x3FFFF) << 20) | ((long)((v.y + 200f) * 500f + 0.5f) & 0xFFFFF);
+        /// <summary>(The road slab) a 0.5 mm weld: two sheets 2 mm apart are not one.</summary>
+        static long Key3Fine(Vector3 v) => ((long)((v.x + 16f) * 2000f + 0.5f) << 41) | (((long)((v.z + 16f) * 2000f + 0.5f) & 0xFFFFF) << 21) | ((long)((v.y + 200f) * 2000f + 0.5f) & 0x1FFFFF);
         static long KeyXZ(Vector3 v) => (Q(v.x) << 32) | (Q(v.z) & 0xFFFFFFFF);
 
         static void ClearTable(ref long[] keys, int cap)
@@ -494,7 +496,7 @@ namespace PSXRacing.City
         /// border, with its outward unit (away from its triangle) and the index
         /// of its bucket. Into <see cref="skirtOpen"/>; <paramref name="keepTris"/>
         /// keeps the triangles (global vertex indices) for <see cref="roadGrid"/>.</summary>
-        static void OpenEdges(List<Bucket> sheets, bool keepTris, int[] sheetV0 = null, int[] sheetT0 = null)
+        static void OpenEdges(List<Bucket> sheets, bool keepTris, int[] sheetV0 = null, int[] sheetT0 = null, bool fine = false)
         {
             skirtOpen.Clear();
             skirtOpenOwn.Clear();
@@ -523,7 +525,7 @@ namespace PSXRacing.City
                     int gi = off + i;
                     var v = vs[i];
                     skirtPos[gi] = v;
-                    long key = Key3(v);
+                    long key = fine ? Key3Fine(v) : Key3(v);
                     int h = Hash(key, tMask);
                     while (tKeys[h] != EmptyKey && tKeys[h] != key) h = (h + 1) & tMask;
                     if (tKeys[h] == EmptyKey) { tKeys[h] = key; tVal[h] = gi; }
