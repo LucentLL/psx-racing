@@ -749,6 +749,7 @@ namespace PSXRacing.City
             Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; facLed = 0;
             Bucket.FacOn = false; facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
             gfActive = false;   // the ground floors: the building is done
+            lrActive = false;   // the low-rise shed (CityMeshes.LowRise.cs)
         }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
@@ -11935,6 +11936,7 @@ namespace PSXRacing.City
                     tm.footprintCount++;
                     return;
                 }
+                if (LowRiseChurch(map, trims, tm, fi, f, y0, top)) return;   // LOW-RISE CLASSES: a church's gabled nave and steeple (CityMeshes.LowRise.cs)
                 fitPoly.Clear();
                 fitPoly.AddRange(f.pts);
                 if (skylineBuild) SimplifyPoly(fitPoly, SkylineSimplifyM);
@@ -11974,6 +11976,7 @@ namespace PSXRacing.City
                     // OSM's "wood" on one is its siding - brick reads truer at this scale)
                     if (block) PickFacade(gf.centre, 2, 2, pfMat == 5 ? (byte)0 : pfMat, pfCol, floorP, pfH, pfRh);
                     else PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, pfMat, pfCol, floorP, pfH, pfRh);
+                    if (!block && hero < 0) LowRiseLook(map, fi, f, gf.centre, floorP, pfH, pfMat);   // LOW-RISE CLASSES: apartments, mills, schools, halls
                     if (hero >= 0) StadiumPartLook(hero, f, fi);
                     // the tower's floodlit crown: its top band, whichever part reaches it
                     // (none on a tower whose light is on its frame - NightCrowns: the
@@ -12013,7 +12016,9 @@ namespace PSXRacing.City
                 // centre or a big box - plain bays (no lettering) and a flat
                 // roof behind a parapet
                 bool covShop = retail && !map.footprintBounds.Contains(f.centre);
-                float parapet = covShop && f.roof == 0 ? CovParapetM : 0f;
+                if (retail && !covShop && LrIs(fi, LcStrip)) covShop = true;   // LOW-RISE CLASSES: a shop outside the loop is a strip centre
+                bool lrShed = wallSlot == Slot.FacadeGlass && !retail && LowRiseBegin(map, tm, fi, f, fitPoly, floorP, floating, hero);
+                float parapet = (covShop || lrShed) && f.roof == 0 ? CovParapetM : 0f;
                 // A shopfront goes on the wall that faces the nearest street.
                 // Coverage (2026-10-06): outside the core a shopping centre
                 // faces its parking lot (often 100 m back from the street).
@@ -12080,6 +12085,7 @@ namespace PSXRacing.City
                         float wy0 = hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0;
                         // the ground floors: a street wall's band stands in the wall's place to its storey line
                         if (gfActive) wy0 = GroundBand(tm, a, c, wy0, eaveY + parapet, outward);
+                        if (lrActive) wy0 = LowRiseWall(tm, map, a, c, wy0, eaveY + parapet, outward, i);
                         if (eaveY + parapet > wy0 + 0.05f)
                             EmitWallStyled(tm, a, c, wy0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
                                            covShop ? fi : -1);
@@ -12091,7 +12097,7 @@ namespace PSXRacing.City
                 houseFloorY = float.NaN; houseBrickLook = -1; houseBrickBase = false; houseStoreyM = HouseMinStoreyM; HouseBlockEnd();
                 // BUILDING PASS (CityMeshes.BuildingDetail.cs): a low or mid-rise's
                 // cornice, and its belt course over the ground floor (tiles only)
-                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck)
+                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi) && !gfDeck && !lrShed)
                     EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail || gfActive);
 
                 roofScratch.Clear();
