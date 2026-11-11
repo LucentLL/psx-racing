@@ -78,8 +78,18 @@ namespace PSXRacing
         static void Boot()
         {
             if (!Want) return;
+            foreach (var a in System.Environment.GetCommandLineArgs()) if (a == "-psx-junction-hd") JunctionOnBase = false;
             if (EnsureMap() && EnsureBundle())
-                Debug.Log($"[TextureHD] HD tier on: {SetCount} PBR sets from {BundleFile}");
+                Debug.Log($"[TextureHD] HD tier on: {SetCount} PBR sets + {RoadCount} road textures on the road base from {BundleFile}" +
+                          (JunctionOnBase ? "" : " (junction slabs on their own set)"));
+        }
+
+        /// <summary>Forget the table (the editor, after TextureHDTool.Import
+        /// rewrote it): the next Apply reads it again.</summary>
+        public static void ResetMap()
+        {
+            map = null; mapTried = false; sets = null;
+            byOriginal.Clear(); byHD.Clear(); roadByOriginal.Clear(); baseSets.Clear(); masks.Clear();
         }
 
         static bool EnsureMap()
@@ -88,10 +98,15 @@ namespace PSXRacing
             if (mapTried) return false;
             mapTried = true;
             map = Resources.Load<TextureHDMap>(TextureHDMap.ResourcePath);
-            if (map == null || map.pairs == null || map.pairs.Length == 0) { map = null; return false; }
+            if (map == null) return false;
+            if (map.pairs == null) map.pairs = new TextureHDMap.Pair[0];
+            if (map.roads == null) map.roads = new TextureHDMap.Road[0];
+            if (map.pairs.Length == 0 && map.roads.Length == 0) { map = null; return false; }
             sets = new HDSet[map.pairs.Length];
             for (int i = 0; i < map.pairs.Length; i++)
                 if (map.pairs[i].original != null) byOriginal[map.pairs[i].original] = i;
+            for (int i = 0; i < map.roads.Length; i++)
+                if (map.roads[i].original != null) roadByOriginal[map.roads[i].original] = i;
             return true;
         }
 
@@ -164,13 +179,16 @@ namespace PSXRacing
             var main = m.GetTexture(MainTexId);
             if (main == null) return false;
             if (on && byHD.ContainsKey(main)) return false;   // already HD
+            if (on && m.HasProperty(RoadOnId) && m.GetFloat(RoadOnId) > 0.5f) return false;   // already on the road base
             var orig = TextureTier.OriginalOf(main);
+            if (orig != null && roadByOriginal.TryGetValue(orig, out int ri) && (map.roads[ri].paint != null || JunctionOnBase) && ApplyRoad(m, ri))
+                return true;
             if (orig == null || !byOriginal.TryGetValue(orig, out int i) || !Get(i, out var s)) return false;
             Set(m, MainTexId, s.col);
             if (s.nrm != null) Set(m, NormalId, s.nrm);
             if (s.rough != null) Set(m, RoughId, s.rough);
             if (s.ao != null) Set(m, AOId, s.ao);
-            m.EnableKeyword(Keyword);
+            Kw(m, true);
             Applied++;
             return true;
         }
@@ -178,10 +196,120 @@ namespace PSXRacing
         static void Off(Material m)
         {
             var main = m.GetTexture(MainTexId);
-            if (main != null && byHD.TryGetValue(main, out int i) && map.pairs[i].original != null)
+            int i = -1;
+            if (main != null && map != null && !byHD.TryGetValue(main, out i))
+            {
+                // an HD colour this session has not loaded (a material that kept
+                // one from an earlier editor run): known by its key
+                i = -1;
+                for (int k = 0; k < map.pairs.Length; k++) if (map.pairs[k].key == main.name) { i = k; break; }
+            }
+            if (i >= 0 && map.pairs[i].original != null)
                 Set(m, MainTexId, TextureTier.ForTier(map.pairs[i].original));
-            m.DisableKeyword(Keyword);
+            if (m.HasProperty(RoadOnId) && m.GetFloat(RoadOnId) != 0f) SetF(m, RoadOnId, 0f);
+            Kw(m, false);
             Applied = Mathf.Max(0, Applied - 1);
+        }
+
+        /// <summary>The keyword, kept off a material ASSET's saved state in the
+        /// editor like every other swap here (an editor run that saved assets
+        /// while the tier was on once left road materials saved with PSX_HD).</summary>
+        static void Kw(Material m, bool on)
+        {
+#if UNITY_EDITOR
+            if (UnityEditor.EditorUtility.IsPersistent(m))
+            {
+                bool wasDirty = UnityEditor.EditorUtility.IsDirty(m);
+                if (on) m.EnableKeyword(Keyword); else m.DisableKeyword(Keyword);
+                if (!wasDirty) UnityEditor.EditorUtility.ClearDirty(m);
+                return;
+            }
+#endif
+            if (on) m.EnableKeyword(Keyword); else m.DisableKeyword(Keyword);
+        }
+
+        /// <summary>Take the HD tier off every material in memory (an A/B in
+        /// the editor: then PSXTexDecode.StampAll puts back what Want says).</summary>
+        public static int OffAll()
+        {
+            int n = 0;
+            foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+                if (m != null && m.HasProperty(NormalId) && m.IsKeywordEnabled(Keyword)) { Off(m); n++; }
+            return n;
+        }
+
+        // ---- THE ROAD BASE (TextureHDMap.Road; PSX/Lit _RoadBaseOn) ----
+        public const string PaintSuffix = "_paint";
+        /// <summary>The junction slabs drawn on the 4 m road base (true, so a
+        /// fan matches the ribbons it meets) or with their own 12 m HD set
+        /// (false; -psx-junction-hd in the player).</summary>
+        public static bool JunctionOnBase = true;
+        static readonly Dictionary<Texture, int> roadByOriginal = new Dictionary<Texture, int>();
+        static readonly Dictionary<string, HDSet> baseSets = new Dictionary<string, HDSet>();
+        static readonly Dictionary<string, Texture2D> masks = new Dictionary<string, Texture2D>();
+        static readonly int RoadOnId = Shader.PropertyToID("_RoadBaseOn"), RoadTexId = Shader.PropertyToID("_RoadBaseTex"),
+                            RoadPaintId = Shader.PropertyToID("_RoadPaint"), RoadRepeatId = Shader.PropertyToID("_RoadBaseRepeat"),
+                            PaintWId = Shader.PropertyToID("_RoadPaintW"), PaintYId = Shader.PropertyToID("_RoadPaintY");
+
+        /// <summary>Road base textures in the table (the log's count).</summary>
+        public static int RoadCount => map != null && map.roads != null ? map.roads.Length : 0;
+
+        static bool ApplyRoad(Material m, int ri)
+        {
+            if (!m.HasProperty(RoadOnId)) return false;
+            var r = map.roads[ri];
+            if (!baseSets.TryGetValue(r.baseKey, out var s) || s.col == null)
+            {
+                s.col = Load(r.baseKey);
+                if (s.col == null) return false;
+                s.nrm = Load(r.baseKey + NormalSuffix);
+                s.rough = Load(r.baseKey + RoughSuffix);
+                s.ao = Load(r.baseKey + AOSuffix);
+                baseSets[r.baseKey] = s;
+            }
+            Texture2D mask = null;
+            if (!string.IsNullOrEmpty(r.paint) && !masks.TryGetValue(r.paint, out mask))
+                masks[r.paint] = mask = Load(r.paint);
+            Set(m, RoadTexId, s.col);
+            Set(m, RoadPaintId, mask);
+            if (s.nrm != null) Set(m, NormalId, s.nrm);
+            if (s.rough != null) Set(m, RoughId, s.rough);
+            if (s.ao != null) Set(m, AOId, s.ao);
+            SetV(m, RoadRepeatId, new Vector4(r.repeat.x, r.repeat.y, mask != null ? 1f : 0f, 0f));
+            SetV(m, PaintWId, map.paintWhite);
+            SetV(m, PaintYId, map.paintYellow);
+            SetF(m, RoadOnId, 1f);
+            Kw(m, true);
+            Applied++;
+            return true;
+        }
+
+        static void SetF(Material m, int id, float v)
+        {
+#if UNITY_EDITOR
+            if (UnityEditor.EditorUtility.IsPersistent(m))
+            {
+                bool wasDirty = UnityEditor.EditorUtility.IsDirty(m);
+                m.SetFloat(id, v);
+                if (!wasDirty) UnityEditor.EditorUtility.ClearDirty(m);
+                return;
+            }
+#endif
+            m.SetFloat(id, v);
+        }
+
+        static void SetV(Material m, int id, Vector4 v)
+        {
+#if UNITY_EDITOR
+            if (UnityEditor.EditorUtility.IsPersistent(m))
+            {
+                bool wasDirty = UnityEditor.EditorUtility.IsDirty(m);
+                m.SetVector(id, v);
+                if (!wasDirty) UnityEditor.EditorUtility.ClearDirty(m);
+                return;
+            }
+#endif
+            m.SetVector(id, v);
         }
 
         static void Set(Material m, int id, Texture t)

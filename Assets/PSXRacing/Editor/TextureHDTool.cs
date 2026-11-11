@@ -55,24 +55,118 @@ namespace PSXRacing.EditorTools
             }
             Directory.CreateDirectory(TextureHD.EditorSrcRoot);
             var log = new System.Text.StringBuilder();
+            var bases = new HashSet<string>();
             foreach (var colour in Directory.GetFiles(SrcDir, "*" + Suffix + ".png", SearchOption.AllDirectories))
             {
                 string key = Path.GetFileNameWithoutExtension(colour);
                 key = key.Substring(0, key.Length - Suffix.Length);
+                if (key.StartsWith(RoadBasePrefix))
+                {
+                    // a road BASE set has no game texture of its own: the road path binds it (RoadBases)
+                    if (!bases.Add(key)) { log.AppendLine("  " + key + ": a second copy at " + colour + " - skipped"); continue; }
+                    CopySet(colour, key);
+                    log.AppendLine($"  {key}: road base set");
+                    continue;
+                }
                 var original = FindOriginal(key);
                 if (original == null) { log.AppendLine("  no game texture named " + key + " - skipped"); continue; }
-                string dir = Path.GetDirectoryName(colour);
-                Copy(colour, key, TexKind.Colour);
-                Copy(Path.Combine(dir, key + Suffix + "_normal.png"), key + TextureHD.NormalSuffix, TexKind.Normal);
-                Copy(Path.Combine(dir, key + Suffix + "_rough.png"), key + TextureHD.RoughSuffix, TexKind.Data);
-                Copy(Path.Combine(dir, key + Suffix + "_ao.png"), key + TextureHD.AOSuffix, TexKind.Data);
+                CopySet(colour, key);
                 pairs.Add(new TextureHDMap.Pair { original = original, key = key });
                 log.AppendLine($"  {key}: {AssetDatabase.GetAssetPath(original)}");
             }
-            WriteMap(pairs);
-            sets = pairs.Count;
-            Debug.Log($"[TextureHD] {sets} HD sets from {SrcDir}\n{log}");
+            var roads = RoadBases(bases, log);
+            WriteMap(pairs, roads);
+            sets = pairs.Count + bases.Count;
+            Debug.Log($"[TextureHD] {pairs.Count} HD sets + {bases.Count} road base sets ({roads.Count} road textures drawn on them) from {SrcDir}\n{log}");
             return null;
+        }
+
+        static void CopySet(string colour, string key)
+        {
+            string dir = Path.GetDirectoryName(colour);
+            Copy(colour, key, TexKind.Colour);
+            Copy(Path.Combine(dir, key + Suffix + "_normal.png"), key + TextureHD.NormalSuffix, TexKind.Normal);
+            Copy(Path.Combine(dir, key + Suffix + "_rough.png"), key + TextureHD.RoughSuffix, TexKind.Data);
+            Copy(Path.Combine(dir, key + Suffix + "_ao.png"), key + TextureHD.AOSuffix, TexKind.Data);
+        }
+
+        // ---- THE ROAD BASE (Charlotte texture batch 01; TextureHDMap.Road) ----
+        public const string RoadBasePrefix = "city_road_base_";
+        const string RoadArtDir = "Assets/PSXRacing/Art/City";
+
+        /// <summary>Every Charlotte carriageway texture whose surface has a base
+        /// set: its paint mask written beside the sets (PSXRacingBuilder.RoadPaintMask)
+        /// and its row in the table; the junction slabs on the base too (no mask,
+        /// the fan's world XZ / 12 m UV at three base tiles a repeat).</summary>
+        static List<TextureHDMap.Road> RoadBases(HashSet<string> bases, System.Text.StringBuilder log)
+        {
+            var roads = new List<TextureHDMap.Road>();
+            if (bases.Count == 0) return roads;
+            int masks = 0, unknown = 0;
+            foreach (var png in Directory.GetFiles(RoadArtDir, "city_road_*.png"))
+            {
+                string name = Path.GetFileNameWithoutExtension(png);
+                if (!PSXRacingBuilder.RoadTexOf(name, out int profile, out var surf, out bool junction)) continue;
+                string baseKey = RoadBasePrefix + PSXRacingBuilder.RoadSurfaceKey(surf);
+                if (!bases.Contains(baseKey)) continue;
+                string asset = RoadArtDir + "/" + name + ".png";
+                var original = AssetDatabase.LoadAssetAtPath<Texture2D>(asset);
+                if (original == null) continue;
+                if (junction)
+                {
+                    roads.Add(new TextureHDMap.Road { original = original, paint = null, baseKey = baseKey, repeat = new Vector2(12f, 12f) / TextureHDMap.TileM });
+                    continue;
+                }
+                var mask = PSXRacingBuilder.RoadPaintMask(png, surf, out int unk, out int painted);
+                string maskKey = name + TextureHD.PaintSuffix;
+                string dst = TextureHD.EditorSrcRoot + maskKey + ".png";
+                byte[] bytes = mask.EncodeToPNG();
+                Object.DestroyImmediate(mask);
+                if (!File.Exists(dst) || !SameBytes(File.ReadAllBytes(dst), bytes)) File.WriteAllBytes(dst, bytes);
+                AssetDatabase.ImportAsset(dst, ImportAssetOptions.ForceSynchronousImport);
+                MaskImport(dst);
+                masks++; unknown += unk;
+                if (unk > 0) log.AppendLine($"  {name}: {unk} texels neither paint, grain nor rumble (drawn as pavement)");
+                float w = PSXRacingBuilder.RoadProfileWidth(profile);
+                roads.Add(new TextureHDMap.Road { original = original, paint = maskKey, baseKey = baseKey,
+                                                  repeat = new Vector2(w, City.CityMeshes.RoadVTile) / TextureHDMap.TileM });
+            }
+            log.AppendLine($"  road base: {masks} paint masks, {roads.Count - masks} junction slabs, {unknown} unclassified texels in all");
+            return roads;
+        }
+
+        static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        /// <summary>A paint mask: linear data, filtered and mipped (the paint's
+        /// edge is now a filtered line, not the Classic point-sampled step),
+        /// uncompressed (256 x 64: a BC block would smear a 2-texel line).</summary>
+        static void MaskImport(string path)
+        {
+            var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (imp == null) return;
+            bool dirty = false;
+            void Want<T>(T now, T want, System.Action<T> set) { if (!EqualityComparer<T>.Default.Equals(now, want)) { set(want); dirty = true; } }
+            Want(imp.textureType, TextureImporterType.Default, v => imp.textureType = v);
+            Want(imp.sRGBTexture, false, v => imp.sRGBTexture = v);
+            Want(imp.mipmapEnabled, true, v => imp.mipmapEnabled = v);
+            Want(imp.anisoLevel, 8, v => imp.anisoLevel = v);
+            Want(imp.filterMode, FilterMode.Trilinear, v => imp.filterMode = v);
+            Want(imp.wrapMode, TextureWrapMode.Repeat, v => imp.wrapMode = v);
+            Want(imp.textureCompression, TextureImporterCompression.Uncompressed, v => imp.textureCompression = v);
+            Want(imp.npotScale, TextureImporterNPOTScale.None, v => imp.npotScale = v);
+            var ps = imp.GetPlatformTextureSettings("Standalone");
+            if (!ps.overridden || ps.format != TextureImporterFormat.RGBA32)
+            {
+                ps.overridden = true; ps.format = TextureImporterFormat.RGBA32; ps.maxTextureSize = 1024;
+                imp.SetPlatformTextureSettings(ps);
+                dirty = true;
+            }
+            if (dirty) imp.SaveAndReimport();
         }
 
         enum TexKind { Colour, Normal, Data }
@@ -123,10 +217,12 @@ namespace PSXRacing.EditorTools
             return found;
         }
 
-        static void WriteMap(List<TextureHDMap.Pair> pairs)
+        static void WriteMap(List<TextureHDMap.Pair> pairs) => WriteMap(pairs, new List<TextureHDMap.Road>());
+
+        static void WriteMap(List<TextureHDMap.Pair> pairs, List<TextureHDMap.Road> roads)
         {
             var map = AssetDatabase.LoadAssetAtPath<TextureHDMap>(MapAsset);
-            if (pairs.Count == 0)
+            if (pairs.Count == 0 && roads.Count == 0)
             {
                 if (map != null) AssetDatabase.DeleteAsset(MapAsset);
                 return;
@@ -137,6 +233,9 @@ namespace PSXRacing.EditorTools
                 AssetDatabase.CreateAsset(map, MapAsset);
             }
             map.pairs = pairs.ToArray();
+            map.roads = roads.ToArray();
+            map.paintWhite = PSXRacingBuilder.PaintWhiteLinear;
+            map.paintYellow = PSXRacingBuilder.PaintYellowLinear;
             EditorUtility.SetDirty(map);
             AssetDatabase.SaveAssets();
         }
@@ -147,15 +246,27 @@ namespace PSXRacing.EditorTools
         {
             bytes = 0;
             var map = AssetDatabase.LoadAssetAtPath<TextureHDMap>(MapAsset);
-            if (map == null || map.pairs == null || map.pairs.Length == 0) return null;
+            if (map == null || ((map.pairs == null || map.pairs.Length == 0) && (map.roads == null || map.roads.Length == 0))) return null;
             var names = new List<string>();
             var paths = new List<string>();
-            foreach (var p in map.pairs)
+            var keys = new List<string>();
+            if (map.pairs != null) foreach (var p in map.pairs) keys.Add(p.key);
+            if (map.roads != null)
+                foreach (var r in map.roads)
+                {
+                    if (!keys.Contains(r.baseKey)) keys.Add(r.baseKey);
+                    if (!string.IsNullOrEmpty(r.paint))
+                    {
+                        string mp = TextureHD.EditorSrcRoot + r.paint + ".png";
+                        if (AssetDatabase.LoadAssetAtPath<Texture2D>(mp) != null && !names.Contains(r.paint)) { names.Add(r.paint); paths.Add(mp); }
+                    }
+                }
+            foreach (var key in keys)
                 foreach (var suffix in new[] { "", TextureHD.NormalSuffix, TextureHD.RoughSuffix, TextureHD.AOSuffix })
                 {
-                    string path = TextureHD.EditorSrcRoot + p.key + suffix + ".png";
+                    string path = TextureHD.EditorSrcRoot + key + suffix + ".png";
                     if (AssetDatabase.LoadAssetAtPath<Texture2D>(path) == null) continue;
-                    names.Add(p.key + suffix);
+                    names.Add(key + suffix);
                     paths.Add(path);
                 }
             Directory.CreateDirectory(WorkDir);
