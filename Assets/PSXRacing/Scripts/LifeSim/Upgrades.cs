@@ -445,6 +445,35 @@ namespace PSXRacing.LifeSim
             return p;
         }
 
+        /// <summary>DIY skill to fit stage <paramref name="stage"/> of a
+        /// category on this car: the same number a shop order's plan carries.
+        /// For a spare off the shelf that REPLACES worn hardware rather than
+        /// stepping a car up (Spares), which has no plan of its own.</summary>
+        public static int FitSkill(Kind kind, int stage, CarSpec spec) =>
+            Mathf.Min(95, SkillReq[(int)kind][Mathf.Clamp(stage, 1, MaxStage)] + CarSkillBoost(spec));
+
+        /// <summary>
+        /// What one stage of a category costs to fit yourself on the $15k
+        /// reference car the price multipliers are built around (a mult of
+        /// 1.0). Power and weight are priced off a typical step (20 hp,
+        /// 25 kg), because their real price is per hp / per kg of a car.
+        /// Used to price a used part that is not going on any car yet
+        /// (Junkyard.KeepPrice): a part's value is the part's.
+        /// </summary>
+        public static int RefDiyPrice(Kind kind, int stage)
+        {
+            stage = Mathf.Clamp(stage, 1, MaxStage);
+            switch (kind)
+            {
+                case Kind.Power: return Mathf.RoundToInt(20 * PerHp * (1f + (stage - 1) * 0.25f));
+                case Kind.Weight: return 25 * PerKg * stage;
+                case Kind.Brakes: return BaseBrake * stage;
+                case Kind.Suspension: return BaseSusp * stage;
+                case Kind.Tires: return BaseTire * stage;
+                default: return BaseSeat * stage;
+            }
+        }
+
         public static PendingPart PendingFor(LifeState s, OwnedCar car, Kind kind)
         {
             if (s == null || car == null) return null;

@@ -44,6 +44,9 @@ namespace PSXRacing.OnFoot
         /// <summary>What the donor was, for the headline. Scenery, but a player
         /// pulling a fender off a Charger should be told it is a Charger.</summary>
         public string donorName = "A WRECK";
+        /// <summary>The donor's catalog id, recorded on a part kept as a spare
+        /// (v24). Empty when the shell is scenery with no catalog row.</summary>
+        public string donorSpecId = "";
 
         public bool IsOpen { get; private set; }
 
@@ -52,6 +55,9 @@ namespace PSXRacing.OnFoot
         Text toastText;
         string toast;
         float toastUntil;
+        /// <summary>The walk-up prompt we blanked while the page is up.</summary>
+        FootScreen hiddenPrompt;
+        bool promptWasShown;
 
         static LifeState S => LifeSimManager.State;
 
@@ -64,6 +70,20 @@ namespace PSXRacing.OnFoot
             // it anywhere else in this game.
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
+            // THE GHOST BEHIND THE ROWS (owner's shot, 2026-11-11): the walk-up
+            // prompt (FootScreen, its own overlay canvas at sort order 90) kept
+            // printing this wreck's title and "5 parts still on it, yours for
+            // the pulling" for as long as the page was open - the interactor
+            // still had the shell in its sights - and this page's backdrop and
+            // panel are 90% each on purpose (the GT2 grid ghosts through), so
+            // the prompt ghosted through with it. Blank the prompt while the
+            // page is up, give it back on the way out.
+            hiddenPrompt = FindAnyObjectByType<FootScreen>();
+            if (hiddenPrompt != null)
+            {
+                promptWasShown = hiddenPrompt.show;
+                hiddenPrompt.show = false;
+            }
             Build();
         }
 
@@ -73,6 +93,8 @@ namespace PSXRacing.OnFoot
             IsOpen = false;
             if (canvas != null) Destroy(canvas.gameObject);
             canvas = null;
+            if (hiddenPrompt != null) { hiddenPrompt.show = promptWasShown; hiddenPrompt.Invalidate(); }
+            hiddenPrompt = null;
             onClosed?.Invoke();
         }
 
@@ -92,12 +114,29 @@ namespace PSXRacing.OnFoot
             }
         }
 
+
         void Rebuild()
         {
+            // Keep the player's place: a rebuild after a pull must not throw
+            // the cursor or the list back to the top.
+            string sel = null;
+            var cur = MenuNav.Selected(canvas != null ? canvas.transform : null);
+            if (cur != null) sel = cur.gameObject.name;
+            float scrollAt = rowsScroll != null ? rowsScroll.verticalNormalizedPosition : 1f;
             if (canvas != null) Destroy(canvas.gameObject);
             Build();
             if (toastText != null) toastText.text = toast;
+            if (rowsScroll != null) rowsScroll.verticalNormalizedPosition = scrollAt;
+            if (sel != null && panel != null)
+                foreach (var b in panel.GetComponentsInChildren<Selectable>())
+                    if (b.gameObject.name == sel && b.interactable) { MenuNav.Select(b); break; }
         }
+
+        ScrollRect rowsScroll;
+
+        /// <summary>Width of a part row: the panel less its margins, never
+        /// wider than reads as one row.</summary>
+        static float RowW => Mathf.Min(840f, MenuKit.HalfWidth * 2f - 80f - 48f);
 
         void Build()
         {
@@ -110,12 +149,14 @@ namespace PSXRacing.OnFoot
 
             panel = MenuKit.Stretch(canvas.transform, "Wreck",
                 Vector2.zero, Vector2.one, 40f, 40f, 26f, -26f, MenuKit.PanelBg);
+            rowsScroll = null;
 
-            MenuKit.Label(panel, donorName, MenuKit.Title, new Vector2(0.5f, 1f),
-                new Vector2(0f, -14f), TextAnchor.MiddleCenter, MenuKit.Accent, 820f, bold: true)
+            // Head, not Title: a donor name is up to ~36 capitals, and at the
+            // title size it ran edge to edge on 16:9 and off both edges at 4:3.
+            MenuKit.Label(panel, donorName, MenuKit.Head, new Vector2(0.5f, 1f),
+                new Vector2(0f, -10f), TextAnchor.MiddleCenter, MenuKit.Accent, RowW, height: 40f, bold: true)
                 .rectTransform.pivot = new Vector2(0.5f, 1f);
 
-            float y = -62f;
             if (s == null) { Close(); return; }
 
             bool looked = Junkyard.WreckLookedOver(s, wreck);
@@ -123,22 +164,23 @@ namespace PSXRacing.OnFoot
                 (looked ? Junkyard.WreckPartsLeft(s, wreck) + " STILL ON IT"
                         : "NOBODY HAS BEEN OVER THIS ONE") +
                 "   ·   " + MenuKit.Money(s.money) + " IN YOUR POCKET" +
-                "   ·   SKILL " + Mathf.FloorToInt(s.mechSkill),
-                15, new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
-                MenuKit.Dim, 820f);
-            y -= 34f;
+                "   ·   SKILL " + Mathf.FloorToInt(s.mechSkill) +
+                "   ·   SHELF " + (s.partsShelf != null ? s.partsShelf.Count : 0) + "/" + Spares.Capacity,
+                15, new Vector2(0.5f, 1f), new Vector2(0f, -52f), TextAnchor.MiddleCenter,
+                MenuKit.Dim, RowW, height: 26f);
 
             if (!looked)
             {
                 // The whole page before the walk-round: one button and the
                 // reason to press it. Nothing about what is on the car, because
                 // nobody has looked.
-                MenuKit.Label(panel,
+                float y = -94f;
+                MenuKit.Para(panel,
                     "Bonnet down, boot shut, wheels on. What is left on a shell is " +
                     "whatever the last person through here did not want.",
-                    16, new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
-                    Color.white, 760f, height: 52f);
-                y -= 64f;
+                    16, new Vector2(0.5f, 1f), new Vector2(0f, y), out float introH,
+                    TextAnchor.UpperCenter, Color.white, Mathf.Min(RowW, 700f));
+                y -= introH + 14f;
                 MenuKit.Button(panel, "LOOK IT OVER", new Vector2(0.5f, 1f),
                     new Vector2(0f, y), new Vector2(440f, 50f), () =>
                     {
@@ -150,69 +192,32 @@ namespace PSXRacing.OnFoot
                 y -= 60f;
                 MenuKit.Label(panel, "Costs nothing but the walk.", MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
-                    MenuKit.Dim, 700f);
-                y -= 34f;
+                    MenuKit.Dim, 700f, height: 26f);
             }
             else
             {
+                var view = MenuKit.Stretch(panel, "Rows", Vector2.zero, Vector2.one, 12f, 12f, 102f, -86f);
+                var content = MenuKit.ScrollBody(view);
+                rowsScroll = view.GetComponent<ScrollRect>();
                 var car = s.ActiveCar;
                 var carSpec = car != null ? CarCatalog.Get(car.specId) : null;
+                float y = -6f;
                 foreach (var row in Junkyard.WreckContents(s, wreck))
-                {
-                    int slot = row.slot;
-                    var offer = Junkyard.GetPull(s, car, carSpec, wreck, slot);
-
-                    if (row.stripped || row.taken)
-                    {
-                        // A row, not a gap. See the class note: a picked-over
-                        // shell has to LOOK picked over.
-                        MenuKit.Label(panel,
-                            (row.taken ? "TAKEN — " : "GONE — ") + row.part.label,
-                            16, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                            TextAnchor.MiddleCenter, MenuKit.Dim, 780f);
-                        y -= 24f;
-                        MenuKit.Label(panel,
-                            row.taken ? "in your boot, " + offer.quote.days + " day" +
-                                        (offer.quote.days == 1 ? "" : "s") + " to fit"
-                                      : "somebody got here first",
-                            MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                            TextAnchor.MiddleCenter, MenuKit.Dim, 700f);
-                        y -= 30f;
-                        continue;
-                    }
-
-                    string head = Junkyard.GradeWord(row.part.grade) + "   " + row.part.label;
-                    var tint = row.part.grade >= 70 ? MenuKit.Good
-                             : row.part.grade >= 40 ? (Color?)null : MenuKit.Bad;
-
-                    MenuKit.Button(panel,
-                        head + "   —   " + MenuKit.Money(offer.price),
-                        new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(700f, 42f),
-                        offer.can ? (UnityEngine.Events.UnityAction)(() => Pull(slot)) : null,
-                        17, offer.can ? tint : MenuKit.BtnBgDisabled);
-                    y -= 46f;
-
-                    string effect = offer.quote.effect;
-                    MenuKit.Label(panel,
-                        offer.can || offer.blocked == null
-                            ? (string.IsNullOrEmpty(effect) ? row.part.donorHint
-                                                            : effect + "   ·   " + row.part.donorHint) +
-                              "   ·   " + offer.quote.days + "d to fit" +
-                              (offer.rental > 0 ? "   ·   incl. tool rental" : "")
-                            : offer.blocked,
-                        MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, y),
-                        TextAnchor.MiddleCenter, offer.can ? MenuKit.Dim : MenuKit.Bad, 780f);
-                    y -= 30f;
-                }
+                    DrawRow(content, s, car, carSpec, row, ref y);
+                // Content height off what was drawn; the viewport height off the
+                // canvas column (the panel is 52 units shorter, the rows' box a
+                // further 188), never off a rect that has not resolved yet.
+                MenuKit.FitScrollContent(content, Mathf.Max(0f, MenuKit.DesignHeight - 52f - 188f));
             }
 
-            y -= 6f;
-            toastText = MenuKit.Label(panel, "", 16, new Vector2(0.5f, 1f),
-                new Vector2(0f, y), TextAnchor.MiddleCenter, MenuKit.Good, 760f);
-            y -= 32f;
-
-            MenuKit.Button(panel, "STRAIGHTEN UP", new Vector2(0.5f, 1f),
-                new Vector2(0f, y), new Vector2(340f, 46f), Close, 18);
+            // The footer, pinned to the bottom of the panel so the list above
+            // it can scroll on a short (handheld) column without pushing the
+            // way out off the screen. Built after the rows so the pad starts on
+            // the first part, not on the way out.
+            toastText = MenuKit.Label(panel, "", 16, new Vector2(0.5f, 0f),
+                new Vector2(0f, 70f), TextAnchor.MiddleCenter, MenuKit.Good, RowW, height: 28f);
+            MenuKit.Button(panel, "STRAIGHTEN UP", new Vector2(0.5f, 0f),
+                new Vector2(0f, 14f), new Vector2(340f, 46f), Close, 18);
 
             // Without this the page is mouse- and touch-only: UGUI routes pad
             // navigation to the SELECTED object and nothing here would ever set
@@ -227,6 +232,101 @@ namespace PSXRacing.OnFoot
             }
         }
 
+        /// <summary>
+        /// One slot on the shell, as ONE block: what it is and how good on top,
+        /// then the two things you can do with it side by side - FIT TO the car
+        /// you are in, or KEEP AS A SPARE - and under EACH button, inside the
+        /// same block, what that button will do or why it cannot. The reason
+        /// used to be a red line floating in the gap between two rows (owner's
+        /// shot), so it read as belonging to either; and "already maxed" was a
+        /// reason to refuse the whole pull, which is gone - fitting can be
+        /// refused, keeping cannot (money and shelf room aside).
+        /// </summary>
+        void DrawRow(RectTransform parent, LifeState s, OwnedCar car, CarSpec carSpec,
+                     Junkyard.WreckSlot row, ref float y)
+        {
+            float w = RowW, left = -w * 0.5f;
+            int slot = row.slot;
+            var bg = MenuKit.Rect(parent, "Slot" + slot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, y), new Vector2(w, 60f), new Color(0.07f, 0.07f, 0.07f, 0.96f));
+            bg.GetComponent<Image>().raycastTarget = false;
+
+            if (row.stripped || row.taken)
+            {
+                // A row, not a gap. See the class note: a picked-over shell has
+                // to LOOK picked over.
+                MenuKit.Label(parent, (row.taken ? "TAKEN   " : "GONE   ") + row.part.label,
+                    17, new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 6f), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, w - 28f, height: 24f);
+                MenuKit.Label(parent, row.taken ? "you pulled it - on your shelf or on its way onto a car"
+                                                : "somebody got here first",
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 32f),
+                    TextAnchor.MiddleLeft, MenuKit.Dim, w - 28f, height: 22f);
+                bg.sizeDelta = new Vector2(w, 60f);
+                y -= 68f;
+                return;
+            }
+
+            var offer = Junkyard.GetPull(s, car, carSpec, wreck, slot);
+            var part = row.part;
+            var tint = part.grade >= 70 ? MenuKit.Good : part.grade >= 40 ? Color.white : MenuKit.Bad;
+            int risk = Junkyard.FaultRisk(part.grade);
+
+            // Line 1: grade + part on the left, where it came off on the right.
+            MenuKit.Label(parent, Junkyard.GradeWord(part.grade) + "   " + part.label, 18,
+                new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 6f), TextAnchor.MiddleLeft,
+                tint, w * 0.60f, height: 26f, bold: true);
+            MenuKit.Label(parent, part.donorHint + (risk > 0 ? "  ·  " + risk + "% RISK" : ""), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(left + w - 14f, y - 6f), TextAnchor.MiddleRight,
+                risk >= 20 ? MenuKit.Bad : MenuKit.Dim, w * 0.38f, height: 26f);
+
+            // Line 2: the two actions.
+            float bw = (w - 28f - 12f) * 0.5f;
+            float bx0 = left + 14f + bw * 0.5f, bx1 = bx0 + bw + 12f;
+            float by = y - 38f;
+            string carName = car != null ? LifeRules.ShortName(car) : "YOUR CAR";
+            var fit = MenuKit.Button(parent,
+                offer.can ? "FIT TO " + carName + "  -  " + MenuKit.Money(offer.price)
+                          : "FIT TO " + carName,
+                new Vector2(0.5f, 1f), new Vector2(bx0, by), new Vector2(bw, 40f),
+                offer.can ? (UnityEngine.Events.UnityAction)(() => Pull(slot)) : null,
+                16, offer.can ? (Color?)new Color(0.20f, 0.30f, 0.24f, 1f) : MenuKit.BtnBgDisabled);
+            fit.gameObject.name = "Btn_fit_" + slot;
+            var keep = MenuKit.Button(parent,
+                "KEEP AS A SPARE  -  " + MenuKit.Money(offer.keepPrice),
+                new Vector2(0.5f, 1f), new Vector2(bx1, by), new Vector2(bw, 40f),
+                offer.canKeep ? (UnityEngine.Events.UnityAction)(() => Keep(slot)) : null,
+                16, offer.canKeep ? (Color?)null : MenuKit.BtnBgDisabled);
+            keep.gameObject.name = "Btn_keep_" + slot;
+
+            // Line 3: under each button, what it will do - or why not - in the
+            // same block, so a reason can only be read as that button's.
+            float ly = by - 46f;
+            string fitLine;
+            if (offer.can)
+                fitLine = (offer.quote.isUpgrade ? "STAGE " + offer.quote.stage + " ON YOUR " + carName
+                                                 : offer.quote.effect + " ON YOUR " + carName) +
+                          "  ·  " + offer.quote.days + "d to fit";
+            else
+                fitLine = "can't fit: " + (offer.blocked ?? "no car");
+            MenuKit.Para(parent, fitLine, MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(bx0 - bw * 0.5f, ly), out float fitH, TextAnchor.UpperLeft,
+                offer.can ? MenuKit.Dim : MenuKit.Bad, bw);
+            string keepLine = offer.canKeep
+                ? "to your shelf  ·  " + (part.IsUpgrade
+                      ? "any car, up to stage " + part.maxStage + " " +
+                        Upgrades.KindLabels[(int)Upgrades.KindFromKey(part.upgradeKind)].ToLowerInvariant()
+                      : "any car, +" + Junkyard.EffectiveAdd(part.add, part.grade) + " " + Junkyard.StatWord(part.stat))
+                : "can't keep: " + offer.keepBlocked;
+            MenuKit.Para(parent, keepLine, MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(bx1 - bw * 0.5f, ly), out float keepH, TextAnchor.UpperLeft,
+                offer.canKeep ? MenuKit.Dim : MenuKit.Bad, bw);
+
+            float h = (y - ly) + Mathf.Max(fitH, keepH) + 8f;
+            bg.sizeDelta = new Vector2(w, h);
+            y -= h + 8f;
+        }
+
         void Pull(int slot)
         {
             var s = S;
@@ -236,9 +336,24 @@ namespace PSXRacing.OnFoot
             var offer = Junkyard.GetPull(s, car, carSpec, wreck, slot);
             string err = Junkyard.PullFromWreck(s, car, carSpec, wreck, slot);
             toast = err == null
-                ? "PULLED — " + offer.part.label + ", " + offer.quote.days + " DAY" +
-                  (offer.quote.days == 1 ? "" : "S") + " TO FIT"
+                ? "PULLED AND FITTING - " + offer.part.label + ", " + offer.quote.days + " DAY" +
+                  (offer.quote.days == 1 ? "" : "S")
                 : err.ToUpperInvariant();
+            toastUntil = Time.unscaledTime + 2.8f;
+            if (err == null) LifeSimManager.Save();
+            Rebuild();
+        }
+
+        void Keep(int slot)
+        {
+            var s = S;
+            if (s == null) return;
+            var row = Junkyard.WreckContents(s, wreck);
+            string label = slot >= 0 && slot < row.Count ? row[slot].part.label : "IT";
+            string donor = donorName != null && donorName.StartsWith("WRECKED ")
+                ? donorName.Substring("WRECKED ".Length) : donorName;
+            string err = Junkyard.PullToShelf(s, wreck, slot, donorSpecId, donor);
+            toast = err == null ? "ON YOUR SHELF - " + label : err.ToUpperInvariant();
             toastUntil = Time.unscaledTime + 2.8f;
             if (err == null) LifeSimManager.Save();
             Rebuild();

@@ -1321,6 +1321,8 @@ namespace PSXRacing.LifeSim
                 case "main": BuildMain(); break;
                 case "garage": BuildGarage(); break;
                 case "wheels": BuildStoredWheels(); break;
+                case "parts": BuildStoredParts(); break;
+                case "partfit": BuildPartFit(); break;
                 case "carmenu": BuildCarMenu(); break;
                 case "specs": BuildSpecs(); break;
                 // The old calendar page's id, kept for anything that still
@@ -1561,6 +1563,9 @@ namespace PSXRacing.LifeSim
                 case "toolbox": return "garage";
                 case "carmenu":
                 case "debugcars": return "garage";
+                // The parts shelf is a door at the MY CARS base (v24).
+                case "parts": return "garage";
+                case "partfit": return "parts";
                 case "rivalroad": return "rivals";
                 default: return "main";
             }
@@ -3497,6 +3502,8 @@ namespace PSXRacing.LifeSim
                     Toast("TANK FILLED - " + MenuKit.Money(truck));
                 }) : null, 17, canFill ? (Color?)null : MenuKit.BtnBgDisabled);
             ty -= 52f;
+            // The parts shelf and the wheel rack, also not about one car (v24).
+            StorageDoors(tx, tw, ref ty);
 
             // Whichever side ran longer decides where the list starts.
             y = Mathf.Min(ty, y - viewH - (view != null ? 30f : 0f)) - 8f;
@@ -3700,6 +3707,8 @@ namespace PSXRacing.LifeSim
                     ColW, height: 24f);
                 y -= 26f;
             }
+
+            SpareSummaryLine(car, ref y);
 
             if (KnownFaults(car) > 0)
             {
@@ -5221,6 +5230,8 @@ namespace PSXRacing.LifeSim
                 x += btnW + 12f;
             }
             y -= 52f;
+            // The next stage is on the shelf already (v24).
+            SpareForUpgradeRow(car, kind, ref y);
         }
 
         /// <summary>
@@ -5345,6 +5356,8 @@ namespace PSXRacing.LifeSim
                 x += btnStep;
             }
             y -= 50f;
+            // A spare on the shelf that replaces this (v24).
+            SpareForFaultRow(car, f, ref y);
         }
 
         /// <summary>
@@ -5970,7 +5983,7 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, car != null
                     ? "quoting for " + car.displayName + "  ·  skill " +
                       Mathf.RoundToInt(S.mechSkill) + "  ·  you fit it yourself"
-                    : "no car — nothing here fits anything you own",
+                    : "no car — anything here goes on your shelf as a spare",
                 15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 car != null ? MenuKit.Dim : MenuKit.Bad, ColW, height: 24f).raycastTarget = false;
             y -= 30f;
@@ -6035,17 +6048,24 @@ namespace PSXRacing.LifeSim
             // The whole row is the button, the way a classified listing is, so
             // there is one target per part rather than a caption and a hit box
             // that disagree about where the part ends.
-            bool usable = q.available && S.money >= q.price;
+            // A part that cannot go on THIS car is still a part (v24): the row
+            // keeps it as a spare instead of refusing it.
+            bool keepOnly = !q.available;
+            int keepPrice = Junkyard.RackKeepPrice(part);
+            bool usable = keepOnly ? S.money >= keepPrice && !Spares.Full(S)
+                                   : S.money >= q.price;
             var captured = part;
             var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL, ColW), y), new Vector2(ColW, 56f),
                 usable ? (UnityEngine.Events.UnityAction)(() =>
                 {
-                    string err = Junkyard.Buy(S, S.ActiveCar,
-                        S.ActiveCar != null ? CarCatalog.Get(S.ActiveCar.specId) : null, captured);
+                    string err = keepOnly
+                        ? Junkyard.BuyToShelf(S, captured)
+                        : Junkyard.Buy(S, S.ActiveCar,
+                            S.ActiveCar != null ? CarCatalog.Get(S.ActiveCar.specId) : null, captured);
                     LifeSimManager.Save();
                     Rebuild();
-                    Toast(err ?? (captured.label + " — home in the boot"));
+                    Toast(err ?? (captured.label + (keepOnly ? " — on your shelf at home" : " — home in the boot")));
                 }) : null, 14,
                 usable ? (Color?)null : MenuKit.BtnBgDisabled);
             // Named after the PART, because the caption is empty and MenuKit
@@ -6072,15 +6092,16 @@ namespace PSXRacing.LifeSim
             // cannot afford from one that does not fit.
             MenuKit.Label(body,
                 q.available ? MenuKit.Money(q.price) + (S.money >= q.price ? "" : "  (short)")
-                            : (q.blockedReason ?? "not for you"),
+                            : "KEEP " + MenuKit.Money(keepPrice) + (S.money >= keepPrice ? "" : "  (short)"),
                 16, new Vector2(0.5f, 1f), new Vector2(ColR - 14f, y - 8f),
                 TextAnchor.MiddleRight,
-                !q.available ? MenuKit.Dim : S.money >= q.price ? MenuKit.Accent : MenuKit.Bad,
+                usable ? MenuKit.Accent : MenuKit.Bad,
                 ColW * 0.36f, height: 26f).raycastTarget = false;
 
             string risk = q.risk > 0 ? "  ·  " + q.risk + "% it brings something with it" : "";
             MenuKit.Label(body,
-                (q.effect ?? part.label) + "  ·  " + q.days + "d to fit" + risk +
+                (keepOnly ? "not for this car (" + (q.blockedReason ?? "no car") + ") - a spare for the shelf"
+                          : (q.effect ?? part.label) + "  ·  " + q.days + "d to fit") + risk +
                 "  ·  " + part.donorHint + "  ·  " + daysLeft + "d left",
                 13, new Vector2(0.5f, 1f), new Vector2(ColL + 14f, y - 34f),
                 TextAnchor.MiddleLeft, q.risk >= 20 ? MenuKit.Bad : MenuKit.Dim,
@@ -6898,6 +6919,9 @@ namespace PSXRacing.LifeSim
                     }) : null, 15, afford ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 52f;
             }
+
+            // Spares off the player's own shelf, for labour only (v24).
+            MechanicSpareRows(car, elsewhere, ref y);
 
             // ---- the cooling system, in its own group -----------------------
             //

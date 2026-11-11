@@ -421,7 +421,7 @@ namespace PSXRacing.EditorTools
             old.laidOff = false;
             var back = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(old));
             LifeSimManager.Migrate(back);
-            Check(back.saveVersion == 23, "migrated to v23", back.saveVersion);
+            Check(back.saveVersion == CurrentSaveVersion, "migrated to v23", back.saveVersion);
             Check(back.dutyFrom == Duty.Ord(11, LifeRules.EveningSlot) && back.jobFrom == back.dutyFrom,
                   "obligations are owed from the block the save stood in", back.dutyFrom);
             Check(back.clubs != null && back.clubs.Count == 0 && !back.laidOff, "no club, on the roster");
@@ -434,7 +434,7 @@ namespace PSXRacing.EditorTools
 
             // JsonUtility: memberships are a list of plain objects, never a null.
             var fresh = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            Check(fresh.saveVersion == 23 && fresh.clubs != null && fresh.clubs.Count == 0 && fresh.dutyFrom == 0,
+            Check(fresh.saveVersion == CurrentSaveVersion && fresh.clubs != null && fresh.clubs.Count == 0 && fresh.dutyFrom == 0,
                   "a new career is born at v23, owing from day 1");
             fresh.clubs.Add(new ClubStanding { id = "euro", member = true, from = 20,
                 board = new System.Collections.Generic.List<RankEntry> { new RankEntry { alias = Blacklist.PlayerKey } } });
