@@ -84,9 +84,9 @@ namespace PSXRacing.EditorTools
         void Awake() { bornAt = Time.realtimeSinceStartup; }
         void Update()
         {
-            if (finished || Time.realtimeSinceStartup - bornAt < 2400f) return;
+            if (finished || Time.realtimeSinceStartup - bornAt < 6000f) return;
             finished = true;
-            CityCurbDrive.log.AppendLine("FAIL HUNG after 2400 s");
+            CityCurbDrive.log.AppendLine("FAIL HUNG after 6000 s");
             CityCurbDrive.Finish(1);
         }
 
@@ -94,6 +94,8 @@ namespace PSXRacing.EditorTools
         static string F2(float v) => v.ToString("0.00", CultureInfo.InvariantCulture);
         static int mask;
         static int strikes; static float strike;
+        /// <summary>(round 2) the side PickApron found its apron on (0: the right-hand curb first).</summary>
+        static int pickSide;
 
         /// <summary>The ground or road surface at plan (x, z): the highest static
         /// hit (not foliage, not a solid) within 1.5 m above and 4 m under y0.</summary>
@@ -125,6 +127,7 @@ namespace PSXRacing.EditorTools
             float best = float.MaxValue;
             Vector2 at = map.uptown;
             bool byName = spec.StartsWith("name:"), rolled = spec == "rolled";
+            if (spec.StartsWith("apron:")) return PickApron(map, int.Parse(spec.Substring(6), CultureInfo.InvariantCulture), out edge, out s);
             string nm = byName ? spec.Substring(5) : null;
             if (!byName && !rolled)
             {
@@ -150,6 +153,38 @@ namespace PSXRacing.EditorTools
             return edge != null;
         }
 
+        /// <summary>(round 2) The k-th walk street out from the Square with a driveway
+        /// or lot apron beside it (by rule, CityMeshes.ApronAt): a station 10 m
+        /// along from it on a full curb; CrossSpecial then finds the apron.</summary>
+        static bool PickApron(CityMap map, int k, out CityMap.Edge edge, out float s)
+        {
+            edge = null; s = 0f;
+            var order = new List<CityMap.Edge>();
+            foreach (var e in map.edges)
+                if (e.a != e.b && e.length >= 60f && !e.oneway && CityMeshes.WalkEdge(map, e) && Vector2.Distance(e.PointAt(e.length * 0.5f), map.uptown) < 3000f) order.Add(e);
+            order.Sort((x, y) => Vector2.Distance(x.PointAt(x.length * 0.5f), map.uptown).CompareTo(Vector2.Distance(y.PointAt(y.length * 0.5f), map.uptown)));
+            int found = 0;
+            foreach (var e in order)
+            {
+                for (float sa = 25f; sa < e.length - 25f; sa += 2f)
+                {
+                    var p = e.PointAt(sa); var t = e.TangentAt(sa).normalized; var n = new Vector2(-t.y, t.x);
+                    bool hit = false;
+                    for (float d = 4f; d <= 12f && !hit; d += 1f)
+                    {
+                        if (CityMeshes.ApronAtForTools(map, p.x + n.x * d, p.y + n.y * d)) { hit = true; pickSide = 1; }
+                        else if (CityMeshes.ApronAtForTools(map, p.x - n.x * d, p.y - n.y * d)) { hit = true; pickSide = -1; }
+                    }
+                    if (!hit) continue;
+                    if (found++ < k) break;   // the next street
+                    edge = e;
+                    s = sa + 10f < e.length - 20f ? sa + 10f : sa - 10f;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>The curb at arc s of edge e on the side whose curb is nearer:
         /// scanned every 2 cm out from the map line on the colliders.</summary>
         static bool FindCurb(CityMap.Edge e, float s, string label, out Site site)
@@ -158,7 +193,8 @@ namespace PSXRacing.EditorTools
             var p = e.PointAt(s); var t = e.TangentAt(s).normalized;
             float y0 = e.YAt(s);
             float bestD = float.MaxValue;
-            for (int sgn = -1; sgn <= 1; sgn += 2)
+            int first = pickSide != 0 ? pickSide : -1;
+            for (int sgn = first, pass = 0; pass < 2; pass++, sgn = -sgn)
             {
                 var n = new Vector2(-t.y, t.x) * sgn;
                 float road = GroundY(p.x, p.y, y0, out _);
@@ -237,16 +273,21 @@ namespace PSXRacing.EditorTools
             foreach (var md in modes)
             {
                 string m = md.Trim();
-                CityMeshes.Curbs2On = m != "old";
-                CityMeshes.CurbChamferOn = m != "v";
-                CityMeshes.Cs2TestFaceOut = m.StartsWith("c") && m != "ch" ? int.Parse(m.Substring(1), CultureInfo.InvariantCulture) / 100f : -1f;
+                // round 2: "+e" the tyre envelope on the wheels; "+r1" round 1's rolled profile
+                CarController.WheelEnvelopeOn = m.Contains("+e");
+                CityMeshes.Roll2On = !m.Contains("+r1");
+                string b = m.Split('+')[0];
+                CityMeshes.Curbs2On = b != "old";
+                CityMeshes.CurbChamferOn = b != "v";
+                CityMeshes.Cs2TestFaceOut = b.StartsWith("k") ? int.Parse(b.Substring(1), CultureInfo.InvariantCulture) / 100f : -1f;
                 world.DropAll();
                 yield return null;
-                L.AppendLine($"== MODE {m}: curbs2 {(CityMeshes.Curbs2On ? "on" : "off")}, collider chamfer {CityMeshes.CurbChamferOn}, test face {CityMeshes.Cs2TestFaceOut:0.00}");
+                L.AppendLine($"== MODE {m}: curbs2 {(CityMeshes.Curbs2On ? "on" : "off")}, collider chamfer {CityMeshes.CurbChamferOn}, test face {CityMeshes.Cs2TestFaceOut:0.00}, tyre envelope {CarController.WheelEnvelopeOn}, rolled profile {(CityMeshes.Roll2On ? "round 2" : "round 1")}");
                 foreach (var spec in sites)
                 {
                     var f = spec.Split(';');
                     if (f.Length < 2) continue;
+                    pickSide = 0;
                     bool was = CityMeshes.Curbs2On; CityMeshes.Curbs2On = true;   // the rolled class is the pass's: the same street in every mode
                     bool picked = PickEdge(world.Map, f[1].Trim(), out var edge, out float s0);
                     CityMeshes.Curbs2On = was;
@@ -314,7 +355,8 @@ namespace PSXRacing.EditorTools
                         found = true;
                     }
                 if (!found) { L.AppendLine($"    {(which == 0 ? "apron" : "ramp end")}: none within 60 m"); continue; }
-                foreach (var (a, v) in new[] { (45f, 30f), (90f, 20f), (20f, 50f) })
+                // (round 2) square and oblique, 10-60 km/h
+                foreach (var (a, v) in new[] { (90f, 10f), (90f, 30f), (90f, 60f), (45f, 10f), (45f, 30f), (45f, 60f), (20f, 10f), (20f, 30f), (20f, 60f) })
                 {
                     var res = new float[16];
                     yield return DriveOne(player, world, sp, a, v, false, res);

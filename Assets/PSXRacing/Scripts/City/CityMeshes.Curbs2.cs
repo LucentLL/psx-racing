@@ -71,8 +71,16 @@ namespace PSXRacing.City
         // ---- the two profiles (x out of the drawn edge, y over it) ----------
         /// <summary>The vertical curb: face top 1.2 cm out at 12.5 cm, the nose 4.5 cm out at 15 cm.</summary>
         public const float VFaceOut = 0.012f, VFaceY = 0.125f, VNoseOut = 0.045f, VCurbH = 0.15f;
-        /// <summary>The rolled curb: the valley's top 22 cm out at 2.5 cm, the roll's top 45 cm out at 10 cm.</summary>
-        public const float RFaceOut = 0.22f, RFaceY = 0.025f, RNoseOut = 0.45f, RCurbH = 0.10f;
+        /// <summary>The rolled curb (round 2): the lip's top 18 cm out at 6 cm, the roll's
+        /// crown 45 cm out at 10 cm. Round 1's (PSX_CITY_ROLL2=0) was a valley to 2.5 cm
+        /// at 22 cm then the roll at 33% to the crown: a ski jump, steepest AT its crest -
+        /// at 80 km/h 45 deg every wheel left it for 0.42 s (the old curb 0.02 s). Now
+        /// the steep part is first (47%, as the old curb's 46%) and the crown flattens
+        /// (15%) into the walk, so the body is not thrown off the top.</summary>
+        public static bool Roll2On = System.Environment.GetEnvironmentVariable("PSX_CITY_ROLL2") != "0";
+        public static float RFaceOut => Roll2On ? 0.18f : 0.22f;
+        public static float RFaceY => Roll2On ? 0.06f : 0.025f;
+        public const float RNoseOut = 0.45f, RCurbH = 0.10f;
         /// <summary>The concrete gutter pan's width on the road (Charlotte's 2'-6" curb and gutter: 24 in).</summary>
         public const float CurbGutterM = 0.6f;
         /// <summary>How far the render-only details stand proud of what they lie on.</summary>
@@ -115,7 +123,8 @@ namespace PSXRacing.City
         static void Cs2Shape(float r, out float faceOut, out float faceY, out float noseOut, out float h)
         {
             float vf = CurbChamferOn ? CFaceOut : VFaceOut, vn = CurbChamferOn ? CNoseOut : VNoseOut, vy = CurbChamferOn ? CFaceY : VFaceY;
-            if (Cs2TestFaceOut >= 0f) { vf = Cs2TestFaceOut; vn = Mathf.Max(VNoseOut, Cs2TestFaceOut + 0.03f); vy = VFaceY; }
+            // (round 2's lever: the shipped chamfer's shape, its face top nearer the drawn face)
+            if (Cs2TestFaceOut >= 0f) { vf = Cs2TestFaceOut; vn = Cs2TestFaceOut + (CNoseOut - CFaceOut); vy = CFaceY; }
             faceOut = Mathf.Lerp(vf, RFaceOut, r);
             faceY = Mathf.Lerp(vy, RFaceY, r);
             noseOut = Mathf.Lerp(vn, RNoseOut, r);
@@ -290,18 +299,18 @@ namespace PSXRacing.City
         // ---- the counts -----------------------------------------------------
         public static class Curbs2Stats
         {
-            public static float verticalM, rolledM, gutterM;
+            public static float verticalM, rolledM, gutterM, cornerPanM;
             public static int inlets, inletsRolled, inletSag, inletEnd, inletGrade, manholes, valves, walkLids;
             /// <summary>Inlet stations refused: no walk span here (another tile's or no walk), narrow walk, apron, tree, lamp, ramp.</summary>
-            public static int noSpan, narrow, apron, tree, lamp, lidNoRoom;
+            public static int noSpan, narrow, apron, tree, lamp, lidNoRoom, markRefused, inletsOnMarks, lidsOnMarks;
             public static void Reset()
             {
-                verticalM = rolledM = gutterM = 0f;
+                verticalM = rolledM = gutterM = cornerPanM = 0f;
                 inlets = inletsRolled = inletSag = inletEnd = inletGrade = manholes = valves = walkLids = 0;
-                noSpan = narrow = apron = tree = lamp = lidNoRoom = 0;
+                noSpan = narrow = apron = tree = lamp = lidNoRoom = markRefused = inletsOnMarks = lidsOnMarks = 0;
             }
             public static string Line() =>
-                $"curbs2 {(Curbs2On ? "ON" : "OFF")}: vertical curb {verticalM:0} m, rolled {rolledM:0} m, gutter pan {gutterM:0} m; inlets {inlets} ({inletsRolled} rolled; at sags {inletSag}, upstream of corners {inletEnd}, on grade {inletGrade}); refused: not here {noSpan}, narrow/ramp {narrow}, apron {apron}, tree {tree}, lamp {lamp}; manholes {manholes}, valve lids {valves}, walk lids {walkLids} ({lidNoRoom} lane stations with no room)";
+                $"curbs2 {(Curbs2On ? "ON" : "OFF")}: vertical curb {verticalM:0} m, rolled {rolledM:0} m, gutter pan {gutterM:0} m ({cornerPanM:0} round corners); inlets {inlets} ({inletsRolled} rolled; at sags {inletSag}, upstream of corners {inletEnd}, on grade {inletGrade}); refused: not here {noSpan}, narrow/ramp {narrow}, apron {apron}, tree {tree}, lamp {lamp}; manholes {manholes}, valve lids {valves}, walk lids {walkLids} ({lidNoRoom} lane stations with no room); ON PAINT: inlets {inletsOnMarks}, lids {lidsOnMarks} (refused for paint {markRefused}, rule {(LidMarksOn ? "on" : "off")})";
         }
 
         // ---- the walk spans the edge being laid drew (EmitWalkSpanCore) -------
@@ -329,7 +338,7 @@ namespace PSXRacing.City
         static readonly Rect UvIron = new Rect(0.79f, 0.020f, 0.16f, 0.080f);   // luminaire housing: black iron
         static readonly Rect UvIronLid = new Rect(0.28f, 0.020f, 0.18f, 0.080f);// bearing pad: dark grey iron
         static readonly Rect UvRust = new Rect(0.20f, 0.770f, 0.06f, 0.080f);   // weathering steel: rusty iron
-        static readonly Vector2 UvSlot = new Vector2(444.5f / 512f, 0.81f);      // the steel band's darkest joint: the dark under a grate
+        static Vector2 UvSlot => LidToneOn ? new Vector2(12.5f / 512f, 1f - 460.5f / 512f) : new Vector2(444.5f / 512f, 0.81f); // (round 2) the hazard band's black stripe: the atlas's darkest 9 px (22/255; the old joint texel was rust brown 92,64,42)
 
         static Vector2 UvIn(Rect r, float fu, float fv) => new Vector2(r.x + r.width * Mathf.Clamp01(fu), r.y + r.height * Mathf.Clamp01(fv));
 
@@ -364,7 +373,8 @@ namespace PSXRacing.City
 
         // ---- the gutter pan ---------------------------------------------------
         /// <summary>The pan stops this far before the ribbon's end at a junction.</summary>
-        const float PanJunctionClearM = 4f;
+        /// (round 2: 0.5 m - the pan runs on round the corner's return, Cs2CornerPan; round 1 / PSX_CITY_CORNERPAN=0: 4 m)
+        static float PanJunctionClearM => CornerPanOn ? 0.5f : 4f;
         static bool Cs2PanClearOfJunction(CityMap map, CityMap.Edge e, float s)
         {
             if (sections.Count < 2) return true;
@@ -393,6 +403,51 @@ namespace PSXRacing.City
             Curbs2Stats.gutterM += Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
         }
 
+        /// <summary>
+        /// (round 2) THE PAN ROUND A CORNER'S CURB RETURN: the same 0.6 m plate
+        /// on the road inside the corner's curb line, from ring point a to b
+        /// (drawn edge points, outward oa / ob), at the edge's own height (the
+        /// junction's surface meets the curb foot there), GutterLiftM proud.
+        /// A vertical corner only (a rolled one has its valley), not Uptown's
+        /// granite. PSX_CITY_CORNERPAN=0: none (round 1).
+        /// </summary>
+        static void Cs2CornerPan(Vector3 a, Vector3 b, Vector2 oa, Vector2 ob, float u0, float u1, float cr)
+        {
+            if (!Curbs2On || !CornerPanOn || cr > 0.5f || cs2Granite) return;
+            float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
+            if (len < 0.02f) return;
+            Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
+            ia.y = a.y + GutterLiftM; ib.y = b.y + GutterLiftM;
+            Vector3 fa = a, fb = b; fa.y += GutterLiftM; fb.y += GutterLiftM;
+            structBucket.Up(fa, ia, ib, fb,
+                new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
+            Curbs2Stats.gutterM += len; Curbs2Stats.cornerPanM += len;
+        }
+        /// <summary>(round 2) Lids and grates in the road's tone range: the collar a dark
+        /// patched ring (was the under band's light grey, which read as a white ring),
+        /// the disc black iron, the grate's slots black. PSX_CITY_LIDTONE=0: round 1's.</summary>
+        public static bool LidToneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LIDTONE") != "0";
+        /// <summary>(round 2) The structure mesh (pans, lids, grates) WetReflections-tagged: the pan
+        /// mirrors the rain as the road does (CityWorld). PSX_CITY_PANWET=0: matte (round 1).</summary>
+        public static bool PanWetOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANWET") != "0";
+        public static bool CornerPanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CORNERPAN") != "0";
+
+        /// <summary>(round 2) Inlets and lids keep off the paint: no station whose
+        /// s-range (half either side, plus LidLineClearM) overlaps any painted
+        /// mark of its edge (crosswalk, stop bar, arrow, ONLY, pocket, nose,
+        /// yield, aux line: CityMeshes.Marks), whatever its lateral place - the
+        /// lane lines are kept off across (EmitLids). PSX_CITY_LIDMARKS=0:
+        /// round 1 (the 25 m junction clear only); its clashes are still counted.</summary>
+        public static bool LidMarksOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LIDMARKS") != "0";
+        static bool Cs2MarkClash(CityMap.Edge e, float s, float half)
+        {
+            var ms = MarksOf(e.index);
+            if (ms == null) return false;
+            float lo = s - half - LidLineClearM, hi = s + half + LidLineClearM;
+            foreach (var m in ms) if (m.s1 >= lo && m.s0 <= hi) return true;
+            return false;
+        }
+
         // ---- the hardware pass (CityMeshes.cs calls it per edge, after its spans and lamps) ----
         static readonly List<(float s, byte why)> cs2Stations = new List<(float, byte)>(32);
         const byte WhySag = 1, WhyEnd = 2, WhyGrade = 3;
@@ -419,6 +474,7 @@ namespace PSXRacing.City
         static void EmitStreetHardware(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
             if (!Curbs2On) { cs2Spans.Clear(); cs2SpansEdge = -1; return; }
+            EnsureMarks(map, trims);   // (cached per map and trims: the tile build has them already)
             if (DrainsOn && cs2SpansEdge == e.index && cs2Spans.Count > 0) EmitInlets(map, trims, tm, e);
             if (LidsOn) EmitLids(map, trims, tm, e, min, max);
             cs2Spans.Clear(); cs2SpansEdge = -1;
@@ -463,7 +519,7 @@ namespace PSXRacing.City
                 for (int side = -1; side <= 1; side += 2)
                 {
                     bool placed = false; byte why = 0;
-                    foreach (float nudge in new[] { 0f, 1.5f, -1.5f, 3f, -3f })
+                    foreach (float nudge in LidMarksOn ? new[] { 0f, 1.5f, -1.5f, 3f, -3f, 5f, -5f, 7f, -7f } : new[] { 0f, 1.5f, -1.5f, 3f, -3f })
                     {
                         float s = st.s + nudge;
                         int k = -1;
@@ -498,6 +554,10 @@ namespace PSXRacing.City
                         foreach (var lp in tm.lamps)
                             if (Vector2.Distance(new Vector2(lp.foot.x + o.x, lp.foot.z + o.z), edW + outw * 0.5f) < 1.6f) { lampNear = true; break; }
                         if (lampNear) { why = 5; continue; }
+                        // (round 2) never on a crosswalk, stop bar, arrow or other mark
+                        bool onMark = Cs2MarkClash(e, s, 0.5f * InletAlongM + 0.1f);
+                        if (onMark && LidMarksOn) { why = 6; continue; }
+                        if (onMark) Curbs2Stats.inletsOnMarks++;
                         float r = Cs2Mix(map, e, s);
                         int iSpan = SpanIndexAt(s);
                         if (iSpan < 1) { why = 1; continue; }
@@ -517,6 +577,7 @@ namespace PSXRacing.City
                             case 3: Curbs2Stats.apron++; break;
                             case 4: Curbs2Stats.tree++; break;
                             case 5: Curbs2Stats.lamp++; break;
+                            case 6: Curbs2Stats.markRefused++; break;
                         }
                 }
         }
@@ -562,7 +623,7 @@ namespace PSXRacing.City
             const int bars = 11;
             for (int b = 0; b < bars; b++)
             {
-                float c = -gl + (b + 0.5f) * (gAlong / bars), hw = 0.022f;
+                float c = -gl + (b + 0.5f) * (gAlong / bars), hw = LidToneOn ? 0.016f : 0.022f;   // (round 2) 3.2 cm bars, 5 cm black slots
                 // (dark iron: rust read as a wooden pallet in the first frames)
                 SQuad(P(c - hw, -gIn0, GrateBarLiftM), P(c - hw, -gIn1, GrateBarLiftM), P(c + hw, -gIn1, GrateBarLiftM), P(c + hw, -gIn0, GrateBarLiftM), UvIronLid);
             }
@@ -644,17 +705,18 @@ namespace PSXRacing.City
                     float dy = -(LidLiftM - CollarLiftM);
                     Vector3 i0 = On(c + new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * r, dy), i1 = On(c + new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * r, dy);
                     Vector3 o0 = On(c + new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * (r + collar), dy), o1 = On(c + new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * (r + collar), dy);
-                    SQuad(i0, o0, o1, i1, UvCollar);
+                    SQuad(i0, o0, o1, i1, LidToneOn ? UvIronLid : UvCollar);   // (round 2) a dark patched ring, not the bright concrete band
                 }
             }
             // the disc (dark iron)
-            var uc = UvIn(UvIronLid, 0.5f, 0.5f);
+            var lidR = LidToneOn ? UvIron : UvIronLid;   // (round 2) the disc black cast iron, its pattern the paler grey iron
+            var uc = UvIn(lidR, 0.5f, 0.5f);
             for (int k = 0; k < n; k++)
             {
                 float a0 = k * Mathf.PI * 2f / n, a1 = (k + 1) * Mathf.PI * 2f / n;
                 Vector3 p0 = On(c + new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * r, 0f), p1 = On(c + new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * r, 0f);
-                var u0 = UvIn(UvIronLid, 0.5f + 0.5f * Mathf.Cos(a0), 0.5f + 0.5f * Mathf.Sin(a0));
-                var u1 = UvIn(UvIronLid, 0.5f + 0.5f * Mathf.Cos(a1), 0.5f + 0.5f * Mathf.Sin(a1));
+                var u0 = UvIn(lidR, 0.5f + 0.5f * Mathf.Cos(a0), 0.5f + 0.5f * Mathf.Sin(a0));
+                var u1 = UvIn(lidR, 0.5f + 0.5f * Mathf.Cos(a1), 0.5f + 0.5f * Mathf.Sin(a1));
                 // Tri faces up when wound clockwise in map view (Quad's (a,c,b) rule)
                 structBucket.Tri(c, p1, p0, uc, u1, u0);
                 if (structBucket.LastNormal().y < 0f)
@@ -671,7 +733,7 @@ namespace PSXRacing.City
                 float a0 = k * Mathf.PI * 2f / n, a1 = (k + 1) * Mathf.PI * 2f / n;
                 Vector3 i0 = On(c + new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * (r - rim), 0.002f), i1 = On(c + new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * (r - rim), 0.002f);
                 Vector3 o0 = On(c + new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * r, 0.002f), o1 = On(c + new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * r, 0.002f);
-                SQuad(i0, o0, o1, i1, UvRust);
+                SQuad(i0, o0, o1, i1, LidToneOn ? UvIronLid : UvRust);
             }
             float inner = r - rim, bw = 0.012f;
             for (int g = -2; g <= 2; g++)
@@ -679,8 +741,8 @@ namespace PSXRacing.City
                 float x = g * inner * 0.36f;
                 float hz = Mathf.Sqrt(Mathf.Max(0f, inner * inner - x * x)) * 0.97f;
                 if (hz < 0.03f) continue;
-                SQuad(On(c + new Vector3(x - bw, 0f, -hz), 0.002f), On(c + new Vector3(x - bw, 0f, hz), 0.002f), On(c + new Vector3(x + bw, 0f, hz), 0.002f), On(c + new Vector3(x + bw, 0f, -hz), 0.002f), UvRust);
-                SQuad(On(c + new Vector3(-hz, 0f, x - bw), 0.0025f), On(c + new Vector3(hz, 0f, x - bw), 0.0025f), On(c + new Vector3(hz, 0f, x + bw), 0.0025f), On(c + new Vector3(-hz, 0f, x + bw), 0.0025f), UvRust);
+                SQuad(On(c + new Vector3(x - bw, 0f, -hz), 0.002f), On(c + new Vector3(x - bw, 0f, hz), 0.002f), On(c + new Vector3(x + bw, 0f, hz), 0.002f), On(c + new Vector3(x + bw, 0f, -hz), 0.002f), LidToneOn ? UvIronLid : UvRust);
+                SQuad(On(c + new Vector3(-hz, 0f, x - bw), 0.0025f), On(c + new Vector3(hz, 0f, x - bw), 0.0025f), On(c + new Vector3(hz, 0f, x + bw), 0.0025f), On(c + new Vector3(-hz, 0f, x + bw), 0.0025f), LidToneOn ? UvIronLid : UvRust);
             }
         }
 
@@ -746,6 +808,9 @@ namespace PSXRacing.City
                     bool clash = m * scale - rad < CurbGutterM + 0.15f || wd - m * scale - rad < CurbGutterM + 0.15f;
                     foreach (float ln in cs2Lines) if (Mathf.Abs(ln - m) * scale < rad + LidLineClearM) { clash = true; break; }
                     if (clash) { Curbs2Stats.lidNoRoom++; continue; }
+                    // (round 2) nor on a crosswalk, stop bar, arrow or any other mark
+                    bool onMark = Cs2MarkClash(e, sk, rad + (kind == 0 ? 0.16f : 0.05f));
+                    if (onMark && LidMarksOn) { Curbs2Stats.markRefused++; continue; }
                     var c = Vector3.Lerp(R, L, m * scale / wd);
                     var cw = new Vector2(c.x + o.x, c.z + o.z);
                     if (cw.x < min.x || cw.x >= max.x || cw.y < min.y || cw.y >= max.y) continue;   // the tile that holds it draws it
@@ -753,6 +818,7 @@ namespace PSXRacing.City
                     var cx = c + new Vector3(0.3f, 0f, 0f); cx.y = RoadYIn(A, B, cx) + LidLiftM;
                     var cz = c + new Vector3(0f, 0f, 0.3f); cz.y = RoadYIn(A, B, cz) + LidLiftM;
                     var grad = PlaneGrad(cx - c, cz - c);
+                    if (onMark) Curbs2Stats.lidsOnMarks++;
                     if (kind == 0) { Lid(c, ManholeR, 0.16f, true, grad); Curbs2Stats.manholes++; if (RecordHardware) LidsBuilt.Add((c + o, ManholeR)); }
                     else { Lid(c, ValveR, 0.05f, false, grad); Curbs2Stats.valves++; }
                 }

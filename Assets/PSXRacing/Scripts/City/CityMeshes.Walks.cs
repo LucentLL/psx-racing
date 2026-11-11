@@ -1637,6 +1637,7 @@ namespace PSXRacing.City
                     WalkProfile(a, oa, wa, walkProfA, 1f, cr);
                     WalkProfile(b, ob, wb, walkProfB, 1f, cr);
                     LayWalk(bk, walkProfA, walkProfB, wa, wb, u / WalkTexM, (u + len) / WalkTexM);
+                    if (Curbs2On && wa >= WalkMinM && wb >= WalkMinM) Cs2CornerPan(a, b, oa, ob, u / WalkTexM, (u + len) / WalkTexM, cr);   // (curbs2 r2) the pan round the return
                     EmitStrip(map, trims, tm, WalkBack(a, oa, wa, 1f, cr), WalkBack(b, ob, wb, 1f, cr), oa, ob, verge);
                     u += len;
                 }
@@ -1674,6 +1675,7 @@ namespace PSXRacing.City
                         LogWalkQuad(" curb band" + q, walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q]);
                     }
                     if (Curbs2On) Cs2RenderFace(walkProfA, walkProfB, prevU / WalkTexM, (u2 + len) / WalkTexM);   // (curbs2) the plumb curb drawn
+                    if (Curbs2On) Cs2CornerPan(ring[(j - 1 + nR) % nR].pos, kp, GroupOut(ring, cw, (j - 1 + nR) % nR), GroupOut(ring, cw, j), prevU / WalkTexM, (u2 + len) / WalkTexM, cr);   // (curbs2 r2) the pan round the return
                     // ... and the walk from the nose back to P
                     UpTri(slab, P3, walkProfA[2], walkProfB[2], UV(P3), UV(walkProfA[2]), UV(walkProfB[2]));
                     u2 += len;
