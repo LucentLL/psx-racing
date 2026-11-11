@@ -394,10 +394,24 @@ namespace PSXRacing
 
         /// <summary>The tail-lens sprites: today's rule, and never on a car
         /// whose lamps are drawn on its body.</summary>
-        bool TailSpriteOn => !HasLampMap && (lightsOn || braking);
+        /// <summary>
+        /// This car's running lamps, now: the hour's switch (SetAll), and
+        /// nothing at all on a car nobody is in. The hour owns the lamps of a
+        /// car with a driver; a driver who gets out turns the engine off and
+        /// takes the key, and a parked car burning its headlamps on an empty
+        /// seat was the owner's 2026-11-11 report. See
+        /// <see cref="CarController.Unattended"/>.
+        /// </summary>
+        public bool LitNow => lightsOn && !Dark;
+
+        /// <summary>Nobody in it (and the left-car rules on).</summary>
+        bool Dark => CarController.LeftCarRules && car != null && car.Unattended;
+        bool lastDark;
+
+        bool TailSpriteOn => !HasLampMap && (LitNow || braking);
         /// <summary>The head-lens sprites: with the lights, and never on a car
         /// whose headlamps are drawn on its body.</summary>
-        bool HeadSpriteOn => lightsOn && !HasHeadMap;
+        bool HeadSpriteOn => LitNow && !HasHeadMap;
 
         /// <summary>Find the map for the shell this car wears now and the
         /// renderer that draws its body; put the lamps out on a renderer that
@@ -454,7 +468,7 @@ namespace PSXRacing
                 brakeLit += (target - brakeLit) * (1f - Mathf.Exp(-dt / tau));
                 if (Mathf.Abs(target - brakeLit) < 0.003f) brakeLit = target;
             }
-            float run = lightsOn ? 1f : 0f;
+            float run = LitNow ? 1f : 0f;
             if (run == pushedRun && Mathf.Abs(brakeLit - pushedBrake) < 0.002f) return;
             PushLamps(run, brakeLit);
         }
@@ -520,7 +534,7 @@ namespace PSXRacing
             if (spillRenderer != null && spillRenderer != r && spillOn) WriteSpill(spillRenderer, false);
             spillRenderer = r;
             if (r == null) return;
-            bool lit = !OwnSpillOff && lightsOn && enabled && gameObject.activeInHierarchy && tailLens[0] != null && tailLens[1] != null;
+            bool lit = !OwnSpillOff && LitNow && enabled && gameObject.activeInHierarchy && tailLens[0] != null && tailLens[1] != null;
             if (!lit && !spillOn) return;
             WriteSpill(r, lit);
         }
@@ -608,7 +622,7 @@ namespace PSXRacing
             // "behind", with the body's dive and roll in it.
             tailLampPos = (a.position + b.position) * 0.5f + a.forward * TailLampBack;
             float intensity = braking ? TailLampBrake : TailLampDim;
-            bool lit = lightsOn && enabled && gameObject.activeInHierarchy;
+            bool lit = LitNow && enabled && gameObject.activeInHierarchy;
             if (tailLamp < 0)
                 tailLamp = StreetLights.Add(this, tailLampPos, TailLampRadius, TailLampColour,
                                             intensity, StreetLights.Kind.Point);
@@ -637,9 +651,14 @@ namespace PSXRacing
         void LateUpdate()
         {
             if (ShellChanged()) Fit();
+            // The driver got out or back in: the lamps switch with the key
+            // (an empty car shows no brake lamp either - the lever the game
+            // holds it on is not a pedal anybody is pressing).
+            bool dark = Dark;
+            if (dark != lastDark) { lastDark = dark; Refresh(); }
 
             bool nowBraking = BrakeOverride >= 0f ? BrakeOverride > 0.15f
-                            : externalBrake || car != null && (car.brakeInput > 0.15f || car.handbrakeInput);
+                            : !dark && (externalBrake || car != null && (car.brakeInput > 0.15f || car.handbrakeInput));
             if (nowBraking != braking)
             {
                 braking = nowBraking;
@@ -732,14 +751,14 @@ namespace PSXRacing
             for (int i = 0; i < 2; i++)
             {
                 if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn;
-                if (beams[i] != null) beams[i].enabled = lightsOn;
+                if (beams[i] != null) beams[i].enabled = LitNow;
                 if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn;
             }
             PopUps();
             // The running lamps on the body switch with the hour too. (The
             // brake keeps its ease: no dt here, so it is pushed as it stands.)
-            if (HasLampMap && pushedRun != (lightsOn ? 1f : 0f))
-                PushLamps(lightsOn ? 1f : 0f, brakeLit);
+            if (HasLampMap && pushedRun != (LitNow ? 1f : 0f))
+                PushLamps(LitNow ? 1f : 0f, brakeLit);
             // SetAll lands here for every car: the tail lamp switches with
             // the hour now, not a frame later.
             UpdateTailLamp();
@@ -804,7 +823,7 @@ namespace PSXRacing
             if (def == null || def.lampsUpMesh == null) return;
             var f = ShellFilter(def);
             if (f == null) return;
-            var want = def.BodyMeshFor(lightsOn);
+            var want = def.BodyMeshFor(LitNow);
             // Only ever trade one of this shell's two bodies for the other.
             if (f.sharedMesh == want || (f.sharedMesh != def.bodyMesh && f.sharedMesh != def.lampsUpMesh)) return;
             f.sharedMesh = want;
@@ -970,7 +989,7 @@ namespace PSXRacing
                     if (l == null) { all.RemoveAt(i); continue; }
                     bool live = playing ? l.isActiveAndEnabled
                                         : l.enabled && l.gameObject.activeInHierarchy;
-                    if (live && l.beams[0] != null) sorted.Add(l);
+                    if (live && l.LitNow && l.beams[0] != null) sorted.Add(l);
                 }
                 var cam = Camera.main;
                 if (cam != null)

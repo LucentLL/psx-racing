@@ -372,6 +372,8 @@ namespace PSXRacing.OnFoot
             playerCar.throttleInput = 0f;
             playerCar.brakeInput = 0f;
             playerCar.handbrakeInput = true;
+            // Key off: nobody is in it now (lamps off - CarLights.LitNow).
+            playerCar.Unattended = true;
 
             if (engine != null)
             {
@@ -416,6 +418,7 @@ namespace PSXRacing.OnFoot
                 playerCar.throttleInput = 0f;
                 playerCar.brakeInput = 0f;
                 playerCar.handbrakeInput = true;
+                playerCar.Unattended = true;
             }
             if (engine != null) engine.masterVolume = 0f;
             EnsureRig();
@@ -456,6 +459,8 @@ namespace PSXRacing.OnFoot
             Play(FootAudio.DoorClose, 1f);
             yield return new WaitForSeconds(0.35f);
 
+            // Key on.
+            playerCar.Unattended = false;
             if (engine != null)
             {
                 engine.masterVolume = engineVolume;

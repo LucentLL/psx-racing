@@ -204,7 +204,9 @@ namespace PSXRacing.EditorTools
             {
                 if (g.laneRho[l] <= 0f) continue;
                 float x = (g.laneX0 + (l + 0.5f) * g.laneW) * scale.x, rho = g.laneRho[l] * scale.y;
-                for (float deg = -90f; deg <= 90f + 1e-3f; deg += SweepStepDeg)
+                // The crown only (ArchCeilings.CrownHalfDeg says why).
+                float half = ArchCeilings.CrownRule ? ArchCeilings.CrownHalfDeg : 90f;
+                for (float deg = -half; deg <= half + 1e-3f; deg += SweepStepDeg)
                 {
                     float a = deg * Mathf.Deg2Rad;
                     var p = new Vector3(x, rho * Mathf.Cos(a), rho * Mathf.Sin(a));
@@ -271,7 +273,8 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 rows.Add(row);
-                if ((sg.wheelbaseMm == 0 && sg.widthMm == 0) || def.key == System.Environment.GetEnvironmentVariable("PSX_ARCH_DIAG"))
+                if ((sg.wheelbaseMm == 0 && sg.widthMm == 0) ||
+                    ("," + System.Environment.GetEnvironmentVariable("PSX_ARCH_DIAG") + ",").Contains("," + def.key + ","))
                     for (int i = 0; i < 4; i += 2)
                     {
                         float h = ExactShellHub(g, f, i, 0f, out string why);

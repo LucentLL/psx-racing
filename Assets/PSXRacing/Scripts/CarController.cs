@@ -632,6 +632,24 @@ namespace PSXRacing
         const float ParkAutoSeconds = 0.5f;
         float parkRestTimer;
 
+        /// <summary>
+        /// Where the hold latched (world), and its stiffness (1/s^2; with
+        /// ParkHoldDamp 8/s that is critically damped). The hold cancels the
+        /// gravity it can SEE and damps the rest, so anything it cannot see -
+        /// the spring forces along a tilted ground normal, a shared load the
+        /// tyres resolve unevenly - was a steady creep: 5.5 mm/s on the 15%
+        /// test slope, 16 cm over a 30 s walk (ParkedPlayCheck, 2026-11-11).
+        /// A pull back to the latch point makes the drift zero by construction,
+        /// still inside each tyre's friction circle. LeftCarRules off = the
+        /// hold as it was.
+        /// </summary>
+        Vector3 parkAnchor;
+        bool parkAnchored;
+        const float ParkHoldStiff = 16f;
+        /// <summary>Re-latch rather than drag the car back further than this (m):
+        /// a car shoved by something heavier stays where it was shoved.</summary>
+        const float ParkAnchorSlack = 0.25f;
+
         /// <summary>Damping on the parked hold, in 1/s of the mass each tyre
         /// carries. It is NOT what holds the car — the gravity cancellation is
         /// — so it only has to mop up solver residue, and it is deliberately
@@ -780,6 +798,23 @@ namespace PSXRacing
         /// parked" is a question three different systems ask by guessing.
         /// </summary>
         public bool Parked { get; private set; }
+
+        /// <summary>
+        /// THE LEFT CAR (owner 2026-11-11: "I parked my Honda at a car meet and
+        /// it rolled away, lights on, front suspension lifted like a monster
+        /// truck"). True = the rules for a car its driver has got out of:
+        /// the game's parking hold never drives a car left in reverse
+        /// (PlayerCarInput), an empty car's lamps are off (CarLights), and the
+        /// box is put back in first when the car is held. PSX_PARKED=0 = the
+        /// car exactly as it was left before, for before/after shots.
+        /// </summary>
+        public static bool LeftCarRules =
+            System.Environment.GetEnvironmentVariable("PSX_PARKED") != "0";
+
+        /// <summary>Nobody is in this car: the driver got out (ForecourtMode).
+        /// Engine off, lamps off; the game holds it parked.</summary>
+        [System.NonSerialized] public bool Unattended;
+
         public Rigidbody Body { get; private set; }
 
         public Transform[] wheelHubs = new Transform[4];
@@ -3570,6 +3605,14 @@ namespace PSXRacing
             // in-plane load with nothing left over.
             float parkShareKg = groundedAll > 0 ? massKg / groundedAll : 0f;
             Parked = parkHold;
+            Vector3 parkOff = Vector3.zero;
+            if (parkHold && LeftCarRules)
+            {
+                if (!parkAnchored || (Body.position - parkAnchor).sqrMagnitude > ParkAnchorSlack * ParkAnchorSlack)
+                { parkAnchor = Body.position; parkAnchored = true; }
+                parkOff = Body.position - parkAnchor;
+            }
+            else parkAnchored = false;
 
             // Only tractive effort counts toward wheelspin. Engine drag would
             // otherwise report wheelspin on a lift, firing the power-oversteer
@@ -3801,7 +3844,8 @@ namespace PSXRacing
                 if (parkHold)
                     fLong = Mathf.Clamp(
                         -Vector3.Dot(Physics.gravity, wheelForward) * parkShareKg
-                        - vLong * ParkHoldDamp * parkShareKg, -longCap, longCap);
+                        - vLong * ParkHoldDamp * parkShareKg
+                        - Vector3.Dot(parkOff, wheelForward) * ParkHoldStiff * parkShareKg, -longCap, longCap);
                 bool handLocked = !front && handbrakeInput && speed > 0.3f;
                 if (handLocked)
                 {
@@ -3878,7 +3922,8 @@ namespace PSXRacing
                 if (parkHold)
                     fLat = Mathf.Clamp(
                         -Vector3.Dot(Physics.gravity, wheelRight) * parkShareKg
-                        - vLat * ParkHoldDamp * parkShareKg, -latCap, latCap);
+                        - vLat * ParkHoldDamp * parkShareKg
+                        - Vector3.Dot(parkOff, wheelRight) * ParkHoldStiff * parkShareKg, -latCap, latCap);
 
                 wheelContacts[i].latForce = fLat;
                 wheelContacts[i].slipAngle = slip;
