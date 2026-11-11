@@ -120,6 +120,56 @@ namespace PSXRacing
             /// <summary>The cabin's across-scale against its length scale
             /// (<see cref="WidthFitFor"/>; 1 = his cabin's own shape).</summary>
             public float widthFit;
+            /// <summary>The cabin's height scale (0: as its length, the old
+            /// uniform fit) - <see cref="Fit3"/>.</summary>
+            public float scaleY;
+            public float ScaleY => scaleY > 0f ? scaleY : scale;
+            /// <summary>Fit3 placed it on a measured windscreen.</summary>
+            public bool fit3;
+        }
+
+        /// <summary>The fit onto the car's own windscreen and mirrors
+        /// (<see cref="CockpitFit"/>): pure, for the runtime, the check and
+        /// the self-test. `f` is <see cref="FitFor"/>'s.</summary>
+        public static Fit Fit3(Fit f, CarModelDef def, float ls, float lift, float ws)
+        {
+            f.scaleY = 0f;
+            f.fit3 = false;
+            float sAcross = WidthFitFor(def, ws, 1f);        // absolute, his cabin = 1
+            bool row = CockpitFit.On && f.measured && def != null && L != null &&
+                       CockpitFit.TryGet(def.key, out var r) && CockpitFit.Pane(out var pb, out var pt);
+            if (!row)
+            {
+                f.widthFit = WidthFitFor(def, ws, f.scale);
+                f.eye.x *= f.widthFit;
+                return f;
+            }
+            CockpitFit.TryGet(def.key, out r);
+            CockpitFit.Pane(out pb, out pt);
+            float cowlZ = def.cowlZ * ls, cowlY = def.cowlY + lift;
+            float hz = r.headerZ * ls, hy = r.headerY + lift - CockpitFit.Inset;
+            float sz = (cowlZ - hz) / Mathf.Max(0.05f, pb.z - pt.z);
+            float sy = (hy - cowlY) / Mathf.Max(0.05f, pt.y - pb.y);
+            sz = Mathf.Clamp(sz, CockpitFit.MinScale, CockpitFit.MaxScale);
+            sy = Mathf.Clamp(sy, CockpitFit.MinScale, CockpitFit.MaxScale);
+            float an = Mathf.Clamp(sy / sz, 1f / CockpitFit.MaxAniso, CockpitFit.MaxAniso);
+            float g = Mathf.Sqrt(sy * sz);
+            sy = g * Mathf.Sqrt(an);
+            sz = g / Mathf.Sqrt(an);
+            // across: the car's mirrors and its own side glass, never wider
+            if (WidthFitOn && r.sideX > 0f)
+                sAcross = Mathf.Min(sAcross, (r.sideX * Mathf.Abs(ws) - CockpitFit.Inset) / Mathf.Max(0.01f, AuthoredGlassX));
+            sAcross = Mathf.Clamp(sAcross, MinWidthFit, 1f);
+            var e = L.eye;
+            f.scale = sz;
+            f.scaleY = sy;
+            f.widthFit = sAcross / sz;
+            f.eye = new Vector3((f.rhd ? 1f : -1f) * Mathf.Abs(e.x) * sAcross,
+                                cowlY - sy * (pb.y - e.y),
+                                cowlZ - sz * (pb.z - e.z));
+            f.cutZ = cowlZ;
+            f.fit3 = true;
+            return f;
         }
 
         /// <summary>
@@ -183,9 +233,11 @@ namespace PSXRacing
             return Mathf.Clamp(sx, MinWidthFit, 1f);
         }
 
-        /// <summary>The eye moved across with the narrowed seat, car metres
-        /// (added to the chase camera's mount; shot tools add it too).</summary>
-        public float EyeShiftX { get; private set; }
+        /// <summary>The eye moved with its seat by the fit (<see cref="Fit3"/>),
+        /// car metres, added to the chase camera's mount (shot tools add it
+        /// too).</summary>
+        public Vector3 EyeShift { get; private set; }
+        public float EyeShiftX => EyeShift.x;
 
         /// <summary>The fit for a body: the eye where ChaseCamera puts it
         /// (on the car's driving side) and the scale that lands the dash's
@@ -307,6 +359,8 @@ namespace PSXRacing
         Quaternion eyeBaseRot, eyeSetRot;
         bool eyeSet;
         public Transform Model => model;
+        /// <summary>The drawn steering wheel (for the grip gate).</summary>
+        public Transform WheelTransform => wheel;
         public CockpitCargoMirror Mirror => mirror;
         public CockpitGauges Gauges => gauges;
         /// <summary>The driver's arms, or null (no arms data: the static hands).</summary>
@@ -497,12 +551,12 @@ namespace PSXRacing
         void Apply(Fit f)
         {
             var lay = L;
-            // Across: narrowed to the car's own mirrors (WidthFitFor); the eye
-            // moves in with the seat, the cabin stays on the centreline.
-            f.widthFit = WidthFitFor(fitDef, body != null ? body.WidthScale : 1f, f.scale);
-            float eyeX0 = f.eye.x;
-            f.eye.x *= f.widthFit;
-            EyeShiftX = f.eye.x - eyeX0;
+            // The cabin onto the car's own windscreen and mirrors (Fit3): the
+            // eye moves with its seat; the chase camera's mount is moved by
+            // the difference (EyeShift).
+            Vector3 eye0 = f.eye;
+            f = Fit3(f, fitDef, fitLs, fitLift, body != null ? body.WidthScale : 1f);
+            EyeShift = f.eye - eye0;
             Current = f;
             transform.localPosition = f.eye;
             transform.localRotation = Quaternion.identity;
@@ -510,15 +564,17 @@ namespace PSXRacing
             // Driver_Eye on the game's eye, everything scaled about it; an RHD
             // car sees the mirror image.
             float sxAcross = f.scale * f.widthFit;
-            model.localScale = new Vector3(f.rhd ? -sxAcross : sxAcross, f.scale, f.scale);
+            model.localScale = new Vector3(f.rhd ? -sxAcross : sxAcross, f.ScaleY, f.scale);
             model.localPosition = -Vector3.Scale(model.localScale, lay.eye);
-            // The wheel stays round (its column tilts about the car's x).
-            if (wheelPivot != null) wheelPivot.localScale = new Vector3(1f / Mathf.Max(0.01f, f.widthFit), 1f, 1f);
+            // The wheel and the arms scale WITH the cabin (2026-11-11 round 2):
+            // the arms grip the rim in the model's frame, so a wheel kept round
+            // by its own counter-scale left the grips up to 2 cm off it.
+            if (wheelPivot != null) wheelPivot.localScale = Vector3.one;
             PlaceMirrorCamera();
             model.localRotation = Quaternion.identity;
             var eyeV = new Vector3(f.rhd ? -lay.eye.x : lay.eye.x, lay.eye.y, lay.eye.z);
             cargoRoot.localScale = Vector3.one * f.scale;
-            cargoRoot.localPosition = -new Vector3(eyeV.x * f.widthFit, eyeV.y, eyeV.z) * f.scale;
+            cargoRoot.localPosition = -new Vector3(eyeV.x * f.widthFit * f.scale, eyeV.y * f.ScaleY, eyeV.z * f.scale);
             if (mirror != null) mirror.Clear();
             mirror = new CockpitCargoMirror(cargoRoot, f.rhd ? lay.MirroredCargo() : lay);
             CockpitLook.PassengerSign = f.rhd ? -1f : 1f;
@@ -618,7 +674,7 @@ namespace PSXRacing
         Material insideMat;
         Material insideSrc;
         static readonly int CullId = Shader.PropertyToID("_PSXCull"), InsideId = Shader.PropertyToID("_PSXInside");
-        public static bool InsideOn => System.Environment.GetEnvironmentVariable("PSX_COCKPIT_INSIDE") != "0";
+        public static bool InsideOn = System.Environment.GetEnvironmentVariable("PSX_COCKPIT_INSIDE") != "0";
 
         void EnsureInside()
         {
@@ -670,7 +726,7 @@ namespace PSXRacing
                 // The body's mesh as it is now (the lamps-up and lens bodies swap it).
                 if (hide && body != null && body.bodyFilter != null && insideF.sharedMesh != body.bodyFilter.sharedMesh)
                     insideF.sharedMesh = body.bodyFilter.sharedMesh;
-                insideR.forceRenderingOff = !(hide && !whole);
+                insideR.forceRenderingOff = !(hide && !whole && InsideOn);
             }
             for (int i = 0; i < shell.Length; i++)
             {
@@ -1093,7 +1149,7 @@ namespace PSXRacing
             else { rideRot = Quaternion.identity; ridePos = Vector3.zero; }
             transform.localPosition = rideRot * Current.eye + ridePos;
             transform.localRotation = rideRot;
-            pos += car.transform.TransformVector(new Vector3(EyeShiftX, 0f, 0f));
+            pos += car.transform.TransformVector(EyeShift);
             RideOnto(ref pos, ref rot, rideRot, ridePos);
         }
 
@@ -1107,7 +1163,7 @@ namespace PSXRacing
             if (reset) eyeInit = false;
             RideCabin();
             StepEye(dt);
-            pos += car.transform.TransformVector(new Vector3(EyeShiftX, 0f, 0f));
+            pos += car.transform.TransformVector(EyeShift);
             RideOnto(ref pos, ref rot, eyeRot, eyePos);
         }
 
@@ -1153,7 +1209,7 @@ namespace PSXRacing
             eyeBasePos = bp;
             eyeBaseRot = bq;
             // the seat narrowed with the cabin (WidthFitFor)
-            bp += cr.TransformVector(new Vector3(EyeShiftX, 0f, 0f));
+            bp += cr.TransformVector(EyeShift);
             RideOnto(ref bp, ref bq, eyeRot, eyePos);
             ct.SetPositionAndRotation(bp, bq);
             eyeSetPos = ct.position;
