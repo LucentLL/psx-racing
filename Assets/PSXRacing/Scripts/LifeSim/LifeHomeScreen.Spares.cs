@@ -126,8 +126,8 @@ namespace PSXRacing.LifeSim
 
             SpareLine(parent, ix, y - 4f, iw, GradeInk(p.grade), 18, true, SpareHead(p), p.label);
             SpareLine(parent, ix, y - 30f, iw, MenuKit.Dim, MenuKit.Tiny, false,
-                Spares.FitsLine(p).ToLowerInvariant() + "   ·   paid " + MenuKit.Money(p.paid),
-                Spares.FitsLine(p).ToLowerInvariant(),
+                Spares.FitsLine(p).ToLowerInvariant().Replace(" na)", " NA)") + "   ·   paid " + MenuKit.Money(p.paid),
+                Spares.FitsLine(p).ToLowerInvariant().Replace(" na)", " NA)"),
                 p.IsUpgrade ? "any car to stage " + p.maxStage : "any car");
             SpareLine(parent, ix, y - 52f, iw, MenuKit.Dim, MenuKit.Tiny, false,
                 "from " + p.donorName + ", " + LifeRules.DateLabel(p.dayPulled).ToLowerInvariant(),

@@ -93,6 +93,14 @@ namespace PSXRacing.EditorTools
             second.faults.Add(new CarFault { id = "tire_wear", label = "Uneven Tire Wear", stat = "tires",
                                              add = 30, cost = 180, days = 1, repairType = "delivery",
                                              hidden = false, diagnosed = true });
+            // The pad walk with FIT live on every row: in the stock Civic at
+            // skill 100 (the owner's state greys every FIT, so only KEEP is
+            // a control there).
+            s.activeCar = second.id; s.mechSkill = 100f;
+            LifeSimManager.Save();
+            ShootWreck(outDir, "wreck_pad", wreck);
+            s.activeCar = maxed.id; s.mechSkill = 7.5f;
+            LifeSimManager.Save();
             // Three parts on the shelf, off this very wreck: the clean turbo,
             // the semi-slicks, the subframe.
             var shelve = spares.GetMethod("Shelve");

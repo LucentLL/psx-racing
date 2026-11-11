@@ -281,8 +281,14 @@ namespace PSXRacing.EditorTools
             err = Spares.Fit(t, hack, going, false);
             Check(err == null && !t.partsShelf.Contains(going), "a spare going onto the car about to be sold", err);
             int shelfBefore = t.partsShelf.Count;
-            err = CarMarket.QuickSell(t, hack);
-            Check(err == null && t.FindCar(hack.id) == null, "the car is sold", err);
+            // QUICK SELL already refuses a car with work on it ("car is at the
+            // shop"); a buyer's OFFER on a listed car does not, and that was
+            // the path where a part on its way on went with the car.
+            Check(CarMarket.QuickSell(t, hack) != null, "quick sell refuses a car with a spare going on");
+            var ad = new CarAd { carId = hack.id, offerAmount = 1000, offerDay = t.day };
+            t.carAds.Add(ad);
+            err = CarMarket.AcceptOffer(t, ad);
+            Check(err == null && t.FindCar(hack.id) == null, "a buyer's offer for it is accepted", err);
             Check(t.partsShelf.Count == shelfBefore + 1 && t.partsShelf.Exists(x => x.id == going.id),
                   "and the spare is back on the shelf, not sold with it", t.partsShelf.Count);
             Check(!t.pendingParts.Exists(j => j.carId == hack.id), "with no job left on a car that is gone");
