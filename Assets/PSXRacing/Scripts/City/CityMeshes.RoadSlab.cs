@@ -191,7 +191,13 @@ namespace PSXRacing.City
                     // Every face stands 4 mm in under its sheet's edge and starts a millimetre
                     // under it: a face whose top WAS the edge met the sheet across the join in one
                     // line of pixels (the flicker finder, S Tryon at Winona: junction | tw3t 0 -> 97 px)
-                    var inset = new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.006f : 0.004f) + Vector3.down * 0.001f;
+                    // A STEP's face (the land or pavement past lower: a fan's mouth over a ribbon's end)
+                    // keeps its top on the edge: inset and dropped, it left a millimetre's window over
+                    // it that every ray flatter than 14 degrees - the driver's - looked through to the
+                    // lattice (the owner's line came back, round 5). The sheet past is lower there:
+                    // nothing to tie with.
+                    var inset = !faceLow ? new Vector3(-nrm.x, 0f, -nrm.y) * (taken ? 0.006f : 0.004f) + Vector3.down * 0.001f
+                              : taken ? new Vector3(-nrm.x, 0f, -nrm.y) * 0.005f : Vector3.zero;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
                     {
                         var pA = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset; var pB = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset;
