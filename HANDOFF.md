@@ -1,3 +1,34 @@
+# HANDOFF - CAR RE-DELIVERIES 11-11 AFTERNOON + ROUND STEERING WHEEL + VIPER/FULL-SIZE COWL (cars-1111b, 2026-11-11; agent "cars2"; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-cars2` off mountain-nm fc5e975e. Sandbox PSXLab (lock "cars2", released). Sheet: scratchpad `cars2\cars2_sheet.png`.
+
+## Owner report
+"I fixed issues with these three models, may need to adjust cockpit placements accordingly" (Viper v14, FD Textured_18, CTR blue v06 + Yellowbird v02).
+
+## Causes
+- Viper on the old cockpit fit: `ChaseCamera.CowlOf` compared the baked cowl's Z with the collider box's FLOOR height (`def.cowlZ > c.y - s.y*0.5`, since 08-28). The Viper's cowl is 0.13 m ahead of centre, under the floor height, so it read "unmeasured" -> no Fit3. Now compared with the box's tail (the self-test's own rule). Switch `PSX_COWL_ZCHECK=0`.
+- Full-size police/taxi/trooper (no live mirror glass, no Fit3, driver seated under the cowl): NOT the same cause. `CarModelBaker.MeasureCowl` anchored the roof on the 17 cm light bar / sign, stepped down onto the roof and called it the bonnet (cowl 1.44 m vs roof 1.61). New roof-fixture rule (a step ending < 0.25 m under its anchor re-anchors and walks on): cowl (0.79, 1.01), roof 1.44. Every other shell's cowl is >= 0.32 m under its roof, so only these three change. Switch `PSX_COWL_ROOFSTEP=0`.
+- camry_2001 still has no live mirror glass: a different cause (its cowl measures right; no mirror patch passes the merged-mirror rule). Not fixed.
+- Oval wheel: the wheel hung under the cabin model, scaled per axis (CTR 0.84/0.94/0.79), and a tilted wheel under that is an ellipse (bmw_e30 22% oval, CTRs ~12%).
+
+## Changes
+- Six bodies in place from the new deliveries (exporter entries -> converted/viper_v14, flatsix_coupe_hd06, flatsix_coupe_87_v02, rx7_fd_*_t18); bounds and wheels identical, same scale; 512 sheets box-filtered from the new HD colour; FD lamp map re-made (Viper/CTR lamp maps byte-identical in the deliveries, kept); covers via the cover rule (FD 438, Viper 295, CTR 444). HD stage `C:\Users\mcgee\PSXHDStage\carhd` rebuilt with stage_carhd.py: 23 files changed (only the six bodies + manifest), 17 untouched (Evo, EG, S2000, Viper normal, Viper/CTR lamp maps).
+- Round wheel: `CockpitInterior` hangs the wheel on its own `WheelRoot` beside the model, uniform scale = min(across, height) of the cabin fit, mirrored for RHD (`WheelFrame`); `CockpitArms.WheelWarp` maps the wheel's frame into the model frame (RimPoint, RimTangent, WheelMatrix, wheel face), `RimLocal`, `GripTube`. Switch `PSX_COCKPIT_ROUNDWHEEL=0`. Gate (d) in `CockpitFitProbe`: wheel oval < 0.5% and grip tube within 5 mm of the drawn rim at 0 / +-60 deg. `DoorMirrorMatch.GripGap` measures the grip tube against the drawn rim.
+- Re-measured: DoorMirrors.Table (CTR mirrors moved 2.7 cm, full-size live glass 19.4 x 12.6 cm), CockpitFit.Table (full-size rows, calib 48 -> 52 shells: CalibZ 1.129 -> 1.144, CalibY 1.205 -> 1.214), ArchCeilings.bytes; ArchHubs.bytes byte-identical; nine prefabs re-baked. `CarHDShots.BakeImport` keys + the three full-size shells.
+
+## Proof / gates
+- FitBatch 52 shells 0 FAIL (was 47 FAIL on gate (d) with the round wheel off: worst oval 22.4% bmw_e30); oval 0.00% and grip 0.0 mm on all. Viper now Fit3: x/y/z 1.00/0.85/0.75 (length at MinScale), eye 37 cm forward, 7 cm down. CTR cabin across 0.875 (was 0.842).
+- CheckBatch 52 shells 0 FAIL; ArchSweep 0 rows seated high (319 rows).
+- Lamp maps: every lit texel on a correctly facing end face (lampdiag) for all six; FD tail/brake follow the moved optics.
+- Wheels: unchanged files; CTR tyres still 574 mm vs 625-643 spec.
+- Self-test (PSXLab): 64 failures; vs the round-2 base set: none new, one fixed ("every shell seats its driver in its own cabin", the full-size shells).
+- Parked check (visible editor, Eastside Lot + 15% slope, 30 s): 68 ok; drift <= 1 mm, no lamps, arch gaps unchanged on viper_gts, flatsix_coupe, flatsix_coupe_87, rx7_fd_93, rx7_fd_99; side-on lift 0.0 mm. The 1 FAIL is "rx7_fd_nowing: no catalogue car wears it" (true before: no wingless FD row).
+
+## Not verified
+Player build; night with street lamps; steering wheel roundness only by the gate's numbers (it is dark in the cockpit frames); the full-size cockpit header still measures on the light bar (header dy -25 cm; gates pass).
+
+## At merge / to reach the exe
+Copy by path: Art/Car/Models/{viper_gts,flatsix_coupe,flatsix_coupe_87,rx7_fd_93,rx7_fd_99,rx7_fd_nowing}/* (obj/mtl/png), Resources/CarLights/rx7_fd_{93,99,nowing}_lightmask.png, Resources/ArchCeilings.bytes, Resources/CarModels/{the nine}.prefab. Run `CarHDShots.BakeImport` (covers the six + full-size), `PSX_CAR_HD_SRC=C:\Users\mcgee\PSXHDStage\carhd`. No City / RoadsideRules change; no scene pass; no tile bake.
 # HANDOFF - TEXTURES ROUND 4: SHOPFRONTS AT SOURCE RES, R2 ROADS/WALKS, GLASS c00-c02 (tex-round4, 2026-11-11; agent "tex4"; NOT pushed, NOT merged)
 
 Branch `tex-round4` (worktree `C:\Users\mcgee\PSX Racing-tex4`) off mountain-nm b970153d. Sandbox PSXCity (lock "tex4", released). Sheet: scratchpad `tex4\tex4_before_after.png` (also art workspace `Charlotte_Texture_Context\2026-11-11\G_00_tex4_sheet.png`).
