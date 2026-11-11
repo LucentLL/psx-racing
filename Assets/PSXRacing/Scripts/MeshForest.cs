@@ -119,7 +119,9 @@ namespace PSXRacing
         /// <summary>A/B (perf tour ab=MeshForest.PopFix:0 = the forest as PC26
         /// drew it): the pop-in round of 2026-11-11.</summary>
         public static bool PopFix = true;
-        const float BandShare = 0.3f;
+        /// <summary>PopFix: each FOREST DETAIL's level distances x (LOW, MEDIUM,
+        /// HIGH): LOW 65/109/203 m, MEDIUM 91/140/240 m, HIGH 97.5/210/360 m.</summary>
+        static readonly Vector3[] PopLodMul = { new Vector3(1.55f, 1.2f, 1.3f), new Vector3(1.4f, 1f, 1f), Vector3.one };
         public static Vector3 TourLodMul = Vector3.one;
         public static float TourBandShare = -1f;
         static MeshForest instance;
@@ -167,9 +169,22 @@ namespace PSXRacing
             float q = ForestDetailPrefs.Scale;
             lod0To *= q; lod1To *= q; meshRange *= q;
             band0 *= q; band1 *= q; band2 *= q;
+            if (PopFix)
+            {
+                // THE POP-IN ROUND (2026-11-11, measured with the perf tour's lag
+                // pair on NC 226A): what reads as pop-in is the pack beeches'
+                // LOD0 -> LOD1 step (branches go) and, on LOW, every level that
+                // close to the car. Wider dither bands did not help (they bring
+                // the lower level nearer); pushing the levels out did: LOW's
+                // level change 1.93 -> 0.68 (x 1e-3 over a 2.42 noise floor) for
+                // 1.9 -> 3.0 M triangles, MEDIUM's 0.65 -> 0.30 for 3.9 -> 4.7 M.
+                // HIGH as it was (0.19).
+                var mul = PopLodMul[ForestDetailPrefs.Level];
+                lod0To *= mul.x; lod1To *= mul.y; meshRange *= mul.z;
+            }
             // the pop measure's knobs (perf tour lodmul=a,b,c&bandshare=s): each level's distance x, bands as a share
             lod0To *= TourLodMul.x; lod1To *= TourLodMul.y; meshRange *= TourLodMul.z;
-            float share = TourBandShare >= 0f ? TourBandShare : PopFix ? BandShare : 0f;
+            float share = TourBandShare;
             if (share > 0f)
             {
                 // a hand-over band as a share of its distance, not a fixed few metres
