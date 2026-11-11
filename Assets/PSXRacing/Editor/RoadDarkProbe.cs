@@ -20,6 +20,9 @@ namespace PSXRacing.EditorTools
 
         /// <summary>RoadEndsProbe, then this, in one editor session.</summary>
         public static void Both() { RoadEndsProbe.Run(); Run(); }
+
+        /// <summary>The plant audit and its pictures (PlantSolidAudit.Probe), then this.</summary>
+        public static void AfterShots() { PlantSolidAudit.Probe(); Run(); }
         public static void Run()
         {
             string spec = System.Environment.GetEnvironmentVariable("PSX_DARK_POSES") ?? "BlueRidge=48,900";
@@ -39,6 +42,8 @@ namespace PSXRacing.EditorTools
                     var globals = Object.FindAnyObjectByType<PSXGlobals>();
                     var sc = cam.GetComponent<StageCulling>();
                     if (sc != null) sc.Configure(cam);
+                    var cullD = cam.layerCullDistances;
+                    sb.AppendLine($"{id}: far plane {cam.farClipPlane:0} m, road layer distance {(cullD != null && cullD.Length > 8 ? cullD[8] : -1):0} (0 = the far plane), default layer {(cullD != null && cullD.Length > 0 ? cullD[0] : -1):0}, stage-long renderers moved onto the road layer {StageCulling.RibbonsKept}");
                     int noon = 0;
                     for (int h = 0; h < TimeOfDay.Count; h++) if (TimeOfDay.At(h).name.ToLower() == "noon") noon = h;
                     var road = GameObject.Find("Road");
