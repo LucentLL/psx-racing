@@ -83,6 +83,13 @@ namespace PSXRacing.City
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var o = tm.origin;
             var probes = slabProbe;
+            // the kerb faces' top edges in plan (a kerb drawn ALONG an edge, not one that only meets its corners)
+            slabKerbPairs.Clear();
+            for (int i = 0; i + 2 < kerbBucket.t.Count; i += 3)
+            {
+                Vector3 c0 = kerbBucket.v[kerbBucket.t[i]], c1 = kerbBucket.v[kerbBucket.t[i + 1]], c2 = kerbBucket.v[kerbBucket.t[i + 2]];
+                slabKerbPairs.Add(PairXZ(c0, c1)); slabKerbPairs.Add(PairXZ(c1, c2)); slabKerbPairs.Add(PairXZ(c2, c0));
+            }
             for (int ei = 0; ei < skirtOpen.Count && ei < skirtOpenOwn.Count; ei++)
             {
                 var (A0, B0, nrm, bi) = skirtOpen[ei];
@@ -110,26 +117,35 @@ namespace PSXRacing.City
                 {
                     var q = Vector3.Lerp(A, B, probes[k]);
                     float n1x = q.x + nrm.x * 0.05f, n1z = q.z + nrm.y * 0.05f;
-                    float n3x = q.x + nrm.x * 0.3f, n3z = q.z + nrm.y * 0.3f;
                     // (the bands overlap by a millimetre: pavement 2-3 mm under gets both)
                     bool lv = roadGrid.Between(n1x, n1z, q.y - RiserMinM - 0.001f, q.y + SeamHiM, true) > float.NegativeInfinity;
-                    bool lvFar = roadGrid.Between(n3x, n3z, q.y - RiserMinM - 0.001f, q.y + SeamHiM, true) > float.NegativeInfinity;
-                    if (k > 0 && k < probes.Length - 1) { level |= lv; if (lv && !lvFar) levelFar = false; }
+                    if (lv)
+                    {
+                        level = true;
+                        if (levelFar && roadGrid.Between(q.x + nrm.x * 0.3f, q.z + nrm.y * 0.3f, q.y - RiserMinM - 0.001f, q.y + SeamHiM, true) == float.NegativeInfinity) levelFar = false;
+                    }
                     // the land beside: the lattice, the ground's sheets, lower pavement
                     float land = LatticeY(map, n1x + o.x, n1z + o.z);
                     land = Mathf.Max(land, groundGrid.Between(n1x, n1z, land, q.y + 0.3f));
                     land = Mathf.Max(land, roadGrid.Between(n1x, n1z, land, q.y + 0.3f));
                     if (land < q.y - RiserMinM) { lower = true; lowest = Mathf.Min(lowest, land); }
-                    // a lower road reaching in under the sheet, more than a hand down: a face
-                    // would stand in its lanes (a ribbon poking a few cm under a fan's mouth
-                    // is the step itself: its face is what closes it)
-                    if (roadGrid.Between(q.x - nrm.x * 0.1f, q.z - nrm.y * 0.1f, q.y - SlabMaxM - 0.1f, q.y - 0.05f, true) > float.NegativeInfinity) under = true;
                 }
+                if (lower && !taken && top - lowest <= SlabMaxM)
+                    for (int k = 0; k < probes.Length && !under; k++)
+                    {
+                        // a lower road reaching in under the sheet, more than a hand down: a face
+                        // would stand in its lanes (a ribbon poking a few cm under a fan's mouth
+                        // is the step itself: its face is what closes it)
+                        var q = Vector3.Lerp(A, B, probes[k]);
+                        if (roadGrid.Between(q.x - nrm.x * 0.1f, q.z - nrm.y * 0.1f, q.y - SlabMaxM - 0.1f, q.y - 0.05f, true) > float.NegativeInfinity) under = true;
+                    }
+                if (slabProbeAt.x > -1e8f && Vector2.Distance(new Vector2(A.x + o.x, A.z + o.z), slabProbeAt) < 6f)
+                    slabProbeLog?.Add($"SLAB PROBE edge ({A.x + o.x:0.00},{A.y + o.y:0.000},{A.z + o.z:0.00})-({B.x + o.x:0.00},{B.y + o.y:0.000},{B.z + o.z:0.00}) nrm ({nrm.x:0.00},{nrm.y:0.00}) bucket {bi} taken {taken} level {level} far {levelFar} lower {lower} lowest {lowest + o.y:0.000} under {under} kerb {SlabKerbAlong(A, B, A0, B0)}");
                 if (lower && !under && !taken && top - lowest <= SlabMaxM)
                 {
                     float bot = lowest - SlabTuckM;
                     // a kerb face drawn along it already (a fan's chord): from its foot
-                    bool kerb = skirtKerb.Contains(KeyXZ(A)) && skirtKerb.Contains(KeyXZ(B));
+                    bool kerb = SlabKerbAlong(A, B, A0, B0);
                     float yA = kerb ? A.y - KerbFaceM : A.y, yB = kerb ? B.y - KerbFaceM : B.y;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
                         SlabAdd(new SlabPiece { A = kerb ? new Vector3(A.x, yA, A.z) : A, B = kerb ? new Vector3(B.x, yB, B.z) : B, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : 1, bot = bot });
@@ -242,7 +258,20 @@ namespace PSXRacing.City
             SlabMark(bk, v0);
             slabTris += 2;
         }
-        static readonly float[] slabProbe = { 0.02f, 0.25f, 0.5f, 0.75f, 0.98f };
+        static readonly float[] slabProbe = { 0.15f, 0.5f, 0.85f };
+        static readonly HashSet<(long, long)> slabKerbPairs = new HashSet<(long, long)>();
+        static bool SlabKerbAlong(Vector3 A, Vector3 B, Vector3 A0, Vector3 B0) =>
+            slabKerbPairs.Contains(PairXZ(A, B)) || slabKerbPairs.Contains(PairXZ(A0, B0));
+        /// <summary>Probe only: PSX_SLAB_PROBE=x,z logs every open edge within 6 m of it.</summary>
+        public static List<string> slabProbeLog;
+        public static Vector2 slabProbeAt = ParseProbe();
+        static Vector2 ParseProbe()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_SLAB_PROBE");
+            if (string.IsNullOrEmpty(s)) return new Vector2(-1e9f, -1e9f);
+            var f = s.Split(',');
+            return new Vector2(float.Parse(f[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(f[1], System.Globalization.CultureInfo.InvariantCulture));
+        }
 
         /// <summary>After the roads mesh's normals: the slab's vertices take
         /// the road's up normal, so a face or tongue shades as the pavement

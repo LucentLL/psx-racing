@@ -59,6 +59,7 @@ namespace PSXRacing.EditorTools
             string file = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_seam_audit.txt");
             int code = 0;
             bool slabWas = CityMeshes.RoadSlabOn;
+            if (CityMeshes.slabProbeAt.x > -1e8f) CityMeshes.slabProbeLog = new List<string>();
             try
             {
                 var map = CityMap.Get();
@@ -170,6 +171,7 @@ namespace PSXRacing.EditorTools
                         }
                     }
                     sb.AppendLine($"-- TILE BORDERS shared by two scanned tiles: {bv} road vertices on them, {bmiss} with no vertex of the other tile within {WeldM * 1000f:0.0} mm (world); matched ones differ by at most {bworst * 1000.0:0.0000} mm");
+                    if (CityMeshes.slabProbeLog != null) { foreach (var l in CityMeshes.slabProbeLog) sb.AppendLine(l); CityMeshes.slabProbeLog.Clear(); }
                 }
             }
             catch (System.Exception ex) { sb.AppendLine("SEAM AUDIT FAILED: " + ex); Debug.LogException(ex); code = 1; }
@@ -310,8 +312,10 @@ namespace PSXRacing.EditorTools
                         {
                             st.stepM += segM;
                             float depth = Mathf.Min(-dy, 0.3f);
-                            var from = P + n3 * 0.06f + Vector3.down * (depth * 0.5f);
-                            bool any = Physics.Raycast(from, -n3, out var h3, 0.07f, mask, QueryTriggerInteraction.Ignore);
+                            // from 4 mm out (the land past may rise from there: a ray from further
+                            // out met its slope, not the edge), half way down the step, back at the edge
+                            var from = P + n3 * 0.004f + Vector3.down * (depth * 0.5f);
+                            bool any = Physics.Raycast(from, -n3, out var h3, 0.012f, mask, QueryTriggerInteraction.Ignore);
                             bool ok = any && Vector3.Dot(h3.normal, n3) > 0.3f;
                             if (!ok)
                             {
