@@ -77,10 +77,19 @@ namespace PSXRacing.City
 
         /// <summary>The fixture: a stub this tall under the lens, the lens's
         /// radius (a beacon's, a corner light's), the stub's half width.</summary>
-        const float StubM = 0.55f, LensBeaconM = 0.38f, LensCornerM = 0.27f, StubHalfM = 0.08f;
+        /// (Round 2, 2026-11-11: the real hardware's sizes - a steady L-810 is a
+        /// globe of about 0.25 m on a short stub, a flashing L-864 about 0.6 m
+        /// on a pedestal; dark red glass by day.)
+        const float StubCornerM = 0.30f, StubBeaconM = 0.60f, LensBeaconM = 0.30f, LensCornerM = 0.13f,
+                    StubHalfCornerM = 0.04f, StubHalfBeaconM = 0.11f;
         /// <summary>Fixtures are drawn for towers this near the eye: past it a
         /// 0.6 m lens is under a pixel and would only sparkle.</summary>
         public const float FixtureDrawM = 700f;
+        /// <summary>Round 2, the far density (PSX/Halo; the probe mirrors it):
+        /// corner lights fade over the first two real distances; the least
+        /// glow size falls to FarMinShare of itself, and a beacon's extra size
+        /// to none, over the other two.</summary>
+        public const float CornerFadeFromM = 1500f, CornerFadeToM = 2500f, FarShrinkFromM = 1500f, FarShrinkToM = 6000f, FarMinShare = 0.5f;
         /// <summary>The fixture set is re-picked when the eye has moved this far.</summary>
         const float FixtureMoveM = 25f;
 
@@ -176,6 +185,14 @@ namespace PSXRacing.City
                 cb.mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
                 cb.mat.SetFloat("_MaxPixels", 4f);
                 cb.mat.SetFloat("_MinPixels", 1.2f);
+                // (round 2) the far skyline is a handful of points, not a red mass:
+                // a steady corner light fades out from 1.5 to 2.5 km (the top light
+                // stays) and the least glow size shrinks from 1.5 km to 6 km
+                cb.mat.SetFloat("_CornerFadeFrom", CornerFadeFromM);
+                cb.mat.SetFloat("_CornerFadeTo", CornerFadeToM);
+                cb.mat.SetFloat("_FarShrinkFrom", FarShrinkFromM);
+                cb.mat.SetFloat("_FarShrinkTo", FarShrinkToM);
+                cb.mat.SetFloat("_FarMinShare", FarMinShare);
                 cb.mat.SetFloat("_GainFloor", 1f);
             }
             cb.mr = go.AddComponent<MeshRenderer>();
@@ -318,15 +335,18 @@ namespace PSXRacing.City
                 {
                     float best = float.MaxValue;
                     foreach (var p in vs)
-                        if (p.y > top - 0.05f) { float d = Flat(p - mid).sqrMagnitude; if (d < best) { best = d; apex = p; } }
+                        if (p.y > top - 0.05f && ClearAbove(vs, p, LensBeaconM)) { float d = Flat(p - mid).sqrMagnitude; if (d < best) { best = d; apex = p; } }
+                    if (best == float.MaxValue)
+                        foreach (var p in vs)
+                            if (p.y > top - 0.05f) { float d = Flat(p - mid).sqrMagnitude; if (d < best) { best = d; apex = p; } }
                 }
                 uint h = (uint)key * 2654435761u;
                 float phase = (h >> 8) / 16777216f;
                 float lensT = LensBeaconM;
-                var lightAt = apex + Vector3.up * (StubM + lensT);
-                Add(centres, uv1, cols, lightAt, BeaconSize2, flash ? -(1f + 0.999f * phase) : -0.5f, AviationRed);
+                var lightAt = apex + Vector3.up * (StubBeaconM + lensT);
+                Add(centres, uv1, cols, lightAt, BeaconSize2, flash ? -(1f + 0.999f * phase) : -0.6f, AviationRed);
                 lights.Add(new Light { pos = lightAt, anchor = apex, building = key, top = true, flash = flash, towerH = towerH });
-                Fixture(fb, apex, lensT);
+                Fixture(fb, apex, lensT, StubBeaconM, StubHalfBeaconM);
                 tops++;
                 if (flash) flashes++;
 
@@ -353,19 +373,25 @@ namespace PSXRacing.City
                     foreach (var p in vs)
                         if (p.y >= yMin) most = Mathf.Max(most, Vector2.Dot(new Vector2(p.x, p.z) - c0, d));
                     if (most == float.MinValue) continue;
+                    // (round 2: ON TOP - the highest such vertex with nothing of
+                    // its own building drawn over it, never one at the foot of
+                    // a fin or a wall that rises from it; else within 3 m of the extreme)
                     Vector3 at = Vector3.zero; float atY = float.MinValue;
                     foreach (var p in vs)
-                        if (p.y >= yMin && p.y > atY && Vector2.Dot(new Vector2(p.x, p.z) - c0, d) > most - 0.75f) { atY = p.y; at = p; }
+                        if (p.y >= yMin && p.y > atY && Vector2.Dot(new Vector2(p.x, p.z) - c0, d) > most - 0.75f && ClearAbove(vs, p, LensCornerM)) { atY = p.y; at = p; }
+                    if (atY == float.MinValue)
+                        foreach (var p in vs)
+                            if (p.y >= yMin && p.y > atY && Vector2.Dot(new Vector2(p.x, p.z) - c0, d) > most - 3f && ClearAbove(vs, p, LensCornerM)) { atY = p.y; at = p; }
                     if (atY == float.MinValue) continue;
                     var at2 = new Vector2(at.x, at.z);
                     bool dup = false;
                     foreach (var o in placed) if ((o - at2).sqrMagnitude < CornerMinM * CornerMinM) { dup = true; break; }
                     if (dup) continue;
                     placed.Add(at2);
-                    var cAt = at + Vector3.up * (StubM + LensCornerM);
+                    var cAt = at + Vector3.up * (StubCornerM + LensCornerM);
                     Add(centres, uv1, cols, cAt, CornerSize2, -0.5f, AviationRed);
                     lights.Add(new Light { pos = cAt, anchor = at, building = key, top = false, flash = false, towerH = towerH });
-                    Fixture(fb, at, LensCornerM);
+                    Fixture(fb, at, LensCornerM, StubCornerM, StubHalfCornerM);
                     corners++;
                 }
                 fb.start.Add(fixT0); fb.count.Add(fb.t.Count - fixT0);
@@ -379,12 +405,40 @@ namespace PSXRacing.City
         /// drawn point up to the lens, and the lens - an octahedron of red
         /// glass - with the light at its centre. Flat-shaded, its own vertices
         /// per face.</summary>
-        static void Fixture(FixtureBuild fb, Vector3 foot, float lensR)
+        /// <summary>True when no triangle of the building (three vertices each)
+        /// is drawn over the point within r of it in plan: an upright stub can
+        /// stand there. Walls (no plan area) never count.</summary>
+        static bool ClearAbove(List<Vector3> tris, Vector3 p, float r)
+        {
+            for (int t = 0; t + 2 < tris.Count; t += 3)
+            {
+                Vector3 a = tris[t], b = tris[t + 1], c = tris[t + 2];
+                if (a.y < p.y + 0.03f && b.y < p.y + 0.03f && c.y < p.y + 0.03f) continue;
+                float minx = Mathf.Min(a.x, Mathf.Min(b.x, c.x)) - r, maxx = Mathf.Max(a.x, Mathf.Max(b.x, c.x)) + r;
+                if (p.x < minx || p.x > maxx) continue;
+                float minz = Mathf.Min(a.z, Mathf.Min(b.z, c.z)) - r, maxz = Mathf.Max(a.z, Mathf.Max(b.z, c.z)) + r;
+                if (p.z < minz || p.z > maxz) continue;
+                float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+                if (Mathf.Abs(area) < 1e-3f) continue;
+                for (int k = 0; k < 5; k++)
+                {
+                    float x = p.x + (k == 1 ? r : k == 2 ? -r : 0f), z = p.z + (k == 3 ? r : k == 4 ? -r : 0f);
+                    float w1 = ((b.x - x) * (c.z - z) - (c.x - x) * (b.z - z)) / area;
+                    float w2 = ((c.x - x) * (a.z - z) - (a.x - x) * (c.z - z)) / area;
+                    float w3 = 1f - w1 - w2;
+                    if (w1 < -1e-4f || w2 < -1e-4f || w3 < -1e-4f) continue;
+                    if (w1 * a.y + w2 * b.y + w3 * c.y > p.y + 0.05f) return false;
+                }
+            }
+            return true;
+        }
+
+        static void Fixture(FixtureBuild fb, Vector3 foot, float lensR, float stubM, float stubHalf)
         {
             var galv = new Vector2(0.25f, 0.5f);
             var red = new Vector2(0.75f, 0.5f);
-            float y0 = foot.y - 0.08f, y1 = foot.y + StubM + lensR * 0.4f;
-            float w = StubHalfM;
+            float y0 = foot.y - 0.08f, y1 = foot.y + stubM + lensR * 0.4f;
+            float w = stubHalf;
             var c = new[]
             {
                 new Vector3(foot.x + w, 0f, foot.z + w), new Vector3(foot.x - w, 0f, foot.z + w),
@@ -395,7 +449,7 @@ namespace PSXRacing.City
                 var a = c[k]; var b = c[(k + 1) % 4];
                 Quad(fb, new Vector3(a.x, y0, a.z), new Vector3(b.x, y0, b.z), new Vector3(b.x, y1, b.z), new Vector3(a.x, y1, a.z), galv);
             }
-            var L = foot + Vector3.up * (StubM + lensR);
+            var L = foot + Vector3.up * (stubM + lensR);
             var up = L + Vector3.up * lensR; var dn = L + Vector3.down * lensR;
             var ring = new[] { L + Vector3.right * lensR, L + Vector3.forward * lensR, L + Vector3.left * lensR, L + Vector3.back * lensR };
             for (int k = 0; k < 4; k++)
@@ -470,7 +524,7 @@ namespace PSXRacing.City
             var px = new Color32[16];
             for (int y = 0; y < 4; y++)
                 for (int x = 0; x < 4; x++)
-                    px[y * 4 + x] = x < 2 ? new Color32(150, 152, 156, 255) : new Color32(150, 18, 14, 255);
+                    px[y * 4 + x] = x < 2 ? new Color32(150, 152, 156, 255) : new Color32(92, 9, 7, 255);
             fixTex.SetPixels32(px);
             fixTex.Apply(false, true);
             fixMat = new Material(src) { name = "BeaconFixtures", hideFlags = HideFlags.HideAndDontSave };

@@ -71,7 +71,12 @@ namespace PSXRacing.EditorTools
                         if (shots)
                         {
                             world.DropAll();
-                            foreach (var p in poses) Shoot(world, cam, sun, globals, dir, p.name, p.eye, p.look, p.hours, mode, log);
+                            string onlyP = System.Environment.GetEnvironmentVariable("PSX_BEACON_POSES");
+                            foreach (var p in poses)
+                            {
+                                if (!string.IsNullOrEmpty(onlyP) && System.Array.IndexOf(onlyP.Split(','), p.name) < 0) continue;
+                                Shoot(world, cam, sun, globals, dir, p.name, p.eye, p.look, p.hours, mode, log);
+                            }
                         }
                     }
                     finally
@@ -141,7 +146,7 @@ namespace PSXRacing.EditorTools
             }
             // the tower tops: the teal pyramid (C4), the tallest, a spired crown (C1; or C3 if C1 is the tallest)
             if (spire == tallest) spire = Hero(3);
-            foreach (var (name, key) in new[] { ("top_pyramid", pyr), ("top_tallest", tallest), ("top_crown", spire) })
+            foreach (var (name, key) in new[] { ("top_pyramid", pyr), ("top_tallest", tallest), ("top_crown", spire), ("top_frame", Hero(2)) })
             {
                 if (key < 0 || !tops.ContainsKey(key)) { log.Append($"pose {name}: none\n"); continue; }
                 var top = tops[key].top; float h = tops[key].h;
@@ -178,8 +183,18 @@ namespace PSXRacing.EditorTools
                 float ex = map.uptown.x + Mathf.Sin(brg) * 5500f, ez = map.uptown.y + Mathf.Cos(brg) * 5500f;
                 var eye = new Vector3(ex, CityElevation.GroundY(map, ex, ez) + 30f, ez);
                 var look = new Vector3(map.uptown.x, CityElevation.GroundY(map, map.uptown.x, map.uptown.y) + 110f, map.uptown.y);
-                list.Add(("far55", eye, look, new[] { TimeOfDay.Night }));
+                list.Add(("far55", eye, look, new[] { TimeOfDay.Night, TimeOfDay.Dusk }));
                 log.Append($"pose far55: eye ({eye.x:0},{eye.y:0},{eye.z:0}) 5.5 km SW\n");
+            }
+            // (round 2) the same line at 2 km and 10 km
+            foreach (var (nm, km) in new[] { ("far20", 2.0f), ("far100", 10.0f) })
+            {
+                float brg = 215f * Mathf.Deg2Rad;
+                float ex = map.uptown.x + Mathf.Sin(brg) * km * 1000f, ez = map.uptown.y + Mathf.Cos(brg) * km * 1000f;
+                var eye = new Vector3(ex, CityElevation.GroundY(map, ex, ez) + 30f, ez);
+                var look = new Vector3(map.uptown.x, CityElevation.GroundY(map, map.uptown.x, map.uptown.y) + (km < 3f ? 140f : 110f), map.uptown.y);
+                list.Add((nm, eye, look, new[] { TimeOfDay.Night, TimeOfDay.Dusk }));
+                log.Append($"pose {nm}: eye ({eye.x:0},{eye.y:0},{eye.z:0}) {km} km SW\n");
             }
             return list;
         }
@@ -218,9 +233,53 @@ namespace PSXRacing.EditorTools
                 if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
                 rt.Release(); Object.DestroyImmediate(rt);
                 var cb = world.Skyline != null ? world.Skyline.Beacons : null;
+                if (name.StartsWith("far") && cb != null && cb.IsV2) Density(cam, cb, lines, name + "_" + hn, log);
                 log.Append($"shot {name}_{hn}_{mode}: {w}x{lines}, far {cam.farClipPlane:0} m, tiles {world.LiveTiles}, skyline {(world.Skyline != null ? world.Skyline.Shown + "/" + world.Skyline.ElementCount : "-")}, lights lit {(cb != null && cb.LitNow())}, fixtures shown {(cb != null ? cb.FixturesShown : 0)} towers\n");
             }
             world.DropAll();
+        }
+
+        /// <summary>(Round 2) the far density, PSX/Halo's tower-light size and
+        /// corner fade mirrored on the CPU: the glows in the frame (a flasher
+        /// counted lit), their quads' half-sizes in pixels, the pairs whose
+        /// quads overlap and whose cores (half the quad) touch.</summary>
+        static void Density(Camera cam, CityBeacons cb, int lines, string tag, StringBuilder log)
+        {
+            float p11 = Mathf.Abs(cam.projectionMatrix[1, 1]);
+            float refScale = lines / Mathf.Min(lines, 480f);
+            var pts = new List<(Vector2 s, float h, bool top)>();
+            int faded = 0;
+            foreach (var l in cb.Lights)
+            {
+                var sp = cam.WorldToScreenPoint(l.pos);
+                if (sp.z <= 0f) continue;
+                float sx = sp.x * lines / cam.pixelHeight, sy = sp.y * lines / cam.pixelHeight;
+                if (sp.x < 0 || sp.y < 0 || sp.x > cam.pixelWidth || sp.y > cam.pixelHeight) continue;
+                float d = Vector3.Distance(cam.transform.position, l.pos);
+                if (!l.top && 1f - Mathf.Clamp01((d - CityBeacons.CornerFadeFromM) / (CityBeacons.CornerFadeToM - CityBeacons.CornerFadeFromM)) < 0.05f) { faded++; continue; }
+                float t = Mathf.Clamp01((d - CityBeacons.FarShrinkFromM) / (CityBeacons.FarShrinkToM - CityBeacons.FarShrinkFromM));
+                float minPx = 1.2f * Mathf.Lerp(1f, CityBeacons.FarMinShare, t) * (l.flash ? Mathf.Lerp(1.8f, 1f, t) : 1f) * refScale;
+                float natPx = NightGlow.HaloSize * (l.top ? 0.42f : 0.27f) * lines * p11 / (2f * sp.z);
+                float h = Mathf.Min(Mathf.Max(natPx, minPx), Mathf.Max(4f * refScale, minPx));
+                pts.Add((new Vector2(sx, sy), h, l.top));
+            }
+            int quad = 0, core = 0;
+            var grp = new int[pts.Count];
+            for (int i = 0; i < grp.Length; i++) grp[i] = i;
+            int Find(int i) { while (grp[i] != i) i = grp[i] = grp[grp[i]]; return i; }
+            for (int i = 0; i < pts.Count; i++)
+                for (int j = i + 1; j < pts.Count; j++)
+                {
+                    var dd = pts[i].s - pts[j].s;
+                    float r = pts[i].h + pts[j].h;
+                    if (Mathf.Abs(dd.x) < r && Mathf.Abs(dd.y) < r) quad++;
+                    if (dd.magnitude < 0.5f * r) { core++; grp[Find(i)] = Find(j); }
+                }
+            var roots = new HashSet<int>();
+            for (int i = 0; i < pts.Count; i++) roots.Add(Find(i));
+            float hmin = float.MaxValue, hmax = 0f;
+            foreach (var p in pts) { hmin = Mathf.Min(hmin, p.h); hmax = Mathf.Max(hmax, p.h); }
+            log.Append($"DENSITY {tag}: {pts.Count} glows in frame ({pts.FindAll(p => p.top).Count} top, {pts.FindAll(p => !p.top).Count} corner; {faded} corners faded out), half-size {hmin:0.0}-{hmax:0.0} px at {lines} lines; quads overlapping {quad} pairs, cores touching {core} pairs -> {roots.Count} separate points\n");
         }
 
         // ---- the measure ----------------------------------------------------
