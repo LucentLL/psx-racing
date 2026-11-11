@@ -103,16 +103,7 @@ namespace PSXRacing.City
                     if (PlanD2(c1, c2) > best) { p = c1; q = c2; best = PlanD2(c1, c2); }
                     if (PlanD2(c0, c2) > best) { p = c0; q = c2; }
                     float yTop = Mathf.Max(c0.y, Mathf.Max(c1.y, c2.y));
-                    int si = slabFaceSegs.Count;
-                    slabFaceSegs.Add((new Vector2(p.x, p.z), new Vector2(q.x, q.z), yTop));
-                    int x0 = Mathf.FloorToInt(Mathf.Min(p.x, q.x) / 2f), x1 = Mathf.FloorToInt(Mathf.Max(p.x, q.x) / 2f);
-                    int z0 = Mathf.FloorToInt(Mathf.Min(p.z, q.z) / 2f), z1 = Mathf.FloorToInt(Mathf.Max(p.z, q.z) / 2f);
-                    for (int cz = z0; cz <= z1; cz++) for (int cx = x0; cx <= x1; cx++)
-                        {
-                            long ck = ((long)cx << 32) ^ (uint)cz;
-                            if (!slabFaceCells.TryGetValue(ck, out var cl)) slabFaceCells[ck] = cl = new List<int>(4);
-                            cl.Add(si);
-                        }
+                    SlabFaceSeg(p, q, yTop, new Vector2(n3.x, n3.z).normalized);
                 }
             // the kerb faces' top edges in plan (a kerb drawn ALONG an edge, not one that only meets its corners)
             slabKerbPairs.Clear();
@@ -182,7 +173,10 @@ namespace PSXRacing.City
                 // out under the pavement past, falling 1 in 12: it started level with that
                 // pavement and the flicker finder counted the depth ties (456 -> 899 px).
                 bool faceLow = lower && !under && top - lowest <= SlabMaxM;
-                int cover = faceLow || level ? SlabFaceCover(A, B) : 0;
+                // (a face already standing along it, turned the same way - the closing pass's, or
+                // the slab's own on another sheet whose edge runs on this line: two sheets overlapping
+                // at a fan's chord - is cover; the face across a crack, turned the other way, is not)
+                int cover = faceLow || level ? SlabFaceCover(A, B, nrm) : 0;
                 taken = cover > 0;
                 if ((faceLow || level) && cover < slabProbe.Length)
                 {
@@ -195,7 +189,11 @@ namespace PSXRacing.City
                     // under the sheet's edge: never in the same plane as that one's
                     var inset = taken ? new Vector3(-nrm.x, 0f, -nrm.y) * 0.005f : Vector3.zero;
                     if (Mathf.Min(yA, yB) > bot + 0.005f)
-                        SlabAdd(new SlabPiece { A = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset, B = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : taken ? 3 : 1, bot = bot });
+                    {
+                        var pA = (kerb ? new Vector3(A.x, yA, A.z) : A) + inset; var pB = (kerb ? new Vector3(B.x, yB, B.z) : B) + inset;
+                        SlabAdd(new SlabPiece { A = pA, B = pB, uA = uA, uB = uB, nrm = nrm, bk = bk, kind = kerb ? 2 : taken ? 3 : 1, bot = bot });
+                        SlabFaceSeg(pA, pB, Mathf.Max(pA.y, pB.y), nrm);
+                    }
                 }
             }
             clock.Stop(); yield return 0; clock.Start();
@@ -307,14 +305,28 @@ namespace PSXRacing.City
         const int SlabEdgesAStep = 256;
         static readonly float[] slabProbe = { 0.15f, 0.5f, 0.85f };
         static readonly HashSet<(long, long)> slabKerbPairs = new HashSet<(long, long)>();
-        static readonly List<(Vector2 a, Vector2 b, float yTop)> slabFaceSegs = new List<(Vector2, Vector2, float)>(1024);
+        static readonly List<(Vector2 a, Vector2 b, float yTop, Vector2 facing)> slabFaceSegs = new List<(Vector2, Vector2, float, Vector2)>(1024);
+        /// <summary>A standing face for the cover test: plan extent, top, which way it faces.</summary>
+        static void SlabFaceSeg(Vector3 p, Vector3 q, float yTop, Vector2 facing)
+        {
+            int si = slabFaceSegs.Count;
+            slabFaceSegs.Add((new Vector2(p.x, p.z), new Vector2(q.x, q.z), yTop, facing));
+            int x0 = Mathf.FloorToInt(Mathf.Min(p.x, q.x) / 2f), x1 = Mathf.FloorToInt(Mathf.Max(p.x, q.x) / 2f);
+            int z0 = Mathf.FloorToInt(Mathf.Min(p.z, q.z) / 2f), z1 = Mathf.FloorToInt(Mathf.Max(p.z, q.z) / 2f);
+            for (int cz = z0; cz <= z1; cz++) for (int cx = x0; cx <= x1; cx++)
+                {
+                    long ck = ((long)cx << 32) ^ (uint)cz;
+                    if (!slabFaceCells.TryGetValue(ck, out var cl)) slabFaceCells[ck] = cl = new List<int>(4);
+                    cl.Add(si);
+                }
+        }
         static readonly Dictionary<long, List<int>> slabFaceCells = new Dictionary<long, List<int>>();
         static float PlanD2(Vector3 a, Vector3 b) { float dx = a.x - b.x, dz = a.z - b.z; return dx * dx + dz * dz; }
         /// <summary>Does a standing face the closing pass laid run along A..B
         /// (within a centimetre in plan, its top within a centimetre of the
         /// edge) at its three probe points? Then the slab lays none there (two
         /// faces in one plane would fight for the pixels).</summary>
-        static int SlabFaceCover(Vector3 A, Vector3 B)
+        static int SlabFaceCover(Vector3 A, Vector3 B, Vector2 facing)
         {
             int n = 0;
             foreach (float f in slabProbe)
@@ -325,8 +337,8 @@ namespace PSXRacing.City
                 if (slabFaceCells.TryGetValue(((long)Mathf.FloorToInt(q.x / 2f) << 32) ^ (uint)Mathf.FloorToInt(q.z / 2f), out var cl))
                     foreach (int si in cl)
                     {
-                        var (a, b, yTop) = slabFaceSegs[si];
-                        if (yTop < q.y - 0.01f) continue;
+                        var (a, b, yTop, fc) = slabFaceSegs[si];
+                        if (yTop < q.y - 0.01f || Vector2.Dot(fc, facing) < 0.7f) continue;
                         var d = b - a; float L2 = d.sqrMagnitude;
                         float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q2 - a, d) / L2) : 0f;
                         if ((a + d * t - q2).sqrMagnitude < 1e-4f) { hit = true; break; }
