@@ -430,6 +430,13 @@ namespace PSXRacing.City
         /// <summary>(round 2) The structure mesh (pans, lids, grates) WetReflections-tagged: the pan
         /// mirrors the rain as the road does (CityWorld). PSX_CITY_PANWET=0: matte (round 1).</summary>
         public static bool PanWetOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANWET") != "0";
+        /// <summary>(round 2) The granite curb straight off the asphalt (no concrete pan) only
+        /// on Uptown's MAIN dress (Tryon and Trade: the brick-paver streets, S Tryon at road
+        /// level). Street view, N Graham St at W 10th St (Dec 2025): a plumb concrete curb WITH
+        /// a concrete pan and no edge line inside the loop - round 1 took every dressed street
+        /// (side streets too) for granite. PSX_CITY_PANSIDE=0: round 1.</summary>
+        public static bool PanSideOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANSIDE") != "0";
+        static bool Cs2GraniteDress(int dress) => PanSideOn ? dress == DressMain : dress != DressNone;
         public static bool CornerPanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CORNERPAN") != "0";
 
         /// <summary>(round 2) Inlets and lids keep off the paint: no station whose

@@ -1487,7 +1487,7 @@ namespace PSXRacing.City
         {
             // (street dress) a dressed Uptown street's slab is brick pavers
             walkPaverNow = StreetDressOn && StreetDressOf(map, e) == DressMain;
-            cs2Granite = StreetDressOn && StreetDressOf(map, e) != DressNone;   // (curbs2) Uptown's grey granite curb
+            cs2Granite = StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e));   // (curbs2) Uptown's grey granite curb
             bool laid = EmitWalkSpanCore(map, trims, tm, e, i, side, eA, eB, outA, outB, sA, sB, verge);
             walkPaverNow = false;
             return laid;
@@ -1578,7 +1578,7 @@ namespace PSXRacing.City
                     // (Uptown inside the loop: granite curb straight off the asphalt, no concrete pan - S Tryon at road level)
                     // (and not in the last metres before a junction, where the arm's drawn edge runs on
                     //  past the corner's curb return into the mouth: Lexington Ave's crosswalk)
-                    if (!(StreetDressOn && StreetDressOf(map, e) != DressNone) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
+                    if (!(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
                         Cs2Gutter(i, pA, pB, oA, oB, Mathf.Lerp(sA, sB, t0) / 8f, Mathf.Lerp(sA, sB, t1) / 8f, rl0, rl1);
                     float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
                     if (rl0 + rl1 > 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
@@ -1607,7 +1607,7 @@ namespace PSXRacing.City
         {
             // (street dress) a corner on a dressed Uptown street is paved as that street is
             walkPaverNow = StreetDressOn && (StreetDressOf(map, map.edges[ring[cw.g0].edge]) == DressMain || StreetDressOf(map, map.edges[ring[cw.g1].edge]) == DressMain);
-            cs2Granite = StreetDressOn && (StreetDressOf(map, map.edges[ring[cw.g0].edge]) != DressNone || StreetDressOf(map, map.edges[ring[cw.g1].edge]) != DressNone);
+            cs2Granite = StreetDressOn && (Cs2GraniteDress(StreetDressOf(map, map.edges[ring[cw.g0].edge])) || Cs2GraniteDress(StreetDressOf(map, map.edges[ring[cw.g1].edge])));
             EmitCornerWalkCore(map, trims, tm, ring, kind, cw);
             walkPaverNow = false;
         }
