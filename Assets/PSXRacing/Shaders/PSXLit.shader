@@ -403,17 +403,18 @@ Shader "PSX/Lit"
 
             sampler2D _MainTex;
         #ifdef PSX_HD
-            sampler2D _HDNormal, _HDRough, _HDAO;
             // THE SAMPLER BUDGET: D3D11 has 16 sampler states and the HD
             // variant was at the limit - round 2's three new maps as their own
-            // sampler2Ds turned every PSX_HD material magenta. They share the
-            // road base's sampler (repeat, trilinear) instead.
+            // sampler2Ds turned every PSX_HD material magenta. Every HD map
+            // shares the HD normal's sampler (the importer gives them all the
+            // same: repeat, trilinear, 8x aniso); _HDNormal is read by every
+            // PSX_HD variant, so that sampler always exists.
           #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
-            Texture2D _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
-            SamplerState sampler_RoadBaseTex;
-            #define PSX_RB_GRAD(t, u, dx, dy) t.SampleGrad(sampler_RoadBaseTex, u, dx, dy)
+            Texture2D _HDNormal, _HDRough, _HDAO, _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
+            SamplerState sampler_HDNormal;
+            #define PSX_RB_GRAD(t, u, dx, dy) t.SampleGrad(sampler_HDNormal, u, dx, dy)
           #else
-            sampler2D _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
+            sampler2D _HDNormal, _HDRough, _HDAO, _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
             #define PSX_RB_GRAD(t, u, dx, dy) tex2Dgrad(t, u, dx, dy)
           #endif
             sampler2D _RoadPaint;
@@ -2147,7 +2148,7 @@ Shader "PSX/Lit"
                     float hdInv = rsqrt(max(max(dot(hdT, hdT), dot(hdB, hdB)), 1e-20));
                     hdT *= hdInv; hdB *= hdInv;
                 }
-                float3 hdNT = UnpackNormal(tex2Dgrad(_HDNormal, hdUV, hdDx, hdDy));
+                float3 hdNT = UnpackNormal(PSX_RB_GRAD(_HDNormal, hdUV, hdDx, hdDy));
                 // road paint: thermoplastic fills the aggregate - flatter,
                 // smoother, no cavities (rbPaint 0 off the road base)
                 // the gutter pan's own relief, turned into the road's frame (its
@@ -2159,8 +2160,8 @@ Shader "PSX/Lit"
                 }
                 hdNT = lerp(hdNT, float3(0.0, 0.0, 1.0), max(rbPaint * 0.7, hdOff));
                 N = normalize(hdNT.x * hdT + hdNT.y * hdB + hdNT.z * N);
-                float hdAO = lerp(tex2Dgrad(_HDAO, hdUV, hdDx, hdDy).r, 1.0, max(rbPaint, max(hdOff, rbGutter)));
-                float hdRough = lerp(lerp(tex2Dgrad(_HDRough, hdUV, hdDx, hdDy).r, 0.80, rbGutter), 0.55, rbPaint);
+                float hdAO = lerp(PSX_RB_GRAD(_HDAO, hdUV, hdDx, hdDy).r, 1.0, max(rbPaint, max(hdOff, rbGutter)));
+                float hdRough = lerp(lerp(PSX_RB_GRAD(_HDRough, hdUV, hdDx, hdDy).r, 0.80, rbGutter), 0.55, rbPaint);
                 hdRough = lerp(hdRough, 1.0, hdOff);
             #endif
             #ifdef PSX_ROCKFACE
