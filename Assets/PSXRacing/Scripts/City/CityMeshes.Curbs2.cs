@@ -83,9 +83,31 @@ namespace PSXRacing.City
         static bool cs2Walk;
 
         /// <summary>The curb shape at rolled share r (0 vertical, 1 rolled).</summary>
+        // ---- THE COLLIDER'S CHAMFER (measured, Editor/CityCurbDrive, 11-11) ----
+        // The wheels are rays straight down from the hub: over a plumb 15 cm
+        // face a ray steps the whole height in one tick, where a real 0.3 m
+        // tyre climbs it over ~26 cm of its tread. Driven at the drawn curb
+        // (collider = mesh) the RX-7 met it as a blow: square on at 10 km/h a
+        // vertical kick of 11.8 g, a wheel off for 0.52 s and two jounce-stop
+        // strikes (2.7 m/s), against 2.3 g / 0.07 s / 1.3 m/s on the old
+        // 45-degree curb; at 30 deg 10 km/h seven strikes up to 9.4 m/s (old:
+        // 0.5 g, one at 1.4); at 45 deg 10 km/h 5.9 g and 0.42 s (old 0.8 g,
+        // 0 s). A face top 6 cm out still struck (9.9 g square on); 12 cm out
+        // drove as the old curb did (2.8 g / 0 s square on; 1.0 g at 45 deg;
+        // 0.5 g at 30 deg; 1.4 g at 15 deg 30 km/h). So the COLLIDER keeps a
+        // 12 cm chamfer - about the path a tyre's contact takes up a 15 cm
+        // step - and the curb is DRAWN plumb in front of it, render-only (the
+        // structure mesh: Cs2RenderFace): the chamfer lies wholly behind the
+        // drawn face and under its nose. A wheel sits up to 12 cm into the
+        // drawn curb's top edge for the instant it climbs.
+        // PSX_CITY_CURBCHAMFER=0: the collider plumb as drawn.
+        public static bool CurbChamferOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBCHAMFER") != "0";
+        /// <summary>The vertical curb's collider: the face top this far out, the nose at CNoseOut.</summary>
+        public const float CFaceOut = 0.12f, CNoseOut = 0.15f;
+
         static void Cs2Shape(float r, out float faceOut, out float faceY, out float noseOut, out float h)
         {
-            float vf = VFaceOut, vn = VNoseOut;
+            float vf = CurbChamferOn ? CFaceOut : VFaceOut, vn = CurbChamferOn ? CNoseOut : VNoseOut;
             if (Cs2TestFaceOut >= 0f) { vf = Cs2TestFaceOut; vn = Mathf.Max(VNoseOut, Cs2TestFaceOut + 0.03f); }
             faceOut = Mathf.Lerp(vf, RFaceOut, r);
             faceY = Mathf.Lerp(VFaceY, RFaceY, r);
@@ -93,10 +115,62 @@ namespace PSXRacing.City
             h = Mathf.Lerp(VCurbH, RCurbH, r);
         }
 
+        /// <summary>The rolled share of the walk being laid (LayWalk's caller sets it):
+        /// under 0.5 the vertical curb is drawn over the collider's chamfer.</summary>
+        static float cs2FaceR = 1f;
+
+        /// <summary>
+        /// THE DRAWN CURB over the chamfered collider, between two walk
+        /// cross-sections pa / pb (the collider's: foot, chamfer top, nose,
+        /// back): the plumb face (1.2 cm batter) to 2.5 cm under the top, the
+        /// rounded nose to 4.5 cm out, the top on to the collider's nose -
+        /// render-only, light concrete (the structure atlas's girder band, as
+        /// the gutter pan), a hair proud. Scaled with the curb's height there
+        /// (a driveway's lip, a cut's wing).
+        /// </summary>
+        static void Cs2RenderFace(Vector3[] pa, Vector3[] pb, float uA, float uB)
+        {
+            if (!CurbChamferOn || Cs2TestFaceOut >= 0f || cs2FaceR >= 0.5f) return;
+            if (!RenderProfile(pa, rfA) || !RenderProfile(pb, rfB)) return;
+            Vector2 U(float u, float f) => new Vector2(u, UvPan.y + UvPan.height * f);
+            float ua = uA * WalkTexM / 8f, ub = uB * WalkTexM / 8f;
+            var outA = rfA[4]; var outB = rfB[4];
+            structBucket.Face(rfA[0], rfA[1], rfB[1], rfB[0], -(outA + outB), U(ua, 0f), U(ua, 0.25f), U(ub, 0.25f), U(ub, 0f));
+            structBucket.Face(rfA[1], rfA[2], rfB[2], rfB[1], Vector3.up - (outA + outB), U(ua, 0.25f), U(ua, 0.32f), U(ub, 0.32f), U(ub, 0.25f));
+            structBucket.Up(rfA[2], rfA[3], rfB[3], rfB[2], U(ua, 0.32f), U(ua, 0.6f), U(ub, 0.6f), U(ub, 0.32f));
+            RenderFaceM += Vector2.Distance(new Vector2(pa[0].x, pa[0].z), new Vector2(pb[0].x, pb[0].z));
+        }
+        static readonly Vector3[] rfA = new Vector3[5], rfB = new Vector3[5];
+        /// <summary>Tools: drawn-curb metres laid over a chamfered collider.</summary>
+        public static float RenderFaceM;
+
+        static bool RenderProfile(Vector3[] p, Vector3[] r)
+        {
+            var d = p[2] - p[0]; d.y = 0f;
+            float run = d.magnitude;
+            if (run < VNoseOut + 0.02f) return false;
+            var o = d / run;
+            float k = Mathf.Clamp01((p[2].y - p[0].y) / (VCurbH + RoadsideRules.EdgeDropM));
+            if (k < 0.05f) return false;
+            const float lift = 0.003f;
+            r[0] = p[0];
+            r[1] = p[0] + o * VFaceOut; r[1].y = p[0].y + (VFaceY + RoadsideRules.EdgeDropM) * k;
+            r[2] = p[0] + o * VNoseOut; r[2].y = p[2].y + lift;
+            r[3] = p[2]; r[3].y += lift;
+            r[4] = o;
+            return true;
+        }
+
         /// <summary>The curb drive's lever (Editor/CityCurbDrive): the vertical
         /// curb's face top this far out instead of VFaceOut (a chamfered face,
         /// to measure what a wheel ray makes of it). -1: the drawn curb.</summary>
         public static float Cs2TestFaceOut = -1f;
+
+        /// <summary>Tools: where the builds put inlets (world point on the curb line,
+        /// outward plan unit) and lids (world centre, radius), while RecordHardware is set.</summary>
+        public static bool RecordHardware;
+        public static readonly List<(Vector3 at, Vector2 outw, bool rolled)> InletsBuilt = new List<(Vector3, Vector2, bool)>();
+        public static readonly List<(Vector3 at, float r)> LidsBuilt = new List<(Vector3, float)>();
 
         /// <summary>For the curb drive: is plan point (x, z) on a driveway's or lot's apron?</summary>
         public static bool ApronAtForTools(CityMap map, float x, float z) => ApronAt(map, x, z);
@@ -405,6 +479,7 @@ namespace PSXRacing.City
                         int iSpan = SpanIndexAt(s);
                         if (iSpan < 1) { why = 1; continue; }
                         DrawInlet(iSpan, spn, t, w, r);
+                        if (RecordHardware) InletsBuilt.Add((ed + o, outw, r > 0.5f));
                         Curbs2Stats.inlets++;
                         if (r > 0.5f) Curbs2Stats.inletsRolled++;
                         if (st.why == WhySag) Curbs2Stats.inletSag++; else if (st.why == WhyEnd) Curbs2Stats.inletEnd++; else Curbs2Stats.inletGrade++;
@@ -654,7 +729,7 @@ namespace PSXRacing.City
                     var cx = c + new Vector3(0.3f, 0f, 0f); cx.y = RoadYIn(A, B, cx) + LidLiftM;
                     var cz = c + new Vector3(0f, 0f, 0.3f); cz.y = RoadYIn(A, B, cz) + LidLiftM;
                     var grad = PlaneGrad(cx - c, cz - c);
-                    if (kind == 0) { Lid(c, ManholeR, 0.16f, true, grad); Curbs2Stats.manholes++; }
+                    if (kind == 0) { Lid(c, ManholeR, 0.16f, true, grad); Curbs2Stats.manholes++; if (RecordHardware) LidsBuilt.Add((c + o, ManholeR)); }
                     else { Lid(c, ValveR, 0.05f, false, grad); Curbs2Stats.valves++; }
                 }
             }

@@ -1326,6 +1326,7 @@ namespace PSXRacing.City
                       new Vector2(uA, vA0), new Vector2(uA, vA1), new Vector2(uB, vB1), new Vector2(uB, vB0));
                 LogWalkQuad(" walk band" + q, pa[q], pa[q + 1], pb[q + 1], pb[q]);
             }
+            if (Curbs2On && wA > 0f && wB > 0f) Cs2RenderFace(pa, pb, uA, uB);   // (curbs2) the plumb curb drawn over the chamfer
         }
 
         static float Flat(Vector3 d) => new Vector2(d.x, d.z).magnitude;
@@ -1567,6 +1568,7 @@ namespace PSXRacing.City
                 float rl0 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t0)), rl1 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t1));
                 WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], rl0);
                 WalkProfile(pB, oB, w1, walkProfB, cutC[j], rl1);
+                cs2FaceR = Mathf.Max(rl0, rl1);
                 LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
                 if (Curbs2On && w0 > 0f && w1 > 0f)
                 {
@@ -1612,7 +1614,9 @@ namespace PSXRacing.City
             if (groundLog != null) groundTag = $"corner walk kind {kind} node {ring[cw.g0].node} e{ring[cw.g0].edge}-e{ring[cw.g1].edge}";
             // (curbs2) the corner's class: rolled only where every walk street at its node is
             float cr = Curbs2On && RolledNode(map, ring[cw.g0].node) ? 1f : 0f;
-            float noseW = Curbs2On ? Mathf.Lerp(VNoseOut, RNoseOut, cr) + 0.01f : CurbNoseOut + 0.01f;
+            // (a profile keeps its nose within 0.8 of its width, so the corner's curb ring is that much wider)
+            float noseW = Curbs2On ? Mathf.Lerp(CurbChamferOn ? CNoseOut : VNoseOut, RNoseOut, cr) / 0.8f + 0.01f : CurbNoseOut + 0.01f;
+            cs2FaceR = cr;
             if (kind == 2)
             {
                 float u = 0f;
@@ -1662,6 +1666,7 @@ namespace PSXRacing.City
                               new Vector2((u2 + len) / WalkTexM, walkBandV[q + 1]), new Vector2((u2 + len) / WalkTexM, walkBandV[q]));
                         LogWalkQuad(" curb band" + q, walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q]);
                     }
+                    if (Curbs2On) Cs2RenderFace(walkProfA, walkProfB, prevU / WalkTexM, (u2 + len) / WalkTexM);   // (curbs2) the plumb curb drawn
                     // ... and the walk from the nose back to P
                     UpTri(slab, P3, walkProfA[2], walkProfB[2], UV(P3), UV(walkProfA[2]), UV(walkProfB[2]));
                     u2 += len;

@@ -93,6 +93,7 @@ namespace PSXRacing.EditorTools
         static StringBuilder L => CityCurbDrive.log;
         static string F2(float v) => v.ToString("0.00", CultureInfo.InvariantCulture);
         static int mask;
+        static int strikes; static float strike;
 
         /// <summary>The ground or road surface at plan (x, z): the highest static
         /// hit (not foliage, not a solid) within 1.5 m above and 4 m under y0.</summary>
@@ -174,7 +175,7 @@ namespace PSXRacing.EditorTools
                     prev = y;
                 }
                 if (foot < 0f || float.IsNaN(top) || top - road < 0.07f) continue;
-                if (foot < bestD)
+                if (bestD == float.MaxValue)   // the right-hand side's curb when it has one (the same spot every mode)
                 {
                     bestD = foot;
                     // the room behind the car on the road: back across to the other side's rise
@@ -230,7 +231,6 @@ namespace PSXRacing.EditorTools
             var sites = (string.IsNullOrEmpty(sitesEnv) ? "graham;name:North Graham Street|rolled;rolled" : sitesEnv).Split('|');
             float[] speeds = { 10f, 30f, 50f, 80f, 120f };
             float[] angles = { 90f, 45f, 30f, 15f };
-            float strike = 0f; int strikes = 0;
             player.Bottomed += (v, w) => { strikes++; strike = Mathf.Max(strike, v); };
             L.AppendLine($"CURB DRIVE: car {player.name}, modes {string.Join(",", modes)}; each run released 1 m before the front wheel meets the curb, measured 1.5 s; launch = all four wheels off >= 0.10 s");
 
@@ -238,15 +238,19 @@ namespace PSXRacing.EditorTools
             {
                 string m = md.Trim();
                 CityMeshes.Curbs2On = m != "old";
-                CityMeshes.Cs2TestFaceOut = m.StartsWith("c") ? int.Parse(m.Substring(1), CultureInfo.InvariantCulture) / 100f : -1f;
+                CityMeshes.CurbChamferOn = m != "v";
+                CityMeshes.Cs2TestFaceOut = m.StartsWith("c") && m != "ch" ? int.Parse(m.Substring(1), CultureInfo.InvariantCulture) / 100f : -1f;
                 world.DropAll();
                 yield return null;
-                L.AppendLine($"== MODE {m}: curbs2 {(CityMeshes.Curbs2On ? "on" : "off")}, test face {CityMeshes.Cs2TestFaceOut:0.00}");
+                L.AppendLine($"== MODE {m}: curbs2 {(CityMeshes.Curbs2On ? "on" : "off")}, collider chamfer {CityMeshes.CurbChamferOn}, test face {CityMeshes.Cs2TestFaceOut:0.00}");
                 foreach (var spec in sites)
                 {
                     var f = spec.Split(';');
                     if (f.Length < 2) continue;
-                    if (!PickEdge(world.Map, f[1].Trim(), out var edge, out float s0)) { L.AppendLine($"  site {f[0]}: no edge for '{f[1]}'"); continue; }
+                    bool was = CityMeshes.Curbs2On; CityMeshes.Curbs2On = true;   // the rolled class is the pass's: the same street in every mode
+                    bool picked = PickEdge(world.Map, f[1].Trim(), out var edge, out float s0);
+                    CityMeshes.Curbs2On = was;
+                    if (!picked) { L.AppendLine($"  site {f[0]}: no edge for '{f[1]}'"); continue; }
                     var pw = edge.PointAt(s0);
                     var at = new Vector3(pw.x, edge.YAt(s0), pw.y);
                     player.TeleportTo(at + Vector3.up * 3f, Quaternion.identity);
@@ -383,14 +387,29 @@ namespace PSXRacing.EditorTools
                 yield return new WaitForFixedUpdate();
                 held += Time.fixedDeltaTime;
             }
-            // released: measure 1.5 s
+            // released: the stops counted from here
+            strikes = 0; strike = 0f;
             float t = 0f, allOff = 0f, anyOff = 0f, maxAll = 0f, maxAny = 0f, maxKick = 0f, maxClimb = 0f, maxUp = 0f, maxDecel = 0f, maxStep = 0f;
             float lastVy = player.Body.linearVelocity.y, lastSp = new Vector2(player.Body.linearVelocity.x, player.Body.linearVelocity.z).magnitude;
             float yaw0 = player.transform.eulerAngles.y, v0 = lastSp, baseAir = float.NaN;
             res[11] = held;
             var lastW = new float[4]; var hasW = new bool[4];
-            while (t < 1.5f)
+            // the window: from the first wheel over the curb line to 0.35 s after the last one is
+            // 0.35 m past it (the car wholly up on the walk, or wholly down on the road), at most 2 s
+            bool crossed = false; float doneAt = float.NaN;
+            float sgnN = off ? -1f : 1f;
+            while (t < 2.0f)
             {
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var wl in new[] { new Vector3(-0.75f, 0f, 1.2f), new Vector3(0.75f, 0f, 1.2f), new Vector3(-0.75f, 0f, -1.2f), new Vector3(0.75f, 0f, -1.2f) })
+                {
+                    var wp = player.transform.TransformPoint(wl);
+                    float lw = sgnN * Vector2.Dot(new Vector2(wp.x, wp.z) - c2, st.n);
+                    lo = Mathf.Min(lo, lw); hi = Mathf.Max(hi, lw);
+                }
+                if (!crossed && hi > -0.05f) crossed = true;
+                if (crossed && float.IsNaN(doneAt) && lo > 0.35f) doneAt = t + 0.35f;
+                if (!float.IsNaN(doneAt) && t > doneAt) break;
                 float sp = new Vector2(player.Body.linearVelocity.x, player.Body.linearVelocity.z).magnitude;
                 player.steerInput = 0f;
                 player.throttleInput = sp < v - 0.5f ? 1f : 0.2f;
@@ -399,6 +418,7 @@ namespace PSXRacing.EditorTools
                 float dt = Time.fixedDeltaTime; t += dt;
                 var vel = player.Body.linearVelocity;
                 float hsp = new Vector2(vel.x, vel.z).magnitude;
+                if (!crossed) { lastVy = vel.y; lastSp = hsp; continue; }
                 maxKick = Mathf.Max(maxKick, Mathf.Abs(vel.y - lastVy) / dt / 9.81f);
                 maxClimb = Mathf.Max(maxClimb, vel.y);
                 float dec = (lastSp - hsp) / dt / 9.81f;
@@ -426,7 +446,7 @@ namespace PSXRacing.EditorTools
                 }
                 // stop at a wall past the curb (a building), so it does not read as the curb's
                 var pc = new Vector2(player.Body.position.x, player.Body.position.z);
-                if (dec > 2f && Vector2.Dot(pc - c2, st.n) > 2.0f) break;
+                if (dec > 2f && Vector2.Dot(pc - c2, st.n) > 2.0f) { res[12] = 1f; break; }
             }
             var end = new Vector2(player.Body.position.x, player.Body.position.z);
             res[0] = maxAll; res[1] = maxAny; res[2] = maxKick; res[3] = maxClimb; res[4] = maxUp; res[5] = maxDecel;
