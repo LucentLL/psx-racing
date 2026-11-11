@@ -155,8 +155,35 @@ namespace PSXRacing
             {
                 var go = r.gameObject;
                 if (go.scene != scene || go.layer == roadLayer || go.layer == foliage || go.layer == horizon || go.layer == 5) continue;
-                if (r.bounds.extents.magnitude < minRadius || go.GetComponent<Collider>() != null) continue;
-                go.layer = roadLayer;
+                if (!r.enabled || r.bounds.extents.magnitude < minRadius) continue;
+                if (go.GetComponent<Collider>() == null) { go.layer = roadLayer; kept++; continue; }
+                // A collider on the same object (the verge kerb strip, whose
+                // layer says "not tarmac" to the wheels): its picture moves to
+                // a child on the road layer, and the collider stays as it was.
+                // Its own mesh - which in a player, once static batching has
+                // run, the MeshFilter no longer holds (it holds the combined
+                // batch); the stage's verge strip collides on its drawn mesh
+                // (PSXRacingBuilder.BuildKerbs), so the collider's is that.
+                var mf = go.GetComponent<MeshFilter>();
+                Mesh mesh = mf != null && !r.isPartOfStaticBatch ? mf.sharedMesh : null;
+                if (mesh == null && go.GetComponent<Collider>() is MeshCollider mc) mesh = mc.sharedMesh;
+                if (mesh == null) continue;
+                var child = new GameObject(go.name + "_Drawn") { layer = roadLayer };
+                child.transform.SetParent(go.transform, false);
+                child.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var cr = child.AddComponent<MeshRenderer>();
+                cr.sharedMaterials = r.sharedMaterials;
+                cr.shadowCastingMode = r.shadowCastingMode;
+                cr.receiveShadows = r.receiveShadows;
+                cr.lightProbeUsage = r.lightProbeUsage;
+                cr.reflectionProbeUsage = r.reflectionProbeUsage;
+                if (r.HasPropertyBlock())
+                {
+                    var pb = new MaterialPropertyBlock();
+                    r.GetPropertyBlock(pb);
+                    cr.SetPropertyBlock(pb);
+                }
+                r.enabled = false;
                 kept++;
             }
             RibbonsKept = kept;
