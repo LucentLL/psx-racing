@@ -278,7 +278,15 @@ namespace PSXRacing.EditorTools
                 // THE GATE: no shell standing in the cabin (b), no view out through the nose
                 // in any pose (open = 0). (a) and (c) are measured and printed, not gated:
                 // his cabin is one model and the catalogue spans a van to a 911.
-                bool bad = inN > 0 || noseOpenAll > 0;
+                // (d) THE WHEEL (2026-11-11 afternoon): round as drawn (rim radius
+                // max/min - 1 under 0.5%) and both hands on its rim (grip tube
+                // centre within 5 mm of the drawn rim's centre line) at rest and
+                // turned 60 deg each way.
+                WheelCheck(f, out float oval, out float gripGap);
+                bool wheelBad = oval > WheelRoundTol || gripGap > GripTol;
+                Worst("(d) wheel oval, %", oval * 100f, d.key);
+                Worst("(d) grip off the drawn rim, mm", gripGap * 1000f, d.key);
+                bool bad = inN > 0 || noseOpenAll > 0 || wheelBad;
                 if (bad) fails++;
                 Worst("(a) cabin outside the shell, cm", outW * 100f, d.key);
                 Worst("(b) shell inside the cabin, cm", inW * 100f, d.key);
@@ -287,8 +295,12 @@ namespace PSXRacing.EditorTools
                 Worst("belt dy, cm", Mathf.Abs(beltDy) * 100f, d.key);
                 Worst("side glass dx (cabin - shell), cm", sideDx * 100f, d.key);
                 log.Append($"{(bad ? "FAIL " : "ok   ")}{d.key,-17} {(f.fit3 ? "yes" : "no ")} {sx:0.00} {sy:0.00} {sz:0.00} | eye {f.eye.z - f.cutZ:+0.00;-0.00}/{f.eye.y - d.cowlY:+0.00;-0.00} (old {f0.eye.z - f0.cutZ:+0.00;-0.00}/{f0.eye.y - d.cowlY:+0.00;-0.00}) | " +
-                           $"{hdz * 100f:+0;-0}/{hdy * 100f:+0;-0} cm {beltDy * 100f:+0;-0} cm {sideDx * 100f:+0;-0} cm | {outN}/{tot} {outW * 100f:0.0} (+{beyond} past the shell's silhouette) | {inN} {inW * 100f:0.0} {inWhere} | {bonnet:0.0} | {nose}\n");
+                           $"{hdz * 100f:+0;-0}/{hdy * 100f:+0;-0} cm {beltDy * 100f:+0;-0} cm {sideDx * 100f:+0;-0} cm | {outN}/{tot} {outW * 100f:0.0} (+{beyond} past the shell's silhouette) | {inN} {inW * 100f:0.0} {inWhere} | {bonnet:0.0} | {nose}" +
+                           $"| wheel oval {oval * 100f:0.00}% grip {gripGap * 1000f:0.0} mm{(wheelBad ? " WHEEL" : "")}\n");
             }
+            if (wrArms != null) wrArms.Destroy();
+            if (wheelRig != null) Object.DestroyImmediate(wheelRig);
+            wheelRig = null; wrArms = null;
             var head = new StringBuilder($"[CockpitFit] {Defs().Count} shells, {fails} FAIL (fit3 {(CockpitFit.On ? "on" : "off")}, width fit {(CockpitInterior.WidthFitOn ? "on" : "off")}); GATES: (b) no shell in the cabin, nose: rays into the hollow nose (open = behind the cut, where the dark inside is not drawn) = 0 open in any pose; MEASURED: (a) cabin vertices ahead of the seat beyond the shell, (c) of the windscreen view below the horizon the share on the car; old nose text: rays into the hollow nose (open = behind the cut, where the dark inside is not drawn) = 0 open in any pose\n");
             foreach (var kv in worst) head.Append($"  worst {kv.Key}: {kv.Value.Item1:0.0} ({kv.Value.Item2})\n");
             log.Insert(0, head.ToString());
@@ -314,6 +326,60 @@ namespace PSXRacing.EditorTools
             Object.DestroyImmediate(shellGo);
             if (shellMesh != null) Object.DestroyImmediate(shellMesh);
             return fails;
+        }
+
+        public const float WheelRoundTol = 0.005f, GripTol = 0.005f;
+        static GameObject wheelRig;
+        static Transform wrModel, wrRoot, wrWheel;
+        static CockpitArms wrArms;
+
+        /// <summary>The wheel and arms as CockpitInterior.Apply places them
+        /// (LHD, cabin frame = the eye), measured: the drawn rim's radius
+        /// spread (max/min - 1) and the worse gripping hand's tube centre off
+        /// the drawn rim's centre line, metres (-1: no arms data).</summary>
+        public static void WheelCheck(CockpitInterior.Fit f, out float oval, out float gap)
+        {
+            var L = CockpitModel.L;
+            oval = 0f; gap = -1f;
+            if (L == null || L.wheel == null) return;
+            if (wheelRig == null)
+            {
+                wheelRig = new GameObject("FitWheel");
+                wrModel = new GameObject("Model").transform; wrModel.SetParent(wheelRig.transform, false);
+                wrRoot = new GameObject("WheelRoot").transform; wrRoot.SetParent(wheelRig.transform, false);
+                var piv = new GameObject("WheelPivot").transform; piv.SetParent(wrRoot, false); piv.localRotation = L.wheel.rot;
+                wrWheel = new GameObject("SteeringWheel").transform; wrWheel.SetParent(piv, false);
+                wrArms = CockpitArms.Create(wrModel, L, 0);
+            }
+            float sx = f.scale * f.widthFit, sy = f.ScaleY, sz = f.scale;
+            wrModel.localScale = new Vector3(sx, sy, sz);
+            wrModel.localPosition = -Vector3.Scale(wrModel.localScale, L.eye);
+            CockpitInterior.WheelFrame(f, out var pos, out var sc, out var warp);
+            wrRoot.localPosition = pos; wrRoot.localScale = sc;
+            if (wrArms == null) return;
+            wrArms.WheelWarp = warp;
+            gap = 0f;
+            foreach (float deg in new[] { 0f, 60f, -60f })
+            {
+                wrWheel.localRotation = Quaternion.Euler(0f, 0f, deg);
+                if (deg == 0f)
+                {
+                    Vector3 c = wrWheel.TransformPoint(new Vector3(0f, 0f, wrArms.RimLocal(0f).z));
+                    float rmin = float.MaxValue, rmax = 0f;
+                    for (int a = 0; a < 360; a += 3) { float r = (wrWheel.TransformPoint(wrArms.RimLocal(a)) - c).magnitude; rmin = Mathf.Min(rmin, r); rmax = Mathf.Max(rmax, r); }
+                    oval = rmax / Mathf.Max(1e-5f, rmin) - 1f;
+                }
+                wrArms.Plan.Reset(deg);
+                wrArms.Drive(0f, deg, false, false);
+                foreach (bool left in new[] { true, false })
+                {
+                    if ((left ? wrArms.Plan.L : wrArms.Plan.R).mode != CockpitArms.Mode.Grip) continue;
+                    Vector3 g = wrModel.TransformPoint(wrArms.GripTube(left));
+                    float best = float.MaxValue;
+                    for (int a = 0; a < 360; a++) best = Mathf.Min(best, (wrWheel.TransformPoint(wrArms.RimLocal(a)) - g).magnitude);
+                    gap = Mathf.Max(gap, best);
+                }
+            }
         }
 
         static Matrix4x4 Pose(float pitchDeg, float lift, float pivotZ)

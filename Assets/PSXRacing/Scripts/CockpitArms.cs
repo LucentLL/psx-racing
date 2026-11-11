@@ -1163,20 +1163,46 @@ namespace PSXRacing
 
         /// <summary>The rim tube's centre line at clock angle `alpha` (model
         /// frame): the measured rim (Contact), else the layout's estimate.</summary>
-        public Vector3 RimPoint(float alpha)
+        public Vector3 RimPoint(float alpha) => lay.wheel.pivot + Vector3.Scale(WheelWarp, lay.wheel.rot * RimLocal(alpha));
+
+        /// <summary>The rim's centre line at `alpha` in the wheel's own pivot
+        /// frame (before the steering turn): what the drawn wheel carries.</summary>
+        public Vector3 RimLocal(float alpha)
         {
             bool m = Contact && data.wheel != null;
             float a = alpha * Mathf.Deg2Rad, r = m ? data.wheel.rc : lay.wheel.rimRadius;
-            return lay.wheel.pivot + lay.wheel.rot * new Vector3(r * Mathf.Cos(a), r * Mathf.Sin(a), m ? data.wheel.zc : lay.wheel.rimZ);
+            return new Vector3(r * Mathf.Cos(a), r * Mathf.Sin(a), m ? data.wheel.zc : lay.wheel.rimZ);
         }
 
+        /// <summary>The ROUND wheel in the model's frame (2026-11-11
+        /// afternoon): the cabin is fitted per axis, the wheel uniformly
+        /// (CockpitInterior.WheelFrame), so the wheel's own frame reaches the
+        /// model through this per-axis scale (1 = the wheel scaled with the
+        /// cabin, as before). The grips are planned on the rim where it is drawn.</summary>
+        public Vector3 WheelWarp = Vector3.one;
+
         /// <summary>The wheel's frame in the model, as it stands now.</summary>
-        public Matrix4x4 WheelMatrix => Matrix4x4.TRS(lay.wheel.pivot, lay.wheel.rot * Quaternion.Euler(0f, 0f, Plan.Theta), Vector3.one);
+        public Matrix4x4 WheelMatrix => Matrix4x4.Translate(lay.wheel.pivot) * Matrix4x4.Scale(WheelWarp) *
+                                        Matrix4x4.Rotate(lay.wheel.rot * Quaternion.Euler(0f, 0f, Plan.Theta));
+
+        /// <summary>A wheel-frame direction in the model's frame (the warp applied).</summary>
+        Vector3 WheelDir(Vector3 local) => Vector3.Scale(WheelWarp, lay.wheel.rot * local).normalized;
+
+        /// <summary>The wheel's face toward the driver in the model's frame
+        /// (a normal: the warp's inverse applied).</summary>
+        Vector3 WheelFace
+        {
+            get
+            {
+                Vector3 n = lay.wheel.rot * Vector3.back;
+                return new Vector3(n.x / WheelWarp.x, n.y / WheelWarp.y, n.z / WheelWarp.z).normalized;
+            }
+        }
 
         public Vector3 RimTangent(float alpha)
         {
             float a = alpha * Mathf.Deg2Rad;
-            return lay.wheel.rot * new Vector3(-Mathf.Sin(a), Mathf.Cos(a), 0f);
+            return WheelDir(new Vector3(-Mathf.Sin(a), Mathf.Cos(a), 0f));
         }
 
         /// <summary>The forearm's pose holding the rim at `alpha`: the grip
@@ -1222,7 +1248,7 @@ namespace PSXRacing
             }
             // The rim's tube where the fitted palm wants it (Contact), and
             // lifted off it (toward the driver, out of the palm) when not gripping.
-            Vector3 face = lay.wheel.rot * Vector3.back;
+            Vector3 face = WheelFace;
             Vector3 tube = Contact ? (left ? data.left.tube : data.right.tube) : Vector3.zero;
             pos = P - rot * tube + (face * 0.6f - Y * 0.4f) * off;
         }
@@ -1280,7 +1306,7 @@ namespace PSXRacing
                         AwayPose(h, out var ap, out var ar);
                         if (h.phase == 0)
                         {
-                            tp = a.startPos + (lay.wheel.rot * Vector3.back) * 0.05f + Vector3.down * 0.02f;
+                            tp = a.startPos + WheelFace * 0.05f + Vector3.down * 0.02f;
                             tr = a.startRot; tf = a.startForeRot;
                             u = Mathf.Clamp01(h.t / Planner.ReleaseSec);
                         }
@@ -1291,7 +1317,7 @@ namespace PSXRacing
                             tp = rp; tr = rr; tf = rf; u = Mathf.Clamp01(h.t / Planner.BackSec); arc = Vector3.down * 0.03f;
                             // Onto the rim from in front and outside, never up through the wheel.
                             Vector3 outward = (RimPoint(h.to) - lay.wheel.pivot).normalized;
-                            tp += (outward * 0.05f + lay.wheel.rot * Vector3.back * 0.05f) * (1f - Planner.Smooth(Mathf.Clamp01((u - 0.65f) / 0.35f)));
+                            tp += (outward * 0.05f + WheelFace * 0.05f) * (1f - Planner.Smooth(Mathf.Clamp01((u - 0.65f) / 0.35f)));
                         }
                         break;
                     }
@@ -1302,7 +1328,7 @@ namespace PSXRacing
                 {
                     float off = Planner.Smooth(Mathf.Clamp01(u / FlightLift)) * (1f - Planner.Smooth(Mathf.Clamp01((u - FlightLand) / (1f - FlightLand))));
                     float e = Planner.Smooth(Mathf.Clamp01((u - FlightLift * 0.5f) / (1f - FlightLift * 0.5f)));
-                    a.pos = Vector3.Lerp(a.startPos, tp, e) + (lay.wheel.rot * Vector3.back) * (FlightBack * off) + arc * Mathf.Sin(Mathf.PI * e);
+                    a.pos = Vector3.Lerp(a.startPos, tp, e) + WheelFace * (FlightBack * off) + arc * Mathf.Sin(Mathf.PI * e);
                     a.rot = Quaternion.Slerp(a.startRot, tr, e);
                     a.foreRot = Quaternion.Slerp(a.startForeRot, tf, e);
                 }
@@ -1884,7 +1910,7 @@ namespace PSXRacing
             var h = left ? Plan.L : Plan.R;
             at = RimPoint(h.alpha);
             tangent = RimTangent(h.alpha);
-            radialOut = (at - lay.wheel.pivot - Vector3.Project(at - lay.wheel.pivot, lay.wheel.rot * Vector3.forward)).normalized;
+            radialOut = (at - lay.wheel.pivot - Vector3.Project(at - lay.wheel.pivot, WheelFace)).normalized;
         }
 
         void Place(Arm a)
@@ -1993,6 +2019,15 @@ namespace PSXRacing
 
         /// <summary>For the self-test and shots: a hand's forearm pose and
         /// elbow in the model frame.</summary>
+        /// <summary>For the fit gate: where this hand holds the rim's tube
+        /// centre now (model frame) - its grip's fitted tube point.</summary>
+        public Vector3 GripTube(bool left)
+        {
+            var a = arms[left ? 0 : 1];
+            Vector3 tube = Contact ? (left ? data.left.tube : data.right.tube) : Vector3.zero;
+            return a.pos + a.rot * tube;
+        }
+
         public void Probe(bool left, out Vector3 grip, out Vector3 elbow, out Transform fore)
         {
             var a = arms[left ? 0 : 1];

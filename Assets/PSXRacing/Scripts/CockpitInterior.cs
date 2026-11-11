@@ -247,6 +247,44 @@ namespace PSXRacing
             return Mathf.Clamp(sx, MinWidthFit, 1f);
         }
 
+        /// <summary>
+        /// THE STEERING WHEEL STAYS ROUND (2026-11-11 afternoon: on the narrowed
+        /// CTRs the wheel, scaled with the cabin, was 0.84 as wide as tall).
+        /// The cabin is fitted per axis (across, height, length), and a tilted
+        /// wheel under that scale is an ellipse whatever its own scale is. So
+        /// the wheel hangs from its own root beside the model, scaled
+        /// UNIFORMLY by the cabin's smaller in-plane scale (across or height:
+        /// never larger than the cabin it sits in), at the point where the
+        /// model puts its pivot (mirrored with it on an RHD car). The arms
+        /// still plan in the model's frame: `warp` maps the wheel's own frame
+        /// into it (<see cref="CockpitArms.WheelWarp"/>), so the grips land on
+        /// the drawn rim. PSX_COCKPIT_ROUNDWHEEL=0: the wheel scales with the
+        /// cabin as before (warp 1).
+        /// </summary>
+        public static bool RoundWheelOn => System.Environment.GetEnvironmentVariable("PSX_COCKPIT_ROUNDWHEEL") != "0";
+
+        /// <summary>The wheel root's place and scale under the cabin's root
+        /// (the eye) and the model-frame warp of the wheel, for a fit. Pure,
+        /// for the fit gate.</summary>
+        public static void WheelFrame(Fit f, out Vector3 rootPos, out Vector3 rootScale, out Vector3 warp)
+        {
+            var lay = L;
+            float sx = f.scale * (f.widthFit > 0f ? f.widthFit : 1f), sy = f.ScaleY, sz = f.scale;
+            var ms = new Vector3(f.rhd ? -sx : sx, sy, sz);
+            Vector3 eye = lay != null ? lay.eye : Vector3.zero;
+            Vector3 piv = lay != null && lay.wheel != null ? lay.wheel.pivot : Vector3.zero;
+            rootPos = Vector3.Scale(ms, piv - eye);
+            if (!RoundWheelOn)
+            {
+                rootScale = ms;
+                warp = Vector3.one;
+                return;
+            }
+            float s = Mathf.Min(sx, sy);
+            rootScale = new Vector3(f.rhd ? -s : s, s, s);
+            warp = new Vector3(s / Mathf.Max(0.01f, sx), s / Mathf.Max(0.01f, sy), s / Mathf.Max(0.01f, sz));
+        }
+
         /// <summary>The eye moved with its seat by the fit (<see cref="Fit3"/>),
         /// car metres, added to the chase camera's mount (shot tools add it
         /// too).</summary>
@@ -311,7 +349,7 @@ namespace PSXRacing
 
         CarController car;
         Camera driver;
-        Transform model, wheelPivot, wheel, cargoRoot;
+        Transform model, wheelRoot, wheelPivot, wheel, cargoRoot;
         Renderer[] rends;
         Renderer[] gaugeRends = new Renderer[4];
         string[] gaugeKeys = new string[4];
@@ -450,9 +488,13 @@ namespace PSXRacing
             }
             BuildReflection(screen, panes);
 
+            // The wheel stands on its own uniformly scaled root beside the
+            // model (WheelFrame), so the cabin's per-axis fit cannot make it oval.
+            wheelRoot = new GameObject("WheelRoot").transform;
+            wheelRoot.SetParent(transform, false);
             wheelPivot = new GameObject("WheelPivot").transform;
-            wheelPivot.SetParent(model, false);
-            wheelPivot.localPosition = lay.wheel.pivot;
+            wheelPivot.SetParent(wheelRoot, false);
+            wheelPivot.localPosition = Vector3.zero;
             wheelPivot.localRotation = lay.wheel.rot;
             wheel = new GameObject("SteeringWheel").transform;
             wheel.SetParent(wheelPivot, false);
@@ -580,10 +622,17 @@ namespace PSXRacing
             float sxAcross = f.scale * f.widthFit;
             model.localScale = new Vector3(f.rhd ? -sxAcross : sxAcross, f.ScaleY, f.scale);
             model.localPosition = -Vector3.Scale(model.localScale, lay.eye);
-            // The wheel and the arms scale WITH the cabin (2026-11-11 round 2):
-            // the arms grip the rim in the model's frame, so a wheel kept round
-            // by its own counter-scale left the grips up to 2 cm off it.
+            // The wheel ROUND on every car (WheelFrame), the arms gripping it
+            // where it is drawn (CockpitArms.WheelWarp).
+            WheelFrame(f, out var wPos, out var wScale, out var warp);
+            if (wheelRoot != null)
+            {
+                wheelRoot.localPosition = wPos;
+                wheelRoot.localRotation = Quaternion.identity;
+                wheelRoot.localScale = wScale;
+            }
             if (wheelPivot != null) wheelPivot.localScale = Vector3.one;
+            if (arms != null) arms.WheelWarp = warp;
             PlaceMirrorCamera();
             model.localRotation = Quaternion.identity;
             var eyeV = new Vector3(f.rhd ? -lay.eye.x : lay.eye.x, lay.eye.y, lay.eye.z);

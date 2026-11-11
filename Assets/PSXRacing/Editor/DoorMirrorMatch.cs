@@ -212,15 +212,11 @@ namespace PSXRacing.EditorTools
             foreach (bool left in new[] { true, false })
             {
                 if (arms.Plan != null && (left ? arms.Plan.L : arms.Plan.R).mode != CockpitArms.Mode.Grip) continue;
-                arms.Probe(left, out var grip, out _, out _);
-                Vector3 g = ci.Model.TransformPoint(grip);
+                Vector3 g = ci.Model.TransformPoint(arms.GripTube(left));
                 float best = float.MaxValue;
+                // the drawn rim: the wheel's own centre line through its own transform
                 for (int a = 0; a < 360; a++)
-                {
-                    Vector3 m = arms.RimPoint(a);
-                    Vector3 wl = Quaternion.Inverse(lay.wheel.rot) * (m - lay.wheel.pivot);
-                    best = Mathf.Min(best, (ci.WheelTransform.TransformPoint(wl) - g).magnitude);
-                }
+                    best = Mathf.Min(best, (ci.WheelTransform.TransformPoint(arms.RimLocal(a)) - g).magnitude);
                 // the grip's centre sits on the tube's centre line when it holds
                 worst = Mathf.Max(worst, best);
             }

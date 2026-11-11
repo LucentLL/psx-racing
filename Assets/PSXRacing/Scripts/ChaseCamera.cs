@@ -1232,11 +1232,19 @@ namespace PSXRacing
                                        float lift, out bool measured) =>
             CowlOf(c, s, Measured.Of(def, lengthScale, lift), out measured);
 
+        public static bool CowlZCheck = System.Environment.GetEnvironmentVariable("PSX_COWL_ZCHECK") != "0";
+
         static Vector2 CowlOf(Vector3 c, Vector3 s, Measured def, out bool measured)
         {
-            float floor = c.y - s.y * 0.5f;
+            // The cowl must stand inside the body's length (ahead of the box's
+            // tail). This compared the cowl's Z with the box's FLOOR (a height)
+            // since 2026-08-28, so a cowl less than the floor's height ahead of
+            // the car's centre read as unmeasured: the Viper's (z 0.13 m, a
+            // long bonnet) fell back to the box guess and kept the old cockpit
+            // fit. PSX_COWL_ZCHECK=0: the old comparison.
+            float tail = CowlZCheck ? c.z - s.z * 0.5f : c.y - s.y * 0.5f;
             measured = def.ok && def.cowlY > 0.4f && def.roofY > def.cowlY + 0.25f
-                       && def.cowlZ > floor;
+                       && def.cowlZ > tail;
             return measured ? new Vector2(def.cowlZ, def.cowlY)
                             : new Vector2(c.z + s.z * 0.16f, c.y + s.y * 0.14f);
         }
