@@ -460,6 +460,7 @@ namespace PSXRacing.LifeSim
 
             s.money += net;
             s.carLoans.RemoveAll(l => l.carId == car.id);
+            Spares.ReturnJobsToShelf(s, car);   // a spare going on is not sold with the car
             s.pendingParts.RemoveAll(p => p.carId == car.id);
             s.carAds.RemoveAll(a => a.carId == car.id);
             s.cars.Remove(car);
@@ -522,6 +523,7 @@ namespace PSXRacing.LifeSim
 
             s.money += net;
             s.carLoans.RemoveAll(l => l.carId == car.id);
+            Spares.ReturnJobsToShelf(s, car);   // a spare going on is not sold with the car
             s.pendingParts.RemoveAll(p => p.carId == car.id);
             s.cars.Remove(car);
             s.carAds.Remove(ad);

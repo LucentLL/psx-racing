@@ -327,7 +327,7 @@ namespace PSXRacing.LifeSim
                     if (no != null)
                     {
                         f.reason = spec.IsSupercharged || spec.IsBuiltToTune ? no.ToLowerInvariant()
-                                 : "turbo hardware - this engine is an NA build";
+                                 : "turbo part - this engine is NA";
                         return f;
                     }
                     plan = Upgrades.TurboKitPlan(s, car, spec);
@@ -420,6 +420,7 @@ namespace PSXRacing.LifeSim
                 upgradeStage = f.use == Use.Upgrade ? f.stage : 0,
                 junkRisk = Junkyard.FaultRisk(p.grade),
                 fromShelf = true,
+                spare = p,
             });
             // A used turbo onto an unbuilt NA engine starts the turbo path, as
             // fitting it at the yard always did.
@@ -430,6 +431,31 @@ namespace PSXRacing.LifeSim
                               ", " + f.days + "d");
             if (mechanic) LifeRules.DropOff(s, car, CarWhere.VenueMechanic);
             return null;
+        }
+
+        /// <summary>
+        /// A car leaving the garage (sold, quick-sold, a debug loaner swapped)
+        /// with a spare still going on: the part comes back to the shelf rather
+        /// than vanishing with the job - past the shelf's capacity if need be,
+        /// since the cap only stops NEW parts arriving. Labour already paid to
+        /// a mechanic is not refunded. Returns how many came back.
+        /// </summary>
+        public static int ReturnJobsToShelf(LifeState s, OwnedCar car)
+        {
+            if (s == null || car == null || s.pendingParts == null) return 0;
+            if (s.partsShelf == null) s.partsShelf = new List<SparePart>();
+            int n = 0;
+            foreach (var j in s.pendingParts)
+            {
+                if (j == null || j.carId != car.id || !j.fromShelf) continue;
+                if (j.spare == null || string.IsNullOrEmpty(j.spare.id)) continue;
+                if (s.partsShelf.Exists(p => p != null && p.id == j.spare.id)) continue;
+                s.partsShelf.Add(j.spare);
+                n++;
+                s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + j.spare.label + " came off the " +
+                                  car.displayName + " before it went - back on the shelf");
+            }
+            return n;
         }
 
         // ================= asking the shelf =================

@@ -122,21 +122,32 @@ namespace PSXRacing.OnFoot
             string sel = null;
             var cur = MenuNav.Selected(canvas != null ? canvas.transform : null);
             if (cur != null) sel = cur.gameObject.name;
-            float scrollAt = rowsScroll != null ? rowsScroll.verticalNormalizedPosition : 1f;
+            float listY = rowsContent != null ? rowsContent.anchoredPosition.y : 0f;
             if (canvas != null) Destroy(canvas.gameObject);
             Build();
             if (toastText != null) toastText.text = toast;
-            if (rowsScroll != null) rowsScroll.verticalNormalizedPosition = scrollAt;
+            if (rowsContent != null)
+            {
+                rowsContent.anchoredPosition = new Vector2(rowsContent.anchoredPosition.x, listY);
+                rowsSnap?.Tick();
+            }
             if (sel != null && panel != null)
                 foreach (var b in panel.GetComponentsInChildren<Selectable>())
                     if (b.gameObject.name == sel && b.interactable) { MenuNav.Select(b); break; }
         }
 
-        ScrollRect rowsScroll;
+        RectTransform rowsContent;
+        BlockSnap rowsSnap;
 
         /// <summary>Width of a part row: the panel less its margins, never
         /// wider than reads as one row.</summary>
         static float RowW => Mathf.Min(840f, MenuKit.HalfWidth * 2f - 80f - 48f);
+
+        /// <summary>One block: a title line, the two buttons, one line under
+        /// each. Fixed, so the list can show whole blocks and only whole
+        /// blocks (see BlockSnap): five at 16:9 and 4:3, three on a phone.</summary>
+        const float BlockH = 94f, BlockGap = 4f, BlockStep = BlockH + BlockGap;
+        const float ListTop = 82f, ListBottom = 88f;
 
         void Build()
         {
@@ -149,12 +160,13 @@ namespace PSXRacing.OnFoot
 
             panel = MenuKit.Stretch(canvas.transform, "Wreck",
                 Vector2.zero, Vector2.one, 40f, 40f, 26f, -26f, MenuKit.PanelBg);
-            rowsScroll = null;
+            rowsContent = null;
+            rowsSnap = null;
 
             // Head, not Title: a donor name is up to ~36 capitals, and at the
             // title size it ran edge to edge on 16:9 and off both edges at 4:3.
             MenuKit.Label(panel, donorName, MenuKit.Head, new Vector2(0.5f, 1f),
-                new Vector2(0f, -10f), TextAnchor.MiddleCenter, MenuKit.Accent, RowW, height: 40f, bold: true)
+                new Vector2(0f, -8f), TextAnchor.MiddleCenter, MenuKit.Accent, RowW, height: 40f, bold: true)
                 .rectTransform.pivot = new Vector2(0.5f, 1f);
 
             if (s == null) { Close(); return; }
@@ -166,9 +178,10 @@ namespace PSXRacing.OnFoot
                 "   ·   " + MenuKit.Money(s.money) + " IN YOUR POCKET" +
                 "   ·   SKILL " + Mathf.FloorToInt(s.mechSkill) +
                 "   ·   SHELF " + (s.partsShelf != null ? s.partsShelf.Count : 0) + "/" + Spares.Capacity,
-                15, new Vector2(0.5f, 1f), new Vector2(0f, -52f), TextAnchor.MiddleCenter,
+                15, new Vector2(0.5f, 1f), new Vector2(0f, -50f), TextAnchor.MiddleCenter,
                 MenuKit.Dim, RowW, height: 26f);
 
+            Text above = null, below = null;
             if (!looked)
             {
                 // The whole page before the walk-round: one button and the
@@ -196,28 +209,34 @@ namespace PSXRacing.OnFoot
             }
             else
             {
-                var view = MenuKit.Stretch(panel, "Rows", Vector2.zero, Vector2.one, 12f, 12f, 102f, -86f);
-                var content = MenuKit.ScrollBody(view);
-                rowsScroll = view.GetComponent<ScrollRect>();
+                // The list fills the page from under the header to just above
+                // the footer, in WHOLE blocks: a viewport that can only ever
+                // show whole rows, and says how many more there are.
+                var rowsList = Junkyard.WreckContents(s, wreck);
+                float panelH = MenuKit.DesignHeight - 52f;
+                int shown = BlockSnap.Fit(panelH - ListTop - ListBottom, BlockStep, BlockGap, rowsList.Count);
+                float viewH = shown * BlockStep - BlockGap;
+                var view = MenuKit.Rect(panel, "Rows", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(0f, -ListTop), new Vector2(RowW, viewH));
+                // The cues sit either side of STRAIGHTEN UP, on the footer line.
+                above = MenuKit.Label(panel, "", MenuKit.Tiny, new Vector2(0.5f, 0f),
+                    new Vector2(-RowW * 0.5f, 14f), TextAnchor.MiddleLeft, MenuKit.Accent, RowW * 0.5f - 180f, height: 44f);
+                below = MenuKit.Label(panel, "", MenuKit.Tiny, new Vector2(0.5f, 0f),
+                    new Vector2(RowW * 0.5f, 14f), TextAnchor.MiddleRight, MenuKit.Accent, RowW * 0.5f - 180f, height: 44f);
+                rowsContent = BlockSnap.Make(view, rowsList.Count, shown, BlockStep, BlockGap, above, below);
+                rowsSnap = view.GetComponent<BlockSnap>();
                 var car = s.ActiveCar;
                 var carSpec = car != null ? CarCatalog.Get(car.specId) : null;
-                float y = -6f;
-                foreach (var row in Junkyard.WreckContents(s, wreck))
-                    DrawRow(content, s, car, carSpec, row, ref y);
-                // Content height off what was drawn; the viewport height off the
-                // canvas column (the panel is 52 units shorter, the rows' box a
-                // further 188), never off a rect that has not resolved yet.
-                MenuKit.FitScrollContent(content, Mathf.Max(0f, MenuKit.DesignHeight - 52f - 188f));
+                for (int i = 0; i < rowsList.Count; i++)
+                    DrawRow(rowsContent, s, car, carSpec, rowsList[i], -i * BlockStep);
             }
 
-            // The footer, pinned to the bottom of the panel so the list above
-            // it can scroll on a short (handheld) column without pushing the
-            // way out off the screen. Built after the rows so the pad starts on
-            // the first part, not on the way out.
+            // The footer, pinned to the bottom of the panel. Built after the
+            // rows so the pad starts on the first part, not on the way out.
             toastText = MenuKit.Label(panel, "", 16, new Vector2(0.5f, 0f),
-                new Vector2(0f, 70f), TextAnchor.MiddleCenter, MenuKit.Good, RowW, height: 28f);
+                new Vector2(0f, 60f), TextAnchor.MiddleCenter, MenuKit.Good, RowW, height: 24f);
             MenuKit.Button(panel, "STRAIGHTEN UP", new Vector2(0.5f, 0f),
-                new Vector2(0f, 14f), new Vector2(340f, 46f), Close, 18);
+                new Vector2(0f, 12f), new Vector2(340f, 44f), Close, 18);
 
             // Without this the page is mouse- and touch-only: UGUI routes pad
             // navigation to the SELECTED object and nothing here would ever set
@@ -232,23 +251,31 @@ namespace PSXRacing.OnFoot
             }
         }
 
+        /// <summary>The first of <paramref name="tries"/> that fits on one line
+        /// in <paramref name="width"/> - never cut, never an ellipsis.</summary>
+        static Text OneLine(Transform parent, float x, float y, float width, Color ink, params string[] tries)
+        {
+            var t = MenuKit.Label(parent, tries[0], MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(x, y),
+                TextAnchor.MiddleLeft, ink, width, height: 22f);
+            for (int i = 1; i < tries.Length && t.preferredWidth > width; i++) t.text = tries[i];
+            return t;
+        }
+
         /// <summary>
-        /// One slot on the shell, as ONE block: what it is and how good on top,
-        /// then the two things you can do with it side by side - FIT TO the car
-        /// you are in, or KEEP AS A SPARE - and under EACH button, inside the
-        /// same block, what that button will do or why it cannot. The reason
-        /// used to be a red line floating in the gap between two rows (owner's
-        /// shot), so it read as belonging to either; and "already maxed" was a
-        /// reason to refuse the whole pull, which is gone - fitting can be
-        /// refused, keeping cannot (money and shelf room aside).
+        /// One slot on the shell, as ONE block of fixed height: what it is and
+        /// how good on top, then the two things you can do with it side by side
+        /// - FIT TO the car you are in, or KEEP AS A SPARE - and under EACH
+        /// button, inside the same block, one line: what it will do, or why
+        /// not. The reason used to float in the gap between two rows (owner's
+        /// shot); and "already maxed" refused the whole pull, which is gone.
         /// </summary>
         void DrawRow(RectTransform parent, LifeState s, OwnedCar car, CarSpec carSpec,
-                     Junkyard.WreckSlot row, ref float y)
+                     Junkyard.WreckSlot row, float y)
         {
             float w = RowW, left = -w * 0.5f;
             int slot = row.slot;
             var bg = MenuKit.Rect(parent, "Slot" + slot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(0f, y), new Vector2(w, 60f), new Color(0.07f, 0.07f, 0.07f, 0.96f));
+                new Vector2(0f, y), new Vector2(w, BlockH), new Color(0.07f, 0.07f, 0.07f, 0.96f));
             bg.GetComponent<Image>().raycastTarget = false;
 
             if (row.stripped || row.taken)
@@ -256,14 +283,11 @@ namespace PSXRacing.OnFoot
                 // A row, not a gap. See the class note: a picked-over shell has
                 // to LOOK picked over.
                 MenuKit.Label(parent, (row.taken ? "TAKEN   " : "GONE   ") + row.part.label,
-                    17, new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 6f), TextAnchor.MiddleLeft,
+                    17, new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 22f), TextAnchor.MiddleLeft,
                     MenuKit.Dim, w - 28f, height: 24f);
-                MenuKit.Label(parent, row.taken ? "you pulled it - on your shelf or on its way onto a car"
-                                                : "somebody got here first",
-                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 32f),
-                    TextAnchor.MiddleLeft, MenuKit.Dim, w - 28f, height: 22f);
-                bg.sizeDelta = new Vector2(w, 60f);
-                y -= 68f;
+                OneLine(parent, left + 14f, y - 50f, w - 28f, MenuKit.Dim,
+                    row.taken ? "you pulled it - on your shelf, or on its way onto a car" : "somebody got here first",
+                    "you pulled it");
                 return;
             }
 
@@ -274,58 +298,57 @@ namespace PSXRacing.OnFoot
 
             // Line 1: grade + part on the left, where it came off on the right.
             MenuKit.Label(parent, Junkyard.GradeWord(part.grade) + "   " + part.label, 18,
-                new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 6f), TextAnchor.MiddleLeft,
-                tint, w * 0.60f, height: 26f, bold: true);
-            MenuKit.Label(parent, part.donorHint + (risk > 0 ? "  ·  " + risk + "% RISK" : ""), MenuKit.Tiny,
-                new Vector2(0.5f, 1f), new Vector2(left + w - 14f, y - 6f), TextAnchor.MiddleRight,
-                risk >= 20 ? MenuKit.Bad : MenuKit.Dim, w * 0.38f, height: 26f);
+                new Vector2(0.5f, 1f), new Vector2(left + 14f, y - 4f), TextAnchor.MiddleLeft,
+                tint, w * 0.58f, height: 24f, bold: true);
+            var hint = MenuKit.Label(parent, part.donorHint + (risk > 0 ? "  ·  " + risk + "% RISK" : ""), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(left + w - 14f, y - 4f), TextAnchor.MiddleRight,
+                risk >= 20 ? MenuKit.Bad : MenuKit.Dim, w * 0.38f, height: 24f);
+            if (hint.preferredWidth > w * 0.38f) hint.text = risk > 0 ? risk + "% RISK" : "";
 
             // Line 2: the two actions.
             float bw = (w - 28f - 12f) * 0.5f;
             float bx0 = left + 14f + bw * 0.5f, bx1 = bx0 + bw + 12f;
-            float by = y - 38f;
+            float by = y - 32f;
             string carName = car != null ? LifeRules.ShortName(car) : "YOUR CAR";
             var fit = MenuKit.Button(parent,
                 offer.can ? "FIT TO " + carName + "  -  " + MenuKit.Money(offer.price)
                           : "FIT TO " + carName,
-                new Vector2(0.5f, 1f), new Vector2(bx0, by), new Vector2(bw, 40f),
+                new Vector2(0.5f, 1f), new Vector2(bx0, by), new Vector2(bw, 34f),
                 offer.can ? (UnityEngine.Events.UnityAction)(() => Pull(slot)) : null,
                 16, offer.can ? (Color?)new Color(0.20f, 0.30f, 0.24f, 1f) : MenuKit.BtnBgDisabled);
             fit.gameObject.name = "Btn_fit_" + slot;
             var keep = MenuKit.Button(parent,
                 "KEEP AS A SPARE  -  " + MenuKit.Money(offer.keepPrice),
-                new Vector2(0.5f, 1f), new Vector2(bx1, by), new Vector2(bw, 40f),
+                new Vector2(0.5f, 1f), new Vector2(bx1, by), new Vector2(bw, 34f),
                 offer.canKeep ? (UnityEngine.Events.UnityAction)(() => Keep(slot)) : null,
                 16, offer.canKeep ? (Color?)null : MenuKit.BtnBgDisabled);
             keep.gameObject.name = "Btn_keep_" + slot;
 
-            // Line 3: under each button, what it will do - or why not - in the
-            // same block, so a reason can only be read as that button's.
-            float ly = by - 46f;
-            string fitLine;
+            // Line 3: under each button, one line - what it will do, or why not.
+            float ly = by - 36f;
+            string kind = part.IsUpgrade
+                ? Upgrades.KindLabels[(int)Upgrades.KindFromKey(part.upgradeKind)].ToLowerInvariant() : "";
             if (offer.can)
-                fitLine = (offer.quote.isUpgrade ? "STAGE " + offer.quote.stage + " ON YOUR " + carName
-                                                 : offer.quote.effect + " ON YOUR " + carName) +
-                          "  ·  " + offer.quote.days + "d to fit";
+                OneLine(parent, bx0 - bw * 0.5f, ly, bw, MenuKit.Dim,
+                    (offer.quote.isUpgrade ? "stage " + offer.quote.stage + " " + kind : offer.quote.effect) +
+                    "  ·  " + offer.quote.days + "d to fit",
+                    offer.quote.isUpgrade ? "stage " + offer.quote.stage : offer.quote.effect);
             else
-                fitLine = "can't fit: " + (offer.blocked ?? "no car");
-            MenuKit.Para(parent, fitLine, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                new Vector2(bx0 - bw * 0.5f, ly), out float fitH, TextAnchor.UpperLeft,
-                offer.can ? MenuKit.Dim : MenuKit.Bad, bw);
-            string keepLine = offer.canKeep
-                ? "to your shelf  ·  " + (part.IsUpgrade
-                      ? "any car, up to stage " + part.maxStage + " " +
-                        Upgrades.KindLabels[(int)Upgrades.KindFromKey(part.upgradeKind)].ToLowerInvariant()
-                      : "any car, +" + Junkyard.EffectiveAdd(part.add, part.grade) + " " + Junkyard.StatWord(part.stat))
-                : "can't keep: " + offer.keepBlocked;
-            MenuKit.Para(parent, keepLine, MenuKit.Tiny, new Vector2(0.5f, 1f),
-                new Vector2(bx1 - bw * 0.5f, ly), out float keepH, TextAnchor.UpperLeft,
-                offer.canKeep ? MenuKit.Dim : MenuKit.Bad, bw);
-
-            float h = (y - ly) + Mathf.Max(fitH, keepH) + 8f;
-            bg.sizeDelta = new Vector2(w, h);
-            y -= h + 8f;
+                OneLine(parent, bx0 - bw * 0.5f, ly, bw, MenuKit.Bad,
+                    "can't fit: " + (offer.blocked ?? "no car"), offer.blocked ?? "no car", "can't fit it");
+            if (offer.canKeep)
+                OneLine(parent, bx1 - bw * 0.5f, ly, bw, MenuKit.Dim,
+                    part.IsUpgrade ? "to your shelf  ·  any car to stage " + part.maxStage + " " + kind
+                                   : "to your shelf  ·  any car, +" + Junkyard.EffectiveAdd(part.add, part.grade) +
+                                     " " + Junkyard.StatWord(part.stat),
+                    part.IsUpgrade ? "shelf: any car to stage " + part.maxStage
+                                   : "shelf: any car, +" + Junkyard.EffectiveAdd(part.add, part.grade),
+                    "to your shelf");
+            else
+                OneLine(parent, bx1 - bw * 0.5f, ly, bw, MenuKit.Bad,
+                    "can't keep: " + offer.keepBlocked, offer.keepBlocked ?? "can't keep it");
         }
+
 
         void Pull(int slot)
         {

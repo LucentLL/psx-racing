@@ -267,12 +267,72 @@ namespace PSXRacing.EditorTools
                 string path = Path.Combine(outDir, "menu_" + label + "_" + size.name + ".png");
                 File.WriteAllBytes(path, tex.EncodeToPNG());
                 Debug.Log("[Spares] wrote " + path);
+                PadWalk(screen, label + "/" + size.name);
                 Object.DestroyImmediate(tex);
                 cam.targetTexture = null;
                 rt.Release();
                 Object.DestroyImmediate(rt);
                 MenuKit.ScreenSizeOverride = Vector2.zero;
             }
+        }
+
+        /// <summary>
+        /// The wreck page with a pad, without play mode: the geometric graph
+        /// MenuNavWatch would build (MenuNav.Grid), flooded from the first
+        /// control - every control must be reached, each row's FIT must go
+        /// RIGHT to its KEEP and back LEFT, DOWN from row i must land in row
+        /// i+1 - and the list's focus rule: the cursor on the last row scrolls
+        /// that whole block into view on a block edge, with the cues counting.
+        /// </summary>
+        static void PadWalk(PSXRacing.OnFoot.WreckScreen screen, string where)
+        {
+            var panel = typeof(PSXRacing.OnFoot.WreckScreen).GetField("panel", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(screen) as RectTransform;
+            var snap = typeof(PSXRacing.OnFoot.WreckScreen).GetField("rowsSnap", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetValue(screen) as BlockSnap;
+            if (panel == null) { Debug.Log("[Spares] pad " + where + ": no panel"); return; }
+            var rows = MenuNav.Collect(panel);
+            if (!MenuNav.RectsResolved(rows)) { Debug.Log("[Spares] pad " + where + ": rects unresolved"); return; }
+            MenuNav.Grid(rows);
+            var seen = new HashSet<Selectable>();
+            var q = new Queue<Selectable>();
+            if (rows.Count > 0) { seen.Add(rows[0]); q.Enqueue(rows[0]); }
+            while (q.Count > 0)
+            {
+                var n = q.Dequeue().navigation;
+                foreach (var nx in new[] { n.selectOnUp, n.selectOnDown, n.selectOnLeft, n.selectOnRight })
+                    if (nx != null && seen.Add(nx)) q.Enqueue(nx);
+            }
+            var lost = rows.FindAll(r => !seen.Contains(r)).ConvertAll(r => r.name);
+            int pairs = 0, pairsOk = 0;
+            foreach (var r in rows)
+            {
+                if (!r.name.StartsWith("Btn_fit_")) continue;
+                var k = rows.Find(x => x.name == "Btn_keep_" + r.name.Substring(8));
+                if (k == null) continue;
+                pairs++;
+                if (r.navigation.selectOnRight == k && k.navigation.selectOnLeft == r) pairsOk++;
+            }
+            string line = "[Spares] pad " + where + ": " + seen.Count + "/" + rows.Count + " reached" +
+                          (lost.Count > 0 ? " UNREACHABLE: " + string.Join(", ", lost) : "") +
+                          "; FIT<->KEEP left/right " + pairsOk + "/" + pairs;
+            if (lost.Count > 0 || pairsOk < pairs) Debug.LogError(line); else Debug.Log(line);
+
+            if (snap == null) return;
+            Selectable last = null;
+            foreach (var r in rows) if (r.name.StartsWith("Btn_keep_") || r.name.StartsWith("Btn_fit_")) last = r;
+            if (last == null) return;
+            snap.ShowBlockOf(last.gameObject);
+            int bi = snap.BlockIndexOf(last.gameObject);
+            string focus = "[Spares] focus " + where + ": cursor on block " + bi + " of " + snap.count +
+                           " (" + snap.shown + " shown) -> list at y " + snap.content.anchoredPosition.y.ToString("0") +
+                           ", block fully shown " + snap.BlockFullyShown(bi) +
+                           ", on a block edge " + (Mathf.Abs(snap.content.anchoredPosition.y % snap.step) < 0.5f) +
+                           ", cues '" + (snap.above != null ? snap.above.text : "") + "' / '" +
+                           (snap.below != null ? snap.below.text : "") + "'";
+            if (!snap.BlockFullyShown(bi)) Debug.LogError(focus); else Debug.Log(focus);
+            snap.content.anchoredPosition = Vector2.zero;
+            snap.Cues();
         }
 
         static void SetText(object o, string field, string value)

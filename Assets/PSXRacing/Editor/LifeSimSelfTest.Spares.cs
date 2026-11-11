@@ -273,6 +273,21 @@ namespace PSXRacing.EditorTools
             TickJobs(t);
             Check(Upgrades.GetStage(bought, kind) == 1, "stage 1 " + later.upgradeKind + " on it",
                   Upgrades.GetStage(bought, kind));
+
+            // ---- selling a car with a spare going on: the part comes back ----
+            var hack = CarMarket.MakeOwnedCar(t, spec, 60, 150000f, spec.price / 5);
+            var going = Spares.Shelve(t, new YardPart
+            { label = "MATCHED SET + TYRES", stat = "tires", add = 45, basePrice = 260, days = 2, grade = 77 }, "", "", 140);
+            err = Spares.Fit(t, hack, going, false);
+            Check(err == null && !t.partsShelf.Contains(going), "a spare going onto the car about to be sold", err);
+            int shelfBefore = t.partsShelf.Count;
+            err = CarMarket.QuickSell(t, hack);
+            Check(err == null && t.FindCar(hack.id) == null, "the car is sold", err);
+            Check(t.partsShelf.Count == shelfBefore + 1 && t.partsShelf.Exists(x => x.id == going.id),
+                  "and the spare is back on the shelf, not sold with it", t.partsShelf.Count);
+            Check(!t.pendingParts.Exists(j => j.carId == hack.id), "with no job left on a car that is gone");
+            var reload = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(t));
+            Check(reload.partsShelf.Exists(x => x.id == going.id && x.grade == 77), "and it survives a save");
         }
 
         static void TestPartsShelfSave()
