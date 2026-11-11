@@ -1706,6 +1706,7 @@ namespace PSXRacing.City
                 // shadow, and a caster a tile is a draw a tile in the sun's map
                 // (the perf probe: SetPass +24 a frame with it)
                 SunShadows.Exclude(g);
+                if (CityMeshes.Curbs2On && CityMeshes.PanWetOn) WetReflections.Tag(mr);   // (curbs2 r2) the gutter pans, lids and grates mirror the rain as the road beside them
                 meshes.Add(tm.structure);
             }
             if (tm.medianPlants != null)

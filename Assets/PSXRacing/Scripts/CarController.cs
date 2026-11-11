@@ -2802,6 +2802,50 @@ namespace PSXRacing
             return n.sqrMagnitude > 1e-6f ? n.normalized : transform.up;
         }
 
+        // ---- THE TYRE ENVELOPE (curbs2 round 2, 2026-11-11) ------------------
+        // A wheel is one ray down from its mount: over a plumb 15 cm curb face
+        // the ray steps the whole height in one tick, and the drawn tyre (a
+        // 0.3 m circle round the hub) cuts 17.5 cm into the drawn curb's edge
+        // before its ray reaches the face, whatever the collider's chamfer.
+        // A real tyre meets the EDGE first: its hub rises on a circle of its
+        // radius round the edge, from r - sqrt(r^2 - (r-h)^2) ahead of the
+        // face (26 cm for 15 cm). Here: four more rays ahead of the contact,
+        // along the wheel's own travel, each lowered by the tyre's curve
+        // there (r - sqrt(r^2 - x^2)); the highest wins. The edge pushes back
+        // along its line to the hub (a curb strike slows and turns the car;
+        // capped at EnvLeanMax of the spring's load). Off (the old ray):
+        // PSX_WHEEL_ENVELOPE=0.
+        public static bool WheelEnvelopeOn = System.Environment.GetEnvironmentVariable("PSX_WHEEL_ENVELOPE") == "1";
+        static readonly float[] EnvAt = { 0.35f, 0.6f, 0.8f, 0.92f };
+        const float EnvLeanMax = 1.0f;
+        readonly float[] envLean = new float[4];
+        readonly Vector3[] envDir = new Vector3[4];
+
+        bool TyreEnvelope(int i, Vector3 mount, float rayLength, bool grounded, ref RaycastHit hit)
+        {
+            Vector3 up = transform.up;
+            Vector3 hv = Vector3.ProjectOnPlane(Body.GetPointVelocity(mount), up);
+            if (hv.sqrMagnitude < 0.04f) return grounded;
+            Vector3 fw = hv.normalized;
+            float r = WheelRadiusOf(i);
+            float best = grounded ? rayLength - hit.distance : 0f;
+            float bestX = 0f; RaycastHit bestHit = default;
+            foreach (float k in EnvAt)
+            {
+                float x = k * r;
+                if (!Physics.Raycast(mount + fw * x, -up, out RaycastHit h, rayLength, suspensionMask, QueryTriggerInteraction.Ignore)) continue;
+                float comp = rayLength - h.distance - (r - Mathf.Sqrt(r * r - x * x));
+                if (comp > best + 0.002f) { best = comp; bestX = x; bestHit = h; }
+            }
+            if (bestX <= 0f) return grounded;
+            float lift = Mathf.Sqrt(r * r - bestX * bestX);
+            bestHit.distance = rayLength - best;
+            hit = bestHit;
+            envLean[i] = Mathf.Min(bestX / lift, EnvLeanMax);
+            envDir[i] = fw;
+            return true;
+        }
+
         Vector3 SpringDirection(Vector3 groundNormal)
         {
             Vector3 up = transform.up;
@@ -3016,6 +3060,8 @@ namespace PSXRacing
                 wheelGrounded[i] = Physics.Raycast(mount, -transform.up, out RaycastHit hit,
                                                    rayLength, suspensionMask,
                                                    QueryTriggerInteraction.Ignore);
+                envLean[i] = 0f;
+                if (WheelEnvelopeOn) wheelGrounded[i] = TyreEnvelope(i, mount, rayLength, wheelGrounded[i], ref hit);
 
                 // Contact geometry for the visuals, taken from the ray that was
                 // cast anyway. TireForces fills in the sliding speed a few lines
@@ -3104,6 +3150,8 @@ namespace PSXRacing
                     wheelContacts[i].onRoad = isRoad;
 
                     Body.AddForceAtPosition(SpringDirection(hit.normal) * force, mount);
+                    // (tyre envelope) an edge ahead of the contact pushes back along its line to the hub
+                    if (envLean[i] > 0f) Body.AddForceAtPosition(-envDir[i] * (force * envLean[i]), mount);
                 }
                 else
                 {
