@@ -1,3 +1,29 @@
+# HANDOFF - COCKPIT ROUND 2: THE CABIN ON THE CAR'S OWN WINDSCREEN ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors2\summary.png`.
+
+## Measured
+- Header (windscreen top), belt and side glass of every shell probed by rays (Editor/CockpitFitProbe.cs -> Scripts/CockpitFit.Table.cs, 52 rows). His windscreen pane against the cars: median 1.13 x the length and 1.20 x the height (CalibZ/CalibY): the fit moves each car from the catalogue's middle.
+- Fit gates over all 52 (Screenshots/DoorMirrors/fit_final_base.txt -> fit_final.txt): (b) shell geometry standing inside the cabin: 0 before and after; nose: rays from the eye into the hollow nose at rest / nose up 3 / nose down 3 / brake dive / crest: up to 99 rays per pose on the muscle cars, every one ahead of the cut, so all are drawn dark by round 1's inside pass: 0 open on every shell in every pose. Measured not gated: (a) cabin vertices ahead of the seat outside the shell (worst CTR 49.7 -> 18.9 cm, FD 44.4 -> 17.9, van/Land Rover/fullsize 50-63 cm both ways); header/belt offsets per shell in the file.
+- Eye moves: CTRs 31 cm forward, 5 cm down, 6 cm in (wing crowns and both mirrors now in view); '69/'70 Chargers, GTO, pagoda, Mustang forward 18-27 cm; raked-screen cars (EG, Evo, FD, Supra) within 5 cm of before.
+- Grips: the wheel now scales with the cabin (its round-1 counter-scale moved it off the arms' grips); grip-to-rim centre 12-18 mm = the palm offset at scale 1 (15 mm) times the cabin scale, on the rim on every car (log in Screenshots/MirrorMatch/r2d/log.txt).
+- Mirror check: 52 shells, 48 with live mirrors, 0 FAIL. Merged-mirror rule gives glass to classic_roadster, coupe_99, flatsix_turbo_96, gt_hardtop_73; nissan_180sx's smaller glass replaced by the larger reflected.
+- Rear-view at home: HomeMirrorPlayCheck in play (visible editor, Town free-roam start, Yellowbird in cockpit): the rear-view camera sees only the player's own body (cut) and the town; picture = the road behind. The bug did not reproduce on this code; the likely cause was round 1's: the camera kept the first car's place (fixed in round 1, PlaceMirrorCamera).
+- Self-test: 65 failures, was 66 (TestCockpitArms NRE fixed: CockpitArmsShots.SelfTest appended to a null log); no new failure.
+
+## Changed (switches: PSX_COCKPIT_FIT3=0, PSX_DOORMIRROR_MERGED=0, plus round 1's)
+- CockpitFit.cs + CockpitFit.Table.cs (generated) + CockpitInterior.Fit3: pane base on the cowl, top toward the header; length scale 0.75-1.05 (the seat moves forward freely, back 5% at most, never within 30 cm of the car's own mirrors), height 0.85-1.12, width as round 1 or the shell's side glass; EyeShift (vector) moves the chase camera's mount.
+- DoorMirrorProbe: merged mirrors, one glass for both sides. DoorMirrors.Table.cs re-emitted.
+- Editor: CockpitFitProbe (Measure/EmitBatch/FitBatch), DoorMirrorMatch (R2Batch/R2Final, forced-pose shots, grip gap), HomeMirrorPlayCheck.
+
+## Left
+- Still dead: camry_2001 and the three fullsize cars (their cowl is mis-measured by the baker: y 1.44). Viper has no measured cowl: old fit.
+- The look-right pose dips the head (DownFor); the CTR's passenger mirror is in view with the head level (in_R0).
+- Cabin vertices behind the windscreen header stand outside low/short shells (the van, Land Rover, fullsize): not visible from the seat.
+
+## Merge
+- Code + two generated tables (Scripts/CockpitFit.Table.cs NEW + .meta, Scripts/DoorMirrors.Table.cs), Scripts/CockpitFit.cs NEW + .meta, Editor files + metas. No car re-bake, scene rebuild, tile bake or format bump; round 1's PSXCarPaint.shader edit stays. Re-run CockpitFitProbe.EmitBatch and DoorMirrorMatch.ReprobeBatch after any car batch, then FitBatch / CheckBatch.
+
 # HANDOFF - NO CAR SITS LIFTED OR TILTED AT REST ("parked" round 2, branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
 
 Coordinator: the round-1 sweep still had rows "SEATED HIGH AT REST". Re-measured in the DRIVEN frame (CarBody.Lifted; round 1's sweep compared the unlifted fit with 328 mm and over-counted): 94 of 319 rows.
