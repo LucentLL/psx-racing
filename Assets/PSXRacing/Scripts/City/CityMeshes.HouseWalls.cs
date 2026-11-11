@@ -143,15 +143,18 @@ namespace PSXRacing.City
                 // brick base) the ground storey only
                 int stB = Mathf.Max(1, Mathf.FloorToInt(avail / HouseMinStoreyM + 0.0001f));
                 int nb = houseBrickBase ? 1 : stB;
-                float pb = houseBrickBase ? pitch : avail / stB;
+                float pb = houseBrickBase ? pitch : Mathf.Min(avail / stB, 3.0f);
                 if (floor > y0 + 0.01f) HouseFoundation(tm, a, c, y0, floor, outward);
                 var keep = Bucket.Tint;
                 PickFacade(houseBrickAt, 2, 2, 2, default, floor, pb);
                 HouseBrickLookSet(houseBrickAt);
-                for (int k = 0; k < nb; k++) EmitFacadeQuad(tm, Slot.FacadeGlass, a, c, floor + k * pb, floor + (k + 1) * pb, outward);
+                var lk = FacadeLooks[houseBrickLook];
+                // a house's windows: the column's repeat at 0.55 of its width (the atlas's are a block's)
+                float ur = Mathf.Max(1f, Mathf.Round(W / (lk.uM * 0.55f)));
+                for (int k = 0; k < nb; k++) EmitPanels(tm, Slot.FacadeGlass, a, c, floor + k * pb, floor + (k + 1) * pb, outward, ur, 1f / lk.floors, 0f);
                 Bucket.Tint = keep; Bucket.FacOn = false;
                 y = floor + nb * pb; s0 = nb;
-                if (!houseBrickBase) { if (y1 > y + 0.01f) HousePlain(tm, a, c, y, y1, outward, uPlain, true); return; }
+                if (!houseBrickBase) { if (y1 > y + 0.01f) HousePlain(tm, a, c, y, y1, outward, uPlain, true); return; }   // the frieze over the brick: siding
             }
             for (int s = s0; s < storeys; s++)
             {
