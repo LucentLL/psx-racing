@@ -40,7 +40,7 @@ namespace PSXRacing.City
     //  gutter, a black cast hood forming the curb face, a concrete top slab
     //  with a round lid behind): on every walk side, at each sag of the
     //  edge's real profile, every InletPitchM on grade, and just upstream of
-    //  the low end's corner (3.5 m before the ribbon's end); none on a
+    //  the low end's corner (5.5 m before the ribbon's end); none on a
     //  driveway or lot apron, a walk's ramp end, a street tree's grate or
     //  beside a lamp post; nudged up to 3 m to find room. Rolled streets take
     //  the low hood and the grate in the valley.
@@ -363,6 +363,15 @@ namespace PSXRacing.City
         }
 
         // ---- the gutter pan ---------------------------------------------------
+        /// <summary>The pan stops this far before the ribbon's end at a junction.</summary>
+        const float PanJunctionClearM = 4f;
+        static bool Cs2PanClearOfJunction(CityMap map, CityMap.Edge e, float s)
+        {
+            if (sections.Count < 2) return true;
+            if (map.nodeEdges[e.a].Count >= 3 && s - sections[0].s < PanJunctionClearM) return false;
+            if (map.nodeEdges[e.b].Count >= 3 && sections[sections.Count - 1].s - s < PanJunctionClearM) return false;
+            return true;
+        }
         /// <summary>The 0.6 m concrete pan on the road's outer edge under a walk
         /// sub-span (edge points pA, pB, outward oA, oB; span i's sections),
         /// render-only, GutterLiftM proud. vertical: the share of it to lay
@@ -390,7 +399,7 @@ namespace PSXRacing.City
         /// <summary>On-grade inlet spacing: 90-120 m by the edge's hash.</summary>
         const float InletPitchMinM = 90f, InletPitchMaxM = 120f;
         /// <summary>The low end's inlet stands this far before the ribbon's end (the corner's curb return).</summary>
-        const float InletEndM = 3.5f;
+        const float InletEndM = 5.5f;
         /// <summary>A sag: the profile's low point at least this far under both neighbours 10 m away.</summary>
         const float SagDipM = 0.03f;
         const float InletAlongM = 1.0f;
@@ -554,10 +563,11 @@ namespace PSXRacing.City
             for (int b = 0; b < bars; b++)
             {
                 float c = -gl + (b + 0.5f) * (gAlong / bars), hw = 0.022f;
-                SQuad(P(c - hw, -gIn0, GrateBarLiftM), P(c - hw, -gIn1, GrateBarLiftM), P(c + hw, -gIn1, GrateBarLiftM), P(c + hw, -gIn0, GrateBarLiftM), UvRust);
+                // (dark iron: rust read as a wooden pallet in the first frames)
+                SQuad(P(c - hw, -gIn0, GrateBarLiftM), P(c - hw, -gIn1, GrateBarLiftM), P(c + hw, -gIn1, GrateBarLiftM), P(c + hw, -gIn0, GrateBarLiftM), UvIronLid);
             }
             float mid = -0.5f * (gIn0 + gIn1);
-            SQuad(P(-gl, mid - 0.02f, GrateBarLiftM + 0.001f), P(-gl, mid + 0.02f, GrateBarLiftM + 0.001f), P(gl, mid + 0.02f, GrateBarLiftM + 0.001f), P(gl, mid - 0.02f, GrateBarLiftM + 0.001f), UvRust);
+            SQuad(P(-gl, mid - 0.02f, GrateBarLiftM + 0.001f), P(-gl, mid + 0.02f, GrateBarLiftM + 0.001f), P(gl, mid + 0.02f, GrateBarLiftM + 0.001f), P(gl, mid - 0.02f, GrateBarLiftM + 0.001f), UvIronLid);
 
             // ---- the hood over the throat, in the curb face ------------------
             // The black cast hood stands 2 cm proud of the face from the throat's

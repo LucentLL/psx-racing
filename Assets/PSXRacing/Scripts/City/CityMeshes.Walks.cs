@@ -1576,7 +1576,9 @@ namespace PSXRacing.City
                     // (not where a ramp end narrows the walk: it turns across the junction mouth)
                     // (curbs2) the gutter pan on the road under the vertical curb, and the tallies
                     // (Uptown inside the loop: granite curb straight off the asphalt, no concrete pan - S Tryon at road level)
-                    if (!(StreetDressOn && StreetDressOf(map, e) != DressNone))
+                    // (and not in the last metres before a junction, where the arm's drawn edge runs on
+                    //  past the corner's curb return into the mouth: Lexington Ave's crosswalk)
+                    if (!(StreetDressOn && StreetDressOf(map, e) != DressNone) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
                         Cs2Gutter(i, pA, pB, oA, oB, Mathf.Lerp(sA, sB, t0) / 8f, Mathf.Lerp(sA, sB, t1) / 8f, rl0, rl1);
                     float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
                     if (rl0 + rl1 > 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
