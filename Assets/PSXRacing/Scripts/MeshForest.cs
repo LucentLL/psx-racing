@@ -115,6 +115,13 @@ namespace PSXRacing
         /// <summary>A plant with a draw limit dissolves over this share of it.</summary>
         public float limitBand = 0.2f;
 
+        /// <summary>A STREAMED forest (Charlotte's mesh trees, MeshForest.Pool.cs):
+        /// fixed slots of instances that tiles fill and give back. Set before
+        /// the component wakes (CreatePool).</summary>
+        [System.NonSerialized] public bool pooled;
+        /// <summary>Where the dress comes from (null: SeasonDress.AppliedDress).</summary>
+        [System.NonSerialized] public System.Func<int> dressSource;
+
         public static bool MeshTreesOn = true;
         /// <summary>A/B (perf tour ab=MeshForest.PopFix:0 = the forest as PC26
         /// drew it): the pop-in round of 2026-11-11.</summary>
@@ -239,7 +246,7 @@ namespace PSXRacing
             // shaders and the scene carries the cull; the old per-frame
             // re-bucket everywhere else, and its tables only when it runs.
             bool gpu = GpuDriven && InitGpu();
-            if (!gpu) EnsureLegacy();
+            if (!gpu && !pooled) EnsureLegacy();
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
                       $"LOD {lod0To}/{lod1To}/{meshRange} m, impostors to {farRange} m; F8 = A/B; " +
                       (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") + ".");
@@ -311,7 +318,7 @@ namespace PSXRacing
         public void DrawNow(Camera cam, bool viewFrustum = false)
         {
             if (!inited) Init();
-            int dress = SeasonDress.AppliedDress;
+            int dress = DressNow();
             DressMaterials(dress);
             lastDress = dress;
             // (a shot's camera takes its aspect from the texture it is about
@@ -319,6 +326,7 @@ namespace PSXRacing
             // unless the caller has set the camera's aspect and asks for the
             // player's own cull - viewFrustum)
             if (UseGpu) { GpuDressChanged(); GpuFrame(cam, !viewFrustum); return; }
+            if (pooled) return;   // a streamed forest draws on the GPU path only
             EnsureLegacy();
             cardsKnown = false;
             Rebucket(cam, transform.localToWorldMatrix, cam.transform.position);
@@ -385,7 +393,7 @@ namespace PSXRacing
                 Debug.Log("[MeshForest] " + (MeshTreesOn ? "MESH forest" : "CARD trees (old)"));
             }
 
-            if (UseGpu) return;     // that path draws from LateUpdate, once the camera has moved
+            if (UseGpu || pooled) return;     // that path draws from LateUpdate, once the camera has moved
             var cam = FrameStart();
             if (cam == null) return;
             EnsureLegacy();
@@ -429,10 +437,12 @@ namespace PSXRacing
                 lastOn = false;
                 return null;
             }
-            int dress = SeasonDress.AppliedDress;
+            int dress = DressNow();
             if (dress != lastDress) { DressMaterials(dress); lastDress = dress; GpuDressChanged(); }
             return cam;
         }
+
+        int DressNow() => dressSource != null ? dressSource() : SeasonDress.AppliedDress;
 
         static void SetCards(Chunk c, bool on)
         {

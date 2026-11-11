@@ -257,7 +257,45 @@ $wanted = @(
          @("e003e969c645eb7469595bf8140f0988", "Meadow/Ground/T_ground_meadow_grass_01_A_SM.tga"),
          @("5a2a364351bbb2245a45c344799805a7", "Meadow/Ground/T_ground_meadow_grass_01_N.png"),
          @("3d22ddd82c1120b41b60455e124e074a", "Meadow/Ground/T_ground_meadow_grass_02_A_SM.tga"),
-         @("16d9471febc948547b653ae363485aa2", "Meadow/Ground/T_ground_meadow_grass_02_N.png")) }
+         @("16d9471febc948547b653ae363485aa2", "Meadow/Ground/T_ground_meadow_grass_02_N.png"),
+         # Charlotte's mesh trees (2026-11-11, ctrees): six of the broad poplars (their parts
+         # per LOD are merged by the city tree kit), their pack impostor sheets (4 views in a
+         # 4x1 strip), the leaf atlas and the trunks they wear; the grey willow bushes
+         @("6e6c2bd6e66cea943b3e319bbc4468e7", "Meadow/Poplar/01_Poplar.FBX"),
+         @("fafbf7f7fce8f2e4ab6925da2bcdce4f", "Meadow/Poplar/02_Poplar.FBX"),
+         @("3bd600bd6ad25274c91c12e6a282c1e2", "Meadow/Poplar/03_Poplar_skan.FBX"),
+         @("aa040970f08693e41910f1b92814249e", "Meadow/Poplar/04_Poplar_skan.FBX"),
+         @("8435d3e8989cf524d8a7a46d921cd375", "Meadow/Poplar/05_Poplar_skan.FBX"),
+         @("b1a6e933be59796439ea3881727ed1de", "Meadow/Poplar/07_Poplar_skan.FBX"),
+         @("d8e0d23e7e6bdb6479ee14940ff81078", "Meadow/Poplar/T_Poplar_01_Cross_A_T.png"),
+         @("a892e483931309d428b7ba642f9cbc21", "Meadow/Poplar/T_Poplar_02_Cross_A_T.png"),
+         @("2a41f516f0718e647a651aea6450e5a0", "Meadow/Poplar/T_Poplar_03_Cross_A_T.png"),
+         @("9e9e13d22e5471d4db0a7cbdbc9ffbaa", "Meadow/Poplar/T_Poplar_04_Cross_A_T.png"),
+         @("605aa0163216dcf4e86e9d063345af4b", "Meadow/Poplar/T_Poplar_05_Cross_A_T.png"),
+         @("3f745f95a001fc54aab1daa84421290b", "Meadow/Poplar/T_Poplar_07_Cross_A_T.png"),
+         @("d75a2afefd95f3043a6398c181ceedcc", "Meadow/Poplar/T_Poplar_leaves_BC.tga"),
+         @("5bc99059428f3e541a97142fad9594e1", "Meadow/Poplar/T_Poplar_leaves_N.tga"),
+         @("f38b02fd951167c459c4d5ca45e69f60", "Meadow/Poplar/T_Poplar_bark_06_BC.tga"),
+         @("12b81aa2a42aeca4fa315dd4c73ff7aa", "Meadow/Poplar/T_Poplar_bark_06_N.tga"),
+         @("e9b191a368e7339449045e8ad31c5c83", "Meadow/Poplar/T_Poplar_trunk_03_BC.tga"),
+         @("33d19f8ba96958f41803c935b95bfc2e", "Meadow/Poplar/T_Poplar_trunk_04_BC.tga"),
+         @("8e57d4f7180f9534297aa67d040abc09", "Meadow/Poplar/T_Poplar_trunk_05_BC.tga"),
+         @("dde3461f8477eb34ba4ae42022e38d05", "Meadow/Poplar/T_Poplar_trunk_07_BC.tga"),
+         @("71b61815de35c0643863ce396beb6339", "Meadow/Willow/grey_willow_01.FBX"),
+         @("dc38a750cb6443f44954dadbbcecc97a", "Meadow/Willow/grey_willow_02.FBX"),
+         @("a7a1ad4c01b146844badd72af16311f4", "Meadow/Willow/grey_willow_03.FBX"),
+         @("ab62159611683b747bdb81618f0d20d0", "Meadow/Willow/grey_willow_04.FBX"),
+         @("09433f66e3e024d40aaa1c2e361bb7c5", "Meadow/Willow/T_Grey_willow_BC.tga"),
+         @("fdffb75f2c5e9de41b37d64081b73049", "Meadow/Willow/T_Grey_willow_N.tga")) },
+    # Charlotte's willow-oak stand-in and park/yard hero tree (2026-11-11, ctrees)
+    @{ Pkg = "Objective Environment\3D ModelsVegetation\Big Oak Tree FREE.unitypackage"
+       Files = @(
+         @("6366e10f9cacd274ebee65ade5a76def", "OE/Oak/OakBigTree01.fbx"),
+         @("e251468106f8d5b409d6ee86caa99cc5", "OE/Oak/barkOak001.png"),
+         @("4e42be3377eaccd40abd3f48bd6554a5", "OE/Oak/barkOak001_N.png"),
+         @("211ca27924489134f88b69b65575eaaf", "OE/Oak/BranchesOak001.tif"),
+         @("bd54ef767ea3f2e44b44c035dc07379d", "OE/Oak/BranchesOak001_N.png"),
+         @("1883fac2a09401945b4d1b5f0c903f5e", "OE/Oak/BigOakBillboard01.tif")) }
 )
 
 $root = Join-Path $Dest "Assets\StoreAssets"
