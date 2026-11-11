@@ -1,3 +1,33 @@
+# HANDOFF - CHARLOTTE MESH TREES (charlotte-mesh-trees, ctrees, 2026-11-11; NOT merged)
+
+Branch `charlotte-mesh-trees` (worktree `C:\Users\mcgee\PSX Racing-ctrees`) off mountain-nm c81f2a59. Sandbox PSXLab (lock "ctrees", released). Owner: "Why are you still using old tree cards when I've specifically asked to use Mountain/Meadow dynamic trees, plus free Poplar and Oak from assets."
+
+## Cause
+Charlotte's trees were never on the mesh path: `Scripts/City/CityTrees.cs` builds 2 crossed 128 px cards a tree into one mesh a tile; `MeshForest` was only built by the stage builder, as a scene-baked component.
+
+## What changed (no file in Scripts/City touched: the tile bake fingerprint is unchanged, no re-bake, no baked-class change)
+- `Scripts/MeshForest.Pool.cs` (new) + small edits in `MeshForest.cs` / `MeshForest.Gpu.cs`: a STREAMED MeshForest - fixed slots (one a live tile, 480 plants each, 96 slots to start, doubles when full) in the same GPU buffers, cull and indirect draws; a slot's chunk cards = the tile's old card renderer (shown only where the chunk is not drawn; still the sun-shadow stand-in). `pooled` + `dressSource` fields; stage forests unchanged.
+- `Scripts/CityTreeKit.cs` (new ScriptableObject, Resources/CityTreeKit.asset) + `Editor/PSXRacingBuilder.CityTreeKit.cs` (new): 26 species - 6 Forest beeches (mountain materials/impostors), 2 bare snags, 4 small beeches, Big Poplar, 6 Meadow poplars (parts per LOD merged by hand: pack meshes are Read/Write off; pack 4-view impostor sheets cut to alpha bounds), 2 of them as an evergreen PINE STAND-IN, 4 grey willows (crape myrtle), Big Oak (FBX LOD1-3, its billboard keyed to alpha as impostor). Crown profile per species: 12 height bands of LOD0. PC content only: written when PSX_PC_CONTENT=1, DELETED by any other pass. Hooked into the city scene build (`PSXRacingBuilder.City.cs`, one line) and runnable alone: `-executeMethod PSXRacing.EditorTools.PSXRacingBuilder.BuildCityTreeKit`.
+- `Scripts/CityMeshTrees.cs` (new): hooks the existing static `CityWorld.TreeFrameReady` (no CityWorld edit); per tree chooses a species by CityTrees.Species / street stem / young + hash, sizes it (willow oak x1.35 card height, etc.), FITS it as a volume against road clearance (4.6 m over pavement, decks from below), building footprints+roofs (houses +1.6 m for porches/roofs), poles/wires/cobra-heads, signal poles/arms, and every collider round it (tile-wide Buildings/Barriers MeshColliders band by band). Order: other model / smaller (to 0.44) / move up to 3.5 m away from the wall / poplar / small beech / bush / drop. A dropped or moved tree is written back into the TreeTile before it stands up, so trunk colliders follow (nothing solid undrawn). Switch `PSX_CITY_MESHTREES=0` = cards; F8 = cards A/B. Gate: `PlatformProfile.PC` && kit present && compute (phones/web keep cards).
+- `tools/store-assets.ps1`: Big Oak (6 files) + Meadow poplars 01,02,03,04,05,07 / grey willow (28 files). Extracted into PSXLab.
+- `Editor/CityRefSpots.MeshTrees.cs` (new): `-executeMethod PSXRacing.EditorTools.CityRefSpots.RunMeshTrees` (env PSX_PROFILE=PC, PSX_PC_CONTENT=1): before/after shots, city foliage audit (LOD0 vertices, independent of the fit's bands), cost.
+
+## Proof (PSXLab, editor, PC profile, FOREST DETAIL MEDIUM)
+Sheet: scratchpad `ctrees\ctrees_before_after.png` (22 pairs: Graham, Uptown Tryon, Dilworth summer/fall/winter, south (Pineville-Matthews Rd), "fwy_verge" (snapped to Old Pineville Rd, NOT I-77), Providence Rd; eye + 150 m; Graham/Uptown dusk+night).
+- 150 tiles fitted: 24,994 mesh trees, 2,890 not fitted (1,069 solid -> trunks removed), 266 moved, 3,722 shrunk, 2,335 swapped; fit 16 ms a tile average (Dilworth 60 ms a tile - in the stand-up frame: a hitch to slice later).
+- Drop rate by place: Graham 44%, Uptown 72% (crowns against tower walls: `BIG Buildings` collider 133k candidate refusals), Dilworth 1%, south 0%, verge 0%, Providence 0.1%.
+- CITY FOLIAGE AUDIT, 140 tiles, 24,597 trees, 43.7 M crown points: 11 trees through a solid (gate is 0: NOT MET) - all "collider", 9 are Big Oak (low crown points 0.3-0.6 m up next to small colliders; suspect the fit's skip of colliders under foot+0.6 m). Road envelope / building data / poles / signals: 0.
+- Cost at the driver's eye (1920x1080, editor render+readback, cards -> mesh): Graham 12.8->19.2 ms, Uptown 12.2->15.8, Dilworth 11.8->17.2, south 10.7->18.9, verge 21.3->20.3, Providence 9.2->15.6. Mesh tris drawn 0.09-2.2 M (south ring 2.17 M: the pine stand-in 05_Poplar_skan LOD0 dominates). GPU buffers ~25 MB at 96 slots.
+
+## Not done / not verified
+Pop-in measurement (popwalk/poplag) not run (distances = the stages' PopFix x FOREST DETAIL, impostors to 1.2 km); no player build; no play-mode run (streaming release/grow untested outside edit mode); wind; snow on crowns; mirrors (impostor path inherited, unseen); card trees in the "before" frames wear the dress they stood up in (fall) even in the summer rows; Uptown grate trees mostly dropped (no clear-stem model narrow enough for 3-4 m to a facade); median row spot shows no median trees; far city (CityFar) and CityUnderstory stay cards.
+
+## Coordinator at merge
+1. `tools\store-assets.ps1 -Dest <build sandbox>` (Big Oak + Meadow trees; PSXLab already done).
+2. With PSX_PC_CONTENT=1: run `PSXRacing.EditorTools.PSXRacingBuilder.BuildCityTreeKit` (or the city scene pass, which calls it). Full scene pass NOT needed. Resources/CityTreeKit.asset rides in the player's resources (not a bundle; the mountain forest ships in its stage scenes). Any non-PC scene pass deletes it.
+3. No tile re-bake, no CityTileCache.Format change, no kit slot.
+4. Shared-file edits: `Editor/PSXRacingBuilder.City.cs` (1 line), `Scripts/MeshForest.cs`, `Scripts/MeshForest.Gpu.cs` (pooled guards). New script metas committed (stable GUIDs).
+
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 
 Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
