@@ -404,10 +404,21 @@ Shader "PSX/Lit"
             sampler2D _MainTex;
         #ifdef PSX_HD
             sampler2D _HDNormal, _HDRough, _HDAO;
-            sampler2D _RoadBaseTex, _RoadPaint;
+            // THE SAMPLER BUDGET: D3D11 has 16 sampler states and the HD
+            // variant was at the limit - round 2's three new maps as their own
+            // sampler2Ds turned every PSX_HD material magenta. They share the
+            // road base's sampler (repeat, trilinear) instead.
+          #ifdef UNITY_SEPARATE_TEXTURE_SAMPLER
+            Texture2D _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
+            SamplerState sampler_RoadBaseTex;
+            #define PSX_RB_GRAD(t, u, dx, dy) t.SampleGrad(sampler_RoadBaseTex, u, dx, dy)
+          #else
+            sampler2D _RoadBaseTex, _GutterTex, _GutterNrm, _FacadeParts;
+            #define PSX_RB_GRAD(t, u, dx, dy) tex2Dgrad(t, u, dx, dy)
+          #endif
+            sampler2D _RoadPaint;
             float _RoadBaseOn;
             float4 _RoadBaseRepeat, _RoadPaintW, _RoadPaintY;
-            sampler2D _GutterTex, _GutterNrm, _FacadeParts;
             float4 _RoadGutter;
             float _FacadePartsOn;
         #endif
@@ -1752,7 +1763,7 @@ Shader "PSX/Lit"
                     hdDx = float2(fdx.x * FACADE_COLS * facSub, fdx.y);
                     hdDy = float2(fdy.x * FACADE_COLS * facSub, fdy.y);
                     [branch] if (facPartsK > 0.5)
-                        texF.rgb = tex2Dgrad(_FacadeParts, hdUV, hdDx, hdDy).rgb;
+                        texF.rgb = PSX_RB_GRAD(_FacadeParts, hdUV, hdDx, hdDy).rgb;
                 }
               #endif
                 fixed4 tex = texF * _Color;
@@ -1945,7 +1956,7 @@ Shader "PSX/Lit"
                 // (B = factor / 2) on the base; the Classic grain is not drawn
                 [branch] if (_RoadBaseOn > 0.5)
                 {
-                    float3 rb = tex2Dgrad(_RoadBaseTex, hdUV, hdDx, hdDy).rgb;
+                    float3 rb = PSX_RB_GRAD(_RoadBaseTex, hdUV, hdDx, hdDy).rgb;
                     // the mask's mip by its ACROSS footprint: at a driver's
                     // grazing angle the along-road derivative is many times the
                     // across one, and a mip picked by it blurred a 12 cm line
@@ -1974,7 +1985,7 @@ Shader "PSX/Lit"
                         gDx = float2(hdDx.y, uvDx.x * wM * gSide);
                         gDy = float2(hdDy.y, uvDy.x * wM * gSide);
                         if (rbGutter > 0.0)
-                            rb = lerp(rb, tex2Dgrad(_GutterTex, gUV, gDx, gDy).rgb, rbGutter);
+                            rb = lerp(rb, PSX_RB_GRAD(_GutterTex, gUV, gDx, gDy).rgb, rbGutter);
                     }
                     tex.rgb = lerp(rb, paint, cov) * _Color.rgb;
                     rbPaint = cov;
@@ -2139,7 +2150,7 @@ Shader "PSX/Lit"
                 // x runs along = the road's y; its y runs away from the curb)
                 if (rbGutter > 0.0)
                 {
-                    float3 gN = UnpackNormal(tex2Dgrad(_GutterNrm, gUV, gDx, gDy));
+                    float3 gN = UnpackNormal(PSX_RB_GRAD(_GutterNrm, gUV, gDx, gDy));
                     hdNT = lerp(hdNT, float3(gN.y * gSide, gN.x, gN.z), rbGutter);
                 }
                 hdNT = lerp(hdNT, float3(0.0, 0.0, 1.0), max(rbPaint * 0.7, hdOff));
