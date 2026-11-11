@@ -38,7 +38,7 @@ namespace PSXRacing
     public partial class PerfTour
     {
         string stageArg, fromArg, dayArg, capArg, offscreenArg;
-        float popStep, popLen = 600f;
+        float popStep, popLen = 600f, popLag = 6f;
         System.Collections.Generic.HashSet<int> popKeep;   // &popkeep=j,j: pairs kept whatever they show (an after run at the before run's worst)
 
         // ------------------------------------------------------------------
@@ -111,34 +111,93 @@ namespace PSXRacing
             int saved = 0;
             var csv = new StringBuilder("k,m,mean,top,popblocks,popmass\n");
             float[] Bk(int k) => k >= 0 && k < frames ? blk[k] : null;
-            float t0 = Time.realtimeSinceStartup;
-            for (int k = 0; k <= frames; k++)
+            // THE LAG PAIR (&poplag=M, default 6 m = a quarter second at 85 km/h): the
+            // same view drawn a second time with the forest's levels and rings worked
+            // out from where the eye stood M metres back. The two differ only by
+            // what changes level or ring over those metres - motion taken out - so
+            // a level hand-over that reads as a pop at speed (a short band, an
+            // impostor unlike its tree) shows however wide its dither is.
+            // The clock is stopped for the walk (wind, clouds), so a picture drawn
+            // twice is the same picture: every 10th step measures that (noise).
+            var lagBlk = new float[frames + 1][];
+            var noise = new System.Collections.Generic.List<float>();
+            Color32[] lagImg = null; var lagLum = new float[QW * QH];
+            int lagSaved = 0;
+            var lagCsv = new StringBuilder("k,m,lagmean,lagtop\n");
+            float wasScale = Time.timeScale;
+            Time.timeScale = 0f;
+            void Grab(float[] into, out Color32[] full)
             {
-                Pose(m0 + k * popStep);
-                yield return null;      // drawn in that frame's LateUpdate (OffscreenView), read here in the next
                 Graphics.Blit(off.rt, half);
                 Graphics.Blit(half, quart);
                 var prev = RenderTexture.active;
                 RenderTexture.active = half; texH.ReadPixels(new Rect(0, 0, HW, HH), 0, 0, false);
                 RenderTexture.active = quart; texQ.ReadPixels(new Rect(0, 0, QW, QH), 0, 0, false);
                 RenderTexture.active = prev;
-                int slot = k % 3;
-                img[slot] = texH.GetPixels32();
+                full = texH.GetPixels32();
                 var qp = texQ.GetPixels32();
-                var L = lum[slot] ?? (lum[slot] = new float[QW * QH]);
-                for (int p = 0; p < L.Length; p++) L[p] = (0.2126f * qp[p].r + 0.7152f * qp[p].g + 0.0722f * qp[p].b) / 255f;
-                if (k == 0) continue;
-                // the change from k-1 to k, by block
-                var a = lum[(k - 1) % 3];
+                for (int p = 0; p < into.Length; p++) into[p] = (0.2126f * qp[p].r + 0.7152f * qp[p].g + 0.0722f * qp[p].b) / 255f;
+            }
+            float[] Blocks(float[] l1, float[] l0)
+            {
                 var B = new float[bw * bh];
                 for (int y = 0; y < bh * BS; y++)
                     for (int x = 0; x < bw * BS; x++)
                     {
                         int p = y * QW + x;
-                        B[(y / BS) * bw + x / BS] += Mathf.Abs(L[p] - a[p]);
+                        B[(y / BS) * bw + x / BS] += Mathf.Abs(l1[p] - l0[p]);
                     }
                 for (int b = 0; b < B.Length; b++) B[b] /= BS * BS;
-                blk[k - 1] = B;
+                return B;
+            }
+            void SaveJpg(Color32[] px, string name)
+            {
+                var tex = new Texture2D(HW, HH, TextureFormat.RGB24, false);
+                tex.SetPixels32(px); tex.Apply(false);
+                var jpg = tex.EncodeToJPG(88);
+                Destroy(tex);
+                PSXPerfTour_Post(tag + "_" + id + "_" + name + ".jpg", jpg, jpg.Length);
+            }
+            float t0 = Time.realtimeSinceStartup;
+            for (int k = 0; k <= frames; k++)
+            {
+                float mk = m0 + k * popStep;
+                Pose(mk);
+                MeshForest.LodEyeOn = false;
+                yield return null;      // drawn in that frame's LateUpdate (OffscreenView), read here in the next
+                int slot = k % 3;
+                var L = lum[slot] ?? (lum[slot] = new float[QW * QH]);
+                Grab(L, out img[slot]);
+                if (popLag > 0f)
+                {
+                    bool noiseStep = k % 10 == 5;
+                    MeshForest.LodEye = noiseStep ? rig.pos : PathAt(path, mk - popLag - 6.5f) + Vector3.up * 2.3f;
+                    MeshForest.LodEyeOn = true;
+                    yield return null;
+                    MeshForest.LodEyeOn = false;
+                    Grab(lagLum, out lagImg);
+                    var Lb = Blocks(lagLum, L);
+                    float lm = 0f, lt = 0f;
+                    for (int b = 0; b < Lb.Length; b++) { lm += Lb[b]; if (Lb[b] > lt) lt = Lb[b]; }
+                    lm /= Lb.Length;
+                    if (noiseStep) noise.Add(lm);
+                    else
+                    {
+                        lagBlk[k] = Lb;
+                        lagCsv.Append(k).Append(',').Append(mk.ToString("0.0", CultureInfo.InvariantCulture)).Append(',')
+                              .Append(lm.ToString("0.00000", CultureInfo.InvariantCulture)).Append(',').Append(lt.ToString("0.0000", CultureInfo.InvariantCulture)).Append('\n');
+                        bool askedL = popKeep != null && popKeep.Contains(10000 + k);
+                        if ((k % 40 == 0 && lagSaved < 40) || askedL)
+                        {
+                            if (!askedL) lagSaved++;
+                            SaveJpg(img[slot], "lag" + k.ToString("0000") + "a");
+                            SaveJpg(lagImg, "lag" + k.ToString("0000") + "b");
+                        }
+                    }
+                }
+                if (k == 0) continue;
+                // the change from k-1 to k, by block
+                blk[k - 1] = Blocks(L, lum[(k - 1) % 3]);
                 // pair j = k-2 (k-2 -> k-1) now has both neighbours
                 int j = k - 2;
                 if (j < 1) continue;
@@ -158,17 +217,25 @@ namespace PSXRacing
                 if ((pops > 0 && mass > 0.04f && saved < 160) || asked)
                 {
                     if (!asked) saved++;
-                    foreach (int f in new[] { j, j + 1 })
-                    {
-                        var tex = new Texture2D(HW, HH, TextureFormat.RGB24, false);
-                        tex.SetPixels32(img[f % 3]); tex.Apply(false);
-                        var jpg = tex.EncodeToJPG(88);
-                        Destroy(tex);
-                        PSXPerfTour_Post(tag + "_" + id + "_pop" + j.ToString("0000") + (f == j ? "a" : "b") + ".jpg", jpg, jpg.Length);
-                    }
+                    SaveJpg(img[j % 3], "pop" + j.ToString("0000") + "a");
+                    SaveJpg(img[(j + 1) % 3], "pop" + j.ToString("0000") + "b");
                 }
             }
+            Time.timeScale = wasScale;
+            MeshForest.LodEyeOn = false;
             float secs = Time.realtimeSinceStartup - t0;
+            if (popLag > 0f)
+            {
+                var lbin = new byte[12 + (long)(frames + 1) * bw * bh * 4];
+                System.Buffer.BlockCopy(new[] { frames + 1, bw, bh }, 0, lbin, 0, 12);
+                for (int k = 0; k <= frames; k++)
+                    if (lagBlk[k] != null) System.Buffer.BlockCopy(lagBlk[k], 0, lbin, 12 + k * bw * bh * 4, bw * bh * 4);
+                    else for (int b = 0; b < bw * bh; b++) System.Buffer.BlockCopy(new[] { -1f }, 0, lbin, 12 + (k * bw * bh + b) * 4, 4);
+                PSXPerfTour_Post(tag + "_" + id + "_lagblocks.bin", lbin, lbin.Length);
+                float nmax = 0f, nsum = 0f;
+                foreach (var x in noise) { nsum += x; nmax = Mathf.Max(nmax, x); }
+                Post(id + "_lag.csv", lagCsv.ToString() + $"# noise (one place drawn twice): {noise.Count} steps, mean {(noise.Count > 0 ? nsum / noise.Count : 0f):0.00000} max {nmax:0.00000}\n");
+            }
             RenderTexture.ReleaseTemporary(half); RenderTexture.ReleaseTemporary(quart);
             Destroy(texH); Destroy(texQ);
             // the block dump

@@ -132,6 +132,8 @@ namespace PSXRacing
                 t.popKeep = new System.Collections.Generic.HashSet<int>();
                 foreach (var s in pk.Split('.')) if (int.TryParse(s, out int pj)) t.popKeep.Add(pj);
             }
+            string pl = ShotLink.Query(url, "poplag");
+            if (!string.IsNullOrEmpty(pl)) float.TryParse(pl, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popLag);
             string pm = ShotLink.Query(url, "popm");
             if (!string.IsNullOrEmpty(pm)) float.TryParse(pm, NumberStyles.Float, CultureInfo.InvariantCulture, out t.popLen);
             string secs = ShotLink.Query(url, "secs");

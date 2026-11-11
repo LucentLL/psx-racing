@@ -70,6 +70,12 @@ namespace PSXRacing
         /// need no state change between them (measured 2026-11-10: one set-pass
         /// call a draw with it). Off until it has been seen on screen.</summary>
         public static bool BaseFromArgs;
+        /// <summary>The pop measure (PerfTour PopWalk): the forest's levels and
+        /// rings worked out from <see cref="LodEye"/> instead of the camera, so
+        /// two pictures from one place differ only by what changes level.</summary>
+        public static bool LodEyeOn;
+        public static Vector3 LodEye;
+        static readonly int IdLodEye = Shader.PropertyToID("_PSXLodEye");
         bool argsHaveBase;
         GraphicsBuffer.IndirectDrawIndexedArgs[] cmdArgs;
         uint[] cmdBase;
@@ -573,7 +579,9 @@ namespace PSXRacing
                 argsBuf.SetData(cmdArgs);
                 GpuDressChanged();
             }
-            Vector3 camPos = cam.transform.position;
+            // (the pop measure's LOD eye: levels, rings and chunks as seen from another place, the view unchanged)
+            Vector3 camPos = LodEyeOn ? LodEye : cam.transform.position;
+            Shader.SetGlobalVector(IdLodEye, LodEyeOn ? new Vector4(LodEye.x, LodEye.y, LodEye.z, 1f) : Vector4.zero);
             // THE CHUNKS, by the old path's own rule: a WIDER cone than the
             // camera's (a chunk swaps its cards for plants before it reaches
             // the screen's edge, not on it), cards where it is not drawn.

@@ -384,6 +384,9 @@ Shader "PSX/Lit"
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
+            // the pop measure's LOD eye (MeshForest.LodEyeOn, a global): w > 0.5 =
+            // the forest's levels and rings as seen from xyz, not from the camera
+            float4 _PSXLodEye;
             // (desktop APIs only - D3D11 covers D3D12: should a procedural
             // variant ever be compiled for a web or phone API, it is an empty one)
         #if defined(UNITY_PROCEDURAL_INSTANCING_ENABLED) && (defined(SHADER_API_D3D11) || defined(SHADER_API_VULKAN) || defined(SHADER_API_METAL) || defined(SHADER_API_GLCORE))
@@ -1284,7 +1287,7 @@ Shader "PSX/Lit"
                     float3 it = float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23);
                     float3 p3 = frac(it * 0.1031);
                     p3 += dot(p3, p3.yzx + 33.33);
-                    o.lodD = float2(length(it - _WorldSpaceCameraPos), frac((p3.x + p3.y) * p3.z));
+                    o.lodD = float2(length(it - (_PSXLodEye.w > 0.5 ? _PSXLodEye.xyz : _WorldSpaceCameraPos)), frac((p3.x + p3.y) * p3.z));
                     // A THINNED plant at its draw limit SHRINKS to nothing about
                     // its own origin rather than dissolving in a screen-door
                     // dither (owner: "a speckled dotted effect" in game).
