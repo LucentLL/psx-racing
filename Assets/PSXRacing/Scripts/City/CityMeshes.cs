@@ -11928,7 +11928,10 @@ namespace PSXRacing.City
                 if (skylineBuild) SimplifyPoly(fitPoly, SkylineSimplifyM);
                 // a floored part: its building's plans as drawn, before its own cut
                 if (f.part && f.minH > 0.05f && !skylineBuild && PartFillDown > 0) PrimeStack(map, trims, fi);
-                int cut = skylineBuild ? 0 : FitFootprint(map, trims, fitPoly, y0, top);
+                // (2026-11-11, CityBeacons: the far skyline cut as its tile cuts it,
+                // so a tower's roof corners - and the lights on them - are the same
+                // near and far; PSX_CITY_BEACONS2=0 and the proxies: uncut, as before)
+                int cut = skylineBuild && (proxyBuild || !CityBeacons.V2) ? 0 : FitFootprint(map, trims, fitPoly, y0, top);
                 if (cut < 0) { AuditFoot(fi, 1, null, g, float.NaN, float.NaN, false); tm.footprintsLeftOut++; return; }
                 if (cut > 0) tm.footprintsCut++;
                 // leftover item 6: a house polygon on the drawn ground of its

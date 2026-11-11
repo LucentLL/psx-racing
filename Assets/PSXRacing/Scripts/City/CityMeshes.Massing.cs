@@ -45,6 +45,10 @@ namespace PSXRacing.City
         /// </summary>
         static bool EmitMassing(TileMeshes tm, CityMap.Footprint f, List<Vector2> poly, float y0, float floor, float top)
         {
+            // the far skyline as the tile (2026-11-11, CityBeacons): a tile never
+            // masses a ground-standing shop block (EmitFootprint's retail), and the
+            // skyline - which never calls anything retail - did, parapet and all
+            if (skylineBuild && !proxyBuild && CityBeacons.V2 && (f.style == 4 || f.minH > 0.05f)) return false;   // (and a floating outline, which a tile never masses either)
             // the polygon without its near-duplicate points (a cut leaves some)
             massPoly.Clear();
             foreach (var p in poly)
@@ -135,7 +139,10 @@ namespace PSXRacing.City
         /// the roof (at the band's foot) closes the top.</summary>
         static void Parapet(TileMeshes tm, List<Vector2> poly, float roofY, float rise)
         {
-            if (skylineBuild) return;   // a metre or two, kilometres off
+            // a metre or two, kilometres off - but the far skyline draws it since
+            // 2026-11-11 (CityBeacons: a corner light stands on the parapet's
+            // corner near and far); PSX_CITY_BEACONS2=0 and the far proxies: none
+            if (skylineBuild && (proxyBuild || !CityBeacons.V2)) return;
             FacadeMetal(true);
             Walls(tm, poly, roofY, roofY + rise);
             FacadeMetal(false);

@@ -80,13 +80,40 @@ Shader "PSX/Halo"
         [HideInInspector] _OwnDepth ("Far lights: the skyline's own depth", Float) = 0
         [HideInInspector] _FarFall ("Far lights: dim past (m)", Float) = 0
         [HideInInspector] _FarLead ("Far lights: depth lead (m)", Float) = 0
+        // THE TOWER LIGHTS ON THEIR FITTINGS (CityBeacons V2, 2026-11-11): the
+        // blend (One One, additive, by default; CityBeacons sets One
+        // OneMinusSrcAlpha so a red lamp is drawn OVER a pale dusk sky rather
+        // than added to it - added, it clamped pink), a tower light's largest
+        // size in framebuffer pixels (0: no limit) and the least the eye's
+        // adaptation may scale it (0: none, as before)
+        [HideInInspector] _SrcBlend ("Blend src", Float) = 1
+        [HideInInspector] _DstBlend ("Blend dst", Float) = 1
+        [HideInInspector] _MaxPixels ("Tower light: largest size (framebuffer px)", Float) = 0
+        [HideInInspector] _GainFloor ("Least adaptation gain", Float) = 0
+        // (round 2) a steady tower light (uv1.y -0.5, not own-depth) fades out
+        // between these real distances (0: never), and every tower light's
+        // least size falls to _FarMinShare of itself (a beacon's extra size to
+        // none) between the other two (share 1: as before)
+        [HideInInspector] _CornerFadeFrom ("Corner light fade from (m)", Float) = 0
+        [HideInInspector] _CornerFadeTo ("Corner light gone by (m)", Float) = 0
+        [HideInInspector] _FarShrinkFrom ("Far shrink from (m)", Float) = 0
+        [HideInInspector] _FarShrinkTo ("Far shrink to (m)", Float) = 1
+        [HideInInspector] _FarMinShare ("Far least size share", Float) = 1
+        // (round 3) a tower's TOP light (a flasher uv1.y <= -1, a steady top -0.6)
+        // never smaller than this many real framebuffer pixels each way (a
+        // flasher _TopFlashMul times it), with a flat core there so the point
+        // reads at any distance (0: off)
+        [HideInInspector] _TopFloorPx ("Top light floor (fb px, half)", Float) = 0
+        [HideInInspector] _TopFlashMul ("Flasher floor x", Float) = 1
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" "PreviewType"="Plane" }
         Pass
         {
-            Blend One One
+            // the colour by the material's blend (One One, as before, unless a
+            // material says otherwise); the alpha - the emitter mask - always added
+            Blend [_SrcBlend] [_DstBlend], One One
             ZWrite Off
             ZTest LEqual
             Cull Off
@@ -122,6 +149,10 @@ Shader "PSX/Halo"
             float _OwnDepth;
             float _FarFall;
             float _FarLead;
+            float _MaxPixels;
+            float _GainFloor;
+            float _CornerFadeFrom, _CornerFadeTo, _FarShrinkFrom, _FarShrinkTo, _FarMinShare;
+            float _TopFloorPx, _TopFlashMul;
 
             float _PSXWetness;
             float _PSXFogFar;
@@ -223,12 +254,38 @@ Shader "PSX/Halo"
                 float minM = _MinPixels * 2.0 * zScale
                            / max(min(_ScreenParams.y, HALO_REF_LINES) * abs(UNITY_MATRIX_P[1][1]), 1e-3);
                 // a far beacon is a dot of a few pixels, never a sub-pixel spark
-                if (v.uv1.y <= -1.0) minM *= SKY_BEACON_PX;
+                // (round 2: a tower light's least size shrinks with distance, so
+                // the far skyline's points stay apart)
+                float shrink = (skyLight && !own) ? saturate((realDist - _FarShrinkFrom) / max(_FarShrinkTo - _FarShrinkFrom, 1.0)) : 0.0;
+                minM *= lerp(1.0, _FarMinShare, shrink);
+                if (v.uv1.y <= -1.0) minM *= lerp(SKY_BEACON_PX, 1.0, shrink);
                 float natural = _Size * v.uv1.x * (1.0 + HALO_WET_GROW * saturate(_PSXWetness));
+                // (round 2) a squeezed tower light keeps the size its REAL distance
+                // gives it (squeezed in, a metre of glow 5 km out read as one 500 m out)
+                if (skyLight && !own && _FarMinShare < 0.999) natural *= dist / max(realDist, 1e-3);
                 float size = max(natural, minM);
+                // a tower light near the eye is a lamp with a little mist, not
+                // a disc metres across: no larger than _MaxPixels each way
+                if (skyLight && _MaxPixels > 0.0)
+                {
+                    float pxM = 2.0 * zScale / max(min(_ScreenParams.y, HALO_REF_LINES) * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                    size = min(size, max(_MaxPixels * pxM, minM));
+                }
                 // a tower light held at its minimum size gets a soft core, so
                 // the dot carries colour rather than one hot pixel
                 o.core = skyLight ? lerp(HALO_CORE_K, SKY_CORE_K, saturate(minM / max(natural, 1e-3) - 0.5)) : HALO_CORE_K;
+                // (round 3) a top light keeps a floor in REAL pixels and a flat
+                // core there: a clear red point from 10 km and more
+                bool topLight = v.uv1.y <= -1.0 || abs(v.uv1.y + 0.6) < 0.02;
+                if (skyLight && !own && topLight && _TopFloorPx > 0.0)
+                {
+                    float fbM = 2.0 * zScale / max(_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                    float floorM = _TopFloorPx * fbM * (v.uv1.y <= -1.0 ? _TopFlashMul : 1.0);
+                    // past the shrink's start the floor IS its size (a flat-cored
+                    // point, never the faint soft dot the shrunk minimum drew)
+                    if (realDist > _FarShrinkFrom && floorM >= natural) { size = floorM; o.core = 1.6; }
+                    else if (floorM >= size) { size = floorM; o.core = 1.6; }
+                }
 
                 float2 q = v.uv * 2.0 - 1.0;
                 vc.xy += q * size;
@@ -267,6 +324,9 @@ Shader "PSX/Halo"
                 {
                     // hazed by the real distance, never cut by the fog band
                     fade = exp(-realDist / SKY_HAZE_M);
+                    // (round 2) a steady corner light is gone far off: one point a tower
+                    if (_CornerFadeTo > 0.0 && abs(v.uv1.y + 0.5) < 0.02)
+                        fade *= 1.0 - saturate((realDist - _CornerFadeFrom) / max(_CornerFadeTo - _CornerFadeFrom, 1.0));
                     if (v.uv1.y <= -1.0)
                     {
                         // the flash: an INCANDESCENT beacon's (the 1990s city,
@@ -319,7 +379,7 @@ Shader "PSX/Halo"
                 float win = saturate(1.0 - r2);
                 win *= win;
                 float a = exp(-r2 * i.core) + exp(-r2 * HALO_SOFT_K) * _HaloAmt * win;
-                return fixed4(i.col.rgb * (a * PSXAdaptGain()), saturate(a * i.col.a));
+                return fixed4(i.col.rgb * (a * max(PSXAdaptGain(), _GainFloor)), saturate(a * i.col.a));
             }
             ENDCG
         }

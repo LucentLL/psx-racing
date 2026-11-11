@@ -48,6 +48,11 @@ namespace PSXRacing.City
         /// a tower <see cref="MastMinH"/> or taller).</summary>
         static void EmitRoofKit(TileMeshes tm, CityMap.Footprint f, List<Vector2> roof, float top, float towerH)
         {
+            // the far skyline as the tile (2026-11-11, CityBeacons): a tile leaves
+            // a ground-standing shop block (EmitFootprint's retail) bare, and the
+            // skyline - which never calls anything retail - gave it the kit; now it
+            // is bare far too, so its lights stand on the same roof near and far
+            if (skylineBuild && !proxyBuild && CityBeacons.V2 && (f.style == 4 || f.minH > 0.05f)) return;   // (and a floating outline: no kit near either)
             uint h = FacadeHash(f.centre + new Vector2(17.3f, -5.1f));   // the massing's stream
             Parapet(tm, roof, top, ParapetLipM);
             RoofPlant(tm, f, roof, top, 0.34f + 0.12f * (((h >> 24) & 0xFF) / 255f), 1.3f * facFloorH, h, towerH);
@@ -91,7 +96,10 @@ namespace PSXRacing.City
         /// beacons.</summary>
         static void Mast(TileMeshes tm, Vector2 at, float y, float tall)
         {
-            if (skylineBuild) return;
+            // the far skyline draws it too since 2026-11-11 (CityBeacons: the top
+            // light stands on its tip near and far); PSX_CITY_BEACONS2=0 and the
+            // far proxies leave it out, as before
+            if (skylineBuild && (proxyBuild || !CityBeacons.V2)) return;
             var keep = Bucket.Tint;
             HeroTint(HeroMetalCol, true, 0.62f, 0.63f, 0.66f, crown: false);
             HeroBox(tm, at, Vector2.right, 0.3f, 0.3f, y, y + tall, HeroMetalUV);
