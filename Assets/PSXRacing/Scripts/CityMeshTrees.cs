@@ -212,6 +212,8 @@ namespace PSXRacing.City
         /// <summary>Candidates refused by a collider, by its object's name (the tools print it).</summary>
         public static readonly Dictionary<string, int> RejectColliders = new Dictionary<string, int>();
         string lastHit;
+        Vector2 lastAway;
+        public static readonly List<string> DiagLines = new List<string>();
 
         readonly List<RoadSeg> roads = new List<RoadSeg>(64);
         readonly List<VSeg> segs = new List<VSeg>(64);
@@ -235,10 +237,10 @@ namespace PSXRacing.City
             int solids = 0;
             foreach (var t in tt.trees)
             {
-                if (TryTree(map, tt, t, out var p)) { plants.Add(p); keep.Add(t); if (t.solid) solids++; Placed++; PlacedByRole[(int)kit.roles[p.variant]]++; }
+                if (TryTree(map, tt, t, out var p)) { plants.Add(p); var kt = t; kt.foot = p.pos; keep.Add(kt); if (t.solid) solids++; Placed++; PlacedByRole[(int)kit.roles[p.variant]]++; }
                 else { Dropped++; if (t.solid) DroppedSolid++; }
             }
-            if (keep.Count != tt.trees.Count)
+            if (true)
             {
                 tt.trees.Clear();
                 tt.trees.AddRange(keep);
@@ -284,6 +286,7 @@ namespace PSXRacing.City
         bool TryTree(CityMap map, CityTrees.TreeTile tt, in CityTrees.Tree t, out MeshForest.PoolPlant plant)
         {
             plant = default;
+            lastAway = Vector2.zero;
             bool young = t.dbh <= 0.125f && t.species != CityTrees.Species.Myrtle && t.species != CityTrees.Species.Bare && t.stem <= 0f;
             float roll = H(t.foot, 11);
             CityTreeKit.Role role; float want;
@@ -298,8 +301,57 @@ namespace PSXRacing.City
                 case CityTrees.Species.Sycamore: role = roll < 0.7f ? CityTreeKit.Role.Broad : CityTreeKit.Role.Poplar; want = t.h * 1.3f; break;
                 default: role = CityTreeKit.Role.Snag; want = t.h * 1.3f; break;
             }
-            Gather(map, tt, t.foot, 16f);
             float yaw = H(t.foot, 13) * 360f;
+            // MOVE before giving up: up to 3.5 m away from the wall the crown met
+            // (the trunk, and its collider, go with it)
+            var away = Vector2.zero;
+            for (int mv = 0; mv < 3; mv++)
+            {
+                var foot = t.foot;
+                if (mv > 0)
+                {
+                    if (away.sqrMagnitude < 0.5f) break;
+                    var q = new Vector2(t.foot.x, t.foot.z) + away.normalized * (mv == 1 ? 2f : 3.5f);
+                    if (!GroundAt(q, t.foot.y, out float gy)) continue;
+                    foot = new Vector3(q.x, gy - CityTrees.SinkM, q.y);
+                }
+                if (TryAt(map, tt, t, role, want, yaw, foot, out plant)) { if (mv > 0) Moved++; return true; }
+                if (mv == 0) away = lastAway;
+            }
+            return false;
+        }
+
+        /// <summary>The ground (not a road, not a roof) under a point near the
+        /// height <paramref name="nearY"/>.</summary>
+        static bool GroundAt(Vector2 q, float nearY, out float y)
+        {
+            y = nearY;
+            int n = Physics.RaycastNonAlloc(new Vector3(q.x, nearY + 12f, q.y), Vector3.down, rayHits, 30f, 1 | (1 << CityWorld.RoadLayer) | (1 << CityWorld.SolidLayer), QueryTriggerInteraction.Ignore);
+            float best = float.MinValue; string what = null;
+            for (int i = 0; i < n; i++) if (rayHits[i].point.y > best) { best = rayHits[i].point.y; what = rayHits[i].collider.gameObject.name; }
+            if (what != "Ground" || Mathf.Abs(best - nearY) > 2.5f) return false;
+            y = best;
+            return true;
+        }
+        static readonly RaycastHit[] rayHits = new RaycastHit[16];
+        public static int Moved;
+
+        Vector2 AwayFromBox(Vector2 p)
+        {
+            foreach (var bx in boxes)
+            {
+                var q = p - bx.c;
+                float du = Mathf.Abs(Vector2.Dot(q, bx.u)) - bx.hu, dv = Mathf.Abs(Vector2.Dot(q, bx.v)) - bx.hv;
+                if (du > 6f || dv > 6f) continue;
+                return du > dv ? bx.u * Mathf.Sign(Vector2.Dot(q, bx.u)) : bx.v * Mathf.Sign(Vector2.Dot(q, bx.v));
+            }
+            return Vector2.zero;
+        }
+
+        bool TryAt(CityMap map, CityTrees.TreeTile tt, in CityTrees.Tree t, CityTreeKit.Role role, float want, float yaw, Vector3 foot, out MeshForest.PoolPlant plant)
+        {
+            plant = default;
+            Gather(map, tt, foot, 16f);
             bool first = true;
             foreach (var r in RoleChain(role))
             {
@@ -317,9 +369,10 @@ namespace PSXRacing.City
                         float s = s0 * f;
                         if (s < 0.3f || s > 2.2f) continue;
                         if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - StemSlack) continue;
-                        int why = Conflict(v, s, t.foot);
+                        int why = Conflict(v, s, foot);
+                        if (why == 1 || why == 4) { if (why == 1) lastAway = AwayFromBox(new Vector2(foot.x, foot.z)); }
                         if (why >= 0) { RejectBy[why]++; if (why == 4 && lastHit != null) { RejectColliders.TryGetValue(lastHit, out int rc); RejectColliders[lastHit] = rc + 1; } continue; }
-                        plant = new MeshForest.PoolPlant { pos = t.foot, yaw = yaw, scale = s, variant = v };
+                        plant = new MeshForest.PoolPlant { pos = foot, yaw = yaw, scale = s, variant = v };
                         if (!first || k > 0) Swapped++;
                         if (f > 1f) Grown++; else if (f < 1f) Shrunk++;
                         return true;
@@ -491,7 +544,32 @@ namespace PSXRacing.City
                     var c0 = new Vector3(foot.x, lo + rr, foot.z);
                     var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, y1 - rr), foot.z);
                     int n = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
-                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i])) { lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer); return 4; }
+                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i]))
+                    {
+                        lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer);
+                        {
+                            float bd = 99f; Vector3 bdir = Vector3.zero; float hy = (y0 + y1) * 0.5f;
+                            for (int k = 0; k < 16; k++)
+                            {
+                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
+                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, hy, foot.z), dir), out var rh0, rr + 1.5f) && rh0.distance < bd) { bd = rh0.distance; bdir = dir; }
+                            }
+                            if (bd < 99f) lastAway = new Vector2(-bdir.x, -bdir.z);
+                        }
+                        if (DiagLines.Count < 40)
+                        {
+                            // where the solid is: the nearest of 16 rays out from the band's middle
+                            float best = 99f; Vector3 bp = Vector3.zero; float my = (lo + Mathf.Max(lo + rr, y1 - rr) + 2f * rr) * 0.5f;
+                            for (int k = 0; k < 16; k++)
+                            {
+                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
+                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, my, foot.z), dir), out var rh, rr + 1f) && rh.distance < best) { best = rh.distance; bp = rh.point; }
+                            }
+                            var down = bandHits[i].Raycast(new Ray(new Vector3(foot.x, foot.y + 40f, foot.z), Vector3.down), out var dh, 80f) ? dh.point.y - foot.y : -99f;
+                            DiagLines.Add($"BIG {bandHits[i].name} foot ({foot.x:0.0},{foot.y:0.0},{foot.z:0.0}) v{v} s{s:0.00} band {b} y {y0 - foot.y:0.0}-{y1 - foot.y:0.0} rr {rr:0.0}: nearest ray hit {best:0.0} m at y+{bp.y - foot.y:0.0}; solid above/below the foot at y{down:+0.0;-0.0}");
+                        }
+                        return 4;
+                    }
                 }
                 if (bigSolids.Count > 0 && y1 > foot.y + 0.3f)
                 {
@@ -499,7 +577,32 @@ namespace PSXRacing.City
                     var c0 = new Vector3(foot.x, lo + rr, foot.z);
                     var c1 = new Vector3(foot.x, Mathf.Max(lo + rr, y1 - rr), foot.z);
                     int n = Physics.OverlapCapsuleNonAlloc(c0, c1, rr, bandHits, BigMask, QueryTriggerInteraction.Ignore);
-                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i])) { lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer); return 4; }
+                    for (int i = 0; i < n; i++) if (bigSolids.Contains(bandHits[i]))
+                    {
+                        lastHit = "BIG " + bandHits[i].gameObject.name + "/" + LayerMask.LayerToName(bandHits[i].gameObject.layer);
+                        {
+                            float bd = 99f; Vector3 bdir = Vector3.zero; float hy = (y0 + y1) * 0.5f;
+                            for (int k = 0; k < 16; k++)
+                            {
+                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
+                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, hy, foot.z), dir), out var rh0, rr + 1.5f) && rh0.distance < bd) { bd = rh0.distance; bdir = dir; }
+                            }
+                            if (bd < 99f) lastAway = new Vector2(-bdir.x, -bdir.z);
+                        }
+                        if (DiagLines.Count < 40)
+                        {
+                            // where the solid is: the nearest of 16 rays out from the band's middle
+                            float best = 99f; Vector3 bp = Vector3.zero; float my = (lo + Mathf.Max(lo + rr, y1 - rr) + 2f * rr) * 0.5f;
+                            for (int k = 0; k < 16; k++)
+                            {
+                                var dir = Quaternion.Euler(0f, k * 22.5f, 0f) * Vector3.forward;
+                                if (bandHits[i].Raycast(new Ray(new Vector3(foot.x, my, foot.z), dir), out var rh, rr + 1f) && rh.distance < best) { best = rh.distance; bp = rh.point; }
+                            }
+                            var down = bandHits[i].Raycast(new Ray(new Vector3(foot.x, foot.y + 40f, foot.z), Vector3.down), out var dh, 80f) ? dh.point.y - foot.y : -99f;
+                            DiagLines.Add($"BIG {bandHits[i].name} foot ({foot.x:0.0},{foot.y:0.0},{foot.z:0.0}) v{v} s{s:0.00} band {b} y {y0 - foot.y:0.0}-{y1 - foot.y:0.0} rr {rr:0.0}: nearest ray hit {best:0.0} m at y+{bp.y - foot.y:0.0}; solid above/below the foot at y{down:+0.0;-0.0}");
+                        }
+                        return 4;
+                    }
                 }
             }
             return -1;
@@ -514,7 +617,7 @@ namespace PSXRacing.City
 
         public static void ResetCounts()
         {
-            Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = 0; FitMs = 0;
+            Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = Moved = 0; FitMs = 0;
             System.Array.Clear(RejectBy, 0, RejectBy.Length);
             System.Array.Clear(PlacedByRole, 0, PlacedByRole.Length);
             RejectColliders.Clear();

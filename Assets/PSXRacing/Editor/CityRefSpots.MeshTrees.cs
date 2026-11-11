@@ -120,11 +120,12 @@ namespace PSXRacing.EditorTools
                     world.DropAll();
                     mt.Flush();
                 }
-                log.Append($"\nFIT TOTALS: {CityMeshTrees.Placed} mesh trees placed, {CityMeshTrees.Dropped} not fitted ({CityMeshTrees.DroppedSolid} of them solid: their trunks left the table), grown {CityMeshTrees.Grown}, shrunk {CityMeshTrees.Shrunk}, swapped {CityMeshTrees.Swapped}; {CityMeshTrees.Fitted} frames in {CityMeshTrees.FitMs:0} ms ({CityMeshTrees.FitMs / Mathf.Max(1, CityMeshTrees.Fitted):0.0} ms a tile)\n");
+                log.Append($"\nFIT TOTALS: {CityMeshTrees.Placed} mesh trees placed, {CityMeshTrees.Dropped} not fitted ({CityMeshTrees.DroppedSolid} of them solid: their trunks left the table), moved {CityMeshTrees.Moved}, grown {CityMeshTrees.Grown}, shrunk {CityMeshTrees.Shrunk}, swapped {CityMeshTrees.Swapped}; {CityMeshTrees.Fitted} frames in {CityMeshTrees.FitMs:0} ms ({CityMeshTrees.FitMs / Mathf.Max(1, CityMeshTrees.Fitted):0.0} ms a tile)\n");
                 log.Append("  candidates refused by:");
                 for (int i = 0; i < CityMeshTrees.RejectBy.Length; i++) log.Append($" {CityMeshTrees.RejectNames[i]} {CityMeshTrees.RejectBy[i]};");
                 log.Append("\n  colliders that refused:");
                 foreach (var kv in CityMeshTrees.RejectColliders) log.Append($" {kv.Key} {kv.Value};");
+                foreach (var dl in CityMeshTrees.DiagLines) log.Append("\n    " + dl);
                 log.Append("\n  placed by role:");
                 for (int i = 0; i < CityMeshTrees.PlacedByRole.Length; i++) if (CityMeshTrees.PlacedByRole[i] > 0) log.Append($" {(CityTreeKit.Role)i} {CityMeshTrees.PlacedByRole[i]};");
                 log.Append($"\nCITY FOLIAGE AUDIT: {audit.tiles} tiles, {audit.trees} mesh trees, {audit.points} crown points tested -> trees through solids {audit.bad} (must be 0): road envelope {audit.road}, building {audit.bld}, pole/wire {audit.pole}, signal {audit.sig}, collider {audit.col}\n");
