@@ -265,7 +265,7 @@ namespace PSXRacing.LifeSim
             }
             Paragraph(c.elite
                 ? "INVITATION ONLY: #" + Clubs.EliteOneClubRank + " in any club, or #" + Clubs.EliteEveryClubRank +
-                  " or better in every club. " + (st != null && st.invited ? "You have been asked." : "Not yet: " + Clubs.EliteInviteRefusal(S) + ".")
+                  " or better in every club. " + (st != null && st.invited ? "You have been asked." : "Not asked yet.")
                 : no == null ? "You can join now."
                 : st != null && st.invited ? "You have been asked in - " + no + "."
                 : "Join at their meet (" + c.MeetWhen + ", " + CarMeets.PlaceName.ToLowerInvariant() + ") in a " +
