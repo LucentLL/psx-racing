@@ -18,6 +18,14 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class CitySeamGates
     {
+        /// <summary>The seam audit, then the gates.</summary>
+        public static void RunWithAudit()
+        {
+            CitySeamAudit.NoExit = true;
+            try { CitySeamAudit.Run(); } finally { CitySeamAudit.NoExit = false; }
+            Run();
+        }
+
         public static void Run()
         {
             string root = Directory.GetParent(Application.dataPath).FullName;
