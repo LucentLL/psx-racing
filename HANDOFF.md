@@ -1,3 +1,29 @@
+# HANDOFF - HOUSES ROUND 3 (agent "roofs", charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
+
+## Drive-audit fix (first item; commit 13ce514b)
+- Cause: stoops (round 1's HouseDoor and round 2's units/porches) and stepped unit fronts reached the Wesley Heights court lanes (houses front the court pavement within 1 m): the 0.3-0.9 m solids were the 14 INVISIBLE lane hits. Fix: HouseStepOffRoad (CityMeshes.HouseParts.cs) - no stoop, porch or unit step whose footprint comes within 1 m of any street's pavement (links included); the door stays.
+- Drive audit (PSX_DRIVE_EDGES=24042,24054,24039,24041 = three house-court tiles, BOXED scope): INVISIBLE lane hits 14 -> 0; drawn Buildings faces in a lane 196 -> 0 (lanes total 120 = base); solids 88 = base.
+- NOTE: CityAudit.RunDrive did not exit after writing city_drive.txt (19:52): Unity pid 45460 on PSXCity is still alive and blocks the sandbox (types' 42500 did the same). Not killed (rule).
+
+## Round 3 changes (switches; =0 = round 2)
+- PSX_CITY_HOUSEROOFTINT: shingle tones by era on the RoofTiles bucket's new vertex colours (alpha 255 = a house roof; PSX/Lit _HouseTint 2 tints only those; builder sets it on CityRoofTiles): charcoal, weathered grey, brown, near-black; green/red metal on 13 % of pre-war roofs; porch roofs too.
+- Siding: per-house pick of 12 stronger colours (white 1 in 8) instead of a cell's 4 (round 1's PSX_CITY_HOUSETINT).
+- PSX_CITY_HOUSEPARTS additions: garage doors (ranch 1-car, new 2-car, street long wall end; driveway side NOT used), dormers (pre-war, 1-2), shutters (half the houses, dark tints), front-door paint, the 45 m rule (no soffits/porch/dormer/garage/shutters on a house no street comes within 45 m of).
+- L-corner sliver: buried roof extensions kept inside the plan at both corners; no soffit along a buried extension.
+- Tools: Editor/CityRefSpots.Roofs.cs RunStreets (frontage chosen by rule: the street point within 300 m with most house centres 6-60 m out within 40 m along; poses kerb + raised 8 m), roof-closure audit in CityAudit.Windows.cs.
+
+## Numbers (93-tile sample, run before the stoop fix and dormer fix)
+- Windows CUT/BURIED 0/0; flat house roofs 0; census GAP 0, buried p95 0.60 (= r1/r2).
+- Roof closure: 338 open points of 128,860 (first version counted fit-cut footprints as open; the corrected audit (drawn boxes) is committed but not re-run).
+- Triangles a tile 5,010 (r2 4,820, base 1,773). Build ms a tile (r2 -> r3): ring 293 -> 200, OSM houses 219 -> 197, shot places 493 -> 324, worst 1,823 -> 1,068 (base 1,266). Shutters 6,715 pairs, garages 239, porches 941, dormers 0 (fixed after: too tall for the roofs), far-rule houses 913. PerfTour NOT run.
+
+## Not done / generic still
+- Pre-war streets are mostly BRICK (Plaza Midwood row reads as brick ranches; real: siding bungalows) - the round 1 brick share per cell needs an era cap. Siding colour variety still weak in frames. Subdivision/west street: no frontage found (fill houses stand 60-75 m from streets). No new street views (sheet uses round 1's). Dormers, the closure audit fix and the 60 m rule not re-shot (sandbox blocked).
+- Trees: tm.houseBoxes = fill-house boxes + porch boxes (no heights). Real footprints: trees use f box / f.pts + 0.6 m + 1.41 m pad (RoadsideOccupancy). Volumes to keep crowns out of: wall box + 0.35 m eave / 0.25 m rake overhang, + 1.0 m stoop on the door wall, unit fronts +0.8 m (step + gable overhang); porch box (in houseBoxes) to floor + 3.1 m; roof to eave + up to 3.5 m (blocks 4.5), chimneys +0.6 m over the ridge.
+
+## At merge
+- Re-bake. New: RoofTiles bucket has vertex colours (no new slot); CityRoofTiles material needs _HouseTint = 2 (builder line in PSXRacingBuilder.City.cs). PSXLit.shader: one line. CityMeshes.cs: one line (RoofTiles col) + commit 4f6276fe restored the house hooks that 660aecf8 had misplaced (HEAD did not compile).
+
 # HANDOFF - NON-HOUSE LOW-RISE CLASSES (agent "types", charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
 
 Shares the branch with agent "roofs" (houses). Sandbox PSXCity (lock "types", removed after each job). Owner: "replacing these very unrealistic generic textures ... top priority"; "building textures, glass, marble, concrete ... greatest improvement".
