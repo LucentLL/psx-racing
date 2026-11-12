@@ -469,7 +469,7 @@ namespace PSXRacing.City
         {
             Vector3 Seat(Vector3 p)
             {
-                float y = roadGrid.Between(p.x, p.z, p.y - 0.10f, p.y + 0.20f, true);
+                float y = roadGrid.Between(p.x, p.z, p.y - 0.10f, p.y + 0.20f);   // (the height: any=true returns hi)
                 if (y > float.NegativeInfinity && y > p.y) p.y = y;
                 p.y += GutterLiftM;
                 return p;

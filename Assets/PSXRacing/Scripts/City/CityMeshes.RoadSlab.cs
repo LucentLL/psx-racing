@@ -243,7 +243,7 @@ namespace PSXRacing.City
         /// (3 mm out), lower than the end by 0.5 mm to 6 cm; NaN where there is none.</summary>
         static float SlabSeatY(Vector3 P, Vector2 nrm)
         {
-            float y = roadGrid.Between(P.x + nrm.x * 0.003f, P.z + nrm.y * 0.003f, P.y - 0.06f, P.y - 0.0005f, true);
+            float y = roadGrid.Between(P.x + nrm.x * 0.003f, P.z + nrm.y * 0.003f, P.y - 0.06f, P.y - 0.0005f);   // (the height: any=true returns hi)
             return y > float.NegativeInfinity ? y : float.NaN;
         }
 
