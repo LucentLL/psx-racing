@@ -37,11 +37,20 @@ namespace PSXRacing
     /// The rows are cumulative (a hit rolls its own band and every band
     /// below it). Bumper ratings: 2.2 m/s for the US market's 5-mph bumpers
     /// (origin usa, 1973-82 - the market stand-in until car_facts lands),
-    /// 1.5 for chrome (before 1973), 1.1 for everything else.
+    /// 1.5 for chrome (before 1973), 1.1 for everything else. A hit centred
+    /// on the nose or tail (inside <see cref="CentreBand"/>) has no struck
+    /// side, so it rolls no alignment.
+    ///
+    /// ONLY THE LEG'S HARDEST HIT IS ROLLED: a hit harder than every one
+    /// before it this leg (CollisionResponder.RecordHit); a softer crash
+    /// later in the leg rolls nothing. The leg's outcome is the worst of what
+    /// was rolled, lane by lane, never a sum (<see cref="Merge"/>).
     ///
     /// The pull acts at once through <see cref="CarController.hitSteerPull"/>,
-    /// in ROAD-WHEEL DEGREES toward the struck side; the radiator acts at once
-    /// through <see cref="EngineTemp.radiatorCond"/> and a weep; the apply-back
+    /// in ROAD-WHEEL DEGREES toward the struck side, combined with the
+    /// alignment the car already carries by one rule (<see cref="CombinePull"/>)
+    /// that the apply-back banks by too; the radiator acts at once through
+    /// <see cref="EngineTemp.radiatorCond"/> and a weep; the apply-back
     /// (LifeSim.CrashBank) writes exactly what was rolled - no second roll.
     /// DamageScore keeps its world-up rule untouched, so AI retirement and
     /// the body/paint summary do not move.
@@ -59,23 +68,71 @@ namespace PSXRacing
         public const int ZoneNone = 0, ZoneFront = 1, ZoneRear = 2, ZoneSide = 3;
         public static string ZoneName(int z) =>
             z == ZoneFront ? "front" : z == ZoneRear ? "rear" : z == ZoneSide ? "side" : "none";
-        public static string SideName(int s) => s < 0 ? "left" : s > 0 ? "right" : "none";
+        public static string SideName(int s) => s < 0 ? "left" : s > 0 ? "right" : "centre";
 
         /// <summary>
-        /// Which face of the car a contact point is on, in the car's OWN frame:
-        /// <paramref name="local"/> is the impulse-weighted contact point
+        /// The middle of the car, as a share of its half-width either side of
+        /// the centreline (0.2 is about 18 cm on a 1.75 m car). A hit whose
+        /// patch is centred inside it - a square nose into a wall, a pole dead
+        /// ahead - has NO struck side: side 0, and so no alignment (R1a's rule:
+        /// a centre-front hit bends no corner). Without it the side of a square
+        /// hit came from rounding noise in the contact points: the owner's
+        /// coin-flip pull again, only smaller.
+        /// </summary>
+        public const float CentreBand = 0.2f;
+
+        /// <summary>
+        /// Which face of the car a contact patch is on, in the car's OWN frame:
+        /// <paramref name="local"/> is the patch's centre (<see cref="PatchCentre"/>)
         /// relative to the body box's centre, <paramref name="half"/> the box's
         /// half extents. Normalised by the box so a long car's flank is still a
-        /// flank; the side is the point's own side of the centreline. Never the
-        /// struck object's bounds - a 200 m barrier's centre is in front of the
-        /// car whichever side it hit.
+        /// flank; the side is the patch's own side of the centreline, 0 inside
+        /// <see cref="CentreBand"/>. Never the struck object's bounds - a 200 m
+        /// barrier's centre is in front of the car whichever side it hit.
         /// </summary>
         public static void Classify(Vector3 local, Vector3 half, out int zone, out int side)
         {
             float nx = half.x > 1e-3f ? local.x / half.x : 0f;
             float nz = half.z > 1e-3f ? local.z / half.z : 0f;
             zone = Mathf.Abs(nz) >= Mathf.Abs(nx) ? (nz >= 0f ? ZoneFront : ZoneRear) : ZoneSide;
-            side = local.x < 0f ? -1 : 1;
+            side = Mathf.Abs(nx) < CentreBand ? 0 : (nx < 0f ? -1 : 1);
+        }
+
+        /// <summary>A contact point within this of the surface (m of
+        /// separation) is touching; further out it is a speculative point that
+        /// never closed.</summary>
+        public const float TouchSlop = 0.02f;
+
+        /// <summary>
+        /// Where a contact patch is, in the car's own frame: the centre of the
+        /// box around the points that TOUCH (separation within
+        /// <see cref="TouchSlop"/>), or around all of them when none does.
+        ///
+        /// NOT WEIGHTED BY IMPULSE. A car stopped by a wall across part of its
+        /// nose pivots about the wall's inner edge, and the solver piles the
+        /// impulse onto that edge: the weighted point read -0.27 m for a wall
+        /// covering the left 35% of an RX-7's nose (inner edge -0.28 m), so a
+        /// wall over more than half the nose would read on the far side of
+        /// the centreline. The patch's extent does not care where the impulse
+        /// went: a full-width wall is centred, a wall over the left 60% is left.
+        /// </summary>
+        public static Vector3 PatchCentre(Vector3[] points, float[] separations, int n)
+        {
+            if (points == null || n <= 0) return Vector3.zero;
+            n = Mathf.Min(n, points.Length);
+            var lo = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            var hi = -lo;
+            bool any = false;
+            for (int pass = 0; pass < 2 && !any; pass++)
+                for (int i = 0; i < n; i++)
+                {
+                    if (pass == 0 && separations != null && i < separations.Length &&
+                        separations[i] > TouchSlop) continue;
+                    lo = Vector3.Min(lo, points[i]);
+                    hi = Vector3.Max(hi, points[i]);
+                    any = true;
+                }
+            return any ? (lo + hi) * 0.5f : Vector3.zero;
         }
 
         // ---- bumpers ------------------------------------------------------
@@ -125,6 +182,34 @@ namespace PSXRacing
         /// <summary>Degrees for an alignment fault of this severity (1 minor,
         /// 2 severe; anything under 1.5 is minor).</summary>
         public static float PullDeg(float severity) => severity >= 1.5f ? PullDegSevere : PullDegMinor;
+
+        /// <summary>The band an alignment row's severity reads as, the same
+        /// split <see cref="PullDeg"/> makes: 2 severe, else 1 minor.</summary>
+        public static int Band(float severity) => severity >= 1.5f ? 2 : 1;
+
+        /// <summary>
+        /// ONE CAR, ONE ALIGNMENT: does a new alignment of band
+        /// <paramref name="newBand"/> replace the one the car carries (band
+        /// <paramref name="carriedBand"/>, 0 none)? The worse band wins and a
+        /// tie goes to the NEWER hit, so the car pulls toward the latest
+        /// crash. One rule for the leg's own crashes (<see cref="Merge"/>), the
+        /// live pull (<see cref="CombinePull"/>) and the apply-back
+        /// (LifeSim.CrashBank): the pull felt after a crash is the pull the
+        /// next drive starts with.
+        /// </summary>
+        public static bool NewAlignWins(int carriedBand, int newBand) => newBand > 0 && newBand >= carriedBand;
+
+        /// <summary>
+        /// The pull on the road wheels, live: this drive's crash pull
+        /// (<paramref name="hitDeg"/>, CarController.hitSteerPull) against the
+        /// alignment the car came out with (<paramref name="carriedDeg"/>,
+        /// faultSteerPullDeg), by <see cref="NewAlignWins"/> - never their sum,
+        /// which doubled a same-side pull and cancelled an opposite one for the
+        /// rest of the leg, then banked something else. No crash this drive:
+        /// the carried pull, exactly (a sound car: 0, exactly).
+        /// </summary>
+        public static float CombinePull(float carriedDeg, float hitDeg) =>
+            hitDeg != 0f && Mathf.Abs(hitDeg) >= Mathf.Abs(carriedDeg) ? hitDeg : carriedDeg;
 
         // ---- the radiator -------------------------------------------------
         /// <summary>Coolant a fully weeping core (radiatorWeep 1) loses per
@@ -246,7 +331,9 @@ namespace PSXRacing
                 if (mps >= HeavyMps)
                 {
                     Body(ref o, Mathf.Lerp(20f, 40f, d.body));
-                    if (d.align < HeavyAlignChance) Align(ref o, side, mps >= HeavySevereMps ? 2 : 1);
+                    // On the STRUCK side - and a hit square in the middle has
+                    // none (CentreBand), so it rolls no alignment.
+                    if (side != 0 && d.align < HeavyAlignChance) Align(ref o, side, mps >= HeavySevereMps ? 2 : 1);
                 }
                 return o;
             }
@@ -256,7 +343,7 @@ namespace PSXRacing
                 Scuff(ref o, d);
                 if (mps < SideDentMps) return o;
                 Body(ref o, mps < SideHeavyMps ? Mathf.Lerp(5f, 15f, d.body) : Mathf.Lerp(15f, 30f, d.body));
-                if (mps >= SideHeavyMps && d.align < SideAlignChance)
+                if (side != 0 && mps >= SideHeavyMps && d.align < SideAlignChance)
                     Align(ref o, side, mps >= SideSevereMps ? 2 : 1);
             }
             return o;
@@ -272,29 +359,41 @@ namespace PSXRacing
             return o;
         }
 
-        /// <summary>Two outcomes of one leg: damage done never un-happens.
-        /// Losses add, the weep and the alignment take the worse (a tie keeps
-        /// the first side), the first bumper row stays.</summary>
+        /// <summary>
+        /// Two outcomes of one leg, <paramref name="b"/> the LATER. The leg's
+        /// outcome is the WORST of what was rolled, lane by lane, and never a
+        /// sum: summed, a 6.5 then a 7 m/s nose-in took up to 120 off the
+        /// radiator where the table's band stops at 60, and the same two hits
+        /// the other way round took one roll's worth. Nothing applied live is
+        /// taken back: the classes gather, each loss and the weep take the
+        /// larger, the first bumper row stays, and the alignment follows
+        /// <see cref="NewAlignWins"/> (a tie to the later hit).
+        /// </summary>
         public static Outcome Merge(Outcome a, Outcome b)
         {
             var o = a;
             o.classes |= b.classes;
-            o.paintLoss += b.paintLoss;
-            o.bodyLoss += b.bodyLoss;
-            o.radiatorLoss += b.radiatorLoss;
+            o.paintLoss = Mathf.Max(a.paintLoss, b.paintLoss);
+            o.bodyLoss = Mathf.Max(a.bodyLoss, b.bodyLoss);
+            o.radiatorLoss = Mathf.Max(a.radiatorLoss, b.radiatorLoss);
             o.weep = Mathf.Max(a.weep, b.weep);
             if (string.IsNullOrEmpty(o.bumperId)) o.bumperId = b.bumperId;
-            if (b.alignSeverity > o.alignSeverity) { o.alignSeverity = b.alignSeverity; o.alignSide = b.alignSide; }
+            if (NewAlignWins(o.alignSeverity, b.alignSeverity))
+            {
+                o.alignSeverity = b.alignSeverity;
+                o.alignSide = b.alignSide;
+            }
             return o;
         }
 
         // ---- the drive: rolled at the hit, applied at once ------------------
         /// <summary>
         /// One career drive's crash ledger, on the player's responder (armed
-        /// by RaceHandoffApplier). Every hit that becomes the leg's hardest is
-        /// rolled here the moment it lands and the result goes onto the car at
-        /// once: <see cref="CarController.hitSteerPull"/> and the engine's
-        /// radiator. What it holds is what the exit stamp hands the apply-back.
+        /// by RaceHandoffApplier). Every hit that becomes the leg's hardest
+        /// (CollisionResponder.RecordHit - only those) is rolled here the
+        /// moment it lands and the result goes onto the car at once:
+        /// <see cref="CarController.hitSteerPull"/> and the engine's radiator.
+        /// What it holds is what the exit stamp hands the apply-back.
         /// </summary>
         public sealed class Ledger
         {
@@ -304,9 +403,10 @@ namespace PSXRacing
             /// <summary>Tests force the dice through this.</summary>
             public System.Func<Draws> DrawOverride;
 
-            /// <summary>Incidents already over, and the one still taking contacts.</summary>
+            /// <summary>Incidents already over, and the latest one (still
+            /// taking contacts inside its window).</summary>
             public Outcome Closed, Open;
-            float openAt = -100f;
+            float openAt = -100f, openMps;
             int openZone;
             Draws openDraws;
             float radiatorApplied;
@@ -323,11 +423,16 @@ namespace PSXRacing
 
             public Outcome Total => Merge(Closed, Open);
 
-            /// <summary>A hit that just became the leg's hardest.</summary>
+            /// <summary>A hit that just became the leg's hardest. A contact of
+            /// the same crash (same zone, inside the window) is read against
+            /// that crash's dice again only when it is harder than the crash's
+            /// hardest so far - a softer one adds nothing - and what it reads
+            /// is merged on, so it can only add.</summary>
             public void Hit(int zone, int side, float mps, Bumper bumper, float now)
             {
                 if (zone == ZoneNone) return;
                 bool sameIncident = now - openAt <= IncidentWindow && zone == openZone;
+                if (sameIncident && mps <= openMps) return;
                 if (!sameIncident)
                 {
                     Closed = Merge(Closed, Open);
@@ -336,23 +441,28 @@ namespace PSXRacing
                     openZone = zone;
                     openAt = now;
                 }
-                Open = Resolve(zone, side, mps, bumper, openDraws);
+                openMps = mps;
+                Open = Merge(Open, Resolve(zone, side, mps, bumper, openDraws));
                 Rolls++;
                 ApplyLive();
             }
 
-            /// <summary>A bump-stop strike that just became the leg's hardest.</summary>
+            /// <summary>A bump-stop strike that just became the leg's hardest.
+            /// Merged after everything so far (Open is the latest crash), so an
+            /// alignment tie goes to the strike, the later of the two.</summary>
             public void Bottom(int wheel, float mps)
             {
                 var b = ResolveBottom(wheel, mps);
                 if (b.classes == Cls.None) return;
-                Closed = Merge(Closed, b);
+                Open = Merge(Open, b);
                 Rolls++;
                 ApplyLive();
             }
 
             /// <summary>Onto the car, now. Absolute from the total, so applying
-            /// twice is applying once.</summary>
+            /// twice is applying once. The pull is THIS DRIVE'S crash pull alone;
+            /// CarController combines it with the alignment the car carries
+            /// (<see cref="CombinePull"/>).</summary>
             void ApplyLive()
             {
                 var t = Total;
@@ -382,11 +492,37 @@ namespace PSXRacing
             var resp = car.GetComponent<CollisionResponder>();
             if (resp == null) return false;
             // Unseeded in play, like every other fault roll here (seeded only
-            // in tests, through DrawOverride).
-            resp.Ledger = new Ledger(car, car.GetComponent<EngineTemp>(),
-                                     System.Environment.TickCount ^ UnityEngine.Random.Range(1, int.MaxValue));
+            // in tests, through DrawOverride) - and seeded from the OS, never
+            // from UnityEngine.Random: arming a drive must not take a draw from
+            // the sequence the rest of the game shares (PerfTour seeds it with
+            // InitState and expects its drives to replay).
+            resp.Ledger = new Ledger(car, car.GetComponent<EngineTemp>(), System.Guid.NewGuid().GetHashCode());
             car.hitSteerPull = 0f;
             return true;
+        }
+
+        /// <summary>
+        /// A DIFFERENT CAR under the player mid-drive (RaceHandoffApplier.SwapCar,
+        /// the debug bench's DRIVE): it starts clean - no crash pull, no cracked
+        /// core, no weep, its own hardest hit and its own ledger - instead of
+        /// driving on with the old car's crash and banking it onto the new car
+        /// at the exit. The old car's rolled outcome is banked onto the old car
+        /// first, by the caller (DebugCarOps.DriveCar). Nothing at all on a car
+        /// with no ledger (the switch off, or not a career drive): that path is
+        /// today's exactly. Call it BEFORE the applier re-reads the cooling
+        /// system, which subtracts radiatorHit.
+        /// </summary>
+        public static void StartClean(CarController car)
+        {
+            if (car == null) return;
+            var resp = car.GetComponent<CollisionResponder>();
+            if (resp == null || resp.Ledger == null) return;
+            resp.StartOverForNewCar();
+            resp.Ledger = null;
+            car.hitSteerPull = 0f;
+            Arm(car);
+            var temp = car.GetComponent<EngineTemp>();
+            if (temp != null) { temp.radiatorHit = 0f; temp.radiatorWeep = 0f; }
         }
 
         /// <summary>The bumper the car being driven wears, read at the hit (the

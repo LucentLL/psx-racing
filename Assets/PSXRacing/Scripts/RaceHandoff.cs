@@ -424,7 +424,8 @@
         /// <summary>Where it landed, in the car's own frame: CrashStopGap.ZoneFront
         /// 1, ZoneRear 2, ZoneSide 3; 0 none.</summary>
         public static int WorstHitZone;
-        /// <summary>Which side of the centreline: -1 left, +1 right, 0 none.</summary>
+        /// <summary>Which side of the centreline: -1 left, +1 right, 0 centred
+        /// (CrashStopGap.CentreBand) or none.</summary>
         public static int WorstHitSide;
         /// <summary>The hardest bump-stop strike's wheel + 1 (1 FL, 2 FR, 3 RL,
         /// 4 RR); 0 none.</summary>
@@ -433,7 +434,8 @@
         // ---- R0a: what the stop-gap table ROLLED AT THE HIT ----------------
         // Written by the exit stamp from the car's crash ledger; the apply-back
         // (LifeSim.CrashBank) writes exactly this onto the car and rolls
-        // nothing of its own.
+        // nothing of its own. The weep is not here: it is live only, and the
+        // coolant it cost is banked through EndCoolantPct.
         /// <summary>A career car's ledger ran this leg (false: nothing to bank).</summary>
         public static bool CrashRolled;
         /// <summary>CrashStopGap.Cls bits of the outcome, 0 = nothing.</summary>

@@ -392,6 +392,13 @@ namespace PSXRacing
               .Append("  brake x").Append(car.faultBrakeMult.ToString("0.00"))
               .Append("  shift x").Append(car.faultShiftMult.ToString("0.0"))
               .Append("  pull ").Append(car.faultSteerPull.ToString("+0.00;-0.00;0")).Append('\n');
+            // R0a: the alignment and a fresh crash pull in road-wheel degrees,
+            // combined as the steering combines them - a car that is pulling
+            // must not read "pull 0" here.
+            sb.Append("pull deg  : ").Append(CrashStopGap.CombinePull(car.faultSteerPullDeg, car.hitSteerPull)
+                                              .ToString("+0.000;-0.000;0"))
+              .Append("  (crash ").Append(car.hitSteerPull.ToString("+0.000;-0.000;0"))
+              .Append(", carried ").Append(car.faultSteerPullDeg.ToString("+0.000;-0.000;0")).Append(")\n");
             sb.Append("build     : ").Append(Mathf.RoundToInt(car.massKg)).Append(" kg  stages P")
               .Append(car.activeTune.power).Append(" W").Append(car.activeTune.weight)
               .Append(" B").Append(car.activeTune.brakes).Append(" S").Append(car.activeTune.suspension)

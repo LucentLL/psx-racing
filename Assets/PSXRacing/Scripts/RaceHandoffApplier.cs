@@ -377,6 +377,11 @@ namespace PSXRacing
 
             var tank = playerCar.GetComponent<FuelTank>();
             if (tank != null) tank.percent = Mathf.Clamp(RaceHandoff.StartFuelPct, 0f, 100f);
+            // R0a: a different car starts with no crash on it - no pull, no
+            // cracked core, its own crash ledger (nothing at all when no
+            // ledger is armed). Before ApplyCarCondition, which takes the
+            // radiatorHit off the radiator it reads.
+            CrashStopGap.StartClean(playerCar);
             ApplyCarCondition(firstRun: true);
             ApplyHudFlags();
 

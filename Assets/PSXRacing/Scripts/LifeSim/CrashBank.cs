@@ -39,9 +39,13 @@ namespace PSXRacing.LifeSim
 
         /// <summary>
         /// Write an outcome onto a car: the lanes, then the rows. A bumper row
-        /// the car already carries is not written twice; an alignment it
-        /// already carries is made worse in place when this hit was worse
-        /// (the new band and side) and never doubled - one car, one alignment.
+        /// the car already carries is not written twice. An alignment it
+        /// already carries is never doubled - one car, one alignment - and is
+        /// replaced in place by this hit's band and side when
+        /// CrashStopGap.NewAlignWins says so (the worse band wins, a tie goes to
+        /// this hit): the rule CarController steered by through
+        /// CrashStopGap.CombinePull from the moment of the hit, so the car
+        /// pulls on the next drive exactly as it pulled after the crash.
         /// </summary>
         public static void ApplyOutcome(OwnedCar car, CrashStopGap.Outcome o)
         {
@@ -52,7 +56,7 @@ namespace PSXRacing.LifeSim
             if (o.alignSeverity > 0)
             {
                 var old = car.faults.Find(f => f != null && f.id == FaultCatalog.AlignmentId);
-                if (old != null && o.alignSeverity > old.severity)
+                if (old != null && CrashStopGap.NewAlignWins(CrashStopGap.Band(old.severity), o.alignSeverity))
                 {
                     old.severity = o.alignSeverity;
                     old.pullDir = o.alignSide < 0 ? -1 : 1;

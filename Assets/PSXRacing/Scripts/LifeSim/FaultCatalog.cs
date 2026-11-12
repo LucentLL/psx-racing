@@ -139,6 +139,18 @@ namespace PSXRacing.LifeSim
             return Family(origin);
         }
 
+        /// <summary>A pool row nothing but a hit can cause: every source it
+        /// lists is "impact" (bumper_crack, bumper_dent). R0a: with the crash
+        /// stop-gap on, these come from the table at the hit, never from the
+        /// player's own wear rolls.</summary>
+        public static bool ImpactOnly(PoolEntry p)
+        {
+            if (p == null || string.IsNullOrEmpty(p.sources)) return false;
+            foreach (var src in p.sources.Split('|'))
+                if (src != "impact") return false;
+            return true;
+        }
+
         /// <summary>&lt;60k 'new' / &lt;150k 'mid' / else 'high' (mileageTier.ts).</summary>
         public static string MileageTier(float odoMiles) =>
             odoMiles < 60000f ? "new" : (odoMiles < 150000f ? "mid" : "high");
@@ -152,10 +164,15 @@ namespace PSXRacing.LifeSim
         /// unbounded backlog.
         /// </summary>
         public static CarFault RollWearFault(OwnedCar car, string stat, bool severe,
-                                             string cause = "wear", string origin = null)
+                                             string cause = "wear", string origin = null,
+                                             bool noImpactOnly = false)
         {
-            // No origin given (the wear-threshold and bump-stop rollers): the
-            // car's own family (R0a; PoolOrigin). PSX_FAULT_FAMILY=0: jpn, as before.
+            // No origin given (the wear-threshold roller): the car's own
+            // family (R0a; PoolOrigin). PSX_FAULT_FAMILY=0: jpn, as before.
+            // noImpactOnly (R0a, the player's own wear rolls while the crash
+            // stop-gap is on): a row only a hit can cause is never a wear
+            // fault - see ImpactOnly - and with nothing else eligible the
+            // roll is a no.
             Load();
             if (data.pools.Count == 0) return null;
 
@@ -176,6 +193,7 @@ namespace PSXRacing.LifeSim
                 if (p.origin != origin || p.stat != stat) continue;
                 if (carRank < TierRank(p.minTier)) continue;     // mileage gate
                 if (existingIds.Contains(p.id)) continue;        // per-stat dedupe
+                if (noImpactOnly && ImpactOnly(p)) continue;     // R0a: wear cracks no bumper
                 eligible.Add(p);
             }
             if (eligible.Count == 0) return null;

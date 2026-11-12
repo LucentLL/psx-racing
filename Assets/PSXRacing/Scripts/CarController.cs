@@ -253,7 +253,9 @@ namespace PSXRacing
         /// car's crash ledger (CrashStopGap). Its own field beside
         /// heatAccelMult for the same reason: RaceHandoffApplier.ReapplyCar
         /// rewrites the fault handicaps wholesale on a bench press and must not
-        /// mend a crash that has not been banked yet. Zero = the car as it was.
+        /// mend a crash that has not been banked yet. Steering reads it
+        /// against faultSteerPullDeg through CrashStopGap.CombinePull (the
+        /// worse band wins, a tie to this hit). Zero = the car as it was.
         /// </summary>
         public float hitSteerPull;
 
@@ -2542,9 +2544,11 @@ namespace PSXRacing
             // TARGET, not to steerInput, so it survives a released stick.
             // R0a: alignment and a fresh crash pull in road-wheel DEGREES, not
             // in shares of lock - a share of lock is five degrees at 100 km/h
-            // and most of a lane per car length. Added only when there is one,
-            // so a sound car steers to the bit.
-            float pullDeg = faultSteerPullDeg + hitSteerPull;
+            // and most of a lane per car length. ONE alignment: this drive's
+            // crash against the carried one by the rule the apply-back banks
+            // by (CrashStopGap.CombinePull), never their sum. Added only when
+            // there is one, so a sound car steers to the bit.
+            float pullDeg = CrashStopGap.CombinePull(faultSteerPullDeg, hitSteerPull);
             if (WheelSteerLive)
             {
                 // A STEERING WHEEL asks for an ANGLE (WheelConfig): the

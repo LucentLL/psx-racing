@@ -1344,13 +1344,20 @@ namespace PSXRacing.LifeSim
                 // threshold rolls an IMPACT-cause fault (the pools tag entries
                 // by cause, so a wall hit surfaces bent metal rather than a
                 // worn-out timing belt).
+                // R0a: the body this leg was driven on, before its crash - what
+                // step 5's body-lane wear roll reads (below).
+                float hpBeforeCrash = car.carHP;
                 float damage = RaceHandoff.DamageScore;
                 if (damage > 0f)
                 {
                     car.carHP = Mathf.Max(0f, car.carHP - damage * BodyDamagePerHit);
                     car.paint = Mathf.Max(0f, car.paint - damage * PaintDamagePerHit);
+                    // Today's roll, with today's pool: "jpn" as it always was,
+                    // so PSX_FAULT_CRASH=0 alone puts the old crash back even
+                    // with the origin families on (impact rolls never read a
+                    // family - the eur pool's impact rows are electrical).
                     if (!CrashStopGap.On && damage >= ImpactFaultThreshold)
-                        AddFault(s, car, FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact"));
+                        AddFault(s, car, FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact", "jpn"));
                 }
                 // R0a: the faults come from the HIT, not the sum - the
                 // stop-gap table was rolled at the hit, in the car (located,
@@ -1372,7 +1379,7 @@ namespace PSXRacing.LifeSim
                 // severe from BottomSevereMps) was rolled at the strike and
                 // banked with the crash outcome above.
                 if (!CrashStopGap.On && RaceHandoff.BottomWorst >= BottomFaultMps)
-                    AddFault(s, car, FaultCatalog.RollWearFault(car, "tires", RaceHandoff.BottomWorst >= BottomSevereMps, "impact"));
+                    AddFault(s, car, FaultCatalog.RollWearFault(car, "tires", RaceHandoff.BottomWorst >= BottomSevereMps, "impact", "jpn"));
 
                 // 4c. NO DRIVING RECORD. There used to be an at-fault incident
                 // tally here, feeding a BILLS row and an insurance multiplier
@@ -1389,7 +1396,13 @@ namespace PSXRacing.LifeSim
                 // which is what stops an errand into town costing three faults.
                 RollThresholdFault(s, car, "engine", car.engine, meters);
                 RollThresholdFault(s, car, "tires", car.tires, meters);
-                RollThresholdFault(s, car, "hp", car.carHP, meters);
+                // R0a: the body lane's wear roll reads the body this leg was
+                // driven on, from before its crash. The crash's own rows came
+                // from the table above, and a dent is not distance-wear: read
+                // after the crash, a hard hit on a sound body could throw a
+                // wear row the same leg (a European car's body pool is half
+                // electrical). PSX_FAULT_CRASH=0: after the crash, as before.
+                RollThresholdFault(s, car, "hp", CrashStopGap.On ? hpBeforeCrash : car.carHP, meters);
             }
 
             // 6. payout + rep (win-only tier purse)
@@ -1785,7 +1798,14 @@ namespace PSXRacing.LifeSim
             // lane will take a second of. The threshold that lets the roll
             // happen at all and the one that makes it severe are different
             // lines, and the gap between them is the warning.
-            AddFault(s, car, FaultCatalog.RollWearFault(car, stat, value < SevereWearBelow));
+            // R0a: wear never cracks a bumper. With the crash stop-gap on, a
+            // row only a hit can cause (bumper_crack, bumper_dent) comes from
+            // the table at the hit and nowhere else - this roll used to fall
+            // back to it on a low-mileage Japanese or US car's body lane, so a
+            // side or rear crash could still end in a cracked bumper a few km
+            // later.
+            AddFault(s, car, FaultCatalog.RollWearFault(car, stat, value < SevereWearBelow,
+                                                        noImpactOnly: CrashStopGap.On));
         }
 
         /// <summary>Commit a rolled fault. Null is the normal "the gate said no"

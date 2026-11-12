@@ -228,12 +228,10 @@ namespace PSXRacing
             DamageScore += normalSpeed * (hard ? 1.6f : 0.4f);
             if (hard && normalSpeed > WorstHit)
             {
-                WorstHit = normalSpeed; WorstHitWhat = c.collider != null ? c.collider.name : "?";
                 // R0a: where it landed, in the car's own frame, and - on a
                 // career car - the stop-gap table rolled now, at the hit.
-                LocateHit(c, out int zone, out int side);
-                WorstHitZone = zone; WorstHitSide = side;
-                Ledger?.Hit(zone, side, normalSpeed, CrashStopGap.LiveBumper(), Time.time);
+                Vector3 local = LocateHit(c, out int zone, out int side);
+                RecordHit(normalSpeed, zone, side, local, c.collider != null ? c.collider.name : "?", Time.time);
             }
             StampContact(c);
 
@@ -416,8 +414,46 @@ namespace PSXRacing
         {
             DamageScore = 0f; HardHits = 0; WorstHit = 0f;
             BottomHits = 0; WorstBottom = 0f; bottomWear = 0f;
-            WorstHitZone = CrashStopGap.ZoneNone; WorstHitSide = 0; WorstBottomWheel = -1; WorstHitLocal = Vector3.zero;
+            WorstHitZone = CrashStopGap.ZoneNone; WorstHitSide = 0; WorstBottomWheel = -1;
+            WorstHitLocal = WorstHitWeighted = Vector3.zero;
             rubAtReset = car != null ? car.BumpRubMeters : 0f;
+        }
+
+        /// <summary>
+        /// R0a: a different car under the player mid-drive
+        /// (CrashStopGap.StartClean): its hardest hit and hardest strike start
+        /// over, so its own ledger rolls its own hardest hit - not only one
+        /// harder than the old car's. The leg's DamageScore summary, HardHits
+        /// and the bump stops' tyre tally are left as they were (banked to
+        /// whichever car ends the drive, as before).
+        /// </summary>
+        public void StartOverForNewCar()
+        {
+            WorstHit = 0f; WorstHitWhat = null;
+            WorstHitZone = CrashStopGap.ZoneNone; WorstHitSide = 0;
+            WorstHitLocal = WorstHitWeighted = Vector3.zero;
+            WorstBottom = 0f; WorstBottomWheel = -1;
+        }
+
+        /// <summary>
+        /// THE LEG'S RECORD RULE, in one place: a hard hit harder than every one
+        /// before it this leg becomes the hardest hit - its speed, what it was
+        /// into, where it landed - and, on a career car, the stop-gap table is
+        /// rolled at it (<see cref="CrashStopGap.Ledger"/>). A softer hit changes
+        /// none of it: R0a rolls the leg's hardest hit, not every crash.
+        /// OnCollisionEnter is the caller in the game; public so the self-test
+        /// drives the same rule. True when it was a new record.
+        /// </summary>
+        public bool RecordHit(float mps, int zone, int side, Vector3 local, string what, float now)
+        {
+            if (mps <= WorstHit) return false;
+            WorstHit = mps;
+            WorstHitWhat = what;
+            WorstHitZone = zone;
+            WorstHitSide = side;
+            WorstHitLocal = local;
+            Ledger?.Hit(zone, side, mps, CrashStopGap.LiveBumper(), now);
+            return true;
         }
 
         /// <summary>The hardest square hit this race (m/s into what was hit):
@@ -431,47 +467,62 @@ namespace PSXRacing
         /// (CrashStopGap.ZoneFront / ZoneRear / ZoneSide), 0 = none yet.</summary>
         public int WorstHitZone { get; private set; }
         /// <summary>Which side of the centreline it landed on: -1 left, +1
-        /// right, 0 none yet.</summary>
+        /// right, 0 centred (CrashStopGap.CentreBand) or none yet.</summary>
         public int WorstHitSide { get; private set; }
         /// <summary>The hardest bump-stop strike's wheel (0-3: FL FR RL RR),
         /// -1 none yet.</summary>
         public int WorstBottomWheel { get; private set; } = -1;
         /// <summary>Where the hardest hit landed, relative to the body box's
-        /// centre in its own frame (m; x right, z forward) - what the zone and
+        /// centre in its own frame (box units; x right, z forward): the centre
+        /// of its contact patch (CrashStopGap.PatchCentre) - what the zone and
         /// side were read from.</summary>
         public Vector3 WorstHitLocal { get; private set; }
+        /// <summary>The same hit's impulse-weighted contact point, for the play
+        /// check only (it shows why the patch centre is used: the weighted point
+        /// sits on the overlap's inner edge). Read by nothing in the game.</summary>
+        public Vector3 WorstHitWeighted { get; private set; }
         /// <summary>The career car's crash ledger (CrashStopGap.Arm), null on
         /// every other car: the stop-gap table is rolled here at the hit.</summary>
         public CrashStopGap.Ledger Ledger { get; set; }
 
+        static Vector3[] patchPoints = new Vector3[8];
+        static float[] patchSeparations = new float[8];
+
         /// <summary>
-        /// Where on the car a contact landed: the contact points, weighted by
-        /// the impulse each one carried, taken into the body box's own frame
-        /// (CarBody.box) and classified by the face they are on. The struck
+        /// Where on the car a contact landed: the contact points taken into the
+        /// body box's own frame (CarBody.box), the centre of the patch they
+        /// make (CrashStopGap.PatchCentre), and the face that is on. The struck
         /// object's bounds never enter it - a long barrier's bounding box sits
         /// ahead of the car whichever side it was hit on.
         /// </summary>
-        void LocateHit(Collision c, out int zone, out int side)
+        Vector3 LocateHit(Collision c, out int zone, out int side)
         {
             var box = shell != null ? shell.box : null;
             Transform frame = box != null ? box.transform : transform;
             Vector3 centre = box != null ? box.center : Vector3.zero;
             Vector3 half = box != null ? box.size * 0.5f : new Vector3(0.88f, 0.65f, 2.15f);
-            Vector3 weighted = Vector3.zero, plain = Vector3.zero;
-            float w = 0f;
             int n = c.contactCount;
+            if (patchPoints.Length < n)
+            {
+                patchPoints = new Vector3[n];
+                patchSeparations = new float[n];
+            }
+            Vector3 weighted = Vector3.zero;
+            float w = 0f;
             for (int i = 0; i < n; i++)
             {
                 var cp = c.GetContact(i);
                 Vector3 p = frame.InverseTransformPoint(cp.point) - centre;
+                patchPoints[i] = p;
+                patchSeparations[i] = cp.separation;
                 float imp = cp.impulse.magnitude;
                 weighted += p * imp;
                 w += imp;
-                plain += p;
             }
-            Vector3 local = w > 1e-6f ? weighted / w : (n > 0 ? plain / n : Vector3.zero);
-            WorstHitLocal = local;
+            WorstHitWeighted = w > 1e-6f ? weighted / w : Vector3.zero;
+            Vector3 local = CrashStopGap.PatchCentre(patchPoints, patchSeparations, n);
             CrashStopGap.Classify(local, half, out zone, out side);
+            return local;
         }
     }
 }

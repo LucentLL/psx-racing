@@ -585,6 +585,20 @@ namespace PSXRacing.LifeSim
             if (leaving != null && leaving != car && liveTank != null)
                 leaving.fuel = Mathf.Clamp(liveTank.percent, 0f, 100f);
 
+            // R0a: and so does what this drive's crashes did to it - the
+            // outcome its ledger rolled at the hit, banked onto the car it
+            // happened to (no dice here). SwapCar then starts the car climbed
+            // into clean (CrashStopGap.StartClean), so the exit stamp cannot
+            // bank one car's crash onto another. Before the request is
+            // rewritten, so getting back into the same car keeps its damage.
+            // Only when the swap will happen (SwapCar refuses a car with no
+            // catalog entry and touches nothing - the ledger then still holds
+            // this crash for the exit stamp).
+            var resp = applier != null && applier.playerCar != null
+                ? applier.playerCar.GetComponent<CollisionResponder>() : null;
+            if (leaving != null && resp != null && resp.Ledger != null && CarCatalog.Get(car.specId ?? "") != null)
+                CrashBank.ApplyOutcome(leaving, resp.Ledger.Total);
+
             s.activeCar = car.id;
             if (applier == null) return null;
 
