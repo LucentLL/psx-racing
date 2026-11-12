@@ -9028,8 +9028,12 @@ namespace PSXRacing.EditorTools
             tiredCool.radiator = 20f;
             string mild = CoolingModel.PreRaceWarning(tiredCool, 16f);
             string hot = CoolingModel.PreRaceWarning(tiredCool, 33f);
-            Check(mild != null && mild.Contains("radiator"),
-                  "a dead core is named on any day", mild);
+            // R0a re-pin: with the crash stop-gap on (a crash lowers the core)
+            // the warning stands but names no part; PSX_FAULT_CRASH=0 names it.
+            Check(mild != null && (CrashStopGap.On ? !mild.Contains("radiator") && mild.Contains("cooling")
+                                                   : mild.Contains("radiator")),
+                  CrashStopGap.On ? "a dead core is warned of on any day, as the cooling - no part named"
+                                  : "a dead core is named on any day", mild);
             Check(hot != null && hot.Contains("33"),
                   "and a hot day says how hot", hot);
             tiredCool.coolant = 30f;

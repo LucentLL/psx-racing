@@ -7206,10 +7206,15 @@ namespace PSXRacing.LifeSim
             // One claim per line. MenuKit text overflows rather than clipping,
             // so two sentences on one row is two sentences running off the
             // right-hand edge of the page on a phone.
+            // R0a: with the crash stop-gap on a crash takes the radiator down,
+            // so the line says the system, not the part - no part named with
+            // nobody having looked (CoolingModel.PreRaceWarning, same rule).
             MenuKit.Label(body, health > 70f
                     ? "Radiator, fan and hoses all look serviceable."
-                    : "Weakest part: " + CoolingModel.WeakestPart(car).ToLowerInvariant() +
-                      " — the mechanic replaces cooling parts.",
+                    : CrashStopGap.On
+                        ? "Cooling system tired — the mechanic replaces cooling parts."
+                        : "Weakest part: " + CoolingModel.WeakestPart(car).ToLowerInvariant() +
+                          " — the mechanic replaces cooling parts.",
                 14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, Mathf.Min(ColW, 760f));
             y -= 24f;
