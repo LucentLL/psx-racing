@@ -260,7 +260,12 @@ namespace PSXRacing.LifeSim
             if (e.gripMult < 0.999f) parts.Add("grip " + Pct(e.gripMult));
             if (e.brakeMult < 0.999f) parts.Add("brakes " + Pct(e.brakeMult));
             if (Mathf.Abs(e.steerPull) > 0.001f)
-                parts.Add("pulls " + Mathf.RoundToInt(Mathf.Abs(e.steerPull) * 100f) + "% of lock");
+                // R0a: the alignment row pulls in road-wheel degrees by its
+                // severity (CrashStopGap), not in shares of lock.
+                parts.Add(CrashStopGap.On && e.id == FaultCatalog.AlignmentId
+                    ? "pulls " + CrashStopGap.PullDegMinor.ToString("0.0##") + " deg (" +
+                      CrashStopGap.PullDegSevere.ToString("0.0##") + " severe)"
+                    : "pulls " + Mathf.RoundToInt(Mathf.Abs(e.steerPull) * 100f) + "% of lock");
             if (e.shiftMult > 1.001f) parts.Add("shifts x" + e.shiftMult.ToString("0.#") + " slower");
             if (e.fuelMult > 1.001f) parts.Add("fuel +" + Mathf.RoundToInt((e.fuelMult - 1f) * 100f) + "%");
             if (e.engineWearMult > 1.001f)
@@ -648,6 +653,9 @@ namespace PSXRacing.LifeSim
             if (Mathf.Abs(a.steerPull) > 0.001f)
                 parts.Add("PULLS " + (a.steerPull > 0f ? "RIGHT " : "LEFT ") +
                           Mathf.RoundToInt(Mathf.Abs(a.steerPull) * 100f) + "%");
+            if (Mathf.Abs(a.steerPullDeg) > 0.0001f)   // R0a: alignment, road-wheel degrees
+                parts.Add("PULLS " + (a.steerPullDeg > 0f ? "RIGHT " : "LEFT ") +
+                          Mathf.Abs(a.steerPullDeg).ToString("0.0##") + " DEG");
             if (a.shiftMult > 1.001f) parts.Add("SHIFTS x" + a.shiftMult.ToString("0.#"));
             if (a.fuelMult > 1.001f)
                 parts.Add("FUEL +" + Mathf.RoundToInt((a.fuelMult - 1f) * 100f) + "%");

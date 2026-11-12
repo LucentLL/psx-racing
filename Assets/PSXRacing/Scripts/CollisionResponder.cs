@@ -93,6 +93,7 @@ namespace PSXRacing
         CarController car;
         Rigidbody rb;
         CollisionAudio audioVoices;
+        CarBody shell;
 
         float scrapeIntensity, scrapeLoad;
         float lastImpactTime = -10f;
@@ -124,6 +125,7 @@ namespace PSXRacing
             car = GetComponent<CarController>();
             rb = GetComponent<Rigidbody>();
             audioVoices = GetComponent<CollisionAudio>();
+            shell = GetComponent<CarBody>();
             if (car != null) car.Bottomed += OnBottomed;
         }
 
@@ -169,7 +171,13 @@ namespace PSXRacing
             if (over <= 0f) return;
             BottomHits++;
             bottomWear += over * BottomWearPerMps;
-            if (mps > WorstBottom) WorstBottom = mps;
+            if (mps > WorstBottom)
+            {
+                WorstBottom = mps;
+                // R0a: which wheel, and the bump-stop row rolled at the strike.
+                WorstBottomWheel = wheel;
+                Ledger?.Bottom(wheel, mps);
+            }
 
             // Speed along the road only: the stop already took the vertical.
             Vector3 v = rb.linearVelocity;
@@ -218,7 +226,15 @@ namespace PSXRacing
             HitReportedOn?.Invoke(this, normalSpeed, hard, c.collider);
             HitReported?.Invoke(this, normalSpeed, hard, c.collider != null ? c.collider.name : "?");
             DamageScore += normalSpeed * (hard ? 1.6f : 0.4f);
-            if (hard && normalSpeed > WorstHit) { WorstHit = normalSpeed; WorstHitWhat = c.collider != null ? c.collider.name : "?"; }
+            if (hard && normalSpeed > WorstHit)
+            {
+                WorstHit = normalSpeed; WorstHitWhat = c.collider != null ? c.collider.name : "?";
+                // R0a: where it landed, in the car's own frame, and - on a
+                // career car - the stop-gap table rolled now, at the hit.
+                LocateHit(c, out int zone, out int side);
+                WorstHitZone = zone; WorstHitSide = side;
+                Ledger?.Hit(zone, side, normalSpeed, CrashStopGap.LiveBumper(), Time.time);
+            }
             StampContact(c);
 
             if (hard && normalSpeed >= IncidentSpeed &&
@@ -400,6 +416,7 @@ namespace PSXRacing
         {
             DamageScore = 0f; HardHits = 0; WorstHit = 0f;
             BottomHits = 0; WorstBottom = 0f; bottomWear = 0f;
+            WorstHitZone = CrashStopGap.ZoneNone; WorstHitSide = 0; WorstBottomWheel = -1;
             rubAtReset = car != null ? car.BumpRubMeters : 0f;
         }
 
@@ -408,5 +425,48 @@ namespace PSXRacing
         public float WorstHit { get; private set; }
         /// <summary>What that hardest hit was into (a collider name).</summary>
         public string WorstHitWhat { get; private set; }
+
+        // ---- R0a: the hardest hit, LOCATED (Fault design §9) ---------------
+        /// <summary>Which face of the car the hardest hit landed on
+        /// (CrashStopGap.ZoneFront / ZoneRear / ZoneSide), 0 = none yet.</summary>
+        public int WorstHitZone { get; private set; }
+        /// <summary>Which side of the centreline it landed on: -1 left, +1
+        /// right, 0 none yet.</summary>
+        public int WorstHitSide { get; private set; }
+        /// <summary>The hardest bump-stop strike's wheel (0-3: FL FR RL RR),
+        /// -1 none yet.</summary>
+        public int WorstBottomWheel { get; private set; } = -1;
+        /// <summary>The career car's crash ledger (CrashStopGap.Arm), null on
+        /// every other car: the stop-gap table is rolled here at the hit.</summary>
+        public CrashStopGap.Ledger Ledger { get; set; }
+
+        /// <summary>
+        /// Where on the car a contact landed: the contact points, weighted by
+        /// the impulse each one carried, taken into the body box's own frame
+        /// (CarBody.box) and classified by the face they are on. The struck
+        /// object's bounds never enter it - a long barrier's bounding box sits
+        /// ahead of the car whichever side it was hit on.
+        /// </summary>
+        void LocateHit(Collision c, out int zone, out int side)
+        {
+            var box = shell != null ? shell.box : null;
+            Transform frame = box != null ? box.transform : transform;
+            Vector3 centre = box != null ? box.center : Vector3.zero;
+            Vector3 half = box != null ? box.size * 0.5f : new Vector3(0.88f, 0.65f, 2.15f);
+            Vector3 weighted = Vector3.zero, plain = Vector3.zero;
+            float w = 0f;
+            int n = c.contactCount;
+            for (int i = 0; i < n; i++)
+            {
+                var cp = c.GetContact(i);
+                Vector3 p = frame.InverseTransformPoint(cp.point) - centre;
+                float imp = cp.impulse.magnitude;
+                weighted += p * imp;
+                w += imp;
+                plain += p;
+            }
+            Vector3 local = w > 1e-6f ? weighted / w : (n > 0 ? plain / n : Vector3.zero);
+            CrashStopGap.Classify(local, half, out zone, out side);
+        }
     }
 }

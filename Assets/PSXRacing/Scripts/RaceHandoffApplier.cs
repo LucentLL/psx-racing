@@ -120,6 +120,10 @@ namespace PSXRacing
 
                 ApplyCarCondition(firstRun: true);
 
+                // R0a: a career car rolls the crash stop-gap at the hit
+                // (CrashStopGap; PSX_FAULT_CRASH=0 leaves it unarmed).
+                CrashStopGap.Arm(playerCar);
+
                 // The cargo, and the little window onto it. Spawned HERE rather
                 // than baked into every circuit: a delivery is the only run that
                 // has any, this is the one place that already knows the run is a
@@ -227,7 +231,11 @@ namespace PSXRacing
             if (temp != null)
             {
                 temp.coolMult = RaceHandoff.CoolMult;
-                temp.radiatorCond = RaceHandoff.RadiatorCond;
+                // R0a: a crash this drive is not in the save yet - take it off
+                // again, or a bench reapply would mend the radiator.
+                temp.radiatorCond = temp.radiatorHit > 0f
+                    ? Mathf.Max(0f, RaceHandoff.RadiatorCond - temp.radiatorHit)
+                    : RaceHandoff.RadiatorCond;
                 temp.fanCond = RaceHandoff.FanCond;
                 temp.hoseCond = RaceHandoff.HoseCond;
                 temp.engineHealth = Mathf.Clamp01(RaceHandoff.EngineCond * 0.01f);
@@ -258,6 +266,9 @@ namespace PSXRacing
             playerCar.faultBrakeMult = RaceHandoff.BrakeMult;
             playerCar.faultShiftMult = RaceHandoff.ShiftMult;
             playerCar.faultSteerPull = RaceHandoff.SteerPull;
+            // R0a: the alignment fault, in road-wheel degrees. hitSteerPull,
+            // this drive's crash, is NOT written here (see CarController).
+            playerCar.faultSteerPullDeg = RaceHandoff.SteerPullDeg;
         }
 
         void ApplyHudFlags()

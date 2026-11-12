@@ -92,6 +92,53 @@ namespace PSXRacing.LifeSim
         /// diagnose, and nothing else in the game would ever say so.</summary>
         public static IReadOnlyList<PoolEntry> Pools { get { Load(); return data.pools; } }
 
+        // ---- origin FAMILIES (R0a, Fault_System_Design_2026-11-11 §9) ----
+        //
+        // The pools are keyed jpn / usa / eur; the catalog's origins are
+        // seven - jpn, usa, ger, gbr, fra, ita, eur. Every lookup used to fall
+        // through "unknown -> jpn", so 77 German, British, French, Italian and
+        // other European cars rolled Japanese faults at Japanese prices, and
+        // the crash, bump-stop and wear rollers passed no origin at all (the
+        // default was "jpn"), so every car did. Each roller now reads the
+        // car's own family.
+
+        /// <summary>PSX_FAULT_FAMILY=0 puts the old lookup back (an unknown
+        /// or missing origin reads the Japanese pool).</summary>
+        public static bool FamilyOn = System.Environment.GetEnvironmentVariable("PSX_FAULT_FAMILY") != "0";
+
+        /// <summary>The pool family an origin belongs to. False (and jpn) for
+        /// an origin the table does not know, so a self-test can prove that no
+        /// catalog row takes the fallback.</summary>
+        public static bool TryFamily(string origin, out string family)
+        {
+            switch (origin)
+            {
+                case "jpn": family = "jpn"; return true;
+                case "usa": family = "usa"; return true;
+                case "eur": case "ger": case "gbr": case "fra": case "ita": case "swe":
+                    family = "eur"; return true;
+            }
+            family = "jpn";
+            return false;
+        }
+
+        public static string Family(string origin) { TryFamily(origin, out var f); return f; }
+
+        /// <summary>The pool the car's own catalog row reads (jpn without one).</summary>
+        public static string FamilyOf(OwnedCar car) =>
+            PoolOrigin(car != null ? CarCatalog.Get(car.specId)?.origin : null, null);
+
+        /// <summary>The pool a roll reads: the origin given, or the car's own
+        /// when none was, as its family. Off, the old rule exactly.</summary>
+        static string PoolOrigin(string origin, OwnedCar car)
+        {
+            Load();
+            if (!FamilyOn)
+                return origin != null && originCostMult.ContainsKey(origin) ? origin : "jpn";
+            if (string.IsNullOrEmpty(origin) && car != null) origin = CarCatalog.Get(car.specId)?.origin;
+            return Family(origin);
+        }
+
         /// <summary>&lt;60k 'new' / &lt;150k 'mid' / else 'high' (mileageTier.ts).</summary>
         public static string MileageTier(float odoMiles) =>
             odoMiles < 60000f ? "new" : (odoMiles < 150000f ? "mid" : "high");
@@ -105,8 +152,10 @@ namespace PSXRacing.LifeSim
         /// unbounded backlog.
         /// </summary>
         public static CarFault RollWearFault(OwnedCar car, string stat, bool severe,
-                                             string cause = "wear", string origin = "jpn")
+                                             string cause = "wear", string origin = null)
         {
+            // No origin given (the wear-threshold and bump-stop rollers): the
+            // car's own family (R0a; PoolOrigin). PSX_FAULT_FAMILY=0: jpn, as before.
             Load();
             if (data.pools.Count == 0) return null;
 
@@ -118,7 +167,7 @@ namespace PSXRacing.LifeSim
             if (!severe && existing > 0) return null;
             if (severe && existing >= 2) return null;
 
-            if (!originCostMult.ContainsKey(origin)) origin = "jpn";   // unknown → jpn
+            origin = PoolOrigin(origin, car);   // its family (off: unknown → jpn)
             int carRank = TierRank(MileageTier(car.odoMiles));
 
             var eligible = new List<PoolEntry>();
@@ -249,7 +298,7 @@ namespace PSXRacing.LifeSim
             Load();
             var outv = new List<CarFault>();
             if (data.used.Count == 0) return outv;
-            if (!originCostMult.ContainsKey(origin)) origin = "jpn";
+            origin = PoolOrigin(origin, null);   // its family (off: unknown → jpn)
 
             int count;
             float r = UnityEngine.Random.value;
@@ -324,6 +373,7 @@ namespace PSXRacing.LifeSim
         public static PoolEntry PoolRow(string faultId, string origin)
         {
             Load();
+            if (FamilyOn) origin = Family(origin);   // a German car's own row is the eur one
             PoolEntry any = null;
             foreach (var p in data.pools)
             {
@@ -356,7 +406,7 @@ namespace PSXRacing.LifeSim
         public static CarFault MakeById(string faultId, string origin)
         {
             Load();
-            if (!originCostMult.ContainsKey(origin ?? "")) origin = "jpn";
+            origin = PoolOrigin(origin, null);   // its family (off: unknown → jpn)
             var row = PoolRow(faultId, origin);
             if (row == null) return null;
             // Priced as the ROW's origin, not the car's: a borrowed European
@@ -426,7 +476,15 @@ namespace PSXRacing.LifeSim
                 agg.fuelMult *= e.fuelMult;
                 agg.gripMult *= e.gripMult;
                 agg.brakeMult *= e.brakeMult;
-                agg.steerPull += e.steerPull * (f.pullDir >= 0 ? 1f : -1f);
+                // ALIGNMENT PULLS IN ROAD-WHEEL DEGREES (R0a): its severity is
+                // the band, its pullDir the side - the 0.25 of lock it used to
+                // be is five degrees at 100 km/h, a hundred times a real
+                // alignment drift (CrashStopGap.PullDeg). The other pulling
+                // faults keep their share of lock until R1b's corners.
+                if (CrashStopGap.On && f.id == AlignmentId)
+                    agg.steerPullDeg += CrashStopGap.PullDeg(f.severity) * (f.pullDir >= 0 ? 1f : -1f);
+                else
+                    agg.steerPull += e.steerPull * (f.pullDir >= 0 ? 1f : -1f);
                 agg.shiftMult = Mathf.Max(agg.shiftMult, e.shiftMult);
                 agg.engineWearMult = Mathf.Max(agg.engineWearMult, e.engineWearMult);
                 agg.nightVisMult = Mathf.Min(agg.nightVisMult, e.nightVisMult);
@@ -441,8 +499,13 @@ namespace PSXRacing.LifeSim
         {
             public float accelMult = 1f, fuelMult = 1f, gripMult = 1f, brakeMult = 1f;
             public float steerPull, shiftMult = 1f, engineWearMult = 1f, nightVisMult = 1f;
+            /// <summary>R0a: the alignment pull, road-wheel degrees (+ = right).</summary>
+            public float steerPullDeg;
             public bool rpmFlutter, steerSlow, hideGauges;
         }
+
+        /// <summary>The one row whose pull is in degrees (R0a).</summary>
+        public const string AlignmentId = "alignment";
 
         // ================= repair quotes (repairCost.ts) =================
 

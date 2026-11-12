@@ -8480,6 +8480,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.GripMult = agg.gripMult;
             RaceHandoff.BrakeMult = agg.brakeMult;
             RaceHandoff.SteerPull = agg.steerPull;
+            RaceHandoff.SteerPullDeg = agg.steerPullDeg;   // R0a: alignment, road-wheel degrees
             RaceHandoff.ShiftMult = agg.shiftMult;
             RaceHandoff.FuelMult = agg.fuelMult;
             // The coolant gauge's handicap. engineWearMult is the field the

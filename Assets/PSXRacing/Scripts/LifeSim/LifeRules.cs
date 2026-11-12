@@ -1349,9 +1349,14 @@ namespace PSXRacing.LifeSim
                 {
                     car.carHP = Mathf.Max(0f, car.carHP - damage * BodyDamagePerHit);
                     car.paint = Mathf.Max(0f, car.paint - damage * PaintDamagePerHit);
-                    if (damage >= ImpactFaultThreshold)
+                    if (!CrashStopGap.On && damage >= ImpactFaultThreshold)
                         AddFault(s, car, FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact"));
                 }
+                // R0a: the faults come from the HIT, not the sum - the
+                // stop-gap table was rolled at the hit, in the car (located,
+                // sized, already pulling), and this writes what it rolled. No
+                // dice here, and no RG2 impact pool (CrashStopGap, CrashBank).
+                if (CrashStopGap.On) CrashBank.Apply(s, car);
 
                 // 4b'. BOTTOMING (owner, 2026-10-19: "A tire should bottom out
                 // when hitting the body, potentially reducing speed, increasing
@@ -1363,7 +1368,10 @@ namespace PSXRacing.LifeSim
                 // fault, however often the stops were met.
                 if (RaceHandoff.BottomScore > 0f)
                     car.tires = Mathf.Max(0f, car.tires - RaceHandoff.BottomScore);
-                if (RaceHandoff.BottomWorst >= BottomFaultMps)
+                // R0a: the strike's alignment (on the struck wheel's side,
+                // severe from BottomSevereMps) was rolled at the strike and
+                // banked with the crash outcome above.
+                if (!CrashStopGap.On && RaceHandoff.BottomWorst >= BottomFaultMps)
                     AddFault(s, car, FaultCatalog.RollWearFault(car, "tires", RaceHandoff.BottomWorst >= BottomSevereMps, "impact"));
 
                 // 4c. NO DRIVING RECORD. There used to be an at-fault incident

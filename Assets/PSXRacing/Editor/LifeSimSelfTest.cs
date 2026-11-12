@@ -107,6 +107,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestRepairEconomy), TestRepairEconomy);
             Guard(nameof(TestFaultGate), TestFaultGate);
             Guard(nameof(TestWearFaultCause), TestWearFaultCause);
+            RunCrashR0aTests();   // R0a crash stop-gap: LifeSimSelfTest.CrashR0a.cs
             Guard(nameof(TestEngineTemp), TestEngineTemp);
             Guard(nameof(TestEngineDeath), TestEngineDeath);
             Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);
@@ -8730,6 +8731,15 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarId = car.id;
             RaceHandoff.MetersDriven = 0f;
             RaceHandoff.DamageScore = LifeRules.ImpactFaultThreshold * 3f;
+            // R0a re-pin: the fault is rolled at the HIT now (CrashStopGap) and
+            // the exit stamp hands it over; stand in for a 12 m/s nose-in
+            // whose dice came up bumper and alignment.
+            if (CrashStopGap.On)
+            {
+                var d = new CrashStopGap.Draws { paint = 0.5f, bumper = 0.1f, body = 0.5f, radiator = 0.9f, radAmt = 0.5f, align = 0.1f };
+                CrashStopGap.StampOutcome(true, CrashStopGap.Resolve(CrashStopGap.ZoneFront, -1, 12f,
+                                                                     CrashStopGap.Bumper.Plastic, d));
+            }
             LifeRules.ApplyRaceResult(s);
             Check(car.faults.Count > 0, "but a heavy crash still bends something",
                   car.faults.Count);
@@ -13207,8 +13217,10 @@ namespace PSXRacing.EditorTools
                     var lone = new OwnedCar { id = "bench_lone", specId = naSpec.id };
                     DebugCarOps.SetFault(lone, naSpec, row.id, true);
                     var a = FaultCatalog.Aggregate_(lone);
+                    // (R0a re-pin: the alignment pull is in degrees, steerPullDeg.)
                     bool moves = a.accelMult < 0.999f || a.gripMult < 0.999f || a.brakeMult < 0.999f ||
-                                 Mathf.Abs(a.steerPull) > 0.001f || a.shiftMult > 1.001f ||
+                                 Mathf.Abs(a.steerPull) > 0.001f || Mathf.Abs(a.steerPullDeg) > 0.0001f ||
+                                 a.shiftMult > 1.001f ||
                                  a.fuelMult > 1.001f || a.engineWearMult > 1.001f ||
                                  a.hideGauges || a.rpmFlutter;
                     if (moves == row.felt) continue;
@@ -13369,15 +13381,19 @@ namespace PSXRacing.EditorTools
                       Mathf.Approximately(tank.burnMult, plugs.fuelMult),
                       "fouled plugs cost power AND fuel, through the same aggregate a scene load uses",
                       car.faultAccelMult + " / " + tank.burnMult);
-                Check(Mathf.Abs(car.faultSteerPull) > 0.01f, "and a bad alignment pulls",
-                      car.faultSteerPull);
+                // R0a re-pin: the alignment pulls in road-wheel degrees now
+                // (faultSteerPullDeg); PSX_FAULT_CRASH=0 is the share of lock.
+                Check(CrashStopGap.On ? Mathf.Abs(car.faultSteerPullDeg) > 0.001f : Mathf.Abs(car.faultSteerPull) > 0.01f,
+                      "and a bad alignment pulls",
+                      CrashStopGap.On ? car.faultSteerPullDeg + " deg" : car.faultSteerPull + " of lock");
                 Check(DebugCarOps.HandicapLine(owned) != DebugCarOps.NoHandicap,
                       "the page's footer says so");
 
                 DebugCarOps.ClearFaults(owned);
                 Push();
                 Check(car.faultBrakeMult == 1f && car.faultAccelMult == 1f && car.faultGripMult == 1f &&
-                      car.faultShiftMult == 1f && car.faultSteerPull == 0f && tank.burnMult == 1f,
+                      car.faultShiftMult == 1f && car.faultSteerPull == 0f && car.faultSteerPullDeg == 0f &&
+                      tank.burnMult == 1f,
                       "CLEAR ALL hands back a healthy car");
                 Check(DebugCarOps.HandicapLine(owned) == DebugCarOps.NoHandicap,
                       "and the footer agrees");

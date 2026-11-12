@@ -232,6 +232,10 @@ namespace PSXRacing
         public float faultShiftMult = 1f;
         /// <summary>Signed steering bias, added to the steering target.</summary>
         public float faultSteerPull;
+        /// <summary>R0a: the car's ALIGNMENT fault as a pull in ROAD-WHEEL
+        /// DEGREES (+ = right), by its severity (CrashStopGap.PullDeg).
+        /// Rewritten with the other fault handicaps on every apply.</summary>
+        public float faultSteerPullDeg;
 
         /// <summary>
         /// What the coolant temperature is taking away right now, 0-1. Written
@@ -242,6 +246,16 @@ namespace PSXRacing
         /// then silently re-applied on the next overheat.
         /// </summary>
         public float heatAccelMult = 1f;
+
+        /// <summary>
+        /// R0a: the pull THIS DRIVE'S crash left, in ROAD-WHEEL DEGREES
+        /// (+ = right, toward the struck side), set at the hit by the career
+        /// car's crash ledger (CrashStopGap). Its own field beside
+        /// heatAccelMult for the same reason: RaceHandoffApplier.ReapplyCar
+        /// rewrites the fault handicaps wholesale on a bench press and must not
+        /// mend a crash that has not been banked yet. Zero = the car as it was.
+        /// </summary>
+        public float hitSteerPull;
 
         [Header("Tires")]
         public float roadGrip = 1.25f;
@@ -2526,6 +2540,11 @@ namespace PSXRacing
             // A pulling fault (bad alignment) biases the wheels, so holding a
             // straight line costs the player constant correction. Added to the
             // TARGET, not to steerInput, so it survives a released stick.
+            // R0a: alignment and a fresh crash pull in road-wheel DEGREES, not
+            // in shares of lock - a share of lock is five degrees at 100 km/h
+            // and most of a lane per car length. Added only when there is one,
+            // so a sound car steers to the bit.
+            float pullDeg = faultSteerPullDeg + hitSteerPull;
             if (WheelSteerLive)
             {
                 // A STEERING WHEEL asks for an ANGLE (WheelConfig): the
@@ -2538,14 +2557,18 @@ namespace PSXRacing
                 float lockMax = Mathf.Max(maxSteerLowSpeedDeg, maxSteer);
                 float wheelRate = Mathf.Max(steerRateDriftDeg, steerRateDeg);
                 float want = Mathf.Clamp(wheelSteerDeg, -lockMax, lockMax);
+                float wheelTarget = want + faultSteerPull * maxSteer;
+                if (pullDeg != 0f) wheelTarget += pullDeg;
                 steerAngleDeg = Mathf.MoveTowards(steerAngleDeg,
-                    Mathf.Clamp(want + faultSteerPull * maxSteer, -lockMax, lockMax), wheelRate * dt);
+                    Mathf.Clamp(wheelTarget, -lockMax, lockMax), wheelRate * dt);
                 steerCommandDeg = Mathf.MoveTowards(steerCommandDeg, want, wheelRate * dt);
                 currentMaxSteerDeg = Mathf.Max(maxSteer, 1f);
                 return;
             }
             float steerTarget = Mathf.Clamp(steerInput + faultSteerPull, -1f, 1f);
-            steerAngleDeg = Mathf.MoveTowards(steerAngleDeg, steerTarget * maxSteer, rate * dt);
+            float angleTarget = steerTarget * maxSteer;
+            if (pullDeg != 0f) angleTarget += pullDeg;
+            steerAngleDeg = Mathf.MoveTowards(steerAngleDeg, angleTarget, rate * dt);
             // The same actuator, WITHOUT the fault — see SteerCommand.
             steerCommandDeg = Mathf.MoveTowards(steerCommandDeg,
                                                 Mathf.Clamp(steerInput, -1f, 1f) * maxSteer, rate * dt);

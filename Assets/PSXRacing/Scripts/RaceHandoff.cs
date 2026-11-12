@@ -318,6 +318,10 @@
         public static float GripMult = 1f;
         public static float BrakeMult = 1f;
         public static float SteerPull;         // signed
+        /// <summary>R0a: the alignment fault's pull in ROAD-WHEEL DEGREES
+        /// (+ = right), from FaultCatalog.Aggregate_ - SteerPull above keeps
+        /// the other pulling faults' share of lock (CrashStopGap).</summary>
+        public static float SteerPullDeg;
         public static float ShiftMult = 1f;
         public static float FuelMult = 1f;
         /// <summary>How much of the cooling system still works, 0-1. Derived
@@ -413,6 +417,33 @@
         /// LifeRules.BottomFaultMps it bent something.</summary>
         public static float BottomWorst;
 
+        // ---- R0a: the hardest hit, located (CrashStopGap.StampHandoff) ----
+        /// <summary>The hardest hit's normal closing speed, m/s
+        /// (CollisionResponder.WorstHit - what AIDriver retires a car on).</summary>
+        public static float WorstHitMps;
+        /// <summary>Where it landed, in the car's own frame: CrashStopGap.ZoneFront
+        /// 1, ZoneRear 2, ZoneSide 3; 0 none.</summary>
+        public static int WorstHitZone;
+        /// <summary>Which side of the centreline: -1 left, +1 right, 0 none.</summary>
+        public static int WorstHitSide;
+        /// <summary>The hardest bump-stop strike's wheel + 1 (1 FL, 2 FR, 3 RL,
+        /// 4 RR); 0 none.</summary>
+        public static int BottomWorstWheel;
+
+        // ---- R0a: what the stop-gap table ROLLED AT THE HIT ----------------
+        // Written by the exit stamp from the car's crash ledger; the apply-back
+        // (LifeSim.CrashBank) writes exactly this onto the car and rolls
+        // nothing of its own.
+        /// <summary>A career car's ledger ran this leg (false: nothing to bank).</summary>
+        public static bool CrashRolled;
+        /// <summary>CrashStopGap.Cls bits of the outcome, 0 = nothing.</summary>
+        public static int CrashClasses;
+        public static float CrashPaintLoss, CrashBodyLoss, CrashRadiatorLoss;
+        /// <summary>The bumper fault row rolled, or null.</summary>
+        public static string CrashBumperId;
+        /// <summary>The alignment rolled: side -1 / +1, severity 0 none, 1 minor, 2 severe.</summary>
+        public static int CrashAlignSide, CrashAlignSeverity;
+
         /// <summary>
         /// What is left of the pizza, 0-1, as the SIMULATION saw it — boxes
         /// tipped, lids off, slices on the floor.
@@ -463,6 +494,15 @@
             HardHits = 0;
             BottomScore = 0f;
             BottomWorst = 0f;
+            WorstHitMps = 0f;
+            WorstHitZone = 0;
+            WorstHitSide = 0;
+            BottomWorstWheel = 0;
+            CrashRolled = false;
+            CrashClasses = 0;
+            CrashPaintLoss = CrashBodyLoss = CrashRadiatorLoss = 0f;
+            CrashBumperId = null;
+            CrashAlignSide = CrashAlignSeverity = 0;
             CargoCondition = 1f;
             CargoConsumable = 1f;
             CargoBoxes = 0;
@@ -516,7 +556,7 @@
             Setup = null;
             Welded = Supercharged = TurboKit = false;
             AccelMult = GripMult = BrakeMult = ShiftMult = FuelMult = CoolMult = 1f;
-            SteerPull = 0f; HideGauges = false; RpmFlutter = false;
+            SteerPull = 0f; SteerPullDeg = 0f; HideGauges = false; RpmFlutter = false;
             RadiatorCond = FanCond = HoseCond = CoolantPct = EngineCond = 100f;
             ClearResult();
         }

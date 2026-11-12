@@ -67,6 +67,17 @@ namespace PSXRacing
         /// </summary>
         public float hoseCond = 100f;
 
+        /// <summary>R0a: radiator condition a crash took off THIS drive
+        /// (CrashStopGap), already out of <see cref="radiatorCond"/>. Kept so
+        /// the applier's bench reapply - which rewrites radiatorCond from the
+        /// save, where the hit is not banked yet - takes it off again rather
+        /// than mending it. Zero on a car that has not hit anything.</summary>
+        public float radiatorHit;
+        /// <summary>R0a: how badly that crash left the core weeping, 0-1 (0 =
+        /// sealed): coolant lost while the system is under pressure
+        /// (CrashStopGap.WeepLoss). Zero on a car that has not hit anything.</summary>
+        public float radiatorWeep;
+
         /// <summary>
         /// What is left of the cooling system after the FAULT lane, 0-1. Comes
         /// off the fault aggregate via <see cref="RaceHandoff.CoolMult"/>:
@@ -335,6 +346,8 @@ namespace PSXRacing
             if (celsius > CoolingModel.BoilAboveC)
                 lost += CoolingModel.BoilPerSec *
                         Mathf.Min(2f, (celsius - CoolingModel.BoilAboveC) / 20f);
+            // R0a: a core cracked in a crash weeps once it is under pressure.
+            if (radiatorWeep > 0f) lost += CrashStopGap.WeepLoss(radiatorWeep, celsius);
             if (lost > 0f) coolantPct = Mathf.Max(0f, coolantPct - lost * dt);
         }
 
@@ -431,8 +444,10 @@ namespace PSXRacing
             if (start < 60f)
                 lines.Add("You set off with the coolant at " + Mathf.RoundToInt(start) + "%. Top it up before a drive.");
             else if (start - coolantAtSeize > 10f)
-                lines.Add("Worn hoses leaked coolant once it got hot (" + Mathf.RoundToInt(start) + "% down to " +
-                          Mathf.RoundToInt(coolantAtSeize) + "%).");
+                // R0a: after a crash the leak is the crash's, and saying so
+                // names no part (the hoses line would blame the wrong one).
+                lines.Add((radiatorWeep > 0f ? "It lost coolant after the crash (" : "Worn hoses leaked coolant once it got hot (") +
+                          Mathf.RoundToInt(start) + "% down to " + Mathf.RoundToInt(coolantAtSeize) + "%).");
             if (firstRedAt >= 0f)
                 lines.Add("It went into the red at " + Clock(firstRedAt) + " and let go at " + Clock(seizedAt) + ".");
             if (redFlatOutSecs > 5f)
