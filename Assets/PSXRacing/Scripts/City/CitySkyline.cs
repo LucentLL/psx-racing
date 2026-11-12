@@ -145,6 +145,10 @@ namespace PSXRacing.City
         static readonly int FogNearId = Shader.PropertyToID("_PSXFogNear");
         /// <summary>The towers' beacons and crown strips (null with none).</summary>
         public CityBeacons Beacons => beacons;
+        /// <summary>The drawn mesh and its per-building ranges (the beacon probe).</summary>
+        public CityMeshes.SkylineMesh MeshData => sm;
+        /// <summary>The map footprints it draws, in element order (the beacon probe).</summary>
+        public List<int> Elements { get; private set; }
 
         public int TowerCount { get; private set; }
         public int MidCount { get; private set; }
@@ -179,6 +183,7 @@ namespace PSXRacing.City
             go.transform.localScale = Vector3.one;
             var sk = go.AddComponent<CitySkyline>();
             sk.sm = sm;
+            sk.Elements = elems;
             sk.TowerCount = towers;
             sk.MidCount = mids;
             sk.PackTowersLeftOut = pack;
@@ -233,7 +238,8 @@ namespace PSXRacing.City
             sk.shown = n;
             sk.hidden = new bool[n];
             // the uptown night pass: the towers' aviation beacons and crown strips
-            sk.beacons = CityBeacons.Create(go.transform, map, elems, sm.bounds);
+            // (2026-11-11: on the skyline's DRAWN tops, with fixtures on the structure atlas's material)
+            sk.beacons = CityBeacons.Create(go.transform, map, elems, sm.bounds, sm, matFor(CityMeshes.Slot.Structure));
             Debug.Log($"[CitySkyline] {towers} towers + {mids} mid-rise ({n} buildings and parts), {sm.triangles} triangles, 2 materials x 3 draws, built in {pickClock.ElapsedMilliseconds} ms; {pack} pack towers among the tallest left to their tiles");
             return sk;
         }
@@ -313,7 +319,12 @@ namespace PSXRacing.City
         {
             if (sm == null || mr == null) return;
             // the beacons and strips: lit with the street lamps, off in fog
-            if (beacons != null) beacons.Show(cam != null && NightGlow.On && Seasons.CurrentWeather != Weather.Fog);
+            // (V2, 2026-11-11: dusk to dawn, CityBeacons.LitNow; the fixtures by day too)
+            if (beacons != null)
+            {
+                beacons.Show(cam != null && beacons.LitNow() && Seasons.CurrentWeather != Weather.Fog);
+                beacons.RefreshFixtures(cam);
+            }
             if (cam == null) { Show(false); return; }
             var weather = Seasons.CurrentWeather;
             if (weather == Weather.Fog) { Show(false); return; }
@@ -322,6 +333,8 @@ namespace PSXRacing.City
             float fadeStart = Mathf.Min(Shader.GetGlobalFloat(FogNearId), fadeEnd - 30f);
             if (fadeStart < 50f) fadeStart = Mathf.Min(50f, fadeEnd * 0.5f);
             float bandEnd = fadeStart + (fadeEnd - fadeStart) * BandShare;
+            // (2026-11-11 round 3) the lights onto a near tile's own roof
+            if (beacons != null) beacons.SnapNear(cam, fadeStart, LiveVersion);
             Vector3 eye = cam.transform.position;
             var eye2 = new Vector2(eye.x, eye.z);
 

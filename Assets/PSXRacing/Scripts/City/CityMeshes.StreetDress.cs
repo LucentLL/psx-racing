@@ -283,7 +283,7 @@ namespace PSXRacing.City
                 // THE GRATE: a dark slab 3 cm proud of the walk, in the walk's own mesh
                 float half = Mathf.Min(GrateAlongM * 0.5f, 0.45f * len);
                 float t0 = Mathf.Clamp01(t - half / len), t1 = Mathf.Clamp01(t + half / len);
-                float r0 = CurbWingsOn ? WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0)) : 0f, r1 = CurbWingsOn ? WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1)) : 0f;
+                float r0 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t0)), r1 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t1));   // (curbs2: the rolled share)
                 Vector3 e0 = Vector3.Lerp(eA, eB, t0), e1 = Vector3.Lerp(eA, eB, t1);
                 Vector2 o0 = Vector2.Lerp(outA, outB, t0).normalized, o1 = Vector2.Lerp(outA, outB, t1).normalized;
                 float w0 = Mathf.Lerp(wA, wB, t0), w1 = Mathf.Lerp(wA, wB, t1);
@@ -298,7 +298,7 @@ namespace PSXRacing.City
                 bk.Face(b, b + up, c1 + up, c1, o03, uv, uv, uv, uv);        // toward the buildings
                 bk.Face(a, a + up, b + up, b, e0 - e1, uv, uv, uv, uv);      // the two ends
                 bk.Face(d1, d1 + up, c1 + up, c1, e1 - e0, uv, uv, uv, uv);
-                var foot = SlabAt(ed, outw, w, CurbWingsOn ? WalkBackEndEase(map, e, s) : 0f, dTree);
+                var foot = SlabAt(ed, outw, w, WalkRollAt(map, e, s), dTree);
                 foot.y += GrateLiftM;
                 tm.streetTrees.Add(new StreetTree { foot = foot, edge = e.index, side = (sbyte)side, dress = (byte)dress, station = (short)k });
                 DressStats.grates++;

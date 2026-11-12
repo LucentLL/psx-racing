@@ -1137,6 +1137,8 @@ namespace PSXRacing.City
         /// foot where the width is 0 (a ramp's end).</summary>
         static void WalkProfile(Vector3 e, Vector2 outw, float w, Vector3[] p, float curb = 1f, float roll = 0f)
         {
+            // (curbs2, 11-11) roll is the rolled share: 0 the vertical curb, 1 the rolled (CityMeshes.Curbs2)
+            if (Curbs2On) { Cs2Profile(e, outw, w, p, curb, roll); return; }
             float yFoot = e.y - RoadsideRules.EdgeDropM;
             if (w <= 0f) { p[0] = p[1] = p[2] = p[3] = new Vector3(e.x, yFoot, e.z); return; }
             var o = new Vector3(outw.x, 0f, outw.y);
@@ -1305,10 +1307,16 @@ namespace PSXRacing.City
             {
                 float vA0 = walkBandV[q], vB0 = walkBandV[q];
                 float vA1 = q < 2 ? walkBandV[q + 1] : wA / WalkTexM, vB1 = q < 2 ? walkBandV[q + 1] : wB / WalkTexM;
+                if (Curbs2On)
+                {
+                    // (curbs2) V across by the profile's own lengths: the face and nose keep the slab's texel size
+                    vA0 = BandV(pa, q); vA1 = q < 2 ? BandV(pa, q + 1) : BandV(pa, 2) + Mathf.Max(0f, wA - Flat(pa[2] - pa[0])) / WalkTexM;
+                    vB0 = BandV(pb, q); vB1 = q < 2 ? BandV(pb, q + 1) : BandV(pb, 2) + Mathf.Max(0f, wB - Flat(pb[2] - pb[0])) / WalkTexM;
+                }
                 if (wA <= 0f) { vA0 = vA1 = 0f; }
                 if (wB <= 0f) { vB0 = vB1 = 0f; }
                 // the curbs pass (11-05): the face in the slab's joint texels, darker
-                if (q == 0 && CurbFaceDarkOn) CurbFaceQuad(bk, pa[0], pa[1], pb[1], pb[0], uA, uB);
+                if (q == 0 && CurbFaceDarkOn && !Curbs2On) CurbFaceQuad(bk, pa[0], pa[1], pb[1], pb[0], uA, uB);
                 else if (q == 2 && walkPaverNow)
                 // (street dress) Tryon and Trade: the slab behind the curb is brick pavers
                 PaverBucket.Up(pa[q], pa[q + 1], pb[q + 1], pb[q],
@@ -1318,6 +1326,16 @@ namespace PSXRacing.City
                       new Vector2(uA, vA0), new Vector2(uA, vA1), new Vector2(uB, vB1), new Vector2(uB, vB0));
                 LogWalkQuad(" walk band" + q, pa[q], pa[q + 1], pb[q + 1], pb[q]);
             }
+            if (Curbs2On && wA > 0f && wB > 0f) Cs2RenderFace(pa, pb, uA, uB);   // (curbs2) the plumb curb drawn over the chamfer
+        }
+
+        static float Flat(Vector3 d) => new Vector2(d.x, d.z).magnitude;
+        /// <summary>(curbs2) V at profile point k: metres along the profile from the foot / WalkTexM.</summary>
+        static float BandV(Vector3[] p, int k)
+        {
+            float v = 0f;
+            for (int j = 1; j <= k && j < 3; j++) v += Vector3.Distance(p[j - 1], p[j]);
+            return v / WalkTexM;
         }
 
         /// <summary>The probes' record of a walk quad (groundLog, world space).</summary>
@@ -1332,8 +1350,9 @@ namespace PSXRacing.City
         /// <summary>The back of a walk as a verge's start: EmitStrip lays a
         /// verge from an inch under the point it is given, so the point is
         /// the walk's back an inch up. Width 0: the drawn edge itself.</summary>
-        static Vector3 WalkBack(Vector3 e, Vector2 outw, float w, float curb = 1f)
+        static Vector3 WalkBack(Vector3 e, Vector2 outw, float w, float curb = 1f, float roll = 0f)
         {
+            if (Curbs2On) return Cs2Back(e, outw, w, curb, roll);
             if (w <= 0f) return e;
             var b = e + new Vector3(outw.x, 0f, outw.y) * w;
             b.y = e.y + CurbH * curb + WalkCrossFall * (w - CurbNoseOut) + RoadsideRules.EdgeDropM;
@@ -1468,6 +1487,7 @@ namespace PSXRacing.City
         {
             // (street dress) a dressed Uptown street's slab is brick pavers
             walkPaverNow = StreetDressOn && StreetDressOf(map, e) == DressMain;
+            cs2Granite = StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e));   // (curbs2) Uptown's grey granite curb
             bool laid = EmitWalkSpanCore(map, trims, tm, e, i, side, eA, eB, outA, outB, sA, sB, verge);
             walkPaverNow = false;
             return laid;
@@ -1546,16 +1566,31 @@ namespace PSXRacing.City
                 // a ramp end keeps its zero width: the lerp only reaches it at the end
                 if (j == 1 && wA <= 0f) w0 = 0f;
                 if (j == cutT.Count - 1 && wB <= 0f) w1 = 0f;
-                WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], CurbWingsOn ? WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0)) : 0f);
-                WalkProfile(pB, oB, w1, walkProfB, cutC[j], CurbWingsOn ? WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1)) : 0f);
+                float rl0 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t0)), rl1 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t1));
+                WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], rl0);
+                WalkProfile(pB, oB, w1, walkProfB, cutC[j], rl1);
+                cs2FaceR = Mathf.Max(rl0, rl1);
                 LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                if (Curbs2On && w0 >= WalkMinM && w1 >= WalkMinM)
+                {
+                    // (not where a ramp end narrows the walk: it turns across the junction mouth)
+                    // (curbs2) the gutter pan on the road under the vertical curb, and the tallies
+                    // (Uptown inside the loop: granite curb straight off the asphalt, no concrete pan - S Tryon at road level)
+                    // (and not in the last metres before a junction, where the arm's drawn edge runs on
+                    //  past the corner's curb return into the mouth: Lexington Ave's crosswalk)
+                    if (!(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
+                        Cs2Gutter(i, pA, pB, oA, oB, Mathf.Lerp(sA, sB, t0) / 8f, Mathf.Lerp(sA, sB, t1) / 8f, rl0, rl1);
+                    float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
+                    if (rl0 + rl1 > 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
+                }
                 // the backing fades out with the walk's ramp: at a ramp's end (no walk) it is the verge
                 // the next span lays from the same edge point, so the two strips meet
                 // (and at a junction end, where the corner's own strips meet it, CityMeshes.WalkBack)
                 verge.backA = Mathf.Clamp01(w0 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0));
                 verge.backB = Mathf.Clamp01(w1 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1));
-                EmitStrip(map, trims, tm, WalkBack(pA, oA, w0, cutC[j - 1]), WalkBack(pB, oB, w1, cutC[j]), oA, oB, verge);
+                EmitStrip(map, trims, tm, WalkBack(pA, oA, w0, cutC[j - 1], rl0), WalkBack(pB, oB, w1, cutC[j], rl1), oA, oB, verge);
             }
+            if (Curbs2On) Cs2RecordSpan(e, side, eA, eB, outA, outB, sA, sB, wA, wB, anyCut);
             WalkStats.walkM += len; WalkStats.spans++;
             if (wA <= 0f || wB <= 0f) WalkStats.ramps++;
             // (street dress) the street trees' grates on this span, and the trees for CityTrees
@@ -1572,6 +1607,7 @@ namespace PSXRacing.City
         {
             // (street dress) a corner on a dressed Uptown street is paved as that street is
             walkPaverNow = StreetDressOn && (StreetDressOf(map, map.edges[ring[cw.g0].edge]) == DressMain || StreetDressOf(map, map.edges[ring[cw.g1].edge]) == DressMain);
+            cs2Granite = StreetDressOn && (Cs2GraniteDress(StreetDressOf(map, map.edges[ring[cw.g0].edge])) || Cs2GraniteDress(StreetDressOf(map, map.edges[ring[cw.g1].edge])));
             EmitCornerWalkCore(map, trims, tm, ring, kind, cw);
             walkPaverNow = false;
         }
@@ -1583,6 +1619,11 @@ namespace PSXRacing.City
             int nR = ring.Count;
             var verge = new StripShape { shoulder = VergeShoulderM, maxRun = VergeMaxRunM, noFins = true };
             if (groundLog != null) groundTag = $"corner walk kind {kind} node {ring[cw.g0].node} e{ring[cw.g0].edge}-e{ring[cw.g1].edge}";
+            // (curbs2) the corner's class: rolled only where every walk street at its node is
+            float cr = Curbs2On && RolledNode(map, ring[cw.g0].node) ? 1f : 0f;
+            // (a profile keeps its nose within 0.8 of its width, so the corner's curb ring is that much wider)
+            float noseW = Curbs2On ? Mathf.Lerp(CurbChamferOn ? CNoseOut : VNoseOut, RNoseOut, cr) / 0.8f + 0.01f : CurbNoseOut + 0.01f;
+            cs2FaceR = cr;
             if (kind == 2)
             {
                 float u = 0f;
@@ -1593,10 +1634,11 @@ namespace PSXRacing.City
                     var oa = GroupOut(ring, cw, j); var ob = GroupOut(ring, cw, jn);
                     float wa = GroupW(ring, cw, j), wb = GroupW(ring, cw, jn);
                     float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
-                    WalkProfile(a, oa, wa, walkProfA);
-                    WalkProfile(b, ob, wb, walkProfB);
+                    WalkProfile(a, oa, wa, walkProfA, 1f, cr);
+                    WalkProfile(b, ob, wb, walkProfB, 1f, cr);
                     LayWalk(bk, walkProfA, walkProfB, wa, wb, u / WalkTexM, (u + len) / WalkTexM);
-                    EmitStrip(map, trims, tm, WalkBack(a, oa, wa), WalkBack(b, ob, wb), oa, ob, verge);
+                    if (Curbs2On && wa >= WalkMinM && wb >= WalkMinM) Cs2CornerPan(a, b, oa, ob, u / WalkTexM, (u + len) / WalkTexM, cr);   // (curbs2 r2) the pan round the return
+                    EmitStrip(map, trims, tm, WalkBack(a, oa, wa, 1f, cr), WalkBack(b, ob, wb, 1f, cr), oa, ob, verge);
                     u += len;
                 }
                 WalkStats.cornersStrip++;
@@ -1608,8 +1650,8 @@ namespace PSXRacing.City
             float u2 = 0f;
             Vector3 prevNose = default; float prevU = 0f;
             var P3 = new Vector3(cw.P.x - o.x, 0f, cw.P.y - o.z);
-            var B0 = WalkBack(k0.pos, cw.n0, cw.w0); B0.y -= RoadsideRules.EdgeDropM;
-            var B1 = WalkBack(k1.pos, cw.n1, cw.w1); B1.y -= RoadsideRules.EdgeDropM;
+            var B0 = WalkBack(k0.pos, cw.n0, cw.w0, 1f, cr); B0.y -= RoadsideRules.EdgeDropM;
+            var B1 = WalkBack(k1.pos, cw.n1, cw.w1, 1f, cr); B1.y -= RoadsideRules.EdgeDropM;
             P3.y = 0.5f * (B0.y + B1.y);
             // (street dress) the fan to P in the pavers on a dressed street (the curb stays the slab's)
             var slab = walkPaverNow ? PaverBucket : bk;
@@ -1618,20 +1660,22 @@ namespace PSXRacing.City
             for (int j = cw.g0; ; j = (j + 1) % nR)
             {
                 var kp = ring[j].pos;
-                WalkProfile(kp, GroupOut(ring, cw, j), CurbNoseOut + 0.01f, walkProfB);
+                WalkProfile(kp, GroupOut(ring, cw, j), noseW, walkProfB, 1f, cr);
                 if (j != cw.g0)
                 {
                     float len = Vector2.Distance(new Vector2(prevNose.x, prevNose.z), new Vector2(walkProfB[2].x, walkProfB[2].z));
                     // the curb's two bands (foot to face top, face top to nose)
                     for (int q = 0; q < 2; q++)
                     {
-                        if (q == 0 && CurbFaceDarkOn) CurbFaceQuad(bk, walkProfA[0], walkProfA[1], walkProfB[1], walkProfB[0], prevU / WalkTexM, (u2 + len) / WalkTexM);   // (curbs 11-05) the dark face
+                        if (q == 0 && CurbFaceDarkOn && !Curbs2On) CurbFaceQuad(bk, walkProfA[0], walkProfA[1], walkProfB[1], walkProfB[0], prevU / WalkTexM, (u2 + len) / WalkTexM);   // (curbs 11-05) the dark face
                         else
                         bk.Up(walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q],
                               new Vector2(prevU / WalkTexM, walkBandV[q]), new Vector2(prevU / WalkTexM, walkBandV[q + 1]),
                               new Vector2((u2 + len) / WalkTexM, walkBandV[q + 1]), new Vector2((u2 + len) / WalkTexM, walkBandV[q]));
                         LogWalkQuad(" curb band" + q, walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q]);
                     }
+                    if (Curbs2On) Cs2RenderFace(walkProfA, walkProfB, prevU / WalkTexM, (u2 + len) / WalkTexM);   // (curbs2) the plumb curb drawn
+                    if (Curbs2On) Cs2CornerPan(ring[(j - 1 + nR) % nR].pos, kp, GroupOut(ring, cw, (j - 1 + nR) % nR), GroupOut(ring, cw, j), prevU / WalkTexM, (u2 + len) / WalkTexM, cr);   // (curbs2 r2) the pan round the return
                     // ... and the walk from the nose back to P
                     UpTri(slab, P3, walkProfA[2], walkProfB[2], UV(P3), UV(walkProfA[2]), UV(walkProfB[2]));
                     u2 += len;
@@ -1641,9 +1685,9 @@ namespace PSXRacing.City
                 if (j == cw.g1) break;
             }
             // the two ends: from each arm's nose out to its back-of-walk point, to P
-            WalkProfile(k0.pos, cw.n0, CurbNoseOut + 0.01f, walkProfA);
+            WalkProfile(k0.pos, cw.n0, noseW, walkProfA, 1f, cr);
             UpTri(slab, P3, B0, walkProfA[2], UV(P3), UV(B0), UV(walkProfA[2]));
-            WalkProfile(k1.pos, cw.n1, CurbNoseOut + 0.01f, walkProfB);
+            WalkProfile(k1.pos, cw.n1, noseW, walkProfB, 1f, cr);
             UpTri(slab, P3, walkProfB[2], B1, UV(P3), UV(walkProfB[2]), UV(B1));
             // the verges behind: T0' to P to T1', mitred on P's bisector
             var bis = cw.n0 + cw.n1;

@@ -222,6 +222,347 @@ Branch `junkyard-spares` (worktree `C:\Users\mcgee\PSX Racing-parts`) off mounta
 - Out of scope: selling a car with spares fitted (QuickSell drops a car's in-progress jobs, a shelf job included), taking a fitted part back off to the shelf, tyre wear per set, a pick-a-car step at the mechanic (it lists the car you brought), any make/model fitment. Not driven in play mode; no player build.
 - Merge: scripts only (no scenes, no Resources, no bake). Save version 24: if another branch also bumps it, renumber at merge. Shared files touched: LifeState.cs, LifeSimManager.cs, Upgrades.cs (two helpers), Junkyard.cs, LifeHomeScreen.cs (switch, parent tabs, five hook lines, rack row), TownWorld.cs (one line), LifeSimSelfTest.cs/.Clubs.cs (version checks + two Guards).
 
+# HANDOFF - COCKPIT ROUND 2: THE CABIN ON THE CAR'S OWN WINDSCREEN ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors2\summary.png`.
+
+## Measured
+- Header (windscreen top), belt and side glass of every shell probed by rays (Editor/CockpitFitProbe.cs -> Scripts/CockpitFit.Table.cs, 52 rows). His windscreen pane against the cars: median 1.13 x the length and 1.20 x the height (CalibZ/CalibY): the fit moves each car from the catalogue's middle.
+- Fit gates over all 52 (Screenshots/DoorMirrors/fit_final_base.txt -> fit_final.txt): (b) shell geometry standing inside the cabin: 0 before and after; nose: rays from the eye into the hollow nose at rest / nose up 3 / nose down 3 / brake dive / crest: up to 99 rays per pose on the muscle cars, every one ahead of the cut, so all are drawn dark by round 1's inside pass: 0 open on every shell in every pose. Measured not gated: (a) cabin vertices ahead of the seat outside the shell (worst CTR 49.7 -> 18.9 cm, FD 44.4 -> 17.9, van/Land Rover/fullsize 50-63 cm both ways); header/belt offsets per shell in the file.
+- Eye moves: CTRs 31 cm forward, 5 cm down, 6 cm in (wing crowns and both mirrors now in view); '69/'70 Chargers, GTO, pagoda, Mustang forward 18-27 cm; raked-screen cars (EG, Evo, FD, Supra) within 5 cm of before.
+- Grips: the wheel now scales with the cabin (its round-1 counter-scale moved it off the arms' grips); grip-to-rim centre 12-18 mm = the palm offset at scale 1 (15 mm) times the cabin scale, on the rim on every car (log in Screenshots/MirrorMatch/r2d/log.txt).
+- Mirror check: 52 shells, 48 with live mirrors, 0 FAIL. Merged-mirror rule gives glass to classic_roadster, coupe_99, flatsix_turbo_96, gt_hardtop_73; nissan_180sx's smaller glass replaced by the larger reflected.
+- Rear-view at home: HomeMirrorPlayCheck in play (visible editor, Town free-roam start, Yellowbird in cockpit): the rear-view camera sees only the player's own body (cut) and the town; picture = the road behind. The bug did not reproduce on this code; the likely cause was round 1's: the camera kept the first car's place (fixed in round 1, PlaceMirrorCamera).
+- Self-test: 65 failures, was 66 (TestCockpitArms NRE fixed: CockpitArmsShots.SelfTest appended to a null log); no new failure.
+
+## Changed (switches: PSX_COCKPIT_FIT3=0, PSX_DOORMIRROR_MERGED=0, plus round 1's)
+- CockpitFit.cs + CockpitFit.Table.cs (generated) + CockpitInterior.Fit3: pane base on the cowl, top toward the header; length scale 0.75-1.05 (the seat moves forward freely, back 5% at most, never within 30 cm of the car's own mirrors), height 0.85-1.12, width as round 1 or the shell's side glass; EyeShift (vector) moves the chase camera's mount.
+- DoorMirrorProbe: merged mirrors, one glass for both sides. DoorMirrors.Table.cs re-emitted.
+- Editor: CockpitFitProbe (Measure/EmitBatch/FitBatch), DoorMirrorMatch (R2Batch/R2Final, forced-pose shots, grip gap), HomeMirrorPlayCheck.
+
+## Left
+- Still dead: camry_2001 and the three fullsize cars (their cowl is mis-measured by the baker: y 1.44). Viper has no measured cowl: old fit.
+- The look-right pose dips the head (DownFor); the CTR's passenger mirror is in view with the head level (in_R0).
+- Cabin vertices behind the windscreen header stand outside low/short shells (the van, Land Rover, fullsize): not visible from the seat.
+
+## Merge
+- Code + two generated tables (Scripts/CockpitFit.Table.cs NEW + .meta, Scripts/DoorMirrors.Table.cs), Scripts/CockpitFit.cs NEW + .meta, Editor files + metas. No car re-bake, scene rebuild, tile bake or format bump; round 1's PSXCarPaint.shader edit stays. Re-run CockpitFitProbe.EmitBatch and DoorMirrorMatch.ReprobeBatch after any car batch, then FitBatch / CheckBatch.
+
+# HANDOFF - NO CAR SITS LIFTED OR TILTED AT REST ("parked" round 2, branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Coordinator: the round-1 sweep still had rows "SEATED HIGH AT REST". Re-measured in the DRIVEN frame (CarBody.Lifted; round 1's sweep compared the unlifted fit with 328 mm and over-counted): 94 of 319 rows.
+- Why: every one has a REAL GT4-sheet tyre (no defaults; "hub at rest 328/328" is CarController.StockHubRest, the same for every car by design). All are on a BORROWED shell sized to the row and drawn round a smaller tyre: mb_pagoda (Alpines, Elans, Cobras, SL R129 ...; front up to 78 mm), gto_66 (Celica TA22, Camaros, Buicks; rear up to 108 mm), supra_a80 (Group C; 700-763 mm rear tyres, rear up to 85 mm), euro_hatch (30 hatches/rally cars, 486 mm model tyre), audi_saloon, citroen_cx, volvo_estate, skyline_r32 (JGTC). The binds are at the arch crown (+/-35 deg), so they are the real arch. CarBodyLean.Seat held the whole shell up, so the car stood tilted at rest (up to 2 deg).
+- Options: shrink the tyre (off spec, and physics drives on the spec size: rejected); raise the whole body, level, by the worst axle (a car up to 11 cm high: rejected); raise the ARCH (chosen): ArchFlare.Solve (in CarModelLibrary.Fit) gives each axle its shortfall + 5 mm. PSX/CarPaint raises the bodywork over that wheel by that amount (Shaders/PSXArchFlare.cginc, a per-renderer block stamped by CarBody/CarShell/CarViewer). The body sits at its fitted height and level, on spec tyres, with no tyre through paint. ArchCeilings.HubMax reports the flared arch, so the per-frame seat only handles travel under load again. Cost: on 113 rows (incl. tiny ones) a visibly taller wheel opening over the bigger tyre; the zone fades out before the bonnet and waist line (some fender-edge ripple on the biggest flares). Mesh-based tools (ArchProbe.DrawnClip, BumpStopShots) do not see the flare. PSX_ARCH_FLARE=0 = off.
+- Result: sweep 0 rows seated high (gate in tools\parked-play-check.ps1). 16 cars x lot/slope: drift <= 0.002 m, lamps off, back in 0.00 m/s, shell lift 0. Side-on pad: Celica TA22, Alpine A110, Toyota 88C-V, Civic EG, BTR and Viper lift 0.0 mm, pitch 0.00 deg (before: 0/28/2/0/8/11 mm, -1.18/+0.78/-1.98/0/+0.19/+0.26 deg). Viper and BTR reach 0 by the same rule (flare 13 / 10 mm front).
+- Sheet: scratchpad parked\parked_before_after.png (side-on rows at the bottom). Coordinator: scripts + shader only (PSXCarPaint.shader +2 lines, new PSXArchFlare.cginc and ArchFlare.cs with metas); no car re-bake, no scene rebuild.
+# HANDOFF - THE COCKPIT FITS ITS CAR ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Owner (PC26): "mirrors don't match the updated mirrors of the new car models imported"; then "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window" and "I can see the road ahead under my hood in cockpit mode". Sheets: scratchpad `mirrors\mirrors_before_after.png` (11 shells: ahead / over the dash / look left / look right, before|after, each mirror from outside, the rear-view picture) and `mirrors\nose_closing.png`.
+
+## Causes
+- The cockpit's door mirrors ARE the shell's own housings (CabinClip keeps them); only the live GLASS is a table, `DoorMirrors.Table.cs`, written by `Editor/DoorMirrorProbe.cs`. Its glass was the biggest WELDED rearward patch (`GlassPatches`, DoorMirrorProbe.cs:268): on shells whose glass sits flush in a bezel ring and housing (all the HD deliveries: FD 13.8x7.2 cm glass measured 18.0x9.4, Viper 18x12 -> 27x18, S2000 12.5x7 -> 15x10.6) the picture covered the bezel and the housing's back - "a generic red teardrop with an oval glass". 26 of 44 mirrored shells, not only the six new ones. The table was current (the car batch re-probed it), the RULE was wrong.
+- The cabin was fitted by LENGTH only (`CockpitInterior.FitFor`, uniform scale about the eye): every car got the cabin's 1.43 m between side glasses. On 13 narrow shells the car's mirror stands inside that (CTR/Yellowbird inner edge 0.645 m vs cabin glass 0.713, E30 0.638, jdm_pickup 0.656, hatch_76 0.677 ...): the mirror was hidden behind the cabin's door / A-pillar ("no door mirror anywhere in the side window").
+- The rear-view camera was placed once, when made (`EnsureMirrorCamera`), and kept the first fit's place through body swaps.
+- The shell is drawn Cull Back and cut at the windscreen base: any sightline under the bonnet's back edge saw out through the hollow nose.
+- (3) one rigid thing: already true. `CockpitInterior.Ride()` poses the cabin from `CarBody.bodyRoot`'s own local pose every LateUpdate (order 1000, after CarBodyLean), bodyRoot is a direct child of the car (PSXRacingBuilder.cs:7665). The eye follows the body 25% (EyeFollow, by the owner's 10-24 request), so the eye moves against the dash, but dash and bonnet never move against each other. The nose-high stance of the new cars is the "parked" agent's.
+
+## Fix (switches: PSX_DOORMIRROR_GLASSPART=0 old glass rule in the probe, PSX_COCKPIT_WIDTHFIT=0, PSX_COCKPIT_INSIDE=0)
+- DoorMirrorProbe.GlassPart: within the welded patch, the pieces joined by the mesh's own shared vertices; the biggest flat one (tie: the rearmost) is the glass when it is half the patch's width and height or more. Table re-emitted (26 shells changed; the housing boxes unchanged).
+- CockpitInterior.WidthFitFor: the cabin narrowed (never widened, min 0.8) until its side glass stands 1 cm inboard of the car's own mirrors' inner edge (housing box from the table x the body's WidthScale); the eye moves in with the seat (EyeShiftX, added in RideEye/PreviewRide/PreviewStep), the wheel kept round, the cargo seat moved with it. CTRs 0.842 (eye 6.4 cm in), E30 0.880.
+- Rear-view camera re-placed on every fit (PlaceMirrorCamera).
+- Dark inside of the nose: a second renderer of the body mesh ("CabinInside", child of the body filter, made by the cockpit) on a copy of the body material with `_PSXCull`=1 and `_PSXInside`=1 in PSX/CarPaint: back faces, near-black, only while the cockpit's cut is open for the driver's camera, only ahead of the cut. PSX/CarPaint gained `Cull [_PSXCull]` (default 2 = Back, every other material unchanged) and a 6-line early-out branch.
+- Show(true) re-sorts every renderer under the car (one added after the fit stood inside the cabin uncut).
+- Editor/DoorMirrorMatch.cs: CheckBatch (re-run after every car batch: every shell re-measured against the table: glass centre, size, tris, housing box within 1 cm; the lamps-up body's mirrors; the cabin's glass inside the mirrors; a per-shell fit line), Shots (cockpit + exterior frames), ReprobeBatch, ProofBatch.
+
+## Measured
+- Check: old rule 44/44 match; new rule against the old table 26 FAIL; new table 0 FAIL (52 shells, 8 without a separable mirror: camry_2001, classic_roadster, coupe_99, flatsix_turbo_96, fullsize_police/taxi/trooper, gt_hardtop_73 - their housings show, no live glass). Note: nissan_180sx's two glasses differ (17.8 / 9.5 cm) in the model itself.
+- Cabin glass vs mirror inner edge, worst before: E30 7.5 cm INSIDE the mirror, CTRs 6.8, jdm_pickup 5.7, hatch_76 3.6, roadster_na_popup 3.4; after: every shell 1 cm inboard.
+- Windscreen base: the dash front lands on the baked cowl by construction (unchanged); roof / A-pillar offsets were NOT measured.
+
+## Not done / unverified
+- The dark inside closes nothing visible in the edit-mode shots: no slot under the bonnet reproduces at rest even with the eye 6 cm high (nose_closing.png, before = after). The owner's slot is likely the nose-high stance in play ("parked" agent). The inside pass is a rule that costs one draw of the body only in cockpit view; its effect in play is unproven.
+- The CTR's yellow scrap at the driver's A-pillar foot is still there (shell geometry just ahead of the cut, above the dash); the owner's rear-view "car insides" at HOME did not reproduce in the editor (rear-view frames all show the road); possibly a second, unmarked copy of the car at home (CarShell) or a renderer added after the fit (now re-sorted on Show).
+- Passenger mirror of the narrowed CTR is above the frame in my look-right pose. Arms grip a wheel 0.84 wide in x scale: up to 2 cm off the rim on the CTRs. No player build, no night, no RHD shot, no frame-cost measurement (the inside renderer is one extra draw of the player's body in cockpit view only).
+
+## Merge
+- Code only + one generated table: Scripts/DoorMirrors.Table.cs, Scripts/CockpitInterior.cs, Shaders/PSXCarPaint.shader, Editor/DoorMirrorProbe.cs, Editor/DoorMirrorMatch.cs(+meta). No car re-bake (CarModelBaker), no scene rebuild, no tile bake, no format bump, no new shader (CarPaint is already always-included). A normal player build carries it.
+
+# HANDOFF - TOWER LIGHTS ON THEIR FITTINGS ("beacons", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+The owner (PC26, N Graham St pic): "aviation red lights on buildings are outdated and not actually connected to buildings". Sheet: scratchpad `beacons\beacons_before_after.png` (raw frames: PSXLab `Screenshots\beacons\`, log `beacons_log.txt`).
+
+## Round 3
+- FAR TOP LIGHTS: past 1.5 km a tower's top light is drawn at a floor in REAL framebuffer pixels with a flat core (PSXHalo `_TopFloorPx` 1.2 px half, flashers x1.35), no distance fade beyond the skyline's own haze. Probe (1125 lines): 5.5 km 35 separate points, cores touching 0 (dusk = night); 10 km 36 glows -> 34 separate points (2 pairs touch).
+- NEAR SNAP (CityBeacons.SnapNear, from CitySkyline.Refresh): once a tower's near tile(s) stand (Tile_x_z under the world), its lights are probed against the tile's Buildings mesh (nearest clear-sky vertex within 4 m, or the tile roof straight under the far point) once per stand-up; lights and fixtures move by that offset blended over the 150 m inside the world's fade start, and back when the tile drops. Gate: near tiles 118/121 <= 5 cm (the 3 misses are C2's frame members, shown on the members in the round-2 frames); far 118/121.
+- Sheet: ROUND 3 column on the far views.
+
+## Round 2 (coordinator's four points)
+- FAR DENSITY (PSXHalo.shader + CityBeacons): steady corner lights fade out 1.5 -> 2.5 km (real distance), the top light stays; a squeezed tower light's natural size now follows its REAL distance (it was sized at the squeezed depth, so ~1 m of glow 5 km out drew like 500 m out); the least size shrinks to half (a flasher's extra x1.8 to none) from 1.5 to 6 km. Steady top lights moved to uv1.y -0.6 so only corners fade. Probe (CPU mirror of the shader, 1125 lines): 2 km 113 glows -> 110 separate points (3 core pairs touch); 5.5 km 35 glows (83 corners faded) -> 35 separate, cores touching 0, quads (soft fringe) overlapping 6 pairs; 10 km (eye 150 m up) 36 -> 34 separate, 2 core pairs. Same at dusk.
+- FIXTURE SIZE: steady L-810 = 0.26 m globe on a 0.30 m stub; flasher L-864 = 0.6 m globe on a 0.6 m pedestal; lens texel dark red (92,9,7). Every fixture stands on a vertex with nothing of its building drawn over it within the lens radius (ClearAbove; corner search widens to 3 m when the extreme is overhung) - the round-1 lens on the side of the C3 fin is gone.
+- NEAR MISMATCH: the skyline now runs the tile's pavement cut (FitFootprint, CityMeshes.cs EmitFootprint, V2 only, not proxies) and, like the tile, never masses or kits a shop block or a floating outline (Massing.cs / Rooftops.cs guards). That fixed #22; #13197 (2 lights, 2.2 m) and #6486 (2 lights, 1.2 m) remain off the NEAR tile - cause not found (not retail, not floating, not the cut; both are part-built outlines). NOT fixed; a near-mesh re-probe at tile stand-up would be the fix.
+- C2 OPEN FRAME: shot close by day and night: the top light and the corner light sit on the frame members' tips. The probe's 0.7 / 3.3-4.8 m there is the member geometry (thin members widened in PSX/Lit), not a floating light.
+- Sheet updated (round 1 cells, then before | round 1 | round 2): scratchpad beacons\beacons_before_after.png. Measure after round 2: fixture foot to drawn surface far p90 0.000 (118/121 <= 5 cm), near p90 0.000 (113/121 <= 5 cm; the misses are C2's 2 + the 4 above + 1 at 0.23 m).
+- Extra shared-file edits this round: CityMeshes.cs (the FitFootprint line), Massing.cs (EmitMassing guard). Still runtime only, no re-bake.
+
+## Cause (measured)
+- `CityBeacons.cs` (old lines 59-97) placed the lights from the far skyline's per-element BOUNDING BOX (top centre + 0.5 m) and the tallest part's PLAN OUTLINE corners at `ground + shaft.h + 0.4` - written before the hero crowns, pyramid, rooftop kit and masts. On anything but a flat box that is air. BeaconProbe, 135 lights before: distance to the nearest drawn surface p50 0.50 m, p90 6.6 m, max 25.1 m, 52 lights more than 2 m off (far mesh; near tiles the same). Worst: the teal pyramid (C4) 4 corners 24-25 m out in the air beside the pyramid; #30236 (184 m) and #31084 (169 m) corners 12-14 m off; the 7.2 m beacon over #30236; the silver crown (C3) 5-6 m off.
+- PINK: PSX/Halo is additive (Blend One One) and the lights ran with the street lamps (`NightGlow.On`, already on at SUNSET with the sun up): red (1, .06, .03) added to a pale sky clamps to pink. A beacon halo was 2.6 m each way at any distance (the disc in the crown close-up).
+- Not an old cache or data file: the skyline and beacons are built at runtime from the map (CitySkyline.Create).
+
+## Fix (PSX_CITY_BEACONS2=0 = the old lights exactly)
+- `CityBeacons.PlaceOnDrawn`: each light on a VERTEX of a real (non-degenerate) triangle of its building in the skyline mesh (facade, roofs, crown submeshes). Top light: the highest vertex (spire tip, mast cap, crown apex; on a flat top the highest vertex nearest its middle). Corner lights: along the tallest ground part's axes, the extreme of the upper 40% of the tower toward each diagonal, there the highest drawn vertex (parapet corner, pyramid eave, setback corner). Lights 12 m apart at least.
+- Count (FAA practice, L-864 flashing 30/min over ~150 m, L-810 steady below): towers 150 m+ = slow-flashing top beacon (per-tower phase, as before) + 4 steady corners; 90-150 m = steady top light + 2 opposite corners. Before 135 lights (35 flashers + 100 corners); after 121 (9 flashers, 27 steady tops, 85 corners on 36 towers).
+- FIXTURES: a galvanized stub (0.55 m) and a red glass lens (octahedron r 0.38 / 0.27 m) on each light's vertex, light in the lens. One runtime mesh (1,936 tris), ONE draw, PSX/Lit = a clone of the Structure slot material with a 4x4 runtime texture; per tower it is drawn only within 700 m of the eye (index list re-picked every 25 m) - past that it would be sub-pixel sparkle. Not baked.
+- Near = far: the far skyline now draws the rooftop kit's MAST (`CityMeshes.Rooftops.cs` Mast) and the PARAPET/LEDGE lip (`CityMeshes.Massing.cs` Parapet) as the tiles do (skyline only, not proxies), and leaves a ground-standing shop block (style 4) without the kit as the tile does (`EmitRoofKit`). So the top light is on the mast tip and corners on the parapet corner at every distance - no jump at hand-over. Cost: a few hundred skyline triangles.
+- PSX/Halo (`PSXHalo.shader`): `Blend [_SrcBlend] [_DstBlend], One One` (default One One = every other halo unchanged), `_MaxPixels`, `_GainFloor`. The tower-light material draws OVER the sky (OneMinusSrcAlpha), aviation red in linear (1, .014, .008), size clamped 1.2-4 ref px, never dimmer than its colour. Depth test as before (squeezed with the tower far, real near).
+- On only DAWN / DUSK / NIGHT (`CityBeacons.LitNow`: TimeOfDay.NightFor >= 0.5) - off at SUNSET with the sun up, as a photocell; fixtures stay by day. Off in fog as before.
+
+## Proof / gates
+- BeaconProbe after: fixture foot to nearest drawn surface - far skyline p50 0.000, p90 0.000, 119/121 <= 5 cm; near tiles p50 0.000, p90 0.000, 111/121 <= 5 cm. Typecheck OK. Glows still 1 draw; fixtures +1 draw near uptown.
+- Exceptions: (1) 7 corner/top lights on 3 towers (#13197 137 m, #22 115 m, #6486 93 m) are on the far mesh but 1.2-2.2 m off the NEAR tile - the near tile trims the footprint at the pavement (`FitFootprint`, CityMeshes.cs:11931; the skyline does not), a pre-existing near/far building mismatch, likely cause, not fixed. (2) The open-frame tower (C2) top and one corner read 0.7 / 3.6 m in the probe: its frame members are widened in the shader from thin mesh members, so the mesh-distance number is not meaningful there; not inspected in a frame.
+- Frames (before | after): N Graham sunset (before: pink dots in the sky round the pyramid; after: none), dusk + night (red points on roof corners and tips), three tops close by noon (fixtures visible on pyramid spire, needle tip, crown fin) and night (lens lit on the fitting; before: dots metres off, a big pink disc), 5.5 km night. No light seen through a building in these frames.
+
+## Not done / not verified
+- No player build, no play-mode drive across the near/far hand-over (positions agree by the measure, not by a moving test). Frame cost not timed (2 tiny draws). Flash phase in stills is as the clock stood (about half the flashers lit).
+
+## At merge
+- Runtime only: NO tile re-bake, no CityTileCache format change, no new slot. Shared files touched: `CityMeshes.Rooftops.cs` (Mast + EmitRoofKit guards), `CityMeshes.Massing.cs` (Parapet guard), `PSXHalo.shader` (blend/max-size/gain-floor properties). New: `Editor/BeaconProbe.cs` (no .meta committed; Unity mints it).
+
+# HANDOFF - THE LEFT CAR + 11-11 NOSE-UP ("parked" agent, branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Owner: "I parked my Honda at a car meet and it rolled away, lights on, front suspension lifted like a monster truck" and "the front suspension of every car recently added is lifted". Sandbox PSXRec (lock "parked"). Check: `tools\parked-play-check.ps1` (Editor/ParkedPlayCheck.cs; WATCHED editor - a hidden batch editor crashes in RenderTexture::Create in play mode); every-row arch sweep `ParkedPlayCheck.ArchSweep` -> PSXRacing_arch_sweep.txt.
+
+## Causes
+1. ROLLED AWAY: PlayerCarInput (the `!inputEnabled` block) parks a car with brake 0.3 + lever; CarController.TireForces swaps the pedals in R (`accelPedal = currentGear == -1 ? brakeInput : throttleInput`), so a car left in R (owner's HUD: AT R) got 30% reverse throttle, the park hold stood aside (`accelPedal < 0.02` gate) and the lever holds only the rear of a FWD car: 0.3 m/s backwards into the car behind (1.0-1.6 m on the lot), off a 15% slope at 150 m/s. Also, in D, the hold crept 5.5 mm/s on 15% (16 cm per 30 s).
+2. LIGHTS ON: lamps were one static switch owned by the hour (CarLights.SetAll); nothing knew the car was empty; the lever also lit the brake lamps.
+3. NOSE-UP: ArchHubs (ArchProbe.BakeExact) swept the tyre -90..+90 deg, so the 11-11 HD shells' inner wheelhouse / sill faces behind the front tyre (binds at -39..-81 deg) read as the arch: highest front hub 3-13 cm UNDER the hub's static ride, and CarBodyLean.Seat lifted the shell that far at rest (CTR/Yellowbird 120 mm, 2.7 deg nose-up; FD 14 mm; del Sol on the EG shell 9 cm; old euro_hatch rows 75 mm). Physics ride height was never wrong (chassis level, hubs 328 mm).
+
+## Fix (switches: PSX_PARKED=0, PSX_ARCH_CROWN=0 = as before)
+- PlayerCarInput: game holding a car in R brakes with the R brake pedal; stopped, the box goes to 1st. CarController: hold pulls back to its latch point (ParkHoldStiff 16, re-latch past 25 cm). Unattended flag (ForecourtMode GetOut/BeginAfoot/GetIn) -> CarLights.LitNow off, no brake lamp, pop-ups down. Covers every place you leave the car (all go through ForecourtMode + PlayerCarInput).
+- ArchCeilings.CrownHalfDeg 35: field + exact bake sample the tyre crown only; ArchHubs.bytes re-baked (commit 1b665555).
+
+## Results (13 cars, lot + 15% slope, left in R, 30 s): before drift 0.7-1.6 m lot / 9-362 m slope, lamps on; after 0.000 m lot, <=0.003 m slope, lamps off, back in 0.00 m/s, gaps unchanged. At-rest shell lift after: 0 for all but Viper 11 mm (its own front arch is ~1 cm lower than its tyre at the crown, same in the old model - artist data) and BTR 7.7 mm. Sweep: 152 -> 127 rows with a tyre over its arch at rest (all old-pack crown binds, unchanged).
+Sheet: scratchpad parked\parked_before_after.png. Blue blocks = TownWorld zone-line knots (PSXRacingBuilder.Town.cs EdgeMarkers, owner-chosen self-lit dots), not a fault.
+Coordinator: scripts + ArchHubs.bytes only; no scene rebuild, no car re-bake.
+﻿# HANDOFF - CURBS ROUND 2: GATES, ROLLED CURB, WHEEL VS CURB, PAN, LIDS (charlotte-curbs-drains, 2026-11-11 evening; NOT pushed, NOT merged)
+
+Agent "curbs2", sandbox PSXPerf (lock removed). Proof sheet: scratchpad `curbs2\curbs_round2.png` (before | round 1 | round 2), street-view pairs `curbs2\pairs_curbs2.png`, drive matrix `curbs2\drive_matrix_r2.txt` (raw `drive_r2_raw.txt`, rerun `drive_graham_rerun.txt`).
+
+## Causes
+- Rolled curb worse at speed (80 km/h 45 deg: all wheels off 0.42 s vs 0.02): round 1's profile was a valley (2.5 cm over 22 cm) then a 33% roll to the crown - steepest AT its crest, a ski jump. `CityMeshes.Curbs2.cs` RFaceOut/RFaceY.
+- Drawn vs collider on vertical streets: the wheel is ONE ray down from the hub (`CarController.cs` SuspensionAndLoads, Physics.Raycast ~l.2981). Geometry (scratch `facepos.py`): a 0.3 m tyre circle cuts the drawn 15 cm curb's edge by 17.5 cm before its ray reaches the face with ANY ray collider (plumb, 15, 18 or 22 cm chamfer alike); only a tyre-radius fillet (what a real tyre's hub follows) gives 0 cut and 0 air. A step past the jounce stop is resolved by `BumpStops` as a velocity constraint (bias up to 0.6 m/s) plus spring cap 5x and bumper 6x static: the kick.
+- Pan stopped 4 m short of junctions (PanJunctionClearM) and nothing laid it round corner returns; lids' collar used the under band's light grey (131/255); the grate's "slot" texel was rust brown (92,64,42), not dark; the structure mesh was never WetReflections-tagged; inlets/lids only kept a 25 m junction clear (round 1 counted: 12 inlets on paint at N Graham, 7 + 5 lids at Lexington, 12 + 2 at Wadsworth Pl).
+- Round 1 treated every dressed Uptown street as granite with no pan; street view at N Graham / W 10th St shows a plumb concrete curb WITH a concrete pan and no edge line.
+
+## Changes (all switches default ON = round 2; =0 gives round 1)
+- PSX_CITY_ROLL2: rolled curb lip 6 cm at 18 cm out (47%, the old curb's slope), then 4 cm over 27 cm (15%) to the 10 cm crown at 45 cm. Collider = drawing.
+- PSX_CITY_CORNERPAN: pan round every vertical corner's curb return (Cs2CornerPan, called from both corner kinds in Walks.cs); arm pan runs to 0.5 m of the ribbon end.
+- PSX_CITY_PANSIDE: granite/no-pan only on DressMain (Tryon, Trade); other Uptown streets get the concrete pan.
+- PSX_CITY_LIDTONE: collar dark grey iron ring (62/255), disc black iron, waffle in grey iron; grate bars 3.2 cm with the atlas's darkest texels (22/255) under them.
+- PSX_CITY_PANWET: structure renderer WetReflections.Tag (CityWorld.cs, one line) - the pan/lids/grates mirror rain like the road (material was already _Wet 0.6).
+- PSX_CITY_LIDMARKS: no inlet/manhole/valve whose arc range (+0.5 m) overlaps any painted mark of its edge (CityMeshes.Marks: crosswalks, stop bars, arrows, ONLY, pockets, noses, yields); inlets may nudge 7 m. Count after: 0 on paint in all 5 rings (Curbs2Stats "ON PAINT").
+- PSX_WHEEL_ENVELOPE=1 (DEFAULT OFF): CarController.TyreEnvelope - 4 more rays ahead along the wheel's travel, each lowered by the tyre's curve; an edge ahead also pushes back along its line to the hub (cap 1x). Measured, not shipped (below).
+- Tools: CityCurbDrive modes "+e" (envelope), "+r1", "kNN" (chamfer face NN cm), site "apron:K"; 9-run apron/ramp crossings (90/45/20 deg x 10/30/60 km/h). New Editor/CityRefSpots.Curbs2.cs (RunCurbs2).
+
+## Physics (RX-7; all-wheels-off s / vertical kick g; old = PSX_CITY_CURBS2=0)
+- Rolled (Lexington Ave): 90/50 0.37 s 27 g -> 0.28 s 23.5 g; 45/80 0.02/16.7 -> 0.02/10.4 (round 1 0.42 s); 30/80 12.9 -> 9.8 g; 15/80 7.1 -> 9.8 g (all-off 0.03 both); off-the-walk drops same all-off, kicks +1-1.6 g. Every launch time equal or better.
+- Vertical (N Graham, shipped 22 cm chamfer): equal to old in every cell (one 30/50 run hit traffic: 1.70 s; rerun 0.00 s / 1.7 g; old's rerun hit traffic instead).
+- Plumb + envelope: square 30 km/h no launch (7.1 g, 0 stops vs old 4.8 g, 2) and 90/80 3.8 g vs 24.7, BUT 15/50 0.30 s 22 g (old 0.00/0.7), 45/50 0.12 s, and ramp ends 90/60 0.30 s launch: FAILS. Chamfer + envelope: better on most cells but an apron-ramp 45/30 launch 0.72 s: FAILS. k16 (16 cm chamfer): 15/30 0.75 s launch: FAILS. So the 22 cm chamfer stays the steepest collider that passes; the drawn plumb face stays at the road edge (moving it out trades cut for air, facepos.py).
+- Aprons (S Poplar St lot apron) and ramp ends: old vs round 2 equal in all 9 crossings (pre-existing 0.19-0.29 m "wheel steps" at 45-20 deg 30-60 km/h are the apron's side lip in both). No apron found by rule within reach for a second site (N Poplar: no curb found).
+- Median noses, refuge islands, lot curbs, bus/turn-pocket edges: not touched by curbs2 (only WalkProfile callers: walk spans, cuts, corners) - unchanged by construction.
+
+## Gates
+- Typecheck OK. City-wide launch audit off/on: 91 LAUNCH / 565 UNLOAD both, CSVs identical; uptown route 1/4 both. Drive audit uptown: race-route checks all ok, same as round 1's before (other roads: grass 10 vs 11). city-traffic-check: CITY TRAFFIC OK, 0 traffic-on-traffic bumps.
+- Counts N Graham ring: pan 12481 m (1465 m round corners; round 1 784 m), 132 inlets, 44 manholes.
+
+## Still wrong / not done
+- The wheel still cuts ~17 cm into a vertical curb's top edge while climbing it (and 4 cm along the top for 22 cm): a ray wheel cannot avoid it; the envelope fixes the picture but fails the launch matrix. A real fix needs tyre compliance in BumpStops (not attempted).
+- Edge line: by rule (no edge line on curbed city streets; street view N Graham and Central Ave have none) it should go; the pan hides it where it runs, but N Graham still shows a white line about a lane-line's width inside the pan (road texture: seams/road owner).
+- Lids are near invisible under the rain's reflection; corner pan sits at the ring point's height (may hide under a fan that rises); no freeway drop inlets, no junction manholes, inlet spacing not checked against a real block. Night not shot; player build not run.
+- Real Lexington Ave has a grass strip between curb and walk; Wearn Ct has no walk on one side.
+
+## Merge
+- Re-bake (walk + structure meshes). No format/slot change. Shared-file edits: CityMeshes.Walks.cs (3 granite lines, 2 corner-pan calls), CityWorld.cs (1 line), CarController.cs (envelope, default off: 2 call lines + one method block). New: Editor/CityRefSpots.Curbs2.cs + .meta.
+
+# HANDOFF - CURBS BY CONTEXT, GUTTER PAN, STORM INLETS, MANHOLES (charlotte-curbs-drains, 2026-11-11; NOT pushed, NOT merged)
+
+Branch `charlotte-curbs-drains` (worktree `C:\Users\mcgee\PSX Racing-curbs`) off mountain-nm c81f2a59. Sandbox PSXPerf (lock "curbs", removed). The owner: "Curbs are sloped and not 90 deg like in real cities. neighborhoods have gentle sloping curbs to park on. i also still don't see storm drains or manholes in roads".
+
+## Causes
+- Every walk street had ONE curb profile: 11 cm face over 10 cm then nose to 15 cm at 25 cm (`CityMeshes.Walks.cs` CurbFaceOut/CurbFaceH/CurbNoseOut, ~l.55-59), along streets ROLLED further (face over 22 cm, nose 40 cm out: `WalkRollFaceOut/WalkRollNoseOut`, launch 7) and its face drawn in the slab's darkest joint column (`CityMeshes.CurbMedian.cs` CurbFaceU, curbs 11-05): from the cockpit a dark 45-degree ramp, what he arrowed.
+- No code anywhere drew a gutter pan, inlet, manhole or valve lid (grep: none).
+
+## What changed (switch `PSX_CITY_CURBS2=0` = all of it off; sub-switches `PSX_CITY_DRAINS=0`, `PSX_CITY_LIDS=0`, `PSX_CITY_CURBROLL=0`, `PSX_CITY_CURBCHAMFER=0`)
+- New `Scripts/City/CityMeshes.Curbs2.cs` (all the rules, profiles, details, counts). Edits: `CityMeshes.Walks.cs` (WalkProfile/WalkBack branch to the pass, LayWalk UVs + drawn face, span record, gutter call, corner class), `CityMeshes.StreetDress.cs` (2 lines: roll argument), `CityMeshes.cs` (ONE line after PlaceLamps: `EmitStreetHardware(...)`).
+- CLASS per edge: ROLLED = a walk street of cls 0 outside the Uptown loop with no non-house building within 40 m (it has a walk only for being near the Square: Dilworth, Fourth Ward...); every other walk street VERTICAL. A corner is rolled only if every walk street at its node is; a street eases to its corners' class over the 8 m before a junction (no step).
+- VERTICAL curb DRAWN plumb: 15 cm, face 1.2 cm off plumb, 4.5 cm rounded nose, light concrete (Uptown: granite grey), render-only on the structure atlas. The COLLIDER (walk mesh) keeps exactly the old street curb's chamfer (face top 22 cm out at 11 cm, nose 40 cm) - see physics. Gutter pan: render-only 0.6 m concrete plate on the road's outer 0.6 m (1 cm proud), not in Uptown (S Tryon at road level: granite straight off the asphalt), not within 4 m of a junction mouth nor on a walk narrower than 1.2 m. It covers the 0.36 m edge line on curbed streets (as real curb-and-gutter streets have none).
+- ROLLED curb: 10 cm over 45 cm (valley to 2.5 cm at 22 cm, roll to 10 cm at 45 cm, max 33%), collider = drawn.
+- INLETS (Charlotte combination inlet): at sags of the real profile, 5.5 m before the low end's corner (both ends on the level), every 90-120 m on grade; both sides; not on aprons/driveways, ramp ends (<1.6 m walk), tree grates (2.2 m), lamp posts (1.6 m); nudged up to 3 m. Grate in the gutter (frame, 11 bars + spine, dark under), black hood 2 cm proud with a dark throat under it, concrete top slab + round lid in the walk; rolled streets get a low hood over the roll. Render-only.
+- MANHOLES 24 in (collar + waffle lid) every 95-125 m by hash in a lane centre or wheel path, >25 m from junction mouths, >0.5 m + radius from every painted line, never in the pan, never on decks/tunnels/links/freeways (cls>3); valve lids 30-45 m on, 1.3 m in from an edge; ~2.5% of walk spans get a lid in the slab. Render-only, tilted to the road plane.
+- Tools: `Editor/CityCurbDrive.cs` (`PSXRacing.EditorTools.CityCurbDrive.Run`, play mode; PSX_CURB_MODES old,v,ch,cNN), `Editor/CityRefSpots.Curbs.cs` (`CityRefSpots.RunCurbs`).
+
+## Physics (RX-7, N Graham e14122 and Lexington Ave e21451; 4 angles x 5 speeds on, 2 x 3 off; scratchpad curbs\drive2.txt, drive3.txt)
+- Plumb collider ("v"): square on 10 km/h vertical kick 10.3 g, front wheel off 0.42 s, 2 jounce strikes 2.7 m/s, 16 deg yaw (old curb 0.8 g, 0 s, none); 45 deg 10 km/h 5.9 g / 0.42 s (old 0.3 / 0); 15 deg 30 km/h 5.8 g, 2 strikes (old 0.4 g). Ray wheels step the whole 15 cm in one tick.
+- Chamfer 9 / 12 cm: fine at 10 km/h (2.8 g, no strike) but launched square on at 30 km/h (all wheels off 0.35 s, 23 g, body +1.0 m; old 4.7 g, no air); 30 deg 50 km/h 10 g (old 1.8 g).
+- Shipped: collider = old street curb profile -> every N Graham run identical to before (drive3: old vs ch equal to 0.1 g in all 26 runs). Rolled residential vs old there: equal or better to 50 km/h (90 deg 50 km/h: all-off 0.37 s -> 0, 27 g -> 10 g); worse at 80 km/h 45 deg (all-off 0.02 -> 0.42 s). Off-the-walk drops (0.1-0.3 s all off at 15-30 deg) are the same before and after.
+- Ramp end crossings: no new step (N Graham 45/30: old wheel step 0.052 m -> 0.008 m). No driveway apron within 60 m of either test site: aprons NOT driven.
+
+## Gates
+- Typecheck OK. Drive audit (uptown route + 9 default tiles, PSX_DRIVE_BARRIERS=0) before == after: walls 0, steps 0, holes 0, fall holes 0, invisible in lanes 0; 2 failures in both (8 blunt rail ends on bridge approaches, 68 collider-only solids) - pre-existing. `city-traffic-check -NoWatch` (PSXPerf): CITY TRAFFIC OK, 0 traffic-on-traffic wrecks.
+- Counts on 4 rings of 9 tiles (shots log): N Graham 5131 m vertical / 885 m rolled / 4772 m pan, 56 inlets, 24 manholes, 13 valves, 16 walk lids; S Tryon 11167 m vertical, 110 inlets, 34 manholes; Lexington 7545 / 1327 m, 87 inlets (20 rolled), 34 manholes; Central 6921 m, 68 inlets, 39 manholes. Ring build ms after/before: 11089/3166 (first, cold), 5447/4538, 4961/4099, 2979/2470 (+12-20 %; triangles per tile not measured).
+
+## Proof
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\curbs\curbs_drains_before_after.png` (before | after: N Graham eye, chase, curb, inlet, manhole, night, rain; S Tryon inlet; Central curb + corner; Lexington rolled curb + inlet). Street level (reference only): Central Ave at 35.2202,-80.8088 (vertical curb + concrete pan, no edge line: matches), S Tryon 237 (granite curb straight off asphalt: pan removed for Uptown), Lexington Ave 716 (low residential curb).
+
+## Not done / caveats
+- The N Graham spot is the one-way N Graham piece ~1.4 km out (the shot picker skips edges near decks); the owner's 4-lane two-way spot was not pinned exactly. Night frames are blown out by the editor's preview lighting before AND after.
+- Everything new is placeholder art on the structure atlas (grate bars low contrast, lids rust). Texture request appended to the art workspace `Charlotte_Texture_Feedback_2026-11-11.md` section 5; context frames `Charlotte_Texture_Context\2026-11-11\C_*`.
+- Render-only details are not WetReflections-tagged (the structure mesh is not): the pan stays matte in rain. Corner curb returns get no pan and no drawn plumb face changes their collider (corner collider is now the 22/40 cm chamfer, was 10/25: gentler). Medians, refuge islands, lot curbs unchanged. No freeway drop inlets, no junction-centre manholes, no sidewalk curb ramps' detectable warnings.
+- A wheel climbing the curb sits up to 4 cm under the drawn top for 22 cm (collider vs drawing); driving along the gutter it is exact.
+- Not run: player build, city-wide launch audit (the collider of vertical streets equals the old one; residential and corners changed).
+
+## Merge notes
+- Re-bake needed (tile geometry: walk mesh + structure mesh). No new Slot, mesh, material, TileMeshes field or format change; everything rides Slot.Sidewalk (walk) and the structure mesh (Slot.Structure). Tiles with no bridge now also have a structure mesh.
+- Seams interface: my side starts at the drawn road edge (Section.L/R). The curb foot is at the drawn edge, 2.5 cm under it; the gutter pan is a render-only plate ON the road from the edge to 0.6 m inside it, 1 cm proud, built from the span's own L/R heights; manholes likewise on the ribbon. Nothing of mine touches the ribbon, fan or skirts.
+- Shared-file edits: `CityMeshes.cs` one line (after PlaceLamps). New files with .meta: CityMeshes.Curbs2.cs, Editor/CityCurbDrive.cs, Editor/CityRefSpots.Curbs.cs.
+﻿# HANDOFF - ROAD SEAMS / ROAD SLAB (charlotte-road-seams, 2026-11-11; NOT pushed, NOT merged)
+
+Branch `charlotte-road-seams` (worktree `C:\Users\mcgee\PSX Racing-seams`) off mountain-nm c81f2a59. Sandbox PSXBuild (lock "seams", removed). Owner 2026-11-11, N Graham St: "I see through gaps in the road at every intersection ... I asked for roads to have real thickness".
+
+## Cause (measured)
+- The owner's line: a junction fan's mouth edge stands FanProudM = 12 mm over the ribbon's end row (CityMeshes.cs:10600; corners CityMeshes.cs:10825; centre CityMeshes.cs:9901) and nothing filled the step. Approaching a junction the eye looks through the 12 mm slot under the fan onto the lattice 10 cm down (pale dirt): a hairline across the whole road. Reproduced in editor frames at N Graham St node 14254 (arm e20287), 15 m short, noon and sunset.
+- Also: sheets meeting at one height with vertices that do not coincide (T-junctions, slivers the closing pass's 2 mm weld took as shared; ~26 km in the six place tiles, mostly lots and fans), and road edges standing 2-10 cm over a verge/land (the closing pass, CityMeshes.Skirts.cs, faced only edges > SkirtMinM 0.10 m over the lattice, none with pavement past).
+- NOT the bake: a tile written and read back through CityTileCache (Encode/Write/Read/Apply) is bit-exact (roads/ground/kerbs vertices, normals, indices), slab off and on. Tile borders: matched road vertices differ <= 0.046 mm; 14-34 of ~400 border vertices have no partner within 0.5 mm (T-junctions across a border; the slab skips border-aligned edges). There are no LOD road meshes.
+
+## Fix (PSX_CITY_ROADSLAB=0 = before; CityMeshes.RoadSlabOn settable)
+- Scripts/City/CityMeshes.RoadSlab.cs (new), run at the end of the closing pass, a tile-job step every 256 edges. The road sheets' open edges re-found at a 0.5 mm weld (Key3Fine). Each gets a vertical FACE in its own bucket (material, draw call unchanged):
+  - STEP (land or pavement past lower by > 2 mm, <= 0.6 m): down to 3 cm under it, top ON the edge (the owner's fan risers). From a kerb's foot where a kerb face runs along the edge.
+  - JOIN (pavement past -3 mm .. +10 cm): 3 cm deep, 4 mm in under the edge, top 1 mm under (a tie-free line); the two sheets' faces look at each other across the crack. Steps under 6 mm are inset the same way.
+  - Not where the closing pass, or another sheet's slab face turned the same way, already stands on that line (5 mm inset where it stands in part). Collinear runs merged. Normals set straight up after the roads mesh's (SlabNormals) so a face shades as the road.
+  - A first version laid sloping tongues under joins: clean picture but the flicker finder counted 456 -> 899 tie px (they started level with the pavement past). Replaced.
+- Shared-file edits: CityMeshes.cs one line after FinishMeshSteps(tm.roads) (SlabNormals). CityMeshes.Skirts.cs: OpenEdges records each open edge's own vertices (skirtOpenOwn, openSheetOff) and takes `fine` (Key3Fine); the road loop adds slabTaken keys; RoadSlab enumerated after the road faces. No curb/walk file touched; the curb faces (ground mesh, Sidewalk slot) are not seen by the slab: where a road edge meets a curb a face may end up inside the curb (hidden).
+- Collider: the faces are in the Roads mesh (no render-only road collider exists; one would be a bake-format change). A face stands in the plane under the sheet's existing edge (that step was already the sheet's edge in the collider).
+
+## Proof
+- Sheet: scratchpad seams\seams_before_after.png (6 places x noon/sunset; eye 15 m, eye 40 m, chase 1.0 m at 25 m; before | 3.3x centre zoom | after | zoom; seam at frame centre). Owner_graham: pale line gone at noon and sunset (checked at 5x); uptown_4leg, res_t (dark line), ramp_term sunset lines gone; divided_x shows none either way; the slope place's seam is behind a crest (weak pick); 40 m / chase zooms mostly land above the seam (frame centre).
+- Seam audit (Editor/CitySeamAudit.cs; open metres before -> after): owner tile 3295 -> 68; six place tiles 30674 -> 294; Uptown 4x4 77544 -> 2894; 60-tile city sample 90632 -> 516 (99.4 %). NOT 0. Residual: joins where the pavement past is just 2-3 mm off (band edges), Uptown steps onto rising ground; listed in the report.
+- CityAudit.RunDrive (uptown route; owner's e20287 + 8 neighbours): all 26 ok/FAIL lines identical before/after (walls in lanes 0, fall holes 0; the one FAIL, INVISIBLE COLLIDERS solids 88, is there before too). Run on the 2 mm-inset build (229eecf5); the last two commits change only face insets.
+- Flicker finder (uptown0, uptown1, tryon0; OpenGL core): 456 tie px before -> 575 after (+119 of 6.1 M drawn). 97 of them at one fan mouth (S Tryon at Winona, junction | tw3t asphalt, 13 m): the riser face's line against the ribbon under it. NOT 0.
+- CityRoadMeshHash ALL fefe884bcf0482fb -> (final build not re-hashed; 229eecf5: e7af04817a1be839). Only Roads change; Kerbs/Barriers/Ground identical.
+- Cost: road triangles +37-45 % a tile (owner tile 4349 -> 7771); slab pass 14 ms a tile (city sample), 106 ms (Uptown mean), worst ~600 ms on a lot-heavy Uptown tile (sliced). Draw calls unchanged.
+
+## Coordinator
+- Re-bake the tiles (road geometry changed). No CityTileCache.Format change, no new slot, no asset files (new .cs + .meta only).
+# HANDOFF - HOUSES ROUND 3 (agent "roofs", charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
+
+## Drive-audit fix (first item; commit 13ce514b)
+- Cause: stoops (round 1's HouseDoor and round 2's units/porches) and stepped unit fronts reached the Wesley Heights court lanes (houses front the court pavement within 1 m): the 0.3-0.9 m solids were the 14 INVISIBLE lane hits. Fix: HouseStepOffRoad (CityMeshes.HouseParts.cs) - no stoop, porch or unit step whose footprint comes within 1 m of any street's pavement (links included); the door stays.
+- Drive audit (PSX_DRIVE_EDGES=24042,24054,24039,24041 = three house-court tiles, BOXED scope): INVISIBLE lane hits 14 -> 0; drawn Buildings faces in a lane 196 -> 0 (lanes total 120 = base); solids 88 = base.
+- NOTE: CityAudit.RunDrive did not exit after writing city_drive.txt (19:52): Unity pid 45460 on PSXCity is still alive and blocks the sandbox (types' 42500 did the same). Not killed (rule).
+
+## Round 3 changes (switches; =0 = round 2)
+- PSX_CITY_HOUSEROOFTINT: shingle tones by era on the RoofTiles bucket's new vertex colours (alpha 255 = a house roof; PSX/Lit _HouseTint 2 tints only those; builder sets it on CityRoofTiles): charcoal, weathered grey, brown, near-black; green/red metal on 13 % of pre-war roofs; porch roofs too.
+- Siding: per-house pick of 12 stronger colours (white 1 in 8) instead of a cell's 4 (round 1's PSX_CITY_HOUSETINT).
+- PSX_CITY_HOUSEPARTS additions: garage doors (ranch 1-car, new 2-car, street long wall end; driveway side NOT used), dormers (pre-war, 1-2), shutters (half the houses, dark tints), front-door paint, the 45 m rule (no soffits/porch/dormer/garage/shutters on a house no street comes within 45 m of).
+- L-corner sliver: buried roof extensions kept inside the plan at both corners; no soffit along a buried extension.
+- Tools: Editor/CityRefSpots.Roofs.cs RunStreets (frontage chosen by rule: the street point within 300 m with most house centres 6-60 m out within 40 m along; poses kerb + raised 8 m), roof-closure audit in CityAudit.Windows.cs.
+
+## Numbers (93-tile sample, run before the stoop fix and dormer fix)
+- Windows CUT/BURIED 0/0; flat house roofs 0; census GAP 0, buried p95 0.60 (= r1/r2).
+- Roof closure: 338 open points of 128,860 (first version counted fit-cut footprints as open; the corrected audit (drawn boxes) is committed but not re-run).
+- Triangles a tile 5,010 (r2 4,820, base 1,773). Build ms a tile (r2 -> r3): ring 293 -> 200, OSM houses 219 -> 197, shot places 493 -> 324, worst 1,823 -> 1,068 (base 1,266). Shutters 6,715 pairs, garages 239, porches 941, dormers 0 (fixed after: too tall for the roofs), far-rule houses 913. PerfTour NOT run.
+
+## Not done / generic still
+- Pre-war streets are mostly BRICK (Plaza Midwood row reads as brick ranches; real: siding bungalows) - the round 1 brick share per cell needs an era cap. Siding colour variety still weak in frames. Subdivision/west street: no frontage found (fill houses stand 60-75 m from streets). No new street views (sheet uses round 1's). Dormers, the closure audit fix and the 60 m rule not re-shot (sandbox blocked).
+- Trees: tm.houseBoxes = fill-house boxes + porch boxes (no heights). Real footprints: trees use f box / f.pts + 0.6 m + 1.41 m pad (RoadsideOccupancy). Volumes to keep crowns out of: wall box + 0.35 m eave / 0.25 m rake overhang, + 1.0 m stoop on the door wall, unit fronts +0.8 m (step + gable overhang); porch box (in houseBoxes) to floor + 3.1 m; roof to eave + up to 3.5 m (blocks 4.5), chimneys +0.6 m over the ridge.
+
+## At merge
+- Re-bake. New: RoofTiles bucket has vertex colours (no new slot); CityRoofTiles material needs _HouseTint = 2 (builder line in PSXRacingBuilder.City.cs). PSXLit.shader: one line. CityMeshes.cs: one line (RoofTiles col) + commit 4f6276fe restored the house hooks that 660aecf8 had misplaced (HEAD did not compile).
+
+# HANDOFF - NON-HOUSE LOW-RISE CLASSES (agent "types", charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Shares the branch with agent "roofs" (houses). Sandbox PSXCity (lock "types", removed after each job). Owner: "replacing these very unrealistic generic textures ... top priority"; "building textures, glass, marble, concrete ... greatest improvement".
+
+## Causes
+- HEIGHTS: the Charlotte building import tags `height` in FEET with no unit (Atando Ave's 1-storey warehouse OSM 324608519 `height=26`, Walmart 22, Lowe's 24, industrial 38); export_osm.mjs parseHeight reads them as metres (tools/city/export_osm.mjs:1512) and style 1 (>= 20 m) + PickFacade's 3.8 m office floor made six-storey blocks. Untagged big boxes in the core got the exporter's 12/16 m guess (export_osm.mjs:1584).
+- LOOKS: charlotte_bld.bytes keeps only use/mat/style, so a warehouse, a strip centre, a church, a school, a mill were all the same atlas box; PickFacade (CityMeshes.cs:598) gives style 1 a curtain wall 36 % of the time whatever the use (NoDa's Fat City Lofts, apartments); amenity=place_of_worship/school made churches and schools style-4 shops (export_osm.mjs:1597); a church or mill drawn by OSM building:parts took the hash look of its outline (Casa Viva church on Hamorton Pl: glass).
+- SHAMROCK: the 3-storey brick block is NOT a frontage box (Shamrock Dr lies inside the core footprint box x -5844..2605, z 516..8674, where CityBuildings places no frontage boxes); no footprint within 45 m of the pose's right-hand lots is one either (all style-3 houses): not found this round.
+
+## Changes (switches; `=0` = the picture before)
+- DATA (no re-export): `tools/city/lowrise.py` (reads the Overpass cache + layers/landuse.json) -> `Scripts/City/CityLowRise.Data.cs` (17,921 rows, base64: point inside the outline, kind work/shop/worship/school/homes/mill/plain, flags height-tagged / levels / brick / metal / office zone / integer height). Matched at load in `CityMeshes.LowRiseApply` (called first in `CityBuildings.Precompute`, 54 ms); a footprint two rows land in keeps the stronger kind; a hidden outline's building:parts take its class look.
+- PSX_CITY_LRHEIGHT: outside the Uptown loop, works/shop/plain with an integer height > 13 and no levels: feet -> metres (1,159); big (>= 2,000 m2) low boxes with a guessed 10.5-45 m: one tall storey 6.5-9 m (220); strip centres at least 6.2 m (the shopfront needs it); schools 4.2 m storeys (levels, else 1-2 by size); churches nave 6-8.5 m + gable; halls 8.5 m. 1,379 lowered in all; the 20 largest (footprint, area, kind, h before -> after, lat/lon) are in the shot log `types_log_r2.txt` (copied to scratchpad `types\`): 16 works sheds of 16,000-124,000 m2 (38 -> 11.6 m, 10 -> 8.6 m ...), 3 big-box shops (23 -> 7.0 m), 4 plain; one visible odd catch: a 37,512 m2 plain block at 35.4323,-80.9486 (McGuire nuclear station) 100 -> 30.5 m.
+- PSX_CITY_LRLOOK (`Scripts/City/CityMeshes.LowRise.cs`): SHED (3,172): walls drawn by the kit - brick 45 % (painted block to the clerestory, one row of a brick column's windows), tilt-up concrete 35 % (column 7 stone + accent band), ribbed metal 20 % (column 7 panel); metal coping; parapet; a few high windows; dock-high roll-up doors with seals, bumpers and lights on the longest open side wall (1-14), a drive-in door with bollards; an office corner on the street front (storefront glazing lit as an office, glazed door, canopy, its lamp). STRIP (5,352): every shop outside the loop takes covShop (plain bays, canopy, blank sign band, parapet). CHURCH (583, < 1,600 m2): brick nave on its fitted box, one tall storey of the brick column, white gables, shingle gable roof with overhangs, white door surround, a steeple (brick tower, white belfry with louvres, spire) at the street end on 70 % of those < 1,400 m2. HALL (239) / SCHOOL (528) / MILL (18): brick looks (mill = loft or red-sash brick at 4.3 m storeys). APARTMENTS (use 2 outside the loop): never a curtain wall (brick families, home storeys). No new material, slot, bucket or draw: FacadeGlass, RoofTiles, RoofFlat buckets only.
+- PSX_CITY_LRFRONTAGE (`CityBuildings.cs`): frontage boxes never within 60 m of a mapped house (0 removed: outside the core coverage drops OSM houses) and at most two storeys outside the core (144 of 5,151 lowered).
+- Shared-file edits: `CityMeshes.cs` 6 lines (EndFacade lrActive reset; LowRiseChurch before the non-house path; LowRiseLook after PickFacade; strip covShop + LowRiseBegin + parapet; LowRiseWall in the wall loop; no cornice on a shed). `CityBuildings.cs` (mine).
+- Tools: `Editor/CityRefSpots.Types.cs` (RunTypes: 8 places, look-at poses, night at 2, per-tile triangles, ring time, footprint description, PSX_DRIVE_EDGES).
+
+## Proof
+- Sheet: scratchpad `types\types_round2.png` (real street view | base (switches 0) | round 2; 8 places noon + Atando and the strip at night). Gates below.
+- Tall lists: CityBeacons 35 (towers 90 m+) and CitySkyline 60 towers unchanged; skyline MID-RISE 534 -> 338 (196 sheds/shops that stood 20-45 m on feet heights no longer on the far skyline: intended).
+- Cost (the building's tile, triangles base -> r2): Atando 18,578 -> 19,310 (+4 %), Bancroft 8,590 -> 11,826 (+38 %, docks), church 40,699 -> 40,837, strip 17,047 -> 16,855, others +-1 %; ring-of-25 build time within noise (5-9 s both).
+- `CityAudit.RunDrive` with PSX_DRIVE_EDGES = the 8 shot streets (21 tiles + the default box), base (my switches 0, 16:55) vs r2 (branch head incl. roofs' houses, 19:00): my streets 74,967 probes both, walls 0 / steps 0 / holes 0 / blunt 0; WALLS IN LANES 0 -> 0; collider-only solids 88 -> 88 (Buildings MeshCollider 6 -> 6, of 1.99 M -> 2.95 M samples); blunt rail ends 8 -> 8, short rails 27 -> 27 (old). NEW in r2: INVISIBLE COLLIDERS lanes 0 -> 14, all `Buildings` back faces / ceilings at Wesley Heights house courts (Summit Greenway Ct (-3909, 5328), Walnut View Dr (-3829, 5787), Uptown West Dr, Cannon View Ln: x -3830..-3933, z 5328..5887) - no low-rise class footprint within 47 m of any of them: the house geometry's (agent "roofs"), not this round's; not split by a switch run (one more 25 min job).
+
+## Still generic / not done
+- Shed walls read flat (the parts column's concrete and panel at 2 m x 8 m; metal reads glassy under the metal bit); docks are on a side wall, so the street frames rarely show them (Atando's real docks face the street). Strip front faces its lot (covShop rule), from Albemarle Rd the frame shows the long side. Church/school brick is the office-sash column stretched (real: arched stained glass; tan stone school). NoDa mill is tan loft brick (real: red brick, arched windows); Fat City Lofts is now brick (real: grey panel + mural). Night frames: shed dark but for its office corner (as wanted); strip shopfronts not visible from the pose.
+- Not run: player build, WebGL, PerfTour frame time, the city-wide window audit (no house code touched).
+
+## At merge
+- Tile geometry and far skyline changed: RE-BAKE the city tiles. CityTileCache.Format NOT changed; no new Slot / bucket / material; no data file regenerated (charlotte_bld.bytes untouched; new generated `CityLowRise.Data.cs` from tools/city/lowrise.py, `--check` supported). Codex requests: art workspace `Charlotte_Texture_Feedback_2026-11-11.md` section H.4; context `Charlotte_Texture_Context/2026-11-11/T_*` (22 files).
+
+# HANDOFF - HOUSES ROUND 2: ROOFS, UNIT ROWS, PARTS (agent "roofs", charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
+
+On top of round 1 (a6e1db67). Shares the branch with agent "types" (non-house classes). Sandbox PSXCity (lock "roofs", removed).
+
+## Causes
+- FLAT-ROOFED HOUSES: a house polygon with over 10 corners is not gabled by the exporter (tools/city/export_osm.mjs:1599) and EmitFootprint's polygon path drew it with EarcutInto (CityMeshes.cs, roof branch); round 1's low blocks of any plan (polySiding) too. 212 flat house roofs on the 93-tile sample (1,074 house polygons city-wide).
+- N GRAHAM = ONE BOX: blocks were drawn as one wall per side, one flat or plain roof (no units, no gables, no doors).
+- SILENT TINT: the tint path works (frame A/B with the material flag off changes the siding pixels), the round 1 palette was just too close to the painted beige.
+
+## Changes (new switches; =0 = round 1's picture)
+- `Scripts/City/CityMeshes.HouseParts.cs` (NEW). PSX_CITY_HOUSEROOFS: a house polygon / low block is split into up to 5 rectangles on its own axes (the corners' coordinates are the grid), each roofed along its long axis: gable or hip at an outside end, a hip where another rectangle covers the end (L corners), a buried cross gable at an inside end; a flat ceiling at the eave under it closes what the rectangles miss; slope by era (Uptown distance: <3.8 km pre-war 0.55, <8 km ranch 0.38, beyond 0.5), rise <= 3.5 m (block 4.5). The gabled boxes take a hip by era/hash (pre-war 25 %, ranch 55 %, new 33 %).
+- PSX_CITY_HOUSEUNITS: siding blocks (box and polygon) = units of ~6.5 m on every wall >= 9 m; on a street wall (a street within 35 m in front of that wall) every second unit steps out 0.5 m with siding returns under its own front gable (attic window), every unit a door + stoop; window pair a storey; brick ground storey on half the blocks by hash (two atlas bays a unit, the door on the pier), base band <= 2.9 m, block brick windows at 0.8 width.
+- PSX_CITY_HOUSEPARTS: chimneys (atlas brick pier strip + concrete cap; 70 % old/ranch, 33 % new), front porches on 3 of 4 pre-war houses (deck, white posts + beam, shed roof fitted between the window heads and the next storey's sills, step; door added when the porch is on a gable end), concrete foundation band to 0.2 m over the floor on siding walls. Porches are added to tm.houseBoxes so trees keep their 2 m margin from them.
+- Round-1 file edits: CityMeshes.HouseWalls.cs (unit dispatch, bays, brick widths, foundation, HouseBrickChoose/HouseDoor skip unit rows, stronger SidingCols incl. navy/charcoal/slate).
+- Shared CityMeshes.cs (commit 1d9aa5ac, 9 lines): HouseBlockBegin/End at the sidingBlock and polySiding lines, `pitched` + HousePolyEave after eaveY, HousePolyRoof before the flat EarcutInto (+ flat counter), HouseBoxRoof first line in EmitGableHouse's eaves branch.
+- Tools: CityAudit.Windows.cs (build ms per tile class, PSX_WIN_RING 5x5 ring, round-2 counters), CityRefSpots.Bldg.cs (poses side/sidel/top/row, PSX_BLDG_POSES, PSX_BLDG_TINTAB tint A/B frame).
+
+## Proof (93 tiles = round 1's 73 + a 5x5 ring at Plaza Midwood)
+- Windows CUT/BURIED: base 10,568/5,762 -> r1 0/0 -> r2 0/0. Style-3 flat roofs: r1 212 -> r2 0 (212 polygons pitched, 492 rectangles, 0 fallbacks). r2: 1,239 hips, 379 units, 56 front gables, 958 porches, 2,104 chimneys. House census: GAP 0, buried p95 0.60 (= r1).
+- Cost: building tris a tile 1,773 (base) / 3,761 (r1) / 4,820 (r2, +28 % on r1). Build ms a tile, base/r1/r2: ring 310/226/293, OSM house tiles 216/214/219, fill 88/84/88, shot places 386/362/493 (max 1,266/1,220/1,823 = the Graham tile). Frame/GPU time (PerfTour) NOT measured.
+- Sheet: scratchpad `roofs\houses_round2.png` (real | base | r1 | r2, 9 rows, + tint A/B + 4 night frames). Tint A/B: siding pixels change 2-7 % of frame, mean 18-20 RGB-sum - works but still subtle (most picks white/cream).
+
+## Seen wrong / not done
+- Dilworth, Shamrock, south subdivision frames do not show houses side-on (trees, the types agent's frontage block): their change is unproven in pictures; the owner's own frame (graham) shows the block too far. No street views taken for myers/pmw_north.
+- Dormers, garages/carports, shutters, corner trim, a distance rule (120 m) not done. Brick atlas window position under porch roofs on brick houses unverified. The tree audit was NOT re-run (trunks keep 2 m from footprints and porch boxes; stoops 1 m and unit steps 0.5 m are inside that margin; crowns are not audited in the city at all). Player build not run.
+
+## At merge
+- Tile geometry changed: re-bake. No new Slot/material/bucket, no format change; tm.houseBoxes now also holds porches (already a baked field). Codex: shingles in 3 colours, porch boards/columns, garage door still wanted.
+# HANDOFF - CHARLOTTE HOUSES + LOW-RISE BUILDINGS (charlotte-buildings-1111, 2026-11-11; NOT pushed, NOT merged)
+
+Branch `charlotte-buildings-1111` (worktree `C:\Users\mcgee\PSX Racing-bldg`) off mountain-nm c81f2a59. Sandbox PSXCity (lock "buildings", removed). The owner: "replacing these very unrealistic generic textures with windows going through roofs needs to be a top priority".
+
+## Causes
+- WINDOWS THROUGH ROOFS: `city_facade_house` (one window per 6 m x 3.1 m repeat) was tiled over each wall from its foot (under the pad / ground) to the eave, whole repeats stretched (EmitFacadeQuad, CityMeshes.cs ~11707 before), and over the GABLE TRIANGLES too (EmitGableTri: uv apex (uRep/2, rise/3.1)) - windows sliced by the slopes, buried, two rows on a one-storey wall; a polygon wall split by a collinear vertex sliced the windows at the split. Measured (new audit, 73 tiles): 7,800 windows cut + 3,507 buried of 36,072 (31 %).
+- HOUSE SIDING ON BLOCKS: tools/city/export_osm.mjs:1468/1575 calls `building=residential|terrace|garages|house...` and untagged < 260 m2 a house (style 3); gable only < 480 m2. 26,077 style-3 footprints; 360 have a block's size (>= 450 m2 or >= 10.2 m tall), 195 of them drawn as gables (by storeys 2: 154, 4: 139, 8+: 36). The owner's N Graham frame = OSM ways 589068963-969 (building=residential, 3 levels, height 11.76, 500-1,120 m2, two of them L-shaped).
+
+## Changes (all in the tile geometry; switches =0 restore the old picture)
+- `Scripts/City/CityMeshes.HouseWalls.cs` (NEW): HouseWall - whole bays (~4 m, window centred), one window band per storey from the house's floor, no band whose head reaches eave-0.3 or whose sill the drawn ground reaches (0.5 m sampling); plain siding on the window-free rows v 0.75-1.25 everywhere else; gables plain (PSX_CITY_HOUSEWALLS). HouseBlock (PSX_CITY_HOUSECLASS): >= 450 m2 or >= 10.2 m -> oblong <= 14 m: siding over a brick ground storey under the gable roof; any other plan <= 14 m and < 4,000 m2: the same walls, flat roof; taller: flat brick block on the atlas (home storeys). Eaves 0.35 m / rakes 0.25 m with soffits (PSX_CITY_HOUSEEAVES). Siding colour by 350 m neighbourhood, a third white (PSX_CITY_HOUSETINT; vertex colour). Brick houses 15-85 % by neighbourhood from atlas columns 04/08/10/14, one floor row per storey (<= 3 m) at 0.55 width, siding frieze above, concrete-block foundation (PSX_CITY_HOUSEBRICK). Glazed front door (the window cell, 0.95 x 2.05 m, on a bay line, never over a window) + concrete stoop on the street side (PSX_CITY_HOUSEDOOR).
+- Shared files: `CityMeshes.cs` (EmitFacadeQuad first line; EmitGableHouse floor param + tint/brick/door/eaves; EmitGableTri first line; EmitFootprint block routing, PickFacade for blocks, GfBegin/Massing skip blocks; BuildHouses/BuildBuildings pass the floor; NewBuckets: FacadeHouse bucket gets vertex colours), `CityMeshes.Proxies.cs` (floor arg), `Shaders/PSXLit.shader` (`_HouseTint` property; appdata COLOR now in every variant; 2 lines in vert), `Editor/PSXRacingBuilder.City.cs` (sets `_HouseTint` 1 on CityFacadeHouse), `Materials/CityFacadeHouse.mat` (`_HouseTint: 1`).
+- Tools: `Editor/CityAudit.Windows.cs` (WindowsOnly / WindowsBoth: windows read back off the built FacadeHouse submesh per plane + UV frame: whole / CUT / BURIED, plus the class census and, with PSX_WIN_HOUSES=1, the house census), `Editor/CityRefSpots.Bldg.cs` (RunBldg / RunBldgAll, places + PSX_BLDG_PLACES).
+
+## Proof
+- Audit, 73 tiles (42 OSM-house tiles by hash, 22 fill suburbs, 9 shot places), before -> after: CUT 7,800 -> 0, BURIED 3,507 -> 0. House census (owner box + suburban box) identical: buried p95 0.60 / 0.59, GAP 0, exposed p95 0.45 (walls' foot unchanged).
+- Cost: building triangles 1,544 -> 3,388 a sampled tile (+119 %; roof tiles 9,952 -> 38,480 with eaves + soffits, siding 44,558 -> 93,014).
+- Sheet: scratchpad `bldg\buildings_before_after.png` (real street view | before | after, 9 places, eye noon) + `sheet_right.png`, `sheet_night.png`, `sheet_rest.png`. Night: lit windows still light by the night mask on siding (yellow); atlas brick bands at night not seen lit in the two frames.
+
+## Not done / seen wrong
+- Industrial / shop / church / school classes (item 2b beyond houses): Atando Ave shows 6-storey precast blocks where the real street has one-storey brick and metal sheds; NoDa shows a glass tower by the mill; Shamrock Dr (brick ranches) shows a 3-storey brick block. Not touched.
+- N Graham condos: real ones have gables/dormers per unit and chimneys; ours are flat-topped (L plans). Siding tint not clearly visible in the frames (unverified that the kit material in the editor took _HouseTint). Brick-base windows read tall/narrow. Polygon houses keep flat roofs.
+- After frames predate the last commit's door-foot fix (doors on sunk pads now stand on the ground). Player build, HD tier (Codex's house set not delivered), frame rate: not run.
+
+## At merge
+- Tile geometry changed: re-bake the city tiles (CityTileCache.Format NOT changed; no new Slot; the FacadeHouse submesh now carries vertex colours - the cache stores colours generically). PSXLit edit + builder: the kit material needs `_HouseTint` = 1 (builder sets it; a scene/kit pass picks it up; without it houses are drawn untinted, nothing breaks).
+- Codex request: art workspace `Charlotte_Texture_Feedback_2026-11-11.md` section H; context `Charlotte_Texture_Context\2026-11-11\H_*` (19 files).
 # HANDOFF - UPTOWN GROUND FLOORS + STREET FURNITURE (charlotte-ground-floors, 2026-11-10; NOT pushed, NOT merged)
 
 Branch `charlotte-ground-floors` (worktree `C:\Users\mcgee\PSX Racing-cltfloors`) off origin/main d635bb9f. Sandbox PSXRec (lock "charlotte-ground-floors", removed). The owner, 2026-11-09: "reference road level photos to make the city accurate enough to be recognizable". Sheet (real | before | after, 28 places; reference imagery, kept out of the repo): scratchpad `charlotte_pairs_03_ground_floors.png`.
