@@ -969,17 +969,21 @@ namespace PSXRacing.EditorTools
                         RaceHandoff.CommuteLeg = true;
                         RaceHandoff.FreeRoam = true;
                         LifeRules.ApplyRaceResult(s);
-                        rolled += car.faults.Count;
+                        // The BODY lane's rows only (a 50 km leg also wears the
+                        // engine and tyre lanes out, and those roll their own).
+                        rolled += car.faults.Count(f => f.stat == "hp");
                         bumpers += car.faults.Count(f => f.id == "bumper_crack" || f.id == "bumper_dent");
                     }
                     return bumpers;
                 }
-                int jOn = Run(true, "jpn", out int jOnN), uOn = Run(true, "usa", out _);
+                int jOn = Run(true, "jpn", out int jOnN), uOn = Run(true, "usa", out int uOnN);
                 int jOff = Run(false, "jpn", out int jOffN);
-                Check(jOn == 0 && uOn == 0,
+                Check(jOn == 0 && uOn == 0 && jOnN == 0 && uOnN == 0,
                       "with the stop-gap on, 20 long legs on a ruined body lane give a low-mileage Japanese or US car no bumper row " +
-                      "(nothing else is eligible, so the roll is a no)", "jpn " + jOn + " (" + jOnN + " rows), usa " + uOn);
-                Check(jOff > 0, "PSX_FAULT_CRASH=0: the same legs crack its bumper, as before", jOff + " of " + jOffN);
+                      "and no body-lane row at all (the bumper was the only one eligible, so the roll is a no)",
+                      "jpn " + jOn + " bumper / " + jOnN + " body rows, usa " + uOn + " / " + uOnN);
+                Check(jOff > 0, "PSX_FAULT_CRASH=0: the same legs crack its bumper, as before",
+                      jOff + " bumper rows of " + jOffN + " body rows in 20 legs");
                 var sp = CrashSpec("jpn", 1985);
                 var mkt = new OwnedCar { id = "mkt", specId = sp.id, odoMiles = 20000f };
                 var f2 = FaultCatalog.RollWearFault(mkt, "hp", false, "wear", "jpn");
