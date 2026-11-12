@@ -2,8 +2,11 @@
 # crash pull's hands-off drift at 100 km/h (minor 0.5-1.5 m, severe 2-5 m per
 # 100 m, toward the struck side, left and right, counter-steer assist OFF /
 # STANDARD / FULL, three chassis), the hit applied live through the career
-# car's ledger and handed to the apply-back unchanged, and real wall contacts
-# located FRONT LEFT / SIDE RIGHT (a 200 m barrier) / REAR. Exit 0 = all hold.
+# car's ledger, the next drive built through the real bank path (also with an
+# alignment the car already carries), real wall contacts located FRONT LEFT
+# (35/60/75% of the nose) / FRONT RIGHT / FRONT CENTRE with no alignment /
+# SIDE RIGHT (a 200 m barrier) / REAR CENTRE, and a swapped-in car starting
+# clean. Exit 0 = all hold.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\crash-play-check.ps1
 #
