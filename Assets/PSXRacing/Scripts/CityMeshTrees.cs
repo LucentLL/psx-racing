@@ -59,7 +59,7 @@ namespace PSXRacing.City
 
         /// <summary>Milliseconds of fitting a frame may spend (play mode); 0 = a
         /// whole tile in the frame it stands up (round 1).</summary>
-        public static float SliceMs = ReadF("PSX_CT_SLICE_MS", 3f);
+        public static float SliceMs = ReadF("PSX_CT_SLICE_MS", 2.5f);
         /// <summary>Slots filled a frame at most (a pool's growth refills every
         /// live tile: spread over frames, cards meanwhile).</summary>
         public static int FillsPerFrame = 4;
