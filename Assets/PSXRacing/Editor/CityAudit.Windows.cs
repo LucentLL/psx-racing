@@ -216,6 +216,7 @@ namespace PSXRacing.EditorTools
             {
                 var f = map.footprints[fi];
                 if (f == null || f.style != 3 || f.hidden || f.pts == null || f.pts.Length < 3) continue;
+                if ((f.gable && !CityMeshes.HouseBlock(f)) || (CityMeshes.HouseBlock(f) && CityMeshes.HouseBlockSiding(f))) continue;   // drawn on its (cut) box: tested from the seats below
                 int tcx = Mathf.FloorToInt(f.centre.x / CityMeshes.TileSize), tcz = Mathf.FloorToInt(f.centre.y / CityMeshes.TileSize);
                 if (tcx != tx || tcz != tz) continue;
                 float g = float.MaxValue; foreach (var p in f.pts) g = Mathf.Min(g, CityElevation.GroundY(map, p.x, p.y));
@@ -244,6 +245,31 @@ namespace PSXRacing.EditorTools
                         if (top < g + 2.2f) { holes++; fh++; }
                     }
                 if (fh > 0 && list.Count < 40) list.Add($"footprint {fi} ({(f.gable ? "gable" : "polygon")}, h {f.h:0.0}) {LatLon(f.centre.x, f.centre.y)}: {fh} open points");
+            }
+            // the boxes as drawn (real gables, frontage gables, the fill): inside each seat, 0.6 m in
+            foreach (var hs in tm.houseSeats)
+            {
+                Vector2 v = new Vector2(-hs.u.y, hs.u.x); int fh = 0;
+                for (float a = -hs.hu + 0.6f; a <= hs.hu - 0.6f; a += 1.5f)
+                    for (float b = -hs.hv + 0.6f; b <= hs.hv - 0.6f; b += 1.5f)
+                    {
+                        Vector2 q = hs.c + hs.u * a + v * b;
+                        if (Mathf.FloorToInt(q.x / CityMeshes.TileSize) != tx || Mathf.FloorToInt(q.y / CityMeshes.TileSize) != tz) continue;
+                        pts++;
+                        float lx = q.x - o.x, lz = q.y - o.z, top = float.NegativeInfinity;
+                        if (bins.TryGetValue(((long)Mathf.FloorToInt(lx / 2f) << 32) ^ (uint)Mathf.FloorToInt(lz / 2f), out var cand))
+                            foreach (int k in cand)
+                            {
+                                Vector3 A = V[all[k]], B = V[all[k + 1]], C = V[all[k + 2]];
+                                float d = (B.z - C.z) * (A.x - C.x) + (C.x - B.x) * (A.z - C.z);
+                                if (Mathf.Abs(d) < 1e-6f) continue;
+                                float w0 = ((B.z - C.z) * (lx - C.x) + (C.x - B.x) * (lz - C.z)) / d, w1 = ((C.z - A.z) * (lx - C.x) + (A.x - C.x) * (lz - C.z)) / d;
+                                if (w0 < -1e-4f || w1 < -1e-4f || w0 + w1 > 1f + 1e-4f) continue;
+                                top = Mathf.Max(top, w0 * A.y + w1 * B.y + (1f - w0 - w1) * C.y + o.y);
+                            }
+                        if (top < hs.floor + 2.0f) { holes++; fh++; }
+                    }
+                if (fh > 0 && list.Count < 40) list.Add($"seat kind {hs.kind} {LatLon(hs.c.x, hs.c.y)}: {fh} open points");
             }
             return holes;
         }

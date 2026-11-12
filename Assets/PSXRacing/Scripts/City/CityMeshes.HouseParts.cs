@@ -292,8 +292,8 @@ namespace PSXRacing.City
         /// cheek triangles down to the roof, its own small gable roof run back into the main one.</summary>
         static void HouseDormer(TileMeshes tm, Vector2 c, Vector2 u, Vector2 v, float side, float at, float hv, float eave, float slope)
         {
-            const float hw = 0.95f, rise = 1.3f;
-            float d = hv * 0.5f;                         // the front line, out from the ridge line
+            const float hw = 0.95f, rise = 1.1f;
+            float d = hv * 0.75f;                        // the front line, out from the ridge line
             float yF = eave + slope * (hv - d), e2 = yF + rise;
             float d2 = hv - (e2 - eave) / slope;         // where the main roof reaches the dormer's eave
             if (d2 < 0.4f || d - d2 < 0.6f) return;
