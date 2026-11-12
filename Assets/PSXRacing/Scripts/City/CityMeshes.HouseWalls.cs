@@ -357,6 +357,8 @@ namespace PSXRacing.City
             bk.Wall(L(a, 0f, tm), L(c, 0f, tm), foot, foot + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
             Bucket.Tint = dk;
             // the stoop: floor - 0.02 down to the walls' foot, 1.5 m wide, 1.0 m out
+            // (ROUND 3: none that would reach a street's pavement - the drive audit's court lanes)
+            if (!HouseStepOffRoad(mid, n, u, 1.0f, 0.75f)) return;
             float top = floor - 0.02f;
             if (top <= y0 + 0.05f) return;
             var st = buckets[(int)Slot.RoofFlat];
