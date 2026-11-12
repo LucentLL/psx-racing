@@ -184,7 +184,15 @@ namespace PSXRacing
             }
             if (S.ActiveCar != null) S.ActiveCar.fuel = 100f;
             LifeSimManager.Save();
+            // SAVE SIZE AND TIME on this machine (design §2: PerfTour reports
+            // them, on PC and on the phone): the tour's own scratch career,
+            // ten plain saves and ten first-saves-after-a-rollover (+ .last).
+            saveCost = LifeSimManager.MeasureSaveCost();
+            Say("save " + saveCost);
         }
+
+        /// <summary>SeedCareer's save measurement, for env.txt.</summary>
+        static string saveCost = "not measured";
 
         int HourIndex()
         {
@@ -258,6 +266,7 @@ namespace PSXRacing
                            " gc count " + System.GC.CollectionCount(0));
             env.AppendLine("ab " + abArg);
             env.AppendLine("systems " + string.Join(" ", PerfClock.SystemNames));
+            env.AppendLine("save " + saveCost);
             Post("env.txt", env.ToString());
             Say("free roam up: " + env.ToString().Replace("\n", " | "));
 

@@ -523,16 +523,45 @@ namespace PSXRacing
         {
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
             var items = new List<Selectable>();
+            // HasCareer loads the career, which is what tells the save guard's
+            // story (LifeSimManager.Trouble): a newer build's career plays
+            // read-only, one an older build saved over offers this build's own
+            // copy, one that would not load is kept and says so.
+            bool career = HasCareer;
+            bool pick = career && LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Rewritten &&
+                        LifeSimManager.HasLastCopy;
+            int rows = 2 + (career ? (pick ? 2 : 1) : 0);
             // Stacked up from the bottom row (y 20), one 76-unit step a button.
-            float y = 20f + 76f * (HasCareer ? 2 : 1);
-            if (HasCareer)
+            float y = 20f + 76f * (rows - 1);
+            SaveNote(y + 60f);
+            if (pick)
             {
-                items.Add(MenuKit.Button(root, "CONTINUE GAME", new Vector2(0f, 0f), new Vector2(48f, y),
-                    new Vector2(440f, 60f), Leave, MenuKit.Head));
+                // UseLastCopy loads the copy in memory first; one that will
+                // not load is refused with nothing changed, and the menu comes
+                // back saying so (the older build's copy carries on).
+                items.Add(MenuKit.Button(root, "THIS BUILD'S COPY", new Vector2(0f, 0f), new Vector2(48f, y),
+                    new Vector2(440f, 60f), () => { if (LifeSimManager.UseLastCopy()) Leave(); else BuildButtons(); },
+                    MenuKit.Head));
+                y -= 76f;
+                items.Add(MenuKit.Button(root, "OLDER BUILD'S COPY", new Vector2(0f, 0f), new Vector2(48f, y),
+                    new Vector2(440f, 60f), () => { LifeSimManager.KeepStoredCopy(); Leave(); }, MenuKit.Head));
                 y -= 76f;
             }
+            else if (career)
+            {
+                items.Add(MenuKit.Button(root, LifeSimManager.ReadOnly ? "CONTINUE (READ-ONLY)" : "CONTINUE GAME",
+                    new Vector2(0f, 0f), new Vector2(48f, y), new Vector2(440f, 60f), Leave, MenuKit.Head));
+                y -= 76f;
+            }
+            // A career on disk is never replaced in one press - one this build
+            // could not load included (it holds no name in memory, so
+            // HasCareer is false, but it is whole on disk): the confirm first.
             items.Add(MenuKit.Button(root, "NEW GAME", new Vector2(0f, 0f), new Vector2(48f, y),
-                new Vector2(440f, 60f), () => { if (HasCareer) Confirm(); else Leave(); }, MenuKit.Head));
+                new Vector2(440f, 60f), () =>
+                {
+                    if (HasCareer || LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Failed) Confirm();
+                    else Leave();
+                }, MenuKit.Head));
             y -= 76f;
             // ARCADE (owner, 2026-11-03): any car, any course, nothing banked.
             items.Add(MenuKit.Button(root, "ARCADE", new Vector2(0f, 0f), new Vector2(48f, y),
@@ -540,13 +569,47 @@ namespace PSXRacing
             Wire(items);
         }
 
+        /// <summary>What the save guard found, in plain words, over the top
+        /// button (bottom edge at <paramref name="above"/> + 14). Nothing when
+        /// the career loaded as it should.</summary>
+        void SaveNote(float above)
+        {
+            string note = LifeSimManager.TroubleTitle();
+            if (note == null) return;
+            var col = LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Rewritten ? MenuKit.Accent : MenuKit.Bad;
+            // As wide as the screen allows, up to SaveNoteW: on a phone's
+            // 560-unit column four buttons leave room for two lines under the
+            // title, no more (SaveGuardPreview, 11-12).
+            float w = Mathf.Min(SaveNoteW, 2f * MenuKit.HalfWidth - 96f);
+            var t = MenuKit.Para(root, note, MenuKit.Small, new Vector2(0f, 0f), new Vector2(48f, 0f),
+                out float h, TextAnchor.UpperLeft, col, w);
+            t.rectTransform.anchoredPosition = new Vector2(48f, above + 14f + h);
+        }
+
+        /// <summary>The save note's widest column: past the buttons and over
+        /// the valley, so every note takes two lines.</summary>
+        const float SaveNoteW = 800f;
+
         /// <summary>NEW GAME over a career: the same erase-and-confirm as the
-        /// home screen's START OVER.</summary>
+        /// home screen's START OVER. Over a career this build could not load,
+        /// it says what replacing that one costs (LifeSimManager.FailedEraseLine):
+        /// a fixed build would load it, and after this only a copy is kept.</summary>
         void Confirm()
         {
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
-            MenuKit.Label(root, "ERASE THIS CAREER? Money, cars and rep are gone.", 18,
-                new Vector2(0f, 0f), new Vector2(48f, 180f), TextAnchor.MiddleLeft, MenuKit.Bad, 520f);
+            if (LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Failed)
+            {
+                // Two lines as wide as SaveNote, bottom edge 14 over YES. A
+                // button pivots on its anchor, so YES spans 120 to 174 (the
+                // first cut sat its second line under YES, 11-12 preview).
+                float w = Mathf.Min(SaveNoteW, 2f * MenuKit.HalfWidth - 96f);
+                var t = MenuKit.Para(root, LifeSimManager.FailedEraseLine, 18, new Vector2(0f, 0f), new Vector2(48f, 0f),
+                    out float h, TextAnchor.UpperLeft, MenuKit.Bad, w);
+                t.rectTransform.anchoredPosition = new Vector2(48f, 120f + 54f + 14f + h);
+            }
+            else
+                MenuKit.Label(root, "ERASE THIS CAREER? Money, cars and rep are gone.", 18,
+                    new Vector2(0f, 0f), new Vector2(48f, 180f), TextAnchor.MiddleLeft, MenuKit.Bad, 520f);
             var yes = MenuKit.Button(root, "YES — START OVER", new Vector2(0f, 0f), new Vector2(48f, 120f),
                 new Vector2(440f, 54f), () => { LifeSimManager.DeleteSave(); Leave(); }, 20,
                 new Color(0.42f, 0.12f, 0.12f, 1f));

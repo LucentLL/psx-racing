@@ -361,6 +361,7 @@ namespace PSXRacing
                     env.AppendLine("camera far " + (cam != null ? cam.farClipPlane.ToString("0") : "?") + " m, detail to " + TimeOfDay.FarEdgeM.ToString("0") + " m, horizon " + TimeOfDay.HorizonM.ToString("0") +
                                    " m, target " + (cam != null && cam.targetTexture != null ? cam.targetTexture.width + "x" + cam.targetTexture.height + " depth " + cam.targetTexture.depthStencilFormat : "screen"));
                     env.AppendLine(PlatformProfile.Describe());
+                    env.AppendLine("save " + saveCost);
                     Post("env.txt", env.ToString());
                     Say("stage up: " + env.ToString().Replace("\n", " | "));
                 }
