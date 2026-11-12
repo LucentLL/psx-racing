@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 namespace PSXRacing.EditorTools
@@ -113,7 +114,39 @@ namespace PSXRacing.EditorTools
                 }
             }
             Log(sb2.ToString());
+
+            // ---- the impostors as light as their meshes ----
+            // (measured, Dilworth 150 m, every tree one way then the other: tree pixels' luma
+            // 58.1 as meshes, 44.5 as impostors). City copies of the impostor materials, the
+            // mountains' own untouched.
+            var copies = new Dictionary<Material, Material>();
+            foreach (var v in list)
+            {
+                if (v.impostorDress == null) continue;
+                var nd = new Material[v.impostorDress.Length];
+                for (int d = 0; d < nd.Length; d++)
+                {
+                    var m = v.impostorDress[d];
+                    if (m == null) continue;
+                    if (!copies.TryGetValue(m, out var c))
+                    {
+                        string path = MatDir + "/CT2_city_" + m.name.Replace("CT2_city_", "") + ".mat";
+                        c = AssetDatabase.LoadAssetAtPath<Material>(path);
+                        if (c == null) { c = new Material(m); AssetDatabase.CreateAsset(c, path); }
+                        else c.CopyPropertiesFromMaterial(m);
+                        c.color = m.color * CTImpostorGain;
+                        EditorUtility.SetDirty(c);
+                        copies[m] = c;
+                    }
+                    nd[d] = c;
+                }
+                v.impostorDress = nd;
+            }
+            Log($"City trees round 2: {copies.Count} impostor materials copied for the city at x{CTImpostorGain}");
         }
+
+        /// <summary>The city's impostors brightened to their meshes (see above).</summary>
+        const float CTImpostorGain = 1.3f;
 
         static int LeafTris(Mesh m, bool[] leafSub)
         {
