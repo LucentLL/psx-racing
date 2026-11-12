@@ -522,9 +522,9 @@ namespace PSXRacing
 
         /// <summary>
         /// Everything the responder knows, into the handoff - the one place
-        /// both exits (the finish line and CityMode's exit stamp) write it, so
-        /// they cannot disagree. DamageScore, HardHits and the bump-stop tally
-        /// are written exactly as they were.
+        /// both exits (the finish line and the city exit, <see cref="StampCityExit"/>)
+        /// write it, so they cannot disagree. DamageScore, HardHits and the
+        /// bump-stop tally are written exactly as they were.
         /// </summary>
         public static void StampHandoff(CollisionResponder r)
         {
@@ -538,6 +538,25 @@ namespace PSXRacing
             RaceHandoff.BottomWorstWheel = r != null ? r.WorstBottomWheel + 1 : 0;
             var ledger = r != null ? r.Ledger : null;
             StampOutcome(ledger != null, ledger != null ? ledger.Total : new Outcome());
+        }
+
+        /// <summary>
+        /// The city exit: called right after CityMode.StampExitResult by its two
+        /// callers (PauseMenu EXIT, TownVenue's doors). StampExitResult still
+        /// writes DamageScore, HardHits and the bump-stop tally as it always
+        /// has; this writes the same values again plus the located hardest hit
+        /// and what was rolled at it, through the finish line's own writer.
+        /// It lives here and not in CityMode so that no file under
+        /// Scripts/City changes: the city tile bake fingerprints every .cs
+        /// there (Editor/CityTileBake.cs CodeDirs), and an edit to CityMode
+        /// would make the PC build re-bake Charlotte. Nothing without a city
+        /// session or a player car, where StampExitResult stamps nothing either.
+        /// </summary>
+        public static void StampCityExit()
+        {
+            var city = City.CityMode.Instance;
+            if (city == null || city.player == null) return;
+            StampHandoff(city.player.GetComponent<CollisionResponder>());
         }
 
         /// <summary>The rolled outcome alone, into the handoff (the self-test

@@ -375,6 +375,8 @@ namespace PSXRacing
             // session banks its metres, fuel and damage on the way out, where a
             // race would bank nothing because abandoning one voids the result.
             City.CityMode.Instance?.StampExitResult();
+            // R0a: the located hardest hit and what was rolled at it.
+            CrashStopGap.StampCityExit();
             SceneManager.LoadScene(0);
         }
 

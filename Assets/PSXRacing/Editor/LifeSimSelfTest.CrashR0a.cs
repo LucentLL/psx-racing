@@ -52,6 +52,7 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestCrashApplyBack), TestCrashApplyBack);
                 Guard(nameof(TestCrashOneAlignment), TestCrashOneAlignment);
                 Guard(nameof(TestCrashLive), TestCrashLive);
+                Guard(nameof(TestCrashCityExit), TestCrashCityExit);
                 Guard(nameof(TestCrashWearNoBumper), TestCrashWearNoBumper);
                 Guard(nameof(TestCrashSwitchOff), TestCrashSwitchOff);
             }
@@ -1069,6 +1070,118 @@ namespace PSXRacing.EditorTools
                 if (car != null) TuneDrop(car);
                 RaceHandoff.ClearAll();
             }
+        }
+
+        // ---------------------------------------------------------------
+        /// <summary>Every field the crash part of an exit stamp writes, in one
+        /// line (floats round-trip exactly).</summary>
+        static string CrashHandoffFields() =>
+            "damage " + RaceHandoff.DamageScore.ToString("R") + " hard " + RaceHandoff.HardHits +
+            " bottom " + RaceHandoff.BottomScore.ToString("R") + "/" + RaceHandoff.BottomWorst.ToString("R") +
+            " worst " + RaceHandoff.WorstHitMps.ToString("R") + " zone " + RaceHandoff.WorstHitZone +
+            " side " + RaceHandoff.WorstHitSide + " wheel " + RaceHandoff.BottomWorstWheel +
+            " rolled " + RaceHandoff.CrashRolled + " classes " + RaceHandoff.CrashClasses +
+            " paint " + RaceHandoff.CrashPaintLoss.ToString("R") + " body " + RaceHandoff.CrashBodyLoss.ToString("R") +
+            " radiator " + RaceHandoff.CrashRadiatorLoss.ToString("R") + " bumper " + (RaceHandoff.CrashBumperId ?? "-") +
+            " align " + RaceHandoff.CrashAlignSide + "/" + RaceHandoff.CrashAlignSeverity;
+
+        /// <summary>
+        /// THE CITY EXIT (R0a merge, 11-12). Nothing under Scripts/City changes
+        /// for R0a - the city tile bake fingerprints every .cs there, and an
+        /// edit would make the PC build re-bake Charlotte - so CityMode's exit
+        /// stamp writes the old tally as it always has and its callers (PauseMenu
+        /// EXIT, TownVenue's doors) then call CrashStopGap.StampCityExit. Pinned:
+        /// a free-roam session exited that way hands the apply-back exactly what
+        /// the finish line's writer hands it; with no city session it writes
+        /// nothing; and every runtime caller of StampExitResult calls
+        /// StampCityExit right after it.
+        /// </summary>
+        static void TestCrashCityExit()
+        {
+            Line("R0a crash - the city exit hands over the located hit and what was rolled, with CityMode untouched:");
+            bool was = CrashStopGap.On;
+            CrashStopGap.On = true;
+            var spec = CrashSpec("jpn", 1990);
+            if (spec == null) { Check(false, "a Japanese road car to crash"); CrashStopGap.On = was; return; }
+            var car = TuneBenchCar(spec);
+            var temp = car.gameObject.AddComponent<EngineTemp>();
+            temp.car = car;
+            var resp = car.gameObject.AddComponent<CollisionResponder>();
+            var city = new GameObject("CrashCityExit") { hideFlags = HideFlags.HideAndDontSave };
+            // An edit-mode component gets no Awake, so the session is
+            // registered the way Awake registers it.
+            var setInstance = typeof(PSXRacing.City.CityMode).GetProperty("Instance").GetSetMethod(true);
+            try
+            {
+                RaceHandoff.ClearAll();
+                RaceHandoff.FromLifeSim = true;
+                RaceHandoff.CarSpecId = spec.id;
+                temp.radiatorCond = 90f;
+                Check(CrashStopGap.Arm(car) && resp.Ledger != null, "a career drive arms the player's ledger");
+                resp.Ledger.DrawOverride = () => CrashDraws(bumper: 0.1f, radiator: 0.1f, align: 0.1f);
+                resp.RecordHit(11f, CrashStopGap.ZoneFront, -1, new Vector3(-0.5f, 0f, 2.1f), "wall", 10f);
+                resp.RecordHit(13f, CrashStopGap.ZoneSide, 1, new Vector3(0.88f, 0f, 0f), "barrier", 15f);
+
+                CrashStopGap.StampHandoff(resp);
+                string want = CrashHandoffFields();
+                Check(RaceHandoff.CrashRolled && RaceHandoff.WorstHitZone == CrashStopGap.ZoneSide &&
+                      RaceHandoff.WorstHitSide == 1 && RaceHandoff.CrashAlignSeverity > 0,
+                      "the finish line's writer hands over the hardest hit (13 m/s, right flank) and what was rolled", want);
+
+                RaceHandoff.ClearResult();
+                string empty = CrashHandoffFields();
+                CrashStopGap.StampCityExit();
+                Check(CrashHandoffFields() == empty,
+                      "with no city session (a race, a circuit, the menu) the city exit stamps nothing");
+
+                var cm = city.AddComponent<PSXRacing.City.CityMode>();
+                cm.player = car;
+                setInstance.Invoke(null, new object[] { cm });
+                // Exactly what PauseMenu.ExitToMenu and TownVenue do.
+                PSXRacing.City.CityMode.Instance?.StampExitResult();
+                CrashStopGap.StampCityExit();
+                string got = CrashHandoffFields();
+                Check(RaceHandoff.ResultReady && RaceHandoff.FreeRoam && got == want,
+                      "a free-roam exit (StampExitResult, then StampCityExit) hands the apply-back the same crash, field for field",
+                      got == want ? "identical" : "want " + want + " | got " + got);
+            }
+            catch (System.Exception e)
+            {
+                Check(false, "the city exit check ran", e.GetType().Name + ": " + e.Message);
+            }
+            finally
+            {
+                CrashStopGap.On = was;
+                try { setInstance.Invoke(null, new object[] { null }); } catch { }
+                Object.DestroyImmediate(city);
+                TuneDrop(car);
+                RaceHandoff.ClearAll();
+            }
+
+            // THE CALLERS: every runtime call of CityMode.StampExitResult is
+            // followed by CrashStopGap.StampCityExit, or that exit would bank
+            // the leg with no located hit and nothing rolled.
+            var callers = new List<string>();
+            var bad = new List<string>();
+            string root = System.IO.Path.Combine(Application.dataPath, "PSXRacing", "Scripts");
+            foreach (var path in System.IO.Directory.GetFiles(root, "*.cs", System.IO.SearchOption.AllDirectories))
+            {
+                var lines = System.IO.File.ReadAllLines(path);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string l = lines[i].Trim();
+                    if (l.StartsWith("//") || l.StartsWith("///") || !l.Contains("StampExitResult()") || l.Contains("void StampExitResult")) continue;
+                    string name = System.IO.Path.GetFileName(path) + ":" + (i + 1);
+                    callers.Add(name);
+                    bool follows = false;
+                    for (int j = i + 1; j < Mathf.Min(lines.Length, i + 4); j++)
+                        if (lines[j].Contains("CrashStopGap.StampCityExit();")) { follows = true; break; }
+                    if (!follows) bad.Add(name);
+                }
+            }
+            Check(callers.Count >= 2 && bad.Count == 0,
+                  "every runtime call of StampExitResult is followed by CrashStopGap.StampCityExit (" + string.Join(", ", callers) + ")",
+                  bad.Count > 0 ? "missing after " + string.Join(", ", bad) : null);
         }
     }
 }

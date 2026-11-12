@@ -438,6 +438,8 @@ namespace PSXRacing.Town
             if (!TownReturn.Pending) TownReturn.Clear();
 
             City.CityMode.Instance?.StampExitResult();
+            // R0a: the located hardest hit and what was rolled at it.
+            CrashStopGap.StampCityExit();
             LifeHomeScreen.PendingTab = tab;
             LifeSimManager.Save();
             // A browser keeps pointer lock across a scene load, so without this
