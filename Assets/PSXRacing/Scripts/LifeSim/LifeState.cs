@@ -70,6 +70,19 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public int saveVersion = 24;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
+        /// <summary>
+        /// The save version of the BUILD that last wrote this career (R0a,
+        /// 2026-11-12). Every PC build shares one registry key, and an exe
+        /// from before R0a that loads a newer career drops the fields it does
+        /// not know and writes the rest back still stamped with the newer
+        /// version. Every <see cref="LifeSimManager.Save"/> stamps this, so a
+        /// save at v25 or later whose writerVersion is below its saveVersion
+        /// was written by a build that did not know that version (see
+        /// LifeSimManager's save safety). ADDED WITHOUT A VERSION BUMP: its
+        /// absence (0, what a pre-R0a exe writes) is the signal.
+        /// </summary>
+        public int writerVersion;
+
         // === Core economy / clock ===
         public int money;
         public int day = 1;              // absolute day counter; day 1 is a FRIDAY

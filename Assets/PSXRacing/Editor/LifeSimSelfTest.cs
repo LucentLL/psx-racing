@@ -125,6 +125,8 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestJunkyard), TestJunkyard);
             Guard(nameof(TestPartsShelf), TestPartsShelf);
             Guard(nameof(TestPartsShelfSave), TestPartsShelfSave);
+            Guard(nameof(TestSaveDowngrade), TestSaveDowngrade);
+            Guard(nameof(TestSaveVersionLadder), TestSaveVersionLadder);
             Guard(nameof(TestRaceField), TestRaceField);
             Guard(nameof(TestBlacklist), TestBlacklist);
             Guard(nameof(TestTracks), TestTracks);

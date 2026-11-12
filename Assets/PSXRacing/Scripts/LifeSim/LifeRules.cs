@@ -2880,6 +2880,10 @@ namespace PSXRacing.LifeSim
             // 10. daily latches
             s.ateToday = false;
             s.workedToday = false;
+
+            // 11. the next save of the live career also writes <key>.last,
+            //     this build's own copy (save safety, LifeSimManager).
+            LifeSimManager.NoteRollover(s);
         }
 
         /// <summary>Call-out fired by the last rollover, for the home screen to

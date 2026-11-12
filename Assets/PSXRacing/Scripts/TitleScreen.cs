@@ -523,12 +523,30 @@ namespace PSXRacing
         {
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
             var items = new List<Selectable>();
+            // HasCareer loads the career, which is what tells the save guard's
+            // story (LifeSimManager.Trouble): a newer build's career plays
+            // read-only, one an older build saved over offers this build's own
+            // copy, one that would not load is kept and says so.
+            bool career = HasCareer;
+            bool pick = career && LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Rewritten &&
+                        LifeSimManager.HasLastCopy;
+            int rows = 2 + (career ? (pick ? 2 : 1) : 0);
             // Stacked up from the bottom row (y 20), one 76-unit step a button.
-            float y = 20f + 76f * (HasCareer ? 2 : 1);
-            if (HasCareer)
+            float y = 20f + 76f * (rows - 1);
+            SaveNote(y + 60f);
+            if (pick)
             {
-                items.Add(MenuKit.Button(root, "CONTINUE GAME", new Vector2(0f, 0f), new Vector2(48f, y),
-                    new Vector2(440f, 60f), Leave, MenuKit.Head));
+                items.Add(MenuKit.Button(root, "THIS BUILD'S COPY", new Vector2(0f, 0f), new Vector2(48f, y),
+                    new Vector2(440f, 60f), () => { LifeSimManager.UseLastCopy(); Leave(); }, MenuKit.Head));
+                y -= 76f;
+                items.Add(MenuKit.Button(root, "OLDER BUILD'S COPY", new Vector2(0f, 0f), new Vector2(48f, y),
+                    new Vector2(440f, 60f), () => { LifeSimManager.KeepStoredCopy(); Leave(); }, MenuKit.Head));
+                y -= 76f;
+            }
+            else if (career)
+            {
+                items.Add(MenuKit.Button(root, LifeSimManager.ReadOnly ? "CONTINUE (READ-ONLY)" : "CONTINUE GAME",
+                    new Vector2(0f, 0f), new Vector2(48f, y), new Vector2(440f, 60f), Leave, MenuKit.Head));
                 y -= 76f;
             }
             items.Add(MenuKit.Button(root, "NEW GAME", new Vector2(0f, 0f), new Vector2(48f, y),
@@ -539,6 +557,23 @@ namespace PSXRacing
                 new Vector2(440f, 60f), ArcadeMode.Enter, MenuKit.Head));
             Wire(items);
         }
+
+        /// <summary>What the save guard found, in plain words, over the top
+        /// button (bottom edge at <paramref name="above"/> + 14). Nothing when
+        /// the career loaded as it should.</summary>
+        void SaveNote(float above)
+        {
+            string note = LifeSimManager.TroubleTitle();
+            if (note == null) return;
+            var col = LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Rewritten ? MenuKit.Accent : MenuKit.Bad;
+            var t = MenuKit.Para(root, note, MenuKit.Small, new Vector2(0f, 0f), new Vector2(48f, 0f),
+                out float h, TextAnchor.UpperLeft, col, SaveNoteW);
+            t.rectTransform.anchoredPosition = new Vector2(48f, above + 14f + h);
+        }
+
+        /// <summary>The save note's column: wider than the buttons, so it
+        /// takes fewer lines between them and the title on a phone.</summary>
+        const float SaveNoteW = 600f;
 
         /// <summary>NEW GAME over a career: the same erase-and-confirm as the
         /// home screen's START OVER.</summary>

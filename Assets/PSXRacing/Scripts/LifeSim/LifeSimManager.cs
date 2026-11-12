@@ -78,21 +78,93 @@ namespace PSXRacing.LifeSim
         public static void UseScratchSave(string name)
         {
             saveKey = CareerKey + "." + name;
+            // The scratch career's own copies go with it (never the career's:
+            // DeleteCopies refuses the real key).
+            DeleteCopies();
             PlayerPrefs.DeleteKey(saveKey);
             state = null;
+            ResetGuard();
+        }
+
+        /// <summary>Back onto the player's own key after a test run's
+        /// <see cref="UseScratchSave"/>. Reads nothing and writes nothing:
+        /// the career loads lazily, as at boot.</summary>
+        public static void UseCareerSave()
+        {
+            saveKey = CareerKey;
+            state = null;
+            ResetGuard();
+        }
+
+        /// <summary>The PlayerPrefs key the career is under right now (the
+        /// player's own, or a test's scratch key).</summary>
+        public static string SaveKey => saveKey;
+
+        /// <summary>Drop the live career and load it from disk again, as a
+        /// fresh boot would (the save guard's verdict included). For tools
+        /// and the self-test.</summary>
+        public static LifeState Reload()
+        {
+            state = null;
+            return State;
         }
 
         public static void Save()
         {
             if (!Persists) return;   // CITY: no career, nothing written (see State)
             if (state == null) return;
-            PlayerPrefs.SetString(saveKey, JsonUtility.ToJson(state));
+            // SAVE SAFETY: a newer build's career (read-only) and a career this
+            // build could not load (held until an explicit NEW GAME) are never
+            // written over. Every caller that saves comes through here.
+            if (Guard && (readOnly || holdWrites))
+            {
+                if (!warnedHeld)
+                {
+                    warnedHeld = true;
+                    Debug.LogWarning("[LifeSim] not saving: " + (readOnly
+                        ? "the career on disk was saved by a newer build (v" + TroubleVersion + "); this build (v" +
+                          CodeVersion + ") plays it read-only"
+                        : "the career on disk could not be loaded; it is kept as it is until NEW GAME"));
+                }
+                return;
+            }
+            // The writer stamp, always (even with the guard off: a build that
+            // writes back a version it does not know is then caught by the
+            // next one that does - see LifeState.writerVersion).
+            state.writerVersion = CodeVersion;
+            string json = JsonUtility.ToJson(state);
+            PlayerPrefs.SetString(saveKey, json);
+            if (lastDue && Guard)
+            {
+                // The first save after a daily rollover: this build's own copy,
+                // with the date, for the day an older exe writes over the career.
+                // A copy that cannot be written (a full store: WebGL caps all
+                // PlayerPrefs at 1 MB) never costs the save itself.
+                try
+                {
+                    PlayerPrefs.SetString(saveKey + LastSuffix, json);
+                    PlayerPrefs.SetString(saveKey + LastWhenSuffix,
+                        System.DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                catch (System.Exception e) { Debug.LogWarning("[LifeSim] could not write the .last copy: " + e.Message); }
+            }
+            lastDue = false;
             PlayerPrefs.Save();
         }
 
         public static LifeState Load()
         {
+            ResetGuard();
             if (!PlayerPrefs.HasKey(saveKey)) return null;
+            return Guard ? LoadGuarded() : LoadUnguarded();
+        }
+
+        /// <summary>Load as it was before R0a (PSX_SAVE_GUARD=0): no backup,
+        /// a newer save is migrated and written back like any other, and any
+        /// throw falls through to a new game that the next save writes over
+        /// the career.</summary>
+        static LifeState LoadUnguarded()
+        {
             try
             {
                 var s = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(saveKey));
@@ -108,16 +180,382 @@ namespace PSXRacing.LifeSim
             catch { return null; }   // corrupt save: fall through to new game
         }
 
+        // =================== SAVE SAFETY (R0a, 2026-11-12) ===================
+        //
+        // Every PC build shares ONE registry key (UseScratchSave above), and
+        // more than one build is usually on disk (Win64_PC29 and Win64_PC30 on
+        // 11-11). Before R0a, Load() had no guard:
+        //   * an older exe drops the fields it does not know, and its next
+        //     Save() writes the stripped career back with the NEWER version
+        //     number still on it, so the newer build never re-seeds them;
+        //   * any throw in Load or Migrate returned null and started a new
+        //     game, which the next save wrote over the career.
+        // So, before any round changes the save (Fault_System_Design §2):
+        //   * BACKUP: before Migrate, the raw string is copied to
+        //     <key>.bak.v<old>.<date>; the last three are kept.
+        //   * A NEWER SAVE IS READ-ONLY: Save() writes nothing and the title
+        //     says so. Never migrated, never written back.
+        //   * WRITER STAMP: every Save() stamps LifeState.writerVersion, and
+        //     the first save after each daily rollover also writes <key>.last.
+        //     A save at v25+ whose writerVersion is below its version was
+        //     written back by an exe from before R0a: its steps from v25 up are
+        //     run again (they are idempotent; that exe dropped their fields)
+        //     and the title offers <key>.last, this build's own copy, instead.
+        //   * NO NEW GAME OVER A CAREER: a load or upgrade that throws keeps
+        //     the raw string as <key>.failed.v<old>.<date>, leaves the main key
+        //     alone, and the title says so. Only an explicit NEW GAME
+        //     (StartNewGame / DeleteSave) writes the main key again.
+        // Version steps themselves are untouched: one per shipped round,
+        // numbered at merge (LifeSimSelfTest.TestSaveVersionLadder).
+
+        /// <summary>PSX_SAVE_GUARD=0 is the save as it was before R0a: no
+        /// backup, no read-only newer saves, no .last, and a failed load
+        /// starts a new game. The writer stamp stays (it is only a number in
+        /// the save). Public for the self-test.</summary>
+        public static bool Guard = System.Environment.GetEnvironmentVariable("PSX_SAVE_GUARD") != "0";
+
+        /// <summary>The newest save version a build from before R0a can have
+        /// written. Those builds never stamp writerVersion, so a save above
+        /// this whose stamp is below its version was rewritten by one.</summary>
+        public const int LastUnstampedVersion = 24;
+
+        /// <summary>The last three pre-migration copies are kept.</summary>
+        public const int BackupKeep = 3;
+        /// <summary>Failed loads keep up to five copies (each is a career
+        /// nothing else holds; trimmed only past this).</summary>
+        public const int FailedKeep = 5;
+
+        const string BakTag = ".bak.v", BakIndex = ".bak";
+        const string FailTag = ".failed.v", FailIndex = ".failed";
+        const string LastSuffix = ".last", LastWhenSuffix = ".last.when";
+
+        /// <summary>What the last load found wrong with the career on disk.</summary>
+        public enum SaveTrouble
+        {
+            None,
+            /// <summary>Saved by a NEWER build: loaded read-only, never written back.</summary>
+            Newer,
+            /// <summary>A v25+ save that an exe from before R0a wrote back
+            /// (writerVersion below its version). The fields it dropped are
+            /// seeded again; the title offers this build's own .last copy.</summary>
+            Rewritten,
+            /// <summary>Reading or upgrading it threw. Kept untouched; nothing
+            /// is saved until an explicit NEW GAME.</summary>
+            Failed,
+        }
+
+        /// <summary>What the last <see cref="Load"/> found (None when nothing
+        /// was wrong, or no save). Read by the title screen.</summary>
+        public static SaveTrouble Trouble { get; private set; }
+        /// <summary>The stored save's own version when <see cref="Trouble"/>
+        /// was set (0 when it could not be read).</summary>
+        public static int TroubleVersion { get; private set; }
+        /// <summary>A newer build's career, played without saving.</summary>
+        public static bool ReadOnly => Guard && readOnly;
+        /// <summary>Where the last failed load's raw string was kept.</summary>
+        public static string FailedCopyKey { get; private set; }
+
+        static bool readOnly, holdWrites, lastDue, warnedHeld, readOnlyNoteDue;
+
+        /// <summary>The save version THIS build writes (a new career's).</summary>
+        public static int CodeVersion => simulatedCodeVersion > 0 ? simulatedCodeVersion : BuiltVersion;
+        static int builtVersion;
+        static int BuiltVersion => builtVersion > 0 ? builtVersion : (builtVersion = new LifeState().saveVersion);
+        static int simulatedCodeVersion;
+
+        /// <summary>SELF-TEST ONLY: pretend this build writes version
+        /// <paramref name="v"/> (0 = the real one), so the guard can be driven
+        /// against a v25 save before any round ships v25.</summary>
+        public static void SimulateCodeVersion(int v)
+        {
+            simulatedCodeVersion = Mathf.Max(0, v);
+        }
+
+        /// <summary>SELF-TEST ONLY: called by a guarded load after the backup
+        /// is written and before the first migration step runs - to look at
+        /// the backup at that moment, or to throw as a broken step would.</summary>
+        public static System.Action<LifeState> BeforeMigrateHook;
+
+        static void ResetGuard()
+        {
+            Trouble = SaveTrouble.None;
+            TroubleVersion = 0;
+            FailedCopyKey = null;
+            readOnly = holdWrites = lastDue = warnedHeld = readOnlyNoteDue = false;
+        }
+
+        static LifeState LoadGuarded()
+        {
+            string raw = PlayerPrefs.GetString(saveKey);
+            int code = CodeVersion;
+            LifeState s;
+            try { s = JsonUtility.FromJson<LifeState>(raw); }
+            catch (System.Exception e) { return Fail(raw, PeekVersion(raw), "it could not be read (" + e.GetType().Name + ": " + e.Message + ")"); }
+            if (s == null || s.saveVersion < 1) return Fail(raw, PeekVersion(raw), "it holds no save version");
+
+            int stored = s.saveVersion;
+            if (stored > code)
+            {
+                // A NEWER BUILD'S CAREER. Nothing this build knows how to do to
+                // it is safe to write back: shown, played, never saved.
+                readOnly = true;
+                readOnlyNoteDue = true;
+                Trouble = SaveTrouble.Newer;
+                TroubleVersion = stored;
+                Debug.LogWarning("[LifeSim] the career was saved by a newer build (v" + stored + "; this build is v" +
+                                 code + ") - loaded READ-ONLY, nothing will be saved");
+                // In memory only (never written back): what this build cannot
+                // show, it does not try to - a booking at a venue it lacks
+                // would otherwise load a scene that is not there.
+                try { EditionSanitize(s); StripBuiltCars(s); }
+                catch (System.Exception e) { Debug.LogWarning("[LifeSim] read-only career: sanitize threw " + e.Message); }
+                return s;
+            }
+
+            // WRITTEN BACK BY AN EXE FROM BEFORE R0a: every step it could not
+            // know runs again, from the last version it could have known.
+            bool rewritten = stored > LastUnstampedVersion && s.writerVersion < stored;
+            if (rewritten) s.saveVersion = LastUnstampedVersion;
+
+            // THE BACKUP, before the first step can touch anything.
+            if (s.saveVersion < code) KeepCopy(raw, stored, BakTag, BakIndex, BackupKeep);
+            try
+            {
+                BeforeMigrateHook?.Invoke(s);
+                Migrate(s);
+                // After the migration, never inside it: this is not a save
+                // version (the editions remove nothing from the catalog) but a
+                // question asked of THIS build on every load.
+                EditionSanitize(s);
+                StripBuiltCars(s);
+            }
+            catch (System.Exception e)
+            {
+                return Fail(raw, stored, "the upgrade from v" + stored + " threw (" + e.GetType().Name + ": " + e.Message + ")");
+            }
+
+            if (rewritten)
+            {
+                Trouble = SaveTrouble.Rewritten;
+                TroubleVersion = stored;
+                Debug.LogWarning("[LifeSim] the v" + stored + " career was written back by a build from before the " +
+                                 "save guard (writerVersion " + s.writerVersion + "); its v" + (LastUnstampedVersion + 1) +
+                                 "+ steps ran again" + (HasLastCopy ? ", and this build's own last copy is offered" : ""));
+            }
+            return s;
+        }
+
+        /// <summary>NO NEW GAME OVER A CAREER: the raw string is kept, the
+        /// main key is not touched, and nothing is saved until an explicit
+        /// NEW GAME. Returns null, so State hands out a blank career that
+        /// <see cref="Save"/> refuses to write.</summary>
+        static LifeState Fail(string raw, int version, string why)
+        {
+            holdWrites = true;
+            Trouble = SaveTrouble.Failed;
+            TroubleVersion = version;
+            try { FailedCopyKey = KeepCopy(raw, version, FailTag, FailIndex, FailedKeep); }
+            catch (System.Exception e) { Debug.LogError("[LifeSim] could not keep a copy of the failed save: " + e.Message); }
+            Debug.LogError("[LifeSim] the career could not be loaded: " + why + ". The save is untouched (a copy is kept as " +
+                           (FailedCopyKey ?? "nothing") + ") and nothing is written over it until NEW GAME.");
+            return null;
+        }
+
+        static readonly System.Text.RegularExpressions.Regex VersionRx =
+            new System.Text.RegularExpressions.Regex("\"saveVersion\"\\s*:\\s*(-?\\d+)");
+
+        /// <summary>The saveVersion written in a raw save string, without
+        /// parsing the rest (0 when there is none).</summary>
+        public static int PeekVersion(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return 0;
+            var m = VersionRx.Match(raw);
+            return m.Success && int.TryParse(m.Groups[1].Value, out int v) ? v : 0;
+        }
+
+        /// <summary>Copy a raw save under
+        /// <c>&lt;key&gt;&lt;tag&gt;&lt;version&gt;.&lt;yyyyMMdd-HHmmss&gt;.&lt;n&gt;</c>
+        /// (n counts up within the list, so a trimmed name is never reused)
+        /// and list it in <c>&lt;key&gt;&lt;index&gt;</c>, keeping the newest
+        /// <paramref name="keep"/>. A string identical to the newest copy is
+        /// not copied twice (a career that loads and quits without saving is
+        /// backed up once, not on every boot). Returns the copy's key.</summary>
+        static string KeepCopy(string raw, int version, string tag, string indexSuffix, int keep)
+        {
+            string indexKey = saveKey + indexSuffix;
+            var keys = ReadIndex(indexKey);
+            int seq = 1;
+            if (keys.Count > 0)
+            {
+                string newest = keys[keys.Count - 1];
+                if (PlayerPrefs.GetString(newest, null) == raw) return newest;
+                int dot = newest.LastIndexOf('.');
+                if (dot >= 0 && int.TryParse(newest.Substring(dot + 1), out int last)) seq = last + 1;
+            }
+            string unique = saveKey + tag + version + "." +
+                            System.DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) +
+                            "." + seq;
+            while (keys.Contains(unique) || PlayerPrefs.HasKey(unique)) unique = unique.Substring(0, unique.LastIndexOf('.') + 1) + (++seq);
+            try
+            {
+                PlayerPrefs.SetString(unique, raw ?? "");
+                keys.Add(unique);
+                while (keys.Count > keep)
+                {
+                    PlayerPrefs.DeleteKey(keys[0]);
+                    keys.RemoveAt(0);
+                }
+                PlayerPrefs.SetString(indexKey, string.Join("|", keys));
+                PlayerPrefs.Save();
+                return unique;
+            }
+            catch (System.Exception e)
+            {
+                // A full store (WebGL caps PlayerPrefs at 1 MB): no copy, and
+                // the load or erase carries on as it did before the guard.
+                Debug.LogWarning("[LifeSim] could not keep a copy of the save as " + unique + ": " + e.Message);
+                try { PlayerPrefs.DeleteKey(unique); } catch { }
+                return null;
+            }
+        }
+
+        static System.Collections.Generic.List<string> ReadIndex(string indexKey)
+        {
+            var list = new System.Collections.Generic.List<string>();
+            foreach (var k in PlayerPrefs.GetString(indexKey, "").Split('|'))
+                if (!string.IsNullOrEmpty(k)) list.Add(k);
+            return list;
+        }
+
+        /// <summary>The pre-migration copies, oldest first (keys).</summary>
+        public static System.Collections.Generic.List<string> BackupKeys() => ReadIndex(saveKey + BakIndex);
+
+        /// <summary>The kept copies of saves that failed to load, oldest first.</summary>
+        public static System.Collections.Generic.List<string> FailedKeys() => ReadIndex(saveKey + FailIndex);
+
+        /// <summary>A scratch career's copies (backups, failed copies, .last).
+        /// Never the player's own: refused on the career key.</summary>
+        static void DeleteCopies()
+        {
+            if (saveKey == CareerKey) return;
+            foreach (var k in BackupKeys()) PlayerPrefs.DeleteKey(k);
+            foreach (var k in FailedKeys()) PlayerPrefs.DeleteKey(k);
+            PlayerPrefs.DeleteKey(saveKey + BakIndex);
+            PlayerPrefs.DeleteKey(saveKey + FailIndex);
+            PlayerPrefs.DeleteKey(saveKey + LastSuffix);
+            PlayerPrefs.DeleteKey(saveKey + LastWhenSuffix);
+        }
+
+        /// <summary>The live career's daily rollover (LifeRules.Rollover): the
+        /// next <see cref="Save"/> also writes <c>&lt;key&gt;.last</c>. Any
+        /// other state (a test's, the CITY throwaway) is ignored.</summary>
+        public static void NoteRollover(LifeState s)
+        {
+            if (s != null && ReferenceEquals(s, state)) lastDue = true;
+        }
+
+        /// <summary>This build's own last copy (<c>&lt;key&gt;.last</c>), when
+        /// there is one this build can load: written by a guarded build that
+        /// knew its version, and no newer than this build.</summary>
+        public static bool HasLastCopy => LastCopy(out _, out _);
+
+        /// <summary>The day the <c>.last</c> copy stands on and when it was
+        /// written ("yyyy-MM-dd HH:mm"). False when there is none usable.</summary>
+        public static bool LastCopy(out int day, out string when)
+        {
+            day = 0;
+            when = PlayerPrefs.GetString(saveKey + LastWhenSuffix, "");
+            string last = PlayerPrefs.GetString(saveKey + LastSuffix, null);
+            if (string.IsNullOrEmpty(last)) return false;
+            try
+            {
+                var s = JsonUtility.FromJson<LifeState>(last);
+                if (s == null || s.saveVersion < 1 || s.saveVersion > CodeVersion || s.writerVersion < s.saveVersion ||
+                    string.IsNullOrEmpty(s.playerName)) return false;
+                day = s.day;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// The title's answer to <see cref="SaveTrouble.Rewritten"/>: carry on
+        /// from THIS build's own last copy. The career on disk (the older
+        /// build's) is backed up first, then <c>.last</c> becomes the career
+        /// and is loaded. False (nothing changed) when there is no such copy.
+        /// </summary>
+        public static bool UseLastCopy()
+        {
+            if (Trouble != SaveTrouble.Rewritten || !LastCopy(out _, out _)) return false;
+            string last = PlayerPrefs.GetString(saveKey + LastSuffix, null);
+            string onDisk = PlayerPrefs.GetString(saveKey, null);
+            if (!string.IsNullOrEmpty(onDisk)) KeepCopy(onDisk, PeekVersion(onDisk), BakTag, BakIndex, BackupKeep);
+            PlayerPrefs.SetString(saveKey, last);
+            PlayerPrefs.Save();
+            state = null;
+            state = Load() ?? NewGame();
+            Debug.Log("[LifeSim] carried on from this build's own last copy (day " + state.day + ")");
+            return true;
+        }
+
+        /// <summary>The title's other answer: keep the older build's career
+        /// (its dropped fields already seeded again by the load), and save it
+        /// now so the question is not asked again.</summary>
+        public static void KeepStoredCopy()
+        {
+            if (Trouble != SaveTrouble.Rewritten) return;
+            Trouble = SaveTrouble.None;
+            Save();
+        }
+
+        /// <summary>
+        /// What the title says about the career on disk, or null when the
+        /// load found nothing wrong. Plain words: the player does not know
+        /// what a save version is.
+        /// </summary>
+        public static string TroubleTitle()
+        {
+            switch (Trouble)
+            {
+                case SaveTrouble.Newer:
+                    return "THIS CAREER WAS SAVED BY A NEWER BUILD OF THE GAME. THIS BUILD WILL NOT SAVE OVER IT: " +
+                           "WHAT YOU DO HERE IS NOT KEPT.";
+                case SaveTrouble.Rewritten:
+                    if (LastCopy(out int day, out string when))
+                    {
+                        string older = state != null ? " OR THE OLDER BUILD'S (" + LifeRules.DateLabel(state.day) + ")" : "";
+                        return "AN OLDER BUILD SAVED OVER THIS CAREER. CARRY ON FROM THIS BUILD'S OWN COPY (" +
+                               LifeRules.DateLabel(day) + (string.IsNullOrEmpty(when) ? "" : ", SAVED " + when) + ")" +
+                               older + ".";
+                    }
+                    return "AN OLDER BUILD SAVED OVER THIS CAREER. WHAT IT LEFT OUT HAS BEEN SET UP AGAIN.";
+                case SaveTrouble.Failed:
+                    return "THIS BUILD COULD NOT LOAD YOUR CAREER. IT IS KEPT, UNTOUCHED, AS A BACKUP. " +
+                           "NEW GAME STARTS A SEPARATE CAREER.";
+            }
+            return null;
+        }
+
         static string editionNote;
 
         /// <summary>The last load's edition note, once — see
-        /// <see cref="EditionSanitize"/>. The home screen toasts it.</summary>
+        /// <see cref="EditionSanitize"/>. The home screen toasts it. A
+        /// newer build's career (read-only) says so here first, once.</summary>
         public static string TakeEditionNote()
         {
             string n = editionNote;
             editionNote = null;
+            if (readOnlyNoteDue && ReadOnly)
+            {
+                readOnlyNoteDue = false;
+                return ReadOnlyNote;
+            }
             return n;
         }
+
+        /// <summary>The home screen's toast for a read-only career (at most
+        /// <see cref="NoteMax"/> characters).</summary>
+        public const string ReadOnlyNote = "READ-ONLY: A NEWER BUILD'S SAVE";
 
         /// <summary>
         /// A SAVE FROM BEFORE THE EDITIONS, loaded by one of them.
@@ -965,11 +1403,33 @@ namespace PSXRacing.LifeSim
             return band[Mathf.Abs(b.day * 7 + slot * 3) % band.Length];
         }
 
+        /// <summary>An explicit NEW GAME (the title's, START OVER) erases the
+        /// career. One this build could not vouch for - a newer build's, or
+        /// one it could not load - keeps a copy first (save safety).</summary>
         public static void DeleteSave()
         {
+            ReleaseForNewGame();
             PlayerPrefs.DeleteKey(saveKey);
             PlayerPrefs.Save();
             state = null;
+        }
+
+        /// <summary>
+        /// The one door past the save guard: an explicit NEW GAME. A newer
+        /// build's career is copied into the backups first, and a failed
+        /// load's raw string was already kept by the load - so nothing this
+        /// build could not vouch for is ever lost to the new career.
+        /// </summary>
+        static void ReleaseForNewGame()
+        {
+            if (Guard && PlayerPrefs.HasKey(saveKey))
+            {
+                string raw = PlayerPrefs.GetString(saveKey);
+                int v = PeekVersion(raw);
+                if (readOnly || v > CodeVersion) KeepCopy(raw, v, BakTag, BakIndex, BackupKeep);
+                else if (holdWrites && FailedCopyKey == null) KeepCopy(raw, v, FailTag, FailIndex, FailedKeep);
+            }
+            ResetGuard();
         }
 
         /// <summary>Fresh anonymous state — the home screen sees the empty
@@ -981,9 +1441,12 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>Commit the wizard: named character, chosen job, rolled
-        /// starting savings (applyStartingConditions bands).</summary>
+        /// starting savings (applyStartingConditions bands). The explicit
+        /// NEW GAME: the only thing that writes over a career the save guard
+        /// was holding (see <see cref="ReleaseForNewGame"/>).</summary>
         public static void StartNewGame(string name, int age, int jobIdx)
         {
+            ReleaseForNewGame();
             state = LifeRules.SeedNewGame(name, age, jobIdx);
             Save();
         }
