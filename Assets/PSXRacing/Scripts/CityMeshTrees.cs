@@ -123,6 +123,7 @@ namespace PSXRacing.City
         public const int MaxTests = 160;
         public static int TestsMax, CappedTrees;
         int tests;
+        bool awayKnown;
         double frameSyncMs;
         public static int[] PlacedByRole = new int[16];
 
@@ -624,6 +625,7 @@ namespace PSXRacing.City
         {
             plant = default;
             Gather(map, tt, foot, 16f);
+            awayKnown = false;
             bool first = true;
             foreach (var r in RoleChain(role, t.street))
             {
@@ -886,6 +888,9 @@ namespace PSXRacing.City
             }
             if (hit == null) return false;
             // the way away from it: the nearest of 16 rays out from the band's middle
+            // (once a place: 16 rays into a tile-wide mesh collider were most of a dear tree's cost)
+            if (awayKnown && DiagLines.Count >= 40) return true;
+            awayKnown = true;
             float bd = 99f; Vector3 bdir = Vector3.zero; float hy = (lo + hi) * 0.5f;
             for (int k = 0; k < 16; k++)
             {
