@@ -245,7 +245,6 @@ namespace PSXRacing.City
 
         void LateUpdate()
         {
-            frameFitMs = 0; frameFills = 0; frameSyncMs = 0;
             Work(SliceMs > 0f ? SliceMs : float.MaxValue);
             Flush(FillsPerFrame);
             if (frameFitMs > FitMsMaxFrame) FitMsMaxFrame = frameFitMs;
@@ -271,6 +270,8 @@ namespace PSXRacing.City
                      .Append(car.z.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(MeshForest.MeshTreesOn ? 1 : 0).Append(',').Append(frameSyncMs.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
                 if (Time.frameCount % 300 == 0) WriteTrace();
             }
+            // (reset after the record: an unsliced fit runs in the city's own update, before this)
+            frameFitMs = 0; frameFills = 0; frameSyncMs = 0;
         }
 
         /// <summary>A tile's tree frame stood up: its fit queued (or, unsliced,
