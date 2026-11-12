@@ -35,13 +35,20 @@ namespace PSXRacing.EditorTools
 
         static void RunCrashR0aTests()
         {
-            Guard(nameof(TestCrashOriginFamilies), TestCrashOriginFamilies);
-            Guard(nameof(TestCrashTable), TestCrashTable);
-            Guard(nameof(TestCrashLocate), TestCrashLocate);
-            Guard(nameof(TestCrashSweep), TestCrashSweep);
-            Guard(nameof(TestCrashApplyBack), TestCrashApplyBack);
-            Guard(nameof(TestCrashLive), TestCrashLive);
-            Guard(nameof(TestCrashSwitchOff), TestCrashSwitchOff);
+            // The rest of the suite sees the same UnityEngine.Random sequence
+            // it saw before these were added.
+            var randomWas = Random.state;
+            try
+            {
+                Guard(nameof(TestCrashOriginFamilies), TestCrashOriginFamilies);
+                Guard(nameof(TestCrashTable), TestCrashTable);
+                Guard(nameof(TestCrashLocate), TestCrashLocate);
+                Guard(nameof(TestCrashSweep), TestCrashSweep);
+                Guard(nameof(TestCrashApplyBack), TestCrashApplyBack);
+                Guard(nameof(TestCrashLive), TestCrashLive);
+                Guard(nameof(TestCrashSwitchOff), TestCrashSwitchOff);
+            }
+            finally { Random.state = randomWas; }
         }
 
         static CrashStopGap.Draws CrashDraws(float bumper = 0.5f, float radiator = 0.5f, float align = 0.5f,

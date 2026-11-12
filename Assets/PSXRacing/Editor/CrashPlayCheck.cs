@@ -353,8 +353,11 @@ namespace PSXRacing.EditorTools
             var forced = (System.Func<CrashStopGap.Draws>)(() => new CrashStopGap.Draws
                 { paint = 0.5f, bumper = 0.1f, body = 0.5f, radiator = 0.1f, radAmt = 0.5f, align = 0.1f });
 
-            // W1: nose into a wall that covers only the LEFT half of the front.
+            // W1: nose into a wall that covers only the LEFT third of the
+            // front (its edge 0.3 of the half-width left of the centreline),
+            // with the switch off and then on - the same hit read twice.
             float dsOn = 0f, whOn = 0f, dsOff = 0f, whOff = 0f;
+            float edge = 0.3f * hw;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool on = pass == 1;
@@ -365,16 +368,17 @@ namespace PSXRacing.EditorTools
                 if (on) { CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced; }
                 yield return Place(12.5f);
                 Vector3 c0 = car.transform.position;
-                var w = Wall(new Vector3(XLane - 5f, surfaceY + 1.2f, c0.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "LeftHalfWall");
+                var w = Wall(new Vector3(XLane - edge - 5f, surfaceY + 1.2f, c0.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "LeftThirdWall");
                 yield return Hit("front", () => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
                 if (on) { dsOn = resp.DamageScore; whOn = resp.WorstHit; } else { dsOff = resp.DamageScore; whOff = resp.WorstHit; }
                 if (on)
                 {
                     var t = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
                     CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneFront && resp.WorstHitSide == -1,
-                        who + ": W a nose into a wall covering the LEFT half of the front is FRONT LEFT",
+                        who + ": W a nose into a wall covering the LEFT third of the front is FRONT LEFT",
                         CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) +
-                        " at " + resp.WorstHit.ToString("0.0") + " m/s");
+                        " at " + resp.WorstHit.ToString("0.0") + " m/s, located at x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") +
+                        " z " + resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " m");
                     CrashPlayCheck.Check(resp.Ledger != null && resp.Ledger.Rolls > 0 && t.Has(CrashStopGap.Cls.Bumper) &&
                                          (resp.WorstHit < CrashStopGap.HeavyMps || (t.alignSide == -1 && car.hitSteerPull < 0f)),
                         who + ": W rolled at the hit (dice forced): " + t, "pull now " + car.hitSteerPull.ToString("0.000") + " deg");
@@ -393,6 +397,21 @@ namespace PSXRacing.EditorTools
                 "WorstHit " + whOff.ToString("0.00") + " / " + whOn.ToString("0.00") + " m/s, DamageScore " +
                 dsOff.ToString("0.0") + " / " + dsOn.ToString("0.0"));
 
+            // W1b: the mirror - a wall covering only the RIGHT third.
+            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced;
+            yield return Place(12.5f);
+            Vector3 cR = car.transform.position;
+            var wr = Wall(new Vector3(XLane + edge + 5f, surfaceY + 1.2f, cR.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "RightThirdWall");
+            yield return Hit("front", () => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
+            var tr = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
+            CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneFront && resp.WorstHitSide == 1 &&
+                                 (resp.WorstHit < CrashStopGap.HeavyMps || (tr.alignSide == 1 && car.hitSteerPull > 0f)),
+                who + ": W a nose into a wall covering the RIGHT third of the front is FRONT RIGHT, and pulls right",
+                CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
+                resp.WorstHit.ToString("0.0") + " m/s, located at x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") +
+                " m; " + tr + "; pull " + car.hitSteerPull.ToString("+0.000;-0.000") + " deg");
+            Object.Destroy(wr);
+
             // W2: a right flank into a 200 m barrier whose bounds sit AHEAD of the car.
             car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced;
             yield return Place(0f);
@@ -404,7 +423,9 @@ namespace PSXRacing.EditorTools
                 who + ": W a right flank into a 200 m barrier is SIDE RIGHT, though the barrier's bounds are centred " +
                 bc.z.ToString("0") + " m ahead",
                 CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
-                resp.WorstHit.ToString("0.0") + " m/s; " + (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-"));
+                resp.WorstHit.ToString("0.0") + " m/s, located at x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") + " z " +
+                resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " m; " + (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-") +
+                "; pull " + car.hitSteerPull.ToString("+0.000;-0.000") + " deg");
             Object.Destroy(barrier);
 
             // W3: the tail into a wall.
@@ -416,7 +437,8 @@ namespace PSXRacing.EditorTools
             CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneRear,
                 who + ": W a tail into a wall is REAR",
                 CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
-                resp.WorstHit.ToString("0.0") + " m/s; " + (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-"));
+                resp.WorstHit.ToString("0.0") + " m/s, located at z " + resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " m; " +
+                (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-"));
             Object.Destroy(back);
             car.hitSteerPull = 0f;
             resp.ResetDamage();

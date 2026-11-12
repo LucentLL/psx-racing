@@ -416,7 +416,7 @@ namespace PSXRacing
         {
             DamageScore = 0f; HardHits = 0; WorstHit = 0f;
             BottomHits = 0; WorstBottom = 0f; bottomWear = 0f;
-            WorstHitZone = CrashStopGap.ZoneNone; WorstHitSide = 0; WorstBottomWheel = -1;
+            WorstHitZone = CrashStopGap.ZoneNone; WorstHitSide = 0; WorstBottomWheel = -1; WorstHitLocal = Vector3.zero;
             rubAtReset = car != null ? car.BumpRubMeters : 0f;
         }
 
@@ -436,6 +436,10 @@ namespace PSXRacing
         /// <summary>The hardest bump-stop strike's wheel (0-3: FL FR RL RR),
         /// -1 none yet.</summary>
         public int WorstBottomWheel { get; private set; } = -1;
+        /// <summary>Where the hardest hit landed, relative to the body box's
+        /// centre in its own frame (m; x right, z forward) - what the zone and
+        /// side were read from.</summary>
+        public Vector3 WorstHitLocal { get; private set; }
         /// <summary>The career car's crash ledger (CrashStopGap.Arm), null on
         /// every other car: the stop-gap table is rolled here at the hit.</summary>
         public CrashStopGap.Ledger Ledger { get; set; }
@@ -466,6 +470,7 @@ namespace PSXRacing
                 plain += p;
             }
             Vector3 local = w > 1e-6f ? weighted / w : (n > 0 ? plain / n : Vector3.zero);
+            WorstHitLocal = local;
             CrashStopGap.Classify(local, half, out zone, out side);
         }
     }

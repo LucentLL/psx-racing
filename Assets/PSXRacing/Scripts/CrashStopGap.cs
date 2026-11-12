@@ -120,7 +120,7 @@ namespace PSXRacing
         /// fault was 0.25 of lock - about 5 degrees of road wheel at 100 km/h,
         /// a hundred times this.
         /// </summary>
-        public static float PullDegMinor = 0.035f, PullDegSevere = 0.12f;
+        public static float PullDegMinor = 0.042f, PullDegSevere = 0.14f;
 
         /// <summary>Degrees for an alignment fault of this severity (1 minor,
         /// 2 severe; anything under 1.5 is minor).</summary>
