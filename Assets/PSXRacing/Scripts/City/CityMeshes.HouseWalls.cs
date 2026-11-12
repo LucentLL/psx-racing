@@ -362,6 +362,7 @@ namespace PSXRacing.City
             var st = buckets[(int)Slot.RoofFlat];
             Vector2 s0 = centre + u * (along - 0.75f) + n * hv, s1 = centre + u * (along + 0.75f) + n * hv;
             Vector2 o0 = s0 + n * 1.0f, o1 = s1 + n * 1.0f;
+            if (HousePartOnRoad(s0, s1, o1, o0)) return;   // (cityinteg) never out over a street (CityMeshes.HouseParts.cs)
             st.Up(L(s0, top, tm), L(s1, top, tm), L(o1, top, tm), L(o0, top, tm),
                   new Vector2(0f, 0f), new Vector2(0.19f, 0f), new Vector2(0.19f, 0.13f), new Vector2(0f, 0.13f));
             float hgt = (top - y0) / RoofFlatM;
