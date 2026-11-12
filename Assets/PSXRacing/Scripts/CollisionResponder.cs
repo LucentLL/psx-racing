@@ -486,7 +486,6 @@ namespace PSXRacing
         public CrashStopGap.Ledger Ledger { get; set; }
 
         static Vector3[] patchPoints = new Vector3[8];
-        static float[] patchSeparations = new float[8];
 
         /// <summary>
         /// Where on the car a contact landed: the contact points taken into the
@@ -502,11 +501,7 @@ namespace PSXRacing
             Vector3 centre = box != null ? box.center : Vector3.zero;
             Vector3 half = box != null ? box.size * 0.5f : new Vector3(0.88f, 0.65f, 2.15f);
             int n = c.contactCount;
-            if (patchPoints.Length < n)
-            {
-                patchPoints = new Vector3[n];
-                patchSeparations = new float[n];
-            }
+            if (patchPoints.Length < n) patchPoints = new Vector3[n];
             Vector3 weighted = Vector3.zero;
             float w = 0f;
             for (int i = 0; i < n; i++)
@@ -514,13 +509,12 @@ namespace PSXRacing
                 var cp = c.GetContact(i);
                 Vector3 p = frame.InverseTransformPoint(cp.point) - centre;
                 patchPoints[i] = p;
-                patchSeparations[i] = cp.separation;
                 float imp = cp.impulse.magnitude;
                 weighted += p * imp;
                 w += imp;
             }
             WorstHitWeighted = w > 1e-6f ? weighted / w : Vector3.zero;
-            Vector3 local = CrashStopGap.PatchCentre(patchPoints, patchSeparations, n);
+            Vector3 local = CrashStopGap.PatchCentre(patchPoints, n);
             CrashStopGap.Classify(local, half, out zone, out side);
             return local;
         }

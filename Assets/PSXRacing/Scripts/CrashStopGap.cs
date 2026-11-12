@@ -98,15 +98,12 @@ namespace PSXRacing
             side = Mathf.Abs(nx) < CentreBand ? 0 : (nx < 0f ? -1 : 1);
         }
 
-        /// <summary>A contact point within this of the surface (m of
-        /// separation) is touching; further out it is a speculative point that
-        /// never closed.</summary>
-        public const float TouchSlop = 0.02f;
-
         /// <summary>
         /// Where a contact patch is, in the car's own frame: the centre of the
-        /// box around the points that TOUCH (separation within
-        /// <see cref="TouchSlop"/>), or around all of them when none does.
+        /// box around the contact points of the pair (all of them - the
+        /// player car's continuous collision keeps them within the 2 cm
+        /// contact distance, and dropping the ones a little further out would
+        /// only bias a nearly square hit toward its leading corner).
         ///
         /// NOT WEIGHTED BY IMPULSE. A car stopped by a wall across part of its
         /// nose pivots about the wall's inner edge, and the solver piles the
@@ -116,23 +113,17 @@ namespace PSXRacing
         /// the centreline. The patch's extent does not care where the impulse
         /// went: a full-width wall is centred, a wall over the left 60% is left.
         /// </summary>
-        public static Vector3 PatchCentre(Vector3[] points, float[] separations, int n)
+        public static Vector3 PatchCentre(Vector3[] points, int n)
         {
             if (points == null || n <= 0) return Vector3.zero;
             n = Mathf.Min(n, points.Length);
-            var lo = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
-            var hi = -lo;
-            bool any = false;
-            for (int pass = 0; pass < 2 && !any; pass++)
-                for (int i = 0; i < n; i++)
-                {
-                    if (pass == 0 && separations != null && i < separations.Length &&
-                        separations[i] > TouchSlop) continue;
-                    lo = Vector3.Min(lo, points[i]);
-                    hi = Vector3.Max(hi, points[i]);
-                    any = true;
-                }
-            return any ? (lo + hi) * 0.5f : Vector3.zero;
+            Vector3 lo = points[0], hi = points[0];
+            for (int i = 1; i < n; i++)
+            {
+                lo = Vector3.Min(lo, points[i]);
+                hi = Vector3.Max(hi, points[i]);
+            }
+            return (lo + hi) * 0.5f;
         }
 
         // ---- bumpers ------------------------------------------------------

@@ -301,12 +301,11 @@ namespace PSXRacing.EditorTools
             {
                 var pts = new[] { new Vector3(fromX, -0.3f, nose), new Vector3(fromX, 0.3f, nose),
                                   new Vector3(toX, -0.3f, nose), new Vector3(toX, 0.3f, nose) };
-                var sep = new[] { 0f, 0f, 0f, 0f };
                 float[] imp = { 0.05f, 0.05f, 1f, 1f };   // the inner edge carries it
                 Vector3 wsum = Vector3.zero; float wt = 0f;
                 for (int i = 0; i < 4; i++) { wsum += pts[i] * imp[i]; wt += imp[i]; }
                 weightedX = (wsum / wt).x;
-                return Z(CrashStopGap.PatchCentre(pts, sep, 4));
+                return Z(CrashStopGap.PatchCentre(pts, 4));
             }
             string w35 = Wall(-hx, -0.3f * hx, out float i35);
             string w60 = Wall(-hx, 0.2f * hx, out float i60);
@@ -317,10 +316,9 @@ namespace PSXRacing.EditorTools
                   "point would sit on the wall's inner edge (x " + i60.ToString("+0.00;-0.00") + " at 60%, " + i75.ToString("+0.00;-0.00") +
                   " at 75%: the WRONG side)", w35 + " " + w60 + " " + w75);
             Check(wFull == "front/centre", "a wall across the whole nose is centred: no side", wFull);
-            var specPts = new[] { new Vector3(-hx, 0f, nose), new Vector3(-0.3f * hx, 0f, nose), new Vector3(hx, 0f, nose) };
-            Check(Z(CrashStopGap.PatchCentre(specPts, new[] { 0f, -0.01f, 0.08f }, 3)) == "front/left" &&
-                  Z(CrashStopGap.PatchCentre(new[] { new Vector3(0.5f, 0f, nose) }, new[] { 0.5f }, 1)) == "front/right",
-                  "a speculative point that never closed (separation past " + CrashStopGap.TouchSlop + " m) is left out; with only those, they are used");
+            var pole = new[] { new Vector3(0.45f, -0.2f, nose), new Vector3(0.52f, 0.2f, nose) };
+            Check(Z(CrashStopGap.PatchCentre(pole, 2)) == "front/right" && CrashStopGap.PatchCentre(null, 0) == Vector3.zero,
+                  "a narrow patch (a pole off the right of the nose) is where it is: FRONT RIGHT");
         }
 
         // ---------------------------------------------------------------
@@ -426,7 +424,7 @@ namespace PSXRacing.EditorTools
                 var origins = CarCatalog.All.Where(c => c != null).Select(c => c.origin).Distinct().OrderBy(o => o).ToList();
                 int[] walls = { 0, 1, 2 }, all4 = { 0, 1, 2, 3 }, bumps = { 3 };
                 int gateFails = 0, rowsOver = 0;
-                float rowsMin = 1f, rowsMax = 0f;
+                float rowsMin = 1f, rowsMax = 0f, rRowsMin = 1f, rRowsMax = 0f;
                 foreach (var org in origins)
                 {
                     var specs = CarCatalog.All.Where(c => c != null && c.origin == org).ToList();
@@ -443,6 +441,7 @@ namespace PSXRacing.EditorTools
                     if (!ok) gateFails++;
                     if (rowShare > 50f) rowsOver++;
                     rowsMin = Mathf.Min(rowsMin, rowShare / 100f); rowsMax = Mathf.Max(rowsMax, rowShare / 100f);
+                    rRowsMin = Mathf.Min(rRowsMin, rRows / 100f); rRowsMax = Mathf.Max(rRowsMax, rRows / 100f);
                     Check(ok, org + " (" + FaultCatalog.Family(org) + ", " + specs.Count + " cars): " + seen +
                               " of 6 classes, bumpers " + w.bumperOutcomes + "/" + w.faultOutcomes + " = " + outShare.ToString("0") +
                               "% of the REPAIR OUTCOMES (random-seed run " + rOut.ToString("0") + "%), and the table writes only bumper and alignment rows",
@@ -465,8 +464,11 @@ namespace PSXRacing.EditorTools
                 Check(gateFails == 0,
                       "THE GATE, walls only, read as REPAIR OUTCOMES: every origin >= 4 of 6 classes, bumpers <= 50%, table rows only " +
                       "(banked over a driven leg with no electrical rows: the next test)", gateFails + " origin(s) failed");
-                Line("  DECISION (coordinator / owner): read as FAULT ROWS the gate FAILS - bumpers " + (rowsMin * 100f).ToString("0") + "-" +
-                     (rowsMax * 100f).ToString("0") + "% of rows in " + rowsOver + " of " + origins.Count + " origins. The table's 70% bumper " +
+                string Range(float lo, float hi) => Mathf.RoundToInt(lo * 100f) == Mathf.RoundToInt(hi * 100f)
+                    ? (hi * 100f).ToString("0") + "%" : (lo * 100f).ToString("0") + "-" + (hi * 100f).ToString("0") + "%";
+                Line("  DECISION (coordinator / owner): read as FAULT ROWS the gate FAILS - bumpers are " + Range(rowsMin, rowsMax) +
+                     " of rows on the stratified sweep (" + Range(rRowsMin, rRowsMax) + " on the random-seed runs), over 50% in " +
+                     rowsOver + " of " + origins.Count + " origins. The table's 70% bumper " +
                      "roll on every front/rear hit from 3 m/s, against alignment rows only from 10 m/s (6 on a flank) and no row for a " +
                      "dent or a radiator, cannot bring wall contact under 50% of rows. Which denominator the design's \"bumper rows at " +
                      "most 50% of the faults\" means is the decision.");
@@ -507,8 +509,11 @@ namespace PSXRacing.EditorTools
         // ---------------------------------------------------------------
         /// <summary>
         /// The sweep's outcomes BANKED through LifeRules.ApplyRaceResult over a
-        /// driven leg (5 km), on a car whose lanes start sound (70), every
-        /// origin: what a crash leg adds must be exactly the rows rolled at
+        /// driven leg (5 km), every origin, on a car whose body and paint start
+        /// sound (70) and whose engine and tyres start new (a 5 km leg at
+        /// 40,000 miles takes about 44 off the tyre lane - TireWearPerM - and
+        /// from 70 that rolls the tyre lane's own wear, which is not the
+        /// crash's): what a crash leg adds must be exactly the rows rolled at
         /// the hit - in particular, the body lane's wear roll must not fire off
         /// the crash's own dent (a European car's body pool is half electrical).
         /// </summary>
@@ -538,7 +543,8 @@ namespace PSXRacing.EditorTools
                         var o = CrashCase(specs, groups, i, null, out var spec, out float mps, out int group);
                         car.specId = spec.id;
                         car.faults.Clear();
-                        car.engine = car.tires = car.carHP = car.paint = 70f;
+                        car.engine = car.tires = 100f;
+                        car.carHP = car.paint = 70f;
                         CoolingModel.Seed(car, 70f);
                         car.odoMiles = 40000f;
                         car.fuel = 100f;
