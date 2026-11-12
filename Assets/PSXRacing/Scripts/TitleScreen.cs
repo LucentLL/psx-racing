@@ -599,11 +599,13 @@ namespace PSXRacing
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
             if (LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Failed)
             {
-                // Two lines, bottom edge just over YES (as wide as SaveNote).
+                // Two lines as wide as SaveNote, bottom edge 14 over YES. A
+                // button pivots on its anchor, so YES spans 120 to 174 (the
+                // first cut sat its second line under YES, 11-12 preview).
                 float w = Mathf.Min(SaveNoteW, 2f * MenuKit.HalfWidth - 96f);
                 var t = MenuKit.Para(root, LifeSimManager.FailedEraseLine, 18, new Vector2(0f, 0f), new Vector2(48f, 0f),
                     out float h, TextAnchor.UpperLeft, MenuKit.Bad, w);
-                t.rectTransform.anchoredPosition = new Vector2(48f, 160f + h);
+                t.rectTransform.anchoredPosition = new Vector2(48f, 120f + 54f + 14f + h);
             }
             else
                 MenuKit.Label(root, "ERASE THIS CAREER? Money, cars and rep are gone.", 18,

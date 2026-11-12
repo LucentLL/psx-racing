@@ -50,6 +50,7 @@ namespace PSXRacing.EditorTools
             bool guardWas = LifeSimManager.Guard;
             LifeSimManager.Guard = true;
             int clipsBefore = LifeHomePreview.clipCount;
+            underButton = 0;
             try
             {
                 int cur = LifeSimManager.CodeVersion;
@@ -101,9 +102,10 @@ namespace PSXRacing.EditorTools
             }
             int found = LifeHomePreview.clipCount - clipsBefore;
             report.AppendLine("CLIP TOTAL " + found);
+            report.AppendLine("UNDER A BUTTON TOTAL " + underButton);
             foreach (var c in clips) report.AppendLine(c);
             File.WriteAllText(Path.Combine(outDir, "saveguard_report.txt"), report.ToString());
-            Debug.Log("[SaveGuardPreview] CLIP TOTAL " + found + "\n" + report);
+            Debug.Log("[SaveGuardPreview] CLIP TOTAL " + found + ", UNDER A BUTTON TOTAL " + underButton + "\n" + report);
         }
 
         /// <summary>As the v25 build the next round ships, with a stand-in v25
@@ -134,6 +136,17 @@ namespace PSXRacing.EditorTools
                 if (s.saveVersion < v25) s.saveVersion = v25;
             };
             if (LifeSimManager.UseLastCopy()) Debug.LogError("[SaveGuardPreview] the .last copy was not refused");
+        }
+
+        /// <summary>Texts found under a button's face this capture (Shoot).</summary>
+        static int underButton;
+
+        static Rect WorldRect(RectTransform rt)
+        {
+            var c = new Vector3[4];
+            rt.GetWorldCorners(c);
+            return Rect.MinMaxRect(Mathf.Min(c[0].x, c[2].x), Mathf.Min(c[0].y, c[2].y),
+                                   Mathf.Max(c[0].x, c[2].x), Mathf.Max(c[0].y, c[2].y));
         }
 
         static string Career(string name, int day)
@@ -224,6 +237,26 @@ namespace PSXRacing.EditorTools
                 labels.Add(t.text + (t.preferredWidth > bw - 8f ? " [WIDER THAN ITS BUTTON: " + t.preferredWidth.ToString("0") + " > " + bw.ToString("0") + "]" : ""));
             }
             report.AppendLine("  " + size.name + " buttons: " + string.Join(" | ", labels));
+
+            // TEXT UNDER A BUTTON'S FACE. The CLIP report compares text with
+            // text, and the failed confirm's second line hid behind YES's
+            // image while it read 0 (11-12): every text that is not a
+            // button's own caption is checked against every button's rect.
+            var buttons = Object.FindObjectsByType<Button>();
+            foreach (var t in Object.FindObjectsByType<Text>())
+            {
+                if (string.IsNullOrEmpty(t.text) || t.GetComponentInParent<Button>() != null) continue;
+                var tr = WorldRect(t.rectTransform);
+                foreach (var b in buttons)
+                {
+                    if (!tr.Overlaps(WorldRect((RectTransform)b.transform))) continue;
+                    underButton++;
+                    var cap = b.GetComponentInChildren<Text>();
+                    report.AppendLine("  " + size.name + " TEXT UNDER A BUTTON: \"" +
+                                      (t.text.Length > 40 ? t.text.Substring(0, 40) + "..." : t.text) + "\" under " +
+                                      (cap != null ? cap.text : b.name));
+                }
+            }
 
             cam.Render();
             var prev = RenderTexture.active;
