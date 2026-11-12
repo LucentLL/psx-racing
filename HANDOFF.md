@@ -1,3 +1,63 @@
+# HANDOFF - FAULTS R0a SAVE SAFETY 11-12 (branch faults-r0a-save off mountain-nm 19d6d4a3; agent "r0a-save"; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-faultsave`. Sandbox PSXPerf (lock "r0a-save", released). Design: `Fault_System_Design_2026-11-11.md` §2 "Save safety" + "Versions", §9 (LifeSimManager row), §10 R0a. The crash half of R0a is on faults-r0a-crash (another agent). No version step added: v24 stays current.
+
+## Causes (before)
+- `LifeSimManager.Load` (was :93-109): any throw in FromJson or Migrate was caught, returned null, and `State` became `NewGame()`. The next `Save()` wrote that blank career over the stored one.
+- No version guard. An older exe loads a newer save (Migrate's `< N` steps do nothing), drops the fields it does not know, and its next `Save()` writes the career back still marked with the newer version. The newer build then never re-seeds those fields.
+- Every PC build shares one registry key (HKCU, `psxRacingLifeSave`), and several builds are on disk.
+
+## What changed (switch `PSX_SAVE_GUARD=0` = the old Load/Save; the writer stamp stays)
+- `LifeState.writerVersion` (added with no version bump). Every `Save()` stamps it with this build's version, also with the guard off.
+- `LifeSimManager` (Load is now `LoadGuarded`):
+  - BACKUP. Before the first migration step, the raw string is copied to `<key>.bak.v<old>.<yyyyMMdd-HHmmss>.<n>`. The last 3 are kept (index key `<key>.bak`). A string identical to the newest copy is not copied again.
+  - NEWER SAVE (saveVersion above this build's). Loaded READ-ONLY and not migrated. `Save()` writes nothing. The title shows a note and CONTINUE (READ-ONLY); the home screen toasts "READ-ONLY: A NEWER BUILD'S SAVE" once.
+  - REWRITTEN (v25+ and writerVersion below the save's version, i.e. written back by an exe from before R0a). The career is backed up and every step from v25 up runs again (saveVersion is clamped to `LastUnstampedVersion` = 24). The title offers THIS BUILD'S COPY (`<key>.last`, game date and the real date it was saved) or OLDER BUILD'S COPY. If no title shows (tools, batch), the older build's copy is kept, re-seeded.
+  - `.last`. `LifeRules.Rollover` calls `NoteRollover` (live career only), and the next `Save()` also writes `<key>.last` and `<key>.last.when`.
+  - FAILED (parse or migration throws). The raw string is kept as `<key>.failed.v<old>.<date>.<n>` (up to 5). The main key is not touched, and every `Save()` is refused until an explicit NEW GAME (`StartNewGame` / `DeleteSave`). The title says so.
+  - NEW GAME over a newer or unloadable career copies it into the backups first.
+  - Copy writes are wrapped in try/catch (WebGL caps all PlayerPrefs at 1 MB), so a copy that fails never costs the save.
+- `TitleScreen.BuildButtons` + `SaveNote`: the note sits over the buttons, at most two lines at all three aspects, up to 800 units wide.
+- `LifeRules.Rollover`: one line at the end.
+- Tests: `Editor/LifeSimSelfTest.SaveSafety.cs` adds TestSaveDowngrade, TestSaveVersionLadder and `RunSaveSafety`, plus 2 Guard lines in `LifeSimSelfTest.RunAll`. `Editor/SaveGuardPreview.cs` renders the title notes at three aspects with the clip report.
+
+## Gates
+- Typecheck OK.
+- Whole LifeSimSelfTest in PSXPerf. Base (19d6d4a3): 62 FAIL. After (b0320799 code): 62 FAIL, the same set (0 new, 0 gone). The failures are city decks, lamps, editions and texture budgets; none are in save code.
+- TestSaveDowngrade: every check ok. It covers these cases:
+  - .bak is byte-identical and exists before the first step (hook), with a 3-copy ring.
+  - A v26 save is READ-ONLY and the stored string is byte-identical after a day of play, a rollover and its saves. No .last is written.
+  - v25 with v25 fields and the stamp stripped is detected, and .last is offered with its dates. Either answer sticks.
+  - Unparseable save, and a step that throws: the main key stays byte-identical, no career is started, the raw copy is kept, and only NEW GAME writes the key.
+  - Guard off gives the old behaviour.
+- Callers: a tripwire over 615 .cs files. Nothing outside LifeSimManager spells out the key or wipes every pref, and `SaveKey` is used only by the two scratch-key test tools. `LifeSimManager.Save()` is called 206 times in 37 files, and every call goes through the guard inside `Save()`.
+- TestSaveVersionLadder: steps are exactly v2..v24, once each, in order, and each stamps its own number once. Every version from 1 to 23 migrates to v24, and a second run changes nothing.
+- Save size: a new career is 6.4 KB; a 10-car, 60-day career is 24.4 KB.
+- Save time (editor registry, median of interleaved batches):
+  - Save() with the guard off (the old save) 0.43 ms, on 0.43 ms.
+  - The first save after a rollover (+ .last) 0.53 ms; with .last and 3 backups in the store 0.42 ms.
+  - Load 0.57 ms; a load with a migration (+ backup) 2.25 ms.
+- Title preview: CLIP TOTAL 0 across 4 cases x 3 aspects (scratchpad `r0a-save\title_saveguard_sheet.png`).
+
+## Not done / not verified
+- No player build and no play-mode title: the preview builds the title menu bare, over a flat sky colour. On a phone the Rewritten note's date can break across its two lines.
+- Android: the copies live in PlayerPrefs, and SharedPreferences rewrites the whole XML on each save. With .last and 3 backups that is up to 5x the career per save (about 125 KB for the 10-car career). Not measured on a phone.
+- The owner's real save size was not read.
+
+## For the coordinator at merge
+- Nothing for the city: no CityTileCache format bump, no kit slot, no scene pass. The new .cs files have committed .meta files with fixed GUIDs.
+- Shared-file edits:
+  - LifeRules.cs: +4 lines at the end of Rollover.
+  - LifeSimSelfTest.cs: +2 lines in RunAll, after TestPartsShelfSave.
+  - LifeState.cs: one field after saveVersion.
+  - TitleScreen.cs: BuildButtons and SaveNote.
+  - LifeSimManager.cs: Save, Load, DeleteSave, StartNewGame and TakeEditionNote, plus the new section.
+- R0b (the first bump, to v25):
+  - Keep `LastUnstampedVersion` at 24 forever.
+  - Write the step as `if (s.saveVersion < 25) MigrateToX(s);` and stamp `s.saveVersion = 25;` (TestSaveVersionLadder checks this).
+  - The step must be safe to run again on a save an old exe stripped.
+- When the first v25 build ships, recycle every PC build from before R0a (design §2 "Old builds"). Only a build with this guard refuses to write a newer save back.
+
 # HANDOFF - CITY INTEGRATION 11-11 ("cityinteg", branch integ-city-1111; NOT pushed, NOT merged by me)
 
 Base mountain-nm 93903bd7 + fixes-1111 (beacons r1-r3; car/cockpit files kept at mountain-nm, proven: no diff outside the beacon files) + charlotte-curbs-drains 128f9e53 + charlotte-road-seams 9f0e0d08 + charlotte-buildings-1111 (merged three times: 1f001b35, 312abb93, e98adc39) + the coordinator's 9c7d9750 (roof _HouseTint after the material exists). Sandbox PSXPerf (lock "cityinteg", removed). Sheet: scratchpad `cityinteg\city_integ_sheet.png` (base | merged, 14 poses).
