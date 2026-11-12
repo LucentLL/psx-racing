@@ -10,9 +10,13 @@ namespace PSXRacing.EditorTools
     /// <summary>
     /// R0a CRASH STOP-GAP (Fault_System_Design_2026-11-11 §9-10): the origin
     /// families every roller reads, the stop-gap table itself, where a hit is
-    /// located, the 500-crash sweep per origin (the round's gate), the
-    /// apply-back writing what was rolled at the hit and nothing else, the
-    /// live pull and radiator, and PSX_FAULT_CRASH=0 putting today back.
+    /// located, the 500-crash sweep per origin (the round's gate, walls only,
+    /// with the bump-stop strikes swept on their own), every outcome banked
+    /// through the real apply-back over a driven leg, the apply-back writing
+    /// what was rolled at the hit and nothing else, ONE alignment (the live
+    /// pull and the next drive's pull follow one rule), the live pull and
+    /// radiator under the responder's own record rule, wear that never cracks
+    /// a bumper, and each switch at 0 putting its own half of today back.
     /// RunCrash runs these alone (seconds) and writes
     /// PSXRacing_selftest_crash.txt and PSXRacing_crash_sweep.csv.
     /// </summary>
@@ -44,8 +48,11 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestCrashTable), TestCrashTable);
                 Guard(nameof(TestCrashLocate), TestCrashLocate);
                 Guard(nameof(TestCrashSweep), TestCrashSweep);
+                Guard(nameof(TestCrashBankedLegs), TestCrashBankedLegs);
                 Guard(nameof(TestCrashApplyBack), TestCrashApplyBack);
+                Guard(nameof(TestCrashOneAlignment), TestCrashOneAlignment);
                 Guard(nameof(TestCrashLive), TestCrashLive);
+                Guard(nameof(TestCrashWearNoBumper), TestCrashWearNoBumper);
                 Guard(nameof(TestCrashSwitchOff), TestCrashSwitchOff);
             }
             finally { Random.state = randomWas; }
@@ -58,6 +65,18 @@ namespace PSXRacing.EditorTools
         static CarSpec CrashSpec(string origin, int minYear = 1973) =>
             CarCatalog.All.FirstOrDefault(c => c != null && c.origin == origin && !c.IsRaceCar && !c.IsRallyCar &&
                                                c.modelYear >= minYear);
+
+        /// <summary>A seed per origin that two origins cannot share (FNV-1a of
+        /// the name; the sum of its letters gave ger and ita the same one).</summary>
+        static int StableSeed(string s)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                foreach (char ch in s ?? "") { h ^= ch; h *= 16777619u; }
+                return (int)(h & 0x7fffffffu);
+            }
+        }
 
         // ---------------------------------------------------------------
         static void TestCrashOriginFamilies()
@@ -181,6 +200,12 @@ namespace PSXRacing.EditorTools
             Check(R(Re, 1, 16f, P, CrashDraws(align: 0.1f)).alignSeverity == 2 &&
                   R(Re, 1, 16f, P, CrashDraws(align: 0.1f)).alignSide == 1,
                   "rear 15+: severe, on the right when the right was hit");
+            // A CENTRED hit has no struck side: no alignment, whatever the dice.
+            var centred = R(Fr, 0, 16f, P, CrashDraws(align: 0.01f));
+            Check(!centred.Has(CrashStopGap.Cls.Alignment) && !R(Re, 0, 12f, P, CrashDraws(align: 0.01f)).Has(CrashStopGap.Cls.Alignment) &&
+                  centred.Has(CrashStopGap.Cls.Body) && centred.Has(CrashStopGap.Cls.Radiator),
+                  "a heavy hit centred on the nose or tail (side 0) rolls everything else but NO alignment - no struck side, no pull",
+                  centred);
             Check(R(Si, -1, 1.4f, P, d).classes == CrashStopGap.Cls.None && R(Si, -1, 2f, P, d).classes == CrashStopGap.Cls.Scuff,
                   "side under 1.5: nothing; 1.5-3: a scuff");
             var dent = R(Si, -1, 4f, P, d);
@@ -214,10 +239,27 @@ namespace PSXRacing.EditorTools
             }
             Check(broken == 0, "a harder hit in the same zone with the same dice never does less (3000 pairs)", firstBroken);
 
+            // THE LEG'S OUTCOME IS THE WORST OF WHAT WAS ROLLED, never a sum.
             var m = CrashStopGap.Merge(heavy, CrashStopGap.ResolveBottom(3, 9.5f));
             Check(m.Has(CrashStopGap.Cls.Alignment) && m.alignSeverity == 2 && m.alignSide == 1 &&
                   Mathf.Approximately(m.bodyLoss, heavy.bodyLoss),
                   "two hits in one leg: the worse alignment wins, nothing un-happens", m);
+            var radA = R(Fr, -1, 6.5f, P, CrashDraws(radiator: 0.1f, radAmt: 0.9f));
+            var radB = R(Fr, -1, 7f, P, CrashDraws(radiator: 0.1f, radAmt: 0.2f));
+            var ab = CrashStopGap.Merge(radA, radB);
+            var ba = CrashStopGap.Merge(radB, radA);
+            Check(Mathf.Approximately(ab.radiatorLoss, Mathf.Max(radA.radiatorLoss, radB.radiatorLoss)) &&
+                  Mathf.Approximately(ab.radiatorLoss, ba.radiatorLoss) && ab.radiatorLoss <= 60f &&
+                  Mathf.Approximately(ab.paintLoss, Mathf.Max(radA.paintLoss, radB.paintLoss)) &&
+                  Mathf.Approximately(ab.weep, ba.weep),
+                  "two radiator rolls in one leg: the radiator takes the WORSE (never the sum past the table's 60), in either order",
+                  radA.radiatorLoss.ToString("0") + " + " + radB.radiatorLoss.ToString("0") + " -> " + ab.radiatorLoss.ToString("0"));
+            var minorL = R(Fr, -1, 11f, P, CrashDraws(align: 0.1f));
+            var minorR = R(Re, 1, 12f, P, CrashDraws(align: 0.1f));
+            var severeL = R(Si, -1, 10f, P, CrashDraws(align: 0.1f));
+            Check(CrashStopGap.Merge(minorL, minorR).alignSide == 1 && CrashStopGap.Merge(minorR, minorL).alignSide == -1 &&
+                  CrashStopGap.Merge(severeL, minorR).alignSide == -1 && CrashStopGap.Merge(severeL, minorR).alignSeverity == 2,
+                  "a band tie goes to the LATER hit (minor left then minor right pulls right); a worse band stays");
 
             var camaro = CarCatalog.All.FirstOrDefault(c => c.origin == "usa" && c.modelYear > 0 && c.modelYear < 1973);
             var modern = CarCatalog.All.FirstOrDefault(c => c.origin == "jpn" && c.modelYear >= 1990);
@@ -245,6 +287,40 @@ namespace PSXRacing.EditorTools
             Check(Z(new Vector3(-0.88f, 0f, 1.0f)) == "side/left" && Z(new Vector3(0.88f, 0f, 1.9f)) == "side/right",
                   "a flank is SIDE, even near the front corner of a long car (normalised by the box)");
             Check(Z(new Vector3(-0.88f, 0f, 2.2f)) == "front/left", "an exact corner counts as the end, on its own side");
+            Check(Z(new Vector3(0.01f, 0f, 2.2f)) == "front/centre" && Z(new Vector3(-0.01f, 0f, 2.2f)) == "front/centre" &&
+                  Z(new Vector3(0f, 0f, 2.2f)) == "front/centre" && Z(new Vector3(0.1f, 0f, -2.2f)) == "rear/centre",
+                  "a hit centred on the nose or tail (inside " + CrashStopGap.CentreBand.ToString("0.0#") +
+                  " of the half-width) has NO side - not a coin flip from rounding noise");
+
+            // THE PATCH, not the impulse. Synthetic box-on-wall manifolds: the
+            // four corners of the overlap on the nose, the impulse piled onto
+            // the wall's INNER edge the way the solver piles it (the crash play
+            // check's W1 read the impulse-weighted point there, -0.27 m).
+            float hx = half.x, nose = half.z;
+            string Wall(float fromX, float toX, out float weightedX)
+            {
+                var pts = new[] { new Vector3(fromX, -0.3f, nose), new Vector3(fromX, 0.3f, nose),
+                                  new Vector3(toX, -0.3f, nose), new Vector3(toX, 0.3f, nose) };
+                var sep = new[] { 0f, 0f, 0f, 0f };
+                float[] imp = { 0.05f, 0.05f, 1f, 1f };   // the inner edge carries it
+                Vector3 wsum = Vector3.zero; float wt = 0f;
+                for (int i = 0; i < 4; i++) { wsum += pts[i] * imp[i]; wt += imp[i]; }
+                weightedX = (wsum / wt).x;
+                return Z(CrashStopGap.PatchCentre(pts, sep, 4));
+            }
+            string w35 = Wall(-hx, -0.3f * hx, out float i35);
+            string w60 = Wall(-hx, 0.2f * hx, out float i60);
+            string w75 = Wall(-hx, 0.5f * hx, out float i75);
+            string wFull = Wall(-hx, hx, out _);
+            Check(w35 == "front/left" && w60 == "front/left" && w75 == "front/left",
+                  "a wall over the left 35%, 60% or 75% of the nose is FRONT LEFT - read from the patch, where the impulse-weighted " +
+                  "point would sit on the wall's inner edge (x " + i60.ToString("+0.00;-0.00") + " at 60%, " + i75.ToString("+0.00;-0.00") +
+                  " at 75%: the WRONG side)", w35 + " " + w60 + " " + w75);
+            Check(wFull == "front/centre", "a wall across the whole nose is centred: no side", wFull);
+            var specPts = new[] { new Vector3(-hx, 0f, nose), new Vector3(-0.3f * hx, 0f, nose), new Vector3(hx, 0f, nose) };
+            Check(Z(CrashStopGap.PatchCentre(specPts, new[] { 0f, -0.01f, 0.08f }, 3)) == "front/left" &&
+                  Z(CrashStopGap.PatchCentre(new[] { new Vector3(0.5f, 0f, nose) }, new[] { 0.5f }, 1)) == "front/right",
+                  "a speculative point that never closed (separation past " + CrashStopGap.TouchSlop + " m) is left out; with only those, they are used");
         }
 
         // ---------------------------------------------------------------
@@ -275,38 +351,45 @@ namespace PSXRacing.EditorTools
         static float Frac(double x) => (float)(x - System.Math.Floor(x));
 
         /// <summary>
-        /// One origin's sweep. <paramref name="groups"/>: 0 front, 1 rear,
-        /// 2 side, 3 bump stop, equally many crashes each. Stratified: every
-        /// band of every zone equally often, speeds and dice spread evenly
-        /// (additive recurrences), so 500 crashes read the table, not the
-        /// luck of a seed. <paramref name="random"/> uses a seeded random
-        /// draw instead (the noise check).
+        /// Crash number <paramref name="i"/> of a sweep. <paramref name="groups"/>:
+        /// 0 front, 1 rear, 2 side, 3 bump stop, equally many crashes each.
+        /// Stratified: every band of every zone equally often, speeds and dice
+        /// spread evenly (additive recurrences), so 500 crashes read the table,
+        /// not the luck of a seed; <paramref name="rng"/> non-null draws them
+        /// at random instead (the noise check). Off-centre: the struck side
+        /// alternates left and right (the centred hit has its own check).
         /// </summary>
-        static SweepTally CrashSweep(List<CarSpec> specs, int[] groups, int crashes, bool random, int seed)
+        static CrashStopGap.Outcome CrashCase(List<CarSpec> specs, int[] groups, int i, System.Random rng,
+                                              out CarSpec spec, out float mps, out int group)
+        {
+            bool random = rng != null;
+            group = groups[i % groups.Length];
+            int k = i / groups.Length;
+            spec = specs[random ? rng.Next(specs.Count) : (k % specs.Count)];
+            var bumper = CrashStopGap.BumperFor(spec);
+            float[] bands = CrashBands(group, bumper);
+            int nb = bands.Length - 1;
+            int band = random ? rng.Next(nb) : k % nb;
+            float u = random ? (float)rng.NextDouble() : Frac(0.5 + k * 0.7548776662);
+            mps = Mathf.Lerp(bands[band], bands[band + 1], u);
+            int side = random ? (rng.Next(2) == 0 ? -1 : 1) : ((k / nb) % 2 == 0 ? -1 : 1);
+            var dr = random ? CrashStopGap.Draw(rng) : new CrashStopGap.Draws
+            {
+                paint = Frac(0.5 + k * 0.6180339887), bumper = Frac(0.5 + k * 0.4142135624),
+                body = Frac(0.5 + k * 0.7320508076), radiator = Frac(0.5 + k * 0.2360679775),
+                radAmt = Frac(0.5 + k * 0.6457513111), align = Frac(0.5 + k * 0.3166247904),
+            };
+            return group == 3 ? CrashStopGap.ResolveBottom(random ? rng.Next(4) : k % 4, mps)
+                              : CrashStopGap.Resolve(group == 0 ? CrashStopGap.ZoneFront : group == 1 ? CrashStopGap.ZoneRear : CrashStopGap.ZoneSide,
+                                                     side, mps, bumper, dr);
+        }
+
+        static SweepTally CrashSweep(List<CarSpec> specs, int[] groups, int crashes, System.Random rng)
         {
             var t = new SweepTally { cls = new int[6], ids = new HashSet<string>() };
-            var rng = new System.Random(seed);
             for (int i = 0; i < crashes; i++)
             {
-                int g = groups[i % groups.Length];
-                int k = i / groups.Length;
-                var spec = specs[random ? rng.Next(specs.Count) : (k % specs.Count)];
-                var bumper = CrashStopGap.BumperFor(spec);
-                float[] bands = CrashBands(g, bumper);
-                int nb = bands.Length - 1;
-                int band = random ? rng.Next(nb) : k % nb;
-                float u = random ? (float)rng.NextDouble() : Frac(0.5 + k * 0.7548776662);
-                float mps = Mathf.Lerp(bands[band], bands[band + 1], u);
-                int side = random ? (rng.Next(2) == 0 ? -1 : 1) : ((k / nb) % 2 == 0 ? -1 : 1);
-                var dr = random ? CrashStopGap.Draw(rng) : new CrashStopGap.Draws
-                {
-                    paint = Frac(0.5 + k * 0.6180339887), bumper = Frac(0.5 + k * 0.4142135624),
-                    body = Frac(0.5 + k * 0.7320508076), radiator = Frac(0.5 + k * 0.2360679775),
-                    radAmt = Frac(0.5 + k * 0.6457513111), align = Frac(0.5 + k * 0.3166247904),
-                };
-                var o = g == 3 ? CrashStopGap.ResolveBottom(random ? rng.Next(4) : k % 4, mps)
-                               : CrashStopGap.Resolve(g == 0 ? CrashStopGap.ZoneFront : g == 1 ? CrashStopGap.ZoneRear : CrashStopGap.ZoneSide,
-                                                      side, mps, bumper, dr);
+                var o = CrashCase(specs, groups, i, rng, out var spec, out _, out _);
                 t.crashes++;
                 if (o.classes == CrashStopGap.Cls.None) t.cls[0]++;
                 for (int c = 0; c < 5; c++) if (((int)o.classes & (1 << c)) != 0) t.cls[c + 1]++;
@@ -327,9 +410,11 @@ namespace PSXRacing.EditorTools
             return t;
         }
 
+        static float Pct(int a, int b) => b > 0 ? 100f * a / b : 0f;
+
         static void TestCrashSweep()
         {
-            Line("R0a crash - THE SWEEP: 500 crashes per origin over the table's zones and bands:");
+            Line("R0a crash - THE SWEEP: 500 crashes per origin, WALLS ONLY (front, rear, side; every band equally):");
             bool famWas = FaultCatalog.FamilyOn;
             FaultCatalog.FamilyOn = true;
             var csv = new StringBuilder();
@@ -339,33 +424,37 @@ namespace PSXRacing.EditorTools
             try
             {
                 var origins = CarCatalog.All.Where(c => c != null).Select(c => c.origin).Distinct().OrderBy(o => o).ToList();
-                int[] all4 = { 0, 1, 2, 3 }, walls = { 0, 1, 2 };
-                int gateFails = 0;
+                int[] walls = { 0, 1, 2 }, all4 = { 0, 1, 2, 3 }, bumps = { 3 };
+                int gateFails = 0, rowsOver = 0;
+                float rowsMin = 1f, rowsMax = 0f;
                 foreach (var org in origins)
                 {
                     var specs = CarCatalog.All.Where(c => c != null && c.origin == org).ToList();
-                    var t = CrashSweep(specs, all4, 500, false, 1);
-                    var r = CrashSweep(specs, all4, 500, true, 20261112 + org.Sum(ch => (int)ch));
-                    var w = CrashSweep(specs, walls, 500, false, 1);
-                    int seen = t.cls.Count(x => x > 0);
-                    float share = t.rows > 0 ? (float)t.bumperRows / t.rows : 0f;
-                    float shareOut = t.faultOutcomes > 0 ? (float)t.bumperOutcomes / t.faultOutcomes : 0f;
-                    bool noElectrical = t.ids.All(id => CrashRowIds.Contains(id)) && r.ids.All(id => CrashRowIds.Contains(id)) &&
-                                        w.ids.All(id => CrashRowIds.Contains(id));
-                    bool ok = seen >= 4 && share <= 0.5f && noElectrical;
+                    var w = CrashSweep(specs, walls, 500, null);
+                    var r = CrashSweep(specs, walls, 500, new System.Random(20261112 ^ StableSeed(org)));
+                    var b = CrashSweep(specs, bumps, 500, null);
+                    var mix = CrashSweep(specs, all4, 500, null);
+                    int seen = w.cls.Count(x => x > 0);
+                    float outShare = Pct(w.bumperOutcomes, w.faultOutcomes), rOut = Pct(r.bumperOutcomes, r.faultOutcomes);
+                    float rowShare = Pct(w.bumperRows, w.rows), rRows = Pct(r.bumperRows, r.rows);
+                    bool tableRows = w.ids.All(id => CrashRowIds.Contains(id)) && r.ids.All(id => CrashRowIds.Contains(id)) &&
+                                     b.ids.All(id => id == "alignment");
+                    bool ok = seen >= 4 && outShare <= 50f && rOut <= 50f && tableRows;
                     if (!ok) gateFails++;
+                    if (rowShare > 50f) rowsOver++;
+                    rowsMin = Mathf.Min(rowsMin, rowShare / 100f); rowsMax = Mathf.Max(rowsMax, rowShare / 100f);
                     Check(ok, org + " (" + FaultCatalog.Family(org) + ", " + specs.Count + " cars): " + seen +
-                              " of 6 classes, bumper rows " + t.bumperRows + "/" + t.rows + " = " + (share * 100f).ToString("0") +
-                              "% of the fault rows, no electrical rows",
-                          "nothing " + t.cls[0] + " scuff " + t.cls[1] + " body " + t.cls[2] + " bumper " + t.cls[3] +
-                          " radiator " + t.cls[4] + " alignment " + t.cls[5] + "; rows " + string.Join("+", t.ids.OrderBy(x => x)) +
-                          "; bumper share of all repair outcomes " + (shareOut * 100f).ToString("0") + "%; alignment $" + t.alignCost);
-                    Line("    note " + org + " random-seed run: bumper rows " + r.bumperRows + "/" + r.rows + " = " +
-                         (r.rows > 0 ? 100f * r.bumperRows / r.rows : 0f).ToString("0") + "%; walls only (no bump strikes): " +
-                         w.bumperRows + "/" + w.rows + " = " + (w.rows > 0 ? 100f * w.bumperRows / w.rows : 0f).ToString("0") +
-                         "% of rows, " + (w.faultOutcomes > 0 ? 100f * w.bumperOutcomes / w.faultOutcomes : 0f).ToString("0") +
-                         "% of repair outcomes");
-                    foreach (var (name, x) in new[] { ("stratified", t), ("random", r), ("walls", w) })
+                              " of 6 classes, bumpers " + w.bumperOutcomes + "/" + w.faultOutcomes + " = " + outShare.ToString("0") +
+                              "% of the REPAIR OUTCOMES (random-seed run " + rOut.ToString("0") + "%), and the table writes only bumper and alignment rows",
+                          "nothing " + w.cls[0] + " scuff " + w.cls[1] + " body " + w.cls[2] + " bumper " + w.cls[3] +
+                          " radiator " + w.cls[4] + " alignment " + w.cls[5] + "; rows " + string.Join("+", w.ids.OrderBy(x => x)) +
+                          "; alignment $" + w.alignCost);
+                    Line("    DECISION " + org + ": counted as FAULT ROWS the same walls give bumpers " + w.bumperRows + "/" + w.rows +
+                         " = " + rowShare.ToString("0") + "% (random-seed run " + rRows.ToString("0") + "%) - OVER 50%");
+                    Line("    note " + org + ": with a quarter of the 500 made bump-stop strikes (the earlier mix) bumpers are " +
+                         Pct(mix.bumperRows, mix.rows).ToString("0") + "% of rows; the bump strikes alone write " + b.rows +
+                         " rows, all alignment");
+                    foreach (var (name, x) in new[] { ("walls", w), ("walls_random", r), ("bump_stops", b), ("quarter_bumps", mix) })
                         csv.AppendLine(string.Join(",", org, FaultCatalog.Family(org), name, x.crashes,
                             x.cls[0], x.cls[1], x.cls[2], x.cls[3], x.cls[4], x.cls[5], x.cls.Count(v => v > 0),
                             x.rows, x.bumperRows, x.alignRows,
@@ -373,13 +462,131 @@ namespace PSXRacing.EditorTools
                             x.faultOutcomes, (x.faultOutcomes > 0 ? (float)x.bumperOutcomes / x.faultOutcomes : 0f).ToString("0.000"),
                             string.Join("|", x.ids.OrderBy(id => id)), x.alignCost, x.bumperCost));
                 }
-                Check(gateFails == 0, "THE GATE: every origin passes (>=4 of 6 classes, bumper <= 50% of fault rows, no electrical rows)",
-                      gateFails + " origin(s) failed");
+                Check(gateFails == 0,
+                      "THE GATE, walls only, read as REPAIR OUTCOMES: every origin >= 4 of 6 classes, bumpers <= 50%, table rows only " +
+                      "(banked over a driven leg with no electrical rows: the next test)", gateFails + " origin(s) failed");
+                Line("  DECISION (coordinator / owner): read as FAULT ROWS the gate FAILS - bumpers " + (rowsMin * 100f).ToString("0") + "-" +
+                     (rowsMax * 100f).ToString("0") + "% of rows in " + rowsOver + " of " + origins.Count + " origins. The table's 70% bumper " +
+                     "roll on every front/rear hit from 3 m/s, against alignment rows only from 10 m/s (6 on a flank) and no row for a " +
+                     "dent or a radiator, cannot bring wall contact under 50% of rows. Which denominator the design's \"bumper rows at " +
+                     "most 50% of the faults\" means is the decision.");
+
+                // THE BUMP STOPS, on their own: certain, on the struck wheel's
+                // side, minor from 6 m/s and severe from 9, nothing else.
+                int strikes = 0, strikeBad = 0; string firstStrike = null;
+                foreach (var org in new[] { "jpn", "usa", "eur" })
+                {
+                    var spec = CarCatalog.All.FirstOrDefault(c => c != null && FaultCatalog.Family(c.origin) == org);
+                    for (int i = 0; i < 500; i++)
+                    {
+                        int wheel = i % 4;
+                        float mps = 17f * Frac(0.5 + i * 0.7548776662);
+                        var o = CrashStopGap.ResolveBottom(wheel, mps);
+                        var rows = CrashBank.NewRows(new OwnedCar { id = "strike", specId = spec != null ? spec.id : "" }, o);
+                        bool want = mps >= CrashStopGap.BottomMps;
+                        bool good = want
+                            ? rows.Count == 1 && rows[0].id == "alignment" && rows[0].pullDir == (wheel % 2 == 0 ? -1 : 1) &&
+                              Mathf.Approximately(rows[0].severity, mps >= CrashStopGap.BottomSevereMps ? 2f : 1f) &&
+                              o.classes == CrashStopGap.Cls.Alignment
+                            : rows.Count == 0 && o.classes == CrashStopGap.Cls.None;
+                        strikes++;
+                        if (!good) { strikeBad++; if (firstStrike == null) firstStrike = org + " wheel " + wheel + " @ " + mps.ToString("0.0"); }
+                    }
+                }
+                Check(strikeBad == 0,
+                      "THE BUMP STOPS (their own sweep, " + strikes + " strikes): from 6 m/s exactly one alignment row, on the struck " +
+                      "wheel's side, severe from 9; below 6 nothing", firstStrike);
             }
             finally
             {
                 FaultCatalog.FamilyOn = famWas;
                 System.IO.File.WriteAllText(System.IO.Path.Combine(Application.dataPath, "../PSXRacing_crash_sweep.csv"), csv.ToString());
+            }
+        }
+
+        // ---------------------------------------------------------------
+        /// <summary>
+        /// The sweep's outcomes BANKED through LifeRules.ApplyRaceResult over a
+        /// driven leg (5 km), on a car whose lanes start sound (70), every
+        /// origin: what a crash leg adds must be exactly the rows rolled at
+        /// the hit - in particular, the body lane's wear roll must not fire off
+        /// the crash's own dent (a European car's body pool is half electrical).
+        /// </summary>
+        static void TestCrashBankedLegs()
+        {
+            Line("R0a crash - every swept outcome BANKED through the real apply-back over a driven 5 km leg:");
+            bool was = CrashStopGap.On, famWas = FaultCatalog.FamilyOn;
+            CrashStopGap.On = true; FaultCatalog.FamilyOn = true;
+            Random.InitState(20261112);
+            try
+            {
+                var origins = CarCatalog.All.Where(c => c != null).Select(c => c.origin).Distinct().OrderBy(o => o).ToList();
+                int legs = 0, bad = 0, under40 = 0, eurUnder40 = 0;
+                float oldRows = 0f, oldEurRows = 0f;
+                var added = new HashSet<string>();
+                string firstBad = null;
+                int[] groups = { 0, 1, 2, 3 };
+                foreach (var org in origins)
+                {
+                    var specs = CarCatalog.All.Where(c => c != null && c.origin == org && !c.IsRaceCar && !c.IsRallyCar).ToList();
+                    if (specs.Count == 0) specs = CarCatalog.All.Where(c => c != null && c.origin == org).ToList();
+                    var s = LifeRules.SeedNewGame("BANK", 25, LifeRules.DefaultJobIndex);
+                    var car = CarMarket.MakeOwnedCar(s, specs[0], 70, 40000f, specs[0].price);
+                    s.activeCar = car.id;
+                    for (int i = 0; i < 500; i++)
+                    {
+                        var o = CrashCase(specs, groups, i, null, out var spec, out float mps, out int group);
+                        car.specId = spec.id;
+                        car.faults.Clear();
+                        car.engine = car.tires = car.carHP = car.paint = 70f;
+                        CoolingModel.Seed(car, 70f);
+                        car.odoMiles = 40000f;
+                        car.fuel = 100f;
+                        var want = CrashBank.NewRows(car, o).Select(f => f.id).OrderBy(x => x).ToList();
+                        RaceHandoff.ClearAll();
+                        RaceHandoff.FromLifeSim = true;
+                        RaceHandoff.ResultReady = true;
+                        RaceHandoff.CarId = car.id;
+                        RaceHandoff.MetersDriven = 5000f;
+                        RaceHandoff.CommuteLeg = true;   // no block spent
+                        RaceHandoff.FreeRoam = true;
+                        RaceHandoff.DamageScore = group == 3 ? 0f : mps * 1.6f;   // one hard contact's summary
+                        RaceHandoff.WorstHitMps = group == 3 ? 0f : mps;
+                        if (group == 3) RaceHandoff.BottomWorst = mps;
+                        CrashStopGap.StampOutcome(true, o);
+                        LifeRules.ApplyRaceResult(s);
+                        var got = car.faults.Select(f => f.id).OrderBy(x => x).ToList();
+                        legs++;
+                        foreach (var id in got) added.Add(id);
+                        if (!got.SequenceEqual(want))
+                        {
+                            bad++;
+                            if (firstBad == null) firstBad = org + " " + o + ": got " + string.Join(",", got) + ", rolled " + string.Join(",", want);
+                        }
+                        if (car.carHP < LifeRules.WearFaultBelow)
+                        {
+                            // What the old order (the wear roll read AFTER the
+                            // crash) would have risked on this leg.
+                            float p = LifeRules.WearFaultChance(car.carHP, 5000f);
+                            under40++; oldRows += p;
+                            if (FaultCatalog.Family(org) == "eur") { eurUnder40++; oldEurRows += p; }
+                        }
+                    }
+                }
+                Check(bad == 0,
+                      "the rows a crash leg adds are exactly the rows rolled at the hit - no wear roll fires off the crash's own dent (" +
+                      legs + " legs, " + origins.Count + " origins, a quarter of them bump strikes)", firstBad);
+                Check(added.All(id => CrashRowIds.Contains(id)),
+                      "so no crash leg adds an electrical row - or any row but bumper and alignment - European cars included",
+                      string.Join(",", added.OrderBy(x => x)));
+                Line("    note " + under40 + " of " + legs + " legs left the body under 40 (" + eurUnder40 + " of them European); read after " +
+                     "the crash, as before, the body-lane wear roll would have added about " + oldRows.ToString("0.0") + " rows on those " +
+                     "legs (" + oldEurRows.ToString("0.0") + " on European cars, half of them electrical)");
+            }
+            finally
+            {
+                CrashStopGap.On = was; FaultCatalog.FamilyOn = famWas;
+                RaceHandoff.ClearAll();
             }
         }
 
@@ -485,9 +692,22 @@ namespace PSXRacing.EditorTools
                 Check(al1.Count == 1 && al1[0].severity == 2f && al1[0].pullDir == 1,
                       "a worse hit later makes the car's one alignment worse - severe, now to the right", al1.Count);
 
+                // A TIE later moves it to the newer hit's side; a lesser band does not.
+                Stamp(0f, CrashStopGap.ResolveBottom(0, 9.5f), true);   // severe, front LEFT wheel
+                LifeRules.ApplyRaceResult(s);
+                var al2 = car.faults.Where(f => f.id == "alignment").ToList();
+                Stamp(0f, CrashStopGap.ResolveBottom(1, 7f), true);     // minor, front RIGHT wheel
+                LifeRules.ApplyRaceResult(s);
+                var al3 = car.faults.Where(f => f.id == "alignment").ToList();
+                Check(al2.Count == 1 && al2[0].severity == 2f && al2[0].pullDir == -1 &&
+                      al3.Count == 1 && al3[0].severity == 2f && al3[0].pullDir == -1,
+                      "a band tie later goes to the newer hit (severe right -> severe left); a lesser band later changes nothing",
+                      (al2.Count > 0 ? al2[0].severity + "/" + al2[0].pullDir : "-") + " then " +
+                      (al3.Count > 0 ? al3[0].severity + "/" + al3[0].pullDir : "-"));
+
                 // The next drive: the request carries the pull in DEGREES.
                 LifeHomeScreen.FillCarRequestFor(s, car);
-                Check(Mathf.Approximately(RaceHandoff.SteerPullDeg, CrashStopGap.PullDegSevere) &&
+                Check(Mathf.Approximately(RaceHandoff.SteerPullDeg, -CrashStopGap.PullDegSevere) &&
                       Mathf.Abs(RaceHandoff.SteerPull) < 1e-6f,
                       "the next drive's request pulls in road-wheel degrees, and nothing in shares of lock",
                       RaceHandoff.SteerPullDeg + " deg / " + RaceHandoff.SteerPull);
@@ -515,13 +735,80 @@ namespace PSXRacing.EditorTools
         }
 
         // ---------------------------------------------------------------
+        /// <summary>
+        /// ONE ALIGNMENT. The car may already carry one (a legacy row in the
+        /// owner's save, a used-car row, an earlier strike). The pull felt
+        /// after a crash (CarController: CrashStopGap.CombinePull of the
+        /// carried pull and this drive's) must be the pull the next drive
+        /// starts with (CrashBank.ApplyOutcome, then Aggregate_) - for every
+        /// carried alignment and every crash alignment.
+        /// </summary>
+        static void TestCrashOneAlignment()
+        {
+            Line("R0a crash - ONE alignment: the pull after the crash is the pull the next drive starts with:");
+            bool was = CrashStopGap.On, famWas = FaultCatalog.FamilyOn;
+            CrashStopGap.On = true; FaultCatalog.FamilyOn = true;
+            try
+            {
+                var spec = CrashSpec("jpn", 1990);
+                int n = 0, bad = 0; string firstBad = null;
+                var carried = new List<(int band, int side)> { (0, 0), (1, -1), (1, 1), (2, -1), (2, 1) };
+                foreach (var (cb, cs) in carried)
+                    foreach (int hb in new[] { 1, 2 })
+                        foreach (int hs in new[] { -1, 1 })
+                        {
+                            var car = new OwnedCar { id = "one_align", specId = spec != null ? spec.id : "" };
+                            if (cb > 0)
+                            {
+                                var row = FaultCatalog.MakeById(FaultCatalog.AlignmentId, "jpn");
+                                row.severity = cb; row.pullDir = cs;
+                                car.faults.Add(row);
+                            }
+                            float carriedDeg = FaultCatalog.Aggregate_(car).steerPullDeg;
+                            var o = new CrashStopGap.Outcome { classes = CrashStopGap.Cls.Alignment, alignSeverity = hb, alignSide = hs };
+                            float live = CrashStopGap.CombinePull(carriedDeg, o.PullDeg);
+                            CrashBank.ApplyOutcome(car, o);
+                            float next = FaultCatalog.Aggregate_(car).steerPullDeg;
+                            int rows = car.faults.Count(f => f.id == FaultCatalog.AlignmentId);
+                            n++;
+                            if (Mathf.Abs(live - next) > 1e-6f || rows != 1)
+                            {
+                                bad++;
+                                if (firstBad == null)
+                                    firstBad = "carried " + cb + "/" + cs + " hit " + hb + "/" + hs + ": live " + live.ToString("+0.000;-0.000") +
+                                               " next " + next.ToString("+0.000;-0.000") + " rows " + rows;
+                            }
+                        }
+                Check(bad == 0,
+                      "for every carried alignment (none, minor or severe, either side) and every crash alignment, the live pull " +
+                      "equals the next drive's, and the car keeps ONE alignment row", (n - bad) + "/" + n + (firstBad != null ? "; " + firstBad : ""));
+
+                float mn = CrashStopGap.PullDegMinor, sv = CrashStopGap.PullDegSevere;
+                Check(CrashStopGap.CombinePull(+mn, -mn) == -mn,
+                      "minor RIGHT carried + minor LEFT hit: pulls LEFT, toward the hit (the old sum was 0: dead straight, then right again next drive)");
+                Check(CrashStopGap.CombinePull(-mn, -mn) == -mn,
+                      "minor LEFT carried + minor LEFT hit: stays minor (the old sum was 0.084 deg - the severe band - then minor next drive)");
+                Check(CrashStopGap.CombinePull(+mn, -sv) == -sv,
+                      "minor RIGHT carried + severe LEFT hit: severe left (the old sum was -0.098)");
+                Check(CrashStopGap.CombinePull(+sv, -mn) == +sv, "severe RIGHT carried + minor LEFT hit: the worse band stays");
+                Check(CrashStopGap.CombinePull(0f, 0f) == 0f && CrashStopGap.CombinePull(+mn, 0f) == +mn &&
+                      CrashStopGap.CombinePull(-sv, 0f) == -sv,
+                      "no crash this drive: the carried pull exactly, and a sound car 0 exactly");
+            }
+            finally
+            {
+                CrashStopGap.On = was; FaultCatalog.FamilyOn = famWas;
+            }
+        }
+
+        // ---------------------------------------------------------------
         static void TestCrashLive()
         {
-            Line("R0a crash - live AT THE HIT: the pull, the radiator, the weep:");
+            Line("R0a crash - live AT THE HIT, by the responder's own record rule: the pull, the radiator, the weep:");
             bool was = CrashStopGap.On;
             CrashStopGap.On = true;
             var spec = CrashSpec("jpn", 1990);
-            if (spec == null) { Check(false, "a Japanese road car to crash"); return; }
+            if (spec == null) { Check(false, "a Japanese road car to crash"); CrashStopGap.On = was; return; }
             var car = TuneBenchCar(spec);
             var temp = car.gameObject.AddComponent<EngineTemp>();
             temp.car = car;
@@ -529,7 +816,7 @@ namespace PSXRacing.EditorTools
             var host = new GameObject("CrashApplier") { hideFlags = HideFlags.HideAndDontSave };
             var applier = host.AddComponent<RaceHandoffApplier>();
             applier.playerCar = car;
-            EngineTemp a = null, b = null, c = null;
+            EngineTemp a = null, sound = null;
             try
             {
                 RaceHandoff.ClearAll();
@@ -540,24 +827,35 @@ namespace PSXRacing.EditorTools
                 Check(CrashStopGap.Arm(car) && resp.Ledger != null, "a career drive arms the player's ledger");
                 var L = resp.Ledger;
                 L.DrawOverride = () => CrashDraws(bumper: 0.1f, radiator: 0.1f, align: 0.1f, radAmt: 0.5f);
+                var nose = new Vector3(-0.5f, 0f, 2.1f);
+                const int Fr = CrashStopGap.ZoneFront, Si = CrashStopGap.ZoneSide;
 
-                L.Hit(CrashStopGap.ZoneFront, -1, 11f, CrashStopGap.Bumper.Plastic, 10f);
+                // THROUGH RecordHit - the rule OnCollisionEnter applies: only a
+                // hit harder than every one before it this leg is rolled.
+                bool r1 = resp.RecordHit(11f, Fr, -1, nose, "wall", 10f);
                 var t1 = L.Total;
-                Check(Mathf.Approximately(car.hitSteerPull, -CrashStopGap.PullDegMinor),
-                      "the pull is on the car AT THE HIT, toward the struck (left) side, in degrees", car.hitSteerPull);
+                Check(r1 && Mathf.Approximately(car.hitSteerPull, -CrashStopGap.PullDegMinor),
+                      "an 11 m/s nose-in on the left: the pull is on the car AT THE HIT, toward the struck side, in degrees", car.hitSteerPull);
                 Check(Mathf.Approximately(temp.radiatorCond, 90f - t1.radiatorLoss) &&
                       Mathf.Approximately(temp.radiatorHit, t1.radiatorLoss) && temp.radiatorWeep > 0f,
                       "and the radiator is down and weeping, live", temp.radiatorCond.ToString("0.0") + " weep " + temp.radiatorWeep.ToString("0.00"));
 
-                L.Hit(CrashStopGap.ZoneFront, -1, 12f, CrashStopGap.Bumper.Plastic, 10.1f);
-                Check(Mathf.Approximately(temp.radiatorHit, t1.radiatorLoss) && L.Rolls == 2 &&
+                bool r2 = resp.RecordHit(12f, Fr, -1, nose, "wall", 10.1f);
+                Check(r2 && L.Rolls == 2 && Mathf.Approximately(temp.radiatorHit, t1.radiatorLoss) &&
                       Mathf.Approximately(car.hitSteerPull, -CrashStopGap.PullDegMinor),
                       "a harder contact of the SAME crash re-reads the same dice: one radiator hit, one pull");
+                L.Hit(Fr, 1, 11.5f, CrashStopGap.Bumper.Plastic, 10.2f);
+                Check(L.Rolls == 2 && Mathf.Approximately(car.hitSteerPull, -CrashStopGap.PullDegMinor),
+                      "a softer contact of the same crash, handed to the ledger directly, changes nothing (it cannot downgrade or flip it)");
 
                 L.DrawOverride = () => CrashDraws(bumper: 0.9f, radiator: 0.9f, align: 0.1f);
-                L.Hit(CrashStopGap.ZoneSide, 1, 10f, CrashStopGap.Bumper.Plastic, 15f);
-                Check(Mathf.Approximately(car.hitSteerPull, CrashStopGap.PullDegSevere),
-                      "a second, harder crash on the right: the pull goes severe, to the right", car.hitSteerPull);
+                bool r3 = resp.RecordHit(13f, Si, 1, new Vector3(0.88f, 0f, 0f), "barrier", 15f);
+                Check(r3 && L.Rolls == 3 && Mathf.Approximately(car.hitSteerPull, CrashStopGap.PullDegSevere),
+                      "a second, HARDER crash (13 m/s) on the right flank: the pull goes severe, to the right", car.hitSteerPull);
+                bool r4 = resp.RecordHit(10f, Si, -1, new Vector3(-0.88f, 0f, 0f), "barrier", 20f);
+                Check(!r4 && L.Rolls == 3 && Mathf.Approximately(car.hitSteerPull, CrashStopGap.PullDegSevere) &&
+                      Mathf.Approximately(resp.WorstHit, 13f) && resp.WorstHitSide == 1,
+                      "a SOFTER crash later in the leg (10 m/s, left) is never rolled: R0a rolls the leg's hardest hit, not every crash");
 
                 // The bench reapplies the request mid-drive: the crash stays.
                 float radBefore = temp.radiatorCond;
@@ -568,41 +866,57 @@ namespace PSXRacing.EditorTools
                       car.hitSteerPull + " / " + temp.radiatorCond.ToString("0.0"));
 
                 CrashStopGap.StampHandoff(resp);
+                var stamped = CrashBank.FromHandoff();
                 Check(RaceHandoff.CrashRolled && RaceHandoff.CrashAlignSeverity == 2 && RaceHandoff.CrashAlignSide == 1 &&
                       RaceHandoff.CrashBumperId == "bumper_crack" &&
-                      Mathf.Approximately(RaceHandoff.CrashRadiatorLoss, t1.radiatorLoss),
-                      "the exit stamp hands over exactly what was rolled", CrashBank.FromHandoff());
+                      Mathf.Approximately(RaceHandoff.CrashRadiatorLoss, t1.radiatorLoss) &&
+                      Mathf.Approximately(RaceHandoff.CrashBodyLoss, 30f) && Mathf.Approximately(RaceHandoff.CrashPaintLoss, 3.5f),
+                      "the exit stamp hands over the WORST of the leg, lane by lane: body -30 and paint -3.5 (the nose-in's), not the " +
+                      "sum of the two crashes (-52.5 / -7)", stamped);
+                Check(stamped.weep == 0f,
+                      "the weep is live only - not in the handoff: the coolant it cost is banked through the coolant stamp (EndCoolantPct)");
 
-                // THE WEEP, integrated the way TestEngineTemp integrates: a
-                // cracked core loses coolant at a cruise and climbs; the same run
-                // with no weep is the sound car to the bit.
-                a = Bench(rad: 90f - t1.radiatorLoss); a.radiatorWeep = t1.weep;
-                b = Bench(rad: 90f); b.radiatorWeep = 0f;
-                c = Bench(rad: 90f);
+                // A DIFFERENT CAR under the player (the debug bench's swap) starts clean.
+                CrashStopGap.StartClean(car);
+                Check(car.hitSteerPull == 0f && temp.radiatorHit == 0f && temp.radiatorWeep == 0f &&
+                      resp.Ledger != null && resp.Ledger != L && resp.Ledger.Rolls == 0 && resp.WorstHit == 0f,
+                      "a car swapped in mid-drive (CrashStopGap.StartClean) starts with no pull, no cracked core, no weep and its own ledger");
+
+                // THE WEEP, integrated the way TestEngineTemp integrates. Both
+                // cars warmed at the cruise first, so the minutes are minutes
+                // after the crash, not after a cold start.
                 float load = EngineTemp.Load(0.3f, 0.35f), over = EngineTemp.OverRev(0.3f, 0.35f);
+                a = Bench(rad: 90f - t1.radiatorLoss);
+                sound = Bench(rad: 90f);
+                Settle(a, 300f, 0.3f, 0.35f, 80f);
+                Settle(sound, 300f, 0.3f, 0.35f, 80f);
+                float warmC = a.celsius;
+                a.radiatorWeep = t1.weep;
                 float hotAt = -1f, leakAt = -1f, at2 = 0f;
                 for (int i = 0; i < 60 * 60 * 30; i++)
                 {
-                    a.Tick(1f / 60f, load, over, 80f); b.Tick(1f / 60f, load, over, 80f); c.Tick(1f / 60f, load, over, 80f);
+                    a.Tick(1f / 60f, load, over, 80f); sound.Tick(1f / 60f, load, over, 80f);
                     if (i == 60 * 60 * 2) at2 = a.celsius;
                     if (leakAt < 0f && a.coolantPct < CoolingModel.CoolantFullAbove) leakAt = i / 3600f;
                     if (hotAt < 0f && a.celsius > EngineTemp.RedMark) hotAt = i / 3600f;
                 }
-                Check(b.celsius == c.celsius && b.coolantPct == c.coolantPct && b.PeakC == c.PeakC,
-                      "no weep is the sound car to the bit (30 min at 80 km/h)",
-                      b.celsius + " / " + c.celsius);
-                Check(at2 < EngineTemp.RedMark && leakAt > 3f && a.coolantPct < b.coolantPct - 30f,
-                      "with it (the hit's weep " + t1.weep.ToString("0.00") + "), the system drains at a cruise and the " +
-                      "needle climbs minutes after the crash, not at it",
-                      Mathf.RoundToInt(at2) + " C at 2 min; below 55% coolant at " +
-                      (leakAt < 0f ? "never" : leakAt.ToString("0.0") + " min") + "; past " + EngineTemp.RedMark + " C at " +
-                      (hotAt < 0f ? "never (30 min)" : hotAt.ToString("0.0") + " min") + "; coolant " +
-                      Mathf.RoundToInt(a.coolantPct) + "% vs " + Mathf.RoundToInt(b.coolantPct) + "% sound");
+                Check(sound.coolantPct >= 99.999f && sound.celsius > 84f && sound.celsius < 92f,
+                      "a sound car (no weep) loses no coolant in 30 min at 80 km/h and holds where TestEngineTemp pins a cruise (84-92 C)",
+                      sound.celsius.ToString("0.0") + " C, coolant " + sound.coolantPct.ToString("0.0") + "%");
+                Check(at2 < EngineTemp.RedMark && at2 < warmC + 3f,
+                      "with the hit's weep (" + t1.weep.ToString("0.00") + "): nothing at the hit - 2 min later the needle is where it was",
+                      warmC.ToString("0.0") + " -> " + at2.ToString("0.0") + " C");
+                Check(leakAt >= 6f && leakAt <= 18f,
+                      "the system drains below " + CoolingModel.CoolantFullAbove + "% some minutes after the crash (about ten for this weep)",
+                      leakAt < 0f ? "never" : leakAt.ToString("0.0") + " min");
+                Check(hotAt > leakAt && hotAt > 0f && hotAt <= 30f,
+                      "and only then does the needle climb past the red (" + EngineTemp.RedMark + " C), inside the 30-minute drive",
+                      hotAt < 0f ? "never" : hotAt.ToString("0.0") + " min");
             }
             finally
             {
                 CrashStopGap.On = was;
-                Kill(a); Kill(b); Kill(c);
+                Kill(a); Kill(sound);
                 Object.DestroyImmediate(host);
                 TuneDrop(car);
                 RaceHandoff.ClearAll();
@@ -610,9 +924,73 @@ namespace PSXRacing.EditorTools
         }
 
         // ---------------------------------------------------------------
+        /// <summary>WEAR NEVER CRACKS A BUMPER: the player's own body-lane wear
+        /// roll used to fall back to bumper_crack / bumper_dent (the only
+        /// body rows a low-mileage Japanese or US car is eligible for).</summary>
+        static void TestCrashWearNoBumper()
+        {
+            Line("R0a crash - wear never cracks a bumper (a hit's row comes from the hit):");
+            bool was = CrashStopGap.On, famWas = FaultCatalog.FamilyOn;
+            FaultCatalog.FamilyOn = true;
+            Random.InitState(1112);
+            try
+            {
+                int Run(bool on, string origin, out int rolled)
+                {
+                    CrashStopGap.On = on;
+                    var spec = CrashSpec(origin, 1985);
+                    var s = LifeRules.SeedNewGame("WEAR", 25, LifeRules.DefaultJobIndex);
+                    var car = CarMarket.MakeOwnedCar(s, spec, 100, 20000f, spec.price);
+                    s.activeCar = car.id;
+                    int bumpers = 0; rolled = 0;
+                    for (int i = 0; i < 20; i++)
+                    {
+                        car.faults.Clear();
+                        car.engine = car.tires = 100f;
+                        car.carHP = 10f;              // a ruined body lane
+                        car.odoMiles = 20000f;        // under 60k: the 'new' tier
+                        car.fuel = 100f;
+                        RaceHandoff.ClearAll();
+                        RaceHandoff.FromLifeSim = true;
+                        RaceHandoff.ResultReady = true;
+                        RaceHandoff.CarId = car.id;
+                        RaceHandoff.MetersDriven = 50000f;
+                        RaceHandoff.CommuteLeg = true;
+                        RaceHandoff.FreeRoam = true;
+                        LifeRules.ApplyRaceResult(s);
+                        rolled += car.faults.Count;
+                        bumpers += car.faults.Count(f => f.id == "bumper_crack" || f.id == "bumper_dent");
+                    }
+                    return bumpers;
+                }
+                int jOn = Run(true, "jpn", out int jOnN), uOn = Run(true, "usa", out _);
+                int jOff = Run(false, "jpn", out int jOffN);
+                Check(jOn == 0 && uOn == 0,
+                      "with the stop-gap on, 20 long legs on a ruined body lane give a low-mileage Japanese or US car no bumper row " +
+                      "(nothing else is eligible, so the roll is a no)", "jpn " + jOn + " (" + jOnN + " rows), usa " + uOn);
+                Check(jOff > 0, "PSX_FAULT_CRASH=0: the same legs crack its bumper, as before", jOff + " of " + jOffN);
+                var sp = CrashSpec("jpn", 1985);
+                var mkt = new OwnedCar { id = "mkt", specId = sp.id, odoMiles = 20000f };
+                var f2 = FaultCatalog.RollWearFault(mkt, "hp", false, "wear", "jpn");
+                Check(f2 != null && f2.id == "bumper_crack",
+                      "a seller's car still arrives with a previous owner's cracked bumper (market rolls are untouched; R4c's backfill)",
+                      f2 != null ? f2.id : "none");
+                Check(FaultCatalog.Pools.Where(FaultCatalog.ImpactOnly).Select(p => p.id).Distinct().OrderBy(x => x)
+                          .SequenceEqual(new[] { "bumper_crack", "bumper_dent" }),
+                      "the rows only a hit can cause are the two bumper rows",
+                      string.Join(",", FaultCatalog.Pools.Where(FaultCatalog.ImpactOnly).Select(p => p.origin + ":" + p.id)));
+            }
+            finally
+            {
+                CrashStopGap.On = was; FaultCatalog.FamilyOn = famWas;
+                RaceHandoff.ClearAll();
+            }
+        }
+
+        // ---------------------------------------------------------------
         static void TestCrashSwitchOff()
         {
-            Line("R0a crash - PSX_FAULT_CRASH=0 is today's game:");
+            Line("R0a crash - PSX_FAULT_CRASH=0 is today's crash, whatever PSX_FAULT_FAMILY says:");
             bool was = CrashStopGap.On, famWas = FaultCatalog.FamilyOn;
             var spec = CrashSpec("jpn", 1990);
             var car = spec != null ? TuneBenchCar(spec) : null;
@@ -633,22 +1011,42 @@ namespace PSXRacing.EditorTools
                 var s = LifeRules.SeedNewGame("CRASHOFF", 25, LifeRules.DefaultJobIndex);
                 LifeRules.SeedFallbackCar(s);
                 var c = s.ActiveCar;
-                c.faults.Clear();
-                int hits = 0;
-                for (int i = 0; i < 10; i++)
+                int Crash(OwnedCar target, int times, out string ids)
                 {
-                    c.faults.Clear();
-                    RaceHandoff.ClearAll();
-                    RaceHandoff.ResultReady = true;
-                    RaceHandoff.CommuteLeg = true;
-                    RaceHandoff.FreeRoam = true;
-                    RaceHandoff.CarId = c.id;
-                    RaceHandoff.DamageScore = LifeRules.ImpactFaultThreshold * 3f;
-                    LifeRules.ApplyRaceResult(s);
-                    if (c.faults.Count > 0 && c.faults.All(f => f.id == "bumper_crack" || f.id == "alignment")) hits++;
+                    int jpnRows = 0; var seen = new HashSet<string>();
+                    for (int i = 0; i < times; i++)
+                    {
+                        target.faults.Clear();
+                        RaceHandoff.ClearAll();
+                        RaceHandoff.ResultReady = true;
+                        RaceHandoff.CommuteLeg = true;
+                        RaceHandoff.FreeRoam = true;
+                        RaceHandoff.CarId = target.id;
+                        RaceHandoff.DamageScore = LifeRules.ImpactFaultThreshold * 3f;
+                        LifeRules.ApplyRaceResult(s);
+                        foreach (var f in target.faults) seen.Add(f.id);
+                        if (target.faults.Count > 0 && target.faults.All(f =>
+                                (f.id == "bumper_crack" || f.id == "alignment") &&
+                                FaultCatalog.Pools.Any(p => p.origin == "jpn" && p.id == f.id && p.cost == f.cost))) jpnRows++;
+                    }
+                    ids = string.Join(",", seen.OrderBy(x => x));
+                    return jpnRows;
                 }
+                int hits = Crash(c, 10, out string ids0);
                 Check(hits == 10, "and the leg's DamageScore past 22 rolls the Japanese impact pool - bumper_crack or alignment - as before",
-                      hits + "/10");
+                      hits + "/10 " + ids0);
+
+                // THE CRASH SWITCH ALONE: families on, crash off - a German car's
+                // crash is still today's (the jpn impact rows at jpn prices),
+                // never the eur pool's electrical "impact" rows.
+                FaultCatalog.FamilyOn = true;
+                var gerSpec = CrashSpec("ger");
+                if (gerSpec == null) { Check(false, "a German road car to crash"); return; }
+                var ger = CarMarket.MakeOwnedCar(s, gerSpec, 80, 40000f, gerSpec.price);
+                int gHits = Crash(ger, 10, out string gIds);
+                Check(gHits == 10,
+                      "PSX_FAULT_CRASH=0 with PSX_FAULT_FAMILY on: a German car's crash rolls today's Japanese impact rows at Japanese " +
+                      "prices - no electrical_gremlin, display_failure or trim_rattle", gHits + "/10 " + gIds);
             }
             finally
             {

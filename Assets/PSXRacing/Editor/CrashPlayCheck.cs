@@ -21,18 +21,27 @@ namespace PSXRacing.EditorTools
     ///      counter-steer assist OFF, STANDARD and FULL, on three chassis (FR
     ///      reference, FF short, FR long). The pull-free run is the baseline.
     ///   L  LIVE: a hit through the career car's own ledger at 100 km/h puts
-    ///      the pull on the car the same frame, the drift follows within the
-    ///      leg, and the exit stamp hands the apply-back the same outcome. The
-    ///      next drive's persisted pull (faultSteerPullDeg) drifts the same.
-    ///   W  WALLS: real PhysX contacts - a nose into a wall that covers only
-    ///      the LEFT half of the front, a right flank into a 200 m barrier
-    ///      whose bounding box is centred 100 m AHEAD of the car, a tail into
-    ///      a wall - located FRONT LEFT, SIDE RIGHT and REAR; the hit rolled at
-    ///      once; DamageScore and WorstHit as the switch-off run reads them.
+    ///      the pull on the car the same frame and the drift follows within the
+    ///      leg. THE NEXT DRIVE is built the real way - the exit stamp, the
+    ///      apply-back onto a scratch car (CrashBank), the request
+    ///      (FillCarRequestFor) and the applier (ReapplyCar) - and drifts the
+    ///      same; nothing writes a pull by hand. With an alignment the car
+    ///      ALREADY carries (the other side, and the same side) the live pull
+    ///      and the next drive's still match.
+    ///   W  WALLS: real PhysX contacts - a nose into walls covering the LEFT
+    ///      35%, 60% and 75% of the front, the RIGHT 35%, and the whole of it;
+    ///      a right flank into a 200 m barrier whose bounding box is centred
+    ///      100 m AHEAD of the car; a tail into a full wall - located FRONT
+    ///      LEFT, FRONT RIGHT, FRONT CENTRE (no alignment), SIDE RIGHT and REAR
+    ///      CENTRE; the hit rolled at once; DamageScore and WorstHit as the
+    ///      switch-off run reads them.
+    ///   S  A car swapped in mid-drive (the bench's DRIVE, SwapCar) starts with
+    ///      no crash on it, on its own - after a planted crash on the old one.
     ///
     /// tools\crash-play-check.ps1 -> PSXRacing_crash_play_check.txt. Exits
-    /// itself (no -quit: it enters play mode). Watched by default - hidden
-    /// batch play mode crashes in RenderTexture::Create on the owner's PC.
+    /// itself (no -quit: it enters play mode), also when a run throws (the
+    /// runs are guarded). Watched by default - hidden batch play mode crashes
+    /// in RenderTexture::Create on the owner's PC.
     /// </summary>
     public static class CrashPlayCheck
     {
@@ -100,12 +109,18 @@ namespace PSXRacing.EditorTools
         const float Kmh100 = 100f / 3.6f;
         CarController car;
         CollisionResponder resp;
-        bool drive, cruise;
+        RaceHandoffApplier applier;
+        bool drive, cruise, done;
         float throttle, brake, cruiseMps;
         float step, surfaceY;
         float zNext = -14000f;
         const float XLane = -600f;
         readonly List<GameObject> props = new List<GameObject>();
+
+        /// <summary>The dice every planted hit is forced to: bumper, radiator
+        /// and alignment all come up.</summary>
+        static CrashStopGap.Draws Forced() => new CrashStopGap.Draws
+            { paint = 0.5f, bumper = 0.1f, body = 0.5f, radiator = 0.1f, radAmt = 0.5f, align = 0.1f };
 
         void FixedUpdate()
         {
@@ -123,14 +138,46 @@ namespace PSXRacing.EditorTools
         IEnumerator Start()
         {
             DontDestroyOnLoad(gameObject);
+            yield return Guarded(Body());
+            Done();
+        }
+
+        /// <summary>Run a coroutine (and the ones it yields) so that a throw is
+        /// a FAIL line and the check still ends - a coroutine that throws just
+        /// stops, and an editor left in play mode holds the sandbox.</summary>
+        IEnumerator Guarded(IEnumerator body)
+        {
+            while (true)
+            {
+                object cur = null;
+                bool more;
+                try
+                {
+                    more = body.MoveNext();
+                    if (more) cur = body.Current;
+                }
+                catch (System.Exception e)
+                {
+                    more = false;
+                    CrashPlayCheck.Check(false, "a run THREW: " + e.GetType().Name + " - " + e.Message);
+                    Debug.LogException(e);
+                }
+                if (!more) yield break;
+                if (cur is IEnumerator nested) yield return Guarded(nested);
+                else yield return cur;
+            }
+        }
+
+        IEnumerator Body()
+        {
             for (int i = 0; i < 25; i++) yield return null;
             step = Time.fixedDeltaTime;
 
             var rm = RaceManager.Instance;
             car = rm != null ? rm.playerCar : null;
-            var applier = DebugCarOps.LiveApplier();
+            applier = DebugCarOps.LiveApplier();
             CrashPlayCheck.Check(car != null && applier != null, "there is a player car and the scene's applier");
-            if (car == null || applier == null) { Done(); yield break; }
+            if (car == null || applier == null) yield break;
             resp = car.GetComponent<CollisionResponder>();
             CrashPlayCheck.Check(CrashStopGap.On, "PSX_FAULT_CRASH is on (the stop-gap is live)");
             CrashPlayCheck.Check(resp != null && resp.Ledger != null,
@@ -168,20 +215,22 @@ namespace PSXRacing.EditorTools
             bool first = true;
             foreach (var spec in picks)
             {
-                yield return Become(applier, spec);
+                // S: the car being swapped OUT of has just crashed.
+                if (!first) PlantCrash();
+                yield return Become(spec, expectClean: !first);
                 string who = spec.name;
                 float wb = car.wheelbase;
                 CrashPlayCheck.Note(who + ": wheelbase " + wb.ToString("0.000") + " m");
                 foreach (float assist in new[] { 0f, CarController.DefaultCountersteerAssist, 1f })
                 {
                     float y0 = 0f;
-                    yield return DriftRun(0f, false, assist, v => y0 = v);
+                    yield return DriftRun(0f, assist, v => y0 = v);
                     var got = new Dictionary<float, float>();
                     foreach (float pull in new[] { CrashStopGap.PullDegMinor, -CrashStopGap.PullDegMinor,
                                                    CrashStopGap.PullDegSevere, -CrashStopGap.PullDegSevere })
                     {
                         float y = 0f;
-                        yield return DriftRun(pull, false, assist, v => y = v);
+                        yield return DriftRun(pull, assist, v => y = v);
                         got[pull] = y - y0;
                     }
                     string a = assist <= 0f ? "assist OFF" : assist >= 1f ? "assist FULL" : "assist STANDARD";
@@ -205,23 +254,55 @@ namespace PSXRacing.EditorTools
                                             (3.5f / Mathf.Max(0.01f, perDegS)).ToString("0.000") + " deg");
                     }
                 }
-                if (first) { yield return LiveRun(who); yield return WallRuns(who, applier, spec); }
+                if (first)
+                {
+                    yield return LiveRun(who, spec);
+                    yield return CarriedRun(who, spec, +1, "on the OTHER side");
+                    yield return CarriedRun(who, spec, -1, "on the SAME side");
+                    yield return WallRuns(who);
+                }
                 first = false;
             }
-            Done();
         }
 
-        IEnumerator Become(RaceHandoffApplier applier, CarSpec spec)
+        /// <summary>A crash on the car being driven, through the responder's
+        /// own record rule: a 12 m/s nose-in on the left, every die forced.</summary>
+        void PlantCrash()
+        {
+            if (resp == null) return;
+            if (resp.Ledger == null) CrashStopGap.Arm(car);
+            if (resp.Ledger == null) return;
+            resp.ResetDamage();
+            resp.Ledger.DrawOverride = Forced;
+            resp.RecordHit(12f, CrashStopGap.ZoneFront, -1, new Vector3(-0.5f, 0f, 2f), "planted", Time.time);
+            var temp = car.GetComponent<EngineTemp>();
+            CrashPlayCheck.Note("planted on the old car before the swap: pull " + car.hitSteerPull.ToString("+0.000;-0.000") +
+                                " deg, radiator hit " + (temp != null ? temp.radiatorHit.ToString("0") : "-") +
+                                ", weep " + (temp != null ? temp.radiatorWeep.ToString("0.00") : "-"));
+        }
+
+        IEnumerator Become(CarSpec spec, bool expectClean)
         {
             RaceHandoff.CarSpecId = spec.id;
             RaceHandoff.CarPaintSkin = null;
             RaceHandoff.UpPower = RaceHandoff.UpWeight = RaceHandoff.UpBrakes = RaceHandoff.UpSuspension = RaceHandoff.UpTires = 0;
             RaceHandoff.Supercharged = false; RaceHandoff.Welded = false; RaceHandoff.Setup = null;
             RaceHandoff.StartFuelPct = 100f;
+            var old = resp != null ? resp.Ledger : null;
             applier.SwapCar();
             for (int f = 0; f < 5; f++) yield return null;
             car.manualMode = false;
-            car.faultSteerPull = 0f; car.faultSteerPullDeg = 0f; car.hitSteerPull = 0f;
+            if (expectClean)
+            {
+                // NOTHING zeroed by hand: SwapCar -> CrashStopGap.StartClean.
+                var temp = car.GetComponent<EngineTemp>();
+                CrashPlayCheck.Check(car.hitSteerPull == 0f && temp != null && temp.radiatorHit == 0f && temp.radiatorWeep == 0f &&
+                                     resp.Ledger != null && resp.Ledger != old && resp.Ledger.Rolls == 0 && resp.WorstHit == 0f,
+                    spec.name + ": S swapped in after the old car crashed, it starts clean on its own - no pull, no cracked core, " +
+                    "no weep, its own ledger and its own hardest hit",
+                    "pull " + car.hitSteerPull.ToString("+0.000;-0.000;0") + ", radiator hit " +
+                    (temp != null ? temp.radiatorHit.ToString("0") : "-") + ", worst hit " + resp.WorstHit.ToString("0.0"));
+            }
         }
 
         IEnumerator Place(float mps)
@@ -235,41 +316,97 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// Settle hands-off at 100 km/h for a second, then put the pull on and
-        /// read how far the car has gone sideways from its line once it has
-        /// covered 100 m along it.
+        /// Settle hands-off at 100 km/h for a second, then read how far the car
+        /// has gone sideways from its line once it has covered 100 m along it.
+        /// Calibration (<paramref name="asIs"/> false): every pull off, then
+        /// <paramref name="pullDeg"/> put on as a crash pull after the settle.
+        /// <paramref name="asIs"/>: the car exactly as the applier left it -
+        /// the next drive's banked pull - nothing written.
         /// </summary>
-        IEnumerator DriftRun(float pullDeg, bool persisted, float assist, System.Action<float> result)
+        IEnumerator DriftRun(float pullDeg, float assist, System.Action<float> result, bool asIs = false)
         {
             car.countersteerAssist = assist;
-            car.hitSteerPull = 0f; car.faultSteerPullDeg = 0f; car.faultSteerPull = 0f;
+            if (!asIs) { car.hitSteerPull = 0f; car.faultSteerPullDeg = 0f; car.faultSteerPull = 0f; }
             yield return Place(Kmh100);
             cruise = true; cruiseMps = Kmh100; drive = true;
             for (float t = 0f; t < 1.0f; t += step) yield return new WaitForFixedUpdate();
             Vector3 p0 = car.transform.position;
             Vector3 f0 = car.transform.forward; f0.y = 0f; f0.Normalize();
             Vector3 r0 = Vector3.Cross(Vector3.up, f0);
-            if (persisted) car.faultSteerPullDeg = pullDeg; else car.hitSteerPull = pullDeg;
-            float along = 0f, tt = 0f;
-            while (along < 100f && tt < 10f)
-            {
-                yield return new WaitForFixedUpdate();
-                tt += step;
-                along = Vector3.Dot(car.transform.position - p0, f0);
-            }
+            if (!asIs) car.hitSteerPull = pullDeg;
+            yield return Along(p0, f0);
             result(Vector3.Dot(car.transform.position - p0, r0));
             drive = false;
-            car.hitSteerPull = 0f; car.faultSteerPullDeg = 0f;
+            if (!asIs) { car.hitSteerPull = 0f; car.faultSteerPullDeg = 0f; }
+        }
+
+        float alongT;
+        IEnumerator Along(Vector3 p0, Vector3 f0)
+        {
+            float along = 0f;
+            alongT = 0f;
+            while (along < 100f && alongT < 10f)
+            {
+                yield return new WaitForFixedUpdate();
+                alongT += step;
+                along = Vector3.Dot(car.transform.position - p0, f0);
+            }
+        }
+
+        // ---- the next drive, built the real way ----------------------------
+        LifeState scratch;
+        OwnedCar owned;
+
+        /// <summary>A scratch career and a scratch car of this spec, its
+        /// faults set to <paramref name="rows"/>, and the request and the car
+        /// under the player made from it (FillCarRequestFor + ReapplyCar) - a
+        /// drive's start, minus the scene load.</summary>
+        void Request(CarSpec spec, params CarFault[] rows)
+        {
+            if (scratch == null) scratch = LifeRules.SeedNewGame("CRASHPLAY", 25, LifeRules.DefaultJobIndex);
+            if (owned == null || owned.specId != spec.id)
+            {
+                owned = CarMarket.MakeOwnedCar(scratch, spec, 80, 40000f, spec.price);
+                scratch.activeCar = owned.id;
+            }
+            owned.faults.Clear();
+            foreach (var r in rows) if (r != null) owned.faults.Add(r);
+            ApplyRequest(spec);
+        }
+
+        void ApplyRequest(CarSpec spec)
+        {
+            LifeHomeScreen.FillCarRequestFor(scratch, owned);
+            RaceHandoff.CarSpecId = spec.id;
+            applier.ReapplyCar();
+            CrashStopGap.Arm(car);             // the drive's own ledger: no crash pull yet
+        }
+
+        CarFault Alignment(int side)
+        {
+            var a = FaultCatalog.MakeById(FaultCatalog.AlignmentId, FaultCatalog.FamilyOf(owned));
+            if (a != null) { a.severity = 1f; a.pullDir = side; }
+            return a;
+        }
+
+        /// <summary>The exit stamp, the apply-back onto the scratch car and the
+        /// next drive's request: what a drive's crash comes home as.</summary>
+        void BankAndNextDrive(CarSpec spec)
+        {
+            CrashStopGap.StampHandoff(resp);
+            CrashBank.ApplyOutcome(owned, CrashBank.FromHandoff());
+            RaceHandoff.ClearResult();
+            ApplyRequest(spec);
         }
 
         // ---- L: the hit through the ledger, at speed ---------------------
-        IEnumerator LiveRun(string who)
+        IEnumerator LiveRun(string who, CarSpec spec)
         {
+            Request(spec);
             car.countersteerAssist = CarController.DefaultCountersteerAssist;
             float y0 = 0f;
-            yield return DriftRun(0f, false, CarController.DefaultCountersteerAssist, v => y0 = v);
+            yield return DriftRun(0f, CarController.DefaultCountersteerAssist, v => y0 = v, asIs: true);
 
-            CrashStopGap.Arm(car);
             var L = resp.Ledger;
             L.DrawOverride = () => new CrashStopGap.Draws { paint = 0.5f, bumper = 0.1f, body = 0.5f, radiator = 0.9f, radAmt = 0.5f, align = 0.1f };
             yield return Place(Kmh100);
@@ -278,40 +415,84 @@ namespace PSXRacing.EditorTools
             Vector3 p0 = car.transform.position;
             Vector3 f0 = car.transform.forward; f0.y = 0f; f0.Normalize();
             Vector3 r0 = Vector3.Cross(Vector3.up, f0);
-            // A 12 m/s nose hit on the LEFT (minor band), as OnCollisionEnter
-            // hands it over.
+            // A 12 m/s nose hit on the LEFT (minor band), through the
+            // responder's own record rule, as OnCollisionEnter hands it over.
             float before = car.hitSteerPull;
-            L.Hit(CrashStopGap.ZoneFront, -1, 12f, CrashStopGap.LiveBumper(), Time.time);
+            resp.ResetDamage();
+            resp.RecordHit(12f, CrashStopGap.ZoneFront, -1, new Vector3(-0.5f, 0f, 2f), "live", Time.time);
             float sameFrame = car.hitSteerPull;
             CrashPlayCheck.Check(before == 0f && Mathf.Approximately(sameFrame, -CrashStopGap.PullDegMinor),
                 who + ": L the pull is on the car the same frame as the hit, to the struck (left) side",
                 before.ToString("0.000") + " -> " + sameFrame.ToString("0.000") + " deg");
-            float along = 0f, tt = 0f;
-            while (along < 100f && tt < 10f)
-            {
-                yield return new WaitForFixedUpdate();
-                tt += step;
-                along = Vector3.Dot(car.transform.position - p0, f0);
-            }
+            yield return Along(p0, f0);
             float y = Vector3.Dot(car.transform.position - p0, r0) - y0;
             CrashPlayCheck.Check(y <= -0.5f && y >= -1.5f,
                 who + ": L and the car is drifting left within the minor band 100 m later, inside the leg",
-                y.ToString("0.00") + " m in " + tt.ToString("0.0") + " s");
+                y.ToString("0.00") + " m in " + alongT.ToString("0.0") + " s");
             drive = false;
             CrashStopGap.StampHandoff(resp);
             CrashPlayCheck.Check(RaceHandoff.CrashRolled && RaceHandoff.CrashAlignSide == -1 && RaceHandoff.CrashAlignSeverity == 1 &&
                                  RaceHandoff.CrashBumperId == "bumper_crack",
                 who + ": L the exit stamp hands the apply-back exactly that (no second roll there)", CrashBank.FromHandoff());
-            RaceHandoff.ClearResult();
 
+            // THE NEXT DRIVE, the real way: banked, requested, applied.
+            BankAndNextDrive(spec);
+            float banked = car.faultSteerPullDeg;
             float yp = 0f;
-            yield return DriftRun(-CrashStopGap.PullDegMinor, true, CarController.DefaultCountersteerAssist, v => yp = v);
+            yield return DriftRun(0f, CarController.DefaultCountersteerAssist, v => yp = v, asIs: true);
             yp -= y0;
-            CrashPlayCheck.Check(Mathf.Abs(yp - y) < 0.25f,
-                who + ": L next drive, the banked alignment (faultSteerPullDeg) drifts the same as the live pull",
-                yp.ToString("0.00") + " vs " + y.ToString("0.00") + " m");
-            car.hitSteerPull = 0f;
-            CrashStopGap.Arm(car);
+            CrashPlayCheck.Check(Mathf.Approximately(banked, -CrashStopGap.PullDegMinor) && car.hitSteerPull == 0f &&
+                                 Mathf.Abs(yp - y) < 0.25f,
+                who + ": L next drive (stamp -> CrashBank -> FillCarRequestFor -> ReapplyCar, no pull written by hand) the banked " +
+                "alignment drifts the same as the live pull",
+                "banked " + banked.ToString("+0.000;-0.000") + " deg; " + yp.ToString("0.00") + " vs " + y.ToString("0.00") + " m");
+            Request(spec);   // a sound car again
+        }
+
+        /// <summary>
+        /// The car ALREADY carries a minor alignment on <paramref name="carriedSide"/>
+        /// (+1 right, -1 left) and takes a minor LEFT nose hit. The pull it
+        /// drives with after the hit (CombinePull: a tie goes to the hit, so
+        /// LEFT either way - never the sum, which was dead straight or doubled)
+        /// and the next drive's banked pull drift the same. The hit lands at
+        /// the start of the run so both are measured from a steady line.
+        /// </summary>
+        IEnumerator CarriedRun(string who, CarSpec spec, int carriedSide, string what)
+        {
+            car.countersteerAssist = CarController.DefaultCountersteerAssist;
+            Request(spec);
+            float y0 = 0f;
+            yield return DriftRun(0f, CarController.DefaultCountersteerAssist, v => y0 = v, asIs: true);
+
+            Request(spec, Alignment(carriedSide));
+            float carried = car.faultSteerPullDeg;
+            resp.ResetDamage();
+            resp.Ledger.DrawOverride = Forced;
+            yield return Place(Kmh100);
+            resp.RecordHit(12f, CrashStopGap.ZoneFront, -1, new Vector3(-0.5f, 0f, 2f), "carried", Time.time);
+            float live = CrashStopGap.CombinePull(car.faultSteerPullDeg, car.hitSteerPull);
+            cruise = true; cruiseMps = Kmh100; drive = true;
+            for (float t = 0f; t < 1.0f; t += step) yield return new WaitForFixedUpdate();
+            Vector3 p0 = car.transform.position;
+            Vector3 f0 = car.transform.forward; f0.y = 0f; f0.Normalize();
+            Vector3 r0 = Vector3.Cross(Vector3.up, f0);
+            yield return Along(p0, f0);
+            float yLive = Vector3.Dot(car.transform.position - p0, r0) - y0;
+            drive = false;
+
+            BankAndNextDrive(spec);
+            float next = car.faultSteerPullDeg;
+            float yNext = 0f;
+            yield return DriftRun(0f, CarController.DefaultCountersteerAssist, v => yNext = v, asIs: true);
+            yNext -= y0;
+            CrashPlayCheck.Check(Mathf.Approximately(live, -CrashStopGap.PullDegMinor) && Mathf.Approximately(next, live) &&
+                                 yLive <= -0.5f && yLive >= -1.5f && Mathf.Abs(yNext - yLive) < 0.25f,
+                who + ": L carrying a minor alignment " + what + " (" + carried.ToString("+0.000;-0.000") + " deg), a minor LEFT hit " +
+                "pulls minor LEFT, toward the hit, and the next drive pulls the same (the old sum: " +
+                (carried - CrashStopGap.PullDegMinor).ToString("+0.000;-0.000;0") + " deg)",
+                "live " + live.ToString("+0.000;-0.000") + " deg " + yLive.ToString("0.00") + " m; next " +
+                next.ToString("+0.000;-0.000") + " deg " + yNext.ToString("0.00") + " m");
+            Request(spec);   // a sound car again
         }
 
         // ---- W: real walls ------------------------------------------------
@@ -339,7 +520,7 @@ namespace PSXRacing.EditorTools
             return 0.88f;
         }
 
-        IEnumerator Hit(string what, System.Action setVelocity, float seconds)
+        IEnumerator Hit(System.Action setVelocity, float seconds)
         {
             drive = true; cruise = false; throttle = 0f; brake = 0f;
             setVelocity();
@@ -347,17 +528,39 @@ namespace PSXRacing.EditorTools
             drive = false;
         }
 
-        IEnumerator WallRuns(string who, RaceHandoffApplier applier, CarSpec spec)
+        string Where() =>
+            CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
+            resp.WorstHit.ToString("0.0") + " m/s, patch centre x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") +
+            " z " + resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " (impulse-weighted x " +
+            resp.WorstHitWeighted.x.ToString("+0.00;-0.00") + ")";
+
+        /// <summary>A nose into a wall whose RIGHT edge sits at
+        /// <paramref name="edgeFrac"/> of the half-width from the centreline
+        /// (negative = left of it), at 12.5 m/s, every die forced.</summary>
+        IEnumerator NoseWall(float edgeFrac, float width, string name)
         {
             float hl = BodyHalfLength(), hw = BodyHalfWidth();
-            var forced = (System.Func<CrashStopGap.Draws>)(() => new CrashStopGap.Draws
-                { paint = 0.5f, bumper = 0.1f, body = 0.5f, radiator = 0.1f, radAmt = 0.5f, align = 0.1f });
+            car.hitSteerPull = 0f;
+            resp.ResetDamage();
+            CrashStopGap.Arm(car);
+            resp.Ledger.DrawOverride = Forced;
+            yield return Place(12.5f);
+            Vector3 c0 = car.transform.position;
+            float edge = XLane + edgeFrac * hw;
+            var w = Wall(new Vector3(edge - width * 0.5f, surfaceY + 1.2f, c0.z + hl + 5f), new Vector3(width, 2.4f, 1f), name);
+            yield return Hit(() => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
+            Object.Destroy(w);
+            yield return null;
+        }
 
-            // W1: nose into a wall that covers only the LEFT third of the
-            // front (its edge 0.3 of the half-width left of the centreline),
-            // with the switch off and then on - the same hit read twice.
+        IEnumerator WallRuns(string who)
+        {
+            float hl = BodyHalfLength(), hw = BodyHalfWidth();
+
+            // W1: nose into a wall over the LEFT 35% of the front (its edge 0.3
+            // of the half-width left of the centreline), with the switch off and
+            // then on - the same hit read twice.
             float dsOn = 0f, whOn = 0f, dsOff = 0f, whOff = 0f;
-            float edge = 0.3f * hw;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool on = pass == 1;
@@ -365,20 +568,18 @@ namespace PSXRacing.EditorTools
                 car.hitSteerPull = 0f;
                 resp.ResetDamage();
                 resp.Ledger = null;
-                if (on) { CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced; }
+                if (on) { CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced; }
                 yield return Place(12.5f);
                 Vector3 c0 = car.transform.position;
-                var w = Wall(new Vector3(XLane - edge - 5f, surfaceY + 1.2f, c0.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "LeftThirdWall");
-                yield return Hit("front", () => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
+                float edge = 0.3f * hw;
+                var w = Wall(new Vector3(XLane - edge - 5f, surfaceY + 1.2f, c0.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "Left35Wall");
+                yield return Hit(() => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
                 if (on) { dsOn = resp.DamageScore; whOn = resp.WorstHit; } else { dsOff = resp.DamageScore; whOff = resp.WorstHit; }
                 if (on)
                 {
                     var t = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
                     CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneFront && resp.WorstHitSide == -1,
-                        who + ": W a nose into a wall covering the LEFT third of the front is FRONT LEFT",
-                        CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) +
-                        " at " + resp.WorstHit.ToString("0.0") + " m/s, located at x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") +
-                        " z " + resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " m");
+                        who + ": W a nose into a wall over the LEFT 35% of the front is FRONT LEFT", Where());
                     CrashPlayCheck.Check(resp.Ledger != null && resp.Ledger.Rolls > 0 && t.Has(CrashStopGap.Cls.Bumper) &&
                                          (resp.WorstHit < CrashStopGap.HeavyMps || (t.alignSide == -1 && car.hitSteerPull < 0f)),
                         who + ": W rolled at the hit (dice forced): " + t, "pull now " + car.hitSteerPull.ToString("0.000") + " deg");
@@ -397,48 +598,74 @@ namespace PSXRacing.EditorTools
                 "WorstHit " + whOff.ToString("0.00") + " / " + whOn.ToString("0.00") + " m/s, DamageScore " +
                 dsOff.ToString("0.0") + " / " + dsOn.ToString("0.0"));
 
-            // W1b: the mirror - a wall covering only the RIGHT third.
-            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced;
+            // W1b: the mirror - a wall over the RIGHT 35% (placed by its left edge).
+            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced;
             yield return Place(12.5f);
             Vector3 cR = car.transform.position;
-            var wr = Wall(new Vector3(XLane + edge + 5f, surfaceY + 1.2f, cR.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "RightThirdWall");
-            yield return Hit("front", () => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
+            var wr = Wall(new Vector3(XLane + 0.3f * hw + 5f, surfaceY + 1.2f, cR.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "Right35Wall");
+            yield return Hit(() => car.Body.linearVelocity = car.transform.forward * 12.5f, 1.5f);
             var tr = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
             CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneFront && resp.WorstHitSide == 1 &&
                                  (resp.WorstHit < CrashStopGap.HeavyMps || (tr.alignSide == 1 && car.hitSteerPull > 0f)),
-                who + ": W a nose into a wall covering the RIGHT third of the front is FRONT RIGHT, and pulls right",
-                CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
-                resp.WorstHit.ToString("0.0") + " m/s, located at x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") +
-                " m; " + tr + "; pull " + car.hitSteerPull.ToString("+0.000;-0.000") + " deg");
+                who + ": W a nose into a wall over the RIGHT 35% of the front is FRONT RIGHT, and pulls right",
+                Where() + "; " + tr + "; pull " + car.hitSteerPull.ToString("+0.000;-0.000") + " deg");
             Object.Destroy(wr);
+            yield return null;
+
+            // W1c/W1d: walls over MORE than half the nose, from the left - the
+            // impulse piles onto the wall's inner edge, right of the centreline;
+            // the patch is still mostly left.
+            foreach (var (frac, pct) in new[] { (0.2f, "60%"), (0.5f, "75%") })
+            {
+                yield return NoseWall(frac, 10f, "Left" + pct + "Wall");
+                var t = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
+                CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneFront && resp.WorstHitSide == -1 &&
+                                     (!t.Has(CrashStopGap.Cls.Alignment) || (t.alignSide == -1 && car.hitSteerPull < 0f)),
+                    who + ": W a nose into a wall over the LEFT " + pct + " of the front is still FRONT LEFT, and pulls left",
+                    Where() + "; " + t + "; pull " + car.hitSteerPull.ToString("+0.000;-0.000;0") + " deg");
+            }
+
+            // W1e: a wall across the WHOLE nose, square: centred - no side, so
+            // no alignment, whatever the dice (they are forced to give one).
+            yield return NoseWall(5f, 10f, "FullWall");
+            {
+                var t = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
+                CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneFront && resp.WorstHitSide == 0 &&
+                                     !t.Has(CrashStopGap.Cls.Alignment) && car.hitSteerPull == 0f &&
+                                     resp.WorstHit >= CrashStopGap.HeavyMps,
+                    who + ": W a square nose into a wall across the WHOLE front is FRONT CENTRE: no struck side, NO alignment " +
+                    "at " + CrashStopGap.HeavyMps + "+ m/s with the alignment die forced",
+                    Where() + "; " + t + "; pull " + car.hitSteerPull.ToString("+0.000;-0.000;0") + " deg");
+            }
 
             // W2: a right flank into a 200 m barrier whose bounds sit AHEAD of the car.
-            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced;
+            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced;
             yield return Place(0f);
             Vector3 c1 = car.transform.position;
             var barrier = Wall(new Vector3(XLane + hw + 0.5f + 0.5f, surfaceY + 0.6f, c1.z + 100f - hl), new Vector3(1f, 1.2f, 200f), "LongBarrier");
             Vector3 bc = barrier.GetComponent<BoxCollider>().bounds.center - c1;
-            yield return Hit("side", () => car.Body.linearVelocity = car.transform.forward * 3f + car.transform.right * 8f, 1.2f);
+            yield return Hit(() => car.Body.linearVelocity = car.transform.forward * 3f + car.transform.right * 8f, 1.2f);
             CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneSide && resp.WorstHitSide == 1,
                 who + ": W a right flank into a 200 m barrier is SIDE RIGHT, though the barrier's bounds are centred " +
                 bc.z.ToString("0") + " m ahead",
-                CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
-                resp.WorstHit.ToString("0.0") + " m/s, located at x " + resp.WorstHitLocal.x.ToString("+0.00;-0.00") + " z " +
-                resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " m; " + (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-") +
+                Where() + "; " + (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-") +
                 "; pull " + car.hitSteerPull.ToString("+0.000;-0.000") + " deg");
             Object.Destroy(barrier);
+            yield return null;
 
-            // W3: the tail into a wall.
-            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = forced;
+            // W3: the tail, square into a full wall at 11 m/s: REAR, centred, no alignment.
+            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced;
             yield return Place(0f);
             Vector3 c2 = car.transform.position;
-            var back = Wall(new Vector3(XLane + 1f, surfaceY + 1.2f, c2.z - hl - 2f), new Vector3(10f, 2.4f, 1f), "RearWall");
-            yield return Hit("rear", () => car.Body.linearVelocity = -car.transform.forward * 6f, 1.5f);
-            CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneRear,
-                who + ": W a tail into a wall is REAR",
-                CrashStopGap.ZoneName(resp.WorstHitZone) + "/" + CrashStopGap.SideName(resp.WorstHitSide) + " at " +
-                resp.WorstHit.ToString("0.0") + " m/s, located at z " + resp.WorstHitLocal.z.ToString("+0.00;-0.00") + " m; " +
-                (resp.Ledger != null ? resp.Ledger.Total.ToString() : "-"));
+            var back = Wall(new Vector3(XLane, surfaceY + 1.2f, c2.z - hl - 2f), new Vector3(10f, 2.4f, 1f), "RearWall");
+            yield return Hit(() => car.Body.linearVelocity = -car.transform.forward * 11f, 1.5f);
+            {
+                var t = resp.Ledger != null ? resp.Ledger.Total : new CrashStopGap.Outcome();
+                CrashPlayCheck.Check(resp.WorstHitZone == CrashStopGap.ZoneRear && resp.WorstHitSide == 0 &&
+                                     !t.Has(CrashStopGap.Cls.Alignment) && car.hitSteerPull == 0f,
+                    who + ": W a tail square into a wall across the whole back is REAR CENTRE: no side, no alignment",
+                    Where() + "; " + t);
+            }
             Object.Destroy(back);
             car.hitSteerPull = 0f;
             resp.ResetDamage();
@@ -448,6 +675,8 @@ namespace PSXRacing.EditorTools
 
         void Done()
         {
+            if (done) return;
+            done = true;
             drive = false;
             CrashStopGap.On = System.Environment.GetEnvironmentVariable("PSX_FAULT_CRASH") != "0";
             foreach (var p in props) if (p != null) Destroy(p);
