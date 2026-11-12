@@ -2264,7 +2264,7 @@ namespace PSXRacing.City
             pavedCache.Clear();
             fanStructure.Clear();
             fanPolys.Clear(); outlines.Clear(); ClearSectionCaches(); pavementVersion = -1;
-            cornerKindCache.Clear(); walkEdgeNow = -1;
+            cornerKindCache.Clear(); walkEdgeNow = -1; cs2CornerPans.Clear();
             tileOrigin = tm.origin;
 
             phaseClock.Restart();
@@ -2313,6 +2313,7 @@ namespace PSXRacing.City
             // phase of it, the perf probe 2026-10-25: this step was the
             // build's longest, 20-210 ms)
             foreach (var _ in CloseOpenGround(map, trims, tm)) yield return 0;
+            Cs2EmitCornerPans();   // (cityinteg 11-11) the curbs' corner pans, seated on the drawn junction (CityMeshes.Curbs2.cs)
             stepItem = 5;
             yield return 0;
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs

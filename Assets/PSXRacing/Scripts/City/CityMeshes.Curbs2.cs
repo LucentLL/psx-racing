@@ -447,12 +447,40 @@ namespace PSXRacing.City
             if (!Curbs2On || !CornerPanOn || cr > 0.5f || cs2Granite) return;
             float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
             if (len < 0.02f) return;
+            // (cityinteg 2026-11-11) laid after the closing pass, on the junction's drawn surface
+            // (Cs2EmitCornerPans): at the ring point's height the plate's inner edge sat level with
+            // or under a fan rising toward its crown, and the flicker finder counted the tie
+            // (junction asphalt | structure 0 -> 106 px, S Tryon). PSX_CITY_PANSEAT=0: as laid.
+            if (PanSeatOn) { cs2CornerPans.Add((a, b, oa, ob, u0, u1)); Curbs2Stats.gutterM += len; Curbs2Stats.cornerPanM += len; return; }
             Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
             ia.y = a.y + GutterLiftM; ib.y = b.y + GutterLiftM;
             Vector3 fa = a, fb = b; fa.y += GutterLiftM; fb.y += GutterLiftM;
             structBucket.Up(fa, ia, ib, fb,
                 new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
             Curbs2Stats.gutterM += len; Curbs2Stats.cornerPanM += len;
+        }
+
+        public static bool PanSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANSEAT") != "0";
+        static readonly List<(Vector3 a, Vector3 b, Vector2 oa, Vector2 ob, float u0, float u1)> cs2CornerPans = new List<(Vector3, Vector3, Vector2, Vector2, float, float)>(64);
+
+        /// <summary>The corner pans of this tile, each corner on the highest drawn road
+        /// surface within -10..+20 cm of its ring height (CityMeshes.Skirts roadGrid), GutterLiftM over it.</summary>
+        static void Cs2EmitCornerPans()
+        {
+            Vector3 Seat(Vector3 p)
+            {
+                float y = roadGrid.Between(p.x, p.z, p.y - 0.10f, p.y + 0.20f, true);
+                if (y > float.NegativeInfinity && y > p.y) p.y = y;
+                p.y += GutterLiftM;
+                return p;
+            }
+            foreach (var (a, b, oa, ob, u0, u1) in cs2CornerPans)
+            {
+                Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
+                structBucket.Up(Seat(a), Seat(ia), Seat(ib), Seat(b),
+                    new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
+            }
+            cs2CornerPans.Clear();
         }
         /// <summary>(round 2) Lids and grates in the road's tone range: the collar a dark
         /// patched ring (was the under band's light grey, which read as a white ring),
