@@ -654,10 +654,13 @@ namespace PSXRacing.EditorTools
                       "the radiator comes home down by what the hit took", (rad0 - car.radiator).ToString("0.0"));
 
                 // NO SECOND ROLL: the same stamp on twenty fresh cars, twenty identical cars.
+                // (Each its own id: MakeOwnedCar's spec#(count + 0-998) can repeat
+                // for cars of one spec, and FindCar would bank onto the earlier one.)
                 int same = 0;
                 for (int i = 0; i < 20; i++)
                 {
                     var c2 = CarMarket.MakeOwnedCar(s, spec, 80, 40000f, spec.price);
+                    c2.id = "crash_same_" + i;
                     c2.faults.Clear(); c2.carHP = c2.paint = c2.radiator = 80f;
                     Stamp(12f * 1.6f, o, true);
                     RaceHandoff.CarId = c2.id;
@@ -670,6 +673,7 @@ namespace PSXRacing.EditorTools
 
                 // The sum alone no longer makes a fault.
                 var c3 = CarMarket.MakeOwnedCar(s, spec, 80, 40000f, spec.price);
+                c3.id = "crash_nosum";
                 c3.faults.Clear();
                 Stamp(LifeRules.ImpactFaultThreshold * 3f, new CrashStopGap.Outcome(), false);
                 RaceHandoff.CarId = c3.id;
@@ -680,6 +684,7 @@ namespace PSXRacing.EditorTools
 
                 // The bump stop: the row comes from the strike, on its wheel's side.
                 var c4 = CarMarket.MakeOwnedCar(s, spec, 80, 40000f, spec.price);
+                c4.id = "crash_strike";
                 c4.faults.Clear();
                 Stamp(0f, CrashStopGap.ResolveBottom(1, 7f), true);
                 RaceHandoff.CarId = c4.id;
