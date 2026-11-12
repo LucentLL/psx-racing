@@ -14,7 +14,8 @@ namespace PSXRacing.EditorTools
     /// THE TITLE'S SAVE-GUARD NOTES (R0a) at the three preview aspects, with
     /// LifeHomePreview's CLIP/OVERLAP report: a healthy career (for
     /// comparison), a newer build's (READ-ONLY), one an older build saved over
-    /// (this build's copy or the older build's), and one that would not load.
+    /// (this build's copy or the older build's), one that would not load, and
+    /// NEW GAME pressed on that last one (its confirm, review 11-12).
     ///
     /// The title is built bare - its menu only, without the Blue Ridge race it
     /// normally sits on - over a hazy-sky grey, so what is checked is the
@@ -63,22 +64,13 @@ namespace PSXRacing.EditorTools
                     LifeSimManager.Reload();
                 });
 
-                Case(outDir, "rewritten", report, () =>
-                {
-                    // As the v25 build the next round ships: its own .last,
-                    // then an exe from before the guard writes the career back.
-                    LifeSimManager.SimulateCodeVersion(LifeSimManager.LastUnstampedVersion + 1);
-                    Career("VINCE", 40);
-                    var st = LifeSimManager.State;
-                    st.saveVersion = LifeSimManager.LastUnstampedVersion + 1;
-                    LifeRules.SleepUntilMorning(st);
-                    LifeSimManager.Save();
-                    var old = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(LifeSimManager.SaveKey));
-                    old.day += 2;
-                    string stripped = Regex.Replace(JsonUtility.ToJson(old), "\"writerVersion\":-?\\d+,?", "");
-                    PlayerPrefs.SetString(LifeSimManager.SaveKey, stripped);
-                    LifeSimManager.Reload();
-                }, after: () => LifeSimManager.SimulateCodeVersion(0));
+                Case(outDir, "rewritten", report, () => Rewritten(false),
+                     after: () => { LifeSimManager.BeforeMigrateHook = null; LifeSimManager.SimulateCodeVersion(0); });
+
+                // THIS BUILD'S COPY pressed, and the copy would not load: the
+                // menu comes back with CONTINUE and says so (review 11-12).
+                Case(outDir, "rewritten_refused", report, () => Rewritten(true),
+                     after: () => { LifeSimManager.BeforeMigrateHook = null; LifeSimManager.SimulateCodeVersion(0); });
 
                 Case(outDir, "failed", report, () =>
                 {
@@ -86,9 +78,19 @@ namespace PSXRacing.EditorTools
                     PlayerPrefs.SetString(LifeSimManager.SaveKey, "{\"saveVersion\":" + cur + ",\"money\":12,\"cars\":[{\"id\":");
                     LifeSimManager.Reload();
                 });
+
+                // NEW GAME pressed on that title: the confirm a failed career
+                // now gets (review 11-12), with its own two-line warning.
+                Case(outDir, "failed_confirm", report, () =>
+                {
+                    Career("VINCE", 40);
+                    PlayerPrefs.SetString(LifeSimManager.SaveKey, "{\"saveVersion\":" + cur + ",\"money\":12,\"cars\":[{\"id\":");
+                    LifeSimManager.Reload();
+                }, confirm: true);
             }
             finally
             {
+                LifeSimManager.BeforeMigrateHook = null;
                 LifeSimManager.SimulateCodeVersion(0);
                 LifeSimManager.Guard = guardWas;
                 LifeSimManager.UseScratchSave(Scratch);
@@ -104,6 +106,36 @@ namespace PSXRacing.EditorTools
             Debug.Log("[SaveGuardPreview] CLIP TOTAL " + found + "\n" + report);
         }
 
+        /// <summary>As the v25 build the next round ships, with a stand-in v25
+        /// step (Migrate has none above v24 yet): its own .last, then an exe
+        /// from before the guard writes the career back. With
+        /// <paramref name="refuse"/>, THIS BUILD'S COPY is then chosen and its
+        /// upgrade throws (a simulated broken step), so it is refused.</summary>
+        static void Rewritten(bool refuse)
+        {
+            int v25 = LifeSimManager.LastUnstampedVersion + 1;
+            LifeSimManager.SimulateCodeVersion(v25);
+            LifeSimManager.BeforeMigrateHook = s => { if (s.saveVersion < v25) s.saveVersion = v25; };
+            Career("VINCE", 40);
+            var st = LifeSimManager.State;
+            st.saveVersion = v25;
+            LifeRules.SleepUntilMorning(st);
+            LifeSimManager.Save();
+            int lastDay = st.day;
+            var old = JsonUtility.FromJson<LifeState>(PlayerPrefs.GetString(LifeSimManager.SaveKey));
+            old.day += 2;
+            string stripped = Regex.Replace(JsonUtility.ToJson(old), "\"writerVersion\":-?\\d+,?", "");
+            PlayerPrefs.SetString(LifeSimManager.SaveKey, stripped);
+            LifeSimManager.Reload();
+            if (!refuse) return;
+            LifeSimManager.BeforeMigrateHook = s =>
+            {
+                if (s.day == lastDay) throw new System.InvalidOperationException("a broken step (simulated)");
+                if (s.saveVersion < v25) s.saveVersion = v25;
+            };
+            if (LifeSimManager.UseLastCopy()) Debug.LogError("[SaveGuardPreview] the .last copy was not refused");
+        }
+
         static string Career(string name, int day)
         {
             LifeSimManager.UseScratchSave(Scratch);
@@ -113,7 +145,8 @@ namespace PSXRacing.EditorTools
             return PlayerPrefs.GetString(LifeSimManager.SaveKey);
         }
 
-        static void Case(string outDir, string label, StringBuilder report, System.Action setup, System.Action after = null)
+        static void Case(string outDir, string label, StringBuilder report, System.Action setup, System.Action after = null,
+                         bool confirm = false)
         {
             try
             {
@@ -121,7 +154,7 @@ namespace PSXRacing.EditorTools
                 report.AppendLine(label + ": trouble " + LifeSimManager.Trouble + ", read-only " + LifeSimManager.ReadOnly +
                                   ", .last offered " + LifeSimManager.HasLastCopy);
                 report.AppendLine("  note: " + (LifeSimManager.TroubleTitle() ?? "(none)"));
-                foreach (var size in Sizes) Shoot(outDir, label, size, report);
+                foreach (var size in Sizes) Shoot(outDir, label, size, report, confirm);
             }
             catch (System.Exception e)
             {
@@ -131,7 +164,8 @@ namespace PSXRacing.EditorTools
             finally { after?.Invoke(); }
         }
 
-        static void Shoot(string outDir, string label, (string name, int w, int h) size, StringBuilder report)
+        static void Shoot(string outDir, string label, (string name, int w, int h) size, StringBuilder report,
+                          bool confirm = false)
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var camGO = new GameObject("PreviewCam");
@@ -153,6 +187,16 @@ namespace PSXRacing.EditorTools
             // The fade starts black and lifts over two seconds; take it away.
             var fade = typeof(TitleScreen).GetField("fade", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(title) as Image;
             if (fade != null) fade.color = new Color(0f, 0f, 0f, 0f);
+            if (confirm)
+            {
+                // NEW GAME pressed: Confirm() clears the buttons with Destroy,
+                // which does nothing outside play mode - clear them here first.
+                var root = typeof(TitleScreen).GetField("root", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(title) as RectTransform;
+                var confirmM = typeof(TitleScreen).GetMethod("Confirm", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (root == null || confirmM == null) { Debug.LogError("[SaveGuardPreview] no root / Confirm()"); return; }
+                for (int i = root.childCount - 1; i >= 0; i--) Object.DestroyImmediate(root.GetChild(i).gameObject);
+                confirmM.Invoke(title, null);
+            }
 
             foreach (var c in Object.FindObjectsByType<Canvas>())
             {

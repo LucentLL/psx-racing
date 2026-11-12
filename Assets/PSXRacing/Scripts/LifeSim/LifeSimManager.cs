@@ -134,22 +134,14 @@ namespace PSXRacing.LifeSim
             state.writerVersion = CodeVersion;
             string json = JsonUtility.ToJson(state);
             PlayerPrefs.SetString(saveKey, json);
-            if (lastDue && Guard)
-            {
-                // The first save after a daily rollover: this build's own copy,
-                // with the date, for the day an older exe writes over the career.
-                // A copy that cannot be written (a full store: WebGL caps all
-                // PlayerPrefs at 1 MB) never costs the save itself.
-                try
-                {
-                    PlayerPrefs.SetString(saveKey + LastSuffix, json);
-                    PlayerPrefs.SetString(saveKey + LastWhenSuffix,
-                        System.DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture));
-                }
-                catch (System.Exception e) { Debug.LogWarning("[LifeSim] could not write the .last copy: " + e.Message); }
-            }
-            lastDue = false;
             PlayerPrefs.Save();
+            // The first save after a daily rollover (and a new career's very
+            // first): this build's own copy, a file with the date beside it,
+            // for the day an older exe writes over the career. Written after
+            // the save is on disk, and a copy that cannot be written never
+            // costs the save itself (WriteLast catches).
+            if (lastDue && Guard) WriteLast(json);
+            lastDue = false;
         }
 
         public static LifeState Load()
@@ -192,19 +184,23 @@ namespace PSXRacing.LifeSim
         //     game, which the next save wrote over the career.
         // So, before any round changes the save (Fault_System_Design §2):
         //   * BACKUP: before Migrate, the raw string is copied to
-        //     <key>.bak.v<old>.<date>; the last three are kept.
+        //     <key>.bak.v<old>.<date>.<n>.json; the last three are kept.
         //   * A NEWER SAVE IS READ-ONLY: Save() writes nothing and the title
         //     says so. Never migrated, never written back.
         //   * WRITER STAMP: every Save() stamps LifeState.writerVersion, and
-        //     the first save after each daily rollover also writes <key>.last.
-        //     A save at v25+ whose writerVersion is below its version was
-        //     written back by an exe from before R0a: its steps from v25 up are
-        //     run again (they are idempotent; that exe dropped their fields)
-        //     and the title offers <key>.last, this build's own copy, instead.
+        //     a new career's first save and the first save after each daily
+        //     rollover also write <key>.last.json. A save at v25+ whose
+        //     writerVersion is below its version was written back by a build
+        //     that did not know that version - one from before R0a (stamp 0),
+        //     or a later one run with PSX_SAVE_GUARD=0 (its own version). The
+        //     steps above the version it knew run again (they must be safe to
+        //     re-run: that build dropped their fields) and the title offers
+        //     <key>.last, this build's own copy, instead.
         //   * NO NEW GAME OVER A CAREER: a load or upgrade that throws keeps
-        //     the raw string as <key>.failed.v<old>.<date>, leaves the main key
-        //     alone, and the title says so. Only an explicit NEW GAME
-        //     (StartNewGame / DeleteSave) writes the main key again.
+        //     the raw string as <key>.failed.v<old>.<date>.<n>.json, leaves
+        //     the main key alone, and the title says so. Only an explicit,
+        //     confirmed NEW GAME (StartNewGame / DeleteSave) writes it again.
+        //   * THE COPIES ARE FILES (CopyDir), never PlayerPrefs - see there.
         // Version steps themselves are untouched: one per shipped round,
         // numbered at merge (LifeSimSelfTest.TestSaveVersionLadder).
 
@@ -225,9 +221,8 @@ namespace PSXRacing.LifeSim
         /// nothing else holds; trimmed only past this).</summary>
         public const int FailedKeep = 5;
 
-        const string BakTag = ".bak.v", BakIndex = ".bak";
-        const string FailTag = ".failed.v", FailIndex = ".failed";
-        const string LastSuffix = ".last", LastWhenSuffix = ".last.when";
+        const string BakTag = ".bak.v", FailTag = ".failed.v", CopyExt = ".json";
+        const string LastFile = ".last.json";
 
         /// <summary>What the last load found wrong with the career on disk.</summary>
         public enum SaveTrouble
@@ -235,9 +230,11 @@ namespace PSXRacing.LifeSim
             None,
             /// <summary>Saved by a NEWER build: loaded read-only, never written back.</summary>
             Newer,
-            /// <summary>A v25+ save that an exe from before R0a wrote back
-            /// (writerVersion below its version). The fields it dropped are
-            /// seeded again; the title offers this build's own .last copy.</summary>
+            /// <summary>A v25+ save written back by a build that did not know
+            /// its version (writerVersion below it: 0 from before R0a, or a
+            /// later build's own with the guard off). The steps above the
+            /// version that build knew ran again; the title offers this
+            /// build's own .last copy.</summary>
             Rewritten,
             /// <summary>Reading or upgrading it threw. Kept untouched; nothing
             /// is saved until an explicit NEW GAME.</summary>
@@ -256,6 +253,9 @@ namespace PSXRacing.LifeSim
         public static string FailedCopyKey { get; private set; }
 
         static bool readOnly, holdWrites, lastDue, warnedHeld, readOnlyNoteDue;
+        /// <summary>This run tried the .last copy and it would not load
+        /// (UseLastCopy's trial): it is not offered again until the next boot.</summary>
+        static bool lastRefused;
 
         /// <summary>The save version THIS build writes (a new career's).</summary>
         public static int CodeVersion => simulatedCodeVersion > 0 ? simulatedCodeVersion : BuiltVersion;
@@ -281,7 +281,7 @@ namespace PSXRacing.LifeSim
             Trouble = SaveTrouble.None;
             TroubleVersion = 0;
             FailedCopyKey = null;
-            readOnly = holdWrites = lastDue = warnedHeld = readOnlyNoteDue = false;
+            readOnly = holdWrites = lastDue = warnedHeld = readOnlyNoteDue = lastRefused = false;
         }
 
         static LifeState LoadGuarded()
@@ -312,13 +312,18 @@ namespace PSXRacing.LifeSim
                 return s;
             }
 
-            // WRITTEN BACK BY AN EXE FROM BEFORE R0a: every step it could not
-            // know runs again, from the last version it could have known.
+            // WRITTEN BACK BY A BUILD THAT DID NOT KNOW THIS VERSION. Its stamp
+            // is the version it did know: 0 from an exe before R0a (which knew
+            // at most v24), or its own from a later build run with
+            // PSX_SAVE_GUARD=0. That build kept every field up to its version,
+            // so only the steps above it run again - a step it knew would act
+            // on live data, not on fields it dropped.
             bool rewritten = stored > LastUnstampedVersion && s.writerVersion < stored;
-            if (rewritten) s.saveVersion = LastUnstampedVersion;
+            if (rewritten) s.saveVersion = Mathf.Max(LastUnstampedVersion, s.writerVersion);
+            int rerunFrom = s.saveVersion;
 
             // THE BACKUP, before the first step can touch anything.
-            if (s.saveVersion < code) KeepCopy(raw, stored, BakTag, BakIndex, BackupKeep);
+            if (s.saveVersion < code) KeepCopy(raw, stored, BakTag, BackupKeep);
             try
             {
                 BeforeMigrateHook?.Invoke(s);
@@ -338,8 +343,8 @@ namespace PSXRacing.LifeSim
             {
                 Trouble = SaveTrouble.Rewritten;
                 TroubleVersion = stored;
-                Debug.LogWarning("[LifeSim] the v" + stored + " career was written back by a build from before the " +
-                                 "save guard (writerVersion " + s.writerVersion + "); its v" + (LastUnstampedVersion + 1) +
+                Debug.LogWarning("[LifeSim] the v" + stored + " career was written back by a build that did not know " +
+                                 "v" + stored + " (writerVersion " + s.writerVersion + "); its v" + (rerunFrom + 1) +
                                  "+ steps ran again" + (HasLastCopy ? ", and this build's own last copy is offered" : ""));
             }
             return s;
@@ -354,7 +359,7 @@ namespace PSXRacing.LifeSim
             holdWrites = true;
             Trouble = SaveTrouble.Failed;
             TroubleVersion = version;
-            try { FailedCopyKey = KeepCopy(raw, version, FailTag, FailIndex, FailedKeep); }
+            try { FailedCopyKey = KeepCopy(raw, version, FailTag, FailedKeep); }
             catch (System.Exception e) { Debug.LogError("[LifeSim] could not keep a copy of the failed save: " + e.Message); }
             Debug.LogError("[LifeSim] the career could not be loaded: " + why + ". The save is untouched (a copy is kept as " +
                            (FailedCopyKey ?? "nothing") + ") and nothing is written over it until NEW GAME.");
@@ -373,100 +378,226 @@ namespace PSXRacing.LifeSim
             return m.Success && int.TryParse(m.Groups[1].Value, out int v) ? v : 0;
         }
 
-        /// <summary>Copy a raw save under
-        /// <c>&lt;key&gt;&lt;tag&gt;&lt;version&gt;.&lt;yyyyMMdd-HHmmss&gt;.&lt;n&gt;</c>
-        /// (n counts up within the list, so a trimmed name is never reused)
-        /// and list it in <c>&lt;key&gt;&lt;index&gt;</c>, keeping the newest
-        /// <paramref name="keep"/>. A string identical to the newest copy is
-        /// not copied twice (a career that loads and quits without saving is
-        /// backed up once, not on every boot). Returns the copy's key.</summary>
-        static string KeepCopy(string raw, int version, string tag, string indexSuffix, int keep)
+        // ------------- WHERE THE COPIES LIVE (R0a review, 11-12) -------------
+        // FILES, never PlayerPrefs. On Android PlayerPrefs is one XML file
+        // (SharedPreferences) that every PlayerPrefs.Save() rewrites whole, so
+        // each copy kept there would ride along with every save the career
+        // makes - up to ten careers' worth with .last, three backups and five
+        // failed copies - and WebGL caps all of PlayerPrefs at 1 MB, where the
+        // copies could crowd out the save itself. As files they are written
+        // only when a copy is made, and PlayerPrefs carries the career alone,
+        // as it did before R0a.
+        //   * A PLAYER keeps them in persistentDataPath/saves (on Windows
+        //     %USERPROFILE%\AppData\LocalLow\<company>\<product>\saves):
+        //     shared by every PC build, as the registry key is.
+        //   * The EDITOR keeps them in its own project's Library. An editor's
+        //     persistentDataPath IS the player's folder (same company and
+        //     product), and a sandbox's tests and tools must never add to,
+        //     trim or replace the owner's copies.
+        //   * WebGL (frozen since 11-10): its files are not synced to
+        //     IndexedDB, so a copy there lasts as long as the tab.
+        // Names: <key>.bak.v<old>.<yyyyMMdd-HHmmss>.<n>.json (n counts up per
+        // kind, so a trimmed name is never reused and the newest is the
+        // highest), <key>.failed.v<old>....json and <key>.last.json, whose
+        // own write time is the date the title shows (one file per rollover:
+        // a second file for the date doubled that save's cost, 8.7 ms against
+        // about 4 in the editor, 11-12).
+
+        static string copyDir;
+
+        /// <summary>The folder the copies are files in (made by the first
+        /// copy): an absolute path, see the note above.</summary>
+        public static string CopyDir => copyDir ??= Application.isEditor
+            ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "..", "Library", "PSXSaveCopies"))
+            : System.IO.Path.Combine(Application.persistentDataPath, "saves");
+
+        static string CopyPath(string name) => System.IO.Path.Combine(CopyDir, name);
+
+        /// <summary>A copy's text by its name (as <see cref="BackupKeys"/>
+        /// lists it), or null when there is none or it cannot be read.</summary>
+        public static string ReadCopy(string name)
         {
-            string indexKey = saveKey + indexSuffix;
-            var keys = ReadIndex(indexKey);
-            int seq = 1;
-            if (keys.Count > 0)
-            {
-                string newest = keys[keys.Count - 1];
-                if (PlayerPrefs.GetString(newest, null) == raw) return newest;
-                int dot = newest.LastIndexOf('.');
-                if (dot >= 0 && int.TryParse(newest.Substring(dot + 1), out int last)) seq = last + 1;
-            }
-            string unique = saveKey + tag + version + "." +
-                            System.DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) +
-                            "." + seq;
-            while (keys.Contains(unique) || PlayerPrefs.HasKey(unique)) unique = unique.Substring(0, unique.LastIndexOf('.') + 1) + (++seq);
+            if (string.IsNullOrEmpty(name)) return null;
             try
             {
-                PlayerPrefs.SetString(unique, raw ?? "");
-                keys.Add(unique);
-                while (keys.Count > keep)
-                {
-                    PlayerPrefs.DeleteKey(keys[0]);
-                    keys.RemoveAt(0);
-                }
-                PlayerPrefs.SetString(indexKey, string.Join("|", keys));
-                PlayerPrefs.Save();
-                return unique;
+                string p = CopyPath(name);
+                return System.IO.File.Exists(p) ? System.IO.File.ReadAllText(p) : null;
             }
             catch (System.Exception e)
             {
-                // A full store (WebGL caps PlayerPrefs at 1 MB): no copy, and
-                // the load or erase carries on as it did before the guard.
-                Debug.LogWarning("[LifeSim] could not keep a copy of the save as " + unique + ": " + e.Message);
-                try { PlayerPrefs.DeleteKey(unique); } catch { }
+                Debug.LogWarning("[LifeSim] could not read the copy " + name + ": " + e.Message);
                 return null;
             }
         }
 
-        static System.Collections.Generic.List<string> ReadIndex(string indexKey)
+        /// <summary>Is there a copy by this name?</summary>
+        public static bool CopyExists(string name)
         {
-            var list = new System.Collections.Generic.List<string>();
-            foreach (var k in PlayerPrefs.GetString(indexKey, "").Split('|'))
-                if (!string.IsNullOrEmpty(k)) list.Add(k);
+            if (string.IsNullOrEmpty(name)) return false;
+            try { return System.IO.File.Exists(CopyPath(name)); }
+            catch { return false; }
+        }
+
+        /// <summary>Write a copy whole or not at all: to a .tmp beside it,
+        /// then moved onto the name. Throws; every caller catches.</summary>
+        static void WriteCopyFile(string name, string text)
+        {
+            System.IO.Directory.CreateDirectory(CopyDir);
+            string p = CopyPath(name), tmp = p + ".tmp";
+            System.IO.File.WriteAllText(tmp, text ?? "");
+            if (System.IO.File.Exists(p)) System.IO.File.Delete(p);
+            System.IO.File.Move(tmp, p);
+        }
+
+        static void DeleteCopyFile(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            try
+            {
+                string p = CopyPath(name);
+                if (System.IO.File.Exists(p)) System.IO.File.Delete(p);
+                if (System.IO.File.Exists(p + ".tmp")) System.IO.File.Delete(p + ".tmp");
+            }
+            catch (System.Exception e) { Debug.LogWarning("[LifeSim] could not delete the copy " + name + ": " + e.Message); }
+        }
+
+        /// <summary>The copies of one kind for the current key, oldest first
+        /// (by their count, n).</summary>
+        static System.Collections.Generic.List<string> ListCopies(string tag)
+        {
+            var found = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<int, string>>();
+            try
+            {
+                if (System.IO.Directory.Exists(CopyDir))
+                {
+                    var rx = new System.Text.RegularExpressions.Regex(
+                        "^" + System.Text.RegularExpressions.Regex.Escape(saveKey + tag) + @"-?\d+\.\d{8}-\d{6}\.(\d+)" +
+                        System.Text.RegularExpressions.Regex.Escape(CopyExt) + "$");
+                    foreach (var path in System.IO.Directory.GetFiles(CopyDir, saveKey + tag + "*" + CopyExt))
+                    {
+                        string name = System.IO.Path.GetFileName(path);
+                        var m = rx.Match(name);
+                        if (m.Success && int.TryParse(m.Groups[1].Value, out int n))
+                            found.Add(new System.Collections.Generic.KeyValuePair<int, string>(n, name));
+                    }
+                }
+            }
+            catch (System.Exception e) { Debug.LogWarning("[LifeSim] could not list the copies: " + e.Message); }
+            found.Sort((a, b) => a.Key != b.Key ? a.Key.CompareTo(b.Key) : string.CompareOrdinal(a.Value, b.Value));
+            var list = new System.Collections.Generic.List<string>(found.Count);
+            foreach (var f in found) list.Add(f.Value);
             return list;
         }
 
-        /// <summary>The pre-migration copies, oldest first (keys).</summary>
-        public static System.Collections.Generic.List<string> BackupKeys() => ReadIndex(saveKey + BakIndex);
+        /// <summary>A copy's n (the number before .json).</summary>
+        static int CountOf(string name)
+        {
+            string stem = name.EndsWith(CopyExt) ? name.Substring(0, name.Length - CopyExt.Length) : name;
+            int dot = stem.LastIndexOf('.');
+            return dot >= 0 && int.TryParse(stem.Substring(dot + 1), out int n) ? n : 0;
+        }
+
+        /// <summary>Copy a raw save to a file named
+        /// <c>&lt;key&gt;&lt;tag&gt;&lt;version&gt;.&lt;yyyyMMdd-HHmmss&gt;.&lt;n&gt;.json</c>
+        /// in <see cref="CopyDir"/> (n counts up within the kind, so a trimmed
+        /// name is never reused), keeping the newest <paramref name="keep"/>.
+        /// A string identical to the newest copy is not copied twice (a career
+        /// that loads and quits without saving is backed up once, not on every
+        /// boot). Returns the copy's name, or null when it could not be
+        /// written - the load or erase then carries on as before the guard.</summary>
+        static string KeepCopy(string raw, int version, string tag, int keep)
+        {
+            var names = ListCopies(tag);
+            int seq = 1;
+            if (names.Count > 0)
+            {
+                string newest = names[names.Count - 1];
+                if (ReadCopy(newest) == raw) return newest;
+                seq = CountOf(newest) + 1;
+            }
+            string stamp = System.DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            string name = saveKey + tag + version + "." + stamp + "." + seq + CopyExt;
+            while (CopyExists(name)) name = saveKey + tag + version + "." + stamp + "." + (++seq) + CopyExt;
+            try
+            {
+                WriteCopyFile(name, raw ?? "");
+                names.Add(name);
+                while (names.Count > keep)
+                {
+                    DeleteCopyFile(names[0]);
+                    names.RemoveAt(0);
+                }
+                return name;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning("[LifeSim] could not keep a copy of the save as " + name + ": " + e.Message);
+                DeleteCopyFile(name);
+                return null;
+            }
+        }
+
+        /// <summary>The pre-migration copies, oldest first (their names in
+        /// <see cref="CopyDir"/>; read one with <see cref="ReadCopy"/>).</summary>
+        public static System.Collections.Generic.List<string> BackupKeys() => ListCopies(BakTag);
 
         /// <summary>The kept copies of saves that failed to load, oldest first.</summary>
-        public static System.Collections.Generic.List<string> FailedKeys() => ReadIndex(saveKey + FailIndex);
+        public static System.Collections.Generic.List<string> FailedKeys() => ListCopies(FailTag);
+
+        /// <summary>The name of this build's own last copy
+        /// (<c>&lt;key&gt;.last.json</c> in <see cref="CopyDir"/>), whether or
+        /// not there is one.</summary>
+        public static string LastCopyName => saveKey + LastFile;
 
         /// <summary>A scratch career's copies (backups, failed copies, .last).
         /// Never the player's own: refused on the career key.</summary>
         static void DeleteCopies()
         {
             if (saveKey == CareerKey) return;
-            foreach (var k in BackupKeys()) PlayerPrefs.DeleteKey(k);
-            foreach (var k in FailedKeys()) PlayerPrefs.DeleteKey(k);
-            PlayerPrefs.DeleteKey(saveKey + BakIndex);
-            PlayerPrefs.DeleteKey(saveKey + FailIndex);
-            PlayerPrefs.DeleteKey(saveKey + LastSuffix);
-            PlayerPrefs.DeleteKey(saveKey + LastWhenSuffix);
+            foreach (var k in BackupKeys()) DeleteCopyFile(k);
+            foreach (var k in FailedKeys()) DeleteCopyFile(k);
+            DeleteCopyFile(saveKey + LastFile);
         }
 
         /// <summary>The live career's daily rollover (LifeRules.Rollover): the
-        /// next <see cref="Save"/> also writes <c>&lt;key&gt;.last</c>. Any
-        /// other state (a test's, the CITY throwaway) is ignored.</summary>
+        /// next <see cref="Save"/> also writes <c>&lt;key&gt;.last.json</c>.
+        /// Any other state (a test's, the CITY throwaway) is ignored.</summary>
         public static void NoteRollover(LifeState s)
         {
             if (s != null && ReferenceEquals(s, state)) lastDue = true;
         }
 
-        /// <summary>This build's own last copy (<c>&lt;key&gt;.last</c>), when
-        /// there is one this build can load: written by a guarded build that
-        /// knew its version, and no newer than this build.</summary>
+        /// <summary>This build's own copy of the career just saved (the file's
+        /// write time is its real date). Never throws: a copy that cannot be
+        /// written costs nothing but the copy.</summary>
+        static void WriteLast(string json)
+        {
+            try { WriteCopyFile(saveKey + LastFile, json); }
+            catch (System.Exception e) { Debug.LogWarning("[LifeSim] could not write the .last copy: " + e.Message); }
+        }
+
+        /// <summary>This build's own last copy (<c>&lt;key&gt;.last.json</c>),
+        /// when there is one this build can load: written by a guarded build
+        /// that knew its version, no newer than this build, and not refused
+        /// by a trial load this run (<see cref="UseLastCopy"/>).</summary>
         public static bool HasLastCopy => LastCopy(out _, out _);
 
         /// <summary>The day the <c>.last</c> copy stands on and when it was
-        /// written ("yyyy-MM-dd HH:mm"). False when there is none usable.</summary>
+        /// written ("yyyy-MM-dd HH:mm", local time: the file's own write
+        /// time). False when there is none usable.</summary>
         public static bool LastCopy(out int day, out string when)
         {
             day = 0;
-            when = PlayerPrefs.GetString(saveKey + LastWhenSuffix, "");
-            string last = PlayerPrefs.GetString(saveKey + LastSuffix, null);
+            when = "";
+            if (lastRefused) return false;
+            string last = ReadCopy(saveKey + LastFile);
             if (string.IsNullOrEmpty(last)) return false;
+            try
+            {
+                when = System.IO.File.GetLastWriteTime(CopyPath(saveKey + LastFile))
+                    .ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch { when = ""; }
             try
             {
                 var s = JsonUtility.FromJson<LifeState>(last);
@@ -480,21 +611,54 @@ namespace PSXRacing.LifeSim
 
         /// <summary>
         /// The title's answer to <see cref="SaveTrouble.Rewritten"/>: carry on
-        /// from THIS build's own last copy. The career on disk (the older
-        /// build's) is backed up first, then <c>.last</c> becomes the career
-        /// and is loaded. False (nothing changed) when there is no such copy.
+        /// from THIS build's own last copy. It is upgraded IN MEMORY first -
+        /// the steps, the edition and built-car passes a load runs - so the
+        /// main key is only ever replaced by a copy that has already loaded.
+        /// One that throws is refused for the rest of this run and nothing
+        /// changes: the older build's copy, already loaded, stays the career.
+        /// On success the career on disk (the older build's) is backed up, and
+        /// .last itself too when it is older than this build (the backup any
+        /// load makes before its steps); then .last becomes the career. False
+        /// (nothing changed) when there is no such copy or it was refused.
         /// </summary>
         public static bool UseLastCopy()
         {
             if (Trouble != SaveTrouble.Rewritten || !LastCopy(out _, out _)) return false;
-            string last = PlayerPrefs.GetString(saveKey + LastSuffix, null);
+            string last = ReadCopy(saveKey + LastFile);
+            string noteWas = editionNote;
+            editionNote = null;
+            LifeState s = null;
+            string why = null;
+            try
+            {
+                s = JsonUtility.FromJson<LifeState>(last);
+                if (s == null || s.saveVersion < 1) why = "it holds no save version";
+                else
+                {
+                    BeforeMigrateHook?.Invoke(s);
+                    Migrate(s);
+                    EditionSanitize(s);
+                    StripBuiltCars(s);
+                }
+            }
+            catch (System.Exception e) { why = e.GetType().Name + ": " + e.Message; }
+            if (why != null)
+            {
+                editionNote = noteWas;
+                lastRefused = true;
+                Debug.LogWarning("[LifeSim] this build's own last copy would not load (" + why + "): the career stays " +
+                                 "the older build's copy, and the last copy is not offered again this run");
+                return false;
+            }
             string onDisk = PlayerPrefs.GetString(saveKey, null);
-            if (!string.IsNullOrEmpty(onDisk)) KeepCopy(onDisk, PeekVersion(onDisk), BakTag, BakIndex, BackupKeep);
+            if (!string.IsNullOrEmpty(onDisk)) KeepCopy(onDisk, PeekVersion(onDisk), BakTag, BackupKeep);
+            int from = PeekVersion(last);
+            if (from < CodeVersion) KeepCopy(last, from, BakTag, BackupKeep);
             PlayerPrefs.SetString(saveKey, last);
             PlayerPrefs.Save();
-            state = null;
-            state = Load() ?? NewGame();
-            Debug.Log("[LifeSim] carried on from this build's own last copy (day " + state.day + ")");
+            ResetGuard();
+            state = s;
+            Debug.Log("[LifeSim] carried on from this build's own last copy (day " + s.day + ")");
             return true;
         }
 
@@ -506,6 +670,65 @@ namespace PSXRacing.LifeSim
             if (Trouble != SaveTrouble.Rewritten) return;
             Trouble = SaveTrouble.None;
             Save();
+        }
+
+        /// <summary>
+        /// WHAT A SAVE COSTS on this machine (design §2 "Size and timing":
+        /// PerfTour reports it, on PC now and on the phone once an APK runs).
+        /// Only on a SCRATCH career - a tour's or a test's own key - because it
+        /// really saves: <paramref name="n"/> plain Save() calls and as many
+        /// first saves after a rollover (each also writes the .last file),
+        /// medians reported. Never the player's own career. One line: the
+        /// career's bytes in PlayerPrefs, the two times, and the copies kept
+        /// beside it as files. Never throws.
+        /// </summary>
+        public static string MeasureSaveCost(int n = 10)
+        {
+            try
+            {
+                if (saveKey == CareerKey) return "not measured (the player's own career is never timed)";
+                if (!Persists || state == null) return "not measured (no career)";
+                if (Guard && (readOnly || holdWrites)) return "not measured (this career is not saved)";
+                n = Mathf.Max(1, n);
+                var sw = new System.Diagnostics.Stopwatch();
+                var plain = new double[n];
+                var roll = new double[n];
+                Save();   // warm
+                for (int i = 0; i < n; i++)
+                {
+                    sw.Restart();
+                    Save();
+                    sw.Stop();
+                    plain[i] = sw.Elapsed.TotalMilliseconds;
+                    NoteRollover(state);
+                    sw.Restart();
+                    Save();
+                    sw.Stop();
+                    roll[i] = sw.Elapsed.TotalMilliseconds;
+                }
+                System.Array.Sort(plain);
+                System.Array.Sort(roll);
+                int bytes = System.Text.Encoding.UTF8.GetByteCount(PlayerPrefs.GetString(saveKey, ""));
+                int files = 0;
+                long copyBytes = 0;
+                var names = BackupKeys();
+                names.AddRange(FailedKeys());
+                names.Add(saveKey + LastFile);
+                foreach (var name in names)
+                {
+                    var fi = new System.IO.FileInfo(CopyPath(name));
+                    if (!fi.Exists) continue;
+                    files++;
+                    copyBytes += fi.Length;
+                }
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                return "career " + bytes + " bytes in PlayerPrefs (the copies are files); Save() median " +
+                       plain[n / 2].ToString("0.00", inv) + " ms, first save after a rollover (+ the .last file) " +
+                       roll[n / 2].ToString("0.00", inv) + " ms (" + n + " each); copies beside it: " + files +
+                       " files, " + (copyBytes / 1024.0).ToString("0.0", inv) + " KB" +
+                       (Guard ? "" : " (PSX_SAVE_GUARD=0)");
+            }
+            catch (System.Exception e) { return "not measured (" + e.GetType().Name + ": " + e.Message + ")"; }
         }
 
         /// <summary>
@@ -529,13 +752,27 @@ namespace PSXRacing.LifeSim
                         return "AN OLDER BUILD SAVED OVER THIS CAREER. THIS BUILD'S COPY: " + DayNoYear(day) +
                                (string.IsNullOrEmpty(when) ? "" : ", SAVED " + when) + "." + older;
                     }
+                    if (lastRefused)
+                        return "AN OLDER BUILD SAVED OVER THIS CAREER. THIS BUILD'S OWN COPY WOULD NOT LOAD, SO THE " +
+                               "OLDER BUILD'S CARRIES ON.";
                     return "AN OLDER BUILD SAVED OVER THIS CAREER. WHAT IT LEFT OUT HAS BEEN SET UP AGAIN.";
                 case SaveTrouble.Failed:
-                    return "THIS BUILD COULD NOT LOAD YOUR CAREER. IT IS KEPT, UNTOUCHED, AS A BACKUP. " +
-                           "NEW GAME STARTS A SEPARATE CAREER.";
+                    // Only what is true: the career is whole on the main key,
+                    // where a fixed build will load it, and NEW GAME (after its
+                    // own confirm) is what replaces it.
+                    return "THIS BUILD COULD NOT LOAD YOUR CAREER. IT IS LEFT AS IT WAS, FOR A FIXED BUILD TO LOAD. " +
+                           "NEW GAME REPLACES IT.";
             }
             return null;
         }
+
+        /// <summary>The title's NEW GAME confirm over a career this build could
+        /// not load (TitleScreen.Confirm). That career is whole on disk, where
+        /// a fixed build would load it; replacing it is the one step that
+        /// loses it, so the confirm says so.</summary>
+        public const string FailedEraseLine =
+            "REPLACE THE CAREER THIS BUILD COULD NOT LOAD? A fixed build would load it. After this, only a copy " +
+            "that no build loads is kept.";
 
         /// <summary>"WED 10 FEB": <see cref="LifeRules.DateLabel"/> without the
         /// year. Public for the self-test.</summary>
@@ -1429,15 +1666,28 @@ namespace PSXRacing.LifeSim
         /// build's career is copied into the backups first, and a failed
         /// load's raw string was already kept by the load - so nothing this
         /// build could not vouch for is ever lost to the new career.
+        ///
+        /// The .last copy belongs to the career being replaced: it goes into
+        /// the backups too (for a career that would not load it may be the
+        /// best copy there is) and off the .last name, so an older exe that
+        /// writes the NEW career back is never answered with the erased one.
         /// </summary>
         static void ReleaseForNewGame()
         {
-            if (Guard && PlayerPrefs.HasKey(saveKey))
+            if (Guard)
             {
-                string raw = PlayerPrefs.GetString(saveKey);
-                int v = PeekVersion(raw);
-                if (readOnly || v > CodeVersion) KeepCopy(raw, v, BakTag, BakIndex, BackupKeep);
-                else if (holdWrites && FailedCopyKey == null) KeepCopy(raw, v, FailTag, FailIndex, FailedKeep);
+                if (PlayerPrefs.HasKey(saveKey))
+                {
+                    string raw = PlayerPrefs.GetString(saveKey);
+                    int v = PeekVersion(raw);
+                    if (readOnly || v > CodeVersion) KeepCopy(raw, v, BakTag, BackupKeep);
+                    else if (holdWrites && FailedCopyKey == null) KeepCopy(raw, v, FailTag, FailedKeep);
+                }
+                string last = ReadCopy(saveKey + LastFile);
+                // Off its name only once it is kept (a full disk leaves it
+                // where it is, and the new career's first save writes over it).
+                if (string.IsNullOrEmpty(last) || KeepCopy(last, PeekVersion(last), BakTag, BackupKeep) != null)
+                    DeleteCopyFile(saveKey + LastFile);
             }
             ResetGuard();
         }
@@ -1458,6 +1708,9 @@ namespace PSXRacing.LifeSim
         {
             ReleaseForNewGame();
             state = LifeRules.SeedNewGame(name, age, jobIdx);
+            // Its first save writes this build's own .last at once: from here
+            // on .last only ever holds the career on the main key.
+            lastDue = true;
             Save();
         }
     }

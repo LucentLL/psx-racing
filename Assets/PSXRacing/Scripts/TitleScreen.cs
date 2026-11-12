@@ -536,8 +536,12 @@ namespace PSXRacing
             SaveNote(y + 60f);
             if (pick)
             {
+                // UseLastCopy loads the copy in memory first; one that will
+                // not load is refused with nothing changed, and the menu comes
+                // back saying so (the older build's copy carries on).
                 items.Add(MenuKit.Button(root, "THIS BUILD'S COPY", new Vector2(0f, 0f), new Vector2(48f, y),
-                    new Vector2(440f, 60f), () => { LifeSimManager.UseLastCopy(); Leave(); }, MenuKit.Head));
+                    new Vector2(440f, 60f), () => { if (LifeSimManager.UseLastCopy()) Leave(); else BuildButtons(); },
+                    MenuKit.Head));
                 y -= 76f;
                 items.Add(MenuKit.Button(root, "OLDER BUILD'S COPY", new Vector2(0f, 0f), new Vector2(48f, y),
                     new Vector2(440f, 60f), () => { LifeSimManager.KeepStoredCopy(); Leave(); }, MenuKit.Head));
@@ -549,8 +553,15 @@ namespace PSXRacing
                     new Vector2(0f, 0f), new Vector2(48f, y), new Vector2(440f, 60f), Leave, MenuKit.Head));
                 y -= 76f;
             }
+            // A career on disk is never replaced in one press - one this build
+            // could not load included (it holds no name in memory, so
+            // HasCareer is false, but it is whole on disk): the confirm first.
             items.Add(MenuKit.Button(root, "NEW GAME", new Vector2(0f, 0f), new Vector2(48f, y),
-                new Vector2(440f, 60f), () => { if (HasCareer) Confirm(); else Leave(); }, MenuKit.Head));
+                new Vector2(440f, 60f), () =>
+                {
+                    if (HasCareer || LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Failed) Confirm();
+                    else Leave();
+                }, MenuKit.Head));
             y -= 76f;
             // ARCADE (owner, 2026-11-03): any car, any course, nothing banked.
             items.Add(MenuKit.Button(root, "ARCADE", new Vector2(0f, 0f), new Vector2(48f, y),
@@ -580,12 +591,23 @@ namespace PSXRacing
         const float SaveNoteW = 800f;
 
         /// <summary>NEW GAME over a career: the same erase-and-confirm as the
-        /// home screen's START OVER.</summary>
+        /// home screen's START OVER. Over a career this build could not load,
+        /// it says what replacing that one costs (LifeSimManager.FailedEraseLine):
+        /// a fixed build would load it, and after this only a copy is kept.</summary>
         void Confirm()
         {
             for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
-            MenuKit.Label(root, "ERASE THIS CAREER? Money, cars and rep are gone.", 18,
-                new Vector2(0f, 0f), new Vector2(48f, 180f), TextAnchor.MiddleLeft, MenuKit.Bad, 520f);
+            if (LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Failed)
+            {
+                // Two lines, bottom edge just over YES (as wide as SaveNote).
+                float w = Mathf.Min(SaveNoteW, 2f * MenuKit.HalfWidth - 96f);
+                var t = MenuKit.Para(root, LifeSimManager.FailedEraseLine, 18, new Vector2(0f, 0f), new Vector2(48f, 0f),
+                    out float h, TextAnchor.UpperLeft, MenuKit.Bad, w);
+                t.rectTransform.anchoredPosition = new Vector2(48f, 160f + h);
+            }
+            else
+                MenuKit.Label(root, "ERASE THIS CAREER? Money, cars and rep are gone.", 18,
+                    new Vector2(0f, 0f), new Vector2(48f, 180f), TextAnchor.MiddleLeft, MenuKit.Bad, 520f);
             var yes = MenuKit.Button(root, "YES — START OVER", new Vector2(0f, 0f), new Vector2(48f, 120f),
                 new Vector2(440f, 54f), () => { LifeSimManager.DeleteSave(); Leave(); }, 20,
                 new Color(0.42f, 0.12f, 0.12f, 1f));
