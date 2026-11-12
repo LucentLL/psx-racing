@@ -378,8 +378,21 @@ namespace PSXRacing.EditorTools
         {
             LifeHomeScreen.FillCarRequestFor(scratch, owned);
             RaceHandoff.CarSpecId = spec.id;
+            FreshRun();                         // a new drive: no crash on it yet
             applier.ReapplyCar();
-            CrashStopGap.Arm(car);             // the drive's own ledger: no crash pull yet
+        }
+
+        /// <summary>A run that stands for a new drive starts the way one does:
+        /// its own hardest hit and its own ledger, no crash pull, no cracked
+        /// core and no weep (CrashStopGap.StartClean - what a swapped-in car
+        /// gets), every die forced. Without it the runs' radiator hits piled
+        /// up on the one car the check drives (the game arms once per drive).</summary>
+        void FreshRun()
+        {
+            resp.ResetDamage();
+            if (resp.Ledger == null) CrashStopGap.Arm(car);
+            CrashStopGap.StartClean(car);
+            if (resp.Ledger != null) resp.Ledger.DrawOverride = Forced;
         }
 
         CarFault Alignment(int side)
@@ -540,10 +553,7 @@ namespace PSXRacing.EditorTools
         IEnumerator NoseWall(float edgeFrac, float width, string name)
         {
             float hl = BodyHalfLength(), hw = BodyHalfWidth();
-            car.hitSteerPull = 0f;
-            resp.ResetDamage();
-            CrashStopGap.Arm(car);
-            resp.Ledger.DrawOverride = Forced;
+            FreshRun();
             yield return Place(12.5f);
             Vector3 c0 = car.transform.position;
             float edge = XLane + edgeFrac * hw;
@@ -565,10 +575,8 @@ namespace PSXRacing.EditorTools
             {
                 bool on = pass == 1;
                 CrashStopGap.On = on;
-                car.hitSteerPull = 0f;
-                resp.ResetDamage();
-                resp.Ledger = null;
-                if (on) { CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced; }
+                if (on) FreshRun();
+                else { resp.ResetDamage(); resp.Ledger = null; car.hitSteerPull = 0f; }
                 yield return Place(12.5f);
                 Vector3 c0 = car.transform.position;
                 float edge = 0.3f * hw;
@@ -599,7 +607,7 @@ namespace PSXRacing.EditorTools
                 dsOff.ToString("0.0") + " / " + dsOn.ToString("0.0"));
 
             // W1b: the mirror - a wall over the RIGHT 35% (placed by its left edge).
-            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced;
+            FreshRun();
             yield return Place(12.5f);
             Vector3 cR = car.transform.position;
             var wr = Wall(new Vector3(XLane + 0.3f * hw + 5f, surfaceY + 1.2f, cR.z + hl + 5f), new Vector3(10f, 2.4f, 1f), "Right35Wall");
@@ -639,7 +647,7 @@ namespace PSXRacing.EditorTools
             }
 
             // W2: a right flank into a 200 m barrier whose bounds sit AHEAD of the car.
-            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced;
+            FreshRun();
             yield return Place(0f);
             Vector3 c1 = car.transform.position;
             var barrier = Wall(new Vector3(XLane + hw + 0.5f + 0.5f, surfaceY + 0.6f, c1.z + 100f - hl), new Vector3(1f, 1.2f, 200f), "LongBarrier");
@@ -654,7 +662,7 @@ namespace PSXRacing.EditorTools
             yield return null;
 
             // W3: the tail, square into a full wall at 11 m/s: REAR, centred, no alignment.
-            car.hitSteerPull = 0f; resp.ResetDamage(); CrashStopGap.Arm(car); resp.Ledger.DrawOverride = Forced;
+            FreshRun();
             yield return Place(0f);
             Vector3 c2 = car.transform.position;
             var back = Wall(new Vector3(XLane, surfaceY + 1.2f, c2.z - hl - 2f), new Vector3(10f, 2.4f, 1f), "RearWall");
@@ -667,9 +675,7 @@ namespace PSXRacing.EditorTools
                     Where() + "; " + t);
             }
             Object.Destroy(back);
-            car.hitSteerPull = 0f;
-            resp.ResetDamage();
-            CrashStopGap.Arm(car);
+            FreshRun();
             yield return null;
         }
 
