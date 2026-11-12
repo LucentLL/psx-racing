@@ -322,6 +322,17 @@ namespace PSXRacing
                 countV[v]++;
                 impOf[i] = HasLod(v, 3) ? (uint)(n + impCount++) : 0u;
             }
+            if (pooled)
+            {
+                // A STREAMED forest (MeshForest.Pool.cs): any slot may hold any
+                // species, so every list can take the whole pool, every plant has
+                // an impostor row, and no chunk holds anything yet
+                for (int v = 0; v < nv; v++) countV[v] = n;
+                for (int i = 0; i < n; i++) impOf[i] = (uint)(n + i);
+                impCount = n;
+                System.Array.Clear(chunkMaskLo, 0, chunkMaskLo.Length);
+                System.Array.Clear(chunkMaskHi, 0, chunkMaskHi.Length);
+            }
 
             // the lists: one a species and level that has a mesh, one more a canopy species for the other cameras
             float[] levelFrom = { 0f, lod0To, lod1To, meshRange };
@@ -418,7 +429,7 @@ namespace PSXRacing
 
                 var meta = new NativeArray<MetaInfo>(n, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
                 for (int i = 0; i < n; i++)
-                    meta[i] = new MetaInfo { packed = (uint)(int)instScaleVar[i].y | ((uint)chunkOf[i] << 10), imp = impOf[i] };
+                    meta[i] = new MetaInfo { packed = (uint)(int)instScaleVar[i].y | ((uint)(pooled ? chunks.Length : chunkOf[i]) << 10), imp = impOf[i] };
                 metaBuf.SetData(meta);
                 meta.Dispose();
                 varBuf.SetData(infos);
@@ -503,6 +514,7 @@ namespace PSXRacing
         {
             gpuRoot = root;
             int n = inst.Length;
+            if (pooled) { PoolBake(root); return; }   // (the slots write their own rows as tiles fill them)
             var rows = new NativeArray<Vector4>((n + impCount) * 3, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             int at = n * 3;
             for (int i = 0; i < n; i++)
@@ -609,6 +621,8 @@ namespace PSXRacing
                         if (pn.x * wc.x + pn.y * wc.y + pn.z * wc.z + planes[k].distance < -rad * (Mathf.Abs(pn.x) + Mathf.Abs(pn.y) + Mathf.Abs(pn.z))) { draw = false; break; }
                     }
                 uint f = !draw ? 0u : dist - rad >= meshRange ? 2u : 1u;
+                // (a streamed forest's tiles may stand their cards up again on their own: held every frame)
+                if (pooled) SetCards(chunks[ci], f == 0);
                 if (!cardsKnown || f != chunkFlag[ci])
                 {
                     if (!cardsKnown || (f == 0) != (chunkFlag[ci] == 0)) SetCards(chunks[ci], f == 0);

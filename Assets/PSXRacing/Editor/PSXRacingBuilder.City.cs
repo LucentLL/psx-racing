@@ -119,6 +119,7 @@ namespace PSXRacing.EditorTools
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
             var kit = EnsureCityKit();
+            EnsureCityTreeKit();   // ctrees 2026-11-11: the PC profile's mesh trees (deleted on a non-PC pass)
             RegisterCitySeasonal(kit);
 
             // RaceManager + applier when there is a path, the free-roam
