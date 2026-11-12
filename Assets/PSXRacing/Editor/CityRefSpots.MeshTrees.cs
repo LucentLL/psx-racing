@@ -192,7 +192,7 @@ namespace PSXRacing.EditorTools
                     CityMeshTrees.Round1Mode = false;
                 }
                 world.DropAll(); mt.Flush();
-                log.Append($"\nCITY FOLIAGE AUDIT (round 2): {audit.tiles} tiles, {audit.trees} mesh trees, {audit.points} crown points tested -> trees through solids {audit.bad} (must be 0): road envelope {audit.road}, building {audit.bld}, pole/wire {audit.pole}, signal {audit.sig}, collider {audit.col}\n");
+                log.Append($"\nCITY FOLIAGE AUDIT (round 2): {audit.tiles} tiles, {audit.trees} mesh trees, {audit.points} crown points tested -> trees through solids {audit.bad} (must be 0): road envelope {audit.road}, building {audit.bld}, pole/wire {audit.pole}, signal {audit.sig}, collider {audit.col}; trunks standing with no drawn tree {audit.colliderOnly} (must be 0)\n");
                 foreach (var w in audit.worst) log.Append("  " + w + "\n");
                 log.Append("  colliders that refused candidates:");
                 foreach (var kv in CityMeshTrees.RejectColliders) log.Append($" {kv.Key} {kv.Value};");
@@ -533,7 +533,7 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         class AuditSum
         {
-            public int tiles, trees, points, bad, road, bld, pole, sig, col;
+            public int tiles, trees, points, bad, road, bld, pole, sig, col, colliderOnly;
             public readonly HashSet<long> seen = new HashSet<long>();
             public readonly List<string> worst = new List<string>();
         }
@@ -659,6 +659,40 @@ namespace PSXRacing.EditorTools
                 }
             }
             log.Append($"  audit: {ringTrees} mesh trees in this ring's new tiles, {ringBad} through a solid\n");
+            // TRUNKS v DRAWN TREES: every solid trunk in the city's table stands on a drawn
+            // mesh tree's foot, and every solid kept tree has its trunk there
+            if (world.Trunks != null)
+            {
+                var near = new List<Vector4>();
+                int colliderOnly = 0, missing = 0, solids = 0;
+                foreach (long key in mt.FittedKeys)
+                {
+                    var plants = mt.PlantsOf(key); var frame = mt.FrameOf(key);
+                    if (plants == null || frame == null) continue;
+                    int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
+                    var c = new Vector3((tx + 0.5f) * CityMeshes.TileSize, 0f, (tz + 0.5f) * CityMeshes.TileSize);
+                    near.Clear();
+                    world.Trunks.TableTrunksNear(c, CityMeshes.TileSize * 0.75f, near);
+                    var feet = new HashSet<long>();
+                    foreach (var p in plants) feet.Add(((long)Mathf.RoundToInt(p.pos.x * 20f) << 32) ^ (uint)Mathf.RoundToInt(p.pos.z * 20f));
+                    var trunkAt = new HashSet<long>();
+                    foreach (var t in near)
+                    {
+                        if (Mathf.FloorToInt(t.x / CityMeshes.TileSize) != tx || Mathf.FloorToInt(t.z / CityMeshes.TileSize) != tz) continue;
+                        long k = ((long)Mathf.RoundToInt(t.x * 20f) << 32) ^ (uint)Mathf.RoundToInt(t.z * 20f);
+                        trunkAt.Add(k);
+                        if (!feet.Contains(k)) colliderOnly++;
+                    }
+                    foreach (var t in frame.trees)
+                    {
+                        if (!t.solid) continue;
+                        solids++;
+                        if (!trunkAt.Contains(((long)Mathf.RoundToInt(t.foot.x * 20f) << 32) ^ (uint)Mathf.RoundToInt(t.foot.z * 20f))) missing++;
+                    }
+                }
+                log.Append($"  TRUNKS v TREES: {solids} solid trees; trunks with no drawn tree on them {colliderOnly} (must be 0); solid trees with no trunk {missing}\n");
+                sum.colliderOnly += colliderOnly;
+            }
         }
 
         static float SegDistA(Vector2 p, Vector2 a, Vector2 b)
