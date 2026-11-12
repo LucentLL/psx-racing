@@ -1,3 +1,58 @@
+# HANDOFF - CITY INTEGRATION 11-11 ("cityinteg", branch integ-city-1111; NOT pushed, NOT merged by me)
+
+Base mountain-nm 93903bd7 + fixes-1111 (beacons r1-r3; car/cockpit files kept at mountain-nm, proven: no diff outside the beacon files) + charlotte-curbs-drains 128f9e53 + charlotte-road-seams 9f0e0d08 + charlotte-buildings-1111 (merged three times: 1f001b35, 312abb93, e98adc39) + the coordinator's 9c7d9750 (roof _HouseTint after the material exists). Sandbox PSXPerf (lock "cityinteg", removed). Sheet: scratchpad `cityinteg\city_integ_sheet.png` (base | merged, 14 poses).
+
+## Conflicts and how I resolved them
+- fixes-1111: CockpitFit.Table.cs, CockpitInterior.cs, DoorMirrors.Table.cs, CarViewer.cs, CarShell.cs, PSXCarPaint.shader conflicted, and CockpitFitProbe.cs / DoorMirrorMatch.cs auto-merged with old code. All of them take mountain-nm's version (cars2 builds on top of them). HANDOFF.md merged as a union.
+- curbs, seams: only HANDOFF.md conflicted. CarController.cs (curbs envelope, OFF) and mountain-nm's parked fix auto-merged; both are kept. PSXLit.shader (buildings _HouseTint) merged cleanly with mountain-nm's texture-round lines.
+- buildings 1f001b35 DID NOT COMPILE: HousePolyRoof and the flat counter were spliced inside the roof block. I put them back in order; the branch fixed the same thing itself in 4f6276fe.
+- buildings 13ce514b (HouseStepOffRoad, 1 m, units included) covers my 96576db8 (PSX_CITY_HOUSEPARTCLEAR, 0.75 m). I kept the branch's rule and removed mine.
+- Added .meta files for 12 new scripts that came in without one.
+- CityTileCache.Format: NOT bumped. Every baked class field is listed (treefields_check: 0 unknown, same as base). The new house vertex colours ride the generic colour channel. No new Slot. The fingerprint changes anyway, so the city must be re-baked.
+
+## Fixed here (switch =0 gives the before)
+- PSX_CITY_SLABSEAT (RoadSlab.cs): a fan-mouth step face now stops on the ribbon's own edge, instead of going 3 cm through it. Flicker junction|tw3t: 97 -> 0 px.
+- PSX_CITY_PANSEAT (Curbs2.cs, plus one line in CityMeshes.cs TileSteps): corner gutter pans are laid after the closing pass, on the drawn junction surface. Flicker junction|structure: 106 -> 0 px.
+- PSX_CITY_CURBNOEDGE (Curbs2.cs CurbNoEdgeLines; CityMeshes.cs EmitRibbon / DrawnLines): a curbed walk side has no edge line. Uncurbed roads, freeways and a median side keep theirs. The full-quad spans become three strips (2 extra quads).
+- 0.5 mm / 20 cm bug in my own first version: TriGrid.Between(..., any=true) returns the band top, not the surface height (a88d3904).
+- New tools: Editor/CityIntegCost.cs (triangles and ms per tile on 3x3 rings) and Editor/CityIntegShots.cs (poses written to a file, so the base code can shoot the same frames).
+
+## Gates, base 93903bd7 | merged (final head)
+- Drive audit: uptown, tryon and independence routes + 9 default tiles + box (Wesley Heights courts included): 30 ok/FAIL lines identical. Walls in lanes 0|0, fall holes 0|0, invisible in lanes 0|0, solids 88|88, drawn faces in a lane 120|120. N Graham e20287: 26 lines identical.
+- Launch: 91|91 (the same spots, within 1 mm). Unload: 565|563.
+- Traffic: CITY TRAFFIC OK twice, 0 traffic-on-traffic bumps.
+- Flicker: 460|525.
+  - FIXED: the seams' fan-mouth tie and the corner-pan tie.
+  - LEFT: Buildings FacadeGlass|RoofFlat 46 px at tryon0, 150-400 m out. It goes with PSX_CITY_LRLOOK=0 + PSX_CITY_LRHEIGHT=0 (478 px then), so it comes from the types round's low-rise. Not found; that is for the buildings owner.
+- Seam audit (open metres, merged code, slab off -> on):
+  - owner tile 3,442 -> 93 (68 with CURBNOEDGE=0)
+  - Uptown 4x4: 106,183 -> 2,980 (2,895)
+  - 60-tile sample: 99,105 -> 498 (517)
+  - Open steps: 0 at the owner tile. The rest is 0-1 mm T-junction joins. Not 0.
+- Windows: cut + buried 9,904 -> 0 (64 tiles). Flat house roofs 0.
+- House census: GAP 0 = base, buried p95 0.60 = base.
+- Roof closure: 838 -> 845 points see daylight.
+- Trees: FAIL 152|152.
+- Beacons: far 118/121, near 118/121 within 5 cm.
+- Cost, base | merged, ms a tile and triangles a tile:
+
+  | ring | ms | triangles |
+  |---|---|---|
+  | N Graham | 150 \| 168 | 17,955 \| 29,558 |
+  | Uptown | 396 \| 517 | 37,776 \| 46,826 |
+  | Plaza Midwood houses | 159 \| 194 | 20,869 \| 39,745 |
+  | I-77 | 332 \| 384 | 26,069 \| 39,102 |
+
+  - Growth by mesh: buildingCollider (houses x4.7), structure (pans, lids), roads (slab).
+  - Full bake estimate: about 2,000-2,400 s (today 1,711 s), with the tile files about 1.5x larger.
+
+## Seen in the pictures / not done
+- N Graham: the edge line is gone. The gutter pan and the plumb curb read right, and the corner pans go round the returns.
+- The owner's frame is NOT matched: the seams' pick (n14254 / e20287) is a 2-lane arm, and his screenshot shows 4 lanes.
+- Night frames: the sidewalks are blown out in the editor, before and after.
+- Atando Ave: my pose shows trees, not the sheds.
+- Lexington Ave: rolled curb, porches, chimneys. The house inlet frame landed on a vertical-curb street.
+- Not done: no player build, no play-mode drive.
 # HANDOFF - CAR RE-DELIVERIES 11-11 AFTERNOON + ROUND STEERING WHEEL + VIPER/FULL-SIZE COWL (cars-1111b, 2026-11-11; agent "cars2"; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-cars2` off mountain-nm fc5e975e. Sandbox PSXLab (lock "cars2", released). Sheet: scratchpad `cars2\cars2_sheet.png`.
