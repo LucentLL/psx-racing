@@ -523,10 +523,11 @@ namespace PSXRacing.LifeSim
                 case SaveTrouble.Rewritten:
                     if (LastCopy(out int day, out string when))
                     {
-                        string older = state != null ? " OR THE OLDER BUILD'S (" + LifeRules.DateLabel(state.day) + ")" : "";
-                        return "AN OLDER BUILD SAVED OVER THIS CAREER. CARRY ON FROM THIS BUILD'S OWN COPY (" +
-                               LifeRules.DateLabel(day) + (string.IsNullOrEmpty(when) ? "" : ", SAVED " + when) + ")" +
-                               older + ".";
+                        // Two lines on a phone's title (SaveNote): the game
+                        // dates without the year, the real one as written.
+                        string older = state != null ? " THE OLDER BUILD'S: " + DayNoYear(state.day) + "." : "";
+                        return "AN OLDER BUILD SAVED OVER THIS CAREER. THIS BUILD'S COPY: " + DayNoYear(day) +
+                               (string.IsNullOrEmpty(when) ? "" : ", SAVED " + when) + "." + older;
                     }
                     return "AN OLDER BUILD SAVED OVER THIS CAREER. WHAT IT LEFT OUT HAS BEEN SET UP AGAIN.";
                 case SaveTrouble.Failed:
@@ -534,6 +535,15 @@ namespace PSXRacing.LifeSim
                            "NEW GAME STARTS A SEPARATE CAREER.";
             }
             return null;
+        }
+
+        /// <summary>"WED 10 FEB": <see cref="LifeRules.DateLabel"/> without the
+        /// year. Public for the self-test.</summary>
+        public static string DayNoYear(int day)
+        {
+            string d = LifeRules.DateLabel(day);
+            int sp = d.LastIndexOf(' ');
+            return sp > 0 ? d.Substring(0, sp) : d;
         }
 
         static string editionNote;

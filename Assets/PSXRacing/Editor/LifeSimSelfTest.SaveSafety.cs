@@ -107,39 +107,50 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
-        /// <summary>EVERY WRITER GOES THROUGH THE GUARD: no file but
-        /// LifeSimManager writes or deletes the career key, and nothing calls
-        /// PlayerPrefs.DeleteAll. (This file writes the SCRATCH key on purpose,
-        /// to play the older exe, and is left out.)</summary>
+        /// <summary>
+        /// EVERY WRITER GOES THROUGH THE GUARD. The key's name is a private
+        /// const of LifeSimManager, so outside it the career can be reached
+        /// only (a) by spelling the name out, (b) through LifeSimManager.SaveKey,
+        /// or (c) by wiping every pref at once. A tripwire on all three:
+        ///   * nothing wipes every pref;
+        ///   * the name is spelled out only by LifeSimSelfTest.cs (TestEditions
+        ///     READS it to prove the CITY throwaway never wrote it);
+        ///   * SaveKey is used only by tools that first move onto a scratch
+        ///     key (UseScratchSave) - this test and SaveGuardPreview, which
+        ///     write that key by hand to play an older or newer build.
+        /// A new file on any of these lists fails here and has to be looked at.
+        /// (The tokens are assembled below so this file does not trip itself.)
+        /// </summary>
         static void SaveGuardWriters()
         {
-            var writeRx = new Regex(@"PlayerPrefs\.(SetString|SetInt|SetFloat|DeleteKey|DeleteAll)\s*\(([^;]*)");
+            string wipeAll = "PlayerPrefs." + "DeleteAll";
+            string keyName = "psxRacing" + "LifeSave";
             var offenders = new List<string>();
+            var excused = new List<string>();
             int saveCalls = 0, saveFiles = 0, scanned = 0;
             foreach (var f in Directory.GetFiles(Application.dataPath, "*.cs", SearchOption.AllDirectories))
             {
                 string name = Path.GetFileName(f);
-                if (name == "LifeSimManager.cs" || name == "LifeSimSelfTest.SaveSafety.cs") continue;
+                if (name == "LifeSimManager.cs") continue;   // the guard itself
                 string text;
                 try { text = File.ReadAllText(f); } catch { continue; }
                 scanned++;
                 int calls = Regex.Matches(text, @"LifeSimManager\.Save\(\)").Count;
                 if (calls > 0) { saveCalls += calls; saveFiles++; }
-                if (!text.Contains("PlayerPrefs.")) continue;
-                foreach (Match m in writeRx.Matches(text))
+                if (text.Contains(wipeAll)) offenders.Add(name + " (" + wipeAll + ")");
+                if (text.Contains(keyName) && name != "LifeSimSelfTest.cs")
+                    offenders.Add(name + " (spells out the career key)");
+                if (text.Contains("LifeSimManager.SaveKey"))
                 {
-                    string args = m.Groups[2].Value;
-                    if (m.Groups[1].Value == "DeleteAll" || args.Contains("psxRacingLifeSave") ||
-                        args.Contains("SaveKey") || args.Contains("saveKey") || args.Contains("CareerKey"))
-                    {
-                        int line = 1 + text.Substring(0, m.Index).Split('\n').Length - 1;
-                        offenders.Add(name + ":" + line);
-                    }
+                    if (text.Contains("LifeSimManager.UseScratchSave(")) excused.Add(name);
+                    else offenders.Add(name + " (LifeSimManager.SaveKey without a scratch key)");
                 }
             }
             Check(offenders.Count == 0,
-                  "nothing but LifeSimManager writes or deletes the career key, and nothing calls PlayerPrefs.DeleteAll (" +
+                  "nothing but LifeSimManager writes or deletes the career key, and nothing wipes every pref (" +
                   scanned + " files)", offenders.Count == 0 ? null : string.Join(", ", offenders));
+            Line("    scratch-key tools that write their own key by hand: " +
+                 (excused.Count == 0 ? "none" : string.Join(", ", excused)));
             Line("    " + saveCalls + " calls to LifeSimManager.Save() in " + saveFiles +
                  " files: every one goes through the guard inside Save()");
         }
@@ -382,8 +393,8 @@ namespace PSXRacing.EditorTools
                 Check(offered && lastDay == mineS.day && lastWhen == when && LifeSimManager.HasLastCopy,
                       "and the .last copy is offered, with its day and date", lastDay + " / " + lastWhen);
                 string title = LifeSimManager.TroubleTitle() ?? "";
-                Check(title.Contains(LifeRules.DateLabel(mineS.day)) && title.Contains(when) &&
-                      title.Contains(LifeRules.DateLabel(oldExe.day)),
+                Check(title.Contains("THIS BUILD'S COPY: " + LifeSimManager.DayNoYear(mineS.day) + ", SAVED " + when) &&
+                      title.Contains("THE OLDER BUILD'S: " + LifeSimManager.DayNoYear(oldExe.day)),
                       "the title names this build's copy (game date + when saved) and the older build's", title);
 
                 // Answer 1: this build's own copy.
@@ -499,10 +510,20 @@ namespace PSXRacing.EditorTools
                 sw.Stop();
                 return sw.Elapsed.TotalMilliseconds / n;
             }
-            LifeSimManager.Guard = false;
-            double saveOff = Ms(20, LifeSimManager.Save);
-            LifeSimManager.Guard = true;
-            double saveOn = Ms(20, LifeSimManager.Save);
+            // Off and on INTERLEAVED, five rounds, medians: a registry write
+            // wanders by tenths of a millisecond from one batch to the next.
+            var offs = new List<double>();
+            var ons = new List<double>();
+            for (int r = 0; r < 5; r++)
+            {
+                LifeSimManager.Guard = false;
+                offs.Add(Ms(10, LifeSimManager.Save));
+                LifeSimManager.Guard = true;
+                ons.Add(Ms(10, LifeSimManager.Save));
+            }
+            offs.Sort();
+            ons.Sort();
+            double saveOff = offs[offs.Count / 2], saveOn = ons[ons.Count / 2];
             double saveRoll = Ms(10, () => { LifeSimManager.NoteRollover(LifeSimManager.State); LifeSimManager.Save(); });
             int lastBytes = Encoding.UTF8.GetByteCount(PlayerPrefs.GetString(GuardKey + ".last", ""));
             double load = Ms(10, () => LifeSimManager.Reload());
@@ -522,7 +543,8 @@ namespace PSXRacing.EditorTools
             Line("    SAVE SIZE: a new career " + freshBytes + " bytes; a worked career (" + LifeSimManager.State.cars.Count +
                  " cars, 60 days) " + bytes + " bytes (" + (bytes / 1024f).ToString("0.0") + " KB); its .last copy " + lastBytes +
                  " bytes; " + LifeSimManager.BackupKeys().Count + " backups " + (copies / 1024f).ToString("0.0") + " KB");
-            Line("    SAVE TIME (editor, registry, mean): Save() guard off (the old Save) " + saveOff.ToString("0.00") +
+            Line("    SAVE TIME (editor, registry; off/on = median of 5 interleaved batches of 10): Save() guard off (the old Save) " +
+                 saveOff.ToString("0.00") +
                  " ms, guard on " + saveOn.ToString("0.00") + " ms, first save after a rollover (+ .last) " +
                  saveRoll.ToString("0.00") + " ms, with .last and " + LifeSimManager.BackupKeys().Count + " backups in the store " +
                  saveWithCopies.ToString("0.00") + " ms");

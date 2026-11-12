@@ -566,14 +566,18 @@ namespace PSXRacing
             string note = LifeSimManager.TroubleTitle();
             if (note == null) return;
             var col = LifeSimManager.Trouble == LifeSimManager.SaveTrouble.Rewritten ? MenuKit.Accent : MenuKit.Bad;
+            // As wide as the screen allows, up to SaveNoteW: on a phone's
+            // 560-unit column four buttons leave room for two lines under the
+            // title, no more (SaveGuardPreview, 11-12).
+            float w = Mathf.Min(SaveNoteW, 2f * MenuKit.HalfWidth - 96f);
             var t = MenuKit.Para(root, note, MenuKit.Small, new Vector2(0f, 0f), new Vector2(48f, 0f),
-                out float h, TextAnchor.UpperLeft, col, SaveNoteW);
+                out float h, TextAnchor.UpperLeft, col, w);
             t.rectTransform.anchoredPosition = new Vector2(48f, above + 14f + h);
         }
 
-        /// <summary>The save note's column: wider than the buttons, so it
-        /// takes fewer lines between them and the title on a phone.</summary>
-        const float SaveNoteW = 600f;
+        /// <summary>The save note's widest column: past the buttons and over
+        /// the valley, so every note takes two lines.</summary>
+        const float SaveNoteW = 800f;
 
         /// <summary>NEW GAME over a career: the same erase-and-confirm as the
         /// home screen's START OVER.</summary>
