@@ -650,6 +650,7 @@ namespace PSXRacing.EditorTools
             m[(int)CityMeshes.Slot.FacadeHouse] = WithNightWindows(
                 MakeMat("CityFacadeHouse", CityTexDir + "/city_facade_house.png"), "city_facade_house_night.png");
             if (m[(int)CityMeshes.Slot.FacadeHouse] != null && m[(int)CityMeshes.Slot.FacadeHouse].HasProperty("_HouseTint")) m[(int)CityMeshes.Slot.FacadeHouse].SetFloat("_HouseTint", 1f);   // HOUSE WALLS: the siding's colour
+            if (m[(int)CityMeshes.Slot.RoofTiles] != null && m[(int)CityMeshes.Slot.RoofTiles].HasProperty("_HouseTint")) m[(int)CityMeshes.Slot.RoofTiles].SetFloat("_HouseTint", 2f);   // HOUSES ROUND 3: shingle tones (alpha-marked vertices only)
             m[(int)CityMeshes.Slot.RoofTiles] = WithNightWindows(
                 MakeMat("CityRoofTiles", CityTexDir + "/city_roof_tiles.jpg", affine: 0f), null);
             m[(int)CityMeshes.Slot.RoofFlat] = WithNightWindows(

@@ -1602,7 +1602,8 @@ Shader "PSX/Lit"
                 // and handed on whole, so the pixel shader's sum is the very
                 // number it used to be given.
                 // HOUSE WALLS (CityMeshes.HouseWalls.cs): a house's siding colour, x2 the vertex colour (128 grey = as painted)
-                if (_HouseTint > 0.5) { half3 hk = (half3)(v.color.rgb * 2.0); amb *= hk; sunL *= hk; }
+                // (houses round 3: 2 = the roof shingles - only vertices marked alpha 1 by the house roofs take it)
+                if (_HouseTint > 0.5 && (_HouseTint < 1.5 || v.color.a > 0.99)) { half3 hk = (half3)(v.color.rgb * 2.0); amb *= hk; sunL *= hk; }
                 if (_PSXSunModel < 0.5) { amb = saturate(amb + sunL); sunL = half3(0, 0, 0); }
             #ifdef PSX_BAKEDSKY
                 // no hour applied, the sun is inside amb: leave it whole

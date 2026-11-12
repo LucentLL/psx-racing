@@ -82,6 +82,8 @@ namespace PSXRacing.City
                                   int endN, int endP, float extN, float extP)
         {
             var roof = buckets[(int)Slot.RoofTiles];
+            var sidingTint = Bucket.Tint;
+            if (HouseRoofTintOn) Bucket.Tint = houseRoofTone;   // ROUND 3: the shingles' tone (alpha 255 marks a house roof)
             Vector2 v = new Vector2(-u.y, u.x);
             float R = eave + slope * hv, yE = eave - over * slope;
             float kS = Mathf.Sqrt(1f + slope * slope);
@@ -96,10 +98,13 @@ namespace PSXRacing.City
                 roof.Up(L(q0, R, tm), L(q1, R, tm), L(e1, yE, tm), L(e0, yE, tm),
                         new Vector2(-rN / RoofTileM, 0f), new Vector2(rP / RoofTileM, 0f), new Vector2(aP / RoofTileM, vE), new Vector2(-aN / RoofTileM, vE));
                 // the soffit under the overhang along the long wall
-                if (over > 0.01f)
+                if (over > 0.01f && !houseNoSoffit)
                 {
-                    Vector2 w0 = c - u * aN + v * (hv * side), w1 = c + u * aP + v * (hv * side);
-                    roof.Down(L(w0, eave, tm), L(w1, eave, tm), L(e1, yE, tm), L(e0, yE, tm),
+                    // (ROUND 3: not along a buried extension - it ran out past the far wall as a dark sliver)
+                    float sN = endN == EndBuried ? hu : aN, sP = endP == EndBuried ? hu : aP;
+                    Vector2 w0 = c - u * sN + v * (hv * side), w1 = c + u * sP + v * (hv * side);
+                    Vector2 f0 = c - u * sN + v * ((hv + over) * side), f1 = c + u * sP + v * ((hv + over) * side);
+                    roof.Down(L(w0, eave, tm), L(w1, eave, tm), L(f1, yE, tm), L(f0, yE, tm),
                               new Vector2(0f, 0f), new Vector2(0.1f, 0f), new Vector2(0.1f, 0.1f), new Vector2(0f, 0.1f));
                 }
             }
@@ -116,7 +121,7 @@ namespace PSXRacing.City
                     float vH = Mathf.Sqrt(run * run + (R - yE) * (R - yE)) / RoofTileM;
                     TriFace(roof, L(apex, R, tm), L(eL, yE, tm), L(eR, yE, tm),
                             new Vector2(0f, 0f), new Vector2((hv + over) / RoofTileM, vH), new Vector2(-(hv + over) / RoofTileM, vH), true);
-                    if (over > 0.01f)
+                    if (over > 0.01f && !houseNoSoffit)
                     {
                         Vector2 w0 = c + u * (hu * end) + v * hv, w1 = c + u * (hu * end) - v * hv;
                         Vector2 o0 = c + u * ((hu + over) * end) + v * hv, o1 = c + u * ((hu + over) * end) - v * hv;
@@ -127,7 +132,7 @@ namespace PSXRacing.City
                 else if (kind == EndGable)
                 {
                     // the rake soffits, then the gable triangle on the wall line
-                    for (int side = -1; side <= 1; side += 2)
+                    for (int side = -1; side <= 1 && !houseNoSoffit; side += 2)
                     {
                         Vector2 r0 = c + u * (hu * end), r1 = c + u * (aE * end);
                         Vector2 o0 = r0 + v * (hv * side), o1 = r1 + v * (hv * side);
@@ -135,9 +140,31 @@ namespace PSXRacing.City
                                   new Vector2(0f, 0f), new Vector2(0.1f, 0f), new Vector2(0.1f, 0.1f), new Vector2(0f, 0.1f));
                     }
                     Vector2 g0 = c + u * (hu * end) + v * hv, g1 = c + u * (hu * end) - v * hv;
+                    var rt = Bucket.Tint; Bucket.Tint = sidingTint;
                     EmitGableTri(buckets[(int)Slot.FacadeHouse], tm, g0, c + u * (hu * end), g1, eave, R, u * end);
+                    Bucket.Tint = rt;
                 }
             }
+            Bucket.Tint = sidingTint;
+        }
+
+        // ---- ROUND 3: roof tones by era (PSX_CITY_HOUSEROOFTINT) ----
+        public static bool HouseRoofTintOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEROOFTINT") != "0";
+        static Color32 houseRoofTone = new Color32(128, 128, 128, 255);
+        /// <summary>Shingle tones as multipliers of the grey shingle: charcoal, weathered grey, brown,
+        /// near-black; green and red standing-seam metal on a few old houses.</summary>
+        static readonly Vector3[] RoofTones =
+        {
+            new Vector3(0.60f, 0.60f, 0.63f), new Vector3(1.02f, 1.00f, 0.96f), new Vector3(0.95f, 0.74f, 0.56f),
+            new Vector3(0.45f, 0.47f, 0.52f), new Vector3(0.55f, 0.85f, 0.62f), new Vector3(1.10f, 0.52f, 0.44f),
+        };
+        static void HouseRoofToneFor(Vector2 c, int era)
+        {
+            uint h = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 61u);
+            float r = (h & 0xFFFF) / 65536f;
+            int i = era == EraPrewar && r < 0.07f ? 4 : era == EraPrewar && r < 0.13f ? 5 : (int)((h >> 16) % 4u);
+            var k = RoofTones[i];
+            houseRoofTone = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), 255);
         }
 
         static float RidgeEnd(int kind, float hu, float hv, float ext) =>
@@ -163,12 +190,15 @@ namespace PSXRacing.City
         static void HouseBoxRoof(TileMeshes tm, Vector2 centre, Vector2 u, float hu, float hv, float eave, float ridge, float floor)
         {
             houseEra = HouseEraOf(centre);
+            if (!houseUnitRow) HouseRoofToneFor(centre, houseEra);   // (a block's tone was set by HouseBlockBegin, its front gables use it)
             float slope = (ridge - eave) / Mathf.Max(hv, 0.5f);
             float ex = Mathf.Min(EaveOverM, 0.6f / Mathf.Max(slope, 0.3f));   // never more than 0.6 m drop (round 1)
             bool hip = houseUnitRow ? hv > 8f : HouseHipOf(centre, houseEra);
             int k = hip ? EndHip : EndGable;
             if (hip) HouseHipRoofs++;
+            houseNoSoffit = HousePartsOn && !houseUnitRow && !HouseNearStreet(centre);   // ROUND 3 distance rule: no soffits on a house 45 m+ from any street
             HouseRoofRect(tm, centre, u, hu, hv, eave, slope, ex, k, k, 0f, 0f);
+            houseNoSoffit = false;
             if (HousePartsOn && !houseUnitRow && !proxyBuild && hwMap != null && !float.IsNaN(floor))
                 HouseBoxParts(tm, centre, u, hu, hv, eave, ridge, floor, hip, slope);
         }
@@ -210,15 +240,134 @@ namespace PSXRacing.City
                 HouseChimney(tm, cc, u, v, cw * 0.5f, cd * 0.5f, lo - 0.3f, ridge + 0.6f);
                 HouseChimneys++;
             }
-            // ---- the porch (the streetcar suburbs' houses) ----
-            if (houseEra != EraPrewar || ((h >> 12) & 3u) == 0u) return;   // three in four of the old houses
-            if (!hwMap.NearestRoadPoint(centre, 60f, true, out int ei, out float s, out _)) return;
+            // ROUND 3, the distance rule: a house no street comes within 45 m of (the eye is on the
+            // streets) keeps its roof and chimney, not the small parts
+            if (!hwMap.NearestRoadPoint(centre, 45f, true, out int ei, out float s, out _)) { HouseFarSkips++; return; }
             Vector2 toRoad = (hwMap.edges[ei].PointAt(s) - centre).normalized;
             float dU = Vector2.Dot(toRoad, u), dV = Vector2.Dot(toRoad, v);
+            bool longFront = Mathf.Abs(dV) >= Mathf.Abs(dU);
+            // ---- dormers: half the old houses tall enough for an attic, on the street-side slope ----
+            if (houseEra == EraPrewar && !hip && ((h >> 14) & 1u) == 0u && hv >= 3.6f && hu >= 4f && slope >= 0.4f && eave - floor >= 3.4f)
+            {
+                float sd = longFront ? Mathf.Sign(dV) : (((h >> 15) & 1u) == 0u ? 1f : -1f);
+                int nd = hu >= 6.5f ? 2 : 1;
+                for (int k = 0; k < nd; k++)
+                    HouseDormer(tm, centre, u, v, sd, nd == 1 ? 0f : (k == 0 ? -0.4f : 0.4f) * hu, hv, eave, slope);
+            }
+            // ---- the garage door: ranches (one car) and the new houses (two), at one end of the street wall ----
+            if (houseEra != EraPrewar && longFront && 2f * hu >= 10f && ((h >> 16) & 3u) != 0u)
+                HouseGarageDoor(tm, centre + v * (Mathf.Sign(dV) * hv), v * Mathf.Sign(dV), u, hu, floor,
+                                houseEra == EraModern ? 4.9f : 2.7f, ((h >> 18) & 1u) == 0u ? 1f : -1f);
+            // ---- the porch (the streetcar suburbs' houses) ----
+            if (houseEra != EraPrewar || ((h >> 12) & 3u) == 0u) return;   // three in four of the old houses
             Vector2 n, along; float W, off;
-            if (Mathf.Abs(dV) >= Mathf.Abs(dU)) { n = v * Mathf.Sign(dV); along = u; W = 2f * hu; off = hv; }
+            if (longFront) { n = v * Mathf.Sign(dV); along = u; W = 2f * hu; off = hv; }
             else { n = u * Mathf.Sign(dU); along = v; W = 2f * hv; off = hu; }
-            HousePorch(tm, centre + n * off, n, along, W, eave, floor, Mathf.Abs(dV) >= Mathf.Abs(dU));   // (round 1's door is on the long wall)
+            HousePorch(tm, centre + n * off, n, along, W, eave, floor, longFront);   // (round 1's door is on the long wall)
+        }
+
+        public static int HouseDormers, HouseGarages, HouseFarSkips, HouseShutterPairs;
+        static bool houseNoSoffit;
+
+        /// <summary>A gabled dormer on the main roof's <paramref name="side"/> slope at
+        /// <paramref name="at"/> along the ridge: a front wall with a whole window, two
+        /// cheek triangles down to the roof, its own small gable roof run back into the main one.</summary>
+        static void HouseDormer(TileMeshes tm, Vector2 c, Vector2 u, Vector2 v, float side, float at, float hv, float eave, float slope)
+        {
+            const float hw = 0.95f, rise = 1.3f;
+            float d = hv * 0.5f;                         // the front line, out from the ridge line
+            float yF = eave + slope * (hv - d), e2 = yF + rise;
+            float d2 = hv - (e2 - eave) / slope;         // where the main roof reaches the dormer's eave
+            if (d2 < 0.4f || d - d2 < 0.6f) return;
+            Vector2 n = v * side, mid = c + u * at + n * d;
+            var bk = buckets[(int)Slot.FacadeHouse];
+            Vector2 a = mid - u * hw, b = mid + u * hw;
+            // front: plain siding, the window cell in it
+            HousePlain(tm, a, b, yF - 0.15f, e2, n, 2f * hw / HouseRepU, true);
+            Vector2 wm = mid + n * 0.03f;
+            bk.Wall(L(wm - u * 0.45f, 0f, tm), L(wm + u * 0.45f, 0f, tm), yF + 0.15f, e2 - 0.12f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
+            HouseWinLaid++;
+            // cheeks: (front, yF) (front, e2) (back, e2), both faces
+            for (int k = -1; k <= 1; k += 2)
+            {
+                Vector2 f0 = mid + u * (hw * k), b0 = c + u * (at + hw * k) + n * d2;
+                Vector3 p0 = L(f0, yF - 0.15f, tm), p1 = L(f0, e2, tm), p2 = L(b0, e2, tm);
+                Vector2 t0 = new Vector2(0f, HousePlainV0), t1 = new Vector2(0f, HousePlainV0 + 0.45f), t2 = new Vector2((d - d2) / HouseRepU, HousePlainV0 + 0.45f);
+                bk.Tri(p0, p1, p2, t0, t1, t2); bk.Tri(p0, p2, p1, t0, t2, t1);
+            }
+            HouseRoofRect(tm, c + u * at + n * ((d + d2) * 0.5f), n, (d - d2) * 0.5f, hw, e2, 0.7f, 0.15f, EndBuried, EndGable, 0.3f, 0f);
+            HouseDormers++;
+        }
+
+        /// <summary>A garage door (the siding's plain rows, white: its laps read as the panels) on
+        /// the wall through <paramref name="m"/> facing <paramref name="n"/>, at the
+        /// <paramref name="end"/> end, its foot on the drawn ground.</summary>
+        static void HouseGarageDoor(TileMeshes tm, Vector2 m, Vector2 n, Vector2 along, float hu, float floor, float gw, float end)
+        {
+            Vector2 mid = m + along * (end * (hu - 0.6f - gw * 0.5f)) + n * 0.04f;
+            Vector2 a = mid - along * (gw * 0.5f), c = mid + along * (gw * 0.5f);
+            float foot = float.MaxValue;
+            for (int k = 0; k <= 4; k++) { var p = Vector2.Lerp(a, c, k / 4f); foot = Mathf.Min(foot, LatticeY(hwMap, p.x, p.y)); }
+            foot = Mathf.Max(foot, floor - 0.6f) - 0.05f;
+            var keep = Bucket.Tint;
+            Bucket.Tint = new Color32(TintByte(1.15f), TintByte(1.13f), TintByte(1.08f), 0);
+            var bk = buckets[(int)Slot.FacadeHouse];
+            bk.Wall(L(a, 0f, tm), L(c, 0f, tm), foot, foot + 2.2f, n, 0f, gw / HouseRepU * 2f, HousePlainV0, HousePlainV0 + 0.45f);
+            // its frame: a dark band round the head (a plain strip under a dark tint)
+            Bucket.Tint = new Color32(TintByte(0.35f), TintByte(0.35f), TintByte(0.36f), 0);
+            Vector2 a2 = a - along * 0.08f + n * 0.01f, c2 = c + along * 0.08f + n * 0.01f;
+            bk.Wall(L(a2, 0f, tm), L(c2, 0f, tm), foot + 2.2f, foot + 2.32f, n, 0f, 0.1f, HousePlainV0, HousePlainV0 + 0.02f);
+            Bucket.Tint = keep;
+            HouseGarages++;
+        }
+
+        /// <summary>A front door's paint (the glazed cell under it): red, black, green, navy, white, wood.</summary>
+        static Color32 HouseDoorTint(Vector2 p)
+        {
+            uint h = HouseHash(Mathf.RoundToInt(p.x * 2f), Mathf.RoundToInt(p.y * 2f), 71u);
+            Vector3[] k = { new Vector3(1.1f, 0.35f, 0.3f), new Vector3(0.3f, 0.3f, 0.32f), new Vector3(0.35f, 0.6f, 0.4f),
+                            new Vector3(0.35f, 0.42f, 0.7f), new Vector3(1.15f, 1.15f, 1.12f), new Vector3(0.85f, 0.6f, 0.4f) };
+            var c = k[h % (uint)k.Length];
+            return new Color32(TintByte(c.x), TintByte(c.y), TintByte(c.z), 0);
+        }
+
+        /// <summary>Shutters either side of each window of a band (ROUND 3, house walls only):
+        /// dark quads 3 cm proud, the siding's plain rows under a shutter colour.</summary>
+        static void HouseShutters(TileMeshes tm, Vector2 a, Vector2 c, float ws, float we, Vector2 outward, int bays)
+        {
+            if (!HousePartsOn || houseUnitInner || houseUnitRow || bays < 1 || hwMap == null) return;
+            uint h = HouseHash(Mathf.RoundToInt(houseBrickAt.x * 2f), Mathf.RoundToInt(houseBrickAt.y * 2f), 83u);
+            if ((h & 3u) >= 2u) return;   // half the houses
+            if (!HouseNearStreet(houseBrickAt)) return;
+            Vector3[] k = { new Vector3(0.28f, 0.30f, 0.30f), new Vector3(0.30f, 0.50f, 0.36f), new Vector3(0.30f, 0.36f, 0.62f), new Vector3(0.75f, 0.32f, 0.28f) };
+            var col = k[(h >> 2) % 4u];
+            var keep = Bucket.Tint;
+            Bucket.Tint = new Color32(TintByte(col.x), TintByte(col.y), TintByte(col.z), 0);
+            var bk = buckets[(int)Slot.FacadeHouse];
+            float W = Vector2.Distance(a, c); Vector2 dir = (c - a) / W, o = outward * 0.03f;
+            float bw = W / bays, half = bw * (HouseWinU1 - HouseWinU0) * 0.5f, sw = Mathf.Min(0.45f, half * 0.55f);
+            for (int i = 0; i < bays; i++)
+            {
+                Vector2 m = a + dir * (bw * (i + 0.5f)) + o;
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                {
+                    Vector2 p0 = m + dir * (sgn * (half + 0.03f)), p1 = m + dir * (sgn * (half + 0.03f + sw));
+                    bk.Wall(L(p0, 0f, tm), L(p1, 0f, tm), ws, we, outward, 0f, sw / HouseRepU, HousePlainV0, HousePlainV0 + (we - ws) / HouseRepU);
+                }
+                HouseShutterPairs++;
+            }
+            Bucket.Tint = keep;
+        }
+
+        static Vector2 hnsAt = new Vector2(float.NaN, 0f);
+        static bool hnsVal;
+        /// <summary>A street within 45 m of the house centred at <paramref name="c"/> (cached for its walls).</summary>
+        static bool HouseNearStreet(Vector2 c)
+        {
+            if (c == hnsAt) return hnsVal;
+            hnsAt = c;
+            hnsVal = hwMap != null && hwMap.NearestRoadPoint(c, 45f, true, out _, out _, out _);
+            return hnsVal;
         }
 
         /// <summary>A brick chimney: the atlas's brick column (a pier between its
@@ -323,6 +472,7 @@ namespace PSXRacing.City
             Bucket.Tint = keep;
             // the shed roof (and its underside), 0.25 m past the posts and the deck's ends
             var roof = buckets[(int)Slot.RoofTiles];
+            var keepT = Bucket.Tint; if (HouseRoofTintOn) Bucket.Tint = houseRoofTone;
             Vector2 r0 = a0 - along * 0.25f, r1 = a1 + along * 0.25f;
             Vector2 e0 = r0 + n * (depth + 0.25f), e1 = r1 + n * (depth + 0.25f);
             float vr = (depth + 0.25f) * 1.03f / RoofTileM, ur = (pw + 0.5f) / RoofTileM;
@@ -330,6 +480,7 @@ namespace PSXRacing.City
                     new Vector2(0f, 0f), new Vector2(ur, 0f), new Vector2(ur, vr), new Vector2(0f, vr));
             roof.Down(L(r0, hW - 0.01f, tm), L(r1, hW - 0.01f, tm), L(e1, hF - 0.01f, tm), L(e0, hF - 0.01f, tm),
                       new Vector2(0f, 0f), new Vector2(0.1f, 0f), new Vector2(0.1f, 0.1f), new Vector2(0f, 0.1f));
+            Bucket.Tint = keepT;
             // its step at the middle of the front, and (on a gable end) its door
             HouseStoop(tm, m + n * depth, n, along, yDeck, yFoot);
             if (!hasDoor)
@@ -370,6 +521,7 @@ namespace PSXRacing.City
         static float HousePolyEave(CityMap.Footprint f, float floor, bool block)
         {
             houseEra = HouseEraOf(f.centre);
+            HouseRoofToneFor(f.centre, houseEra);
             // the plan's rectangles first (fitPoly: the plan as cut), so the slope
             // and a block's depth come from its widest arm, not its box
             HpDecompose(f, fitPoly);
@@ -508,7 +660,9 @@ namespace PSXRacing.City
                     continue;
                 }
                 // inside the plan: a cross gable buried in the neighbour (where it is under a roof), else a hip
-                bool held = PolyContains(poly, p + ru * (hv * end));
+                // (ROUND 3: the extension's corners too - one past a far wall was the L-corner sliver)
+                bool held = PolyContains(poly, p + ru * (hv * end)) && PolyContains(poly, p + ru * (hv * end) + rv * (hv * 0.95f))
+                            && PolyContains(poly, p + ru * (hv * end) - rv * (hv * 0.95f));
                 if (end < 0) { kN = held ? EndBuried : EndHip; xN = held ? hv : 0f; }
                 else { kP = held ? EndBuried : EndHip; xP = held ? hv : 0f; }
             }
@@ -593,6 +747,7 @@ namespace PSXRacing.City
             houseUnitRow = HouseUnitsOn && !skylineBuild && !proxyBuild;
             houseBlockHalfDepth = Mathf.Max(2f, halfDepth > 0f ? halfDepth : f.hv);
             houseMainSlope = slope;
+            HouseRoofToneFor(centre, EraModern);
             houseStreetOk = false;
             if (houseUnitRow && hwMap != null && hwMap.NearestRoadPoint(centre, 90f, true, out int ei, out float s, out _))
             {
@@ -692,7 +847,9 @@ namespace PSXRacing.City
             float foot = floor;
             for (int k = 0; k <= 4; k++) { var p = Vector2.Lerp(a, c, k / 4f); foot = Mathf.Max(foot, LatticeY(hwMap, p.x, p.y) + 0.04f); }
             if (foot + 2.05f > eave - 0.2f) return;
+            var dk = Bucket.Tint; if (HousePartsOn) Bucket.Tint = HouseDoorTint(mid);   // ROUND 3: its paint
             bk.Wall(L(a, 0f, tm), L(c, 0f, tm), foot, foot + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
+            Bucket.Tint = dk;
             float top = floor - 0.02f;
             if (top <= y0 + 0.05f) return;
             var st = buckets[(int)Slot.RoofFlat];

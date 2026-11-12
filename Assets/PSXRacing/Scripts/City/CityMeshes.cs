@@ -1276,6 +1276,7 @@ namespace PSXRacing.City
             b[(int)Slot.FacadeGlass].col = new List<Color32>(512);   // the facade atlas (Uptown B1)
             b[(int)Slot.FacadeGlass].fac = new List<Vector4>(512);   // its walls (facade structure)
             b[(int)Slot.FacadeHouse].col = new List<Color32>(512);   // HOUSE WALLS: the siding's colour (PSX/Lit _HouseTint)
+            if (HouseRoofTintOn) b[(int)Slot.RoofTiles].col = new List<Color32>(512);   // HOUSES ROUND 3: shingle tones (alpha 255 = a house roof)
             return b;
         }
 
@@ -11978,8 +11979,8 @@ namespace PSXRacing.City
                     hwMap = proxyBuild ? null : map;
                     if (sidingBlock && !skylineBuild) HouseBlockBegin(f, centre, (top - eave) / Mathf.Max(hv, 1f));   // its brick base, its units (CityMeshes.HouseParts.cs)
                     EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse, floorG);
-                    tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     HouseBlockEnd();
+                    tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     tm.footprintCount++;
                     return;
                 }
@@ -12055,11 +12056,11 @@ namespace PSXRacing.City
                 bool onOutline = outlineTop > wallY0 + 0.01f;
                 if (onOutline) wallY0 = outlineTop;
                 float eaveY = f.roof != 0 && !crownFlat ? Mathf.Max(wallY0, top - f.roofH) : top;
+                bool pitched = !crownFlat && !floating && HousePolyPitched(f, block, polySiding);   // ROUND 2: no flat-roofed house (CityMeshes.HouseParts.cs)
+                if (pitched) eaveY = HousePolyEave(f, floorP, block);
                 // 2026-10-26 (CityMeshes.PartBase.cs): a wall whose foot hangs
                 // over air - its building cut away under it - runs to the ground
                 bool hangs = floating && !onOutline && !proxyBuild && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
-                bool pitched = !crownFlat && !floating && HousePolyPitched(f, block, polySiding);   // ROUND 2: no flat-roofed house (CityMeshes.HouseParts.cs)
-                if (pitched) eaveY = HousePolyEave(f, floorP, block);
                 AuditFoot(fi, 0, fitPoly, floorP, floating ? wallY0 : floorP, top, hangs);
                 bool retail = f.style == 4 && !floating && !skylineBuild;
                 // Coverage (2026-10-06): a shop outside the core is a strip
@@ -12154,9 +12155,6 @@ namespace PSXRacing.City
                 roofScratch.AddRange(fitPoly);
                 bool underOutline = onOutline && top <= outlineTop + 0.05f;
                 if (underOutline) { }
-                // (cityinteg 11-11: the branch head had these two lines spliced inside the
-                // roof block below - a broken merge of the roofs and types commits; order as
-                // in the buildings worktree: pitched house polygons, the flat counter, flat)
                 else if (pitched) HousePolyRoof(tm, f, roofScratch, eaveY, block);
                 else if ((f.roof == 0 || crownFlat) && f.style == 3 && !skylineBuild && (!block || polySiding) && ++HouseFlatLeft < 0) { }
                 else if (f.roof == 0 || crownFlat) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
@@ -12665,13 +12663,13 @@ namespace PSXRacing.City
             var rS = centre - u * hu;
             if (HouseEavesOn && wallSlot == Slot.FacadeHouse && !skylineBuild)
             {
+                if (HouseRoofsOn) { HouseBoxRoof(tm, centre, u, hu, hv, eave, ridge, floor); Bucket.Tint = tintKeep; return; }   // ROUND 2: gable or hip (CityMeshes.HouseParts.cs)
                 HouseRoofEaves(tm, centre, u, v, hu, hv, eave, ridge);
                 var gw = buckets[(int)wallSlot];
                 EmitGableTri(gw, tm, c1, rN, c4, eave, ridge, u);
                 EmitGableTri(gw, tm, c3, rS, c2, eave, ridge, -u);
                 Bucket.Tint = tintKeep;
                 return;
-                if (HouseRoofsOn) { HouseBoxRoof(tm, centre, u, hu, hv, eave, ridge, floor); Bucket.Tint = tintKeep; return; }   // ROUND 2: gable or hip (CityMeshes.HouseParts.cs)
             }
             var roof = buckets[(int)Slot.RoofTiles];
             float uRep = Mathf.Max(1f, Mathf.Round(hu * 2f / RoofTileM));

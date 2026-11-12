@@ -173,6 +173,7 @@ namespace PSXRacing.City
                 if (ws > y + 0.01f) HousePlain(tm, a, c, y, ws, outward, uPlain, false);
                 EmitPanels(tm, Slot.FacadeHouse, a, c, ws, we, outward, bays, HouseWinV1 - HouseWinV0, HouseWinV0);
                 HouseWinLaid += bays;
+                HouseShutters(tm, a, c, ws, we, outward, bays);   // ROUND 3 (CityMeshes.HouseParts.cs)
                 y = we;
             }
             if (y1 > y + 0.01f) HousePlain(tm, a, c, y, y1, outward, uPlain, true);
@@ -299,10 +300,11 @@ namespace PSXRacing.City
         {
             // ROUND 2 (item 6): stronger, from street views - the round 1 set read as one beige at
             // driving distance; and three darker paints (navy, charcoal, forest) a street has a few of
-            new Vector3(1.12f, 1.12f, 1.12f), new Vector3(1.08f, 1.02f, 0.84f), new Vector3(1.12f, 0.98f, 0.60f),
-            new Vector3(0.78f, 0.92f, 0.72f), new Vector3(0.72f, 0.84f, 1.02f), new Vector3(0.86f, 0.86f, 0.88f),
-            new Vector3(1.00f, 0.84f, 0.64f), new Vector3(0.82f, 0.96f, 1.12f), new Vector3(0.88f, 0.62f, 0.50f),
-            new Vector3(0.60f, 0.74f, 0.64f), new Vector3(0.48f, 0.56f, 0.76f), new Vector3(0.56f, 0.58f, 0.60f),
+            // (ROUND 3: stronger again - the A/B frames moved the siding only ~6 levels a channel)
+            new Vector3(1.18f, 1.18f, 1.18f), new Vector3(1.12f, 1.04f, 0.78f), new Vector3(1.18f, 1.02f, 0.50f),
+            new Vector3(0.72f, 0.92f, 0.62f), new Vector3(0.62f, 0.78f, 1.10f), new Vector3(0.80f, 0.82f, 0.86f),
+            new Vector3(1.02f, 0.80f, 0.56f), new Vector3(0.78f, 0.98f, 1.20f), new Vector3(0.90f, 0.50f, 0.40f),
+            new Vector3(0.52f, 0.70f, 0.56f), new Vector3(0.42f, 0.50f, 0.74f), new Vector3(0.50f, 0.52f, 0.55f),
         };
 
         static uint HouseHash(int x, int z, uint salt)
@@ -322,7 +324,8 @@ namespace PSXRacing.City
             uint nb = HouseHash(cx, cz, 7u);
             uint hh = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 11u);
             // white is common everywhere (a third of houses); the rest from the cell's four
-            int pick = (hh & 7u) < 3u ? 0 : (int)((nb >> (int)(((hh >> 3) & 3u) * 4u)) % (uint)SidingCols.Length);
+            // (ROUND 3: every house its own of the twelve - a row of ten reads as ten houses; white one in eight)
+            int pick = (hh & 7u) == 0u ? 0 : (int)(((hh >> 3) ^ (nb & 0xFFu)) % (uint)SidingCols.Length);
             var k = SidingCols[pick];
             return new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), 0);
         }
@@ -350,7 +353,9 @@ namespace PSXRacing.City
             float foot = floor;
             for (int k = 0; k <= 4; k++) { var p = Vector2.Lerp(a, c, k / 4f); foot = Mathf.Max(foot, LatticeY(hwMap, p.x, p.y) + 0.04f); }
             if (foot + 2.05f > eave - 0.2f) return;
+            var dk = Bucket.Tint; if (HousePartsOn) Bucket.Tint = HouseDoorTint(mid);   // ROUND 3: its paint
             bk.Wall(L(a, 0f, tm), L(c, 0f, tm), foot, foot + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
+            Bucket.Tint = dk;
             // the stoop: floor - 0.02 down to the walls' foot, 1.5 m wide, 1.0 m out
             float top = floor - 0.02f;
             if (top <= y0 + 0.05f) return;
