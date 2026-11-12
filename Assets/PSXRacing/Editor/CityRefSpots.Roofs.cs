@@ -139,7 +139,7 @@ namespace PSXRacing.EditorTools
                         {
                             var d = h - q;
                             float al = Vector2.Dot(d, t), off = Vector2.Dot(d, n) * side;
-                            if (Mathf.Abs(al) < 40f && off > 6f + e.width * 0.5f && off < 40f) c++;
+                            if (Mathf.Abs(al) < 40f && off > 6f + e.width * 0.5f && off < 60f) c++;
                         }
                         if (c > bestCount) { bestCount = c; best = e; bestS = s; bestN = n * side; }
                     }

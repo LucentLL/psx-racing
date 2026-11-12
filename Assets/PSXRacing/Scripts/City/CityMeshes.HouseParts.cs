@@ -268,14 +268,32 @@ namespace PSXRacing.City
 
         public static int HouseDormers, HouseGarages, HouseFarSkips, HouseShutterPairs;
         static bool houseNoSoffit;
+        public static int HouseStepsWithheld;
+
+        /// <summary>ROUND 3 (the drive audit: 14 collider hits in Wesley Heights court lanes):
+        /// does a part reaching <paramref name="out_"/> m out from the wall point
+        /// <paramref name="m"/> (facing <paramref name="n"/>, <paramref name="half"/> m either side)
+        /// stay 1 m clear of every street's pavement (links too)? No map: yes.</summary>
+        static bool HouseStepOffRoad(Vector2 m, Vector2 n, Vector2 along, float out_, float half)
+        {
+            if (hwMap == null) return true;
+            for (int i = -1; i <= 1; i++)
+                for (int j = 0; j <= 2; j++)
+                {
+                    Vector2 p = m + along * (half * i) + n * (out_ * j * 0.5f);
+                    if (hwMap.NearestRoadPoint(p, 30f, false, out int ei, out _, out float d) && d < hwMap.edges[ei].width * 0.5f + 1.0f)
+                    { HouseStepsWithheld++; return false; }
+                }
+            return true;
+        }
 
         /// <summary>A gabled dormer on the main roof's <paramref name="side"/> slope at
         /// <paramref name="at"/> along the ridge: a front wall with a whole window, two
         /// cheek triangles down to the roof, its own small gable roof run back into the main one.</summary>
         static void HouseDormer(TileMeshes tm, Vector2 c, Vector2 u, Vector2 v, float side, float at, float hv, float eave, float slope)
         {
-            const float hw = 0.95f, rise = 1.3f;
-            float d = hv * 0.5f;                         // the front line, out from the ridge line
+            const float hw = 0.95f, rise = 1.1f;
+            float d = hv * 0.75f;                        // the front line, out from the ridge line
             float yF = eave + slope * (hv - d), e2 = yF + rise;
             float d2 = hv - (e2 - eave) / slope;         // where the main roof reaches the dormer's eave
             if (d2 < 0.4f || d - d2 < 0.6f) return;
@@ -418,6 +436,7 @@ namespace PSXRacing.City
             const float depth = 2.2f, pSlope = 0.25f, post = 0.09f;
             float pw = Mathf.Min(W - 0.6f, 9f);
             if (pw < 3f) return;
+            if (!HouseStepOffRoad(m, n, along, depth + 1.3f, pw * 0.5f + 0.25f)) return;   // (ROUND 3: deck, roof and step clear of every street)
             // the ground under it
             float gLo = float.MaxValue;
             for (int i = 0; i <= 2; i++)
@@ -427,11 +446,6 @@ namespace PSXRacing.City
                     gLo = Mathf.Min(gLo, LatticeY(hwMap, p.x, p.y));
                 }
             if (floor - gLo > 1.4f || floor < gLo - 0.3f) return;
-            // (cityinteg) never out over a street: the deck, its roof's overhang and the 1 m step
-            {
-                Vector2 c0 = m - along * (pw * 0.5f + 0.25f), c1 = m + along * (pw * 0.5f + 0.25f);
-                if (HousePartOnRoad(c0, c1, c1 + n * (depth + 1.0f), c0 + n * (depth + 1.0f))) return;
-            }
             // the band its roof meets the wall in (HouseWall's storeys, as laid)
             float avail = eave - floor;
             int storeys = Mathf.Max(1, Mathf.FloorToInt(avail / houseStoreyM + 0.0001f));
@@ -497,45 +511,10 @@ namespace PSXRacing.City
             HousePorches++;
         }
 
-        // (cityinteg 2026-11-11) A house part out in front of its wall - a porch deck, a
-        // step - must never reach a street's pavement: on Wesley Heights' house courts
-        // (Summit Greenway Ct, Walnut View Dr, Cannon View Ln, Uptown West Dr) houses stand a
-        // few metres off the court and the porch's deck and skirt (Buildings collider) came
-        // 0.3-0.9 m over the lane (drive audit INVISIBLE lanes 0 -> 14). A part whose plan
-        // comes within HousePartRoadClearM of any street's drawn half-width is not built.
-        // PSX_CITY_HOUSEPARTCLEAR=0: no test (the houses round as it was).
-        public static bool HousePartClearOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEPARTCLEAR") != "0";
-        const float HousePartRoadClearM = 0.75f;
-        public static int HousePartsOffRoad;
-        static readonly HashSet<int> hpSegs = new HashSet<int>();
-        static bool HousePartOnRoad(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
-        {
-            if (!HousePartClearOn || hwMap == null) return false;
-            Vector2 mn = Vector2.Min(Vector2.Min(a, b), Vector2.Min(c, d)), mx = Vector2.Max(Vector2.Max(a, b), Vector2.Max(c, d));
-            hpSegs.Clear();
-            hwMap.EdgeSegsInRect(mn - Vector2.one * 25f, mx + Vector2.one * 25f, hpSegs);
-            Vector2 ctr = (a + b + c + d) * 0.25f;
-            foreach (int packed in hpSegs)
-            {
-                int ei = packed >> 12, si = packed & 0xFFF;
-                var e = hwMap.edges[ei];
-                if (e.tunnel) continue;
-                Vector2 p = e.pts[si], q = e.pts[si + 1];
-                float lim = e.width * 0.5f + HousePartRoadClearM;
-                foreach (var x in new[] { a, b, c, d, ctr, (a + b) * 0.5f, (b + c) * 0.5f, (c + d) * 0.5f, (d + a) * 0.5f })
-                {
-                    Vector2 dd = q - p; float L2 = dd.sqrMagnitude;
-                    float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(x - p, dd) / L2) : 0f;
-                    if (Vector2.Distance(x, p + dd * t) < lim) { HousePartsOffRoad++; return true; }
-                }
-            }
-            return false;
-        }
-
         /// <summary>A concrete step 1.5 m wide, 1.0 m out from <paramref name="mid"/>, its top at <paramref name="top"/>.</summary>
         static void HouseStoop(TileMeshes tm, Vector2 mid, Vector2 n, Vector2 along, float top, float y0)
         {
-            if (top <= y0 + 0.05f) return;
+            if (top <= y0 + 0.05f || !HouseStepOffRoad(mid, n, along, 1.0f, 0.75f)) return;
             var st = buckets[(int)Slot.RoofFlat];
             Vector2 s0 = mid - along * 0.75f, s1 = mid + along * 0.75f;
             Vector2 o0 = s0 + n * 1.0f, o1 = s1 + n * 1.0f;
@@ -819,7 +798,7 @@ namespace PSXRacing.City
                 for (int k = 0; k < n; k++)
                 {
                     Vector2 ak = a + dir * (wu * k), ck = a + dir * (wu * (k + 1));
-                    bool step = street && (k & 1) == 1;
+                    bool step = street && (k & 1) == 1 && HouseStepOffRoad((a + dir * (wu * (k + 0.5f))), outward, dir, UnitStepM + 0.3f, wu * 0.5f + 0.3f);   // (ROUND 3: never toward a lane)
                     Vector2 off = step ? outward * UnitStepM : Vector2.zero;
                     HouseWall(tm, ak + off, ck + off, y0, y1, outward);
                     HouseUnitsLaid++;
@@ -890,12 +869,12 @@ namespace PSXRacing.City
             var dk = Bucket.Tint; if (HousePartsOn) Bucket.Tint = HouseDoorTint(mid);   // ROUND 3: its paint
             bk.Wall(L(a, 0f, tm), L(c, 0f, tm), foot, foot + 2.05f, n, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
             Bucket.Tint = dk;
+            if (!HouseStepOffRoad(mid, n, along, 1.0f, 0.75f)) return;   // (ROUND 3: no stoop in a street)
             float top = floor - 0.02f;
             if (top <= y0 + 0.05f) return;
             var st = buckets[(int)Slot.RoofFlat];
             Vector2 s0 = mid - along * 0.75f, s1 = mid + along * 0.75f;
             Vector2 o0 = s0 + n * 1.0f, o1 = s1 + n * 1.0f;
-            if (HousePartOnRoad(s0, s1, o1, o0)) return;   // (cityinteg) never out over a street
             st.Up(L(s0, top, tm), L(s1, top, tm), L(o1, top, tm), L(o0, top, tm),
                   new Vector2(0f, 0f), new Vector2(0.19f, 0f), new Vector2(0.19f, 0.13f), new Vector2(0f, 0.13f));
             float hgt = (top - y0) / RoofFlatM;
