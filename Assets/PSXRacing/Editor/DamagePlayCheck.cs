@@ -293,11 +293,11 @@ namespace PSXRacing.EditorTools
     /// not, kind, zone, delta-V, band, outcome, the rows' repair price.
     /// </summary>
     [InitializeOnLoad]
-    public static class DamageCensus
+    public static class DamagePlayCheck   // named as the file: the runner above then has no editor MonoScript
     {
         static readonly string path = System.Environment.GetEnvironmentVariable("PSX_DAMAGE_CENSUS");
 
-        static DamageCensus()
+        static DamagePlayCheck()
         {
             if (string.IsNullOrEmpty(path)) return;
             EditorApplication.playModeStateChanged += st =>

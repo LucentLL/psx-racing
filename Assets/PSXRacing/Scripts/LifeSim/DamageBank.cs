@@ -8,9 +8,9 @@ namespace PSXRacing.LifeSim
     /// <summary>
     /// R1a: DAMAGE IS BANKED THE MOMENT IT HAPPENS (Fault_System_Design §2
     /// "Size and timing", §3.1 "Banking"). A hit never runs a full Save():
-    /// the career car's DamageLedger writes a small per-car file,
-    /// <c>&lt;saveKey&gt;.dmg.&lt;carId&gt;.&lt;drive&gt;.json</c> in LifeSimManager.CopyDir
-    /// (2 KB or less), and this folds it into the career by hitId - at the
+    /// the career car's DamageLedger writes a small per-car file beside the
+    /// save's own copies (named by the save manager's DamageFilePath; 2 KB or
+    /// less), and this folds it into the career by hitId - at the
     /// exit stamps (finish line, QUIT / the tow, the city exits), at RESTART,
     /// at the apply-back and at the next Load - so folding twice changes
     /// nothing. A folded file is deleted only after the save that carries it
@@ -66,8 +66,7 @@ namespace PSXRacing.LifeSim
             return sb.ToString();
         }
 
-        public static string PathFor(string carId, string drive) =>
-            Path.Combine(LifeSimManager.CopyDir, LifeSimManager.SaveKey + Tag + Safe(carId) + "." + Safe(drive) + ".json");
+        public static string PathFor(string carId, string drive) => LifeSimManager.DamageFilePath(Safe(carId), Safe(drive));
 
         public static IncidentRec Record(Incident inc)
         {
@@ -91,8 +90,8 @@ namespace PSXRacing.LifeSim
             if (f == null || string.IsNullOrEmpty(f.carId) || !LifeSimManager.Persists) return false;
             try
             {
-                Directory.CreateDirectory(LifeSimManager.CopyDir);
                 string p = PathFor(f.carId, f.drive), tmp = p + ".tmp";
+                Directory.CreateDirectory(Path.GetDirectoryName(p));
                 File.WriteAllText(tmp, JsonUtility.ToJson(f));
                 if (File.Exists(p)) File.Delete(p);
                 File.Move(tmp, p);
@@ -107,16 +106,12 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>The damage files of the career's key on disk.</summary>
-        public static string[] Files()
-        {
-            try
-            {
-                string dir = LifeSimManager.CopyDir;
-                if (!Directory.Exists(dir)) return new string[0];
-                return Directory.GetFiles(dir, LifeSimManager.SaveKey + Tag + "*.json");
-            }
-            catch { return new string[0]; }
-        }
+        public static string[] Files() => LifeSimManager.DamageFiles();
+
+        /// <summary>A row's stage: its own, or (a row from before v26, or one an
+        /// older path rolled) its legacy severity read as 1 -> 2, 2 -> 3.</summary>
+        public static float StageOf(CarFault f) =>
+            f == null ? 0f : f.stage > 0f ? f.stage : f.severity >= 1.5f ? 3f : 2f;
 
         /// <summary>
         /// Fold every damage file of this career's key into <paramref name="s"/>,
@@ -203,14 +198,13 @@ namespace PSXRacing.LifeSim
                     var have = car.faults.Find(f => SameRow(f, row));
                     if (have != null)
                     {
-                        if (row.stage <= have.stage) continue;
-                        Stamp(have, row, r, day, odo, kind);
+                        if (row.stage <= StageOf(have)) continue;
+                        Stamp(FaultCause.StampImpact(have, day, odo, row.zone, row.side, r.dv), row, r, kind);
                         continue;
                     }
                     var nf = FaultCatalog.MakeById(row.id, family);
                     if (nf == null) continue;
-                    Stamp(nf, row, r, day, odo, kind);
-                    car.faults.Add(nf);
+                    car.faults.Add(Stamp(FaultCause.StampImpact(nf, day, odo, row.zone, row.side, r.dv), row, r, kind));
                 }
             if (r.alignSeverity > 0)
             {
@@ -235,9 +229,11 @@ namespace PSXRacing.LifeSim
             return true;
         }
 
-        static void Stamp(CarFault f, RowRec row, IncidentRec r, int day, float odo, string kind)
+        /// <summary>The rest of a hit row's cause, after FaultCause.StampImpact:
+        /// what kind of incident, the corner, hitId, stage, size.</summary>
+        static CarFault Stamp(CarFault f, RowRec row, IncidentRec r, string kind)
         {
-            FaultCause.StampImpact(f, day, odo, row.zone, row.side, r.dv);
+            if (f == null) return null;
             if (r.kind != DamageModel.KHit) f.causeNote = kind + " " + f.causeNote;
             if (row.corner >= 0) f.causeNote += " " + DamageModel.CornerNames[Mathf.Clamp(row.corner, 0, 3)];
             f.hitId = r.hitId;
@@ -246,18 +242,16 @@ namespace PSXRacing.LifeSim
             f.corner1 = row.corner + 1;
             // the legacy effect path reads severity: stage 3 is "severe"
             f.severity = row.stage >= 3 ? 2f : 1f;
+            return f;
         }
 
-        /// <summary>The v26 step for one car: an event list, and a STAGE on
-        /// every row from its legacy severity (1 -> 2, 2 -> 3; design §2).
-        /// Idempotent: a staged row is left alone.</summary>
+        /// <summary>The v26 step for one car: an event list. A row's stage is
+        /// read through <see cref="StageOf"/> (legacy severity 1 -> 2, 2 -> 3;
+        /// design §2), never written here, so the step re-runs as a no-op.</summary>
         public static void MigrateCar(OwnedCar car)
         {
             if (car == null) return;
             if (car.history == null) car.history = new List<CarEvent>();
-            if (car.faults == null) return;
-            foreach (var f in car.faults)
-                if (f != null && f.stage <= 0f) f.stage = f.severity >= 1.5f ? 3f : 2f;
         }
     }
 }

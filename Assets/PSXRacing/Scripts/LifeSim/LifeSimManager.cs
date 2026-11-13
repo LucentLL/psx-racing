@@ -1458,16 +1458,35 @@ namespace PSXRacing.LifeSim
             if (s.saveVersion < 26) MigrateToDamageBank(s);
         }
 
+        /// <summary>R1a: this career's damage files (DamageBank), beside its
+        /// copies in <see cref="CopyDir"/>; the names come from here so no other
+        /// file spells out the key or reaches the copies.</summary>
+        public static string DamageFilePath(string car, string drive) =>
+            System.IO.Path.Combine(CopyDir, saveKey + ".dmg." + car + "." + drive + ".json");
+
+        public static string[] DamageFiles()
+        {
+            try
+            {
+                if (!System.IO.Directory.Exists(CopyDir)) return new string[0];
+                return System.IO.Directory.GetFiles(CopyDir, saveKey + ".dmg.*.json");
+            }
+            catch { return new string[0]; }
+        }
+
         /// <summary>
         /// v26, R1a "HITS LAND WHERE YOU HIT": every car (owned, and every
-        /// viewing's) gets an empty event history, and every fault row a stage
-        /// from its legacy severity (1 -> 2, 2 -> 3). The title starts clean
-        /// (0), which is right for every car a career owns today. hidden and
-        /// diagnosed never change. Idempotent; throws nothing on a null.
+        /// viewing's) gets an event history (empty) and a clean title (0, right
+        /// for every car a career owns today). A row's stage is not written:
+        /// 0 reads as its legacy severity (DamageBank.StageOf: 1 -> 2, 2 -> 3),
+        /// so rows rolled later by older paths read the same and a re-run of
+        /// this step changes nothing. Idempotent; throws nothing on a null.
         /// </summary>
         public static void MigrateToDamageBank(LifeState s)
         {
-            if (s == null) return;
+            // A simulated older build (SimulateCodeVersion, the save-safety
+            // tests) has no step above its own version.
+            if (s == null || CodeVersion < 26) return;
             if (s.cars != null)
                 foreach (var car in s.cars) DamageBank.MigrateCar(car);
             if (s.viewings != null)
