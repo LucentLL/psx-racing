@@ -549,7 +549,7 @@ namespace PSXRacing
             (@"^Toyota\ SUPRA\ (RZ|SZ-R)\ `97$",                         "gt_liftback_97"),
             (@"^Honda\ ACCORD\ Coupe\ Type\ S\ `99$",                   "coupe_03"),
             (@"^Mitsubishi\ Lancer\ Evolution\ VI\ (RS|GSR|Rally\ Car)\ `99$", "rally_sedan_99"),
-            (@"^Nissan\ 240SX\ `96$",                                    "fastback_96"),
+            (@"^Nissan\ 240SX\ `94$",                                    "fastback_96"),   // owner 11-12: the fastback is a '94 US car now; it keeps his Fastback 96
             // 2026-11-01: the owner's C5, '69 fastback and Kenmeri. The Shelby and
             // its Mercury twin leave the pack's '67 fastback (its own rule below).
             (@"^Chevrolet\ Corvette\ Z06\ \(C5\)\ `99$",                 "fixed_roof_99"),

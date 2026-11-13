@@ -3138,7 +3138,7 @@
   },
   {
    "id": "nissan_240sx__96",
-   "name": "Nissan 240SX `96",
+   "name": "Nissan 240SX `94",
    "price": 17000,
    "hp": 205,
    "kg": 1262,
@@ -3164,7 +3164,7 @@
    "lsdDecel": 0,
    "raceSusp": 0,
    "drv": "FR",
-   "modelYear": 1996,
+   "modelYear": 1994,
    "gears": 5,
    "redline": 7000,
    "idleRPM": 700,

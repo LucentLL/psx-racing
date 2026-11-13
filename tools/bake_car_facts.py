@@ -370,10 +370,11 @@ R("honda_civic_sir_ii__eg___95", "JDM", "B16A", "driver", "disc", lo="airbags")
 R("mazda_mx_5_miata_vr_limited__na__j___95", "JDM", "BP-ZE", "driver", "disc", lo="airbags")
 R("mazda_rx_7_gt_x__fc__j___90", "JDM", "13B-T", "none", "disc")
 R("mitsubishi_mirage_cyborg_zr__97", "JDM", "4G92 MIVEC", "dual", "disc", lo="airbags,rearBrakes")
-R("nissan_240sx__96", "US", "SR20DET", "dual", "disc", parts="jdm_shared", lo="market,engineCode",
-  note="GT4's US name for the JDM 180SX Type X (SR20DET, 205 PS). No US 240SX had the SR20DET or a 1996 "
-       "fastback; treated as a US-market car (design section 2: 'The 96 240SX has it [OBD-II]'). Engine "
-       "parts come from Japan. OWNER: confirm US market")
+R("nissan_240sx__96", "US", "SR20DET", "none", "disc", parts="jdm_shared", lo="airbags",
+  swap="SR20DET from a JDM 180SX, put in by a previous owner",
+  note="a US 240SX fastback (the US fastback ended with the 1994 cars; the model is the 180SX, the same "
+       "body) with an SR20DET from a JDM 180SX, the late-90s swap (owner 2026-11-12). The JDM ECU came with "
+       "the engine: codes are read off its LED. Motorized shoulder belts, no airbag. Engine parts come from Japan")
 R("nissan_skyline_hard_top_2000_turbo_rs__r30___83", "JDM", "FJ20ET", "none", "disc", lo="obd1Read,bumperEra")
 R("mazda_mx_5_miata_sr_limited__na__j___97", "JDM", "BP-ZE", "dual", "disc", lo="airbags")
 R("mitsubishi_fto_gr__97", "JDM", "6A12", "dual", "disc", lo="airbags,rearBrakes")
@@ -398,9 +399,11 @@ R("bmw_2002_turbo__73", "EUR", "BMW M10 turbo", "none", "drum", ac="none",
 R("chevrolet_camaro_iroc_z_concept__88", "US", "SBC 350 L98 TPI", "none", "disc", oneoff=True, lo="rearBrakes,roadLegal",
   note="a concept car; road legal here as the catalog treats it (owner's call); a one-off: never offered for sale in the career (owner 2026-11-12 default: show and prototype cars stay out of the paper and the lot)")
 R("mazda_rx_7_infini_iii__fc__j___90", "JDM", "13B-T", "none", "disc")
-R("nissan_240sx__s14___96", "US", "SR20DET", "dual", "disc", parts="jdm_shared", lo="market,engineCode",
-  note="GT4's US name for the JDM Silvia K's (S14, SR20DET 220 PS); the US 240SX had the KA24DE. "
-       "Treated as a US-market car like the other 240SX row. OWNER: confirm US market")
+R("nissan_240sx__s14___96", "US", "SR20DET", "dual", "disc", parts="jdm_shared",
+  swap="SR20DET from a JDM Silvia K's, put in by a previous owner",
+  note="a US '96 240SX (S14; the US car came with the 2.4 KA24DE) with an SR20DET from a JDM Silvia "
+       "K's, the late-90s swap (owner 2026-11-12). The JDM ECU came with the engine: codes are read off its "
+       "LED, and an OBD-II scanner on the car's own port reads nothing. Engine parts come from Japan")
 R("nissan_skyline_hard_top_2000_rs_x_turbo_c__r30___84", "JDM", "FJ20ET", "none", "disc", lo="obd1Read")
 R("eagle_talon_esi__97", "US", "Chrysler 420A", "dual", "drum", lo="rearBrakes")
 R("honda_civic_type_r__ek___97", "JDM", "B16B", "dual", "disc", lo="airbags",
@@ -833,8 +836,13 @@ def bake(cars):
         legal = a.get("legal", not btt)
         fuel = a.get("fuel", en["fuel"])
         # codes
+        swap = a.get("swap", "")
         if fuel != "efi" or market == "RACE":
             obd, obdr = 0, "none"
+        elif swap:
+            # an engine swap brings its own ECU: codes are read the way that ECU reads them
+            obdr = a.get("obdr", obd1_method(cid, "JDM"))
+            obd = 0 if obdr == "none" else 1
         elif market == "US" and year >= 1996 and legal:
             obd, obdr = 2, "none"
         else:
@@ -848,6 +856,8 @@ def bake(cars):
             esys = "MECH"
         elif market == "RACE":
             esys = "EFI-RACE"
+        elif swap:
+            esys = "EFI-JDM"
         elif obd == 2:
             esys = "EFI-OBD2"
         elif market == "JDM":
@@ -927,7 +937,7 @@ def bake(cars):
             ab = a["ab"]
         row = dict(
             id=cid, name=c["name"], origin=c["origin"], family=family_of(cid, c["origin"]),
-            market=market, year=year, builtToTune=btt, roadLegal=legal, oneOff=bool(a.get("oneoff", False)),
+            market=market, year=year, builtToTune=btt, roadLegal=legal, oneOff=bool(a.get("oneoff", False)), swap=swap,
             serviceUnit="miles" if legal else "hours",
             priceClass=PRICE[pcn], priceClassName=pcn,
             stockInternals=3 if btt else en["si"], stockBoostBar=0.0 if btt else en["boost"],
@@ -958,7 +968,7 @@ def validate(rows, cars):
         i, y, m = r["id"], r["year"], r["market"]
         if r["obd"] == 2 and not (m == "US" and y >= 1996 and r["fuel"] == "efi"):
             bad.append(i + ": OBD-II off a US-market 1996+ EFI row")
-        if m == "US" and y >= 1996 and r["fuel"] == "efi" and r["roadLegal"] and r["obd"] != 2:
+        if m == "US" and y >= 1996 and r["fuel"] == "efi" and r["roadLegal"] and r["obd"] != 2 and not r.get("swap"):
             bad.append(i + ": US-market 1996+ EFI road car without OBD-II")
         if r["fuel"] == "carb" and (r["obd"] != 0 or r["obd1Read"] != "none" or r["eSys"] != "CARB"):
             bad.append(i + ": codes on a carburettor row")

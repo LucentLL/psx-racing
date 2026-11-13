@@ -115,11 +115,13 @@ namespace PSXRacing.EditorTools
                 // OBD-II follows market and model year, not origin (design section 2).
                 if (f.obd == 2) obd2++;
                 if (f.obd == 2 && !(m == "US" && y >= 1996 && f.IsEfi)) obd2Bad.Add(id);
-                if (m == "US" && y >= 1996 && f.IsEfi && f.roadLegal && f.obd != 2) obd2Missing.Add(id);
+                // An engine swap brings its own ECU (owner 11-12: the 240SXs), so the swapped car reads codes its way.
+                bool swapped = !string.IsNullOrEmpty(f.swap);
+                if (m == "US" && y >= 1996 && f.IsEfi && f.roadLegal && f.obd != 2 && !swapped) obd2Missing.Add(id);
                 if (f.IsCarburettor) { carb++; if (f.HasCodes || f.obd1Read != "none" || f.eSys != "CARB") carbCodes.Add(id); }
                 if (f.IsMechanicalInjection) { mech++; if (f.HasCodes || f.obd1Read != "none" || f.eSys != "MECH") mechCodes.Add(id); }
                 string want = f.IsCarburettor ? "CARB" : f.IsMechanicalInjection ? "MECH" : m == "RACE" ? "EFI-RACE"
-                            : f.obd == 2 ? "EFI-OBD2" : m == "JDM" ? "EFI-JDM" : "EFI-OBD1";
+                            : swapped ? "EFI-JDM" : f.obd == 2 ? "EFI-OBD2" : m == "JDM" ? "EFI-JDM" : "EFI-OBD1";
                 if (f.eSys != want || (f.obd == 1) != (f.obd1Read != "none" && f.IsEfi && m != "RACE" && f.obd != 2))
                     esysBad.Add(id);
 
@@ -185,7 +187,10 @@ namespace PSXRacing.EditorTools
                   beltBad.Count + FactsSample(beltBad));
 
             // The design's own examples and a few hard pins.
-            FactsPin("nissan_240sx__96", f => f.HasObd2, "the '96 240SX has OBD-II (design section 2)");
+            FactsPin("nissan_240sx__s14___96", f => !f.HasObd2 && f.market == "US" && !string.IsNullOrEmpty(f.swap),
+                "the '96 240SX (S14) is a US car with an SR20DET swap: its JDM ECU, not OBD-II (owner 11-12)");
+            FactsPin("nissan_240sx__96", f => f.year == 1994 && f.market == "US" && !string.IsNullOrEmpty(f.swap),
+                "the 240SX fastback is a '94 US car with an SR20DET swap (owner 11-12)");
             FactsPin("honda_civic_type_r__ek___97", f => !f.HasObd2 && f.market == "JDM", "the Civic Type R EK has no OBD-II (JDM)");
             FactsPin("chevrolet_camaro_ss__69", f => f.IsCarburettor && !f.HasCodes && f.bumperEra == "chrome",
                 "a '69 Camaro SS: carburettor, no codes, chrome bumpers");
@@ -202,7 +207,7 @@ namespace PSXRacing.EditorTools
                 "the 3.4 SHO V8: chain, interference, OBD-II");
             var spec240 = CarCatalog.Get("nissan_240sx__96");
             Check(spec240 != null && CarFacts.RoadLegal(spec240) && CarFacts.CareerSells(spec240),
-                  "the owner's starter (240SX '96) is road legal and for sale");
+                  "the owner's starter (the 240SX fastback) is road legal and for sale");
         }
 
         static void FactsPin(string id, System.Func<CarFact, bool> rule, string what)

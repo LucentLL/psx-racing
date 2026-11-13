@@ -41,6 +41,9 @@ namespace PSXRacing
         /// <summary>A one-off show or prototype car: road legal as the catalog
         /// treats it, but never offered for sale in the career (owner 2026-11-12).</summary>
         public bool oneOff;
+        /// <summary>An engine put in by a previous owner (empty = the car's own). The swapped
+        /// engine's ECU decides how codes are read (owner 2026-11-12: the 240SXs).</summary>
+        public string swap;
         public string serviceUnit;
         public float priceClass;
         public string priceClassName;

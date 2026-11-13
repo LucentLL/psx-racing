@@ -9926,7 +9926,7 @@ namespace PSXRacing.EditorTools
                     string k = CarModelLibrary.KeyFor(c);
                     bool isZ = c.name == "Nissan 240ZG (HS30) `71";
                     bool isEvo = System.Text.RegularExpressions.Regex.IsMatch(c.name, @"^Mitsubishi Lancer Evolution VI (RS|GSR|Rally Car) `99$");
-                    bool isFb = c.name == "Nissan 240SX `96";
+                    bool isFb = c.name == "Nissan 240SX `94";   // the fastback, a '94 US car since 11-12
                     if (isZ) z30++; if (isZ && k == "longnose_71") z30Ok++;
                     if (isEvo) evo6++; if (isEvo && k == "rally_sedan_99") evo6Ok++;
                     if (isFb) s13++; if (isFb && k == "fastback_96") s13Ok++;
