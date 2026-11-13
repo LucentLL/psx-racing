@@ -1,3 +1,53 @@
+# HANDOFF - FAULTS ROUND D: CAR FACTS + race/rally cars off the career market (agent "factsd", branch faults-d, 2026-11-12; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-faultd`, branch faults-d off mountain-nm 7ae0ec13. Sandbox PSXRec (lock "factsd", released). Design: art workspace `Fault_System_Design_2026-11-11.md` (section 2 "Catalog facts", 3.5, the D row of section 10; OWNER'S ANSWERS 9). Reports: scratchpad `factsd\` (`base_selftest.txt`, `head_selftest.txt`, `head_carfacts.txt`, `compare.txt`).
+
+## What round D adds
+- `Assets/PSXRacing/Resources/car_facts.json` (+meta): one row per catalog car, all 319, keyed by spec id. Fields: origin + family (jpn/usa/eur: the MAKER's home - RG2's catch-all origin "eur" is corrected on Dome, Sileighty, Spoon, NISMO x4 (jpn) and Chaparral x2, Panoz (usa)), market (US / JDM / EUR / UK; RACE on every built-to-tune row), year, builtToTune, roadLegal, serviceUnit (miles / race hours), priceClass (economy 1.0, sport 1.15, exotic 2.5, race 3.0), stockInternals (highest power stage the stock bottom end takes) + stockBoostBar, engineCode, fuel (carb / mech / efi), eSys (CARB, MECH, EFI-OBD1, EFI-OBD2, EFI-JDM, EFI-RACE), obd (0 none, 1 maker's own, 2 OBD-II), obd1Read (gm_jumper, toyota_te1_e1, ecu_led, analog_meter, jumper_lamp, dealer, none), camDrive + beltMi + interference, ignition, turbo, airbags, rearBrakes, bumperEra (chrome / 5mph / 2.5mph / plastic), ac (R-12 / R-134a / none), partsSource + partsWaitMin/Max (US next morning; JDM-only and European specials up to 21 days; race parts 14-28), knownIssues (free text for the later knownFailures ids), lowConf (the fields the author was unsure of), note.
+- Built by `tools/bake_car_facts.py` from the catalog (rg2_cars.json) plus authored engine and car tables; `--check` validates without writing. Re-run it after any catalog change: it refuses to write if a catalog row has no facts row.
+- `Scripts/CarFacts.cs`: the loader later rounds read (`CarFacts.Get(spec)`, `RoadLegal`, `CareerSells`, `PartsWaitDays`, `PriceClass`, `CarFact.HasObd2 / HasCodes / HasAirbag / HasTimingBelt / IsInterference / ServicedByHours / LowConfidence(field)`). Without the file it falls back to the catalog's built-to-tune rule.
+- OWNER'S ANSWER 9: race and rally cars leave the career market. `CarMarket`: the newspaper, the dealer lot (it kept out only "Race Car" rows - rally, touring and JGTC cars could stand on it) and the starting lanes (a well-paid start's NEW lane could be a new $40k rally car) offer no car that is not road legal; adverts an older build placed are withdrawn at the next refresh. Quick race and debug are untouched; a career that owns one keeps it. Switch `PSX_FACTS_MARKET=0` = today's market.
+- NOT BUILT (note for the car-clubs work): **rally cars become a LOANER perk at a car club's max rank** (owner, answer 9). The loaner needs the phantom-car rules (Clubs.cs loaner perk, `live: false`; design section 7 rental).
+
+## Counts
+319 rows; 53 not road legal = the 51 built-to-tune rows (23 race, 22 rally, 6 touring/JGTC/dirt) + 2 authored (Shelby GT350R '65 - Shelby's competition model; Lotus Motor Sport Elise '99 - the one-make race-series car; both OWNER: confirm). 14 OBD-II rows (every US-market 1996+ EFI road car, nothing else). 50 carburettor and 12 mechanical-injection rows, none with codes. 236 rows carry at least one low-confidence field (mostly interference / ignition per engine and the A/C switch-over years).
+
+## Gates
+| Gate | Result |
+|---|---|
+| Typecheck (PSXRec) | OK |
+| `LifeSimSelfTest.RunCarFacts` (PSXRec; once on WebGL, once on Android) | 37 ok / 0 FAIL both times (`head_carfacts.txt`, `android_carfacts.txt`) |
+| ... every catalog row present exactly once | 319 / 319, 0 missing, 0 duplicated, 0 extra |
+| ... OBD-II only on US-market 1996+ rows | 14 OBD-II rows, all US-market 1996+ EFI; and every US-market 1996+ EFI road car has it |
+| ... no codes on carburettor rows | 50 carburettor + 12 mechanical-injection rows, 0 with codes |
+| ... airbags by market and year | 143 rows with a bag; 0 before 1987 (US, JDM) or 1981 (Europe), 0 on race cars, every US 1998+ car dual |
+| ... built-to-tune not road legal | 51 / 51 not road legal, RACE market, race hours (+2 authored: 53) |
+| ... design pins | '96 240SX OBD-II; Civic Type R EK none; '69 Camaro SS carb, no codes, chrome; '99 Viper OBD-II, dual bags, next-day parts; 787B race hours / 3.0 / 14-28 days; FD rotary + sequential; 2JZ-GTE belt, non-interference; 3.4 SHO chain, interference |
+| Newspaper never lists a race or rally car over 200 seeded days | 3 seeds x 200 days: 638 listings in the paper and on the lot, 0 race/rally. Teeth: with `PSX_FACTS_MARKET=0` the same days list 92 of 631 |
+| ... older adverts, owned cars, starting lanes | a rally advert an older build placed leaves paper and lot at the next refresh; an owned race car is kept over 30 days of refreshes; 720 starting lanes, 0 race/rally (35 with the switch off - the NEW lane offered new rally cars) |
+| Full LifeSimSelfTest, base 7ae0ec13 vs head, same sandbox and target | base 4,147 ok / 63 FAIL; head 4,179 ok / 63 FAIL: the same 63 by check text, 0 new, 0 gone (`compare.txt`). Ok-line delta: +37 car facts; night look -5 = two scene checks (wet road, night windows) SKIPPED in the head run because the mirrored worktree's PSXRacingBuilder.cs has a newer file time than the sandbox's built scenes (a sync artefact; this round does not touch the builder) |
+
+SANDBOX TARGET: `Invoke-UnityJob` (tools/unity-wait.ps1) adds `-buildTarget WebGL` unless told otherwise, so my base job moved PSXRec from Android to WebGL. The head self-test ran on WebGL too (a fair comparison) and the last job (RunCarFacts) ran with `-buildTarget Android`: PSXRec is back on Android. Lesson for the next agent there: pass `-buildTarget Android` explicitly.
+
+## Judgement calls the owner should see (spot check: art workspace `Car_Facts_SpotCheck_2026-11-12.md`, 30 rows)
+- Both "Nissan 240SX '96" rows are GT4's US names for JDM cars (180SX Type X and Silvia K's S14, SR20DET). The design says "the '96 240SX has [OBD-II]", so they are US market (OBD-II, US bumpers) with Japanese engine-parts waits (3-7 days). Owner: confirm.
+- GT4's other US renames are JDM cars and are marked JDM: Lexus GS300 '91 (Aristo), SC300 '97 (Soarer), IS200 (J) '98 (Altezza), 3000GT (J) (GTO), 300ZX (Fairlady Z).
+- Concept / prototype road cars (Camaro IROC-Z Concept, Mitsubishi HSR-II, Dome Zero) stay road legal because the catalog treats them as road cars.
+- Catalog data that does not match the real car (noted in the rows, not changed): Buick Special '62 (7456 cc DOHC / 564 PS in the catalog), Honda Accord Coupe Type S (id says 03, name 99, figures of the Acura CL Type-S), Corvette Z06 C5 and MR2 Spyder dated '99 (2001 / 2000 cars).
+
+## Not verified
+- No player build, no play check (nothing in play reads the facts except the market). The facts are authored from general knowledge with no web lookups; the validator checks the rules, not each fact. Gauges (damped / true temperature gauge, oil lamp or gauge) and knownFailures fault ids are not authored: R2a / R4 own them once faults_v2.json exists.
+
+## What the owner will notice
+- Race and rally cars no longer show up in the newspaper, on the dealer lot or as a new starting car. Quick race and the debug garage still have all of them, and a race car you already own stays yours.
+- A table in your art folder (`Car_Facts_SpotCheck_2026-11-12.md`) lists 30 familiar cars with their facts: mark any wrong row. Three rows need your call (the 240SX market, the GT350R and the Motor Sport Elise as race cars).
+- Nothing else changes in play yet: later fault rounds read these facts (warning lamps and codes, airbags, bumper damage, timing belts, parts waits, tuning wear).
+
+## At merge
+- Shared files: `Scripts/LifeSim/CarMarket.cs` (RefreshListings +5 lines, RefreshLot +1 and one changed condition, EnsureNewStock one changed condition, RollStartingLanes +3 lines), `Editor/LifeSimSelfTest.cs` (one line in RunAll). New: `Scripts/CarFacts.cs`, `Editor/LifeSimSelfTest.CarFacts.cs` (entry point `LifeSimSelfTest.RunCarFacts` -> `PSXRacing_selftest_carfacts.txt`), `Resources/car_facts.json`, `tools/bake_car_facts.py` (+ .meta files with fresh GUIDs).
+- NEW RESOURCES FILE: build sandboxes never receive a worktree's Resources by mirror - copy `Assets/PSXRacing/Resources/car_facts.json` and its .meta into the build sandbox BY PATH. Without it the game still runs (the market falls back to the catalog's built-to-tune rule; only the two authored race cars would stay for sale).
+- No save version, no City code, no tile re-bake. `CrashStopGap.BumperFor` (R0a) still derives the bumper from origin + year ("until car_facts carries one"); R1a can switch it to `CarFacts.Get(spec).bumperEra`.
+
 # HANDOFF - FAULTS R0a MERGED AND GATED: crash stop-gap + save safety (agent "r0a-gate", branch faults-r0a-crash, 2026-11-12; NOT pushed, NOT merged into mountain-nm)
 
 Worktree `C:\Users\mcgee\PSX Racing-faults`, branch faults-r0a-crash = the crash half (4cf8ac09) + the save half (faults-r0a-save 84549b8e), off mountain-nm 19d6d4a3. Sandbox PSXCity (lock "r0a-gate", released). Design: art workspace `Fault_System_Design_2026-11-11.md` (OWNER SUMMARY, §1, §2 "Save safety" and "Versions", §3.1, §9 and its R0a stop-gap table, the R0a row of §10). Reports: scratchpad `r0a-gate\gate_*.txt` (runner `gate.ps1`); the base runs are the crash half's `r0a-crash\base_*.txt` (19d6d4a3, same sandbox). The two halves' own sections follow this one (crash first, then save); read them for the detail.
@@ -458,7 +508,9 @@ Branch `junkyard-spares` (worktree `C:\Users\mcgee\PSX Racing-parts`) off mounta
 
 # HANDOFF - COCKPIT ROUND 2: THE CABIN ON THE CAR'S OWN WINDSCREEN ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
 
-Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors2\summary.png`.
+Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors
+2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors
+2\summary.png`.
 
 ## Measured
 - Header (windscreen top), belt and side glass of every shell probed by rays (Editor/CockpitFitProbe.cs -> Scripts/CockpitFit.Table.cs, 52 rows). His windscreen pane against the cars: median 1.13 x the length and 1.20 x the height (CalibZ/CalibY): the fit moves each car from the catalogue's middle.
