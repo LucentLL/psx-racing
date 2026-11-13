@@ -1220,7 +1220,8 @@ namespace PSXRacing
             string how = TouchControls.Instance != null && TouchControls.Instance.Visible
                 ? "TAP MENU (TOP LEFT)"
                 : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS START" : "PRESS ESC";
-            return "THE ENGINE HAS LET GO\n" + how + " AND PICK TOW CAR HOME";
+            // Answer 8: in a career the leave row reads CALL TOW TRUCK.
+            return "THE ENGINE HAS LET GO\n" + how + (CareerDrive.Strict ? " AND PICK CALL TOW TRUCK" : " AND PICK TOW CAR HOME");
         }
 
         /// <summary>

@@ -2542,6 +2542,10 @@ namespace PSXRacing.LifeSim
             ("house3g", "SUBURBAN HOUSE — 3-CAR GARAGE", 750, 3),
         };
 
+        /// <summary>R0c: the room a career has - the rung's garage plus the
+        /// yard spot, never less than the stored garageSlots (see Room).</summary>
+        public static int GarageSlots(LifeState s) => Room.GarageSlots(s);
+
         /// <summary>Friendly name for a housing key; falls back to the raw key
         /// so an unknown save value never renders as an empty bill line.</summary>
         public static string HousingLabel(string key)

@@ -370,8 +370,8 @@ namespace PSXRacing.LifeSim
             var seen = Viewings.Find(s, listing);
             if (seen != null) return Viewings.Adopt(s, seen, opt);
 
-            if (s.cars.Count >= s.garageSlots)
-                return "garage full (" + s.garageSlots + ")";
+            if (s.cars.Count >= Room.GarageSlots(s))
+                return "garage full (" + Room.GarageSlots(s) + ")";
             if (s.money < opt.downPayment) return "need " + MenuKit.Money(opt.downPayment);
 
             var spec = CarCatalog.Get(listing.specId);

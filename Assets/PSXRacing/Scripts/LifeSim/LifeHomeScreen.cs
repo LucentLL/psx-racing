@@ -2865,7 +2865,7 @@ namespace PSXRacing.LifeSim
             // whatever comes next. Harmless between two labels, visible when the
             // next thing has a background, which is what the preview caught here.
             MenuKit.Label(body, "DEBUG — " + MenuKit.Money(S.money) + "  ·  garage " +
-                    S.cars.Count + "/" + S.garageSlots + "  ·  credit " + S.creditScore,
+                    S.cars.Count + "/" + Room.GarageSlots(S) + "  ·  credit " + S.creditScore,
                 15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Accent, ColW, height: 24f);
             y -= 32f;
@@ -6033,6 +6033,7 @@ namespace PSXRacing.LifeSim
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 44f);
             y -= 52f;
+            JunkBlock(ref y);   // R0c: JUNK IT
             ExitRow(ref y, "BACK TO THE PAPER", () => { tab = "news"; Rebuild(); });
         }
 
@@ -6184,7 +6185,7 @@ namespace PSXRacing.LifeSim
                 MenuKit.Accent, 600f, bold: true);
             MenuKit.Label(body, "CREDIT " + S.creditScore + " (" +
                     CarMarket.CreditTier(S.creditScore).name + ")   ·   GARAGE " +
-                    S.cars.Count + "/" + S.garageSlots,
+                    S.cars.Count + "/" + Room.GarageSlots(S),
                 15, new Vector2(0.5f, 1f), new Vector2(ColR, y), TextAnchor.MiddleRight,
                 MenuKit.Dim, ColW * 0.55f);
             y -= 34f;
@@ -6300,6 +6301,8 @@ namespace PSXRacing.LifeSim
                             LifeSimManager.Save(); Rebuild();
                             Toast(err ?? "listed for sale");
                         }, 13);
+                    // R0c: selling to the trade is Crestline's, by a visit (Room.TradeIn).
+                    if (!Room.TradeInOn)
                     MenuKit.Button(body, "QUICK-SELL 50%", new Vector2(0.5f, 1f),
                         new Vector2(MenuKit.ColLeft(ColL + 294f, 180f), sy), new Vector2(180f, 34f), () =>
                         {
@@ -6374,7 +6377,7 @@ namespace PSXRacing.LifeSim
                                               : CarMarket.FinanceOptions(S, listing))
             {
                 var captured = opt;
-                bool afford = S.money >= opt.downPayment && S.cars.Count < S.garageSlots;
+                bool afford = S.money >= opt.downPayment && S.cars.Count < Room.GarageSlots(S);
                 string label = opt.isCash
                     ? "CASH — " + MenuKit.Money(opt.downPayment)
                     : opt.label + " — " + MenuKit.Money(opt.downPayment) + " down, " +
@@ -6393,10 +6396,10 @@ namespace PSXRacing.LifeSim
                 y -= 58f;
             }
 
-            if (S.cars.Count >= S.garageSlots)
+            if (S.cars.Count >= Room.GarageSlots(S))
             {
-                MenuKit.Label(body, "Garage is full (" + S.garageSlots +
-                        " slot" + (S.garageSlots == 1 ? "" : "s") + "). Sell something first.",
+                MenuKit.Label(body, "Garage is full (" + Room.GarageSlots(S) +
+                        " slot" + (Room.GarageSlots(S) == 1 ? "" : "s") + "). Sell something first.",
                     15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Bad, 820f);
                 y -= 30f;
@@ -6557,7 +6560,7 @@ namespace PSXRacing.LifeSim
             foreach (var opt in Viewings.FinanceFor(S, v))
             {
                 var captured = opt;
-                bool afford = S.money >= opt.downPayment && S.cars.Count < S.garageSlots;
+                bool afford = S.money >= opt.downPayment && S.cars.Count < Room.GarageSlots(S);
                 string label = opt.isCash
                     ? "BUY IT — " + MenuKit.Money(v.offerPrice) + " CASH"
                     : opt.label + " — " + MenuKit.Money(opt.downPayment) + " down, " +
@@ -6574,6 +6577,8 @@ namespace PSXRacing.LifeSim
                     }) : null, 16, afford ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 52f;
             }
+            // R0c: off Crestline's lot, the appraised car can go in part exchange.
+            PartExchangeRows(v, bx, bw, ref y);
 
             // ---- haggle ----
             // The label says when the player is holding cards: every access
@@ -6765,7 +6770,7 @@ namespace PSXRacing.LifeSim
                 MenuKit.Accent, 600f, bold: true);
             MenuKit.Label(body, "CREDIT " + S.creditScore + " (" +
                     CarMarket.CreditTier(S.creditScore).name + ")   ·   GARAGE " +
-                    S.cars.Count + "/" + S.garageSlots,
+                    S.cars.Count + "/" + Room.GarageSlots(S),
                 15, new Vector2(0.5f, 1f), new Vector2(ColR, y), TextAnchor.MiddleRight,
                 MenuKit.Dim, ColW * 0.55f);
             y -= 34f;
@@ -6775,6 +6780,9 @@ namespace PSXRacing.LifeSim
                 15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, 820f);
             y -= 30f;
+
+            // R0c: the appraisal and trade-in of the car the player came in.
+            TradeInBlock(ref y);
 
             if (S.dealerLot.Count == 0) CarMarket.RefreshLot(S);
 
@@ -7755,6 +7763,7 @@ namespace PSXRacing.LifeSim
                 Row("MISSED PAYMENTS", S.missedPayments.ToString(), ref y, MenuKit.Bad);
             if (S.pendingSalary > 0)
                 Row("PAY PENDING (Friday)", MenuKit.Money(S.pendingSalary), ref y, MenuKit.Good);
+            MoveHouseBlock(ref y);   // R0c
         }
 
         void Row(string label, string value, ref float y, Color? valueColor = null)

@@ -162,7 +162,8 @@ namespace PSXRacing
                 // the next scene is the Y/Triangle bug below, again. Being
                 // stuck past the flag costs nothing anyway: the result is
                 // already banked and RESET CAR is still in the pause menu.
-                if (kb.rKey.wasPressedThisFrame && inputEnabled && !DriveSession.ResultsUp)
+                if (kb.rKey.wasPressedThisFrame && inputEnabled && !DriveSession.ResultsUp &&
+                    CareerDrive.ResetAllowed)
                     DriveSession.Respawn(car);
             }
 
@@ -222,7 +223,8 @@ namespace PSXRacing
                 // play back.
                 if ((pad.selectButton.wasPressedThisFrame ||
                      (pad.buttonWest.wasPressedThisFrame && !OnFoot.ForecourtMode.OfferGetOut))
-                    && inputEnabled && !DriveSession.ResultsUp)
+                    && inputEnabled && !DriveSession.ResultsUp &&
+                    CareerDrive.ResetAllowed)
                     DriveSession.Respawn(car);
             }
 
@@ -253,7 +255,8 @@ namespace PSXRacing
                 if (WheelInput.ShiftUpPressed) ShiftBy(1);
                 if (WheelInput.ShiftDownPressed) ShiftBy(-1);
                 // Same gates as R and pad X above.
-                if (WheelInput.ResetPressed && inputEnabled && !DriveSession.ResultsUp)
+                if (WheelInput.ResetPressed && inputEnabled && !DriveSession.ResultsUp &&
+                    CareerDrive.ResetAllowed)
                     DriveSession.Respawn(car);
                 wheelDeg = WheelInput.RoadDegrees(car);
             }
