@@ -28,7 +28,7 @@ namespace PSXRacing.LifeSim
             {
                 if (car == null) continue;
                 var c = car;
-                Row("  " + Clip(LifeRules.ShortName(c), 24), MenuKit.Money(Insurance.MonthlyPremium(S, c)), ref y);
+                Row("  " + PolicyName(c), MenuKit.Money(Insurance.MonthlyPremium(S, c)), ref y);
                 y += 4f;
                 bool loan = Insurance.HasLoan(S, c);
                 bool full = Insurance.CoverOf(S, c) == Insurance.Full;
@@ -53,6 +53,15 @@ namespace PSXRacing.LifeSim
             Paragraph("Tap a car's cover to switch between LIABILITY (the state minimum) and FULL " +
                       "(collision and comprehensive), and its deductible to step $250 / $500 / $1,000. " +
                       "A car with a loan stays FULL until the loan is paid.", ref y);
+        }
+
+        /// <summary>"NISSAN SKYLINE '89": the badge and the year, so two of a make read apart.</summary>
+        static string PolicyName(OwnedCar c)
+        {
+            string n = LifeRules.ShortName(c);
+            var p = (c.displayName ?? "").Split(' ');
+            string last = p.Length > 2 ? p[p.Length - 1] : "";
+            return last.StartsWith("'") && last.Length <= 4 ? n + " " + last : n;
         }
 
         /// <summary>The health plan, the driving record and what is on a payment plan.</summary>
