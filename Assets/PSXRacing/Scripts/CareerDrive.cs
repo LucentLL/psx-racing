@@ -12,7 +12,10 @@ namespace PSXRacing
     ///      the CITY edition, a standalone editor race). QUIT banks the leg's
     ///      crash outcome, wear, fuel and heat from the seat before the result
     ///      is thrown away - the way LifeRules.BankSeizureNow banks a seizure -
-    ///      but no purse, no rep and no block (a quit is not a finish).
+    ///      but no purse and no rep (a quit is not a finish). Owner 2026-11-12,
+    ///      asked whether a quit should still use the time and the day's race:
+    ///      "Yes" - the block is spent and the day's purse race is used up, the
+    ///      way a finish would use them (PSX_QUIT_COSTS).
     ///   8. "No respawning or resetting cars ... If stuck, player can call tow
     ///      truck." In a non-debug career the player's car is never put back on
     ///      the road: no R / pad X / wheel reset, no RESET CAR row, no
@@ -27,13 +30,15 @@ namespace PSXRacing
     ///      the old behaviour.
     ///
     /// Switches, each 0 = today: PSX_NO_RESTART, PSX_NO_RESET (also removes the
-    /// tow), PSX_QUIT_KEEPS.
+    /// tow), PSX_QUIT_KEEPS, PSX_QUIT_COSTS (0 = a quit spends no block and
+    /// leaves the day's race open, as R0c shipped it in PC32).
     /// </summary>
     public static class CareerDrive
     {
         public static bool NoRestartOn = Env("PSX_NO_RESTART") != "0";
         public static bool NoResetOn = Env("PSX_NO_RESET") != "0";
         public static bool QuitKeepsOn = Env("PSX_QUIT_KEEPS") != "0";
+        public static bool QuitCostsOn = Env("PSX_QUIT_COSTS") != "0";
 
         static string Env(string k) => System.Environment.GetEnvironmentVariable(k);
 
@@ -180,6 +185,11 @@ namespace PSXRacing
 
             bool roamWas = RaceHandoff.FreeRoam;
             string placeWas = RaceHandoff.FreeRoamPlace;
+            // What kind of race this was, read before the apply-back clears it:
+            // a meet race's block is paid by the drive home, a delivery is the job's,
+            // and a rival, meet or club race never burns the day's race (LifeRules).
+            bool meetRace = RaceHandoff.MeetRace, delivery = RaceHandoff.Delivery, clubRace = RaceHandoff.ClubRace;
+            bool rivalRace = !string.IsNullOrEmpty(RaceHandoff.RivalAlias);
             RaceHandoff.ResultReady = true;
             RaceHandoff.FreeRoam = true;       // no purse, no rep, no race counted
             RaceHandoff.CommuteLeg = true;     // no block
@@ -204,6 +214,13 @@ namespace PSXRacing
                     (string.IsNullOrEmpty(venue) ? "the race" : venue) + " after " +
                     (meters / 1000f).ToString("0.0") + " km — the car keeps what happened";
             RaceHandoff.CommuteLeg = false;
+            // Owner 2026-11-12: a quit still uses the time and the day's race (no
+            // purse, no rep). The day is stamped first: the block may roll it over.
+            if (QuitCostsOn)
+            {
+                if (!rivalRace && !meetRace && !clubRace) s.lastRaceDay = s.day;
+                if (!delivery && !meetRace) LifeSim.LifeRules.SpendActivitySlot(s, LifeSim.LifeRules.ActRace);
+            }
             LifeSim.LifeSimManager.Save();
             return true;
         }

@@ -369,9 +369,12 @@ namespace PSXRacing.EditorTools
                 Check(owned.odoMiles > odo0 + 3f && owned.fuel < fuel0,
                       "and the leg's 5 km of odometer, wear and fuel",
                       (owned.odoMiles - odo0).ToString("0.00") + " mi, fuel " + fuel0 + " -> " + owned.fuel.ToString("0.0"));
-                Check(s.day == day0 && s.slotIndex == slot0 && s.money == money0 && s.streetRacesTotal == races0,
-                      "no purse, no race counted and no block for a quit");
-                Check(!RaceHandoff.ResultReady && s.calendarLog.Count > 0 && s.calendarLog[s.calendarLog.Count - 1].Contains("quit"),
+                Check(s.money <= money0 && s.streetRacesTotal == races0,
+                      "no purse and no race in the totals for a quit", "money " + money0 + " -> " + s.money);
+                Check((s.day != day0 || s.slotIndex != slot0) && s.lastRaceDay == day0,
+                      "but the quit still uses the block and the day's race (owner 11-12, PSX_QUIT_COSTS)",
+                      "day " + day0 + "/" + slot0 + " -> " + s.day + "/" + s.slotIndex + ", lastRaceDay " + s.lastRaceDay);
+                Check(!RaceHandoff.ResultReady && s.calendarLog.Skip(System.Math.Max(0, s.calendarLog.Count - 4)).Any(l => l.Contains("quit")),
                       "nothing left for the front end to bank twice, and the diary says it was a quit",
                       s.calendarLog.Count > 0 ? s.calendarLog[s.calendarLog.Count - 1] : "");
 
