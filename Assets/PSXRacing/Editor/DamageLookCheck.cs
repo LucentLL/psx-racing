@@ -293,6 +293,11 @@ namespace PSXRacing.EditorTools
             yield return new WaitForSeconds(1.5f);
             if (cam != null) Shot("look_4_chase_panels", cam.transform.position, cam.transform.rotation);
 
+            // a roof strike (planted, 4 m/s): roof_glass - the dented roof and, from the seat, a cracked windscreen
+            L.PlantHit(DamageModel.ZRoof, 0, -1, 4f, Time.time);
+            yield return new WaitForSeconds(0.5f);
+            Check(look.Now.roof > 0f, "a planted 4 m/s roof strike: roof_glass shows", look.Now.roof.ToString("0.00"));
+
             // 4 the cockpit
             ChaseCamera.SetView(ChaseCamera.View.Cockpit);
             yield return new WaitForSeconds(2.5f);
@@ -300,6 +305,8 @@ namespace PSXRacing.EditorTools
             bool bagD = ci != null && ci.GetComponentsInChildren<Transform>(true).Any(x => x.name == "SRS_Driver");
             bool bagP = ci != null && ci.GetComponentsInChildren<Transform>(true).Any(x => x.name == "SRS_Passenger");
             Check(bagD && bagP, "the cockpit shows the driver's bag and the passenger's", bagD + " / " + bagP);
+            bool cracked = ci != null && ci.GetComponentsInChildren<Transform>(true).Any(x => x.name == "GlassCrack");
+            Check(cracked, "  and the cracked windscreen");
             if (cam != null) Shot("look_3_cockpit_bags", cam.transform.position, cam.transform.rotation);
             ChaseCamera.SetView(ChaseCamera.View.Chase);
 

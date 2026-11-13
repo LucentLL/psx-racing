@@ -154,6 +154,7 @@ namespace PSXRacing
                 bool changed = !pushedOnce || !Same(Now, pushed);
                 if (changed || now >= nextPush) { Push(); nextPush = now + 2f; }
                 if (Now.bags > 0 && bagsPlaced == 0) PlaceBags();
+                if (BodyOn && Now.roof > 0f && crack == null) PlaceCrack();
             }
             Steam();
         }
@@ -323,6 +324,119 @@ namespace PSXRacing
             }
             bagsPlaced = Now.bags;
             ci.CollectRenderers();
+        }
+
+        // ================= the cracked windscreen (cockpit) =================
+        GameObject crack;
+        float nextCrackTry;
+        static Texture2D crackTex;
+
+        /// <summary>A roof_glass row: a star of cracks on the windscreen, seen from
+        /// the seat (a quad on the pane's own plane, PSX/Decal like the tyre smoke).</summary>
+        void PlaceCrack()
+        {
+            if (Time.time < nextCrackTry) return;
+            nextCrackTry = Time.time + 0.5f;
+            var ci = car.GetComponentInChildren<CockpitInterior>(true);
+            var smoke = car.GetComponent<TireSmoke>();
+            if (ci == null || smoke == null || smoke.material == null) return;
+            Renderer screen = null;
+            foreach (var r in ci.GetComponentsInChildren<Renderer>(true))
+                if (r.sharedMaterial != null && r.sharedMaterial.name == "Cockpit_Glass_windshield") { screen = r; break; }
+            var mf = screen != null ? screen.GetComponent<MeshFilter>() : null;
+            if (mf == null || mf.sharedMesh == null) return;
+            var ct = car.transform;
+            var vs = mf.sharedMesh.vertices;
+            var ts = mf.sharedMesh.triangles;
+            Vector3 nSum = Vector3.zero, cSum = Vector3.zero;
+            float aSum = 0f;
+            for (int i = 0; i + 2 < ts.Length; i += 3)
+            {
+                Vector3 a = screen.transform.TransformPoint(vs[ts[i]]), b = screen.transform.TransformPoint(vs[ts[i + 1]]),
+                        c = screen.transform.TransformPoint(vs[ts[i + 2]]);
+                Vector3 x = Vector3.Cross(b - a, c - a);
+                if (Vector3.Dot(x, ct.forward) > 0f) x = -x;           // every face toward the cabin
+                float area = x.magnitude * 0.5f;
+                nSum += x;
+                cSum += (a + b + c) / 3f * area;
+                aSum += area;
+            }
+            if (aSum < 1e-4f) return;
+            Vector3 n = nSum.normalized, centre = cSum / aSum;
+            Vector3 up = Vector3.ProjectOnPlane(ct.up, n).normalized;
+            Vector3 side = Vector3.Cross(up, n).normalized;
+            float hub = ct.InverseTransformPoint(ci.WheelTransform != null ? ci.WheelTransform.position : centre).x;
+            // the star on the passenger's half, low on the pane
+            Vector3 at = centre + n * 0.012f - up * 0.06f + side * (Vector3.Dot(side, ct.right) * (hub > 0f ? -0.22f : 0.22f));
+            crack = new GameObject("GlassCrack") { layer = ci.gameObject.layer };
+            crack.transform.SetPositionAndRotation(at, Quaternion.LookRotation(-n, up));
+            crack.transform.SetParent(screen.transform, true);
+            var m = new Mesh { name = "GlassCrack" };
+            const float H = 0.34f;
+            m.vertices = new[] { new Vector3(-H, -H, 0f), new Vector3(-H, H, 0f), new Vector3(H, H, 0f), new Vector3(H, -H, 0f) };
+            m.uv = new[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) };
+            m.colors = new[] { Color.white, Color.white, Color.white, Color.white };
+            m.triangles = new[] { 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 };
+            m.RecalculateBounds();
+            crack.AddComponent<MeshFilter>().sharedMesh = m;
+            var mr = crack.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = new Material(smoke.material) { name = "GlassCrack", mainTexture = CrackTex(), hideFlags = HideFlags.HideAndDontSave };
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            ci.CollectRenderers();
+        }
+
+        /// <summary>A star of cracks: jagged rays from a strike and broken rings round it.</summary>
+        static Texture2D CrackTex()
+        {
+            if (crackTex != null) return crackTex;
+            const int S = 256;
+            var px = new Color32[S * S];
+            var rng = new System.Random(1999);
+            Vector2 c0 = new Vector2(S * 0.5f, S * 0.5f);
+            void Dot(Vector2 p, byte a)
+            {
+                int x = Mathf.RoundToInt(p.x), y = Mathf.RoundToInt(p.y);
+                for (int dy = 0; dy <= 1; dy++)
+                    for (int dx = 0; dx <= 1; dx++)
+                    {
+                        int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= S || yy >= S) continue;
+                        int k = yy * S + xx;
+                        if (px[k].a < a) px[k] = new Color32(235, 238, 240, a);
+                    }
+            }
+            void Line(Vector2 a, Vector2 b, byte alpha)
+            {
+                int n = Mathf.CeilToInt((b - a).magnitude * 1.5f);
+                for (int i = 0; i <= n; i++) Dot(Vector2.Lerp(a, b, i / (float)Mathf.Max(1, n)), alpha);
+            }
+            int rays = 11;
+            for (int r = 0; r < rays; r++)
+            {
+                float ang = (r + (float)rng.NextDouble() * 0.6f) / rays * Mathf.PI * 2f;
+                Vector2 p = c0;
+                float len = S * (0.30f + 0.18f * (float)rng.NextDouble());
+                for (float d = 0f; d < len; d += 9f)
+                {
+                    ang += ((float)rng.NextDouble() - 0.5f) * 0.35f;
+                    Vector2 q = p + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * 9f;
+                    Line(p, q, (byte)Mathf.Lerp(220f, 90f, d / len));
+                    p = q;
+                }
+            }
+            foreach (float rad in new[] { 10f, 24f, 44f })
+                for (float a = 0f; a < Mathf.PI * 2f; a += 0.22f)
+                    if (rng.NextDouble() < 0.7)
+                    {
+                        float r1 = rad * (0.9f + 0.2f * (float)rng.NextDouble());
+                        Line(c0 + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r1,
+                             c0 + new Vector2(Mathf.Cos(a + 0.22f), Mathf.Sin(a + 0.22f)) * r1 * (0.9f + 0.2f * (float)rng.NextDouble()), 170);
+                    }
+            crackTex = new Texture2D(S, S, TextureFormat.RGBA32, true) { name = "GlassCrack", wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+            crackTex.SetPixels32(px);
+            crackTex.Apply(true);
+            return crackTex;
         }
 
         static void Bag(string name, Transform parent, Vector3 at, Quaternion rot, float width, int layer)
