@@ -96,6 +96,8 @@ namespace PSXRacing
         /// always read this, but until now nothing wrote it, so drift wear was
         /// silently zero on every race.</summary>
         float playerDriftSeconds;
+        /// <summary>The leg so far, for a QUIT that banks it (CareerDrive.BankQuitLeg).</summary>
+        public float PlayerDriftSeconds => playerDriftSeconds;
         /// <summary>Drift wear should not accrue from the state flag alone — the
         /// machine can read Drifting while the car is nearly stopped.</summary>
         const float DriftWearMinSpeed = 4f;

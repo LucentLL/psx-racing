@@ -260,9 +260,34 @@ namespace PSXRacing
             // `live`: a results screen is exactly where a player parks on a
             // verge, sits on the brake and reads the sheet, and those are the
             // two readings that would call that stuck and teleport them off it.
-            if ((live || DriveSession.ResultsUp) && car != null && LeftTheRoad())
+            // OWNER'S ANSWER 8 (2026-11-12): in a career the car stays where it
+            // went - in the water, or down off the road - and the pause menu's
+            // leave row becomes CALL TOW TRUCK. Only a car under the map's
+            // floor is still put back: that is a hole in the world, not
+            // something the driver did. The latch lets go once a wheel is back
+            // on a road (it drove out) and never while the menu is up.
+            bool watching = (live || DriveSession.ResultsUp) && car != null;
+            bool gone = watching && LeftTheRoad();
+            bool strict = CareerDrive.Strict && transform.position.y >= floorY;
+            if (watching && CareerDrive.Strict)
+            {
+                if (gone && strict)
+                    strandedBy = transform.position.y < seaY - SeaDepthM ? StrandWater : StrandFell;
+                else if (strandedBy >= StrandWater && sinceRoadContact <= 0f &&
+                         Vector3.Dot(transform.up, Vector3.up) >= 0.25f)
+                    strandedBy = StrandNone;
+                if (strandedBy >= StrandWater)
+                {
+                    stuckTimer = 0f;
+                    Prompt = (strandedBy == StrandWater ? "IN THE WATER" : "OFF THE ROAD") + "\n" + TowControlName();
+                    wrongWayTimer = 0f; WrongWay = false;
+                    return;
+                }
+            }
+            if (gone && !strict)
             {
                 DriveSession.Respawn(car);
+                strandedBy = StrandNone;
                 stuckTimer = 0f;
                 Prompt = null;
                 // This return skips the wrong-way block below, so the flag has
@@ -354,6 +379,9 @@ namespace PSXRacing
             if (!trapped)
             {
                 stuckTimer = 0f;
+                // Let go only once it MOVES: a wedged car whose driver has
+                // simply come off the pedals is still wedged.
+                if (strandedBy == StrandStuck && !crawling) strandedBy = StrandNone;
                 // Not stuck, but possibly not on the road either — and a car
                 // that is driving perfectly well on the wrong side of a
                 // barrier is invisible to every test above, because all three
@@ -367,6 +395,14 @@ namespace PSXRacing
             stuckTimer += Time.deltaTime;
             float limit = rolled ? rolledSeconds : pinned ? pinnedSeconds : beachedSeconds;
             if (stuckTimer < limit) { Prompt = null; return; }
+
+            // Answer 8: in a career it stays put, and the menu sends for a truck.
+            if (CareerDrive.Strict)
+            {
+                strandedBy = StrandStuck;
+                Prompt = (rolled ? "ON ITS ROOF" : "STUCK") + "\n" + TowControlName();
+                return;
+            }
 
             float untilReset = limit + warningSeconds - stuckTimer;
             if (untilReset <= 0f)
@@ -558,12 +594,34 @@ namespace PSXRacing
 
             offTrackTimer += dt;
             if (offTrackTimer < OffTrackSeconds) return false;
-            Prompt = "OFF TRACK — " + ResetControlName();
+            Prompt = CareerDrive.Strict ? "OFF TRACK — DRIVE BACK TO THE ROAD" : "OFF TRACK — " + ResetControlName();
             return true;
         }
 
         float Lateral(TrackPath path, int idx) =>
             Vector3.ProjectOnPlane(transform.position - path.GetPoint(idx), Vector3.up).magnitude;
+
+        // ---- answer 8: stranded in a career ---------------------------------
+        const int StrandNone = 0, StrandStuck = 1, StrandWater = 2, StrandFell = 3;
+        int strandedBy;
+
+        /// <summary>
+        /// A career car the watchdog would once have put back on the road: on
+        /// its roof or wedged past the patience above, in the water, or down
+        /// off the road. Latched - it survives the pause menu, which is where
+        /// it is read (<see cref="CareerDrive.NeedsTow"/>) - and let go when the
+        /// car drives itself out. Never set outside a non-debug career.
+        /// </summary>
+        public bool Stranded => strandedBy != StrandNone;
+
+        /// <summary>How to reach the tow, on what the player is holding.</summary>
+        static string TowControlName()
+        {
+            if (TouchControls.Instance != null && TouchControls.Instance.Visible)
+                return "TAP MENU — CALL TOW TRUCK";
+            if (Gamepad.current != null) return "PRESS START — CALL TOW TRUCK";
+            return "PRESS ESC — CALL TOW TRUCK";
+        }
 
         /// <summary>
         /// Name the control the player actually has. Telling a pad player to

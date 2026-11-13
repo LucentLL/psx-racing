@@ -398,7 +398,7 @@ namespace PSXRacing.LifeSim
         public static string Adopt(LifeState s, Viewing v, CarMarket.FinanceOption opt)
         {
             if (s == null || v == null || v.car == null) return "no car";
-            if (s.cars.Count >= s.garageSlots) return "garage full (" + s.garageSlots + ")";
+            if (s.cars.Count >= Room.GarageSlots(s)) return "garage full (" + Room.GarageSlots(s) + ")";
             int price = v.offerPrice;
             if (opt.isCash) opt.downPayment = price;
             else opt.downPayment = Mathf.Min(opt.downPayment, price);

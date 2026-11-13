@@ -764,7 +764,7 @@ namespace PSXRacing.OnFoot
                         continue;
                     }
                     hook.title = "EMPTY SPACE";
-                    hook.detail = S.cars.Count >= S.garageSlots
+                    hook.detail = S.cars.Count >= LifeSim.Room.GarageSlots(S)
                         ? "No room booked for another car."
                         : "Room for one more.";
                     hook.action = "READ THE CLASSIFIEDS";

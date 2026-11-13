@@ -183,8 +183,28 @@ namespace PSXRacing
         /// </summary>
         void ResetCar()
         {
-            if (playerCar != null) DriveSession.Respawn(playerCar);
+            if (playerCar != null && CareerDrive.ResetAllowed) DriveSession.Respawn(playerCar);
             SetOpen(false);
+        }
+
+        /// <summary>The leave row: the tow when the car cannot get itself home
+        /// in a career (answer 8), otherwise QUIT / END DRIVE as before.</summary>
+        void LeaveOrTow()
+        {
+            if (CareerDrive.NeedsTow(playerCar)) CallTowTruck();
+            else ExitToMenu();
+        }
+
+        /// <summary>
+        /// CALL TOW TRUCK (owner, 2026-11-12: "If stuck, player can call tow
+        /// truck"). The fee is taken from the seat like the fuel truck's, then
+        /// the drive ends the way QUIT ends it - the race leg or the city
+        /// session banked onto the car - and the car is home.
+        /// </summary>
+        void CallTowTruck()
+        {
+            CareerDrive.ChargeTow();
+            ExitToMenu();
         }
 
         // ---- the debug bench ----------------------------------------------
@@ -271,6 +291,10 @@ namespace PSXRacing
         /// which the banner on the road tells the player to pick by name.</summary>
         string ExitLabel()
         {
+            // OWNER'S ANSWER 8: a career car that cannot get itself home goes
+            // on a truck, and the truck costs.
+            if (CareerDrive.NeedsTow(playerCar))
+                return "CALL TOW TRUCK — " + LifeSim.MenuKit.Money(CareerDrive.TowFeeHere());
             var engine = playerCar != null ? playerCar.GetComponent<EngineTemp>() : null;
             if (engine != null && engine.Seized) return "TOW CAR HOME";
             return City.CityMode.Instance != null ? "END DRIVE (GO HOME)" : "QUIT RACE (GO HOME)";
@@ -362,6 +386,21 @@ namespace PSXRacing
             Time.timeScale = 1f;
             AudioListener.pause = false;
             IsOpen = false;
+            // OWNER'S ANSWER 1 (2026-11-12): "Quit means you stop participating,
+            // but you are not immune to what happened." A race quit in a career
+            // banks what the leg did to the car (crash outcome, wear, fuel, heat)
+            // from the seat before the result is thrown away - no purse, no rep,
+            // no block. Past the flag the stamped result is kept: leaving from
+            // here is CONTINUE. PSX_QUIT_KEEPS=0: today's (the leg is thrown away).
+            bool keepFinished = CareerDrive.QuitKeepsOn && RaceHandoff.FromLifeSim && Edition.HasCareer &&
+                                RaceHandoff.ResultReady && DriveSession.ResultsUp;
+            if (keepFinished)
+            {
+                RaceHandoff.CommuteLeg = false;
+                SceneManager.LoadScene(0);
+                return;
+            }
+            CareerDrive.BankQuitLeg(playerCar);
             RaceHandoff.ResultReady = false;
             // QUITTING IS WHERE A TRIP ENDS, so it is never a commute leg. The
             // flag is a static that the legs of a longer trip set on their way
@@ -511,7 +550,9 @@ namespace PSXRacing
                 return b;
             }
             Row("RESUME", Resume);
-            Row("RESET CAR (UNSTICK)", ResetCar);
+            // Answer 8: no reset in a non-debug career - the leave row turns
+            // into CALL TOW TRUCK when the car is stuck (LeaveOrTow).
+            if (CareerDrive.ResetAllowed) Row("RESET CAR (UNSTICK)", ResetCar);
             // Where it applies: a car with a tank. Above RESTART, because a
             // player opening this menu with a dead engine is here for one of
             // these two rows, and the cheap one should be reached first.
@@ -520,10 +561,11 @@ namespace PSXRacing
                 var fuelBtn = Row(FuelLabel(), CallFuelTruck);
                 fuelLabel = fuelBtn.GetComponentInChildren<Text>();
             }
-            Row("RESTART RACE", RestartRace);
+            // Answer 1: RESTART is a debug option only in a career.
+            if (CareerDrive.RestartOffered) Row("RESTART RACE", RestartRace);
             // Where it goes, not "menu": a playtester read EXIT TO MENU as
             // quitting the game.
-            exitLabel = Row(ExitLabel(), ExitToMenu).GetComponentInChildren<Text>();
+            exitLabel = Row(ExitLabel(), LeaveOrTow).GetComponentInChildren<Text>();
 
             // One door to the settings menu. A strip of its page names opened
             // the same strip again on top (owner, 2026-11-06).
