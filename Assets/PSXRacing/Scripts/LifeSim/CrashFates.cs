@@ -292,9 +292,10 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < st.hospitalDays; i++) LifeRules.SleepUntilMorning(s);
             var pay = CrashHooks.Hospital(s, st.bill);
             int owes = Mathf.Max(0, pay.playerOwes);
-            int paid = Mathf.Clamp(s.money, 0, owes);
-            s.money -= paid;
-            f.hospitalOwed += owes - paid;
+            // R1c-B's Charge: what the money covers is paid now, the rest goes on a payment plan
+            int planned = Insurance.Charge(s, owes, "the hospital bill");
+            int paid = owes - planned;
+            f.hospitalOwed += planned;
             f.hospDays = st.hospitalDays;
             f.hospBill = st.bill;
             f.hospInsurer = Mathf.Max(0, pay.insurerPaid);
@@ -375,6 +376,8 @@ namespace PSXRacing.LifeSim
             int est = RepairEstimate(s, car);
             if (!IsWriteOff(est, valueBefore)) return;
             var pay = CrashHooks.TotalLoss(s, car, valueBefore);   // asked ONCE: a claim may move a premium
+            // what the payout left owing on the car's loan (R1c-B pays the lender first)
+            if (pay.playerOwes > 0) Insurance.Charge(s, pay.playerOwes, "what the loan still owed on the " + car.displayName);
             var f = s.fate;
             f.writeOffCar = car.id;
             f.writeOffEstimate = est;

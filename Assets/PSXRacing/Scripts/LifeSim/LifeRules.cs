@@ -1963,13 +1963,11 @@ namespace PSXRacing.LifeSim
 
             var q = FaultCatalog.GetQuote(s, car, f, venue);
             if (!q.available) return q.blockedReason;
-            // R1c-A: a crash repair at a shop goes through the car's policy (CrashHooks.Repair; none =
-            // all yours) and a car that cannot be driven is towed in
+            // R1c-A: a car that cannot be driven is towed in. (The policy is asked on R1c-B's claim
+            // page, where the player chooses FILE A CLAIM or PAY IT YOURSELF - never here, or paying
+            // it yourself would still file a claim and put points on the record.)
             if (venue != FaultCatalog.Venue.Diy)
-            {
-                if (f.cause == FaultCause.Impact) q.price = Mathf.Max(0, CrashHooks.Repair(s, car, q.price).playerOwes);
                 q.price += CrashFates.TowIn(car);
-            }
             if (s.money < q.price) return "need " + MenuKit.Money(q.price);
 
             s.money -= q.price;
