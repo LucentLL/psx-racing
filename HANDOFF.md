@@ -508,9 +508,7 @@ Branch `junkyard-spares` (worktree `C:\Users\mcgee\PSX Racing-parts`) off mounta
 
 # HANDOFF - COCKPIT ROUND 2: THE CABIN ON THE CAR'S OWN WINDSCREEN ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
 
-Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors
-2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors
-2\summary.png`.
+Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors2\summary.png`.
 
 ## Measured
 - Header (windscreen top), belt and side glass of every shell probed by rays (Editor/CockpitFitProbe.cs -> Scripts/CockpitFit.Table.cs, 52 rows). His windscreen pane against the cars: median 1.13 x the length and 1.20 x the height (CalibZ/CalibY): the fit moves each car from the catalogue's middle.
