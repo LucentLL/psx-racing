@@ -162,9 +162,12 @@ namespace PSXRacing.LifeSim
             {
                 if (h.key == S.housingType) continue;
                 string key = h.key;
-                ArmedButton("move:" + key, h.label + " — " + MenuKit.Money(h.rent) + "/MO, ROOM FOR " +
-                            Room.SlotsAt(S, key) + "  ·  MOVING " + MenuKit.Money(Room.MoveCost(key)),
-                    Room.MoveRefusal(S, key), () =>
+                string why = Room.MoveRefusal(S, key);
+                // Short enough for a 4:3 screen with the refusal on the end
+                // (the refusal names the money when that is the reason).
+                ArmedButton("move:" + key, h.label + "  ·  " + MenuKit.Money(h.rent) + "/MO  ·  ROOM FOR " +
+                            Room.SlotsAt(S, key) + (why == null ? "  ·  MOVING " + MenuKit.Money(Room.MoveCost(key)) : ""),
+                    why, () =>
                     {
                         string err = Room.MoveHouse(S, key);
                         LifeSimManager.Save(); Rebuild();
