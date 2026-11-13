@@ -139,7 +139,9 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < faultIds.Length && i < st.cars.Count; i++)
             {
                 var f = FaultCatalog.MakeById(faultIds[i], "jpn");
-                if (f != null) st.cars[i].faults.Add(f);
+                // R0b: a row this build made carries its cause (an unstamped
+                // one is what the v25 step marks legacy on a re-run).
+                if (f != null) st.cars[i].faults.Add(FaultCause.Stamp(f, FaultCause.Planted, st.day, st.cars[i].odoMiles));
             }
             st.partsShelf.Add(new SparePart
             {

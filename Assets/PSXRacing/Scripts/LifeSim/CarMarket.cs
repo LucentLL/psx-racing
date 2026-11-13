@@ -33,6 +33,14 @@ namespace PSXRacing.LifeSim
             "Bad transmission", "Oil leak", "Cracked windshield",
         };
 
+        /// <summary>The problem a new advert discloses. R0b: only phrases that
+        /// map to a row (FaultIds.AdProblems); PSX_FAULT_USEDIDS=0 the old list.</summary>
+        static string AdProblem()
+        {
+            var list = FaultLeaks.UsedIdsOn ? FaultIds.AdProblems : Problems;
+            return list[Random.Range(0, list.Length)];
+        }
+
         /// <summary>
         /// What a DISCLOSED problem does to the advertised condition.
         ///
@@ -194,7 +202,7 @@ namespace PSXRacing.LifeSim
                     cond = cond,
                     odoMiles = odo,
                     isNew = isNew,
-                    problem = hasProblem ? Problems[Random.Range(0, Problems.Length)] : "",
+                    problem = hasProblem ? AdProblem() : "",
                     expiresDay = s.day + 3 + Random.Range(0, 5),
                 });
                 listed.Add(spec.id);
@@ -406,11 +414,26 @@ namespace PSXRacing.LifeSim
             // hidden by default now, and leaving this one hidden would charge
             // the player 45% less for a problem the advert named and then never
             // show it to them.
-            if (!string.IsNullOrEmpty(listing.problem))
+            // R0b: the row the advert's words mean (FaultIds.ForProblem), not
+            // a random row of a lane ("Worn brakes" used to roll a BODY fault).
+            // PSX_FAULT_USEDIDS=0: the lane roll.
+            if (!string.IsNullOrEmpty(listing.problem) && FaultLeaks.UsedIdsOn)
+            {
+                var told = FaultIds.Disclose(car, listing.problem, spec.origin, s.day);
+                // "Leaky radiator": the core and hoses that phrase describes
+                // (the seed reads the faults; MakeOwnedCar seeded before it).
+                if (told != null && told.id == "cooling_fail") CoolingModel.Seed(car, listing.cond);
+            }
+            else if (!string.IsNullOrEmpty(listing.problem))
             {
                 var f = FaultCatalog.RollWearFault(car, ProblemStat(listing.problem), false,
                                                   "wear", spec.origin);
-                if (f != null) { f.hidden = false; f.diagnosed = true; car.faults.Add(f); }
+                if (f != null)
+                {
+                    f.hidden = false; f.diagnosed = true;
+                    FaultCause.Stamp(f, FaultCause.Seller, s.day, car.odoMiles, listing.problem);
+                    car.faults.Add(f);
+                }
             }
 
             // And the problems the seller did NOT disclose. These go on HIDDEN:
@@ -700,12 +723,15 @@ namespace PSXRacing.LifeSim
             // fault with no symptom at all would not do that.
             if (lane.cond <= 55)
             {
-                var f = FaultCatalog.RollWearFault(car, "engine", false, "wear", lane.spec.origin);
+                var f = FaultCause.Stamp(FaultCatalog.RollWearFault(car, "engine", false, "wear", lane.spec.origin),
+                                         FaultCause.PreviousOwner, s.day, car.odoMiles, "the starter car");
                 if (f != null)
                 {
                     car.faults.Add(f);
-                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the " + car.displayName +
-                                      " has a noise you cannot place — worth an inspection");
+                    // R0b: THE SYMPTOM ONLY ("the <car> idles up and down once
+                    // it's warm") - never the part, never what to do about it.
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": the " + car.displayName + " " +
+                                      FaultSymptoms.StarterSymptom(f.id));
                 }
             }
         }

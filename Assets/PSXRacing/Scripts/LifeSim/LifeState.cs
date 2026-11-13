@@ -68,7 +68,7 @@ namespace PSXRacing.LifeSim
         ///     the next stage of the car you are in. ADDED fields; the
         ///     migration gives an old career an empty shelf.
         /// </summary>
-        public int saveVersion = 24;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 25;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         /// <summary>
         /// The save version of the BUILD that last wrote this career (R0a,
@@ -613,6 +613,26 @@ namespace PSXRacing.LifeSim
         /// race. Rolling the direction per race would read as a random defect
         /// rather than a broken alignment.</summary>
         public int pullDir = 1;
+
+        // ---- WHY IT HAPPENED (v25, R0b; see FaultCause). Stamped where the
+        // row is created, never shown in R0b (a mechanic or dealer answers
+        // "why" from it once they have found or fixed it - R2b). Empty cause
+        // = a row from before v25, which the v25 step marks "legacy". 0 day,
+        // odometer and zone = unknown.
+        /// <summary>FaultCause class: impact, wear, service, abuse, heat, age,
+        /// mod, workmanship, previous_owner, seller, legacy, debug.</summary>
+        public string cause = "";
+        /// <summary>A note for whoever explains it ("front left 7.2 m/s", the
+        /// advert's phrase).</summary>
+        public string causeNote = "";
+        public int bornDay;
+        public float bornOdo;
+        /// <summary>A hit's zone: 0 unknown, 1 front, 2 rear, 3 side, 4 under.</summary>
+        public int zone1;
+        /// <summary>A hit's side: -1 left, 0 centre or unknown, +1 right.</summary>
+        public int hitSide;
+        /// <summary>A hit's closing speed, m/s (0 unknown).</summary>
+        public float hitMps;
     }
 
     /// <summary>A repair in progress. Resolved by the daily rollover when

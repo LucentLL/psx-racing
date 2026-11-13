@@ -1062,8 +1062,7 @@ namespace PSXRacing.OnFoot
         string BenchLine(OwnedCar car)
         {
             if (car == null) return "Nothing on the bench.";
-            int known = 0;
-            foreach (var f in car.faults) if (!f.hidden) known++;
+            int known = FaultView.KnownCount(car);   // R0b: the one gate
             if (known == 0) return "Nothing wrong that anyone has found.";
             return known + (known == 1 ? " fault" : " faults") + " waiting on " + car.displayName + ".";
         }

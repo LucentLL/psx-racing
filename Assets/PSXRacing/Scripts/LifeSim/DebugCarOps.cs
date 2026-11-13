@@ -362,6 +362,9 @@ namespace PSXRacing.LifeSim
             if (HasFault(car, id)) return false;
             var f = FaultCatalog.MakeById(id, OriginOf(spec));
             if (f == null) return false;
+            // R0b: every row carries its cause - this one was planted (day
+            // unknown: the bench does not touch the career to find it).
+            FaultCause.Stamp(f, FaultCause.Planted, 0, car.odoMiles, "the debug bench");
             car.faults.Add(f);
             return true;
         }

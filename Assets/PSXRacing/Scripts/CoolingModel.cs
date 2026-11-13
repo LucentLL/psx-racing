@@ -238,22 +238,20 @@ namespace PSXRacing
             bool weak = health < WarnBelow;
             int deg = Mathf.RoundToInt(ambientC);
 
+            // R0b: no cooling part named and no figure outside inspection -
+            // the overflow tank is what anybody sees with the hood up.
             if (car.coolant < CoolantLowPct)
-                return "COOLANT AT " + Mathf.RoundToInt(car.coolant) +
-                       "% — top it up before you go out in this.";
-            // R0a: with the crash stop-gap on, a crash takes the radiator down,
-            // and naming the weakest part here would name that radiator with
-            // nobody having looked (the owner's rule: nothing is found without
-            // an inspection). The system, not the part, until R0b takes the
-            // part names off every screen outside inspection. No longer than
-            // the old line (this column clips). PSX_FAULT_CRASH=0: the part.
-            string part = CrashStopGap.On ? "cooling" : WeakestPart(car).ToLowerInvariant();
+                return "Overflow tank low — top it up before you go out in this.";
+            // R0a, made unconditional by R0b: the system, never the part (a
+            // crash takes the radiator down and nobody has looked). No longer
+            // than the old line (this column clips).
+            string part = "cooling";
+            // R0b: the state, not what it means (owner, 2026-11-12: no text
+            // explains a symptom).
             if (weak && hotDay)
-                return deg + " C OUT THERE, and the " + part +
-                       " is done. Watch the temperature.";
+                return deg + " C OUT THERE, and the " + part + " is done.";
             if (weak)
-                return "The " + part +
-                       " is done — this will run hot if you lean on it.";
+                return "The " + part + " is done.";
             if (hotDay && health < 75f)
                 return deg + " C out there. Not a day for a tired cooling system.";
             return null;

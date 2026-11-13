@@ -81,6 +81,66 @@ namespace PSXRacing.LifeSim
             foreach (var e in data.effects) effectById[e.id] = e;
             originCostMult = new Dictionary<string, float>();
             foreach (var o in data.originMult) originCostMult[o.origin] = o.mult;
+            UsedRowsOwnIds();
+        }
+
+        /// <summary>
+        /// R0b: THE USED ROWS GET THEIR OWN IDS (design §4). The bake keyed
+        /// "Engine Rebuild Needed" / "Engine Replacement" as trans_slip and
+        /// "Fluid Top-Off Needed" as oil_leak, so a worn engine was found under
+        /// TRANSMISSION, cleared by a clutch and acted as a slipping gearbox,
+        /// and a top-off was found under the oil pan. Their effects are kept
+        /// (a row that has not landed keeps its RG2 effect) except the shift
+        /// delay, which was the gearbox's: an engine that wants a rebuild is
+        /// down on power and thirsty, not slow to shift. The effects exist
+        /// whatever the switch says, because a migrated save carries the ids.
+        /// PSX_FAULT_USEDIDS=0: the rows roll under their old ids.
+        /// </summary>
+        static void UsedRowsOwnIds()
+        {
+            if (!effectById.ContainsKey(FaultIds.UsedEngineWorn) && effectById.TryGetValue("trans_slip", out var slip))
+            {
+                var worn = JsonUtility.FromJson<EffectEntry>(JsonUtility.ToJson(slip));
+                worn.id = FaultIds.UsedEngineWorn;
+                worn.desc = "Worn engine — down on power, thirsty";
+                worn.shiftMult = 1f;
+                effectById[worn.id] = worn;
+            }
+            if (!effectById.ContainsKey(FaultIds.UsedFluidsLow) && effectById.TryGetValue("oil_leak", out var leak))
+            {
+                var low = JsonUtility.FromJson<EffectEntry>(JsonUtility.ToJson(leak));
+                low.id = FaultIds.UsedFluidsLow;
+                low.desc = "Fluids low — engine wears faster";
+                effectById[low.id] = low;
+            }
+            if (!FaultLeaks.UsedIdsOn) return;
+            foreach (var u in data.used)
+            {
+                string to = FaultIds.UsedIdFor(u.id, u.name);
+                if (to != null) u.id = to;
+            }
+        }
+
+        /// <summary>The used pool's row for an id, the family's own first.</summary>
+        static UsedEntry UsedRow(string faultId, string family)
+        {
+            UsedEntry any = null;
+            foreach (var u in data.used)
+            {
+                if (u.id != faultId) continue;
+                if (u.origin == family) return u;
+                if (any == null) any = u;
+            }
+            return any;
+        }
+
+        /// <summary>Every id a car can carry: the pools, then the used rows that
+        /// are not in a pool (R0b's two). For the leak test and the class map.</summary>
+        public static List<string> AllIdsWithUsed()
+        {
+            var ids = AllIds();
+            foreach (var u in data.used) if (!ids.Contains(u.id)) ids.Add(u.id);
+            return ids;
         }
 
         public static bool Ready { get { Load(); return data.pools.Count > 0; } }
@@ -426,7 +486,22 @@ namespace PSXRacing.LifeSim
             Load();
             origin = PoolOrigin(origin, null);   // its family (off: unknown → jpn)
             var row = PoolRow(faultId, origin);
-            if (row == null) return null;
+            if (row == null)
+            {
+                // R0b: a row only the used pool has (used_engine_worn,
+                // used_fluids_low) - an advert's "Engine knock", the bench.
+                var u = UsedRow(faultId, origin);
+                if (u == null) return null;
+                float um = originCostMult.TryGetValue(u.origin, out float uo) ? uo : 1f;
+                return new CarFault
+                {
+                    id = u.id, label = u.name, stat = u.stat,
+                    cost = Mathf.RoundToInt(u.cost * um), days = u.days, add = u.add,
+                    repairType = u.type, hidden = true, diagnosed = false,
+                    severity = u.tier == "catastrophic" || u.tier == "extensive" ? 2f : 1f,
+                    pullDir = UnityEngine.Random.value < 0.5f ? -1 : 1,
+                };
+            }
             // Priced as the ROW's origin, not the car's: a borrowed European
             // fault is still a European part.
             float mult = originCostMult.TryGetValue(row.origin, out float m) ? m : 1f;

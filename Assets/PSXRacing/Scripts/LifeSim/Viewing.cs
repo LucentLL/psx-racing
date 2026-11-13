@@ -85,6 +85,22 @@ namespace PSXRacing.LifeSim
         /// implementation, and buying is then a move rather than a copy.
         /// </summary>
         public OwnedCar car;
+
+        // ---- NAME WHAT YOU FELT (v25, R0b). A test drive reveals nothing by
+        // dice; the player says what they felt, and the seller either has to
+        // agree (a true claim reprices by that fault's tier, the part never
+        // named) or calls the bluff (a false one ends the haggle for the day).
+        /// <summary>Day of the last test drive (0 = never): one per visit-day.</summary>
+        public int driveDay;
+        /// <summary>What that drive did (FaultSymptoms.Cond* bits), measured.</summary>
+        public int driveConds;
+        /// <summary>Chips already said after that drive (bits by chip index).</summary>
+        public int saidChips;
+        /// <summary>Day a false claim shut the conversation (0 = never).</summary>
+        public int shutDay;
+        /// <summary>Ids of the faults a true claim made the seller own up to.
+        /// They price like a find; they are NOT found (still hidden, unnamed).</summary>
+        public List<string> felt = new List<string>();
     }
 
     public static class Viewings
@@ -158,8 +174,20 @@ namespace PSXRacing.LifeSim
             };
 
             string origin = spec != null && !string.IsNullOrEmpty(spec.origin) ? spec.origin : "jpn";
+            int today = s != null ? s.day : 0;
             if (!l.isNew)
-                car.faults.AddRange(FaultCatalog.RollUsedFaults(l.cond, l.odoMiles, origin));
+            {
+                var used = FaultCatalog.RollUsedFaults(l.cond, l.odoMiles, origin);
+                FaultCause.StampAll(used, FaultCause.PreviousOwner, today, l.odoMiles);
+                car.faults.AddRange(used);
+            }
+
+            // R0b: the advertised problem is the row its words mean (FaultIds.
+            // ForProblem), disclosed by the seller - and BEFORE the cooling
+            // seed, so a "Leaky radiator" car gets the core that phrase says.
+            // PSX_FAULT_USEDIDS=0: a random row of a lane, after the seed.
+            bool mapped = FaultLeaks.UsedIdsOn && !string.IsNullOrEmpty(l.problem);
+            if (mapped) FaultIds.Disclose(car, l.problem, origin, today);
 
             // The cooling system, AFTER the faults — the seed reads them, so a
             // car whose used-fault roll turned up "Radiator & Hoses" gets the
@@ -170,10 +198,15 @@ namespace PSXRacing.LifeSim
             // The advertised problem is the one thing the seller told you, so
             // it arrives already diagnosed and already in the asking price —
             // the listing was 45% off for it. Same rule CarMarket.Buy had.
-            if (!string.IsNullOrEmpty(l.problem))
+            if (!mapped && !string.IsNullOrEmpty(l.problem))
             {
                 var f = FaultCatalog.RollWearFault(car, ProblemStat(l.problem), false, "wear", origin);
-                if (f != null) { f.hidden = false; f.diagnosed = true; car.faults.Add(f); }
+                if (f != null)
+                {
+                    f.hidden = false; f.diagnosed = true;
+                    FaultCause.Stamp(f, FaultCause.Seller, today, l.odoMiles, l.problem);
+                    car.faults.Add(f);
+                }
             }
 
             v = new Viewing
@@ -244,6 +277,17 @@ namespace PSXRacing.LifeSim
         {
             if (v == null || v.car == null) return 0;
             v.testDrove = true;
+            if (FaultLeaks.FeltOn)
+            {
+                // R0b: THE DRIVE REVEALS NOTHING BY DICE. The seller's faults
+                // acted on the car out there (that is what the drive is for);
+                // what the drive did is kept for NAME WHAT YOU FELT, and the
+                // player says what they felt - or says nothing.
+                v.driveDay = s != null ? s.day : v.driveDay;
+                v.driveConds = TestDriveFeel.Take(v.key);
+                v.saidChips = 0;
+                return 0;
+            }
             int found = 0;
             foreach (var f in v.car.faults)
             {
@@ -261,6 +305,72 @@ namespace PSXRacing.LifeSim
                 v.haggled = false;   // new information, new conversation
             }
             return found;
+        }
+
+        // ---- R0b: one drive a visit-day, and NAME WHAT YOU FELT ----
+
+        /// <summary>Why the keys cannot go out again today, or null. One test
+        /// drive per visit-day (PSX_FAULT_FELT=0: as many as you like).</summary>
+        public static string DriveRefusedToday(LifeState s, Viewing v)
+        {
+            if (!FaultLeaks.FeltOn || s == null || v == null) return null;
+            return v.driveDay == s.day && v.driveDay > 0 ? "you have had it out today" : null;
+        }
+
+        /// <summary>Can the player name what they felt right now? Only on the
+        /// day of the drive, and not after a claim the seller called out.</summary>
+        public static bool ClaimsOpen(LifeState s, Viewing v) =>
+            FaultLeaks.FeltOn && s != null && v != null && v.car != null &&
+            v.driveDay == s.day && v.shutDay != s.day;
+
+        /// <summary>
+        /// NAME WHAT YOU FELT: the player says one chip from the fixed list.
+        ///   * TRUE - a fault on this car shows on that chip and the drive met
+        ///     its condition: the seller owns up to it and the price comes down
+        ///     by that fault's tier, as a find does (Reprice). The part is NOT
+        ///     named: the fault stays hidden; the visit remembers it as felt.
+        ///     A fault already found or already felt moves nothing.
+        ///   * FALSE - nothing the car showed on that drive: the seller says it
+        ///     drove fine, and that is the end of haggling for the day.
+        /// Returns the line to show.
+        /// </summary>
+        public static string Claim(LifeState s, Viewing v, int chip)
+        {
+            if (!ClaimsOpen(s, v)) return "there is nothing to talk about";
+            if (chip < 0 || chip >= FaultSymptoms.Chips.Length) return "say what you felt";
+            int bit = 1 << chip;
+            if ((v.saidChips & bit) != 0) return "you have said that already";
+            v.saidChips |= bit;
+            if (v.felt == null) v.felt = new List<string>();
+
+            CarFault match = null;
+            bool showedAtAll = false;
+            foreach (var f in v.car.faults)
+            {
+                if (f == null || !FaultSymptoms.Showed(f.id, chip, v.driveConds)) continue;
+                showedAtAll = true;
+                if (FaultView.Known(f) || v.felt.Contains(f.id)) continue;
+                match = f;
+                break;
+            }
+            string said = FaultSymptoms.Chips[chip].ToLowerInvariant();
+            if (!showedAtAll)
+            {
+                v.shutDay = s.day;
+                v.haggled = true;
+                return "\"" + said + "? It drove fine for me.\" They will not haggle any more today";
+            }
+            if (match == null)
+                return "\"" + said + " - yes, we went over that.\" Nothing new";
+            v.felt.Add(match.id);
+            int was = v.offerPrice;
+            // By that fault's tier, from where the conversation stands (a
+            // haggle already won is not given back), never below the floor.
+            v.offerPrice = Mathf.Max(200, Mathf.Min(Reprice(v), Mathf.RoundToInt(
+                v.offerPrice * FaultCatalog.TierPriceMult(FaultCatalog.TierOf(match.id)))));
+            v.haggled = false;   // new information, new conversation
+            return "\"" + said + " - fair enough.\" Down to " + MenuKit.Money(v.offerPrice) +
+                   (was > v.offerPrice ? " (" + MenuKit.Money(was - v.offerPrice) + " off)" : "");
         }
 
         // ---- asking for access, and what a "no" is worth ----
@@ -372,19 +482,24 @@ namespace PSXRacing.LifeSim
             float mult = 1f;
             if (v.car != null)
                 foreach (var f in v.car.faults)
-                    if (!f.hidden) mult *= FaultCatalog.TierPriceMult(FaultCatalog.TierOf(f.id));
+                {
+                    // R0b: the advert's own problem is already in the asking
+                    // price (the paper took 45% off for it), so the seller does
+                    // not take it off twice - now that "Bad transmission" is
+                    // the gearbox row and not a random one, counting it again
+                    // would halve the offer.
+                    if (f == null || (FaultLeaks.UsedIdsOn && f.cause == FaultCause.Seller)) continue;
+                    // R0b: a fault the seller owned up to after NAME WHAT YOU
+                    // FELT prices like a find, unnamed.
+                    if (FaultView.Known(f) || (v.felt != null && v.felt.Contains(f.id)))
+                        mult *= FaultCatalog.TierPriceMult(FaultCatalog.TierOf(f.id));
+                }
             return Mathf.Max(200, Mathf.RoundToInt(v.askPrice * Mathf.Max(0.35f, mult)));
         }
 
         /// <summary>Known problems, for the screen. Counted rather than listed
-        /// when the caller only wants a headline.</summary>
-        public static int KnownFaults(Viewing v)
-        {
-            int n = 0;
-            if (v != null && v.car != null)
-                foreach (var f in v.car.faults) if (!f.hidden) n++;
-            return n;
-        }
+        /// when the caller only wants a headline. The one gate: FaultView.</summary>
+        public static int KnownFaults(Viewing v) => v != null ? FaultView.KnownCount(v.car) : 0;
 
         /// <summary>
         /// Buy it. Returns null on success or the reason it was refused.

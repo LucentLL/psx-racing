@@ -264,10 +264,14 @@ namespace PSXRacing
             if (settings == null)
             {
                 settings = gameObject.AddComponent<SettingsPanel>();
+                // R0b: DEBUG INFO (the live physics readout, which reads out a
+                // car's faults as numbers) only in a debug career - see
+                // FaultLeaks.DebugInfoAllowed. PSX_FAULT_DEBUGGATE=0: always.
+                bool debugRow = LifeSim.FaultLeaks.DebugInfoAllowed();
                 settings.host = new SettingsHost
                 {
-                    debugInfo = () => debugOn,
-                    toggleDebugInfo = ToggleDebug,
+                    debugInfo = debugRow ? () => debugOn : (System.Func<bool>)null,
+                    toggleDebugInfo = debugRow ? ToggleDebug : (System.Action)null,
                     openBench = LifeSim.DebugCarOps.BenchAvailable ? OpenBench : (System.Action)null,
                 };
                 // The bench opens OVER the settings page and owns the keys

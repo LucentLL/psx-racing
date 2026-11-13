@@ -1357,7 +1357,9 @@ namespace PSXRacing.LifeSim
                     // with the origin families on (impact rolls never read a
                     // family - the eur pool's impact rows are electrical).
                     if (!CrashStopGap.On && damage >= ImpactFaultThreshold)
-                        AddFault(s, car, FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact", "jpn"));
+                        AddFault(s, car, FaultCause.StampImpact(
+                            FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact", "jpn"),
+                            s.day, car.odoMiles, RaceHandoff.WorstHitZone, RaceHandoff.WorstHitSide, RaceHandoff.WorstHitMps));
                 }
                 // R0a: the faults come from the HIT, not the sum - the
                 // stop-gap table was rolled at the hit, in the car (located,
@@ -1379,7 +1381,10 @@ namespace PSXRacing.LifeSim
                 // severe from BottomSevereMps) was rolled at the strike and
                 // banked with the crash outcome above.
                 if (!CrashStopGap.On && RaceHandoff.BottomWorst >= BottomFaultMps)
-                    AddFault(s, car, FaultCatalog.RollWearFault(car, "tires", RaceHandoff.BottomWorst >= BottomSevereMps, "impact", "jpn"));
+                    AddFault(s, car, FaultCause.StampImpact(
+                        FaultCatalog.RollWearFault(car, "tires", RaceHandoff.BottomWorst >= BottomSevereMps, "impact", "jpn"),
+                        s.day, car.odoMiles, FaultCause.ZoneUnder, CrashBank.WheelSide(RaceHandoff.BottomWorstWheel),
+                        RaceHandoff.BottomWorst));
 
                 // 4c. NO DRIVING RECORD. There used to be an at-fault incident
                 // tally here, feeding a BILLS row and an insurance multiplier
@@ -1688,7 +1693,12 @@ namespace PSXRacing.LifeSim
             // there is no longer an engine for them to be faults with, and
             // leaving them would have the player paying to reseal a valve
             // cover on a block that is coming out.
-            car.faults.RemoveAll(f => f.stat == "engine");
+            // R0b: ONLY THE ENGINE'S INSIDES. The engine lane also holds the
+            // gearbox, charging and sensor rows, and a seizure cured a
+            // slipping gearbox. The long block (gaskets, plugs) stays until a
+            // rebuild or swap renews it. PSX_FAULT_BYCLASS=0: the whole lane.
+            if (FaultLeaks.ByClassOn) car.faults.RemoveAll(FaultClass.ClearedBySeizure);
+            else car.faults.RemoveAll(f => f.stat == "engine");
             s.calendarLog.Add(LogDate(s.day) + ": " + car.displayName +
                               " THREW ITS ENGINE — towed home");
             lastBlownEngine = ShortName(car) + " HAS THROWN ITS ENGINE";
@@ -1774,19 +1784,20 @@ namespace PSXRacing.LifeSim
                 // cooling_fail itself, and the two gasket rows that a hot engine
                 // is exactly how you get.
                 var spec = CarCatalog.Get(car.specId);
-                AddFault(s, car, FaultCatalog.RollWearFault(
+                AddFault(s, car, FaultCause.Stamp(FaultCatalog.RollWearFault(
                     car, "engine", damage >= HeatFaultDamage * 3f, "cooling",
-                    spec != null ? spec.origin : "jpn"));
+                    spec != null ? spec.origin : "jpn"), FaultCause.Heat, s.day, car.odoMiles,
+                    "peak " + Mathf.RoundToInt(RaceHandoff.PeakCelsius) + " C"));
             }
 
             // And the warning, for a drive that got hot and got away with it.
             // Said in degrees, because the gauge the player was ignoring is in
             // degrees and this has to be recognisable as the same thing.
+            // R0b: an instrument fact only. The old "COOLANT DOWN TO x%" line
+            // read a cooling percentage the car has no gauge for.
             if (RaceHandoff.PeakCelsius > EngineTemp.RedMark)
                 lastHeatWarning = "IT RAN HOT — PEAK " +
                                   Mathf.RoundToInt(RaceHandoff.PeakCelsius) + " C";
-            else if (car.coolant < CoolingModel.CoolantLowPct)
-                lastHeatWarning = "COOLANT DOWN TO " + Mathf.RoundToInt(car.coolant) + "%";
         }
 
         static void RollThresholdFault(LifeState s, OwnedCar car, string stat, float value,
@@ -1804,8 +1815,9 @@ namespace PSXRacing.LifeSim
             // back to it on a low-mileage Japanese or US car's body lane, so a
             // side or rear crash could still end in a cracked bumper a few km
             // later.
-            AddFault(s, car, FaultCatalog.RollWearFault(car, stat, value < SevereWearBelow,
-                                                        noImpactOnly: CrashStopGap.On));
+            AddFault(s, car, FaultCause.Stamp(FaultCatalog.RollWearFault(car, stat, value < SevereWearBelow,
+                                                        noImpactOnly: CrashStopGap.On),
+                                              FaultCause.Wear, s.day, car.odoMiles));
         }
 
         /// <summary>Commit a rolled fault. Null is the normal "the gate said no"
@@ -2066,7 +2078,11 @@ namespace PSXRacing.LifeSim
                         // colour change (see Paint.Respray).
                         car.paintSkin = p.paintSkin ?? "";
                         car.paint = 100f;
-                        car.faults.RemoveAll(x => x.stat == "paint");
+                        // R0b: the FINISH rows (the clear coat) - no row was
+                        // ever on the "paint" lane, so this cleared nothing.
+                        // Rust under fresh paint stays. PSX_FAULT_BYCLASS=0: the lane.
+                        if (FaultLeaks.ByClassOn) car.faults.RemoveAll(FaultClass.ClearedByRespray);
+                        else car.faults.RemoveAll(x => x.stat == "paint");
                         s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + p.label + " finished");
                     }
                     else if (p.IsEngineJob)
@@ -2077,13 +2093,22 @@ namespace PSXRacing.LifeSim
                         // clears it, anywhere.
                         car.engineBlown = false;
                         car.engine = Mathf.Clamp(p.engineCondAfter, 1f, 100f);
-                        car.faults.RemoveAll(x => x.stat == "engine");
+                        // R0b: the insides and the long block (new gaskets,
+                        // belt, plugs and fluids) - not the gearbox, the
+                        // charging or the sensors, which are not the engine.
+                        // PSX_FAULT_BYCLASS=0: the whole engine lane.
+                        if (FaultLeaks.ByClassOn) car.faults.RemoveAll(FaultClass.ClearedByEngineJob);
+                        else car.faults.RemoveAll(x => x.stat == "engine");
                         // Anything that has the engine out has the cooling
                         // system off it, and no shop puts the old hoses back on
                         // a fresh motor. Not the radiator, though: the core
                         // comes off, gets looked at, and goes back on.
                         car.hoses = Mathf.Max(car.hoses, 100f);
                         car.coolant = 100f;
+                        // "Radiator & Hoses" goes only when both named parts
+                        // are sound - the rule BuyCoolingService keeps.
+                        if (FaultLeaks.ByClassOn && car.radiator > 95f && car.hoses > 95f)
+                            car.faults.RemoveAll(x => x.id == "cooling_fail");
                         s.calendarLog.Add(LogDate(s.day) + ": " + p.label + " done — " +
                                           car.displayName + " runs again");
                         lastEngineJobDone = ShortName(car) + " HAS AN ENGINE AGAIN";
@@ -2126,8 +2151,11 @@ namespace PSXRacing.LifeSim
                     if (p.junkRisk > 0 && Random.Range(0, 100) < p.junkRisk)
                     {
                         var spec = CarCatalog.Get(car.specId);
-                        AddFault(s, car, FaultCatalog.RollWearFault(
-                            car, p.stat, false, "wear", spec != null ? spec.origin : "jpn"));
+                        // Its cause is the donor's past (FaultCause).
+                        AddFault(s, car, FaultCause.Stamp(FaultCatalog.RollWearFault(
+                            car, p.stat, false, "wear", spec != null ? spec.origin : "jpn"),
+                            FaultCause.PreviousOwner, s.day, car.odoMiles,
+                            p.IsEngineJob ? "the swapped-in engine" : "a used part: " + p.label));
                     }
                 }
                 s.pendingParts.RemoveAt(i);
@@ -2189,7 +2217,13 @@ namespace PSXRacing.LifeSim
             if (s.money < price) return "need " + MenuKit.Money(price);
             s.money -= price;
             AddToStat(car, svc.stat, Mathf.RoundToInt(svc.add * Clubs.MechanicWork(s, car)));
-            car.faults.RemoveAll(f => f.stat == svc.stat);
+            // R0b: SERVICES WORK ON PARTS. Each clears only the faults whose
+            // part it replaces (FaultClass.ServiceClears) - an oil change used
+            // to clear every engine-lane row, a hidden slipping gearbox
+            // included. PSX_FAULT_BYCLASS=0: the whole lane, as it was.
+            bool byPart = FaultLeaks.ByClassOn;
+            if (byPart) car.faults.RemoveAll(f => f != null && FaultClass.ServiceClears(svc.name, f.id));
+            else car.faults.RemoveAll(f => f.stat == svc.stat);
             // A service supersedes any repair queued for the same stat lane —
             // new tyres make a booked tyre job pointless. Two kinds of job are
             // explicitly spared.
@@ -2210,7 +2244,12 @@ namespace PSXRacing.LifeSim
             // that is the lane it restores, and an oil change quietly voiding a
             // four-thousand-dollar bottom end would be the most expensive bug
             // in the game.
-            s.pendingParts.RemoveAll(p => p.carId == car.id && p.stat == svc.stat &&
+            // R0b: by part too - only a booked repair of a fault this service
+            // has just cleared is pointless now; an oil change does not
+            // cancel a booked gearbox job it fixed nothing of.
+            s.pendingParts.RemoveAll(p => p.carId == car.id &&
+                                          (byPart ? FaultClass.ServiceClears(svc.name, p.faultId)
+                                                  : p.stat == svc.stat) &&
                                           !p.IsUpgrade && !p.IsYardPart && !p.IsEngineJob);
             s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + svc.name + " " + MenuKit.Money(price));
             return null;

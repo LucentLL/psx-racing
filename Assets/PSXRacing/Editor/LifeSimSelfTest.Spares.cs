@@ -300,7 +300,10 @@ namespace PSXRacing.EditorTools
         {
             Line("the parts shelf in the save (v24):");
             var cur = new LifeState().saveVersion;
-            Check(cur == 24, "new careers are born at v24", cur);
+            // R0b re-pin: the shelf arrived at v24; later rounds add steps above
+            // it (v25 is R0b's), so a save is "at least v24" and lands at the
+            // current version.
+            Check(cur >= 24, "new careers are born at v24 or later", cur);
 
             // An old (v23) save: no shelf in the JSON at all.
             var old = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
@@ -310,12 +313,12 @@ namespace PSXRacing.EditorTools
             Check(at > 0, "the shelf is a field JsonUtility writes");
             var back = JsonUtility.FromJson<LifeState>(json.Replace("\"partsShelf\"", "\"partsShelfGone\""));
             LifeSimManager.Migrate(back);
-            Check(back.saveVersion == 24 && back.partsShelf != null && back.partsShelf.Count == 0,
+            Check(back.saveVersion == cur && back.partsShelf != null && back.partsShelf.Count == 0,
                   "a v23 save loads at v24 with an empty shelf", back.saveVersion);
             var nul = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
             nul.saveVersion = 23; nul.partsShelf = null;
             LifeSimManager.Migrate(nul);
-            Check(nul.partsShelf != null && nul.saveVersion == 24, "and a null shelf becomes a list");
+            Check(nul.partsShelf != null && nul.saveVersion == cur, "and a null shelf becomes a list");
 
             // A shelf survives the round trip, every field.
             var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);

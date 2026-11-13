@@ -1236,8 +1236,9 @@ namespace PSXRacing
         {
             var t = Temp;
             if (t == null || t.Seized || !t.Overheating) return null;
-            int cut = Mathf.RoundToInt((1f - t.PowerMult) * 100f);
-            return "ENGINE OVERHEATING — POWER CUT " + cut + "%\nEASE OFF OR IT WILL LET GO";
+            // R0b: the shout without the effect number (it read the derate out
+            // as "POWER CUT x%"); the car's own loss of pull says how much.
+            return "ENGINE OVERHEATING\nEASE OFF OR IT WILL LET GO";
         }
 
         /// <summary>The temperature lamp's line when the fuel bar is up: the
