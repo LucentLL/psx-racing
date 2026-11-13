@@ -18,9 +18,10 @@ Worktree `C:\Users\mcgee\PSX Racing-faultr1ca` off mountain-nm 825d5ed7. Sandbox
 | Unit tests (FatesR1c) | injury table, recovery vs HEALTH, hospital + medical leave, FAIL undrivable the next day and drivable after Delmar's repair, write-off threshold + keep/junk, death locks the career, roof glass by stage, SRS, PC34: all ok |
 | Play checks (hidden; '79 Civic 834 kg, belt on, no bags, HEALTH 100) | 25 km/h wall dv 7.1: nothing; 40 km/h dv 11.2: concussion, the drive ends at 4 s; 65 km/h dv 18.1 (FAIL): hospital, ends at 5 s; 130 km/h tree in a debug career dv 35.7 narrow: death, folded, obituary, career locked. ALL HOLD (`h1_crashplay.txt`) |
 | Census, 3 x 150 s Gillespie Gap, 8 cars | FAILS. After the fixes: 84 incidents, 9 damage events, 5 scuff-only = 56% (95% of all incidents cosmetic or less); player $153/race, all from one 6.7 m/s REAR hit (an AI ran into it: panel s3, bar s2, lamp, $460). Before PC34: player $153 from two 1.4 m/s nose nudges, each a cracked cover (panel_damage s1 at the flat $230). The $480 ROOF is gone. |
-| Pictures (4:3, the narrowest) | `r1ca_sheet.png`: concussion blur, hospital summary, write-off, obituary; CLIP lines 1 |
+| Pictures (4:3, the narrowest) | `r1ca_sheet.png`: hospital summary and obituary read right, nothing clipped; the concussion frame is mostly void (the play strip sits 4 km up) but shows the smear; the WRITE-OFF shot shows MAIN (my shot set the value too high for a write-off; TestWriteOff proves the page logic) and its one CLIP is MAIN's pre-existing RECENTLY line, not a fate page |
 
 ## NOT DONE
+- A correct write-off picture (re-shoot with a value under the estimate) and a concussion picture over a real road.
 - The census gate: panel_damage is $230 at every stage (a cracked cover should be ~$100: used cover $40 + paint $60), and the census player is an autopilot that gets rammed; needs stage pricing for panel_damage and a clean-racer definition (struck, not striking), then a re-run.
 - The window/mirror flicker (next suspects: repeated brush incidents, CarHD swapping renderers at PaintGloss.Collect).
 - No side-glass or mirror row for a high SIDE hit yet (the SIDE table only).
