@@ -132,6 +132,15 @@ namespace PSXRacing
         void OnDestroy()
         {
             if (car != null) car.Bottomed -= OnBottomed;
+            // R1a: a scene that ends without an exit stamp still leaves the
+            // drive's damage on disk (banked at the next apply-back or Load).
+            if (Damage != null && Damage.Banks) Damage.Flush();
+        }
+
+        /// <summary>R1a: the app backgrounded (a phone): the damage file now.</summary>
+        void OnApplicationPause(bool paused)
+        {
+            if (paused && Damage != null && Damage.Banks) Damage.Flush();
         }
 
         // ---- BOTTOMING (owner, 2026-10-19) ----------------------------------

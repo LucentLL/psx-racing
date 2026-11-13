@@ -576,6 +576,7 @@ namespace PSXRacing
             int cid = c.collider != null ? c.collider.GetHashCode() : 0;
             if (!enter)
             {
+                lastContact = now;
                 var open = Find(cid);
                 if (open == null || now - open.t0 > DamageModel.PulseSeconds) return;
                 open.jn += Mathf.Abs(Vector3.Dot(c.impulse, open.normal));
@@ -640,7 +641,7 @@ namespace PSXRacing
             var inc = p.inc;
             if (inc == null) return;
             inc.tLast = now;
-            if (inc.kind == DamageModel.KDrop) { if (dv > inc.closing) inc.closing = dv; return; }
+            if (inc.kind == DamageModel.KDrop) return;     // the belly pulse of a DROP is the drop's (its landing speed)
             if (dv <= inc.dv) return;
             inc.dv = dv;
             Reresolve(inc);
@@ -708,7 +709,7 @@ namespace PSXRacing
             Reresolve(inc);
         }
 
-        bool rolling, rollConfirmed, airborne, waterDone;
+        bool rolling, rollConfirmed, rollLatched, airborne, waterDone;
         float rollAngle, rollRoofDv, restT, rollStart, peakY, vDown, airStart, dropUntil, lastContact = -100f;
         Vector3 prevUp = Vector3.up;
         Incident dropInc;
@@ -720,7 +721,8 @@ namespace PSXRacing
             Vector3 up = car.transform.up;
             float upDot = Vector3.Dot(up, Vector3.up);
             // ROLL: from the first big tilt to rest (or back on the wheels)
-            if (!rolling && upDot < 0.9f && !airborne) { rolling = true; rollConfirmed = false; rollAngle = 0f; rollRoofDv = 0f; restT = 0f; rollStart = now; }
+            if (rollLatched && upDot > 0.9f) rollLatched = false;   // back on its wheels: the next roll is a new one
+            if (!rolling && !rollLatched && upDot < 0.9f) { rolling = true; rollConfirmed = false; rollAngle = 0f; rollRoofDv = 0f; restT = 0f; rollStart = now; }
             if (rolling)
             {
                 rollAngle += Vector3.Angle(prevUp, up);
@@ -732,6 +734,7 @@ namespace PSXRacing
                 else if (rollConfirmed && (restT > 0.75f || (backUp && now - rollStart > 0.5f)))
                 {
                     rolling = false;
+                    rollLatched = upDot < 0.9f;   // banked once while it lies there
                     BankRoll(Mathf.FloorToInt(rollAngle / 90f), rollRoofDv, now);
                 }
             }
@@ -746,11 +749,7 @@ namespace PSXRacing
                 vDown = Mathf.Max(vDown, -rb.linearVelocity.y);
                 if (g > 0 || touching) Land(now);
             }
-            if (dropInc != null && now > dropUntil)
-            {
-                if (dropInc.closing > dropInc.dv) { dropInc.dv = dropInc.closing; Reresolve(dropInc); }
-                dropInc = null;
-            }
+            if (dropInc != null && now > dropUntil) dropInc = null;
             // WATER: the car's origin half a metre under the drawn sea
             if (!waterDone && stuck != null && car.transform.position.y < stuck.SeaY - DamageModel.SeaDepthM)
             {
@@ -764,7 +763,8 @@ namespace PSXRacing
                     inc.reported = true;
                     DamageModel.Report(resp, inc);
                 }
-            pulses.RemoveAll(p => now - p.t0 > DamageModel.PulseSeconds);
+            for (int i = pulses.Count - 1; i >= 0; i--)
+                if (now - pulses[i].t0 > DamageModel.PulseSeconds) pulses.RemoveAt(i);
             if (Banks && dirty && now - lastWrite >= 2f) Flush(now);
         }
 
