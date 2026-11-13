@@ -711,6 +711,9 @@ namespace PSXRacing.LifeSim
                         new Vector2(20f, cy), TextAnchor.MiddleLeft, MenuKit.Dim, 760f);
                     cy -= 30f;
                 }
+                // R1c-B: the health plan is picked here, at hire.
+                cy -= 8f;
+                WizardPlanRows(list, cy);
             }
             else
             {
@@ -778,6 +781,8 @@ namespace PSXRacing.LifeSim
             {
                 wizFirstDrive = firstDrive;
                 LifeSimManager.StartNewGame(chosen, wizAge, wizJob);
+                // R1c-B: the plan picked on the job card, at hire.
+                if (Insurance.HealthOn) Insurance.ChoosePlan(LifeSimManager.State, wizPlan);
                 Destroy(root.gameObject);
                 BuildCarPick();
             }
@@ -1357,6 +1362,7 @@ namespace PSXRacing.LifeSim
                 case "jobs": BuildJobs(); break;
                 case "club": BuildClub(); break;
                 case "fate": BuildFate(); break;   // R1c-A
+                case "claim": BuildClaim(); break;   // R1c-B: LifeHomeScreen.Insurance.cs
             }
 
             BuildCarSide();
@@ -5353,6 +5359,10 @@ namespace PSXRacing.LifeSim
                     new Vector2(x, y), new Vector2(btnW, 40f),
                     usable ? (UnityEngine.Events.UnityAction)(() =>
                     {
+                        // R1c-B: a crash repair at a shop on a fully covered car asks
+                        // FILE A CLAIM or PAY IT YOURSELF first.
+                        if (Insurance.ClaimOffered(S, car, captured, capturedVenue))
+                        { OpenClaim(car, captured, capturedVenue); return; }
                         string err = LifeRules.OrderRepair(S, car, captured, capturedVenue);
                         Booked(err, captured.label + " booked");
                     }) : null, 14,
@@ -7786,7 +7796,9 @@ namespace PSXRacing.LifeSim
             int daysLeft = LifeRules.DaysInMonth(S.day) - LifeRules.DayOfMonth(S.day) + 1;
 
             Row(LifeRules.HousingLabel(S.housingType), MenuKit.Money(housing), ref y);
-            Row("INSURANCE", MenuKit.Money(insurance), ref y);
+            // R1c-B: one policy a car, each with its own cover (Insurance).
+            if (Insurance.On) InsuranceBills(ref y);
+            else Row("INSURANCE", MenuKit.Money(insurance), ref y);
             if (loans > 0) Row("LOAN PAYMENTS", MenuKit.Money(loans), ref y);
             y -= 12f;
             Row("DUE ON THE 1st (" + daysLeft + " days)", MenuKit.Money(due), ref y, MenuKit.Accent);
@@ -7797,6 +7809,7 @@ namespace PSXRacing.LifeSim
                 Row("MISSED PAYMENTS", S.missedPayments.ToString(), ref y, MenuKit.Bad);
             if (S.pendingSalary > 0)
                 Row("PAY PENDING (Friday)", MenuKit.Money(S.pendingSalary), ref y, MenuKit.Good);
+            if (Insurance.On) InsuranceRecordRows(ref y);   // R1c-B
             MoveHouseBlock(ref y);   // R0c
         }
 

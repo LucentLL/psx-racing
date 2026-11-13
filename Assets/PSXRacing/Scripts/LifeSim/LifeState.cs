@@ -68,7 +68,10 @@ namespace PSXRacing.LifeSim
         ///     the next stage of the car you are in. ADDED fields; the
         ///     migration gives an old career an empty shelf.
         /// </summary>
-        public int saveVersion = 27;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        // v28 (R1c-B): INSURANCE - healthPlan/healthAsked/insRecord here and
+        //     insCover/insDeductible on each car; ADDED fields, the step holds a
+        //     car with a loan at full coverage (Insurance.Sync).
+        public int saveVersion = 28;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         /// <summary>
         /// The save version of the BUILD that last wrote this career (R0a,
@@ -271,6 +274,14 @@ namespace PSXRacing.LifeSim
         public int garageSlots = 1;
         public List<CarLoan> carLoans = new List<CarLoan>();
         public List<BankLoan> bankLoans = new List<BankLoan>();
+
+        // === Insurance (v28, R1c-B; see Insurance) ===
+        /// <summary>The health plan picked when hired (Insurance.Plans key); "" = none.</summary>
+        public string healthPlan = "";
+        /// <summary>The plan question has been answered (none counts).</summary>
+        public bool healthAsked;
+        /// <summary>The driving record: car claims, tickets, health claims.</summary>
+        public List<InsRecord> insRecord = new List<InsRecord>();
 
         // === Skills ===
         public float mechSkill;
@@ -605,6 +616,12 @@ namespace PSXRacing.LifeSim
         /// which builds one on demand.
         /// </summary>
         public CarSetup setup;
+
+        /// <summary>v28 (R1c-B): Insurance.Liability (NC minimum) or Insurance.Full;
+        /// a car with a loan is full whatever this says (Insurance.CoverOf).</summary>
+        public int insCover;
+        /// <summary>The full-coverage deductible: 250, 500 or 1000.</summary>
+        public int insDeductible = 500;
     }
 
     [Serializable]

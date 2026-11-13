@@ -2611,6 +2611,8 @@ namespace PSXRacing.LifeSim
 
         public static int MonthlyInsurance(LifeState s)
         {
+            // R1c-B: one policy per car (Insurance); PSX_INSURANCE=0 = the fleet line.
+            if (Insurance.On) return Insurance.MonthlyTotal(s);
             float fleet = 0f;
             foreach (var c in s.cars) fleet += Mathf.Max(0, c.paidPrice);
             return InsuranceBase + Mathf.RoundToInt(fleet * InsuranceValueRate);
@@ -2631,6 +2633,7 @@ namespace PSXRacing.LifeSim
 
         static void FireMonthlyBills(LifeState s)
         {
+            Insurance.Sync(s);   // R1c-B: a car with a loan stays fully covered
             int due = MonthlyTotalDue(s);
             if (s.money >= due)
             {
@@ -2917,8 +2920,12 @@ namespace PSXRacing.LifeSim
             if (IsPayday(s.day - 1) && s.pendingSalary > 0)
             {
                 int net = Mathf.RoundToInt(s.pendingSalary * (1f - PaycheckTaxRate));
+                // R1c-B: the health plan comes out of the paycheck (0 without one).
+                int plan = Insurance.TakeFromPaycheck(s, net);
+                net -= plan;
                 s.money += net;
-                s.calendarLog.Add(LifeRules.LogDate((s.day - 1)) + ": PAYDAY +" + MenuKit.Money(net));
+                s.calendarLog.Add(LifeRules.LogDate((s.day - 1)) + ": PAYDAY +" + MenuKit.Money(net) +
+                                  (plan > 0 ? " (health plan " + MenuKit.Money(plan) + ")" : ""));
                 s.pendingSalary = 0;
             }
 
