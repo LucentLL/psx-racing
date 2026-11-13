@@ -47,6 +47,16 @@ namespace PSXRacing
         public static bool SpanOn = Env("PSX_FAULT_SPAN") != "0";
         public static bool ScrapeOn = Env("PSX_FAULT_SCRAPE") != "0";
         public static bool CrushOn = Env("PSX_FAULT_CRUSH") != "0";
+        /// <summary>R1c-A, owner PC34 (2026-11-13: "I don't recall hitting anything and the car is
+        /// completely decimated" - a snowy mountain road, three side contacts with the tall roadside
+        /// WallColl read as ROOF: the roof crumpled, the glass cracked). On an upright car a mostly
+        /// horizontal push is a FRONT, REAR or SIDE hit at ANY height (above the belt it reaches the
+        /// side glass and the mirror, not the roof). ROOF only for a push from above - in the car's
+        /// frame AND in the world (a wall leaning over the road is not one) - or a car on its side or
+        /// roof. PSX_FAULT_SIDEHIGH=0: part 2b (a patch wholly above the belt is ROOF).</summary>
+        public static bool SideHighOn = Env("PSX_FAULT_SIDEHIGH") != "0";
+        /// <summary>A push from above points at least 30 degrees below the horizon in the world.</summary>
+        public const float FromAboveWorldY = -0.5f;
         /// <summary>PSX_FAULT_BODYFIRST=0: a contact centred above the beltline is ROOF
         /// whatever lies under it (part 1; a low car backed into a wall read ROOF).</summary>
         public static bool BodyFirstOn = Env("PSX_FAULT_BODYFIRST") != "0";

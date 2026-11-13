@@ -156,7 +156,7 @@ namespace PSXRacing
         /// car upright (the suspension's and the bump stops', not the ledger's).
         /// </summary>
         public static bool Classify(Shell sh, Vector3 p, Vector3 n, bool upright, out int zone, out int side, out int corner,
-                                    float minY = float.NaN)
+                                    float minY = float.NaN, float worldNy = float.NaN)
         {
             zone = ZNone; corner = -1;
             float nx = sh.half.x > 1e-3f ? p.x / sh.half.x : 0f;
@@ -174,9 +174,13 @@ namespace PSXRacing
             // beltline is still a front, rear or side hit; only a patch wholly above the
             // belt (an overhang: a truck bed, a barrier top) is the glass. minY = the
             // patch's lowest point (NaN: the centre's, as part 1 read it).
+            // R1c-A (DamageRules.SideHighOn): on an upright car only a push from above (car frame
+            // and world) is the roof; any other push meets the body's side or end at any height.
+            bool fromAbove = n.y < -VerticalDot &&
+                             !(DamageRules.SideHighOn && upright && !float.IsNaN(worldNy) && worldNy > DamageRules.FromAboveWorldY);
             bool high = p.y > sh.beltY &&
-                        !(upright && n.y >= -VerticalDot && DamageRules.BodyFirst(sh, float.IsNaN(minY) ? p.y : minY));
-            if (n.y < -VerticalDot || high) { zone = ZRoof; return true; }
+                        !(upright && !fromAbove && (DamageRules.SideHighOn || DamageRules.BodyFirst(sh, float.IsNaN(minY) ? p.y : minY)));
+            if (fromAbove || high) { zone = ZRoof; return true; }
             for (int i = 0; i < 4; i++)
                 if (Plan(p, sh.hubs[i]) <= sh.tyreR + CornerPad && p.y <= sh.hubs[i].y + sh.tyreR + CornerPad)
                 {
@@ -659,7 +663,7 @@ namespace PSXRacing
             Vector3 local = CrashStopGap.PatchCentre(pts, n);
             Vector3 nL = frame.InverseTransformDirection(nW);
             bool upright = Vector3.Dot(car.transform.up, Vector3.up) > 0.25f;
-            if (!DamageModel.Classify(shell, local, nL, upright, out int zone, out int side, out int corner, minY)) return;
+            if (!DamageModel.Classify(shell, local, nL, upright, out int zone, out int side, out int corner, minY, nW.y)) return;
 
             var orb = c.rigidbody;
             float ratio = 1f;

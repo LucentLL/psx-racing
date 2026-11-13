@@ -107,7 +107,7 @@ namespace PSXRacing.EditorTools
                 Expect("belly at FL tyre (the suspension's)", new Vector3(sh.hubs[0].x, -h.y, sh.hubs[0].z), Vector3.up, true, DamageModel.ZNone, 0);
                 Expect("roof from above", new Vector3(0f, h.y, zMid), Vector3.down, true, DamageModel.ZRoof, 0);
                 Expect("on its roof (ground pushes toward the floor)", new Vector3(0f, h.y, zMid), Vector3.down, false, DamageModel.ZRoof, 0);
-                Expect("left pillar", new Vector3(-h.x, sh.beltY + 0.5f * (h.y - sh.beltY), zMid), Vector3.right, true, DamageModel.ZRoof, -1);
+                Expect("left pillar", new Vector3(-h.x, sh.beltY + 0.5f * (h.y - sh.beltY), zMid), Vector3.right, true, DamageRules.SideHighOn ? DamageModel.ZSide : DamageModel.ZRoof, -1);   // R1c-A: a side push at the glass is SIDE
                 Expect("belly, rolled on its side (no tyre excuse)", new Vector3(sh.hubs[0].x, -h.y, sh.hubs[0].z), Vector3.up, false, DamageModel.ZUnder, -1);
                 roofUnder++;
             }

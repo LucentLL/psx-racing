@@ -29,6 +29,7 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestWriteOff), TestWriteOff);
                 Guard(nameof(TestDeathLocks), TestDeathLocks);
                 Guard(nameof(TestGlassAndSrs), TestGlassAndSrs);
+                Guard(nameof(TestSideHighPc34), TestSideHighPc34);
             }
             finally
             {
@@ -228,6 +229,39 @@ namespace PSXRacing.EditorTools
                 LifeSimManager.DeleteSave();
                 LifeSimManager.UseCareerSave();
             }
+        }
+
+        static void TestSideHighPc34()
+        {
+            Line("R1c-A - PC34 (owner: 'I don't recall hitting anything and the car is completely decimated'): a tall wall on the side is a SIDE hit:");
+            bool was = DamageRules.SideHighOn;
+            try
+            {
+                DamageRules.SideHighOn = true;
+                var sh = new DamageModel.Shell();
+                float yGlass = sh.beltY + 0.5f * (sh.half.y - sh.beltY);
+                // his three pending incidents (WallColl, upright, the patch wholly above the belt): dv 2.1 left;
+                // 5.49 and 7.62 right, the wall leaning in over the road (and once with the car leaned onto it)
+                var cases = new[] { (s: -1, n: new Vector3(1f, 0f, 0f), wy: 0f, dv: 2.1f),
+                                    (s: 1, n: new Vector3(-0.95f, -0.31f, 0f).normalized, wy: -0.31f, dv: 5.49f),
+                                    (s: 1, n: new Vector3(-0.6f, -0.8f, 0f).normalized, wy: -0.3f, dv: 7.62f) };
+                foreach (var c in cases)
+                {
+                    DamageModel.Classify(sh, new Vector3(c.s * sh.half.x, yGlass, 0.1f), c.n, true, out int z, out int side, out _, yGlass - 0.05f, c.wy);
+                    int band = DamageModel.Band(z, c.dv, CrashStopGap.Bumper.Plastic, false, false, false);
+                    var inc = DmgInc(DamageModel.KHit, z, side, -1, band, DmgDice(0.1f));
+                    Check(z == DamageModel.ZSide && side == c.s && !inc.outcome.HasRow(DamageModel.GlassId) && (c.dv > 3f || inc.outcome.ScuffOnly),
+                          "dv " + c.dv + " on the " + (c.s < 0 ? "left" : "right") + " above the belt: SIDE, no roof and no glass" + (c.dv < 3f ? ", a scuff" : ""),
+                          DamageModel.ZoneName(z) + " side " + side + " b" + band + ": " + inc.outcome);
+                }
+                DamageModel.Classify(sh, new Vector3(0f, sh.half.y, 0f), Vector3.down, true, out int za, out _, out _, float.NaN, -1f);
+                DamageModel.Classify(sh, new Vector3(0f, sh.half.y, 0f), Vector3.down, false, out int zr, out _, out _, float.NaN, 1f);
+                Check(za == DamageModel.ZRoof && zr == DamageModel.ZRoof, "a push from above, or the car on its roof: still ROOF");
+                DamageRules.SideHighOn = false;
+                DamageModel.Classify(sh, new Vector3(-sh.half.x, yGlass, 0.1f), Vector3.right, true, out int zo, out _, out _, yGlass - 0.05f, 0f);
+                Check(zo == DamageModel.ZRoof, "PSX_FAULT_SIDEHIGH=0: part 2b (ROOF)");
+            }
+            finally { DamageRules.SideHighOn = was; }
         }
 
         static void TestGlassAndSrs()

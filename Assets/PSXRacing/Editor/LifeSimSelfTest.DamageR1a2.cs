@@ -25,7 +25,7 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestDamageSweep10k), TestDamageSweep10k);
                 Guard(nameof(TestDamageFail), TestDamageFail);
                 Guard(nameof(TestDamageCrush), TestDamageCrush);
-                Guard(nameof(TestDamageSpan), TestDamageSpan);
+                { bool sh0 = DamageRules.SideHighOn; DamageRules.SideHighOn = false; try { Guard(nameof(TestDamageSpan), TestDamageSpan); } finally { DamageRules.SideHighOn = sh0; } }   // R1c-A: part 2b's rule (PSX_FAULT_SIDEHIGH=0)
                 Guard(nameof(TestHeatSoak), TestHeatSoak);
                 Guard(nameof(TestDamageHomes), TestDamageHomes);
             }
