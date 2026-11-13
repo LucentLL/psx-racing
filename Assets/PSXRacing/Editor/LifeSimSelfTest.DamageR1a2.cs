@@ -71,6 +71,14 @@ namespace PSXRacing.EditorTools
                     case 4: p.z = -h.z; nrm = Vector3.forward; break;
                     default: p.z = h.z; nrm = Vector3.back; break;
                 }
+                if (k % 5 == 0)
+                {
+                    // one in five: a nose hit square in the middle, under the belt
+                    // (the gate's case; a random face lands there ~2% of the time)
+                    p = new Vector3((float)(rng.NextDouble() * 2 - 1) * CrashStopGap.CentreBand * 0.9f * h.x,
+                                    Mathf.Lerp(-h.y, sh.beltY, (float)rng.NextDouble()), h.z);
+                    nrm = Vector3.back;
+                }
                 nrm = (nrm + new Vector3((float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f) * 0.8f).normalized;
                 bool upright = rng.NextDouble() < 0.9;
                 if (!DamageModel.Classify(sh, p, nrm, upright, out int zone, out int side, out int corner)) continue;
@@ -103,7 +111,7 @@ namespace PSXRacing.EditorTools
                  ", roof " + zones[5] + ", corner " + zones[6] + "); any damage " + any + ", scuff-only " + scuff + "; FAIL " + fails +
                  " (knuckle " + knuckleFail + " of " + knuckleTop + " top-band corners, subframe " + subFail + " of " + frontTop + " top-band noses under 17)");
             Check(n >= 9000, "the sweep classified at least 9,000 incidents", n);
-            Check(centreFront > 500 && cfCorner == 0, "no corner parts (toe, tie rod, arm) from a centre-front hit", cfCorner + " of " + centreFront);
+            Check(centreFront > 1500 && cfCorner == 0, "no corner parts (toe, tie rod, arm) from a centre-front hit", cfCorner + " of " + centreFront);
             Check(failUnder5 == 0 && over17 > 0 && over17Fail == over17, "no FAIL under 5 m/s; every hit at the 17 m/s retire line FAILs",
                   "under 5: " + failUnder5 + ", at 17+: " + over17Fail + "/" + over17);
             Check(knuckleTop > 50 && Mathf.Abs(knuckleFail / (float)knuckleTop - DamageRules.KnuckleP) < 0.08f &&
