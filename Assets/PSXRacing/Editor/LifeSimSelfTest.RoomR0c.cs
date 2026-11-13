@@ -99,8 +99,10 @@ namespace PSXRacing.EditorTools
             Line("R0c room - a one-car v24 career has room for a second car, with no save change:");
             var seeded = RoomCareer("ROOM", 1, 30000);
             var s = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(seeded));
-            Check(new LifeState().saveVersion == 24 && s.saveVersion == 24,
-                  "no save version change: v24 is still current", s.saveVersion);
+            // R0c adds no save step of its own (the room is derived): a seeded career
+            // round-trips at whatever version is current (v25 since R0b merged).
+            Check(s.saveVersion == new LifeState().saveVersion,
+                  "no save step from R0c: the career round-trips at the current version", s.saveVersion);
             Check(s.garageSlots == 1 && s.housingType == "house1g" && s.cars.Count == 1,
                   "what a v24 one-car career stores: 1 garage slot, the 1-car house, one car",
                   s.garageSlots + " / " + s.housingType + " / " + s.cars.Count);
