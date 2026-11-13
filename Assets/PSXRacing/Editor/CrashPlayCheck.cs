@@ -86,7 +86,9 @@ namespace PSXRacing.EditorTools
             EditorApplication.playModeStateChanged -= OnState;
             // R1a: the located model's check while it is live; R0a's table
             // check with PSX_FAULT_LOCATED=0.
-            if (DamageModel.Live) new GameObject("DamagePlayCheckRunner").AddComponent<DamagePlayCheckRunner>();
+            if (System.Environment.GetEnvironmentVariable("PSX_INJURY_CHECK") == "1")   // R1c-A
+                new GameObject("InjuryPlayCheckRunner").AddComponent<InjuryPlayCheckRunner>();
+            else if (DamageModel.Live) new GameObject("DamagePlayCheckRunner").AddComponent<DamagePlayCheckRunner>();
             else new GameObject("CrashPlayCheckRunner").AddComponent<CrashPlayCheckRunner>();
         }
 

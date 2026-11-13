@@ -29,6 +29,25 @@ namespace PSXRacing.LifeSim
         /// <summary>The most visible damage takes off a car's value.</summary>
         public const float ValueCap = 0.6f;
 
+        // R1c-A: PSX_SRS_DEALER=0 = a spent bag set takes nothing off the value and any shop fits it (part 2b).
+        public static bool SrsOn = System.Environment.GetEnvironmentVariable("PSX_SRS_DEALER") != "0";
+        /// <summary>A buyer sees the SRS lamp and the bag out: 12% off for the driver's bag, 18% for both.</summary>
+        public const float SrsValuePct = 12f;
+        /// <summary>Only the dealer sells an airbag set (no yard set, no DIY).</summary>
+        public static bool DealerOnly(string id) => SrsOn && id == SrsBag.Id;
+
+        // R1c-A: roof_glass by stage (PSX_FAULT_GLASS=0: the flat $480): glass $210, a dented roof and
+        // the windshield $820, a crushed roof skin with most of the glass $1,950 (design: glass $150-300,
+        // roof skin $600-1,500, shop only), scaled by the family's own flat price.
+        static readonly int[] GlassPrice = { 480, 210, 820, 1950 };
+        public static int GlassCost(int cost, float oldStage, float newStage)
+        {
+            if (!DamageModel.GlassRuleOn) return cost;
+            int o = Mathf.Clamp(Mathf.RoundToInt(oldStage), 0, 3), n = Mathf.Clamp(Mathf.RoundToInt(newStage), 0, 3);
+            float flat = cost * 480f / GlassPrice[o];
+            return Mathf.RoundToInt(flat * GlassPrice[n] / 480f);
+        }
+
         // ---------------- the shelf ----------------
         static void More(Dictionary<string, string[]> d, string key, params string[] ids)
         {
@@ -104,6 +123,7 @@ namespace PSXRacing.LifeSim
             float pct = 0f;
             foreach (var f in car.faults)
                 if (f != null && (f.id == DamageModel.PanelId || f.id == DamageModel.GlassId)) pct += Mathf.Max(0f, f.mag);
+                else if (f != null && SrsOn && f.id == SrsBag.Id && f.mag > 0f) pct += SrsValuePct * (1f + 0.5f * (Mathf.Min(f.mag, 2f) - 1f));   // R1c-A
             return 1f - Mathf.Min(ValueCap, pct / 100f);
         }
 
@@ -121,6 +141,7 @@ namespace PSXRacing.LifeSim
                 case DamageModel.PanelId: return "value -1..-8% by stage";
                 case DamageModel.LampId: return "that lamp dark";
                 case DamageModel.GlassId: return "value -3/-15/-40% by stage";
+                case SrsBag.Id: return SrsOn ? "value -12% (both bags -18%); dealer parts only" : null;   // R1c-A
             }
             return null;
         }

@@ -121,7 +121,7 @@ namespace PSXRacing.LifeSim
         (string, Color) ShiftStatus(int day, int startSlot)
         {
             var rec = Duty.RecordFor(S, day, startSlot, Duty.KindShift);
-            if (rec != null) return rec.IsMiss ? ("MISSED", MenuKit.Bad) : ("WORKED", MenuKit.Good);
+            if (rec != null) return rec.IsMiss ? ("MISSED", MenuKit.Bad) : rec.outcome == Duty.Medical ? ("MEDICAL", MenuKit.Dim) : ("WORKED", MenuKit.Good);
             if (S.laidOff) return ("LAID OFF", MenuKit.Dim);
             if (Duty.Ord(day, startSlot) < S.jobFrom || Duty.Ord(day, startSlot) < S.dutyFrom)
                 return ("BEFORE THE SCHEDULE", MenuKit.Dim);

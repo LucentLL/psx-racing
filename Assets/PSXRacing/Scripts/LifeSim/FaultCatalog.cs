@@ -106,6 +106,11 @@ namespace PSXRacing.LifeSim
                 hitRows.Add(new PoolEntry { origin = fam, id = "roof_glass", name = "Roof / Glass Damage", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 480, days = 2, add = 15 });
                 // R1a part 2a: the bags a frontal hit fired (SrsBag) - bag, module and clock spring, Delmar's set price (design §8)
                 hitRows.Add(new PoolEntry { origin = fam, id = "srs_deployed", name = "Airbag Deployed", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 1320, days = 2, add = 0 });
+                // R1c-A: what a structural FAIL leaves (CrashFates.FailRowFor); the car does not move until it is repaired
+                hitRows.Add(new PoolEntry { origin = fam, id = "frame_bent", name = "Frame Bent", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 1100, days = 5, add = 0 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "subframe_failed", name = "Subframe Failed", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 650, days = 3, add = 0 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "knuckle_broken", name = "Steering Knuckle Broken", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 325, days = 2, add = 0 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "roof_crushed", name = "Roof Structure Crushed", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 1200, days = 5, add = 0 });
             }
             if (!effectById.ContainsKey("exhaust_damage"))
                 effectById["exhaust_damage"] = new EffectEntry { id = "exhaust_damage", desc = "Exhaust damaged - down on power", accelMult = DamageModel.ExhaustPower };
@@ -722,6 +727,12 @@ namespace PSXRacing.LifeSim
                     q.price = Mathf.RoundToInt(f.cost * 3f * effMult);
                     q.days = 0;      // dealer is same-day, at triple the price
                     break;
+            }
+            // R1c-A: an airbag set comes from the dealer only (no used set, no DIY, no Delmar), at the set's price
+            if (DamageHomes.DealerOnly(f.id))
+            {
+                if (venue != Venue.Dealer) { q.available = false; q.blockedReason = "dealer parts only"; }
+                else { q.price = Mathf.RoundToInt(f.cost * effMult); q.days = 0; }
             }
             q.price = Mathf.Min(q.price, RepairPriceCap);
             return q;

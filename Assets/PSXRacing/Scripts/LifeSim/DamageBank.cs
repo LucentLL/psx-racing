@@ -32,7 +32,10 @@ namespace PSXRacing.LifeSim
         {
             public int hitId, kind, zone, side, corner, band, alignSide, alignSeverity, quarters;
             public float dv, paint, body, radiator, leak;
-            public bool flood, hydrolock;
+            public bool flood, hydrolock, narrow;
+            /// <summary>R1c-A: the structural FAIL (DamageRules) and the driver's injury (CrashFates).</summary>
+            public int fail, inj;
+            public float injScore;
             public string what = "";
             public List<RowRec> rows = new List<RowRec>();
         }
@@ -77,6 +80,7 @@ namespace PSXRacing.LifeSim
                 band = inc.band, dv = inc.dv, paint = o.paintLoss, body = o.bodyLoss, radiator = o.radiatorLoss,
                 leak = o.leakPctMin, alignSide = o.alignSide, alignSeverity = o.alignSeverity, quarters = inc.quarters,
                 flood = o.flood, hydrolock = o.hydrolock, what = inc.what ?? "",
+                narrow = inc.narrow, fail = inc.fail, inj = inc.injury, injScore = inc.injScore,
             };
             foreach (var row in o.rows)
                 r.rows.Add(new RowRec { id = row.id, stage = row.stage, mag = row.mag, zone = row.zone, side = row.side, corner = row.corner });
@@ -184,6 +188,7 @@ namespace PSXRacing.LifeSim
             if (car.history == null) car.history = new List<CarEvent>();
             if (car.faults == null) car.faults = new List<CarFault>();
             if (car.history.Exists(e => e != null && e.hitId == r.hitId)) return false;
+            int valueBefore = CrashFates.WriteOffOn ? CarMarket.CarValue(car) : 0;   // R1c-A: what it was worth before
             int day = s != null ? s.day : 0;
             float odo = car.odoMiles;
             if (r.paint > 0f) car.paint = Mathf.Max(0f, car.paint - r.paint);
@@ -224,6 +229,7 @@ namespace PSXRacing.LifeSim
                     if (a.stage <= 0f) a.stage = a.severity >= 1.5f ? 3f : 2f;
                 }
             }
+            CrashFates.AfterIncident(s, car, r, valueBefore);   // R1c-A: the FAIL stays, the driver, the write-off
             if (r.flood) car.title = OwnedCar.TitleFlood;
             car.history.Add(new CarEvent
             {
@@ -241,6 +247,7 @@ namespace PSXRacing.LifeSim
             if (r.kind != DamageModel.KHit) f.causeNote = kind + " " + f.causeNote;
             if (row.corner >= 0) f.causeNote += " " + DamageModel.CornerNames[Mathf.Clamp(row.corner, 0, 3)];
             f.hitId = r.hitId;
+            if (row.id == DamageModel.GlassId) f.cost = DamageHomes.GlassCost(f.cost, f.stage, row.stage);   // R1c-A: priced by stage
             f.stage = row.stage;
             f.mag = row.mag;
             f.corner1 = row.corner + 1;

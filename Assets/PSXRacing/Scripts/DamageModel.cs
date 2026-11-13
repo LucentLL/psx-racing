@@ -50,6 +50,8 @@ namespace PSXRacing
     public static class DamageModel
     {
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_FAULT_LOCATED") != "0";
+        /// <summary>R1c-A, PSX_FAULT_GLASS=0: a ROOF hit on an upright car rolls the glass from 1.5 m/s at the flat price (part 2b).</summary>
+        public static bool GlassRuleOn = System.Environment.GetEnvironmentVariable("PSX_FAULT_GLASS") != "0";
         /// <summary>The located model runs: its own switch and R0a's (CRASH=0
         /// is the crash from before R0a, which owns the apply-back then).</summary>
         public static bool Live => On && CrashStopGap.On;
@@ -392,15 +394,21 @@ namespace PSXRacing
                     Body(o, 15f, 30f, d);                                                      // the DROP's frame check: R1b
                     return;
                 case ZRoof:
+                {
                     Scuff(o, d);                                                               // roof scuffed
+                    // R1c-A (PSX_FAULT_GLASS): a brush of the glass or a pillar on an upright car
+                    // (a hit, not a roll) reads one band softer: under 3 m/s a scuff, never a crushed roof
+                    int g = inc.kind == KHit && GlassRuleOn ? Mathf.Min(b - 1, 2) : b;
+                    if (g < 1) return;
                     if (d[DGlass] < 0.30f) AddRow(o, GlassId, 1, 3f, z, 0, -1);               // glass cracked
-                    if (b < 2) return;
+                    if (g < 2) return;
                     AddRow(o, GlassId, 2, 15f, z, 0, -1);                                      // roof dented, windshield
                     Body(o, 5f, 15f, d);
-                    if (b < 3) return;
+                    if (g < 3) return;
                     AddRow(o, GlassId, 3, 40f, z, 0, -1);                                      // roof crushed (FAIL: part 2)
                     Body(o, 25f, 40f, d);
                     return;
+                }
             }
         }
     }
@@ -473,6 +481,9 @@ namespace PSXRacing
         public float frontCos;
         /// <summary>R1a part 2: the structural FAIL this incident is (DamageRules), 0 none.</summary>
         public int fail;
+        /// <summary>R1c-A: the driver's injury from this incident (LifeSim.CrashFates), 0 none, and its score.</summary>
+        public int injury;
+        public float injScore;
     }
 
     /// <summary>
@@ -771,6 +782,7 @@ namespace PSXRacing
             DamageModel.Resolve(inc, bumper);
             SrsBag.AfterResolve(inc, Banks);   // R1a part 2a: crush order + bags
             CheckFail(inc);
+            LifeSim.CrashFates.OnIncident(car, inc, Banks);   // R1c-A: the driver
             ApplyLive();
         }
 

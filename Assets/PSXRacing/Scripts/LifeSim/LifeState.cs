@@ -68,7 +68,7 @@ namespace PSXRacing.LifeSim
         ///     the next stage of the car you are in. ADDED fields; the
         ///     migration gives an old career an empty shelf.
         /// </summary>
-        public int saveVersion = 26;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 27;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         /// <summary>
         /// The save version of the BUILD that last wrote this career (R0a,
@@ -154,6 +154,8 @@ namespace PSXRacing.LifeSim
 
         // === Health / fitness ===
         public float health = 100f;
+        /// <summary>R1c-A (v27): the belt, an injury, the hospital, a write-off, game over (CrashFates).</summary>
+        public CrashFate fate = new CrashFate();
         public int daysSinceEat;
         public int daysSinceSleep;
         public bool ateToday;
@@ -520,6 +522,8 @@ namespace PSXRacing.LifeSim
         public List<CarEvent> history = new List<CarEvent>();
         /// <summary>R1a (v26): 0 clean, 1 rebuilt, 2 salvage, 3 flood (+8 washed).</summary>
         public int title;
+        /// <summary>R1c-A (v27): the hitId of the structural FAIL that wrecked it, 0 none; it does not move while a FAIL row stands.</summary>
+        public int wreckHit;
         public const int TitleFlood = 3;
         /// <summary>R1a part 2 (HeatSoak): the needle when it was parked, and
         /// when (day, block). 0 = cold; ADDED fields, no migration.</summary>
@@ -1049,7 +1053,7 @@ namespace PSXRacing.LifeSim
         /// <summary>The line that says why, for the planner.</summary>
         public string note = "";
 
-        public bool IsMiss => outcome != Duty.Done && outcome.Length > 0;
+        public bool IsMiss => outcome != Duty.Done && outcome != Duty.Medical && outcome.Length > 0;
     }
 
     /// <summary>

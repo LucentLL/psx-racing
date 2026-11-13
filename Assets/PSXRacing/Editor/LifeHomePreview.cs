@@ -1277,7 +1277,7 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
+        internal static void Shoot(string outDir, string label, string tab = null, float scrollTo = 1f,
                           bool mustFit = false, SetupPage? setupPage = null,
                           string calView = null, int calDay = 0, int calSlot = -1,
                           string garageCar = null,

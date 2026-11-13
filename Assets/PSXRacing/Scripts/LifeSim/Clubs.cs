@@ -108,6 +108,8 @@ namespace PSXRacing.LifeSim
         public static string ClockOnRefusal(LifeState s)
         {
             if (!Employed(s)) return "you have no job to clock on to";
+            string hurt = CrashFates.WorkRefusal(s);   // R1c-A: medical leave
+            if (hurt != null) return hurt;
             if (s.laidOff)
                 return s.callBackOffered ? "there is an opening - take it on the JOB page"
                                          : "you are laid off - wait for the call-back";
@@ -1171,7 +1173,8 @@ namespace PSXRacing.LifeSim
     public static class Duty
     {
         public const string KindShift = "SHIFT", KindMeet = "CLUB MEET", KindRace = "CLUB RACE";
-        public const string Done = "DONE", Missed = "MISSED", WrongCar = "WRONG CAR", NoCar = "NO CAR";
+        public const string Done = "DONE", Missed = "MISSED", WrongCar = "WRONG CAR", NoCar = "NO CAR",
+                            Medical = "MEDICAL LEAVE";   // R1c-A: hurt in a crash - unpaid, never a miss
 
         public struct Obligation
         {
@@ -1337,14 +1340,14 @@ namespace PSXRacing.LifeSim
                     {
                         // A lay-off inside this loop ends what is owed.
                         if (!WorkSchedule.OnRoster(s)) continue;
-                        Record(s, o, Worked(s, o) ? Done : Missed, "");
+                        Record(s, o, Worked(s, o) ? Done : CrashFates.ExcusedOn(s, o.day) ? Medical : Missed, "");
                         continue;
                     }
                     // A drop inside this loop ends what is owed to THAT club.
                     if (!Clubs.IsMember(s, o.club)) continue;
                     var c = Clubs.ById(o.club);
                     bool owns = Clubs.OwnsQualifying(s, c);
-                    Record(s, o, owns ? Missed : NoCar,
+                    Record(s, o, CrashFates.ExcusedOn(s, o.day) ? Medical : owns ? Missed : NoCar,
                         owns ? "" : "you own no " + c.rule.ToLowerInvariant() + " car");
                 }
             }

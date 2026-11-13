@@ -193,7 +193,7 @@ namespace PSXRacing.LifeSim
                     found = "A bushing is cracked through.",
                     clean = "Bushings look whole from here." },
                 new Sub { key = "balljoints", label = "BALL JOINTS", underside = true,
-                    ids = new[] { "ball_joint" },
+                    ids = new[] { "ball_joint", "knuckle_broken" },
                     found = "A ball joint boot is torn open.",
                     clean = "Joints feel tight with the wheel rocked." },
                 new Sub { key = "springs", label = "SPRINGS & AIR BAGS", underside = true,
@@ -227,11 +227,11 @@ namespace PSXRacing.LifeSim
                     clean = "Paint holds up under a close look." },
                 new Sub { key = "panels", label = "PANELS & BUMPERS",
                     ids = new[] { "panel_rust", "bumper_crack", "bumper_dent",
-                                  "panel_damage", "bumper_bar", "lamp_out", "roof_glass" },   // R1a's hit rows
+                                  "panel_damage", "bumper_bar", "lamp_out", "roof_glass", "roof_crushed" },   // R1a's hit rows
                     found = "Panel damage and rot you missed before.",
                     clean = "Panels line up, no filler rings when you knock." },
                 new Sub { key = "framerails", label = "FRAME RAILS", liftOnly = true, underside = true,
-                    ids = new[] { "frame_rust" },
+                    ids = new[] { "frame_rust", "frame_bent", "subframe_failed" },
                     found = "The frame rails are rotten — structural.",
                     clean = "Rails look solid where you can reach." },
                 new Sub { key = "exhaust", label = "EXHAUST", underside = true,
@@ -603,7 +603,7 @@ namespace PSXRacing.LifeSim
         public static string BookPro(LifeState s, OwnedCar car, Pro who)
         {
             if (car == null) return "no car";
-            int price = ProCost(car, who);
+            int price = ProCost(car, who) + CrashFates.TowIn(car);   // R1c-A: a wrecked car is towed in
             if (s.money < price) return "need " + MenuKit.Money(price);
 
             s.money -= price;
@@ -619,7 +619,7 @@ namespace PSXRacing.LifeSim
             foreach (var f in car.faults)
             {
                 if (!f.hidden) continue;
-                if (Random.value > rate) continue;
+                if (Random.value > rate && !CrashFates.IsFailRow(f.id)) continue;   // R1c-A: nobody misses a wreck
                 f.hidden = false;
                 f.diagnosed = true;
                 found.Add(f.label);

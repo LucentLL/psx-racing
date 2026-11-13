@@ -266,7 +266,7 @@ namespace PSXRacing.LifeSim
 
         /// <summary>QuickSell's own cleanup: loans settled, any spare going on
         /// back on the shelf, jobs and ads dropped, the keys moved on.</summary>
-        static void LeaveCareer(LifeState s, OwnedCar car, string logLine)
+        internal static void LeaveCareer(LifeState s, OwnedCar car, string logLine)
         {
             s.carLoans.RemoveAll(l => l.carId == car.id);
             Spares.ReturnJobsToShelf(s, car);

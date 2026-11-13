@@ -122,6 +122,12 @@ namespace PSXRacing.LifeSim
         {
             if (!Persists) return;   // CITY: no career, nothing written (see State)
             if (state == null) return;
+            // R1c-A: a career that ended in death is written once more, then locked
+            if (state.fate != null && state.fate.dead)
+            {
+                if (state.fate.deathLocked) return;
+                state.fate.deathLocked = true;
+            }
             // SAVE SAFETY: a newer build's career (read-only) and a career this
             // build could not load (held until an explicit NEW GAME) are never
             // written over. Every caller that saves comes through here.
@@ -1456,6 +1462,7 @@ namespace PSXRacing.LifeSim
             if (s.saveVersion < 24) MigrateToPartsShelf(s);
             if (s.saveVersion < 25) MigrateToFaultIds(s);
             if (s.saveVersion < 26) MigrateToDamageBank(s);
+            if (s.saveVersion < 27) MigrateToCrashFates(s);
         }
 
         /// <summary>R1a: this career's damage files (DamageBank), beside its
@@ -1492,6 +1499,15 @@ namespace PSXRacing.LifeSim
             if (s.viewings != null)
                 foreach (var v in s.viewings) if (v != null) DamageBank.MigrateCar(v.car);
             s.saveVersion = 26;
+        }
+
+        /// <summary>v27, R1c-A: the career's crash fate (belt on, nobody hurt, no
+        /// write-off pending); every car's wreck mark reads 0. Idempotent.</summary>
+        public static void MigrateToCrashFates(LifeState s)
+        {
+            if (s == null || CodeVersion < 27) return;
+            if (s.fate == null) s.fate = new CrashFate();
+            s.saveVersion = 27;
         }
 
         /// <summary>

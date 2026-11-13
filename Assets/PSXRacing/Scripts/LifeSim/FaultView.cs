@@ -129,6 +129,10 @@ namespace PSXRacing.LifeSim
             { "lamp_out", FaultClassKind.Body },
             { "srs_deployed", FaultClassKind.Body },   // R1a part 2a
             { "roof_glass", FaultClassKind.Body },
+            { "frame_bent", FaultClassKind.Chassis },        // R1c-A: a FAIL's rows
+            { "subframe_failed", FaultClassKind.Chassis },
+            { "knuckle_broken", FaultClassKind.Chassis },
+            { "roof_crushed", FaultClassKind.Body },
             { "exhaust_damage", FaultClassKind.Body },
             { "radiator_leak", FaultClassKind.Cooling },
             { "paint_fade", FaultClassKind.PaintFinish },

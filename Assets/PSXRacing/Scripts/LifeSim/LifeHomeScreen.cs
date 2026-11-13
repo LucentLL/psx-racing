@@ -1265,6 +1265,7 @@ namespace PSXRacing.LifeSim
 
         void Rebuild()
         {
+            if (FateDue()) tab = "fate";   // R1c-A: the hospital, a write-off, the obituary come first
             // The world's date, for whichever scene loads next. Here rather
             // than at each launch site because there are five of those and
             // the season is not a property of a race.
@@ -1355,6 +1356,7 @@ namespace PSXRacing.LifeSim
                 case "bills": BuildBills(); break;
                 case "jobs": BuildJobs(); break;
                 case "club": BuildClub(); break;
+                case "fate": BuildFate(); break;   // R1c-A
             }
 
             BuildCarSide();

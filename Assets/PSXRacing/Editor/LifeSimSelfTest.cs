@@ -110,6 +110,7 @@ namespace PSXRacing.EditorTools
             RunCrashR0aTests();   // R0a crash stop-gap: LifeSimSelfTest.CrashR0a.cs
             RunRoomR0cTests();    // R0c room for two, answers 1 and 8: LifeSimSelfTest.RoomR0c.cs
             RunDamageR1aTests();  // R1a located damage + DamageBank: LifeSimSelfTest.DamageR1a.cs
+            RunFatesR1cTests();   // R1c-A the car and the driver after a crash: LifeSimSelfTest.FatesR1c.cs
             Guard(nameof(TestEngineTemp), TestEngineTemp);
             Guard(nameof(TestEngineDeath), TestEngineDeath);
             Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);

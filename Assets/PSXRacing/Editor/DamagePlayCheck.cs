@@ -516,7 +516,7 @@ namespace PSXRacing.EditorTools
             var c = r != null ? r.GetComponent<CarController>() : null;
             bool player = c != null && RaceManager.Instance != null && RaceManager.Instance.playerCar == c;
             int cost = 0;
-            foreach (var row in i.outcome.rows) { var f = FaultCatalog.MakeById(row.id, "jpn"); if (f != null) cost += f.cost; }
+            foreach (var row in i.outcome.rows) { var f = FaultCatalog.MakeById(row.id, "jpn"); if (f != null) cost += row.id == DamageModel.GlassId ? DamageHomes.GlassCost(f.cost, 0f, row.stage) : f.cost; }
             if (i.outcome.alignSeverity > 0) cost += 60;
             string Clean(string x) => (x ?? "").Replace(",", " ").Replace("\n", " ");
             var t = TrackCatalog.At(RaceHandoff.TrackIndex);

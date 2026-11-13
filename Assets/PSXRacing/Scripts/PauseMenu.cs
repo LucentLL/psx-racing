@@ -214,6 +214,16 @@ namespace PSXRacing
             ExitToMenu();
         }
 
+        /// <summary>R1c-A: a crash that hurt the driver ends the drive the way the tow does (InjuryFx).</summary>
+        public static void EndDriveForInjury(CarController car)
+        {
+            var pm = FindAnyObjectByType<PauseMenu>();
+            if (pm != null) { pm.CallTowTruck(); return; }
+            CrashStopGap.FoldDamage(car);
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(0);
+        }
+
         // ---- the debug bench ----------------------------------------------
         DebugCarPanel bench;
 
@@ -564,6 +574,17 @@ namespace PSXRacing
                 return b;
             }
             Row("RESUME", Resume);
+            // R1c-A: the belt is on unless the player takes it off (career drives)
+            if (LifeSim.CrashFates.BeltRowOffered)
+            {
+                Button belt = null;
+                belt = Row(LifeSim.CrashFates.BeltLabel(), () =>
+                {
+                    LifeSim.CrashFates.ToggleBelt();
+                    var tx = belt != null ? belt.GetComponentInChildren<Text>() : null;
+                    if (tx != null) tx.text = LifeSim.CrashFates.BeltLabel();
+                });
+            }
             // Answer 8: no reset in a non-debug career - the leave row turns
             // into CALL TOW TRUCK when the car is stuck (LeaveOrTow).
             if (CareerDrive.ResetAllowed) Row("RESET CAR (UNSTICK)", ResetCar);
