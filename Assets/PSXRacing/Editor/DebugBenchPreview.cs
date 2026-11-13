@@ -69,6 +69,15 @@ namespace PSXRacing.EditorTools
             // (trans_slip) and one of the not-simulated ones (ps_leak).
             foreach (var id in new[] { "trans_slip", "rotor_warp", "alignment", "ps_leak", "display_failure" })
                 DebugCarOps.SetFault(car, spec, id, true);
+            // R1a's hit rows, stamped like the owner's 11-13 tree (41 m/s into the
+            // front): the ON THIS CAR list must show them, cause and all.
+            foreach (var id in new[] { "radiator_leak", "bumper_bar", "lamp_out", "panel_damage" })
+            {
+                DebugCarOps.SetFault(car, spec, id, true);
+                var hf = car.faults.Find(x => x.id == id);
+                if (hf == null) continue;
+                hf.cause = "impact"; hf.zone1 = 1; hf.hitSide = -1; hf.hitMps = 41.2f; hf.stage = 2f; hf.bornDay = st.day;
+            }
             // One FOUND, so both captions are in the picture.
             if (car.faults.Count > 0) { car.faults[0].hidden = false; car.faults[0].diagnosed = true; }
             DebugCarOps.SetStage(car, Upgrades.Kind.Power, 3);

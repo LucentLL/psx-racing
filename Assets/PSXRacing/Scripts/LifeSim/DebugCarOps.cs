@@ -216,14 +216,25 @@ namespace PSXRacing.LifeSim
             string origin = OriginOf(spec);
             var rows = new List<FaultRow>();
             var origins = new List<string>();
-            foreach (var id in FaultCatalog.AllIds())
+            // Every id a car can carry - the pools, R0b's used rows and R1a's hit
+            // rows - or a car's crash damage has no switch here and the page
+            // shows ten faults with three lit (owner 11-13).
+            foreach (var id in FaultCatalog.AllIdsWithUsed())
             {
                 var p = FaultCatalog.PoolRow(id, origin);
-                if (p == null || p.stat != lane) continue;
-                var row = new FaultRow { id = id, name = p.name, stat = p.stat };
+                string name, stat, rowOrigin;
+                if (p != null) { name = p.name; stat = p.stat; rowOrigin = p.origin; }
+                else
+                {
+                    var made = FaultCatalog.MakeById(id, origin);
+                    if (made == null) continue;
+                    name = made.label; stat = made.stat; rowOrigin = origin;
+                }
+                if (stat != lane) continue;
+                var row = new FaultRow { id = id, name = name, stat = stat };
                 row.effect = Describe(FaultCatalog.Effect(id), out row.felt);
                 rows.Add(row);
-                origins.Add(p.origin);
+                origins.Add(rowOrigin);
             }
 
             // TWO IDS CAN WEAR ONE NAME. RG2's Japanese pool has `oil_leak` and
@@ -346,6 +357,29 @@ namespace PSXRacing.LifeSim
             var car = applier != null ? applier.playerCar : null;
             if (car == null && RaceManager.Instance != null) car = RaceManager.Instance.playerCar;
             return car != null ? car.GetComponent<EngineTemp>() : null;
+        }
+
+        /// <summary>One line per fault row for the debug bench: what it is,
+        /// whether anyone has found it, how bad, what it does to the drive and
+        /// where it came from (owner 11-13: "Debug should have all information").
+        /// </summary>
+        public static string RowLine(CarFault f)
+        {
+            if (f == null) return "";
+            var sb = new System.Text.StringBuilder();
+            sb.Append((string.IsNullOrEmpty(f.label) ? f.id : f.label).ToUpperInvariant());
+            sb.Append(f.hidden ? "  [HIDDEN]" : "  [FOUND]");
+            sb.Append("  ").Append(f.id).Append("  sev ").Append(f.severity.ToString("0.#"));
+            if (f.stage > 0f) sb.Append(" stage ").Append(f.stage.ToString("0.#"));
+            string fx = Describe(FaultCatalog.Effect(f.id), out bool felt);
+            sb.Append("\n      ").Append(felt ? fx : "no driving effect yet");   // line two: what it does, where it came from
+            sb.Append("  ·  ").Append(string.IsNullOrEmpty(f.cause) ? "cause ?" : f.cause);
+            if (f.hitMps > 0f)
+                sb.Append(" ").Append(DamageModel.ZoneName(f.zone1))
+                  .Append(f.hitSide < 0 ? " L" : f.hitSide > 0 ? " R" : "")
+                  .Append(" dv ").Append(Mathf.RoundToInt(f.hitMps * 2.237f)).Append(" mph");
+            if (f.bornDay > 0) sb.Append(" day ").Append(f.bornDay);
+            return sb.ToString();
         }
 
         public static bool HasFault(OwnedCar car, string id) =>

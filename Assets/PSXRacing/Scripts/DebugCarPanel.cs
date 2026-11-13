@@ -438,6 +438,27 @@ namespace PSXRacing
                 ColW - 346f, height: 28f);
             y -= 52f;
 
+            // EVERY ROW ON THE CAR, hidden or found, with what it does and where
+            // it came from (owner 11-13: "Debug should have all information").
+            // The lanes below are the catalog's switches; this is the car's own list.
+            MenuKit.Label(content, "ON THIS CAR (" + car.faults.Count + ")   ·   every row, hidden or found",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 28f;
+            foreach (var cf in car.faults)
+            {
+                // Two lines a row, each clipped to the column: what it is, then
+                // what it does and where it came from.
+                var lines = DebugCarOps.RowLine(cf).Split('\n');
+                string text = Clip(lines[0], LowerFit(ColW)) +
+                              (lines.Length > 1 ? "\n" + Clip(lines[1], LowerFit(ColW)) : "");
+                MenuKit.Label(content, text, MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    cf.hidden ? MenuKit.Dim : MenuKit.Accent, ColW, height: 44f);
+                y -= 46f;
+            }
+            y -= 16f;
+
             int cols = Cols;
             float cellW = (ColW - Gap * (cols - 1)) / cols;
             const float CellH = 56f;
