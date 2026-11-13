@@ -387,7 +387,7 @@ namespace PSXRacing.EditorTools
                 RaceHandoff.CarSpecId = spec.id;
                 Check(CrashStopGap.Arm(car) && resp.Ledger != null, "a free-roam drive arms a fresh ledger");
                 resp.Ledger.DrawOverride = () => CrashDraws(bumper: 0.1f, radiator: 0.9f, align: 0.9f);
-                resp.RecordHit(9f, CrashStopGap.ZoneRear, 1, new Vector3(0.5f, 0f, -2.1f), "post", 5f);
+                resp.RecordHit(12f, CrashStopGap.ZoneFront, 1, new Vector3(0.5f, 0f, 2.1f), "post", 5f);
                 var cm = city.AddComponent<PSXRacing.City.CityMode>();
                 cm.player = car;
                 setInstance.Invoke(null, new object[] { cm });

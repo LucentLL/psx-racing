@@ -392,7 +392,8 @@ namespace PSXRacing
             // from the seat before the result is thrown away - no purse, no rep,
             // no block. Past the flag the stamped result is kept: leaving from
             // here is CONTINUE. PSX_QUIT_KEEPS=0: today's (the leg is thrown away).
-            bool keepFinished = CareerDrive.QuitKeepsOn && RaceHandoff.ResultReady && DriveSession.ResultsUp;
+            bool keepFinished = CareerDrive.QuitKeepsOn && RaceHandoff.FromLifeSim && Edition.HasCareer &&
+                                RaceHandoff.ResultReady && DriveSession.ResultsUp;
             if (keepFinished)
             {
                 RaceHandoff.CommuteLeg = false;
