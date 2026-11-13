@@ -131,20 +131,28 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
     float3 primer = lerp(float3(0.50, 0.50, 0.48), float3(0.72, 0.72, 0.70), DmgNoise(bpos * 37.0 + seed));
     albedo = lerp(albedo, primer, scrape * 0.85);
     matte = scrape;
-    // CRACKS AND CREASES: thin dark lines - a cracked cover, then the folds of crushed metal
+    // CRACKS: thin dark lines on the faces that met it (a cracked cover)
     float r0 = DmgNoise(bpos * 6.5 + seed * 3.1);
-    float crease = 1.0 - smoothstep(0.0, 0.022, abs(r0 - 0.5));
-    albedo *= 1.0 - crease * saturate(a * 2.5 - 1.2) * 0.45 * (1.0 - glassM);
-    // DENTS: the panel waves (its reflections show it), finer and deeper as it crumples
+    float crack1 = 1.0 - smoothstep(0.0, 0.022, abs(r0 - 0.5));
+    albedo *= 1.0 - crack1 * hitFace * saturate(a * 3.0) * 0.5 * (1.0 - glassM);
+    // DENTS AND CRUMPLE: ridged folds that run ACROSS the crush (an accordioned bonnet, a
+    // creased door), sharper and closer as it worsens; the reflections show them
     float dent = max(saturate(a * 1.5 - 0.3), saturate(roof * 1.5 - 0.45));
     if (dent > 0.0)
     {
-        float f = lerp(3.0, 6.5, saturate(max(a, roof) * 1.5 - 0.5));
-        float3 q = bpos * f + seed;
-        float n0 = DmgNoise(q);
-        float3 g = float3(DmgNoise(q + float3(0.3, 0, 0)), DmgNoise(q + float3(0, 0.3, 0)), DmgNoise(q + float3(0, 0, 0.3))) - n0;
-        float3 gW = mul((float3x3)unity_ObjectToWorld, g / axisL);
-        N = normalize(N - gW * (dent * 5.0));
+        float upw = dot(bpos, _PSXDmgU.xyz);
+        float ends = (zw.x + zw.y) / max(dot(zw, float4(1, 1, 1, 1)), 1e-3);
+        float fine = saturate(max(a, roof) * 1.5 - 0.5);
+        float3 fq = float3(lerp(6.0, 1.6, ends), 3.0, lerp(1.6, 6.0, ends)) * lerp(0.8, 1.4, fine);
+        float3 q = float3(across, upw, along) * fq + seed;
+        float n0 = abs(DmgNoise(q) - 0.5);
+        float3 g = float3(abs(DmgNoise(q + float3(0.15, 0, 0)) - 0.5), abs(DmgNoise(q + float3(0, 0.15, 0)) - 0.5),
+                          abs(DmgNoise(q + float3(0, 0, 0.15)) - 0.5)) - n0;
+        g *= fq;
+        float3 gB = _PSXDmgR.xyz * g.x + _PSXDmgU.xyz * g.y + _PSXDmgF.xyz * g.z;
+        float3 gW = mul((float3x3)unity_ObjectToWorld, gB / axisL);
+        N = normalize(N - gW * (dent * 0.5));
+        albedo *= 1.0 - (1.0 - smoothstep(0.0, 0.05, n0)) * dent * 0.35 * (1.0 - glassM);
         matte = max(matte, dent * 0.35);
     }
     // CRACKED GLASS: a web of pale lines across the windows of a struck roof
