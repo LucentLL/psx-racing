@@ -126,7 +126,33 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(list, "HEALTH PLAN WITH THE JOB  (out of each paycheck)", MenuKit.Small, new Vector2(0f, 1f),
                 new Vector2(20f, cy), TextAnchor.MiddleLeft, MenuKit.Dim, w);
             cy -= 36f;
-            return PlanRows(list, new Vector2(0f, 1f), 20f, cy, w, wizPlan, k => wizPlan = k, highlight: true);
+            // ONE row of four buttons and the picked plan's terms under them. Four
+            // wrapped paragraphs ran under the NEXT button on a 4:3 screen (11-13).
+            var keys = new[] { "", "basic", "standard", "premium" };
+            var bgs = new Image[keys.Length];
+            float gap = 8f, bw = Mathf.Min(150f, (w - gap * (keys.Length - 1)) / keys.Length);
+            Text terms = null;
+            for (int i = 0; i < keys.Length; i++)
+            {
+                string key = keys[i];
+                var p = Insurance.PlanByKey(key);
+                int idx = i;
+                bool on = key == (wizPlan ?? "");
+                var btn = MenuKit.Button(list, p != null ? p.name : "NONE", new Vector2(0f, 1f),
+                    new Vector2(20f + i * (bw + gap), cy), new Vector2(bw, 40f), () =>
+                    {
+                        for (int j = 0; j < bgs.Length; j++)
+                            if (bgs[j] != null) bgs[j].color = j == idx ? GoBg : MenuKit.BtnBg;
+                        wizPlan = key;
+                        if (terms != null) terms.text = Insurance.PlanTerms(Insurance.PlanByKey(key));
+                    }, MenuKit.Tiny, on ? GoBg : (Color?)null);
+                bgs[i] = btn.GetComponent<Image>();
+            }
+            cy -= 48f;
+            terms = MenuKit.Para(list, Insurance.PlanTerms(Insurance.PlanByKey(wizPlan ?? "")), MenuKit.Tiny,
+                new Vector2(0f, 1f), new Vector2(20f, cy), out float th, TextAnchor.UpperLeft, Color.white, w);
+            // room for the longest plan's terms, whichever is picked now
+            return cy - Mathf.Max(th, 46f) - 6f;
         }
 
         /// <summary>THE JOB page: the plan, or - for a career hired before plans
