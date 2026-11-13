@@ -283,9 +283,11 @@ namespace PSXRacing.LifeSim
                 parts.Add("cooling " + Pct(CoolMultFor(e.engineWearMult)));
             if (e.hideGauges) parts.Add("dead gauges");
             if (e.rpmFlutter) parts.Add("tach flutter");
-            string hit = DamageHomes.EffectText(e.id);   // R1a part 2: what each hit row does
-            if (hit != null) parts.Add(hit);
             felt = parts.Count > 0;
+            // R1a part 2: what each hit row does. Said AFTER felt: it acts live (heat,
+            // a dark lamp) or in money, not through the aggregate a bench switch moves.
+            string hit = DamageHomes.EffectText(e.id);
+            if (hit != null) parts.Add(hit);
 
             // In RG2's data, carried across by the bake, read by nothing here.
             if (e.steerSlow) parts.Add("slow steering (not simulated)");
@@ -374,7 +376,8 @@ namespace PSXRacing.LifeSim
             sb.Append("  ").Append(f.id).Append("  sev ").Append(f.severity.ToString("0.#"));
             if (f.stage > 0f) sb.Append(" stage ").Append(f.stage.ToString("0.#"));
             string fx = Describe(FaultCatalog.Effect(f.id), out bool felt);
-            sb.Append("\n      ").Append(felt ? fx : "no driving effect yet");   // line two: what it does, where it came from
+            // line two: what it does, where it came from (a hit row's live / money effect counts)
+            sb.Append("\n      ").Append(felt || DamageHomes.EffectText(f.id) != null ? fx : "no driving effect yet");
             sb.Append("  ·  ").Append(string.IsNullOrEmpty(f.cause) ? "cause ?" : f.cause);
             if (f.hitMps > 0f)
                 sb.Append(" ").Append(DamageModel.ZoneName(f.zone1))

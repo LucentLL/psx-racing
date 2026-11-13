@@ -13192,12 +13192,14 @@ namespace PSXRacing.EditorTools
             { Check(false, "catalogs loaded for the bench"); return; }
 
             // ---- ANY fault means any -----------------------------------
-            var ids = FaultCatalog.AllIds();
+            var ids = FaultCatalog.AllIdsWithUsed();   // pools + R0b's used rows + R1a's hit rows: the bench lists them all
             var poolIds = new HashSet<string>();
             foreach (var p in FaultCatalog.Pools) poolIds.Add(p.id);
-            Check(ids.Count > 0 && ids.Count == poolIds.Count,
-                  "the bench knows every fault the pools can roll",
-                  ids.Count + " of " + poolIds.Count);
+            bool allPools = true;
+            foreach (var pid in poolIds) allPools &= ids.Contains(pid);
+            Check(ids.Count > 0 && allPools && ids.Count >= poolIds.Count,
+                  "the bench knows every fault the pools can roll (and the used and hit rows besides)",
+                  ids.Count + " ids, " + poolIds.Count + " pool ids");
 
             int unmade = 0; string firstUnmade = null;
             foreach (var origin in new[] { "jpn", "usa", "eur", "nowhere" })
