@@ -38,6 +38,9 @@ namespace PSXRacing
         public string id, name, origin, family, market;
         public int year;
         public bool builtToTune, roadLegal;
+        /// <summary>A one-off show or prototype car: road legal as the catalog
+        /// treats it, but never offered for sale in the career (owner 2026-11-12).</summary>
+        public bool oneOff;
         public string serviceUnit;
         public float priceClass;
         public string priceClassName;
@@ -159,16 +162,21 @@ namespace PSXRacing
 
         /// <summary>The career market (newspaper, dealer lot, starting lanes)
         /// may offer this car. Callers check <see cref="MarketOn"/> first.</summary>
-        public static bool CareerSells(CarSpec spec) => spec != null && RoadLegal(spec);
+        public static bool CareerSells(CarSpec spec)
+        {
+            if (spec == null || !RoadLegal(spec)) return false;
+            var f = Get(spec.id);
+            return f == null || !f.oneOff;
+        }
 
         /// <summary>A listing already in a save that must leave the market:
-        /// its spec is known and not road legal. Unknown specs are left as
-        /// they are.</summary>
+        /// its spec is known and the career does not sell it (not road legal,
+        /// or a one-off). Unknown specs are left as they are.</summary>
         public static bool LeavesMarket(string specId)
         {
             if (!MarketOn) return false;
             var spec = CarCatalog.Get(specId);
-            return spec != null && !RoadLegal(spec);
+            return spec != null && !CareerSells(spec);
         }
 
         /// <summary>Days until a part ordered today arrives (inclusive range

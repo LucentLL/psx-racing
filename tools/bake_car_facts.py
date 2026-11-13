@@ -302,10 +302,10 @@ R("honda_civic_1500_3door_25i__83", "JDM", "EW 1.5 PGM-FI", "none", "drum", lo="
 R("alpine_a110_1600s__73", "EUR", "Renault 807 1.6", "none", "disc", ac="none")
 R("alpine_a310_1600ve__73", "EUR", "Renault 807 1.6 inj", "none", "disc", ac="none", bump="plastic",
   lo="bumperEra", note="early analog injection, no self-diagnosis")
-R("dome_zero__78", "JDM", "Dome L28", "none", "disc", bump="plastic", ac="none", pc="exotic", parts="classic",
+R("dome_zero__78", "JDM", "Dome L28", "none", "disc", oneoff=True, bump="plastic", ac="none", pc="exotic", parts="classic",
   lo="market,roadLegal,rearBrakes",
   note="a prototype road car that never received Japanese type approval; road legal here as the catalog "
-       "treats it (owner's call). Catalog origin 'eur' is RG2's catch-all: the maker (Dome) is Japanese")
+       "treats it (owner's call). Catalog origin 'eur' is RG2's catch-all: the maker (Dome) is Japanese; a one-off: never offered for sale in the career (owner 2026-11-12 default: show and prototype cars stay out of the paper and the lot)")
 R("honda_1300_coupe_9_s__70", "JDM", "H1300 air-cooled", "none", "drum", ac="none")
 R("mitsubishi_galant_gto_mr__70", "JDM", "4G32 DOHC", "none", "drum", ac="none")
 R("mitsubishi_lancer_1600_gsr__73", "JDM", "4G32 SOHC", "none", "drum", ac="none")
@@ -395,8 +395,8 @@ R("toyota_corolla_levin_bz_r__98", "JDM", "4A-GE 20v", "dual", "disc", lo="ignit
 R("toyota_sprinter_trueno_bz_r__98", "JDM", "4A-GE 20v", "dual", "disc", lo="ignition")
 R("bmw_2002_turbo__73", "EUR", "BMW M10 turbo", "none", "drum", ac="none",
   note="Kugelfischer mechanical injection")
-R("chevrolet_camaro_iroc_z_concept__88", "US", "SBC 350 L98 TPI", "none", "disc", lo="rearBrakes,roadLegal",
-  note="a concept car; road legal here as the catalog treats it (owner's call)")
+R("chevrolet_camaro_iroc_z_concept__88", "US", "SBC 350 L98 TPI", "none", "disc", oneoff=True, lo="rearBrakes,roadLegal",
+  note="a concept car; road legal here as the catalog treats it (owner's call); a one-off: never offered for sale in the career (owner 2026-11-12 default: show and prototype cars stay out of the paper and the lot)")
 R("mazda_rx_7_infini_iii__fc__j___90", "JDM", "13B-T", "none", "disc")
 R("nissan_240sx__s14___96", "US", "SR20DET", "dual", "disc", parts="jdm_shared", lo="market,engineCode",
   note="GT4's US name for the JDM Silvia K's (S14, SR20DET 220 PS); the US 240SX had the KA24DE. "
@@ -585,7 +585,7 @@ R("nissan_skyline_gt_r_vspec_n1__r32___93", "JDM", "RB26DETT", "none", "disc", a
 R("nissan_stagea_260rs_autechversion__98", "JDM", "RB26DETT", "dual", "disc")
 R("tvr_griffith_500__94", "UK", "Rover V8 5.0 TVR", "none", "disc", bump="plastic", ac="none", pc="exotic",
   lo="ac,priceClass")
-R("mitsubishi_hsr_ii_concept__89", "JDM", "6G72TT", "none", "disc", turbo="twin", ac="none", pc="exotic",
+R("mitsubishi_hsr_ii_concept__89", "JDM", "6G72TT", "none", "disc", oneoff=True, turbo="twin", ac="none", pc="exotic",
   parts="race", lo="roadLegal",
   note="a concept car; road legal here as the catalog treats it (owner's call). One-off parts")
 R("nissan_skyline_gt_r_vspec__r33___96", "JDM", "RB26DETT", "dual", "disc", lo="airbags")
@@ -927,7 +927,7 @@ def bake(cars):
             ab = a["ab"]
         row = dict(
             id=cid, name=c["name"], origin=c["origin"], family=family_of(cid, c["origin"]),
-            market=market, year=year, builtToTune=btt, roadLegal=legal,
+            market=market, year=year, builtToTune=btt, roadLegal=legal, oneOff=bool(a.get("oneoff", False)),
             serviceUnit="miles" if legal else "hours",
             priceClass=PRICE[pcn], priceClassName=pcn,
             stockInternals=3 if btt else en["si"], stockBoostBar=0.0 if btt else en["boost"],
