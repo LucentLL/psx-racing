@@ -266,6 +266,25 @@ namespace PSXRacing.EditorTools
             DamageRules.SpanOn = false;
             Check(DamageRules.SpanZone(sh, nose, Vector3.back, z) == DamageModel.ZNone, "PSX_FAULT_SPAN=0: one zone per contact (part 1)");
             DamageRules.SpanOn = true;
+
+            // a LOW car (the '99 Viper backed into a wall at 20 km/h read ROOF): the belt
+            // just above the box centre, a wall patch centred above it but reaching below it
+            var low = new DamageModel.Shell();
+            low.beltY = 0.1f * low.half.y;
+            var back = new Vector3(0.1f, 0.2f, -low.half.z);
+            DamageModel.Classify(low, back, Vector3.forward, true, out int zw, out _, out _, -0.3f);
+            DamageModel.Classify(low, back, Vector3.forward, true, out int zo, out _, out _, 0.12f);
+            DamageModel.Classify(low, back, Vector3.forward, false, out int zu, out _, out _, -0.3f);
+            DamageModel.Classify(low, new Vector3(low.half.x, 0.2f, 0f), Vector3.left, true, out int zs, out _, out _, -0.3f);
+            DamageModel.Classify(low, new Vector3(0f, low.half.y, -1f), Vector3.down, true, out int zd2, out _, out _, -0.3f);
+            Check(zw == DamageModel.ZRear && zs == DamageModel.ZSide && zo == DamageModel.ZRoof && zu == DamageModel.ZRoof && zd2 == DamageModel.ZRoof,
+                  "a low car: a wall above its beltline that reaches below it is a REAR (SIDE) hit; an overhang wholly above the belt, " +
+                  "the car on its roof, or a push from above is still ROOF",
+                  DamageModel.ZoneName(zw) + " / " + DamageModel.ZoneName(zs) + " / " + DamageModel.ZoneName(zo) + " / " + DamageModel.ZoneName(zu) + " / " + DamageModel.ZoneName(zd2));
+            DamageRules.BodyFirstOn = false;
+            DamageModel.Classify(low, back, Vector3.forward, true, out int zp1, out _, out _, -0.3f);
+            DamageRules.BodyFirstOn = true;
+            Check(zp1 == DamageModel.ZRoof, "PSX_FAULT_BODYFIRST=0: part 1's ROOF");
         }
 
         // ---------------------------------------------------------------

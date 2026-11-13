@@ -153,7 +153,8 @@ namespace PSXRacing
         /// on the car in the same frame (unit). False = a tyre's patch with the
         /// car upright (the suspension's and the bump stops', not the ledger's).
         /// </summary>
-        public static bool Classify(Shell sh, Vector3 p, Vector3 n, bool upright, out int zone, out int side, out int corner)
+        public static bool Classify(Shell sh, Vector3 p, Vector3 n, bool upright, out int zone, out int side, out int corner,
+                                    float minY = float.NaN)
         {
             zone = ZNone; corner = -1;
             float nx = sh.half.x > 1e-3f ? p.x / sh.half.x : 0f;
@@ -166,7 +167,14 @@ namespace PSXRacing
                 zone = ZUnder;
                 return true;
             }
-            if (n.y < -VerticalDot || p.y > sh.beltY) { zone = ZRoof; return true; }
+            // R1a part 2 (DamageRules.BodyFirst): on an upright car a push from the side
+            // or an end meets the body under the belt first - a wall above a low car's
+            // beltline is still a front, rear or side hit; only a patch wholly above the
+            // belt (an overhang: a truck bed, a barrier top) is the glass. minY = the
+            // patch's lowest point (NaN: the centre's, as part 1 read it).
+            bool high = p.y > sh.beltY &&
+                        !(upright && n.y >= -VerticalDot && DamageRules.BodyFirst(sh, float.IsNaN(minY) ? p.y : minY));
+            if (n.y < -VerticalDot || high) { zone = ZRoof; return true; }
             for (int i = 0; i < 4; i++)
                 if (Plan(p, sh.hubs[i]) <= sh.tyreR + CornerPad && p.y <= sh.hubs[i].y + sh.tyreR + CornerPad)
                 {
@@ -615,6 +623,7 @@ namespace PSXRacing
             }
             // the push on the car: the contacts that pushed (as Measure does)
             Vector3 sum = Vector3.zero, all = Vector3.zero;
+            float minY = float.PositiveInfinity;
             if (pts.Length < n) pts = new Vector3[n];
             Transform frame = Frame(out Vector3 centre);
             for (int i = 0; i < n; i++)
@@ -623,6 +632,7 @@ namespace PSXRacing
                 all += cp.normal;
                 if (cp.impulse.sqrMagnitude > 1e-8f) sum += cp.normal;
                 pts[i] = frame.InverseTransformPoint(cp.point) - centre;
+                if (pts[i].y < minY) minY = pts[i].y;
             }
             if (sum.sqrMagnitude < 1e-4f) sum = all;
             if (sum.sqrMagnitude < 1e-4f) return;
@@ -635,7 +645,7 @@ namespace PSXRacing
             Vector3 local = CrashStopGap.PatchCentre(pts, n);
             Vector3 nL = frame.InverseTransformDirection(nW);
             bool upright = Vector3.Dot(car.transform.up, Vector3.up) > 0.25f;
-            if (!DamageModel.Classify(shell, local, nL, upright, out int zone, out int side, out int corner)) return;
+            if (!DamageModel.Classify(shell, local, nL, upright, out int zone, out int side, out int corner, minY)) return;
 
             var orb = c.rigidbody;
             float ratio = 1f;

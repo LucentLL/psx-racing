@@ -47,6 +47,9 @@ namespace PSXRacing
         public static bool SpanOn = Env("PSX_FAULT_SPAN") != "0";
         public static bool ScrapeOn = Env("PSX_FAULT_SCRAPE") != "0";
         public static bool CrushOn = Env("PSX_FAULT_CRUSH") != "0";
+        /// <summary>PSX_FAULT_BODYFIRST=0: a contact centred above the beltline is ROOF
+        /// whatever lies under it (part 1; a low car backed into a wall read ROOF).</summary>
+        public static bool BodyFirstOn = Env("PSX_FAULT_BODYFIRST") != "0";
         static string Env(string k) => System.Environment.GetEnvironmentVariable(k);
 
         public const float FailMps = AIDriver.RetireHitMps;
@@ -104,6 +107,8 @@ namespace PSXRacing
         /// mostly fore-aft, at the car's end - the glass and the nose (tail)
         /// both took it. ZNone otherwise.
         /// </summary>
+        public static bool BodyFirst(DamageModel.Shell sh, float minY) => BodyFirstOn && sh != null && minY <= sh.beltY;
+
         public static int SpanZone(DamageModel.Shell sh, Vector3 p, Vector3 n, int zone)
         {
             if (!SpanOn || sh == null || zone != DamageModel.ZRoof) return DamageModel.ZNone;
