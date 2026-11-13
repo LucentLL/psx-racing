@@ -41,6 +41,10 @@ namespace PSXRacing.EditorTools
         readonly List<GameObject> props = new List<GameObject>();
         readonly List<Incident> all = new List<Incident>();
         OwnedCar owned;
+        // R1a part 2: a lean into a barrier, a traffic van driven by its path
+        float pushRight;
+        Rigidbody van;
+        float vanV;
 
         static void Check(bool ok, string what, object got = null) => CrashPlayCheck.Check(ok, what, got);
         static void Note(string what) => CrashPlayCheck.Note(what);
@@ -54,6 +58,8 @@ namespace PSXRacing.EditorTools
             car.brakeInput = 0f;
             car.steerInput = 0f;
             car.handbrakeInput = false;
+            if (pushRight != 0f) rb.AddForce(car.transform.right * pushRight, ForceMode.Acceleration);
+            if (van != null) van.MovePosition(van.position + Vector3.forward * (vanV * Time.fixedDeltaTime));
             var tank = car.GetComponent<FuelTank>();
             if (tank != null) tank.percent = 100f;
         }
@@ -93,6 +99,8 @@ namespace PSXRacing.EditorTools
             resp.Damage = null;
             resp.Ledger = null;
             resp.ResetDamage();
+            car.faultAccelMult = 1f;   // a FAIL run leaves no power behind it
+            pushRight = 0f;
             CrashStopGap.Arm(car);
             var L = resp.Damage;
             if (L != null) L.DrawOverride = Low;
@@ -163,9 +171,12 @@ namespace PSXRacing.EditorTools
             Note("car " + spec.name + ", " + rb.mass.ToString("0") + " kg; every die forced to 0.1");
 
             foreach (float kmh in new[] { 15f, 30f, 50f }) yield return WallRun(kmh);
+            yield return FailRun();
             yield return SwipeRun();
             yield return RollRun();
             yield return DropRun();
+            yield return RearEndRun();
+            yield return RadiatorRun();
 
             // F: the files, folded once
             var last = resp.Damage;
@@ -181,6 +192,7 @@ namespace PSXRacing.EditorTools
             Note("career car after the drive: body " + owned.carHP.ToString("0") + ", paint " + owned.paint.ToString("0") +
                  ", radiator " + owned.radiator.ToString("0") + ", rows " + string.Join(",", owned.faults.Select(f => f.id + (f.hidden ? "(hidden)" : ""))));
             Check(owned.faults.All(f => f.hidden), "every row it wrote is hidden (no part named before a person finds it)");
+            yield return RestartRun();
         }
 
         IEnumerator WallRun(float kmh)
@@ -214,26 +226,35 @@ namespace PSXRacing.EditorTools
             var L = Fresh();
             float v = 80f / 3.6f;
             var at = NextStart();
-            // a barrier of 4 m sections on the right, the car angled 6 degrees into it
-            var sections = new HashSet<Collider>();
-            for (int k = 0; k < 30; k++)
-                Box("Rail" + k, at + new Vector3(2.4f, 0.4f, 6f + k * 4f), new Vector3(0.4f, 1.2f, 3.98f), Quaternion.identity);
-            System.Action<CollisionResponder, float, bool, Collider> onHit = (r, mps, hard, col) =>
-                { if (r == resp && col != null && col.name.StartsWith("Rail")) sections.Add(col); };
-            CollisionResponder.HitReportedOn += onHit;
-            car.TeleportTo(at, Quaternion.Euler(0f, 6f, 0f));
+            // R1a part 2: a barrier of 4 m sections on the right, the car parallel
+            // to it 0.3 m off, drifting in at 2.2 m/s and then leaned on it (a
+            // driver holding it against the wall) - part 1's 6-degree run touched
+            // one section and bounced off
+            var bodyBox = car.GetComponent<CarBody>() != null ? car.GetComponent<CarBody>().box : null;
+            float half = bodyBox != null ? bodyBox.size.x * 0.5f * bodyBox.transform.lossyScale.x : 0.86f;
+            var rails = new List<RailTouch>();
+            for (int k = 0; k < 40; k++)
+                rails.Add(Box("Rail" + k, at + new Vector3(half + 0.05f + 0.2f, 0.4f, 2f + k * 4f), new Vector3(0.4f, 1.2f, 3.98f),
+                              Quaternion.identity).AddComponent<RailTouch>());
+            car.TeleportTo(at, Quaternion.identity);
             yield return Fixed(0.2f);
             car.SetRolling(v);
             hold = true; holdMps = v;
-            yield return Fixed(3f);
+            yield return Fixed(0.3f);
+            rb.linearVelocity += car.transform.right * 2.5f;   // 0.3 m off at 2.2 the tyres scrubbed it to nothing
+            pushRight = 4f;
+            yield return Fixed(2.5f);
+            pushRight = 0f;
             hold = false;
             yield return Fixed(1.5f);
-            CollisionResponder.HitReportedOn -= onHit;
             if (L == null) { Check(false, "side swipe: no ledger armed"); yield break; }
+            int touched = rails.Count(r => r != null && r.touched);
             var inc = L.incidents.Where(i => i.kind == DamageModel.KHit).ToList();
-            Check(inc.Count > 0 && inc.Count <= 4 && sections.Count >= 2 && inc.All(i => i.side > 0 || i.zone == DamageModel.ZFront),
-                  "a side swipe at 80 km/h along a 4 m-section barrier: " + sections.Count + " sections struck, " + inc.Count +
-                  " incident(s), all on the struck (right) side", string.Join(" | ", inc.Select(Show)));
+            bool onePerZone = inc.GroupBy(i => i.zone * 10 + i.corner + 1).All(g => g.Count() == 1);
+            Check(touched >= 3 && inc.Count >= 1 && inc.Count <= 3 && onePerZone && inc.All(i => i.side > 0),
+                  "a side swipe at 80 km/h held along a barrier of 4 m sections: " + touched + " sections touched, " + inc.Count +
+                  " incident(s), ONE per zone (the sections merged), all on the struck (right) side",
+                  string.Join(" | ", inc.Select(Show)));
             Check(inc.All(i => !i.outcome.HasRow(DamageModel.RadiatorId)), "  a swipe cracks no radiator");
         }
 
@@ -248,8 +269,20 @@ namespace PSXRacing.EditorTools
             hold = true; holdMps = v;
             yield return Fixed(0.5f);
             hold = false;
-            rb.linearVelocity += Vector3.up * 3.5f;
-            rb.angularVelocity = car.transform.forward * 6f;
+            // R1a part 2: the trip. At 60 km/h the car is tipped 75 degrees onto
+            // its right side a metre up and spun on about its long axis, as a kerb
+            // trip throws it. Part 1's launch (a hop and a spin from the wheels)
+            // never rolled it: the springs and the bars set it back down.
+            Vector3 fwd = car.transform.forward;
+            // (75 degrees fell back onto its wheels in play: past the tipping point)
+            Quaternion q = Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(0f, 0f, -150f);
+            car.TeleportTo(rb.position + Vector3.up * 1.5f, q);
+            for (int k = 0; k < 5; k++)
+            {
+                yield return new WaitForFixedUpdate();
+                rb.linearVelocity = fwd * v + Vector3.up * 1f;
+                rb.angularVelocity = fwd * -4f;
+            }
             float t = 0f;
             while (t < 12f && (L == null || !L.incidents.Any(i => i.kind == DamageModel.KRoll))) { t += Time.fixedDeltaTime; yield return new WaitForFixedUpdate(); }
             yield return Fixed(0.5f);
@@ -257,11 +290,170 @@ namespace PSXRacing.EditorTools
             var roll = L.incidents.FirstOrDefault(i => i.kind == DamageModel.KRoll);
             Check(roll != null && roll.quarters >= 2 && roll.zone == DamageModel.ZRoof && roll.outcome.Any,
                   "a 60 km/h roll: ONE ROLL incident, banked when it came to rest (no respawn), two or more quarter-turns, it costs",
-                  roll != null ? Show(roll) + ", " + roll.quarters + " quarter-turns, " + t.ToString("0.0") + " s" : "none in " + t.ToString("0.0") + " s");
-            Check(!L.incidents.Any(i => i.kind == DamageModel.KHit && i.zone == DamageModel.ZRoof),
-                  "  the roof pulses are the roll's, not separate hits", string.Join(" | ", L.incidents.Select(Show)));
+                  roll != null ? Show(roll) + ", " + roll.quarters + " quarter-turns, " + t.ToString("0.0") + " s, fail " + DamageRules.FailName(roll.fail)
+                               : "none in " + t.ToString("0.0") + " s");
+            Check(L.incidents.Count(i => i.kind == DamageModel.KRoll) == 1 && !L.incidents.Any(i => i.kind == DamageModel.KHit && i.zone == DamageModel.ZRoof),
+                  "  one roll; the roof pulses are the roll's, not separate hits", string.Join(" | ", L.incidents.Select(Show)));
             car.TeleportTo(NextStart(), Quaternion.identity);
             yield return Fixed(0.5f);
+        }
+
+        /// <summary>R1a part 2: the structural FAIL in play - a 65 km/h wall
+        /// (the AI's 17 m/s retire line) ends the drive.</summary>
+        IEnumerator FailRun()
+        {
+            var s = LifeSimManager.State;
+            if (s != null) s.debugMode = false;
+            var L = Fresh();
+            float v = 65f / 3.6f;
+            var at = NextStart();
+            Box("WallFail", at + new Vector3(0f, 0.6f, 24f), new Vector3(6f, 2.4f, 1f), Quaternion.identity);
+            car.TeleportTo(at, Quaternion.identity);
+            yield return Fixed(0.2f);
+            car.SetRolling(v);
+            hold = true; holdMps = v;
+            float t = 0f;
+            while (t < 8f && (L == null || L.incidents.Count == 0)) { t += Time.fixedDeltaTime; yield return new WaitForFixedUpdate(); }
+            hold = false;
+            yield return Fixed(1.0f);
+            if (L == null) { Check(false, "FAIL wall: no ledger armed"); yield break; }
+            var front = L.incidents.Where(i => i.kind == DamageModel.KHit && i.zone == DamageModel.ZFront).OrderByDescending(i => i.dv).FirstOrDefault();
+            Check(L.Failed == DamageRules.FailHit && DamageRules.Wrecked(car) && front != null && front.fail == DamageRules.FailHit,
+                  "65 km/h square into a wall (the AI's 17 m/s retire line): the structural FAIL, the car cannot go on",
+                  front != null ? Show(front) + ", closing " + front.closing.ToString("0.0") + ", FAIL " + DamageRules.FailName(L.Failed) : "no front incident");
+            Check(CareerDrive.Strict && CareerDrive.NeedsTow(car), "  a career drive (not debug): the leave row is CALL TOW TRUCK");
+            var rm = RaceManager.Instance;
+            var pr = rm != null ? rm.GetProgress(car) : null;
+            Note("  race " + (rm != null ? rm.State.ToString() : "none") + ": player DNF (retired) " + (pr != null && pr.retired));
+            // on open road, full throttle for 3 s: nothing drives it
+            car.TeleportTo(NextStart(), Quaternion.identity);
+            yield return Fixed(0.3f);
+            hold = true; holdMps = 40f;
+            yield return Fixed(3f);
+            float speed = rb.linearVelocity.magnitude;
+            hold = false;
+            Check(speed < 1f, "  at full throttle on open road afterwards it does not drive away (no power)", speed.ToString("0.00") + " m/s");
+        }
+
+        /// <summary>R1a part 2: a traffic rear-end. A 1,400 kg box truck driven
+        /// by its path at 20 km/h (as CityTraffic drives them: nothing pushes
+        /// it), its bed 0.8 m up - above the car's beltline.</summary>
+        IEnumerator RearEndRun()
+        {
+            var L = Fresh();
+            float v = 50f / 3.6f, vv = 20f / 3.6f;
+            var at = NextStart();
+            var go = Box("TrafficVan", at + new Vector3(0f, 1.2f, 30f), new Vector3(2.0f, 2.0f, 5f), Quaternion.identity);
+            van = go.AddComponent<Rigidbody>();
+            van.mass = DamageModel.TrafficKg;
+            van.isKinematic = true;
+            vanV = vv;
+            car.TeleportTo(at, Quaternion.identity);
+            yield return Fixed(0.2f);
+            car.SetRolling(v);
+            hold = true; holdMps = v;
+            float t = 0f;
+            while (t < 10f && (L == null || L.incidents.Count == 0)) { t += Time.fixedDeltaTime; yield return new WaitForFixedUpdate(); }
+            hold = false;
+            yield return Fixed(1.5f);
+            van = null; vanV = 0f;
+            if (L == null) { Check(false, "rear-end: no ledger armed"); yield break; }
+            float closing = v - vv;
+            float cap = closing * DamageModel.TrafficKg / (rb.mass + DamageModel.TrafficKg) * DamageModel.CapFactor;
+            var hits = L.incidents.Where(i => i.kind == DamageModel.KHit).ToList();
+            var front = hits.Where(i => i.zone == DamageModel.ZFront).OrderByDescending(i => i.dv).FirstOrDefault();
+            bool roof = hits.Any(i => i.zone == DamageModel.ZRoof);
+            Check(front != null && front.dv <= cap * 1.02f + 0.05f && front.dv >= 0.3f * cap,
+                  "a traffic rear-end at 50 into 20 km/h: a FRONT incident, delta-V capped at closing x 1400/(m+1400) x 1.2 = " + cap.ToString("0.00") + " m/s",
+                  string.Join(" | ", hits.Select(Show)));
+            Check(!roof || front != null, "  the tail above the beltline took the glass AND the nose (" + (roof ? "ROOF + FRONT" : "FRONT only") + ")");
+        }
+
+        /// <summary>R1a part 2: the design's timing gate - a holed core (2 %/min)
+        /// at 80 km/h reaches 112 C in 6-12 minutes. Run at 4x time.</summary>
+        IEnumerator RadiatorRun()
+        {
+            var L = Fresh();
+            var temp = car.GetComponent<EngineTemp>();
+            if (L == null || temp == null) { Check(false, "radiator timing: no ledger or no EngineTemp"); yield break; }
+            car.TeleportTo(NextStart(), Quaternion.identity);
+            yield return Fixed(0.2f);
+            temp.radiatorCond = 100f; temp.fanCond = 100f; temp.hoseCond = 100f; temp.coolantPct = 100f;
+            temp.radiatorWeep = 0f; temp.radiatorHit = 0f;
+            temp.StartCold(CoolingModel.CurrentAmbientC);
+            temp.enabled = true;
+            float vk = 80f / 3.6f;
+            car.SetRolling(vk);
+            hold = true; holdMps = vk;
+            Time.timeScale = 4f;
+            float t0 = Time.time;
+            while (Time.time - t0 < 480f && temp.celsius < 88f) yield return null;
+            float warmC = temp.celsius, warmMin = (Time.time - t0) / 60f;
+            var hit = L.PlantHit(DamageModel.ZFront, 0, -1, 6f, Time.time);
+            bool holed = hit.outcome.HasRow(DamageModel.RadiatorId) && Mathf.Approximately(hit.outcome.leakPctMin, 2f);
+            float t1 = Time.time, reached = -1f;
+            while (Time.time - t1 < 900f)
+            {
+                if (temp.celsius >= 112f) { reached = Time.time - t1; break; }
+                if (temp.Seized) break;
+                yield return null;
+            }
+            float endC = temp.celsius, coolant = temp.coolantPct, kmh = rb.linearVelocity.magnitude * 3.6f;
+            Time.timeScale = 1f;
+            hold = false;
+            temp.enabled = false;
+            Check(holed && reached >= 360f && reached <= 720f,
+                  "a holed core (2 %/min) at 80 km/h reaches 112 C in 6-12 min",
+                  "warm " + warmC.ToString("0") + " C after " + warmMin.ToString("0.0") + " min; 112 C " +
+                  (reached < 0f ? "not reached in 15 min (" + endC.ToString("0") + " C)" : "after " + (reached / 60f).ToString("0.0") + " min") +
+                  ", coolant " + coolant.ToString("0") + "%, " + kmh.ToString("0") + " km/h, holed " + holed);
+        }
+
+        /// <summary>R1a part 2: RESTART in a DEBUG career, driven once in play -
+        /// the crash is banked once and the reloaded car is the damaged one.
+        /// Last: it reloads the scene.</summary>
+        IEnumerator RestartRun()
+        {
+            var s = LifeSimManager.State;
+            s.debugMode = true;
+            Check(CareerDrive.RestartOffered, "a DEBUG career offers RESTART");
+            var L = Fresh();
+            float v = 30f / 3.6f;
+            var at = NextStart();
+            Box("WallRestart", at + new Vector3(0f, 0.6f, 14f), new Vector3(6f, 2.4f, 1f), Quaternion.identity);
+            car.TeleportTo(at, Quaternion.identity);
+            yield return Fixed(0.2f);
+            car.SetRolling(v);
+            hold = true; holdMps = v;
+            float t = 0f;
+            while (t < 8f && (L == null || L.incidents.Count == 0)) { t += Time.fixedDeltaTime; yield return new WaitForFixedUpdate(); }
+            hold = false;
+            yield return Fixed(1.5f);
+            int events = L != null ? L.incidents.Count(i => i.outcome.Any) : 0;
+            int hist0 = owned.history.Count;
+            var pm = Object.FindFirstObjectByType<PauseMenu>();
+            var m = typeof(PauseMenu).GetMethod("RestartRace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Check(pm != null && m != null && events > 0, "a crash, and the race's pause menu has RESTART", "events " + events);
+            if (pm == null || m == null) yield break;
+            var oldCar = car;
+            m.Invoke(pm, null);
+            for (int i = 0; i < 120; i++) yield return null;
+            var rm = RaceManager.Instance;
+            car = rm != null ? rm.playerCar : null;
+            Check(car != null && car != oldCar, "RESTART reloaded the race with a new player car");
+            if (car == null) yield break;
+            resp = car.GetComponent<CollisionResponder>();
+            rb = car.GetComponent<Rigidbody>();
+            var L2 = resp != null ? resp.Damage : null;
+            var temp2 = car.GetComponent<EngineTemp>();
+            bool leak = owned.faults.Any(f => f.id == DamageModel.RadiatorId);
+            Check(owned.history.Count == hist0 + events && DamageBank.Files().Length == 0,
+                  "RESTART banked the crash once and the damage file is gone", "history " + hist0 + " -> " + owned.history.Count + ", events " + events);
+            Check(L2 != null && L2.Banks && (!leak || (L2.baseWeep > 0f && temp2 != null && temp2.radiatorWeep > 0f)) &&
+                  temp2 != null && Mathf.Abs(temp2.radiatorCond - owned.radiator) < 1f,
+                  "the reloaded car is the damaged one: armed again, the holed core still weeps, the core's condition is the banked one",
+                  "weep " + (temp2 != null ? temp2.radiatorWeep.ToString("0.000") : "-") + ", core " + (temp2 != null ? temp2.radiatorCond.ToString("0") : "-") +
+                  " vs " + owned.radiator.ToString("0"));
         }
 
         IEnumerator DropRun()
@@ -286,6 +478,14 @@ namespace PSXRacing.EditorTools
         }
     }
 
+    /// <summary>R1a part 2: a barrier section that knows the car touched it.</summary>
+    public class RailTouch : MonoBehaviour
+    {
+        public bool touched;
+        void OnCollisionEnter(Collision c) { touched = true; }
+        void OnCollisionStay(Collision c) { touched = true; }
+    }
+
     /// <summary>
     /// The race census (PSX_DAMAGE_CENSUS = a CSV path, set by the runner):
     /// in play mode every responder runs the located model as a census (it
@@ -308,7 +508,7 @@ namespace PSXRacing.EditorTools
                 DamageModel.IncidentReported += Log;
             };
             if (!File.Exists(path))
-                File.WriteAllText(path, "venue,time,car,player,kind,zone,side,corner,dv,band,glancing,narrow,what,any,scuffonly,cost,outcome\n");
+                File.WriteAllText(path, "venue,time,car,player,kind,zone,side,corner,dv,band,glancing,narrow,what,any,scuffonly,cost,outcome,fail\n");
         }
 
         static void Log(CollisionResponder r, Incident i)
@@ -326,6 +526,7 @@ namespace PSXRacing.EditorTools
                 DamageModel.KindName(i.kind), DamageModel.ZoneName(i.zone), i.side.ToString(), i.corner.ToString(),
                 i.dv.ToString("0.00"), i.band.ToString(), i.glancing ? "1" : "0", i.narrow ? "1" : "0", Clean(i.what),
                 i.outcome.Any ? "1" : "0", i.outcome.ScuffOnly ? "1" : "0", cost.ToString(), Clean(i.outcome.ToString()),
+                DamageRules.FailName(i.fail),
             }) + "\n");
         }
     }

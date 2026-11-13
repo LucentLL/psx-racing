@@ -311,7 +311,7 @@ namespace PSXRacing
             float thermo = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(ThermoShut, ThermoOpen, celsius));
             float rad = CoolingModel.RadEff(radiatorCond) *
-                        CoolingModel.CoolantEff(coolantPct) *
+                        DamageRules.CoolantEff(coolantPct, radiatorWeep) *   // R1a part 2: a holed core
                         Mathf.Clamp(coolMult, 0.05f, 1f);
 
             float heat = HeatIdle + HeatLoad * load + HeatRedline * Mathf.Clamp01(overRev);
@@ -476,6 +476,7 @@ namespace PSXRacing
             RaceHandoff.HeatEngineDamage = temp.EngineDamage;
             RaceHandoff.EndCoolantPct = temp.coolantPct;
             RaceHandoff.EngineSeized = temp.Seized;
+            LifeSim.HeatSoak.EndC = temp.celsius;   // R1a part 2: parked hot (heat soak)
         }
     }
 }

@@ -49,6 +49,36 @@ SHARED FILES TOUCHED (all one-liners or small):
 ## At merge
 No save change, no format change, no re-bake (nothing under Scripts/City or RoadsideRules.cs; the shader is not in the tile bake). New files (+ .meta): Scripts/DamageLook.cs, Shaders/PSXCarDamage.cginc, Editor/DamageLookCheck.cs. Shared one-liners: DamageModel.cs (4), CarLights.cs, FaultCatalog.cs, FaultView.cs, Inspection.cs, PSXCarPaint.shader (listed above). If part 2b adds Spares / floor-check / test-drive homes for the hit ids, srs_deployed is a seventh id.
 
+# HANDOFF - FAULTS R1a PART 2b "RULES AND PROOF" (agent "r1a2r", branch faults-r1a2-rules, 2026-11-13; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-faultr1a2r` off mountain-nm 04c0f15f. Sandbox PSXPerf (lock "r1a2r", released). Reports: scratchpad `r1a2r\` (runner `r1a2r.ps1`; `base_selftest.txt`, `h4_selftest.txt`, `h4_crashplay.txt`, `h3_race_census.csv` + `census.py`, `heat.py` = the cooling-curve fit). Note: a VISIBLE editor in PSXPerf stops on "Revert All Window Layouts" (the user-level layout `AppData\Roaming\Unity\Editor-5.x\Preferences\Layouts\current\default-6000.dwlt` holds a maximized window with no backup; not touched) - the play checks ran hidden (batchmode, no -Watch) and work.
+
+## What changed (each switch 0 = part 1)
+- STRUCTURAL FAIL (PSX_FAULT_FAIL), new `Scripts/DamageRules.cs`: a hit at the AI's retire line (closing or delta-V >= 17 m/s; a DROP landing at 17), a ROLL that crushed the roof, a broken knuckle (CORNER top band, 20%), a failed subframe (FRONT top band, 50%). The car loses all power (faultAccelMult 0, PlayerCarInput idles it), the HUD's tow line reads THE CAR CANNOT GO ON, the leave row is CALL TOW TRUCK (CareerDrive.NeedsTow; TOW CAR HOME in a debug career), a race marks the player retired = DNF while it goes on (RaceManager.RetirePlayer), the day's line says "out of <venue> after x km (DNF) - the car could not go on". Banked once by hitId like every incident. The owner's PC33 tree (one 41 m/s FRONT pulse) is now a FAIL.
+- CRUSH ORDER (PSX_FAULT_CRUSH): from 8 m/s everything ahead of the rails is gone whatever the dice (panel s3, bar s2, the struck lamp or both square on); from 10 m/s the bar is torn away (s3) and the core crushed; bar s2 at 5-8 m/s on its die. DamageBank.SameRow: one nose (tail) panel row whichever side took it, a door per side, a lamp per side - a harder later hit raises the stage of the row the car carries (bar 1 -> 3 tested), never a duplicate.
+- BODY FIRST (PSX_FAULT_BODYFIRST): DamageModel.Classify takes the patch's lowest point; on an upright car a side or end push whose patch reaches below the beltline is FRONT/REAR/SIDE (the '99 Viper backed into a wall read ROOF); ROOF stays for a patch wholly above the belt, a push from above, or a car on its roof.
+- SPAN (PSX_FAULT_SPAN): a horizontal end push wholly above the belt (a truck bed) is ROOF and also FRONT/REAR (the PC33 RX-7 under a van got ROOF only).
+- SCRAPE (PSX_FAULT_SCRAPE): a held contact after its 0.2 s pulse adds no delta-V but keeps its incident open from the last contact, so a swipe along 4 m sections is one incident.
+- HOLED CORE (PSX_FAULT_HOLED): a crash-holed core (located model's weep) cools fully above 97% coolant and not at all at 80% (CoolingModel's 55% otherwise; R0a's path untouched). Part 1's 2 %/min took ~48 min to 112 C (fit in heat.py, 15 min at 90 C in play).
+- HEAT SOAK (PSX_HEAT_SOAK): OwnedCar.parkedC/parkedDay/parkedSlot (ADDED fields, 0 = cold, no save step); EngineTemp.StampResult -> LifeRules.ApplyHeatResult parks the car at the needle; LifeHomeScreen's fill primes, the applier warms after StartCold: same block 0.25 h, next block 0.5 h (the leg before used its block), more blocks or an overnight cold; 2/3 of the extra heat shed per hour. parkedBrakeC not done (no brake temperature model).
+- HOMES (PSX_FAULT_HOMES), new `Scripts/LifeSim/DamageHomes.cs`: Spares (USED RADIATOR, FRONT CLIP, BUMPER UNCRACKED, STRAIGHT FENDER, DOOR SKIN + GLASS, TAIL LIGHT + TRIM, EXHAUST CAT BACK, SHELL PANELS, kinds power/weight); floor check (radiator_leak: green drops / palm / dinner plate under the nose, names nothing); chips (RUNS HOT, RATTLES, GAUGES/LIGHTS after dark; the bar none); CarValue x (1 - panel and roof/glass mag %, cap 60%); debug effect text for every hit row (FaultCatalog entries with ids, EffectSummary, DebugCarOps.Describe - the coordinator's FaultRows/RowLine untouched).
+
+## Gates (PSXPerf; base = 04c0f15f by git archive, same sandbox)
+| Gate | Result |
+|---|---|
+| Typecheck | OK |
+| Full LifeSimSelfTest vs base | base 4,318 ok / 62 FAIL; head 4,360 ok / 62 FAIL; NEW 0, GONE 0 (`h4_selftest.txt`) |
+| 10k sweep | 9,723 incidents; centre-front 2,176, corner parts 0; FAIL under 5 m/s 0, every 17+ hit FAILs; knuckle 0.19 / subframe 0.53 of top-band hits; no duplicate rows |
+| crash-play-check (hidden, '79 Civic 834 kg, dice 0.1) | all ok: walls 15/30/50 bands 2/4/5; 65 km/h wall FAIL (dv 18.1, closing 18.0), CALL TOW TRUCK, race DNF True, 0.00 m/s at full throttle; swipe 23 sections = ONE incident; ROLL banked at rest, 3 quarter-turns, roof_glass s1; 5 m drop band 4; traffic rear-end dv 6.3 vs cap 6.27, FRONT only; holed core 112 C after 8.0 min at 80 km/h (coolant 85%); RESTART (debug career) banked once, reloaded car weeps 0.714, core = banked (`h4_crashplay.txt`) |
+| Race census, 3 x 150 s GillespieGap, 8 cars | 78 incidents, 8 damage events; 92% of incidents cosmetic or less, but 2 of 8 damage events scuff-only (25%); 0 FAILs; player (autopilot, 22 contacts) $237/race: a 2.5 m/s ROOF contact (roof_glass s1 at the flat $480) + a 3.3 m/s nose (panel s2 $230) - the $40 gate FAILS (`h3_race_census.csv`) |
+
+## NOT DONE
+- srs_deployed (2a's seventh id) homes: no yard label covers an airbag set (needs a Junkyard part, e.g. "AIRBAG SET" $250) and its mag meaning is 2a's; ValueMult reads panel/roof only.
+- The $40 clean-racer gate: price roof_glass by stage (glass $150-300 vs roof skin) and find why a rival contact still read ROOF; the census autopilot is not a clean racer.
+- A FAIL car towed home drives again next day (R1b's knuckle/subframe/rail rows make it stay broken). No drag from a crushed front (not in the design).
+
+## At merge
+No save step, no Resources/scene/shader/City change, no re-bake. New (+ .meta): Scripts/DamageRules.cs, Scripts/LifeSim/DamageHomes.cs, Editor/LifeSimSelfTest.DamageR1a2.cs. Shared: DamageModel.cs (Classify minY, OnContact span/scrape/minY, Grow/GrowInc/Hold/CheckFail, Reresolve, Tick, Resolve band 3-5 + Crush, Incident.fail, ledger Failed - beside 2a's four lines), CareerDrive.cs, EngineTemp.cs (2 lines), PauseMenu.cs, PlayerCarInput.cs, RaceHUD.cs, RaceHandoffApplier.cs, RaceManager.cs, LifeSim/CarMarket.cs, DamageBank.cs, DebugCarOps.cs (2 lines in Describe), FaultCatalog.cs, FaultSymptoms.cs, LifeHomeScreen.cs (1), LifeRules.cs (1), LifeState.cs, Spares.cs; Editor/DamagePlayCheck.cs, LifeSimSelfTest.DamageR1a.cs (1).
 
 # HANDOFF - FAULTS R1a PART 1 "HITS LAND WHERE YOU HIT" - the core half (agent "r1a", branch faults-r1a, 2026-11-12; NOT pushed, NOT merged)
 

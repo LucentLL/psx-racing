@@ -316,6 +316,7 @@ namespace PSXRacing
             // back to the racing line with the nozzle still in the car.
             if (tank != null && tank.Starved) throttle = 0f;
             if (temp != null && temp.Seized) throttle = 0f;
+            if (DamageRules.Wrecked(car)) throttle = 0f;   // R1a part 2: the car cannot go on
             if (GasPump.Fuelling) { throttle = 0f; handbrake = true; }
 
             if (ScriptedSteer.HasValue) { analogSteer = ScriptedSteer.Value; wheelDeg = null; }

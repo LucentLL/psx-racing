@@ -246,6 +246,7 @@ namespace PSXRacing
                 {
                     temp.coolantPct = RaceHandoff.CoolantPct;
                     temp.StartCold(CoolingModel.CurrentAmbientC);
+                    LifeSim.HeatSoak.Warm(temp);   // R1a part 2: a warm engine starts warm (heat soak)
                 }
             }
 

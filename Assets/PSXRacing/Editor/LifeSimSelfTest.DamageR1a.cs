@@ -47,6 +47,7 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestDamageLive), TestDamageLive);
                 Guard(nameof(TestDamageBank), TestDamageBank);
                 Guard(nameof(TestDamageMigration), TestDamageMigration);
+                RunDamageR1a2Tests();   // R1a part 2b: LifeSimSelfTest.DamageR1a2.cs
             }
             finally
             {

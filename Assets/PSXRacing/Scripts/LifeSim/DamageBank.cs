@@ -163,7 +163,11 @@ namespace PSXRacing.LifeSim
         static bool SameRow(CarFault f, RowRec r)
         {
             if (f == null || f.id != r.id) return false;
-            if (r.id == DamageModel.PanelId || r.id == DamageModel.LampId) return f.zone1 == r.zone && f.hitSide == r.side;
+            if (r.id == DamageModel.LampId) return f.zone1 == r.zone && f.hitSide == r.side;
+            // R1a part 2 (PSX_FAULT_CRUSH): one nose (tail) panel row whichever side
+            // took it - a harder hit raises its stage; a door per side
+            if (r.id == DamageModel.PanelId)
+                return f.zone1 == r.zone && ((DamageRules.CrushOn && r.zone != DamageModel.ZSide) || f.hitSide == r.side);
             if (r.id == DamageModel.BarId) return f.zone1 == r.zone;
             return true;
         }

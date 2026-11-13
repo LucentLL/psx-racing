@@ -521,6 +521,10 @@ namespace PSXRacing.LifeSim
         /// <summary>R1a (v26): 0 clean, 1 rebuilt, 2 salvage, 3 flood (+8 washed).</summary>
         public int title;
         public const int TitleFlood = 3;
+        /// <summary>R1a part 2 (HeatSoak): the needle when it was parked, and
+        /// when (day, block). 0 = cold; ADDED fields, no migration.</summary>
+        public float parkedC;
+        public int parkedDay, parkedSlot;
 
         // === Inspection (see LifeSim/Inspection.cs) ===
         /// <summary>Day an inspection was opened on this car. Re-entering the

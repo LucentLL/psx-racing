@@ -109,6 +109,13 @@ namespace PSXRacing.LifeSim
             }
             if (!effectById.ContainsKey("exhaust_damage"))
                 effectById["exhaust_damage"] = new EffectEntry { id = "exhaust_damage", desc = "Exhaust damaged - down on power", accelMult = DamageModel.ExhaustPower };
+            // R1a part 2: every hit row has an entry (neutral multipliers: their
+            // effects are the located model's - the weep through the cooling
+            // model, the x1.3, value, the lamp) so the debug lists can say what
+            // each one really does (DebugCarOps.Describe, EffectSummary).
+            foreach (var hid in DamageModel.RowIds)
+                if (!effectById.ContainsKey(hid))
+                    effectById[hid] = new EffectEntry { id = hid, desc = DamageHomes.EffectText(hid) ?? "" };
         }
 
         static List<PoolEntry> hitRows = new List<PoolEntry>();
@@ -588,6 +595,8 @@ namespace PSXRacing.LifeSim
             if (e.engineWearMult > 1.001f) parts.Add("wear x" + e.engineWearMult.ToString("0.0"));
             if (e.hideGauges) parts.Add("no gauges");
             if (e.rpmFlutter) parts.Add("tach flutter");
+            string hit = DamageHomes.EffectText(faultId);   // R1a part 2: what each hit row does
+            if (hit != null) parts.Add(hit);
             return parts.Count == 0 ? "" : string.Join(", ", parts);
         }
 

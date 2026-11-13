@@ -153,7 +153,8 @@ namespace PSXRacing
         /// on the car in the same frame (unit). False = a tyre's patch with the
         /// car upright (the suspension's and the bump stops', not the ledger's).
         /// </summary>
-        public static bool Classify(Shell sh, Vector3 p, Vector3 n, bool upright, out int zone, out int side, out int corner)
+        public static bool Classify(Shell sh, Vector3 p, Vector3 n, bool upright, out int zone, out int side, out int corner,
+                                    float minY = float.NaN)
         {
             zone = ZNone; corner = -1;
             float nx = sh.half.x > 1e-3f ? p.x / sh.half.x : 0f;
@@ -166,7 +167,14 @@ namespace PSXRacing
                 zone = ZUnder;
                 return true;
             }
-            if (n.y < -VerticalDot || p.y > sh.beltY) { zone = ZRoof; return true; }
+            // R1a part 2 (DamageRules.BodyFirst): on an upright car a push from the side
+            // or an end meets the body under the belt first - a wall above a low car's
+            // beltline is still a front, rear or side hit; only a patch wholly above the
+            // belt (an overhang: a truck bed, a barrier top) is the glass. minY = the
+            // patch's lowest point (NaN: the centre's, as part 1 read it).
+            bool high = p.y > sh.beltY &&
+                        !(upright && n.y >= -VerticalDot && DamageRules.BodyFirst(sh, float.IsNaN(minY) ? p.y : minY));
+            if (n.y < -VerticalDot || high) { zone = ZRoof; return true; }
             for (int i = 0; i < 4; i++)
                 if (Plan(p, sh.hubs[i]) <= sh.tyreR + CornerPad && p.y <= sh.hubs[i].y + sh.tyreR + CornerPad)
                 {
@@ -265,6 +273,20 @@ namespace PSXRacing
             o.radiatorLoss = Mathf.Lerp(lo, hi, d[DMag]);
         }
 
+        /// <summary>R1a part 2 (DamageRules.CrushOn): from the rails band (8 m/s)
+        /// everything ahead of the rails in the crush order is gone whatever
+        /// the dice said - cover and hood crushed, the bar pushed back, the
+        /// lamps on the struck side (both, square on); from 10 m/s the bar is
+        /// torn away and the core crushed.</summary>
+        static void Crush(Outcome o, int z, int s, bool front, int b, CrashStopGap.Bumper bumper, float[] d)
+        {
+            AddRow(o, PanelId, 3, Mathf.Lerp(6f, 8f, d[DMag]), z, s, -1);
+            if (bumper != CrashStopGap.Bumper.Chrome) AddRow(o, BarId, b >= 5 ? 3 : 2, BarCrushMult, z, 0, -1);
+            if (s != 0) AddRow(o, LampId, 1, 0f, z, s, -1);
+            else { AddRow(o, LampId, 1, 0f, z, -1, -1); AddRow(o, LampId, 1, 0f, z, 1, -1); }
+            if (front && b >= 5) Radiator(o, 3, d);
+        }
+
         static void Align(Outcome o, int side, int severity)
         {
             if (!CrashStopGap.NewAlignWins(o.alignSeverity, severity)) return;
@@ -324,9 +346,12 @@ namespace PSXRacing
                     if (b < 3) return;
                     if (d[DCover] < 0.80f) AddRow(o, PanelId, 3, Mathf.Lerp(6f, 8f, d[DMag]), z, s, -1);
                     if (front && d[DRad] < 0.60f) Radiator(o, 2, d);                           // radiator holed
+                    if (DamageRules.CrushOn && bumper != CrashStopGap.Bumper.Chrome && d[DBar] < 0.60f)
+                        AddRow(o, BarId, 2, BarCrushMult, z, 0, -1);                           // bar pushed back (R1a part 2)
                     Body(o, 8f, 15f, d);
                     if (b < 4) return;
                     if (front && d[DRad] < 0.90f) Radiator(o, 3, d);                           // radiator crushed
+                    if (DamageRules.CrushOn) Crush(o, z, s, front, b, bumper, d);              // R1a part 2: the crush order
                     Body(o, 15f, 25f, d);
                     if (b < 5) return;
                     Body(o, 25f, 40f, d);                                                      // rails, core support: R1b
@@ -446,6 +471,8 @@ namespace PSXRacing
         public int quarters;
         /// <summary>R1a part 2a: how square on from the front its push was (SrsBag.FrontCos; 0 unknown).</summary>
         public float frontCos;
+        /// <summary>R1a part 2: the structural FAIL this incident is (DamageRules), 0 none.</summary>
+        public int fail;
     }
 
     /// <summary>
@@ -473,6 +500,8 @@ namespace PSXRacing
         /// <summary>The leak the car came out with (its radiator_leak row).</summary>
         public float baseWeep;
         public readonly List<Incident> incidents = new List<Incident>();
+        /// <summary>R1a part 2: the drive's structural FAIL (DamageRules.Fail*), 0 = none, and its hit.</summary>
+        public int Failed, FailHitId;
 
         float radiatorApplied;
         bool exhaustApplied, dirty;
@@ -483,7 +512,8 @@ namespace PSXRacing
             public int colliderId;
             public float t0, jn, closing, ratio;
             public Vector3 normal;
-            public Incident inc;
+            public Incident inc, inc2;   // inc2: the panel under the glass (DamageRules.SpanZone)
+            public float tSeen;
             public bool roll;
         }
         readonly List<Pulse> pulses = new List<Pulse>();
@@ -581,13 +611,22 @@ namespace PSXRacing
             {
                 lastContact = now;
                 var open = Find(cid);
-                if (open == null || now - open.t0 > DamageModel.PulseSeconds) return;
+                if (open == null) return;
+                open.tSeen = now;
+                if (now - open.t0 > DamageModel.PulseSeconds)
+                {
+                    // R1a part 2 (DamageRules.ScrapeOn): a held scrape adds no
+                    // delta-V but keeps its incident open from the last contact
+                    if (DamageRules.ScrapeOn) { Hold(open.inc, now); Hold(open.inc2, now); }
+                    return;
+                }
                 open.jn += Mathf.Abs(Vector3.Dot(c.impulse, open.normal));
                 Grow(open, now);
                 return;
             }
             // the push on the car: the contacts that pushed (as Measure does)
             Vector3 sum = Vector3.zero, all = Vector3.zero;
+            float minY = float.PositiveInfinity;
             if (pts.Length < n) pts = new Vector3[n];
             Transform frame = Frame(out Vector3 centre);
             for (int i = 0; i < n; i++)
@@ -596,6 +635,7 @@ namespace PSXRacing
                 all += cp.normal;
                 if (cp.impulse.sqrMagnitude > 1e-8f) sum += cp.normal;
                 pts[i] = frame.InverseTransformPoint(cp.point) - centre;
+                if (pts[i].y < minY) minY = pts[i].y;
             }
             if (sum.sqrMagnitude < 1e-4f) sum = all;
             if (sum.sqrMagnitude < 1e-4f) return;
@@ -608,7 +648,7 @@ namespace PSXRacing
             Vector3 local = CrashStopGap.PatchCentre(pts, n);
             Vector3 nL = frame.InverseTransformDirection(nW);
             bool upright = Vector3.Dot(car.transform.up, Vector3.up) > 0.25f;
-            if (!DamageModel.Classify(shell, local, nL, upright, out int zone, out int side, out int corner)) return;
+            if (!DamageModel.Classify(shell, local, nL, upright, out int zone, out int side, out int corner, minY)) return;
 
             var orb = c.rigidbody;
             float ratio = 1f;
@@ -622,6 +662,8 @@ namespace PSXRacing
             p.t0 = now; p.jn = Mathf.Abs(Vector3.Dot(c.impulse, nW)); p.closing = closing; p.ratio = ratio; p.normal = nW;
             p.roll = rolling && zone == DamageModel.ZRoof;
             p.inc = null;
+            p.inc2 = null;
+            p.tSeen = now;
             if (!p.roll)
             {
                 bool glancing = zone != DamageModel.ZUnder && zone != DamageModel.ZRoof &&
@@ -633,6 +675,12 @@ namespace PSXRacing
                     p.inc = JoinOrOpen(DamageModel.KHit, zone, side, corner, now, narrow, glancing,
                                        c.collider != null ? c.collider.name : "?");
                 if (p.inc != null) p.inc.frontCos = Mathf.Max(p.inc.frontCos, SrsBag.FrontCos(nL));   // R1a part 2a
+                // R1a part 2 (DamageRules.SpanZone): a push above the belt at the
+                // car's end reached the panel under the glass as well
+                int z2 = p.inc != null && p.inc.kind == DamageModel.KHit ? DamageRules.SpanZone(shell, local, nL, zone) : DamageModel.ZNone;
+                if (z2 != DamageModel.ZNone)
+                    p.inc2 = JoinOrOpen(DamageModel.KHit, z2, side, -1, now, narrow, glancing,
+                                        c.collider != null ? c.collider.name : "?");
             }
             lastContact = now;
             Grow(p, now);
@@ -642,13 +690,40 @@ namespace PSXRacing
         {
             float dv = Mathf.Min(p.jn / Mathf.Max(1f, rb.mass), p.closing * p.ratio * DamageModel.CapFactor);
             if (p.roll) { rollRoofDv = Mathf.Max(rollRoofDv, dv); return; }
-            var inc = p.inc;
+            GrowInc(p.inc, dv, p.closing, now);
+            GrowInc(p.inc2, dv, p.closing, now);
+        }
+
+        void GrowInc(Incident inc, float dv, float closing, float now)
+        {
             if (inc == null) return;
             inc.tLast = now;
             if (inc.kind == DamageModel.KDrop) return;     // the belly pulse of a DROP is the drop's (its landing speed)
-            if (dv <= inc.dv) return;
-            inc.dv = dv;
-            Reresolve(inc);
+            bool faster = closing > inc.closing;           // R1a part 2: the AI's retire line reads the closing speed
+            if (faster) inc.closing = closing;
+            if (dv > inc.dv) { inc.dv = dv; Reresolve(inc); }
+            else if (faster) CheckFail(inc);
+        }
+
+        /// <summary>R1a part 2: a held scrape keeps its hit open (no delta-V).</summary>
+        void Hold(Incident inc, float now)
+        {
+            if (inc == null || inc.kind != DamageModel.KHit || car == null) return;
+            inc.tLast = now;
+            inc.pos = car.transform.position;
+        }
+
+        /// <summary>R1a part 2: the structural FAIL (DamageRules), acted on once a drive.</summary>
+        void CheckFail(Incident inc)
+        {
+            if (inc == null || inc.fail != DamageRules.FailNone) return;
+            int f = DamageRules.FailOf(inc);
+            if (f == DamageRules.FailNone) return;
+            inc.fail = f;
+            if (Failed != DamageRules.FailNone) return;
+            Failed = f;
+            FailHitId = inc.hitId;
+            if (Banks) DamageRules.OnFail(car, inc, f);
         }
 
         Incident JoinOrOpen(int kind, int zone, int side, int corner, float now, bool narrow, bool glancing, string what)
@@ -695,6 +770,7 @@ namespace PSXRacing
             inc.band = band;
             DamageModel.Resolve(inc, bumper);
             SrsBag.AfterResolve(inc, Banks);   // R1a part 2a: crush order + bags
+            CheckFail(inc);
             ApplyLive();
         }
 
@@ -769,7 +845,8 @@ namespace PSXRacing
                     DamageModel.Report(resp, inc);
                 }
             for (int i = pulses.Count - 1; i >= 0; i--)
-                if (now - pulses[i].t0 > DamageModel.PulseSeconds) pulses.RemoveAt(i);
+                if (now - pulses[i].t0 > DamageModel.PulseSeconds &&
+                    (!DamageRules.ScrapeOn || now - pulses[i].tSeen > DamageModel.MergeSeconds)) pulses.RemoveAt(i);
             if (Banks && dirty && now - lastWrite >= 2f) Flush(now);
         }
 

@@ -307,7 +307,7 @@ namespace PSXRacing
             if (CareerDrive.NeedsTow(playerCar))
                 return "CALL TOW TRUCK — " + LifeSim.MenuKit.Money(CareerDrive.TowFeeHere());
             var engine = playerCar != null ? playerCar.GetComponent<EngineTemp>() : null;
-            if (engine != null && engine.Seized) return "TOW CAR HOME";
+            if ((engine != null && engine.Seized) || DamageRules.Wrecked(playerCar)) return "TOW CAR HOME";
             return City.CityMode.Instance != null ? "END DRIVE (GO HOME)" : "QUIT RACE (GO HOME)";
         }
         /// <summary>The air, the road and the bridges right now, under the

@@ -133,7 +133,7 @@ namespace PSXRacing.LifeSim
                               car.carHP * 0.30f + car.paint * 0.25f) / 100f;
             float mileMult = Mathf.Max(0.20f, 1f - car.odoMiles / 200000f);
             int basePrice = car.catalogPrice > 0 ? car.catalogPrice : car.paidPrice;
-            return Mathf.RoundToInt(basePrice * condMult * mileMult);
+            return Mathf.RoundToInt(basePrice * condMult * mileMult * DamageHomes.ValueMult(car));   // R1a part 2: damage a buyer sees
         }
 
         public static int LoanPayoff(LifeState s, string carId)

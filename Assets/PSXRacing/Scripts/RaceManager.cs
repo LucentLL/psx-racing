@@ -545,6 +545,19 @@ namespace PSXRacing
             Debug.Log("[Race] " + car.name + " retired after a serious crash");
         }
 
+        /// <summary>R1a part 2 (DamageRules): the player's car cannot go on. A
+        /// DNF while the race goes on: it sorts behind every running car, its
+        /// clock stops, and the leave row is the tow.</summary>
+        public void RetirePlayer()
+        {
+            if (playerCar == null || State != RaceState.Racing) return;
+            if (!progressMap.TryGetValue(playerCar, out var p) || p.finished || p.retired) return;
+            p.retired = true;
+            PlayerOut = true;
+            Debug.Log("[Race] the player's car cannot go on: DNF");
+        }
+        public bool PlayerOut { get; private set; }
+
         /// <summary>How many rivals are out this race, and the latest - for
         /// the HUD's notice.</summary>
         public int RetiredCount { get; private set; }

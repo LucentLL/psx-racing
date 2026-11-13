@@ -1216,12 +1216,14 @@ namespace PSXRacing
         string SeizedPrompt()
         {
             var t = Temp;
-            if (t == null || !t.Seized) return null;
+            // R1a part 2: the structural FAIL takes the same line (DamageRules)
+            bool wreck = t != null && DamageRules.Wrecked(t.car);
+            if (t == null || (!t.Seized && !wreck)) return null;
             string how = TouchControls.Instance != null && TouchControls.Instance.Visible
                 ? "TAP MENU (TOP LEFT)"
                 : UnityEngine.InputSystem.Gamepad.current != null ? "PRESS START" : "PRESS ESC";
             // Answer 8: in a career the leave row reads CALL TOW TRUCK.
-            return "THE ENGINE HAS LET GO\n" + how + (CareerDrive.Strict ? " AND PICK CALL TOW TRUCK" : " AND PICK TOW CAR HOME");
+            return (t.Seized ? "THE ENGINE HAS LET GO\n" : "THE CAR CANNOT GO ON\n") + how + (CareerDrive.Strict ? " AND PICK CALL TOW TRUCK" : " AND PICK TOW CAR HOME");
         }
 
         /// <summary>
