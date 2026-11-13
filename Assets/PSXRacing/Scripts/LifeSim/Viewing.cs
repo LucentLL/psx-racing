@@ -482,10 +482,18 @@ namespace PSXRacing.LifeSim
             float mult = 1f;
             if (v.car != null)
                 foreach (var f in v.car.faults)
+                {
+                    // R0b: the advert's own problem is already in the asking
+                    // price (the paper took 45% off for it), so the seller does
+                    // not take it off twice - now that "Bad transmission" is
+                    // the gearbox row and not a random one, counting it again
+                    // would halve the offer.
+                    if (f == null || (FaultLeaks.UsedIdsOn && f.cause == FaultCause.Seller)) continue;
                     // R0b: a fault the seller owned up to after NAME WHAT YOU
                     // FELT prices like a find, unnamed.
-                    if (FaultView.Known(f) || (v.felt != null && f != null && v.felt.Contains(f.id)))
+                    if (FaultView.Known(f) || (v.felt != null && v.felt.Contains(f.id)))
                         mult *= FaultCatalog.TierPriceMult(FaultCatalog.TierOf(f.id));
+                }
             return Mathf.Max(200, Mathf.RoundToInt(v.askPrice * Mathf.Max(0.35f, mult)));
         }
 

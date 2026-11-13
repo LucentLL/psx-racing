@@ -110,7 +110,6 @@ namespace PSXRacing.EditorTools
             RunCrashR0aTests();   // R0a crash stop-gap: LifeSimSelfTest.CrashR0a.cs
             Guard(nameof(TestEngineTemp), TestEngineTemp);
             Guard(nameof(TestEngineDeath), TestEngineDeath);
-            RunLeaksR0bTests();   // R0b stop the leaks: LifeSimSelfTest.LeaksR0b.cs
             Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);
             Guard(nameof(TestCarCatalog), TestCarCatalog);
             Guard(nameof(TestRaceCarsBuilt), TestRaceCarsBuilt);
@@ -171,6 +170,10 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestDayLook), TestDayLook);
             Guard(nameof(TestTexDecode), TestTexDecode);
             Guard(nameof(TestArcade), TestArcade);
+            // R0b stop the leaks (LifeSimSelfTest.LeaksR0b.cs). LAST: its page
+            // renders build the home screen in edit mode, and nothing after
+            // them should inherit what that leaves behind.
+            RunLeaksR0bTests();
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
