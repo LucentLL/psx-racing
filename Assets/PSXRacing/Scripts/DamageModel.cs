@@ -444,6 +444,8 @@ namespace PSXRacing
         public float[] draws;
         public readonly Outcome outcome = new Outcome();
         public int quarters;
+        /// <summary>R1a part 2a: how square on from the front its push was (SrsBag.FrontCos; 0 unknown).</summary>
+        public float frontCos;
     }
 
     /// <summary>
@@ -532,6 +534,7 @@ namespace PSXRacing
                         L.baseWeep = Mathf.Max(L.baseWeep, DamageModel.WeepFor(DamageModel.LeakFor(f.stage)));
                 }
             resp.Damage = L;
+            DamageLook.Attach(car, L);   // R1a part 2a: the car shows its rows
             resp.Ledger = null;
             car.hitSteerPull = 0f;
             if (L.temp != null && L.baseWeep > L.temp.radiatorWeep) L.temp.radiatorWeep = L.baseWeep;
@@ -629,6 +632,7 @@ namespace PSXRacing
                 if (p.inc == null)
                     p.inc = JoinOrOpen(DamageModel.KHit, zone, side, corner, now, narrow, glancing,
                                        c.collider != null ? c.collider.name : "?");
+                if (p.inc != null) p.inc.frontCos = Mathf.Max(p.inc.frontCos, SrsBag.FrontCos(nL));   // R1a part 2a
             }
             lastContact = now;
             Grow(p, now);
@@ -690,6 +694,7 @@ namespace PSXRacing
             if (band < inc.band) band = inc.band;
             inc.band = band;
             DamageModel.Resolve(inc, bumper);
+            SrsBag.AfterResolve(inc, Banks);   // R1a part 2a: crush order + bags
             ApplyLive();
         }
 

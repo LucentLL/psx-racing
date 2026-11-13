@@ -1,3 +1,55 @@
+# HANDOFF - FAULTS R1a PART 2a "THE CAR SHOWS THE HIT" - the visual half (agent "r1a2v", branch faults-r1a2-visual, 2026-11-13; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-faultr1a2v` off mountain-nm 04c0f15f (R0a, R0b, R0c, D, R1a part 1 merged). Sandbox PSXCity (lock "r1a2v", released; car_facts.json, rg2_cars.json, DriveSide.csv copied in by path). Part 2b (rules: structural FAIL, heat soak, sweeps, census, homes, CarValue) is another agent's, in faults-r1a2r. Reports: scratchpad `r1a2v\` (runner `r1a2v.ps1`; `base_selftest.txt`, `h3_selftest.txt`, `h4_look.txt`, `h4_look_*.png`, `look_sheet.png`, `compare.py`).
+
+## What changed (no save change: everything shown is derived from the rows the car carries and this drive's incidents)
+- NEW `Scripts/DamageLook.cs` (+meta): a component on the armed career car (DamageLedger.Arm attaches it). Every 0.2 s it reads the car's rows (OwnedCar.faults, hidden or found) and this drive's incident rows:
+  - LAMPS: lamp_out (zone front = headlamp, rear = tail lamp, its side) -> `CarLights.SetLampOut`: no beam in the headlight table, no cone, no lens sprite; on a lamp-map body its lens goes dark and its glow out (PSX/CarPaint `_PSXLampOut`). There are no indicator lamps in the game, so there is nothing to kill there.
+  - BODY: panel_damage per zone/side (stage 1 scrape + cracked cover, 2 dent, 3 crumpled), roof_glass (1 cracked glass, 2 dented roof, 3 crushed), bumper_bar only deepens a cover that already shows (the bar is hidden by design). Per renderer through a MaterialPropertyBlock (the PaintGloss pattern, read-modify-write so CarLights' blocks survive); wheels and every AI / traffic car get nothing.
+  - STEAM: radiator_leak + a hot engine: wisps from a weep at 98 C+, a hard plume from a holed / crushed core at 85 C+. One small ParticleSystem (the tyre smoke's PSX/Decal material) made the first time it applies, emitting only while it does.
+  - SRS: srs_deployed -> a limp bag on the steering wheel (turns with it) and, on a dual car, one over the passenger's dash (PSX/Cabin SOLID, procedural mesh).
+  - roof_glass from the seat: a star of cracks on the cockpit windscreen (a quad on the pane's plane, procedural texture).
+- `SrsBag` (same file): `AfterResolve` runs after every DamageModel.Resolve in a ledger:
+  - CRUSH ORDER (design 3.1's crush order; PSX_FAULT_CRUSH=0 off): a FRONT/REAR hit at band 4 takes the cover (panel stage 3) and the struck side's lamp (both on a square hit); band 5 (10+ m/s) both lamps and, in front, the radiator crushed (stage 3, leak live at once). The owner's 41 m/s Viper into a tree now reads as a wreck.
+  - BAGS: a frontal hit (FRONT or a front corner, push within 30 degrees of straight back) on a car with bags (car_facts airbags) fires them with a chance ramping 0 at 3.5 m/s to 1 at 6 m/s (delta-V along the car), on the incident's own spare die (DamageModel's water die, never read by a hit). Row `srs_deployed` (hidden, stamped with R0b's cause by DamageBank like every hit row, mag = bags fired). Career car only. The SRS lamp is R2a's.
+- NEW `Shaders/PSXCarDamage.cginc` (+meta), included by PSX/CarPaint: vertex push (a dent 1-2 cm, crumple up to ~8, a crushed roof ~15 toward the box centre; the collider does not move), scrapes to primer in streaks, dark cracks/creases, dent waves in the normal (so reflections show it), cracked-glass web, dark broken lens and `dmgAlive` on the lamp glow. One uniform branch on `_PSXDmgOn`: 0 on every car never hit (paint bit for bit). Works on top of the PSX_CAR_HD normal.
+
+SWITCHES: PSX_FAULT_LOOK=0 (none of the look), PSX_FAULT_LAMPS=0, PSX_FAULT_BODY=0 (also the windscreen crack), PSX_FAULT_STEAM=0, PSX_FAULT_SRS=0 (no bag fires: no row, no look), PSX_FAULT_CRUSH=0 (no crush-order rows).
+
+SHARED FILES TOUCHED (all one-liners or small):
+- `Scripts/DamageModel.cs` (4 lines): `Incident.frontCos` field; OnContact sets it (`SrsBag.FrontCos(nL)`); Reresolve calls `SrsBag.AfterResolve(inc, Banks)` after Resolve; Arm calls `DamageLook.Attach(car, L)`.
+- `Scripts/CarLights.cs`: `lampOut` mask + `SetLampOut`; the five sprite/cone enable lines add `&& !HeadOut(i)` / `!TailOut(i)`; PushGlobals skips a broken head beam.
+- `Scripts/LifeSim/FaultCatalog.cs` (1 row: srs_deployed $1,320 / 2 days, the design's Delmar airbag-set price), `Scripts/LifeSim/FaultView.cs` (1 line: srs_deployed -> Body).
+- `Shaders/PSXCarPaint.shader` (5 small edits: include, vertex call, the frag call after the HD normal, shine x (1 - matte), lamp glow x dmgAlive).
+- NEW `Editor/DamageLookCheck.cs` (+meta): the watched picture check.
+- NOT touched: EngineTemp.cs, Scripts/City, RoadsideRules.cs, Resources, scenes, save format/version.
+
+## Gates (PSXCity; base = 04c0f15f exported by git archive, run in the same sandbox)
+| Gate | Result | Report (scratchpad `r1a2v\`) |
+|---|---|---|
+| Typecheck | OK | `tc` |
+| Full LifeSimSelfTest vs base | IDENTICAL FAILURE SET: base 4,288 ok / 62 FAIL, head 4,285 ok / 62 FAIL, NEW 0, GONE 0 (h1 had 1 NEW: srs_deployed needed an inspection-map home - fixed). The 3 fewer oks are the randomised fault-pick test choosing a one-day repair (its multi-day lines did not print) | `base_selftest.txt`, `h3_selftest.txt`, `compare.py` |
+| Watched play check (DamageLookCheck, '99 Viper GTS: dual bags, lamp map; real PhysX, dice 0.1) | 16 ok / 0 FAIL. 10 mph nose-in (dv 4.7, band 2): lamp_out L, CarLights.lampOut = 1, bags fired (2). 30 km/h nose-in (dv 8.6 x1.3 crushed bar = band 5): front 1.00, both headlamps out, radiator s3; at 108 C 38 steam puffs. Rear (planted 6 m/s): rear 1.00, a tail lamp out. Cockpit: both bags + the windscreen crack. Folded: srs_deployed hidden, cause impact, zone front, $1,452 (usa), mag 2; every row hidden; the banked rows alone give the same look | `h4_look.txt`, sheet `look_sheet.png` (shots `h4_look_1_night_lamp.png`, `_2_steam`, `_3_cockpit_bags`, `_4_chase_panels`) |
+
+## Found, not mine (for part 2b)
+- A 20 km/h physical BACK-IN into a wall on the Viper GTS was classified ROOF (dv 4.6, roof_glass s2), not REAR - DamageModel.Classify's beltline test (`p.y > sh.beltY`) on a low car; the picture uses a planted REAR hit instead.
+
+## Not done / not verified
+- PSX/CarLens covers (the B lens variant) still glow their 20-25% share over a broken lamp; the road spill of the tail lamps (StreetLights) is not dimmed; pop-ups are not stuck; the game has no indicator lamps.
+- The bags look full rather than limp; the night shot shows the lit right lamp and the dark left one, but the body itself is barely visible.
+- Not in a player build; frame cost not measured (one uniform branch, only the career car pays); PSX_CAR_HD only compiled, not shot on an HD body; switches-off pictures not shot.
+
+## What the owner will notice
+- A crash shows on the car: scrapes on the panel that hit, a crumpled nose or tail at higher speed, a dented roof and cracked glass after a roof strike.
+- A broken headlamp is dark at night - no beam on that side - and a broken tail lamp stays dark; nothing names the part.
+- A cracked radiator steams from under the bonnet once the engine is hot; a holed one steams hard.
+- A hard frontal hit fires the airbags on cars that have them: the bag hangs off the wheel (and the dash on dual-bag cars) in the cockpit view. An 80 mph tree reads as a wreck: both lamps out, the front at its worst, the core crushed, the bags out.
+- The damage stays on the car on the next drive until it is repaired.
+
+## At merge
+No save change, no format change, no re-bake (nothing under Scripts/City or RoadsideRules.cs; the shader is not in the tile bake). New files (+ .meta): Scripts/DamageLook.cs, Shaders/PSXCarDamage.cginc, Editor/DamageLookCheck.cs. Shared one-liners: DamageModel.cs (4), CarLights.cs, FaultCatalog.cs, FaultView.cs, Inspection.cs, PSXCarPaint.shader (listed above). If part 2b adds Spares / floor-check / test-drive homes for the hit ids, srs_deployed is a seventh id.
+
+
 # HANDOFF - FAULTS R1a PART 1 "HITS LAND WHERE YOU HIT" - the core half (agent "r1a", branch faults-r1a, 2026-11-12; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-faultr1a` off mountain-nm 324afc17 (R0a, R0b, R0c, D merged). Sandbox PSXCity (lock "r1a", released; car_facts.json + .meta copied in by path). Design: art workspace `Fault_System_Design_2026-11-11.md` (OWNER'S ANSWERS 1 and 8; §2 save rules and "Size and timing"; §3.1 located crashes, banking, zone tables; §4 BODY/COOLING rows; §9; the R1a row of §10). Reports: scratchpad `r1a\` (runner `r1a.ps1`; `base_selftest.txt`, `h*_selftest.txt`, `h*_damage.txt`, `h*_crashplay.txt`, `h*_solo_census.csv`, `h*_race_census.csv`; `compare.py`, `census.py`).
@@ -621,7 +673,9 @@ Branch `junkyard-spares` (worktree `C:\Users\mcgee\PSX Racing-parts`) off mounta
 
 # HANDOFF - COCKPIT ROUND 2: THE CABIN ON THE CAR'S OWN WINDSCREEN ("mirrors", branch fixes-1111, 2026-11-11; NOT pushed, NOT merged)
 
-Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors2\summary.png`.
+Owner: "all cockpits should fit inside each car model, with mirrors properly mounted just outside the cockpit window". Sheets: scratchpad `mirrors
+2\<shell>.png` (16 shells: ahead / over the dash / look left / look right as base | round 1 | round 2, the forced nose up/down pair with the dark inside off/on, rear-view picture, head-level look right, the mirrors from outside) and `mirrors
+2\summary.png`.
 
 ## Measured
 - Header (windscreen top), belt and side glass of every shell probed by rays (Editor/CockpitFitProbe.cs -> Scripts/CockpitFit.Table.cs, 52 rows). His windscreen pane against the cars: median 1.13 x the length and 1.20 x the height (CalibZ/CalibY): the fit moves each car from the catalogue's middle.

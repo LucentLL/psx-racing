@@ -410,6 +410,21 @@ namespace PSXRacing
         /// </summary>
         public bool LitNow => lightsOn && !Dark;
 
+        /// <summary>R1a part 2a (DamageLook): the lamps a hit broke - bit 0 / 1 the
+        /// left / right headlamp, 2 / 3 the left / right tail lamp. A broken lamp
+        /// gives no light, no beam and no lens sprite; on a lamp-map body its lens
+        /// goes dark in PSX/CarPaint (_PSXLampOut). 0 on every car never hit.</summary>
+        [System.NonSerialized] public int lampOut;
+        bool HeadOut(int i) => (lampOut & (1 << i)) != 0;
+        bool TailOut(int i) => (lampOut & (4 << i)) != 0;
+        public void SetLampOut(int mask)
+        {
+            if (mask == lampOut) return;
+            lampOut = mask;
+            Refresh();
+            ApplyBrake();
+        }
+
         /// <summary>Nobody in it (and the left-car rules on).</summary>
         bool Dark => CarController.LeftCarRules && car != null && car.Unattended;
         bool lastDark;
@@ -444,8 +459,8 @@ namespace PSXRacing
             pushedRun = pushedBrake = -1f;
             for (int i = 0; i < 2; i++)
             {
-                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn;
-                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn;
+                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn && !TailOut(i);
+                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn && !HeadOut(i);
             }
         }
 
@@ -707,7 +722,7 @@ namespace PSXRacing
             {
                 if (tailLens[i] == null) continue;
                 tailLens[i].sharedMaterial = mat;
-                tailLens[i].enabled = TailSpriteOn;
+                tailLens[i].enabled = TailSpriteOn && !TailOut(i);
             }
         }
 
@@ -756,9 +771,9 @@ namespace PSXRacing
         {
             for (int i = 0; i < 2; i++)
             {
-                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn;
-                if (beams[i] != null) beams[i].enabled = LitNow;
-                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn;
+                if (headLens[i] != null) headLens[i].enabled = HeadSpriteOn && !HeadOut(i);
+                if (beams[i] != null) beams[i].enabled = LitNow && !HeadOut(i);
+                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn && !TailOut(i);
             }
             PopUps();
             // The running lamps on the body switch with the hour too. (The
@@ -1019,6 +1034,7 @@ namespace PSXRacing
                 {
                     for (int i = 0; i < 2 && n < MaxLights; i++)
                     {
+                        if (l.HeadOut(i)) continue;   // R1a part 2a: a lamp a hit broke gives no light
                         var t = l.beams[i].transform;
                         Vector3 p = t.position, f = t.forward, r = t.right;
                         gPos[n] = new Vector4(p.x, p.y, p.z, BeamRange);

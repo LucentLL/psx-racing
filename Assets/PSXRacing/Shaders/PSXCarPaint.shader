@@ -549,6 +549,7 @@ Shader "PSX/CarPaint"
             // are #ifndef-guarded defaults.
             #include "PSXSkyReflect.cginc"
             #include "PSXCarDrops.cginc"
+            #include "PSXCarDamage.cginc"   // R1a part 2a: the hit on the body (DamageLook)
             // The sun's shadow map and the sun in the haze (the DAY PASS,
             // 2026-09-21: PSXSunShadow.cginc). A car under an avenue is
             // dappled with the road it is on, and one in a tunnel is lit by
@@ -587,6 +588,7 @@ Shader "PSX/CarPaint"
             {
                 v2f o;
                 v.vertex.xyz = PSXArchFlare(v.vertex.xyz);   // borrowed shell, bigger tyre (ArchFlare.cs)
+                v.vertex.xyz = PSXCarDamageVert(v.vertex.xyz);   // R1a part 2a: a dent pushes the skin in
                 float4 clipPos = UnityObjectToClipPos(v.vertex);
 
             #ifndef PSX_CAR_HD
@@ -704,6 +706,14 @@ Shader "PSX/CarPaint"
                     hdRoughLod = HD_ROUGH_LOD * rough;
                 }
             #endif
+                // R1a PART 2a: THE HIT ON THE BODY (PSXCarDamage.cginc; 0 on a car never hit)
+                float dmgAlive = 1.0, dmgMatte = 0.0;
+                if (_PSXDmgOn > 0.5)
+                {
+                    float3 dmgCol = tex.rgb;
+                    dmgAlive = PSXCarDamage(dmgCol, N, dmgMatte, i.bpos, i.bnrm, i.uvw.xy / i.uvw.z, _Dull);
+                    tex.rgb = dmgCol;
+                }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
                 float3 L = normalize(_PSXLightDir.xyz);
 
@@ -760,7 +770,7 @@ Shader "PSX/CarPaint"
                 // (since the night-paint pass: a beam shades the body by N.L, and
                 // the glints are each lens's mirror image, as sharp as the finish -
                 // THE FINISH below: a clean coat, a dull one, the rain's film)
-                float shine = saturate(_PSXGloss), wetC = saturate(_PSXCarWet);
+                float shine = saturate(_PSXGloss) * (1.0 - dmgMatte), wetC = saturate(_PSXCarWet);
                 float imgRough = lerp(lerp(lerp(IMG_ROUGH_DULL, IMG_ROUGH_CLEAN, shine), IMG_ROUGH_WET, wetC),
                                       IMG_ROUGH_GLASS, glass);
                 imgRough = lerp(imgRough, IMG_ROUGH_WHEEL, dull);
@@ -1001,7 +1011,7 @@ Shader "PSX/CarPaint"
                     if (_HeadLights > 0.001)
                         lampE += PSXLampCore(lampM.b, _HeadLights)
                                + PSXLampScatter(lampM.a, tex.rgb, _HeadLights) * (1.0 - LENS_HEAD_SHARE * layer);
-                    lampE *= PSXAdaptGain();
+                    lampE *= PSXAdaptGain() * dmgAlive;   // a broken lamp: no glow
                     col += lampE;
                     // A lit lens is a light source: the halation catches it.
                     emit = max(emit, PSXEmitShare(lampE, col));
