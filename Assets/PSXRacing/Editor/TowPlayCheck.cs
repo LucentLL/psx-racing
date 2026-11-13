@@ -202,7 +202,8 @@ namespace PSXRacing.EditorTools
             yield return null;
             var exitText = (Text)pm.GetType().GetField("exitLabel", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(pm);
             int fee = CareerDrive.TowFeeHere();
-            TowPlayCheck.Check(exitText != null && exitText.text == "CALL TOW TRUCK — " + MenuKit.Money(fee) &&
+            // The menu's text component draws the em dash as a hyphen.
+            TowPlayCheck.Check(exitText != null && exitText.text.Replace("—", "-") == "CALL TOW TRUCK - " + MenuKit.Money(fee) &&
                                fee == CareerDrive.TowFee(100f),
                                "the leave row reads CALL TOW TRUCK with the fee home from the mountains",
                                exitText != null ? exitText.text : "none");
