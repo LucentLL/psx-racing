@@ -266,7 +266,8 @@ namespace PSXRacing.EditorTools
             string raw = GuardCareer("BAK", 30, 1111);
             Check(JsonUtility.FromJson<LifeState>(raw).writerVersion == cur,
                   "every Save() stamps writerVersion with this build's version", cur);
-            string old = AsWrittenAt(raw, cur - 1);
+            int oldV = LifeSimManager.LastUnstampedVersion;   // a save from before the guard: no writer stamp is right
+            string old = AsWrittenAt(raw, oldV);
             PlayerPrefs.SetString(GuardKey, old);
 
             string seenKey = null;
@@ -275,12 +276,12 @@ namespace PSXRacing.EditorTools
             {
                 var keys = LifeSimManager.BackupKeys();
                 seenKey = keys.Count > 0 ? keys[keys.Count - 1] : null;
-                seenFirst = seenKey != null && Copy(seenKey) == old && s.saveVersion == cur - 1;
+                seenFirst = seenKey != null && Copy(seenKey) == old && s.saveVersion == oldV;
             };
             var st = LifeSimManager.Reload();
             LifeSimManager.BeforeMigrateHook = null;
             Check(seenFirst, "the .bak copy exists, byte for byte, before the first step runs", seenKey);
-            Check(seenKey != null && seenKey.StartsWith(GuardKey + ".bak.v" + (cur - 1) + ".") && seenKey.EndsWith(".json"),
+            Check(seenKey != null && seenKey.StartsWith(GuardKey + ".bak.v" + oldV + ".") && seenKey.EndsWith(".json"),
                   "named <key>.bak.v<old>.<date>.<n>.json", seenKey);
             Check(st.playerName == "BAK" && st.saveVersion == cur && LifeSimManager.Trouble == LifeSimManager.SaveTrouble.None,
                   "and the career loads, migrated to v" + cur, st.playerName + " v" + st.saveVersion + " " + LifeSimManager.Trouble);
@@ -595,7 +596,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static void SaveGuardNewGameLast()
         {
-            int v25 = LifeSimManager.LastUnstampedVersion + 1;
+            int v25 = new LifeState().saveVersion;   // the code's own version (v25 when R0a wrote this)
             LifeSimManager.SimulateCodeVersion(v25);
             LifeSimManager.BeforeMigrateHook = s => { if (s.saveVersion < v25) s.saveVersion = v25; };
             try

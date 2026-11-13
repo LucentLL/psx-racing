@@ -472,7 +472,8 @@ namespace PSXRacing.EditorTools
             var s = JsonUtility.FromJson<LifeState>(json);
             Check(s != null && s.saveVersion == 24, "it loads as v24");
             LifeSimManager.Migrate(s);
-            Check(s.saveVersion == 25, "and migrates to v25", s.saveVersion);
+            Check(s.saveVersion >= 25 && s.saveVersion == new LifeState().saveVersion,
+                  "and migrates to the current version, through v25", s.saveVersion);
             var ma = s.cars[0];
             Check(ma.faults[0].id == FaultIds.UsedEngineWorn && ma.faults[0].hidden && !ma.faults[0].diagnosed &&
                   ma.faults[0].label == "Engine Rebuild Needed",
@@ -501,7 +502,7 @@ namespace PSXRacing.EditorTools
             var twice = JsonUtility.FromJson<LifeState>(json);
             LifeSimManager.MigrateToFaultIds(twice);
             Check(JsonUtility.ToJson(again) == JsonUtility.ToJson(twice), "the step itself is idempotent");
-            Check(new LifeState().saveVersion == 25, "a new career is born at v25");
+            Check(new LifeState().saveVersion >= 25, "a new career is born at v25 or later", new LifeState().saveVersion);
         }
 
         // =====================================================================
