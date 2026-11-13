@@ -112,6 +112,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestEngineDeath), TestEngineDeath);
             Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);
             Guard(nameof(TestCarCatalog), TestCarCatalog);
+            RunCarFactsTests();   // round D car facts + race/rally off the market: LifeSimSelfTest.CarFacts.cs
             Guard(nameof(TestRaceCarsBuilt), TestRaceCarsBuilt);
             Guard(nameof(TestEngineVoices), TestEngineVoices);
             Guard(nameof(TestCarModels), TestCarModels);

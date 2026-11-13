@@ -159,6 +159,10 @@ namespace PSXRacing.LifeSim
         {
             if (!CarCatalog.Ready) return;
             s.newspaper.RemoveAll(l => l.expiresDay < s.day);
+            // Race and rally cars leave the paper (owner, 2026-11-12, answer 9):
+            // nothing that is not road legal is advertised, and an advert an
+            // older build placed is withdrawn. A car already owned is kept.
+            if (CarFacts.MarketOn) s.newspaper.RemoveAll(l => CarFacts.LeavesMarket(l.specId));
 
             var owned = new HashSet<string>();
             foreach (var c in s.cars) owned.Add(c.specId);
@@ -171,6 +175,7 @@ namespace PSXRacing.LifeSim
             {
                 var spec = CarCatalog.All[Random.Range(0, CarCatalog.All.Count)];
                 if (owned.Contains(spec.id) || listed.Contains(spec.id)) continue;
+                if (CarFacts.MarketOn && !CarFacts.CareerSells(spec)) continue;
 
                 bool isNew = Random.value < NewCarChance && gameYear - spec.modelYear <= 2;
                 float odo = isNew ? RollDeliveryMiles() : RollOdometer(spec.modelYear, gameYear);
@@ -224,6 +229,7 @@ namespace PSXRacing.LifeSim
         {
             if (!CarCatalog.Ready) return;
             if (s.dealerLot == null) s.dealerLot = new List<CarListing>();
+            if (CarFacts.MarketOn) s.dealerLot.RemoveAll(l => CarFacts.LeavesMarket(l.specId));
 
             // A slow turnover rather than an expiry sweep: one car goes on a
             // Friday, which is enough to make coming back worth it and little
@@ -244,7 +250,9 @@ namespace PSXRacing.LifeSim
                 // A dealer does not have a Group C car out front. The race cars
                 // are 23 of the 317 and they belong in the paper, where somebody
                 // is selling one specific thing to somebody who came looking.
-                if (spec.IsRaceCar) continue;
+                // Since 2026-11-12 no race or rally car is sold in the career
+                // at all (CarFacts.CareerSells); PSX_FACTS_MARKET=0 = race only.
+                if (CarFacts.MarketOn ? !CarFacts.CareerSells(spec) : spec.IsRaceCar) continue;
 
                 bool isNew = Random.value < LotNewChance && gameYear - spec.modelYear <= 2;
                 float odo = isNew ? RollDeliveryMiles() : RollOdometer(spec.modelYear, gameYear);
@@ -292,7 +300,7 @@ namespace PSXRacing.LifeSim
             {
                 var spec = CarCatalog.All[Random.Range(0, CarCatalog.All.Count)];
                 if (seen.Contains(spec.id)) continue;
-                if (spec.IsRaceCar) continue;
+                if (CarFacts.MarketOn ? !CarFacts.CareerSells(spec) : spec.IsRaceCar) continue;
                 if (gameYear - spec.modelYear > 1) continue;
 
                 // Make room by retiring a used car, oldest habit a lot has.
@@ -571,6 +579,7 @@ namespace PSXRacing.LifeSim
             // BEATER — cash, high miles, rough, and it ships with a fault.
             var beaterPool = CarCatalog.InPriceBand(400, 3000);
             if (beaterPool.Count == 0) beaterPool = CarCatalog.InPriceBand(0, 8000);
+            if (CarFacts.MarketOn) beaterPool.RemoveAll(c => !CarFacts.CareerSells(c));
             var beater = starterRough ?? CarCatalog.PickFromUpperHalf(beaterPool);
             if (beater != null)
             {
@@ -588,6 +597,7 @@ namespace PSXRacing.LifeSim
             // USED RELIABLE — 15% down, 48 months.
             var usedPool = CarCatalog.InPriceBand(Mathf.Max(4000, targetMo * 35),
                                                   Mathf.Max(10000, targetMo * 80), 7, gameYear);
+            if (CarFacts.MarketOn) usedPool.RemoveAll(c => !CarFacts.CareerSells(c));
             var used = starterTidy ?? CarCatalog.PickFromUpperHalf(usedPool);
             if (used != null)
             {
@@ -608,6 +618,8 @@ namespace PSXRacing.LifeSim
             // NEW — 10% down, 60 months, and a payment that hurts.
             var newPool = CarCatalog.InPriceBand(Mathf.Max(8000, targetMo * 60),
                                                  Mathf.Max(18000, targetMo * 150), 2, gameYear);
+            // A well-paid start could be offered a new $40k rally car here.
+            if (CarFacts.MarketOn) newPool.RemoveAll(c => !CarFacts.CareerSells(c));
             var fresh = CarCatalog.PickFromUpperHalf(newPool);
             if (fresh != null)
             {
