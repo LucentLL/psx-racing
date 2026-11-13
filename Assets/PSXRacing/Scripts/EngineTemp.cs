@@ -476,6 +476,7 @@ namespace PSXRacing
             RaceHandoff.HeatEngineDamage = temp.EngineDamage;
             RaceHandoff.EndCoolantPct = temp.coolantPct;
             RaceHandoff.EngineSeized = temp.Seized;
+            LifeSim.HeatSoak.EndC = temp.celsius;   // R1a part 2: parked hot (heat soak)
         }
     }
 }

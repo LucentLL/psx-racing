@@ -79,6 +79,7 @@ namespace PSXRacing.LifeSim
             if (dimmer) Add(l, ChipGauges, CondDrove | CondNight);             // dim lights, after dark
             if (id == "cooling_fail") Add(l, ChipHot, CondHot);
             if (id == "exhaust_rust" || id == "exhaust_rot" || id == "trim_rattle") Add(l, ChipRattle, CondDrove);
+            DamageHomes.Cues(id, l);   // R1a part 2: the hit rows
             cueCache[id] = l;
             return l;
         }
@@ -96,8 +97,8 @@ namespace PSXRacing.LifeSim
 
         /// <summary>Ids that leave something on the garage floor (or show at a
         /// corner by morning). PSX_FAULT_PUDDLE=0 reads the old four.</summary>
-        public static readonly string[] FloorIds =
-            { "oil_leak", "oil_pan_gasket", "ps_leak", "air_susp_leak", "cooling_fail", FaultIds.UsedFluidsLow };
+        public static readonly string[] FloorIds = DamageHomes.Floor(new[]   // R1a part 2: + the holed core
+            { "oil_leak", "oil_pan_gasket", "ps_leak", "air_susp_leak", "cooling_fail", FaultIds.UsedFluidsLow });
 
         /// <summary>What the floor shows for one fault: colour, where, how big.
         /// Never the part.</summary>
@@ -122,7 +123,7 @@ namespace PSXRacing.LifeSim
                 case "air_susp_leak":
                     return "No puddle, but one corner sits lower than the others this morning.";
             }
-            return null;
+            return DamageHomes.Puddle(f);   // R1a part 2: a holed core
         }
 
         // ---- the starter car ------------------------------------------------------

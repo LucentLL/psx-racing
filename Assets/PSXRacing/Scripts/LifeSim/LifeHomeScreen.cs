@@ -8546,6 +8546,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.FanCond = car != null ? car.fan : 100f;
             RaceHandoff.HoseCond = car != null ? car.hoses : 100f;
             RaceHandoff.CoolantPct = car != null ? car.coolant : 100f;
+            HeatSoak.Prime(S, car);   // R1a part 2: how long it has sat (heat soak)
             RaceHandoff.EngineCond = car != null ? car.engine : 100f;
 
             // Nobody drives away with the car still up on the stands. The

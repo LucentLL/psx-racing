@@ -103,6 +103,7 @@ namespace PSXRacing
         public static bool NeedsTow(CarController car)
         {
             if (!Strict || car == null) return false;
+            if (DamageRules.Wrecked(car)) return true;   // R1a part 2: the structural FAIL
             var temp = car.GetComponent<EngineTemp>();
             if (temp != null && temp.Seized) return true;
             var stuck = car.GetComponent<StuckRecovery>();
@@ -182,6 +183,7 @@ namespace PSXRacing
             if (s == null || player == null) return false;
             var car = s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;
             if (car == null) return false;
+            bool dnf = DamageRules.Wrecked(player);   // R1a part 2: the car could not go on
 
             bool roamWas = RaceHandoff.FreeRoam;
             string placeWas = RaceHandoff.FreeRoamPlace;
@@ -210,9 +212,9 @@ namespace PSXRacing
             RaceHandoff.FreeRoamPlace = placeWas;
             // The apply-back wrote "race on the road - x km in ..."; say what it was.
             if (s.calendarLog.Count > 0)
-                s.calendarLog[s.calendarLog.Count - 1] = LifeSim.LifeRules.LogDate(s.day) + ": quit " +
+                s.calendarLog[s.calendarLog.Count - 1] = LifeSim.LifeRules.LogDate(s.day) + (dnf ? ": out of " : ": quit ") +
                     (string.IsNullOrEmpty(venue) ? "the race" : venue) + " after " +
-                    (meters / 1000f).ToString("0.0") + " km — the car keeps what happened";
+                    (meters / 1000f).ToString("0.0") + (dnf ? " km (DNF) — the car could not go on" : " km — the car keeps what happened");
             RaceHandoff.CommuteLeg = false;
             // Owner 2026-11-12: a quit still uses the time and the day's race (no
             // purse, no rep). The day is stamped first: the block may roll it over.

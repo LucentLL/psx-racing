@@ -272,6 +272,8 @@ namespace PSXRacing.LifeSim
                 parts.Add("cooling " + Pct(CoolMultFor(e.engineWearMult)));
             if (e.hideGauges) parts.Add("dead gauges");
             if (e.rpmFlutter) parts.Add("tach flutter");
+            string hit = DamageHomes.EffectText(e.id);   // R1a part 2: what each hit row does
+            if (hit != null) parts.Add(hit);
             felt = parts.Count > 0;
 
             // In RG2's data, carried across by the bake, read by nothing here.

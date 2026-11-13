@@ -149,6 +149,9 @@ namespace PSXRacing.LifeSim
             { "REAR SUBFRAME + DIFF",   new[] { "frame_rust", "control_arm_rust", "bushing_clunk" } },
         };
 
+        // R1a part 2 (DamageHomes): the parts that replace the hit rows
+        static Spares() { DamageHomes.ExtendSpares(LabelFaults, KindFaults); }
+
         static readonly string[] None = new string[0];
 
         public static string[] FaultsCovered(SparePart p)

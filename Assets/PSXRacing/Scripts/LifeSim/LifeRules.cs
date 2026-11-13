@@ -1755,6 +1755,7 @@ namespace PSXRacing.LifeSim
             car.fan = Mathf.Max(0f, car.fan - CoolingModel.FanWearPerM * meters * wearMult);
 
             if (!RaceHandoff.HeatReported) return;
+            HeatSoak.Park(s, car);   // R1a part 2: parked with the needle where it ended
 
             // The coolant is MEASURED, like the tank: a leak is not a function
             // of distance, and a car that boiled its system dry in two minutes
