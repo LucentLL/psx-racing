@@ -386,6 +386,16 @@ namespace PSXRacing
         /// It let go. Separate from the roll so the debug bench and the
         /// self-test can do it on demand.
         /// </summary>
+        /// <summary>R1a: it let go for a reason other than heat (WATER's
+        /// hydrolock), told as what the driver saw - no part named (R0b).</summary>
+        public void Seize(string what)
+        {
+            if (Seized) return;
+            storyOverride = "It " + what + " at " + Clock(clock) + ".";
+            Seize();
+        }
+        string storyOverride;
+
         public void Seize()
         {
             if (Seized) return;
@@ -439,6 +449,8 @@ namespace PSXRacing
         /// </summary>
         public string Story()
         {
+            if (!string.IsNullOrEmpty(storyOverride)) return storyOverride;   // R1a: not heat
+
             // R0b: WHAT THE GAUGE SHOWED AND WHAT THE DRIVER DID - no part
             // named (the hoses line blamed a part nobody had looked at), no
             // cooling percentage, no line explaining what a symptom means.

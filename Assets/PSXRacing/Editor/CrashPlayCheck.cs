@@ -84,7 +84,10 @@ namespace PSXRacing.EditorTools
         {
             if (st != PlayModeStateChange.EnteredPlayMode) return;
             EditorApplication.playModeStateChanged -= OnState;
-            new GameObject("CrashPlayCheckRunner").AddComponent<CrashPlayCheckRunner>();
+            // R1a: the located model's check while it is live; R0a's table
+            // check with PSX_FAULT_LOCATED=0.
+            if (DamageModel.Live) new GameObject("DamagePlayCheckRunner").AddComponent<DamagePlayCheckRunner>();
+            else new GameObject("CrashPlayCheckRunner").AddComponent<CrashPlayCheckRunner>();
         }
 
         internal static void Check(bool ok, string what, object got = null)

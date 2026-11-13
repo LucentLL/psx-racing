@@ -48,7 +48,12 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestRoomTradeIn), TestRoomTradeIn);
                 Guard(nameof(TestRoomJunk), TestRoomJunk);
                 Guard(nameof(TestCareerDriveRules), TestCareerDriveRules);
-                Guard(nameof(TestQuitKeepsTheLeg), TestQuitKeepsTheLeg);
+                // R1a: this pins the QUIT through R0a's ledger (PSX_FAULT_LOCATED=0);
+                // the located path's QUIT is TestDamageBank's.
+                bool locatedWas = DamageModel.On;
+                DamageModel.On = false;
+                try { Guard(nameof(TestQuitKeepsTheLeg), TestQuitKeepsTheLeg); }
+                finally { DamageModel.On = locatedWas; }
             }
             finally
             {

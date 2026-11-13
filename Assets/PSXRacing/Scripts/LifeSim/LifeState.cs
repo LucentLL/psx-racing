@@ -68,7 +68,7 @@ namespace PSXRacing.LifeSim
         ///     the next stage of the car you are in. ADDED fields; the
         ///     migration gives an old career an empty shelf.
         /// </summary>
-        public int saveVersion = 25;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 26;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         /// <summary>
         /// The save version of the BUILD that last wrote this career (R0a,
@@ -516,6 +516,12 @@ namespace PSXRacing.LifeSim
 
         public List<CarFault> faults = new List<CarFault>();
 
+        /// <summary>R1a (v26): what happened to this car (DamageBank, at most 48).</summary>
+        public List<CarEvent> history = new List<CarEvent>();
+        /// <summary>R1a (v26): 0 clean, 1 rebuilt, 2 salvage, 3 flood (+8 washed).</summary>
+        public int title;
+        public const int TitleFlood = 3;
+
         // === Inspection (see LifeSim/Inspection.cs) ===
         /// <summary>Day an inspection was opened on this car. Re-entering the
         /// same day is free; a new day costs an activity slot and clears the
@@ -631,8 +637,38 @@ namespace PSXRacing.LifeSim
         public int zone1;
         /// <summary>A hit's side: -1 left, 0 centre or unknown, +1 right.</summary>
         public int hitSide;
-        /// <summary>A hit's closing speed, m/s (0 unknown).</summary>
+        /// <summary>A hit's closing speed, m/s (0 unknown). R1a: the hit's
+        /// delta-V over the crash pulse.</summary>
         public float hitMps;
+
+        // ---- R1a (v26): located damage (DamageModel, DamageBank). 0 = none /
+        // unknown; a row from before v26 is staged from its severity.
+        /// <summary>The incident that made (or last raised) this row; 0 none.</summary>
+        public int hitId;
+        /// <summary>The struck corner +1 (FL FR RL RR), 0 none.</summary>
+        public int corner1;
+        /// <summary>0 latent, 1 whisper, 2 talk, 3 shout, 4 fail (design §1.4).</summary>
+        public float stage;
+        /// <summary>The row's size: value % (panels, glass), %/min (radiator),
+        /// power % (exhaust), x1.3 (a crushed bar).</summary>
+        public float mag;
+    }
+
+    /// <summary>R1a (v26): one entry in a car's history - a hit, a bump-stop
+    /// strike, a roll, a drop, a dunking. hitId keeps a damage file from being
+    /// banked twice. Never shown in R1a.</summary>
+    [Serializable]
+    public class CarEvent
+    {
+        public int day;
+        public float odo;
+        /// <summary>DamageModel.K*: 0 hit, 1 bump stop, 2 roll, 3 drop, 4 water.</summary>
+        public int kind;
+        public int zone1, corner1;
+        public float dv;
+        public int hitId;
+        /// <summary>What it cost to put right (R2b+), and who did it.</summary>
+        public int cost, who;
     }
 
     /// <summary>A repair in progress. Resolved by the daily rollover when

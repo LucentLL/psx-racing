@@ -135,6 +135,12 @@ namespace PSXRacing
         public static Bumper BumperFor(CarSpec spec)
         {
             if (spec == null) return Bumper.Plastic;
+            // R1a: the car's own facts row (round D: chrome / 5mph / 2.5mph /
+            // plastic, by market and year). A car with no row: era and origin.
+            var facts = CarFacts.Get(spec);
+            if (facts != null && !string.IsNullOrEmpty(facts.bumperEra))
+                return facts.bumperEra == "chrome" ? Bumper.Chrome
+                     : facts.bumperEra == "5mph" ? Bumper.FiveMph : Bumper.Plastic;
             if (spec.modelYear > 0 && spec.modelYear < 1973) return Bumper.Chrome;
             if (spec.origin == "usa" && spec.modelYear >= 1973 && spec.modelYear <= 1982) return Bumper.FiveMph;
             return Bumper.Plastic;
@@ -482,6 +488,9 @@ namespace PSXRacing
             if (!RaceHandoff.FromLifeSim || RaceHandoff.TestDrive || !Edition.HasCareer) return false;
             var resp = car.GetComponent<CollisionResponder>();
             if (resp == null) return false;
+            // R1a: the located model replaces this table at the hit
+            // (PSX_FAULT_LOCATED=0 = this table, as before).
+            if (DamageModel.Live) return DamageLedger.Arm(car, resp);
             // Unseeded in play, like every other fault roll here (seeded only
             // in tests, through DrawOverride) - and seeded from the OS, never
             // from UnityEngine.Random: arming a drive must not take a draw from
@@ -507,6 +516,19 @@ namespace PSXRacing
         {
             if (car == null) return;
             var resp = car.GetComponent<CollisionResponder>();
+            // R1a: the old car's damage is in its own file already (by its
+            // own id); the new car gets its own ledger, reading its own rows.
+            if (resp != null && resp.Damage != null && resp.Damage.Banks)
+            {
+                resp.Damage.Flush();
+                resp.Damage = null;
+                resp.StartOverForNewCar();
+                car.hitSteerPull = 0f;
+                var t = car.GetComponent<EngineTemp>();
+                if (t != null) { t.radiatorHit = 0f; t.radiatorWeep = 0f; }
+                Arm(car);
+                return;
+            }
             if (resp == null || resp.Ledger == null) return;
             resp.StartOverForNewCar();
             resp.Ledger = null;
@@ -538,6 +560,17 @@ namespace PSXRacing
             RaceHandoff.BottomWorstWheel = r != null ? r.WorstBottomWheel + 1 : 0;
             var ledger = r != null ? r.Ledger : null;
             StampOutcome(ledger != null, ledger != null ? ledger.Total : new Outcome());
+            // R1a: every exit stamp (the finish line, QUIT / the tow, the city
+            // exits) folds the drive's damage into the career, once by hitId.
+            if (r != null && r.Damage != null && r.Damage.Banks) DamageLedger.FoldNow(r.Damage);
+        }
+
+        /// <summary>R1a: fold the car's damage now (the pause menu's EXIT and
+        /// RESTART, whatever else they stamp). Nothing on a car with no ledger.</summary>
+        public static int FoldDamage(CarController car)
+        {
+            var r = car != null ? car.GetComponent<CollisionResponder>() : null;
+            return r != null && r.Damage != null && r.Damage.Banks ? DamageLedger.FoldNow(r.Damage) : 0;
         }
 
         /// <summary>

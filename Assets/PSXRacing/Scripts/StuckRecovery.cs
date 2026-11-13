@@ -199,6 +199,8 @@ namespace PSXRacing
         /// <summary>The water plane's height in this scene, or negative
         /// infinity where there is no sea.</summary>
         float seaY = float.NegativeInfinity;
+        /// <summary>R1a: the drawn water plane (DamageLedger's WATER test).</summary>
+        public float SeaY => seaY;
 
         void Awake()
         {

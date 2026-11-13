@@ -82,7 +82,50 @@ namespace PSXRacing.LifeSim
             originCostMult = new Dictionary<string, float>();
             foreach (var o in data.originMult) originCostMult[o.origin] = o.mult;
             UsedRowsOwnIds();
+            HitRows();
         }
+
+        /// <summary>
+        /// R1a's located hit rows (design §4 BODY / COOLING, R1a): made only by
+        /// DamageBank at a hit, never rolled - they live OUTSIDE the pools, so no
+        /// wear, market or used-car roller can pick them. Priced per family
+        /// (Delmar-style parts x1.4 + $48/h, rounded), effects: a struck exhaust
+        /// loses power; the radiator leak acts live through the cooling model
+        /// (radiatorWeep), the rest is value and the cues of later rounds.
+        /// </summary>
+        static void HitRows()
+        {
+            hitRows = new List<PoolEntry>();
+            foreach (var fam in new[] { "jpn", "usa", "eur" })
+            {
+                hitRows.Add(new PoolEntry { origin = fam, id = "panel_damage", name = "Body Panel Damage", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 230, days = 2, add = 10 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "bumper_bar", name = "Bumper Reinforcement Crushed", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 140, days = 1, add = 5 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "lamp_out", name = "Lamp Broken", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 90, days = 1, add = 0 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "radiator_leak", name = "Radiator Leaking", stat = "engine", type = "mechanic", minTier = "new", sources = "impact", cost = 260, days = 1, add = 0 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "exhaust_damage", name = "Exhaust Damaged", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 130, days = 1, add = 5 });
+                hitRows.Add(new PoolEntry { origin = fam, id = "roof_glass", name = "Roof / Glass Damage", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 480, days = 2, add = 15 });
+            }
+            if (!effectById.ContainsKey("exhaust_damage"))
+                effectById["exhaust_damage"] = new EffectEntry { id = "exhaust_damage", desc = "Exhaust damaged - down on power", accelMult = DamageModel.ExhaustPower };
+        }
+
+        static List<PoolEntry> hitRows = new List<PoolEntry>();
+
+        /// <summary>R1a's hit row for an id, the family's own first.</summary>
+        static PoolEntry HitRow(string faultId, string family)
+        {
+            PoolEntry any = null;
+            foreach (var p in hitRows)
+            {
+                if (p.id != faultId) continue;
+                if (p.origin == family) return p;
+                if (any == null) any = p;
+            }
+            return any;
+        }
+
+        /// <summary>R1a's hit row ids (made only at a hit).</summary>
+        public static bool IsHitRow(string id) { Load(); return HitRow(id, "jpn") != null; }
 
         /// <summary>
         /// R0b: THE USED ROWS GET THEIR OWN IDS (design §4). The bake keyed
@@ -140,6 +183,7 @@ namespace PSXRacing.LifeSim
         {
             var ids = AllIds();
             foreach (var u in data.used) if (!ids.Contains(u.id)) ids.Add(u.id);
+            foreach (var h in hitRows) if (!ids.Contains(h.id)) ids.Add(h.id);   // R1a
             return ids;
         }
 
@@ -485,7 +529,7 @@ namespace PSXRacing.LifeSim
         {
             Load();
             origin = PoolOrigin(origin, null);   // its family (off: unknown → jpn)
-            var row = PoolRow(faultId, origin);
+            var row = PoolRow(faultId, origin) ?? HitRow(faultId, origin);   // R1a's hit rows
             if (row == null)
             {
                 // R0b: a row only the used pool has (used_engine_worn,

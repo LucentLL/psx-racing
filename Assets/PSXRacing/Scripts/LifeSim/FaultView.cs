@@ -123,6 +123,13 @@ namespace PSXRacing.LifeSim
             { "exhaust_rust", FaultClassKind.Body },
             { "exhaust_rot", FaultClassKind.Body },
             { "trim_rattle", FaultClassKind.Body },
+            // R1a's located hit rows
+            { "panel_damage", FaultClassKind.Body },
+            { "bumper_bar", FaultClassKind.Body },
+            { "lamp_out", FaultClassKind.Body },
+            { "roof_glass", FaultClassKind.Body },
+            { "exhaust_damage", FaultClassKind.Body },
+            { "radiator_leak", FaultClassKind.Cooling },
             { "paint_fade", FaultClassKind.PaintFinish },
             { "electrical_gremlin", FaultClassKind.Electrical },
             { "display_failure", FaultClassKind.Electrical },
@@ -219,6 +226,8 @@ namespace PSXRacing.LifeSim
         /// <summary>Zone codes in <see cref="CarFault.zone1"/>: 0 unknown, then
         /// R0a's WorstHitZone (1 front, 2 rear, 3 side) and 4 under (a bump stop).</summary>
         public const int ZoneUnder = 4;
+        /// <summary>R1a: 5 roof (glass, pillars), 6 a corner (corner1 says which).</summary>
+        public const int ZoneRoof = 5, ZoneCorner = 6;
 
         /// <summary>Stamp a new row. Returns it, so a roll can be wrapped; null
         /// stays null (the picker's normal "no").</summary>
@@ -236,10 +245,10 @@ namespace PSXRacing.LifeSim
         {
             if (f == null) return null;
             string where = zone == 1 ? "front" : zone == 2 ? "rear" : zone == 3 ? "side"
-                         : zone == ZoneUnder ? "under" : "unknown";
+                         : zone == ZoneUnder ? "under" : zone == ZoneRoof ? "roof" : zone == ZoneCorner ? "corner" : "unknown";
             string lr = side < 0 ? " left" : side > 0 ? " right" : "";
             Stamp(f, Impact, day, odo, where + lr + (mps > 0f ? " " + mps.ToString("0.0") + " m/s" : ""));
-            f.zone1 = Mathf.Clamp(zone, 0, ZoneUnder);
+            f.zone1 = Mathf.Clamp(zone, 0, ZoneCorner);
             f.hitSide = side < 0 ? -1 : side > 0 ? 1 : 0;
             f.hitMps = Mathf.Max(0f, mps);
             return f;

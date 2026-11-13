@@ -150,7 +150,7 @@ namespace PSXRacing.LifeSim
             },
             [Comp.Cooling] = new[]
             {
-                new Sub { key = "radcore", label = "RADIATOR CORE", ids = new[] { "cooling_fail" },
+                new Sub { key = "radcore", label = "RADIATOR CORE", ids = new[] { "cooling_fail", "radiator_leak" },
                     coolPart = LifeRules.CoolPart.Radiator,
                     found = "The cooling system is failing — crusted fins and dried coolant.",
                     clean = "Core fins are straight, no crust." },
@@ -226,7 +226,8 @@ namespace PSXRacing.LifeSim
                     found = "The finish is going — bubbling and surface rust.",
                     clean = "Paint holds up under a close look." },
                 new Sub { key = "panels", label = "PANELS & BUMPERS",
-                    ids = new[] { "panel_rust", "bumper_crack", "bumper_dent" },
+                    ids = new[] { "panel_rust", "bumper_crack", "bumper_dent",
+                                  "panel_damage", "bumper_bar", "lamp_out", "roof_glass" },   // R1a's hit rows
                     found = "Panel damage and rot you missed before.",
                     clean = "Panels line up, no filler rings when you knock." },
                 new Sub { key = "framerails", label = "FRAME RAILS", liftOnly = true, underside = true,
@@ -234,7 +235,7 @@ namespace PSXRacing.LifeSim
                     found = "The frame rails are rotten — structural.",
                     clean = "Rails look solid where you can reach." },
                 new Sub { key = "exhaust", label = "EXHAUST", underside = true,
-                    ids = new[] { "exhaust_rust", "exhaust_rot" },
+                    ids = new[] { "exhaust_rust", "exhaust_rot", "exhaust_damage" },
                     found = "The exhaust is rotting through.",
                     clean = "System is surface-rusty but solid when you tap it." },
                 new Sub { key = "interior", label = "INTERIOR & ELECTRONICS",

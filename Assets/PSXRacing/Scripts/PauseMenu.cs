@@ -159,6 +159,13 @@ namespace PSXRacing
             // was stamped, and carrying it home would bank a purse and burn a
             // day slot for a race that was thrown away.
             RaceHandoff.ResultReady = false;
+            // R1a: RESTART is not immune either (debug careers only now): the
+            // damage is banked, and the reloaded car is the damaged one.
+            if (CrashStopGap.FoldDamage(playerCar) > 0 && LifeSim.LifeSimManager.State != null)
+            {
+                var owned = LifeSim.LifeSimManager.State.FindCar(RaceHandoff.CarId);
+                if (owned != null) LifeSim.LifeHomeScreen.FillCarRequestFor(LifeSim.LifeSimManager.State, owned);
+            }
 
             // The TANK does not rewind, though.
             //
@@ -390,6 +397,9 @@ namespace PSXRacing
             Time.timeScale = 1f;
             AudioListener.pause = false;
             IsOpen = false;
+            // R1a: whatever this exit stamps, the drive's damage is banked
+            // (once by hitId - the stamps below fold again and change nothing).
+            CrashStopGap.FoldDamage(playerCar);
             // OWNER'S ANSWER 1 (2026-11-12): "Quit means you stop participating,
             // but you are not immune to what happened." A race quit in a career
             // banks what the leg did to the car (crash outcome, wear, fuel, heat)
