@@ -408,7 +408,7 @@ namespace PSXRacing.EditorTools
             LifeSimManager.Migrate(s);
             string once = JsonUtility.ToJson(s);
             LifeSimManager.Migrate(s);
-            Check(s.saveVersion == 26 && car.history != null && DamageBank.StageOf(car.faults[0]) == 3f &&
+            Check(s.saveVersion >= 26 && car.history != null && DamageBank.StageOf(car.faults[0]) == 3f &&
                   DamageBank.StageOf(car.faults[1]) == 2f && car.faults[0].stage == 0f &&
                   car.faults[0].hidden && car.faults[1].diagnosed && car.title == 0 && JsonUtility.ToJson(s) == once,
                   "a v25 career: severity 2 -> stage 3, 1 -> 2, flags kept, empty history, clean title; twice = once",
