@@ -127,6 +127,7 @@ namespace PSXRacing.LifeSim
             { "panel_damage", FaultClassKind.Body },
             { "bumper_bar", FaultClassKind.Body },
             { "lamp_out", FaultClassKind.Body },
+            { "srs_deployed", FaultClassKind.Body },   // R1a part 2a
             { "roof_glass", FaultClassKind.Body },
             { "exhaust_damage", FaultClassKind.Body },
             { "radiator_leak", FaultClassKind.Cooling },
