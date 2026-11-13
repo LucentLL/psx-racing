@@ -239,7 +239,7 @@ namespace PSXRacing.LifeSim
                     found = "The exhaust is rotting through.",
                     clean = "System is surface-rusty but solid when you tap it." },
                 new Sub { key = "interior", label = "INTERIOR & ELECTRONICS",
-                    ids = new[] { "trim_rattle", "display_failure", "electrical_gremlin" },
+                    ids = new[] { "trim_rattle", "display_failure", "electrical_gremlin", "srs_deployed" },   // R1a part 2a: a spent bag
                     found = "Something electrical is wrong in here.",
                     clean = "Switchgear all works; trim is tight." },
             },
