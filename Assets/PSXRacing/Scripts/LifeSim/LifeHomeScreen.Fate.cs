@@ -117,13 +117,7 @@ namespace PSXRacing.LifeSim
             y -= 6f;
             FateLine(ref y, "GAME OVER. This career is closed and kept as it ended.", MenuKit.Small, MenuKit.Bad);
             y -= 8f;
-            MenuKit.Button(body, "NEW GAME", new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(460f, 46f), () =>
-            {
-                LifeSimManager.DeleteSave();
-                RaceHandoff.ClearAll();
-                SceneManager.LoadScene(0);   // reboots straight into the wizard
-            }, 16, new Color(0.42f, 0.12f, 0.12f, 1f));
-            y -= 54f;
+            BuildStartOverBlock(ref y);   // the one NEW GAME door (erase, confirm, the wizard)
         }
     }
 }

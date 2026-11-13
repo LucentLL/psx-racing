@@ -46,7 +46,7 @@ namespace PSXRacing.LifeSim
     /// took it square on: delta-V x direction (side 1.4, rear 0.7) x a narrow
     /// tree or pole 1.3 x the structural FAIL's intrusion 1.15 x the belt (off:
     /// 1.6 head-on, x2.5 in a roll) x the bags that fired (0.85) x a race car's
-    /// cage (0.55) x HEALTH (0.9 at 100 to 1.2 at 0). Under 9 nothing; 9-15 a
+    /// cage (0.55) x HEALTH (0.9 at 100 to 1.2 at 0). Under 9.5 nothing; 9.5-15 a
     /// CONCUSSION (the picture blurs and goes dark, the drive ends with the
     /// tow); 15-28 HOSPITAL (a broken arm, a broken leg, a broken leg and ribs:
     /// days there, the bill through CrashHooks.Hospital, no work or driving
@@ -73,7 +73,7 @@ namespace PSXRacing.LifeSim
         public static string OutcomeName(int o) =>
             o == Concussion ? "concussion" : o == Hospital ? "hospital" : o == Death ? "death" : "none";
 
-        public const float ConcussAt = 9f, HospitalAt = 15f, LegAt = 19f, LongAt = 23f, DeathAt = 28f;
+        public const float ConcussAt = 9.5f, HospitalAt = 15f, LegAt = 19f, LongAt = 23f, DeathAt = 28f;
         public const float WriteOffShare = 0.75f;
         public const int TitleSalvage = 2;
 
