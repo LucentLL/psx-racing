@@ -110,6 +110,7 @@ namespace PSXRacing.EditorTools
             RunCrashR0aTests();   // R0a crash stop-gap: LifeSimSelfTest.CrashR0a.cs
             Guard(nameof(TestEngineTemp), TestEngineTemp);
             Guard(nameof(TestEngineDeath), TestEngineDeath);
+            RunLeaksR0bTests();   // R0b stop the leaks: LifeSimSelfTest.LeaksR0b.cs
             Guard(nameof(TestOldSaveMigrationCooling), TestOldSaveMigrationCooling);
             Guard(nameof(TestCarCatalog), TestCarCatalog);
             Guard(nameof(TestRaceCarsBuilt), TestRaceCarsBuilt);
@@ -9032,15 +9033,16 @@ namespace PSXRacing.EditorTools
             string hot = CoolingModel.PreRaceWarning(tiredCool, 33f);
             // R0a re-pin: with the crash stop-gap on (a crash lowers the core)
             // the warning stands but names no part; PSX_FAULT_CRASH=0 names it.
-            Check(mild != null && (CrashStopGap.On ? !mild.Contains("radiator") && mild.Contains("cooling")
-                                                   : mild.Contains("radiator")),
-                  CrashStopGap.On ? "a dead core is warned of on any day, as the cooling - no part named"
-                                  : "a dead core is named on any day", mild);
+            // R0b re-pin: no cooling part is named outside inspection, whatever
+            // PSX_FAULT_CRASH says.
+            Check(mild != null && !mild.Contains("radiator") && mild.Contains("cooling"),
+                  "a dead core is warned of on any day, as the cooling - no part named", mild);
             Check(hot != null && hot.Contains("33"),
                   "and a hot day says how hot", hot);
             tiredCool.coolant = 30f;
             string dry = CoolingModel.PreRaceWarning(tiredCool, 33f);
-            Check(dry != null && dry.Contains("COOLANT"),
+            // R0b re-pin: the overflow tank, not a percentage.
+            Check(dry != null && dry.Contains("Overflow") && !dry.Contains("%"),
                   "but a system that is low outranks both — it is the cheap fix",
                   dry);
         }
@@ -9112,12 +9114,25 @@ namespace PSXRacing.EditorTools
             var abandoned = new LifeState { saveVersion = 15, day = 50 };
             var quit = new OwnedCar { id = "quit1", displayName = "Quitter", engine = 60f };
             quit.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs", stat = "engine" });
+            // R0b: a gearbox and a charging fault ride along (design §7: an
+            // engine job keeps what is not the engine).
+            quit.faults.Add(new CarFault { id = "timing_belt", label = "Timing Belt Due", stat = "engine" });
+            quit.faults.Add(new CarFault { id = "trans_slip", label = "Trans Slipping", stat = "engine" });
+            quit.faults.Add(new CarFault { id = "alternator", label = "Alternator Failing", stat = "engine" });
             abandoned.cars.Add(quit);
             abandoned.activeCar = quit.id;
             Check(LifeRules.BlowEngine(abandoned, quit), "the engine can be blown from the seat");
             Check(quit.engineBlown && quit.engine <= 0f, "and it really is destroyed");
-            Check(!quit.faults.Exists(f => f.stat == "engine"),
-                  "with its engine faults gone with it");
+            if (FaultLeaks.ByClassOn)
+            {
+                Check(!quit.faults.Exists(f => f.id == "timing_belt"), "with the engine's insides gone with it");
+                Check(quit.faults.Exists(f => f.id == "trans_slip") && quit.faults.Exists(f => f.id == "alternator"),
+                      "R0b: A SEIZURE KEEPS THE GEARBOX AND THE CHARGING FAULT");
+                Check(quit.faults.Exists(f => f.id == "spark_plugs"), "and the long block (plugs) until a rebuild");
+            }
+            else
+                Check(!quit.faults.Exists(f => f.stat == "engine"),
+                      "with its engine faults gone with it");
             Check(!LifeRules.BlowEngine(abandoned, quit),
                   "a second call does nothing — it is already dead");
             int logLines = abandoned.calendarLog.Count;
@@ -9170,11 +9185,21 @@ namespace PSXRacing.EditorTools
             RaceHandoff.HeatEngineDamage = 30f;
             RaceHandoff.EngineSeized = true;
             car.faults.Add(new CarFault { id = "spark_plugs", label = "Worn Plugs", stat = "engine" });
+            car.faults.Add(new CarFault { id = "carbon_buildup", label = "Carbon Buildup", stat = "engine" });
+            car.faults.Add(new CarFault { id = "trans_hesitation", label = "Auto Trans Solenoid", stat = "engine" });
+            car.faults.Add(new CarFault { id = "battery_drain", label = "Parasitic Battery Drain", stat = "engine" });
             LifeRules.ApplyRaceResult(s);
             Check(car.engineBlown, "a seizure out there blows the engine in here");
             Check(car.engine <= 0f, "and takes the condition with it");
-            Check(!car.faults.Exists(f => f.stat == "engine"),
-                  "the engine faults go with the engine");
+            if (FaultLeaks.ByClassOn)
+            {
+                Check(!car.faults.Exists(f => f.id == "carbon_buildup"), "the engine's insides go with the engine");
+                Check(car.faults.Exists(f => f.id == "trans_hesitation") && car.faults.Exists(f => f.id == "battery_drain"),
+                      "R0b: the gearbox and the charging faults survive the seizure");
+            }
+            else
+                Check(!car.faults.Exists(f => f.stat == "engine"),
+                      "the engine faults go with the engine");
             Check(LifeRules.DriveRefusal(s, car) != null, "a blown car cannot be driven");
             Check(!LifeRules.CanDrive(s, car), "by any door");
 
@@ -9207,6 +9232,13 @@ namespace PSXRacing.EditorTools
             LifeRules.SpendActivitySlot(s, LifeRules.ActErrand);
             Check(!car.engineBlown, "the rebuild puts an engine back in");
             Check(car.engine >= 99f, "as new", Mathf.RoundToInt(car.engine));
+            if (FaultLeaks.ByClassOn)
+            {
+                Check(!car.faults.Exists(f => f.id == "spark_plugs"), "the rebuild renews the long block (the plugs go)");
+                Check(car.faults.Exists(f => f.id == "trans_hesitation") && car.faults.Exists(f => f.id == "battery_drain"),
+                      "R0b: A REBUILD KEEPS THE GEARBOX AND THE CHARGING FAULT");
+                car.faults.RemoveAll(f => f.id == "trans_hesitation" || f.id == "battery_drain");
+            }
             Check(car.coolant >= 99f, "and full of coolant");
             Check(LifeRules.CanDrive(s, car), "and it drives again");
 

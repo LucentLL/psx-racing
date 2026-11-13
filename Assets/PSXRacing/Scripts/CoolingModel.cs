@@ -246,12 +246,12 @@ namespace PSXRacing
             // crash takes the radiator down and nobody has looked). No longer
             // than the old line (this column clips).
             string part = "cooling";
+            // R0b: the state, not what it means (owner, 2026-11-12: no text
+            // explains a symptom).
             if (weak && hotDay)
-                return deg + " C OUT THERE, and the " + part +
-                       " is done. Watch the temperature.";
+                return deg + " C OUT THERE, and the " + part + " is done.";
             if (weak)
-                return "The " + part +
-                       " is done — this will run hot if you lean on it.";
+                return "The " + part + " is done.";
             if (hotDay && health < 75f)
                 return deg + " C out there. Not a day for a tired cooling system.";
             return null;

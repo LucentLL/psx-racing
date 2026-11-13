@@ -410,7 +410,12 @@ namespace PSXRacing.LifeSim
             // a random row of a lane ("Worn brakes" used to roll a BODY fault).
             // PSX_FAULT_USEDIDS=0: the lane roll.
             if (!string.IsNullOrEmpty(listing.problem) && FaultLeaks.UsedIdsOn)
-                FaultIds.Disclose(car, listing.problem, spec.origin, s.day);
+            {
+                var told = FaultIds.Disclose(car, listing.problem, spec.origin, s.day);
+                // "Leaky radiator": the core and hoses that phrase describes
+                // (the seed reads the faults; MakeOwnedCar seeded before it).
+                if (told != null && told.id == "cooling_fail") CoolingModel.Seed(car, listing.cond);
+            }
             else if (!string.IsNullOrEmpty(listing.problem))
             {
                 var f = FaultCatalog.RollWearFault(car, ProblemStat(listing.problem), false,
