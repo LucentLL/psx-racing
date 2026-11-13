@@ -711,7 +711,7 @@ Shader "PSX/CarPaint"
                 if (_PSXDmgOn > 0.5)
                 {
                     float3 dmgCol = tex.rgb;
-                    dmgAlive = PSXCarDamage(dmgCol, N, dmgMatte, i.bpos, i.uvw.xy / i.uvw.z, _Dull);
+                    dmgAlive = PSXCarDamage(dmgCol, N, dmgMatte, i.bpos, i.bnrm, i.uvw.xy / i.uvw.z, _Dull);
                     tex.rgb = dmgCol;
                 }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);

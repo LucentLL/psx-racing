@@ -48,8 +48,8 @@ float3 DmgCar(float3 bpos)
     return float3(dot(p, _PSXDmgR.xyz) * _PSXDmgR.w, dot(p, _PSXDmgU.xyz) * _PSXDmgU.w, dot(p, _PSXDmgF.xyz) * _PSXDmgF.w);
 }
 
-// How struck the body is here (0..1: the worst zone that covers it), and the roof's share.
-float DmgAmount(float3 c, out float roof)
+// Each zone's mask x its amount here (nose, tail, left, right; under the beltline), and the roof's share.
+float4 DmgZones(float3 c, out float roof)
 {
     float low = 1.0 - smoothstep(0.30, 0.55, c.y);           // under the beltline
     float nose = smoothstep(0.42, 0.78, c.z) * saturate(1.3 - abs(c.x - _PSXDmgB.y) * 0.85);
@@ -58,7 +58,14 @@ float DmgAmount(float3 c, out float roof)
     float left = smoothstep(0.45, 0.85, -c.x) * doors;
     float right = smoothstep(0.45, 0.85, c.x) * doors;
     roof = smoothstep(0.22, 0.48, c.y) * _PSXDmgB.x;
-    return max(max(nose * _PSXDmgA.x, tail * _PSXDmgA.y), max(left * _PSXDmgA.z, right * _PSXDmgA.w)) * low;
+    return float4(nose * _PSXDmgA.x, tail * _PSXDmgA.y, left * _PSXDmgA.z, right * _PSXDmgA.w) * low;
+}
+
+// How struck the body is here (0..1: the worst zone that covers it).
+float DmgAmount(float3 c, out float roof)
+{
+    float4 z = DmgZones(c, roof);
+    return max(max(z.x, z.y), max(z.z, z.w));
 }
 
 // THE SKIN PUSHED IN: a dent a centimetre or two, crumple up to ~8, a crushed roof ~15
@@ -81,7 +88,7 @@ float3 PSXCarDamageVert(float3 v)
 // THE PIXEL: scrapes to the primer, a dented or crumpled panel's waves in its reflections and
 // its creases, cracked glass, a broken lamp's dark lens. Returns how much of the lamp here
 // still lights (0 on a broken one); matte = how much of the lacquer's mirror the damage took.
-float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 bpos, float2 uv, float dull)
+float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 bpos, float3 bnrm, float2 uv, float dull)
 {
     matte = 0.0;
     float3 c = DmgCar(bpos);
@@ -101,7 +108,8 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
         }
     }
     float roof;
-    float a = DmgAmount(c, roof) * (1.0 - dull);
+    float4 zw = DmgZones(c, roof);
+    float a = max(max(zw.x, zw.y), max(zw.z, zw.w)) * (1.0 - dull);
     roof *= 1.0 - dull;
     if (a + roof < 0.004) return alive;
     float3 axisL = max(DmgAxes(), 1e-5);
@@ -112,17 +120,21 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
     // SCRAPES: streaks along the panel, down to grey primer and bare steel, over more of it as it worsens
     float along = dot(bpos, _PSXDmgF.xyz), across = dot(bpos, _PSXDmgR.xyz);
     float streak = DmgNoise(float3((along + across) * 1.3, bpos.y * 24.0, seed));
-    float blot = DmgNoise(bpos * 2.2 + seed * 1.7);
-    float thr = 0.25 + 0.5 * a;
-    float cover = 1.0 - smoothstep(thr - 0.12, thr + 0.12, blot);
-    float scrape = smoothstep(0.48, 0.74, streak) * cover * saturate(a * 3.0) * (1.0 - glassM);
-    float3 primer = lerp(float3(0.36, 0.36, 0.35), float3(0.62, 0.62, 0.60), DmgNoise(bpos * 37.0 + seed));
-    albedo = lerp(albedo, primer, scrape * 0.9);
+    // ...on the faces that met it: the nose's front, a door's side
+    float3 nB = normalize(bnrm);
+    float fF = dot(nB, _PSXDmgF.xyz), fR = dot(nB, _PSXDmgR.xyz);
+    float4 align = saturate(float4(fF, -fF, -fR, fR) * 1.8 - 0.35);
+    float hitFace = dot(zw, align) / max(dot(zw, float4(1, 1, 1, 1)), 1e-3);
+    float blot = DmgNoise(bpos * 3.0 + seed * 1.7);
+    float cover = smoothstep(0.62 - 0.30 * a, 0.80 - 0.30 * a, blot);   // more of the face as it worsens
+    float scrape = smoothstep(0.55, 0.80, streak) * cover * hitFace * saturate(a * 3.0) * (1.0 - glassM);
+    float3 primer = lerp(float3(0.50, 0.50, 0.48), float3(0.72, 0.72, 0.70), DmgNoise(bpos * 37.0 + seed));
+    albedo = lerp(albedo, primer, scrape * 0.85);
     matte = scrape;
     // CRACKS AND CREASES: thin dark lines - a cracked cover, then the folds of crushed metal
     float r0 = DmgNoise(bpos * 6.5 + seed * 3.1);
-    float crease = 1.0 - smoothstep(0.0, 0.05, abs(r0 - 0.5));
-    albedo *= 1.0 - crease * saturate(a * 2.0) * 0.6 * (1.0 - glassM);
+    float crease = 1.0 - smoothstep(0.0, 0.022, abs(r0 - 0.5));
+    albedo *= 1.0 - crease * saturate(a * 2.5 - 1.2) * 0.45 * (1.0 - glassM);
     // DENTS: the panel waves (its reflections show it), finer and deeper as it crumples
     float dent = max(saturate(a * 1.5 - 0.3), saturate(roof * 1.5 - 0.45));
     if (dent > 0.0)

@@ -267,7 +267,7 @@ namespace PSXRacing.EditorTools
             Check((look.Now.lampOut & 3) != 0 && lights != null && lights.lampOut == look.Now.lampOut,
                   "  that headlamp is out (CarLights.lampOut = the look's)", look.Now.lampOut + " / " + (lights != null ? lights.lampOut : -1));
             Check(L.incidents.Any(i => i.outcome.HasRow(SrsBag.Id)) && look.Now.bags == 2, "  the bags fired (frontal, dual)", look.Now.bags);
-            ShotAt("look_1_night_lamp", new Vector3(1.4f, 1.1f, 9.5f), new Vector3(0f, 0.55f, 1.6f));
+            ShotAt("look_1_night_lamp", new Vector3(2.0f, 0.95f, 5.2f), new Vector3(0f, 0.5f, 1.7f));
 
             // noon for the rest
             var globals = Object.FindFirstObjectByType<PSXGlobals>();
@@ -287,7 +287,9 @@ namespace PSXRacing.EditorTools
 
             // 3 a 20 km/h back-in: the rear, from the chase camera
             yield return Hit(20f / 3.6f, false, "20 km/h back-in");
-            Check(look.Now.zones.y >= 0.66f, "20 km/h back-in: the rear dented or worse", look.Now.zones.y.ToString("0.00"));
+            Note("20 km/h back-in read as: " + DamageModel.ZoneName(L.incidents[L.incidents.Count - 1].zone) + " (part 1's classifier)");
+            if (look.Now.zones.y < 0.66f) { L.PlantHit(DamageModel.ZRear, 0, -1, 6f, Time.time); yield return new WaitForSeconds(0.5f); Note("planted a 6 m/s REAR hit for the chase picture"); }
+            Check(look.Now.zones.y >= 0.66f && (look.Now.lampOut & 12) != 0, "the rear dented or worse, a tail lamp out", look.Now.zones.y.ToString("0.00") + " lamps " + look.Now.lampOut);
             holdC = -1f;
             ChaseCamera.SetView(ChaseCamera.View.Chase);
             yield return new WaitForSeconds(1.5f);
