@@ -285,6 +285,16 @@ namespace PSXRacing.EditorTools
             DamageModel.Classify(low, back, Vector3.forward, true, out int zp1, out _, out _, -0.3f);
             DamageRules.BodyFirstOn = true;
             Check(zp1 == DamageModel.ZRoof, "PSX_FAULT_BODYFIRST=0: part 1's ROOF");
+            bool holedWas = DamageRules.HoledOn;
+            DamageRules.HoledOn = true;
+            float e100 = DamageRules.CoolantEff(100f, 0.24f), e88 = DamageRules.CoolantEff(88.5f, 0.24f),
+                  e80 = DamageRules.CoolantEff(80f, 0.24f), dry = DamageRules.CoolantEff(80f, 0f);
+            DamageRules.HoledOn = false;
+            float off = DamageRules.CoolantEff(80f, 0.24f);
+            DamageRules.HoledOn = holedWas;
+            Check(Mathf.Approximately(e100, 1f) && Mathf.Abs(e88 - 0.5f) < 0.01f && e80 == 0f && Mathf.Approximately(dry, 1f) && Mathf.Approximately(off, 1f),
+                  "a crash-holed core cools fully above 97% coolant and not at all at 80% (a plain low level keeps CoolingModel's 55%; PSX_FAULT_HOLED=0 too)",
+                  e100.ToString("0.00") + " / " + e88.ToString("0.00") + " / " + e80.ToString("0.00") + " / " + dry.ToString("0.00") + " / " + off.ToString("0.00"));
         }
 
         // ---------------------------------------------------------------

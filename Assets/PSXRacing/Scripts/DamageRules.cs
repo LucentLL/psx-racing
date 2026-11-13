@@ -50,6 +50,23 @@ namespace PSXRacing
         /// <summary>PSX_FAULT_BODYFIRST=0: a contact centred above the beltline is ROOF
         /// whatever lies under it (part 1; a low car backed into a wall read ROOF).</summary>
         public static bool BodyFirstOn = Env("PSX_FAULT_BODYFIRST") != "0";
+        /// <summary>PSX_FAULT_HOLED=0: a crash-holed core cools like any other until the
+        /// system is 45% down (CoolingModel's 55% curve; part 1: 2 %/min took 48 min to 112 C).</summary>
+        public static bool HoledOn = Env("PSX_FAULT_HOLED") != "0";
+        /// <summary>A crash-holed core (EngineTemp.radiatorWeep from the located model)
+        /// runs unpressurised and draws air as the level drops: cooling falls away from
+        /// 97% coolant to nothing at 80% (about a litre of seven gone) instead of
+        /// CoolingModel's 55%. Tuned on EngineTemp's balance to the design's gate: a holed
+        /// core (2 %/min) at 80 km/h reaches 112 C in about 8 min (6-12); a seam weep
+        /// (0.5) in about half an hour; a crushed core (6) in about 3.</summary>
+        public const float HoledFullAbove = 97f, HoledDryAt = 80f;
+
+        public static float CoolantEff(float pct, float weep)
+        {
+            float eff = CoolingModel.CoolantEff(pct);
+            if (!HoledOn || weep <= 0f || !DamageModel.Live) return eff;
+            return Mathf.Min(eff, Mathf.Clamp01((pct - HoledDryAt) / (HoledFullAbove - HoledDryAt)));
+        }
         static string Env(string k) => System.Environment.GetEnvironmentVariable(k);
 
         public const float FailMps = AIDriver.RetireHitMps;

@@ -234,14 +234,14 @@ namespace PSXRacing.EditorTools
             float half = bodyBox != null ? bodyBox.size.x * 0.5f * bodyBox.transform.lossyScale.x : 0.86f;
             var rails = new List<RailTouch>();
             for (int k = 0; k < 40; k++)
-                rails.Add(Box("Rail" + k, at + new Vector3(half + 0.3f + 0.2f, 0.4f, 2f + k * 4f), new Vector3(0.4f, 1.2f, 3.98f),
+                rails.Add(Box("Rail" + k, at + new Vector3(half + 0.05f + 0.2f, 0.4f, 2f + k * 4f), new Vector3(0.4f, 1.2f, 3.98f),
                               Quaternion.identity).AddComponent<RailTouch>());
             car.TeleportTo(at, Quaternion.identity);
             yield return Fixed(0.2f);
             car.SetRolling(v);
             hold = true; holdMps = v;
             yield return Fixed(0.3f);
-            rb.linearVelocity += car.transform.right * 2.2f;
+            rb.linearVelocity += car.transform.right * 2.5f;   // 0.3 m off at 2.2 the tyres scrubbed it to nothing
             pushRight = 4f;
             yield return Fixed(2.5f);
             pushRight = 0f;
@@ -274,11 +274,15 @@ namespace PSXRacing.EditorTools
             // trip throws it. Part 1's launch (a hop and a spin from the wheels)
             // never rolled it: the springs and the bars set it back down.
             Vector3 fwd = car.transform.forward;
-            Quaternion q = Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(0f, 0f, -75f);
-            car.TeleportTo(rb.position + Vector3.up * 1.2f, q);
-            yield return new WaitForFixedUpdate();
-            rb.linearVelocity = fwd * v + Vector3.up * 2f;
-            rb.angularVelocity = fwd * -5f;
+            // (75 degrees fell back onto its wheels in play: past the tipping point)
+            Quaternion q = Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(0f, 0f, -150f);
+            car.TeleportTo(rb.position + Vector3.up * 1.5f, q);
+            for (int k = 0; k < 5; k++)
+            {
+                yield return new WaitForFixedUpdate();
+                rb.linearVelocity = fwd * v + Vector3.up * 1f;
+                rb.angularVelocity = fwd * -4f;
+            }
             float t = 0f;
             while (t < 12f && (L == null || !L.incidents.Any(i => i.kind == DamageModel.KRoll))) { t += Time.fixedDeltaTime; yield return new WaitForFixedUpdate(); }
             yield return Fixed(0.5f);
