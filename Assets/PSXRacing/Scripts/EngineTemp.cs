@@ -439,21 +439,18 @@ namespace PSXRacing
         /// </summary>
         public string Story()
         {
+            // R0b: WHAT THE GAUGE SHOWED AND WHAT THE DRIVER DID - no part
+            // named (the hoses line blamed a part nobody had looked at), no
+            // cooling percentage, no line explaining what a symptom means.
+            // Why it happened is the mechanic's to say once he has the engine
+            // out (the stored cause, R2b).
             var lines = new System.Collections.Generic.List<string>();
-            float start = Mathf.Max(0f, startCoolant);
-            if (start < 60f)
-                lines.Add("You set off with the coolant at " + Mathf.RoundToInt(start) + "%. Top it up before a drive.");
-            else if (start - coolantAtSeize > 10f)
-                // R0a: after a crash the leak is the crash's, and saying so
-                // names no part (the hoses line would blame the wrong one).
-                lines.Add((radiatorWeep > 0f ? "It lost coolant after the crash (" : "Worn hoses leaked coolant once it got hot (") +
-                          Mathf.RoundToInt(start) + "% down to " + Mathf.RoundToInt(coolantAtSeize) + "%).");
             if (firstRedAt >= 0f)
-                lines.Add("It went into the red at " + Clock(firstRedAt) + " and let go at " + Clock(seizedAt) + ".");
+                lines.Add("The needle went into the red at " + Clock(firstRedAt) + " and it let go at " + Clock(seizedAt) + ".");
+            else if (seizedAt >= 0f)
+                lines.Add("It let go at " + Clock(seizedAt) + ".");
             if (redFlatOutSecs > 5f)
-                lines.Add(Mathf.RoundToInt(redFlatOutSecs) + " s of that was at full throttle. Easing off lets it cool.");
-            else
-                lines.Add("When the TEMP lamp blinks red, ease off: that is when it starts cutting power.");
+                lines.Add(Mathf.RoundToInt(redFlatOutSecs) + " s of the time in the red was at full throttle.");
             return string.Join("\n", lines);
         }
 

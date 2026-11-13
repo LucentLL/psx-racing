@@ -123,6 +123,9 @@ namespace PSXRacing
                 // R0a: a career car rolls the crash stop-gap at the hit
                 // (CrashStopGap; PSX_FAULT_CRASH=0 leaves it unarmed).
                 CrashStopGap.Arm(playerCar);
+                // R0b: a TEST DRIVE measures what the drive did, for NAME WHAT
+                // YOU FELT (LifeSim.TestDriveFeel; nothing on any other drive).
+                LifeSim.TestDriveFeel.Arm(playerCar);
 
                 // The cargo, and the little window onto it. Spawned HERE rather
                 // than baked into every circuit: a delivery is the only run that

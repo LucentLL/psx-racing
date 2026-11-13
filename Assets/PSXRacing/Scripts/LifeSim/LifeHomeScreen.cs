@@ -233,7 +233,11 @@ namespace PSXRacing.LifeSim
             {
                 var v = Viewings.ByKey(S, RaceHandoff.TestDriveKey);
                 int found = Viewings.AfterDrive(S, v);
+                // R0b: the drive names nothing. Back on the driveway, the
+                // player can say what they felt (the viewing page's chips).
                 driveSummary = v == null ? "the drive told you nothing"
+                    : FaultLeaks.FeltOn
+                        ? "DROVE IT — back on the driveway"
                     : found == 0
                         ? "DROVE IT — nothing showed up that was not already showing"
                         : "DROVE IT — " + found + (found == 1 ? " problem" : " problems") +
@@ -3098,13 +3102,7 @@ namespace PSXRacing.LifeSim
         /// on these screens counts through here, because a hidden fault is on
         /// the car and is already costing them lap time — it is just not
         /// something anyone has said out loud yet.</summary>
-        static int KnownFaults(OwnedCar car)
-        {
-            if (car == null) return 0;
-            int n = 0;
-            foreach (var f in car.faults) if (!f.hidden) n++;
-            return n;
-        }
+        static int KnownFaults(OwnedCar car) => FaultView.KnownCount(car);   // R0b: the one gate
 
         /// <summary>The colour a car's catalog entry claims, for the list
         /// swatch. Falls back to a neutral grey rather than to black, which on
@@ -3582,7 +3580,8 @@ namespace PSXRacing.LifeSim
             CompactBar("TIRES", car.tires, tx, tw, ref ty);
             CompactBar("BODY", car.carHP, tx, tw, ref ty);
             CompactBar("PAINT", car.paint, tx, tw, ref ty);
-            CompactBar("COOLANT", car.coolant, tx, tw, ref ty, exact: true);
+            // R0b: a word, not a percentage - no cooling figure outside inspection.
+            CompactBar("COOLANT", car.coolant, tx, tw, ref ty);
             CompactBar("FUEL", car.fuel, tx, tw, ref ty, exact: true);
             y = Mathf.Min(ty, y - viewH - 22f) - 8f;
 
@@ -3720,7 +3719,7 @@ namespace PSXRacing.LifeSim
                 // Hidden faults are on this car and are already slowing it down;
                 // listing them here would hand the player the answer INSPECT
                 // exists to make them work for.
-                foreach (var f in car.faults) if (!f.hidden) DrawFaultRow(car, f, ref y);
+                foreach (var f in FaultView.KnownList(car)) DrawFaultRow(car, f, ref y);
             }
             else
             {
@@ -5313,7 +5312,8 @@ namespace PSXRacing.LifeSim
         /// just a dead button.</summary>
         void DrawFaultRow(OwnedCar car, CarFault f, ref float y)
         {
-            string fx = FaultCatalog.EffectSummary(f.id);
+            // R0b: no effect numbers on a player's screen - a debug career keeps them.
+            string fx = S.debugMode ? FaultCatalog.EffectSummary(f.id) : "";
             MenuKit.Label(body, "> " + f.label + (fx.Length > 0 ? "   (" + fx + ")" : ""), 16,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 f.severity >= 2f ? MenuKit.Bad : MenuKit.Accent, 820f, height: 24f);
@@ -6538,10 +6538,9 @@ namespace PSXRacing.LifeSim
                 15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 known == 0 ? MenuKit.Dim : MenuKit.Bad, 820f);
             y -= 26f;
-            foreach (var f in v.car.faults)
+            foreach (var f in FaultView.KnownList(v.car))
             {
-                if (f.hidden) continue;
-                string fx = FaultCatalog.EffectSummary(f.id);
+                string fx = S.debugMode ? FaultCatalog.EffectSummary(f.id) : "";   // R0b: no effect numbers
                 MenuKit.Label(body, "  - " + f.label + "   " + MenuKit.Money(f.cost) +
                         " to put right" + (fx.Length > 0 ? "   ·   " + fx : ""),
                     14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
@@ -6639,8 +6638,12 @@ namespace PSXRacing.LifeSim
             }
             else
             {
+                // R0b: one test drive per visit-day (PSX_FAULT_FELT=0: any number).
+                bool droveToday = Viewings.DriveRefusedToday(S, v) != null;
+                if (droveToday) canDrive = false;
                 MenuKit.Button(body,
-                    v.testDrove ? "TEST DRIVE IT AGAIN" : "TEST DRIVE IT",
+                    droveToday ? "DRIVEN TODAY — AGAIN TOMORROW"
+                    : v.testDrove ? "TEST DRIVE IT AGAIN" : "TEST DRIVE IT",
                     new Vector2(0.5f, 1f), new Vector2(bx, y), new Vector2(bw, 46f),
                     canDrive ? (UnityEngine.Events.UnityAction)(() =>
                     {
@@ -6654,7 +6657,9 @@ namespace PSXRacing.LifeSim
                     }) : null,
                     16, canDrive ? (Color?)null : MenuKit.BtnBgDisabled);
                 y -= 52f;
-                MenuKit.Label(body, !canDrive
+                MenuKit.Label(body, droveToday
+                        ? "You have had it out today."
+                        : !canDrive
                         ? "There is not enough fuel in it to go anywhere."
                         : lot
                             ? "The salesman rides along. Nothing you do out there is banked."
@@ -6662,6 +6667,34 @@ namespace PSXRacing.LifeSim
                     14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);
                 y -= 30f;
+            }
+
+            // ---- NAME WHAT YOU FELT (R0b) ----
+            // After the day's drive the player may tell the seller what they
+            // felt, from one fixed list (the same chips for every car). A true
+            // claim brings the price down, naming nothing; a false one ends the
+            // haggle for the day. Saying nothing costs nothing.
+            if (Viewings.ClaimsOpen(S, v))
+            {
+                MenuKit.Label(body, "NAME WHAT YOU FELT", 15, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, 400f, bold: true);
+                y -= 30f;
+                float cw = (bw - 8f) / 2f;
+                for (int i = 0; i < FaultSymptoms.Chips.Length; i++)
+                {
+                    int chip = i;
+                    bool said = (v.saidChips & (1 << chip)) != 0;
+                    float cx = MenuKit.ColLeft(ColL + (i % 2) * (cw + 8f), cw);   // buttons sit by their centre
+                    MenuKit.Button(body, FaultSymptoms.Chips[chip], new Vector2(0.5f, 1f),
+                        new Vector2(cx, y), new Vector2(cw, 40f),
+                        said ? null : (UnityEngine.Events.UnityAction)(() =>
+                        {
+                            string msg = Viewings.Claim(S, v, chip);
+                            LifeSimManager.Save(); Rebuild(); Toast(msg);
+                        }), 14, said ? MenuKit.BtnBgDisabled : (Color?)null);
+                    if (i % 2 == 1 || i == FaultSymptoms.Chips.Length - 1) y -= 46f;
+                }
+                y -= 6f;
             }
 
             // ---- the way out, with a hand on the door ----
@@ -6946,8 +6979,9 @@ namespace PSXRacing.LifeSim
                 bool fresh = cond >= 99.5f;
                 bool afford = S.money >= price && elsewhere == null && !fresh;
                 int idx = i;
-                MenuKit.Button(body, svc.name + " — " + MenuKit.Money(price) + "  (" +
-                        (fresh ? "new" : Mathf.RoundToInt(cond) + "% now") + ")",
+                // R0b: the price, not the part's condition - no cooling figure
+                // outside inspection (a part just fitted still says so).
+                MenuKit.Button(body, svc.name + " — " + MenuKit.Money(price) + (fresh ? "  (new)" : ""),
                     new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL, Mathf.Min(560f, ColW)), y),
                     new Vector2(Mathf.Min(560f, ColW), 44f),
@@ -7209,19 +7243,17 @@ namespace PSXRacing.LifeSim
             // R0a: with the crash stop-gap on a crash takes the radiator down,
             // so the line says the system, not the part - no part named with
             // nobody having looked (CoolingModel.PreRaceWarning, same rule).
+            // R0b: no cooling part named and no figure outside inspection,
+            // whatever PSX_FAULT_CRASH says, and no line saying what it means.
             MenuKit.Label(body, health > 70f
-                    ? "Radiator, fan and hoses all look serviceable."
-                    : CrashStopGap.On
-                        ? "Cooling system tired — the mechanic replaces cooling parts."
-                        : "Weakest part: " + CoolingModel.WeakestPart(car).ToLowerInvariant() +
-                          " — the mechanic replaces cooling parts.",
+                    ? "The cooling looks serviceable."
+                    : "Cooling system tired — the mechanic replaces cooling parts.",
                 14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, Mathf.Min(ColW, 760f));
             y -= 24f;
             if (low)
             {
-                MenuKit.Label(body, "The system is down to " +
-                        Mathf.RoundToInt(car.coolant) + "% — something is leaking.",
+                MenuKit.Label(body, "The overflow tank reads low.",
                     14, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Bad, Mathf.Min(ColW, 760f));
                 y -= 24f;
@@ -7986,11 +8018,10 @@ namespace PSXRacing.LifeSim
 
             // Faults are the reason a race can go wrong, so they are on the
             // page you launch from. Three at most; the rest are in the garage.
-            var seen = car != null ? car.faults.FindAll(f => !f.hidden)
-                                   : new System.Collections.Generic.List<CarFault>();
+            var seen = FaultView.KnownList(car);   // R0b: the one gate
             for (int i = 0; i < seen.Count && i < 3; i++)
             {
-                string fx = FaultCatalog.EffectSummary(seen[i].id);
+                string fx = S.debugMode ? FaultCatalog.EffectSummary(seen[i].id) : "";   // no effect numbers
                 MenuKit.Label(body, Clip("! " + seen[i].label + (fx.Length > 0 ? " — " + fx : ""), 60),
                     MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(vx, y), TextAnchor.MiddleLeft,
                     MenuKit.Bad, vw, height: 22f);

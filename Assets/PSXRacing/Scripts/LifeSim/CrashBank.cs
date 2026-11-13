@@ -22,8 +22,20 @@ namespace PSXRacing.LifeSim
         public static void Apply(LifeState s, OwnedCar car)
         {
             if (car == null || !RaceHandoff.CrashRolled) return;
-            ApplyOutcome(car, FromHandoff());
+            // R0b: the rows carry their cause - the leg's hardest hit (zone,
+            // side, closing speed), or the hardest bump-stop strike when the
+            // leg met no wall.
+            bool wall = RaceHandoff.WorstHitZone > 0;
+            ApplyOutcome(car, FromHandoff(), s != null ? s.day : 0,
+                wall ? RaceHandoff.WorstHitZone : (RaceHandoff.BottomWorstWheel > 0 ? FaultCause.ZoneUnder : 0),
+                wall ? RaceHandoff.WorstHitSide : WheelSide(RaceHandoff.BottomWorstWheel),
+                wall ? RaceHandoff.WorstHitMps : RaceHandoff.BottomWorst);
         }
+
+        /// <summary>The side of a wheel stored +1 in the CarController order
+        /// (FL FR RL RR): -1 left, +1 right, 0 none.</summary>
+        public static int WheelSide(int wheel1) =>
+            wheel1 == 1 || wheel1 == 3 ? -1 : wheel1 == 2 || wheel1 == 4 ? 1 : 0;
 
         /// <summary>The outcome the exit stamp wrote.</summary>
         public static CrashStopGap.Outcome FromHandoff() => new CrashStopGap.Outcome
@@ -47,7 +59,8 @@ namespace PSXRacing.LifeSim
         /// CrashStopGap.CombinePull from the moment of the hit, so the car
         /// pulls on the next drive exactly as it pulled after the crash.
         /// </summary>
-        public static void ApplyOutcome(OwnedCar car, CrashStopGap.Outcome o)
+        public static void ApplyOutcome(OwnedCar car, CrashStopGap.Outcome o,
+                                        int day = 0, int zone = 0, int side = 0, float mps = 0f)
         {
             if (car == null) return;
             if (o.paintLoss > 0f) car.paint = Mathf.Max(0f, car.paint - o.paintLoss);
@@ -60,9 +73,13 @@ namespace PSXRacing.LifeSim
                 {
                     old.severity = o.alignSeverity;
                     old.pullDir = o.alignSide < 0 ? -1 : 1;
+                    // R0b: the newer, worse hit is now the reason it pulls.
+                    FaultCause.StampImpact(old, day, car.odoMiles, zone, side, mps);
                 }
             }
-            car.faults.AddRange(NewRows(car, o));
+            var rows = NewRows(car, o);
+            foreach (var r in rows) FaultCause.StampImpact(r, day, car.odoMiles, zone, side, mps);
+            car.faults.AddRange(rows);
         }
 
         /// <summary>The fault rows this outcome ADDS to this car, priced by

@@ -1443,6 +1443,37 @@ namespace PSXRacing.LifeSim
 
             if (s.saveVersion < 23) MigrateToEnforcedWeek(s);
             if (s.saveVersion < 24) MigrateToPartsShelf(s);
+            if (s.saveVersion < 25) MigrateToFaultIds(s);
+        }
+
+        /// <summary>
+        /// v25, R0b "STOP THE LEAKS": the two used-car rows onto their own ids
+        /// ("Engine Rebuild Needed" / "Engine Replacement" carried trans_slip,
+        /// "Fluid Top-Off Needed" carried oil_leak), on every owned car, every
+        /// viewing's car and every booked repair of one; hidden and diagnosed
+        /// never change (the v7 lesson). Every row gets a CAUSE: an old one is
+        /// "legacy" (unknown day and odometer). A visit's new NAME WHAT YOU
+        /// FELT fields start empty (no drive measured). Idempotent - a moved
+        /// row or a stamped cause is left alone - and it throws nothing on a
+        /// null. Public for the self-test.
+        /// </summary>
+        public static void MigrateToFaultIds(LifeState s)
+        {
+            if (s == null) return;
+            if (s.cars != null)
+                foreach (var car in s.cars) FaultIds.MigrateCar(car);
+            if (s.viewings != null)
+            {
+                s.viewings.RemoveAll(v => v == null);
+                foreach (var v in s.viewings)
+                {
+                    FaultIds.MigrateCar(v.car);
+                    if (v.felt == null) v.felt = new System.Collections.Generic.List<string>();
+                }
+            }
+            if (s.pendingParts != null)
+                foreach (var p in s.pendingParts) FaultIds.MigrateJob(p);
+            s.saveVersion = 25;
         }
 
         /// <summary>

@@ -99,6 +99,8 @@ namespace PSXRacing.LifeSim
                     found = "Spark plugs are showing their age — these need replacing.",
                     clean = "Plugs look healthy, no oil on the threads." },
                 new Sub { key = "headgasket", label = "HEAD GASKET", scope = true,
+                    ids = new[] { FaultIds.UsedEngineWorn },
+                    found = "Oily soot in the cylinders and smoke at the filler — this engine is worn out.",
                     clean = "No seepage at the head mating surface. Looks sound." },
                 new Sub { key = "throttle", label = "THROTTLE BODY", scope = true,
                     clean = "Throttle plate is a little sooty but moves freely." },
@@ -164,6 +166,8 @@ namespace PSXRacing.LifeSim
                     clean = "No weeping at the pump." },
                 new Sub { key = "overflow", label = "OVERFLOW TANK",
                     coolPart = LifeRules.CoolPart.Coolant,
+                    ids = new[] { FaultIds.UsedFluidsLow },
+                    found = "Fluids are low all round — the tank and the dipstick both read under the line.",
                     clean = "Coolant sits at the line, the right colour." },
             },
             [Comp.Steering] = new[]
@@ -460,10 +464,19 @@ namespace PSXRacing.LifeSim
         {
             if (car == null || car.floorCheckedDay == s.day) return null;
             car.floorCheckedDay = s.day;
+            // R0b: THE FLOOR DESCRIBES THE PUDDLE - colour, where, how big -
+            // and names nothing. A puddle is a cue, not a finding: the fault
+            // stays hidden until a check of the part (or a shop) names it.
+            // Any leak shows, found or not: the drip does not know who has
+            // looked. PSX_FAULT_PUDDLE=0: the part named, and found, as it was.
+            bool puddle = FaultLeaks.PuddleOn;
+            var ids = puddle ? FaultSymptoms.FloorIds : LeakIds;
             foreach (var f in car.faults)
             {
-                if (!f.hidden || System.Array.IndexOf(LeakIds, f.id) < 0) continue;
+                if (f == null || System.Array.IndexOf(ids, f.id) < 0) continue;
+                if (!puddle && !f.hidden) continue;
                 if (Random.value > 0.25f) continue;
+                if (puddle) return FaultSymptoms.Puddle(f) ?? "There is a fresh puddle under the car.";
                 f.hidden = false;
                 f.diagnosed = true;
                 return "There is a fresh puddle under the car. " + f.label + ".";
@@ -534,6 +547,7 @@ namespace PSXRacing.LifeSim
                 if (f == null) continue;
                 f.hidden = true;
                 f.diagnosed = false;
+                FaultCause.Stamp(f, FaultCause.PreviousOwner, s != null ? s.day : 0, car.odoMiles);
                 car.faults.Add(f);
                 n++;
             }

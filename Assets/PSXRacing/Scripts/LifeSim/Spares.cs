@@ -141,7 +141,8 @@ namespace PSXRacing.LifeSim
             { "BUMPER, UNCRACKED",      new[] { "bumper_crack", "bumper_dent" } },
             { "PANEL SET, RESPRAYED",   new[] { "paint_fade", "paint_bubble", "minor_rust" } },
             { "DONOR ENGINE, RUNNING",  new[] { "timing_chain", "timing_belt", "valve_cover_gasket", "oil_leak",
-                                                "oil_pan_gasket", "carbon_buildup", "intake_manifold", "cam_sensor" } },
+                                                "oil_pan_gasket", "carbon_buildup", "intake_manifold", "cam_sensor",
+                                                FaultIds.UsedEngineWorn } },
             { "GEARBOX, LOW MILES",     new[] { "trans_slip", "trans_hesitation" } },
             { "FRONT CLIP",             new[] { "bumper_crack", "bumper_dent", "ball_joint" } },
             { "SHELL PANELS, WHOLE CAR",new[] { "panel_rust", "paint_fade", "paint_bubble", "minor_rust" } },
@@ -265,7 +266,7 @@ namespace PSXRacing.LifeSim
                 CarFault fault = null;
                 foreach (var x in car.faults)
                 {
-                    if (x == null || x.hidden || !Covers(p, x.id)) continue;
+                    if (!FaultView.Known(x) || !Covers(p, x.id)) continue;
                     if (faultId != null && x.id != faultId) continue;
                     if (Booked(s, car, x.id)) { if (faultId != null) { f.reason = "already booked"; return f; } continue; }
                     fault = x;
