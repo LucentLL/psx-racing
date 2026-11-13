@@ -112,9 +112,9 @@ float PSXCarDamage(inout float3 albedo, inout float3 N, out float matte, float3 
     // SCRAPES: streaks along the panel, down to grey primer and bare steel, over more of it as it worsens
     float along = dot(bpos, _PSXDmgF.xyz), across = dot(bpos, _PSXDmgR.xyz);
     float streak = DmgNoise(float3((along + across) * 1.3, bpos.y * 24.0, seed));
-    float patch = DmgNoise(bpos * 2.2 + seed * 1.7);
+    float blot = DmgNoise(bpos * 2.2 + seed * 1.7);
     float thr = 0.25 + 0.5 * a;
-    float cover = 1.0 - smoothstep(thr - 0.12, thr + 0.12, patch);
+    float cover = 1.0 - smoothstep(thr - 0.12, thr + 0.12, blot);
     float scrape = smoothstep(0.48, 0.74, streak) * cover * saturate(a * 3.0) * (1.0 - glassM);
     float3 primer = lerp(float3(0.36, 0.36, 0.35), float3(0.62, 0.62, 0.60), DmgNoise(bpos * 37.0 + seed));
     albedo = lerp(albedo, primer, scrape * 0.9);

@@ -319,7 +319,7 @@ namespace PSXRacing
                 // the passenger's: out of the top of the dash, draped over it
                 Vector3 hub = ct.InverseTransformPoint(wheel.position);
                 Vector3 at = ct.TransformPoint(new Vector3(-hub.x, hub.y + 0.10f, hub.z + 0.26f));
-                Transform frame = ci.Model != null ? ci.Model : ci.transform;
+                Transform frame = ci.transform;   // (the cabin model is scaled per axis: a bag under it would skew)
                 Bag("SRS_Passenger", frame, at, facing * Quaternion.Euler(18f, 0f, 0f), 0.58f, ci.gameObject.layer);
             }
             bagsPlaced = Now.bags;
@@ -370,7 +370,7 @@ namespace PSXRacing
             Vector3 at = centre + n * 0.012f - up * 0.06f + side * (Vector3.Dot(side, ct.right) * (hub > 0f ? -0.22f : 0.22f));
             crack = new GameObject("GlassCrack") { layer = ci.gameObject.layer };
             crack.transform.SetPositionAndRotation(at, Quaternion.LookRotation(-n, up));
-            crack.transform.SetParent(screen.transform, true);
+            crack.transform.SetParent(ci.transform, true);
             var m = new Mesh { name = "GlassCrack" };
             const float H = 0.34f;
             m.vertices = new[] { new Vector3(-H, -H, 0f), new Vector3(-H, H, 0f), new Vector3(H, H, 0f), new Vector3(H, -H, 0f) };
