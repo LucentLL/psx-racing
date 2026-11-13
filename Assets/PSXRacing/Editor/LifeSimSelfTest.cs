@@ -173,6 +173,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestDayLook), TestDayLook);
             Guard(nameof(TestTexDecode), TestTexDecode);
             Guard(nameof(TestArcade), TestArcade);
+            RunInsuranceR1cTests();   // R1c-B insurance: LifeSimSelfTest.InsuranceR1c.cs
             // R0b stop the leaks (LifeSimSelfTest.LeaksR0b.cs). LAST: its page
             // renders build the home screen in edit mode, and nothing after
             // them should inherit what that leaves behind.

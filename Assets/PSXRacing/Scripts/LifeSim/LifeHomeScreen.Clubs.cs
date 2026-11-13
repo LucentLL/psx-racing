@@ -63,6 +63,7 @@ namespace PSXRacing.LifeSim
                 WorkSchedule.MissesInWindow(S, S.day) > 0 ? MenuKit.Bad : MenuKit.Good);
             DutyRow("WORK REP", Mathf.RoundToInt(S.workRep) + "/100", ref y,
                 S.workRep >= 50 ? MenuKit.Good : MenuKit.Bad);
+            HealthPlanBlock(ref y);   // R1c-B: LifeHomeScreen.Insurance.cs
             y -= 6f;
 
             // ---- this week's shifts ----

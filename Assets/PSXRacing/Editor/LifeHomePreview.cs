@@ -20,7 +20,7 @@ namespace PSXRacing.EditorTools
     /// — only appears on a canvas shorter than about 718 units, which is to say
     /// only on a wide phone. Compiling proves nothing about layout.
     /// </summary>
-    public static class LifeHomePreview
+    public static partial class LifeHomePreview
     {
         // The first entry is the reporter's handset aspect (~2.24:1), which is
         // where the overlap showed up.

@@ -1456,6 +1456,21 @@ namespace PSXRacing.LifeSim
             if (s.saveVersion < 24) MigrateToPartsShelf(s);
             if (s.saveVersion < 25) MigrateToFaultIds(s);
             if (s.saveVersion < 26) MigrateToDamageBank(s);
+            if (s.saveVersion < 28) MigrateToInsurance(s);
+        }
+
+        /// <summary>
+        /// v28, R1c-B INSURANCE: every car is insured at the NC minimum
+        /// (insCover 0, the default) with a $500 deductible on file, a car with a
+        /// loan is held at full coverage (the lender's rule), the record starts
+        /// empty and the health plan is unanswered (THE JOB page asks it).
+        /// Idempotent; throws nothing on a null.
+        /// </summary>
+        public static void MigrateToInsurance(LifeState s)
+        {
+            if (s == null || CodeVersion < 28) return;
+            Insurance.Sync(s);
+            s.saveVersion = 28;
         }
 
         /// <summary>R1a: this career's damage files (DamageBank), beside its
