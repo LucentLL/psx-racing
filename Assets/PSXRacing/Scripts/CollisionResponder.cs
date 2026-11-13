@@ -132,6 +132,15 @@ namespace PSXRacing
         void OnDestroy()
         {
             if (car != null) car.Bottomed -= OnBottomed;
+            // R1a: a scene that ends without an exit stamp still leaves the
+            // drive's damage on disk (banked at the next apply-back or Load).
+            if (Damage != null && Damage.Banks) Damage.Flush();
+        }
+
+        /// <summary>R1a: the app backgrounded (a phone): the damage file now.</summary>
+        void OnApplicationPause(bool paused)
+        {
+            if (paused && Damage != null && Damage.Banks) Damage.Flush();
         }
 
         // ---- BOTTOMING (owner, 2026-10-19) ----------------------------------
@@ -169,6 +178,7 @@ namespace PSXRacing
         {
             float over = mps - CarController.BottomHitMps;
             if (over <= 0f) return;
+            Damage?.Bottom(wheel, mps, Time.time);   // R1a: the struck corner's column
             BottomHits++;
             bottomWear += over * BottomWearPerMps;
             if (mps > WorstBottom)
@@ -203,8 +213,28 @@ namespace PSXRacing
             scrapeLoad = Mathf.MoveTowards(scrapeLoad, 0f, 6f * Time.deltaTime);
         }
 
+        // ---- R1a: the located ledger (DamageModel) -------------------------
+        /// <summary>The career car's located damage ledger (DamageLedger.Arm),
+        /// or a census ledger (DamageModel.CensusAll); null on every other car.
+        /// It sees EVERY contact - roof landings and belly strikes included,
+        /// before the world-up test that DamageScore keeps.</summary>
+        public DamageLedger Damage { get; set; }
+
+        DamageLedger LedgerOrCensus()
+        {
+            if (Damage == null && DamageModel.CensusAll && car != null)
+                Damage = new DamageLedger(car, this, false, System.Guid.NewGuid().GetHashCode());
+            return Damage;
+        }
+
+        void FixedUpdate()
+        {
+            if (Damage != null) Damage.Tick(Time.fixedDeltaTime, Time.time);
+        }
+
         void OnCollisionEnter(Collision c)
         {
+            LedgerOrCensus()?.OnContact(c, true, Time.time);
             if (!Measure(c, out float normalSpeed, out float incidence, out Vector3 n)) return;
 
             // THE CARGO IS TOLD BEFORE ANY OF THE AUDIO GATES RUN.
@@ -321,6 +351,7 @@ namespace PSXRacing
 
         void OnCollisionStay(Collision c)
         {
+            Damage?.OnContact(c, false, Time.time);
             if (!Classify(c, out float normalSpeed, out float incidence, out Vector3 n)) return;
             StampContact(c);
 

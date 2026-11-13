@@ -1274,6 +1274,9 @@ namespace PSXRacing.LifeSim
 
             float meters = RaceHandoff.MetersDriven;
             var car = s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;
+            // R1a: any damage file not folded yet (a drive whose exit did not
+            // stamp) is banked here, once by hitId, onto the car it names.
+            if (DamageModel.Live) DamageBank.FoldFiles(s);
 
             // 0. A CLUB RACE is banked on the club's board BEFORE the block is
             // spent below: a NIGHT race rolls the day there, and the rollover
@@ -1346,7 +1349,9 @@ namespace PSXRacing.LifeSim
                 // worn-out timing belt).
                 // R0a: the body this leg was driven on, before its crash - what
                 // step 5's body-lane wear roll reads (below).
-                float hpBeforeCrash = car.carHP;
+                // R1a: the damage files banked this leg's dents before this
+                // ran (at the hit's exit stamp) - add them back for that read.
+                float hpBeforeCrash = Mathf.Min(100f, car.carHP + DamageBank.TakeLegBody(car));
                 float damage = RaceHandoff.DamageScore;
                 if (damage > 0f)
                 {

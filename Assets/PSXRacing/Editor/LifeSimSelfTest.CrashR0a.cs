@@ -42,6 +42,9 @@ namespace PSXRacing.EditorTools
             // The rest of the suite sees the same UnityEngine.Random sequence
             // it saw before these were added.
             var randomWas = Random.state;
+            // R1a: these pin R0a's table at the hit, which is PSX_FAULT_LOCATED=0.
+            bool locatedWas = DamageModel.On;
+            DamageModel.On = false;
             try
             {
                 Guard(nameof(TestCrashOriginFamilies), TestCrashOriginFamilies);
@@ -56,7 +59,7 @@ namespace PSXRacing.EditorTools
                 Guard(nameof(TestCrashWearNoBumper), TestCrashWearNoBumper);
                 Guard(nameof(TestCrashSwitchOff), TestCrashSwitchOff);
             }
-            finally { Random.state = randomWas; }
+            finally { Random.state = randomWas; DamageModel.On = locatedWas; }
         }
 
         static CrashStopGap.Draws CrashDraws(float bumper = 0.5f, float radiator = 0.5f, float align = 0.5f,
