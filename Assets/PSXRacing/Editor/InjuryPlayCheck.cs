@@ -150,6 +150,11 @@ namespace PSXRacing.EditorTools
             // fix pass 1 (owner 11-14): the same concussion in a car the FAIL stopped ends the drive
             yield return Run(40f, false, "40 km/h concussion in a car that cannot go on (a FAIL put on the ledger after the hit)",
                              o => o == CrashFates.Concussion, null, forceFail: true);
+            // fix pass 1: a concussion in a car that still goes (the belt off at 25 km/h: no FAIL) keeps the drive
+            s.fate.beltOff = true;
+            yield return Run(25f, false, "25 km/h square into a wall with the belt OFF: a concussion, and the car still goes",
+                             o => o == CrashFates.Concussion, null);
+            s.fate.beltOff = false;
             yield return Run(65f, false, "65 km/h square into a wall: hospital, and the drive ends",
                              o => o == CrashFates.Hospital, null);
             s.debugMode = true;
