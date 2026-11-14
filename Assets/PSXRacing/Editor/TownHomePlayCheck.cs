@@ -298,16 +298,19 @@ namespace PSXRacing.EditorTools
                   mm == null ? "no minimap" : "root " + (mm.Root != null && mm.Root.activeInHierarchy) + ", dest " + mmDest);
             float paidBefore = S.money;
 
-            // ---- 4. back in, turned round at the kerb, and out to the house ----
-            var getIn = typeof(ForecourtMode).GetMethod("GetIn", Any);
-            if (getIn != null) fm.StartCoroutine((IEnumerator)getIn.Invoke(fm, null));
-            yield return Seconds(2.2f);
-            Check(!ForecourtMode.OnFoot, "back in the car");
+            // ---- 4. turned round at the kerb, back in, and out to the house ----
+            // Turned while nobody is in it, so the boxes are not on the seat
+            // for the move (they land when the driver does).
             if (world.pizzaKerb != null)
             {
                 car.ResetTo(world.pizzaKerb.position + Vector3.up * 0.3f, world.pizzaKerb.rotation);
                 Line("  (placed: the car is turned round at the shop's kerb, facing west)");
             }
+            yield return Seconds(1.0f);
+            var getIn = typeof(ForecourtMode).GetMethod("GetIn", Any);
+            if (getIn != null) fm.StartCoroutine((IEnumerator)getIn.Invoke(fm, null));
+            yield return Seconds(2.2f);
+            Check(!ForecourtMode.OnFoot, "back in the car");
             yield return Seconds(1.0f);
             Check(PizzaCargo.Instance != null, "the boxes are on the passenger seat");
 
