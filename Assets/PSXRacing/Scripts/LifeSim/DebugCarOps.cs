@@ -390,6 +390,88 @@ namespace PSXRacing.LifeSim
         public static bool HasFault(OwnedCar car, string id) =>
             car != null && car.faults.Exists(f => f.id == id);
 
+        // ------------------------------------------------------------------
+        //  The drive under way (fix pass 1, owner 11-14: "I just wrecked my
+        //  car. It shows zero faults in debug menu ... When I clear the faults
+        //  in debug menu, they are not visibly or mechanically removed from
+        //  car in race"). A drive's crash damage lives in its ledger and its
+        //  pending damage file until the drive ends; the bench reads and puts
+        //  right both. PSX_BENCH_LIVE=0: car.faults only, as before.
+        // ------------------------------------------------------------------
+        public static bool LiveOn = System.Environment.GetEnvironmentVariable("PSX_BENCH_LIVE") != "0";
+
+        /// <summary>The banking ledger of the drive under way on this car, and
+        /// the car it is on; null when the car is not being driven.</summary>
+        public static DamageLedger LiveLedger(OwnedCar car, out CarController driven)
+        {
+            driven = null;
+            if (!LiveOn || car == null || string.IsNullOrEmpty(car.id)) return null;
+            // the ledger armed for this drive (a hidden car - the self-test's bench
+            // car - is not seen by FindObjectsByType)
+            var cur = DamageLedger.Current;
+            if (cur != null && cur.Banks && cur.CarId == car.id && cur.Car != null)
+            {
+                var cr = cur.Car.GetComponent<CollisionResponder>();
+                if (cr != null && cr.Damage == cur) { driven = cur.Car; return cur; }
+            }
+            foreach (var r in Object.FindObjectsByType<CollisionResponder>(FindObjectsSortMode.None))
+            {
+                var L = r != null ? r.Damage : null;
+                if (L == null || !L.Banks || L.CarId != car.id) continue;
+                driven = r.GetComponent<CarController>();
+                return L;
+            }
+            return null;
+        }
+
+        /// <summary>This drive's rows, not banked yet: what its incidents would
+        /// put on the car (or raise) at the drive's end, one per row at its
+        /// worst stage. Empty out of a drive.</summary>
+        public static List<CarFault> UnbankedRows(LifeState s, OwnedCar car)
+        {
+            var list = new List<CarFault>();
+            var L = LiveLedger(car, out _);
+            if (L == null) return list;
+            int day = s != null ? s.day : 0;
+            foreach (var inc in L.incidents)
+            {
+                if (inc == null || (!inc.outcome.Any && inc.fail == DamageRules.FailNone)) continue;
+                foreach (var f in DamageBank.Preview(car, DamageBank.Record(inc), day))
+                {
+                    int at = list.FindIndex(x => x.id == f.id && x.zone1 == f.zone1 && x.hitSide == f.hitSide);
+                    if (at < 0) list.Add(f);
+                    else if (f.stage > list[at].stage) list[at] = f;
+                }
+            }
+            return list;
+        }
+
+        /// <summary>The bench's live state of the car: any of this drive's
+        /// damage (rows, a FAIL) not banked yet.</summary>
+        public static bool LiveDamage(OwnedCar car)
+        {
+            var L = LiveLedger(car, out _);
+            return L != null && (L.Failed != DamageRules.FailNone || L.incidents.Exists(i => i != null && i.outcome.Any));
+        }
+
+        /// <summary>The ledger changed under the bench: its live effects onto the
+        /// car from scratch, the look re-read (after the applier re-specs it).</summary>
+        public static void LiveSync(OwnedCar car, bool accelFresh)
+        {
+            if (!LiveOn || car == null) return;
+            var L = LiveLedger(car, out var driven);
+            if (L == null) return;
+            bool wasOut = L.Failed != DamageRules.FailNone;
+            L.Relive(car.faults, accelFresh);
+            if (driven != null)
+            {
+                DamageLook.Refresh(driven);
+                var rm = RaceManager.Instance;
+                if (wasOut || L.Failed == DamageRules.FailNone)
+                    if (L.Failed == DamageRules.FailNone && rm != null && rm.playerCar == driven) rm.ReinstatePlayer();
+            }
+        }
+
         /// <summary>Put a fault on, or take it off. True when the car
         /// changed. Taking one off removes EVERY copy: the severe lane rule
         /// can in principle leave two of one id on a neglected car, and a
@@ -397,7 +479,18 @@ namespace PSXRacing.LifeSim
         public static bool SetFault(OwnedCar car, CarSpec spec, string id, bool on)
         {
             if (car == null || string.IsNullOrEmpty(id)) return false;
-            if (!on) return car.faults.RemoveAll(f => f.id == id) > 0;
+            if (!on)
+            {
+                bool took = car.faults.RemoveAll(f => f.id == id) > 0;
+                if (LiveOn)
+                {
+                    // fix pass 1: off means off in the drive under way too
+                    var L = LiveLedger(car, out _);
+                    if (L != null && L.DropRows(id) > 0) took = true;
+                    if (CrashFates.IsFailRow(id)) car.wreckHit = 0;
+                }
+                return took;
+            }
             if (HasFault(car, id)) return false;
             var f = FaultCatalog.MakeById(id, OriginOf(spec));
             if (f == null) return false;
@@ -413,6 +506,22 @@ namespace PSXRacing.LifeSim
             if (car == null) return 0;
             int n = car.faults.Count;
             car.faults.Clear();
+            if (!LiveOn) return n;
+            // fix pass 1: a full repair - the FAIL's mark, this drive's damage
+            // not banked yet (the driver's injury stays: it is not the car's),
+            // and the pending file, so nothing folds back at the drive's end.
+            // Commit then puts it onto the car (LiveSync).
+            car.wreckHit = 0;
+            var L = LiveLedger(car, out _);
+            if (L != null)
+            {
+                var s = LifeSimManager.State;
+                n += UnbankedRows(s, car).Count;
+                foreach (var inc in L.incidents)
+                    if (inc != null && inc.injury > CrashFates.None) CrashFates.KeepInjury(s, car, DamageBank.Record(inc));
+                L.Forget();
+            }
+            DamageBank.DropFiles(car.id);
             return n;
         }
 
@@ -685,6 +794,7 @@ namespace PSXRacing.LifeSim
                     LifeHomeScreen.FillCarRequestFor(s, car);
                     applier.ReapplyCar();
                 }
+                LiveSync(car, applier != null);   // fix pass 1: the drive's own damage, re-laid on the fresh car
             }
         }
 

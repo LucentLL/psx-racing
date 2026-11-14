@@ -112,6 +112,64 @@ namespace PSXRacing.LifeSim
         /// <summary>The damage files of the career's key on disk.</summary>
         public static string[] Files() => LifeSimManager.DamageFiles();
 
+        /// <summary>Fix pass 1 (the debug bench's CLEAR ALL FAULTS): every damage
+        /// file of this car not yet folded goes, so nothing folds back at the
+        /// drive's end. Returns the files removed. Never throws.</summary>
+        public static int DropFiles(string carId)
+        {
+            if (string.IsNullOrEmpty(carId)) return 0;
+            int n = 0;
+            foreach (var p in Files())
+            {
+                try
+                {
+                    var f = JsonUtility.FromJson<DamageFile>(File.ReadAllText(p));
+                    if (f == null || f.carId != carId) continue;
+                    File.Delete(p);
+                    n++;
+                }
+                catch (Exception e) { Debug.LogWarning("[DamageBank] could not drop " + p + ": " + e.Message); }
+            }
+            return n;
+        }
+
+        /// <summary>Fix pass 1 (the debug bench's ON THIS CAR list): the rows one
+        /// incident WOULD put on the car, or raise, when it banks - built as the
+        /// fold builds them, the car untouched.</summary>
+        public static List<CarFault> Preview(OwnedCar car, IncidentRec r, int day)
+        {
+            var list = new List<CarFault>();
+            if (car == null || r == null) return list;
+            string family = FaultCatalog.FamilyOf(car);
+            string kind = DamageModel.KindName(r.kind);
+            if (r.rows != null)
+                foreach (var row in r.rows)
+                {
+                    if (row == null || string.IsNullOrEmpty(row.id)) continue;
+                    var have = car.faults != null ? car.faults.Find(f => SameRow(f, row)) : null;
+                    if (have != null && row.stage <= StageOf(have)) continue;
+                    var nf = FaultCatalog.MakeById(row.id, family);
+                    if (nf == null) continue;
+                    list.Add(Stamp(FaultCause.StampImpact(nf, day, car.odoMiles, row.zone, row.side, r.dv), row, r, kind));
+                }
+            if (r.alignSeverity > 0)
+            {
+                var a = FaultCatalog.MakeById(FaultCatalog.AlignmentId, family);
+                if (a != null)
+                {
+                    FaultCause.StampImpact(a, day, car.odoMiles, r.zone, r.alignSide, r.dv);
+                    a.stage = r.alignSeverity >= 2 ? 3f : 2f;
+                    list.Add(a);
+                }
+            }
+            if (CrashFates.FailStaysOn && r.fail != DamageRules.FailNone)
+            {
+                var ff = FaultCatalog.MakeById(CrashFates.FailRowFor(r.fail, r.zone), family);
+                if (ff != null) { FaultCause.StampImpact(ff, day, car.odoMiles, r.zone, r.side, r.dv); ff.stage = 3f; list.Add(ff); }
+            }
+            return list;
+        }
+
         /// <summary>A row's stage: its own, or (a row from before v26, or one an
         /// older path rolled) its legacy severity read as 1 -> 2, 2 -> 3.</summary>
         public static float StageOf(CarFault f) =>
@@ -248,6 +306,7 @@ namespace PSXRacing.LifeSim
             if (row.corner >= 0) f.causeNote += " " + DamageModel.CornerNames[Mathf.Clamp(row.corner, 0, 3)];
             f.hitId = r.hitId;
             if (row.id == DamageModel.GlassId) f.cost = DamageHomes.GlassCost(f.cost, f.stage, row.stage);   // R1c-A: priced by stage
+            else if (row.id == DamageModel.PanelId) f.cost = DamageHomes.PanelCost(f.cost, f.stage, row.stage);   // fix pass 1
             f.stage = row.stage;
             f.mag = row.mag;
             f.corner1 = row.corner + 1;

@@ -47,7 +47,13 @@ namespace PSXRacing.LifeSim
         void BuildHospital(ref float y)
         {
             var f = S.fate;
-            FateLine(ref y, "YOU WAKE UP IN HOSPITAL", MenuKit.Head, MenuKit.Accent, true);
+            if (CrashFates.FastForwardOn)
+            {
+                // fix pass 1 (owner 11-14): the calendar ran through the stay; this is the discharge day
+                FateLine(ref y, LifeRules.DateLabel(S.day), MenuKit.Head, MenuKit.Accent, true);
+                FateLine(ref y, "You have been discharged from the hospital.", MenuKit.Small, Color.white);
+            }
+            else FateLine(ref y, "YOU WAKE UP IN HOSPITAL", MenuKit.Head, MenuKit.Accent, true);
             FateLine(ref y, "The crash " + f.pendingWhere + " broke more than the car: " + f.injuryWhat + ".", MenuKit.Small, Color.white);
             y -= 4f;
             FateRow(ref y, "IN HOSPITAL", f.hospDays + " DAY" + (f.hospDays == 1 ? "" : "S"), Color.white);
@@ -59,8 +65,11 @@ namespace PSXRacing.LifeSim
             if (!string.IsNullOrEmpty(f.hospNote)) FateLine(ref y, f.hospNote, MenuKit.Tiny, MenuKit.Dim);
             y -= 6f;
             int left = Mathf.Max(0, f.injuredUntil - S.day);
-            FateLine(ref y, "NO DRIVING AND NO WORK UNTIL " + LifeRules.DateLabel(f.injuredUntil) + " (" + left + " MORE DAY" +
-                     (left == 1 ? "" : "S") + "). Missed shifts are unpaid medical leave, not held against you.", MenuKit.Small, MenuKit.Accent);
+            if (CrashFates.FastForwardOn)
+                FateLine(ref y, "Shifts missed while you were in were unpaid medical leave, not held against you.", MenuKit.Small, MenuKit.Accent);
+            else
+                FateLine(ref y, "NO DRIVING AND NO WORK UNTIL " + LifeRules.DateLabel(f.injuredUntil) + " (" + left + " MORE DAY" +
+                         (left == 1 ? "" : "S") + "). Missed shifts are unpaid medical leave, not held against you.", MenuKit.Small, MenuKit.Accent);
             y -= 8f;
             MenuKit.Button(body, "CONTINUE", new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(460f, 46f), () =>
             {

@@ -558,6 +558,16 @@ namespace PSXRacing
         }
         public bool PlayerOut { get; private set; }
 
+        /// <summary>Fix pass 1 (the debug bench put a FAIL right mid-race): the
+        /// player's car is back in the race.</summary>
+        public void ReinstatePlayer()
+        {
+            if (playerCar == null || !PlayerOut) return;
+            if (progressMap.TryGetValue(playerCar, out var p) && !p.finished) p.retired = false;
+            PlayerOut = false;
+            Debug.Log("[Race] the debug bench put the player's car right: back in the race");
+        }
+
         /// <summary>How many rivals are out this race, and the latest - for
         /// the HUD's notice.</summary>
         public int RetiredCount { get; private set; }

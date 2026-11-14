@@ -22,6 +22,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 CrashFates.InjuryOn = CrashFates.FailStaysOn = CrashFates.WriteOffOn = DamageModel.GlassRuleOn = DamageHomes.SrsOn = true;
+                CrashFates.FastForwardOn = false;   // fix pass 1: these test R1c-A's recovery at home (PSX_HOSPITAL_FASTFORWARD=0)
                 Guard(nameof(TestInjuryTable), TestInjuryTable);
                 Guard(nameof(TestRecoveryHealth), TestRecoveryHealth);
                 Guard(nameof(TestFatesCareer), TestFatesCareer);
@@ -34,6 +35,7 @@ namespace PSXRacing.EditorTools
             finally
             {
                 CrashFates.InjuryOn = inj; CrashFates.FailStaysOn = stay; CrashFates.WriteOffOn = wo; DamageModel.GlassRuleOn = glass; DamageHomes.SrsOn = srs;
+                CrashFates.FastForwardOn = System.Environment.GetEnvironmentVariable("PSX_HOSPITAL_FASTFORWARD") != "0";
             }
         }
 

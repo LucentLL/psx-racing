@@ -36,6 +36,15 @@ namespace PSXRacing
         public static bool BodyOn = Env("PSX_FAULT_BODY");
         public static bool SteamOn = Env("PSX_FAULT_STEAM");
         public static bool SrsOn = Env("PSX_FAULT_SRS");
+        /// <summary>Fix pass 1 (owner 11-14: "the windows and side mirrors keep
+        /// alternating between different states of damage while driving
+        /// normally"): each renderer's frame against the body box is taken at
+        /// the shell's REST pose. CarBodyLean leans the shell every frame while
+        /// the box stays on the chassis, so a frame taken mid-lean (every push:
+        /// each 2 s and each new incident) slid the masks' beltline and roof
+        /// edges over the glass and the mirrors, one lean to the next.
+        /// PSX_FAULT_LOOKREST=0: the frame as the shell leans at the push.</summary>
+        public static bool RestOn = Env("PSX_FAULT_LOOKREST");
 
         /// <summary>Steam: a weeping core from this hot, a holed one from this.</summary>
         public const float WeepSteamC = 98f, HoleSteamC = 85f;
@@ -90,6 +99,46 @@ namespace PSXRacing
                 foreach (var f in owned.faults) if (f != null) carried.Add(f);
             nextRead = 0f;
             pushedOnce = false;
+        }
+
+        /// <summary>
+        /// Fix pass 1 (the debug bench): the car's rows changed under a drive -
+        /// re-read them now, take off the bags and the crack that no longer
+        /// stand, stop the steam, and push the body and the lamps at once.
+        /// </summary>
+        public static void Refresh(CarController car)
+        {
+            var look = car != null ? car.GetComponent<DamageLook>() : null;
+            if (look == null || look.car == null) return;
+            look.Bind(look.car, look.ledger);
+            look.Now = Read(look.carried, look.ledger);
+            if (!LampsOn) look.Now.lampOut = 0;
+            if (!BodyOn) { look.Now.zones = Vector4.zero; look.Now.roof = 0f; }
+            if (!SrsOn) look.Now.bags = 0;
+            if (look.Now.bags == 0 && look.bagsPlaced > 0)
+            {
+                foreach (var t in look.car.GetComponentsInChildren<Transform>(true))
+                    if (t != null && t.name.StartsWith("SRS_")) DestroyNow(t.gameObject);
+                look.bagsPlaced = 0;
+                var ci = look.car.GetComponentInChildren<CockpitInterior>(true);
+                if (ci != null) ci.CollectRenderers();
+            }
+            if (look.Now.roof <= 0f && look.crack != null) { DestroyNow(look.crack); look.crack = null; }
+            if (look.Now.radStage == 0 && look.steam != null)
+            {
+                var em = look.steam.emission;
+                em.rateOverTime = 0f;
+                look.steam.Clear();
+            }
+            look.Push();
+            look.nextRead = Time.time + 0.2f;
+            look.nextPush = Time.time + 2f;
+        }
+
+        static void DestroyNow(Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) Destroy(o); else DestroyImmediate(o);
         }
 
         // ================= the rows -> the look =================
@@ -184,6 +233,17 @@ namespace PSXRacing
             float seed = Mathf.Abs((carId ?? "").GetHashCode() % 1000) * 0.0137f;
             bool any = Now.Any;
             if (block == null) block = new MaterialPropertyBlock();
+            // the shell as it rests on the chassis (CarBodyLean's lean taken out)
+            Transform root = RestOn && body != null && body.bodyRoot != null && body.bodyRoot.parent != null ? body.bodyRoot : null;
+            Matrix4x4 restM = Matrix4x4.identity;
+            Quaternion restQ = Quaternion.identity;
+            if (root != null)
+            {
+                var def = body.Def;
+                var restRot = Quaternion.Euler(0f, def != null ? def.bodyYaw : 0f, 0f);
+                restM = root.parent.localToWorldMatrix * Matrix4x4.TRS(body.SeatPosition, restRot, root.localScale) * root.worldToLocalMatrix;
+                restQ = root.parent.rotation * restRot * Quaternion.Inverse(root.rotation);
+            }
             foreach (var r in rends)
             {
                 if (r == null) continue;
@@ -193,10 +253,12 @@ namespace PSXRacing
                 var m = r.sharedMaterial;
                 if (m != null && m.HasProperty("_Dull") && m.GetFloat("_Dull") > 0.5f) wheel = true;
                 var t = r.transform;
-                Matrix4x4 lw = t.localToWorldMatrix;
+                bool onShell = root != null && t.IsChildOf(root);
+                Matrix4x4 lw = onShell ? restM * t.localToWorldMatrix : t.localToWorldMatrix;
+                Quaternion inv = Quaternion.Inverse(onShell ? restQ * t.rotation : t.rotation);
                 var axis = new Vector3(((Vector3)lw.GetColumn(0)).magnitude, ((Vector3)lw.GetColumn(1)).magnitude, ((Vector3)lw.GetColumn(2)).magnitude);
-                Vector3 cB = Vector3.Scale(t.InverseTransformPoint(cW), axis);
-                Vector3 f = t.InverseTransformDirection(bt.forward), rt = t.InverseTransformDirection(bt.right), up = t.InverseTransformDirection(bt.up);
+                Vector3 cB = Vector3.Scale(lw.inverse.MultiplyPoint3x4(cW), axis);
+                Vector3 f = inv * bt.forward, rt = inv * bt.right, up = inv * bt.up;
                 r.GetPropertyBlock(block);
                 block.SetFloat(OnId, any && !wheel ? 1f : 0f);
                 block.SetVector(AId, Now.zones);

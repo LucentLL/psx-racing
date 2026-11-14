@@ -18,6 +18,9 @@ namespace PSXRacing
         static readonly int CentreId = Shader.PropertyToID("_PSXOwnBoxC");
         static readonly int HalfId = Shader.PropertyToID("_PSXOwnBoxH");
         static MaterialPropertyBlock block;
+        /// <summary>Fix pass 1: the clip only for an eye inside the car (PSXOwnCarClip.cginc);
+        /// PSX_SMOKE_BOXFIX=0 clips for every eye, as before.</summary>
+        public static bool EyeInsideOnly = System.Environment.GetEnvironmentVariable("PSX_SMOKE_BOXFIX") != "0";
 
         /// <summary>Hand <paramref name="r"/> the box of <paramref name="car"/>'s
         /// body (its <paramref name="box"/> collider), keeping whatever else is
@@ -32,7 +35,7 @@ namespace PSXRacing
                 var c = box.center; var s = box.size;
                 block.SetMatrix(W2LId, car.worldToLocalMatrix);
                 block.SetVector(CentreId, new Vector4(c.x, c.y, c.z, 1f));
-                block.SetVector(HalfId, new Vector4(s.x / 0.915f * 0.5f, s.y * 0.5f, s.z / 0.955f * 0.5f, 0f));
+                block.SetVector(HalfId, new Vector4(s.x / 0.915f * 0.5f, s.y * 0.5f, s.z / 0.955f * 0.5f, EyeInsideOnly ? 0f : 1f));
             }
             else block.SetVector(CentreId, Vector4.zero);
             r.SetPropertyBlock(block);

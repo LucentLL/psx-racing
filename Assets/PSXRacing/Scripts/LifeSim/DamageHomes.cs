@@ -48,6 +48,19 @@ namespace PSXRacing.LifeSim
             return Mathf.RoundToInt(flat * GlassPrice[n] / 480f);
         }
 
+        // Fix pass 1 (PSX_FAULT_PANELSTAGE; design: "used cover $40 + paint $60"): panel_damage by stage -
+        // a scuff or a cracked cover $100, a dent $230 (the flat price before), crumpled $460, scaled by
+        // the family's own flat price. =0: the flat price at every stage.
+        public static bool PanelStageOn = System.Environment.GetEnvironmentVariable("PSX_FAULT_PANELSTAGE") != "0";
+        static readonly int[] PanelPrice = { 230, 100, 230, 460 };
+        public static int PanelCost(int cost, float oldStage, float newStage)
+        {
+            if (!PanelStageOn) return cost;
+            int o = Mathf.Clamp(Mathf.RoundToInt(oldStage), 0, 3), n = Mathf.Clamp(Mathf.RoundToInt(newStage), 0, 3);
+            float flat = cost * 230f / PanelPrice[o];
+            return Mathf.RoundToInt(flat * PanelPrice[n] / 230f);
+        }
+
         // ---------------- the shelf ----------------
         static void More(Dictionary<string, string[]> d, string key, params string[] ids)
         {

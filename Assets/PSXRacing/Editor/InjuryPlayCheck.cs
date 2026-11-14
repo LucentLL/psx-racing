@@ -147,6 +147,14 @@ namespace PSXRacing.EditorTools
                              o => o == CrashFates.None || o == CrashFates.Concussion, null);
             yield return Run(40f, false, "40 km/h square into a wall (the blur)",
                              o => o == CrashFates.Concussion, Path.Combine(ShotDir, "r1ca_concussion_blur.png"));
+            // fix pass 1 (owner 11-14): the same concussion in a car the FAIL stopped ends the drive
+            yield return Run(40f, false, "40 km/h concussion in a car that cannot go on (a FAIL put on the ledger after the hit)",
+                             o => o == CrashFates.Concussion, null, forceFail: true);
+            // fix pass 1: a concussion in a car that still goes (the belt off at 25 km/h: no FAIL) keeps the drive
+            s.fate.beltOff = true;
+            yield return Run(25f, false, "25 km/h square into a wall with the belt OFF: a concussion, and the car still goes",
+                             o => o == CrashFates.Concussion, null);
+            s.fate.beltOff = false;
             yield return Run(65f, false, "65 km/h square into a wall: hospital, and the drive ends",
                              o => o == CrashFates.Hospital, null);
             s.debugMode = true;
@@ -162,7 +170,7 @@ namespace PSXRacing.EditorTools
             Check(LifeSimManager.ReadOnly || f.deathLocked || !LifeSimManager.Persists, "and the career is locked");
         }
 
-        IEnumerator Run(float kmh, bool tree, string what, System.Func<int, bool> want, string shot)
+        IEnumerator Run(float kmh, bool tree, string what, System.Func<int, bool> want, string shot, bool forceFail = false)
         {
             if (InjuryFx.Active != null) Destroy(InjuryFx.Active.gameObject);
             yield return null;
@@ -191,6 +199,12 @@ namespace PSXRacing.EditorTools
             float t = 0f;
             while (t < 8f && (L == null || L.incidents.Count == 0)) { t += Time.fixedDeltaTime; yield return new WaitForFixedUpdate(); }
             hold = false;
+            if (forceFail && L != null && L.incidents.Count > 0 && L.Failed == DamageRules.FailNone)
+            {
+                L.Failed = DamageRules.FailHit;
+                L.FailHitId = L.incidents[0].hitId;
+                car.faultAccelMult = 0f;
+            }
             yield return Fixed(0.6f);
             if (L == null) { Check(false, what + ": no ledger armed"); yield break; }
             var worst = L.incidents.OrderByDescending(i => i.injScore).FirstOrDefault();
@@ -210,10 +224,32 @@ namespace PSXRacing.EditorTools
                 bool ok = fx != null && fx.ShootPng(shot, 1024, 768);
                 Check(ok && File.Exists(shot), "  the concussion as the player sees it, 1.6 s in: " + shot);
             }
+            float hold0 = fx != null ? fx.HoldSeconds : 4f;
+            bool goesOn = !InjuryFx.EndsDrive(got, InjuryFx.CarCannotGo(car));
+            int came = InjuryFx.CameRound;
             float wait = 0f;
-            while (ended < 0 && wait < 9f) { wait += Time.unscaledDeltaTime; yield return null; }
-            Check(ended == got, "  the drive ends after the black-out (" + (fx != null ? fx.HoldSeconds.ToString("0") : "?") + " s)",
-                  "ended " + CrashFates.OutcomeName(ended));
+            while (ended < 0 && InjuryFx.Active != null && wait < 12f) { wait += Time.unscaledDeltaTime; yield return null; }
+            if (!goesOn)
+            {
+                Check(ended == got, "  the drive ends after the black-out (" + hold0.ToString("0") + " s)" +
+                      (InjuryFx.CarCannotGo(car) ? ": the car cannot go on" : ""), "ended " + CrashFates.OutcomeName(ended));
+                yield break;
+            }
+            // fix pass 1: the driver comes round, the drive goes on
+            Check(ended < 0 && InjuryFx.Active == null && InjuryFx.CameRound == came + 1,
+                  "  a concussion in a car that still goes: the dark lifts after " + hold0.ToString("0") + " s + " +
+                  InjuryFx.WakeSeconds.ToString("0.0") + " s and the drive goes on (no tow)",
+                  "ended " + (ended < 0 ? "no" : CrashFates.OutcomeName(ended)) + ", fx " + (InjuryFx.Active != null ? "still up" : "gone") +
+                  " after " + wait.ToString("0.0") + " s");
+            Check(car.faultAccelMult > 0.5f && AudioListener.volume > 0.99f, "  the controls and the sound come back",
+                  "accel x" + car.faultAccelMult.ToString("0.00") + ", volume " + AudioListener.volume.ToString("0.00"));
+            car.TeleportTo(NextStart(), Quaternion.identity);
+            yield return Fixed(0.2f);
+            hold = true; holdMps = 12f;
+            yield return Fixed(2.5f);
+            hold = false;
+            float vf = Vector3.Dot(rb.linearVelocity, car.transform.forward);
+            Check(vf > 4f, "  and the car drives on under its own power", vf.ToString("0.0") + " m/s after 2.5 s of throttle");
         }
     }
 
