@@ -74,6 +74,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.Solo = true;
             var cars = CarCatalog.All;
             if (cars.Count > 0) RaceHandoff.CarSpecId = cars[0].id;
+            // An arcade session: no career, the DAMAGE option arms (ArcadeDamagePlayCheck).
+            if (System.Environment.GetEnvironmentVariable("PSX_ARCADE_DAMAGE_CHECK") == "1") ArcadeMode.Simulate(true);
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
             EditorApplication.playModeStateChanged += OnState;
@@ -86,7 +88,9 @@ namespace PSXRacing.EditorTools
             EditorApplication.playModeStateChanged -= OnState;
             // R1a: the located model's check while it is live; R0a's table
             // check with PSX_FAULT_LOCATED=0.
-            if (System.Environment.GetEnvironmentVariable("PSX_FIX1_FRAMES") == "1")   // fix pass 1: D + C
+            if (System.Environment.GetEnvironmentVariable("PSX_ARCADE_DAMAGE_CHECK") == "1")   // the arcade's DAMAGE option
+                new GameObject("ArcadeDamagePlayCheckRunner").AddComponent<ArcadeDamagePlayCheckRunner>();
+            else if (System.Environment.GetEnvironmentVariable("PSX_FIX1_FRAMES") == "1")   // fix pass 1: D + C
                 new GameObject("Fix1FramesRunner").AddComponent<Fix1FramesRunner>();
             else if (System.Environment.GetEnvironmentVariable("PSX_INJURY_CHECK") == "1")   // R1c-A
                 new GameObject("InjuryPlayCheckRunner").AddComponent<InjuryPlayCheckRunner>();

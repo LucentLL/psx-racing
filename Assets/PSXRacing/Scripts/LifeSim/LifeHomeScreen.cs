@@ -700,6 +700,15 @@ namespace PSXRacing.LifeSim
             {
                 wizJob = 0;
                 var only = LifeRules.Jobs[0];
+                // THE CARD SCROLLS IN ITS OWN BAND (owner, 2026-11-14, a
+                // 2000x1077 window): the card and its health plan run 290 units
+                // and the band between the name row and NEXT is 200 on any
+                // canvas past 1.85:1, so the plan buttons and their terms ran
+                // under NEXT. They scroll inside the band now, NEXT keeps the
+                // band under it to itself, and the pad's cursor keeps its row
+                // in view. PSX_WIZARD_SCROLL=0: drawn straight on, as before.
+                var cardList = list;
+                if (WizardScrollOn) list = MenuKit.ScrollBody(cardList);
                 float cy = -14f;
                 MenuKit.Label(list, only.name, MenuKit.Head, new Vector2(0f, 1f),
                     new Vector2(20f, cy), TextAnchor.MiddleLeft, MenuKit.Accent, 700f, bold: true);
@@ -717,7 +726,11 @@ namespace PSXRacing.LifeSim
                 }
                 // R1c-B: the health plan is picked here, at hire.
                 cy -= 8f;
-                WizardPlanRows(list, cy);
+                cy = WizardPlanRows(list, cy);
+                // The band: the root less its 24-unit margins, the 212 above
+                // the list and the 100 kept under it for NEXT.
+                if (WizardScrollOn) MenuKit.FitScrollContent(list, MenuKit.DesignHeight - 360f, 8f);
+                list = cardList;
             }
             else
             {
@@ -757,8 +770,15 @@ namespace PSXRacing.LifeSim
             // down the left, and on a wide (short) canvas they reach the bottom band.
             // Owner 11-14: the centred button sat over the plan row and its terms,
             // and a pad skipped straight past the plans to it.
-            MenuKit.Button(root, "NEXT: PICK A CAR", new Vector2(1f, 0f), new Vector2(-40f, 20f),
-                new Vector2(380f, 62f), () =>
+            // With the card scrolling in its band (WizardScrollOn), NEXT sits in
+            // the band under it, left-aligned under the plan buttons and as
+            // wide as their row: nothing else is ever drawn there, and DOWN
+            // from any of the four plans lands on it.
+            bool under = WizardScrollOn && n == 1;
+            float nextW = under ? Mathf.Min(4f * 150f + 3f * 8f, MenuKit.HalfWidth * 2f - 200f) : 380f;
+            MenuKit.Button(root, "NEXT: PICK A CAR", under ? new Vector2(0f, 0f) : new Vector2(1f, 0f),
+                under ? new Vector2(60f, 20f) : new Vector2(-40f, 20f),
+                new Vector2(nextW, 62f), () =>
                 {
                     // An empty name is not a valid save: Start() routes a state
                     // with no playerName straight back into this wizard, so
@@ -771,7 +791,55 @@ namespace PSXRacing.LifeSim
                 }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
 
             WirePanelNavigation(root);
+            if (under)
+            {
+                // The pad: the four plans, then NEXT - DOWN from any plan lands
+                // on NEXT and UP from NEXT on the plan picked, whatever the
+                // geometry makes of a scrolled card (now, and again on top of
+                // the graph the watch builds a frame later).
+                WizardPlanLinks(root);
+                var watch = GetComponent<MenuNavWatch>();
+                if (watch != null) watch.applied = () => { if (root != null) WizardPlanLinks(root); };
+            }
         }
+
+        /// <summary>The NEW GAME card's pad links: each plan's DOWN is NEXT,
+        /// NEXT's UP is the plan picked.</summary>
+        void WizardPlanLinks(RectTransform root)
+        {
+            var keys = new[] { "NONE", "BASIC", "STANDARD", "PREMIUM" };
+            Selectable next = null;
+            var plans = new Selectable[keys.Length];
+            foreach (var s in root.GetComponentsInChildren<Selectable>(false))
+            {
+                if (s.name == "Btn_NEXT: PICK A CAR") next = s;
+                int i = System.Array.IndexOf(keys, s.name.StartsWith("Btn_") ? s.name.Substring(4) : "");
+                if (i >= 0) plans[i] = s;
+            }
+            if (next == null) return;
+            Selectable picked = null;
+            for (int i = 0; i < plans.Length; i++)
+            {
+                if (plans[i] == null) continue;
+                var nav = plans[i].navigation;
+                nav.mode = Navigation.Mode.Explicit;
+                nav.selectOnDown = next;
+                plans[i].navigation = nav;
+                var p = Insurance.PlanByKey(i == 0 ? "" : keys[i].ToLowerInvariant());
+                if ((p != null ? p.key : "") == (wizPlan ?? "")) picked = plans[i];
+                if (picked == null && i == plans.Length - 1) picked = plans[i];
+            }
+            if (picked == null) return;
+            var nn = next.navigation;
+            nn.mode = Navigation.Mode.Explicit;
+            nn.selectOnUp = picked;
+            next.navigation = nn;
+        }
+
+        /// <summary>PSX_WIZARD_SCROLL=0: the NEW GAME card drawn straight onto
+        /// the panel with NEXT bottom-right, as before (it overlapped the plans
+        /// on a canvas between about 1.8:1 and 2:1).</summary>
+        public static bool WizardScrollOn = System.Environment.GetEnvironmentVariable("PSX_WIZARD_SCROLL") != "0";
 
         /// <summary>A new career answering NO drives the guided first drive once
         /// its car is chosen (City.FirstDrive).</summary>

@@ -76,13 +76,22 @@ namespace PSXRacing
         static MaterialPropertyBlock block;
 
         /// <summary>The career car's look, armed with its ledger (DamageLedger.Arm).</summary>
-        public static void Attach(CarController car, DamageLedger L)
+        public static void Attach(CarController car, DamageLedger L) => Attach(car, L, false);
+
+        /// <summary><paramref name="bodyOnly"/>: the arcade's VISUAL ONLY
+        /// (ArcadeDamage) - the dented panels and the cracked glass, never a
+        /// lamp out, steam or a bag.</summary>
+        public static void Attach(CarController car, DamageLedger L, bool bodyOnly)
         {
             if (!On || car == null) return;
             var look = car.GetComponent<DamageLook>();
             if (look == null) look = car.gameObject.AddComponent<DamageLook>();
+            look.bodyOnly = bodyOnly;
             look.Bind(car, L);
         }
+
+        /// <summary>The arcade's VISUAL ONLY: the body alone.</summary>
+        public bool bodyOnly;
 
         void Bind(CarController c, DamageLedger L)
         {
@@ -200,6 +209,7 @@ namespace PSXRacing
                 if (!LampsOn) Now.lampOut = 0;
                 if (!BodyOn) { Now.zones = Vector4.zero; Now.roof = 0f; }
                 if (!SrsOn) Now.bags = 0;
+                if (bodyOnly) { Now.lampOut = 0; Now.bags = 0; Now.radStage = 0; }
                 bool changed = !pushedOnce || !Same(Now, pushed);
                 if (changed || now >= nextPush) { Push(); nextPush = now + 2f; }
                 if (Now.bags > 0 && bagsPlaced == 0) PlaceBags();

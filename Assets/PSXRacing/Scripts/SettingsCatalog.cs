@@ -281,6 +281,12 @@ namespace PSXRacing
             Step(SettingsTab.Gameplay, "CLUSTER BULB", () => ClusterBulbs.Name,
                  "The colour behind the dials after dark.",
                  () => ClusterBulbs.Cycle(1));
+            // The arcade's crash damage (ArcadeDamage): a career always takes
+            // its damage, so the row is the arcade's alone.
+            if (ArcadeDamage.On && ArcadeMode.Active)
+                Step(SettingsTab.Gameplay, "DAMAGE", () => ArcadeDamage.Label,
+                     "FULL: crashes dent, break lamps and bend the car, and a wreck is a DNF. VISUAL ONLY: the dents alone. Next race.",
+                     () => ArcadeDamage.Cycle());
             // On foot only - and the CITY edition has no feet: nobody gets out
             // of a car there, so the row would be a switch for nothing.
             if (Edition.HasCareer)

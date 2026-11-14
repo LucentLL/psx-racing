@@ -506,6 +506,13 @@ namespace PSXRacing
         readonly CarBody body;
         readonly System.Random rng;
         public readonly bool Banks;
+        /// <summary>The arcade's FULL damage (ArcadeDamage): what happens to the
+        /// car happens on this drive - the pull, the power, the radiator, the
+        /// bags, the FAIL - without banking (no save, no injury).</summary>
+        public bool LiveFx;
+        /// <summary>The drive's damage acts on the car: a career car's, or the
+        /// arcade's FULL.</summary>
+        public bool Acts => Banks || LiveFx;
         public string CarId = "";
         public int Day;
         public float Odo;
@@ -748,7 +755,7 @@ namespace PSXRacing
             if (Failed != DamageRules.FailNone) return;
             Failed = f;
             FailHitId = inc.hitId;
-            if (Banks) DamageRules.OnFail(car, inc, f);
+            if (Acts) DamageRules.OnFail(car, inc, f);
         }
 
         /// <summary>The other car's nose (its front third) met this car, and this
@@ -809,7 +816,7 @@ namespace PSXRacing
             if (band < inc.band) band = inc.band;
             inc.band = band;
             DamageModel.Resolve(inc, bumper);
-            SrsBag.AfterResolve(inc, Banks);   // R1a part 2a: crush order + bags
+            SrsBag.AfterResolve(inc, Acts);   // R1a part 2a: crush order + bags (+ the arcade's FULL)
             CheckFail(inc);
             LifeSim.CrashFates.OnIncident(car, inc, Banks);   // R1c-A: the driver
             ApplyLive();
@@ -961,7 +968,7 @@ namespace PSXRacing
             inc.tLast = now;
             inc.dv = Mathf.Max(inc.dv, 0.01f);
             Reresolve(inc);
-            if (Banks && inc.outcome.hydrolock && temp != null && !temp.Seized)
+            if (Acts && inc.outcome.hydrolock && temp != null && !temp.Seized)
                 temp.Seize("went into the water running and stopped dead");
             return inc;
         }
@@ -1001,7 +1008,7 @@ namespace PSXRacing
                     if (r.id == DamageModel.ExhaustId) exhaust = true;
                 }
             }
-            if (!Banks || car == null) return;
+            if (!Acts || car == null) return;
             car.hitSteerPull = aBand > 0 ? aSide * CrashStopGap.PullDeg(aBand) : 0f;
             if (exhaust && !exhaustApplied) { exhaustApplied = true; car.faultAccelMult *= DamageModel.ExhaustPower; }
             if (temp == null) return;

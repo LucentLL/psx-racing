@@ -645,6 +645,10 @@ namespace PSXRacing.LifeSim
                 () => ArcadeMode.Aids = (ArcadeMode.Aids + 1) % ArcadeMode.AidNames.Length);
             Option(ref y, x, w, "TYRES:  " + ArcadeMode.TyreNames[ArcadeMode.Tyres], "opt_tyres",
                 () => ArcadeMode.Tyres = (ArcadeMode.Tyres + 1) % ArcadeMode.TyreNames.Length);
+            // The same DAMAGE as OPTIONS > GAMEPLAY (ArcadeDamage), here too:
+            // this is the page a race is set up on.
+            if (ArcadeDamage.On)
+                Option(ref y, x, w, "DAMAGE:  " + ArcadeDamage.Label, "opt_damage", ArcadeDamage.Cycle);
             if (kind == ArcadeMode.Kind.Race)
             {
                 var t = Venue() >= 0 ? TrackCatalog.At(Venue()) : null;
@@ -705,7 +709,13 @@ namespace PSXRacing.LifeSim
                 resultSub = t != null ? t.name : "THE COURSE";
                 bool trial = RaceHandoff.Solo;
                 float time = RaceHandoff.RaceTimeSeconds;
-                if (trial)
+                // DAMAGE FULL (ArcadeDamage): a structural FAIL ended the run.
+                if (ArcadeDamage.TakeDnf())
+                {
+                    resultHead = "DNF";
+                    resultLines.Add("THE CAR COULD NOT GO ON");
+                }
+                else if (trial)
                 {
                     resultHead = time > 0f ? ArcadeMode.Clock(time) : "NO TIME";
                     var spec = CarCatalog.Get(RaceHandoff.CarSpecId);
