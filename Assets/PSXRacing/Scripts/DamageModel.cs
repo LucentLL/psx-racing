@@ -488,6 +488,9 @@ namespace PSXRacing
         /// <summary>R1c-A: the driver's injury from this incident (LifeSim.CrashFates), 0 none, and its score.</summary>
         public int injury;
         public float injScore;
+        /// <summary>Fix pass 1 (the race census): another car's nose struck this
+        /// one, and this car's nose did not strike it - not this driver's doing.</summary>
+        public bool struck;
     }
 
     /// <summary>
@@ -690,6 +693,7 @@ namespace PSXRacing
                     p.inc = JoinOrOpen(DamageModel.KHit, zone, side, corner, now, narrow, glancing,
                                        c.collider != null ? c.collider.name : "?");
                 if (p.inc != null) p.inc.frontCos = Mathf.Max(p.inc.frontCos, SrsBag.FrontCos(nL));   // R1a part 2a
+                if (p.inc != null && p.inc.t0 == now && orb != null) p.inc.struck = StruckBy(orb, c, zone, corner);
                 // R1a part 2 (DamageRules.SpanZone): a push above the belt at the
                 // car's end reached the panel under the glass as well
                 int z2 = p.inc != null && p.inc.kind == DamageModel.KHit ? DamageRules.SpanZone(shell, local, nL, zone) : DamageModel.ZNone;
@@ -739,6 +743,21 @@ namespace PSXRacing
             Failed = f;
             FailHitId = inc.hitId;
             if (Banks) DamageRules.OnFail(car, inc, f);
+        }
+
+        /// <summary>The other car's nose (its front third) met this car, and this
+        /// car's nose did not meet it: a rear-ending or a T-bone by the other.</summary>
+        static bool StruckBy(Rigidbody orb, Collision c, int zone, int corner)
+        {
+            var oc = orb.GetComponent<CarController>();
+            if (oc == null || c.contactCount == 0) return false;
+            bool myNose = zone == DamageModel.ZFront || (zone == DamageModel.ZCorner && corner >= 0 && corner < 2);
+            if (myNose) return false;
+            var ob = oc.GetComponent<BoxCollider>();
+            float half = ob != null ? ob.size.z * 0.5f : 2.2f;
+            float cz = ob != null ? ob.center.z : 0f;
+            Vector3 o = oc.transform.InverseTransformPoint(c.GetContact(0).point);
+            return o.z - cz > half * 0.33f;
         }
 
         Incident JoinOrOpen(int kind, int zone, int side, int corner, float now, bool narrow, bool glancing, string what)
@@ -992,6 +1011,90 @@ namespace PSXRacing
             if (w > temp.radiatorWeep) temp.radiatorWeep = w;
         }
 
+        // ================= the debug bench (fix pass 1) =================
+        /// <summary>
+        /// The bench's CLEAR ALL FAULTS: this drive's damage is forgotten as a
+        /// shop would put it right - every incident (nothing is left to bank),
+        /// the FAIL, the crushed bars, the radiator's hit and weep, the coolant
+        /// topped up. The car's own rows are the bench's (car.faults, cleared
+        /// first); call <see cref="Relive"/> after the applier re-specs the car.
+        /// </summary>
+        public void Forget()
+        {
+            incidents.Clear();
+            pulses.Clear();
+            dropInc = null;
+            Failed = FailHitId = 0;
+            radiatorApplied = 0f;
+            dirty = false;
+            if (temp != null) temp.coolantPct = 100f;
+        }
+
+        /// <summary>A bench switch turned a row off: it goes from this drive's
+        /// incidents too (with what only it did: a radiator row's leak, the
+        /// alignment's pull, a FAIL row's FAIL). Returns the rows taken.</summary>
+        public int DropRows(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return 0;
+            int n = 0;
+            bool fail = LifeSim.CrashFates.IsFailRow(id), align = id == LifeSim.FaultCatalog.AlignmentId;
+            foreach (var inc in incidents)
+            {
+                var o = inc.outcome;
+                n += o.rows.RemoveAll(r => r.id == id);
+                if (id == DamageModel.RadiatorId) { o.radiatorLoss = 0f; o.leakPctMin = 0f; }
+                if (align && o.alignSeverity > 0) { o.alignSeverity = 0; n++; }
+                if (fail && inc.fail != DamageRules.FailNone) { inc.fail = DamageRules.FailNone; n++; }
+            }
+            if (fail) { Failed = FailHitId = 0; }
+            if (n > 0) dirty = true;
+            return n;
+        }
+
+        /// <summary>
+        /// After the bench changed the car (the applier has re-specced it):
+        /// this drive's live effects from scratch onto what the car now carries
+        /// - the crushed bars and the base weep re-read from its rows, the pull,
+        /// the radiator's hit and weep set (not only raised), the exhaust's cut
+        /// once more on the applier's fresh power, a FAIL that still stands
+        /// keeping the car stopped. <paramref name="accelFresh"/>: the applier
+        /// just reset faultAccelMult.
+        /// </summary>
+        public void Relive(List<LifeSim.CarFault> carries, bool accelFresh)
+        {
+            for (int z = 0; z < barCrushed.Length; z++) { barCrushed[z] = false; barFrom[z] = 0; }
+            baseWeep = 0f;
+            if (carries != null)
+                foreach (var f in carries)
+                {
+                    if (f == null) continue;
+                    if (f.id == DamageModel.BarId && (f.zone1 == DamageModel.ZFront || f.zone1 == DamageModel.ZRear)) barCrushed[f.zone1] = true;
+                    if (f.id == DamageModel.RadiatorId) baseWeep = Mathf.Max(baseWeep, DamageModel.WeepFor(DamageModel.LeakFor(f.stage)));
+                }
+            Failed = FailHitId = 0;
+            foreach (var inc in incidents)
+                if (inc.fail != DamageRules.FailNone && Failed == DamageRules.FailNone) { Failed = inc.fail; FailHitId = inc.hitId; }
+            if (accelFresh) exhaustApplied = false;
+            float rad = 0f, leak = 0f;
+            foreach (var inc in incidents) { rad += inc.outcome.radiatorLoss; leak = Mathf.Max(leak, inc.outcome.leakPctMin); }
+            rad = Mathf.Min(rad, 100f);
+            if (Banks && temp != null)
+            {
+                temp.radiatorHit = rad;
+                temp.radiatorCond = Mathf.Max(0f, RaceHandoff.RadiatorCond - rad);
+                temp.radiatorWeep = Mathf.Max(baseWeep, DamageModel.WeepFor(leak));
+            }
+            radiatorApplied = rad;
+            if (Banks && car != null)
+            {
+                car.hitSteerPull = 0f;
+                if (Failed == DamageRules.FailNone && car.faultAccelMult <= 0f && accelFresh == false) car.faultAccelMult = RaceHandoff.AccelMult;
+            }
+            ApplyLive();
+            if (Banks && car != null && Failed != DamageRules.FailNone) car.faultAccelMult = 0f;   // the FAIL still stands
+            if (incidents.Count == 0) dirty = false;
+        }
+
         // ================= the file =================
         /// <summary>Write the small damage file now (nothing when nothing
         /// happened, or not a career car).</summary>
@@ -1004,6 +1107,12 @@ namespace PSXRacing
             foreach (var inc in incidents)
                 if (inc.outcome.Any) f.incidents.Add(LifeSim.DamageBank.Record(inc));
             if (f.incidents.Count > 0) LifeSim.DamageBank.Write(f);
+            else if (LifeSim.DebugCarOps.LiveOn)
+            {
+                // fix pass 1: the bench took every row this drive wrote - its file goes too
+                try { var path = LifeSim.DamageBank.PathFor(CarId, DriveTag); if (System.IO.File.Exists(path)) System.IO.File.Delete(path); }
+                catch (System.Exception e) { Debug.LogWarning("[Damage] could not drop the emptied damage file: " + e.Message); }
+            }
         }
 
         /// <summary>Write the file and fold every damage file into the career

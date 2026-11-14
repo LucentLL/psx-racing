@@ -420,11 +420,17 @@ namespace PSXRacing
         void BuildFaults(LifeState s, OwnedCar car, CarSpec spec)
         {
             float y = -8f;
+            // fix pass 1: this drive's rows, not banked yet, are on the car too
+            var unbanked = DebugCarOps.UnbankedRows(s, car);
+            var liveIds = new HashSet<string>();
+            foreach (var u in unbanked) liveIds.Add(u.id);
+            int total = car.faults.Count + unbanked.Count;
+            bool live = total > 0 || DebugCarOps.LiveDamage(car);
             // The way back to a healthy car goes FIRST: a debug affordance
             // below forty rows of content is one nobody finds.
-            Named(MenuKit.Button(content, "CLEAR ALL FAULTS  (" + car.faults.Count + ")",
+            Named(MenuKit.Button(content, "CLEAR ALL FAULTS  (" + total + ")",
                 new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, 330f), y),
-                new Vector2(330f, 40f), car.faults.Count == 0 ? (UnityEngine.Events.UnityAction)null : () =>
+                new Vector2(330f, 40f), !live ? (UnityEngine.Events.UnityAction)null : () =>
                 {
                     int n = DebugCarOps.ClearFaults(car);
                     note = n + " fault" + (n == 1 ? "" : "s") + " cleared";
@@ -441,7 +447,8 @@ namespace PSXRacing
             // EVERY ROW ON THE CAR, hidden or found, with what it does and where
             // it came from (owner 11-13: "Debug should have all information").
             // The lanes below are the catalog's switches; this is the car's own list.
-            MenuKit.Label(content, "ON THIS CAR (" + car.faults.Count + ")   ·   every row, hidden or found",
+            MenuKit.Label(content, "ON THIS CAR (" + car.faults.Count +
+                (unbanked.Count > 0 ? " + " + unbanked.Count + " NOT BANKED YET" : "") + ")   ·   every row, hidden or found",
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Accent, ColW, height: 26f, bold: true);
             y -= 28f;
@@ -455,6 +462,17 @@ namespace PSXRacing
                 MenuKit.Label(content, text, MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     cf.hidden ? MenuKit.Dim : MenuKit.Accent, ColW, height: 44f);
+                y -= 46f;
+            }
+            // this drive's crash rows: on the car now, banked when the drive ends
+            foreach (var cf in unbanked)
+            {
+                var lines = DebugCarOps.RowLine(cf).Split('\n');
+                string text = Clip("NOT BANKED YET · " + lines[0], LowerFit(ColW)) +
+                              (lines.Length > 1 ? "\n" + Clip(lines[1], LowerFit(ColW)) : "");
+                MenuKit.Label(content, text, MenuKit.Tiny,
+                    new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, ColW, height: 44f);
                 y -= 46f;
             }
             y -= 16f;
@@ -478,12 +496,13 @@ namespace PSXRacing
                     var row = rows[i];
                     int col = i % cols;
                     if (i > 0 && col == 0) y -= CellH + Gap;
-                    bool on = DebugCarOps.HasFault(car, row.id);
-                    var f = on ? car.faults.Find(x => x.id == row.id) : null;
+                    bool banked = DebugCarOps.HasFault(car, row.id);
+                    bool on = banked || liveIds.Contains(row.id);
+                    var f = banked ? car.faults.Find(x => x.id == row.id) : null;
 
                     // HIDDEN is what a bench fault is born as and needs no
                     // saying; FOUND is the news — somebody has inspected it.
-                    string state = !on ? "" : f != null && !f.hidden ? "   [ON, FOUND]" : "   [ON]";
+                    string state = !on ? "" : !banked ? "   [ON, NOT BANKED]" : f != null && !f.hidden ? "   [ON, FOUND]" : "   [ON]";
                     string caption =
                         Clip(row.name.ToUpperInvariant(), CapsFit(cellW - 16f) - state.Length) + state +
                         "\n" + DimTag + Clip(row.effect, LowerFit(cellW - 16f)) + "</color>";
@@ -491,7 +510,7 @@ namespace PSXRacing
                         new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
                         new Vector2(cellW, CellH), () =>
                         {
-                            bool now = !DebugCarOps.HasFault(car, row.id);
+                            bool now = !(DebugCarOps.HasFault(car, row.id) || liveIds.Contains(row.id));
                             DebugCarOps.SetFault(car, spec, row.id, now);
                             note = row.name + (now ? " — ON" : " — off") +
                                    (now && !row.felt ? "  (nothing to feel: see its line)" : "");

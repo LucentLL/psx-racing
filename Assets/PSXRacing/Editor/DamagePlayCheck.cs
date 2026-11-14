@@ -508,7 +508,7 @@ namespace PSXRacing.EditorTools
                 DamageModel.IncidentReported += Log;
             };
             if (!File.Exists(path))
-                File.WriteAllText(path, "venue,time,car,player,kind,zone,side,corner,dv,band,glancing,narrow,what,any,scuffonly,cost,outcome,fail\n");
+                File.WriteAllText(path, "venue,time,car,player,kind,zone,side,corner,dv,band,glancing,narrow,what,any,scuffonly,cost,outcome,fail,struck\n");
         }
 
         static void Log(CollisionResponder r, Incident i)
@@ -516,7 +516,8 @@ namespace PSXRacing.EditorTools
             var c = r != null ? r.GetComponent<CarController>() : null;
             bool player = c != null && RaceManager.Instance != null && RaceManager.Instance.playerCar == c;
             int cost = 0;
-            foreach (var row in i.outcome.rows) { var f = FaultCatalog.MakeById(row.id, "jpn"); if (f != null) cost += row.id == DamageModel.GlassId ? DamageHomes.GlassCost(f.cost, 0f, row.stage) : f.cost; }
+            foreach (var row in i.outcome.rows) { var f = FaultCatalog.MakeById(row.id, "jpn"); if (f != null) cost += row.id == DamageModel.GlassId ? DamageHomes.GlassCost(f.cost, 0f, row.stage) :
+                                                                                         row.id == DamageModel.PanelId ? DamageHomes.PanelCost(f.cost, 0f, row.stage) : f.cost; }
             if (i.outcome.alignSeverity > 0) cost += 60;
             string Clean(string x) => (x ?? "").Replace(",", " ").Replace("\n", " ");
             var t = TrackCatalog.At(RaceHandoff.TrackIndex);
@@ -526,7 +527,7 @@ namespace PSXRacing.EditorTools
                 DamageModel.KindName(i.kind), DamageModel.ZoneName(i.zone), i.side.ToString(), i.corner.ToString(),
                 i.dv.ToString("0.00"), i.band.ToString(), i.glancing ? "1" : "0", i.narrow ? "1" : "0", Clean(i.what),
                 i.outcome.Any ? "1" : "0", i.outcome.ScuffOnly ? "1" : "0", cost.ToString(), Clean(i.outcome.ToString()),
-                DamageRules.FailName(i.fail),
+                DamageRules.FailName(i.fail), i.struck ? "1" : "0",
             }) + "\n");
         }
     }

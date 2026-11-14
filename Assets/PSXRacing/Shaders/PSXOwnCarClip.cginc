@@ -15,12 +15,21 @@ float4x4 _PSXOwnW2L;
 float4 _PSXOwnBoxC;
 float4 _PSXOwnBoxH;
 
+// Fix pass 1 (owner 11-14: "a square appears around the car when smoking tires"): the clip is
+// for an eye INSIDE the box (the cockpit, a hood or bumper eye). From outside, the body's own
+// depth already hides what is behind it, and the box (wider than the body, as tall as the roof
+// over the bonnet and the boot) only cut a hard-edged box out of the cloud round the car - lit
+// by the car's own lamps at night. _PSXOwnBoxH.w 1 (PSX_SMOKE_BOXFIX=0): every eye, as before.
 inline void PSXOwnCarClip(float3 wpos)
 {
     if (_PSXOwnBoxC.w > 0.5)
     {
-        float3 p = abs(mul(_PSXOwnW2L, float4(wpos, 1.0)).xyz - _PSXOwnBoxC.xyz);
-        if (p.x < _PSXOwnBoxH.x && p.y < _PSXOwnBoxH.y && p.z < _PSXOwnBoxH.z) discard;
+        float3 e = abs(mul(_PSXOwnW2L, float4(_WorldSpaceCameraPos, 1.0)).xyz - _PSXOwnBoxC.xyz);
+        if (_PSXOwnBoxH.w > 0.5 || (e.x < _PSXOwnBoxH.x && e.y < _PSXOwnBoxH.y && e.z < _PSXOwnBoxH.z))
+        {
+            float3 p = abs(mul(_PSXOwnW2L, float4(wpos, 1.0)).xyz - _PSXOwnBoxC.xyz);
+            if (p.x < _PSXOwnBoxH.x && p.y < _PSXOwnBoxH.y && p.z < _PSXOwnBoxH.z) discard;
+        }
     }
 }
 

@@ -218,7 +218,17 @@ namespace PSXRacing.LifeSim
                 }
                 car.wreckHit = r.hitId;
             }
+            KeepInjury(s, car, r);
             if (s == null) return;
+            CheckWriteOff(s, car, valueBefore, r);
+        }
+
+        /// <summary>The driver's half of an incident: the worst injury of the
+        /// day waits for the home screen (also the debug bench's CLEAR ALL
+        /// FAULTS, which puts the car right but not the driver).</summary>
+        public static void KeepInjury(LifeState s, OwnedCar car, DamageBank.IncidentRec r)
+        {
+            if (s == null || car == null || r == null) return;
             if (s.fate == null) s.fate = new CrashFate();
             if (InjuryOn && r.inj > None && r.injScore > s.fate.pendingScore && !s.fate.dead)
             {
@@ -231,7 +241,6 @@ namespace PSXRacing.LifeSim
                 f.pendingHit = HitWords(r);
                 f.pendingMph = Mathf.RoundToInt(r.dv * 2.237f / 5f) * 5;
             }
-            CheckWriteOff(s, car, valueBefore, r);
         }
 
         static string Where()
