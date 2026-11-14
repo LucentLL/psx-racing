@@ -509,24 +509,29 @@ namespace PSXRacing
             float cur = Mathf.Clamp01(1f - scroll.verticalNormalizedPosition) * scrollable;
             float step = Mathf.Max(60f, viewH * 0.5f);
 
-            float fromTop = Depth(content, from, out _);
+            float fromTop = Depth(content, from, out float fromBottom);
             bool toInside = to != null && to != from && to.transform.IsChildOf(content);
             float toTop = 0f, toBottom = 0f;
             if (toInside) toTop = Depth(content, to, out toBottom);
 
+            // A cursor the page has scrolled away from (by these presses, or
+            // the wheel) is scrolled back to first, a step at a time, before
+            // it moves: the words between are what the press is for.
             float want;
             if (dir > 0)
             {
                 if (scrollable - cur <= 1f) return false;
                 bool leaves = !toInside || toTop < fromTop - 1f;
-                if (!leaves && toTop - (cur + viewH) <= step) return false;
+                bool cursorBelow = fromTop >= cur + viewH - 1f;
+                if (!leaves && !cursorBelow && toTop - (cur + viewH) <= step) return false;
                 want = cur + step;
             }
             else
             {
                 if (cur <= 1f) return false;
                 bool leaves = !toInside || toTop > fromTop + 1f;
-                if (!leaves && cur - toBottom <= step) return false;
+                bool cursorAbove = fromBottom <= cur + 1f;
+                if (!leaves && !cursorAbove && cur - toBottom <= step) return false;
                 want = cur - step;
             }
             want = Mathf.Clamp(want, 0f, scrollable);
