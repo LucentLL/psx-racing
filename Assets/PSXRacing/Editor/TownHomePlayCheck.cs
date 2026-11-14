@@ -462,13 +462,25 @@ namespace PSXRacing.EditorTools
                     issues.Add("'" + t.text + "' is off the screen");
                 boxes.Add((Rect.MinMaxRect(x0, y0, x1, y1), t.text));
             }
+            bool Over(Rect r1, Rect r2) =>
+                r1.xMin < r2.xMax - 1f && r2.xMin < r1.xMax - 1f && r1.yMin < r2.yMax - 1f && r2.yMin < r1.yMax - 1f;
             for (int i = 0; i < boxes.Count; i++)
                 for (int j = i + 1; j < boxes.Count; j++)
-                {
-                    var r1 = boxes[i].r; var r2 = boxes[j].r;
-                    if (r1.xMin < r2.xMax - 1f && r2.xMin < r1.xMax - 1f && r1.yMin < r2.yMax - 1f && r2.yMin < r1.yMax - 1f)
+                    if (Over(boxes[i].r, boxes[j].r))
                         issues.Add("'" + boxes[i].s + "' overlaps '" + boxes[j].s + "'");
-                }
+            // And no line rides over a BUTTON it is not the label of.
+            foreach (var btn in root.GetComponentsInChildren<Button>())
+            {
+                var c = new Vector3[4];
+                ((RectTransform)btn.transform).GetWorldCorners(c);
+                Vector2 a = RectTransformUtility.WorldToScreenPoint(cam, c[0]);
+                Vector2 b = RectTransformUtility.WorldToScreenPoint(cam, c[2]);
+                var br = Rect.MinMaxRect(a.x, a.y, b.x, b.y);
+                var own = btn.GetComponentInChildren<Text>();
+                foreach (var bx in boxes)
+                    if ((own == null || bx.s != own.text) && Over(bx.r, br))
+                        issues.Add("'" + bx.s + "' runs over the " + (own != null ? own.text : btn.name) + " button");
+            }
             Check(issues.Count == 0, "the delivery-done panel: " + boxes.Count + " lines, none clipped, none overlapping",
                   issues.Count == 0 ? string.Join(" | ", boxes.Select(x => x.s)) : string.Join(" | ", issues));
         }

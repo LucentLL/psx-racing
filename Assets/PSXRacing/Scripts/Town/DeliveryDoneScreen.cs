@@ -81,7 +81,10 @@ namespace PSXRacing.Town
             string label = LifeRules.OrderLabel(o, boxes);
             state = string.IsNullOrEmpty(label) ? "INTACT" : label;
             tip = o.refused ? "$0 — REFUSED" : "+" + MenuKit.Money(o.tip);
-            pay = MenuKit.Money(Mathf.Max(0, wages)) + " SO FAR THIS WEEK";
+            // The shift itself is wages, banked at the day's end and paid on the
+            // weekly cheque, so right after the first drop of a week there may be
+            // nothing banked yet: say where the wages are, and what is banked.
+            pay = wages > 0 ? MenuKit.Money(wages) + " SO FAR · WEEKLY" : "ON THE WEEKLY CHEQUE";
         }
 
         void Build()
@@ -115,8 +118,9 @@ namespace PSXRacing.Town
                 MenuKit.Label(panel, Clip(note, 64), 16, top, new Vector2(0f, y - 4f),
                     TextAnchor.MiddleCenter, MenuKit.Dim, PanelW - 40f, height: 24f);
 
+            // Bottom-anchored, clear of the note line above it.
             var carryOn = MenuKit.Button(panel, "CARRY ON", new Vector2(0.5f, 0f),
-                new Vector2(0f, 46f), new Vector2(300f, 46f), Close, 20);
+                new Vector2(0f, 20f), new Vector2(300f, 46f), Close, 20);
 
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
@@ -132,9 +136,9 @@ namespace PSXRacing.Town
         {
             var top = new Vector2(0.5f, 1f);
             MenuKit.Label(panel, name, 19, top, new Vector2(-PanelW * 0.5f + 40f, y),
-                TextAnchor.MiddleLeft, MenuKit.Dim, 200f, height: 34f);
+                TextAnchor.MiddleLeft, MenuKit.Dim, 160f, height: 34f);
             MenuKit.Label(panel, value, 22, top, new Vector2(PanelW * 0.5f - 40f, y),
-                TextAnchor.MiddleRight, col, 340f, height: 34f, bold: true);
+                TextAnchor.MiddleRight, col, 380f, height: 34f, bold: true);
             y -= 42f;
         }
 
