@@ -920,8 +920,9 @@ namespace PSXRacing.Town
                 if (!PizzaRun.LocalArrived && stopped && dist < ArriveRadiusM)
                 {
                     PizzaRun.LocalArrived = true;
-                    flash = "THE DROP — " + PizzaRun.DropName + "  ·  " +
-                            LifeRules.DeliveryClock(PizzaRun.LocalSeconds) + " (PAR " +
+                    // As short as the cue slot's other lines: the address is
+                    // on the house and on the line before this one.
+                    flash = "AT THE DROP  " + LifeRules.DeliveryClock(PizzaRun.LocalSeconds) + " (PAR " +
                             LifeRules.DeliveryClock(PizzaRun.ParSeconds) + ") — WALK IT TO THE DOOR";
                     flashUntil = Time.unscaledTime + 5f;
                     Cue = flash;
