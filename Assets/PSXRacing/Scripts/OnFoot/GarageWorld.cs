@@ -1137,7 +1137,8 @@ namespace PSXRacing.OnFoot
                 return;
             }
 
-            int idx = TrackCatalog.NeighborhoodSceneIndex;
+            // HOME is the town's west end on the merged map (TownLayout).
+            int idx = PSXRacing.Town.TownLayout.HomeSceneIndex;
             if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
             {
                 // A bad index reaching LoadScene is a black screen with no

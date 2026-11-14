@@ -84,9 +84,32 @@ namespace PSXRacing.LifeSim
         /// asks the player in.</summary>
         public static string MeetClub = "";
 
+        // ---- a drop in the town's own neighbourhood (owner 2026-11-14) ----
+        // "Delivering pizza is no longer a race track, but to a random house in
+        // the neighborhood." On the merged town map the order goes to one of
+        // the neighbours' doors (TownWorld.dropDoors) instead of a venue:
+        // TrackIndex stays -1 and the par is the drive's own (ParSeconds).
+        /// <summary>Which of the town's drop doors, or -1 for a race-track run.</summary>
+        public static int DropHouse = -1;
+        /// <summary>Its address, for the cue, the toast and the done panel.</summary>
+        public static string DropName = "";
+        /// <summary>The run's clock, counted by TownWorld while the order is
+        /// aboard and the car has not yet stopped at the house. A static so a
+        /// hop through a shop page mid-run does not reset it.</summary>
+        public static float LocalSeconds;
+        /// <summary>The car has stopped at the house: the clock is held until
+        /// it drives away again or the order is handed over.</summary>
+        public static bool LocalArrived;
+        /// <summary>An order is aboard and it is going to a house in town.</summary>
+        public static bool LocalDrop => Carrying && DropHouse >= 0;
+
         public static void ClearRun()
         {
             MeetClub = "";
+            DropHouse = -1;
+            DropName = "";
+            LocalSeconds = 0f;
+            LocalArrived = false;
             Carrying = false;
             SpawnAtShop = false;
             Toppings = null;
@@ -120,6 +143,11 @@ namespace PSXRacing.LifeSim
             CarryHit = false;
             Carrying = true;
             SpawnAtShop = true;
+            // A track run until somebody names a house (TownWorld.MakeLocalDrop).
+            DropHouse = -1;
+            DropName = "";
+            LocalSeconds = 0f;
+            LocalArrived = false;
         }
 
         /// <summary>

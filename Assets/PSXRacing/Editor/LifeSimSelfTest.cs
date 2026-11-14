@@ -4538,6 +4538,10 @@ namespace PSXRacing.EditorTools
                   thin == 0 ? drives.Count + " drives" : thin + " are paper");
         }
 
+        /// <summary>Where the town's main street ends in the west, and the road
+        /// to the merged map's home end begins (PSXRacingBuilder.TownRoadHalf).</summary>
+        const float TownWestRoadEndX = 158f;
+
         static void TestTownScene()
         {
             Line("town:");
@@ -4752,8 +4756,62 @@ namespace PSXRacing.EditorTools
                 edges.AddRange(go.GetComponentsInChildren<PSXRacing.Town.TownEdge>(true));
                 appliers.AddRange(go.GetComponentsInChildren<RaceHandoffApplier>(true));
             }
-            Check(edges.Count == 2, "both ends of the road launch a delivery",
-                  edges.Count + " gates");
+            // THE MERGED MAP (owner 2026-11-14) has your street at its west
+            // end, so only the east end is a line: the road west goes home.
+            bool homeEnd = world != null && world.dropDoors != null && world.dropDoors.Length > 0;
+            if (homeEnd)
+                Check(edges.Count == 1 && edges[0].transform.position.x > 0f,
+                      "the town's one zone line is its east end; the west end is the road to your street",
+                      edges.Count + " gates");
+            else
+                Check(edges.Count == 2, "both ends of the road launch a delivery",
+                      edges.Count + " gates");
+            if (homeEnd)
+            {
+                // ---- the home end ----
+                int doorsOk = 0, markersOff = 0;
+                foreach (var d in world.dropDoors) if (d != null && d.position.x < -TownWestRoadEndX) doorsOk++;
+                foreach (var mk in world.dropMarkers) if (mk != null && !mk.activeSelf) markersOff++;
+                Check(doorsOk == world.dropDoors.Length && doorsOk >= 8 &&
+                      world.dropNames != null && world.dropNames.Length == doorsOk,
+                      "the neighbours' front doors are drop points, west of the main street, each with an address",
+                      doorsOk + " doors");
+                Check(world.dropMarkers != null && world.dropMarkers.Length == doorsOk && markersOff == doorsOk,
+                      "and each has a marker, built switched off", markersOff + " of " + world.dropDoors.Length);
+                Check(world.roadPoints != null && world.roadPoints.Length >= 4 && world.roadRuns != null &&
+                      world.roadRuns.Sum() == world.roadPoints.Length,
+                      "the map's roads are handed to the HUD's map", world.roadPoints != null ? world.roadPoints.Length + " points" : "none");
+                PSXRacing.OnFoot.GarageWorld home = null;
+                PSXRacing.OnFoot.HomeArrival arrival = null;
+                Transform spawn = null;
+                foreach (var go in scene.GetRootGameObjects())
+                {
+                    home = home ?? go.GetComponentInChildren<PSXRacing.OnFoot.GarageWorld>(true);
+                    arrival = arrival ?? go.GetComponentInChildren<PSXRacing.OnFoot.HomeArrival>(true);
+                    foreach (var t in go.GetComponentsInChildren<Transform>(true))
+                        if (t.name == "HomeSpawn") spawn = t;
+                }
+                Check(home != null && home.embedded && home.liveCar == player && arrival != null && arrival.walkerStart != null,
+                      "your house's rooms and the walk-in arrival stand at the home end, beside the real car");
+                Check(spawn != null && player != null &&
+                      Vector3.Distance(spawn.position, player.transform.position) < 0.5f,
+                      "the car is parked on your own drive at the home end",
+                      spawn != null && player != null ? spawn.position.ToString("0.0") : "no HomeSpawn");
+                Physics.SyncTransforms();
+                bool onTarmac = spawn != null && Physics.Raycast(spawn.position + Vector3.up, Vector3.down, out var drive, 4f,
+                                                                  ~0, QueryTriggerInteraction.Ignore) &&
+                                drive.collider.gameObject.layer == 8;
+                Check(onTarmac, "and the drive under it is road-layer tarmac");
+                // The road in: tarmac all the way along the main street's line
+                // from the end of the town's street to the end of yours.
+                int gaps = 0;
+                for (float x = -TownWestRoadEndX - 1f; x > -TownWestRoadEndX - 112f; x -= 4f)
+                {
+                    bool hit = Physics.Raycast(new Vector3(x, 3f, 0f), Vector3.down, out var h, 6f, ~0, QueryTriggerInteraction.Ignore);
+                    if (!hit || h.collider.gameObject.layer != 8 || Mathf.Abs(h.point.y - 0.02f) > 0.05f) gaps++;
+                }
+                Check(gaps == 0, "the road from the town to your street is level tarmac all the way", gaps + " bad samples");
+            }
             foreach (var e in edges)
             {
                 var col = e.GetComponent<Collider>();

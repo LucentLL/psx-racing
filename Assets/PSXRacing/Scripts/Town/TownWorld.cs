@@ -73,12 +73,41 @@ namespace PSXRacing.Town
         /// materials are bake-time things and this class runs at runtime.</summary>
         public Material blockMaterial;
 
+        [Header("The home end (merged map): where a delivery can go")]
+        /// <summary>
+        /// THE NEIGHBOURS' FRONT DOORS, one per house at the town's home end
+        /// (PSXRacingBuilder.TownHomeEnd), each facing the street. Empty on a
+        /// town without the home end — and then a run goes to a race track
+        /// from the edge of town, as it always did.
+        /// </summary>
+        public Transform[] dropDoors = new Transform[0];
+        /// <summary>The marker over each of those houses, built switched off;
+        /// the one the order is for is switched on.</summary>
+        public GameObject[] dropMarkers = new GameObject[0];
+        /// <summary>Each door's address.</summary>
+        public string[] dropNames = new string[0];
+        /// <summary>The map's roads as plan polylines (flattened: the points,
+        /// and how many of them each run takes), for the HUD's map — the town
+        /// has no street graph of its own (HudMinimap.SetLocalRoads).</summary>
+        public Vector2[] roadPoints = new Vector2[0];
+        public int[] roadRuns = new int[0];
+
         /// <summary>
         /// The errand signpost: one line the HUD draws in the slot Charlotte
         /// uses for its food cue. Null when there is no errand — which is most
         /// sessions — so the slot stays empty rather than chatty.
         /// </summary>
         public static string Cue { get; private set; }
+
+        /// <summary>Where the HUD's map should mark a destination in town: the
+        /// house the order on the seat is for. RaceHUD reads it where
+        /// Charlotte's food cue would set one.</summary>
+        public static bool MapTarget(out Vector2 at) { at = mapTarget; return mapTargetOn; }
+        static Vector2 mapTarget;
+        static bool mapTargetOn;
+
+        /// <summary>A run from Tony's goes to one of these doors.</summary>
+        bool LocalDropsHere => TownLayout.LocalDrops && dropDoors != null && dropDoors.Length > 0;
 
         LifeState S => LifeSimManager.State;
 
@@ -90,7 +119,14 @@ namespace PSXRacing.Town
         string flash;
         float flashUntil;
 
-        void Awake() { Cue = null; }
+        void Awake()
+        {
+            Cue = null;
+            mapTargetOn = false;
+            // The town's roads on the HUD's map; none on a town without them
+            // (the map then stays off, as it always was here).
+            HudMinimap.SetLocalRoads(roadPoints, roadRuns);
+        }
 
         /// <summary>
         /// THE ARRIVAL COMES FIRST, and that ordering is the fix for "leave
@@ -177,16 +213,32 @@ namespace PSXRacing.Town
                 if (cargo != null) PizzaCam.Spawn(cargo);
             }
 
+            // AN ORDER ROLLED FOR A RACE TRACK, ARRIVING IN A TOWN WITH HOUSES
+            // TO TAKE IT TO — the walking shift's Pizzeria.unity, or a run
+            // already aboard when this build went in. It goes to a door here
+            // like any other: "delivering pizza is no longer a race track".
+            if (PizzaRun.Carrying && !PizzaRun.LocalDrop && LocalDropsHere)
+                MakeLocalDrop(PizzaRun.ParSeconds);
+
             BuildFootDoors();
 
             // ---- and only then the scenery ----
             PreviewBuild();
         }
 
-        void OnDestroy() { Cue = null; }
+        void OnDestroy()
+        {
+            Cue = null;
+            mapTargetOn = false;
+            HudMinimap.SetLocalRoads(null, null);
+        }
 
         void Update()
         {
+            // Every frame, before the cue's timer: the drop's clock counts in
+            // frames, and the car stopping at the house is a moment.
+            TickLocalDrop();
+
             if (Time.unscaledTime < cueNext) return;
             cueNext = Time.unscaledTime + 0.4f;
             Cue = BuildCue();
@@ -261,6 +313,17 @@ namespace PSXRacing.Town
                 string where = edge != null && edge.mode == TownEdge.Mode.AskWhereTo
                     ? " — DRIVE THROUGH THE LINE"
                     : " — DRIVE OUT OF TOWN";
+                // A HOUSE IN TOWN: the arrow points at its door and the line
+                // says its address. Within a few metres it says the rest.
+                var door = DropDoor();
+                if (door != null)
+                {
+                    anchor = door;
+                    where = " — " + PizzaRun.DropName;
+                    near = PizzaRun.LocalArrived || ForecourtMode.OnFoot
+                        ? "THE DROP — WALK IT TO THE DOOR, " + PizzaRun.DropName
+                        : "THE DROP — STOP HERE, " + PizzaRun.DropName;
+                }
                 // A CAR-MEET ORDER says whose garage night it is going to.
                 var meetFor = Clubs.ById(PizzaRun.MeetClub);
                 string what = meetFor != null ? meetFor.shortName + " CLUB DELIVERY" : "DELIVERY";
@@ -381,6 +444,10 @@ namespace PSXRacing.Town
 
 
             if (anchor == null || label == null || player == null) return null;
+            // Stopped at the house, or out of the car: the arrow has done its
+            // job, and the door is the only instruction left.
+            if (PizzaRun.LocalDrop && near != null && (PizzaRun.LocalArrived || ForecourtMode.OnFoot))
+                return near;
 
             Vector3 to = anchor.position - player.transform.position;
             to.y = 0f;
@@ -600,7 +667,9 @@ namespace PSXRacing.Town
                 t.onUse2 = null;
                 if (PizzaRun.Carrying)
                 {
-                    t.detail = "Boxes are yours. Out to the car and out of town.";
+                    t.detail = PizzaRun.LocalDrop
+                        ? "Boxes are yours. Out to the car — " + PizzaRun.DropName + ", the house is marked."
+                        : "Boxes are yours. Out to the car and out of town.";
                     t.onUse = null;
                 }
                 else if (canClockOn)
@@ -728,18 +797,195 @@ namespace PSXRacing.Town
             // that is no longer happening, and leaving it set would teleport
             // the car onto the kerb the next time the town loaded.
             PizzaRun.SpawnAtShop = false;
+            // "DELIVERING PIZZA IS NO LONGER A RACE TRACK, BUT TO A RANDOM HOUSE
+            // IN THE NEIGHBORHOOD" (owner, 2026-11-14) — where this town has one.
+            bool local = LocalDropsHere && MakeLocalDrop(-1f);
+            if (local) par = PizzaRun.ParSeconds;
             LifeSimManager.Save();
 
-            string venue = trackIndex >= 0 && trackIndex < TrackCatalog.All.Length
+            string venue = local ? PizzaRun.DropName
+                         : trackIndex >= 0 && trackIndex < TrackCatalog.All.Length
                          ? TrackCatalog.All[trackIndex].name : "the drop";
             string drinks = bottles == 0 ? "" : bottles == 1 ? " AND A 2 LITRE" : " AND TWO 2 LITRES";
             screen?.Toast("ORDER UP — " + (toppings.Length == 1 ? "ONE BOX" : toppings.Length + " BOXES") + drinks +
                           " TO " + venue.ToUpperInvariant() + ", $" + pay +
                           ". BEAT " + LifeRules.DeliveryClock(par) +
                           " FOR MORE." + (meetClub != null ? " " + Clubs.MeetOrderLine(meetClub) + "." : "") +
-                          " OUT TO THE CAR, THEN OUT OF TOWN.");
+                          (local ? " OUT TO THE CAR - THE HOUSE IS MARKED." : " OUT TO THE CAR, THEN OUT OF TOWN."));
             RefreshPizzaDoor();
             screen?.Invalidate();
+        }
+
+        // ------------------------------------------------------------------
+        //  a drop at a house in town (owner, 2026-11-14)
+        // ------------------------------------------------------------------
+        /// <summary>The door the order on the seat is for, or null.</summary>
+        Transform DropDoor()
+        {
+            if (!PizzaRun.LocalDrop || dropDoors == null) return null;
+            int h = PizzaRun.DropHouse;
+            return h >= 0 && h < dropDoors.Length ? dropDoors[h] : null;
+        }
+
+        /// <summary>
+        /// Send the order on the seat to a random neighbour's door, and quote a
+        /// par for the drive there: the road metres from the shop's kerb, out
+        /// along the main street and up the road to the house
+        /// (LifeRules.LocalDropParSeconds). Every road on this map lies on one
+        /// line, so the road metres are the run along it plus the setback.
+        /// </summary>
+        /// <param name="keepPar">A par already quoted to the player for this
+        /// order (an order that arrived from elsewhere keeps its quote if it is
+        /// longer), or -1.</param>
+        bool MakeLocalDrop(float keepPar)
+        {
+            if (dropDoors == null || dropDoors.Length == 0) return false;
+            int pick = -1;
+            for (int tries = 0; tries < 8 && pick < 0; tries++)
+            {
+                int i = Random.Range(0, dropDoors.Length);
+                if (dropDoors[i] != null) pick = i;
+            }
+            if (pick < 0) return false;
+            var door = dropDoors[pick];
+            Vector3 from = pizzaKerb != null ? pizzaKerb.position
+                         : player != null ? player.transform.position : Vector3.zero;
+            float road = Mathf.Abs(door.position.x - from.x) + Mathf.Abs(door.position.z) + Mathf.Abs(from.z);
+            PizzaRun.DropHouse = pick;
+            PizzaRun.DropName = dropNames != null && pick < dropNames.Length && !string.IsNullOrEmpty(dropNames[pick])
+                ? dropNames[pick] : "THE MARKED HOUSE";
+            PizzaRun.TrackIndex = -1;
+            PizzaRun.DropFraction = 1f;
+            PizzaRun.ParSeconds = Mathf.Max(LifeRules.LocalDropParSeconds(road), keepPar);
+            PizzaRun.LocalSeconds = 0f;
+            PizzaRun.LocalArrived = false;
+            return true;
+        }
+
+        FootTarget dropTarget;
+        int dropTargetHouse = -1;
+        /// <summary>Under this a car is stopped; inside this of the door it has
+        /// arrived — the kerb in front of the house, not the neighbour's (27 m
+        /// along) and not the house across the street (36 m and more).</summary>
+        const float ArriveMps = 0.8f, ArriveRadiusM = 22f, LeaveRadiusM = 34f;
+
+        /// <summary>
+        /// The drop, every frame: the marker over the house the order is for,
+        /// the map's destination, a door to hand it over at, and the clock —
+        /// which runs from the counter until the car STOPS at the house
+        /// ("arrival is stopping at that house"), and runs again if it drives
+        /// off without handing over.
+        /// </summary>
+        void TickLocalDrop()
+        {
+            var door = DropDoor();
+            if (dropMarkers != null)
+                for (int i = 0; i < dropMarkers.Length; i++)
+                {
+                    var m = dropMarkers[i];
+                    if (m == null) continue;
+                    bool on = door != null && i == PizzaRun.DropHouse;
+                    if (m.activeSelf != on) m.SetActive(on);
+                }
+            if (door == null)
+            {
+                mapTargetOn = false;
+                if (dropTarget != null) { Destroy(dropTarget.gameObject); dropTarget = null; dropTargetHouse = -1; }
+                return;
+            }
+            mapTarget = new Vector2(door.position.x, door.position.z);
+            mapTargetOn = true;
+            if (dropTarget == null || dropTargetHouse != PizzaRun.DropHouse)
+            {
+                if (dropTarget != null) Destroy(dropTarget.gameObject);
+                dropTarget = MakeDoor(door, "DropTarget", 4.5f);
+                // The anchor stands a step in front of a facade the walker
+                // cannot see through; the door is the prompt, not a window.
+                dropTarget.requireLineOfSight = false;
+                dropTarget.title = PizzaRun.DropName;
+                dropTarget.detail = "The order for this door.";
+                dropTarget.action = "HAND OVER THE ORDER";
+                dropTarget.verb = "DELIVER";
+                dropTarget.onUse = Deliver;
+                dropTargetHouse = PizzaRun.DropHouse;
+                ForecourtMode.Instance?.Relabel();
+            }
+
+            if (player != null && !ForecourtMode.OnFoot)
+            {
+                Vector3 d = player.transform.position - door.position;
+                d.y = 0f;
+                float dist = d.magnitude;
+                bool stopped = player.Body == null || player.Body.linearVelocity.magnitude < ArriveMps;
+                if (!PizzaRun.LocalArrived && stopped && dist < ArriveRadiusM)
+                {
+                    PizzaRun.LocalArrived = true;
+                    flash = "THE DROP — " + PizzaRun.DropName + "  ·  " +
+                            LifeRules.DeliveryClock(PizzaRun.LocalSeconds) + " (PAR " +
+                            LifeRules.DeliveryClock(PizzaRun.ParSeconds) + ") — WALK IT TO THE DOOR";
+                    flashUntil = Time.unscaledTime + 5f;
+                    Cue = flash;
+                }
+                else if (PizzaRun.LocalArrived && dist > LeaveRadiusM)
+                    PizzaRun.LocalArrived = false;
+            }
+            if (!PizzaRun.LocalArrived) PizzaRun.LocalSeconds += Time.deltaTime;
+        }
+
+        /// <summary>What the order on the seat has been through, latched
+        /// worst-ever: the same three lines BuildCue keeps for a run out of
+        /// town, read once more at the door.</summary>
+        static void LatchCargo()
+        {
+            var c = PizzaCargo.Instance;
+            if (c == null || c.BoxCount <= 0) return;
+            PizzaRun.CarryConsumable = Mathf.Min(PizzaRun.CarryConsumable, c.Consumable);
+            if (c.Consumable > 0f)
+                PizzaRun.CarryCondition = Mathf.Min(PizzaRun.CarryCondition, c.EdibleCondition);
+            if (c.Impacts > 0) PizzaRun.CarryHit = true;
+        }
+
+        /// <summary>
+        /// HANDED OVER. Graded by the same ScoreDelivery a race-track drop is
+        /// (the quote, the clock against the par, the state of the boxes) and
+        /// paid by the same SettleDelivery — the tip into the wallet, the club,
+        /// the shop's opinion, the meal; the wages ride the weekly cheque as
+        /// they always have. Then the boxes are gone from the car and the
+        /// panel says what it was worth.
+        /// </summary>
+        void Deliver()
+        {
+            var s = S;
+            if (s == null || !PizzaRun.LocalDrop) return;
+            LatchCargo();
+            int boxes = PizzaRun.Toppings != null ? PizzaRun.Toppings.Length : 1;
+            int bottles = PizzaRun.Bottles;
+            var o = LifeRules.ScoreDelivery(PizzaRun.Pay, -1, PizzaRun.LocalSeconds, 0f, 0,
+                cargoCondition: Mathf.Clamp01(PizzaRun.CarryCondition),
+                carryCondition: 1f,
+                dropFraction: 1f,
+                hitSomething: PizzaRun.CarryHit,
+                consumable: Mathf.Clamp01(PizzaRun.CarryConsumable),
+                carryConsumable: 1f,
+                parOverride: PizzaRun.ParSeconds);
+            string line = LifeRules.SettleDelivery(s, o, PizzaRun.MeetClub, Mathf.Clamp01(PizzaRun.CarryConsumable), boxes);
+            string where = PizzaRun.DropName;
+            string meet = line.Contains("  ·  ") ? line.Substring(0, line.IndexOf("  ·  ")) : "";
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": " + where.ToLowerInvariant() + " " + line);
+            PizzaRun.ClearRun();
+            LifeSimManager.Save();
+
+            if (PizzaCargo.Instance != null) Destroy(PizzaCargo.Instance.gameObject);
+            if (PizzaCam.Instance != null) Destroy(PizzaCam.Instance.gameObject);
+            PizzaCarry.Clear();
+            if (dropTarget != null) { Destroy(dropTarget.gameObject); dropTarget = null; dropTargetHouse = -1; }
+            mapTargetOn = false;
+            RefreshPizzaDoor();
+            ForecourtMode.Instance?.Relabel();
+
+            string order = (boxes == 1 ? "ONE BOX" : boxes + " BOXES") +
+                           (bottles == 1 ? " AND A 2 LITRE" : bottles > 1 ? " AND TWO 2 LITRES" : "");
+            DeliveryDoneScreen.Show(where, order, o, boxes, s.pendingSalary, meet);
         }
 
         void OpenPizzaCounter()

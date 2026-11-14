@@ -70,11 +70,18 @@ namespace PSXRacing.EditorTools
             return mat;
         }
 
+        /// <summary>Put in front of every mesh asset's file name while it is
+        /// set. The town's home end builds the street map's slabs under their
+        /// own names, in a different shape at one end, and without this the
+        /// two scenes would overwrite each other's ground (and its collider)
+        /// in Generated/ — see PSXRacingBuilder.BuildHomeEnd.</summary>
+        public static string MeshPrefix = "";
+
         public static Mesh SaveMesh(Mesh mesh, string name)
         {
             if (!AssetDatabase.IsValidFolder(GenDir))
                 AssetDatabase.CreateFolder(Root, "Generated");
-            string path = GenDir + "/" + name + ".asset";
+            string path = GenDir + "/" + MeshPrefix + name + ".asset";
             var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
             if (existing != null) AssetDatabase.DeleteAsset(path);
             AssetDatabase.CreateAsset(mesh, path);

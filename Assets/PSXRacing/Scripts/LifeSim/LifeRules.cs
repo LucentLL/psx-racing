@@ -761,6 +761,16 @@ namespace PSXRacing.LifeSim
             return DeliveryLaunchAllowance + Mathf.Max(1f, DeliveryMeters(t, dropFraction)) / speed;
         }
 
+        /// <summary>A drop in the town's own neighbourhood (owner 2026-11-14:
+        /// "to a random house in the neighborhood"): the walk out to the car
+        /// and away from the kerb, then the road metres at a town street's
+        /// pace. The clock stops when the car stops at the house, so the walk
+        /// to the door is not in it.</summary>
+        public const float LocalDropAllowance = 20f, LocalDropParSpeed = 13f;
+
+        public static float LocalDropParSeconds(float roadMeters) =>
+            LocalDropAllowance + Mathf.Max(0f, roadMeters) / LocalDropParSpeed;
+
         /// <summary>What is left of the pizza, 0-1, from the race's damage
         /// tally. Pure, so the HUD can watch it fall in real time off the live
         /// CollisionResponder while the payout recomputes it from the stamped
@@ -819,12 +829,15 @@ namespace PSXRacing.LifeSim
                                                     float dropFraction = 1f,
                                                     bool hitSomething = true,
                                                     float consumable = -1f,
-                                                    float carryConsumable = 1f)
+                                                    float carryConsumable = 1f,
+                                                    float parOverride = -1f)
         {
             var o = new DeliveryOutcome
             {
                 quoted = Mathf.Max(0, quoted),
-                parSeconds = DeliveryParSeconds(trackIndex, dropFraction),
+                // A drop in town has no venue to size a par from: its par is
+                // the one quoted at the counter (LocalDropParSeconds).
+                parSeconds = parOverride > 0f ? parOverride : DeliveryParSeconds(trackIndex, dropFraction),
                 seconds = seconds,
                 // The SIMULATION wins when there is one. PizzaCondition is an
                 // estimate off the impact tally, written when the cargo was a
@@ -902,6 +915,60 @@ namespace PSXRacing.LifeSim
             o.tip = o.refused ? 0
                   : Mathf.Max(0, Mathf.RoundToInt(o.quoted * o.timeMult * o.conditionMult * share));
             return o;
+        }
+
+        /// <summary>
+        /// PAY OUT A DROP that ScoreDelivery has graded, and say how it went.
+        ///
+        /// The race apply-back's delivery branch, lifted out whole so the drop
+        /// at a door in town (TownWorld.Deliver) is paid by the same lines: the
+        /// tip straight into the wallet, the car-meet club's verdict, the shop's
+        /// opinion, the meal. The WAGES are not here and never were: the shift
+        /// is attendance (ClockOnShift, at the counter) and pays on the weekly
+        /// cheque (pendingSalary); a drop adds the tip for the clock and for
+        /// the state of the order.
+        /// </summary>
+        /// <param name="consumableReported">The share of the order still
+        /// edible as the cargo rig reported it, or -1 with no rig.</param>
+        /// <param name="boxes">How many boxes were in the order, for the
+        /// order's words.</param>
+        public static string SettleDelivery(LifeState s, DeliveryOutcome drop, string meetClub,
+                                            float consumableReported, int boxes)
+        {
+            s.money += drop.tip;
+            // A CAR-MEET ORDER is judged at the garage night's door: fast
+            // and undamaged, and the club asks the player in (Clubs).
+            string meetLine = Clubs.JudgeMeetDelivery(s, meetClub, drop.seconds,
+                drop.parSeconds, drop.condition, consumableReported, drop.refused);
+            // Attendance was banked at the counter (ClockOnShift, from
+            // PizzaShift) — turning up is what the shop counts, and a night
+            // run has already rolled the day by the time this runs. What is
+            // still owed here is what the DROP was worth.
+
+            // The shop hears about a refused order. A turned-away box costs
+            // standing rather than money — the money is already gone — and
+            // it is the only way the job can go backwards, which is what
+            // makes driving carefully worth anything.
+            s.workRep = Mathf.Clamp(s.workRep + (drop.refused ? -3f : 1f), 0f, 100f);
+            // You ate either way, and when it is refused you ate THIS one.
+            // Leaving the meal off a failed run would mean a crash cost the
+            // tip and the dinner, and starve a player for driving badly.
+            s.ateToday = true;
+            s.daysSinceEat = 0;
+            s.lastMealTier = "junk";
+            s.lastAnyRaceDay = s.day;   // rep-decay clock: you were out driving
+            // Short enough for the toast, which is 760 px of ONE line and
+            // already carries a "RACE RESULT: " prefix. The venue is left
+            // out on purpose: the player has just driven it.
+            string summary = drop.refused
+                ? "REFUSED — nothing edible was left. No tip; you ate it."
+                : "delivered — " + DeliveryClock(drop.seconds) +
+                  " (par " + DeliveryClock(drop.parSeconds) + "), " +
+                  (OrderLabel(drop, boxes).Length > 0
+                      ? OrderLabel(drop, boxes).ToLower() : "intact") + ", +" +
+                  MenuKit.Money(drop.tip);
+            if (!string.IsNullOrEmpty(meetLine)) summary = meetLine + "  ·  " + summary;
+            return summary;
         }
 
         /// <summary>The box, in words, for the HUD and the result line. Same
@@ -1461,40 +1528,10 @@ namespace PSXRacing.LifeSim
                                                        RaceHandoff.CarryHit,
                                          consumable: RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f,
                                          carryConsumable: RaceHandoff.CarryConsumable);
-                s.money += drop.tip;
-                // A CAR-MEET ORDER is judged at the garage night's door: fast
-                // and undamaged, and the club asks the player in (Clubs).
-                string meetLine = Clubs.JudgeMeetDelivery(s, RaceHandoff.DeliveryMeetClub, drop.seconds,
-                    drop.parSeconds, drop.condition,
-                    RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f, drop.refused);
-                // Attendance was banked at the counter (ClockOnShift, from
-                // PizzaShift) — turning up is what the shop counts, and a night
-                // run has already rolled the day by the time this runs. What is
-                // still owed here is what the DROP was worth.
-
-                // The shop hears about a refused order. A turned-away box costs
-                // standing rather than money — the money is already gone — and
-                // it is the only way the job can go backwards, which is what
-                // makes driving carefully worth anything.
-                s.workRep = Mathf.Clamp(s.workRep + (drop.refused ? -3f : 1f), 0f, 100f);
-                // You ate either way, and when it is refused you ate THIS one.
-                // Leaving the meal off a failed run would mean a crash cost the
-                // tip and the dinner, and starve a player for driving badly.
-                s.ateToday = true;
-                s.daysSinceEat = 0;
-                s.lastMealTier = "junk";
-                s.lastAnyRaceDay = s.day;   // rep-decay clock: you were out driving
-                // Short enough for the toast, which is 760 px of ONE line and
-                // already carries a "RACE RESULT: " prefix. The venue is left
-                // out on purpose: the player has just driven it.
-                summary = drop.refused
-                    ? "REFUSED — nothing edible was left. No tip; you ate it."
-                    : "delivered — " + DeliveryClock(drop.seconds) +
-                      " (par " + DeliveryClock(drop.parSeconds) + "), " +
-                      (OrderLabel(drop, RaceHandoff.CargoBoxes).Length > 0
-                          ? OrderLabel(drop, RaceHandoff.CargoBoxes).ToLower() : "intact") + ", +" +
-                      MenuKit.Money(drop.tip);
-                if (!string.IsNullOrEmpty(meetLine)) summary = meetLine + "  ·  " + summary;
+                // The wallet, the club, the shop's opinion and the meal: one
+                // method, shared with the drop at a door in town (TownWorld).
+                summary = SettleDelivery(s, drop, RaceHandoff.DeliveryMeetClub,
+                    RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f, RaceHandoff.CargoBoxes);
             }
             else if (RaceHandoff.IsPractice)
             {

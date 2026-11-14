@@ -26,7 +26,8 @@ namespace PSXRacing.OnFoot
         public static void Enter()
         {
             var S = LifeSimManager.State;
-            int idx = TrackCatalog.NeighborhoodSceneIndex;
+            // HOME is the town's west end on the merged map (TownLayout).
+            int idx = PSXRacing.Town.TownLayout.HomeSceneIndex;
             if (S == null || idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
             {
                 // A build without the street: the old walk-in scene, which is

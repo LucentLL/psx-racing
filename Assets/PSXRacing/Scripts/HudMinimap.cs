@@ -538,9 +538,59 @@ namespace PSXRacing
                     }
                 }
             }
+            // A map with no street graph that handed over its own roads (the
+            // town): drawn as a main road, piece by piece so the fade and the
+            // reach cull work on them as they do on a street.
+            else if (path == null && localRoads.Count > 0)
+            {
+                float cull = (reach + LocalPieceM) * (reach + LocalPieceM);
+                foreach (var run in localRoads)
+                    for (int i = 0; i + 1 < run.Length; i++)
+                    {
+                        if (((run[i] + run[i + 1]) * 0.5f - centreW).sqrMagnitude > cull) continue;
+                        FadedLine(vh, Local(run[i]), Local(run[i + 1]), 2.0f * pxu, ColMajor, 0f);
+                        if (vh.currentVertCount > MaxVerts) break;
+                    }
+            }
 
             if (path != null && path.Count >= 2) DrawRace(vh, centreW, reach);
             else if (freeRoam && gps.Valid) DrawGps(vh);
+        }
+
+        // ------------------------------------------------------------------
+        //  A map's own roads, for a place with no street graph
+        // ------------------------------------------------------------------
+        static readonly List<Vector2[]> localRoads = new List<Vector2[]>();
+        const float LocalPieceM = 20f;
+
+        /// <summary>True while a scene has handed the map its roads.</summary>
+        public static bool HasLocalRoads => localRoads.Count > 0;
+
+        /// <summary>
+        /// The roads of a place with no street graph, as plan polylines
+        /// (flattened: <paramref name="points"/>, and how many each run takes)
+        /// — the town's (TownWorld, from the builder). Cut into pieces of
+        /// LocalPieceM so a 300 m main street is culled and faded like a
+        /// street, not drawn whole or not at all. Null clears them.
+        /// </summary>
+        public static void SetLocalRoads(Vector2[] points, int[] runs)
+        {
+            localRoads.Clear();
+            if (points == null || runs == null) return;
+            int at = 0;
+            foreach (int n in runs)
+            {
+                if (n < 2 || at + n > points.Length) { at += Mathf.Max(0, n); continue; }
+                var run = new List<Vector2> { points[at] };
+                for (int i = at + 1; i < at + n; i++)
+                {
+                    Vector2 a = points[i - 1], b = points[i];
+                    int pieces = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) / LocalPieceM));
+                    for (int k = 1; k <= pieces; k++) run.Add(Vector2.Lerp(a, b, k / (float)pieces));
+                }
+                localRoads.Add(run.ToArray());
+                at += n;
+            }
         }
 
         void DrawRace(VertexHelper vh, Vector2 centreW, float reach)

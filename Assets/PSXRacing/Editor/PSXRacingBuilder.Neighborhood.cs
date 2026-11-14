@@ -485,6 +485,11 @@ namespace PSXRacing.EditorTools
             // there is your lot, which is flat geometry — and an unclamped
             // profile keeps curving up there and lifts the land out from under
             // your own house by half a metre.
+            // AND AT THE BOTTOM, ON THE TOWN MAP: past the street's end the
+            // road carries on into town, level (PSXRacingBuilder.TownHomeEnd),
+            // so the profile stops rolling there instead of falling another
+            // metre and a half under the run-off.
+            if (nbMerged && z < NbStreetEnd) z = NbStreetEnd;
             float u = Mathf.Max(0f, HomeStreetTop - z);        // metres down the street
             float t = Mathf.Clamp01(u / (HomeStreetTop - NbStreetEnd));
             float fall = -11f * t * t * (3f - 2f * t);         // the ridge, falling
@@ -542,6 +547,13 @@ namespace PSXRacing.EditorTools
             // geometry and the land has to arrive at it level.
             float nearHome = Mathf.SmoothStep(0f, 1f,
                 Mathf.InverseLerp(HomeStreetTop + 4f, HomeStreetTop - 40f, z));
+            // ON THE TOWN MAP the bottom of the street is where the town's
+            // flat lawn begins, so the relief fades out toward the junction
+            // the way it fades out toward your lot: flat from the street's end
+            // on, at the road's own level — which, moved into the town, is the
+            // town lawn's (PSXRacingBuilder.TownHomeEnd).
+            if (nbMerged)
+                nearHome *= Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(NbStreetEnd + 2f, NbStreetEnd + 40f, z));
             return road + relief * t * nearHome;
         }
 
@@ -1132,6 +1144,16 @@ namespace PSXRacing.EditorTools
         {
             var g = new WorldKit.SlabGrid(new Vector3(HomeStreetX, 0f, NbStreetMidZ),
                                           NbGroundSizeX, NbStreetLen + NbGroundOverZ, NbGroundCell);
+            // ON THE TOWN MAP the lawn stops where the town's lawn begins
+            // instead of running on a hundred metres under it: two grounds
+            // over the same metres are a z-fight and two floors.
+            if (nbMerged)
+            {
+                float zTop = NbStreetMidZ + (NbStreetLen + NbGroundOverZ) * 0.5f;
+                float zLow = HomeEndLatticeMinZ;
+                g = new WorldKit.SlabGrid(new Vector3(HomeStreetX, 0f, (zTop + zLow) * 0.5f),
+                                          NbGroundSizeX, zTop - zLow, NbGroundCell);
+            }
             nbLattice = g;
             nbLatticeY = new float[g.VertexCount];
             for (int j = 0; j <= g.nz; j++)
@@ -1404,7 +1426,9 @@ namespace PSXRacing.EditorTools
             // improbably close to it. The town's main street keeps its own.
 
             BuildNbKerbs(parent, m);
-            BuildNbStreetEnd(parent, m);
+            // On the town map the street does not end there: the road into
+            // town carries on from it (PSXRacingBuilder.BuildHomeEndRoad).
+            if (!nbMerged) BuildNbStreetEnd(parent, m);
         }
 
         /// <summary>
@@ -1900,6 +1924,10 @@ namespace PSXRacing.EditorTools
                         // word: a driveway to a blank wall renders perfectly.
                         if (!nbGarageChecked) NbCheckGarage(house, side, z);
                     }
+
+                    // ON THE TOWN MAP every neighbour is somewhere an order
+                    // can go: a front door, a marker, an address.
+                    if (nbMerged) NbDropDoor(lots.transform, tag, pi, side, z, padY);
 
                     // The drive, from the kerb to the front of the house.
                     //

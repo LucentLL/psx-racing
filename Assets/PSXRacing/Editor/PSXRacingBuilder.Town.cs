@@ -169,11 +169,21 @@ namespace PSXRacing.EditorTools
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var lightGO = BuildLighting();
 
-            var root = new GameObject("Town");
             var mats = TownMaterials();
             // The lawns turn with the year like everything else outdoors.
             RegisterSeasonalGround("TownGrass", TownHouseTex + "/Grass.jpg", mats.grass, Color.white, "grass");
 
+            // YOUR STREET, AT THE WEST END (owner 2026-11-14: "add the
+            // neighborhood to one end of the large town map. don't rewire the
+            // town"). FIRST, on the empty scene, because it is built in its own
+            // frame and probes its own ground — see PSXRacingBuilder.TownHomeEnd.
+            // PSX_TOWN_HOMEEND=0: the town as it was.
+            townHomeEndBuild = TownHomeEndOn;
+            try
+            {
+            var homeEnd = townHomeEndBuild ? BuildHomeEnd(mats) : null;
+
+            var root = new GameObject("Town");
             BuildTownGround(root.transform, mats);
             BuildTownStrip(root.transform, mats);
             BuildTownTrade(root.transform, mats);
@@ -185,6 +195,8 @@ namespace PSXRacing.EditorTools
             // an entrance is only known once its lot has laid its concrete.
             BuildTownKerbs(root.transform, mats);
             BuildTownBounds(root.transform);
+            // The road from the end of the main street to the end of yours.
+            var homeRoadRespawns = homeEnd != null ? BuildHomeEndRoad(root.transform, mats) : null;
 
             // ---- the player, on their own drive, pointing at the street ----
             var physMat = GetOrCreatePhysMat("CarPhys", CarSlideFriction, 0.05f);
@@ -195,9 +207,18 @@ namespace PSXRacing.EditorTools
             // driveway was in it; the house is its own map now, so the town's
             // spawn is where its road comes in from that map. Every other
             // arrival (a shop page, the shift) repositions the car itself.
+            // AND ON THE MERGED MAP THE DRIVEWAY IS IN IT AGAIN: every door
+            // that goes HOME loads this scene (TownLayout.HomeSceneIndex), so
+            // the baked spawn is your own drive at the home end, facing out.
+            var spawnAt = new Vector3(-TownStreetHalf + 18f, 0.35f, 0f);
+            var spawnRot = Quaternion.LookRotation(Vector3.right, Vector3.up);
+            if (homeEnd != null && homeEnd.spawn != null)
+            {
+                spawnAt = homeEnd.spawn.position;
+                spawnRot = homeEnd.spawn.rotation;
+            }
             var player = BuildOneCar(carsRoot.transform, CarSetups[0], isPlayer: true,
-                new Vector3(-TownStreetHalf + 18f, 0.35f, 0f),
-                Quaternion.LookRotation(Vector3.right, Vector3.up), physMat, blobMat);
+                spawnAt, spawnRot, physMat, blobMat);
             var cars = new List<CarController> { player };
 
             BuildCameraAndHUD(player, cars, null, lightGO.GetComponent<Light>());
@@ -213,6 +234,13 @@ namespace PSXRacing.EditorTools
             mode.world = null;
             mode.venueName = "TOWN";
             mode.respawnPoints = BuildTownRespawns(root.transform);
+            if (homeEnd != null)
+            {
+                var all = new List<Transform>(mode.respawnPoints);
+                if (homeRoadRespawns != null) all.AddRange(homeRoadRespawns);
+                if (homeEnd.respawns != null) all.AddRange(homeEnd.respawns);
+                mode.respawnPoints = all.ToArray();
+            }
 
             // AND THE HANDOFF, WHICH THE TOWN NEVER HAD. Every scene builder
             // but this one and Charlotte's puts a RaceHandoffApplier on the
@@ -275,11 +303,16 @@ namespace PSXRacing.EditorTools
             world.blockMaterial = MakeMat("TownCinder", null,
                 tint: new Color(0.56f, 0.56f, 0.52f));
 
+            // The home end's rooms, arrival and drop doors (PSXRacingBuilder.TownHomeEnd).
+            if (homeEnd != null) WireHomeEnd(homeEnd, systems, world, forecourt, player);
+
             AttachSeasonDress();
             EditorSceneManager.SaveScene(scene, TownScenePath);
             AssetDatabase.SaveAssets();
-            Log("[Town] Scene saved: " + TownScenePath);
+            Log("[Town] Scene saved: " + TownScenePath + (homeEnd != null ? " (with the home end)" : ""));
             return TownScenePath;
+            }
+            finally { townHomeEndBuild = false; }
         }
 
         // ------------------------------------------------------------------
@@ -426,9 +459,12 @@ namespace PSXRacing.EditorTools
                 };
                 var outward = new List<Vector3> { new Vector3(0f, 0f, side), new Vector3(0f, 0f, side) };
                 // No taper at either end: both are under the boundary walls.
+                // Except the WEST end on the merged map, where the wall is gone
+                // and the road carries on to your street without kerbs: the
+                // stone drops to flush there rather than ending standing up.
                 var runs = WorldKit.KerbRuns(edge, outward,
                     p => InTownEntrance(side, p.x), WorldKit.KerbHeightM,
-                    taperStart: false, taperEnd: false, maxPitch: 4f);
+                    taperStart: townHomeEndBuild, taperEnd: false, maxPitch: 4f);
                 string tag = side < 0 ? "S" : "N";
                 for (int r = 0; r < runs.Count; r++)
                 {
@@ -1830,7 +1866,10 @@ namespace PSXRacing.EditorTools
                 go.AddComponent<BoxCollider>().size = size;
             }
             float hx = TownStreetHalf + TownBoundsOut;
-            Wall("W", new Vector3(-hx, 3f, 12f), new Vector3(1f, 6f, 170f));
+            // On the merged map the west wall stands across the road to your
+            // street; what is left of it is BuildHomeEndRoad's.
+            if (!townHomeEndBuild)
+                Wall("W", new Vector3(-hx, 3f, 12f), new Vector3(1f, 6f, 170f));
             Wall("E", new Vector3(hx, 3f, 12f), new Vector3(1f, 6f, 170f));
             Wall("S", new Vector3(0f, 3f, TownBoundsS), new Vector3(hx * 2f, 6f, 1f));
             Wall("N", new Vector3(0f, 3f, TownBoundsN), new Vector3(hx * 2f, 6f, 1f));
@@ -1843,6 +1882,10 @@ namespace PSXRacing.EditorTools
             // stopped by anything.
             for (int s = -1; s <= 1; s += 2)
             {
+                // THE MERGED MAP HAS NO WEST LINE: the road there runs on to
+                // your own street, and a menu across it would be the toll
+                // booth DepartScreen's note argues against, on every trip home.
+                if (s < 0 && townHomeEndBuild) continue;
                 var go = new GameObject("TownEdge" + (s < 0 ? "W" : "E"));
                 go.transform.SetParent(b.transform, false);
                 go.transform.position = new Vector3(s * (TownStreetHalf - 6f), 1.6f, 0f);

@@ -164,9 +164,22 @@ namespace PSXRacing.Town
             // are four from your own street now (IN TOWN, CHARLOTTE, GO RACING,
             // INSPECT A CAR) because the house stopped offering them, so the
             // pitch has to answer to the count rather than the other way round.
-            SetRowBudget(DoorCount(carrying, fromTown, Edition.HasCharlotte), y);
+            // THE PAPER FROM TOWN TOO on the merged map: your own street is
+            // the town's west end now, so this line is the only one there is
+            // and the row the street's junction used to carry lives here.
+            bool paperHere = !fromTown || TownLayout.HomeInTown;
+            SetRowBudget(DoorCount(carrying, fromTown, Edition.HasCharlotte, paperHere), y);
 
-            if (carrying)
+            if (carrying && PizzaRun.LocalDrop)
+            {
+                // A HOUSE IN TOWN is not out of this line. Said, and shut: the
+                // run is back the other way, and every other door is shut while
+                // the order is aboard.
+                Row(panel, ref y, "MAKE THE DELIVERY",
+                    PizzaRun.DropName + " is in your neighbourhood, the far end of the main street.",
+                    false, null);
+            }
+            else if (carrying)
             {
                 string venue = PizzaRun.TrackIndex >= 0 &&
                                PizzaRun.TrackIndex < TrackCatalog.All.Length
@@ -252,7 +265,8 @@ namespace PSXRacing.Town
                 // The classifieds are a thing you read at home; from the
                 // town's end the row would be a hop through the house to a
                 // car on somebody else's street.
-                if (!fromTown)
+                // (On the merged map the town's end IS the end of your street.)
+                if (paperHere)
                 {
                     int forSale = (S.newspaper != null ? S.newspaper.Count : 0);
                     Row(panel, ref y, "INSPECT A CAR",
@@ -316,12 +330,18 @@ namespace PSXRacing.Town
         /// does not (MAIN: no FREE ROAM — CHARLOTTE row at all).
         /// </summary>
         public static int DoorCount(bool carrying, bool fromTown, bool hasCharlotte)
+            => DoorCount(carrying, fromTown, hasCharlotte, !fromTown);
+
+        /// <param name="paperHere">INSPECT A CAR is offered at this line: at
+        /// the end of your own street, and at the town's end on the merged map
+        /// (TownLayout.HomeInTown), where that is the end of your street.</param>
+        public static int DoorCount(bool carrying, bool fromTown, bool hasCharlotte, bool paperHere)
         {
             int doors = 1;                                   // the way on
             if (carrying) return doors + 1;                  // MAKE THE DELIVERY
             if (hasCharlotte) doors += 1;                    // FREE ROAM — CHARLOTTE
             doors += 1;                                      // GO RACING
-            if (!fromTown) doors += 1;                       // the paper
+            if (paperHere) doors += 1;                       // the paper
             return doors;
         }
 

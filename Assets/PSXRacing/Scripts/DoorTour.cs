@@ -157,7 +157,8 @@ namespace PSXRacing
                     expectScene = TrackCatalog.SceneIdOf(TrackCatalog.FirstOffered()),
                 });
             doors.Add(new Door { label = "IN TOWN", hop = "town", expectScene = "Town", sentinel = "drive" });
-            doors.Add(new Door { label = "your street (DRIVE)", hop = "drivehome", expectScene = "Neighborhood", sentinel = "drive" });
+            doors.Add(new Door { label = "your street (DRIVE)", hop = "drivehome",
+                expectScene = PSXRacing.Town.TownLayout.HomeInTown ? "Town" : "Neighborhood", sentinel = "drive" });
             doors.Add(new Door { label = "walk-in garage", hop = "garagewalk", expectScene = "Neighborhood", sentinel = "foot" });
             var seller = new Door
             {

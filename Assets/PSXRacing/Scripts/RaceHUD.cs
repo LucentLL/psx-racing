@@ -296,6 +296,13 @@ namespace PSXRacing
             // No signpost to a counter that does not serve (the CITY edition:
             // DriveThru.Serves). The slot stays empty after the attribution.
             bool guided = City.FirstDrive.Active;
+            // THE TOWN'S DROP: the house the order on the seat is for, marked
+            // on the map. The signpost line itself is TownWorld.Cue's.
+            if (world == null && Town.TownWorld.MapTarget(out Vector2 townDrop))
+            {
+                if (minimap != null) minimap.SetDestination(townDrop, true);
+                return "";
+            }
             if ((!DriveThru.Serves && !guided) || world == null || car == null)
             {
                 if (minimap != null) minimap.SetDestination(default, false);
@@ -477,8 +484,11 @@ namespace PSXRacing
             minimapH = h;
             minimapTouch = touch;
             var streets = StreetsHere(!roam);
-            // The town shares this HUD and has no road graph: no map there.
-            if (roam && streets == null) return;
+            // The town shares this HUD and has no road graph: no map there —
+            // unless it handed the map its roads as lines (the merged town,
+            // TownWorld.roadPoints), which is where a delivery's house is
+            // marked.
+            if (roam && streets == null && !HudMinimap.HasLocalRoads) return;
             MapRect(touch, h, out var anchor, out var centre, out float size);
             minimap = HudMinimap.Create(transform, anchor, centre, size, car.transform,
                                         streets, path, rm, roam);

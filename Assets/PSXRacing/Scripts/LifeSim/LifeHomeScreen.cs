@@ -373,8 +373,8 @@ namespace PSXRacing.LifeSim
             if (tab == "garagewalk")
             {
                 tab = "garage";
-                if (TrackCatalog.NeighborhoodSceneIndex > 0 &&
-                    TrackCatalog.NeighborhoodSceneIndex < SceneManager.sceneCountInBuildSettings)
+                if (Town.TownLayout.HomeSceneIndex > 0 &&
+                    Town.TownLayout.HomeSceneIndex < SceneManager.sceneCountInBuildSettings)
                 {
                     BuildChrome();
                     PSXRacing.OnFoot.HomeWalk.Enter();
@@ -8594,7 +8594,9 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void StartTown()
         {
-            int idx = TrackCatalog.NeighborhoodSceneIndex;
+            // HOME is the town's west end on the merged map (TownLayout): the
+            // town scene, whose baked spawn is your own drive.
+            int idx = Town.TownLayout.HomeSceneIndex;
             if (idx <= 0 || idx >= SceneManager.sceneCountInBuildSettings)
             {
                 Toast("the town is not in this build");
