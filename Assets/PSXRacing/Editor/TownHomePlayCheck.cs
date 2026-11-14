@@ -283,19 +283,6 @@ namespace PSXRacing.EditorTools
                   "the house is marked, and only that house", lit + " marker(s) lit");
             Check(TownWorld.MapTarget(out Vector2 mapAt) && Vector2.Distance(mapAt, new Vector2(door.position.x, door.position.z)) < 0.5f,
                   "and it is the map's destination", mapAt.ToString("0.0"));
-            var hud = Object.FindFirstObjectByType<RaceHUD>();
-            var mm = hud != null ? hud.Minimap : null;
-            bool mmDest = false;
-            if (mm != null)
-            {
-                var m = typeof(HudMinimap).GetMethod("Destination", Any);
-                var args = new object[] { Vector2.zero };
-                mmDest = m != null && (bool)m.Invoke(mm, args) &&
-                         Vector2.Distance((Vector2)args[0], mapAt) < 0.5f;
-            }
-            Check(mm != null && mm.Root != null && mm.Root.activeInHierarchy && mmDest,
-                  "the HUD has a map in town, and the drop is marked on it",
-                  mm == null ? "no minimap" : "root " + (mm.Root != null && mm.Root.activeInHierarchy) + ", dest " + mmDest);
             float paidBefore = S.money;
 
             // ---- 4. turned round at the kerb, back in, and out to the house ----
@@ -312,6 +299,21 @@ namespace PSXRacing.EditorTools
             yield return Seconds(2.2f);
             Check(!ForecourtMode.OnFoot, "back in the car");
             yield return Seconds(1.0f);
+            // The HUD's map is a driving instrument (it hides on foot): asked
+            // once the driver is back in.
+            var hud = Object.FindFirstObjectByType<RaceHUD>();
+            var mm = hud != null ? hud.Minimap : null;
+            bool mmDest = false;
+            if (mm != null)
+            {
+                var dm = typeof(HudMinimap).GetMethod("Destination", Any);
+                var args = new object[] { Vector2.zero };
+                mmDest = dm != null && (bool)dm.Invoke(mm, args) &&
+                         Vector2.Distance((Vector2)args[0], mapAt) < 0.5f;
+            }
+            Check(mm != null && mm.Root != null && mm.Root.activeInHierarchy && mmDest,
+                  "the HUD has a map in town, and the drop is marked on it",
+                  mm == null ? "no minimap" : "root " + (mm.Root != null && mm.Root.activeInHierarchy) + ", dest " + mmDest);
             Check(PizzaCargo.Instance != null, "the boxes are on the passenger seat");
 
             float doorX = door.position.x;
