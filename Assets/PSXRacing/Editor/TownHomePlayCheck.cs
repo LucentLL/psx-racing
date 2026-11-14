@@ -93,7 +93,24 @@ namespace PSXRacing.EditorTools
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
             EditorApplication.playModeStateChanged += OnState;
+            // Run WITHOUT -quit: the editor has to stay up to play. A coroutine
+            // that throws never reaches Done(), so the check ends itself here
+            // instead of waiting for somebody to stop the editor.
+            startedAt = EditorApplication.timeSinceStartup;
+            EditorApplication.update += Watchdog;
             EditorApplication.EnterPlaymode();
+        }
+
+        static double startedAt;
+        const double TimeoutS = 900;
+
+        static void Watchdog()
+        {
+            if (EditorApplication.timeSinceStartup - startedAt < TimeoutS) return;
+            EditorApplication.update -= Watchdog;
+            Check(false, "the check finished inside " + TimeoutS + " s (it stopped part-way: see the editor log)");
+            Finish();
+            EditorApplication.Exit(1);
         }
 
         static void OnState(PlayModeStateChange s)
