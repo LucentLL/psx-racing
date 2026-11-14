@@ -787,6 +787,49 @@ namespace PSXRacing.LifeSim
                 }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
 
             WirePanelNavigation(root);
+            if (under)
+            {
+                // The pad: the four plans, then NEXT - DOWN from any plan lands
+                // on NEXT and UP from NEXT on the plan picked, whatever the
+                // geometry makes of a scrolled card (now, and again on top of
+                // the graph the watch builds a frame later).
+                WizardPlanLinks(root);
+                var watch = GetComponent<MenuNavWatch>();
+                if (watch != null) watch.applied = () => { if (root != null) WizardPlanLinks(root); };
+            }
+        }
+
+        /// <summary>The NEW GAME card's pad links: each plan's DOWN is NEXT,
+        /// NEXT's UP is the plan picked.</summary>
+        void WizardPlanLinks(RectTransform root)
+        {
+            var keys = new[] { "NONE", "BASIC", "STANDARD", "PREMIUM" };
+            Selectable next = null;
+            var plans = new Selectable[keys.Length];
+            foreach (var s in root.GetComponentsInChildren<Selectable>(false))
+            {
+                if (s.name == "Btn_NEXT: PICK A CAR") next = s;
+                int i = System.Array.IndexOf(keys, s.name.StartsWith("Btn_") ? s.name.Substring(4) : "");
+                if (i >= 0) plans[i] = s;
+            }
+            if (next == null) return;
+            Selectable picked = null;
+            for (int i = 0; i < plans.Length; i++)
+            {
+                if (plans[i] == null) continue;
+                var nav = plans[i].navigation;
+                nav.mode = Navigation.Mode.Explicit;
+                nav.selectOnDown = next;
+                plans[i].navigation = nav;
+                var p = Insurance.PlanByKey(i == 0 ? "" : keys[i].ToLowerInvariant());
+                if ((p != null ? p.key : "") == (wizPlan ?? "")) picked = plans[i];
+                if (picked == null && i == plans.Length - 1) picked = plans[i];
+            }
+            if (picked == null) return;
+            var nn = next.navigation;
+            nn.mode = Navigation.Mode.Explicit;
+            nn.selectOnUp = picked;
+            next.navigation = nn;
         }
 
         /// <summary>PSX_WIZARD_SCROLL=0: the NEW GAME card drawn straight onto

@@ -102,10 +102,12 @@ namespace PSXRacing.EditorTools
             RectTransform root = null;
             foreach (var t in screen.GetComponentsInChildren<RectTransform>(false)) if (t.name == "Wizard") { root = t; break; }
             if (root == null) { Fail(where + " no wizard"); return; }
+            // What the watch's ApplyPending does a frame in, on the rects the
+            // picture shows: the grid, then the page's own links.
             var w = screen.GetComponent<MenuNavWatch>();
-            var apply = typeof(MenuNavWatch).GetMethod("ApplyPending", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (w != null && apply != null) apply.Invoke(w, null);
             var items = MenuNav.Collect(root);
+            MenuNav.Grid(items);
+            w?.applied?.Invoke();
             Selectable Find(string n) { foreach (var s in items) if (s.name == n) return s; return null; }
             var plans = new[] { Find("Btn_NONE"), Find("Btn_BASIC"), Find("Btn_STANDARD"), Find("Btn_PREMIUM") };
             var next = Find("Btn_NEXT: PICK A CAR");

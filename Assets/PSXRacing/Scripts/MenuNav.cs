@@ -608,7 +608,13 @@ namespace PSXRacing
             pendingColumn = column != null ? new List<Selectable>(column) : null;
             pendingActive = activeTab;
             waited = 0;
+            applied = null;
         }
+
+        /// <summary>Run once the geometric graph is in (a page's own links on
+        /// top of it, such as the NEW GAME plans' DOWN to NEXT). Cleared by
+        /// every <see cref="SetPending"/>, so it belongs to one page.</summary>
+        public System.Action applied;
 
         void Update()
         {
@@ -692,6 +698,7 @@ namespace PSXRacing
                 MenuNav.JoinLines(pendingRow, pendingColumn, pendingActive);
             pendingColumn = null;
             pendingRow = null;
+            applied?.Invoke();
         }
 
         /// <summary>
