@@ -406,6 +406,14 @@ namespace PSXRacing.LifeSim
         {
             driven = null;
             if (!LiveOn || car == null || string.IsNullOrEmpty(car.id)) return null;
+            // the ledger armed for this drive (a hidden car - the self-test's bench
+            // car - is not seen by FindObjectsByType)
+            var cur = DamageLedger.Current;
+            if (cur != null && cur.Banks && cur.CarId == car.id && cur.Car != null)
+            {
+                var cr = cur.Car.GetComponent<CollisionResponder>();
+                if (cr != null && cr.Damage == cur) { driven = cur.Car; return cur; }
+            }
             foreach (var r in Object.FindObjectsByType<CollisionResponder>(FindObjectsSortMode.None))
             {
                 var L = r != null ? r.Damage : null;

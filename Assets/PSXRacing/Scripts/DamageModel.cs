@@ -550,6 +550,11 @@ namespace PSXRacing
             DriveTag = ((uint)seed).ToString("x8");
         }
 
+        /// <summary>Fix pass 1 (the debug bench): the career car's banking ledger
+        /// of the drive under way, set when it is armed, and its car.</summary>
+        public static DamageLedger Current { get; private set; }
+        public CarController Car => car;
+
         /// <summary>Damage events this drive (incidents that did anything).</summary>
         public int Events { get { int n = 0; foreach (var i in incidents) if (i.outcome.Any) n++; return n; } }
 
@@ -582,6 +587,7 @@ namespace PSXRacing
                         L.baseWeep = Mathf.Max(L.baseWeep, DamageModel.WeepFor(DamageModel.LeakFor(f.stage)));
                 }
             resp.Damage = L;
+            Current = L;   // fix pass 1: the bench's handle on the drive under way
             DamageLook.Attach(car, L);   // R1a part 2a: the car shows its rows
             resp.Ledger = null;
             car.hitSteerPull = 0f;
