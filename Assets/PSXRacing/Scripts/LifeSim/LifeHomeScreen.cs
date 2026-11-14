@@ -539,6 +539,10 @@ namespace PSXRacing.LifeSim
                 PizzaRun.AbandonRun(S, "the order went cold on the passenger seat — no tip");
                 LifeSimManager.Save();
             }
+            // And a shift in town is over once you are home, however you got
+            // here: END SHIFT has spent its blocks already, END DRIVE the one
+            // block a drive costs (ApplyRaceResult, above).
+            PizzaRun.EndShift();
             // (Two intent flags used to be cleared here — PizzaRun.DriveToShop
             // and CarMeets.Heading, the player's stated plans to work and to go
             // to the meet. Neither exists: the house declares nothing now, and

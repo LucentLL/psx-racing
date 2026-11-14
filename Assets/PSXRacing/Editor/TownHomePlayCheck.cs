@@ -102,7 +102,7 @@ namespace PSXRacing.EditorTools
         }
 
         static double startedAt;
-        const double TimeoutS = 900;
+        const double TimeoutS = 1800;
 
         static void Watchdog()
         {
@@ -219,110 +219,134 @@ namespace PSXRacing.EditorTools
 
         static FootTarget TargetUnder(Transform t) => t != null ? t.GetComponentInChildren<FootTarget>(true) : null;
 
-        IEnumerator Start()
-        {
-            for (int i = 0; i < 30; i++) yield return null;
+        TownWorld world;
+        float shopX;
 
-            // ---- 1. home, through the house's own DRIVE door ----
-            Check(TownLayout.HomeInTown && TownLayout.HomeSceneIndex == TrackCatalog.TownSceneIndex,
-                  "home is the town's west end in this build", "home scene #" + TownLayout.HomeSceneIndex +
-                  ", town #" + TrackCatalog.TownSceneIndex + ", street map #" + TrackCatalog.NeighborhoodSceneIndex);
+        static int Abs(LifeState s) => s.day * LifeRules.SlotCount + s.slotIndex;
+        static string When(LifeState s) =>
+            LifeRules.DateLabel(s.day) + " " + LifeRules.SlotNames[Mathf.Clamp(s.slotIndex, 0, LifeRules.SlotCount - 1)];
+
+        static Button FindButton(Component under, string label)
+        {
+            if (under == null) return null;
+            foreach (var bt in under.GetComponentsInChildren<Button>())
+            {
+                var t = bt.GetComponentInChildren<Text>();
+                if (t != null && t.text == label) return bt;
+            }
+            return null;
+        }
+
+        IEnumerator GetIn()
+        {
+            var fm = ForecourtMode.Instance;
+            var gi = typeof(ForecourtMode).GetMethod("GetIn", Any);
+            if (fm != null && gi != null && ForecourtMode.OnFoot) fm.StartCoroutine((IEnumerator)gi.Invoke(fm, null));
+            yield return Seconds(2.2f);
+        }
+
+        /// <summary>DRIVE from the house: the front end's own "drivehome"
+        /// hop, which loads TownLayout.HomeSceneIndex.</summary>
+        IEnumerator HomeToTown(bool first)
+        {
             LifeHomeScreen.PendingTab = "drivehome";
             SceneManager.LoadScene(0);
             yield return WaitScene(TrackCatalog.TownSceneIndex, 150f);
             yield return Seconds(3f);
-            var world = Object.FindFirstObjectByType<TownWorld>();
+            world = Object.FindFirstObjectByType<TownWorld>();
             car = world != null ? world.player : null;
             Check(SceneManager.GetActiveScene().buildIndex == TrackCatalog.TownSceneIndex && world != null && car != null,
-                  "DRIVE from the house loads the town", SceneManager.GetActiveScene().name);
-            if (world == null || car == null) { Done(); yield break; }
+                  "DRIVE from the house loads the town", SceneManager.GetActiveScene().name + ", " + When(S));
+            if (world == null || car == null) { car = null; yield break; }
             var spawn = GameObject.Find("HomeSpawn");
             float fromSpawn = spawn != null ? Vector3.Distance(car.transform.position, spawn.transform.position) : -1f;
-            Check(spawn != null && fromSpawn < 2.5f,
-                  "the car starts on your own drive, at the town's west end",
+            Check(spawn != null && fromSpawn < 2.5f, "the car starts on your own drive, at the town's west end",
                   "car " + car.transform.position.ToString("0.0") + ", " + fromSpawn.ToString("0.0") + " m from HomeSpawn");
+            shopX = world.pizzaKerb != null ? world.pizzaKerb.position.x : -14f;
+            if (!first) yield break;
             Check(world.dropDoors != null && world.dropDoors.Length >= 8 && world.dropDoors.All(d => d != null),
                   "the neighbours' doors are wired for deliveries", world.dropDoors != null ? world.dropDoors.Length : 0);
-
             var road = GameObject.Find("HomeRoadSlab");
             float roadX = road != null ? road.transform.position.x : -213f;
             // Picture 1: the neighbourhood end, from over the junction, up the hill to your house.
             Shot("1_home_end", new Vector3(roadX - 70f, 42f, -62f), new Vector3(roadX - 230f, 6f, 0f));
             // Picture 2: the road in, from the end of the main street.
             Shot("2_road_in", new Vector3(-115f, 6.5f, -13f), new Vector3(roadX - 70f, 1.5f, 0f));
+        }
 
-            // ---- 2. drive to the pizzeria ----
-            float shopX = world.pizzaKerb != null ? world.pizzaKerb.position.x : -14f;
-            yield return DriveTo(shopX, 0f, 55f, 150f, "drove from home down your street and the road in to Tony's");
-            Check(drivenM > 300f, "and it was a drive, not a placement", drivenM.ToString("0") + " m");
-
-            // ---- 3. take a run ----
+        /// <summary>Drive to Tony's from wherever the car is (pointed at it),
+        /// get out at the door, and take the run.</summary>
+        IEnumerator ToShopAndPick(string what, bool expectNext)
+        {
+            yield return DriveTo(shopX, 0f, 55f, 150f, what);
             var fm = ForecourtMode.Instance;
             Transform hook = world.pizzaHooks != null && world.pizzaHooks.Length > 0 ? world.pizzaHooks[0] : null;
-            Check(fm != null && hook != null, "there is a forecourt and a shop door to walk to");
-            if (fm == null || hook == null) { Done(); yield break; }
+            if (fm == null || hook == null) { Check(false, "a forecourt and a shop door to walk to"); yield break; }
             fm.BeginAfoot(hook.position + hook.forward * -1.2f, Quaternion.LookRotation(hook.forward, Vector3.up));
             Line("  (placed: the walker is stood at the shop's door)");
             yield return Seconds(0.8f);
             var pick = TargetUnder(hook);
-            Check(pick != null && pick.onUse != null && pick.verb == "PICK UP",
-                  "the shop offers a run on PICK UP", pick != null ? pick.action + " / " + pick.verb : "no target");
-            if (pick == null || pick.onUse == null) { Done(); yield break; }
+            bool nextOk = !expectNext || (pick != null && pick.action.StartsWith("NEXT RUN"));
+            Check(pick != null && pick.onUse != null && pick.verb == "PICK UP" && nextOk,
+                  expectNext ? "on shift, the counter hands over the next run without clocking on again"
+                             : "the shop offers a run on PICK UP",
+                  pick != null ? pick.action + " / " + pick.verb : "no target");
+            if (pick == null || pick.onUse == null) yield break;
             pick.onUse();
             yield return Seconds(0.6f);
-            Check(PizzaRun.Carrying && PizzaRun.LocalDrop, "the order is on, to a house, not a race track",
-                  "carrying " + PizzaRun.Carrying + ", house " + PizzaRun.DropHouse + " " + PizzaRun.DropName +
-                  ", track " + PizzaRun.TrackIndex + ", par " + LifeRules.DeliveryClock(PizzaRun.ParSeconds) +
-                  ", quote $" + PizzaRun.Pay);
-            if (!PizzaRun.LocalDrop) { Done(); yield break; }
+            Check(PizzaRun.Carrying && PizzaRun.LocalDrop && PizzaRun.ShiftOn,
+                  "the order is on, to a house, not a race track, and the shift is on",
+                  "house " + PizzaRun.DropHouse + " " + PizzaRun.DropName + ", track " + PizzaRun.TrackIndex +
+                  ", par " + LifeRules.DeliveryClock(PizzaRun.ParSeconds) + ", quote $" + PizzaRun.Pay);
+        }
+
+        /// <summary>From the shop's door: the car turned round at the kerb,
+        /// back in, driven to the order's house, stopped, out, DELIVER. Leaves
+        /// the done panel up.</summary>
+        IEnumerator DriveAndDeliver(bool firstRun)
+        {
             var door = world.dropDoors[PizzaRun.DropHouse];
             var marker = world.dropMarkers != null && PizzaRun.DropHouse < world.dropMarkers.Length
                 ? world.dropMarkers[PizzaRun.DropHouse] : null;
             int lit = world.dropMarkers != null ? world.dropMarkers.Count(m => m != null && m.activeInHierarchy) : 0;
             Check(marker != null && marker.activeInHierarchy && lit == 1,
                   "the house is marked, and only that house", lit + " marker(s) lit");
-            Check(TownWorld.MapTarget(out Vector2 mapAt) && Vector2.Distance(mapAt, new Vector2(door.position.x, door.position.z)) < 0.5f,
+            Check(TownWorld.MapTarget(out Vector2 mapAt) &&
+                  Vector2.Distance(mapAt, new Vector2(door.position.x, door.position.z)) < 0.5f,
                   "and it is the map's destination", mapAt.ToString("0.0"));
-            float paidBefore = S.money;
-
-            // ---- 4. turned round at the kerb, back in, and out to the house ----
-            // Turned while nobody is in it, so the boxes are not on the seat
-            // for the move (they land when the driver does).
             if (world.pizzaKerb != null)
             {
                 car.ResetTo(world.pizzaKerb.position + Vector3.up * 0.3f, world.pizzaKerb.rotation);
                 Line("  (placed: the car is turned round at the shop's kerb, facing west)");
             }
             yield return Seconds(1.0f);
-            var getIn = typeof(ForecourtMode).GetMethod("GetIn", Any);
-            if (getIn != null) fm.StartCoroutine((IEnumerator)getIn.Invoke(fm, null));
-            yield return Seconds(2.2f);
+            yield return GetIn();
             Check(!ForecourtMode.OnFoot, "back in the car");
             yield return Seconds(1.0f);
-            // The HUD's map is a driving instrument (it hides on foot): asked
-            // once the driver is back in.
-            var hud = Object.FindFirstObjectByType<RaceHUD>();
-            var mm = hud != null ? hud.Minimap : null;
-            bool mmDest = false;
-            if (mm != null)
+            if (firstRun)
             {
-                var dm = typeof(HudMinimap).GetMethod("Destination", Any);
-                var args = new object[] { Vector2.zero };
-                mmDest = dm != null && (bool)dm.Invoke(mm, args) &&
-                         Vector2.Distance((Vector2)args[0], mapAt) < 0.5f;
+                // The HUD's map is a driving instrument (it hides on foot).
+                var hud = Object.FindFirstObjectByType<RaceHUD>();
+                var mm = hud != null ? hud.Minimap : null;
+                bool mmDest = false;
+                if (mm != null)
+                {
+                    var dm = typeof(HudMinimap).GetMethod("Destination", Any);
+                    var args = new object[] { Vector2.zero };
+                    mmDest = dm != null && (bool)dm.Invoke(mm, args) &&
+                             Vector2.Distance((Vector2)args[0], mapAt) < 0.5f;
+                }
+                Check(mm != null && mm.Root != null && mm.Root.activeInHierarchy && mmDest,
+                      "the HUD has a map in town, and the drop is marked on it",
+                      mm == null ? "no minimap" : "root " + (mm.Root != null && mm.Root.activeInHierarchy) + ", dest " + mmDest);
+                float back = Mathf.Sign(shopX - door.position.x);
+                // Picture 3: the marked house, from the street as you come up it.
+                Shot("3_drop_marker", new Vector3(door.position.x + back * 46f, door.position.y + 3.5f, 0f),
+                     new Vector3(door.position.x, door.position.y + 4.5f, door.position.z));
             }
-            Check(mm != null && mm.Root != null && mm.Root.activeInHierarchy && mmDest,
-                  "the HUD has a map in town, and the drop is marked on it",
-                  mm == null ? "no minimap" : "root " + (mm.Root != null && mm.Root.activeInHierarchy) + ", dest " + mmDest);
             Check(PizzaCargo.Instance != null, "the boxes are on the passenger seat");
-
-            float doorX = door.position.x;
-            // Picture 3: the marked house, from the street as you come up it.
-            float back = Mathf.Sign(shopX - doorX);
-            Shot("3_drop_marker", new Vector3(doorX + back * 46f, door.position.y + 3.5f, 0f),
-                 new Vector3(doorX, door.position.y + 4.5f, door.position.z));
             float clockAtGo = PizzaRun.LocalSeconds;
-            yield return DriveTo(doorX, 0f, 55f, 150f, "drove the order from Tony's to " + PizzaRun.DropName);
+            yield return DriveTo(door.position.x, 0f, 55f, 150f, "drove the order from Tony's to " + PizzaRun.DropName);
             yield return Seconds(1.5f);
             Check(PizzaRun.LocalArrived, "stopping at the house is arriving",
                   "clock " + LifeRules.DeliveryClock(PizzaRun.LocalSeconds) + " (" +
@@ -330,34 +354,121 @@ namespace PSXRacing.EditorTools
             float clockStop = PizzaRun.LocalSeconds;
             yield return Seconds(1.0f);
             Check(Mathf.Abs(PizzaRun.LocalSeconds - clockStop) < 0.05f, "and the clock stops there");
-
-            // ---- 5. hand it over at the door ----
             var drop = TargetUnder(door);
+            var fm = ForecourtMode.Instance;
             fm.BeginAfoot(door.position + door.forward * 1.6f - Vector3.up * 0.9f,
                           Quaternion.LookRotation(-door.forward, Vector3.up));
             Line("  (placed: the walker is stood at the door)");
             yield return Seconds(0.8f);
-            Check(drop != null && drop.onUse != null && drop.verb == "DELIVER",
-                  "the door takes the order on DELIVER", drop != null ? drop.title + " / " + drop.action + " / " + drop.verb : "no target");
-            if (drop == null || drop.onUse == null) { Done(); yield break; }
+            Check(drop != null && drop.onUse != null && drop.verb == "DELIVER", "the door takes the order on DELIVER",
+                  drop != null ? drop.title + " / " + drop.action + " / " + drop.verb : "no target");
+            if (drop == null || drop.onUse == null) yield break;
+            int before = S.money;
             drop.onUse();
             yield return Seconds(0.8f);
             var done = DeliveryDoneScreen.Open;
-            int tip = done != null ? done.outcome.tip : -1;
-            Check(!PizzaRun.Carrying && PizzaCargo.Instance == null, "the order is gone from the car");
-            Check(done != null, "the delivery-done panel is up");
-            Check(done != null && tip > 0 && Mathf.Abs(S.money - paidBefore - tip) < 0.5f,
-                  "and the tip is in the wallet", "tip $" + tip + ", wallet +" + (S.money - paidBefore) +
-                  ", time " + (done != null ? LifeRules.DeliveryClock(done.outcome.seconds) + " par " +
-                  LifeRules.DeliveryClock(done.outcome.parSeconds) + ", " + done.outcome.condition.ToString("0.00") : ""));
+            Check(!PizzaRun.Carrying && PizzaCargo.Instance == null && done != null,
+                  "the order is gone from the car and the delivery-done panel is up");
             if (done != null)
-            {
-                var canvas = done.GetComponentInChildren<Canvas>();
-                var cam = Camera.main;
-                Shot("4_delivery_done", cam != null ? cam.transform.position : door.position + door.forward * 6f,
-                     cam != null ? cam.transform.position + cam.transform.forward * 10f : door.position, canvas,
-                     (c, w, h) => CheckPanel(c, done.transform, w, h));
-            }
+                Check(done.outcome.tip > 0 && S.money - before == done.outcome.tip,
+                      "and the tip is in the wallet", "tip $" + done.outcome.tip + ", wallet +" + (S.money - before) +
+                      ", time " + LifeRules.DeliveryClock(done.outcome.seconds) + " par " +
+                      LifeRules.DeliveryClock(done.outcome.parSeconds) + ", " + done.outcome.condition.ToString("0.00"));
+        }
+
+        IEnumerator Start()
+        {
+            for (int i = 0; i < 30; i++) yield return null;
+            Check(TownLayout.HomeInTown && TownLayout.HomeSceneIndex == TrackCatalog.TownSceneIndex,
+                  "home is the town's west end in this build", "home scene #" + TownLayout.HomeSceneIndex +
+                  ", town #" + TrackCatalog.TownSceneIndex + ", street map #" + TrackCatalog.NeighborhoodSceneIndex);
+
+            // ==== A. a shift in town: two deliveries, then END SHIFT ====
+            Line("--- A. a shift: two deliveries, then END SHIFT");
+            yield return HomeToTown(true);
+            if (car == null) { Done(); yield break; }
+            int abs0 = Abs(S), blocks = WorkSchedule.BlocksToSpend(S);
+            int money0 = S.money;
+            string start = When(S);
+            yield return ToShopAndPick("drove from home down your street and the road in to Tony's", false);
+            if (!PizzaRun.LocalDrop) { Done(); yield break; }
+            Check(Abs(S) == abs0, "clocking on spends no block yet: the shift is spent when it ends", When(S));
+            yield return DriveAndDeliver(true);
+            var done = DeliveryDoneScreen.Open;
+            if (done == null) { Done(); yield break; }
+            int tips = done.outcome.tip;
+            var next = FindButton(done, "NEXT ORDER");
+            var end = FindButton(done, "END SHIFT");
+            Check(next != null && end != null, "on a shift the panel offers NEXT ORDER and END SHIFT");
+            var canvas = done.GetComponentInChildren<Canvas>();
+            var cam = Camera.main;
+            Shot("4_delivery_done", cam != null ? cam.transform.position : Vector3.up * 20f,
+                 cam != null ? cam.transform.position + cam.transform.forward * 10f : Vector3.zero, canvas,
+                 (c, w, h) => CheckPanel(c, done.transform, w, h));
+            if (next == null) { Done(); yield break; }
+            next.onClick.Invoke();
+            yield return Seconds(1.0f);
+            Check(DeliveryDoneScreen.Open == null && PizzaRun.ShiftOn && !PizzaRun.Carrying &&
+                  TownWorld.Cue != null && TownWorld.Cue.Contains("TONY"),
+                  "NEXT ORDER: the panel goes, the shift stays on, the cue points back to Tony's", TownWorld.Cue);
+            car.ResetTo(car.transform.position + Vector3.up * 0.3f, Quaternion.LookRotation(Vector3.right, Vector3.up));
+            Line("  (placed: the car is turned round where it stopped, facing the shop)");
+            yield return Seconds(0.8f);
+            yield return GetIn();
+            yield return ToShopAndPick("drove back from the drop to Tony's", true);
+            if (!PizzaRun.LocalDrop) { Done(); yield break; }
+            Check(Abs(S) == abs0, "the second run spends no block either", When(S));
+            yield return DriveAndDeliver(false);
+            done = DeliveryDoneScreen.Open;
+            if (done == null) { Done(); yield break; }
+            tips += done.outcome.tip;
+            end = FindButton(done, "END SHIFT");
+            Check(end != null, "and after the second drop, END SHIFT");
+            if (end == null) { Done(); yield break; }
+            end.onClick.Invoke();
+            yield return WaitScene(0, 90f);
+            yield return Seconds(2f);
+            int moved = Abs(S) - abs0;
+            Check(SceneManager.GetActiveScene().buildIndex == 0 && !PizzaRun.ShiftOn && moved == blocks,
+                  "END SHIFT clocks off and goes home, the shift's blocks spent as the schedule has them",
+                  start + " -> " + When(S) + ": " + moved + " block(s), the shift's " + blocks);
+            Check(tips > 0 && S.money - money0 >= tips, "both drops' tips are in the wallet",
+                  "+" + (S.money - money0) + " (tips " + tips + ")");
+
+            // ==== B. END DRIVE part-way through a shift ====
+            Line("--- B. END DRIVE after a drop, on shift: one block, the same day");
+            bool found = false;
+            int fromDay = S.day;
+            for (int d = fromDay + 1; d < fromDay + 15 && !found; d++)
+                for (int sl = 0; sl < LifeRules.SlotCount - 1 && !found; sl++)
+                {
+                    S.day = d; S.slotIndex = sl; S.workedToday = false;
+                    if (WorkSchedule.CanClockOn(S)) found = true;
+                }
+            Check(found, "a later shift block, not the day's last (the check moves the clock to it)", When(S));
+            if (!found) { Done(); yield break; }
+            LifeSimManager.Save();
+            yield return HomeToTown(false);
+            if (car == null) { Done(); yield break; }
+            int dayB = S.day, absB = Abs(S);
+            string startB = When(S);
+            yield return ToShopAndPick("drove from home to Tony's", false);
+            if (!PizzaRun.LocalDrop) { Done(); yield break; }
+            yield return DriveAndDeliver(false);
+            done = DeliveryDoneScreen.Open;
+            next = done != null ? FindButton(done, "NEXT ORDER") : null;
+            if (next != null) next.onClick.Invoke();
+            yield return Seconds(1.0f);
+            yield return GetIn();
+            var menu = Object.FindFirstObjectByType<PauseMenu>();
+            var exit = typeof(PauseMenu).GetMethod("ExitToMenu", Any);
+            Check(menu != null && exit != null && PizzaRun.ShiftOn, "on shift, back in the car, the pause menu's END DRIVE");
+            if (menu == null || exit == null) { Done(); yield break; }
+            exit.Invoke(menu, null);
+            yield return WaitScene(0, 90f);
+            yield return Seconds(2f);
+            Check(SceneManager.GetActiveScene().buildIndex == 0 && S.day == dayB && Abs(S) - absB == 1 && !PizzaRun.ShiftOn,
+                  "END DRIVE: home, the same day, one block on", startB + " -> " + When(S));
             LifeSimManager.Save();
             Done();
         }

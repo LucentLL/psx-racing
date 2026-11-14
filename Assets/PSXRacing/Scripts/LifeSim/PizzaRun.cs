@@ -103,6 +103,21 @@ namespace PSXRacing.LifeSim
         /// <summary>An order is aboard and it is going to a house in town.</summary>
         public static bool LocalDrop => Carrying && DropHouse >= 0;
 
+        // ---- the shift in town (owner, PC37: "it doesn't give me an option to
+        // complete shift") ----
+        /// <summary>
+        /// Clocked on at Tony's in the town and not yet clocked off: the
+        /// counter hands over the NEXT run without clocking on again, and the
+        /// shift's blocks are spent when it ENDS (END SHIFT, TownWorld) rather
+        /// than up front at the counter — so an END DRIVE part-way through a
+        /// shift costs the one block any drive costs, never the whole shift on
+        /// top of it. Survives scene hops inside the trip; ended by any arrival
+        /// home (LifeHomeScreen) and by END SHIFT.
+        /// </summary>
+        public static bool ShiftOn;
+        public static void BeginShift() { ShiftOn = true; }
+        public static void EndShift() { ShiftOn = false; }
+
         public static void ClearRun()
         {
             MeetClub = "";

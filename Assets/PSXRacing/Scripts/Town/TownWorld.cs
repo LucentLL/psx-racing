@@ -347,6 +347,13 @@ namespace PSXRacing.Town
                                 ")" + where;
                 }
             }
+            // ON SHIFT IN TOWN, between runs: the next order is at Tony's.
+            else if (PizzaRun.ShiftOn && LocalDropsHere && FindVenue(TownVenue.Kind.Pizzeria) != null)
+            {
+                anchor = FindVenue(TownVenue.Kind.Pizzeria);
+                label = "NEXT ORDER — TONY'S";
+                near = "TONY'S — PARK UP, WALK IN, PICK UP";
+            }
             // THE CAR MEET, on the nights there is one — and it is ahead of the
             // shift now, where it used to be last. The old order was right when
             // both were INTENTS: the player had pressed one button or the
@@ -655,6 +662,10 @@ namespace PSXRacing.Town
             // THE SCHEDULE (v23): the counter hands over a run only inside a
             // scheduled shift, once, while on the roster.
             bool canClockOn = WorkSchedule.CanClockOn(S);
+            // ON SHIFT IN TOWN the counter hands over the next run without a
+            // second clock-on (CanClockOn says no once the day is worked).
+            bool nextRun = PizzaRun.ShiftOn && LocalDropsHere;
+            canClockOn |= nextRun;
             foreach (var t in pizzaDoorTargets)
             {
                 if (t == null) continue;
@@ -674,7 +685,9 @@ namespace PSXRacing.Town
                 }
                 else if (canClockOn)
                 {
-                    t.detail = "The counter is up. Take the run and drive it.";
+                    t.detail = nextRun ? "You are on shift. The next order is up."
+                                       : "The counter is up. Take the run and drive it.";
+                    if (nextRun) t.action = "NEXT RUN — TAKE THE ORDER";
                     t.onUse = CollectOrder;
                     t.onUse2 = OpenPizzaCounter;
                 }
@@ -788,9 +801,23 @@ namespace PSXRacing.Town
             // clocking on must precede the spend — spending the last slot of
             // the day rolls it, and the rollover decides whether the player
             // skived by reading the very latch this sets.
-            LifeRules.ClockOnShift(s);
-            // The whole shift, two blocks or to closing (six-block day, v21).
-            LifeRules.SpendShift(s);
+            // IN THE MERGED TOWN (owner, PC37) the shift is several runs and
+            // ends with END SHIFT: clock on at the first run only, and spend
+            // the shift's blocks when it ends (EndShift), not here — or an END
+            // DRIVE after one drop cost the whole shift AND a block on top,
+            // which is how a night run ended on the next calendar day.
+            bool townShift = LocalDropsHere;
+            if (!townShift)
+            {
+                LifeRules.ClockOnShift(s);
+                // The whole shift, two blocks or to closing (six-block day, v21).
+                LifeRules.SpendShift(s);
+            }
+            else if (!PizzaRun.ShiftOn)
+            {
+                LifeRules.ClockOnShift(s);
+                PizzaRun.BeginShift();
+            }
             PizzaRun.StartRun(toppings, bottles, pay, trackIndex, par, tod, drop);
             PizzaRun.MeetClub = meetClub != null ? meetClub.id : "";
             // Already standing at the shop. SpawnAtShop is for a scene load
@@ -986,7 +1013,38 @@ namespace PSXRacing.Town
 
             string order = (boxes == 1 ? "ONE BOX" : boxes + " BOXES") +
                            (bottles == 1 ? " AND A 2 LITRE" : bottles > 1 ? " AND TWO 2 LITRES" : "");
-            DeliveryDoneScreen.Show(where, order, o, boxes, s.pendingSalary, meet);
+            bool onShift = PizzaRun.ShiftOn;
+            DeliveryDoneScreen.Show(where, order, o, boxes, s.pendingSalary, meet,
+                                    onShift ? (System.Action)NextOrder : null,
+                                    onShift ? (System.Action)EndShift : null);
+        }
+
+        /// <summary>NEXT ORDER: the shift goes on, and the next run is at the
+        /// counter — the counter and the cue both say so (RefreshPizzaDoor,
+        /// BuildCue).</summary>
+        void NextOrder()
+        {
+            flash = "NEXT ORDER — BACK TO TONY'S";
+            flashUntil = Time.unscaledTime + 6f;
+            Cue = flash;
+            RefreshPizzaDoor();
+        }
+
+        /// <summary>
+        /// END SHIFT: clock off. The shift's blocks are spent now, by the rule
+        /// they were always spent by (LifeRules.SpendShift: to the end of the
+        /// scheduled shift), and the wages follow the attendance banked at the
+        /// first run, on the weekly cheque. Then home, the way a delivery's
+        /// end always went — through the front end, as a leg of the shift, so
+        /// the trip is not charged a block on top.
+        /// </summary>
+        void EndShift()
+        {
+            var s = S;
+            if (s != null && PizzaRun.ShiftOn) LifeRules.SpendShift(s);
+            PizzaRun.EndShift();
+            LifeSimManager.Save();
+            TownExit.GoHome(player, "main", commute: true);
         }
 
         void OpenPizzaCounter()
