@@ -250,4 +250,9 @@ namespace PSXRacing.EditorTools
             Shoot("next_race");
         }
     }
+
+    // Named as the file, so the file's MonoScript binds this class and the runner
+    // above has none (as DamagePlayCheck): Unity refused to AddComponent the runner
+    // while it was the file's only class ("it is an editor script").
+    public static class ArcadeDamagePlayCheck { }
 }
