@@ -38,7 +38,9 @@ namespace PSXRacing.EditorTools
             fails = 0;
             try
             {
+                // NEW GAME, no save: the wizard, at the owner's window too.
                 LifeSimManager.DeleteSave();
+                LifeHomePreview.Shoot(outDir, "wizard_nav", sizes: OwnerSizes, probe: WizardProbe);
                 LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
                 LifeRules.SeedFallbackCar(LifeSimManager.State);
                 var st = LifeSimManager.State;
@@ -61,7 +63,8 @@ namespace PSXRacing.EditorTools
                 st.money = 0;
                 LifeSimManager.Save();
                 Debug.Log("[NavScroll] car " + car.displayName + " with " + added + " known faults, no money");
-                LifeHomePreview.Shoot(outDir, "carmenu_nav", "carmenu", garageCar: car.id, probe: PadDownCarPage);
+                LifeHomePreview.Shoot(outDir, "carmenu_nav", "carmenu", garageCar: car.id, sizes: OwnerSizes,
+                                      probe: PadDownCarPage);
 
                 DebugBenchPreview.ShootPause(outDir, "settings_visuals", SettingsTab.Visuals);
                 DebugBenchPreview.ShootPause(outDir, "settings_visuals_end", SettingsTab.Visuals, scrollTo: 0f);
@@ -81,7 +84,74 @@ namespace PSXRacing.EditorTools
 
         static int fails;
 
+        /// <summary>The three capture aspects and the owner's own 2000x1077
+        /// window (1.86:1), which they missed.</summary>
+        static readonly (string name, int w, int h)[] OwnerSizes =
+        {
+            ("owner_2000x1077", 2000, 1077),
+            ("phone_wide", 1998, 891),
+            ("landscape_16x9", 1280, 720),
+            ("tablet_4x3", 1024, 768),
+        };
+
         static void Fail(string s) { fails++; Debug.LogError("[NavScroll] FAIL " + s); }
+
+        // ---------------- the NEW GAME wizard ----------------
+        static void WizardProbe(LifeHomeScreen screen, string where)
+        {
+            RectTransform root = null;
+            foreach (var t in screen.GetComponentsInChildren<RectTransform>(false)) if (t.name == "Wizard") { root = t; break; }
+            if (root == null) { Fail(where + " no wizard"); return; }
+            var w = screen.GetComponent<MenuNavWatch>();
+            var apply = typeof(MenuNavWatch).GetMethod("ApplyPending", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (w != null && apply != null) apply.Invoke(w, null);
+            var items = MenuNav.Collect(root);
+            Selectable Find(string n) { foreach (var s in items) if (s.name == n) return s; return null; }
+            var plans = new[] { Find("Btn_NONE"), Find("Btn_BASIC"), Find("Btn_STANDARD"), Find("Btn_PREMIUM") };
+            var next = Find("Btn_NEXT: PICK A CAR");
+            Selectable first = null;
+            foreach (var s in items) if (s is Button) { first = s; break; }
+            var seen = new HashSet<Selectable>();
+            var q = new Queue<Selectable>();
+            if (first != null) { seen.Add(first); q.Enqueue(first); }
+            while (q.Count > 0)
+            {
+                var nav = q.Dequeue().navigation;
+                foreach (var nx in new[] { nav.selectOnUp, nav.selectOnDown, nav.selectOnLeft, nav.selectOnRight })
+                    if (nx != null && seen.Add(nx)) q.Enqueue(nx);
+            }
+            int reached = 0, downToNext = 0;
+            foreach (var p in plans)
+            {
+                if (p != null && seen.Contains(p)) reached++;
+                if (p != null && p.navigation.selectOnDown == next) downToNext++;
+            }
+            bool nextReached = next != null && seen.Contains(next);
+            // A pad from the first button, DOWN only, logged.
+            var path = new List<string>();
+            var esGo = new GameObject("NavProbeES");
+            var es = esGo.AddComponent<EventSystem>();
+            var trace = new List<string>();
+            try
+            {
+                if (first != null)
+                {
+                    es.SetSelectedGameObject(first.gameObject);
+                    path.Add(first.name);
+                    for (int i = 0; i < 8; i++)
+                    {
+                        var now = Press(es, MoveDirection.Down, trace);
+                        path.Add(now != null ? now.name : "none");
+                        if (next != null && now == next.gameObject) break;
+                    }
+                }
+            }
+            finally { Object.DestroyImmediate(esGo); }
+            Debug.Log("[NavScroll] " + where + " wizard: plans reachable " + reached + "/4, NEXT reachable " + nextReached +
+                      ", DOWN from a plan lands on NEXT " + downToNext + "/4; pad DOWN: " + string.Join(" > ", path));
+            if (reached < 4 || !nextReached) Fail(where + " the pad cannot reach every plan and NEXT");
+            if (ReportControlOverlap(root, where) > 0) Fail(where + " something overlaps on the wizard");
+        }
 
         static float Bottom(Component c)
         {
@@ -217,7 +287,7 @@ namespace PSXRacing.EditorTools
                 Canvas.ForceUpdateCanvases();
                 Debug.Log("[NavScroll] " + where + " rows " + scroll.content.rect.height.ToString("0") + " in a list of " +
                           scroll.viewport.rect.height.ToString("0") + ", left at " + Pos(scroll));
-                ReportControlOverlap(host, where);
+                if (ReportControlOverlap(host, where) > 0) Fail(where + " a control or text over a control");
                 return;
             }
             var rows = MenuNav.Collect(scroll.content);

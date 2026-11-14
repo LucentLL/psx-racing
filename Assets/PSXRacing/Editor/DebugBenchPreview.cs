@@ -226,6 +226,8 @@ namespace PSXRacing.EditorTools
         /// another.</summary>
         static readonly (string name, int w, int h)[] PauseSizes =
         {
+            // The owner's own window (2026-11-14): 1.86:1, a handheld column.
+            ("owner_2000x1077", 2000, 1077),
             ("phone_wide", 1998, 891),
             ("landscape_16x9", 1280, 720),
             ("tablet_4x3", 1024, 768),
