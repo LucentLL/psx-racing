@@ -149,8 +149,10 @@ namespace PSXRacing.LifeSim
                 bgs[i] = btn.GetComponent<Image>();
             }
             cy -= 48f;
+            // As wide as the button row and no wider: NEXT sits bottom-right, beside it.
+            float rowW = keys.Length * bw + (keys.Length - 1) * gap;
             terms = MenuKit.Para(list, Insurance.PlanTerms(Insurance.PlanByKey(wizPlan ?? "")), MenuKit.Tiny,
-                new Vector2(0f, 1f), new Vector2(20f, cy), out float th, TextAnchor.UpperLeft, Color.white, w);
+                new Vector2(0f, 1f), new Vector2(20f, cy), out float th, TextAnchor.UpperLeft, Color.white, rowW);
             // room for the longest plan's terms, whichever is picked now
             return cy - Mathf.Max(th, 46f) - 6f;
         }

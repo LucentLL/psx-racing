@@ -749,7 +749,11 @@ namespace PSXRacing.LifeSim
                 }
             }
 
-            MenuKit.Button(root, "NEXT: PICK A CAR", new Vector2(0.5f, 0f), new Vector2(0f, 20f),
+            // Bottom-RIGHT, not centred: the job card and its health plan row run
+            // down the left, and on a wide (short) canvas they reach the bottom band.
+            // Owner 11-14: the centred button sat over the plan row and its terms,
+            // and a pad skipped straight past the plans to it.
+            MenuKit.Button(root, "NEXT: PICK A CAR", new Vector2(1f, 0f), new Vector2(-40f, 20f),
                 new Vector2(380f, 62f), () =>
                 {
                     // An empty name is not a valid save: Start() routes a state
