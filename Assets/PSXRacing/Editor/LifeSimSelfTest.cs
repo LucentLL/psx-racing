@@ -4798,9 +4798,11 @@ namespace PSXRacing.EditorTools
                       "the car is parked on your own drive at the home end",
                       spawn != null && player != null ? spawn.position.ToString("0.0") : "no HomeSpawn");
                 Physics.SyncTransforms();
-                bool onTarmac = spawn != null && Physics.Raycast(spawn.position + Vector3.up, Vector3.down, out var drive, 4f,
-                                                                  ~0, QueryTriggerInteraction.Ignore) &&
-                                drive.collider.gameObject.layer == 8;
+                // ALL the hits: the car itself is standing on this spot.
+                bool onTarmac = spawn != null &&
+                                Physics.RaycastAll(spawn.position + Vector3.up, Vector3.down, 4f, ~0,
+                                                   QueryTriggerInteraction.Ignore)
+                                       .Any(h => h.collider.gameObject.layer == 8);
                 Check(onTarmac, "and the drive under it is road-layer tarmac");
                 // The road in: tarmac all the way along the main street's line
                 // from the end of the town's street to the end of yours.
