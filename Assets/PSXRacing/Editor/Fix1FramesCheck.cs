@@ -267,4 +267,8 @@ namespace PSXRacing.EditorTools
             while (t < seconds) { t += Time.deltaTime > 0f ? Time.deltaTime : 0.02f; yield return null; }
         }
     }
+
+    /// <summary>Named as the file (as InjuryPlayCheck is): the runner above then has no editor
+    /// MonoScript and can be added in play mode.</summary>
+    public static class Fix1FramesCheck { }
 }
