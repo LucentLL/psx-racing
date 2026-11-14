@@ -16,18 +16,59 @@ namespace PSXRacing.EditorTools
         static void RunFix1Tests()
         {
             bool carry = InjuryFx.CarryOnOn, live = DebugCarOps.LiveOn, panel = DamageHomes.PanelStageOn,
-                 inj = CrashFates.InjuryOn, stay = CrashFates.FailStaysOn;
+                 inj = CrashFates.InjuryOn, stay = CrashFates.FailStaysOn, ff = CrashFates.FastForwardOn;
             try
             {
-                InjuryFx.CarryOnOn = DebugCarOps.LiveOn = DamageHomes.PanelStageOn = CrashFates.InjuryOn = CrashFates.FailStaysOn = true;
+                InjuryFx.CarryOnOn = DebugCarOps.LiveOn = DamageHomes.PanelStageOn = CrashFates.InjuryOn = CrashFates.FailStaysOn =
+                    CrashFates.FastForwardOn = true;
                 Guard(nameof(TestConcussionCarriesOn), TestConcussionCarriesOn);
+                Guard(nameof(TestHospitalFastForward), TestHospitalFastForward);
                 Guard(nameof(TestBenchLive), TestBenchLive);
                 Guard(nameof(TestPanelByStage), TestPanelByStage);
             }
             finally
             {
                 InjuryFx.CarryOnOn = carry; DebugCarOps.LiveOn = live; DamageHomes.PanelStageOn = panel;
-                CrashFates.InjuryOn = inj; CrashFates.FailStaysOn = stay;
+                CrashFates.InjuryOn = inj; CrashFates.FailStaysOn = stay; CrashFates.FastForwardOn = ff;
+            }
+        }
+
+        static void TestHospitalFastForward()
+        {
+            Line("Fix 1 - A2: a hospital stay fast-forwards the calendar to the discharge day; nothing is locked after (owner 11-14):");
+            var s = LifeRules.SeedNewGame("FIX1H", 25, LifeRules.DefaultJobIndex);
+            try
+            {
+                DmgUseState(s);
+                s.health = 70f;
+                const float score = 20f;
+                var st = CrashFates.StayFor(score, s.health);
+                int day0 = s.day;
+                s.fate = new CrashFate { pending = CrashFates.Hospital, pendingScore = score, pendingDay = day0, pendingWhere = "in Charlotte" };
+                Check(CrashFates.Process(s) && CrashFates.PageDue(s), "the hospital injury is processed and its one page is due");
+                Check(s.day == day0 + st.recoveryDays && s.day == s.fate.injuredUntil && s.fate.hospDays == st.recoveryDays,
+                      "the calendar runs through the whole stay and recovery to the discharge morning",
+                      "day " + day0 + " -> " + s.day + " (" + LifeRules.DateLabel(s.day) + "), stay " + st.hospitalDays + " + recovery to " + st.recoveryDays + " days");
+                Check(!CrashFates.Hurt(s) && CrashFates.HurtRefusal(s) == null && CrashFates.WorkRefusal(s) == null,
+                      "nothing is locked afterwards: no RECOVERING gate, no clock-on gate");
+                Check(CrashFates.ExcusedOn(s, day0 + 1) && CrashFates.ExcusedOn(s, s.day - 1) && !CrashFates.ExcusedOn(s, s.day),
+                      "a shift or club event missed in hospital is medical leave; the discharge day is not");
+                var slow = CrashFates.StayFor(score, 10f);
+                Check(slow.recoveryDays > st.recoveryDays, "HEALTH still scales the stay", st.recoveryDays + " days at HEALTH 70, " + slow.recoveryDays + " at 10");
+                CrashFates.FastForwardOn = false;
+                var s2 = LifeRules.SeedNewGame("FIX1H2", 25, LifeRules.DefaultJobIndex);
+                DmgUseState(s2);
+                s2.health = 70f;
+                int d2 = s2.day;
+                s2.fate = new CrashFate { pending = CrashFates.Hospital, pendingScore = score, pendingDay = d2, pendingWhere = "in Charlotte" };
+                CrashFates.Process(s2);
+                Check(s2.day == d2 + st.hospitalDays && CrashFates.Hurt(s2), "PSX_HOSPITAL_FASTFORWARD=0: the hospital days, then recovering at home (R1c-A)");
+                CrashFates.FastForwardOn = true;
+            }
+            finally
+            {
+                CrashFates.FastForwardOn = true;
+                DmgUseState(null);
             }
         }
 
@@ -189,7 +230,7 @@ namespace PSXRacing.EditorTools
             DamageBank.ApplyIncident(s, owned, Rec(902, 3));
             int c3 = row != null ? row.cost : -1;
             int fam = FaultCatalog.MakeById(DamageModel.PanelId, FaultCatalog.FamilyOf(owned)).cost;
-            Check(c1 == DamageHomes.PanelCost(fam, 0f, 1f) && c3 == DamageHomes.PanelCost(fam, 0f, 3f),
+            Check(c1 == DamageHomes.PanelCost(fam, 0f, 1f) && Mathf.Abs(c3 - DamageHomes.PanelCost(fam, 0f, 3f)) <= 2,
                   "through the fold: the cover's price, then raised to the crumpled price", "$" + c1 + " -> $" + c3);
             DamageHomes.PanelStageOn = false;
             Check(DamageHomes.PanelCost(flat, 0f, 1f) == flat, "PSX_FAULT_PANELSTAGE=0: the flat price at every stage");

@@ -67,6 +67,14 @@ namespace PSXRacing.LifeSim
         static string Env(string k) => System.Environment.GetEnvironmentVariable(k);
         public static bool InjuryOn = Env("PSX_INJURY") != "0";
         public static bool FailStaysOn = Env("PSX_FAIL_STAYS") != "0";
+        /// <summary>Fix pass 1 (owner 11-14: "the player may spend the time in a hospital, so essentially
+        /// the calendar fast forwards. Not them sitting at home unable to do anything for a month"): a
+        /// HOSPITAL injury passes the whole stay AND the recovery as days in hospital - the normal
+        /// rollover each night (bills on the 1st, rent, insurance), shifts and club events medical leave
+        /// (Duty.Medical) - and the player wakes on the discharge day to one page, nothing locked after.
+        /// PSX_HOSPITAL_FASTFORWARD=0: the hospital days, then a recovery at home with no driving and no
+        /// work (R1c-A).</summary>
+        public static bool FastForwardOn = Env("PSX_HOSPITAL_FASTFORWARD") != "0";
         public static bool WriteOffOn = Env("PSX_WRITE_OFF") != "0";
 
         public const int None = 0, Concussion = 1, Hospital = 2, Death = 3;
@@ -298,21 +306,29 @@ namespace PSXRacing.LifeSim
             f.injuredFrom = f.pendingDay;
             f.injuredUntil = f.pendingDay + st.recoveryDays;
             f.hospFromDay = s.day;
-            for (int i = 0; i < st.hospitalDays; i++) LifeRules.SleepUntilMorning(s);
+            int daysIn = st.hospitalDays;
+            if (FastForwardOn)
+            {
+                // the whole stay and recovery in hospital: the calendar runs to the discharge morning
+                int from = s.day, guard = 0;
+                while (s.day < f.injuredUntil && guard++ < 400) LifeRules.SleepUntilMorning(s);
+                daysIn = Mathf.Max(1, s.day - from);
+            }
+            else for (int i = 0; i < st.hospitalDays; i++) LifeRules.SleepUntilMorning(s);
             var pay = CrashHooks.Hospital(s, st.bill);
             int owes = Mathf.Max(0, pay.playerOwes);
             // R1c-B's Charge: what the money covers is paid now, the rest goes on a payment plan
             int planned = Insurance.Charge(s, owes, "the hospital bill");
             int paid = owes - planned;
             f.hospitalOwed += planned;
-            f.hospDays = st.hospitalDays;
+            f.hospDays = daysIn;
             f.hospBill = st.bill;
             f.hospInsurer = Mathf.Max(0, pay.insurerPaid);
             f.hospDeductible = Mathf.Max(0, pay.deductible);
             f.hospPaid = paid;
             f.hospNote = pay.note ?? "";
             f.page = "hospital";
-            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": out of hospital after " + st.hospitalDays + " day" + (st.hospitalDays == 1 ? "" : "s") +
+            s.calendarLog.Add(LifeRules.LogDate(s.day) + ": out of hospital after " + daysIn + " day" + (daysIn == 1 ? "" : "s") +
                               " with " + st.what + " — bill " + MenuKit.Money(st.bill) + ", you paid " + MenuKit.Money(paid));
             LifeSimManager.Save();
             return true;
@@ -348,7 +364,9 @@ namespace PSXRacing.LifeSim
         /// <summary>A shop's tow-in for a car that cannot be driven to them.</summary>
         public static int TowIn(OwnedCar car) => Undrivable(car) ? CareerDrive.TowHookUp : 0;
 
-        public static bool Hurt(LifeState s) => InjuryOn && s != null && s.fate != null && !s.fate.dead && s.day < s.fate.injuredUntil;
+        /// <summary>Recovering at home, locked out (R1c-A only: with the fast-forward the
+        /// recovery is spent in hospital and nothing is locked after it).</summary>
+        public static bool Hurt(LifeState s) => !FastForwardOn && InjuryOn && s != null && s.fate != null && !s.fate.dead && s.day < s.fate.injuredUntil;
 
         /// <summary>LifeRules.DriveRefusal's player half.</summary>
         public static string HurtRefusal(LifeState s) =>
