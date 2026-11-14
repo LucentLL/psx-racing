@@ -1372,9 +1372,14 @@ namespace PSXRacing.LifeSim
             // by the drive home like any other trip into town — which is also
             // why that drive is written into the day as AT THE MEET rather
             // than as a drive, on a night somebody was actually raced.
+            // ONE block for the drive, whatever happened on it. A drive that
+            // ended part-way through a shift in town (PizzaRun.ShiftOn, whose
+            // blocks are only spent at END SHIFT) is that one block too, and
+            // is written into the day as the work it was.
             if (!RaceHandoff.Delivery && !RaceHandoff.CommuteLeg && !RaceHandoff.MeetRace)
                 SpendActivitySlot(s, !RaceHandoff.FreeRoam ? ActRace
-                                     : CarMeets.RacedTonight(s) ? ActMeet : ActDrive);
+                                     : CarMeets.RacedTonight(s) ? ActMeet
+                                     : PizzaRun.ShiftOn ? ActWork : ActDrive);
 
             if (car != null)
             {

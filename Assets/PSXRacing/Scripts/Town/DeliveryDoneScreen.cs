@@ -37,8 +37,14 @@ namespace PSXRacing.Town
         public int wagesThisWeek;
         public string note = "";
 
+        /// <summary>The shift's two doors after a drop (owner, PC37: "it
+        /// doesn't give me an option to complete shift"): NEXT ORDER and END
+        /// SHIFT. Null both: one CARRY ON, as before.</summary>
+        public System.Action onNext, onEndShift;
+
         public static DeliveryDoneScreen Show(string address, string order, LifeRules.DeliveryOutcome o,
-                                              int boxes, int wagesThisWeek, string note)
+                                              int boxes, int wagesThisWeek, string note,
+                                              System.Action onNext = null, System.Action onEndShift = null)
         {
             if (Open != null) Destroy(Open.gameObject);
             var go = new GameObject("DeliveryDone");
@@ -49,6 +55,8 @@ namespace PSXRacing.Town
             s.boxes = boxes;
             s.wagesThisWeek = wagesThisWeek;
             s.note = note ?? "";
+            s.onNext = onNext;
+            s.onEndShift = onEndShift;
             s.Build();
             return s;
         }
@@ -67,6 +75,7 @@ namespace PSXRacing.Town
         {
             var kb = UnityEngine.InputSystem.Keyboard.current;
             var pad = UnityEngine.InputSystem.Gamepad.current;
+            if (onNext != null) return;   // a shift's panel is answered by its buttons
             if ((kb != null && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame)) ||
                 (pad != null && pad.buttonEast.wasPressedThisFrame))
                 Close();
@@ -118,9 +127,19 @@ namespace PSXRacing.Town
                 MenuKit.Label(panel, Clip(note, 64), 16, top, new Vector2(0f, y - 4f),
                     TextAnchor.MiddleCenter, MenuKit.Dim, PanelW - 40f, height: 24f);
 
-            // Bottom-anchored, clear of the note line above it.
-            var carryOn = MenuKit.Button(panel, "CARRY ON", new Vector2(0.5f, 0f),
-                new Vector2(0f, 20f), new Vector2(300f, 46f), Close, 20);
+            // Bottom-anchored, clear of the note line above it. On a shift,
+            // its two doors side by side: the next run, or clock off.
+            Button carryOn;
+            if (onNext != null && onEndShift != null)
+            {
+                carryOn = MenuKit.Button(panel, "NEXT ORDER", new Vector2(0.5f, 0f),
+                    new Vector2(-142f, 20f), new Vector2(264f, 46f), () => { Close(); onNext(); }, 20);
+                MenuKit.Button(panel, "END SHIFT", new Vector2(0.5f, 0f),
+                    new Vector2(142f, 20f), new Vector2(264f, 46f), () => { Close(); onEndShift(); }, 20);
+            }
+            else
+                carryOn = MenuKit.Button(panel, "CARRY ON", new Vector2(0.5f, 0f),
+                    new Vector2(0f, 20f), new Vector2(300f, 46f), Close, 20);
 
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
