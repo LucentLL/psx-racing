@@ -282,7 +282,12 @@ namespace PSXRacing.EditorTools
             Debug.Log("[BenchPreview] done");
         }
 
-        static void ShootPause(string outDir, string label, SettingsTab? tab = null, int wheelPage = -1)
+        /// <param name="scrollTo">Where to leave the settings rows' scroll (1 = top).</param>
+        /// <param name="padWalk">Walk a pad DOWN the rows (NavScrollPreview) and
+        /// photograph where it ends.</param>
+        /// <param name="arcade">An arcade session (its DAMAGE row).</param>
+        internal static void ShootPause(string outDir, string label, SettingsTab? tab = null, int wheelPage = -1,
+                                        float scrollTo = 1f, bool padWalk = false, bool arcade = false)
         {
             foreach (var size in PauseSizes)
             {
@@ -290,6 +295,7 @@ namespace PSXRacing.EditorTools
                 MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
                 RaceHandoff.ClearAll();
                 RaceHandoff.FromLifeSim = true;
+                if (arcade) ArcadeMode.Simulate(true);
 
                 var host = new GameObject("GameSystems");
                 var menu = host.AddComponent<PauseMenu>();
@@ -315,16 +321,21 @@ namespace PSXRacing.EditorTools
 
                 Repoint(cam, size.w, size.h);
                 string where = label + "/" + size.name;
+                if (tab.HasValue && (scrollTo < 1f || padWalk))
+                    NavScrollPreview.SettingsProbe(host.transform, where, scrollTo, padWalk);
 
                 // EVERY control and every line of text on the canvas: a layout
                 // in fixed steps is a question about the aspect, and the
                 // footer and the BACK button, being lowest, are what falls off
-                // a phone first.
+                // a phone first. A row in the settings' scroll list is a scroll
+                // away, not off the canvas (the clip report judges it against
+                // its list).
                 var offCanvas = new List<string>();
                 foreach (var b in host.GetComponentsInChildren<Selectable>(false))
-                    if (!Inside((RectTransform)b.transform)) offCanvas.Add(b.name);
+                    if (MenuNav.ScrollOf(b.transform) == null && !Inside((RectTransform)b.transform)) offCanvas.Add(b.name);
                 foreach (var t in host.GetComponentsInChildren<Text>(false))
-                    if (!string.IsNullOrEmpty(t.text) && !InsideY((RectTransform)t.transform))
+                    if (!string.IsNullOrEmpty(t.text) && MenuNav.ScrollOf(t.transform) == null &&
+                        !InsideY((RectTransform)t.transform))
                         offCanvas.Add("\"" + t.text + "\"");
                 if (offCanvas.Count > 0)
                     Debug.LogError("[BenchPreview] " + where + " OFF THE CANVAS — " + string.Join(", ", offCanvas));
@@ -360,6 +371,7 @@ namespace PSXRacing.EditorTools
                 CheckOverflow(host.transform, where);
                 LifeHomePreview.ReportClippedText(cam, where, size.w, size.h);
                 Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
+                if (arcade) ArcadeMode.Simulate(false);
             }
         }
 

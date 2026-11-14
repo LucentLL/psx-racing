@@ -456,6 +456,100 @@ namespace PSXRacing
             watch.SetPending(row, column, activeTab);
         }
 
+        // ==============================================================
+        //  Scrolling on through a page (owner, 2026-11-14)
+        // ==============================================================
+
+        /// <summary>
+        /// PSX_NAV_SCROLL=0: UP and DOWN only ever move the cursor, as before
+        /// (a press at the last control of a long page wraps to the top).
+        /// </summary>
+        public static bool ScrollOn = System.Environment.GetEnvironmentVariable("PSX_NAV_SCROLL") != "0";
+
+        /// <summary>Every UP / DOWN the scroll rule handled, for the preview
+        /// tools' navigation log. Null in the game.</summary>
+        public static System.Action<string> Trace;
+
+        /// <summary>The vertical ScrollRect whose CONTENT holds
+        /// <paramref name="t"/>, or null (a control on a fixed strip or footer
+        /// sits beside a scroll area, not in it).</summary>
+        public static ScrollRect ScrollOf(Transform t)
+        {
+            var s = t != null ? t.GetComponentInParent<ScrollRect>() : null;
+            if (s == null || !s.vertical || s.content == null || !t.IsChildOf(s.content)) return null;
+            return s;
+        }
+
+        /// <summary>
+        /// "ON CONTROLLER, I CAN'T SCROLL DOWN TO SEE THE CAR FAULTS. IT SENDS
+        /// ME BACK TO THE TOP OF THE SCREEN INSTEAD OF SCROLLING DOWN" (owner,
+        /// 2026-11-14). A pad only scrolls by moving to a control, so words
+        /// below the last control - the car page's fault list when no repair
+        /// can be booked - were unreachable, and DOWN there wrapped.
+        ///
+        /// The rule, for a press that the graph sent from <paramref name="from"/>
+        /// to <paramref name="to"/> (null: nowhere): DOWN scrolls the page half
+        /// a viewport instead of moving when (a) the move would leave the page
+        /// or wrap back up while page remains below the viewport, or (b) more
+        /// than that half viewport of page lies hidden between the viewport's
+        /// bottom and the control it would reach. UP mirrors it. The cursor
+        /// stays where it is while the page scrolls; at the end the graph's
+        /// own move (the wrap included) stands. The same rule for every page:
+        /// it acts on any control inside a ScrollRect's content.
+        /// Returns true when it scrolled (the caller keeps the cursor).
+        /// </summary>
+        public static bool ScrollInstead(ScrollRect scroll, Selectable from, Selectable to, int dir)
+        {
+            if (!ScrollOn || scroll == null || from == null || scroll.content == null) return false;
+            var content = scroll.content;
+            var viewport = scroll.viewport != null ? scroll.viewport : (RectTransform)scroll.transform;
+            float viewH = viewport.rect.height;
+            float scrollable = content.rect.height - viewH;
+            if (viewH <= 1f || scrollable <= 1f) return false;
+            float cur = Mathf.Clamp01(1f - scroll.verticalNormalizedPosition) * scrollable;
+            float step = Mathf.Max(60f, viewH * 0.5f);
+
+            float fromTop = Depth(content, from, out _);
+            bool toInside = to != null && to != from && to.transform.IsChildOf(content);
+            float toTop = 0f, toBottom = 0f;
+            if (toInside) toTop = Depth(content, to, out toBottom);
+
+            float want;
+            if (dir > 0)
+            {
+                if (scrollable - cur <= 1f) return false;
+                bool leaves = !toInside || toTop < fromTop - 1f;
+                if (!leaves && toTop - (cur + viewH) <= step) return false;
+                want = cur + step;
+            }
+            else
+            {
+                if (cur <= 1f) return false;
+                bool leaves = !toInside || toTop > fromTop + 1f;
+                if (!leaves && cur - toBottom <= step) return false;
+                want = cur - step;
+            }
+            want = Mathf.Clamp(want, 0f, scrollable);
+            scroll.StopMovement();
+            scroll.verticalNormalizedPosition = 1f - want / scrollable;
+            Trace?.Invoke((dir > 0 ? "DOWN" : "UP") + " on " + from.name + ": page scrolled " +
+                          cur.ToString("0") + " -> " + want.ToString("0") + " of " + scrollable.ToString("0") +
+                          " (the graph said " + (to != null && to != from ? to.name : "nowhere") + ")");
+            return true;
+        }
+
+        /// <summary>Distance from the content's top edge down to the control's
+        /// top edge (returned) and bottom edge, in content units.</summary>
+        static float Depth(RectTransform content, Selectable s, out float bottom)
+        {
+            var rt = (RectTransform)s.transform;
+            var c = new Vector3[4];
+            rt.GetWorldCorners(c);
+            float top = content.rect.yMax - content.InverseTransformPoint(c[1]).y;
+            bottom = content.rect.yMax - content.InverseTransformPoint(c[0]).y;
+            return top;
+        }
+
         /// <summary>
         /// Did the player just ask to move around a menu? Used to decide whether
         /// a lost selection should be restored — restoring it on any frame at
@@ -536,14 +630,36 @@ namespace PSXRacing
             // Safe to measure here and only here: LateUpdate runs after the
             // layout the build frame queued, so these rects are resolved.
             var scroll = cur.GetComponentInParent<ScrollRect>();
-            if (scroll != null) EnsureVisible(scroll, cur.GetComponent<RectTransform>());
+            if (scroll != null)
+            {
+                EnsureVisible(scroll, cur.GetComponent<RectTransform>());
+                // UP / DOWN on it scroll on through the page (MenuNav.ScrollInstead).
+                if (MenuNav.ScrollOn && MenuNav.ScrollOf(cur.transform) != null &&
+                    cur.GetComponent<MenuNavScroll>() == null)
+                    cur.AddComponent<MenuNavScroll>();
+            }
             else
             {
                 // On the fixed strip above the page: show the page's top, or a
-                // pad has no way to read the heading it has just passed.
+                // pad has no way to read the heading it has just passed. A
+                // footer BELOW the page (the settings menu's BACK) leaves the
+                // page where it is: it is reached from the last row, and
+                // throwing the list back to its top there read as a jump.
                 scroll = cur.transform.root.GetComponentInChildren<ScrollRect>();
-                if (scroll != null) scroll.verticalNormalizedPosition = 1f;
+                if (scroll != null && !(MenuNav.ScrollOn && BelowView(scroll, cur.transform as RectTransform)))
+                    scroll.verticalNormalizedPosition = 1f;
             }
+        }
+
+        static bool BelowView(ScrollRect scroll, RectTransform rt)
+        {
+            var vp = scroll.viewport != null ? scroll.viewport : scroll.transform as RectTransform;
+            if (vp == null || rt == null) return false;
+            var a = new Vector3[4];
+            var b = new Vector3[4];
+            vp.GetWorldCorners(a);
+            rt.GetWorldCorners(b);
+            return b[1].y <= a[0].y + 1f;   // its top at or under the viewport's bottom
         }
 
         /// <summary>
@@ -625,6 +741,36 @@ namespace PSXRacing
 
             want = Mathf.Clamp(want, 0f, scrollable);
             scroll.verticalNormalizedPosition = 1f - want / scrollable;
+        }
+    }
+
+    /// <summary>
+    /// On a control inside a scrolling page (added by <see cref="MenuNavWatch"/>
+    /// when the cursor first lands on it): UP / DOWN scroll on through the page
+    /// where moving would skip words or wrap (<see cref="MenuNav.ScrollInstead"/>).
+    ///
+    /// It runs AFTER the control's own Selectable.OnMove - components answer an
+    /// event in the order they were added - so the graph has already moved the
+    /// cursor; when the page should scroll instead, the cursor is put back on
+    /// this control in the same frame (nothing is drawn in between). The graph
+    /// itself is never changed: every test that reads a control's
+    /// navigation still reads the page's real layout.
+    /// </summary>
+    [DisallowMultipleComponent]
+    public class MenuNavScroll : MonoBehaviour, IMoveHandler
+    {
+        public void OnMove(AxisEventData e)
+        {
+            if (e == null || !MenuNav.ScrollOn) return;
+            if (e.moveDir != MoveDirection.Down && e.moveDir != MoveDirection.Up) return;
+            var self = GetComponent<Selectable>();
+            var scroll = MenuNav.ScrollOf(transform);
+            if (self == null || scroll == null) return;
+            var now = e.selectedObject;
+            var to = now != null ? now.GetComponent<Selectable>() : null;
+            if (!MenuNav.ScrollInstead(scroll, self, to, e.moveDir == MoveDirection.Down ? 1 : -1)) return;
+            if (now != gameObject) e.selectedObject = gameObject;
+            e.Use();
         }
     }
 }

@@ -914,7 +914,11 @@ namespace PSXRacing
                     // 2026-11-04: remove the on-screen "Rival - Wrecked Out"
                     // while racing - "this can be discovered once a race is
                     // finished").
-                    string head = RaceHandoff.Delivery
+                    // THE ARCADE'S FULL DAMAGE (ArcadeDamage): a structural
+                    // FAIL ended the player's race. No position, no time.
+                    string head = rm.PlayerOut && ArcadeDamage.Dnf
+                        ? "DNF\nTHE CAR CANNOT GO ON"
+                        : RaceHandoff.Delivery
                         ? DeliverySheet(p != null ? p.finishTime : 0f)
                         : ladder + "FINISH!  P" + pos + sheet +
                           (rm.RetiredCount > 0 ? "\n" + rm.RetiredCount + " RIVAL" +

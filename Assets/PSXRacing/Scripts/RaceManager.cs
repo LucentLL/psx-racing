@@ -555,6 +555,21 @@ namespace PSXRacing
             p.retired = true;
             PlayerOut = true;
             Debug.Log("[Race] the player's car cannot go on: DNF");
+            // THE ARCADE (ArcadeDamage, FULL): no tow and no career to carry
+            // it - the race is over for the player, stamped DNF, and continue
+            // goes back to the front end's RESULT. A career race goes on.
+            if (ArcadeDamage.DnfEndsRace)
+            {
+                State = RaceState.Finished;
+                CrashStopGap.StampHandoff(playerCar.GetComponent<CollisionResponder>());
+                RaceHandoff.ResultReady = true;
+                RaceHandoff.FinishPos = 0;
+                RaceHandoff.FieldSize = allCars.Count;
+                RaceHandoff.RaceTimeSeconds = 0f;
+                RaceHandoff.BestLapSeconds = 0f;
+                ArcadeDamage.Dnf = true;
+                Debug.Log("[Race] arcade: the DNF ends the player's race");
+            }
         }
         public bool PlayerOut { get; private set; }
 

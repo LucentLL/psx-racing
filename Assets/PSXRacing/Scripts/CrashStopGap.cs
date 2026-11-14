@@ -485,7 +485,10 @@ namespace PSXRacing
         public static bool Arm(CarController car)
         {
             if (!On || car == null) return false;
-            if (!RaceHandoff.FromLifeSim || RaceHandoff.TestDrive || !Edition.HasCareer) return false;
+            if (!RaceHandoff.FromLifeSim || RaceHandoff.TestDrive) return false;
+            // The arcade's DAMAGE option (ArcadeDamage): a ledger that never
+            // banks. Nothing in the CITY edition, as before.
+            if (!Edition.HasCareer) return ArcadeDamage.Arm(car);
             var resp = car.GetComponent<CollisionResponder>();
             if (resp == null) return false;
             // R1a: the located model replaces this table at the hit

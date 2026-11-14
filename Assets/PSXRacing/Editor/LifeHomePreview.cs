@@ -1284,7 +1284,8 @@ namespace PSXRacing.EditorTools
                           (string name, int w, int h)[] sizes = null,
                           string cityPage = null, string cityMake = null,
                           System.Action before = null, (string name, object value)[] fields = null,
-                          (string name, int w, int h)? resizeFrom = null, string arcadePage = null)
+                          (string name, int w, int h)? resizeFrom = null, string arcadePage = null,
+                          System.Action<LifeHomeScreen, string> probe = null)
         {
             foreach (var size in sizes ?? Sizes)
             {
@@ -1462,6 +1463,9 @@ namespace PSXRacing.EditorTools
                         Debug.LogError(line + "  <-- MUST FIT ON ONE SCREEN, and does not");
                     else Debug.Log(line);
                 }
+                // A pad walked over the page (NavScrollPreview): the picture is
+                // where its presses left the page.
+                if (probe != null) { probe(screen, label + "/" + size.name); Canvas.ForceUpdateCanvases(); }
 
                 // The city front end, when the edition handed the scene to it;
                 // the arcade's, when a session did.

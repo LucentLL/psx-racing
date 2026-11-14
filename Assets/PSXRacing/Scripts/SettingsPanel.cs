@@ -67,9 +67,18 @@ namespace PSXRacing
         const float HelpY = -444f, HelpH = 56f;
         const float FooterY = -504f, FooterH = 42f, BackW = 200f, PadX = 18f;
         const float BlockH = 560f;
+        /// <summary>PSX_SETTINGS_SCROLL=0: the rows drawn straight onto the
+        /// canvas as before (eight rows and up run over the help and BACK).</summary>
+        public static bool ScrollRowsOn = System.Environment.GetEnvironmentVariable("PSX_SETTINGS_SCROLL") != "0";
+        /// <summary>The list: from just over the first row's top to just over
+        /// the help line - seven rows, with nothing to scroll on a page of
+        /// seven or fewer.</summary>
+        const float RowsPad = 2f;
+        const float RowsViewH = RowTop + RowsPad - HelpY - 4f;   // -118 down to -440: 322 units
 
         Canvas canvas;
         RectTransform body;
+        ScrollRect rowsScroll;
         Text help;
         Button back;
         MenuNavWatch watch;
@@ -245,11 +254,34 @@ namespace PSXRacing
                                       TextAnchor.MiddleCenter, MenuKit.Accent, 600f, 44f, bold: true);
             title.name = "Title";
 
-            var bodyGO = new GameObject("Body", typeof(RectTransform));
-            bodyGO.transform.SetParent(canvas.transform, false);
-            body = (RectTransform)bodyGO.transform;
-            body.anchorMin = Vector2.zero; body.anchorMax = Vector2.one;
-            body.offsetMin = Vector2.zero; body.offsetMax = Vector2.zero;
+            if (ScrollRowsOn)
+            {
+                // THE ROWS SCROLL between the strip and the help line (owner,
+                // 2026-11-14: "Overlapping buttons and unable to scroll down
+                // (even on PC)"). VISUALS grew to thirteen rows under a layout
+                // with room for seven, so rows eight on ran over the help line,
+                // BACK and the hint and off the column. The help line and the
+                // footer now sit under the list, never on it; the cursor's row
+                // is kept in view by the nav watch, the wheel and a drag scroll
+                // it, and a pad's DOWN on the last row in view scrolls on.
+                var vp = new GameObject("Rows", typeof(RectTransform));
+                vp.transform.SetParent(canvas.transform, false);
+                var vrt = (RectTransform)vp.transform;
+                vrt.anchorMin = vrt.anchorMax = top;
+                vrt.pivot = new Vector2(0.5f, 1f);
+                vrt.anchoredPosition = new Vector2(0f, RowTop - off + RowsPad);
+                vrt.sizeDelta = new Vector2(w + 16f, RowsViewH);
+                body = MenuKit.ScrollBody(vrt);
+                rowsScroll = vrt.GetComponent<ScrollRect>();
+            }
+            else
+            {
+                var bodyGO = new GameObject("Body", typeof(RectTransform));
+                bodyGO.transform.SetParent(canvas.transform, false);
+                body = (RectTransform)bodyGO.transform;
+                body.anchorMin = Vector2.zero; body.anchorMax = Vector2.one;
+                body.offsetMin = Vector2.zero; body.offsetMax = Vector2.zero;
+            }
 
             // The strip: four equal cells across the column, by arithmetic on
             // the column width rather than by measuring anything.
@@ -308,11 +340,20 @@ namespace PSXRacing
             rows.Clear();
             live.Clear();
 
-            float y = RowTop - Off;
+            // In the scroll list the rows count from the list's top (the first
+            // row lands exactly where it always did); without it, from the
+            // canvas's.
+            float y = rowsScroll != null ? -RowsPad : RowTop - Off;
             foreach (var it in P.items(host, t, OpenCredits))
             {
                 rows.Add(it.IsSlider ? SliderRow(it, y) : StepRow(it, y));
                 y -= RowStep;
+            }
+            if (rowsScroll != null)
+            {
+                MenuKit.FitScrollContent(body, RowsViewH, RowsPad * 2f);
+                rowsScroll.StopMovement();
+                rowsScroll.verticalNormalizedPosition = 1f;
             }
 
             // Creation order IS the layout here - one column under one strip -
