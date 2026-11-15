@@ -351,14 +351,18 @@ namespace PSXRacing.City
             public Vector3 eA, eB; public Vector2 outA, outB;
             public float sA, sB, wA, wB;
             public bool cut;
+            /// <summary>(inlet 2) The span's cut shares: cutN reads from cut0 in cs3CutT / cs3CutC.</summary>
+            public int cut0, cutN;
         }
         static readonly List<Cs2Span> cs2Spans = new List<Cs2Span>(64);
         static int cs2SpansEdge = -1;
 
         static void Cs2RecordSpan(CityMap.Edge e, int side, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB, float wA, float wB, bool cut)
         {
-            if (cs2SpansEdge != e.index) { cs2Spans.Clear(); cs2SpansEdge = e.index; }
-            cs2Spans.Add(new Cs2Span { side = side, eA = eA, eB = eB, outA = outA, outB = outB, sA = sA, sB = sB, wA = wA, wB = wB, cut = cut });
+            if (cs2SpansEdge != e.index) { cs2Spans.Clear(); cs2SpansEdge = e.index; cs3CutT.Clear(); cs3CutC.Clear(); }
+            int c0 = cs3CutT.Count;
+            if (Inlet2On && cut) { cs3CutT.AddRange(cutT); cs3CutC.AddRange(cutC); }   // (inlet 2) the hood stands to the local curb's height
+            cs2Spans.Add(new Cs2Span { side = side, eA = eA, eB = eB, outA = outA, outB = outB, sA = sA, sB = sB, wA = wA, wB = wB, cut = cut, cut0 = c0, cutN = cs3CutT.Count - c0 });
         }
 
         // ---- the structure atlas's regions these details sample --------------
@@ -539,18 +543,31 @@ namespace PSXRacing.City
 
         static void EmitStreetHardware(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
-            if (!Curbs2On) { cs2Spans.Clear(); cs2SpansEdge = -1; return; }
+            if (!Curbs2On) { cs2Spans.Clear(); cs2SpansEdge = -1; cs3CutT.Clear(); cs3CutC.Clear(); return; }
             EnsureMarks(map, trims);   // (cached per map and trims: the tile build has them already)
-            if (DrainsOn && cs2SpansEdge == e.index && cs2Spans.Count > 0) EmitInlets(map, trims, tm, e);
+            if (DrainsOn && cs2SpansEdge == e.index && cs2Spans.Count > 0)
+            {
+                if (Inlet2On) EmitInlets2(map, trims, tm, e);   // (inlet 2, 11-15) the planned inlets, flush in the curb: CityMeshes.Curbs3
+                else EmitInlets(map, trims, tm, e);
+            }
             if (LidsOn) EmitLids(map, trims, tm, e, min, max);
-            cs2Spans.Clear(); cs2SpansEdge = -1;
+            cs2Spans.Clear(); cs2SpansEdge = -1; cs3CutT.Clear(); cs3CutC.Clear();
         }
 
         /// <summary>The inlet stations of an edge (global: every tile finds the same).</summary>
         static void InletStations(CityMap map, Trims trims, CityMap.Edge e)
         {
             cs2Stations.Clear();
-            float s0 = trims.atA[e.index] + InletEndM, s1 = e.length - trims.atB[e.index] - InletEndM;
+            float offA = InletEndM, offB = InletEndM;
+            if (Inlet2On && RolledEdge(map, e))
+            {
+                // (inlet 2) a rolled street's corner inlet stands on the plain roll, past the 8 m ease to a
+                // vertical corner's curb and one short transition (CLDSM 10.30: it begins at the end of the radius)
+                float clear = WalkBackEndEaseM + InletFlatM + 2.0f + 0.3f;
+                if (map.nodeEdges[e.a].Count >= 3 && !RolledNode(map, e.a)) offA = clear;
+                if (map.nodeEdges[e.b].Count >= 3 && !RolledNode(map, e.b)) offB = clear;
+            }
+            float s0 = trims.atA[e.index] + offA, s1 = e.length - trims.atB[e.index] - offB;
             if (s1 - s0 < 2f) return;
             // sags of the drawn profile (the real heights)
             for (float s = s0 + 10f; s <= s1 - 10f; s += 5f)

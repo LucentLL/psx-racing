@@ -648,6 +648,7 @@ namespace PSXRacing.City
             }
             System.Array.Clear(walkL, 0, n); System.Array.Clear(walkR, 0, n);
             walkEdgeNow = e.index;
+            Cs3ResetPlan(min, max);   // (inlet 2) this edge's inlets are planned on its first walk span
             walkStopLo[0] = walkStopLo[1] = float.NegativeInfinity; walkStopHi[0] = walkStopHi[1] = float.PositiveInfinity;
             if (!WalkEdge(map, e)) yield break;
             var o = tm.origin;
@@ -1557,6 +1558,8 @@ namespace PSXRacing.City
                 cutT.Add(t); cutC.Add(cut ? CurbCutShare : 1f);
             }
             if (!anyCut) { cutT.Clear(); cutC.Clear(); cutT.Add(0f); cutC.Add(1f); cutT.Add(1f); cutC.Add(1f); }
+            // (inlet 2, 11-15) a rolled street's curb rises to a vertical face at each inlet: the breaks its transition needs
+            if (Curbs2On && Inlet2On) Cs3SplitSpan(map, trims, tm, e, side, sA, sB);
             for (int j = 1; j < cutT.Count; j++)
             {
                 float t0 = cutT[j - 1], t1 = cutT[j];
@@ -1567,10 +1570,25 @@ namespace PSXRacing.City
                 if (j == 1 && wA <= 0f) w0 = 0f;
                 if (j == cutT.Count - 1 && wB <= 0f) w1 = 0f;
                 float rl0 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t0)), rl1 = WalkRollAt(map, e, Mathf.Lerp(sA, sB, t1));
-                WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], rl0);
-                WalkProfile(pB, oB, w1, walkProfB, cutC[j], rl1);
-                cs2FaceR = Mathf.Max(rl0, rl1);
-                LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                // (inlet 2) the inlet share at either end: the roll eased to the pan and vertical curb (CityMeshes.Curbs3)
+                float k0 = 0f, k1 = 0f;
+                if (Curbs2On && Inlet2On && cs3Plan.Count > 0 && w0 > 0f && w1 > 0f) { k0 = Cs3K(side, Mathf.Lerp(sA, sB, t0)); k1 = Cs3K(side, Mathf.Lerp(sA, sB, t1)); }
+                Vector3 backA, backB;
+                if (k0 > 0f || k1 > 0f)
+                {
+                    Cs3Profile(pA, oA, w0, walkProfA, out var qa, cutC[j - 1], rl0, k0);
+                    Cs3Profile(pB, oB, w1, walkProfB, out var qb, cutC[j], rl1, k1);
+                    Cs3LayPiece(WalkBucket, pA, oA, qa, walkProfA, pB, oB, qb, walkProfB, rl0, rl1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                    backA = walkProfA[3] + Vector3.up * RoadsideRules.EdgeDropM; backB = walkProfB[3] + Vector3.up * RoadsideRules.EdgeDropM;
+                }
+                else
+                {
+                    WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], rl0);
+                    WalkProfile(pB, oB, w1, walkProfB, cutC[j], rl1);
+                    cs2FaceR = Mathf.Max(rl0, rl1);
+                    LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                    backA = WalkBack(pA, oA, w0, cutC[j - 1], rl0); backB = WalkBack(pB, oB, w1, cutC[j], rl1);
+                }
                 if (Curbs2On && w0 >= WalkMinM && w1 >= WalkMinM)
                 {
                     // (not where a ramp end narrows the walk: it turns across the junction mouth)
@@ -1581,14 +1599,14 @@ namespace PSXRacing.City
                     if (!(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
                         Cs2Gutter(i, pA, pB, oA, oB, Mathf.Lerp(sA, sB, t0) / 8f, Mathf.Lerp(sA, sB, t1) / 8f, rl0, rl1);
                     float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
-                    if (rl0 + rl1 > 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
+                    if (rl0 + rl1 > 1f && k0 + k1 <= 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
                 }
                 // the backing fades out with the walk's ramp: at a ramp's end (no walk) it is the verge
                 // the next span lays from the same edge point, so the two strips meet
                 // (and at a junction end, where the corner's own strips meet it, CityMeshes.WalkBack)
                 verge.backA = Mathf.Clamp01(w0 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0));
                 verge.backB = Mathf.Clamp01(w1 / WalkMinM) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1));
-                EmitStrip(map, trims, tm, WalkBack(pA, oA, w0, cutC[j - 1], rl0), WalkBack(pB, oB, w1, cutC[j], rl1), oA, oB, verge);
+                EmitStrip(map, trims, tm, backA, backB, oA, oB, verge);
             }
             if (Curbs2On) Cs2RecordSpan(e, side, eA, eB, outA, outB, sA, sB, wA, wB, anyCut);
             WalkStats.walkM += len; WalkStats.spans++;

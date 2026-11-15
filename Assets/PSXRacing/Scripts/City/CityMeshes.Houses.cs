@@ -34,9 +34,11 @@ namespace PSXRacing.City
         /// per tile; also what ApronAt and TryLamp read for the rest of the build).</summary>
         static void PrepareTileDrives(CityMap map, Vector2 min, Vector2 max)
         {
-            tileDrives.Clear();
+            tileDrives.Clear(); tileDrivesWide.Clear();
             if (!CityHouses.DrivewaysOn) return;
             CityHouses.DrivewaysNearBound(map, min - Vector2.one * 4f, max + Vector2.one * 4f, tileDrives);
+            // (inlet 2) what the inlet plan reads: a neighbour's inlets near the border are planned as it plans them
+            if (Curbs2On && Inlet2On) CityHouses.DrivewaysNearBound(map, min - Vector2.one * 20f, max + Vector2.one * 20f, tileDrivesWide);
         }
 
         /// <summary>The driveways (of this tile's) whose box meets a cell, into
