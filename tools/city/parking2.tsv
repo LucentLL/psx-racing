@@ -1,3 +1,6 @@
 # ON-STREET PARKING seen in street-level views (CityMeshes.Parking; tools/city/lanes2.mjs reads this beside the map's own parking tags).
 # way	both|left|right (of the way's direction)	road	evidence
 1026710639	both	East Boulevard	view Dec 2025 at no. 425: one lane each way, cars parked along both curbs, street trees
+618590699	none	Razades Way: two building footprints stand 4.2 m from the centre line, inside a parking lane's width (tools check 11-15); the map tags parking there
+1484670149	none	West Bland Street (the piece at 35.21838,-80.85506): a building footprint 5.6 m from the centre line, inside the parking lane's width
+1250969951	none	Camden Road (the piece at 35.21529,-80.85606): a building footprint 7.5 m from the centre line, 0.3 m inside the parking lane's width

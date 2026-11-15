@@ -4089,7 +4089,8 @@ namespace PSXRacing.City
             // the full quad would paint the texture's edge line; on a curbed side the strip
             // from the drawn edge to that line's inner side takes paint-free texels and the
             // rest stays one strip at the texture's own U (3 quads at most, not 1 per line)
-            int noEdge = lay.m.Length > 0 ? CurbNoEdgeLines(e) : 0;
+            // (lanes 11-15) a bike lane's or paved shoulder's side keeps its line: CityMeshes.Parking StripEdgeLines
+            int noEdge = lay.m.Length > 0 ? CurbNoEdgeLines(e) & ~StripEdgeLines(e) : 0;
             if (noEdge != 0 && full && lay.isDefault && !marks && !IsJcl(e))
             {
                 int kEm = (noEdge & 2) != 0 ? LineOfKind(lay, LineModel.KEdgeM) : -1;

@@ -1,0 +1,12 @@
+# ROADSIDE STRIPS: bike lanes and paved shoulders beside the travel lanes, as today's road has them (owner 2026-11-15 13:10).
+# Read by tools/city/lanes2.mjs (section LAN2's rows; the game draws them: CityMeshes.Parking, PSX_CITY_STRIPS=0 = none).
+#   name:<road name> <tab> tags <tab> evidence    every piece of this road takes the map's own cycleway tags
+#   <way id> <tab> bike|shoulder <tab> evidence   both sides of this way: seen in a view, not tagged
+# A row starting "#list" is not applied: seen or tagged, not yet proven in the game (drive audit along it).
+# The whole map's cycleway tags are 488 km of road side: PSX_CITY_STRIPS_ALL=1 draws them all (not proven).
+name:Beatties Ford Road	tags	view Dec 2025 at no. 5340 (the divided section north of Sunset Rd): a solid white line, about 1.2-1.4 m of asphalt beyond it, a 2 ft gutter pan, an upright curb; the owner's own street view of 11-15 13:10 shows the same section
+name:Ashley Road	tags	view Jun 2022 at no. 2624: two lanes, a bike lane about 1.5 m each side behind a solid white line, curb and gutter
+name:Cindy Lane	tags	view Dec 2025: one lane and a bike lane (about 1.5 m, solid white line) each way, a grass median
+name:East Boulevard	tags	view Apr 2026 at no. 1709: a marked strip about 2 m on the right behind a solid white line (bike lane, cars park in it)
+#list name:Clanton Road	tags	view May 2026 at no. 500: a bike lane about 1.5 m behind a solid white line; 3.7 km tagged, not audited this round
+#list name:West Tyvola Road	tags	view Apr 2026 (State Rd 1256): a white line with 1.2-1.5 m of asphalt beyond it on the right; the tagged 1.0 km is another piece, not viewed

@@ -9,7 +9,7 @@
 // counts. The points are NOT taken from the override export: the graph never moves.
 //
 //   LAN2  u32 version (1) | u32 n | n x { u32 edge; u8 lanes; u8 turn; u8 nF; u8 nB; u8 centre;
-//         u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 parking }   (16 bytes a row; parking: 1 left, 2 right)
+//         u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 parking }   (16 bytes a row; parking: 1 left of a->b, 2 right; 4 / 8 a bike lane left / right; 16 / 32 a paved shoulder)
 //         | the override export's TAPR section, verbatim
 //         | the override export's SPLT section, verbatim (a split's carriageway offsets follow the lane count)
 //
@@ -28,12 +28,12 @@ const outPath = val('--out') || inPath;
 const dry = args.includes('--dry');
 // ON-STREET PARKING (CityMeshes.Parking): a parking lane on a way's left / right, from the map's own parking tags
 // (--cache <the Overpass cache>: ways_all.json, streets_core.json) and from tools/city/parking2.tsv (way, both|left|right,
-// the evidence). The bits go into a row's last u16: 1 the left of a->b, 2 the right.
+// the evidence; 'none' drops a tagged way). The bits go into a row's last u16: 1 the left of a->b, 2 the right.
 const cacheDir = val('--cache');
 const parkOfWay = new Map();
 {
   const bits = v => v === 'both' ? 3 : v === 'left' ? 1 : v === 'right' ? 2 : 0;
-  let tagged = 0, listed = 0;
+  let tagged = 0, listed = 0, dropped = 0;
   if (cacheDir) {
     const yes = v => !!v && /^(lane|street_side|parallel|diagonal|perpendicular|marked|yes|on_street)$/.test(v);
     for (const f of ['ways_all.json', 'streets_core.json'])
@@ -49,9 +49,25 @@ const parkOfWay = new Map();
   if (existsSync(pf)) for (const line of readFileSync(pf, 'utf8').split(/\r?\n/)) {
     if (!line.trim() || line.startsWith('#')) continue;
     const c = line.split('\t'); const id = parseInt(c[0], 10), b = bits((c[1] || '').trim());
+    if (Number.isFinite(id) && (c[1] || '').trim() === 'none') { if (parkOfWay.delete(id)) dropped++; continue; }   // a tagged way that cannot take the lane (a building in its width)
     if (Number.isFinite(id) && b) { parkOfWay.set(id, (parkOfWay.get(id) || 0) | b); listed++; }
   }
-  console.log(`parking: ${parkOfWay.size} ways (${tagged} by the map's parking tags${cacheDir ? '' : ' - no --cache given'}, ${listed} rows of parking2.tsv)`);
+  console.log(`parking: ${parkOfWay.size} ways (${tagged} by the map's parking tags${cacheDir ? '' : ' - no --cache given'}, ${listed} rows of parking2.tsv; ${dropped} tagged ways dropped by its 'none' rows)`);
+}
+// ROADSIDE STRIPS (CityMeshes.Parking): a bike lane or a paved shoulder beside the travel lanes. tools/city/strips2.tsv:
+//   name:<road name> <tab> tags <tab> evidence     every piece of this road takes the map's own cycleway tags (LSET's bike bits)
+//   <way id> <tab> bike|shoulder <tab> evidence    both sides of this way: seen in a view, not tagged
+// Rows starting "#" are only listed. The bits go above the parking bits: 4 / 8 a bike lane left / right of a->b, 16 / 32 a shoulder.
+const stripNames = new Set(), stripWays = new Map();
+{
+  const sf = join(HERE, 'strips2.tsv');
+  if (existsSync(sf)) for (const line of readFileSync(sf, 'utf8').split(/\r?\n/)) {
+    if (!line.trim() || line.startsWith('#')) continue;
+    const c = line.split('\t'); const k = (c[0] || '').trim(), v = (c[1] || '').trim();
+    if (k.startsWith('name:')) stripNames.add(k.slice(5).trim());
+    else { const id = parseInt(k, 10); if (Number.isFinite(id)) stripWays.set(id, v === 'shoulder' ? 48 : 12); }
+  }
+  console.log(`strips: ${stripNames.size} roads take their bike tags, ${stripWays.size} ways by strips2.tsv's own rows`);
 }
 if (!withDir) { console.error('usage: node tools/city/lanes2.mjs --with <dir of the override export> [--in file] [--out file] [--dry]'); process.exit(2); }
 
@@ -89,14 +105,18 @@ for (let i = 0; i < cb.edges.length; i++) {
 console.log(`graph hash: shipped ${hb}, the override export ${ho}; edges whose points the override export would move: ${moved}${moved ? ` (largest ${movedMax.toFixed(2)} m; NOT taken: the shipped points stay)` : ''}`);
 
 // ---- the changed edges
-const rows = []; const byName = new Map(); let km = 0; let parkEdges = 0, parkM = 0; const parkNames = new Map();
+const rows = []; const byName = new Map(); let km = 0; let parkEdges = 0, parkM = 0; const parkNames = new Map(); let stripEdges = 0, stripM = 0; const stripRoads = new Map();
 for (let i = 0; i < cb.edges.length; i++) {
   const a = cb.edges[i], b = co.edges[i];
   const la = a.lset || {}, lb = b.lset || {};
   const lsSame = la.nF === lb.nF && la.nB === lb.nB && la.centre === lb.centre && la.flags === lb.flags && la.turnOnly === lb.turnOnly && la.sub === lb.sub && la.bike === lb.bike;
-  const park = !a.link && !a.bridge && !a.tunnel && a.rank <= 3 ? (parkOfWay.get(a.wayId) || 0) : 0;
-  if (a.lanes === b.lanes && a.turn === b.turn && lsSame && !park) continue;
-  rows.push({ i, b, lb, park });
+  const side = !a.link && !a.bridge && !a.tunnel && a.rank <= 3;
+  const park = side ? (parkOfWay.get(a.wayId) || 0) : 0;
+  let strip = 0;
+  if (side) { if (stripNames.has(a.name)) strip |= ((lb.bike || 0) & 15) << 2; strip |= stripWays.get(a.wayId) || 0; }
+  if (a.lanes === b.lanes && a.turn === b.turn && lsSame && !park && !strip) continue;
+  rows.push({ i, b, lb, park: park | strip });
+  if (strip) { stripEdges++; const m = a.length * ([4, 8, 16, 32].filter(q => strip & q).length > 1 && (strip & 20) && (strip & 40) ? 2 : 1); stripM += m; stripRoads.set(a.name || '(unnamed)', (stripRoads.get(a.name || '(unnamed)') || 0) + m); }
   if (park) { parkEdges++; parkM += a.length * (park === 3 ? 2 : 1); parkNames.set(a.name || '(unnamed)', (parkNames.get(a.name || '(unnamed)') || 0) + a.length); }
   if (a.profile.key !== b.profile.key) {
     km += a.length / 1000;
@@ -109,7 +129,9 @@ console.log(`edges with another lane count, centre lane or line set: ${rows.leng
 if (val('--edges')) writeFileSync(val('--edges'), rows.filter(r => cb.edges[r.i].profile.key !== r.b.profile.key).map(r => r.i).join(','));
 for (const [k, m] of [...byName].sort((x, y) => y[1] - x[1]).slice(0, 60)) console.log(`   ${k}  ${(m / 1000).toFixed(2)} km`);
 console.log(`edges with a parking lane: ${parkEdges} (${(parkM / 1000).toFixed(1)} km of curb side): ` + [...parkNames].sort((x, y) => y[1] - x[1]).slice(0, 24).map(([k, m]) => `${k} ${(m / 1000).toFixed(2)}`).join(', '));
-if (val('--park-edges')) writeFileSync(val('--park-edges'), rows.filter(r => r.park).map(r => r.i).join(','));
+if (val('--park-edges')) writeFileSync(val('--park-edges'), rows.filter(r => r.park & 3).map(r => r.i).join(','));
+console.log(`edges with a bike lane or paved shoulder: ${stripEdges} (${(stripM / 1000).toFixed(1)} km of road side): ` + [...stripRoads].sort((x, y) => y[1] - x[1]).slice(0, 24).map(([k, m]) => `${k} ${(m / 1000).toFixed(2)}`).join(', '));
+if (val('--strip-edges')) writeFileSync(val('--strip-edges'), rows.filter(r => r.park & 60).map(r => r.i).join(','));
 
 const tapr = bytesOf(ovr, os, 'TAPR');
 if (!tapr) throw new Error('the override export has no TAPR section');
