@@ -716,7 +716,7 @@ namespace PSXRacing.City
                         int node = k == 0 ? e.a : e.b;
                         if (!WalkEndKeeps(map, trims, e, node, side, pw)) continue;
                     }
-                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, Cs3WalkW(map, e));   // (curbs 3) a roll curb alone is CurbOnlyW
+                    float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, Cs4WalkWAt(map, e, S.s));   // (curbs 3) a roll curb alone is CurbOnlyW
                     if (WalkClearOn && Curbs3On && w > 0f && CityHouses.BoundTo(map)) w = Mathf.Min(w, CityHouses.ClearOut(pw, outw, w, 0.3f));   // (hoods 2) no walk through a building
                     if (w < Cs3WalkMin(map, e) || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
                     arr[k] = w;
@@ -955,8 +955,8 @@ namespace PSXRacing.City
                     return 0;
                 }
             }
-            cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, Cs3WalkW(map, map.edges[k0.edge]));
-            cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, Cs3WalkW(map, map.edges[k1.edge]));
+            cw.w0 = WalkClear(map, trims, p0, cw.n0, k0.pos.y + CurbH, Cs4CornerW(map, map.edges[k0.edge]));
+            cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, Cs4CornerW(map, map.edges[k1.edge]));
             if (WalkClearOn && Curbs3On && CityHouses.BoundTo(map))
             {
                 // (hoods 2) as the arms' own end sections: no walk through a building

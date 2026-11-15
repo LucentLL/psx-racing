@@ -134,6 +134,13 @@ namespace PSXRacing.City
             return false;
         }
 
+        /// <summary>A corner's walk on a strip street: the plain walk from the curb (WalkWOf), as the corners were laid before
+        /// the strip - the ramps' landing. (The whole section at a corner lost 86 of the sample's 1090 corner walks: P on pavement, no room.)</summary>
+        static float Cs4CornerW(CityMap map, CityMap.Edge e) => StripOf(map, e) > 0f ? WalkWOf(map, e) : Cs3WalkW(map, e);
+        /// <summary>The width a street's walk asks for at arc s of the edge being laid: the standard section, but the corner's own
+        /// (Cs4CornerW) within CornerLandM of a junction end, so the street's end section meets its corner as before.</summary>
+        static float Cs4WalkWAt(CityMap map, CityMap.Edge e, float s) => StripOf(map, e) > 0f && Cs4NearJunction(map, e, s) ? WalkWOf(map, e) : Cs3WalkW(map, e);
+
         static void Cs4InsertBreak(float t)
         {
             if (t <= 0.002f || t >= 0.998f) return;
