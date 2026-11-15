@@ -316,7 +316,12 @@ namespace PSXRacing.City
                         if (!(e.oneway ? e.lanes >= 2 : e.lanes >= 4)) multi = false;
                     }
                     if (r2 >= 3 || (r2 >= 2 && multi)) { list.Add(new Decision { node = n, signal = true }); continue; }
-                    if (r1 < 1) { Counts.localLocal++; continue; }
+                    if (r1 < 1)
+                    {
+                        // round 2 (CitySignals.Signals2): two equal local streets crossing are an all-way STOP
+                        if (!LocalStopsOn) { Counts.localLocal++; continue; }
+                        S2.localAllWay++;
+                    }
                     var all = new List<int>();
                     foreach (int ei in armScratch)
                     {
@@ -352,7 +357,15 @@ namespace PSXRacing.City
                         continue;
                     }
                     if (thrCls >= 3 && m.cls >= 3 && !string.IsNullOrEmpty(m.name) && m.name != A.name && m.name != B.name) { signal = true; continue; }
-                    if (thrCls == 0 && m.cls == 0) { Counts.localLocal++; continue; }
+                    if (thrCls == 0 && m.cls == 0)
+                    {
+                        // round 2 (CitySignals.Signals2): a local street meeting a local through street stops (the stem of a T)
+                        if (!LocalStopsOn) { Counts.localLocal++; continue; }
+                        if (ShortStub(map, m, n)) { Counts.shortStubs++; continue; }
+                        S2.localStems++;
+                        (stops ??= new List<int>()).Add(ei);
+                        continue;
+                    }
                     if (ShortStub(map, m, n)) { Counts.shortStubs++; continue; }
                     (stops ??= new List<int>()).Add(ei);
                 }
