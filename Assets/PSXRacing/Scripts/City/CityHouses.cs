@@ -154,6 +154,29 @@ namespace PSXRacing.City
             tiles.Clear(); order.Clear(); natCache.Clear(); fanReach.Clear();
         }
         public static bool Bound => mapB != null;
+        /// <summary>(curbs 3) Bound to this map with its generated buildings?</summary>
+        public static bool BoundTo(CityMap map) => mapB == map && bldB != null;
+
+        /// <summary>(curbs 3) A generated building (CityBuildings: the frontage rows) within
+        /// <paramref name="r"/> m of p? Of the bound world; false while none is bound.</summary>
+        public static bool ProcBuildingNear(CityMap map, Vector2 p, float r)
+        {
+            if (mapB != map || bldB == null) return false;
+            float reach = r + 16f;
+            int tx0 = Mathf.FloorToInt((p.x - reach) / TileM), tx1 = Mathf.FloorToInt((p.x + reach) / TileM);
+            int tz0 = Mathf.FloorToInt((p.y - reach) / TileM), tz1 = Mathf.FloorToInt((p.y + reach) / TileM);
+            for (int tz = tz0; tz <= tz1; tz++)
+                for (int tx = tx0; tx <= tx1; tx++)
+                {
+                    if (!bldB.TryGetValue(TKey(tx, tz), out var list)) continue;
+                    foreach (var b in list)
+                    {
+                        float rr = r + 0.5f * Mathf.Max(b.w, b.d);
+                        if ((b.pos - p).sqrMagnitude < rr * rr) return true;
+                    }
+                }
+            return false;
+        }
 
         static long TKey(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
         static long LKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;

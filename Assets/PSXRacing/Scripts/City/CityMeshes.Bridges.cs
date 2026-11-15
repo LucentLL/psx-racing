@@ -112,6 +112,9 @@ namespace PSXRacing.City
             gp.kind = e.link || e.width <= BoxMaxWidthM ? GirderBox : (h % 100u) < 40u ? GirderSteel : GirderConcrete;
             // the least air under the deck over anything below it
             float minClear = float.MaxValue;
+            // (bridges round 2) ...and the room left for girders over each road below: the slab's
+            // height over it less the clearance THAT road wants (GirderClearOver)
+            float minRoom = float.MaxValue;
             bool water = false;
             if (map.wspans != null) foreach (var ws in map.wspans) if (ws.edge == e.index) { water = true; break; }
             for (int k = 0; k < e.stS.Length; k++)
@@ -136,12 +139,16 @@ namespace PSXRacing.City
                     float oy = o.YAt(o.s[si] + Mathf.Sqrt(L2) * t);
                     if (oy > slab - 1.0f) continue;   // beside it or over it, not under
                     minClear = Mathf.Min(minClear, slab - oy);
+                    // (the road below at the deck's two edges too: on a grade it stands higher under one of them)
+                    float oAt = o.s[si] + Mathf.Sqrt(L2) * t;
+                    float oyHigh = Mathf.Max(oy, Mathf.Max(o.YAt(oAt - e.HalfMax), o.YAt(oAt + e.HalfMax)));
+                    minRoom = Mathf.Min(minRoom, slab - oyHigh - GirderClearOver(o));
                 }
             }
             gp.minClear = minClear;
             if (water) gp.depth = 0.75f;   // a creek's short spans, and the water under them
             else if (minClear == float.MaxValue) gp.depth = GirderDeepM;
-            else gp.depth = Mathf.Clamp(minClear - GirderCarClearM, GirderMinM,
+            else gp.depth = Mathf.Clamp(GirderClearOn ? minRoom : minClear - GirderCarClearM, GirderMinM,
                                         Mathf.Lerp(GirderStdM, GirderDeepM, Mathf.InverseLerp(6.5f, 12f, minClear)));
             girderPlans[e.index] = gp;
             return gp;

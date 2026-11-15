@@ -1,4 +1,139 @@
-﻿# HANDOFF - LOT ENTRANCES (agent "lots", branch `charlotte-lots`, 2026-11-15 Charlotte accuracy round; NOT pushed, NOT merged)
+﻿# HANDOFF - CHARLOTTE CURBS 3 / INLETS (agent "hoods", branch `charlotte-hoods`, 2026-11-15; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-hoods` off mountain-nm f8cbf12d. Sandbox PSXPerf. Graph hash b2aa3453 before and after (no export run, no data file touched). Owner 2026-11-15 (PC41): "I see some storm drains with curbs that extend into the road (they look decent), but other roads don't have curbs like that. Are these accurate?" + "review ... neigborhoods, driveways".
+
+## The answer to "Are these accurate?" (plain words)
+1. Partly. A grate in the gutter with a cast-iron hood in the curb is the real Charlotte inlet (NCDOT standard 840.03), so the idea was right. The block standing out into the road was wrong.
+2. Real, on a street with a normal upright 6 in curb (Uptown, West Trade, Beatties Ford): the curb line runs straight through the inlet. For 3 ft the concrete curb is an iron hood, its front on the curb's face line and its top level with the curb; the grate (3 ft by 2 ft) lies in the gutter in front. Nothing sticks out, and the standard basin has no slab or round lid behind it.
+3. Real, on a subdivision street with the low roll ("valley") curb: no inlet is set in the roll. The curb rises to a normal upright curb for a few feet each side of the inlet (Charlotte: 3 ft 6 in to 10 ft) and drops back; the gutter edge stays straight and the bulge is toward the lawn.
+4. The game drew, on roll-curb streets (Martin St at West Trade / Beatties Ford is one), a full-height hood block at the gutter line, 45 cm in front of the curb's crest, with blunt ends - his picture - and a slab and lid behind every inlet that the standard does not have.
+5. "Other roads don't have curbs like that": also wrong in the game. Only streets near Uptown or beside shops had any curb (38.5% of surface street length); real Charlotte has curb and gutter on nearly every city street (roll curb in subdivisions, upright curb on main roads); open shoulders are for country roads, freeways and ramps.
+Sources read 11-15: NCDOT Roadway Standard Drawings 840.02, 840.03, 846.01; Charlotte Land Development Standards Manual 10.17A/B, 10.19, 10.29, 10.30, 20.34, U-02A; CDOT site plan checklist; WFAE 2019-12-17 (sidewalks optional about 1950-1990, required both sides from 1998).
+
+## Causes
+- `CityMeshes.Curbs2.cs` DrawInlet (was ~665-747): `rolled = r > 0.5f` put the hood (yTop = h + 1 cm, 0.5 m deep) at the drawn edge, the roll's crest 0.45 m behind it; a corner inlet stood InletEndM = 5.5 m before the ribbon's end, inside the 8 m ease to the corner's vertical curb (r about 0.77); the hood ignored a cut wing's lowered curb; a 1.3 m slab + lid behind every inlet.
+- `CityMeshes.Walks.cs` WalkEdgeUncached (~318): a curb only within UrbanCoreM (2.2 km) of the Square or beside a non-house building.
+- `CityMeshes.Walks.cs` WalkFrontage (~1861): a walk street's frontage was paved 7 m deep, house streets too (concrete front yards near the Square).
+
+## What changed (all code; no data, no slot, no material, no baked field, CityTileCache.Format untouched)
+- NEW `Scripts/City/CityMeshes.Curbs3.cs`.
+  - PART 1, `PSX_CITY_INLET2` (default ON; 0 = the 11-11 inlet): the inlets of an edge are PLANNED before its walk is laid (Cs3EnsurePlan: the 11-11 stations, kept off aprons, ramp ends, tree grates and paint from map data, the same in every tile). On a rolled street the walk's section eases over 3.05 m each side of the hood (2.0 / 1.07 m where room is short) from the roll to a pan with the vertical curb behind it: face on the roll's crest line, gutter lip straight, back 0.4 m further out; the collider is a lerp of the roll and the 11-11 chamfer (Cs3Profile). Hood 0.937 m long, 0.152 m deep, 9 mm proud, 1 cm over the curb top, to the local curb's height; grate 0.908 x 0.603 m; no slab, no lid. A rolled street's corner inlet stands 10.9 m before the ribbon's end (clear of the corner's ease).
+  - PART 2, `PSX_CITY_CURBS3` (default ON; 0 = the 11-11 rule): CurbClassOf per edge. Not a surface street: none. The 11-11 walk streets: vertical curb, pan, walk as before; a house street near the Square (pre-war grid) is now VERTICAL with a lawn frontage (`PSX_CITY_PREWAR=0`: rolled, paved, as 11-11). Else built-up (a real footprint or generated building within 45 m at a third of a local street's reads, half of a collector's / arterial's, or a gap between two built stretches): local = the ROLL curb alone (0.61 m, CLDSM 10.17B's 2 ft valley gutter; lawn level behind it; `PSX_CITY_CURBONLY=0` gives it 11-11's 2.4 m rolled walk instead), class 1-3 = vertical curb + pan + walk. Else none (rural). Two roll-curb streets meet in a curb return (ring strip), not a paved fan. A roll curb is not cut at a driveway (`PSX_CITY_DRIVEROLL=0` cuts it); its level backing eases out to the plain apron verge within 3 m of a driveway. Class eases over 8 m at a plain joint of two streets of different classes.
+    - `PSX_CITY_PANTONE` (default ON, in CityMeshes.Curbs2.cs): the gutter pan weathered grey, not light concrete (the owner 11:50; UV only).
+- Hook for "lots": `CityMeshes.CurbOpeningAt` (Func<CityMap, float x, float z, bool>, null by default) is asked beside ApronAt wherever a walk's curb is read for cuts; anything ApronAt reports already opens the curb.
+- `CityMeshes.Curbs2.cs`: Cs2Span cut-share record, EmitStreetHardware -> EmitInlets2, InletStations end offsets, RolledEdge / RolledNode / Cs2Mix / CurbNoEdgeLines by class.
+- `CityMeshes.Walks.cs`: WalkEdge by class; PrepareWalks / CornerWalkOf widths (Cs3WalkW, Cs3WalkMin); EmitWalkSpanCore (inlet share, breaks, pan band, cutA backing share); CurbCutWings (no cut on a roll; cutA); WalkFrontage skips house streets.
+- `CityMeshes.Houses.cs` PrepareTileDrives: tileDrivesWide (driveways within 20 m of the tile, for the plan). `CityHouses.cs`: BoundTo, ProcBuildingNear.
+- Editor: NEW `CityAudit.Curbs.cs` (`CityAudit.CurbsOnly` -> curbs_audit.txt), NEW `CityRefSpots.Curbs3.cs` (`CityRefSpots.RunCurbs3`); `CityCurbDrive.cs` + PSX_CURB_SPEEDS / PSX_CURB_ANGLES / PSX_CURB_DRIVEWAYS=N; `CityFlickerFinder.cs` + PSX_FLICK_EXTRA "name,x,z;...".
+
+## Owner 11:50, Beatties Ford Rd by JCSU: "that is a LOT of curb on the side of the road" (his line drawn across the gutter pan, 28.png)
+- The game draws there, from the lane edge out: gutter pan 0.60 m (render-only, the structure atlas's girder band: light concrete, as bright as the crosswalk paint beside it); the curb 15 cm high whose drawn TOP is 0.40 m deep (to the collider's nose; the same light concrete); the walk slab from the curb to 2.4 m (slab texture, no grass strip); then a paved frontage 7 m deep beside non-house buildings.
+- The standard (NCDOT 846.01 = CLDSM 10.17A 2'-6" curb and gutter; thoroughfare section): pan 24 in (0.61 m), curb top 6 in (0.15 m), 6 in high; then a planting strip (4 ft minimum, 8 ft today); then a 5 ft walk.
+- So the pan's WIDTH is right. The game draws MORE concrete (curb top 0.40 m against 0.15 m; the walk starts at the curb with no grass strip, so pan + curb + walk read as one 3.0 m band where the real street shows 0.76 m of curb and gutter, grass, then 1.5 m of walk) and BRIGHTER concrete (the pan as light as new concrete and paint; a real pan is weathered and tyre-dirty).
+- Changed now (UV only, no geometry): `PSX_CITY_PANTONE` (default ON; 0 = the light pan): the pan in the atlas's weathered grey (the band Uptown's granite curb uses). Before / after frames at West Trade St: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\hoods\pan_tone_sheet.png`. Not shot at the owner's exact Beatties Ford pose.
+- Would change next (NOT done: collider and geometry, needs the curb drive): the drawn curb top 6 in deep with the slab's texture behind it; a 1.2 m grass planting strip between curb and walk where there is room; the walk 1.5 m.
+
+## For "lots": what decides where a street's curb drops for a driveway or a lot entrance
+- `CityMeshes.CurbCutWings` (CityMeshes.Walks.cs), its local `CutAt(u)`: the walk is read every 0.5 m at its MIDDLE (edge point + outward * w / 2) with `ApronAt(map, x, z)` (CityMeshes.Lots.cs: the lot apron quads, and `DriveApronAt` = this tile's house driveways with their flares) OR the new `CityMeshes.CurbOpeningAt` (Func<CityMap, float, float, bool>, null by default). Where true the curb's share drops to `CurbCutShare` (0.15: a 2.25 cm lip) across the opening and eases back to the full curb over `CurbCutWingM` (5 m) each side (the anti-launch wing); the drawn plumb face and top follow (they scale with the collider's section).
+- NEVER cut: a ROLL curb - `Cs3NoCut(map, e)` = Curbs3On && DriveRollOn && `RolledEdge(map, e)` (class `CurbRollOnly`). A lot entrance on a roll-curb street is driven over the roll; only the lawn backing gives way to the apron's verge within `Cs3ApronEaseM` (3 m).
+- The gutter pan (`Cs2Gutter`) is NOT cut: it runs through an opening as a real gutter does. The verge behind the walk is poured concrete where ApronAt is true (EmitStrip, unchanged). Corners (`CornerWalkOf` / `EmitCornerWalkCore`) are never cut.
+- The inlet plan keeps hoods 3.6 m along from any opening (`Cs3ApronWithin`, `InletApronClearM`): it reads ApronAt, CurbOpeningAt and the tile's wide driveway list.
+
+## Numbers
+- Contact sheet (real editor frames, same poses, switches off vs on): `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\hoods\curbs3_sheet.png`; frames in `...\scratchpad\hoods\shots_final2\`, part-1-only frames in `...\hoods\shots_b\`.
+- AUDIT (`CityAudit.CurbsOnly`, `...\hoods\audit4.txt`), the rule city-wide, centreline km of the 2975.4 km of surface street (ramps, freeways, bridges, tunnels 970.8 km not counted):
+  - before: curbed 1146.1 km (38.5%) - local: none 240.6, rolled + walk 24.4, vertical + walk 314.1; class 1-3: none 1588.6, vertical + walk 807.6.
+  - after: curbed 1677.0 km (56.4%) - local: none 36.9, roll curb alone 203.7, vertical + walk 338.5; class 1-3: none 1261.4, vertical + walk 1134.8.
+  - dead ends: 941 street ends (843 local); 73 drawn with a turnaround bulb, 868 without (771 local). Not built (E).
+- SAMPLE of 68 tiles built both ways (8 x 8 round West Trade St at Beatties Ford Rd = Uptown edge, pre-war streets, I-77 / Brookshire; + Uptown, Hidden Valley, rural, I-77 / I-85 tiles):
+  - inlets 599 -> 802; on rolled curb 81 (blocks) -> 177, every one in a roll-to-vertical transition (1027 m of transition); stations with no place 556 -> 72.
+  - driveways by their street: no curb 618 -> 0, roll curb 254 -> 567, vertical curb 617 -> 922. Mouths the walk crosses: over a roll 247 -> 559, through a cut (lip under 3 cm) 596 -> 897, a curb FACE across (15 cm) 8 -> 8: the same 8 before and after, on vertical-curb streets (Uptown West Dr x3, Cannon View Ln x2, Katonah Ave x2, Jenkins St); cause not found (the driveway's quad does not reach the walk's middle or back there).
+  - COST: box triangles 2,169,894 -> 2,312,693 (+6.6%), vertices +6.7%, tile build 334 -> 376 ms (+12.5%; earlier runs of the same sample +1.5 / +5.4%: noisy); Hidden Valley tile 5594 -> 7595 triangles (+36%), 28 -> 46 ms; Uptown -0.6%; interchange -1.3%; rural 0. Expect about +4 to +6% baked bytes city-wide (+0.25 to 0.35 GB of 5.6 GB) and +3 to 5 min on the 35 min bake.
+- CURB DRIVE (`CityCurbDrive`, play mode, RX-7, PSX_CURB_SPEEDS=15,40,80 PSX_CURB_ANGLES=90,45; `...\hoods\drive_new3.txt`, `drive_new.txt`, `drive_base.txt`). All-off s / any-off s / kick g:
+  - new roll curb alone, Bilmark Ave: 90 deg 15: 0 / 0 / 1.0; 40: 0 / 0.38 / 6.6 (1 stop strike); 80: 0.18 / 0.32 / 19.3. 45 deg 15: 0 / 0 / 0.4; 40: 0 / 0 / 0.8; 80: 0.02 / 0.37 / 14.9.
+  - 11-11 rolled walk today (switches off), Lexington Ave | Baldwin Ave: 90 deg 15: 0 / 0 / 1.0 | same; 40: 0 / 0 / 3.4 | 0 / 0 / 1.8; 80: 0.08 / 0.32 / 21.2 | 0.32 / 0.42 / 18.1. 45 deg 40: 0 / 0 / 0.5 | 1.1; 80: 0.02 / 0.25 / 10.4 | 0.07 / 0.53 / 16.6.
+  - so: all-wheels-off times inside the two base sites' range at every speed; WORSE at 90 deg 40 km/h (a wheel off 0.38 s, 6.6 g, one stop strike vs none). Off the curb at 15 / 30 deg: equal or better at every speed. With the plain verge behind the roll (first try) it launched (90 deg 40: all off 0.23 s; 45 deg 80: 0.15 s): hence the level backing.
+  - pre-war Baldwin Ave, vertical now (rolled before): 90 deg 40: 0 / 0.18 / 7.4, 2 strikes (was 0 / 0 / 1.8); 80: 0.32 / 0.42 / 24.4, body up 1.8 m (was 0.32 / 0.42 / 18.1, 1.1 m); 45 deg 80: 0.48 / 0.57 / 26 (was 0.07 / 0.53 / 16.6). It is the shipped vertical curb (as N Graham), harsher to mount than the roll it replaces on 24 km of street: `PSX_CITY_PREWAR=0` if the owner wants the roll back there.
+  - DRIVEWAYS, ten on each street, square on over the curb at the mouth: roll curb (Bilmark) 15 km/h: no wheel off, 1.0-1.3 g, wheel step 1.9 cm, no strike; 30 km/h: all off 0, one wheel off 0.18-0.52 s, 1.8-2.9 g, no strike. Dropped vertical curb (Baldwin) 15 km/h: 0.6 g, step 1 cm; 30 km/h: 0.8-0.9 g; no strike (as before).
+- LAUNCH AUDIT on the 64-tile box (PSX_LAUNCH_BOX=-4608,5376,-2560,7424), switches off vs on (twice): identical - 40 separations on 4535 paths, 1 LAUNCH / 28 UNLOAD spots, 7 turning movements off the pavement / 1 step, both.
+- FLICKER FINDER (-force-glcore) at four picture spots, 24 views: depth-tie pixels 756 -> 796 of 8.86 M (85 -> 90 ppm); sidewalk | structure 94 -> 114, lawn | sidewalk 5 -> 62 with pavement | sidewalk 75 -> 25 (the same seam, the frontage now lawn), ground | kerbs 3 -> 19. Run one commit before the driveway-apron backing ease; not repeated after it.
+- TRAFFIC CHECK (`CityTrafficCheck`, PSX_CITY_TRAFFIC=1): switches off: CITY TRAFFIC OK (38 checks). Switches on: after the cache fix, a fresh process: CITY TRAFFIC OK (38 checks), 0 NullReference in its log. (Before the fix it failed at 'CityTraffic attached by CityMode'.)
+
+## What still looks wrong / NOT DONE
+- The traffic check found a real fault late: a fresh process with CURBS3 on threw NullReference in WalkSide on every tile with a one-way walk street (my class return skipped the cache allocation). Fixed (commit "WalkEdge allocates the walk caches before the class return"); the editor tools had not seen it because they always built with the switch off first. The audit, picture, flicker and launch-audit logs hold 0 such exceptions (their numbers stand); the curb-drive logs were deleted before I knew to look - the profiles it measured show the curbs were built at its sites.
+- Same-site A/B of the roll curb alone against 11-11's rolled walk (PSX_CITY_CURBONLY=0) was queued and NOT run.
+- No planting strip between curb and walk on the pre-war streets (real Elizabeth / Dilworth have one).
+- The 2 in gutter depression at an inlet is not drawn (the pan is render-only on the road's collider).
+- The transition's drawn face and top are the structure atlas's light concrete; the roll beside them is the walk slab's texture: a paler wedge at each roll-curb inlet.
+- Cul-de-sac bulbs have no curb round them (the curb ramps out before the bulb); 868 dead ends have no turnaround at all.
+- Where two roll-curb streets meet and the ring strip does not fit, the corner keeps no curb (count not taken).
+- A curb can start or stop at a plain joint where the built-up test flips (a ramp end there).
+- Class 1-3 built-up streets get the walk on both sides everywhere; real 1999 arterials outside the centre had it in parts.
+- The roll curb keeps 11-11's driven profile (10 cm over 45 cm); the standard valley gutter is 3 in over 24 in.
+- 8 driveways in the sample still face an uncut vertical curb (pre-existing, listed above).
+- Not done: E (cul-de-sac bulbs). City-wide launch audit and full verify not run (as briefed).
+
+## At merge
+- Shared-file edits: NONE in CityMeshes.cs, CityWorld.cs, CityMap.cs, StreetDress.cs, Lots.cs. Editor tools touched: CityCurbDrive.cs (env lists, DriveDriveways), CityFlickerFinder.cs (Spots: PSX_FLICK_EXTRA). New files with .meta: CityMeshes.Curbs3.cs, Editor/CityAudit.Curbs.cs, Editor/CityRefSpots.Curbs3.cs.
+- Tile geometry changes: RE-BAKE. No new Slot, kit material, mesh, baked class field or format change (the pan band and transitions ride Slot.Sidewalk, the hood / grate / drawn face ride the structure mesh as 11-11).
+- No scene pass needed. No data file to copy.
+- If "lots" opens curbs through ApronAt (their apronQuads), nothing else is needed; the roll curb is never cut, so a lot entrance on a roll-curb street is driven over the roll.
+- If "bridges" / "roads" change WalkEdge callers: WalkEdge(map, e) is now CurbClassOf != CurbNone under PSX_CITY_CURBS3.
+
+# HANDOFF - CHARLOTTE ROADS REVIEW (agent "roads", branch `charlotte-roads-audit`, 2026-11-15; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-roadsaudit` off mountain-nm f8cbf12d. Sandbox PSXLab (shared with "trees"; PSX_BUILD_TARGET=StandaloneWindows64). Owner 2026-11-15 (PC41): "Please review all roads for accuracy (including parking lots, bridges, neigborhoods, driveways). I plan to start adding more racing tracks in Charlotte today once roads are accurate." This agent = the review of the road network itself; lots, curbs / residential edges, bridges and trees were other agents.
+
+## The product
+- THE REPORT for the owner: `C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Charlotte_Road_Accuracy_Report_2026-11-15.md` (corridor table with READY FOR A TRACK / READY WITH A NOTE / NOT YET, city-wide numbers, ranked list of what is wrong and whose ground).
+- Pair sheets (37 places on 18 corridors; GAME frames only, the real road in words as captions): scratchpad `roadsaudit\charlotte_road_pairs_1.png`, `charlotte_road_pairs_2.png`. Facts behind the captions: `real_facts.py`; poses: `spots.tsv`, `spots_info.txt`.
+- Scratch folder (everything below): `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\roadsaudit\`.
+
+## Verdicts (the owner's table, short)
+READY FOR A TRACK: I-277 loop, I-77 through the centre, Providence Rd, Morehead St, Brookshire Blvd, Wilkinson Blvd, 7th St, Billy Graham Pkwy. READY WITH A NOTE: Independence Blvd (freeway shoulders where the real road has curb; 1999 was a boulevard east of Albemarle Rd), N Tryon St, S Tryon St south of I-277, E Trade St, South Blvd (0.45 km at East Blvd drawn 2 lanes, real 4), Queens Rd (no oak row), Central Ave, Park Rd. NOT YET: S Tryon St through Uptown (7.9 m wide, real about 15 m), W Trade St west of I-77 and Beatties Ford Rd inside I-85 (one 4.3 m lane each way = the 2021 streetcar rebuild, then 1.8 km drawn 2 lanes where the real road has 4).
+
+## What the network audit found (tools: scratch `net_audit.mjs`, `net_extra.mjs`, `corr_extra.mjs`, `tagn.mjs`, `rail.mjs`; they read charlotte_city.bytes and the OSM cache of the main checkout, read-only)
+- Graph: 20,567 nodes, 25,560 edges, 3,946 km, hash b2aa3453. Every edge's way id is in the extract; the extract's arterial classes are kept 100% except toll ways (177 ways, 120 km, right for 1999); local streets only in the core box (lat 35.190..35.262, lon -80.880..-80.790); unnamed service ways (3,550, 240 km) dropped; alleys / driveways / parking aisles never fetched.
+- One-way: 0 flag differences, 0 of 13,499 against their way. Bridge / tunnel / level / name: 0 differences. Speed: tags honoured, defaults 65 / 55 / 35 mph.
+- Lanes: 2,615 km tagged, 1,331 km by `defaultLanes` (tools/city/export_osm.mjs:251; secondary two-way = 2 is the one that hurts: Beatties Ford Rd, N Graham St, Monroe Rd, Randolph Rd, Park Rd, Sharon Rd, Central Ave). Drawn != tag on 104 km: about 71 km turn-bay sections (lineclean counts through lanes), 20 km of 5-6 lane carriageways clamped to 4 and 4.6 km of 4-lane ramps clamped to 3 (`RoadProfiles.IndexFor`, Scripts/City/RoadProfiles.cs:186-210: ow tops at 4, ramp at 3, xw at 4), 3 km lanes=1 two-way drawn 2.
+- Every lane 3.6576 m (RoadProfiles.LaneM): primary / secondary 8-9% wider than at 11 ft, tertiary 13%.
+- OSM is 2026: 29 km of primary / secondary within 8 km of the Square are tagged one lane each way (Remount, Tuckaseegee, The Plaza, W 4th St Ext, Parkwood, Clanton, Beatties Ford and W Trade (streetcar), W Morehead, South Blvd, S Tryon). Candidate ways for a 1999 / missing-tag lane table: scratch `lane_override_candidates.tsv` (83 ways, about 19.5 km; evidence column says which were SEEN). An exporter change: the OWNER'S OK is needed (same as the Brookshire inbound lanes question of 11-10).
+- Parking lanes: only 7.5 km tagged; the game adds no width for parking anywhere.
+- Junction control (new `CityAudit.RunNetwork` / the census at the head of `RunRoadsSample`): 2,593 junctions furnished (1,010 signals, 127 all-way STOP, 1,393 two-way STOP, 63 yield). 2,558 OSM signal nodes lie on game roads: 2,009 have a game signal junction within 60 m; 549 do not, about 520 because the cross street is not in the game, and 29 junctions the game has are left without (Five Points n10963, Eastway x Shamrock, N Graham x Statesville, The Plaza x Commonwealth, ramp ends on Brookshire Blvd / Wilkinson Blvd / S Tryon St / Freedom Dr / Tyvola Rd ...; full list in `city_roads_sample_BASE.txt`, lines NOSIGNAL). Cause: Scripts/City/CitySignals.cs:496 snaps a tagged signal only within SignalSnapM = 20 m of an edge end, and :498 drops a signal node with under 3 arms (359 of them) instead of handing it to the junction ahead. NOT changed: a 45 m rule would mark 98 nodes, some of them the wrong neighbour (TAGN carries no direction); it needs traffic_signals:direction from the exporter and a traffic check.
+- Turn pockets: OFF (CityMeshes.TurnPockets.cs:50), as left on 11-10; 870 edges (64 km) are turn bays in LSET.
+- Railways: none in the game. `tools/city/cache/layers/railways.json` holds 545 km of heavy rail; 14 rail bridges pass over game roads with nothing drawn (Billy Graham Pkwy at 35.2249,-80.9246 = the NS main line, seen in the pair; N Tryon St x2, E 36th St x2, N Graham St, I-77, NC 16, I-485 ...) and 239 level crossings sit on game roads (part are today's light rail).
+
+## What changed (code)
+- `Scripts/City/CityMeshes.MedianDress.cs`, the only game-code file touched (a block of about 30 lines after `MedianConcreteRoads`; one-line edits in `MedianShrubOk` and `PrepareMedianDress`): THE PLANTED STRETCHES. A listed concrete road (Wilkinson Blvd, N Tryon St, South Blvd: the 11-09 survey) was concrete from end to end; `MedianPlantedStretch(e)` excepts Wilkinson Blvd east of lon -80.8965 (edge midpoint x > -7170) and South Blvd between lat 35.155 and 35.185 (z -3285 .. 49), which then take the general rule (a bed under 6 m, grass above, concrete under 2.4 m and at noses / pockets). Evidence, all seen 11-15: planted inside the stretches at 4 of 4 places (Wilkinson at Ashley Rd: mulch and crepe myrtles; at Morris Field Dr: raised grass; South Blvd at Woodlawn Rd: a planter with shrubs; at Archdale Dr: grass and a tree), concrete outside at 3 of 3 (Wilkinson at lon -80.9000 and near the airport, N Tryon north).
+- Switch `PSX_CITY_MEDIANSTRETCH` / static `CityMeshes.MedianStretchOn`: OFF by default (`=1` turns it on). NOT PROVEN IN PICTURES: its before / after job was queued behind "trees" in PSXLab from 11:11 to 11:36 and never got the lock, so it was stopped. To prove it: scratch `run_stretch_ab.ps1` (7 poses switch off / on, then the drive and invisible audits on three boxes before / after and the tile cost), then `py -I ab_sheet.py <scratch>`; if the four planted poses turn to beds or grass and the three controls stay concrete, change `== "1"` to `!= "0"` at the `MedianStretchOn` line. What IS proven: the code compiles (typecheck), the mechanism (a listed road's island taking the general rule draws a mulch bed with plant cards: the width test's A/B at Wilkinson / Morris Field and Ashley Rd showed exactly that), and that with the switch off the branch draws what BASE draws.
+- A first attempt (concrete only where the island is under 3 m) was A/B'd and DROPPED: it turned the airport's real concrete island into a bed (that run's sheet, real editor frames, 7 poses switch off / on: scratch `charlotte_roads_median_WIDTHRULE_dropped_before_after.png`; its Wilkinson rows at Morris Field Dr and Ashley Rd are what the stretch rule draws there, its airport row is the reason it was dropped; the numbers of that run: +228 triangles a tile at Wilkinson / Morris Field, 0 on Uptown / SouthPark / the interchange, build ms unchanged; drive and invisible audits identical before / after on the Wilkinson, N Tryon and South Blvd boxes).
+- The standard 100-tile sample re-run on the branch at 70a2f361: its 150 summary lines are identical to BASE (`city_roads_sample_AFTER_std.txt`).
+- No data file changed: graph hash b2aa3453 before and after. No CityTileCache format change, no new slot or material (a planted island rides Slot.MedianBed / Ground and the plant cards the median dress already has).
+
+## The corridor drive audit (new step, `PSX_ROADS_DRIVE_EDGES`)
+533 edges, 67.9 km, 211 tiles: Providence Rd 7.0 km, Morehead St 6.1, Brookshire Blvd 6.3, Wilkinson Blvd 12.1, 7th St 4.9, Billy Graham Pkwy 16.7, I-77 14.7 (list `drive_edges.txt`, map `drive_edges_map.tsv`; output `corridor_drive.txt`, 437 s). 923,262 probes: walls 0, steps 0, holes 0, off-surface 0 in the corridors' lanes; BLUNT faces beside the lanes 11 (the Brookshire Blvd bridge over I-85, e3585-e3589, e1192: bridges' ground); blunt rail ends on a bridge approach 4; grass on a lane 5 (East Morehead St e11362 4 cm, Wilkinson e7320 1 cm); FALL HOLES 1 place within 12 m of a road; MEDIAN ACROSS two+ walls 466 rays / boxed areas 37 (the audit was written for the freeway routes; on the island roads it counts the island's two curbs: not checked further).
+
+New editor tools (no game code): `Editor/CityAudit.Network.cs` (`RunNetwork` -> city_network.txt; `RunRoadsSample` -> city_roads_sample.txt: the census, then the drive audit and the invisible-collider audit box by box; `PSX_ROADS_SAMPLE=kind,kind`, `PSX_ROADS_BOXES="name:x0,z0,x1,z1;..."` in whole tiles, `PSX_ROADS_AB=Field:1` runs every box with a public static bool of CityMeshes before and after, `PSX_ROADS_COST=Field:1` + `PSX_ROADS_COST_RINGS` measure triangles / vertices / build ms on 3 x 3 rings; `PSX_NET_OSMSIGNALS=<file of x z lat lon>` for the signal comparison) and `Editor/CityRefSpots.Roads.cs` (`RunRoads`: driver-eye + 7 m high frames at poses read from `PSX_ROADS_SPOTS`, `PSX_ROADS_AB` for before / after). Runner: scratch `job.ps1`.
+
+## The drivability baseline (for the merge)
+`RunRoadsSample` on BASE code, 100 tiles in five 5 x 4 boxes (`CityAudit.SampleBoxes`; tile list `sample_tiles.tsv`, world boxes `sample_boxes.tsv`), 497 s, output `city_roads_sample_BASE.txt`. Numbers (drive audit: walls / blunt / steps / holes / off-surface / grass; invisible: lane hits, bare solids):
+- uptown (x -12..-8, z 16..19; 266 edges): 85,020 probes, 0/0/0/0/0/0; invisible lanes 0; solids bare 6 (Buildings).
+- inner, Plaza Midwood (x 0..4, z 13..16; 147 edges): 83,804 probes, grass 1 (Hall Ave e23214); invisible lanes 1 (sweep Roads); solids 0.
+- suburb, SouthPark (x -8..-4, z -16..-13; 102 edges): 44,276 probes, all 0; invisible lanes 0; solids bare 95 (house_simple, trailers, Buildings).
+- interchange, I-77 / I-277 / W 5th (x -15..-11, z 21..24; 298 edges): 123,052 probes, blunt 3, steps 3, grass 22, blunt rail end on an approach 1; invisible lanes 0; solids 0. The faults are on the local streets and W Trade / W 5th beside the interchange, not on the freeway lanes.
+- rural, I-485 north-west (x -34..-30, z 64..67; 38 edges): 34,085 probes, all 0; MEDIAN ACROSS two+ 19, boxed area 4; invisible lanes 0; solids bare 1,939 (cable / guardrail colliders).
+- 12 FAIL lines in all, every one on BASE. Re-run after the merge: scratch `job.ps1 -Method PSXRacing.EditorTools.CityAudit.RunRoadsSample -Log <log> -EnvVars "PSX_NET_OSMSIGNALS=<scratch>\osm_signals.tsv"` (set the sandbox / worktree at the top of job.ps1) and compare the same lines.
+
+## Not done / could not verify
+- No lane count was changed (the override list needs the owner's OK and a re-export); signals rule not changed; turn pockets not re-audited; no 5-6 lane profile.
+- Street-level views are today's (2021-2026, one 2007); 1999 facts are from knowledge of the roads, marked as such in the report. Queens Rd West, Independence beyond Idlewild Rd and the outer halves of most corridors were not paired.
+- The Browser pane was hidden behind the owner's game: the street-level canvas only drew after the pane was shown (`show_pane preview`) and with a 2 px ticking element injected in my own tab so the page kept painting; nothing was copied out of it.
+- Baked size was not measured (no CityTileBake in PSXLab); the play mode / traffic check was not run (no traffic or collider change).
+
+
+---
+
+# HANDOFF - LOT ENTRANCES (agent "lots", branch `charlotte-lots`, 2026-11-15 Charlotte accuracy round; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-lots` off mountain-nm f8cbf12d. Sandbox PSXCity (WebGL target). The owner on PC41, Beatties Ford Road at Johnson C. Smith University: "I see many parking lots with no driveable entrance. They just have curbs all around."
 
@@ -66,6 +201,159 @@ What still looks wrong in it: the apron's concrete is big - behind the walk it f
 3. Then the tile bake (tile geometry changes at every lot entrance: aprons, curb cuts, corridors, ramps, lot kerbs, lamps near them).
 4. No scene pass needed.
 
+
+# HANDOFF - BRIDGES ROUND 2 (charlotte-bridges, 2026-11-15): the city-wide bridges audit, girders keep the clearance, no rail on a shared deck's lanes, the city bridge rail
+
+Branch `charlotte-bridges` (worktree `C:/Users/mcgee/PSX Racing-bridges`, off mountain-nm f8cbf12d). Not merged, not pushed.
+The owner (PC41): "Please review all roads for accuracy (including parking lots, bridges, neigborhoods, driveways). I plan
+to start adding more racing tracks in Charlotte today once roads are accurate." Bridges were this agent's share.
+Graph hash b2aa3453 before and after (no data file touched, no export run).
+
+## The audit (new): `Editor/CityAudit.Bridges.cs`, `-executeMethod PSXRacing.EditorTools.CityAudit.RunBridges`
+City-wide in about 6 minutes (40 s solve + 4.5 min): every stretch of road on structure (1,086 runs on 502 tiles, 56.7 km;
+256 over water, 275 freeway main line, 162 ramps; 1,387 structure ends at fill) and 30 m of each approach, measured on
+the tiles the game builds (CityMeshes.Build + CityWorld.Attach). The Roads mesh is the drawn surface AND the collider
+(one mesh), so one probe reads both; the render-only Structure / Kerbs / Banks / Water meshes get probe colliders so a
+thing drawn and not solid is seen too. Rays down every 0.5 m on every lane line; out from the outer lanes every metre
+for the rails; along the lanes and the edge lines at bumper height for faces square to the travel; up from under the
+deck, in from its side and along it toward its end for the soffit, the fascia and the abutment; and for every road
+passing below: its own surface, its lanes against piers and walls, and the MEASURED clearance (a ray up from every lane
+every metre). Piers are read from their solids (1,614 columns). Report `city_bridges_audit_<tag>.txt` (count table,
+the 20 worst of each kind with street name and lat/lon), `.tsv` (every finding), `_runs.tsv` (every run),
+`_tiles.tsv` (each bridge tile's meshes hashed: a before / after pair shows which meshes a change touched).
+PSX_BRAUD_TAG / _MINUTES / _EDGES / _NEAR. Run it with PSX_CITY_BRIDGE2=0 for the picture as it was.
+
+### Counts, city-wide, before (PSX_CITY_BRIDGE2=0) -> after; places = distinct 8 m stretches of one edge, (roads) = edges touched
+| kind | before | after | what |
+|---|---|---|---|
+| DECK-HOLE | 3 (3) | 3 (3) | nothing to drive on, on structure (all on the interchange decks below) |
+| STEP-JOINT / STEP | 32 (28) / 32 (28) | 32 / 32 | a step over 2 cm between two samples 0.5 m apart, within 6 m of a structure end / elsewhere |
+| KINK-JOINT / KINK | 60 (39) / 65 (42) | 60 / 65 | a grade break over 2 % (2 m bases), at a structure end / elsewhere |
+| WALL-IN-LANE | 12 (10) | 10 (8) | a face square to the travel on a lane line at bumper height |
+| RAIL-ON-LANE | 8 (8) | 3 (3) | a barrier standing on a lane line (the 3 left are median Jersey pieces) |
+| RAIL-DROP / RAIL-FLUSH | 1 (1) / 17 (16) | 1 / 17 | no rail on structure beside a drop / beside flush land (2 m or longer) |
+| APPROACH-RAIL | 45 (44) | 45 (44) | the rail is carried under 10 m past a deck end with no mouth, junction or twin median there |
+| BLUNT-END | 87 (76) | 84 (75) | a rail's face square to a car along an edge line (a reachable line, not inside a rail's body) |
+| NO-SOFFIT / NO-FASCIA / OPEN-ABUTMENT | 8 / 91 (75) / 15 | 8 / 91 / 15 | the deck shows nothing from below / its edge no face from the side / daylight under the approach |
+| LOW-CLEAR | 418 (136) | 103 (40) | MEASURED clearance over a road below under 4.3 m (4.9 m over a freeway main line) |
+| DESIGN-CLEAR (data) | 158 (115) | 30 (29) | slab less girders under the same figures at a crossing (778 crossings) |
+| UNDER-STEP / UNDER-KINK | 19 (16) / 29 (22) | 19 / 29 | the road below: a step / a grade break |
+| UNDER-BLUNT-END / PIER-WALK | 4 / 1 | 4 / 1 | the road below: a rail end along its edge line / a pier in its sidewalk band |
+Zero before and after: ROAD-HOLE, LAND-OVER-LANE, DRAWN-OVER-LANE, OBJECT-OVER-LANE, UNDER-HOLE, UNDER-BURIED,
+UNDER-WALL-IN-LANE (no pier, cap or abutment on any lane line of a road below), PIER-PAVE, PIER-SHY (1,614 columns).
+Of the 103 LOW-CLEAR left, 97 are over freeway main lines (median 4.57 m: the solve's 5.0 m slab less the thinnest
+girder) and 6 over streets (3.98-4.25 m: Marie Garris Dr under Independence Blvd, Andrill Terrace under ramp e1487,
+S Clarkson St under I-277, ramp e173 under Oaklawn Ave) - the slab itself is low over those lanes.
+Reports (the 20 worst of each kind, street name and lat/lon): `Docs/CITY_BRIDGES_AUDIT_1115_before.txt`, `Docs/CITY_BRIDGES_AUDIT_1115_after.txt`; every finding, run and tile hash: `C:/Users/mcgee/AppData/Local/Temp/claude/be91fcb74e64226b/40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9/scratchpad/bridges/city_bridges_audit_f0*.tsv` / `..._f1*.tsv`.
+
+## What was wrong, and what is fixed (each behind its switch; PSX_CITY_BRIDGE2=0 turns the lot off)
+1. GIRDERS UNDER THE CLEARANCE (the biggest class: LOW-CLEAR 418 places on 136 roads). The solve stands a slab 5.0 m
+   over the road below; the bridges pass then hung girders down to 3.8 m over it (`CityMeshes.Bridges.cs:75`
+   GirderCarClearM, the clamp at :151), measured from the lower road's centre line at the deck's stations - 3.67 m
+   over I-85's outer lane under University Pointe Blvd. Now (`PSX_CITY_BR2_GIRDERCLEAR`, CityMeshes.Bridges2.cs) a
+   deck's girders are as deep as the road below allows: 4.3 m kept over a street, 4.9 m over a freeway main line, plus
+   0.15 m for cross-fall, the lower road read under both edges of the deck. Never thinner than 0.45 m, so over a
+   freeway the solve's 5.0 m leaves about 4.55 m: those stay listed (their fix is the solve's clearance - a height
+   change, not made). Render-only (the Structure mesh); the piers' columns stand that much taller under the deck.
+2. PARAPET BLOCKS ON A SHARED DECK (RAIL-ON-LANE / WALL-IN-LANE, all at the three single-point interchanges). Where
+   several ramps meet ON a bridge each short link drew its own deck and parapets, and the parapets stood as blocks
+   across the other links' lanes. RailOverArms (`CityMeshes.cs:7067`) keeps a rail off the pavement of the arms at its
+   own node only; these stood on the pavement of roads one node further on. Now (`PSX_CITY_BR2_RAILPAVE`) a span on
+   structure within 60 m of a junction draws no rail on a side that lies wholly inside another road's pavement at its
+   own level (decided with the span's flags, from the map alone: `CityMeshes.cs:5793`, one line).
+3. ONE RAIL FOR EVERY BRIDGE (looks). Every structure wore the bare concrete parapet. Freeways, expressways and ramps
+   keep it (the 1990s "New Jersey" parapet); a city street's bridge (class 3 and under, not a ramp) now carries a
+   galvanized bar on short posts along its parapet's top (`PSX_CITY_BR2_CITYRAIL`; render-only on the structure atlas'
+   steel swatch, `CityMeshes.cs:6768`, one line). No modern hardware.
+
+## NOT fixed - keep race routes off these for now
+The driven surface on structure is clean almost everywhere: steps or kinks at 29 places in the whole city, and four of
+them hold most of it. They are junctions of several short ramp edges ON a deck (single-point interchanges): each edge
+has its own profile and ribbon, the ribbons overlap without a shared node, and the surfaces stand up to 22 cm apart.
+That is the solve's and the junction builder's (one plane per shared deck), too big for today:
+- I-85 at Freedom Drive, the deck where the ramps meet (35.2478,-80.8963): steps to 22 cm, grade breaks to 12 %,
+  one 5.5 m gap on a ramp's outer line (e2908). 85 findings left (89 before).
+- I-77 at Tyvola Road (35.1630,-80.8900): steps to 18 cm, breaks to 13 %, a slit across the deck. 54 findings left (57 before).
+- I-85 at Brookshire Blvd / NC 16 (35.2621,-80.8783): steps 4 cm, breaks 3.5 %, median Jersey stubs across two ramps'
+  lanes (a median piece, not a rail: CityMeshes.Dividers / Unions, not this round's). 26 findings.
+- The airport ramps, I-85 / Little Rock Rd / Josh Birmingham Pkwy (35.2414,-80.9389): the roads UNDER the decks,
+  steps to 7.5 cm, breaks to 8 %. 28 findings.
+Smaller single places (a step or a break at one joint): the I-77 ramp e386 under W Arrowood Rd (35.1377,-80.9072;
+13 cm, 9.6 %), Harrisburg Rd bridge e1740 (35.2533,-80.6545; 10 cm on its centre line), Freedom Dr e1892 at its deck's
+start (35.2230,-80.8667; 5 cm, 6.8 %), the service road e24016 by N Graham St (35.2340,-80.8474; 7.5 cm), The Plaza
+e6021 (35.2467,-80.7878; 5.8 %), N Davidson St e14137 (35.2283,-80.8303; 3.7 cm, 4.8 %), South Blvd e9994
+(35.2196,-80.8462; 3.7 cm), Billy Graham Pkwy e11993 (35.2380,-80.9200; 4 %).
+Listed, not touched (see the report for places): APPROACH-RAIL, RAIL-FLUSH (2-5 m of deck edge without a rail, land
+flush beside), RAIL-DROP 1 (Tuckaseegee Rd e13143, 3 m beside a 0.9 m drop), BLUNT-END, NO-FASCIA, OPEN-ABUTMENT 15,
+NO-SOFFIT 8, LOW-CLEAR over freeway main lines (the solve's 5.0 m slab). Railways are not in the road graph, so a rail
+line under a bridge was not measured.
+
+## Real crossings looked up (National Bridge Inventory figures via bridgelookup.com; reference only)
+- S Tryon St over I-277 / US 74 (1987): 3 lanes on, 11 under, steel multi-beam, 4 spans, 93.8 m, deck 21.8 m.
+  Game e1115: 102 m run, 12 m pavement, steel or concrete girder rows by hash. Deck narrower than real (no walks).
+- I-277 & NC 16 (Brookshire Fwy) over N Tryon St (1973): 6 lanes on, steel multi-beam, 3 spans, 56.6 m, deck 35.3 m.
+- I-277 ramp over I-77 NB & I-277 SB (rebuilt 2019; 1999 had the older ramp): 2 lanes, prestressed concrete
+  multi-beam, 8 spans, 209.7 m, deck 12.5 m. Game e1256: 215 m run, BOX girder (the bridges pass draws a box under
+  every ramp and every deck up to 13.5 m: the inventory says multi-beam for Charlotte's ramps - not changed, the
+  box came from the owner's own photo of this interchange).
+- I-277 ramp over Little Sugar Creek (1972): a three-barrel concrete CULVERT, 13.1 m. Game: creek crossings of
+  ramps are short decks on 0.75 m girders.
+- I-277 NB over the Southern Railroad (1987): 4 lanes, steel multi-beam, 3 spans, 85.6 m, deck 19.8 m.
+- US 74 WB over I-277 / NC 16 / NC 27 (1971, rebuilt 2012): 2 lanes, steel multi-beam, 10 spans, 221.2 m, deck 12.5 m.
+
+## Gates (sandbox PSXRec, Android target; BASE = the same build with PSX_CITY_BRIDGE2=0)
+- The bridges audit, city-wide, before / after: the table above. Nothing rose.
+- Every bridge tile's meshes hashed before / after (`_tiles.tsv`): 999 tiles (the 502 bridge tiles and their neighbours): Ground, Roads, Kerbs and Guardrail meshes BIT-IDENTICAL on all of them (the driven surface, the land and the seams are untouched); Barriers differ on 2 tiles (I-77 at Tyvola Rd -48 triangles, I-85 at Freedom Dr -796); Structure on 499 tiles, 2,288,882 -> 2,550,854 triangles (+262 k: the bar and its posts; +1.75 % of those tiles' five meshes, +261 a tile on average); 6 more pier columns stand (1,608 -> 1,614: shallower girders left room; none within 0.6 m of a pavement); mean first-build 202 -> 196 ms a tile.
+- Drive audit (`CityAudit.RunDrive`, PSX_DRIVE_EDGES = the 30 edges of the three interchange decks + S Tryon / I-277,
+  the Brookshire viaduct, the I-77 flyover, Hawthorne Ln, West Blvd creek, N Graham; via CityBridgesPass steps
+  stats,drive,launch): "nothing solid stands across any lane" 7 -> 0 (passes), BLUNT 17 -> 15, lane steps over 12 cm
+  10 -> 5, lane surface off the solve 5 -> 2 (the last two fell because the probes no longer land on rail stubs; the
+  decks' own steps are still there), FALL HOLES 0 = 0 of 851,968 rays. The base run's INVISIBLE COLLIDERS sweep (15 min:
+  lanes 0, solids 88, both older than this round) was not repeated for the after run.
+- Launch audit (PSX_LAUNCH_BOX=-7500,6700,-5200,8900: I-85 at Freedom Dr and at Brookshire Blvd): 2 LAUNCH / 5 UNLOAD
+  spots, 24 separations on 1,549 paths, 102,362 samples on their pavement - identical before and after.
+- Flicker finder (CityBridgesPass step flicker, -force-glcore; its own spots: the Tryon sprint start, I-277 either
+  side of Uptown, W Trade St): 4,047 -> 4,037 depth-tie pixels of 33.6 M drawn (121 -> 120 ppm). Pairs with the Structure mesh (girders, the bar): Barriers | Structure 48 -> 50, Sidewalk | Structure 40 -> 49, Roads [concrete] | Structure 25 -> 30, Roads [ow2] | Structure 202 -> 200: no new fight (the bar stands 0.24 m over the parapet's top on posts).
+- Cost, CityBridgesPass stats (PSX_BR_TILES, each tile built three times, the quickest): triangles before -> after,
+  build ms before -> after
+  | tile | what | triangles | of which | build ms |
+  |---|---|---|---|---|
+  | -12,16 | Uptown: S Tryon / Church / College over I-277 | 44,904 -> 46,936 (+4.5 %) | structure 4,580 -> 6,612 (the bar) | 735 -> 648 |
+  | -11,25 | I-77 / I-277 interchange | 46,326 -> 46,326 | girders moved, none added | 807 -> 704 |
+  | 11,7 | suburb: Eastway Dr over a creek | 37,389 -> 38,453 (+2.8 %) | structure 1,442 -> 2,506 | 785 -> 694 |
+  | -26,-10 | I-77 at Tyvola Rd | 58,066 -> 58,658 (+1.0 %) | barriers -48, structure +640 | 973 -> 915 |
+  | -28,27 | I-85 at Freedom Dr | 39,066 -> 39,318 (+0.6 %) | barriers 6,164 -> 5,368, structure +1,048 | 819 -> 704 |
+  | -8,22 | N Graham St over the rail lines | 44,028 -> 44,892 (+2.0 %) | structure 11,166 -> 12,030 | 609 -> 620 |
+  Collider triangles: unchanged but for the rails taken off (-48 and -796 on the two interchange tiles). Build time:
+  no rise outside run-to-run noise. Baked size not measured (no bake run here): it follows the triangles.
+- NOT run: the play-mode traffic check / census (a play-mode job that hangs would have held the sandbox; no lane path
+  moved - CityTraffic drives the lane model's lines at Edge.YAt, and the audit's lane-line rays found no solid on any
+  lane line of a road on or under a structure outside the three interchange decks); the seam audit (its scopes are
+  the owner tile, Uptown's 4 x 4 and a 60-tile sample, none aimed at bridges; the Roads / Ground / Kerbs meshes are
+  bit-identical, see the hashes).
+
+## For the merge
+- Shared-file edits: `Scripts/City/CityMeshes.cs` only, two places, one line each plus a comment: DecideSideFlagsSteps
+  (line 5792-5793, after the SameWayDeckBeside line) and the rail loop in EmitSide (line 6767-6768, after EmitRail).
+- No new mesh bucket, slot, material or baked field; CityTileCache.Format untouched. The bar and the girders ride the
+  Structure mesh, the rails the Barriers mesh. The new switches start PSX_CITY_, so the bake's fingerprint sees them.
+- A re-bake is needed (Structure changes on most bridge tiles, Barriers on the tiles of the three interchanges).
+- No data file changed; no scene pass needed.
+- New files have no .meta in the repo (Unity mints them; nothing references these scripts by GUID).
+
+## Tools (all new files are this round's; nothing else was touched)
+- `Editor/CityAudit.Bridges.cs` (the audit), `Editor/CityRefSpots.Bridges.cs` (`CityRefSpots.RunBridges2`: driver-eye frames over /
+  on / under / beside a crossing by edge id, PSX_BRSHOT_SPOTS, before and after in one job), `Scripts/City/CityMeshes.Bridges2.cs`
+  (the three rules and their switches), `Editor/CityBridgesPass.cs` (+PSX_BR_TILES, three builds a tile, the quickest counted).
+- Sheet: `Docs/shots/bridges2/bridges2_sheet.png` (= `C:/Users/mcgee/AppData/Local/Temp/claude/be91fcb74e64226b/40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9/scratchpad/bridges/bridges2_sheet.png`)
+  (six fixes, two crossings left alone, two still wrong). The 43 base frames of 18 crossings: `.../scratchpad/bridges/base/`.
+- What still looks wrong in the sheet: on the Freedom Dr deck a low sloped rail end still lies across the deck (a span only
+  partly on another road's pavement keeps its rail); the Brookshire Blvd deck keeps its median Jersey stub; the Tyvola Rd
+  deck still shows a dark slit and its steps; the bar reads a little heavy close up (9 cm square, the structure atlas' mottled
+  steel swatch); girders over roads are now 0.45-0.55 m deep where they were 1.2 m (the price of the clearance on a slab
+  5.0 m up: PSX_CITY_BR2_GIRDERCLEAR=0 brings the deep ones back).
+
+---
 
 # HANDOFF - EVENTS, round 1 (agent "events", branch `events`, 2026-11-15; NOT pushed, NOT merged)
 
