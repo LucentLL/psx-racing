@@ -23,8 +23,8 @@ namespace PSXRacing.City
     /// enforces what holds for all of them:
     ///   1. NOTHING ON PAVEMENT (PSX_CITY_CONC_PAVE=0 off): a piece with drawn
     ///      pavement - any road's ribbon, its own included, or a junction's
-    ///      fan - on BOTH sides of it at the level it stands on is standing in
-    ///      a driven surface. It is clipped to what stands outside; what is
+    ///      fan - on BOTH sides of it and under it, at the level it stands on, is
+    ///      standing in a driven surface. It is clipped to what stands outside; what is
     ///      left too short to be real goes. The one piece that belongs between
     ///      two pavements is a median barrier dividing OPPOSING traffic of a
     ///      divided road (not ramps): that stays.
@@ -394,8 +394,13 @@ namespace PSXRacing.City
             if (!ConPaveAt(q - perp * off, y, out int w1, out var t1, out _)) return false;
             if (w0 >= 0 && w1 >= 0 && !conMap.edges[w0].link && !conMap.edges[w1].link &&
                 Vector2.Dot(t0, t1) < -0.5f && Mathf.Abs(Vector2.Dot(t0, dir)) > 0.7f) return false;
-            return true;
+            // ...and pavement UNDER it: a piece on a strip between two pavements (a verge, a floored seam) stands on
+            // none, and stays (the bridges audit read one such strip, bare, as RAIL-FLUSH: North Davidson Street beside
+            // the ramp e2364). Two ribbons that meet on a line under it count.
+            if (ConPaveAt(q, y, out _, out _, out _)) return true;
+            return ConPaveAt(q + perp * ConSeamM, y, out _, out _, out _) && ConPaveAt(q - perp * ConSeamM, y, out _, out _, out _);
         }
+        const float ConSeamM = 0.12f;
 
         static readonly List<bool> conOn = new List<bool>(64);
 
