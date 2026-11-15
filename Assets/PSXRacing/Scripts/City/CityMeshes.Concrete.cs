@@ -154,7 +154,7 @@ namespace PSXRacing.City
         static void ConNote(ConKind kind, string rule, Vector3 a, Vector3 b, float half, float hA, float hB)
         {
             // a W-beam or the cable: no concrete, but a run that ties into it is not an orphan
-            if (kind == ConKind.WBeam && ConRunRulesOn && conActive) conTile.Add(new ConRec { kind = kind, a = a + conOrigin, b = b + conOrigin, hA = hA, hB = hB, log = -1, v0 = -1 });
+            if (kind == ConKind.WBeam && ConRunRulesOn && conActive) conTile.Add(new ConRec { kind = kind, a = a + conOrigin, b = b + conOrigin, hA = hA, hB = hB, log = -1, v0 = -1, zone = ConBorderM });
             if (concreteLog == null) return;
             concreteLog.Add(new ConcretePiece
             {
@@ -504,10 +504,11 @@ namespace PSXRacing.City
                 int logAt = concreteLog != null ? concreteLog.Count - 1 - Mathf.Max(parts, 0) : -1;
                 Vector3 wa = a + conOrigin, wb = b + conOrigin;
                 bool args = conArgSet && kind == ConKind.Jersey;
+                float zone = ConZone(new Vector2(0.5f * (wa.x + wb.x), 0.5f * (wa.z + wb.z)));
                 if (parts < 0)
                     conTile.Add(new ConRec
                     {
-                        kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev || conHold, log = logAt, v0 = -1,
+                        kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev || conHold, log = logAt, v0 = -1, zone = zone,
                         args = args, ea = conArgA, eb = conArgB, outw = conArgOut, u0 = conArgV0, u1 = conArgV1, capA = capA, capB = capB,
                     });
                 else
@@ -518,7 +519,7 @@ namespace PSXRacing.City
                         {
                             kind = kind, a = Vector3.Lerp(wa, wb, r.t0), b = Vector3.Lerp(wa, wb, r.t1),
                             hA = ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), hB = ConH(Mathf.Lerp(hA, hB, r.t1), r.k1), elev = conElev || conHold,
-                            log = logAt < 0 ? -1 : logAt + 1 + k, v0 = -1,
+                            log = logAt < 0 ? -1 : logAt + 1 + k, v0 = -1, zone = zone,
                             args = args, ea = Vector3.Lerp(conArgA, conArgB, r.t0), eb = Vector3.Lerp(conArgA, conArgB, r.t1), outw = conArgOut,
                             u0 = Mathf.Lerp(conArgV0, conArgV1, r.t0), u1 = Mathf.Lerp(conArgV0, conArgV1, r.t1),
                             capA = r.t0 <= 0f ? capA : r.cut0, capB = r.t1 >= 1f ? capB : r.cut1,
@@ -537,8 +538,8 @@ namespace PSXRacing.City
         /// along its own edge; this one counts the run as it stands, across rules and edges, after
         /// rule 1 has clipped it. A run stays if any piece of it is on structure, has a fall
         /// beside it or holds land (R2: protection is never taken), if it ties into a W-beam or
-        /// the cable median, or if it comes within ConBorderM of the tile's border (it may carry
-        /// on in the next tile, which this tile cannot see: such a run is left, by both tiles).
+        /// the cable median, or if it comes near the tile's border (ConZone: it may carry on in
+        /// the next tile, which this tile cannot see: such a run is left, by both tiles).
         /// </summary>
         static readonly bool conOrphanOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_ORPHAN") == "0";
         public static bool ConcreteOrphanOn => ConcreteOn && !conOrphanOff;
@@ -595,6 +596,8 @@ namespace PSXRacing.City
             public int v0, v1, t0, t1, log;
             /// <summary>A barrier's own arguments (EmitBarrierCore), should the end rule build it again.</summary>
             public bool args, capA, capB; public Vector3 ea, eb; public Vector2 outw; public float u0, u1;
+            /// <summary>An end nearer the tile's border than this may join a piece the next tile builds.</summary>
+            public float zone;
         }
         static readonly List<ConRec> conTile = new List<ConRec>(512);
         static int conPend, conMv, conMt;
@@ -607,6 +610,28 @@ namespace PSXRacing.City
             r.v0 = conMv; r.v1 = barrierBucket.v.Count; r.t0 = conMt; r.t1 = barrierBucket.t.Count;
             conTile[conPend++] = r;
         }
+
+        /// <summary>
+        /// A tile builds the spans whose middle ON THE ROAD'S LINE lies in it, so a piece standing at a road's edge
+        /// belongs to the tile of a point as far off as the piece is from that line: the next span's piece can be
+        /// another tile's although it stands this far inside this one. The zone: the piece's distance from its road's
+        /// line, a span's half and a margin (a piece with no road of its own - a fan chord's: ConBorderFarM).
+        /// </summary>
+        static float ConZone(Vector2 mid)
+        {
+            if (conEdge < 0 || conMap == null || conEdge >= conMap.edges.Length) return ConBorderFarM;
+            var e = conMap.edges[conEdge];
+            float best = float.MaxValue;
+            for (int i = 0; i + 1 < e.pts.Length; i++)
+            {
+                Vector2 a = e.pts[i], d = e.pts[i + 1] - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(mid - a, d) / L2) : 0f;
+                best = Mathf.Min(best, (mid - (a + d * t)).sqrMagnitude);
+            }
+            return Mathf.Max(ConBorderNearM, Mathf.Sqrt(best) + 8f);
+        }
+        const float ConBorderFarM = 35f, ConBorderNearM = 24f;
 
         static readonly Dictionary<long, List<int>> conGrid = new Dictionary<long, List<int>>();
         static readonly Stack<List<int>> conGridPool = new Stack<List<int>>();
@@ -669,7 +694,7 @@ namespace PSXRacing.City
                 {
                     var e3 = end == 0 ? r.a : r.b;
                     // an end near the tile's border: its run may carry on where this tile cannot see
-                    if (e3.x - x0 < ConBorderM || x0 + T - e3.x < ConBorderM || e3.z - z0 < ConBorderM || z0 + T - e3.z < ConBorderM) { conRunFlag[i] |= 1; conTied[i] |= (byte)(1 << end); }
+                    if (e3.x - x0 < r.zone || x0 + T - e3.x < r.zone || e3.z - z0 < r.zone || z0 + T - e3.z < r.zone) { conRunFlag[i] |= 1; conTied[i] |= (byte)(1 << end); }
                     if (!conGrid.TryGetValue(((long)Mathf.FloorToInt(e3.x / Cell) << 32) ^ (uint)Mathf.FloorToInt(e3.z / Cell), out var l)) continue;
                     var e2 = new Vector2(e3.x, e3.z);
                     foreach (int j in l)
