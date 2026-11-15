@@ -771,7 +771,6 @@ namespace PSXRacing.EditorTools
                 }
                 Dump("before", RB, true);
                 if (two) Dump("after", RA, false);
-                File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_pieces.tsv"), pieces.ToString());
 
                 var ranked = new List<long>(cells.Keys);
                 ranked.Sort((x, y) => cells[y].w.CompareTo(cells[x].w));
@@ -813,6 +812,47 @@ namespace PSXRacing.EditorTools
                         r + 1, id, name, CnLatLon(ctr), ctr.x, ctr.y, c.w, string.Join("\t", c.c), eye.x, eye.y, eye.z, look.x, look.y, look.z, ctr.x, tgt.y, ctr.y, bp.rule, RB.cls[c.best]));
                 }
                 File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_clusters.tsv"), cl.ToString());
+                // ---- to check the big classes by eye: a plan (the pavement, every piece) of the five clusters with the most
+                // b NO-REASON, d DOUBLE/BOX and f BAD-END pieces (city_concrete_<tag>_plans.tsv: P rows name them)
+                {
+                    var psb2 = new StringBuilder();
+                    var auto = new List<Vector3>();
+                    foreach (int bit in new[] { 1, 3, 5 })
+                    {
+                        var byCls = new List<long>(cells.Keys);
+                        byCls.Sort((x, y) => cells[y].c[bit].CompareTo(cells[x].c[bit]));
+                        for (int q = 0; q < byCls.Count && q < 5; q++)
+                        {
+                            var c = cells[byCls[q]];
+                            if (c.c[bit] == 0) break;
+                            if (c.best < 0) continue;
+                            var ctr = c.sum / c.sumW;
+                            var bp = RB.p[c.best];
+                            var m = (bp.a + bp.b) * 0.5f;
+                            auto.Add(new Vector3(m.x, m.z, 70f));
+                            psb2.Append(string.Format(inv, "P\t{0}\t{1}\t{2:0.0}\t{3:0.0}\t{4}\t{5}\t{6}\n", "abcdefgh"[bit], q + 1, m.x, m.z, c.c[bit], CnLatLon(ctr), ranked.IndexOf(byCls[q]) + 1));
+                            CityMeshes.ConcretePlanDump(map, trims, new Vector2(m.x, m.z), 70f, psb2);
+                        }
+                    }
+                    File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_plans.tsv"), psb2.ToString());
+                    void DumpNear(string set, CnResult R)
+                    {
+                        for (int i = 0; i < R.p.Count; i++)
+                        {
+                            var p = R.p[i];
+                            if (R.cls[i] != 0 || !CnConcrete(p.kind)) continue;
+                            var m3 = (p.a + p.b) * 0.5f;
+                            bool inPlan = false;
+                            foreach (var pc in auto) if ((m3.x - pc.x) * (m3.x - pc.x) + (m3.z - pc.y) * (m3.z - pc.y) < pc.z * pc.z) { inPlan = true; break; }
+                            if (!inPlan) continue;
+                            float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                            pieces.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7:0.0}\t{8:0.00}\t{9:0.0}\t{10:0.0}\t{11:0.00}\t{12:0.00}\t{13:0.00}\t{14:0.0}\tR{15}\t{16}\t{17:0}\t{18}\t{19}\t{20}\t{21}\t{22:0.00}\t{23:0.00}\t{24:0.00}\t{25:0.00}\t{26:0.00}\t{27:0.00}\n",
+                                set, R.cls[i], p.rule, p.kind, p.edge, p.side, p.node, m3.x, m3.y, m3.z, len, p.hA, p.hB, p.half, p.paveM, R.reason[i], R.run[i], R.runLen[i], R.freeA[i] ? 1 : 0, R.freeB[i] ? 1 : 0, p.tx, p.tz, p.a.x, p.a.z, p.b.x, p.b.z, p.a.y, p.b.y));
+                        }
+                    }
+                    if (!dumpAll) { DumpNear("before", RB); if (two) DumpNear("after", RA); }
+                }
+                File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_pieces.tsv"), pieces.ToString());
                 sb.AppendLine();
                 sb.AppendLine($"CITY CONCRETE INVENTORY OK ({clock.Elapsed.TotalMinutes:0.0} min)");
             }
