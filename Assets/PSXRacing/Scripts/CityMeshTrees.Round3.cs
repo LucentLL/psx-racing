@@ -57,6 +57,11 @@ namespace PSXRacing.City
     {
         /// <summary>PSX_CT_ROUND3=0: round 2's trees (the picture as it was).</summary>
         public static bool Round3 = System.Environment.GetEnvironmentVariable("PSX_CT_ROUND3") != "0";
+        /// <summary>PSX_CT_PINEFORM=1: pines drawn as the kit's limbed-up pine forms (the crown in the top two
+        /// fifths of a long bare trunk). OFF by default: their pruned trunks carry sawn limb stubs that read as
+        /// damage from the road (2026-11-15 sheet, run 8); pines stay round 2's stand-in (a dark Meadow poplar)
+        /// at the site's height until the form is clean.</summary>
+        public static bool PineForms = System.Environment.GetEnvironmentVariable("PSX_CT_PINEFORM") == "1";
         public const float BreakawayUnderM = 8.5f;
         public static int Softened, DataTests;
 
@@ -357,7 +362,7 @@ namespace PSXRacing.City
             if (sp == CityTrees.Species.Pine)
             {
                 // loblolly and shortleaf: the tallest thing on a lot, the crown high
-                St(g3Pine.Length > 0 ? g3Pine : gPineOld, wild ? L(19f, 27f) : L(16f, 24f), 12f, 28f);
+                St(PineForms && g3Pine.Length > 0 ? g3Pine : gPineOld, wild ? L(19f, 27f) : L(16f, 24f), 12f, 28f);
                 St(gMedium, L(8f, 12f), 5f, 13f);
                 St(gSmall, L(4.5f, 7f), 2.6f, 8f);
                 St(gShrub, 2.6f, 1.2f, 3.6f);
