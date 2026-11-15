@@ -112,6 +112,8 @@ namespace PSXRacing.City
             gLarge = Named("03_Poplar_skan", "04_Poplar_skan", "05_Poplar_skan", "07_Poplar_skan", "beech_tree_03");
             gForest = Named("beech_tree_06", "beech_tree_07", "beech_tree_08", "beech_tree_03", "05_Poplar_skan", "07_Poplar_skan");
             round3Ready = g3Street.Length > 0 && g3Avenue.Length > 0 && gMedium.Length > 0 && gLarge.Length > 0 && gSmall.Length > 0;
+            // (the canopy map read now - while the city loads - not at the first tree fitted: a baked city has not asked for it yet)
+            if (round3Ready && !CityCanopy.Loaded) Debug.Log("[CityMeshTrees] no canopy map: sites take 0.4");
             if (Round3 && !round3Ready) Debug.Log("[CityMeshTrees] the kit has no round-3 forms (PSXRacingBuilder.BuildCityTreeKit): round 2's trees");
         }
 
@@ -399,7 +401,7 @@ namespace PSXRacing.City
                 }
                 else
                 {
-                    if (r3 < (s.ctx == Ctx.Open ? 0.2f : 0.1f)) St(gOak, L(15f, 20f), 14.5f, 22f);
+                    if (r3 < (s.ctx == Ctx.Open ? 0.12f : 0.06f)) St(gOak, L(15f, 20f), 14.5f, 22f);   // (the hero oak: the heaviest model, a park or a big yard)
                     St(gLarge, L(15f, 22f), 11f, 23f);
                     // against a house: a big tree limbed up, its crown over the roof
                     St(g3Avenue, L(16f, 23f), 14.5f, 25f, true, 0.44f);
@@ -456,6 +458,8 @@ namespace PSXRacing.City
                 // a limbed-up form: the height the site wants, lower for a slender crown (a pole is no street tree);
                 // of every model's sizes that stand, the broadest near that height
                 float slender = h0 / (2f * maxR[v]);
+                // (the narrow ones are for a grate under a wall only: anywhere else a smaller tree stands, not a pole)
+                if (!fitStreet && slender > 2.3f) continue;
                 float want = st.hT * Mathf.Clamp(1.9f / slender, 0.72f, 1f);
                 foreach (float f in HighFactors)
                 {

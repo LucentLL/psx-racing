@@ -250,6 +250,7 @@ namespace PSXRacing.EditorTools
                 var v = skip == 0 ? probe : LoadVariant(CTOakDir, "OakBigTree01", oBark, ".fbx", skip: 1);
                 if (v != null)
                 {
+                    CT3CentreOnTrunk(v, "OakBigTree01");   // (round 3: its trunk on its planted foot and collider)
                     v.leafDress = new[] { null, oLeaf, oLeaf, oFall, null };
                     string keyed = KeyedBillboard(CTOakDir + "/BigOakBillboard01.tif", CTOakDir + "/Gen/BigOak_billboard_keyed.png");
                     if (keyed != null)

@@ -30,19 +30,20 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class CityRefSpots
     {
-        struct T3Place { public string id, what; public string[] roads; public double lat, lon; public float hdg; public CtKind kind; public bool shot, onewayOnly, wooded; public int ring; }
+        struct T3Place { public string id, what; public string[] roads; public double lat, lon; public float hdg; public CtKind kind; public bool shot, onewayOnly, wooded, localOnly; public int ring; }
 
         static readonly T3Place[] T3Places =
         {
             new T3Place { id = "wtrade", lat = 35.2331, lon = -80.8512, roads = new[] { "West Trade Street" }, hdg = 325f, kind = CtKind.Fixed, shot = true, onewayOnly = true, ring = 2, what = "West Trade St, the owner's median (25.webp), toward Johnson C. Smith" },
             new T3Place { id = "uptown", lat = 35.22745, lon = -80.84275, roads = new[] { "North Tryon Street", "South Tryon Street" }, hdg = 50f, kind = CtKind.Street, shot = true, ring = 2, what = "Tryon St, Uptown: a block of grate street trees" },
             new T3Place { id = "dilworth", lat = 35.20225, lon = -80.84758, roads = new[] { "Dilworth" }, hdg = 192f, kind = CtKind.Fixed, shot = true, ring = 2, what = "Dilworth Rd E: an old-neighbourhood street" },
-            new T3Place { id = "subdivision", lat = 35.0600, lon = -80.8350, roads = new string[0], hdg = 0f, kind = CtKind.Any, shot = true, ring = 2, what = "a south Charlotte subdivision street" },
+            new T3Place { id = "subdivision", lat = 35.0950, lon = -80.8020, roads = new string[0], hdg = 0f, kind = CtKind.Any, shot = true, localOnly = true, ring = 2, what = "a south Charlotte subdivision street (the nearest long residential street)" },
             new T3Place { id = "arterial", lat = 35.1650, lon = -80.8010, roads = new[] { "Providence Road" }, hdg = 150f, kind = CtKind.Fixed, shot = true, ring = 2, what = "Providence Rd: a four-lane arterial" },
             new T3Place { id = "strip", lat = 35.1702, lon = -80.8762, roads = new[] { "South Boulevard" }, hdg = 200f, kind = CtKind.Fixed, shot = false, ring = 1, what = "South Blvd: a commercial strip (survey only)" },
             new T3Place { id = "woodland", lat = 35.1300, lon = -80.8300, roads = new string[0], hdg = 0f, kind = CtKind.Fixed, shot = true, wooded = true, ring = 2, what = "a road through woods (the canopy map's densest stretch within 3 km)" },
             new T3Place { id = "median", lat = 35.0560, lon = -80.8440, roads = new[] { "Johnston Road", "W T Harris" }, hdg = float.NaN, kind = CtKind.Median, shot = true, ring = 2, what = "a planted median row (Johnston Rd / W.T. Harris Blvd)" },
             new T3Place { id = "myerspark", lat = 35.19280, lon = -80.83678, roads = new[] { "Queens Road West", "Queens Road" }, hdg = 200f, kind = CtKind.Fixed, shot = true, ring = 1, what = "Queens Rd W, Myers Park: the willow oak avenue" },
+            new T3Place { id = "harris", lat = 35.2520, lon = -80.7300, roads = new[] { "W T Harris" }, hdg = float.NaN, kind = CtKind.Median, shot = false, ring = 1, what = "W.T. Harris Blvd: median rows (survey only)" },
             new T3Place { id = "beatties", lat = 35.2437, lon = -80.8573, roads = new[] { "Beatties Ford Road" }, hdg = 340f, kind = CtKind.Fixed, shot = false, ring = 1, what = "Beatties Ford Rd at Johnson C. Smith" },
         };
 
@@ -117,6 +118,7 @@ namespace PSXRacing.EditorTools
                     if (!string.IsNullOrEmpty(only) && System.Array.IndexOf(only.Split(','), pl.id) < 0) continue;
                     CityMap.Edge e; float s; bool named = true;
                     if (pl.wooded) { if (!T3Wooded(map, LL(pl.lat, pl.lon), 3000f, out e, out s)) { log.Append($"{pl.id}: no wooded road\n"); continue; } }
+                    else if (pl.localOnly) { if (!T3SnapLocal(map, LL(pl.lat, pl.lon), out e, out s)) { log.Append($"{pl.id}: no residential street near\n"); continue; } }
                     else if (pl.onewayOnly) { if (!T3SnapOneway(map, LL(pl.lat, pl.lon), pl.roads[0], pl.hdg, out e, out s)) { log.Append($"{pl.id}: no divided piece\n"); continue; } }
                     else if (!CtSnap(map, LL(pl.lat, pl.lon), pl.roads, out e, out s, out named)) { log.Append($"{pl.id}: no road near\n"); continue; }
                     var p0 = e.PointAt(s);
@@ -133,7 +135,12 @@ namespace PSXRacing.EditorTools
                         if (!posed)
                         {
                             var cp = new CtPlace { id = pl.id, lat = pl.lat, lon = pl.lon, roads = pl.roads, hdg = pl.hdg, kind = pl.kind, what = pl.what };
-                            if (!CtPose(cp, map, mt, e, s, out eye, out fwd, out farEye, out how)) { log.Append($"{pl.id}: no pose ({how})\n"); break; }
+                            if (!CtPose(cp, map, mt, e, s, out eye, out fwd, out farEye, out how))
+                            {
+                                if (pl.shot) { log.Append($"{pl.id}: no pose ({how})\n"); break; }
+                                // (a survey-only place needs no eye: its ring is measured where it was snapped)
+                                eye = anchor + Vector3.up * 1.15f; fwd = Vector3.forward; how = "survey only (" + how + ")";
+                            }
                             rot = Quaternion.LookRotation(fwd + Vector3.down * 0.03f);
                             posed = true;
                             log.Append($"\n{pl.id}\t'{e.name}' cls {e.cls}{(e.oneway ? " one-way" : "")} w {e.width:0.0}{(named ? "" : " (NOT a named road of the place)")}\t{CityAudit.LatLon(eye.x, eye.z)} eye ({eye.x:0.0}, {eye.y:0.0}, {eye.z:0.0}) fwd ({fwd.x:0.00}, {fwd.z:0.00}); {how}\t{pl.what}\n");
@@ -236,6 +243,20 @@ namespace PSXRacing.EditorTools
                 Debug.Log("[CityMeshTrees3]\n" + log);
             }
             if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        /// <summary>The nearest long residential street (class 0, no ramp, no deck), its middle.</summary>
+        static bool T3SnapLocal(CityMap map, Vector2 p, out CityMap.Edge edge, out float s)
+        {
+            edge = null; s = 0f;
+            float best = float.MaxValue;
+            foreach (var e in map.edges)
+            {
+                if (e.cls != 0 || e.link || e.tunnel || e.bridge || e.length < 220f) continue;
+                float d = Vector2.Distance(e.PointAt(e.length * 0.5f), p);
+                if (d < best) { best = d; edge = e; s = e.length * 0.35f; }
+            }
+            return edge != null && best < 1500f;
         }
 
         /// <summary>The nearest one-way (divided) piece of a named road, its middle.</summary>

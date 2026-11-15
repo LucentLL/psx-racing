@@ -61,8 +61,6 @@ namespace PSXRacing.EditorTools
                           from = new[] { "beech_tree_01" } },
             new CT3Form { tag = "av", group = CityTreeKit.G3Avenue, role = CityTreeKit.Role.Street, w = 1.3f, cy = 1.0f, baseFrac = 0.325f, cutShare = 0.12f,
                           from = new[] { "beech_tree_06", "beech_tree_07", "beech_tree_08", "04_Poplar_skan", "05_Poplar_skan" } },
-            new CT3Form { tag = "avo", group = CityTreeKit.G3Avenue, role = CityTreeKit.Role.Street, w = 0.8f, cy = 1.0f, baseFrac = 0.325f, cutShare = 0.30f,
-                          from = new[] { "OakBigTree01" } },
             new CT3Form { tag = "pine", group = CityTreeKit.G3Pine, role = CityTreeKit.Role.PineStandIn, w = 0.62f, cy = 0.8f, baseFrac = 0.575f, cutShare = 0.40f,
                           from = new[] { "03_Poplar_skan_pine", "05_Poplar_skan_pine" } },
             new CT3Form { tag = "vase", group = CityTreeKit.G3Myrtle, role = CityTreeKit.Role.Shrub, w = 0.95f, cy = 1.6f, vase = true,
@@ -185,42 +183,88 @@ namespace PSXRacing.EditorTools
             return true;
         }
 
-        /// <summary>The trunk at chest height: the densest clump of bark
-        /// between 0.8 and 1.8 m, its middle and its radius (the median reach).</summary>
+        /// <summary>The trunk at chest height: where the most BARK AREA stands
+        /// between 0.8 and 1.8 m (the trunk's own skin is square metres; a low
+        /// limb's twigs, however many their vertices, are not), its middle and
+        /// its radius (the reach half that area lies within).
+        /// <paramref name="bark"/>: triangle corners, three a triangle.</summary>
         static bool TrunkAtChest(List<Vector3> bark, out Vector2 centre, out float radius)
         {
             centre = Vector2.zero; radius = 0.2f;
-            var cells = new Dictionary<long, int>();
-            long best = 0; int bestN = 0;
-            foreach (var q in bark)
+            var cells = new Dictionary<long, float>();
+            var cs = new List<Vector3>();   // (x, z, area) of each triangle at chest height
+            long best = 0; float bestA = 0f;
+            for (int i = 0; i + 2 < bark.Count; i += 3)
             {
-                if (q.y < 0.8f || q.y > 1.8f) continue;
-                long k = ((long)Mathf.FloorToInt(q.x / 0.5f) << 32) ^ (uint)Mathf.FloorToInt(q.z / 0.5f);
-                cells.TryGetValue(k, out int n); n++; cells[k] = n;
-                if (n > bestN) { bestN = n; best = k; }
+                Vector3 p0 = bark[i], p1 = bark[i + 1], p2 = bark[i + 2];
+                var c = (p0 + p1 + p2) / 3f;
+                if (c.y < 0.8f || c.y > 1.8f) continue;
+                float area = Vector3.Cross(p1 - p0, p2 - p0).magnitude * 0.5f;
+                if (area <= 0f) continue;
+                cs.Add(new Vector3(c.x, c.z, area));
+                // (each triangle counted in the four half-metre cells round it: a trunk astride a cell line is one clump)
+                for (int dz = 0; dz <= 1; dz++)
+                    for (int dx = 0; dx <= 1; dx++)
+                    {
+                        long k = ((long)(Mathf.FloorToInt(c.x / 0.5f - 0.5f) + dx) << 32) ^ (uint)(Mathf.FloorToInt(c.z / 0.5f - 0.5f) + dz);
+                        cells.TryGetValue(k, out float n); n += area; cells[k] = n;
+                        if (n > bestA) { bestA = n; best = k; }
+                    }
             }
-            if (bestN < 3) return false;
+            if (cs.Count < 3 || bestA <= 0f) return false;
             var c0 = new Vector2(((int)(best >> 32) + 0.5f) * 0.5f, ((int)(uint)(best & 0xFFFFFFFFL) + 0.5f) * 0.5f);
-            var near = new List<Vector2>();
+            var near = new List<Vector2>();   // (distance, area)
             for (int it = 0; it < 3; it++)
             {
-                near.Clear();
-                var acc = Vector2.zero;
-                foreach (var q in bark)
+                var acc = Vector2.zero; float w = 0f;
+                foreach (var q in cs)
                 {
-                    if (q.y < 0.8f || q.y > 1.8f) continue;
-                    var p = new Vector2(q.x, q.z);
+                    var p = new Vector2(q.x, q.y);
                     if ((p - c0).sqrMagnitude > 1.6f * 1.6f) continue;
-                    near.Add(p); acc += p;
+                    acc += p * q.z; w += q.z;
                 }
-                if (near.Count == 0) return false;
-                c0 = acc / near.Count;
+                if (w <= 0f) return false;
+                c0 = acc / w;
             }
-            var ds = new List<float>(near.Count);
-            foreach (var p in near) ds.Add(Vector2.Distance(p, c0));
-            ds.Sort();
-            centre = c0; radius = Mathf.Max(0.03f, ds[ds.Count / 2]);
+            float total = 0f;
+            foreach (var q in cs)
+            {
+                float d = Vector2.Distance(new Vector2(q.x, q.y), c0);
+                if (d > 1.6f) continue;
+                near.Add(new Vector2(d, q.z)); total += q.z;
+            }
+            near.Sort((x, y) => x.x.CompareTo(y.x));
+            float run = 0f; radius = 0.03f;
+            foreach (var q in near) { run += q.y; if (run >= total * 0.5f) { radius = Mathf.Max(0.03f, q.x); break; } }
+            centre = c0;
             return true;
+        }
+
+        /// <summary>BIG OAK STOOD ON ITS OWN TRUNK. The pack's oak sweeps
+        /// limbs to the ground far from its trunk, and the foot LoadVariant
+        /// finds (the mean of the lowest bark) lies among them: the trunk was
+        /// drawn 7.5 m (at scale 1) from the tree's planted foot - 3.5-4.5 m
+        /// from its collider in the city. The foot moved to the trunk at chest
+        /// height (round 3's kit; PSX_CT_R3KIT=0: as it was).</summary>
+        static void CT3CentreOnTrunk(MeshForest.Variant v, string name)
+        {
+            if (v == null || v.lods[0] == null || System.Environment.GetEnvironmentVariable("PSX_CT_R3KIT") == "0") return;
+            var bark = new List<Vector3>();
+            var m = v.lods[0];
+            for (int s = 0; s < m.subMeshCount; s++)
+            {
+                if (v.leafSub != null && s < v.leafSub.Length && v.leafSub[s]) continue;
+                if (!TreeKit.Read(m, s, out var verts, out var tris)) continue;
+                foreach (int ti in tris) bark.Add(v.pre.MultiplyPoint3x4(verts[ti]));
+            }
+            if (!TrunkAtChest(bark, out var c, out float r)) { Log("City trees: " + name + ": no trunk found at chest height"); return; }
+            if (c.magnitude < 0.35f) { Log($"City trees: {name} stands on its trunk ({c.magnitude:0.00} m off, r {r:0.00} m)"); return; }
+            // (a trunk, not a limb: a hand's width for every two metres of height at least)
+            if (r < 0.011f * v.height) { Log($"City trees: {name}: the bark found at chest height ({c.x:0.0}, {c.y:0.0}) is {r:0.00} m thick - not a {v.height:0.0} m tree's trunk; left where it stands"); return; }
+            var tr = Matrix4x4.Translate(new Vector3(-c.x, 0f, -c.y));
+            v.pre = tr * v.pre;
+            v.impostorPre = tr * v.impostorPre;
+            Log($"City trees: {name}'s foot moved {c.magnitude:0.00} m onto its trunk (r {r:0.00} m at chest height; it stood at ({c.x:0.0}, {c.y:0.0}) from the foot)");
         }
 
         /// <summary>Where a point of the model goes (foot frame in, foot frame out).</summary>
