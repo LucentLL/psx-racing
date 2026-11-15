@@ -1524,6 +1524,8 @@ namespace PSXRacing.LifeSim
             MenuNav.Select(first);
             var watch = MenuNav.Watch(gameObject, first);
             MenuNav.Defer(watch, tabSel, rows, active);
+            // A showroom's arrows: DOWN to its band's buttons (beside the stage too).
+            Showroom.AfterGrid(watch, body);
         }
 
         // ---------------- cursor continuity across a rebuild ----------------

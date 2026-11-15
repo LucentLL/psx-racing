@@ -30,7 +30,13 @@ namespace PSXRacing.LifeSim
         /// <summary>NEW GAME: which lane is on the stage.</summary>
         int pickShow;
 
-        float HeroStageH => Showroom.StageHeight(BodyH - MenuKit.ScrollPad);
+        /// <summary>From a hero's top (<paramref name="y"/>, down from the top of
+        /// the page) to the bottom of the first screen, less a hairline's
+        /// clearance: the room Showroom.Build fits the name, the stage and the
+        /// whole band into, whatever the page has already put above it (the
+        /// dealer's lines, the viewing's heading). The page's next row (4 or
+        /// more under the hero) then starts at the fold, not half cut by it.</summary>
+        static float HeroRoom(float y) => BodyH + y - 4f;
 
         /// <summary>The stage with a car the player owns on it: its livery,
         /// its built power and weight, what it is worth.</summary>
@@ -57,7 +63,7 @@ namespace PSXRacing.LifeSim
             card.note = note;
             card.noteColor = noteColor;
             if (actions != null) card.actions = actions;
-            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y, HeroStageH, index, count, browse);
+            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y, HeroRoom(y), index, count, browse);
             y -= h + 4f;
             return true;
         }
@@ -177,7 +183,7 @@ namespace PSXRacing.LifeSim
                 tab = "viewing"; Rebuild();
             }, new Color(0.20f, 0.30f, 0.24f, 1f)));
             int n = lot.Count;
-            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y, HeroStageH, dealerShow, n, d =>
+            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y, HeroRoom(y), dealerShow, n, d =>
             {
                 dealerShow = (dealerShow + d + n) % n;
                 if (viewer != null) viewer.ResetStudioAngle();
@@ -196,7 +202,7 @@ namespace PSXRacing.LifeSim
             var def = Viewer.Shown;
             if (def == null) return false;
             var card = Showroom.From(spec, spec.name, def, Paint.FactorySkin(spec, def));
-            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y, Mathf.Min(HeroStageH, 320f), 0, 1, null);
+            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y, HeroRoom(y), 0, 1, null);
             y -= h + 4f;
             return true;
         }
@@ -245,12 +251,11 @@ namespace PSXRacing.LifeSim
                 Destroy(root.gameObject);
                 BuildCarConfirm(captured);
             }));
-            // Room for the stage: what the panel has after the titles, the
-            // name block and the figures under it.
+            // The room for the name, the stage and the band: the panel under
+            // its titles.
             float top = -76f;
-            float stageH = Mathf.Clamp(H + top - Showroom.Overhead - 8f, 150f, 380f);
             int n = lanes.Count;
-            Showroom.Build(root, Viewer, card, -W * 0.5f + 30f, W - 60f, top, stageH, pickShow, n, d =>
+            Showroom.Build(root, Viewer, card, -W * 0.5f + 30f, W - 60f, top, H + top - 12f, pickShow, n, d =>
             {
                 pickShow = (pickShow + d + n) % n;
                 pickFocus = d > 0 ? "Btn_>" : "Btn_<";
@@ -260,6 +265,7 @@ namespace PSXRacing.LifeSim
             });
 
             WirePanelNavigation(root);
+            Showroom.AfterGrid(GetComponent<MenuNavWatch>(), root);
             // A browse rebuilt the panel: the cursor stays on the arrow it used.
             if (!string.IsNullOrEmpty(pickFocus))
             {

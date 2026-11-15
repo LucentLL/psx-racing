@@ -13,9 +13,12 @@ namespace PSXRacing.LifeSim
     /// One car at a time, big, turning on a dark stage (CarViewer's studio
     /// frame), the model's name over it in big bold italic, make and year
     /// under that, the paint's name under the car when the livery has one
-    /// (never made up), and under the stage the figures a buyer reads first -
-    /// the price or value, a drivetrain diagram drawn from rects (FF / FR / MR /
-    /// RR / 4WD, nose up), year, power, weight - beside the page's own actions.
+    /// (never made up), and in a band the figures a buyer reads first - the
+    /// price or value, a drivetrain diagram drawn from rects (FF / FR / MR /
+    /// RR / 4WD, nose up), year, power, weight - with the page's own actions.
+    /// The band is a column beside the stage on a wide screen and a row under
+    /// it on a 4:3 one, and all of it - name, stage, band, buttons - fits the
+    /// first screen (BandBeside).
     /// The same KIND of screen as the reference in the game's own palette
     /// (MenuKit): no borrowed art, icons, fonts or symbols.
     ///
@@ -153,28 +156,146 @@ namespace PSXRacing.LifeSim
         //  The block
         // ------------------------------------------------------------------
 
-        /// <summary>The overhead around the stage: the name rows over it and
-        /// the money / figures / actions band under it.</summary>
-        public const float Overhead = 64f + 30f + 12f + 130f;
+        /// <summary>The rows over the stage: the name (64) and the tag / make /
+        /// count line under it (30).</summary>
+        public const float NameH = 64f + 30f;
+        /// <summary>From the stage to the band: under it, beside it.</summary>
+        const float UnderGap = 12f, SideGap = 22f;
+        const float MaxUnderStage = 400f;
 
-        /// <summary>The stage's height for a page with <paramref name="room"/>
-        /// units of body: everything on one screen where it can be, but never
-        /// a sliver - on a short window the band under the stage scrolls.</summary>
-        public static float StageHeight(float room) =>
-            Mathf.Clamp(Mathf.Max(room - Overhead, room * 0.55f), 170f, 400f);
+        /// <summary>The smallest stage. Below it a page scrolls instead of the
+        /// car shrinking to a sliver (only a phone-sized page gets that far).</summary>
+        static float MinStage => MenuKit.DesignHeight < 700f ? 140f : 160f;
+
+        /// <summary>
+        /// Where the band stands (owner's window, 2026-11-15: at 2000x1077 the
+        /// band under a full-width stage ran off the bottom of the scroll
+        /// pages). On a wide canvas (1.6:1 and up) it is a column BESIDE the
+        /// stage, on the right - the money, the figures, then the buttons -
+        /// and the stage takes the rest of the width and all the height under
+        /// the name, which there is also the bigger car. A block that is tall
+        /// for its width (4:3, NEW GAME's 700-unit panel on 16:9) keeps the
+        /// band UNDER a full-width stage: there that is the bigger car.
+        /// </summary>
+        public static bool BandBeside(float width, float room)
+        {
+            float aspect = MenuKit.HalfWidth * 2f / Mathf.Max(1f, MenuKit.DesignHeight);
+            return aspect >= 1.6f && width >= 720f && width >= room * 1.75f;
+        }
+
+        /// <summary>The column beside the stage: wide enough for the price, the
+        /// figures and the buttons' words; the car keeps the rest.</summary>
+        static float SideW(float width) => Mathf.Clamp(width * 0.24f, 270f, 300f);
 
         /// <summary>
         /// Build the showroom into <paramref name="parent"/> (anchors at its
         /// top centre, like every page body here), from <paramref name="top"/>
-        /// down, between <paramref name="left"/> and left + width. The car must
-        /// already be on the viewer (Show / ShowOwned). Returns the height used.
+        /// down, between <paramref name="left"/> and left + width.
+        /// <paramref name="room"/> is the height from <paramref name="top"/> to
+        /// the bottom of the first screen: the name rows, the stage and the
+        /// whole band with its buttons are fitted into it, the stage as big as
+        /// that allows; a page only has to scroll to the band when even the
+        /// smallest stage does not fit. The car must already be on the viewer
+        /// (Show / ShowOwned). Returns the height used.
         /// </summary>
         /// <param name="browse">-1 / +1 to step to the previous / next car;
         /// null (or count under 2) for a page about one car.</param>
         public static float Build(RectTransform parent, CarViewer viewer, Card card, float left, float width,
-                                  float top, float stageH, int index, int count, System.Action<int> browse)
+                                  float top, float room, int index, int count, System.Action<int> browse)
         {
-            bool browsing = browse != null && count > 1;
+            if (count < 2) browse = null;
+            int heroFirst = parent.childCount;
+            bool acts = card.actions != null && card.actions.Count > 0;
+            bool beside = BandBeside(width, room);
+            float bandW = beside ? SideW(width) : 0f;
+            float stageW = beside ? width - bandW - SideGap : width;
+            float stageTop = top - NameH;
+
+            NameRows(parent, card, left, stageW, top, index, count, browse);
+
+            // The band first, where its height can be measured; the stage takes
+            // what that leaves of the room.
+            int bandFirst = parent.childCount;
+            var buttons = new List<Selectable>();
+            float stageH, bottom;
+            if (beside)
+            {
+                // The column, from the name's line down: the money, the figures,
+                // and the buttons standing on the stage's bottom line.
+                float bx = left + stageW + SideGap, y = top;
+                PriceBlock(parent, card, bx, bandW, ref y);
+                if (y < top) y -= 8f;
+                Cluster(parent, card, bx, bandW, ref y);
+                float stack = acts ? StackH(card.actions.Count) : 0f;
+                int actFirst = parent.childCount;
+                if (acts)
+                {
+                    float ya = 0f;
+                    Actions(parent, card.actions, bx, bandW, ref ya, buttons);
+                }
+                float heroH = Mathf.Max(room, NameH + MinStage, (top - y) + (acts ? 10f + stack : 0f));
+                stageH = heroH - NameH;
+                bottom = top - heroH;
+                if (acts) Shift(parent, actFirst, bottom + stack);
+            }
+            else
+            {
+                float bandH = Band(parent, card, left, width, buttons);
+                stageH = Mathf.Clamp(room - NameH - UnderGap - bandH, MinStage, MaxUnderStage);
+                float bandTop = stageTop - stageH - UnderGap;
+                Shift(parent, bandFirst, bandTop);
+                bottom = bandTop - bandH;
+            }
+
+            var stage = Stage(parent, viewer, card, left, stageW, stageTop, stageH, browse, out var prev, out var next);
+            // Before the band in the page's order, as on screen: the cursor
+            // starts on the arrows and DOWN goes on to the buttons.
+            stage.SetSiblingIndex(bandFirst);
+            var block = stage.gameObject.AddComponent<ShowroomBlock>();
+            block.prev = prev;
+            block.next = next;
+            block.beside = beside;
+            block.acts = buttons.ToArray();
+            var parts = new List<RectTransform>();
+            for (int i = heroFirst; i < parent.childCount; i++)
+                if (parent.GetChild(i) is RectTransform rt) parts.Add(rt);
+            block.parts = parts.ToArray();
+            return top - bottom;
+        }
+
+        /// <summary>Move what was built at y 0, from child <paramref name="from"/>
+        /// on, down to <paramref name="y"/>.</summary>
+        static void Shift(RectTransform parent, int from, float y)
+        {
+            for (int i = from; i < parent.childCount; i++)
+                if (parent.GetChild(i) is RectTransform rt) rt.anchoredPosition += new Vector2(0f, y);
+        }
+
+        /// <summary>The band under the stage, built at y 0: three columns, the
+        /// money, the figures, the page's actions (the figures take the room
+        /// when it has none). Returns its height.</summary>
+        static float Band(RectTransform parent, Card card, float left, float width, List<Selectable> made)
+        {
+            const float Gap = 22f;
+            bool acts = card.actions != null && card.actions.Count > 0;
+            float w1 = acts ? width * 0.35f : width * 0.42f;
+            float w2 = acts ? width * 0.30f : width - w1 - Gap;
+            float x2 = left + w1 + Gap, x3 = x2 + w2 + Gap, w3 = left + width - x3;
+            float y1 = 0f, y2 = 0f, y3 = 0f;
+            // (nothing to price or say: the figures start at the left)
+            if (!acts && string.IsNullOrEmpty(card.price) && string.IsNullOrEmpty(card.note)) { x2 = left; w2 = width; }
+            PriceBlock(parent, card, left, w1, ref y1);
+            Cluster(parent, card, x2, w2, ref y2);
+            if (acts) Actions(parent, card.actions, x3, w3, ref y3, made);
+            return -Mathf.Min(y1, Mathf.Min(y2, y3));
+        }
+
+        /// <summary>The name, big and italic, over the stage; under it what the
+        /// car is to this page (left), the make and year and the count (right).</summary>
+        static void NameRows(RectTransform parent, Card card, float left, float width, float top,
+                             int index, int count, System.Action<int> browse)
+        {
+            bool browsing = browse != null;
             var anchor = new Vector2(0.5f, 1f);
             float y = top;
             bool handheld = MenuKit.DesignHeight < 700f;
@@ -183,7 +304,7 @@ namespace PSXRacing.LifeSim
             if (browsing)
             {
                 var catcher = MenuKit.Rect(parent, "ShowroomSwipe", anchor, new Vector2(0f, 1f),
-                    new Vector2(left, y), new Vector2(width, 94f), new Color(0f, 0f, 0f, 0f));
+                    new Vector2(left, y), new Vector2(width, NameH), new Color(0f, 0f, 0f, 0f));
                 catcher.gameObject.AddComponent<ShowroomSwipe>().browse = browse;
             }
 
@@ -218,10 +339,16 @@ namespace PSXRacing.LifeSim
                     card.tagColor, width - mw, height: 26f, bold: true);
                 if (tag.preferredWidth > width - mw) MenuKit.FitOneLine(tag, width - mw);
             }
-            y -= 30f;
+        }
 
-            // The stage.
-            var stage = MenuKit.Rect(parent, "ShowroomStage", anchor, new Vector2(0f, 1f),
+        /// <summary>The stage: the studio frame, its rules and words, and the
+        /// &lt; &gt; arrows when the page browses.</summary>
+        static RectTransform Stage(RectTransform parent, CarViewer viewer, Card card, float left, float width,
+                                   float y, float stageH, System.Action<int> browse,
+                                   out Selectable prev, out Selectable next)
+        {
+            prev = next = null;
+            var stage = MenuKit.Rect(parent, "ShowroomStage", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
                 new Vector2(left, y), new Vector2(width, stageH), new Color(0.016f, 0.016f, 0.02f, 1f));
             if (viewer != null) viewer.AttachStudio(stage);
             // A hairline at the top and bottom, the menus' own rule.
@@ -238,32 +365,40 @@ namespace PSXRacing.LifeSim
                 MenuKit.Label(stage, card.paint, 18, new Vector2(1f, 0f), new Vector2(-18f, 36f),
                     TextAnchor.MiddleRight, new Color(0.86f, 0.86f, 0.88f), width * 0.4f, height: 28f, bold: true)
                     .raycastTarget = false;
-            if (browsing)
+            if (browse != null)
             {
                 float aw = 60f, ah = Mathf.Min(104f, stageH * 0.42f);
-                var prev = MenuKit.Button(stage, "<", new Vector2(0f, 0.5f), new Vector2(10f, 0f), new Vector2(aw, ah),
+                var p = MenuKit.Button(stage, "<", new Vector2(0f, 0.5f), new Vector2(10f, 0f), new Vector2(aw, ah),
                     () => browse(-1), 32, new Color(0.10f, 0.10f, 0.11f, 0.92f));
-                var next = MenuKit.Button(stage, ">", new Vector2(1f, 0.5f), new Vector2(-10f, 0f), new Vector2(aw, ah),
+                var n = MenuKit.Button(stage, ">", new Vector2(1f, 0.5f), new Vector2(-10f, 0f), new Vector2(aw, ah),
                     () => browse(1), 32, new Color(0.10f, 0.10f, 0.11f, 0.92f));
-                prev.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
-                next.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
+                p.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
+                n.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
+                prev = p;
+                next = n;
             }
-            y -= stageH + 12f;
+            return stage;
+        }
 
-            // Under the stage, three columns: the money, the figures, the
-            // page's actions (the figures take the room when it has none).
-            const float Gap = 22f;
-            bool acts = card.actions != null && card.actions.Count > 0;
-            float w1 = acts ? width * 0.35f : width * 0.42f;
-            float w2 = acts ? width * 0.30f : width - w1 - Gap;
-            float x2 = left + w1 + Gap, x3 = x2 + w2 + Gap, w3 = left + width - x3;
-            float y1 = y, y2 = y, y3 = y;
-            // (nothing to price or say: the figures start at the left)
-            if (!acts && string.IsNullOrEmpty(card.price) && string.IsNullOrEmpty(card.note)) { x2 = left; w2 = width; }
-            PriceBlock(parent, card, left, w1, ref y1);
-            Cluster(parent, card, x2, w2, ref y2);
-            if (acts) Actions(parent, card.actions, x3, w3, ref y3);
-            return top - Mathf.Min(y1, Mathf.Min(y2, y3));
+        /// <summary>
+        /// The showroom's pad links on top of a page's geometric graph (see
+        /// <see cref="ShowroomBlock"/>): now, over the creation-order chain the
+        /// page has just installed, and again whenever the watch puts in the
+        /// graph it builds from the resolved rects. Called right after a page's
+        /// MenuNav.Defer; a page without a showroom is left alone.
+        /// </summary>
+        public static void AfterGrid(MenuNavWatch watch, RectTransform root)
+        {
+            if (root == null || root.GetComponentInChildren<ShowroomBlock>(false) == null) return;
+            ApplyLinks(root);
+            if (watch == null) return;
+            var prior = watch.applied;
+            watch.applied = () => { prior?.Invoke(); if (root != null) ApplyLinks(root); };
+        }
+
+        static void ApplyLinks(RectTransform root)
+        {
+            foreach (var b in root.GetComponentsInChildren<ShowroomBlock>(false)) b.Link();
         }
 
         static void PriceBlock(RectTransform parent, Card card, float x, float w, ref float y)
@@ -371,23 +506,146 @@ namespace PSXRacing.LifeSim
             return true;
         }
 
+        const float ActH = 50f, ActGap = 8f;
+
+        /// <summary>A stack of <paramref name="n"/> buttons from its y to the
+        /// last one's bottom edge.</summary>
+        static float StackH(int n) => n > 0 ? 2f + n * ActH + (n - 1) * ActGap : 0f;
+
         /// <summary>The page's own buttons, one under another.</summary>
-        static void Actions(RectTransform parent, List<Action> actions, float x, float w, ref float y)
+        static void Actions(RectTransform parent, List<Action> actions, float x, float w, ref float y,
+                            List<Selectable> made)
         {
-            const float Gap = 8f, H = 50f;
             for (int i = 0; i < actions.Count; i++)
             {
                 var a = actions[i];
                 var b = MenuKit.Button(parent, a.label, new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(x, w), y - 2f), new Vector2(w, H),
+                    new Vector2(MenuKit.ColLeft(x, w), y - 2f), new Vector2(w, ActH),
                     a.onClick, 17, a.onClick == null ? MenuKit.BtnBgDisabled : a.bg);
                 var t = b.GetComponentInChildren<Text>();
                 if (t != null && t.preferredWidth > w - 12f) MenuKit.FitOneLine(t, w - 12f);
-                y -= H + Gap;
+                if (made != null) made.Add(b);
+                y -= ActH + ActGap;
             }
             y -= 4f;
         }
 
+    }
+
+    /// <summary>
+    /// On the stage: what the showroom block is made of (its parts, for the
+    /// preview's first-screen check) and its pad links, kept on top of the
+    /// page's geometric graph (Showroom.AfterGrid). DOWN from the &lt; &gt; arrows
+    /// goes to the band's first button wherever the band stands - beside the
+    /// stage it is in no column of the arrows' - UP from that button comes
+    /// back to the &gt; arrow, and LEFT from a button beside the stage goes to
+    /// it too. LEFT / RIGHT on the arrows still browse (ShowroomBrowseKeys).
+    /// </summary>
+    public class ShowroomBlock : MonoBehaviour
+    {
+        public Selectable prev, next;
+        public Selectable[] acts;
+        public RectTransform[] parts;
+        public bool beside;
+
+        /// <summary>The band's first button the pad can land on, or null.</summary>
+        public Selectable FirstAct()
+        {
+            if (acts != null)
+                foreach (var a in acts)
+                    if (a != null && a.IsInteractable()) return a;
+            return null;
+        }
+
+        public void Link()
+        {
+            var first = FirstAct();
+            Selectable last = null;
+            if (acts != null)
+                foreach (var a in acts)
+                    if (a != null && a.IsInteractable()) last = a;
+            // Out of the block, DOWN: to the page's first line under it, the
+            // control nearest across (a narrow stage's arrow is in no column of
+            // the page's own buttons, and the geometric graph then fell through
+            // to a row far down the page).
+            foreach (var from in new[] { last ?? prev, last != null ? null : next })
+            {
+                var under = Below(from);
+                if (under == null) continue;
+                var n = Explicit(from);
+                n.selectOnDown = under;
+                from.navigation = n;
+            }
+            if (first == null) return;
+            foreach (var arrow in new[] { prev, next })
+            {
+                if (arrow == null) continue;
+                var n = Explicit(arrow);
+                n.selectOnDown = first;
+                arrow.navigation = n;
+            }
+            Selectable back = next != null ? next : prev;
+            if (back == null) return;
+            var f = Explicit(first);
+            f.selectOnUp = back;
+            first.navigation = f;
+            if (!beside) return;
+            foreach (var a in acts)
+            {
+                if (a == null || !a.IsInteractable()) continue;
+                var n = Explicit(a);
+                n.selectOnLeft = back;
+                a.navigation = n;
+            }
+        }
+
+        /// <summary>The control on the page's first line under the block that
+        /// is nearest <paramref name="from"/> across, or null.</summary>
+        Selectable Below(Selectable from)
+        {
+            var page = transform.parent as RectTransform;
+            if (from == null || page == null || parts == null) return null;
+            var c = new Vector3[4];
+            float bottom = float.MaxValue;
+            foreach (var p in parts)
+            {
+                if (p == null) continue;
+                p.GetWorldCorners(c);
+                bottom = Mathf.Min(bottom, page.InverseTransformPoint(c[0]).y);
+            }
+            ((RectTransform)from.transform).GetWorldCorners(c);
+            float fx = page.InverseTransformPoint((c[0] + c[2]) * 0.5f).x;
+            var under = new List<(Selectable s, float top, float dx)>();
+            float topMost = float.MinValue;
+            foreach (var s in page.GetComponentsInChildren<Selectable>(false))
+            {
+                if (s == null || !s.IsInteractable() || Mine(s)) continue;
+                ((RectTransform)s.transform).GetWorldCorners(c);
+                Vector3 lo = page.InverseTransformPoint(c[0]), hi = page.InverseTransformPoint(c[2]);
+                if (hi.y > bottom + 1f) continue;
+                under.Add((s, hi.y, Mathf.Abs((lo.x + hi.x) * 0.5f - fx)));
+                topMost = Mathf.Max(topMost, hi.y);
+            }
+            Selectable best = null;
+            float bestDx = float.MaxValue;
+            foreach (var u in under)
+                if (u.top >= topMost - 20f && u.dx < bestDx) { bestDx = u.dx; best = u.s; }
+            return best;
+        }
+
+        bool Mine(Selectable s)
+        {
+            foreach (var p in parts)
+                if (p != null && s.transform.IsChildOf(p)) return true;
+            return false;
+        }
+
+        static Navigation Explicit(Selectable s)
+        {
+            var n = s.navigation;
+            n.mode = Navigation.Mode.Explicit;
+            return n;
+        }
     }
 
     /// <summary>

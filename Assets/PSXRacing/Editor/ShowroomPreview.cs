@@ -101,7 +101,7 @@ namespace PSXRacing.EditorTools
                     var v = Viewings.Open(st, st.dealerLot[0], "lot");
                     st.activeViewing = v.key;
                     LifeSimManager.Save();
-                    LifeHomePreview.Shoot(outDir, "sr_viewing", "viewing", sizes: Two, probe: (s, w) => Probe(s, w, "Body"));
+                    LifeHomePreview.Shoot(outDir, "sr_viewing", "viewing", sizes: Sizes, probe: (s, w) => Probe(s, w, "Body"));
                     st.activeViewing = "";
                     LifeSimManager.Save();
                 }
@@ -158,7 +158,45 @@ namespace PSXRacing.EditorTools
             if (viewer == null || !viewer.Studio) Fail(where + " no showroom stage on the page");
             int n = NavScrollPreview.ReportControlOverlap(root.root, where);
             if (n > 0) Fail(where + " " + n + " control overlap(s)");
+            FoldProbe(root, where);
             BrowseProbe(screen, root, where);
+        }
+
+        /// <summary>
+        /// The owner's rule for this screen (2026-11-15, at 2000x1077): the
+        /// name, the stage and the whole band down to its last button on the
+        /// first screen, unscrolled. Depth of each part of the block from the
+        /// top of its page against the height the page shows (the scroll
+        /// viewport, or the panel). A phone-sized page is reported, not failed.
+        /// </summary>
+        static void FoldProbe(Transform root, string where)
+        {
+            var c = new Vector3[4];
+            foreach (var b in root.GetComponentsInChildren<ShowroomBlock>(false))
+            {
+                var parent = b.transform.parent as RectTransform;
+                if (parent == null || b.parts == null) continue;
+                var scroll = parent.GetComponentInParent<ScrollRect>();
+                var frame = scroll == null ? parent
+                          : scroll.viewport != null ? scroll.viewport : (RectTransform)scroll.transform;
+                float seen = frame.rect.height, low = 0f;
+                string lowName = "-";
+                foreach (var p in b.parts)
+                {
+                    if (p == null) continue;
+                    p.GetWorldCorners(c);
+                    float d = parent.rect.yMax - parent.InverseTransformPoint(c[0]).y;
+                    if (d > low) { low = d; lowName = p.name; }
+                }
+                var stage = (RectTransform)b.transform;
+                var last = b.acts != null && b.acts.Length > 0 ? b.acts[b.acts.Length - 1] : null;
+                bool ok = low <= seen + 0.5f;
+                Debug.Log("[Showroom] " + where + " fold: band " + (b.beside ? "BESIDE" : "UNDER") + " the stage " +
+                          stage.rect.width.ToString("F0") + "x" + stage.rect.height.ToString("F0") +
+                          ", last button " + (last != null ? last.name : "(none)") + ", lowest part " + lowName +
+                          " at " + low.ToString("F0") + " of " + seen.ToString("F0") + (ok ? "  OK" : "  BELOW THE FOLD"));
+                if (!ok && !where.Contains("phone")) Fail(where + " the showroom runs below the first screen");
+            }
         }
 
         static void BrowseProbe(LifeHomeScreen screen, Transform root, string where)
@@ -211,11 +249,19 @@ namespace PSXRacing.EditorTools
                           ", cursor stayed " + (ok ? "on the arrow" : a + "/" + b + "/" + c + "/" + d) +
                           "; DOWN from > goes to " + down + (ok ? "  OK" : "  BAD"));
                 if (!ok) Fail(where + " LEFT / RIGHT on the arrows did not browse in place");
-                // (DOWN is reported, not judged: MenuNav groups lines with a 4-unit
-                // floor in WORLD units, and this harness's camera canvas is 10
-                // world units tall, so the arrows and the band under the stage
-                // share a "line" here that they do not share on a real screen.
-                // CheckNavReach's verdict on the whole page is the pad test.)
+                // DOWN from the arrows goes to the band's first button wherever
+                // the band stands (ShowroomBlock's links over the page's graph).
+                var block = next.GetComponentInParent<ShowroomBlock>();
+                var want = block != null ? block.FirstAct() : null;
+                if (want != null)
+                {
+                    string downP = Move(prev.gameObject, MoveDirection.Down);
+                    string up = Move(want.gameObject, MoveDirection.Up);
+                    bool linked = down == want.name && downP == want.name && up == next.name;
+                    Debug.Log("[Showroom] " + where + " DOWN from < > to " + downP + " / " + down + ", UP from " +
+                              want.name + " to " + up + (linked ? "  OK" : "  BAD"));
+                    if (!linked) Fail(where + " DOWN from the arrows does not reach the band's " + want.name);
+                }
             }
             finally
             {

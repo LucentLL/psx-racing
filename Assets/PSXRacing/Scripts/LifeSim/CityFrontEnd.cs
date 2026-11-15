@@ -476,8 +476,9 @@ namespace PSXRacing.LifeSim
             card.actions.Add(new Showroom.Action(driving ? "DRIVING THIS ONE" : "DRIVE THIS ONE",
                 () => { SetCar(captured.id); Go(carBack); Toast(captured.name.ToUpperInvariant()); },
                 new Color(0.62f, 0.48f, 0.12f, 1f)));
+            // The name, the stage and the band all on the first screen.
             float h = Showroom.Build(body, Viewer, card, ColL, ColW, y,
-                Showroom.StageHeight(BodyH - MenuKit.ScrollPad), cityShow, n, d =>
+                BodyH + y - 4f, cityShow, n, d =>
                 {
                     cityShow = (cityShow + d + n) % n;
                     focusAfter = d > 0 ? "Btn_>" : "Btn_<";
@@ -796,6 +797,8 @@ namespace PSXRacing.LifeSim
             MenuNav.Select(first);
             var watch = MenuNav.Watch(gameObject, first);
             MenuNav.Defer(watch, none, rows, null);
+            // The showroom's arrows: DOWN to its band's buttons (beside the stage too).
+            Showroom.AfterGrid(watch, body);
         }
 
         void Toast(string msg)
