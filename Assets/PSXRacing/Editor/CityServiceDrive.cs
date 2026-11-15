@@ -93,16 +93,24 @@ namespace PSXRacing.EditorTools
         static int mask, solidMask;
         const float MaxRunM = 220f;
 
-        static float GroundY(float x, float z, float y0)
+        static float GroundY(float x, float z, float y0) => GroundY(x, z, y0, out _);
+        static float GroundY(float x, float z, float y0, out Collider c)
         {
+            c = null;
             float top = float.NaN;
             foreach (var h in Physics.RaycastAll(new Vector3(x, y0 + 2.5f, z), Vector3.down, 7f, mask, QueryTriggerInteraction.Ignore))
             {
                 if (h.collider.attachedRigidbody != null) continue;
-                if (float.IsNaN(top) || h.point.y > top) top = h.point.y;
+                if (float.IsNaN(top) || h.point.y > top) { top = h.point.y; c = h.collider; }
             }
             return top;
         }
+        static string Under(Vector3 p)
+        {
+            GroundY(p.x, p.z, p.y, out var c);
+            return c != null ? (c.transform.parent != null ? c.transform.parent.name + "/" : "") + c.name : "nothing";
+        }
+        static string wheelOver = "";
 
         struct Site { public string label; public int way; }
 
@@ -156,8 +164,17 @@ namespace PSXRacing.EditorTools
                 {
                     var f = spec.Split(';');
                     if (f.Length < 2) continue;
-                    int wi = int.Parse(f[1], I);
+                    int wi = -1;
+                    if (f[1].StartsWith("way:"))
+                    {
+                        // by OSM way id (a piece's index moves when the data is made again): its first piece with a mouth
+                        uint id = uint.Parse(f[1].Substring(4), I);
+                        for (int k = 0; k < CityMeshes.ServiceWays.Length && wi < 0; k++)
+                            if (CityMeshes.ServiceWays[k].osmId == id && (CityMeshes.ServiceWays[k].mouthA >= 0 || CityMeshes.ServiceWays[k].mouthB >= 0)) wi = k;
+                    }
+                    else wi = int.Parse(f[1], I);
                     if (wi >= 0 && wi < CityMeshes.ServiceWays.Length) sites.Add(new Site { label = f[0], way = wi });
+                    else L.AppendLine($"no piece for site '{spec}'");
                 }
             else Pick(map, sites);
             L.AppendLine($"SERVICE DRIVE: car {player.name}; {CityMeshes.ServiceStats.Line()}");
@@ -171,7 +188,7 @@ namespace PSXRacing.EditorTools
                 var w = CityMeshes.ServiceWays[st.way];
                 bool fromA = w.mouthA >= 0;
                 int mi = fromA ? w.mouthA : w.mouthB;
-                if (mi < 0) { L.AppendLine($"SITE {st.label}: piece {st.way} has no mouth"); continue; }
+                if (mi < 0 || CityMeshes.ServiceMouths[mi].off) { L.AppendLine($"SITE {st.label}: piece {st.way} has no open mouth"); continue; }
                 var path = new List<Vector2>(w.pts);
                 var halves = new List<float>(w.half);
                 if (!fromA) { path.Reverse(); halves.Reverse(); }
@@ -188,15 +205,50 @@ namespace PSXRacing.EditorTools
                     st.label, st.way, w.osmId, CityMeshes.ServiceKinds[w.kind], w.OneWay ? " one-way" : "", w.Private ? " private" : "", w.length, Min(halves), Max(halves), e.index, e.name, m.s, m.side, mouth.x, mouth.y,
                     35.18456015184093 + mouth.y / 111132.0, -80.81770185962013 + mouth.x / (111320.0 * System.Math.Cos(35.18456 * System.Math.PI / 180.0)),
                     (fromA ? w.mouthB : w.mouthA) >= 0 && fromA ? "a street" : halves.Count > 0 && (fromA ? w.onLot[w.onLot.Length - 1] : w.onLot[0]) ? "on a lot" : "open"));
+                {
+                    // the surface under the two wheel tracks, every 5 cm along the line from the mouth (the colliders the car meets)
+                    float maxStep = 0f, stepAt = 0f, maxRise = 0f, riseAt = 0f; string stepOn = "";
+                    var line = new List<Vector2> { mouth };
+                    for (int k = 0; k < path.Count; k++) if (Vector2.Dot(path[k] - mouth, n) > 0.5f || k >= 2) line.Add(path[k]);
+                    foreach (float lat in new[] { -0.75f, 0.75f })
+                    {
+                        var ys = new List<float>(); var at2 = new List<float>(); var where = new List<Vector2>();
+                        float acc = 0f; float yPrev = y0;
+                        for (int k = 0; k + 1 < line.Count && acc < MaxRunM; k++)
+                        {
+                            var d = line[k + 1] - line[k]; float len = d.magnitude;
+                            if (len < 0.05f) continue;
+                            d /= len; var lf = new Vector2(-d.y, d.x);
+                            for (float s = 0f; s < len; s += 0.05f)
+                            {
+                                var q = line[k] + d * s + lf * lat;
+                                if ((Mathf.RoundToInt((acc + s) / 0.05f) % 400) == 0) world.EnsureRing(new Vector3(q.x, yPrev, q.y), 1);
+                                float gy = GroundY(q.x, q.y, yPrev);
+                                if (!float.IsNaN(gy)) yPrev = gy;
+                                ys.Add(gy); at2.Add(acc + s); where.Add(q);
+                            }
+                            acc += len;
+                        }
+                        for (int k = 1; k < ys.Count; k++)
+                        {
+                            if (float.IsNaN(ys[k]) || float.IsNaN(ys[k - 1]) || at2[k] - at2[k - 1] > 0.2f) continue;
+                            float st1 = Mathf.Abs(ys[k] - ys[k - 1]);
+                            if (st1 > maxStep) { maxStep = st1; stepAt = at2[k]; stepOn = Under(new Vector3(where[k].x, ys[k], where[k].y)); }
+                            if (k >= 8 && !float.IsNaN(ys[k - 8]) && at2[k] - at2[k - 8] < 0.6f && Mathf.Abs(ys[k] - ys[k - 8]) > maxRise) { maxRise = Mathf.Abs(ys[k] - ys[k - 8]); riseAt = at2[k]; }
+                        }
+                    }
+                    L.AppendLine(string.Format(I, "    wheel tracks: largest step between 5 cm samples {0:0.0} cm at {1:0.0} m (on {4}), largest change over 0.4 m {2:0.0} cm at {3:0.0} m", maxStep * 100f, stepAt, maxRise * 100f, riseAt, stepOn));
+                }
                 foreach (float kmh in new[] { 15f, 30f })
                 {
                     var res = new float[10];
                     string hit = "";
                     yield return DriveAlong(player, world, map, e, y0, mouth, n, path, halves, (fromA ? w.mouthB : -1) >= 0, kmh, res, h => hit = h);
                     bool reached = res[0] > 0.5f, ok = reached && res[1] <= 0.05f && hit.Length == 0;
+                    if (res[1] > 0.05f) hit += (hit.Length > 0 ? "; " : ", ") + "the wheel left over " + wheelOver;
                     runs++; if (ok) pass++;
-                    L.AppendLine(string.Format(I, "    {0,2:0} km/h: {1}; {2:0} of {3:0} m driven in {4:0.0} s; one wheel off {5:0.00} s (at {6:0} m), all four off {7:0.00} s, vertical kick {8:0.0} g (at {9:0} m), strayed {10:0.0} m from the line, slowest {11:0} km/h{12}: {13}",
-                        kmh, reached ? "REACHED THE END" : "did NOT reach the end", res[2], res[3], res[4], res[1], res[5], res[6], res[7], res[8], res[9], res[4] > 0f ? res[2] / res[4] * 3.6f : 0f, hit.Length > 0 ? ", HIT " + hit : "", ok ? "PASS" : "FAIL"));
+                    L.AppendLine(string.Format(I, "    {0,2:0} km/h: {1}; {2:0} of {3:0} m driven in {4:0.0} s; one wheel off {5:0.00} s (at {6:0} m), all four off {7:0.00} s, vertical kick {8:0.0} g (at {9:0} m), strayed {10:0.0} m from the line, mean {11:0} km/h{12}: {13}",
+                        kmh, reached ? "REACHED THE END" : "did NOT reach the end", res[2], res[3], res[4], res[1], res[5], res[6], res[7], res[8], res[9], res[4] > 0f ? res[2] / res[4] * 3.6f : 0f, hit.Length > 0 ? (hit.StartsWith(",") ? hit : ", HIT " + hit) : "", ok ? "PASS" : "FAIL"));
                 }
             }
             L.AppendLine($"SERVICE DRIVE DONE: {pass} of {runs} runs pass");
@@ -329,7 +381,16 @@ namespace PSXRacing.EditorTools
                     {
                         if (off[wq] <= 0f) offFrom[wq] = sCar;
                         off[wq] += dt;
-                        if (off[wq] > maxOne) { maxOne = off[wq]; oneAt = offFrom[wq]; }
+                        if (off[wq] > maxOne)
+                        {
+                            maxOne = off[wq]; oneAt = offFrom[wq];
+                            if (off[wq] > 0.05f && off[wq] - dt <= 0.05f)
+                            {
+                                // which wheel, and what lies under it
+                                var wp = player.transform.TransformPoint(new Vector3((wq & 1) == 0 ? -0.75f : 0.75f, 0f, wq < 2 ? 1.3f : -1.3f));
+                                wheelOver = (wq == 0 ? "front left" : wq == 1 ? "front right" : wq == 2 ? "rear left" : "rear right") + " on " + Under(wp) + string.Format(I, " at ({0:0.0}, {1:0.0})", wp.x, wp.z);
+                            }
+                        }
                     }
                 }
                 allOff = g == 0 ? allOff + dt : 0f;

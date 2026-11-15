@@ -239,7 +239,9 @@ export function buildServiceWays({ city, bld, lots, ways, looseAisles = true, st
   // ---- the buildings
   const bldGrid = new Grid(32);
   const fps = bld.footprints;
-  fps.forEach((f, fi) => { if (f.hidden || f.pts.length < 3) return; f.box = boxOf(f.pts); bldGrid.add(f.box[0] - 8, f.box[1] - 8, f.box[2] + 8, f.box[3] + 8, fi); });
+  // (a footprint the game hides is one it stands its own model on - a filling station's shop, a
+  // landmark: the service drive found a station's shop 7 m into a way - so it counts as a building too)
+  fps.forEach((f, fi) => { if (f.pts.length < 3) return; f.box = boxOf(f.pts); bldGrid.add(f.box[0] - 8, f.box[1] - 8, f.box[2] + 8, f.box[3] + 8, fi); });
   /// How far the nearest wall is (0 inside a footprint), up to 8 m.
   const wallAt = (x, z) => {
     let best = 8;

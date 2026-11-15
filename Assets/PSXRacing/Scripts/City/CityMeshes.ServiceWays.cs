@@ -70,7 +70,7 @@ namespace PSXRacing.City
         }
         /// <summary>A way's mouth on a street: the edge, arc position, side (+1 left of a to b), the
         /// opening's half width; the lot entrance it became (-1 not installed).</summary>
-        public struct ServiceMouth { public int way; public byte end; public int edge; public float s; public sbyte side; public float half; public int entrance; }
+        public struct ServiceMouth { public int way; public byte end; public int edge; public float s; public sbyte side; public float half; public int entrance; public bool off; }
 
         public static readonly string[] ServiceKinds = { "service", "alley", "driveway", "drive-through", "parking aisle", "private street", "bus / emergency" };
         public static ServiceWay[] ServiceWays = System.Array.Empty<ServiceWay>();
@@ -84,12 +84,12 @@ namespace PSXRacing.City
 
         public static class ServiceStats
         {
-            public static int ways, mouths, quads, quadsOnLot, throats, stallsCut, islandsCut, lotsCut, points, buildingsCleared;
+            public static int ways, mouths, quads, quadsOnLot, throats, stallsCut, islandsCut, lotsCut, points, buildingsCleared, quadsOnStation, mouthsOnStation;
             public static float km, kmOnLot, ms, msRead, msQuads, msLots;
             public static readonly float[] kmByKind = new float[7];
             public static void Reset()
             {
-                ways = mouths = quads = quadsOnLot = throats = stallsCut = islandsCut = lotsCut = points = 0;
+                ways = mouths = quads = quadsOnLot = throats = stallsCut = islandsCut = lotsCut = points = quadsOnStation = mouthsOnStation = 0;
                 km = kmOnLot = ms = msRead = msQuads = msLots = 0f;
                 for (int i = 0; i < kmByKind.Length; i++) kmByKind[i] = 0f;
             }
@@ -101,6 +101,7 @@ namespace PSXRacing.City
                 for (int i = 0; i < kmByKind.Length; i++) if (kmByKind[i] > 0.05f) sb.Append($"{ServiceKinds[i]} {kmByKind[i]:0.0} km, ");
                 sb.Append($"{quads} paved quads ({quadsOnLot} segments left to the lot they run on), {throats} kerb openings where a way meets a lot, ");
                 sb.Append($"{stallsCut} stalls and {islandsCut} islands taken off the ways in {lotsCut} lots; {mouths} mouths on streets; ");
+                sb.Append($"{quadsOnStation} segments and {mouthsOnStation} mouths left to the filling station they lie on; ");
                 sb.Append($"{ms:0} ms (read {msRead:0}, quads and throats {msQuads:0}, stalls and islands {msLots:0})");
                 return sb.ToString();
             }
@@ -284,6 +285,7 @@ namespace PSXRacing.City
                 for (int i = 0; i < n; i++)
                 {
                     var m = ServiceMouths[i];
+                    if (m.off) continue;
                     LotEntFrame(map.edges[m.edge], m.s, m.side, out var mouth, out var nn, out var t);
                     A[i] = new Vector4(mouth.x, mouth.y, t.x, t.y); B[i] = new Vector4(nn.x, nn.y, m.half, 0f);
                     float r = m.half + ServiceMouthSideM + ServiceMouthOutM + 1f;
@@ -451,6 +453,12 @@ namespace PSXRacing.City
                     var t0 = clock.Elapsed.TotalMilliseconds;
                     float bx0 = Mathf.Min(Mathf.Min(quad[0].x, quad[1].x), Mathf.Min(quad[2].x, quad[3].x)), bx1 = Mathf.Max(Mathf.Max(quad[0].x, quad[1].x), Mathf.Max(quad[2].x, quad[3].x));
                     float bz0 = Mathf.Min(Mathf.Min(quad[0].y, quad[1].y), Mathf.Min(quad[2].y, quad[3].y)), bz1 = Mathf.Max(Mathf.Max(quad[0].y, quad[1].y), Mathf.Max(quad[2].y, quad[3].y));
+                    // a filling station's forecourt is the station's own (its lot, pumps, shop, curb cuts): no quad on it
+                    {
+                        float hs = Mathf.Max(w.half[i], w.half[i + 1]);
+                        if (CityStations.LotAt(map, 0.5f * (w.pts[i] + w.pts[i + 1]), hs) >= 0 || CityStations.LotAt(map, w.pts[i], hs) >= 0 || CityStations.LotAt(map, w.pts[i + 1], hs) >= 0)
+                        { ServiceStats.quadsOnStation++; continue; }
+                    }
                     bool lies = w.onLot[i] && w.onLot[i + 1];
                     for (int tx = Mathf.FloorToInt((bx0 - 2.5f) / TileSize); tx <= Mathf.FloorToInt((bx1 + 2.5f) / TileSize); tx++)
                         for (int tz = Mathf.FloorToInt((bz0 - 2.5f) / TileSize); tz <= Mathf.FloorToInt((bz1 + 2.5f) / TileSize); tz++)
@@ -518,13 +526,22 @@ namespace PSXRacing.City
                 int e0 = map.lotEntrances != null ? map.lotEntrances.Length : 0;
                 var ents = new CityMap.LotEntrance[e0 + ServiceMouths.Length];
                 if (e0 > 0) System.Array.Copy(map.lotEntrances, ents, e0);
+                int ne = 0;
                 for (int i = 0; i < ServiceMouths.Length; i++)
                 {
                     var m = ServiceMouths[i];
-                    ents[e0 + i] = new CityMap.LotEntrance { edge = m.edge, s = m.s, side = m.side, half = m.half };
-                    ServiceMouths[i].entrance = e0 + i;
+                    // (a mouth on a filling station's frontage: the station has its own curb cuts)
+                    var e = map.edges[m.edge];
+                    float sc = Mathf.Clamp(m.s, 0f, e.length);
+                    var tg = e.TangentAt(sc);
+                    var behind = e.PointAt(sc) + new Vector2(-tg.y, tg.x) * (m.side * (e.width * 0.5f + 4f));
+                    if (CityStations.LotAt(map, behind, 2f) >= 0) { ServiceMouths[i].off = true; ServiceStats.mouthsOnStation++; continue; }
+                    ents[e0 + ne] = new CityMap.LotEntrance { edge = m.edge, s = m.s, side = m.side, half = m.half };
+                    ServiceMouths[i].entrance = e0 + ne;
+                    ne++;
                 }
-                map.lotEntrances = ents; ServiceEntrancesFrom = e0; ServiceEntrancesCount = ServiceMouths.Length;
+                if (ne < ServiceMouths.Length) System.Array.Resize(ref ents, e0 + ne);
+                map.lotEntrances = ents; ServiceEntrancesFrom = e0; ServiceEntrancesCount = ne;
             }
             // the lots' caches again with the ways in (as the lot entrances' pass ends)
             lotMapFor = null; leEntByTile = null; lotEntRampByTile = null;
