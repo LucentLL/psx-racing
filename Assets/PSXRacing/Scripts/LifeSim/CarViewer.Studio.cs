@@ -509,7 +509,7 @@ namespace PSXRacing.LifeSim
                 if (kb.commaKey.isPressed) turn -= 1f;
                 if (kb.periodKey.isPressed) turn += 1f;
             }
-            return Mathf.Abs(turn) > 0.15f ? Mathf.Clamp(turn, -1f, 1f) : 0f;
+            return Mathf.Abs(turn) > 0.15f ? turn : 0f;   // (unclamped, as the turntable always read it)
         }
     }
 }
