@@ -291,6 +291,52 @@ namespace PSXRacing.EditorTools
             StreetSpot(map, spots, "West Trade Street", "wtrade0", new Vector2(-2946f, 5406f));
             StreetSpot(map, spots, "West Trade Street", "wtrade1", new Vector2(-3005f, 5459f));
             StreetSpot(map, spots, "West Trade Street", "wtrade2", new Vector2(-3079f, 5525f));
+            // (lot entrances, 11-15) extra spots, by place: PSX_FLICK_EXTRA "name;x;z;dx;dz|..." (the eye at
+            // the place - and 150 and 400 m straight back from it - looking along dx,dz)
+            foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_FLICK_EXTRA") ?? "").Split('|'))
+            {
+                var f = spec.Split(';');
+                if (f.Length < 5) continue;
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                var at = new Vector2(float.Parse(f[1], inv), float.Parse(f[2], inv));
+                var dir = new Vector2(float.Parse(f[3], inv), float.Parse(f[4], inv)).normalized;
+                var near = new HashSet<int>();
+                map.EdgeSegsInRect(at - Vector2.one * 40f, at + Vector2.one * 40f, near);
+                float bd = float.MaxValue, y = 0f;
+                foreach (int pk in near)
+                {
+                    var e = map.edges[pk >> 12];
+                    CityElevation.ProjectOn(e, at, out float sp);
+                    float d = Vector2.Distance(e.PointAt(sp), at);
+                    if (d < bd) { bd = d; y = e.YAt(sp); }
+                }
+                spots.Add(new Spot { name = f[0], at = at, dir = dir, y = y });
+            }
+            // (curbs 3, 11-15) PSX_FLICK_STREETS "name,x,z;name,x,z": the street nearest each point, looking along it
+            // (named PSX_FLICK_EXTRA in the curbs branch; renamed at the merge, the lots round's PSX_FLICK_EXTRA has another format)
+            foreach (var part in (System.Environment.GetEnvironmentVariable("PSX_FLICK_STREETS") ?? "").Split(';'))
+            {
+                var f = part.Split(',');
+                if (f.Length < 3) continue;
+                var at = new Vector2(float.Parse(f[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(f[2], System.Globalization.CultureInfo.InvariantCulture));
+                CityMap.Edge be = null; float bd = float.MaxValue, bs = 0f;
+                foreach (var e in map.edges)
+                {
+                    if (e.a == e.b || e.length < 30f) continue;
+                    CityElevation.ProjectOn(e, at, out float sp);
+                    sp = Mathf.Clamp(sp, 0f, e.length);
+                    float d = Vector2.Distance(e.PointAt(sp), at);
+                    if (d < bd) { bd = d; be = e; bs = sp; }
+                }
+                if (be == null) continue;
+                var ee = be; float s0 = bs;
+                var dir = ee.TangentAt(s0).normalized;
+                spots.Add(new Spot
+                {
+                    name = f[0].Trim(), at = ee.PointAt(s0), dir = dir, y = ee.YAt(s0),
+                    back = b => { float sb = Mathf.Clamp(s0 - b, 0f, ee.length); return (ee.PointAt(sb), ee.TangentAt(sb).normalized, ee.YAt(sb)); },
+                });
+            }
             return spots;
         }
 

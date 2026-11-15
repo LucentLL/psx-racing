@@ -4903,7 +4903,7 @@ namespace PSXRacing.City
             // middle of long facades downtown (West 6th, West 4th, East 7th,
             // West 3rd). FootprintClear opens every bucket a building could
             // reach from and measures to the walls.
-            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP) || OnDriveway(footP, 0.8f)) return LampRejectBuilding;
+            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP) || OnDriveway(footP, 0.8f) || LotEntOnWay(map, footP, 0.9f)) return LampRejectBuilding;   // (lot entrances, 11-15) nor in a lot's entrance
             if (LampInWater(map, footP)) return LampRejectWater;
             int clash = LampPavementClear(map, trims, e, side, s, footP, headP, ed.y);
             if (clash != 0) return clash;
@@ -9300,8 +9300,10 @@ namespace PSXRacing.City
             var cen = (profPrev[1] + profPrev[2] + prof[1] + prof[2]) * 0.25f;
             bool paved = stripSurface == 0 ? PavedAt(map, cen.x, cen.z) : stripSurface == 2;
             var bk = GroundBucket(paved);
+            bool leThroat = LotEntThroatBucket(map, cen, ref bk);   // (lot entrances) a lot entrance's throat is the lot's asphalt
             if (bk != prevBk) { prevBase = AddProfile(bk, profPrev, o, paved); prevBk = bk; }
             int curBase = AddProfile(bk, prof, o, paved);
+            if (leThroat) LotEntThroatUV(bk, prevBase, curBase, o);
             // Beside a profile collapsed onto the edge (the next road's
             // pavement is there) the other profile's toe band fans from that
             // one point down its tuck: where that tuck is vertical (a
@@ -9614,9 +9616,12 @@ namespace PSXRacing.City
             // street along a creek valley stood a rail on a retaining face
             // over a graded 1V:4H bank (Bryant Street). On level ground it
             // meets the lattice 0.1 m sooner.
+            // (lot entrances, 11-15) behind an entrance's curb cut the strip is the apron's ramp to the lot
+            float fillSlope = RoadsideRules.CityFillSlope;
+            if (!sh.flat) LotEntRamp(map, s0, outw, y0, run, ref shoulder, ref crossFall, ref fillSlope);
             float Yv(float e) => sh.flat ? y0
                 : y0 - crossFall * Mathf.Min(e, shoulder)
-                     - RoadsideRules.CityFillSlope * Mathf.Max(0f, e - shoulder);
+                     - fillSlope * Mathf.Max(0f, e - shoulder);
             float Lat(float e) { var q = s0 + outw * e; return LatticeY(map, q.x, q.y); }
 
             float ec = -1f, prevGap = Yv(0f) - Lat(0f);

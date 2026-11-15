@@ -1217,6 +1217,8 @@ namespace PSXRacing.City
             CityElevation.Solve(map);
             LastSolveMs = (float)clock.Elapsed.TotalMilliseconds;
             Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms); twin decks: {DeckPairs.LastReport}; {CityElevation.TwinHoldReport}");
+            // (lot entrances, 11-15) every lot a way in: the data's entrances paved through to their lots, the rest derived
+            CityMeshes.InstallLotEntrances(map);
             return map;
         }
 

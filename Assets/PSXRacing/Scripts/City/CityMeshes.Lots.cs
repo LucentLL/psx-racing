@@ -62,6 +62,7 @@ namespace PSXRacing.City
         static int[][] lotTris;
         static Vector2[][] lotStalls;     // 4 corners per separator, anticlockwise
         static Vector2[][] apronQuads;    // per entrance: the apron's trapezoid (4 corners)
+        static HashSet<int> apronThroat = new HashSet<int>();   // (lot entrances) which quads are a lot kerb's opening
         static Vector4[][] lotHoleBox;    // per lot, per hole: x0, z0, x1, z1
         static int stallSlot = -1;
         static float stallU0, stallU1;
@@ -94,6 +95,7 @@ namespace PSXRacing.City
             }
             for (int i = 0; i < nl; i++)
             {
+                if (LotEntHiddenLot(map, i)) continue;   // (lot entrances) a tool's "before"
                 var b = map.lots[i].box;
                 for (int tx = Mathf.FloorToInt(b.x / TileSize); tx <= Mathf.FloorToInt(b.z / TileSize); tx++)
                     for (int tz = Mathf.FloorToInt(b.y / TileSize); tz <= Mathf.FloorToInt(b.w / TileSize); tz++)
@@ -122,9 +124,18 @@ namespace PSXRacing.City
                 }
             // the aprons
             int na = map.lotEntrances != null ? map.lotEntrances.Length : 0;
-            apronQuads = new Vector2[na][];
-            for (int i = 0; i < na; i++)
+            // (lot entrances, 11-15) after the data's aprons: the corridors and throats of the
+            // repaired and derived entrances (CityMeshes.LotEntrances) - ApronAt's and the walk backing's too
+            int nx = LotEntOn && lotEntMapFor == map ? lotEntQuads.Count : 0;
+            apronQuads = new Vector2[na + nx][];
+            apronThroat = new HashSet<int>();
+            for (int i = 0; i < na + nx; i++)
             {
+                Vector2 a, b, c, d;
+                if (i >= na) { var Q = lotEntQuads[i - na]; a = Q[0]; b = Q[1]; c = Q[2]; d = Q[3]; if (lotEntThroatQuads.Contains(i - na)) apronThroat.Add(i); }
+                else if (LotEntHiddenEntrance(map, i)) { apronQuads[i] = new[] { Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero }; continue; }
+                else
+                {
                 var en = map.lotEntrances[i];
                 var e = map.edges[en.edge];
                 float s = Mathf.Clamp(en.s, 0f, e.length);
@@ -135,11 +146,13 @@ namespace PSXRacing.City
                 float edgeOff = en.side > 0 ? ePlus : eMinus;
                 var side = left * en.side;
                 // the road edge (+ wings) to 2.5 m out, where the verge has met the lot
-                float wing = 1.5f, reach = 2.5f;
-                var a = p + side * edgeOff - t * (en.half + wing);
-                var b = p + side * edgeOff + t * (en.half + wing);
-                var c = p + side * (edgeOff + reach) + t * en.half;
-                var d = p + side * (edgeOff + reach) - t * en.half;
+                // (lot entrances, second pass: the cut is the throat's width, out to the back of the walk as the walk code has it)
+                float wing = LotEntOn ? 0f : 1.5f, reach = LotEntOn ? Mathf.Max(2.5f, Cs3WalkW(map, e) + 0.1f) : 2.5f;
+                a = p + side * edgeOff - t * (en.half + wing);
+                b = p + side * edgeOff + t * (en.half + wing);
+                c = p + side * (edgeOff + reach) + t * en.half;
+                d = p + side * (edgeOff + reach) - t * en.half;
+                }
                 apronQuads[i] = new[] { a, b, c, d };
                 float x0 = Mathf.Min(Mathf.Min(a.x, b.x), Mathf.Min(c.x, d.x)), x1 = Mathf.Max(Mathf.Max(a.x, b.x), Mathf.Max(c.x, d.x));
                 float z0 = Mathf.Min(Mathf.Min(a.y, b.y), Mathf.Min(c.y, d.y)), z1 = Mathf.Max(Mathf.Max(a.y, b.y), Mathf.Max(c.y, d.y));
@@ -206,6 +219,7 @@ namespace PSXRacing.City
             var q = new Vector2(x, z);
             foreach (int i in l)
             {
+                if (lotEntThroatsOff && apronThroat.Contains(i)) continue;
                 var Q = apronQuads[i];
                 bool inside = true;
                 // convex, either winding: same side of every edge
@@ -666,6 +680,7 @@ namespace PSXRacing.City
                 FreePoly(piece);
             }
             islandTops.Clear();
+            EmitLotEntKerbFill(map, tm, min);   // (lot entrances) the kerb's opening the throat's width
             var curbSlot = buckets[(int)Slot.Pavement].Count > 0 ? Slot.Pavement : buckets[(int)Slot.Concrete].Count > 0 ? Slot.Concrete : Slot.Pavement;
             var curb = buckets[(int)curbSlot];
             foreach (int li in tileLots)

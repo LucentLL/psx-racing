@@ -237,6 +237,8 @@ namespace PSXRacing.City
         public static bool RolledEdge(CityMap map, CityMap.Edge e)
         {
             if (!Curbs2On || !CurbRollOn) return false;
+            // (curbs 3) by the street's class: the roll curb alone, or 11-11's rolled walk street
+            if (Curbs3On) { int cc = CurbClassOf(map, e); return cc == CurbRollOnly || cc == CurbRollWalk; }
             EnsureCs2Cache(map);
             ref sbyte c = ref cs2EdgeCache[e.index];
             if (c == 0)
@@ -276,6 +278,7 @@ namespace PSXRacing.City
                 int f = 0;
                 if (WalkSide(map, e, 1)) f |= 1;
                 if (WalkSide(map, e, -1)) f |= 2;
+                if (Curbs3On && f == 0 && !CityHouses.BoundTo(map)) return 0;   // (curbs 3) not known before a tile build binds the buildings
                 c = (sbyte)(f + 1);
             }
             return c - 1;
@@ -286,7 +289,7 @@ namespace PSXRacing.City
         {
             EnsureCs2Cache(map);
             ref sbyte c = ref cs2NodeCache[node];
-            if (c == 0)
+            if (c == 0 || Curbs3On)
             {
                 bool any = false, all = true;
                 foreach (int ei in map.nodeEdges[node])
@@ -309,12 +312,12 @@ namespace PSXRacing.City
             float own = RolledEdge(map, e) ? 1f : 0f;
             if (sections.Count < 2) return own;
             float r = own;
-            if (map.nodeEdges[e.a].Count >= 3)
+            if (Cs3EaseNode(map, e.a))
             {
                 float k = LineModel.Smooth(Mathf.Clamp01((s - sections[0].s) / WalkBackEndEaseM));
                 r = Mathf.Lerp(RolledNode(map, e.a) ? 1f : 0f, r, k);
             }
-            if (map.nodeEdges[e.b].Count >= 3)
+            if (Cs3EaseNode(map, e.b))
             {
                 float k = LineModel.Smooth(Mathf.Clamp01((sections[sections.Count - 1].s - s) / WalkBackEndEaseM));
                 r = Mathf.Lerp(RolledNode(map, e.b) ? 1f : 0f, r, k);
@@ -351,19 +354,32 @@ namespace PSXRacing.City
             public Vector3 eA, eB; public Vector2 outA, outB;
             public float sA, sB, wA, wB;
             public bool cut;
+            /// <summary>(inlet 2) The span's cut shares: cutN reads from cut0 in cs3CutT / cs3CutC.</summary>
+            public int cut0, cutN;
         }
         static readonly List<Cs2Span> cs2Spans = new List<Cs2Span>(64);
         static int cs2SpansEdge = -1;
 
         static void Cs2RecordSpan(CityMap.Edge e, int side, Vector3 eA, Vector3 eB, Vector2 outA, Vector2 outB, float sA, float sB, float wA, float wB, bool cut)
         {
-            if (cs2SpansEdge != e.index) { cs2Spans.Clear(); cs2SpansEdge = e.index; }
-            cs2Spans.Add(new Cs2Span { side = side, eA = eA, eB = eB, outA = outA, outB = outB, sA = sA, sB = sB, wA = wA, wB = wB, cut = cut });
+            if (cs2SpansEdge != e.index) { cs2Spans.Clear(); cs2SpansEdge = e.index; cs3CutT.Clear(); cs3CutC.Clear(); }
+            int c0 = cs3CutT.Count;
+            if (Inlet2On && cut) { cs3CutT.AddRange(cutT); cs3CutC.AddRange(cutC); }   // (inlet 2) the hood stands to the local curb's height
+            cs2Spans.Add(new Cs2Span { side = side, eA = eA, eB = eB, outA = outA, outB = outB, sA = sA, sB = sB, wA = wA, wB = wB, cut = cut, cut0 = c0, cutN = cs3CutT.Count - c0 });
         }
 
         // ---- the structure atlas's regions these details sample --------------
         // (v, Unity: 0 = the sheet's bottom; CityMeshes.Bridges' bands)
         static readonly Rect UvPan = new Rect(0.00f, 0.900f, 1f, 0.075f);       // girder band: light concrete
+        /// <summary>(curbs 3, 11-15; the owner at Beatties Ford Rd: "that is a LOT of curb on the side of the road",
+        /// his line drawn across the gutter pan) The pan was the girder band's light concrete, as bright as the
+        /// crosswalk paint beside it: with the 0.4 m drawn curb top and the walk it read as one white band a metre
+        /// wide at the road's edge. A real pan is the same pour as the curb but weathered and tyre-dirty: now the
+        /// under band's weathered grey (the band Uptown's granite curb uses). Width unchanged (24 in, the standard).
+        /// PSX_CITY_PANTONE=0: the light pan.</summary>
+        public static bool PanToneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANTONE") != "0";
+        static readonly Rect UvPanGrey = new Rect(0.00f, 0.270f, 1f, 0.090f);   // under band: weathered grey, the atlas's full width
+        static Rect PanBand => PanToneOn ? UvPanGrey : UvPan;
         static readonly Rect UvSlab = new Rect(0.10f, 0.520f, 0.30f, 0.200f);   // column band: light concrete
         static readonly Rect UvCollar = new Rect(0.30f, 0.270f, 0.20f, 0.090f); // under band: weathered grey
         static readonly Rect UvIron = new Rect(0.79f, 0.020f, 0.16f, 0.080f);   // luminaire housing: black iron
@@ -429,8 +445,9 @@ namespace PSXRacing.City
             iA.y = RoadYIn(A, B, iA) + GutterLiftM; iB.y = RoadYIn(A, B, iB) + GutterLiftM;
             Vector3 fA = pA, fB = pB; fA.y += GutterLiftM; fB.y += GutterLiftM;
             // U along (8 m a repeat, the atlas's own), V across the band
+            var pb = PanBand;
             structBucket.Up(fA, iA, iB, fB,
-                new Vector2(uA, UvPan.y), new Vector2(uA, UvPan.yMax), new Vector2(uB, UvPan.yMax), new Vector2(uB, UvPan.y));
+                new Vector2(uA, pb.y), new Vector2(uA, pb.yMax), new Vector2(uB, pb.yMax), new Vector2(uB, pb.y));
             Curbs2Stats.gutterM += Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
         }
 
@@ -455,8 +472,9 @@ namespace PSXRacing.City
             Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
             ia.y = a.y + GutterLiftM; ib.y = b.y + GutterLiftM;
             Vector3 fa = a, fb = b; fa.y += GutterLiftM; fb.y += GutterLiftM;
+            var pb = PanBand;
             structBucket.Up(fa, ia, ib, fb,
-                new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
+                new Vector2(u0 * WalkTexM / 8f, pb.y), new Vector2(u0 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.y));
             Curbs2Stats.gutterM += len; Curbs2Stats.cornerPanM += len;
         }
 
@@ -477,8 +495,9 @@ namespace PSXRacing.City
             foreach (var (a, b, oa, ob, u0, u1) in cs2CornerPans)
             {
                 Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
+                var pb = PanBand;
                 structBucket.Up(Seat(a), Seat(ia), Seat(ib), Seat(b),
-                    new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
+                    new Vector2(u0 * WalkTexM / 8f, pb.y), new Vector2(u0 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.y));
             }
             cs2CornerPans.Clear();
         }
@@ -539,18 +558,31 @@ namespace PSXRacing.City
 
         static void EmitStreetHardware(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
-            if (!Curbs2On) { cs2Spans.Clear(); cs2SpansEdge = -1; return; }
+            if (!Curbs2On) { cs2Spans.Clear(); cs2SpansEdge = -1; cs3CutT.Clear(); cs3CutC.Clear(); return; }
             EnsureMarks(map, trims);   // (cached per map and trims: the tile build has them already)
-            if (DrainsOn && cs2SpansEdge == e.index && cs2Spans.Count > 0) EmitInlets(map, trims, tm, e);
+            if (DrainsOn && cs2SpansEdge == e.index && cs2Spans.Count > 0)
+            {
+                if (Inlet2On) EmitInlets2(map, trims, tm, e);   // (inlet 2, 11-15) the planned inlets, flush in the curb: CityMeshes.Curbs3
+                else EmitInlets(map, trims, tm, e);
+            }
             if (LidsOn) EmitLids(map, trims, tm, e, min, max);
-            cs2Spans.Clear(); cs2SpansEdge = -1;
+            cs2Spans.Clear(); cs2SpansEdge = -1; cs3CutT.Clear(); cs3CutC.Clear();
         }
 
         /// <summary>The inlet stations of an edge (global: every tile finds the same).</summary>
         static void InletStations(CityMap map, Trims trims, CityMap.Edge e)
         {
             cs2Stations.Clear();
-            float s0 = trims.atA[e.index] + InletEndM, s1 = e.length - trims.atB[e.index] - InletEndM;
+            float offA = InletEndM, offB = InletEndM;
+            if (Inlet2On && RolledEdge(map, e))
+            {
+                // (inlet 2) a rolled street's corner inlet stands on the plain roll, past the 8 m ease to a
+                // vertical corner's curb and one short transition (CLDSM 10.30: it begins at the end of the radius)
+                float clear = WalkBackEndEaseM + InletFlatM + 2.0f + 0.3f;
+                if (map.nodeEdges[e.a].Count >= 3 && !RolledNode(map, e.a)) offA = clear;
+                if (map.nodeEdges[e.b].Count >= 3 && !RolledNode(map, e.b)) offB = clear;
+            }
+            float s0 = trims.atA[e.index] + offA, s1 = e.length - trims.atB[e.index] - offB;
             if (s1 - s0 < 2f) return;
             // sags of the drawn profile (the real heights)
             for (float s = s0 + 10f; s <= s1 - 10f; s += 5f)
