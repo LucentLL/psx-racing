@@ -1575,6 +1575,7 @@ namespace PSXRacing.City
                 // (no rail square across the slab); on the ground a Jersey is
                 // turned down to a curb.
                 if (!stand) continue;
+                ConCtx(deck ? "union-median-deck" : run.pair < 0 ? "union-median-ground-twin" : "union-median-ground", e.index, side, -1, deck);
                 if (deck && (uEnd[k] < 1f || uEnd[k + 1] < 1f))
                     EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uEnd[k], uEnd[k + 1], uV[k], uV[k + 1]);
                 else if (shape == DeckPairs.Median.Barrier)
@@ -1640,6 +1641,7 @@ namespace PSXRacing.City
                 if (deck)
                     con.Down(a0s + Vector3.down * dk, b0s + Vector3.down * dk, b1s + Vector3.down * dk, a1s + Vector3.down * dk,
                              new Vector2(0f, uV[k]), new Vector2(1f, uV[k]), new Vector2(1f, uV[k]), new Vector2(0f, uV[k]));
+                ConCtx("union-node-seam", e.index, side, -1, deck);
                 if (standS && shape == DeckPairs.Median.Barrier)
                     EmitUnionJersey(a0s, b0s, a1s, b1s, uV[k], uV[k], BarrierH - (short_ > 0.05f ? 0f : 0.02f), BarrierH - (short_ > 0.05f ? 0f : 0.02f), short_ > 0.05f ? 0f : 0.02f);
                 nodeSeams++;
@@ -1659,6 +1661,7 @@ namespace PSXRacing.City
                 bool fullV = end == 0 ? full0 : full1;
                 EmitUnionEnd(map, tm, e, run, side, uA[k], uB[k], outw, deck, uV[k], end == 0 ? run.s0 : run.s1, uOut[k] && !fullV ? shape : DeckPairs.Median.Flush);
                 // (round 9) the split's two leg feet, carried on along each carriageway's edge
+                ConCtx("union-split-feet", e.index, side, -1, deck);
                 if (end == 0 ? sp0 : sp1) EmitSplitFeet(map, trims, e, run, side, end, uA[k], uB[k], org, uV[k]);
             }
         }
@@ -1694,6 +1697,30 @@ namespace PSXRacing.City
         /// strip at each side's height and its top 0.81 m over the higher.</summary>
         static void EmitUnionJersey(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float v0, float v1,
                                     float h0 = BarrierH, float h1 = BarrierH, float inset = 0f)
+        {
+            // THE CONCRETE GATE (CityMeshes.Concrete.cs): every piece passes it, whatever rule asked
+            int conV = barrierBucket.v.Count;
+            if (conActive)
+            {
+                int parts = ConGate(ConKind.UnionJersey, 0.5f * (a0 + b0), 0.5f * (a1 + b1), Vector2.zero, BarrierW * 0.5f, h0, h1, false, false);
+                if (parts >= 0)
+                {
+                    for (int k = 0; k < parts; k++)
+                    {
+                        var r = conRuns[k];
+                        EmitUnionJerseyCore(Vector3.Lerp(a0, a1, r.t0), Vector3.Lerp(b0, b1, r.t0), Vector3.Lerp(a0, a1, r.t1), Vector3.Lerp(b0, b1, r.t1),
+                                            Mathf.Lerp(v0, v1, r.t0), Mathf.Lerp(v0, v1, r.t1),
+                                            ConH(Mathf.Lerp(h0, h1, r.t0), r.k0), ConH(Mathf.Lerp(h0, h1, r.t1), r.k1), inset);
+                    }
+                    ConCover(conV);
+                    return;
+                }
+            }
+            EmitUnionJerseyCore(a0, b0, a1, b1, v0, v1, h0, h1, inset);
+            ConCover(conV);
+        }
+
+        static void EmitUnionJerseyCore(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float v0, float v1, float h0, float h1, float inset)
         {
             var bk = barrierBucket;
             Vector3 c0 = 0.5f * (a0 + b0), c1 = 0.5f * (a1 + b1);
@@ -1789,6 +1816,10 @@ namespace PSXRacing.City
                 // end at its carriageway's height + h (the parapet it meets), its
                 // inner end at the two-level Jersey's cap line
                 if (JerseyTwoLevelOn) { top0 = foot0 + KerbFaceM + BarrierH; top1 = foot1 + KerbFaceM + BarrierH; }
+                // THE CONCRETE GATE (CityMeshes.Concrete.cs): a leg stands whole or not at all
+                int conV = barrierBucket.v.Count;
+                if (conActive && ConGate(ConKind.UnionLeg, new Vector3(p0.x, foot0 + KerbFaceM, p0.z), new Vector3(p1.x, foot1 + KerbFaceM, p1.z), Vector2.zero, half,
+                                         top0 - foot0 - KerbFaceM, top1 - foot1 - KerbFaceM, f0 <= 1e-3f, f1 <= 1e-3f, true) >= 0) continue;
                 barrierBucket.WallSloped(p0 + n3, p1 + n3, foot0, top0, foot1, top1, nrm, v0, v1, 0.3f, 0.45f);
                 barrierBucket.WallSloped(p0 - n3, p1 - n3, foot0, top0, foot1, top1, -nrm, v0, v1, 0.3f, 0.45f);
                 barrierBucket.Up(new Vector3(p0.x + n3.x, top0, p0.z + n3.z), new Vector3(p1.x + n3.x, top1, p1.z + n3.z),
@@ -1804,6 +1835,7 @@ namespace PSXRacing.City
                 if (f1 <= 1e-3f)
                     barrierBucket.Face(new Vector3(p1.x - n3.x, foot1, p1.z - n3.z), new Vector3(p1.x - n3.x, top1, p1.z - n3.z),
                                        new Vector3(p1.x + n3.x, top1, p1.z + n3.z), new Vector3(p1.x + n3.x, foot1, p1.z + n3.z), d3, uvC, uvC, uvC, uvC);
+                ConCover(conV);
             }
         }
 
@@ -1861,7 +1893,9 @@ namespace PSXRacing.City
                 JerseyTops(a.y, b.y, fl, fr, TaperFootM, out float topL, out float topR);
                 Vector3 l = c - d * h, r = c + d * h;
                 var uv = new Vector2(0.3f, v);
+                int conV = barrierBucket.v.Count;
                 barrierBucket.Face(new Vector3(l.x, foot, l.z), new Vector3(l.x, topL, l.z), new Vector3(r.x, topR, r.z), new Vector3(r.x, foot, r.z), o3, uv, uv, uv, uv);
+                ConCover(conV);
             }
         }
 

@@ -219,6 +219,7 @@ namespace PSXRacing.City
                             var d = new Vector2(b.x - a.x, b.z - a.z) / len;
                             var outw = new Vector2(d.y, -d.x);
                             var half = new Vector3(outw.x, 0f, outw.y) * (BarrierW * 0.5f);
+                            ConCtx("centre-carry", e.index, 0, -1, false);
                             EmitBarrier(L(new Vector2(a.x, a.z), a.y, tm) - half, L(new Vector2(b.x, b.z), b.y, tm) - half, outw,
                                         v * 0.25f, (v + len) * 0.25f, i == 1, i == path.Count - 1);
                         }
@@ -2246,6 +2247,7 @@ namespace PSXRacing.City
 
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
+            ConcreteTileBegin(map, trims, tm, tx, tz);   // the concrete gate (CityMeshes.Concrete.cs)
             unionJerseyTally = 0f;
             guardBucket.Clear();
             structBucket.Clear();
@@ -2338,6 +2340,7 @@ namespace PSXRacing.City
             SlabNormals(tm, roadSlots);   // the road slab's faces and tongues shade as the road (RoadSlab.cs)
             stepPart = 0;
             yield return 0;
+            ConcreteTileEnd();
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.unionJerseyM = unionJerseyTally;
             tm.guardrails = MeshFromBucket("guardrails", guardBucket);
@@ -3392,6 +3395,7 @@ namespace PSXRacing.City
             float v0 = n.hostArc / RoadVTile;
             // across the nose, its traffic face toward the gore; each of the
             // three pieces only where it stands in no lane (RailRunsOffLanes)
+            ConCtx(elev ? "nose-block-deck" : "nose-block-ground", n.H.index, side, -1, elev);
             EmitRailOffLanes(map, trims, o3, vOut, vIn, -fwd, -fwd, drop, v0, v0 + 0.5f, -1, new RailRecord { edge = -1, node = -2 });
             // ...AND A SLOPED V IN FRONT OF IT (hotfix 2026-10-03: the block's
             // face stood square to the gore's traffic - the owner's "concrete
@@ -3444,6 +3448,7 @@ namespace PSXRacing.City
                     var perp = new Vector2(-dl.y, dl.x).normalized;
                     // the traffic face toward the lanes this leg's end sits beside
                     if (Vector2.Dot(perp, leg == 0 ? acrossOI : -acrossOI) < 0f) perp = -perp;
+                    ConCtx(elev ? "nose-leg-deck" : "nose-leg-ground", n.H.index, side, -1, elev);
                     EmitRailOffLanes(map, trims, o3, apex, end, perp, perp, drop, v0 - noseLen / RoadVTile, v0, -1,
                                      new RailRecord { edge = -1, node = -2 }, TaperFootM, RailH);
                 }
@@ -3456,6 +3461,7 @@ namespace PSXRacing.City
                 float hw = HostHalf(map, trims, Hn, sHn, rHn, side);
                 var e = pHn + rHn * (side * hw);
                 var inH = -rHn * side;
+                ConCtx(elev ? "nose-tail-deck" : "nose-tail-ground", Hn.index, side, -1, elev);
                 EmitRailOffLanes(map, trims, o3, vOut, new Vector3(e.x - o3.x, Hn.YAt(sHn), e.y - o3.z), inH, inH, drop, v0, v0 + 1f / RoadVTile, -1,
                                  new RailRecord { edge = Hn.index, side = side, node = -2, s0 = sHn, s1 = sHn });
             }
@@ -3465,6 +3471,7 @@ namespace PSXRacing.City
                 var rLb = new Vector2(-dEb.y, dEb.x);
                 var e = EdgePoint(Eb, sEb, pEb, rLb, n.lSign);
                 var inB = -rLb * n.lSign;
+                ConCtx(elev ? "nose-tail-deck" : "nose-tail-ground", Eb.index, n.lSign < 0f ? -1 : 1, -1, elev);
                 EmitRailOffLanes(map, trims, o3, vIn, new Vector3(e.x - o3.x, Eb.YAt(sEb), e.y - o3.z), inB, inB, drop, v0, v0 + 2f / RoadVTile, -1,
                                  new RailRecord { edge = Eb.index, side = n.lSign < 0f ? -1 : 1, node = -2, s0 = sEb, s1 = sEb });
             }
@@ -6705,6 +6712,7 @@ namespace PSXRacing.City
             var fB = eB + new Vector3(outB.x, 0f, outB.y) * flare[i];
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
             if (groundLog != null) groundTag = $"e{e.index} '{e.name}' side {(side < 0 ? "L" : "R")} span {A.s:0.0}..{B.s:0.0}";
+            ConCtx("side", e.index, side, -1, f.elev);   // the concrete gate: who asks (CityMeshes.Concrete.cs)
 
             // PLAN A2: a union side. Its owner draws the median from this edge
             // to the partner's (the slab, its soffit, curbs or a Jersey, and
@@ -6726,6 +6734,7 @@ namespace PSXRacing.City
                 float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
                       outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
                 EmitWBeamRun(tm, e, i, side, outAm, outBm);
+                ConNote(ConKind.WBeam, "w-beam-run", eA, eB, 0.15f, WBeamTopM, WBeamTopM);
                 tm.railMetres += len;
             }
             else if (sf.rail)
@@ -6760,12 +6769,13 @@ namespace PSXRacing.City
                     bool capA = q == 0 ? sf.capStart : overArm && railOverArm[q - 1];
                     bool capB = q == pieces - 1 ? sf.capEnd : overArm && railOverArm[q + 1];
                     float tpA = Mathf.Lerp(taper[i - 1], taper[i], t0), tpB = Mathf.Lerp(taper[i - 1], taper[i], t1);
+                    ConCtx(f.elev ? "side-rail-deck" : sf.retain ? "side-rail-retain" : "side-rail-ground", e.index, side, -1, f.elev);
                     EmitRail(a, b, ia, ib, drop, capA, capB,
                              Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1),
                              Mathf.Lerp(sinkA, sinkB, t0), Mathf.Lerp(sinkA, sinkB, t1), ovA, ovB,
                              Mathf.Lerp(TaperFootM, RailH, tpA), Mathf.Lerp(TaperFootM, RailH, tpB));
                     // (bridges round 2) a city street's bridge carries a metal bar on its parapet (CityMeshes.Bridges2)
-                    if (f.elev) EmitCityRail(e, a, b, ia, ib, Mathf.Lerp(TaperFootM, RailH, tpA), Mathf.Lerp(TaperFootM, RailH, tpB), ovA, ovB, Mathf.Lerp(A.s, B.s, t0), Mathf.Lerp(A.s, B.s, t1));
+                    if (f.elev && conLastWhole) EmitCityRail(e, a, b, ia, ib, Mathf.Lerp(TaperFootM, RailH, tpA), Mathf.Lerp(TaperFootM, RailH, tpB), ovA, ovB, Mathf.Lerp(A.s, B.s, t0), Mathf.Lerp(A.s, B.s, t1));
                     railLog?.Add(new RailRecord
                     {
                         edge = e.index, side = side, node = -1, s0 = Mathf.Lerp(A.s, B.s, t0), s1 = Mathf.Lerp(A.s, B.s, t1),
@@ -6779,7 +6789,11 @@ namespace PSXRacing.City
                 for (int dir = -1; dir <= 1; dir += 2)
                 {
                     var wbu = WbList(side, dir);
-                    if (!float.IsNaN(wbu[i - 1]) && !float.IsNaN(wbu[i])) EmitWBeam(tm, A, B, side, wbu[i - 1], wbu[i], DivOf(e) == null);
+                    if (!float.IsNaN(wbu[i - 1]) && !float.IsNaN(wbu[i]))
+                    {
+                        EmitWBeam(tm, A, B, side, wbu[i - 1], wbu[i], DivOf(e) == null);
+                        ConNote(ConKind.WBeam, "w-beam-lead-in", eA, eB, 0.15f, WBeamTopM, WBeamTopM);
+                    }
                 }
             if (f.elev)
             {
@@ -6828,6 +6842,7 @@ namespace PSXRacing.City
 
             if (sf.median)
             {
+                ConCtx("side-median", e.index, side, -1, f.elev);
                 EmitBarrier(eA, eB, outA, v0, v1, sf.capStart, sf.capEnd,
                             Mathf.Lerp(TaperFootM, BarrierH, taper[i - 1]), Mathf.Lerp(TaperFootM, BarrierH, taper[i]));
                 tm.medianJerseyM += Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
@@ -6841,8 +6856,12 @@ namespace PSXRacing.City
                 // a car below that met it was touching road.
                 float yA = RetainFootY(map, A, side, eA) - CityElevation.CorridorSink;
                 float yB = RetainFootY(map, B, side, eB) - CityElevation.CorridorSink;
+                int conV = barrierBucket.v.Count;
                 barrierBucket.WallSloped(eA, eB, Mathf.Min(yA, eA.y - KerbFaceM), eA.y,
                                          Mathf.Min(yB, eB.y - KerbFaceM), eB.y, outA, v0, v1, 0f, 0.15f);
+                ConCover(conV);
+                ConCtx("side-retain-face", e.index, side, -1, f.elev);
+                ConNote(ConKind.RetainFace, "side-retain-face", eA, eB, 0f, 0f, 0f);
                 return;
             }
 
@@ -6855,6 +6874,7 @@ namespace PSXRacing.City
                     if (tm.cutWallByEdge.TryGetValue(e.index, out var cw)) cwm += cw.m;
                     tm.cutWallByEdge[e.index] = (cwm, sf.cutWhy, new Vector2(fA.x + tm.origin.x, fA.z + tm.origin.z));
                 }
+                ConCtx("side-cut-wall", e.index, side, -1, f.elev);
                 EmitBarrier(fA, fB, outA, v0, v1, sf.capStart, sf.capEnd);
                 // A flared end stands its face off the edge, and there was
                 // nothing between the two but the lattice a sink and more
@@ -8691,6 +8711,31 @@ namespace PSXRacing.City
         static void EmitBarrier(Vector3 a, Vector3 b, Vector2 outward, float v0, float v1, bool capA, bool capB,
                                 float hA = BarrierH, float hB = BarrierH)
         {
+            // THE CONCRETE GATE (CityMeshes.Concrete.cs): every piece passes it, whatever rule asked
+            int conV = barrierBucket.v.Count;
+            if (conActive)
+            {
+                var off = Flat(outward) * (BarrierW * 0.5f);
+                int parts = ConGate(ConKind.Jersey, a + off, b + off, outward, BarrierW * 0.5f, hA, hB, capA, capB);
+                if (parts >= 0)
+                {
+                    for (int k = 0; k < parts; k++)
+                    {
+                        var r = conRuns[k];
+                        EmitBarrierCore(Vector3.Lerp(a, b, r.t0), Vector3.Lerp(a, b, r.t1), outward, Mathf.Lerp(v0, v1, r.t0), Mathf.Lerp(v0, v1, r.t1),
+                                        r.t0 <= 0f ? capA : r.cut0, r.t1 >= 1f ? capB : r.cut1,
+                                        ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), ConH(Mathf.Lerp(hA, hB, r.t1), r.k1));
+                    }
+                    ConCover(conV);
+                    return;
+                }
+            }
+            EmitBarrierCore(a, b, outward, v0, v1, capA, capB, hA, hB);
+            ConCover(conV);
+        }
+
+        static void EmitBarrierCore(Vector3 a, Vector3 b, Vector2 outward, float v0, float v1, bool capA, bool capB, float hA, float hB)
+        {
             var bk = barrierBucket;
             var o = Flat(outward) * BarrierW;
             var upA = Vector3.up * hA; var upB = Vector3.up * hB;
@@ -8723,6 +8768,38 @@ namespace PSXRacing.City
         static void EmitRail(Vector3 a, Vector3 b, Vector2 inA, Vector2 inB, float drop, bool capA, bool capB, float v0, float v1,
                              float sinkA = 0f, float sinkB = 0f, float overhangA = RailOverhangM, float overhangB = RailOverhangM,
                              float hA = RailH, float hB = RailH)
+        {
+            // THE CONCRETE GATE (CityMeshes.Concrete.cs): every piece passes it, whatever rule asked
+            int conV = barrierBucket.v.Count;
+            if (conActive)
+            {
+                // its footprint: from the traffic face RailW inside the edge to the outer face its overhang outside
+                Vector3 cA = a + Flat(inA) * (0.5f * (RailW - overhangA)), cB = b + Flat(inB) * (0.5f * (RailW - overhangB));
+                int parts = ConGate(ConKind.Rail, cA, cB, -(inA + inB), 0.5f * (RailW + Mathf.Max(overhangA, overhangB)), hA, hB, capA, capB);
+                if (parts >= 0)
+                {
+                    for (int k = 0; k < parts; k++)
+                    {
+                        var r = conRuns[k];
+                        var i0 = Vector2.Lerp(inA, inB, r.t0); var i1 = Vector2.Lerp(inA, inB, r.t1);
+                        if (i0.sqrMagnitude > 1e-8f) i0.Normalize();
+                        if (i1.sqrMagnitude > 1e-8f) i1.Normalize();
+                        EmitRailCore(Vector3.Lerp(a, b, r.t0), Vector3.Lerp(a, b, r.t1), i0, i1, drop,
+                                     r.t0 <= 0f ? capA : r.cut0, r.t1 >= 1f ? capB : r.cut1, Mathf.Lerp(v0, v1, r.t0), Mathf.Lerp(v0, v1, r.t1),
+                                     Mathf.Lerp(sinkA, sinkB, r.t0), Mathf.Lerp(sinkA, sinkB, r.t1),
+                                     Mathf.Lerp(overhangA, overhangB, r.t0), Mathf.Lerp(overhangA, overhangB, r.t1),
+                                     ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), ConH(Mathf.Lerp(hA, hB, r.t1), r.k1));
+                    }
+                    ConCover(conV);
+                    return;
+                }
+            }
+            EmitRailCore(a, b, inA, inB, drop, capA, capB, v0, v1, sinkA, sinkB, overhangA, overhangB, hA, hB);
+            ConCover(conV);
+        }
+
+        static void EmitRailCore(Vector3 a, Vector3 b, Vector2 inA, Vector2 inB, float drop, bool capA, bool capB, float v0, float v1,
+                                 float sinkA, float sinkB, float overhangA, float overhangB, float hA, float hB)
         {
             var bk = barrierBucket;
             var upA = Vector3.up * hA; var upB = Vector3.up * hB;
@@ -10603,8 +10680,12 @@ namespace PSXRacing.City
                             y0 = Mathf.Min(k0.pos.y - KerbFaceM, LatticeY(map, k0.pos.x + tm.origin.x + nrm.x * RailOverhangM, k0.pos.z + tm.origin.z + nrm.y * RailOverhangM) - CityElevation.CorridorSink);
                             y1 = Mathf.Min(k1.pos.y - KerbFaceM, LatticeY(map, k1.pos.x + tm.origin.x + nrm.x * RailOverhangM, k1.pos.z + tm.origin.z + nrm.y * RailOverhangM) - CityElevation.CorridorSink);
                         }
+                        int conV = barrierBucket.v.Count;
                         (onStructure ? con : barrierBucket).WallSloped(k0.pos, k1.pos, y0, k0.pos.y, y1, k1.pos.y,
                                                                          nrm, 0f, 0.6f, 0f, 0.15f);
+                        ConCover(conV);
+                        ConCtx(onStructure ? "fan-chord-rail-deck" : "fan-chord-rail-ground", -1, 0, n, onStructure);
+                        if (!onStructure) ConNote(ConKind.RetainFace, "fan-chord-retain-face", k0.pos, k1.pos, 0f, 0f, 0f);
                         // only where it stands in no other road's lane (RailRunsOffLanes)
                         tm.railMetres += EmitRailOffLanes(map, trims, tm.origin, k0.pos, k1.pos, -nrm, -nrm, onStructure ? dk : RailBuryM, 0f, len / RoadVTile, n,
                                                           new RailRecord { edge = -1, side = 0, node = n });
@@ -10620,6 +10701,7 @@ namespace PSXRacing.City
                     // it from one arm's own to the next's - they ended square and open at the fan
                     if (!onStructure && MedianChordJersey(map, trims, n, k0.edge, k0.side, k0.node, k1.edge, k1.side, k1.node))
                     {
+                        ConCtx("fan-chord-jersey", -1, 0, n, false);
                         EmitBarrier(k0.pos, k1.pos, nrm, 0f, len / RoadVTile, false, false);
                         r9FanChords++;
                     }
