@@ -1165,7 +1165,9 @@ namespace PSXRacing.City
             float gap = best - (sx > 0 ? xp : xm) - (sy > 0 ? yp : ym);
             if (gap > (ConTwinNamesOn ? ConTwinGapMaxM : GroundTwinGapMaxM) || gap < DeckPairs.SqueezeM) { TwinWhy = $"gap {gap:0.00} m to e{Y.index}"; return false; }
             // (concrete round 2) a median with lanes in it (the US 74 busway / its 2026 express lanes) keeps a barrier each side: only the walk's own pairs there
-            if (ConTwinNamesOn && (Y.name != X.name || gap > GroundTwinGapMaxM) && (ConTwinKeepTwo(X) || ConTwinKeepTwo(Y))) { TwinWhy = $"a median with lanes in it (e{Y.index})"; return false; }
+            // ...and a structure keeps its own parapets (they guard the fall between twin decks: the bridges audit's RAIL-FLUSH rose by one on I-77 without this)
+            if (ConTwinNamesOn && (Y.name != X.name || gap > GroundTwinGapMaxM) && (ConTwinKeepTwo(X) || ConTwinKeepTwo(Y) || X.bridge || Y.bridge || X.ElevatedAt(x) || Y.ElevatedAt(y)))
+            { TwinWhy = $"a median with lanes in it or a structure (e{Y.index})"; return false; }
             // a deck's or an approach's run already there keeps its place
             if (TwinBridgesOn ? CoveredDrawn(map, t, X.index, sx, x) || CoveredDrawn(map, t, Y.index, sy, y) : CoveredOn(t, X.index, sx, x) || CoveredOn(t, Y.index, sy, y))
             { TwinWhy = $"covered (e{Y.index}, gap {gap:0.00})"; twinRefusedCovered = true; return false; }

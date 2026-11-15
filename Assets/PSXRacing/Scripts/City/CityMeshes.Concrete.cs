@@ -52,13 +52,13 @@ namespace PSXRacing.City
         static readonly bool conPaveOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_PAVE") == "0";
         public static bool ConcretePaveOn => ConcreteOn && !conPaveOff;
 
-        /// <summary>(round 2, class d: two Jerseys along one narrow median) PSX_CITY_CONC_TWIN=1: the ground-twin
+        /// <summary>(round 2, class d: two Jerseys along one narrow median; ON, PSX_CITY_CONC_TWIN=0 off) the ground-twin
         /// walk (CityMeshes.Unions.cs, GroundTwinRuns / GroundTwinSample) pairs two opposing carriageways whatever
         /// their names - a freeway's carriageways often carry two (I-77 / "B. Bayles Mack Highway"), and an unnamed
         /// one pairs too - so the pair carries ONE median barrier on the strip's centre line instead of each its own
         /// Jersey at its edge. A pair of different names is taken only median side to median side. Decided at load
         /// from the whole map (the union runs), so the two tiles of a seam agree. With PSX_CITY_CONCRETE=0 it is off.</summary>
-        public static bool ConTwinNamesOn = ConcreteOn && System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_TWIN") == "1";
+        public static bool ConTwinNamesOn = ConcreteOn && System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_TWIN") != "0";
         /// <summary>(round 2) With the twin switch on, the widest gap between the two carriageways' line-model edges the walk pairs
         /// (PSX_CITY_CONC_TWIN_GAP, metres; default 12 m: walls 9.5 m apart and less stand on medians the line model reads up to 12 m wide;
         /// AASHTO RDG 2011 ch. 6 recommends a median barrier up to 30 ft and weighs one at 30-50 ft - never two).</summary>
@@ -493,10 +493,10 @@ namespace PSXRacing.City
                     conPaveCutM += paveM;
                 }
             }
-            // 6. NO REASON (round 2, class b): a median Jersey, a cut wall or a fan chord's Jersey with none of R1-R3
+            // 6. NO REASON (round 2, class b): a median Jersey or a fan chord's Jersey with none of R1-R3
             // where it stands is not built (ConNoReason: decided from the map at the piece alone, so every tile agrees)
             if (parts != 0 && ConcreteReasonOn && kind == ConKind.Jersey && !conElev && !conHold && len >= 0.05f && conMap != null
-                && (conRule == "side-median" || conRule == "side-cut-wall" || conRule == "fan-chord-jersey")
+                && (conRule == "side-median" || conRule == "fan-chord-jersey")
                 && ConNoReason(a2, b2, a.y + conOrigin.y, b.y + conOrigin.y, outward))
             {
                 if (parts < 0) conChanged++;
@@ -558,18 +558,20 @@ namespace PSXRacing.City
 
         // ---- 6. NO REASON -------------------------------------------------------------
         /// <summary>
-        /// 6. NO REASON (round 2, class b; PSX_CITY_CONC_REASON=1). A barrier stands for a reason a highway engineer
+        /// 6. NO REASON (round 2, class b; ON, PSX_CITY_CONC_REASON=0 off). A barrier stands for a reason a highway engineer
         /// would accept: it divides opposing traffic (R1), guards a fall or holds land (R2), or shields a fixed object
         /// (R3). A median Jersey whose carriageway has no road the other way beyond it within 250 m (the Guion Lane
-        /// kind: the twin carriageway runs far off), a cut wall that holds no land, a fan chord's Jersey with nothing
-        /// beyond it, none of them guarding a fall, divide and guard nothing: they are not built. Kept: anything
+        /// kind: the twin carriageway runs far off) and a fan chord's Jersey with no road in the clear zone beyond it,
+        /// neither guarding a fall, divide and guard nothing: they are not built. NOT cut walls: judged at build time the
+        /// ground read flatter than the inventory reads it after the build, and the first city-wide run took 3 km of cut
+        /// walls that hold land (the inventory finds no cut wall without a reason). Kept: anything
         /// with a fall beside it or land over it (the run rules' own test, ConGuards), on structure or on a retaining
         /// face, with ANY road beyond it within the clear zone (10 m, AASHTO RDG Table 3.1 for 60-70 mph), with a road
         /// carrying traffic the other way within 250 m beyond it (a median of any width, as the inventory's R1), or
         /// with a structure within 40 m (its piers and abutments, its approach: R3, and the inventory's 40 m approach rule). Decided from the map at the piece alone.
         /// </summary>
         public static bool ConcreteReasonOn => ConcreteOn && conReasonSw;
-        static readonly bool conReasonSw = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_REASON") == "1";
+        static readonly bool conReasonSw = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_REASON") != "0";
         /// <summary>The audit's look at rule 6 for a recorded piece (world space; outward: away from its road).</summary>
         public static bool ConcreteNoReasonProbe(CityMap map, Trims trims, int edge, int side, Vector3 a, Vector3 b, Vector2 outward)
         {
