@@ -203,7 +203,7 @@ namespace PSXRacing.EditorTools
                     float nd = apDist[i] + Vector2.Distance(CnXZ(P[j].a), CnXZ(P[j].b));
                     if (nd >= apDist[j] || nd > CnApproachM) continue;
                     apDist[j] = nd;
-                    if (R.reason[j] == 0 && CnConcrete(P[j].kind)) R.reason[j] = 2;
+                    if ((R.reason[j] == 0 || R.reason[j] == 1) && CnConcrete(P[j].kind)) R.reason[j] = 2;   // (an approach guards, whatever else it does)
                     queue.Enqueue(j);
                 }
             }
