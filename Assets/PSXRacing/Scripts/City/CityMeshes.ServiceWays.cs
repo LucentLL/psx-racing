@@ -605,11 +605,23 @@ namespace PSXRacing.City
                 if (lot.holeKind[h] != 1) continue;
                 if (hbs != null && h < hbs.Length) { var hb = hbs[h]; if (hb.z < qx0 - 0.3f || hb.x > qx1 + 0.3f || hb.w < qz0 - 0.3f || hb.y > qz1 + 0.3f) continue; }
                 var ring = lot.holes[h];
+                // (corners in the quad, the quad's corners in it, or two edges crossing: the service drive found an
+                // island whose side cut a quad's corner with every corner of both outside - a wheel off for 0.27 s)
                 bool hit = false;
                 var c = 0.25f * (quad[0] + quad[1] + quad[2] + quad[3]);
                 if (InRing(ring, c)) hit = true;
+                for (int k = 0; k < 4 && !hit; k++) if (InRing(ring, quad[k])) hit = true;
                 for (int k = 0; k < ring.Length && !hit; k++)
-                    if (ServiceInQuad(quad, ring[k], 0.2f) || ServiceInQuad(quad, 0.5f * (ring[k] + ring[(k + 1) % ring.Length]), 0.2f)) hit = true;
+                {
+                    Vector2 ra = ring[k], rb = ring[(k + 1) % ring.Length];
+                    if (ServiceInQuad(quad, ra, 0.3f) || ServiceInQuad(quad, 0.5f * (ra + rb), 0.3f)) { hit = true; break; }
+                    for (int j = 0; j < 4 && !hit; j++)
+                    {
+                        Vector2 qa = quad[j], qb = quad[(j + 1) & 3];
+                        float d1 = Cross2(rb - ra, qa - ra), d2 = Cross2(rb - ra, qb - ra), d3 = Cross2(qb - qa, ra - qa), d4 = Cross2(qb - qa, rb - qa);
+                        if ((d1 > 0f) != (d2 > 0f) && (d3 > 0f) != (d4 > 0f)) hit = true;
+                    }
+                }
                 if (!hit) continue;
                 if (!cutIslands.TryGetValue(li, out var set)) cutIslands[li] = set = new HashSet<int>();
                 set.Add(h);
@@ -655,8 +667,9 @@ namespace PSXRacing.City
                     if (!seen.Add(key)) continue;
                     var pa = a + d * ((float)j / kp); var pb = a + d * ((float)(j + 1) / kp);
                     var land = 0.5f * (pa + pb) + outw * 0.8f;
-                    // (a piece whose middle a way covers is dropped by that way's own quad)
-                    if (ServiceWayAt(map, land, -0.15f, out _, out _)) continue;
+                    // (a piece whose test point this quad covers is dropped by the quad itself; a neighbouring
+                    // segment that covers it may lie on the lot and lay no quad, so nothing else is trusted)
+                    if (ServiceInQuad(quad, land, -0.05f)) continue;
                     var ring = new[] { pa - outw * 0.4f, pb - outw * 0.4f, pb + outw * 1.7f, pa + outw * 1.7f };
                     if (Cross2(ring[1] - ring[0], ring[2] - ring[1]) < 0f) System.Array.Reverse(ring);
                     for (int k = 0; k < 60 && IsFresh(ring[0]) != fresh; k++) ring[0] -= outw * 0.011f;
