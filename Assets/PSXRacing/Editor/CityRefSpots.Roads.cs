@@ -55,6 +55,17 @@ namespace PSXRacing.EditorTools
                 var car = player.GetComponent<CarController>();
                 log.Append($"graph hash {CityMap.GraphHashOf(map.edges):x8}; turn pockets {(CityMeshes.TurnPocketsOn ? "on" : "off")}\n");
 
+                // PSX_ROADS_AB=Field:1 - a public static bool of CityMeshes and its BEFORE value: two pairs a place
+                System.Reflection.FieldInfo abField = null; bool abBefore = false;
+                string ab = System.Environment.GetEnvironmentVariable("PSX_ROADS_AB");
+                if (!string.IsNullOrWhiteSpace(ab))
+                {
+                    var kv = ab.Split(':');
+                    abField = typeof(CityMeshes).GetField(kv[0].Trim(), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (abField == null || abField.FieldType != typeof(bool)) throw new System.Exception("PSX_ROADS_AB: CityMeshes has no public static bool " + kv[0]);
+                    abBefore = kv.Length > 1 && kv[1].Trim() == "1";
+                    log.Append($"A/B on CityMeshes.{abField.Name}: before = {abBefore}, after = {!abBefore}\n");
+                }
                 RaceHandoff.CalendarDay = 0;
                 RaceHandoff.WeatherOverride = -1;
                 TimeOfDay.Apply(TimeOfDay.Noon, sun);
@@ -86,17 +97,26 @@ namespace PSXRacing.EditorTools
                     var road = new Vector3(p.x, y, p.y) + rightV * lat;
                     var rot = Quaternion.LookRotation(fh, Vector3.up);
 
-                    world.DropAll();
-                    world.EnsureRing(road + fh * 200f, 2);
-                    var park = road - fh * 60f;
-                    if (car != null) car.TeleportTo(park + Vector3.up * 0.35f, rot); else player.transform.SetPositionAndRotation(park, rot);
-                    CarLights.PushGlobals();
-
                     Vector3 eye = road + Vector3.up * 1.15f;
-                    PSXScreenshotTool.ShotAs(cam, $"roads/{id}_eye", eye, Quaternion.LookRotation(fh * 40f + Vector3.down * 0.25f));
                     Vector3 high = new Vector3(p.x, y, p.y) - fh * 14f + Vector3.up * 7f;
-                    PSXScreenshotTool.ShotAs(cam, $"roads/{id}_high", high, Quaternion.LookRotation(new Vector3(p.x, y, p.y) + fh * 70f - high));
-                    shots += 2;
+                    void Pair(string tag)
+                    {
+                        world.DropAll();
+                        world.EnsureRing(road + fh * 200f, 2);
+                        var park = road - fh * 60f;
+                        if (car != null) car.TeleportTo(park + Vector3.up * 0.35f, rot); else player.transform.SetPositionAndRotation(park, rot);
+                        CarLights.PushGlobals();
+                        PSXScreenshotTool.ShotAs(cam, $"roads/{id}_eye{tag}", eye, Quaternion.LookRotation(fh * 40f + Vector3.down * 0.25f));
+                        PSXScreenshotTool.ShotAs(cam, $"roads/{id}_high{tag}", high, Quaternion.LookRotation(new Vector3(p.x, y, p.y) + fh * 70f - high));
+                        shots += 2;
+                    }
+                    if (abField == null) Pair("");
+                    else
+                    {
+                        // the same pose with a switch as it was (before) and as it is now (after), the tiles built again between
+                        abField.SetValue(null, abBefore); Pair("_before");
+                        abField.SetValue(null, !abBefore); Pair("_after");
+                    }
 
                     // what the game has here
                     int ahead = dirSign > 0 ? e.b : e.a;

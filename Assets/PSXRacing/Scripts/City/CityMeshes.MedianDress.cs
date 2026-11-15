@@ -76,6 +76,18 @@ namespace PSXRacing.City
             "Wilkinson Boulevard", "North Tryon Street", "South Boulevard",
         };
 
+        /// <summary>(roads review, 2026-11-15) A listed concrete road is concrete only
+        /// where its island is NARROW. The 11-09 survey looked at the monolithic
+        /// 1-2 m islands; the road-level pairs of 11-15 found the WIDE islands of the
+        /// same roads planted or grassed (Wilkinson Blvd at Morris Field Dr: raised
+        /// grass about 6 m; at Ashley Rd: mulch and crepe myrtles; South Blvd at
+        /// Woodlawn: a planter with shrubs), and the game drew 5-15 m slabs of bare
+        /// concrete there. From this width up the island takes the general rule (a
+        /// bed under MedianBedMaxW, grass above, concrete at noses and pockets).
+        /// PSX_CITY_MEDIANCONC_WIDE=1: concrete at any width, as before.</summary>
+        public const float MedianConcreteRoadMaxW = 3f;
+        public static bool MedianConcRoadWide = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANCONC_WIDE") == "1";
+
         public const int MedianTopGrass = 0, MedianTopConcrete = 1, MedianTopBed = 2;
 
         // ---- the arterials pass (2026-11-10): what the median pass left ----------
@@ -297,7 +309,7 @@ namespace PSXRacing.City
                 cmDb[k] = db; cmDf[k] = df;
                 if (concWay) continue;
                 if (cmK[k] < 0.5f) continue;                                    // grass at grade: no curb, no bed
-                if (concRoad) { cmTop[k] = MedianTopConcrete; continue; }
+                if (concRoad && (MedianConcRoadWide || cmG[k] < MedianConcreteRoadMaxW)) { cmTop[k] = MedianTopConcrete; continue; }
                 float w = cmG[k];
                 if (w < MedianConcreteMaxW) { cmTop[k] = MedianTopConcrete; continue; }
                 if (cmFast[k]) continue;                                        // a fast trunk: grass
