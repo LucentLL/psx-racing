@@ -206,7 +206,7 @@ namespace PSXRacing.EditorTools
                 int r = CnFind(R.run, i);
                 R.runLen[i] = lenOf[r];
                 float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
-                if (p.paveM >= 0.25f) R.cls[i] |= CnPave;
+                if (p.paveM > 0f) R.cls[i] |= CnPave;
                 if (R.reason[i] == 0 && (R.cls[i] & CnPave) == 0) R.cls[i] |= CnNoReason;
                 if (R.runLen[i] < CnOrphanM && Mathf.Max(p.hA, p.hB) > 0.2f && !openRuns.Contains(r)) R.cls[i] |= CnOrphan;
                 float cap = p.kind == CityMeshes.ConKind.Rail ? CityMeshes.RailH : CityMeshes.BarrierH;
@@ -614,6 +614,25 @@ namespace PSXRacing.EditorTools
                 }
                 Table(two ? "BEFORE (as the rules asked)" : "INVENTORY", RB);
                 if (two) Table("AFTER (as the gate built)", RA);
+                if (two)
+                {
+                    // did the gate touch anything outside the stray classes?
+                    int touched = 0, outside = 0; float outsideM = 0f;
+                    var outRules = new SortedDictionary<string, int>(StringComparer.Ordinal);
+                    for (int i = 0; i < RB.p.Count; i++)
+                    {
+                        var p = RB.p[i];
+                        if (p.stage != 0 || !CnConcrete(p.kind)) continue;
+                        touched++;
+                        if (RB.cls[i] != 0) continue;
+                        outside++; outsideM += Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        outRules.TryGetValue(p.rule, out int c); outRules[p.rule] = c + 1;
+                    }
+                    var ors = new StringBuilder();
+                    foreach (var kv in outRules) ors.Append($" {kv.Key} {kv.Value}");
+                    sb.AppendLine();
+                    sb.AppendLine($"pieces the gate changed or left out: {touched}; of these in NO stray class before: {outside} ({outsideM:0} m){ors}");
+                }
 
                 // ---- clusters (200 m cells) of the BEFORE strays; the pieces file
                 var cells = new Dictionary<long, (float w, int[] c, Vector2 sum, float sumW, int best, float bestW)>();

@@ -652,7 +652,13 @@ namespace PSXRacing.City
                 EmitBarrierCore(r.ea, r.eb, r.outw, r.u0, r.u1, r.capA, r.capB, hA, hB);
                 conCovered += barrierBucket.v.Count - v;
                 conEndsTurned++;
-                if (concreteLog != null && r.log >= 0) { var e = concreteLog[r.log]; e.hA = hA; e.hB = hB; concreteLog[r.log] = e; }
+                if (concreteLog != null && r.log >= 0)
+                {
+                    // the record: as asked (the before), and as built with its end turned down (the after)
+                    var e = concreteLog[r.log];
+                    if (e.stage == 2) { e.stage = 0; concreteLog[r.log] = e; e.stage = 1; e.hA = hA; e.hB = hB; concreteLog.Add(e); }
+                    else { e.hA = hA; e.hB = hB; concreteLog[r.log] = e; }
+                }
             }
             conChanged += conOrphans + conEndsTurned;
         }
