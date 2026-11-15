@@ -61,8 +61,183 @@ namespace PSXRacing.City
         /// <summary>Tools that flip Curbs3On / Inlet2On between builds: the per-edge caches the rule feeds.</summary>
         public static void Curbs3Reset()
         {
-            walkMapFor = null; cs2MapFor = null; noEdgeMap = null;
+            walkMapFor = null; cs2MapFor = null; noEdgeMap = null; cs3ClassMap = null;
             cs3PlanEdge = -1; cs3Plan.Clear();
+        }
+
+        // ==================================================================
+        //  PART 2 - CURB AND GUTTER WHERE REAL CHARLOTTE HAS IT
+        //  (PSX_CITY_CURBS3=0: the 11-11 rule).
+        //
+        //  THE CAUSE. WalkEdge gave a curb only to a street near the Square
+        //  (UrbanCoreM) or beside a non-house building: every subdivision
+        //  street, and every arterial through houses, ended at grass. Real
+        //  Charlotte has curb and gutter on nearly every city street (CLDSM:
+        //  valley gutter or 2'-6" curb and gutter on local residential
+        //  streets, 2'-6" on commercial streets and thoroughfares); open
+        //  shoulders and ditches are the rural sections, freeways and ramps.
+        //
+        //  THE RULE, per edge, from the map (CurbClassOf):
+        //    not a surface street (ramp, freeway, bridge, tunnel, alley): none;
+        //    near the Square or beside a non-house building (the 11-11 walk
+        //      streets): the VERTICAL curb, gutter pan and walk as before -
+        //      and a house street near the Square (the pre-war grid: Fourth
+        //      Ward, Dilworth, Elizabeth, Biddleville, Wesley Heights) is
+        //      now VERTICAL too, its frontage lawn, not paved (PSX_CITY_PREWAR=0:
+        //      rolled with a paved frontage, as 11-11);
+        //    else BUILT-UP (a real footprint or a generated building within
+        //      BuiltReachM of the street, or a gap between two built
+        //      stretches):
+        //        local (class 0): the ROLL curb alone - CLDSM 10.17B's 2'-0"
+        //          valley gutter, CurbOnlyW wide, the lawn from its back; no
+        //          walk (the city required sidewalks in new subdivisions only
+        //          from 1998; most of 1950-1990 Charlotte has none);
+        //        collector / arterial (class 1-3): the VERTICAL curb, pan and
+        //          walk (the thoroughfare section);
+        //    else (nothing built beside it: a rural section): none, as now.
+        //  A corner between two roll-curb streets is a curb return (a strip
+        //  round the ring), not a paved fan. A roll curb is not cut at a
+        //  driveway (a car drives over it: PSX_CITY_DRIVEROLL=0 cuts it as a
+        //  vertical curb is cut). A street's class eases over 8 m to its
+        //  neighbour's at a plain joint of two streets too.
+        // ==================================================================
+        public static bool PrewarOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PREWAR") != "0";
+        public static bool DriveRollOn = System.Environment.GetEnvironmentVariable("PSX_CITY_DRIVEROLL") != "0";
+        public const byte CurbNone = 0, CurbRollOnly = 1, CurbRollWalk = 2, CurbVertical = 3;
+        /// <summary>A house street (its frontage is lawn): or-ed into the cached class.</summary>
+        const byte CurbResidBit = 8;
+        /// <summary>CLDSM 10.17B: the 2'-0" valley gutter.</summary>
+        public const float CurbOnlyW = 0.61f;
+        const float CurbOnlyMinM = 0.5f;
+        /// <summary>Built-up: a building within this of the street's line, read every BuiltStepM along it.</summary>
+        const float BuiltReachM = 45f, BuiltStepM = 30f;
+        static sbyte[] cs3ClassCache, cs3RawCache; static CityMap cs3ClassMap;
+
+        static void EnsureCs3Class(CityMap map)
+        {
+            if (cs3ClassMap == map && cs3ClassCache != null && cs3ClassCache.Length == map.edges.Length) return;
+            cs3ClassMap = map;
+            cs3ClassCache = new sbyte[map.edges.Length];
+            cs3RawCache = new sbyte[map.edges.Length];
+        }
+
+        /// <summary>The street's curb class (CurbNone / CurbRollOnly / CurbRollWalk / CurbVertical).</summary>
+        public static byte CurbClassOf(CityMap map, CityMap.Edge e) => (byte)(Cs3ClassBits(map, e) & 7);
+        /// <summary>A house street: its frontage stays lawn.</summary>
+        static bool Cs3Residential(CityMap map, CityMap.Edge e) => Curbs3On && (Cs3ClassBits(map, e) & CurbResidBit) != 0;
+        /// <summary>The roll curb alone (no walk behind it).</summary>
+        public static bool CurbOnly(CityMap map, CityMap.Edge e) => Curbs3On && (Cs3ClassBits(map, e) & 7) == CurbRollOnly;
+        static float Cs3WalkW(CityMap map, CityMap.Edge e) => CurbOnly(map, e) ? CurbOnlyW : WalkWOf(map, e);
+        static float Cs3WalkMin(CityMap map, CityMap.Edge e) => CurbOnly(map, e) ? CurbOnlyMinM : WalkMinM;
+
+        static int Cs3ClassBits(CityMap map, CityMap.Edge e)
+        {
+            if (!WalksOn) return CurbNone;
+            EnsureCs3Class(map);
+            ref sbyte c = ref cs3ClassCache[e.index];
+            if (c != 0) return c - 1;
+            int bits = Cs3ClassUncached(map, e, out bool sure);
+            if (sure) c = (sbyte)(bits + 1);
+            return bits;
+        }
+
+        static int Cs3ClassUncached(CityMap map, CityMap.Edge e, out bool sure)
+        {
+            sure = true;
+            if (e.link || e.cls > 3 || e.tunnel || e.bridge || e.a == e.b) return CurbNone;
+            if (e.width < (e.oneway ? 4f : 6f)) return CurbNone;
+            bool core = false, shop = false;
+            for (int k = 1; k <= 3; k++)
+            {
+                var p = e.PointAt(e.length * k * 0.25f);
+                if (Vector2.Distance(p, map.uptown) < UrbanCoreM) core = true;
+                if (map.AnyFootprintNear(p, UrbanFootM, nonHouseOnly: true)) shop = true;
+            }
+            if (core || shop)
+            {
+                // the 11-11 walk streets; its rolled class was a house street near the Square
+                if (e.cls == 0 && !shop && !CityPoles.Uptown(map, e.PointAt(e.length * 0.5f)))
+                    return Curbs3On && PrewarOn ? CurbVertical | CurbResidBit : CurbRollWalk;
+                return CurbVertical;
+            }
+            if (!Curbs3On) return CurbNone;
+            bool built = Cs3Built(map, e, out sure);
+            if (!built) return CurbNone;
+            return e.cls == 0 ? CurbRollOnly | CurbResidBit : CurbVertical;
+        }
+
+        /// <summary>A building beside the street (raw), or a gap between two built stretches.</summary>
+        static bool Cs3Built(CityMap map, CityMap.Edge e, out bool sure)
+        {
+            if (Cs3BuiltRaw(map, e, out sure)) return true;
+            bool a = false, b = false, allSure = sure;
+            for (int end = 0; end < 2; end++)
+                foreach (int ei in map.nodeEdges[end == 0 ? e.a : e.b])
+                {
+                    if (ei == e.index) continue;
+                    var o = map.edges[ei];
+                    if (o.link || o.cls > 3 || o.tunnel || o.bridge || o.a == o.b) continue;
+                    bool r = Cs3BuiltRaw(map, o, out bool s2);
+                    allSure &= s2;
+                    if (r) { if (end == 0) a = true; else b = true; break; }
+                }
+            sure = allSure || (a && b);
+            return a && b;
+        }
+
+        static bool Cs3BuiltRaw(CityMap map, CityMap.Edge e, out bool sure)
+        {
+            sure = true;
+            ref sbyte c = ref cs3RawCache[e.index];
+            if (c != 0) return c > 0;
+            bool built = false;
+            int n = Mathf.Clamp(Mathf.CeilToInt(e.length / BuiltStepM), 1, 16);
+            for (int k = 0; k < n && !built; k++)
+            {
+                var p = e.PointAt(e.length * (k + 0.5f) / n);
+                built = map.AnyFootprintNear(p, BuiltReachM) || CityHouses.ProcBuildingNear(map, p, BuiltReachM);
+            }
+            // (before a tile build has bound the generated buildings, "nothing here" is not known yet)
+            sure = built || CityHouses.BoundTo(map);
+            if (sure) c = (sbyte)(built ? 1 : -1);
+            return built;
+        }
+
+        /// <summary>Does a street's class ease to its node's here (Cs2Mix)? A junction of three
+        /// or more, or (part 2) a plain joint of two streets of different classes.</summary>
+        static bool Cs3EaseNode(CityMap map, int node)
+        {
+            int n = map.nodeEdges[node].Count;
+            return n >= 3 || (Curbs3On && n == 2);
+        }
+
+        /// <summary>Lots (and anything else that opens a curb): an extra "is there an opening here"
+        /// test the walk's curb-cut read asks beside ApronAt (world x, z). Null: none.</summary>
+        public static System.Func<CityMap, float, float, bool> CurbOpeningAt;
+        /// <summary>Set while a rolled street's span is read for cuts: none (a car drives over the roll).</summary>
+        static bool cs3NoCutNow;
+
+        /// <summary>Tools: driveway mouths the walk spans crossed, while RecordHardware is set:
+        /// over a roll curb, through a cut (lip under 3 cm), or with a curb face across (a step over 3 cm).</summary>
+        public static int DrivesRoll, DrivesCut, DrivesFace;
+        public static readonly List<string> DrivesFaceAt = new List<string>();
+        static void Cs3AuditDrives(CityMap map, CityMap.Edge e, int side, Vector3 o, Vector3 eA, Vector3 eB, Vector2 outA, float sA, float sB, float wA, float wB)
+        {
+            if (!RecordHardware || tileDrives.Count == 0 || wA <= 0f || wB <= 0f || sB - sA < 0.05f) return;
+            foreach (var d in tileDrives)
+            {
+                if (d.edge != e.index || d.toLot || d.s < sA || d.s >= sB || Vector2.Dot(d.nrm, outA) <= 0f) continue;
+                float t = (d.s - sA) / (sB - sA);
+                int j = 1;
+                while (j < cutT.Count - 1 && cutT[j] < t) j++;
+                float c = Mathf.Lerp(cutC[j - 1], cutC[j], Mathf.Clamp01((t - cutT[j - 1]) / Mathf.Max(cutT[j] - cutT[j - 1], 1e-4f)));
+                float r = WalkRollAt(map, e, d.s), k = Cs3K(side, d.s);
+                // the step a wheel meets: a rolled section has none (a ramp); a vertical one its face
+                float step = r >= 0.5f && k < 0.5f ? 0f : Mathf.Lerp(VCurbH, RCurbH, r) * c;
+                if (r >= 0.5f && k < 0.5f) DrivesRoll++;
+                else if (step <= 0.03f) DrivesCut++;
+                else { DrivesFace++; if (DrivesFaceAt.Count < 40) DrivesFaceAt.Add($"e{e.index} '{e.name}' s {d.s:0.0} at ({d.foot.x:0.0},{d.foot.y:0.0}) step {step * 100f:0.0} cm r {r:0.00} k {k:0.00}"); }
+            }
         }
 
         /// <summary>NCDOT 840.03: the hood 3 ft 0-7/8 in along the curb, on a 6 in curb top, its lip 2-1/2 in deep.</summary>
@@ -107,6 +282,20 @@ namespace PSXRacing.City
             int si = side < 0 ? 0 : 1;
             curb = arr[i - 1] > 0f && arr[i] > 0f && s < walkStopHi[si] && s > walkStopLo[si];
             return true;
+        }
+
+        /// <summary>A ramp end of this side's walk (a section with none beside one with a walk,
+        /// or a branch's square stop) within reach along of arc s?</summary>
+        static bool Cs3RampEndWithin(int side, float s, float reach)
+        {
+            var arr = WalkArr(side);
+            int n = sections.Count, si = side < 0 ? 0 : 1;
+            for (int k = 0; k < n; k++)
+            {
+                if (arr[k] > 0f || Mathf.Abs(sections[k].s - s) >= reach) continue;
+                if ((k > 0 && arr[k - 1] > 0f) || (k + 1 < n && arr[k + 1] > 0f)) return true;
+            }
+            return Mathf.Abs(walkStopHi[si] - s) < reach || Mathf.Abs(walkStopLo[si] - s) < reach;
         }
 
         /// <summary>An apron (a driveway's or a lot's) on this side within reach along the curb of arc s?</summary>
@@ -154,6 +343,8 @@ namespace PSXRacing.City
                     {
                         float s = st.s + nudge;
                         if (!Cs3EdgeAt(side, s, out _, out _, out bool curb) || !curb) { why = 1; continue; }
+                        // a walk's ramp end eases its curb in over the wing (CurbCutWingM): no hood in a low curb
+                        if (Cs3RampEndWithin(side, s, InletApronClearM)) { why = 1; continue; }
                         float trans = 0f;
                         if (rolledEdge)
                         {
@@ -187,7 +378,7 @@ namespace PSXRacing.City
         }
 
         /// <summary>Does this street's curb run on across a driveway (no cut, no wing)? Part 2's rolled streets.</summary>
-        static bool Cs3NoCut(CityMap map, CityMap.Edge e) => false;
+        static bool Cs3NoCut(CityMap map, CityMap.Edge e) => Curbs3On && DriveRollOn && RolledEdge(map, e);
 
         /// <summary>The inlet share at arc s of a side: 1 at a rolled street's inlet (the
         /// vertical curb), easing to 0 (the roll) over the inlet's transition.</summary>

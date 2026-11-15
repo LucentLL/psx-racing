@@ -237,6 +237,8 @@ namespace PSXRacing.City
         public static bool RolledEdge(CityMap map, CityMap.Edge e)
         {
             if (!Curbs2On || !CurbRollOn) return false;
+            // (curbs 3) by the street's class: the roll curb alone, or 11-11's rolled walk street
+            if (Curbs3On) { int cc = CurbClassOf(map, e); return cc == CurbRollOnly || cc == CurbRollWalk; }
             EnsureCs2Cache(map);
             ref sbyte c = ref cs2EdgeCache[e.index];
             if (c == 0)
@@ -276,6 +278,7 @@ namespace PSXRacing.City
                 int f = 0;
                 if (WalkSide(map, e, 1)) f |= 1;
                 if (WalkSide(map, e, -1)) f |= 2;
+                if (Curbs3On && f == 0 && !CityHouses.BoundTo(map)) return 0;   // (curbs 3) not known before a tile build binds the buildings
                 c = (sbyte)(f + 1);
             }
             return c - 1;
@@ -286,7 +289,7 @@ namespace PSXRacing.City
         {
             EnsureCs2Cache(map);
             ref sbyte c = ref cs2NodeCache[node];
-            if (c == 0)
+            if (c == 0 || Curbs3On)
             {
                 bool any = false, all = true;
                 foreach (int ei in map.nodeEdges[node])
@@ -309,12 +312,12 @@ namespace PSXRacing.City
             float own = RolledEdge(map, e) ? 1f : 0f;
             if (sections.Count < 2) return own;
             float r = own;
-            if (map.nodeEdges[e.a].Count >= 3)
+            if (Cs3EaseNode(map, e.a))
             {
                 float k = LineModel.Smooth(Mathf.Clamp01((s - sections[0].s) / WalkBackEndEaseM));
                 r = Mathf.Lerp(RolledNode(map, e.a) ? 1f : 0f, r, k);
             }
-            if (map.nodeEdges[e.b].Count >= 3)
+            if (Cs3EaseNode(map, e.b))
             {
                 float k = LineModel.Smooth(Mathf.Clamp01((sections[sections.Count - 1].s - s) / WalkBackEndEaseM));
                 r = Mathf.Lerp(RolledNode(map, e.b) ? 1f : 0f, r, k);
