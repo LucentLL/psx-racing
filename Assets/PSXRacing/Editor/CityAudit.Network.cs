@@ -252,11 +252,42 @@ namespace PSXRacing.EditorTools
             if (!string.IsNullOrWhiteSpace(pick)) foreach (var s in pick.Split(',', ';', ' ')) if (s.Trim().Length > 0) want.Add(s.Trim());
             string routesWas = System.Environment.GetEnvironmentVariable("PSX_DRIVE_ROUTES");
             string boxWas = System.Environment.GetEnvironmentVariable("PSX_DRIVE_BOX");
+            // PSX_ROADS_BOXES="name:x0,z0,x1,z1;..." (whole tiles): these boxes instead of the sample's
+            var boxes = new List<(string kind, int x0, int z0, int x1, int z1)>(SampleBoxes);
+            string own = System.Environment.GetEnvironmentVariable("PSX_ROADS_BOXES");
+            if (!string.IsNullOrWhiteSpace(own))
+            {
+                boxes.Clear();
+                foreach (var s in own.Split(';'))
+                {
+                    var q = s.Split(':'); if (q.Length != 2) continue;
+                    var v = q[1].Split(',');
+                    if (v.Length == 4 && int.TryParse(v[0], out int bx0) && int.TryParse(v[1], out int bz0) && int.TryParse(v[2], out int bx1) && int.TryParse(v[3], out int bz1))
+                        boxes.Add((q[0].Trim(), Mathf.Min(bx0, bx1), Mathf.Min(bz0, bz1), Mathf.Max(bx0, bx1), Mathf.Max(bz0, bz1)));
+                }
+            }
+            // PSX_ROADS_AB=Field:1 - a public static bool of CityMeshes and its BEFORE value: every box twice
+            System.Reflection.FieldInfo abField = null; bool abBefore = false, abWas = false;
+            string abs = System.Environment.GetEnvironmentVariable("PSX_ROADS_AB");
+            if (!string.IsNullOrWhiteSpace(abs))
+            {
+                var kv = abs.Split(':');
+                abField = typeof(CityMeshes).GetField(kv[0].Trim(), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (abField == null || abField.FieldType != typeof(bool)) { Fail("PSX_ROADS_AB: CityMeshes has no public static bool " + kv[0]); abField = null; }
+                else { abBefore = kv.Length > 1 && kv[1].Trim() == "1"; abWas = (bool)abField.GetValue(null); }
+            }
             try
             {
-                foreach (var b in SampleBoxes)
+                foreach (var b0 in boxes)
+                for (int side = 0; side < (abField != null ? 2 : 1); side++)
                 {
-                    if (want.Count > 0 && !want.Contains(b.kind)) continue;
+                    var b = b0;
+                    if (abField != null)
+                    {
+                        abField.SetValue(null, side == 0 ? abBefore : !abBefore);
+                        b.kind = b0.kind + (side == 0 ? " BEFORE" : " AFTER");
+                    }
+                    if (want.Count > 0 && !want.Contains(b0.kind)) continue;
                     var tiles = new List<(int tx, int tz, string why)>();
                     for (int tz = b.z0; tz <= b.z1; tz++)
                         for (int tx = b.x0; tx <= b.x1; tx++) tiles.Add((tx, tz, b.kind));
@@ -291,6 +322,7 @@ namespace PSXRacing.EditorTools
             }
             finally
             {
+                if (abField != null) abField.SetValue(null, abWas);
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_ROUTES", routesWas);
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_BOX", boxWas);
             }
