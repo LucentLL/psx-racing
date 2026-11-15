@@ -79,6 +79,23 @@ namespace PSXRacing.EditorTools
         static BrRun brCur;
         static readonly float[] BrEdgeLats = { -0.15f, 0.15f, 0.75f, 1.2f };
 
+        static readonly Dictionary<long, string> brTileRows = new Dictionary<long, string>();
+        static ulong BrMeshHash(Mesh m)
+        {
+            ulong h = 1469598103934665603UL;
+            unchecked
+            {
+                foreach (var v in m.vertices)
+                {
+                    h = (h ^ (uint)BitConverter.SingleToInt32Bits(v.x)) * 1099511628211UL;
+                    h = (h ^ (uint)BitConverter.SingleToInt32Bits(v.y)) * 1099511628211UL;
+                    h = (h ^ (uint)BitConverter.SingleToInt32Bits(v.z)) * 1099511628211UL;
+                }
+                foreach (int t in m.triangles) h = (h ^ (uint)t) * 1099511628211UL;
+            }
+            return h;
+        }
+
         static long BrKey(int tx, int tz) => ((long)tx << 24) | (uint)(tz & 0xFFFFFF);
 
         static void BrAdd(string kind, float w, CityMap.Edge e, float s, Vector2 at, string note)
@@ -116,6 +133,12 @@ namespace PSXRacing.EditorTools
                     var tm = CityMeshes.Build(map, trims, bld, tx, tz);
                     brBuildMs += c.Elapsed.TotalMilliseconds; brTilesBuilt++;
                     GameObject go = null; Mesh[] ms = null;
+                    if (tm != null && !brTileRows.ContainsKey(key))
+                    {
+                        // the tile's meshes, hashed: a before / after pair shows which of them a change touched at all
+                        string Cell(Mesh m) => m == null ? "0\t0" : $"{m.triangles.Length / 3}\t{BrMeshHash(m):x16}";
+                        brTileRows[key] = $"{tx}\t{tz}\t{c.Elapsed.TotalMilliseconds:0}\t{Cell(tm.ground)}\t{Cell(tm.roads)}\t{Cell(tm.kerbs)}\t{Cell(tm.barriers)}\t{Cell(CityMeshes.StructureMeshOf(tm))}\t{Cell(tm.guardrails)}\t{tm.solids.Count}";
+                    }
                     if (tm != null)
                     {
                         foreach (var box in tm.solids)
@@ -230,6 +253,36 @@ namespace PSXRacing.EditorTools
         {
             int n = Physics.RaycastNonAlloc(p + Vector3.up * 2.5f, Vector3.down, brBuf, 2.5f, ~0, QueryTriggerInteraction.Ignore);
             for (int i = 0; i < n; i++) { string nm = brBuf[i].collider.name; if (nm == "Barriers" || nm == "Guardrail") return true; }
+            return false;
+        }
+
+        /// <summary>Is there a surface a car can be on within 0.6 m under this bumper-height point?</summary>
+        static bool BrOverSurface(Vector3 p)
+        {
+            int n = Physics.RaycastNonAlloc(p + Vector3.up * 0.4f, Vector3.down, brBuf, 1.45f, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++) { string nm = brBuf[i].collider.name; if (nm == "Roads" || nm == "Ground") return true; }
+            return false;
+        }
+
+        /// <summary>Does the opposing carriageway of the same road run within 45 m on the left of a one-way edge at s?</summary>
+        static bool BrTwinOnLeft(CityMap map, CityMap.Edge e, float s)
+        {
+            var p = e.PointAt(s); var t = e.TangentAt(s); var left = new Vector2(-t.y, t.x);
+            brSegs.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * 45f, p + Vector2.one * 45f, brSegs);
+            foreach (int packed in brSegs)
+            {
+                int oi = packed >> 12, si = packed & 0xFFF;
+                var o = map.edges[oi];
+                if (o == e || !o.oneway || si + 1 >= o.pts.Length || o.name != e.name || o.link != e.link) continue;
+                Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                if (L2 < 1e-6f) continue;
+                float tt = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
+                var q = a + d * tt;
+                if (Vector2.Distance(p, q) > 45f || Vector2.Dot(q - p, left) <= 0f) continue;
+                if (Vector2.Dot(d / Mathf.Sqrt(L2), t) < -0.5f) return true;
+            }
             return false;
         }
 
@@ -414,6 +467,8 @@ namespace PSXRacing.EditorTools
                         if (end == 0 && r.s0 - reach - 8f <= 0f && map.nodeEdges[r.e.a].Count >= 3) continue;
                         if (end == 1 && r.e.length - r.s1 - reach - 8f <= 0f && map.nodeEdges[r.e.b].Count >= 3) continue;
                         int kk = Mathf.Clamp(kEnd, 0, K - 1);
+                        // a one-way carriageway's median side: the median between it and its twin carries on at grade, no rail stands on it
+                        if (side == 1 && r.e.oneway && BrTwinOnLeft(map, r.e, Mathf.Clamp(uEnd, 0f, r.e.length))) continue;
                         BrAdd("APPROACH-RAIL", 20f - reach, r.e, uEnd, brPts[kk].ok ? brPts[kk].p : r.e.PointAt(Mathf.Clamp(uEnd, 0f, r.e.length)),
                               $"the rail is carried {reach:0} m past the deck's {(end == 0 ? "start" : "end")} on the {(side == 0 ? "right" : "left")} side, then {(why == 3 ? "flush land" : "a drop")} with no rail");
                     }
@@ -447,6 +502,8 @@ namespace PSXRacing.EditorTools
                         var a3 = new Vector3(pa.x, ya + 0.45f, pa.y); var b3 = new Vector3(pb.x, yb + 0.45f, pb.y);
                         // a line inside a rail's own body sees the caps two pieces share inside it: not ends
                         if (BrInsideBarrier(a3) || BrInsideBarrier(b3)) continue;
+                        // ...and a line in the air beside a deck is nowhere a car can be (a neighbour deck's rail end is that road's)
+                        if (!BrOverSurface(a3) || !BrOverSurface(b3)) continue;
                         RaycastHit hit;
                         if (!(BrFace(a3, b3, out hit) || (both && BrFace(b3, a3, out hit)))) continue;
                         string nm = hit.collider.name;
@@ -634,7 +691,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 Physics.queriesHitBackfaces = false;
-                brFinds.Clear(); brUnderDone.Clear(); brColumns.Clear(); brTilesBuilt = 0; brBuildMs = 0;
+                brFinds.Clear(); brUnderDone.Clear(); brColumns.Clear(); brTileRows.Clear(); brTilesBuilt = 0; brBuildMs = 0;
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 var map = CityMap.Get();
                 if (map == null) throw new Exception("no city data");
@@ -795,6 +852,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 CityMeshes.AuditView.EndRecord();
+                sb.AppendLine($"ROUND 2 RULES: deck rail spans left off other roads' pavement {CityMeshes.railPaveSpans} (tile builds, repeats counted)");
                 sb.AppendLine($"SCANNED: {done} of {runs.Count} runs{(done < runs.Count ? " (TIME CAP: the rest, furthest from Uptown, NOT scanned)" : "")}, {threw} threw; {brTilesBuilt} tile builds, mean {(brTilesBuilt > 0 ? brBuildMs / brTilesBuilt : 0):0} ms; {nPiers} piers; {clock.Elapsed.TotalMinutes:0.0} min");
                 sb.AppendLine();
 
@@ -838,6 +896,9 @@ namespace PSXRacing.EditorTools
                     rt.Append($"{r.e.index}\t{r.e.name}\t{r.e.cls}\t{(r.e.link ? 1 : 0)}\t{(r.e.oneway ? 1 : 0)}\t{r.e.lanes}\t{r.e.width:0.0}\t{r.s0:0.0}\t{r.s1:0.0}\t{r.s1 - r.s0:0.0}\t{(r.endA ? 1 : 0)}\t{(r.endB ? 1 : 0)}\t{(r.water ? 1 : 0)}\t{r.unders}\t{p.x:0.0}\t{p.y:0.0}\t{r.e.YAt(0.5f * (r.s0 + r.s1)):0.0}\t{LatLon(p.x, p.y)}\t{r.finds}\n");
                 }
                 File.WriteAllText(Path.Combine(root, $"city_bridges_audit_{tag}_runs.tsv"), rt.ToString());
+                var tt = new StringBuilder("tx\ttz\tbuildMs\tgroundTris\tgroundHash\troadsTris\troadsHash\tkerbsTris\tkerbsHash\tbarriersTris\tbarriersHash\tstructureTris\tstructureHash\tguardrailTris\tguardrailHash\tsolids\n");
+                foreach (var row in brTileRows.Values) tt.Append(row).Append('\n');
+                File.WriteAllText(Path.Combine(root, $"city_bridges_audit_{tag}_tiles.tsv"), tt.ToString());
                 sb.AppendLine("CITY BRIDGES AUDIT DONE");
             }
             catch (Exception ex) { sb.AppendLine("CITY BRIDGES AUDIT FAILED: " + ex); Debug.LogException(ex); code = 1; }
