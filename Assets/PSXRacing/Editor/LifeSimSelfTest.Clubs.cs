@@ -157,6 +157,34 @@ namespace PSXRacing.EditorTools
             Check(CarCatalog.All.Where(x => fu.Fits(x)).All(x => x.modelYear >= 1999), "FUTURE takes 1999 models");
             Check(CarCatalog.All.All(x => am.Fits(x) || jp.Fits(x) || eu.Fits(x)),
                   "every car in the catalog has an origin club", CarCatalog.All.Count(x => !am.Fits(x) && !jp.Fits(x) && !eu.Fits(x)));
+            // Owner 2026-11-15: "YOUR NISMO SKYLINE IS NOT JAPANESE-BUILT" - the
+            // makes the catalogue's import did not know had fallen back to
+            // "eur". Every make has its country here; a new make fails until
+            // it is given one (never a silent "eur").
+            var makeOrigin = new System.Collections.Generic.Dictionary<string, string>
+            {
+                { "AC", "gbr" }, { "AMG", "ger" }, { "Acura", "jpn" }, { "Alfa", "ita" }, { "Alpine", "fra" },
+                { "Aston", "gbr" }, { "Audi", "ger" }, { "BMW", "ger" }, { "BUICK", "usa" }, { "Chaparral", "usa" },
+                { "Chevrolet", "usa" }, { "Citroen", "fra" }, { "Cizeta", "ita" }, { "DOME", "jpn" }, { "Dodge", "usa" },
+                { "EAGLE", "usa" }, { "Ford", "usa" }, { "Hommell", "fra" }, { "Honda", "jpn" }, { "Infiniti", "jpn" },
+                { "Isuzu", "jpn" }, { "Jaguar", "gbr" }, { "Jensen", "gbr" }, { "Lancia", "ita" }, { "Lexus", "jpn" },
+                { "Lister", "gbr" }, { "Lotus", "gbr" }, { "MGF", "gbr" }, { "MINOLTA", "jpn" }, { "Mazda", "jpn" },
+                { "Mercedes-Benz", "ger" }, { "Mercury", "usa" }, { "Mitsubishi", "jpn" }, { "NISMO", "jpn" },
+                { "Nissan", "jpn" }, { "Opel", "ger" }, { "Panoz", "usa" }, { "Peugeot", "fra" }, { "Plymouth", "usa" },
+                { "Pontiac", "usa" }, { "RUF", "ger" }, { "Renault", "fra" }, { "SILEIGHTY", "jpn" }, { "Sauber", "ger" },
+                { "Shelby", "usa" }, { "Spoon", "jpn" }, { "Subaru", "jpn" }, { "Suzuki", "jpn" }, { "TVR", "gbr" },
+                { "Toyota", "jpn" }, { "Volkswagen", "ger" }, { "Volvo", "eur" },
+            };
+            // Built by the make's European arm, or under another make's badge.
+            bool OriginException(CarSpec x) =>
+                (x.name.StartsWith("Ford RS200") || x.name.StartsWith("Ford Escort Rally") || x.name.StartsWith("Ford FOCUS Rally")) && x.origin == "eur" ||
+                x.name.StartsWith("BMW McLaren F1") && x.origin == "gbr";
+            var wrongOrigin = CarCatalog.All.Where(x => x != null && !OriginException(x) &&
+                (!makeOrigin.TryGetValue(x.name.Split(' ')[0], out string o) || o != x.origin)).ToList();
+            Check(wrongOrigin.Count == 0, "every car's origin is its make's country (tuner makes their base make's; no unknown make)",
+                  wrongOrigin.Count == 0 ? "" : wrongOrigin.Count + ": " + string.Join(", ", wrongOrigin.Take(5).Select(x => x.name + "=" + x.origin)));
+            var nismo = CarCatalog.All.FirstOrDefault(x => x != null && x.name.StartsWith("NISMO Skyline"));
+            Check(nismo != null && jp.Fits(nismo) && !eu.Fits(nismo), "a NISMO Skyline is a Japanese car: the JAPANESE club takes it");
             // THE DESIGNED CLASHES (coordinator 11-11: "some pairs of clubs clash and some do not").
             Check(jp.meetCol == fu.meetCol && jp.meetSlot == fu.meetSlot, "JAPANESE and FUTURE meet in the same block (SAT NIGHT)");
             Check(eu.meetCol == vi.meetCol && eu.meetSlot == vi.meetSlot, "EURO and VINTAGE meet in the same block (SUN MORNING)");
