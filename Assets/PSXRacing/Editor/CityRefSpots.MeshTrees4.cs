@@ -78,6 +78,7 @@ namespace PSXRacing.EditorTools
 
                 string only = System.Environment.GetEnvironmentVariable("PSX_CT3_ONLY");
                 bool noShots = System.Environment.GetEnvironmentVariable("PSX_CT3_NOSHOTS") == "1";
+                bool closeOnly = System.Environment.GetEnvironmentVariable("PSX_CT4_CLOSEONLY") == "1";   // (the staged lawn frames alone)
                 var audit = new AuditSum();
                 var acc = new Dictionary<int, T3Acc>();
                 var tot = new double[12];
@@ -132,8 +133,9 @@ namespace PSXRacing.EditorTools
                                .Append(ww.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(pp.scale.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
                         }
                     }
-                    AuditRing(mt, map, world, audit, log);
+                    if (!closeOnly) AuditRing(mt, map, world, audit, log);
                     if (!posed || noShots) continue;
+                    if (closeOnly) { if (CityMeshTrees.Charlotte && pl.id == "arterial") shots += T4Close(cam, sun, dressing, world, mt, map, kit, tag, eye, staged, log); continue; }
                     if (car != null) car.TeleportTo(eye - fwd * 3f - Vector3.up * 0.8f, Quaternion.LookRotation(new Vector3(fwd.x, 0f, fwd.z)));
                     // ---- noon, summer: every place ----
                     T4Shoot(cam, sun, dressing, world, mt, dir, pl.id + "_noon_summer", eye, rot, TimeOfDay.Noon, (int)Season.Summer);
@@ -458,6 +460,33 @@ namespace PSXRacing.EditorTools
                         float gy = T4Ground(new Vector3(q.x, 0f, q.y), near.y); gMin = Mathf.Min(gMin, gy); gMax = Mathf.Max(gMax, gy);
                     }
                     if (!ok || gMax - gMin > 1.0f) continue;
+                    // THE SOLIDS THE MAP'S FOOTPRINTS DO NOT HOLD (the procedural houses, walls, fences: the first lawn
+                    // put the camera against a generated house): nothing solid round a staged tree to 10 m up or round
+                    // the camera, and a clear line from the camera to every trunk
+                    foreach (float gap in new[] { 2.6f, 5.5f })
+                        for (int k = -1; k <= 1 && ok; k++)
+                        {
+                            var p = c + rt * (k * gap);
+                            float gy = T4Ground(new Vector3(p.x, 0f, p.y), near.y);
+                            if (Physics.CheckCapsule(new Vector3(p.x, gy + 3.1f, p.y), new Vector3(p.x, gy + 10f, p.y), 2.5f, ~0, QueryTriggerInteraction.Ignore)) ok = false;
+                        }
+                    foreach (float D in new[] { 3f, 8f })
+                    {
+                        if (!ok) break;
+                        var q = c - f * D;
+                        float gq = T4Ground(new Vector3(q.x, 0f, q.y), near.y);
+                        var eyeQ = new Vector3(q.x, gq + 1.6f, q.y);
+                        if (Physics.CheckCapsule(new Vector3(q.x, gq + 1.1f, q.y), new Vector3(q.x, gq + 2.2f, q.y), 0.5f, ~0, QueryTriggerInteraction.Ignore)) { ok = false; break; }
+                        float gap = D < 5f ? 2.6f : 5.5f;
+                        for (int k = -1; k <= 1; k++)
+                        {
+                            var p = c + rt * (k * gap);
+                            var tgt = new Vector3(p.x, T4Ground(new Vector3(p.x, 0f, p.y), near.y) + 1.5f, p.y);
+                            var dv = tgt - eyeQ;
+                            if (Physics.Raycast(eyeQ, dv.normalized, dv.magnitude - 0.6f, ~0, QueryTriggerInteraction.Ignore)) { ok = false; break; }
+                        }
+                    }
+                    if (!ok) continue;
                     centre = new Vector3(c.x, gy0, c.y);
                     dir = new Vector3(f.x, 0f, f.y);
                     how = $"{rad:0} m from the place, trunks {minRoad:0.0} m or more from the pavement's edge, camera {minCamRoad:0.0} m or more, ground level within {gMax - gMin:0.0} m, {tried} spots tried";
