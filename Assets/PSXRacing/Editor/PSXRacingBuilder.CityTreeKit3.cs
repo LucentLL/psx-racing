@@ -97,7 +97,7 @@ namespace PSXRacing.EditorTools
         struct CT3Cut
         {
             public CT3Form f;
-            public float cutY, B, h, trunkCut, flare, impK, stemK;
+            public float cutY, B, h, trunkCut, flare, impK, stemK, limbKeep;
             public Vector2[] axis;   // the trunk's line, a point every AxisStep up to the cut
             public Vector2 top, crownC;   // the trunk's line at the cut; the middle of the crown above it
         }
@@ -183,6 +183,11 @@ namespace PSXRacing.EditorTools
             var cc = Vector2.zero; int cn = 0;
             foreach (var q in leaves) if (q.y >= cutY) { cc += new Vector2(q.x, q.z); cn++; }
             c.crownC = cn > 0 ? cc / cn : prev;
+            // how far out a limb under the cut is kept (raised to the crown's base): half the crown's reach over the cut
+            var lr = new List<float>();
+            foreach (var q in leaves) if (q.y >= cutY) lr.Add(Vector2.Distance(new Vector2(q.x, q.z), c.crownC));
+            lr.Sort();
+            c.limbKeep = Mathf.Max(c.trunkCut * 2.5f, lr.Count > 0 ? 0.5f * lr[Mathf.Min(lr.Count - 1, (int)(lr.Count * 0.9f))] : 1.5f);
             how = $"cut at {cutY:0.0} m of {h:0.0} (stem {B:0.0} m, crown {crown:0.0} m), trunk r {trunkR:0.00} at ({chest.x:0.0}, {chest.y:0.0}) x{c.stemK:0.00}, lean at the cut {prev.magnitude:0.00} m, crown's middle {c.crownC.magnitude:0.00} m off the foot";
             return true;
         }
@@ -291,15 +296,32 @@ namespace PSXRacing.EditorTools
             {
                 var a = Axis3(c, q.y);
                 float dx = q.x - a.x, dz = q.z - a.y;
+                float rr = Mathf.Sqrt(dx * dx + dz * dz);
+                float up = 0f;
                 if (q.y < 1.2f)
                 {
-                    float rr = Mathf.Sqrt(dx * dx + dz * dz);
                     if (rr > c.flare) { dx *= c.flare / rr; dz *= c.flare / rr; }
                 }
-                float tk = Mathf.Clamp01((q.y - (c.cutY - 1.5f)) / 1.5f);
-                float ks = Mathf.Lerp(c.stemK, 1f, tk * tk * (3f - 2f * tk));
-                var tl = (c.top - c.crownC) * (q.y / Mathf.Max(0.05f, c.cutY));
+                else
+                {
+                    // A LIMB UNDER THE CUT IS NOT SAWN OFF (a tube cut open shows its inside as shards from the
+                    // road): what is off the trunk is RAISED to the crown's base, still joined to the trunk where
+                    // it left it - the limbs sweep up the stem into the crown, as a street tree's are trained
+                    up = Mathf.Clamp01((rr - 0.8f * c.trunkCut) / (1.2f * c.trunkCut));
+                    up = up * up * (3f - 2f * up);
+                }
+                float ySrc = Mathf.Lerp(q.y, c.cutY * (1f - 0.015f * (1f - q.y / Mathf.Max(0.05f, c.cutY))), up);
+                if (up > 0f)
+                {
+                    // (measured from the trunk's line at the cut, so the limb meets its own run above the cut)
+                    var a2 = Vector2.Lerp(a, c.top, up);
+                    dx = q.x - a2.x; dz = q.z - a2.y;
+                }
+                float tk = Mathf.Clamp01((ySrc - (c.cutY - 1.5f)) / 1.5f);
+                float ks = Mathf.Lerp(Mathf.Lerp(c.stemK, 1f, up), 1f, tk * tk * (3f - 2f * tk));
+                var tl = (c.top - c.crownC) * (ySrc / Mathf.Max(0.05f, c.cutY));
                 x = tl.x + dx * ks; z = tl.y + dz * ks;
+                q.y = ySrc;
             }
             else { x = q.x - c.crownC.x; z = q.z - c.crownC.y; }
             float y, sy;
@@ -389,12 +411,13 @@ namespace PSXRacing.EditorTools
                     float lowY = Mathf.Min(tri[0].p.y, Mathf.Min(tri[1].p.y, tri[2].p.y));
                     if (lowY < c.cutY)
                     {
-                        // under the cut: no leaf, and no wood but the trunk itself
+                        // under the cut: no leaf; the trunk, and each limb as far out as limbKeep (Map3 raises it
+                        // to the crown's base) - its thin outer run, whose leaves are gone, goes
                         if (leaf) continue;
                         var ctr = (tri[0].p + tri[1].p + tri[2].p) / 3f;
                         var ax = Axis3(c, Mathf.Min(ctr.y, c.cutY));
                         float dx = ctr.x - ax.x, dz = ctr.z - ax.y;
-                        if (dx * dx + dz * dz > c.trunkCut * c.trunkCut) continue;
+                        if (dx * dx + dz * dz > c.limbKeep * c.limbKeep) continue;
                     }
                     Emit3(tri, c, false, outV, outT[s]);
                 }

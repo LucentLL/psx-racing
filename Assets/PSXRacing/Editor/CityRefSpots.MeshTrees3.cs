@@ -252,9 +252,9 @@ namespace PSXRacing.EditorTools
             float best = float.MaxValue;
             foreach (var e in map.edges)
             {
-                if (e.cls != 0 || e.link || e.tunnel || e.bridge || e.length < 220f) continue;
+                if (e.cls != 0 || e.link || e.tunnel || e.bridge || e.length < 110f) continue;
                 float d = Vector2.Distance(e.PointAt(e.length * 0.5f), p);
-                if (d < best) { best = d; edge = e; s = e.length * 0.35f; }
+                if (d < best) { best = d; edge = e; s = e.length * 0.2f; }
             }
             return edge != null && best < 1500f;
         }
