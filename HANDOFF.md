@@ -1,4 +1,86 @@
-﻿# HANDOFF - CHARLOTTE ROADS REVIEW (agent "roads", branch `charlotte-roads-audit`, 2026-11-15; NOT pushed, NOT merged)
+﻿# HANDOFF - CHARLOTTE CURBS 3 / INLETS (agent "hoods", branch `charlotte-hoods`, 2026-11-15; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-hoods` off mountain-nm f8cbf12d. Sandbox PSXPerf. Graph hash b2aa3453 before and after (no export run, no data file touched). Owner 2026-11-15 (PC41): "I see some storm drains with curbs that extend into the road (they look decent), but other roads don't have curbs like that. Are these accurate?" + "review ... neigborhoods, driveways".
+
+## The answer to "Are these accurate?" (plain words)
+1. Partly. A grate in the gutter with a cast-iron hood in the curb is the real Charlotte inlet (NCDOT standard 840.03), so the idea was right. The block standing out into the road was wrong.
+2. Real, on a street with a normal upright 6 in curb (Uptown, West Trade, Beatties Ford): the curb line runs straight through the inlet. For 3 ft the concrete curb is an iron hood, its front on the curb's face line and its top level with the curb; the grate (3 ft by 2 ft) lies in the gutter in front. Nothing sticks out, and the standard basin has no slab or round lid behind it.
+3. Real, on a subdivision street with the low roll ("valley") curb: no inlet is set in the roll. The curb rises to a normal upright curb for a few feet each side of the inlet (Charlotte: 3 ft 6 in to 10 ft) and drops back; the gutter edge stays straight and the bulge is toward the lawn.
+4. The game drew, on roll-curb streets (Martin St at West Trade / Beatties Ford is one), a full-height hood block at the gutter line, 45 cm in front of the curb's crest, with blunt ends - his picture - and a slab and lid behind every inlet that the standard does not have.
+5. "Other roads don't have curbs like that": also wrong in the game. Only streets near Uptown or beside shops had any curb (38.5% of surface street length); real Charlotte has curb and gutter on nearly every city street (roll curb in subdivisions, upright curb on main roads); open shoulders are for country roads, freeways and ramps.
+Sources read 11-15: NCDOT Roadway Standard Drawings 840.02, 840.03, 846.01; Charlotte Land Development Standards Manual 10.17A/B, 10.19, 10.29, 10.30, 20.34, U-02A; CDOT site plan checklist; WFAE 2019-12-17 (sidewalks optional about 1950-1990, required both sides from 1998).
+
+## Causes
+- `CityMeshes.Curbs2.cs` DrawInlet (was ~665-747): `rolled = r > 0.5f` put the hood (yTop = h + 1 cm, 0.5 m deep) at the drawn edge, the roll's crest 0.45 m behind it; a corner inlet stood InletEndM = 5.5 m before the ribbon's end, inside the 8 m ease to the corner's vertical curb (r about 0.77); the hood ignored a cut wing's lowered curb; a 1.3 m slab + lid behind every inlet.
+- `CityMeshes.Walks.cs` WalkEdgeUncached (~318): a curb only within UrbanCoreM (2.2 km) of the Square or beside a non-house building.
+- `CityMeshes.Walks.cs` WalkFrontage (~1861): a walk street's frontage was paved 7 m deep, house streets too (concrete front yards near the Square).
+
+## What changed (all code; no data, no slot, no material, no baked field, CityTileCache.Format untouched)
+- NEW `Scripts/City/CityMeshes.Curbs3.cs`.
+  - PART 1, `PSX_CITY_INLET2` (default ON; 0 = the 11-11 inlet): the inlets of an edge are PLANNED before its walk is laid (Cs3EnsurePlan: the 11-11 stations, kept off aprons, ramp ends, tree grates and paint from map data, the same in every tile). On a rolled street the walk's section eases over 3.05 m each side of the hood (2.0 / 1.07 m where room is short) from the roll to a pan with the vertical curb behind it: face on the roll's crest line, gutter lip straight, back 0.4 m further out; the collider is a lerp of the roll and the 11-11 chamfer (Cs3Profile). Hood 0.937 m long, 0.152 m deep, 9 mm proud, 1 cm over the curb top, to the local curb's height; grate 0.908 x 0.603 m; no slab, no lid. A rolled street's corner inlet stands 10.9 m before the ribbon's end (clear of the corner's ease).
+  - PART 2, `PSX_CITY_CURBS3` (default ON; 0 = the 11-11 rule): CurbClassOf per edge. Not a surface street: none. The 11-11 walk streets: vertical curb, pan, walk as before; a house street near the Square (pre-war grid) is now VERTICAL with a lawn frontage (`PSX_CITY_PREWAR=0`: rolled, paved, as 11-11). Else built-up (a real footprint or generated building within 45 m at a third of a local street's reads, half of a collector's / arterial's, or a gap between two built stretches): local = the ROLL curb alone (0.61 m, CLDSM 10.17B's 2 ft valley gutter; lawn level behind it; `PSX_CITY_CURBONLY=0` gives it 11-11's 2.4 m rolled walk instead), class 1-3 = vertical curb + pan + walk. Else none (rural). Two roll-curb streets meet in a curb return (ring strip), not a paved fan. A roll curb is not cut at a driveway (`PSX_CITY_DRIVEROLL=0` cuts it); its level backing eases out to the plain apron verge within 3 m of a driveway. Class eases over 8 m at a plain joint of two streets of different classes.
+    - `PSX_CITY_PANTONE` (default ON, in CityMeshes.Curbs2.cs): the gutter pan weathered grey, not light concrete (the owner 11:50; UV only).
+- Hook for "lots": `CityMeshes.CurbOpeningAt` (Func<CityMap, float x, float z, bool>, null by default) is asked beside ApronAt wherever a walk's curb is read for cuts; anything ApronAt reports already opens the curb.
+- `CityMeshes.Curbs2.cs`: Cs2Span cut-share record, EmitStreetHardware -> EmitInlets2, InletStations end offsets, RolledEdge / RolledNode / Cs2Mix / CurbNoEdgeLines by class.
+- `CityMeshes.Walks.cs`: WalkEdge by class; PrepareWalks / CornerWalkOf widths (Cs3WalkW, Cs3WalkMin); EmitWalkSpanCore (inlet share, breaks, pan band, cutA backing share); CurbCutWings (no cut on a roll; cutA); WalkFrontage skips house streets.
+- `CityMeshes.Houses.cs` PrepareTileDrives: tileDrivesWide (driveways within 20 m of the tile, for the plan). `CityHouses.cs`: BoundTo, ProcBuildingNear.
+- Editor: NEW `CityAudit.Curbs.cs` (`CityAudit.CurbsOnly` -> curbs_audit.txt), NEW `CityRefSpots.Curbs3.cs` (`CityRefSpots.RunCurbs3`); `CityCurbDrive.cs` + PSX_CURB_SPEEDS / PSX_CURB_ANGLES / PSX_CURB_DRIVEWAYS=N; `CityFlickerFinder.cs` + PSX_FLICK_EXTRA "name,x,z;...".
+
+## Owner 11:50, Beatties Ford Rd by JCSU: "that is a LOT of curb on the side of the road" (his line drawn across the gutter pan, 28.png)
+- The game draws there, from the lane edge out: gutter pan 0.60 m (render-only, the structure atlas's girder band: light concrete, as bright as the crosswalk paint beside it); the curb 15 cm high whose drawn TOP is 0.40 m deep (to the collider's nose; the same light concrete); the walk slab from the curb to 2.4 m (slab texture, no grass strip); then a paved frontage 7 m deep beside non-house buildings.
+- The standard (NCDOT 846.01 = CLDSM 10.17A 2'-6" curb and gutter; thoroughfare section): pan 24 in (0.61 m), curb top 6 in (0.15 m), 6 in high; then a planting strip (4 ft minimum, 8 ft today); then a 5 ft walk.
+- So the pan's WIDTH is right. The game draws MORE concrete (curb top 0.40 m against 0.15 m; the walk starts at the curb with no grass strip, so pan + curb + walk read as one 3.0 m band where the real street shows 0.76 m of curb and gutter, grass, then 1.5 m of walk) and BRIGHTER concrete (the pan as light as new concrete and paint; a real pan is weathered and tyre-dirty).
+- Changed now (UV only, no geometry): `PSX_CITY_PANTONE` (default ON; 0 = the light pan): the pan in the atlas's weathered grey (the band Uptown's granite curb uses). Before / after frames at West Trade St: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\hoods\pan_tone_sheet.png`. Not shot at the owner's exact Beatties Ford pose.
+- Would change next (NOT done: collider and geometry, needs the curb drive): the drawn curb top 6 in deep with the slab's texture behind it; a 1.2 m grass planting strip between curb and walk where there is room; the walk 1.5 m.
+
+## For "lots": what decides where a street's curb drops for a driveway or a lot entrance
+- `CityMeshes.CurbCutWings` (CityMeshes.Walks.cs), its local `CutAt(u)`: the walk is read every 0.5 m at its MIDDLE (edge point + outward * w / 2) with `ApronAt(map, x, z)` (CityMeshes.Lots.cs: the lot apron quads, and `DriveApronAt` = this tile's house driveways with their flares) OR the new `CityMeshes.CurbOpeningAt` (Func<CityMap, float, float, bool>, null by default). Where true the curb's share drops to `CurbCutShare` (0.15: a 2.25 cm lip) across the opening and eases back to the full curb over `CurbCutWingM` (5 m) each side (the anti-launch wing); the drawn plumb face and top follow (they scale with the collider's section).
+- NEVER cut: a ROLL curb - `Cs3NoCut(map, e)` = Curbs3On && DriveRollOn && `RolledEdge(map, e)` (class `CurbRollOnly`). A lot entrance on a roll-curb street is driven over the roll; only the lawn backing gives way to the apron's verge within `Cs3ApronEaseM` (3 m).
+- The gutter pan (`Cs2Gutter`) is NOT cut: it runs through an opening as a real gutter does. The verge behind the walk is poured concrete where ApronAt is true (EmitStrip, unchanged). Corners (`CornerWalkOf` / `EmitCornerWalkCore`) are never cut.
+- The inlet plan keeps hoods 3.6 m along from any opening (`Cs3ApronWithin`, `InletApronClearM`): it reads ApronAt, CurbOpeningAt and the tile's wide driveway list.
+
+## Numbers
+- Contact sheet (real editor frames, same poses, switches off vs on): `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\hoods\curbs3_sheet.png`; frames in `...\scratchpad\hoods\shots_final2\`, part-1-only frames in `...\hoods\shots_b\`.
+- AUDIT (`CityAudit.CurbsOnly`, `...\hoods\audit4.txt`), the rule city-wide, centreline km of the 2975.4 km of surface street (ramps, freeways, bridges, tunnels 970.8 km not counted):
+  - before: curbed 1146.1 km (38.5%) - local: none 240.6, rolled + walk 24.4, vertical + walk 314.1; class 1-3: none 1588.6, vertical + walk 807.6.
+  - after: curbed 1677.0 km (56.4%) - local: none 36.9, roll curb alone 203.7, vertical + walk 338.5; class 1-3: none 1261.4, vertical + walk 1134.8.
+  - dead ends: 941 street ends (843 local); 73 drawn with a turnaround bulb, 868 without (771 local). Not built (E).
+- SAMPLE of 68 tiles built both ways (8 x 8 round West Trade St at Beatties Ford Rd = Uptown edge, pre-war streets, I-77 / Brookshire; + Uptown, Hidden Valley, rural, I-77 / I-85 tiles):
+  - inlets 599 -> 802; on rolled curb 81 (blocks) -> 177, every one in a roll-to-vertical transition (1027 m of transition); stations with no place 556 -> 72.
+  - driveways by their street: no curb 618 -> 0, roll curb 254 -> 567, vertical curb 617 -> 922. Mouths the walk crosses: over a roll 247 -> 559, through a cut (lip under 3 cm) 596 -> 897, a curb FACE across (15 cm) 8 -> 8: the same 8 before and after, on vertical-curb streets (Uptown West Dr x3, Cannon View Ln x2, Katonah Ave x2, Jenkins St); cause not found (the driveway's quad does not reach the walk's middle or back there).
+  - COST: box triangles 2,169,894 -> 2,312,693 (+6.6%), vertices +6.7%, tile build 334 -> 376 ms (+12.5%; earlier runs of the same sample +1.5 / +5.4%: noisy); Hidden Valley tile 5594 -> 7595 triangles (+36%), 28 -> 46 ms; Uptown -0.6%; interchange -1.3%; rural 0. Expect about +4 to +6% baked bytes city-wide (+0.25 to 0.35 GB of 5.6 GB) and +3 to 5 min on the 35 min bake.
+- CURB DRIVE (`CityCurbDrive`, play mode, RX-7, PSX_CURB_SPEEDS=15,40,80 PSX_CURB_ANGLES=90,45; `...\hoods\drive_new3.txt`, `drive_new.txt`, `drive_base.txt`). All-off s / any-off s / kick g:
+  - new roll curb alone, Bilmark Ave: 90 deg 15: 0 / 0 / 1.0; 40: 0 / 0.38 / 6.6 (1 stop strike); 80: 0.18 / 0.32 / 19.3. 45 deg 15: 0 / 0 / 0.4; 40: 0 / 0 / 0.8; 80: 0.02 / 0.37 / 14.9.
+  - 11-11 rolled walk today (switches off), Lexington Ave | Baldwin Ave: 90 deg 15: 0 / 0 / 1.0 | same; 40: 0 / 0 / 3.4 | 0 / 0 / 1.8; 80: 0.08 / 0.32 / 21.2 | 0.32 / 0.42 / 18.1. 45 deg 40: 0 / 0 / 0.5 | 1.1; 80: 0.02 / 0.25 / 10.4 | 0.07 / 0.53 / 16.6.
+  - so: all-wheels-off times inside the two base sites' range at every speed; WORSE at 90 deg 40 km/h (a wheel off 0.38 s, 6.6 g, one stop strike vs none). Off the curb at 15 / 30 deg: equal or better at every speed. With the plain verge behind the roll (first try) it launched (90 deg 40: all off 0.23 s; 45 deg 80: 0.15 s): hence the level backing.
+  - pre-war Baldwin Ave, vertical now (rolled before): 90 deg 40: 0 / 0.18 / 7.4, 2 strikes (was 0 / 0 / 1.8); 80: 0.32 / 0.42 / 24.4, body up 1.8 m (was 0.32 / 0.42 / 18.1, 1.1 m); 45 deg 80: 0.48 / 0.57 / 26 (was 0.07 / 0.53 / 16.6). It is the shipped vertical curb (as N Graham), harsher to mount than the roll it replaces on 24 km of street: `PSX_CITY_PREWAR=0` if the owner wants the roll back there.
+  - DRIVEWAYS, ten on each street, square on over the curb at the mouth: roll curb (Bilmark) 15 km/h: no wheel off, 1.0-1.3 g, wheel step 1.9 cm, no strike; 30 km/h: all off 0, one wheel off 0.18-0.52 s, 1.8-2.9 g, no strike. Dropped vertical curb (Baldwin) 15 km/h: 0.6 g, step 1 cm; 30 km/h: 0.8-0.9 g; no strike (as before).
+- LAUNCH AUDIT on the 64-tile box (PSX_LAUNCH_BOX=-4608,5376,-2560,7424), switches off vs on (twice): identical - 40 separations on 4535 paths, 1 LAUNCH / 28 UNLOAD spots, 7 turning movements off the pavement / 1 step, both.
+- FLICKER FINDER (-force-glcore) at four picture spots, 24 views: depth-tie pixels 756 -> 796 of 8.86 M (85 -> 90 ppm); sidewalk | structure 94 -> 114, lawn | sidewalk 5 -> 62 with pavement | sidewalk 75 -> 25 (the same seam, the frontage now lawn), ground | kerbs 3 -> 19. Run one commit before the driveway-apron backing ease; not repeated after it.
+- TRAFFIC CHECK (`CityTrafficCheck`, PSX_CITY_TRAFFIC=1): switches off: CITY TRAFFIC OK (38 checks). Switches on: after the cache fix, a fresh process: CITY TRAFFIC OK (38 checks), 0 NullReference in its log. (Before the fix it failed at 'CityTraffic attached by CityMode'.)
+
+## What still looks wrong / NOT DONE
+- The traffic check found a real fault late: a fresh process with CURBS3 on threw NullReference in WalkSide on every tile with a one-way walk street (my class return skipped the cache allocation). Fixed (commit "WalkEdge allocates the walk caches before the class return"); the editor tools had not seen it because they always built with the switch off first. The audit, picture, flicker and launch-audit logs hold 0 such exceptions (their numbers stand); the curb-drive logs were deleted before I knew to look - the profiles it measured show the curbs were built at its sites.
+- Same-site A/B of the roll curb alone against 11-11's rolled walk (PSX_CITY_CURBONLY=0) was queued and NOT run.
+- No planting strip between curb and walk on the pre-war streets (real Elizabeth / Dilworth have one).
+- The 2 in gutter depression at an inlet is not drawn (the pan is render-only on the road's collider).
+- The transition's drawn face and top are the structure atlas's light concrete; the roll beside them is the walk slab's texture: a paler wedge at each roll-curb inlet.
+- Cul-de-sac bulbs have no curb round them (the curb ramps out before the bulb); 868 dead ends have no turnaround at all.
+- Where two roll-curb streets meet and the ring strip does not fit, the corner keeps no curb (count not taken).
+- A curb can start or stop at a plain joint where the built-up test flips (a ramp end there).
+- Class 1-3 built-up streets get the walk on both sides everywhere; real 1999 arterials outside the centre had it in parts.
+- The roll curb keeps 11-11's driven profile (10 cm over 45 cm); the standard valley gutter is 3 in over 24 in.
+- 8 driveways in the sample still face an uncut vertical curb (pre-existing, listed above).
+- Not done: E (cul-de-sac bulbs). City-wide launch audit and full verify not run (as briefed).
+
+## At merge
+- Shared-file edits: NONE in CityMeshes.cs, CityWorld.cs, CityMap.cs, StreetDress.cs, Lots.cs. Editor tools touched: CityCurbDrive.cs (env lists, DriveDriveways), CityFlickerFinder.cs (Spots: PSX_FLICK_EXTRA). New files with .meta: CityMeshes.Curbs3.cs, Editor/CityAudit.Curbs.cs, Editor/CityRefSpots.Curbs3.cs.
+- Tile geometry changes: RE-BAKE. No new Slot, kit material, mesh, baked class field or format change (the pan band and transitions ride Slot.Sidewalk, the hood / grate / drawn face ride the structure mesh as 11-11).
+- No scene pass needed. No data file to copy.
+- If "lots" opens curbs through ApronAt (their apronQuads), nothing else is needed; the roll curb is never cut, so a lot entrance on a roll-curb street is driven over the roll.
+- If "bridges" / "roads" change WalkEdge callers: WalkEdge(map, e) is now CurbClassOf != CurbNone under PSX_CITY_CURBS3.
+
+# HANDOFF - CHARLOTTE ROADS REVIEW (agent "roads", branch `charlotte-roads-audit`, 2026-11-15; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-roadsaudit` off mountain-nm f8cbf12d. Sandbox PSXLab (shared with "trees"; PSX_BUILD_TARGET=StandaloneWindows64). Owner 2026-11-15 (PC41): "Please review all roads for accuracy (including parking lots, bridges, neigborhoods, driveways). I plan to start adding more racing tracks in Charlotte today once roads are accurate." This agent = the review of the road network itself; lots, curbs / residential edges, bridges and trees were other agents.
 

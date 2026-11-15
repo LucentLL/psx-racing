@@ -267,6 +267,16 @@ namespace PSXRacing.EditorTools
             var sites = (string.IsNullOrEmpty(sitesEnv) ? "graham;name:North Graham Street|rolled;rolled" : sitesEnv).Split('|');
             float[] speeds = { 10f, 30f, 50f, 80f, 120f };
             float[] angles = { 90f, 45f, 30f, 15f };
+            // (curbs 3, 11-15) PSX_CURB_SPEEDS / PSX_CURB_ANGLES: comma separated, in place of the lists above
+            float[] EnvList(string name, float[] def)
+            {
+                string v = System.Environment.GetEnvironmentVariable(name);
+                if (string.IsNullOrEmpty(v)) return def;
+                var l = new List<float>();
+                foreach (var x in v.Split(',')) if (float.TryParse(x.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float fv)) l.Add(fv);
+                return l.Count > 0 ? l.ToArray() : def;
+            }
+            speeds = EnvList("PSX_CURB_SPEEDS", speeds); angles = EnvList("PSX_CURB_ANGLES", angles);
             player.Bottomed += (v, w) => { strikes++; strike = Mathf.Max(strike, v); };
             L.AppendLine($"CURB DRIVE: car {player.name}, modes {string.Join(",", modes)}; each run released 1 m before the front wheel meets the curb, measured 1.5 s; launch = all four wheels off >= 0.10 s");
 
@@ -316,11 +326,59 @@ namespace PSXRacing.EditorTools
                     }
                     // a driveway apron and a ramp end along this curb, crossed at 45 deg 30 km/h
                     yield return CrossSpecial(player, world, st, edge, s0);
+                    yield return DriveDriveways(player, world, st);   // (curbs 3) into the driveways near the site
                 }
             }
             L.AppendLine("CURB DRIVE DONE");
             finished = true;
             CityCurbDrive.Finish(0);
+        }
+
+        /// <summary>(curbs 3, 11-15) PSX_CURB_DRIVEWAYS=N: into the N house driveways nearest the
+        /// site that meet a curbed street - square on over the curb at the mouth's middle, at 15
+        /// and 30 km/h, from across the road. No step allowed (a wheel step over 3 cm, a strike
+        /// or any air is listed).</summary>
+        IEnumerator DriveDriveways(CarController player, CityWorld world, Site st)
+        {
+            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CURB_DRIVEWAYS"), out int want);
+            if (want <= 0) yield break;
+            var map = world.Map;
+            var c = new Vector2(st.c.x, st.c.z);
+            var dl = new List<CityHouses.Driveway>();
+            CityHouses.DrivewaysNearBound(map, c - Vector2.one * 260f, c + Vector2.one * 260f, dl);
+            dl.Sort((a, b) => Vector2.Distance(a.foot, c).CompareTo(Vector2.Distance(b.foot, c)));
+            int done = 0, bad = 0;
+            foreach (var d in dl)
+            {
+                if (done >= want) break;
+                if (d.toLot) continue;
+                var de = map.edges[d.edge];
+                if (!CityMeshes.WalkEdge(map, de)) continue;
+                var at = new Vector3(d.foot.x, de.YAt(d.s), d.foot.y);
+                player.TeleportTo(at + Vector3.up * 3f, Quaternion.identity);
+                world.EnsureRing(at, 1);
+                for (int k = 0; k < 4; k++) { player.TeleportTo(at + Vector3.up * 3f, Quaternion.identity); yield return null; }
+                Physics.SyncTransforms();
+                var tn = de.TangentAt(d.s).normalized;
+                float road = GroundY(d.foot.x - d.nrm.x * 1.0f, d.foot.y - d.nrm.y * 1.0f, at.y, out _);
+                float top = GroundY(d.foot.x + d.nrm.x * 0.8f, d.foot.y + d.nrm.y * 0.8f, at.y, out _);
+                if (float.IsNaN(road) || float.IsNaN(top)) { L.AppendLine($"    driveway at ({d.foot.x:0.0},{d.foot.y:0.0}): no ground"); continue; }
+                var ds = new Site { label = $"driveway {done + 1}", c = new Vector3(d.foot.x, road, d.foot.y), t = tn, n = d.nrm, roadY = road, topY = top,
+                                    room = Mathf.Max(3f, de.width - 0.6f), what = "" };
+                done++;
+                foreach (float v in new[] { 15f, 30f })
+                {
+                    strikes = 0; strike = 0f;
+                    var res = new float[16];
+                    yield return DriveOne(player, world, ds, 90f, v, false, res);
+                    bool isBad = res[10] > 0.03f || strikes > 0 || res[0] > 0f;
+                    if (isBad) bad++;
+                    L.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                        "    {0} e{1} '{2}' {3} at ({4:0.0},{5:0.0}), 0.8 m in {6:0.000} m over the road: 90 deg {7:0} km/h: all off {8:0.00} s, any off {9:0.00} s, vertical kick {10:0.0} g, wheel step {11:0.000} m, strikes {12}{13}",
+                        ds.label, de.index, de.name, CityMeshes.RolledEdge(map, de) ? "roll" : "vertical", d.foot.x, d.foot.y, top - road, v, res[0], res[1], res[2], res[10], strikes, isBad ? "  STEP" : ""));
+                }
+            }
+            L.AppendLine($"    DRIVEWAYS: {done} driven at 15 and 30 km/h, {bad} runs with a step over 3 cm, a strike or all four wheels off");
         }
 
         IEnumerator CrossSpecial(CarController player, CityWorld world, Site st, CityMap.Edge edge, float s0)
