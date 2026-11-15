@@ -834,6 +834,21 @@ namespace PSXRacing.LifeSim
             nn.mode = Navigation.Mode.Explicit;
             nn.selectOnUp = picked;
             next.navigation = nn;
+            // The row above the card (the name, AGE - and +, USE TEST NAME):
+            // DOWN is the plan picked, on every canvas. On 16:9 and 4:3 the
+            // geometry found nothing under the age stepper and DOWN there did
+            // nothing; on a wide phone it skipped the plans for NEXT
+            // (NavScrollPreview, 2026-11-15). Only a graph that is explicit
+            // already is touched: an automatic control's other moves stay its own.
+            foreach (var s in root.GetComponentsInChildren<Selectable>(false))
+            {
+                bool top = s.name == "Btn_-" || s.name == "Btn_+" || s.name == "Btn_USE TEST NAME" ||
+                           (wizNameField != null && s.gameObject == wizNameField.gameObject);
+                if (!top || s.navigation.mode != Navigation.Mode.Explicit) continue;
+                var tn = s.navigation;
+                tn.selectOnDown = picked;
+                s.navigation = tn;
+            }
         }
 
         /// <summary>PSX_WIZARD_SCROLL=0: the NEW GAME card drawn straight onto
