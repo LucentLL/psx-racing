@@ -137,6 +137,7 @@ namespace PSXRacing.EditorTools
                     if (car != null) car.TeleportTo(eye - fwd * 3f - Vector3.up * 0.8f, Quaternion.LookRotation(new Vector3(fwd.x, 0f, fwd.z)));
                     // ---- noon, summer: every place ----
                     T4Shoot(cam, sun, dressing, world, mt, dir, pl.id + "_noon_summer", eye, rot, TimeOfDay.Noon, (int)Season.Summer);
+                    T4Labels(cam, mt, kit, Path.Combine(dir, pl.id + "_noon_summer_labels.csv"), eye, rot);
                     shots++;
                     // ---- the four seasons at two poses ----
                     if (System.Array.IndexOf(T4SeasonPlaces, pl.id) >= 0)
@@ -164,7 +165,7 @@ namespace PSXRacing.EditorTools
                             shots++;
                         }
                         CityMeshTrees.LodOverride = keep; mt.Rebuild();
-                        shots += T4Close(cam, sun, dressing, world, mt, kit, dir, tag, eye, fwd, staged, log);
+                        shots += T4Close(cam, sun, dressing, world, mt, map, kit, tag, eye, staged, log);
                     }
                 }
                 world.DropAll(); mt.Flush();
@@ -268,32 +269,36 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The models close up, the owner's models beside a NatureManufacture tree: a young
-        /// willow oak, a young loblolly and a small Forest beech stood side by side on the road ahead
-        /// (staged, not planted), at 3 m and at 8 m, noon, summer.</summary>
-        static int T4Close(Camera cam, Light sun, SeasonDress dressing, CityWorld world, CityMeshTrees mt, CityTreeKit kit, string dir, string tag,
-                           Vector3 eye, Vector3 fwd, List<GameObject> staged, StringBuilder log)
+        /// willow oak, a young loblolly and a small Forest beech STAGED ON A LAWN (owner 11-15, on the
+        /// first staging in the lane: "that is a tree in the center of the road...this should never
+        /// happen"): every staged trunk where a tree really stands (T4Lawn: off the road and its walk,
+        /// clear of buildings, lots and planted trees), the camera on the lawn or the walk looking at
+        /// them across the grass, away from the road; the nearest trunk 3 m and 8 m from the eye,
+        /// noon, summer. A comparison of the models, not planting: the frames are labelled so.</summary>
+        static int T4Close(Camera cam, Light sun, SeasonDress dressing, CityWorld world, CityMeshTrees mt, CityMap map, CityTreeKit kit, string tag,
+                           Vector3 near, List<GameObject> staged, StringBuilder log)
         {
             int Find(string n) => kit.names != null ? System.Array.IndexOf(kit.names, n) : -1;
             int oak = Find("CT4_WillowOak_YoungStreet"), pine = Find("CT4_LoblollyPine_Young"), beech = -1;
             for (int v = 0; v < kit.variants.Length && beech < 0; v++) if (kit.Group3(v) == 0 && kit.roles[v] == CityTreeKit.Role.Small) beech = v;
             if (oak < 0 || pine < 0 || beech < 0) { log.Append($"  CLOSE: a model missing (oak {oak}, pine {pine}, beech {beech})\n"); return 0; }
+            Physics.SyncTransforms();
+            if (!T4Lawn(map, mt, kit, near, out var c, out var f, out string how)) { log.Append("  CLOSE: no lawn found near the place (" + how + "): no close frames\n"); return 0; }
             T4Light(sun, dressing, world, TimeOfDay.Noon, (int)Season.Summer);
-            var f = new Vector3(fwd.x, 0f, fwd.z).normalized;
             var right = Vector3.Cross(Vector3.up, f);
-            float ground = eye.y - 1.15f;
             int n = 0;
             foreach (float D in new[] { 3f, 8f })
             {
                 foreach (var g in staged) if (g != null) Object.DestroyImmediate(g);
                 staged.Clear();
                 float gap = D < 5f ? 2.6f : 5.5f;
-                var at = eye + f * (D + 2.5f);
                 int[] which = { oak, pine, beech };
                 for (int k = 0; k < 3; k++)
                 {
                     var v = kit.variants[which[k]];
                     var go = new GameObject("T4Close_" + kit.names[which[k]]) { hideFlags = HideFlags.DontSave };
-                    var pos = new Vector3(at.x, ground, at.z) + right * ((k - 1) * gap);
+                    var p2 = c + right * ((k - 1) * gap);
+                    var pos = new Vector3(p2.x, T4Ground(p2, near.y) - CityTrees.SinkM, p2.z);
                     // the variant's own frame (pre) under the plant's
                     var m = Matrix4x4.TRS(pos, Quaternion.Euler(0f, 37f * k, 0f), Vector3.one) * v.pre;
                     go.transform.position = m.GetColumn(3);
@@ -309,7 +314,8 @@ namespace PSXRacing.EditorTools
                     go.AddComponent<MeshRenderer>().sharedMaterials = mats;
                     staged.Add(go);
                 }
-                var camPos = new Vector3(eye.x, ground + 1.6f, eye.z) + f * 2.5f;
+                var cam2 = c - f * D;
+                var camPos = new Vector3(cam2.x, T4Ground(cam2, near.y) + 1.6f, cam2.z);
                 var r = Quaternion.LookRotation(f + Vector3.up * (D < 5f ? 0.32f : 0.22f));
                 cam.transform.SetPositionAndRotation(camPos, r);
                 SunShadows.RenderFor(cam);
@@ -319,8 +325,179 @@ namespace PSXRacing.EditorTools
             }
             foreach (var g in staged) if (g != null) Object.DestroyImmediate(g);
             staged.Clear();
-            log.Append($"  CLOSE: {kit.names[oak]} (left), {kit.names[pine]} (middle), {kit.names[beech]} (right, NatureManufacture Forest), 3 m and 8 m\n");
+            log.Append($"  CLOSE (STAGED COMPARISON on a lawn at {CityAudit.LatLon(c.x, c.z)}; {how}): {kit.names[oak]} (left), {kit.names[pine]} (middle), {kit.names[beech]} (right, NatureManufacture Forest), the nearest trunk 3 m and 8 m from the eye\n");
             return n;
+        }
+
+        static float T4Ground(Vector3 p, float nearY)
+        {
+            var from = new Vector3(p.x, nearY + 60f, p.z);
+            var hits = Physics.RaycastAll(from, Vector3.down, 140f, ~0, QueryTriggerInteraction.Ignore);
+            float best = float.NaN;
+            foreach (var h in hits)
+                if (Mathf.Abs(h.point.y - nearY) < 12f && (float.IsNaN(best) || h.point.y < best)) best = h.point.y;
+            return float.IsNaN(best) ? nearY : best;
+        }
+
+        static float T4SegDist(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var d = b - a; float L2 = d.sqrMagnitude;
+            float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+            return Vector2.Distance(p, a + d * t);
+        }
+
+        static bool T4Inside(Vector2[] ring, Vector2 p)
+        {
+            if (ring == null || ring.Length < 3) return false;
+            bool inside = false;
+            for (int i = ring.Length - 1, j = 0; j < ring.Length; i = j++)
+                if ((ring[i].y > p.y) != (ring[j].y > p.y) && p.x < (ring[j].x - ring[i].x) * (p.y - ring[i].y) / (ring[j].y - ring[i].y) + ring[i].x) inside = !inside;
+            return inside;
+        }
+
+        /// <summary>A LAWN for the staged comparison, the nearest to <paramref name="near"/>: the row of
+        /// three trunks (both spacings) at least 5.5 m from every road's pavement edge (a 0.6 m gutter and
+        /// curb, a walk to 3.9 m, then 1 m), 7 m from every building, outside every parking lot, 6 m from
+        /// every planted tree, on ground within a metre of level; the camera spots (3 m and 8 m in front)
+        /// 1.5 m off every pavement, outside buildings and lots, 2 m from planted trees, looking away from
+        /// the nearest road.</summary>
+        static bool T4Lawn(CityMap map, CityMeshTrees mt, CityTreeKit kit, Vector3 near, out Vector3 centre, out Vector3 dir, out string how)
+        {
+            centre = near; dir = Vector3.forward; how = "";
+            var n2 = new Vector2(near.x, near.z);
+            const float Reach = 320f;
+            var segA = new List<Vector2>(); var segB = new List<Vector2>(); var segH = new List<float>();
+            foreach (var e in map.edges)
+            {
+                if (e.tunnel || e.length < 1f) continue;
+                if (Vector2.Distance(e.PointAt(e.length * 0.5f), n2) > Reach + e.length * 0.5f) continue;
+                int k = Mathf.Max(1, Mathf.CeilToInt(e.length / 4f));
+                var prev = e.PointAt(0f);
+                for (int i = 1; i <= k; i++) { var q = e.PointAt(e.length * i / k); segA.Add(prev); segB.Add(q); segH.Add(e.width * 0.5f); prev = q; }
+            }
+            var fps = new List<CityMap.Footprint>(); var fpR = new List<float>();
+            if (map.footprints != null)
+                foreach (var fp in map.footprints)
+                {
+                    if (fp == null || fp.replaced || fp.pts == null || fp.pts.Length < 3) continue;
+                    if (Vector2.Distance(fp.centre, n2) > Reach + 60f) continue;
+                    float r = 0f; foreach (var q in fp.pts) r = Mathf.Max(r, (q - fp.centre).magnitude);
+                    fps.Add(fp); fpR.Add(r);
+                }
+            var lots = new List<Vector2[]>();
+            if (map.lots != null)
+                foreach (var lot in map.lots)
+                    if (lot != null && lot.ring != null && lot.ring.Length >= 3 && Vector2.Distance(lot.ring[0], n2) < Reach + 300f) lots.Add(lot.ring);
+            var trees = new List<Vector3>();
+            foreach (long key in mt.FittedKeys)
+            {
+                var plants = mt.PlantsOf(key); if (plants == null) continue;
+                foreach (var p in plants)
+                    if (Vector2.Distance(new Vector2(p.pos.x, p.pos.z), n2) < Reach + 20f)
+                        trees.Add(new Vector3(p.pos.x, p.pos.z, MaxR(kit, p.variant) * p.scale));
+            }
+            float RoadGap(Vector2 p, out Vector2 away)
+            {
+                float best = float.MaxValue; away = Vector2.zero;
+                for (int i = 0; i < segA.Count; i++)
+                {
+                    float d = T4SegDist(p, segA[i], segB[i]) - segH[i];
+                    if (d < best)
+                    {
+                        best = d;
+                        var a = segA[i]; var dd = segB[i] - a; float L2 = dd.sqrMagnitude;
+                        float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, dd) / L2) : 0f;
+                        away = p - (a + dd * t);
+                    }
+                }
+                return best;
+            }
+            float BldGap(Vector2 p)
+            {
+                float best = float.MaxValue;
+                for (int i = 0; i < fps.Count; i++)
+                {
+                    float dc = Vector2.Distance(p, fps[i].centre);
+                    if (dc - fpR[i] > best) continue;
+                    if (T4Inside(fps[i].pts, p)) return 0f;
+                    var pts = fps[i].pts;
+                    for (int a = pts.Length - 1, b = 0; b < pts.Length; a = b++) best = Mathf.Min(best, T4SegDist(p, pts[a], pts[b]));
+                }
+                return best;
+            }
+            bool InLot(Vector2 p) { foreach (var ring in lots) if (T4Inside(ring, p)) return true; return false; }
+            float TreeGap(Vector2 p) { float best = float.MaxValue; foreach (var t in trees) best = Mathf.Min(best, Vector2.Distance(p, new Vector2(t.x, t.y)) - t.z * 0.5f); return best; }
+            int tried = 0;
+            for (float rad = 10f; rad <= 200f; rad += 5f)
+                for (float ang = 0f; ang < 360f; ang += 15f)
+                {
+                    tried++;
+                    var c = n2 + new Vector2(Mathf.Cos(ang * Mathf.Deg2Rad), Mathf.Sin(ang * Mathf.Deg2Rad)) * rad;
+                    if (RoadGap(c, out var away) < 7f || away.sqrMagnitude < 1e-4f) continue;
+                    var f = away.normalized;
+                    var rt = new Vector2(f.y, -f.x);
+                    bool ok = true;
+                    float minRoad = float.MaxValue, minCamRoad = float.MaxValue;
+                    float gy0 = T4Ground(new Vector3(c.x, 0f, c.y), near.y), gMin = gy0, gMax = gy0;
+                    foreach (float gap in new[] { 2.6f, 5.5f })
+                        for (int k = -1; k <= 1 && ok; k++)
+                        {
+                            var p = c + rt * (k * gap);
+                            float rg = RoadGap(p, out _);
+                            minRoad = Mathf.Min(minRoad, rg);
+                            if (rg < 5.5f || BldGap(p) < 7f || InLot(p) || TreeGap(p) < 6f) ok = false;
+                            float gy = T4Ground(new Vector3(p.x, 0f, p.y), near.y); gMin = Mathf.Min(gMin, gy); gMax = Mathf.Max(gMax, gy);
+                        }
+                    if (!ok) continue;
+                    foreach (float D in new[] { 3f, 8f })
+                    {
+                        var q = c - f * D;
+                        float rg = RoadGap(q, out _);
+                        minCamRoad = Mathf.Min(minCamRoad, rg);
+                        if (rg < 1.5f || BldGap(q) < 1f || InLot(q) || TreeGap(q) < 2f) { ok = false; break; }
+                        float gy = T4Ground(new Vector3(q.x, 0f, q.y), near.y); gMin = Mathf.Min(gMin, gy); gMax = Mathf.Max(gMax, gy);
+                    }
+                    if (!ok || gMax - gMin > 1.0f) continue;
+                    centre = new Vector3(c.x, gy0, c.y);
+                    dir = new Vector3(f.x, 0f, f.y);
+                    how = $"{rad:0} m from the place, trunks {minRoad:0.0} m or more from the pavement's edge, camera {minCamRoad:0.0} m or more, ground level within {gMax - gMin:0.0} m, {tried} spots tried";
+                    return true;
+                }
+            how = $"{tried} spots tried";
+            return false;
+        }
+
+        /// <summary>WHICH TREE IS WHERE in a frame: every planted tree in view - its foot and top on the
+        /// saved frame (px, 1280 x 720, y down), its distance, its model, its summer leaf and card
+        /// materials, and the level the game draws it at from this eye (MEDIUM: mesh 0-2 or card).</summary>
+        static void T4Labels(Camera cam, CityMeshTrees mt, CityTreeKit kit, string path, Vector3 eye, Quaternion rot)
+        {
+            const float W = 1280f, Hh = 720f;
+            float th = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad), asp = W / Hh;
+            var inv = Quaternion.Inverse(rot);
+            var sb = new StringBuilder("model,x_foot,y_foot,y_top,dist_m,level,summer_leaf,summer_card\n");
+            var F = mt.Forest;
+            foreach (long key in mt.FittedKeys)
+            {
+                var plants = mt.PlantsOf(key); if (plants == null) continue;
+                foreach (var p in plants)
+                {
+                    var v = kit.variants[p.variant];
+                    var lf = inv * (p.pos - eye);
+                    var lt = inv * (p.pos + Vector3.up * v.height * p.scale - eye);
+                    if (lf.z < 1f) continue;
+                    float x = (lf.x / (lf.z * th * asp) * 0.5f + 0.5f) * W;
+                    float yf = (1f - (lf.y / (lf.z * th) * 0.5f + 0.5f)) * Hh, yt = (1f - (lt.y / (lt.z * th) * 0.5f + 0.5f)) * Hh;
+                    if (x < -40f || x > W + 40f || yt > Hh || yf < 0f) continue;
+                    float d = Vector3.Distance(p.pos, eye);
+                    string lv = d < F.lod0To ? "mesh0" : d < F.lod1To ? "mesh1" : d < F.meshRange ? "mesh2" : "card";
+                    string leaf = v.leafDress != null && v.leafDress.Length > 2 && v.leafDress[2] != null ? v.leafDress[2].name : "-";
+                    string card = v.impostorDress != null && v.impostorDress.Length > 2 && v.impostorDress[2] != null ? v.impostorDress[2].name : "-";
+                    sb.Append(kit.names[p.variant]).Append(',').Append(x.ToString("0")).Append(',').Append(yf.ToString("0")).Append(',').Append(yt.ToString("0")).Append(',')
+                      .Append(d.ToString("0")).Append(',').Append(lv).Append(',').Append(leaf).Append(',').Append(card).Append('\n');
+                }
+            }
+            File.WriteAllText(path, sb.ToString());
         }
     }
 }

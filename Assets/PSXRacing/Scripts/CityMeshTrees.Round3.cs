@@ -604,8 +604,12 @@ namespace PSXRacing.City
                 }
                 return;
             }
-            // (crape myrtle is planted: the bake's strip myrtle on a road through woods or open ground takes the wild mix)
-            if (sp == CityTrees.Species.Myrtle && !wild)
+            // A ROAD THROUGH WOODS: a roadside spot under canopy with no house or other building within 25 m is the
+            // wood's edge, not a planted frontage - it takes the woods' mix (the bake marks a secondary road's
+            // roadside trees crape myrtle by its strip rule, CityTrees.SpeciesAt: in bloom along Colony Rd's woods
+            // in the second after run). Crape myrtle is planted: never in the woods or open ground.
+            bool woodsRoad = s.ctx == Ctx.Roadside && s.canopy >= 0.5f && s.bldD > 25f && s.homeD > 25f;
+            if (sp == CityTrees.Species.Myrtle && !wild && !woodsRoad)
             {
                 // the baked crape myrtle (Uptown's 30%, a commercial strip's 55%): crape myrtle; a strip's pear now and then
                 if ((s.ctx == Ctx.Lot || s.ctx == Ctx.Roadside) && r4 < 0.2f) Sp(cPear, 8.5f, 11.5f, r2);
@@ -646,7 +650,10 @@ namespace PSXRacing.City
             switch (s.ctx)
             {
                 case Ctx.OldStreet: t0 = tRoad0; t1 = tOld1; t2 = tOld2; break;
-                case Ctx.Roadside: t0 = tRoad0; t1 = tRoad1; t2 = tRoad2; break;
+                case Ctx.Roadside:
+                    if (woodsRoad) { t0 = tOpen0; t1 = tOpen1; t2 = tWood; }
+                    else { t0 = tRoad0; t1 = tRoad1; t2 = tRoad2; }
+                    break;
                 case Ctx.Lot: t0 = tLot0; t1 = tLot1; t2 = tLot2; break;
                 case Ctx.Yard: t0 = tYard0; t1 = tYard1; t2 = tYard2; break;
                 case Ctx.Woodland: t0 = tOpen0; t1 = tOpen1; t2 = tWood; break;
@@ -670,7 +677,7 @@ namespace PSXRacing.City
             else if (size == 1) Take(t1, r4, r2, myr);
             Take(t0, size == 0 ? r4 : r6, r2, myr);
             // the last Charlotte tree: a crape myrtle kept small (yards and lots) or a young redcedar (the wild)
-            if (wild) Sp(cCedar, 4.5f, 7f, r2); else Cs(myr, L(2.6f, 3.8f), 1.8f, 4.2f);
+            if (wild || woodsRoad) Sp(cCedar, 4.5f, 7f, r2); else Cs(myr, L(2.6f, 3.8f), 1.8f, 4.2f);
         }
 
         void Refuse(int why, in CityTrees.Tree t, Vector3 foot)
