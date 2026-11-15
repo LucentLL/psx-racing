@@ -99,6 +99,7 @@ namespace PSXRacing.EditorTools
             public CT3Form f;
             public float cutY, B, h, trunkCut, flare, impK, stemK, limbKeep, limbZone;
             public Vector2[] axis;   // the trunk's line, a point every AxisStep up to the cut
+            public float[] axisR;    // ... and the trunk's own radius there
             public Vector2 top, crownC;   // the trunk's line at the cut; the middle of the crown above it
         }
         const float CT3AxisStep = 0.5f;
@@ -110,6 +111,16 @@ namespace PSXRacing.EditorTools
             int i = Mathf.Min(c.axis.Length - 1, (int)t);
             int j = Mathf.Min(c.axis.Length - 1, i + 1);
             return Vector2.Lerp(c.axis[i], c.axis[j], t - i);
+        }
+
+        /// <summary>The trunk's own radius at a height under the cut.</summary>
+        static float Radius3(in CT3Cut c, float y)
+        {
+            if (c.axisR == null || c.axisR.Length == 0) return c.trunkCut / 1.8f;
+            float t = Mathf.Clamp(y / CT3AxisStep - 0.5f, 0f, c.axisR.Length - 1);
+            int i = Mathf.Min(c.axisR.Length - 1, (int)t);
+            int j = Mathf.Min(c.axisR.Length - 1, i + 1);
+            return Mathf.Lerp(c.axisR[i], c.axisR[j], t - i);
         }
 
         static bool Cut3(MeshForest.Variant src, CT3Form f, out CT3Cut c, out string how)
@@ -172,6 +183,26 @@ namespace PSXRacing.EditorTools
                     }
                 c.axis[i] = n >= 3 ? acc / n : prev;
                 prev = c.axis[i];
+            }
+            // the trunk's own radius slice by slice (the middle of the bark that stands round the line): a limb
+            // is pruned FLUSH with it - a stub half a metre long, cut open, is a shard from the road
+            c.axisR = new float[ns];
+            float prevR = trunkR;
+            var dsl = new List<float>();
+            for (int i = 0; i < ns; i++)
+            {
+                dsl.Clear();
+                if (bySlice[i] != null)
+                    foreach (var q in bySlice[i])
+                    {
+                        float d = Vector2.Distance(new Vector2(q.x, q.z), c.axis[i]);
+                        if (d < prevR * 1.8f + 0.05f) dsl.Add(d);
+                    }
+                dsl.Sort();
+                float r = dsl.Count >= 6 ? dsl[dsl.Count / 2] : prevR;
+                // (a trunk tapers upward; the root flare aside)
+                r = Mathf.Clamp(r, 0.5f * prevR, (i + 0.5f) * CT3AxisStep < 2f ? 1.6f * prevR : 1.05f * prevR);
+                c.axisR[i] = r; prevR = r;
             }
             float crown = (h - cutY) * f.cy;
             float B = f.baseFrac / (1f - f.baseFrac) * crown;
@@ -424,8 +455,21 @@ namespace PSXRacing.EditorTools
                         float dx = ctr.x - ax.x, dz = ctr.z - ax.y;
                         float r2 = dx * dx + dz * dz;
                         if (r2 > c.limbKeep * c.limbKeep) continue;
-                        // (lower than the zone: the trunk alone, its limbs pruned at the stem)
-                        if (ctr.y < c.cutY - c.limbZone && r2 > c.trunkCut * c.trunkCut) continue;
+                        // (lower than the zone: the trunk alone, its limbs pruned flush - every corner of the
+                        // triangle within the trunk's own radius there, so no long plate of a coarse level sticks out)
+                        if (ctr.y < c.cutY - c.limbZone)
+                        {
+                            bool trunk = true;
+                            for (int j = 0; j < 3 && trunk; j++)
+                            {
+                                var pj = tri[j].p;
+                                var aj = Axis3(c, Mathf.Min(pj.y, c.cutY));
+                                float rc = 1.4f * Radius3(c, pj.y) + 0.05f;
+                                float ex = pj.x - aj.x, ez = pj.z - aj.y;
+                                if (ex * ex + ez * ez > rc * rc) trunk = false;
+                            }
+                            if (!trunk) continue;
+                        }
                     }
                     Emit3(tri, c, false, outV, outT[s]);
                 }
