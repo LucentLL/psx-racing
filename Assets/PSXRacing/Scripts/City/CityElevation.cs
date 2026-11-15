@@ -1111,6 +1111,9 @@ namespace PSXRacing.City
             nodeYSolved = (float[])map.nodeY.Clone();
             DrawnProfile(map);
             Phase("drawn");
+            // deck plates (2026-11-15): one height where junction nodes crowd one deck (CityDeckPlates)
+            CityDeckPlates.AfterSolve(map);
+            Phase("deck plates");
             LastSolvePhases = phases.ToString().TrimEnd(' ', ',') + " ms";
             TwinHoldReport = !TwinHoldsOn ? "twin holds OFF (PSX_CITY_TWINHOLD=0)"
                 : $"twin holds: {TwinHoldMoves} raises in the cone loop ({TwinHoldSkipped} station checks left apart, more than {TwinHoldMaxDyM} m off their partner); after the curves {TwinDyBeforeFinal:0.000} m apart at worst, the pointwise hold raised {TwinFinalRaised} stations (up to {TwinFinalRaiseMax:0.000} m; {TwinFinalClamped} taken back by the crest guard; sag added up to {TwinFinalSagAdded * 100f:0.00}%, crest added up to {TwinFinalCrestAdded * 100f:0.000}%), worst station dy now {TwinDyAfterCurves:0.000} m; TWIN (e) p50 {TwinDyP50:0.000} / p95 {TwinDyP95:0.000} / max {TwinDyMax:0.000} m over {TwinDySamples} samples" +

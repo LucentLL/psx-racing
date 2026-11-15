@@ -2329,6 +2329,7 @@ namespace PSXRacing.City
             stepPart = 0;
             yield return 0;
             stepItem = 1;
+            DeckPlateCut(map, trims, tm, min, max);   // deck plates (2026-11-15): one slab where junction nodes crowd one deck (CityMeshes.DeckPlates.cs)
             tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots, false);
             tm.roadSlots = roadSlots;
             if (tm.tap != null) tm.tap.slotBase = tapSlotBase;

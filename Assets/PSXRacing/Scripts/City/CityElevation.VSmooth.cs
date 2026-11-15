@@ -234,6 +234,7 @@ namespace PSXRacing.City
             VSmoothApplied = false;
             if (on) DrawnProfile(map);
             else VSmoothReport = "drawn profile OFF (the stations, straight)";
+            CityDeckPlates.AfterSolve(map);   // deck plates (2026-11-15): on the profile as it stands now
         }
 
         // ---- per-solve scratch ------------------------------------------
