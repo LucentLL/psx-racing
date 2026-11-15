@@ -774,12 +774,15 @@ namespace PSXRacing.EditorTools
                         pieces.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7:0.0}\t{8:0.00}\t{9:0.0}\t{10:0.0}\t{11:0.00}\t{12:0.00}\t{13:0.00}\t{14:0.0}\tR{15}\t{16}\t{17:0}\t{18}\t{19}\t{20}\t{21}\t{22:0.00}\t{23:0.00}\t{24:0.00}\t{25:0.00}\t{26:0.00}\t{27:0.00}\n",
                             set, R.cls[i], p.rule, p.kind, p.edge, p.side, p.node, m3.x, m3.y, m3.z, len, p.hA, p.hB, p.half, p.paveM, R.reason[i], R.run[i], R.runLen[i], R.freeA[i] ? 1 : 0, R.freeB[i] ? 1 : 0, p.tx, p.tz, p.a.x, p.a.z, p.b.x, p.b.z, p.a.y, p.b.y));
                         if (!cluster || R.cls[i] == 0) continue;
-                        float w = Mathf.Max(1f, len) * ((R.cls[i] & CnPave) != 0 ? 3f : (R.cls[i] & (CnBadEnd | CnDouble)) != 0 ? 2f : 1f);
+                        // what reads as junk from a lane weighs most: a piece on pavement, then a bad end, an orphan, a gap, a step;
+                        // a wall with no reason; last the long pairs and the tall retaining rails (from a lane: an ordinary barrier)
+                        int junk = CnBadEnd | CnOrphan | CnGap | CnUpDown;
+                        float w = Mathf.Max(1f, len) * ((R.cls[i] & CnPave) != 0 ? 8f : (R.cls[i] & junk) != 0 ? 4f : (R.cls[i] & CnNoReason) != 0 ? 1f : (R.cls[i] & CnDouble) != 0 ? 0.5f : 0.25f);
                         long k = CnKey(m3.x, m3.z, 200f);
                         if (!cells.TryGetValue(k, out var c)) c = (0f, new int[CnNames.Length], Vector2.zero, 0f, -1, 0f);
                         c.w += w; c.sum += CnXZ(m3) * w; c.sumW += w;
                         for (int b = 0; b < CnNames.Length; b++) if ((R.cls[i] & (1 << b)) != 0) c.c[b]++;
-                        float pw = ((R.cls[i] & CnPave) != 0 ? 100f : 0f) + len;
+                        float pw = ((R.cls[i] & CnPave) != 0 ? 300f : (R.cls[i] & junk) != 0 ? 200f : (R.cls[i] & CnNoReason) != 0 ? 50f : 0f) + len;
                         if (pw > c.bestW) { c.bestW = pw; c.best = i; }
                         cells[k] = c;
                     }
