@@ -97,11 +97,20 @@ namespace PSXRacing.EditorTools
                     if (g < y - (o > 8f ? 1.5f : 0.6f)) return 2;
                     if (g > y + Mathf.Max(0.3f, o / 3f)) return 3;
                 }
-            bool h0 = false, h1 = false; int w0 = 0, w1 = 0; Vector2 t0 = default, t1 = default;
-            // (a median of any real width: the other carriageway within 80 m)
-            for (float o = p.half + 0.3f; o <= 80f && !h0; o += o < 14f ? 0.75f : 2f) h0 = CnProbe(m + perp * o, y, true, out w0, out t0, out _);
-            for (float o = p.half + 0.3f; o <= 80f && !h1; o += o < 14f ? 0.75f : 2f) h1 = CnProbe(m - perp * o, y, true, out w1, out t1, out _);
-            if (h0 && h1 && w0 >= 0 && w1 >= 0 && Vector2.Dot(t0, t1) < -0.5f && Mathf.Abs(Vector2.Dot(t0, d)) > 0.7f) return 1;
+            // R1: it stands along a carriageway (the nearest pavement, within 14 m) and a road running the opposite way
+            // lies beside it within 250 m (a median of any width: on I-77 north the carriageways stand over 80 m apart)
+            bool own = false; Vector2 tOwn = default; float oOwn = float.MaxValue;
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                for (float o = p.half + 0.3f; o <= 14f && o < oOwn; o += 0.75f)
+                    if (CnProbe(m + perp * (sgn * o), y, true, out int wq, out var tq, out _))
+                    {
+                        if (wq >= 0) { own = true; tOwn = tq; oOwn = o; }
+                        break;
+                    }
+            if (!own || Mathf.Abs(Vector2.Dot(tOwn, d)) <= 0.7f) return 0;
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                for (float o = p.half + 0.3f; o <= 250f; o += o < 14f ? 0.75f : 2f)
+                    if (CnProbe(m + perp * (sgn * o), y, true, out int wq, out var tq, out _) && wq >= 0 && Vector2.Dot(tq, tOwn) < -0.5f) return 1;
             return 0;
         }
 
