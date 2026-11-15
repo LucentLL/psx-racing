@@ -119,6 +119,7 @@ all strays        	 17.70 km	 16.27 km	  9.58 km
 
 ## Proof sheet
 `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\concrete\final_sheet.png`: the owner's deck first (the bridges sheet's three poses and a top view), then the five worst class d clusters and the five worst class b clusters; four cells a place: BEFORE (gate off, fresh process), BEFORE with every stray piece boxed in its class's colour (a red, f orange, d magenta, b yellow, c cyan, e blue, g green, h white), AFTER (every rule on, fresh process), AFTER boxed.
+What still looks wrong in it: on the deck the parapets round the openings (cyan, orange) still stand and the "long low beam" in cell 3 is the step between two ramp ribbons (the deck surface, spui's job); the fifth class d place is I-77 at 35.13150,-80.91335 (74 pieces) because the fifth by count (I-485 at 35.36400,-80.71830, 101 pieces) had no driver's-eye pose in the cluster file; row 8 (East Independence Expressway at Commonwealth Ave) is unchanged on purpose (busway corridor); in the class d rows the one Jersey now stands on the centre of a fully paved median, which reads wider than a grass median with a centre barrier would.
 
 ## Switches (all default as listed; `PSX_CITY_CONCRETE=0` turns every one off: the picture as it was)
 PSX_CITY_CONC_PAVE (rule 1, ON), PSX_CITY_CONC_ORPHAN (rule 4, ON), PSX_CITY_CONC_ENDS (rule 5, ON), PSX_CITY_CONC_TWIN (class d, ON;
