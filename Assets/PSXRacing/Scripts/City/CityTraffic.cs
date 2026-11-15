@@ -130,8 +130,11 @@ namespace PSXRacing.City
 
         public static float ShareAt(float clock)
         {
-            // THE PC PROFILE's traffic at its most: the peak, round the clock
-            if (PlatformProfile.MaxTraffic) return 1f;
+            // THE PC PROFILE's traffic at its most: the peak, round the clock -
+            // until the owner's midnight report (2026-11-15, TrafficLevels.
+            // ForClock): the hour decides on every platform now; the PC keeps
+            // its bigger cap for the peaks. PSX_TRAFFIC_CLOCK=0: as it was.
+            if (!TrafficLevels.ClockOn && PlatformProfile.MaxTraffic) return 1f;
             clock = Mathf.Repeat(clock, 24f);
             int h = Mathf.FloorToInt(clock) % 24;
             return Mathf.Lerp(HourShare[h], HourShare[(h + 1) % 24], clock - Mathf.Floor(clock));

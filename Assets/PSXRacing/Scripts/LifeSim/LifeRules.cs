@@ -230,7 +230,7 @@ namespace PSXRacing.LifeSim
         {
             if (b == null) return TrafficLevels.ForHour(TimeOfDay.Sunset);
             int level = b.trafficPick - 1;
-            return TrafficLevels.Valid(level) ? level : TrafficLevels.ForHour(BookingHour(b));
+            return TrafficLevels.Valid(level) ? level : TrafficLevels.ForClock(b.day, BookingHour(b));
         }
 
         /// <summary>Change a booked race's traffic, in the diary.</summary>

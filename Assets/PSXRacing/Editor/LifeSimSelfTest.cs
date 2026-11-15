@@ -7773,6 +7773,20 @@ namespace PSXRacing.EditorTools
                   TrafficLevels.ForHour(TimeOfDay.Noon) == TrafficLevels.Medium,
                   "a race with no level set runs its hour's nearest: night LIGHT, the day MEDIUM",
                   TrafficLevels.Name(TrafficLevels.ForHour(TimeOfDay.Night)));
+            // Owner 2026-11-15: a midnight meet race ran at RUSH HOUR (the PC
+            // profile's level at every hour). A night with a calendar day is
+            // NONE or LIGHT, never more, on every platform.
+            bool nightQuiet = true;
+            for (int d = 0; d < 14; d++)
+            {
+                int lvN = TrafficLevels.ForClock(d, TimeOfDay.Night);
+                if (lvN != TrafficLevels.None && lvN != TrafficLevels.Light) nightQuiet = false;
+            }
+            Check(nightQuiet && TrafficLevels.ForClock(4, TimeOfDay.Night) == TrafficLevels.None &&
+                  TrafficLevels.ForClock(5, TimeOfDay.Night) == TrafficLevels.Light &&
+                  TrafficLevels.Resolve(-1, TimeOfDay.Night, 4) == TrafficLevels.None &&
+                  TrafficLevels.Resolve(TrafficLevels.RushHour, TimeOfDay.Night, 4) == TrafficLevels.RushHour,
+                  "a night race with no level set runs NONE or LIGHT by its day; a picked level stands");
             var tdiary = new LifeState { day = 10, slotIndex = 0 };
             Check(LifeRules.Book(tdiary, 12, LifeRules.EveningSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.RushHour) &&
                   LifeRules.BookingTraffic(LifeRules.BookingOn(tdiary, 12)) == TrafficLevels.RushHour,

@@ -1938,7 +1938,7 @@ namespace PSXRacing.LifeSim
         /// <summary>The traffic the planner would book: its pick, or the level
         /// the planned hour puts on the road.</summary>
         int PlanTraffic(int day, int slot) =>
-            TrafficLevels.Valid(calTraffic) ? calTraffic : TrafficLevels.ForHour(PlanHour(day, slot));
+            TrafficLevels.Valid(calTraffic) ? calTraffic : TrafficLevels.ForClock(day, PlanHour(day, slot));
 
         /// <summary>The traffic the race on the pre-race page runs with: the
         /// booking's, else this page's pick, else the hour's own level.</summary>
@@ -1946,7 +1946,7 @@ namespace PSXRacing.LifeSim
         {
             var booked = LifeRules.BookingAt(S, S.day, S.slotIndex);
             if (booked != null) return LifeRules.BookingTraffic(booked);
-            return TrafficLevels.Valid(raceTrafficPick) ? raceTrafficPick : TrafficLevels.ForHour(PreRaceHour());
+            return TrafficLevels.Valid(raceTrafficPick) ? raceTrafficPick : TrafficLevels.ForClock(S.day, PreRaceHour());
         }
 
         /// <summary>"HEAVY TRAFFIC", "NO TRAFFIC" - for the lines that say what

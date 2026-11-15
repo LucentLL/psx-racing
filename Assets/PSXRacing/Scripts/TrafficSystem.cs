@@ -47,9 +47,25 @@ namespace PSXRacing
 
         /// <summary>The level nearest to what this hour used to put on the
         /// road: dawn, dusk and night LIGHT, the day MEDIUM.</summary>
-        public static int ForHour(int hour)
+        public static int ForHour(int hour) => ForClock(-1, hour);
+
+        /// <summary>
+        /// The level the clock puts on the road when nobody picked one - a
+        /// meet challenge, a delivery, a test drive, a rival's call-out, a
+        /// booking left to the hour. Owner 2026-11-15: "Whenever I challenge
+        /// an NPC at a car meet to race, the traffic always seems to be set on
+        /// Rush Hour, despite it being midnight on a weekend. Traffic during
+        /// these times should be Light, Extremely Light, or None." The PC
+        /// profile used to answer RUSH HOUR at every hour (PlatformProfile.
+        /// MaxTraffic); now the clock decides on every platform. The NIGHT is
+        /// NONE or LIGHT by calendar day (alternating, so the pre-race page and
+        /// the race agree); with no day known it is LIGHT, as before.
+        /// PSX_TRAFFIC_CLOCK=0: the old PC RUSH HOUR.
+        /// </summary>
+        public static int ForClock(int day, int hour)
         {
-            if (PlatformProfile.MaxTraffic) return RushHour;
+            if (!ClockOn && PlatformProfile.MaxTraffic) return RushHour;
+            if (hour == TimeOfDay.Night && day >= 0) return (day & 1) == 0 ? None : Light;
             float d = HourPerKm[Mathf.Clamp(hour, 0, HourPerKm.Length - 1)];
             int best = Light;
             for (int i = 0; i < Count; i++)
@@ -57,8 +73,10 @@ namespace PSXRacing
             return best;
         }
 
-        /// <summary>The level a race runs: the one asked for, or the hour's.</summary>
-        public static int Resolve(int pick, int hour) => Valid(pick) ? pick : ForHour(hour);
+        public static bool ClockOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_CLOCK") != "0";
+
+        /// <summary>The level a race runs: the one asked for, or the clock's.</summary>
+        public static int Resolve(int pick, int hour, int day = -1) => Valid(pick) ? pick : ForClock(day, hour);
 
         /// <summary>The next level on the button: NONE .. RUSH HOUR, round.</summary>
         public static int Step(int level) => Valid(level) ? (level + 1) % Count : Light;
@@ -351,7 +369,8 @@ namespace PSXRacing
             roadMask = 1 << 8;
 
             // THE RACE'S LEVEL: the one the player set, or the hour's own.
-            Level = TrafficLevels.Resolve(RaceHandoff.TrafficLevel, TimeOfDay.Current);
+            Level = TrafficLevels.Resolve(RaceHandoff.TrafficLevel, TimeOfDay.Current,
+                RaceHandoff.FromLifeSim ? RaceHandoff.CalendarDay : -1);
             perKm = TrafficLevels.PerKm[Level];
 
             float want = Level == TrafficLevels.RushHour ? AheadRush : Ahead;

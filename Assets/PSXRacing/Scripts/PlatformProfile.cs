@@ -12,9 +12,10 @@ namespace PSXRacing
     ///   * the streamed city <see cref="CityRing"/> tiles out each way (9 x 9
     ///     of 256 m: a kilometre to the edge of the built city, where the web
     ///     build keeps 5 x 5), and the camera's far plane out to it;
-    ///   * the city's traffic cap at <see cref="CityTrafficCap"/>, and every
-    ///     race and the free roam at RUSH HOUR unless the race page picks
-    ///     another level (<see cref="MaxTraffic"/>);
+    ///   * the city's traffic cap at <see cref="CityTrafficCap"/> (<see cref="MaxTraffic"/>);
+    ///     races and the free roam follow the clock like every platform since
+    ///     2026-11-15 (TrafficLevels.ForClock; PSX_TRAFFIC_CLOCK=0 = RUSH HOUR
+    ///     round the clock, as before);
     ///   * HD at the display's own lines up to <see cref="HDMaxLines"/> (4K);
     ///   * the car-reflection panorama <see cref="ProbeFacesPerFrame"/> faces
     ///     a frame at <see cref="ProbeFaceRes"/>;
@@ -187,7 +188,7 @@ namespace PSXRacing
 
         /// <summary>One line for the Player.log.</summary>
         public static string Describe() => PC
-            ? $"PC profile: city ring {CityRing} ({(2 * CityRing + 1) * 256} m square), traffic {(MaxTraffic ? "RUSH HOUR / cap " + CityTrafficCap : "by the hour")}, HD to {HDMaxLines} lines, reflections {ProbeFacesPerFrame} faces/frame at {ProbeFaceRes}, sun shadows {(PCShadows ? $"{ShadowHalfExtentM * 2:0} m at {ShadowRes}" : "as web")}, AO {(PCAO ? "after opaques" : "off")}, picture {(PCPicture ? "8-bit + FXAA at HD" : "as web")}"
+            ? $"PC profile: city ring {CityRing} ({(2 * CityRing + 1) * 256} m square), traffic {(MaxTraffic ? (TrafficLevels.ClockOn ? "by the clock / cap " : "RUSH HOUR / cap ") + CityTrafficCap : "by the hour")}, HD to {HDMaxLines} lines, reflections {ProbeFacesPerFrame} faces/frame at {ProbeFaceRes}, sun shadows {(PCShadows ? $"{ShadowHalfExtentM * 2:0} m at {ShadowRes}" : "as web")}, AO {(PCAO ? "after opaques" : "off")}, picture {(PCPicture ? "8-bit + FXAA at HD" : "as web")}"
             : "web profile";
     }
 }
