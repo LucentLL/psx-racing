@@ -566,6 +566,9 @@ namespace PSXRacing.LifeSim
             // report.
             string walkout = Blacklist.SweepInFlight(S);
             if (walkout != null) LifeSimManager.Save();
+            // ...and an EVENT race that went to the line and never came back (v29).
+            string evWalkout = Events.SweepInFlight(S);
+            if (evWalkout != null) { LifeSimManager.Save(); walkout = walkout ?? evWalkout; }
 
             // THE INVITATION. Read before the chrome, because it decides
             // whether the strip has a RIVALS tab at all.
@@ -1452,6 +1455,7 @@ namespace PSXRacing.LifeSim
                 case "bills": BuildBills(); break;
                 case "jobs": BuildJobs(); break;
                 case "club": BuildClub(); break;
+                case "events": BuildEvents(); break;   // v29: LifeHomeScreen.Events.cs
                 case "fate": BuildFate(); break;   // R1c-A
                 case "claim": BuildClaim(); break;   // R1c-B: LifeHomeScreen.Insurance.cs
             }
@@ -1772,6 +1776,7 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void GoBack()
         {
+            if (EventsBack()) return;   // v29: one event's page backs out to the lists
             FlushSetup();
             bool toCar = (tab == "service" || tab == "paint") &&
                          Town.TownReturn.Pending && CarWhere.Available(S, S.ActiveCar);
@@ -2172,7 +2177,7 @@ namespace PSXRacing.LifeSim
                     new Vector2(MenuKit.ColLeft(x + half + 6f, half), y), new Vector2(half, 44f),
                     () => { calView = CalView.Week; Rebuild(); }, 18);
             }
-            else
+            else if (!WeekAndEventsRow(x, y, w))   // v29: WEEK | EVENTS
                 MenuKit.Button(body, "WEEK", new Vector2(0.5f, 1f), new Vector2(cx, y),
                     new Vector2(w, 44f), () => { calView = CalView.Week; Rebuild(); }, 18);
             y -= 50f;
@@ -2209,6 +2214,7 @@ namespace PSXRacing.LifeSim
         (string line1, Color c1, string line2, Color c2) BlockLines(int day, int slot)
         {
             var when = WhenIs(day, slot);
+            if (EventBlockLines(day, slot, when == BlockWhen.Past, out var evLines)) return evLines;   // v29
             var booking = LifeRules.BookingAt(S, day, slot);
             string act = LifeRules.SlotAct(S, day, slot);
             string venue = booking != null ? TrackCatalog.At(booking.trackIndex).name : null;
@@ -2457,6 +2463,7 @@ namespace PSXRacing.LifeSim
                 raceAct = () => { tab = "prerace"; Rebuild(); };
                 raceBg = RaceBg;
             }
+            EventRaceRow(clubDue, ref raceLabel, ref raceAct, ref raceBg);   // v29
             var raceRow = MenuKit.Button(body, live == null ? raceLabel : "",
                 new Vector2(0.5f, 1f), new Vector2(cx, y),
                 new Vector2(w, 56f), raceAct, 20, raceBg);
@@ -5564,6 +5571,8 @@ namespace PSXRacing.LifeSim
         string CellWord(string line)
         {
             if (string.IsNullOrEmpty(line)) return "";
+            string evWord = EventCellWord(line);   // v29
+            if (evWord != null) return evWord;
             if (line.StartsWith("RACE · ")) return "RACE";
             if (line.StartsWith("SHIFT · ")) return "SHIFT";
             if (line == "SHIFT SKIPPED") return "SKIPPED";
@@ -7930,6 +7939,8 @@ namespace PSXRacing.LifeSim
         {
             // THE CLUB RACE, when it is due in this block (v23): the club's
             // road, opponent and purse. Still this page, still the one launcher.
+            // AN EVENT RACE (v29) signed up for this block: the event's page.
+            if (EventPreRaceFirst()) { BuildEventPreRace(); return; }
             if (Clubs.RaceDueNow(S) != null) { BuildClubPreRace(); return; }
             var bookedNow = LifeRules.BookingAt(S, S.day, S.slotIndex);
             bool booked = bookedNow != null;
