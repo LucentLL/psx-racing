@@ -75,6 +75,8 @@ for (let i = 0; i < cb.edges.length; i++) {
   }
 }
 console.log(`edges with another lane count, centre lane or line set: ${rows.length}; with another drawn section: ${km.toFixed(1)} km`);
+// --edges <file>: the edges whose drawn section changes, for the audits (CityAudit.RunRoadsSample's PSX_ROADS_DRIVE_EDGES)
+if (val('--edges')) writeFileSync(val('--edges'), rows.filter(r => cb.edges[r.i].profile.key !== r.b.profile.key).map(r => r.i).join(','));
 for (const [k, m] of [...byName].sort((x, y) => y[1] - x[1]).slice(0, 60)) console.log(`   ${k}  ${(m / 1000).toFixed(2)} km`);
 
 const tapr = bytesOf(ovr, os, 'TAPR');
