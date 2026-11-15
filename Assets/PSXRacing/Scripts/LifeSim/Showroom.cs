@@ -155,7 +155,7 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The overhead around the stage: the name rows over it and
         /// the money / figures / actions band under it.</summary>
-        public const float Overhead = 58f + 30f + 12f + 130f;
+        public const float Overhead = 64f + 30f + 12f + 130f;
 
         /// <summary>The stage's height for a page with <paramref name="room"/>
         /// units of body: everything on one screen where it can be, but never
@@ -183,7 +183,7 @@ namespace PSXRacing.LifeSim
             if (browsing)
             {
                 var catcher = MenuKit.Rect(parent, "ShowroomSwipe", anchor, new Vector2(0f, 1f),
-                    new Vector2(left, y), new Vector2(width, 84f), new Color(0f, 0f, 0f, 0f));
+                    new Vector2(left, y), new Vector2(width, 94f), new Color(0f, 0f, 0f, 0f));
                 catcher.gameObject.AddComponent<ShowroomSwipe>().browse = browse;
             }
 
@@ -198,7 +198,7 @@ namespace PSXRacing.LifeSim
                 title.fontSize = size;
             }
             if (title.preferredWidth > width - 24f) MenuKit.FitOneLine(title, width - 24f);
-            y -= 58f;
+            y -= 64f;   // (a clear gap: an italic's descenders and slant reach past its rect)
 
             // Under it: what the car is to this page on the left (NEW, the
             // lane, where it stands), the make and year and the count on the right.
@@ -258,6 +258,8 @@ namespace PSXRacing.LifeSim
             float w2 = acts ? width * 0.30f : width - w1 - Gap;
             float x2 = left + w1 + Gap, x3 = x2 + w2 + Gap, w3 = left + width - x3;
             float y1 = y, y2 = y, y3 = y;
+            // (nothing to price or say: the figures start at the left)
+            if (!acts && string.IsNullOrEmpty(card.price) && string.IsNullOrEmpty(card.note)) { x2 = left; w2 = width; }
             PriceBlock(parent, card, left, w1, ref y1);
             Cluster(parent, card, x2, w2, ref y2);
             if (acts) Actions(parent, card.actions, x3, w3, ref y3);

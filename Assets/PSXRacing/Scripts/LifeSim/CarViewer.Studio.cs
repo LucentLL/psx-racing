@@ -66,15 +66,12 @@ namespace PSXRacing.LifeSim
         public RawImage AttachStudio(RectTransform panel)
         {
             EnsureRig();
-            if (!studio)
-            {
-                studio = true;
-                yaw = 215f;
-                spinNow = AutoSpinDegPerSec;
-                turnVel = 0f;
-                autoAt = 0f;
-                turning = false;
-            }
+            // The angle carries over a rebuild of the same page (a button
+            // pressed under the stage); a browse to another car starts it at
+            // the showroom angle (ResetStudioAngle), and so does a car first
+            // shown after an inspection pose (SetPose).
+            studio = true;
+            turning = false;
             SetPose(ViewPose.Showroom);
             var go = new GameObject("ShowroomView");
             go.transform.SetParent(panel, false);
