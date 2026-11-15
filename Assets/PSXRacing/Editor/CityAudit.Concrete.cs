@@ -108,9 +108,15 @@ namespace PSXRacing.EditorTools
                         break;
                     }
             if (!own || Mathf.Abs(Vector2.Dot(tOwn, d)) <= 0.7f) return 0;
-            for (int sgn = -1; sgn <= 1; sgn += 2)
-                for (float o = p.half + 0.3f; o <= 250f; o += o < 14f ? 0.75f : 2f)
-                    if (CnProbe(m + perp * (sgn * o), y, true, out int wq, out var tq, out _) && wq >= 0 && Vector2.Dot(tq, tOwn) < -0.5f) return 1;
+            // (the other carriageway of a split-level road stands up to 15 m over or under this one: I-77 north of Uptown)
+            CityMeshes.ConcreteLooseDyM = 15f;
+            try
+            {
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                    for (float o = p.half + 0.3f; o <= 250f; o += o < 14f ? 0.75f : 2f)
+                        if (CnProbe(m + perp * (sgn * o), y, true, out int wq, out var tq, out _) && wq >= 0 && Vector2.Dot(tq, tOwn) < -0.5f) return 1;
+            }
+            finally { CityMeshes.ConcreteLooseDyM = 3f; }
             return 0;
         }
 

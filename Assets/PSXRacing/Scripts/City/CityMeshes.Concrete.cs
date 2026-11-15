@@ -183,6 +183,8 @@ namespace PSXRacing.City
         /// <summary>Pavement the ribbons and fans do not hold: is the world plan point on it, and at what
         /// height? Null unless some builder lays such pavement (it must answer from the map alone, the
         /// same for every tile). The gate counts it as a junction's area.</summary>
+        /// <summary>The audit's loose probe: how far over or under the asked level a pavement may lie (3 m; wider while it looks for a split-level road's other carriageway).</summary>
+        public static float ConcreteLooseDyM = 3f;
         public delegate bool ExtraPave(Vector2 q, float y, out float yPave);
         public static ExtraPave ConcreteExtraPave;
         /// <summary><see cref="ConPaveAt"/>'s "who" for that pavement.</summary>
@@ -312,7 +314,7 @@ namespace PSXRacing.City
                     if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], q, Vector2.right, 0f, out _, out _)) yl = TriHeight(ol.L[i - 1], ol.L[i], ol.R[i], q);
                     else if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], q, Vector2.right, 0f, out _, out _)) yl = TriHeight(ol.L[i - 1], ol.R[i], ol.R[i - 1], q);
                     else continue;
-                    if (loose ? Mathf.Abs(yl - y) > 3f : !RailStandsIn(y, yl)) continue;
+                    if (loose ? Mathf.Abs(yl - y) > ConcreteLooseDyM : !RailStandsIn(y, yl)) continue;
                     yLane = yl;
                     who = ei;
                     Vector3 m0 = (ol.L[i - 1] + ol.R[i - 1]) * 0.5f, m1 = (ol.L[i] + ol.R[i]) * 0.5f;
@@ -333,7 +335,7 @@ namespace PSXRacing.City
             {
                 var fan = fanPolys[nf];
                 if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) continue;
-                if (OnFan(fan, q, out float yf) && (loose ? Mathf.Abs(yf - y) <= 3f : RailStandsIn(y, yf))) { who = -1 - nf; yLane = yf; return true; }
+                if (OnFan(fan, q, out float yf) && (loose ? Mathf.Abs(yf - y) <= ConcreteLooseDyM : RailStandsIn(y, yf))) { who = -1 - nf; yLane = yf; return true; }
             }
             if (drawnOnly) return false;
             // pavement drawn by neither a ribbon nor a fan (a deck plate laid over the openings between
