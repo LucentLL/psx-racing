@@ -2873,7 +2873,8 @@ namespace PSXRacing.LifeSim
         /// night from EVENING would sleep through it (see <see cref="Sleep"/>).</summary>
         public static bool NightHasPlans(LifeState s) =>
             s != null && (CarMeets.MeetAt(s.day, NightSlot) || BookingAt(s, s.day, NightSlot) != null ||
-                          Duty.At(s, s.day, NightSlot).Count > 0);
+                          Duty.At(s, s.day, NightSlot).Count > 0 ||
+                          Events.PendingAt(s, s.day, NightSlot));   // v29: a signed-up street race tonight
 
         /// <summary>Whether SLEEP from here is a night's sleep — the one the
         /// health ladder counts — rather than a nap.</summary>

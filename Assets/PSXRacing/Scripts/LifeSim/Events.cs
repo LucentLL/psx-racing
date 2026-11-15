@@ -746,6 +746,14 @@ namespace PSXRacing.LifeSim
             return d;
         }
 
+        /// <summary>A signed-up race still to run in this block (the early
+        /// night's sleep does not sleep through one: LifeRules.NightHasPlans).</summary>
+        public static bool PendingAt(LifeState s, int day, int slot)
+        {
+            var d = RaceAt(s, day, slot);
+            return d.Valid && !d.entry.closed && !d.entry.withdrawn && PlaceOf(d.entry, d.race) == Pending;
+        }
+
         /// <summary>The signed-up race due NOW: this block, not yet run.</summary>
         public static Due DueNow(LifeState s)
         {
