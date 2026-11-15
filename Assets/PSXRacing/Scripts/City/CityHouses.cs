@@ -157,6 +157,23 @@ namespace PSXRacing.City
         /// <summary>(curbs 3) Bound to this map with its generated buildings?</summary>
         public static bool BoundTo(CityMap map) => mapB == map && bldB != null;
 
+        static readonly List<House> clearNear = new List<House>(32);
+        /// <summary>(hoods 2) How far out of plan point p along outw the ground is clear of every building's box
+        /// (pad metres off it), up to want: a walk is laid no wider. Of the bound world; want while none is bound.</summary>
+        public static float ClearOut(Vector2 p, Vector2 outw, float want, float pad)
+        {
+            if (mapB == null || want <= 0f) return want;
+            var q = p + outw * want;
+            CollectBox(Vector2.Min(p, q) - Vector2.one * (pad + 0.5f), Vector2.Max(p, q) + Vector2.one * (pad + 0.5f), clearNear);
+            if (clearNear.Count == 0) return want;
+            for (float d = 0.3f; d <= want + 1e-3f; d += 0.3f)
+            {
+                var sp = p + outw * d;
+                foreach (var h in clearNear) if (BoxDist(h, sp) < pad) return Mathf.Max(0f, d - 0.3f);
+            }
+            return want;
+        }
+
         /// <summary>(curbs 3) A generated building (CityBuildings: the frontage rows) within
         /// <paramref name="r"/> m of p? Of the bound world; false while none is bound.</summary>
         public static bool ProcBuildingNear(CityMap map, Vector2 p, float r)

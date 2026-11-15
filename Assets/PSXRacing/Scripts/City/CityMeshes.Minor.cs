@@ -448,8 +448,9 @@ namespace PSXRacing.City
             t.bulb = new bool[nn]; t.bulbRad = new float[nn]; t.bulbNeckR = new float[nn]; t.bulbC = new Vector2[nn];
             BulbStats.tagged = BulbStats.drawn = BulbStats.skipShort = BulbStats.skipStructure = BulbStats.skipLink = 0;
             BulbStats.neckFull = BulbStats.neckShrunk = BulbStats.neckReduced = BulbStats.neckNone = 0;
-            if (!BulbsOn || map.turns == null) return;
-            foreach (var tu in map.turns)
+            var turns = BulbsOn ? Cs4Turns(map) : null;   // (hoods 2) the tagged turning circles and the standard bulbs: CityMeshes.Curbs4
+            if (turns == null) return;
+            foreach (var tu in turns)
             {
                 int n = tu.node;
                 BulbStats.tagged++;

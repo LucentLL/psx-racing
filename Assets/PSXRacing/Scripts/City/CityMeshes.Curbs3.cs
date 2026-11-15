@@ -61,7 +61,7 @@ namespace PSXRacing.City
         /// <summary>Tools that flip Curbs3On / Inlet2On between builds: the per-edge caches the rule feeds.</summary>
         public static void Curbs3Reset()
         {
-            walkMapFor = null; cs2MapFor = null; noEdgeMap = null; cs3ClassMap = null;
+            walkMapFor = null; cs2MapFor = null; noEdgeMap = null; cs3ClassMap = null; cs4StripMap = null; cs4TurnsMap = null;
             cs3PlanEdge = -1; cs3Plan.Clear();
         }
 
@@ -130,7 +130,12 @@ namespace PSXRacing.City
         public static bool CurbOnly(CityMap map, CityMap.Edge e) => Curbs3On && CurbOnlyOn && (Cs3ClassBits(map, e) & 7) == CurbRollOnly;
         /// <summary>PSX_CITY_CURBONLY=0: a roll-curb street takes 11-11's rolled walk (the 2.4 m slab behind the roll) instead of the curb alone (the A/B for the curb drive).</summary>
         public static bool CurbOnlyOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBONLY") != "0";
-        static float Cs3WalkW(CityMap map, CityMap.Edge e) => CurbOnly(map, e) ? CurbOnlyW : WalkWOf(map, e);
+        static float Cs3WalkW(CityMap map, CityMap.Edge e)
+        {
+            if (CurbOnly(map, e)) return CurbOnlyW;
+            float strip = StripOf(map, e);   // (hoods 2) the standard section: curb top, planting strip, 5 ft walk
+            return strip > 0f ? CurbTopM + strip + WalkStdM : WalkWOf(map, e);
+        }
         static float Cs3WalkMin(CityMap map, CityMap.Edge e) => CurbOnly(map, e) ? CurbOnlyMinM : WalkMinM;
 
         static int Cs3ClassBits(CityMap map, CityMap.Edge e)
@@ -232,6 +237,7 @@ namespace PSXRacing.City
         /// over a roll curb, through a cut (lip under 3 cm), or with a curb face across (a step over 3 cm).</summary>
         public static int DrivesRoll, DrivesCut, DrivesFace;
         public static readonly List<string> DrivesFaceAt = new List<string>();
+        static float Cs3MinCut() { float m = 1f; foreach (float v in cutC) m = Mathf.Min(m, v); return m; }
         static void Cs3AuditDrives(CityMap map, CityMap.Edge e, int side, Vector3 o, Vector3 eA, Vector3 eB, Vector2 outA, float sA, float sB, float wA, float wB)
         {
             if (!RecordHardware || tileDrives.Count == 0 || wA <= 0f || wB <= 0f || sB - sA < 0.05f) return;
@@ -250,7 +256,21 @@ namespace PSXRacing.City
                 float step = r >= 0.5f && k < 0.5f ? 0f : Mathf.Lerp(VCurbH, RCurbH, r) * c;
                 if (r >= 0.5f && k < 0.5f) DrivesRoll++;
                 else if (step <= 0.03f) DrivesCut++;
-                else { DrivesFace++; if (DrivesFaceAt.Count < 40) DrivesFaceAt.Add($"e{e.index} '{e.name}' s {ds:0.0} at ({d.foot.x:0.0},{d.foot.y:0.0}) step {step * 100f:0.0} cm r {r:0.00} k {k:0.00}"); }
+                else
+                {
+                    DrivesFace++;
+                    if (DrivesFaceAt.Count < 40)
+                    {
+                        // why: where the mouth lies against the drawn edge, the walk there, what the cut's read sees
+                        var ep = Vector3.Lerp(eA, eB, t);
+                        float wAt = Mathf.Lerp(wA, wB, t);
+                        var epw = new Vector2(ep.x + o.x, ep.z + o.z);
+                        float footOut = Vector2.Dot(d.foot - epw, outA);
+                        var mid = epw + outA * (wAt * 0.5f);
+                        bool inQuad = CityHouses.InConvex(d.quad, mid, 0f), inFlare = CityHouses.InConvex(d.flare, mid, 0f);
+                        DrivesFaceAt.Add($"e{e.index} '{e.name}' cls {e.cls}{(e.oneway ? " oneway" : "")} s {ds:0.0} of {sA:0.0}..{sB:0.0} at ({d.foot.x:0.0},{d.foot.y:0.0}) step {step * 100f:0.0} cm r {r:0.00}; walk w {wAt:0.00} (ends {wA:0.00}/{wB:0.00}); the mouth lies {footOut:0.00} m out of the drawn edge; read at the walk's middle: apron {ApronAt(map, mid.x, mid.y)}, in its quad {inQuad}, in its flare {inFlare}; d.s {d.s:0.0} len {d.len:0.0} quad ({d.quad[0].x:0.0},{d.quad[0].y:0.0}) ({d.quad[1].x:0.0},{d.quad[1].y:0.0}) ({d.quad[2].x:0.0},{d.quad[2].y:0.0}) ({d.quad[3].x:0.0},{d.quad[3].y:0.0}); cut reads {cutT.Count}, anyCut share min {Cs3MinCut():0.00}");
+                    }
+                }
             }
         }
 
@@ -445,12 +465,12 @@ namespace PSXRacing.City
         /// </summary>
         static void Cs3Profile(Vector3 e, Vector2 outw, float w, Vector3[] p, out Vector3 q, float curb, float r, float k)
         {
-            Cs2Profile(e, outw, w, p, curb, r);
-            q = p[0];
+            if (cs4Valley) Cs4ValleyBase(e, outw, w, p, out q, curb, r);   // (hoods 2) the valley gutter's five points
+            else { Cs2Profile(e, outw, w, p, curb, r); q = p[0]; }
             if (k <= 0f || w <= 0f) return;
             var o = new Vector3(outw.x, 0f, outw.y);
             Cs2Shape(0f, out float vf, out float vy, out float vn, out float vh);
-            float F = RNoseOut * r;
+            float F = Cs3FaceLine(r);
             Vector3 A = e + o * F; A.y = e.y - 0.006f;
             Vector3 B = e + o * (F + vf); B.y = e.y + Mathf.Max(vy * curb, -0.5f * RoadsideRules.EdgeDropM);
             Vector3 C = e + o * (F + vn); C.y = e.y + vh * curb;
@@ -478,7 +498,7 @@ namespace PSXRacing.City
         static bool Cs3FaceProfile(Vector3 e, Vector2 outw, Vector3 q, Vector3[] p, float r, Vector3[] f)
         {
             var o = new Vector3(outw.x, 0f, outw.y);
-            float F = RNoseOut * r;
+            float F = Cs3FaceLine(r);
             float yTop = p[2].y + 0.003f;
             float ySurf = Cs3SurfY(e, o, q, p, F);
             float hgt = yTop - ySurf, ks = Mathf.Clamp01(hgt / VCurbH);
@@ -540,6 +560,7 @@ namespace PSXRacing.City
         {
             Cs3EnsurePlan(map, trims, tm, e);
             var o = tm.origin;
+            cs4Valley = ValleyOn && CurbOnly(map, e);   // (hoods 2) a valley-gutter street's hood stands on the gutter's back line
             foreach (var pl in cs3Plan)
             {
                 int k = -1;
@@ -566,6 +587,7 @@ namespace PSXRacing.City
                 if (rolled) { Curbs2Stats.inletsRolled++; Curbs3Stats.inletsTrans++; }
                 if (pl.why == WhySag) Curbs2Stats.inletSag++; else if (pl.why == WhyEnd) Curbs2Stats.inletEnd++; else Curbs2Stats.inletGrade++;
             }
+            cs4Valley = false;
         }
 
         /// <summary>
@@ -583,7 +605,7 @@ namespace PSXRacing.City
             var d3 = sp.eB - sp.eA; float len = new Vector2(d3.x, d3.z).magnitude;
             var a3 = new Vector3(d3.x, 0f, d3.z) / Mathf.Max(len, 1e-3f);
             Vector3 Ed(float along) => Vector3.LerpUnclamped(sp.eA, sp.eB, t + along / Mathf.Max(len, 1e-3f));
-            float F = rolled ? RNoseOut : 0f, H = VCurbH * curb;
+            float F = rolled ? Cs3FaceLine(1f) : 0f, H = VCurbH * curb;
             // ---- the grate in the pan, against the face ----
             float gl = Grate2AlongM * 0.5f, g0 = F - 0.012f, g1 = g0 - Grate2AcrossM;
             Vector3 P(float along, float lat, float lift)

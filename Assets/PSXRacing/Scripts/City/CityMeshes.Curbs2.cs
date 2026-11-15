@@ -933,7 +933,7 @@ namespace PSXRacing.City
                     var ed = Vector3.Lerp(sp.eA, sp.eB, 0.5f);
                     var ow = Vector2.Lerp(sp.outA, sp.outB, 0.5f).normalized;
                     float w = 0.5f * (sp.wA + sp.wB);
-                    float rr = Cs2Mix(map, e, smid), dd = Mathf.Min(1.4f, w - 0.5f);
+                    float rr = Cs2Mix(map, e, smid), dd = Cs4StripAt(w, StripOf(map, e)) > 0f ? w - 0.5f * WalkStdM : Mathf.Min(1.4f, w - 0.5f);   // (hoods 2) in the walk, not the planting strip
                     var c = SlabAt(ed, ow, w, rr, dd);
                     var cw = new Vector2(c.x + o.x, c.z + o.z);
                     if (ApronAt(map, cw.x, cw.y)) continue;
