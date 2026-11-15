@@ -135,20 +135,64 @@ namespace PSXRacing.City
 
         /// <summary>Lays a convex polygon as a fan in a bucket, facing as <paramref name="upSign"/> says
         /// (the sign of Cross(b - a, c - a).y of an upward triangle in this mesh).</summary>
+        /// <summary>The slab's pieces are laid a hair past their own edges (half a millimetre). They are
+        /// cut one from another, each corner worked out on its own, so two neighbours' shared edge is
+        /// not one edge to the last bit - and a ray straight down such an edge fell through between
+        /// them. The bridges audit's lane lines run exactly along such edges (a cross-section at
+        /// s = 0 is a piece's end): three "holes" 0.5 m long and one 10.8 cm "step" onto the road
+        /// slab underneath in its first run. The lap is the same concrete at the same height.</summary>
+        const float DpLapM = 0.0005f;
         static int DpEmit(Bucket bk, List<DpV> p, float upSign, bool flat, float y, Vector3 o)
         {
-            if (p.Count < 3) return 0;
+            int n = p.Count;
+            if (n < 3) return 0;
             // Cross(b - a, c - a).y = -(2 * plan area) of (a, b, c)
-            bool flip = -DpArea2(p) * upSign < 0f;
+            float a2 = DpArea2(p);
+            bool flip = -a2 * upSign < 0f;
+            float turn = a2 >= 0f ? 1f : -1f;
             int i0 = bk.v.Count;
-            for (int i = 0; i < p.Count; i++)
+            for (int i = 0; i < n; i++)
             {
-                var q = p[flip ? p.Count - 1 - i : i];
-                bk.v.Add(new Vector3(q.x, flat ? y : q.y, q.z));
-                bk.uv.Add(flat ? new Vector2((q.x + o.x) / 12f, (q.z + o.z) / 12f) : new Vector2(q.u, q.v));
+                int k = flip ? n - 1 - i : i;
+                var q = p[k];
+                float x = q.x, z = q.z;
+                if (flat)
+                {
+                    var a = p[(k + n - 1) % n]; var b = p[(k + 1) % n];
+                    float e0x = q.x - a.x, e0z = q.z - a.z, e1x = b.x - q.x, e1z = b.z - q.z;
+                    float l0 = Mathf.Sqrt(e0x * e0x + e0z * e0z), l1 = Mathf.Sqrt(e1x * e1x + e1z * e1z);
+                    if (l0 > 1e-6f && l1 > 1e-6f)
+                    {
+                        // outward of a counter-clockwise polygon is the right of its travel
+                        float n0x = turn * e0z / l0, n0z = -turn * e0x / l0, n1x = turn * e1z / l1, n1z = -turn * e1x / l1;
+                        float kk = DpLapM / Mathf.Max(0.3f, 1f + n0x * n1x + n0z * n1z);
+                        x += (n0x + n1x) * kk; z += (n0z + n1z) * kk;
+                    }
+                }
+                bk.v.Add(new Vector3(x, flat ? y : q.y, z));
+                bk.uv.Add(flat ? new Vector2((x + o.x) / 12f, (z + o.z) / 12f) : new Vector2(q.u, q.v));
             }
-            for (int i = 1; i + 1 < p.Count; i++) { bk.t.Add(i0); bk.t.Add(i0 + i); bk.t.Add(i0 + i + 1); }
-            return p.Count - 2;
+            for (int i = 1; i + 1 < n; i++) { bk.t.Add(i0); bk.t.Add(i0 + i); bk.t.Add(i0 + i + 1); }
+            return n - 2;
+        }
+
+        /// <summary>FOR OTHER RULES (rails, parapets, medians): is a plan point on a deck plate's
+        /// PAVEMENT - the union of the pavements of every road at the plate's level, inside its rim -
+        /// and which plate? Nothing solid belongs on it but at its outline. Usable from any phase of
+        /// a tile build (the pavement is worked out on first use, from the map and the trims).</summary>
+        public static bool OnDeckPlatePavement(CityMap map, Trims trims, Vector2 p, out CityDeckPlates.Plate plate)
+        {
+            plate = CityDeckPlates.PlateAt(p);
+            if (plate == null) return false;
+            DeckPlateCover(map, trims, plate);
+            var cover = plate.cover;
+            for (int k = 0; k < cover.Count; k++)
+            {
+                var bb = plate.coverBB[k];
+                if (p.x < bb.x || p.x > bb.z || p.y < bb.y || p.y > bb.w) continue;
+                if (CityDeckPlates.InHull(cover[k], p)) return true;
+            }
+            return false;
         }
 
         /// <summary>frags = frags less the convex polygon c (counter-clockwise, plan), in the frame moved by (ox, oz).</summary>

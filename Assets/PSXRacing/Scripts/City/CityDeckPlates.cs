@@ -507,57 +507,122 @@ namespace PSXRacing.City
             }
             var dist = new Dictionary<int, float>();
             var open = new List<int>();
-            foreach (int n in pl.nodes) { dist[n] = 0f; open.Add(n); }
+            foreach (int n in pl.nodes) dist[n] = 0f;
             var done = new HashSet<int>();
             var level = new SortedSet<int>();
-            while (open.Count > 0)
+            var dds = new Dictionary<int, float[]>();
+            float Dn(int n) => dist.TryGetValue(n, out float v) ? v : float.MaxValue;
+            // SEATS MOVE WITH THEIR HOSTS. A ramp seated on another road (CityElevation's seats: it
+            // runs inside that road's pavement at that road's height) must be eased exactly as the
+            // road is, there, or the two part again: the first cut eased each by its own distance
+            // along the graph, and where a ramp coming FROM the plate merges into one that does not
+            // (the Brookshire deck's e2893 into e9799, 60 m out) the pair stood 0.39 m apart. So a
+            // seated station and its host's point take the NEARER of their two distances, and that
+            // distance runs on along both (a seed on the edge), round by round until none moves.
+            var seeds = new Dictionary<int, List<(float s, float d)>>();
+            var seatOf = new Dictionary<long, (int host, float hostS)>();
+            float At(float[] dd, EdgeScan sc, float len, float s) => dd[Mathf.Clamp(Mathf.RoundToInt(s / Mathf.Max(len, 1e-3f) * (sc.s.Length - 1)), 0, sc.s.Length - 1)];
+            void AddSeed(int ei, float s, float d)
             {
-                int bi = 0;
-                for (int i = 1; i < open.Count; i++) if (dist[open[i]] < dist[open[bi]]) bi = i;
-                int n = open[bi]; open.RemoveAt(bi);
-                if (!done.Add(n)) continue;
-                float d = dist[n];
-                if (d >= blend) continue;
-                foreach (int ei in map.nodeEdges[n])
+                if (!seeds.TryGetValue(ei, out var l)) seeds[ei] = l = new List<(float, float)>();
+                for (int i = 0; i < l.Count; i++)
+                    if (Mathf.Abs(l[i].s - s) < 1f) { if (d < l[i].d) l[i] = (s, d); return; }
+                l.Add((s, d));
+            }
+            for (int round = 0; round < 8; round++)
+            {
+                // (a) the nodes, from every distance in hand
+                open.Clear(); done.Clear();
+                foreach (var kv in dist) open.Add(kv.Key);
+                open.Sort();
+                while (open.Count > 0)
+                {
+                    int bi = 0;
+                    for (int i = 1; i < open.Count; i++) if (dist[open[i]] < dist[open[bi]]) bi = i;
+                    int n = open[bi]; open.RemoveAt(bi);
+                    if (!done.Add(n)) continue;
+                    float d = dist[n];
+                    if (d >= blend) continue;
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || e.tunnel || e.stS == null || e.stS.Length < 2) continue;
+                        level.Add(ei);
+                        var sc = Scan(e);
+                        void Relax(int m, float dm)
+                        {
+                            if (done.Contains(m)) return;
+                            if (!dist.TryGetValue(m, out float old) || dm < old) { dist[m] = dm; open.Add(m); }
+                        }
+                        if (sc.any) { Relax(e.a, sc.outA); Relax(e.b, sc.outB); }
+                        else Relax(n == e.a ? e.b : e.a, d + e.length);
+                    }
+                }
+                // (b) every level road's distance from the plate, sample by sample: from its nodes,
+                // from its own samples inside the plate, from its seeds
+                bool changed = false;
+                foreach (int ei in new List<int>(level))
                 {
                     var e = map.edges[ei];
-                    if (e.a == e.b || e.tunnel || e.stS == null || e.stS.Length < 2) continue;
-                    level.Add(ei);
                     var sc = Scan(e);
-                    void Relax(int m, float dm)
+                    int n = sc.s.Length;
+                    var dd = new float[n];
+                    float f = Dn(e.a);
+                    for (int i = 0; i < n; i++)
                     {
-                        if (done.Contains(m)) return;
-                        if (!dist.TryGetValue(m, out float old) || dm < old) { dist[m] = dm; open.Add(m); }
+                        if (sc.ins[i]) f = 0f; else if (i > 0 && f < float.MaxValue) f += sc.s[i] - sc.s[i - 1];
+                        dd[i] = f;
                     }
-                    if (sc.any) { Relax(e.a, sc.outA); Relax(e.b, sc.outB); }
-                    else Relax(n == e.a ? e.b : e.a, d + e.length);
+                    f = Dn(e.b);
+                    for (int i = n - 1; i >= 0; i--)
+                    {
+                        if (sc.ins[i]) f = 0f; else if (i < n - 1 && f < float.MaxValue) f += sc.s[i + 1] - sc.s[i];
+                        dd[i] = Mathf.Min(dd[i], f);
+                    }
+                    if (seeds.TryGetValue(ei, out var sl))
+                        foreach (var (ss, sd) in sl)
+                            for (int i = 0; i < n; i++) { float v = sd + Mathf.Abs(sc.s[i] - ss); if (v < dd[i]) dd[i] = v; }
+                    dds[ei] = dd;
+                    // (a seed can bring an end nearer than its node stood)
+                    if (dd[0] < Dn(e.a) - 0.5f) { dist[e.a] = dd[0]; changed = true; }
+                    if (dd[n - 1] < Dn(e.b) - 0.5f) { dist[e.b] = dd[n - 1]; changed = true; }
                 }
+                // (c) the seats: of every road at the level, and of every road that meets one at a
+                // node (a ramp seated ON a level road is not itself reached by the ease: e299 on the
+                // Freedom Drive ramps stood 16 cm over its host for 30 m)
+                var cand = new SortedSet<int>(level);
+                foreach (int li in level)
+                {
+                    foreach (int oi in map.nodeEdges[map.edges[li].a]) cand.Add(oi);
+                    foreach (int oi in map.nodeEdges[map.edges[li].b]) cand.Add(oi);
+                }
+                foreach (int ei in cand)
+                {
+                    var e = map.edges[ei];
+                    if (e.stSeat == null || e.a == e.b || e.tunnel || e.stS == null || e.stS.Length < 2) continue;
+                    dds.TryGetValue(ei, out var dd); scans.TryGetValue(ei, out var sc);
+                    for (int st = 0; st < e.stS.Length; st++)
+                    {
+                        if (!e.stSeat[st]) continue;
+                        long key = ((long)ei << 20) | (uint)st;
+                        if (!seatOf.TryGetValue(key, out var ho)) { int h = CityElevation.SeatHost(ei, st, out float hs); ho = (h, hs); seatOf[key] = ho; }
+                        if (ho.host < 0 || ho.host == ei) continue;
+                        var H = map.edges[ho.host];
+                        if (H.tunnel || H.stS == null || H.stS.Length < 2 || Mathf.Abs(H.YAt(ho.hostS) - e.YAt(e.stS[st])) > 0.7f || Mathf.Abs(H.YAt(ho.hostS) - pl.yRef) > LevelTolM) continue;
+                        float dE = dd != null ? At(dd, sc, e.length, e.stS[st]) : float.MaxValue;
+                        float dH = dds.TryGetValue(ho.host, out var ddH) ? At(ddH, scans[ho.host], H.length, ho.hostS) : float.MaxValue;
+                        if (dE < blend && dE + 0.75f < dH) { AddSeed(ho.host, ho.hostS, dE); level.Add(ho.host); Scan(H); changed = true; }
+                        else if (dH < blend && dH + 0.75f < dE) { AddSeed(ei, e.stS[st], dH); level.Add(ei); Scan(e); changed = true; }
+                    }
+                }
+                if (!changed) break;
             }
-            float Dn(int n) => dist.TryGetValue(n, out float v) ? v : float.MaxValue;
-
-            // ---- every level road's distance from the plate, sample by sample
-            var dds = new Dictionary<int, float[]>();
-            foreach (int ei in level)
+            // (only the roads the ease reaches)
+            foreach (int ei in new List<int>(dds.Keys))
             {
-                var e = map.edges[ei];
-                var sc = scans[ei];
-                int n = sc.s.Length;
-                var dd = new float[n];
-                float f = Dn(e.a);
-                for (int i = 0; i < n; i++)
-                {
-                    if (sc.ins[i]) f = 0f; else if (i > 0 && f < float.MaxValue) f += sc.s[i] - sc.s[i - 1];
-                    dd[i] = f;
-                }
-                f = Dn(e.b);
-                for (int i = n - 1; i >= 0; i--)
-                {
-                    if (sc.ins[i]) f = 0f; else if (i < n - 1 && f < float.MaxValue) f += sc.s[i + 1] - sc.s[i];
-                    dd[i] = Mathf.Min(dd[i], f);
-                }
                 bool touched = false;
-                for (int i = 0; i < n && !touched; i++) touched = dd[i] < blend;
-                if (touched) dds[ei] = dd;
+                foreach (float v in dds[ei]) if (v < blend) { touched = true; break; }
+                if (!touched) dds.Remove(ei);
             }
 
             // ---- H: the mean of what stands inside the plate; and no piece of deck over a
@@ -654,7 +719,9 @@ namespace PSXRacing.City
                     ks.Add(loIn ? lo : hi);
                 }
                 for (int i = 0; i < n; i++)
-                    if (dd[i] > 0f && dd[i] < blend + 2f && i % 3 == 0) ks.Add(sc.s[i]);
+                    // a knot every 2 m over the ease's first two fifths (where it bends most: under 0.25 % a
+                    // metre, within the drawn profile's 0.45 % a knot), every 4 m beyond
+                    if (dd[i] > 0f && dd[i] < blend + 2f && i % (dd[i] < 0.4f * blend ? 4 : 8) == 0) ks.Add(sc.s[i]);
                 ks.Sort();
                 var outS = new List<float>(ks.Count); var outY = new List<float>(ks.Count);
                 for (int i = 0; i < ks.Count; i++)
@@ -705,6 +772,19 @@ namespace PSXRacing.City
                 map.nodeY[n] = y0 + w * (pl.H - y0);
             }
             return true;
+        }
+
+        /// <summary>The plate whose rim a plan point lies inside (heights in the map), or null.</summary>
+        public static Plate PlateAt(Vector2 p)
+        {
+            if (!On) return null;
+            for (int i = 0; i < Plates.Count; i++)
+            {
+                var pl = Plates[i];
+                if (pl.skipped != null || pl.hull == null || p.x < pl.bbMin.x || p.x > pl.bbMax.x || p.y < pl.bbMin.y || p.y > pl.bbMax.y) continue;
+                if (InHull(pl.hull, p)) return pl;
+            }
+            return null;
         }
 
         /// <summary>The plates, one line each (the probe and the hand-off read it).</summary>
