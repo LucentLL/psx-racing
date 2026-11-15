@@ -71,7 +71,10 @@ namespace PSXRacing.LifeSim
         // v28 (R1c-B): INSURANCE - healthPlan/healthAsked/insRecord here and
         //     insCover/insDeductible on each car; ADDED fields, the step holds a
         //     car with a loan at full coverage (Insurance.Sync).
-        public int saveVersion = 28;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        // v29 (2026-11-15): EVENTS - evEntries/evHeard/racingRep/evClubScores/
+        //     evNews (see Events); ADDED fields, the step gives an old career
+        //     empty lists and racing rep 0.
+        public int saveVersion = 29;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         /// <summary>
         /// The save version of the BUILD that last wrote this career (R0a,
@@ -416,6 +419,23 @@ namespace PSXRacing.LifeSim
         /// by something outside the rota (the hook for an intro where the shop
         /// sends the player to a matching meet). Empty = the rota decides.</summary>
         public string nextMeetOrderClub = "";
+
+        // === EVENTS (v29, owner 2026-11-15; see Events) ===
+        /// <summary>The events the player signed up for, one per running
+        /// (edition), with each race's outcome. Closed entries are kept a few
+        /// weeks for the record, then pruned (Events.Tick).</summary>
+        public List<EventEntry> evEntries = new List<EventEntry>();
+        /// <summary>Word-of-mouth STREET events the player has been told about
+        /// (a car meet or a club passed them on), by event id.</summary>
+        public List<string> evHeard = new List<string>();
+        /// <summary>RACING REP, 0-100: what SANCTIONED results build (street
+        /// results build <see cref="streetRep"/>). Gates the bigger cups.</summary>
+        public float racingRep;
+        /// <summary>The clubs' event points (club rep), one row per club that
+        /// has scored, with the player's own share. A LIST (JsonUtility).</summary>
+        public List<ClubScore> evClubScores = new List<ClubScore>();
+        /// <summary>Event results for the EVENTS page, newest last (bounded).</summary>
+        public List<string> evNews = new List<string>();
 
         public OwnedCar FindCar(string id) =>
             cars.Find(c => c.id == id);

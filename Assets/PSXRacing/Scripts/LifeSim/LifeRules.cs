@@ -1353,6 +1353,15 @@ namespace PSXRacing.LifeSim
                 clubLine = Clubs.RecordRaceResult(s, Clubs.ById(RaceHandoff.ClubRaceClub),
                                                   RaceHandoff.ClubRaceDay, RaceHandoff.ClubOpponent,
                                                   RaceHandoff.FinishPos == 1);
+            // 0b. An EVENT race (v29) is banked the same way, before the block
+            // is spent: a NIGHT race rolls the day there, and the rollover
+            // sweeps a signed-up race nothing reported as a NO-SHOW.
+            bool eventRace = !string.IsNullOrEmpty(RaceHandoff.EventKey) && !RaceHandoff.FreeRoam &&
+                             !RaceHandoff.Delivery;
+            string eventLine = eventRace
+                ? Events.RecordResult(s, RaceHandoff.EventKey, RaceHandoff.EventRace, RaceHandoff.FinishPos,
+                                      RaceHandoff.FieldSize, car)
+                : null;
 
             // 1. the race consumed a slot (may roll the day)
             //
@@ -1542,6 +1551,16 @@ namespace PSXRacing.LifeSim
             {
                 s.lastAnyRaceDay = s.day;   // rep-decay clock: every race resets it
                 summary = "practice — P" + RaceHandoff.FinishPos + "/" + RaceHandoff.FieldSize;
+            }
+            else if (eventRace)
+            {
+                // EVENTS (v29): the event paid its own prize by place and moved
+                // its own rep in step 0 (Events.RecordResult). Nor does it burn
+                // the one-purse-race-a-day cap: an event race is on the calendar.
+                s.lastAnyRaceDay = s.day;
+                s.streetRacesTotal++;
+                if (RaceHandoff.FinishPos == 1) s.streetRacesWon++;
+                summary = eventLine ?? ("P" + RaceHandoff.FinishPos + "/" + RaceHandoff.FieldSize);
             }
             else
             {
@@ -2955,6 +2974,7 @@ namespace PSXRacing.LifeSim
             Duty.Settle(s);
             WorkSchedule.Tick(s);
             Clubs.Tick(s);
+            Events.Tick(s);   // v29: no-shows swept, the day's event races scored for the clubs
 
             // 5. payday (Friday) — flat-rate withheld tax
             if (IsPayday(s.day - 1) && s.pendingSalary > 0)

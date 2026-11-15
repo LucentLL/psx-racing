@@ -1464,6 +1464,23 @@ namespace PSXRacing.LifeSim
             if (s.saveVersion < 26) MigrateToDamageBank(s);
             if (s.saveVersion < 27) MigrateToCrashFates(s);
             if (s.saveVersion < 28) MigrateToInsurance(s);
+            if (s.saveVersion < 29) MigrateToEvents(s);
+        }
+
+        /// <summary>
+        /// v29, EVENTS (2026-11-15): an old career has signed up for nothing,
+        /// heard of no street event, no racing rep and no club event points -
+        /// what JsonUtility already reads for the ADDED fields; the step makes
+        /// sure the lists exist and stamps. Idempotent; throws nothing on a null.
+        /// </summary>
+        public static void MigrateToEvents(LifeState s)
+        {
+            if (s == null || CodeVersion < 29) return;
+            if (s.evEntries == null) s.evEntries = new System.Collections.Generic.List<EventEntry>();
+            if (s.evHeard == null) s.evHeard = new System.Collections.Generic.List<string>();
+            if (s.evClubScores == null) s.evClubScores = new System.Collections.Generic.List<ClubScore>();
+            if (s.evNews == null) s.evNews = new System.Collections.Generic.List<string>();
+            s.saveVersion = 29;
         }
 
         /// <summary>
