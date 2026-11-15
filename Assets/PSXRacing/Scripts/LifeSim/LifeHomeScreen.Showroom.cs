@@ -37,14 +37,19 @@ namespace PSXRacing.LifeSim
         bool OwnedHero(OwnedCar car, ref float y, string tag, Color tagColor, string note, Color noteColor,
                        List<Showroom.Action> actions, int index, int count, System.Action<int> browse)
         {
-            var spec = car != null ? CarCatalog.Get(car.specId) : null;
-            if (spec == null) return false;
+            if (car == null) return false;
+            // (no catalog row: the built-in car - its shell, name and value)
+            var spec = CarCatalog.Get(car.specId);
             Viewer.ShowOwned(car, spec);
             var def = Viewer.Shown;
             if (def == null) return false;
-            var card = Showroom.From(spec, car.displayName, def, Paint.SkinFor(car, spec, def));
-            card.hp = CarSpec.ToHp(Upgrades.EffectiveHp(car, spec));
-            card.kg = Upgrades.EffectiveKg(car, spec);
+            var card = Showroom.From(spec, car.displayName, def,
+                spec != null ? Paint.SkinFor(car, spec, def) : Paint.SkinFor(car));
+            if (spec != null)
+            {
+                card.hp = CarSpec.ToHp(Upgrades.EffectiveHp(car, spec));
+                card.kg = Upgrades.EffectiveKg(car, spec);
+            }
             card.tag = tag;
             card.tagColor = tagColor;
             card.priceLabel = "VALUE";
@@ -243,7 +248,7 @@ namespace PSXRacing.LifeSim
             // Room for the stage: what the panel has after the titles, the
             // name block and the figures under it.
             float top = -76f;
-            float stageH = Mathf.Clamp(H + top - 108f - 14f - 160f - 10f, 150f, 360f);
+            float stageH = Mathf.Clamp(H + top - Showroom.Overhead - 8f, 150f, 380f);
             int n = lanes.Count;
             Showroom.Build(root, Viewer, card, -W * 0.5f + 30f, W - 60f, top, stageH, pickShow, n, d =>
             {

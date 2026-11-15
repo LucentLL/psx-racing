@@ -155,6 +155,9 @@ namespace PSXRacing.EditorTools
             var w = screen.GetComponent<MenuNavWatch>();
             var apply = typeof(MenuNavWatch).GetMethod("ApplyPending", BindingFlags.NonPublic | BindingFlags.Instance);
             if (w != null && apply != null) apply.Invoke(w, null);
+            var nn = next.navigation;
+            Debug.Log("[Showroom] " + where + " > nav " + nn.mode + ": up " + (nn.selectOnUp != null ? nn.selectOnUp.name : "-") +
+                      ", down " + (nn.selectOnDown != null ? nn.selectOnDown.name : "-"));
             var kp = prev.GetComponent<ShowroomBrowseKeys>();
             var kn = next.GetComponent<ShowroomBrowseKeys>();
             var keepP = kp.browse; var keepN = kn.browse;

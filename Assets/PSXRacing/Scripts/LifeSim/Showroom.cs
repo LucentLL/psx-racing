@@ -82,6 +82,19 @@ namespace PSXRacing.LifeSim
             return cut > 0 && cut < n.Length - 1 ? n.Substring(cut + 1).Trim() : n;
         }
 
+        /// <summary>The year in a catalog-style name's tail ('98 -> 1998), 0 if none.</summary>
+        public static int YearOf(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return 0;
+            string n = name.Trim();
+            if (n.Length < 3) return 0;
+            string last = n.Substring(n.Length - 3);
+            if ((last[0] != '`' && last[0] != '\'' && last[0] != '’') || !char.IsDigit(last[1]) || !char.IsDigit(last[2]))
+                return 0;
+            int yy = (last[1] - '0') * 10 + (last[2] - '0');
+            return yy >= 30 ? 1900 + yy : 2000 + yy;
+        }
+
         public static string MakeOf(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
@@ -129,6 +142,7 @@ namespace PSXRacing.LifeSim
                 kg = spec != null ? spec.kg : 0,
                 paint = PaintName(def, skin),
             };
+            if (c.year <= 0) c.year = YearOf(name);
             string make = MakeOf(name);
             c.makeYear = make + (c.year > 0 ? "   ·   " + c.year : "");
             if (string.IsNullOrEmpty(c.model)) c.model = name ?? "";
@@ -139,9 +153,15 @@ namespace PSXRacing.LifeSim
         //  The block
         // ------------------------------------------------------------------
 
-        /// <summary>The stage's height for a page: about half the room the
-        /// page has, never a sliver and never more than a screen's worth.</summary>
-        public static float StageHeight(float room) => Mathf.Clamp(room * 0.52f, 190f, 400f);
+        /// <summary>The overhead around the stage: the name rows over it and
+        /// the money / figures / actions band under it.</summary>
+        public const float Overhead = 54f + 30f + 12f + 130f;
+
+        /// <summary>The stage's height for a page with <paramref name="room"/>
+        /// units of body: everything on one screen where it can be, but never
+        /// a sliver - on a short window the band under the stage scrolls.</summary>
+        public static float StageHeight(float room) =>
+            Mathf.Clamp(Mathf.Max(room - Overhead, room * 0.55f), 170f, 400f);
 
         /// <summary>
         /// Build the showroom into <paramref name="parent"/> (anchors at its
@@ -163,26 +183,14 @@ namespace PSXRacing.LifeSim
             if (browsing)
             {
                 var catcher = MenuKit.Rect(parent, "ShowroomSwipe", anchor, new Vector2(0f, 1f),
-                    new Vector2(left, y), new Vector2(width, 28f + 50f + 30f), new Color(0f, 0f, 0f, 0f));
+                    new Vector2(left, y), new Vector2(width, 84f), new Color(0f, 0f, 0f, 0f));
                 catcher.gameObject.AddComponent<ShowroomSwipe>().browse = browse;
             }
-
-            // The tag and the counter.
-            if (!string.IsNullOrEmpty(card.tag))
-            {
-                var tag = MenuKit.Label(parent, card.tag, 18, anchor, new Vector2(left, y), TextAnchor.MiddleLeft,
-                    card.tagColor, width * (browsing ? 0.74f : 1f), height: 26f, bold: true);
-                MenuKit.FitOneLine(tag, width * (browsing ? 0.74f : 1f));
-            }
-            if (browsing)
-                MenuKit.Label(parent, (index + 1) + " / " + count, 18, anchor, new Vector2(left + width, y),
-                    TextAnchor.MiddleRight, MenuKit.Dim, width * 0.24f, height: 26f, bold: true);
-            y -= 28f;
 
             // The name: as big as fits the width, bold italic, centred.
             int size = handheld ? 38 : 44;
             var title = MenuKit.Label(parent, card.model, size, anchor, new Vector2(left + width * 0.5f, y),
-                TextAnchor.MiddleCenter, Color.white, width, height: 50f, bold: true);
+                TextAnchor.MiddleCenter, Color.white, width, height: 54f, bold: true);
             title.fontStyle = FontStyle.BoldAndItalic;
             while (size > 24 && title.preferredWidth > width - 24f)
             {
@@ -190,9 +198,26 @@ namespace PSXRacing.LifeSim
                 title.fontSize = size;
             }
             if (title.preferredWidth > width - 24f) MenuKit.FitOneLine(title, width - 24f);
-            y -= 50f;
-            MenuKit.Label(parent, card.makeYear, 18, anchor, new Vector2(left + width * 0.5f, y),
-                TextAnchor.MiddleCenter, MenuKit.Accent, width, height: 26f, bold: true);
+            y -= 54f;
+
+            // Under it: what the car is to this page on the left (NEW, the
+            // lane, where it stands), the make and year and the count on the right.
+            float cw = 0f;
+            if (browsing)
+            {
+                var ct = MenuKit.Label(parent, (index + 1) + " / " + count, 18, anchor, new Vector2(left + width, y),
+                    TextAnchor.MiddleRight, MenuKit.Dim, 110f, height: 26f, bold: true);
+                cw = Mathf.Min(110f, ct.preferredWidth) + 24f;
+            }
+            var mk = MenuKit.Label(parent, card.makeYear, 18, anchor, new Vector2(left + width - cw, y),
+                TextAnchor.MiddleRight, MenuKit.Accent, width * 0.5f, height: 26f, bold: true);
+            float mw = Mathf.Min(width * 0.5f, mk.preferredWidth) + cw + 24f;
+            if (!string.IsNullOrEmpty(card.tag))
+            {
+                var tag = MenuKit.Label(parent, card.tag, 18, anchor, new Vector2(left, y), TextAnchor.MiddleLeft,
+                    card.tagColor, width - mw, height: 26f, bold: true);
+                if (tag.preferredWidth > width - mw) MenuKit.FitOneLine(tag, width - mw);
+            }
             y -= 30f;
 
             // The stage.
@@ -207,15 +232,12 @@ namespace PSXRacing.LifeSim
                 var img = line.GetComponent<Image>();
                 if (img != null) img.raycastTarget = false;
             }
+            MenuKit.Label(stage, "DRAG TO TURN", 14, new Vector2(0f, 1f), new Vector2(16f, -6f), TextAnchor.MiddleLeft,
+                new Color(0.50f, 0.50f, 0.53f), width * 0.3f, height: 26f).raycastTarget = false;
             if (!string.IsNullOrEmpty(card.paint))
-            {
-                var p = MenuKit.Label(stage, card.paint, 18, new Vector2(1f, 0f), new Vector2(-18f, 40f),
-                    TextAnchor.MiddleRight, new Color(0.86f, 0.86f, 0.88f), width * 0.5f, height: 30f, bold: true);
-                p.raycastTarget = false;
-            }
-            MenuKit.Label(stage, browsing ? "DRAG TO TURN  ·  < > FOR THE NEXT CAR" : "DRAG TO TURN", 14,
-                new Vector2(0f, 0f), new Vector2(18f, 40f), TextAnchor.MiddleLeft, new Color(0.55f, 0.55f, 0.58f),
-                width * 0.46f, height: 30f).raycastTarget = false;
+                MenuKit.Label(stage, card.paint, 18, new Vector2(1f, 0f), new Vector2(-18f, 36f),
+                    TextAnchor.MiddleRight, new Color(0.86f, 0.86f, 0.88f), width * 0.4f, height: 28f, bold: true)
+                    .raycastTarget = false;
             if (browsing)
             {
                 float aw = 60f, ah = Mathf.Min(104f, stageH * 0.42f);
@@ -223,30 +245,23 @@ namespace PSXRacing.LifeSim
                     () => browse(-1), 32, new Color(0.10f, 0.10f, 0.11f, 0.92f));
                 var next = MenuKit.Button(stage, ">", new Vector2(1f, 0.5f), new Vector2(-10f, 0f), new Vector2(aw, ah),
                     () => browse(1), 32, new Color(0.10f, 0.10f, 0.11f, 0.92f));
-                // MenuKit.Button pivots at its anchor: put the middle on the line.
-                foreach (var b in new[] { prev, next })
-                {
-                    var rt = (RectTransform)b.transform;
-                    rt.pivot = new Vector2(rt.pivot.x, 0.5f);
-                    b.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
-                }
+                prev.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
+                next.gameObject.AddComponent<ShowroomBrowseKeys>().browse = browse;
             }
-            y -= stageH + 14f;
+            y -= stageH + 12f;
 
-            // Under the stage: the money and the figures on the left, the
-            // page's actions on the right (or the figures there when it has none).
-            float gap = 24f;
-            float lw = (width - gap) * 0.5f, rx = left + lw + gap, rw = width - lw - gap;
+            // Under the stage, three columns: the money, the figures, the
+            // page's actions (the figures take the room when it has none).
+            const float Gap = 22f;
             bool acts = card.actions != null && card.actions.Count > 0;
-            float yl = y, yr = y;
-            PriceBlock(parent, card, left, lw, ref yl);
-            if (acts)
-            {
-                Cluster(parent, card, left, lw, ref yl);
-                Actions(parent, card.actions, rx, rw, ref yr);
-            }
-            else Cluster(parent, card, rx, rw, ref yr);
-            return top - Mathf.Min(yl, yr);
+            float w1 = acts ? width * 0.35f : width * 0.42f;
+            float w2 = acts ? width * 0.30f : width - w1 - Gap;
+            float x2 = left + w1 + Gap, x3 = x2 + w2 + Gap, w3 = left + width - x3;
+            float y1 = y, y2 = y, y3 = y;
+            PriceBlock(parent, card, left, w1, ref y1);
+            Cluster(parent, card, x2, w2, ref y2);
+            if (acts) Actions(parent, card.actions, x3, w3, ref y3);
+            return top - Mathf.Min(y1, Mathf.Min(y2, y3));
         }
 
         static void PriceBlock(RectTransform parent, Card card, float x, float w, ref float y)
@@ -254,19 +269,20 @@ namespace PSXRacing.LifeSim
             var anchor = new Vector2(0.5f, 1f);
             if (!string.IsNullOrEmpty(card.price))
             {
-                float kw = Mathf.Min(150f, w * 0.36f);
-                MenuKit.Label(parent, card.priceLabel, 18, anchor, new Vector2(x, y - 4f), TextAnchor.MiddleLeft,
-                    MenuKit.Dim, kw, height: 36f, bold: true);
-                var v = MenuKit.Label(parent, card.price, 30, anchor, new Vector2(x + kw, y - 2f), TextAnchor.MiddleLeft,
-                    card.priceColor, w - kw, height: 40f, bold: true);
-                MenuKit.FitOneLine(v, w - kw);
-                y -= 44f;
+                MenuKit.Label(parent, card.priceLabel, 16, anchor, new Vector2(x, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, w, height: 22f, bold: true);
+                var v = MenuKit.Label(parent, card.price, 30, anchor, new Vector2(x, y - 22f), TextAnchor.MiddleLeft,
+                    card.priceColor, w, height: 38f, bold: true);
+                int s = 30;
+                while (s > 20 && v.preferredWidth > w) { s -= 2; v.fontSize = s; }
+                if (v.preferredWidth > w) MenuKit.FitOneLine(v, w);
+                y -= 62f;
             }
             if (!string.IsNullOrEmpty(card.note))
             {
-                MenuKit.Para(parent, card.note, 16, anchor, new Vector2(x, y - 2f), out float h,
+                MenuKit.Para(parent, card.note, 16, anchor, new Vector2(x, y), out float h,
                     TextAnchor.UpperLeft, card.noteColor, w);
-                y -= h + 8f;
+                y -= h + 6f;
             }
         }
 
@@ -274,25 +290,24 @@ namespace PSXRacing.LifeSim
         static void Cluster(RectTransform parent, Card card, float x, float w, ref float y)
         {
             var anchor = new Vector2(0.5f, 1f);
-            const float BoxW = 54f, BoxH = 88f;
-            float top = y - 4f;
-            bool drawn = DrivetrainDiagram(parent, card.drv, x + 2f, top, BoxW, BoxH);
-            float tx = drawn ? x + BoxW + 18f : x, tw = x + w - tx;
-            float ly = top - 2f;
-            void Line(string text, Color c, bool bold)
+            const float BoxW = 52f, BoxH = 90f;
+            float top = y - 2f;
+            bool drawn = DrivetrainDiagram(parent, card.drv, x, top, BoxW, BoxH);
+            float tx = drawn ? x + BoxW + 16f : x, tw = x + w - tx;
+            float ly = top;
+            void Line(string text, bool bold)
             {
                 MenuKit.Rect(parent, "Dot", anchor, new Vector2(0f, 0.5f), new Vector2(tx, ly - 11f), new Vector2(8f, 8f),
                     MenuKit.Accent).GetComponent<Image>().raycastTarget = false;
                 var l = MenuKit.Label(parent, text, 17, anchor, new Vector2(tx + 16f, ly), TextAnchor.MiddleLeft,
-                    c, tw - 16f, height: 22f, bold: bold);
-                MenuKit.FitOneLine(l, tw - 16f);
+                    Color.white, tw - 16f, height: 22f, bold: bold);
+                if (l.preferredWidth > tw - 16f) MenuKit.FitOneLine(l, tw - 16f);
                 ly -= 23f;
             }
-            if (!string.IsNullOrEmpty(card.drv)) Line(card.drv + "  ·  " + DrvWords(card.drv), Color.white, true);
-            if (card.year > 0) Line(card.year.ToString(), Color.white, false);
-            if (card.hp > 0) Line(card.hp + " hp", Color.white, false);
-            if (card.kg > 0) Line(card.kg.ToString("N0") + " kg  ·  " + Mathf.RoundToInt(card.kg * 2.2046f).ToString("N0") + " lb",
-                Color.white, false);
+            if (!string.IsNullOrEmpty(card.drv)) Line(card.drv + "  ·  " + DrvWords(card.drv), true);
+            if (card.year > 0) Line(card.year.ToString(), false);
+            if (card.hp > 0) Line(card.hp + " hp", false);
+            if (card.kg > 0) Line(card.kg.ToString("N0") + " kg", false);
             y = Mathf.Min(drawn ? top - BoxH : top, ly) - 8f;
         }
 
@@ -300,11 +315,11 @@ namespace PSXRacing.LifeSim
         {
             switch (drv)
             {
-                case "FF": return "FRONT ENGINE, FRONT DRIVE";
-                case "FR": return "FRONT ENGINE, REAR DRIVE";
-                case "MR": return "MID ENGINE, REAR DRIVE";
-                case "RR": return "REAR ENGINE, REAR DRIVE";
-                case "4WD": return "FOUR-WHEEL DRIVE";
+                case "FF": return "FRONT DRIVE";
+                case "FR": return "REAR DRIVE";
+                case "MR": return "MID-ENGINE";
+                case "RR": return "REAR-ENGINE";
+                case "4WD": return "ALL-WHEEL DRIVE";
                 default: return "";
             }
         }
@@ -352,24 +367,23 @@ namespace PSXRacing.LifeSim
             return true;
         }
 
+        /// <summary>The page's own buttons, one under another.</summary>
         static void Actions(RectTransform parent, List<Action> actions, float x, float w, ref float y)
         {
-            int perRow = actions.Count <= 1 ? 1 : w >= 600f && actions.Count >= 3 ? 3 : 2;
-            const float Gap = 10f, H = 52f;
-            float bw = (w - Gap * (perRow - 1)) / perRow;
+            const float Gap = 8f, H = 50f;
             for (int i = 0; i < actions.Count; i++)
             {
-                int col = i % perRow;
-                if (i > 0 && col == 0) y -= H + Gap;
                 var a = actions[i];
                 var b = MenuKit.Button(parent, a.label, new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(x + col * (bw + Gap), bw), y - 4f), new Vector2(bw, H),
+                    new Vector2(MenuKit.ColLeft(x, w), y - 2f), new Vector2(w, H),
                     a.onClick, 17, a.onClick == null ? MenuKit.BtnBgDisabled : a.bg);
                 var t = b.GetComponentInChildren<Text>();
-                if (t != null) MenuKit.FitOneLine(t, bw - 12f);
+                if (t != null && t.preferredWidth > w - 12f) MenuKit.FitOneLine(t, w - 12f);
+                y -= H + Gap;
             }
-            y -= H + Gap + 4f;
+            y -= 4f;
         }
+
     }
 
     /// <summary>

@@ -6924,6 +6924,11 @@ namespace PSXRacing.LifeSim
                 MenuKit.Dim, 820f);
             y -= 30f;
 
+            // THE SHOWROOM: the lot one car at a time first, the trade-in under it
+            // (LifeHomeScreen.Showroom.cs).
+            if (Showroom.On && S.dealerLot.Count == 0) CarMarket.RefreshLot(S);
+            bool lotHero = Showroom.On && DealerHero(ref y);
+
             // R0c: the appraisal and trade-in of the car the player came in.
             TradeInBlock(ref y);
 
@@ -6932,8 +6937,7 @@ namespace PSXRacing.LifeSim
             // The showroom, then the forecourt: two sections rather than one
             // shuffled list, because "new and used" is the shop's whole pitch
             // and a NEW tag lost in a column of trade-ins is not a showroom.
-            // THE SHOWROOM: the lot one car at a time (LifeHomeScreen.Showroom.cs).
-            if (!(Showroom.On && DealerHero(ref y)))
+            if (!lotHero)
             {
                 DealerSection(ref y, "IN THE SHOWROOM — NEW", true);
                 DealerSection(ref y, "ON THE LOT — USED", false);

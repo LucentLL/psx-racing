@@ -546,10 +546,12 @@ namespace PSXRacing.LifeSim
                 Viewer.Show(def, skin, CarModelLibrary.SpecGeometry.Of(spec));
                 var panel = MenuKit.Rect(body, "CarViewPanel", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(lx + w * 0.5f, y), new Vector2(w, viewH), new Color(0f, 0f, 0f, 0.6f));
-                Viewer.AttachTo(panel);
+                // THE SHOWROOM (2026-11-15): the studio frame, turning on its own
+                // (CarViewer.Studio.cs); PSX_SHOWROOM=0 keeps the classic panel.
+                if (Showroom.On) Viewer.AttachStudio(panel); else Viewer.AttachTo(panel);
                 Viewer.SetVisible(true);
                 Hairline(panel);
-                var hint = MenuKit.Label(body, "DRAG TO TURN, TAP TO SPIN", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                var hint = MenuKit.Label(body, Showroom.On ? "DRAG TO TURN" : "DRAG TO TURN, TAP TO SPIN", MenuKit.Tiny, new Vector2(0.5f, 1f),
                     new Vector2(lx + w * 0.5f, y - viewH - 4f), TextAnchor.MiddleCenter, MenuKit.Dim, w, height: 24f);
                 MenuKit.FitOneLine(hint, w);
             }
@@ -1012,6 +1014,12 @@ namespace PSXRacing.LifeSim
         {
             TickScreenWatch();
             if (settings != null && (settings.IsOpen || settings.ClosedFrame == Time.frameCount)) return;
+            // The showroom turns on the right stick and , . as the career's does.
+            if (Showroom.On && viewer != null && viewer.Visible && viewer.Studio)
+            {
+                float turn = CarViewer.TurnInput();
+                if (turn != 0f) viewer.Nudge(-turn * 200f * Time.unscaledDeltaTime);
+            }
             if (statusText != null && Time.unscaledTime >= toastExpires)
             {
                 Destroy(statusText.transform.parent.gameObject);

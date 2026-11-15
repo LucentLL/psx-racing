@@ -206,9 +206,9 @@ namespace PSXRacing.LifeSim
             var envEye = Shader.GetGlobalVector(EnvEyeId);
             var pano = StudioPano;
             Shader.SetGlobalVector(LightDirId, new Vector4(-0.52f, 0.74f, -0.43f, 0f).normalized);
-            Shader.SetGlobalColor(LightColorId, new Color(1.08f, 1.03f, 0.96f, 1f));
-            Shader.SetGlobalColor(AmbientId, new Color(0.27f, 0.27f, 0.29f, 1f));
-            Shader.SetGlobalColor(SkyAmbientId, new Color(0.44f, 0.44f, 0.47f, 1f));
+            Shader.SetGlobalColor(LightColorId, new Color(1.16f, 1.11f, 1.03f, 1f));
+            Shader.SetGlobalColor(AmbientId, new Color(0.31f, 0.31f, 0.33f, 1f));
+            Shader.SetGlobalColor(SkyAmbientId, new Color(0.50f, 0.50f, 0.53f, 1f));
             Shader.SetGlobalColor(FogColorId, new Color(0.035f, 0.035f, 0.04f, 1f));
             Shader.SetGlobalVector(PaintWorldId, new Vector4(1f, 0f, 0f, 0f));
             Shader.SetGlobalTexture(EnvPanoId, pano);
@@ -304,7 +304,7 @@ namespace PSXRacing.LifeSim
             cam.transform.rotation = Quaternion.LookRotation(focus - cam.transform.position, Vector3.up);
             cam.farClipPlane = Mathf.Max(60f, d * 4f);
 
-            float pool = halfW * 2.1f;
+            float pool = halfW * 1.6f;
             if (floorPool != null) floorPool.transform.localScale = new Vector3(pool, 1f, pool);
             if (backGlow != null)
             {
