@@ -2314,6 +2314,7 @@ namespace PSXRacing.City
             // 2026-10-04: no ground or road sheet ends in the air (a step a
             // phase of it, the perf probe 2026-10-25: this step was the
             // build's longest, 20-210 ms)
+            ConcreteRunRulesNow();   // the concrete gate's run rules (CityMeshes.Concrete.cs), before the ground closes against what stands
             foreach (var _ in CloseOpenGround(map, trims, tm)) yield return 0;
             Cs2EmitCornerPans();   // (cityinteg 11-11) the curbs' corner pans, seated on the drawn junction (CityMeshes.Curbs2.cs)
             stepItem = 5;
@@ -8722,15 +8723,19 @@ namespace PSXRacing.City
                     for (int k = 0; k < parts; k++)
                     {
                         var r = conRuns[k];
+                        ConMark();
                         EmitBarrierCore(Vector3.Lerp(a, b, r.t0), Vector3.Lerp(a, b, r.t1), outward, Mathf.Lerp(v0, v1, r.t0), Mathf.Lerp(v0, v1, r.t1),
                                         r.t0 <= 0f ? capA : r.cut0, r.t1 >= 1f ? capB : r.cut1,
                                         ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), ConH(Mathf.Lerp(hA, hB, r.t1), r.k1));
+                        ConEmitted();
                     }
                     ConCover(conV);
                     return;
                 }
             }
+            ConMark();
             EmitBarrierCore(a, b, outward, v0, v1, capA, capB, hA, hB);
+            ConEmitted();
             ConCover(conV);
         }
 
@@ -8784,17 +8789,21 @@ namespace PSXRacing.City
                         var i0 = Vector2.Lerp(inA, inB, r.t0); var i1 = Vector2.Lerp(inA, inB, r.t1);
                         if (i0.sqrMagnitude > 1e-8f) i0.Normalize();
                         if (i1.sqrMagnitude > 1e-8f) i1.Normalize();
+                        ConMark();
                         EmitRailCore(Vector3.Lerp(a, b, r.t0), Vector3.Lerp(a, b, r.t1), i0, i1, drop,
                                      r.t0 <= 0f ? capA : r.cut0, r.t1 >= 1f ? capB : r.cut1, Mathf.Lerp(v0, v1, r.t0), Mathf.Lerp(v0, v1, r.t1),
                                      Mathf.Lerp(sinkA, sinkB, r.t0), Mathf.Lerp(sinkA, sinkB, r.t1),
                                      Mathf.Lerp(overhangA, overhangB, r.t0), Mathf.Lerp(overhangA, overhangB, r.t1),
                                      ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), ConH(Mathf.Lerp(hA, hB, r.t1), r.k1));
+                        ConEmitted();
                     }
                     ConCover(conV);
                     return;
                 }
             }
+            ConMark();
             EmitRailCore(a, b, inA, inB, drop, capA, capB, v0, v1, sinkA, sinkB, overhangA, overhangB, hA, hB);
+            ConEmitted();
             ConCover(conV);
         }
 

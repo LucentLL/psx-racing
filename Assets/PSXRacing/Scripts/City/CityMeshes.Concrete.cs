@@ -104,6 +104,15 @@ namespace PSXRacing.City
             conRule = "?"; conEdge = -1; conSide = 0; conNode = -1; conElev = false; conLastWhole = true;
             conActive = ConcreteOn || concreteLog != null;
             conEnclosed.Clear(); conPlateNow = false;
+            conTile.Clear(); conPend = 0; conOrphans = 0; conOrphanM = 0f;
+        }
+
+        /// <summary>Every piece of the tile is in the bucket (roads, junctions, medians, culverts):
+        /// the run rules, before the ground is closed against what stands (CloseOpenGround reads the bucket).</summary>
+        static void ConcreteRunRulesNow()
+        {
+            if (ConRunRulesOn) ConRunRules();
+            conTile.Clear(); conPend = 0;
         }
 
         static void ConcreteTileEnd()
@@ -130,6 +139,8 @@ namespace PSXRacing.City
         /// edge, a culvert's headwall, a W-beam for the ends that tie into it).</summary>
         static void ConNote(ConKind kind, string rule, Vector3 a, Vector3 b, float half, float hA, float hB)
         {
+            // a W-beam or the cable: no concrete, but a run that ties into it is not an orphan
+            if (kind == ConKind.WBeam && ConRunRulesOn && conActive) conTile.Add(new ConRec { kind = kind, a = a + conOrigin, b = b + conOrigin, hA = hA, hB = hB, log = -1, v0 = -1 });
             if (concreteLog == null) return;
             concreteLog.Add(new ConcretePiece
             {
@@ -393,7 +404,200 @@ namespace PSXRacing.City
                     concreteLog.Add(p);
                 }
             }
+            if (ConRunRulesOn)
+            {
+                // what is built of it, for the run rules at the tile's end (ConRunRules)
+                conPend = conTile.Count;
+                int logAt = concreteLog != null ? concreteLog.Count - 1 - Mathf.Max(parts, 0) : -1;
+                Vector3 wa = a + conOrigin, wb = b + conOrigin;
+                if (parts < 0) conTile.Add(new ConRec { kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev, log = logAt, v0 = -1 });
+                else
+                    for (int k = 0; k < parts; k++)
+                    {
+                        var r = conRuns[k];
+                        conTile.Add(new ConRec
+                        {
+                            kind = kind, a = Vector3.Lerp(wa, wb, r.t0), b = Vector3.Lerp(wa, wb, r.t1),
+                            hA = ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), hB = ConH(Mathf.Lerp(hA, hB, r.t1), r.k1), elev = conElev,
+                            log = logAt < 0 ? -1 : logAt + 1 + k, v0 = -1,
+                        });
+                    }
+            }
             return parts;
+        }
+
+        // ---- the run rules, at the tile's end -------------------------------------
+        /// <summary>
+        /// 4. NO ORPHAN (PSX_CITY_CONC_ORPHAN=0 off). A run - pieces joined end to end, whatever
+        /// rules asked for them - shorter than ConOrphanM that guards nothing is not built at all.
+        /// The 2026-10-03 rule (MinMedianRunM) dropped short runs of three rules, each counted
+        /// along its own edge; this one counts the run as it stands, across rules and edges, after
+        /// rule 1 has clipped it. A run stays if any piece of it is on structure, has a fall
+        /// beside it or holds land (R2: protection is never taken), if it ties into a W-beam or
+        /// the cable median, or if it comes within ConBorderM of the tile's border (it may carry
+        /// on in the next tile, which this tile cannot see: such a run is left, by both tiles).
+        /// </summary>
+        static readonly bool conOrphanOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_ORPHAN") == "0";
+        public static bool ConcreteOrphanOn => ConcreteOn && !conOrphanOff;
+        static bool ConRunRulesOn => ConcreteOrphanOn;
+        const float ConTieM = 0.75f, ConTieYM = 0.8f, ConOrphanM = MinMedianRunM, ConBorderM = 10f;
+        /// <summary>The last tile build: pieces and metres the orphan rule left out.</summary>
+        public static int conOrphans; public static float conOrphanM;
+
+        struct ConRec
+        {
+            public ConKind kind; public Vector3 a, b; public float hA, hB; public bool elev, gone;
+            /// <summary>Its vertices and triangle indices in the barrier bucket (v0 -1: none, a tie only), its entry in the log.</summary>
+            public int v0, v1, t0, t1, log;
+        }
+        static readonly List<ConRec> conTile = new List<ConRec>(512);
+        static int conPend, conMv, conMt;
+        static void ConMark() { conMv = barrierBucket.v.Count; conMt = barrierBucket.t.Count; }
+        /// <summary>The piece (or part) the gate last let through is in the bucket from the mark on.</summary>
+        static void ConEmitted()
+        {
+            if (conPend >= conTile.Count) return;
+            var r = conTile[conPend];
+            r.v0 = conMv; r.v1 = barrierBucket.v.Count; r.t0 = conMt; r.t1 = barrierBucket.t.Count;
+            conTile[conPend++] = r;
+        }
+
+        static readonly Dictionary<long, List<int>> conGrid = new Dictionary<long, List<int>>();
+        static readonly Stack<List<int>> conGridPool = new Stack<List<int>>();
+        static int[] conPar = new int[0];
+        static float[] conRunM = new float[0];
+        static byte[] conRunFlag = new byte[0];   // 1: open (the tile's border, a W-beam, the cable), 2: guards
+        static readonly float[] ConFallProbeM = { 1.5f, 3f, 5f, 8f, 12f };
+
+        static int ConRoot(int i) { while (conPar[i] != i) { conPar[i] = conPar[conPar[i]]; i = conPar[i]; } return i; }
+
+        /// <summary>A fall beside the piece (0.6 m within 8 m, 1.5 m within 12 m) or land it holds
+        /// (land standing over it more steeply than a 1V:3H back slope), on the graded ground.</summary>
+        static bool ConGuards(in ConRec r)
+        {
+            if (r.elev) return true;
+            var a2 = new Vector2(r.a.x, r.a.z); var b2 = new Vector2(r.b.x, r.b.z);
+            float len = Vector2.Distance(a2, b2);
+            if (len < 0.05f) return false;
+            var d = (b2 - a2) / len; var perp = new Vector2(d.y, -d.x); var m = (a2 + b2) * 0.5f;
+            float y = 0.5f * (r.a.y + r.b.y);
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                foreach (float o in ConFallProbeM)
+                {
+                    float g = CityElevation.GroundY(conMap, m.x + perp.x * sgn * o, m.y + perp.y * sgn * o);
+                    if (g < y - (o > 8f ? 1.5f : 0.6f) || g > y + Mathf.Max(0.3f, o / 3f)) return true;
+                }
+            return false;
+        }
+
+        static void ConRunRules()
+        {
+            conOrphans = 0; conOrphanM = 0f;
+            int n = conTile.Count;
+            if (n == 0 || conMap == null) return;
+            if (conPar.Length < n) { conPar = new int[n * 2]; conRunM = new float[n * 2]; conRunFlag = new byte[n * 2]; }
+            foreach (var l in conGrid.Values) { l.Clear(); conGridPool.Push(l); }
+            conGrid.Clear();
+            const float Cell = 8f;
+            float T = TileSize, x0 = conTx * T, z0 = conTz * T;
+            for (int i = 0; i < n; i++)
+            {
+                conPar[i] = i; conRunM[i] = 0f; conRunFlag[i] = 0;
+                var r = conTile[i];
+                int cx0 = Mathf.FloorToInt((Mathf.Min(r.a.x, r.b.x) - ConTieM) / Cell), cx1 = Mathf.FloorToInt((Mathf.Max(r.a.x, r.b.x) + ConTieM) / Cell);
+                int cz0 = Mathf.FloorToInt((Mathf.Min(r.a.z, r.b.z) - ConTieM) / Cell), cz1 = Mathf.FloorToInt((Mathf.Max(r.a.z, r.b.z) + ConTieM) / Cell);
+                if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 64) { conRunFlag[i] = 1; continue; }   // (no piece is that long: left alone)
+                for (int x = cx0; x <= cx1; x++)
+                    for (int z = cz0; z <= cz1; z++)
+                    {
+                        long k = ((long)x << 32) ^ (uint)z;
+                        if (!conGrid.TryGetValue(k, out var l)) conGrid[k] = l = conGridPool.Count > 0 ? conGridPool.Pop() : new List<int>(8);
+                        l.Add(i);
+                    }
+            }
+            // pieces joined end to end (or an end onto another's body) are one run
+            for (int i = 0; i < n; i++)
+            {
+                var r = conTile[i];
+                for (int end = 0; end < 2; end++)
+                {
+                    var e3 = end == 0 ? r.a : r.b;
+                    // an end near the tile's border: its run may carry on where this tile cannot see
+                    if (e3.x - x0 < ConBorderM || x0 + T - e3.x < ConBorderM || e3.z - z0 < ConBorderM || z0 + T - e3.z < ConBorderM) conRunFlag[i] |= 1;
+                    if (!conGrid.TryGetValue(((long)Mathf.FloorToInt(e3.x / Cell) << 32) ^ (uint)Mathf.FloorToInt(e3.z / Cell), out var l)) continue;
+                    var e2 = new Vector2(e3.x, e3.z);
+                    foreach (int j in l)
+                    {
+                        if (j == i) continue;
+                        var q = conTile[j];
+                        Vector2 qa = new Vector2(q.a.x, q.a.z), qd = new Vector2(q.b.x - q.a.x, q.b.z - q.a.z);
+                        float L2 = qd.sqrMagnitude;
+                        float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(e2 - qa, qd) / L2) : 0f;
+                        if (Vector2.Distance(e2, qa + qd * t) > ConTieM || Mathf.Abs(Mathf.Lerp(q.a.y, q.b.y, t) - e3.y) > ConTieYM) continue;
+                        int ri = ConRoot(i), rj = ConRoot(j);
+                        if (ri != rj) conPar[ri] = rj;
+                    }
+                }
+            }
+            for (int i = 0; i < n; i++)
+            {
+                var r = conTile[i];
+                int root = ConRoot(i);
+                conRunM[root] += Vector2.Distance(new Vector2(r.a.x, r.a.z), new Vector2(r.b.x, r.b.z));
+                if ((conRunFlag[i] & 1) != 0 || r.kind == ConKind.WBeam) conRunFlag[root] |= 1;
+            }
+            // a short run that is not open: does any piece of it guard?
+            for (int i = 0; i < n; i++)
+            {
+                int root = ConRoot(i);
+                if (conRunM[root] >= ConOrphanM || (conRunFlag[root] & 3) != 0) continue;
+                if (ConGuards(conTile[i])) conRunFlag[root] |= 2;
+            }
+            bool any = false;
+            for (int i = 0; i < n; i++)
+            {
+                int root = ConRoot(i);
+                var r = conTile[i];
+                if (conRunM[root] >= ConOrphanM || (conRunFlag[root] & 3) != 0 || r.v0 < 0 || r.v1 <= r.v0) continue;
+                r.gone = true; conTile[i] = r; any = true;
+                conOrphans++; conOrphanM += Vector2.Distance(new Vector2(r.a.x, r.a.z), new Vector2(r.b.x, r.b.z));
+                if (concreteLog != null && r.log >= 0)
+                {
+                    var e = concreteLog[r.log];
+                    e.stage = (byte)(e.stage == 1 ? 3 : 0);
+                    concreteLog[r.log] = e;
+                }
+            }
+            if (any) ConRemoveGone();
+            conChanged += conOrphans;
+        }
+
+        static readonly List<Vector3> conKeepV = new List<Vector3>(4096);
+        static readonly List<Vector2> conKeepUv = new List<Vector2>(4096);
+        static readonly List<int> conKeepT = new List<int>(8192);
+
+        /// <summary>Takes the pieces marked gone out of the barrier bucket (their vertices and
+        /// triangles; the pieces are in the order they were written, every piece's triangles
+        /// index its own vertices alone).</summary>
+        static void ConRemoveGone()
+        {
+            var bk = barrierBucket;
+            conKeepV.Clear(); conKeepUv.Clear(); conKeepT.Clear();
+            int v = 0, t = 0, shift = 0;
+            foreach (var r in conTile)
+            {
+                if (!r.gone || r.v0 < v) continue;
+                for (int i = v; i < r.v0; i++) { conKeepV.Add(bk.v[i]); conKeepUv.Add(bk.uv[i]); }
+                for (int i = t; i < r.t0; i++) conKeepT.Add(bk.t[i] - shift);
+                shift += r.v1 - r.v0;
+                v = r.v1; t = r.t1;
+            }
+            for (int i = v; i < bk.v.Count; i++) { conKeepV.Add(bk.v[i]); conKeepUv.Add(bk.uv[i]); }
+            for (int i = t; i < bk.t.Count; i++) conKeepT.Add(bk.t[i] - shift);
+            bk.v.Clear(); bk.v.AddRange(conKeepV);
+            bk.uv.Clear(); bk.uv.AddRange(conKeepUv);
+            bk.t.Clear(); bk.t.AddRange(conKeepT);
+            conCovered -= shift;
         }
 
         /// <summary>A part's height: the asked height, turned down by k toward the foot height.</summary>

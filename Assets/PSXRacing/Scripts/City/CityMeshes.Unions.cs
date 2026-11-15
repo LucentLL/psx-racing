@@ -1708,15 +1708,19 @@ namespace PSXRacing.City
                     for (int k = 0; k < parts; k++)
                     {
                         var r = conRuns[k];
+                        ConMark();
                         EmitUnionJerseyCore(Vector3.Lerp(a0, a1, r.t0), Vector3.Lerp(b0, b1, r.t0), Vector3.Lerp(a0, a1, r.t1), Vector3.Lerp(b0, b1, r.t1),
                                             Mathf.Lerp(v0, v1, r.t0), Mathf.Lerp(v0, v1, r.t1),
                                             ConH(Mathf.Lerp(h0, h1, r.t0), r.k0), ConH(Mathf.Lerp(h0, h1, r.t1), r.k1), inset);
+                        ConEmitted();
                     }
                     ConCover(conV);
                     return;
                 }
             }
+            ConMark();
             EmitUnionJerseyCore(a0, b0, a1, b1, v0, v1, h0, h1, inset);
+            ConEmitted();
             ConCover(conV);
         }
 
@@ -1820,6 +1824,7 @@ namespace PSXRacing.City
                 int conV = barrierBucket.v.Count;
                 if (conActive && ConGate(ConKind.UnionLeg, new Vector3(p0.x, foot0 + KerbFaceM, p0.z), new Vector3(p1.x, foot1 + KerbFaceM, p1.z), Vector2.zero, half,
                                          top0 - foot0 - KerbFaceM, top1 - foot1 - KerbFaceM, f0 <= 1e-3f, f1 <= 1e-3f, true) >= 0) continue;
+                ConMark();
                 barrierBucket.WallSloped(p0 + n3, p1 + n3, foot0, top0, foot1, top1, nrm, v0, v1, 0.3f, 0.45f);
                 barrierBucket.WallSloped(p0 - n3, p1 - n3, foot0, top0, foot1, top1, -nrm, v0, v1, 0.3f, 0.45f);
                 barrierBucket.Up(new Vector3(p0.x + n3.x, top0, p0.z + n3.z), new Vector3(p1.x + n3.x, top1, p1.z + n3.z),
@@ -1835,6 +1840,7 @@ namespace PSXRacing.City
                 if (f1 <= 1e-3f)
                     barrierBucket.Face(new Vector3(p1.x - n3.x, foot1, p1.z - n3.z), new Vector3(p1.x - n3.x, top1, p1.z - n3.z),
                                        new Vector3(p1.x + n3.x, top1, p1.z + n3.z), new Vector3(p1.x + n3.x, foot1, p1.z + n3.z), d3, uvC, uvC, uvC, uvC);
+                ConEmitted();
                 ConCover(conV);
             }
         }

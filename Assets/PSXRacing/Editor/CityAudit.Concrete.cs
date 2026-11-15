@@ -98,8 +98,9 @@ namespace PSXRacing.EditorTools
                     if (g > y + Mathf.Max(0.3f, o / 3f)) return 3;
                 }
             bool h0 = false, h1 = false; int w0 = 0, w1 = 0; Vector2 t0 = default, t1 = default;
-            for (float o = p.half + 0.3f; o <= 14f && !h0; o += 0.75f) h0 = CnProbe(m + perp * o, y, true, out w0, out t0, out _);
-            for (float o = p.half + 0.3f; o <= 14f && !h1; o += 0.75f) h1 = CnProbe(m - perp * o, y, true, out w1, out t1, out _);
+            // (a median of any real width: the other carriageway within 40 m)
+            for (float o = p.half + 0.3f; o <= 40f && !h0; o += o < 14f ? 0.75f : 2f) h0 = CnProbe(m + perp * o, y, true, out w0, out t0, out _);
+            for (float o = p.half + 0.3f; o <= 40f && !h1; o += o < 14f ? 0.75f : 2f) h1 = CnProbe(m - perp * o, y, true, out w1, out t1, out _);
             if (h0 && h1 && w0 >= 0 && w1 >= 0 && Vector2.Dot(t0, t1) < -0.5f && Mathf.Abs(Vector2.Dot(t0, d)) > 0.7f) return 1;
             return 0;
         }
@@ -452,6 +453,7 @@ namespace PSXRacing.EditorTools
                 var built = new HashSet<long>();
                 var tileRows = new StringBuilder("tx\tz\tms\tground_tris\tground_hash\troads_tris\troads_hash\tkerbs_tris\tkerbs_hash\tbarriers_tris\tbarriers_hash\tstructure_tris\tstructure_hash\tguardrails_tris\tguardrails_hash\tasked\tchanged\tpave_cut_m\tunknown_verts\n");
                 double buildMs = 0; int unknownTiles = 0; long barrierTris = 0;
+                int orphanN = 0; float orphanM = 0f, paveCutM = 0f;
                 int changedTiles = 0, logMark = 0; var diff = new int[6]; long triOff = 0, triOnChanged = 0; double offMs = 0, onMs = 0;
                 foreach (long k in order)
                 {
@@ -462,11 +464,13 @@ namespace PSXRacing.EditorTools
                     double ms = c.Elapsed.TotalMilliseconds;
                     buildMs += ms;
                     built.Add(k);
+                    int logEnd = log.Count;   // this tile's records end here (the rebuilds below add none)
                     if (tm != null)
                     {
                         string Cell(Mesh m) => m == null ? "0\t0" : $"{m.triangles.Length / 3}\t{BrMeshHash(m):x16}";
                         tileRows.Append($"{tx}\t{tz}\t{ms:0}\t{Cell(tm.ground)}\t{Cell(tm.roads)}\t{Cell(tm.kerbs)}\t{Cell(tm.barriers)}\t{Cell(CityMeshes.StructureMeshOf(tm))}\t{Cell(tm.guardrails)}\t{CityMeshes.conAsked}\t{CityMeshes.conChanged}\t{CityMeshes.conPaveCutM.ToString("0.0", inv)}\t{CityMeshes.concreteUnknownVerts}\n");
                         if (CityMeshes.concreteUnknownVerts != 0) unknownTiles++;
+                        orphanN += CityMeshes.conOrphans; orphanM += CityMeshes.conOrphanM; paveCutM += CityMeshes.conPaveCutM;
                         if (tm.barriers != null) barrierTris += tm.barriers.triangles.Length / 3;
                         // a tile the gate changed: the same tile as asked (gate off) - which of its meshes differ?
                         // (a tile the gate changed nothing on emits every piece through the same call with the
@@ -485,7 +489,7 @@ namespace PSXRacing.EditorTools
                             c0.Restart();
                             var tm1 = CityMeshes.Build(map, trims, buildings, tx, tz);   // and again as gated, warm like the other (the cost pair)
                             onMs += c0.Elapsed.TotalMilliseconds;
-                            log.RemoveRange(logMark, log.Count - logMark);                 // (its records are the first build's)
+                            log.RemoveRange(logEnd, log.Count - logEnd);                   // (the tile's records are the first build's)
                             CnDestroy(tm1);
                             changedTiles++;
                             if (tm0 != null)
@@ -514,6 +518,7 @@ namespace PSXRacing.EditorTools
                     File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_plan.tsv"), psb.ToString());
                 }
                 sb.AppendLine($"tiles built: {built.Count} of {order.Count} in {buildMs / 1000:0} s ({buildMs / Mathf.Max(1, built.Count):0} ms a tile); barriers mesh {barrierTris} triangles; tiles with barrier vertices no gate call accounts for: {unknownTiles}");
+                if (CityMeshes.ConcreteOn) sb.AppendLine($"the gate: rule 1 (nothing on pavement) took {paveCutM:0} m off pavement; rule 4 (no orphan, {(CityMeshes.ConcreteOrphanOn ? "on" : "off")}) left out {orphanN} pieces, {orphanM:0} m; rule 3 (the plate) {(CityMeshes.ConcretePlateOn ? "ON" : "off")}");
                 if (CityMeshes.ConcreteOn)
                     sb.AppendLine($"tiles the gate changed a piece on: {changedTiles} of {built.Count}; each rebuilt as asked (gate off) and compared mesh by mesh - tiles whose mesh differs: ground {diff[0]}, roads {diff[1]}, kerbs {diff[2]}, barriers {diff[3]}, structure {diff[4]}, guardrails {diff[5]}; barriers triangles on those tiles {triOff} as asked -> {triOnChanged} gated; build time on those tiles (warm pair) {offMs / Mathf.Max(1, changedTiles):0} ms as asked -> {onMs / Mathf.Max(1, changedTiles):0} ms gated");
 
@@ -522,8 +527,8 @@ namespace PSXRacing.EditorTools
                 var after = new List<CityMeshes.ConcretePiece>(log.Count);
                 foreach (var p in log)
                 {
-                    if (p.stage != 1) before.Add(p);
-                    if (p.stage != 0) after.Add(p);
+                    if (p.stage == 0 || p.stage == 2) before.Add(p);
+                    if (p.stage == 1 || p.stage == 2) after.Add(p);
                 }
                 bool two = before.Count != after.Count || log.Exists(p => p.stage != 2);
                 var RB = CnClassify(before, built.Count < popAll ? built : null);
@@ -533,7 +538,7 @@ namespace PSXRacing.EditorTools
                 void Table(string title, CnResult R)
                 {
                     int pieces = 0; float metres = 0f;
-                    var cnt = new int[CnNames.Length]; var met = new float[CnNames.Length];
+                    var cnt = new int[CnNames.Length]; var met = new float[CnNames.Length]; var guardM = new float[CnNames.Length];
                     var byRule = new SortedDictionary<string, (int n, float m, int stray, float strayM, int[] c)>(StringComparer.Ordinal);
                     var reasons = new float[5];
                     int strayPieces = 0; float strayM = 0f;
@@ -547,14 +552,14 @@ namespace PSXRacing.EditorTools
                         if (!byRule.TryGetValue(p.rule, out var br)) br = (0, 0f, 0, 0f, new int[CnNames.Length]);
                         br.n++; br.m += len;
                         if (R.cls[i] != 0) { strayPieces++; strayM += len; br.stray++; br.strayM += len; }
-                        for (int b = 0; b < CnNames.Length; b++) if ((R.cls[i] & (1 << b)) != 0) { cnt[b]++; met[b] += len; br.c[b]++; }
+                        for (int b = 0; b < CnNames.Length; b++) if ((R.cls[i] & (1 << b)) != 0) { cnt[b]++; met[b] += len; br.c[b]++; if (R.reason[i] == 2 || R.reason[i] == 3) guardM[b] += len; }
                         byRule[p.rule] = br;
                     }
                     sb.AppendLine();
                     sb.AppendLine($"==== {title}: {pieces} pieces of standing concrete, {metres / 1000f:0.0} km, in {R.runs} runs; {strayPieces} pieces ({strayM / 1000f:0.00} km) in a stray class");
                     sb.AppendLine($"reason (km): R1 divides opposing traffic {reasons[1] / 1000f:0.0}; R2 guards a fall / on structure {reasons[2] / 1000f:0.0}; R2 holds land {reasons[3] / 1000f:0.0}; R4 kerb height {reasons[4] / 1000f:0.0}; none {reasons[0] / 1000f:0.0}");
-                    sb.AppendLine("class\tpieces\tmetres");
-                    for (int b = 0; b < CnNames.Length; b++) sb.AppendLine($"{CnNames[b]}\t{cnt[b]}\t{met[b]:0}");
+                    sb.AppendLine("class\tpieces\tmetres\tof which guard a fall or hold land (m)");
+                    for (int b = 0; b < CnNames.Length; b++) sb.AppendLine($"{CnNames[b]}\t{cnt[b]}\t{met[b]:0}\t{guardM[b]:0}");
                     sb.AppendLine("by rule:\tpieces\tmetres\tstray\tstray_m\ta\tb\tc\td\te\tf\tg\th\th2");
                     foreach (var kv in byRule) sb.AppendLine($"{kv.Key}\t{kv.Value.n}\t{kv.Value.m:0}\t{kv.Value.stray}\t{kv.Value.strayM:0}\t{string.Join("\t", kv.Value.c)}");
                 }
