@@ -1267,7 +1267,7 @@ namespace PSXRacing.City
             bool any = false;
             for (int j = 0; j <= steps; j++)
             {
-                float t = (float)j / steps, u = t * len, d = float.MaxValue, dA = float.MaxValue;
+                float t = (float)j / steps, u = t * len, d = float.MaxValue, dA = float.MaxValue, dR = float.MaxValue;
                 for (int q = 0; q + 1 < wingCutU.Count; q += 2)
                 {
                     float u0 = wingCutU[q], u1 = wingCutU[q + 1];
@@ -1276,8 +1276,13 @@ namespace PSXRacing.City
                     if (cs3NoCutNow) dA = Mathf.Min(dA, dd); else d = Mathf.Min(d, dd);
                 }
                 // a walk's ramp end (its width to 0, at a junction mouth) eases in the same way
-                foreach (float ru in wingRampU) d = Mathf.Min(d, Mathf.Abs(ru - u));
-                float c = d == float.MaxValue ? 1f : Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(d / CurbCutWingM));
+                foreach (float ru in wingRampU) dR = Mathf.Min(dR, Mathf.Abs(ru - u));
+                // (hoods 2) a strip street's cut comes up over the drop curb's 3 ft transition: its walk stays level across
+                // the cut (Cs4LayStrip), so no wheel riding the walk meets a dip; a walk from the curb keeps the 5 m wing
+                float taper = cs4StripNow > 0f ? Cs4CutTaperM : CurbCutWingM;
+                float c = d == float.MaxValue ? 1f : Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(d / taper));
+                if (cs4StripNow > 0f && c < 0.999f) c = LotEntCurbShare(map, Vector3.Lerp(eA, eB, t) + o, c);   // (lots, second pass) the curb's relief at a lot's throat
+                if (dR != float.MaxValue) c = Mathf.Min(c, Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(dR / CurbCutWingM)));
                 // a ramp end's zero width keeps the full share (it is collapsed onto the foot)
                 if (Mathf.Lerp(wA, wB, t) <= 0f) c = 1f;
                 float ak = dA == float.MaxValue ? 1f : LineModel.Smooth(dA / Cs3ApronEaseM);
@@ -1615,7 +1620,7 @@ namespace PSXRacing.City
                 }
                 else if (cs4StripNow > 0f && rl0 <= 0f && rl1 <= 0f &&
                          Cs4LayStrip(tm, pA, oA, w0, cutC[j - 1], pB, oB, w1, cutC[j],
-                                     (cutC[j - 1] <= CurbCutShare + 0.02f && cutC[j] <= CurbCutShare + 0.02f) || Cs4NearJunction(map, e, Mathf.Lerp(sA, sB, 0.5f * (t0 + t1))),
+                                     Cs4NearJunction(map, e, Mathf.Lerp(sA, sB, 0.5f * (t0 + t1))),
                                      Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM, out backA, out backB))
                 {
                     // (hoods 2) laid: the standard section - curb, planting strip, walk (CityMeshes.Curbs4)
@@ -1625,6 +1630,13 @@ namespace PSXRacing.City
                     WalkProfile(pA, oA, w0, walkProfA, cutC[j - 1], rl0);
                     WalkProfile(pB, oB, w1, walkProfB, cutC[j], rl1);
                     cs2FaceR = Mathf.Max(rl0, rl1);
+                    // (hoods 2) a driveway's or lot's apron is its own plain concrete panel, not the walk's jointed slab
+                    if (StripOn && Curbs3On && rl0 <= 0f && rl1 <= 0f && w0 > 0f && w1 > 0f && cutC[j - 1] <= CurbCutShare + 0.02f && cutC[j] <= CurbCutShare + 0.02f)
+                    {
+                        Cs4LayApron(tm, walkProfA, walkProfB);
+                        Cs2RenderFace(walkProfA, walkProfB, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
+                    }
+                    else
                     LayWalk(WalkBucket, walkProfA, walkProfB, w0, w1, Mathf.Lerp(sA, sB, t0) / WalkTexM, Mathf.Lerp(sA, sB, t1) / WalkTexM);
                     backA = WalkBack(pA, oA, w0, cutC[j - 1], rl0); backB = WalkBack(pB, oB, w1, cutC[j], rl1);
                 }

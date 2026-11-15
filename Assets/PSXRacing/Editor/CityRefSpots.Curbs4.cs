@@ -191,28 +191,33 @@ namespace PSXRacing.EditorTools
                 if (d < bd) { bd = d; be = e; bs = sp; }
             }
             if (be == null) return;
-            var t2 = be.TangentAt(bs).normalized;
-            var right = new Vector2(t2.y, -t2.x);
-            var camRight = rot * Vector3.right;
-            if (Vector2.Dot(right, new Vector2(camRight.x, camRight.z)) < 0f) right = -right;
-            var p = be.PointAt(bs);
-            float y0 = be.YAt(bs);
             Physics.SyncTransforms();
-            var sb = new StringBuilder();
-            float road = float.NaN;
-            for (float d = 0f; d <= 9.001f; d += 0.05f)
+            // four stations 12 m apart from the one nearest his line (the same in every run: the map's own)
+            for (int st = 0; st < 4; st++)
             {
-                var q = p + right * d;
-                float top = float.NaN;
-                foreach (var h in Physics.RaycastAll(new Vector3(q.x, y0 + 3f, q.y), Vector3.down, 8f, ~0, QueryTriggerInteraction.Ignore))
+                float ss = Mathf.Clamp(bs + st * 12f, 4f, be.length - 4f);
+                var t2 = be.TangentAt(ss).normalized;
+                var right = new Vector2(t2.y, -t2.x);
+                var camRight = rot * Vector3.right;
+                if (Vector2.Dot(right, new Vector2(camRight.x, camRight.z)) < 0f) right = -right;
+                var p = be.PointAt(ss);
+                float y0 = be.YAt(ss);
+                var sb = new StringBuilder();
+                float road = float.NaN;
+                for (float d = 0f; d <= 9.001f; d += 0.05f)
                 {
-                    if (h.collider.attachedRigidbody != null) continue;
-                    if (float.IsNaN(top) || h.point.y > top) top = h.point.y;
+                    var q = p + right * d;
+                    float top = float.NaN;
+                    foreach (var h in Physics.RaycastAll(new Vector3(q.x, y0 + 3f, q.y), Vector3.down, 8f, ~0, QueryTriggerInteraction.Ignore))
+                    {
+                        if (h.collider.attachedRigidbody != null) continue;
+                        if (float.IsNaN(top) || h.point.y > top) top = h.point.y;
+                    }
+                    if (float.IsNaN(road) && !float.IsNaN(top)) road = top;
+                    sb.Append(float.IsNaN(top) ? "x " : ((top - road) * 100f).ToString("0.0", CultureInfo.InvariantCulture) + " ");
                 }
-                if (float.IsNaN(road) && !float.IsNaN(top)) road = top;
-                sb.Append(float.IsNaN(top) ? "x " : ((top - road) * 100f).ToString("0.0", CultureInfo.InvariantCulture) + " ");
+                log.Append($"SECTION e{be.index} '{be.name}' cls {be.cls} s {ss:0} (class {CityMeshes.CurbClassOf(map, be)}, strip {CityMeshes.StripOf(map, be):0.00}): collider heights in cm over the road's middle, every 5 cm out to 9 m on his right:\n{sb}\n");
             }
-            log.Append($"SECTION at the owner's curb: e{be.index} '{be.name}' cls {be.cls} width {be.width:0.0} s {bs:0}, class {CityMeshes.CurbClassOf(map, be)}, strip {CityMeshes.StripOf(map, be):0.00}; collider heights in cm over the road's middle, every 5 cm from the middle to 9 m out on his right:\n{sb}\n");
         }
     }
 }

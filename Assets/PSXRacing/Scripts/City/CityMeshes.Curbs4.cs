@@ -72,12 +72,12 @@ namespace PSXRacing.City
 
         public static class Cs4Stats
         {
-            public static float stripM, bulbCurbM;
+            public static float stripM, bulbCurbM, apronM;
             public static int bulbCurbs;
             /// <summary>Local dead ends without a tagged turning circle, and what each is (Cs4Turns).</summary>
             public static int deadLocal, std, carriesOn, graphCut, notInExtract, plainStub, noRoom;
-            public static void Reset() { stripM = bulbCurbM = 0f; bulbCurbs = 0; }
-            public static string Line() => $"curbs4: planting strip {stripM:0} m of walk side; bulb rims curbed {bulbCurbs} ({bulbCurbM:0} m)";
+            public static void Reset() { stripM = bulbCurbM = apronM = 0f; bulbCurbs = 0; }
+            public static string Line() => $"curbs4: planting strip {stripM:0} m of walk side, apron panels {apronM:0} m; bulb rims curbed {bulbCurbs} ({bulbCurbM:0} m)";
             public static string BulbLine() =>
                 $"standard bulbs {(StdBulbsOn ? "ON" : "OFF")}: {deadLocal} local dead ends with no tagged turning circle: {std} take the CLDSM 11.16 bulb (before the street-too-short test); the rest: another way carries on {carriesOn}, the graph was cut there {graphCut}, not in the extract or at its edge {notInExtract}, a plain stub (no court name, nothing built beyond) {plainStub}, no room {noRoom}";
         }
@@ -175,42 +175,59 @@ namespace PSXRacing.City
             return true;
         }
 
+        /// <summary>A strip street's curb cut comes up over the drop curb's transition (3 ft), not the walks' 5 m wing:
+        /// its walk stays level across the cut (Cs4LayStrip), so nothing dips under a wheel riding the walk.</summary>
+        public const float Cs4CutTaperM = 0.91f;
+        static readonly Vector3[] cs4FullA = new Vector3[4], cs4FullB = new Vector3[4];
+
         /// <summary>
         /// One piece of a strip street's walk between two sections: the
         /// collider's chamfer and the strip in the ground's grass, the walk
-        /// slab behind, the drawn curb (plumb face, 6 in top, back face). False
-        /// (nothing laid) where the piece takes the paved section: a driveway's
-        /// or lot's apron, the corner's landing, no room for a strip.
+        /// slab behind, the drawn curb (plumb face, 6 in top, back face).
+        /// AT A CURB CUT (the share c0 / c1 of the curb's height) only the curb
+        /// drops: the walk stays level, the strip is the apron's ramp from the
+        /// lip up to the walk - and where both ends are at the lip (the apron
+        /// itself) curb, ramp and walk are ONE panel of the driveway's own
+        /// plain concrete (the ground's pavement), the walk's line carried
+        /// across it. False (nothing laid) where the piece takes the paved
+        /// section: the corner's landing, no room for a strip.
         /// </summary>
         static bool Cs4LayStrip(TileMeshes tm, Vector3 pA, Vector2 oA, float w0, float c0, Vector3 pB, Vector2 oB, float w1, float c1,
-                                bool paved, float uA, float uB, out Vector3 backA, out Vector3 backB)
+                                bool landing, float uA, float uB, out Vector3 backA, out Vector3 backB)
         {
             backA = backB = default;
-            if (paved || w0 <= 0f || w1 <= 0f) return false;
+            if (landing || w0 <= 0f || w1 <= 0f) return false;
             float s0 = Cs4StripAt(w0, cs4StripNow), s1 = Cs4StripAt(w1, cs4StripNow);
             if (s0 <= 0f && s1 <= 0f) return false;
-            WalkProfile(pA, oA, w0, walkProfA, c0, 0f);
+            WalkProfile(pA, oA, w0, walkProfA, c0, 0f);   // the curb at the cut's share
             WalkProfile(pB, oB, w1, walkProfB, c1, 0f);
+            WalkProfile(pA, oA, w0, cs4FullA, 1f, 0f);    // the walk's own plane: level across a cut
+            WalkProfile(pB, oB, w1, cs4FullB, 1f, 0f);
             Vector3 S(Vector3[] p, float w, float s)
             {
                 float nose = Flat(p[2] - p[0]);
                 float x = s > 0f ? CurbTopM + s : nose;
                 return Vector3.Lerp(p[2], p[3], Mathf.Clamp01((x - nose) / Mathf.Max(w - nose, 1e-3f)));
             }
-            Vector3 SA = S(walkProfA, w0, s0), SB = S(walkProfB, w1, s1);
+            Vector3 SA = S(cs4FullA, w0, s0), SB = S(cs4FullB, w1, s1);
+            bool apron = c0 <= CurbCutShare + 0.02f && c1 <= CurbCutShare + 0.02f;
             var o = tm.origin;
-            var gb = GroundBucket(false);
+            var gb = GroundBucket(apron);
             void G(Vector3 a, Vector3 b, Vector3 c, Vector3 d2, string what)
             {
-                gb.Up(a, b, c, d2, GroundUV(false, a.x + o.x, a.z + o.z), GroundUV(false, b.x + o.x, b.z + o.z), GroundUV(false, c.x + o.x, c.z + o.z), GroundUV(false, d2.x + o.x, d2.z + o.z));
+                gb.Up(a, b, c, d2, GroundUV(apron, a.x + o.x, a.z + o.z), GroundUV(apron, b.x + o.x, b.z + o.z), GroundUV(apron, c.x + o.x, c.z + o.z), GroundUV(apron, d2.x + o.x, d2.z + o.z));
                 LogWalkQuad(what, a, b, c, d2);
             }
             G(walkProfA[0], walkProfA[1], walkProfB[1], walkProfB[0], " strip chamfer0");
             G(walkProfA[1], walkProfA[2], walkProfB[2], walkProfB[1], " strip chamfer1");
-            G(walkProfA[2], SA, SB, walkProfB[2], " strip grass");
-            float vA = Flat(walkProfA[3] - SA) / WalkTexM, vB = Flat(walkProfB[3] - SB) / WalkTexM;
-            WalkBucket.Up(SA, walkProfA[3], walkProfB[3], SB, new Vector2(uA, 0f), new Vector2(uA, vA), new Vector2(uB, vB), new Vector2(uB, 0f));
-            LogWalkQuad(" strip walk", SA, walkProfA[3], walkProfB[3], SB);
+            G(walkProfA[2], SA, SB, walkProfB[2], apron ? " apron ramp" : " strip grass");
+            if (apron) G(SA, cs4FullA[3], cs4FullB[3], SB, " apron walk");
+            else
+            {
+                float vA = Flat(cs4FullA[3] - SA) / WalkTexM, vB = Flat(cs4FullB[3] - SB) / WalkTexM;
+                WalkBucket.Up(SA, cs4FullA[3], cs4FullB[3], SB, new Vector2(uA, 0f), new Vector2(uA, vA), new Vector2(uB, vB), new Vector2(uB, 0f));
+                LogWalkQuad(" strip walk", SA, cs4FullA[3], cs4FullB[3], SB);
+            }
             // the drawn curb
             if (Cs4CurbProfile(walkProfA, r4A) && Cs4CurbProfile(walkProfB, r4B))
             {
@@ -224,10 +241,26 @@ namespace PSXRacing.City
                 structBucket.Face(r4A[3], r4A[4], r4B[4], r4B[3], outSum, U(ua, 0.6f), U(ua, 0.75f), U(ub, 0.75f), U(ub, 0.6f));
                 RenderFaceM += Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
             }
-            backA = walkProfA[3] + Vector3.up * RoadsideRules.EdgeDropM;
-            backB = walkProfB[3] + Vector3.up * RoadsideRules.EdgeDropM;
-            Cs4Stats.stripM += Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
+            backA = cs4FullA[3] + Vector3.up * RoadsideRules.EdgeDropM;
+            backB = cs4FullB[3] + Vector3.up * RoadsideRules.EdgeDropM;
+            float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
+            if (apron) Cs4Stats.apronM += lm; else Cs4Stats.stripM += lm;
             return true;
+        }
+
+        /// <summary>A walk-from-the-curb street's apron piece (both ends at the cut's lip): the walk's three bands in the
+        /// driveway's own plain concrete (the ground's pavement), not the jointed slab.</summary>
+        static void Cs4LayApron(TileMeshes tm, Vector3[] pa, Vector3[] pb)
+        {
+            var o = tm.origin;
+            var gb = GroundBucket(true);
+            for (int q = 0; q < 3; q++)
+            {
+                Vector3 a = pa[q], b = pa[q + 1], c = pb[q + 1], d2 = pb[q];
+                gb.Up(a, b, c, d2, GroundUV(true, a.x + o.x, a.z + o.z), GroundUV(true, b.x + o.x, b.z + o.z), GroundUV(true, c.x + o.x, c.z + o.z), GroundUV(true, d2.x + o.x, d2.z + o.z));
+                LogWalkQuad(" apron band" + q, a, b, c, d2);
+            }
+            Cs4Stats.apronM += Vector2.Distance(new Vector2(pa[0].x, pa[0].z), new Vector2(pb[0].x, pb[0].z));
         }
 
         // ---- 3. the valley gutter ----------------------------------------------
