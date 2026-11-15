@@ -9522,9 +9522,12 @@ namespace PSXRacing.City
             // street along a creek valley stood a rail on a retaining face
             // over a graded 1V:4H bank (Bryant Street). On level ground it
             // meets the lattice 0.1 m sooner.
+            // (lot entrances, 11-15) behind an entrance's curb cut the strip is the apron's ramp to the lot
+            float fillSlope = RoadsideRules.CityFillSlope;
+            if (!sh.flat) LotEntRamp(map, s0, ref shoulder, ref fillSlope);
             float Yv(float e) => sh.flat ? y0
                 : y0 - crossFall * Mathf.Min(e, shoulder)
-                     - RoadsideRules.CityFillSlope * Mathf.Max(0f, e - shoulder);
+                     - fillSlope * Mathf.Max(0f, e - shoulder);
             float Lat(float e) { var q = s0 + outw * e; return LatticeY(map, q.x, q.y); }
 
             float ec = -1f, prevGap = Yv(0f) - Lat(0f);
