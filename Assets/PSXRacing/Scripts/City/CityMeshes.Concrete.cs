@@ -52,6 +52,21 @@ namespace PSXRacing.City
         static readonly bool conPaveOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_PAVE") == "0";
         public static bool ConcretePaveOn => ConcreteOn && !conPaveOff;
 
+        /// <summary>(round 2, class d: two Jerseys along one narrow median) PSX_CITY_CONC_TWIN=1: the ground-twin
+        /// walk (CityMeshes.Unions.cs, GroundTwinRuns / GroundTwinSample) pairs two opposing carriageways whatever
+        /// their names - a freeway's carriageways often carry two (I-77 / "B. Bayles Mack Highway"), and an unnamed
+        /// one pairs too - so the pair carries ONE median barrier on the strip's centre line instead of each its own
+        /// Jersey at its edge. A pair of different names is taken only median side to median side. Decided at load
+        /// from the whole map (the union runs), so the two tiles of a seam agree. With PSX_CITY_CONCRETE=0 it is off.</summary>
+        public static bool ConTwinNamesOn = ConcreteOn && System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_TWIN") == "1";
+        /// <summary>(round 2) With the twin switch on, the widest gap between the two carriageways' line-model edges the walk pairs
+        /// (PSX_CITY_CONC_TWIN_GAP, metres; default 12 m: walls 9.5 m apart and less stand on medians the line model reads up to 12 m wide;
+        /// AASHTO RDG 2011 ch. 6 recommends a median barrier up to 30 ft and weighs one at 30-50 ft - never two).</summary>
+        public static float ConTwinGapMaxM = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_TWIN_GAP"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float g) ? g : 12f;
+        /// <summary>(round 2) Carriageways whose median holds lanes the game does not draw yet - US 74 Independence's busway, the
+        /// 2026 express lanes - keep a barrier each side: the twin switch does not pair them by another name or past 9.5 m.</summary>
+        static bool ConTwinKeepTwo(CityMap.Edge e) => e.name == "East Independence Expressway" || e.name == "US 74";
+
         public enum ConKind : byte { Jersey = 0, Rail = 1, UnionJersey = 2, UnionLeg = 3, InsetJersey = 4, RetainFace = 5, Headwall = 6, WBeam = 7, Unknown = 8 }
 
         /// <summary>One piece of standing concrete as a rule asked for it, or
@@ -478,6 +493,15 @@ namespace PSXRacing.City
                     conPaveCutM += paveM;
                 }
             }
+            // 6. NO REASON (round 2, class b): a median Jersey, a cut wall or a fan chord's Jersey with none of R1-R3
+            // where it stands is not built (ConNoReason: decided from the map at the piece alone, so every tile agrees)
+            if (parts != 0 && ConcreteReasonOn && kind == ConKind.Jersey && !conElev && !conHold && len >= 0.05f && conMap != null
+                && (conRule == "side-median" || conRule == "side-cut-wall" || conRule == "fan-chord-jersey")
+                && ConNoReason(a2, b2, a.y + conOrigin.y, b.y + conOrigin.y, outward))
+            {
+                if (parts < 0) conChanged++;
+                conRuns.Clear(); parts = 0; conLastWhole = false; conNoReasonN++; conNoReasonM += len;
+            }
             if (concreteLog != null)
             {
                 var rec = new ConcretePiece
@@ -530,6 +554,109 @@ namespace PSXRacing.City
             }
             conArgSet = false;
             return parts;
+        }
+
+        // ---- 6. NO REASON -------------------------------------------------------------
+        /// <summary>
+        /// 6. NO REASON (round 2, class b; PSX_CITY_CONC_REASON=1). A barrier stands for a reason a highway engineer
+        /// would accept: it divides opposing traffic (R1), guards a fall or holds land (R2), or shields a fixed object
+        /// (R3). A median Jersey whose carriageway has no road the other way beyond it within 250 m (the Guion Lane
+        /// kind: the twin carriageway runs far off), a cut wall that holds no land, a fan chord's Jersey with nothing
+        /// beyond it, none of them guarding a fall, divide and guard nothing: they are not built. Kept: anything
+        /// with a fall beside it or land over it (the run rules' own test, ConGuards), on structure or on a retaining
+        /// face, with ANY road beyond it within the clear zone (10 m, AASHTO RDG Table 3.1 for 60-70 mph), with a road
+        /// carrying traffic the other way within 250 m beyond it (a median of any width, as the inventory's R1), or
+        /// with a structure within 40 m (its piers and abutments, its approach: R3, and the inventory's 40 m approach rule). Decided from the map at the piece alone.
+        /// </summary>
+        public static bool ConcreteReasonOn => ConcreteOn && conReasonSw;
+        static readonly bool conReasonSw = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_REASON") == "1";
+        /// <summary>The audit's look at rule 6 for a recorded piece (world space; outward: away from its road).</summary>
+        public static bool ConcreteNoReasonProbe(CityMap map, Trims trims, int edge, int side, Vector3 a, Vector3 b, Vector2 outward)
+        {
+            var m0 = conMap; var t0 = conTrims; int e0 = conEdge, s0 = conSide;
+            conMap = map; conTrims = trims; conEdge = edge; conSide = side;
+            try { return ConNoReason(new Vector2(a.x, a.z), new Vector2(b.x, b.z), a.y, b.y, outward); }
+            finally { conMap = m0; conTrims = t0; conEdge = e0; conSide = s0; }
+        }
+        /// <summary>The pieces and metres rule 6 left out since the counter was last cleared.</summary>
+        public static int conNoReasonN; public static float conNoReasonM;
+        const float ConR1ReachM = 250f, ConR1DyM = 15f, ConClearZoneM = 10f, ConR3ReachM = 40f;
+        static readonly HashSet<int> conReasonSegs = new HashSet<int>();
+
+        static bool ConNoReason(Vector2 a2, Vector2 b2, float ya, float yb, Vector2 outward)
+        {
+            // (a fan chord's Jersey has no road of its own: only the clear zone beyond it is searched)
+            bool near = conRule == "side-cut-wall" || conRule == "fan-chord-jersey";
+            if (outward.sqrMagnitude < 1e-6f || conEdge >= conMap.edges.Length || (conEdge < 0 && conRule != "fan-chord-jersey")) return false;
+            float len = Vector2.Distance(a2, b2);
+            var d = (b2 - a2) / len; var perp = new Vector2(d.y, -d.x);
+            if (Vector2.Dot(perp, outward) < 0f) perp = -perp;
+            var m = 0.5f * (a2 + b2); float y = 0.5f * (ya + yb);
+            // R2: a fall beside it or land it holds
+            if (ConGuards(new ConRec { a = new Vector3(a2.x, ya, a2.y), b = new Vector3(b2.x, yb, b2.y) })) return false;
+            var own = conEdge >= 0 ? conMap.edges[conEdge] : null;
+            // its own road's travel at the piece (a two-way road: any road beyond is the other way)
+            Vector2 tOwn = Vector2.zero; float bestOwn = float.MaxValue;
+            for (int i = 0; own != null && i + 1 < own.pts.Length; i++)
+            {
+                Vector2 p0 = own.pts[i], sd0 = own.pts[i + 1] - p0;
+                float L2 = sd0.sqrMagnitude;
+                if (L2 < 1e-8f) continue;
+                float t = Mathf.Clamp01(Vector2.Dot(m - p0, sd0) / L2);
+                float dd = (m - (p0 + sd0 * t)).sqrMagnitude;
+                if (dd < bestOwn) { bestOwn = dd; tOwn = sd0 / Mathf.Sqrt(L2); }
+            }
+            // R1 and the clear zone: the box beyond its outward face, as long as the piece and 5 m more each way
+            float w = 0.5f * len + 5f;
+            Vector2 c0 = m + perp * 0.3f, c1 = m + perp * (near ? ConClearZoneM : ConR1ReachM);
+            var lo = Vector2.Min(Vector2.Min(c0 - d * w, c0 + d * w), Vector2.Min(c1 - d * w, c1 + d * w));
+            var hi = Vector2.Max(Vector2.Max(c0 - d * w, c0 + d * w), Vector2.Max(c1 - d * w, c1 + d * w));
+            conReasonSegs.Clear();
+            conMap.EdgeSegsInRect(lo, hi, conReasonSegs);
+            foreach (int seg in conReasonSegs)
+            {
+                var c = conMap.edges[seg >> 12];
+                if (c.index == conEdge || c.tunnel || c.a == c.b) continue;
+                int si = seg & 0xFFF;
+                if (si + 1 >= c.pts.Length) continue;
+                Vector2 q0 = c.pts[si] - m, q1 = c.pts[si + 1] - m;
+                float sl = Vector2.Distance(q0, q1);
+                if (sl < 1e-4f) continue;
+                if (!ConClip(Vector2.Dot(q0, d), Vector2.Dot(q0, perp), Vector2.Dot(q1, d), Vector2.Dot(q1, perp), -w, w, 0.3f, near ? ConClearZoneM : ConR1ReachM, out float t0, out float t1)) continue;
+                float vNear = Mathf.Min(Vector2.Dot(Vector2.Lerp(q0, q1, t0), perp), Vector2.Dot(Vector2.Lerp(q0, q1, t1), perp));
+                float sMid = c.s[si] + sl * 0.5f * (t0 + t1);
+                if (Mathf.Abs(c.YAt(sMid) - y) > ConR1DyM) continue;
+                if (vNear <= ConClearZoneM) return false;                 // a road in the clear zone beyond it
+                if (near) continue;                                       // (a cut wall or a fan chord divides nothing: it holds land, guards a fall or has no reason)
+                var sd = (q1 - q0) / sl;
+                if (own == null || !own.oneway || !c.oneway || Vector2.Dot(sd, tOwn) < -0.5f) return false;   // traffic the other way: R1
+            }
+            // R3: a structure within 40 m (its piers, its abutments; an approach)
+            conReasonSegs.Clear();
+            conMap.EdgeSegsInRect(m - Vector2.one * ConR3ReachM, m + Vector2.one * ConR3ReachM, conReasonSegs);
+            foreach (int seg in conReasonSegs)
+            {
+                var c = conMap.edges[seg >> 12];
+                if (c.index != conEdge && c.bridge) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Liang-Barsky: the part of segment (u0,v0)-(u1,v1) inside the box, as t0..t1 along it.</summary>
+        static bool ConClip(float u0, float v0, float u1, float v1, float uMin, float uMax, float vMin, float vMax, out float t0, out float t1)
+        {
+            t0 = 0f; t1 = 1f;
+            float du = u1 - u0, dv = v1 - v0;
+            float[] p = { -du, du, -dv, dv };
+            float[] q = { u0 - uMin, uMax - u0, v0 - vMin, vMax - v0 };
+            for (int i = 0; i < 4; i++)
+            {
+                if (Mathf.Abs(p[i]) < 1e-9f) { if (q[i] < 0f) return false; continue; }
+                float r = q[i] / p[i];
+                if (p[i] < 0f) { if (r > t1) return false; if (r > t0) t0 = r; }
+                else { if (r < t0) return false; if (r < t1) t1 = r; }
+            }
+            return t0 <= t1;
         }
 
         // ---- the run rules, at the tile's end -------------------------------------

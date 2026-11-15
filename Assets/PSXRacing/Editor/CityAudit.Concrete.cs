@@ -76,6 +76,51 @@ namespace PSXRacing.EditorTools
         /// <summary>How far along a run from a structure's rail a rail on the ground is its approach (R2).</summary>
         const float CnApproachM = 40f;
 
+        /// <summary>(round 2) The ground-twin walk's verdict at the foot of <paramref name="q"/> on
+        /// <paramref name="X"/>, numbers as #; where it saw no twin, what does stand opposite within 25 m.</summary>
+        static string CnTwinCensus(CityMap map, CityMeshes.Trims trims, CityMap.Edge X, Vector2 q)
+        {
+            if (X.pts == null || X.pts.Length < 2) return "no polyline";
+            float bestD = float.MaxValue, s = 0f;
+            for (int i = 0; i + 1 < X.pts.Length; i++)
+            {
+                float d = CnSegDist(q, X.pts[i], X.pts[i + 1], out float t);
+                if (d < bestD) { bestD = d; s = Mathf.Lerp(X.s[i], X.s[i + 1], t); }
+            }
+            string why = CityMeshes.GroundTwinWhy(map, trims, X, s);
+            string k = System.Text.RegularExpressions.Regex.Replace(why, @"e\d+", "e#");
+            k = System.Text.RegularExpressions.Regex.Replace(k, @"-?\d+(\.\d+)?", "#");
+            if (k.StartsWith("gap") || k.StartsWith("dy"))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(why, @"-?\d+(\.\d+)?");
+                if (m.Success && float.TryParse(m.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float v))
+                    k += k.StartsWith("gap") ? $" [{(v < 0.3f ? "<0.3" : v <= 9.5f ? "0.3-9.5" : v <= 12f ? "9.5-12" : v <= 16f ? "12-16" : ">16")}]" : $" [{(v <= 1.5f ? "1-1.5" : v <= 3f ? "1.5-3" : ">3")}]";
+            }
+            if (why.StartsWith("no twin beside"))
+            {
+                var p = X.PointAt(s); var tan = X.TangentAt(s);
+                var segs = new HashSet<int>();
+                map.EdgeSegsInRect(p - Vector2.one * 30f, p + Vector2.one * 30f, segs);
+                CityMap.Edge best = null; float bd = 30f;
+                foreach (int seg in segs)
+                {
+                    var c = map.edges[seg >> 12];
+                    if (c == X || c.a == c.b) continue;
+                    int si = seg & 0xFFF;
+                    if (si + 1 >= c.pts.Length) continue;
+                    var a0 = c.pts[si]; var dd = c.pts[si + 1] - a0; float L = dd.magnitude;
+                    if (L < 1e-4f) continue;
+                    dd /= L;
+                    if (Vector2.Dot(tan, dd) > -0.5f) continue;
+                    float d = Vector2.Distance(p, a0 + dd * Mathf.Clamp(Vector2.Dot(p - a0, dd), 0f, L));
+                    if (d < bd) { bd = d; best = c; }
+                }
+                k += best == null ? " (nothing the other way within 30 m)"
+                    : $" (the other way within {(bd <= 15f ? "15" : "30")} m: {(best.oneway ? "one-way" : "two-way")}{(best.link ? " ramp" : "")}{(best.bridge ? " bridge" : "")}, {(string.IsNullOrEmpty(best.name) ? "no name" : best.name == X.name ? "same name" : "other name")}{(string.IsNullOrEmpty(X.name) ? ", this one unnamed" : "")})";
+            }
+            return k;
+        }
+
         static byte CnReason(in CityMeshes.ConcretePiece p)
         {
             float h = Mathf.Max(p.hA, p.hB);
@@ -598,6 +643,7 @@ namespace PSXRacing.EditorTools
 
                 // ---- the tiles
                 var log = new List<CityMeshes.ConcretePiece>(1 << 16);
+                CityMeshes.conNoReasonN = 0; CityMeshes.conNoReasonM = 0f;
                 CityMeshes.concreteLog = log;
                 var built = new HashSet<long>();
                 // PSX_CONC_LOAD=<tag>: the records an earlier run saved (city_concrete_<tag>_log.bin), classified again: no tile is built
@@ -685,7 +731,7 @@ namespace PSXRacing.EditorTools
                     File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_plan.tsv"), psb.ToString());
                 }
                 if (string.IsNullOrWhiteSpace(loadTag)) sb.AppendLine($"tiles built: {built.Count} of {order.Count} in {buildMs / 1000:0} s ({buildMs / Mathf.Max(1, built.Count):0} ms a tile); barriers mesh {barrierTris} triangles; tiles with barrier vertices no gate call accounts for: {unknownTiles}");
-                if (CityMeshes.ConcreteOn && string.IsNullOrWhiteSpace(loadTag)) sb.AppendLine($"the gate: rule 1 (nothing on pavement) took {paveCutM:0} m off pavement; rule 4 (no orphan, {(CityMeshes.ConcreteOrphanOn ? "on" : "off")}) left out {orphanN} pieces, {orphanM:0} m; rule 5 (an end is a real end, {(CityMeshes.ConcreteEndsOn ? "on" : "off")}) turned {endsN} free square barrier ends down; rule 3 (the plate) {(CityMeshes.ConcretePlateOn ? "ON" : "off")}");
+                if (CityMeshes.ConcreteOn && string.IsNullOrWhiteSpace(loadTag)) sb.AppendLine($"the gate: rule 1 (nothing on pavement) took {paveCutM:0} m off pavement; rule 4 (no orphan, {(CityMeshes.ConcreteOrphanOn ? "on" : "off")}) left out {orphanN} pieces, {orphanM:0} m; rule 5 (an end is a real end, {(CityMeshes.ConcreteEndsOn ? "on" : "off")}) turned {endsN} free square barrier ends down; rule 3 (the plate) {(CityMeshes.ConcretePlateOn ? "ON" : "off")}; rule 6 (no reason, {(CityMeshes.ConcreteReasonOn ? "on" : "off")}) left out {CityMeshes.conNoReasonN} pieces, {CityMeshes.conNoReasonM:0} m; twin names (class d, {(CityMeshes.ConTwinNamesOn ? "on" : "off")})");
                 if (CityMeshes.ConcreteOn && string.IsNullOrWhiteSpace(loadTag))
                     sb.AppendLine($"tiles the gate changed a piece on: {changedTiles} of {built.Count}; each rebuilt as asked (gate off) and compared mesh by mesh - tiles whose mesh differs: ground {diff[0]}, roads {diff[1]}, kerbs {diff[2]}, barriers {diff[3]}, structure {diff[4]}, guardrails {diff[5]}; barriers triangles on those tiles {triOff} as asked -> {triOnChanged} gated; build time on those tiles (warm pair) {offMs / Mathf.Max(1, changedTiles):0} ms as asked -> {onMs / Mathf.Max(1, changedTiles):0} ms gated");
 
@@ -752,6 +798,53 @@ namespace PSXRacing.EditorTools
                     foreach (var kv in outRules) ors.Append($" {kv.Key} {kv.Value}");
                     sb.AppendLine();
                     sb.AppendLine($"pieces the gate changed or left out: {touched}; of these in NO stray class before: {outside} ({outsideM:0} m){ors}");
+                }
+
+                // ---- (round 2) class d: why the ground-twin walk laid no shared median where two walls stand side by side
+                {
+                    var R = two ? RA : RB;
+                    var why = new Dictionary<string, float>();
+                    var whyN = new Dictionary<string, int>();
+                    for (int i = 0; i < R.p.Count; i++)
+                    {
+                        var p = R.p[i];
+                        if ((R.cls[i] & CnDouble) == 0 || p.edge < 0 || p.edge >= map.edges.Length) continue;
+                        if (p.rule != "side-median" && p.rule != "side-rail-ground" && p.rule != "union-median-ground-twin" && p.rule != "union-split-feet") continue;
+                        float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        bool was = CityMeshes.ConTwinNamesOn;
+                        string k = p.rule + ": " + CnTwinCensus(map, trims, map.edges[p.edge], CnXZ((p.a + p.b) * 0.5f));
+                        // the same walk with the names relaxed (the trims were built as the switch stands)
+                        CityMeshes.ConTwinNamesOn = true;
+                        string k2 = CnTwinCensus(map, trims, map.edges[p.edge], CnXZ((p.a + p.b) * 0.5f));
+                        CityMeshes.ConTwinNamesOn = was;
+                        k += "  ||  names relaxed: " + k2;
+                        why.TryGetValue(k, out float m0); why[k] = m0 + len;
+                        whyN.TryGetValue(k, out int n0); whyN[k] = n0 + 1;
+                    }
+                    var keys = new List<string>(why.Keys);
+                    keys.Sort((x, y) => why[y].CompareTo(why[x]));
+                    sb.AppendLine();
+                    sb.AppendLine($"==== class d ({(two ? "AFTER" : "as built")}): what the ground-twin walk says where the piece stands (metres, pieces; numbers as #)");
+                    for (int q = 0; q < keys.Count && q < 45; q++) sb.AppendLine(string.Format(inv, "{0,8:0} m {1,6}  {2}", why[keys[q]], whyN[keys[q]], keys[q]));
+                    // class b: what rule 6 (no reason) would do with each piece, by rule
+                    var r6 = new SortedDictionary<string, (float drop, float keep, int nd, int nk)>(StringComparer.Ordinal);
+                    for (int i = 0; i < R.p.Count; i++)
+                    {
+                        var p = R.p[i];
+                        if ((R.cls[i] & CnNoReason) == 0 || p.edge < 0 || p.edge >= map.edges.Length || p.kind != CityMeshes.ConKind.Jersey) continue;
+                        var e = map.edges[p.edge];
+                        var mq = CnXZ((p.a + p.b) * 0.5f);
+                        float bd = float.MaxValue; Vector2 foot = mq;
+                        for (int j = 0; j + 1 < e.pts.Length; j++) { float dd = CnSegDist(mq, e.pts[j], e.pts[j + 1], out float tt); if (dd < bd) { bd = dd; foot = Vector2.Lerp(e.pts[j], e.pts[j + 1], tt); } }
+                        var ow = (mq - foot).sqrMagnitude > 1e-6f ? (mq - foot).normalized : Vector2.zero;
+                        bool drop = CityMeshes.ConcreteNoReasonProbe(map, trims, p.edge, p.side, p.a, p.b, ow);
+                        float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        r6.TryGetValue(p.rule, out var v);
+                        if (drop) { v.drop += len; v.nd++; } else { v.keep += len; v.nk++; }
+                        r6[p.rule] = v;
+                    }
+                    sb.AppendLine($"==== class b ({(two ? "AFTER" : "as built")}): rule 6 (no reason) on each Jersey, by rule: metres it leaves out (pieces) / metres it keeps (pieces)");
+                    foreach (var kv in r6) sb.AppendLine(string.Format(inv, "{0}\t{1:0} m ({2})\t/ {3:0} m ({4})", kv.Key, kv.Value.drop, kv.Value.nd, kv.Value.keep, kv.Value.nk));
                 }
 
                 // ---- clusters (200 m cells) of the BEFORE strays; the pieces file

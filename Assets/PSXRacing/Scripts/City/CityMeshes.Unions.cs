@@ -1030,7 +1030,7 @@ namespace PSXRacing.City
             twinEndsOf.Clear();
             foreach (var X in map.edges)
             {
-                if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || string.IsNullOrEmpty(X.name)) continue;
+                if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || (string.IsNullOrEmpty(X.name) && !ConTwinNamesOn)) continue;   // (concrete round 2: an unnamed carriageway pairs too)
                 if (!ConcreteMedian(X)) continue;   // (dividers) a cable or open median is grass, not a flush strip
                 float lo = t.patch[X.a] ? t.atA[X.index] + UnionFanSetbackM : 0f;
                 float hi = t.patch[X.b] ? X.length - t.atB[X.index] - UnionFanSetbackM : X.length;
@@ -1084,7 +1084,7 @@ namespace PSXRacing.City
         public static string TwinWhy { get; private set; } = "";
         public static string GroundTwinWhy(CityMap map, Trims t, CityMap.Edge X, float x)
         {
-            if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || string.IsNullOrEmpty(X.name))
+            if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || (string.IsNullOrEmpty(X.name) && !ConTwinNamesOn))
                 return X.bridge && !TwinBridgesOn ? "an OSM bridge (decks: the twin table's)" : "not a barriered one-way";
             float lo = t.patch[X.a] ? t.atA[X.index] + UnionFanSetbackM : 0f;
             float hi = t.patch[X.b] ? X.length - t.atB[X.index] - UnionFanSetbackM : X.length;
@@ -1118,7 +1118,7 @@ namespace PSXRacing.City
             foreach (int seg in twinSegs)
             {
                 var c = map.edges[seg >> 12];
-                if (c == X || c.a == c.b || !c.oneway || c.link || (c.bridge && !TwinBridgesOn) || c.name != X.name) continue;
+                if (c == X || c.a == c.b || !c.oneway || c.link || (c.bridge && !TwinBridgesOn) || (c.name != X.name && !ConTwinNamesOn)) continue;
                 int si = seg & 0xFFF;
                 if (si + 1 >= c.pts.Length) continue;
                 Vector2 a0 = c.pts[si], dseg = c.pts[si + 1] - a0;
@@ -1127,6 +1127,8 @@ namespace PSXRacing.City
                 float L = Mathf.Sqrt(L2);
                 var dirC = dseg / L;
                 if (Vector2.Dot(tanX, dirC) > -0.5f) continue;
+                // (concrete round 2) a carriageway of another name: only one running within 25 degrees of the other way
+                if (c.name != X.name && Vector2.Dot(tanX, dirC) > -0.9f) continue;
                 float along = Vector2.Dot(p - a0, dirC);
                 // the foot must fall on the segment: within the slack past a
                 // polyline end, half a metre past an inner joint (the outside
@@ -1136,6 +1138,8 @@ namespace PSXRacing.City
                 float tcl = Mathf.Clamp(along, 0f, L);
                 var q = a0 + dirC * tcl;
                 float d = Vector2.Distance(p, q);
+                // (concrete round 2) a carriageway of another name pairs only on X's median side
+                if (c.name != X.name && SideToward(X, x, q) <= 0) continue;
                 if (d < best) { best = d; Y = c; y = c.s[si] + tcl; }
             }
             // the lower index owns the pair's median: Y's own walk lays it
@@ -1154,10 +1158,14 @@ namespace PSXRacing.City
             if (Mathf.Abs(X.YAt(x) - Y.YAt(y)) > UnionSplitDyM) { TwinWhy = $"dy {Mathf.Abs(X.YAt(x) - Y.YAt(y)):0.00} m to e{Y.index}"; return false; }
             var q2 = Y.PointAt(y);
             int sx = SideToward(X, x, q2), sy = SideToward(Y, y, p);
+            // (concrete round 2) ...and only median to median: X on Y's median side too
+            if (Y.name != X.name && (sx <= 0 || sy <= 0)) { TwinWhy = $"other name e{Y.index}, not median to median"; return false; }
             LineModel.Extents(X, x, out float xm, out float xp);
             LineModel.Extents(Y, y, out float ym, out float yp);
             float gap = best - (sx > 0 ? xp : xm) - (sy > 0 ? yp : ym);
-            if (gap > GroundTwinGapMaxM || gap < DeckPairs.SqueezeM) { TwinWhy = $"gap {gap:0.00} m to e{Y.index}"; return false; }
+            if (gap > (ConTwinNamesOn ? ConTwinGapMaxM : GroundTwinGapMaxM) || gap < DeckPairs.SqueezeM) { TwinWhy = $"gap {gap:0.00} m to e{Y.index}"; return false; }
+            // (concrete round 2) a median with lanes in it (the US 74 busway / its 2026 express lanes) keeps a barrier each side: only the walk's own pairs there
+            if (ConTwinNamesOn && (Y.name != X.name || gap > GroundTwinGapMaxM) && (ConTwinKeepTwo(X) || ConTwinKeepTwo(Y))) { TwinWhy = $"a median with lanes in it (e{Y.index})"; return false; }
             // a deck's or an approach's run already there keeps its place
             if (TwinBridgesOn ? CoveredDrawn(map, t, X.index, sx, x) || CoveredDrawn(map, t, Y.index, sy, y) : CoveredOn(t, X.index, sx, x) || CoveredOn(t, Y.index, sy, y))
             { TwinWhy = $"covered (e{Y.index}, gap {gap:0.00})"; twinRefusedCovered = true; return false; }
