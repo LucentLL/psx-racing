@@ -16,11 +16,12 @@ namespace PSXRacing.City
     /// charlotte_city.bytes as section LAN2 and leaves every other section byte
     /// for byte (the graph, its hash and every (edge, s) key stay). CityMap.Parse
     /// applies it: a changed edge's lane count, centre-lane flag and line set,
-    /// and the whole taper list.
+    /// the whole taper list and the split table (a split's offsets follow the lanes).
     ///
     ///   LAN2  u32 version (1) | u32 n | n x { u32 edge; u8 lanes; u8 turn; u8 nF;
     ///         u8 nB; u8 centre; u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 0 }
     ///         | TAPR's layout: the taper records and ribbon offsets for these counts
+    ///         | SPLT's layout: the carriageway splits with their offsets for these counts
     ///
     /// PSX_CITY_LANES2=0: the section is not read - the roads as the tags alone give them.
     /// </summary>

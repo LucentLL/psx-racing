@@ -11,6 +11,7 @@
 //   LAN2  u32 version (1) | u32 n | n x { u32 edge; u8 lanes; u8 turn; u8 nF; u8 nB; u8 centre;
 //         u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 0 }      (16 bytes a row)
 //         | the override export's TAPR section, verbatim
+//         | the override export's SPLT section, verbatim (a split's carriageway offsets follow the lane count)
 //
 //   node tools/city/lanes2.mjs --with <dir of the override export> [--in <charlotte_city.bytes>] [--out <path>] [--dry]
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -89,8 +90,11 @@ rows.forEach((r, k) => {
   head.writeUInt8(ls.nF || 0, o + 6); head.writeUInt8(ls.nB || 0, o + 7); head.writeUInt8(ls.centre || 0, o + 8); head.writeUInt8(ls.flags || 0, o + 9);
   head.writeUInt16LE(ls.turnOnly || 0, o + 10); head.writeUInt8(ls.sub || 0, o + 12); head.writeUInt8(ls.bike || 0, o + 13); head.writeUInt16LE(0, o + 14);
 });
-const lan2 = Buffer.concat([head, tapr]);
-console.log(`LAN2: ${rows.length} edge rows + the taper list (${tapr.length} bytes; shipped TAPR ${bytesOf(base, bs, 'TAPR').length}) = ${lan2.length} bytes`);
+const splt = bytesOf(ovr, os, 'SPLT');
+if (!splt) throw new Error('the override export has no SPLT section');
+if (splt.readUInt32LE(0) !== bytesOf(base, bs, 'SPLT').readUInt32LE(0)) throw new Error('the override export has another number of splits');
+const lan2 = Buffer.concat([head, tapr, splt]);
+console.log(`LAN2: ${rows.length} edge rows + the taper list (${tapr.length} bytes; shipped TAPR ${bytesOf(base, bs, 'TAPR').length}) + the split table (${splt.length} bytes, ${splt.readUInt32LE(0)} splits) = ${lan2.length} bytes`);
 
 function rebuild(buf, secs, extra) {
   const all = secs.map(s => ({ tag: s.tag, data: buf.subarray(s.off, s.off + s.len) }));

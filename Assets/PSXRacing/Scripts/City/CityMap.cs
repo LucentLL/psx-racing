@@ -943,6 +943,7 @@ namespace PSXRacing.City
                 // LANES2: the taper list designed for the changed lane counts stands in LAN2,
                 // after its edge rows, in TAPR's own layout
                 bool taprLan2 = lan2 != null && lan2TaperAt >= 0;
+                long lan2SplitAt = -1;
                 if (taprLan2 || Has("TAPR"))
                 {
                     if (taprLan2) r.BaseStream.Position = lan2TaperAt; else Open("TAPR");
@@ -964,7 +965,7 @@ namespace PSXRacing.City
                         r.ReadSingle(); r.ReadSingle();   // t0, t1: since the WP-10 review the offset holds along the edge
                         if (ei >= 0 && ei < ne) taprOff[ei] = 0.5f * (o0 + o1);
                     }
-                    Close(taprLan2 ? "LAN2" : "TAPR");
+                    if (taprLan2) lan2SplitAt = r.BaseStream.Position; else Close("TAPR");
                 }
                 // TAGN (WP-10): the OSM control nodes (signals, stops, give
                 // ways) resolved on the RAW ways, and where they lie now:
@@ -985,9 +986,10 @@ namespace PSXRacing.City
                     }
                     Close("TAGN");
                 }
-                if (Has("SPLT"))
+                // LANES2: a split's carriageway offsets follow the lane count; LAN2 carries the table after its tapers
+                if (lan2SplitAt >= 0 || Has("SPLT"))
                 {
-                    Open("SPLT");
+                    if (lan2SplitAt >= 0) r.BaseStream.Position = lan2SplitAt; else Open("SPLT");
                     int nsp = r.ReadInt32();
                     map.splt = new LineModel.Split[nsp];
                     for (int i = 0; i < nsp; i++)
@@ -996,7 +998,7 @@ namespace PSXRacing.City
                             node = r.ReadInt32(), u = r.ReadInt32(), a = r.ReadInt32(), b = r.ReadInt32(),
                             offA = r.ReadSingle() * LayoutScale, offB = r.ReadSingle() * LayoutScale, rate = r.ReadSingle(),
                         };
-                    Close("SPLT");
+                    Close(lan2SplitAt >= 0 ? "LAN2" : "SPLT");
                 }
                 // BRST (plan B1): the bridges' OSM outlines, the water spans a
                 // culvert claims (owner Q8), the twin-deck overrides. Layout:
