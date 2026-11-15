@@ -44,14 +44,17 @@ namespace PSXRacing.EditorTools
             log.AppendLine("damageview shots: PSX_VIEW_DAMAGE " + (DamageView.On ? "ON" : "0 (OFF)") + ", tag " + tag);
             void Part(string name, System.Action a)
             {
-                try { a(); log.AppendLine("ok   " + name); }
+                try { a(); log.AppendLine("ok   " + name + "  (cash " + (LifeSimManager.State != null ? LifeSimManager.State.money : -1) + ")"); }
                 catch (System.Exception e) { log.AppendLine("FAIL " + name + ": " + e); Debug.LogError("[DamageView] " + name + " THREW: " + e); }
             }
             try
             {
+                // the same dice in both processes: the same save, the same cash, the same lot
+                UnityEngine.Random.InitState(1999);
                 LifeSimManager.DeleteSave();
                 LifeSimManager.StartNewGame("WRECK", 25, LifeRules.DefaultJobIndex);
                 var st = LifeSimManager.State;
+                log.AppendLine("cash after the new game: " + st.money + " (dice " + UnityEngine.Random.value.ToString("0.0000") + ")");
                 LifeRules.SeedFallbackCar(st);
                 var nsxSpec = CarCatalog.Get("honda_nsx__90");
                 var egSpec = CarCatalog.Get("honda_civic_sir_ii__eg___91");
@@ -70,6 +73,7 @@ namespace PSXRacing.EditorTools
                             & LifeSimSelfTest.DvCrash(st, nsx, 77002, DamageModel.ZSide, -1, 4.4f, (DamageModel.PanelId, 2, DamageModel.ZSide, -1))
                             & LifeSimSelfTest.DvCrash(st, nsx, 77003, DamageModel.ZRoof, 0, 3.2f, (DamageModel.GlassId, 1, DamageModel.ZRoof, 0));
                 LifeSimManager.Save();
+                log.AppendLine("cash after the cars and the wreck: " + st.money);
                 log.AppendLine("the wreck banked: " + banked + "; rows:");
                 foreach (var f in nsx.faults)
                     log.AppendLine("  " + f.id + " stage " + f.stage + " zone " + f.zone1 + " side " + f.hitSide + " hidden " + f.hidden +
