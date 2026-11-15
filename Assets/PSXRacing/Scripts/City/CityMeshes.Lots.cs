@@ -144,7 +144,7 @@ namespace PSXRacing.City
                 float edgeOff = en.side > 0 ? ePlus : eMinus;
                 var side = left * en.side;
                 // the road edge (+ wings) to 2.5 m out, where the verge has met the lot
-                float wing = 1.5f, reach = 2.5f;
+                float wing = LotEntOn ? 0f : 1.5f, reach = 2.5f;   // (lot entrances, second pass: the cut is the throat's width)
                 a = p + side * edgeOff - t * (en.half + wing);
                 b = p + side * edgeOff + t * (en.half + wing);
                 c = p + side * (edgeOff + reach) + t * en.half;

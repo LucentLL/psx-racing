@@ -9,27 +9,42 @@ using PSXRacing.City;
 namespace PSXRacing.EditorTools
 {
     /// <summary>
-    /// THE LOT ENTRANCE PICTURES (lot entrances, 2026-11-15): the same camera
-    /// poses BEFORE (the pass's lots, entrances, corridors, ramps and stall
-    /// cuts hidden: CityMeshes.LotEntSet(false)) and AFTER, the tiles built
-    /// again between. Places: PSX_LOTSHOT_SITES, '|' separated
-    /// "label;edge;s;side" (CityLotDrive's SITES line: a street place and the
-    /// side its lot is on). Poses: "eye" - the driver's eye in the near lane
-    /// 16 m before the entrance, looking at it; "square" - from the far side
-    /// of the street, square on to the entrance; "in" - from over the lot,
-    /// looking back out at the street.
+    /// THE LOT ENTRANCE PICTURES (lot entrances, 2026-11-15; second pass: a
+    /// TRUE before / after, one process each). The poses are fixed street
+    /// places, so the same poses can be shot by a process started with
+    /// PSX_CITY_LOTENT=0 (before) and one without (after).
+    /// Places: PSX_LOTSHOT_SITES, '|' separated
+    ///   "label;edge;s;side"   a street place and the side its lot is on
+    ///   "label;@x,z"          the entrance whose mouth is nearest (after only;
+    ///                         the log's SITES line gives it as edge;s;side)
+    /// Poses (PSX_LOTSHOT_POSES, default all): "owner" - in the roadway, in
+    /// the far lanes, looking ahead-left at the lot as the owner's picture
+    /// does; "eye" - the driver's eye in the near lane 16 m before the
+    /// entrance; "square" - from the far side of the street, square on;
+    /// "in" - from over the lot looking back; "plan" - straight down, 24 m
+    /// across the street's line (orthographic; the log's PLAN line gives the
+    /// frame for the dimensions).
+    /// PSX_LOTSHOT_TAG names the pass ("before" / "after": the file suffix);
+    /// without it the old in-session pair is shot (the pass hidden / shown).
+    /// PSX_LOTSHOT_DIR: the folder under Screenshots (default "lots");
+    /// PSX_LOTSHOT_KEEP=1: the folder's other frames are kept.
     ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunLots
-    /// Output: Screenshots/lots/&lt;n&gt;_&lt;pose&gt;_&lt;before|after&gt;.png, lots_log.txt.
     /// </summary>
     public static partial class CityRefSpots
     {
         public static void RunLots()
         {
             var I = CultureInfo.InvariantCulture;
-            var log = new StringBuilder("LOT ENTRANCE SHOTS " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + "\n");
-            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "lots");
+            string tag = System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_TAG");
+            string sub = System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_DIR");
+            if (string.IsNullOrEmpty(sub)) sub = "lots";
+            var log = new StringBuilder("LOT ENTRANCE SHOTS " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " tag " + tag + ", lot entrances " + (CityMeshes.LotEntOn ? "ON" : "OFF") + "\n");
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", sub);
             Directory.CreateDirectory(dir);
-            foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
+            if (System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_KEEP") != "1")
+                foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
+            string posesEnv = System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_POSES");
+            var want = new HashSet<string>((string.IsNullOrEmpty(posesEnv) ? "owner,eye,square,in,plan" : posesEnv).Split(','));
             int code = 0, shots = 0;
             try
             {
@@ -46,17 +61,15 @@ namespace PSXRacing.EditorTools
                 string env = System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_SITES");
                 if (string.IsNullOrEmpty(env)) throw new System.Exception("PSX_LOTSHOT_SITES not set");
                 int n = 0;
-                var flick = new StringBuilder();
+                var flick = new StringBuilder(); var sites = new StringBuilder();
                 foreach (var spec in env.Split('|'))
                 {
                     var f = spec.Split(';');
                     if (f.Length >= 2 && f[1].StartsWith("@"))
                     {
-                        // by place: "label;@x,z" - the entrance whose mouth is nearest
                         var c = f[1].Substring(1).Split(',');
-                        CityMeshes.LotEntSet(map, true);
                         int en = CityMeshes.LotEntranceNear(map, new Vector2(float.Parse(c[0], I), float.Parse(c[1], I)), out _);
-                        if (en < 0) continue;
+                        if (en < 0) { log.Append($"{n}\t{f[0]}\tno entrance near\n"); n++; continue; }
                         var E = map.lotEntrances[en];
                         f = new[] { f[0], E.edge.ToString(I), E.s.ToString("0.0", I), ((int)E.side).ToString(I) };
                     }
@@ -64,14 +77,14 @@ namespace PSXRacing.EditorTools
                     var e = map.edges[int.Parse(f[1], I)];
                     float s = Mathf.Clamp(float.Parse(f[2], I), 0f, e.length);
                     int side = int.Parse(f[3], I);
+                    sites.Append(sites.Length > 0 ? "|" : "").Append(f[0]).Append(';').Append(e.index).Append(';').Append(s.ToString("0.0", I)).Append(';').Append(side);
                     var p = e.PointAt(s); var t = e.TangentAt(s);
                     var left = LineModel.SectionLeft(e, s);
                     LineModel.Extents(e, s, out float eMinus, out float ePlus);
                     var nrm = left * side;
                     var mouth = p + nrm * (side > 0 ? ePlus : eMinus);
                     float y = e.YAt(s);
-                    // the lot's asphalt along the line (as the pass has it)
-                    CityMeshes.LotEntSet(map, true);
+                    // the lot's asphalt along the line (any lot's own: not a corridor's)
                     float gap = 3f;
                     for (float d = 0f; d <= 62f; d += 0.25f)
                     {
@@ -81,25 +94,35 @@ namespace PSXRacing.EditorTools
                     // right-hand traffic: the lane beside this edge runs with the lot on its right
                     var fwd2 = t * -side;
                     Vector3 M = new Vector3(mouth.x, y, mouth.y), N = new Vector3(nrm.x, 0f, nrm.y), F = new Vector3(fwd2.x, 0f, fwd2.y);
-                    var poses = new List<(string name, Vector3 eye, Quaternion r)>();
+                    float roadW = eMinus + ePlus;
+                    var poses = new List<(string name, Vector3 eye, Quaternion r, bool ortho)>();
+                    // the owner's: in the far lanes, heading the other way, looking ahead-left across the street at the lot
+                    Vector3 ow = M - N * Mathf.Min(roadW - 1.6f, 6.2f) + F * 8f + Vector3.up * 1.25f;
+                    poses.Add(("owner", ow, Quaternion.LookRotation(M + N * (gap * 0.4f + 5f) - F * 2f + Vector3.up * 0.4f - ow), false));
                     Vector3 eye = M - N * 1.8f - F * 16f + Vector3.up * 1.15f;
-                    poses.Add(("eye", eye, Quaternion.LookRotation(M + N * (gap * 0.5f + 1.5f) + Vector3.up * 0.2f - eye)));
-                    Vector3 sq = M - N * Mathf.Min(e.width - 0.8f, 9f) + Vector3.up * 1.5f - F * 2.5f;
-                    poses.Add(("square", sq, Quaternion.LookRotation(M + N * (gap + 2f) - sq)));
+                    poses.Add(("eye", eye, Quaternion.LookRotation(M + N * (gap * 0.5f + 1.5f) + Vector3.up * 0.2f - eye), false));
+                    Vector3 sq = M - N * Mathf.Min(roadW - 0.8f, 9f) + Vector3.up * 1.5f - F * 2.5f;
+                    poses.Add(("square", sq, Quaternion.LookRotation(M + N * (gap + 2f) - sq), false));
                     Vector3 inl = M + N * (gap + 9f) + F * 3f + Vector3.up * 2.6f;
-                    poses.Add(("in", inl, Quaternion.LookRotation(M + N * (gap * 0.3f) - inl)));
+                    poses.Add(("in", inl, Quaternion.LookRotation(M + N * (gap * 0.3f) - inl), false));
+                    // the plan: straight down, the lot at the top, 24 m across the street's line
+                    Vector3 pc = M + N * 4f;
+                    poses.Add(("plan", pc + Vector3.up * 80f, Quaternion.LookRotation(Vector3.down, N), true));
+                    float planHalf = 6.75f;   // metres up and down the picture (13.5 m tall, 24 m wide at 16:9)
                     log.Append(string.Format(I, "{0}\t{1}\te{2} '{3}' cls {4} s {5:0} side {6} walk {7}; mouth ({8:0.0}, {9:0.0}); the lot's asphalt {10:0.0} m from the pavement\n",
                         n, f[0], e.index, e.name, e.cls, s, side, CityMeshes.WalkSide(map, e, side), mouth.x, mouth.y, gap));
+                    log.Append(string.Format(I, "PLAN\t{0}\t{1:0.000}\t{2:0.000}\t{3:0.0000}\t{4:0.0000}\t{5:0.000}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9}\t{10:0.00}\n",
+                        n, pc.x, pc.z, N.x, N.z, planHalf, gap, CityMeshes.LotEntThroatHalf, CityMeshes.LotEntTaperM, CityMeshes.WalkSide(map, e, side) ? 1 : 0, roadW));
                     {
-                        // the same view for the flicker finder (PSX_FLICK_EXTRA): the eye's place, looking at the entrance
                         var fa = M - N * 1.8f - F * 12f; var fd = (F * 12f + N * (1.8f + gap * 0.5f + 2f)).normalized;
                         flick.Append(flick.Length > 0 ? "|" : "").Append(string.Format(I, "lot{0};{1:0.0};{2:0.0};{3:0.000};{4:0.000}", n, fa.x, fa.z, fd.x, fd.z));
                     }
                     var pos = M - N * 1.8f - F * 60f + Vector3.up * 0.35f;
                     var rot = Quaternion.LookRotation(F, Vector3.up);
-                    foreach (var mode in new[] { "after", "before" })
+                    var modes = string.IsNullOrEmpty(tag) ? new[] { "after", "before" } : new[] { tag };
+                    foreach (var mode in modes)
                     {
-                        CityMeshes.LotEntSet(map, mode == "after");
+                        if (string.IsNullOrEmpty(tag)) CityMeshes.LotEntSet(map, mode == "after");
                         world.DropAll();
                         world.EnsureRing(M, 1);
                         if (car != null) car.TeleportTo(pos, rot); else player.transform.SetPositionAndRotation(pos, rot);
@@ -113,14 +136,19 @@ namespace PSXRacing.EditorTools
                         PSXTexDecode.StampAll();
                         foreach (var ps in poses)
                         {
+                            if (!want.Contains(ps.name)) continue;
+                            bool wasOrtho = cam.orthographic; float wasSize = cam.orthographicSize;
+                            if (ps.ortho) { cam.orthographic = true; cam.orthographicSize = planHalf; }
                             CarLights.PushGlobals();
-                            PSXScreenshotTool.ShotAs(cam, $"lots/{n}_{ps.name}_{mode}", ps.eye, ps.r);
+                            PSXScreenshotTool.ShotAs(cam, $"{sub}/{n}_{ps.name}_{mode}", ps.eye, ps.r);
+                            if (ps.ortho) { cam.orthographic = wasOrtho; cam.orthographicSize = wasSize; }
                             shots++;
                         }
                     }
                     n++;
                 }
-                CityMeshes.LotEntSet(map, true);
+                if (string.IsNullOrEmpty(tag)) CityMeshes.LotEntSet(map, true);
+                log.Append("SITES " + sites + "\n");
                 log.Append("FLICK " + flick + "\n");
                 log.Append($"{shots} frames to {dir}\nLOT ENTRANCE SHOTS OK\n");
             }
@@ -128,7 +156,7 @@ namespace PSXRacing.EditorTools
             finally
             {
                 RaceHandoff.WeatherOverride = -1;
-                File.WriteAllText(Path.Combine(dir, "lots_log.txt"), log.ToString());
+                File.WriteAllText(Path.Combine(dir, "lots_log" + (string.IsNullOrEmpty(tag) ? "" : "_" + tag) + ".txt"), log.ToString());
                 Debug.Log("[LotShots]\n" + log);
             }
             if (Application.isBatchMode) EditorApplication.Exit(code);

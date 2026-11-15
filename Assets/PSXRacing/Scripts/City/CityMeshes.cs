@@ -9208,8 +9208,10 @@ namespace PSXRacing.City
             var cen = (profPrev[1] + profPrev[2] + prof[1] + prof[2]) * 0.25f;
             bool paved = stripSurface == 0 ? PavedAt(map, cen.x, cen.z) : stripSurface == 2;
             var bk = GroundBucket(paved);
+            bool leThroat = LotEntThroatBucket(map, cen, ref bk);   // (lot entrances) a lot entrance's throat is the lot's asphalt
             if (bk != prevBk) { prevBase = AddProfile(bk, profPrev, o, paved); prevBk = bk; }
             int curBase = AddProfile(bk, prof, o, paved);
+            if (leThroat) LotEntThroatUV(bk, prevBase, curBase, o);
             // Beside a profile collapsed onto the edge (the next road's
             // pavement is there) the other profile's toe band fans from that
             // one point down its tuck: where that tuck is vertical (a
@@ -9524,7 +9526,7 @@ namespace PSXRacing.City
             // meets the lattice 0.1 m sooner.
             // (lot entrances, 11-15) behind an entrance's curb cut the strip is the apron's ramp to the lot
             float fillSlope = RoadsideRules.CityFillSlope;
-            if (!sh.flat) LotEntRamp(map, s0, outw, y0, run, ref shoulder, ref fillSlope);
+            if (!sh.flat) LotEntRamp(map, s0, outw, y0, run, ref shoulder, ref crossFall, ref fillSlope);
             float Yv(float e) => sh.flat ? y0
                 : y0 - crossFall * Mathf.Min(e, shoulder)
                      - fillSlope * Mathf.Max(0f, e - shoulder);
