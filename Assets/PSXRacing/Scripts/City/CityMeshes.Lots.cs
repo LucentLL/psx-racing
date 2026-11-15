@@ -94,6 +94,7 @@ namespace PSXRacing.City
             }
             for (int i = 0; i < nl; i++)
             {
+                if (LotEntHiddenLot(map, i)) continue;   // (lot entrances) a tool's "before"
                 var b = map.lots[i].box;
                 for (int tx = Mathf.FloorToInt(b.x / TileSize); tx <= Mathf.FloorToInt(b.z / TileSize); tx++)
                     for (int tz = Mathf.FloorToInt(b.y / TileSize); tz <= Mathf.FloorToInt(b.w / TileSize); tz++)
@@ -122,9 +123,17 @@ namespace PSXRacing.City
                 }
             // the aprons
             int na = map.lotEntrances != null ? map.lotEntrances.Length : 0;
-            apronQuads = new Vector2[na][];
-            for (int i = 0; i < na; i++)
+            // (lot entrances, 11-15) after the data's aprons: the corridors and throats of the
+            // repaired and derived entrances (CityMeshes.LotEntrances) - ApronAt's and the walk backing's too
+            int nx = LotEntOn && lotEntMapFor == map ? lotEntQuads.Count : 0;
+            apronQuads = new Vector2[na + nx][];
+            for (int i = 0; i < na + nx; i++)
             {
+                Vector2 a, b, c, d;
+                if (i >= na) { var Q = lotEntQuads[i - na]; a = Q[0]; b = Q[1]; c = Q[2]; d = Q[3]; }
+                else if (LotEntHiddenEntrance(map, i)) { apronQuads[i] = new[] { Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero }; continue; }
+                else
+                {
                 var en = map.lotEntrances[i];
                 var e = map.edges[en.edge];
                 float s = Mathf.Clamp(en.s, 0f, e.length);
@@ -136,10 +145,11 @@ namespace PSXRacing.City
                 var side = left * en.side;
                 // the road edge (+ wings) to 2.5 m out, where the verge has met the lot
                 float wing = 1.5f, reach = 2.5f;
-                var a = p + side * edgeOff - t * (en.half + wing);
-                var b = p + side * edgeOff + t * (en.half + wing);
-                var c = p + side * (edgeOff + reach) + t * en.half;
-                var d = p + side * (edgeOff + reach) - t * en.half;
+                a = p + side * edgeOff - t * (en.half + wing);
+                b = p + side * edgeOff + t * (en.half + wing);
+                c = p + side * (edgeOff + reach) + t * en.half;
+                d = p + side * (edgeOff + reach) - t * en.half;
+                }
                 apronQuads[i] = new[] { a, b, c, d };
                 float x0 = Mathf.Min(Mathf.Min(a.x, b.x), Mathf.Min(c.x, d.x)), x1 = Mathf.Max(Mathf.Max(a.x, b.x), Mathf.Max(c.x, d.x));
                 float z0 = Mathf.Min(Mathf.Min(a.y, b.y), Mathf.Min(c.y, d.y)), z1 = Mathf.Max(Mathf.Max(a.y, b.y), Mathf.Max(c.y, d.y));

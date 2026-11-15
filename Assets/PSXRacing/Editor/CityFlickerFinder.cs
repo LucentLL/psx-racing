@@ -291,6 +291,27 @@ namespace PSXRacing.EditorTools
             StreetSpot(map, spots, "West Trade Street", "wtrade0", new Vector2(-2946f, 5406f));
             StreetSpot(map, spots, "West Trade Street", "wtrade1", new Vector2(-3005f, 5459f));
             StreetSpot(map, spots, "West Trade Street", "wtrade2", new Vector2(-3079f, 5525f));
+            // (lot entrances, 11-15) extra spots, by place: PSX_FLICK_EXTRA "name;x;z;dx;dz|..." (the eye at
+            // the place - and 150 and 400 m straight back from it - looking along dx,dz)
+            foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_FLICK_EXTRA") ?? "").Split('|'))
+            {
+                var f = spec.Split(';');
+                if (f.Length < 5) continue;
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                var at = new Vector2(float.Parse(f[1], inv), float.Parse(f[2], inv));
+                var dir = new Vector2(float.Parse(f[3], inv), float.Parse(f[4], inv)).normalized;
+                var near = new HashSet<int>();
+                map.EdgeSegsInRect(at - Vector2.one * 40f, at + Vector2.one * 40f, near);
+                float bd = float.MaxValue, y = 0f;
+                foreach (int pk in near)
+                {
+                    var e = map.edges[pk >> 12];
+                    CityElevation.ProjectOn(e, at, out float sp);
+                    float d = Vector2.Distance(e.PointAt(sp), at);
+                    if (d < bd) { bd = d; y = e.YAt(sp); }
+                }
+                spots.Add(new Spot { name = f[0], at = at, dir = dir, y = y });
+            }
             return spots;
         }
 
