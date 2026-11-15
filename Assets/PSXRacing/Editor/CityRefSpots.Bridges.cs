@@ -94,6 +94,7 @@ namespace PSXRacing.EditorTools
                 string specFile = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_SPOTS_FILE");
                 if (!string.IsNullOrEmpty(specFile) && File.Exists(specFile)) spec += ";" + File.ReadAllText(specFile).Replace("\r", "").Replace("\n", ";");
                 bool concSwitch = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_SWITCH") == "concrete";
+                bool plateWas = CityMeshes.ConcretePlateOn;   // (mode "plate": the gate with its plate rule on)
                 string modesS = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_MODES");
                 if (string.IsNullOrWhiteSpace(modesS)) modesS = "after,before";
                 var modes = modesS.Split(',');
@@ -220,7 +221,7 @@ namespace PSXRacing.EditorTools
                     if (poses.Count == 0) continue;
                     foreach (var mode in modes)
                     {
-                        if (concSwitch) CityMeshes.ConcreteOn = mode.Trim() != "before";
+                        if (concSwitch) { CityMeshes.ConcreteOn = mode.Trim() != "before"; CityMeshes.ConcretePlateOn = mode.Trim() == "plate" || (plateWas && mode.Trim() != "before"); }
                         else CityMeshes.Bridge2On = mode.Trim() != "before";
                         CityMeshes.Bridge2Changed();
                         world.DropAll();
@@ -243,7 +244,7 @@ namespace PSXRacing.EditorTools
                         }
                     }
                 }
-                CityMeshes.Bridge2On = true; CityMeshes.ConcreteOn = true; CityMeshes.Bridge2Changed();
+                CityMeshes.Bridge2On = true; CityMeshes.ConcreteOn = true; CityMeshes.ConcretePlateOn = plateWas; CityMeshes.Bridge2Changed();
                 log.Append($"{shots} frames to {dir}\nBRIDGES ROUND 2 SHOTS OK\n");
             }
             catch (System.Exception ex) { log.Append("BRIDGES ROUND 2 SHOTS FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }

@@ -28,20 +28,29 @@ namespace PSXRacing.City
     ///      left too short to be real goes. The one piece that belongs between
     ///      two pavements is a median barrier dividing OPPOSING traffic of a
     ///      divided road (not ramps): that stays.
-    ///   2. HEIGHT BY KIND (PSX_CITY_CONC_SIZE=0 off): no piece stands taller
-    ///      than its kind (a median barrier 0.81 m, a parapet 0.95 m).
-    /// Decided from the map alone (the ribbons as drawn and the fans, whole
-    /// map), so every tile draws the same. PSX_CITY_CONCRETE=0: the gate lets
-    /// everything through as asked (the picture as it was).
+    ///   3. THE PLATE (PSX_CITY_CONC_PLATE=1; OFF by default, see ConcretePlateOn):
+    ///      an opening the pavement of a structure closes round counts as plate.
+    ///   4. NO ORPHAN (PSX_CITY_CONC_ORPHAN=0 off): a run under 30 m that guards
+    ///      nothing is not built (see ConcreteOrphanOn).
+    ///   5. AN END IS A REAL END (PSX_CITY_CONC_ENDS=0 off): a barrier's free
+    ///      square end is turned down (see ConcreteEndsOn).
+    /// (There is no rule 2: the inventory found no piece taller or thicker
+    /// than its kind - a barrier 0.81 m, a parapet 0.95 m - city-wide.)
+    /// Rule 1 is decided from the map alone (the ribbons as drawn and the fans,
+    /// whole map), so every tile draws the same; rules 4 and 5 look at the run
+    /// as the tile holds it and leave alone any run that reaches within 10 m of
+    /// the tile's border (the next tile may hold more of it). PROTECTION IS
+    /// NEVER TAKEN: a piece on structure, with a fall beside it or holding land
+    /// is clipped only where pavement lies past both its faces, and is never
+    /// dropped or lowered. PSX_CITY_CONCRETE=0: the gate lets everything
+    /// through as asked (the picture as it was).
     /// </summary>
     public static partial class CityMeshes
     {
         /// <summary>PSX_CITY_CONCRETE=0: every piece is built as asked (the A/B).</summary>
         public static bool ConcreteOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CONCRETE") != "0";
         static readonly bool conPaveOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_PAVE") == "0";
-        static readonly bool conSizeOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_SIZE") == "0";
         public static bool ConcretePaveOn => ConcreteOn && !conPaveOff;
-        public static bool ConcreteSizeOn => ConcreteOn && !conSizeOff;
 
         public enum ConKind : byte { Jersey = 0, Rail = 1, UnionJersey = 2, UnionLeg = 3, InsetJersey = 4, RetainFace = 5, Headwall = 6, WBeam = 7, Unknown = 8 }
 
@@ -410,7 +419,13 @@ namespace PSXRacing.City
                 conPend = conTile.Count;
                 int logAt = concreteLog != null ? concreteLog.Count - 1 - Mathf.Max(parts, 0) : -1;
                 Vector3 wa = a + conOrigin, wb = b + conOrigin;
-                if (parts < 0) conTile.Add(new ConRec { kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev, log = logAt, v0 = -1 });
+                bool args = conArgSet && kind == ConKind.Jersey;
+                if (parts < 0)
+                    conTile.Add(new ConRec
+                    {
+                        kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev, log = logAt, v0 = -1,
+                        args = args, ea = conArgA, eb = conArgB, outw = conArgOut, u0 = conArgV0, u1 = conArgV1, capA = capA, capB = capB,
+                    });
                 else
                     for (int k = 0; k < parts; k++)
                     {
@@ -420,9 +435,13 @@ namespace PSXRacing.City
                             kind = kind, a = Vector3.Lerp(wa, wb, r.t0), b = Vector3.Lerp(wa, wb, r.t1),
                             hA = ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), hB = ConH(Mathf.Lerp(hA, hB, r.t1), r.k1), elev = conElev,
                             log = logAt < 0 ? -1 : logAt + 1 + k, v0 = -1,
+                            args = args, ea = Vector3.Lerp(conArgA, conArgB, r.t0), eb = Vector3.Lerp(conArgA, conArgB, r.t1), outw = conArgOut,
+                            u0 = Mathf.Lerp(conArgV0, conArgV1, r.t0), u1 = Mathf.Lerp(conArgV0, conArgV1, r.t1),
+                            capA = r.t0 <= 0f ? capA : r.cut0, capB = r.t1 >= 1f ? capB : r.cut1,
                         });
                     }
             }
+            conArgSet = false;
             return parts;
         }
 
@@ -439,7 +458,48 @@ namespace PSXRacing.City
         /// </summary>
         static readonly bool conOrphanOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_ORPHAN") == "0";
         public static bool ConcreteOrphanOn => ConcreteOn && !conOrphanOff;
-        static bool ConRunRulesOn => ConcreteOrphanOn;
+        /// <summary>
+        /// 5. AN END IS A REAL END (PSX_CITY_CONC_ENDS=0 off). A barrier's free end - tied to no
+        /// other piece, a W-beam or the cable - standing over ConEndSquareM is turned down to the
+        /// foot height along its last piece (as the 2026-10-03 rule turns a median run's planned
+        /// ends down: this takes the ends no plan knew of - a run cut by a gore gap, a skipped
+        /// span, a node). Barriers only (EmitBarrier's pieces: a median Jersey, a cut wall, a
+        /// carried median, a fan chord's Jersey) and only where the piece guards nothing: a
+        /// parapet keeps its height to its end (it guards a fall), a wall holding land keeps it.
+        /// </summary>
+        static readonly bool conEndsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_ENDS") == "0";
+        public static bool ConcreteEndsOn => ConcreteOn && !conEndsOff;
+        const float ConEndSquareM = 0.3f;
+        /// <summary>The last tile build: free square barrier ends turned down.</summary>
+        public static int conEndsTurned;
+        static bool conArgSet; static Vector3 conArgA, conArgB; static Vector2 conArgOut; static float conArgV0, conArgV1;
+        static byte[] conTied = new byte[0];
+        static readonly List<(int i, float hA, float hB)> conRedo = new List<(int, float, float)>(8);
+        static bool ConRunRulesOn => ConcreteOrphanOn || ConcreteEndsOn;
+
+        /// <summary>Does another piece of the tile stand within 12 m ahead of an end, in its line?</summary>
+        static bool ConBarrierAhead(int self, Vector3 end, Vector3 dir3)
+        {
+            var d = new Vector2(dir3.x, dir3.z);
+            if (d.sqrMagnitude < 1e-6f) return false;
+            d.Normalize();
+            var e2 = new Vector2(end.x, end.z);
+            for (float s = 1f; s <= 12f; s += 1f)
+            {
+                var q = e2 + d * s;
+                if (!conGrid.TryGetValue(((long)Mathf.FloorToInt(q.x / 8f) << 32) ^ (uint)Mathf.FloorToInt(q.y / 8f), out var l)) continue;
+                foreach (int j in l)
+                {
+                    if (j == self) continue;
+                    var p = conTile[j];
+                    Vector2 pa = new Vector2(p.a.x, p.a.z), pd = new Vector2(p.b.x - p.a.x, p.b.z - p.a.z);
+                    float L2 = pd.sqrMagnitude;
+                    float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - pa, pd) / L2) : 0f;
+                    if (Vector2.Distance(q, pa + pd * t) <= ConTieM && Mathf.Abs(Mathf.Lerp(p.a.y, p.b.y, t) - end.y) <= 1.5f) return true;
+                }
+            }
+            return false;
+        }
         const float ConTieM = 0.75f, ConTieYM = 0.8f, ConOrphanM = MinMedianRunM, ConBorderM = 10f;
         /// <summary>The last tile build: pieces and metres the orphan rule left out.</summary>
         public static int conOrphans; public static float conOrphanM;
@@ -449,6 +509,8 @@ namespace PSXRacing.City
             public ConKind kind; public Vector3 a, b; public float hA, hB; public bool elev, gone;
             /// <summary>Its vertices and triangle indices in the barrier bucket (v0 -1: none, a tie only), its entry in the log.</summary>
             public int v0, v1, t0, t1, log;
+            /// <summary>A barrier's own arguments (EmitBarrierCore), should the end rule build it again.</summary>
+            public bool args, capA, capB; public Vector3 ea, eb; public Vector2 outw; public float u0, u1;
         }
         static readonly List<ConRec> conTile = new List<ConRec>(512);
         static int conPend, conMv, conMt;
@@ -492,17 +554,17 @@ namespace PSXRacing.City
 
         static void ConRunRules()
         {
-            conOrphans = 0; conOrphanM = 0f;
+            conOrphans = 0; conOrphanM = 0f; conEndsTurned = 0;
             int n = conTile.Count;
             if (n == 0 || conMap == null) return;
-            if (conPar.Length < n) { conPar = new int[n * 2]; conRunM = new float[n * 2]; conRunFlag = new byte[n * 2]; }
+            if (conPar.Length < n) { conPar = new int[n * 2]; conRunM = new float[n * 2]; conRunFlag = new byte[n * 2]; conTied = new byte[n * 2]; }
             foreach (var l in conGrid.Values) { l.Clear(); conGridPool.Push(l); }
             conGrid.Clear();
             const float Cell = 8f;
             float T = TileSize, x0 = conTx * T, z0 = conTz * T;
             for (int i = 0; i < n; i++)
             {
-                conPar[i] = i; conRunM[i] = 0f; conRunFlag[i] = 0;
+                conPar[i] = i; conRunM[i] = 0f; conRunFlag[i] = 0; conTied[i] = 0;
                 var r = conTile[i];
                 int cx0 = Mathf.FloorToInt((Mathf.Min(r.a.x, r.b.x) - ConTieM) / Cell), cx1 = Mathf.FloorToInt((Mathf.Max(r.a.x, r.b.x) + ConTieM) / Cell);
                 int cz0 = Mathf.FloorToInt((Mathf.Min(r.a.z, r.b.z) - ConTieM) / Cell), cz1 = Mathf.FloorToInt((Mathf.Max(r.a.z, r.b.z) + ConTieM) / Cell);
@@ -523,7 +585,7 @@ namespace PSXRacing.City
                 {
                     var e3 = end == 0 ? r.a : r.b;
                     // an end near the tile's border: its run may carry on where this tile cannot see
-                    if (e3.x - x0 < ConBorderM || x0 + T - e3.x < ConBorderM || e3.z - z0 < ConBorderM || z0 + T - e3.z < ConBorderM) conRunFlag[i] |= 1;
+                    if (e3.x - x0 < ConBorderM || x0 + T - e3.x < ConBorderM || e3.z - z0 < ConBorderM || z0 + T - e3.z < ConBorderM) { conRunFlag[i] |= 1; conTied[i] |= (byte)(1 << end); }
                     if (!conGrid.TryGetValue(((long)Mathf.FloorToInt(e3.x / Cell) << 32) ^ (uint)Mathf.FloorToInt(e3.z / Cell), out var l)) continue;
                     var e2 = new Vector2(e3.x, e3.z);
                     foreach (int j in l)
@@ -536,6 +598,7 @@ namespace PSXRacing.City
                         if (Vector2.Distance(e2, qa + qd * t) > ConTieM || Mathf.Abs(Mathf.Lerp(q.a.y, q.b.y, t) - e3.y) > ConTieYM) continue;
                         int ri = ConRoot(i), rj = ConRoot(j);
                         if (ri != rj) conPar[ri] = rj;
+                        conTied[i] |= (byte)(1 << end);
                     }
                 }
             }
@@ -554,11 +617,24 @@ namespace PSXRacing.City
                 if (ConGuards(conTile[i])) conRunFlag[root] |= 2;
             }
             bool any = false;
+            conRedo.Clear();
             for (int i = 0; i < n; i++)
             {
                 int root = ConRoot(i);
                 var r = conTile[i];
-                if (conRunM[root] >= ConOrphanM || (conRunFlag[root] & 3) != 0 || r.v0 < 0 || r.v1 <= r.v0) continue;
+                if (!ConcreteOrphanOn || conRunM[root] >= ConOrphanM || (conRunFlag[root] & 3) != 0 || r.v0 < 0 || r.v1 <= r.v0)
+                {
+                    // rule 5: a barrier's free square end, turned down along this piece
+                    if (!ConcreteEndsOn || !r.args || r.v0 < 0 || r.v1 <= r.v0 || conTied[i] == 3) continue;
+                    bool freeA = (conTied[i] & 1) == 0 && r.hA > ConEndSquareM, freeB = (conTied[i] & 2) == 0 && r.hB > ConEndSquareM;
+                    // (not an end with more barrier ahead in its line: turned down, the two ends of a gap are a dip)
+                    if (freeA && ConBarrierAhead(i, r.a, r.a - r.b)) freeA = false;
+                    if (freeB && ConBarrierAhead(i, r.b, r.b - r.a)) freeB = false;
+                    if ((!freeA && !freeB) || ConGuards(r)) continue;
+                    conRedo.Add((i, freeA ? Mathf.Min(r.hA, TaperFootM) : r.hA, freeB ? Mathf.Min(r.hB, TaperFootM) : r.hB));
+                    r.gone = true; conTile[i] = r; any = true;
+                    continue;
+                }
                 r.gone = true; conTile[i] = r; any = true;
                 conOrphans++; conOrphanM += Vector2.Distance(new Vector2(r.a.x, r.a.z), new Vector2(r.b.x, r.b.z));
                 if (concreteLog != null && r.log >= 0)
@@ -569,7 +645,16 @@ namespace PSXRacing.City
                 }
             }
             if (any) ConRemoveGone();
-            conChanged += conOrphans;
+            foreach (var (i, hA, hB) in conRedo)
+            {
+                var r = conTile[i];
+                int v = barrierBucket.v.Count;
+                EmitBarrierCore(r.ea, r.eb, r.outw, r.u0, r.u1, r.capA, r.capB, hA, hB);
+                conCovered += barrierBucket.v.Count - v;
+                conEndsTurned++;
+                if (concreteLog != null && r.log >= 0) { var e = concreteLog[r.log]; e.hA = hA; e.hB = hB; concreteLog[r.log] = e; }
+            }
+            conChanged += conOrphans + conEndsTurned;
         }
 
         static readonly List<Vector3> conKeepV = new List<Vector3>(4096);
@@ -635,14 +720,6 @@ namespace PSXRacing.City
                     sb.Append(string.Format(inv, "F\t{0}\t{1}\t{2:0.00}\t{3:0.00}\t{4:0.00}\t{5:0.00}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9:0.00}\t{10:0.00}\n",
                         nf, i / 3, T[i].x, T[i].y, T[i].z, T[i + 1].x, T[i + 1].y, T[i + 1].z, T[i + 2].x, T[i + 2].y, T[i + 2].z));
             }
-        }
-
-        /// <summary>HEIGHT BY KIND: the most a piece of a kind stands over its line.</summary>
-        static float ConCap(ConKind kind, float h)
-        {
-            if (!ConcreteSizeOn) return h;
-            float cap = kind == ConKind.Rail ? RailH : BarrierH;
-            return Mathf.Min(h, cap);
         }
     }
 }

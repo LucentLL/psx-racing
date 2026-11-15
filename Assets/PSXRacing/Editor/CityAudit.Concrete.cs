@@ -453,7 +453,7 @@ namespace PSXRacing.EditorTools
                 var built = new HashSet<long>();
                 var tileRows = new StringBuilder("tx\tz\tms\tground_tris\tground_hash\troads_tris\troads_hash\tkerbs_tris\tkerbs_hash\tbarriers_tris\tbarriers_hash\tstructure_tris\tstructure_hash\tguardrails_tris\tguardrails_hash\tasked\tchanged\tpave_cut_m\tunknown_verts\n");
                 double buildMs = 0; int unknownTiles = 0; long barrierTris = 0;
-                int orphanN = 0; float orphanM = 0f, paveCutM = 0f;
+                int orphanN = 0, endsN = 0; float orphanM = 0f, paveCutM = 0f;
                 int changedTiles = 0, logMark = 0; var diff = new int[6]; long triOff = 0, triOnChanged = 0; double offMs = 0, onMs = 0;
                 foreach (long k in order)
                 {
@@ -470,7 +470,7 @@ namespace PSXRacing.EditorTools
                         string Cell(Mesh m) => m == null ? "0\t0" : $"{m.triangles.Length / 3}\t{BrMeshHash(m):x16}";
                         tileRows.Append($"{tx}\t{tz}\t{ms:0}\t{Cell(tm.ground)}\t{Cell(tm.roads)}\t{Cell(tm.kerbs)}\t{Cell(tm.barriers)}\t{Cell(CityMeshes.StructureMeshOf(tm))}\t{Cell(tm.guardrails)}\t{CityMeshes.conAsked}\t{CityMeshes.conChanged}\t{CityMeshes.conPaveCutM.ToString("0.0", inv)}\t{CityMeshes.concreteUnknownVerts}\n");
                         if (CityMeshes.concreteUnknownVerts != 0) unknownTiles++;
-                        orphanN += CityMeshes.conOrphans; orphanM += CityMeshes.conOrphanM; paveCutM += CityMeshes.conPaveCutM;
+                        orphanN += CityMeshes.conOrphans; orphanM += CityMeshes.conOrphanM; paveCutM += CityMeshes.conPaveCutM; endsN += CityMeshes.conEndsTurned;
                         if (tm.barriers != null) barrierTris += tm.barriers.triangles.Length / 3;
                         // a tile the gate changed: the same tile as asked (gate off) - which of its meshes differ?
                         // (a tile the gate changed nothing on emits every piece through the same call with the
@@ -518,7 +518,7 @@ namespace PSXRacing.EditorTools
                     File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_plan.tsv"), psb.ToString());
                 }
                 sb.AppendLine($"tiles built: {built.Count} of {order.Count} in {buildMs / 1000:0} s ({buildMs / Mathf.Max(1, built.Count):0} ms a tile); barriers mesh {barrierTris} triangles; tiles with barrier vertices no gate call accounts for: {unknownTiles}");
-                if (CityMeshes.ConcreteOn) sb.AppendLine($"the gate: rule 1 (nothing on pavement) took {paveCutM:0} m off pavement; rule 4 (no orphan, {(CityMeshes.ConcreteOrphanOn ? "on" : "off")}) left out {orphanN} pieces, {orphanM:0} m; rule 3 (the plate) {(CityMeshes.ConcretePlateOn ? "ON" : "off")}");
+                if (CityMeshes.ConcreteOn) sb.AppendLine($"the gate: rule 1 (nothing on pavement) took {paveCutM:0} m off pavement; rule 4 (no orphan, {(CityMeshes.ConcreteOrphanOn ? "on" : "off")}) left out {orphanN} pieces, {orphanM:0} m; rule 5 (an end is a real end, {(CityMeshes.ConcreteEndsOn ? "on" : "off")}) turned {endsN} free square barrier ends down; rule 3 (the plate) {(CityMeshes.ConcretePlateOn ? "ON" : "off")}");
                 if (CityMeshes.ConcreteOn)
                     sb.AppendLine($"tiles the gate changed a piece on: {changedTiles} of {built.Count}; each rebuilt as asked (gate off) and compared mesh by mesh - tiles whose mesh differs: ground {diff[0]}, roads {diff[1]}, kerbs {diff[2]}, barriers {diff[3]}, structure {diff[4]}, guardrails {diff[5]}; barriers triangles on those tiles {triOff} as asked -> {triOnChanged} gated; build time on those tiles (warm pair) {offMs / Mathf.Max(1, changedTiles):0} ms as asked -> {onMs / Mathf.Max(1, changedTiles):0} ms gated");
 

@@ -8717,6 +8717,7 @@ namespace PSXRacing.City
             if (conActive)
             {
                 var off = Flat(outward) * (BarrierW * 0.5f);
+                conArgSet = true; conArgA = a; conArgB = b; conArgOut = outward; conArgV0 = v0; conArgV1 = v1;   // (for the end rule, should it turn this piece's end down)
                 int parts = ConGate(ConKind.Jersey, a + off, b + off, outward, BarrierW * 0.5f, hA, hB, capA, capB);
                 if (parts >= 0)
                 {
