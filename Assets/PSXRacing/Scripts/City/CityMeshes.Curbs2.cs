@@ -463,7 +463,7 @@ namespace PSXRacing.City
         /// </summary>
         static void Cs2CornerPan(Vector3 a, Vector3 b, Vector2 oa, Vector2 ob, float u0, float u1, float cr)
         {
-            if (!Curbs2On || !CornerPanOn || cr > 0.5f || cs2Granite) return;
+            if (!Curbs2On || !CornerPanOn || cr > 0.5f || cs2Granite || cs4CornerNoPan) return;   // (hoods 2) nor round a corner of two old house streets
             float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
             if (len < 0.02f) return;
             // (cityinteg 2026-11-11) laid after the closing pass, on the junction's drawn surface

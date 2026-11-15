@@ -65,6 +65,21 @@ namespace PSXRacing.City
         public static bool StdBulbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STDBULBS") != "0";
         public static bool WalkClearOn = System.Environment.GetEnvironmentVariable("PSX_CITY_WALKCLEAR") != "0";
 
+        /// <summary>(the lanes round's curb close-ups, scratchpad lanes/EDGES.md version 2, 13:45: N Graham St at 1400 and
+        /// McClintock Rd, looked at from above) On the OLD city house streets the asphalt runs to the curb: there is no
+        /// gutter pan to see. So the pre-war house streets (local, near the Square, no shops: the class's resident
+        /// bit on a vertical curb) are laid without the render-only pan; every other curbed street keeps its 2 ft pan
+        /// (certain on the rebuilt state-road sections). Render-only: no collider changes. PSX_CITY_OLDNOPAN=0: the pan there too.</summary>
+        public static bool OldNoPanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_OLDNOPAN") != "0";
+        static bool Cs4NoPan(CityMap map, CityMap.Edge e)
+        {
+            if (!OldNoPanOn || !StripOn || !Curbs3On || e == null || e.cls != 0) return false;
+            int bits = Cs3ClassBits(map, e);
+            return (bits & 7) == CurbVertical && (bits & CurbResidBit) != 0;
+        }
+        /// <summary>Set while a corner (or a bulb's rim) is laid whose streets all go without a pan.</summary>
+        static bool cs4CornerNoPan;
+
         /// <summary>The curb's top (6 in), the standard walk (5 ft), the planting strips.</summary>
         public const float CurbTopM = 0.152f, WalkStdM = 1.52f, StripLocalM = 1.83f, StripMajorM = 1.5f;   // (the street views: grass 1-2 m on avenues and divided arterials, 1.5-2 m on local streets)
         const float StripMinM = 0.5f, StoreFrontM = 8f, CornerLandM = 3f;
@@ -420,6 +435,7 @@ namespace PSXRacing.City
             var verge = new StripShape { shoulder = VergeShoulderM, maxRun = VergeMaxRunM, noFins = true };
             bool wasGranite = cs2Granite, wasPaver = walkPaverNow;
             cs2Granite = false; walkPaverNow = false;
+            cs4CornerNoPan = Cs4NoPan(map, e);
             if (groundLog != null) groundTag = $"bulb curb node {n} e{ei}";
             float u = 0f;
             for (int j = 1; j < nR; j++)
@@ -451,7 +467,7 @@ namespace PSXRacing.City
                 u += len;
                 Cs4Stats.bulbCurbM += len;
             }
-            cs2Granite = wasGranite; walkPaverNow = wasPaver;
+            cs2Granite = wasGranite; walkPaverNow = wasPaver; cs4CornerNoPan = false;
             Cs4Stats.bulbCurbs++;
         }
     }

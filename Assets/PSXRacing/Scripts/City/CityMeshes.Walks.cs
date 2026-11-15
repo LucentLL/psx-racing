@@ -1647,7 +1647,8 @@ namespace PSXRacing.City
                     // (Uptown inside the loop: granite curb straight off the asphalt, no concrete pan - S Tryon at road level)
                     // (and not in the last metres before a junction, where the arm's drawn edge runs on
                     //  past the corner's curb return into the mouth: Lexington Ave's crosswalk)
-                    if (!(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
+                    // (hoods 2) nor on an old city house street: the asphalt runs to the curb there (Cs4NoPan)
+                    if (!Cs4NoPan(map, e) && !(StreetDressOn && Cs2GraniteDress(StreetDressOf(map, e))) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t0)) && Cs2PanClearOfJunction(map, e, Mathf.Lerp(sA, sB, t1)))
                         Cs2Gutter(i, pA, pB, oA, oB, Mathf.Lerp(sA, sB, t0) / 8f, Mathf.Lerp(sA, sB, t1) / 8f, rl0, rl1);
                     float lm = Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
                     if (rl0 + rl1 > 1f && k0 + k1 <= 1f) Curbs2Stats.rolledM += lm; else Curbs2Stats.verticalM += lm;
@@ -1691,6 +1692,7 @@ namespace PSXRacing.City
             if (groundLog != null) groundTag = $"corner walk kind {kind} node {ring[cw.g0].node} e{ring[cw.g0].edge}-e{ring[cw.g1].edge}";
             // (curbs2) the corner's class: rolled only where every walk street at its node is
             float cr = Curbs2On && RolledNode(map, ring[cw.g0].node) ? 1f : 0f;
+            cs4CornerNoPan = Cs4NoPan(map, map.edges[ring[cw.g0].edge]) && Cs4NoPan(map, map.edges[ring[cw.g1].edge]);   // (hoods 2) two old house streets: no pan round their corner
             // (a profile keeps its nose within 0.8 of its width, so the corner's curb ring is that much wider)
             float noseW = Curbs2On ? Mathf.Lerp(CurbChamferOn ? CNoseOut : VNoseOut, RNoseOut, cr) / 0.8f + 0.01f : CurbNoseOut + 0.01f;
             cs2FaceR = cr;
