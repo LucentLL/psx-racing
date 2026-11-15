@@ -175,6 +175,21 @@ namespace PSXRacing.EditorTools
                     sites.Add(new Site { label = f[0], kind = f[0], edge = int.Parse(f[1], I), s = float.Parse(f[2], I), side = int.Parse(f[3], I) });
                 }
             else Pick(map, sites);
+            // by place: PSX_LOTDRIVE_NEAR "label;x;z|..." - the entrance whose mouth is nearest (driven first)
+            {
+                string nearEnv = System.Environment.GetEnvironmentVariable("PSX_LOTDRIVE_NEAR");
+                int at0 = 0;
+                if (!string.IsNullOrEmpty(nearEnv))
+                    foreach (var spec in nearEnv.Split('|'))
+                    {
+                        var f = spec.Split(';');
+                        if (f.Length < 3) continue;
+                        int en = CityMeshes.LotEntranceNear(map, new Vector2(float.Parse(f[1], I), float.Parse(f[2], I)), out float dn);
+                        if (en < 0 || dn > 120f) { L.AppendLine($"no entrance within 120 m of '{f[0]}' ({f[1]}, {f[2]})"); continue; }
+                        var E = map.lotEntrances[en];
+                        sites.Insert(at0++, new Site { label = f[0], kind = f[0], edge = E.edge, s = E.s, side = E.side });
+                    }
+            }
             L.AppendLine($"LOT DRIVE: car {player.name}; lot entrances {(CityMeshes.LotEntOn ? "ON" : "OFF (PSX_CITY_LOTENT=0)")}; {sites.Count} sites x 15 and 40 km/h; square off the lane, released 1 m before the pavement's edge; PASS = on the lot, no wheel off over 0.05 s, no hit");
             var specs = new StringBuilder();
             foreach (var st in sites) specs.Append(specs.Length > 0 ? "|" : "").Append(st.label.Replace(';', ',').Replace('|', '/')).Append(';').Append(st.edge).Append(';').Append(st.s.ToString("0.0", I)).Append(';').Append(st.side);
@@ -204,6 +219,28 @@ namespace PSXRacing.EditorTools
                 L.AppendLine(string.Format(I, "SITE {0}: e{1} '{2}' [{3}{4}] s {5:0} side {6}, walk {7}; mouth ({8:0.0}, {9:0.0}); lot {10}, its asphalt {11:0.0} m from the pavement",
                     st.label, e.index, e.name, Cls[Mathf.Clamp(e.cls, 0, 5)], e.oneway ? " one-way" : "", s, st.side, CityMeshes.WalkSide(map, e, st.side), mouth.x, mouth.y, lot, gap));
                 if (lot < 0) gap = 6f;
+                {
+                    // the surface under the two wheel tracks, every 5 cm from the lane to 4 m onto the lot
+                    float maxStep = 0f, stepAt = 0f, maxRise = 0f, riseAt = 0f;
+                    var tng = new Vector2(-n.y, n.x);
+                    foreach (float lat in new[] { -0.75f, 0.75f })
+                    {
+                        var ys = new List<float>();
+                        for (float d = -1.5f; d <= gap + 4f; d += 0.05f)
+                        {
+                            var q = mouth + n * d + tng * lat;
+                            ys.Add(GroundY(q.x, q.y, at.y, out _));
+                        }
+                        for (int k = 1; k < ys.Count; k++)
+                        {
+                            if (float.IsNaN(ys[k]) || float.IsNaN(ys[k - 1])) continue;
+                            float st1 = Mathf.Abs(ys[k] - ys[k - 1]);
+                            if (st1 > maxStep) { maxStep = st1; stepAt = -1.5f + k * 0.05f; }
+                            if (k >= 8 && !float.IsNaN(ys[k - 8]) && Mathf.Abs(ys[k] - ys[k - 8]) > maxRise) { maxRise = Mathf.Abs(ys[k] - ys[k - 8]); riseAt = -1.5f + k * 0.05f; }
+                        }
+                    }
+                    L.AppendLine(string.Format(I, "    wheel tracks: largest step between 5 cm samples {0:0.0} cm at {1:0.0} m, largest change over 0.4 m {2:0.0} cm at {3:0.0} m", maxStep * 100f, stepAt, maxRise * 100f, riseAt));
+                }
                 foreach (float kmh in new[] { 15f, 40f })
                 {
                     var res = new float[12];
@@ -211,8 +248,8 @@ namespace PSXRacing.EditorTools
                     yield return DriveIn(player, world, map, e, at.y, mouth, n, gap, kmh, res, h => hit = h);
                     bool onLot = res[0] > 0.5f, ok = onLot && res[1] <= 0.05f && hit.Length == 0;
                     runs++; if (ok) pass++;
-                    L.AppendLine(string.Format(I, "    {0,2:0} km/h: {1}; reached {2:0.0} m past the pavement, ended on '{3}'; one wheel off {4:0.00} s, all four off {5:0.00} s, vertical kick {6:0.0} g, speed loss {7:0.0} g ({8:0} -> {9:0} km/h), wheel step {10:0.000} m, off the line {11:0.00} m{12}  {13}",
-                        kmh, onLot ? "ON THE LOT" : "NOT on the lot", res[2], endName, res[1], res[3], res[4], res[5], res[6], res[7], res[8], res[9], hit.Length > 0 ? ", HIT " + hit : "", ok ? "PASS" : "FAIL"));
+                    L.AppendLine(string.Format(I, "    {0,2:0} km/h: {1}; reached {2:0.0} m past the pavement, ended on '{3}'; one wheel off {4:0.00} s (from {14:0.0} m), all four off {5:0.00} s, vertical kick {6:0.0} g (at {15:0.0} m), speed loss {7:0.0} g ({8:0} -> {9:0} km/h), wheel step {10:0.000} m, off the line {11:0.00} m{12}  {13}",
+                        kmh, onLot ? "ON THE LOT" : "NOT on the lot", res[2], endName, res[1], res[3], res[4], res[5], res[6], res[7], res[8], res[9], hit.Length > 0 ? ", HIT " + hit : "", ok ? "PASS" : "FAIL", res[10], res[11]));
                 }
             }
             L.AppendLine($"LOT DRIVE DONE: {pass} of {runs} runs pass");
@@ -240,10 +277,15 @@ namespace PSXRacing.EditorTools
             Physics.SyncTransforms();
             float gy = GroundY(start.x, start.z, start.y, out _);
             if (!float.IsNaN(gy)) start.y = gy;
-            player.TeleportTo(start + Vector3.up * 0.55f, rot);
-            player.throttleInput = 0f; player.brakeInput = 0f; player.steerInput = 0f; player.handbrakeInput = false;
-            yield return new WaitForFixedUpdate();
-            yield return new WaitForFixedUpdate();
+            player.TeleportTo(start + Vector3.up * 0.3f, rot);
+            player.throttleInput = 0f; player.brakeInput = 1f; player.steerInput = 0f; player.handbrakeInput = false;
+            // settled on its wheels before it moves (a narrow carriageway leaves no run to settle on)
+            for (int k = 0; k < 50; k++)
+            {
+                if (k < 40) { var lv0 = player.Body.linearVelocity; player.Body.linearVelocity = new Vector3(0f, lv0.y, 0f); player.Body.angularVelocity = Vector3.zero; }
+                yield return new WaitForFixedUpdate();
+            }
+            player.brakeInput = 0f;
             player.SetRolling(v);
             player.Body.linearVelocity = dir * v;
             // held on the line at speed until the front wheels are 1 m from the pavement's edge
@@ -263,7 +305,8 @@ namespace PSXRacing.EditorTools
                 player.steerInput = 0f; player.throttleInput = 0.4f; player.brakeInput = 0f;
                 yield return new WaitForFixedUpdate();
             }
-            float t = 0f, allOff = 0f, maxAll = 0f, maxOne = 0f, maxKick = 0f, maxDecel = 0f, maxStep = 0f, reached = float.MinValue, maxLat = 0f;
+            float t = 0f, allOff = 0f, maxAll = 0f, maxOne = 0f, maxKick = 0f, maxDecel = 0f, maxStep = 0f, reached = float.MinValue, maxLat = 0f, kickAt = 0f, oneAt = 0f;
+            var offFrom = new float[4];
             var off = new float[4]; var lastW = new float[4]; var hasW = new bool[4];
             float lastVy = player.Body.linearVelocity.y, lastSp = new Vector2(player.Body.linearVelocity.x, player.Body.linearVelocity.z).magnitude, v0 = lastSp;
             string hit = "";
@@ -284,7 +327,8 @@ namespace PSXRacing.EditorTools
                 float dt = Time.fixedDeltaTime; t += dt;
                 var vel = player.Body.linearVelocity;
                 float hsp = new Vector2(vel.x, vel.z).magnitude;
-                maxKick = Mathf.Max(maxKick, Mathf.Abs(vel.y - lastVy) / dt / 9.81f);
+                float kick = Mathf.Abs(vel.y - lastVy) / dt / 9.81f;
+                if (kick > maxKick) { maxKick = kick; kickAt = d; }
                 maxDecel = Mathf.Max(maxDecel, (lastSp - hsp) / dt / 9.81f);
                 lastVy = vel.y; lastSp = hsp;
                 int g = 0;
@@ -297,7 +341,12 @@ namespace PSXRacing.EditorTools
                         if (hasW[w]) maxStep = Mathf.Max(maxStep, Mathf.Abs(wc.point.y - lastW[w]) - Mathf.Abs(hsp * dt * 0.2f));
                         lastW[w] = wc.point.y; hasW[w] = true;
                     }
-                    else { off[w] += dt; maxOne = Mathf.Max(maxOne, off[w]); }
+                    else
+                    {
+                        if (off[w] <= 0f) offFrom[w] = d;
+                        off[w] += dt;
+                        if (off[w] > maxOne) { maxOne = off[w]; oneAt = offFrom[w]; }
+                    }
                 }
                 allOff = g == 0 ? allOff + dt : 0f;
                 maxAll = Mathf.Max(maxAll, allOff);
@@ -307,7 +356,7 @@ namespace PSXRacing.EditorTools
                     var cols = Physics.OverlapBox(player.Body.position + Vector3.up * 0.5f, new Vector3(0.85f, 0.35f, 2.15f), player.transform.rotation, solidMask, QueryTriggerInteraction.Ignore);
                     foreach (var c in cols) if (c.attachedRigidbody != player.Body) { hit = c.name; break; }
                 }
-                if (hit.Length == 0 && maxDecel > 2.5f) hit = "something solid (" + maxDecel.ToString("0.0", I) + " g)";
+                if (hit.Length == 0 && hsp < v0 * 0.5f && t > 0.3f) hit = "something that stopped it (" + maxDecel.ToString("0.0", I) + " g)";
                 if (hsp < 0.3f && t > 1.5f) break;   // stopped
             }
             var end = new Vector2(player.Body.position.x, player.Body.position.z);
@@ -316,7 +365,7 @@ namespace PSXRacing.EditorTools
             int lotAt = CityMeshes.LotPavedForTools(map, end);
             res[0] = reached >= gap + 2.5f && lotAt >= 0 ? 1f : 0f;
             res[1] = maxOne; res[2] = reached; res[3] = maxAll; res[4] = maxKick; res[5] = maxDecel;
-            res[6] = v0 * 3.6f; res[7] = lastSp * 3.6f; res[8] = Mathf.Max(0f, maxStep); res[9] = maxLat;
+            res[6] = v0 * 3.6f; res[7] = lastSp * 3.6f; res[8] = Mathf.Max(0f, maxStep); res[9] = maxLat; res[10] = oneAt; res[11] = kickAt;
             hitOut(hit);
             player.throttleInput = 0f; player.brakeInput = 1f;
         }

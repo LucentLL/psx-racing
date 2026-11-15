@@ -86,6 +86,31 @@ namespace PSXRacing.EditorTools
                     CityMeshes.LotEntOn ? "PSX_CITY_LOTENT on" : "PSX_CITY_LOTENT=0: the data's entrances alone", sw.ElapsedMilliseconds,
                     A.lots, A.propLots, A.dataEntrances, A.withDataEntrance, A.usable, A.served, A.none, A.noneM2 / 1e4, A.noneCurbedAllRound, A.curbedAllRound));
                 foreach (var kv in A.whyCount) Line($"  why none: {kv.Value,5}  {kv.Key}");
+                // how far the lots with none stand from a street a driveway may leave (not a freeway, ramp, bridge or tunnel)
+                {
+                    var bucket = new int[5]; int motorway = 0;
+                    for (int li = 0; li < A.state.Length; li++)
+                    {
+                        if (A.state[li] != 3) continue;
+                        var L = map.lots[li]; var b = L.box; float best = float.MaxValue; bool fw = false;
+                        leAuditSegs.Clear();
+                        map.EdgeSegsInRect(new Vector2(b.x - 320f, b.y - 320f), new Vector2(b.z + 320f, b.w + 320f), leAuditSegs);
+                        foreach (int packed in leAuditSegs)
+                        {
+                            var e = map.edges[packed >> 12]; int si = packed & 0xFFF;
+                            if (si + 1 >= e.pts.Length) continue;
+                            bool street = !(e.link || e.tunnel || e.bridge || e.cls >= 5);
+                            foreach (var p in L.ring)
+                            {
+                                float d = RoadsideOccupancy.DistToSeg(p, e.pts[si], e.pts[si + 1]) - e.HalfMax;
+                                if (street) best = Mathf.Min(best, d); else if (d < 60f) fw = true;
+                            }
+                        }
+                        bucket[best <= 60f ? 0 : best <= 150f ? 1 : best <= 300f ? 2 : 3]++;
+                        if (best > 150f && fw) motorway++;
+                    }
+                    Line($"  the lots with none, by the nearest street a driveway may leave: {bucket[0]} within 60 m (the way is blocked), {bucket[1]} 60-150 m, {bucket[2]} 150-300 m, {bucket[3]} over 300 m or none in the data ({motorway} of the last two beside a freeway or ramp)");
+                }
                 // the 20 largest with none
                 var none = new List<int>();
                 for (int li = 0; li < A.state.Length; li++) if (A.state[li] == 3) none.Add(li);
@@ -130,6 +155,88 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
+        /// <summary>
+        /// THE COST (lot entrances): three tiles - the one with the most
+        /// entrances of the pass, the Square's, and one 8-10 km out - built
+        /// with the pass hidden and shown (LotEntSet), four times each: the
+        /// median build ms and the triangles of every mesh.
+        /// -executeMethod PSXRacing.EditorTools.CityAudit.LotEntranceCost; PSXRacing_lot_cost.txt.
+        /// </summary>
+        public static void LotEntranceCost()
+        {
+            outLog = new System.Text.StringBuilder();
+            var I = CultureInfo.InvariantCulture;
+            var map = CityMap.Get();
+            var trims = CityMeshes.NodeTrims(map);
+            var proc = CityBuildings.Precompute(map);
+            Line(CityMeshes.LotEntStats.Line());
+            int from = CityMeshes.LotEntEntrancesFrom, n = map.lotEntrances.Length;
+            var perTile = new Dictionary<long, int>();
+            long far = 0; float farBest = float.MaxValue;
+            for (int i = Mathf.Max(0, from); i < n; i++)
+            {
+                CityMeshes.LotEntranceFrame(map, i, out var m, out _, out _);
+                long k = ((long)Mathf.FloorToInt(m.x / CityMeshes.TileSize) << 32) ^ (uint)Mathf.FloorToInt(m.y / CityMeshes.TileSize);
+                perTile[k] = (perTile.TryGetValue(k, out int c) ? c : 0) + 1;
+                float d = Mathf.Abs((m - map.uptown).magnitude - 9000f);
+                if (d < farBest) { farBest = d; far = k; }
+            }
+            long most = 0; int mostN = -1;
+            foreach (var kv in perTile) if (kv.Value > mostN) { mostN = kv.Value; most = kv.Key; }
+            long up = ((long)Mathf.FloorToInt(map.uptown.x / CityMeshes.TileSize) << 32) ^ (uint)Mathf.FloorToInt(map.uptown.y / CityMeshes.TileSize);
+            foreach (var (label, key) in new[] { ("lot-heavy (most entrances of the pass: " + mostN + ")", most), ("Uptown (the Square)", up), ("suburb (9 km out)", far) })
+            {
+                int tx = (int)(key >> 32), tz = (int)(uint)(key & 0xFFFFFFFF);
+                var row = new System.Text.StringBuilder();
+                foreach (bool on in new[] { false, true })
+                {
+                    CityMeshes.LotEntSet(map, on);
+                    var ms = new List<double>(); long tris = 0;
+                    for (int rep = 0; rep < 5; rep++)
+                    {
+                        var t0 = System.Diagnostics.Stopwatch.StartNew();
+                        var tm = CityMeshes.Build(map, trims, proc, tx, tz);
+                        if (rep > 0) ms.Add(t0.Elapsed.TotalMilliseconds);
+                        tris = 0;
+                        foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings })
+                            if (m != null) { for (int sm = 0; sm < m.subMeshCount; sm++) tris += (long)m.GetIndexCount(sm) / 3; Object.DestroyImmediate(m); }
+                    }
+                    ms.Sort();
+                    row.Append(string.Format(I, "{0}: {1} triangles, build median {2:0.0} ms (min {3:0.0}); ", on ? "ON" : "OFF", tris, ms[ms.Count / 2], ms[0]));
+                }
+                Line(string.Format(I, "COST tile ({0}, {1}) {2}: {3}", tx, tz, label, row));
+            }
+            CityMeshes.LotEntSet(map, true);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath).FullName, "PSXRacing_lot_cost.txt"), outLog.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        /// <summary>
+        /// THE BAKE of the lot entrance pass (CityMeshes.InstallLotEntrances):
+        /// worked out afresh (PSX_LOTENT_LIVE) and written to
+        /// Resources/charlotte_lotent.bytes, which the game reads at load
+        /// instead of working it out (seconds). Run it after any change to
+        /// charlotte_city.bytes, charlotte_bld.bytes, charlotte_fuel.bytes or
+        /// the pass's rule; a stale file is not read (the game works the pass
+        /// out and says so).
+        /// -executeMethod PSXRacing.EditorTools.CityAudit.LotEntranceBake
+        /// </summary>
+        public static void LotEntranceBake()
+        {
+            System.Environment.SetEnvironmentVariable("PSX_LOTENT_LIVE", "1");
+            var map = CityMap.Get();
+            var bytes = map != null ? CityMeshes.LotEntBytes(map) : null;
+            string path = "Assets/PSXRacing/Resources/" + CityMeshes.LotEntResName + ".bytes";
+            if (bytes == null || !CityMeshes.LotEntOn) Debug.LogError("[LotEntranceBake] no result (the pass is off or the city data is missing)");
+            else
+            {
+                System.IO.File.WriteAllBytes(path, bytes);
+                AssetDatabase.ImportAsset(path);
+                Debug.Log($"[LotEntranceBake] {path}: {bytes.Length} bytes; graph hash {map.graphHash:x8}; {CityMeshes.LotEntStats.Line()}");
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(bytes == null ? 1 : 0);
+        }
+
         // ---- the real cross-section of sample entrances -----------------------
         static void LeProbes(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> proc, Vector2 spot)
         {
@@ -144,7 +251,7 @@ namespace PSXRacing.EditorTools
                 near.Add(((m - spot).magnitude, i));
             }
             near.Sort((a, b) => a.d.CompareTo(b.d));
-            for (int k = 0; k < near.Count && k < 4 && near[k].d < 150f; k++) pick.Add((near[k].en, $"owner's spot ({near[k].d:0} m)"));
+            for (int k = 0; k < near.Count && k < 5 && near[k].d < 450f; k++) pick.Add((near[k].en, $"owner's spot ({near[k].d:0} m)"));
             // nearest the Square: three of the data's, three derived, two stations' (the stations' follow the data's)
             near.Clear();
             for (int i = 0; i < n; i++)

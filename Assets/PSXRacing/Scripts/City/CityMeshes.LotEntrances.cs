@@ -60,7 +60,7 @@ namespace PSXRacing.City
         const float LotEntThroatM = 2.3f;
         /// <summary>A frontage over this takes two entrances.</summary>
         const float LotEntTwoM = 60f;
-        const float LotEntStepS = 2f;
+        const float LotEntStepS = 5f;
 
         public static class LotEntStats
         {
@@ -72,7 +72,7 @@ namespace PSXRacing.City
                 $"lot entrances ({(LotEntOn ? "ON" : "OFF (PSX_CITY_LOTENT=0)")}): {lots} lots; {usableBefore} had a usable entrance in the data, {served} reached through a lot that has one; " +
                 $"{repaired} entrances of the data paved through to their lot, {derived} derived on the street frontage (+{derivedSecond} second ones on a frontage over {LotEntTwoM:0} m; " +
                 $"{onTrunk} on a trunk road, {nearJunction} within {LotEntCornerM:0} m of a corner, {throughStalls} through a stall row (its lines taken out), {farReach} {LotEntReachM:0}-{LotEntFarReachM:0} m from the street, {longDrive} by a drive of {LotEntFarReachM:0}-{LotEntDriveReachM:0} m); " +
-                $"{left} lots left with none; {connectors} paved corridors, {throats} kerb openings; {ms:0} ms (the data's entrances {msUsable:0}, lots that join {msTouch:0}, frontage {msDerive:0})";
+                $"{left} lots left with none; {connectors} paved corridors, {throats} kerb openings; {LotEntSource}, {ms:0} ms (the data's entrances {msUsable:0}, lots that join {msTouch:0}, frontage {msDerive:0})";
         }
 
         static CityMap lotEntMapFor;
@@ -201,7 +201,7 @@ namespace PSXRacing.City
                     if (RoadsideOccupancy.SegSegDistance(pa, pb, oe.pts[si], oe.pts[si + 1]) < oe.HalfMax + 0.5f) { info.why = "another road on the way"; return false; }
                 }
             }
-            if (dIn > 3f)
+            if (dIn > 6f)
             {
                 var pa = mouth + n * 1.0f; var pb = mouth + n * dIn;
                 lePathSegs.Clear();
@@ -216,7 +216,7 @@ namespace PSXRacing.City
                     if (map.InLake(mouth + n * d) || map.NearRavine(mouth + n * d, 3f)) { info.why = "water on the way"; return false; }
             }
             // inside: 3 m of the lot's own asphalt (or a lot's it joins), no island, no stall row
-            for (float dd = 0.5f; dd <= LotEntInM + 1e-3f; dd += 0.5f)
+            for (float dd = 1.0f; dd <= LotEntInM + 1e-3f; dd += 1.0f)
                 for (int k = -1; k <= 1; k++)
                 {
                     var q = mouth + n * (dIn + dd) + t * (k * LotEntCarHalf);
@@ -313,7 +313,7 @@ namespace PSXRacing.City
         /// another lot's on the way; an aisle or a corridor may be).</summary>
         static bool LotPathFirstIs(CityMap map, in LotPathInfo info, int li)
         {
-            for (float d = 1.0f; d < info.gap - 0.3f; d += 0.5f)
+            for (float d = 1.0f; d < info.gap - 0.3f; d += info.gap > 20f ? 2f : 0.5f)
             {
                 int other = LotPavementAt(map, info.mouth + info.n * d);
                 if (other >= 0 && other != li && !map.lots[other].aisleOnly) return false;
@@ -377,7 +377,7 @@ namespace PSXRacing.City
         /// back to the plain slope over 4 m either side as the curb cut's own
         /// wings do. PSX_CITY_LOTENT=0: as before.
         /// </summary>
-        static void LotEntRamp(CityMap map, Vector2 s0, ref float shoulder, ref float slope)
+        static void LotEntRamp(CityMap map, Vector2 s0, Vector2 outw, float y0, float run, ref float shoulder, ref float slope)
         {
             if (!LotEntOn || !LotsOn || map.lotEntrances == null || map.lotEntrances.Length == 0) return;
             EnsureLotEntRamps(map);
@@ -394,8 +394,75 @@ namespace PSXRacing.City
                 k = Mathf.Max(k, lat <= 0f ? 1f : 1f - LineModel.Smooth(lat / LotEntRampEaseM));
             }
             if (k <= 0f) return;
+            // THE GRADE TO THE LOT: the first lot's asphalt out along the strip (not one of this pass's own
+            // corridors) and the land's height just inside it. The strip runs straight from its start to
+            // that height at the lot's edge - DOWN where the lot lies lower (never steeper than 1 in 6,
+            // never shorter than 14 times the drop: a lot at the walk's back is met 2 m in), UP over the
+            // road's sunk corridor where the lot stands higher (to 1 in 8): the lattice's own way up out
+            // of the corridor is its 1V:3H cut slope, which threw a car at 40 km/h.
+            float eLot = -1f;
+            for (float e = 0f; e <= Mathf.Min(run, 30f) && eLot < 0f; e += 0.5f)
+            {
+                int li = LotPavementAt(map, s0 + outw * e);
+                if (li >= 0 && (LotEntLotsFrom < 0 || li < LotEntLotsFrom || lotEntMapFor != map)) eLot = e;
+            }
+            float want;
+            if (eLot >= 0f)
+            {
+                var q = s0 + outw * (eLot + 0.3f);
+                float drop = y0 - LatticeY(map, q.x, q.y) + 0.02f;   // (2 cm under the lot: the strip tucks under its edge)
+                want = Mathf.Clamp(drop / Mathf.Max(eLot + 0.3f, Mathf.Abs(drop) / LotEntRampSlope), -1f / 8f, 1f / 6f);
+            }
+            else
+            {
+                // no lot within reach along this strip (the cut's flare beside the corridor): the gentlest
+                // ramp down that lands within 6 m; none that does: the strip as it was
+                float reach = Mathf.Min(run, LotEntRampMaxM); want = -1f;
+                foreach (float sl in lotEntRampSlopes)
+                {
+                    for (float e = 0.5f; e <= reach + 1e-3f && want < 0f; e += 0.5f)
+                    {
+                        var q = s0 + outw * e;
+                        if (y0 - sl * e - LatticeY(map, q.x, q.y) <= 0f) want = sl;
+                    }
+                    if (want >= 0f) break;
+                }
+                if (want < 0f) return;
+            }
+            if (want >= slope) return;
             shoulder = Mathf.Lerp(shoulder, 0f, k);
-            slope = Mathf.Lerp(slope, LotEntRampSlope, k);
+            slope = Mathf.Lerp(slope, want, k);
+        }
+        const float LotEntRampMaxM = 6f;
+        static readonly float[] lotEntRampSlopes = { LotEntRampSlope, 1f / 10f, 1f / 8f, 1f / 6f };
+
+        /// <summary>Is the plan point on a lot entrance's way (its apron or
+        /// corridor) or within <paramref name="pad"/> of it? No street lamp
+        /// stands there (TryLamp: it kept off the houses' driveways only, so a
+        /// post could stand in a lot's curb cut). PSX_CITY_LOTENT=0: as before.</summary>
+        static bool LotEntOnWay(CityMap map, Vector2 p, float pad)
+        {
+            if (!LotEntOn || !LotsOn || map.lots == null) return false;
+            EnsureLots(map);
+            if (apronsByTile == null || lotMapFor != map) return false;
+            for (int k = 0; k < 5; k++)
+            {
+                var q = k == 0 ? p : p + new Vector2(k == 1 ? pad : k == 2 ? -pad : 0f, k == 3 ? pad : k == 4 ? -pad : 0f);
+                if (!apronsByTile.TryGetValue(LotTileKey(Mathf.FloorToInt(q.x / TileSize), Mathf.FloorToInt(q.y / TileSize)), out var l)) continue;
+                foreach (int i in l)
+                {
+                    var Q = apronQuads[i];
+                    bool inside = true; float s0 = 0f;
+                    for (int c = 0; c < 4 && inside; c++)
+                    {
+                        var a = Q[c]; var b = Q[(c + 1) % 4];
+                        float s = (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x);
+                        if (c == 0) s0 = s; else if (s * s0 < 0f) inside = false;
+                    }
+                    if (inside) return true;
+                }
+            }
+            return false;
         }
 
         // ---- the entrances by tile (the pass and the audit) ------------------
@@ -541,12 +608,20 @@ namespace PSXRacing.City
                 float lo = Mathf.Max(kv.Value.x, Mathf.Max(half + 2.5f, cA > 0f ? cA + LotEntCornerMinM : 0f));
                 float hi = Mathf.Min(kv.Value.y, e.length - Mathf.Max(half + 2.5f, cB > 0f ? cB + LotEntCornerMinM : 0f));
                 if (hi < lo) continue;
-                int n = Mathf.Max(1, Mathf.CeilToInt((hi - lo) / LotEntStepS));
+                float step = reach > LotEntFarReachM ? 2f * LotEntStepS : LotEntStepS;
+                int n = Mathf.Max(1, Mathf.CeilToInt((hi - lo) / step));
                 for (int side = -1; side <= 1; side += 2)
                     for (int k = 0; k <= n; k++)
                     {
                         float s = lo + (hi - lo) * k / n;
                         if (e.ElevatedAt(s)) continue;
+                        // (only the side the lot's box is on)
+                        {
+                            var sp = e.PointAt(s); var st = e.TangentAt(s);
+                            float c0 = st.x * (b.y - sp.y) - st.y * (b.x - sp.x), c1 = st.x * (b.y - sp.y) - st.y * (b.z - sp.x);
+                            float c2 = st.x * (b.w - sp.y) - st.y * (b.x - sp.x), c3 = st.x * (b.w - sp.y) - st.y * (b.z - sp.x);
+                            if (side > 0 ? Mathf.Max(Mathf.Max(c0, c1), Mathf.Max(c2, c3)) <= 0f : Mathf.Min(Mathf.Min(c0, c1), Mathf.Min(c2, c3)) >= 0f) continue;
+                        }
                         if (!LotPath(map, e, s, side, 0f, li, reach, false, false, false, out var info) || !LotPathFirstIs(map, info, li)) continue;
                         int tier = info.stallsAcross ? 1 : 0;
                         if ((cA > 0f && s < cA + LotEntCornerM) || (cB > 0f && s > e.length - cB - LotEntCornerM)) tier = 2;
@@ -562,7 +637,7 @@ namespace PSXRacing.City
             foreach (var sm in leSamples)
             {
                 bool ok = sm.tier <= bestTier;
-                if (open && (!ok || sm.edge != run.edge || sm.side != run.side || sm.s - lastS > LotEntStepS * 1.5f)) { runs.Add(run); open = false; }
+                if (open && (!ok || sm.edge != run.edge || sm.side != run.side || sm.s - lastS > (sm.gap > LotEntFarReachM ? 2f : 1f) * LotEntStepS * 1.5f)) { runs.Add(run); open = false; }
                 if (!ok) continue;
                 if (!open) { run = new LeRun { edge = sm.edge, side = sm.side, cls = map.edges[sm.edge].cls, s0 = sm.s, s1 = sm.s, minGap = sm.gap, trunk = map.edges[sm.edge].cls == 4, ss = new List<float>(8) }; open = true; }
                 run.s1 = sm.s; run.minGap = Mathf.Min(run.minGap, sm.gap); run.ss.Add(sm.s); lastS = sm.s;
@@ -648,6 +723,7 @@ namespace PSXRacing.City
         static void LotEntClearStalls(CityMap.Lot lot, Vector2 mouth, Vector2 n, Vector2 t, float half, float gap)
         {
             if (lot.runFoot.Length == 0) return;
+            if (!lotEntStallsWas.ContainsKey(lot)) lotEntStallsWas[lot] = (lot.runFoot, lot.runN, lot.runU);
             var feet = new List<Vector2>(); var ns = new List<byte>(); var us = new List<Vector2>();
             bool changed = false;
             for (int r = 0; r < lot.runFoot.Length; r++)
@@ -681,7 +757,26 @@ namespace PSXRacing.City
             }
             if (!changed) return;
             lot.runFoot = feet.ToArray(); lot.runN = ns.ToArray(); lot.runU = us.ToArray();
+            lotEntStallsNow[lot] = (lot.runFoot, lot.runN, lot.runU);
         }
+        static readonly Dictionary<CityMap.Lot, (Vector2[] foot, byte[] n, Vector2[] u)> lotEntStallsWas = new Dictionary<CityMap.Lot, (Vector2[], byte[], Vector2[])>(),
+                                                                                      lotEntStallsNow = new Dictionary<CityMap.Lot, (Vector2[], byte[], Vector2[])>();
+
+        /// <summary>For the tools' before/after from one map: the pass's lots,
+        /// entrances, corridors, ramps and stall cuts shown (true) or not, and
+        /// the lots' caches dropped. (PSX_CITY_LOTENT=0 at start is the real
+        /// before: the pass never runs.)</summary>
+        public static void LotEntSet(CityMap map, bool on)
+        {
+            LotEntOn = on;
+            if (lotEntMapFor == map)
+                foreach (var kv in on ? lotEntStallsNow : lotEntStallsWas) { kv.Key.runFoot = kv.Value.foot; kv.Key.runN = kv.Value.n; kv.Key.runU = kv.Value.u; }
+            lotMapFor = null; lotEntRampByTile = null;
+        }
+
+        /// <summary>A lot or an entrance this pass added, with the pass switched off (LotEntSet).</summary>
+        static bool LotEntHiddenLot(CityMap map, int li) => !LotEntOn && lotEntMapFor == map && LotEntLotsFrom >= 0 && li >= LotEntLotsFrom;
+        static bool LotEntHiddenEntrance(CityMap map, int i) => !LotEntOn && lotEntMapFor == map && LotEntEntrancesFrom >= 0 && i >= LotEntEntrancesFrom;
 
         /// <summary>
         /// THE PASS (once per map, the end of CityMap.Parse; the lots'
@@ -690,11 +785,35 @@ namespace PSXRacing.City
         /// </summary>
         public static void InstallLotEntrances(CityMap map)
         {
-            lotEntQuads.Clear(); lotEntMapFor = map; lotEntRampByTile = null;
+            lotEntQuads.Clear(); lotEntMapFor = map; lotEntRampByTile = null; lotEntStallsWas.Clear(); lotEntStallsNow.Clear();
             LotEntLotsFrom = LotEntEntrancesFrom = -1;
             LotEntStats.Reset();
+            LotEntSource = "off";
             if (!LotEntOn || !LotsOn || map == null || map.lots == null || map.lots.Length == 0) return;
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            // the kept result (Resources/charlotte_lotent.bytes, made by the editor's LotEntranceBake from this
+            // same pass): read when it was made for this data and this rule, else worked out now
+            lotEntKey = LotEntKeyOf(map);
+            if (System.Environment.GetEnvironmentVariable("PSX_LOTENT_LIVE") != "1")
+            {
+                var ta = Resources.Load<TextAsset>(LotEntResName);
+                if (ta != null)
+                {
+                    bool read = LotEntRead(map, ta.bytes, lotEntKey);
+                    Resources.UnloadAsset(ta);
+                    if (read)
+                    {
+                        lotMapFor = null;
+                        LotEntStats.ms = (float)clock.Elapsed.TotalMilliseconds;
+                        LotEntSource = "read from " + LotEntResName + ".bytes";
+                        Debug.Log("[City] " + LotEntStats.Line());
+                        return;
+                    }
+                    Debug.LogWarning("[City] charlotte_lotent.bytes was made for other city data or another rule: the lot entrances are worked out now " +
+                                     "(seconds at load). Remake it: Unity -executeMethod PSXRacing.EditorTools.CityAudit.LotEntranceBake");
+                }
+            }
+            LotEntSource = "worked out at load";
             lotMapFor = null;
             EnsureLots(map);
             LotEntIndex(map);
@@ -838,6 +957,148 @@ namespace PSXRacing.City
             LotEntStats.ms = (float)clock.Elapsed.TotalMilliseconds;
             LotEntStats.msDerive = LotEntStats.ms - LotEntStats.msUsable - LotEntStats.msTouch;
             Debug.Log("[City] " + LotEntStats.Line());
+        }
+
+        // ---- THE PASS'S RESULT, KEPT ------------------------------------------
+        public const string LotEntResName = "charlotte_lotent";
+        const uint LotEntMagic = 0x544E454Cu;   // "LENT"
+        /// <summary>Bump when the rule changes: a kept result of another version is not read.</summary>
+        const int LotEntVersion = 1;
+        /// <summary>Where the last pass's result came from.</summary>
+        public static string LotEntSource = "";
+        static uint lotEntKey;
+
+        /// <summary>What the pass reads, hashed (before it adds anything): the graph, the roads' sizes,
+        /// the lots, the entrances, the buildings' count and the rule's version.</summary>
+        static uint LotEntKeyOf(CityMap map)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                void Mix(int v) { h = (h ^ (uint)v) * 16777619u; }
+                void MixF(float f) { Mix(Mathf.RoundToInt(f * 100f)); }
+                Mix((int)map.graphHash); Mix(LotEntVersion); Mix(map.lots.Length); Mix(map.stationLotsFrom);
+                Mix(map.footprints != null ? map.footprints.Length : 0); Mix(map.edges.Length);
+                foreach (var e in map.edges) { MixF(e.length); MixF(e.width); Mix(e.cls); }
+                foreach (var L in map.lots)
+                {
+                    Mix(L.ring != null ? L.ring.Length : 0); MixF(L.box.x); MixF(L.box.y); MixF(L.box.z); MixF(L.box.w);
+                    Mix(L.holes.Length); Mix(L.runFoot.Length); Mix(L.aisleOnly ? 1 : 0);
+                }
+                int na = map.lotEntrances != null ? map.lotEntrances.Length : 0;
+                Mix(na);
+                for (int i = 0; i < na; i++) { var E = map.lotEntrances[i]; Mix(E.edge); MixF(E.s); Mix(E.side); MixF(E.half); }
+                return h;
+            }
+        }
+
+        /// <summary>The last pass's result as bytes (the editor writes them to
+        /// Resources/charlotte_lotent.bytes): the key, the counts, the entrances and the lots it
+        /// added, the corridors' and throats' quads, the stall rows it cut.</summary>
+        public static byte[] LotEntBytes(CityMap map)
+        {
+            if (lotEntMapFor != map) return null;
+            using (var ms = new System.IO.MemoryStream())
+            using (var w = new System.IO.BinaryWriter(ms))
+            {
+                w.Write(LotEntMagic); w.Write(LotEntVersion); w.Write(lotEntKey);
+                foreach (int v in new[] { LotEntStats.lots, LotEntStats.usableBefore, LotEntStats.served, LotEntStats.repaired, LotEntStats.derived, LotEntStats.derivedSecond,
+                                          LotEntStats.onTrunk, LotEntStats.nearJunction, LotEntStats.throughStalls, LotEntStats.farReach, LotEntStats.longDrive, LotEntStats.left,
+                                          LotEntStats.connectors, LotEntStats.throats }) w.Write(v);
+                int e0 = LotEntEntrancesFrom < 0 ? map.lotEntrances.Length : LotEntEntrancesFrom;
+                w.Write(map.lotEntrances.Length - e0);
+                for (int i = e0; i < map.lotEntrances.Length; i++) { var E = map.lotEntrances[i]; w.Write(E.edge); w.Write(E.s); w.Write(E.side); w.Write(E.half); }
+                int l0 = LotEntLotsFrom < 0 ? map.lots.Length : LotEntLotsFrom;
+                w.Write(map.lots.Length - l0);
+                for (int i = l0; i < map.lots.Length; i++)
+                {
+                    var L = map.lots[i];
+                    for (int k = 0; k < 4; k++) { w.Write(L.ring[k].x); w.Write(L.ring[k].y); }
+                    w.Write(L.u.x); w.Write(L.u.y);
+                }
+                w.Write(lotEntQuads.Count);
+                foreach (var Q in lotEntQuads) for (int k = 0; k < 4; k++) { w.Write(Q[k].x); w.Write(Q[k].y); }
+                w.Write(lotEntStallsNow.Count);
+                foreach (var kv in lotEntStallsNow)
+                {
+                    w.Write(System.Array.IndexOf(map.lots, kv.Key));
+                    w.Write(kv.Value.foot.Length);
+                    for (int r = 0; r < kv.Value.foot.Length; r++)
+                    {
+                        w.Write(kv.Value.foot[r].x); w.Write(kv.Value.foot[r].y); w.Write(kv.Value.n[r]);
+                        w.Write(kv.Value.u[r].x); w.Write(kv.Value.u[r].y);
+                    }
+                }
+                w.Flush();
+                return ms.ToArray();
+            }
+        }
+
+        /// <summary>The kept result put on the map; false when it was made for other data or another rule.</summary>
+        static bool LotEntRead(CityMap map, byte[] bytes, uint key)
+        {
+            try
+            {
+                using (var r = new System.IO.BinaryReader(new System.IO.MemoryStream(bytes)))
+                {
+                    if (r.ReadUInt32() != LotEntMagic || r.ReadInt32() != LotEntVersion || r.ReadUInt32() != key) return false;
+                    var st = new int[14];
+                    for (int i = 0; i < 14; i++) st[i] = r.ReadInt32();
+                    int ne = r.ReadInt32();
+                    var ents = new List<CityMap.LotEntrance>(map.lotEntrances ?? System.Array.Empty<CityMap.LotEntrance>());
+                    int e0 = ents.Count;
+                    for (int i = 0; i < ne; i++)
+                    {
+                        var E = new CityMap.LotEntrance { edge = r.ReadInt32(), s = r.ReadSingle(), side = r.ReadSByte(), half = r.ReadSingle() };
+                        if (E.edge < 0 || E.edge >= map.edges.Length) return false;
+                        ents.Add(E);
+                    }
+                    int nlots = r.ReadInt32();
+                    var lots = new List<CityMap.Lot>(map.lots);
+                    int l0 = lots.Count;
+                    for (int i = 0; i < nlots; i++)
+                    {
+                        var ring = new Vector2[4];
+                        for (int k = 0; k < 4; k++) ring[k] = new Vector2(r.ReadSingle(), r.ReadSingle());
+                        lots.Add(LeNewLot(ring, new Vector2(r.ReadSingle(), r.ReadSingle())));
+                    }
+                    int nq = r.ReadInt32();
+                    var quads = new List<Vector2[]>(nq);
+                    for (int i = 0; i < nq; i++)
+                    {
+                        var Q = new Vector2[4];
+                        for (int k = 0; k < 4; k++) Q[k] = new Vector2(r.ReadSingle(), r.ReadSingle());
+                        quads.Add(Q);
+                    }
+                    int nst = r.ReadInt32();
+                    var stalls = new List<(int li, Vector2[] foot, byte[] n, Vector2[] u)>(nst);
+                    for (int i = 0; i < nst; i++)
+                    {
+                        int li = r.ReadInt32(), nr = r.ReadInt32();
+                        if (li < 0 || li >= l0) return false;
+                        var foot = new Vector2[nr]; var n = new byte[nr]; var u = new Vector2[nr];
+                        for (int k = 0; k < nr; k++) { foot[k] = new Vector2(r.ReadSingle(), r.ReadSingle()); n[k] = r.ReadByte(); u[k] = new Vector2(r.ReadSingle(), r.ReadSingle()); }
+                        stalls.Add((li, foot, n, u));
+                    }
+                    // all read: onto the map
+                    LotEntStats.lots = st[0]; LotEntStats.usableBefore = st[1]; LotEntStats.served = st[2]; LotEntStats.repaired = st[3];
+                    LotEntStats.derived = st[4]; LotEntStats.derivedSecond = st[5]; LotEntStats.onTrunk = st[6]; LotEntStats.nearJunction = st[7];
+                    LotEntStats.throughStalls = st[8]; LotEntStats.farReach = st[9]; LotEntStats.longDrive = st[10]; LotEntStats.left = st[11];
+                    LotEntStats.connectors = st[12]; LotEntStats.throats = st[13];
+                    foreach (var sc in stalls)
+                    {
+                        var L = map.lots[sc.li];
+                        lotEntStallsWas[L] = (L.runFoot, L.runN, L.runU);
+                        L.runFoot = sc.foot; L.runN = sc.n; L.runU = sc.u;
+                        lotEntStallsNow[L] = (sc.foot, sc.n, sc.u);
+                    }
+                    lotEntQuads.AddRange(quads);
+                    if (nlots > 0) { LotEntLotsFrom = l0; map.lots = lots.ToArray(); }
+                    if (ne > 0) { LotEntEntrancesFrom = e0; map.lotEntrances = ents.ToArray(); }
+                    return true;
+                }
+            }
+            catch (System.Exception) { return false; }
         }
 
         // ---- THE AUDIT (Editor/CityAudit.Lots.cs) ------------------------------
@@ -1002,6 +1263,19 @@ namespace PSXRacing.City
         }
 
         public static float LotRingAreaForTools(Vector2[] r) => LeRingArea(r);
+        /// <summary>For the tools: the entrance whose mouth is nearest a plan point (-1: none).</summary>
+        public static int LotEntranceNear(CityMap map, Vector2 p, out float dist)
+        {
+            int best = -1; dist = float.MaxValue;
+            for (int i = 0; i < (map.lotEntrances != null ? map.lotEntrances.Length : 0); i++)
+            {
+                if (LotEntHiddenEntrance(map, i)) continue;
+                LotEntFrame(map.edges[map.lotEntrances[i].edge], map.lotEntrances[i].s, map.lotEntrances[i].side, out var m, out _, out _);
+                float d = (m - p).magnitude;
+                if (d < dist) { dist = d; best = i; }
+            }
+            return best;
+        }
         /// <summary>For the tools: the lot whose asphalt (not a hole or an island) the plan point is on, -1 none.</summary>
         public static int LotPavedForTools(CityMap map, Vector2 q) => LotsOn && map.lots != null ? LotPavementAt(map, q) : -1;
 

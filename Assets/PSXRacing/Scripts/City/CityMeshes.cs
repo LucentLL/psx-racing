@@ -4895,7 +4895,7 @@ namespace PSXRacing.City
             // middle of long facades downtown (West 6th, West 4th, East 7th,
             // West 3rd). FootprintClear opens every bucket a building could
             // reach from and measures to the walls.
-            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP) || OnDriveway(footP, 0.8f)) return LampRejectBuilding;
+            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP) || OnDriveway(footP, 0.8f) || LotEntOnWay(map, footP, 0.9f)) return LampRejectBuilding;   // (lot entrances, 11-15) nor in a lot's entrance
             if (LampInWater(map, footP)) return LampRejectWater;
             int clash = LampPavementClear(map, trims, e, side, s, footP, headP, ed.y);
             if (clash != 0) return clash;
@@ -9524,7 +9524,7 @@ namespace PSXRacing.City
             // meets the lattice 0.1 m sooner.
             // (lot entrances, 11-15) behind an entrance's curb cut the strip is the apron's ramp to the lot
             float fillSlope = RoadsideRules.CityFillSlope;
-            if (!sh.flat) LotEntRamp(map, s0, ref shoulder, ref fillSlope);
+            if (!sh.flat) LotEntRamp(map, s0, outw, y0, run, ref shoulder, ref fillSlope);
             float Yv(float e) => sh.flat ? y0
                 : y0 - crossFall * Mathf.Min(e, shoulder)
                      - fillSlope * Mathf.Max(0f, e - shoulder);

@@ -94,6 +94,7 @@ namespace PSXRacing.City
             }
             for (int i = 0; i < nl; i++)
             {
+                if (LotEntHiddenLot(map, i)) continue;   // (lot entrances) a tool's "before"
                 var b = map.lots[i].box;
                 for (int tx = Mathf.FloorToInt(b.x / TileSize); tx <= Mathf.FloorToInt(b.z / TileSize); tx++)
                     for (int tz = Mathf.FloorToInt(b.y / TileSize); tz <= Mathf.FloorToInt(b.w / TileSize); tz++)
@@ -130,6 +131,7 @@ namespace PSXRacing.City
             {
                 Vector2 a, b, c, d;
                 if (i >= na) { var Q = lotEntQuads[i - na]; a = Q[0]; b = Q[1]; c = Q[2]; d = Q[3]; }
+                else if (LotEntHiddenEntrance(map, i)) { apronQuads[i] = new[] { Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero }; continue; }
                 else
                 {
                 var en = map.lotEntrances[i];
