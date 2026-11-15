@@ -22,7 +22,10 @@ namespace PSXRacing.EditorTools
     ///      (CityTileCache.Encode);
     ///   4. the ways' own ground (the lattice the pavement is cut into): the
     ///      steepest 2 m along each way and the worst fall across its width,
-    ///      for PSX_SERVICE_HEIGHT_S seconds (default 150) in file order.
+    ///      for PSX_SERVICE_HEIGHT_S seconds (default 150) in file order;
+    ///      PSX_SERVICE_STEEP_OUT: a file of every place steeper than 20%
+    ///      along or 25% across (x, z, along, across), which the exporter
+    ///      step reads (--steep) to stop the ways short of a bank.
     /// -executeMethod PSXRacing.EditorTools.CityAudit.ServiceOnly; writes
     /// PSXRacing_service.txt (PSX_SERVICE_OUT: another name) in the project root.
     /// </summary>
@@ -98,6 +101,9 @@ namespace PSXRacing.EditorTools
                     int done = 0, g12 = 0, g20 = 0, c12 = 0, c20 = 0; float kmDone = 0f, m15 = 0f;
                     var worst = new List<(float g, float c, int way, Vector2 at)>();
                     var ys = new List<float>(256); var ps = new List<Vector2>(256);
+                    // every place steeper than the limits, for the exporter step (tools/city/service_ways.mjs --steep): x, z, along, across
+                    var steepRows = new System.Text.StringBuilder();
+                    const float SteepAlong = 0.20f, SteepAcross = 0.25f;
                     for (int wi = 0; wi < CityMeshes.ServiceWays.Length && sw.Elapsed.TotalSeconds < budget; wi++)
                     {
                         var w = CityMeshes.ServiceWays[wi];
@@ -120,7 +126,9 @@ namespace PSXRacing.EditorTools
                                 {
                                     float h = Mathf.Lerp(w.half[k], w.half[k + 1], u);
                                     float yl = CityMeshes.SharedGroundAt(map, trims, proc, p.x + left.x * h, p.y + left.y * h), yr = CityMeshes.SharedGroundAt(map, trims, proc, p.x - left.x * h, p.y - left.y * h);
-                                    maxC = Mathf.Max(maxC, Mathf.Abs(yl - yr) / (2f * h));
+                                    float cf = Mathf.Abs(yl - yr) / (2f * h);
+                                    maxC = Mathf.Max(maxC, cf);
+                                    if (cf > SteepAcross) steepRows.AppendLine(string.Format(I, "{0:0.0} {1:0.0} 0 {2:0.00}", p.x, p.y, cf));
                                 }
                             }
                             acc += len;
@@ -132,6 +140,7 @@ namespace PSXRacing.EditorTools
                             float g = Mathf.Abs(ys[i] - ys[i - 2]) / run;
                             if (g > 0.15f) m15 += run * 0.5f;
                             if (g > maxG) { maxG = g; atG = ps[i - 1]; }
+                            if (g > SteepAlong) steepRows.AppendLine(string.Format(I, "{0:0.0} {1:0.0} {2:0.00} 0", ps[i - 1].x, ps[i - 1].y, g));
                         }
                         done++; kmDone += w.length / 1000f;
                         if (maxG > 0.12f) g12++; if (maxG > 0.20f) g20++; if (maxC > 0.12f) c12++; if (maxC > 0.20f) c20++;
@@ -139,6 +148,23 @@ namespace PSXRacing.EditorTools
                     }
                     Line(string.Format(I, "GROUND under the ways ({0} of {1} pieces, {2:0.0} km, {3:0} s; the first 8 m behind a mouth left to the apron's ramp): steepest 2 m over 12% on {4} pieces, over 20% on {5}; {6:0} m of way steeper than 15%; fall across the width over 12% on {7}, over 20% on {8}",
                         done, CityMeshes.ServiceWays.Length, kmDone, sw.Elapsed.TotalSeconds, g12, g20, m15, c12, c20));
+                    string steepOut = System.Environment.GetEnvironmentVariable("PSX_SERVICE_STEEP_OUT");
+                    if (!string.IsNullOrEmpty(steepOut))
+                    {
+                        // ADDED to the file's own rows (by the metre): the ways already stopped short of a bank are
+                        // not measured there again, so a run on cut data must not drop the places that cut them
+                        var seen = new HashSet<long>(); var all = new System.Text.StringBuilder(); int was = 0;
+                        void AddRow(string r)
+                        {
+                            var f = r.Trim().Split(' ');
+                            if (f.Length < 2 || !float.TryParse(f[0], NumberStyles.Float, I, out float sx) || !float.TryParse(f[1], NumberStyles.Float, I, out float sz)) return;
+                            if (seen.Add(((long)Mathf.RoundToInt(sx) << 32) ^ (uint)Mathf.RoundToInt(sz))) all.AppendLine(r.Trim());
+                        }
+                        if (System.IO.File.Exists(steepOut)) { foreach (var r in System.IO.File.ReadAllLines(steepOut)) AddRow(r); was = seen.Count; }
+                        foreach (var r in steepRows.ToString().Split('\n')) AddRow(r);
+                        System.IO.File.WriteAllText(steepOut, all.ToString());
+                        Line($"steep places (over {SteepAlong * 100f:0}% along or {SteepAcross * 100f:0}% across): {seen.Count} in {steepOut} ({was} were in it)");
+                    }
                     worst.Sort((a, b) => Mathf.Max(b.g, b.c).CompareTo(Mathf.Max(a.g, a.c)));
                     for (int k = 0; k < Mathf.Min(30, worst.Count); k++)
                     {

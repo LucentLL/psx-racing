@@ -195,10 +195,10 @@ export function widthOf(t, kind) {
 
 // ---------------------------------------------------------------- the step
 /// city: lib/citydata.mjs parseCity; bld: parseBld; lots: parseLots; ways: loadExtract.
-export function buildServiceWays({ city, bld, lots, ways, looseAisles = true }) {
+export function buildServiceWays({ city, bld, lots, ways, looseAisles = true, steep = [] }) {
   const edges = city.edges;
   const inGraph = new Set(edges.map(e => e.wayId));
-  const stats = { candidates: 0, candidatesKm: 0, inGraph: 0, notSurface: 0, notSurfaceKm: 0, notTaken: 0, notTakenKm: 0, pieces: 0, km: 0, inLotKm: 0, cutBuilding: 0, cutBuildingKm: 0, cutWater: 0, cutWaterKm: 0,
+  const stats = { candidates: 0, candidatesKm: 0, inGraph: 0, notSurface: 0, notSurfaceKm: 0, notTaken: 0, notTakenKm: 0, pieces: 0, km: 0, inLotKm: 0, cutBuilding: 0, cutBuildingKm: 0, cutWater: 0, cutWaterKm: 0, cutSteep: 0, cutSteepKm: 0,
                   onRoadKm: 0, shortKm: 0, orphanPieces: 0, orphanKm: 0, mouths: 0, mouthsMerged: 0, mouthFreeway: 0, mouthCorner: 0, mouthCornerMoved: 0, pinchedKm: 0, aislesDrawn: 0, aislesDrawnKm: 0, aislesLoose: 0, aislesLooseKm: 0, points: 0, byKind: KINDS.map(() => ({ ways: 0, km: 0, mouths: 0 })) };
   const left = [];   // { id, why, m, x, z }
 
@@ -289,6 +289,17 @@ export function buildServiceWays({ city, bld, lots, ways, looseAisles = true }) 
     return hit;
   };
 
+  // ---- the steep places (the game's own ground under the ways, measured by the editor's
+  // CityAudit.ServiceOnly into tools/city/service_steep.tsv: steeper than 20% along or 25% across -
+  // a road's bank, a cut): a way stops short of them
+  const steepGrid = new Grid(16);
+  for (const q of steep) steepGrid.add(q[0] - 2.5, q[1] - 2.5, q[0] + 2.5, q[1] + 2.5, q);
+  const steepAt = (x, z) => {
+    let hit = false;
+    steepGrid.each(x, z, x, z, q => { if (!hit && Math.hypot(q[0] - x, q[1] - z) < 2.5) hit = true; });
+    return hit;
+  };
+
   // ---- every candidate way, in id order
   const pieces = [];
   // (the parking aisles of the lots' fetch too: outside the core the export keeps an aisle only inside a
@@ -317,7 +328,7 @@ export function buildServiceWays({ city, bld, lots, ways, looseAisles = true }) 
       P.push(g[i]); N.push(nodes[i]);
     }
     if (P.length < 2) { left.push({ id: w.id, why: 'under 1.2 m long', m: w.len, x: g[0][0], z: g[0][1] }); continue; }
-    // stations every metre: 0 clear, 1 a road's pavement, 2 a building, 3 water
+    // stations every metre: 0 clear, 1 a road's pavement, 2 a building, 3 water, 4 a bank
     const S = [];   // { x, z, at (arc), seg, state, half, road, lot }
     let arc = 0;
     for (let i = 1; i < P.length; i++) {
@@ -327,7 +338,7 @@ export function buildServiceWays({ city, bld, lots, ways, looseAisles = true }) 
         const road = roadAt(x, z);
         const wall = road ? 8 : wallAt(x, z);
         const half = Math.min(W / 2, wall - BLD_CLEAR);
-        const state = road ? 1 : half < MIN_HALF ? 2 : waterAt(x, z) ? 3 : 0;
+        const state = road ? 1 : half < MIN_HALF ? 2 : waterAt(x, z) ? 3 : steep.length && steepAt(x, z) ? 4 : 0;
         const lot = state === 0 ? lotAt(x, z) : -1;
         let full = false;
         if (lot >= 0) {
@@ -352,7 +363,8 @@ export function buildServiceWays({ city, bld, lots, ways, looseAisles = true }) 
         const m = S[Math.min(b, S.length - 1)].at - S[a].at;
         if (S[a].state === 1) stats.onRoadKm += m / 1000;
         else if (S[a].state === 2) { stats.cutBuilding++; stats.cutBuildingKm += m / 1000; left.push({ id: w.id, why: 'the line meets a building: stopped short', m, x: S[a].x, z: S[a].z }); }
-        else { stats.cutWater++; stats.cutWaterKm += m / 1000; left.push({ id: w.id, why: 'the line crosses water (no culvert in the data): stopped short', m, x: S[a].x, z: S[a].z }); }
+        else if (S[a].state === 3) { stats.cutWater++; stats.cutWaterKm += m / 1000; left.push({ id: w.id, why: 'the line crosses water (no culvert in the data): stopped short', m, x: S[a].x, z: S[a].z }); }
+        else { stats.cutSteep++; stats.cutSteepKm += m / 1000; left.push({ id: w.id, why: 'the land is a bank there (over 20% along or 25% across the way): stopped short', m, x: S[a].x, z: S[a].z }); }
         a = b; continue;
       }
       let b = a; while (b + 1 < S.length && S[b + 1].state === 0) b++;

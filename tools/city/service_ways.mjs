@@ -24,6 +24,9 @@ const CACHE = arg('cache', process.env.PSX_CITY_CACHE || join(HERE, 'cache'));
 const RES = join(ROOT, 'Assets', 'PSXRacing', 'Resources');
 const OUT = arg('out', join(RES, 'charlotte_service.bytes'));
 const REPORT = arg('report', '');
+// the steep places of the game's own ground under the ways (x z along across, by the editor's
+// CityAudit.ServiceOnly with PSX_SERVICE_STEEP_OUT): kept in the repo so the step is repeatable
+const STEEP = arg('steep', join(HERE, 'service_steep.tsv'));
 if (!existsSync(join(CACHE, 'streets_core.json'))) throw new Error(`no extract at ${CACHE} (streets_core.json): pass --cache <the main checkout's tools/city/cache>`);
 
 const t0 = Date.now();
@@ -34,7 +37,9 @@ const lots = sw.parseLots(cityBuf, city);
 const hash = cd.hashHex(cd.graphHash(city.edges));
 console.log(`road graph: ${city.nodes.length} nodes, ${city.edges.length} edges, graph hash ${hash} (read, not written)`);
 const ways = sw.loadExtract(CACHE);
-const res = sw.buildServiceWays({ city, bld, lots, ways, looseAisles: process.env.PSX_SERVICE_LOOSE_AISLES !== '0' });
+const steep = existsSync(STEEP) ? readFileSync(STEEP, 'utf8').split(/\r?\n/).map(l => l.trim().split(/\s+/).map(Number)).filter(r => r.length >= 2 && Number.isFinite(r[0]) && Number.isFinite(r[1])) : [];
+console.log(`steep places: ${steep.length} (${existsSync(STEEP) ? STEEP : 'no file'})`);
+const res = sw.buildServiceWays({ city, bld, lots, ways, looseAisles: process.env.PSX_SERVICE_LOOSE_AISLES !== '0', steep });
 const st = res.stats;
 const bytes = sw.serviceBytes(res, city);
 writeFileSync(OUT, bytes);
@@ -42,7 +47,7 @@ const lines = [];
 const P = s => { lines.push(s); console.log(s); };
 P(`service ways: ${st.pieces} pieces, ${st.km.toFixed(1)} km, ${st.points} points, ${st.mouths} mouths (${st.mouthsMerged} merged, ${st.mouthCornerMoved} moved off a corner); ${st.inLotKm.toFixed(1)} km on a lot's own asphalt; ${st.pinchedKm.toFixed(1)} km narrowed between buildings`);
 sw.KINDS.forEach((k, i) => { const b = st.byKind[i]; if (b.ways) P(`  ${k}: ${b.ways} pieces, ${b.km.toFixed(1)} km, ${b.mouths} mouths`); });
-P(`left out: ${st.notSurface} ways not on the surface (${st.notSurfaceKm.toFixed(1)} km), ${st.notTaken} not for cars (${st.notTakenKm.toFixed(1)} km), ${st.cutBuilding} stops at a building (${st.cutBuildingKm.toFixed(1)} km), ${st.cutWater} at water (${st.cutWaterKm.toFixed(1)} km), ` +
+P(`left out: ${st.notSurface} ways not on the surface (${st.notSurfaceKm.toFixed(1)} km), ${st.notTaken} not for cars (${st.notTakenKm.toFixed(1)} km), ${st.cutBuilding} stops at a building (${st.cutBuildingKm.toFixed(1)} km), ${st.cutWater} at water (${st.cutWaterKm.toFixed(1)} km), ${st.cutSteep} at a bank (${st.cutSteepKm.toFixed(1)} km), ` +
   `${st.orphanPieces} pieces that join no street and no lot (${st.orphanKm.toFixed(1)} km), ${st.mouthCorner} mouths inside a junction, ${st.mouthFreeway} on a freeway or ramp; ${st.aislesDrawn} aisles already lot pavement (${st.aislesDrawnKm.toFixed(1)} km)`);
 P(`wrote ${OUT}: ${bytes.length} bytes, for graph ${hash}, in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 if (REPORT) {

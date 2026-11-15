@@ -367,6 +367,7 @@ namespace PSXRacing.City
             if (!have) { if (ServiceSource != "off") Debug.Log("[City] service ways: " + ServiceSource); return; }
             ServiceStats.msRead = (float)clock.Elapsed.TotalMilliseconds;
             EnsureLots(map);
+            svcRunBoxes.Clear();
             int lots0 = map.lots.Length;
             var lots = new List<CityMap.Lot>(ServiceStats.points);
             var quad = new Vector2[4];
@@ -507,11 +508,32 @@ namespace PSXRacing.City
             Debug.Log("[City] " + ServiceStats.Line());
         }
 
+        static readonly Dictionary<int, Vector4[]> svcRunBoxes = new Dictionary<int, Vector4[]>();
+        static Vector4[] svcRunBox;
+
         /// <summary>The stalls of the lot whose rectangle meets the way's quad, and the islands on it.</summary>
         static void ServiceClearLot(CityMap map, int li, CityMap.Lot lot, Vector2[] quad, Vector2[] stall, Dictionary<int, HashSet<int>> cutStalls, Dictionary<int, HashSet<int>> cutIslands)
         {
+            if (lot.runFoot.Length == 0 && lot.holes.Length == 0) return;
+            float qx0 = Mathf.Min(Mathf.Min(quad[0].x, quad[1].x), Mathf.Min(quad[2].x, quad[3].x)), qx1 = Mathf.Max(Mathf.Max(quad[0].x, quad[1].x), Mathf.Max(quad[2].x, quad[3].x));
+            float qz0 = Mathf.Min(Mathf.Min(quad[0].y, quad[1].y), Mathf.Min(quad[2].y, quad[3].y)), qz1 = Mathf.Max(Mathf.Max(quad[0].y, quad[1].y), Mathf.Max(quad[2].y, quad[3].y));
+            // each run's box, once per lot
+            if (lot.runFoot.Length > 0 && !svcRunBoxes.TryGetValue(li, out svcRunBox))
+            {
+                svcRunBox = new Vector4[lot.runFoot.Length];
+                for (int r = 0; r < lot.runFoot.Length; r++)
+                {
+                    var u = lot.runU != null && lot.runU.Length > r ? lot.runU[r] : lot.u;
+                    var v = new Vector2(-u.y, u.x);
+                    Vector2 a = lot.runFoot[r], b = a + u * (lot.runN[r] * StallW), c2 = b + v * StallD, d2 = a + v * StallD;
+                    svcRunBox[r] = new Vector4(Mathf.Min(Mathf.Min(a.x, b.x), Mathf.Min(c2.x, d2.x)), Mathf.Min(Mathf.Min(a.y, b.y), Mathf.Min(c2.y, d2.y)), Mathf.Max(Mathf.Max(a.x, b.x), Mathf.Max(c2.x, d2.x)), Mathf.Max(Mathf.Max(a.y, b.y), Mathf.Max(c2.y, d2.y)));
+                }
+                svcRunBoxes[li] = svcRunBox;
+            }
             for (int r = 0; r < lot.runFoot.Length; r++)
             {
+                var rb = svcRunBox[r];
+                if (rb.z < qx0 || rb.x > qx1 || rb.w < qz0 || rb.y > qz1) continue;
                 var u = lot.runU != null && lot.runU.Length > r ? lot.runU[r] : lot.u;
                 var v = new Vector2(-u.y, u.x);
                 int cnt = lot.runN[r];
@@ -526,9 +548,11 @@ namespace PSXRacing.City
                     set.Add(r * 256 + k);
                 }
             }
+            var hbs = lotHoleBox != null && li < lotHoleBox.Length ? lotHoleBox[li] : null;
             for (int h = 0; h < lot.holes.Length; h++)
             {
                 if (lot.holeKind[h] != 1) continue;
+                if (hbs != null && h < hbs.Length) { var hb = hbs[h]; if (hb.z < qx0 - 0.3f || hb.x > qx1 + 0.3f || hb.w < qz0 - 0.3f || hb.y > qz1 + 0.3f) continue; }
                 var ring = lot.holes[h];
                 bool hit = false;
                 var c = 0.25f * (quad[0] + quad[1] + quad[2] + quad[3]);
