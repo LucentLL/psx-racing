@@ -93,8 +93,10 @@ namespace PSXRacing.City
             bool lane = (bits & (left ? 4 : 8)) != 0, sh = (bits & (left ? 16 : 32)) != 0;
             marked = lane || sh;
             if (!park && !marked) return 0f;
-            // a one-way carriageway of a divided road has its strip on the outer (right) side only
-            if (e.oneway && left && CurbMedianClass(e)) { marked = false; park = false; return 0f; }
+            // a one-way road has its strip on its right side only: its left is a divided road's median side, and
+            // the median test (CurbMedianClass -> CityMap.Get) cannot run here, while the map is still loading
+            // (ComputeTrims runs inside CityMap.Parse's elevation solve: it recursed, a stack overflow, 11-15)
+            if (e.oneway && left) { marked = false; park = false; return 0f; }
             return (park ? ParkLaneM : lane ? BikeLaneM : ShoulderM) - StripHasM;
         }
 
