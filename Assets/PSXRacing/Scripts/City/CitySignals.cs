@@ -518,7 +518,7 @@ namespace PSXRacing.City
                     else if (e.length <= 30f && Degree(map, o) >= 3 && !(e.cls >= 5 && !e.link))
                     {
                         // round 2: the stop line stands ON this edge (its own tag): the node behind it stays outside
-                        if (Signals2On && lineEdge[ei] && !ArmTooShort(trims, e, i)) { S2.joinsHeld++; continue; }
+                        if (Signals2On && lineEdge[ei] && ApproachWhyNot(map, trims, e, i).Length == 0) { S2.joinsHeld++; continue; }
                         member[o] = true; Union(i, o);
                     }
                     else if (Signals2On && Degree(map, o) == 2)
@@ -576,10 +576,16 @@ namespace PSXRacing.City
                 {
                     // an arm too short for its stop line whose far end is a joint: the joint comes in,
                     // and the line stands on the road behind it (Five Points: 4-6 m stubs)
-                    for (int k = 0; k < ns.Count && ns.Count < 32; k++)
+                    for (int k = 0; k < ns.Count && ns.Count < 48; k++)
                     {
                         int n = ns[k];
                         if (touched[n]) isNew = true;
+                        // the whole paved junction of each node (a junction cluster of the meshes: the
+                        // edges inside it have no ribbon to stand a line on) is the signal's
+                        var jc = trims.ClusterOfNode(n);
+                        if (jc != null)
+                            foreach (int m in jc.nodes)
+                                if (inCluster[m] < 0) { inCluster[m] = root; touched[m] = true; ns.Add(m); S2.meshNodesIn++; }
                         foreach (int ei in map.nodeEdges[n])
                         {
                             var e = map.edges[ei];

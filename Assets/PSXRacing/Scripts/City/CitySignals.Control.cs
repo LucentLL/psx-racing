@@ -603,6 +603,11 @@ namespace PSXRacing.City
                         {
                             float dq = Vector2.Dot(a.u, refs[q].j.approaches[refs[q].i].u);
                             if (dq > 0f && dq < cosSide) { mn = -1f; break; }   // the same side, a skew apart
+                            // round 2 (CitySignals.Signals2): two flows that JOIN at one node take turns - one
+                            // phase would show both a green: the same sense (a ramp into a carriageway), or two
+                            // one-ways arriving head on (neither can go on along the other: both leave by the same arms)
+                            var bq = refs[q].j.approaches[refs[q].i];
+                            if (Signals2On && bq.node == a.node && (dq > 0f || (map.edges[a.edge].oneway && map.edges[bq.edge].oneway))) { mn = -1f; S2.mergePhases++; break; }
                             mn = Mathf.Min(mn, Mathf.Abs(dq));
                         }
                         if (mn >= cosAxis && mn > bestMin) { bestMin = mn; best = x; }

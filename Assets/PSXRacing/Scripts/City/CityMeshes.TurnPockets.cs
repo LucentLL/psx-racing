@@ -38,16 +38,20 @@ namespace PSXRacing.City
     //  (the median dress). The paint: the yellow left edge line rides the
     //  pocket; a solid white lane line (MkAuxLS) between the pocket and the
     //  through lanes over the storage; a left arrow in the pocket.
-    //  OFF BY DEFAULT (PSX_CITY_TURNPOCKETS=1 draws them), 2026-11-10: on the
-    //  merged head the city-wide launch audit kept its 91 LAUNCH spots but
-    //  counted 3 new UNLOAD spots (6-10 cm, each on a pocket junction's wider
-    //  fan: 565 -> 568). Those junctions are in PocketSkipNodes now, but the
-    //  audit was not run again, nor the traffic check or the flicker finder
-    //  (the session was wound down): default ON once those three are green.
+    //  ON BY DEFAULT since 2026-11-15 (PSX_CITY_TURNPOCKETS=0: the roads as
+    //  they were). 2026-11-10 left them off: the city-wide launch audit kept
+    //  its 91 LAUNCH spots but counted 3 new UNLOAD spots (6-10 cm, each on a
+    //  pocket junction's wider fan: 565 -> 568); those junctions went into
+    //  PocketSkipNodes and the audit was not run again. 2026-11-15 (signals
+    //  round 2), on mountain-nm 50c8a3aa, off then on in fresh processes,
+    //  city-wide: 91 LAUNCH / 564 UNLOAD both, by tier identical, 0 flown
+    //  turns off the pavement both; one existing UNLOAD spot 1.4 cm deeper
+    //  (0.062 -> 0.076 m, the ramp e4930 beside Johnston Rd's n2813), two
+    //  2-2.6 cm shallower. 246 pockets, 188 of them at a signalised junction.
     // ======================================================================
     public static partial class CityMeshes
     {
-        public static readonly bool TurnPocketsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURNPOCKETS") == "1";
+        public static readonly bool TurnPocketsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TURNPOCKETS") != "0";
         /// <summary>The tag a pocket's aux ease carries (no merge zone's).</summary>
         public const long PocketTag = long.MinValue + 11;
         /// <summary>The pocket's lane (11 ft), the least it is drawn at (10 ft), and the island left beside it.</summary>

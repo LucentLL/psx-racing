@@ -249,6 +249,83 @@ namespace PSXRacing.EditorTools
             }
             if (CityMeshes.TurnPockets.Count > 0) Line($"  pockets at a signalised junction: {pkSig} of {CityMeshes.TurnPockets.Count}");
 
+            // ---- the furniture as built (PSX_CTL_FURNISH=1): every junction tile's poles, heads and signs, and what they cost
+            var headsOf = new Dictionary<long, (int heads, int view)>();
+            if (System.Environment.GetEnvironmentVariable("PSX_CTL_FURNISH") == "1")
+            {
+                var bld = CityBuildings.Precompute(map);
+                var tiles = CitySignals.Tiles(map, trims);
+                long tris = 0; double ms = 0; int heads = 0, poles = 0, stopSigns = 0, refused = 0, sigAppN = 0, noHead = 0, noView = 0, bars = 0;
+                var noHeadAt = new List<string>();
+                foreach (var t in tiles)
+                {
+                    var st = CitySignals.Build(map, trims, bld, null, null, t.x, t.y);
+                    ms += st.ms; heads += st.heads.Count; poles += st.poles.Count; stopSigns += st.stops.Count; refused += st.refused; bars += st.stopBars;
+                    foreach (var m in new[] { st.mesh, st.lamps, st.halos })
+                    {
+                        if (m == null) continue;
+                        for (int sm = 0; sm < m.subMeshCount; sm++) tris += m.GetIndexCount(sm) / 3;
+                        Object.DestroyImmediate(m);
+                    }
+                    foreach (var ah in st.approachHeads)
+                    {
+                        sigAppN++;
+                        headsOf[((long)ah.junction << 8) | (uint)ah.approach] = (ah.heads, ah.view);
+                        if (ah.heads == 0) { noHead++; if (noHeadAt.Count < 60) { var jj = all[ah.junction]; noHeadAt.Add($"{LatLon(jj.centre.x, jj.centre.y)} n{jj.nodes[0]} [{CtlNames(map, jj.nodes)}] approach e{jj.approaches[ah.approach].edge}"); } }
+                        else if (ah.view == 0) noView++;
+                    }
+                }
+                Line(string.Format(inv, "  FURNITURE over {0} junction tiles: {1} signal poles, {2} heads, {3} STOP signs ({4} stop bars; {5} approaches with no clear spot for a sign or pole); signal approaches {6}, with no head at all {7}, with heads but none in the driver's view {8}; {9} triangles in all ({10:0} a tile), {11:0} ms in all ({12:0.00} ms a tile)",
+                    tiles.Count, poles, heads, stopSigns, bars, refused, sigAppN, noHead, noView, tris, tiles.Count > 0 ? (double)tris / tiles.Count : 0, ms, tiles.Count > 0 ? ms / tiles.Count : 0));
+                foreach (var s in noHeadAt) outLog.AppendLine("    NO-HEAD " + s);
+            }
+            // ---- what a 3 x 3 ring of tiles costs (PSX_CTL_RINGS="name:x,z;..."): the tile meshes and the junction furniture
+            string ringSpec = System.Environment.GetEnvironmentVariable("PSX_CTL_RINGS");
+            if (!string.IsNullOrWhiteSpace(ringSpec))
+            {
+                var bld = CityBuildings.Precompute(map);
+                var meshFields = new List<System.Reflection.FieldInfo>();
+                foreach (var mf in typeof(CityMeshes.TileMeshes).GetFields()) if (mf.FieldType == typeof(Mesh)) meshFields.Add(mf);
+                foreach (var spec in ringSpec.Split(';'))
+                {
+                    var q = spec.Split(':'); if (q.Length != 2) continue;
+                    var pq = q[1].Split(',');
+                    if (pq.Length != 2 || !float.TryParse(pq[0], NumberStyles.Float, inv, out float rx) || !float.TryParse(pq[1], NumberStyles.Float, inv, out float rz)) continue;
+                    int cx = Mathf.FloorToInt(rx / CityMeshes.TileSize), cz = Mathf.FloorToInt(rz / CityMeshes.TileSize);
+                    double tTris = 0, tMs = 0, fTris = 0, fMs = 0;
+                    for (int pass = 0; pass < 2; pass++)
+                    {
+                        tTris = tMs = fTris = fMs = 0;
+                        for (int dz = -1; dz <= 1; dz++)
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                var sw = System.Diagnostics.Stopwatch.StartNew();
+                                var tm = CityMeshes.Build(map, trims, bld, cx + dx, cz + dz);
+                                tMs += sw.Elapsed.TotalMilliseconds;
+                                foreach (var mf in meshFields)
+                                {
+                                    var mesh = mf.GetValue(tm) as Mesh; if (mesh == null) continue;
+                                    for (int sm = 0; sm < mesh.subMeshCount; sm++) tTris += mesh.GetIndexCount(sm) / 3;
+                                    Object.DestroyImmediate(mesh);
+                                }
+                                if (CitySignals.AnyIn(map, trims, cx + dx, cz + dz))
+                                {
+                                    var st = CitySignals.Build(map, trims, bld, null, null, cx + dx, cz + dz);
+                                    fMs += st.ms;
+                                    foreach (var m in new[] { st.mesh, st.lamps, st.halos })
+                                    {
+                                        if (m == null) continue;
+                                        for (int sm = 0; sm < m.subMeshCount; sm++) fTris += m.GetIndexCount(sm) / 3;
+                                        Object.DestroyImmediate(m);
+                                    }
+                                }
+                            }
+                    }
+                    Line(string.Format(inv, "  RING {0} (tile {1},{2}; 3 x 3, the warm pass): tile meshes {3:0} triangles a tile, {4:0.0} ms a tile; junction furniture {5:0} triangles a tile, {6:0.00} ms a tile",
+                        q[0], cx, cz, tTris / 9, tMs / 9, fTris / 9, fMs / 9));
+                }
+            }
+
             // ---- named nodes, approach by approach
             string want = System.Environment.GetEnvironmentVariable("PSX_CTL_NODES");
             if (!string.IsNullOrWhiteSpace(want))
@@ -258,11 +335,13 @@ namespace PSXRacing.EditorTools
                     if (!nodeJ.TryGetValue(n, out int ji)) { Line($"  NODE n{n} ({map.nodes[n].x:0},{map.nodes[n].y:0}) [{CtlNames(map, new[] { n })}]: no furnished junction (patch {trims.patch[n]}, mitre {trims.mitre[n]})"); continue; }
                     var j = all[ji];
                     Line($"  NODE n{n} ({map.nodes[n].x:0},{map.nodes[n].y:0}): junction {ji} {CtlKind(j)}{(j.warrant ? " (default)" : "")} [{CtlNames(map, j.nodes)}] nodes {string.Join(",", j.nodes)} centre ({j.centre.x:0},{j.centre.y:0}) phases {j.phases}");
-                    foreach (var a in j.approaches)
+                    for (int ai = 0; ai < j.approaches.Count; ai++)
                     {
+                        var a = j.approaches[ai];
                         var e = map.edges[a.edge];
                         float back = e.b == a.node ? e.length - a.sStop : a.sStop;
-                        Line($"     approach e{a.edge} '{e.name}' into n{a.node}: ctl {a.ctl}, the line {back:0.0} m before the node ({Vector2.Distance(a.at, j.centre):0.0} m from the centre), {a.lanesIn} lanes in, group {a.group}");
+                        string hv = headsOf.TryGetValue(((long)ji << 8) | (uint)ai, out var hh) ? $", heads {hh.heads} (in view {hh.view})" : "";
+                        Line($"     approach e{a.edge} '{e.name}' into n{a.node}: ctl {a.ctl}, the line {back:0.0} m before the node ({Vector2.Distance(a.at, j.centre):0.0} m from the centre), {a.lanesIn} lanes in, group {a.group}{hv}");
                     }
                 }
         }

@@ -40,7 +40,8 @@ namespace PSXRacing.City
     //     does not carry the junction's own stop-line tag (the line is ON
     //     that edge: a slip leaving before it stays outside, as it is built).
     //     An arm too short for its line whose far end is a joint takes the
-    //     joint in: the line stands on the road behind it.
+    //     joint in: the line stands on the road behind it. Every node of the
+    //     same PAVED junction (the meshes' junction cluster) comes in too.
     //   NO NEW SIGNAL WITHOUT A CROSSING  A junction this round makes
     //     (a walked mark, a joint taken in) must have two roads at it: an
     //     undivided road opening into its carriageways beside a signal whose
@@ -80,7 +81,7 @@ namespace PSXRacing.City
 
         public struct Signals2Counts
         {
-            public int rowsAtNode, rowsWalked, rowsNear, rowsBehind, rowsNone, emergency, pedestrian, blinker, blinkerAllWay, linesAtTag,
+            public int rowsAtNode, rowsWalked, rowsNear, rowsBehind, rowsNone, emergency, pedestrian, blinker, blinkerAllWay, linesAtTag, mergePhases, meshNodesIn,
                        chainJoins, joinsHeld, stubsIn, refusedNoCross, refusedArms, released, stopRowsWalked, stopStubs, stopAllWayByRow,
                        stopThroughKept, yieldRowsWalked, localStems, localAllWay;
         }
@@ -96,7 +97,7 @@ namespace PSXRacing.City
             if (!Signals2On) return "signals round 2 OFF (PSX_CITY_SIGNALS2=0)";
             return $"signals round 2: tag rows at a junction {k.rowsAtNode}, walked to the junction ahead {k.rowsWalked}, the nearer junction (no direction) {k.rowsNear}, the junction behind {k.rowsBehind}, none in reach {k.rowsNone}; " +
                    $"not junction signals: emergency {k.emergency}, pedestrian {k.pedestrian}, blinker {k.blinker} ({k.blinkerAllWay} all-way STOP); " +
-                   $"clusters: joined through joints {k.chainJoins}, a node kept out by the stop line's own edge {k.joinsHeld}, joints taken in for a line {k.stubsIn}, stop lines at their tag {k.linesAtTag}, refused {k.refusedArms} (arms / approaches) + {k.refusedNoCross} (one road, no crossing), {k.released} nodes given back; " +
+                   $"clusters: joined through joints {k.chainJoins}, a node kept out by the stop line's own edge {k.joinsHeld}, joints taken in for a line {k.stubsIn}, nodes of the same paved junction taken in {k.meshNodesIn}, stop lines at their tag {k.linesAtTag}, joining flows given their own phase {k.mergePhases}, refused {k.refusedArms} (arms / approaches) + {k.refusedNoCross} (one road, no crossing), {k.released} nodes given back; " +
                    $"STOP rows walked {k.stopRowsWalked}, lines behind a joint {k.stopStubs}, all-way by an approach's tag {k.stopAllWayByRow}, through roads kept moving {k.stopThroughKept}, yield rows walked {k.yieldRowsWalked}; " +
                    $"local streets {(LocalStopsOn ? "on" : "OFF")}: stems / side streets stopped {k.localStems}, all-way {k.localAllWay}";
         }
