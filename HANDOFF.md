@@ -1,4 +1,41 @@
-﻿# HANDOFF - MENU NAVIGATION + ARCADE DAMAGE (agent "uinav", branch ui-nav-arcade, 2026-11-14; NOT pushed, NOT merged)
+﻿# HANDOFF - GT-STYLE SHOWROOM (agent "showroom", branch gt-showroom, 2026-11-15; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-showroom` off mountain-nm eb6fa63a (PC38 + one wizard pad link). Sandbox PSXCity. Owner 2026-11-15: "I want car viewing and car selection to look like the early Gran Turismo games, with the car rotating (or able to be rotated by player)" (reference: a GT2 garage screen). Same KIND of screen in the game's own MenuKit palette; no GT icons, logos, fonts or credit symbol; the drivetrain diagram is drawn from UI rects.
+
+## What changed
+- `CarViewer.Studio.cs` (new, partial of CarViewer): the showroom frame. Rendered at the panel's own pixel size (capped 1920 wide), supersampled 2x on PC/editor (1.5x handheld) and filtered down (the URP assets have MSAA off), bilinear on screen. Studio light through the paint shader's own inputs for that one render, then put back: key light high front-left (_PSXLightDir/_PSXLightColor), fill = ambient/sky ambient, and a generated softbox panorama (overhead box, two tall strips behind the car either side, dim front panel, floor) in `_PSXEnvPano` with `_PSXEnvOn`=1 - the rim and shoulder lines as the car turns; the env globals are saved and restored round the render (CarReflections' in a race). Floor: a soft pool of light (UI/Default disc, queue 1000, drawn before the car), a faint back glow, the contact blob plus a wider soft one. Turning: idle spin 18 deg/s, drag with a little inertia, right stick and , . (`CarViewer.TurnInput`), idle spin eases back 3 s after the last input. `Tick(now, dt)` is the clock (Update calls it; the probe drives it). HD car maps come with the shared livery materials (CarHD) as before.
+- `CarViewer.cs`: partial; RenderNow -> RenderStudio when a showroom is attached, else `RenderClassic` (the old body, untouched); AttachTo / Snapshot / the inspection poses leave the showroom and draw exactly the old 320x200 point-filtered frame; CarViewerDrag routes horizontal drags to the studio turn (no tap-flip on the big stage).
+- `Showroom.cs` (new): the card + stage builder. Big bold italic model name, make and year (+ "3 / 12") right and the page's tag (NEW / the lane / where the car is) left under it, the stage with < > buttons, DRAG TO TURN, the livery's colour name bottom right ONLY when its baked name has colour words (`PaintName`, never invented), then three columns: price/value + note, the drivetrain diagram (body outline, driven wheels/axles/shafts lit, engine block where it sits; FF FR MR RR 4WD) with year / hp / kg, and the page's actions. LEFT/RIGHT on the arrows (d-pad, arrow keys) step the car and keep the cursor (`ShowroomBrowseKeys`, after Selectable.OnMove, the MenuNavScroll pattern); a sideways swipe over the name browses (`ShowroomSwipe`; vertical drags go to the page scroll). LB/RB, PageUp/PageDown untouched.
+- Pages (`LifeHomeScreen.Showroom.cs` new + hooks in LifeHomeScreen.cs): car page = the stage at the top (LEFT/RIGHT through the garage), everything it had below (status, bars, IN THIS CAR, SPECS, PARTS + TUNING, INSPECT, WASH, SELL, notes, faults + repairs); MY CARS = one car at a time (OPEN THIS CAR, GET IN / IN THIS CAR / NOT HERE; where it is, fuel, condition, faults), then TOOLBOX / FUEL TRUCK / STORED PARTS / STORED WHEELS, then the list as before; dealer = the lot one car at a time, new first (LOOK IT OVER opens the same viewing a row did: test drive, offers, BUY), the trade-in block under it; the viewing and the classifieds' BUY page show their car on the stage; NEW GAME pick = the three lanes one at a time (DRIVE THIS ONE commits as the close-up does, FULL SHEET opens the old close-up; its BACK returns). City edition PICK A CAR: a make's page has the stage over its list (DRIVE THIS ONE). Arcade car card: its turntable panel is the studio frame (no browse there).
+- Switch: `PSX_SHOWROOM=0` (Showroom.On) builds every page as before (each hook falls back to the old code).
+- Editor: `ShowroomPreview.cs` (new; "PSX Racing/Preview Showroom", `CaptureWithNav` also runs NavScrollPreview); LifeHomePreview.Shoot redraws a showroom at the laid-out size before the photo and logs it.
+
+## Checks (see the round's numbers below)
+- Pictures (PSXCity `Screenshots/showroom`, `ShowroomPreview.CaptureWithNav`): NEW GAME pick, MY CARS (+ the 3rd car), car page (+ an RR car), dealer (+ the last used car), a lot viewing, the city edition's make page; owner_2000x1077, landscape_16x9, tablet_4x3, phone_wide, phone_640x360 (the browse/viewing extras at owner + phone_wide); `sr_off_*` = PSX_SHOWROOM=0 (the old car page and MY CARS). Contact sheet of the round: scratchpad `showroom\showroom_contact_sheet.png`.
+- Stage drawn at 1900x433 px (owner window, scroll pages), 1823x435 (NEW GAME), 608x152 (640x360).
+- Control overlaps: 0 in 33 checks. CLIP: 0 lines on the showroom pages (the run's 39 CLIP lines are all NavScrollPreview's pause-menu settings at 640x360 / 780x340, untouched here). Pad reach (CheckNavReach): every control reachable on all 31 shots.
+- BROWSE probe: LEFT / RIGHT on the arrows step -1 / +1 and keep the cursor on 31/31 shots.
+- TURN probe: idle 18.0 deg/s; a 240 px drag turned 72.9 deg (pre-layout stage width; ~38 deg on the owner's 1900 px stage), coasted 37 deg (edit-mode drag speed is inflated: dt floor 1/240), 0.1 deg in the 1.6 s after (held), 18.0 deg/s again after 3 s; a virtual pad's right stick read 1.00 and turned the car 100 deg in 0.5 s.
+- NavScrollPreview (the owner's pad rule): car page with 10 faults and no money, page end REACHED and the last fault row ON SCREEN at owner / phone_wide / 16:9 / 4:3; 0 FAIL.
+- Self-test: 62 FAIL = base 62. One swap, both car-asset checks on the sandbox's own Resources (not synced by these jobs, not touched here): new "every library key has a baked prefab (got flatsix_coupe_87)", gone "every shell has a body and a wheel mesh (got 1 without)".
+
+## What still looks off (from the pictures)
+- On the owner's 2000x1077 window (the 560-unit handheld column) the stage is wide and short (~4.4:1) and the band under it (value, figures, the second button) runs under the fold on the scroll pages; NEW GAME's pick fits whole.
+- The cars are the game's shells: 512x256 point-sampled sheets in the editor (blocky at this size; CarHD should help on PC), and catalog cars sharing one shell look alike on the stage.
+- The background is near black with a faint glow; the rim/shoulder highlights are subtle.
+
+## At merge
+- New files with hand-made metas: Scripts/LifeSim/CarViewer.Studio.cs, Showroom.cs, LifeHomeScreen.Showroom.cs, Editor/ShowroomPreview.cs. CarViewer is now `partial`.
+- Touched: LifeHomeScreen.cs (BuildCarPick, Rebuild, the turntable stick block, DrawCarView, BuildGarage, BuildCarMenu, BuildDealer), ArcadeFrontEnd.cs (BuildCarCard, Update), CityFrontEnd.cs (Rebuild, BuildMakePage, WireNavigation, Update), LifeHomePreview.Shoot (redraw a showroom before the photo).
+- Worth a look in the PC build: frame time with a showroom open, the CarHD sheets on the stage, the pad on a real screen (DOWN from the arrows).
+
+## Not done / not verified
+- No player build, no Android run, no frame-time measurement of the bigger render (PC: one car at up to 3840x~900 supersampled per frame; handheld 1.5x).
+- Editor pictures show the classic 512x256 car sheets (PSX_CAR_HD off in the editor, HD bundle not in the sandbox).
+- Paint shop / specs / service / tune keep their side-panel turntable (classic); the arcade car card is not browsable; the market (classifieds list) and junkyard lists are unchanged.
+- The pad's DOWN from the arrows could not be judged in the harness (MenuNav's 4-unit line floor vs a 10-world-unit camera canvas); CheckNavReach reports every control reachable.
+
+# HANDOFF - MENU NAVIGATION + ARCADE DAMAGE (agent "uinav", branch ui-nav-arcade, 2026-11-14; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-uinav` off mountain-nm 8d656a01 (PC37). Sandbox PSXCity. Owner 2026-11-14: car faults unreachable on a pad (DOWN wrapped to the top); OPTIONS > VISUALS rows overlapping, no scroll; nothing may overlay a button or text. Coordinator: NEW GAME wizard at 2000x1077 (1.86:1), NEXT over PREMIUM and the plan terms.
 
