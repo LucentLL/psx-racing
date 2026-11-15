@@ -1474,6 +1474,18 @@ namespace PSXRacing.EditorTools
                 CheckNavReach(arcade != null ? (Component)arcade : city != null ? (Component)city : screen, label + "/" + size.name);
                 if (arcadePage != null) ArcadeMode.Simulate(false);
 
+                // A showroom stage (CarViewer's studio frame) is drawn at its
+                // panel's pixel size, which only the laid-out rect knows: draw
+                // it again now that the canvas has its real scale.
+                foreach (var v in Object.FindObjectsByType<CarViewer>(FindObjectsSortMode.None))
+                    if (v.Studio)
+                    {
+                        v.RenderNow();
+                        if (v.StudioTexture != null)
+                            Debug.Log("[HomePreview] " + label + "/" + size.name + " showroom stage drawn at " +
+                                      v.StudioTexture.width + "x" + v.StudioTexture.height + " px");
+                    }
+
                 cam.Render();
                 var prev = RenderTexture.active;
                 RenderTexture.active = rt;
