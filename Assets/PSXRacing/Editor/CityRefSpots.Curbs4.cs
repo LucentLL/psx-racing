@@ -140,6 +140,49 @@ namespace PSXRacing.EditorTools
                     }
                     else log.Append("bulb: none chosen\n");
                 }
+                // a second bulb, on a roll-curb house street (its houses' driveways run off the rim): the after run picks, the base run reads
+                {
+                    string bf = Path.Combine(root, "curbs4_bulb2.txt");
+                    int node = -1;
+                    var trims = world.NodeTrims;
+                    if (label != "base" && trims != null && trims.bulb != null)
+                    {
+                        float bd = float.MaxValue; var at = new Vector2(3392.0f, 9283.2f);
+                        var dl = new List<CityHouses.Driveway>();
+                        for (int n = 0; n < map.nodes.Length; n++)
+                        {
+                            if (!trims.bulb[n] || map.nodeEdges[n].Count != 1) continue;
+                            var be = map.edges[map.nodeEdges[n][0]];
+                            if (be.cls != 0 || !CityMeshes.CurbOnly(map, be)) continue;
+                            float d = Vector2.Distance(map.nodes[n], at);
+                            if (d >= bd) continue;
+                            // with at least two driveways off its rim
+                            CityHouses.DrivewaysNearBound(map, map.nodes[n] - Vector2.one * 45f, map.nodes[n] + Vector2.one * 45f, dl);
+                            int rim = 0;
+                            foreach (var dv in dl) if (Mathf.Abs(Vector2.Distance(dv.foot, trims.bulbC[n]) - trims.bulbRad[n]) < 0.3f) rim++;
+                            if (rim < 2) continue;
+                            bd = d; node = n;
+                        }
+                        if (node >= 0) File.WriteAllText(bf, node.ToString(CultureInfo.InvariantCulture));
+                    }
+                    else if (File.Exists(bf)) int.TryParse(File.ReadAllText(bf).Trim(), out node);
+                    if (node >= 0 && node < map.nodes.Length && map.nodeEdges[node].Count == 1)
+                    {
+                        var e = map.edges[map.nodeEdges[node][0]];
+                        bool endB = e.b == node;
+                        float sEnd = endB ? e.length : 0f;
+                        var tn = e.TangentAt(sEnd) * (endB ? 1f : -1f);
+                        var np = map.nodes[node];
+                        var n3 = new Vector3(np.x, e.YAt(sEnd), np.y);
+                        var f3 = new Vector3(tn.x, 0f, tn.y);
+                        Vector3 high = n3 - f3 * 24f + Vector3.up * 15f;
+                        views.Add(("bulb2", "high", high, Quaternion.LookRotation(n3 - f3 * 1f - high), n3));
+                        Vector3 eye = n3 - f3 * 22f + Vector3.up * 1.3f;
+                        views.Add(("bulb2", "eye", eye, Quaternion.LookRotation(n3 + Vector3.up * 0.3f - eye), n3));
+                        log.Append($"bulb2: node {node} e{e.index} '{e.name}' at ({np.x:0.0},{np.y:0.0}), a bulb here {(trims != null && trims.bulb != null && trims.bulb[node])}, bulb driveways laid so far {CityHouses.BulbDrives}\n");
+                    }
+                    else log.Append("bulb2: none chosen\n");
+                }
 
                 Vector3 ringAt = new Vector3(float.NaN, 0f, 0f);
                 foreach (var v in views)
