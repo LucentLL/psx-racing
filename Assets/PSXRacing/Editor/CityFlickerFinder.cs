@@ -291,6 +291,30 @@ namespace PSXRacing.EditorTools
             StreetSpot(map, spots, "West Trade Street", "wtrade0", new Vector2(-2946f, 5406f));
             StreetSpot(map, spots, "West Trade Street", "wtrade1", new Vector2(-3005f, 5459f));
             StreetSpot(map, spots, "West Trade Street", "wtrade2", new Vector2(-3079f, 5525f));
+            // (curbs 3, 11-15) PSX_FLICK_EXTRA "name,x,z;name,x,z": the street nearest each point, looking along it
+            foreach (var part in (System.Environment.GetEnvironmentVariable("PSX_FLICK_EXTRA") ?? "").Split(';'))
+            {
+                var f = part.Split(',');
+                if (f.Length < 3) continue;
+                var at = new Vector2(float.Parse(f[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(f[2], System.Globalization.CultureInfo.InvariantCulture));
+                CityMap.Edge be = null; float bd = float.MaxValue, bs = 0f;
+                foreach (var e in map.edges)
+                {
+                    if (e.a == e.b || e.length < 30f) continue;
+                    CityElevation.ProjectOn(e, at, out float sp);
+                    sp = Mathf.Clamp(sp, 0f, e.length);
+                    float d = Vector2.Distance(e.PointAt(sp), at);
+                    if (d < bd) { bd = d; be = e; bs = sp; }
+                }
+                if (be == null) continue;
+                var ee = be; float s0 = bs;
+                var dir = ee.TangentAt(s0).normalized;
+                spots.Add(new Spot
+                {
+                    name = f[0].Trim(), at = ee.PointAt(s0), dir = dir, y = ee.YAt(s0),
+                    back = b => { float sb = Mathf.Clamp(s0 - b, 0f, ee.length); return (ee.PointAt(sb), ee.TangentAt(sb).normalized, ee.YAt(sb)); },
+                });
+            }
             return spots;
         }
 

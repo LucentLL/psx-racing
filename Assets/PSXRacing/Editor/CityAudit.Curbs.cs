@@ -63,6 +63,21 @@ namespace PSXRacing.EditorTools
                     sb.AppendLine($"  collectors / arterials (1-3): {Row(1)}");
                     double all = 0, curbed = 0;
                     for (int g = 0; g < 2; g++) for (int t = 0; t < 4; t++) { all += km[g, t]; if (t > 0) curbed += km[g, t]; }
+                    if (after)
+                    {
+                        // dead ends: a surface street's end at a node of one edge, with and without a turnaround bulb
+                        int dead = 0, bulbs = 0, deadLocal = 0, bulbsLocal = 0;
+                        for (int nd = 0; nd < map.nodes.Length; nd++)
+                        {
+                            if (map.nodeEdges[nd].Count != 1) continue;
+                            var de = map.edges[map.nodeEdges[nd][0]];
+                            if (de.link || de.cls > 3 || de.tunnel || de.bridge || de.a == de.b) continue;
+                            bool bulb = trims.bulb != null && trims.bulb[nd];
+                            dead++; if (bulb) bulbs++;
+                            if (de.cls == 0) { deadLocal++; if (bulb) bulbsLocal++; }
+                        }
+                        sb.AppendLine($"  dead ends: {dead} street ends ({deadLocal} local), {bulbs} drawn with a turnaround bulb ({bulbsLocal} local), {dead - bulbs} without ({deadLocal - bulbsLocal} local)");
+                    }
                     sb.AppendLine($"  curbed {curbed / 1000:0.0} of {all / 1000:0.0} km of surface street ({100.0 * curbed / System.Math.Max(all, 1):0.0}%); not streets (ramps, freeways, bridges, tunnels) {notStreet / 1000:0.0} km, alleys / drives under two lanes {narrow / 1000:0.0} km");
                 }
 

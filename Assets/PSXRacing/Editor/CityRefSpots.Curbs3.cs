@@ -104,7 +104,7 @@ namespace PSXRacing.EditorTools
                         world.EnsureRing(pos, 1);
                         string m = after ? "after" : "before";
                         log.Append($"  {m}: {CityMeshes.Curbs2Stats.Line()}\n  {m}: {CityMeshes.Curbs3Stats.Line()}\n");
-                        if (pl.inlets)
+                        if (pl.inlets || (after && pl.id == "subdiv"))
                         {
                             bool wantRolled = pl.id == "rolled";
                             int bi = -1; float bdi = 200f;
@@ -131,7 +131,7 @@ namespace PSXRacing.EditorTools
                             }
                             else log.Append($"  {m}: no inlet of the kind on the place's street in the ring\n");
                         }
-                        else if (after && (pl.id == "subdiv" || pl.id == "prewar"))
+                        if (after && (pl.id == "subdiv" || pl.id == "prewar"))
                         {
                             // a driveway of this street: across the road from its mouth
                             var dl = new List<CityHouses.Driveway>();

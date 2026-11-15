@@ -86,7 +86,8 @@ namespace PSXRacing.City
         //      now VERTICAL too, its frontage lawn, not paved (PSX_CITY_PREWAR=0:
         //      rolled with a paved frontage, as 11-11);
         //    else BUILT-UP (a real footprint or a generated building within
-        //      BuiltReachM of the street, or a gap between two built
+        //      BuiltReachM of a third of a local street's length, half of a
+        //      collector's or arterial's, or a gap between two built
         //      stretches):
         //        local (class 0): the ROLL curb alone - CLDSM 10.17B's 2'-0"
         //          valley gutter, CurbOnlyW wide, the lawn from its back; no
@@ -166,10 +167,16 @@ namespace PSXRacing.City
             return e.cls == 0 ? CurbRollOnly | CurbResidBit : CurbVertical;
         }
 
-        /// <summary>A building beside the street (raw), or a gap between two built stretches.</summary>
+        /// <summary>Built-up: the share of the street's reads (every BuiltStepM) with a building within
+        /// BuiltReachM is at least this - a local street a third (house rows with gaps), a collector
+        /// or arterial a half (a road lined with buildings; a country road past a few houses keeps
+        /// its shoulders) - or the street is a gap between two built stretches.</summary>
+        const float BuiltShareLocal = 0.34f, BuiltShareMajor = 0.5f;
+        static float Cs3BuiltNeed(CityMap.Edge e) => e.cls == 0 ? BuiltShareLocal : BuiltShareMajor;
+
         static bool Cs3Built(CityMap map, CityMap.Edge e, out bool sure)
         {
-            if (Cs3BuiltRaw(map, e, out sure)) return true;
+            if (Cs3BuiltShare(map, e, out sure) >= Cs3BuiltNeed(e)) { sure = true; return true; }
             bool a = false, b = false, allSure = sure;
             for (int end = 0; end < 2; end++)
                 foreach (int ei in map.nodeEdges[end == 0 ? e.a : e.b])
@@ -177,30 +184,32 @@ namespace PSXRacing.City
                     if (ei == e.index) continue;
                     var o = map.edges[ei];
                     if (o.link || o.cls > 3 || o.tunnel || o.bridge || o.a == o.b) continue;
-                    bool r = Cs3BuiltRaw(map, o, out bool s2);
-                    allSure &= s2;
+                    bool r = Cs3BuiltShare(map, o, out bool s2) >= Cs3BuiltNeed(o);
+                    allSure &= s2 || r;
                     if (r) { if (end == 0) a = true; else b = true; break; }
                 }
             sure = allSure || (a && b);
             return a && b;
         }
 
-        static bool Cs3BuiltRaw(CityMap map, CityMap.Edge e, out bool sure)
+        /// <summary>The share of the street's reads with a building (a real footprint or a generated
+        /// one) within BuiltReachM. Not sure (not cached) while no tile build has bound the generated
+        /// buildings and the share is short of all.</summary>
+        static float Cs3BuiltShare(CityMap map, CityMap.Edge e, out bool sure)
         {
             sure = true;
             ref sbyte c = ref cs3RawCache[e.index];
-            if (c != 0) return c > 0;
-            bool built = false;
-            int n = Mathf.Clamp(Mathf.CeilToInt(e.length / BuiltStepM), 1, 16);
-            for (int k = 0; k < n && !built; k++)
+            if (c != 0) return (c - 1) / 100f;
+            int n = Mathf.Clamp(Mathf.CeilToInt(e.length / BuiltStepM), 1, 16), hit = 0;
+            for (int k = 0; k < n; k++)
             {
                 var p = e.PointAt(e.length * (k + 0.5f) / n);
-                built = map.AnyFootprintNear(p, BuiltReachM) || CityHouses.ProcBuildingNear(map, p, BuiltReachM);
+                if (map.AnyFootprintNear(p, BuiltReachM) || CityHouses.ProcBuildingNear(map, p, BuiltReachM)) hit++;
             }
-            // (before a tile build has bound the generated buildings, "nothing here" is not known yet)
-            sure = built || CityHouses.BoundTo(map);
-            if (sure) c = (sbyte)(built ? 1 : -1);
-            return built;
+            float share = (float)hit / n;
+            sure = hit == n || CityHouses.BoundTo(map);
+            if (sure) c = (sbyte)(1 + Mathf.RoundToInt(share * 100f));
+            return share;
         }
 
         /// <summary>Does a street's class ease to its node's here (Cs2Mix)? A junction of three
@@ -226,17 +235,20 @@ namespace PSXRacing.City
             if (!RecordHardware || tileDrives.Count == 0 || wA <= 0f || wB <= 0f || sB - sA < 0.05f) return;
             foreach (var d in tileDrives)
             {
-                if (d.edge != e.index || d.toLot || d.s < sA || d.s >= sB || Vector2.Dot(d.nrm, outA) <= 0f) continue;
-                float t = (d.s - sA) / (sB - sA);
+                if (d.edge != e.index || d.toLot || Vector2.Dot(d.nrm, outA) <= 0f) continue;
+                // the mouth's own arc (a driveway threaded skew between buildings meets the street off d.s)
+                CityElevation.ProjectOn(e, d.foot, out float ds);
+                if (ds < sA || ds >= sB) continue;
+                float t = (ds - sA) / (sB - sA);
                 int j = 1;
                 while (j < cutT.Count - 1 && cutT[j] < t) j++;
                 float c = Mathf.Lerp(cutC[j - 1], cutC[j], Mathf.Clamp01((t - cutT[j - 1]) / Mathf.Max(cutT[j] - cutT[j - 1], 1e-4f)));
-                float r = WalkRollAt(map, e, d.s), k = Cs3K(side, d.s);
+                float r = WalkRollAt(map, e, ds), k = Cs3K(side, ds);
                 // the step a wheel meets: a rolled section has none (a ramp); a vertical one its face
                 float step = r >= 0.5f && k < 0.5f ? 0f : Mathf.Lerp(VCurbH, RCurbH, r) * c;
                 if (r >= 0.5f && k < 0.5f) DrivesRoll++;
                 else if (step <= 0.03f) DrivesCut++;
-                else { DrivesFace++; if (DrivesFaceAt.Count < 40) DrivesFaceAt.Add($"e{e.index} '{e.name}' s {d.s:0.0} at ({d.foot.x:0.0},{d.foot.y:0.0}) step {step * 100f:0.0} cm r {r:0.00} k {k:0.00}"); }
+                else { DrivesFace++; if (DrivesFaceAt.Count < 40) DrivesFaceAt.Add($"e{e.index} '{e.name}' s {ds:0.0} at ({d.foot.x:0.0},{d.foot.y:0.0}) step {step * 100f:0.0} cm r {r:0.00} k {k:0.00}"); }
             }
         }
 

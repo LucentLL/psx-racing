@@ -1226,7 +1226,10 @@ namespace PSXRacing.City
                 var ou = Vector2.Lerp(outA, outB, tc).normalized;
                 var ep = Vector3.LerpUnclamped(eA, eB, t);
                 float ax = ep.x + o.x + ou.x * w * 0.5f, az = ep.z + o.z + ou.y * w * 0.5f;
-                return ApronAt(map, ax, az) || (CurbOpeningAt != null && CurbOpeningAt(map, ax, az));
+                if (ApronAt(map, ax, az) || (CurbOpeningAt != null && CurbOpeningAt(map, ax, az))) return true;
+                // (curbs 3) a driveway that starts behind the walk's middle (its street's model edge past the drawn one) is a mouth too
+                if (!Curbs3On || w < 1.0f) return false;
+                return DriveApronAt(ep.x + o.x + ou.x * (w - 0.1f), ep.z + o.z + ou.y * (w - 0.1f));
             }
             // wingCutU: the apron's intervals along the span [u0, u1], their
             // ends found to 6 cm (both spans either side of a joint find the
@@ -1526,10 +1529,11 @@ namespace PSXRacing.City
             }
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
             // the curbs pass (11-05): the ground behind the walk is its backing (CityMeshes.WalkBack)
-            // (curbs 3) behind a roll curb alone the plain verge: the lawn from the curb's back
-            bool curbOnly = CurbOnly(map, e);
+            // (curbs 3) behind a roll curb alone too: the lawn level from the curb's back, then its bank to the land.
+            // (The plain verge fell away at 4% from the roll's crest: driven at Bilmark Ave, CityCurbDrive 11-15, square on
+            // at 40 km/h every wheel left it for 0.23 s and at 45 deg 80 km/h for 0.15 s, where 11-11's rolled walk gave 0 / 0.02 s.)
             float wMin = Cs3WalkMin(map, e);
-            verge.backing = !curbOnly;
+            verge.backing = true;
             walkBackEdge = e.index;
             cs3NoCutNow = Cs3NoCut(map, e);
             // CURB CUTS: where the walk crosses a lot entrance's apron or a
