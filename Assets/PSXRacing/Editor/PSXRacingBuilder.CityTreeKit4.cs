@@ -39,8 +39,10 @@ namespace PSXRacing.EditorTools
         const string CT4Gen = CT4Dir + "/Gen";
         /// <summary>A distance card's cell (px, as AddStripImpostor reads it) and the supersampling.</summary>
         const int CT4Cell = 256, CT4SS = 2;
-        /// <summary>The impostor's tint against the mesh levels (the baked light is the sheet's own).</summary>
-        static readonly Color CT4ImpTint = new Color(0.96f, 0.97f, 0.94f);
+        /// <summary>The impostor's tint against the mesh levels (the baked light is the sheet's own). Measured
+        /// on Providence Rd, every tree drawn as its mesh v as its card, same view: foliage luminance 83 v 51
+        /// at 0.96 (the sheet's baked shade and the card's up-tilted normal), the hue alike - x1.63.</summary>
+        static readonly Color CT4ImpTint = new Color(1.55f, 1.57f, 1.52f);
 
         struct CT4Form
         {
