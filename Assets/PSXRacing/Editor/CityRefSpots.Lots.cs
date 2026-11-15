@@ -44,7 +44,7 @@ namespace PSXRacing.EditorTools
             if (System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_KEEP") != "1")
                 foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
             string posesEnv = System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_POSES");
-            var want = new HashSet<string>((string.IsNullOrEmpty(posesEnv) ? "owner,eye,square,in,plan" : posesEnv).Split(','));
+            var want = new HashSet<string>((string.IsNullOrEmpty(posesEnv) ? "owner,ownerA,ownerB,ownerC,eye,square,in,plan" : posesEnv).Split(','));
             int code = 0, shots = 0;
             try
             {
@@ -62,6 +62,29 @@ namespace PSXRacing.EditorTools
                 if (string.IsNullOrEmpty(env)) throw new System.Exception("PSX_LOTSHOT_SITES not set");
                 int n = 0;
                 var flick = new StringBuilder(); var sites = new StringBuilder();
+                {
+                    // (finding a place by what stands there) the food props and the gabled footprints within r of a point
+                    string fn = System.Environment.GetEnvironmentVariable("PSX_LOTSHOT_FOODNEAR");
+                    if (!string.IsNullOrEmpty(fn))
+                    {
+                        var c = fn.Split(',');
+                        var at = new Vector2(float.Parse(c[0], I), float.Parse(c[1], I)); float rr = float.Parse(c[2], I);
+                        foreach (var kv in CityBuildings.Precompute(map))
+                            foreach (var b in kv.Value)
+                                if (b.kind != 0 && (b.pos - at).magnitude < rr)
+                                    log.Append(string.Format(I, "PROP kind {0}{1} at ({2:0.0}, {3:0.0}) yaw {4:0} deg, {5:0.0} x {6:0.0} m\n", b.kind, CityProps.IsFood(b.kind) ? " FOOD" : "", b.pos.x, b.pos.y, b.yaw * Mathf.Rad2Deg, b.w, b.d));
+                        foreach (var fp in map.footprints)
+                            if (fp.gable && !fp.replaced && (fp.centre - at).magnitude < rr && fp.hu * fp.hv * 4f > 150f)
+                                log.Append(string.Format(I, "GABLE footprint at ({0:0.0}, {1:0.0}) {2:0.0} x {3:0.0} m\n", fp.centre.x, fp.centre.y, fp.hu * 2f, fp.hv * 2f));
+                        for (int li = 0; li < map.lots.Length; li++)
+                        {
+                            var L = map.lots[li];
+                            if (L.ring == null || L.ring.Length < 3 || L.aisleOnly) continue;
+                            var lc = new Vector2(0.5f * (L.box.x + L.box.z), 0.5f * (L.box.y + L.box.w));
+                            if ((lc - at).magnitude < rr) log.Append(string.Format(I, "LOT {0} at ({1:0.0}, {2:0.0}) box {3:0} x {4:0} m\n", li, lc.x, lc.y, L.box.z - L.box.x, L.box.w - L.box.y));
+                        }
+                    }
+                }
                 foreach (var spec in env.Split('|'))
                 {
                     var f = spec.Split(';');
@@ -99,6 +122,12 @@ namespace PSXRacing.EditorTools
                     // the owner's: in the far lanes, heading the other way, looking ahead-left across the street at the lot
                     Vector3 ow = M - N * Mathf.Min(roadW - 1.6f, 6.2f) + F * 8f + Vector3.up * 1.25f;
                     poses.Add(("owner", ow, Quaternion.LookRotation(M + N * (gap * 0.4f + 5f) - F * 2f + Vector3.up * 0.4f - ow), false));
+                    // (the owner's own picture: on the centre line before the lot, turned toward it - three tries)
+                    for (int v = 0; v < 3; v++)
+                    {
+                        Vector3 oc = M - N * Mathf.Min(roadW * 0.5f + 0.5f, 5f) + F * (10f + 4f * v) + Vector3.up * 1.25f;
+                        poses.Add(("owner" + (char)('A' + v), oc, Quaternion.LookRotation(M + N * 12f + F * (2f * v - 2f) + Vector3.up * 0.6f - oc), false));
+                    }
                     Vector3 eye = M - N * 1.8f - F * 16f + Vector3.up * 1.15f;
                     poses.Add(("eye", eye, Quaternion.LookRotation(M + N * (gap * 0.5f + 1.5f) + Vector3.up * 0.2f - eye), false));
                     Vector3 sq = M - N * Mathf.Min(roadW - 0.8f, 9f) + Vector3.up * 1.5f - F * 2.5f;
@@ -108,11 +137,13 @@ namespace PSXRacing.EditorTools
                     // the plan: straight down, the lot at the top, 24 m across the street's line
                     Vector3 pc = M + N * 4f;
                     poses.Add(("plan", pc + Vector3.up * 80f, Quaternion.LookRotation(Vector3.down, N), true));
+                    float halfE = CityMeshes.LotEntThroatHalf;
+                    { int en0 = CityMeshes.LotEntranceNear(map, mouth, out float dn0); if (en0 >= 0 && dn0 < 3f) halfE = map.lotEntrances[en0].half; }
                     float planHalf = 6.75f;   // metres up and down the picture (13.5 m tall, 24 m wide at 16:9)
                     log.Append(string.Format(I, "{0}\t{1}\te{2} '{3}' cls {4} s {5:0} side {6} walk {7}; mouth ({8:0.0}, {9:0.0}); the lot's asphalt {10:0.0} m from the pavement\n",
                         n, f[0], e.index, e.name, e.cls, s, side, CityMeshes.WalkSide(map, e, side), mouth.x, mouth.y, gap));
                     log.Append(string.Format(I, "PLAN\t{0}\t{1:0.000}\t{2:0.000}\t{3:0.0000}\t{4:0.0000}\t{5:0.000}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9}\t{10:0.00}\n",
-                        n, pc.x, pc.z, N.x, N.z, planHalf, gap, CityMeshes.LotEntThroatHalf, CityMeshes.LotEntTaperM, CityMeshes.WalkSide(map, e, side) ? 1 : 0, roadW));
+                        n, pc.x, pc.z, N.x, N.z, planHalf, gap, halfE, CityMeshes.LotEntTaperM, CityMeshes.WalkWidthForTools(map, e, side).ToString("0.00", I) + (CityMeshes.CurbCutForTools(map, e) ? "" : "r"), roadW));
                     {
                         var fa = M - N * 1.8f - F * 12f; var fd = (F * 12f + N * (1.8f + gap * 0.5f + 2f)).normalized;
                         flick.Append(flick.Length > 0 ? "|" : "").Append(string.Format(I, "lot{0};{1:0.0};{2:0.0};{3:0.000};{4:0.000}", n, fa.x, fa.z, fd.x, fd.z));
