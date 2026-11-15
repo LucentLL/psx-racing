@@ -126,6 +126,21 @@ namespace PSXRacing.EditorTools
                 if (v == null) { sb.Append("\n  (no " + f.stem + ": the FBX did not load)"); continue; }
                 int leafSub = System.Array.IndexOf(v.leafSub, true);
                 if (leafSub < 0) { sb.Append("\n  (no " + f.stem + ": no leaf submesh found)"); continue; }
+                // THE DELIVERY'S FOOT IS ITS PIVOT (the trunk's foot at the origin, ground level). LoadVariant takes
+                // the foot as the bark's 2nd-percentile height, which on the packs' trunks (root flares, rings all
+                // the way down) is the ground; on these lean trunks (few rings low down, thousands in the limbs) it
+                // is 0.15-2.4 m up the stem - the tree stood that deep in the ground, up to 2.4 m short (measured
+                // height + that offset = the delivery's index height, every form). Seated on the pivot here.
+                {
+                    var q0 = v.pre.MultiplyPoint3x4(Vector3.zero);
+                    if (q0.y > -3f && q0.y < 0.5f && new Vector2(q0.x, q0.z).magnitude < 1.2f)
+                    {
+                        v.pre = Matrix4x4.Translate(-q0) * v.pre;
+                        v.height = Mathf.Max(0.3f, v.height - q0.y);
+                        if (q0.y < -0.05f) sb.Append($"\n  {f.stem}: seated on its pivot (LoadVariant's foot {-q0.y:0.00} m up the stem, {new Vector2(q0.x, q0.z).magnitude:0.00} m across) -> {v.height:0.0} m");
+                    }
+                    else sb.Append($"\n  (WARN {f.stem}: the pivot is not a trunk foot ({q0.x:0.00}, {q0.y:0.00}, {q0.z:0.00}): LoadVariant's foot kept)");
+                }
                 var summer = CT4Leaf("CT4_leaf_" + f.leaf, leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), default, 0f, LeafBrightness);
                 v.mats[leafSub] = summer;
                 Material fall = summer, spring = summer;
