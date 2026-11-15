@@ -1,0 +1,3 @@
+# ON-STREET PARKING seen in street-level views (CityMeshes.Parking; tools/city/lanes2.mjs reads this beside the map's own parking tags).
+# way	both|left|right (of the way's direction)	road	evidence
+1026710639	both	East Boulevard	view Dec 2025 at no. 425: one lane each way, cars parked along both curbs, street trees

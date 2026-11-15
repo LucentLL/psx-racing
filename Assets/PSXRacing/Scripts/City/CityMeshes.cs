@@ -1886,6 +1886,8 @@ namespace PSXRacing.City
             BuildBranchAprons(map, t);
             // Five Points round 6: a slip lane widened on the inside of its curve
             BuildSlipWidening(map, t);
+            // the lanes round (11-15): on-street parking lanes, pavement beside the travel lanes (CityMeshes.Parking)
+            BuildParkingLanes(map, t);
             // the arterials pass (11-10): a left-turn pocket before a median opening
             BuildTurnPockets(map, t);
             // leftover item 4: the bulbs' necks, on the street's final extents

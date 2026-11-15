@@ -9,12 +9,12 @@
 // counts. The points are NOT taken from the override export: the graph never moves.
 //
 //   LAN2  u32 version (1) | u32 n | n x { u32 edge; u8 lanes; u8 turn; u8 nF; u8 nB; u8 centre;
-//         u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 0 }      (16 bytes a row)
+//         u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 parking }   (16 bytes a row; parking: 1 left, 2 right)
 //         | the override export's TAPR section, verbatim
 //         | the override export's SPLT section, verbatim (a split's carriageway offsets follow the lane count)
 //
 //   node tools/city/lanes2.mjs --with <dir of the override export> [--in <charlotte_city.bytes>] [--out <path>] [--dry]
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCity, graphHash, hashHex } from './lib/citydata.mjs';
@@ -26,6 +26,33 @@ const inPath = val('--in') || join(HERE, '..', '..', 'Assets', 'PSXRacing', 'Res
 const withDir = val('--with');
 const outPath = val('--out') || inPath;
 const dry = args.includes('--dry');
+// ON-STREET PARKING (CityMeshes.Parking): a parking lane on a way's left / right, from the map's own parking tags
+// (--cache <the Overpass cache>: ways_all.json, streets_core.json) and from tools/city/parking2.tsv (way, both|left|right,
+// the evidence). The bits go into a row's last u16: 1 the left of a->b, 2 the right.
+const cacheDir = val('--cache');
+const parkOfWay = new Map();
+{
+  const bits = v => v === 'both' ? 3 : v === 'left' ? 1 : v === 'right' ? 2 : 0;
+  let tagged = 0, listed = 0;
+  if (cacheDir) {
+    const yes = v => !!v && /^(lane|street_side|parallel|diagonal|perpendicular|marked|yes|on_street)$/.test(v);
+    for (const f of ['ways_all.json', 'streets_core.json'])
+      for (const w of JSON.parse(readFileSync(join(cacheDir, f), 'utf8')).elements) {
+        if (w.type !== 'way' || !w.tags) continue; const t = w.tags; let b = 0;
+        if (yes(t['parking:lane:both']) || yes(t['parking:both'])) b |= 3;
+        if (yes(t['parking:lane:left']) || yes(t['parking:left'])) b |= 1;
+        if (yes(t['parking:lane:right']) || yes(t['parking:right'])) b |= 2;
+        if (b && !parkOfWay.has(w.id)) { parkOfWay.set(w.id, b); tagged++; }
+      }
+  }
+  const pf = join(HERE, 'parking2.tsv');
+  if (existsSync(pf)) for (const line of readFileSync(pf, 'utf8').split(/\r?\n/)) {
+    if (!line.trim() || line.startsWith('#')) continue;
+    const c = line.split('\t'); const id = parseInt(c[0], 10), b = bits((c[1] || '').trim());
+    if (Number.isFinite(id) && b) { parkOfWay.set(id, (parkOfWay.get(id) || 0) | b); listed++; }
+  }
+  console.log(`parking: ${parkOfWay.size} ways (${tagged} by the map's parking tags${cacheDir ? '' : ' - no --cache given'}, ${listed} rows of parking2.tsv)`);
+}
 if (!withDir) { console.error('usage: node tools/city/lanes2.mjs --with <dir of the override export> [--in file] [--out file] [--dry]'); process.exit(2); }
 
 function table(buf) {
@@ -62,13 +89,15 @@ for (let i = 0; i < cb.edges.length; i++) {
 console.log(`graph hash: shipped ${hb}, the override export ${ho}; edges whose points the override export would move: ${moved}${moved ? ` (largest ${movedMax.toFixed(2)} m; NOT taken: the shipped points stay)` : ''}`);
 
 // ---- the changed edges
-const rows = []; const byName = new Map(); let km = 0;
+const rows = []; const byName = new Map(); let km = 0; let parkEdges = 0, parkM = 0; const parkNames = new Map();
 for (let i = 0; i < cb.edges.length; i++) {
   const a = cb.edges[i], b = co.edges[i];
   const la = a.lset || {}, lb = b.lset || {};
   const lsSame = la.nF === lb.nF && la.nB === lb.nB && la.centre === lb.centre && la.flags === lb.flags && la.turnOnly === lb.turnOnly && la.sub === lb.sub && la.bike === lb.bike;
-  if (a.lanes === b.lanes && a.turn === b.turn && lsSame) continue;
-  rows.push({ i, b, lb });
+  const park = !a.link && !a.bridge && !a.tunnel && a.rank <= 3 ? (parkOfWay.get(a.wayId) || 0) : 0;
+  if (a.lanes === b.lanes && a.turn === b.turn && lsSame && !park) continue;
+  rows.push({ i, b, lb, park });
+  if (park) { parkEdges++; parkM += a.length * (park === 3 ? 2 : 1); parkNames.set(a.name || '(unnamed)', (parkNames.get(a.name || '(unnamed)') || 0) + a.length); }
   if (a.profile.key !== b.profile.key) {
     km += a.length / 1000;
     const k = (a.name || '(unnamed)') + ': ' + a.profile.key + ' -> ' + b.profile.key;
@@ -79,6 +108,8 @@ console.log(`edges with another lane count, centre lane or line set: ${rows.leng
 // --edges <file>: the edges whose drawn section changes, for the audits (CityAudit.RunRoadsSample's PSX_ROADS_DRIVE_EDGES)
 if (val('--edges')) writeFileSync(val('--edges'), rows.filter(r => cb.edges[r.i].profile.key !== r.b.profile.key).map(r => r.i).join(','));
 for (const [k, m] of [...byName].sort((x, y) => y[1] - x[1]).slice(0, 60)) console.log(`   ${k}  ${(m / 1000).toFixed(2)} km`);
+console.log(`edges with a parking lane: ${parkEdges} (${(parkM / 1000).toFixed(1)} km of curb side): ` + [...parkNames].sort((x, y) => y[1] - x[1]).slice(0, 24).map(([k, m]) => `${k} ${(m / 1000).toFixed(2)}`).join(', '));
+if (val('--park-edges')) writeFileSync(val('--park-edges'), rows.filter(r => r.park).map(r => r.i).join(','));
 
 const tapr = bytesOf(ovr, os, 'TAPR');
 if (!tapr) throw new Error('the override export has no TAPR section');
@@ -88,7 +119,7 @@ rows.forEach((r, k) => {
   const o = 8 + k * 16, ls = r.lb;
   head.writeUInt32LE(r.i, o); head.writeUInt8(r.b.lanes, o + 4); head.writeUInt8(r.b.turn ? 1 : 0, o + 5);
   head.writeUInt8(ls.nF || 0, o + 6); head.writeUInt8(ls.nB || 0, o + 7); head.writeUInt8(ls.centre || 0, o + 8); head.writeUInt8(ls.flags || 0, o + 9);
-  head.writeUInt16LE(ls.turnOnly || 0, o + 10); head.writeUInt8(ls.sub || 0, o + 12); head.writeUInt8(ls.bike || 0, o + 13); head.writeUInt16LE(0, o + 14);
+  head.writeUInt16LE(ls.turnOnly || 0, o + 10); head.writeUInt8(ls.sub || 0, o + 12); head.writeUInt8(ls.bike || 0, o + 13); head.writeUInt16LE(r.park || 0, o + 14);
 });
 const splt = bytesOf(ovr, os, 'SPLT');
 if (!splt) throw new Error('the override export has no SPLT section');

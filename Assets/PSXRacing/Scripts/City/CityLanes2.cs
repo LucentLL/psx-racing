@@ -19,7 +19,7 @@ namespace PSXRacing.City
     /// the whole taper list and the split table (a split's offsets follow the lanes).
     ///
     ///   LAN2  u32 version (1) | u32 n | n x { u32 edge; u8 lanes; u8 turn; u8 nF;
-    ///         u8 nB; u8 centre; u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 0 }
+    ///         u8 nB; u8 centre; u8 lsFlags; u16 turnOnly; u8 sub; u8 bike; u16 parking }
     ///         | TAPR's layout: the taper records and ribbon offsets for these counts
     ///         | SPLT's layout: the carriageway splits with their offsets for these counts
     ///
@@ -29,7 +29,9 @@ namespace PSXRacing.City
     {
         public static readonly bool On = System.Environment.GetEnvironmentVariable("PSX_CITY_LANES2") != "0";
 
-        public struct Row { public byte lanes; public bool turn; public byte nF, nB, centre, lsFlags; public ushort turnOnly; public byte sub, bike; }
+        public struct Row { public byte lanes; public bool turn; public byte nF, nB, centre, lsFlags; public ushort turnOnly; public byte sub, bike;
+            /// <summary>On-street parking (CityMeshes.Parking): bit 0 a parking lane left of a->b, bit 1 right.</summary>
+            public ushort park; }
 
         /// <summary>The rows of the map last parsed, by edge (null: no LAN2 section, or switched off).</summary>
         public static Dictionary<int, Row> Rows { get; private set; }
@@ -47,7 +49,7 @@ namespace PSXRacing.City
             {
                 int edge = r.ReadInt32();
                 var row = new Row { lanes = r.ReadByte(), turn = r.ReadByte() != 0, nF = r.ReadByte(), nB = r.ReadByte(), centre = r.ReadByte(), lsFlags = r.ReadByte(), turnOnly = r.ReadUInt16(), sub = r.ReadByte(), bike = r.ReadByte() };
-                r.ReadUInt16();
+                row.park = r.ReadUInt16();
                 rows[edge] = row;
             }
             return rows;

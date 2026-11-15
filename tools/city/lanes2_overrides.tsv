@@ -56,10 +56,10 @@
 1074436848	1	-	-	0	Cindy Lane	ow2	Cindy Lane, view Dec 2025: one lane and a bike lane on each carriageway (the class default drew two)
 #list 249655536	1	-	-	0	Cindy Lane	ow2	Cindy Lane, the next carriageway piece 500 m east: not viewed
 #list 249655537	1	-	-	0	Cindy Lane	ow2	Cindy Lane, the next carriageway piece 500 m east: not viewed
-#list 1363391788	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698 (a creek crossing): two lanes one way, one the other seen; unclear
-#list 681285105	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698 (a creek crossing): two lanes one way, one the other seen; unclear
-#list 681285103	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698 (a creek crossing): two lanes one way, one the other seen; unclear
-#list 681285104	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698 (a creek crossing): two lanes one way, one the other seen; unclear
+1363391788	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+681285105	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+681285103	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
+681285104	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Nov 2025 at no. 5698: two lanes eastbound and a guardrail seen at a creek crossing; four lanes at the four other Monroe Rd views
 #list 699386761	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at no. 5121: wide, lane lines unclear
 #list 699386759	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at no. 5121: wide, lane lines unclear
 #list 701548541	4	-	-	0	Sardis Road	tw2	Sardis Rd, view Nov 2025 at no. 5121: wide, lane lines unclear
@@ -70,3 +70,5 @@
 610673841	4	-	-	0	South Boulevard	tw2	South Blvd at East Blvd (tagged 2), view Dec 2025: four lanes, double yellow
 1442558139	4	-	-	0	South Boulevard	tw2	South Blvd at East Blvd (tagged 2), view Dec 2025: four lanes, double yellow
 648248443	3	1	1	1	East Boulevard	tw2	East Blvd at no. 1709, view Apr 2026: one lane each way and a centre turn lane, parking on the right
+16696690	2	-	-	0	Steele Creek Road	tw4	Steele Creek Rd, view Nov 2025 at no. 7500: two lanes, double yellow, open country (the class default drew four)
+16678393	2	-	-	0	Freedom Drive	tw4	Freedom Dr, view Apr 2026 at no. 6856: two lanes at a rail crossing (the class default drew four)
