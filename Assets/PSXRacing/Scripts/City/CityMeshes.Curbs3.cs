@@ -171,7 +171,12 @@ namespace PSXRacing.City
             if (!Curbs3On) return CurbNone;
             bool built = Cs3Built(map, e, out sure);
             if (!built) return CurbNone;
-            return e.cls == 0 ? CurbRollOnly | CurbResidBit : CurbVertical;
+            if (e.cls == 0) return CurbRollOnly | CurbResidBit;
+            // (hoods 2; the lanes round's street views, scratchpad lanes/EDGES.md 13:20) outside the centre a two-lane state road is a
+            // shoulder section with no curb (9 of 9 places); four-lane avenues (19 of 19) and divided arterials are curbed.
+            // (Under PSX_CITY_STRIP, so that switch off is the 11-15 morning rule.)
+            if (StripOn && !e.oneway && e.lanes < 3) return CurbNone;
+            return CurbVertical;
         }
 
         /// <summary>Built-up: the share of the street's reads (every BuiltStepM) with a building within

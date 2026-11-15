@@ -21,7 +21,8 @@ namespace PSXRacing.City
     //         street): the walk from the curb, as before;
     //       - a local street (the pre-war house streets): curb top 0.152 m,
     //         planting strip 1.83 m, walk 1.52 m;
-    //       - a collector / arterial: curb top 0.152 m, strip 2.25 m (8 ft from
+    //       - a collector / arterial: curb top 0.152 m, strip 1.5 m (the street
+    //         views of 11-15: 1-2 m of grass; first drawn 2.25 m = 8 ft from
     //         the gutter line less the curb, kept inside the 4 m the generated
     //         frontage leaves), walk 1.52 m.
     //     The strip gives way first where room is short (StripMinM, then the
@@ -65,7 +66,7 @@ namespace PSXRacing.City
         public static bool WalkClearOn = System.Environment.GetEnvironmentVariable("PSX_CITY_WALKCLEAR") != "0";
 
         /// <summary>The curb's top (6 in), the standard walk (5 ft), the planting strips.</summary>
-        public const float CurbTopM = 0.152f, WalkStdM = 1.52f, StripLocalM = 1.83f, StripMajorM = 2.25f;
+        public const float CurbTopM = 0.152f, WalkStdM = 1.52f, StripLocalM = 1.83f, StripMajorM = 1.5f;   // (the street views: grass 1-2 m on avenues and divided arterials, 1.5-2 m on local streets)
         const float StripMinM = 0.5f, StoreFrontM = 8f, CornerLandM = 3f;
         /// <summary>CLDSM 11.16: the standard bulb, 31 ft to the gutter lip.</summary>
         public const float StdBulbR = 9.45f;
