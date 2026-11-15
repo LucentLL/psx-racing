@@ -941,6 +941,8 @@ namespace PSXRacing.LifeSim
         /// </summary>
         void BuildCarPick()
         {
+            // THE SHOWROOM: the lanes one at a time on the stage (LifeHomeScreen.Showroom.cs).
+            if (Showroom.On && BuildCarPickShowroom()) return;
             // As tall as its three lanes, not a fixed 640: a wide phone's
             // canvas is ~590 units high and the title went off the top.
             var root = MenuKit.Rect(canvas.transform, "CarPick",
@@ -1412,6 +1414,7 @@ namespace PSXRacing.LifeSim
             if (viewer != null)
             {
                 viewer.SetVisible(false);
+                viewer.LeaveStudio();   // a page with a showroom puts it back
                 viewer.SetPose(CarViewer.ViewPose.Showroom);
             }
             if (tab != "inspectfocus" && tab != "wheels") inspectWheelsOff = false;
@@ -1711,14 +1714,8 @@ namespace PSXRacing.LifeSim
             // page and the paint shop get it for nothing.
             if (viewer != null && viewer.Visible)
             {
-                float turn = 0f;
-                if (pad != null) turn += pad.rightStick.ReadValue().x;
-                if (kb != null)
-                {
-                    if (kb.commaKey.isPressed) turn -= 1f;
-                    if (kb.periodKey.isPressed) turn += 1f;
-                }
-                if (Mathf.Abs(turn) > 0.15f)
+                float turn = CarViewer.TurnInput();
+                if (turn != 0f)
                     viewer.Nudge(-turn * 200f * Time.unscaledDeltaTime);
             }
 
@@ -3264,6 +3261,9 @@ namespace PSXRacing.LifeSim
         {
             // The car panel draws it: it stays put while the page scrolls.
             if (CarSidePage(tab)) { sideSkin = skinOverride; return; }
+            // A car for sale is shown on the showroom stage (the viewing, BUY).
+            if (Showroom.On && owned == null && skinOverride < 0 && (tab == "viewing" || tab == "buy") &&
+                ViewHero(spec, ref y)) return;
             float w = Mathf.Min(ColW, height * 1.6f);
             if (CarViewPanel(spec, 0f, y, w, height, fallbackKey, owned, skinOverride) == null)
                 return;
@@ -3482,7 +3482,8 @@ namespace PSXRacing.LifeSim
                 return;
             }
 
-            BuildDrivingBlock(ref y);
+            // THE SHOWROOM: one car at a time over the list (LifeHomeScreen.Showroom.cs).
+            if (!(Showroom.On && GarageHero(ref y))) BuildDrivingBlock(ref y);
             BuildGarageSwitcher(ref y);
         }
 
@@ -3633,8 +3634,11 @@ namespace PSXRacing.LifeSim
             // them with no scrolling, and only then the notes (owner, 2026-11-06).
             float y = -10f;
             var spec0 = CarCatalog.Get(car.specId);
+            // THE SHOWROOM (owner, 2026-11-15): the car big and turning at the
+            // top, LEFT / RIGHT through the garage, the page under it.
+            bool hero = Showroom.On && CarMenuHero(car, ref y);
             float viewW = Mathf.Min(300f, ColW * 0.42f), viewH = viewW / 1.6f;
-            var view = CarViewPanel(spec0, MenuKit.ColLeft(ColL, viewW), y, viewW, viewH,
+            var view = hero ? null : CarViewPanel(spec0, MenuKit.ColLeft(ColL, viewW), y, viewW, viewH,
                                     CarModelLibrary.Default, car);
             if (view != null)
                 MenuKit.Label(body, "DRAG TO TURN", MenuKit.Tiny, new Vector2(0.5f, 1f),
@@ -3644,10 +3648,13 @@ namespace PSXRacing.LifeSim
             float tx = view != null ? ColL + viewW + 18f : ColL;
             float tw = ColR - tx;
             float ty = y;
-            MenuKit.Label(body, Clip(car.displayName, Mathf.Max(16, Mathf.FloorToInt(tw / 12f))), 20,
-                new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft, MenuKit.Accent,
-                tw, height: 26f, bold: true);
-            ty -= 26f;
+            if (!hero)   // (the stage has the name)
+            {
+                MenuKit.Label(body, Clip(car.displayName, Mathf.Max(16, Mathf.FloorToInt(tw / 12f))), 20,
+                    new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft, MenuKit.Accent,
+                    tw, height: 26f, bold: true);
+                ty -= 26f;
+            }
             MenuKit.Label(body, away
                     ? CarWhere.Label(place) + "  ·  UNAVAILABLE  ·  " + CarWhere.ReadyLabel(S, car)
                     : CarWhere.Label(place) + (driving ? "  ·  YOU ARE DRIVING THIS ONE" : "  ·  PARKED"),
@@ -3682,7 +3689,7 @@ namespace PSXRacing.LifeSim
             // R0b: a word, not a percentage - no cooling figure outside inspection.
             CompactBar("COOLANT", car.coolant, tx, tw, ref ty);
             CompactBar("FUEL", car.fuel, tx, tw, ref ty, exact: true);
-            y = Mathf.Min(ty, y - viewH - 22f) - 8f;
+            y = (hero ? ty : Mathf.Min(ty, y - viewH - 22f)) - 8f;
 
             float gBtnW = Mathf.Min(300f, (ColW - 20f) / 3f);
             float gMid = ColL + gBtnW + 10f;
@@ -6925,8 +6932,12 @@ namespace PSXRacing.LifeSim
             // The showroom, then the forecourt: two sections rather than one
             // shuffled list, because "new and used" is the shop's whole pitch
             // and a NEW tag lost in a column of trade-ins is not a showroom.
-            DealerSection(ref y, "IN THE SHOWROOM — NEW", true);
-            DealerSection(ref y, "ON THE LOT — USED", false);
+            // THE SHOWROOM: the lot one car at a time (LifeHomeScreen.Showroom.cs).
+            if (!(Showroom.On && DealerHero(ref y)))
+            {
+                DealerSection(ref y, "IN THE SHOWROOM — NEW", true);
+                DealerSection(ref y, "ON THE LOT — USED", false);
+            }
 
             y -= 10f;
             ExitRow(ref y, "BACK", () => { tab = "main"; Rebuild(); });

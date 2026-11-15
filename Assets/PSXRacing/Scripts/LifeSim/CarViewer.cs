@@ -24,7 +24,7 @@ namespace PSXRacing.LifeSim
     /// button press, and a render texture reallocated per keypress is how a menu
     /// starts stuttering.
     /// </summary>
-    public class CarViewer : MonoBehaviour
+    public partial class CarViewer : MonoBehaviour
     {
         /// <summary>Resolution of the viewport. Deliberately tiny and point
         /// filtered: this is a PS1 garage, and a crisp 1024-wide render of a
@@ -310,6 +310,7 @@ namespace PSXRacing.LifeSim
 
         void OnDestroy()
         {
+            ReleaseStudioTargets();
             if (cam != null) cam.targetTexture = null;
             if (rt == null) return;
             rt.Release();
@@ -423,6 +424,16 @@ namespace PSXRacing.LifeSim
         {
             EnsureRig();
             if (cam == null || !Visible) return;
+            // The showroom (CarViewer.Studio.cs) draws its own, bigger picture.
+            if (studio && studioImage != null) { RenderStudio(); return; }
+            RenderClassic();
+        }
+
+        /// <summary>The turntable's own 320 x 200 frame: the panels, the
+        /// thumbnails and the inspection views, exactly as before the showroom.</summary>
+        void RenderClassic()
+        {
+            ApplyMode(false);
             // The turntable is spun from Update, which does not run outside play
             // mode either — so a preview would photograph the car at yaw zero,
             // which is square-on from behind rather than the three-quarter the
@@ -597,6 +608,7 @@ namespace PSXRacing.LifeSim
         void Update()
         {
             if (!Visible || rig == null) return;
+            if (studio && pose == ViewPose.Showroom) { Tick(Time.unscaledTime, Time.unscaledDeltaTime); return; }
             yaw += spin * Time.unscaledDeltaTime + dragYaw;
             dragYaw = 0f;
             if (pose != ViewPose.Showroom) yaw = 90f;   // pinned: drags and taps do nothing
@@ -626,7 +638,7 @@ namespace PSXRacing.LifeSim
             Show(spec);
             float keep = yaw;
             yaw = 215f;
-            RenderNow();
+            RenderClassic();   // the thumbnail's frame, even beside a showroom
             yaw = keep;
             var copy = new RenderTexture(width, height, 0, rt.format)
             {
@@ -641,7 +653,11 @@ namespace PSXRacing.LifeSim
         /// <summary>Nudge the turntable. Called by the drag handler on the panel
         /// and by the arrow keys; the idle spin keeps running underneath so a
         /// released car does not just stop dead.</summary>
-        public void Nudge(float degrees) => dragYaw += degrees;
+        public void Nudge(float degrees)
+        {
+            dragYaw += degrees;
+            if (studio) HoldAutoSpin();
+        }
 
         /// <summary>
         /// Attach a viewport to a menu rect: the RawImage that shows the render
@@ -650,6 +666,7 @@ namespace PSXRacing.LifeSim
         public RawImage AttachTo(RectTransform panel)
         {
             EnsureRig();
+            LeaveStudio();   // a panel, not the showroom (no-op unless one was up)
             var go = new GameObject("CarView");
             go.transform.SetParent(panel, false);
             var raw = go.AddComponent<RawImage>();
@@ -694,6 +711,7 @@ namespace PSXRacing.LifeSim
             Vector2 travel = e.position - e.pressPosition;
             routeToScroll = Mathf.Abs(travel.y) > Mathf.Abs(travel.x);
             if (routeToScroll && scroll != null) scroll.OnBeginDrag(e);
+            if (!routeToScroll && viewer != null && viewer.Studio) viewer.BeginTurn();
         }
 
         public void OnDrag(PointerEventData e)
@@ -701,12 +719,14 @@ namespace PSXRacing.LifeSim
             if (routeToScroll) { if (scroll != null) scroll.OnDrag(e); return; }
             // Screen pixels, not canvas units: the gesture should feel the same
             // whether the canvas scaled up or down to fit the device.
+            if (viewer != null && viewer.Studio) { viewer.TurnBy(-e.delta.x * viewer.StudioDegPerPixel); return; }
             if (viewer != null) viewer.Nudge(-e.delta.x * 0.45f);
         }
 
         public void OnEndDrag(PointerEventData e)
         {
             if (routeToScroll && scroll != null) scroll.OnEndDrag(e);
+            else if (viewer != null && viewer.Studio) viewer.EndTurn();
             routeToScroll = false;
         }
 
@@ -714,7 +734,9 @@ namespace PSXRacing.LifeSim
         /// one thing a slow turntable makes you wait for.</summary>
         public void OnPointerClick(PointerEventData e)
         {
-            if (viewer != null && !e.dragging) viewer.Nudge(180f);
+            // (not in the showroom: a big stage is where a page is scrolled
+            // from, and a car that jumps end for end on a tap reads as a glitch)
+            if (viewer != null && !e.dragging && !viewer.Studio) viewer.Nudge(180f);
         }
     }
 }
