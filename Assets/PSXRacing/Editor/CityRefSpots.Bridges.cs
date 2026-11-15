@@ -95,6 +95,34 @@ namespace PSXRacing.EditorTools
                 if (!string.IsNullOrEmpty(specFile) && File.Exists(specFile)) spec += ";" + File.ReadAllText(specFile).Replace("\r", "").Replace("\n", ";");
                 bool concSwitch = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_SWITCH") == "concrete";
                 bool plateWas = CityMeshes.ConcretePlateOn;   // (mode "plate": the gate with its plate rule on)
+                // (concrete round) PSX_BRSHOT_TINT=<the inventory's _pieces.tsv>: after each frame a second one, <name>_tint,
+                // with every stray piece near the eye boxed in its class's colour (the before set in mode "before", else the after set)
+                var tintRows = new List<(bool before, int bits, Vector3 a, Vector3 b, float half, float h)>();
+                string tintFile = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_TINT");
+                if (!string.IsNullOrEmpty(tintFile) && File.Exists(tintFile))
+                {
+                    Dictionary<string, int> col = null;
+                    foreach (var line in File.ReadLines(tintFile))
+                    {
+                        var f = line.Split('\t');
+                        if (col == null) { col = new Dictionary<string, int>(); for (int i = 0; i < f.Length; i++) col[f[i]] = i; continue; }
+                        int bits = int.Parse(f[col["class_bits"]], inv);
+                        if (bits == 0) continue;
+                        float F(string k) => float.Parse(f[col[k]], inv);
+                        tintRows.Add((f[col["set"]] == "before", bits, new Vector3(F("ax"), F("ay"), F("az")), new Vector3(F("bx"), F("by"), F("bz")), F("half"), Mathf.Max(F("hA"), F("hB"))));
+                    }
+                    log.Append($"tint: {tintRows.Count} stray pieces from {tintFile}\n");
+                }
+                var tintShader = Shader.Find("Universal Render Pipeline/Unlit");
+                var tintMats = new Dictionary<int, Material>();
+                // one colour a class, the first that holds: a on pavement red, f bad end orange, d double magenta, b no reason yellow,
+                // c orphan cyan, e starts and stops blue, g up and down green, h / h2 oversize / tall white
+                (int bit, Color c)[] tintOrder =
+                {
+                    (1, new Color(1f, 0f, 0f)), (32, new Color(1f, 0.5f, 0f)), (8, new Color(1f, 0f, 1f)), (2, new Color(1f, 0.9f, 0f)),
+                    (4, new Color(0f, 0.86f, 1f)), (16, new Color(0.16f, 0.31f, 1f)), (64, new Color(0f, 0.9f, 0f)), (128 | 256, Color.white),
+                };
+                var tintObjs = new List<GameObject>();
                 string modesS = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_MODES");
                 if (string.IsNullOrWhiteSpace(modesS)) modesS = "after,before";
                 var modes = modesS.Split(',');
@@ -241,6 +269,32 @@ namespace PSXRacing.EditorTools
                             CarLights.PushGlobals();
                             PSXScreenshotTool.ShotAs(cam, $"bridges2/{id}_{ps.name}_{mode.Trim()}", ps.eye, ps.r);
                             shots++;
+                            if (tintRows.Count > 0 && tintShader != null && mode.Trim() != "plate")
+                            {
+                                bool wantBefore = mode.Trim() == "before";
+                                foreach (var tr in tintRows)
+                                {
+                                    if (tr.before != wantBefore) continue;
+                                    var mid = (tr.a + tr.b) * 0.5f;
+                                    if ((mid - ps.eye).sqrMagnitude > 160f * 160f) continue;
+                                    var d3 = tr.b - tr.a;
+                                    if (d3.sqrMagnitude < 1e-4f) continue;
+                                    int ci = 0;
+                                    while (ci < tintOrder.Length - 1 && (tr.bits & tintOrder[ci].bit) == 0) ci++;
+                                    if (!tintMats.TryGetValue(ci, out var mat)) { mat = new Material(tintShader); mat.SetColor("_BaseColor", tintOrder[ci].c); tintMats[ci] = mat; }
+                                    var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                                    Object.DestroyImmediate(go.GetComponent<Collider>());
+                                    float hh = Mathf.Max(0.2f, tr.h);
+                                    go.transform.SetPositionAndRotation(mid + Vector3.up * (hh * 0.5f), Quaternion.LookRotation(d3.normalized, Vector3.up));
+                                    go.transform.localScale = new Vector3(2f * tr.half + 0.1f, hh + 0.1f, d3.magnitude + 0.04f);
+                                    go.GetComponent<MeshRenderer>().sharedMaterial = mat;
+                                    tintObjs.Add(go);
+                                }
+                                PSXScreenshotTool.ShotAs(cam, $"bridges2/{id}_{ps.name}_{mode.Trim()}_tint", ps.eye, ps.r);
+                                shots++;
+                                foreach (var go in tintObjs) Object.DestroyImmediate(go);
+                                tintObjs.Clear();
+                            }
                         }
                     }
                 }
