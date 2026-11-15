@@ -41,8 +41,9 @@ namespace PSXRacing.EditorTools
         const int CT4Cell = 256, CT4SS = 2;
         /// <summary>The impostor's tint against the mesh levels (the baked light is the sheet's own). Measured
         /// on Providence Rd, every tree drawn as its mesh v as its card, same view: foliage luminance 83 v 51
-        /// at 0.96 (the sheet's baked shade and the card's up-tilted normal), the hue alike - x1.63.</summary>
-        static readonly Color CT4ImpTint = new Color(1.55f, 1.57f, 1.52f);
+        /// at 0.96 (the sheet's baked shade and the card's up-tilted normal), the hue alike; 83 v 72 at 1.55
+        /// (the response goes as tint^0.71: per model 0.84-0.98 of the mesh) - 1.90 for 83.</summary>
+        static readonly Color CT4ImpTint = new Color(1.90f, 1.92f, 1.86f);
 
         struct CT4Form
         {
