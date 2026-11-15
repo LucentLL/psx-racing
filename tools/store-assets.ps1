@@ -5,8 +5,11 @@
 # at it survive a re-extract. A missing package is a warning, not an error:
 # every builder that reads Assets/StoreAssets falls back to its old geometry.
 #
-#   powershell -ExecutionPolicy Bypass -File tools\store-assets.ps1 [-Dest <project root>]
-param([string]$Dest = (Split-Path -Parent $PSScriptRoot))
+#   powershell -ExecutionPolicy Bypass -File tools\store-assets.ps1 [-Dest <project root>] [-Only <part of a package name>]
+#
+# -Only "UAA - City Props" extracts just the packages whose name contains that text (a lean
+# sandbox that needs one pack, not the forest's gigabytes).
+param([string]$Dest = (Split-Path -Parent $PSScriptRoot), [string]$Only = "")
 
 $ErrorActionPreference = "Stop"
 $cache = Join-Path $env:APPDATA "Unity\Asset Store-5.x"
@@ -295,11 +298,82 @@ $wanted = @(
          @("4e42be3377eaccd40abd3f48bd6554a5", "OE/Oak/barkOak001_N.png"),
          @("211ca27924489134f88b69b65575eaaf", "OE/Oak/BranchesOak001.tif"),
          @("bd54ef767ea3f2e44b44c035dc07379d", "OE/Oak/BranchesOak001_N.png"),
-         @("1883fac2a09401945b4d1b5f0c903f5e", "OE/Oak/BigOakBillboard01.tif")) }
+         @("1883fac2a09401945b4d1b5f0c903f5e", "OE/Oak/BigOakBillboard01.tif")) },
+    # The owner's traffic vehicles (2026-11-15, traffic-uaa): both model files, every
+    # texture, the pack's prefabs (they hold the wheel positions and the colour variants)
+    # and their materials. Editor/TrafficUaaBaker.cs makes the game's traffic shells from
+    # them; without them the traffic keeps the models it had.
+    @{ Pkg = "Testmobile\3D ModelsVehiclesLand\UAA - City Props - Vehicles.unitypackage"
+       Files = @(
+         @("e9d96ffec57c82c4face56ee1063eb87", "UAAVehicles/CarPack.FBX"),
+         @("0053170aa403f354ba416b1fcf4d77b5", "UAAVehicles/TrafficCars.FBX"),
+         @("693b2f57e776c8145acc56229b61cb66", "UAAVehicles/car1.psd"),
+         @("5a7b3bda83515984e8dd12c6815f25a9", "UAAVehicles/Car2.PSD"),
+         @("585b067114173d647866cc6b7fe8b3a6", "UAAVehicles/CarBus.psd"),
+         @("e2ae23e0eb3a12e42a45d9659bc5569c", "UAAVehicles/CarPolice.psd"),
+         @("2449818001d639347af4d2c5b988c606", "UAAVehicles/CarRig.psd"),
+         @("90831b74bd0c3fa478ed1b631cc023f1", "UAAVehicles/CarSuv.psd"),
+         @("83cf6adc426e51d4781bced09b79a82d", "UAAVehicles/CarTaxi.psd"),
+         @("5580e8d795e70c34eba7199d97067b25", "UAAVehicles/CarTaxiB.PSD"),
+         @("05254825a4eca4f4c9d6fd546229b1d9", "UAAVehicles/carvan.PSD"),
+         @("a9a6de314a04125489ad153bcde0e9b0", "UAAVehicles/CarWag.psd"),
+         @("0447c62bcaa3c424c8e75653f20bff28", "UAAVehicles/trafficCars.PSD"),
+         @("e5f14c992e770bc45b7b2f8f7b56b34f", "UAAVehicles/Materials/car1.mat"),
+         @("9cde05260a93ce948b3a6e982e73e766", "UAAVehicles/Materials/Car2.mat"),
+         @("d8c85b1030e8b5e42a5b2878d6244694", "UAAVehicles/Materials/CarBus.mat"),
+         @("0f3dc394ca2f90d408abe68234041f06", "UAAVehicles/Materials/CarPolice.mat"),
+         @("8886b57b4a6fa8b48bd293569ff135e5", "UAAVehicles/Materials/CarRig.mat"),
+         @("6ae35ba76ede09f48a61fdaf9d4f7ec4", "UAAVehicles/Materials/CarSuv.mat"),
+         @("be2a73450d8cb104b94db16a6050e22f", "UAAVehicles/Materials/CarTaxi.mat"),
+         @("a733abcac8bdd5243947296360faa6aa", "UAAVehicles/Materials/CarTaxiB.mat"),
+         @("29051f965392f0d479ce3dcd9fcb4a1c", "UAAVehicles/Materials/carvan.mat"),
+         @("d9739af41571ffb48814bb8c27be1405", "UAAVehicles/Materials/CarWag.mat"),
+         @("6ba4ba49ea201f642b438a2b25b19c42", "UAAVehicles/Materials/trafficCars.mat"),
+         @("f042cb04bb98f4649ad4d54da66f8100", "UAAVehicles/Prefabs/Big Rig.prefab"),
+         @("0c015dbff2c36e94089df72dedec0b0e", "UAAVehicles/Prefabs/Car1.prefab"),
+         @("c636709dfd7fe1f438f063a9d74e44b1", "UAAVehicles/Prefabs/Car2.prefab"),
+         @("62b8dae48bd74e44c9d44fbb59e6c12e", "UAAVehicles/Prefabs/City Bus.prefab"),
+         @("38578129bfa01a24e8383820c8fb1613", "UAAVehicles/Prefabs/Police Car.prefab"),
+         @("49ddca32621bf7d4cb7d2351bdfae676", "UAAVehicles/Prefabs/Suv.prefab"),
+         @("870974ec79eb7ea4582831b4a98b968e", "UAAVehicles/Prefabs/Taxi B.prefab"),
+         @("905302bafe1c35d41a358c50fbbaf5b5", "UAAVehicles/Prefabs/Taxi.prefab"),
+         @("69218bbca8d800c4bb9d56d77816fe24", "UAAVehicles/Prefabs/Van.prefab"),
+         @("4af1320c0a6a7c247927f3b1b0e1f0be", "UAAVehicles/Prefabs/Wagon.prefab"),
+         @("e74fd2289406d214c9e094e2f913deb9", "UAAVehicles/PrefabsB/Traffic B - BigSedan 1.prefab"),
+         @("566938e064390544b84e4d36dc2f8cbd", "UAAVehicles/PrefabsB/Traffic B - BigSedan 2.prefab"),
+         @("8eee684eb534b2645b57fd47fff1dbbb", "UAAVehicles/PrefabsB/Traffic B - BigSedan 3.prefab"),
+         @("9f23c531fb46abf4aa1af8c61fdfb18c", "UAAVehicles/PrefabsB/Traffic B - BigSedan 4.prefab"),
+         @("2e5efb68ad2afcd45ba8f0193e8b58e7", "UAAVehicles/PrefabsB/Traffic B - BigSedan.prefab"),
+         @("b197f5263aa27fe488ecd6fa7f97039b", "UAAVehicles/PrefabsB/Traffic B - MidSedan 1.prefab"),
+         @("fb51c78cbf83c66479120b593483ae84", "UAAVehicles/PrefabsB/Traffic B - MidSedan 2.prefab"),
+         @("382faf0957e39bf41b73549cd6fc2e8e", "UAAVehicles/PrefabsB/Traffic B - MidSedan 3.prefab"),
+         @("540a37f296791904c987c7ffb747ae2d", "UAAVehicles/PrefabsB/Traffic B - MidSedan 4.prefab"),
+         @("ac9b34f61c042ed45b9d4c7da1e4cd93", "UAAVehicles/PrefabsB/Traffic B - MidSedan.prefab"),
+         @("de0664e8af3cc80458f4f1153565b524", "UAAVehicles/PrefabsB/Traffic B - OldSedan 1.prefab"),
+         @("266ced9dec048eb4ba79de043b69506d", "UAAVehicles/PrefabsB/Traffic B - OldSedan 3.prefab"),
+         @("4f190f3c667e18740967f7785eaabab6", "UAAVehicles/PrefabsB/Traffic B - OldSedan 4.prefab"),
+         @("e3aa5097556f0d34f8b9f07a0146fca7", "UAAVehicles/PrefabsB/Traffic B - OldSedan 5.prefab"),
+         @("c5df3265d7b55f44bb3bdbf0c942e6ed", "UAAVehicles/PrefabsB/Traffic B - OldSedan 6.prefab"),
+         @("4f3b46d22459b2c468546b901f2a489d", "UAAVehicles/PrefabsB/Traffic B - OldSedan.prefab"),
+         @("aab64e2bf19a9754dae64a03bf79a424", "UAAVehicles/PrefabsB/Traffic B - OldWagon 1.prefab"),
+         @("554fc4683233ce6458730fcb664c091b", "UAAVehicles/PrefabsB/Traffic B - OldWagon 2.prefab"),
+         @("bb1b39381246d6540b408974d9159e6a", "UAAVehicles/PrefabsB/Traffic B - OldWagon 3.prefab"),
+         @("5eccbabcc6e9a6843bd3bcf7ca85706d", "UAAVehicles/PrefabsB/Traffic B - OldWagon 4.prefab"),
+         @("a8d7b2e9fb1e4f943b088dfbc8b9ef6f", "UAAVehicles/PrefabsB/Traffic B - OldWagon 5.prefab"),
+         @("2c59bc70b9da308469dadbcdbb1bacc7", "UAAVehicles/PrefabsB/Traffic B - OldWagon.prefab"),
+         @("f91336dfcda69084db008c3df49bbcee", "UAAVehicles/PrefabsB/Traffic B - Small_Car.prefab"),
+         @("83108cda3d32edb4880d9e49bc847c9e", "UAAVehicles/PrefabsB/Traffic B - Taxi 1.prefab"),
+         @("a59a6677665c95e4b941b9c87a1284b0", "UAAVehicles/PrefabsB/Traffic B - Taxi 2.prefab"),
+         @("1c1554d784ee185448c6c3699c5248ad", "UAAVehicles/PrefabsB/Traffic B - Taxi 3.prefab"),
+         @("7cab82116a8696d4fb48acb33b5782ec", "UAAVehicles/PrefabsB/Traffic B - Taxi 4.prefab"),
+         @("876e3e4790d7eba42a6728d777e1a9cf", "UAAVehicles/PrefabsB/Traffic B - Taxi.prefab"),
+         @("de98251347cb8a8478def5b3457f2e95", "UAAVehicles/PrefabsB/Traffic B - Truck.prefab"),
+         @("3da7295d3f87e2f44ab5868a6b9e3303", "UAAVehicles/PrefabsB/Traffic B - Van.prefab")) }
 )
 
 $root = Join-Path $Dest "Assets\StoreAssets"
 foreach ($w in $wanted) {
+    if ($Only -and $w.Pkg.IndexOf($Only, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
     $pkg = Join-Path $cache $w.Pkg
     if (-not (Test-Path $pkg)) { Write-Warning "missing package: $($w.Pkg) (download it in Package Manager > My Assets)"; continue }
     # a list of pairs, even when ONE file is missing (a lone pair would unroll into its two strings)
