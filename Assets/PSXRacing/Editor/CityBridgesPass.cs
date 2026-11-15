@@ -62,7 +62,7 @@ namespace PSXRacing.EditorTools
             var log = new StringBuilder();
             void Line(string s) { log.AppendLine(s); Debug.Log("[Bridges] " + s); File.WriteAllText(Path.Combine(root, $"city_bridges_{tag}.txt"), log.ToString()); }
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            Line($"CITY BRIDGES PASS ({tag}) steps {steps}, {DateTime.Now:s}, bridges {(CityMeshes.BridgeDetailOn ? "ON" : "OFF")}");
+            Line($"CITY BRIDGES PASS ({tag}) steps {steps}, {DateTime.Now:s}, bridges {(CityMeshes.BridgeDetailOn ? "ON" : "OFF")}, round 2 {(CityMeshes.Bridge2On ? "ON" : "OFF")}");
             var map = CityMap.Get();
             if (map == null) { Line("no city data"); Exit(); return; }
             Line($"solved in {clock.Elapsed.TotalSeconds:0} s");
@@ -72,11 +72,24 @@ namespace PSXRacing.EditorTools
                 {
                     var trims = CityMeshes.NodeTrims(map);
                     var buildings = CityBuildings.Precompute(map);
-                    foreach (var (tx, tz) in StatTiles)
+                    // (bridges round 2) PSX_BR_TILES="tx:tz;tx:tz": these tiles instead; each built three times, the quickest counted
+                    var statTiles = new List<(int tx, int tz)>(StatTiles);
+                    string tilesEnv = Environment.GetEnvironmentVariable("PSX_BR_TILES");
+                    if (!string.IsNullOrWhiteSpace(tilesEnv))
                     {
-                        var t0 = clock.Elapsed.TotalMilliseconds;
-                        var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
-                        double ms = clock.Elapsed.TotalMilliseconds - t0;
+                        statTiles.Clear();
+                        foreach (var it in tilesEnv.Split(';')) { var tp = it.Split(':'); if (tp.Length == 2 && int.TryParse(tp[0], out int qx) && int.TryParse(tp[1], out int qz)) statTiles.Add((qx, qz)); }
+                    }
+                    foreach (var (tx, tz) in statTiles)
+                    {
+                        double ms = double.MaxValue;
+                        CityMeshes.TileMeshes tm = null;
+                        for (int rep = 0; rep < 3; rep++)
+                        {
+                            var t0 = clock.Elapsed.TotalMilliseconds;
+                            tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                            ms = Math.Min(ms, clock.Elapsed.TotalMilliseconds - t0);
+                        }
                         int draws = 0, tris = 0, colTris = 0;
                         var parts = new StringBuilder();
                         void Count(string what, Mesh m, bool collider)

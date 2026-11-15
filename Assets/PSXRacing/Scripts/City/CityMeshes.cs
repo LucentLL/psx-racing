@@ -5789,6 +5789,8 @@ namespace PSXRacing.City
                         // 2026-10-04, "stray medians on 277"). Opposing
                         // traffic keeps its one shared barrier.
                         if (wanted && f.elev && nb >= 0 && SameWayDeckBeside(map, e, nbSec, side)) { wanted = false; sameWayDeckSides.Add(e.index); }
+                        // (bridges round 2) ...and no deck rail stands inside another road's pavement at a junction on structure (CityMeshes.Bridges2)
+                        if (wanted && f.elev && DeckRailOnOtherPavement(map, e, A, B, side, tm.origin)) wanted = false;
                         sf.rail = wanted;
                         // on a retaining face only where the verge cannot grade
                         // the land (DropFrom); an approach rail over land a verge
@@ -6762,6 +6764,8 @@ namespace PSXRacing.City
                              Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1),
                              Mathf.Lerp(sinkA, sinkB, t0), Mathf.Lerp(sinkA, sinkB, t1), ovA, ovB,
                              Mathf.Lerp(TaperFootM, RailH, tpA), Mathf.Lerp(TaperFootM, RailH, tpB));
+                    // (bridges round 2) a city street's bridge carries a metal bar on its parapet (CityMeshes.Bridges2)
+                    if (f.elev) EmitCityRail(e, a, b, ia, ib, Mathf.Lerp(TaperFootM, RailH, tpA), Mathf.Lerp(TaperFootM, RailH, tpB), ovA, ovB, Mathf.Lerp(A.s, B.s, t0), Mathf.Lerp(A.s, B.s, t1));
                     railLog?.Add(new RailRecord
                     {
                         edge = e.index, side = side, node = -1, s0 = Mathf.Lerp(A.s, B.s, t0), s1 = Mathf.Lerp(A.s, B.s, t1),
