@@ -167,6 +167,73 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// THE COST OF A SWITCH (the round's rule: triangles a tile and build ms
+        /// on a sample). PSX_ROADS_COST=Field:1 names a public static bool of
+        /// CityMeshes and its BEFORE value; each 3 x 3 ring is built with the
+        /// switch as it was and as it is (a warm pass each, the second reported).
+        /// PSX_ROADS_COST_RINGS="name:lat,lon;..." adds rings to Uptown, the
+        /// SouthPark suburb and the I-77 / I-277 interchange.
+        /// </summary>
+        static void RoadsCost(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
+        {
+            string ab = System.Environment.GetEnvironmentVariable("PSX_ROADS_COST");
+            if (string.IsNullOrWhiteSpace(ab)) return;
+            var kv = ab.Split(':');
+            var field = typeof(CityMeshes).GetField(kv[0].Trim(), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (field == null || field.FieldType != typeof(bool)) { Line("COST: CityMeshes has no public static bool " + kv[0]); return; }
+            bool before = kv.Length > 1 && kv[1].Trim() == "1";
+            var I = CultureInfo.InvariantCulture;
+            Vector2 LLc(double lat, double lon) => new Vector2((float)((lon + 80.81770185962013) * 111320.0 * System.Math.Cos(35.18456 * System.Math.PI / 180.0)), (float)((lat - 35.18456015184093) * 111132.0));
+            var rings = new List<(string name, Vector2 c)> { ("uptown", map.uptown), ("suburb_southpark", LLc(35.1525, -80.8330)), ("interchange_i77_i277", LLc(35.2390, -80.8525)) };
+            string extra = System.Environment.GetEnvironmentVariable("PSX_ROADS_COST_RINGS");
+            if (!string.IsNullOrEmpty(extra))
+                foreach (var s in extra.Split(';'))
+                {
+                    var q = s.Split(':'); if (q.Length != 2) continue;
+                    var p = q[1].Split(',');
+                    if (p.Length == 2 && double.TryParse(p[0], NumberStyles.Float, I, out double la) && double.TryParse(p[1], NumberStyles.Float, I, out double lo)) rings.Add((q[0], LLc(la, lo)));
+                }
+            var meshFields = new List<System.Reflection.FieldInfo>();
+            foreach (var f in typeof(CityMeshes.TileMeshes).GetFields()) if (f.FieldType == typeof(Mesh)) meshFields.Add(f);
+            void Kill(CityMeshes.TileMeshes tm) { foreach (var f in meshFields) { var m = f.GetValue(tm) as Mesh; if (m != null) Object.DestroyImmediate(m); } }
+            Line($"COST of CityMeshes.{field.Name} (before = {before}, after = {!before}), 3 x 3 rings, the warm pass:");
+            bool was = (bool)field.GetValue(null);
+            try
+            {
+                foreach (var r in rings)
+                {
+                    int cx = Mathf.FloorToInt(r.c.x / CityMeshes.TileSize), cz = Mathf.FloorToInt(r.c.y / CityMeshes.TileSize);
+                    var tris = new double[2]; var verts = new double[2]; var ms = new double[2];
+                    for (int side = 0; side < 2; side++)
+                    {
+                        field.SetValue(null, side == 0 ? before : !before);
+                        for (int pass = 0; pass < 2; pass++)
+                        {
+                            tris[side] = 0; verts[side] = 0; ms[side] = 0;
+                            for (int dz = -1; dz <= 1; dz++)
+                                for (int dx = -1; dx <= 1; dx++)
+                                {
+                                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                                    var tm = CityMeshes.Build(map, trims, buildings, cx + dx, cz + dz);
+                                    ms[side] += sw.Elapsed.TotalMilliseconds;
+                                    foreach (var f in meshFields)
+                                    {
+                                        var mesh = f.GetValue(tm) as Mesh; if (mesh == null) continue;
+                                        for (int sm = 0; sm < mesh.subMeshCount; sm++) tris[side] += mesh.GetIndexCount(sm) / 3;
+                                        verts[side] += mesh.vertexCount;
+                                    }
+                                    Kill(tm);
+                                }
+                        }
+                    }
+                    Line(string.Format(I, "  RING {0} (tile {1},{2}): triangles a tile {3:0} -> {4:0} ({5:+0;-0;0}), vertices a tile {6:0} -> {7:0} ({8:+0;-0;0}), build {9:0} -> {10:0} ms a tile",
+                        r.name, cx, cz, tris[0] / 9, tris[1] / 9, (tris[1] - tris[0]) / 9, verts[0] / 9, verts[1] / 9, (verts[1] - verts[0]) / 9, ms[0] / 9, ms[1] / 9));
+                }
+            }
+            finally { field.SetValue(null, was); }
+        }
+
         public static void RunRoadsSample()
         {
             outLog = new StringBuilder();
@@ -227,6 +294,7 @@ namespace PSXRacing.EditorTools
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_ROUTES", routesWas);
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_BOX", boxWas);
             }
+            RoadsCost(map, trims, buildings);
             Line($"ROADS SAMPLE done in {clock.Elapsed.TotalSeconds:0} s");
             FinishTo("city_roads_sample.txt");
             if (Application.isBatchMode) EditorApplication.Exit(0);
