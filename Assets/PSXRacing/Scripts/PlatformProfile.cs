@@ -12,10 +12,12 @@ namespace PSXRacing
     ///   * the streamed city <see cref="CityRing"/> tiles out each way (9 x 9
     ///     of 256 m: a kilometre to the edge of the built city, where the web
     ///     build keeps 5 x 5), and the camera's far plane out to it;
-    ///   * the city's traffic cap at <see cref="CityTrafficCap"/> (<see cref="MaxTraffic"/>);
-    ///     races and the free roam follow the clock like every platform since
-    ///     2026-11-15 (TrafficLevels.ForClock; PSX_TRAFFIC_CLOCK=0 = RUSH HOUR
-    ///     round the clock, as before);
+    ///   * the city's traffic cap at <see cref="CityTrafficCap"/> (PCCityCap), the
+    ///     most the peaks can put on the road; since 2026-11-15 races and the
+    ///     free roam follow the clock like every platform (TrafficLevels.
+    ///     ForClock - the owner's midnight meet race ran at RUSH HOUR);
+    ///     PSX_TRAFFIC_CLOCK=0 = RUSH HOUR round the clock, as before
+    ///     (<see cref="MaxTraffic"/>);
     ///   * HD at the display's own lines up to <see cref="HDMaxLines"/> (4K);
     ///   * the car-reflection panorama <see cref="ProbeFacesPerFrame"/> faces
     ///     a frame at <see cref="ProbeFaceRes"/>;
@@ -98,10 +100,24 @@ namespace PSXRacing
         /// plane back at the detail's edge with the end-of-view fade.</summary>
         public static bool StageHorizon => FullForest && !HasArg("-psx-no-horizon");
 
-        /// <summary>Traffic at its most wherever nobody picked a level.</summary>
+        /// <summary>Traffic at its most wherever nobody picked a level: RUSH
+        /// HOUR on every race, the city's peak round the clock. Off since the
+        /// owner's midnight report (2026-11-15) - the clock decides on every
+        /// platform (TrafficLevels.ForClock, CityTraffic's hourly curve);
+        /// PSX_TRAFFIC_CLOCK=0 brings it back on the PC.</summary>
         public static bool MaxTraffic
         {
-            get { if (maxTraffic < 0) maxTraffic = PC && !HasArg("-psx-traffic-by-hour") ? 1 : 0; return maxTraffic == 1; }
+            get { if (maxTraffic < 0) maxTraffic = PC && !HasArg("-psx-traffic-by-hour") && !TrafficLevels.ClockOn ? 1 : 0; return maxTraffic == 1; }
+        }
+
+        /// <summary>The PC keeps its bigger city traffic cap for the peaks
+        /// while the clock sets the share (CityTraffic reads CapOverride
+        /// before its own platform cap). Set before the first scene.</summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void PCCityCap()
+        {
+            if (PC && TrafficLevels.ClockOn && PSXRacing.City.CityTraffic.CapOverride <= 0)
+                PSXRacing.City.CityTraffic.CapOverride = CityTrafficCap;
         }
 
         static bool Decide()
@@ -188,7 +204,7 @@ namespace PSXRacing
 
         /// <summary>One line for the Player.log.</summary>
         public static string Describe() => PC
-            ? $"PC profile: city ring {CityRing} ({(2 * CityRing + 1) * 256} m square), traffic {(MaxTraffic ? (TrafficLevels.ClockOn ? "by the clock / cap " : "RUSH HOUR / cap ") + CityTrafficCap : "by the hour")}, HD to {HDMaxLines} lines, reflections {ProbeFacesPerFrame} faces/frame at {ProbeFaceRes}, sun shadows {(PCShadows ? $"{ShadowHalfExtentM * 2:0} m at {ShadowRes}" : "as web")}, AO {(PCAO ? "after opaques" : "off")}, picture {(PCPicture ? "8-bit + FXAA at HD" : "as web")}"
+            ? $"PC profile: city ring {CityRing} ({(2 * CityRing + 1) * 256} m square), traffic {(MaxTraffic ? "RUSH HOUR / cap " + CityTrafficCap : "by the clock / cap " + CityTrafficCap)}, HD to {HDMaxLines} lines, reflections {ProbeFacesPerFrame} faces/frame at {ProbeFaceRes}, sun shadows {(PCShadows ? $"{ShadowHalfExtentM * 2:0} m at {ShadowRes}" : "as web")}, AO {(PCAO ? "after opaques" : "off")}, picture {(PCPicture ? "8-bit + FXAA at HD" : "as web")}"
             : "web profile";
     }
 }
