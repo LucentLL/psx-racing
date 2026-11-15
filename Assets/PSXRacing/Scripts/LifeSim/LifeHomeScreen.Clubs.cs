@@ -172,6 +172,8 @@ namespace PSXRacing.LifeSim
             Wrap("MEET " + c.MeetWhen + "  ·  RACE " + c.RaceWhen + "  ·  " + RuleCars(c), Color.white);
             string clash = ClashLine(c);
             if (clash != null) Wrap(clash, MenuKit.Bad);
+            string evPts = ClubEventLine(c);   // v29: the club's event points
+            if (evPts != null) Wrap(evPts, MeetInk);
             if (member)
             {
                 var b0 = Clubs.Board(S, c);
@@ -362,6 +364,7 @@ namespace PSXRacing.LifeSim
                     w2, height: 24f), w2);
                 y -= 90f;
             }
+            ClubStandingsBlock(ref y);   // v29: LifeHomeScreen.Events.cs
             var news = S.clubNews;
             if (news != null && news.Count > 0)
             {
@@ -446,6 +449,8 @@ namespace PSXRacing.LifeSim
                     MenuKit.Bad, vw);
                 y -= ch + 8f;
             }
+
+            EventInsteadButton(ref y, vw);   // v29: an event race signed up for this block too
 
             MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
                 new Vector2(vx, y), new Vector2(vw, 2f), MenuKit.Line);

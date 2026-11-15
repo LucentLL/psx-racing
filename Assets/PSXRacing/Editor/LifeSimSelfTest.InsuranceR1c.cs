@@ -270,7 +270,7 @@ namespace PSXRacing.EditorTools
             Check(old.insRecord != null && old.cars[0].insCover == 0 && !old.healthAsked && old.healthPlan == "",
                   "an old save reads as liability, no record, plan unasked");
             LifeSimManager.Migrate(old);
-            Check(old.saveVersion == 28 && old.cars[1].insCover == Insurance.Full && old.cars[0].insCover == Insurance.Liability &&
+            Check(old.saveVersion >= 28 && old.cars[1].insCover == Insurance.Full && old.cars[0].insCover == Insurance.Liability &&
                   old.cars[0].insDeductible == 500 && old.cars[1].insDeductible == 500,
                   "the v28 step holds the car with a loan at FULL, $500 on file", old.saveVersion);
             var s = InsCareer();

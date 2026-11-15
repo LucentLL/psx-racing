@@ -250,11 +250,18 @@ namespace PSXRacing.Town
                 // THE CLUB RACE (v23) is required, so the cap does not shut it.
                 var dueClub = Clubs.RaceDueNow(S);
                 bool clubDue = dueClub != null;
-                bool racedToday = LifeRules.RacedToday(S) && !clubDue;
-                Row(panel, ref y, clubDue ? dueClub.shortName + " CLUB RACE" : "GO RACING",
+                // AN EVENT RACE (v29) signed up for this block is on the
+                // calendar too, so the cap does not shut it either. A club race
+                // in the same block keeps the row; its page offers the event.
+                var dueEvent = Events.DueNow(S);
+                bool eventDue = dueEvent.Valid && !clubDue;
+                bool racedToday = LifeRules.RacedToday(S) && !clubDue && !dueEvent.Valid;
+                Row(panel, ref y, clubDue ? dueClub.shortName + " CLUB RACE"
+                                  : eventDue ? dueEvent.ev.shortName + " - RACE " + (dueEvent.race + 1) : "GO RACING",
                     !canDrive ? "Not enough fuel to go anywhere."
                     : clubDue ? TrackCatalog.At(Clubs.RaceVenue(dueClub, S.day)).name +
                                 "  ·  required now, in a " + dueClub.rule.ToLowerInvariant() + " car."
+                    : eventDue ? Events.DepartLine(dueEvent)
                     : racedToday ? "One purse a day, and today's is won. Back tomorrow."
                     : booked != null
                         ? TrackCatalog.At(booked.trackIndex).name + "  ·  in the diary for " +

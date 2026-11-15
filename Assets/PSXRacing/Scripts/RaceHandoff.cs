@@ -286,6 +286,14 @@
         /// apply-back cannot read off the clock.</summary>
         public static int ClubRaceDay;
 
+        // ---- an EVENT race (LifeSim.Events, v29) ----
+        /// <summary>The signed-up running this race belongs to
+        /// (EventEntry.Key), or empty. The apply-back pays the event's prize
+        /// by place and moves its rep instead of the purse race's.</summary>
+        public static string EventKey;
+        /// <summary>Which race of the running (0-based).</summary>
+        public static int EventRace;
+
         // ---- tuning stages (the parts the player bought) ----
         // Passed as stages rather than as finished hp/kg numbers so the race
         // scene derives the effective car through the same Upgrades curves the
@@ -551,6 +559,7 @@
             RivalRank = 0; RivalAlias = null; RivalSeries = null;
             MeetRace = false; MeetAlias = null;
             ClubRace = false; ClubOpponent = null; ClubRaceDay = 0; ClubRaceClub = null; DeliveryMeetClub = null;
+            EventKey = null; EventRace = 0;
             UpPower = UpWeight = UpBrakes = UpSuspension = UpTires = UpSeat = 0;
             // A payload left out of here does not go stale, it goes to the NEXT
             // car: these statics survive a scene load by design, so the tune the

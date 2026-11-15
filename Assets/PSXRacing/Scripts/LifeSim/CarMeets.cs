@@ -245,11 +245,16 @@ namespace PSXRacing.LifeSim
         public static void MarkArrived(LifeState s)
         {
             if (s == null) return;
+            bool firstTonight = ArrivedDay != s.day;
             ArrivedDay = s.day;
             // THE CLUB MEET (v23) is attended by pulling in here, in a car the
             // club takes - or missed, in one it does not.
             ClubLine = Clubs.ArrivedAtLot(s);
-            if (ClubLine != null) LifeSimManager.Save();
+            // EVENTS (v29): word of mouth - the meet, and a club of yours
+            // meeting here, pass on a street event (once a night).
+            int heard = s.evHeard != null ? s.evHeard.Count : 0;
+            if (firstTonight) Events.ArrivedAtLot(s);
+            if (ClubLine != null || (s.evHeard != null && s.evHeard.Count != heard)) LifeSimManager.Save();
         }
 
         /// <summary>What signing in at the lot meant for the player's club
