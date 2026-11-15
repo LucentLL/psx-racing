@@ -309,8 +309,8 @@ namespace PSXRacing.City
         public static bool WalkEdge(CityMap map, CityMap.Edge e)
         {
             if (!WalksOn) return false;
+            EnsureWalkCache(map);   // (before the class return: WalkSide and the medians read walkTwinCache / medTwinCache, which only this allocates)
             if (Curbs3On) return CurbClassOf(map, e) != CurbNone;   // (curbs 3) the street's class: CityMeshes.Curbs3
-            EnsureWalkCache(map);
             ref sbyte c = ref walkEdgeCache[e.index];
             if (c == 0) c = (sbyte)(WalkEdgeUncached(map, e) ? 1 : -1);
             return c > 0;
