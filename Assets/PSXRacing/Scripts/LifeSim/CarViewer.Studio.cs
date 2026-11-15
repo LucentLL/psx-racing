@@ -160,7 +160,7 @@ namespace PSXRacing.LifeSim
         {
             turning = false;
             // A little inertia: a flick coasts a few tens of degrees, no more.
-            turnVel = Mathf.Clamp(turnVel * 0.6f, -300f, 300f);
+            turnVel = Mathf.Clamp(turnVel * 0.35f, -180f, 180f);
             autoAt = clock + ResumeAfterSec;
         }
 

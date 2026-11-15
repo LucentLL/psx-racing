@@ -155,7 +155,7 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The overhead around the stage: the name rows over it and
         /// the money / figures / actions band under it.</summary>
-        public const float Overhead = 54f + 30f + 12f + 130f;
+        public const float Overhead = 58f + 30f + 12f + 130f;
 
         /// <summary>The stage's height for a page with <paramref name="room"/>
         /// units of body: everything on one screen where it can be, but never
@@ -190,7 +190,7 @@ namespace PSXRacing.LifeSim
             // The name: as big as fits the width, bold italic, centred.
             int size = handheld ? 38 : 44;
             var title = MenuKit.Label(parent, card.model, size, anchor, new Vector2(left + width * 0.5f, y),
-                TextAnchor.MiddleCenter, Color.white, width, height: 54f, bold: true);
+                TextAnchor.MiddleCenter, Color.white, width, height: 58f, bold: true);
             title.fontStyle = FontStyle.BoldAndItalic;
             while (size > 24 && title.preferredWidth > width - 24f)
             {
@@ -198,7 +198,7 @@ namespace PSXRacing.LifeSim
                 title.fontSize = size;
             }
             if (title.preferredWidth > width - 24f) MenuKit.FitOneLine(title, width - 24f);
-            y -= 54f;
+            y -= 58f;
 
             // Under it: what the car is to this page on the left (NEW, the
             // lane, where it stands), the make and year and the count on the right.
@@ -295,16 +295,18 @@ namespace PSXRacing.LifeSim
             bool drawn = DrivetrainDiagram(parent, card.drv, x, top, BoxW, BoxH);
             float tx = drawn ? x + BoxW + 16f : x, tw = x + w - tx;
             float ly = top;
-            void Line(string text, bool bold)
+            void Line(string text, bool bold, string shorter = null)
             {
                 MenuKit.Rect(parent, "Dot", anchor, new Vector2(0f, 0.5f), new Vector2(tx, ly - 11f), new Vector2(8f, 8f),
                     MenuKit.Accent).GetComponent<Image>().raycastTarget = false;
                 var l = MenuKit.Label(parent, text, 17, anchor, new Vector2(tx + 16f, ly), TextAnchor.MiddleLeft,
                     Color.white, tw - 16f, height: 22f, bold: bold);
+                // the short form rather than a cut one (no text may clip)
+                if (l.preferredWidth > tw - 16f && shorter != null) l.text = shorter;
                 if (l.preferredWidth > tw - 16f) MenuKit.FitOneLine(l, tw - 16f);
                 ly -= 23f;
             }
-            if (!string.IsNullOrEmpty(card.drv)) Line(card.drv + "  ·  " + DrvWords(card.drv), true);
+            if (!string.IsNullOrEmpty(card.drv)) Line(card.drv + "  ·  " + DrvWords(card.drv), true, card.drv);
             if (card.year > 0) Line(card.year.ToString(), false);
             if (card.hp > 0) Line(card.hp + " hp", false);
             if (card.kg > 0) Line(card.kg.ToString("N0") + " kg", false);

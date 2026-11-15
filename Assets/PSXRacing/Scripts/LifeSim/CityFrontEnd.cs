@@ -141,6 +141,8 @@ namespace PSXRacing.LifeSim
 
         void Rebuild()
         {
+            // The showroom stage is only on a make's page (no camera rendering into nothing).
+            if (viewer != null) { viewer.SetVisible(false); viewer.LeaveStudio(); }
             if (bodyViewport != null) Destroy(bodyViewport.gameObject);
             bodyViewport = MenuKit.Stretch(canvas.transform, "Body",
                 new Vector2(0f, 0f), new Vector2(1f, 1f), 0f, 0f, 0f, -HeaderH);
@@ -443,6 +445,48 @@ namespace PSXRacing.LifeSim
             y -= CellH + 20f;
         }
 
+        CarViewer viewer;
+        CarViewer Viewer => viewer != null ? viewer : viewer = gameObject.AddComponent<CarViewer>();
+        int cityShow;
+        string cityShowMake, focusAfter;
+
+        /// <summary>The make's cars on the showroom stage, one at a time;
+        /// DRIVE THIS ONE picks it as a tap on its row does.</summary>
+        void CityHero(List<CarSpec> models, string mine, ref float y)
+        {
+            if (cityShowMake != carMake)
+            {
+                cityShowMake = carMake;
+                cityShow = Mathf.Max(0, models.FindIndex(c => c.id == mine));
+            }
+            int n = models.Count;
+            cityShow = (cityShow % n + n) % n;
+            var spec = models[cityShow];
+            Viewer.Show(spec);
+            var def = Viewer.Shown;
+            if (def == null) return;
+            var card = Showroom.From(spec, spec.name, def, Paint.FactorySkin(spec, def));
+            bool driving = spec.id == mine;
+            card.tag = driving ? "YOUR CAR" : null;
+            card.tagColor = MenuKit.Good;
+            card.priceLabel = "NEW PRICE";
+            card.price = spec.price > 0 ? MenuKit.Money(spec.price) : null;
+            card.note = DriveSide.Label(spec.id);
+            var captured = spec;
+            card.actions.Add(new Showroom.Action(driving ? "DRIVING THIS ONE" : "DRIVE THIS ONE",
+                () => { SetCar(captured.id); Go(carBack); Toast(captured.name.ToUpperInvariant()); },
+                new Color(0.62f, 0.48f, 0.12f, 1f)));
+            float h = Showroom.Build(body, Viewer, card, ColL, ColW, y,
+                Showroom.StageHeight(BodyH - MenuKit.ScrollPad), cityShow, n, d =>
+                {
+                    cityShow = (cityShow + d + n) % n;
+                    focusAfter = d > 0 ? "Btn_>" : "Btn_<";
+                    if (viewer != null) viewer.ResetStudioAngle();
+                    Rebuild();
+                });
+            y -= h + 12f;
+        }
+
         /// <summary>One make's cars. Tap one and it is the car.</summary>
         void BuildMakePage()
         {
@@ -452,6 +496,9 @@ namespace PSXRacing.LifeSim
             PageHeader(ref y, carMake + "  ·  " + models.Count + (models.Count == 1 ? " CAR" : " CARS"),
                 () => Go("car"));
             string mine = PlayerPrefs.GetString(PrefCar, "");
+            // THE SHOWROOM (2026-11-15): the make's cars one at a time on the
+            // stage, LEFT / RIGHT through them; the list stays under it.
+            if (Showroom.On && models.Count > 0) CityHero(models, mine, ref y);
             float rowW = Mathf.Min(ColW, 900f);
             float x = -rowW * 0.5f;
             foreach (var c in models)
@@ -740,6 +787,12 @@ namespace PSXRacing.LifeSim
             MenuNav.Column(rows);
             var none = new List<Selectable>();
             Selectable first = rows.Count > 0 ? rows[0] : null;
+            // A browse rebuilt the page: the cursor stays on the arrow it used.
+            if (!string.IsNullOrEmpty(focusAfter))
+            {
+                foreach (var r in rows) if (r != null && r.gameObject.name == focusAfter) { first = r; break; }
+                focusAfter = null;
+            }
             MenuNav.Select(first);
             var watch = MenuNav.Watch(gameObject, first);
             MenuNav.Defer(watch, none, rows, null);
@@ -790,6 +843,12 @@ namespace PSXRacing.LifeSim
             // The settings menu owns the keys while it is up, and for the
             // frame it closed on (B / Escape would also walk this page back).
             if (settings != null && (settings.IsOpen || settings.ClosedFrame == Time.frameCount)) return;
+            // The showroom turns on the right stick and , . as the career's does.
+            if (viewer != null && viewer.Visible && viewer.Studio)
+            {
+                float turn = CarViewer.TurnInput();
+                if (turn != 0f) viewer.Nudge(-turn * 200f * Time.unscaledDeltaTime);
+            }
             if (statusText != null && Time.unscaledTime >= toastExpires)
             {
                 Destroy(statusText.transform.parent.gameObject);
