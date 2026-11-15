@@ -3357,12 +3357,24 @@ namespace PSXRacing.LifeSim
         /// middle of the page. MenuKit.ColLeft turns a left edge into one.</param>
         /// <returns>The panel, or null when there is no shell to show — the
         /// caller then draws nothing and does not reserve the space.</returns>
+        /// <summary>The car a for-sale page is about, as the game holds it: the
+        /// visit's car on the VIEWING page, or on the BUY page a listing the
+        /// player has already been to see; else null (the advert alone holds no
+        /// car: shown mint). DamageView dresses it with its rows and paint.</summary>
+        OwnedCar VisitCar()
+        {
+            if (S == null) return null;
+            if (tab == "viewing") return Viewings.ByKey(S, S.activeViewing)?.car;
+            if (tab == "buy" && buyTarget != null) return Viewings.Find(S, buyTarget)?.car;
+            return null;
+        }
+
         RectTransform CarViewPanel(CarSpec spec, float centreX, float y, float w, float height,
                                    string fallbackKey = null, OwnedCar owned = null,
                                    int skinOverride = -1)
         {
             if (owned != null || skinOverride >= 0) Viewer.ShowOwned(owned, spec, skinOverride);
-            else if (spec != null) Viewer.Show(spec);
+            else if (spec != null) { Viewer.Show(spec); Viewer.Dress(VisitCar()); }
             else if (fallbackKey != null) Viewer.Show(CarModelLibrary.Load(fallbackKey), 0);
             else return null;
             if (Viewer.Shown == null) return null;

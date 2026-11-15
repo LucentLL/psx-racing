@@ -177,6 +177,7 @@ namespace PSXRacing.EditorTools
             RunInsuranceR1cTests();   // R1c-B insurance: LifeSimSelfTest.InsuranceR1c.cs
             RunEventsTests();   // v29 events: LifeSimSelfTest.Events.cs
             RunFix1Tests();   // fix pass 1 (concussion, the live bench, panel by stage): LifeSimSelfTest.Fix1.cs
+            RunDamageViewTests();   // damageview: every view of a career car shows its condition: LifeSimSelfTest.DamageView.cs
             // R0b stop the leaks (LifeSimSelfTest.LeaksR0b.cs). LAST: its page
             // renders build the home screen in edit mode, and nothing after
             // them should inherit what that leaves behind.

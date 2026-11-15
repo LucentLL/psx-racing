@@ -240,9 +240,8 @@ namespace PSXRacing
             Vector3 half = bx != null ? Vector3.Scale(bx.size * 0.5f, new Vector3(Mathf.Abs(ls.x), Mathf.Abs(ls.y), Mathf.Abs(ls.z)))
                                       : new Vector3(0.9f, 0.65f, 2.2f);
             half = Vector3.Max(half, Vector3.one * 0.1f);
-            float seed = Mathf.Abs((carId ?? "").GetHashCode() % 1000) * 0.0137f;
+            float seed = Seed(carId);
             bool any = Now.Any;
-            if (block == null) block = new MaterialPropertyBlock();
             // the shell as it rests on the chassis (CarBodyLean's lean taken out)
             Transform root = RestOn && body != null && body.bodyRoot != null && body.bodyRoot.parent != null ? body.bodyRoot : null;
             Matrix4x4 restM = Matrix4x4.identity;
@@ -265,22 +264,44 @@ namespace PSXRacing
                 var t = r.transform;
                 bool onShell = root != null && t.IsChildOf(root);
                 Matrix4x4 lw = onShell ? restM * t.localToWorldMatrix : t.localToWorldMatrix;
-                Quaternion inv = Quaternion.Inverse(onShell ? restQ * t.rotation : t.rotation);
-                var axis = new Vector3(((Vector3)lw.GetColumn(0)).magnitude, ((Vector3)lw.GetColumn(1)).magnitude, ((Vector3)lw.GetColumn(2)).magnitude);
-                Vector3 cB = Vector3.Scale(lw.inverse.MultiplyPoint3x4(cW), axis);
-                Vector3 f = inv * bt.forward, rt = inv * bt.right, up = inv * bt.up;
-                r.GetPropertyBlock(block);
-                block.SetFloat(OnId, any && !wheel ? 1f : 0f);
-                block.SetVector(AId, Now.zones);
-                block.SetVector(BId, new Vector4(Now.roof, Now.biasF, Now.biasR, seed));
-                block.SetVector(FId, new Vector4(f.x, f.y, f.z, 1f / half.z));
-                block.SetVector(RId, new Vector4(rt.x, rt.y, rt.z, 1f / half.x));
-                block.SetVector(UId, new Vector4(up.x, up.y, up.z, 1f / half.y));
-                block.SetVector(CId, new Vector4(cB.x, cB.y, cB.z, 0f));
-                int lo = Now.lampOut;
-                block.SetVector(LampOutId, new Vector4(lo & 1, (lo >> 1) & 1, (lo >> 2) & 1, (lo >> 3) & 1));
-                r.SetPropertyBlock(block);
+                WriteBlock(r, Now, any && !wheel, lw, onShell ? restQ * t.rotation : t.rotation, cW, half,
+                           bt.forward, bt.right, bt.up, seed);
             }
+        }
+
+        /// <summary>The dents' noise seed of a car (its owned id), the same in
+        /// the drive and in every view of it (DamageView).</summary>
+        public static float Seed(string carId) => Mathf.Abs((carId ?? "").GetHashCode() % 1000) * 0.0137f;
+
+        /// <summary>
+        /// One renderer's block on PSX/CarPaint (PSXCarDamage.cginc): the look,
+        /// and the body box - its centre <paramref name="cW"/> and half extents
+        /// in the world, its axes - in the renderer's own frame
+        /// (<paramref name="lw"/> / <paramref name="rot"/>: its object-to-world
+        /// and rotation, at rest on a leaning shell). The drive's Push and every
+        /// display model (DamageView) write through here: one look, one path.
+        /// Keeps what other writers put in the block (gloss, arches, lamps).
+        /// </summary>
+        public static void WriteBlock(Renderer r, Look now, bool on, Matrix4x4 lw, Quaternion rot, Vector3 cW,
+                                      Vector3 half, Vector3 fwdW, Vector3 rightW, Vector3 upW, float seed)
+        {
+            if (r == null) return;
+            if (block == null) block = new MaterialPropertyBlock();
+            Quaternion inv = Quaternion.Inverse(rot);
+            var axis = new Vector3(((Vector3)lw.GetColumn(0)).magnitude, ((Vector3)lw.GetColumn(1)).magnitude, ((Vector3)lw.GetColumn(2)).magnitude);
+            Vector3 cB = Vector3.Scale(lw.inverse.MultiplyPoint3x4(cW), axis);
+            Vector3 f = inv * fwdW, rt = inv * rightW, up = inv * upW;
+            r.GetPropertyBlock(block);
+            block.SetFloat(OnId, on ? 1f : 0f);
+            block.SetVector(AId, now.zones);
+            block.SetVector(BId, new Vector4(now.roof, now.biasF, now.biasR, seed));
+            block.SetVector(FId, new Vector4(f.x, f.y, f.z, 1f / half.z));
+            block.SetVector(RId, new Vector4(rt.x, rt.y, rt.z, 1f / half.x));
+            block.SetVector(UId, new Vector4(up.x, up.y, up.z, 1f / half.y));
+            block.SetVector(CId, new Vector4(cB.x, cB.y, cB.z, 0f));
+            int lo = now.lampOut;
+            block.SetVector(LampOutId, new Vector4(lo & 1, (lo >> 1) & 1, (lo >> 2) & 1, (lo >> 3) & 1));
+            r.SetPropertyBlock(block);
         }
 
         // ================= steam =================
