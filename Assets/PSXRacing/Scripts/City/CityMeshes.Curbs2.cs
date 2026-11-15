@@ -380,6 +380,8 @@ namespace PSXRacing.City
         public static bool PanToneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANTONE") != "0";
         static readonly Rect UvPanGrey = new Rect(0.00f, 0.270f, 1f, 0.090f);   // under band: weathered grey, the atlas's full width
         static Rect PanBand => PanToneOn ? UvPanGrey : UvPan;
+        /// <summary>Tools: the atlas band the gutter pan is drawn in (to find the pan's quads in a built structure mesh).</summary>
+        public static Rect PanBandForTools => PanBand;
         static readonly Rect UvSlab = new Rect(0.10f, 0.520f, 0.30f, 0.200f);   // column band: light concrete
         static readonly Rect UvCollar = new Rect(0.30f, 0.270f, 0.20f, 0.090f); // under band: weathered grey
         static readonly Rect UvIron = new Rect(0.79f, 0.020f, 0.16f, 0.080f);   // luminaire housing: black iron

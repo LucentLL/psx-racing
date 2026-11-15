@@ -134,6 +134,9 @@ namespace PSXRacing.EditorTools
                     CityMeshes.Curbs2Stats.Reset(); CityMeshes.Curbs3Stats.Reset();
                     CityMeshes.DrivesRoll = CityMeshes.DrivesCut = CityMeshes.DrivesFace = 0; CityMeshes.DrivesFaceAt.Clear();
                     int dNone = 0, dRoll = 0, dVert = 0;
+                    // the gutter pan's width as BUILT: every triangle of the structure mesh in the pan's atlas band, its edge across the pan
+                    double panSum = 0; int panN = 0; float panMin = float.MaxValue, panMax = 0f;
+                    var panBand = CityMeshes.PanBandForTools;
                     var dl = new List<CityHouses.Driveway>();
                     foreach (var g in groups)
                     {
@@ -151,6 +154,21 @@ namespace PSXRacing.EditorTools
                                 verts += m.vertexCount;
                                 for (int s = 0; s < m.subMeshCount; s++) tris += (long)m.GetIndexCount(s) / 3;
                             }
+                            if (tm.structure != null)
+                            {
+                                var vs = tm.structure.vertices; var us = tm.structure.uv; var ts = tm.structure.triangles;
+                                for (int ti = 0; ti + 2 < ts.Length; ti += 3)
+                                    for (int k = 0; k < 3; k++)
+                                    {
+                                        int a = ts[ti + k], b = ts[ti + (k + 1) % 3];
+                                        // an edge across the band: the same u, v at the band's two edges (a pan quad's short side)
+                                        if (Mathf.Abs(us[a].x - us[b].x) > 1e-6f) continue;
+                                        float va = us[a].y, vb = us[b].y;
+                                        if (!((Mathf.Abs(va - panBand.y) < 1e-4f && Mathf.Abs(vb - panBand.yMax) < 1e-4f) || (Mathf.Abs(vb - panBand.y) < 1e-4f && Mathf.Abs(va - panBand.yMax) < 1e-4f))) continue;
+                                        float wd = Vector2.Distance(new Vector2(vs[a].x, vs[a].z), new Vector2(vs[b].x, vs[b].z));
+                                        panSum += wd; panN++; panMin = Mathf.Min(panMin, wd); panMax = Mathf.Max(panMax, wd);
+                                    }
+                            }
                             CurbsDestroy(tm);
                             // the tile's driveways by their street's edge type
                             var min = new Vector2(tx, tz) * CityMeshes.TileSize; var max = min + Vector2.one * CityMeshes.TileSize;
@@ -167,6 +185,7 @@ namespace PSXRacing.EditorTools
                     CityMeshes.RecordHardware = false;
                     sb.AppendLine($"{(after ? "AFTER " : "BEFORE")} sample: {CityMeshes.Curbs2Stats.Line()}");
                     sb.AppendLine($"  {CityMeshes.Curbs3Stats.Line()}");
+                    sb.AppendLine($"  THE GUTTER PAN AS BUILT (the structure meshes' own vertices, {panN} pan-quad edges across): width min {(panN > 0 ? panMin : 0f):0.000} m, mean {(panN > 0 ? panSum / panN : 0):0.000} m, max {panMax:0.000} m (the constant: {CityMeshes.CurbGutterM:0.00} m = 24 in)");
                     sb.AppendLine($"  {CityMeshes.Cs4Stats.Line()}; {CityMeshes.WalkStats.Line()}");
                     sb.AppendLine($"  driveways in the sample by their street: no curb {dNone}, roll curb {dRoll}, vertical curb {dVert}; mouths the walk spans crossed: over a roll {CityMeshes.DrivesRoll}, through a cut (lip under 3 cm) {CityMeshes.DrivesCut}, A CURB FACE ACROSS (step over 3 cm) {CityMeshes.DrivesFace}");
                     foreach (var s in CityMeshes.DrivesFaceAt) sb.AppendLine("    face: " + s);

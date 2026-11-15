@@ -156,7 +156,7 @@ namespace PSXRacing.EditorTools
                         if (globals != null) globals.Apply();
                         NightGlow.PreviewAll(TimeOfDay.At(hour).lightsOn);
                         PSXTexDecode.StampAll();
-                        if (v.place == "owner") Curbs4Section(map, log, ownerEye, ownerRot);
+                        if (v.place == "owner") { Curbs4Section(map, log, ownerEye, ownerRot); Curbs4StreetView(map, log, cam, label, ownerEye, ownerRot); shots++; }
                     }
                     var cp = v.ring + new Vector3(0f, 0.5f, 0f) - (v.rot * Vector3.forward) * 80f;
                     if (car != null) car.TeleportTo(cp, v.rot); else player.transform.SetPositionAndRotation(cp, v.rot);
@@ -173,6 +173,67 @@ namespace PSXRacing.EditorTools
                 Debug.Log("[Curbs4Shots]\n" + log);
             }
             if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        /// <summary>A frame like the owner's street-view picture (29.png: the camera 2.5 m up over the kerb lane, looking
+        /// along the curb) at the second section station, and where the section's lines fall in it (pixels, for the
+        /// sheet's dimensions): the pan's road edge, the curb's face, the curb's back, the strip's end, the walk's back.</summary>
+        static void Curbs4StreetView(CityMap map, StringBuilder log, Camera cam, string label, Vector3 eye, Quaternion rot)
+        {
+            var at = new Vector2(eye.x, eye.z) + new Vector2(Mathf.Sin(9f * Mathf.Deg2Rad), Mathf.Cos(9f * Mathf.Deg2Rad)) * 20f;
+            CityMap.Edge be = null; float bd = float.MaxValue, bs = 0f;
+            foreach (var e in map.edges)
+            {
+                if (e.a == e.b || e.length < 30f || e.link) continue;
+                CityElevation.ProjectOn(e, at, out float sp);
+                sp = Mathf.Clamp(sp, Mathf.Min(8f, e.length * 0.5f), Mathf.Max(e.length - 8f, e.length * 0.5f));
+                float d = Vector2.Distance(e.PointAt(sp), at);
+                if (d < bd) { bd = d; be = e; bs = sp; }
+            }
+            if (be == null) return;
+            float ss = Mathf.Clamp(bs + 24f, 4f, be.length - 4f);
+            var t2 = be.TangentAt(ss).normalized;
+            var right = new Vector2(t2.y, -t2.x);
+            var camRight = rot * Vector3.right;
+            if (Vector2.Dot(right, new Vector2(camRight.x, camRight.z)) < 0f) right = -right;
+            var fw2 = t2; if (Vector2.Dot(fw2, new Vector2((rot * Vector3.forward).x, (rot * Vector3.forward).z)) < 0f) fw2 = -fw2;
+            var p = be.PointAt(ss);
+            float y0 = be.YAt(ss);
+            Physics.SyncTransforms();
+            float H(float d)
+            {
+                var q = p + right * d;
+                float top = float.NaN;
+                foreach (var h in Physics.RaycastAll(new Vector3(q.x, y0 + 3f, q.y), Vector3.down, 8f, ~0, QueryTriggerInteraction.Ignore))
+                {
+                    if (h.collider.attachedRigidbody != null) continue;
+                    if (float.IsNaN(top) || h.point.y > top) top = h.point.y;
+                }
+                return float.IsNaN(top) ? y0 : top;
+            }
+            // the curb's foot: the first rise of a centimetre out of the road
+            float road = H(0f), foot = be.width * 0.5f;
+            for (float d = 0.5f; d < 9f; d += 0.02f) if (H(d) - road > 0.012f) { foot = d - 0.02f; break; }
+            float strip = CityMeshes.StripOf(map, be);
+            float top2 = strip > 0f ? CityMeshes.CurbTopM : CityMeshes.CNoseOut;
+            float wTot = strip > 0f ? CityMeshes.CurbTopM + strip + CityMeshes.WalkStdM : CityMeshes.WalkW;
+            var f3 = new Vector3(fw2.x, 0f, fw2.y); var r3 = new Vector3(right.x, 0f, right.y);
+            var c3 = new Vector3(p.x, road, p.y);
+            Vector3 svEye = c3 + r3 * (foot - 2.6f) - f3 * 7f + Vector3.up * 2.5f;
+            var svRot = Quaternion.LookRotation(c3 + r3 * (foot + 0.9f) + f3 * 6f - svEye);
+            PSXScreenshotTool.ShotAs(cam, $"curbs4_{label}/owner_streetview", svEye, svRot);
+            cam.transform.SetPositionAndRotation(svEye, svRot);
+            var sb = new StringBuilder();
+            void Px(string name, float d)
+            {
+                var w = new Vector3(p.x + right.x * d, H(d) + 0.01f, p.y + right.y * d);
+                var sp = cam.WorldToScreenPoint(w);
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "{0}={1:0.0},{2:0.0};", name, sp.x / Mathf.Max(cam.pixelWidth, 1) * 1280f, 720f - sp.y / Mathf.Max(cam.pixelHeight, 1) * 720f));
+            }
+            Px("panRoadEdge", foot - CityMeshes.CurbGutterM); Px("curbFace", foot); Px("curbBack", foot + top2);
+            if (strip > 0f) Px("stripEnd", foot + CityMeshes.CurbTopM + strip);
+            Px("walkBack", foot + wTot);
+            log.Append($"STREETVIEW e{be.index} s {ss:0}: curb foot {foot:0.00} m from the map line; drawn by rule here: pan {CityMeshes.CurbGutterM:0.00}, curb top {top2:0.000}, strip {strip:0.00}, walk {(strip > 0f ? CityMeshes.WalkStdM : wTot - top2):0.00} m; pixels (1280 x 720): {sb}\n");
         }
 
         /// <summary>The ground's section across the curb the owner looks at: the street nearest his
