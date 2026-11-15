@@ -257,9 +257,13 @@ namespace PSXRacing.EditorTools
                 var tiles = CitySignals.Tiles(map, trims);
                 long tris = 0; double ms = 0; int heads = 0, poles = 0, stopSigns = 0, refused = 0, sigAppN = 0, noHead = 0, noView = 0, bars = 0;
                 var noHeadAt = new List<string>();
+                var noHeadWhy = new List<string>();
+                bool diagWas = CitySignals.DiagNoHead;
+                CitySignals.DiagNoHead = true;
                 foreach (var t in tiles)
                 {
                     var st = CitySignals.Build(map, trims, bld, null, null, t.x, t.y);
+                    foreach (var dl in st.diag) if (noHeadWhy.Count < 16) noHeadWhy.Add(dl.Length > 700 ? dl.Substring(0, 700) : dl);
                     ms += st.ms; heads += st.heads.Count; poles += st.poles.Count; stopSigns += st.stops.Count; refused += st.refused; bars += st.stopBars;
                     foreach (var m in new[] { st.mesh, st.lamps, st.halos })
                     {
@@ -277,7 +281,9 @@ namespace PSXRacing.EditorTools
                 }
                 Line(string.Format(inv, "  FURNITURE over {0} junction tiles: {1} signal poles, {2} heads, {3} STOP signs ({4} stop bars; {5} approaches with no clear spot for a sign or pole); signal approaches {6}, with no head at all {7}, with heads but none in the driver's view {8}; {9} triangles in all ({10:0} a tile), {11:0} ms in all ({12:0.00} ms a tile)",
                     tiles.Count, poles, heads, stopSigns, bars, refused, sigAppN, noHead, noView, tris, tiles.Count > 0 ? (double)tris / tiles.Count : 0, ms, tiles.Count > 0 ? ms / tiles.Count : 0));
+                CitySignals.DiagNoHead = diagWas;
                 foreach (var s in noHeadAt) outLog.AppendLine("    NO-HEAD " + s);
+                foreach (var s in noHeadWhy) outLog.AppendLine("    NO-HEAD-WHY " + s);
             }
             // ---- what a 3 x 3 ring of tiles costs (PSX_CTL_RINGS="name:x,z;..."): the tile meshes and the junction furniture
             string ringSpec = System.Environment.GetEnvironmentVariable("PSX_CTL_RINGS");
