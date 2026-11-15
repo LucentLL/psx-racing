@@ -116,6 +116,7 @@ namespace PSXRacing.City
             conCovered = 0; conAsked = 0; conChanged = 0; conPaveCutM = 0f; concreteUnknownVerts = 0;
             conRule = "?"; conEdge = -1; conSide = 0; conNode = -1; conElev = false; conLastWhole = true;
             conActive = ConcreteOn || concreteLog != null;
+            ConBindPlates();
             conEnclosed.Clear(); conPlateNow = false;
             conTile.Clear(); conPend = 0; conOrphans = 0; conOrphanM = 0f;
         }
@@ -186,6 +187,80 @@ namespace PSXRacing.City
         public static ExtraPave ConcreteExtraPave;
         /// <summary><see cref="ConPaveAt"/>'s "who" for that pavement.</summary>
         const int ConPlate = -2000000000;
+
+        // ---- another round's deck plates, bound by name when they are in the build ------
+        /// <summary>
+        /// PSX_CITY_CONC_SPUI=1 (OFF by default; untested here: the plates are not in this branch).
+        /// The deck plates of branch charlotte-spui (CityDeckPlates: one slab over the knot of
+        /// ramps on a structure, a convex hull, one height) are pavement the ribbons and fans do
+        /// not hold. With the switch on, the gate reads them by name (no compile-time tie) and
+        /// counts a point as plate when it lies inside a plate's hull AND at least ConPlateRimM
+        /// from its rim: rule 1 then takes every wall, chord rail and nose standing in the plate,
+        /// and leaves the parapets within that distance of the rim, where the plate's edge is.
+        /// Whoever turns it on runs the bridges audit after (RAIL-DROP must not rise): if the
+        /// plate reaches further out than the old parapets stood, its rim needs a parapet of its own.
+        /// </summary>
+        public static bool ConcreteSpuiOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_SPUI") == "1";
+        const float ConPlateRimM = 2f;
+        static bool conPlatesTried, conPlatesWarned; static System.Type conPlatesType; static int conPlatesVersion = int.MinValue;
+        static readonly List<(Vector2[] hull, Vector2 mn, Vector2 mx, float h)> conPlates = new List<(Vector2[], Vector2, Vector2, float)>();
+        /// <summary>How many deck plates the gate reads (0: none bound).</summary>
+        public static int ConcretePlatesBound => conPlates.Count;
+
+        static void ConBindPlates()
+        {
+            if (!ConcreteSpuiOn) return;
+            try
+            {
+                if (!conPlatesTried) { conPlatesTried = true; conPlatesType = typeof(CityMeshes).Assembly.GetType("PSXRacing.City.CityDeckPlates"); }
+                if (conPlatesType == null) return;
+                const System.Reflection.BindingFlags St = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags In = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+                int v = conPlatesType.GetProperty("Version", St)?.GetValue(null) is int vi ? vi : 0;
+                if (v == conPlatesVersion) return;
+                conPlatesVersion = v;
+                conPlates.Clear();
+                bool on = conPlatesType.GetProperty("On", St)?.GetValue(null) is bool b1 && b1;
+                bool cut = !(conPlatesType.GetField("CutOn", St)?.GetValue(null) is bool b2) || b2;
+                if (on && cut && conPlatesType.GetField("Plates", St)?.GetValue(null) is System.Collections.IEnumerable list)
+                    foreach (object plate in list)
+                    {
+                        var t = plate.GetType();
+                        if (t.GetField("skipped", In)?.GetValue(plate) != null) continue;
+                        if (t.GetField("cutFailed", In)?.GetValue(plate) is bool cf && cf) continue;
+                        if (!(t.GetField("hull", In)?.GetValue(plate) is Vector2[] hull) || hull.Length < 3) continue;
+                        if (!(t.GetField("H", In)?.GetValue(plate) is float h)) continue;
+                        Vector2 mn = hull[0], mx = hull[0];
+                        foreach (var q in hull) { mn = Vector2.Min(mn, q); mx = Vector2.Max(mx, q); }
+                        conPlates.Add((hull, mn, mx, h));
+                    }
+                if (conPlates.Count > 0 && ConcreteExtraPave == null) ConcreteExtraPave = ConPlatePave;
+            }
+            catch (System.Exception ex)
+            {
+                conPlates.Clear();
+                if (!conPlatesWarned) { conPlatesWarned = true; Debug.LogWarning("[Concrete] deck plates found but not bound: " + ex.Message); }
+            }
+        }
+
+        /// <summary>Inside a bound plate's hull (convex, counter-clockwise), ConPlateRimM or more from its rim.</summary>
+        static bool ConPlatePave(Vector2 q, float y, out float yPave)
+        {
+            yPave = 0f;
+            foreach (var pl in conPlates)
+            {
+                if (q.x < pl.mn.x || q.x > pl.mx.x || q.y < pl.mn.y || q.y > pl.mx.y) continue;
+                bool inside = true;
+                for (int i = 0, j = pl.hull.Length - 1; i < pl.hull.Length && inside; j = i++)
+                {
+                    Vector2 a = pl.hull[j], e = pl.hull[i] - a;
+                    float len = e.magnitude;
+                    if (len > 1e-4f && (e.x * (q.y - a.y) - e.y * (q.x - a.x)) / len < ConPlateRimM) inside = false;
+                }
+                if (inside) { yPave = pl.h; return true; }
+            }
+            return false;
+        }
 
         // ---- the pavement under a piece -------------------------------------------
         static readonly HashSet<int> conSet = new HashSet<int>();
