@@ -103,6 +103,7 @@ namespace PSXRacing.City
             conCovered = 0; conAsked = 0; conChanged = 0; conPaveCutM = 0f; concreteUnknownVerts = 0;
             conRule = "?"; conEdge = -1; conSide = 0; conNode = -1; conElev = false; conLastWhole = true;
             conActive = ConcreteOn || concreteLog != null;
+            conEnclosed.Clear(); conPlateNow = false;
         }
 
         static void ConcreteTileEnd()
@@ -154,6 +155,14 @@ namespace PSXRacing.City
             });
         }
 
+        /// <summary>Pavement the ribbons and fans do not hold: is the world plan point on it, and at what
+        /// height? Null unless some builder lays such pavement (it must answer from the map alone, the
+        /// same for every tile). The gate counts it as a junction's area.</summary>
+        public delegate bool ExtraPave(Vector2 q, float y, out float yPave);
+        public static ExtraPave ConcreteExtraPave;
+        /// <summary><see cref="ConPaveAt"/>'s "who" for that pavement.</summary>
+        const int ConPlate = -2000000000;
+
         // ---- the pavement under a piece -------------------------------------------
         static readonly HashSet<int> conSet = new HashSet<int>();
         static readonly HashSet<int> conEdgeSet = new HashSet<int>();
@@ -162,10 +171,10 @@ namespace PSXRacing.City
         static readonly List<int> conFans = new List<int>(16);
 
         /// <summary>The roads and junction fans whose pavement could lie under a piece from a to b (world plan).</summary>
-        static void ConGather(Vector2 a, Vector2 b)
+        static void ConGather(Vector2 a, Vector2 b, float extra = 0f)
         {
             conSet.Clear(); conEdgeSet.Clear(); conFanSet.Clear(); conEdges.Clear(); conFans.Clear();
-            float r = 1.5f + CityElevation.MaxCorridorHalf;
+            float r = 1.5f + CityElevation.MaxCorridorHalf + extra;
             conMap.EdgeSegsInRect(Vector2.Min(a, b) - Vector2.one * r, Vector2.Max(a, b) + Vector2.one * r, conSet);
             foreach (int packed in conSet)
             {
@@ -189,7 +198,7 @@ namespace PSXRacing.City
         /// <summary>Drawn pavement under the plan point q, at a height a piece standing at y
         /// stands in: whose (an edge's index; -1 - n for the fan of node n) and which way
         /// its traffic runs there (zero in a junction's area).</summary>
-        static bool ConPaveAt(Vector2 q, float y, out int who, out Vector2 travel, out float yLane, bool loose = false)
+        static bool ConPaveAt(Vector2 q, float y, out int who, out Vector2 travel, out float yLane, bool loose = false, bool drawnOnly = false)
         {
             who = int.MinValue; travel = Vector2.zero; yLane = 0f;
             for (int k = 0; k < conEdges.Count; k++)
@@ -227,7 +236,51 @@ namespace PSXRacing.City
                 if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) continue;
                 if (OnFan(fan, q, out float yf) && (loose ? Mathf.Abs(yf - y) <= 3f : RailStandsIn(y, yf))) { who = -1 - nf; yLane = yf; return true; }
             }
+            if (drawnOnly) return false;
+            // pavement drawn by neither a ribbon nor a fan (a deck plate laid over the openings between
+            // the ramps of an interchange on structure): whoever draws it answers here, from the map alone
+            if (ConcreteExtraPave != null && ConcreteExtraPave(q, y, out float yp) && (loose ? Mathf.Abs(yp - y) <= 3f : RailStandsIn(y, yp))) { who = ConPlate; yLane = yp; return true; }
+            // THE PLATE RULE (off by default): an opening the pavement of a structure closes round counts as its plate
+            if (conPlateNow && !loose && ConInOpening(q, y)) { who = ConPlate; yLane = y; return true; }
             return false;
+        }
+
+        /// <summary>
+        /// 3. THE PLATE (PSX_CITY_CONC_PLATE=1; default OFF). Where ramps meet ON a structure (the
+        /// single-point interchanges) the deck is drawn as the ramps' own ribbons and the junction's
+        /// fan, and the triangles left between them are OPEN (the road below shows through): every
+        /// ribbon's edge there carries its parapet and every gore its nose, which is the "massacre"
+        /// in the middle of the owner's deck - and each of them guards a real fall, so rule 1 leaves
+        /// them. A real interchange deck is ONE plate: the parapet follows the outline of all the
+        /// pavement at that level and nothing stands inside it. With this rule on, an opening that
+        /// drawn pavement at the piece's level closes round on every side (twelve rays, each met
+        /// within ConPlateReachM) counts as plate, and rule 1 then takes what stands at its rim. IT
+        /// MUST ONLY BE ON ONCE THOSE OPENINGS ARE FLOORED (the deck plate is another round's work:
+        /// branch charlotte-spui); until then it would open unguarded falls, hence the default.
+        /// The parapet on the plate's OUTER outline has open air on one side and stays.
+        /// </summary>
+        public static bool ConcretePlateOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CONC_PLATE") == "1";
+        const float ConPlateReachM = 30f, ConPlateStepM = 1f;
+        const int ConPlateRays = 12;
+        static bool conPlateNow;
+        static readonly Dictionary<long, bool> conEnclosed = new Dictionary<long, bool>();
+
+        /// <summary>Is the plan point q (on no drawn pavement) in an opening drawn pavement at level y closes round?</summary>
+        static bool ConInOpening(Vector2 q, float y)
+        {
+            long key = ((long)Mathf.RoundToInt(q.x * 2f) << 32) ^ (uint)Mathf.RoundToInt(q.y * 2f);
+            if (conEnclosed.TryGetValue(key, out bool known)) return known;
+            bool all = true;
+            for (int k = 0; k < ConPlateRays && all; k++)
+            {
+                float ang = (k + 0.5f) * (2f * Mathf.PI / ConPlateRays);
+                var dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                bool met = false;
+                for (float s = ConPlateStepM; s <= ConPlateReachM && !met; s += ConPlateStepM) met = ConPaveAt(q + dir * s, y, out _, out _, out _, false, true);
+                all = met;
+            }
+            conEnclosed[key] = all;
+            return all;
         }
 
         /// <summary>Does a piece's centre line at q (world plan; <paramref name="dir"/> along
@@ -268,7 +321,8 @@ namespace PSXRacing.City
                 var dir = (b2 - a2) / len;
                 var perp = new Vector2(dir.y, -dir.x);
                 if (Vector2.Dot(perp, outward) < 0f) perp = -perp;
-                ConGather(a2, b2);
+                conPlateNow = ConcretePlateOn && conElev;
+                ConGather(a2, b2, conPlateNow ? ConPlateReachM : 0f);
                 int n = Mathf.Max(2, Mathf.CeilToInt(len / ConStepM) + 1);
                 conOn.Clear();
                 int onCount = 0;
@@ -349,9 +403,34 @@ namespace PSXRacing.City
         /// plan point (strict: a piece standing at y stands in it; loose: any within 3 m of y).</summary>
         public static bool ConcretePaveProbe(CityMap map, Trims trims, Vector2 q, float y, bool loose, out int who, out Vector2 travel, out float yLane)
         {
-            conMap = map; conTrims = trims;
+            conMap = map; conTrims = trims; conPlateNow = false;
             ConGather(q, q);
             return ConPaveAt(q, y, out who, out travel, out yLane, loose);
+        }
+
+        /// <summary>The audit's plan of a place: the pavement the gate tests against within r of c -
+        /// every ribbon's cross-sections (O rows) and every fan's triangles (F rows), as text.</summary>
+        public static void ConcretePlanDump(CityMap map, Trims trims, Vector2 c, float r, System.Text.StringBuilder sb)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            conMap = map; conTrims = trims;
+            ConGather(c - Vector2.one * r, c + Vector2.one * r);
+            foreach (int ei in conEdges)
+            {
+                var ol = OutlineOf(map, trims, ei);
+                if (ol.L == null) continue;
+                var e = map.edges[ei];
+                for (int i = 0; i < ol.L.Length; i++)
+                    sb.Append(string.Format(inv, "O\t{0}\t{1}\t{2:0.00}\t{3:0.00}\t{4:0.00}\t{5:0.00}\t{6:0.00}\t{7:0.00}\t{8}\t{9}\t{10}\t{11}\t{12}\n",
+                        ei, i, ol.L[i].x, ol.L[i].y, ol.L[i].z, ol.R[i].x, ol.R[i].y, ol.R[i].z, ol.elev[i] ? 1 : 0, e.oneway ? 1 : 0, e.link ? 1 : 0, e.cls, e.name));
+            }
+            foreach (int nf in conFans)
+            {
+                var T = fanPolys[nf].tris;
+                for (int i = 0; i + 2 < T.Length; i += 3)
+                    sb.Append(string.Format(inv, "F\t{0}\t{1}\t{2:0.00}\t{3:0.00}\t{4:0.00}\t{5:0.00}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9:0.00}\t{10:0.00}\n",
+                        nf, i / 3, T[i].x, T[i].y, T[i].z, T[i + 1].x, T[i + 1].y, T[i + 1].z, T[i + 2].x, T[i + 2].y, T[i + 2].z));
+            }
         }
 
         /// <summary>HEIGHT BY KIND: the most a piece of a kind stands over its line.</summary>

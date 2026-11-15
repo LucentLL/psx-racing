@@ -89,6 +89,11 @@ namespace PSXRacing.EditorTools
                 var sun = NightLookShots.FindSun();
                 var car = player.GetComponent<CarController>();
                 string spec = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_SPOTS") ?? "";
+                // (concrete round) PSX_BRSHOT_SPOTS_FILE: more spots, one a line; "id@ex,ey,ez,lx,ly,lz": an eye and a look-at
+                // point in world space; PSX_BRSHOT_SWITCH=concrete: before / after flips the concrete gate, not the bridges round
+                string specFile = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_SPOTS_FILE");
+                if (!string.IsNullOrEmpty(specFile) && File.Exists(specFile)) spec += ";" + File.ReadAllText(specFile).Replace("\r", "").Replace("\n", ";");
+                bool concSwitch = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_SWITCH") == "concrete";
                 string modesS = System.Environment.GetEnvironmentVariable("PSX_BRSHOT_MODES");
                 if (string.IsNullOrWhiteSpace(modesS)) modesS = "after,before";
                 var modes = modesS.Split(',');
@@ -100,7 +105,16 @@ namespace PSXRacing.EditorTools
                     if (it.Length == 0) continue;
                     var poses = new List<(string name, Vector3 eye, Quaternion r)>();
                     string id;
-                    if (it.Contains("="))
+                    if (it.Contains("@"))
+                    {
+                        id = it.Substring(0, it.IndexOf('@'));
+                        var v = it.Substring(it.IndexOf('@') + 1).Split(',');
+                        var eye = new Vector3(float.Parse(v[0], inv), float.Parse(v[1], inv), float.Parse(v[2], inv));
+                        var look = new Vector3(float.Parse(v[3], inv), float.Parse(v[4], inv), float.Parse(v[5], inv));
+                        poses.Add(("view", eye, Quaternion.LookRotation(look - eye)));
+                        log.Append($"{id}\tworld eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) look ({look.x:0.0},{look.y:0.00},{look.z:0.0})\n");
+                    }
+                    else if (it.Contains("="))
                     {
                         id = it.Substring(0, it.IndexOf('='));
                         var v = it.Substring(it.IndexOf('=') + 1).Split(',');
@@ -206,7 +220,8 @@ namespace PSXRacing.EditorTools
                     if (poses.Count == 0) continue;
                     foreach (var mode in modes)
                     {
-                        CityMeshes.Bridge2On = mode.Trim() != "before";
+                        if (concSwitch) CityMeshes.ConcreteOn = mode.Trim() != "before";
+                        else CityMeshes.Bridge2On = mode.Trim() != "before";
                         CityMeshes.Bridge2Changed();
                         world.DropAll();
                         RaceHandoff.CalendarDay = 0;
@@ -228,7 +243,7 @@ namespace PSXRacing.EditorTools
                         }
                     }
                 }
-                CityMeshes.Bridge2On = true; CityMeshes.Bridge2Changed();
+                CityMeshes.Bridge2On = true; CityMeshes.ConcreteOn = true; CityMeshes.Bridge2Changed();
                 log.Append($"{shots} frames to {dir}\nBRIDGES ROUND 2 SHOTS OK\n");
             }
             catch (System.Exception ex) { log.Append("BRIDGES ROUND 2 SHOTS FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
