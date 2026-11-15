@@ -235,9 +235,12 @@ namespace PSXRacing.City
                 AddPoly();
             }
             var arcs = new List<float>(64);
+            // the slab is poured as most of the deck it replaces is (new or old concrete, by plan area)
+            var surfArea = new float[SurfaceCount];
             foreach (int ei in pl.levelEdges)
             {
                 var e = map.edges[ei];
+                int piecesBefore = pieces.Count;
                 // the polyline's vertices (none closer than 1.5 m to the last), and none further apart than 4 m
                 arcs.Clear();
                 arcs.Add(0f);
@@ -277,7 +280,11 @@ namespace PSXRacing.City
                     }
                     pL = L; pR = R; ps = s; have = true;
                 }
+                for (int k = piecesBefore; k < pieces.Count; k++) surfArea[(int)SurfaceOf(e, true)] += DpArea2(pieces[k]);
             }
+            int surf = pl.widest >= 0 ? (int)SurfaceOf(map.edges[pl.widest], true) : (int)Surface.ConcreteOld;
+            for (int k = 0; k < SurfaceCount; k++) if (surfArea[k] > surfArea[surf] + 0.01f) surf = k;
+            pl.surface = surf;
             if (pieces.Count > DpMaxPieces)
                 throw new System.InvalidOperationException($"[DeckPlates] runaway guard: plate {pl.id} has {pieces.Count} pavement pieces (limit {DpMaxPieces})");
             // the widest first: fewer cuts
@@ -447,7 +454,7 @@ namespace PSXRacing.City
 
             // the slab, and what the tile had drawn beyond it
             var cover = pl.cover;
-            var slab = buckets[(int)SlotOf(JunctionProfile, SurfaceOf(map.edges[pl.widest], true))];
+            var slab = buckets[(int)SlotOf(JunctionProfile, (Surface)pl.surface)];
             var poly = dpTmp;
             int laid = 0;
             foreach (var pc in pl.slab)
