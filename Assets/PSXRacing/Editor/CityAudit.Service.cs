@@ -48,6 +48,19 @@ namespace PSXRacing.EditorTools
                      $"entrances {map.lotEntrances.Length} (lot entrances' from {CityMeshes.LotEntEntrancesFrom}, service mouths from {CityMeshes.ServiceEntrancesFrom}: {CityMeshes.ServiceEntrancesCount})");
                 Line(CityMeshes.ServiceStats.Line());
                 Line(CityMeshes.LotEntStats.Line());
+                {
+                    // the invented buildings on the ways (taken out by Precompute's last step), and what is left on them
+                    int left = 0, food = 0, all = 0; var rows = new List<string>();
+                    foreach (var kv in proc)
+                        foreach (var b in kv.Value)
+                        {
+                            all++;
+                            if (!CityMeshes.ServiceUnderBuilding(map, b)) continue;
+                            if (CityProps.IsFood(b.kind)) food++; else left++;
+                            if (rows.Count < 12) rows.Add(string.Format(I, "kind {0} {1:0}x{2:0} m at ({3:0}, {4:0})", b.kind, b.w, b.d, b.pos.x, b.pos.y));
+                        }
+                    Line($"BUILDINGS ON THE WAYS: {CityMeshes.ServiceStats.buildingsCleared} invented frontage buildings taken off the ways; left standing on a way: {left} (+{food} restaurant landmarks) of {all} invented buildings" + (rows.Count > 0 ? ": " + string.Join("; ", rows) : ""));
+                }
 
                 // ---- 2. the lots
                 if (System.Environment.GetEnvironmentVariable("PSX_SERVICE_LOTS") != "0")

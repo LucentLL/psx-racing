@@ -84,7 +84,7 @@ namespace PSXRacing.City
 
         public static class ServiceStats
         {
-            public static int ways, mouths, quads, quadsOnLot, throats, stallsCut, islandsCut, lotsCut, points;
+            public static int ways, mouths, quads, quadsOnLot, throats, stallsCut, islandsCut, lotsCut, points, buildingsCleared;
             public static float km, kmOnLot, ms, msRead, msQuads, msLots;
             public static readonly float[] kmByKind = new float[7];
             public static void Reset()
@@ -226,6 +226,39 @@ namespace PSXRacing.City
                 if ((p - (a + ab * u)).sqrMagnitude <= lim * lim) { way = wi; seg = k; return true; }
             }
             return false;
+        }
+
+        /// <summary>Does an invented frontage building (CityBuildings.Precompute's box or model; not a
+        /// restaurant landmark, not a model fitted on a real footprint) stand on a service way? 25 points
+        /// over its footprint.</summary>
+        public static bool ServiceUnderBuilding(CityMap map, in CityBuildings.B b)
+        {
+            if (!ServiceOn || serviceMapFor != map || ServiceWays.Length == 0) return false;
+            // (yaw faces the road: forward = (sin, cos); the width lies across it)
+            float cs = Mathf.Cos(b.yaw), sn = Mathf.Sin(b.yaw);
+            var ax = new Vector2(cs, -sn); var ay = new Vector2(sn, cs);
+            for (int i = -2; i <= 2; i++)
+                for (int j = -2; j <= 2; j++)
+                {
+                    var p = b.pos + ax * (b.w * 0.25f * i) + ay * (b.d * 0.25f * j);
+                    if (ServiceWayAt(map, p, 0.3f, out _, out _)) return true;
+                }
+            return false;
+        }
+
+        /// <summary>CityBuildings.Precompute's last step: the frontage's invented buildings that stand on a
+        /// service way are taken out (the way is the map's, the box is the generator's guess at an empty
+        /// frontage). The ten restaurant landmarks and the models on real footprints stay.</summary>
+        public static int ServiceClearBuildings(CityMap map, Dictionary<long, List<CityBuildings.B>> byTile)
+        {
+            ServiceStats.buildingsCleared = 0;
+            if (!ServiceOn || byTile == null || serviceInstalledFor != map || ServiceWays.Length == 0) return 0;
+            int n = 0;
+            foreach (var kv in byTile)
+                n += kv.Value.RemoveAll(b => !CityProps.IsFood(b.kind) && b.scale == Vector3.zero && ServiceUnderBuilding(map, b));
+            ServiceStats.buildingsCleared = n;
+            if (n > 0) Debug.Log($"[City] service ways: {n} invented frontage buildings stood on a way and were taken out");
+            return n;
         }
 
         /// <summary>FOR THE LOTS PASS: "is there service pavement here?"</summary>
@@ -400,7 +433,8 @@ namespace PSXRacing.City
                     }
                     L.Add(w.pts[i] + m * (w.half[i] * scale)); R.Add(w.pts[i] - m * (w.half[i] * scale));
                 }
-                bool fresh = IsFresh(w.pts[0]);
+                // one tone for every way: the weathered asphalt (a fresh black piece between two grey ones read as a patch)
+                const bool fresh = false;
                 for (int i = 0; i + 1 < n; i++)
                 {
                     var d = w.pts[i + 1] - w.pts[i]; float len = d.magnitude;
