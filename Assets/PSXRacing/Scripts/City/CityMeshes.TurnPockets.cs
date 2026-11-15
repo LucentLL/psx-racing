@@ -43,11 +43,16 @@ namespace PSXRacing.City
     //  its 91 LAUNCH spots but counted 3 new UNLOAD spots (6-10 cm, each on a
     //  pocket junction's wider fan: 565 -> 568); those junctions went into
     //  PocketSkipNodes and the audit was not run again. 2026-11-15 (signals
-    //  round 2), on mountain-nm 50c8a3aa, off then on in fresh processes,
-    //  city-wide: 91 LAUNCH / 564 UNLOAD both, by tier identical, 0 flown
-    //  turns off the pavement both; one existing UNLOAD spot 1.4 cm deeper
-    //  (0.062 -> 0.076 m, the ramp e4930 beside Johnston Rd's n2813), two
-    //  2-2.6 cm shallower. 246 pockets, 188 of them at a signalised junction.
+    //  round 2), city-wide, two fresh processes: pockets OFF on mountain-nm
+    //  50c8a3aa, pockets ON on this branch's first working state with
+    //  PSX_CITY_SIGNALS2=0 (the round's own rule off; junction furniture is
+    //  not road surface, but it was not the identical code): 91 LAUNCH / 564
+    //  UNLOAD both, by tier identical, 0 flown turns off the pavement both.
+    //  One existing UNLOAD spot 1.4 cm deeper (0.062 -> 0.076 m, the ramp
+    //  e4930 beside Johnston Rd's n2813), two 2-2.6 cm shallower; 25 more
+    //  rows of the spot list name the same place and depth under another
+    //  path (why is not known). 246 pockets, 188 at a signalised junction.
+    //  NOT re-run with PSX_CITY_SIGNALS2 on.
     // ======================================================================
     public static partial class CityMeshes
     {
