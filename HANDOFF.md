@@ -1,4 +1,48 @@
-﻿# HANDOFF - LOT ENTRANCES, SECOND PASS: a driveway that reads as one (agent "lots", branch `charlotte-lots`, 2026-11-15 pm; NOT pushed)
+﻿# HANDOFF - DAMAGEVIEW: every view of a car shows its current condition (agent "damageview", branch `damage-view`, 2026-11-15 pm; NOT pushed)
+
+The owner (verbatim): "I wrecked my NSX during the race. The damage was shown during the race and replay, but in the garage view the car is in mint condition, visibly. The viewing of cars should always be accurate, especially since flipping cars is a feature. the current condition should be visible in all modes." Branch = mountain-nm 416ddfda (the PC43 exe) + this round. Sandbox PSXPerf, Windows target. Player-only: nothing under `Scripts/City`, no re-bake, no data files, no save change.
+
+## Cause
+- The drive's look lives in `Scripts/DamageLook.cs`, a component on the DRIVEN CarController, attached by the career ledger (`DamageModel.cs:598`); it was the only writer of PSX/CarPaint's damage block. No display model ever called it: `CarViewer.Show / ShowOwned` (`Scripts/LifeSim/CarViewer.cs:455-573`) put the skin material on the turntable body and nothing else, and every menu view goes through that one viewer; `CarShell.Spawn` (`Scripts/OnFoot/CarShell.cs:69`) the same on foot. The rows were there all along (OwnedCar.faults; DamageBank folds a drive's hits at its exit), the views just never read them.
+
+## View inventory (view: car shown; condition before -> after)
+- Car pages' side panel: SPECS, SERVICE (the mechanic), PAINT (the booth, the hovered colour), TUNE/SETUP on wide screens (`BuildCarSide` -> CarViewPanel, the owner's spot "DRAG TO TURN / VALUE"): the career car; mint -> its condition.
+- CAR MENU stage (`CarMenuHero` -> OwnedHero, the GT-style showroom) and MY CARS (`GarageHero`, < > between cars; classic: `BuildDrivingBlock`): career cars; mint -> each car's own condition.
+- INSPECT plan and side views (`DrawChassis`), STORED WHEELS (`BuildStoredWheels`): the career car; mint -> condition (stored wheels not shot: needs stored wheels; same ShowOwned call).
+- On foot: the garage bays (`GarageWorld.SpawnShell`) and the pizza shop's kerb (`PizzaShift.StandTheCarUp`): career cars; mint (+ the bay's shine) -> condition.
+- The drive, the replay, the player's car at a meet: the drive's own car (DamageLook): already showed it; unchanged.
+- Cars for sale: dealer lot stage (`DealerHero`; Town `FillDealer` shells), the paper's BUY page and the VIEWING page (`ViewHero` / CarViewPanel), the seller's drive on foot (`SellerLotWorld`), the junkyard (`FillYard`), the new game's lanes (`BuildCarPickShowroom`, thumbnails): mint -> mint, EXCEPT a car the player has gone to see: dressed with the visit's car (its rows and its paint = the advert's condition, so a tired car's shine is dull). THE MARKET'S CARS CARRY NO BODY ROWS YET: a CarListing holds only cond / odometer / a disclosed problem, and the used-fault pool (`Resources/rg2_faults.json` "used", 36 rows) has no panel_damage / lamp_out / roof_glass / bumper_bar; the path is ready (the visit's rows show the day R3 / R4c rolls them).
+- AI and traffic (Town meets and club cars, traffic shells, rivals): untouched (a shell with no owner is never dressed). Arcade car select and the city edition's pick: no career car, unchanged. Title screen: no player car. No photo mode exists.
+
+## What changed (switch `PSX_VIEW_DAMAGE=0` = today's mint views; default ON)
+- NEW `Scripts/DamageView.cs`: `DamageView.Dress(frame, body, box centre, box size, OwnedCar)` (+ an overload off def / ShellFit / slide): the drive's rows -> look (`DamageLook.Read`, plus a drive under way on that car), written by the drive's per-renderer code (`DamageLook.WriteBlock`, the same seed), plus `PaintGloss.Of` (paint, paint faults, dirt). Respects PSX_FAULT_LOOK / _BODY / _LAMPS. No steam (engine off), no SRS bag (no cockpit drawn in a view). A mint car or none clears a reused model. `LookOf`, `Signature`.
+- NEW `Scripts/DamageViewWatch.cs`: on each dressed model, the rows' signature every 0.5 s by InvokeRepeating (no Update): a repair at the mechanic / in the garage / on the bench shows at once.
+- `Scripts/DamageLook.cs`: Push's per-renderer block write extracted into `public static WriteBlock(...)` and `Seed(carId)`: the same math, line for line (the drive's look is unchanged).
+- `Scripts/LifeSim/CarViewer.cs`: ShowOwned hands its car to Show; `Show(def, skin, geo)` dresses at its end and on its same-shell early return (< > between two cars of one model); any other Show = mint. New public `Dress(OwnedCar)`, `BodyRenderer`, `Picture`, `ShownSlide`.
+- `Scripts/OnFoot/CarShell.cs`: Spawn dresses when `owned` is given; new `CarShell.Dress(shell, def, spec, widthMm, car)`. `Scripts/OnFoot/SellerLotWorld.cs`: the seller's shell dressed with `visit.car`.
+- `Scripts/LifeSim/LifeHomeScreen.cs`: `VisitCar()`; CarViewPanel's for-sale path dresses with it. `LifeHomeScreen.Showroom.cs`: DealerHero / ViewHero the same.
+- Editor: `LifeSimSelfTest.DamageView.cs` (+ one line in `LifeSimSelfTest.cs` RunAll), `DamageViewShots.cs` (the pictures; `PSX_DV_TAG`).
+
+## Proof
+- Sheet: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\damageview\out\damageview_sheet.png`. A career NSX 3 / 3, wrecked through the bank (`DamageBank.ApplyIncident`, as a drive's exit folds a crash: panel_damage front stage 3 + lamp_out front-left 8.6 m/s, panel_damage left side stage 2 4.4 m/s, roof_glass stage 1 3.2 m/s; hidden, causes stamped). Fresh processes, same seeded save (cash $1,127 in both): left PSX_VIEW_DAMAGE=0, right ON: SPECS side panel (+ zoom), SERVICE, CAR MENU stage, MY CARS, INSPECT, PAINT BOOTH, the turntable frame, the on-foot shell; then the drive's look at the same rig and angle, the repair, the second car. Pixel diff before/after: only the car changes (side panel pages 15,972 px, stages ~93,500, inspect 34,399); the repaired NSX, the clean second car and the drive's frame are pixel-identical in both runs.
+- The drive's look and the views' look read the same from the same rows: zones (1.00, 0.00, 0.67, 0.00), roof 0.33, lamps 1 (head left).
+- Self-test (PSXPerf, Windows): base 416ddfda = 62 FAIL / 4,561 ok; this branch = the same 62 FAIL lines (0 new, 0 gone) / 4,575 ok; the 14 new checks all hold (mint carries no block; > to the wreck wears it; same look and seed as the drive; < back clean; watched; repair goes clean at once; a new incident shows; a car for sale mint and unwatched; the on-foot shell wears it, never a wheel; an unowned shell untouched; PSX_VIEW_DAMAGE=0 mint).
+- Menus: no new control or label; every page's pad-reach, scroll and clip report is line-for-line identical before / after (16 lines).
+- Cost: the dressing 0.004-0.010 ms per view open (and per < >); the watch's check 0.5-0.7 us every 0.5 s; per frame 0 (no Update). A first ShowOwned (model + dress) 2.4-7.2 ms as before.
+- The sandbox was on WebGL: the switch to Windows cost about a minute on the first job (initial refresh 50 s; that job 5.5 min).
+
+## Still not shown (and why)
+- The market's body rows (above): none exist yet - R3 / R4c's work. An advert not yet visited holds no car: shown mint at full shine.
+- Wear, age and neglect have only the lost shine (`_PSXGloss`: paint %, paint_fade / paint_bubble / minor_rust / panel_rust, dirt since the last wash). There is no colour look anywhere (no dirt film, rust spots, faded or bubbled paint), in the drive or the views: a shader gap.
+- Legacy rows from before R1a (R0a's `bumper_crack`, alignment, ...) have no look in the drive either; an old save's crash shows nothing.
+- The lamp out reads weakly on a pop-up-lamp car (the NSX): the dark lens is the lamp map's texels; with the lids down there is little to darken. The SRS bag and the steam stay drive-only (no cockpit, no running engine in a view).
+- The dent is the drive's shader (a few cm push, creases, scrapes, the glass web), not a mesh crush; at the 320 x 200 side panel it reads as scraped and creased more than crumpled.
+- Pictures: the on-foot shell and the drive's car were filmed on the turntable rig (same camera, same light), not in the garage scene or a live drive (the drive's CarBody was built in the editor; its wheels were not set up). The self-test covers the shell's block; the drive's frame is DamageLook's own code on the drive's body.
+
+## Merge notes
+- Shared files touched: `DamageLook.cs` (Push -> WriteBlock / Seed), `CarViewer.cs`, `CarShell.cs`, `SellerLotWorld.cs`, `LifeHomeScreen.cs` (VisitCar + CarViewPanel line), `LifeHomeScreen.Showroom.cs` (two lines), `LifeSimSelfTest.cs` (one RunAll line). New .meta files with fixed GUIDs for the four new scripts.
+- No scene pass, no re-bake, no Resources change, no save version: a player-only build carries it.
+
 
 The owner on the first pass's frames (11:50): "that is a LOT of curb on the side of the road (and I don't see an entrance area (curb relief) into the parking lot". He was right: the first pass's cut eased over 18 m of frontage, the ramp behind it was ground-coloured concrete up to 18 m wide, and my owner's-lot frames showed the wrong lot. Branch now = mountain-nm 50c8a3aa (bridges, roads audit, hoods' curbs 3) merged in + this pass. Sandbox PSXPerf.
 

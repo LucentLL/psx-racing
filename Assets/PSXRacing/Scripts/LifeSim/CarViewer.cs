@@ -478,6 +478,7 @@ namespace PSXRacing.LifeSim
             var def = Paint.DefFor(spec);
             if (def == null) return;
             nextWheelKey = car != null ? car.wheelKey : "";
+            dressNext = car;   // its condition, as the drive shows it (DamageView)
             Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
             // A car whose wheels are in storage is shown on its stands, everywhere.
             SetWheelsOff(car != null && car.noWheels);
@@ -493,14 +494,21 @@ namespace PSXRacing.LifeSim
         /// CarModelLibrary.Fit as CarBody (stretch, spec track, tyres, camber).</summary>
         public void Show(CarModelDef def, int skin, CarModelLibrary.SpecGeometry geo)
         {
+            var owner = dressNext;
+            dressNext = null;
             if (def == null) return;
             EnsureRig();
             string wheelKey = nextWheelKey ?? "";
             nextWheelKey = null;
-            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo) && wheelKey == shownWheelKey) return;
+            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo) && wheelKey == shownWheelKey)
+            {
+                Dress(owner);   // the same shell: another car's rows (< >), or a repair since
+                return;
+            }
             shownWheelKey = wheelKey;
             shownGeo = geo;
             var fit = CarModelLibrary.Fit(def, geo);
+            shownFit = fit;
             float sx = fit.sx;
             shownKey = def.key;
             shownSkin = skin;
@@ -570,6 +578,34 @@ namespace PSXRacing.LifeSim
             distance = carLength * 1.22f;
             PlaceCamera();
             if (wheelsOff) SetWheelsOff(true);
+            shownSlide = new Vector3(0f, 0f, -centre);
+            Dress(owner);
+        }
+
+        /// <summary>ShowOwned's car for the Show it calls; any other Show is a
+        /// car with no rows of its own here (a car for sale, the arcade's).</summary>
+        OwnedCar dressNext;
+        CarModelLibrary.ShellFit shownFit;
+        Vector3 shownSlide;
+
+        /// <summary>The turntable's body (tests and the picture tools).</summary>
+        public Renderer BodyRenderer => bodyRenderer;
+        /// <summary>The turntable's own 320 x 200 frame (the picture tools).</summary>
+        public RenderTexture Picture => rt;
+        /// <summary>Where the shown car's own origin (between its axles, on the
+        /// ground) sits under the turntable, which centres the car's middle.</summary>
+        public Vector3 ShownSlide => shownSlide;
+
+        /// <summary>The car on the turntable (and on the showroom stage, the
+        /// same rig) in <paramref name="car"/>'s current condition - its damage
+        /// rows and its shine, the drive's look (DamageView); null = mint.
+        /// ShowOwned does this itself; a page showing a car for sale passes the
+        /// visit's car when a viewing holds one. Watched while shown: a repair
+        /// shows at once.</summary>
+        public void Dress(OwnedCar car)
+        {
+            if (Shown == null || rig == null || bodyRenderer == null) return;
+            DamageView.Dress(rig, bodyRenderer, Shown, shownFit, shownSlide, car);
         }
 
         void PlaceCamera()

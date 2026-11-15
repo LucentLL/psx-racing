@@ -163,6 +163,7 @@ namespace PSXRacing.LifeSim
             var spec = CarCatalog.Get(listing.specId);
             if (spec == null) return false;
             Viewer.Show(spec);
+            Viewer.Dress(Viewings.Find(S, listing)?.car);   // a car looked over: as the visit holds it (DamageView)
             var def = Viewer.Shown;
             if (def == null) return false;
             var card = Showroom.From(spec, listing.displayName, def, Paint.FactorySkin(spec, def));
@@ -199,6 +200,7 @@ namespace PSXRacing.LifeSim
         {
             if (spec == null) return false;
             Viewer.Show(spec);
+            Viewer.Dress(VisitCar());   // the car being looked over, as the visit holds it (DamageView)
             var def = Viewer.Shown;
             if (def == null) return false;
             var card = Showroom.From(spec, spec.name, def, Paint.FactorySkin(spec, def));
