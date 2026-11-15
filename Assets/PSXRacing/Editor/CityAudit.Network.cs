@@ -326,6 +326,40 @@ namespace PSXRacing.EditorTools
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_ROUTES", routesWas);
                 System.Environment.SetEnvironmentVariable("PSX_DRIVE_BOX", boxWas);
             }
+            // PSX_ROADS_DRIVE_EDGES=<a file of edge indices, or the list>: the drive audit along those edges
+            // (a corridor a track may use), every tile they cross, only their own lanes counted
+            string de = System.Environment.GetEnvironmentVariable("PSX_ROADS_DRIVE_EDGES");
+            if (!string.IsNullOrWhiteSpace(de))
+            {
+                if (File.Exists(de)) de = File.ReadAllText(de);
+                var set = new HashSet<int>();
+                foreach (var t in de.Split(',', ';', ' ', (char)10, (char)13, (char)9)) if (int.TryParse(t.Trim(), out int ei) && ei >= 0 && ei < map.edges.Length) set.Add(ei);
+                var ctiles = new List<(int tx, int tz, string why)>();
+                var cseen = new HashSet<long>();
+                float ckm = 0f;
+                foreach (int ei in set)
+                {
+                    var e = map.edges[ei]; ckm += e.length / 1000f;
+                    for (float s = 0f; s <= e.length + 15.99f; s += 16f)
+                    {
+                        var p = e.PointAt(Mathf.Min(s, e.length));
+                        int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
+                        if (cseen.Add(TileKey(tx, tz))) ctiles.Add((tx, tz, "corridor"));
+                    }
+                }
+                Line($"==== CORRIDOR DRIVE: {set.Count} edges ({ckm:0.0} km) on {ctiles.Count} tiles ====");
+                var t1 = clock.Elapsed.TotalSeconds;
+                CityMeshes.DividerLapRecord = true;
+                CityMeshes.DividerLaps.Clear(); CityMeshes.DividerLappedRails.Clear();
+                CityMeshes.carryOnSkipped.Clear();
+                CityMeshes.sameWayDeckSides.Clear();
+                MedianLateralReset(map);
+                FallHolesReset();
+                DriveAudit(map, trims, buildings, ctiles, set);
+                MedianLateralReport();
+                FallHolesReport();
+                Line($"  (corridor drive {clock.Elapsed.TotalSeconds - t1:0} s)");
+            }
             RoadsCost(map, trims, buildings);
             Line($"ROADS SAMPLE done in {clock.Elapsed.TotalSeconds:0} s");
             FinishTo("city_roads_sample.txt");
