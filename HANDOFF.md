@@ -1,4 +1,157 @@
-﻿# HANDOFF - EVENTS, round 1 (agent "events", branch `events`, 2026-11-15; NOT pushed, NOT merged)
+﻿# HANDOFF - BRIDGES ROUND 2 (charlotte-bridges, 2026-11-15): the city-wide bridges audit, girders keep the clearance, no rail on a shared deck's lanes, the city bridge rail
+
+Branch `charlotte-bridges` (worktree `C:/Users/mcgee/PSX Racing-bridges`, off mountain-nm f8cbf12d). Not merged, not pushed.
+The owner (PC41): "Please review all roads for accuracy (including parking lots, bridges, neigborhoods, driveways). I plan
+to start adding more racing tracks in Charlotte today once roads are accurate." Bridges were this agent's share.
+Graph hash b2aa3453 before and after (no data file touched, no export run).
+
+## The audit (new): `Editor/CityAudit.Bridges.cs`, `-executeMethod PSXRacing.EditorTools.CityAudit.RunBridges`
+City-wide in about 6 minutes (40 s solve + 4.5 min): every stretch of road on structure (1,086 runs on 502 tiles, 56.7 km;
+256 over water, 275 freeway main line, 162 ramps; 1,387 structure ends at fill) and 30 m of each approach, measured on
+the tiles the game builds (CityMeshes.Build + CityWorld.Attach). The Roads mesh is the drawn surface AND the collider
+(one mesh), so one probe reads both; the render-only Structure / Kerbs / Banks / Water meshes get probe colliders so a
+thing drawn and not solid is seen too. Rays down every 0.5 m on every lane line; out from the outer lanes every metre
+for the rails; along the lanes and the edge lines at bumper height for faces square to the travel; up from under the
+deck, in from its side and along it toward its end for the soffit, the fascia and the abutment; and for every road
+passing below: its own surface, its lanes against piers and walls, and the MEASURED clearance (a ray up from every lane
+every metre). Piers are read from their solids (1,614 columns). Report `city_bridges_audit_<tag>.txt` (count table,
+the 20 worst of each kind with street name and lat/lon), `.tsv` (every finding), `_runs.tsv` (every run),
+`_tiles.tsv` (each bridge tile's meshes hashed: a before / after pair shows which meshes a change touched).
+PSX_BRAUD_TAG / _MINUTES / _EDGES / _NEAR. Run it with PSX_CITY_BRIDGE2=0 for the picture as it was.
+
+### Counts, city-wide, before (PSX_CITY_BRIDGE2=0) -> after; places = distinct 8 m stretches of one edge, (roads) = edges touched
+| kind | before | after | what |
+|---|---|---|---|
+| DECK-HOLE | 3 (3) | 3 (3) | nothing to drive on, on structure (all on the interchange decks below) |
+| STEP-JOINT / STEP | 32 (28) / 32 (28) | 32 / 32 | a step over 2 cm between two samples 0.5 m apart, within 6 m of a structure end / elsewhere |
+| KINK-JOINT / KINK | 60 (39) / 65 (42) | 60 / 65 | a grade break over 2 % (2 m bases), at a structure end / elsewhere |
+| WALL-IN-LANE | 12 (10) | 10 (8) | a face square to the travel on a lane line at bumper height |
+| RAIL-ON-LANE | 8 (8) | 3 (3) | a barrier standing on a lane line (the 3 left are median Jersey pieces) |
+| RAIL-DROP / RAIL-FLUSH | 1 (1) / 17 (16) | 1 / 17 | no rail on structure beside a drop / beside flush land (2 m or longer) |
+| APPROACH-RAIL | 45 (44) | 45 (44) | the rail is carried under 10 m past a deck end with no mouth, junction or twin median there |
+| BLUNT-END | 87 (76) | 84 (75) | a rail's face square to a car along an edge line (a reachable line, not inside a rail's body) |
+| NO-SOFFIT / NO-FASCIA / OPEN-ABUTMENT | 8 / 91 (75) / 15 | 8 / 91 / 15 | the deck shows nothing from below / its edge no face from the side / daylight under the approach |
+| LOW-CLEAR | 418 (136) | 103 (40) | MEASURED clearance over a road below under 4.3 m (4.9 m over a freeway main line) |
+| DESIGN-CLEAR (data) | 158 (115) | 30 (29) | slab less girders under the same figures at a crossing (778 crossings) |
+| UNDER-STEP / UNDER-KINK | 19 (16) / 29 (22) | 19 / 29 | the road below: a step / a grade break |
+| UNDER-BLUNT-END / PIER-WALK | 4 / 1 | 4 / 1 | the road below: a rail end along its edge line / a pier in its sidewalk band |
+Zero before and after: ROAD-HOLE, LAND-OVER-LANE, DRAWN-OVER-LANE, OBJECT-OVER-LANE, UNDER-HOLE, UNDER-BURIED,
+UNDER-WALL-IN-LANE (no pier, cap or abutment on any lane line of a road below), PIER-PAVE, PIER-SHY (1,614 columns).
+Of the 103 LOW-CLEAR left, 97 are over freeway main lines (median 4.57 m: the solve's 5.0 m slab less the thinnest
+girder) and 6 over streets (3.98-4.25 m: Marie Garris Dr under Independence Blvd, Andrill Terrace under ramp e1487,
+S Clarkson St under I-277, ramp e173 under Oaklawn Ave) - the slab itself is low over those lanes.
+Reports (the 20 worst of each kind, street name and lat/lon): `Docs/CITY_BRIDGES_AUDIT_1115_before.txt`, `Docs/CITY_BRIDGES_AUDIT_1115_after.txt`; every finding, run and tile hash: `C:/Users/mcgee/AppData/Local/Temp/claude/be91fcb74e64226b/40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9/scratchpad/bridges/city_bridges_audit_f0*.tsv` / `..._f1*.tsv`.
+
+## What was wrong, and what is fixed (each behind its switch; PSX_CITY_BRIDGE2=0 turns the lot off)
+1. GIRDERS UNDER THE CLEARANCE (the biggest class: LOW-CLEAR 418 places on 136 roads). The solve stands a slab 5.0 m
+   over the road below; the bridges pass then hung girders down to 3.8 m over it (`CityMeshes.Bridges.cs:75`
+   GirderCarClearM, the clamp at :151), measured from the lower road's centre line at the deck's stations - 3.67 m
+   over I-85's outer lane under University Pointe Blvd. Now (`PSX_CITY_BR2_GIRDERCLEAR`, CityMeshes.Bridges2.cs) a
+   deck's girders are as deep as the road below allows: 4.3 m kept over a street, 4.9 m over a freeway main line, plus
+   0.15 m for cross-fall, the lower road read under both edges of the deck. Never thinner than 0.45 m, so over a
+   freeway the solve's 5.0 m leaves about 4.55 m: those stay listed (their fix is the solve's clearance - a height
+   change, not made). Render-only (the Structure mesh); the piers' columns stand that much taller under the deck.
+2. PARAPET BLOCKS ON A SHARED DECK (RAIL-ON-LANE / WALL-IN-LANE, all at the three single-point interchanges). Where
+   several ramps meet ON a bridge each short link drew its own deck and parapets, and the parapets stood as blocks
+   across the other links' lanes. RailOverArms (`CityMeshes.cs:7067`) keeps a rail off the pavement of the arms at its
+   own node only; these stood on the pavement of roads one node further on. Now (`PSX_CITY_BR2_RAILPAVE`) a span on
+   structure within 60 m of a junction draws no rail on a side that lies wholly inside another road's pavement at its
+   own level (decided with the span's flags, from the map alone: `CityMeshes.cs:5793`, one line).
+3. ONE RAIL FOR EVERY BRIDGE (looks). Every structure wore the bare concrete parapet. Freeways, expressways and ramps
+   keep it (the 1990s "New Jersey" parapet); a city street's bridge (class 3 and under, not a ramp) now carries a
+   galvanized bar on short posts along its parapet's top (`PSX_CITY_BR2_CITYRAIL`; render-only on the structure atlas'
+   steel swatch, `CityMeshes.cs:6768`, one line). No modern hardware.
+
+## NOT fixed - keep race routes off these for now
+The driven surface on structure is clean almost everywhere: steps or kinks at 29 places in the whole city, and four of
+them hold most of it. They are junctions of several short ramp edges ON a deck (single-point interchanges): each edge
+has its own profile and ribbon, the ribbons overlap without a shared node, and the surfaces stand up to 22 cm apart.
+That is the solve's and the junction builder's (one plane per shared deck), too big for today:
+- I-85 at Freedom Drive, the deck where the ramps meet (35.2478,-80.8963): steps to 22 cm, grade breaks to 12 %,
+  one 5.5 m gap on a ramp's outer line (e2908). 85 findings left (89 before).
+- I-77 at Tyvola Road (35.1630,-80.8900): steps to 18 cm, breaks to 13 %, a slit across the deck. 54 findings left (57 before).
+- I-85 at Brookshire Blvd / NC 16 (35.2621,-80.8783): steps 4 cm, breaks 3.5 %, median Jersey stubs across two ramps'
+  lanes (a median piece, not a rail: CityMeshes.Dividers / Unions, not this round's). 26 findings.
+- The airport ramps, I-85 / Little Rock Rd / Josh Birmingham Pkwy (35.2414,-80.9389): the roads UNDER the decks,
+  steps to 7.5 cm, breaks to 8 %. 28 findings.
+Smaller single places (a step or a break at one joint): the I-77 ramp e386 under W Arrowood Rd (35.1377,-80.9072;
+13 cm, 9.6 %), Harrisburg Rd bridge e1740 (35.2533,-80.6545; 10 cm on its centre line), Freedom Dr e1892 at its deck's
+start (35.2230,-80.8667; 5 cm, 6.8 %), the service road e24016 by N Graham St (35.2340,-80.8474; 7.5 cm), The Plaza
+e6021 (35.2467,-80.7878; 5.8 %), N Davidson St e14137 (35.2283,-80.8303; 3.7 cm, 4.8 %), South Blvd e9994
+(35.2196,-80.8462; 3.7 cm), Billy Graham Pkwy e11993 (35.2380,-80.9200; 4 %).
+Listed, not touched (see the report for places): APPROACH-RAIL, RAIL-FLUSH (2-5 m of deck edge without a rail, land
+flush beside), RAIL-DROP 1 (Tuckaseegee Rd e13143, 3 m beside a 0.9 m drop), BLUNT-END, NO-FASCIA, OPEN-ABUTMENT 15,
+NO-SOFFIT 8, LOW-CLEAR over freeway main lines (the solve's 5.0 m slab). Railways are not in the road graph, so a rail
+line under a bridge was not measured.
+
+## Real crossings looked up (National Bridge Inventory figures via bridgelookup.com; reference only)
+- S Tryon St over I-277 / US 74 (1987): 3 lanes on, 11 under, steel multi-beam, 4 spans, 93.8 m, deck 21.8 m.
+  Game e1115: 102 m run, 12 m pavement, steel or concrete girder rows by hash. Deck narrower than real (no walks).
+- I-277 & NC 16 (Brookshire Fwy) over N Tryon St (1973): 6 lanes on, steel multi-beam, 3 spans, 56.6 m, deck 35.3 m.
+- I-277 ramp over I-77 NB & I-277 SB (rebuilt 2019; 1999 had the older ramp): 2 lanes, prestressed concrete
+  multi-beam, 8 spans, 209.7 m, deck 12.5 m. Game e1256: 215 m run, BOX girder (the bridges pass draws a box under
+  every ramp and every deck up to 13.5 m: the inventory says multi-beam for Charlotte's ramps - not changed, the
+  box came from the owner's own photo of this interchange).
+- I-277 ramp over Little Sugar Creek (1972): a three-barrel concrete CULVERT, 13.1 m. Game: creek crossings of
+  ramps are short decks on 0.75 m girders.
+- I-277 NB over the Southern Railroad (1987): 4 lanes, steel multi-beam, 3 spans, 85.6 m, deck 19.8 m.
+- US 74 WB over I-277 / NC 16 / NC 27 (1971, rebuilt 2012): 2 lanes, steel multi-beam, 10 spans, 221.2 m, deck 12.5 m.
+
+## Gates (sandbox PSXRec, Android target; BASE = the same build with PSX_CITY_BRIDGE2=0)
+- The bridges audit, city-wide, before / after: the table above. Nothing rose.
+- Every bridge tile's meshes hashed before / after (`_tiles.tsv`): 999 tiles (the 502 bridge tiles and their neighbours): Ground, Roads, Kerbs and Guardrail meshes BIT-IDENTICAL on all of them (the driven surface, the land and the seams are untouched); Barriers differ on 2 tiles (I-77 at Tyvola Rd -48 triangles, I-85 at Freedom Dr -796); Structure on 499 tiles, 2,288,882 -> 2,550,854 triangles (+262 k: the bar and its posts; +1.75 % of those tiles' five meshes, +261 a tile on average); 6 more pier columns stand (1,608 -> 1,614: shallower girders left room; none within 0.6 m of a pavement); mean first-build 202 -> 196 ms a tile.
+- Drive audit (`CityAudit.RunDrive`, PSX_DRIVE_EDGES = the 30 edges of the three interchange decks + S Tryon / I-277,
+  the Brookshire viaduct, the I-77 flyover, Hawthorne Ln, West Blvd creek, N Graham; via CityBridgesPass steps
+  stats,drive,launch): "nothing solid stands across any lane" 7 -> 0 (passes), BLUNT 17 -> 15, lane steps over 12 cm
+  10 -> 5, lane surface off the solve 5 -> 2 (the last two fell because the probes no longer land on rail stubs; the
+  decks' own steps are still there), FALL HOLES 0 = 0 of 851,968 rays. The base run's INVISIBLE COLLIDERS sweep (15 min:
+  lanes 0, solids 88, both older than this round) was not repeated for the after run.
+- Launch audit (PSX_LAUNCH_BOX=-7500,6700,-5200,8900: I-85 at Freedom Dr and at Brookshire Blvd): 2 LAUNCH / 5 UNLOAD
+  spots, 24 separations on 1,549 paths, 102,362 samples on their pavement - identical before and after.
+- Flicker finder (CityBridgesPass step flicker, -force-glcore; its own spots: the Tryon sprint start, I-277 either
+  side of Uptown, W Trade St): 4,047 -> 4,037 depth-tie pixels of 33.6 M drawn (121 -> 120 ppm). Pairs with the Structure mesh (girders, the bar): Barriers | Structure 48 -> 50, Sidewalk | Structure 40 -> 49, Roads [concrete] | Structure 25 -> 30, Roads [ow2] | Structure 202 -> 200: no new fight (the bar stands 0.24 m over the parapet's top on posts).
+- Cost, CityBridgesPass stats (PSX_BR_TILES, each tile built three times, the quickest): triangles before -> after,
+  build ms before -> after
+  | tile | what | triangles | of which | build ms |
+  |---|---|---|---|---|
+  | -12,16 | Uptown: S Tryon / Church / College over I-277 | 44,904 -> 46,936 (+4.5 %) | structure 4,580 -> 6,612 (the bar) | 735 -> 648 |
+  | -11,25 | I-77 / I-277 interchange | 46,326 -> 46,326 | girders moved, none added | 807 -> 704 |
+  | 11,7 | suburb: Eastway Dr over a creek | 37,389 -> 38,453 (+2.8 %) | structure 1,442 -> 2,506 | 785 -> 694 |
+  | -26,-10 | I-77 at Tyvola Rd | 58,066 -> 58,658 (+1.0 %) | barriers -48, structure +640 | 973 -> 915 |
+  | -28,27 | I-85 at Freedom Dr | 39,066 -> 39,318 (+0.6 %) | barriers 6,164 -> 5,368, structure +1,048 | 819 -> 704 |
+  | -8,22 | N Graham St over the rail lines | 44,028 -> 44,892 (+2.0 %) | structure 11,166 -> 12,030 | 609 -> 620 |
+  Collider triangles: unchanged but for the rails taken off (-48 and -796 on the two interchange tiles). Build time:
+  no rise outside run-to-run noise. Baked size not measured (no bake run here): it follows the triangles.
+- NOT run: the play-mode traffic check / census (a play-mode job that hangs would have held the sandbox; no lane path
+  moved - CityTraffic drives the lane model's lines at Edge.YAt, and the audit's lane-line rays found no solid on any
+  lane line of a road on or under a structure outside the three interchange decks); the seam audit (its scopes are
+  the owner tile, Uptown's 4 x 4 and a 60-tile sample, none aimed at bridges; the Roads / Ground / Kerbs meshes are
+  bit-identical, see the hashes).
+
+## For the merge
+- Shared-file edits: `Scripts/City/CityMeshes.cs` only, two places, one line each plus a comment: DecideSideFlagsSteps
+  (line 5792-5793, after the SameWayDeckBeside line) and the rail loop in EmitSide (line 6767-6768, after EmitRail).
+- No new mesh bucket, slot, material or baked field; CityTileCache.Format untouched. The bar and the girders ride the
+  Structure mesh, the rails the Barriers mesh. The new switches start PSX_CITY_, so the bake's fingerprint sees them.
+- A re-bake is needed (Structure changes on most bridge tiles, Barriers on the tiles of the three interchanges).
+- No data file changed; no scene pass needed.
+- New files have no .meta in the repo (Unity mints them; nothing references these scripts by GUID).
+
+## Tools (all new files are this round's; nothing else was touched)
+- `Editor/CityAudit.Bridges.cs` (the audit), `Editor/CityRefSpots.Bridges.cs` (`CityRefSpots.RunBridges2`: driver-eye frames over /
+  on / under / beside a crossing by edge id, PSX_BRSHOT_SPOTS, before and after in one job), `Scripts/City/CityMeshes.Bridges2.cs`
+  (the three rules and their switches), `Editor/CityBridgesPass.cs` (+PSX_BR_TILES, three builds a tile, the quickest counted).
+- Sheet: `Docs/shots/bridges2/bridges2_sheet.png` (= `C:/Users/mcgee/AppData/Local/Temp/claude/be91fcb74e64226b/40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9/scratchpad/bridges/bridges2_sheet.png`)
+  (six fixes, two crossings left alone, two still wrong). The 43 base frames of 18 crossings: `.../scratchpad/bridges/base/`.
+- What still looks wrong in the sheet: on the Freedom Dr deck a low sloped rail end still lies across the deck (a span only
+  partly on another road's pavement keeps its rail); the Brookshire Blvd deck keeps its median Jersey stub; the Tyvola Rd
+  deck still shows a dark slit and its steps; the bar reads a little heavy close up (9 cm square, the structure atlas' mottled
+  steel swatch); girders over roads are now 0.45-0.55 m deep where they were 1.2 m (the price of the clearance on a slab
+  5.0 m up: PSX_CITY_BR2_GIRDERCLEAR=0 brings the deep ones back).
+
+---
+
+# HANDOFF - EVENTS, round 1 (agent "events", branch `events`, 2026-11-15; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-events` off mountain-nm 9ced6b84. Sandbox PSXPerf. Owner 2026-11-15 (design `Events_Design_2026-11-15.md`, OWNER'S ANSWERS): sanctioned events (closed roads, no traffic, SAT/SUN MORNING or NOON) and street events (public roads with traffic, FRI-SUN NIGHT); 2-3 separate races each, prizes 1-6, a bonus for winning all; schedules fixed and shown before SIGN UP; results raise racing rep (sanctioned) or street rep (street) and the player's clubs' points; street events listed by street rep or passed on at meets and by clubs; damage only.
 

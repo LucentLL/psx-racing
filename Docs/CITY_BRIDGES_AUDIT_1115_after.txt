@@ -1,0 +1,343 @@
+CITY BRIDGES AUDIT (f1) 2026-11-15T11:03:50; graph hash b2aa3453 (GHSH); BRIDGE2 ON; solved in 42 s
+RUNS ON STRUCTURE: 1086 on 502 tiles, 56.7 km; over water 256, freeway main line 275, ramps/links 162; structure ends at fill (abutments) 1387
+CROSSINGS (data): 778 decks over a road; design clearance under the wanted figure at 30
+ROUND 2 RULES: deck rail spans left off other roads' pavement 83 (tile builds, repeats counted)
+SCANNED: 1086 of 1086 runs, 0 threw; 1067 tile builds, mean 205 ms; 1614 piers; 4.7 min
+
+COUNTS (places = distinct 8 m stretches of one edge; edges = roads touched)
+kind                     places  edges  what
+DECK-HOLE                     3      3  nothing to drive on, on structure (a lane line with no surface and nothing within 0.8 m of its level)
+ROAD-HOLE                     0      0  the same on an approach
+STEP-JOINT                   32     28  a step over 2 cm in the driven surface within 6 m of a structure end
+STEP                         32     28  a step over 2 cm elsewhere on the run or its approaches
+KINK-JOINT                   60     39  a grade break over 2 % (2 m bases) within 6 m of a structure end
+KINK                         65     42  a grade break over 2 % elsewhere
+WALL-IN-LANE                 10      8  a face square to the travel on a lane line at bumper height
+RAIL-ON-LANE                  3      3  a barrier or guardrail standing on a lane line
+LAND-OVER-LANE                0      0  land standing over a lane's surface (5 cm or more)
+DRAWN-OVER-LANE               0      0  a render-only face (structure, kerb, bank, water) over a lane's surface
+OBJECT-OVER-LANE              0      0  a solid (pole, sign, building) in the 4.5 m over a lane
+RAIL-DROP                     1      1  no rail on structure beside a drop (2 m or longer)
+RAIL-FLUSH                   17     16  no rail on structure, land flush beside (2 m or longer)
+APPROACH-RAIL                45     44  the rail is carried under 10 m past a deck end with no mouth or junction there
+BLUNT-END                    84     75  a rail's or wall's face square to a car along an edge line
+NO-SOFFIT                     8      8  the deck shows nothing from below
+NO-FASCIA                    91     75  the deck's edge shows no face from the side
+OPEN-ABUTMENT                15     15  daylight under the approach, seen from under the deck
+LOW-CLEAR                   103     40  measured clearance over a road below under 4.3 m (4.9 m over a freeway main line)
+UNDER-HOLE                    0      0  road below: nothing to drive on
+UNDER-STEP                   19     16  road below: a step over 2 cm
+UNDER-KINK                   29     22  road below: a grade break over 2 %
+UNDER-BURIED                  0      0  road below: land over its lanes
+UNDER-WALL-IN-LANE            0      0  road below: a face (pier, cap, abutment, barrier) square to the travel on a lane line
+UNDER-RAIL-ON-LANE            0      0  road below: a barrier on a lane line
+UNDER-DRAWN-OVER-LANE         0      0  road below: a render-only face over a lane
+UNDER-OBJECT-OVER-LANE        0      0  road below: a solid in the 4.5 m over a lane
+UNDER-BLUNT-END               4      4  road below: a rail's or wall's face square to a car along an edge line
+PIER-PAVE                     0      0  a pier column (its solid) inside the pavement of a road passing it below its top
+PIER-SHY                      0      0  a pier column within 0.6 m of the pavement of a road below
+PIER-WALK                     1      1  a pier column in the sidewalk band (2.7 m) of a road below that has walks
+DESIGN-CLEAR                 30     29  data: slab less girders leaves under 4.3 m (4.9 m over a freeway main line) at a crossing
+
+== DESIGN-CLEAR: the 20 worst of 30
+    0.67  e2627 'I-485' cls 5 one-way s=55/84 (-9081,-6541) 35.125699,-80.917512  4.23 m (wanted 4.9) under e8196 '' cls 5 link one-way: slab 4.98 m less girders 0.75 m
+    0.50  e2146 'I-77' cls 5 one-way s=127/142 (-2572,7059) 35.248078,-80.845968  4.40 m (wanted 4.9) under e1476 'Oaklawn Avenue' cls 1: slab 5.15 m less girders 0.75 m
+    0.47  e8492 'I-77' cls 5 one-way s=26/114 (-2526,7062) 35.248104,-80.845465  4.43 m (wanted 4.9) under e1476 'Oaklawn Avenue' cls 1: slab 5.18 m less girders 0.75 m
+    0.41  e735 'I-277' cls 5 one-way s=42/54 (-2706,6576) 35.243734,-80.847445  4.49 m (wanted 4.9) under e1256 '' cls 5 link one-way: slab 4.94 m less girders 0.45 m
+    0.39  e3102 'I-85' cls 5 one-way s=417/1457 (4912,12647) 35.298362,-80.763709  4.51 m (wanted 4.9) under e5213 'University Pointe Boulevard' cls 1: slab 4.96 m less girders 0.45 m
+    0.35  e1555 'I-485' cls 5 one-way s=165/170 (-2170,19935) 35.363941,-80.841551  4.55 m (wanted 4.9) under e2480 '' cls 5 link one-way: slab 5.00 m less girders 0.45 m
+    0.35  e1531 'I-485' cls 5 one-way s=33/156 (-2142,19915) 35.363758,-80.841244  4.55 m (wanted 4.9) under e2480 '' cls 5 link one-way: slab 5.00 m less girders 0.45 m
+    0.34  e958 'I-277' cls 5 one-way s=106/480 (-1108,4070) 35.221179,-80.829877  4.56 m (wanted 4.9) under e2346 'East 7th Street' cls 2: slab 5.31 m less girders 0.75 m
+    0.33  e2626 'I-485' cls 5 one-way s=56/83 (-9077,-6592) 35.125245,-80.917464  4.57 m (wanted 4.9) under e8182 '' cls 5 link one-way: slab 5.02 m less girders 0.45 m
+    0.32  e1542 'I-77' cls 5 one-way s=27/482 (-2652,21306) 35.376274,-80.846851  4.58 m (wanted 4.9) under e8672 'Hambright Road' cls 2: slab 5.03 m less girders 0.45 m
+    0.31  e9937 'I-77' cls 5 one-way s=203/1310 (-6389,21) 35.184746,-80.887921  4.59 m (wanted 4.9) under e1120 'Pressley Road' cls 1: slab 5.04 m less girders 0.45 m
+    0.31  e3093 'I-85' cls 5 one-way s=877/1327 (4894,12668) 35.298549,-80.763908  4.59 m (wanted 4.9) under e5213 'University Pointe Boulevard' cls 1: slab 5.04 m less girders 0.45 m
+    0.30  e2154 'I-277' cls 5 one-way s=324/512 (-1131,4094) 35.221396,-80.830132  4.60 m (wanted 4.9) under e2346 'East 7th Street' cls 2: slab 5.35 m less girders 0.75 m
+    0.30  e9921 'I-77' cls 5 one-way s=26/316 (-6407,34) 35.184865,-80.888122  4.60 m (wanted 4.9) under e1120 'Pressley Road' cls 1: slab 5.05 m less girders 0.45 m
+    0.28  e2166 'I-485' cls 5 one-way s=142/161 (-9136,-6546) 35.125654,-80.918111  4.62 m (wanted 4.9) under e8196 '' cls 5 link one-way: slab 5.37 m less girders 0.75 m
+    0.20  e2151 'I-277' cls 5 one-way s=74/320 (-2482,6415) 35.242284,-80.844980  4.70 m (wanted 4.9) under e23336 'Hamilton Street' cls 0: slab 5.15 m less girders 0.45 m
+    0.20  e888 'I-77' cls 5 one-way s=584/1404 (-4376,4426) 35.224391,-80.865792  4.70 m (wanted 4.9) under e959 'John Belk Freeway' cls 5 one-way: slab 5.15 m less girders 0.45 m
+    0.20  e1405 'Brookshire Freeway' cls 5 one-way s=15/234 (-2460,6473) 35.242809,-80.844735  4.70 m (wanted 4.9) under e23336 'Hamilton Street' cls 0: slab 5.15 m less girders 0.45 m
+    0.20  e3654 'I-485' cls 5 one-way s=380/1233 (-4948,-11967) 35.076874,-80.872086  4.70 m (wanted 4.9) under e1765 'Park Road' cls 1: slab 5.15 m less girders 0.45 m
+    0.20  e8796 'I-77' cls 5 one-way s=273/558 (-2772,16602) 35.333953,-80.848172  4.70 m (wanted 4.9) under e8800 'Lakeview Road' cls 2: slab 5.15 m less girders 0.45 m
+== RAIL-FLUSH: the 17 worst of 17
+    5.00  e2364 '' cls 2 link one-way s=35/61 (-1118,4900) 35.228650,-80.829984  no rail for 5 m on structure, left side of the walk, land flush beside
+    5.00  e14132 'North Davidson Street' cls 2 one-way s=23/61 (-1116,4893) 35.228591,-80.829971  no rail for 5 m on structure, left side of the walk, land flush beside
+    5.00  e8969 'Tuckaseegee Road' cls 1 one-way s=16/46 (-13136,6149) 35.239888,-80.962077  no rail for 5 m on structure, left side of the walk, land flush beside
+    4.00  e1827 'I-277' cls 5 one-way s=39/71 (-2874,6657) 35.244461,-80.849291  no rail for 4 m on structure, right side of the walk, land flush beside
+    4.00  e1835 '' cls 5 link one-way s=15/166 (-3231,4388) 35.224048,-80.853217  no rail for 4 m on structure, left side of the walk, land flush beside
+    4.00  e2358 'I-277' cls 5 one-way s=9/54 (-1421,3816) 35.218893,-80.833322  no rail for 4 m on structure, right side of the walk, land flush beside
+    4.00  e2369 '' cls 5 link one-way s=12/56 (-1416,3812) 35.218862,-80.833265  no rail for 4 m on structure, left side of the walk, land flush beside
+    3.00  e2321 'I-277' cls 5 one-way s=32/57 (-1571,5372) 35.232898,-80.834971  no rail for 3 m on structure, right side of the walk, land flush beside
+    3.00  e2364 '' cls 2 link one-way s=43/61 (-1123,4894) 35.228600,-80.830047  no rail for 3 m on structure, right side of the walk, land flush beside
+    3.00  e13143 'Tuckaseegee Road' cls 1 one-way s=55/71 (-13131,6147) 35.239871,-80.962022  no rail for 3 m on structure, left side of the walk, land flush beside
+    3.00  e8222 'I-77' cls 5 one-way s=29/58 (-8961,-6401) 35.126963,-80.916197  no rail for 3 m on structure, right side of the walk, land flush beside
+    3.00  e8219 '' cls 5 link one-way s=33/57 (-8957,-6404) 35.126938,-80.916151  no rail for 3 m on structure, left side of the walk, land flush beside
+    2.00  e8198 '' cls 5 link one-way s=38/91 (-8874,-6332) 35.127582,-80.915234  no rail for 2 m on structure, right side of the walk, land flush beside
+    2.00  e1834 'I-277' cls 5 one-way s=8/156 (-3235,4385) 35.224015,-80.853253  no rail for 2 m on structure, right side of the walk, land flush beside
+    2.00  e1671 'I-485' cls 5 one-way s=34/147 (8936,16239) 35.330686,-80.719481  no rail for 2 m on structure, right side of the walk, land flush beside
+    2.00  e8178 '' cls 5 link one-way s=18/70 (-8868,-6333) 35.127571,-80.915175  no rail for 2 m on structure, left side of the walk, land flush beside
+    2.00  e1665 '' cls 5 link one-way s=13/142 (8930,16236) 35.330654,-80.719553  no rail for 2 m on structure, left side of the walk, land flush beside
+== APPROACH-RAIL: the 20 worst of 45
+   20.00  e3399 'Prosperity Ridge Road' cls 2 s=71/71 (3431,20507) 35.369092,-80.779984  the rail is carried 0 m past the deck's end on the right side, then flush land with no rail
+   20.00  e1284 'East Charlotte Avenue' cls 3 s=0/103 (-17033,12584) 35.297794,-81.004908  the rail is carried 0 m past the deck's start on the right side, then flush land with no rail
+   20.00  e9994 'South Boulevard' cls 2 one-way s=12/21 (-2592,3893) 35.219591,-80.846186  the rail is carried 0 m past the deck's start on the right side, then flush land with no rail
+   20.00  e3731 'Marshall Drive' cls 1 s=129/129 (-12331,5315) 35.232384,-80.953231  the rail is carried 0 m past the deck's end on the left side, then flush land with no rail
+   20.00  e23431 '' cls 0 s=19/19 (-2697,5490) 35.233962,-80.847339  the rail is carried 0 m past the deck's end on the right side, then flush land with no rail
+   20.00  e5175 'West Tyvola Road' cls 2 one-way s=73/73 (-9180,-136) 35.183336,-80.918601  the rail is carried 0 m past the deck's end on the right side, then flush land with no rail
+   20.00  e3395 'Prosperity Church Road' cls 2 s=71/71 (3031,20524) 35.369238,-80.784388  the rail is carried 0 m past the deck's end on the right side, then flush land with no rail
+   20.00  e1507 'I-277' cls 5 one-way s=0/63 (-1887,3395) 35.215105,-80.838440  the rail is carried 0 m past the deck's start on the right side, then flush land with no rail
+   19.00  e23637 'Woodward Avenue' cls 0 s=0/40 (-1082,7160) 35.248992,-80.829589  the rail is carried 1 m past the deck's start on the right side, then flush land with no rail
+   19.00  e5526 'North Caldwell Street' cls 2 one-way s=0/33 (-975,5196) 35.231311,-80.828412  the rail is carried 1 m past the deck's start on the right side, then flush land with no rail
+   18.00  e3321 'East Boulevard' cls 1 s=28/28 (-1891,1312) 35.196364,-80.838486  the rail is carried 2 m past the deck's end on the right side, then flush land with no rail
+   18.00  e1945 'North Graham Street' cls 3 s=0/40 (-1902,5787) 35.236636,-80.838606  the rail is carried 2 m past the deck's start on the right side, then flush land with no rail
+   18.00  e23522 'Medical Center Drive' cls 0 s=0/28 (-1791,2025) 35.202783,-80.837386  the rail is carried 2 m past the deck's start on the right side, then flush land with no rail
+   18.00  e2392 '' cls 5 link one-way s=0/57 (-1594,5395) 35.233109,-80.835216  the rail is carried 2 m past the deck's start on the right side, then flush land with no rail
+   18.00  e15273 '' cls 5 link one-way s=0/28 (-3814,5140) 35.230813,-80.859617  the rail is carried 2 m past the deck's start on the right side, then flush land with no rail
+   17.00  e23431 '' cls 0 s=0/19 (-2699,5471) 35.233792,-80.847366  the rail is carried 3 m past the deck's start on the right side, then flush land with no rail
+   17.00  e15468 'East Woodlawn Road' cls 3 s=0/21 (-2533,-1490) 35.171156,-80.845541  the rail is carried 3 m past the deck's start on the right side, then flush land with no rail
+   17.00  e1252 '' cls 5 link one-way s=54/54 (-2737,6721) 35.245042,-80.847778  the rail is carried 3 m past the deck's end on the right side, then flush land with no rail
+   17.00  e9481 'East Morehead Street' cls 2 one-way s=30/30 (-1732,2325) 35.205484,-80.836734  the rail is carried 3 m past the deck's end on the right side, then flush land with no rail
+   17.00  e2321 'I-277' cls 5 one-way s=0/57 (-1590,5398) 35.233132,-80.835181  the rail is carried 3 m past the deck's start on the right side, then flush land with no rail
+== NO-SOFFIT: the 8 worst of 8
+    3.00  e2433 '' cls 5 link one-way s=163/166 (-3895,4907) 35.228714,-80.860511  looking up from under the deck nothing is drawn at 3 of 3 points across it
+    3.00  e3894 '' cls 5 link one-way s=4/34 (183,20233) 35.366624,-80.815690  looking up from under the deck nothing is drawn at 3 of 3 points across it
+    1.00  e1115 'South Tryon Street' cls 3 s=102/102 (-3005,4096) 35.221414,-80.850724  looking up from under the deck nothing is drawn at 1 of 1 points across it
+    1.00  e268 '' cls 5 link one-way s=22/350 (-4297,4419) 35.224327,-80.864929  looking up from under the deck nothing is drawn at 1 of 2 points across it
+    1.00  e10528 '' cls 5 link one-way s=3/17 (-7129,7030) 35.247822,-80.896057  looking up from under the deck nothing is drawn at 1 of 3 points across it
+    1.00  e2398 'Billy Graham Parkway' cls 4 one-way s=0/52 (-6573,-412) 35.180851,-80.889941  looking up from under the deck nothing is drawn at 1 of 1 points across it
+    1.00  e2434 '' cls 4 link one-way s=1/415 (-9112,1110) 35.194551,-80.917856  looking up from under the deck nothing is drawn at 1 of 3 points across it
+    1.00  e2513 'I-485' cls 5 one-way s=142/142 (-13339,11602) 35.288962,-80.964309  looking up from under the deck nothing is drawn at 1 of 1 points across it
+== STEP-JOINT: the 20 worst of 32
+    0.22  e254 '' cls 5 link one-way s=22/27 (-7154,7035) 35.247859,-80.896330  +21.6 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.18  e14981 '' cls 5 link s=5/12 (-6579,-2390) 35.163058,-80.890012  +18.5 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.16  e13610 '' cls 5 link one-way s=4/11 (-7152,7031) 35.247827,-80.896308  +16.4 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.13  e1907 '' cls 5 link one-way s=21/27 (-6582,-2373) 35.163205,-80.890044  -13.2 cm between two samples 0.5 m apart, lane line 2/2, on structure
+    0.12  e1908 '' cls 5 link one-way s=25/27 (-6562,-2398) 35.162984,-80.889825  +11.9 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.12  e10528 '' cls 5 link one-way s=13/17 (-7119,7030) 35.247817,-80.895946  -11.6 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.10  e2747 '' cls 5 link one-way s=1/23 (-6584,-2391) 35.163042,-80.890064  -10.0 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.10  e14980 '' cls 5 link s=1/11 (-6567,-2397) 35.162993,-80.889875  +10.0 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.09  e14982 '' cls 5 link s=4/12 (-6575,-2385) 35.163100,-80.889973  +8.8 cm between two samples 0.5 m apart, lane line 2/2, on structure
+    0.07  e24016 '' cls 0 s=3/7 (-2694,5493) 35.233987,-80.847314  +7.5 cm between two samples 0.5 m apart, lane line 1/2
+    0.07  e254 '' cls 5 link one-way s=24/27 (-7152,7032) 35.247834,-80.896312  +7.4 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.07  e13605 '' cls 5 link one-way s=11/16 (-7137,7031) 35.247825,-80.896145  -7.2 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.06  e14983 '' cls 5 link s=5/13 (-6567,-2387) 35.163086,-80.889875  -5.9 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.06  e13610 '' cls 5 link one-way s=9/11 (-7157,7033) 35.247849,-80.896365  -5.8 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.05  e13602 '' cls 5 link one-way s=5/22 (-7152,7050) 35.247997,-80.896306  +5.3 cm between two samples 0.5 m apart, lane line 2/3, on structure
+    0.05  e2896 'Freedom Drive' cls 3 one-way s=11/16 (-7129,7026) 35.247786,-80.896052  -4.9 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.04  e3592 '' cls 5 link s=4/9 (-5535,8628) 35.262201,-80.878531  +4.4 cm between two samples 0.5 m apart, lane line 2/2, on structure
+    0.04  e3589 'Brookshire Boulevard' cls 4 one-way s=7/11 (-5535,8628) 35.262197,-80.878536  -4.3 cm between two samples 0.5 m apart, lane line 3/3, on structure
+    0.04  e1892 'Freedom Drive' cls 3 one-way s=6/80 (-4462,4275) 35.223029,-80.866743  -3.8 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.04  e14137 'North Davidson Street' cls 2 one-way s=4/9 (-1089,4926) 35.228890,-80.829664  +3.7 cm between two samples 0.5 m apart, the OSM line
+== KINK-JOINT: the 20 worst of 60
+   13.35  e14981 '' cls 5 link s=3/12 (-6580,-2391) 35.163043,-80.890026  grade +2.0 % -> -11.3 % over 2 m either side, lane line 2/2, on structure
+   12.31  e13610 '' cls 5 link one-way s=6/11 (-7154,7031) 35.247829,-80.896330  grade +4.6 % -> -7.7 % over 2 m either side, the OSM line, on structure
+   12.06  e254 '' cls 5 link one-way s=22/27 (-7153,7034) 35.247858,-80.896325  grade +8.5 % -> -3.6 % over 2 m either side, the OSM line, on structure
+   10.21  e1907 '' cls 5 link one-way s=21/27 (-6583,-2374) 35.163201,-80.890051  grade +6.1 % -> -4.1 % over 2 m either side, lane line 1/3, on structure
+    9.42  e14981 '' cls 5 link s=8/12 (-6574,-2392) 35.163040,-80.889956  grade -8.9 % -> +0.5 % over 2 m either side, lane line 1/2, on structure
+    8.49  e13605 '' cls 5 link one-way s=13/16 (-7135,7031) 35.247823,-80.896124  grade -8.0 % -> +0.5 % over 2 m either side, the OSM line, on structure
+    8.16  e13610 '' cls 5 link one-way s=9/11 (-7156,7031) 35.247830,-80.896357  grade -7.3 % -> +0.9 % over 2 m either side, the OSM line, on structure
+    7.80  e254 '' cls 5 link one-way s=24/27 (-7152,7034) 35.247851,-80.896304  grade -3.6 % -> +4.2 % over 2 m either side, the OSM line, on structure
+    6.99  e14983 '' cls 5 link s=4/13 (-6568,-2387) 35.163078,-80.889889  grade -0.4 % -> -7.4 % over 2 m either side, lane line 1/2, on structure
+    6.64  e1908 '' cls 5 link one-way s=25/27 (-6562,-2398) 35.162984,-80.889825  grade +0.6 % -> +7.2 % over 2 m either side, lane line 1/3, on structure
+    6.43  e2897 'Freedom Drive' cls 3 one-way s=0/31 (-7130,7032) 35.247836,-80.896065  grade -4.7 % -> +1.7 % over 2 m either side, lane line 2/2, on structure
+    6.36  e24016 '' cls 0 s=4/7 (-2698,5494) 35.234000,-80.847356  grade +6.4 % -> +0.1 % over 2 m either side, lane line 2/2
+    6.18  e10528 '' cls 5 link one-way s=13/17 (-7119,7030) 35.247817,-80.895946  grade +2.7 % -> -3.4 % over 2 m either side, lane line 1/2, on structure
+    5.99  e14980 '' cls 5 link s=2/11 (-6567,-2396) 35.163002,-80.889879  grade +6.5 % -> +0.5 % over 2 m either side, lane line 1/2, on structure
+    5.97  e2896 'Freedom Drive' cls 3 one-way s=16/16 (-7127,7034) 35.247858,-80.896030  grade -4.7 % -> +1.2 % over 2 m either side, lane line 1/2, on structure
+    5.92  e1892 'Freedom Drive' cls 3 one-way s=4/80 (-4461,4275) 35.223026,-80.866726  grade +0.5 % -> -5.4 % over 2 m either side, the OSM line, on structure
+    5.71  e13609 '' cls 5 link one-way s=0/3 (-7148,7030) 35.247820,-80.896265  grade +8.1 % -> +2.4 % over 2 m either side, the OSM line, on structure
+    5.45  e1908 '' cls 5 link one-way s=24/27 (-6561,-2399) 35.162974,-80.889818  grade +1.0 % -> +6.5 % over 2 m either side, lane line 1/3, on structure
+    5.22  e13606 '' cls 5 link one-way s=0/3 (-7147,7032) 35.247840,-80.896259  grade -0.2 % -> -5.4 % over 2 m either side, the OSM line, on structure
+    5.11  e2909 '' cls 5 link one-way s=13/18 (-7147,7025) 35.247777,-80.896250  grade +0.4 % -> +5.5 % over 2 m either side, the OSM line, on structure
+== BLUNT-END: the 20 worst of 84
+    2.00  e5739 'Independence Boulevard' cls 5 one-way s=2/569 (12592,-9229) 35.101511,-80.679302  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e254 '' cls 5 link one-way s=18/27 (-7156,7038) 35.247892,-80.896355  a face of Barriers square to a car along the left edge line (+0.15 m past the pavement edge), on structure
+    2.00  e1759 'I-485' cls 5 one-way s=0/77 (-7751,-7519) 35.116905,-80.902890  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e16396 'East W T Harris Boulevard' cls 3 one-way s=2/48 (8298,4762) 35.227409,-80.726490  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e3248 'East W T Harris Boulevard' cls 2 one-way s=2/953 (7512,-699) 35.178268,-80.735134  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e10528 '' cls 5 link one-way s=8/17 (-7125,7033) 35.247850,-80.896007  a face of Barriers square to a car along the left edge line (+0.15 m past the pavement edge), on structure
+    2.00  e5566 'Fred D. Alexander Boulevard' cls 2 one-way s=2/560 (-9972,10140) 35.275805,-80.927310  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e25221 'Marshall Drive' cls 0 s=8/19 (-12340,5315) 35.232386,-80.953328  a face of Barriers square to a car along the right edge line (-0.15 m past the pavement edge)
+    2.00  e13601 'Freedom Drive' cls 3 one-way s=0/17 (-7148,7057) 35.248065,-80.896267  a face of Barriers square to a car along the right edge line (-0.15 m past the pavement edge), on structure
+    2.00  e20736 'Weddington Road' cls 2 one-way s=29/32 (7787,-10696) 35.088318,-80.732106  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e13605 '' cls 5 link one-way s=10/16 (-7138,7033) 35.247846,-80.896150  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e2425 'South Tryon Street' cls 3 one-way s=2/54 (-6549,-472) 35.180313,-80.889679  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e14984 'Tyvola Road' cls 2 one-way s=14/15 (-6578,-2384) 35.163105,-80.889995  a face of Barriers square to a car along the left edge line (+0.15 m past the pavement edge), on structure
+    2.00  e2396 'Billy Graham Parkway' cls 4 one-way s=0/88 (-6570,-403) 35.180938,-80.889914  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e7505 'North Graham Street' cls 2 one-way s=151/154 (838,10282) 35.277078,-80.808491  a face of Barriers square to a car along the left edge line (-0.15 m past the pavement edge), on structure
+    2.00  e9352 'West Tyvola Road' cls 2 one-way s=2/16 (-9188,-138) 35.183319,-80.918686  a face of Barriers square to a car along the left edge line (+0.15 m past the pavement edge)
+    2.00  e1907 '' cls 5 link one-way s=15/27 (-6587,-2370) 35.163231,-80.890101  a face of Barriers square to a car along the right edge line (-0.15 m past the pavement edge), on structure
+    2.00  e1907 '' cls 5 link one-way s=19/27 (-6585,-2373) 35.163204,-80.890078  a face of Barriers square to a car along the right edge line (+0.15 m past the pavement edge), on structure
+    2.00  e14982 '' cls 5 link s=6/12 (-6578,-2384) 35.163110,-80.889999  a face of Barriers square to a car along the right edge line (-0.15 m past the pavement edge), on structure
+    2.00  e1903 'Tyvola Road' cls 2 one-way s=16/19 (-6584,-2391) 35.163043,-80.890069  a face of Barriers square to a car along the left edge line (+0.15 m past the pavement edge), on structure
+== STEP: the 20 worst of 32
+    0.17  e14981 '' cls 5 link s=4/12 (-6580,-2391) 35.163046,-80.890022  -16.9 cm between two samples 0.5 m apart, lane line 2/2, on structure
+    0.16  e2909 '' cls 5 link one-way s=16/18 (-7149,7028) 35.247798,-80.896271  -15.6 cm between two samples 0.5 m apart, lane line 2/3, on structure
+    0.12  e1907 '' cls 5 link one-way s=21/27 (-6583,-2373) 35.163204,-80.890054  +12.2 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.12  e1908 '' cls 5 link one-way s=11/27 (-6555,-2409) 35.162883,-80.889743  +12.1 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.12  e13602 '' cls 5 link one-way s=9/22 (-7150,7046) 35.247958,-80.896290  +12.0 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.10  e13610 '' cls 5 link one-way s=4/11 (-7152,7031) 35.247827,-80.896311  +10.4 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.10  e1908 '' cls 5 link one-way s=25/27 (-6562,-2398) 35.162983,-80.889824  +10.2 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.10  e1740 'Harrisburg Road' cls 2 one-way s=43/53 (14850,7643) 35.253337,-80.654485  +10.0 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.09  e14982 '' cls 5 link s=5/12 (-6576,-2384) 35.163106,-80.889983  -8.6 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.08  e11321 '' cls 5 link one-way s=11/37 (-7135,6987) 35.247435,-80.896127  +7.7 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.07  e254 '' cls 5 link one-way s=21/27 (-7154,7035) 35.247861,-80.896335  -7.4 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.07  e14983 '' cls 5 link s=6/13 (-6566,-2387) 35.163081,-80.889869  -7.4 cm between two samples 0.5 m apart, lane line 1/3, on structure
+    0.07  e14980 '' cls 5 link s=2/11 (-6567,-2396) 35.163000,-80.889878  -7.0 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.05  e2909 '' cls 5 link one-way s=16/18 (-7149,7028) 35.247802,-80.896273  +5.4 cm between two samples 0.5 m apart, lane line 2/3, on structure
+    0.05  e10528 '' cls 5 link one-way s=13/17 (-7119,7030) 35.247817,-80.895943  -5.3 cm between two samples 0.5 m apart, lane line 1/2, on structure
+    0.05  e1892 'Freedom Drive' cls 3 one-way s=6/80 (-4462,4275) 35.223029,-80.866748  +4.7 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.05  e13602 '' cls 5 link one-way s=4/22 (-7152,7050) 35.247998,-80.896306  +4.7 cm between two samples 0.5 m apart, lane line 2/3, on structure
+    0.04  e14984 'Tyvola Road' cls 2 one-way s=6/15 (-6569,-2384) 35.163104,-80.889905  +3.8 cm between two samples 0.5 m apart, lane line 2/2, on structure
+    0.04  e13605 '' cls 5 link one-way s=10/16 (-7138,7031) 35.247825,-80.896153  +3.6 cm between two samples 0.5 m apart, the OSM line, on structure
+    0.04  e13608 '' cls 5 link one-way s=8/38 (-7150,7040) 35.247912,-80.896293  +3.6 cm between two samples 0.5 m apart, lane line 1/2, on structure
+== KINK: the 20 worst of 65
+   13.36  e14981 '' cls 5 link s=3/12 (-6580,-2391) 35.163043,-80.890026  grade +2.0 % -> -11.3 % over 2 m either side, lane line 2/2, on structure
+   10.62  e13610 '' cls 5 link one-way s=4/11 (-7152,7030) 35.247819,-80.896312  grade +2.5 % -> -8.2 % over 2 m either side, lane line 2/2, on structure
+   10.10  e14981 '' cls 5 link s=8/12 (-6574,-2392) 35.163035,-80.889952  grade -0.5 % -> +9.6 % over 2 m either side, lane line 3/3, on structure
+    9.54  e13602 '' cls 5 link one-way s=9/22 (-7150,7046) 35.247958,-80.896290  grade -3.2 % -> +6.3 % over 2 m either side, the OSM line, on structure
+    8.76  e1907 '' cls 5 link one-way s=19/27 (-6584,-2372) 35.163214,-80.890062  grade -2.6 % -> +6.1 % over 2 m either side, lane line 1/3, on structure
+    8.19  e254 '' cls 5 link one-way s=20/27 (-7155,7035) 35.247864,-80.896345  grade +0.3 % -> +8.5 % over 2 m either side, the OSM line, on structure
+    7.99  e11321 '' cls 5 link one-way s=12/37 (-7136,6988) 35.247444,-80.896128  grade +4.8 % -> -3.2 % over 2 m either side, lane line 1/3, on structure
+    7.50  e2747 '' cls 5 link one-way s=17/23 (-6598,-2397) 35.162995,-80.890225  grade +3.8 % -> -3.7 % over 2 m either side, lane line 1/3, on structure
+    7.25  e13602 '' cls 5 link one-way s=8/22 (-7150,7047) 35.247968,-80.896293  grade -2.0 % -> +5.2 % over 2 m either side, the OSM line, on structure
+    7.12  e1908 '' cls 5 link one-way s=11/27 (-6554,-2408) 35.162889,-80.889737  grade -4.6 % -> +2.6 % over 2 m either side, lane line 1/3, on structure
+    6.92  e14983 '' cls 5 link s=4/13 (-6567,-2388) 35.163074,-80.889883  grade -0.7 % -> -7.6 % over 2 m either side, lane line 1/3, on structure
+    6.85  e1892 'Freedom Drive' cls 3 one-way s=6/80 (-4462,4275) 35.223029,-80.866748  grade -5.4 % -> +1.4 % over 2 m either side, the OSM line, on structure
+    6.41  e2747 '' cls 5 link one-way s=16/23 (-6598,-2396) 35.162997,-80.890217  grade +3.6 % -> -2.8 % over 2 m either side, lane line 1/3, on structure
+    5.79  e6021 'The Plaza' cls 2 s=11/35 (2722,6904) 35.246683,-80.787787  grade -0.2 % -> +5.6 % over 2 m either side, lane line 2/4
+    5.71  e13608 '' cls 5 link one-way s=8/38 (-7153,7040) 35.247905,-80.896324  grade +4.7 % -> -1.0 % over 2 m either side, lane line 2/2, on structure
+    5.58  e14984 'Tyvola Road' cls 2 one-way s=7/15 (-6570,-2384) 35.163105,-80.889910  grade +6.4 % -> +0.8 % over 2 m either side, lane line 2/2, on structure
+    5.57  e13608 '' cls 5 link one-way s=8/38 (-7153,7040) 35.247905,-80.896325  grade +4.7 % -> -0.9 % over 2 m either side, lane line 2/2, on structure
+    5.48  e1908 '' cls 5 link one-way s=24/27 (-6562,-2399) 35.162976,-80.889820  grade +1.0 % -> +6.5 % over 2 m either side, lane line 1/3, on structure
+    5.39  e2909 '' cls 5 link one-way s=13/18 (-7147,7025) 35.247775,-80.896250  grade -0.1 % -> +5.3 % over 2 m either side, the OSM line, on structure
+    5.35  e14982 '' cls 5 link s=4/12 (-6576,-2385) 35.163101,-80.889981  grade -5.9 % -> -0.5 % over 2 m either side, lane line 1/3, on structure
+== LOW-CLEAR: the 20 worst of 103
+    1.03  e2627 'I-485' cls 5 one-way s=45/84 (-9066,-6540) 35.125715,-80.917351  3.87 m clear (wanted 4.9) under Structure of e8196 '' cls 5 link one-way, lane line 1/5
+    0.93  e3102 'I-85' cls 5 one-way s=406/1457 (4920,12633) 35.298232,-80.763627  3.97 m clear (wanted 4.9) under Structure of e5213 'University Pointe Boulevard' cls 1, lane line 1/6
+    0.87  e2627 'I-485' cls 5 one-way s=49/84 (-9072,-6540) 35.125709,-80.917411  4.03 m clear (wanted 4.9) under Structure of e8196 '' cls 5 link one-way, lane line 2/5
+    0.85  e3102 'I-85' cls 5 one-way s=408/1457 (4920,12634) 35.298248,-80.763619  4.05 m clear (wanted 4.9) under Structure of e5213 'University Pointe Boulevard' cls 1, lane line 1/6
+    0.84  e735 'I-277' cls 5 one-way s=30/54 (-2719,6578) 35.243748,-80.847584  4.06 m clear (wanted 4.9) under Structure of e1256 '' cls 5 link one-way, lane line 1/3
+    0.73  e2627 'I-485' cls 5 one-way s=61/84 (-9088,-6542) 35.125695,-80.917591  4.17 m clear (wanted 4.9) under Structure of e8196 '' cls 5 link one-way, lane line 5/5
+    0.72  e735 'I-277' cls 5 one-way s=33/54 (-2716,6576) 35.243735,-80.847555  4.18 m clear (wanted 4.9) under Structure of e1256 '' cls 5 link one-way, lane line 1/3
+    0.58  e8492 'I-77' cls 5 one-way s=26/114 (-2538,7065) 35.248134,-80.845593  4.32 m clear (wanted 4.9) under Structure of e1476 'Oaklawn Avenue' cls 1, lane line 7/7
+    0.57  e8492 'I-77' cls 5 one-way s=24/114 (-2538,7063) 35.248118,-80.845601  4.33 m clear (wanted 4.9) under Structure of e1476 'Oaklawn Avenue' cls 1, lane line 7/7
+    0.56  e2146 'I-77' cls 5 one-way s=125/142 (-2576,7062) 35.248108,-80.846011  4.34 m clear (wanted 4.9) under Structure of e1476 'Oaklawn Avenue' cls 1, lane line 1/4
+    0.55  e1531 'I-485' cls 5 one-way s=45/156 (-2130,19910) 35.363714,-80.841111  4.35 m clear (wanted 4.9) under Structure of e2480 '' cls 5 link one-way, lane line 1/4
+    0.55  e2146 'I-77' cls 5 one-way s=128/142 (-2577,7059) 35.248083,-80.846022  4.35 m clear (wanted 4.9) under Structure of e1476 'Oaklawn Avenue' cls 1, lane line 1/4
+    0.52  e1151 'I-85' cls 5 one-way s=22/196 (-13598,7078) 35.248248,-80.967156  4.38 m clear (wanted 4.9) under Structure of e1159 '' cls 5 link one-way, lane line 1/6
+    0.50  e2155 'I-277' cls 5 one-way s=512/618 (-1190,5011) 35.229650,-80.830781  4.40 m clear (wanted 4.9) under Structure of e2373 'North Caldwell Street' cls 2 one-way, lane line 1/4
+    0.50  e3102 'I-85' cls 5 one-way s=416/1457 (4906,12649) 35.298375,-80.763781  4.40 m clear (wanted 4.9) under Structure of e5213 'University Pointe Boulevard' cls 1, lane line 6/6
+    0.49  e1531 'I-485' cls 5 one-way s=23/156 (-2153,19918) 35.363786,-80.841369  4.41 m clear (wanted 4.9) under Structure of e2480 '' cls 5 link one-way, lane line 4/4
+    0.47  e3093 'I-85' cls 5 one-way s=875/1327 (4883,12674) 35.298601,-80.764026  4.43 m clear (wanted 4.9) under Structure of e5213 'University Pointe Boulevard' cls 1, lane line 1/6
+    0.47  e958 'I-277' cls 5 one-way s=97/480 (-1119,4072) 35.221197,-80.829996  4.43 m clear (wanted 4.9) under Structure of e2346 'East 7th Street' cls 2, lane line 3/3
+    0.47  e1531 'I-485' cls 5 one-way s=25/156 (-2151,19918) 35.363788,-80.841347  4.43 m clear (wanted 4.9) under Structure of e2480 '' cls 5 link one-way, lane line 4/4
+    0.45  e1531 'I-485' cls 5 one-way s=40/156 (-2135,19909) 35.363708,-80.841165  4.45 m clear (wanted 4.9) under Structure of e2480 '' cls 5 link one-way, lane line 1/4
+== OPEN-ABUTMENT: the 15 worst of 15
+    3.00  e25240 'Pharr Mill Road' cls 1 s=0/121 (18071,16853) 35.336208,-80.619077  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 3 of 3 lines across (fractions 0.2 0.5 0.8)
+    3.00  e25343 'Beulah Church Road' cls 1 s=10/10 (10199,-18245) 35.020383,-80.705602  from under the deck 3 m in, looking at its end: nothing closes the view for 12 m past it at 3 of 3 lines across (fractions 0.2 0.5 0.8)
+    1.00  e2422 'I-277' cls 5 one-way s=94/94 (-3496,4435) 35.224466,-80.856123  from under the deck 3 m in, looking at its end: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.2)
+    1.00  e1916 'Old Steele Creek Road' cls 2 s=0/73 (-7434,4232) 35.222640,-80.899408  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.2)
+    1.00  e1919 'Morris Field Drive' cls 1 s=0/44 (-8537,4423) 35.224362,-80.911534  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.2)
+    1.00  e3816 'Josh Birmingham Parkway' cls 2 one-way s=0/28 (-11155,5197) 35.231320,-80.940301  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.8)
+    1.00  e15105 'Little Rock Road' cls 2 s=31/31 (-11110,8353) 35.259722,-80.939813  from under the deck 3 m in, looking at its end: nothing closes the view for 12 m past it at 1 of 2 lines across (fractions 0.8)
+    1.00  e5104 'Shopton Road West' cls 1 s=0/57 (-16790,-4321) 35.145676,-81.002242  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.8)
+    1.00  e2441 'Hambright Road' cls 1 one-way s=78/78 (-1191,21465) 35.377709,-80.830792  from under the deck 3 m in, looking at its end: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.2)
+    1.00  e14493 'Upper Avenue' cls 1 s=51/51 (-2408,-13752) 35.060813,-80.844166  from under the deck 3 m in, looking at its end: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.8)
+    1.00  e25236 'West Catawba Avenue' cls 1 s=0/11 (-20271,11388) 35.287035,-81.040498  from under the deck 10 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.8)
+    1.00  e4146 'Bruton Smith Boulevard' cls 2 one-way s=0/91 (11042,19731) 35.362101,-80.696331  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.8)
+    1.00  e4128 'Poplar Tent Road' cls 2 one-way s=76/76 (10816,24165) 35.402007,-80.698821  from under the deck 3 m in, looking at its end: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.2)
+    1.00  e6972 'Indian Trail Fairview Road' cls 2 one-way s=202/209 (16240,-9648) 35.097747,-80.639204  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 1 lines across (fractions 0.2)
+    1.00  e25243 'NC 16' cls 5 one-way s=0/61 (-16508,26767) 35.425414,-80.999143  from under the deck 3 m in, looking at its start: nothing closes the view for 12 m past it at 1 of 2 lines across (fractions 0.2)
+== NO-FASCIA: the 20 worst of 91
+    1.00  e1261 'I-77' cls 5 one-way s=62/76 (-3459,5727) 35.236097,-80.855714  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e1759 'I-485' cls 5 one-way s=2/77 (-7752,-7517) 35.116918,-80.902905  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e1762 'I-485' cls 5 one-way s=3/77 (-7804,-7480) 35.117255,-80.903471  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e14977 'West Boulevard' cls 1 one-way s=6/102 (-14769,648) 35.190388,-80.980024  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e15018 'West Boulevard' cls 1 one-way s=100/102 (-14768,640) 35.190323,-80.980014  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e5304 'Idlewild Road' cls 2 one-way s=204/206 (5615,-95) 35.183701,-80.755982  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e5790 'Sunset Road' cls 3 one-way s=44/46 (-2784,13641) 35.307310,-80.848297  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e14371 'Sunset Road' cls 3 one-way s=42/44 (-2740,13649) 35.307374,-80.847815  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e14370 'Sunset Road' cls 3 one-way s=42/44 (-2775,13651) 35.307398,-80.848200  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e14371 'Sunset Road' cls 3 one-way s=8/44 (-2774,13643) 35.307324,-80.848193  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e14982 '' cls 5 link s=11/12 (-6572,-2377) 35.163175,-80.889937  the deck's right edge shows no face from the side (0.28 m under the surface)
+    1.00  e14986 'Tyvola Road' cls 2 one-way s=18/19 (-6550,-2401) 35.162956,-80.889693  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e2737 'Tyvola Road' cls 2 one-way s=2/17 (-6549,-2392) 35.163032,-80.889685  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e9353 'West Tyvola Road' cls 2 one-way s=2/74 (-9179,-152) 35.183195,-80.918589  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e5175 'West Tyvola Road' cls 2 one-way s=62/73 (-9174,-146) 35.183250,-80.918534  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e3604 'Tyvola Road' cls 2 one-way s=471/473 (-3114,-3167) 35.156062,-80.851931  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e3375 'Tyvola Road' cls 2 one-way s=50/52 (-3119,-3170) 35.156031,-80.851984  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e1211 'North Graham Street' cls 2 one-way s=82/88 (841,10278) 35.277041,-80.808451  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e7505 'North Graham Street' cls 2 one-way s=154/154 (837,10280) 35.277061,-80.808502  the deck's left edge shows no face from the side (0.28 m under the surface)
+    1.00  e2057 'South Tryon Street' cls 3 one-way s=0/42 (-6335,-182) 35.182918,-80.887327  the deck's left edge shows no face from the side (0.28 m under the surface)
+== UNDER-STEP: the 19 worst of 19
+    0.13  e386 '' cls 5 link one-way s=5/23 (-8148,-5207) 35.137704,-80.907258  +13.4 cm between two samples 0.5 m apart, lane line 3/3
+    0.11  e386 '' cls 5 link one-way s=9/23 (-8144,-5210) 35.137683,-80.907213  +11.3 cm between two samples 0.5 m apart, the OSM line
+    0.08  e289 '' cls 5 link one-way s=3/9 (-11023,6304) 35.241287,-80.938860  +7.5 cm between two samples 0.5 m apart, lane line 1/3
+    0.07  e9746 'North Josh Birmingham Parkway' cls 2 one-way s=20/26 (-11048,6269) 35.240971,-80.939129  +6.6 cm between two samples 0.5 m apart, lane line 1/2
+    0.06  e9824 '' cls 5 link one-way s=21/42 (-11000,6331) 35.241527,-80.938600  -6.3 cm between two samples 0.5 m apart, lane line 1/3
+    0.06  e13464 '' cls 5 link one-way s=24/31 (-11000,6328) 35.241500,-80.938608  -5.9 cm between two samples 0.5 m apart, lane line 1/2
+    0.05  e13464 '' cls 5 link one-way s=22/31 (-11002,6326) 35.241486,-80.938621  +4.8 cm between two samples 0.5 m apart, lane line 1/2
+    0.05  e287 '' cls 5 link one-way s=17/33 (-11024,6272) 35.241001,-80.938869  +4.5 cm between two samples 0.5 m apart, lane line 1/3
+    0.04  e9827 '' cls 5 link one-way s=16/33 (-11036,6276) 35.241032,-80.939000  -3.7 cm between two samples 0.5 m apart, the OSM line
+    0.04  e2706 'West Arrowood Road' cls 2 one-way s=19/23 (-8209,-5156) 35.138162,-80.907931  -3.5 cm between two samples 0.5 m apart, the OSM line
+    0.03  e9744 '' cls 5 link one-way s=13/85 (-11032,6321) 35.241442,-80.938959  -2.9 cm between two samples 0.5 m apart, lane line 1/3
+    0.03  e9827 '' cls 5 link one-way s=27/33 (-11044,6269) 35.240969,-80.939090  +2.8 cm between two samples 0.5 m apart, lane line 2/3
+    0.03  e10691 '' cls 4 link one-way s=30/117 (5579,-57) 35.184046,-80.756384  -2.8 cm between two samples 0.5 m apart, lane line 2/2
+    0.03  e288 '' cls 5 link one-way s=9/11 (-11028,6298) 35.241231,-80.938915  +2.7 cm between two samples 0.5 m apart, lane line 3/3
+    0.03  e269 '' cls 5 link one-way s=91/116 (-11051,6265) 35.240939,-80.939167  +2.5 cm between two samples 0.5 m apart, lane line 1/3
+    0.02  e8003 '' cls 5 link one-way s=11/278 (-1844,3328) 35.214507,-80.837967  -2.4 cm between two samples 0.5 m apart, lane line 2/2
+    0.02  e4710 '' cls 3 link s=7/13 (15585,22063) 35.383089,-80.646403  +2.3 cm between two samples 0.5 m apart, the OSM line
+    0.02  e9118 'US 74' cls 5 one-way s=233/247 (-675,3882) 35.219495,-80.825118  -2.2 cm between two samples 0.5 m apart, lane line 2/3
+    0.02  e9763 'Little Rock Road' cls 2 one-way s=13/26 (-11004,6323) 35.241457,-80.938650  +2.2 cm between two samples 0.5 m apart, lane line 1/2
+== UNDER-KINK: the 20 worst of 29
+    9.62  e386 '' cls 5 link one-way s=8/23 (-8145,-5210) 35.137677,-80.907218  grade -2.3 % -> +7.4 % over 2 m either side, lane line 2/3
+    8.82  e386 '' cls 5 link one-way s=8/23 (-8145,-5210) 35.137682,-80.907224  grade -1.6 % -> +7.2 % over 2 m either side, the OSM line
+    8.23  e9744 '' cls 5 link one-way s=12/85 (-11031,6320) 35.241430,-80.938949  grade -2.5 % -> +5.7 % over 2 m either side, lane line 1/3
+    5.79  e13464 '' cls 5 link one-way s=24/31 (-11000,6328) 35.241500,-80.938608  grade +0.4 % -> -5.3 % over 2 m either side, lane line 1/2
+    5.52  e13464 '' cls 5 link one-way s=24/31 (-11001,6327) 35.241497,-80.938611  grade +0.3 % -> -5.2 % over 2 m either side, lane line 1/2
+    4.76  e10691 '' cls 4 link one-way s=26/117 (5579,-61) 35.184010,-80.756383  grade -1.6 % -> -6.4 % over 2 m either side, lane line 2/2
+    4.56  e289 '' cls 5 link one-way s=4/9 (-11024,6305) 35.241291,-80.938863  grade +0.6 % -> -4.0 % over 2 m either side, lane line 1/3
+    4.36  e9826 '' cls 5 link one-way s=5/15 (-11022,6299) 35.241236,-80.938848  grade +5.2 % -> +0.8 % over 2 m either side, lane line 2/3
+    4.25  e288 '' cls 5 link one-way s=9/11 (-11025,6297) 35.241223,-80.938880  grade -3.9 % -> +0.3 % over 2 m either side, lane line 2/3
+    4.18  e6896 'Marie Garris Drive' cls 1 s=56/68 (12612,-9224) 35.101559,-80.679077  grade +6.7 % -> +10.9 % over 2 m either side, lane line 3/3
+    3.86  e287 '' cls 5 link one-way s=18/33 (-11024,6274) 35.241015,-80.938867  grade -2.3 % -> -6.2 % over 2 m either side, lane line 1/3
+    3.68  e9824 '' cls 5 link one-way s=22/42 (-11000,6330) 35.241521,-80.938607  grade -1.1 % -> +2.6 % over 2 m either side, lane line 1/3
+    3.20  e8196 '' cls 5 link one-way s=117/341 (-9082,-6541) 35.125705,-80.917527  grade +1.1 % -> -2.1 % over 2 m either side, lane line 2/2, on structure
+    3.17  e9746 'North Josh Birmingham Parkway' cls 2 one-way s=19/26 (-11047,6270) 35.240983,-80.939123  grade +4.1 % -> +7.3 % over 2 m either side, lane line 1/2
+    2.97  e13462 '' cls 5 link one-way s=13/18 (-11026,6293) 35.241189,-80.938890  grade -4.9 % -> -2.0 % over 2 m either side, lane line 1/2
+    2.95  e238 '' cls 5 link one-way s=3/10 (-11020,6308) 35.241319,-80.938821  grade +1.4 % -> +4.4 % over 2 m either side, lane line 1/2
+    2.87  e288 '' cls 5 link one-way s=5/11 (-11029,6293) 35.241190,-80.938920  grade -4.8 % -> -2.0 % over 2 m either side, lane line 3/3
+    2.84  e9826 '' cls 5 link one-way s=11/15 (-11026,6293) 35.241189,-80.938891  grade +2.4 % -> +5.2 % over 2 m either side, lane line 2/3
+    2.82  e8003 '' cls 5 link one-way s=11/278 (-1843,3328) 35.214507,-80.837957  grade +3.8 % -> +1.0 % over 2 m either side, the OSM line
+    2.71  e6589 'East Independence Expressway' cls 4 one-way s=22/120 (5568,-122) 35.183465,-80.756499  grade -1.4 % -> -4.1 % over 2 m either side, lane line 1/4
+== UNDER-BLUNT-END: the 4 worst of 4
+    2.00  e1856 '' cls 5 link one-way s=289/293 (4347,-13862) 35.059823,-80.769917  a face of Barriers square to a car along the right edge line (+0.15 m past the pavement edge)
+    1.00  e9936 'I-77' cls 5 one-way s=87/111 (-2715,6731) 35.245132,-80.847538  a face of Barriers square to a car along the right edge line (+1.20 m past the pavement edge)
+    1.00  e9906 'I-485' cls 5 one-way s=407/518 (-5764,-9247) 35.101355,-80.881048  a face of Barriers square to a car along the right edge line (+1.20 m past the pavement edge)
+    1.00  e6903 'I-485' cls 5 one-way s=28/136 (11732,-8227) 35.110532,-80.688749  a face of Barriers square to a car along the right edge line (+1.20 m past the pavement edge)
+== RAIL-ON-LANE: the 3 worst of 3
+    0.82  e145 '' cls 5 link s=10/10 (-5538,8622) 35.262143,-80.878565  Barriers 0.82 m over the lane surface, lane line 1/2, on structure
+    0.81  e3591 '' cls 5 link s=1/10 (-5539,8623) 35.262153,-80.878582  Barriers 0.81 m over the lane surface, lane line 2/2, on structure
+    0.72  e2747 '' cls 5 link one-way s=0/23 (-6583,-2391) 35.163044,-80.890059  Barriers 0.72 m over the lane surface, lane line 1/3, on structure
+== WALL-IN-LANE: the 10 worst of 10
+    2.00  e3591 '' cls 5 link s=0/10 (-5539,8624) 35.262163,-80.878581  a face of Barriers square to the travel at bumper height on lane line 1/2, on structure
+    2.00  e3591 '' cls 5 link s=9/10 (-5536,8615) 35.262080,-80.878544  a face of Barriers square to the travel at bumper height on lane line 2/2, on structure
+    2.00  e145 '' cls 5 link s=8/10 (-5539,8622) 35.262142,-80.878579  a face of Barriers square to the travel at bumper height on lane line 1/2, on structure
+    2.00  e2889 '' cls 5 link one-way s=28/28 (-5532,8614) 35.262070,-80.878503  a face of Barriers square to the travel at bumper height on lane line 1/2, on structure
+    2.00  e145 '' cls 5 link s=1/10 (-5547,8626) 35.262176,-80.878664  a face of Barriers square to the travel at bumper height on lane line 1/3, on structure
+    2.00  e13604 '' cls 5 link one-way s=37/37 (-7128,6999) 35.247540,-80.896042  a face of Barriers square to the travel at bumper height on lane line 3/3, on structure
+    2.00  e14981 '' cls 5 link s=1/12 (-6582,-2392) 35.163037,-80.890048  a face of Barriers square to the travel at bumper height on lane line 1/3, on structure
+    2.00  e14983 '' cls 5 link s=10/13 (-6566,-2380) 35.163141,-80.889866  a face of Barriers square to the travel at bumper height on lane line 3/3, on structure
+    2.00  e1908 '' cls 5 link one-way s=27/27 (-6563,-2396) 35.163000,-80.889834  a face of Barriers square to the travel at bumper height on lane line 1/3, on structure
+    1.00  e4217 'Freedom Drive' cls 3 one-way s=115/116 (-7118,7020) 35.247726,-80.895938  a face of Barriers square to the travel at bumper height on lane line 2/2
+== DECK-HOLE: the 3 worst of 3
+    5.50  e2908 '' cls 5 link one-way s=9/31 (-7159,7076) 35.248233,-80.896387  nothing to drive on for 5.5 m along lane line 1/3 (an outer line)
+    1.50  e14982 '' cls 5 link s=12/12 (-6574,-2376) 35.163181,-80.889955  nothing to drive on for 1.5 m along lane line 3/3 (an outer line)
+    1.50  e14983 '' cls 5 link s=11/13 (-6565,-2379) 35.163149,-80.889852  nothing to drive on for 1.5 m along lane line 3/3 (an outer line)
+== RAIL-DROP: the 1 worst of 1
+    3.00  e13143 'Tuckaseegee Road' cls 1 one-way s=52/71 (-13131,6144) 35.239844,-80.962026  no rail for 3 m on structure, left side of the walk, a drop of up to 0.9 m beside
+== PIER-WALK: the 1 worst of 1
+    0.01  e778 'South Clarkson Street' cls 2 s=122/417 (-3957,4452) 35.224617,-80.861196  a pier column (radius 0.62 m, 6.0 m tall) 2.69 m from the pavement of a road with walks
+CITY BRIDGES AUDIT DONE
