@@ -57,7 +57,18 @@ namespace PSXRacing.City
         const float LotEntCarHalf = 1.5f, LotEntInM = 3.0f;
         /// <summary>The lot's kerb opens this far past the corridor either side
         /// (EmitLotCurbs lays 4 m pieces, tested at their middles).</summary>
-        const float LotEntThroatM = 2.3f;
+        const float LotEntThroatM = 0.15f;
+        /// <summary>The throat's quad past the way either side: EmitLotCurbs (the walks') lays 4 m pieces tested
+        /// at their middles, so every piece that reaches into the throat is dropped whole; the part of a dropped
+        /// piece outside the throat is laid again here (EmitLotEntKerbFill): the opening is the throat's width.</summary>
+        const float LotEntThroatDropM = 2.3f;
+        /// <summary>Half a derived entrance's throat: a two-way commercial driveway, 24 ft (NCDOT's policy on
+        /// street and driveway access: two-way 20-36 ft), off a one-way street too (cars come out as well as in).</summary>
+        public const float LotEntThroatHalf = 3.65f;
+        /// <summary>The street's curb comes down from its full height to the cut's lip over this, either side of
+        /// the throat (the drop curb's 3 ft transition; the walks' own wing is 5 m). PSX_CITY_LOTENT_TAPER: metres.</summary>
+        public static float LotEntTaperM = float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CITY_LOTENT_TAPER"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lett) ? lett : 1.0f;
         /// <summary>A frontage over this takes two entrances.</summary>
         const float LotEntTwoM = 60f;
         const float LotEntStepS = 5f;
@@ -65,7 +76,7 @@ namespace PSXRacing.City
         public static class LotEntStats
         {
             public static int lots, usableBefore, served, repaired, derived, derivedSecond, onTrunk, nearJunction, throughStalls, farReach, longDrive, linked, left, connectors, throats;
-            public static float ms, msUsable, msTouch, msDerive;
+            public static float ms, msUsable, msTouch, msDerive, kerbFillM;
             public static readonly List<string> leftAt = new List<string>();
             public static void Reset() { lots = usableBefore = served = repaired = derived = derivedSecond = onTrunk = nearJunction = throughStalls = farReach = longDrive = linked = left = connectors = throats = 0; ms = msUsable = msTouch = msDerive = 0f; leftAt.Clear(); }
             public static string Line() =>
@@ -79,6 +90,9 @@ namespace PSXRacing.City
         /// <summary>The corridors and throats (convex quads) of the map's
         /// repaired and derived entrances: ApronAt's, after the data's aprons.</summary>
         static readonly List<Vector2[]> lotEntQuads = new List<Vector2[]>();
+        /// <summary>Which of them are throats (the lot kerb's openings), for the kerb fill's "had there been no throat".</summary>
+        static readonly HashSet<int> lotEntThroatQuads = new HashSet<int>();
+        [System.ThreadStatic] static bool lotEntThroatsOff;
         /// <summary>The first lot and entrance this pass added (-1: none).</summary>
         public static int LotEntLotsFrom = -1, LotEntEntrancesFrom = -1;
 
@@ -237,7 +251,7 @@ namespace PSXRacing.City
                 if (WalkSide(map, e, side))
                     for (int k = -1; k <= 1; k++)
                     {
-                        var q = mouth + n * (0.5f * WalkW) + t * (k * LotEntCarHalf);
+                        var q = mouth + n * (0.5f * Cs3WalkW(map, e)) + t * (k * LotEntCarHalf);
                         if (!ApronAt(map, q.x, q.y)) { info.why = "the street's curb is not cut"; return false; }
                     }
                 // paved all the way (the apron reaches 2.5 m)
@@ -292,6 +306,7 @@ namespace PSXRacing.City
                 for (int j = 0; j < k; j++)
                 {
                     var pa = a + d * ((float)j / k); var pb = a + d * ((float)(j + 1) / k);
+                    if (!LotEntKerbPiece(map, ref pa, ref pb)) continue;
                     // in the path's frame: across (t), along (n)
                     var la = new Vector2(Vector2.Dot(pa - mouth, t), Vector2.Dot(pa - mouth, n));
                     var lb = new Vector2(Vector2.Dot(pb - mouth, t), Vector2.Dot(pb - mouth, n));
@@ -327,7 +342,7 @@ namespace PSXRacing.City
         public const float LotEntRampSlope = 1f / 14f;
         /// <summary>The ramp holds across the cut and this far either side, then
         /// eases back to the verge's own slope over <see cref="LotEntRampEaseM"/>.</summary>
-        const float LotEntRampSideM = 1.2f, LotEntRampEaseM = 4f;
+        const float LotEntRampSideM = 0.5f, LotEntRampEaseM = 0f;
         static Vector4[] lotEntRampA, lotEntRampB;   // per entrance: mouth x, z, t x, z; n x, z, half, 0
         static Dictionary<long, List<int>> lotEntRampByTile;
         static CityMap lotEntRampMapFor;
@@ -350,8 +365,15 @@ namespace PSXRacing.City
             {
                 var en = map.lotEntrances[i];
                 LotEntFrame(map.edges[en.edge], en.s, en.side, out var mouth, out var n, out var t);
-                A[i] = new Vector4(mouth.x, mouth.y, t.x, t.y); B[i] = new Vector4(n.x, n.y, en.half, 0f);
-                float r = en.half + LotEntRampSideM + LotEntRampEaseM + 5f;
+                // (the asphalt the throat is laid in: the lot's own, new or old)
+                bool fresh = IsFresh(mouth);
+                for (float d = 0.5f; d <= 62f; d += 0.5f)
+                {
+                    int li = LotPavementAt(map, mouth + n * d);
+                    if (li >= 0) { fresh = IsFresh(map.lots[li].ring[0]); break; }
+                }
+                A[i] = new Vector4(mouth.x, mouth.y, t.x, t.y); B[i] = new Vector4(n.x, n.y, en.half, fresh ? 1f : 0f);
+                float r = en.half + 20f;
                 for (int tx = Mathf.FloorToInt((mouth.x - r) / TileSize); tx <= Mathf.FloorToInt((mouth.x + r) / TileSize); tx++)
                     for (int tz = Mathf.FloorToInt((mouth.y - r) / TileSize); tz <= Mathf.FloorToInt((mouth.y + r) / TileSize); tz++)
                     {
@@ -377,57 +399,240 @@ namespace PSXRacing.City
         /// back to the plain slope over 4 m either side as the curb cut's own
         /// wings do. PSX_CITY_LOTENT=0: as before.
         /// </summary>
-        static void LotEntRamp(CityMap map, Vector2 s0, Vector2 outw, float y0, float run, ref float shoulder, ref float slope)
+        static void LotEntRamp(CityMap map, Vector2 s0, Vector2 outw, float y0, float run, ref float shoulder, ref float crossFall, ref float slope)
         {
             if (!LotEntOn || !LotsOn || map.lotEntrances == null || map.lotEntrances.Length == 0) return;
             EnsureLotEntRamps(map);
             if (!lotEntRampByTile.TryGetValue(LotTileKey(Mathf.FloorToInt(s0.x / TileSize), Mathf.FloorToInt(s0.y / TileSize)), out var l)) return;
-            float k = 0f;
+            // (second pass, 11-15: the owner - "I don't see an entrance area") THE THROAT ONLY: the strips that
+            // start within the throat's width (+ 0.5 m: the walk's reads fall half a metre apart) are the graded
+            // throat; the strips beside it are the street's own backing again - no ramp wider than the throat.
+            bool inside = false;
             foreach (int i in l)
             {
                 var a = lotEntRampA[i]; var b = lotEntRampB[i];
                 float dx = s0.x - a.x, dz = s0.y - a.y;
                 float dep = dx * b.x + dz * b.y;
-                if (dep < -0.6f || dep > 4f) continue;
-                float lat = Mathf.Abs(dx * a.z + dz * a.w) - (b.z + LotEntRampSideM);
-                if (lat >= LotEntRampEaseM) continue;
-                k = Mathf.Max(k, lat <= 0f ? 1f : 1f - LineModel.Smooth(lat / LotEntRampEaseM));
+                if (dep < -0.6f || dep > 6.5f) continue;
+                if (Mathf.Abs(dx * a.z + dz * a.w) <= b.z + LotEntRampSideM) { inside = true; break; }
             }
-            if (k <= 0f) return;
-            // THE SMOOTHEST WAY ON: of the straight strips from here - level, or down or up at 1 in 20, 14,
-            // 10, 8 (down 1 in 6 too) - that meet the land within 12 m, the one whose path (the strip to
-            // where it meets the land, then the land for 4 m more) has the least GRADE BREAK between one
-            // half metre and the next, the walk's own fall counted at its start. A lot at the road's sunk
-            // corridor's level right behind the walk takes the long gentle ramp down; a lot or a station's
-            // pad standing higher beyond the corridor takes a level or rising strip OVER the corridor (the
-            // lattice's own way out of it is its 1V:3H cut slope, which threw a car at 40 km/h); and no
-            // strip is laid that never meets the land (a retaining face to the roadside rules: DropFrom's
-            // Ungraded stood a barrier on the pavement's edge across five entrances of the lot drive).
+            if (!inside) return;
+            // THE SMOOTHEST WAY ON, graded like a road: of the straight grades from here - level, or down or up
+            // at 1 in 20, 14, 10, 8 (down 1 in 6 too), each begun with 1.5 m at HALF its grade (a vertical curve
+            // of two breaks where there was one: the crest at the walk's back unloaded a wheel at 40 km/h) -
+            // that meet the land within 12 m, the one whose path (the strip to where it meets the land, then the
+            // land for 4 m more) has the least GRADE BREAK between one half metre and the next. Never a strip
+            // that does not meet the land (a retaining face to the roadside rules: a barrier across the entrance).
             float reach = Mathf.Min(run, LotEntRampMaxM);
             int nS = Mathf.Min(lotEntLat.Length - 1, Mathf.FloorToInt((reach + 5f) / 0.25f));
             for (int i = 0; i <= nS; i++) { var q = s0 + outw * (i * 0.25f); lotEntLat[i] = LatticeY(map, q.x, q.y); }
             float best = float.MaxValue, want = float.NaN;
             foreach (float sl in lotEntRampSlopes)
             {
+                float Y(float e) => y0 - 0.5f * sl * Mathf.Min(e, LotEntCurveM) - sl * Mathf.Max(0f, e - LotEntCurveM);
                 int iStar = -1;
                 for (int i = 0; i * 0.25f <= reach + 1e-3f && i <= nS && iStar < 0; i++)
-                    if (y0 - sl * (i * 0.25f) - lotEntLat[i] <= 0f) iStar = i;
+                    if (Y(i * 0.25f) - lotEntLat[i] <= 0f) iStar = i;
                 if (iStar < 0) continue;
-                // the path every 0.25 m from 0.5 m before the start (the walk: falling to the street at 2%)
-                float P(int i) => i < 0 ? y0 + 0.02f * (i * 0.25f) : i <= iStar ? y0 - sl * (i * 0.25f) : lotEntLat[Mathf.Min(i, nS)];
+                float P(int i) => i < 0 ? y0 + 0.02f * (i * 0.25f) : i <= iStar ? Y(i * 0.25f) : lotEntLat[Mathf.Min(i, nS)];
                 float worst = 0f;
                 for (int i = -2; i + 4 <= Mathf.Min(nS, iStar + 16); i++)
                     worst = Mathf.Max(worst, Mathf.Abs(P(i + 4) - 2f * P(i + 2) + P(i)) / 0.5f);
                 if (worst < best - 0.004f) { best = worst; want = sl; }
             }
-            if (float.IsNaN(want) || want >= slope) return;
-            float sh2 = Mathf.Lerp(shoulder, 0f, k), sl2 = Mathf.Lerp(slope, want, k);
-            bool meets = false;
-            for (int i = 0; i * 0.25f <= run + 1e-3f && i <= nS && !meets; i++)
-                if (y0 - sl2 * Mathf.Max(0f, i * 0.25f - sh2) - lotEntLat[i] <= 0f) meets = true;
-            if (!meets) return;
-            shoulder = sh2; slope = sl2;
+            if (float.IsNaN(want)) return;
+            shoulder = LotEntCurveM; crossFall = 0.5f * want; slope = want;
         }
+        /// <summary>The first run of the throat's grade, at half of it.</summary>
+        const float LotEntCurveM = 1.5f;
+
+        /// <summary>
+        /// THE THROAT IS ASPHALT (LayStripQuad's call): a strip quad whose middle lies in a lot entrance's throat
+        /// (its width, from the pavement's edge on) is laid in the lot's own asphalt in the ROADS mesh (the lot's
+        /// slot: no new draw) instead of the ground's paving or grass - behind the walk the driveway is the lot's
+        /// asphalt, not ground-coloured concrete; the concrete apron is the walk's own slab across the cut.
+        /// </summary>
+        static bool LotEntThroatBucket(CityMap map, Vector3 cen, ref Bucket bk)
+        {
+            if (!LotEntOn || !LotsOn || map.lotEntrances == null || map.lotEntrances.Length == 0) return false;
+            EnsureLotEntRamps(map);
+            if (!lotEntRampByTile.TryGetValue(LotTileKey(Mathf.FloorToInt(cen.x / TileSize), Mathf.FloorToInt(cen.z / TileSize)), out var l)) return false;
+            foreach (int i in l)
+            {
+                var a = lotEntRampA[i]; var b = lotEntRampB[i];
+                float dx = cen.x - a.x, dz = cen.z - a.y;
+                float dep = dx * b.x + dz * b.y;
+                if (dep < -0.2f || dep > 17f) continue;
+                // (+ 0.8 m: the strip quad that leads from the throat's grade back to the street's own backing is asphalt too -
+                //  a short flare; left in the ground's paving it lay as a tan spike on the lot's asphalt beside the throat)
+                if (Mathf.Abs(dx * a.z + dz * a.w) > b.z + 0.8f) continue;
+                bk = buckets[(int)SlotOf(JunctionProfile, b.w > 0.5f ? Surface.AsphaltNew : Surface.AsphaltOld)];
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The lot asphalt's own mapping (world-planar, 12 m) on the two profiles of a throat's strip quad.</summary>
+        static void LotEntThroatUV(Bucket bk, int a, int b, Vector3 o)
+        {
+            for (int q = 0; q < 4; q++)
+            {
+                bk.uv[a + q] = new Vector2((bk.v[a + q].x + o.x) / 12f, (bk.v[a + q].z + o.z) / 12f);
+                bk.uv[b + q] = new Vector2((bk.v[b + q].x + o.x) / 12f, (bk.v[b + q].z + o.z) / 12f);
+            }
+        }
+
+        /// <summary>
+        /// THE CURB'S DROP beside a lot entrance (CurbCutWings' call, one read of a walk span at the curb line):
+        /// the share of the curb's height there. The walks ease a cut back to the full curb over a 5 m wing (a
+        /// wheel riding the walk, launch spots 7): square on from the lane the curb then looks dropped along 17 m
+        /// and no entrance reads. Beside a LOT's throat the curb comes up over LotEntTaperM (1 m: the drop curb's
+        /// transition) - full curb, a short taper, the lip across the throat, a short taper, full curb. A house's
+        /// driveway within reach keeps the walks' wing.
+        /// </summary>
+        static float LotEntCurbShare(CityMap map, Vector3 p, float c)
+        {
+            if (!LotEntOn || !LotsOn || c >= 0.999f || LotEntTaperM >= CurbCutWingM - 0.01f || map.lotEntrances == null || map.lotEntrances.Length == 0) return c;
+            EnsureLotEntRamps(map);
+            if (!lotEntRampByTile.TryGetValue(LotTileKey(Mathf.FloorToInt(p.x / TileSize), Mathf.FloorToInt(p.z / TileSize)), out var l)) return c;
+            float best = float.MaxValue;
+            foreach (int i in l)
+            {
+                var a = lotEntRampA[i]; var b = lotEntRampB[i];
+                float dx = p.x - a.x, dz = p.z - a.y;
+                float dep = dx * b.x + dz * b.y;
+                if (dep < -1.5f || dep > 1.5f) continue;
+                best = Mathf.Min(best, Mathf.Max(0f, Mathf.Abs(dx * a.z + dz * a.w) - b.z));
+            }
+            if (best > CurbCutWingM + 0.3f) return c;
+            if (OnDriveway(new Vector2(p.x, p.z), CurbCutWingM + 1f)) return c;
+            return Mathf.Max(c, Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(best / Mathf.Max(0.1f, LotEntTaperM))));
+        }
+
+        static readonly Vector3[] leKerbA = new Vector3[4], leKerbB = new Vector3[4];
+
+        /// <summary>
+        /// THE LOT KERB'S OPENING, EXACT, without a line in the walks' file (FlushLotIslands' call, the tile's
+        /// lots still prepared): EmitLotCurbs drops every 4 m piece whose middle a throat's quad takes, so a
+        /// 7.3 m throat opened 8-12 m of kerb. Every piece it drops ONLY because of a throat (LotCurbHere with
+        /// and without the throats) is laid again here less the throat itself (the way's width + 0.15 m either
+        /// side): the same kerb (its profile, bucket and mapping are the walks' own arrays), the opening the
+        /// throat's width.
+        /// </summary>
+        static void EmitLotEntKerbFill(CityMap map, TileMeshes tm, Vector2 min)
+        {
+            if (!LotEntOn || lotEntMapFor != map || lotEntWays.Count == 0 || !WalksOn || !LotCurbsOn) return;
+            var o = tm.origin;
+            var bk = WalkBucket;
+            foreach (int li in tileLots)
+            {
+                var lot = map.lots[li];
+                if (lot.aisleOnly || lot.ring == null || lot.ring.Length < 3) continue;
+                var r = lot.ring; int n = r.Length;
+                float area = 0f;
+                for (int i = 0; i < n; i++) { var p = r[i]; var q = r[(i + 1) % n]; area += p.x * q.y - q.x * p.y; }
+                float sgn = area > 0f ? 1f : -1f;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector2 a = r[i], b = r[(i + 1) % n];
+                    var d = b - a; float len = d.magnitude;
+                    if (len < 0.05f) continue;
+                    var outw = new Vector2(d.y, -d.x) / len * sgn;
+                    int k = Mathf.Max(1, Mathf.CeilToInt(len / 4f));
+                    for (int j = 0; j < k; j++)
+                    {
+                        var pa = a + d * ((float)j / k); var pb = a + d * ((float)(j + 1) / k);
+                        var m = 0.5f * (pa + pb);
+                        if (m.x < min.x || m.x >= min.x + TileSize || m.y < min.y || m.y >= min.y + TileSize) continue;
+                        Vector2 qa = pa, qb = pb;
+                        if (!LotEntKerbPiece(map, ref qa, ref qb)) continue;          // wholly in a throat
+                        if (LotCurbHere(map, li, m, outw)) continue;                   // the walks lay it whole
+                        lotEntThroatsOff = true;
+                        bool would = LotCurbHere(map, li, m, outw);
+                        lotEntThroatsOff = false;
+                        if (!would) continue;                                          // no kerb there, throat or not
+                        for (int q = 0; q < 4; q++)
+                        {
+                            var ca = qa + outw * lotCurbU[q]; var cb = qb + outw * lotCurbU[q];
+                            leKerbA[q] = new Vector3(ca.x - o.x, LatticeY(map, ca.x, ca.y) + lotCurbH[q], ca.y - o.z);
+                            leKerbB[q] = new Vector3(cb.x - o.x, LatticeY(map, cb.x, cb.y) + lotCurbH[q], cb.y - o.z);
+                        }
+                        float uA = Vector2.Distance(a, qa), uB = Vector2.Distance(a, qb);
+                        for (int q = 0; q < 3; q++)
+                            bk.Up(leKerbA[q], leKerbA[q + 1], leKerbB[q + 1], leKerbB[q],
+                                  new Vector2(uA / WalkTexM, lotCurbU[q] / WalkTexM), new Vector2(uA / WalkTexM, lotCurbU[q + 1] / WalkTexM),
+                                  new Vector2(uB / WalkTexM, lotCurbU[q + 1] / WalkTexM), new Vector2(uB / WalkTexM, lotCurbU[q] / WalkTexM));
+                        LotEntStats.kerbFillM += (qb - qa).magnitude;
+                    }
+                }
+            }
+        }
+
+        // ---- the ways into the lots (the kerb's exact opening) -----------------
+        /// <summary>A way into a lot: from <c>mouth</c> along <c>n</c>, half its width, and how far along it meets the lot's ring.</summary>
+        struct LeWay { public Vector2 mouth, n; public float half, gap; }
+        static readonly List<LeWay> lotEntWays = new List<LeWay>();
+        static Dictionary<long, List<int>> lotEntWaysByTile;
+
+        static void EnsureLotEntWays()
+        {
+            if (lotEntWaysByTile != null) return;
+            lock (lotEntRampLock)
+            {
+                if (lotEntWaysByTile != null) return;
+                var by = new Dictionary<long, List<int>>();
+                for (int i = 0; i < lotEntWays.Count; i++)
+                {
+                    var w = lotEntWays[i]; var c = w.mouth + w.n * w.gap;
+                    float r = w.half + 12f;
+                    for (int tx = Mathf.FloorToInt((c.x - r) / TileSize); tx <= Mathf.FloorToInt((c.x + r) / TileSize); tx++)
+                        for (int tz = Mathf.FloorToInt((c.y - r) / TileSize); tz <= Mathf.FloorToInt((c.y + r) / TileSize); tz++)
+                        {
+                            long k = LotTileKey(tx, tz);
+                            if (!by.TryGetValue(k, out var l)) by[k] = l = new List<int>(4);
+                            l.Add(i);
+                        }
+                }
+                lotEntWaysByTile = by;
+            }
+        }
+
+        /// <summary>
+        /// THE LOT KERB'S OPENING, EXACT (EmitLotCurbs' call, one 4 m piece of a lot's ring before it is tested
+        /// and laid): the part of the piece within a way's width (+ 0.15 m either side) where the way meets the
+        /// ring is taken out - the piece dropped (false) or cut back to the throat's side. The kerb then opens
+        /// by the throat's width, not by whole 4 m pieces.
+        /// </summary>
+        static bool LotEntKerbPiece(CityMap map, ref Vector2 pa, ref Vector2 pb)
+        {
+            if (!LotEntOn || lotEntMapFor != map || lotEntWays.Count == 0) return true;
+            EnsureLotEntWays();
+            var m = 0.5f * (pa + pb);
+            if (!lotEntWaysByTile.TryGetValue(LotTileKey(Mathf.FloorToInt(m.x / TileSize), Mathf.FloorToInt(m.y / TileSize)), out var l)) return true;
+            foreach (int i in l)
+            {
+                var w = lotEntWays[i];
+                var t = new Vector2(-w.n.y, w.n.x);
+                float da = Vector2.Dot(pa - w.mouth, w.n), db = Vector2.Dot(pb - w.mouth, w.n);
+                if ((da < w.gap - 6f && db < w.gap - 6f) || (da > w.gap + 6f && db > w.gap + 6f)) continue;
+                float la = Vector2.Dot(pa - w.mouth, t), lb = Vector2.Dot(pb - w.mouth, t), lim = w.half + LotEntThroatM;
+                bool ina = Mathf.Abs(la) <= lim, inb = Mathf.Abs(lb) <= lim;
+                if (ina && inb) return false;
+                if (!ina && !inb)
+                {
+                    if (la * lb < 0f) return false;   // (a piece longer than the throat: dropped whole)
+                    continue;
+                }
+                // one end inside: cut back to the throat's side
+                float edge = (ina ? Mathf.Sign(lb) : Mathf.Sign(la)) * lim;
+                float u = Mathf.Abs(lb - la) > 1e-5f ? (edge - la) / (lb - la) : 0.5f;
+                var x = Vector2.Lerp(pa, pb, Mathf.Clamp01(u));
+                if (ina) pa = x; else pb = x;
+                if ((pb - pa).sqrMagnitude < 0.04f) return false;
+            }
+            return true;
+        }
+
         [System.ThreadStatic] static float[] lotEntLatBuf;
         static float[] lotEntLat => lotEntLatBuf ?? (lotEntLatBuf = new float[80]);
         const float LotEntRampMaxM = 12f;
@@ -574,7 +779,7 @@ namespace PSXRacing.City
         /// (6 m); 3 a trunk road; 4 within 60 m; 5 a drive up to 150 m - and
         /// the runs of the best tier there is.
         /// </summary>
-        static void LotFrontage(CityMap map, int li, float reach, List<LeRun> runs, out int bestTier)
+        static void LotFrontage(CityMap map, int li, float reach, List<LeRun> runs, out int bestTier, float endM = 2.5f)
         {
             runs.Clear(); leSamples.Clear(); bestTier = 99;
             var lot = map.lots[li]; var b = lot.box; var ring = lot.ring;
@@ -601,10 +806,10 @@ namespace PSXRacing.City
             foreach (var kv in leEdgeRange)
             {
                 var e = map.edges[kv.Key];
-                float half = e.oneway ? 2.15f : 3.65f;
+                float half = LotEntThroatHalf;
                 float cA = LotEntCornerAt(map, e, e.a), cB = LotEntCornerAt(map, e, e.b);
-                float lo = Mathf.Max(kv.Value.x, Mathf.Max(half + 2.5f, cA > 0f ? cA + LotEntCornerMinM : 0f));
-                float hi = Mathf.Min(kv.Value.y, e.length - Mathf.Max(half + 2.5f, cB > 0f ? cB + LotEntCornerMinM : 0f));
+                float lo = Mathf.Max(kv.Value.x, Mathf.Max(half + endM, cA > 0f ? cA + LotEntCornerMinM : 0f));
+                float hi = Mathf.Min(kv.Value.y, e.length - Mathf.Max(half + endM, cB > 0f ? cB + LotEntCornerMinM : 0f));
                 if (hi < lo) continue;
                 float step = reach > LotEntFarReachM ? 2f * LotEntStepS : LotEntStepS;
                 int n = Mathf.Max(1, Mathf.CeilToInt((hi - lo) / step));
@@ -679,6 +884,7 @@ namespace PSXRacing.City
             // the corridor: the verge over it is the apron's concrete, nothing stands on it
             lotEntQuads.Add(new[] { mouth - t * half, mouth + t * half, mouth + n * (gap + 1f) + t * half, mouth + n * (gap + 1f) - t * half });
             LeThroat(lot, mouth, n, t, half, gap);
+            lotEntWays.Add(new LeWay { mouth = mouth, n = n, half = half, gap = gap });
         }
 
         /// <summary>The throat: the lot's ring where a way of half width
@@ -692,7 +898,7 @@ namespace PSXRacing.City
             float area = 0f;
             for (int i = 0; i < nr; i++) { var p = r[i]; var q = r[(i + 1) % nr]; area += p.x * q.y - q.x * p.y; }
             float sgn = area > 0f ? 1f : -1f;
-            float w = half + LotEntThroatM;
+            float w = half + LotEntThroatDropM;
             for (int i = 0; i < nr; i++)
             {
                 Vector2 a = r[i], b = r[(i + 1) % nr];
@@ -708,6 +914,7 @@ namespace PSXRacing.City
                 var outw = new Vector2(d.y, -d.x) / len * sgn;
                 Vector2 pa = a + d * u0, pb = a + d * u1;
                 lotEntQuads.Add(new[] { pa - outw * 0.4f, pb - outw * 0.4f, pb + outw * 1.7f, pa + outw * 1.7f });
+                lotEntThroatQuads.Add(lotEntQuads.Count - 1);
                 LotEntStats.throats++;
             }
         }
@@ -797,6 +1004,8 @@ namespace PSXRacing.City
             lotEntQuads.Add(new[] { bm - bo * 1f - t * LotEntLinkHalf, bm - bo * 1f + t * LotEntLinkHalf, bm + bo * (best + 1f) + t * LotEntLinkHalf, bm + bo * (best + 1f) - t * LotEntLinkHalf });
             LeThroat(lot, bm, bo, t, LotEntLinkHalf, 0f);
             LeThroat(map.lots[bj], bm, bo, t, LotEntLinkHalf, best);
+            lotEntWays.Add(new LeWay { mouth = bm, n = bo, half = LotEntLinkHalf, gap = 0f });
+            lotEntWays.Add(new LeWay { mouth = bm, n = bo, half = LotEntLinkHalf, gap = best });
             return true;
         }
 
@@ -881,6 +1090,7 @@ namespace PSXRacing.City
         public static void InstallLotEntrances(CityMap map)
         {
             lotEntQuads.Clear(); lotEntMapFor = map; lotEntRampByTile = null; lotEntStallsWas.Clear(); lotEntStallsNow.Clear();
+            lotEntWays.Clear(); lotEntWaysByTile = null; lotEntThroatQuads.Clear();
             LotEntLotsFrom = LotEntEntrancesFrom = -1;
             LotEntStats.Reset();
             LotEntSource = "off";
@@ -1028,14 +1238,18 @@ namespace PSXRacing.City
                 {
                     float reach = LotEntFarReachM;
                     LotFrontage(map, li, reach, runs, out int tier);
+                    // (second pass) a frontage that only reaches the last metres of a street's edge: the throat's
+                    // side 1 m from the edge's end (the first pass's one-way entrances stood there)
+                    if (runs.Count == 0) LotFrontage(map, li, reach, runs, out tier, 1.0f);
                     if (runs.Count == 0) { reach = LotEntDriveReachM; LotFrontage(map, li, reach, runs, out tier); }
+                    if (runs.Count == 0) LotFrontage(map, li, reach, runs, out tier, 1.0f);
                     if (runs.Count > 0)
                     {
                         int bi = 0;
                         for (int k = 1; k < runs.Count; k++) if (LeRunRank(runs[k]) < LeRunRank(runs[bi])) bi = k;
                         var run = runs[bi];
                         var e = map.edges[run.edge];
-                        float half = e.oneway ? 2.15f : 3.65f;
+                        float half = LotEntThroatHalf;
                         float F = run.s1 - run.s0;
                         int count = F > LotEntTwoM ? 2 : 1;
                         float lastS = float.NaN;
@@ -1093,7 +1307,7 @@ namespace PSXRacing.City
         public const string LotEntResName = "charlotte_lotent";
         const uint LotEntMagic = 0x544E454Cu;   // "LENT"
         /// <summary>Bump when the rule changes: a kept result of another version is not read.</summary>
-        const int LotEntVersion = 1;
+        const int LotEntVersion = 2;
         /// <summary>Where the last pass's result came from.</summary>
         public static string LotEntSource = "";
         static uint lotEntKey;
@@ -1147,7 +1361,14 @@ namespace PSXRacing.City
                     w.Write(L.u.x); w.Write(L.u.y);
                 }
                 w.Write(lotEntQuads.Count);
-                foreach (var Q in lotEntQuads) for (int k = 0; k < 4; k++) { w.Write(Q[k].x); w.Write(Q[k].y); }
+                for (int qi = 0; qi < lotEntQuads.Count; qi++)
+                {
+                    var Q = lotEntQuads[qi];
+                    for (int k = 0; k < 4; k++) { w.Write(Q[k].x); w.Write(Q[k].y); }
+                    w.Write(lotEntThroatQuads.Contains(qi));
+                }
+                w.Write(lotEntWays.Count);
+                foreach (var wy in lotEntWays) { w.Write(wy.mouth.x); w.Write(wy.mouth.y); w.Write(wy.n.x); w.Write(wy.n.y); w.Write(wy.half); w.Write(wy.gap); }
                 w.Write(lotEntStallsNow.Count);
                 foreach (var kv in lotEntStallsNow)
                 {
@@ -1193,13 +1414,17 @@ namespace PSXRacing.City
                         lots.Add(LeNewLot(ring, new Vector2(r.ReadSingle(), r.ReadSingle())));
                     }
                     int nq = r.ReadInt32();
-                    var quads = new List<Vector2[]>(nq);
+                    var quads = new List<Vector2[]>(nq); var throatIdx = new List<int>();
                     for (int i = 0; i < nq; i++)
                     {
                         var Q = new Vector2[4];
                         for (int k = 0; k < 4; k++) Q[k] = new Vector2(r.ReadSingle(), r.ReadSingle());
+                        if (r.ReadBoolean()) throatIdx.Add(i);
                         quads.Add(Q);
                     }
+                    int nw = r.ReadInt32();
+                    var ways = new List<LeWay>(nw);
+                    for (int i = 0; i < nw; i++) ways.Add(new LeWay { mouth = new Vector2(r.ReadSingle(), r.ReadSingle()), n = new Vector2(r.ReadSingle(), r.ReadSingle()), half = r.ReadSingle(), gap = r.ReadSingle() });
                     int nst = r.ReadInt32();
                     var stalls = new List<(int li, Vector2[] foot, byte[] n, Vector2[] u)>(nst);
                     for (int i = 0; i < nst; i++)
@@ -1223,6 +1448,8 @@ namespace PSXRacing.City
                         lotEntStallsNow[L] = (sc.foot, sc.n, sc.u);
                     }
                     lotEntQuads.AddRange(quads);
+                    foreach (int ti in throatIdx) lotEntThroatQuads.Add(ti);
+                    lotEntWays.AddRange(ways); lotEntWaysByTile = null;
                     if (nlots > 0) { LotEntLotsFrom = l0; map.lots = lots.ToArray(); }
                     if (ne > 0) { LotEntEntrancesFrom = e0; map.lotEntrances = ents.ToArray(); }
                     return true;
@@ -1393,6 +1620,9 @@ namespace PSXRacing.City
         }
 
         public static float LotRingAreaForTools(Vector2[] r) => LeRingArea(r);
+        /// <summary>For the tools: the walk as the walk code has it on this side of the street (0: none), and whether its curb is cut at an opening (a roll curb is driven over).</summary>
+        public static float WalkWidthForTools(CityMap map, CityMap.Edge e, int side) => WalkSide(map, e, side) ? Cs3WalkW(map, e) : 0f;
+        public static bool CurbCutForTools(CityMap map, CityMap.Edge e) => !Cs3NoCut(map, e);
         /// <summary>For the tools: the entrance whose mouth is nearest a plan point (-1: none).</summary>
         public static int LotEntranceNear(CityMap map, Vector2 p, out float dist)
         {
