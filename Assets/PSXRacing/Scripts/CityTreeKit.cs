@@ -77,6 +77,13 @@ namespace PSXRacing
         public const byte G3Pine = 3;
         /// <summary>A crape myrtle: the grey willow drawn up into a vase.</summary>
         public const byte G3Myrtle = 4;
+        /// <summary>ROUND 4 (trees4, 2026-11-15): one of the owner's own Charlotte
+        /// tree models (Assets/CharlotteTrees: loblolly pine, the oaks, crape
+        /// myrtle, the flowering trees, maples, ...), named "CT4_&lt;FBX stem&gt;"
+        /// (crape myrtle once a bloom colour: "CT4_CrapeMyrtle_Vase_pink" ...).
+        /// CityMeshTrees finds them by name; their <see cref="roles"/> entry is
+        /// the nearest older role (counts only).</summary>
+        public const byte G4Charlotte = 5;
         public int Group3(int v) => group3 != null && v < group3.Length ? group3[v] : 0;
         public ComputeShader cull;
         /// <summary>The MEDIUM level distances (ForestDetailPrefs and PopFix scale

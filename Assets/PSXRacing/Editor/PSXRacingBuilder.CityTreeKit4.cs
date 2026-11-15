@@ -1,0 +1,414 @@
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEngine;
+
+namespace PSXRacing.EditorTools
+{
+    /// <summary>
+    /// CHARLOTTE'S OWN TREES, ROUND 4 (trees4, 2026-11-15). The owner's 25
+    /// tree models (21 species; Charlotte_Trees in his art folder, copied in by
+    /// tools/charlotte-trees.ps1 to Assets/CharlotteTrees, gitignored) put into
+    /// the city tree kit in place of round 3's stand-ins (a dark Meadow poplar
+    /// for a pine, a grey-willow bush for a crape myrtle, beeches for the oaks).
+    ///
+    /// Each form is read through LoadVariant as it is (nodes _LOD0/1/2,
+    /// submesh 0 bark, 1 leaves, the trunk's foot at the origin, metres) and
+    /// drawn with the game's own PSX/Lit materials (CTMat) in a dress per
+    /// season (MeshForest's five: winter, spring, summer, fall, snow):
+    ///   spring  the bloom atlases of callery pear, flowering cherry,
+    ///           purpleleaf plum and dogwood; the leaf for the rest
+    ///   summer  the leaf; crape myrtle in bloom - one variant a colour
+    ///           (pink, red, white, purple), shared out by CityMeshTrees
+    ///   fall    the game's recolour (_LeafTarget, _LeafVivid.w, the per-crown
+    ///           spread of _LeafTulip) with a target per species
+    ///   winter  deciduous bare (the leaves not drawn); loblolly pine, eastern
+    ///           redcedar, American holly and southern magnolia green all year
+    /// DISTANCE CARDS: the delivery has none. The kit renders each form's four
+    /// views (the strip AddStripImpostor reads: cells of 256 px, the trunk on
+    /// the middle column, the foot on the bottom row) on the CPU from LOD0 and
+    /// the delivery's own atlases, one sheet a dress that needs one (leaf; bare
+    /// = the limbs and a sparse haze of twigs; spring bloom; the four myrtle
+    /// blooms), written to Assets/CharlotteTrees/Gen only when the bytes change.
+    /// Appended after round 3's forms (CityTreeKit.G4Charlotte): the indices of
+    /// rounds 1-3 are unchanged, so PSX_CT_CHARLOTTE=0 draws round 3's trees.
+    /// PSX_CT_R4KIT=0, or no delivery: round 3's kit exactly.
+    /// </summary>
+    public static partial class PSXRacingBuilder
+    {
+        const string CT4Dir = "Assets/CharlotteTrees";
+        const string CT4Gen = CT4Dir + "/Gen";
+        /// <summary>A distance card's cell (px, as AddStripImpostor reads it) and the supersampling.</summary>
+        const int CT4Cell = 256, CT4SS = 2;
+        /// <summary>The impostor's tint against the mesh levels (the baked light is the sheet's own).</summary>
+        static readonly Color CT4ImpTint = new Color(0.96f, 0.97f, 0.94f);
+
+        struct CT4Form
+        {
+            public string stem, leaf, bark;
+            public bool ever, bloom;
+            public Color fall; public float fallW;
+            public CityTreeKit.Role role;
+        }
+
+        static CT4Form F4(string stem, string leaf, string bark, CityTreeKit.Role role, Color fall, float fallW, bool ever = false, bool bloom = false)
+            => new CT4Form { stem = stem, leaf = leaf, bark = bark, role = role, fall = fall, fallW = fallW, ever = ever, bloom = bloom };
+
+        /// <summary>The 25 forms (FBX stem, leaf atlas, bark set as the delivery binds them) and the fall each turns.</summary>
+        static readonly CT4Form[] CT4Forms =
+        {
+            F4("LoblollyPine_Mature", "LoblollyPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("LoblollyPine_Young", "LoblollyPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("LoblollyPine_WoodlandEdge", "LoblollyPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            // willow and water oak hold their green late: a light turn
+            F4("WillowOak_Avenue", "WillowOak", "Oak", CityTreeKit.Role.Street, new Color(0.70f, 0.50f, 0.16f), 0.35f),
+            F4("WillowOak_YoungStreet", "WillowOak", "Smooth", CityTreeKit.Role.Street, new Color(0.70f, 0.50f, 0.16f), 0.35f),
+            F4("WillowOak_OpenGrown", "WillowOak", "Oak", CityTreeKit.Role.Oak, new Color(0.70f, 0.50f, 0.16f), 0.35f),
+            F4("CrapeMyrtle_Vase", "CrapeMyrtle", "Myrtle", CityTreeKit.Role.Shrub, new Color(0.86f, 0.26f, 0.10f), 0.80f),
+            F4("CalleryPear", "CalleryPear", "Maple", CityTreeKit.Role.Small, new Color(0.50f, 0.08f, 0.12f), 0.80f, bloom: true),
+            F4("FloweringDogwood", "FloweringDogwood", "Oak", CityTreeKit.Role.Small, new Color(0.55f, 0.08f, 0.10f), 0.82f, bloom: true),
+            F4("FloweringCherry", "FloweringCherry", "Cherry", CityTreeKit.Role.Small, new Color(0.95f, 0.42f, 0.10f), 0.80f, bloom: true),
+            F4("PurpleleafPlum", "PurpleleafPlum", "Cherry", CityTreeKit.Role.Small, new Color(0.45f, 0.12f, 0.12f), 0.30f, bloom: true),
+            F4("SouthernMagnolia", "SouthernMagnolia", "Smooth", CityTreeKit.Role.Broad, default, 0f, ever: true),
+            F4("AmericanHolly", "AmericanHolly", "Smooth", CityTreeKit.Role.Small, default, 0f, ever: true),
+            F4("EasternRedcedar", "EasternRedcedar", "Cedar", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("WaterOak", "WaterOak", "Oak", CityTreeKit.Role.Broad, new Color(0.66f, 0.52f, 0.20f), 0.25f),
+            F4("WhiteOak", "WhiteOak", "Maple", CityTreeKit.Role.Broad, new Color(0.55f, 0.22f, 0.12f), 0.70f),
+            F4("NorthernRedOak", "NorthernRedOak", "Oak", CityTreeKit.Role.Broad, new Color(0.62f, 0.20f, 0.08f), 0.75f),
+            F4("RedMaple", "RedMaple", "Maple", CityTreeKit.Role.Broad, new Color(0.88f, 0.12f, 0.08f), 0.85f),
+            F4("SugarMaple", "SugarMaple", "Maple", CityTreeKit.Role.Broad, new Color(1.00f, 0.50f, 0.08f), 0.85f),
+            F4("SilverMaple", "SilverMaple", "Maple", CityTreeKit.Role.Broad, new Color(0.90f, 0.82f, 0.35f), 0.60f),
+            F4("Sweetgum", "Sweetgum", "Oak", CityTreeKit.Role.Broad, new Color(0.62f, 0.10f, 0.22f), 0.80f),
+            F4("TulipPoplar", "TulipPoplar", "Maple", CityTreeKit.Role.Poplar, new Color(1.00f, 0.80f, 0.14f), 0.85f),
+            F4("Hickory", "Hickory", "Maple", CityTreeKit.Role.Broad, new Color(0.95f, 0.75f, 0.15f), 0.85f),
+            F4("AmericanSycamore", "AmericanSycamore", "Sycamore", CityTreeKit.Role.Broad, new Color(0.72f, 0.55f, 0.30f), 0.75f),
+            F4("RiverBirch", "RiverBirch", "Birch", CityTreeKit.Role.Broad, new Color(0.95f, 0.85f, 0.25f), 0.80f),
+        };
+
+        /// <summary>Crape myrtle's four summer colours (the delivery's Variants), one kit variant each.</summary>
+        static readonly string[] CT4MyrtleBlooms = { "Pink", "Red", "White", "Purple" };
+
+        /// <summary>The kit build's distance cards: how many sheets, their pixels and GPU bytes (DXT5 + mips).</summary>
+        internal static int CT4SheetCount, CT4SheetsWritten;
+        internal static long CT4SheetGpuBytes;
+
+        static string CT4Tex(string key, string suffix)
+        {
+            string p = CT4Dir + "/Textures/" + key + "_overhaul1_hd" + suffix + ".png";
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(p) != null ? p : null;
+        }
+
+        /// <summary>Round 4's forms appended (group <see cref="CityTreeKit.G4Charlotte"/>).</summary>
+        static void CTRound4(List<MeshForest.Variant> list, List<string> names, List<CityTreeKit.Role> roles, List<byte> groups)
+        {
+            if (System.Environment.GetEnvironmentVariable("PSX_CT_R4KIT") == "0") { Log("City trees: Charlotte's own trees OFF (PSX_CT_R4KIT=0)"); return; }
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(CT4Dir + "/Models/" + CT4Forms[0].stem + ".FBX") == null)
+            {
+                Log("City trees: no Charlotte tree delivery in " + CT4Dir + " (tools/charlotte-trees.ps1) - round 3's kit");
+                return;
+            }
+            if (!AssetDatabase.IsValidFolder(CT4Gen)) AssetDatabase.CreateFolder(CT4Dir, "Gen");
+            CT4SheetCount = 0; CT4SheetsWritten = 0; CT4SheetGpuBytes = 0;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var barkMats = new Dictionary<string, Material>();
+            var sb = new System.Text.StringBuilder("City trees round 4 - CHARLOTTE'S OWN TREES (the owner's models, the game's materials, cards rendered here):");
+            void Add(MeshForest.Variant v, string n, CityTreeKit.Role r)
+            {
+                list.Add(v); names.Add(n); roles.Add(r); groups.Add(CityTreeKit.G4Charlotte);
+                sb.Append($"\n  {list.Count - 1} {n}: {v.height:0.0} m, tris {Tris(v.lods[0])}/{Tris(v.lods[1])}/{Tris(v.lods[2])}, impostor {(v.lods.Length > 3 && v.lods[3] != null ? "yes" : "NO")}");
+            }
+            foreach (var f in CT4Forms)
+            {
+                string barkTex = CT4Tex("Bark_" + f.bark, ""), leafTex = CT4Tex("Leaves_" + f.leaf + "_Leaf", "");
+                if (barkTex == null || leafTex == null) { sb.Append($"\n  (no {f.stem}: bark {f.bark} {(barkTex != null ? "ok" : "MISSING")}, leaf {f.leaf} {(leafTex != null ? "ok" : "MISSING")})"); continue; }
+                if (!barkMats.TryGetValue(f.bark, out var barkM))
+                    barkMats[f.bark] = barkM = CTMat("CT4_bark_" + f.bark, barkTex, CT4Tex("Bark_" + f.bark, "_normal"), false, Color.white);
+                var v = LoadVariant(CT4Dir + "/Models", f.stem, barkM);
+                if (v == null) { sb.Append("\n  (no " + f.stem + ": the FBX did not load)"); continue; }
+                int leafSub = System.Array.IndexOf(v.leafSub, true);
+                if (leafSub < 0) { sb.Append("\n  (no " + f.stem + ": no leaf submesh found)"); continue; }
+                var summer = CT4Leaf("CT4_leaf_" + f.leaf, leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), default, 0f, LeafBrightness);
+                v.mats[leafSub] = summer;
+                Material fall = summer, spring = summer;
+                if (!f.ever) fall = CT4Leaf("CT4_leaf_" + f.leaf + "_fall", leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), f.fall, f.fallW, LeafBrightness);
+                string springTex = f.bloom ? CT4Tex("Leaves_" + f.leaf + "_Spring", "") : null;
+                if (springTex != null) spring = CT4Leaf("CT4_leaf_" + f.leaf + "_Spring", springTex, CT4Tex("Leaves_" + f.leaf + "_Spring", "_normal"), default, 0f, CT4BloomBright);
+                else if (f.bloom) sb.Append($"\n  (WARN {f.stem}: no spring bloom atlas)");
+                v.leafDress = f.ever ? new[] { summer, summer, summer, summer, summer } : new[] { null, spring, summer, fall, null };
+
+                // ---- the distance cards ----
+                var geo = CT4Geometry(v);
+                string sLeaf = CT4Sheet(geo, f.stem + "_leaf", leafTex, barkTex, 0f);
+                var iLeaf = CT4Imp("CT4_imp_" + f.stem, sLeaf, default, 0f);
+                Material[] dress;
+                Material iBare = iLeaf, iFall = iLeaf, iSpring = iLeaf;
+                if (!f.ever)
+                {
+                    iFall = CT4Imp("CT4_imp_" + f.stem + "_fall", sLeaf, f.fall, f.fallW);
+                    iBare = CT4Imp("CT4_imp_" + f.stem + "_bare", CT4Sheet(geo, f.stem + "_bare", leafTex, barkTex, 0.38f), default, 0f);
+                    if (springTex != null) iSpring = CT4Imp("CT4_imp_" + f.stem + "_spring", CT4Sheet(geo, f.stem + "_spring", springTex, barkTex, 0f), default, 0f);
+                    dress = new[] { iBare, iSpring, iLeaf, iFall, iBare };
+                }
+                else dress = new[] { iLeaf, iLeaf, iLeaf, iLeaf, iLeaf };
+                AddStripImpostor(v, sLeaf, 4, "CTImpostor4_" + f.stem, dress, geo.S);
+
+                if (f.stem != "CrapeMyrtle_Vase") { Add(v, "CT4_" + f.stem, f.role); continue; }
+                // ---- crape myrtle: every one in bloom in summer, one variant a colour ----
+                foreach (var col in CT4MyrtleBlooms)
+                {
+                    string bt = CT4Tex("Leaves_CrapeMyrtle_" + col, "");
+                    if (bt == null) { sb.Append("\n  (WARN no crape myrtle bloom " + col + ")"); continue; }
+                    var bm = CT4Leaf("CT4_leaf_CrapeMyrtle_" + col, bt, CT4Tex("Leaves_CrapeMyrtle_" + col, "_normal"), default, 0f, CT4BloomBright);
+                    var ib = CT4Imp("CT4_imp_" + f.stem + "_" + col.ToLowerInvariant(), CT4Sheet(geo, f.stem + "_" + col.ToLowerInvariant(), bt, barkTex, 0f), default, 0f);
+                    var cv = new MeshForest.Variant
+                    {
+                        lods = (Mesh[])v.lods.Clone(), mats = (Material[])v.mats.Clone(), leafSub = (bool[])v.leafSub.Clone(),
+                        height = v.height, pre = v.pre, impostorPre = v.impostorPre, shadows = v.shadows, thin = v.thin, maxDist = v.maxDist,
+                        leafDress = new[] { null, summer, bm, fall, null },
+                        impostorDress = new[] { iBare, iLeaf, ib, iFall, iBare },
+                    };
+                    cv.mats[leafSub] = bm;
+                    Add(cv, "CT4_" + f.stem + "_" + col.ToLowerInvariant(), f.role);
+                }
+            }
+            sb.Append($"\n  distance cards: {CT4SheetCount} sheets of {4 * CT4Cell} x {CT4Cell} px ({CT4SheetsWritten} written this build), {CT4SheetGpuBytes / 1048576.0:0.0} MB on the GPU (DXT5 + mips); round 4 took {clock.Elapsed.TotalSeconds:0.0} s");
+            Log(sb.ToString());
+        }
+
+        const float CT4BloomBright = 1.3f;   // (a white blossom x LeafBrightness's 1.6 is paper white)
+
+        static Material CT4Leaf(string name, string tex, string normal, Color fall, float fallW, float bright)
+        {
+            var m = CTMat(name, tex, normal, true, Color.white);
+            m.SetColor("_LeafTulip", GreenSpread);
+            var lv = m.GetVector("_LeafVivid");
+            lv.y = bright;
+            if (fallW > 0f) { m.SetColor("_LeafTarget", fall); lv.w = fallW; }
+            m.SetVector("_LeafVivid", lv);
+            EditorUtility.SetDirty(m);
+            return m;
+        }
+
+        static Material CT4Imp(string name, string sheet, Color fall, float fallW)
+        {
+            var m = CTMat(name, sheet, null, true, CT4ImpTint);
+            m.SetColor("_LeafTulip", GreenSpread);
+            if (fallW > 0f)
+            {
+                m.SetColor("_LeafTarget", fall);
+                var lv = m.GetVector("_LeafVivid"); lv.w = fallW; m.SetVector("_LeafVivid", lv);
+            }
+            EditorUtility.SetDirty(m);
+            return m;
+        }
+
+        // ==================================================================
+        //  THE DISTANCE CARDS, RENDERED ON THE CPU
+        // ==================================================================
+        class CT4Geo
+        {
+            public Vector3[] p;   // triangle corners, three a triangle, in the tree's frame (foot at 0)
+            public Vector2[] uv;
+            public bool[] leaf;   // per triangle
+            public float S, R, h; // the cell's side (m), the crown's reach, the height
+        }
+
+        static CT4Geo CT4Geometry(MeshForest.Variant v)
+        {
+            var m = v.lods[0];
+            var g = new CT4Geo { h = v.height };
+            var uv = ReadUV(m);
+            var ps = new List<Vector3>(); var us = new List<Vector2>(); var lf = new List<bool>();
+            float rx = 0f, rl = 0f;
+            for (int s = 0; s < m.subMeshCount; s++)
+            {
+                if (!TreeKit.Read(m, s, out var verts, out var tris)) continue;
+                bool leaf = v.leafSub != null && s < v.leafSub.Length && v.leafSub[s];
+                for (int t = 0; t + 2 < tris.Length; t += 3)
+                {
+                    for (int j = 0; j < 3; j++)
+                    {
+                        int i = tris[t + j];
+                        var q = v.pre.MultiplyPoint3x4(verts[i]);
+                        ps.Add(q); us.Add(uv != null && i < uv.Length ? uv[i] : Vector2.zero);
+                        rx = Mathf.Max(rx, Mathf.Max(Mathf.Abs(q.x), Mathf.Abs(q.z)));
+                        if (leaf) rl = Mathf.Max(rl, Mathf.Sqrt(q.x * q.x + q.z * q.z));
+                    }
+                    lf.Add(leaf);
+                }
+            }
+            g.p = ps.ToArray(); g.uv = us.ToArray(); g.leaf = lf.ToArray();
+            g.R = Mathf.Max(0.5f, rl);
+            g.S = 1.04f * Mathf.Max(v.height, 2f * rx);
+            return g;
+        }
+
+        static readonly Dictionary<string, (Color32[] px, int n)> ct4Px = new Dictionary<string, (Color32[], int)>();
+
+        static (Color32[] px, int n) CT4Pixels(string path)
+        {
+            if (ct4Px.TryGetValue(path, out var have)) return have;
+            const int N = 512;
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var r = (tex != null ? ReadTex(tex, N, N) : null, N);
+            ct4Px[path] = r;
+            return r;
+        }
+
+        static uint CT4Hash(int x, int y, int z)
+        {
+            uint h = (uint)x * 0x8da6b343u ^ (uint)y * 0xd8163841u ^ (uint)z * 0xcb1ab31fu;
+            h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+            return h;
+        }
+
+        /// <summary>One sheet: the four views (cell q looks along Euler(0, 90q, 0) * +Z, its right
+        /// = that * +X, as AddStripImpostor stands the cards), the trunk on the cell's middle
+        /// column, the foot on its bottom row, geo.S metres a side; albedo with a soft light from
+        /// above the viewer baked in. Bark texels are pre-divided by the leaf material's vivid
+        /// step (the card is drawn with a leaf material), so the trunk comes out as the mesh's.
+        /// twig &gt; 0: the bare dress - the limbs, and that share of the leaf cards' texels as a
+        /// grey-brown haze of twigs. Written only when the bytes differ.</summary>
+        static string CT4Sheet(CT4Geo g, string tag, string leafTex, string barkTex, float twig)
+        {
+            string path = CT4Gen + "/CT4Sheet_" + tag + ".png";
+            var (lp, ln) = CT4Pixels(leafTex);
+            var (bp, bn) = CT4Pixels(barkTex);
+            int C = CT4Cell * CT4SS, W = 4 * CT4Cell;
+            var outPx = new Color32[W * CT4Cell];
+            var col = new Color[C * C];
+            var z = new float[C * C];
+            var twigC = new Color(0.37f, 0.33f, 0.30f);
+            byte cut = (byte)(LeafCutoff * 255f);
+            for (int q = 0; q < 4; q++)
+            {
+                var rot = Quaternion.Euler(0f, q * 90f, 0f);
+                Vector3 right = rot * Vector3.right, fwd = rot * Vector3.forward;
+                var L = (Vector3.up * 0.85f - fwd * 0.45f + right * 0.25f).normalized;
+                for (int i = 0; i < z.Length; i++) { z[i] = float.MaxValue; col[i] = new Color(0f, 0f, 0f, 0f); }
+                float k = C / g.S;
+                var sx = new float[3]; var sy = new float[3]; var sz = new float[3];
+                for (int t = 0; t < g.leaf.Length; t++)
+                {
+                    bool leaf = g.leaf[t];
+                    if (leaf ? lp == null : bp == null) continue;
+                    int b = t * 3;
+                    for (int j = 0; j < 3; j++)
+                    {
+                        var p = g.p[b + j];
+                        sx[j] = (Vector3.Dot(p, right) * k) + C * 0.5f;
+                        sy[j] = p.y * k;
+                        sz[j] = Vector3.Dot(p, fwd);
+                    }
+                    float area = (sx[1] - sx[0]) * (sy[2] - sy[0]) - (sx[2] - sx[0]) * (sy[1] - sy[0]);
+                    if (Mathf.Abs(area) < 1e-6f) continue;
+                    int x0 = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(sx[0], Mathf.Min(sx[1], sx[2])))), x1 = Mathf.Min(C - 1, Mathf.CeilToInt(Mathf.Max(sx[0], Mathf.Max(sx[1], sx[2]))));
+                    int y0 = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(sy[0], Mathf.Min(sy[1], sy[2])))), y1 = Mathf.Min(C - 1, Mathf.CeilToInt(Mathf.Max(sy[0], Mathf.Max(sy[1], sy[2]))));
+                    if (x0 > x1 || y0 > y1) continue;
+                    // the face's light: a leaf card lit from the side it is seen from (two-sided)
+                    var n = Vector3.Cross(g.p[b + 1] - g.p[b], g.p[b + 2] - g.p[b]).normalized;
+                    if (leaf && Vector3.Dot(n, fwd) > 0f) n = -n;
+                    float dif = Mathf.Max(0f, Vector3.Dot(n, L));
+                    float shade;
+                    if (leaf)
+                    {
+                        var c3 = (g.p[b] + g.p[b + 1] + g.p[b + 2]) / 3f;
+                        float rr = Mathf.Sqrt(c3.x * c3.x + c3.z * c3.z) / (0.8f * g.R);
+                        shade = (0.60f + 0.40f * dif) * (0.76f + 0.24f * Mathf.Clamp01(rr));
+                    }
+                    else shade = 0.58f + 0.42f * dif;
+                    float inv = 1f / area;
+                    Vector2 u0 = g.uv[b], u1 = g.uv[b + 1], u2 = g.uv[b + 2];
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        float py = y + 0.5f;
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            float px = x + 0.5f;
+                            float w0 = ((sx[1] - px) * (sy[2] - py) - (sx[2] - px) * (sy[1] - py)) * inv;
+                            float w1 = ((sx[2] - px) * (sy[0] - py) - (sx[0] - px) * (sy[2] - py)) * inv;
+                            float w2 = 1f - w0 - w1;
+                            if (w0 < 0f || w1 < 0f || w2 < 0f) continue;
+                            int idx = y * C + x;
+                            float d = w0 * sz[0] + w1 * sz[1] + w2 * sz[2];
+                            if (d >= z[idx]) continue;
+                            float u = w0 * u0.x + w1 * u1.x + w2 * u2.x, vv = w0 * u0.y + w1 * u1.y + w2 * u2.y;
+                            Color c;
+                            if (leaf)
+                            {
+                                int tx = (int)((u - Mathf.Floor(u)) * ln), ty = (int)((vv - Mathf.Floor(vv)) * ln);
+                                var c32 = lp[Mathf.Clamp(ty, 0, ln - 1) * ln + Mathf.Clamp(tx, 0, ln - 1)];
+                                if (c32.a < cut) continue;
+                                if (twig > 0f)
+                                {
+                                    // (one hash an output texel, the four samples alike: the haze survives the reduction)
+                                    if ((CT4Hash(x / CT4SS, y / CT4SS, q) & 0xFFFF) >= twig * 65535f) continue;
+                                    c = CT4Unvivid(twigC * (0.8f + 0.4f * dif));
+                                }
+                                else c = (Color)c32 * shade;
+                            }
+                            else
+                            {
+                                int tx = (int)((u - Mathf.Floor(u)) * bn), ty = (int)((vv - Mathf.Floor(vv)) * bn);
+                                c = CT4Unvivid((Color)bp[Mathf.Clamp(ty, 0, bn - 1) * bn + Mathf.Clamp(tx, 0, bn - 1)] * shade);
+                            }
+                            c.a = 1f;
+                            z[idx] = d; col[idx] = c;
+                        }
+                    }
+                }
+                // the samples reduced: colour the mean of the covered ones, alpha the share covered
+                for (int y = 0; y < CT4Cell; y++)
+                    for (int x = 0; x < CT4Cell; x++)
+                    {
+                        Color acc = new Color(0f, 0f, 0f, 0f); int nCov = 0;
+                        for (int dy = 0; dy < CT4SS; dy++)
+                            for (int dx = 0; dx < CT4SS; dx++)
+                            {
+                                var c = col[(y * CT4SS + dy) * C + x * CT4SS + dx];
+                                if (c.a > 0.5f) { acc += c; nCov++; }
+                            }
+                        Color o = nCov > 0 ? acc / nCov : new Color(0f, 0f, 0f, 0f);
+                        o.a = nCov / (float)(CT4SS * CT4SS);
+                        outPx[y * W + q * CT4Cell + x] = o;
+                    }
+            }
+            // ---- written only when it changed (an unchanged sheet is not re-imported) ----
+            var tex = new Texture2D(W, CT4Cell, TextureFormat.RGBA32, false);
+            tex.SetPixels32(outPx); tex.Apply();
+            var png = tex.EncodeToPNG();
+            Object.DestroyImmediate(tex);
+            string full = System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath).FullName, path);
+            bool same = System.IO.File.Exists(full) && CT4Same(System.IO.File.ReadAllBytes(full), png);
+            if (!same) { System.IO.File.WriteAllBytes(full, png); CT4SheetsWritten++; AssetDatabase.ImportAsset(path); }
+            if (AssetImporter.GetAtPath(path) is TextureImporter ti)
+            {
+                bool dirty = !same;
+                if (!ti.alphaIsTransparency) { ti.alphaIsTransparency = true; dirty = true; }
+                if (ti.wrapMode != TextureWrapMode.Clamp) { ti.wrapMode = TextureWrapMode.Clamp; dirty = true; }
+                if (ti.maxTextureSize != W) { ti.maxTextureSize = W; dirty = true; }
+                if (ti.textureCompression != TextureImporterCompression.Compressed) { ti.textureCompression = TextureImporterCompression.Compressed; dirty = true; }
+                if (dirty) ti.SaveAndReimport();
+            }
+            CT4SheetCount++;
+            CT4SheetGpuBytes += (long)W * CT4Cell * 4 / 3;   // DXT5: a byte a texel, mips a third more
+            return path;
+        }
+
+        static bool CT4Same(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        /// <summary>The inverse of a leaf material's vivid step (saturation LeafSaturation, then
+        /// x LeafBrightness): what is not a leaf comes out of the card as it was drawn.</summary>
+        static Color CT4Unvivid(Color c)
+        {
+            float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            var o = new Color(lum, lum, lum) + (c - new Color(lum, lum, lum)) * (1f / LeafSaturation);
+            o *= 1f / LeafBrightness;
+            return new Color(Mathf.Max(0f, o.r), Mathf.Max(0f, o.g), Mathf.Max(0f, o.b), 1f);
+        }
+    }
+}

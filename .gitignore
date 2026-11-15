@@ -34,6 +34,11 @@ Assets/PSXShaderKit.meta
 # tools/store-assets.ps1 into every checkout and sandbox that builds.
 Assets/StoreAssets/
 Assets/StoreAssets.meta
+# The owner's Charlotte tree models (his art folder; tools/charlotte-trees.ps1
+# copies them in with their .meta files) and the distance cards the kit
+# builder renders from them (Assets/CharlotteTrees/Gen).
+Assets/CharlotteTrees/
+Assets/CharlotteTrees.meta
 
 tools/brp/cache/
 # The generalised road bake downloads SRTM tiles and Overpass results here.

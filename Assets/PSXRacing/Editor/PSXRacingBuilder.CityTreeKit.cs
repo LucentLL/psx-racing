@@ -274,6 +274,8 @@ namespace PSXRacing.EditorTools
             // ---- ROUND 3: Charlotte's forms (round street trees, avenue oaks, pines, crape myrtles) ----
             var groups3 = new List<byte>();
             CTRound3(list, names, roles, groups3);
+            // ---- ROUND 4: the owner's Charlotte tree models (Assets/CharlotteTrees; none there = round 3's kit) ----
+            CTRound4(list, names, roles, groups3);
             // ---- the crowns ----
             var crown = new float[list.Count * CityTreeKit.Bands];
             var cbase = new float[list.Count];
@@ -535,8 +537,13 @@ namespace PSXRacing.EditorTools
         /// <summary>LOD3 from a strip of views (Meadow's 4x1 cross sheets, Big
         /// Oak's 3-cell billboard): a cross of the first two cells, each cut to
         /// where its tree actually is in the cell (alpha bounds read off the
-        /// sheet), the tree's foot on the ground and its top at its height.</summary>
-        static void AddStripImpostor(MeshForest.Variant v, string sheetPath, int cells, string meshName, Material[] dress)
+        /// sheet), the tree's foot on the ground and its top at its height.
+        /// <paramref name="cellMetres"/> &gt; 0 (round 4: a sheet the kit rendered
+        /// itself, the trunk on each cell's middle column, the foot on its bottom
+        /// row, that many metres a side): each card as wide as the farther side
+        /// of its tree's crown either side of the trunk, so the trunk stands on
+        /// the card's middle and on the trunk collider, from the foot to the top.</summary>
+        static void AddStripImpostor(MeshForest.Variant v, string sheetPath, int cells, string meshName, Material[] dress, float cellMetres = 0f)
         {
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(sheetPath);
             if (tex == null) return;
@@ -551,14 +558,23 @@ namespace PSXRacing.EditorTools
                     for (int x = x0; x < x1; x++)
                         if (px[y * W + x].a > 100) { minX = Mathf.Min(minX, x); maxX = Mathf.Max(maxX, x); minY = Mathf.Min(minY, y); maxY = Mathf.Max(maxY, y); }
                 if (maxX <= minX || maxY <= minY) { minX = x0; maxX = x1 - 1; minY = 0; maxY = Hh - 1; }
+                float top = h;
+                if (cellMetres > 0f)
+                {
+                    int xc = x0 + 128, half = Mathf.Min(128, Mathf.Max(xc - minX, maxX + 1 - xc) + 1);
+                    minX = xc - half; maxX = xc + half - 1;
+                    minY = 0; maxY = Mathf.Clamp(Mathf.CeilToInt(h / cellMetres * Hh), 1, Hh) - 1;
+                    top = (maxY + 1) / (float)Hh * cellMetres;
+                }
                 float u0 = minX / (float)W, u1 = (maxX + 1) / (float)W, v0 = minY / (float)Hh, v1 = (maxY + 1) / (float)Hh;
                 // the sheet's pixel aspect: a cell is (sheet width / cells) x sheet height
                 float cellAspect = tex.width / (float)cells / tex.height;
-                float w = h * ((maxX + 1 - minX) / 256f * cellAspect) / ((maxY + 1 - minY) / 256f);
+                float w = cellMetres > 0f ? (maxX + 1 - minX) / 256f * cellMetres
+                                          : h * ((maxX + 1 - minX) / 256f * cellAspect) / ((maxY + 1 - minY) / 256f);
                 var rot = Quaternion.Euler(0f, q * 90f, 0f);
                 int i = vs.Count;
-                vs.Add(rot * new Vector3(-w * 0.5f, 0f, 0f)); vs.Add(rot * new Vector3(-w * 0.5f, h, 0f));
-                vs.Add(rot * new Vector3(w * 0.5f, h, 0f)); vs.Add(rot * new Vector3(w * 0.5f, 0f, 0f));
+                vs.Add(rot * new Vector3(-w * 0.5f, 0f, 0f)); vs.Add(rot * new Vector3(-w * 0.5f, top, 0f));
+                vs.Add(rot * new Vector3(w * 0.5f, top, 0f)); vs.Add(rot * new Vector3(w * 0.5f, 0f, 0f));
                 uv.Add(new Vector2(u0, v0)); uv.Add(new Vector2(u0, v1)); uv.Add(new Vector2(u1, v1)); uv.Add(new Vector2(u1, v0));
                 var n = rot * Vector3.back;
                 for (int k = 0; k < 4; k++) nm.Add((n + Vector3.up * 0.6f).normalized);

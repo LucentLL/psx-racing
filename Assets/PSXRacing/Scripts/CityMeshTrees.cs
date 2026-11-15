@@ -949,6 +949,7 @@ namespace PSXRacing.City
         public static void ResetCounts()
         {
             Placed = Grown = Shrunk = Swapped = Dropped = DroppedSolid = Fitted = Moved = 0; Softened = 0; DataTests = 0; FitMs = 0; FitMsMaxFrame = 0; FitMsMaxTile = 0; TreeMsMax = 0; TestsMax = 0; CappedTrees = 0;
+            PlacedCharlotte = PlacedOldForm = 0;
             StreetIn = StreetDropped = StreetAsStreetForm = StreetAsShrub = StreetAsOther = NarrowedOther = 0;
             System.Array.Clear(RejectBy, 0, RejectBy.Length);
             System.Array.Clear(PlacedByRole, 0, PlacedByRole.Length);

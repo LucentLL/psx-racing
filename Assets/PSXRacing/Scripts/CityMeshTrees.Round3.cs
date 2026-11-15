@@ -120,6 +120,7 @@ namespace PSXRacing.City
             // (the canopy map read now - while the city loads - not at the first tree fitted: a baked city has not asked for it yet)
             if (round3Ready && !CityCanopy.Loaded) Debug.Log("[CityMeshTrees] no canopy map: sites take 0.4");
             if (Round3 && !round3Ready) Debug.Log("[CityMeshTrees] the kit has no round-3 forms (PSXRacingBuilder.BuildCityTreeKit): round 2's trees");
+            Setup4();
         }
 
         // ==================================================================
@@ -319,10 +320,21 @@ namespace PSXRacing.City
             plan.Add(new Stage { group = g, hT = Mathf.Clamp(hT, hMin, hMax), hMin = hMin, hMax = hMax, high = high, broad = broad });
         }
 
-        /// <summary>What a tree of this site and planted species may be, in the order tried.</summary>
+        /// <summary>What a tree of this site and planted species may be, in the order tried: ROUND 4's
+        /// Charlotte species first (PSX_CT_CHARLOTTE, the owner's models in the kit), then round 3's
+        /// stages as they were - so whatever round 3 stood up still stands where no Charlotte tree fits.</summary>
         void Plan3(in CityTrees.Tree t, in Site s)
         {
             plan.Clear();
+            int c4 = 0;
+            if (Charlotte && charlotteReady) { Plan4(t, s); c4 = plan.Count; }
+            Plan3Stages(t, s);
+            charlotteStages = c4;
+        }
+
+        /// <summary>Round 3's stages for a tree (added to the plan as they were).</summary>
+        void Plan3Stages(in CityTrees.Tree t, in Site s)
+        {
             float r1 = H(t.foot, 31), r2 = H(t.foot, 37), r3 = H(t.foot, 41);
             float L(float a, float b) => Mathf.Lerp(a, b, r2);
             var sp = t.species;
@@ -369,25 +381,8 @@ namespace PSXRacing.City
                 return;
             }
             // oak, mixed hardwood, sycamore: by the site's size mix (0 small, 1 medium, 2 large, 3 forest)
-            int size;
+            int size = SizeOf(s, sp, r1);
             bool roadside = s.ctx == Ctx.Roadside || s.ctx == Ctx.OldStreet;
-            switch (s.ctx)
-            {
-                case Ctx.OldStreet: size = r1 < 0.12f ? 1 : 2; break;
-                case Ctx.Roadside:
-                    size = s.cls >= 2 ? (r1 < 0.25f ? 0 : r1 < 0.78f ? 1 : 2)          // a commercial strip: pears and small trees
-                         : s.old ? (r1 < 0.2f ? 0 : r1 < 0.5f ? 1 : 2)
-                         : (r1 < 0.28f ? 0 : r1 < 0.68f ? 1 : 2);                       // a subdivision street
-                    break;
-                case Ctx.Yard:
-                    size = s.old ? (sp == CityTrees.Species.Oak ? (r1 < 0.22f ? 0 : r1 < 0.42f ? 1 : 2) : (r1 < 0.30f ? 0 : r1 < 0.62f ? 1 : 2))
-                         : (r1 < 0.35f ? 0 : r1 < 0.72f ? 1 : 2);
-                    break;
-                case Ctx.Lot: size = r1 < 0.28f ? 0 : r1 < 0.80f ? 1 : 2; break;
-                case Ctx.Woodland: size = 3; break;
-                default: size = r1 < 0.14f ? 0 : r1 < 0.40f ? 1 : 2; break;
-            }
-            if (sp == CityTrees.Species.Sycamore && size < 2) size = 2;   // (a creek bottom's trees are big)
             if (size == 3)
             {
                 if (r3 < 0.025f) St(gColumnar, L(18f, 24f), 12f, 26f);
@@ -421,6 +416,226 @@ namespace PSXRacing.City
             }
             St(gSmall, L(4.5f, 7.5f), 2.6f, 8.5f);
             St(gShrub, 2.6f, 1.2f, 3.8f);
+        }
+
+        /// <summary>An oak / hardwood / sycamore's size class by its site (0 small, 1 medium, 2 large,
+        /// 3 forest): the city's street tree inventory's mix (round 3).</summary>
+        static int SizeOf(in Site s, CityTrees.Species sp, float r1)
+        {
+            int size;
+            switch (s.ctx)
+            {
+                case Ctx.OldStreet: size = r1 < 0.12f ? 1 : 2; break;
+                case Ctx.Roadside:
+                    size = s.cls >= 2 ? (r1 < 0.25f ? 0 : r1 < 0.78f ? 1 : 2)          // a commercial strip: pears and small trees
+                         : s.old ? (r1 < 0.2f ? 0 : r1 < 0.5f ? 1 : 2)
+                         : (r1 < 0.28f ? 0 : r1 < 0.68f ? 1 : 2);                       // a subdivision street
+                    break;
+                case Ctx.Yard:
+                    size = s.old ? (sp == CityTrees.Species.Oak ? (r1 < 0.22f ? 0 : r1 < 0.42f ? 1 : 2) : (r1 < 0.30f ? 0 : r1 < 0.62f ? 1 : 2))
+                         : (r1 < 0.35f ? 0 : r1 < 0.72f ? 1 : 2);
+                    break;
+                case Ctx.Lot: size = r1 < 0.28f ? 0 : r1 < 0.80f ? 1 : 2; break;
+                case Ctx.Woodland: size = 3; break;
+                default: size = r1 < 0.14f ? 0 : r1 < 0.40f ? 1 : 2; break;
+            }
+            if (sp == CityTrees.Species.Sycamore && size < 2) size = 2;   // (a creek bottom's trees are big)
+            return size;
+        }
+
+        // ==================================================================
+        //  ROUND 4: THE OWNER'S CHARLOTTE TREES, BY SITE (trees4, 2026-11-15)
+        // ==================================================================
+        /// <summary>PSX_CT_CHARLOTTE=0: round 3's trees exactly (the owner's models stay in the kit,
+        /// not planted). Needs round 3 (PSX_CT_ROUND3) and a kit built with the delivery.</summary>
+        public static bool Charlotte = System.Environment.GetEnvironmentVariable("PSX_CT_CHARLOTTE") != "0";
+        bool charlotteReady;
+        public bool CharlotteReady => charlotteReady;
+        /// <summary>Tools: how many of the last plan's stages were Charlotte species (a plant from a later stage is an old form).</summary>
+        int charlotteStages;
+        public static int PlacedOldForm, PlacedCharlotte;
+        int[][] one;
+        int cLobM, cLobY, cLobE, cWoAve, cWoYoung, cWoOpen, cPear, cDog, cCherry, cPlum, cMag, cHolly, cCedar,
+            cWater, cWhite, cRedOak, cRedMaple, cSugar, cSilver, cGum, cTulip, cHickory, cSyc, cBirch;
+        int[] cMyr;
+
+        /// <summary>A site's species of one size class: the form, its share, the heights it is planted at.</summary>
+        struct Pick4 { public int v; public float w, lo, hi; }
+        Pick4[] tRoad0, tRoad1, tRoad2, tLot0, tLot1, tLot2, tYard0, tYard1, tYard2, tWood, tOpen0, tOpen1, tOpen2, tOld1, tOld2;
+
+        void Setup4()
+        {
+            int n = kit.variants.Length;
+            one = new int[n][];
+            for (int v = 0; v < n; v++) one[v] = new[] { v };
+            int have = 0;
+            int F(string stem)
+            {
+                int i = kit.names != null ? System.Array.IndexOf(kit.names, "CT4_" + stem) : -1;
+                if (i < 0 || kit.Group3(i) != CityTreeKit.G4Charlotte) return -1;
+                have++;
+                return i;
+            }
+            cLobM = F("LoblollyPine_Mature"); cLobY = F("LoblollyPine_Young"); cLobE = F("LoblollyPine_WoodlandEdge");
+            cWoAve = F("WillowOak_Avenue"); cWoYoung = F("WillowOak_YoungStreet"); cWoOpen = F("WillowOak_OpenGrown");
+            cPear = F("CalleryPear"); cDog = F("FloweringDogwood"); cCherry = F("FloweringCherry"); cPlum = F("PurpleleafPlum");
+            cMag = F("SouthernMagnolia"); cHolly = F("AmericanHolly"); cCedar = F("EasternRedcedar");
+            cWater = F("WaterOak"); cWhite = F("WhiteOak"); cRedOak = F("NorthernRedOak");
+            cRedMaple = F("RedMaple"); cSugar = F("SugarMaple"); cSilver = F("SilverMaple");
+            cGum = F("Sweetgum"); cTulip = F("TulipPoplar"); cHickory = F("Hickory"); cSyc = F("AmericanSycamore"); cBirch = F("RiverBirch");
+            cMyr = new[] { F("CrapeMyrtle_Vase_pink"), F("CrapeMyrtle_Vase_red"), F("CrapeMyrtle_Vase_white"), F("CrapeMyrtle_Vase_purple") };
+            for (int k = 1; k < cMyr.Length; k++) if (cMyr[k] < 0) cMyr[k] = cMyr[0];
+            charlotteReady = round3Ready && cWoAve >= 0 && cWoYoung >= 0 && cLobM >= 0 && cMyr[0] >= 0;
+            if (have > 0)
+                Debug.Log($"[CityMeshTrees] Charlotte's own trees: {have} forms in the kit, " +
+                          (!charlotteReady ? "NOT planted (a key form or round 3 missing)" : Charlotte ? "planted by site" : "not planted (PSX_CT_CHARLOTTE=0: round 3's trees)"));
+            if (!charlotteReady) return;
+            Pick4 P(int v, float w, float lo, float hi) => new Pick4 { v = v, w = w, lo = lo, hi = hi };
+            int M = cMyr[0];   // (the colour is the tree's own hash, chosen when it is staged)
+            // THE SHARES (the city's street tree inventory - willow oak 16.7%, crape myrtle 14.1%, pears 8.7%,
+            // red maple 6.7%, dogwood 6.5%, sugar maple 3.5%, plum 2.9%, silver maple 2.4%, red cedar 2.4%,
+            // sweetgum 2.2% - moved to 2026: crape myrtle now the commonest planted, fewer callery pears) by site
+            tRoad0 = new[] { P(M, 55, 4.2f, 6.4f), P(cDog, 15, 4.5f, 6.8f), P(cCherry, 15, 5.5f, 8f), P(cPlum, 15, 5f, 7f) };
+            tRoad1 = new[] { P(cPear, 30, 8.5f, 12f), P(cRedMaple, 30, 9f, 13.5f), P(cWoYoung, 25, 8f, 11.5f), P(cHolly, 15, 7.5f, 11f) };
+            tRoad2 = new[] { P(cWoAve, 40, 15f, 21f), P(cRedMaple, 15, 13f, 16.5f), P(cWater, 15, 15f, 20f), P(cGum, 10, 15f, 21f), P(cRedOak, 10, 16f, 22f), P(cSilver, 10, 14f, 19f) };
+            tLot0 = new[] { P(M, 70, 4.2f, 6.4f), P(cPlum, 10, 5f, 7f), P(cCherry, 10, 5.5f, 8f), P(cDog, 10, 4.5f, 6.8f) };
+            tLot1 = new[] { P(cPear, 35, 8.5f, 12f), P(cRedMaple, 35, 9f, 13.5f), P(cHolly, 20, 7.5f, 11f), P(cWoYoung, 10, 8f, 11.5f) };
+            tLot2 = new[] { P(cWoAve, 35, 15f, 21f), P(cRedMaple, 20, 13f, 16.5f), P(cWater, 20, 15f, 20f), P(cGum, 15, 15f, 21f), P(cWhite, 10, 16f, 21f) };
+            tYard0 = new[] { P(cDog, 30, 4.5f, 6.8f), P(M, 30, 4.2f, 6.4f), P(cCherry, 20, 5.5f, 8f), P(cPlum, 20, 5f, 7f) };
+            tYard1 = new[] { P(cPear, 22, 8.5f, 12f), P(cRedMaple, 25, 9f, 13.5f), P(cHolly, 18, 7.5f, 11f), P(cCedar, 15, 8f, 12.5f), P(cMag, 10, 9f, 13f), P(cSugar, 10, 10f, 14f) };
+            tYard2 = new[] { P(cSugar, 18, 14f, 19f), P(cRedMaple, 14, 13f, 16.5f), P(cMag, 14, 12f, 16.5f), P(cWater, 14, 15f, 20f), P(cWhite, 10, 16f, 21f),
+                             P(cRedOak, 10, 16f, 22f), P(cWoAve, 8, 15f, 21f), P(cSilver, 6, 14f, 19f), P(cTulip, 6, 18f, 24f) };
+            tWood = new[] { P(cTulip, 22, 20f, 28f), P(cWhite, 18, 18f, 23f), P(cRedOak, 15, 18f, 24f), P(cHickory, 15, 18f, 25f), P(cGum, 15, 17f, 23f), P(cRedMaple, 15, 14f, 18f) };
+            tOpen0 = new[] { P(cCedar, 60, 6f, 10f), P(cDog, 20, 4.5f, 6.8f), P(cRedMaple, 20, 7f, 10f) };
+            tOpen1 = new[] { P(cCedar, 45, 9f, 13.5f), P(cGum, 30, 10f, 14f), P(cRedMaple, 25, 9f, 13.5f) };
+            tOpen2 = new[] { P(cGum, 45, 15f, 22f), P(cRedMaple, 15, 13f, 16.5f), P(cWhite, 10, 16f, 21f), P(cTulip, 10, 18f, 24f), P(cCedar, 10, 11f, 14f), P(cRedOak, 10, 16f, 22f) };
+            tOld1 = new[] { P(cWoYoung, 60, 9f, 12f), P(cRedMaple, 40, 10f, 14f) };
+            tOld2 = new[] { P(cWoAve, 55, 17f, 24.5f), P(cWater, 17, 16f, 21f), P(cRedOak, 14, 17f, 23f), P(cWhite, 14, 16f, 22f) };
+        }
+
+        int Myr(float r) => cMyr[r < 0.40f ? 0 : r < 0.65f ? 1 : r < 0.85f ? 2 : 3];   // pink most, then red, white, purple
+
+        /// <summary>A Charlotte form at a height range (none in the kit: nothing). The street willow oaks are
+        /// limbed-up forms (the broadest crown that clears the lane near the height); the rest stand as grown,
+        /// a quarter smaller at most where that is all that fits.</summary>
+        void Cs(int v, float hT, float hMin, float hMax, bool high = false, float broad = 0.4f)
+        {
+            if (v < 0 || v >= one.Length) return;
+            St(one[v], hT, hMin, hMax, high, broad);
+        }
+
+        void Sp(int v, float lo, float hi, float r)
+        {
+            if (v == cWoAve || v == cWoYoung) Cs(v, Mathf.Lerp(lo, hi, r), lo * 0.85f, hi * 1.05f, true, v == cWoAve ? 0.44f : 0.38f);
+            else Cs(v, Mathf.Lerp(lo, hi, r), lo * 0.75f, hi * 1.05f);
+        }
+
+        /// <summary>One of a table's species by its share (r 0..1), staged at its heights.</summary>
+        void Take(Pick4[] tab, float r, float rh, int myr)
+        {
+            if (tab == null) return;
+            float tot = 0f;
+            foreach (var p in tab) if (p.v >= 0) tot += p.w;
+            if (tot <= 0f) return;
+            float x = r * tot;
+            foreach (var p in tab)
+            {
+                if (p.v < 0) continue;
+                x -= p.w;
+                if (x < 0f) { Sp(p.v == cMyr[0] ? myr : p.v, p.lo, p.hi, rh); return; }
+            }
+            var last = tab[tab.Length - 1];
+            Sp(last.v == cMyr[0] ? myr : last.v, last.lo, last.hi, rh);
+        }
+
+        /// <summary>ROUND 4's stages for a tree: the species its site plants, then smaller Charlotte species.</summary>
+        void Plan4(in CityTrees.Tree t, in Site s)
+        {
+            var sp = t.species;
+            if (sp == CityTrees.Species.Bare) return;   // (the dead snags stay round 3's)
+            float r1 = H(t.foot, 31), r2 = H(t.foot, 37), r3 = H(t.foot, 41), r4 = H(t.foot, 53), r5 = H(t.foot, 59), r6 = H(t.foot, 61);
+            float L(float a, float b) => Mathf.Lerp(a, b, r2);
+            int myr = Myr(r5);
+            if (t.street)
+            {
+                if (s.ctx == Ctx.Grate)
+                {
+                    // Uptown's grates: willow oaks - Tryon's and Trade's (planted in the 1980s) now 15-18 m, the side streets' younger
+                    if (s.main) { Cs(cWoAve, L(15f, 18f), 13f, 18.5f, true, 0.42f); Cs(cWoYoung, L(9f, 11f), 7.4f, 12f, true, 0.38f); }
+                    else if (r4 < 0.35f) { Cs(cWoAve, L(12.5f, 15.5f), 11f, 16.5f, true, 0.40f); Cs(cWoYoung, L(8f, 10.5f), 7.2f, 11.2f, true, 0.38f); }
+                    else { Cs(cWoYoung, L(7.8f, 10.4f), 7.2f, 11.2f, true, 0.38f); Cs(cWoAve, L(11.5f, 14f), 10.5f, 15f, true, 0.40f); }
+                }
+                else
+                {
+                    // a median row: crape myrtles and young willow oaks
+                    if (r4 < 0.6f) { Cs(myr, L(4.4f, 6.2f), 3.4f, 6.6f); Cs(cWoYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f); }
+                    else { Cs(cWoYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f); Cs(myr, L(4.4f, 6.2f), 3.4f, 6.6f); }
+                }
+                return;
+            }
+            if (sp == CityTrees.Species.Myrtle)
+            {
+                // the baked crape myrtle (Uptown's 30%, a commercial strip's 55%): crape myrtle; a strip's pear now and then
+                if ((s.ctx == Ctx.Lot || s.ctx == Ctx.Roadside) && r4 < 0.2f) Sp(cPear, 8.5f, 11.5f, r2);
+                Sp(myr, 4.2f, 6.4f, r2);
+                return;
+            }
+            if (s.young)
+            {
+                // under the canopy: flowering dogwood, American holly, young red maple; a young loblolly
+                if (sp == CityTrees.Species.Pine) Sp(cLobY, 6.5f, 10f, r2);
+                else if (r4 < 0.45f) Sp(cDog, 4.5f, 6.8f, r2);
+                else if (r4 < 0.70f) Sp(cHolly, 5.5f, 8.5f, r2);
+                else Sp(cRedMaple, 6.5f, 8.5f, r2);
+                Sp(cDog, 4.2f, 6f, r2);
+                return;
+            }
+            bool wild = s.ctx == Ctx.Woodland || s.ctx == Ctx.Open;
+            if (sp == CityTrees.Species.Pine)
+            {
+                // loblolly: the woods' tall high-crowned edge trees, a lot's or yard's mature pine; redcedar now and then
+                if (wild) { if (r4 < 0.5f) Sp(cLobE, 21f, 27f, r2); else Sp(cLobM, 18f, 24f, r2); }
+                else if (r4 < 0.16f) Sp(cCedar, 9f, 13.5f, r2);
+                else if (r4 < 0.28f) Sp(cLobY, 8f, 11f, r2);
+                else Sp(cLobM, 16f, 23f, r2);
+                Sp(cLobY, 7.5f, 10.5f, r2);
+                Sp(cCedar, 7.5f, 11f, r2);
+                return;
+            }
+            if (sp == CityTrees.Species.Sycamore)
+            {
+                // within 40 m of a creek (CityTrees.SpeciesAt): American sycamore, river birch, silver maple on the low ground
+                if (r4 < 0.50f) Sp(cSyc, 17f, 23f, r2); else if (r4 < 0.85f) Sp(cBirch, 12f, 16.5f, r2); else Sp(cSilver, 15f, 19.5f, r2);
+                Sp(cBirch, 10f, 14f, r2);
+                Sp(cRedMaple, 9f, 13f, r2);
+                return;
+            }
+            int size = SizeOf(s, sp, r1);
+            Pick4[] t0, t1, t2;
+            switch (s.ctx)
+            {
+                case Ctx.OldStreet: t0 = tRoad0; t1 = tOld1; t2 = tOld2; break;
+                case Ctx.Roadside: t0 = tRoad0; t1 = tRoad1; t2 = tRoad2; break;
+                case Ctx.Lot: t0 = tLot0; t1 = tLot1; t2 = tLot2; break;
+                case Ctx.Yard: t0 = tYard0; t1 = tYard1; t2 = tYard2; break;
+                case Ctx.Woodland: t0 = tOpen0; t1 = tOpen1; t2 = tWood; break;
+                default: t0 = tOpen0; t1 = tOpen1; t2 = tOpen2; break;
+            }
+            if (size == 3)
+            {
+                Take(tWood, r4, r2, myr);
+                Take(tWood, r6, r2, myr);
+                Sp(cRedMaple, 10f, 14f, r2);
+            }
+            else if (size == 2)
+            {
+                // the hero: the open-grown willow oak, a park or a big yard only (the heaviest model)
+                if ((s.ctx == Ctx.Yard && r3 < (s.old ? 0.10f : 0.06f)) || (s.ctx == Ctx.Open && r3 < 0.12f)) Sp(cWoOpen, 14f, 19f, r2);
+                Take(t2, r4, r2, myr);
+                Take(t1, r6, r2, myr);
+            }
+            else if (size == 1) Take(t1, r4, r2, myr);
+            Take(t0, size == 0 ? r4 : r6, r2, myr);
         }
 
         void Refuse(int why, in CityTrees.Tree t, Vector3 foot)
@@ -558,6 +773,7 @@ namespace PSXRacing.City
                     if (!TryStage(plan[i], t, foot, yaw, out plant)) continue;
                     if (mv > 0) Moved++;
                     if (i > 0) Swapped++;
+                    if (charlotteStages > 0) { if (i < charlotteStages) PlacedCharlotte++; else PlacedOldForm++; }
                     return true;
                 }
                 if (mv == 0) { away = lastAway; firstWhy = lastWhy; firstHit = lastHit; }
