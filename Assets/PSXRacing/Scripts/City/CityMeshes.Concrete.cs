@@ -67,6 +67,8 @@ namespace PSXRacing.City
             /// <summary>Half its thickness in plan; its top over a-b at each end.</summary>
             public float half, hA, hB;
             public bool capA, capB, elev;
+            /// <summary>It stands on a retaining face (its caller says so): it guards an ungraded drop.</summary>
+            public bool hold;
             /// <summary>0: asked, and changed by the gate (the BEFORE only); 1: a part the gate
             /// let through (the AFTER only); 2: asked and built as asked (both).</summary>
             public byte stage;
@@ -89,6 +91,8 @@ namespace PSXRacing.City
         static string conRule = "?";
         static int conEdge = -1, conSide, conNode = -1;
         static bool conElev;
+        /// <summary>The caller knows the pieces that follow stand on a retaining face (the run rules never take them).</summary>
+        static bool conHold;
         static CityMap conMap; static Trims conTrims; static Vector3 conOrigin; static int conTx, conTz;
         static int conCovered;
         /// <summary>The gate looks at pieces at all (it is on, or an audit records).</summary>
@@ -138,7 +142,7 @@ namespace PSXRacing.City
         /// <summary>Who asks for the pieces that follow.</summary>
         static void ConCtx(string rule, int edge, int side, int node, bool elev)
         {
-            conRule = rule; conEdge = edge; conSide = side; conNode = node; conElev = elev;
+            conRule = rule; conEdge = edge; conSide = side; conNode = node; conElev = elev; conHold = false;
         }
 
         /// <summary>The barrier bucket's vertices from <paramref name="from"/> on are a gated writer's.</summary>
@@ -397,7 +401,7 @@ namespace PSXRacing.City
                 var rec = new ConcretePiece
                 {
                     kind = kind, rule = conRule, edge = conEdge, side = conSide, node = conNode, tx = conTx, tz = conTz,
-                    a = a + conOrigin, b = b + conOrigin, half = half, hA = hA, hB = hB, capA = capA, capB = capB, elev = conElev,
+                    a = a + conOrigin, b = b + conOrigin, half = half, hA = hA, hB = hB, capA = capA, capB = capB, elev = conElev, hold = conHold,
                     stage = (byte)(parts < 0 ? 2 : 0), paveM = paveM,
                 };
                 concreteLog.Add(rec);
@@ -423,7 +427,7 @@ namespace PSXRacing.City
                 if (parts < 0)
                     conTile.Add(new ConRec
                     {
-                        kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev, log = logAt, v0 = -1,
+                        kind = kind, a = wa, b = wb, hA = hA, hB = hB, elev = conElev || conHold, log = logAt, v0 = -1,
                         args = args, ea = conArgA, eb = conArgB, outw = conArgOut, u0 = conArgV0, u1 = conArgV1, capA = capA, capB = capB,
                     });
                 else
@@ -433,7 +437,7 @@ namespace PSXRacing.City
                         conTile.Add(new ConRec
                         {
                             kind = kind, a = Vector3.Lerp(wa, wb, r.t0), b = Vector3.Lerp(wa, wb, r.t1),
-                            hA = ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), hB = ConH(Mathf.Lerp(hA, hB, r.t1), r.k1), elev = conElev,
+                            hA = ConH(Mathf.Lerp(hA, hB, r.t0), r.k0), hB = ConH(Mathf.Lerp(hA, hB, r.t1), r.k1), elev = conElev || conHold,
                             log = logAt < 0 ? -1 : logAt + 1 + k, v0 = -1,
                             args = args, ea = Vector3.Lerp(conArgA, conArgB, r.t0), eb = Vector3.Lerp(conArgA, conArgB, r.t1), outw = conArgOut,
                             u0 = Mathf.Lerp(conArgV0, conArgV1, r.t0), u1 = Mathf.Lerp(conArgV0, conArgV1, r.t1),

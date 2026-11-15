@@ -80,7 +80,7 @@ namespace PSXRacing.EditorTools
         {
             float h = Mathf.Max(p.hA, p.hB);
             if (h <= 0.2f) return 4;
-            if (p.elev) return 2;
+            if (p.elev || p.hold) return 2;
             Vector2 a2 = CnXZ(p.a), b2 = CnXZ(p.b), m = (a2 + b2) * 0.5f;
             float y = 0.5f * (p.a.y + p.b.y);
             var d = b2 - a2; float len = d.magnitude;

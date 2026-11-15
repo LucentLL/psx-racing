@@ -6771,6 +6771,7 @@ namespace PSXRacing.City
                     bool capB = q == pieces - 1 ? sf.capEnd : overArm && railOverArm[q + 1];
                     float tpA = Mathf.Lerp(taper[i - 1], taper[i], t0), tpB = Mathf.Lerp(taper[i - 1], taper[i], t1);
                     ConCtx(f.elev ? "side-rail-deck" : sf.retain ? "side-rail-retain" : "side-rail-ground", e.index, side, -1, f.elev);
+                    conHold = sf.retain;   // on a retaining face: it guards an ungraded drop whatever the graded ground reads
                     EmitRail(a, b, ia, ib, drop, capA, capB,
                              Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1),
                              Mathf.Lerp(sinkA, sinkB, t0), Mathf.Lerp(sinkA, sinkB, t1), ovA, ovB,
@@ -10696,6 +10697,7 @@ namespace PSXRacing.City
                         ConCover(conV);
                         ConCtx(onStructure ? "fan-chord-rail-deck" : "fan-chord-rail-ground", -1, 0, n, onStructure);
                         if (!onStructure) ConNote(ConKind.RetainFace, "fan-chord-retain-face", k0.pos, k1.pos, 0f, 0f, 0f);
+                        conHold = !onStructure;   // (a grounded chord's rail stands on a retaining face)
                         // only where it stands in no other road's lane (RailRunsOffLanes)
                         tm.railMetres += EmitRailOffLanes(map, trims, tm.origin, k0.pos, k1.pos, -nrm, -nrm, onStructure ? dk : RailBuryM, 0f, len / RoadVTile, n,
                                                           new RailRecord { edge = -1, side = 0, node = n });
