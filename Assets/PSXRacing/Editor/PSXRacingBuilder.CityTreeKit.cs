@@ -271,6 +271,9 @@ namespace PSXRacing.EditorTools
             if (list.Count == 0) return null;
             // ---- ROUND 2: the LOD ladder on every tree, and the street trees ----
             CTRound2(list, names, roles);
+            // ---- ROUND 3: Charlotte's forms (round street trees, avenue oaks, pines, crape myrtles) ----
+            var groups3 = new List<byte>();
+            CTRound3(list, names, roles, groups3);
             // ---- the crowns ----
             var crown = new float[list.Count * CityTreeKit.Bands];
             var cbase = new float[list.Count];
@@ -284,6 +287,7 @@ namespace PSXRacing.EditorTools
             kit.roles = roles.ToArray();
             kit.crown = crown;
             kit.crownBase = cbase;
+            kit.group3 = groups3.ToArray();
             kit.lodTris = new int[list.Count * 3];
             for (int v = 0; v < list.Count; v++)
                 for (int l = 0; l < 3; l++) kit.lodTris[v * 3 + l] = list[v].lods[l] != null ? (int)Tris(list[v].lods[l]) : 0;
@@ -298,7 +302,7 @@ namespace PSXRacing.EditorTools
             cityTreeKitDone = true;
             var sb = new System.Text.StringBuilder($"City tree kit: {list.Count} species ->");
             for (int v = 0; v < list.Count; v++)
-                sb.Append($"\n  {v} {names[v]} [{roles[v]}] {list[v].height:0.0} m, tris {Tris(list[v].lods[0])}/{Tris(list[v].lods[1])}/{Tris(list[v].lods[2])}, impostor {(list[v].lods.Length > 3 && list[v].lods[3] != null ? "yes" : "no")}, crown from {cbase[v]:0.00} of the height, widest r {MaxOf(crown, v):0.0} m");
+                sb.Append($"\n  {v} {names[v]} [{roles[v]}{(groups3[v] != 0 ? " g3:" + groups3[v] : "")}] {list[v].height:0.0} m, tris {Tris(list[v].lods[0])}/{Tris(list[v].lods[1])}/{Tris(list[v].lods[2])}, impostor {(list[v].lods.Length > 3 && list[v].lods[3] != null ? "yes" : "no")}, crown from {cbase[v]:0.00} of the height, widest r {MaxOf(crown, v):0.0} m");
             Log(sb.ToString());
             return kit;
         }
