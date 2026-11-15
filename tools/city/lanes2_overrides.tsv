@@ -1,0 +1,39 @@
+# LANES2: lane counts the map lacks or has wrong against TODAY's road (owner 2026-11-15: roads = the newest 2026 version).
+# One row a way. Read by tools/city/export_osm.mjs only with PSX_EXPORT_LANES2=1; tools/city/lanes2.mjs splices the result
+# into charlotte_city.bytes as section LAN2 (the game: PSX_CITY_LANES2=0 = as before). Rows starting "#list" are not applied.
+# way	lanes	forward	backward	centre	road	was	evidence (street-level view: date, place, what it shows)
+983708018	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+1366015750	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+1366015751	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+120718194	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+648895501	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+16690656	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+750370858	4	-	-	0	Beatties Ford Road	tw2	Beatties Ford Rd, views Dec 2025 at no. 917 and Nov 2024 at no. 1507 (LaSalle St): four lanes undivided, double yellow
+1379241431	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1341448339	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1341448338	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1499519664	4	-	-	0	North Graham Street	tw2	N Graham St, view Nov 2024 at no. 2400: four lanes undivided, double yellow
+1378841050	4	-	-	0	North Graham Street	tw2	N Graham St, view Apr 2026 at no. 1400: four lanes undivided, double yellow
+1395908062	4	-	-	0	North Graham Street	tw2	N Graham St, view Apr 2026 at no. 1400: four lanes undivided, double yellow
+908584126	4	-	-	0	North Graham Street	tw2	N Graham St, view Mar 2026 at no. 3500: four lanes, double yellow
+836481922	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+1222545724	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+1222545725	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+1222545726	4	-	-	0	Randolph Road	tw2	Randolph Rd, views Jun 2019 at no. 5412 and Jun 2022 at no. 5001: four lanes undivided, double yellow
+810775858	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Feb 2026 at no. 4125: four lanes undivided
+648860599	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1395929244	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1098274967	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1098274966	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1031976158	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1031976157	4	-	-	0	Randolph Road	tw2	Randolph Rd, view Apr 2026 at no. 3731: four lanes undivided
+1017800017	4	-	-	0	Monroe Road	tw2	Monroe Rd, view 2025 at no. 7001: four lanes undivided, double yellow
+681299814	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 3761: four lanes undivided
+833034339	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 3099: four lanes, double yellow
+1340193908	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 4608: four lanes undivided
+1382903597	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 4608: four lanes undivided
+1490740047	4	-	-	0	Monroe Road	tw2	Monroe Rd, view Apr 2026 at no. 4608: four lanes undivided
+16721039	4	-	-	0	Park Road	tw2	Park Rd, view Oct 2025 at no. 3853: four lanes with a painted centre
+120703441	4	-	-	0	Sharon Road	tw2	Sharon Rd, view Nov 2025 at no. 5308: four lanes undivided, double yellow
+1038713823	4	-	-	0	Sharon Road	tw2	Sharon Rd, view Nov 2025 at no. 5308: four lanes undivided, double yellow
+648190067	4	-	-	0	Sharon Road	tw2	Sharon Rd, view Nov 2025 at no. 5308: four lanes undivided, double yellow
