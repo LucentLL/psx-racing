@@ -321,7 +321,7 @@ namespace PSXRacing.City
                 float u = -reach + 2f * reach * k / n;
                 if (!Cs3EdgeAt(side, s + u, out var ed, out var outw, out _)) continue;
                 var pw = new Vector2(ed.x + o.x, ed.z + o.z) + outw * 0.6f;
-                if (ApronAt(map, pw.x, pw.y) || (tileDrivesWide.Count > 0 && CityHouses.OnAny(tileDrivesWide, pw, 0.5f, true))) return true;
+                if (ApronAt(map, pw.x, pw.y) || (CurbOpeningAt != null && CurbOpeningAt(map, pw.x, pw.y)) || (tileDrivesWide.Count > 0 && CityHouses.OnAny(tileDrivesWide, pw, 0.5f, true))) return true;
             }
             return false;
         }

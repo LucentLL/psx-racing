@@ -23,6 +23,7 @@ namespace PSXRacing.EditorTools
         {
             CityMeshes.Inlet2On = after;
             CityMeshes.Curbs3On = after;
+            CityMeshes.PanToneOn = after;
             CityMeshes.Curbs3Reset();
         }
 

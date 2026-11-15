@@ -371,6 +371,15 @@ namespace PSXRacing.City
         // ---- the structure atlas's regions these details sample --------------
         // (v, Unity: 0 = the sheet's bottom; CityMeshes.Bridges' bands)
         static readonly Rect UvPan = new Rect(0.00f, 0.900f, 1f, 0.075f);       // girder band: light concrete
+        /// <summary>(curbs 3, 11-15; the owner at Beatties Ford Rd: "that is a LOT of curb on the side of the road",
+        /// his line drawn across the gutter pan) The pan was the girder band's light concrete, as bright as the
+        /// crosswalk paint beside it: with the 0.4 m drawn curb top and the walk it read as one white band a metre
+        /// wide at the road's edge. A real pan is the same pour as the curb but weathered and tyre-dirty: now the
+        /// under band's weathered grey (the band Uptown's granite curb uses). Width unchanged (24 in, the standard).
+        /// PSX_CITY_PANTONE=0: the light pan.</summary>
+        public static bool PanToneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_PANTONE") != "0";
+        static readonly Rect UvPanGrey = new Rect(0.00f, 0.270f, 1f, 0.090f);   // under band: weathered grey, the atlas's full width
+        static Rect PanBand => PanToneOn ? UvPanGrey : UvPan;
         static readonly Rect UvSlab = new Rect(0.10f, 0.520f, 0.30f, 0.200f);   // column band: light concrete
         static readonly Rect UvCollar = new Rect(0.30f, 0.270f, 0.20f, 0.090f); // under band: weathered grey
         static readonly Rect UvIron = new Rect(0.79f, 0.020f, 0.16f, 0.080f);   // luminaire housing: black iron
@@ -436,8 +445,9 @@ namespace PSXRacing.City
             iA.y = RoadYIn(A, B, iA) + GutterLiftM; iB.y = RoadYIn(A, B, iB) + GutterLiftM;
             Vector3 fA = pA, fB = pB; fA.y += GutterLiftM; fB.y += GutterLiftM;
             // U along (8 m a repeat, the atlas's own), V across the band
+            var pb = PanBand;
             structBucket.Up(fA, iA, iB, fB,
-                new Vector2(uA, UvPan.y), new Vector2(uA, UvPan.yMax), new Vector2(uB, UvPan.yMax), new Vector2(uB, UvPan.y));
+                new Vector2(uA, pb.y), new Vector2(uA, pb.yMax), new Vector2(uB, pb.yMax), new Vector2(uB, pb.y));
             Curbs2Stats.gutterM += Vector2.Distance(new Vector2(pA.x, pA.z), new Vector2(pB.x, pB.z));
         }
 
@@ -462,8 +472,9 @@ namespace PSXRacing.City
             Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
             ia.y = a.y + GutterLiftM; ib.y = b.y + GutterLiftM;
             Vector3 fa = a, fb = b; fa.y += GutterLiftM; fb.y += GutterLiftM;
+            var pb = PanBand;
             structBucket.Up(fa, ia, ib, fb,
-                new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
+                new Vector2(u0 * WalkTexM / 8f, pb.y), new Vector2(u0 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.y));
             Curbs2Stats.gutterM += len; Curbs2Stats.cornerPanM += len;
         }
 
@@ -484,8 +495,9 @@ namespace PSXRacing.City
             foreach (var (a, b, oa, ob, u0, u1) in cs2CornerPans)
             {
                 Vector3 ia = a - new Vector3(oa.x, 0f, oa.y) * CurbGutterM, ib = b - new Vector3(ob.x, 0f, ob.y) * CurbGutterM;
+                var pb = PanBand;
                 structBucket.Up(Seat(a), Seat(ia), Seat(ib), Seat(b),
-                    new Vector2(u0 * WalkTexM / 8f, UvPan.y), new Vector2(u0 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.yMax), new Vector2(u1 * WalkTexM / 8f, UvPan.y));
+                    new Vector2(u0 * WalkTexM / 8f, pb.y), new Vector2(u0 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.yMax), new Vector2(u1 * WalkTexM / 8f, pb.y));
             }
             cs2CornerPans.Clear();
         }
