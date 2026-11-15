@@ -97,7 +97,7 @@ namespace PSXRacing.EditorTools
         struct CT3Cut
         {
             public CT3Form f;
-            public float cutY, B, h, trunkCut, flare, impK, stemK, limbKeep;
+            public float cutY, B, h, trunkCut, flare, impK, stemK, limbKeep, limbZone;
             public Vector2[] axis;   // the trunk's line, a point every AxisStep up to the cut
             public Vector2 top, crownC;   // the trunk's line at the cut; the middle of the crown above it
         }
@@ -188,6 +188,9 @@ namespace PSXRacing.EditorTools
             foreach (var q in leaves) if (q.y >= cutY) lr.Add(Vector2.Distance(new Vector2(q.x, q.z), c.crownC));
             lr.Sort();
             c.limbKeep = Mathf.Max(c.trunkCut * 2.5f, lr.Count > 0 ? 0.5f * lr[Mathf.Min(lr.Count - 1, (int)(lr.Count * 0.9f))] : 1.5f);
+            // ... and only the limbs that leave the trunk within this far under the cut: one from lower down, raised,
+            // is a sliver metres long up the stem (a pine form's whole lower crown: a trunk wrapped in shards)
+            c.limbZone = Mathf.Clamp(0.2f * (h - cutY), 1.0f, 2.5f);
             how = $"cut at {cutY:0.0} m of {h:0.0} (stem {B:0.0} m, crown {crown:0.0} m), trunk r {trunkR:0.00} at ({chest.x:0.0}, {chest.y:0.0}) x{c.stemK:0.00}, lean at the cut {prev.magnitude:0.00} m, crown's middle {c.crownC.magnitude:0.00} m off the foot";
             return true;
         }
@@ -309,6 +312,8 @@ namespace PSXRacing.EditorTools
                     // it left it - the limbs sweep up the stem into the crown, as a street tree's are trained
                     up = Mathf.Clamp01((rr - 0.8f * c.trunkCut) / (1.2f * c.trunkCut));
                     up = up * up * (3f - 2f * up);
+                    // (only within the zone under the cut: lower, what is kept is the trunk and its pruned stubs)
+                    up *= Mathf.Clamp01((q.y - (c.cutY - c.limbZone - 0.5f)) / 0.5f);
                 }
                 float ySrc = Mathf.Lerp(q.y, c.cutY * (1f - 0.015f * (1f - q.y / Mathf.Max(0.05f, c.cutY))), up);
                 if (up > 0f)
@@ -417,7 +422,10 @@ namespace PSXRacing.EditorTools
                         var ctr = (tri[0].p + tri[1].p + tri[2].p) / 3f;
                         var ax = Axis3(c, Mathf.Min(ctr.y, c.cutY));
                         float dx = ctr.x - ax.x, dz = ctr.z - ax.y;
-                        if (dx * dx + dz * dz > c.limbKeep * c.limbKeep) continue;
+                        float r2 = dx * dx + dz * dz;
+                        if (r2 > c.limbKeep * c.limbKeep) continue;
+                        // (lower than the zone: the trunk alone, its limbs pruned at the stem)
+                        if (ctr.y < c.cutY - c.limbZone && r2 > c.trunkCut * c.trunkCut) continue;
                     }
                     Emit3(tri, c, false, outV, outT[s]);
                 }
