@@ -59,6 +59,25 @@ namespace PSXRacing
         public float[] crown;
         /// <summary>Per variant: where the leaves begin, as a share of the height.</summary>
         public float[] crownBase;
+        /// <summary>ROUND 3 (2026-11-15, "trees don't seem accurate for Charlotte
+        /// and are often too tall"): per variant, the CHARLOTTE FORM it is, or 0
+        /// (a tree of rounds 1-2). CityMeshTrees picks these by group; their
+        /// <see cref="roles"/> entry is the nearest round-2 role, so an older
+        /// build reading this kit still stands up.</summary>
+        public byte[] group3;
+        /// <summary>A street tree as the city prunes one: a clear trunk to the
+        /// lane's clearance and a ROUND or BROAD crown on it (grates, median
+        /// rows, strip frontages) - a young willow oak, a pear, a maple.</summary>
+        public const byte G3Street = 1;
+        /// <summary>The old neighbourhoods' willow oak: large, broad, limbed up
+        /// high, its canopy over the street.</summary>
+        public const byte G3Avenue = 2;
+        /// <summary>The loblolly / shortleaf pine's stand-in: a long bare
+        /// trunk, the crown in the top two fifths, dark all year.</summary>
+        public const byte G3Pine = 3;
+        /// <summary>A crape myrtle: the grey willow drawn up into a vase.</summary>
+        public const byte G3Myrtle = 4;
+        public int Group3(int v) => group3 != null && v < group3.Length ? group3[v] : 0;
         public ComputeShader cull;
         /// <summary>The MEDIUM level distances (ForestDetailPrefs and PopFix scale
         /// them as the stages').</summary>
