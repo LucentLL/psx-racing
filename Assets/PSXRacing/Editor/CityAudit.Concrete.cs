@@ -389,6 +389,55 @@ namespace PSXRacing.EditorTools
             return new Vector3(w.x, ee.YAt(s), w.y);
         }
 
+        /// <summary>The gate's cost: PSX_CONC_COST="tx,tz;tx,tz;..." tiles, each built three times as asked
+        /// (gate off) and three times gated, no records kept (as the game builds): the quickest of each,
+        /// and the tile's triangles. city_concrete_cost.txt.
+        ///   -executeMethod PSXRacing.EditorTools.CityAudit.RunConcreteCost</summary>
+        public static void RunConcreteCost()
+        {
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string file = Path.Combine(root, "city_concrete_cost.txt");
+            if (File.Exists(file)) File.Delete(file);
+            var sb = new StringBuilder("tile\tbuild_ms_as_asked\tbuild_ms_gated\tbarrier_tris_as_asked\tbarrier_tris_gated\tall_tris_as_asked\tall_tris_gated\tpieces_changed\n");
+            int code = 0;
+            try
+            {
+                var map = CityMap.Get();
+                var trims = CityMeshes.NodeTrims(map);
+                var buildings = CityBuildings.Precompute(map);
+                CityMeshes.concreteLog = null;
+                foreach (var item in (Environment.GetEnvironmentVariable("PSX_CONC_COST") ?? "-12,16;11,7;-28,27").Split(';'))
+                {
+                    var v = item.Split(',');
+                    int tx = int.Parse(v[0]), tz = int.Parse(v[1]);
+                    var ms = new double[] { double.MaxValue, double.MaxValue }; var bt = new int[2]; var at = new int[2]; int changed = 0;
+                    for (int rep = 0; rep < 4; rep++)
+                        for (int on = 0; on < 2; on++)
+                        {
+                            CityMeshes.ConcreteOn = on == 1;
+                            var c = System.Diagnostics.Stopwatch.StartNew();
+                            var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                            double t = c.Elapsed.TotalMilliseconds;
+                            if (rep > 0) ms[on] = Math.Min(ms[on], t);   // (the first pair warms the caches)
+                            if (tm == null) continue;
+                            bt[on] = tm.barriers != null ? tm.barriers.triangles.Length / 3 : 0;
+                            int all = 0;
+                            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.structure, tm.medianPlants })
+                                if (m != null) all += m.triangles.Length / 3;
+                            at[on] = all;
+                            if (on == 1) changed = CityMeshes.conChanged;
+                            CnDestroy(tm);
+                        }
+                    sb.AppendLine($"{tx},{tz}\t{ms[0]:0}\t{ms[1]:0}\t{bt[0]}\t{bt[1]}\t{at[0]}\t{at[1]}\t{changed}");
+                }
+                CityMeshes.ConcreteOn = true;
+            }
+            catch (Exception ex) { sb.AppendLine("FAILED: " + ex); Debug.LogException(ex); code = 1; }
+            File.WriteAllText(file, sb.ToString());
+            Debug.Log("[ConcreteCost]\n" + sb);
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
         public static void RunConcrete()
         {
             string root = Directory.GetParent(Application.dataPath).FullName;
