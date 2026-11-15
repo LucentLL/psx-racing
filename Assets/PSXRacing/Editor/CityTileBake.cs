@@ -50,6 +50,14 @@ namespace PSXRacing.EditorTools
         /// drive (the owner's floor: other sessions build on the same disk).</summary>
         public const long MinFreeBytes = 15L * 1024 * 1024 * 1024;
 
+        /// <summary>PSX_BAKE_PROJECT=0 keeps the hard floor above and drops the
+        /// PROJECTED stop. The projection divides the space the drive has lost by
+        /// the bytes this bake has written, so anything else written to the drive
+        /// in the bake's first minutes reads as a huge loss per byte: on
+        /// 2026-11-15 a 7 GB sandbox copy made beside it stopped a bake at tile
+        /// 2600 that would have fitted with 25 GB to spare.</summary>
+        static readonly bool ProjectDisk = System.Environment.GetEnvironmentVariable("PSX_BAKE_PROJECT") != "0";
+
         /// <summary>The generator's sources: every .cs under these (recursively).</summary>
         public static readonly string[] CodeDirs = { "Assets/PSXRacing/Scripts/City" };
         /// <summary>...and these files outside them that shape a tile.</summary>
@@ -382,7 +390,7 @@ namespace PSXRacing.EditorTools
                         long free = new DriveInfo(drive).AvailableFreeSpace;
                         double rate = bytes > 0 ? System.Math.Max(0.0, (double)(free0 - free) / bytes) : 1.0;
                         double left = free - rate * (projected - bytes);
-                        if (free < MinFreeBytes || left < MinFreeBytes)
+                        if (free < MinFreeBytes || (ProjectDisk && left < MinFreeBytes))
                         {
                             report = $"PROJECTED BAKE {projected / 1073741824.0:0.0} GB, the disk losing {rate:0.00} of a byte a byte written, would leave {left / 1073741824.0:0.0} GB free on {drive} ({free / 1073741824.0:0.0} now; the floor is {MinFreeBytes / 1073741824.0:0} GB) - stopped at tile {i + 1}";
                             return false;
