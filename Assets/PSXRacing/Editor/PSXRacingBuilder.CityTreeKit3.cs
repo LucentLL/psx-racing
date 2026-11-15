@@ -75,7 +75,7 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < list.Count; i++) groups.Add(0);
             if (System.Environment.GetEnvironmentVariable("PSX_CT_R3KIT") == "0") { Log("City trees: round-3 forms OFF (PSX_CT_R3KIT=0)"); return; }
             // Big Oak stood on its own trunk - measured on the level that is DRAWN (round 2's ladder draws the
-            // pack's coarsest level, whose mesh sits metres from the level the foot was taken from)
+            // pack's coarsest level; the foot was taken from the first)
             for (int i = 0; i < list.Count; i++)
                 if (roles[i] == CityTreeKit.Role.Oak) CT3CentreOnTrunk(list[i], names[i]);
             var sb = new System.Text.StringBuilder("City trees round 3 - CHARLOTTE FORMS (cut, stood plumb, crown kept wide):");
@@ -250,12 +250,12 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>BIG OAK STOOD ON ITS OWN TRUNK. The foot LoadVariant finds
-        /// is taken from the first level it loads; the pack's levels do not
-        /// share a frame, and round 2's ladder draws the coarsest one - whose
-        /// trunk stands about 7 m (at scale 1) from that foot: 3.5-4.5 m from
-        /// the tree's planted foot and its trunk collider in the city, and from
-        /// its own far card. The drawn levels moved so the trunk at chest
-        /// height (the most bark area) is on the foot (round 3's kit;
+        /// is the mean of the lowest bark of the first level it loads; the
+        /// pack's oak sweeps limbs to the ground, and round 2's ladder draws
+        /// its coarsest level - whose trunk (measured by bark area at chest
+        /// height: 0.66 m radius) stands 1.4 m from that foot at scale 1,
+        /// 0.65-0.95 m as drawn: beside its trunk collider, not on it. The
+        /// drawn levels are moved so the trunk is on the foot (round 3's kit;
         /// PSX_CT_R3KIT=0: as it was).</summary>
         static void CT3CentreOnTrunk(MeshForest.Variant v, string name)
         {
