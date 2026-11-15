@@ -85,19 +85,19 @@ namespace PSXRacing.City
         /// further out agree with the survey: Wilkinson at lon -80.9000 (a narrow
         /// concrete island beside a turn lane) and near the airport (a wide concrete
         /// island), N Tryon St north (concrete). So: Wilkinson Blvd east of lon
-        /// -80.8965 and South Blvd north of lat 35.155 take the general rule (a bed
+        /// -80.8965 and South Blvd between lat 35.155 and 35.185 take the general rule (a bed
         /// under MedianBedMaxW, grass above, concrete at noses and pockets); the rest
         /// of the listed roads stays concrete. PSX_CITY_MEDIANSTRETCH=0: concrete from
         /// end to end, as before.</summary>
         public static bool MedianStretchOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANSTRETCH") != "0";
-        /// <summary>World x of lon -80.8965 and z of lat 35.155 (CityMap's frame).</summary>
-        const float WilkinsonPlantedEastOfX = -7170f, SouthBlvdPlantedNorthOfZ = -3285f;
+        /// <summary>World x of lon -80.8965, z of lat 35.155 and of lat 35.185 (CityMap's frame).</summary>
+        const float WilkinsonPlantedEastOfX = -7170f, SouthBlvdPlantedNorthOfZ = -3285f, SouthBlvdPlantedSouthOfZ = 49f;
         static bool MedianPlantedStretch(CityMap.Edge e)
         {
             if (!MedianStretchOn || e.pts == null || e.pts.Length == 0) return false;
             var m = e.pts[e.pts.Length / 2];
             if (e.name == "Wilkinson Boulevard") return m.x > WilkinsonPlantedEastOfX;
-            if (e.name == "South Boulevard") return m.y > SouthBlvdPlantedNorthOfZ;
+            if (e.name == "South Boulevard") return m.y > SouthBlvdPlantedNorthOfZ && m.y < SouthBlvdPlantedSouthOfZ;
             return false;
         }
         /// <summary>Is this carriageway's island concrete by the road list (and not on a planted stretch)?</summary>
