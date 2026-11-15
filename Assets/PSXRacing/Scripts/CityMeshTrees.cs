@@ -662,6 +662,8 @@ namespace PSXRacing.City
                     {
                         float s = s0 * f;
                         if (s < 0.3f || s > 2.2f) continue;
+                        // (no crown past the 16 m gathered round the foot: round 2's largest, Big Oak at 0.67, is 15.5 m)
+                        if (!Round1Mode && maxR != null && maxR[v] * s > 15.6f) continue;
                         if (t.stem > 0f && kit.crownBase[v] * kit.variants[v].height * s < t.stem - StemSlack) continue;
                         if (!Round1Mode && ++tests > MaxTests) { CappedTrees++; return false; }
                         int why = Conflict(v, s, foot);

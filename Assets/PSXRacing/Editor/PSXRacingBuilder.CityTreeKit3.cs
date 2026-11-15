@@ -74,6 +74,10 @@ namespace PSXRacing.EditorTools
             groups.Clear();
             for (int i = 0; i < list.Count; i++) groups.Add(0);
             if (System.Environment.GetEnvironmentVariable("PSX_CT_R3KIT") == "0") { Log("City trees: round-3 forms OFF (PSX_CT_R3KIT=0)"); return; }
+            // Big Oak stood on its own trunk - measured on the level that is DRAWN (round 2's ladder draws the
+            // pack's coarsest level, whose mesh sits metres from the level the foot was taken from)
+            for (int i = 0; i < list.Count; i++)
+                if (roles[i] == CityTreeKit.Role.Oak) CT3CentreOnTrunk(list[i], names[i]);
             var sb = new System.Text.StringBuilder("City trees round 3 - CHARLOTTE FORMS (cut, stood plumb, crown kept wide):");
             foreach (var f in CT3Forms)
                 foreach (var from in f.from)
@@ -240,12 +244,14 @@ namespace PSXRacing.EditorTools
             return true;
         }
 
-        /// <summary>BIG OAK STOOD ON ITS OWN TRUNK. The pack's oak sweeps
-        /// limbs to the ground far from its trunk, and the foot LoadVariant
-        /// finds (the mean of the lowest bark) lies among them: the trunk was
-        /// drawn 7.5 m (at scale 1) from the tree's planted foot - 3.5-4.5 m
-        /// from its collider in the city. The foot moved to the trunk at chest
-        /// height (round 3's kit; PSX_CT_R3KIT=0: as it was).</summary>
+        /// <summary>BIG OAK STOOD ON ITS OWN TRUNK. The foot LoadVariant finds
+        /// is taken from the first level it loads; the pack's levels do not
+        /// share a frame, and round 2's ladder draws the coarsest one - whose
+        /// trunk stands about 7 m (at scale 1) from that foot: 3.5-4.5 m from
+        /// the tree's planted foot and its trunk collider in the city, and from
+        /// its own far card. The drawn levels moved so the trunk at chest
+        /// height (the most bark area) is on the foot (round 3's kit;
+        /// PSX_CT_R3KIT=0: as it was).</summary>
         static void CT3CentreOnTrunk(MeshForest.Variant v, string name)
         {
             if (v == null || v.lods[0] == null || System.Environment.GetEnvironmentVariable("PSX_CT_R3KIT") == "0") return;
@@ -262,8 +268,7 @@ namespace PSXRacing.EditorTools
             // (a trunk, not a limb: a hand's width for every two metres of height at least)
             if (r < 0.011f * v.height) { Log($"City trees: {name}: the bark found at chest height ({c.x:0.0}, {c.y:0.0}) is {r:0.00} m thick - not a {v.height:0.0} m tree's trunk; left where it stands"); return; }
             var tr = Matrix4x4.Translate(new Vector3(-c.x, 0f, -c.y));
-            v.pre = tr * v.pre;
-            v.impostorPre = tr * v.impostorPre;
+            v.pre = tr * v.pre;   // (the far card stays on the foot, where the trunk now is)
             Log($"City trees: {name}'s foot moved {c.magnitude:0.00} m onto its trunk (r {r:0.00} m at chest height; it stood at ({c.x:0.0}, {c.y:0.0}) from the foot)");
         }
 

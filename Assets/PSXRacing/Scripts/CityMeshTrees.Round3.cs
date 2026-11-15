@@ -448,6 +448,7 @@ namespace PSXRacing.City
                     {
                         float s = s0 * f;
                         if (s < sLo - 1e-3f || f <= bestF + 0.03f) break;
+                        if (maxR[v] * s > GatherReach - 0.4f) continue;   // (no crown past what was gathered round the foot)
                         if (!Fits(v, s)) continue;
                         bestF = f; bv = v; bs = s;
                         break;
@@ -465,6 +466,7 @@ namespace PSXRacing.City
                 {
                     float s = s0 * f;
                     if (s < sLo - 1e-3f || s > sHi + 1e-3f) continue;
+                    if (maxR[v] * s > GatherReach - 0.4f) continue;
                     if (!Fits(v, s)) continue;
                     float score = -1.2f * Mathf.Abs(h0 * s - want) / st.hT + 0.9f * Mathf.Min(1f, maxR[v] * s / (st.broad * st.hT))
                                   - 0.3f * Mathf.Max(0f, slender - 1.8f) + 0.12f * H(t.foot, 47 + v);
