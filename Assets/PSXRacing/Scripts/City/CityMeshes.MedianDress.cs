@@ -76,6 +76,34 @@ namespace PSXRacing.City
             "Wilkinson Boulevard", "North Tryon Street", "South Boulevard",
         };
 
+        /// <summary>(roads review, 2026-11-15) THE PLANTED STRETCHES of a listed
+        /// concrete road. The 11-09 survey called Wilkinson Blvd and South Blvd
+        /// concrete from end to end; the road-level pairs of 11-15 found the inner
+        /// part of each planted: Wilkinson at Ashley Rd (mulch, crepe myrtles) and
+        /// at Morris Field Dr (raised grass), South Blvd at Woodlawn Rd (a planter
+        /// with shrubs) and at Archdale Dr (grass, a tree). The same day's views
+        /// further out agree with the survey: Wilkinson at lon -80.9000 (a narrow
+        /// concrete island beside a turn lane) and near the airport (a wide concrete
+        /// island), N Tryon St north (concrete). So: Wilkinson Blvd east of lon
+        /// -80.8965 and South Blvd between lat 35.155 and 35.185 take the general rule (a bed
+        /// under MedianBedMaxW, grass above, concrete at noses and pockets); the rest
+        /// of the listed roads stays concrete. OFF BY DEFAULT until its before / after
+        /// sheet and gate have been read (PSX_CITY_MEDIANSTRETCH=1 turns it on): concrete from
+        /// end to end, as before.</summary>
+        public static bool MedianStretchOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIANSTRETCH") == "1";
+        /// <summary>World x of lon -80.8965, z of lat 35.155 and of lat 35.185 (CityMap's frame).</summary>
+        const float WilkinsonPlantedEastOfX = -7170f, SouthBlvdPlantedNorthOfZ = -3285f, SouthBlvdPlantedSouthOfZ = 49f;
+        static bool MedianPlantedStretch(CityMap.Edge e)
+        {
+            if (!MedianStretchOn || e.pts == null || e.pts.Length == 0) return false;
+            var m = e.pts[e.pts.Length / 2];
+            if (e.name == "Wilkinson Boulevard") return m.x > WilkinsonPlantedEastOfX;
+            if (e.name == "South Boulevard") return m.y > SouthBlvdPlantedNorthOfZ && m.y < SouthBlvdPlantedSouthOfZ;
+            return false;
+        }
+        /// <summary>Is this carriageway's island concrete by the road list (and not on a planted stretch)?</summary>
+        static bool MedianConcreteRoad(CityMap.Edge e) => MedianConcreteRoads.Contains(e.name) && !MedianPlantedStretch(e);
+
         public const int MedianTopGrass = 0, MedianTopConcrete = 1, MedianTopBed = 2;
 
         // ---- the arterials pass (2026-11-10): what the median pass left ----------
@@ -114,7 +142,7 @@ namespace PSXRacing.City
         /// within the concrete of a nose or pocket (from the map alone).</summary>
         public static bool MedianShrubOk(CityMap map, CityMap.Edge e, Vector2 p)
         {
-            if (MedianConcreteRoads.Contains(e.name) || MedianConcreteWays.Contains(e.wayId)) return false;
+            if (MedianConcreteRoad(e) || MedianConcreteWays.Contains(e.wayId)) return false;
             CityElevation.ProjectOn(e, p, out float s);
             float ba = MedianBeyond(map, e, e.a), bb = MedianBeyond(map, e, e.b);
             float d = Mathf.Min(ba == float.MaxValue ? float.MaxValue : s + ba, bb == float.MaxValue ? float.MaxValue : e.length - s + bb);
@@ -270,7 +298,7 @@ namespace PSXRacing.City
         static void PrepareMedianDress(CityMap map, CityMap.Edge e, int n)
         {
             // a listed way is concrete whatever its width (as before); a listed road where it is curbed
-            bool concWay = MedianConcreteWays.Contains(e.wayId), concRoad = MedianDressOn && MedianConcreteRoads.Contains(e.name);
+            bool concWay = MedianConcreteWays.Contains(e.wayId), concRoad = MedianDressOn && MedianConcreteRoad(e);
             float s0 = sections[0].s, s1 = sections[n - 1].s;
             float beyA = MedianDressOn ? MedianBeyond(map, e, e.a) : 0f, beyB = MedianDressOn ? MedianBeyond(map, e, e.b) : 0f;
             for (int k = 0; k < n; k++)
