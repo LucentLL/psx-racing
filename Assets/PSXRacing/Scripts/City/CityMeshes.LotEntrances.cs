@@ -999,10 +999,11 @@ namespace PSXRacing.City
                     if (at >= 0 && at < nl && !map.lots[at].aisleOnly) li = at;
                 }
                 if (li < 0 || (map.stationLotsFrom >= 0 && li >= map.stationLotsFrom)) continue;
-                if (LotPath(map, e, en.s, en.side, 0f, li, LotEntReachM, true, true, false, out var built)) continue;
+                if (LotPath(map, e, en.s, en.side, 0f, li, LotEntReachM, false, true, false, out var built)) continue;
                 if (built.why != "ground, not paving, between the street and the lot" && built.why != "the lot's own kerb") continue;
-                if (!LotPath(map, e, en.s, en.side, 0f, li, LotEntReachM, true, false, false, out var info) || !LotPathFirstIs(map, info, li)) continue;
+                if (!LotPath(map, e, en.s, en.side, 0f, li, LotEntReachM, false, false, false, out var info) || !LotPathFirstIs(map, info, li)) continue;
                 LotEntCorridor(map, e, en.s, en.side, en.half, li, info.gap, lots);
+                if (info.stallsAcross) { LotEntClearStalls(map.lots[li], info.mouth, info.n, info.t, en.half, info.gap); LotEntStats.throughStalls++; }
                 corridorDone.Add(((long)ei << 20) ^ (long)li);
                 LotEntStats.repaired++;
                 if (!usable[li]) { usable[li] = true; Spread(li); }
