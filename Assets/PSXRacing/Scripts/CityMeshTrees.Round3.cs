@@ -458,6 +458,11 @@ namespace PSXRacing.City
         int cLobM, cLobY, cLobE, cWoAve, cWoYoung, cWoOpen, cPear, cDog, cCherry, cPlum, cMag, cHolly, cCedar,
             cWater, cWhite, cRedOak, cRedMaple, cSugar, cSilver, cGum, cTulip, cHickory, cSyc, cBirch;
         int[] cMyr;
+        /// <summary>The willow oaks pruned for the street (the kit's CT4P_ forms: crown base raised to the lane's
+        /// clearance): young round / small-high, young narrow (a walk under a wall), avenue limbed to a third, broad.</summary>
+        int[] pYoung, pNarrow, pAve, pBroad;
+        /// <summary>Plan4: the tree stands by a street or a lot's lanes (its willow oaks pruned first).</summary>
+        bool side4;
 
         /// <summary>A site's species of one size class: the form, its share, the heights it is planted at.</summary>
         struct Pick4 { public int v; public float w, lo, hi; }
@@ -485,6 +490,18 @@ namespace PSXRacing.City
             cGum = F("Sweetgum"); cTulip = F("TulipPoplar"); cHickory = F("Hickory"); cSyc = F("AmericanSycamore"); cBirch = F("RiverBirch");
             cMyr = new[] { F("CrapeMyrtle_Vase_pink"), F("CrapeMyrtle_Vase_red"), F("CrapeMyrtle_Vase_white"), F("CrapeMyrtle_Vase_purple") };
             for (int k = 1; k < cMyr.Length; k++) if (cMyr[k] < 0) cMyr[k] = cMyr[0];
+            int[] PF(params string[] tags)
+            {
+                var l = new List<int>();
+                foreach (var tg in tags)
+                {
+                    int i = kit.names != null ? System.Array.IndexOf(kit.names, "CT4P_" + tg) : -1;
+                    if (i >= 0 && kit.Group3(i) == CityTreeKit.G4Charlotte) { l.Add(i); have++; }
+                }
+                return l.ToArray();
+            }
+            pYoung = PF("WillowOak_YoungStreet_lr", "WillowOak_YoungStreet_ls"); pNarrow = PF("WillowOak_YoungStreet_ln");
+            pAve = PF("WillowOak_Avenue_av"); pBroad = PF("WillowOak_Avenue_lb");
             charlotteReady = round3Ready && cWoAve >= 0 && cWoYoung >= 0 && cLobM >= 0 && cMyr[0] >= 0;
             if (have > 0)
                 Debug.Log($"[CityMeshTrees] Charlotte's own trees: {have} forms in the kit, " +
@@ -526,8 +543,14 @@ namespace PSXRacing.City
 
         void Sp(int v, float lo, float hi, float r)
         {
-            if (v == cWoAve || v == cWoYoung) Cs(v, Mathf.Lerp(lo, hi, r), lo * 0.85f, hi * 1.05f, true, v == cWoAve ? 0.44f : 0.38f);
-            else Cs(v, Mathf.Lerp(lo, hi, r), lo * 0.75f, hi * 1.05f);
+            float hT = Mathf.Lerp(lo, hi, r);
+            if (v == cWoAve || v == cWoYoung)
+            {
+                // beside a street or a lot's lanes: pruned as the city prunes them first (crown base over the lane)
+                if (side4) { if (v == cWoAve) { St(pAve, hT, lo * 0.85f, hi * 1.05f, true, 0.46f); St(pBroad, hT * 0.85f, lo * 0.75f, hi, true, 0.42f); } else St(pYoung, hT, lo * 0.85f, hi * 1.1f, true, 0.40f); }
+                Cs(v, hT, lo * 0.85f, hi * 1.05f, true, v == cWoAve ? 0.44f : 0.38f);
+            }
+            else Cs(v, hT, lo * 0.75f, hi * 1.05f);
         }
 
         /// <summary>One of a table's species by its share (r 0..1), staged at its heights.</summary>
@@ -556,24 +579,33 @@ namespace PSXRacing.City
             float r1 = H(t.foot, 31), r2 = H(t.foot, 37), r3 = H(t.foot, 41), r4 = H(t.foot, 53), r5 = H(t.foot, 59), r6 = H(t.foot, 61);
             float L(float a, float b) => Mathf.Lerp(a, b, r2);
             int myr = Myr(r5);
+            side4 = s.ctx == Ctx.OldStreet || s.ctx == Ctx.Roadside || s.ctx == Ctx.Lot;
+            bool wild = s.ctx == Ctx.Woodland || s.ctx == Ctx.Open;
             if (t.street)
             {
+                // the street's willow oaks pruned as the city prunes them (crown base over the lane), the delivered forms after
                 if (s.ctx == Ctx.Grate)
                 {
-                    // Uptown's grates: willow oaks - Tryon's and Trade's (planted in the 1980s) now 15-18 m, the side streets' younger
-                    if (s.main) { Cs(cWoAve, L(15f, 18f), 13f, 18.5f, true, 0.42f); Cs(cWoYoung, L(9f, 11f), 7.4f, 12f, true, 0.38f); }
-                    else if (r4 < 0.35f) { Cs(cWoAve, L(12.5f, 15.5f), 11f, 16.5f, true, 0.40f); Cs(cWoYoung, L(8f, 10.5f), 7.2f, 11.2f, true, 0.38f); }
-                    else { Cs(cWoYoung, L(7.8f, 10.4f), 7.2f, 11.2f, true, 0.38f); Cs(cWoAve, L(11.5f, 14f), 10.5f, 15f, true, 0.40f); }
+                    // Uptown's grates: willow oaks - Tryon's and Trade's (planted in the 1980s) now 15-18 m where the walk
+                    // allows one that broad, the side streets' younger; narrow ones under a wall
+                    if (s.main) { St(pAve, L(15f, 18f), 13f, 18.5f, true, 0.42f); St(pBroad, L(12f, 15f), 10.5f, 16f, true, 0.40f); St(pYoung, L(9.5f, 12f), 7.6f, 12.5f, true, 0.40f); }
+                    else if (r4 < 0.3f) { St(pBroad, L(11.5f, 14.5f), 10f, 15.5f, true, 0.40f); St(pYoung, L(8f, 10.5f), 7.2f, 11.2f, true, 0.38f); }
+                    else { St(pYoung, L(7.8f, 10.4f), 7.2f, 11.2f, true, 0.38f); St(pBroad, L(11f, 13.5f), 10f, 14.5f, true, 0.40f); }
+                    St(pNarrow, L(8f, 10.5f), 7f, 11.2f, true, 0.34f);
+                    Cs(cWoYoung, L(7.8f, 10.4f), 7.2f, 11.2f, true, 0.38f);
                 }
                 else
                 {
                     // a median row: crape myrtles and young willow oaks
-                    if (r4 < 0.6f) { Cs(myr, L(4.4f, 6.2f), 3.4f, 6.6f); Cs(cWoYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f); }
-                    else { Cs(cWoYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f); Cs(myr, L(4.4f, 6.2f), 3.4f, 6.6f); }
+                    if (r4 < 0.6f) { Cs(myr, L(4.4f, 6.2f), 3.4f, 6.6f); St(pYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f); }
+                    else { St(pYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f); Cs(myr, L(4.4f, 6.2f), 3.4f, 6.6f); }
+                    St(pNarrow, L(7.2f, 9f), 6.8f, 9.8f, true, 0.34f);
+                    Cs(cWoYoung, L(7.4f, 9.4f), 7f, 10.2f, true, 0.38f);
                 }
                 return;
             }
-            if (sp == CityTrees.Species.Myrtle)
+            // (crape myrtle is planted: the bake's strip myrtle on a road through woods or open ground takes the wild mix)
+            if (sp == CityTrees.Species.Myrtle && !wild)
             {
                 // the baked crape myrtle (Uptown's 30%, a commercial strip's 55%): crape myrtle; a strip's pear now and then
                 if ((s.ctx == Ctx.Lot || s.ctx == Ctx.Roadside) && r4 < 0.2f) Sp(cPear, 8.5f, 11.5f, r2);
@@ -590,7 +622,6 @@ namespace PSXRacing.City
                 Sp(cDog, 4.2f, 6f, r2);
                 return;
             }
-            bool wild = s.ctx == Ctx.Woodland || s.ctx == Ctx.Open;
             if (sp == CityTrees.Species.Pine)
             {
                 // loblolly: the woods' tall high-crowned edge trees, a lot's or yard's mature pine; redcedar now and then
@@ -632,10 +663,14 @@ namespace PSXRacing.City
                 // the hero: the open-grown willow oak, a park or a big yard only (the heaviest model)
                 if ((s.ctx == Ctx.Yard && r3 < (s.old ? 0.10f : 0.06f)) || (s.ctx == Ctx.Open && r3 < 0.12f)) Sp(cWoOpen, 14f, 19f, r2);
                 Take(t2, r4, r2, myr);
+                // (an old-city street's water, red or white oak that will not clear the lane: a willow oak limbed up)
+                if (s.ctx == Ctx.OldStreet) St(pAve, L(16f, 22f), 14.5f, 24f, true, 0.44f);
                 Take(t1, r6, r2, myr);
             }
             else if (size == 1) Take(t1, r4, r2, myr);
             Take(t0, size == 0 ? r4 : r6, r2, myr);
+            // the last Charlotte tree: a crape myrtle kept small (yards and lots) or a young redcedar (the wild)
+            if (wild) Sp(cCedar, 4.5f, 7f, r2); else Cs(myr, L(2.6f, 3.8f), 1.8f, 4.2f);
         }
 
         void Refuse(int why, in CityTrees.Tree t, Vector3 foot)
@@ -770,6 +805,10 @@ namespace PSXRacing.City
                 BuildProfile(foot);
                 for (int i = 0; i < plan.Count; i++)
                 {
+                    // ROUND 3'S STAGES AS THEY WERE: what the Charlotte stages' refusals wrote into the profile (each
+                    // with its own reason) and the physics tests they spent are not round 3's - its stages get the
+                    // profile and the budget they had, so no tree round 3 stood up falls (first after run: 48 v 47)
+                    if (i == charlotteStages && i > 0) { BuildProfile(foot); tests = 0; }
                     if (!TryStage(plan[i], t, foot, yaw, out plant)) continue;
                     if (mv > 0) Moved++;
                     if (i > 0) Swapped++;

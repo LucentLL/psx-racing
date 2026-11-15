@@ -84,6 +84,23 @@ namespace PSXRacing.EditorTools
             F4("RiverBirch", "RiverBirch", "Birch", CityTreeKit.Role.Broad, new Color(0.95f, 0.85f, 0.25f), 0.80f),
         };
 
+        /// <summary>THE STREET'S WILLOW OAKS (Uptown's grates, the old city's avenues, roadside rows). The
+        /// delivered avenue and young street forms carry their lowest limbs at 2-4 m, into the lane's 4.6 m
+        /// envelope and the walls of a 3 m walk: in the first after run 91% of Uptown's grate trees fell back
+        /// to round 3's stand-ins and the old-city avenues to young trees. Round 3's cut (Rework3: the lower
+        /// crown cut at a share of the leaves, the limbs under it raised into the crown's base, the stem
+        /// drawn to put that base at a share of the height) applied to the owner's models, as the city
+        /// prunes its street trees: round (lr), small-high (ls), narrow under a wall (ln), avenue limbed to
+        /// a third (av), broad (lb). Named "CT4P_&lt;stem&gt;_&lt;tag&gt;".</summary>
+        static readonly CT3Form[] CT4Pruned =
+        {
+            new CT3Form { tag = "lr", group = CityTreeKit.G4Charlotte, role = CityTreeKit.Role.Street, w = 1.0f, cy = 0.85f, baseFrac = 0.512f, cutShare = 0.30f, from = new[] { "WillowOak_YoungStreet" } },
+            new CT3Form { tag = "ls", group = CityTreeKit.G4Charlotte, role = CityTreeKit.Role.Street, w = 0.9f, cy = 0.80f, baseFrac = 0.637f, cutShare = 0.35f, from = new[] { "WillowOak_YoungStreet" } },
+            new CT3Form { tag = "ln", group = CityTreeKit.G4Charlotte, role = CityTreeKit.Role.Street, w = 0.62f, cy = 0.90f, baseFrac = 0.575f, cutShare = 0.30f, from = new[] { "WillowOak_YoungStreet" } },
+            new CT3Form { tag = "av", group = CityTreeKit.G4Charlotte, role = CityTreeKit.Role.Street, w = 1.0f, cy = 1.0f, baseFrac = 0.325f, cutShare = 0.12f, from = new[] { "WillowOak_Avenue" } },
+            new CT3Form { tag = "lb", group = CityTreeKit.G4Charlotte, role = CityTreeKit.Role.Street, w = 1.0f, cy = 0.90f, baseFrac = 0.45f, cutShare = 0.22f, from = new[] { "WillowOak_Avenue" } },
+        };
+
         /// <summary>Crape myrtle's four summer colours (the delivery's Variants), one kit variant each.</summary>
         static readonly string[] CT4MyrtleBlooms = { "Pink", "Red", "White", "Purple" };
 
@@ -141,39 +158,53 @@ namespace PSXRacing.EditorTools
                     }
                     else sb.Append($"\n  (WARN {f.stem}: the pivot is not a trunk foot ({q0.x:0.00}, {q0.y:0.00}, {q0.z:0.00}): LoadVariant's foot kept)");
                 }
-                var summer = CT4Leaf("CT4_leaf_" + f.leaf, leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), default, 0f, LeafBrightness);
+                var summer = CT4Leaf("CT4_leaf_" + f.leaf, leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), default, 0f, CT4LeafVivid);
                 v.mats[leafSub] = summer;
                 Material fall = summer, spring = summer;
-                if (!f.ever) fall = CT4Leaf("CT4_leaf_" + f.leaf + "_fall", leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), f.fall, f.fallW, LeafBrightness);
+                if (!f.ever) fall = CT4Leaf("CT4_leaf_" + f.leaf + "_fall", leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), f.fall, f.fallW, CT4LeafVivid);
                 string springTex = f.bloom ? CT4Tex("Leaves_" + f.leaf + "_Spring", "") : null;
-                if (springTex != null) spring = CT4Leaf("CT4_leaf_" + f.leaf + "_Spring", springTex, CT4Tex("Leaves_" + f.leaf + "_Spring", "_normal"), default, 0f, CT4BloomBright);
+                if (springTex != null) spring = CT4Leaf("CT4_leaf_" + f.leaf + "_Spring", springTex, CT4Tex("Leaves_" + f.leaf + "_Spring", "_normal"), default, 0f, CT4BloomVivid);
                 else if (f.bloom) sb.Append($"\n  (WARN {f.stem}: no spring bloom atlas)");
                 v.leafDress = f.ever ? new[] { summer, summer, summer, summer, summer } : new[] { null, spring, summer, fall, null };
 
                 // ---- the distance cards ----
                 var geo = CT4Geometry(v);
-                string sLeaf = CT4Sheet(geo, f.stem + "_leaf", leafTex, barkTex, 0f);
-                var iLeaf = CT4Imp("CT4_imp_" + f.stem, sLeaf, default, 0f);
+                string sLeaf = CT4Sheet(geo, f.stem + "_leaf", leafTex, barkTex, 0f, CT4LeafVivid);
+                var iLeaf = CT4Imp("CT4_imp_" + f.stem, sLeaf, default, 0f, CT4LeafVivid);
                 Material[] dress;
                 Material iBare = iLeaf, iFall = iLeaf, iSpring = iLeaf;
                 if (!f.ever)
                 {
-                    iFall = CT4Imp("CT4_imp_" + f.stem + "_fall", sLeaf, f.fall, f.fallW);
-                    iBare = CT4Imp("CT4_imp_" + f.stem + "_bare", CT4Sheet(geo, f.stem + "_bare", leafTex, barkTex, 0.38f), default, 0f);
-                    if (springTex != null) iSpring = CT4Imp("CT4_imp_" + f.stem + "_spring", CT4Sheet(geo, f.stem + "_spring", springTex, barkTex, 0f), default, 0f);
+                    iFall = CT4Imp("CT4_imp_" + f.stem + "_fall", sLeaf, f.fall, f.fallW, CT4LeafVivid);
+                    iBare = CT4Imp("CT4_imp_" + f.stem + "_bare", CT4Sheet(geo, f.stem + "_bare", leafTex, barkTex, 0.38f, CT4LeafVivid), default, 0f, CT4LeafVivid);
+                    if (springTex != null) iSpring = CT4Imp("CT4_imp_" + f.stem + "_spring", CT4Sheet(geo, f.stem + "_spring", springTex, barkTex, 0f, CT4BloomVivid), default, 0f, CT4BloomVivid);
                     dress = new[] { iBare, iSpring, iLeaf, iFall, iBare };
                 }
                 else dress = new[] { iLeaf, iLeaf, iLeaf, iLeaf, iLeaf };
                 AddStripImpostor(v, sLeaf, 4, "CTImpostor4_" + f.stem, dress, geo.S);
 
-                if (f.stem != "CrapeMyrtle_Vase") { Add(v, "CT4_" + f.stem, f.role); continue; }
+                if (f.stem != "CrapeMyrtle_Vase")
+                {
+                    Add(v, "CT4_" + f.stem, f.role);
+                    // ---- the willow oaks PRUNED FOR THE STREET: round 3's cut (Rework3) on the owner's model ----
+                    foreach (var pf in CT4Pruned)
+                    {
+                        if (pf.from[0] != f.stem) continue;
+                        string pn = "CT4P_" + f.stem + "_" + pf.tag;
+                        var pv = Rework3(v, pn, pf, out string how);
+                        if (pv == null) { sb.Append($"\n  (no {pn}: {how})"); continue; }
+                        Add(pv, pn, CityTreeKit.Role.Street);
+                        sb.Append($" <- pruned: {how}");
+                    }
+                    continue;
+                }
                 // ---- crape myrtle: every one in bloom in summer, one variant a colour ----
                 foreach (var col in CT4MyrtleBlooms)
                 {
                     string bt = CT4Tex("Leaves_CrapeMyrtle_" + col, "");
                     if (bt == null) { sb.Append("\n  (WARN no crape myrtle bloom " + col + ")"); continue; }
-                    var bm = CT4Leaf("CT4_leaf_CrapeMyrtle_" + col, bt, CT4Tex("Leaves_CrapeMyrtle_" + col, "_normal"), default, 0f, CT4BloomBright);
-                    var ib = CT4Imp("CT4_imp_" + f.stem + "_" + col.ToLowerInvariant(), CT4Sheet(geo, f.stem + "_" + col.ToLowerInvariant(), bt, barkTex, 0f), default, 0f);
+                    var bm = CT4Leaf("CT4_leaf_CrapeMyrtle_" + col, bt, CT4Tex("Leaves_CrapeMyrtle_" + col, "_normal"), default, 0f, CT4BloomVivid);
+                    var ib = CT4Imp("CT4_imp_" + f.stem + "_" + col.ToLowerInvariant(), CT4Sheet(geo, f.stem + "_" + col.ToLowerInvariant(), bt, barkTex, 0f, CT4BloomVivid), default, 0f, CT4BloomVivid);
                     var cv = new MeshForest.Variant
                     {
                         lods = (Mesh[])v.lods.Clone(), mats = (Material[])v.mats.Clone(), leafSub = (bool[])v.leafSub.Clone(),
@@ -189,24 +220,30 @@ namespace PSXRacing.EditorTools
             Log(sb.ToString());
         }
 
-        const float CT4BloomBright = 1.3f;   // (a white blossom x LeafBrightness's 1.6 is paper white)
+        /// <summary>THE LEAVES' VIVID STEP (_LeafVivid x saturation, y brightness). The game's 1.3 / 1.6 was
+        /// tuned for NatureManufacture's photographed sprays (much grey and shadow in them); on these drawn,
+        /// evenly lit atlases it made a lime canopy: measured on six driver's-eye frames, foliage saturation
+        /// 0.71 against the NatureManufacture trees' 0.46 and luminance 79 against 73. The shader's step
+        /// solved for those: x 0.88, y 1.48. Blossoms (white, pink): 1.0 / 1.25, short of paper white.</summary>
+        static readonly Vector2 CT4LeafVivid = new Vector2(0.88f, 1.48f), CT4BloomVivid = new Vector2(1.0f, 1.25f);
 
-        static Material CT4Leaf(string name, string tex, string normal, Color fall, float fallW, float bright)
+        static Material CT4Leaf(string name, string tex, string normal, Color fall, float fallW, Vector2 vivid)
         {
             var m = CTMat(name, tex, normal, true, Color.white);
             m.SetColor("_LeafTulip", GreenSpread);
             var lv = m.GetVector("_LeafVivid");
-            lv.y = bright;
+            lv.x = vivid.x; lv.y = vivid.y;
             if (fallW > 0f) { m.SetColor("_LeafTarget", fall); lv.w = fallW; }
             m.SetVector("_LeafVivid", lv);
             EditorUtility.SetDirty(m);
             return m;
         }
 
-        static Material CT4Imp(string name, string sheet, Color fall, float fallW)
+        static Material CT4Imp(string name, string sheet, Color fall, float fallW, Vector2 vivid)
         {
             var m = CTMat(name, sheet, null, true, CT4ImpTint);
             m.SetColor("_LeafTulip", GreenSpread);
+            { var v0 = m.GetVector("_LeafVivid"); v0.x = vivid.x; v0.y = vivid.y; m.SetVector("_LeafVivid", v0); }
             if (fallW > 0f)
             {
                 m.SetColor("_LeafTarget", fall);
@@ -283,7 +320,7 @@ namespace PSXRacing.EditorTools
         /// step (the card is drawn with a leaf material), so the trunk comes out as the mesh's.
         /// twig &gt; 0: the bare dress - the limbs, and that share of the leaf cards' texels as a
         /// grey-brown haze of twigs. Written only when the bytes differ.</summary>
-        static string CT4Sheet(CT4Geo g, string tag, string leafTex, string barkTex, float twig)
+        static string CT4Sheet(CT4Geo g, string tag, string leafTex, string barkTex, float twig, Vector2 vivid)
         {
             string path = CT4Gen + "/CT4Sheet_" + tag + ".png";
             var (lp, ln) = CT4Pixels(leafTex);
@@ -357,14 +394,14 @@ namespace PSXRacing.EditorTools
                                 {
                                     // (one hash an output texel, the four samples alike: the haze survives the reduction)
                                     if ((CT4Hash(x / CT4SS, y / CT4SS, q) & 0xFFFF) >= twig * 65535f) continue;
-                                    c = CT4Unvivid(twigC * (0.8f + 0.4f * dif));
+                                    c = CT4Unvivid(twigC * (0.8f + 0.4f * dif), vivid);
                                 }
                                 else c = (Color)c32 * shade;
                             }
                             else
                             {
                                 int tx = (int)((u - Mathf.Floor(u)) * bn), ty = (int)((vv - Mathf.Floor(vv)) * bn);
-                                c = CT4Unvivid((Color)bp[Mathf.Clamp(ty, 0, bn - 1) * bn + Mathf.Clamp(tx, 0, bn - 1)] * shade);
+                                c = CT4Unvivid((Color)bp[Mathf.Clamp(ty, 0, bn - 1) * bn + Mathf.Clamp(tx, 0, bn - 1)] * shade, vivid);
                             }
                             c.a = 1f;
                             z[idx] = d; col[idx] = c;
@@ -418,11 +455,11 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The inverse of a leaf material's vivid step (saturation LeafSaturation, then
         /// x LeafBrightness): what is not a leaf comes out of the card as it was drawn.</summary>
-        static Color CT4Unvivid(Color c)
+        static Color CT4Unvivid(Color c, Vector2 vivid)
         {
             float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
-            var o = new Color(lum, lum, lum) + (c - new Color(lum, lum, lum)) * (1f / LeafSaturation);
-            o *= 1f / LeafBrightness;
+            var o = new Color(lum, lum, lum) + (c - new Color(lum, lum, lum)) * (1f / vivid.x);
+            o *= 1f / vivid.y;
             return new Color(Mathf.Max(0f, o.r), Mathf.Max(0f, o.g), Mathf.Max(0f, o.b), 1f);
         }
     }
