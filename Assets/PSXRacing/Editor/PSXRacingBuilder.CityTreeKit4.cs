@@ -31,7 +31,8 @@ namespace PSXRacing.EditorTools
     /// blooms), written to Assets/CharlotteTrees/Gen only when the bytes change.
     /// Appended after round 3's forms (CityTreeKit.G4Charlotte): the indices of
     /// rounds 1-3 are unchanged, so PSX_CT_CHARLOTTE=0 draws round 3's trees.
-    /// PSX_CT_R4KIT=0, or no delivery: round 3's kit exactly.
+    /// DEFAULT OFF (owner 11-15: "the 'after' trees look pretty poor in comparison"): PSX_CT_R4KIT=1 adds
+    /// them; without it, or with no delivery, round 3's kit exactly.
     /// </summary>
     public static partial class PSXRacingBuilder
     {
@@ -120,7 +121,7 @@ namespace PSXRacing.EditorTools
         /// <summary>Round 4's forms appended (group <see cref="CityTreeKit.G4Charlotte"/>).</summary>
         static void CTRound4(List<MeshForest.Variant> list, List<string> names, List<CityTreeKit.Role> roles, List<byte> groups)
         {
-            if (System.Environment.GetEnvironmentVariable("PSX_CT_R4KIT") == "0") { Log("City trees: Charlotte's own trees OFF (PSX_CT_R4KIT=0)"); return; }
+            if (System.Environment.GetEnvironmentVariable("PSX_CT_R4KIT") != "1") { Log("City trees: Charlotte's own trees not in the kit (default OFF; PSX_CT_R4KIT=1 adds them)"); return; }
             if (AssetDatabase.LoadAssetAtPath<GameObject>(CT4Dir + "/Models/" + CT4Forms[0].stem + ".FBX") == null)
             {
                 Log("City trees: no Charlotte tree delivery in " + CT4Dir + " (tools/charlotte-trees.ps1) - round 3's kit");
@@ -161,6 +162,7 @@ namespace PSXRacing.EditorTools
                     }
                     else sb.Append($"\n  (WARN {f.stem}: the pivot is not a trunk foot ({q0.x:0.00}, {q0.y:0.00}, {q0.z:0.00}): LoadVariant's foot kept)");
                 }
+                if (CT4AO) CT4CrownAO(v, f.stem, leafSub);
                 var summer = CT4Leaf("CT4_leaf_" + f.leaf, leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), default, 0f, CT4LeafVivid);
                 v.mats[leafSub] = summer;
                 Material fall = summer, spring = summer;
@@ -220,6 +222,7 @@ namespace PSXRacing.EditorTools
                 }
             }
             sb.Append($"\n  distance cards: {CT4SheetCount} sheets of {4 * CT4Cell} x {CT4Cell} px ({CT4SheetsWritten} written this build), {CT4SheetGpuBytes / 1048576.0:0.0} MB on the GPU (DXT5 + mips); round 4 took {clock.Elapsed.TotalSeconds:0.0} s");
+            CT4Measure(list, names, groups);
             Log(sb.ToString());
         }
 
@@ -228,12 +231,14 @@ namespace PSXRacing.EditorTools
         /// evenly lit atlases it made a lime canopy: measured on six driver's-eye frames, foliage saturation
         /// 0.71 against the NatureManufacture trees' 0.46 and luminance 79 against 73. The shader's step
         /// solved for those: x 0.88, y 1.48. Blossoms (white, pink): 1.0 / 1.25, short of paper white.</summary>
-        static readonly Vector2 CT4LeafVivid = new Vector2(0.88f, 1.48f), CT4BloomVivid = new Vector2(1.0f, 1.25f);
+        static Vector2 CT4LeafVivid => new Vector2(0.88f, CT4EnvF("PSX_CT4_BRIGHT", 1.48f));   // (PSX_CT4_BRIGHT: the look experiment's brightness step)
+        static readonly Vector2 CT4BloomVivid = new Vector2(1.0f, 1.25f);
 
         static Material CT4Leaf(string name, string tex, string normal, Color fall, float fallW, Vector2 vivid)
         {
             var m = CTMat(name, tex, normal, true, Color.white);
-            m.SetColor("_LeafTulip", GreenSpread);
+            m.SetColor("_LeafTulip", CT4Jitter && fallW <= 0f && vivid == CT4LeafVivid ? CT4JitterTint : GreenSpread);
+            if (m.HasProperty("_HouseTint")) m.SetFloat("_HouseTint", CT4AO ? 1f : 0f);
             var lv = m.GetVector("_LeafVivid");
             lv.x = vivid.x; lv.y = vivid.y;
             if (fallW > 0f) { m.SetColor("_LeafTarget", fall); lv.w = fallW; }
@@ -245,7 +250,7 @@ namespace PSXRacing.EditorTools
         static Material CT4Imp(string name, string sheet, Color fall, float fallW, Vector2 vivid)
         {
             var m = CTMat(name, sheet, null, true, CT4ImpTint);
-            m.SetColor("_LeafTulip", GreenSpread);
+            m.SetColor("_LeafTulip", CT4Jitter && fallW <= 0f && vivid == CT4LeafVivid ? CT4JitterTint : GreenSpread);
             { var v0 = m.GetVector("_LeafVivid"); v0.x = vivid.x; v0.y = vivid.y; m.SetVector("_LeafVivid", v0); }
             if (fallW > 0f)
             {
@@ -264,6 +269,7 @@ namespace PSXRacing.EditorTools
             public Vector3[] p;   // triangle corners, three a triangle, in the tree's frame (foot at 0)
             public Vector2[] uv;
             public bool[] leaf;   // per triangle
+            public float[] ao;    // per triangle: the crown-depth darkening (PSX_CT4_AO), 1 without
             public float S, R, h; // the cell's side (m), the crown's reach, the height
         }
 
@@ -272,6 +278,8 @@ namespace PSXRacing.EditorTools
             var m = v.lods[0];
             var g = new CT4Geo { h = v.height };
             var uv = ReadUV(m);
+            var vcol = m.isReadable && m.colors != null && m.colors.Length == m.vertexCount ? m.colors : null;
+            var aos = new List<float>();
             var ps = new List<Vector3>(); var us = new List<Vector2>(); var lf = new List<bool>();
             float rx = 0f, rl = 0f;
             for (int s = 0; s < m.subMeshCount; s++)
@@ -289,9 +297,10 @@ namespace PSXRacing.EditorTools
                         if (leaf) rl = Mathf.Max(rl, Mathf.Sqrt(q.x * q.x + q.z * q.z));
                     }
                     lf.Add(leaf);
+                    aos.Add(vcol != null ? (vcol[tris[t]].r + vcol[tris[t + 1]].r + vcol[tris[t + 2]].r) * (2f / 3f) : 1f);
                 }
             }
-            g.p = ps.ToArray(); g.uv = us.ToArray(); g.leaf = lf.ToArray();
+            g.p = ps.ToArray(); g.uv = us.ToArray(); g.leaf = lf.ToArray(); g.ao = aos.ToArray();
             g.R = Mathf.Max(0.5f, rl);
             g.S = 1.04f * Mathf.Max(v.height, 2f * rx);
             return g;
@@ -368,7 +377,7 @@ namespace PSXRacing.EditorTools
                     {
                         var c3 = (g.p[b] + g.p[b + 1] + g.p[b + 2]) / 3f;
                         float rr = Mathf.Sqrt(c3.x * c3.x + c3.z * c3.z) / (0.8f * g.R);
-                        shade = (0.60f + 0.40f * dif) * (0.76f + 0.24f * Mathf.Clamp01(rr));
+                        shade = (0.60f + 0.40f * dif) * (0.76f + 0.24f * Mathf.Clamp01(rr)) * (g.ao != null && t < g.ao.Length ? g.ao[t] : 1f);
                     }
                     else shade = 0.58f + 0.42f * dif;
                     float inv = 1f / area;
@@ -454,6 +463,117 @@ namespace PSXRacing.EditorTools
             if (a.Length != b.Length) return false;
             for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
             return true;
+        }
+
+
+        // ==================================================================
+        //  THE LOOK EXPERIMENT (owner 11-15 on the sheet: "the 'after' trees look pretty poor in
+        //  comparison"): kit switches, each its own, to learn how much of the gap is shading
+        // ==================================================================
+        static float CT4EnvF(string n, float d) => float.TryParse(System.Environment.GetEnvironmentVariable(n), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) ? f : d;
+        /// <summary>PSX_CT4_AO=1: crown-depth darkening in the leaf vertices' colour (PSX/Lit's _HouseTint path: light x 2 x colour).</summary>
+        static bool CT4AO => System.Environment.GetEnvironmentVariable("PSX_CT4_AO") == "1";
+        /// <summary>PSX_CT4_JITTER=1: three crowns in ten turned toward an olive green (_LeafTulip, the instance's own hash), on mesh and card alike.</summary>
+        static bool CT4Jitter => System.Environment.GetEnvironmentVariable("PSX_CT4_JITTER") == "1";
+        static readonly Color CT4JitterTint = new Color(0.60f, 0.66f, 0.20f, 0.30f);
+
+        /// <summary>CROWN-DEPTH DARKENING, as the NM trees carry AO in their vertex colour: each leaf vertex
+        /// of every level darker the deeper it sits in the crown (its distance from the crown's axis against
+        /// the crown's reach at that height) and the lower it hangs in it (the underside); bark as drawn.
+        /// The levels are copied (Generated/CT4AO_*) with the colour.</summary>
+        static void CT4CrownAO(MeshForest.Variant v, string stem, int leafSub)
+        {
+            if (!TreeKit.Read(v.lods[0], leafSub, out var lv, out var lt) || lt.Length == 0) return;
+            var cc = Vector2.zero; var ys = new List<float>();
+            foreach (int i in lt) { var q = v.pre.MultiplyPoint3x4(lv[i]); cc += new Vector2(q.x, q.z); ys.Add(q.y); }
+            cc /= lt.Length; ys.Sort();
+            float yB = ys[(int)(ys.Count * 0.03f)], yT = ys[Mathf.Min(ys.Count - 1, (int)(ys.Count * 0.98f))];
+            const int NB = 12;
+            var lists = new List<float>[NB]; for (int b = 0; b < NB; b++) lists[b] = new List<float>();
+            int Band(float y) => Mathf.Clamp((int)((y - yB) / Mathf.Max(0.5f, yT - yB) * NB), 0, NB - 1);
+            foreach (int i in lt) { var q = v.pre.MultiplyPoint3x4(lv[i]); lists[Band(q.y)].Add(Vector2.Distance(new Vector2(q.x, q.z), cc)); }
+            var rb = new float[NB];
+            for (int b = 0; b < NB; b++) { var l = lists[b]; l.Sort(); rb[b] = l.Count > 0 ? l[Mathf.Min(l.Count - 1, (int)(l.Count * 0.9f))] : 0f; }
+            for (int b = 1; b < NB; b++) if (rb[b] <= 0f) rb[b] = rb[b - 1];
+            for (int b = NB - 2; b >= 0; b--) if (rb[b] <= 0f) rb[b] = rb[b + 1];
+            float AO(Vector3 q)
+            {
+                float d = 1f - Mathf.Clamp01(Vector2.Distance(new Vector2(q.x, q.z), cc) / Mathf.Max(0.3f, rb[Band(q.y)]));
+                float u = 1f - Mathf.Clamp01((q.y - yB) / Mathf.Max(0.5f, yT - yB));
+                return Mathf.Clamp(1f - 0.55f * Mathf.Pow(d, 1.2f) - 0.30f * Mathf.Pow(u, 1.5f), 0.32f, 1f);
+            }
+            var done = new Dictionary<Mesh, Mesh>();
+            float sum = 0f; int cnt = 0;
+            for (int l = 0; l < 3; l++)
+            {
+                var src = v.lods[l];
+                if (src == null) continue;
+                if (done.TryGetValue(src, out var have)) { v.lods[l] = have; continue; }
+                var m = Object.Instantiate(ReadableCopy(src));
+                m.name = "CT4AO_" + stem + "_L" + l;
+                var verts = m.vertices;
+                var col = new Color[verts.Length];
+                for (int i = 0; i < col.Length; i++) col[i] = new Color(0.5f, 0.5f, 0.5f, 1f);
+                if (leafSub < m.subMeshCount)
+                    foreach (int i in m.GetTriangles(leafSub))
+                    {
+                        float a = AO(v.pre.MultiplyPoint3x4(verts[i]));
+                        col[i] = new Color(0.5f * a, 0.5f * a, 0.5f * a, 1f);
+                        if (l == 0) { sum += a; cnt++; }
+                    }
+                m.colors = col;
+                var saved = WorldKit.SaveMesh(m, m.name);
+                done[src] = saved; v.lods[l] = saved;
+            }
+            Log($"City trees: {stem} crown-depth AO mean {(cnt > 0 ? sum / cnt : 1f):0.00} (crown {yB:0.0}-{yT:0.0} m)");
+        }
+
+        /// <summary>THE LEAF CARDS MEASURED (for a Codex v2 request): per tree at LOD0, the leaf triangles
+        /// and cards (two triangles a card), the mean card area, the leaf area against the crown's
+        /// silhouette, the atlas and its texels per metre of leaf, the distinct card mappings (UV
+        /// rectangles), the vertex data: NatureManufacture's beeches and Meadow poplars beside the owner's forms.</summary>
+        static void CT4Measure(List<MeshForest.Variant> list, List<string> names, List<byte> groups)
+        {
+            var sb = new System.Text.StringBuilder("LEAF CARD MEASURE (LOD0; texels/m = sqrt(atlas texels x UV area / leaf area)):");
+            for (int i = 0; i < list.Count; i++)
+            {
+                string n = names[i];
+                bool nm = groups[i] == 0 && ((n.StartsWith("beech_tree_0") && !n.Contains("snag")) || n.EndsWith("_Poplar") || n.EndsWith("_skan"));
+                bool ct = groups[i] == CityTreeKit.G4Charlotte && n.StartsWith("CT4_") && !n.EndsWith("_red") && !n.EndsWith("_white") && !n.EndsWith("_purple");
+                if (!nm && !ct) continue;
+                var v = list[i]; var m = v.lods[0];
+                if (m == null) continue;
+                var uv = ReadUV(m);
+                int tris = 0; double area = 0, uvA = 0; float rMax = 0f;
+                var rects = new HashSet<long>();
+                Texture tex = null;
+                for (int s = 0; s < m.subMeshCount; s++)
+                {
+                    if (v.leafSub == null || s >= v.leafSub.Length || !v.leafSub[s]) continue;
+                    if (tex == null) { var lm = v.leafDress != null && v.leafDress.Length > 2 && v.leafDress[2] != null ? v.leafDress[2] : v.mats[Mathf.Min(s, v.mats.Length - 1)]; tex = lm != null ? lm.mainTexture : null; }
+                    if (!TreeKit.Read(m, s, out var vv, out var tt)) continue;
+                    for (int t = 0; t + 2 < tt.Length; t += 3)
+                    {
+                        Vector3 a = v.pre.MultiplyPoint3x4(vv[tt[t]]), b = v.pre.MultiplyPoint3x4(vv[tt[t + 1]]), c = v.pre.MultiplyPoint3x4(vv[tt[t + 2]]);
+                        area += Vector3.Cross(b - a, c - a).magnitude * 0.5;
+                        rMax = Mathf.Max(rMax, new Vector2(a.x, a.z).magnitude);
+                        tris++;
+                        if (uv == null) continue;
+                        Vector2 ua = uv[tt[t]], ub = uv[tt[t + 1]], uc = uv[tt[t + 2]];
+                        uvA += Mathf.Abs((ub.x - ua.x) * (uc.y - ua.y) - (uc.x - ua.x) * (ub.y - ua.y)) * 0.5;
+                        int x0 = Mathf.RoundToInt(Mathf.Min(ua.x, Mathf.Min(ub.x, uc.x)) * 64f), y0 = Mathf.RoundToInt(Mathf.Min(ua.y, Mathf.Min(ub.y, uc.y)) * 64f);
+                        rects.Add(((long)x0 << 20) ^ (long)y0);
+                    }
+                }
+                if (tris == 0) continue;
+                int W = tex != null ? tex.width : 0, H = tex != null ? tex.height : 0;
+                double tpm = area > 0 && uvA > 0 ? System.Math.Sqrt(W * (double)H * uvA / area) : 0;
+                double sil = System.Math.PI * rMax * rMax;
+                string vd = (m.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color) ? "colour " : "") + (m.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord1) ? "uv1 " : "") +
+                            (m.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord2) ? "uv2 " : "") + (m.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Tangent) ? "tangent" : "");
+                sb.Append($"\n  {(nm ? "NM " : "CT ")}{n,-30} {v.height,5:0.0} m x {2f * rMax,4:0.0} m: leaf tris {tris,6}, cards ~{tris / 2,5}, mean card {area / (tris / 2.0),5:0.00} m2, leaf area {area,6:0} m2 ({area / System.Math.Max(1, sil),4:0.0} x the plan circle), atlas {W}x{H}, {tpm,4:0} texels/m, card mappings {rects.Count,4}, vertex data [{vd.Trim()}]");
+            }
+            Log(sb.ToString());
         }
 
         /// <summary>The inverse of a leaf material's vivid step (saturation LeafSaturation, then

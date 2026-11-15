@@ -448,7 +448,9 @@ namespace PSXRacing.City
         // ==================================================================
         /// <summary>PSX_CT_CHARLOTTE=0: round 3's trees exactly (the owner's models stay in the kit,
         /// not planted). Needs round 3 (PSX_CT_ROUND3) and a kit built with the delivery.</summary>
-        public static bool Charlotte = System.Environment.GetEnvironmentVariable("PSX_CT_CHARLOTTE") != "0";
+        /// DEFAULT OFF (owner 11-15 on the before/after sheet: "the 'after' trees look pretty poor in comparison"):
+        /// PSX_CT_CHARLOTTE=1 plants them (and needs a kit built with PSX_CT_R4KIT=1).
+        public static bool Charlotte = System.Environment.GetEnvironmentVariable("PSX_CT_CHARLOTTE") == "1";
         bool charlotteReady;
         public bool CharlotteReady => charlotteReady;
         /// <summary>Tools: how many of the last plan's stages were Charlotte species (a plant from a later stage is an old form).</summary>
