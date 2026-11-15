@@ -1,4 +1,49 @@
-﻿# HANDOFF - LOT ENTRANCES, SECOND PASS: a driveway that reads as one (agent "lots", branch `charlotte-lots`, 2026-11-15 pm; NOT pushed)
+﻿# HANDOFF - CHARLOTTE TREES ROUND 4: THE OWNER'S TREE MODELS IN THE KIT, DEFAULT OFF (agent "trees4", branch `charlotte-trees4`, 2026-11-15; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-trees4` off mountain-nm 416ddfda. Sandbox PSXLab (lock released 18:07). STATUS: the owner on the first before/after sheet: "the 'after' trees look pretty poor in comparison" - nothing ships: `PSX_CT_CHARLOTTE` and `PSX_CT_R4KIT` are DEFAULT OFF, so a merge changes no picture and no kit (round 3's 69 species). No file under `Scripts/City`; no re-bake; road graph untouched (no export run).
+
+## Verdict on Codex pass 2 (in the game, side by side)
+Pass 2 does NOT reach the NatureManufacture trees. Sheet: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\trees4\trees4_pass2_sheet.png` (base NM | pass 1 | pass 2 | pass 2 + crown-depth darkening; the 8 m lawn comparison, subdivision spring and fall, Myers Park, West Trade, Colony Rd). Better than pass 1: twice the texels per metre, a darker green, the street willow oaks and the fall reds read right. Still short: every broadleaf crown is a flat clump of large evenly lit cards (no dark interior, no fine leaf breakup), the pines are bare sticks with leafy tufts, and the Colony Rd woods tint olive-brown beside NM's greens. Of the pass-1 shading levers (sheet `...\trees4\trees4_look_experiment.png`), crown-depth darkening in vertex colour helped most; the brightness step and hue jitter changed little. No variant closes the gap: it is in the asset.
+
+## What only new art can close (measured at LOD0 by the kit build's LEAF CARD MEASURE; NM = Forest beeches / Meadow poplars)
+| | NatureManufacture | Owner pass 1 | Owner pass 2 |
+|---|---|---|---|
+| Leaf cards a large tree | 800-1,900 | 1,500-2,200 | same as pass 1 |
+| Mean card area | 0.13-0.46 m2 (beeches), 0.15-1.15 (poplars) | 0.7-2.1 m2 (willow oak avenue 2.06) | same |
+| Leaf card area / crown plan circle | 2-5x (poplars to 11x) | 20-48x (redcedar 68x) | same (loblolly mature 13.5x) |
+| Leaf atlas | 4,096 px | 1,024 px | 2,048 px |
+| Texels per metre of leaf | 640-1,650 | 300-460 (large trees) | 640-920 |
+| Distinct card mappings (sprays x crops) | 47-316 | 8 (4 cells x 2) | 8 |
+| Vertex data | colour + uv1 + tangent on several (AO, wind) | tangent only | tangent only |
+| Shade in the atlas (coordinator, V<0.25 texels) | 7-10% | - | 0% |
+A Codex v2 request: cards of 0.15-0.5 m2 (4-8x smaller) in 1,000-2,000 per large tree with the leaf card area 3-6x the crown's plan circle (not 20-48x), 16-32+ distinct sprays per atlas at 4,096 px (>= 1,000 texels per metre), photographic shading in the sprays (dark texels 7-10%), crown-depth AO in vertex colour (RGB) and a branch phase in uv1; loblolly crowns as needle tufts at the branch tips with sky between.
+
+## Causes found (file:line)
+- THE FOOT: `LoadVariant` (`Editor/PSXRacingBuilder.MeshTrees.cs:668-684`) stands a tree on the bark's 2nd-percentile height: on these lean trunks 0.15-2.4 m up the stem (8 forms 1.7-2.4 m deep in the ground). Seated on the pivot in `CTRound4`.
+- THE COLOUR: the leaf vivid step (`MeshTrees.cs:771`, x1.3 / x1.6, tuned for NM photo sprays) made a lime canopy (saturation 0.71 v 0.46). Charlotte leaves x0.88 / x1.48 (`PSX_CT4_BRIGHT`).
+- THE STREET: the delivered willow oaks' lowest limbs at 2-4 m (lane envelope, walls): 91% of Uptown's grates fell back to stand-ins. Five pruned forms via round 3's `Rework3`.
+- ONE MORE DROP (48 v 47): the Charlotte stages' refusals in the shared profile hid the building that sets the move direction; round 3's fallback stages now get a fresh profile and budget.
+- THE CARDS: rendered by the kit (none delivered); their tone 0.61 of the meshes -> tint 1.90: 85 v 83.
+- THE WOODS: the bake's strip rule (`Scripts/City/CityTrees.cs:799`) makes a secondary road's roadside trees Myrtle: crape myrtles bloomed along Colony Rd's woods; a roadside spot under canopy >= 0.5 with no building within 25 m now takes the woods' mix.
+
+## What changed (all behind switches, default OFF)
+- `tools/charlotte-trees.ps1 [-Dest] [-Src]` (copies a delivery with its .meta files; /MIR /XO, Gen kept) + `.gitignore` (`Assets/CharlotteTrees/`). PSXLab now holds PASS 2 (809 MB, 48 forms; the 25 pass-1 stems kept their names, bark bindings and texture names).
+- `Editor/PSXRacingBuilder.CityTreeKit4.cs` (new): `PSX_CT_R4KIT=1` adds 33 species (the 25 forms seated on the pivot, crape myrtle x4 bloom colours, 5 pruned willow oaks), season dresses, CPU-rendered distance cards (52 sheets 1,024 x 256, 17.3 MB), the leaf card measure; look switches `PSX_CT4_BRIGHT=<x>`, `PSX_CT4_AO=1` (crown-depth darkening into vertex colour, PSX/Lit's `_HouseTint` path), `PSX_CT4_JITTER=1`. The 23 new pass-2 forms are NOT loaded.
+- `Scripts/CityMeshTrees.Round3.cs`: `PSX_CT_CHARLOTTE=1` plants them by site (`Plan4`), round 3's stages as the fallback (`Plan3Stages`, `SizeOf`), the woods rule, counts. Shared-file edits: `Editor/PSXRacingBuilder.CityTreeKit.cs` (EnsureCityTreeKit: one `CTRound4` call; `AddStripImpostor`: optional `cellMetres`), `Scripts/CityTreeKit.cs` (`G4Charlotte = 5`), `Scripts/CityMeshTrees.cs` (`ResetCounts`: one line).
+- `Editor/CityRefSpots.MeshTrees4.cs` (new): `RunMeshTrees4`, one mode a process (`PSX_CT4_TAG`), survey + foliage audit + frames + a label list a frame (which tree is where) + the STAGED lawn comparison (`T4Lawn`: off the road and walk, clear of footprints, lots, planted trees and every physics solid, line of sight) + `PSX_CT4_CLOSEONLY=1`.
+
+## Gates (with both switches ON)
+Ten places (p5): trees through solids 0 ("CITY FOLIAGE AUDIT AFTER: 207 tiles, 45578 mesh trees, 87959269 crown points tested -> trees through solids 0: road envelope 0, building 0, pole/wire 0, signal 0, collider 0; trunks standing with no drawn tree 0"; the points are every LOD0 vertex sample, bark included, so no planted trunk or crown is in a road envelope at any of the ten places); dropped 47 = round 3's 47; LifeSim self-test 64 = 64 (0 new). Pass 2 at five places: 0 / 0, dropped 21 = base 21. GPU tree buffers 82 -> 120.5 MB with the kit ON; fit 6.5-8.3 ms a tile on a busy machine (base 6.8); ring triangles -9% to +43%.
+
+## The coordinator's checks
+- Staged frames: never on the road. The first lawn put the camera against a procedural house (only OSM footprints were known); now physics capsules and a line of sight. Left wrong: a dark horizontal band across the top of the lawn frames (something above the camera - an overhead wire or structure the capsule check does not reach; not a tree).
+- Impostor pair cards: brown-orange by the left pole = round 2's dead snag (`beech_tree_02_LOD0_snag`, 51 m: leafless mesh, its card the NM autumn sheet darkened `CT2_city_NM_imp_beech_tree_02_bare`) - pre-existing, the same in the base; needs a true bare-limb card. Near-black right = EasternRedcedar at 44 m (a mesh in play; card/mesh 0.91). Pale column = SilverMaple (pale atlas, mesh 109 / card 98). Every Charlotte summer card is its summer leaf sheet (labels CSV).
+- Colony Rd reds = crape myrtles in bloom on wooded roadside (53 at that place) -> the woods rule; that box now holds sycamore, tulip poplar, oaks, red maple, sweetgum.
+
+## At merge
+Nothing to run: defaults OFF. PSXLab's kit asset was last built WITH the forms (the pass-2 test): PC44's `BuildCityTreeKit` must run before the player build (it does), giving round 3's 69 species. To look again: kit with `PSX_CT_R4KIT=1` (+ `PSX_CT4_AO=1`), play with `PSX_CT_CHARLOTTE=1`.
+
+# HANDOFF - LOT ENTRANCES, SECOND PASS: a driveway that reads as one (agent "lots", branch `charlotte-lots`, 2026-11-15 pm; NOT pushed)
 
 The owner on the first pass's frames (11:50): "that is a LOT of curb on the side of the road (and I don't see an entrance area (curb relief) into the parking lot". He was right: the first pass's cut eased over 18 m of frontage, the ramp behind it was ground-coloured concrete up to 18 m wide, and my owner's-lot frames showed the wrong lot. Branch now = mountain-nm 50c8a3aa (bridges, roads audit, hoods' curbs 3) merged in + this pass. Sandbox PSXPerf.
 
