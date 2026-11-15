@@ -312,7 +312,7 @@ namespace PSXRacing.EditorTools
             string hit = "";
             var tng = new Vector2(-n.y, n.x);
             float target = gap + 4f;
-            while (t < 8f)
+            while (t < 5f + (gap + 14f) / Mathf.Max(v, 1f))
             {
                 var pc = new Vector2(player.Body.position.x, player.Body.position.z);
                 float d = Vector2.Dot(pc - mouth, n);
@@ -345,7 +345,8 @@ namespace PSXRacing.EditorTools
                     {
                         if (off[w] <= 0f) offFrom[w] = d;
                         off[w] += dt;
-                        if (off[w] > maxOne) { maxOne = off[w]; oneAt = offFrom[w]; }
+                        // (a wheel already off before the front wheels are at the pavement's edge is the run-up's, not the entrance's)
+                        if (offFrom[w] >= -1.4f && off[w] > maxOne) { maxOne = off[w]; oneAt = offFrom[w]; }
                     }
                 }
                 allOff = g == 0 ? allOff + dt : 0f;
