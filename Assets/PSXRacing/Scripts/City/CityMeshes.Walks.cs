@@ -1162,6 +1162,11 @@ namespace PSXRacing.City
         const float CurbCutStepM = 1.0f;
         static readonly List<float> cutT = new List<float>(64);
         static readonly List<float> cutC = new List<float>(64);
+        /// <summary>(curbs 3) Beside cutT / cutC: the backing's share at each read - 0 on a driveway's or lot's
+        /// apron an UNCUT roll curb crosses (the plain verge there: the apron's concrete from the curb's back
+        /// down to the driveway, as before the curb), easing to 1 over Cs3ApronEaseM. 1 everywhere on a cut curb.</summary>
+        static readonly List<float> cutA = new List<float>(64);
+        const float Cs3ApronEaseM = 3.0f;
 
         // ------------------------------------------------------------------
         //  CURB CUT WINGS (launch spots 7, 2026-11-05). A deliberate 50 km/h
@@ -1216,20 +1221,17 @@ namespace PSXRacing.City
         {
             wingCutU.Clear();
             float wMax = Mathf.Max(wA, wB);
-            if (len < 1e-3f) { cutT.Add(0f); cutC.Add(1f); cutT.Add(1f); cutC.Add(1f); return false; }
+            if (len < 1e-3f) { cutT.Add(0f); cutC.Add(1f); cutA.Add(1f); cutT.Add(1f); cutC.Add(1f); cutA.Add(1f); return false; }
             // the aprons along the span and a wing past either end (the line extended)
             bool CutAt(float u)
             {
                 float t = u / len, tc = Mathf.Clamp01(t);
                 float w = t < 0f || t > 1f ? wMax : Mathf.Lerp(wA, wB, tc);
-                if (w <= 0f || cs3NoCutNow) return false;   // (curbs 3) a roll curb is not cut: a car drives over it
+                if (w <= 0f) return false;
                 var ou = Vector2.Lerp(outA, outB, tc).normalized;
                 var ep = Vector3.LerpUnclamped(eA, eB, t);
                 float ax = ep.x + o.x + ou.x * w * 0.5f, az = ep.z + o.z + ou.y * w * 0.5f;
-                if (ApronAt(map, ax, az) || (CurbOpeningAt != null && CurbOpeningAt(map, ax, az))) return true;
-                // (curbs 3) a driveway that starts behind the walk's middle (its street's model edge past the drawn one) is a mouth too
-                if (!Curbs3On || w < 1.0f) return false;
-                return DriveApronAt(ep.x + o.x + ou.x * (w - 0.1f), ep.z + o.z + ou.y * (w - 0.1f));
+                return ApronAt(map, ax, az) || (CurbOpeningAt != null && CurbOpeningAt(map, ax, az));
             }
             // wingCutU: the apron's intervals along the span [u0, u1], their
             // ends found to 6 cm (both spans either side of a joint find the
@@ -1252,23 +1254,26 @@ namespace PSXRacing.City
                 prev = cut; uPrev = u;
             }
             if (open) wingCutU.Add(float.PositiveInfinity);
-            if (wingCutU.Count == 0 && wingRampU.Count == 0) { for (int j = 0; j <= steps; j++) { cutT.Add((float)j / steps); cutC.Add(1f); } return false; }
+            if (wingCutU.Count == 0 && wingRampU.Count == 0) { for (int j = 0; j <= steps; j++) { cutT.Add((float)j / steps); cutC.Add(1f); cutA.Add(1f); } return false; }
             bool any = false;
             for (int j = 0; j <= steps; j++)
             {
-                float t = (float)j / steps, u = t * len, d = float.MaxValue;
+                float t = (float)j / steps, u = t * len, d = float.MaxValue, dA = float.MaxValue;
                 for (int q = 0; q + 1 < wingCutU.Count; q += 2)
                 {
                     float u0 = wingCutU[q], u1 = wingCutU[q + 1];
-                    d = Mathf.Min(d, u < u0 ? u0 - u : u > u1 ? u - u1 : 0f);
+                    float dd = u < u0 ? u0 - u : u > u1 ? u - u1 : 0f;
+                    // (curbs 3) a roll curb is not cut at an apron (a car drives over it): only its backing gives way there
+                    if (cs3NoCutNow) dA = Mathf.Min(dA, dd); else d = Mathf.Min(d, dd);
                 }
                 // a walk's ramp end (its width to 0, at a junction mouth) eases in the same way
                 foreach (float ru in wingRampU) d = Mathf.Min(d, Mathf.Abs(ru - u));
                 float c = d == float.MaxValue ? 1f : Mathf.Lerp(CurbCutShare, 1f, LineModel.Smooth(d / CurbCutWingM));
                 // a ramp end's zero width keeps the full share (it is collapsed onto the foot)
                 if (Mathf.Lerp(wA, wB, t) <= 0f) c = 1f;
-                any |= c < 0.999f;
-                cutT.Add(t); cutC.Add(c);
+                float ak = dA == float.MaxValue ? 1f : LineModel.Smooth(dA / Cs3ApronEaseM);
+                any |= c < 0.999f || ak < 0.999f;
+                cutT.Add(t); cutC.Add(c); cutA.Add(ak);
             }
             if (any) System.Threading.Interlocked.Increment(ref CurbWingSpans);
             // keep only the reads the curve needs (within 2% of the share, 3 mm of
@@ -1288,14 +1293,15 @@ namespace PSXRacing.City
                         for (int k = a + 1; k <= b && fits; k++)
                         {
                             float u = (cutT[k] - cutT[a]) / (cutT[b + 1] - cutT[a]);
-                            fits = Mathf.Abs(cutC[k] - Mathf.Lerp(cutC[a], cutC[b + 1], u)) <= CurbWingTol;
+                            fits = Mathf.Abs(cutC[k] - Mathf.Lerp(cutC[a], cutC[b + 1], u)) <= CurbWingTol
+                                && Mathf.Abs(cutA[k] - Mathf.Lerp(cutA[a], cutA[b + 1], u)) <= 2.5f * CurbWingTol;
                         }
                         if (!fits) break;
                     }
                     wingKeep.Add(b); a = b;
                 }
-                for (int k = 0; k < wingKeep.Count; k++) { cutT[k] = cutT[wingKeep[k]]; cutC[k] = cutC[wingKeep[k]]; }
-                cutT.RemoveRange(wingKeep.Count, n2 - wingKeep.Count); cutC.RemoveRange(wingKeep.Count, n2 - wingKeep.Count);
+                for (int k = 0; k < wingKeep.Count; k++) { cutT[k] = cutT[wingKeep[k]]; cutC[k] = cutC[wingKeep[k]]; cutA[k] = cutA[wingKeep[k]]; }
+                cutT.RemoveRange(wingKeep.Count, n2 - wingKeep.Count); cutC.RemoveRange(wingKeep.Count, n2 - wingKeep.Count); cutA.RemoveRange(wingKeep.Count, n2 - wingKeep.Count);
             }
             return any;
         }
@@ -1539,7 +1545,7 @@ namespace PSXRacing.City
             // CURB CUTS: where the walk crosses a lot entrance's apron or a
             // driveway's (ApronAt), its curb drops to a lip, so a car turns
             // in over 2 cm, not 15; read every metre, eased over one
-            cutT.Clear(); cutC.Clear();
+            cutT.Clear(); cutC.Clear(); cutA.Clear();
             var o = tm.origin;
             int steps = Mathf.Clamp(Mathf.CeilToInt(len / (CurbWingsOn ? CurbWingStepM : CurbCutStepM)), 1, 63);
             bool anyCut = false;
@@ -1558,7 +1564,6 @@ namespace PSXRacing.City
                     }
                 anyCut = CurbCutWings(map, o, eA, eB, outA, outB, wA, wB, len, steps);
             }
-            else if (cs3NoCutNow) { cutT.Add(0f); cutC.Add(1f); cutT.Add(1f); cutC.Add(1f); }
             else
             for (int j = 0; j <= steps; j++)
             {
@@ -1566,12 +1571,12 @@ namespace PSXRacing.City
                 float w = Mathf.Lerp(wA, wB, t);
                 var ou = Vector2.Lerp(outA, outB, t).normalized;
                 var ep = Vector3.Lerp(eA, eB, t);
-                bool cut = w > 0f && ApronAt(map, ep.x + o.x + ou.x * w * 0.5f, ep.z + o.z + ou.y * w * 0.5f);
+                bool cut = !cs3NoCutNow && w > 0f && ApronAt(map, ep.x + o.x + ou.x * w * 0.5f, ep.z + o.z + ou.y * w * 0.5f);
                 anyCut |= cut;
-                cutT.Add(t); cutC.Add(cut ? CurbCutShare : 1f);
+                cutT.Add(t); cutC.Add(cut ? CurbCutShare : 1f); cutA.Add(1f);
             }
             cs3NoCutNow = false;
-            if (!anyCut) { cutT.Clear(); cutC.Clear(); cutT.Add(0f); cutC.Add(1f); cutT.Add(1f); cutC.Add(1f); }
+            if (!anyCut) { cutT.Clear(); cutC.Clear(); cutA.Clear(); cutT.Add(0f); cutC.Add(1f); cutA.Add(1f); cutT.Add(1f); cutC.Add(1f); cutA.Add(1f); }
             // (inlet 2, 11-15) a rolled street's curb rises to a vertical face at each inlet: the breaks its transition needs
             if (Curbs2On && Inlet2On) Cs3SplitSpan(map, trims, tm, e, side, sA, sB);
             Cs3AuditDrives(map, e, side, o, eA, eB, outA, sA, sB, wA, wB);   // (tools) the driveway mouths this span crosses
@@ -1619,8 +1624,8 @@ namespace PSXRacing.City
                 // the backing fades out with the walk's ramp: at a ramp's end (no walk) it is the verge
                 // the next span lays from the same edge point, so the two strips meet
                 // (and at a junction end, where the corner's own strips meet it, CityMeshes.WalkBack)
-                verge.backA = Mathf.Clamp01(w0 / wMin) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0));
-                verge.backB = Mathf.Clamp01(w1 / wMin) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1));
+                verge.backA = Mathf.Clamp01(w0 / wMin) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t0)) * cutA[j - 1];
+                verge.backB = Mathf.Clamp01(w1 / wMin) * WalkBackEndEase(map, e, Mathf.Lerp(sA, sB, t1)) * cutA[j];
                 EmitStrip(map, trims, tm, backA, backB, oA, oB, verge);
             }
             if (Curbs2On) Cs2RecordSpan(e, side, eA, eB, outA, outB, sA, sB, wA, wB, anyCut);

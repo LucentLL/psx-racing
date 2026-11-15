@@ -127,7 +127,9 @@ namespace PSXRacing.City
         /// <summary>A house street: its frontage stays lawn.</summary>
         static bool Cs3Residential(CityMap map, CityMap.Edge e) => Curbs3On && (Cs3ClassBits(map, e) & CurbResidBit) != 0;
         /// <summary>The roll curb alone (no walk behind it).</summary>
-        public static bool CurbOnly(CityMap map, CityMap.Edge e) => Curbs3On && (Cs3ClassBits(map, e) & 7) == CurbRollOnly;
+        public static bool CurbOnly(CityMap map, CityMap.Edge e) => Curbs3On && CurbOnlyOn && (Cs3ClassBits(map, e) & 7) == CurbRollOnly;
+        /// <summary>PSX_CITY_CURBONLY=0: a roll-curb street takes 11-11's rolled walk (the 2.4 m slab behind the roll) instead of the curb alone (the A/B for the curb drive).</summary>
+        public static bool CurbOnlyOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CURBONLY") != "0";
         static float Cs3WalkW(CityMap map, CityMap.Edge e) => CurbOnly(map, e) ? CurbOnlyW : WalkWOf(map, e);
         static float Cs3WalkMin(CityMap map, CityMap.Edge e) => CurbOnly(map, e) ? CurbOnlyMinM : WalkMinM;
 
@@ -427,8 +429,9 @@ namespace PSXRacing.City
                         int j = 1;
                         while (j < cutT.Count && cutT[j] < t) j++;
                         if (j >= cutT.Count || t - cutT[j - 1] < 0.002f || cutT[j] - t < 0.002f) continue;
-                        float c = Mathf.Lerp(cutC[j - 1], cutC[j], (t - cutT[j - 1]) / (cutT[j] - cutT[j - 1]));
-                        cutT.Insert(j, t); cutC.Insert(j, c);
+                        float f = (t - cutT[j - 1]) / (cutT[j] - cutT[j - 1]);
+                        float c = Mathf.Lerp(cutC[j - 1], cutC[j], f), ca = Mathf.Lerp(cutA[j - 1], cutA[j], f);
+                        cutT.Insert(j, t); cutC.Insert(j, c); cutA.Insert(j, ca);
                     }
             }
         }
