@@ -24,7 +24,117 @@ processes, the base with `PSX_CITY_CONCRETE=0`. Graph hash b2aa3453 (GHSH) in ev
   changed. The other roads on those tiles: walls 30 -> 1, blunt 16 -> 14.
 - LifeSim self-test, PSXRec: gate off (baseline, fresh process) 4,587 ok / 63 FAIL; gate on 4,587 ok / 63 FAIL: the same 63 (0 new, 0 gone; `st_m0.txt`, `st_m1.txt` in the scratch folder).
 - The inventory, city-wide, gate off -> on (km of standing concrete in a stray class): 17.70 -> 16.27. Table in "The stray table" below.
-(Steps 2-5 are being proved now; this section is completed at the hand-back.)
+
+## Step 2 - class d, two Jerseys along one narrow median (PSX_CITY_CONC_TWIN, default ON)
+CAUSE, from the ground-twin walk's own verdict at every class d piece city-wide (`CityAudit.Concrete.cs` census, run `mcen`): of 8.4 km,
+1.8 km the walk refused because its line model reads the gap 9.5-12 m although the two walls stand 9.5 m apart or less
+(`CityMeshes.Unions.cs` GroundTwinSample, the `gap > GroundTwinGapMaxM` test); 1.0 km because the two carriageways carry different names
+(the `c.name != X.name` test: I-77 south of I-485 is "B. Bayles Mack Highway" one way in OSM; Independence Blvd at Matthews is
+"Independence Boulevard" / "East Independence Boulevard"); 1.9 km are those pairs' partners (the lower-numbered edge owns a pair);
+1.8 km are two shared (union) medians standing side by side on one edge (the walk laid both; cause not found this round, not touched);
+0.55 km rails at drops on ramps beside each other (not a barriered one-way: outside the walk). Each refused carriageway then stood its
+own Jersey at its own median edge (CityMeshes.cs EmitSide, `sf.median`).
+FIX, in the caller (GroundTwinSample), decided at load from the whole map (the union runs), so both tiles of a seam agree: the walk pairs
+two opposing carriageways whatever their names - only median side to median side both ways, only within 25 degrees of opposite, up to a
+line-model gap of 12 m (`PSX_CITY_CONC_TWIN_GAP`) - and the pair carries the walk's own shared median: ONE Jersey on the strip's centre
+line, the strip floored flush, each carriageway's own Jersey standing down under it (exactly as every same-name pair up to 9.5 m already is).
+KEPT TWO on purpose: US 74 Independence's busway corridor (names "East Independence Expressway", "US 74": the busway and its 2026
+express lanes are in that median, not drawn yet) and any structure (twin decks keep their parapets; with decks paired the bridges audit's
+RAIL-FLUSH rose by one on I-77, so they are out).
+NOT DONE: the split-level median (the high side's barrier on a retaining wall faced toward the low road). The walk keeps its 1 m height
+limit (the shared Jersey's two-level form); the inventory does not count a rail on a retaining face beside a Jersey as a double (the rail
+guards a fall), and I did not count those places this round.
+STANDARDS: AASHTO Roadside Design Guide 2011 ch. 6 (FHWA copy aii.transportation.org/Documents/FHWA-AASHTORSDGChapter6.pdf): a median
+barrier is recommended where the median is 30 ft (9 m) or less, weighed at 30-50 ft, not normally considered past 50 ft - one barrier,
+never two; TxDOT Roadway Design Manual 17.7.2 (after the RDG): a barrier on flat ground, a median too steep is regraded or filled and given
+a split-level concrete barrier, barriers on both sides "not desirable"; NCDOT Roadway Standard Drawings 854.07 (single slope concrete
+barrier) and 854.06 (median hazard protection), 2024 edition; TDOT S-SSMB-9 (single slope barrier wall for a grade-separated median)
+for the split-level form.
+RESULT: class d city-wide 8,658 m (gate off) -> 8,434 m (round 1 gate) -> 3,492 m (every rule on). What is left: 1.8 km two shared medians side by side on one edge (not touched), 0.93 km the US 74 busway corridor kept two on purpose (433 m and their partners: East Independence Expressway from Commonwealth Ave to Idlewild Rd), 0.56 km drop rails on ramps beside each other, the rest under 0.2 km. The walk now lays shared medians on 107 more tiles (roads, ground and kerbs meshes differ there: the flush strip; 94 of them hold or touch a class d or b piece of the gate-off inventory, the others are medians whose two walls stood more than 9.5 m apart, now one barrier too).
+
+## Step 3 - class b, walls with no reason (rule 6, PSX_CITY_CONC_REASON, default ON)
+A median Jersey whose carriageway has no road the other way beyond it within 250 m (the Guion Lane kind), and a fan chord's Jersey with no
+road in the clear zone beyond it, neither guarding a fall, are not built (CityMeshes.Concrete.cs ConGate / ConNoReason). Kept: a fall beside
+it or land over it (the run rules' own probe), structure or a retaining face, ANY road within the clear zone beyond it (10 m, AASHTO RDG
+Table 3.1 for 60-70 mph), a road the other way within 250 m, a structure within 40 m (piers, abutments: R3; the inventory's approach rule).
+Decided from the map at the piece alone, so every tile agrees. Cut walls are NOT judged: the first city-wide run with them took 3 km of
+walls that hold land (judged at build time the ground read flatter than the inventory reads it after the build); the inventory finds no
+cut wall without a reason on the merged base.
+RESULT: rule 6 left out 682 pieces, 3,621 m city-wide (median Jerseys and fan chords). Of every piece the gate changed, 50 (80 m) were in no stray class before (side-median 18, side-rail-ground 18, shared median 14); round 1s gate alone changed 39 such (39 m: rules 1 and 5 at junction mouths and ends), so rule 6 took at most 11 median pieces (about 40 m) the inventory counts as having a reason. Class b 2,621 m (gate off) -> 2,533 m (round 1) -> 736 m. Left: 427 m of median Jerseys rule 6 keeps (a road in the clear zone, a road the other way within 250 m by the map, or a structure within 40 m, where the inventory's probe of the drawn pavement finds none: East Independence Expressway at N Sharon Amity and at Idlewild Rd), 159 m of fan-chord Jerseys with a road in their clear zone, 146 m of shared-median Jerseys (not judged by rule 6).
+
+## Step 4 - classes f and c
+Not changed beyond round 1's rules 4 (no orphan) and 5 (an end is a real end). What is left of them guards a fall or holds land (see
+"where unnecessary concrete still stands").
+
+## Step 5 - the owner's Freedom Drive deck (I-85, tile -28,27)
+Inside the paved deck there now stand only the parapets round its three openings (the middle triangle and the two notches where I-85 shows through), three fan-chord rails (14 m) and the gore noses (block, sloped legs and tails, 38 m) - drawn by EmitSide's deck parapet (side-rail-deck), BuildJunctions' fan chords (fan-chord-rail-deck) and EmitNose (nose-*-deck); each guards a real fall onto I-85 and goes when the deck plate (charlotte-spui) floors the openings. PSX_CITY_CONC_PLATE stays off. The bridges audit's RAIL-ON-LANE on e11321 there is the gore nose's sloped leg on Freedom Drive's ramp (e6087), the same piece before and after, reported now that the full-height wall beside it is gone.
+
+## The stray table, city-wide (5,073 tiles; metres, pieces)
+```
+class	gate off (as asked)	round 1 gate	every rule on   (metres; pieces)
+a ON-PAVEMENT     	   737 m (507)	     3 m (2)	     3 m (2)
+b NO-REASON       	  2621 m (749)	  2533 m (715)	   736 m (363)
+c ORPHAN          	  2134 m (1086)	  1599 m (842)	  1566 m (833)
+d DOUBLE/BOX      	  8658 m (2741)	  8434 m (2655)	  3492 m (1560)
+e STARTS-AND-STOPS	   234 m (60)	   229 m (57)	   210 m (61)
+f BAD-END         	  2427 m (558)	  2090 m (508)	  2073 m (516)
+g UP-AND-DOWN     	   748 m (303)	   723 m (270)	   690 m (263)
+h OVERSIZE        	     0 m (0)	     0 m (0)	     0 m (0)
+h2 TALL-OVER-LANE 	  1842 m (714)	  1765 m (673)	  1765 m (673)
+all strays        	 17.70 km	 16.27 km	  9.58 km
+```
+
+## Where unnecessary concrete still stands, and why
+- a ON-PAVEMENT: 3 m - by rule: union-median-ground-twin 3 | heaviest places: 35.08601,-80.66283 2 m; 35.21896,-80.82434 1 m
+- b NO-REASON: 733 m - by rule: side-median 427, fan-chord-jersey 159, union-median-ground-twin 146, union-split-feet 0, union-median-ground 0 | heaviest places: 35.19372,-80.76527 106 m; 35.18382,-80.75643 80 m; 35.16309,-80.89001 39 m; 35.08601,-80.66283 36 m; 35.08729,-80.66425 34 m
+- c ORPHAN: 1566 m - by rule: side-rail-ground 756, side-rail-retain 169, side-cut-wall 162, side-rail-deck 149, side-median 143 | heaviest places: 35.23378,-80.84741 72 m; 35.24761,-80.89662 59 m; 35.08578,-80.83456 57 m; 35.17996,-80.89001 53 m; 35.05982,-80.76974 50 m
+- d DOUBLE/BOX: 3483 m - by rule: union-median-ground-twin 1812, side-median 1038, side-rail-ground 563, union-split-feet 70 | heaviest places: 35.21031,-80.80093 253 m; 35.19076,-80.76272 168 m; 35.18743,-80.75983 163 m; 35.17582,-80.74931 117 m; 35.17737,-80.75081 106 m
+- e STARTS-AND-STOPS: 210 m - by rule: side-median 98, side-cut-wall 38, side-rail-deck 27, side-rail-ground 16, union-median-deck 10 | heaviest places: 35.27174,-80.84685 16 m; 35.26212,-80.87851 15 m; 35.20301,-80.79093 12 m; 35.19944,-80.77199 12 m; 35.20140,-80.78152 12 m
+- f BAD-END: 2074 m - by rule: side-cut-wall 714, side-rail-deck 509, side-rail-ground 225, side-rail-retain 167, side-median 138 | heaviest places: 35.34851,-80.84930 49 m; 35.24761,-80.89662 39 m; 35.36230,-80.74910 36 m; 35.42538,-80.99909 35 m; 35.26212,-80.87851 31 m
+- g UP-AND-DOWN: 689 m - by rule: side-rail-ground 248, nose-leg-deck 158, side-median 105, side-rail-deck 97, union-median-ground-twin 19 | heaviest places: 35.22780,-80.82922 55 m; 35.12740,-80.91521 33 m; 35.25293,-80.96714 32 m; 35.24398,-80.84788 25 m; 35.20203,-80.78699 24 m
+- h2 TALL-OVER-LANE: 1767 m - by rule: side-rail-retain 1548, side-rail-ground 144, side-rail-deck 73, nose-tail-deck 2 | heaviest places: 35.27739,-80.79793 153 m; 35.27625,-80.80233 124 m; 35.24136,-80.96159 92 m; 35.06536,-80.84581 85 m; 35.24219,-80.90067 85 m
+- In words: d - two shared medians side by side (1.8 km, not touched), the US 74 busway corridor (kept two on purpose), drop rails on ramps beside each other; b - the median Jerseys and fan chords rule 6 keeps for a road within its tests; c, f, g, h2 - short or square-ended rails and walls that guard a fall or hold land (rule 4 and 5 never take them: protection is not removed; the real fix is a longer run or a tie-in, not done); the deck - see step 5.
+
+## Gates for steps 2-3 (every rule on, fresh process, against the same sandbox's runs)
+- Per-tile meshes, city-wide, every rule on (run `pall`) against round 1's gate (`mall`), both fresh processes, same sandbox: roads,
+  ground and kerbs differ on 107-109 tiles (the shared medians' flush strips; 94-96 of them hold or touch a class d or b piece of the
+  gate-off inventory, the rest are medians whose two walls stood more than 9.5 m apart, now one barrier as well: I-485 tiles -51,-63..-61,
+  I-85 tiles 38..40,83..89); barriers differ on 129 tiles; structure on 5 and guardrails on 3 (tiles 48,98 and 50,-39 hold no class d or
+  b piece: not explained this round). Triangles on the changed tiles: roads 490,724 -> 550,316, ground 728,421 -> 661,193, kerbs 128,158 ->
+  124,260, barriers 86,126 -> 97,592. Whole city: barriers mesh 894,982 -> 906,448 triangles; tile build 161 -> 159 ms a tile (city-wide
+  mean). Within the run (the gate's rules rebuilt as asked and compared): ground, roads, kerbs, guardrails 0 tiles; barriers 125;
+  structure 4 (as round 1). Barrier vertices no gate call accounts for: 0.
+- Cost on sample tiles (one cold build each, `cost.py`): Uptown -12,16, a suburb 11,7 and the owner's deck -28,27: no mesh changed by
+  steps 2-3; I-77 at the state line -41,-38: 11,630 -> 11,362 triangles (ground 6,124 -> 4,480, roads 3,930 -> 5,378, kerbs 830 -> 562,
+  barriers 746 -> 942), build 130 -> 193 ms. Baked size not measured (it follows the triangles).
+- Bridges audit, city-wide, gate off (m0) -> round 1 (m1) -> every rule on (p1): RAIL-DROP 1 / 1 / 1, RAIL-FLUSH 17 / 17 / 17, WALL-IN-LANE
+  10 / 7 / 7, RAIL-ON-LANE 3 / 2 / 2, BLUNT-END 84 / 81 / 81, APPROACH-RAIL 45 / 45 / 45: none rose; p1 has the same places as m1 (the
+  first run with twin decks paired raised RAIL-FLUSH to 18 at I-77 e1293, 35.11508,-80.92412: structures are now out of the relaxed walk).
+- Drive audit, the 48 edges, m0 / m1 / p1: nothing solid across a lane 0 / 0 / 0; fall holes 0; lane steps 3 / 3 / 3; BLUNT 7 / 6 / 6;
+  MEDIAN ACROSS one wall 1,200 / 1,253 / 2,615 rays, two or more 5 / 5 / 8, none 13 / 16 / 17; a split's V read as two walls 345 / 325 /
+  243 rays. The 3 new two-wall rays are a pair the audit sees only now that the walk pairs carriageways of other names: East Independence
+  Expressway e1136 / e1402 at (-520,3823), 35.2190,-80.8234, in the busway corridor where two walls are kept on purpose; the 1 new none-ray
+  is the same real opening at e7235 (East Independence Boulevard, 8523,-4183), its turned-down end 2 m longer under the ray.
+- LifeSim self-test, PSXRec: gate off 4,587 ok / 63 FAIL; every rule on 4,587 ok / 63 FAIL: the same 63 (0 new, 0 gone; `st_m0.txt`, `st_p1.txt`).
+
+## Proof sheet
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\concrete\final_sheet.png`: the owner's deck first (the bridges sheet's three poses and a top view), then the five worst class d clusters and the five worst class b clusters; four cells a place: BEFORE (gate off, fresh process), BEFORE with every stray piece boxed in its class's colour (a red, f orange, d magenta, b yellow, c cyan, e blue, g green, h white), AFTER (every rule on, fresh process), AFTER boxed.
+
+## Switches (all default as listed; `PSX_CITY_CONCRETE=0` turns every one off: the picture as it was)
+PSX_CITY_CONC_PAVE (rule 1, ON), PSX_CITY_CONC_ORPHAN (rule 4, ON), PSX_CITY_CONC_ENDS (rule 5, ON), PSX_CITY_CONC_TWIN (class d, ON;
+=0 off), PSX_CITY_CONC_TWIN_GAP (metres, 12), PSX_CITY_CONC_REASON (rule 6, ON; =0 off), PSX_CITY_CONC_PLATE (rule 3, OFF: never ship
+it on), PSX_CITY_CONC_SPUI (OFF, untested).
+
+## For the merge
+- Shared-file edits: `Scripts/City/CityMeshes.Unions.cs` only: GroundTwinRuns l.1033 (an unnamed carriageway pairs), GroundTwinWhy l.1087
+  (the same), GroundTwinSample l.1121-1173 (the candidate filter: another name only within 25 degrees and on the median side; after the
+  pair is found: median to median, the 12 m gap, kept-two). Everything else is in my own files (`CityMeshes.Concrete.cs`,
+  `Editor/CityAudit.Concrete.cs`). Round 1's shared-file edits are listed in its section below.
+- No new mesh slot, bucket, material or baked field; CityTileCache.Format untouched; no data file; no scene pass.
+- A CITY RE-BAKE IS NEEDED for the PC build (the coordinator's): the shared medians change the roads, ground, kerbs and barriers meshes
+  on the tiles of the newly paired medians, rule 6 the barriers mesh where median Jerseys go.
+- The deck plate (charlotte-spui) as round 1 says: when it lands, rule 1 must see its pavement (`CityMeshes.ConcreteExtraPave`, or try
+  `PSX_CITY_CONC_SPUI=1`), then RunBridges: RAIL-DROP must not rise. Keep PSX_CITY_CONC_PLATE off.
 
 # HANDOFF - CONCRETE ROUND 1 (charlotte-concrete, 2026-11-15): one gate for every piece of standing concrete, the inventory by the owner's question
 
