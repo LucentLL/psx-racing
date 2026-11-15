@@ -1,3 +1,173 @@
+# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
+
+Restart of the concrete job stopped at 14:07 (the owner: "To the concrete pieces, yes"). Worktree `C:/Users/mcgee/PSX Racing-concrete`,
+base e2749b17 (mountain-nm 416ddfda = PC43 merged in by the coordinator). Sandbox PSXRec (Android target), every comparison two fresh
+processes, the base with `PSX_CITY_CONCRETE=0`. Graph hash b2aa3453 (GHSH) in every run; no data file touched, no export run.
+
+## Step 1 - round 1's gate re-proved on the merged base (PC43 changed the tiles under it: curbs 3, inlets, lot entrances, bridges)
+- Per-tile meshes, city-wide (5,073 tiles; every tile the gate changes is rebuilt with the gate off and compared): the gate changed a
+  piece on 112 tiles; meshes that differ there: ground 0, roads 0, kerbs 0, guardrails 0, barriers 112, structure 4 (the city bridge's
+  metal bar is not laid on a parapet piece rule 1 clipped). Barrier triangles on those tiles 121,584 -> 116,528; build 264 -> 284 ms a
+  tile (warm pair). Tiles with barrier vertices no gate call accounts for: 0. Rule 1 took 569 m off pavement, rule 4 left out 227
+  pieces (492 m), rule 5 turned 71 free square ends down. Pieces the gate changed that were in no stray class: 39 (39 m: side-median
+  7, side-rail-ground 18, union-median-ground-twin 14 - ends turned down by rule 5 and pieces clipped at junction mouths).
+- Bridges audit, city-wide (1,086 runs, 502 tiles), off -> on: RAIL-DROP 1 = 1 (the same place), RAIL-FLUSH 17 = 17, WALL-IN-LANE
+  10 -> 7, RAIL-ON-LANE 3 -> 2, BLUNT-END 84 -> 81, APPROACH-RAIL 45 = 45. None rose. Two places are new with the gate on (their
+  classes still fell): RAIL-ON-LANE on the owner's deck, e11321 s 12 (35.24745,-80.89613), a piece whose top stands 0.30 m over that
+  ramp's lane line where the full-height WALL-IN-LANE on e13604 10 m away is gone (the two ramps' ribbons overlap at different heights:
+  the deck surface, spui's job); BLUNT-END at I-77 / Tyvola Rd, e2747 s 17 (35.16301,-80.89024): a parapet cut where pavement lies past
+  both its faces keeps its full height to its cut end (it guards a fall).
+- Drive audit, the 48 edges, off -> on: nothing solid across a lane 0 = 0; fall holes 0 = 0; lane steps 3 = 3; BLUNT 7 -> 6; MEDIAN
+  ACROSS two+ 5 = 5; a split's V read as two walls 345 -> 325 rays; MEDIAN ACROSS none 13 -> 16 rays, all at East Independence
+  Boulevard e11785 by e7235 (8522,-4181), the same with the zone fix, so not a seam: the opening is real (the junction with e7235);
+  rule 5 turned down the square end of the median beside it and the last 6 m of that end are under the audit's ray. Explained, not
+  changed. The other roads on those tiles: walls 30 -> 1, blunt 16 -> 14.
+- LifeSim self-test, PSXRec: gate off (baseline, fresh process) 4,587 ok / 63 FAIL; gate on 4,587 ok / 63 FAIL: the same 63 (0 new, 0 gone; `st_m0.txt`, `st_m1.txt` in the scratch folder).
+- The inventory, city-wide, gate off -> on (km of standing concrete in a stray class): 17.70 -> 16.27. Table in "The stray table" below.
+(Steps 2-5 are being proved now; this section is completed at the hand-back.)
+
+# HANDOFF - CONCRETE ROUND 1 (charlotte-concrete, 2026-11-15): one gate for every piece of standing concrete, the inventory by the owner's question
+
+Branch `charlotte-concrete` (worktree `C:/Users/mcgee/PSX Racing-concrete`, off `charlotte-bridges` 109f4c89). Not merged, not pushed.
+Graph hash b2aa3453 before and after (no data file touched, no export run). Sandbox PSXRec (Android target).
+The owner, 11:35, looking at the bridges sheet (the deck where the ramps meet at I-85 and Freedom Drive): "can you see this
+massacre of unnecessary concrete median pieces? this is still an issue all across the city after weeks of attempts to correct them".
+
+## What this round is
+Six weeks of rounds each patched one rule and counted its class. This round put ONE function in front of everything that
+writes standing concrete into the barriers mesh, made it keep a record of every piece (who asked, where it stands, how
+tall), and built an inventory that reads those records and asks of every piece: why is this concrete here?
+
+## The inventory: `Editor/CityAudit.Concrete.cs`, `-executeMethod PSXRacing.EditorTools.CityAudit.RunConcrete`
+Reads `CityMeshes.concreteLog` (the gate's own records: the audit and the builder cannot disagree) from the tiles the game
+builds (CityMeshes.Build), then from the whole map: joins pieces into RUNS (ends within 0.75 m, across rules, edges and
+tiles; W-beams and the cable median tie a run), finds what each piece stands on and its REASON (R1 divides opposing
+traffic: the other carriageway within 80 m; R2 guards a fall: on structure, a fall of 0.6 m within 8 m / 1.5 m within 12 m
+on the graded ground, on a retaining face, or within 40 m along its run of a structure's rail; R2 holds land: land over it
+steeper than 1V:3H; R4 kerb height), and classes the strays:
+a ON-PAVEMENT (pavement past both its faces and under it, at its level), b NO-REASON, c ORPHAN (a run under 30 m),
+d DOUBLE/BOX (two walls 0.6-9.5 m apart that BOTH guard nothing, no lane and no fall between), e STARTS-AND-STOPS (two run
+ends in line under 40 m apart, nothing real opening between), f BAD-END (a free end over 0.3 m within reach of pavement),
+g UP-AND-DOWN (a step or dip at a joint), h OVERSIZE, h2 TALL-OVER-LANE (top over 1.35 m above the lane beside it).
+Outputs in the sandbox root: `city_concrete_<tag>.txt` (tables before / after, by rule, 40 clusters), `_pieces.tsv` (every
+stray piece, both sets), `_tiles.tsv` (per-tile mesh hashes), `_clusters.tsv` (90 clusters with a driver's-eye pose),
+`_plans.tsv` (the pavement and every piece at the five worst clusters of b, d, f, for `plan.py`), `_log.bin` (the records:
+`PSX_CONC_LOAD=<tag>` classifies them again in minutes without building a tile).
+Env: PSX_CONC_TAG, PSX_CONC_NEAR "x,z,r", PSX_CONC_POP=ramps (the sample: tiles with a ramp or a structure),
+PSX_CONC_MINUTES, PSX_CONC_PLAN "x,z,r;...", PSX_CONC_DUMP_ALL=1, PSX_CONC_LOAD. Cost runner: `CityAudit.RunConcreteCost`.
+With the gate on, one pass gives BEFORE (as asked) and AFTER (as built), and every tile the gate changed is rebuilt
+with the gate off and compared mesh by mesh.
+Pictures: `CityRefSpots.RunBridges2` now takes `PSX_BRSHOT_SPOTS_FILE`, world poses (`id@ex,ey,ez,lx,ly,lz`),
+`PSX_BRSHOT_SWITCH=concrete` (before / after flips the gate; mode `plate` adds the plate rule) and `PSX_BRSHOT_TINT=<_pieces.tsv>`
+(a second frame `_tint` with every stray piece boxed in its class's colour).
+
+## The gate: `Scripts/City/CityMeshes.Concrete.cs` (PSX_CITY_CONCRETE=0: everything as asked, the picture as it was)
+Every writer of the barriers mesh passes it: EmitBarrier, EmitRail (and through it EmitRailOffLanes: fan chords, gore
+noses), EmitUnionJersey, EmitUnionLegs, EmitInsetJersey; the face writers (retaining faces, the union end cap, culvert
+headwalls) are accounted (the audit fails on any barrier vertex no gate call covers: 0 on every tile built).
+- Rule 1 NOTHING ON PAVEMENT (`PSX_CITY_CONC_PAVE`, on): a piece with drawn pavement (any ribbon as drawn, its own
+  included, or a junction fan; the whole-map outlines, so tiles agree) past BOTH its faces and under it, at the level it
+  stands on, is clipped to what stands outside. A barrier's cut end is turned down over 8 m; a parapet's is capped at
+  full height (it guards a fall). What is left under 3 m (a parapet: 0.5 m) goes. The one piece that belongs between two
+  pavements stays: a barrier between the opposing carriageways of a divided road (not ramps).
+- Rule 4 NO ORPHAN (`PSX_CITY_CONC_ORPHAN`, on): a run under 30 m - counted as it stands, across rules and edges, after
+  rule 1 - that guards nothing is not built. Never taken: anything on structure, on a retaining face, with a fall beside
+  it or holding land, tied to a W-beam or the cable, or reaching within 10 m of the tile's border (the next tile may hold
+  more of it: both tiles leave it).
+- Rule 5 AN END IS A REAL END (`PSX_CITY_CONC_ENDS`, on): a barrier's free square end (EmitBarrier's pieces only) that
+  guards nothing and has no barrier ahead in its line within 12 m is turned down along its last piece. Parapets keep
+  their height.
+- Rule 3 THE PLATE (`PSX_CITY_CONC_PLATE=1`, OFF): an opening that drawn pavement closes round (twelve rays, 30 m)
+  counts as pavement. It exists to show what rule 1 does once the deck plate floors the openings; on today's decks it
+  would open unguarded falls. Do not ship it on.
+- `CityMeshes.ConcreteExtraPave` (a delegate, null): pavement that neither a ribbon nor a fan holds. And
+  `PSX_CITY_CONC_SPUI=1` (OFF, untested: the plates are not in this branch): reads CityDeckPlates' hulls by name and
+  counts a point as plate when it is inside a hull and 2 m from its rim.
+There is no height rule: the inventory found no piece taller or thicker than its kind city-wide.
+PROTECTION: nothing on structure, on a retaining face, beside a fall or holding land is ever dropped or lowered; it is
+clipped only where pavement lies past both its faces and under it.
+
+## What was found
+1. No rule that stands concrete asked what the piece stands on, and nothing looked at all of them together: 19 rules
+   (the caller tags in the records) write through `EmitBarrier` (CityMeshes.cs:8714), `EmitRail` (:8777),
+   `EmitUnionJersey` / `EmitUnionLegs` (CityMeshes.Unions.cs:1700 / :1790) and `EmitInsetJersey` (CityMeshes.Medians9.cs:546).
+2. THE OWNER'S DECK (I-85 at Freedom Drive, tile -28,27). The deck is drawn as the ramps' own ribbons and one junction fan,
+   standing up to 0.8 m apart in height (e2908 141.1 m, e13604 140.3 m), with OPENINGS between them (I-85 shows through:
+   one closed triangle in the middle, an open notch on the west, an open notch on the south-east). What he circled is
+   three different things:
+   a. pieces standing ON pavement: the second wall of the double row along e13602, the T-shaped block at the island's end,
+      the wall behind the "staircase", a nose leg across the lanes of e13610 / e2899, a chord rail: rule 1 takes them
+      (56 pieces changed on the tile, the barriers mesh 5,368 -> 4,934 triangles);
+   b. the parapets, three fan-chord rails and the gore noses (the "staircase": a nose block with its two sloped legs)
+      at the RIMS of the openings: about 60 m round the middle triangle plus the notches' rails. Each guards a real
+      fall onto I-85 (RAIL-DROP if taken), so the gate leaves them. They go when the openings are floored: shown with
+      the plate rule on (the sheet's deck rows; the middle of the deck comes out clean, and the west opening shows
+      unguarded, which is why the rule is off);
+   c. the "long low beam lying across the pavement" is not concrete: it is the 20 cm step between two ramp ribbons seen
+      edge on (the deck's surface: the spui agent's work).
+   The walls "above the driver's eye": every piece on the deck is 0.95 m (a parapet) or lower; they stand on ribbons
+   0.2-0.8 m higher than the lane the camera is in, and the eye is at 1.15 m. City-wide no piece is taller or thicker
+   than its kind (class h: 0).
+3. City-wide, the unnecessary concrete is mostly NOT at the interchanges. By metres: two Jerseys along one median
+   (d, 14 km: the ground-twin rule refusing a pair), Jerseys and cut walls with no reason (b, 5 km), free square ends
+   (f), short runs (c). See STAGE1.md for the classes checked by eye.
+
+## Gates (same sandbox, base = PSX_CITY_CONCRETE=0)
+- Per-tile meshes, city-wide (every tile the gate changes is rebuilt with the gate off and compared): Ground, Roads,
+  Kerbs and Guardrails identical on every tile; Barriers differ only on the tiles the gate changed a piece on; Structure
+  differs on 4 tiles (the city bridge's metal bar is not laid on a parapet piece the gate clipped). A tile the gate
+  changes no piece on emits every piece through the same call with the same arguments. Re-run on the merged base (PC43, e2749b17), city-wide, same sandbox: tiles built: 5073 of 5073 in 815 s (161 ms a tile); barriers mesh 894982 triangles; tiles with barrier vertices no gate call accounts for: 0; the gate: rule 1 (nothing on pavement) took 569 m off pavement; rule 4 (no orphan, on) left out 227 pieces, 492 m; rule 5 (an end is a real end, on) turned 71 free square barrier ends down; rule 3 (the plate) off; tiles the gate changed a piece on: 112 of 5073; each rebuilt as asked (gate off) and compared mesh by mesh - tiles whose mesh differs: ground 0, roads 0, kerbs 0, barriers 112, structure 4, guardrails 0; barriers triangles on those tiles 121584 as asked -> 116528 gated; build time on those tiles (warm pair) 264 ms as asked -> 284 ms gated; pieces the gate changed or left out: 797; of these in NO stray class before: 39 (39 m) side-median 7 side-rail-ground 18 union-median-ground-twin 14.
+- Bridges audit, city-wide (1,086 runs, 999 tiles), gate off -> on: gate off (m0) -> on (m1), merged base: RAIL-DROP 1 = 1 (the same place), RAIL-FLUSH 17 = 17, WALL-IN-LANE 10 -> 7, RAIL-ON-LANE 3 -> 2, BLUNT-END 84 -> 81, APPROACH-RAIL 45 = 45: none rose. Two places are new with the gate on (each class still fell): a RAIL-ON-LANE on the owner's deck, e11321 s 12 (35.24745,-80.89613), a piece whose top stands 0.30 m over that ramp's lane line where the full-height WALL-IN-LANE on e13604 10 m away is gone; a BLUNT-END at I-77 / Tyvola Rd, e2747 s 17 (35.16301,-80.89024), a parapet cut where pavement lies past both its faces keeps its full height to its cut end (it guards a fall). `city_bridges_audit_m0/_m1.*` in PSXRec.
+- Drive audit on 48 edges (the two worst edges of each of the 24 heaviest clusters and the deck's), re-run on the merged base with the zone fix
+  (`city_drive_m0.txt` / `_m1.txt`): the numbers below are unchanged from the first run. Nothing solid
+  across any lane 0 = 0; fall holes 0 = 0; lane steps 3 = 3; land on a lane 0 = 0; BLUNT 7 -> 6; MEDIAN ACROSS two or
+  more walls 5 = 5; a split's V read as two walls 345 -> 325 rays; MEDIAN ACROSS none 13 -> 16 rays at ONE place: East
+  Independence Boulevard (e842 / e11785 at 8515,-4185), where an existing 6 m opening at e7235's junction reads 12 m
+  because rule 5 turned down the square end of the median beside it (a turned-down end is under the audit's ray).
+  Re-run with the zone fix: the same 13 -> 16, so it is not a seam: the opening is real (the junction with e7235), the 3 rays (6 m) are the
+  last metres of the turned-down end, lower than the audit's ray; the median runs on to the opening. Explained, not fixed.
+- Cost (CityAudit.RunConcreteCost: each tile three times per mode, the quickest, no records kept), as asked -> gated:
+  | tile | what | build ms | barrier triangles | all triangles |
+  |---|---|---|---|---|
+  | -12,16 | Uptown, S Tryon / Church / College over I-277 | 754 -> 773 | 2,562 = | 47,610 = |
+  | 11,7 | suburb, Eastway Dr over a creek | 731 -> 823 | 2,674 = | 39,779 = |
+  | -28,27 | I-85 at Freedom Dr | 789 -> 864 | 5,368 -> 4,934 | 41,358 -> 40,892 |
+  | -26,-10 | I-77 at Tyvola Rd | 892 -> 942 | 5,702 -> 5,656 | 61,940 -> 61,862 |
+  The gate's probes cost 2-12 % of a barrier-heavy tile's build; triangles only fall. Baked size not measured (it
+  follows the triangles: about -5,400 of 895,000 barrier triangles city-wide).
+- NOT run: the median gates of CityAudit.MedianGates.cs (the offline refuge-island list: no line-model input changed),
+  the Twin audit, the launch audit and the flicker finder (no surface moved, no face added), the traffic check (no
+  lane path moved).
+
+## Where unnecessary concrete still stands (after the gate)
+See round 2 (the section above): the stray table after every rule, by class and place.
+
+## For the merge
+- Shared-file edits (all small, marked "concrete gate"):
+  `CityMeshes.cs`: BuildCentreMedians (l.222 context tag), TileSteps (l.2250 ConcreteTileBegin, l.2317
+  ConcreteRunRulesNow before CloseOpenGround, l.2344 ConcreteTileEnd), EmitNose (l.3399-3475 context tags), EmitSide
+  (l.6716-6880: context tags, `conLastWhole` before EmitCityRail, the retaining face accounted, W-beam notes),
+  EmitBarrier / EmitRail (l.8714-8815: each is now a wrapper over EmitBarrierCore / EmitRailCore), BuildJunctions' fan
+  chords (l.10693-10716).
+  `CityMeshes.Unions.cs`: EmitUnionMedian (l.1578, 1644, 1664 tags), EmitUnionJersey (l.1700 wrapper + Core),
+  EmitUnionLegs (l.1823, 1843), EmitUnionEnd (l.1902 cap accounted). `CityMeshes.Medians9.cs`: EmitInsetJersey (l.554-566).
+  `CityMeshes.Hydro.cs`: EmitCulvertEnd (l.81-84). `CityMeshes.Dividers.cs`: EmitCablePiece (l.2068, one line: the cable
+  ties a run). `Editor/CityRefSpots.Bridges.cs`: RunBridges2 (spots file, world poses, the concrete switch, tint).
+- New files: `Scripts/City/CityMeshes.Concrete.cs`, `Editor/CityAudit.Concrete.cs`. No new mesh slot, bucket, material
+  or baked field; CityTileCache.Format untouched; no data file; no scene pass. A re-bake is needed (barriers mesh on
+  about 130 tiles).
+- THE DECK PLATE (charlotte-spui, not there yet): when it lands, rule 1 must see its pavement or every wall inside the
+  plate stays. Either set `CityMeshes.ConcreteExtraPave` (a point-in-plate test from the map alone), or try
+  `PSX_CITY_CONC_SPUI=1` (reads CityDeckPlates.Plates' hulls by name, 2 m in from the rim; untested). Then run
+  `CityAudit.RunBridges`: RAIL-DROP must not rise, and where the plate reaches past the old parapets its rim needs a
+  parapet of its own. Do not turn on PSX_CITY_CONC_PLATE in a build.
+- The other four agents' branches do not touch the gate; a new writer of the barriers mesh that does not go through it
+  shows as "barrier vertices no gate call accounts for" in the inventory (0 today).
+
+## Tools (scratch folder `...\scratchpad\concrete\`)
+`job.ps1` (the runner), `gates.ps1` / `chain2.ps1` (the gate chains), `plan.py` / `plans.py` (plans from the records),
+`mkspots.py`, `vis.py` (stray pixels seen in the tinted frames), `stage.py` / `sheet2.py` (sheets), `mk_stage1.py`.
+
 ﻿# HANDOFF - LOT ENTRANCES, SECOND PASS: a driveway that reads as one (agent "lots", branch `charlotte-lots`, 2026-11-15 pm; NOT pushed)
 
 The owner on the first pass's frames (11:50): "that is a LOT of curb on the side of the road (and I don't see an entrance area (curb relief) into the parking lot". He was right: the first pass's cut eased over 18 m of frontage, the ramp behind it was ground-coloured concrete up to 18 m wide, and my owner's-lot frames showed the wrong lot. Branch now = mountain-nm 50c8a3aa (bridges, roads audit, hoods' curbs 3) merged in + this pass. Sandbox PSXPerf.
