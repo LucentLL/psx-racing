@@ -1,4 +1,71 @@
-﻿# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
+﻿# HANDOFF - LAKE LURE ROUND 2, THE FIDELITY ROUND (agent "lakelure", branch `mountain-lakelure2` from mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+
+The round's aim (coordinator, 11-16): what still kept Lake Lure from being "the memory of what it used to be like", most
+visible first. Every change has its own switch; `=0` gives round 1 for that item, and with all eight at 0 the stage
+builds as round 1 (checked in a fresh lab: 44 mouths / 10 walled / 16 faced, LakeLure 0 FAIL). Defaults: all eight ON (each proven below in a fresh PSXRec build).
+
+## What was wrong (found)
+- The town was hidden in forest: the keep-out only kept trees off footprints, lots and roads, so every lawn, the beach and
+  the inn's grounds grew trees (8:15: the inn not visible at all). Under the trees, the plain stage ground.
+- 52 of 151 buildings have a footprint a gable cannot cover (the inn fills 0.53 of its box) and got a flat cap: boxes.
+- The lidar has 2,992 cells of 12 m steeper than 52 degrees over 18 m of relief within 2.2 km of the road (Chimney Rock's
+  cliffs, Rumbling Bald, the gorge walls). Cliff meshes alone, on the 60 m far ground, read as boulders on painted canopy;
+  the cells themselves needed to be rock.
+- The stage builder plans cuts and rails without the side roads: 10 mouths sat behind a rail (all warranted by a critical
+  fall or water, none by the mapped rail alone), 16 behind a cut bank or a ditch lip.
+- ChimneyRock's 4 audit FAIL lines (EDGE FACE 661 R and 1020 L, PAST THE REACH 712 L, UNWARRANTED BARRIER 0 R) are the
+  base's: identical with PSX_LURE_CHIMNEY=0 in a fresh process (PSXRec), unchanged by both rounds.
+
+## What changed (files, switches)
+- NEW `Editor/PSXRacingBuilder.StageLand.cs` (+ meta). `tools/roads/bake_world.mjs` writes `open`, `piers`, `cliffs`;
+  `Art/LakeLure/lure_world.json` and `Art/ChimneyRock/chimney_world.json` re-baked offline (2024-09-20 attic + 2018
+  lidar; new cache file `attic_lakelure_open_2024-09-20.json` in the main checkout's tools/roads/cache).
+- PSX_LURE_OPEN: keep-out bit 8 (strict) on the mapped parks, pitches, playgrounds, beach and retail land, a yard round
+  every building (12 m in town, 6 m elsewhere) and the lawn between each town building and its road; bit 32 (parkland:
+  one 15 m grove in five keeps its trees) on the marina's land and along the town streets where buildings front them
+  (36 m downtown, 18 m in the villages). Mown lawns and the beach's sand laid on it (3 m cells, corners cut).
+- PSX_LURE_TIMBER: `Theme.timberSpans` 3,450-3,850 m and 11,000-11,450 m wear RailKit.Rustic (post-and-rail, video 6:00
+  and 16:50) where the plan has a rail; W-beam elsewhere.
+- PSX_LURE_GRASSBANK: cut runs under 5 m high to 8.1 km and from 10.4 km wear grass, with no rock dressed on them.
+- PSX_LURE_GRANITE: Meadow photoscanned cliffs on the lidar's 24 m cliff clusters (faced down the fall line, seated on
+  the drawn ground, no colliders, never within 16 m of the road; 1.6 M triangles PC, 0.6 M Android) and a granite skin
+  on every cliff cell over the drawn ground; no trees on the cells (far terrain too).
+- PSX_LURE_FORMS: hipped roofs on the footprints a gable cannot cover, house roofs at least 33 degrees, corner boards,
+  chimneys, the porch on the straight run of walls that faces the road, the inn's two-storey veranda with a gallery.
+- PSX_LURE_MARINA: the 19 docks and finger piers of the 2024 map, plank walks on posts 0.75 m over full pool.
+- PSX_LURE_MAINST: the Park Road frame's Main Street gets a double yellow, edge lines, sidewalks before its buildings,
+  and its lawns come to 1.6 m off the asphalt.
+- PSX_LURE_MOUTHGAP: the near grid notched along each side road's first 24 m to its lidar profile; a mapped rail broken
+  across a mouth where the rail is its only warrant. Mouths laid 44 -> 52.
+- Shared files (small): `PSXRacingBuilder.Stage.cs` (ChordKit: one InTimberSpan line; BuildStageBanks: the grass
+  material and a `grassy` parameter that skips PlaceCliffs and ReliefFace; the planner: LureMouthGaps after `want`),
+  `PSXRacingBuilder.cs` (Theme.timberSpans and Lake Lure's spans), `PSXRacingBuilder.StageRiver.cs` /
+  `StageTown.cs` (this agent's own: hooks, forms).
+
+## Proof
+All in PSXRec (ANDROID target: billboard forest, plain stage ground, no PC mesh forest or rock relief - PC47's scene pass
+is the real look), fresh processes, the game's noon. Sheets in the lakelure scratch folder:
+- `proof_lakelure_r2c_driver.png`: the owner's video | round 1 (e26dc1f4 as merged; the 6:00 and 16:50 rows from the
+  all-switches-off build) | round 2, at 1:20, 7:43, 8:15, 8:45, 9:45, 10:05, 16:20, 6:00, 16:50 and the Park Road's
+  Main Street. 8:15: the inn now stands across its lawn (round 1: forest). 7:43, 1:20, 16:20: grass banks, not rock.
+- `proof_lakelure_r2c_items.png`: the timber post-and-rail (6:00), Bat Cave, the inn from behind, the marina and the
+  inlet from above (hipped roofs), the granite from the road and close up, before and after.
+- StageLab (final code, 12:40): LakeLure 0 FAIL, plants through solids 0 (3,884 checked); ChimneyRock 0 new lines (its 4
+  base lines only), plants 0. World: open ground 0.457 km2, lawns 23.7 ha + beach 0.38 ha, granite 2,977 skin cells and
+  1,535 faces (0.7 M tris), 19 piers / 1,095 m, 47 hipped roofs, 25 chimneys, mouths 52 laid (round 1: 44).
+- Races (final scene): forward: all 4 home, 0 retired, but one check FAILS - the Skyline drove the wrong way 4.0 s at
+  wp 1467 (downtown, 5.87 km) after a traffic collision (3 traffic wrecks in the run; r2b failed the same check, 3.0 s at wp
+  2835, after a traffic hit). Reverse: RACE CHECK OK, all home. Round 1's own forward race on the same code (all switches
+  off): a rival RETIRED into a tree trunk at 6.48 km and the player hit a trunk hard; with the town's trees gone, a car
+  knocked off the road lands on open lawn and turns back instead.
+- All eight switches off: 44 mouths / 10 / 16 and LakeLure 0 FAIL, as round 1.
+
+## Merge
+- Scene pass for LakeLure AND ChimneyRock (both read the re-baked world files). Packs: Meadow/Cliffs and the NMForest
+  stones (PSXLab has them). Re-shoot both track maps on the PC scenes (lawns, granite, marina change the top view).
+- PSXRec was set up for this round (filtered NM rock packs, scene list); nothing else touched.
+
+# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
 
 An independent check of the first pass (f3f16ba0) found three blockers. All three are fixed on the same branch; this
 section supersedes the first-pass section below wherever they differ. Every number is from a fresh process in PSXCity
