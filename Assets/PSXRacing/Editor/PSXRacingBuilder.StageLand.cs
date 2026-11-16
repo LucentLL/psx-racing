@@ -261,6 +261,18 @@ namespace PSXRacing.EditorTools
             // 9:45: the single-storey white shop with the flat roof and the gravel lot, under the granite dome
             [43] = new LureLook { wall = "paint", pitch = 0f, floors = 1, noPorch = true },
         };
+        /// <summary>The pole line's side where the owner's video shows it (+1 right, -1 left, 0: round 1's rule, the
+        /// higher ground): right above the lake at 6:00 and into downtown at 7:43, left from the marina through
+        /// the inlet and Chimney Rock village (8:45, 9:45, 10:05, 11:25). PSX_LURE_VIDEOPOLES=0: round 1.</summary>
+        static float VideoPoleSide(float m)
+        {
+            if (world == null || world.stage != StagePrefix || !WorldSwitch("PSX_LURE_VIDEOPOLES")) return 0f;
+            if (m >= 3450f && m <= 3850f) return 1f;
+            if (m >= 4780f && m <= 5020f) return 1f;
+            if (m >= 5560f && m <= 7700f) return -1f;
+            return 0f;
+        }
+
         /// <summary>PSX_LURE_VIDEOLOOK=0: the building as round 2 built it.</summary>
         static LureLook VideoLook(int i) => WorldSwitch("PSX_LURE_VIDEOLOOK") && VideoLooks.TryGetValue(i, out var l) ? l : null;
 

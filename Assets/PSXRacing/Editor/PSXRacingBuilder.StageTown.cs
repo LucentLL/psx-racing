@@ -1029,6 +1029,9 @@ namespace PSXRacing.EditorTools
                 float gL = WorldGroundY(pts[i].x - RightAt(pts, i).x * 12f, pts[i].z - RightAt(pts, i).z * 12f);
                 float want = gR >= gL ? 1f : -1f;
                 if (want != sideNow && Mathf.Abs(gR - gL) > 1.5f) { sideNow = want; havePrev = false; }
+                // round 3: the side the owner's video shows the line on, where it shows it (PSX_LURE_VIDEOPOLES)
+                float forced = VideoPoleSide(m);
+                if (forced != 0f && forced != sideNow) { sideNow = forced; havePrev = false; }
                 Vector3 p = pts[i] + RightAt(pts, i) * sideNow * (halfW + 6.0f) + (pts[Mathf.Min(pts.Count - 1, i + 1)] - pts[i]).normalized * 2f;
                 p.y = DrapeY(p.x, p.z);
                 if (!Clear(p, 0.3f) || Mathf.Abs(p.y - pts[i].y) > 3f || WalledNear(i, sideNow, 2)) { havePrev = false; continue; }
