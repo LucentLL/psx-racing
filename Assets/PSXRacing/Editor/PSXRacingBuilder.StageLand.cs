@@ -285,18 +285,26 @@ namespace PSXRacing.EditorTools
                 {
                     int idx = r * worldKeepCols + c;
                     byte v = worldKeep[idx];
-                    if ((v & (KeepOpen | KeepPark)) == 0 || (v & 7) != 0) continue;
+                    if ((v & (KeepOpen | KeepPark)) == 0 || (v & 3) != 0) continue;
+                    float cxw = worldKeepX0 + (c + 0.5f) * WorldKeepCell, czw = worldKeepZ0 + (r + 0.5f) * WorldKeepCell;
+                    if ((v & 4) != 0 && (own || !NearStreet(cxw, czw, 1.6f))) continue;
                     float x = worldKeepX0 + (c + 0.5f) * WorldKeepCell, z = worldKeepZ0 + (r + 0.5f) * WorldKeepCell;
                     if (CliffKeepAt(x, z)) continue;
+                    // a cell clear of the water and of side roads and lots (their decals' edges); in another stage's
+                    // frame Main Street's own band does not count - the lawn comes to 1.6 m off its asphalt, under
+                    // the sidewalks (round 1 left 4.5 m of bare ground there: the coordinator's 'sandy ground')
                     bool edge = false;
                     for (int dr = -1; dr <= 1 && !edge; dr++)
                         for (int dc = -1; dc <= 1 && !edge; dc++)
                         {
                             int r2 = r + dr, c2 = c + dc;
-                            if (r2 >= 0 && c2 >= 0 && r2 < worldKeepRows && c2 < worldKeepCols && (worldKeep[r2 * worldKeepCols + c2] & 5) != 0) edge = true;
+                            if (r2 < 0 || c2 < 0 || r2 >= worldKeepRows || c2 >= worldKeepCols) continue;
+                            byte nv = worldKeep[r2 * worldKeepCols + c2];
+                            if ((nv & 1) != 0) edge = true;
+                            else if ((nv & 4) != 0 && (own || !NearStreet(worldKeepX0 + (c2 + 0.5f) * WorldKeepCell, worldKeepZ0 + (r2 + 0.5f) * WorldKeepCell, 1.6f))) edge = true;
                         }
                     if (edge) continue;
-                    if (!own && NearStreet(x, z, 3.4f)) continue;
+                    if (!own && NearStreet(x, z, 3.1f)) continue;
                     // off the tarmac, its verge strip and the town's sidewalks
                     if (StageCorridor(x, z, halfW + 6f, out RoadFoot f))
                     {
