@@ -860,6 +860,15 @@ namespace PSXRacing.EditorTools
                     measured++;
                     h.measured = true;
                     h.tarmacY = tar.point.y;
+                    // A CROWNED OR BANKED ROAD (PSXRacingBuilder.Bank) is not
+                    // level across: the tarmac at the edge is the inset's carried
+                    // on along the half's own slope, read a metre further in. 12%
+                    // over the 0.3 m inset is 3.6 cm, more than the edge drop's
+                    // slack. On a flat road the two reads agree and nothing moves.
+                    if (Physics.Raycast(c + o * (half - TarmacInsetM - 1f) + Vector3.up * 3f, Vector3.down, out RaycastHit tar2, 6f,
+                                        roadMask, QueryTriggerInteraction.Ignore)
+                        && Mathf.Abs(tar2.point.y - tar.point.y) < 0.2f)
+                        h.tarmacY += (tar.point.y - tar2.point.y) * TarmacInsetM;
                     h.edge = c + o * half;
                     h.edge.y = h.tarmacY;
                     foreach (float e in DeckProbeE)

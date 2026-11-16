@@ -12,6 +12,17 @@ namespace PSXRacing
         public float[] curvatures;      // 1/turn-radius at each waypoint
         public float spacing = 4f;
         public float roadWidth = 12f;
+        /// <summary>
+        /// THE ROAD'S CROSS-SECTION, per waypoint, in the direction of travel:
+        /// the left and right tarmac edge's height over the centre line as a
+        /// cross slope ((y_edge - y_centre) / half width; a 2% crown is -0.02 /
+        /// -0.02, a right-hand bend banked 6% +0.06 / -0.06). Baked by the
+        /// builder from the stage's bank file (PSXRacingBuilder.Bank); null on
+        /// a flat road (every circuit, the city, a stage built with
+        /// PSX_STAGE_BANK=0). Reordered with the waypoints, and swapped when
+        /// the path is turned round: the left of travel becomes the right.
+        /// </summary>
+        public float[] bankL, bankR;
 
         /// <summary>A straight strip: the waypoint list has ENDS. Every index
         /// walk clamps instead of wrapping, or an AI that reaches the shutdown
@@ -67,13 +78,18 @@ namespace PSXRacing
             if (start == 0) return;
             var wp = new Vector3[n];
             var cv = curvatures != null && curvatures.Length == n ? new float[n] : null;
+            bool bank = HasBank;
+            var bl = bank ? new float[n] : null;
+            var br = bank ? new float[n] : null;
             for (int i = 0; i < n; i++)
             {
                 wp[i] = waypoints[(i + start) % n];
                 if (cv != null) cv[i] = curvatures[(i + start) % n];
+                if (bank) { bl[i] = bankL[(i + start) % n]; br[i] = bankR[(i + start) % n]; }
             }
             waypoints = wp;
             if (cv != null) curvatures = cv;
+            if (bank) { bankL = bl; bankR = br; }
         }
 
         /// <summary>
@@ -114,6 +130,11 @@ namespace PSXRacing
             int n = waypoints.Length;
             var wp = new Vector3[n];
             var cv = curvatures != null && curvatures.Length == n ? new float[n] : null;
+            // The cross-section turns round with the road: what was the right
+            // edge is now on the left of travel.
+            bool bank = HasBank;
+            var bl = bank ? new float[n] : null;
+            var br = bank ? new float[n] : null;
 
             for (int i = 0; i < n; i++)
             {
@@ -122,10 +143,27 @@ namespace PSXRacing
                 int src = HasEnds ? (n - 1 - i) : (i == 0 ? 0 : n - i);
                 wp[i] = waypoints[src];
                 if (cv != null) cv[i] = curvatures[src];
+                if (bank) { bl[i] = bankR[src]; br[i] = bankL[src]; }
             }
             waypoints = wp;
             if (cv != null) curvatures = cv;
+            if (bank) { bankL = bl; bankR = br; }
             reversed = true;
+        }
+
+        /// <summary>Has this path a baked cross-section (<see cref="bankL"/>)?</summary>
+        public bool HasBank => bankL != null && bankR != null && waypoints != null
+                               && bankL.Length == waypoints.Length && bankR.Length == waypoints.Length;
+
+        /// <summary>The road surface's slope ACROSS the road at waypoint
+        /// <paramref name="i"/>, <paramref name="lateral"/> metres right of the
+        /// centre line (negative = left): dy per metre going right, in the
+        /// direction of travel. 0 on a flat path.</summary>
+        public float CrossSlopeRight(int i, float lateral)
+        {
+            if (!HasBank) return 0f;
+            int k = Wrap(i);
+            return lateral >= 0f ? bankR[k] : -bankL[k];
         }
 
         public int Count => waypoints != null ? waypoints.Length : 0;
