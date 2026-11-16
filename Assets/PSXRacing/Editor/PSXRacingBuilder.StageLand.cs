@@ -261,6 +261,7 @@ namespace PSXRacing.EditorTools
             const float Tile = 240f;
             var bufs = new Dictionary<long, TownBuf>();
             int grass = 0, sand = 0, steep = 0;
+            var lawn = new byte[worldKeep.Length];
             for (int r = 0; r < worldKeepRows; r++)
                 for (int c = 0; c < worldKeepCols; c++)
                 {
@@ -289,16 +290,35 @@ namespace PSXRacing.EditorTools
                     float y00 = CornerY(c, r), y10 = CornerY(c + 1, r), y11 = CornerY(c + 1, r + 1), y01 = CornerY(c, r + 1);
                     float lo = Mathf.Min(Mathf.Min(y00, y10), Mathf.Min(y11, y01)), hi = Mathf.Max(Mathf.Max(y00, y10), Mathf.Max(y11, y01));
                     if (hi - lo > 2.2f) { steep++; continue; }   // a lawn on a 36-degree bank is not a lawn
+                    lawn[idx] = (byte)(beach[idx] != 0 ? 2 : 1);
+                }
+            // the cells, the staircase's outer corners cut on the diagonal (a lawn's edge is not a 3 m staircase)
+            bool Lawn(int c2, int r2) => c2 >= 0 && r2 >= 0 && c2 < worldKeepCols && r2 < worldKeepRows && lawn[r2 * worldKeepCols + c2] != 0;
+            for (int r = 0; r < worldKeepRows; r++)
+                for (int c = 0; c < worldKeepCols; c++)
+                {
+                    int idx = r * worldKeepCols + c;
+                    if (lawn[idx] == 0) continue;
+                    float x = worldKeepX0 + (c + 0.5f) * WorldKeepCell, z = worldKeepZ0 + (r + 0.5f) * WorldKeepCell;
+                    float y00 = CornerY(c, r), y10 = CornerY(c + 1, r), y11 = CornerY(c + 1, r + 1), y01 = CornerY(c, r + 1);
                     long tk = ((long)Mathf.FloorToInt(x / Tile) << 32) ^ (uint)Mathf.FloorToInt(z / Tile);
                     if (!bufs.TryGetValue(tk, out var buf)) bufs[tk] = buf = new TownBuf();
                     float x0 = x - WorldKeepCell * 0.5f, z0 = z - WorldKeepCell * 0.5f, x1 = x0 + WorldKeepCell, z1 = z0 + WorldKeepCell;
                     const float lift = 0.05f;
                     var a = new Vector3(x0, y00 + lift, z0); var b2 = new Vector3(x0, y01 + lift, z1);
                     var cc = new Vector3(x1, y11 + lift, z1); var d = new Vector3(x1, y10 + lift, z0);
-                    bool isSand = beach[idx] != 0;
+                    bool isSand = lawn[idx] == 2;
+                    string k = isSand ? "sand" : "grass";
+                    Vector2 ua = new Vector2(x0 / 4f, z0 / 4f), ub = new Vector2(x0 / 4f, z1 / 4f), uc = new Vector2(x1 / 4f, z1 / 4f), ud = new Vector2(x1 / 4f, z0 / 4f);
+                    bool nN = !Lawn(c, r + 1), nS = !Lawn(c, r - 1), nE = !Lawn(c + 1, r), nW = !Lawn(c - 1, r);
+                    int open = (nN ? 1 : 0) + (nS ? 1 : 0) + (nE ? 1 : 0) + (nW ? 1 : 0);
+                    // triangles counter-clockwise seen from above (facing up)
+                    if (open == 2 && nN && nE) buf.Tri(k, a, d, b2, ua, ud, ub);          // keep the south-west half
+                    else if (open == 2 && nN && nW) buf.Tri(k, a, d, cc, ua, ud, uc);     // south-east
+                    else if (open == 2 && nS && nE) buf.Tri(k, a, cc, b2, ua, uc, ub);    // north-west
+                    else if (open == 2 && nS && nW) buf.Tri(k, d, cc, b2, ud, uc, ub);    // north-east
                     // facing up: (x0,z0) -> (x1,z0) -> (x1,z1) -> (x0,z1) runs counter-clockwise seen from above
-                    buf.Quad(isSand ? "sand" : "grass", a, d, cc, b2,
-                              new Vector2(x0 / 4f, z0 / 4f), new Vector2(x1 / 4f, z0 / 4f), new Vector2(x1 / 4f, z1 / 4f), new Vector2(x0 / 4f, z1 / 4f));
+                    else buf.Quad(k, a, d, cc, b2, ua, ud, uc, ub);
                     if (isSand) sand++; else grass++;
                 }
             int n = 0;
