@@ -72,6 +72,34 @@ namespace PSXRacing
         public static bool? AerialForce;
         public static bool AerialDepth => AerialForce ?? Env("PSX_AERIAL") ?? AerialDepthDefault;
 
+        /// <summary>THE FAR CANOPY (linncove, owner 2026-11-16: "It would be nice
+        /// to find a solution to the barren mountains in the distance on
+        /// mountain maps"): the land past the forest's reach as crowns in the
+        /// dress's palette with the ridges' crown fringe (PSX/Lit _HorizonCrowns,
+        /// PSXRacingBuilder.Horizon). PSX_FARCANOPY=0 = the land as it was
+        /// (StageCulling sets the shader's _PSXFarCanopyOff); a tool may force
+        /// it per shot (<see cref="FarCanopyForce"/>).</summary>
+        public const bool FarCanopyDefault = true;
+        public static bool? FarCanopyForce;
+        public static bool FarCanopy => FarCanopyForce ?? Env("PSX_FARCANOPY") ?? FarCanopyDefault;
+
+        /// <summary>THE LINN COVE GRANITE (linncove, owner 2026-11-16: "would
+        /// also be nice to add some of the iconic rock face to the track and the
+        /// title shot angle"): the boulder field under and above the viaduct,
+        /// from the 2018 lidar (PSXRacingBuilder.LandmarkRocks).
+        /// PSX_LINNCOVE_ROCKS=0 = without them (their root switched off at load,
+        /// colliders with it).</summary>
+        /// <summary>THE RIDGES' CROWN FRINGE (linncove 2026-11-16): upright cards
+        /// of crowns along every crest past the forest's reach. OFF: from the
+        /// title they read as dark combs laid along the ridges, not as treetops
+        /// against the sky. PSX_RIDGEFRINGE=1 shows them (a scene built with
+        /// PSX_RIDGEFRINGE=1 has them; StageCulling sets _PSXFringeOn).</summary>
+        public const bool RidgeFringeDefault = false;
+        public static bool RidgeFringe => Env("PSX_RIDGEFRINGE") ?? RidgeFringeDefault;
+
+        public const bool LinnCoveRocksDefault = true;
+        public static bool LinnCoveRocks => Env("PSX_LINNCOVE_ROCKS") ?? LinnCoveRocksDefault;
+
         public const bool ClearDayDefault = false;
         public static bool? ClearDayForce;
         public static bool ClearDay => ClearDayForce ?? Env("PSX_CLEARDAY") ?? ClearDayDefault;
