@@ -32,7 +32,7 @@ namespace PSXRacing.EditorTools
             string spec = System.Environment.GetEnvironmentVariable("PSX_BANK_SHOTS") ?? "";
             string tag = System.Environment.GetEnvironmentVariable("PSX_BANK_TAG") ?? "shot";
             var log = new System.Text.StringBuilder();
-            foreach (var venuePart in spec.Split(';'))
+            foreach (var venuePart in spec.Split(';', '|'))
             {
                 int colon = venuePart.IndexOf(':');
                 if (colon < 0) continue;
