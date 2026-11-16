@@ -51,11 +51,22 @@ namespace PSXRacing
         /// </summary>
         public static bool Play(Tapes.Header h, out string why)
         {
+            if (!Prime(h, out int scene, out why)) return false;
+            SceneGate.Load(scene);
+            return true;
+        }
+
+        /// <summary>The handoff half of <see cref=Play/>: everything the
+        /// venue needs to stage the tape, and the scene to load, without
+        /// loading it (the shot tools open the scene themselves).</summary>
+        public static bool Prime(Tapes.Header h, out int scene, out string why)
+        {
             why = null;
+            scene = -1;
             if (h == null || string.IsNullOrEmpty(h.path)) { why = "NO TAPE"; return false; }
             if (!TrackCatalog.TryIndexOfShipped(h.venueId, out int track))
             { why = "THIS BUILD HAS NO " + h.venueName.ToUpperInvariant(); return false; }
-            int scene = TrackCatalog.SceneIndex(track);
+            scene = TrackCatalog.SceneIndex(track);
             if (!TrackCatalog.SceneShipped(scene)) { why = h.venueName.ToUpperInvariant() + " IS NOT IN THIS BUILD"; return false; }
 
             RaceHandoff.ClearAll();
@@ -80,7 +91,6 @@ namespace PSXRacing
             if (h.day > 0) RaceHandoff.CalendarDay = h.day;
             RaceHandoff.TrafficLevel = 0;
             PendingPath = h.path;
-            SceneGate.Load(scene);
             return true;
         }
 

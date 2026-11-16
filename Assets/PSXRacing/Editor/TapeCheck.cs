@@ -219,6 +219,22 @@ namespace PSXRacing.EditorTools
 
         static void Check(bool ok, string what, object got = null) => TapeCheck.Check(ok, what, got);
 
+        /// <summary>Real seconds the whole check may take before it calls
+        /// itself HUNG and exits: a hidden job is never killed by the tools,
+        /// so a wait that never comes must end itself.</summary>
+        const float HangSeconds = 900f;
+        float bornAt;
+        bool exited;
+        void Awake() { bornAt = Time.realtimeSinceStartup; }
+        void Update()
+        {
+            if (exited || Time.realtimeSinceStartup - bornAt < HangSeconds) return;
+            exited = true;
+            TapeCheck.Check(false, "the check HUNG (" + HangSeconds + " s) - exiting");
+            TapeCheck.Finish();
+            EditorApplication.Exit(2);
+        }
+
         IEnumerator Start()
         {
             DontDestroyOnLoad(gameObject);
@@ -331,8 +347,11 @@ namespace PSXRacing.EditorTools
 
         IEnumerator Shot(string name)
         {
+            // Frames, never WaitForEndOfFrame: batch mode has no game view, so
+            // it never comes (it hung the first run of this check for good).
             yield return null;
-            yield return new WaitForEndOfFrame();
+            yield return null;
+            yield return null;
             var cam = Camera.main;
             if (cam == null || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
             { TapeCheck.Line("  shot " + name + " not taken (no camera / no graphics)"); yield break; }
@@ -367,10 +386,12 @@ namespace PSXRacing.EditorTools
             Canvas.ForceUpdateCanvases();
         }
 
+        /// <summary>Wait this much GAME time (the replay runs on it; a busy
+        /// sandbox draws a few frames a second), never more than a minute.</summary>
         IEnumerator Real(float seconds)
         {
-            float t = Time.realtimeSinceStartup;
-            while (Time.realtimeSinceStartup - t < seconds) yield return null;
+            float t = Time.time, r = Time.realtimeSinceStartup;
+            while (Time.time - t < seconds && Time.realtimeSinceStartup - r < 60f) yield return null;
         }
 
         IEnumerator Vcr(Tapes.Header h)
@@ -506,7 +527,7 @@ namespace PSXRacing.EditorTools
             yield return Real(0.25f);
             yield return Shot("montage_before_cut");
             // Across the cut at play speed, then look at where the cars stand.
-            float waitUntil = Time.realtimeSinceStartup + 3f;
+            float waitUntil = Time.realtimeSinceStartup + 60f;
             while (rp.ReplayTime < cut + 0.25f && Time.realtimeSinceStartup < waitUntil) yield return null;
             yield return null;
             if (tape != null)
@@ -534,6 +555,8 @@ namespace PSXRacing.EditorTools
 
         void Done()
         {
+            if (exited) return;
+            exited = true;
             TapeCheck.Finish();
             EditorApplication.Exit(TapeCheck.failures == 0 ? 0 : 1);
         }
