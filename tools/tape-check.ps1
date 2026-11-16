@@ -15,6 +15,9 @@ $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
 $src  = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
 . "$PSScriptRoot\unity-wait.ps1"
+# PSXRec is an ANDROID sandbox: never let unity-wait default it to WebGL (a
+# target switch re-imports the project).
+if (-not $env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET = "Android" }
 $lock = Join-Path $proj "AGENT_LOCK.txt"
 
 function Wait-Lock {
