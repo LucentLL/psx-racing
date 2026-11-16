@@ -193,7 +193,7 @@ Shader "PSX/Camcorder"
                 if (transport == 1)
                 {
                     vshift = (Hash12(float2(field, 5.0)) > 0.5 ? 1.0 : -1.0) / 480.0;
-                    float pb = saturate(1.0 - abs(wuv.y - 0.11) / 0.03);
+                    float pb = saturate(1.0 - abs(wuv.y - 0.045) / 0.022);   // under the date stamp
                     wobble += pb * (Hash12(float2(ln, field + 2.0)) - 0.5) * 0.05;
                     stat += pb * step(0.55, Hash12(float2(floor(wuv.x * 220.0), ln + field)));
                 }
