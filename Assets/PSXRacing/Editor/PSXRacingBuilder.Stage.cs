@@ -420,6 +420,7 @@ namespace PSXRacing.EditorTools
                 demWideMeta = meta.wide;
                 demWide = ReadDemBytes(pre + "_dem_wide.bytes", meta.wide);
             }
+            StageWorldLoad();   // the stage's world file (lake, river, town) and its river carve: PSXRacingBuilder.StageRiver.cs
 
             // The surface mask is optional: a stage inland has nothing to
             // classify. Its absence is not an error, but a mask that does not
@@ -8021,6 +8022,7 @@ namespace PSXRacing.EditorTools
                         double keepRoll = rng.NextDouble(), storyRoll = rng.NextDouble();
 
                         if (!StageCorridor(wx, wz, ForestBand + 10f, out RoadFoot foot)) continue;
+                        if (StageKeepOut(wx, wz)) continue;   // the world file's water, buildings, lots, side roads
                         float d = foot.d, roadY = foot.roadY, f = BridgeAt(foot.station);
                         if (d > ForestBand) continue;
 
@@ -8393,6 +8395,7 @@ namespace PSXRacing.EditorTools
                         double keepRoll = rng.NextDouble(), sizeRoll = rng.NextDouble(), yawRoll = rng.NextDouble();
                         float d = RouteDistanceCoarse(wx, wz);
                         if (d < ForestBand || d > to) continue;
+                        if (StageKeepOut(wx, wz)) continue;   // the world file's lake and buildings
                         float t = Mathf.InverseLerp(ForestBand, to, d);
                         // out of the band's thin end, not a wall of trees at 150 m
                         // NO THIN BELT where the roadside band ends (owner 2026-11-09,

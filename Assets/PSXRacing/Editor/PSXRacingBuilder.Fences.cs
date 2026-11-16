@@ -80,7 +80,7 @@ namespace PSXRacing.EditorTools
                         p.y = StageLatticeY(p.x, p.z);
                         // not on a steep fall (the fence would hang in the air)
                         float g = Mathf.Abs(StageLatticeY(p.x + rsRight[i].x * side * 2f, p.z + rsRight[i].z * side * 2f) - p.y);
-                        ok = g < 0.9f;
+                        ok = g < 0.9f && !StageKeepOut(p.x, p.z);
                     }
                     if (ok) { run.Add(p); continue; }
                     if (run.Count > 1)

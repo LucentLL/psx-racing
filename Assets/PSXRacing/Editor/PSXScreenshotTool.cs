@@ -334,6 +334,14 @@ namespace PSXRacing.EditorTools
                 cam.fieldOfView = eyeFov;
                 Shot(cam, tag + "_chase", eye, eyeRot);
                 cam.fieldOfView = keepFov;
+                // PSX_SHOT_DRIVER=1: and from the driver's eye, the way a dash camera
+                // films the road (real-against-game sheets: lakelure, 2026-11-16)
+                if (System.Environment.GetEnvironmentVariable("PSX_SHOT_DRIVER") == "1")
+                {
+                    cam.fieldOfView = 50f;
+                    Shot(cam, tag + "_driver", seat + Vector3.up * 1.25f - right * 0.35f, Quaternion.LookRotation(fwd + Vector3.down * 0.03f, Vector3.up));
+                    cam.fieldOfView = keepFov;
+                }
 
                 // From above and behind, over the side the road turns to: the
                 // inside of the bend (the side the next stations lie on).

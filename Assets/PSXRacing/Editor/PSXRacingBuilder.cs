@@ -850,6 +850,7 @@ namespace PSXRacing.EditorTools
             if (def.stage) BuildStageTunnels(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
             BuildStartLine(waypoints, pathGO.transform);
+            if (def.stage) BuildStageWorld(waypoints, pathGO.transform);   // lake, river, town from <pre>_world.json (StageRiver.cs / StageTown.cs)
             if (def.stage && theme.stageForest) BuildStageForest(waypoints, pathGO.transform);
             else BuildScenery(waypoints, pathGO.transform);
             if (def.stage && theme.stageHomes) BuildStageHomes(waypoints, pathGO.transform);
