@@ -190,6 +190,16 @@ namespace PSXRacing.EditorTools
             {
                 if (b.def.skinMaterials == null || b.def.skinMaterials.Length == 0) { log.Add($"{b.spec.key}: no skins, left out"); continue; }
                 CarLampFinder.Apply(b.def, log);
+                if (b.spec.key == "uaa_rig")
+                {
+                    // the finder takes the cab roof's marker lamps (2.3 m up) for the
+                    // head lamps: the tractor's own sit on the front fenders, a hand
+                    // span behind the bumper, at the height of the wheel tops
+                    b.def.headLamp = new Vector3(1.0f, 1.15f, b.def.noseZ - 0.5f);
+                    b.def.headLampNormal = Vector3.forward;
+                    b.def.headLampSize = new Vector2(0.24f, 0.22f);
+                    log.Add($"uaa_rig         head SET (1.00, 1.15, {b.def.headLamp.z:0.00}): the fenders, not the roof's markers");
+                }
                 string path = Gen + "/def/" + b.spec.key + ".prefab";
                 PrefabUtility.SaveAsPrefabAsset(b.def.gameObject, path);
                 UnityEngine.Object.DestroyImmediate(b.def.gameObject);
@@ -447,6 +457,7 @@ namespace PSXRacing.EditorTools
                 var map = new TexMap { w = w, h = h, hgt = new float[w * h], face = new byte[w * h] };
                 Raster(map, car.v, car.uv, car.tris);
                 int glass = 0;
+                var isGlass = new bool[clean.Length];
                 for (int i = 0; i < clean.Length; i++)
                 {
                     if (map.face[i] == 0 || map.hgt[i] < car.spec.glassFrom) continue;
@@ -458,12 +469,13 @@ namespace PSXRacing.EditorTools
                     // a window: down to the darkness the car paint shader reads as glass
                     float kk = Mathf.Min(1f, 0.07f / Mathf.Max(lum, 0.02f));
                     clean[i] = new Color32((byte)(c.r * kk), (byte)(c.g * kk), (byte)(c.b * kk), 255);
+                    isGlass[i] = true;
                     glass++;
                 }
                 bool[] paint = null; Color32 own = new Color32(200, 200, 200, 255);
                 if (car.spec.tints != null && car.spec.tints.Length > 0)
                 {
-                    paint = PaintMask(px, map, car.spec, out own, out int seeds, out int grown);
+                    paint = PaintMask(px, map, car.spec, isGlass, out own, out int seeds, out int grown);
                     log.Add($"{car.spec.key,-16} paint ({own.r},{own.g},{own.b}) seeds={seeds} mask={grown} px ({100f * grown / Mathf.Max(1, Covered(map)):0}% of its texels) glass={glass} px");
                     if (grown < 400) paint = null;
                     else skins = Mathf.Max(skins, 1 + car.spec.tints.Length);
@@ -471,6 +483,22 @@ namespace PSXRacing.EditorTools
                 else log.Add($"{car.spec.key,-16} own colour only, glass={glass} px");
                 masks.Add((car, paint, own));
             }
+
+            // TWO BODIES ON THE SAME TEXELS (the old saloon and the old wagon share
+            // their front half on the atlas): one colour list for both, or the
+            // later one's paint lands on the earlier one's shared panels and a
+            // green car gets a burgundy boot.
+            for (int a = 0; a < masks.Count; a++)
+                for (int b = a + 1; b < masks.Count; b++)
+                {
+                    var ma = masks[a].paint; var mb = masks[b].paint;
+                    if (ma == null || mb == null) continue;
+                    int both = 0;
+                    for (int i = 0; i < ma.Length; i++) if (ma[i] && mb[i]) both++;
+                    if (both < 200) continue;
+                    masks[b].car.spec.tints = masks[a].car.spec.tints;
+                    log.Add($"{masks[b].car.spec.key,-16} shares {both} paint texels with {masks[a].car.spec.key}: wears its colours");
+                }
 
             // the skins: the pack's own colours, then each repaint
             var mats = new Material[skins];
@@ -483,7 +511,7 @@ namespace PSXRacing.EditorTools
                     {
                         if (paint == null) continue;
                         var target = Palette[car.spec.tints[(k - 1) % car.spec.tints.Length]];
-                        Repaint(outPx, paint, own, target);
+                        Repaint(outPx, px, paint, target);
                     }
                 names[k] = k == 0 ? "own" : "paint" + k;
                 string file = Gen + "/tex/uaa_" + texName.ToLowerInvariant() + "_" + k + ".png";
@@ -567,7 +595,8 @@ namespace PSXRacing.EditorTools
             {
                 int ia = tris[t], ib = tris[t + 1], ic = tris[t + 2];
                 Vector3 fn = Vector3.Cross(v[ib] - v[ia], v[ic] - v[ia]).normalized;
-                byte face = Mathf.Abs(fn.x) > 0.6f ? (byte)1 : fn.y > 0.6f ? (byte)2 : (byte)3;
+                // a sloped nose or boot panel (normal up and forward) counts as a top
+                byte face = Mathf.Abs(fn.x) > 0.6f ? (byte)1 : fn.y > 0.4f ? (byte)2 : (byte)3;
                 Vector2 off = new Vector2(Mathf.Floor(Mathf.Min(uv[ia].x, Mathf.Min(uv[ib].x, uv[ic].x)) + 1e-4f),
                                           Mathf.Floor(Mathf.Min(uv[ia].y, Mathf.Min(uv[ib].y, uv[ic].y)) + 1e-4f));
                 Vector2 A = Vector2.Scale(uv[ia] - off, new Vector2(m.w, m.h)), B = Vector2.Scale(uv[ib] - off, new Vector2(m.w, m.h)),
@@ -599,16 +628,17 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// THE BODY PAINT: its colour read off the doors (the median of the
-        /// side panels' texels in the door band), then grown from there over
-        /// the side and top panels while the texture stays smooth and the
-        /// same hue - so it stops at a window frame, a lamp, a handle, a
-        /// chrome strip or a wood panel. The ends of the car (grille, lamps,
-        /// bumpers) are never repainted.
+        /// THE BODY PAINT (second pass, 2026-11-16: the first grew a mask from
+        /// the shaded door band and stopped at the photo's noise, so only the
+        /// lower doors took the new colour). Its colour is read off the doors
+        /// (the median of the side panels' texels in the door band); the paint
+        /// is then every body texel of that hue, lit or shaded: a side or a top
+        /// panel (a sloped nose counts as a top), never glass, never the ends
+        /// (grille, lamps, bumpers), never dark trim or rubber, never the sill's
+        /// underside.
         /// </summary>
-        static bool[] PaintMask(Color32[] px, TexMap m, Spec s, out Color32 own, out int seeds, out int grown)
+        static bool[] PaintMask(Color32[] px, TexMap m, Spec s, bool[] isGlass, out Color32 own, out int seeds, out int grown)
         {
-            int w = m.w, h = m.h;
             var rs = new List<byte>(); var gs = new List<byte>(); var bs = new List<byte>();
             for (int i = 0; i < px.Length; i++)
             {
@@ -620,77 +650,48 @@ namespace PSXRacing.EditorTools
             if (rs.Count < 200) return null;
             rs.Sort(); gs.Sort(); bs.Sort();
             own = new Color32(rs[rs.Count / 2], gs[gs.Count / 2], bs[bs.Count / 2], 255);
-            float ownLum = Lum(own);
             float ownMax = Mathf.Max(own.r, Mathf.Max(own.g, own.b));
             Vector3 ownN = new Vector3(own.r, own.g, own.b) / Mathf.Max(ownMax, 1f);
-
-            bool SameHue(Color32 c, float tol)
-            {
-                float mx = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
-                if (mx < 1f) return false;
-                return Mathf.Abs(c.r / mx - ownN.x) <= tol && Mathf.Abs(c.g / mx - ownN.y) <= tol && Mathf.Abs(c.b / mx - ownN.z) <= tol;
-            }
+            const float HueTol = 0.13f;
 
             var mask = new bool[px.Length];
-            var queue = new Queue<int>();
             for (int i = 0; i < px.Length; i++)
             {
+                byte f = m.face[i];
+                if (f == 0 || f == 3 || isGlass[i]) continue;
+                if (m.hgt[i] < 0.22f) continue;
                 var c = px[i];
-                if (m.face[i] == 1)
-                {
-                    // the doors: close to the paint's own colour
-                    if (m.hgt[i] < s.bandLo || m.hgt[i] > s.bandHi) continue;
-                    if (Mathf.Abs(c.r - own.r) > 26 || Mathf.Abs(c.g - own.g) > 26 || Mathf.Abs(c.b - own.b) > 26) continue;
-                }
-                else if (m.face[i] == 2)
-                {
-                    // bonnet, roof, boot lid: their own island on most sheets, lit
-                    // differently from the doors - the same hue, about as bright
-                    float l = Lum(c);
-                    if (l < ownLum * 0.55f || l > ownLum * 1.6f || !SameHue(c, 0.08f)) continue;
-                }
-                else continue;
-                mask[i] = true; queue.Enqueue(i); seeds++;
-            }
-            grown = seeds;
-            int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
-            while (queue.Count > 0)
-            {
-                int i = queue.Dequeue();
-                int x = i % w, y = i / w;
-                var c = px[i];
-                for (int d = 0; d < 4; d++)
-                {
-                    int nx = x + dx[d], ny = y + dy[d];
-                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                    int j = ny * w + nx;
-                    if (mask[j] || m.face[j] == 0 || m.face[j] == 3) continue;
-                    var n = px[j];
-                    if (Mathf.Abs(n.r - c.r) > 9 || Mathf.Abs(n.g - c.g) > 9 || Mathf.Abs(n.b - c.b) > 9) continue;
-                    if (Lum(n) < ownLum * 0.38f || !SameHue(n, 0.10f)) continue;
-                    mask[j] = true; queue.Enqueue(j); grown++;
-                }
+                if (Lum(c) < 0.20f) continue;
+                float mx = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                if (Mathf.Abs(c.r / mx - ownN.x) > HueTol || Mathf.Abs(c.g / mx - ownN.y) > HueTol || Mathf.Abs(c.b / mx - ownN.z) > HueTol) continue;
+                mask[i] = true; grown++;
+                if (f == 1 && m.hgt[i] >= s.bandLo && m.hgt[i] <= s.bandHi) seeds++;
             }
             return mask;
         }
 
         /// <summary>The paint re-coloured: the new colour times the shading
-        /// the photo had there, its highlights kept toward white.</summary>
-        static void Repaint(Color32[] px, bool[] paint, Color32 own, Color32 target)
+        /// the photo had there (lit against the paint's 70th-percentile
+        /// brightness), the brightest of it eased toward white as a sheen.</summary>
+        static void Repaint(Color32[] outPx, Color32[] src, bool[] paint, Color32 target)
         {
-            float ownLum = Mathf.Max(Lum(own), 0.05f);
-            for (int i = 0; i < px.Length; i++)
+            var lums = new List<float>();
+            for (int i = 0; i < paint.Length; i++) if (paint[i]) lums.Add(Lum(src[i]));
+            if (lums.Count == 0) return;
+            lums.Sort();
+            float refLum = Mathf.Max(0.05f, lums[Mathf.Min(lums.Count - 1, (int)(lums.Count * 0.7f))]);
+            for (int i = 0; i < paint.Length; i++)
             {
                 if (!paint[i]) continue;
-                float sh = Lum(px[i]) / ownLum;
-                float lit = Mathf.Min(sh, 1.15f);
+                float sh = Lum(src[i]) / refLum;
+                float lit = Mathf.Min(sh, 1f);
                 float r = target.r * lit, g = target.g * lit, b = target.b * lit;
-                if (sh > 1.15f)
+                if (sh > 1f)
                 {
-                    float t = Mathf.Min(1f, (sh - 1.15f) * 2.5f);
+                    float t = Mathf.Min(0.45f, (sh - 1f) * 1.1f);
                     r += (255f - r) * t; g += (255f - g) * t; b += (255f - b) * t;
                 }
-                px[i] = new Color32((byte)Mathf.Clamp(r, 0f, 255f), (byte)Mathf.Clamp(g, 0f, 255f), (byte)Mathf.Clamp(b, 0f, 255f), px[i].a);
+                outPx[i] = new Color32((byte)Mathf.Clamp(r, 0f, 255f), (byte)Mathf.Clamp(g, 0f, 255f), (byte)Mathf.Clamp(b, 0f, 255f), outPx[i].a);
             }
         }
 
@@ -741,7 +742,7 @@ namespace PSXRacing.EditorTools
                     // CarShell centres the shell on the collider: the body's car frame is at -colliderCenter.z
                     float cz = -def.colliderCenter.z;
                     Vector3 look = new Vector3(0f, e.height * 0.45f, 0f);
-                    float dist = len * 2.3f + 3f;
+                    float dist = len * 1.35f + 2.5f;   // the vehicle fills about two thirds of the frame
                     if (skin == 0)
                     {
                         Shot(cam, e.key + "_a", look + new Vector3(0.7f, 0.36f, 1f).normalized * dist, look);
@@ -781,7 +782,7 @@ namespace PSXRacing.EditorTools
         static void Shot(Camera cam, string name, Vector3 pos, Vector3 lookAt)
         {
             cam.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(lookAt - pos));
-            var rt = new RenderTexture(480, 300, 24, RenderTextureFormat.ARGB32);
+            var rt = new RenderTexture(640, 400, 24, RenderTextureFormat.ARGB32);
             rt.Create();
             var request = new RenderPipeline.StandardRequest();
             if (RenderPipeline.SupportsRenderRequest(cam, request))

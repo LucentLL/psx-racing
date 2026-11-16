@@ -49,6 +49,7 @@ namespace PSXRacing
         {
             looked = false; kit = null; byKey.Clear();
             raceKeys = cityKeys = parkedKeys = null;
+            heldCap = -1;
         }
 
         static void Look()
@@ -133,9 +134,16 @@ namespace PSXRacing
         public static string RaceKey(int i) => At(raceKeys ?? (raceKeys = Present(RaceMix, TrafficSystem.Keys)), i);
         /// <summary>The i-th car of the city's pool (CityTraffic).</summary>
         public static string CityKey(int i) => At(cityKeys ?? (cityKeys = Present(CityMix, TrafficSystem.Keys)), i);
+        /// <summary>PSX_TRAFFIC_UAA_PARKED=1 (read when a scene is BUILT): the
+        /// builders' parked cars dealt from the pack too. Default OFF
+        /// (2026-11-16): no venue's theme places PlaceParkedCars' cars today,
+        /// the neighbourhood's list has no placeholder in it, and no rebuilt
+        /// scene with the pack's cars parked has been looked at yet.</summary>
+        public static bool ParkedOn => System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_UAA_PARKED") == "1";
+
         /// <summary>The parked cars a builder deals, in order; <paramref name="was"/>
-        /// = its own list, kept when there is no kit.</summary>
-        public static string[] ParkedKeys(string[] was) => parkedKeys ?? (parkedKeys = Present(ParkedMix, was));
+        /// = its own list, kept when there is no kit or PSX_TRAFFIC_UAA_PARKED is not 1.</summary>
+        public static string[] ParkedKeys(string[] was) => !ParkedOn ? was : parkedKeys ?? (parkedKeys = Present(ParkedMix, was));
         public static int CityMixLength => (cityKeys ?? (cityKeys = Present(CityMix, TrafficSystem.Keys))).Length;
 
         /// <summary>The shell for a key: the kit's, else the car library's.</summary>
@@ -163,6 +171,23 @@ namespace PSXRacing
         /// <summary>A long body (the box truck, the bus, the rig): it keeps
         /// straight on where the road lets it (CityTraffic.Extend).</summary>
         public static bool Heavy(int kind) => kind >= Truck;
+
+        static int heldCap = -1, heldN;
+        /// <summary>How many of the city pool's first <paramref name="cap"/>
+        /// slots <see cref="Fits"/> holds to roads of their own (the rig, the
+        /// bus, the box trucks, the cabs). CityTraffic lets its pool grow past
+        /// the cap by this many - idle, they are not drawn - so the cars that
+        /// may go anywhere can still fill the cap in a suburb. 0 without the pack.</summary>
+        public static int HeldSlots(int cap)
+        {
+            if (!On) return 0;
+            if (cap != heldCap)
+            {
+                heldCap = cap; heldN = 0;
+                for (int i = 0; i < cap; i++) { int k = KindOf(CityKey(i)); if (Heavy(k) || k == Taxi) heldN++; }
+            }
+            return heldN;
+        }
 
         // Trade and Tryon, the middle of Uptown, in the city's metres
         // (x = (lon + 80.8177) * 111320 * cos 35.18456, z = (lat - 35.18456) * 111132).

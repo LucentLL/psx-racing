@@ -3069,9 +3069,10 @@ namespace PSXRacing.City
             if (Time.time >= driftAt) { drift = Random.Range(0.85f, 1.15f); driftAt = Time.time + Random.Range(15f, 30f); }
             Share = ShareAt(ClockNow);
             Target = Share <= 0f ? 0 : Mathf.Clamp(Mathf.RoundToInt(cap * Share * drift), 1, cap);
-            // the pool, one car a frame while it is short
+            // the pool, one car a frame while it is short (with the owner's pack
+            // a few slots more than the cap: those held to roads of their own)
             for (int k = 0; k < (CensusMode ? 8 : 1); k++)
-                if (pool.Count < cap && (CensusMode || live.Count + HeldBack() >= pool.Count - 1) && live.Count < Target) pool.Add(Build(pool.Count));
+                if (pool.Count < cap + TrafficModels.HeldSlots(cap) && (CensusMode || live.Count + HeldBack() >= pool.Count - 1) && live.Count < Target) pool.Add(Build(pool.Count));
             if (Time.time >= nextSpawn)
             {
                 nextSpawn = Time.time + (Time.time < firstFillUntil ? 0.02f : 0.25f);
