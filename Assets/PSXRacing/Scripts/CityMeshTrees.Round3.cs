@@ -532,6 +532,40 @@ namespace PSXRacing.City
             tOld2 = new[] { P(cWoAve, 55, 17f, 24.5f), P(cWater, 17, 16f, 21f), P(cRedOak, 14, 17f, 23f), P(cWhite, 14, 16f, 22f) };
         }
 
+        /// <summary>PSX_CT5_SWAP=1 (TEST ONLY, default OFF; trees round 5b, a like-for-like test of the owner's
+        /// update): round 3's fit as it is - the same sites, positions, yaw and drawn heights - with each NM model
+        /// swapped one for one for the owner's form of the same kind, scaled to the same height. The swapped crown is
+        /// not fitted again (its clearance is round 3's model's): pictures and pop measures only.</summary>
+        public static bool Swap5 = System.Environment.GetEnvironmentVariable("PSX_CT5_SWAP") == "1";
+        public static int Swapped5;
+
+        MeshForest.PoolPlant SwapForm(MeshForest.PoolPlant p, in CityTrees.Tree t, in Site s)
+        {
+            int v = p.variant;
+            if (v < 0 || v >= kit.variants.Length || kit.Group3(v) == CityTreeKit.G4Charlotte) return p;
+            var role = kit.roles[v];
+            if (role == CityTreeKit.Role.Snag) return p;   // (no dead tree among the owner's forms)
+            int g = kit.Group3(v);
+            string nm = kit.names[v] ?? "";
+            float hgt = kit.variants[v].height * p.scale, r = H(t.foot, 71);
+            int[] pick;
+            if (g == CityTreeKit.G3Street) pick = nm.EndsWith("_ln") || nm.EndsWith("_lc") ? pNarrow : pYoung;
+            else if (g == CityTreeKit.G3Avenue) pick = hgt >= 14f ? pAve : pBroad;
+            else if (g == CityTreeKit.G3Pine || role == CityTreeKit.Role.PineStandIn) pick = new[] { hgt < 13f ? cLobY : hgt < 23f ? cLobM : cLobE };
+            else if (g == CityTreeKit.G3Myrtle || role == CityTreeKit.Role.Shrub) pick = new[] { Myr(H(t.foot, 59)) };
+            else if (role == CityTreeKit.Role.Oak) pick = new[] { cWoOpen };
+            else if (role == CityTreeKit.Role.Columnar) pick = new[] { cTulip };
+            else if (role == CityTreeKit.Role.Small) pick = new[] { cDog, cCherry, cPlum, cRedMaple };
+            else if (s.ctx == Ctx.Woodland || s.ctx == Ctx.Open) pick = new[] { cTulip, cWhite, cRedOak, cHickory, cGum, cRedMaple };
+            else if (s.ctx == Ctx.Yard) pick = new[] { cSugar, cRedMaple, cWater, cMag, cWhite };
+            else pick = new[] { cRedMaple, cWater, cWhite, cRedOak, cGum };
+            if (pick == null || pick.Length == 0) return p;
+            int nv = pick[Mathf.Min(pick.Length - 1, (int)(r * pick.Length))];
+            if (nv < 0 || nv >= kit.variants.Length) return p;
+            Swapped5++;
+            return new MeshForest.PoolPlant { pos = p.pos, yaw = p.yaw, variant = nv, scale = Mathf.Clamp(hgt / Mathf.Max(0.3f, kit.variants[nv].height), 0.3f, 2.5f) };
+        }
+
         int Myr(float r) => cMyr[r < 0.40f ? 0 : r < 0.65f ? 1 : r < 0.85f ? 2 : 3];   // pink most, then red, white, purple
 
         /// <summary>A Charlotte form at a height range (none in the kit: nothing). The street willow oaks are
@@ -822,6 +856,7 @@ namespace PSXRacing.City
                     if (mv > 0) Moved++;
                     if (i > 0) Swapped++;
                     if (charlotteStages > 0) { if (i < charlotteStages) PlacedCharlotte++; else PlacedOldForm++; }
+                    if (Swap5 && charlotteReady) plant = SwapForm(plant, t, lastSite);
                     return true;
                 }
                 if (mv == 0) { away = lastAway; firstWhy = lastWhy; firstHit = lastHit; }

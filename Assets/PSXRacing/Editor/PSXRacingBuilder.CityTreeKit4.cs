@@ -166,6 +166,25 @@ namespace PSXRacing.EditorTools
                     else sb.Append($"\n  (WARN {f.stem}: the pivot is not a trunk foot ({q0.x:0.00}, {q0.y:0.00}, {q0.z:0.00}): LoadVariant's foot kept)");
                 }
                 if (CT4AO) CT4CrownAO(v, f.stem, leafSub);
+                {
+                    // TRUNK BASE PER LEVEL (round 5b, "some even seem to be floating in air"): the lowest bark of each
+                    // level in the tree's frame - all levels and the far card (made from LOD2) stand on this foot
+                    var tb = new System.Text.StringBuilder();
+                    for (int l = 0; l < 3; l++)
+                    {
+                        float mn = float.MaxValue;
+                        var lm = v.lods[l];
+                        if (lm != null)
+                            for (int s2 = 0; s2 < lm.subMeshCount; s2++)
+                            {
+                                if (v.leafSub != null && s2 < v.leafSub.Length && v.leafSub[s2]) continue;
+                                if (!TreeKit.Read(lm, s2, out var bvv, out var btt)) continue;
+                                foreach (int bi in btt) mn = Mathf.Min(mn, v.pre.MultiplyPoint3x4(bvv[bi]).y);
+                            }
+                        tb.Append(l == 0 ? "" : " / ").Append(mn < float.MaxValue ? mn.ToString("0.00") : "-");
+                    }
+                    sb.Append($"\n  {f.stem}: trunk base LOD0/1/2 {tb} m");
+                }
                 var summer = CT4Leaf("CT4_leaf_" + f.leaf, leafTex, CT4Tex("Leaves_" + f.leaf + "_Leaf", "_normal"), default, 0f, CT4LeafVivid);
                 v.mats[leafSub] = summer;
                 Material fall = summer, spring = summer;

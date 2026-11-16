@@ -30,6 +30,97 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class CityRefSpots
     {
+        // ------------------------------------------------------------------
+        //  GROUND CONTACT (round 5b; the owner: "Some even seem to be floating in air")
+        // ------------------------------------------------------------------
+        static readonly Dictionary<int, float[]> t5Base = new Dictionary<int, float[]>();
+
+        /// <summary>A variant's trunk base per level (the lowest bark, m in the tree's frame at scale 1).</summary>
+        static float[] T5Base(CityTreeKit kit, int v)
+        {
+            if (t5Base.TryGetValue(v, out var b)) return b;
+            var vr = kit.variants[v]; b = new float[3];
+            for (int l = 0; l < 3; l++)
+            {
+                float mn = float.MaxValue; var m = vr.lods[l];
+                if (m != null)
+                    for (int s = 0; s < m.subMeshCount; s++)
+                    {
+                        if (vr.leafSub != null && s < vr.leafSub.Length && vr.leafSub[s] && m.subMeshCount > 1) continue;
+                        if (!TreeKit.Read(m, s, out var vv, out var tt)) continue;
+                        foreach (int i in tt) mn = Mathf.Min(mn, vr.pre.MultiplyPoint3x4(vv[i]).y);
+                    }
+                b[l] = mn < float.MaxValue ? mn : 0f;
+            }
+            t5Base[v] = b;
+            return b;
+        }
+
+        /// <summary>The highest surface under a point within 4 m above / 8 m below (trunk capsules left out).</summary>
+        static float T5GroundY(Vector3 p)
+        {
+            var hits = Physics.RaycastAll(new Vector3(p.x, p.y + 4f, p.z), Vector3.down, 12f, ~0, QueryTriggerInteraction.Ignore);
+            float best = float.NaN;
+            foreach (var h in hits)
+            {
+                if (h.collider is CapsuleCollider) continue;
+                if (float.IsNaN(best) || h.point.y > best) best = h.point.y;
+            }
+            return best;
+        }
+
+        /// <summary>Every planted tree of the ring: its trunk's base at each level (the far card is made from
+        /// LOD2) against the ground under the trunk's middle and the lowest ground 0.45 m round it. A tree
+        /// FLOATS when its base stands more than 5 cm over the ground under it, or 25 cm over the ground on
+        /// one side (a slope).</summary>
+        static void T5GroundAudit(CityMeshTrees mt, CityTreeKit kit, string pid, string tag, string root, StringBuilder log)
+        {
+            Physics.SyncTransforms();
+            int n = 0, noGround = 0;
+            var flo = new int[3]; var side = new int[3];
+            var worst = new List<(float gap, string line)>();
+            var csv = new StringBuilder("place,kit,model,lat_lon,scale,level,trunk_base_m,ground_m,gap_m,side_gap_m\n");
+            foreach (long key in mt.FittedKeys)
+            {
+                var plants = mt.PlantsOf(key); if (plants == null) continue;
+                foreach (var pp in plants)
+                {
+                    n++;
+                    float gC = T5GroundY(pp.pos);
+                    if (float.IsNaN(gC)) { noGround++; continue; }
+                    float gMin = gC;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        float a = k * Mathf.PI * 0.5f;
+                        float g = T5GroundY(pp.pos + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 0.45f);
+                        if (!float.IsNaN(g)) gMin = Mathf.Min(gMin, g);
+                    }
+                    var b = T5Base(kit, pp.variant);
+                    for (int l = 0; l < 3; l++)
+                    {
+                        float bottom = pp.pos.y + b[l] * pp.scale;
+                        float gap = bottom - gC, sg = bottom - gMin;
+                        bool fl = gap > 0.05f, sd = sg > 0.25f;
+                        if (fl) flo[l]++;
+                        if (sd) side[l]++;
+                        if (fl || sd)
+                        {
+                            string ll = CityAudit.LatLon(pp.pos.x, pp.pos.z);
+                            csv.Append(pid).Append(',').Append(tag).Append(',').Append(kit.names[pp.variant]).Append(',').Append(ll.Replace(",", " ")).Append(',')
+                               .Append(pp.scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(l).Append(',')
+                               .Append(b[l].ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(gC.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+                               .Append(gap.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(sg.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+                            if (l == 0 || fl) worst.Add((Mathf.Max(gap, sg - 0.2f), $"{kit.names[pp.variant]} at {ll}: LOD{l} base {b[l]:0.00} m x {pp.scale:0.00}, over the ground by {gap:0.00} m (one side {sg:0.00} m)"));
+                        }
+                    }
+                }
+            }
+            worst.Sort((x, y) => y.gap.CompareTo(x.gap));
+            log.Append($"  GROUND CONTACT {pid} ({tag}): {n} planted trees ({noGround} with no ground found under them); floating (base > 5 cm over the ground under the trunk) at LOD0 {flo[0]}, LOD1 {flo[1]}, LOD2 + far card {flo[2]}; over a slope (> 25 cm on one side) at LOD0 {side[0]}, LOD1 {side[1]}, LOD2 {side[2]}\n");
+            for (int i = 0; i < Mathf.Min(10, worst.Count); i++) log.Append("    " + worst[i].line + "\n");
+            File.WriteAllText(Path.Combine(root, $"ground_{tag}_{pid}.csv"), csv.ToString());
+        }
+
         public static void RunApproach5()
         {
             string tag = System.Environment.GetEnvironmentVariable("PSX_CT4_TAG");
@@ -86,6 +177,8 @@ namespace PSXRacing.EditorTools
                     var target = eye;
                     world.EnsureRing(target - f * 160f, 2); mt.Flush();
                     log.Append($"\n{pid}\t'{e.name}' {CityAudit.LatLon(target.x, target.z)} heading ({f.x:0.00}, {f.z:0.00}); {how}\n");
+                    T5GroundAudit(mt, kit, pid, tag, root, log);
+                    if (System.Environment.GetEnvironmentVariable("PSX_CT5_WALK") == "0") continue;
                     foreach (var ls in levels)
                     {
                         int lvl = int.Parse(ls);
@@ -115,7 +208,7 @@ namespace PSXRacing.EditorTools
                     // the owner's trees beside a NatureManufacture tree, staged on a lawn (not planting)
                     if (CityMeshTrees.Charlotte && pid == "arterial") shots += T4Close(cam, sun, dressing, world, mt, map, kit, "../ctrees5/" + tag, eye, staged, log);
                 }
-                log.Append($"\n{shots} frames to {dir}; {clock.Elapsed.TotalSeconds:0} s\nCITY TREES APPROACH 5 OK\n");
+                log.Append($"\nswapped like for like (PSX_CT5_SWAP): {CityMeshTrees.Swapped5}\n{shots} frames to {dir}; {clock.Elapsed.TotalSeconds:0} s\nCITY TREES APPROACH 5 OK\n");
             }
             catch (System.Exception ex) { log.Append("CITY TREES APPROACH 5 FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
             finally
