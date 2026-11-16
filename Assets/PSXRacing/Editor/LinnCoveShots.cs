@@ -125,6 +125,11 @@ namespace PSXRacing.EditorTools
             };
             if (s.path == null || s.globals == null || s.sun == null) { log.AppendLine("scene parts missing in " + id); return null; }
             if (s.sc != null) s.sc.Configure(cam);
+            // the title's own sweep (TitleScreen.SweepCanvases): no HUD, gauges or map in the frame
+            int hud = 0;
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include))
+                if (c.isRootCanvas && c.gameObject.name != "DisplayCanvas" && c.enabled) { c.enabled = false; hud++; }
+            log.AppendLine($"  canvases off: {hud}");
             int rocks = LandmarkRocks.ApplyAll();
             int switches = FarCanopySwitch.ApplyAll();
             Physics.SyncTransforms();
