@@ -2544,6 +2544,8 @@ namespace PSXRacing.EditorTools
                 // Inside the barrier line is the main pass's business; well
                 // outside it is scenery no car reaches.
                 if (reach < trackHalf || reach > barrier + GhostOut) continue;
+                // On its own side's banked tarmac edge (PSXRacingBuilder.Bank).
+                if (path.HasBank) road.y += (side > 0f ? path.bankR[path.Wrap(i)] : path.bankL[path.Wrap(i)]) * path.roadWidth * 0.5f;
                 float top = col.bounds.max.y - road.y;
                 // A kerb is not a barrier: nothing under 0.3 m holds a car off
                 // anything, and half the furniture beside a road is a kerb.
@@ -2692,6 +2694,16 @@ namespace PSXRacing.EditorTools
                     // Inside the barrier line is the main pass's business; well
                     // outside it is scenery no car reaches.
                     if (reach < trackHalf || reach > barrier + GhostOut) continue;
+                    // A BANKED ROAD (PSXRacingBuilder.Bank): the barrier stands on
+                    // its own side's tarmac edge, up to 0.37 m off the centre line,
+                    // so the band and the open band under a rail's beam are read
+                    // from there. Nothing moves on a flat road.
+                    if (path.HasBank)
+                    {
+                        int ib = path.Wrap(i + 1);
+                        float sideLift = lat >= 0f ? path.bankR[path.Wrap(i)] + path.bankR[ib] : path.bankL[path.Wrap(i)] + path.bankL[ib];
+                        road.y += 0.5f * sideLift * path.roadWidth * 0.5f;
+                    }
                     WallGeom.SpanAt(col, near, road, out float wallLo, out float wallHi);
                     float top = wallHi - road.y;
                     if (top < 0.3f) continue;
