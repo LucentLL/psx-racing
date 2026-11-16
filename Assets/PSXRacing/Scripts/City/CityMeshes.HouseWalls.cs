@@ -136,6 +136,62 @@ namespace PSXRacing.City
             }
             float y = y0;
             int s0 = 0;
+            bool foundDone = false;
+            // HOUSE MIX: this wall in the house's brick, painted brick or stone; a brick front's
+            // return round the corner; a siding wall's brick or stone foundation, its stone water table
+            if (hmActive && !skylineBuild && !houseUnitRow && !houseUnitInner)
+            {
+                HmFront(a, c);
+                bool front = hmFrontOk && Vector2.Dot(outward, hmFrontN) > 0.7f;
+                bool frontCls = hm.cls == HmBrickFront || hm.cls == HmStoneFront;
+                if (hm.cls == HmBrick || hm.cls == HmPainted || (frontCls && front))
+                {
+                    HmWall(tm, hm.mat, hm.tint, a, c, y0, y1, outward, floor, bays, storeys, pitch, winH, sill, groundHi);
+                    return;
+                }
+                if (frontCls && hmFrontOk && !hmInReturn && W > HmReturnM + 1.0f)
+                {
+                    Vector2 dir = (c - a) / W;
+                    float along = Vector2.Dot(dir, hmFrontN);
+                    if (Mathf.Abs(along) > 0.7f)
+                    {
+                        // a side wall: the front's brick returns round its front corner (an outside
+                        // corner only: on a polygon, not where the plan stands in front of it)
+                        Vector2 e = along > 0f ? c : a;
+                        bool poly = !float.IsNegativeInfinity(facWallTop);
+                        if (!poly || !PolyContains(fitPoly, e + hmFrontN * 0.3f - outward * 0.3f))
+                        {
+                            Vector2 m = e - dir * (Mathf.Sign(along) * HmReturnM);
+                            var keepT = Bucket.Tint; Bucket.Tint = hm.tint;
+                            if (along > 0f) HmPlain(tm, hm.mat, m, c, y0, y1, outward, floor, 0f);
+                            else HmPlain(tm, hm.mat, a, m, y0, y1, outward, floor, 0f);
+                            Bucket.Tint = keepT;
+                            HouseMixReturns++;
+                            hmInReturn = true;
+                            try { if (along > 0f) HouseWall(tm, a, m, y0, y1, outward); else HouseWall(tm, m, c, y0, y1, outward); }
+                            finally { hmInReturn = false; }
+                            return;
+                        }
+                    }
+                }
+                float fTop = floor + 0.2f, tTop = floor + sill;
+                if (hm.stoneTable && front && storeys > 0 && tTop > y0 + 0.3f && tTop < y1 - 1.5f && tTop > groundHi + 0.15f)
+                {
+                    // the stone water table: stone from the ground to the ground storey's sills, a ledge on it
+                    var keepT = Bucket.Tint; Bucket.Tint = hm.foundTint;
+                    HmPlain(tm, HmStone, a, c, y0, tTop, outward, floor, 0f);
+                    Bucket.Tint = keepT;
+                    HmLedge(tm, a, c, tTop, outward);
+                    y = tTop; foundDone = true;
+                }
+                else if (hm.found >= 0 && HousePartsOn && fTop > y0 + 0.05f && fTop < y1 - 1.5f)
+                {
+                    var keepT = Bucket.Tint; Bucket.Tint = hm.foundTint;
+                    HmPlain(tm, hm.found, a, c, y0, fTop, outward, floor, 0f);
+                    Bucket.Tint = keepT;
+                    y = fTop; foundDone = true;
+                }
+            }
             if (houseBrickLook >= 0 && avail > 2.2f && (!houseBrickBase || storeys > 1))
             {
                 // BRICK: the atlas's brick column, one whole floor row a storey
@@ -160,7 +216,7 @@ namespace PSXRacing.City
                 if (!houseBrickBase) { if (y1 > y + 0.01f) HousePlain(tm, a, c, y, y1, outward, uPlain, true); return; }   // the frieze over the brick: siding
             }
             // ROUND 2 (PSX_CITY_HOUSEPARTS): a siding house's foundation, concrete to 0.2 m over its floor
-            if (HousePartsOn && s0 == 0 && floor + 0.2f > y0 + 0.05f && floor + 0.2f < y1 - 1.5f)
+            if (HousePartsOn && s0 == 0 && !foundDone && floor + 0.2f > y0 + 0.05f && floor + 0.2f < y1 - 1.5f)
             {
                 HouseFoundation(tm, a, c, y0, floor + 0.2f, outward);
                 y = floor + 0.2f;
@@ -257,6 +313,17 @@ namespace PSXRacing.City
         /// streetcar suburbs); a one-storey house is a little likelier brick.</summary>
         static int HouseBrickChoose(Vector2 c, bool oneStorey)
         {
+            // HOUSE MIX: the house's wall class (its brick is the house brick's bucket, not an atlas column)
+            if (hmActive && c == hmAt && HouseMixOn && !houseUnitRow) return -1;   // the same house again (EmitGableHouse after the footprint's own call)
+            hmActive = false;
+            if (HouseMixOn && !houseUnitRow && HmReady())
+            {
+                hm = HouseMixOf(c); hmAt = c; hmActive = true; hmFrontTried = false; hmFrontOk = false;
+                HouseMixCount[hm.cls]++; HouseMixEra[hm.era]++;
+                if (hm.stoneTable) HouseMixStone++;
+                if (hm.infill) HouseMixInfill++;
+                return -1;
+            }
             if (!HouseBrickOn || houseUnitRow) return -1;   // (a block of units: its base was decided by HouseBlockBegin)
             int cx = Mathf.FloorToInt(c.x / 350f), cz = Mathf.FloorToInt(c.y / 350f);
             uint nb = HouseHash(cx, cz, 23u);
@@ -320,6 +387,19 @@ namespace PSXRacing.City
         static Color32 HouseTintOf(Vector2 c)
         {
             if (!HouseTintOn) return new Color32(128, 128, 128, 0);
+            // HOUSE MIX: the class's siding / trim colour; past the far plane (the proxies: one
+            // siding box a house) the colour its walls read as from there
+            if (HouseMixOn && !houseUnitRow && !houseBrickBase && HmReady())
+            {
+                var m = HouseMixOf(c);
+                return skylineBuild ? m.far : m.siding;
+            }
+            return HousePickTint(c);
+        }
+
+        /// <summary>The siding colour by position alone (rounds 1-3).</summary>
+        static Color32 HousePickTint(Vector2 c)
+        {
             int cx = Mathf.FloorToInt(c.x / 350f), cz = Mathf.FloorToInt(c.y / 350f);
             uint nb = HouseHash(cx, cz, 7u);
             uint hh = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 11u);
@@ -408,6 +488,361 @@ namespace PSXRacing.City
                               new Vector2(0f, 0f), new Vector2(0.1f, 0f), new Vector2(0.1f, vW), new Vector2(0f, vW));
                 }
             }
+        }
+
+        // =====================================================================
+        //  HOUSE MIX (PSX_CITY_HOUSEMIX; the owner, 2026-11-15: "You can also use
+        //  brick and stone textures for houses (front face or full) as necessary
+        //  for variety", and 11-11 / 11-15: his PBR Bricks pack on houses).
+        //
+        //  Every house takes a WALL CLASS by rule, steady from visit to visit (a
+        //  hash of its centre) and coherent by neighbourhood (an era a 600 m
+        //  cell, a brick and two of its colours a 350 m cell):
+        //    siding (as before, in its colours), FULL BRICK, BRICK FRONT with
+        //    siding on the other faces (the brick returns round the front corners),
+        //    PAINTED brick, a STONE FRONT, and stone accents (a stone water table
+        //    on the front of a newer siding house, a stone foundation on an old one).
+        //  The shares come from the era and district of the spot (distance and
+        //  bearing from the Square: the table HmShare and its sources are in
+        //  HANDOFF.md, "houses" round of 2026-11-15).
+        //
+        //  A masonry wall is laid out by the SAME rule as a siding wall (whole
+        //  bays, one window band a storey from the floor, none whose head reaches
+        //  the eave or whose sill the ground reaches): the window is the siding
+        //  texture's own window cell, whole (so the night mask lights it as
+        //  before and the windows audit reads it), set between brick piers with a
+        //  rowlock course under it (the sill) and over it (the lintel): the brick
+        //  texture turned a quarter, half a brick tall. Brick is mapped in world
+        //  metres from the wall's start and the house's floor, so its courses run
+        //  on round the house.
+        //
+        //  Buckets: the kit's three facade slots nothing has emitted into since
+        //  the facade atlas (FacadeBrick = the house's red brick, FacadeMid = its
+        //  old brick, FacadeTower = its stone) and one new slot at the end
+        //  (HousePaint = painted brick); their materials take the vertex colour
+        //  (_HouseTint) like the siding. PSX_CITY_HOUSEMIX=0: every house as
+        //  before (siding, or round 1's atlas brick).
+        // =====================================================================
+        public static bool HouseMixOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEMIX") != "0";
+
+        public const int HmSiding = 0, HmBrick = 1, HmBrickFront = 2, HmPainted = 3, HmStoneFront = 4, HmClasses = 5;
+        public const int HmPrewar = 0, HmMill = 1, HmRanch = 2, Hm1970 = 3, Hm1990 = 4, Hm2010 = 5, HmEras = 6;
+        public static readonly string[] HmClassNames = { "siding", "full brick", "brick front", "painted brick", "stone front" };
+        public static readonly string[] HmEraNames = { "pre-1940", "mill village", "1945-69", "1970-89", "1990-2009", "2010-" };
+        /// <summary>The masonry kinds, their kit slots, the wall one repeat covers (m) and
+        /// the stretch of the texture's U a rowlock course shows (no head joint in it).</summary>
+        public const int HmNew = 0, HmOld = 1, HmPaint = 2, HmStone = 3;
+        public static readonly Slot[] HmSlot = { Slot.FacadeBrick, Slot.FacadeMid, Slot.HousePaint, Slot.FacadeTower };
+        // (2026-11-16) brick at a real brick's size: the red tile's 3 bricks x 8 courses at 0.233 x 0.085 m
+        // (the photo's stubby 2.3 : 1 brick drawn 1.2x longer; was 0.253 x 0.110), the old tile's 15 courses at 0.07 m
+        static readonly Vector2[] HmRep = { new Vector2(0.70f, 0.68f), new Vector2(1.05f, 1.05f), new Vector2(1.05f, 1.05f), new Vector2(2.0f, 2.0f) };
+        static readonly Vector2[] HmRowU = { new Vector2(0.085f, 0.245f), new Vector2(0.02f, 0.12f), new Vector2(0.02f, 0.12f), Vector2.zero };
+        /// <summary>A brick front's return round the corner (m): a brick's length and a joint.</summary>
+        const float HmReturnM = 0.3f;
+
+        /// <summary>Audit counters (CityAudit.Windows.cs): houses by class and era, stone
+        /// water tables, in-town infill houses, brick returns, fronts no street was found for.</summary>
+        public static readonly int[] HouseMixCount = new int[HmClasses], HouseMixEra = new int[HmEras];
+        public static int HouseMixStone, HouseMixInfill, HouseMixReturns, HouseMixNoFront, HouseMixWalls;
+
+        public struct HouseMix
+        {
+            public int era, cls;
+            /// <summary>The masonry of its walls (its front), -1 siding; its foundation's (-1 concrete); its chimney's.</summary>
+            public int mat, found, chim;
+            public bool stoneTable, infill;
+            public Color32 tint, foundTint, chimTint, siding, far;
+        }
+
+        /// <summary>Share of siding, full brick, brick front, painted brick; and of stone
+        /// accents (an overlay). Rows: the district / era of HmDistrict.</summary>
+        static readonly float[,] HmShare =
+        {
+            { 0.62f, 0.26f, 0.00f, 0.12f, 0.03f },   // 0 pre-1940 streetcar suburbs (Dilworth, Elizabeth, Plaza Midwood, Wilmore)
+            { 0.35f, 0.55f, 0.00f, 0.10f, 0.02f },   // 1 Wesley Heights (most houses brick veneer)
+            { 0.25f, 0.50f, 0.00f, 0.25f, 0.05f },   // 2 Myers Park / Eastover 1911-50
+            { 0.95f, 0.03f, 0.00f, 0.02f, 0.00f },   // 3 the North Charlotte mill village
+            { 0.25f, 0.65f, 0.02f, 0.08f, 0.03f },   // 4 ranch houses 1945-69
+            { 0.07f, 0.88f, 0.00f, 0.05f, 0.03f },   // 5 the Beatties Ford belt (McCrorey Heights, Oaklawn Park)
+            { 0.45f, 0.45f, 0.07f, 0.03f, 0.03f },   // 6 1970-89
+            { 0.37f, 0.33f, 0.27f, 0.03f, 0.08f },   // 7 1990-2009
+            { 0.55f, 0.15f, 0.20f, 0.10f, 0.20f },   // 8 2010-
+        };
+
+        /// <summary>The brick colours (x the texture): the new red brick's, the old brick's;
+        /// the paints of painted brick (white first: more than half of them); the stone's.</summary>
+        static readonly Vector3[] HmNewTints = { new Vector3(1f, 1f, 1f), new Vector3(0.80f, 0.74f, 0.74f), new Vector3(0.92f, 0.82f, 0.76f), new Vector3(1.12f, 1.05f, 0.94f) };
+        static readonly Vector3[] HmOldTints = { new Vector3(1f, 1f, 1f), new Vector3(0.84f, 0.79f, 0.79f), new Vector3(1.08f, 0.97f, 0.90f), new Vector3(0.92f, 0.86f, 0.82f) };
+        static readonly Vector3[] HmPaints =
+        {
+            new Vector3(1.04f, 1.04f, 1.02f), new Vector3(1.02f, 0.98f, 0.86f), new Vector3(0.86f, 0.87f, 0.88f), new Vector3(0.90f, 0.86f, 0.78f),
+            new Vector3(0.80f, 0.86f, 0.76f), new Vector3(0.80f, 0.86f, 0.92f), new Vector3(0.42f, 0.43f, 0.45f),
+        };
+        static readonly Vector3[] HmStoneTints = { new Vector3(1f, 1f, 1f), new Vector3(1.08f, 1.0f, 0.90f), new Vector3(0.90f, 0.92f, 0.95f) };
+        /// <summary>A brick house's trim (its gables' siding): white, cream, light grey, tan, sage.</summary>
+        static readonly Vector3[] HmTrims = { new Vector3(1.18f, 1.18f, 1.18f), new Vector3(1.12f, 1.04f, 0.78f), new Vector3(0.86f, 0.87f, 0.88f), new Vector3(1.02f, 0.80f, 0.56f), new Vector3(0.72f, 0.92f, 0.62f) };
+
+        static HouseMix hm, hmCache;
+        static Vector2 hmAt, hmCacheAt = new Vector2(float.NaN, 0f), hmUptown = new Vector2(float.NaN, 0f), hmFrontN;
+        static bool hmActive, hmFrontTried, hmFrontOk, hmInReturn;
+
+        /// <summary>The Square is known (kept from the tile builds' map: a far proxy has none).</summary>
+        static bool HmReady()
+        {
+            if (!HmPackOk()) return false;
+            if (hwMap != null) hmUptown = hwMap.uptown;
+            else if (float.IsNaN(hmUptown.x)) { var m = CityMap.Get(); if (m != null) hmUptown = m.uptown; }   // a far proxy built first: the same class as its tile
+            return !float.IsNaN(hmUptown.x);
+        }
+
+        /// <summary>The kit's brick came from the owner's PBR Bricks pack (CityKit.houseMixPack,
+        /// written by the kit build): without it every house stays sided, as before - the
+        /// in-repo stand-ins are not drawn at the pack's sizes. PSX_CITY_HOUSEMIX=2 forces
+        /// the mix on whatever the kit holds (a test).</summary>
+        static bool HmPackOk()
+        {
+            if (hmPack < 0)
+            {
+                if (System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEMIX") == "2") hmPack = 1;
+                else { var k = CityKit.Get(); hmPack = k != null && k.houseMixPack ? 1 : 0; }
+            }
+            return hmPack == 1;
+        }
+        static int hmPack = -1;
+        /// <summary>Read the kit's flag again (a tool rebuilt the kit in this editor).</summary>
+        public static void HouseMixForget() { hmPack = -1; }
+
+        /// <summary>The Square from the map before any tile is built (the audit's census, the
+        /// far proxies' build: hwMap is null there), so a house's class never depends on what
+        /// the process built first.</summary>
+        public static void HouseMixPrime(CityMap map) { if (map != null) hmUptown = map.uptown; }
+
+        static Color32 HmTint(Vector3 k) => new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), 0);
+        static Color32 HmTint(Vector3 k, Vector3 m) => new Color32(TintByte(k.x * m.x), TintByte(k.y * m.y), TintByte(k.z * m.z), 0);
+
+        /// <summary>The district / era row (HmShare) of the spot <paramref name="c"/>, by its
+        /// distance (km) and bearing (0 north, 90 east) from the Square, and the era of its
+        /// subdivision (a 600 m cell).</summary>
+        static int HmDistrict(Vector2 c, out int era)
+        {
+            Vector2 d = c - hmUptown;
+            float km = d.magnitude / 1000f;
+            float brg = (Mathf.Atan2(d.x, d.y) * Mathf.Rad2Deg + 360f) % 360f;
+            float r = (HouseHash(Mathf.FloorToInt(c.x / 600f), Mathf.FloorToInt(c.y / 600f), 101u) & 0xFFFF) / 65536f;
+            bool myers = brg >= 140f && brg < 188f && km >= 3.0f && km < 5.9f;
+            if (km < 4.6f || myers)
+            {
+                era = HmPrewar;
+                if (myers) return 2;
+                if (brg >= 36f && brg < 72f && km >= 3.3f) { era = HmMill; return 3; }
+                if ((brg >= 318f || brg < 4f) && km >= 2.5f) { era = HmRanch; return 5; }
+                if (brg >= 268f && brg < 302f && km >= 1.4f && km < 2.7f) return 1;
+                return 0;
+            }
+            era = km < 7.5f ? (r < 0.85f ? HmRanch : r < 0.95f ? Hm1970 : Hm2010)
+                : km < 10f ? (r < 0.45f ? HmRanch : r < 0.85f ? Hm1970 : r < 0.95f ? Hm1990 : Hm2010)
+                : km < 13f ? (r < 0.10f ? HmRanch : r < 0.55f ? Hm1970 : r < 0.90f ? Hm1990 : Hm2010)
+                : km < 17f ? (r < 0.20f ? Hm1970 : r < 0.70f ? Hm1990 : Hm2010)
+                : (r < 0.10f ? Hm1970 : r < 0.55f ? Hm1990 : Hm2010);
+            return era == HmRanch ? 4 : era == Hm1970 ? 6 : era == Hm1990 ? 7 : 8;
+        }
+
+        /// <summary>The wall class of the house centred at <paramref name="c"/> (see the
+        /// block above): by position alone, so a tile, its neighbour and its far proxy agree.</summary>
+        public static HouseMix HouseMixOf(Vector2 c)
+        {
+            if (c == hmCacheAt) return hmCache;
+            var m = new HouseMix { mat = -1, found = -1 };
+            int row = HmDistrict(c, out m.era);
+            uint h = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 131u);
+            uint h2 = HouseHash(Mathf.RoundToInt(c.x * 2f), Mathf.RoundToInt(c.y * 2f), 139u);
+            // in-town infill: one house in twelve of the old districts is a house of today
+            if (m.era <= HmRanch && row != 4 && (h2 & 0xFF) < (row == 3 || row == 5 ? 10u : 21u)) { m.era = Hm2010; row = 8; m.infill = true; }
+            float r = (h & 0xFFFF) / 65536f, rStone = ((h >> 16) & 0xFF) / 256f, rf = ((h >> 24) & 0xFF) / 256f;
+            float sS = HmShare[row, 0], sB = HmShare[row, 1], sF = HmShare[row, 2];
+            m.cls = r < sS ? HmSiding : r < sS + sB ? HmBrick : r < sS + sB + sF ? HmBrickFront : HmPainted;
+            bool stone = rStone < HmShare[row, 4];
+            // the neighbourhood's brick (a 350 m cell): which brick, and two of its colours
+            uint nb = HouseHash(Mathf.FloorToInt(c.x / 350f), Mathf.FloorToInt(c.y / 350f), 137u);
+            int brick = m.era <= HmMill ? HmOld : m.era == HmRanch ? ((nb & 0xFF) < 102u ? HmOld : HmNew) : m.era == Hm1970 ? ((nb & 0xFF) < 64u ? HmOld : HmNew) : HmNew;
+            var pal = brick == HmOld ? HmOldTints : HmNewTints;
+            Vector3 bt = pal[(int)(((nb >> 8) + ((h2 >> 8) & 1u)) % (uint)pal.Length)];
+            Vector3 st = HmStoneTints[(int)((nb >> 12) % (uint)HmStoneTints.Length)];
+            Color32 pick = HousePickTint(c);
+            m.siding = pick;
+            m.chim = brick; m.chimTint = HmTint(bt);
+            // the siding box a far proxy draws, in the colour the walls read as from there
+            // (x the siding's off-white: the new brick's red, the old brick's wine-grey)
+            Vector3 farBrick = brick == HmOld ? new Vector3(0.74f, 0.58f, 0.55f) : new Vector3(0.80f, 0.42f, 0.34f);
+            m.far = pick;
+            switch (m.cls)
+            {
+                case HmSiding:
+                    // its foundation: brick on most old houses, on half the later ones; stone where
+                    // the house has stone; a newer house's stone is a water table on its front
+                    if (stone) { m.found = HmStone; m.foundTint = HmTint(st); m.stoneTable = m.era >= Hm1990; m.chim = HmStone; m.chimTint = m.foundTint; }
+                    else if (rf < (m.era <= HmMill ? 0.7f : 0.5f)) { m.found = brick; m.foundTint = HmTint(bt); }
+                    break;
+                case HmBrick:
+                    m.mat = brick; m.tint = HmTint(bt);
+                    m.siding = HmTint(HmTrims[(int)((h2 >> 12) % (uint)HmTrims.Length)]);
+                    m.far = HmTint(farBrick, bt);
+                    if (stone) { m.chim = HmStone; m.chimTint = HmTint(st); }
+                    break;
+                case HmBrickFront:
+                    m.mat = brick; m.tint = HmTint(bt);
+                    m.found = brick; m.foundTint = m.tint;
+                    // a stone front instead of brick on some of the houses that have stone
+                    if (stone && m.era >= Hm1990) { m.cls = HmStoneFront; m.mat = HmStone; m.tint = HmTint(st); m.found = HmStone; m.foundTint = m.tint; m.chim = HmStone; m.chimTint = m.tint; }
+                    break;
+                default:
+                {
+                    // painted: white more than half, then cream, greys, sage, a few dark
+                    uint pi = (h2 >> 16) & 0xFF;
+                    Vector3 pt = HmPaints[pi < 140u ? 0 : pi < 178u ? 1 : pi < 204u ? 2 : pi < 224u ? 3 : pi < 234u ? 4 : pi < 242u ? 5 : 6];
+                    m.mat = HmPaint; m.tint = HmTint(pt);
+                    m.siding = HmTint(pt, new Vector3(1.1f, 1.1f, 1.12f));
+                    m.far = m.siding;
+                    m.chim = HmPaint; m.chimTint = m.tint;
+                    break;
+                }
+            }
+            hmCache = m; hmCacheAt = c;
+            return m;
+        }
+
+        /// <summary>The house's front: the direction of its walls (the first wall's line and
+        /// its normal) that faces the nearest street within 80 m (a fill house stands up to 75 m back). None: no front (a brick
+        /// front's house stays in siding).</summary>
+        static void HmFront(Vector2 a, Vector2 c)
+        {
+            if (hmFrontTried) return;
+            hmFrontTried = true; hmFrontOk = false;
+            if (hwMap == null || !hwMap.NearestRoadPoint(hmAt, 80f, true, out int ei, out float s, out _))
+            {
+                if (hm.cls == HmBrickFront || hm.cls == HmStoneFront) HouseMixNoFront++;
+                return;
+            }
+            Vector2 to = hwMap.edges[ei].PointAt(s) - hmAt;
+            if (to.sqrMagnitude < 1f) return;
+            to.Normalize();
+            Vector2 dir = (c - a).normalized, perp = new Vector2(-dir.y, dir.x);
+            float du = Vector2.Dot(to, dir), dv = Vector2.Dot(to, perp);
+            hmFrontN = Mathf.Abs(du) > Mathf.Abs(dv) ? dir * Mathf.Sign(du) : perp * Mathf.Sign(dv);
+            hmFrontOk = true;
+        }
+
+        /// <summary>Plain masonry on the wall p to q from ya to yb: the texture in world
+        /// metres, u from p (plus <paramref name="uAt"/>), v from the house's floor.</summary>
+        static void HmPlain(TileMeshes tm, int kind, Vector2 p, Vector2 q, float ya, float yb, Vector2 outward, float floor, float uAt)
+        {
+            float w = Vector2.Distance(p, q);
+            if (w < 0.004f || yb <= ya + 0.002f) return;
+            Vector2 rep = HmRep[kind];
+            buckets[(int)HmSlot[kind]].Wall(L(p, 0f, tm), L(q, 0f, tm), ya, yb, outward,
+                uAt / rep.x, (uAt + w) / rep.x, (ya - floor) / rep.y, (yb - floor) / rep.y);
+        }
+
+        /// <summary>A rowlock course on the wall p to q from ya to yb: the brick turned a
+        /// quarter (the wall's length runs up the texture's courses, its height across a
+        /// stretch of one brick with no head joint).</summary>
+        static void HmRowlock(TileMeshes tm, int kind, Vector2 p, Vector2 q, float ya, float yb, Vector2 outward, float uAt)
+        {
+            float w = Vector2.Distance(p, q);
+            if (w < 0.004f || yb <= ya + 0.002f) return;
+            Vector3 P = L(p, 0f, tm), Q = L(q, 0f, tm);
+            float vp = uAt / HmRep[kind].y, vq = (uAt + w) / HmRep[kind].y;
+            Vector2 d = new Vector2(Q.x - P.x, Q.z - P.z);
+            if (Vector2.Dot(new Vector2(-d.y, d.x), outward) < 0f) { var t = P; P = Q; Q = t; float tv = vp; vp = vq; vq = tv; }
+            Vector2 ru = HmRowU[kind];
+            buckets[(int)HmSlot[kind]].Quad(new Vector3(P.x, ya, P.z), new Vector3(P.x, yb, P.z), new Vector3(Q.x, yb, Q.z), new Vector3(Q.x, ya, Q.z),
+                new Vector2(ru.x, vp), new Vector2(ru.y, vp), new Vector2(ru.y, vq), new Vector2(ru.x, vq));
+        }
+
+        /// <summary>A masonry wall, a to c, foot <paramref name="y0"/> to top
+        /// <paramref name="y1"/>, laid out as the siding wall is (the caller's bays, storeys,
+        /// pitch, window height and sill): plain masonry, and in each storey's band the
+        /// siding's window cell, whole, between piers, a rowlock sill under it and a rowlock
+        /// lintel over it (a house a street comes within 45 m of; none in stone). The pieces
+        /// of one band run 3 mm into the plain masonry over and under them (the same
+        /// texels), so no seam opens where their corners meet its edge.</summary>
+        static void HmWall(TileMeshes tm, int kind, Color32 tint, Vector2 a, Vector2 c, float y0, float y1, Vector2 outward,
+                           float floor, int bays, int storeys, float pitch, float winH, float sill, float groundHi)
+        {
+            float W = Vector2.Distance(a, c);
+            Vector2 dir = (c - a) / W;
+            var keep = Bucket.Tint;
+            Vector2 ru = HmRowU[kind];
+            float hr = (ru.y - ru.x) * HmRep[kind].x;
+            bool dress = hr > 0.01f && HouseNearStreet(hmAt);
+            var rowTint = new Color32(TintByte(tint.r * 0.84f / 127.5f), TintByte(tint.g * 0.84f / 127.5f), TintByte(tint.b * 0.84f / 127.5f), tint.a);
+            const float ov = 0.003f;
+            var win = buckets[(int)Slot.FacadeHouse];
+            float y = y0;
+            HouseMixWalls++;
+            for (int s = 0; s < storeys && bays > 0; s++)
+            {
+                float ws = floor + s * pitch + sill, we = ws + winH;
+                if (we > y1 - HouseHeadClearM + 0.001f) break;
+                if (ws < groundHi + 0.15f) { HouseWinGroundDropped += bays; continue; }
+                bool sillOn = dress && ws - hr > y + 0.02f && ws - hr > groundHi + 0.05f;
+                bool lintOn = dress && we + hr < y1 - 0.05f;
+                float r0 = sillOn ? ws - hr : ws, r1 = lintOn ? we + hr : we;
+                Bucket.Tint = tint;
+                bool below = r0 > y + 0.005f, above = y1 > r1 + 0.005f;
+                if (below) HmPlain(tm, kind, a, c, y, r0, outward, floor, 0f);
+                float lo = below ? r0 - ov : r0, hi = above ? r1 + ov : r1;
+                float bw = W / bays, half = bw * (HouseWinU1 - HouseWinU0) * 0.5f, x = 0f;
+                for (int i = 0; i < bays; i++)
+                {
+                    float xm = bw * (i + 0.5f), x0 = xm - half, x1 = xm + half;
+                    Vector2 p0 = a + dir * x0, p1 = a + dir * x1;
+                    Bucket.Tint = tint;
+                    HmPlain(tm, kind, a + dir * x, p0, lo, hi, outward, floor, x);
+                    // (a rowlock stops at the band's edge: only plain pieces, whose texels match, overlap the band over and under;
+                    // a shade darker, as a sill's face under its own drip and a lintel's soldiers read from the street)
+                    Bucket.Tint = rowTint;
+                    if (sillOn) HmRowlock(tm, kind, p0, p1, r0, ws, outward, x0);
+                    if (lintOn) HmRowlock(tm, kind, p0, p1, we, r1, outward, x0);
+                    Bucket.Tint = tint;
+                    if (!sillOn && ws > lo + 0.002f) HmPlain(tm, kind, p0, p1, lo, ws, outward, floor, x0);
+                    if (!lintOn && hi > we + 0.002f) HmPlain(tm, kind, p0, p1, we, hi, outward, floor, x0);
+                    // the window: the siding's cell, whole, as painted
+                    Bucket.Tint = new Color32(128, 128, 128, 0);
+                    win.Wall(L(p0, 0f, tm), L(p1, 0f, tm), ws, we, outward, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
+                    x = x1;
+                }
+                Bucket.Tint = tint;
+                HmPlain(tm, kind, a + dir * x, c, lo, hi, outward, floor, x);
+                HouseWinLaid += bays;
+                y = r1;
+            }
+            Bucket.Tint = tint;
+            if (y1 > y + 0.005f) HmPlain(tm, kind, a, c, y, y1, outward, floor, 0f);
+            Bucket.Tint = keep;
+        }
+
+        /// <summary>The ledge on a stone water table: a concrete cap 5 cm proud of the wall.</summary>
+        static void HmLedge(TileMeshes tm, Vector2 a, Vector2 c, float top, Vector2 outward)
+        {
+            var st = buckets[(int)Slot.RoofFlat];
+            float W = Vector2.Distance(a, c);
+            Vector2 o = outward * 0.05f;
+            st.Wall(L(a + o, 0f, tm), L(c + o, 0f, tm), top - 0.07f, top, outward, 0f, W / RoofFlatM, 0f, 0.01f);
+            st.Up(L(a, top, tm), L(c, top, tm), L(c + o, top, tm), L(a + o, top, tm),
+                  new Vector2(0f, 0f), new Vector2(W / RoofFlatM, 0f), new Vector2(W / RoofFlatM, 0.01f), new Vector2(0f, 0.01f));
+        }
+
+        /// <summary>The house's chimney in its brick or stone: four faces (see HouseChimney).</summary>
+        static void HmChimney(TileMeshes tm, Vector2 c, Vector2 u, Vector2 v, float hu, float hv, float y0, float y1)
+        {
+            var keep = Bucket.Tint; Bucket.Tint = hm.chimTint;
+            Vector2 p0 = c + u * hu + v * hv, p1 = c - u * hu + v * hv, p2 = c - u * hu - v * hv, p3 = c + u * hu - v * hv;
+            HmPlain(tm, hm.chim, p1, p0, y0, y1, v, y0, 0f);
+            HmPlain(tm, hm.chim, p3, p2, y0, y1, -v, y0, 0f);
+            HmPlain(tm, hm.chim, p2, p1, y0, y1, -u, y0, 2f * hu);
+            HmPlain(tm, hm.chim, p0, p3, y0, y1, u, y0, 2f * hu);
+            Bucket.Tint = keep;
         }
     }
 }

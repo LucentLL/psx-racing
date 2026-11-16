@@ -139,6 +139,9 @@ namespace PSXRacing.EditorTools
                 int roofHoles = 0, roofPts = 0; var holeList = new List<string>();
                 CityMeshes.HousePolyRoofs = CityMeshes.HousePolyRects = CityMeshes.HousePolyFallback = CityMeshes.HouseHipRoofs = 0;
                 CityMeshes.HouseUnitsLaid = CityMeshes.HouseCrossGables = CityMeshes.HousePorches = CityMeshes.HouseChimneys = CityMeshes.HouseFlatLeft = 0;
+                System.Array.Clear(CityMeshes.HouseMixCount, 0, CityMeshes.HouseMixCount.Length); System.Array.Clear(CityMeshes.HouseMixEra, 0, CityMeshes.HouseMixEra.Length);
+                CityMeshes.HouseMixStone = CityMeshes.HouseMixInfill = CityMeshes.HouseMixReturns = CityMeshes.HouseMixNoFront = CityMeshes.HouseMixWalls = 0;
+                long mixTris = 0;
                 foreach (var t in tiles)
                 {
                     CityMeshes.HouseWinLaid = 0; CityMeshes.HouseWinGroundDropped = 0;
@@ -146,7 +149,7 @@ namespace PSXRacing.EditorTools
                     var tm = CityMeshes.Build(map, trims, proc, t.tx, t.tz);
                     double tms = tsw.Elapsed.TotalMilliseconds;
                     msBy.TryGetValue(t.why, out var mb); msBy[t.why] = (mb.ms + tms, mb.n + 1, System.Math.Max(mb.max, tms));
-                    int tw = 0, tc = 0, tb = 0;
+                    int tw = 0, tc = 0, tb = 0; long tTris = 0;
                     if (tm.buildings != null && tm.buildingSlots != null)
                     {
                         var mesh = tm.buildings;
@@ -154,8 +157,9 @@ namespace PSXRacing.EditorTools
                         for (int si = 0; si < tm.buildingSlots.Length; si++)
                         {
                             var tri = mesh.GetTriangles(si);
-                            tileTris += tri.Length / 3;
+                            tileTris += tri.Length / 3; tTris += tri.Length / 3;
                             if (tm.buildingSlots[si] == CityMeshes.Slot.RoofTiles) roofTris += tri.Length / 3;
+                            if (System.Array.IndexOf(CityMeshes.HmSlot, tm.buildingSlots[si]) >= 0) mixTris += tri.Length / 3;
                             if (tm.buildingSlots[si] != CityMeshes.Slot.FacadeHouse) continue;
                             houseTris += tri.Length / 3;
                             WindowCells(map, tm.origin, V, U, tri, ref tw, ref tc, ref tb, worst);
@@ -164,9 +168,9 @@ namespace PSXRacing.EditorTools
                     if (tm.buildings != null && tm.buildingSlots != null) roofHoles += RoofHoles(map, tm, t.tx, t.tz, ref roofPts, holeList);
                     if (tw + tc + tb > 0) tilesWithHouses++;
                     whole += tw; cut += tc; buried += tb;
-                    Line(string.Format(I, "  tile {0},{1} ({2}, {3}): windows whole {4}, CUT {5}, BURIED {6}; laid {7}, bands left plain for the ground {8}",
+                    Line(string.Format(I, "  tile {0},{1} ({2}, {3}): windows whole {4}, CUT {5}, BURIED {6}; laid {7}, bands left plain for the ground {8}; building triangles {9}, {10:0} ms",
                         t.tx, t.tz, t.why, LatLon((t.tx + 0.5f) * CityMeshes.TileSize, (t.tz + 0.5f) * CityMeshes.TileSize), tw, tc, tb,
-                        CityMeshes.HouseWinLaid, CityMeshes.HouseWinGroundDropped));
+                        CityMeshes.HouseWinLaid, CityMeshes.HouseWinGroundDropped, tTris, tms));
                     foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.structure, tm.medianPlants })
                         if (m != null) Object.DestroyImmediate(m);
                 }
@@ -180,6 +184,38 @@ namespace PSXRacing.EditorTools
                 Line($"ROUND 2: ROOFS {CityMeshes.HouseRoofsOn} UNITS {CityMeshes.HouseUnitsOn} PARTS {CityMeshes.HousePartsOn}: house polygons pitched {CityMeshes.HousePolyRoofs} ({CityMeshes.HousePolyRects} rectangles, {CityMeshes.HousePolyFallback} box hips), " +
                      $"style-3 FLAT roofs left {CityMeshes.HouseFlatLeft}, hip roofs {CityMeshes.HouseHipRoofs}, units {CityMeshes.HouseUnitsLaid}, front gables {CityMeshes.HouseCrossGables}, porches {CityMeshes.HousePorches}, chimneys {CityMeshes.HouseChimneys}; " +
                      $"ROUND 3: dormers {CityMeshes.HouseDormers}, garage doors {CityMeshes.HouseGarages}, shutter pairs {CityMeshes.HouseShutterPairs}, houses past 45 m (no small parts) {CityMeshes.HouseFarSkips}");
+                {
+                    // HOUSE MIX (2026-11-15): the sampled houses by wall class and era, and the class rule city-wide (no build)
+                    var sb = new System.Text.StringBuilder(); int mixN = 0;
+                    for (int k = 0; k < CityMeshes.HmClasses; k++) { sb.Append($"{CityMeshes.HmClassNames[k]} {CityMeshes.HouseMixCount[k]}; "); mixN += CityMeshes.HouseMixCount[k]; }
+                    var se = new System.Text.StringBuilder();
+                    for (int k = 0; k < CityMeshes.HmEras; k++) se.Append($"{CityMeshes.HmEraNames[k]} {CityMeshes.HouseMixEra[k]}; ");
+                    Line($"HOUSE MIX {CityMeshes.HouseMixOn}: {mixN} houses built - {sb}stone water tables {CityMeshes.HouseMixStone}, infill houses {CityMeshes.HouseMixInfill}, masonry walls {CityMeshes.HouseMixWalls}, " +
+                         $"brick returns {CityMeshes.HouseMixReturns}, fronts with no street within 80 m {CityMeshes.HouseMixNoFront}; masonry triangles {mixTris}");
+                    Line($"HOUSE MIX eras (sample): {se}");
+                    if (CityMeshes.HouseMixOn)
+                    {
+                        var byC = new int[CityMeshes.HmClasses]; var byE = new int[CityMeshes.HmEras, CityMeshes.HmClasses]; int nH = 0, nStone = 0;
+                        CityMeshes.HouseMixPrime(map);
+                        foreach (var f in map.footprints)
+                        {
+                            if (f == null || f.style != 3 || f.hidden || CityMeshes.HouseBlock(f)) continue;
+                            var hmx = CityMeshes.HouseMixOf(f.centre);
+                            byC[hmx.cls]++; byE[hmx.era, hmx.cls]++; nH++; if (hmx.stoneTable || hmx.found == CityMeshes.HmStone || hmx.chim == CityMeshes.HmStone) nStone++;
+                        }
+                        var sc = new System.Text.StringBuilder();
+                        for (int k = 0; k < CityMeshes.HmClasses; k++) sc.Append(string.Format(I, "{0} {1} ({2:0.0} %); ", CityMeshes.HmClassNames[k], byC[k], nH > 0 ? 100.0 * byC[k] / nH : 0));
+                        Line($"HOUSE MIX city-wide, the {nH} mapped house footprints (blocks left out): {sc}any stone {nStone}");
+                        for (int e = 0; e < CityMeshes.HmEras; e++)
+                        {
+                            int ne = 0; for (int k = 0; k < CityMeshes.HmClasses; k++) ne += byE[e, k];
+                            if (ne == 0) continue;
+                            var sr = new System.Text.StringBuilder();
+                            for (int k = 0; k < CityMeshes.HmClasses; k++) sr.Append(string.Format(I, "{0} {1:0} %; ", CityMeshes.HmClassNames[k], 100.0 * byE[e, k] / ne));
+                            Line($"    {CityMeshes.HmEraNames[e]}: {ne} houses - {sr}");
+                        }
+                    }
+                }
                 if (System.Environment.GetEnvironmentVariable("PSX_WIN_HOUSES") == "1") HouseCensusBoth(map, trims, proc, false);
                 Line($"audit in {sw.ElapsedMilliseconds} ms");
                 Line(cut + buried == 0 ? "WINDOWS OK" : $"WINDOWS CUT {cut + buried}");

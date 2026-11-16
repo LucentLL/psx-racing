@@ -392,6 +392,9 @@ namespace PSXRacing.City
         /// windows, so no window shows), a concrete cap.</summary>
         static void HouseChimney(TileMeshes tm, Vector2 c, Vector2 u, Vector2 v, float hu, float hv, float y0, float y1)
         {
+            if (hmActive && !skylineBuild) HmChimney(tm, c, u, v, hu, hv, y0, y1);   // HOUSE MIX: the house's own brick or stone
+            else
+            {
             var keepTint = Bucket.Tint; int keepLook = houseBrickLook;
             houseBrickLook = HouseBrickLooks[(int)(FacadeHash(c) % (uint)HouseBrickLooks.Length)];
             PickFacade(c, 2, 2, 2, default, y0, 3f);
@@ -402,6 +405,7 @@ namespace PSXRacing.City
             float pu = 1f / bays, du = 0.02f, dv = (y1 - y0) / (3.0f * lk.floors);   // one floor row (1/floors) is a 3 m storey on a house
             HouseBrickBox(tm, c, u, v, hu, hv, y0, y1, pu - du, pu + du, 0.02f, 0.02f + dv);
             Bucket.Tint = keepTint; houseBrickLook = keepLook;
+            }
             var st = buckets[(int)Slot.RoofFlat];
             Vector2 p0 = c + u * (hu + 0.05f) + v * (hv + 0.05f), p1 = c - u * (hu + 0.05f) + v * (hv + 0.05f);
             Vector2 p2 = c - u * (hu + 0.05f) - v * (hv + 0.05f), p3 = c + u * (hu + 0.05f) - v * (hv + 0.05f);
@@ -764,6 +768,9 @@ namespace PSXRacing.City
             houseBrickLook = brick ? HouseBrickLooks[(int)(FacadeHash(centre) % (uint)HouseBrickLooks.Length)] : -1;
             houseBrickBase = brick; houseStoreyM = 2.8f; houseBrickAt = centre;
             houseUnitRow = HouseUnitsOn && !skylineBuild && !proxyBuild;
+            // HOUSE MIX: a block is not a house (no wall class; its siding in its own colour as before)
+            hmActive = false;
+            if (HouseMixOn && HouseTintOn) Bucket.Tint = HousePickTint(centre);
             houseBlockHalfDepth = Mathf.Max(2f, halfDepth > 0f ? halfDepth : f.hv);
             houseMainSlope = slope;
             HouseRoofToneFor(centre, EraModern);
