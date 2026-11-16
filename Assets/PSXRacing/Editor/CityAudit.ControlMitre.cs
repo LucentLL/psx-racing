@@ -70,10 +70,16 @@ namespace PSXRacing.EditorTools
                     string reason;
                     if (e.oneway && e.a == n) { reason = "a one-way exit: no approach"; cExit++; }
                     else if (CitySignals.MitreWhy.TryGetValue(((long)n << 32) | (uint)ei, out string mw)) reason = mw;
-                    else if (nodeJ.TryGetValue(n, out int jj)) reason = (all[jj].signal ? "in a signal junction with no approach for it" : "the node's OSM-tag junction has no approach for it") + " (" + CitySignals.WhyNoLine(map, trims, e, n) + ")";
+                    else if (nodeJ.TryGetValue(n, out int jj) && System.Array.IndexOf(all[jj].nodes, e.a == n ? e.b : e.a) >= 0)
+                        reason = all[jj].signal ? "inside a signal junction (both its ends are the junction's nodes)" : "inside its junction (both ends are its nodes)";
+                    else if (nodeJ.TryGetValue(n, out jj)) reason = (all[jj].signal ? "in a signal junction with no approach for it" : "the node's OSM-tag junction has no approach for it") + " (" + CitySignals.WhyNoLine(map, trims, e, n) + ")";
                     else if (!CitySignals.MitreWarrantOn) reason = "no warrant at mitred nodes (PC45 rule)";
                     else if (CitySignals.MitreNodeWhy.TryGetValue(n, out string nw)) reason = nw;
-                    else reason = "not reached by the warrant (unknown)";
+                    else
+                    {
+                        CitySignals.ThroughArms(map, n, out int r1, out int r2);
+                        reason = ei == r1 || ei == r2 ? "the control's through road here (the ranked pair: it outranks the meshes' through arm)" : "not reached by the warrant (unknown)";
+                    }
                     cNone++;
                     why[reason] = why.TryGetValue(reason, out int c) ? c + 1 : 1;
                     rows.Add($"n{n} {ll} ({map.nodes[n].x:0},{map.nodes[n].y:0}) e{ei} '{e.name}' meets '{nA}'/'{nB}'{(e.oneway ? " one-way" : "")}: {reason}");
