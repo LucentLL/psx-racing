@@ -24,24 +24,29 @@ namespace PSXRacing
 
             var mode = GetComponent<CityMode>();
             if (mode == null) mode = Object.FindFirstObjectByType<CityMode>(FindObjectsInactive.Include);
-            if (mode == null || string.IsNullOrEmpty(mode.routeId)) return;   // free roam: the routes are enough
+            if (mode == null || string.IsNullOrEmpty(mode.routeId)) return;   // free roam: the routes, and no closures
             var venue = TrackCatalog.At(RaceHandoff.TrackIndex);
-            if (venue == null || !venue.IsCityRace || venue.IsDeckRun || venue.cityRoute == mode.routeId) return;
-            if (!CityTracks.Has(venue.cityRoute) || map.RouteById(venue.cityRoute) == null) return;
-            Debug.Log("[CityTracks] " + venue.id + " races in this scene on route " + venue.cityRoute + " (was " + mode.routeId + ")");
-            mode.routeId = venue.cityRoute;
-            mode.venueName = venue.name;
-            mode.routeLabel = venue.dragLabel ?? "";
-            var path = Object.FindFirstObjectByType<TrackPath>(FindObjectsInactive.Include);
-            if (path != null)
+            if (venue == null || !venue.IsCityRace || venue.IsDeckRun) return;  // a deck run builds its own lap
+            if (venue.cityRoute != mode.routeId && CityTracks.Has(venue.cityRoute) && map.RouteById(venue.cityRoute) != null)
             {
-                path.roadWidth = venue.roadWidth;
-                path.pointToPoint = !venue.loop;
-                path.finishIndex = venue.FinishIndex;
-                path.dragLabel = venue.dragLabel ?? "";
+                Debug.Log("[CityTracks] " + venue.id + " races in this scene on route " + venue.cityRoute + " (was " + mode.routeId + ")");
+                mode.routeId = venue.cityRoute;
+                mode.venueName = venue.name;
+                mode.routeLabel = venue.dragLabel ?? "";
+                var path = Object.FindFirstObjectByType<TrackPath>(FindObjectsInactive.Include);
+                if (path != null)
+                {
+                    path.roadWidth = venue.roadWidth;
+                    path.pointToPoint = !venue.loop;
+                    path.finishIndex = venue.FinishIndex;
+                    path.dragLabel = venue.dragLabel ?? "";
+                }
             }
-            // the closed course: every road that meets the route shut a few metres up from the junction
-            CityRaceClosures.Build(map, map.RouteById(venue.cityRoute), transform);
+            // A SANCTIONED event's course is closed like a parade route (owner, 15:10): every road that
+            // meets it shut clear of the race line. Not in a street race, not in free roam.
+            if (CityRaceClosures.ForThisRace())
+                CityRaceClosures.Build(map, map.RouteById(mode.routeId), transform);
+            else CityRaceClosures.ClearLast();
         }
     }
 }

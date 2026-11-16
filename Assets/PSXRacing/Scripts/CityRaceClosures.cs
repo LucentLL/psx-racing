@@ -5,30 +5,116 @@ using PSXRacing.City;
 namespace PSXRacing
 {
     /// <summary>
-    /// THE CLOSED COURSE: every road that meets a Charlotte track's route - a side street, an on-ramp,
-    /// an off-ramp, the crossing road at a turnaround - is shut with a row of orange-and-white
-    /// barricades (Type III, the kind a road closure stands) a few metres up it from the junction, with
-    /// a solid barrier behind them, so the course is the course and a wrong exit is a wall. Built when a
-    /// race scene is raced as one of the tracks of charlotte_tracks.json (CityTracksRegistrar);
-    /// the export's own three races are left as they were. PSX_TRACK_CLOSURES=0: no closures.
+    /// THE CLOSED COURSE OF A SANCTIONED EVENT (owner, 2026-11-16 15:10: "I never asked for barricades
+    /// or road construction. They can be repurposed for 'legal' race events, like a parade."). In a
+    /// SANCTIONED (legal) event raced on a Charlotte route, every road that meets the route - a side
+    /// street, an on-ramp, an off-ramp, the crossing road at a turnaround - is shut the way a parade
+    /// route is: a row of orange-and-white barricades up it, clear of the course, with a solid barrier
+    /// behind them. Never on the race line (each closure walks up its road until its whole span is
+    /// clear of the course's pavement; <see cref="Audit"/> checks the line a race drives), never in
+    /// free roam, never in a street (illegal) race, never anywhere else: there is no other road
+    /// closure or construction dressing in the city. Built by CityTracksRegistrar in a race scene.
+    /// PSX_TRACK_CLOSURES=0: never; =1: in every city race (the play checks); unset: sanctioned events only.
     /// </summary>
     public static class CityRaceClosures
     {
         public static bool Enabled => System.Environment.GetEnvironmentVariable("PSX_TRACK_CLOSURES") != "0";
 
-        /// <summary>How far up a closed road the barricades stand from the junction (metres): past
-        /// the mouth's curb returns and a ramp's gore, short of the next junction.</summary>
+        /// <summary>Does the race being loaded close its course? Only a sanctioned event's
+        /// (RaceHandoff.EventKey names an event that is not a street one), unless the switch says.</summary>
+        public static bool ForThisRace()
+        {
+            string sw = System.Environment.GetEnvironmentVariable("PSX_TRACK_CLOSURES");
+            if (sw == "0") return false;
+            if (sw == "1") return true;
+            string key = RaceHandoff.EventKey;
+            if (string.IsNullOrEmpty(key)) return false;
+            int h = key.LastIndexOf('#');
+            var ev = PSXRacing.LifeSim.Events.ById(h > 0 ? key.Substring(0, h) : key);
+            return ev != null && !ev.street;
+        }
+
+        /// <summary>How far up a closed road the barricades stand from the junction at least (metres):
+        /// past the mouth's curb returns, short of the next junction.</summary>
         const float SetBack = 14f;
+        /// <summary>The clear gap kept between a barricade and the course's own pavement (metres).
+        /// The owner's 2026-11-16 watched race stopped at barricades standing across the race lanes:
+        /// a ramp merging into the course and the freeway beside its C-D road run ON the course's
+        /// pavement for tens of metres from their junction, so a barricade 14 m up them stood in its
+        /// lanes. Now a closure walks up the closed road until its whole span is this far off the
+        /// course, drops any panel that would still reach it, and leaves the road open (logged)
+        /// when it runs beside the course to its end.</summary>
+        const float Clear = 1.5f;
         const float PanelW = 2.4f, BoardH = 0.2f, LegW = 0.09f, Height = 1.5f;
 
         static Material boardMat, legMat;
+
+        /// <summary>One closure as built: where its panels stand (for the audit).</summary>
+        public struct Placed { public Vector3 a, b; public int edge; }
+        /// <summary>What the last <see cref="Build"/> did: its route, the roads shut, those left open
+        /// because they run beside the course, and every panel row (a = one end, b = the other).</summary>
+        public static string LastRoute;
+        public static int LastClosed, LastLeftOpen;
+        public static readonly List<Placed> LastPlaced = new List<Placed>();
+
+        /// <summary>The course's pavement, as the route's edges and half-widths: how far a point
+        /// stands outside it (negative = on it).</summary>
+        class Course
+        {
+            readonly List<Vector2[]> lines = new List<Vector2[]>();
+            readonly List<float> half = new List<float>();
+            readonly List<Rect> boxes = new List<Rect>();
+            public Course(CityMap map, CityMap.Route route)
+            {
+                foreach (var ei in route.edges)
+                {
+                    var e = map.edges[ei];
+                    if (e.pts == null || e.pts.Length < 2) continue;
+                    var lo = e.pts[0]; var hi = e.pts[0];
+                    foreach (var p in e.pts) { lo = Vector2.Min(lo, p); hi = Vector2.Max(hi, p); }
+                    float h = Mathf.Max(3f, e.width * 0.5f);
+                    lines.Add(e.pts); half.Add(h);
+                    boxes.Add(Rect.MinMaxRect(lo.x - h - 30f, lo.y - h - 30f, hi.x + h + 30f, hi.y + h + 30f));
+                }
+            }
+            /// <summary>Metres from <paramref name="p"/> to the edge of the course's pavement (negative
+            /// when <paramref name="p"/> is on it); capped at 30 m.</summary>
+            public float Outside(Vector2 p)
+            {
+                float best = 30f;
+                for (int k = 0; k < lines.Count; k++)
+                {
+                    if (!boxes[k].Contains(p)) continue;
+                    var l = lines[k];
+                    for (int i = 1; i < l.Length; i++)
+                    {
+                        float d = DistSeg(p, l[i - 1], l[i]) - half[k];
+                        if (d < best) best = d;
+                    }
+                }
+                return best;
+            }
+        }
+
+        static float DistSeg(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var ab = b - a;
+            float L = ab.sqrMagnitude;
+            float t = L > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / L) : 0f;
+            return Vector2.Distance(p, a + ab * t);
+        }
+
+        /// <summary>No closures this race (what the checks read).</summary>
+        public static void ClearLast() { LastRoute = null; LastClosed = 0; LastLeftOpen = 0; LastPlaced.Clear(); }
 
         /// <summary>The closures of <paramref name="route"/>, under a new "Closures" object. Returns
         /// how many roads were shut.</summary>
         public static int Build(CityMap map, CityMap.Route route, Transform parent = null)
         {
+            LastRoute = route != null ? route.id : null; LastClosed = 0; LastLeftOpen = 0; LastPlaced.Clear();
             if (!Enabled || map == null || route == null || route.edges == null || route.edges.Length == 0) return 0;
             var onRoute = new HashSet<int>(route.edges);
+            var course = new Course(map, route);
             var nodes = new List<int>();
             for (int i = 0; i < route.edges.Length; i++)
             {
@@ -56,42 +142,114 @@ namespace PSXRacing
                     if (onRoute.Contains(ei) || !shut.Add(ei)) continue;
                     var e = map.edges[ei];
                     if (e.length < 6f) continue;
-                    float d = Mathf.Min(SetBack, e.length * 0.5f);
-                    float s = e.a == node ? d : e.length - d;
-                    Vector2 p = e.PointAt(s), t = e.TangentAt(s);
-                    float y = e.YAt(s);
                     float w = Mathf.Max(3f, e.width);
-                    Shut(root, mesh, new Vector3(p.x, y, p.y), new Vector3(t.x, 0f, t.y).normalized, w);
-                    n++;
+                    // walk up the closed road until the whole barricade is clear of the course
+                    bool from = e.a == node;
+                    bool placed = false;
+                    for (float d = Mathf.Min(SetBack, e.length * 0.5f); d <= e.length - 2f && !placed; d += 2f)
+                    {
+                        float s = from ? d : e.length - d;
+                        Vector2 p = e.PointAt(s), t = e.TangentAt(s).normalized;
+                        var across = new Vector2(t.y, -t.x);
+                        if (course.Outside(p) < w * 0.5f + Clear) continue;
+                        if (course.Outside(p + across * (w * 0.5f)) < Clear || course.Outside(p - across * (w * 0.5f)) < Clear) continue;
+                        placed = Shut(root, mesh, course, new Vector3(p.x, e.YAt(s), p.y), new Vector3(t.x, 0f, t.y), w, ei);
+                    }
+                    if (placed) n++;
+                    else { LastLeftOpen++; Debug.Log("[CityTracks] " + route.id + ": " + (e.name ?? "a ramp") + " (edge " + ei + ") runs beside the course to its end: left open"); }
                 }
             }
             mesh.Emit(root, "Barricades", boardMat, legMat);
-            Debug.Log("[CityTracks] " + route.id + ": " + n + " roads closed");
+            LastClosed = n;
+            Debug.Log("[CityTracks] " + route.id + ": " + n + " roads closed, " + LastLeftOpen + " left open beside the course");
             return n;
         }
 
         /// <summary>One closure: barricade panels across the road at <paramref name="at"/> (the road's
-        /// surface), boards facing along <paramref name="along"/>, and a box collider across it.</summary>
-        static void Shut(Transform root, MeshAcc mesh, Vector3 at, Vector3 along, float width)
+        /// surface), boards facing along <paramref name="along"/>, every panel clear of the course, and
+        /// a box collider across the panels that stand. False when no panel could stand.</summary>
+        static bool Shut(Transform root, MeshAcc mesh, Course course, Vector3 at, Vector3 along, float width, int edge)
         {
             var across = new Vector3(along.z, 0f, -along.x);
             int panels = Mathf.Max(1, Mathf.CeilToInt(width / PanelW));
             float pw = width / panels;
+            float lo = float.MaxValue, hi = float.MinValue;
             for (int i = 0; i < panels; i++)
             {
-                var c = at + across * ((i + 0.5f) * pw - width * 0.5f);
+                float off = (i + 0.5f) * pw - width * 0.5f;
+                var c = at + across * off;
+                var ea = c + across * (pw * 0.5f); var eb = c - across * (pw * 0.5f);
+                if (course.Outside(new Vector2(ea.x, ea.z)) < Clear || course.Outside(new Vector2(eb.x, eb.z)) < Clear) continue;
                 // two legs, three boards (stripes on the boards' texture)
                 mesh.Box(c + across * (pw * 0.5f - 0.15f) + Vector3.up * (Height * 0.5f), across, along, new Vector3(LegW, Height, LegW), false);
                 mesh.Box(c - across * (pw * 0.5f - 0.15f) + Vector3.up * (Height * 0.5f), across, along, new Vector3(LegW, Height, LegW), false);
                 foreach (float h in new[] { 0.45f, 0.85f, 1.25f })
                     mesh.Box(c + Vector3.up * h, across, along, new Vector3(pw - 0.1f, BoardH, 0.04f), true);
+                lo = Mathf.Min(lo, off - pw * 0.5f); hi = Mathf.Max(hi, off + pw * 0.5f);
             }
+            if (lo > hi) return false;
+            var mid = at + across * ((lo + hi) * 0.5f);
             var col = new GameObject("Closure").AddComponent<BoxCollider>();
             col.transform.SetParent(root, false);
-            col.transform.position = at + Vector3.up * 0.9f;
+            col.transform.position = mid + Vector3.up * 0.9f;
             col.transform.rotation = Quaternion.LookRotation(along, Vector3.up);
-            col.size = new Vector3(width + 0.6f, 1.8f, 0.5f);
+            col.size = new Vector3(hi - lo, 1.8f, 0.5f);
+            LastPlaced.Add(new Placed { a = at + across * lo, b = at + across * hi, edge = edge });
+            return true;
         }
+
+        /// <summary>
+        /// THE CHECK (the owner's watched race, 2026-11-16): walk the race line a scene actually raced
+        /// (its TrackPath, every waypoint, so a reverse twin's is the same road the other way) and count
+        /// the closures standing within <paramref name="halfLane"/> + 0.5 m of it - a barricade on the
+        /// driven lanes. Also counts any closure on the course's own pavement by the map (the rule
+        /// Build placed them by). 0 is the only pass.
+        /// </summary>
+        public static int Audit(TrackPath path, CityMap map, CityMap.Route route, out string worst)
+        {
+            worst = "";
+            if (path == null || path.waypoints == null || path.waypoints.Length < 2 || LastPlaced.Count == 0) return 0;
+            var course = map != null && route != null ? new Course(map, route) : null;
+            int bad = 0;
+            float worstMargin = float.MaxValue;
+            var w = path.waypoints;
+            int n = path.pointToPoint ? w.Length - 1 : w.Length;
+            foreach (var c in LastPlaced)
+            {
+                var ca = new Vector2(c.a.x, c.a.z); var cb = new Vector2(c.b.x, c.b.z);
+                float best = float.MaxValue; int at = 0;
+                // the panel row as a segment, against every leg of the race line
+                for (int i = 0; i < n; i++)
+                {
+                    var p0 = new Vector2(w[i].x, w[i].z);
+                    var p1 = new Vector2(w[(i + 1) % w.Length].x, w[(i + 1) % w.Length].z);
+                    float d = SegSeg(ca, cb, p0, p1);
+                    if (d < best) { best = d; at = i; }
+                }
+                // the driven lanes there: the course's own pavement round that waypoint (3.7 m a side at least)
+                float halfLane = 3.7f;
+                if (course != null) halfLane = Mathf.Max(3.7f, -course.Outside(new Vector2(w[at].x, w[at].z)));
+                float margin = best - halfLane;
+                if (margin < 0.5f) bad++;
+                if (margin < worstMargin)
+                {
+                    worstMargin = margin;
+                    worst = "edge " + c.edge + " at (" + c.a.x.ToString("0") + ", " + c.a.z.ToString("0") + "): " + best.ToString("0.0") +
+                            " m from the race line, the lanes " + halfLane.ToString("0.0") + " m a side";
+                }
+            }
+            return bad;
+        }
+
+        static float SegSeg(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        {
+            // segments that cross are 0 apart; otherwise the nearest of the four end distances
+            float d1 = Cross(b - a, c - a), d2 = Cross(b - a, d - a), d3 = Cross(d - c, a - c), d4 = Cross(d - c, b - c);
+            if (((d1 > 0f && d2 < 0f) || (d1 < 0f && d2 > 0f)) && ((d3 > 0f && d4 < 0f) || (d3 < 0f && d4 > 0f))) return 0f;
+            return Mathf.Min(Mathf.Min(DistSeg(a, c, d), DistSeg(b, c, d)), Mathf.Min(DistSeg(c, a, b), DistSeg(d, a, b)));
+        }
+
+        static float Cross(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
 
         static void EnsureMaterials()
         {
