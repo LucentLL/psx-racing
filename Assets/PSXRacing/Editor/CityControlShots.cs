@@ -25,6 +25,16 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class CityControlShots
     {
+        /// <summary>The season's dress on the scene's SeasonDress (ColourShots' way).</summary>
+        static void Dress()
+        {
+            var sd = Object.FindAnyObjectByType<SeasonDress>();
+            if (sd == null) return;
+            var reg = typeof(SeasonDress).GetMethod("Register", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            reg?.Invoke(sd, null);
+            sd.Apply(Seasons.CurrentDress);
+        }
+
         public static void RunOwner()
         {
             var inv = CultureInfo.InvariantCulture;
@@ -67,7 +77,9 @@ namespace PSXRacing.EditorTools
                         else { se = Mathf.Clamp(float.Parse(c[2], inv), 0f, e.length); way = c[3].Trim() == "-1" ? -1 : 1; }
                         var t2 = e.TangentAt(se) * way;
                         var r2 = new Vector2(t2.y, -t2.x);
-                        var pe = e.PointAt(se) + r2 * (e.oneway ? 0f : 1.83f);
+                        // the right-hand lane's middle: half a lane right of the line set's divider (travel-right metres)
+                        float divTR = e.oneway ? 0f : (way > 0 ? -LineModel.DividerLat(e) : LineModel.DividerLat(e));
+                        var pe = e.PointAt(se) + r2 * (e.oneway ? 0f : divTR + 1.83f);
                         x = pe.x; z = pe.y; hdg = Mathf.Atan2(t2.x, t2.y) * Mathf.Rad2Deg; y = e.YAt(se);
                     }
                     else
@@ -84,11 +96,14 @@ namespace PSXRacing.EditorTools
                     {
                         bool rain = variant == "nightrain";
                         int hour = rain ? TimeOfDay.Night : TimeOfDay.Noon;
-                        RaceHandoff.CalendarDay = 0;
+                        // summer's dress, as in the owner's PC45 frames (green leaves); before the tiles build
+                        RaceHandoff.CalendarDay = ColourSpots.DayIn(Season.Summer);
                         RaceHandoff.WeatherOverride = rain ? (int)Weather.Rain : (int)Weather.Clear;
+                        Dress();
                         if (car != null) car.TeleportTo(pos, rot); else player.transform.SetPositionAndRotation(pos, rot);
                         world.DropAll();
                         world.EnsureRing(pos + fwd * 60f, 2);
+                        Dress();
                         TimeOfDay.Apply(hour, sun);
                         if (globals != null) globals.Apply();
                         var hd = TimeOfDay.At(hour);
