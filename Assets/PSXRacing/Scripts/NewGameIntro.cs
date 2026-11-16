@@ -130,10 +130,17 @@ namespace PSXRacing
         public static bool Launch(LifeState s)
         {
             if (!On || s == null || s.ActiveCar == null || !Edition.HasCareer) return false;
-            if (!TrackCatalog.TryIndexOfShipped(VenueId, out int track)) return false;
+            if (!TrackCatalog.TryIndexOfShipped(VenueId, out int track)) { Debug.LogWarning("[NewGameIntro] no " + VenueId + " in this build"); return false; }
             var def = TrackCatalog.At(track);
+            // the tunnel table comes with the stage's bake
+            TrackCatalog.EnsureStage(def);
             int scene = TrackCatalog.SceneIndex(track);
-            if (!TrackCatalog.SceneShipped(scene) || def.tunnels == null || def.tunnels.Length == 0) return false;
+            if (!TrackCatalog.SceneShipped(scene) || def.tunnels == null || def.tunnels.Length == 0)
+            {
+                Debug.LogWarning($"[NewGameIntro] {VenueId}: scene {scene} shipped {TrackCatalog.SceneShipped(scene)}, " +
+                                 $"tunnels {(def.tunnels != null ? def.tunnels.Length : -1)} - straight home");
+                return false;
+            }
 
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
