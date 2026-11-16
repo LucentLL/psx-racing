@@ -40,6 +40,9 @@ Shader "PSX/Camcorder"
         // Eye pass: x: luma ease this frame; y: chroma ease; z: 1 = start
         // over; w: where it starts, as a factor on the measured luma.
         float4 _PSXCamEyeK;
+        // x: 1 = filmed from a car's passenger seat (the dash and the A-pillar
+        // in the bottom and left of the frame).
+        float4 _PSXCam3;
 
         TEXTURE2D(_PSXCamEyePrev);
         TEXTURE2D(_PSXCamEye);
@@ -267,6 +270,20 @@ Shader "PSX/Camcorder"
                 float3 wb = pow((1.0 / 3.0) / max(shares, 0.06), 0.33);
                 wb /= max(dot(wb, LumaW), 1e-3);
                 rgb *= wb;
+
+                // The buddy's car: the top of the dash across the foot of the
+                // frame and the A-pillar down the right, dark, a sheen on each.
+                if (_PSXCam3.x > 0.5)
+                {
+                    float dashTop = 0.13 + 0.035 * sin(wuv.x * 3.14159) + 0.012 * sin(wuv.x * 9.0 + 1.0);
+                    float dash = smoothstep(dashTop + 0.006, dashTop - 0.006, wuv.y);
+                    float pillarX = 0.07 + (wuv.y - 0.45) * 0.22;
+                    // The near (right-hand) pillar from the passenger seat.
+                    float pillar = wuv.y > 0.45 ? smoothstep(pillarX + 0.008, pillarX - 0.008, 1.0 - wuv.x) : 0.0;
+                    float edgeSheen = exp(-abs(wuv.y - dashTop) * 160.0) * 0.12;
+                    float3 inside = float3(0.035, 0.034, 0.038) + edgeSheen;
+                    rgb = lerp(rgb, inside, saturate(max(dash, pillar)));
+                }
 
                 // Static in the bars and the band.
                 rgb = lerp(rgb, float3(0.85, 0.85, 0.85) * (0.6 + 0.4 * Hash12(uv * 731.0 + field)), saturate(stat));

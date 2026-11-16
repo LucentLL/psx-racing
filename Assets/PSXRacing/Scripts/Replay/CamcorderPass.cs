@@ -28,6 +28,7 @@ namespace PSXRacing
         public static readonly int Cam1Id = Shader.PropertyToID("_PSXCam1");
         public static readonly int Cam2Id = Shader.PropertyToID("_PSXCam2");
         public static readonly int EyeKId = Shader.PropertyToID("_PSXCamEyeK");
+        public static readonly int Cam3Id = Shader.PropertyToID("_PSXCam3");
         static readonly MaterialPropertyBlock Block = new MaterialPropertyBlock();
 
         const int EyeShaderPass = 0, PictureShaderPass = 1, CopyShaderPass = 2;
@@ -168,6 +169,7 @@ namespace PSXRacing
             // The eye's two time constants: exposure ~0.7 s, white balance ~2.5 s.
             float k = 1f - Mathf.Exp(-dt / 0.7f);
             float kc = 1f - Mathf.Exp(-dt / 2.5f);
+            m.SetVector(Cam3Id, new Vector4(Camcorder.Interior ? 1f : 0f, 0f, 0f, 0f));
             m.SetVector(EyeKId, new Vector4(k, kc, Camcorder.EyeReset ? 1f : 0f,
                                             Camcorder.EyeReset ? Mathf.Max(0.05f, Camcorder.EyeKick) : 1f));
             Camcorder.EyeReset = false;

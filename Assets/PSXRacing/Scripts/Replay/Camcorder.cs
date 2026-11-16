@@ -66,6 +66,9 @@ namespace PSXRacing
         public static bool EyeReset;
         /// <summary>Where the eye starts after a cut: a stop up or down.</summary>
         public static float EyeKick;
+        /// <summary>Filmed from a car's passenger seat: the dash and the
+        /// A-pillar framed in the picture.</summary>
+        public static bool Interior;
 
         /// <summary>The VCR's transport, drawn by the pass: 0 play (the tape's
         /// own picture), 1 pause (the still field's jitter and its bar),
@@ -118,7 +121,7 @@ namespace PSXRacing
         {
             Camera = null;
             Defocus = 0f; PanSmear = 0f; Tracking = 0f;
-            EyeReset = false; EyeKick = 0f;
+            EyeReset = false; EyeKick = 0f; Interior = false;
             Transport = 0; ScanRate = 0f;
         }
     }

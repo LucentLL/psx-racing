@@ -366,6 +366,7 @@ namespace PSXRacing
             Camcorder.PanSmear = Mathf.Clamp(smear, -0.06f, 0.06f) * (4f / 3f) / Mathf.Max(cam.aspect, 0.5f);
 
             // ---- a glitch at the start of a recording, now and then ----
+            Camcorder.Interior = chasing;
             CamcorderMic.Wind = chasing ? 0.8f : cur >= 0 && cur < spots.Count && spots[cur].kind == Kind.Overpass ? 0.55f : 0.35f;
             CamcorderMic.Scan = Camcorder.Transport == 2 ? Camcorder.ScanRate : 0f;
             glitch = Mathf.Max(0f, glitch - dt * 2.5f);
