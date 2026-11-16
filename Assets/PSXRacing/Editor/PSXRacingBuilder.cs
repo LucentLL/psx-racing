@@ -497,6 +497,10 @@ namespace PSXRacing.EditorTools
                                                 rail: RailKit.Rustic),
             ["SwissNC226A"] = MountainLoopTheme(Root + "/Art/Swiss226A", "swa"),
             ["GillespieGap"] = MountainLoopTheme(Root + "/Art/Gillespie", "gap"),
+            // US 64/74A, Lake Lure to Bat Cave, before Helene: white edge
+            // lines and a double yellow, W-beam on the lake side (the owner's
+            // 2022 dash-cam video).
+            ["LakeLure"] = LakeLureTheme(),
 
             // Bogue Banks. One look, three venues: pale sand, scrub behind the
             // dune line, water on both sides of everything. All three share a
@@ -584,6 +588,16 @@ namespace PSXRacing.EditorTools
             edgeLines = edgeLines,
             rail = rail,
         };
+
+        /// <summary>The mountain look, with Lake Lure's water: a deep green-blue
+        /// mountain lake rather than the coast's pale sound.</summary>
+        static Theme LakeLureTheme()
+        {
+            var t = MountainLoopTheme(Root + "/Art/LakeLure", "lure");
+            t.waterDeepTint = new Color(0.36f, 0.47f, 0.46f);
+            t.waterSandColor = new Color(0.48f, 0.42f, 0.32f);
+            return t;
+        }
 
         /// <summary>For the self-test: every catalog track needs a theme, and a
         /// missing one only shows up as a circuit that quietly looks like the
@@ -849,6 +863,7 @@ namespace PSXRacing.EditorTools
             if (def.stage) BuildStageTunnels(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
             BuildStartLine(waypoints, pathGO.transform);
+            if (def.stage) BuildStageWorld(waypoints, pathGO.transform);   // lake, river, town from <pre>_world.json (StageRiver.cs / StageTown.cs)
             if (def.stage && theme.stageForest) BuildStageForest(waypoints, pathGO.transform);
             else BuildScenery(waypoints, pathGO.transform);
             if (def.stage && theme.stageHomes) BuildStageHomes(waypoints, pathGO.transform);

@@ -944,6 +944,9 @@ namespace PSXRacing.LifeSim
         /// Idempotent: it runs on every load.</summary>
         public static void Migrate(LifeState s)
         {
+            // A save written before v22 has its venues read across BY ID onto today's list by the v22 step
+            // (RetireFictionalVenues); only a v22..v29 save still holds the v29 layout the v30 step reads.
+            int writtenAt = s.saveVersion;
             if (s.saveVersion < 2)
             {
                 // v1 wrote synthetic faults ("worn-engine") with no catalog
@@ -1465,6 +1468,29 @@ namespace PSXRacing.LifeSim
             if (s.saveVersion < 27) MigrateToCrashFates(s);
             if (s.saveVersion < 28) MigrateToInsurance(s);
             if (s.saveVersion < 29) MigrateToEvents(s);
+            if (s.saveVersion < 30) MigrateToLakeLure(s, writtenAt >= 22);
+        }
+
+        /// <summary>
+        /// v30, LAKE LURE (2026-11-16): US 64/74A appended to the catalog with
+        /// its twin and four sections, which moved every twin, sprint section
+        /// and deck run along. Every stored venue index is read across by id
+        /// (TrackCatalog.RemapV29Index); nothing was removed, so nothing is
+        /// cancelled. A save from before v22 came through the v22 step, which
+        /// already read its venues onto today's list by id: only stamped.
+        /// Idempotent by its stamp; throws nothing on a null.
+        /// </summary>
+        public static void MigrateToLakeLure(LifeState s, bool remap = true)
+        {
+            if (s == null || CodeVersion < 30) return;
+            int Map(int i) { int now = TrackCatalog.RemapV29Index(i); return now >= 0 ? now : i; }
+            if (remap)
+            {
+                if (s.trackIndex >= 0) s.trackIndex = Map(s.trackIndex);
+                if (s.bookings != null) foreach (var b in s.bookings) if (b != null && b.trackIndex >= 0) b.trackIndex = Map(b.trackIndex);
+                if (s.blChallenge != null && s.blChallenge.trackIndex >= 0) s.blChallenge.trackIndex = Map(s.blChallenge.trackIndex);
+            }
+            s.saveVersion = 30;
         }
 
         /// <summary>

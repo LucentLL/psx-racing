@@ -833,6 +833,33 @@ namespace PSXRacing
                 // cut to.
                 minCornerR = 5.5f,
             },
+
+            // US 64/74A FROM LAKE LURE THROUGH CHIMNEY ROCK TO BAT CAVE, AS IT
+            // STOOD BEFORE HURRICANE HELENE (owner, 2026-11-16). Out of
+            // HeldBack once its gates passed: the lab audits at 0 FAIL with
+            // the lake, the river, the village and the side roads built, and
+            // the race, sprint, reverse and finish checks. Appended - save
+            // v30 (RemapV29Index, by id).
+            new TrackDef
+            {
+                id = "LakeLure",
+                name = "LAKE LURE",   // the home screen's "RACE NIGHT - <venue>" cuts at ~13 characters: "LAKE LURE - US 64/74A" and "LAKE LURE - CHIMNEY ROCK" both showed "..."
+                blurb = "US 64/74A as it was before the flood: from where NC 9 comes in at the " +
+                        "east end of the lake, along the shore and through downtown, over the " +
+                        "Rocky Broad, up Main Street through Chimney Rock village and the " +
+                        "Hickory Nut Gorge to Bat Cave. 11.6 km, 222 m of climb. " +
+                        "Map (c) OpenStreetMap contributors, as of 2024-09-20.",
+                // US 64/74A, a primary route: two 11.5 ft lanes. The lidar bench
+                // (pavement, shoulders, verges) is 13 m at the median and 8.5 m
+                // at its narrowest tenth; OSM has lanes=2 and no width.
+                roadWidth = 7.0f,
+                laps = 1,
+                speedLimitKmh = 56f,    // 35 mph; 25 through downtown, 20 in the village
+                stage = true,
+                stageData = "lure_stage",
+                dragLabel = "BAT CAVE",
+                noDelivery = true,      // a par for a drop here is the owner's economy call
+            },
         };
 
         /// <summary>
@@ -1095,6 +1122,43 @@ namespace PSXRacing
                 blurb = "Out of the valley up the lower switchbacks, 479 m to 635 m. 3.9 km. " +
                         "Map (c) OpenStreetMap contributors.",
                 label = "635 M", startM = 11738f, finishM = 7848f, reverse = true,
+            },
+
+            // LAKE LURE IN TWO (2026-11-16): the lake shore and downtown, then
+            // over the Rocky Broad and up through Chimney Rock and the gorge.
+            // Cut at 6200 m, 80 m short of the river bridge's deck, where no
+            // bend is tighter than 800 m within 48 m of the line.
+            new SprintVariant
+            {
+                id = "LakeLureShore", baseId = "LakeLure",
+                name = "LAKE LURE — THE SHORE",
+                blurb = "Along Lake Lure before the flood: from where NC 9 comes in, the lake road's " +
+                        "bends and downtown to the Rocky Broad bridge. 6.1 km. Map (c) OpenStreetMap contributors.",
+                label = "THE BRIDGE", startM = 54f, finishM = 6200f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "LakeLureShoreRev", baseId = "LakeLure",
+                name = "LAKE LURE — THE SHORE II",
+                blurb = "The lake road the other way: from the Rocky Broad bridge through downtown and " +
+                        "along the shore to NC 9. 6.1 km. Map (c) OpenStreetMap contributors.",
+                label = "NC 9", startM = 6200f, finishM = 54f, reverse = true,
+            },
+            new SprintVariant
+            {
+                id = "LakeLureGorge", baseId = "LakeLure",
+                name = "CHIMNEY ROCK — THE GORGE",
+                blurb = "Over the Rocky Broad, up Main Street through Chimney Rock village and the " +
+                        "Hickory Nut Gorge to Bat Cave, before the flood. 5.5 km. Map (c) OpenStreetMap contributors.",
+                label = "BAT CAVE", startM = 6200f, finishM = 11670f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "LakeLureGorgeRev", baseId = "LakeLure",
+                name = "CHIMNEY ROCK — THE GORGE II",
+                blurb = "Down the gorge from Bat Cave, through the village and over the Rocky Broad " +
+                        "to the lake. 5.5 km. Map (c) OpenStreetMap contributors.",
+                label = "THE LAKE", startM = 11670f, finishM = 6200f, reverse = true,
             },
         };
 
@@ -1411,6 +1475,28 @@ namespace PSXRacing
             string id = V21Ids[Mathf.Min(v21Index, V21Ids.Length - 1)];
             return TryIndexOf(id, out int now) ? now : RetiredIndex;
         }
+
+        /// <summary>
+        /// A venue index from a v22..v29 save on TODAY's list, by id. Those
+        /// saves hold indices into the list as it stood after the fictional
+        /// venues came out (v22) and before Lake Lure was appended (v30): the
+        /// V21 list without the retired ids, in order. Appending moved every
+        /// twin by one and every sprint section and deck run by two (Lake
+        /// Lure II, then its four sections went on the end of the sprints).
+        /// </summary>
+        public static int RemapV29Index(int v29Index)
+        {
+            if (v29Index < 0) return RetiredIndex;
+            if (v29Ids == null)
+            {
+                var ids = new List<string>();
+                foreach (var id in V21Ids) if (!IsRetired(id)) ids.Add(id);
+                v29Ids = ids.ToArray();
+            }
+            string at = v29Ids[Mathf.Min(v29Index, v29Ids.Length - 1)];
+            return TryIndexOf(at, out int now) ? now : RetiredIndex;
+        }
+        static string[] v29Ids;
 
         /// <summary>The venues REMOVED at v22 and the names a career knew
         /// them by, for the diary line that says what came off the calendar.

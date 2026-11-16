@@ -471,6 +471,7 @@ namespace PSXRacing.EditorTools
             // The road's cross-section (PSXRacingBuilder.Bank): before any
             // height beside the road is asked for.
             LoadStageBank(stageWp);
+            StageWorldLoad();   // the stage's world file (lake, river, town): its river carve and street bench (PSXRacingBuilder.StageRiver.cs)
 
             EnsureStageArt();
             GenerateStageTextures();
@@ -8052,6 +8053,7 @@ namespace PSXRacing.EditorTools
                         double keepRoll = rng.NextDouble(), storyRoll = rng.NextDouble();
 
                         if (!StageCorridor(wx, wz, ForestBand + 10f, out RoadFoot foot)) continue;
+                        if (StageKeepOut(wx, wz)) continue;   // the world file's water, buildings, lots, side roads
                         float d = foot.d, roadY = foot.roadY, f = BridgeAt(foot.station);
                         if (d > ForestBand) continue;
 
@@ -8424,6 +8426,7 @@ namespace PSXRacing.EditorTools
                         double keepRoll = rng.NextDouble(), sizeRoll = rng.NextDouble(), yawRoll = rng.NextDouble();
                         float d = RouteDistanceCoarse(wx, wz);
                         if (d < ForestBand || d > to) continue;
+                        if (StageKeepOut(wx, wz)) continue;   // the world file's lake and buildings
                         float t = Mathf.InverseLerp(ForestBand, to, d);
                         // out of the band's thin end, not a wall of trees at 150 m
                         // NO THIN BELT where the roadside band ends (owner 2026-11-09,

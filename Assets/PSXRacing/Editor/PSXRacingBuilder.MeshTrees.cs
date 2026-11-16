@@ -873,6 +873,7 @@ namespace PSXRacing.EditorTools
                     float x = ox + (gx + ((h & 1023u) / 1023f)) * CoverPitch;
                     float z = oz + (gz + (((h >> 10) & 1023u) / 1023f)) * CoverPitch;
                     if (!StageCorridor(x, z, CoverBand + 4f, out RoadFoot f)) continue;
+                    if (StageKeepOut(x, z)) continue;
                     if (f.d < roadHalf + 0.9f || f.d > CoverBand) continue;
                     if (BridgeAt(f.station) > 0.35f) continue;
                     float keep = Mathf.Lerp(0.95f, 0.55f, Mathf.InverseLerp(roadHalf + 3f, CoverBand, f.d));
@@ -926,6 +927,7 @@ namespace PSXRacing.EditorTools
                         float x = ox + (gx + ((h & 1023u) / 1023f)) * L.pitch;
                         float z = oz + (gz + (((h >> 10) & 1023u) / 1023f)) * L.pitch;
                         if (!StageCorridor(x, z, L.far + 4f, out RoadFoot f)) continue;
+                        if (StageKeepOut(x, z)) continue;
                         if (f.d < roadHalf + L.near || f.d > L.far) continue;
                         if (BridgeAt(f.station) > 0.35f) continue;
                         float lat = StageLatticeY(x, z), top = StageBankTopY(f);
@@ -961,6 +963,7 @@ namespace PSXRacing.EditorTools
             x = wx + Mathf.Cos(ang) * r; z = wz + Mathf.Sin(ang) * r; gy = 0f;
             if ((h >> 24) % 10u >= 7u) return false;            // 70% of trees get one
             if (!StageCorridor(x, z, ForestBand + 10f, out RoadFoot f)) return false;
+            if (StageKeepOut(x, z)) return false;
             if (f.d < RoadWidth * 0.5f + 4.5f || f.d > 90f) return false;
             if (BridgeAt(f.station) > 0.35f || (OnGradedRoadside(f) && !OnRockTop(f))) return false;
             gy = Mathf.Max(Mathf.Max(StageLatticeY(x, z), StageBankTopY(f)), StageFillY(x, z));
@@ -992,6 +995,7 @@ namespace PSXRacing.EditorTools
                 float r = 1.8f + ((h >> 12) % 100u) * 0.032f;
                 float ux = wx + Mathf.Cos(ang) * r, uz = wz + Mathf.Sin(ang) * r;
                 if (!StageCorridor(ux, uz, ForestBand + 10f, out RoadFoot f2)) continue;
+                if (StageKeepOut(ux, uz)) continue;
                 if (f2.d < roadHalf + UnderClearM || f2.d > ForestBand) continue;
                 if (BridgeAt(f2.station) > 0.35f || (OnGradedRoadside(f2) && !OnRockTop(f2))) continue;
                 float gy = Mathf.Max(Mathf.Max(StageLatticeY(ux, uz), StageBankTopY(f2)), StageFillY(ux, uz));

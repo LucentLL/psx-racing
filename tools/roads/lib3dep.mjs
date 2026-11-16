@@ -318,6 +318,8 @@ export const STAGES = {
   brp:     { paved: 6.4, id: 'BlueRidge',         art: 'BRP',         road: 'Blue Ridge Parkway, Linn Cove',        baker: 'tools/brp/fetch_brp.mjs', osm: '../../brp/cache/overpass_brp.json' },
   swiss:   { paved: 6.4, id: 'LittleSwitzerland', art: 'Switzerland', road: 'Little Switzerland - Gillespie Gap loop', baker: 'fetch_loop.mjs switzerland', osm: 'loopprobe_switzerland.json' },
   brock:   { paved: 6.4, id: 'BlowingRock',       art: 'BlowingRock', road: 'Blowing Rock - Moses Cone loop',       baker: 'fetch_loop.mjs blowingrock', osm: 'loopprobe_blowingrock.json' },
+  // pre-Helene: the line from OSM as of 2024-09-20, the ground from the 2018 lidar (NC_Phase5_2018)
+  lure:    { paved: 7.0, id: 'LakeLure',          art: 'LakeLure',    road: 'US 64/74A, Lake Lure - Chimney Rock - Bat Cave', baker: 'fetch_road.mjs lakelure', osm: 'overpass_lakelure_2024-09-20.json' },
 };
 
 /// A baked stage as the tools want it: waypoints in metres, heights ASL, the
