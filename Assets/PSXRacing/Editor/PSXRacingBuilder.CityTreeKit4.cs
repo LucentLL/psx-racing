@@ -5,30 +5,13 @@ using UnityEngine;
 namespace PSXRacing.EditorTools
 {
     /// <summary>
-    /// CHARLOTTE'S OWN TREES, ROUND 4 (trees4, 2026-11-15). The owner's 25
-    /// tree models (21 species; Charlotte_Trees in his art folder, copied in by
-    /// tools/charlotte-trees.ps1 to Assets/CharlotteTrees, gitignored) put into
-    /// the city tree kit in place of round 3's stand-ins (a dark Meadow poplar
-    /// for a pine, a grey-willow bush for a crape myrtle, beeches for the oaks).
-    ///
-    /// Each form is read through LoadVariant as it is (nodes _LOD0/1/2,
-    /// submesh 0 bark, 1 leaves, the trunk's foot at the origin, metres) and
-    /// drawn with the game's own PSX/Lit materials (CTMat) in a dress per
-    /// season (MeshForest's five: winter, spring, summer, fall, snow):
-    ///   spring  the bloom atlases of callery pear, flowering cherry,
-    ///           purpleleaf plum and dogwood; the leaf for the rest
-    ///   summer  the leaf; crape myrtle in bloom - one variant a colour
-    ///           (pink, red, white, purple), shared out by CityMeshTrees
-    ///   fall    the game's recolour (_LeafTarget, _LeafVivid.w, the per-crown
-    ///           spread of _LeafTulip) with a target per species
-    ///   winter  deciduous bare (the leaves not drawn); loblolly pine, eastern
-    ///           redcedar, American holly and southern magnolia green all year
-    /// DISTANCE CARDS: the delivery has none. The kit renders each form's four
-    /// views (the strip AddStripImpostor reads: cells of 256 px, the trunk on
-    /// the middle column, the foot on the bottom row) on the CPU from LOD0 and
-    /// the delivery's own atlases, one sheet a dress that needs one (leaf; bare
-    /// = the limbs and a sparse haze of twigs; spring bloom; the four myrtle
-    /// blooms), written to Assets/CharlotteTrees/Gen only when the bytes change.
+    /// Imports the delivered Charlotte and Blue Ridge forms into the PC city tree kit.
+    /// tools/charlotte-trees.ps1 copies the owner's models and textures into Assets/CharlotteTrees.
+    /// Each FBX supplies three mesh levels, bark and leaf submeshes, and a ground-level pivot.
+    /// The five game seasons bind the supplied green, twig, fall and bloom atlases where available.
+    /// The kit projects each dressed LOD2 into four views and mirrors them for opposite bearings.
+    /// Each pruned street form is baked from its own geometry. The game uses its PSX/Lit shader
+    /// and the measured alpha cutoffs from the delivery's Distance/GameCrownSampling.csv.
     /// Appended after round 3's forms (CityTreeKit.G4Charlotte): the indices of
     /// rounds 1-3 are unchanged, so PSX_CT_CHARLOTTE=0 draws round 3's trees.
     /// DEFAULT OFF (owner 11-15: "the 'after' trees look pretty poor in comparison"): PSX_CT_R4KIT=1 adds
@@ -40,11 +23,6 @@ namespace PSXRacing.EditorTools
         const string CT4Gen = CT4Dir + "/Gen";
         /// <summary>A distance card's cell (px, as AddStripImpostor reads it) and the supersampling.</summary>
         const int CT4Cell = 256, CT4SS = 2;
-        /// <summary>The impostor's tint against the mesh levels (the baked light is the sheet's own). Measured
-        /// on Providence Rd, every tree drawn as its mesh v as its card, same view: foliage luminance 83 v 51
-        /// at 0.96 (the sheet's baked shade and the card's up-tilted normal), the hue alike; 83 v 72 at 1.55
-        /// (the response goes as tint^0.71: per model 0.84-0.98 of the mesh) - 1.90 for 83.</summary>
-        static readonly Color CT4ImpTint = new Color(1.90f, 1.92f, 1.86f);
 
         struct CT4Form
         {
@@ -57,7 +35,7 @@ namespace PSXRacing.EditorTools
         static CT4Form F4(string stem, string leaf, string bark, CityTreeKit.Role role, Color fall, float fallW, bool ever = false, bool bloom = false)
             => new CT4Form { stem = stem, leaf = leaf, bark = bark, role = role, fall = fall, fallW = fallW, ever = ever, bloom = bloom };
 
-        /// <summary>The 25 forms (FBX stem, leaf atlas, bark set as the delivery binds them) and the fall each turns.</summary>
+        /// <summary>The catalogue forms (FBX stem, leaf atlas, bark set as the delivery binds them) and the fall each turns.</summary>
         static readonly CT4Form[] CT4Forms =
         {
             F4("LoblollyPine_Mature", "LoblollyPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
@@ -86,6 +64,29 @@ namespace PSXRacing.EditorTools
             F4("Hickory", "Hickory", "Maple", CityTreeKit.Role.Broad, new Color(0.95f, 0.75f, 0.15f), 0.85f),
             F4("AmericanSycamore", "AmericanSycamore", "Sycamore", CityTreeKit.Role.Broad, new Color(0.72f, 0.55f, 0.30f), 0.75f),
             F4("RiverBirch", "RiverBirch", "Birch", CityTreeKit.Role.Broad, new Color(0.95f, 0.85f, 0.25f), 0.80f),
+            F4("EasternRedbud", "EasternRedbud", "Cherry", CityTreeKit.Role.Small, default, 0f, bloom: true),
+            F4("LeylandCypress", "LeylandCypress", "Cedar", CityTreeKit.Role.Columnar, default, 0f, ever: true),
+            F4("VirginiaPine", "VirginiaPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("EasternWhitePine_Yard", "EasternWhitePine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("JapaneseZelkova", "JapaneseZelkova", "Smooth", CityTreeKit.Role.Street, default, 0f),
+            F4("Ginkgo", "Ginkgo", "Maple", CityTreeKit.Role.Street, default, 0f),
+            F4("LondonPlane", "LondonPlane", "Sycamore", CityTreeKit.Role.Street, default, 0f),
+            F4("LacebarkElm", "LacebarkElm", "Myrtle", CityTreeKit.Role.Street, default, 0f),
+            F4("AmericanElm", "AmericanElm", "Oak", CityTreeKit.Role.Broad, default, 0f),
+            F4("Hackberry", "Hackberry", "Maple", CityTreeKit.Role.Broad, default, 0f),
+            F4("JapaneseMaple", "JapaneseMaple", "Smooth", CityTreeKit.Role.Small, default, 0f),
+            F4("SaucerMagnolia", "SaucerMagnolia", "Smooth", CityTreeKit.Role.Small, default, 0f, bloom: true),
+            F4("Azalea", "Azalea", "Smooth", CityTreeKit.Role.Shrub, default, 0f, ever: true, bloom: true),
+            F4("Boxwood", "Boxwood", "Smooth", CityTreeKit.Role.Shrub, default, 0f, ever: true),
+            F4("FoundationHolly", "AmericanHolly", "Smooth", CityTreeKit.Role.Shrub, default, 0f, ever: true),
+            F4("WaxMyrtle", "WaxMyrtle", "Smooth", CityTreeKit.Role.Shrub, default, 0f, ever: true),
+            F4("Kudzu_EmbankmentDrape", "Kudzu", "Cedar", CityTreeKit.Role.Shrub, default, 0f),
+            F4("RedSpruce", "RedSpruce", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("FraserFir", "FraserFir", "Smooth", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("EasternHemlock", "EasternHemlock", "Oak", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("EasternWhitePine_Forest", "EasternWhitePine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("PitchPine", "PitchPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
+            F4("TableMountainPine", "TableMountainPine", "Pine", CityTreeKit.Role.PineStandIn, default, 0f, ever: true),
         };
 
         /// <summary>THE STREET'S WILLOW OAKS (Uptown's grates, the old city's avenues, roadside rows). The
@@ -130,6 +131,7 @@ namespace PSXRacing.EditorTools
             if (!AssetDatabase.IsValidFolder(CT4Gen)) AssetDatabase.CreateFolder(CT4Dir, "Gen");
             CT4SheetCount = 0; CT4SheetsWritten = 0; CT4SheetGpuBytes = 0;
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            MeshForest.Variant greenMyrtle = null;
             var barkMats = new Dictionary<string, Material>();
             var sb = new System.Text.StringBuilder("City trees round 4 - CHARLOTTE'S OWN TREES (the owner's models, the game's materials, cards rendered here):");
             void Add(MeshForest.Variant v, string n, CityTreeKit.Role r)
@@ -170,23 +172,29 @@ namespace PSXRacing.EditorTools
                 string springTex = f.bloom ? CT4Tex("Leaves_" + f.leaf + "_Spring", "") : null;
                 if (springTex != null) spring = CT4Leaf("CT4_leaf_" + f.leaf + "_Spring", springTex, CT4Tex("Leaves_" + f.leaf + "_Spring", "_normal"), default, 0f, CT4BloomVivid);
                 else if (f.bloom) sb.Append($"\n  (WARN {f.stem}: no spring bloom atlas)");
-                v.leafDress = f.ever ? new[] { summer, summer, summer, summer, summer } : new[] { null, spring, summer, fall, null };
+                string fallTex = CT4Tex("Leaves_" + f.leaf + "_Fall", "");
+                if (fallTex != null) fall = CT4Leaf("CT4_leaf_" + f.leaf + "_authoredFall", fallTex, CT4Tex("Leaves_" + f.leaf + "_Fall", "_normal"), default, 0f, CT4LeafVivid);
+                string winterTex = CT4Tex("Leaves_" + f.leaf + "_Winter", "");
+                var winter = winterTex != null ? CT4Leaf("CT4_leaf_" + f.leaf + "_twigs", winterTex, CT4Tex("Leaves_" + f.leaf + "_Winter", "_normal"), default, 0f, CT4LeafVivid) : (f.ever ? summer : null);
+                v.leafDress = new[] { winter, spring, summer, fall, winter };
 
-                // ---- the distance cards ----
-                var geo = CT4Geometry(v);
-                string sLeaf = CT4Sheet(geo, f.stem + "_leaf", leafTex, barkTex, 0f, CT4LeafVivid);
-                var iLeaf = CT4Imp("CT4_imp_" + f.stem, sLeaf, default, 0f, CT4LeafVivid);
-                Material[] dress;
-                Material iBare = iLeaf, iFall = iLeaf, iSpring = iLeaf;
-                if (!f.ever)
+                CT4Geo BakeDress(MeshForest.Variant form, string tag)
                 {
-                    iFall = CT4Imp("CT4_imp_" + f.stem + "_fall", sLeaf, f.fall, f.fallW, CT4LeafVivid);
-                    iBare = CT4Imp("CT4_imp_" + f.stem + "_bare", CT4Sheet(geo, f.stem + "_bare", leafTex, barkTex, 0.38f, CT4LeafVivid), default, 0f, CT4LeafVivid);
-                    if (springTex != null) iSpring = CT4Imp("CT4_imp_" + f.stem + "_spring", CT4Sheet(geo, f.stem + "_spring", springTex, barkTex, 0f, CT4BloomVivid), default, 0f, CT4BloomVivid);
-                    dress = new[] { iBare, iSpring, iLeaf, iFall, iBare };
+                    var geometry = CT4Geometry(form);
+                    Material Bake(string key, string foliage, Vector2 vivid)
+                    {
+                        string sheet = CT4Sheet(geometry, tag + key, foliage, barkTex, 0f, vivid);
+                        return CT4Imp("CT4_imp_" + tag + key, sheet, default, 0f, vivid);
+                    }
+                    var green = Bake("_leaf", leafTex, CT4LeafVivid);
+                    var twigs = winterTex != null ? Bake("_winter", winterTex, CT4LeafVivid) : f.ever ? green : Bake("_bare", null, CT4LeafVivid);
+                    var blossom = springTex != null ? Bake("_spring", springTex, CT4BloomVivid) : green;
+                    var autumn = fallTex != null ? Bake("_fall", fallTex, CT4LeafVivid) : f.fallW > 0f ?
+                        CT4Imp("CT4_imp_" + tag + "_fall", AssetDatabase.GetAssetPath(green.mainTexture), f.fall, f.fallW, CT4LeafVivid) : green;
+                    CT4AddCard(form, "CTImpostor4_" + tag, new[] { twigs, blossom, green, autumn, twigs }, geometry);
+                    return geometry;
                 }
-                else dress = new[] { iLeaf, iLeaf, iLeaf, iLeaf, iLeaf };
-                AddStripImpostor(v, sLeaf, 4, "CTImpostor4_" + f.stem, dress, geo.S);
+                var geo = BakeDress(v, f.stem);
 
                 if (f.stem != "CrapeMyrtle_Vase")
                 {
@@ -198,12 +206,14 @@ namespace PSXRacing.EditorTools
                         string pn = "CT4P_" + f.stem + "_" + pf.tag;
                         var pv = Rework3(v, pn, pf, out string how);
                         if (pv == null) { sb.Append($"\n  (no {pn}: {how})"); continue; }
+                        BakeDress(pv, pn);
                         Add(pv, pn, CityTreeKit.Role.Street);
                         sb.Append($" <- pruned: {how}");
                     }
                     continue;
                 }
                 // ---- crape myrtle: every one in bloom in summer, one variant a colour ----
+                greenMyrtle = v;
                 foreach (var col in CT4MyrtleBlooms)
                 {
                     string bt = CT4Tex("Leaves_CrapeMyrtle_" + col, "");
@@ -214,13 +224,15 @@ namespace PSXRacing.EditorTools
                     {
                         lods = (Mesh[])v.lods.Clone(), mats = (Material[])v.mats.Clone(), leafSub = (bool[])v.leafSub.Clone(),
                         height = v.height, pre = v.pre, impostorPre = v.impostorPre, shadows = v.shadows, thin = v.thin, maxDist = v.maxDist,
-                        leafDress = new[] { null, summer, bm, fall, null },
-                        impostorDress = new[] { iBare, iLeaf, ib, iFall, iBare },
+                        leafDress = (Material[])v.leafDress.Clone(),
+                        impostorDress = (Material[])v.impostorDress.Clone(),
                     };
                     cv.mats[leafSub] = bm;
+                    cv.leafDress[2] = bm; cv.impostorDress[2] = ib;
                     Add(cv, "CT4_" + f.stem + "_" + col.ToLowerInvariant(), f.role);
                 }
             }
+            if (greenMyrtle != null) Add(greenMyrtle, "CT4_CrapeMyrtle_Vase", CityTreeKit.Role.Shrub);
             sb.Append($"\n  distance cards: {CT4SheetCount} sheets of {4 * CT4Cell} x {CT4Cell} px ({CT4SheetsWritten} written this build), {CT4SheetGpuBytes / 1048576.0:0.0} MB on the GPU (DXT5 + mips); round 4 took {clock.Elapsed.TotalSeconds:0.0} s");
             CT4Measure(list, names, groups);
             Log(sb.ToString());
@@ -247,9 +259,67 @@ namespace PSXRacing.EditorTools
             return m;
         }
 
+        static void CT4CardSampling(Material m, string sheet, Vector2 vivid)
+        {
+            // Calibrated against the outgoing geometry both at native atlas
+            // sampling and at the roughly 25–65 pixel crowns of the handoff.
+            // Sparse needle sprays, broad leaves and dense blooms filter differently.
+            float cut = 0.46f, farCut = 0.55f, gain = 1.23f, farGain = 2.10f;
+            if (sheet.Contains("Pine"))
+            { cut = 0.56f; farCut = 0.52f; gain = 0.74f; farGain = 2.06f; }
+            else if (sheet.Contains("Spruce") || sheet.Contains("Redcedar") || sheet.Contains("Hemlock") || sheet.Contains("Fir") || sheet.Contains("Cypress"))
+            { cut = 0.55f; farCut = 0.615f; gain = 0.83f; farGain = 1.98f; }
+            else if (vivid == CT4BloomVivid)
+            { cut = 0.53f; farCut = 0.725f; gain = 1.50f; farGain = 2.05f; }
+            m.color = new Color(gain, gain, gain);
+            m.EnableKeyword("PSX_CROWN_CARD");
+            m.EnableKeyword("PSX_LODFADE");
+            m.SetFloat("_Cutoff", cut);
+            m.SetFloat("_CrownFarCut", farCut);
+            m.SetFloat("_CrownMipBias", -0.90f);
+            m.SetColor("_CrownFarTint", new Color(farGain, farGain, farGain));
+            m.SetVector("_PSXFarGrow", new Vector4(0f, 0f, 1f, 0f));
+            for (int i = 0; i < 4; i++) m.SetVector("_CrownAngles" + i, -Vector4.one);
+            var samples = AssetDatabase.LoadAssetAtPath<TextAsset>(CT4Dir + "/Distance/GameCrownSampling.csv");
+            if (samples != null)
+            {
+                if (samples != ct4SamplingSource)
+                {
+                    ct4Sampling.Clear();
+                    foreach (string row in samples.text.Split('\n'))
+                    {
+                        var fields = row.Trim().Split(',');
+                        if (fields.Length != 19) continue;
+                        var values = new float[18];
+                        bool valid = true;
+                        for (int i = 0; i < values.Length; i++)
+                            valid &= float.TryParse(fields[i + 1], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out values[i]) && values[i] > 0f && values[i] < 1f;
+                        if (valid) ct4Sampling[fields[0]] = values;
+                    }
+                    ct4SamplingSource = samples;
+                }
+                string key = System.IO.Path.GetFileNameWithoutExtension(sheet);
+                if (ct4Sampling.TryGetValue(key, out var fitted))
+                {
+                    m.SetFloat("_Cutoff", fitted[0]);
+                    m.SetFloat("_CrownFarCut", fitted[1]);
+                    for (int i = 0; i < 4; i++)
+                    {
+                        int n = 2 + 4 * i;
+                        m.SetVector("_CrownAngles" + i, new Vector4(fitted[n], fitted[n + 1], fitted[n + 2], fitted[n + 3]));
+                    }
+                }
+            }
+        }
+
+        static TextAsset ct4SamplingSource;
+        static readonly Dictionary<string, float[]> ct4Sampling = new Dictionary<string, float[]>();
+
         static Material CT4Imp(string name, string sheet, Color fall, float fallW, Vector2 vivid)
         {
-            var m = CTMat(name, sheet, null, true, CT4ImpTint);
+            var m = CTMat(name, sheet, null, true, Color.white);
+            CT4CardSampling(m, sheet, vivid);
             m.SetColor("_LeafTulip", CT4Jitter && fallW <= 0f && vivid == CT4LeafVivid ? CT4JitterTint : GreenSpread);
             { var v0 = m.GetVector("_LeafVivid"); v0.x = vivid.x; v0.y = vivid.y; m.SetVector("_LeafVivid", v0); }
             if (fallW > 0f)
@@ -273,9 +343,29 @@ namespace PSXRacing.EditorTools
             public float S, R, h; // the cell's side (m), the crown's reach, the height
         }
 
+        // All four directions share one projection scale. The baked crown must
+        // preserve the branch gaps in the last geometric level at the handoff.
+        static void CT4AddCard(MeshForest.Variant v, string name, Material[] dress, CT4Geo g)
+        {
+            float half = Mathf.Min(g.S * 0.5f, g.R + g.S / CT4Cell * 2f);
+            float top = g.S;
+            float u = half / g.S;
+            var mesh = new Mesh { name = name };
+            mesh.vertices = new[] { new Vector3(-half, 0, 0), new Vector3(-half, top, 0),
+                                    new Vector3(half, top, 0), new Vector3(half, 0, 0) };
+            mesh.uv = new[] { new Vector2(0.5f-u, 0), new Vector2(0.5f-u, 1),
+                              new Vector2(0.5f+u, 1), new Vector2(0.5f+u, 0) };
+            mesh.normals = new[] { Vector3.up, Vector3.up, Vector3.up, Vector3.up };
+            mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+            mesh.bounds = new Bounds(Vector3.up * top * 0.5f, new Vector3(half*2, top, half*2));
+            v.impostorPre = Matrix4x4.identity;
+            v.lods = new[] { v.lods[0], v.lods[1], v.lods[2], WorldKit.SaveMesh(mesh, name) };
+            v.impostorDress = dress;
+        }
+
         static CT4Geo CT4Geometry(MeshForest.Variant v)
         {
-            var m = v.lods[0];
+            var m = v.lods.Length > 2 && v.lods[2] != null ? v.lods[2] : v.lods[0];
             var g = new CT4Geo { h = v.height };
             var uv = ReadUV(m);
             var vcol = m.isReadable && m.colors != null && m.colors.Length == m.vertexCount ? m.colors : null;
@@ -302,7 +392,7 @@ namespace PSXRacing.EditorTools
             }
             g.p = ps.ToArray(); g.uv = us.ToArray(); g.leaf = lf.ToArray(); g.ao = aos.ToArray();
             g.R = Mathf.Max(0.5f, rl);
-            g.S = 1.04f * Mathf.Max(v.height, 2f * rx);
+            g.S = 1.04f * Mathf.Max(v.height, 2f * Mathf.Max(rl, rx));
             return g;
         }
 
@@ -310,8 +400,9 @@ namespace PSXRacing.EditorTools
 
         static (Color32[] px, int n) CT4Pixels(string path)
         {
+            if (string.IsNullOrEmpty(path)) return (null, 0);
             if (ct4Px.TryGetValue(path, out var have)) return have;
-            const int N = 512;
+            const int N = 1024;
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             var r = (tex != null ? ReadTex(tex, N, N) : null, N);
             ct4Px[path] = r;
@@ -325,8 +416,8 @@ namespace PSXRacing.EditorTools
             return h;
         }
 
-        /// <summary>One sheet: the four views (cell q looks along Euler(0, 90q, 0) * +Z, its right
-        /// = that * +X, as AddStripImpostor stands the cards), the trunk on the cell's middle
+        /// <summary>One sheet: the four views (cell q looks along Euler(0, 45q, 0) * +Z, its right
+        /// = that * +X), the trunk on the cell's middle
         /// column, the foot on its bottom row, geo.S metres a side; albedo with a soft light from
         /// above the viewer baked in. Bark texels are pre-divided by the leaf material's vivid
         /// step (the card is drawn with a leaf material), so the trunk comes out as the mesh's.
@@ -345,7 +436,7 @@ namespace PSXRacing.EditorTools
             byte cut = (byte)(LeafCutoff * 255f);
             for (int q = 0; q < 4; q++)
             {
-                var rot = Quaternion.Euler(0f, q * 90f, 0f);
+                var rot = Quaternion.Euler(0f, q * 45f, 0f);
                 Vector3 right = rot * Vector3.right, fwd = rot * Vector3.forward;
                 var L = (Vector3.up * 0.85f - fwd * 0.45f + right * 0.25f).normalized;
                 for (int i = 0; i < z.Length; i++) { z[i] = float.MaxValue; col[i] = new Color(0f, 0f, 0f, 0f); }

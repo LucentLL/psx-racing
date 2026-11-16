@@ -1,4 +1,4 @@
-# The owner's Charlotte tree models (25 forms, 8 bloom variants) into a
+# The owner's Charlotte tree models into a
 # checkout or sandbox. The repo is PUBLIC and the delivery is the owner's own
 # art (about 100 MB), so it is gitignored (Assets/CharlotteTrees/) like the
 # store packs, and copied here from his art folder WITH its .meta files: every
@@ -17,10 +17,17 @@
 # purged.
 param(
     [string]$Dest = (Split-Path -Parent $PSScriptRoot),
-    [string]$Src = (Join-Path $env:USERPROFILE "OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Charlotte_Trees\Unity\CharlotteTrees")
+    [string]$Src
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $PSBoundParameters.ContainsKey('Src')) {
+    $art = Join-Path $env:USERPROFILE "OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Charlotte_Trees"
+    $Src = Join-Path $art 'Pass2\Unity\CharlotteTrees'
+    if (-not (Test-Path -LiteralPath (Join-Path $Src 'Models'))) {
+        $Src = Join-Path $art 'Unity\CharlotteTrees'
+    }
+}
 if (-not (Test-Path -LiteralPath (Join-Path $Src "Models"))) {
     Write-Warning "Charlotte trees: no delivery at $Src (Models missing) - the kit builds round 3's trees"
     exit 0

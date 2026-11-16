@@ -127,6 +127,13 @@ Shader "PSX/Lit"
         [HideInInspector] _PSXDetailMask ("Terrain detail (set at runtime by TerrainDetail.cs)", Vector) = (0,0,0,0)
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
+        [HideInInspector] _CrownFarCut ("Filtered crown cutoff", Float) = 0.55
+        [HideInInspector] _CrownAngles0 ("Directional alpha 0", Vector) = (-1,-1,-1,-1)
+        [HideInInspector] _CrownAngles1 ("Directional alpha 1", Vector) = (-1,-1,-1,-1)
+        [HideInInspector] _CrownAngles2 ("Directional alpha 2", Vector) = (-1,-1,-1,-1)
+        [HideInInspector] _CrownAngles3 ("Directional alpha 3", Vector) = (-1,-1,-1,-1)
+        [HideInInspector] _CrownFarTint ("Filtered crown tint", Color) = (1,1,1,1)
+        [HideInInspector] _CrownMipBias ("Filtered crown mip bias", Float) = -0.90
         // MeshForest's dithered LOD hand-over (PSX_LODFADE): x..y fade in,
         // z..w fade out, metres from the camera; 0 = no fade that side.
         [HideInInspector] _PSXLodFade ("LOD fade", Vector) = (0,0,0,0)
@@ -308,7 +315,7 @@ Shader "PSX/Lit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE PSX_FACADE
+            #pragma shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE PSX_FACADE PSX_CROWN_CARD
             // THE BAKED SKY (GT4 study gap 3; PSXRacingBuilder.BakedLight.cs):
             // colour.r is the share of the sky the vertex sees (the terrain,
             // the walls and cuts, the decks, the forest's crowns), baked by the
@@ -442,6 +449,18 @@ Shader "PSX/Lit"
             float4 _MainTex_ST;
             fixed4 _Color;
             float _Cutoff;
+          #ifdef PSX_CROWN_CARD
+            float _CrownFarCut;
+            float4 _CrownAngles0, _CrownAngles1, _CrownAngles2, _CrownAngles3;
+            float CrownDirectionalCut(int index)
+            {
+                float4 cuts = index < 4 ? _CrownAngles0 : (index < 8 ? _CrownAngles1 : (index < 12 ? _CrownAngles2 : _CrownAngles3));
+                float value = cuts[index % 4];
+                return value < 0 ? _CrownFarCut : value;
+            }
+            float _CrownMipBias;
+            float4 _CrownFarTint;
+          #endif
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
@@ -1347,6 +1366,9 @@ Shader "PSX/Lit"
                 // The horizon ring's ratio for this vertex's bearing: exactly
                 // 1 in a scene that never applied an hour.
                 half3 ring : TEXCOORD6;
+            #ifdef PSX_CROWN_CARD
+                float3 crownView : TEXCOORD7; // adjacent U, angular blend, filtered alpha cutoff
+            #endif
             #ifdef PSX_ATLAS
                 // the cell as a UV rect: xy its first texel's centre, zw the
                 // span from there to its last texel's centre
@@ -1373,6 +1395,22 @@ Shader "PSX/Lit"
             {
                 v2f o;
                 UNITY_SETUP_INSTANCE_ID(v);
+            #ifdef PSX_CROWN_CARD
+                // One plane covers the silhouette. Four axial projections and
+                // their reverses cover eight bearings at the original atlas size.
+                float2 eye = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1)).xz;
+                float2 view = dot(eye, eye) > 1e-6 ? -normalize(eye) : float2(0,1);
+                v.vertex.xz = float2(view.y, -view.x) * v.vertex.x;
+                float sector = frac(atan2(view.x, view.y) / 6.28318531 + 1.0) * 8.0;
+                float a = floor(sector), b = fmod(a + 1.0, 8.0);
+                float u = v.uv.x;
+                v.uv.x = (fmod(a, 4.0) + (a < 4.0 ? u : 1.0-u)) * 0.25;
+                float angleBin = sector * 2.0;
+                int angleIndex = (int)floor(angleBin);
+                float cut = lerp(CrownDirectionalCut(angleIndex % 16), CrownDirectionalCut((angleIndex + 1) % 16), frac(angleBin));
+                o.crownView = float3((fmod(b, 4.0) + (b < 4.0 ? u : 1.0-u)) * 0.25,
+                                     smoothstep(0.15, 0.85, frac(sector)), cut);
+            #endif
             #ifdef PSX_LODFADE
                 {
                     float3 it = float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23);
@@ -1998,7 +2036,26 @@ Shader "PSX/Lit"
                 float facAO = lerp(1.0, aoFoot * aoCorner, fstOn);
                 #define PSX_NIGHT_MASK(u) tex2Dgrad(_NightMask, u, fdx, fdy)
             #else
+              #ifdef PSX_CROWN_CARD
+                // Pick one projection per pixel through an angular handoff.
+                // Sampling before selection keeps mip derivatives in each cell.
+                float2 localPixels = uv * float2(1024.0, 256.0);
+                float footprint = max(length(ddx(localPixels)), length(ddy(localPixels)));
+                float filtered = smoothstep(1.0, 3.5, footprint);
+                // Retain small sky gaps through minification. Both bearings read
+                // filtered mipmaps at the same scale throughout the angular blend.
+                float bias = _CrownMipBias * filtered;
+                float4 face = tex2Dbias(_MainTex, float4(uv, 0, bias));
+                float4 adjacent = tex2Dbias(_MainTex, float4(i.crownView.x, uv.y, 0, bias));
+                float choice = frac(52.9829189 * frac(dot(floor(i.pos.xy) + float2(19,7),
+                                                         float2(0.06711056, 0.00583715))));
+                float4 tex = lerp(face, adjacent, step(choice + 1e-6, i.crownView.y));
+                tex.rgb = PSXTexDecode(tex.rgb, _MainTexRaw);
+                tex.rgb *= lerp(_Color.rgb, _CrownFarTint.rgb, filtered);
+                tex.a += (_Cutoff - i.crownView.z) * filtered;
+              #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
+              #endif
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
               #ifdef PSX_HD
                 // THE ROAD BASE: the carriageway is the HD base surface, the lane
