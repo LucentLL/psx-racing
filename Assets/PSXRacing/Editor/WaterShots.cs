@@ -202,7 +202,8 @@ namespace PSXRacing.EditorTools
                     else if (w.bedY != null && nm.Contains("creek")) creeks.Add(w);
                 }
                 rivers.Sort((a, b) => ((b.bbMax - b.bbMin).x * (b.bbMax - b.bbMin).y).CompareTo((a.bbMax - a.bbMin).x * (a.bbMax - a.bbMin).y));
-                for (int k = 0; k < rivers.Count && k < 8 && river == null; k++) if (NearRoad(map, rivers[k], true, out _, out _, out _)) river = rivers[k];
+                for (int k = 0; k < rivers.Count && k < 8 && river == null; k++)
+                    if ((rivers[k].name ?? "").IndexOf("tributary", System.StringComparison.OrdinalIgnoreCase) < 0 && NearRoad(map, rivers[k], true, out _, out _, out _)) river = rivers[k];
                 // the biggest lake with a road beside it; the longest creek
                 // (Sugar first) with a road over or beside it - only the top
                 // few are walked against the roads
@@ -212,15 +213,16 @@ namespace PSXRacing.EditorTools
                 for (int k = 0; k < lakes.Count && k < 6 && lake == null; k++) if (NearRoad(map, lakes[k], false, out _, out _, out _)) lake = lakes[k];
                 for (int k = 0; k < creeks.Count && k < 6 && creek == null; k++) if (NearRoad(map, creeks[k], true, out _, out _, out _)) creek = creeks[k];
                 Debug.Log($"[WaterShot] Charlotte: {map.waters.Length} waters, {lakes.Count} lakes, {creeks.Count} named creeks; lake '{lake?.name}', river '{river?.name}', creek '{creek?.name}'");
-                if (river == null)
-                    foreach (var w in map.waters)
-                        if (!w.lake && !w.ravine && w.bedY == null && w.pts != null && w.pts.Length > 1 && (river == null || w.width > river.width)) river = w;
+                // Lake Wylie IS the Catawba River, dammed: with no river-named
+                // water a road crosses, the Catawba is shot from a bridge over it
+                if (river == null && lake != null && (lake.name ?? "").Contains("Wylie")) river = lake;
                 if (lake != null) picks.Add(("charlotte_lake", lake));
                 if (river != null) picks.Add(("charlotte_catawba", river));
                 if (creek != null) picks.Add(("charlotte_creek", creek));
                 foreach (var (name, w) in picks)
                 {
-                    if (!NearRoad(map, w, !w.lake, out Vector3 eye, out Vector3 look, out string why))
+                    bool overOk = !w.lake || name == "charlotte_catawba";
+                    if (!NearRoad(map, w, overOk, out Vector3 eye, out Vector3 look, out string why))
                     { Debug.LogError("[WaterShot] " + name + ": no road near '" + w.name + "'"); continue; }
                     // from a bridge deck the parapet hides the water at a
                     // driver's eye: stand higher and look down over it
@@ -342,6 +344,7 @@ namespace PSXRacing.EditorTools
             if (!OpenStage("ChimneyRock", out var cam, out var sun, out var globals, out var path)) return;
             var site = WaterTestSite.Build(path);
             if (site == null) return;
+            noSunMap = true;
             foreach (var (hour, rain) in new[] { ("NOON", false), ("SUNSET", false), ("NIGHT", false), ("AFTERNOON", true) })
             {
                 SetHour(hour, rain, sun, globals);
@@ -361,6 +364,7 @@ namespace PSXRacing.EditorTools
             WaterLook.ForceWind = null;
             SetHour("NOON", false, sun, globals);
             TimeTiers(cam, "test_lake", site.lakeEye, site.lakeLook, -2.5f, site.water);
+            noSunMap = false;
             Object.DestroyImmediate(site.root);
         }
 
@@ -458,7 +462,12 @@ namespace PSXRacing.EditorTools
             if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
             WaterLook.Invalidate();
             WetReflections.TagAll();
+            // the staged test site lies outside the stage's sun-shadow map
+            // (its land drew black under it): the map is off there
+            if (noSunMap && sun != null) SunShadows.Configure(0f, 0f, -sun.transform.forward);
         }
+
+        static bool noSunMap;
 
         static void Shoot(Camera cam, string name, Vector3 eye, Vector3 flatDir, float pitchDeg)
         {

@@ -480,7 +480,11 @@ fixed4 fragHD(v2f_hd i) : SV_Target
         surf = saturate(front * 1.4) * zone * saturate(i.data.y * 2.0);
     }
     float foamWant = max(max(max(shore * shore, white), cap * cap), surf) * _WaterLook.z;
-    float foam = saturate((laceMix + foamWant - 1.0) * 2.4 + foamWant * 0.35);
+    // close up the foam is the lace; further out the lace is under a pixel
+    // and its mips average it toward grey, so it becomes the even band it
+    // looks like from there (thresholding the averaged lace erased it)
+    float foamNear = saturate((laceMix + foamWant - 1.0) * 2.4 + foamWant * 0.35);
+    float foam = lerp(foamNear, foamWant * 0.85, saturate((eyeDist - 15.0) / 45.0));
     foam *= saturate(1.0 - eyeDist / 600.0);
 
     // ---- together ----
