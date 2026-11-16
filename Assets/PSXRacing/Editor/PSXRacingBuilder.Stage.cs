@@ -8021,7 +8021,7 @@ namespace PSXRacing.EditorTools
             ResetPlantFit();
             PlantShape.ClearCache();
             // the decks, piers, walls and rock faces built so far, for the planting rule
-            PlantSolidAudit.BeginForBuilder(pts, RoadWidth);
+            PlantSolidAudit.BeginForBuilder(pts, RoadWidth, BankSlopes(-1f), BankSlopes(1f));
             try {
             var mfTilt = new Dictionary<int, Vector2>();
 

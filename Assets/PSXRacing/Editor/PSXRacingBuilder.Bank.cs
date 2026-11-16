@@ -212,6 +212,18 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>One side's edge as slopes per waypoint (the planting
+        /// rule's envelope, PlantSolidAudit.BeginForBuilder); null when flat.</summary>
+        internal static float[] BankSlopes(float side)
+        {
+            if (bankEdgeL == null) return null;
+            float half = Mathf.Max(RoadWidth * 0.5f, 0.01f);
+            var src = side < 0f ? bankEdgeL : bankEdgeR;
+            var o = new float[src.Length];
+            for (int i = 0; i < src.Length; i++) o[i] = src[i] / half;
+            return o;
+        }
+
         /// <summary>The road's surface normal at <paramref name="lateral"/>
         /// metres right of the centre line, between stations a and b: the
         /// up a car standing there is rolled to.</summary>

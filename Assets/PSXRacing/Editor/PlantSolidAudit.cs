@@ -396,9 +396,13 @@ namespace PSXRacing.EditorTools
 
         /// <summary>For the stage builder: the road and the solids it has
         /// built so far, for <see cref="Blocked"/>.</summary>
-        internal static void BeginForBuilder(IList<Vector3> road, float roadWidth)
+        internal static void BeginForBuilder(IList<Vector3> road, float roadWidth, float[] bankL = null, float[] bankR = null)
         {
             IndexRoad(road, roadWidth);
+            // The banked road's cross-section as slopes (PSXRacingBuilder.Bank),
+            // so the builder's planting rule and the scene audit read one envelope.
+            if (bankL != null && bankR != null && bankL.Length == road.Count && bankR.Length == road.Count)
+            { wpBankL = bankL; wpBankR = bankR; }
             BeginSolids();
         }
 
