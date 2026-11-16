@@ -47,6 +47,10 @@ namespace PSXRacing.EditorTools
             var sets = new HashSet<string>(Env("PSX_LC_SETS", "title,linn,road,perf").Split(','));
             try
             {
+                // the gates on the scene as it stands (the base's, before a rebuild)
+                if (sets.Contains("audit"))
+                    foreach (var d in TrackCatalog.Scened)
+                        if (d.id == "BlueRidge") log.AppendLine(Audits(d, "Assets/PSXRacing/Scenes/BlueRidge.unity"));
                 if (sets.Contains("title") || sets.Contains("linn") || sets.Contains("perf")) BlueRidge(sets);
                 if (sets.Contains("road"))
                     foreach (var spec in Env("PSX_LC_ROAD", "SwissNC226A:250,MtMitchell:6800,ChimneyRock:3800").Split(','))
@@ -65,6 +69,41 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(OutDir, "lc_" + tag + ".txt"), log.ToString());
             Debug.Log("[LinnCoveShots] " + log);
         }
+
+        /// <summary>PSX_LC_BUILD="BlueRidge,SwissNC226A": each venue's scene
+        /// built as the PC scene pass builds it (PSXRacingBuilder.BuildOneForLab,
+        /// PSX_PC_CONTENT=1), and for those in PSX_LC_AUDIT the plant-through-
+        /// solids and lane-obstacle audits. Writes Screenshots/lc_build.txt.</summary>
+        public static void BuildScenes()
+        {
+            Directory.CreateDirectory(OutDir);
+            var sb = new System.Text.StringBuilder();
+            var audit = new HashSet<string>(Env("PSX_LC_AUDIT", "BlueRidge").Split(','));
+            try
+            {
+                foreach (var raw in Env("PSX_LC_BUILD", "BlueRidge").Split(','))
+                {
+                    string id = raw.Trim();
+                    TrackCatalog.TrackDef def = null;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == id) def = d;
+                    if (def == null) { sb.AppendLine("no venue " + id); continue; }
+                    var t0 = System.DateTime.Now;
+                    string path = PSXRacingBuilder.BuildOneForLab(def);
+                    string root = Path.GetDirectoryName(Application.dataPath);
+                    string blog = Path.Combine(root, "PSXRacing_lab_build_log.txt");
+                    if (File.Exists(blog)) File.Copy(blog, Path.Combine(OutDir, "lc_buildlog_" + id + ".txt"), true);
+                    sb.AppendLine($"=== {id} -> {path} in {(System.DateTime.Now - t0).TotalMinutes:0.0} min");
+                    if (audit.Contains(id)) sb.AppendLine(Audits(def, path));
+                    File.WriteAllText(Path.Combine(OutDir, "lc_build.txt"), sb.ToString());
+                }
+            }
+            catch (System.Exception e) { sb.AppendLine("THREW " + e); }
+            File.WriteAllText(Path.Combine(OutDir, "lc_build.txt"), sb.ToString());
+            Debug.Log("[LinnCoveShots] " + sb);
+        }
+
+        static string Audits(TrackCatalog.TrackDef def, string path) =>
+            PlantSolidAudit.AuditForLab(def, path) + "\n" + TrackObstacleAudit.AuditForLab(def, path);
 
         // ------------------------------------------------------------ scene
         class Scene
