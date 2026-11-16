@@ -1060,7 +1060,10 @@ namespace PSXRacing.EditorTools
             {
                 float s = Mathf.Min(j * step, riverLen);
                 Vector2 p = RiverAt(s, out Vector2 t);
-                Vector2 side = new Vector2(-t.y, t.x);
+                // right of the flow: rows down it, columns across it, so the
+                // strip winds like the lake grid and faces up (left of the
+                // flow it faced down and was culled - the river never drew)
+                Vector2 side = new Vector2(t.y, -t.x);
                 float sy = RiverSurface(s);
                 // the steeper reaches (where the bed drops over rock) run faster and whiter
                 float riffle = Mathf.Clamp01(Mathf.Sin(s / 23f) * 1.4f - 0.2f);
