@@ -689,19 +689,41 @@ namespace PSXRacing.EditorTools
                     var (c, n, _) = rows[closeRow];
                     float y = DrapeY(c.x, c.z);
                     Vector3 fwd = new Vector3(n.z, 0, -n.x);
-                    BuildBarricade(furn, parent, new Vector3(c.x, y, c.z), n, fwd, Mathf.Min(r.w - 0.4f, 6.5f), built);
+                    BuildBarricade(furn, ClosureRoot(parent), new Vector3(c.x, y, c.z), n, fwd, Mathf.Min(r.w - 0.4f, 6.5f), built);
                     closures++;
                 }
                 built++;
             }
             TownEmit(surf, "Mouths", parent);
-            TownEmit(furn, "MouthClosures", parent);
+            TownEmit(furn, "MouthClosures", ClosureRoot(parent));
             Log($"Stage world side roads: {built} mouths laid ({closures} closed by barricades {MouthClosedOutM:0.0} m past the tarmac edge), {walled} left out where the road's own barrier runs across the mouth, " +
                 $"{facedOut} where a cut bank or a ditch lip runs across it, {shortOnes} too short to lay.");
         }
 
         /// <summary>A Type III barricade: two legs, three striped rails, ROAD
         /// CLOSED on top; one box collider for the lot.</summary>
+        /// <summary>
+        /// Where the side-road barricades go (owner 2026-11-16: barricades only for a legal event, "like a parade"):
+        /// an EventClosures object whose first child, saved inactive, holds them; the runtime shows them only while a
+        /// sanctioned event runs (PSXRacing.EventClosures). PSX_LURE_EVENTCLOSURES=0: always standing, as round 2.
+        /// </summary>
+        static Transform ClosureRoot(Transform parent)
+        {
+            if (!WorldSwitch("PSX_LURE_EVENTCLOSURES")) return parent;
+            var holder = parent.Find("EventClosures");
+            if (holder == null)
+            {
+                var go = new GameObject("EventClosures");
+                go.transform.SetParent(parent, false);
+                go.AddComponent<EventClosures>();
+                var kids = new GameObject("Barricades");
+                kids.transform.SetParent(go.transform, false);
+                kids.SetActive(false);
+                holder = go.transform;
+            }
+            return holder.GetChild(0);
+        }
+
         static void BuildBarricade(TownBuf b, Transform parent, Vector3 at, Vector3 across, Vector3 fwd, float width, int id)
         {
             float hw = width * 0.5f;
@@ -821,8 +843,8 @@ namespace PSXRacing.EditorTools
             int ci = 1;
             while (ci < S.Count - 1) { StageCorridor(line[ci].x, line[ci].z, 120f, out RoadFoot fc); if (S[ci] >= 13f && fc.d >= halfW + MouthClosedOutM) break; ci++; }
             Vector3 cc = line[ci]; Vector3 tt = line[ci] - line[ci - 1]; tt.y = 0; tt.Normalize();
-            BuildBarricade(furn, parent, new Vector3(cc.x, DrapeY(cc.x, cc.z), cc.z), new Vector3(-tt.z, 0, tt.x), tt, w - 0.6f, 900);
-            TownEmit(furn, "ParkClosure", parent);
+            BuildBarricade(furn, ClosureRoot(parent), new Vector3(cc.x, DrapeY(cc.x, cc.z), cc.z), new Vector3(-tt.z, 0, tt.x), tt, w - 0.6f, 900);
+            TownEmit(furn, "ParkClosure", ClosureRoot(parent));
             Log($"Stage world park road: {S[S.Count - 1]:0} m from Main Street on the Park Road stage's own line, its river bridge {pr.deckFrom:0}-{pr.deckTo:0} m ({pr.deckTo - pr.deckFrom:0} m), closed at the mouth.");
         }
 
