@@ -161,6 +161,12 @@ namespace PSXRacing
         /// </summary>
         public static RectTransform Build(Transform parent, TrackCatalog.TrackDef def, Vector2 anchor,
                                           Vector2 topLeft, float size)
+            => Build(parent, def, null, anchor, topLeft, size);
+
+        /// <summary>The same map for a route given as points (x, z metres in the city's frame) rather
+        /// than read from the catalog: a course that is not a venue yet (the candidates' previews).</summary>
+        public static RectTransform Build(Transform parent, TrackCatalog.TrackDef def, List<Vector3> given,
+                                          Vector2 anchor, Vector2 topLeft, float size)
         {
             var frame = MenuKit.Rect(parent, "RouteMap", anchor, new Vector2(0f, 1f), topLeft,
                 new Vector2(size, size), new Color(MenuKit.Accent.r, MenuKit.Accent.g, MenuKit.Accent.b, 0.85f));
@@ -169,20 +175,58 @@ namespace PSXRacing
             var ground = MenuKit.Stretch(frame, "Ground", Vector2.zero, Vector2.one, 2f, 2f, 2f, -2f,
                 new Color(0.050f, 0.056f, 0.072f, 1f));
             ground.gameObject.AddComponent<RectMask2D>();
-            if (def == null || !Edition.Ships(def)) return frame;
+            if (def == null || (given == null && !Edition.Ships(def))) return frame;
 
-            var pts = TrackCatalog.Sample(def, TrackCatalog.Spacing);
+            var pts = given ?? TrackCatalog.Sample(def, TrackCatalog.Spacing);
             RouteGeo.Frame(def, pts, out var centre, out float span);
+
+            // THE WHOLE CITY UNDER IT (owner, 2026-11-16: "It should be a
+            // picture of the entire city, the track drawn over it, then zoomed
+            // in to fit the track on screen"): every Charlotte venue - the
+            // routes and the deck runs - is drawn on one map of the city
+            // (CityMapTiles), framed on its route as sharp as the card is big.
+            // Stages keep their photographs; PSX_TRACKMAP_CITY=0 is the
+            // per-venue picture again.
+            bool cityMap = def.IsCityRace && CityMapTiles.Enabled;
+            // Everything that zooms (the map, the grid and the route) sits in
+            // one square stretched over the ground; the north and the scale
+            // stay put over it.
+            RectTransform content = ground;
+            bool zoomIn = false;
+            Vector2 wideCentre = centre;
+            float wideSpan = span;
+            if (cityMap)
+            {
+                var zgo = new GameObject("Zoom", typeof(RectTransform));
+                zgo.transform.SetParent(ground, false);
+                content = (RectTransform)zgo.transform;
+                content.anchorMin = Vector2.zero; content.anchorMax = Vector2.one;
+                content.offsetMin = Vector2.zero; content.offsetMax = Vector2.zero;
+                float screenH = MenuKit.ScreenSizeOverride.y > 0f ? MenuKit.ScreenSizeOverride.y : Screen.height;
+                float pxPerUnit = screenH / Mathf.Max(1f, MenuKit.DesignHeight);
+                // THE ZOOM IN: the card opens on the whole city with the route
+                // drawn on it and flies down to the route (RouteMapZoom), once
+                // per venue - a page rebuilt by a button press shows it framed.
+                zoomIn = RouteMapZoom.ShouldPlay(def.id + "/" + size.ToString("0"));
+                if (zoomIn)
+                {
+                    wideCentre = CityMapTiles.CityCentre;
+                    wideSpan = Mathf.Max(span * 4f, CityMapTiles.CitySpan * 0.75f);
+                    // the city under the opening view, at the level that view wants
+                    CityMapTiles.PlaceLevel(content, CityMapTiles.LevelFor(wideSpan, (size - 4f) * pxPerUnit), centre, span, wideCentre, wideSpan);
+                }
+                CityMapTiles.Place(content, centre, span, (size - 4f) * pxPerUnit);
+            }
 
             // THE COURSE FROM ABOVE (owner, 2026-11-04: "Selecting/Previewing
             // track should display the actual top-down view of the map"): the
             // venue photographed straight down from the game's own world
             // (Editor/TrackMapShots), fetched the first time a card shows it.
             // Until it lands, and where a venue has none, the streets below.
-            bool photo = Photo(ground, RouteGeo.PhotoKey(def), centre, span);
+            bool photo = !cityMap && Photo(ground, RouteGeo.PhotoKey(def), centre, span);
 
             // The streets: one baked picture per route, in this frame.
-            string key = RouteGeo.StreetKey(def);
+            string key = cityMap ? null : RouteGeo.StreetKey(def);
             var streets = key != null && !photo ? Resources.Load<Texture2D>("RouteMaps/" + key) : null;
             if (streets != null)
             {
@@ -197,14 +241,27 @@ namespace PSXRacing
                 rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
             }
 
-            var lineGo = new GameObject("Route", typeof(RectTransform), typeof(CanvasRenderer));
-            lineGo.transform.SetParent(ground, false);
-            var lrt = (RectTransform)lineGo.transform;
-            lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
-            lrt.offsetMin = Vector2.zero; lrt.offsetMax = Vector2.zero;
-            var g = lineGo.AddComponent<RouteMapGraphic>();
-            g.raycastTarget = false;
-            g.Set(def, pts, centre, span, size - 4f);
+            // On the city map the grid is a layer of its own under the route
+            // (over the tiles), so the zoom can bring it in at the end.
+            RouteMapGraphic grid = null;
+            if (cityMap)
+            {
+                grid = Layer(content, "Grid", def, pts, centre, span, size - 4f);
+                grid.drawRoute = false;
+            }
+            var g = Layer(content, "Route", def, pts, centre, span, size - 4f);
+            if (cityMap)
+            {
+                g.drawGrid = false;
+                if (zoomIn)
+                {
+                    // the route as the whole city's view draws it, faded out on the way down
+                    var wide = Layer(ground, "RouteWide", def, pts, wideCentre, wideSpan, size - 4f);
+                    wide.drawGrid = false;
+                    var z = content.gameObject.AddComponent<RouteMapZoom>();
+                    z.Begin(content, centre, span, wideCentre, wideSpan, size - 4f, wide, grid);
+                }
+            }
 
             // North, and how far a step of the grid is. Labels at the type
             // floor, inside the frame's corners.
@@ -223,6 +280,22 @@ namespace PSXRacing
         /// <summary>The baked streets are white with the class in the alpha;
         /// this is the grey they are shown in.</summary>
         static readonly Color StreetTint = new Color(0.62f, 0.64f, 0.70f, 1f);
+
+        /// <summary>One RouteMapGraphic stretched over <paramref name="parent"/>, drawn in the square
+        /// (centre, span) at <paramref name="units"/> across.</summary>
+        static RouteMapGraphic Layer(RectTransform parent, string name, TrackCatalog.TrackDef def, List<Vector3> pts,
+                                     Vector2 centre, float span, float units)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            var g = go.AddComponent<RouteMapGraphic>();
+            g.raycastTarget = false;
+            g.Set(def, pts, centre, span, units);
+            return g;
+        }
 
         // ---- the photographs ------------------------------------------------
 
@@ -368,6 +441,10 @@ namespace PSXRacing
     {
         TrackCatalog.TrackDef def;
         List<Vector3> pts;
+        /// <summary>The faint grid at the scale bar's step, and the route with its arrows and ends:
+        /// both by default; the whole-city map draws them as two layers (the route zooms with the
+        /// map, the grid stays over it).</summary>
+        public bool drawGrid = true, drawRoute = true;
         Vector2 centre;
         float span = 1f, sizeUnits = 100f;
 
@@ -409,18 +486,22 @@ namespace PSXRacing
             // The grid, at round metres, through the world's own origin so it
             // does not slide when the frame does.
             float step = GridStep(span);
-            float x0 = Mathf.Ceil((centre.x - span * 0.5f) / step) * step;
-            for (float gx = x0; gx < centre.x + span * 0.5f; gx += step)
+            if (drawGrid)
             {
-                float lx = (gx - centre.x) / span * w;
-                Quad(vh, new Vector2(lx, -half), new Vector2(lx, half), 1f * k, Grid);
+                float x0 = Mathf.Ceil((centre.x - span * 0.5f) / step) * step;
+                for (float gx = x0; gx < centre.x + span * 0.5f; gx += step)
+                {
+                    float lx = (gx - centre.x) / span * w;
+                    Quad(vh, new Vector2(lx, -half), new Vector2(lx, half), 1f * k, Grid);
+                }
+                float z0 = Mathf.Ceil((centre.y - span * 0.5f) / step) * step;
+                for (float gz = z0; gz < centre.y + span * 0.5f; gz += step)
+                {
+                    float lz = (gz - centre.y) / span * w;
+                    Quad(vh, new Vector2(-half, lz), new Vector2(half, lz), 1f * k, Grid);
+                }
             }
-            float z0 = Mathf.Ceil((centre.y - span * 0.5f) / step) * step;
-            for (float gz = z0; gz < centre.y + span * 0.5f; gz += step)
-            {
-                float lz = (gz - centre.y) / span * w;
-                Quad(vh, new Vector2(-half, lz), new Vector2(half, lz), 1f * k, Grid);
-            }
+            if (!drawRoute) return;
 
             var e = RouteGeo.EndsOf(def, pts);
             int n = pts.Count;
@@ -578,6 +659,77 @@ namespace PSXRacing
                 at - dir * (size * 0.7f + o) - side * (size + o), Halo);
             Tri(vh, at + dir * size, at - dir * size * 0.7f + side * size,
                 at - dir * size * 0.7f - side * size, Arrow);
+        }
+    }
+
+    /// <summary>
+    /// THE ZOOM IN (owner, 2026-11-16: "a picture of the entire city, the track drawn over it, then
+    /// zoomed in to fit the track on screen"). A city venue's card opens on the whole of Charlotte with
+    /// the route drawn on it, holds a beat, and flies down to the route's own frame in about a second:
+    /// the scale eases in log space (so every halving of the view takes the same time), the centre
+    /// glides from the city's middle to the route's. The route drawn for the wide view fades out as the
+    /// zooming one grows into it; the grid fades in at the end. Plays once per venue and card size
+    /// within a minute (the menus rebuild a page on every press, and a car stepped past must not
+    /// replay it), never outside play mode (the preview tools photograph the framed card), and not
+    /// with PSX_TRACKMAP_ZOOM=0.
+    /// </summary>
+    public class RouteMapZoom : MonoBehaviour
+    {
+        const float Hold = 0.25f, Fly = 1.1f;
+        static readonly Dictionary<string, float> shown = new Dictionary<string, float>();
+
+        RectTransform content;
+        Vector2 centre, wideCentre;
+        float span, wideSpan, units, t0;
+        RouteMapGraphic wide, grid;
+        bool done;
+
+        public static bool ShouldPlay(string key)
+        {
+            if (!Application.isPlaying) return false;
+            if (System.Environment.GetEnvironmentVariable("PSX_TRACKMAP_ZOOM") == "0") return false;
+            float now = Time.unscaledTime;
+            if (shown.TryGetValue(key, out float last) && now - last < 60f) { shown[key] = now; return false; }
+            shown[key] = now;
+            return true;
+        }
+
+        public void Begin(RectTransform c, Vector2 frameCentre, float frameSpan, Vector2 cityCentre, float citySpan,
+                          float sizeUnits, RouteMapGraphic wideRoute, RouteMapGraphic gridLayer)
+        {
+            content = c; centre = frameCentre; span = Mathf.Max(1f, frameSpan);
+            wideCentre = cityCentre; wideSpan = Mathf.Max(span, citySpan); units = sizeUnits;
+            wide = wideRoute; grid = gridLayer;
+            t0 = Time.unscaledTime;
+            Apply(0f);
+        }
+
+        void Update()
+        {
+            if (done || content == null) return;
+            float t = (Time.unscaledTime - t0 - Hold) / Fly;
+            if (t >= 1f) { Apply(1f); done = true; return; }
+            Apply(Mathf.Clamp01(t));
+        }
+
+        void Apply(float t)
+        {
+            float e = t * t * (3f - 2f * t);                      // smoothstep
+            float viewSpan = Mathf.Exp(Mathf.Lerp(Mathf.Log(wideSpan), Mathf.Log(span), e));
+            float k = span / viewSpan;
+            content.localScale = new Vector3(k, k, 1f);
+            // the route's own middle slides from where the whole city has it to the card's middle in a
+            // straight line, so it never leaves the view on the way down
+            content.anchoredPosition = (1f - e) * ((centre - wideCentre) / wideSpan * units);
+            if (wide != null) wide.canvasRenderer.SetAlpha(1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.75f, e)));
+            if (grid != null) grid.canvasRenderer.SetAlpha(Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.8f, 1f, e)));
+            if (t >= 1f)
+            {
+                content.localScale = Vector3.one;
+                content.anchoredPosition = Vector2.zero;
+                if (wide != null) Destroy(wide.gameObject);
+                if (grid != null) grid.canvasRenderer.SetAlpha(1f);
+            }
         }
     }
 }
