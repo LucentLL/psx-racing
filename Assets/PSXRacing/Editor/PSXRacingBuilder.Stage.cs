@@ -2668,6 +2668,7 @@ namespace PSXRacing.EditorTools
 
                     var want = new bool[n];
                     for (int i = 0; i < n; i++) want[i] = reason[i] != 0;
+                    LureMouthGaps(s, want, reason);   // a mapped side road through a mapped rail (Lake Lure: PSX_LURE_MOUTHGAP)
                     // NO STONE IN ANOTHER STRETCH'S KERB BAND. On a hairpin's
                     // tight inside the wall line comes round toward the turn's
                     // centre, and the road coming round the other side of the

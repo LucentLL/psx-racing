@@ -124,6 +124,36 @@ namespace PSXRacing.EditorTools
             return lowered;
         }
 
+        /// <summary>
+        /// A MOUTH IN A MAPPED RAIL (PSX_LURE_MOUTHGAP), from the roadside plan:
+        /// the map's guardrail ways run unbroken past ten side roads, so the
+        /// planner railed them shut and round 1 left those mouths out. A real
+        /// rail stops before a side road. Where every station the mouth needs
+        /// (its half width and one more each way, as the mouth builder asks)
+        /// is warranted by the mapped rail alone (reason 8: no critical fall,
+        /// no water, no deck, no approach), those stations are left unwalled.
+        /// Lake Lure's own frame only.
+        /// </summary>
+        internal static void LureMouthGaps(int s, bool[] want, byte[] reason)
+        {
+            if (world == null || world.roads == null || world.stage != StagePrefix || !WorldSwitch("PSX_LURE_MOUTHGAP") || !WorldSwitch("PSX_LURE_MOUTHS")) return;
+            int n = want.Length, cleared = 0, mouths = 0;
+            foreach (var r in world.roads)
+            {
+                if (r.xz == null || r.xz.Length < 6) continue;
+                if (world.parkRoad != null && Mathf.Abs(r.st - world.parkRoad.mouthSt) < 6f && r.cls == "service") continue;
+                if (SideIx(-r.side) != s) continue;   // the bake's +1 is LEFT; the builder's +1 is the right-hand side
+                int st = Mathf.RoundToInt(r.st / Spacing), reach = Mathf.CeilToInt(r.w * 0.5f / Spacing) + 1;
+                bool any = false, railOnly = true;
+                for (int k = st - reach; k <= st + reach; k++)
+                    if (k >= 0 && k < n && want[k]) { any = true; if (reason[k] != 8) { railOnly = false; break; } }
+                if (!any || !railOnly) continue;
+                for (int k = st - reach; k <= st + reach; k++) if (k >= 0 && k < n && want[k]) { want[k] = false; cleared++; }
+                mouths++;
+            }
+            if (mouths > 0) Log($"Stage world mouth gaps ({(s == 0 ? "left" : "right")}): {mouths} side roads through a mapped rail, {cleared} stations left unwalled for them (PSX_LURE_MOUTHGAP).");
+        }
+
         // ------------------------------------------------------- keep-out
         /// <summary>From BuildWorldKeepOut: the open ground (bit 8) and the
         /// granite's cells.</summary>
@@ -577,9 +607,9 @@ namespace PSXRacing.EditorTools
                 var pos = new Vector3(x, gy - gv.height * scale * 0.28f, z);
                 cand.Add((pos, yaw, scale, h % vars.Count, RouteDistanceCoarse(x, z), s.z * s.w));
             }
-            // A TRIANGLE BUDGET (1.6 M on the whole stage): the detailed LOD within 450 m of the road, the low one beyond;
+            // A TRIANGLE BUDGET (1.6 M on the whole stage on PC, 0.6 M on Android): the detailed LOD within 450 m of the road, the low one beyond;
             // over budget, the near ones go low too, then the thinnest clusters go (the fullest, steepest faces stay)
-            const long Budget = 1600000;
+            long Budget = PCContent ? 1600000 : 600000;   // the Android build carries a lighter set
             long Sum(bool nearDetail) { long t = 0; foreach (var c in cand) t += vars[c.v].tris[nearDetail && c.dRoute < 450f ? 1 : 2]; return t; }
             bool detail = Sum(true) <= Budget;
             cand.Sort((a, b) => b.weight.CompareTo(a.weight));
