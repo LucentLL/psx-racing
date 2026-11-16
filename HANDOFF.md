@@ -1,4 +1,142 @@
-﻿# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
+﻿# HANDOFF - SPLITS ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 night; NOT pushed, NOT merged)
+
+The owner, 2026-11-16 ~01:00, four PC45 shots on Beatties Ford Road at night in rain: "If the city and roads are to 1:1
+scale, why are there so many anomoalies like this abrupt medians that force the road to meet at strange angles without
+stop signs." Spec: the 12-agent plan (scratchpad `align\PLAN.json`), job J1 Phase A and Phase B, Beatties Ford first.
+Worktree `C:\Users\mcgee\PSX Racing-splits` off mountain-nm 7badf362 (PC45). Sandbox PSXCity (WebGL), shared with J2
+("control") by AGENT_LOCK. Graph hash b2aa3453 before and after: no export, no data file except the regenerated refuge
+list. Nothing downloaded (the street-data download J4 waits for the owner).
+
+## What was found (code, with the plan's causes confirmed in the running editor)
+- Short islands: both Beatties Ford islands (shots 34/35) were off the refuge list only for "[flush tip]": the noses' centre
+  lanes are OSM left-turn bays for streets the export never fetched (e8632/e8621 NB bays, e8620 SB bay between n10236 and
+  n10229), and the bays' relays moved the centre lane inside the nose approach (e8621 carried a 46.3 m relay; LineModel.cs Relay).
+  n10238's centre lane is a REAL bay (SB, to LaSalle St n10237) that the old rule would have hatched across its entry.
+- Long splits: the SPLT block (LineModel.cs "THE MEDIAN TAPERS") only offsets the ribbon on OSM's 20-40 degree fan, so the lanes
+  swing 5-7 m past their own line (n10035 NB 16.4 m drawn against OSM 9.2 m at 20 m; median 11.9 m). Fans at same-name meetings
+  had no ease at all (n7868 outer edge jumps 6 m, n9152 6-15 m).
+- The 10 m ChordInto follows the exporter's fillet: the undivided road's last metres bend ~10 degrees, so even a perfect island
+  leaves a 4-5 degree kink at the node (audit: 4.2 deg at n10238, 5.5 at n10229). Masking it (a 30 m chord + an eased last
+  30 m, PSX_CITY_REFUGECHORD=1) is rejected by the medians gate: its relay census measures the undivided edges in their own
+  OSM frame, where the eased line reads 0.11-0.19 lateral slope (live, following the bend, reads 0). It stays OFF; J4's exporter
+  fix (no through-pair fillet at SPLT nodes) is the real cure.
+- Many 'long' splits carry more lanes in the carriageways than in the undivided road (n7869: a 2-lane road into 2 + 3 lanes;
+  30 of the first 60 city-wide skips): no lane-position start exists there; they keep PC45's taper (listed).
+
+## What changed (branch charlotte-splits; switches; defaults)
+- PSX_CITY_SPLITAXIS = 0 (PC45 exactly) / bfr (DEFAULT: Beatties Ford's 19 split-type nodes, graph b2aa3453) / all (measure only).
+  Sub-switches inside the scope: PSX_CITY_BAYEND=0 (bays as OSM tags them), PSX_CITY_NOSE=0 (PC45 noses and kerb set-back),
+  PSX_CITY_SPLITMEET=0 (no profile at same-name fan meetings), PSX_CITY_REFUGECHORD=1 (OFF by default, see above).
+- Phase A (LineModel.Splits.cs): BAYEND - a bay whose served node is a 2-arm node or a plain split nose (followed through 2-arm
+  pieces) becomes the centre lane (TWLTL line set) on the undivided stretch from an in-scope nose to the first junction (7 edges
+  under bfr: e8632 e8620 e8621 e8623 e14095 e16690 e16705); NoseMarks hatches it. A bay leaving the nose toward a real junction
+  opens at the island's end: no hatch, island tip 0.6 m past the node (n10238, n10232). Flush-median tip-join zone: 1 m past
+  each tip not gated for overlap (in scope). The medians gate decides one refuge list per scope (scope bits in the mode).
+- Phase B (LineModel.SplitFrames.cs): at in-scope split nodes (and same-name fan meetings) each carriageway's lanes leave where
+  they are in the undivided road (outer edge flush), ALONG a 30 m chord axis, and join their own lane line tangentially at
+  u = L (cubic), L = max(30.5, 1.2 r(S) d, sqrt(6 d Rmin)) with d read at most 60 m on; drawn as a sampled shift along the path's
+  own normal (section frame), the undivided road's last 30 m eased onto the chord, one section cut at a mitred node; at a fan
+  (n231, n7868) the lanes start at the fan's edge. The nose:
+  where the lane bands are 2.4 m apart a rounded island tip grows to the median (inner pavement widened before it, flush);
+  CurbMedian drops its 12 m set-back there. Excluded and listed: turning roadways (own line > 35 deg 60 m on), separations
+  > 15 m, short islands (refuge path), lane bands that overlap or cross, undivided road < 8 m (n634). Held back as PC45 under bfr:
+  n7963 and n12438 (BfrHeldBack: wide-median divergence; a bfr traffic census met 3 wrecks on a solid beside e11521's shifted
+  lanes). PSX_CITY_SPLITMITRE=1 (OFF): the plan's forced mitre at 3-arm splits.
+- Audit: Editor/CityAudit.Splits.cs (-executeMethod PSXRacing.EditorTools.CityAudit.RunSplits): every SPLT end on the drawn
+  lane centre / pavement edges, the census measure (outer edge, 80 m window, approach trend out), refuge ends by the gate's own
+  island measure; city_splits.txt / _ends.tsv / _plan.tsv. Pictures: Editor/CityRefSpots.Splits.cs (RunSplitShots).
+  Offline cross-check: tools/city/splitcensus.mjs (the investigation's PC45 replica + census, straight frame; PC45 only).
+
+## Proof (PSXCity, every number from a fresh process; base = PSX_CITY_SPLITAXIS=0 in the same sandbox)
+Sheets (scratchpad `splits\`):
+- `splits_poses_before_after.png`: the owner's four poses from his chase camera (car where his was, ChaseCamera.SteadyPose),
+  night in rain then dry noon, BEFORE (0) | AFTER (bfr). In 37 his car stood in PC45's left-turn bay; after BAYEND that space is
+  the hatched approach, so the AFTER frame shows the car on it (his pose, not a staged object).
+- `splits_plans_spots.png` (the four spots) and `splits_plans_bfr19.png` (all 19 nodes): drawn pavement edges, lane centres and
+  painted lines against OSM's centre lines, in the undivided road's 30 m chord frame, before | after.
+- `splits_bfr19_tops_before_after.png`: rendered frames 78 m above each of the 19 nodes at noon, before | after.
+- Medians gate (RunMedianGates, PSX_REFUGE_GATE_SCOPES=0,bfr,all), final run: CITY AUDIT OK. Scope 0 decides exactly PC45's 17
+  pairs (checked by key); bfr 19 (+ n10229-n10234, n10236-n10238); all 22 (+ IKEA Blvd n12599, University Pointe n13100,
+  Highway 160 W n13194). Accepted pairs OFF -> ON: outer edge off the road's edge line p50 5.02 -> 0.003 m (max 0.004); steepest
+  lane line / edge / path p50 0.501 -> 0.042 (max 0.060); island at mid p50 8.87 -> 1.81 m. The two new pairs: n10236-n10238
+  island 12.80 -> 1.82 m (design = OSM 1.82), outer 3.69/6.07 -> 0.002 m, slope 0.38/0.68 -> 0.006; n10229-n10234 island
+  8.64 -> 1.84 m, outer 3.12/5.81 -> 0.004 m, slope 0.60/0.89 -> 0.009. Hatched refuge noses 9 -> 13 (94 bars), flush tips 0,
+  forced-solid yellows all rendered, VsOrderList table fits, load cost 12.5 ms.
+- Spot gates (CityAudit.Splits, b4): 34 island at mid 1.82 m (<= 2.3 PASS), outer bulge 0.002 (PASS), peak slope 0.006 (PASS),
+  lane-centre kink at the node 4.2 deg (gate 1.64: FAIL - the exporter's fillet, see above). 35 island 1.87 m (PASS), SB
+  outer 0.004 (PASS), steepest 0.009 = 167:1 (PASS; e8630 was 5.49 m in 14.7 m). 36 NB lane centre at u 20 -5.54 m against its
+  own line -5.45 (0.09, PASS), NB 72.6:1 (PASS), median at u 20 -0.36 m (the pavements meet: a flush median, <= 2.5 PASS), SB
+  15.1:1 (L/2 band at 35 mph: FAIL against 20.4), centre-line jog on the approach unchanged (2.45 m over 121 m, as PC45).
+  37 NB lane centre -7.76 m at u 20 against OSM -9.21 (no overshoot, PASS; PC45 -16.35), NB 27.0:1 (PASS), no turn-only lane
+  within 372 m of the nose (PASS), median at u 20 0.78 m (growing; OSM's 3.0-3.4 is reached past L: FAIL at u 20), NB outer-edge
+  bulge 2.14 m in the 80 m window (OSM's own bow, which the blend joins).
+- Beatties Ford's 19 split-type nodes (final run b5): 6 pass at PC45 -> 11 (n4025, n10229-n10234, n10236, n10238, n13570, n13571). Still
+  failing: n231 (SB bulge 1.39 m), n7869 (no profile: the 2-lane road meets 2 + 3 lanes, bands overlap 9.1 m), n7963 and n12438
+  (carriageways diverge to wide medians: 3-6 m in 26-59 m along OSM's own lines), n10035 (bulge 2.14 m, OSM's bow), n634
+  (undivided piece 6.6 m: no axis), n7868 (bulge 3.6 m), n9152 (no profile: bands overlap 1.15 m).
+- City-wide, PSX_CITY_SPLITAXIS=all (measured, NOT the default; Phase C not done): carriageway ends failing L/2 1595 -> 1423,
+  failing L 96.0% -> 90.0%, bulges of 1 m or more 1036 -> 873, lane-centre angle at the node over atan(1/V) 1713 -> 1332 (p50
+  8.9 -> 4.3 deg), outer-edge jumps 779 -> 558; 701 carriageway ends drawn by the profile, 1272 left on PC45's taper (overlapping
+  lane bands, short islands, separations, turning roadways), refuge pairs 22. Every CITY gate but the refuge count fails.
+- Regressions on Beatties Ford against the PC45 base, same sandbox, fresh processes (final code):
+  - Drive audit on its 57 edges, z 8400-10700 (RunDrive, PSX_DRIVE_EDGES): base / bfr - nothing solid across a lane 0 / 0, BLUNT
+    faces 1 / 1 (the same e1198 face), lane steps over 12 cm 2 / 0, lane surface off the solve 21 / 0, land on a lane 9 / 1, FALL
+    HOLES 0 / 0, MEDIAN classes a/b/c 0 / 0, MEDIAN ACROSS two+ / none 0 / 0, WALLS IN LANES 0 / 0; every other check identical.
+  - Launch audit, box x -3750..-3150, z 8400..10700: LAUNCH 0 / 0, UNLOAD 1 / 1, flown turns off the pavement 0 / 0, SAG T2
+    109 / 108. (With the forced mitre at 3-arm splits, now OFF, the n7963 joint read as a 35 degree lateral step.)
+  - Concrete inventory within 1.5 km of (-3450, 9600): strays 70 pieces 0.22 km / 93 pieces 0.23 km. The difference is class
+    c ORPHAN, +26 rail pieces (+28 m, all "guards a fall"): the rail runs on e2824 / e2825 at (-3316..-3323, 9570-9596), the
+    Beatties Ford deck over I-85 just north of n231, where the median between the two decks is now OSM's narrow one instead of
+    PC45's 9 m bulge. Not visible at the scale of `splits_bridge_n231_before_after.png`; look at it in the spot build.
+  - Medians gate (above): CITY AUDIT OK under bfr; graph hash b2aa3453 in every run.
+  - charlotte_lotent.bytes: its key (graph, edge sizes, lots, entrances) does not see eases, so my change leaves the key as it
+    is and the file would be used silently. Lot entrances on an edge a profile moves by 0.05 m or more at the entrance: base 1
+    (Clanton Rd, a PC45 refuge), bfr 2, all 63 (worst 11.4 m, Remount Rd). NOT re-made by me (the key is unchanged); re-make it at
+    merge as the plan's re-bake list says.
+- Traffic census on Beatties Ford (CityTrafficCensus, the five spots z 8768-10924, 6 min, cap 48), base / final bfr: wrecks 1 / 0,
+  stuck 4 / 5, turn from the wrong lane 9 / 4, missed turn lane 18 / 18, turn clips a corner 24 / 21, turn leaves the road 2 / 3,
+  no road under a lane 1 / 3 (not traced), car-hours 3.32 / 2.87, km 75.0 / 75.9. (A bfr run with n7963 / n12438 drawn met 3
+  wrecks on a solid beside e11521: those two nodes are now held back.)
+- Incident (mine, 03:35): two of my job chains overlapped and two Unity jobs ran together in PSXCity for about 1.5 minutes (both
+  exited 0); their outputs were discarded and re-run; run_job.ps1 now waits on any lock, its own included.
+
+## Not done / not verified
+- Phase C (city-wide default): 'all' is measured only; its CITY gates fail (above). Not the default.
+- The plan's "mitre every 3-arm SPLT node": PSX_CITY_SPLITMITRE=1, OFF (a node the profile declines kept a 35 degree mitred joint).
+- The 4-5 degree kink at refuge noses (exporter fillet): PSX_CITY_REFUGECHORD=1, OFF (the medians gate rejects it); J4's fix.
+- Wide-median divergences (n7963, n12438, n4025's SB room 145 m for L 162 m) and OSM's own bows (n10035 NB, n7868): the profile
+  joins OSM's line, which itself diverges or bows; a reverse-curve redraw at Rmin, or J4's lines, would cure it.
+- Carriageways with more lanes than the undivided road (n7869, n9152; 30 of the first 60 city-wide skips): PC45's taper kept.
+  The SB carriageway at n10035 (3 lanes, OSM) still ends its third, turn-only lane into the nose hatch (no lane may end at a nose).
+- CurbMedian's nose: the set-back is dropped and the inner pavement shaped to a rounded tip, but the curb itself starts where the
+  pavement gap reaches CurbMedian's 0.8 m; the tip radius is the pavement's NoseHalf shape, not a curb-mesh change. Approach
+  marking at long-split noses only where NoseMarks can hatch (1 of 2 marked long-split noses under bfr, n10035; flush tips keep the 12 m set-back).
+- Same-name fan meeting n634 (undivided piece 6.6 m): no axis, unchanged.
+- The 2026 street-level check (Google Street View, Apr 2026, reference only): narrow planted island at shot 34 (OSM's 1.8 m is
+  right); a real NB left-turn arrow before the Keller Ave island (BAYEND ends it until J4 brings its street); signal heads on a
+  span wire at Keller Ave (J2's question: whether that is the emergency signal OSM tags); a narrow curbed median with a painted
+  nose about 40 m past n10035 with straight NB lanes. No lane-set data changed.
+- Self-test and door tour not run; the pictures are editor frames (720 lines), not a player build.
+
+## For the merge (coordinator)
+- Shared-file edits: Scripts/City/LineModel.cs (Init: ApplyBayEnds; BuildEases start: ApplyBayEnds + ClearSplitFrames; the SPLT
+  loop: BuildSplitNode per in-scope node, same-name meetings after it; CompiledRefugeList + CompiledRefugeCount (scope bits);
+  FindRefuges' log line; BuildRefugePair: 30 m chord behind PSX_CITY_REFUGECHORD; RefugeProfile: bay-open tip; RefugeNormal ->
+  SplitFrameNormal; ExtentsAlongOsm; RefugeTangent; SectionNormal (splitNodeDir)), LineModel.RefugeCheck.cs (TipJoinM),
+  LineModel.RefugeList.cs (REGENERATED, scope bits), CityMeshes.cs (ComputeTrimsCore: SplitForcedMitre reset, the opt-in forced
+  mitre block before "bool allBranch", SplitTrimHook before BuildEases), CityMeshes.Marks.cs (MarkTally fields; NoseMarks:
+  split noses, bay-open skip, SplitNoseFlushTip, noseYs gating), CityMeshes.CurbMedian.cs (set-back via NoseShaped),
+  Editor/CityAudit.MedianGates.cs (RunMedianGates per-scope decisions + PC45 check; RefugeListSource with scopes).
+  New: LineModel.Splits.cs, LineModel.SplitFrames.cs, Editor/CityAudit.Splits.cs, Editor/CityRefSpots.Splits.cs (+ metas),
+  tools/city/splitcensus.mjs + tools/city/splitcensus/.
+- Re-bakes: the city re-bake (pc_citybuild.ps1) for the spot build (PSX_CITY_SPLITAXIS=bfr is the default); re-make
+  charlotte_lotent.bytes. No export, graph b2aa3453. VsOrderList fits (the gate checked it).
+- If LANES2 (charlotte-roads-audit) or any lane-set change merges: re-run RunMedianGates with PSX_REFUGE_GATE_SCOPES=0,bfr,all and
+  copy refuge_list.generated.cs over Scripts/City/LineModel.RefugeList.cs. After J2 merges: re-run RunControl (Keller n10235
+  sits on the n10229-n10234 refuge pair now). J1b (taper lengths) is unblocked once this merges.
+
+
+# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
 
 Restart of the concrete job stopped at 14:07 (the owner: "To the concrete pieces, yes"). Worktree `C:/Users/mcgee/PSX Racing-concrete`,
 base e2749b17 (mountain-nm 416ddfda = PC43 merged in by the coordinator). Sandbox PSXRec (Android target), every comparison two fresh
