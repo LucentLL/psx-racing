@@ -7163,6 +7163,11 @@ namespace PSXRacing.EditorTools
 
             int n = wp.Length;
             bool street = PSXRacingBuilder.KerbStyleFor(t) == PSXRacingBuilder.KerbStyle.Street;
+            // A crowned or banked road (PSXRacingBuilder.Bank): each side's
+            // roadside stands on its own tarmac edge, as baked on the path.
+            var bankPath = trackRoot.GetComponent<TrackPath>();
+            bool banked = bankPath != null && bankPath.HasBank && bankPath.Count == n;
+            float EdgeLift(int i, float s) => banked ? (s < 0f ? bankPath.bankL[i] : bankPath.bankR[i]) * half : 0f;
             // Where every row would start: one metre cells, 3x3 lookup.
             var starts = new Dictionary<long, List<int>>();
             long Cell(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
@@ -7258,7 +7263,7 @@ namespace PSXRacing.EditorTools
                         else
                         {
                             Vector3 outw = right[i] * side;
-                            float roadY = wp[i].y + PSXRacingBuilder.RoadLift;
+                            float roadY = wp[i].y + PSXRacingBuilder.RoadLift + EdgeLift(i, side);
                             float prevE = 0f, prevDy = 0f, fallRun = 0f, riseRun = 0f;
                             bool rowFall = false, rowRise = false, rowOrder = false;
                             for (int q = 0; q < count; q++)
@@ -7425,6 +7430,11 @@ namespace PSXRacing.EditorTools
             float reach = t.stage ? StageRailReachM : PSXRacingBuilder.WallOffsetFor(t) - half + 1.5f;
             int casts = 0, open = 0;
             string firstOpen = null;
+            // The rays stand over each side's own tarmac edge: a banked deck's
+            // low side is up to 0.37 m under the centre line (PSXRacingBuilder.Bank).
+            var bankPath = trackRoot.GetComponent<TrackPath>();
+            bool banked = bankPath != null && bankPath.HasBank && bankPath.Count == n;
+            float EdgeLift(int i, float s) => banked ? (s < 0f ? bankPath.bankL[i] : bankPath.bankR[i]) * half : 0f;
             for (int i = 0; i < n; i++)
             {
                 if (!need[i]) continue;
@@ -7437,7 +7447,8 @@ namespace PSXRacing.EditorTools
                     foreach (float side in new[] { -1f, 1f })
                         foreach (float h in RoadsideRules.BarrierRayHeights)
                         {
-                            Vector3 a = c + Vector3.up * (PSXRacingBuilder.RoadLift + h) + r * (side * half);
+                            float lift = m == 0 ? EdgeLift(i, side) : 0.5f * (EdgeLift(i, side) + EdgeLift(nx, side));
+                            Vector3 a = c + Vector3.up * (PSXRacingBuilder.RoadLift + lift + h) + r * (side * half);
                             casts++;
                             if (Barred(a, a + r * (side * reach))) continue;
                             open++;

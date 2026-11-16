@@ -97,6 +97,7 @@ namespace PSXRacing.EditorTools
         static void IndexRoad(IList<Vector3> pts, float roadWidth)
         {
             int n = pts.Count;
+            wpBankL = wpBankR = null;
             wp = new Vector3[n]; wpRight = new Vector3[n];
             wpHash = new Dictionary<long, List<int>>();
             wpLoop = n > 2 && new Vector2(pts[0].x - pts[n - 1].x, pts[0].z - pts[n - 1].z).magnitude < TrackCatalog.Spacing * 2f;
@@ -113,11 +114,18 @@ namespace PSXRacing.EditorTools
             roadHalf = roadWidth * 0.5f;
         }
 
+        /// <summary>The scene path's cross-section (TrackPath.bankL/bankR,
+        /// PSXRacingBuilder.Bank), or null on a flat road: the envelope stands
+        /// on the banked surface, not on the centre line's height.</summary>
+        static float[] wpBankL, wpBankR;
+
         static void IndexRoad(TrackPath tp)
         {
             var pts = new List<Vector3>(tp.Count);
             for (int i = 0; i < tp.Count; i++) pts.Add(tp.GetPoint(i));
             IndexRoad(pts, tp.roadWidth);
+            wpBankL = tp.HasBank ? tp.bankL : null;
+            wpBankR = tp.HasBank ? tp.bankR : null;
         }
 
         static long Key(float x, float z) => ((long)Mathf.FloorToInt(x / WpCell) << 32) ^ (uint)Mathf.FloorToInt(z / WpCell);
@@ -169,8 +177,11 @@ namespace PSXRacing.EditorTools
                 float t = ab.sqrMagnitude > 1e-6f ? Mathf.Clamp01(Vector2.Dot(ap, ab) / ab.sqrMagnitude) : 0f;
                 if (t > t0) { t0 = t; best = Vector3.Lerp(a, b, t); }
             }
-            lateral = Mathf.Abs(Vector3.Dot(new Vector3(p.x - best.x, 0f, p.z - best.z), wpRight[i]));
+            float latS = Vector3.Dot(new Vector3(p.x - best.x, 0f, p.z - best.z), wpRight[i]);
+            lateral = Mathf.Abs(latS);
             roadTop = best.y + RoadLift;
+            if (wpBankL != null && wpBankL.Length == n)
+                roadTop += (latS >= 0f ? wpBankR[i] : wpBankL[i]) * Mathf.Min(lateral, roadHalf);
             return true;
         }
 
