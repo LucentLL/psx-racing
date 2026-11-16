@@ -40,7 +40,7 @@ namespace PSXRacing.EditorTools
             public int node, u, c, far; public string name, kind;
             public float mph, rate, q0, qF, W, Lt, peak, rEq, over, angle, jump, uStart, uMax, q20, own20, med20, bulge, uHead;
             public bool pass, halfOk, fullOk, mono;
-            public string why;
+            public string why, info;
         }
 
         public static void RunSplits()
@@ -94,6 +94,28 @@ namespace PSXRacing.EditorTools
                 foreach (int ci in cs) { var m = MeasureSplitEnd(map, t, partner, splitNodes, n, u, ci); if (m.kind != null) { m.kind = "meet-" + m.kind; ends.Add(m); } }
             }
 
+            // ---- refuge carriageways: judged by the medians gate's own measure (the island's frame) ----
+            {
+                var refs = new List<LineModel.Refuge>(LineModel.Refuges);
+                var mR = LineModel.MeasureRefuges(map, refs, out _, out _, out _);
+                for (int i = 0; i < ends.Count; i++)
+                {
+                    var m = ends[i];
+                    if (!m.kind.StartsWith("refuge")) continue;
+                    for (int k = 0; k < refs.Count; k++)
+                    {
+                        var r = refs[k];
+                        bool atN = r.node == m.node && r.chain[0] == m.c, atF = r.far == m.node && r.chain[r.chain.Length - 1] == m.c;
+                        if (!atN && !atF) continue;
+                        string f = LineModel.RefugeFails(r, mR[k]);
+                        m.pass = f.Length == 0 && m.jump < 0.5f;
+                        m.why = f.Length == 0 ? "" : " island measure:" + f;
+                        m.info = $" [the gate's island measure: island at mid {mR[k].island:0.00} m (design wI {2f * r.half:0.00}), outer edge off the road's edge line {mR[k].outerDev:0.000} m, steepest lane line / edge / path {mR[k].slope:0.000}, x0 {r.x0s:0.00}/{r.x0e:0.00}]";
+                        ends[i] = m;
+                        break;
+                    }
+                }
+            }
             // ---- Beatties Ford, node by node ----
             var byNode = new Dictionary<int, List<SplitEndM>>();
             foreach (var m in ends) { if (!byNode.TryGetValue(m.node, out var l)) byNode[m.node] = l = new List<SplitEndM>(); l.Add(m); }
@@ -175,7 +197,7 @@ namespace PSXRacing.EditorTools
         static int Count(IEnumerable<int> e) { int n = 0; foreach (var _ in e) n++; return n; }
 
         static string EndLine(CityMap map, SplitEndM m) =>
-            $"e{m.c} {m.kind} {m.mph:0}mph r {m.rate:0.0}: outer edge moves {m.W:+0.00;-0.00} m over {m.Lt:0.0} m = {m.rEq:0.0}:1 ({(m.fullOk ? "L ok" : m.halfOk ? "L/2 only" : "under L/2")}), peak slope {m.peak:0.000}, bulge {m.bulge:0.00}, jump {m.jump:0.00}; lanes' centre {m.q0:+0.00;-0.00} -> {m.qF:+0.00;-0.00}, overshoot {m.over:0.00}, angle at the node {m.angle:0.0} deg, U heading change {m.uHead:0.0} deg{(m.pass ? "" : " FAIL:" + m.why)}";
+            $"e{m.c} {m.kind} {m.mph:0}mph r {m.rate:0.0}: outer edge moves {m.W:+0.00;-0.00} m over {m.Lt:0.0} m = {m.rEq:0.0}:1 ({(m.fullOk ? "L ok" : m.halfOk ? "L/2 only" : "under L/2")}), peak slope {m.peak:0.000}, bulge {m.bulge:0.00}, jump {m.jump:0.00}; lanes' centre {m.q0:+0.00;-0.00} -> {m.qF:+0.00;-0.00}, overshoot {m.over:0.00}, angle at the node {m.angle:0.0} deg, U heading change {m.uHead:0.0} deg{m.info}{(m.pass ? "" : " FAIL:" + m.why)}";
 
         /// <summary>One carriageway end, on the drawn lane centre (see the class summary).</summary>
         static SplitEndM MeasureSplitEnd(CityMap map, CityMeshes.Trims t, System.Func<CityMap.Edge, int, int> partner, HashSet<int> splitNodes, int node, int ui, int ci)
@@ -380,11 +402,16 @@ namespace PSXRacing.EditorTools
         /// <summary>The pavement gap between a node's two carriageways at axis u (inner edges, + = apart).</summary>
         static float MedianAt(CityMap map, CityMeshes.Trims t, int node, int ea, int eb, float uWant, Vector2 P0, Vector2 tU, Vector2 leftU)
         {
-            float Inner(int ei, out float side)
+            var spn = new HashSet<int>(); foreach (var x in map.splt) spn.Add(x.node);
+            float Inner(int e0, out float side)
             {
                 side = 0f;
-                var e = map.edges[ei];
                 float best = float.MaxValue, lat = float.NaN;
+                var ch = new List<int>(8);
+                LineModel.SplitChain(map, spn, e0, node, 200f, ch, out _, out _);
+                foreach (int ei in ch)
+                {
+                var e = map.edges[ei];
                 for (float s = 0f; s <= e.length; s += 0.25f)
                 {
                     var p = e.PointAt(s);
@@ -396,6 +423,7 @@ namespace PSXRacing.EditorTools
                     best = Mathf.Abs(uu - uWant);
                     side = Mathf.Sign(qa + qb);
                     lat = side > 0f ? Mathf.Min(qa, qb) : Mathf.Max(qa, qb);
+                }
                 }
                 return lat;
             }

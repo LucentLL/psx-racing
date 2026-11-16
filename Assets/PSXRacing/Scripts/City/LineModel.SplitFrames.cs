@@ -112,6 +112,9 @@ namespace PSXRacing.City
         }
 
         static readonly Dictionary<int, SplitFrame> splitFrameEdge = new Dictionary<int, SplitFrame>();
+        /// <summary>A mitred split node's one section normal (the axis): kept apart from the refuge
+        /// islands' (IsRefugeNode must stay refuge-only: NoseMarks, the medians gate, the kerbs read it).</summary>
+        static readonly Dictionary<int, Vector2> splitNodeDir = new Dictionary<int, Vector2>();
         public static readonly List<SplitFrame> SplitFrames = new List<SplitFrame>();
         /// <summary>In-scope split carriageway ends left on the old taper, each with why.</summary>
         public static readonly List<string> SplitSkipped = new List<string>();
@@ -123,7 +126,7 @@ namespace PSXRacing.City
 
         static void ClearSplitFrames()
         {
-            splitFrameEdge.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear();
+            splitFrameEdge.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear();
             SplitProfiled = 0; SplitUEases = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -212,6 +215,51 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>PSX_CITY_SPLITMEET=0: no profile at same-name fan meetings.</summary>
+        public static bool SplitMeetOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SPLITMEET") != "0";
+        public static int SplitMeetings;
+
+        /// <summary>In-scope same-name meetings that have no SPLT record: a node (not a mitred
+        /// continuation) where exactly one two-way edge of a name meets one-way edges of that name,
+        /// one leaving and one arriving: synthesized splits (offsets from the geometry, the rate from
+        /// the undivided road's speed).</summary>
+        static List<Split> SameNameMeetings(CityMap map, Dictionary<int, Split> splitAt)
+        {
+            var res = new List<Split>(); SplitMeetings = 0;
+            IEnumerable<int> nodes = SplitAxis == "all" ? null : BfrSplitNodes;
+            var all = nodes ?? System.Linq.Enumerable.Range(0, map.nodes.Length);
+            foreach (int n in all)
+            {
+                if (n < 0 || n >= map.nodes.Length || splitAt.ContainsKey(n) || !InSplitScope(map, n)) continue;
+                var arms = map.nodeEdges[n];
+                if (arms == null || arms.Count < 3) continue;
+                // the one-way carriageways' name; exactly one two-way arm of it (a side street of another name may meet)
+                string nm = null;
+                foreach (int ei in arms) { var e = map.edges[ei]; if (e.oneway && !e.link && !string.IsNullOrEmpty(e.name)) { nm = e.name; break; } }
+                if (nm == null) continue;
+                int u = -1, a = -1, b = -1, nU = 0;
+                foreach (int ei in arms) { var e = map.edges[ei]; if (!e.oneway && !e.link && e.a != e.b && e.name == nm) { u = ei; nU++; } }
+                if (nU != 1) continue;
+                var U = map.edges[u];
+                foreach (int ei in arms)
+                {
+                    var e = map.edges[ei];
+                    if (!e.oneway || e.link || e.name != U.name || e.a == e.b) continue;
+                    if (e.a == n && a < 0) a = ei; else if (e.b == n && b < 0) b = ei;
+                }
+                if (a < 0 || b < 0) continue;
+                // the undivided road's way into the node, and each carriageway's side 20 m out
+                var tin = U.a == n ? -U.TangentAt(0f) : U.TangentAt(U.length);
+                var left = new Vector2(-tin.y, tin.x);
+                float Side(int ci) { var c = map.edges[ci]; var p = c.PointAt(c.a == n ? Mathf.Min(20f, c.length) : Mathf.Max(0f, c.length - 20f)); return Vector2.Dot(p - map.nodes[n], left); }
+                float oa = Side(a), ob = Side(b);
+                if (Mathf.Sign(oa) == Mathf.Sign(ob)) continue;
+                res.Add(new Split { node = n, u = u, a = a, b = b, offA = oa, offB = ob, rate = TaperRateAt(SpeedMph(U)) });
+                SplitMeetings++;
+            }
+            return res;
+        }
+
         /// <summary>The audits: a carriageway's chain from its split node (see CarriagewayChain).</summary>
         public static void SplitChain(CityMap map, HashSet<int> splitNodes, int ei, int node, float maxLen, List<int> chain, out int far, out float len) =>
             CarriagewayChain(map, splitNodes, ei, node, maxLen, chain, out far, out len);
@@ -260,10 +308,6 @@ namespace PSXRacing.City
                 // a short island (both ends split nodes within RefugeMaxM) takes the refuge path: a pair
                 // the medians gate did not accept draws as live, never a one-ended profile
                 if (splitNodes.Contains(far) && clen <= RefugeMaxM) { Skip(ci, $"short island to n{far} ({clen:0.0} m): the refuge path"); continue; }
-                // the chain's point 20 m out: a turning roadway leaves the axis by more than 35 degrees
-                Vector2 p20 = ChainPoint(map, chain.ToArray(), sp.node, Mathf.Min(20f, 0.9f * clen));
-                float dep = Vector2.Angle(tU, p20 - P0);
-                if (dep > SplitTurnMaxDeg) { Skip(ci, $"turning roadway: {dep:0.0} deg off the axis 20 m out"); continue; }
                 // the carriageway's frame against the axis (as the SPLT block): its outer side
                 var tc = C.a == sp.node ? C.TangentAt(0f) : C.TangentAt(C.length);
                 float sign = Vector2.Dot(leftU, new Vector2(-tc.y, tc.x)) >= 0f ? 1f : -1f;
@@ -309,14 +353,25 @@ namespace PSXRacing.City
                 if (us.Count < 8) { Skip(ci, "own line too short"); continue; }
                 f.ownU = us.ToArray(); f.ownQ = qs.ToArray();
                 float uMax = us[us.Count - 1];
+                // a turning roadway: the own line's heading 60 m on (the census's netTurn) over 35 degrees
+                {
+                    float uT = Mathf.Min(uMax - 2f, f.uStart + 60f);
+                    float slope60 = (f.OwnQAt(uT + 2f) - f.OwnQAt(uT - 2f)) / 4f;
+                    float turn = Mathf.Atan(Mathf.Abs(slope60)) * Mathf.Rad2Deg;
+                    if (turn > SplitTurnMaxDeg) { Skip(ci, $"turning roadway: its own line {turn:0.0} deg off the axis {uT:0} m on"); continue; }
+                    // a separate road: its lanes 15 m or more further out 60 m on than where they leave
+                    if (Mathf.Abs(f.OwnQAt(uT)) - Mathf.Abs(f.lambda0) > SplitSepMaxM) { Skip(ci, $"separation over {SplitSepMaxM:0} m 60 m on (a separate road)"); continue; }
+                }
                 // the room: to the chain's end less a run-out (half way to the next split)
                 f.room = Mathf.Max(0f, (splitNodes.Contains(far) ? 0.45f * uMax : uMax - 12f) - f.uStart);
-                // L: the move at L, iterated (the own line still diverging near the node)
+                // L: MUTCD's length for the move, the move read at most 60 m on (a straight frame
+                // reads a curving road's drift as a move: never past 60 m), the rate term with a 20 %
+                // margin (a smoothstep's 5-95 % takes 0.87 L: the census measure)
                 float L = SplitFloorM;
-                for (int it = 0; it < 12; it++)
+                for (int it = 0; it < 6; it++)
                 {
-                    float dq = Mathf.Abs(f.OwnQAt(f.uStart + L) - f.lambda0);
-                    float Ln = Mathf.Max(SplitFloorM, Mathf.Max(rate * dq, Mathf.Sqrt(6f * dq * rmin)));
+                    float dq = Mathf.Abs(f.OwnQAt(f.uStart + Mathf.Min(L, 60f)) - f.lambda0);
+                    float Ln = Mathf.Min(200f, Mathf.Max(SplitFloorM, Mathf.Max(1.2f * rate * dq, Mathf.Sqrt(6f * dq * rmin))));
                     if (Mathf.Abs(Ln - L) < 0.05f) { L = Ln; break; }
                     L = Ln;
                 }
@@ -325,7 +380,6 @@ namespace PSXRacing.City
                 f.qEnd = f.OwnQAt(f.uEnd);
                 f.slopeEnd = Mathf.Clamp((f.OwnQAt(f.uEnd + 2f) - f.OwnQAt(f.uEnd - 2f)) / 4f, -0.15f, 0.15f);
                 f.delta = f.qEnd - f.lambda0;
-                if (Mathf.Abs(f.OwnQAt(Mathf.Min(uMax, f.uEnd + 30f))) - Mathf.Abs(f.lambda0) > SplitSepMaxM) { Skip(ci, $"separation over {SplitSepMaxM:0} m (a separate road)"); continue; }
                 // the path: the profile to uEnd, then the own line for a run-out
                 var pts = new List<Vector2>(512);
                 float uRun = Mathf.Min(uMax, f.uEnd + 8f);
@@ -435,7 +489,7 @@ namespace PSXRacing.City
             // one section normal at a mitred node: U's end and the drawn carriageways' starts
             if (mitred)
             {
-                refugeNodeDir[sp.node] = tU;
+                splitNodeDir[sp.node] = tU;
                 refugeNodeEdge.Add(RefugeKey(sp.node, sp.u));
                 foreach (var f in frames) refugeNodeEdge.Add(RefugeKey(sp.node, f.edge));
             }

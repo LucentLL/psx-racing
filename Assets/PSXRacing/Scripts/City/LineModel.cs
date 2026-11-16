@@ -643,6 +643,12 @@ namespace PSXRacing.City
                     SplitTapers++;
                 }
             }
+            // the splits round (J1 Phase B): the same profile at same-name fan meetings (a two-way
+            // road meeting its own carriageways at a junction, no SPLT record: n7868, n9152 on
+            // Beatties Ford) - PSX_CITY_SPLITMEET=0 leaves them as live (no taper at a fan)
+            if (SplitsOn && SplitMeetOn)
+                foreach (var ms in SameNameMeetings(map, splitAt))
+                    BuildSplitNode(map, add, partner, ms, splitNodeSet, refugeEndSet);
             // SHIFT records (roads pass L4, plan B6 FX3): a run re-anchored at
             // a junction starts where the lanes were and eases back onto its
             // line past it - never a jump across the junction
@@ -1145,10 +1151,11 @@ namespace PSXRacing.City
         public static bool SectionNormal(CityMap.Edge e, float s, out Vector2 left)
         {
             if (RefugeNormal(e, s, out left)) return true;
-            if (refugeNodeDir.Count == 0) return false;
+            if (refugeNodeDir.Count == 0 && splitNodeDir.Count == 0) return false;
             Vector2 d;
-            if (s <= 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.a, e.index)) && refugeNodeDir.TryGetValue(e.a, out d)) { }
-            else if (s >= e.length - 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.b, e.index)) && refugeNodeDir.TryGetValue(e.b, out d)) { }
+            bool Dir(int n, out Vector2 v) => refugeNodeDir.TryGetValue(n, out v) || splitNodeDir.TryGetValue(n, out v);
+            if (s <= 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.a, e.index)) && Dir(e.a, out d)) { }
+            else if (s >= e.length - 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.b, e.index)) && Dir(e.b, out d)) { }
             else return false;
             var t = e.TangentAt(s);
             var lf = new Vector2(-d.y, d.x);
