@@ -5830,6 +5830,12 @@ namespace PSXRacing.EditorTools
             string[] keys = { "crown_victoria", "classic_van", "camry_2001", "jdm_pickup",
                               "ford_transit", "landrover", "euro_hatch",
                               "volvo_estate", "citroen_cx", "bmw_e30", "audi_saloon" };
+            // The owner's vehicle pack (2026-11-15): with the kit in this pass
+            // the two placeholders above (camry_2001, ford_transit) are gone
+            // and the pack's cars, wagons and vans are dealt among the rest;
+            // without it, the list as it was (TrafficModels.ParkedKeys).
+            TrafficUaaBaker.Ensure();
+            keys = TrafficModels.ParkedKeys(keys);
 
             var rng = new System.Random(31);
             int placed = 0;
@@ -5845,7 +5851,7 @@ namespace PSXRacing.EditorTools
                 }
 
                 if (OverGorge(i)) continue;
-                var def = CarModelLibrary.Load(keys[placed % keys.Length]);
+                var def = TrafficModels.Load(keys[placed % keys.Length]);
                 if (def == null) continue;
 
                 float side = (i / theme.parkedEvery) % 2 == 0 ? 1f : -1f;
