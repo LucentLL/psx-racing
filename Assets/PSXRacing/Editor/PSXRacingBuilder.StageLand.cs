@@ -309,8 +309,64 @@ namespace PSXRacing.EditorTools
                     buf.Box("galv", new Vector3(c.x, top - 0.42f - k * 0.82f, c.z) + fw * 0.05f, rt, Vector3.up, fw, 0.3f, 0.38f, 0.015f);
                 n++;
             }
+            // 9:45: the gravel lot between the road and the white shop's front (the trucks park on it)
+            if (WorldSwitch("PSX_LURE_VIDEOLOOK") && world.buildings != null && world.buildings.Length > 43)
+            {
+                var b = world.buildings[43];
+                var ring = new List<Vector3>(WorldPts(b.xz));
+                float sa = 0f; for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++) sa += (ring[j].x - ring[i].x) * (ring[j].z + ring[i].z);
+                if (sa > 0f) ring.Reverse();
+                Vector3 toRoad = new Vector3(b.fx, 0f, b.fz).normalized;
+                int f0 = PorchFront(ring, toRoad, out int f1);
+                if (f0 >= 0)
+                {
+                    Vector3 a = ring[f0], c = ring[(f1 + 1) % ring.Count];
+                    Vector3 dir = (c - a); dir.y = 0f; float len = dir.magnitude; dir /= len;
+                    Vector3 outN = new Vector3(-dir.z, 0f, dir.x);
+                    int lots = 0;
+                    for (float u = 0f; u < len - 0.01f; u += 2f)
+                    {
+                        float u1 = Mathf.Min(len, u + 2f);
+                        Vector3 p0 = a + dir * u, p1 = a + dir * u1;
+                        for (float e = 0.2f; e < 40f; e += 2f)
+                        {
+                            Vector3 q00 = p0 + outN * e, q10 = p1 + outN * e, q01 = p0 + outN * (e + 2f), q11 = p1 + outN * (e + 2f);
+                            if (StageCorridor(q01.x, q01.z, halfW + 2.6f, out _) || StageCorridor(q11.x, q11.z, halfW + 2.6f, out _)) break;
+                            Vector3 A = new Vector3(q00.x, DrapeY(q00.x, q00.z) + 0.045f, q00.z), B = new Vector3(q10.x, DrapeY(q10.x, q10.z) + 0.045f, q10.z);
+                            Vector3 C2 = new Vector3(q11.x, DrapeY(q11.x, q11.z) + 0.045f, q11.z), D = new Vector3(q01.x, DrapeY(q01.x, q01.z) + 0.045f, q01.z);
+                            // facing up: the ring is clockwise, so a -> along the wall -> outward runs counter-clockwise
+                            buf.Quad("gravel", A, B, C2, D, new Vector2(A.x / 4f, A.z / 4f), new Vector2(B.x / 4f, B.z / 4f), new Vector2(C2.x / 4f, C2.z / 4f), new Vector2(D.x / 4f, D.z / 4f));
+                            lots++;
+                        }
+                    }
+                    if (lots > 0) n++;
+                }
+            }
+            // 1:20: the low dry-stone garden wall on the right of the bend, a lawn behind it (visual: 6 m out, no collider)
+            if (WorldSwitch("PSX_LURE_VIDEOWALL"))
+            {
+                Vector3 prev = Vector3.zero; bool have = false;
+                for (float m = 522f; m <= 600f; m += 2f)
+                {
+                    int i = StationAt(m);
+                    Vector3 rt = RightAt(pts, i), p = pts[i] + rt * (halfW + 6.2f);
+                    if ((WorldKeepBits(p.x, p.z) & 7) != 0) { have = false; continue; }
+                    p.y = DrapeY(p.x, p.z);
+                    if (have)
+                    {
+                        Vector3 d = p - prev; d.y = 0f; float L = d.magnitude;
+                        if (L > 0.1f)
+                        {
+                            Vector3 mid = (p + prev) * 0.5f; d /= L;
+                            buf.Box("stone", new Vector3(mid.x, mid.y + 0.25f, mid.z), d, Vector3.up, new Vector3(-d.z, 0f, d.x), L * 0.5f + 0.05f, 0.55f, 0.28f, 0.5f);
+                        }
+                    }
+                    prev = p; have = true;
+                }
+                n++;
+            }
             TownEmit(buf, "VideoSigns", parent);
-            Log($"Stage world video signs: {n} assemblies where the owner's video shows them (8:15 the in-street pedestrian sign, 1:20 the sign backs).");
+            Log($"Stage world video details: {n} (8:15 the in-street pedestrian sign, 1:20 the sign backs and the stone garden wall, 9:45 the shop's gravel lot).");
         }
 
         // ----------------------------------------------------------- build
