@@ -50,10 +50,41 @@ namespace PSXRacing.City
         /// 'all' stays J1's measure exactly (the before of Phase C's numbers).</summary>
         public static bool CityPhaseC => SplitAxis == "city";
         public static bool BayEndOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYEND") != "0";
-        /// <summary>Phase C: BAYEND ends a bay only on a piece that starts this close to the nose (the nose
-        /// hatch's longest 30 m plus a relay's share), or the same bay run on from one it ended.</summary>
-        public const float PhaseCBayNearM = 60f;
-        public static int PhaseCBayKept;
+        /// <summary>Phase C: bays on the stretches BAYEND walks whose lane goes on as a lane past one end (the
+        /// lane drops J1's rule makes; under city they are kept).</summary>
+        public static int PhaseCBayLaneOn;
+
+        /// <summary>Phase C: the lanes a piece carried before BAYEND (dir +1 a->b).</summary>
+        static int OrigLanes(CityMap.Edge e, int dir) => bayEndOrig.TryGetValue(e.index, out var o) ? (dir > 0 ? o.nF : o.nB) : (dir > 0 ? e.lsNF : e.lsNB);
+        static bool OrigBay(CityMap.Edge e, int dir)
+        {
+            if (!bayEndOrig.TryGetValue(e.index, out var o)) return BayOf(e, dir);
+            int fwd = o.to & 0xFF, bwd = (o.to >> 8) & 0xFF;
+            return dir > 0 ? o.nF >= 2 && (fwd & 1) != 0 : o.nB >= 2 && (bwd & 1) != 0;
+        }
+        /// <summary>Phase C: does the bay lane of direction dir on e go on as a lane past one of its ends - a
+        /// 2-arm node where the same road's next piece (not carrying the bay) carries at least as many lanes
+        /// that way? Then the bay is OSM's lane, not a turn bay that ends.</summary>
+        static bool BayLaneRunsOn(CityMap map, CityMap.Edge e, int dir, out string why)
+        {
+            why = "";
+            int n0 = OrigLanes(e, dir);
+            for (int end = 0; end < 2; end++)
+            {
+                // end 0: ahead (the way the bay travels), 1: behind
+                int nd = (end == 0) == (dir > 0) ? e.b : e.a;
+                var arms = map.nodeEdges[nd];
+                if (arms == null || arms.Count != 2) continue;
+                var x = map.edges[arms[0] == e.index ? arms[1] : arms[0]];
+                if (x.oneway || x.a == x.b || x.name != e.name || !x.hasLset) continue;
+                // x's direction that continues e's dir through nd
+                int xd = end == 0 ? (x.a == nd ? 1 : -1) : (x.b == nd ? 1 : -1);
+                if (OrigBay(x, xd)) continue;                    // the same bay runs on: one run (kept or ended whole)
+                int nx = OrigLanes(x, xd);
+                if (nx >= n0) { why = $"{(end == 0 ? "past" : "before")} n{nd} (e{x.index} carries {nx} lanes that way, the bay's piece {n0})"; return true; }
+            }
+            return false;
+        }
         public static bool NoseRuleOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE") != "0";
         /// <summary>PSX_CITY_REFUGECHORD=1: a refuge island's axis on the 30 m chord too, the undivided
         /// road's last metres eased onto it (unproven: the medians gate rejects it, see BuildRefugePair).</summary>
@@ -187,7 +218,7 @@ namespace PSXRacing.City
                     var e = map.edges[kv.Key];
                     e.lsNF = kv.Value.nF; e.lsNB = kv.Value.nB; e.lsCentre = kv.Value.c; e.lsTurnOnly = kv.Value.to; e.lsFlags = kv.Value.fl;
                 }
-            bayEndOrig.Clear(); bayOpenNodes.Clear(); BayEndLog.Clear(); PhaseCBayKept = 0;
+            bayEndOrig.Clear(); bayOpenNodes.Clear(); BayEndLog.Clear(); PhaseCBayLaneOn = 0;
             bayEndMap = map; bayEndScope = SplitAxis;
             if (!SplitsOn || map == null || map.splt == null) return;
             var seen = new HashSet<int>();
@@ -206,39 +237,39 @@ namespace PSXRacing.City
                 if (!BayEndOn) continue;
                 // the stretch from the nose to the first junction
                 var cur = U; int at = sp.node;
-                // Phase C (scope city): only a bay that reaches the nose's approach - on a piece starting within
-                // PhaseCBayNearM of the nose, or the same bay lane running on from one ended (one bay run is
-                // ended whole: no lane-count change inside it). J1 ended every bay on the stretch, and a
-                // driveway's bay far from the nose then dropped a lane at its 2-arm node (e16705 at n15089:
-                // NB cars waited for the lane their straight-on needed; 554 edges under 'all').
-                float distNose = 0f; int runOut = 0;
+                // Phase C (scope city): a bay whose lane goes on as a lane past either of its ends (a 2-arm node
+                // where the piece beyond carries as many lanes that way and not the same bay) is OSM's lane, not
+                // a turn bay that ends: J1 ended it too, which dropped or added a lane at that 2-arm node (e16705
+                // at n15089: NB cars waited for the lane their straight-on needed; BfrBayKeep held that one
+                // edge back). Counted in every scope (PhaseCBayLaneOn: the lane drops J1's rule makes), kept
+                // under city. Every other bay on the stretch ends as J1's rule has it (a centre lane that runs
+                // into the nose: spot 34's island needs e8620's SB bay ended, or its relay moves the lines the
+                // hatch needs).
                 for (int g = 0; g < 12; g++)
                 {
                     if (!seen.Add(cur.index)) break;
                     if (cur.oneway || !cur.hasLset || cur.name != U.name) break;
                     bool bf = BayOf(cur, 1), bb = BayOf(cur, -1);
-                    int ranOut = 0;
                     if (cur.lsCentre == 1 && (bf ^ bb))
                     {
                         int d = bf ? 1 : -1;
-                        int travelOut = (d > 0) == (cur.a == at) ? 1 : -1;      // the bay's travel: away from the nose (+1) or toward it
                         bool keep = SplitAxis == "bfr" && map.graphHash == SplitsGraph && BfrBayKeep.Contains(cur.index);
                         if (keep && BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")}: kept as OSM tags it (BfrBayKeep: a driveway's bay far from any nose the round draws)");
-                        bool far2 = CityPhaseC && distNose >= PhaseCBayNearM && travelOut != runOut;
-                        if (!keep && far2)
+                        int sv2 = -1;
+                        bool serves = keep || BayServesJunction(map, cur, d, out sv2);
+                        string runWhy = "";
+                        bool runsOn = !serves && BayLaneRunsOn(map, cur, d, out runWhy);
+                        if (runsOn) PhaseCBayLaneOn++;
+                        if (runsOn && CityPhaseC)
                         {
-                            PhaseCBayKept++;
-                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")} {distNose:0} m from the nose: kept as OSM tags it (Phase C: it does not reach the nose's approach)");
+                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")}: kept as OSM tags it (Phase C: its lane goes on {runWhy})");
                         }
-                        if (!keep && !far2 && !BayServesJunction(map, cur, d, out int sv2))
+                        else if (!serves)
                         {
-                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")} serves n{sv2} ({map.nodeEdges[sv2].Count} arms, no street of the graph): ended, its space the centre lane (TWLTL)");
+                            if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")} serves n{sv2} ({(sv2 >= 0 ? map.nodeEdges[sv2].Count : 0)} arms, no street of the graph): ended, its space the centre lane (TWLTL){(runsOn ? $" - its lane goes on {runWhy}: a lane drop" : "")}");
                             EndBay(cur, d);
-                            ranOut = travelOut;
                         }
                     }
-                    runOut = ranOut;
-                    distNose += cur.length;
                     int far = cur.a == at ? cur.b : cur.a;
                     var arms = map.nodeEdges[far];
                     if (arms == null || arms.Count != 2) break;

@@ -93,6 +93,13 @@ namespace PSXRacing.EditorTools
         static float[] X, Z, YE, YL, Y;
         /// <summary>PSX_LAUNCH_BOX=x0,z0,x1,z1: only the paths that start inside (a debug run).</summary>
         static Rect box = Rect.MinMaxRect(-1e9f, -1e9f, 1e9f, 1e9f);
+        static readonly List<Rect> boxes = new List<Rect>();
+        static bool InBoxes(Vector2 p)
+        {
+            if (boxes.Count <= 1) return box.Contains(p);
+            foreach (var r in boxes) if (r.Contains(p)) return true;
+            return false;
+        }
         static bool[] OnRoad;
         static int nS;
         static readonly List<PathRec> paths = new List<PathRec>(200000);
@@ -240,12 +247,19 @@ namespace PSXRacing.EditorTools
 
                 X = new float[1 << 22]; Z = new float[1 << 22]; YE = new float[1 << 22]; YL = new float[1 << 22]; nS = 0;
                 var bx = Environment.GetEnvironmentVariable("PSX_LAUNCH_BOX");
-                box = Rect.MinMaxRect(-1e9f, -1e9f, 1e9f, 1e9f);
+                box = Rect.MinMaxRect(-1e9f, -1e9f, 1e9f, 1e9f); boxes.Clear();
                 if (!string.IsNullOrEmpty(bx))
                 {
-                    var b = bx.Split(',');
-                    box = Rect.MinMaxRect(float.Parse(b[0], CultureInfo.InvariantCulture), float.Parse(b[1], CultureInfo.InvariantCulture), float.Parse(b[2], CultureInfo.InvariantCulture), float.Parse(b[3], CultureInfo.InvariantCulture));
-                    Line($"DEBUG BOX {box}");
+                    // (splits2: several boxes, "x0,z0,x1,z1;x0,z0,x1,z1;..." - the Phase C spots in one run)
+                    boxes.Clear();
+                    foreach (var one in bx.Split(';'))
+                    {
+                        var b = one.Split(',');
+                        if (b.Length < 4) continue;
+                        boxes.Add(Rect.MinMaxRect(float.Parse(b[0], CultureInfo.InvariantCulture), float.Parse(b[1], CultureInfo.InvariantCulture), float.Parse(b[2], CultureInfo.InvariantCulture), float.Parse(b[3], CultureInfo.InvariantCulture)));
+                    }
+                    if (boxes.Count > 0) box = boxes[0];
+                    Line($"DEBUG BOX {box}{(boxes.Count > 1 ? $" (+{boxes.Count - 1} more)" : "")}");
                 }
                 paths.Clear();
 
@@ -287,7 +301,7 @@ namespace PSXRacing.EditorTools
                         }
                         pr.count = nS - pr.start;
                         pr.nA = pr.count;
-                        if (!box.Contains(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
+                        if (!InBoxes(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
                         float v = ClassKmh(e) / 3.6f;
                         routeEdge.TryGetValue(((long)e.index << 1) | (dir > 0 ? 1L : 0L), out pr.routeMask);
                         if (pr.routeMask != 0) v = Mathf.Max(v, RouteKmh / 3.6f);
@@ -445,7 +459,7 @@ namespace PSXRacing.EditorTools
                                 Add(B.PointAt(s) + RightOf(t) * (LatFor(trims, B, s) + Carry(carryB, dist - tB)), B.YAt(s));
                             }
                             pr.count = nS - pr.start;
-                            if (!box.Contains(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
+                            if (!InBoxes(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
                             float v = Mathf.Min(ClassKmh(A), ClassKmh(B)) / 3.6f;
                             routeMove.TryGetValue(MoveKey(n, ia, ib), out pr.routeMask);
                             if (pr.routeMask != 0) v = Mathf.Max(v, RouteKmh / 3.6f);
@@ -1246,7 +1260,7 @@ namespace PSXRacing.EditorTools
                             Add(LanePointOf(O.e, s, LaneLat(O.e, s, dOut, inner)), O.e.YAt(s));
                         }
                         pr.count = nS - pr.start;
-                        if (!box.Contains(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
+                        if (!InBoxes(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
                         paths.Add(pr);
                         made++;
                     }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEngine;
 using PSXRacing.City;
@@ -413,7 +414,7 @@ namespace PSXRacing.EditorTools
                 foreach (var kv in byMode)
                 {
                     int v = allThree && kv.Value == fullBits ? kv.Key : kv.Key | kv.Value;
-                    string sc = (v & LineModel.RefugeScopeMask) == 0 ? "" : $" [{((v & 16) != 0 ? "0 " : "")}{((v & 32) != 0 ? "bfr " : "")}{((v & 64) != 0 ? "all " : "")}{((v & 128) != 0 ? "city" : "")}]";
+                    string sc = (v & LineModel.RefugeScopeMask) == 0 ? "" : " [" + string.Join(" ", new[] { (16, "0"), (32, "bfr"), (64, "all"), (128, "city") }.Where(b => (v & b.Item1) != 0).Select(b => b.Item2)) + "]";
                     sb.Append($"            {pk}L, {c.fp}L, {v},   // n{c.n1}-n{c.n2} {map.edges[c.e1].name.Replace("\\", "").Replace("\n", " ")}{sc.TrimEnd()}\r\n");
                 }
             }
