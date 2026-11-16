@@ -186,7 +186,8 @@ namespace PSXRacing.EditorTools
                 car.allowReverse = false;
             }
             t0 = Time.realtimeSinceStartup;
-            while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup - t0 < 240f) yield return null;
+            // A city course streams in first (HoldCountdown): minutes on a busy machine.
+            while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup - t0 < 480f) yield return null;
             CamcorderShots.Check(rm.State != RaceManager.RaceState.Countdown, "the lights went green",
                                  (Time.realtimeSinceStartup - t0).ToString("0") + " s");
             float g0 = Time.time;
@@ -223,19 +224,7 @@ namespace PSXRacing.EditorTools
                 }
                 if (cc.Spots.Count > 0)
                     CamcorderShots.Check(worst > 1.5f, "every operator stands clear of the race line's road edge", "closest " + worst.ToString("0.0") + " m");
-                // ...and off EVERY road, the ground under them and beside them
-                // (a median between carriageways is not a place to stand).
-                int onRoad = 0, between = 0;
-                foreach (var sp in cc.Spots)
-                {
-                    if (sp.kind == CamcorderCam.Kind.Overpass) continue;
-                    int i = rm.path.NearestIndex(sp.pos);
-                    Vector3 p = rm.path.GetPoint(i);
-                    Vector3 outw = new Vector3(sp.pos.x - p.x, 0f, sp.pos.z - p.z).normalized;
-                    if (RoadUnder(sp.pos)) onRoad++;
-                    else if (RoadUnder(sp.pos + outw * 2.5f) || RoadUnder(sp.pos + outw * 6f)) between++;
-                }
-                CamcorderShots.Check(onRoad == 0 && between == 0, "no operator on a road or between two", onRoad + " on, " + between + " between");
+                LaneCheck(cc, rm, "planned");
             }
 
             // Let the eye settle on the first shot, then shoot.
@@ -261,6 +250,8 @@ namespace PSXRacing.EditorTools
                                     "  mic " + (CamcorderMic.Active ? "on" : "off"));
             }
             if (dtN > 0) CamcorderShots.Line("  mean frame " + (1000f * dtSum / dtN).ToString("0.0") + " ms (editor, watched)");
+            // Operators added on the way (where the plan left nobody) obey the same rules.
+            if (camOn && cc != null) LaneCheck(cc, rm, "after the tape");
 
             if (seq)
             {
@@ -276,6 +267,25 @@ namespace PSXRacing.EditorTools
             rp.End();
             CamcorderShots.Check(!RaceReplay.Playing && Camcorder.Camera == null, "the replay ends and the look goes with it");
             yield return null;
+        }
+
+        /// <summary>Off EVERY road: the ground under each operator and beside
+        /// them (a median between carriageways is not a place to stand).</summary>
+        static void LaneCheck(CamcorderCam cc, RaceManager rm, string when)
+        {
+            int onRoad = 0, between = 0, n = 0;
+            foreach (var sp in cc.Spots)
+            {
+                if (sp.kind == CamcorderCam.Kind.Overpass) continue;
+                n++;
+                int i = rm.path.NearestIndex(sp.pos);
+                Vector3 p = rm.path.GetPoint(i);
+                Vector3 outw = new Vector3(sp.pos.x - p.x, 0f, sp.pos.z - p.z).normalized;
+                if (RoadUnder(sp.pos)) onRoad++;
+                else if (RoadUnder(sp.pos + outw * 2.5f) || RoadUnder(sp.pos + outw * 6f)) between++;
+            }
+            CamcorderShots.Check(onRoad == 0 && between == 0, "no operator on a road or between two (" + when + ", " + n + ")",
+                                 onRoad + " on, " + between + " between");
         }
 
         static bool RoadUnder(Vector3 at)

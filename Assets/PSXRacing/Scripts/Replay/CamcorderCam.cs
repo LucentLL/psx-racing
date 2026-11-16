@@ -53,6 +53,7 @@ namespace PSXRacing
         TrackPath path;
         Camera cam;
         float roadWidth = 12f;
+        System.Func<int, bool> avoid;
         float baseNear = 0.25f, baseFov = 60f;
         readonly List<Spot> spots = new List<Spot>();
 
@@ -78,7 +79,7 @@ namespace PSXRacing
 
         public void Setup(TrackPath p, Camera c, float roadWidthM, System.Func<int, bool> avoidAt = null)
         {
-            path = p; cam = c; roadWidth = roadWidthM;
+            path = p; cam = c; roadWidth = roadWidthM; avoid = avoidAt;
             if (cam != null) { baseNear = cam.nearClipPlane; baseFov = cam.fieldOfView; }
             spots.Clear();
             if (path != null && path.Count > 2)
@@ -133,54 +134,68 @@ namespace PSXRacing
                 int idx = Mathf.Clamp(s * every + Hash(s * 7 + 3) % Mathf.Max(1, every / 2), 0, n - 1);
                 if (!loop && (idx < 6 || idx >= n - 6)) continue;
                 if (avoid != null && avoid(idx)) continue;
-                Vector3 road = path.GetPoint(idx);
-                Vector3 tan = path.GetTangent(idx);
-                tan.y = 0f;
-                if (tan.sqrMagnitude < 1e-6f) continue;
-                tan.Normalize();
-                Vector3 right = Vector3.Cross(Vector3.up, tan).normalized;
-                Vector3 ahead = path.GetPoint(path.Wrap(idx + 12));
-
-                // A bridge over the route here: stand at its railing.
-                if (TryOverpass(road, tan, groundAt, blocked, ahead, out var op))
-                {
-                    list.Add(new Spot { idx = idx, pos = op, kind = Kind.Overpass });
-                    continue;
-                }
-
-                float turn = 0f;
-                for (int k = 1; k <= 12; k++)
-                {
-                    int a = path.Wrap(idx + k - 1), b = path.Wrap(idx + k);
-                    turn += Vector3.SignedAngle(path.GetTangent(a), path.GetTangent(b), Vector3.up);
-                }
-                int side = Mathf.Abs(turn) < 6f ? -lastSide : (turn < 0f ? 1 : -1);
-                lastSide = side;
-                bool kerb = Hash(s * 13 + 1) % 3 == 0;
-
-                bool placed = false;
-                for (int attempt = 0; attempt < 6 && !placed; attempt++)
-                {
-                    int sd = attempt < 3 ? side : -side;
-                    float off = half + (kerb ? KerbStandoffM : BackStandoffM) + (attempt % 3) * 3f;
-                    Vector3 p = road + right * sd * off;
-                    Vector2 g = groundAt(p.x, p.z);   // x: height, y: 1 = road surface
-                    if (float.IsNaN(g.x)) continue;
-                    if (g.y > 0.5f) continue;                       // a lane: never
-                    if (g.x > road.y + 12f || g.x < road.y - 2.5f) continue;   // a roof, a gorge
-                    // Road further out too: a median between two carriageways,
-                    // or an island in a junction - nobody stands there (run 1,
-                    // Uptown Loop: an operator crouched in the I-277 median).
-                    Vector3 o1 = p + right * sd * 2.5f, o2 = p + right * sd * 6f;
-                    if (groundAt(o1.x, o1.z).y > 0.5f || groundAt(o2.x, o2.z).y > 0.5f) continue;
-                    bool crouch = kerb && Hash(s * 31 + attempt) % 2 == 0;
-                    p.y = g.x + (crouch ? CrouchM : EyeM);
-                    if (blocked(p, road + Vector3.up * 1.1f) || blocked(p, ahead + Vector3.up * 1.1f)) continue;   // a car's roof, over a Jersey barrier
-                    list.Add(new Spot { idx = idx, pos = p, kind = kerb ? Kind.Kerb : Kind.Roadside });
-                    placed = true;
-                }
+                if (TryPlace(path, idx, s, half, groundAt, blocked, ref lastSide, out var spot)) list.Add(spot);
             }
             return list;
+        }
+
+        /// <summary>One operator by station <paramref name=idx/>: at a bridge's
+        /// railing over it, or on the outside of the corner ahead (the other
+        /// shoulder, then further back, when that will not do). False when no
+        /// spot here passes: never road, nor road further out, nor a roof or a
+        /// gorge, and the road in sight.</summary>
+        public static bool TryPlace(TrackPath path, int idx, int s, float half,
+                                    System.Func<float, float, Vector2> groundAt,
+                                    System.Func<Vector3, Vector3, bool> blocked, ref int lastSide, out Spot spot)
+        {
+            spot = default;
+            Vector3 road = path.GetPoint(idx);
+            Vector3 tan = path.GetTangent(idx);
+            tan.y = 0f;
+            if (tan.sqrMagnitude < 1e-6f) return false;
+            tan.Normalize();
+            Vector3 right = Vector3.Cross(Vector3.up, tan).normalized;
+            Vector3 ahead = path.GetPoint(path.Wrap(idx + 12));
+
+            // A bridge over the route here: stand at its railing.
+            if (TryOverpass(road, tan, groundAt, blocked, ahead, out var op))
+            {
+                spot = new Spot { idx = idx, pos = op, kind = Kind.Overpass };
+                return true;
+            }
+
+            float turn = 0f;
+            for (int k = 1; k <= 12; k++)
+            {
+                int a = path.Wrap(idx + k - 1), b = path.Wrap(idx + k);
+                turn += Vector3.SignedAngle(path.GetTangent(a), path.GetTangent(b), Vector3.up);
+            }
+            int side = Mathf.Abs(turn) < 6f ? -lastSide : (turn < 0f ? 1 : -1);
+            lastSide = side;
+            bool kerb = Hash(s * 13 + 1) % 3 == 0;
+
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                int sd = attempt < 3 ? side : -side;
+                float off = half + (kerb ? KerbStandoffM : BackStandoffM) + (attempt % 3) * 3f;
+                Vector3 p = road + right * sd * off;
+                Vector2 g = groundAt(p.x, p.z);   // x: height, y: 1 = road surface
+                if (float.IsNaN(g.x)) continue;
+                if (g.y > 0.5f) continue;                       // a lane: never
+                if (g.x > road.y + 12f || g.x < road.y - 2.5f) continue;   // a roof, a gorge
+                // Road further out too: a median between two carriageways,
+                // or an island in a junction - nobody stands there (run 1,
+                // Uptown Loop: an operator crouched in the I-277 median).
+                Vector3 o1 = p + right * sd * 2.5f, o2 = p + right * sd * 6f;
+                if (groundAt(o1.x, o1.z).y > 0.5f || groundAt(o2.x, o2.z).y > 0.5f) continue;
+                bool crouch = kerb && Hash(s * 31 + attempt) % 2 == 0;
+                p.y = g.x + (crouch ? CrouchM : EyeM);
+                // Aimed at a car's roof: over a Jersey barrier.
+                if (blocked(p, road + Vector3.up * 1.1f) || blocked(p, ahead + Vector3.up * 1.1f)) continue;
+                spot = new Spot { idx = idx, pos = p, kind = kerb ? Kind.Kerb : Kind.Roadside };
+                return true;
+            }
+            return false;
         }
 
         /// <summary>A deck 4-14 m over the route: the railing on the side the
@@ -275,11 +290,8 @@ namespace PSXRacing
             if (chasing)
             {
                 // The buddy's car: the focus car's own line, a beat behind.
-                float spd = Mathf.Max(5f, Mathf.Abs(replay.FocusFrame.speedKmh) / 3.6f);
-                float lag = Mathf.Clamp(15f / spd, 0.35f, 1.3f);
-                if (!replay.PoseAt(replay.FocusIndex, replay.ReplayTime - lag, out var bp, out var br))
-                { bp = car.transform.position - car.transform.forward * 15f; br = car.transform.rotation; }
-                eye = bp + br * new Vector3(0.38f, 1.22f, 0f);
+                if (!BuddyEye(replay, out eye, out _))
+                    eye = car.transform.position - car.transform.forward * 15f + Vector3.up * 1.22f;
                 float rough = Mathf.PerlinNoise(handClock * 9f, seed) - 0.5f;
                 eye += Vector3.up * rough * 0.03f;
                 wantFov = 38f;
@@ -367,7 +379,8 @@ namespace PSXRacing
             bool needNew = cur < 0 && !chasing;
             if (chasing)
             {
-                if (handClock < chaseUntil) return;
+                // The buddy's car stops filming when a car comes up at the lens.
+                if (handClock < chaseUntil && BuddySafe(replay)) return;
                 chasing = false;
                 needNew = true;
             }
@@ -383,23 +396,101 @@ namespace PSXRacing
             if (!needNew) return;
 
             shots++;
-            // The buddy's car now and then, and whenever no one stands ahead.
-            int best = -1, bestAhead = int.MaxValue;
-            for (int i = 0; i < spots.Count; i++)
-            {
-                int ahead = Ahead(spots[i].idx, carIdx, n);
-                if (ahead >= 3 && ahead < bestAhead) { bestAhead = ahead; best = i; }
-            }
+            int best = NearestAhead(n, out int bestAhead);
             bool farAhead = best < 0 || bestAhead * path.spacing > 300f;
-            if (spots.Count == 0 || farAhead || (shots % ChaseEvery == 0 && replay.FocusFrame.speedKmh > 30f))
+            if (farAhead)
+            {
+                // Nobody planned near: somebody turned up to watch, 60-180 m on.
+                int added = AddSpotAhead(n);
+                if (added >= 0) { best = added; farAhead = false; }
+            }
+            bool wantChase = farAhead || shots % ChaseEvery == 0;
+            if (wantChase && BuddySafe(replay))
             {
                 chasing = true;
                 chaseUntil = handClock + ChaseSeconds;
                 cur = Mathf.Max(0, best);
             }
-            else cur = best;
-            if (spots.Count == 0 && !chasing) return;
+            else if (best >= 0) { chasing = false; cur = best; }
+            else
+            {
+                // Nobody ahead and no safe ride: the nearest operator of all.
+                cur = NearestAny(car.transform.position);
+                if (cur < 0) { chasing = true; chaseUntil = handClock + 1f; }
+            }
             Cut();
+        }
+
+        int NearestAhead(int n, out int bestAhead)
+        {
+            int best = -1;
+            bestAhead = int.MaxValue;
+            for (int i = 0; i < spots.Count; i++)
+            {
+                int ahead = Ahead(spots[i].idx, carIdx, n);
+                if (ahead >= 3 && ahead < bestAhead) { bestAhead = ahead; best = i; }
+            }
+            return best;
+        }
+
+        int NearestAny(Vector3 at)
+        {
+            int best = -1;
+            float bd = float.MaxValue;
+            for (int i = 0; i < spots.Count; i++)
+            {
+                float d = (spots[i].pos - at).sqrMagnitude;
+                if (d < bd) { bd = d; best = i; }
+            }
+            return best;
+        }
+
+        /// <summary>An operator where the plan left nobody (a city freeway, a
+        /// grid): tried 60-180 m ahead of the car by the planner's own rules.
+        /// Kept for the rest of the tape. -1 when none will do.</summary>
+        int AddSpotAhead(int n)
+        {
+            float half = roadWidth * 0.5f;
+            foreach (int k in new[] { 15, 22, 30, 38, 45 })
+            {
+                int idx = carIdx + k;
+                if (path.HasEnds) { if (idx >= n - 6) break; }
+                else idx = path.Wrap(idx);
+                if (avoid != null && avoid(idx)) continue;
+                if (!TryPlace(path, idx, shots * 97 + k, half, GroundAt, Blocked, ref addSide, out var sp)) continue;
+                spots.Add(sp);
+                return spots.Count - 1;
+            }
+            return -1;
+        }
+        int addSide = 1;
+
+        /// <summary>Where the buddy's lens is: the passenger seat of a car on
+        /// the focus car's own line, a beat behind it.</summary>
+        bool BuddyEye(RaceReplay replay, out Vector3 eye, out Quaternion rot)
+        {
+            float spd = Mathf.Max(5f, Mathf.Abs(replay.FocusFrame.speedKmh) / 3.6f);
+            float lag = Mathf.Clamp(15f / spd, 0.35f, 1.3f);
+            eye = default; rot = Quaternion.identity;
+            if (replay.ReplayTime - lag < 0f) return false;
+            if (!replay.PoseAt(replay.FocusIndex, replay.ReplayTime - lag, out var bp, out rot)) return false;
+            eye = bp + rot * new Vector3(0.38f, 1.22f, 0f);
+            return true;
+        }
+
+        /// <summary>The ride is filmable: the field is moving (no ride on the
+        /// grid - run 2 put the lens inside a car there) and no car of the
+        /// field is within a car's length of the lens.</summary>
+        bool BuddySafe(RaceReplay replay)
+        {
+            if (replay.ReplayTime < 4f || Mathf.Abs(replay.FocusFrame.speedKmh) < 35f) return false;
+            if (!BuddyEye(replay, out var eye, out _)) return false;
+            for (int i = 0; i < replay.TrackCount; i++)
+            {
+                var c = replay.TrackCar(i);
+                if (c != null && (c.transform.position - eye).sqrMagnitude < 5.5f * 5.5f) return false;
+            }
+            return true;
         }
 
         /// <summary>A new recording starts: the hand, the zoom and the focus
