@@ -1,5 +1,5 @@
 {
- "what": "Local refits (tools/roads/plan_smooth.mjs localRefits) at the S-places tools/roads/waves.py finds on the gentle-stretch-smoothed mapped line, less the S-places both lidar shelf edges carry (the real road) and those on a mapped bridge. fromM / toM: the S's first and last lobe peak, metres along the stage (waypoint index x 4). Written by: python -I tools/roads/waves.py refits --from smooth",
+ "what": "Local refits (tools/roads/plan_smooth.mjs localRefits), applied in this order after the gentle-stretch gaussian. First the S-places tools/roads/waves.py finds on the smoothed mapped line (python -I tools/roads/waves.py refits --from smooth --line smooth=<plan_smooth.mjs output> --shelf <shelf_edges.mjs output>), less those both lidar shelf edges carry (beta >= 0.7: swa 1324-1410, gap 931-1002, swiss 5577-5680, the real road) and any on a mapped bridge. Then the abrupt reversals plan_wiggle.py finds on that result that the shelf does not carry (waves.py refits --from new --reversals), kept only where the refit puts the road no further off the lidar shelf within 90 m (station-sides more than 1 m off, and the worst): left as mapped: swa 2004 m (18 -> 22); swa 2180 m (30 -> 25 but worst 4.5 -> 5.5 m); swa 3948 m (10 -> 16); swa 4300 m (20 -> 22); brock 4180 m (refused: a 2.33 m move). fromM / toM: the first and last peak, metres along the stage (waypoint index x 4).",
  "stages": {
   "swa": [
    {
@@ -11,6 +11,21 @@
     "fromM": 11328,
     "toM": 11362,
     "why": "S 0.40 m, beta R -1.63 L +0.54"
+   },
+   {
+    "fromM": 1448,
+    "toM": 1460,
+    "why": "abrupt reversal (plan_wiggle.py) 1.04 m, beta R +0.41 L +0.44; kept: the refit puts the road no further off the lidar shelf (off-shelf station-sides within 90 m 28 -> 24, worst 3.0 -> 2.5 m)"
+   },
+   {
+    "fromM": 3552,
+    "toM": 3572,
+    "why": "abrupt reversal (plan_wiggle.py) 2.65 m, beta R +0.29 L +0.16; kept: the refit puts the road no further off the lidar shelf (39 -> 36, worst 5.0 -> 5.0 m)"
+   },
+   {
+    "fromM": 10900,
+    "toM": 10916,
+    "why": "abrupt reversal (plan_wiggle.py) 2.74 m, beta R +0.24 L +1.26; kept: the refit puts the road no further off the lidar shelf (16 -> 13, worst 3.0 -> 2.5 m)"
    }
   ],
   "gap": [
@@ -23,6 +38,16 @@
     "fromM": 5759,
     "toM": 5810,
     "why": "S 1.41 m, beta R -0.54 L +0.12"
+   },
+   {
+    "fromM": 5040,
+    "toM": 5060,
+    "why": "abrupt reversal (plan_wiggle.py) 1.21 m, beta R +0.79 L +0.61; kept: the refit puts the road no further off the lidar shelf (13 -> 12, worst 5.3 -> 5.3 m)"
+   },
+   {
+    "fromM": 5600,
+    "toM": 5632,
+    "why": "abrupt reversal (plan_wiggle.py) 2.57 m, beta R +0.29 L -0.54; kept: the refit puts the road no further off the lidar shelf (6 -> 5, worst 3.9 -> 2.9 m)"
    }
   ],
   "mtm": [
@@ -32,8 +57,20 @@
     "why": "S 0.39 m, beta R +0.85 L +0.04"
    }
   ],
-  "beech": [],
-  "chimney": [],
+  "beech": [
+   {
+    "fromM": 5572,
+    "toM": 5584,
+    "why": "abrupt reversal (plan_wiggle.py) 1.08 m, beta R +0.39 L +0.81; kept: the refit puts the road no further off the lidar shelf (1 -> 0, worst 1.0 -> 0 m)"
+   }
+  ],
+  "chimney": [
+   {
+    "fromM": 1876,
+    "toM": 1908,
+    "why": "abrupt reversal (plan_wiggle.py) 2.46 m, beta R -0.16 L +0.52; kept: the refit puts the road no further off the lidar shelf (2 -> 2, worst 1.5 -> 1.5 m)"
+   }
+  ],
   "brp": [],
   "swiss": [
    {

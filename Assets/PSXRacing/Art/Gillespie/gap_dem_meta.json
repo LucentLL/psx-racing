@@ -28,7 +28,7 @@
     "near": "USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice",
     "far": "USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice",
     "wide": "unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs",
-    "line": "as mapped (--keep-line); gentle stretches smoothed (--plan-smooth 8: gaussian 8 m where R > 120 m, none under 50 m; largest move 0.33 m at 944 m), 2 local refit(s) at an S the lidar shelf does not carry (--refits: 3789-3824 m moved 0.46 m, tapers 72 m; 5759-5810 m moved 1.47 m, tapers 100 m)",
+    "line": "as mapped (--keep-line); gentle stretches smoothed (--plan-smooth 8: gaussian 8 m where R > 120 m, none under 50 m; largest move 0.33 m at 944 m), 4 local refit(s) at an S the lidar shelf does not carry (--refits: 3789-3824 m moved 0.46 m, tapers 72 m; 5759-5810 m moved 1.47 m, tapers 100 m; 5040-5060 m moved 0.79 m, tapers 72 m; 5600-5632 m moved 0.79 m, tapers 72 m)",
     "planSmoothM": 8,
     "refits": [
       {
@@ -46,6 +46,22 @@
         "toFadeM": 5912,
         "taperM": 100,
         "moveM": 1.465
+      },
+      {
+        "fromM": 5040,
+        "toM": 5060,
+        "fromFadeM": 4968,
+        "toFadeM": 5132,
+        "taperM": 72,
+        "moveM": 0.786
+      },
+      {
+        "fromM": 5600,
+        "toM": 5632,
+        "fromFadeM": 5528,
+        "toFadeM": 5704,
+        "taperM": 72,
+        "moveM": 0.789
       }
     ],
     "before": "tools/roads/srtm_bakes/gap_srtm/ (the SRTM bake this replaced)",

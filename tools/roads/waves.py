@@ -226,6 +226,31 @@ def jogs(D, lane, delta=0.006, maxdefl=15.0, **kw):
     return out, runs
 
 
+def reversals(P, loop, s0=None, s1=None, sp=4):
+    """plan_wiggle.py's ABRUPT REVERSALS on the waypoints (lakelure 7a9f964d): bends under 250 m one way and then the
+    other (circle through the waypoints 12 m either side), peaks under 40 m apart, the line under 3 m off the chord
+    between them. Returns [(fromM, toM, R1, R2, amp)]."""
+    n = len(P); X, Z = P[:, 0], P[:, 1]
+    i0 = max(3, int((s0 or 0) / sp)); i1 = min(n - 4, int((s1 if s1 is not None else (n - 1) * sp) / sp))
+    K = np.zeros(n)
+    for i in range(3, n - 3):
+        a, b, c = P[i - 3], P[i], P[i + 3]
+        cr = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        l = math.hypot(*(b - c)) * math.hypot(*(a - c)) * math.hypot(*(a - b))
+        K[i] = 0.0 if l == 0 else 2 * cr / l
+    peaks = [i for i in range(i0, i1) if abs(K[i]) >= 1 / 250 and abs(K[i]) >= abs(K[i - 1]) and abs(K[i]) >= abs(K[i + 1])]
+    out = []
+    for a, b in zip(peaks, peaks[1:]):
+        if K[a] * K[b] >= 0 or (b - a) * sp > 40:
+            continue
+        lo, hi = max(0, a - 5), min(n - 1, b + 5)
+        ux, uz = X[hi] - X[lo], Z[hi] - Z[lo]; L = math.hypot(ux, uz) or 1.0
+        amp = max(abs(-(X[k] - X[lo]) * uz / L + (Z[k] - Z[lo]) * ux / L) for k in range(lo, hi + 1))
+        if amp < 3.0:
+            out.append((a * sp, b * sp, 1 / abs(K[a]), 1 / abs(K[b]), amp))
+    return out
+
+
 def has_curve(runs, c, tol=8.0):
     return any(r['sgn'] == c['sgn'] and r['st0'] <= c['st1'] + tol and r['st1'] >= c['st0'] - tol for r in runs)
 
@@ -351,7 +376,14 @@ def measure(pre, path, shelf_path=None):
     if shelf is not None:
         shelf_betas(P, loop, D, res, shelf, places)
     jg, runs = jogs(D, PAVED[pre] / 2)
-    return dict(pre=pre, P=P, loop=loop, j=j, D=D, places=places, jogs=jg, runs=runs, bridges=bridges,
+    revs = []
+    for (a, b, r1, r2, amp) in reversals(P, loop, 0 if loop else j.get('startLineM', 0), None if loop else j.get('finishM'), j.get('spacing', 4)):
+        ix = np.nonzero((D['st'] * 4 >= a - 8) & (D['st'] * 4 <= b + 8))[0]
+        revs.append(dict(st0=a, st1=b, pkA=a, pkB=b, R1=r1, R2=r2, amp=amp, s0=float(D['s'][ix[0]]), s1=float(D['s'][ix[-1]]), real=False,
+                         bridge=any(x - 10 <= b and y + 10 >= a for x, y in bridges)))
+    if shelf is not None and revs:
+        shelf_betas(P, loop, D, res, shelf, revs)
+    return dict(pre=pre, P=P, loop=loop, j=j, D=D, places=places, jogs=jg, runs=runs, bridges=bridges, revs=revs,
                 tight=tightest3(P, loop), ns_km=float(((R > 300) & valid).sum()) / 1000.0, shelf=shelf)
 
 
@@ -383,7 +415,7 @@ def main():
         for pre in stages:
             m = measure(pre, line_path(spec, name, pre), sh(pre, name))
             lst = []
-            for pl in m['places']:
+            for pl in m['places'] + (m['revs'] if '--reversals' in args else []):
                 tag = 'REAL' if pl['real'] else 'BRIDGE' if pl['bridge'] else ''
                 print(f"{pre:8s} S {pl['st0']:7.0f}-{pl['st1']:7.0f} m  peaks {pl['pkA']:7.0f}/{pl['pkB']:7.0f}  amp {pl['amp']:.2f}  "
                       f"beta R {pl.get('betaR', float('nan')):+.2f} L {pl.get('betaL', float('nan')):+.2f} found {pl.get('found', float('nan')):.2f} {tag}")
@@ -409,8 +441,14 @@ def main():
             S = m['places']; ex = [p for p in S if p['real'] or p['bridge']]
             jnew = [g for g in m['jogs'] if not (has_curve(mapped_runs[pre], g['a']) and has_curve(mapped_runs[pre], g['b']))]
             t = tot[name]; t['S'] += len(S); t['S5'] += sum(p['amp'] > 0.5 for p in S); t['Sx'] += len(S) - len(ex); t['jogs'] += len(m['jogs']); t['jogsNew'] += len(jnew)
+            rv = m['revs']; rvx = [r for r in rv if not (r['real'] or r['bridge'])]
+            mrev = [] if name == 'mapped' else measure(pre, line_path(spec, 'mapped', pre))['revs']
+            rvm = [r for r in rv if any(abs(r['st0'] - q['st0']) <= 20 for q in mrev)]
+            t['rev'] = t.get('rev', 0) + len(rv); t['revx'] = t.get('revx', 0) + len(rvx)
             print(f"{pre:8s} {name:7s} km {m['D']['L'] / 1000:6.2f}  S {len(S):3d} (>0.5 m {sum(p['amp'] > 0.5 for p in S)}, not real/bridge {len(S) - len(ex)})  "
-                  f"jogs {len(m['jogs']):3d} (not on the mapped line {len(jnew)})  tightest {m['tight'][0]:5.1f} m @{m['tight'][1]}")
+                  f"jogs {len(m['jogs']):3d} (not on the mapped line {len(jnew)})  reversals {len(rv)} (not real/bridge {len(rvx)}, on the mapped line {len(rvm) if name != 'mapped' else '-'})  tightest {m['tight'][0]:5.1f} m @{m['tight'][1]}")
+            for r in rv:
+                detail.append(f"{pre},{name},rev,{r['st0']},{r['st1']},R {r['R1']:.0f}/{r['R2']:.0f} amp {r['amp']:.2f},{r.get('betaR', float('nan')):.2f},{r.get('betaL', float('nan')):.2f},{'REAL' if r['real'] else 'BRIDGE' if r['bridge'] else 'jog'}{' mapped' if r in rvm else ''}")
             for p in S:
                 tag = 'REAL' if p['real'] else 'BRIDGE' if p['bridge'] else 'jog'
                 detail.append(f"{pre},{name},S,{p['st0']:.0f},{p['st1']:.0f},{p['amp']:.2f},{p.get('betaR', float('nan')):.2f},{p.get('betaL', float('nan')):.2f},{tag}")
@@ -423,7 +461,7 @@ def main():
                 for a, b, sd, w in runs:
                     detail.append(f"{pre},{name},offshelf,{a},{b},{w:.2f},,,{sd}")
     for name, t in tot.items():
-        print(f"TOTAL {name:7s} S {t['S']} (>0.5 m {t['S5']}; not real/bridge {t['Sx']})  jogs {t['jogs']} (not on the mapped line {t['jogsNew']})")
+        print(f"TOTAL {name:7s} S {t['S']} (>0.5 m {t['S5']}; not real/bridge {t['Sx']})  jogs {t['jogs']} (not on the mapped line {t['jogsNew']})  reversals {t.get('rev', 0)} (not real/bridge {t.get('revx', 0)})")
     if outdir:
         os.makedirs(outdir, exist_ok=True)
         open(os.path.join(outdir, 'waves_detail.csv'), 'w').write('stage,line,kind,fromM,toM,a,b,c,tag\n' + '\n'.join(detail) + '\n')
