@@ -1,3 +1,70 @@
+# HANDOFF - WATER ROUND 2, PART A: the HD water made dark (opt-in), its import kept, Lake Lure off the sea preset (agent "water", branch `water-hd`, 2026-11-16 morning, for PC47; NOT merged)
+
+The review (`scratchpad\water\REVIEW_SYN.json`, items 1-5) and the coordinator: merge the water dark, so PC47 looks like PC45 and
+`PSX_WATER_HD=1` opts in. Sandbox PSXPerf (Win64), AGENT_LOCK; PSXLab not touched this round.
+
+## What changed (on top of the round-1 entry below, whose "Defaults" section this replaces)
+1. OPT-IN. `WaterLook.On` is true only when `PSX_WATER_HD` is exactly `1` (WaterLook.cs). OFF (the default, and always on phones and
+   WebGL, which cannot set it): the keyword is disabled, no beginCameraRendering hook is installed, no globals are pushed and
+   `SpeedBlurFeature.WaterDepthPass` is never enqueued (AddWaterDepth returns before it even finds the shader). One log line says
+   which: `[WaterLook] HD water OFF (PSX_WATER_HD is not 1): keyword disabled, no hook, no depth copy`. `PSX_WATER_HD_SEA` still
+   gates the open sea. The owner's launcher: `tools/PSXRacing_WaterHD.cmd`, to drop beside PSXRacing.exe.
+2. IMPORT KEPT. `ConfigureTextureImporters` (PSXRacingBuilder.cs, every scene pass and EnsureCityTextures) skips everything under
+   `Art/Water/`, so it no longer forces water_ripples.png to point / no mips / 256 / alphaIsTransparency. (ReleaseBudget's 16-bit
+   set already excludes it: linear and unlabelled.)
+3. `_RippleTex` defaults to `linearGrey` (flat normals in this Linear project; `gray` sampled 0.216 = a frozen 20-55 degree
+   tilt). `WaterPreset.Apply` logs an error when the sheet is missing. CORRECTION to round 1: a material built before this round
+   (no sheet) now draws flat, not tilted, ripples when HD is on.
+4. Lake Lure is not the sea: `Theme.waterLook` is now optional; `MakeWaterMat` uses the given look, else the theme's, else
+   `WaterPreset.Sea` on a coast (oceanBearingDeg set) and `WaterPreset.Lake` everywhere else. On a PC the preset is the HD water's
+   only colour control: fragHD reads neither `_Color` (the theme's waterDeepTint) nor, above tier 0, `_SandColor`.
+
+5. THE QUEUE (found by the item-4 proof). PSX/Water's queue is back to Geometry, so with the HD water off the shader is the old one
+   at its old place in the frame. While HD is active, `WaterLook` moves the water materials to 2501 (the head of the
+   transparents, after URP's frame copy and the depth copy): the scene's materials at its first frame, the city's streamed tiles
+   through `WetReflections.Tag` (every CityWorld tile renderer passes through it). The builders reset `renderQueue` to -1 and
+   WaterShots restores every moved material, so no asset keeps 2501.
+
+## Proof (PSXPerf, D3D12 RTX 3070, fresh processes)
+- OFF = 7badf362, pixel for pixel. Two runs of WaterShots (charlotte, emerald, langston sets; 16 frames at 1920x1080 through
+  PSX/Blit), neither setting PSX_WATER_HD: A = this branch; B = the same code with 7badf362's PSXWater.shader swapped in
+  (byte-exact, from git archive). Edit mode takes `_Time` from Time.realtimeSinceStartup, so the old water (and the beach swash,
+  the stars, the halos) never render the same instant in two processes (two of my earlier OFF runs differed in 31k-342k px). For
+  this test only, `freeze_time.py` rewrote every `_Time` read in the test sandbox's shaders (8 files) to `_PSXTestTime`, which
+  the tool sets to one fixed instant - identically in A and B. Result with the queue still at 2501 (commit 64939945): 14 of 16
+  frames 0 px, including all 8 required pairs (charlotte_lake/_catawba/_creek and emerald_surf, noon and night); 2 differed:
+  langston_sound_rain 1,612 px (max 35: the wet deck's gutter, whose mirror copies the frame before the water was drawn) and
+  emerald_surf_sunward_sunset 3 px (the sea's far edge on the horizon: the sky and the water drawn in the other order). Both are
+  the queue move, so the queue went back to Geometry (item 5 above). The final code (queue Geometry, 93cc1cbf) through the same test: PENDING_A2.
+- Depth copies enqueued: 0 in every OFF run (log line), 28 in the HD run. The log says `[WaterLook] HD water OFF ...`.
+- Import kept (item 2): after a run whose sets called EnsureCityTextures, the sheet reads Trilinear, mips (10 levels), 512 px,
+  sRGB off, alphaIsTransparency off; mip 0 read back from the GPU is byte-identical to the source PNG (0 of 262,144 px), so the
+  shipped sheet is the tile-checked one: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\water\tile_check_ripples_imported.png`
+  (3x3, half offset, 8x8 at 1/4; normal lit, foam B, breakup A; wrap differences equal interior ones on every channel).
+- Grain (the reviewer's grain2.py, 1:1, HD water mean |Laplacian|; old water in brackets; the review's degraded-import figure
+  after the arrow): Lake Wylie 89.2 (4.5) <- 94.7; Sugar Creek 52.4 (5.4) <- 51.6; Langston causeway foot 15.8 (10.6) <- 98.5;
+  Emerald surf 18.4 (9.9) <- 43.5; Catawba 8.8 (4.3). The import was most of the static on the sea; the static on Lake Wylie and
+  the creek (mirrored trees, the SSR hit/miss flip) remains: F01, Part B item 6.
+- No sheet (item 3): city water with `_RippleTex` cleared vs the same water with ripple strength 0, tier 2, the Lake Wylie pose
+  turned 0/90/270 degrees (180: no water in view): mean water luminance ratios 0.997, 0.996, 1.004.
+- Self-test (default OFF): job C (64939945, no variable set): FAILED (67) = PSXPerf's base run with 7badf362's code, FAILED (67); no new failing check (one pre-existing failing check, "the release budget's set and the labels agree", lists 51 textures instead of 13, because the Charlotte shot set's EnsureCityTextures rewrote city textures in the sandbox between the two runs). Final code: PENDING_ST.
+
+## For the coordinator at merge (PC47)
+- The full scene pass needs nothing special: no data file, no city re-bake. Each sandbox needs PSX/Water in GraphicsSettings'
+  always-included list (committed in ProjectSettings; the self-test checks it) and water_ripples.png with its committed .meta
+  (a scene pass now leaves it alone).
+- When lakelure merges: `PSXRacingBuilder.StageRiver.cs:308` becomes
+  `return MakeWaterMat(MeshPrefix + name, shallow, deep, name == "RiverWater" ? WaterPreset.River : WaterPreset.Lake);`
+  (with item 4 the lake would get Lake anyway; the river needs the explicit River).
+- Default OFF means PC47 shows today's water everywhere. The owner opts in with `PSXRacing_WaterHD.cmd`.
+
+## What the owner will see with the .cmd (honest)
+Without it, nothing changes: PC47's water is PC45's. With it, Charlotte's lakes, the Catawba and the creeks mirror their banks,
+trees and skyline in murky green-brown water instead of a flat blue sheet - but on Lake Wylie and the creeks the mirrored tree
+line carries per-pixel static (white sky pixels flicking in it) that will crawl as he drives, and gently sloping city banks show a
+pale foam rim along the waterline. Both stay for Part B (items 6 and 7), as do night, rain and driver's-eye proof. Lake Lure, once
+merged, takes the Lake preset; the Bogue sea and sound keep the old water unless the .cmd's second line is enabled.
+
 # HANDOFF - THE WATER ROUND: lakes, rivers and the sea toward the PS3-PS4 target (agent "water", branch `water-hd`, 2026-11-16 night; NOT pushed, NOT merged)
 
 The owner, while the Lake Lure stage was being built: "A lot of potentially nice race tracks around Lake Lure. Would be a good time
