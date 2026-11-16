@@ -5044,9 +5044,56 @@ namespace PSXRacing.EditorTools
                 $"{verts.Count} verts, PSX/Water.");
         }
 
+        /// <summary>
+        /// THE PS3-PS4 WATER's look for one body of water (PSXWaterHD.cginc,
+        /// the PSX_WATER_HD variant of PSX/Water). Raw linear numbers, never
+        /// colour-converted: <c>absorb</c> per-metre extinction (rgb; red goes
+        /// first), <c>scatter</c> the water's own in-scattered colour under
+        /// unit light, <c>look</c> x ripple repeat (m), y ripple strength, z
+        /// foam gain, w roughness per m/s of flow.
+        /// </summary>
+        public struct WaterPreset
+        {
+            public Vector4 absorb, scatter, look;
+            public WaterPreset(Vector4 absorb, Vector4 scatter, Vector4 look)
+            {
+                this.absorb = absorb; this.scatter = scatter; this.look = look;
+            }
+            /// <summary>Bogue Sound and the Atlantic off Emerald Isle:
+            /// green-grey, a few metres' visibility.</summary>
+            public static readonly WaterPreset Sea = new WaterPreset(
+                new Vector4(0.42f, 0.13f, 0.15f, 0f), new Vector4(0.030f, 0.075f, 0.068f, 0f), new Vector4(9f, 1f, 1f, 0.6f));
+            /// <summary>Lake Lure: a deep green-blue reservoir, calm between
+            /// the gusts, mirroring its ridges.</summary>
+            public static readonly WaterPreset Lake = new WaterPreset(
+                new Vector4(0.55f, 0.22f, 0.26f, 0f), new Vector4(0.010f, 0.034f, 0.030f, 0f), new Vector4(7f, 0.8f, 0.6f, 0.6f));
+            /// <summary>The Rocky Broad River: shallow and clear over brown
+            /// stones, white over the boulders (colour b), running (uv2).</summary>
+            public static readonly WaterPreset River = new WaterPreset(
+                new Vector4(0.38f, 0.17f, 0.22f, 0f), new Vector4(0.018f, 0.036f, 0.028f, 0f), new Vector4(4f, 1f, 1.2f, 0.7f));
+            /// <summary>Charlotte's Catawba, its lakes and creeks: green-brown,
+            /// turbid with red clay, slow.</summary>
+            public static readonly WaterPreset City = new WaterPreset(
+                new Vector4(1.5f, 1.2f, 1.45f, 0f), new Vector4(0.042f, 0.048f, 0.028f, 0f), new Vector4(8f, 0.7f, 0.5f, 0.6f));
+
+            /// <summary>Onto a PSX/Water material, with the ripple sheet.</summary>
+            public void Apply(Material m)
+            {
+                m.SetTexture("_RippleTex", AssetDatabase.LoadAssetAtPath<Texture2D>(WaterRippleTex));
+                m.SetVector("_Absorb", absorb);
+                m.SetVector("_Scatter", scatter);
+                m.SetVector("_WaterLook", look);
+            }
+        }
+
+        /// <summary>The ripple sheet (tools/water/make_ripples.py): RG wave
+        /// normal, B foam lace, A breakup; linear, mipped, trilinear.</summary>
+        internal const string WaterRippleTex = Root + "/Art/Water/water_ripples.png";
+
         /// <summary>The sea's material: PSX/Water over the owner's pack water
-        /// (a shallow sheet and a deep one).</summary>
-        static Material MakeWaterMat(string name, string shallowTex, string deepTex)
+        /// (a shallow sheet and a deep one). <paramref name="look"/>: the PS3-PS4
+        /// water's look for this body (null = the theme's).</summary>
+        static Material MakeWaterMat(string name, string shallowTex, string deepTex, WaterPreset? look = null)
         {
             var shader = Shader.Find("PSX/Water");
             if (shader == null) throw new Exception("PSX/Water shader not found");
@@ -5067,6 +5114,7 @@ namespace PSXRacing.EditorTools
             float b = theme.oceanBearingDeg * Mathf.Deg2Rad;
             mat.SetFloat("_OceanWaves", ocean ? 1f : 0f);
             mat.SetVector("_WaveDir", ocean ? new Vector4(-Mathf.Sin(b), 0f, -Mathf.Cos(b), 0f) : new Vector4(0f, 0f, 1f, 0f));
+            (look ?? theme.waterLook).Apply(mat);
             EditorUtility.SetDirty(mat);
             return mat;
         }

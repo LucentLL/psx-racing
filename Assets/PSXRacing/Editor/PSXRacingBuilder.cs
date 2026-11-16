@@ -311,6 +311,12 @@ namespace PSXRacing.EditorTools
             /// land between it and the ocean - a sound behind an island - does
             /// not take it.</summary>
             public float oceanBearingDeg = -1f;
+            /// <summary>THE PS3-PS4 WATER (PSXWaterHD.cginc, PSX_WATER_HD): the
+            /// stage water's look - linear, raw (no colour-space conversion).
+            /// The default is the Crystal Coast's green-grey; a lake or a
+            /// river takes a <see cref="WaterPreset"/> (WaterPreset.Lake for
+            /// Lake Lure, .River for the Rocky Broad) through MakeWaterMat.</summary>
+            public WaterPreset waterLook = WaterPreset.Sea;
 
             // --------------------------------------------------------------
             //  Stage LOOK. The defaults are the mountain's — every field here
