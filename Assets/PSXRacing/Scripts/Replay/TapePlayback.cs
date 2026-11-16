@@ -188,8 +188,10 @@ namespace PSXRacing
             Camcorder.Transport = rp.Paused ? 1 : scanning ? 2 : 0;
             Camcorder.ScanRate = scanning ? rp.Rate : 0f;
             // A deck scanning is a deck with the sound off.
-            if (scanning && !muted) { savedVolume = AudioListener.volume; AudioListener.volume = 0f; muted = true; }
-            else if (!scanning && muted) { AudioListener.volume = savedVolume; muted = false; }
+            // Through the fader: it owns AudioListener.volume every frame and
+            // pulled a bare write straight back up.
+            if (scanning && !muted) { AudioFader.Mute(true); muted = true; }
+            else if (!scanning && muted) { AudioFader.Mute(false); muted = false; }
             if (!labelled) labelled = RelabelTouchBar();
 
             // A MONTAGE's joins are cuts: crossing one (either way, at any
@@ -235,7 +237,7 @@ namespace PSXRacing
         /// <summary>EJECT: back to the shelf at home, nothing banked.</summary>
         public static void Eject()
         {
-            if (instance != null && instance.muted) AudioListener.volume = instance.savedVolume;
+            if (instance != null && instance.muted) { AudioFader.Mute(false); instance.muted = false; }
             instance = null;
             RaceReplay.ExitHook = null;
             Camcorder.Vcr = false;
@@ -251,7 +253,7 @@ namespace PSXRacing
         void OnDestroy()
         {
             if (instance == this) instance = null;
-            if (muted) AudioListener.volume = savedVolume;
+            if (muted) { AudioFader.Mute(false); muted = false; }
             if (RaceReplay.ExitHook == (System.Func<bool>)OnExit) RaceReplay.ExitHook = null;
             Camcorder.Vcr = false;
             Camcorder.Transport = 0;

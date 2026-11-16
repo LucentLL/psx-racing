@@ -42,6 +42,10 @@ namespace PSXRacing.EditorTools
         {
             log = new StringBuilder();
             failures = 0;
+            // A WATCHED editor is not batch mode, so the first trip home would
+            // be a "cold boot" and the title would take it over (run 3: EJECT
+            // landed home, then the title loaded Blue Ridge). Tools skip it.
+            TitleScreen.Skip = true;
             // A mountain stage with a field (PSX_TAPE_VENUE to change it).
             string want = System.Environment.GetEnvironmentVariable("PSX_TAPE_VENUE");
             if (string.IsNullOrEmpty(want)) want = "GillespieGap";
