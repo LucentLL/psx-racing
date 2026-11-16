@@ -56,6 +56,78 @@ namespace PSXRacing.EditorTools
                     shots.Add((def, pts));
                 }
             foreach (var (def, pts) in shots) Shoot(outDir, def, pts);
+            // THE FLY-IN, posed by hand (play mode runs it on the clock): a strip of the card from the
+            // whole city to the route, for the first venue and the first course from the file
+            if (CityMapTiles.Enabled)
+            {
+                var zoomed = new HashSet<string>();
+                foreach (var (def, pts) in shots)
+                    if ((def.id == "UptownLoop" || pts != null || def.IsDeckRun) && zoomed.Add(pts != null ? "cand" : def.id))
+                        ZoomStrip(outDir, def, pts);
+            }
+        }
+
+        static void ZoomStrip(string outDir, TrackCatalog.TrackDef def, List<Vector3> pts)
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var cam = new GameObject("PreviewCam").AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.05f, 0.04f, 0.09f);
+            cam.orthographic = true;
+            var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+            cam.targetTexture = rt;
+            MenuKit.ScreenSizeOverride = new Vector2(W, H);
+            RouteMapZoom.PreviewForce = true;
+            try
+            {
+                var canvas = MenuKit.Canvas(null, "CityMapZoom", 0);
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                canvas.worldCamera = cam;
+                canvas.planeDistance = 10f;
+                var cs = canvas.GetComponent<CanvasScaler>();
+                cs.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+                cs.scaleFactor = H / MenuKit.DesignHeight;
+                var root = (RectTransform)canvas.transform;
+                MenuKit.Stretch(root, "Bg", Vector2.zero, Vector2.one, 0f, 0f, 0f, 0f, new Color(0.075f, 0.07f, 0.11f, 1f));
+                const float Card = 560f;
+                var frame = RouteMap.Build(root, def, pts, new Vector2(0f, 1f), new Vector2(30f, -56f), Card);
+                var zoom = frame.GetComponentInChildren<RouteMapZoom>();
+                if (zoom == null) { Debug.LogError("[CityMapPreview] " + def.id + ": the card did not open on the whole city"); return; }
+                float[] ts = { 0f, 0.3f, 0.55f, 0.75f, 1f };
+                int px = Mathf.RoundToInt(Card * cs.scaleFactor), x0 = Mathf.RoundToInt(30f * cs.scaleFactor);
+                int y0 = H - Mathf.RoundToInt(56f * cs.scaleFactor) - px;
+                var strip = new Texture2D(px * ts.Length + 8 * (ts.Length - 1), px, TextureFormat.RGB24, false);
+                var fill = new Color32[strip.width * strip.height];
+                for (int i = 0; i < fill.Length; i++) fill[i] = new Color32(0, 0, 0, 255);
+                strip.SetPixels32(fill);
+                for (int i = 0; i < ts.Length; i++)
+                {
+                    zoom.Pose(ts[i]);
+                    Canvas.ForceUpdateCanvases();
+                    cam.Render();
+                    var prev = RenderTexture.active;
+                    RenderTexture.active = rt;
+                    var tex = new Texture2D(px, px, TextureFormat.RGB24, false);
+                    tex.ReadPixels(new Rect(x0, y0, px, px), 0, 0);
+                    tex.Apply();
+                    RenderTexture.active = prev;
+                    strip.SetPixels(i * (px + 8), 0, px, px, tex.GetPixels());
+                    Object.DestroyImmediate(tex);
+                }
+                strip.Apply();
+                string path = Path.Combine(outDir, "citymap_zoom_" + def.id + ".png");
+                File.WriteAllBytes(path, strip.EncodeToPNG());
+                Object.DestroyImmediate(strip);
+                Debug.Log("[CityMapPreview] wrote " + path + " (t = 0, 0.3, 0.55, 0.75, 1)");
+            }
+            finally
+            {
+                RouteMapZoom.PreviewForce = false;
+                MenuKit.ScreenSizeOverride = Vector2.zero;
+                cam.targetTexture = null;
+                rt.Release();
+                Object.DestroyImmediate(rt);
+            }
         }
 
         static void Shoot(string outDir, TrackCatalog.TrackDef def, List<Vector3> pts)

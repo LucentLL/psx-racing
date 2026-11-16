@@ -11,7 +11,7 @@
 #   deck and a 1 km sprint sharp without baking 20,000 tiles of woods.
 #
 # Out: Assets/StreamingAssets/CityMap/<L>/<tx>_<ty>.png (ty counts down from the north edge) and
-# Assets/PSXRacing/Resources/CityMapIndex.txt ("CITYMAP 1 SPAN CX CZ TILE", then one line per level:
+# Assets/PSXRacing/Resources/charlotte_citymap.txt ("CITYMAP 1 SPAN CX CZ TILE", then one line per level:
 # "L <level> <tx>_<ty> ..."), which RouteMap reads to know what exists. A tile that is only ground
 # colour is not written (the runtime fills the frame with the ground colour first).
 #
@@ -31,7 +31,7 @@ from PIL import Image, ImageDraw
 HERE = os.path.dirname(os.path.abspath(__file__))
 UNITY = os.path.normpath(os.path.join(HERE, '..', '..'))
 OUTDIR = os.path.join(UNITY, 'Assets', 'StreamingAssets', 'CityMap')
-INDEX = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'CityMapIndex.txt')
+INDEX = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'charlotte_citymap.txt')
 CANOPY = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'charlotte_canopy.bytes')
 
 TILE = 512
@@ -51,7 +51,7 @@ BLD = (40, 44, 55)
 LOT = (24, 26, 33)
 AISLE = (36, 39, 47)
 RAIL = [(98, 90, 78), (78, 72, 64), (112, 98, 142), (112, 98, 142)]
-ROAD = {0: (58, 62, 72), 1: (70, 75, 86), 2: (82, 88, 100), 3: (96, 102, 116), 4: (110, 116, 130), 5: (126, 132, 148)}
+ROAD = {0: (58, 62, 72), 1: (70, 75, 86), 2: (82, 88, 100), 3: (94, 100, 114), 4: (102, 108, 122), 5: (112, 118, 134)}
 CASING = (10, 11, 15)
 
 D = None   # the layers, loaded once per worker
@@ -197,7 +197,7 @@ def render(job):
             base = width / mpp
             floor = {0: 1.4, 1: 1.6, 2: 1.8, 3: 2.0, 4: 2.2, 5: 2.6}[rank] * SS
             return max(base, floor)
-        return {0: 0.8, 1: 1.0, 2: 1.2, 3: 1.5, 4: 1.9, 5: 2.4}[rank] * SS * (1.0 + 0.25 * level)
+        return {0: 0.8, 1: 1.0, 2: 1.2, 3: 1.4, 4: 1.6, 5: 2.0}[rank] * SS * (1.0 + 0.15 * level)
 
     # one layer at a time (a bridge is its own layer, over everything at grade): every casing of the
     # layer, then every fill, so two pieces of one road meeting at a node show no dark seam

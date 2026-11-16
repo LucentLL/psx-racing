@@ -13,7 +13,7 @@ namespace PSXRacing
     /// roads by class at their painted width, water, the tree canopy, commercial and industrial land,
     /// buildings, parking lots and rail, in the race card's own dark style. It ships as a pyramid of
     /// 512 px tiles under StreamingAssets/CityMap/(level)/(tx)_(ty).png, listed in
-    /// Resources/CityMapIndex.txt. Levels 0-4 cover the whole city (level 4 = 6.5 m a pixel); levels
+    /// Resources/charlotte_citymap.txt. Levels 0-4 cover the whole city (level 4 = 6.5 m a pixel); levels
     /// 5-8 (down to 0.4 m a pixel) are drawn only round the venues, which keeps a 400 m parking deck and
     /// a 1 km sprint sharp without shipping every woodland tile at 0.4 m.
     ///
@@ -27,7 +27,7 @@ namespace PSXRacing
     /// </summary>
     public static class CityMapTiles
     {
-        public const string IndexResource = "CityMapIndex";
+        public const string IndexResource = "charlotte_citymap";   // charlotte_*: parked out of MAIN by EditionParking's rule
         public const string Folder = "CityMap";
         /// <summary>The tiles are a shade under full brightness, so the amber route over them is the
         /// brightest thing on the card.</summary>
@@ -210,7 +210,7 @@ namespace PSXRacing
             if (!path.Contains("://"))
             {
                 if (!System.IO.File.Exists(path)) return null;
-                var t = new Texture2D(2, 2, TextureFormat.RGB24, false)
+                var t = new Texture2D(2, 2, TextureFormat.RGB24, true)   // mipmapped: a card a third the size of a tile still reads cleanly
                 { name = "CityMap " + level + "/" + tx + "_" + ty, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
                 if (!t.LoadImage(System.IO.File.ReadAllBytes(path), true))
                 {

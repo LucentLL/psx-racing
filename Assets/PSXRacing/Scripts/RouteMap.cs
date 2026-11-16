@@ -684,8 +684,16 @@ namespace PSXRacing
         RouteMapGraphic wide, grid;
         bool done;
 
+        /// <summary>The preview tools set this to build a card that opens on the whole city outside play
+        /// mode, and pose it by hand (<see cref="Pose"/>).</summary>
+        public static bool PreviewForce;
+
+        /// <summary>The zoom at <paramref name="t"/> (0 = the whole city, 1 = the route framed).</summary>
+        public void Pose(float t) => Apply(Mathf.Clamp01(t));
+
         public static bool ShouldPlay(string key)
         {
+            if (PreviewForce) return true;
             if (!Application.isPlaying) return false;
             if (System.Environment.GetEnvironmentVariable("PSX_TRACKMAP_ZOOM") == "0") return false;
             float now = Time.unscaledTime;
@@ -727,7 +735,11 @@ namespace PSXRacing
             {
                 content.localScale = Vector3.one;
                 content.anchoredPosition = Vector2.zero;
-                if (wide != null) Destroy(wide.gameObject);
+                if (wide != null)
+                {
+                    if (Application.isPlaying) Destroy(wide.gameObject); else DestroyImmediate(wide.gameObject);
+                    wide = null;
+                }
                 if (grid != null) grid.canvasRenderer.SetAlpha(1f);
             }
         }
