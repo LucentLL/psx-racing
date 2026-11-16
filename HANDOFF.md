@@ -45,6 +45,11 @@ light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFAD
 | isolated px in a still, Prov / WT    | +8% / +2%            | +7% / +1%           | +5% / +1%           |
 | tris at the cost eye                 | 0.32 -> 0.37 M       | 0.53 -> 0.59 M      | 1.21 -> 1.35 M      |
 | frame ms, ABBA medians (editor 1080p) | 19.54 -> 18.44      | 28.04 -> 27.12      | 34.33 -> 36.65      |
+| MIDDLE 0.35: bands (m)               | 27/29/71             | 36/34/84            | 43/74/126           |
+| MIDDLE 0.35: Providence visible pop  | 1486 (-8%)           | 625 (-19%)          | 137 (-57%)          |
+| MIDDLE 0.35: West Trade visible pop  | 29                   | 3                   | 1                   |
+| MIDDLE 0.35: isolated px, Prov / WT  | +5% / +0%            | +3% / +0%           | +2% / +0%           |
+| MIDDLE 0.35: tris; ABBA frame ms     | 0.35 M; -0.2 ms      | 0.58 M; +0.6 ms     | 1.32 M; -0.2 ms     |
 
 - Frames: before, whole crowns jump in one step (clusters of yellow blocks over a tree). After, scattered single
   blocks on crowns that are mid-dissolve, and no whole-crown jumps. Without the overlay the two runs look the same
@@ -54,13 +59,19 @@ light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFAD
   West Trade LOW's 28 -> 77 (a few trees on the left, at 300, 240-220 and 160 m). The owner has called screen-door
   dither "a speckled dotted effect" before (the shader comment on thinned plants), so if he sees dotted crowns, the
   middle setting is PSX_CT_LODFADE=0.35 and OFF is PSX_CT_LODFADE=0.
+- THE MIDDLE SETTING (its own fresh run, tag lf35): almost all of the difference from 0.6 sits in the nearest
+  hand-over, which is 27/36/43 m wide at 0.35 against 46/61/74 m at 0.6 (the other two bands are nearly the same).
+  At 0.35 West Trade does not rise (28 -> 29), but the Providence cut is only -8 / -19 / -57%. My default stays 0.6:
+  the owner's complaint is the pop, and Providence still carries 14x West Trade's pop afterwards. If the dotted
+  edges bother him, 0.35 is the fallback.
 - Frame cost: none measurable. The ABBA medians move -1.1 / -0.9 / +2.3 ms, inside the spread between builds of the
   same mode (MEDIUM 25-31 ms; HIGH had one 100+ ms hiccup in each mode). Draws are unchanged (209 / 211 / 213).
   Triangles rise +16 / +11 / +12%: inside a band a plant draws both levels, and the lower levels are cheap. The
   forest casts no shadows (SunShadows' card stand-ins) and needs no new buffers.
 - Files: TreePop_sheet.png (summary, charts for both places at all three levels, red-overlay frames for Providence
   MEDIUM and HIGH at 280/200/130/60 m, before | after), TreePop_look.png, TreePop_approach_MEDIUM.gif / _HIGH.gif,
-  TreePop_pop.csv, ctreefeet_lfoff_log.txt, ctreefeet_lfon_log.txt. Copies are in the art workspace's
+  TreePop_pop.csv, TreePop35_sheet.png / TreePop35_pop.csv (before v 0.35), ctreefeet_lfoff_log.txt,
+  ctreefeet_lfon_log.txt, ctreefeet_lf35_log.txt. Copies are in the art workspace's
   Charlotte_Trees\Review\Claude_2026-11-16\TreePop_*.
 - My runs were batch approach captures (edit mode), not watched play tests.
 
