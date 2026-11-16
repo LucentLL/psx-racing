@@ -10,9 +10,12 @@ namespace PSXRacing
     /// update the water visuals as well."). The game half of PSX/Water's
     /// PSX_WATER_HD variant (PSXWaterHD.cginc says what it draws).
     ///
-    /// THE SWITCH. <c>PSX_WATER_HD=0</c> in the environment leaves the global
-    /// keyword off, and PSX/Water draws exactly the code it drew before this
-    /// round. Anything else: the keyword is on.
+    /// THE SWITCH (round 2, 2026-11-16: opt-in until the owner approves it).
+    /// The HD water is OFF unless <c>PSX_WATER_HD=1</c> is in the environment
+    /// (tools/PSXRacing_WaterHD.cmd beside the exe sets it). OFF: the global
+    /// keyword stays off, PSX/Water draws exactly the code it drew before this
+    /// round, no hook is installed and the depth copy never runs. Phones and
+    /// WebGL cannot set the variable, so they are always OFF.
     ///
     /// THE TIERS, per camera, pushed from the render pipeline's own callback
     /// (the way StreetLights pushes its lamp table) into _PSXWaterTier:
@@ -78,8 +81,13 @@ namespace PSXRacing
         /// this frame (the HD tiers 1 and 2)?</summary>
         public static bool DepthCopyFor(Camera cam) => ActiveHere() && TierFor(cam) >= 1;
 
-        /// <summary>False with PSX_WATER_HD=0: the water as it was.</summary>
-        public static readonly bool On = System.Environment.GetEnvironmentVariable("PSX_WATER_HD") != "0";
+        /// <summary>True only with PSX_WATER_HD=1 (opt-in): otherwise the
+        /// water as it was, on every platform.</summary>
+        public static readonly bool On = System.Environment.GetEnvironmentVariable("PSX_WATER_HD") == "1";
+
+        /// <summary>How many times SpeedBlurFeature enqueued the water's depth
+        /// copy (tools: 0 proves it never ran with the HD water off).</summary>
+        public static int DepthCopies;
 
         /// <summary>Tools only: -1 the game's rule; 0 the cheap tier (a
         /// phone's); 1 the bed and the shore, no mirror (a PC with REFLECTIONS
@@ -111,6 +119,11 @@ namespace PSXRacing
             ApplyKeyword();
             if (hooked) return;
             hooked = true;
+            Debug.Log(On
+                ? "[WaterLook] HD water ON (PSX_WATER_HD=1)" + (SeaOn ? ", the open sea too (PSX_WATER_HD_SEA=1)" : "; the open sea keeps the old water")
+                : "[WaterLook] HD water OFF (PSX_WATER_HD is not 1): keyword disabled, no hook, no depth copy");
+            // OFF: nothing per camera at all - the old water, as it was
+            if (!On) return;
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
         }
 

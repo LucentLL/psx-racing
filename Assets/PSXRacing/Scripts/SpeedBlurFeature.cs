@@ -189,6 +189,7 @@ namespace PSXRacing
             waterDepthPass.material = waterCopyMaterial;
             waterDepthPass.passIndex = pass;
             renderer.EnqueuePass(waterDepthPass);
+            WaterLook.DepthCopies++;
         }
 
         /// <summary>

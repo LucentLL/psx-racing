@@ -67,6 +67,7 @@ namespace PSXRacing.EditorTools
                         else if (set == "charlotte") Charlotte();
                         else if (set == "test") TestSite();
                         else if (set == "timing") Timing();
+                        else if (set == "ripplecheck") RippleCheck();
                     }
                     catch (System.Exception e) { Debug.LogError("[WaterShot] " + set + ": " + e); }
                 }
@@ -79,7 +80,90 @@ namespace PSXRacing.EditorTools
                 WetReflections.PreviewSet(null, -1);
                 WaterLook.Invalidate();
             }
+            Debug.Log("[WaterShot] depth copies enqueued this run: " + WaterLook.DepthCopies + " (HD water " + (WaterLook.On ? "ON" : "OFF") +
+                      ", keyword " + (Shader.IsKeywordEnabled(WaterLook.Keyword) ? "on" : "off") + ")");
             Debug.Log("[WaterShot] DONE " + tag);
+        }
+
+        /// <summary>
+        /// A MATERIAL WITHOUT ITS RIPPLE SHEET (round 2, item 3): the city water
+        /// with _RippleTex cleared (the shader's linearGrey default) against the
+        /// same water with ripple strength 0 (truly flat normals), at tier 2,
+        /// at the lake pose turned 0/90/180/270 degrees. Mean luminance over
+        /// the water's own pixels (those that change when it hides).
+        /// </summary>
+        static void NullRippleTest(Camera cam, Vector3 eye, Vector3 look, Renderer[] waters)
+        {
+            if (waters.Length == 0) return;
+            var src = waters[0].sharedMaterial;
+            var nul = new Material(src) { name = "CityWater (no ripple sheet)" };
+            nul.SetTexture("_RippleTex", null);
+            var flat = new Material(nul) { name = "CityWater (flat)" };
+            var wl = flat.GetVector("_WaterLook"); wl.y = 0f; flat.SetVector("_WaterLook", wl);
+            var keep = new Material[waters.Length];
+            for (int k = 0; k < waters.Length; k++) keep[k] = waters[k].sharedMaterial;
+            var rt = new RenderTexture(width, lines, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
+            rt.Create();
+            WaterLook.ForceCamera = cam; WaterLook.ForceTier = 2;
+            try
+            {
+                for (int hdg = 0; hdg < 360; hdg += 90)
+                {
+                    var dir = Quaternion.Euler(0f, hdg, 0f) * look;
+                    cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(dir) * Quaternion.Euler(7f, 0f, 0f));
+                    foreach (var w in waters) w.sharedMaterial = nul;
+                    var a = ReadBack(cam, rt);
+                    foreach (var w in waters) w.sharedMaterial = flat;
+                    var b = ReadBack(cam, rt);
+                    foreach (var w in waters) w.enabled = false;
+                    var c = ReadBack(cam, rt);
+                    foreach (var w in waters) w.enabled = true;
+                    double la = 0, lb = 0; int n = 0;
+                    for (int k = 0; k < a.Length; k++)
+                    {
+                        if (Mathf.Abs(a[k].r - c[k].r) + Mathf.Abs(a[k].g - c[k].g) + Mathf.Abs(a[k].b - c[k].b) <= 6) continue;
+                        la += 0.2126 * a[k].r + 0.7152 * a[k].g + 0.0722 * a[k].b;
+                        lb += 0.2126 * b[k].r + 0.7152 * b[k].g + 0.0722 * b[k].b;
+                        n++;
+                    }
+                    if (n == 0) { Debug.Log($"[WaterShot] NULLRIPPLE heading {hdg}: no water in view"); continue; }
+                    la /= n; lb /= n;
+                    Debug.Log($"[WaterShot] NULLRIPPLE heading {hdg}: {n} water px, mean luminance without the sheet {la:0.0}, flat {lb:0.0}, ratio {la / System.Math.Max(lb, 1e-3):0.000}");
+                }
+            }
+            finally
+            {
+                for (int k = 0; k < waters.Length; k++) { waters[k].sharedMaterial = keep[k]; waters[k].enabled = true; }
+                rt.Release(); Object.DestroyImmediate(rt);
+                Object.DestroyImmediate(nul); Object.DestroyImmediate(flat);
+            }
+        }
+
+        /// <summary>The ripple sheet AS UNITY IMPORTED IT (round 2, item 2):
+        /// its importer settings, and mip 0 read back through a linear blit to
+        /// Screenshots\water\ripples_imported.png for the tile check.</summary>
+        static void RippleCheck()
+        {
+            string path = PSXRacingBuilder.WaterRippleTex;
+            var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (imp == null || tex == null) { Debug.LogError("[WaterShot] ripplecheck: no " + path); return; }
+            var def = imp.GetDefaultPlatformTextureSettings();
+            Debug.Log($"[WaterShot] ripplecheck import: filter {imp.filterMode}, mips {imp.mipmapEnabled}, sRGB {imp.sRGBTexture}, " +
+                      $"alphaIsTransparency {imp.alphaIsTransparency}, aniso {imp.anisoLevel}, max {imp.maxTextureSize} (default {def.maxTextureSize}), " +
+                      $"compression {imp.textureCompression}; texture {tex.width}x{tex.height} {tex.format} mips {tex.mipmapCount} filter {tex.filterMode}");
+            var rt = RenderTexture.GetTemporary(tex.width, tex.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+            Graphics.Blit(tex, rt);
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var read = new Texture2D(tex.width, tex.height, TextureFormat.RGBA32, false, true);
+            read.ReadPixels(new Rect(0, 0, tex.width, tex.height), 0, 0);
+            read.Apply();
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+            File.WriteAllBytes(Path.Combine(dir, "ripples_imported.png"), read.EncodeToPNG());
+            Object.DestroyImmediate(read);
+            Debug.Log("[WaterShot] ripplecheck: wrote ripples_imported.png");
         }
 
         // ------------------------------------------------------------------
@@ -246,6 +330,8 @@ namespace PSXRacing.EditorTools
                     foreach (var r in worldGo.GetComponentsInChildren<MeshRenderer>(true))
                         if (r.sharedMaterial != null && r.sharedMaterial.shader != null && r.sharedMaterial.shader.name == "PSX/Water") waters.Add(r);
                     TimeTiers(cam, "charlotte_lake", le, ll, -7f, waters.ToArray());
+                    if (WaterLook.On && System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_NULLRIPPLE") == "1")
+                        NullRippleTest(cam, le, ll, waters.ToArray());
                 }
             }
             finally { Object.DestroyImmediate(worldGo); }
@@ -518,8 +604,13 @@ namespace PSXRacing.EditorTools
             var request = new RenderPipeline.StandardRequest { destination = rt };
             StreetLights.Push(cam.transform.position, cam.transform.forward);
             // a render request may not raise beginCameraRendering: push the
-            // water's globals for this camera ourselves (idempotent)
-            WaterLook.Push(cam);
+            // water's globals for this camera ourselves (idempotent; nothing
+            // at all with the HD water off)
+            if (WaterLook.On) WaterLook.Push(cam);
+            // the OFF-identity test's clock: the test sandbox's shaders read
+            // _PSXTestTime instead of _Time (freeze_time.py); one fixed instant
+            if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_FREEZE") == "1")
+                Shader.SetGlobalVector("_PSXTestTime", new Vector4(37.25f / 20f, 37.25f, 74.5f, 111.75f));
             PSXTexDecode.StampAll();
             RenderPipeline.SubmitRenderRequest(cam, request);
         }

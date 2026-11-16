@@ -5079,7 +5079,10 @@ namespace PSXRacing.EditorTools
             /// <summary>Onto a PSX/Water material, with the ripple sheet.</summary>
             public void Apply(Material m)
             {
-                m.SetTexture("_RippleTex", AssetDatabase.LoadAssetAtPath<Texture2D>(WaterRippleTex));
+                var ripples = AssetDatabase.LoadAssetAtPath<Texture2D>(WaterRippleTex);
+                if (ripples == null)
+                    Debug.LogError("[Water] " + WaterRippleTex + " is missing: " + m.name + " would draw the HD water without its ripples (flat).");
+                m.SetTexture("_RippleTex", ripples);
                 m.SetVector("_Absorb", absorb);
                 m.SetVector("_Scatter", scatter);
                 m.SetVector("_WaterLook", look);
@@ -5092,7 +5095,11 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The sea's material: PSX/Water over the owner's pack water
         /// (a shallow sheet and a deep one). <paramref name="look"/>: the PS3-PS4
-        /// water's look for this body (null = the theme's).</summary>
+        /// water's look for this body; null = the theme's, and with none set,
+        /// the Sea on a coast (a theme with an ocean bearing) and the Lake
+        /// everywhere else - Lake Lure and Chimney Rock never get Bogue Sound's
+        /// water. On a PC the preset is the HD water's only colour control
+        /// (fragHD reads neither _Color nor, above tier 0, _SandColor).</summary>
         static Material MakeWaterMat(string name, string shallowTex, string deepTex, WaterPreset? look = null)
         {
             var shader = Shader.Find("PSX/Water");
@@ -5114,7 +5121,7 @@ namespace PSXRacing.EditorTools
             float b = theme.oceanBearingDeg * Mathf.Deg2Rad;
             mat.SetFloat("_OceanWaves", ocean ? 1f : 0f);
             mat.SetVector("_WaveDir", ocean ? new Vector4(-Mathf.Sin(b), 0f, -Mathf.Cos(b), 0f) : new Vector4(0f, 0f, 1f, 0f));
-            (look ?? theme.waterLook).Apply(mat);
+            (look ?? theme.waterLook ?? (ocean ? WaterPreset.Sea : WaterPreset.Lake)).Apply(mat);
             EditorUtility.SetDirty(mat);
             return mat;
         }

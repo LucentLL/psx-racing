@@ -67,7 +67,9 @@ Shader "PSX/Water"
         _WaveDir ("Swell direction (xz)", Vector) = (0, 1, 0, 0)
         // THE PS3-PS4 WATER (PSXWaterHD.cginc). The ripple sheet is LINEAR data:
         // RG the wave normal, B the foam lace, A the gust/breakup field.
-        _RippleTex ("Ripples (RG normal, B foam, A breakup; linear)", 2D) = "gray" {}
+        // linearGrey, not gray: the project is Linear, so "gray" samples 0.216
+        // and a material without the sheet would draw a frozen 20-55 degree tilt
+        _RippleTex ("Ripples (RG normal, B foam, A breakup; linear)", 2D) = "linearGrey" {}
         // Per-metre extinction (red goes first) and the water's own colour,
         // raw linear (Vectors, so nothing converts them): the defaults are
         // the green-grey of Bogue Sound (PSXRacingBuilder.WaterPreset.Sea).
