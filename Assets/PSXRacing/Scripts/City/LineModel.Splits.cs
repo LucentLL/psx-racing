@@ -60,6 +60,13 @@ namespace PSXRacing.City
         /// inventory's ORPHAN rail pieces 14 -> 40 on the deck north of n231). They wait until that
         /// median is given a nose of its own.</summary>
         public static readonly HashSet<int> BfrHeldBack = new HashSet<int> { 7963, 12438, 231, 4025 };
+        /// <summary>The fix round: Beatties Ford bays BAYEND leaves as OSM tags them under bfr (graph
+        /// b2aa3453). e16705's NB bay serves a driveway at n15089, 168 m north of n7869 (whose profile is
+        /// declined: PC45's taper) and 203 m before n10035's nose - nowhere near a nose the round draws.
+        /// Ended, it left NB cars waiting at n15089 for the lane their straight-on needed (the bfr
+        /// traffic census: 6 missed turn lanes and 2 lane-change waits there in 6 minutes, the base
+        /// none). e16690's bay into n10035's nose is still ended.</summary>
+        public static readonly HashSet<int> BfrBayKeep = new HashSet<int> { 16705 };
         public static bool SplitsOn => SplitAxis != "0";
 
         /// <summary>Is this split node drawn by the splits round's rules?</summary>
@@ -189,7 +196,9 @@ namespace PSXRacing.City
                     if (cur.lsCentre == 1 && (bf ^ bb))
                     {
                         int d = bf ? 1 : -1;
-                        if (!BayServesJunction(map, cur, d, out int sv2))
+                        bool keep = SplitAxis == "bfr" && map.graphHash == SplitsGraph && BfrBayKeep.Contains(cur.index);
+                        if (keep && BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")}: kept as OSM tags it (BfrBayKeep: a driveway's bay far from any nose the round draws)");
+                        if (!keep && !BayServesJunction(map, cur, d, out int sv2))
                         {
                             if (BayEndLog.Count < 200) BayEndLog.Add($"n{sp.node}: e{cur.index} '{cur.name}' {cur.lsNF}+{cur.lsNB} bay {(d > 0 ? "a->b" : "b->a")} serves n{sv2} ({map.nodeEdges[sv2].Count} arms, no street of the graph): ended, its space the centre lane (TWLTL)");
                             EndBay(cur, d);
