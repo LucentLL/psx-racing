@@ -75,6 +75,7 @@ namespace PSXRacing
             help = MakeText("Help", font, TextAnchor.LowerCenter);
             help.color = new Color(1f, 0.85f, 0.35f);
             dot = MakeImage("Dot", root, new Color(0.95f, 0.1f, 0.08f));
+            dot.sprite = Circle();
             battery = MakeImage("Battery", root, new Color(0, 0, 0, 0)).rectTransform;
             // The battery: an outline, a nub, three cells.
             var edge = MakeImage("Edge", battery, Color.white);
@@ -90,6 +91,32 @@ namespace PSXRacing
                 Stretch(cells[i].rectTransform, 0.11f + i * 0.24f, 0.24f, 0.11f + i * 0.24f + 0.2f, 0.76f);
             built = true;
             foreach (var g in GetComponentsInChildren<Graphic>(true)) { g.raycastTarget = false; HudOnTop.Apply(g.gameObject); }
+        }
+
+        static Sprite circle;
+        /// <summary>The REC lamp's round dot, drawn once (no built-in sprite
+        /// is loadable in a player).</summary>
+        static Sprite Circle()
+        {
+            if (circle != null) return circle;
+            const int S = 32;
+            var t = new Texture2D(S, S, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave,
+            };
+            var px = new Color32[S * S];
+            float c = (S - 1) * 0.5f, r = S * 0.5f - 1f;
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++)
+                {
+                    float d = Mathf.Sqrt((x - c) * (x - c) + (y - c) * (y - c));
+                    px[y * S + x] = new Color32(255, 255, 255, (byte)(255f * Mathf.Clamp01(r - d + 0.5f)));
+                }
+            t.SetPixels32(px);
+            t.Apply();
+            circle = Sprite.Create(t, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100f);
+            circle.hideFlags = HideFlags.DontSave;
+            return circle;
         }
 
         Text MakeText(string name, Font font, TextAnchor align)
@@ -200,7 +227,8 @@ namespace PSXRacing
                 float bw = fs * 1.9f, bh = fs * 0.9f;
                 Place(battery, x0 + pw - mx, top - fs * 0.62f, bw, bh, new Vector2(1f, 0.5f));
                 // The pack runs down over a long tape, and the last cell blinks.
-                int lit = rp.Duration > 0f ? 3 - Mathf.FloorToInt(Mathf.Clamp01(rp.ReplayTime / Mathf.Max(rp.Duration, 1f)) * 2.2f) : 3;
+                // A pack lasts the best part of an hour: a cell per quarter hour.
+                int lit = Mathf.Clamp(3 - Mathf.FloorToInt(rp.ReplayTime / 900f), 1, 3);
                 for (int i = 0; i < 3; i++) cells[i].enabled = i < lit && !(lit == 1 && blink > 0.5f);
                 counter.text = "SP  " + Camcorder.Counter(rp.ReplayTime);
                 counter.color = Color.white;

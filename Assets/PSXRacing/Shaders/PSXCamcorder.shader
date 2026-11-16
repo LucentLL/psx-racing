@@ -249,15 +249,15 @@ Shader "PSX/Camcorder"
                 float over = max(Y - knee, 0.0);
                 float Yk = Y > knee ? knee + (1.0 - knee) * (1.0 - exp(-over / (1.0 - knee) * 1.6)) : Y;
                 float wash = 1.0 - 0.65 * smoothstep(0.7, 1.15, Y);
-                Y = 0.03 + Yk * 0.95;
+                Y = 0.022 + Yk * 0.96;
 
                 // Colour noise (VHS's slow horizontal streaks) and grain,
                 // both up with the gain.
                 float g = gain - 1.0;
                 float2 cn = float2(Hash12(float2(floor(wuv.x * 60.0), ln * 0.5 + field * 1.3)),
                                    Hash12(float2(floor(wuv.x * 60.0) + 17.0, ln * 0.5 + field * 1.7))) - 0.5;
-                yiq.yz = yiq.yz * 0.9 * wash + cn * (0.012 + 0.03 * g);
-                Y += (Hash12(uv * _PSXCam2.xy + frame * 1.37) - 0.5) * (0.028 + 0.05 * g);
+                yiq.yz = yiq.yz * 0.9 * wash + cn * (0.01 + 0.016 * g);
+                Y += (Hash12(uv * _PSXCam2.xy + frame * 1.37) - 0.5) * (0.024 + 0.026 * g);
 
                 float3 rgb = FromYIQ(float3(Y, yiq.yz));
 

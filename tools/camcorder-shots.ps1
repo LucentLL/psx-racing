@@ -13,10 +13,10 @@
 # copied to -Out.
 # Exit code 0 = the report has no FAIL.
 param([switch]$NoWatch, [int]$MaxMinutes = 35, [switch]$Base, [string]$Plan = "", [switch]$Seq,
-      [string]$Me = "camcorder", [string]$Out = "")
+      [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
-$src  = Split-Path -Parent $PSScriptRoot
+$src  = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
 . "$PSScriptRoot\unity-wait.ps1"
 $lock = Join-Path $proj "AGENT_LOCK.txt"
 

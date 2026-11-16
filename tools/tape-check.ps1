@@ -10,10 +10,10 @@
 # Takes AGENT_LOCK.txt itself, mirrors ONLY Scripts / Editor / Shaders,
 # deletes the lock even on failure. Exit code 0 = no FAIL in either report.
 param([switch]$NoWatch, [int]$MaxMinutes = 35, [switch]$SkipPages, [switch]$SkipRun,
-      [string]$Me = "camcorder", [string]$Out = "")
+      [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
-$src  = Split-Path -Parent $PSScriptRoot
+$src  = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
 . "$PSScriptRoot\unity-wait.ps1"
 $lock = Join-Path $proj "AGENT_LOCK.txt"
 
