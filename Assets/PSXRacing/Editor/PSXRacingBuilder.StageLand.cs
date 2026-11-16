@@ -1,0 +1,631 @@
+using System;
+using System.Collections.Generic;
+using Unity.Collections;
+using UnityEditor;
+using UnityEngine;
+
+namespace PSXRacing.EditorTools
+{
+    /// <summary>
+    /// THE LAND AROUND A STAGE'S TOWNS, from its world file (round 2 of Lake
+    /// Lure, owner's 2022 video): what the forest must leave open and what
+    /// stands there instead.
+    ///
+    ///   * OPEN GROUND (PSX_LURE_OPEN): parks, pitches, playgrounds, the beach,
+    ///     the marina and the retail land of the 2024-09-20 map; yards round
+    ///     every building; the lawn between each town building and its road;
+    ///     a band either side of the two town streets. No tree is planted
+    ///     there (keep-out bit 8), and the ground wears a mown lawn (the beach
+    ///     its sand) instead of the bare forest floor. At 8:15 in the video
+    ///     the Lake Lure Inn stands across an open lawn; round 1 hid it in
+    ///     the forest.
+    ///   * THE GRANITE (PSX_LURE_GRANITE): bare grey rock where the 2018 lidar
+    ///     stands steeper than 52 degrees over 18 m of relief - Chimney
+    ///     Rock's cliffs, Rumbling Bald, the gorge walls - in the Meadow
+    ///     pack's photoscanned cliffs, faced down the fall line; no tree on
+    ///     them. Never on a forested slope: the rule is the rock's own
+    ///     steepness, read from the lidar by bake_world.mjs.
+    ///   * THE MARINA (PSX_LURE_MARINA): the docks and finger piers of the
+    ///     2024 map as plank walks on posts over the lake.
+    ///   * GRASS BANKS (PSX_LURE_GRASSBANK): on the lake road and through the
+    ///     towns the low cuts beside the road are grass, as in the video
+    ///     (7:43, 10:05), not rock.
+    /// </summary>
+    public static partial class PSXRacingBuilder
+    {
+        [Serializable] class WorldOpen { public string kind; public float[] xz; }
+        [Serializable] class WorldPier { public float[] xz; public int area; }
+
+        const byte KeepOpen = 8;
+        /// <summary>The granite's 12 m cells (grown one cell), far terrain too:
+        /// no tree stands on the rock.</summary>
+        static HashSet<long> worldCliffKeep;
+        const float CliffCell = 12f;
+        static long CliffKey(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
+        static bool CliffKeepAt(float x, float z) =>
+            worldCliffKeep != null && worldCliffKeep.Contains(CliffKey(Mathf.FloorToInt(x / CliffCell), Mathf.FloorToInt(z / CliffCell)));
+
+        static byte WorldKeepBits(float x, float z)
+        {
+            if (worldKeep == null) return 0;
+            int c = (int)((x - worldKeepX0) / WorldKeepCell), r = (int)((z - worldKeepZ0) / WorldKeepCell);
+            if (c < 0 || r < 0 || c >= worldKeepCols || r >= worldKeepRows) return 0;
+            return worldKeep[r * worldKeepCols + c];
+        }
+
+        // ------------------------------------------------------- keep-out
+        /// <summary>From BuildWorldKeepOut: the open ground (bit 8) and the
+        /// granite's cells.</summary>
+        static void WorldLandKeepOut(byte[] mask)
+        {
+            worldCliffKeep = null;
+            if (WorldSwitch("PSX_LURE_GRANITE") && world.cliffs != null && world.cliffs.Length >= 6)
+            {
+                worldCliffKeep = new HashSet<long>();
+                for (int k = 0; k + 5 < world.cliffs.Length; k += 6)
+                {
+                    int cx = Mathf.FloorToInt(world.cliffs[k] / CliffCell), cz = Mathf.FloorToInt(world.cliffs[k + 1] / CliffCell);
+                    for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) worldCliffKeep.Add(CliffKey(cx + dx, cz + dz));
+                }
+            }
+            if (!WorldSwitch("PSX_LURE_OPEN")) return;
+            bool own = world.stage == StagePrefix;
+            int areas = 0, yards = 0, lawnsBefore = 0;
+            if (world.open != null)
+                foreach (var o in world.open)
+                    if (o.xz != null && o.xz.Length >= 6) { WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, KeepOpen, 0); areas++; }
+            if (world.buildings != null)
+                foreach (var b in world.buildings)
+                {
+                    if (b.xz == null || b.xz.Length < 6) continue;
+                    string zone = b.zone ?? "lake";
+                    bool town = zone == "downtown" || zone == "village" || zone == "inlet" || zone == "batcave";
+                    // a yard round it: 12 m in a town, 6 m by the lake road and in the gorge
+                    WorldFill(mask, new List<Vector3[]> { WorldPts(b.xz) }, KeepOpen, town ? 4 : 2);
+                    yards++;
+                    // the lawn between a town building and the road it fronts (the inn across its lawn)
+                    if (!town || b.dist > 120f || (b.fx * b.fx + b.fz * b.fz) < 0.25f) continue;
+                    var ring = WorldPts(b.xz);
+                    Vector3 cen = Vector3.zero; foreach (var p in ring) cen += p; cen /= ring.Length;
+                    Vector3 dir = new Vector3(b.fx, 0f, b.fz).normalized, across = new Vector3(-dir.z, 0f, dir.x);
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    foreach (var p in ring) { float u = Vector3.Dot(p - cen, across); lo = Mathf.Min(lo, u); hi = Mathf.Max(hi, u); }
+                    float half = Mathf.Clamp((hi - lo) * 0.5f + 4f, 6f, 34f);
+                    Vector3 c0 = cen + across * ((lo + hi) * 0.5f);
+                    WorldBand(mask, new[] { c0, c0 + dir * b.dist }, half, KeepOpen);
+                    lawnsBefore++;
+                }
+            // the town streets themselves: 40 m either side downtown, 28 m in the villages
+            if (own)
+            {
+                var pts = track.stagePts;
+                foreach (var zr in WorldStreets)
+                {
+                    int i0 = Mathf.Max(0, (int)(zr.x / Spacing)), i1 = Mathf.Min(pts.Length - 1, (int)(zr.y / Spacing));
+                    if (i1 - i0 < 2) continue;
+                    var line = new Vector3[i1 - i0 + 1];
+                    for (int i = i0; i <= i1; i++) line[i - i0] = pts[i];
+                    WorldBand(mask, line, zr.x < 6000f ? 40f : 28f, KeepOpen);
+                }
+            }
+            else if (world.streets != null)
+                foreach (var r in world.streets) if (r.xz != null && r.xz.Length >= 4) WorldBand(mask, WorldPts(r.xz), 28f, KeepOpen);
+            int n8 = 0; foreach (var v in mask) if ((v & KeepOpen) != 0) n8++;
+            Log($"Stage world open ground: {areas} mapped areas, {yards} yards, {lawnsBefore} lawns before town buildings, the town streets' bands - " +
+                $"{n8 * WorldKeepCell * WorldKeepCell / 1e6f:0.000} km2 the forest leaves open; granite keep-out {(worldCliffKeep?.Count ?? 0)} cells of 12 m.");
+        }
+
+        // ----------------------------------------------------------- build
+        /// <summary>From BuildStageWorld, after the town: lawns and the beach,
+        /// the granite, the marina's piers.</summary>
+        static void BuildWorldLand(List<Vector3> pts, Transform parent)
+        {
+            Physics.SyncTransforms();
+            if (WorldSwitch("PSX_LURE_OPEN")) BuildWorldLawns(parent);
+            if (WorldSwitch("PSX_LURE_GRANITE")) BuildWorldGranite(parent);
+            if (WorldSwitch("PSX_LURE_MARINA") && world.stage == StagePrefix) BuildWorldPiers(parent);
+        }
+
+        // ------------------------------------------------------------ lawns
+        static void BuildWorldLawns(Transform parent)
+        {
+            if (worldKeep == null) return;
+            // the beach's cells (sand, not grass)
+            var beach = new byte[worldKeep.Length];
+            if (world.open != null)
+                foreach (var o in world.open)
+                    if (o.kind == "beach" && o.xz != null && o.xz.Length >= 6) WorldFill(beach, new List<Vector3[]> { WorldPts(o.xz) }, 1, 0);
+            float halfW = RoadWidth * 0.5f;
+            bool own = world.stage == StagePrefix;
+            int cols1 = worldKeepCols + 1;
+            var cornerY = new Dictionary<int, float>();
+            float CornerY(int c, int r)
+            {
+                int key = r * cols1 + c;
+                if (!cornerY.TryGetValue(key, out float y))
+                {
+                    float x = worldKeepX0 + c * WorldKeepCell, z = worldKeepZ0 + r * WorldKeepCell;
+                    cornerY[key] = y = DrapeY(x, z);
+                }
+                return y;
+            }
+            const float Tile = 240f;
+            var bufs = new Dictionary<long, TownBuf>();
+            int grass = 0, sand = 0, steep = 0;
+            for (int r = 0; r < worldKeepRows; r++)
+                for (int c = 0; c < worldKeepCols; c++)
+                {
+                    int idx = r * worldKeepCols + c;
+                    byte v = worldKeep[idx];
+                    if ((v & KeepOpen) == 0 || (v & 7) != 0) continue;
+                    float x = worldKeepX0 + (c + 0.5f) * WorldKeepCell, z = worldKeepZ0 + (r + 0.5f) * WorldKeepCell;
+                    if (CliffKeepAt(x, z)) continue;
+                    bool edge = false;
+                    for (int dr = -1; dr <= 1 && !edge; dr++)
+                        for (int dc = -1; dc <= 1 && !edge; dc++)
+                        {
+                            int r2 = r + dr, c2 = c + dc;
+                            if (r2 >= 0 && c2 >= 0 && r2 < worldKeepRows && c2 < worldKeepCols && (worldKeep[r2 * worldKeepCols + c2] & 5) != 0) edge = true;
+                        }
+                    if (edge) continue;
+                    if (!own && NearStreet(x, z, 3.4f)) continue;
+                    // off the tarmac, its verge strip and the town's sidewalks
+                    if (StageCorridor(x, z, halfW + 6f, out RoadFoot f))
+                    {
+                        float m = f.station * Spacing;
+                        bool walk = own && ((m > 5080f && m < 6020f) || (m > 6930f && m < 8020f));
+                        if (f.d < halfW + (walk ? 4.4f : 3.2f)) continue;
+                        if (BridgeAt(f.station) > 0f) continue;
+                    }
+                    float y00 = CornerY(c, r), y10 = CornerY(c + 1, r), y11 = CornerY(c + 1, r + 1), y01 = CornerY(c, r + 1);
+                    float lo = Mathf.Min(Mathf.Min(y00, y10), Mathf.Min(y11, y01)), hi = Mathf.Max(Mathf.Max(y00, y10), Mathf.Max(y11, y01));
+                    if (hi - lo > 2.2f) { steep++; continue; }   // a lawn on a 36-degree bank is not a lawn
+                    long tk = ((long)Mathf.FloorToInt(x / Tile) << 32) ^ (uint)Mathf.FloorToInt(z / Tile);
+                    if (!bufs.TryGetValue(tk, out var buf)) bufs[tk] = buf = new TownBuf();
+                    float x0 = x - WorldKeepCell * 0.5f, z0 = z - WorldKeepCell * 0.5f, x1 = x0 + WorldKeepCell, z1 = z0 + WorldKeepCell;
+                    const float lift = 0.05f;
+                    var a = new Vector3(x0, y00 + lift, z0); var b2 = new Vector3(x0, y01 + lift, z1);
+                    var cc = new Vector3(x1, y11 + lift, z1); var d = new Vector3(x1, y10 + lift, z0);
+                    bool isSand = beach[idx] != 0;
+                    // facing up: (x0,z0) -> (x1,z0) -> (x1,z1) -> (x0,z1) runs counter-clockwise seen from above
+                    buf.Quad(isSand ? "sand" : "grass", a, d, cc, b2,
+                              new Vector2(x0 / 4f, z0 / 4f), new Vector2(x1 / 4f, z0 / 4f), new Vector2(x1 / 4f, z1 / 4f), new Vector2(x0 / 4f, z1 / 4f));
+                    if (isSand) sand++; else grass++;
+                }
+            int n = 0;
+            foreach (var kv in bufs) { TownEmit(kv.Value, "Lawn_" + n, parent); n++; }
+            Log($"Stage world lawns: {grass * WorldKeepCell * WorldKeepCell / 1e4f:0.00} ha of mown grass and {sand * WorldKeepCell * WorldKeepCell / 1e4f:0.00} ha of beach sand " +
+                $"on the open ground ({n} tiles); {steep} cells too steep for a lawn left to the ground.");
+        }
+
+        /// <summary>Within the given margin of a world street's edge (another stage's frame: Main Street).</summary>
+        static bool NearStreet(float x, float z, float margin)
+        {
+            if (world.streets == null) return false;
+            foreach (var st in world.streets)
+            {
+                if (st.xz == null) continue;
+                float lim = st.w * 0.5f + margin;
+                for (int i = 0; i + 3 < st.xz.Length; i += 2)
+                {
+                    float ax = st.xz[i], az = st.xz[i + 1], bx = st.xz[i + 2], bz = st.xz[i + 3];
+                    float dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+                    float t = L2 > 1e-6f ? Mathf.Clamp01(((x - ax) * dx + (z - az) * dz) / L2) : 0f;
+                    float ex = ax + dx * t - x, ez = az + dz * t - z;
+                    if (ex * ex + ez * ez < lim * lim) return true;
+                }
+            }
+            return false;
+        }
+
+        // ------------------------------------------------------ Main Street
+        /// <summary>
+        /// MAIN STREET in another stage's frame (the Park Road stage starts
+        /// from it): round 1 drew it as bare asphalt over sandy ground. Now
+        /// it carries the route's own paint - a double yellow centre line and
+        /// white edge lines - and concrete sidewalks before its buildings, as
+        /// the village street of the Lake Lure stage (PSX_LURE_MAINST).
+        /// </summary>
+        static void StreetPaintAndWalks(WorldRoad st, Vector3[] line, List<Vector3> sv, Transform parent, int no)
+        {
+            int rows = line.Length;
+            if (sv.Count < rows * 5) return;
+            float hw = st.w * 0.5f;
+            var paint = new TownBuf(); var walks = new TownBuf();
+            var nrm = new Vector3[rows];
+            for (int i = 0; i < rows; i++)
+            {
+                Vector3 a = line[Mathf.Max(0, i - 1)], b = line[Mathf.Min(rows - 1, i + 1)];
+                Vector3 t = b - a; t.y = 0; t.Normalize(); nrm[i] = new Vector3(-t.z, 0, t.x);
+            }
+            // the surface's height at an offset across a row (its five vertices span -hw .. +hw)
+            float Yat(int i, float o)
+            {
+                float f = Mathf.Clamp((o / hw + 1f) * 2f, 0f, 3.999f);
+                int k = (int)f;
+                return Mathf.Lerp(sv[i * 5 + k].y, sv[i * 5 + k + 1].y, f - k);
+            }
+            Vector3 At(int i, float o, float lift)
+            {
+                var p = line[i] + nrm[i] * o;
+                p.y = Yat(i, Mathf.Clamp(o, -hw, hw)) + lift;
+                return p;
+            }
+            void Strip(TownBuf b, string k, int i, float o0, float o1, float lift)
+            {
+                Vector3 A = At(i - 1, o0, lift), B = At(i - 1, o1, lift), C = At(i, o1, lift), D = At(i, o0, lift);
+                float L = Vector3.Distance(A, D);
+                b.QuadR(k, A, B, C, D, Vector2.zero, new Vector2(1, 0), new Vector2(1, L), new Vector2(0, L));
+            }
+            // where buildings front it
+            var cents = new List<Vector2>();
+            if (world.buildings != null)
+                foreach (var bd in world.buildings)
+                {
+                    if (bd.xz == null || bd.xz.Length < 6) continue;
+                    float cx = 0, cz = 0; int m = bd.xz.Length / 2;
+                    for (int k = 0; k < m; k++) { cx += bd.xz[2 * k]; cz += bd.xz[2 * k + 1]; }
+                    cents.Add(new Vector2(cx / m, cz / m));
+                }
+            bool Fronted(Vector3 p) { foreach (var c in cents) if ((c.x - p.x) * (c.x - p.x) + (c.y - p.z) * (c.y - p.z) < 900f) return true; return false; }
+            int walked = 0;
+            for (int i = 1; i < rows; i++)
+            {
+                Strip(paint, "yellow", i, -0.17f, -0.07f, 0.012f);
+                Strip(paint, "yellow", i, 0.07f, 0.17f, 0.012f);
+                Strip(paint, "paint", i, -hw + 0.25f, -hw + 0.37f, 0.012f);
+                Strip(paint, "paint", i, hw - 0.37f, hw - 0.25f, 0.012f);
+                foreach (float sgn in new[] { -1f, 1f })
+                {
+                    Vector3 q0 = line[i - 1] + nrm[i - 1] * (sgn * (hw + 2.6f)), q1 = line[i] + nrm[i] * (sgn * (hw + 2.6f));
+                    if (!Fronted(q0) || (WorldKeepBits(q0.x, q0.z) & 5) != 0 || (WorldKeepBits(q1.x, q1.z) & 5) != 0) continue;
+                    // the walk: from the street's edge out 1.8 m, draped on the ground, flush
+                    Vector3 A = line[i - 1] + nrm[i - 1] * (sgn * hw), D = line[i] + nrm[i] * (sgn * hw);
+                    Vector3 B = line[i - 1] + nrm[i - 1] * (sgn * (hw + 1.8f)), C = line[i] + nrm[i] * (sgn * (hw + 1.8f));
+                    A.y = Yat(i - 1, sgn * hw) + 0.03f; D.y = Yat(i, sgn * hw) + 0.03f;
+                    B.y = DrapeY(B.x, B.z) + 0.06f; C.y = DrapeY(C.x, C.z) + 0.06f;
+                    if (Mathf.Abs(B.y - A.y) > 0.5f || Mathf.Abs(C.y - D.y) > 0.5f) continue;
+                    B.y = Mathf.Max(B.y, A.y); C.y = Mathf.Max(C.y, D.y);
+                    if (sgn > 0f) walks.QuadR("concrete", A, B, C, D, new Vector2(A.x / 2f, A.z / 2f), new Vector2(B.x / 2f, B.z / 2f), new Vector2(C.x / 2f, C.z / 2f), new Vector2(D.x / 2f, D.z / 2f));
+                    else walks.Quad("concrete", A, B, C, D, new Vector2(A.x / 2f, A.z / 2f), new Vector2(B.x / 2f, B.z / 2f), new Vector2(C.x / 2f, C.z / 2f), new Vector2(D.x / 2f, D.z / 2f));
+                    walked++;
+                }
+            }
+            TownEmit(paint, "StreetPaint_" + no, parent);
+            TownEmit(walks, "StreetWalks_" + no, parent);
+            Log($"Stage world Main Street {no}: double yellow and edge lines over {rows} rows, {walked} sidewalk panels before its buildings.");
+        }
+
+        // ------------------------------------------------------------- roofs
+        /// <summary>
+        /// A HIPPED ROOF over any footprint (FORMS): each wall's eave runs up
+        /// and in at the pitch to a crown d metres inside, capped flat (out of
+        /// sight from the street). For the L-shaped and ragged footprints a
+        /// gable cannot cover - round 1 gave them a flat cap: boxes. Returns
+        /// false (and builds nothing) when the footprint is too thin for one.
+        /// ring: clockwise from above.
+        /// </summary>
+        static bool HipRoof(TownBuf buf, List<Vector3> ring, float eave, float pitchDeg, string roofMat, float minDim)
+        {
+            int n = ring.Count;
+            if (n < 3) return false;
+            float tan = Mathf.Tan(pitchDeg * Mathf.Deg2Rad);
+            const float ov = 0.45f;
+            float d = Mathf.Min(minDim * 0.42f, 7f);
+            Vector3[] inner = null;
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                if (d < 0.9f) return false;
+                var cand = RingOffset(ring, -d);
+                if (InnerRingOk(ring, cand, d)) { inner = cand; break; }
+                d *= 0.72f;
+            }
+            if (inner == null) return false;
+            var outer = RingOffset(ring, ov);
+            float yIn = eave + d * tan, yOut = eave - ov * tan;
+            float tile = roofMat == "shingle" || roofMat == "tilered" ? 3f : 2.5f;
+            float run = Mathf.Sqrt((d + ov) * (d + ov) + (yIn - yOut) * (yIn - yOut)) / tile;
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                Vector3 oa = new Vector3(outer[i].x, yOut, outer[i].z), oc = new Vector3(outer[j].x, yOut, outer[j].z);
+                Vector3 ia = new Vector3(inner[i].x, yIn, inner[i].z), ic = new Vector3(inner[j].x, yIn, inner[j].z);
+                Vector3 wa = new Vector3(ring[i].x, eave, ring[i].z), wc = new Vector3(ring[j].x, eave, ring[j].z);
+                float len = Vector3.Distance(oa, oc) / tile;
+                // the slope (faces up and out, as the wall below it faces out)
+                buf.Quad(roofMat, oa, ia, ic, oc, Vector2.zero, new Vector2(0, run), new Vector2(len, run), new Vector2(len, 0));
+                // the soffit under the overhang
+                buf.QuadR("trim", oa, wa, wc, oc, Vector2.zero, new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0));
+            }
+            var ccw = new List<Vector3>(inner); ccw.Reverse();
+            var tri = EarClip(ccw);
+            for (int k = 0; k + 2 < tri.Count; k += 3)
+            {
+                Vector3 p0 = ccw[tri[k]], p1 = ccw[tri[k + 1]], p2 = ccw[tri[k + 2]];
+                buf.Tri(roofMat, new Vector3(p0.x, yIn, p0.z), new Vector3(p1.x, yIn, p1.z), new Vector3(p2.x, yIn, p2.z),
+                        new Vector2(p0.x / tile, p0.z / tile), new Vector2(p1.x / tile, p1.z / tile), new Vector2(p2.x / tile, p2.z / tile));
+            }
+            return true;
+        }
+
+        /// <summary>A clockwise ring moved out (off &gt; 0) or in (off &lt; 0) by
+        /// its mitred corners (miters held to 3x).</summary>
+        static Vector3[] RingOffset(List<Vector3> ring, float off)
+        {
+            int n = ring.Count;
+            var o = new Vector3[n];
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 p = ring[(i + n - 1) % n], q = ring[i], r = ring[(i + 1) % n];
+                Vector3 e1 = q - p, e2 = r - q; e1.y = 0; e2.y = 0;
+                if (e1.sqrMagnitude < 1e-6f) e1 = e2;
+                if (e2.sqrMagnitude < 1e-6f) e2 = e1;
+                e1.Normalize(); e2.Normalize();
+                Vector3 n1 = new Vector3(-e1.z, 0, e1.x), n2 = new Vector3(-e2.z, 0, e2.x);   // outward (left of travel)
+                Vector3 m = n1 + n2;
+                if (m.sqrMagnitude < 1e-4f) m = n2;
+                m.Normalize();
+                float len = Mathf.Min(Mathf.Abs(off) / Mathf.Max(0.33f, Vector3.Dot(m, n1)), 3f * Mathf.Abs(off));
+                o[i] = q + m * (len * Mathf.Sign(off));
+                o[i].y = 0f;
+            }
+            return o;
+        }
+
+        static bool InnerRingOk(List<Vector3> ring, Vector3[] inner, float d)
+        {
+            int n = ring.Count;
+            // same winding, a real area, every point inside and clear of every wall by most of d
+            float sa = 0f, sb = 0f;
+            for (int i = 0, j = n - 1; i < n; j = i++) { sa += (ring[j].x - ring[i].x) * (ring[j].z + ring[i].z); sb += (inner[j].x - inner[i].x) * (inner[j].z + inner[i].z); }
+            if (Mathf.Sign(sa) != Mathf.Sign(sb) || Mathf.Abs(sb) < 0.03f * Mathf.Abs(sa)) return false;
+            foreach (var p in inner)
+            {
+                bool inside = false;
+                for (int i = 0, j = n - 1; i < n; j = i++)
+                    if ((ring[i].z > p.z) != (ring[j].z > p.z) && p.x < ring[j].x + (p.z - ring[j].z) / (ring[i].z - ring[j].z) * (ring[i].x - ring[j].x)) inside = !inside;
+                if (!inside) return false;
+                for (int i = 0, j = n - 1; i < n; j = i++)
+                {
+                    float dx = ring[i].x - ring[j].x, dz = ring[i].z - ring[j].z, L2 = dx * dx + dz * dz;
+                    float t = L2 > 1e-6f ? Mathf.Clamp01(((p.x - ring[j].x) * dx + (p.z - ring[j].z) * dz) / L2) : 0f;
+                    float ex = ring[j].x + dx * t - p.x, ez = ring[j].z + dz * t - p.z;
+                    if (ex * ex + ez * ez < 0.81f * d * d) return false;
+                }
+            }
+            // and the inner ring does not cross itself
+            for (int i = 0; i < n; i++)
+                for (int k = i + 2; k < n; k++)
+                {
+                    if (i == 0 && k == n - 1) continue;
+                    if (SegCross(inner[i], inner[(i + 1) % n], inner[k], inner[(k + 1) % n])) return false;
+                }
+            return true;
+        }
+
+        static bool SegCross(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+        {
+            float d1 = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x), d2 = (b.x - a.x) * (d.z - a.z) - (b.z - a.z) * (d.x - a.x);
+            float d3 = (d.x - c.x) * (a.z - c.z) - (d.z - c.z) * (a.x - c.x), d4 = (d.x - c.x) * (b.z - c.z) - (d.z - c.z) * (b.x - c.x);
+            return d1 * d2 < 0f && d3 * d4 < 0f;
+        }
+
+        // ---------------------------------------------------------- granite
+        struct GraniteVar { public MeshForest.Variant v; public float frontAngle, length, height; public int[] tris; }
+
+        static void BuildWorldGranite(Transform parent)
+        {
+            var C = world.cliffs;
+            if (C == null || C.Length < 6) return;
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(MeadowCliffDir + "/" + CliffNames[0] + ".FBX") == null)
+            {
+                Log("WARN: Stage world granite: the Meadow pack's cliffs are not extracted (tools/store-assets.ps1) - no granite.");
+                return;
+            }
+            // Hickory Nut Gorge granite: paler and greyer than the Parkway's dark gneiss
+            var mat = NMLitMat("NM_meadow_granite", MeadowCliffDir, "T_Photoscanned_Cliff_01_BC", "T_Photoscanned_Cliff_01_Normal",
+                               null, false, new Color(0.84f, 0.83f, 0.80f));
+            var vars = new List<GraniteVar>();
+            foreach (var name in CliffNames)
+            {
+                var v = LoadVariant(MeadowCliffDir, name, mat);
+                if (v == null) continue;
+                Vector3 acc = Vector3.zero;
+                float minY = float.MaxValue, maxY = float.MinValue, rMin = float.MaxValue, rMax = float.MinValue;
+                using (var data = Mesh.AcquireReadOnlyMeshData(v.lods[0]))
+                {
+                    var d = data[0];
+                    var nrm = new NativeArray<Vector3>(d.vertexCount, Allocator.Temp);
+                    var pos = new NativeArray<Vector3>(d.vertexCount, Allocator.Temp);
+                    d.GetNormals(nrm); d.GetVertices(pos);
+                    for (int i = 0; i < nrm.Length; i++) acc += v.pre.MultiplyVector(nrm[i]);
+                    acc.y = 0f;
+                    var front = acc.sqrMagnitude > 1e-6f ? acc.normalized : Vector3.forward;
+                    var right = new Vector3(front.z, 0f, -front.x);
+                    for (int i = 0; i < pos.Length; i++)
+                    {
+                        var p = v.pre.MultiplyPoint3x4(pos[i]);
+                        minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y);
+                        float rr = p.x * right.x + p.z * right.z; rMin = Mathf.Min(rMin, rr); rMax = Mathf.Max(rMax, rr);
+                    }
+                    nrm.Dispose(); pos.Dispose();
+                    var tris = new int[3];
+                    for (int l = 0; l < 3; l++) tris[l] = v.lods[l] != null ? (int)(v.lods[l].GetIndexCount(0) / 3) : 0;
+                    vars.Add(new GraniteVar
+                    {
+                        v = v, frontAngle = Mathf.Atan2(front.x, front.z) * Mathf.Rad2Deg,
+                        length = Mathf.Max(1f, rMax - rMin), height = Mathf.Max(1f, maxY - minY), tris = tris,
+                    });
+                }
+            }
+            if (vars.Count == 0) return;
+            // the far grid this stage stands on (the Park Road stage's is smaller)
+            var fm = demFarMeta;
+            float fx0 = fm.originX + 2f * fm.cell, fz0 = fm.originZ + 2f * fm.cell, fx1 = fm.originX + (fm.cols - 3) * fm.cell, fz1 = fm.originZ + (fm.rows - 3) * fm.cell;
+            // 24 m clusters of the 12 m cells
+            const float Cl = 24f;
+            var clusters = new Dictionary<long, Vector4>();     // sum x, sum z, count, sum steep
+            var cdir = new Dictionary<long, Vector2>();
+            for (int k = 0; k + 5 < C.Length; k += 6)
+            {
+                float x = C[k], z = C[k + 1];
+                if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
+                long key = ((long)Mathf.FloorToInt(x / Cl) << 32) ^ (uint)Mathf.FloorToInt(z / Cl);
+                clusters.TryGetValue(key, out var s); clusters[key] = s + new Vector4(x, z, 1f, C[k + 5]);
+                cdir.TryGetValue(key, out var dd); cdir[key] = dd + new Vector2(C[k + 3], C[k + 4]);
+            }
+            float halfW = RoadWidth * 0.5f;
+            var chunks = new Dictionary<long, List<CombineInstance>>();
+            var cand = new List<(Vector3 pos, float yaw, float scale, int v, float dRoute, float weight)>();
+            int placed = 0, nearRoad = 0, onTown = 0; long triTotal = 0;
+            var rng = new System.Random(1999);
+            foreach (var kv in clusters)
+            {
+                var s = kv.Value; float x = s.x / s.z, z = s.y / s.z;
+                var dsum = cdir[kv.Key]; if (dsum.sqrMagnitude < 1e-4f) continue;
+                var dir = dsum.normalized;
+                int h = Hash(x, z);
+                var gv = vars[h % vars.Count];
+                // about 30 m of rock face per cluster, more where the cluster is full
+                float want = Mathf.Lerp(20f, 32f, Mathf.Clamp01((s.z - 1f) / 3f)) * (0.85f + 0.3f * ((h / 7) % 100) / 100f);
+                float scale = Mathf.Clamp(want / gv.length, 0.8f, 4.5f);
+                if (gv.height * scale > 34f) scale = 34f / gv.height;
+                float reach = gv.length * scale * 0.6f;
+                // never by the road: its own cuts are the stage builder's
+                if (StageCorridor(x, z, halfW + 16f + reach, out _)) { nearRoad++; continue; }
+                // never on the town, the water or a lot
+                bool blocked = false;
+                for (int q = 0; q < 5 && !blocked; q++)
+                {
+                    float ox = q == 0 ? 0f : (q == 1 ? reach : q == 2 ? -reach : 0f), oz = q == 3 ? reach : q == 4 ? -reach : 0f;
+                    if ((WorldKeepBits(x + ox, z + oz) & 7) != 0) blocked = true;
+                }
+                if (blocked) { onTown++; continue; }
+                float gy = WorldGroundY(x, z);
+                float yaw = Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg - gv.frontAngle + (float)(rng.NextDouble() - 0.5) * 30f;
+                var pos = new Vector3(x, gy - gv.height * scale * 0.28f, z);
+                cand.Add((pos, yaw, scale, h % vars.Count, RouteDistanceCoarse(x, z), s.z * s.w));
+            }
+            // A TRIANGLE BUDGET (1.6 M on the whole stage): the detailed LOD within 450 m of the road, the low one beyond;
+            // over budget, the near ones go low too, then the thinnest clusters go (the fullest, steepest faces stay)
+            const long Budget = 1600000;
+            long Sum(bool nearDetail) { long t = 0; foreach (var c in cand) t += vars[c.v].tris[nearDetail && c.dRoute < 450f ? 1 : 2]; return t; }
+            bool detail = Sum(true) <= Budget;
+            cand.Sort((a, b) => b.weight.CompareTo(a.weight));
+            int thinned = 0;
+            foreach (var c in cand)
+            {
+                var gv = vars[c.v];
+                int lod = detail && c.dRoute < 450f ? 1 : 2;
+                if (triTotal + gv.tris[lod] > Budget) { thinned++; continue; }
+                var mesh = gv.v.lods[lod] ?? gv.v.lods[0];
+                long ck = ((long)Mathf.FloorToInt(c.pos.x / 500f) << 32) ^ (uint)Mathf.FloorToInt(c.pos.z / 500f);
+                if (!chunks.TryGetValue(ck, out var list)) chunks[ck] = list = new List<CombineInstance>();
+                list.Add(new CombineInstance { mesh = mesh, subMeshIndex = 0, transform = Matrix4x4.TRS(c.pos, Quaternion.Euler(0f, c.yaw, 0f), Vector3.one * c.scale) * gv.v.pre });
+                triTotal += gv.tris[lod];
+                placed++;
+            }
+            int n = 0;
+            foreach (var kv in chunks)
+            {
+                var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                m.CombineMeshes(kv.Value.ToArray(), true, true, false);
+                SaveMesh(m, "LureGranite_" + n);
+                var go = new GameObject("Granite_" + n);
+                go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = m;
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                go.isStatic = true;
+                // no collider: high on the gorge's walls, never within the road's reach
+                n++;
+            }
+            var sizes = new List<string>(); foreach (var gv in vars) sizes.Add($"{gv.length:0}x{gv.height:0} m {gv.tris[0]}/{gv.tris[1]}/{gv.tris[2]}");
+            Log($"Stage world granite: {placed} photoscanned cliff faces on {clusters.Count} lidar clusters of 24 m ({nearRoad} by the road and {onTown} on the town left out, " +
+                $"{thinned} thinned to the budget; near LOD {(detail ? "1" : "2")}), " +
+                $"{n} chunks, {triTotal / 1000}k triangles. Cliffs (length x height, LOD0/1/2 triangles): {string.Join("; ", sizes)}.");
+        }
+
+        // ----------------------------------------------------------- marina
+        static void BuildWorldPiers(Transform parent)
+        {
+            if (world.piers == null || world.piers.Length == 0 || world.lakeLevelY <= 0f) return;
+            float halfW = RoadWidth * 0.5f;
+            float deckY = world.lakeLevelY + 0.75f, bedY = world.lakeLevelY - 2.0f;
+            var buf = new TownBuf();
+            int piers = 0; float metres = 0f;
+            foreach (var pr in world.piers)
+            {
+                if (pr.xz == null || pr.xz.Length < 4) continue;
+                var line = WorldPts(pr.xz);
+                bool inRoad = false;
+                foreach (var p in line) if (StageCorridor(p.x, p.z, halfW + 3f, out _)) { inRoad = true; break; }
+                if (inRoad) continue;
+                // a main dock (several points) is 2.4 m wide, a finger pier 1.2 m
+                float hw = line.Length > 2 ? 1.2f : 0.6f;
+                for (int i = 0; i + 1 < line.Length; i++)
+                {
+                    Vector3 a = line[i], c = line[i + 1];
+                    Vector3 e = c - a; e.y = 0f; float len = e.magnitude; if (len < 0.5f) continue;
+                    Vector3 dir = e / len, side = new Vector3(-dir.z, 0f, dir.x);
+                    // run each segment on past its joint by half the width, so a bend has no notch
+                    Vector3 a0 = a - dir * (i > 0 ? hw : 0f), c0 = c + dir * (i + 2 < line.Length ? hw : 0f);
+                    float L = (c0 - a0).magnitude;
+                    Vector3 p0 = new Vector3(a0.x, deckY, a0.z), p1 = new Vector3(c0.x, deckY, c0.z);
+                    // the deck, facing up (boards across the walk)
+                    buf.QuadR("planks", p0 - side * hw, p0 + side * hw, p1 + side * hw, p1 - side * hw,
+                             new Vector2(0, 0), new Vector2(0, hw * 2f / 2f), new Vector2(L / 2f, hw * 2f / 2f), new Vector2(L / 2f, 0));
+                    // its edge boards and posts
+                    foreach (float sgn in new[] { -1f, 1f })
+                    {
+                        Vector3 eb = (p0 + p1) * 0.5f + side * (hw * sgn) - Vector3.up * 0.14f;
+                        buf.Box("darkwood", eb, dir, Vector3.up, side, L * 0.5f, 0.14f, 0.04f);
+                        int np = Mathf.Max(1, Mathf.RoundToInt(L / 3f));
+                        for (int k = 0; k <= np; k++)
+                        {
+                            Vector3 q = Vector3.Lerp(p0, p1, k / (float)np) + side * ((hw - 0.1f) * sgn);
+                            buf.Box("darkwood", new Vector3(q.x, (deckY + bedY) * 0.5f, q.z), dir, Vector3.up, side, 0.1f, (deckY - bedY) * 0.5f, 0.1f);
+                        }
+                    }
+                    metres += len;
+                }
+                piers++;
+            }
+            TownEmit(buf, "Piers", parent);
+            Log($"Stage world marina: {piers} docks and finger piers of the 2024 map, {metres:0} m of plank walk on posts {deckY - world.lakeLevelY:0.00} m over the lake.");
+        }
+
+        // ------------------------------------------------------- grass banks
+        /// <summary>
+        /// GRASS BANKS (owner's video 7:43, 10:05): on the lake road and through
+        /// downtown and the village (to 8,100 m) the cuts beside US 64/74A are
+        /// low, mown grass banks - a cut there under 5 m high wears grass, with
+        /// no rock dressed on its face. The gorge keeps its rock. Lake Lure
+        /// only (PSX_LURE_GRASSBANK=0: rock as round 1).
+        /// </summary>
+        internal static bool LureGrassBank(int[] run, float side)
+        {
+            if (StagePrefix != "lure" || world == null || !WorldSwitch("PSX_LURE_GRASSBANK") || run == null || run.Length == 0) return false;
+            if (run[run.Length - 1] * Spacing > 8100f) return false;
+            int s = SideIx(side);
+            float top = 0f;
+            foreach (int i in run) if (rsFaceH != null && i >= 0 && i < rsFaceH[s].Length) top = Mathf.Max(top, rsFaceH[s][i]);
+            return top < 5f;
+        }
+
+        /// <summary>The theme's timber rail stretches (PSX_LURE_TIMBER=0: the theme's rail everywhere).</summary>
+        internal static bool InTimberSpan(float m)
+        {
+            if (theme == null || theme.timberSpans == null || !WorldSwitch("PSX_LURE_TIMBER")) return false;
+            foreach (var sp in theme.timberSpans) if (m >= sp.x && m <= sp.y) return true;
+            return false;
+        }
+
+        static Material lureGrassBankMat;
+        internal static Material LureGrassBankMat()
+        {
+            if (lureGrassBankMat == null)
+                lureGrassBankMat = MakeMat(MeshPrefix + "BankGrass", Root + "/Art/City/Pack/grass_7_city.png", affine: 0f, tint: new Color(0.92f, 0.95f, 0.88f));
+            return lureGrassBankMat;
+        }
+    }
+}

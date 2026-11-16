@@ -247,6 +247,10 @@ namespace PSXRacing.EditorTools
             /// Overpass ways (tools/roads/cache), matched waypoint by waypoint.
             /// Read modulo the lap.</summary>
             public Vector2[] parkwaySpans;
+            /// <summary>Stretches (metres along the route) whose barrier is a
+            /// timber post-and-rail, not the theme's rail (Lake Lure: the
+            /// owner's video at 6:00 and 16:50).</summary>
+            public Vector2[] timberSpans;
             /// <summary>What the guardrail is made of where <see cref="guardrail"/>
             /// is on and the stretch is not the Parkway.</summary>
             public RailKit rail = RailKit.Galvanised;
@@ -596,6 +600,9 @@ namespace PSXRacing.EditorTools
             var t = MountainLoopTheme(Root + "/Art/LakeLure", "lure");
             t.waterDeepTint = new Color(0.36f, 0.47f, 0.46f);
             t.waterSandColor = new Color(0.48f, 0.42f, 0.32f);
+            // timber post-and-rail where the 2022 video shows it: above the lake past Tryon Bay (6:00) and on the
+            // Bat Cave approach (16:50); W-beam everywhere else, as the video
+            t.timberSpans = new[] { new Vector2(3450f, 3850f), new Vector2(11000f, 11450f) };
             return t;
         }
 
