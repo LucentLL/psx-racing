@@ -122,9 +122,9 @@ namespace PSXRacing.EditorTools
 
     public class CamcorderShotsRunner : MonoBehaviour
     {
-        public const float RecordSeconds = 24f;
-        const int Frames = 10;
-        const float Every = 1.6f;
+        public const float RecordSeconds = 40f;
+        const int Frames = 12;
+        const float Every = 2.0f;
         const float HardLimitS = 1500f;
         float started;
 
@@ -222,7 +222,20 @@ namespace PSXRacing.EditorTools
                     worst = Mathf.Min(worst, lateral);
                 }
                 if (cc.Spots.Count > 0)
-                    CamcorderShots.Check(worst > 1.5f, "every operator stands clear of the road edge", "closest " + worst.ToString("0.0") + " m");
+                    CamcorderShots.Check(worst > 1.5f, "every operator stands clear of the race line's road edge", "closest " + worst.ToString("0.0") + " m");
+                // ...and off EVERY road, the ground under them and beside them
+                // (a median between carriageways is not a place to stand).
+                int onRoad = 0, between = 0;
+                foreach (var sp in cc.Spots)
+                {
+                    if (sp.kind == CamcorderCam.Kind.Overpass) continue;
+                    int i = rm.path.NearestIndex(sp.pos);
+                    Vector3 p = rm.path.GetPoint(i);
+                    Vector3 outw = new Vector3(sp.pos.x - p.x, 0f, sp.pos.z - p.z).normalized;
+                    if (RoadUnder(sp.pos)) onRoad++;
+                    else if (RoadUnder(sp.pos + outw * 2.5f) || RoadUnder(sp.pos + outw * 6f)) between++;
+                }
+                CamcorderShots.Check(onRoad == 0 && between == 0, "no operator on a road or between two", onRoad + " on, " + between + " between");
             }
 
             // Let the eye settle on the first shot, then shoot.
@@ -263,6 +276,13 @@ namespace PSXRacing.EditorTools
             rp.End();
             CamcorderShots.Check(!RaceReplay.Playing && Camcorder.Camera == null, "the replay ends and the look goes with it");
             yield return null;
+        }
+
+        static bool RoadUnder(Vector3 at)
+        {
+            int mask = ~((1 << 2) | (1 << 4) | (1 << LayerMask.NameToLayer("Foliage")));
+            return Physics.Raycast(new Vector3(at.x, at.y + 30f, at.z), Vector3.down, out var hit, 80f, mask,
+                                   QueryTriggerInteraction.Ignore) && hit.collider.gameObject.layer == 8;
         }
 
         IEnumerator Shot(string name, bool quiet = false)

@@ -45,7 +45,7 @@ namespace PSXRacing
         /// <summary>Clear of the road edge: a kerb operator and one further back.</summary>
         public const float KerbStandoffM = 2.2f, BackStandoffM = 5.5f;
         /// <summary>Every this many shots, the buddy's car.</summary>
-        public const int ChaseEvery = 4;
+        public const int ChaseEvery = 3;
         public const float ChaseSeconds = 7f;
         /// <summary>Top pan rate of a hand on a camcorder, deg/s.</summary>
         public const float MaxPanDegS = 240f;
@@ -168,6 +168,11 @@ namespace PSXRacing
                     if (float.IsNaN(g.x)) continue;
                     if (g.y > 0.5f) continue;                       // a lane: never
                     if (g.x > road.y + 12f || g.x < road.y - 2.5f) continue;   // a roof, a gorge
+                    // Road further out too: a median between two carriageways,
+                    // or an island in a junction - nobody stands there (run 1,
+                    // Uptown Loop: an operator crouched in the I-277 median).
+                    Vector3 o1 = p + right * sd * 2.5f, o2 = p + right * sd * 6f;
+                    if (groundAt(o1.x, o1.z).y > 0.5f || groundAt(o2.x, o2.z).y > 0.5f) continue;
                     bool crouch = kerb && Hash(s * 31 + attempt) % 2 == 0;
                     p.y = g.x + (crouch ? CrouchM : EyeM);
                     if (blocked(p, road + Vector3.up * 0.8f) || blocked(p, ahead + Vector3.up * 0.8f)) continue;
@@ -378,7 +383,7 @@ namespace PSXRacing
                 int ahead = Ahead(spots[i].idx, carIdx, n);
                 if (ahead >= 3 && ahead < bestAhead) { bestAhead = ahead; best = i; }
             }
-            bool farAhead = best < 0 || bestAhead * path.spacing > 420f;
+            bool farAhead = best < 0 || bestAhead * path.spacing > 300f;
             if (spots.Count == 0 || farAhead || (shots % ChaseEvery == 0 && replay.FocusFrame.speedKmh > 30f))
             {
                 chasing = true;
