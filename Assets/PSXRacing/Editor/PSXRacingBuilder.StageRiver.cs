@@ -87,7 +87,7 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The stretches that are a STREET, not a mountain road: downtown
         /// Lake Lure and Chimney Rock village (metres along the route).</summary>
-        static readonly Vector2[] WorldStreets = { new Vector2(5050f, 6150f), new Vector2(6880f, 8040f) };
+        static readonly Vector2[] WorldStreets = { new Vector2(5050f, 6150f), new Vector2(6420f, 8040f) };
         static bool WorldOnStreet(float m) { foreach (var z in WorldStreets) if (m >= z.x && m <= z.y) return true; return false; }
 
         /// <summary>
