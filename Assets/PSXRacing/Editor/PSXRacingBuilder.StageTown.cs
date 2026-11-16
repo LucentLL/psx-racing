@@ -443,12 +443,13 @@ namespace PSXRacing.EditorTools
                                 new Vector2(p0.x / 4f, p0.z / 4f), new Vector2(p1.x / 4f, p1.z / 4f), new Vector2(p2.x / 4f, p2.z / 4f));
                     }
                 }
+                int frontEnd = front;
+                if (forms && !canopy) front = PorchFront(ring, toRoad, out frontEnd);
                 // ----- porch (and the balcony over it) on the street front
                 if (!canopy && front >= 0 && (shop || zone == "village" || zone == "batcave" || (zone != "gorge" && h % 3 == 0)) && b.dist < 70f)
                 {
-                    Vector3 a = ring[front], c = ring[(front + 1) % ring.Count];
-                    Vector3 e = new Vector3(c.x - a.x, 0, c.z - a.z); float len = e.magnitude; Vector3 dir = e / len, outN = new Vector3(-dir.z, 0, dir.x);
-                    bool veranda = forms && role == "inn";
+                    Vector3 a = ring[front], c = ring[(frontEnd + 1) % ring.Count];
+                    Vector3 e = new Vector3(c.x - a.x, 0, c.z - a.z); float len = e.magnitude; Vector3 dir = e / len, outN = new Vector3(-dir.z, 0, dir.x);                    bool veranda = forms && role == "inn";
                     float depth = veranda ? 3.0f : 2.2f;
                     // stay off the shoulder: the porch's front no nearer the road than the edge + 1.6 m
                     for (int tries = 0; tries < 4; tries++)

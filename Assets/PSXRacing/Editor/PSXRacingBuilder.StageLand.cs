@@ -36,7 +36,15 @@ namespace PSXRacing.EditorTools
         [Serializable] class WorldOpen { public string kind; public float[] xz; }
         [Serializable] class WorldPier { public float[] xz; public int area; }
 
-        const byte KeepOpen = 8;
+        const byte KeepOpen = 8, KeepPark = 32;
+        /// <summary>PARKLAND (bit 32, the town streets' bands): lawn with the
+        /// odd grove left standing - one 15 m block in five keeps its trees
+        /// (the video's big street trees), the rest is open.</summary>
+        static bool ParkGrove(float x, float z)
+        {
+            int bx = Mathf.FloorToInt(x / 15f), bz = Mathf.FloorToInt(z / 15f);
+            return Hash(bx * 15.37f, bz * 15.73f) % 5 == 0;
+        }
         /// <summary>The granite's 12 m cells (grown one cell), far terrain too:
         /// no tree stands on the rock.</summary>
         static HashSet<long> worldCliffKeep;
@@ -206,12 +214,12 @@ namespace PSXRacing.EditorTools
                     if (i1 - i0 < 2) continue;
                     var line = new Vector3[i1 - i0 + 1];
                     for (int i = i0; i <= i1; i++) line[i - i0] = pts[i];
-                    WorldBand(mask, line, zr.x < 6000f ? 40f : 28f, KeepOpen);
+                    WorldBand(mask, line, zr.x < 6000f ? 36f : 18f, KeepPark);
                 }
             }
             else if (world.streets != null)
-                foreach (var r in world.streets) if (r.xz != null && r.xz.Length >= 4) WorldBand(mask, WorldPts(r.xz), 28f, KeepOpen);
-            int n8 = 0; foreach (var v in mask) if ((v & KeepOpen) != 0) n8++;
+                foreach (var r in world.streets) if (r.xz != null && r.xz.Length >= 4) WorldBand(mask, WorldPts(r.xz), 18f, KeepPark);
+            int n8 = 0; foreach (var v in mask) if ((v & (KeepOpen | KeepPark)) != 0) n8++;
             Log($"Stage world open ground: {areas} mapped areas, {yards} yards, {lawnsBefore} lawns before town buildings, the town streets' bands - " +
                 $"{n8 * WorldKeepCell * WorldKeepCell / 1e6f:0.000} km2 the forest leaves open; granite keep-out {(worldCliffKeep?.Count ?? 0)} cells of 12 m.");
         }
@@ -258,7 +266,7 @@ namespace PSXRacing.EditorTools
                 {
                     int idx = r * worldKeepCols + c;
                     byte v = worldKeep[idx];
-                    if ((v & KeepOpen) == 0 || (v & 7) != 0) continue;
+                    if ((v & (KeepOpen | KeepPark)) == 0 || (v & 7) != 0) continue;
                     float x = worldKeepX0 + (c + 0.5f) * WorldKeepCell, z = worldKeepZ0 + (r + 0.5f) * WorldKeepCell;
                     if (CliffKeepAt(x, z)) continue;
                     bool edge = false;
@@ -395,6 +403,44 @@ namespace PSXRacing.EditorTools
             TownEmit(paint, "StreetPaint_" + no, parent);
             TownEmit(walks, "StreetWalks_" + no, parent);
             Log($"Stage world Main Street {no}: double yellow and edge lines over {rows} rows, {walked} sidewalk panels before its buildings.");
+        }
+
+        /// <summary>The porch's wall (FORMS): the straight run of walls (edges
+        /// within 6 degrees of one another) that faces the road best, its
+        /// length weighted by the cube of how squarely it faces - the inn's
+        /// whole long front, a shop's gable end rather than its long side.
+        /// Returns the run's first edge (-1: none faces the road).</summary>
+        static int PorchFront(List<Vector3> ring, Vector3 toRoad, out int lastEdge)
+        {
+            int n = ring.Count, best = -1; lastEdge = -1;
+            float bestScore = 0f;
+            for (int i0 = 0; i0 < n; i0++)
+            {
+                Vector3 e0 = ring[(i0 + 1) % n] - ring[i0]; e0.y = 0f;
+                if (e0.sqrMagnitude < 0.09f) continue;
+                e0.Normalize();
+                // only a run's first edge starts a run
+                Vector3 ep = ring[i0] - ring[(i0 + n - 1) % n]; ep.y = 0f;
+                if (ep.sqrMagnitude > 0.09f && Vector3.Dot(ep.normalized, e0) >= 0.995f) continue;
+                int i1 = i0;
+                for (int k = 1; k < n; k++)
+                {
+                    int ii = (i0 + k) % n;
+                    Vector3 e = ring[(ii + 1) % n] - ring[ii]; e.y = 0f;
+                    if (e.sqrMagnitude < 1e-4f) { i1 = ii; continue; }
+                    if (Vector3.Dot(e.normalized, e0) < 0.995f) break;
+                    i1 = ii;
+                }
+                Vector3 chord = ring[(i1 + 1) % n] - ring[i0]; chord.y = 0f;
+                float cl = chord.magnitude;
+                if (cl < 4f) continue;
+                Vector3 dir = chord / cl, outN = new Vector3(-dir.z, 0f, dir.x);
+                float dot = Vector3.Dot(outN, toRoad);
+                if (dot <= 0.45f) continue;
+                float score = cl * dot * dot * dot;
+                if (score > bestScore) { bestScore = score; best = i0; lastEdge = i1; }
+            }
+            return best;
         }
 
         // ------------------------------------------------------------- roofs

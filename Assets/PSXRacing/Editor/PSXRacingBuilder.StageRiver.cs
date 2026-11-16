@@ -159,7 +159,10 @@ namespace PSXRacing.EditorTools
             int c = (int)((x - worldKeepX0) / WorldKeepCell), r = (int)((z - worldKeepZ0) / WorldKeepCell);
             if (c < 0 || r < 0 || c >= worldKeepCols || r >= worldKeepRows)
                 return world != null && world.lakeLevelY > 0f && worldLakeBox.Contains(new Vector2(x, z)) && StageDemY(x, z) < world.lakeLevelY + 0.3f;
-            return worldKeep[r * worldKeepCols + c] != 0;
+            byte v = worldKeep[r * worldKeepCols + c];
+            // parkland (the town streets' bands, PSX_LURE_OPEN): open but for the odd grove
+            if (v == KeepPark) return !ParkGrove(x, z);
+            return v != 0;
         }
 
         /// <summary>Even-odd scanline fill of one or more rings into a mask
