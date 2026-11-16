@@ -219,14 +219,34 @@ namespace PSXRacing
 
         /// <summary>Camera choices on the replay: the trackside director,
         /// then the car's own views. Cycled with the camera control.</summary>
-        public enum CamMode { Trackside = 0, Chase = 1, Hood = 2, Bumper = 3, Cockpit = 4 }
-        public static readonly string[] CamNames = { "TRACKSIDE", "CHASE", "HOOD CAM", "BUMPER CAM", "COCKPIT" };
+        /// CAMCORDER (2026-11-16, <see cref="Camcorder"/>) is the default when
+        /// its switch is on: bystanders' handheld camcorders at the roadside.
+        public enum CamMode { Trackside = 0, Chase = 1, Hood = 2, Bumper = 3, Cockpit = 4, Camcorder = 5 }
+        public static readonly string[] CamNames = { "TRACKSIDE", "CHASE", "HOOD CAM", "BUMPER CAM", "COCKPIT", "CAMCORDER" };
         public CamMode Mode { get; private set; }
         /// <summary>When the camera mode last changed, for the HUD flash.</summary>
         public float ModeChangedAt { get; private set; } = -99f;
 
         /// <summary>A recording long enough to watch exists and no replay is running.</summary>
         public bool Available => !playing && times.Count > 1 && Duration > MinSeconds;
+
+        /// <summary>THE VCR's transport (2026-11-16, a tape at home): play
+        /// speed in x real time, signed. 1 = play; +/- several = cue / review
+        /// with the picture moving. Pause is <see cref="Paused"/>.</summary>
+        public float Rate { get; private set; } = 1f;
+        /// <summary>The cue / review speed of the VCR's scan.</summary>
+        public const float ScanRate = 6f;
+        /// <summary>Left / right SCAN the tape (VCR) instead of skipping ten
+        /// seconds, and the end of the tape stops instead of looping.</summary>
+        public bool VcrControls;
+        /// <summary>Asked before the replay's EXIT press is acted on; answers
+        /// true when it took the press itself (a tape at home ejects to the
+        /// house rather than to the results screen).</summary>
+        public static System.Func<bool> ExitHook;
+        /// <summary>Samples per second of the recording on screen: 30 for a
+        /// race just run, the tape's own rate for a tape.</summary>
+        float indexHz = SampleHz;
+        CamcorderCam camcorderCam;
 
         void Awake() => Instance = this;
         void OnDestroy()
@@ -459,7 +479,19 @@ namespace PSXRacing
                                 idx => TrackCatalog.InTunnel(venue, idx * spacing));
             }
             savedView = ChaseCamera.Current;
-            SetMode(CamMode.Trackside, flash: false);
+            if (cam != null && Camcorder.Enabled)
+            {
+                camcorderCam = cam.GetComponent<CamcorderCam>();
+                if (camcorderCam == null) camcorderCam = cam.gameObject.AddComponent<CamcorderCam>();
+                var venueC = RaceHUD.VenueDef();
+                var pathC = rm != null ? rm.path : Object.FindFirstObjectByType<TrackPath>();
+                float spacingC = pathC != null ? pathC.spacing : 4f;
+                camcorderCam.Setup(pathC, cam, pathC != null ? pathC.roadWidth : 12f,
+                                   idx => TrackCatalog.InTunnel(venueC, idx * spacingC));
+                camcorderCam.enabled = false;
+            }
+            Rate = 1f;
+            SetMode(Camcorder.Enabled && camcorderCam != null ? CamMode.Camcorder : CamMode.Trackside, flash: false);
 
             // The cabin is the driver's; a spectator gets the race data only.
             var hud = Object.FindFirstObjectByType<RaceHUD>();
@@ -511,6 +543,8 @@ namespace PSXRacing
             if (trafficTrack != null && trafficTrack.traffic != null) trafficTrack.traffic.EndReplay();
 
             if (replayCam != null) replayCam.enabled = false;
+            if (camcorderCam != null) camcorderCam.enabled = false;
+            Rate = 1f;
             if (chase != null)
             {
                 chase.enabled = true;
@@ -546,12 +580,21 @@ namespace PSXRacing
             bool exit = (kb != null && (kb.escapeKey.wasPressedThisFrame || kb.rKey.wasPressedThisFrame)) ||
                         (pad != null && (pad.buttonEast.wasPressedThisFrame || pad.startButton.wasPressedThisFrame)) ||
                         (touch != null && touch.ContinuePressed);
-            if (exit) { End(); return; }
+            if (exit)
+            {
+                if (ExitHook != null && ExitHook()) return;
+                End(); return;
+            }
 
             bool playPause = (kb != null && kb.spaceKey.wasPressedThisFrame) ||
                              (pad != null && pad.buttonSouth.wasPressedThisFrame) ||
                              (touch != null && touch.ReplayPressed(TouchControls.ReplayKey.PlayPause));
-            if (playPause) paused = !paused;
+            // THE VCR: PLAY out of a scan plays; PLAY while playing pauses.
+            if (playPause)
+            {
+                if (VcrControls && Rate != 1f) { Rate = 1f; paused = false; }
+                else paused = !paused;
+            }
 
             bool back = (kb != null && kb.leftArrowKey.wasPressedThisFrame) ||
                         (pad != null && (pad.dpad.left.wasPressedThisFrame || pad.leftShoulder.wasPressedThisFrame)) ||
@@ -559,8 +602,18 @@ namespace PSXRacing
             bool fwd = (kb != null && kb.rightArrowKey.wasPressedThisFrame) ||
                        (pad != null && (pad.dpad.right.wasPressedThisFrame || pad.rightShoulder.wasPressedThisFrame)) ||
                        (touch != null && touch.ReplayPressed(TouchControls.ReplayKey.Forward));
-            if (back) Seek(replayTime - SkipSeconds, hard: true);
-            if (fwd) Seek(replayTime + SkipSeconds, hard: true);
+            if (VcrControls)
+            {
+                // REW / FF: a press starts the scan, the same press again (or
+                // PLAY) drops back to play. The picture keeps moving.
+                if (back) { Rate = Rate < 0f ? 1f : -ScanRate; paused = false; }
+                if (fwd) { Rate = Rate > 1f ? 1f : ScanRate; paused = false; }
+            }
+            else
+            {
+                if (back) Seek(replayTime - SkipSeconds, hard: true);
+                if (fwd) Seek(replayTime + SkipSeconds, hard: true);
+            }
 
             bool nextCar = (kb != null && kb.upArrowKey.wasPressedThisFrame) ||
                            (pad != null && pad.dpad.up.wasPressedThisFrame) ||
@@ -573,7 +626,12 @@ namespace PSXRacing
             bool camKey = (kb != null && kb.cKey.wasPressedThisFrame) ||
                           (pad != null && pad.buttonNorth.wasPressedThisFrame) ||
                           (touch != null && touch.ReplayPressed(TouchControls.ReplayKey.Camera));
-            if (camKey) SetMode((CamMode)(((int)Mode + 1) % CamNames.Length), flash: true);
+            if (camKey)
+            {
+                var next = (CamMode)(((int)Mode + 1) % CamNames.Length);
+                if (next == CamMode.Camcorder && camcorderCam == null) next = CamMode.Trackside;
+                SetMode(next, flash: true);
+            }
 
             // The readers run in Update too, in no defined order against this
             // one, so the fields are written here as well as on the step.
@@ -585,7 +643,8 @@ namespace PSXRacing
             if (tracks.Count == 0) return;
             focus = ((i % tracks.Count) + tracks.Count) % tracks.Count;
             if (replayCam != null) replayCam.Retarget();
-            if (chase != null && Mode != CamMode.Trackside)
+            if (camcorderCam != null) camcorderCam.Retarget();
+            if (chase != null && Mode != CamMode.Trackside && Mode != CamMode.Camcorder)
             {
                 chase.target = Focus.transform; chase.targetCar = Focus;
             }
@@ -595,8 +654,12 @@ namespace PSXRacing
         {
             Mode = m;
             if (flash) ModeChangedAt = Time.unscaledTime;
-            bool trackside = m == CamMode.Trackside;
-            if (replayCam != null) replayCam.enabled = trackside;
+            // CAMCORDER is a trackside mode as far as the chase rig is
+            // concerned: the rig stands down and another lens drives.
+            bool camcorder = m == CamMode.Camcorder && camcorderCam != null;
+            bool trackside = m == CamMode.Trackside || m == CamMode.Camcorder;
+            if (replayCam != null) replayCam.enabled = trackside && !camcorder;
+            if (camcorderCam != null) camcorderCam.enabled = camcorder;
             if (chase != null)
             {
                 chase.enabled = !trackside;
@@ -627,6 +690,7 @@ namespace PSXRacing
                 else if (tr.car.Body != null) { tr.car.Body.MovePosition(f.pos); tr.car.Body.MoveRotation(f.rot); }
             }
             if (replayCam != null) replayCam.Retarget();
+            if (camcorderCam != null && hard) camcorderCam.Retarget();
             ApplyVisuals();
             ApplyCargo(replayTime);
             ApplyTraffic(replayTime, hard);
@@ -636,9 +700,15 @@ namespace PSXRacing
         {
             if (!paused)
             {
-                replayTime += Time.fixedDeltaTime;
+                replayTime += Time.fixedDeltaTime * Rate;
+                if (VcrControls)
+                {
+                    // A tape stops at its end and at its start, as a deck does.
+                    if (replayTime > Duration) { replayTime = Duration; paused = true; Rate = 1f; }
+                    if (replayTime < 0f) { replayTime = 0f; Rate = 1f; }
+                }
                 // Round again from the grid, the way the reference loops.
-                if (replayTime > Duration) { Seek(0f, hard: true); return; }
+                else if (replayTime > Duration) { Seek(0f, hard: true); return; }
             }
             foreach (var tr in tracks)
             {
@@ -933,7 +1003,7 @@ namespace PSXRacing
         int IndexAt(float t)
         {
             int n = times.Count;
-            int i = Mathf.Clamp(Mathf.FloorToInt(t * SampleHz), 0, n - 2);
+            int i = Mathf.Clamp(Mathf.FloorToInt(t * indexHz), 0, n - 2);
             while (i > 0 && times[i] > t) i--;
             while (i < n - 2 && times[i + 1] <= t) i++;
             return i;
@@ -969,6 +1039,70 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         //  For the self-test: the pure parts, without a scene.
         // ------------------------------------------------------------------
+        // ------------------------------------------------------------------
+        //  THE TAPE (2026-11-16): what a tape copies out, and what it loads
+        // ------------------------------------------------------------------
+        /// <summary>The recorded field, in recording order.</summary>
+        public int TrackCount => tracks.Count;
+        public CarController TrackCar(int i) => i >= 0 && i < tracks.Count ? tracks[i].car : null;
+        public string TrackName(int i) => i >= 0 && i < tracks.Count ? tracks[i].name : "";
+        public IReadOnlyList<Frame> TrackFrames(int i) => tracks[i].frames;
+        public IReadOnlyList<float> SampleTimes => times;
+        /// <summary>The recording is over (the flag and its tail, or a replay
+        /// has been watched): it will not grow any more.</summary>
+        public bool RecordingDone => !recording && times.Count > 1;
+        /// <summary>The traffic pool's live cars at sample k, for the tape's
+        /// value (near misses). False before the traffic's first sample or
+        /// with none.</summary>
+        public bool TrafficAt(int k, List<Vector3> into)
+        {
+            into.Clear();
+            var tt = trafficTrack;
+            if (tt == null || tt.n <= 0 || k < tt.first || k - tt.first >= tt.Samples) return false;
+            int b = (k - tt.first) * tt.n;
+            for (int j = 0; j < tt.n; j++)
+            {
+                var pz = tt.poses[b + j];
+                if (pz.on) into.Add(pz.pos);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Load a TAPE in place of the race just run: these cars, these
+        /// samples (one list of frames per car, each as long as
+        /// <paramref name="t"/>). The recorder stops; nothing of a load or of
+        /// the traffic rides on a tape. Call before <see cref="Begin"/>.
+        /// </summary>
+        public bool LoadTape(List<CarController> cars, List<float> t, List<List<Frame>> frames, List<string> names)
+        {
+            if (playing || cars == null || t == null || frames == null || t.Count < 2) return false;
+            tracks.Clear(); times.Clear();
+            times.AddRange(t);
+            for (int i = 0; i < cars.Count && i < frames.Count; i++)
+            {
+                var c = cars[i];
+                if (c == null || frames[i] == null || frames[i].Count != t.Count) continue;
+                var body = c.GetComponent<CarBody>();
+                tracks.Add(new CarTrack
+                {
+                    car = c, body = body,
+                    bodyRoot = body != null ? body.bodyRoot : null,
+                    frames = frames[i],
+                    name = names != null && i < names.Count && !string.IsNullOrEmpty(names[i]) ? names[i] : NameOf(c),
+                });
+            }
+            recording = false;
+            cargoTrack = null;
+            trafficTrack = null;
+            float dur = times[times.Count - 1] - times[0];
+            indexHz = dur > 0f ? (times.Count - 1) / dur : SampleHz;
+            return tracks.Count > 0;
+        }
+
+        /// <summary>Watch this car (a tape opens on the player's own).</summary>
+        public void Watch(int i) => SetFocus(i);
+
         /// <summary>Feed synthetic frames straight in. Test only.</summary>
         public void InjectForTest(CarController car, List<float> t, List<Frame> frames)
         {
