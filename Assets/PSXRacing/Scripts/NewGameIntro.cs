@@ -172,6 +172,7 @@ namespace PSXRacing
         TrackPath path;
         CarController car;
         PlayerCarInput input;
+        CarLights lamps;
         Camera cam;
         Carrier carrier;
         int iIn, iOut, iCam, iEnd, carIdx;
@@ -188,7 +189,7 @@ namespace PSXRacing
         readonly List<GameObject> raceTexts = new List<GameObject>();
         Text centerText;
         bool centerMuted;
-        float hudAlpha;
+        float hudAlpha, beamInBore = CarLights.BeamIntensity;
 
         /// <summary>RaceManager.Start, last thing: take the run over when <see cref="Launch"/> asked.</summary>
         public static void Attach(RaceManager race)
@@ -254,6 +255,7 @@ namespace PSXRacing
             if (prog != null) prog.nearestIdx = iCar;
             input = car.GetComponent<PlayerCarInput>();
             if (input != null) input.enabled = false;
+            lamps = car.GetComponentInChildren<CarLights>();
             car.throttleInput = 0.3f; car.brakeInput = 0f; car.steerInput = 0f;
 
             // Quiet: no replay, no pause (Esc and Start are the skip), no HUD until the attach.
@@ -384,6 +386,15 @@ namespace PSXRacing
             }
 
             ExposureAdapt.ForceTunnel = carIdx >= iIn && carIdx <= iOut;
+            // The lamps stay on (an hour re-applied would switch them off). In the dark of the bore they look as
+            // bright as at night - the night beam over the eye's gain, so the pools do not flare as the eye
+            // opens (the day beam, 0.42, is a retune for a road in the sun) - easing to the day's after the exit.
+            if (lamps != null && !lamps.LitNow) CarLights.SetAll(true);
+            if (!Exited)
+                beamInBore = Mathf.Clamp(CarLights.BeamIntensity / Mathf.Max(1f, ExposureAdapt.Current),
+                                         CarLights.BeamIntensityDay, CarLights.BeamIntensity);
+            float beamK = !Exited ? 1f : Mathf.Clamp01(1f - (now - ExitedAt));
+            CarLights.BeamIntensityOverride = beamK > 0f ? Mathf.Lerp(CarLights.BeamIntensityDay, beamInBore, beamK) : 0f;
             if (attachT0 >= 0f)
             {
                 float h = Mathf.Clamp01((now - attachT0 - BlendS * 0.45f) / HudFadeS);
@@ -586,22 +597,28 @@ namespace PSXRacing
             Now = Phase.Outro;
             EndReason = why;
             outroT0 = Time.time;
+            // a skip is quick: a short fade and the card for a moment
+            bool quick = why == "skipped";
+            outroFade = quick ? 0.6f : OutroFadeS;
+            cardHold = quick ? 1.2f : CardHoldS;
             if (input != null) input.enabled = false;
             Debug.Log($"[NewGameIntro] the end ({why}) at {Time.time - t0:0.0} s, {PastExitM:0} m past the exit");
         }
+
+        float outroFade = OutroFadeS, cardHold = CardHoldS;
 
         void StepOutro()
         {
             // the car rolls on under the fade, gently, rather than stopping dead
             car.steerInput = 0f; car.throttleInput = 0f; car.brakeInput = 0.15f; car.handbrakeInput = false;
             float t = Time.time - outroT0;
-            carrier.ShowBlack(Mathf.Max(carrier.BlackAlpha, Smooth01(t / OutroFadeS)));
-            carrier.FadeAmbience(OutroFadeS);
-            if (t < OutroFadeS) return;
+            carrier.ShowBlack(Mathf.Max(carrier.BlackAlpha, Smooth01(t / outroFade)));
+            carrier.FadeAmbience(outroFade);
+            if (t < outroFade) return;
             if (cardT0 < 0f) { cardT0 = Time.time; AudioFader.FadeOut(); }
             float c = Time.time - cardT0;
             carrier.ShowCard(Mathf.Clamp01(c / CardInS));
-            if (c >= CardInS + CardHoldS) Finish();
+            if (c >= CardInS + cardHold) Finish();
         }
 
         void Finish()
@@ -621,6 +638,7 @@ namespace PSXRacing
             EarOutside = false;
             ExposureAdapt.Scripted = -1f;
             ExposureAdapt.ForceTunnel = false;
+            CarLights.BeamIntensityOverride = 0f;
             CarLights.SetAll(TimeOfDay.At(TimeOfDay.Current).lightsOn);
             if (centerText != null) centerText.enabled = true;
             foreach (var go in raceTexts) if (go != null) go.SetActive(true);
