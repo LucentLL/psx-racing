@@ -140,9 +140,19 @@ namespace PSXRacing.EditorTools
                 var mt = CityMeshTrees.EnsureFor(world);
                 if (mt == null) throw new System.Exception("CityMeshTrees did not start (kit / GPU)");
                 var kit = mt.Kit;
-                log.Append($"kit: {kit.variants.Length} species\n");
+                log.Append($"kit: {kit.variants.Length} species; quality level '{QualitySettings.names[QualitySettings.GetQualityLevel()]}', target {EditorUserBuildSettings.activeBuildTarget}\n");
+                // THE POP KNOBS (tree pop-in round): the hand-over bands as a share of each level's distance
+                // (MeshForest.TourBandShare) and each level's distance x (MeshForest.TourLodMul), for this process
+                if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_LODBAND") ?? "", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float bandShare) && bandShare > 0f)
+                    MeshForest.TourBandShare = bandShare;
+                var lm = (System.Environment.GetEnvironmentVariable("PSX_LODMUL") ?? "").Split(',');
+                if (lm.Length == 3 && float.TryParse(lm[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float m0)
+                    && float.TryParse(lm[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float m1)
+                    && float.TryParse(lm[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float m2))
+                    MeshForest.TourLodMul = new Vector3(m0, m1, m2);
+                log.Append($"pop knobs: band share {MeshForest.TourBandShare:0.00} (-1 = the forest's own), level distances x {MeshForest.TourLodMul}\n");
                 bool walk = System.Environment.GetEnvironmentVariable("PSX_FEET_WALK") != "0";
-                foreach (var pid in new[] { "arterial", "wtrade" })
+                foreach (var pid in (System.Environment.GetEnvironmentVariable("PSX_FEET_PLACES") ?? "arterial,wtrade").Split(','))
                 {
                     int pi = System.Array.FindIndex(T3Places, q => q.id == pid);
                     if (pi < 0) continue;
@@ -160,12 +170,14 @@ namespace PSXRacing.EditorTools
                     world.EnsureRing(eye - f * 160f, 2); mt.Flush();
                     log.Append($"\n{pid}\t'{e.name}' {CityAudit.LatLon(eye.x, eye.z)}\n");
                     FeetAudit(mt, kit, pid, tag, log);
-                    if (!walk || pid != "arterial") continue;
+                    if (!walk) continue;
                     foreach (int lvl in new[] { 1, 2 })
                     {
                         ForestDetailPrefs.Override = lvl; mt.Rebuild();
                         string L = ForestDetailPrefs.Label;
                         FeetLight(sun, dressing, world);
+                        log.Append($"  {pid} {L}: levels {mt.Forest.lod0To:0} / {mt.Forest.lod1To:0} / {mt.Forest.meshRange:0} m, bands {mt.Forest.band0:0} / {mt.Forest.band1:0} / {mt.Forest.band2:0} m\n");
+                        if (pid == "arterial") { var crot = Quaternion.LookRotation(f + Vector3.down * 0.03f); Cost(cam, mt, $"{pid} {L} {tag}", eye - f * 150f + Vector3.up * 0.0f, crot, log); }
                         for (int d = 300; d >= 20; d -= 10)
                         {
                             var q = eye - f * d;
