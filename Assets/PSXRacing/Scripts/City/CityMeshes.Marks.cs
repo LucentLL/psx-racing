@@ -70,7 +70,8 @@ namespace PSXRacing.City
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped, mouthsDotted, mouthsDottedOut, mouthsDottedYellow,
                        lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
-                       crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines;
+                       crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines,
+                       noseBayOpen, noseSplit, noseSplitHatched;
             public float auxM, exitDropM, lsM, buildMs, pocketM; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
@@ -694,7 +695,14 @@ namespace PSXRacing.City
                 // round 5 (review r4 #8): the hatch and the flush tip only at the
                 // noses of drawn (accepted) refuge pairs - every other plain nose
                 // keeps live's paint and its kerb (only its turn arrows are gone)
-                if (!LineModel.IsRefugeNode(sp.node)) { MarkStats.noseNonRefuge++; continue; }
+                // the splits round (PSX_CITY_NOSE): an in-scope long split's nose
+                // is marked too (every split nose gets its approach marking)
+                bool splitNose = !LineModel.IsRefugeNode(sp.node) && LineModel.SplitNoseMarked(map, sp.node);
+                if (!LineModel.IsRefugeNode(sp.node) && !splitNose) { MarkStats.noseNonRefuge++; continue; }
+                if (splitNose) MarkStats.noseSplit++;
+                // a bay leaving the nose toward a real junction (LaSalle St's at
+                // n10238) opens at the island's end: no hatch across its entry
+                if (LineModel.BayOpensAt(sp.node)) { MarkStats.noseBayOpen++; continue; }
                 bool forward = U.b == sp.node;                         // U runs INTO the nose a->b
                 float trimNear = t.TrimAt(U, sp.node);
                 int other = forward ? U.a : U.b;
@@ -798,6 +806,7 @@ namespace PSXRacing.City
                 AddMark(new PaintMark { style = MkGlyph, edge = U.index, s0 = Mathf.Min(s0, s1), s1 = Mathf.Max(s0, s1), pieces = pieces, bps = uq.ToArray(), side = 0, what = "nose hatch", yellow = true,
                                         hdg = Mathf.Repeat(Mathf.Atan2(tg.x, tg.y) * Mathf.Rad2Deg, 360f) });
                 MarkStats.noseHatches++; MarkStats.noseHatchBars += pieces.Count;
+                if (splitNose) MarkStats.noseSplitHatched++;
             }
         }
 

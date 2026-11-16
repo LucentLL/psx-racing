@@ -1600,6 +1600,7 @@ namespace PSXRacing.City
         static Trims ComputeTrimsCore(CityMap map, bool[] forceFan)
         {
             int ne = map.edges.Length, nn = map.nodes.Length;
+            LineModel.SplitForcedMitre = 0;
             var t = new Trims
             {
                 atA = new float[ne], atB = new float[ne],
@@ -1783,6 +1784,29 @@ namespace PSXRacing.City
                 // A through road with nothing but branches beside it draws
                 // no patch: the through ribbons meet mitred, the branches
                 // clip. Anything else is a fan.
+                // THE SPLITS ROUND (J1 Phase B, PSX_CITY_SPLITAXIS): every in-scope
+                // 3-arm carriageway split is MITRED, never a fan: the undivided road
+                // and the carriageway most nearly opposite it go through, the other
+                // carriageway clips onto that one (the axis-frame profile then
+                // starts both carriageways' lanes where they are in the road)
+                if (arms.Count == 3 && !crossing && LineModel.SplitsOn && LineModel.InSplitScope(map, n) && LineModel.SplitUOf(map, n, out int spU))
+                {
+                    int iu = -1;
+                    for (int i = 0; i < 3; i++) if (arms[i].e.index == spU) iu = i;
+                    if (iu >= 0)
+                    {
+                        int jt = -1; float bd = 2f;
+                        for (int j = 0; j < 3; j++) { if (j == iu) continue; float d = Vector2.Dot(arms[iu].dir, arms[j].dir); if (d < bd) { bd = d; jt = j; } }
+                        int ko = 3 - iu - jt;
+                        if (jt >= 0 && ko >= 0 && ko < 3 && ko != iu && ko != jt)
+                        {
+                            tA = iu; tB = jt; through = true;
+                            for (int i = 0; i < 3; i++) { clipped[i] = -1; clipFirst[i] = -1; }
+                            clipped[ko] = jt; clipFirst[ko] = jt;
+                            LineModel.SplitForcedMitre++;
+                        }
+                    }
+                }
                 bool allBranch = through;
                 if (through)
                     for (int i = 0; i < arms.Count && allBranch; i++)
@@ -1875,6 +1899,8 @@ namespace PSXRacing.City
             BuildJunctionClusters(map, t, medianX);
             ChainContinuity(map, t);
             // the line model's one-sided tapers, run on through mitred joints
+            // (the splits round: a fan's edge is where a junction split's profile starts)
+            LineModel.SplitTrimHook = (e, node) => t.TrimAt(e, node);
             LineModel.BuildEases(map, joins, (e, node) =>
             {
                 if (!t.mitre[node]) return -1;

@@ -48,6 +48,42 @@ namespace PSXRacing.EditorTools
             if (map == null) { Fail("charlotte_city.bytes missing from Resources"); FinishTo("city_medians.txt"); return; }
             bool refWas = LineModel.RefugeOn;
             var clock = System.Diagnostics.Stopwatch.StartNew();
+            // ---- THE SPLITS ROUND (J1): one decision per PSX_CITY_SPLITAXIS scope ----
+            // The list carries each pair's scopes (16 = 0, 32 = bfr, 64 = all), so
+            // PSX_CITY_SPLITAXIS=0 draws PC45's pairs exactly whatever bfr/all
+            // accept. The other scopes are decided first (each on its own live
+            // build); the current scope last, by the code below, as before.
+            // PSX_REFUGE_GATE_SCOPES=0,bfr,all (the shipped list's run) or the default "0,<current>".
+            string scopeNow = LineModel.SplitAxis;
+            var scopeList = new List<string>();
+            foreach (var sc in (System.Environment.GetEnvironmentVariable("PSX_REFUGE_GATE_SCOPES") ?? ("0," + scopeNow)).Split(','))
+            {
+                string s1 = LineModel.SplitAxisOf(sc);
+                if (!scopeList.Contains(s1)) scopeList.Add(s1);
+            }
+            if (!scopeList.Contains(scopeNow)) scopeList.Add(scopeNow);
+            var decidedBy = new Dictionary<string, Dictionary<long, byte>>();
+            var candsBy = new Dictionary<long, LineModel.RefugeCand>();
+            var scopeLog = new StringBuilder();
+            foreach (var sc in scopeList)
+            {
+                if (sc == scopeNow) continue;
+                LineModel.SplitAxis = sc;
+                LineModel.RefugeOn = false; LineModel.RefugeOverride = null;
+                CityMeshes.ComputeTrims(map);
+                var offS = new LineModel.Ease[map.edges.Length][];
+                for (int i = 0; i < map.edges.Length; i++) offS[i] = map.edges[i].lmEase;
+                LineModel.RefugeOn = true;
+                var whyS = new Dictionary<long, string>();
+                var decS = DecideRefuges(map, offS, whyS, out int itS, out var candS, out _, out string logS);
+                decidedBy[sc] = decS;
+                foreach (var c in candS) candsBy[c.pk] = c;
+                scopeLog.Append($"\n  scope {sc}: {decS.Count} accepted of {candS.Count} in {itS + 1} builds; BAYEND edges {LineModel.BayEndEdges}, bays opening at a nose {CountBayOpen(map)}");
+                foreach (var c in candS) if (!decS.ContainsKey(c.pk) && whyS.TryGetValue(c.pk, out var w) && (LineModel.InSplitScope(map, c.n1) || LineModel.InSplitScope(map, c.n2)))
+                        scopeLog.Append($"\n    (in scope, reverted) n{c.n1}-n{c.n2} '{map.edges[c.e1].name}': {w}");
+            }
+            LineModel.SplitAxis = scopeNow;
+            LineModel.RefugeOverride = null;
             // ---- OFF: live ----
             LineModel.RefugeOn = false; LineModel.RefugeOverride = null;
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -71,8 +107,29 @@ namespace PSXRacing.EditorTools
             LineModel.RefugeOn = true;
             var why = new Dictionary<long, string>();
             var decided = DecideRefuges(map, offEase, why, out int iters, out var cands, out int noneDiff, out string decideLog);
+            decidedBy[scopeNow] = decided;
+            foreach (var c in cands) candsBy[c.pk] = c;
             string cityHash = CityHash();
-            string gen = RefugeListSource(map, decided, cands, cityHash);
+            string gen = RefugeListSource(map, decidedBy, candsBy, cityHash);
+            Line($"SPLITS ROUND (PSX_CITY_SPLITAXIS {scopeNow}; decided scopes {string.Join(",", scopeList)}): BAYEND edges {LineModel.BayEndEdges}, bays opening at a nose {CountBayOpen(map)}{scopeLog}");
+            foreach (var bl in LineModel.BayEndLog) Line("  " + bl);
+            foreach (var sc in scopeList)
+            {
+                var d = decidedBy[sc];
+                int bit = sc == "0" ? 16 : sc == "bfr" ? 32 : 64;
+                Line($"  scope {sc}: {d.Count} pairs accepted; the compiled list draws {LineModel.CompiledRefugeCount(bit)} under it");
+            }
+            if (decidedBy.TryGetValue("0", out var d0))
+            {
+                // PSX_CITY_SPLITAXIS=0 must be PC45: the same pairs as PC45's list (compiled, legacy entries)
+                int pc45 = 0, miss = 0; string missAt = "";
+                foreach (var kv in d0) { pc45++; }
+                foreach (long pk in Pc45RefugePairs) if (!d0.ContainsKey(pk)) { miss++; missAt += $" {PairName(map, cands, pk)};"; }
+                int extra = 0; string extraAt = "";
+                foreach (var kv in d0) if (System.Array.IndexOf(Pc45RefugePairs, kv.Key) < 0) { extra++; extraAt += $" {PairName(map, cands, kv.Key)};"; }
+                Line($"  scope 0 against PC45's 17 pairs: {pc45} decided, {miss} of PC45's missing{missAt}, {extra} not in PC45's{extraAt}");
+                Check(miss == 0 && extra == 0, "PSX_CITY_SPLITAXIS=0 decides exactly PC45's 17 refuge pairs", miss + extra);
+            }
             System.IO.File.WriteAllText("refuge_list.generated.cs", gen);
             // ---- VERIFY: the compiled list ----
             LineModel.RefugeOverride = null;
@@ -302,7 +359,65 @@ namespace PSXRacing.EditorTools
             return h.ToString("x16");
         }
 
-        static string RefugeListSource(CityMap map, Dictionary<long, byte> decided, List<LineModel.RefugeCand> cands, string hash)
+        /// <summary>PC45's 17 accepted pairs (LineModel.RefugeList.cs at 7badf362):
+        /// PSX_CITY_SPLITAXIS=0 must decide exactly these.</summary>
+        static readonly long[] Pc45RefugePairs =
+        {
+            10187662436439L, 15710990378529L, 17016660430719L, 30472792973916L, 33011118647387L, 40634685603484L,
+            41725607296980L, 43937515448313L, 43941810415608L, 44744969306889L, 46110768903913L, 49211735290422L,
+            56826712306609L, 58282706220291L, 60292750915287L, 60833916794709L, 62182536525967L,
+        };
+
+        static int CountBayOpen(CityMap map)
+        {
+            int n = 0;
+            if (map.splt != null) foreach (var sp in map.splt) if (LineModel.BayOpensAt(sp.node)) n++;
+            return n;
+        }
+
+        /// <summary>The splits round: the list with each pair's scopes. A pair
+        /// decided alike (same mode) in every one of the three scopes is a plain
+        /// entry (drawn under every scope, as PC45's were); otherwise one entry
+        /// per mode, carrying the bits of the scopes that chose it.</summary>
+        static string RefugeListSource(CityMap map, Dictionary<string, Dictionary<long, byte>> decidedBy, Dictionary<long, LineModel.RefugeCand> cands, string hash)
+        {
+            var sb = new StringBuilder();
+            sb.Append("// GENERATED by PSXRacing.EditorTools.CityAudit.RunMedianGates (medians round 5; the splits round's scopes) - do not edit by hand.\r\n");
+            sb.Append("// The refuge pairs that passed every medians gate on the drawn geometry; any\r\n");
+            sb.Append("// pair not listed (or whose fingerprint no longer matches) is drawn as live.\r\n");
+            sb.Append($"// Scopes decided: {string.Join(", ", decidedBy.Keys)}. Mode = 1 auto / 2 flush, plus the scopes that draw\r\n");
+            sb.Append("// the entry (16 PSX_CITY_SPLITAXIS=0, 32 bfr, 64 all); no scope bits: every scope.\r\n");
+            sb.Append("namespace PSXRacing.City\r\n{\r\n    public static partial class LineModel\r\n    {\r\n");
+            sb.Append($"        const int RefugeListEdges = {map.edges.Length}, RefugeListNodes = {map.nodes.Length};\r\n");
+            sb.Append("        /// <summary>FNV-1a 64 of charlotte_city.bytes the list was decided on (the gate checks it).</summary>\r\n");
+            sb.Append($"        public const string RefugeListCity = \"{hash}\";\r\n");
+            sb.Append("        /// <summary>Triples: pair key (RefugePairKey), fingerprint, mode (1 auto, 2 flush; + scope bits).</summary>\r\n");
+            sb.Append("        static readonly long[] RefugeListData = {\r\n");
+            bool allThree = decidedBy.ContainsKey("0") && decidedBy.ContainsKey("bfr") && decidedBy.ContainsKey("all");
+            var keys = new SortedSet<long>();
+            foreach (var d in decidedBy.Values) foreach (var k in d.Keys) keys.Add(k);
+            foreach (long pk in keys)
+            {
+                if (!cands.TryGetValue(pk, out var c)) continue;
+                var byMode = new SortedDictionary<int, int>();
+                foreach (var kv in decidedBy)
+                {
+                    if (!kv.Value.TryGetValue(pk, out byte md)) continue;
+                    int bit = kv.Key == "0" ? 16 : kv.Key == "bfr" ? 32 : 64;
+                    byMode[md] = (byMode.TryGetValue(md, out int b0) ? b0 : 0) | bit;
+                }
+                foreach (var kv in byMode)
+                {
+                    int v = allThree && kv.Value == (16 | 32 | 64) ? kv.Key : kv.Key | kv.Value;
+                    string sc = (v & LineModel.RefugeScopeMask) == 0 ? "" : $" [{((v & 16) != 0 ? "0 " : "")}{((v & 32) != 0 ? "bfr " : "")}{((v & 64) != 0 ? "all" : "")}]";
+                    sb.Append($"            {pk}L, {c.fp}L, {v},   // n{c.n1}-n{c.n2} {map.edges[c.e1].name.Replace("\\", "").Replace("\n", " ")}{sc.TrimEnd()}\r\n");
+                }
+            }
+            sb.Append("        };\r\n    }\r\n}\r\n");
+            return sb.ToString();
+        }
+
+        static string RefugeListSourceLegacy(CityMap map, Dictionary<long, byte> decided, List<LineModel.RefugeCand> cands, string hash)
         {
             var sb = new StringBuilder();
             sb.Append("// GENERATED by PSXRacing.EditorTools.CityAudit.RunMedianGates (medians round 5) - do not edit by hand.\r\n");

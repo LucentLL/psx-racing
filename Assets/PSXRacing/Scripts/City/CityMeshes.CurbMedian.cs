@@ -187,8 +187,11 @@ namespace PSXRacing.City
             float sFrom = sections[0].s, sTo = sections[n - 1].s;
             if (CurbMedianAll)
             {
-                if (SplitNode(map, e, e.a)) sFrom += CurbMedianSplitSetbackM;
-                if (SplitNode(map, e, e.b)) sTo -= CurbMedianSplitSetbackM;
+                // the splits round (PSX_CITY_NOSE): a nose the axis-frame profile
+                // shapes (the island grows from a rounded tip where the lane bands
+                // are 2.4 m apart) has no blunt 12 m set-back
+                if (SplitNode(map, e, e.a) && !NoseShaped(e.a)) sFrom += CurbMedianSplitSetbackM;
+                if (SplitNode(map, e, e.b) && !NoseShaped(e.b)) sTo -= CurbMedianSplitSetbackM;
             }
             var o = tm.origin;
             bool any = false;
@@ -231,7 +234,7 @@ namespace PSXRacing.City
                     // tuck's 17-30 cm face bare at the axis (the junction
                     // sweep's steps at nodes where a link or side street meets
                     // one carriageway).
-                    if ((sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.a)) || (tw.length - sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.b))) continue;
+                    if ((sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.a) && !NoseShaped(tw.a)) || (tw.length - sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.b) && !NoseShaped(tw.b))) continue;
                     var q = pw + outw * edgeRun;
                     ClearRun(map, trims, q, -outw, oy, reach, out _, out float backRun, out bool backFan);
                     if (float.IsNaN(backRun) || backFan || clearRunBlockEdge != e.index || Mathf.Abs(backRun - edgeRun) > 1f) continue;
@@ -275,6 +278,10 @@ namespace PSXRacing.City
             // the median dress: each section's top (concrete, a planted bed, grass)
             PrepareMedianDress(map, e, n);
         }
+
+        /// <summary>The splits round: a split nose the axis-frame profile shapes
+        /// and NoseMarks hatched (a flush tip keeps PC45's set-back).</summary>
+        static bool NoseShaped(int node) => LineModel.SplitNoseShaped(node) && !NoseFlushTip.Contains(node);
 
         /// <summary>A node where a two-way edge of this name parts into (or
         /// joins from) the one-way carriageways.</summary>
