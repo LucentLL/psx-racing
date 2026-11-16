@@ -833,31 +833,13 @@ namespace PSXRacing
                 // cut to.
                 minCornerR = 5.5f,
             },
-        };
 
-        /// <summary>
-        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
-        /// stage the builder does not yet handle well enough to ship. Empty
-        /// since Chimney Rock went into <see cref="Authored"/> (2026-09-29,
-        /// save v20); kept as the place the next one waits, because the stage
-        /// lab (tools\stage-lab.ps1), the rail shots, the lane audit and the
-        /// self-test's roadside sweep all build and measure what is in here
-        /// as well. A venue is NOT appended to Authored and then taken away
-        /// again - that would move every twin twice - so a road waits here
-        /// until it is ready; then it is appended, with a save remap like
-        /// v20's (see <see cref="RemapV19Index"/>). (Chimney Rock did go back
-        /// in here once, cd63392, before anything was pushed; the owner
-        /// released it on 2026-09-29.)
-        /// </summary>
-        public static readonly TrackDef[] HeldBack =
-        {
-            // US 64/74A from Lake Lure through Chimney Rock to Bat Cave, AS IT
-            // STOOD BEFORE HURRICANE HELENE (owner, 2026-11-16: "I'm
-            // specifically looking for the roads and buildings, etc from
-            // BEFORE Hurricane Helene to capture the memory of what it used to
-            // be like"). The line is OpenStreetMap of 2024-09-20, a week
-            // before the storm; the heights the 2018 lidar. Waits here until
-            // its gates pass, then is appended with a save remap like v20's.
+            // US 64/74A FROM LAKE LURE THROUGH CHIMNEY ROCK TO BAT CAVE, AS IT
+            // STOOD BEFORE HURRICANE HELENE (owner, 2026-11-16). Out of
+            // HeldBack once its gates passed: the lab audits at 0 FAIL with
+            // the lake, the river, the village and the side roads built, and
+            // the race, sprint, reverse and finish checks. Appended - save
+            // v30 (RemapV29Index, by id).
             new TrackDef
             {
                 id = "LakeLure",
@@ -879,6 +861,22 @@ namespace PSXRacing
                 noDelivery = true,      // a par for a drop here is the owner's economy call
             },
         };
+
+        /// <summary>
+        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
+        /// stage the builder does not yet handle well enough to ship. Empty
+        /// since Chimney Rock went into <see cref="Authored"/> (2026-09-29,
+        /// save v20); kept as the place the next one waits, because the stage
+        /// lab (tools\stage-lab.ps1), the rail shots, the lane audit and the
+        /// self-test's roadside sweep all build and measure what is in here
+        /// as well. A venue is NOT appended to Authored and then taken away
+        /// again - that would move every twin twice - so a road waits here
+        /// until it is ready; then it is appended, with a save remap like
+        /// v20's (see <see cref="RemapV19Index"/>). (Chimney Rock did go back
+        /// in here once, cd63392, before anything was pushed; the owner
+        /// released it on 2026-09-29.)
+        /// </summary>
+        public static readonly TrackDef[] HeldBack = { };
 
         /// <summary>
         /// A reverse twin: the same venue driven backwards, named the way Gran
@@ -1124,6 +1122,43 @@ namespace PSXRacing
                 blurb = "Out of the valley up the lower switchbacks, 479 m to 635 m. 3.9 km. " +
                         "Map (c) OpenStreetMap contributors.",
                 label = "635 M", startM = 11738f, finishM = 7848f, reverse = true,
+            },
+
+            // LAKE LURE IN TWO (2026-11-16): the lake shore and downtown, then
+            // over the Rocky Broad and up through Chimney Rock and the gorge.
+            // Cut at 6200 m, 80 m short of the river bridge's deck, where no
+            // bend is tighter than 800 m within 48 m of the line.
+            new SprintVariant
+            {
+                id = "LakeLureShore", baseId = "LakeLure",
+                name = "US 64/74A — LAKE LURE",
+                blurb = "Along Lake Lure before the flood: from where NC 9 comes in, the lake road's " +
+                        "bends and downtown to the Rocky Broad bridge. 6.1 km. Map (c) OpenStreetMap contributors.",
+                label = "THE BRIDGE", startM = 54f, finishM = 6200f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "LakeLureShoreRev", baseId = "LakeLure",
+                name = "US 64/74A — LAKE LURE II",
+                blurb = "The lake road the other way: from the Rocky Broad bridge through downtown and " +
+                        "along the shore to NC 9. 6.1 km. Map (c) OpenStreetMap contributors.",
+                label = "NC 9", startM = 6200f, finishM = 54f, reverse = true,
+            },
+            new SprintVariant
+            {
+                id = "LakeLureGorge", baseId = "LakeLure",
+                name = "US 64/74A — CHIMNEY ROCK",
+                blurb = "Over the Rocky Broad, up Main Street through Chimney Rock village and the " +
+                        "Hickory Nut Gorge to Bat Cave, before the flood. 5.5 km. Map (c) OpenStreetMap contributors.",
+                label = "BAT CAVE", startM = 6200f, finishM = 11670f, reverse = false,
+            },
+            new SprintVariant
+            {
+                id = "LakeLureGorgeRev", baseId = "LakeLure",
+                name = "US 64/74A — CHIMNEY ROCK II",
+                blurb = "Down the gorge from Bat Cave, through the village and over the Rocky Broad " +
+                        "to the lake. 5.5 km. Map (c) OpenStreetMap contributors.",
+                label = "THE LAKE", startM = 11670f, finishM = 6200f, reverse = true,
             },
         };
 
@@ -1440,6 +1475,28 @@ namespace PSXRacing
             string id = V21Ids[Mathf.Min(v21Index, V21Ids.Length - 1)];
             return TryIndexOf(id, out int now) ? now : RetiredIndex;
         }
+
+        /// <summary>
+        /// A venue index from a v22..v29 save on TODAY's list, by id. Those
+        /// saves hold indices into the list as it stood after the fictional
+        /// venues came out (v22) and before Lake Lure was appended (v30): the
+        /// V21 list without the retired ids, in order. Appending moved every
+        /// twin by one and every sprint section and deck run by two (Lake
+        /// Lure II, then its four sections went on the end of the sprints).
+        /// </summary>
+        public static int RemapV29Index(int v29Index)
+        {
+            if (v29Index < 0) return RetiredIndex;
+            if (v29Ids == null)
+            {
+                var ids = new List<string>();
+                foreach (var id in V21Ids) if (!IsRetired(id)) ids.Add(id);
+                v29Ids = ids.ToArray();
+            }
+            string at = v29Ids[Mathf.Min(v29Index, v29Ids.Length - 1)];
+            return TryIndexOf(at, out int now) ? now : RetiredIndex;
+        }
+        static string[] v29Ids;
 
         /// <summary>The venues REMOVED at v22 and the names a career knew
         /// them by, for the diary line that says what came off the calendar.

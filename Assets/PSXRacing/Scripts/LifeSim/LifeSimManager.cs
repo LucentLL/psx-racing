@@ -1465,6 +1465,24 @@ namespace PSXRacing.LifeSim
             if (s.saveVersion < 27) MigrateToCrashFates(s);
             if (s.saveVersion < 28) MigrateToInsurance(s);
             if (s.saveVersion < 29) MigrateToEvents(s);
+            if (s.saveVersion < 30) MigrateToLakeLure(s);
+        }
+
+        /// <summary>
+        /// v30, LAKE LURE (2026-11-16): US 64/74A appended to the catalog with
+        /// its twin and four sections, which moved every twin, sprint section
+        /// and deck run along. Every stored venue index is read across by id
+        /// (TrackCatalog.RemapV29Index); nothing was removed, so nothing is
+        /// cancelled. Idempotent by its stamp; throws nothing on a null.
+        /// </summary>
+        public static void MigrateToLakeLure(LifeState s)
+        {
+            if (s == null || CodeVersion < 30) return;
+            int Map(int i) { int now = TrackCatalog.RemapV29Index(i); return now >= 0 ? now : i; }
+            if (s.trackIndex >= 0) s.trackIndex = Map(s.trackIndex);
+            if (s.bookings != null) foreach (var b in s.bookings) if (b != null && b.trackIndex >= 0) b.trackIndex = Map(b.trackIndex);
+            if (s.blChallenge != null && s.blChallenge.trackIndex >= 0) s.blChallenge.trackIndex = Map(s.blChallenge.trackIndex);
+            s.saveVersion = 30;
         }
 
         /// <summary>
