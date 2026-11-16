@@ -200,6 +200,13 @@ namespace PSXRacing.EditorTools
                 float d = Vector2.Distance(j.centre, map.uptown) - big * 60f;
                 if (d < bestScore) { bestScore = d; spot = j.centre; }
             }
+            // (signals round 2, 11-15) PSX_TRAFFIC_SPOT="x,z": the check at another place (a junction whose control changed)
+            {
+                var sp = (System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_SPOT") ?? "").Split(',');
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                if (sp.Length == 2 && float.TryParse(sp[0], System.Globalization.NumberStyles.Float, inv, out float sx) && float.TryParse(sp[1], System.Globalization.NumberStyles.Float, inv, out float sz))
+                    spot = new Vector2(sx, sz);
+            }
             CityTrafficCheck.Line($"  spot: signalised junction at ({spot.x:0},{spot.y:0}), {Vector2.Distance(spot, map.uptown):0} m from uptown");
             Ghost(true);
             Park(spot);
