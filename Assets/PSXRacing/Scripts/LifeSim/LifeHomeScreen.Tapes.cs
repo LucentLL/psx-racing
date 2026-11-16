@@ -67,7 +67,7 @@ namespace PSXRacing.LifeSim
             row.gameObject.name = "Btn_tape_" + h.id;
             // The cassette's label stripe: a colour of its own, so a shelf of
             // them reads as a shelf of different tapes.
-            float hue = (Mathf.Abs((h.id ?? "").GetHashCode()) % 360) / 360f;
+            float hue = (((h.id ?? "").GetHashCode() & 0x7fffffff) % 360) / 360f;
             var stripe = MenuKit.Rect(row.transform, "Stripe", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                 new Vector2(10f, 0f), new Vector2(8f, rowH - 16f), Color.HSVToRGB(hue, 0.55f, 0.85f));
             var stripeImg = stripe.GetComponent<UnityEngine.UI.Image>();
