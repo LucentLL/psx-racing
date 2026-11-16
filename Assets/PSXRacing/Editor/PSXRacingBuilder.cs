@@ -311,6 +311,12 @@ namespace PSXRacing.EditorTools
             /// land between it and the ocean - a sound behind an island - does
             /// not take it.</summary>
             public float oceanBearingDeg = -1f;
+            /// <summary>THE PS3-PS4 WATER (PSXWaterHD.cginc, PSX_WATER_HD=1): the
+            /// stage water's look - linear, raw (no colour-space conversion).
+            /// Null (the default) = MakeWaterMat chooses: WaterPreset.Sea on a
+            /// coast (oceanBearingDeg set), WaterPreset.Lake everywhere else; a
+            /// caller passes .River for a river.</summary>
+            public WaterPreset? waterLook;
 
             // --------------------------------------------------------------
             //  Stage LOOK. The defaults are the mountain's — every field here
@@ -1185,6 +1191,12 @@ namespace PSXRacing.EditorTools
             foreach (var guid in guids)
             {
                 var p = AssetDatabase.GUIDToAssetPath(guid);
+                // THE WATER'S ART keeps its committed import (the water round,
+                // 2026-11-16): water_ripples.png is linear DATA - a wave normal,
+                // a foam lace and a breakup field - trilinear and mipped at 512;
+                // forced to point, unmipped and 256 here it turned the HD water to
+                // static. The pack sheets beside it already carry their import.
+                if (p.StartsWith(Root + "/Art/Water/", System.StringComparison.Ordinal)) continue;
                 var imp = AssetImporter.GetAtPath(p) as TextureImporter;
                 if (imp == null) continue;
                 // 256 everywhere but the exemptions PSXTextureCaps names.

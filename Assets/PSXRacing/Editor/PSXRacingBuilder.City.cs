@@ -662,8 +662,13 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The city's lakes and rivers: PSX/Water over the pack's water
         /// sheets, like the sea. City meshes carry no depth colour, so every
-        /// pixel reads as deep water - which a reservoir is.</summary>
-        static Material CityWaterMat()
+        /// pixel reads as deep water - which a reservoir is. THE PS3-PS4 WATER
+        /// (PSX_WATER_HD) takes the depth from the frame instead where the
+        /// camera has URP's copies (a PC), and the Catawba's green-brown
+        /// (WaterPreset.City). The main texture and _Color stay as they were:
+        /// CityFar paints the far land's water from their mean.
+        /// Internal so WaterShots can refresh the sandbox's asset.</summary>
+        internal static Material CityWaterMat()
         {
             var shader = Shader.Find("PSX/Water");
             if (shader == null) return MakeMat("CityWater", Root + "/Art/Water/water_2.png", affine: 0f);
@@ -676,6 +681,8 @@ namespace PSXRacing.EditorTools
             mat.SetColor("_Color", new Color(0.62f, 0.72f, 0.66f));   // a brown-green river, not a sea
             mat.SetColor("_SandColor", new Color(0.50f, 0.46f, 0.36f));
             mat.SetFloat("_OceanWaves", 0f);   // a river takes the ripple, not a swell
+            WaterPreset.City.Apply(mat);
+            mat.renderQueue = -1;   // the shader's queue; WaterLook moves it only while the HD water is on
             EditorUtility.SetDirty(mat);
             return mat;
         }

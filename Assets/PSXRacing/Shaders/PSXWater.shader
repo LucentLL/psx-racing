@@ -30,6 +30,27 @@
 //     it streaks down a wet road (PSXLamps' own spec term).
 //
 // Opaque, one pass, no extra draw call: it is the sea plane's material.
+//
+// THE PS3-PS4 WATER (2026-11-16) is this pass's PSX_WATER_HD variant, in
+// PSXWaterHD.cginc: WaterLook.cs turns the keyword on only with PSX_WATER_HD=1
+// in the environment (opt-in); otherwise it stays off and the code below the
+// #else is the water above, line for line, at its old queue (Geometry) - the
+// OFF picture was proven identical to 7badf362's to the pixel. While the HD
+// water is active WaterLook moves the water materials to the HEAD OF THE
+// TRANSPARENTS (2501): still opaque (no blend, depth written), but drawn after
+// URP's copy of the frame and the water's depth copy, which is what lets the
+// HD variant see the bed through it and the world in it.
+// The depth copy the HD variant reads is its own hidden shader
+// (PSXWaterDepthCopy.shader): a second pass here changed the opaques' draw
+// order with the HD water off.
+//
+// THE VERTEX CONTRACT (shared with the stage builders):
+//   colour r = depth over the ground (0.5 at the waterline, +/- 12 m),
+//   colour g = how open to the ocean (the swell),
+//   colour b = white water, 0..1,
+//   uv2.xy   = flow velocity, world x,z, m/s (0 = still water).
+// Lakes and the sea carry b = 0 and no uv2; a mesh with no colour stream at
+// all (the city's) reads as deep, still, closed water.
 Shader "PSX/Water"
 {
     Properties
@@ -48,15 +69,32 @@ Shader "PSX/Water"
         // take only the ripple. _WaveDir: the way the swell travels, world xz.
         _OceanWaves ("Ocean swell", Float) = 0
         _WaveDir ("Swell direction (xz)", Vector) = (0, 1, 0, 0)
+        // THE PS3-PS4 WATER (PSXWaterHD.cginc). The ripple sheet is LINEAR data:
+        // RG the wave normal, B the foam lace, A the gust/breakup field.
+        // linearGrey, not gray: the project is Linear, so "gray" samples 0.216
+        // and a material without the sheet would draw a frozen 20-55 degree tilt
+        _RippleTex ("Ripples (RG normal, B foam, A breakup; linear)", 2D) = "linearGrey" {}
+        // Per-metre extinction (red goes first) and the water's own colour,
+        // raw linear (Vectors, so nothing converts them): the defaults are
+        // the green-grey of Bogue Sound (PSXRacingBuilder.WaterPreset.Sea).
+        _Absorb ("Absorption per metre (rgb)", Vector) = (0.42, 0.13, 0.15, 0)
+        _Scatter ("Water colour, in-scattered (rgb, linear)", Vector) = (0.030, 0.075, 0.068, 0)
+        // x ripple repeat (m), y ripple strength, z foam gain, w roughness per m/s of flow
+        _WaterLook ("Ripple tile m, strength, foam, flow rough", Vector) = (9, 1, 1, 0.6)
     }
     SubShader
     {
+        // Geometry, the old water's queue; WaterLook.HDQueue (2501, the head of
+        // the transparents) only while the HD water is active (see the header).
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.5
+            // THE PS3-PS4 WATER (WaterLook.cs); off = the water as it was.
+            #pragma multi_compile _ PSX_WATER_HD
             #include "UnityCG.cginc"
             // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
             #include "PSXTexDecode.cginc"
@@ -165,6 +203,11 @@ Shader "PSX/Water"
                 return frac((p3.x + p3.y) * p3.z);
             }
 
+            #if defined(PSX_WATER_HD)
+            #include "PSXWaterHD.cginc"
+            v2f_hd vert (appdata_hd v) { return vertHD(v); }
+            fixed4 frag (v2f_hd i) : SV_Target { return fragHD(i); }
+            #else
             struct appdata
             {
                 float4 vertex : POSITION;
@@ -340,6 +383,7 @@ Shader "PSX/Water"
                 // opaque on any other camera's render texture (PSXTone.cginc).
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit * (1.0 - i.fog) : 1.0);
             }
+            #endif
             ENDCG
         }
     }

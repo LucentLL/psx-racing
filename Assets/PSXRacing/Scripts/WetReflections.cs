@@ -113,6 +113,9 @@ namespace PSXRacing
         public static bool Tag(Renderer r)
         {
             if (r == null) return false;
+            // the HD water's queue for a tile built at runtime (WaterLook; a
+            // no-op with the HD water off, the default)
+            WaterLook.QueueIfHD(r);
             if ((r.renderingLayerMask & WetRenderingLayer) != 0) return true;
             var mats = r.sharedMaterials;
             for (int i = 0; i < mats.Length; i++)
