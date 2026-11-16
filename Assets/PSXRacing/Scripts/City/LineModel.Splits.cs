@@ -67,21 +67,25 @@ namespace PSXRacing.City
         /// that way? Then the bay is OSM's lane, not a turn bay that ends.</summary>
         static bool BayLaneRunsOn(CityMap map, CityMap.Edge e, int dir, out string why)
         {
+            // AHEAD only (the way the bay travels), followed along the bay's run to its end, so a run is kept
+            // or ended whole: where the run ends at a 2-arm node and the piece beyond carries as many lanes that
+            // way, the "bay" is OSM's lane going on (e16705 past n15089). A through lane that BECOMES the bay
+            // behind it and runs into a nose (e16690 into n10035) still ends, as J1 has it: kept, it would be a
+            // turn-only lane running into the island.
             why = "";
-            int n0 = OrigLanes(e, dir);
-            for (int end = 0; end < 2; end++)
+            var cur = e; int d = dir;
+            for (int g = 0; g < 16; g++)
             {
-                // end 0: ahead (the way the bay travels), 1: behind
-                int nd = (end == 0) == (dir > 0) ? e.b : e.a;
+                int nd = d > 0 ? cur.b : cur.a;
                 var arms = map.nodeEdges[nd];
-                if (arms == null || arms.Count != 2) continue;
-                var x = map.edges[arms[0] == e.index ? arms[1] : arms[0]];
-                if (x.oneway || x.a == x.b || x.name != e.name || !x.hasLset) continue;
-                // x's direction that continues e's dir through nd
-                int xd = end == 0 ? (x.a == nd ? 1 : -1) : (x.b == nd ? 1 : -1);
-                if (OrigBay(x, xd)) continue;                    // the same bay runs on: one run (kept or ended whole)
-                int nx = OrigLanes(x, xd);
-                if (nx >= n0) { why = $"{(end == 0 ? "past" : "before")} n{nd} (e{x.index} carries {nx} lanes that way, the bay's piece {n0})"; return true; }
+                if (arms == null || arms.Count != 2) return false;          // a junction, a nose, a dead end: it ends there
+                var x = map.edges[arms[0] == cur.index ? arms[1] : arms[0]];
+                if (x.oneway || x.a == x.b || x.name != cur.name || !x.hasLset) return false;
+                int xd = x.a == nd ? 1 : -1;                                 // x's direction that goes on from cur's
+                if (OrigBay(x, xd)) { cur = x; d = xd; continue; }          // the same bay runs on
+                int n0 = OrigLanes(cur, d), nx = OrigLanes(x, xd);
+                if (nx >= n0) { why = $"past n{nd} (e{x.index} carries {nx} lanes that way, the bay's piece e{cur.index} {n0})"; return true; }
+                return false;
             }
             return false;
         }
