@@ -2182,6 +2182,11 @@ Shader "PSX/Lit"
                             float3 cnCool = (_CanopyP3.rgb + _CanopyP4.rgb) * 0.5;
                             float3 cnMeanB = lerp(cnWarm, cnCool, smoothstep(0.25, 0.75, cnS)) * (0.92 + 0.16 * cnS2);
                             float3 cnMean = lerp(lerp(cnMeanB, _CanopyConifer.rgb, cnShare), _CanopyGap.rgb, 0.12);
+                            // CLUMPS: crowns gather in clumps 20-60 m across, lit and shaded - the
+                            // grain the eye still reads on a ridge 5-10 km off, where one crown is
+                            // under a pixel (mean-preserving; gone where a clump is under ~2 px)
+                            float cnG = PSXRockNoise(cnW / 23.0) * 0.6 + PSXRockNoise(cnW / 61.0 + 7.1) * 0.4;
+                            cnMean *= 1.0 + 0.76 * saturate(1.0 - cnFp / 14.0) * (cnG - 0.5);
                             float3 cnCol = lerp(cnMean, cnPix, cnVis);
                             // the DOME's light: its normal leans out from its centre;
                             // a gap is in its neighbours' shade, more so at a low sun
