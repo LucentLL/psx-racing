@@ -1,4 +1,41 @@
-﻿# HANDOFF - CONTROL ROUND (J2 of the alignment plan): the false signal at Keller Ave out, STOP signs for the side streets that meet their road at a shallow angle (agent "control", branch `charlotte-control`, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - TREES ROUND 5: THE OWNER'S UPDATED CODEX TREES V NATUREMANUFACTURE IN THE GAME - POP-IN AND CLOSE-UP (agent "trees4", branch `charlotte-trees4`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner, 08:45: "Updated (non-Unity Asset) trees. In particular, less foliage on lower LOD trees to reduce pop-in visibility." Sandbox PSXPerf (lock "trees4", released; its tree kit rebuilt at the defaults at the end). Nothing under `Scripts/City`; no re-bake; road graph untouched.
+
+## Verdict (picture first, "looks before species")
+Pop-in: BETTER with the owner's trees - 2.5-6x fewer visibly popping blocks on Providence Rd. Close-up: UNCHANGED (the LOD0 art did not change) - still flat pale clumps beside the NM beech, the loblolly a pole with a tuft crown. Ship in PC47: OFF (both switches stay default OFF). Do NOT ship the NM far-crown fix: it did not reduce NM's pop.
+
+## Pop on the approach (RunApproach5; camera 300 -> 20 m at driver height, 10 m steps, noon summer, the same eye per kit; each step shot with the game's LOD choice and with the choice of 10 m earlier: the difference is the pop)
+| 280 m walk | NM (PC46) | NM + far crown (PSX_CT5_NMCROWN=1) | Owner's Codex trees |
+|---|---:|---:|---:|
+| Providence Rd MEDIUM: 16 px blocks changing >3% | 784 | 809 | 309 |
+| Providence Rd HIGH | 309 | 290 | 51 |
+| West Trade MEDIUM / HIGH | 9 / 1 | 9 / 1 | 2 / 0 |
+| Providence Rd MEDIUM: pixels changing >22 (any channel) | 133,830 | 134,679 | 169,545 |
+| Providence Rd HIGH: pixels | 69,259 | 67,953 | 96,799 |
+| West Trade MEDIUM / HIGH: pixels | 12,030 / 5,527 | 10,967 / 5,056 | 14,234 / 6,497 |
+The block measure is what reads as a pop; the owner's trees change 27-40% more single pixels (fine shimmer, spread thin). NM's own pop does not come from its far card (Codex's far-crown method on all 58 NM variants with cards: -6% to +3% blocks): it comes from the NM meshes' LOD switches (102 / 140 m on MEDIUM). The planting differs between NM and the owner's kit (other species at the same sites, 7,463 plants live in both), so NM v owner is a kit comparison; NM v NM + far crown is the same trees.
+
+## Close-up (staged on a lawn, never on a road: owner's red maple | owner's mature loblolly | NM Forest beech 02, nearest trunk 15 m and 50 m)
+Unchanged from pass 2: the owner's crowns are flat, pale clumps of large cards; NM's beech has a dark interior and finer leaf breakup; the loblolly reads as a pole with a small crown. Codex's close-up list (the running note's items 1-8) is all still open.
+
+## Review of Codex's three patches (committed as the owner's delivery, ba7df547, separate from my changes)
+- PSX/Lit: `PSX_CROWN_CARD` joins the existing exclusive `shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE PSX_FACADE` set: no new keyword dimension; its variants are compiled only for materials that enable it (the city tree kit's cards, PC content only). The warm list needs nothing: `Scripts/City/CityShaderWarm.cs` collects every loaded material's keyword set. All new code is inside `#ifdef PSX_CROWN_CARD` except 7 hidden properties: NM and every other PSX/Lit material are unchanged with it off. Android/GLES3 and Vulkan: dynamic float4 indexing `cuts[index % 4]` (fine on ES 3.0+ and Vulkan, not ES 2), `tex2Dbias` and `ddx/ddy` in the fragment card path (fine on both); the kit never ships on Android, so the variant is never built there. Watch: the card's vertex code uses `unity_WorldToObject` after `UNITY_SETUP_INSTANCE_ID` - it works in the forest's indirect draws (Codex's and these tests).
+- Kit: with `PSX_CT_R4KIT=1` all 48 pass-2 forms and their alternates go in (126 species): tree pool GPU buffers 148.6 MB against NM's 81.8 MB; only the 25 + pruned forms are planted. Import tool: prefers `Pass2` when present.
+
+## What changed (mine)
+- Merge mountain-nm a1ecc26c (4e5b740f; HANDOFF by union). Typecheck OK.
+- `Editor/CityRefSpots.Approach5.cs` (new): `-executeMethod PSXRacing.EditorTools.CityRefSpots.RunApproach5`, one kit a process (`PSX_CT4_TAG`, `PSX_CT5_PLACES`, `PSX_CT5_LEVELS`), the pop pairs; offline counting in the scratch `approach5.py`.
+- `Editor/CityRefSpots.MeshTrees4.cs`: staged distances and trio by environment (`PSX_CT5_CLOSE`, `PSX_CT5_TRIO`); the lawn's sky checked along the view (the overhead band of round 4).
+- `Editor/PSXRacingBuilder.CityTreeKit5.cs` (new) + one hook at the start of `CTRound4`: `PSX_CT5_NMCROWN=1` (kit build, DEFAULT OFF) gives every round 1-3 variant with a far card Codex's card from its own LOD2 (162 sheets, 54 MB). Not recommended (no gain).
+
+## Sheets (copied to `Charlotte_Trees\Review\Claude_2026-11-16\`)
+`Trees5_approach_and_close_sheet.png` (summary, block charts per place and level, Providence Rd frames 300 -> 20 m for the three kits with the popped pixels in red, the staged 15 m and 50 m frames), `Trees5_approach_Providence_MEDIUM.gif` (the approach, three kits side by side), `Trees5_pop.csv`, `Trees5_staged_15m.png`, `Trees5_staged_50m.png`. Running note `Charlotte_Tree_Models_Needed.md` updated (round 5 section first).
+
+## At merge
+Nothing changes by default (PSX_CT_CHARLOTTE, PSX_CT_R4KIT, PSX_CT5_NMCROWN all off). The shader gains a keyword option and 7 hidden properties (no effect off). PSXPerf holds Pass2 (gitignored) and its kit is round 3's again.
+
+# HANDOFF - CONTROL ROUND (J2 of the alignment plan): the false signal at Keller Ave out, STOP signs for the side streets that meet their road at a shallow angle (agent "control", branch `charlotte-control`, 2026-11-16; NOT pushed, NOT merged)
 
 The owner, 2026-11-16 ~01:00, four PC45 frames on Beatties Ford Rd at night in rain: "If the city and roads are to 1:1 scale, why are there so many anomoalies like this abrupt medians that force the road to meet at strange angles without stop signs." The alignment plan (12 agents, `...\scratchpad\align\PLAN.json`) split the fix: J1 the split / island geometry, J2 (this round) junction control, J3 the mountain lines, J4 the street-data download (NOT approved: nothing fetched). Worktree `C:\Users\mcgee\PSX Racing-control` off mountain-nm 7badf362 (PC45). Sandbox PSXCity (WebGL, shared with J1 by its AGENT_LOCK). Graph hash b2aa3453 before and after (no export, no data file changed by this round; `charlotte_sigtags.bytes` comes with the signals round).
 
