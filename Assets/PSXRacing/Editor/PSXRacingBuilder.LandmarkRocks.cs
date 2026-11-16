@@ -79,6 +79,8 @@ namespace PSXRacing.EditorTools
             landmarkKeep.Clear();
             landmarkKeepFor = null;
             if (!PCContent || stageWp == null) return;
+            // PSX_LINNCOVE_ROCKS=0 at the scene build: none, and no clearing for them (the base exactly)
+            if (System.Environment.GetEnvironmentVariable("PSX_LINNCOVE_ROCKS") == "0") { Log("Landmark rocks: OFF at the build (PSX_LINNCOVE_ROCKS=0)."); return; }
             string path = ProjectRootPath(StageArtDir + "/" + StagePrefix + "_rocks.json");
             if (!File.Exists(path)) return;
             var file = JsonUtility.FromJson<LandmarkRockFile>(File.ReadAllText(path));

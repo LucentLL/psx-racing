@@ -126,6 +126,7 @@ namespace PSXRacing.EditorTools
             if (s.path == null || s.globals == null || s.sun == null) { log.AppendLine("scene parts missing in " + id); return null; }
             if (s.sc != null) s.sc.Configure(cam);
             int rocks = LandmarkRocks.ApplyAll();
+            int switches = FarCanopySwitch.ApplyAll();
             Physics.SyncTransforms();
             int horizon = LayerMask.NameToLayer(StageCulling.HorizonLayerName), crowns = 0, fringe = 0;
             var seen = new HashSet<Material>();
@@ -137,7 +138,7 @@ namespace PSXRacing.EditorTools
                     if (m != null && seen.Add(m) && m.HasProperty("_HorizonCrowns") && m.GetFloat("_HorizonCrowns") > 0.5f) crowns++;
             }
             log.AppendLine($"== {id}: far plane {cam.farClipPlane:0} m, horizon {TimeOfDay.HorizonM:0} m, far-canopy materials {crowns}, fringe meshes {fringe}, " +
-                           $"landmark roots {rocks} (rocks {(LookChoices.LinnCoveRocks ? "on" : "off")}), far canopy {(LookChoices.FarCanopy ? "on" : "off")}");
+                           $"canopy switches {switches}, landmark roots {rocks} (rocks {(LookChoices.LinnCoveRocks ? "on" : "off")}), far canopy {(LookChoices.FarCanopy ? "on" : "off")}");
             return s;
         }
 
@@ -171,6 +172,7 @@ namespace PSXRacing.EditorTools
             int hour = 0;
             for (int h = 0; h < TimeOfDay.Count; h++) if (TimeOfDay.At(h).name.ToLower() == hourName.ToLower()) hour = h;
             if (s.sc != null) s.sc.Configure(s.cam);
+            FarCanopySwitch.ApplyAll();
             TimeOfDay.Apply(hour, s.sun);
             s.globals.Apply();
             DynamicSky.PrimeClouds(eye);
@@ -405,6 +407,7 @@ namespace PSXRacing.EditorTools
             {
                 LookChoices.FarCanopyForce = on;
                 if (s.sc != null) s.sc.Configure(s.cam);
+                FarCanopySwitch.ApplyAll();
                 var req = new RenderPipeline.StandardRequest { destination = rt };
                 for (int k = 0; k < 4; k++) { if (s.forest != null) s.forest.DrawNow(s.cam); RenderPipeline.SubmitRenderRequest(s.cam, req); }
                 var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -422,6 +425,7 @@ namespace PSXRacing.EditorTools
             double on1 = Time(true), off1 = Time(false), on2 = Time(true), off2 = Time(false);
             LookChoices.FarCanopyForce = null;
             if (s.sc != null) s.sc.Configure(s.cam);
+            FarCanopySwitch.ApplyAll();
             log.AppendLine($"  PERF {s.cam.gameObject.scene.name} pose 1920x1080, ms a frame (editor, render + 1 px read): canopy ON {on1:0.00} / {on2:0.00}, OFF {off1:0.00} / {off2:0.00}; " +
                            $"difference {(on1 + on2 - off1 - off2) / 2:0.00} ms");
             Object.DestroyImmediate(one);

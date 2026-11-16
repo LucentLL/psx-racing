@@ -52,7 +52,11 @@ namespace PSXRacing.EditorTools
         /// 2026-11-16: at 480 m a ridge 20 km off met the sky as a polygon of
         /// one-and-a-half-degree facets - "smooth" hills); 480 with
         /// PSX_FARCANOPY=0 at the scene build (the land as it was).</summary>
-        static float ApronCell => System.Environment.GetEnvironmentVariable("PSX_FARCANOPY") == "0" ? 480f : 240f;
+        const float ApronCellCoarse = 480f, ApronCellFine = 240f;
+        /// <summary>THE FAR CANOPY at the scene build (PSX_FARCANOPY=0: the land
+        /// exactly as it was - no crowns on the materials, no ridge fringe, no
+        /// fine apron).</summary>
+        static bool FarCanopyBuild => System.Environment.GetEnvironmentVariable("PSX_FARCANOPY") != "0";
         /// <summary>The corridor stand-in sits this far under the lowest
         /// ground round each of its vertices, and starts this far inside the
         /// detail's edge.</summary>
@@ -437,7 +441,7 @@ namespace PSXRacing.EditorTools
                 m.SetTexture("_HorizonMacro", macro);
                 m.SetColor("_HorizonCanopy", new Color(c.r, c.g, c.b, macro != null ? 1f : 0f));
                 m.SetVector("_HorizonFade", new Vector4(CanopyFromM, CanopyByM, 1f / HillMapM, HillMapLum));
-                SetFarCanopy(m, d);
+                if (FarCanopyBuild) SetFarCanopy(m, d);
                 bool floor = m.mainTexture != null && !PSXTextureCaps.IsFarLand(AssetDatabase.GetAssetPath(m.mainTexture));
                 if (floor && NMGroundOn)
                 {
@@ -558,6 +562,7 @@ namespace PSXRacing.EditorTools
             }
             int ax0 = Mathf.FloorToInt(ex0 / ApronChunk), ax1 = Mathf.CeilToInt(ex1 / ApronChunk);
             int az0 = Mathf.FloorToInt(ez0 / ApronChunk), az1 = Mathf.CeilToInt(ez1 / ApronChunk);
+            float apronCell = ApronCellCoarse;
             HorizonHeight apronY = (x, z) =>
             {
                 // a 480 m cell reads a 60 m field: the mean of nine, so one
@@ -565,7 +570,7 @@ namespace PSXRacing.EditorTools
                 float y = 0f;
                 for (int j = -1; j <= 1; j++)
                     for (int i = -1; i <= 1; i++)
-                        y += HorizonFieldY(x + i * ApronCell / 3f, z + j * ApronCell / 3f);
+                        y += HorizonFieldY(x + i * apronCell / 3f, z + j * apronCell / 3f);
                 return y / 9f - FarSink - HorizonDrop(x, z);
             };
             HorizonKeep apronKeep = (x0, z0, c) =>
@@ -573,20 +578,40 @@ namespace PSXRacing.EditorTools
                 float mx = x0 + c * 0.5f, mz = z0 + c * 0.5f;
                 return !InTier0(mx, mz) && mx > ex0 && mx < ex1 && mz > ez0 && mz < ez1;
             };
-            int apron = 0, apronVerts = 0;
-            for (int cz = az0; cz < az1; cz++)
-                for (int cx = ax0; cx < ax1; cx++)
-                {
-                    float ox = cx * ApronChunk, oz = cz * ApronChunk;
-                    var mesh = HorizonMesh(ox, oz, ApronChunk, ApronCell, 300f, apronY, apronKeep, true);
-                    if (mesh == null) continue;
-                    apronVerts += mesh.vertexCount;
-                    HorizonGO(root.transform, "Apron_" + cx + "_" + cz, mesh, farMat, ox, oz, "StageHorizonA_" + cx + "_" + cz);
-                    apron++;
-                }
+            int apron = 0, apronVerts = 0, apronFineVerts = 0;
+            // THE APRON TWICE (linncove 2026-11-16): at 480 m as it always was, and
+            // at the wide grid's own 240 m - at 480 a ridge 20 km off met the sky as
+            // a polygon of 1.5-degree facets. FarCanopySwitch shows one at load
+            // (PSX_FARCANOPY=0: the 480 m land, exactly as it was).
+            var coarse = new GameObject("ApronCoarse");
+            coarse.transform.SetParent(root.transform, false);
+            GameObject fine = null;
+            foreach (float cellM in FarCanopyBuild ? new[] { ApronCellCoarse, ApronCellFine } : new[] { ApronCellCoarse })
+            {
+                apronCell = cellM;
+                bool isFine = cellM < ApronCellCoarse;
+                Transform at = coarse.transform;
+                if (isFine) { fine = new GameObject("ApronFine"); fine.transform.SetParent(root.transform, false); at = fine.transform; }
+                for (int cz = az0; cz < az1; cz++)
+                    for (int cx = ax0; cx < ax1; cx++)
+                    {
+                        float ox = cx * ApronChunk, oz = cz * ApronChunk;
+                        var mesh = HorizonMesh(ox, oz, ApronChunk, apronCell, 300f, apronY, apronKeep, true);
+                        if (mesh == null) continue;
+                        if (isFine) apronFineVerts += mesh.vertexCount; else { apronVerts += mesh.vertexCount; apron++; }
+                        HorizonGO(at, (isFine ? "ApronF_" : "Apron_") + cx + "_" + cz, mesh, farMat, ox, oz,
+                                  (isFine ? "StageHorizonAF_" : "StageHorizonA_") + cx + "_" + cz);
+                    }
+            }
 
-            // the ridges' crown fringe (PSX_FARCANOPY=0 clips it in the shader)
-            int fringeCards = BuildHorizonFringe(root.transform, detail);
+            // the ridges' crown fringe (PSX_FARCANOPY=0 at runtime clips it in the shader)
+            int fringeCards = FarCanopyBuild ? BuildHorizonFringe(root.transform, detail) : 0;
+            if (fine != null)
+            {
+                var sw = root.AddComponent<FarCanopySwitch>();
+                sw.coarse = coarse;
+                sw.fine = fine;
+            }
 
             // The far plane: past the apron's furthest corner from anywhere on the route.
             float reach = 0f;
@@ -602,7 +627,8 @@ namespace PSXRacing.EditorTools
             Log($"Stage horizon, PC: {standIns} corridor stand-ins ({standVerts} verts), tier 0 {tier} chunks ({tierVerts} verts) over the " +
                 $"{(dx1 - dx0) / 1000f:0.0} x {(dz1 - dz0) / 1000f:0.0} km DEM, apron {apron} chunks ({apronVerts} verts) over {(ex1 - ex0) / 1000f:0} x {(ez1 - ez0) / 1000f:0} km " +
                 $"({(demWide != null ? "the wide grid's real land" : "the DEM mirrored: no wide grid, tools/roads/bake_wide.mjs")}); " +
-                $"far plane {stageHorizonFar:0} m, detail to {detail:0} m; ridge fringe {fringeCards} cards.");
+                $"far plane {stageHorizonFar:0} m, detail to {detail:0} m; fine apron {apronFineVerts} verts, ridge fringe {fringeCards} cards " +
+                $"(far canopy {(FarCanopyBuild ? "built" : "OFF at the build")}).");
             return stageHorizonFar;
         }
 
