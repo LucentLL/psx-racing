@@ -492,6 +492,7 @@ namespace PSXRacing.EditorTools
             if (made) kit = ScriptableObject.CreateInstance<CityKit>();
             kit.slots = CityMaterials();
             kit.slotCount = kit.slots.Length;
+            kit.houseMixPack = hmPackUsed;   // HOUSE MIX: brick from the owner's pack (else every house stays sided)
             kit.lampPost = CityLampPostMat();
             kit.bank = CityBankMat();
             kit.trees = CityTreeMats();

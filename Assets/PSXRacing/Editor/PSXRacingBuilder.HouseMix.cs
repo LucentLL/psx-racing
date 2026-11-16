@@ -56,6 +56,9 @@ namespace PSXRacing.EditorTools
         const int HmHd = 1024;
         static readonly string[] HmNames = { "house_brick_red", "house_brick_old", "house_brick_paint" };
 
+        /// <summary>The last kit's brick came from the pack (CityKit.houseMixPack).</summary>
+        static bool hmPackUsed;
+
         /// <summary>The four house masonry materials into the kit's slots.</summary>
         static void HouseMixMaterials(Material[] m)
         {
@@ -65,8 +68,9 @@ namespace PSXRacing.EditorTools
                 try { pack = HouseMixFromPack(out why); }
                 catch (System.Exception ex) { why = "the pack's textures failed: " + ex.Message; Debug.LogException(ex); }
             }
+            hmPackUsed = pack;
             Log(pack ? "  house mix: the owner's PBR Bricks pack (Brick02 = red brick, Brick01_TileMed = old brick + painted brick) - " + why
-                     : "  house mix: in-repo brick (" + why + ")");
+                     : "  house mix: NO PACK - every house stays sided (in-repo brick on the slots only; " + why + ")");
             m[(int)CityMeshes.Slot.FacadeBrick] = HmMat("CityFacadeBrick", pack ? HmGenDir + "/house_brick_red.png" : CityTexDir + "/city_facade_brick.jpg");
             m[(int)CityMeshes.Slot.FacadeMid] = HmMat("CityHouseBrickOld", pack ? HmGenDir + "/house_brick_old.png" : Root + "/Art/LifeSim/Pizzeria/Textures/brick_modern_03.jpg");
             m[(int)CityMeshes.Slot.HousePaint] = HmMat("CityHousePaint", pack ? HmGenDir + "/house_brick_paint.png" : Root + "/Art/LifeSim/Pizzeria/Textures/brick_modern_04.jpg");
@@ -101,7 +105,8 @@ namespace PSXRacing.EditorTools
                 psxLit = Shader.Find("PSX/Lit");
                 if (psxLit == null) throw new System.Exception("PSX/Lit shader not found");
                 var kit = EnsureCityKit();
-                Log("city kit: " + kit.slots.Length + " slots; house brick " + AssetDatabase.GetAssetPath(kit.slots[(int)CityMeshes.Slot.FacadeBrick].mainTexture));
+                CityMeshes.HouseMixForget();
+                Log("city kit: " + kit.slots.Length + " slots; house brick " + AssetDatabase.GetAssetPath(kit.slots[(int)CityMeshes.Slot.FacadeBrick].mainTexture) + "; from the pack " + kit.houseMixPack);
                 Log("HOUSEMIX KIT OK");
             }
             catch (System.Exception ex) { Log("HOUSEMIX KIT FAILED " + ex); ok = false; }

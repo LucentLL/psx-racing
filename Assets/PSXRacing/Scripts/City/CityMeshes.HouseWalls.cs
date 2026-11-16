@@ -314,6 +314,7 @@ namespace PSXRacing.City
         static int HouseBrickChoose(Vector2 c, bool oneStorey)
         {
             // HOUSE MIX: the house's wall class (its brick is the house brick's bucket, not an atlas column)
+            if (hmActive && c == hmAt && HouseMixOn && !houseUnitRow) return -1;   // the same house again (EmitGableHouse after the footprint's own call)
             hmActive = false;
             if (HouseMixOn && !houseUnitRow && HmReady())
             {
@@ -588,9 +589,28 @@ namespace PSXRacing.City
         /// <summary>The Square is known (kept from the tile builds' map: a far proxy has none).</summary>
         static bool HmReady()
         {
+            if (!HmPackOk()) return false;
             if (hwMap != null) hmUptown = hwMap.uptown;
+            else if (float.IsNaN(hmUptown.x)) { var m = CityMap.Get(); if (m != null) hmUptown = m.uptown; }   // a far proxy built first: the same class as its tile
             return !float.IsNaN(hmUptown.x);
         }
+
+        /// <summary>The kit's brick came from the owner's PBR Bricks pack (CityKit.houseMixPack,
+        /// written by the kit build): without it every house stays sided, as before - the
+        /// in-repo stand-ins are not drawn at the pack's sizes. PSX_CITY_HOUSEMIX=2 forces
+        /// the mix on whatever the kit holds (a test).</summary>
+        static bool HmPackOk()
+        {
+            if (hmPack < 0)
+            {
+                if (System.Environment.GetEnvironmentVariable("PSX_CITY_HOUSEMIX") == "2") hmPack = 1;
+                else { var k = CityKit.Get(); hmPack = k != null && k.houseMixPack ? 1 : 0; }
+            }
+            return hmPack == 1;
+        }
+        static int hmPack = -1;
+        /// <summary>Read the kit's flag again (a tool rebuilt the kit in this editor).</summary>
+        public static void HouseMixForget() { hmPack = -1; }
 
         /// <summary>The Square from the map before any tile is built (the audit's census, the
         /// far proxies' build: hwMap is null there), so a house's class never depends on what

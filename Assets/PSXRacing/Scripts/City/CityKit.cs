@@ -61,6 +61,11 @@ namespace PSXRacing.City
         /// kit baked before a Slot change says so instead of misdrawing.</summary>
         public int slotCount;
 
+        /// <summary>THE HOUSE MIX (2026-11-16): the house brick was made from the owner's
+        /// PBR Bricks pack when this kit was written (PSXRacingBuilder.HouseMix). Without
+        /// it every house stays sided as before (CityMeshes.HmReady).</summary>
+        public bool houseMixPack;
+
         static CityKit cached;
         static bool warned;
 
