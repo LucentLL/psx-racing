@@ -82,3 +82,9 @@ Assets/PSXRacing/Resources/citytiles_stamp.txt
 Assets/PSXRacing/Resources/citytiles_stamp.txt.meta
 /Assets/PSXRacing/Resources/CarHDMap.asset
 /Assets/PSXRacing/Resources/CarHDMap.asset.meta
+
+# The whole-city map under the race cards (tools/citymap-bake.ps1): a build product, drawn per build
+Assets/StreamingAssets/CityMap/
+Assets/StreamingAssets/CityMap.meta
+Assets/PSXRacing/Resources/charlotte_citymap.txt
+Assets/PSXRacing/Resources/charlotte_citymap.txt.meta

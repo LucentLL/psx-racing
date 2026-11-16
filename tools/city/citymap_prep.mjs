@@ -13,25 +13,29 @@
 //   blds     OSM building footprints, the whole city (cache/buildings_city.json) and the core
 //            (cache/buildings_core.json)
 //   aisles   OSM parking aisles and service roads in lots (cache/lots_city.json)
-//   venues   the squares the race venues are framed in (Resources/TrackMapFrames.txt for the
-//            three routes and the decks) plus --venues <json> extra squares (new courses):
-//            the deep levels of the pyramid are drawn only round these
+//   venues   the squares the race venues are framed in (RouteGeo.Frame's rule: the route's box,
+//            1.14x its longer side + 60 m, never under 420 m) for every route in
+//            Resources/charlotte_routes.json, the parking decks' squares from
+//            Resources/TrackMapFrames.txt, and --venues <json> extra squares ([{key, cx, cz, span}]):
+//            the deep levels of the pyramid are drawn only round these, so a new route gets its sharp
+//            tiles from the next run without a list to remember
 // The tree canopy is read by the tile script straight from Resources/charlotte_canopy.bytes.
 // Every source is already in tools/city/SOURCES.md (OSM, 3DEP, USFS canopy); nothing is fetched.
 //
-// Run: node tools/city/citymap_prep.mjs --out <file.json> [--venues <extra.json>]
-//      (PSX_CITY_CACHE points a worktree at the main checkout's tools/city/cache)
+// Run: node tools/city/citymap_prep.mjs --out <file.json> [--project <unity project>] [--venues <extra.json>]
+//      --project reads that project's Resources (default: this checkout); PSX_CITY_CACHE points a
+//      worktree or a sandbox at the main checkout's tools/city/cache. tools/citymap-bake.ps1 runs both steps.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCity } from './lib/citydata.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const UNITY = join(HERE, '..', '..');
-const CACHE = process.env.PSX_CITY_CACHE ? resolve(process.env.PSX_CITY_CACHE) : join(HERE, 'cache');
-const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
 const args = process.argv.slice(2);
 const arg = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
+const UNITY = arg('--project') ? resolve(arg('--project')) : join(HERE, '..', '..');
+const CACHE = process.env.PSX_CITY_CACHE ? resolve(process.env.PSX_CITY_CACHE) : join(HERE, 'cache');
+const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
 const OUT = arg('--out');
 if (!OUT) throw new Error('--out <file.json> is required');
 
@@ -102,11 +106,20 @@ if (existsSync(lp)) for (const e of readJson(lp).elements) {
 
 // the venues' squares: the photographed frames of the city venues + any extra (new courses)
 const venues = [];
+// every city route, framed the way RouteGeo.Frame frames its card
+const routesFile = join(RES, 'charlotte_routes.json');
+if (existsSync(routesFile)) for (const r of readJson(routesFile).routes || []) {
+  const p = r.pts || [];
+  if (p.length < 4) continue;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i + 1 < p.length; i += 2) { x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); z0 = Math.min(z0, p[i + 1]); z1 = Math.max(z1, p[i + 1]); }
+  venues.push({ key: r.id, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2, span: Math.max(Math.max(x1 - x0, z1 - z0) * 1.14 + 60, 420) });
+}
+// the parking decks (their runs are not routes: their squares are in the photo frames list)
 const frames = join(RES, 'TrackMapFrames.txt');
-for (const line of readFileSync(frames, 'utf8').split(/\r?\n/)) {
+if (existsSync(frames)) for (const line of readFileSync(frames, 'utf8').split(/\r?\n/)) {
   const f = line.trim().split(/\s+/);
-  if (f.length < 4) continue;
-  if (!(f[0].startsWith('deck_') || ['uptown', 'tryon', 'independence'].includes(f[0]))) continue;
+  if (f.length < 4 || !f[0].startsWith('deck_')) continue;
   venues.push({ key: f[0], cx: +f[1], cz: +f[2], span: +f[3] });
 }
 const extra = arg('--venues');

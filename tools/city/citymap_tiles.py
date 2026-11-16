@@ -20,19 +20,31 @@
 # NLCD 2024) as a dark green wash; commercial / industrial land a shade lighter; buildings and parking
 # lots at the deep levels; rail lines. No labels (a menu label is drawn by the UI, sharp at any size).
 #
-# Run (Python 3 with PIL + numpy):
-#   node tools/city/citymap_prep.mjs --out <layers.json> [--venues <extra.json>]
-#   python -I tools/city/citymap_tiles.py <layers.json> [--levels 0-8] [--jobs 8]
+# Run (Python 3 with PIL + numpy), or tools/citymap-bake.ps1 -Project <unity project> for both steps:
+#   node tools/city/citymap_prep.mjs --out <layers.json> [--project <dir>] [--venues <extra.json>]
+#   python -I tools/city/citymap_tiles.py <layers.json> [--project <dir>] [--levels 0-8] [--jobs 8]
+# --project is the Unity project the tiles and the index are written into (default: this checkout).
+# The tiles and the index are a BUILD PRODUCT (gitignored): a build without them shows each venue's
+# own saved picture, as PSX_TRACKMAP_CITY=0 does.
 import json, math, os, struct, sys, time
 from multiprocessing import Pool
 import numpy as np
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-UNITY = os.path.normpath(os.path.join(HERE, '..', '..'))
-OUTDIR = os.path.join(UNITY, 'Assets', 'StreamingAssets', 'CityMap')
-INDEX = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'charlotte_citymap.txt')
-CANOPY = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'charlotte_canopy.bytes')
+UNITY = OUTDIR = INDEX = CANOPY = None
+
+
+def configure(project=None):
+    """Point the outputs and the canopy at a Unity project (the workers are spawned: each calls this)."""
+    global UNITY, OUTDIR, INDEX, CANOPY
+    UNITY = os.path.normpath(project or os.path.join(HERE, '..', '..'))
+    OUTDIR = os.path.join(UNITY, 'Assets', 'StreamingAssets', 'CityMap')
+    INDEX = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'charlotte_citymap.txt')
+    CANOPY = os.path.join(UNITY, 'Assets', 'PSXRacing', 'Resources', 'charlotte_canopy.bytes')
+
+
+configure()
 
 TILE = 512
 SS = 2                       # supersampling: drawn at 2x, boxed down (antialiased edges)
@@ -104,8 +116,9 @@ def load(path):
     return L
 
 
-def init(path):
+def init(path, project=None):
     global D
+    configure(project)
     D = load(path)
 
 
@@ -254,11 +267,14 @@ def main():
     jobsn = 8
     if '--levels' in sys.argv: lv = sys.argv[sys.argv.index('--levels') + 1]
     if '--jobs' in sys.argv: jobsn = int(sys.argv[sys.argv.index('--jobs') + 1])
+    project = sys.argv[sys.argv.index('--project') + 1] if '--project' in sys.argv else None
+    configure(project)
+    print('project', UNITY, flush=True)
     a, b = (int(v) for v in lv.split('-')) if '-' in lv else (int(lv), int(lv))
     venues = json.load(open(path))['venues']
     t0 = time.time()
     found = {}
-    with Pool(jobsn, initializer=init, initargs=(path,)) as pool:
+    with Pool(jobsn, initializer=init, initargs=(path, project)) as pool:
         for level in range(a, b + 1):
             js = jobs_for(level, venues)
             # a level re-drawn replaces its folder's tiles
