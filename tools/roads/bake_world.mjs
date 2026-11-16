@@ -444,15 +444,39 @@ const CLIFFS = [];
     for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) { const v = h(i + a, j + b); if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
     if (hi - lo > 18) { steep[j * nx + i] = 1; nSteep++; }
   }
+  // ROUND 3, THE DOMES (owner's video 8:45, 9:45: the bare granite domes above the inlet and the marina are rounded,
+  // not sheer): grow the cliffs over the convex rock round them - a sample within 18 m of a cliff sample, steeper
+  // than 36 degrees, on ground that falls away on more than two sides (a dome's shoulder, not a cove's forested
+  // floor). Lure: PSX_LURE_GRANITE reads them as cliff cells like the rest.
+  {
+    const TAN2 = Math.tan(36 * Math.PI / 180), R = 3;
+    const grown = new Uint8Array(nx * nz); let nGrow = 0;
+    for (let j = R; j < nz - R; j++) for (let i = R; i < nx - R; i++) {
+      const k = j * nx + i;
+      if (steep[k] || Math.hypot(gx[k], gz[k]) < TAN2) continue;
+      let nearCliff = false;
+      for (let b = -R; b <= R && !nearCliff; b++) for (let a = -R; a <= R; a++) if (steep[(j + b) * nx + i + a]) { nearCliff = true; break; }
+      if (!nearCliff) continue;
+      // convex: the centre stands above the mean of its 8 neighbours at 12 m
+      const c = h(i, j); let m = 0, cnt = 0;
+      for (const [a, b] of [[-2, 0], [2, 0], [0, -2], [0, 2], [-2, -2], [2, 2], [-2, 2], [2, -2]]) { const v = h(i + a, j + b); if (Number.isFinite(v)) { m += v; cnt++; } }
+      if (!cnt || c < m / cnt + 0.5) continue;
+      grown[k] = 1; nGrow++;
+    }
+    for (let k = 0; k < grown.length; k++) if (grown[k]) steep[k] = 2;   // 2: dome rock grown round a cliff
+    console.log('granite domes: ' + nGrow + ' convex samples over 36 degrees grown round the cliffs');
+  }
   // 12 m cells (2x2 samples) with at least two steep samples
   for (let j = 1; j + 1 < nz; j += 2) for (let i = 1; i + 1 < nx; i += 2) {
-    let n = 0, sx = 0, sz = 0, y = Infinity, g = 0;
-    for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const k = (j + b) * nx + i + a; if (steep[k]) { n++; sx += gx[k]; sz += gz[k]; g += Math.hypot(gx[k], gz[k]); } if (Number.isFinite(H[k])) y = Math.min(y, H[k]); }
+    let n = 0, nc = 0, sx = 0, sz = 0, y = Infinity, g = 0;
+    for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const k = (j + b) * nx + i + a; if (steep[k]) { n++; if (steep[k] === 1) nc++; sx += gx[k]; sz += gz[k]; g += Math.hypot(gx[k], gz[k]); } if (Number.isFinite(H[k])) y = Math.min(y, H[k]); }
     if (n < 2) continue;
+    // a cell the cliffs alone make (round 2's rule: two cliff samples) keeps a positive steepness; a dome cell's is negative
+    const sign = nc >= 2 ? 1 : -1;
     const L = Math.hypot(sx, sz) || 1, x = x0 + (i + 0.5) * G, z = z0 + (j + 0.5) * G;
     // the road's own cut is the stage builder's: nothing within 25 m of the centreline
     if (foot(x, z, 40).d < 25) continue;
-    CLIFFS.push(r1(x), r1(z), r2(y - baseM), r2(-sx / L), r2(-sz / L), r2(g / n));
+    CLIFFS.push(r1(x), r1(z), r2(y - baseM), r2(-sx / L), r2(-sz / L), r2(sign * g / n));
   }
   console.log(`granite: ${nSteep} steep 6 m samples, ${CLIFFS.length / 6} cliff cells of 12 m within ${M} m of the road`);
 }

@@ -228,8 +228,12 @@ namespace PSXRacing.EditorTools
             // steeper house roofs, corner boards, chimneys, the inn's long two-storey veranda (PSX_LURE_FORMS=0: round 1)
             bool forms = WorldSwitch("PSX_LURE_FORMS");
             float halfW = RoadWidth * 0.5f;
+            int bi = -1;
             foreach (var b in world.buildings)
             {
+                bi++;
+                // round 3: a building matched to the owner's video wears what the video shows (PSX_LURE_VIDEOLOOK)
+                var look = world.stage == StagePrefix ? VideoLook(bi) : null;
                 var ring = new List<Vector3>(WorldPts(b.xz));
                 if (ring.Count < 3 || b.area < 10f || b.area > 4000f) { skipped++; continue; }
                 // CLOCKWISE from above (x east, z north): outward is to the left of travel along the ring
@@ -252,6 +256,7 @@ namespace PSXRacing.EditorTools
                     : role == "inn" ? 3 : role == "church" ? 1 : kind == "hotel" ? 3
                     : kind == "shed" || kind == "garage" || kind == "garages" || kind == "static_caravan" || canopy ? 1
                     : zone == "village" ? (h % 10 < 7 ? 2 : 1) : shop ? (h % 10 < 4 ? 2 : 1) : (h % 10 < 5 ? 2 : 1);
+                if (look != null && look.floors > 0) floors = look.floors;
                 float storey = shop ? 3.4f : kind == "shed" || kind == "garage" ? 2.7f : role == "church" ? 5.5f : 3.0f;
                 float baseY = gMin - 0.6f;
                 // ON POSTS where the ground falls away under it (the village's river-side shops stood
@@ -287,6 +292,7 @@ namespace PSXRacing.EditorTools
                     int r = (h / 20) % 20; roofMat = r < 13 ? "shingle" : r < 16 ? "metalgreen" : r < 18 ? "metalred" : "metalgrey"; pitchDeg = roofMat == "shingle" ? 32f : 24f;
                 }
                 if (forms && !shop && role.Length == 0 && pitchDeg > 0f) pitchDeg = Mathf.Max(pitchDeg, 33f);
+                if (look != null) { if (look.wall != null) wall = look.wall; if (look.roof != null) roofMat = look.roof; if (look.pitch >= 0f) pitchDeg = look.pitch; }
                 // the oriented box (for the roof) and how much of it the footprint fills
                 Vector3 cen = Vector3.zero; foreach (var p in ring) cen += p; cen /= ring.Count;
                 float sxx = 0, szz = 0, sxz = 0; foreach (var p in ring) { float dx = p.x - cen.x, dz = p.z - cen.z; sxx += dx * dx; szz += dz * dz; sxz += dx * dz; }
@@ -446,7 +452,7 @@ namespace PSXRacing.EditorTools
                 int frontEnd = front;
                 if (forms && !canopy) front = PorchFront(ring, toRoad, out frontEnd);
                 // ----- porch (and the balcony over it) on the street front
-                if (!canopy && front >= 0 && (shop || zone == "village" || zone == "batcave" || (zone != "gorge" && h % 3 == 0)) && b.dist < 70f)
+                if (!canopy && front >= 0 && !(look != null && look.noPorch) && (shop || zone == "village" || zone == "batcave" || (zone != "gorge" && h % 3 == 0)) && b.dist < 70f)
                 {
                     Vector3 a = ring[front], c = ring[(frontEnd + 1) % ring.Count];
                     Vector3 e = new Vector3(c.x - a.x, 0, c.z - a.z); float len = e.magnitude; Vector3 dir = e / len, outN = new Vector3(-dir.z, 0, dir.x);                    bool veranda = forms && role == "inn";

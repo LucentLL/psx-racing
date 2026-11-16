@@ -53,6 +53,15 @@ namespace PSXRacing.EditorTools
         static bool CliffKeepAt(float x, float z) =>
             worldCliffKeep != null && worldCliffKeep.Contains(CliffKey(Mathf.FloorToInt(x / CliffCell), Mathf.FloorToInt(z / CliffCell)));
 
+        /// <summary>
+        /// A granite cell in play: the lidar's cliffs always (positive
+        /// steepness: round 2's cells exactly), and - round 3, PSX_LURE_DOMES -
+        /// the bare convex dome rock the bake grows round them (36-52 degrees,
+        /// negative steepness), which the owner's video shows bare at 8:45 and
+        /// 9:45.
+        /// </summary>
+        static bool GraniteCellOn(float[] C, int k) => C[k + 5] > 0f || WorldSwitch("PSX_LURE_DOMES");
+
         static byte WorldKeepBits(float x, float z)
         {
             if (worldKeep == null) return 0;
@@ -173,6 +182,7 @@ namespace PSXRacing.EditorTools
                 worldCliffKeep = new HashSet<long>();
                 for (int k = 0; k + 5 < world.cliffs.Length; k += 6)
                 {
+                    if (!GraniteCellOn(world.cliffs, k)) continue;
                     int cx = Mathf.FloorToInt(world.cliffs[k] / CliffCell), cz = Mathf.FloorToInt(world.cliffs[k + 1] / CliffCell);
                     for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) worldCliffKeep.Add(CliffKey(cx + dx, cz + dz));
                 }
@@ -242,6 +252,67 @@ namespace PSXRacing.EditorTools
                 $"{n8 * WorldKeepCell * WorldKeepCell / 1e6f:0.000} km2 the forest leaves open; granite keep-out {(worldCliffKeep?.Count ?? 0)} cells of 12 m.");
         }
 
+        // ------------------------------------------------ round 3: the video
+        /// <summary>A building matched to the owner's 2022 video at a locked pose
+        /// (r3/poses_r3.json), and what the video shows of it.</summary>
+        internal class LureLook { public string wall, roof; public float pitch = -1f; public int floors; public bool noPorch; }
+        static readonly Dictionary<int, LureLook> VideoLooks = new Dictionary<int, LureLook>
+        {
+            // 9:45: the single-storey white shop with the flat roof and the gravel lot, under the granite dome
+            [43] = new LureLook { wall = "paint", pitch = 0f, floors = 1, noPorch = true },
+        };
+        /// <summary>PSX_LURE_VIDEOLOOK=0: the building as round 2 built it.</summary>
+        static LureLook VideoLook(int i) => WorldSwitch("PSX_LURE_VIDEOLOOK") && VideoLooks.TryGetValue(i, out var l) ? l : null;
+
+        /// <summary>
+        /// THE SIGNS IN THE VIDEO'S VIEW (PSX_LURE_VIDEOSIGNS): at 8:15 the
+        /// in-street yield-to-pedestrians sign on the centre line at the inn's
+        /// crosswalk; at 1:20 the two signs on one post and the single sign
+        /// beyond it on the left of the bend, their grey backs to us (they face
+        /// the traffic coming the other way).
+        /// </summary>
+        static void BuildVideoSigns(List<Vector3> pts, Transform parent)
+        {
+            if (!WorldSwitch("PSX_LURE_VIDEOSIGNS")) return;
+            var buf = new TownBuf();
+            float halfW = RoadWidth * 0.5f;
+            int n = 0;
+            // the in-street sign: on the centre line at the crosswalk nearest the inn's front
+            if (world.crossings != null)
+            {
+                float best = -1f;
+                foreach (float m in world.crossings) if (m > 5250f && m < 5450f && (best < 0f || Mathf.Abs(m - 5345f) < Mathf.Abs(best - 5345f))) best = m;
+                if (best > 0f)
+                {
+                    int i = StationAt(best);
+                    Vector3 c = pts[i], fw = pts[Mathf.Min(pts.Count - 1, i + 1)] - pts[Mathf.Max(0, i - 1)]; fw.y = 0f; fw.Normalize();
+                    Vector3 rt = new Vector3(fw.z, 0f, -fw.x);
+                    float y = DrapeY(c.x, c.z);
+                    // the flexible post: white, with its yellow band and the sign panel on it
+                    buf.Box("paint", new Vector3(c.x, y + 0.55f, c.z), rt, Vector3.up, fw, 0.05f, 0.55f, 0.05f);
+                    buf.Box("paint", new Vector3(c.x, y + 0.75f, c.z), rt, Vector3.up, fw, 0.16f, 0.32f, 0.02f);
+                    buf.Box("yellow", new Vector3(c.x, y + 0.98f, c.z), rt, Vector3.up, fw, 0.165f, 0.07f, 0.025f);
+                    buf.Box("black", new Vector3(c.x, y + 0.62f, c.z), rt, Vector3.up, fw, 0.11f, 0.07f, 0.025f);
+                    n++;
+                }
+            }
+            // 1:20: sign backs on the left of the bend (the left is -1 here: RightAt points right)
+            foreach (var (m, panels) in new[] { (545f, 2), (578f, 1) })
+            {
+                int i = StationAt(m);
+                Vector3 rt = RightAt(pts, i), fw = pts[Mathf.Min(pts.Count - 1, i + 1)] - pts[Mathf.Max(0, i - 1)]; fw.y = 0f; fw.Normalize();
+                Vector3 c = pts[i] - rt * (halfW + 3.2f);
+                if (StageKeepOut(c.x, c.z) && (WorldKeepBits(c.x, c.z) & 6) != 0) continue;
+                float y = DrapeY(c.x, c.z) - 0.3f, top = y + 0.3f + 2.4f + panels * 0.8f;
+                buf.Box("galv", new Vector3(c.x, (y + top) * 0.5f, c.z), rt, Vector3.up, fw, 0.04f, (top - y) * 0.5f, 0.04f);
+                for (int k = 0; k < panels; k++)
+                    buf.Box("galv", new Vector3(c.x, top - 0.42f - k * 0.82f, c.z) + fw * 0.05f, rt, Vector3.up, fw, 0.3f, 0.38f, 0.015f);
+                n++;
+            }
+            TownEmit(buf, "VideoSigns", parent);
+            Log($"Stage world video signs: {n} assemblies where the owner's video shows them (8:15 the in-street pedestrian sign, 1:20 the sign backs).");
+        }
+
         // ----------------------------------------------------------- build
         /// <summary>From BuildStageWorld, after the town: lawns and the beach,
         /// the granite, the marina's piers.</summary>
@@ -251,6 +322,7 @@ namespace PSXRacing.EditorTools
             if (WorldSwitch("PSX_LURE_OPEN")) BuildWorldLawns(parent);
             if (WorldSwitch("PSX_LURE_GRANITE")) BuildWorldGranite(parent);
             if (WorldSwitch("PSX_LURE_MARINA") && world.stage == StagePrefix) BuildWorldPiers(parent);
+            if (world.stage == StagePrefix) BuildVideoSigns(pts, parent);
         }
 
         // ------------------------------------------------------------ lawns
@@ -663,10 +735,11 @@ namespace PSXRacing.EditorTools
             var cdir = new Dictionary<long, Vector2>();
             for (int k = 0; k + 5 < C.Length; k += 6)
             {
+                if (!GraniteCellOn(C, k)) continue;
                 float x = C[k], z = C[k + 1];
                 if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
                 long key = ((long)Mathf.FloorToInt(x / Cl) << 32) ^ (uint)Mathf.FloorToInt(z / Cl);
-                clusters.TryGetValue(key, out var s); clusters[key] = s + new Vector4(x, z, 1f, C[k + 5]);
+                clusters.TryGetValue(key, out var s); clusters[key] = s + new Vector4(x, z, 1f, Mathf.Abs(C[k + 5]));
                 cdir.TryGetValue(key, out var dd); cdir[key] = dd + new Vector2(C[k + 3], C[k + 4]);
             }
             float halfW = RoadWidth * 0.5f;
@@ -772,6 +845,7 @@ namespace PSXRacing.EditorTools
             const float H = CliffCell * 0.5f, Tex = 9f;
             for (int k = 0; k + 5 < C.Length; k += 6)
             {
+                if (!GraniteCellOn(C, k)) continue;
                 float x = C[k], z = C[k + 1], dx = C[k + 3], dz = C[k + 4];
                 if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
                 if (StageCorridor(x, z, halfW + 14f, out _)) continue;
