@@ -122,6 +122,7 @@ namespace PSXRacing.EditorTools
         /// <summary>Round 4's forms appended (group <see cref="CityTreeKit.G4Charlotte"/>).</summary>
         static void CTRound4(List<MeshForest.Variant> list, List<string> names, List<CityTreeKit.Role> roles, List<byte> groups)
         {
+            CT5Feet(list, names, groups);       // (round 5b: PSX_CT5_FOOT=1, every level drawn down to its LOD0 trunk base; default OFF)
             CT5NMCrowns(list, names, groups);   // (round 5: PSX_CT5_NMCROWN=1, the NM trees' far crowns from their own LOD2; default OFF)
             if (System.Environment.GetEnvironmentVariable("PSX_CT_R4KIT") != "1") { Log("City trees: Charlotte's own trees not in the kit (default OFF; PSX_CT_R4KIT=1 adds them)"); return; }
             if (AssetDatabase.LoadAssetAtPath<GameObject>(CT4Dir + "/Models/" + CT4Forms[0].stem + ".FBX") == null)

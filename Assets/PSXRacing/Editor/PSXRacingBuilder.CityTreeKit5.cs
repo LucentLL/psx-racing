@@ -23,6 +23,81 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class PSXRacingBuilder
     {
+        /// <summary>FLOATING TREES (round 5b; the owner: "Some even seem to be floating in air"): a tree stands
+        /// on the foot LoadVariant finds in its LOD0 (the bark's 2nd-percentile height, past the root tips), and
+        /// every level is drawn on that foot. The packs' coarser levels have no roots: their trunk starts higher -
+        /// Meadow poplar 03 (the pine stand-in) 0.48 m, so at x1.5 it hangs 0.43 m over the ground beyond 102 m
+        /// (MEDIUM). Measured along Providence Rd: 1,467 of 7,463 planted trees float at LOD1, 1,890 at LOD2.
+        /// PSX_CT5_FOOT=1 (kit build, default OFF): each level's trunk is drawn down to LOD0's trunk base - the
+        /// bark in its lowest 0.8 m stretched, nothing above it moved (so no new pop at the switch).</summary>
+        static void CT5Feet(List<MeshForest.Variant> list, List<string> names, List<byte> groups)
+        {
+            if (System.Environment.GetEnvironmentVariable("PSX_CT5_FOOT") != "1") return;
+            int fixedLods = 0, trees = 0; float worst = 0f; string worstName = "";
+            var done = new Dictionary<(Mesh, int), Mesh>();
+            float Base(MeshForest.Variant v, Mesh m)
+            {
+                float mn = float.MaxValue;
+                for (int s = 0; s < m.subMeshCount; s++)
+                {
+                    if (v.leafSub != null && s < v.leafSub.Length && v.leafSub[s] && m.subMeshCount > 1) continue;
+                    if (!TreeKit.Read(m, s, out var vv, out var tt)) continue;
+                    foreach (int i in tt) mn = Mathf.Min(mn, v.pre.MultiplyPoint3x4(vv[i]).y);
+                }
+                return mn;
+            }
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (i < groups.Count && groups[i] == CityTreeKit.G4Charlotte) continue;
+                var v = list[i];
+                if (v == null || v.lods == null || v.lods[0] == null) continue;
+                float b0 = Base(v, v.lods[0]);
+                if (b0 == float.MaxValue) continue;
+                bool any = false;
+                for (int l = 1; l < 3 && l < v.lods.Length; l++)
+                {
+                    var m = v.lods[l];
+                    if (m == null || m == v.lods[0]) continue;
+                    float bl = Base(v, m);
+                    float lift = bl - b0;
+                    if (bl == float.MaxValue || lift <= 0.05f) continue;
+                    int key = Mathf.RoundToInt(b0 * 1000f);
+                    if (!done.TryGetValue((m, key), out var fixedM))
+                    {
+                        fixedM = Object.Instantiate(ReadableCopy(m));
+                        fixedM.name = "CT5Foot_" + names[i] + "_L" + l;
+                        var verts = fixedM.vertices;
+                        var inv = v.pre.inverse;
+                        var moved = new bool[verts.Length];
+                        for (int s = 0; s < fixedM.subMeshCount; s++)
+                        {
+                            if (v.leafSub != null && s < v.leafSub.Length && v.leafSub[s] && fixedM.subMeshCount > 1) continue;
+                            foreach (int vi in fixedM.GetTriangles(s))
+                            {
+                                if (moved[vi]) continue;
+                                moved[vi] = true;
+                                var q = v.pre.MultiplyPoint3x4(verts[vi]);
+                                float t = (q.y - bl) / 0.8f;
+                                if (t >= 1f) continue;
+                                q.y -= lift * (1f - Mathf.Clamp01(t));
+                                verts[vi] = inv.MultiplyPoint3x4(q);
+                            }
+                        }
+                        fixedM.vertices = verts;
+                        fixedM.RecalculateBounds();
+                        fixedM = WorldKit.SaveMesh(fixedM, fixedM.name);
+                        done[(m, key)] = fixedM;
+                        fixedLods++;
+                    }
+                    v.lods[l] = fixedM;
+                    any = true;
+                    if (lift > worst) { worst = lift; worstName = names[i] + " LOD" + l; }
+                }
+                if (any) trees++;
+            }
+            Log($"City trees round 5b - FEET (PSX_CT5_FOOT=1): {trees} variants, {fixedLods} levels drawn down to their LOD0's trunk base (worst lift {worst:0.00} m at scale 1: {worstName})");
+        }
+
         static void CT5NMCrowns(List<MeshForest.Variant> list, List<string> names, List<byte> groups)
         {
             if (System.Environment.GetEnvironmentVariable("PSX_CT5_NMCROWN") != "1") return;
