@@ -1,4 +1,75 @@
-﻿# HANDOFF - LAKE LURE ROUND 2, THE FIDELITY ROUND (agent "lakelure", branch `mountain-lakelure2` from mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - CHARLOTTE TRACKS: THE CANDIDATES, THE FREEWAY LAPS AND THE WHOLE-CITY TRACK PREVIEW (agent "tracks", branch `charlotte-tracks` from mountain-nm 3920fdde, 2026-11-16; NOT pushed, NOT merged)
+
+The owner, 11-16:
+- On race tracks: "Now that Charlotte roads are more accurate, I'd like to start adding race tracks (circuits, sprints,
+  drag [the current drag/sprints are veeery long])". Need for Speed Underground 2 was the reference for event types and
+  lengths only.
+- At 13:20, on the preview: "a picture of the entire city, the track drawn over it, then zoomed in to fit the track on
+  screen for track preview before race".
+- At 14:00: "more circuits use highway on/off ramps like the example I drew in red".
+
+## Phase 1: the candidate sheet (sent 13:47; freeway laps added 14:04)
+- In the art workspace: `Charlotte_Track_Candidates_2026-11-16.md` and `.png`.
+- The courses, 31 in all, on the shipped graph b2aa3453, plus one coast drag:
+  - 10 circuits, C1-C10, one for each district the brief named. Laps are 3.1-5.4 km, raced 2-4 laps and kept under
+    the 14.2 km tank line.
+  - 7 freeway-and-ramp laps, H1-H7. H1 is the owner's loop exactly: up I-485 to Moores Chapel, through the I-85
+    cloverleaf, east to Little Rock. It NEEDS THE DECK FIX at the airport ramps: the turnaround crosses the junction
+    cluster under the decks, where the bridges audit has UNDER-STEP 3-8 cm and UNDER-KINK to 8 % on e269, e289, e9744
+    and e13462. H2-H7 are drivable now. H2 is the closest clean version of his loop.
+  - 6 sprints, S1-S6, of 2.0-4.5 km.
+  - 4 cuts, X1-X4: today's Tryon and Independence sprints in halves of 2.7-3.7 km.
+  - 4 drags, D1-D4: two 1/4 miles and two 1/2 miles, each road 11.6 m or wider for four abreast.
+  - D5: Langston Bridge cut from 1,408 m to 804 m, finishing just over the crest.
+- The checks on every course:
+  - routed edge by edge, one-way streets the legal way, no junction turn over 120 degrees;
+  - 0 hits on HANDOFF's "keep race routes off" list (the four ramp-junction decks, the 8 single joints, the owner's
+    Beatties Ford spots), except H1;
+  - 0 hits on the bridges audit's worst lists;
+  - a grid straight of 90 m or more with two lanes in the race direction (S5 is a two-lane street: closed road only);
+  - heights from RPRF, lanes and widths from the game's road profiles.
+- Tools are in `tools/city/tracks/` (see its README). The chains are in `tools/city/tracks/candidates_2026-11-16.json`.
+
+## Phase 2: the whole-city track preview
+What changed:
+- NEW `Scripts/CityMapTiles.cs` (+meta). One map of the whole city as a 512 px tile pyramid in
+  `StreamingAssets/CityMap/<level>/<tx>_<ty>.png`, listed in `Resources/charlotte_citymap.txt`:
+  - levels 0-4 cover the city, 53 km square, 6.5 m/px at level 4;
+  - levels 5-8, down to 0.4 m/px, cover only the venues: every route in `charlotte_routes.json` and the parking decks.
+  - Drawn by `tools/city/citymap_prep.mjs` and `tools/city/citymap_tiles.py` from the shipped graph and WATR, the
+    canopy (charlotte_canopy.bytes), and the OSM landuse, rail, buildings and lots already in the city cache.
+- `Scripts/RouteMap.cs` (shared):
+  - Build: a city venue (IsCityRace: the routes and the deck runs) draws its card on that map at the level as sharp as
+    the card is big. The map, the grid and the route sit in one "Zoom" square.
+  - The card flies in from the whole city over about 1.35 s (RouteMapZoom, appended to the file): log-space zoom, the
+    route sliding to the middle, each whole-city level laid where it is sharp (`CityMapTiles.PlaceFlight`). It plays
+    once per venue and card size a minute, and never outside play mode.
+  - New helper `Layer()`. `RouteMapGraphic.drawGrid` and `drawRoute` let the grid and the route be separate layers.
+  - New overload `Build(parent, def, pts, ...)` for courses that are not venues yet.
+  - Stages and the MAIN edition are unchanged.
+- Switches: `PSX_TRACKMAP_CITY=0` gives today's per-venue pictures. `PSX_TRACKMAP_ZOOM=0` turns off the fly-in.
+- NEW `Editor/CityMapPreview.cs` (+meta). `-executeMethod PSXRacing.EditorTools.CityMapPreview.Capture` shoots:
+  - the card at the race card's size (560) and the pre-race size (236) for UptownLoop, TryonSprint, IndependenceSprint
+    and a deck run;
+  - any course in the file PSX_CITYMAP_CANDS names;
+  - fly-in strips, posed by hand.
+- Why tiles and not drawing the graph at runtime: the menu must never parse the 8 MB city. The map also has 120k
+  buildings, the canopy and the rail, which are cheap to draw once offline and expensive as UI meshes. The route stays
+  vector over the map, sharp at any size.
+- No Scripts/City change and no charlotte_*.bytes change, so the city tile bake is not stale.
+
+## Merge notes
+- The tiles and the index are a BUILD PRODUCT, gitignored. In the build sandbox, after the sync and before the player
+  build, run `powershell -ExecutionPolicy Bypass -File tools\citymap-bake.ps1 -Project <sandbox>`.
+  - It needs Node, Python 3 with PIL and numpy, and the main checkout's `tools\city\cache` (landuse, railways,
+    buildings, lots).
+  - It takes about 1 minute and writes 640 tiles, about 17 MB.
+  - A build without it shows today's pictures.
+- MAIN parks `charlotte_citymap.txt` by its charlotte_ rule. StreamingAssets/CityMap is not parked (17 MB in a MAIN-only
+  build if the bake ran there).
+- Shared file: `Scripts/RouteMap.cs` (see above).
+
+# HANDOFF - LAKE LURE ROUND 2, THE FIDELITY ROUND (agent "lakelure", branch `mountain-lakelure2` from mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
 
 The round's aim (coordinator, 11-16): what still kept Lake Lure from being "the memory of what it used to be like", most
 visible first. Every change has its own switch; `=0` gives round 1 for that item, and with all eight at 0 the stage
