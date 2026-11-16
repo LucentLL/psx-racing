@@ -29,6 +29,8 @@ namespace PSXRacing.EditorTools
         internal static StringBuilder log = new StringBuilder();
         internal static int failures;
         internal static string OutDir, VideoDir;
+        internal const string ViewPref = "psx.cameraView";   // ChaseCamera.PrefKey
+        internal static int prevView = -1;
 
         [MenuItem("PSX Racing/New Game Intro (play mode)")]
         public static void Run()
@@ -51,6 +53,16 @@ namespace PSXRacing.EditorTools
             LifeSimManager.UseScratchSave("INTROCHECK");
             TitleScreen.Skip = true;
             NewGameIntro.AutoDrive = true;
+            // PSX_INTRO_CHECK_VIEW=Chase|Cockpit|...: the player's saved view for this run (this editor's prefs,
+            // put back at the end)
+            prevView = PlayerPrefs.GetInt(ViewPref, -1);
+            string want = Environment.GetEnvironmentVariable("PSX_INTRO_CHECK_VIEW");
+            if (!string.IsNullOrEmpty(want) && Enum.TryParse(want, true, out ChaseCamera.View v))
+            {
+                PlayerPrefs.SetInt(ViewPref, (int)v);
+                PlayerPrefs.Save();
+            }
+            Line("the player's view: " + (ChaseCamera.View)PlayerPrefs.GetInt(ViewPref, 0));
             EditorSceneManager.OpenScene(EditorBuildSettings.scenes[0].path);
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
@@ -108,6 +120,7 @@ namespace PSXRacing.EditorTools
             NewGameIntro.AutoDrive = false;
             NewGameIntro.ForTools = false;
             TitleScreen.Skip = false;
+            if (IntroPlayCheck.prevView >= 0) { PlayerPrefs.SetInt(IntroPlayCheck.ViewPref, IntroPlayCheck.prevView); PlayerPrefs.Save(); }
             IntroPlayCheck.Finish();
             LifeSimManager.UseCareerSave();
             EditorApplication.Exit(IntroPlayCheck.failures == 0 ? 0 : 1);

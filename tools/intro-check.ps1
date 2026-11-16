@@ -6,11 +6,12 @@
 #
 # -Off     PSX_INTRO=0: the before (the wizard on the charcoal, DRIVE THIS ONE straight home).
 # -Skip    a virtual pad holds START once the headlights are up: the skip, and its end state.
+# -View    the player's saved camera view for the run (Chase, Close, Cockpit, Hood...): put back after.
 # -NoCopy  run on the code already in the sandbox.
 # -Out     copy the frames, the report and the video (intro.mp4, when ffmpeg is on PATH) there.
 # Sandbox: $env:PSX_SANDBOX, default PSXLab (a Windows sandbox: the job runs as StandaloneWindows64).
 # Takes <sandbox>\AGENT_LOCK.txt for the job and refuses a fresh lock that is not its own.
-param([switch]$Off, [switch]$Skip, [switch]$NoCopy, [switch]$NoWatch, [int]$MaxMinutes = 30, [string]$Out = "", [string]$Me = "intro")
+param([switch]$Off, [switch]$Skip, [switch]$NoCopy, [switch]$NoWatch, [int]$MaxMinutes = 30, [string]$Out = "", [string]$View = "", [string]$Me = "intro")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXLab" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -34,6 +35,7 @@ try {
     Remove-Item "$shots\intro_check.txt" -ErrorAction SilentlyContinue
     if ($Off) { $env:PSX_INTRO = "0" } else { Remove-Item Env:PSX_INTRO -ErrorAction SilentlyContinue }
     if ($Skip) { $env:PSX_INTRO_CHECK = "skip" } else { Remove-Item Env:PSX_INTRO_CHECK -ErrorAction SilentlyContinue }
+    if ($View) { $env:PSX_INTRO_CHECK_VIEW = $View } else { Remove-Item Env:PSX_INTRO_CHECK_VIEW -ErrorAction SilentlyContinue }
 
     Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\introcheck.log" -MaxMinutes $MaxMinutes -UnityArgs @(
         "-batchmode","-projectPath",$proj,

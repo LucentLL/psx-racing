@@ -344,11 +344,14 @@ namespace PSXRacing
 
             if (!viewTaken)
             {
-                // Every Start has run: the view is the player's own now. The standing lens and the ease use the
-                // chase rig (or the close one); a mounted view comes back when the ease is done.
+                // Every Start has run: the view is the player's own now, and the lens eases straight into it - the
+                // chase rig, or the seat (the pass then goes through the cabin, past the driver's hands). Only the
+                // hood lens, which cuts the car's own shell at the windscreen, and the top-down stand in as the
+                // chase rig until the ease is done.
                 viewTaken = true;
                 savedView = ChaseCamera.Current;
-                var rig = savedView == ChaseCamera.View.Close ? ChaseCamera.View.Close : ChaseCamera.View.Chase;
+                var rig = savedView == ChaseCamera.View.Hood || savedView == ChaseCamera.View.TopDown
+                    ? ChaseCamera.View.Chase : savedView;
                 if (rig != savedView) ChaseCamera.PreviewView(rig);
             }
             StepSkip(dt);
