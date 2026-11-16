@@ -430,7 +430,9 @@ namespace PSXRacing.City
                 }
                 // PHASE C (scope city): the move read over the whole blend, the end where the own line runs on
                 // parallel, never a junction crossed off the own line (PhaseCLength)
-                if (CityPhaseC) L = PhaseCLength(map, f, rate, rmin, uMax, L);
+                // (Beatties Ford's 19 nodes keep J1's lengths under city: the owner has those pictures - spot 37's
+                // nose was tuned on them; a longer NB blend there moved the SB carriageway's outer edge 1.6 m)
+                if (CityPhaseC && !BfrNode(map, sp.node)) L = PhaseCLength(map, f, rate, rmin, uMax, L);
                 if (CityPhaseC) f.devMax = BlendDev(f, Mathf.Min(L, Mathf.Max(10f, f.room)));
                 if (L > f.room) { f.capped = true; f.note = $"room {f.room:0.0} m for L {L:0.0} m" + (f.note.Length > 0 ? "; " + f.note : ""); L = Mathf.Max(10f, f.room); }
                 f.L = L; f.uEnd = f.uStart + L;
@@ -644,6 +646,13 @@ namespace PSXRacing.City
         public static bool PhaseCShortOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHORTPROFILE") != "0";
         public static int PhaseCLonger, PhaseCCurving, PhaseCJunctionCap, PhaseCDevCap;
 
+        /// <summary>Is this one of Beatties Ford's 19 split-type nodes (graph b2aa3453)?</summary>
+        static bool BfrNode(CityMap map, int node)
+        {
+            if (map.graphHash != SplitsGraph) return false;
+            bfrSplitSet ??= new HashSet<int>(BfrSplitNodes);
+            return bfrSplitSet.Contains(node);
+        }
         /// <summary>A blend of length L's furthest distance off the own line (the Hermite TAt would draw).</summary>
         static float BlendDev(SplitFrame f, float L)
         {
