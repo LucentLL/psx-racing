@@ -380,5 +380,29 @@ Shader "PSX/Water"
             #endif
             ENDCG
         }
+        // THE WATER'S DEPTH COPY (2026-11-16; SpeedBlurFeature.WaterDepthPass
+        // draws it, never URP: its LightMode is its own). The camera's depth
+        // attachment, texel for texel, into _PSXWaterDepth for the HD variant.
+        Pass
+        {
+            Name "PSXWaterDepthCopy"
+            Tags { "LightMode"="PSXWaterDepthCopy" }
+            ZTest Always ZWrite Off Cull Off
+            CGPROGRAM
+            #pragma vertex vertCopy
+            #pragma fragment fragCopy
+            #pragma target 3.5
+            Texture2D<float> _PSXWaterDepthSrc;
+            float4 vertCopy (uint id : SV_VertexID) : SV_POSITION
+            {
+                float2 p = float2((id << 1) & 2, id & 2);
+                return float4(p * 2.0 - 1.0, 0.5, 1.0);
+            }
+            float fragCopy (float4 pos : SV_POSITION) : SV_Target
+            {
+                return _PSXWaterDepthSrc.Load(int3(pos.xy, 0));
+            }
+            ENDCG
+        }
     }
 }

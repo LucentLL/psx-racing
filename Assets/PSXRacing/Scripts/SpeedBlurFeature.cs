@@ -107,6 +107,16 @@ namespace PSXRacing
         /// <summary>The wet road's mirror (<see cref="WetReflections"/>).</summary>
         WetPass wetPass;
 
+        /// <summary>THE WATER'S DEPTH (2026-11-16, <see cref="WaterLook"/>):
+        /// the camera's depth attachment copied to _PSXWaterDepth before the
+        /// transparents, for PSX/Water's HD variant (the bed under it, the soft
+        /// shore, the world mirrored in it). URP's own _CameraDepthTexture read
+        /// as the far plane in the water's pass on this pipeline; the wet
+        /// road's way - the attachment read as a texture by a pass with no
+        /// depth attachment - is the one proven here.</summary>
+        WaterDepthPass waterDepthPass;
+        Material waterCopyMaterial;
+
         public override void Create()
         {
             pass = new BlurPass
@@ -142,6 +152,13 @@ namespace PSXRacing
                 // a camera drawing straight into its target cannot offer.
                 requiresIntermediateTexture = true,
             };
+            waterDepthPass = new WaterDepthPass
+            {
+                // After the opaques and the sky, before the transparents -
+                // where PSX/Water draws - and before the wet road's pass.
+                renderPassEvent = RenderPassEvent.AfterRenderingSkybox,
+                requiresIntermediateTexture = true,
+            };
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -151,7 +168,27 @@ namespace PSXRacing
             AddBlur(renderer, cam, ref renderingData);
             AddLens(renderer, cam);
             AddGlare(renderer, cam);
+            AddWaterDepth(renderer, cam);
             if (WetReflections.WantedFor(cam)) renderer.EnqueuePass(wetPass);
+        }
+
+        /// <summary>The water's depth copy, for a camera whose water draws
+        /// the HD tiers (<see cref="WaterLook.DepthCopyFor"/>).</summary>
+        void AddWaterDepth(ScriptableRenderer renderer, Camera cam)
+        {
+            if (!WaterLook.DepthCopyFor(cam)) return;
+            if (waterCopyMaterial == null)
+            {
+                var sh = Shader.Find(WaterLook.ShaderName);
+                // No water shader in this build: no copy (the water falls back).
+                if (sh == null || !sh.isSupported) return;
+                waterCopyMaterial = CoreUtils.CreateEngineMaterial(sh);
+            }
+            int pass = waterCopyMaterial.FindPass(WaterLook.DepthCopyPass);
+            if (pass < 0) return;
+            waterDepthPass.material = waterCopyMaterial;
+            waterDepthPass.passIndex = pass;
+            renderer.EnqueuePass(waterDepthPass);
         }
 
         /// <summary>
@@ -304,6 +341,77 @@ namespace PSXRacing
             CoreUtils.Destroy(glareMaterial);
             glareMaterial = null;
             glarePass?.Release();
+            CoreUtils.Destroy(waterCopyMaterial);
+            waterCopyMaterial = null;
+            waterDepthPass?.Release();
+        }
+
+        /// <summary>
+        /// THE WATER'S DEPTH (<see cref="WaterLook"/>): one raster pass that
+        /// reads the camera's depth attachment as a texture (no depth
+        /// attachment of its own, the wet pass's way) and writes the raw
+        /// device depth, texel for texel, into a persistent R32 texture bound
+        /// as _PSXWaterDepth for the rest of the frame. PSX/Water's HD variant
+        /// reads it in the transparents: the bed's depth under each water
+        /// pixel and the scene its mirrored ray is marched against.
+        /// </summary>
+        class WaterDepthPass : ScriptableRenderPass
+        {
+            public Material material;
+            public int passIndex;
+            RTHandle copy;
+            static readonly int SrcId = Shader.PropertyToID("_PSXWaterDepthSrc");
+            static readonly int DstId = Shader.PropertyToID("_PSXWaterDepth");
+
+            class CopyData
+            {
+                public TextureHandle depth;
+                public TextureHandle dst;
+                public Material material;
+                public int pass;
+            }
+
+            public void Release()
+            {
+                copy?.Release();
+                copy = null;
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var resources = frameData.Get<UniversalResourceData>();
+                if (resources.isActiveTargetBackBuffer || material == null) return;
+                var depth = resources.activeDepthTexture;
+                if (!depth.IsValid()) return;
+                var cd = renderGraph.GetTextureDesc(resources.activeColorTexture);
+                int w = Mathf.Max(cd.width, 1), h = Mathf.Max(cd.height, 1);
+                if (copy == null || copy.rt == null || copy.rt.width != w || copy.rt.height != h)
+                {
+                    copy?.Release();
+                    copy = RTHandles.Alloc(w, h, colorFormat: GraphicsFormat.R32_SFloat, filterMode: FilterMode.Point,
+                                           wrapMode: TextureWrapMode.Clamp, name: "_PSXWaterDepth");
+                }
+                var dst = renderGraph.ImportTexture(copy);
+                using (var builder = renderGraph.AddRasterRenderPass<CopyData>("PSX Water Depth", out var data))
+                {
+                    data.depth = depth;
+                    data.dst = dst;
+                    data.material = material;
+                    data.pass = passIndex;
+                    builder.UseTexture(depth);
+                    builder.SetRenderAttachment(dst, 0, AccessFlags.Write);
+                    builder.AllowPassCulling(false);
+                    builder.AllowGlobalStateModification(true);
+                    // bound for the rest of the frame (the transparents read it;
+                    // the copy is persistent, so nothing aliases it)
+                    builder.SetGlobalTextureAfterPass(dst, DstId);
+                    builder.SetRenderFunc(static (CopyData d, RasterGraphContext ctx) =>
+                    {
+                        ctx.cmd.SetGlobalTexture(SrcId, d.depth);
+                        ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, d.pass, MeshTopology.Triangles, 3);
+                    });
+                }
+            }
         }
 
         /// <summary>

@@ -5062,7 +5062,7 @@ namespace PSXRacing.EditorTools
             /// <summary>Bogue Sound and the Atlantic off Emerald Isle:
             /// green-grey, a few metres' visibility.</summary>
             public static readonly WaterPreset Sea = new WaterPreset(
-                new Vector4(0.42f, 0.13f, 0.15f, 0f), new Vector4(0.030f, 0.075f, 0.068f, 0f), new Vector4(9f, 1f, 1f, 0.6f));
+                new Vector4(0.42f, 0.13f, 0.15f, 0f), new Vector4(0.034f, 0.092f, 0.082f, 0f), new Vector4(9f, 0.8f, 1f, 0.6f));
             /// <summary>Lake Lure: a deep green-blue reservoir, calm between
             /// the gusts, mirroring its ridges.</summary>
             public static readonly WaterPreset Lake = new WaterPreset(

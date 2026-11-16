@@ -36,6 +36,14 @@ namespace PSXRacing
     public static class WaterLook
     {
         public const string Keyword = "PSX_WATER_HD";
+        public const string ShaderName = "PSX/Water";
+        /// <summary>PSX/Water's pass that copies the depth attachment
+        /// (SpeedBlurFeature.WaterDepthPass draws it).</summary>
+        public const string DepthCopyPass = "PSXWaterDepthCopy";
+
+        /// <summary>Does <paramref name="cam"/> need the water's depth copy
+        /// this frame (the HD tiers 1 and 2)?</summary>
+        public static bool DepthCopyFor(Camera cam) => On && TierFor(cam) >= 1;
 
         /// <summary>False with PSX_WATER_HD=0: the water as it was.</summary>
         public static readonly bool On = System.Environment.GetEnvironmentVariable("PSX_WATER_HD") != "0";
@@ -95,22 +103,23 @@ namespace PSXRacing
             return 2;
         }
 
-        /// <summary>Does this camera get URP's copies of the frame (after the
-        /// sky) and its depth (after the opaques)?</summary>
+        /// <summary>Does this camera get the copies the HD tiers read: URP's
+        /// copy of the frame after the sky (_CameraOpaqueTexture: the PC asset
+        /// requires it, the Mobile asset does not, a camera may turn it off)
+        /// and the water's own depth copy (SpeedBlurFeature's pass, on any
+        /// base camera)?</summary>
         public static bool SceneCopies(Camera cam)
         {
             var asset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             if (asset == null) return false;
-            bool depth = asset.supportsCameraDepthTexture, colour = asset.supportsCameraOpaqueTexture;
+            bool colour = asset.supportsCameraOpaqueTexture;
             if (cam.TryGetComponent(out UniversalAdditionalCameraData data))
             {
                 if (data.renderType != CameraRenderType.Base) return false;
-                if (data.requiresDepthOption != CameraOverrideOption.UsePipelineSettings)
-                    depth = data.requiresDepthOption == CameraOverrideOption.On;
                 if (data.requiresColorOption != CameraOverrideOption.UsePipelineSettings)
                     colour = data.requiresColorOption == CameraOverrideOption.On;
             }
-            return depth && colour;
+            return colour;
         }
 
         /// <summary>The globals for <paramref name="cam"/>'s frame.</summary>

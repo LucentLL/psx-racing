@@ -40,8 +40,10 @@ float4 _WaterLook;           // x ripple tile m, y ripple strength, z foam gain,
 float4 _PSXWaterTier;        // x frame + depth copies, y screen-space mirror, z third octave (WaterLook.cs)
 float4 _PSXWaterWind;        // xy wind toward (world xz, unit), z speed m/s at the surface
 float _PSXWaterRain;         // 0..1 how hard rain is falling on it
-sampler2D_float _CameraDepthTexture;   // URP's copy after the opaques (no water in it)
-sampler2D _CameraOpaqueTexture;        // URP's copy after the sky (no water in it)
+float _PSXWaterDebug;        // tools: 1 = r copies on, g mirror hit, b depth/10 m
+float4 _PSXDistHaze;         // PSX/Lit's distant haze (the lit city at dusk and night): x amount, y start m, z 1/scale m
+sampler2D_float _PSXWaterDepth;        // the depth attachment after the sky (SpeedBlurFeature.WaterDepthPass; no water in it)
+sampler2D _CameraOpaqueTexture;        // URP's copy of the frame after the sky (no water in it)
 
 // ---- the look ----
 #define HD_GUST_TILE_M     190.0    // gust patches: the breakup field's repeat
@@ -52,11 +54,14 @@ sampler2D _CameraOpaqueTexture;        // URP's copy after the sky (no water in 
 #define HD_OCT_TURN        float3(0.0, 0.62, -0.47)   // radians off the wind
 #define HD_OCT_GAIN        float3(1.0, 0.62, 0.40)
 #define HD_FLOW_PERIOD     1.6      // s, one flow phase
-#define HD_REFRACT_M       0.55     // how far the ripples bend the bed (screen share x metres)
+#define HD_REFRACT_M       0.35     // how far the ripples bend the bed (screen share x metres)
 #define HD_SHORE_SOFT_M    0.06     // the waterline melts into the ground over this depth
 #define HD_FOAM_M          0.55     // shore foam reaches this deep
 #define HD_FOAM_TILE_M     3.4      // the lace's repeat
 #define HD_FOAM_COLOR      float3(0.80, 0.83, 0.82)
+#define HD_SURF_DEPTH_M    3.6      // the open sea's swell breaks shoreward of this depth (the coast
+                                    //   bakes keep the seabed 4 m down: this is their whole shelf)
+#define HD_FOAM_OPEN       2.5      // on the open coast the shore foam reaches this many times further
 #define HD_SKY_LOD_CALM    0.6
 #define HD_SKY_LOD_ROUGH   3.0
 #define HD_SPEC_CALM       1400.0   // sun/moon highlight power on glassy water...
@@ -219,7 +224,7 @@ float2 HDRainRings(float2 xz, float t, float rate)
 
 // THE WORLD IN THE WATER: the wet road's march (PSXWetSSR.cginc), against
 // URP's depth copy. Returns the confidence of a hit, and its uv.
-float HDSceneZ(float2 uv) { return LinearEyeDepth(tex2Dlod(_CameraDepthTexture, float4(uv, 0.0, 0.0)).r); }
+float HDSceneZ(float2 uv) { return LinearEyeDepth(tex2Dlod(_PSXWaterDepth, float4(uv, 0.0, 0.0)).r); }
 float2 HDUV(float2 ndc) { return float2(ndc.x, ndc.y * _ProjectionParams.x) * 0.5 + 0.5; }
 
 float HDMarch(float3 wpos, float3 R, float2 fragXY, out float2 hitUV)
@@ -271,8 +276,13 @@ float HDMarch(float3 wpos, float3 R, float2 fragXY, out float2 hitUV)
         if (1.0 / lerp(k0, k1, m) >= HDSceneZ(HDUV(lerp(s0, s1, m)))) hi = m; else lo = m;
     }
     hitUV = HDUV(lerp(s0, s1, hi));
+    // fade where the ray ran off the frame: a water ray climbs the screen,
+    // so the edge it leaves by is the top; the sides fade only as far as
+    // the ray itself travelled sideways (a sideways fade on every ray drew
+    // bright sky columns down both sides of a lake)
     float2 e = min(hitUV, 1.0 - hitUV);
-    float conf = saturate(min(e.x, e.y) / HD_SSR_EDGE);
+    float side = abs(ds.x) / max(abs(ds.x) + abs(ds.y), 1e-4);
+    float conf = saturate(e.y / HD_SSR_EDGE) * lerp(1.0, saturate(e.x / HD_SSR_EDGE), side);
     float u = hi * k1 / lerp(k0, k1, hi);
     conf *= 1.0 - smoothstep(HD_SSR_FADE_FROM, 1.0, u * len / HD_SSR_MAX_M);
     return conf;
@@ -298,8 +308,8 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float gust = tex2D(_RippleTex, gp).a * 0.62 + tex2D(_RippleTex, Rot(gp, 1.1) * 0.43 + 0.31).a * 0.38;
     float windK = lerp(HD_WIND_CALM, 1.0, saturate(wspd / HD_WIND_FULL));
     float patch = lerp(HD_GUST_MIN, 1.0, smoothstep(0.30, 0.78, gust));
-    // a strong wind ruffles everything; a light one only its gusts
-    float ruffle = lerp(patch, 1.0, saturate((wspd - 3.0) / 6.0)) * windK;
+    // a strong wind ruffles everything; a light or moderate one only its gusts
+    float ruffle = lerp(patch, 1.0, saturate((wspd - 5.0) / 7.0)) * windK;
     // running water is rough whatever the wind
     ruffle = max(ruffle, saturate(flowSpd * _WaterLook.w));
     ruffle = saturate(ruffle + white);
@@ -340,8 +350,9 @@ fixed4 fragHD(v2f_hd i) : SV_Target
             Gerstner(i.wpos.xz, Rot(wd, CHOP_SPREAD.x), CHOP_A.x * oc, CHOP_L.x, 0.0, t, dummy, ws);
             Gerstner(i.wpos.xz, Rot(wd, CHOP_SPREAD.y), CHOP_A.y * oc, CHOP_L.y, 0.0, t, dummy, ws);
         }
-        float still = 1.0 - saturate(flowSpd * 2.0);
-        Gerstner(i.wpos.xz, Rot(wd, 0.9), RIPPLE_A * i.swell.z * still, RIPPLE_L, 0.0, t, dummy, ws);
+        // (the old water's single 7.5 m ripple train stays in the vertices
+        // only: in the pixel it read as corduroy under a sharp mirror - the
+        // spectral sheet is the ripple now)
         slope = ws;
     }
     // rain rings
@@ -350,7 +361,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     [branch] if (rain > 0.001) rings = HDRainRings(i.wpos.xz, t, rain);
 
     // n.xy of a normal is minus the slope
-    float2 tilt = -slope + rip + rings;
+    float2 tilt = -slope + rip - rings;
     float3 N = normalize(float3(tilt.x, 1.0, tilt.y));
     float3 Nm = normalize(float3(-slope.x + rip.x * HD_SSR_SMOOTH, 1.0, -slope.y + rip.y * HD_SSR_SMOOTH));
     float rough = saturate(length(rip) * 2.2 + white);
@@ -412,6 +423,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float3 skyRefl = PSXSkyIn(R, skyLod) * (REFLECT_GAIN * adapt);
     float3 reflToned = PSXTone(skyRefl);
     float reflEmit = 0.0;
+    float dbgConf = 0.0;
     [branch] if (_PSXWaterTier.y > 0.5 && scene)
     {
         float3 Rm = reflect(-V, Nm);
@@ -419,6 +431,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
         Rm = normalize(Rm);
         float2 hitUV;
         float conf = HDMarch(i.wpos, Rm, i.pos.xy, hitUV);
+        dbgConf = conf;
         if (conf > 0.0)
         {
             float2 wob = (N.xz - Nm.xz) * HD_SSR_WOBBLE;
@@ -439,10 +452,24 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // ---- foam: the shore, white water, whitecaps ----
     float swash = sin(t * (6.2831853 / FOAM_SWASH_S) + i.wpos.x * 0.05 + i.wpos.z * 0.03) * FOAM_RUN_M * i.data.y;
     float shoreD = max(downM - swash, 0.0);
-    float shore = saturate(1.0 - shoreD / HD_FOAM_M);
+    float shore = saturate(1.0 - shoreD / (HD_FOAM_M * (1.0 + HD_FOAM_OPEN * saturate(i.data.y * 2.0))));
     float laceMix = laceA * 0.55 + laceB * 0.45;
     float cap = saturate((i.swell.y - WHITECAP) / (1.0 - WHITECAP));
-    float foamWant = max(max(shore * shore, white), cap * cap) * _WaterLook.z;
+    // THE SURF: where the open ocean's swell runs into water shallower than
+    // HD_SURF_DEPTH_M its crests break - lines of foam just behind each
+    // crest, running in with the swell toward the beach.
+    float surf = 0.0;
+    if (_OceanWaves > 0.5 && i.data.y > 0.05)
+    {
+        float2 wdS = normalize(_WaveDir.xz + float2(1e-4, 0.0));
+        float kS = 6.2831853 / (SWELL_L.x * 0.55);           // shoaling: shorter in the shallows
+        float ph = kS * dot(wdS, i.wpos.xz) - sqrt(9.81 * kS) * t * 0.8;
+        float wob = (laceB - 0.5) * 1.2;                      // a ragged front, not a ruler
+        float front = pow(saturate(sin(ph + wob) * 0.5 + 0.5), 5.0);
+        float zone = saturate(1.0 - downM / HD_SURF_DEPTH_M) * saturate(downM / 0.3);
+        surf = saturate(front * 1.4) * zone * saturate(i.data.y * 2.0);
+    }
+    float foamWant = max(max(max(shore * shore, white), cap * cap), surf) * _WaterLook.z;
     float foam = saturate((laceMix + foamWant - 1.0) * 2.4 + foamWant * 0.35);
     foam *= saturate(1.0 - eyeDist / 600.0);
 
@@ -478,6 +505,16 @@ fixed4 fragHD(v2f_hd i) : SV_Target
         col = lerp(col, fogCol, fog);
         emit = PSXEmitShare(sunGlint + lampS * (LAMP_GAIN * (0.3 + fres)), lin);
     }
+    // the distant haze, as PSX/Lit gathers it (0 by day and outside the lit city)
+    if (_PSXDistHaze.x > 0.0)
+    {
+        float hz = _PSXDistHaze.x * (1.0 - exp(-max(eyeDist - _PSXDistHaze.y, 0.0) * _PSXDistHaze.z));
+        col = lerp(col, fogCol, hz);
+        emit *= 1.0 - hz;
+    }
+    if (_PSXWaterDebug > 2.5) col = tex2Dlod(_CameraOpaqueTexture, float4(suv, 0.0, 0.0)).rgb;
+    else if (_PSXWaterDebug > 1.5) col = float3(saturate(HDSceneZ(suv) / 400.0), saturate(surfZ / 400.0), 0.0);
+    else if (_PSXWaterDebug > 0.5) col = float3(scene ? 1.0 : 0.0, dbgConf, saturate(downM / 10.0));
     return fixed4(col, _PSXEmitWrite > 0.5 ? emit * (1.0 - fog) : 1.0);
 }
 

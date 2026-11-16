@@ -66,6 +66,7 @@ namespace PSXRacing.EditorTools
                         else if (set == "langston") Langston();
                         else if (set == "charlotte") Charlotte();
                         else if (set == "test") TestSite();
+                        else if (set == "timing") Timing();
                     }
                     catch (System.Exception e) { Debug.LogError("[WaterShot] " + set + ": " + e); }
                 }
@@ -91,6 +92,7 @@ namespace PSXRacing.EditorTools
             var sea = GameObject.Find("Sea")?.GetComponent<Renderer>();
             if (sea == null) { Debug.LogError("[WaterShot] EmeraldIsle: no Sea"); return; }
             LogMesh(sea);
+            ApplyLook(sea, PSXRacingBuilder.WaterPreset.Sea);
             float seaY = sea.bounds.center.y;
             // The open ocean: the station whose land ends soonest to the south
             // (-z, the Atlantic), shot from the beach 25 m short of the water.
@@ -121,7 +123,7 @@ namespace PSXRacing.EditorTools
             SetHour("SUNSET", false, sun, globals);
             Vector3 toSun = -sun.transform.forward; toSun.y = 0f;
             if (toSun.sqrMagnitude > 1e-4f)
-                Shoot(cam, "emerald_surf_sunward_sunset", beach, toSun.normalized, -4f);
+                Shoot(cam, "emerald_surf_sunward_sunset", beach, (Vector3.back + toSun.normalized * 0.9f).normalized, -4f);
             SetHour("NOON", false, sun, globals);
             TimeTiers(cam, "emerald_surf", beach, Vector3.back, -5f, new[] { sea });
         }
@@ -132,6 +134,7 @@ namespace PSXRacing.EditorTools
             var sea = GameObject.Find("Sea")?.GetComponent<Renderer>();
             if (sea == null) { Debug.LogError("[WaterShot] LangstonBridge: no Sea"); return; }
             LogMesh(sea);
+            ApplyLook(sea, PSXRacingBuilder.WaterPreset.Sea);
             float seaY = sea.bounds.center.y;
             int crest = 0;
             for (int i = 0; i < path.Count; i++) if (path.GetPoint(i).y > path.GetPoint(crest).y) crest = i;
@@ -353,6 +356,61 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
+        //  The cost, on its own: an empty scene (the last hour's globals
+        //  carry over), a ground plane 3 m under a 400 m lake and a wall of
+        //  far shore for the mirror to meet; the water shown and hidden in
+        //  turn at 1440p, drained per render, per tier. Run it last.
+        // ------------------------------------------------------------------
+
+        static void Timing()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var camGo = new GameObject("WaterTimingCam");
+            var cam = camGo.AddComponent<Camera>();
+            cam.fieldOfView = 55f; cam.nearClipPlane = 0.3f; cam.farClipPlane = 2500f;
+            cam.allowHDR = true; cam.allowMSAA = false;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.55f, 0.65f, 0.80f);
+            var lit = new Material(Shader.Find("PSX/Lit")) { color = new Color(0.35f, 0.33f, 0.25f) };
+            var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            ground.transform.position = new Vector3(0f, -3f, 0f);
+            ground.transform.localScale = new Vector3(90f, 1f, 90f);
+            ground.GetComponent<Renderer>().sharedMaterial = lit;
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.transform.position = new Vector3(0f, 25f, 260f);
+            wall.transform.localScale = new Vector3(700f, 60f, 10f);
+            wall.GetComponent<Renderer>().sharedMaterial = lit;
+            var m = new Material(Shader.Find("PSX/Water")) { name = "TimingLake" };
+            m.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/PSXRacing/Art/Water/water_2.png");
+            m.SetTexture("_DeepTex", AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/PSXRacing/Art/Water/water_1.png"));
+            PSXRacingBuilder.WaterPreset.Lake.Apply(m);
+            var v = new List<Vector3>(); var c = new List<Color32>(); var uv = new List<Vector2>(); var tris = new List<int>();
+            int n = 100; float cell = 4f;
+            for (int j = 0; j <= n; j++)
+                for (int i = 0; i <= n; i++)
+                {
+                    v.Add(new Vector3(-200f + i * cell, 0f, -200f + j * cell + 60f));
+                    c.Add(new Color32((byte)Mathf.RoundToInt((0.5f + 3f / 24f) * 255f), 0, 0, 255));
+                    uv.Add(new Vector2(i * cell / 26f, j * cell / 26f));
+                }
+            for (int j = 0; j < n; j++)
+                for (int i = 0; i < n; i++)
+                {
+                    int a = j * (n + 1) + i;
+                    tris.Add(a); tris.Add(a + n + 1); tris.Add(a + n + 2);
+                    tris.Add(a); tris.Add(a + n + 2); tris.Add(a + 1);
+                }
+            var mesh = new Mesh();
+            mesh.SetVertices(v); mesh.SetColors(c); mesh.SetUVs(0, uv); mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            var wgo = new GameObject("TimingWater");
+            wgo.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var wr = wgo.AddComponent<MeshRenderer>();
+            wr.sharedMaterial = m;
+            TimeTiers(cam, "synthetic_lake", new Vector3(0f, 5f, -150f), Vector3.forward, -6f, new Renderer[] { wr });
+        }
+
+        // ------------------------------------------------------------------
         //  Shared
         // ------------------------------------------------------------------
 
@@ -401,8 +459,22 @@ namespace PSXRacing.EditorTools
             WetReflections.PreviewSet(cam, 1);
             var tex = Render(cam, width, lines);
             File.WriteAllBytes(Path.Combine(dir, name + "_" + tag + ".png"), tex.EncodeToPNG());
-            Debug.Log($"[WaterShot] {name}_{tag}: eye {eye} wind {Shader.GetGlobalVector("_PSXWaterWind")} rain {Shader.GetGlobalFloat("_PSXWaterRain"):0.00} wet {Shader.GetGlobalFloat("_PSXWetness"):0.00}");
+            string opts = cam.TryGetComponent(out UnityEngine.Rendering.Universal.UniversalAdditionalCameraData acd)
+                ? $"{acd.renderType} depth {acd.requiresDepthOption} colour {acd.requiresColorOption}" : "no camera data";
+            Debug.Log($"[WaterShot] {name}_{tag}: eye {eye} wind {Shader.GetGlobalVector("_PSXWaterWind")} rain {Shader.GetGlobalFloat("_PSXWaterRain"):0.00} " +
+                      $"wet {Shader.GetGlobalFloat("_PSXWetness"):0.00} tier {Shader.GetGlobalVector("_PSXWaterTier")} copies {WaterLook.SceneCopies(cam)} ({opts})");
             Object.DestroyImmediate(tex);
+            if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_DEBUG") == "1" && WaterLook.On)
+            {
+                for (int mode = 1; mode <= 3; mode++)
+                {
+                    Shader.SetGlobalFloat("_PSXWaterDebug", mode);
+                    var dbg = Render(cam, width, lines);
+                    File.WriteAllBytes(Path.Combine(dir, name + "_dbg" + mode + "_" + tag + ".png"), dbg.EncodeToPNG());
+                    Object.DestroyImmediate(dbg);
+                }
+                Shader.SetGlobalFloat("_PSXWaterDebug", 0f);
+            }
         }
 
         static Texture2D Render(Camera cam, int w, int h)
@@ -427,6 +499,9 @@ namespace PSXRacing.EditorTools
         {
             var request = new RenderPipeline.StandardRequest { destination = rt };
             StreetLights.Push(cam.transform.position, cam.transform.forward);
+            // a render request may not raise beginCameraRendering: push the
+            // water's globals for this camera ourselves (idempotent)
+            WaterLook.Push(cam);
             PSXTexDecode.StampAll();
             RenderPipeline.SubmitRenderRequest(cam, request);
         }
@@ -436,6 +511,7 @@ namespace PSXRacing.EditorTools
         /// work inside the clock), medians.</summary>
         static void TimeTiers(Camera cam, string name, Vector3 eye, Vector3 flatDir, float pitchDeg, Renderer[] water)
         {
+            if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_NOTIME") == "1") return;
             if (water == null || water.Length == 0) { Debug.LogWarning("[WaterShot] TIMING " + name + ": no water renderers"); return; }
             int tw = Even(Mathf.RoundToInt(timeLines * 16f / 9f));
             var rot = Quaternion.LookRotation(flatDir) * Quaternion.Euler(-pitchDeg, 0f, 0f);
@@ -445,6 +521,19 @@ namespace PSXRacing.EditorTools
             var one = new Texture2D(1, 1, TextureFormat.RGBA32, false);
             int[] tiers = WaterLook.On ? new[] { 0, 1, 2 } : new[] { 2 };
             WetReflections.PreviewSet(cam, 1);
+            // how much of the frame is water: the pixels that change when it hides
+            {
+                WaterLook.ForceCamera = cam; WaterLook.ForceTier = 2;
+                Show(water, true);
+                var a = ReadBack(cam, rt);
+                Show(water, false);
+                var b = ReadBack(cam, rt);
+                Show(water, true);
+                int changed = 0;
+                for (int k = 0; k < a.Length; k++)
+                    if (Mathf.Abs(a[k].r - b[k].r) + Mathf.Abs(a[k].g - b[k].g) + Mathf.Abs(a[k].b - b[k].b) > 6) changed++;
+                Debug.Log($"[WaterShot] TIMING {name}: the water covers {100f * changed / Mathf.Max(a.Length, 1):0.0}% of the frame");
+            }
             foreach (int tier in tiers)
             {
                 WaterLook.ForceCamera = cam; WaterLook.ForceTier = tier;
@@ -473,6 +562,20 @@ namespace PSXRacing.EditorTools
 
         static void Show(Renderer[] rs, bool on) { foreach (var r in rs) if (r != null) r.enabled = on; }
 
+        static Color32[] ReadBack(Camera cam, RenderTexture rt)
+        {
+            Submit(cam, rt);
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var t = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            t.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            t.Apply();
+            RenderTexture.active = prev;
+            var px = t.GetPixels32();
+            Object.DestroyImmediate(t);
+            return px;
+        }
+
         static void Drain(RenderTexture rt, Texture2D one)
         {
             var prev = RenderTexture.active;
@@ -486,6 +589,20 @@ namespace PSXRacing.EditorTools
         {
             v.Sort();
             return v.Count == 0 ? 0.0 : (v.Count & 1) == 1 ? v[v.Count / 2] : 0.5 * (v[v.Count / 2 - 1] + v[v.Count / 2]);
+        }
+
+        /// <summary>A sea built before this round has no ripple sheet on its
+        /// material: shoot it with a runtime copy carrying what MakeWaterMat
+        /// now sets (the scene is never saved; the asset is untouched).</summary>
+        static void ApplyLook(Renderer r, PSXRacingBuilder.WaterPreset look)
+        {
+            var src = r.sharedMaterial;
+            if (src == null || !src.HasProperty("_RippleTex")) return;
+            if (src.GetTexture("_RippleTex") != null) return;
+            var m = new Material(src) { name = src.name + " (as MakeWaterMat makes it)" };
+            look.Apply(m);
+            r.sharedMaterial = m;
+            Debug.Log("[WaterShot] " + r.name + ": material built before this round - shot with the look MakeWaterMat now sets");
         }
 
         static void LogMesh(Renderer r)
@@ -547,12 +664,21 @@ namespace PSXRacing.EditorTools
             origin = new Vector3(start.x + 6000f, start.y, start.z + 1500f);
             var root = new GameObject("~WaterTestSite");
             root.hideFlags = HideFlags.DontSave;
+            // what the stage dresses its land with (logged, to choose from)
+            var uses = new Dictionary<Material, int>();
+            foreach (var mr in Object.FindObjectsByType<MeshRenderer>())
+                foreach (var m in mr.sharedMaterials)
+                    if (m != null) uses[m] = (uses.TryGetValue(m, out int u) ? u : 0) + 1;
+            var top = new List<KeyValuePair<Material, int>>(uses);
+            top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            for (int k = 0; k < top.Count && k < 14; k++)
+                Debug.Log($"[WaterShot] stage material {top[k].Key.name} x{top[k].Value}: {top[k].Key.shader?.name} tex {top[k].Key.mainTexture?.name}");
             BuildRiverLine();
             PlaceBoulders();
 
-            var groundMat = FindMaterial(new[] { "Ground", "Near", "Turf" }, "PSX/Lit");
-            var farMat = FindMaterial(new[] { "Far", "Mottle" }, "PSX/Lit") ?? groundMat;
-            var rockMat = FindMaterial(new[] { "Rock", "Cliff", "Cut", "Boulder" }, "PSX/Lit") ?? groundMat;
+            var groundMat = FindByNameEnd("_Ground") ?? FindByTexture(new[] { "turf", "grass" });
+            var farMat = FindByNameEnd("_GroundFar") ?? groundMat;
+            var rockMat = FindByTexture(new[] { "rock" }) ?? groundMat;
             if (groundMat == null) { Debug.LogError("[WaterShot] test site: no ground material in the stage"); return null; }
             Debug.Log($"[WaterShot] test site at {origin}: ground {groundMat.name}, far {farMat?.name}, rock {rockMat?.name}");
 
@@ -577,9 +703,9 @@ namespace PSXRacing.EditorTools
             // the river from its bank, looking upstream over the boulders
             float sEye = riverLen * 0.55f;
             Vector2 rp = RiverAt(sEye, out Vector2 rt);
-            Vector2 bank = rp + new Vector2(-rt.y, rt.x) * (HalfW + 7f);
+            Vector2 bank = rp + new Vector2(-rt.y, rt.x) * (HalfW + 4f);
             site.riverEye = origin + new Vector3(bank.x, 0f, bank.y);
-            site.riverEye.y = H(bank.x, bank.y) + origin.y + 1.6f;
+            site.riverEye.y = Mathf.Max(H(bank.x, bank.y) + 1.6f, RiverSurface(sEye) + 3.5f) + origin.y;
             Vector2 up = -rt;
             site.riverLook = new Vector3(up.x * 0.85f - rt.y * 0.0f, 0f, up.y * 0.85f).normalized;
             Vector2 aim = RiverAt(sEye - 45f, out _) - bank;
@@ -721,7 +847,11 @@ namespace PSXRacing.EditorTools
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            var gr = go.AddComponent<MeshRenderer>();
+            gr.sharedMaterial = mat;
+            // land does not cast into the sun map (self-shadowed, it drew black)
+            gr.shadowCastingMode = ShadowCastingMode.Off;
+            SunShadows.Exclude(go);
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
         }
 
@@ -773,6 +903,9 @@ namespace PSXRacing.EditorTools
                 if (b.size.y < 6f || b.size.y > 40f || b.size.x > 25f) continue;
                 var mf = go.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null || mf.sharedMesh.vertexCount > 40000) continue;
+                // a tree stands on its own pivot (a chunk of baked cards does not)
+                var mb = mf.sharedMesh.bounds;
+                if (Mathf.Abs(mb.center.x) > 3f || Mathf.Abs(mb.center.z) > 3f || mb.min.y < -2f || mb.min.y > 3f) continue;
                 var top = go.transform.parent != null && go.transform.parent.GetComponent<LODGroup>() != null ? go.transform.parent.gameObject : go;
                 if (protos.Contains(top)) continue;
                 protos.Add(top);
@@ -801,6 +934,35 @@ namespace PSXRacing.EditorTools
                 placed++;
             }
             Debug.Log("[WaterShot] test site: " + placed + " trees");
+        }
+
+        /// <summary>The stage's own material whose name ends so ("_Ground" =
+        /// its near ground, "_GroundFar" its far land).</summary>
+        static Material FindByNameEnd(string end)
+        {
+            foreach (var r in Object.FindObjectsByType<MeshRenderer>())
+                foreach (var m in r.sharedMaterials)
+                    if (m != null && m.name.EndsWith(end, System.StringComparison.Ordinal))
+                    { Debug.Log($"[WaterShot] test site material '{end}': {m.name} ({m.mainTexture?.name})"); return m; }
+            return null;
+        }
+
+        /// <summary>A PSX/Lit material of the stage whose main texture's name
+        /// holds one of the keys (logged, so the frame can be judged).</summary>
+        static Material FindByTexture(string[] keys)
+        {
+            var seen = new HashSet<Material>();
+            foreach (var r in Object.FindObjectsByType<MeshRenderer>())
+            {
+                foreach (var m in r.sharedMaterials)
+                {
+                    if (m == null || !seen.Add(m) || m.shader == null || m.shader.name != "PSX/Lit" || m.mainTexture == null) continue;
+                    string tn = m.mainTexture.name.ToLowerInvariant();
+                    foreach (var k in keys)
+                        if (tn.Contains(k)) { Debug.Log($"[WaterShot] test site material for '{k}': {m.name} ({m.mainTexture.name}) on {r.name}"); return m; }
+                }
+            }
+            return null;
         }
 
         static Material FindMaterial(string[] keys, string shader)
