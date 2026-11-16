@@ -184,6 +184,17 @@ namespace PSXRacing
             public int deckLeg;
             public bool IsDeckRun => deckWay != 0;
 
+            /// <summary>
+            /// The venue whose SCENE this one races in, for a Charlotte race
+            /// with no scene of its own (the races of charlotte_tracks.json,
+            /// CityTracks): a loop in UptownLoop's, a course with ends in
+            /// TryonSprint's. CityTracksRegistrar points that scene's CityMode
+            /// at this venue's route before it builds the path. Null for every
+            /// venue with its own scene. Appended after the deck runs, so no
+            /// saved index moves.
+            /// </summary>
+            public string hostScene;
+
             // Loaded lazily out of charlotte_routes.json by EnsureRoute: the
             // menu's copy of the route (length, line, finish, a 4 m polyline
             // for the map), so the front end never parses the 2.5 MB graph.
@@ -950,8 +961,49 @@ namespace PSXRacing
             }
             // DECK RUNS after the sprints, for the same reason.
             foreach (var dv in DeckRuns) list.Add(DeckRunDef(dv));
+            // THE CHARLOTTE TRACKS (2026-11-16) after the deck runs: no scene
+            // of their own, appended so no saved index moves.
+            foreach (var t in CityTrackVenues) list.Add(t);
             return list.ToArray();
         }
+
+        /// <summary>
+        /// THE CHARLOTTE TRACKS (owner, 2026-11-16: circuits, sprints and drags
+        /// on Charlotte's streets; at 14:00, "more circuits use highway on/off
+        /// ramps like the example I drew in red"). Each is a route of
+        /// Resources/charlotte_tracks.json (CityTracks, from the candidate
+        /// sheet Charlotte_Track_Candidates_2026-11-16 by
+        /// tools/city/tracks/emit_tracks.mjs) raced in its host's scene.
+        /// A PROPERTY for the reason <see cref="SprintVariants"/> is.
+        /// </summary>
+        static TrackDef[] CityTrackVenues => new[]
+        {
+            // H2 on the sheet: the owner's own loop with its I-85 arm swapped for
+            // the Wilkinson Boulevard end (his Little Rock Road turn crosses the
+            // airport ramps, still on the keep-off list). A lap of I-485's two
+            // carriageways turned round on each interchange's own ramps: down
+            // from Moores Chapel through the I-85 cloverleaf's C-D road, round
+            // the Wilkinson cloverleaf, back up, round the Moores Chapel diamond.
+            new TrackDef
+            {
+                id = "I485West",
+                name = "I-485 WEST - RAMPS",
+                blurb = "The outer belt west of the airport: down I-485 through the I-85 cloverleaf, round " +
+                        "on the Wilkinson Boulevard ramps, back up and round at Moores Chapel Road. 9.2 km, " +
+                        "one lap. Map (c) OpenStreetMap contributors.",
+                roadWidth = 18.8f,      // four 3.66 m lanes and the shoulders (the grid's carriageway)
+                laps = 1,               // 9.2 km: one lap under the 14.2 km tank line, as UptownLoop
+                speedLimitKmh = 105f,   // I-485 is posted 65 mph
+                city = true,
+                cityRoute = "i485west",
+                loop = true,
+                oneWay = true,
+                noReverse = true,       // a freeway backwards is the wrong way up every ramp
+                noDelivery = true,
+                hostScene = "UptownLoop",
+                dragLabel = "I-485",
+            },
+        };
 
         /// <summary>The cityRoute every deck run carries, and the venue whose
         /// scene it races in (a Charlotte race scene: the streamed city, three
@@ -1647,6 +1699,7 @@ namespace PSXRacing
             if (def.Reversed) return def.reverseOf;
             if (def.IsSprintVariant) return def.sprintOf;
             if (def.IsDeckRun) return DeckScene;
+            if (!string.IsNullOrEmpty(def.hostScene)) return def.hostScene;
             return def.id;
         }
 
@@ -1866,6 +1919,15 @@ namespace PSXRacing
             }
             RouteJson r = null;
             foreach (var cand in routesJson.routes) if (cand.id == def.cityRoute) { r = cand; break; }
+            string attribution = routesJson.attribution ?? "";
+            // the races added after the export's own (CityTracks): the same facts, from their own file
+            if (r == null && CityTracks.TryMenu(def.cityRoute, out var extra, out string extraAttribution))
+            {
+                r = new RouteJson { id = extra.id, name = extra.name, loop = extra.loop, oneway = extra.oneway,
+                                    roadWidth = extra.roadWidth, speed = extra.speed, lengthM = extra.lengthM,
+                                    startM = extra.startM, finishM = extra.finishM, pts = extra.pts };
+                attribution = extraAttribution;
+            }
             if (r == null)
             {
                 Debug.LogError("City route missing from charlotte_routes.json: " + def.cityRoute);
@@ -1879,7 +1941,7 @@ namespace PSXRacing
             // The reversed-finish remap reads the start line off this field
             // for stages; a city route with ends is the same shape.
             def.stageStartLineM = r.startM;
-            def.stageAttribution = routesJson.attribution ?? "";
+            def.stageAttribution = attribution;
             if (r.loop != 0 && !def.loop)
             {
                 Debug.LogError("City route " + r.id + " is a loop but TrackDef." + def.id + " is not");

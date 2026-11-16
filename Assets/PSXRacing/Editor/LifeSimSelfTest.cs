@@ -2494,6 +2494,7 @@ namespace PSXRacing.EditorTools
                         Check(!string.IsNullOrEmpty(t.dragLabel), t.id + " is named for the HUD");
                         Check(!string.IsNullOrEmpty(t.stageAttribution), t.id + " carries its map attribution");
                         var cityMap = PSXRacing.City.CityMap.Get();
+                        CityTracks.Register(cityMap);   // the races of charlotte_tracks.json, as every city scene does
                         var route = cityMap != null ? cityMap.RouteById(t.cityRoute) : null;
                         Check(route != null, t.id + " route exists in the city graph", t.cityRoute);
                         if (route != null)
