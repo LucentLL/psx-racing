@@ -1103,6 +1103,17 @@ namespace PSXRacing
         /// <summary>Watch this car (a tape opens on the player's own).</summary>
         public void Watch(int i) => SetFocus(i);
 
+        /// <summary>A car's recorded pose at a replay time (the camcorder's
+        /// buddy car runs the focus car's own line a beat behind it).</summary>
+        public bool PoseAt(int car, float t, out Vector3 pos, out Quaternion rot)
+        {
+            pos = default; rot = Quaternion.identity;
+            if (car < 0 || car >= tracks.Count || tracks[car].frames.Count == 0) return false;
+            var f = Sample(tracks[car], Mathf.Clamp(t, 0f, Duration));
+            pos = f.pos; rot = f.rot;
+            return true;
+        }
+
         /// <summary>Feed synthetic frames straight in. Test only.</summary>
         public void InjectForTest(CarController car, List<float> t, List<Frame> frames)
         {

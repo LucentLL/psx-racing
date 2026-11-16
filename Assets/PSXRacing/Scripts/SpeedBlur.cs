@@ -945,7 +945,9 @@ namespace PSXRacing
             if (cam == null) return;
             // The HUD goes onto its own camera while EITHER pass may draw over
             // the world: the blur would smear it, the lens would refract it.
-            bool want = SpeedBlurPrefs.Enabled || LensFxPrefs.Enabled;
+            // ...and while the CAMCORDER draws (2026-11-16): its OSD stays a
+            // crisp viewfinder over the tape's soft picture.
+            bool want = SpeedBlurPrefs.Enabled || LensFxPrefs.Enabled || (Camcorder.Camera != null && Camcorder.Camera == cam);
             if (want != split && !(want && splitRefused)) SetSplit(want);
 
             float v = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
