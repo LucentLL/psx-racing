@@ -408,6 +408,19 @@ namespace PSXRacing.City
             float uTip = float.NaN; SplitFrame fa = null, fb = null;
             if (frames.Count == 2) { fa = frames[0]; fb = frames[1]; }
             float GapLanes(float uu) => fa == null ? float.NaN : Mathf.Abs(fa.TAt(uu) - fb.TAt(uu)) - fa.lanesHalf - fb.lanesHalf;
+            // the two carriageways carry more lanes than the undivided road (Beatties Ford n7869: a 2-lane
+            // road into 2 + 3 lanes): their lane bands would start on top of each other and cross while
+            // they blend - no profile, the old taper (listed)
+            if (fa != null)
+            {
+                float u0 = Mathf.Max(fa.uStart, fb.uStart), worst = 0f;
+                for (float uu = u0; uu <= Mathf.Max(fa.uEnd, fb.uEnd); uu += 1f) worst = Mathf.Min(worst, GapLanes(uu));
+                if (worst < -0.3f || Mathf.Sign(fa.TAt(u0) - fb.TAt(u0)) != Mathf.Sign(fa.OwnQAt(Mathf.Max(fa.uEnd, fb.uEnd)) - fb.OwnQAt(Mathf.Max(fa.uEnd, fb.uEnd))))
+                {
+                    foreach (var f in frames) Skip(f.edge, $"the two carriageways' lane bands overlap {-worst:0.00} m or cross while they blend (more lanes than the undivided road carries)");
+                    return done;
+                }
+            }
             float noseEnd = 0f, noseH = SplitNoseH, noseLn = SplitNoseLn;
             if (fa != null && NoseRuleOn && fa.innerSign != fb.innerSign)
             {
