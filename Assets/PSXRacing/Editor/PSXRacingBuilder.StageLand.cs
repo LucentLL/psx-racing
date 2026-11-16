@@ -182,7 +182,12 @@ namespace PSXRacing.EditorTools
             int areas = 0, yards = 0, lawnsBefore = 0;
             if (world.open != null)
                 foreach (var o in world.open)
-                    if (o.xz != null && o.xz.Length >= 6) { WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, KeepOpen, 0); areas++; }
+                    if (o.xz != null && o.xz.Length >= 6)
+                    {
+                        // the marina's land keeps its big shore trees (the video at 8:45): parkland, not a lawn
+                        WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, o.kind == "marina" ? KeepPark : KeepOpen, 0);
+                        areas++;
+                    }
             if (world.buildings != null)
                 foreach (var b in world.buildings)
                 {
@@ -204,17 +209,30 @@ namespace PSXRacing.EditorTools
                     WorldBand(mask, new[] { c0, c0 + dir * b.dist }, half, KeepOpen);
                     lawnsBefore++;
                 }
-            // the town streets themselves: 40 m either side downtown, 28 m in the villages
+            // the town streets themselves (parkland): 36 m either side downtown, 18 m in the villages - and only
+            // where the town is, within 60 m along the road of a building that fronts it (the village's wooded
+            // outskirts keep their trees, as at 10:05)
             if (own)
             {
                 var pts = track.stagePts;
+                var fronted = new bool[pts.Length];
+                if (world.buildings != null)
+                    foreach (var b in world.buildings)
+                    {
+                        if (b.dist > 80f) continue;
+                        int c = Mathf.RoundToInt(b.st / Spacing), reach = Mathf.CeilToInt(60f / Spacing);
+                        for (int i = Mathf.Max(0, c - reach); i <= Mathf.Min(pts.Length - 1, c + reach); i++) fronted[i] = true;
+                    }
                 foreach (var zr in WorldStreets)
                 {
                     int i0 = Mathf.Max(0, (int)(zr.x / Spacing)), i1 = Mathf.Min(pts.Length - 1, (int)(zr.y / Spacing));
-                    if (i1 - i0 < 2) continue;
-                    var line = new Vector3[i1 - i0 + 1];
-                    for (int i = i0; i <= i1; i++) line[i - i0] = pts[i];
-                    WorldBand(mask, line, zr.x < 6000f ? 36f : 18f, KeepPark);
+                    var line = new List<Vector3>();
+                    for (int i = i0; i <= i1 + 1; i++)
+                    {
+                        if (i <= i1 && fronted[i]) { line.Add(pts[i]); continue; }
+                        if (line.Count >= 2) WorldBand(mask, line.ToArray(), zr.x < 6000f ? 36f : 18f, KeepPark);
+                        line.Clear();
+                    }
                 }
             }
             else if (world.streets != null)
