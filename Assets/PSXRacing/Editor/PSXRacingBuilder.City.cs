@@ -682,6 +682,7 @@ namespace PSXRacing.EditorTools
             mat.SetColor("_SandColor", new Color(0.50f, 0.46f, 0.36f));
             mat.SetFloat("_OceanWaves", 0f);   // a river takes the ripple, not a swell
             WaterPreset.City.Apply(mat);
+            mat.renderQueue = -1;   // the shader's queue; WaterLook moves it only while the HD water is on
             EditorUtility.SetDirty(mat);
             return mat;
         }

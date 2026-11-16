@@ -32,12 +32,13 @@
 // Opaque, one pass, no extra draw call: it is the sea plane's material.
 //
 // THE PS3-PS4 WATER (2026-11-16) is this pass's PSX_WATER_HD variant, in
-// PSXWaterHD.cginc: WaterLook.cs turns the keyword on (PSX_WATER_HD=0 in the
-// environment leaves it off, and the code below the #else is the water above,
-// line for line). The pass now draws at the HEAD OF THE TRANSPARENTS rather
-// than with the opaques: it is still opaque (no blend, depth written), so its
-// pixels are the same, but it draws after URP has copied the frame and its
-// depth (the PC asset copies both for every camera), which is what lets the
+// PSXWaterHD.cginc: WaterLook.cs turns the keyword on only with PSX_WATER_HD=1
+// in the environment (opt-in); otherwise it stays off and the code below the
+// #else is the water above, line for line, at its old queue (Geometry) - the
+// OFF picture was proven identical to 7badf362's to the pixel. While the HD
+// water is active WaterLook moves the water materials to the HEAD OF THE
+// TRANSPARENTS (2501): still opaque (no blend, depth written), but drawn after
+// URP's copy of the frame and the water's depth copy, which is what lets the
 // HD variant see the bed through it and the world in it.
 //
 // THE VERTEX CONTRACT (shared with the stage builders):
@@ -80,9 +81,9 @@ Shader "PSX/Water"
     }
     SubShader
     {
-        // Transparent-499: the first thing drawn after URP's copies of the
-        // frame and its depth (see the header). Still opaque, still depth-written.
-        Tags { "RenderType"="Opaque" "Queue"="Transparent-499" }
+        // Geometry, the old water's queue; WaterLook.HDQueue (2501, the head of
+        // the transparents) only while the HD water is active (see the header).
+        Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
             CGPROGRAM

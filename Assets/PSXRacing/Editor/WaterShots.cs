@@ -79,6 +79,8 @@ namespace PSXRacing.EditorTools
                 WaterLook.ForceTier = -1; WaterLook.ForceCamera = null; WaterLook.ForceWind = null; WaterLook.ForceRain = -1f;
                 WetReflections.PreviewSet(null, -1);
                 WaterLook.Invalidate();
+                // no material asset keeps the HD queue after an edit-mode run
+                WaterLook.RestoreQueues();
             }
             Debug.Log("[WaterShot] depth copies enqueued this run: " + WaterLook.DepthCopies + " (HD water " + (WaterLook.On ? "ON" : "OFF") +
                       ", keyword " + (Shader.IsKeywordEnabled(WaterLook.Keyword) ? "on" : "off") + ")");

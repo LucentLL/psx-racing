@@ -57,24 +57,65 @@ namespace PSXRacing
 
         /// <summary>The HD variant for the active scene: on, unless it holds an
         /// open-ocean sea (a PSX/Water material with _OceanWaves) and
-        /// PSX_WATER_HD_SEA is not 1. One scan per scene.</summary>
+        /// PSX_WATER_HD_SEA is not 1. One scan per scene, which also moves the
+        /// scene's water to <see cref="HDQueue"/> when the HD water is active.</summary>
         public static bool ActiveHere()
         {
             if (!On) return false;
-            if (SeaOn) return true;
             int h = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetHashCode();
             if (h != seaScene)
             {
                 seaScene = h;
                 seaHere = false;
+                scanBuf.Clear();
                 foreach (var r in Object.FindObjectsByType<MeshRenderer>())
-                {
-                    var m = r.sharedMaterial;
-                    if (m != null && m.shader != null && m.shader.name == ShaderName
-                        && m.HasProperty("_OceanWaves") && m.GetFloat("_OceanWaves") > 0.5f) { seaHere = true; break; }
-                }
+                    foreach (var m in r.sharedMaterials)
+                    {
+                        if (m == null || m.shader == null || m.shader.name != ShaderName) continue;
+                        scanBuf.Add(m);
+                        if (m.HasProperty("_OceanWaves") && m.GetFloat("_OceanWaves") > 0.5f) seaHere = true;
+                    }
+                if (SeaOn || !seaHere) foreach (var m in scanBuf) QueueMaterial(m);
+                scanBuf.Clear();
             }
-            return !seaHere;
+            return SeaOn || !seaHere;
+        }
+
+        static readonly System.Collections.Generic.List<Material> scanBuf = new System.Collections.Generic.List<Material>();
+        static readonly System.Collections.Generic.List<Material> moved = new System.Collections.Generic.List<Material>();
+
+        /// <summary>THE QUEUE (round 2): PSX/Water's own queue is Geometry, the
+        /// old water's, so with the HD water off the picture is today's to the
+        /// pixel (the wet road's mirror copies the frame with the water in it,
+        /// the sky draws after it). The HD variant must draw after URP's copy of
+        /// the frame and the water's depth copy - at the head of the
+        /// transparents - so while it is active its water materials move here.</summary>
+        public const int HDQueue = 2501;
+
+        static void QueueMaterial(Material m)
+        {
+            if (m == null || m.shader == null || m.shader.name != ShaderName || m.renderQueue == HDQueue) return;
+            m.renderQueue = HDQueue;
+            moved.Add(m);
+        }
+
+        /// <summary>A renderer built at runtime (the city's streamed tiles, all
+        /// through WetReflections.Tag): its water to the HD queue when the HD
+        /// water is active here. Nothing at all when it is off.</summary>
+        public static void QueueIfHD(Renderer r)
+        {
+            if (!On || r == null || !ActiveHere()) return;
+            var mats = r.sharedMaterials;
+            for (int i = 0; i < mats.Length; i++) QueueMaterial(mats[i]);
+        }
+
+        /// <summary>Tools: every moved material back to its shader's queue (an
+        /// edit-mode render must not leave a material asset at 2501).</summary>
+        public static void RestoreQueues()
+        {
+            foreach (var m in moved) if (m != null) m.renderQueue = -1;
+            moved.Clear();
+            seaScene = int.MinValue;
         }
 
         /// <summary>Does <paramref name="cam"/> need the water's depth copy

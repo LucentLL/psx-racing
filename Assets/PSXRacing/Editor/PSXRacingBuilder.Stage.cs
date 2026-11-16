@@ -5122,6 +5122,9 @@ namespace PSXRacing.EditorTools
             mat.SetFloat("_OceanWaves", ocean ? 1f : 0f);
             mat.SetVector("_WaveDir", ocean ? new Vector4(-Mathf.Sin(b), 0f, -Mathf.Cos(b), 0f) : new Vector4(0f, 0f, 1f, 0f));
             (look ?? theme.waterLook ?? (ocean ? WaterPreset.Sea : WaterPreset.Lake)).Apply(mat);
+            // the shader's own queue (Geometry); WaterLook moves it only while
+            // the HD water is on, and a build never keeps that move
+            mat.renderQueue = -1;
             EditorUtility.SetDirty(mat);
             return mat;
         }
