@@ -56,7 +56,7 @@ namespace PSXRacing.EditorTools
                     foreach (var spec in Env("PSX_LC_ROAD", "SwissNC226A:250,MtMitchell:6800,ChimneyRock:3800").Split(','))
                     {
                         var kv = spec.Split(':');
-                        if (kv.Length == 2) Road(kv[0].Trim(), float.Parse(kv[1], CultureInfo.InvariantCulture));
+                        if (kv.Length == 2) Road(kv[0].Trim(), float.Parse(kv[1], CultureInfo.InvariantCulture), sets.Contains("perf") && kv[0].Trim() == "SwissNC226A");
                     }
             }
             catch (System.Exception e) { log.AppendLine("THREW " + e); }
@@ -341,7 +341,7 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------ a stage's road
-        static void Road(string id, float m)
+        static void Road(string id, float m, bool perf)
         {
             var s = Open(id);
             if (s == null) return;
@@ -362,6 +362,7 @@ namespace PSXRacing.EditorTools
                 GrabAB(s, $"road_{id}_{m:0}_{hour.ToLower()}_chase", chaseEye, chaseRot, 1080, (int)Season.Fall, hour, false, false);
                 GrabAB(s, $"road_{id}_{m:0}_{hour.ToLower()}_vista", vistaEye, vistaRot, 1080, (int)Season.Fall, hour, false, true);
             }
+            if (perf) Perf(s, vistaEye, vistaRot);
             s.cam.fieldOfView = fovWas;
         }
 
@@ -372,6 +373,7 @@ namespace PSXRacing.EditorTools
         static void Perf(Scene s, Vector3 eye, Quaternion rot)
         {
             Condition(s, (int)Season.Fall, "SUNSET", false, eye);
+            if (s.forest != null) s.forest.DrawNow(s.cam);
             s.cam.transform.SetPositionAndRotation(eye, rot);
             var rt = new RenderTexture(1920, 1080, 32, RenderTextureFormat.ARGB32);
             rt.Create();
@@ -381,11 +383,12 @@ namespace PSXRacing.EditorTools
                 LookChoices.FarCanopyForce = on;
                 if (s.sc != null) s.sc.Configure(s.cam);
                 var req = new RenderPipeline.StandardRequest { destination = rt };
-                for (int k = 0; k < 4; k++) RenderPipeline.SubmitRenderRequest(s.cam, req);
+                for (int k = 0; k < 4; k++) { if (s.forest != null) s.forest.DrawNow(s.cam); RenderPipeline.SubmitRenderRequest(s.cam, req); }
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 const int N = 24;
                 for (int k = 0; k < N; k++)
                 {
+                    if (s.forest != null) s.forest.DrawNow(s.cam);
                     RenderPipeline.SubmitRenderRequest(s.cam, req);
                     var prev = RenderTexture.active; RenderTexture.active = rt;
                     one.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); one.Apply();
@@ -396,7 +399,7 @@ namespace PSXRacing.EditorTools
             double on1 = Time(true), off1 = Time(false), on2 = Time(true), off2 = Time(false);
             LookChoices.FarCanopyForce = null;
             if (s.sc != null) s.sc.Configure(s.cam);
-            log.AppendLine($"  PERF title pose 1920x1080, ms a frame (editor, render + 1 px read): canopy ON {on1:0.00} / {on2:0.00}, OFF {off1:0.00} / {off2:0.00}; " +
+            log.AppendLine($"  PERF {s.cam.gameObject.scene.name} pose 1920x1080, ms a frame (editor, render + 1 px read): canopy ON {on1:0.00} / {on2:0.00}, OFF {off1:0.00} / {off2:0.00}; " +
                            $"difference {(on1 + on2 - off1 - off2) / 2:0.00} ms");
             Object.DestroyImmediate(one);
             rt.Release(); Object.DestroyImmediate(rt);

@@ -182,7 +182,8 @@ namespace PSXRacing.EditorTools
                     {
                         string nm = col.gameObject.name;
                         if (nm.StartsWith("Wall") || nm.StartsWith("BankColl") || nm.StartsWith("BridgeDeck") || nm == "Pier" ||
-                            nm.StartsWith("Pier") || nm.StartsWith("Parapet") || nm.StartsWith("Rail")) { clear = false; break; }
+                            nm.StartsWith("Pier") || nm.StartsWith("Parapet") || nm.StartsWith("Rail") || nm.StartsWith("BridgeJoint") ||
+                            nm.StartsWith("RetainWall")) { clear = false; break; }
                     }
                     if (!clear) { skipSolid++; continue; }
                     // not wholly inside a stone already placed
@@ -201,7 +202,7 @@ namespace PSXRacing.EditorTools
                     var solidMesh = stones[s].lods[2];
                     for (int sm = 0; sm < solidMesh.subMeshCount; sm++)
                         cell.solid.Add(new CombineInstance { mesh = solidMesh, subMeshIndex = sm, transform = trs });
-                    LandmarkKeepAdd(c.x, c.z, r * 0.85f + 0.6f);
+                    LandmarkKeepAdd(c.x, c.z, r + 2.5f);   // and the forest thinner round it: a boulder field is open woods
                     stonesPlaced++;
                     any = true;
                 }
