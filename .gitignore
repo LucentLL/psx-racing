@@ -34,6 +34,10 @@ Assets/PSXShaderKit.meta
 # tools/store-assets.ps1 into every checkout and sandbox that builds.
 Assets/StoreAssets/
 Assets/StoreAssets.meta
+# The traffic kit baked from the UAA vehicles pack on a PC content pass (Editor/TrafficUaaBaker.cs):
+# it points into Assets/StoreAssets, so it never belongs in the repo.
+Assets/PSXRacing/Resources/TrafficKit.asset
+Assets/PSXRacing/Resources/TrafficKit.asset.meta
 
 tools/brp/cache/
 # The generalised road bake downloads SRTM tiles and Overpass results here.
