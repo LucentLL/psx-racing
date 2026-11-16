@@ -37,6 +37,10 @@ Assets/StoreAssets.meta
 /Assets/PSXRacing/EnhancedSrc/TexEnhanced/StoreGen/
 /Assets/PSXRacing/EnhancedSrc/TexEnhanced/StoreGen.meta
 /StoreGen/
+# The traffic kit baked from the UAA vehicles pack on a PC content pass (Editor/TrafficUaaBaker.cs):
+# it points into Assets/StoreAssets, so it never belongs in the repo.
+Assets/PSXRacing/Resources/TrafficKit.asset
+Assets/PSXRacing/Resources/TrafficKit.asset.meta
 
 tools/brp/cache/
 # The generalised road bake downloads SRTM tiles and Overpass results here.

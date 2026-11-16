@@ -175,7 +175,11 @@ namespace PSXRacing
         const float WreckFloor = 0.01f;
 
         /// <summary>The owner's traffic cars twice (the taxi and the two
-        /// police liveries once), then the pack's everyday shells for variety.</summary>
+        /// police liveries once), then the pack's everyday shells for variety.
+        /// TODAY'S LIST WITHOUT THE OWNER'S VEHICLE PACK: with the kit in the
+        /// build (TrafficKit, 2026-11-15) the pools are dealt by
+        /// <see cref="TrafficModels"/>, where the two placeholders here
+        /// (camry_2001, ford_transit) are replaced by the pack's vehicles.</summary>
         internal static readonly string[] Keys =
         {
             "crown_victoria", "sedan_98", "camry_2001", "ford_transit",
@@ -392,7 +396,7 @@ namespace PSXRacing
             int poolMax = Application.isMobilePlatform ? PoolMax : PoolMaxDesktop;
             poolSize = Level == TrafficLevels.None ? 0
                      : Mathf.Clamp(Mathf.CeilToInt(expected * 1.25f) + 3, PoolMin, poolMax);
-            for (int i = 0; i < poolSize; i++) pool.Add(Build(Keys[i % Keys.Length]));
+            for (int i = 0; i < poolSize; i++) pool.Add(Build(TrafficModels.RaceKey(i)));
         }
 
         /// <summary>Lane centres as the painter lays them out: US lanes packed
@@ -422,13 +426,14 @@ namespace PSXRacing
 
         Car Build(string key)
         {
-            var def = CarModelLibrary.Load(key) ?? CarModelLibrary.Load(CarModelLibrary.Default);
+            var def = TrafficModels.Load(key);
             var go = new GameObject("Traffic_" + key);
             go.transform.SetParent(transform, false);
             // Layer 2 like every car: the player's suspension rays skip it, so
             // a car alongside is a car to hit, not a ramp to climb.
             var shell = OnFoot.CarShell.Spawn(go.transform, def,
                 Random.Range(0, Mathf.Max(1, def.SkinCount)), out _, solid: false);
+            TrafficModels.Dress(shell, def);   // the owner's pack: its far level (nothing on any other shell)
             // The box stops RideClear above the ground, whatever the bake says:
             // the car floats on its lane point, and a box that reaches the
             // tarmac grazes it on every crest and dip (the first play check

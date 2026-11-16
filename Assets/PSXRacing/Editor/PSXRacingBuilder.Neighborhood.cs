@@ -1797,6 +1797,11 @@ namespace PSXRacing.EditorTools
 
             string[] parkedKeys = { "euro_hatch", "volvo_estate", "classic_van",
                                     "bmw_e30", "landrover", "audi_saloon", "jdm_pickup" };
+            // The owner's vehicle pack (2026-11-15): with the kit in this pass its
+            // cars, wagons and vans stand in the drives and at the kerb among the
+            // catalogue shells; without it, the list as it was.
+            TrafficUaaBaker.Ensure();
+            parkedKeys = TrafficModels.ParkedKeys(parkedKeys);
             var rng = new System.Random(4071);
             int parked = 0;
 
@@ -2016,7 +2021,7 @@ namespace PSXRacing.EditorTools
                     // car outside reads as a car park with houses behind it.
                     if (rng.NextDouble() < 0.66)
                     {
-                        var def = CarModelLibrary.Load(parkedKeys[parked % parkedKeys.Length]);
+                        var def = TrafficModels.Load(parkedKeys[parked % parkedKeys.Length]);
                         if (def != null)
                         {
                             bool onDrive = rng.NextDouble() < 0.55;

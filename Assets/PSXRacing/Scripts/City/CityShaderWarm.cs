@@ -52,6 +52,10 @@ namespace PSXRacing.City
                 if (def.skinMaterials != null) foreach (var m in def.skinMaterials) Add(mats, m);
                 Add(mats, def.wheelMaterial); Add(mats, def.lensHeadMaterial); Add(mats, def.lensTailMaterial);
             }
+            // the owner's vehicle pack (TrafficModels; nothing without it or with PSX_TRAFFIC_UAA=0)
+            for (int i = 0; i < TrafficModels.CityMixLength; i++)
+                if (TrafficModels.Entry(TrafficModels.CityKey(i)) is TrafficKit.Entry ke && ke.def.skinMaterials != null)
+                    foreach (var m in ke.def.skinMaterials) Add(mats, m);
             // every loaded material of the game's own shaders (the player's car, the
             // HUD's), and every PSX shader's plain variant - the materials scripts make
             // at runtime from a shader name (CarLights' lenses and beams, the tyres'

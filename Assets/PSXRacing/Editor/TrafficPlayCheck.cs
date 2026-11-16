@@ -132,7 +132,7 @@ namespace PSXRacing.EditorTools
             int samples = 0, wrongSide = 0, wrongWay = 0, badRide = 0, tooFast = 0, maxLive = 0;
             int sawFwd = 0, sawBack = 0;
             float worstRide = 0f, worstSide = 0f;
-            int shot = 0;
+            int shot = 0, carShots = 0;
             float yawMax = 0f; int yawTurned = 0;
             // SPEED (owner 2026-10-31: "traffic putters along at 10-20 mph"): how fast the
             // traffic actually MOVES - metres between samples over the time between them -
@@ -193,6 +193,10 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 if (Time.time - t0 > 8f && shot < 3 && bodies.Count > 0 && Shoot("traffic_" + shot)) shot++;
+                // PSX_TRAFFIC_SHOTCARS=1 (traffic round 2026-11-16): also the traffic cars
+                // themselves, close, from the verge - the models, not the chase view
+                if (System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_SHOTCARS") == "1" && Time.time - t0 > 12f && carShots < 4)
+                    carShots += ShootCars(ts, car.transform.position, carShots);
             }
             if (moved > 0)
                 TrafficPlayCheck.Note("traffic SPEED (" + (def != null ? def.speedLimitKmh / 1.609f : 0f).ToString("0") + " mph limit, level " + ts.Level + "): moves " +
@@ -334,6 +338,36 @@ namespace PSXRacing.EditorTools
                                        "P" + rm.GetPosition(rc) + " with " + running + " running");
             }
             Done();
+        }
+
+        /// <summary>The nearest live traffic car not shot yet, from its front
+        /// three-quarter at a verge camera's height, the main camera put back
+        /// after. 1 when a picture was taken.</summary>
+        static readonly System.Collections.Generic.HashSet<Rigidbody> shotCars = new System.Collections.Generic.HashSet<Rigidbody>();
+        static int ShootCars(TrafficSystem ts, Vector3 from, int n)
+        {
+            Rigidbody best = null; float bd = 2000f * 2000f;   // the camera goes to the car: any on the stage will do
+            foreach (var rb in ts.Obstacles)
+            {
+                if (rb == null || !rb.gameObject.activeInHierarchy || rb.useGravity || shotCars.Contains(rb)) continue;
+                float d = (rb.position - from).sqrMagnitude;
+                if (d < bd) { bd = d; best = rb; }
+            }
+            var cam = Camera.main;
+            if (best == null || cam == null) return 0;
+            shotCars.Add(best);
+            var box = best.GetComponent<BoxCollider>();
+            float halfL = box != null ? box.size.z * 0.5f : 2.5f, hgt = box != null ? box.size.y : 1.5f;
+            var f = best.transform.forward; f.y = 0f; f.Normalize();
+            var r = Vector3.Cross(Vector3.up, f);
+            float back = Mathf.Max(5.5f, halfL * 1.25f + 3f);
+            var eye = best.position + f * back + r * (back * 0.62f) + Vector3.up * Mathf.Max(1.6f, hgt * 0.75f);
+            var look = best.position + f * (halfL * 0.15f) + Vector3.up * (hgt * 0.2f);
+            var p0 = cam.transform.position; var q0 = cam.transform.rotation;
+            cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(look - eye, Vector3.up));
+            bool ok = Shoot("traffic_car" + n + "_" + best.name);
+            cam.transform.SetPositionAndRotation(p0, q0);
+            return ok ? 1 : 0;
         }
 
         static bool Shoot(string name)

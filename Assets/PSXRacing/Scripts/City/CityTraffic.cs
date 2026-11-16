@@ -195,6 +195,10 @@ namespace PSXRacing.City
             public CarLights lights;
             public Transform[] wheels;
             public float wheelR, halfW, halfL;
+            /// <summary>What it is (TrafficModels.Car .. Rig), and whether it is
+            /// a long body (the box truck, the bus, the rig).</summary>
+            public int kind;
+            public bool heavy;
             public Vector3 rideCenter, rideSize, fullCenter, fullSize;
             public bool active, wrecked;
             public float wreckedAt, bornAt;
@@ -968,6 +972,10 @@ namespace PSXRacing.City
                 if (o.cls == e.cls && o.link == e.link) w *= 1.5f;
                 if (!e.link && o.link && e.cls >= 4) w *= 0.3f;
                 if (o.hasLset && o.lsSub == 4) w *= 0.2f;
+                // the owner's pack (TrafficModels): a long body keeps straight on
+                // where the road lets it, and a rig stays on the main line
+                if (c.heavy && aa >= 35f) w *= 0.03f;
+                if (c.kind == TrafficModels.Rig && o.link && !e.link) w *= 0.03f;
                 int far = d2 > 0 ? o.b : o.a;
                 // a dead end ahead (nothing on but back), or the data's edge
                 if ((degree[far] <= 1 || noWayOn[(ei << 1) | (d2 > 0 ? 1 : 0)]) && o.length < 300f) w *= 0.05f;
@@ -3061,9 +3069,10 @@ namespace PSXRacing.City
             if (Time.time >= driftAt) { drift = Random.Range(0.85f, 1.15f); driftAt = Time.time + Random.Range(15f, 30f); }
             Share = ShareAt(ClockNow);
             Target = Share <= 0f ? 0 : Mathf.Clamp(Mathf.RoundToInt(cap * Share * drift), 1, cap);
-            // the pool, one car a frame while it is short
+            // the pool, one car a frame while it is short (with the owner's pack
+            // a few slots more than the cap: those held to roads of their own)
             for (int k = 0; k < (CensusMode ? 8 : 1); k++)
-                if (pool.Count < cap && (CensusMode || live.Count >= pool.Count - 1) && live.Count < Target) pool.Add(Build(pool.Count));
+                if (pool.Count < cap + TrafficModels.HeldSlots(cap) && (CensusMode || live.Count + HeldBack() >= pool.Count - 1) && live.Count < Target) pool.Add(Build(pool.Count));
             if (Time.time >= nextSpawn)
             {
                 nextSpawn = Time.time + (Time.time < firstFillUntil ? 0.02f : 0.25f);
@@ -3192,6 +3201,20 @@ namespace PSXRacing.City
             if (LaneWidth(e, dir, lane, s) < 2.5f) { if (Log != null) Log.spBounds++; return; }
             var q = LanePos(e, dir, lane, s);
             var at = new Vector3(q.x, e.YAt(s), q.y);
+            // THE RIGHT VEHICLE ON THE RIGHT ROAD (the owner's pack, TrafficModels.Fits):
+            // a free car that belongs on this road, looked for from a random slot
+            // so a quiet hour is not always the pool's first few models.
+            if (TrafficModels.On)
+            {
+                free = null;
+                int n0 = Random.Range(0, pool.Count);
+                for (int k = 0; k < pool.Count && free == null; k++)
+                {
+                    var x = pool[(n0 + k) % pool.Count];
+                    if (!x.active && TrafficModels.Fits(x.kind, e.cls, e.link, q.x, q.y)) free = x;
+                }
+                if (free == null) return;
+            }
             if (!CensusMode)
             {
                 if ((q - playerPos).sqrMagnitude < (first ? 40f * 40f : SpawnMinM * SpawnMinM * 0.6f)) return;
@@ -3227,15 +3250,31 @@ namespace PSXRacing.City
             Stats.spawned++;
         }
 
+        /// <summary>The pool's cars that are free but held to roads of their own
+        /// (a rig, a bus, a box truck, a cab: TrafficModels.Fits): counted as
+        /// in use when the pool decides whether to grow, or two idle rigs in a
+        /// suburb would stop it growing at all. 0 without the owner's pack.</summary>
+        int HeldBack()
+        {
+            if (!TrafficModels.On) return 0;
+            int n = 0;
+            foreach (var x in pool) if (!x.active && (x.heavy || x.kind == TrafficModels.Taxi)) n++;
+            return n;
+        }
+
         Car Build(int index)
         {
-            string key = TrafficSystem.Keys[index % TrafficSystem.Keys.Length];
-            var def = CarModelLibrary.Load(key) ?? CarModelLibrary.Load(CarModelLibrary.Default);
+            // the model: the owner's pack and the right share of each kind
+            // (TrafficModels.CityKey); without the pack, TrafficSystem.Keys as before
+            string key = TrafficModels.CityKey(index);
+            var def = TrafficModels.Load(key);
+            int kind = TrafficModels.KindOf(key);
             var go = new GameObject("CityTraffic_" + key);
             go.transform.SetParent(transform, false);
             // TrafficSystem.Build's car: layer 2, the box lifted RideClear off the
             // road (the car floats on its lane point), the shell's own lamps
             var shell = OnFoot.CarShell.Spawn(go.transform, def, Random.Range(0, Mathf.Max(1, def.SkinCount)), out _, solid: false);
+            TrafficModels.Dress(shell, def);   // the pack's dual wheels, extra axles and far level
             var box = go.AddComponent<BoxCollider>();
             float boxW = def.colliderSize.x * CarModelLibrary.WidthScale(def, 0);
             float top = def.colliderCenter.y + def.colliderSize.y * 0.5f;
@@ -3264,6 +3303,7 @@ namespace PSXRacing.City
             return new Car
             {
                 id = index, go = go, rb = rb, box = box, lights = lights, wheels = wheels.ToArray(),
+                kind = kind, heavy = TrafficModels.On && TrafficModels.Heavy(kind),
                 wheelR = Mathf.Max(0.2f, def.wheelRadius), halfW = boxW * 0.5f, halfL = def.colliderSize.z * 0.5f,
                 rideCenter = box.center, rideSize = box.size,
                 fullCenter = new Vector3(0f, (top + WreckFloor) * 0.5f, 0f),

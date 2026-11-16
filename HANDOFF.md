@@ -1,4 +1,116 @@
-﻿# HANDOFF - HOUSES: BRICK AND STONE, THE HOUSE MIX (agent "houses", branch `charlotte-houses`, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - TRAFFIC ROUND: THE OWNER'S UAA VEHICLES AS NPC TRAFFIC (agent "traffic", branch `traffic-uaa`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner bought "UAA - City Props - Vehicles" on 2026-11-07 and asked on 11-08 for its cars "to REPLACE the
+placeholder Sketchfab traffic models (vans etc.), not the generated ones", and again on 11-15 ("Why aren't my PBR
+bricks or NPC traffic cars ... added?"). This round puts the pack in the game's moving traffic, proven in pictures.
+Base: mountain-nm e26dc1f4 (PC46 code), merged into this branch at 42c705b1. Sandbox: PSXCity (shared with "houses").
+
+## What was found
+- The placeholders: `TrafficSystem.Keys` (Scripts/TrafficSystem.cs:183) deals camry_2001 (a GT2 PS1 rip) and
+  ford_transit (a PS1-rip van off Sketchfab) twice in every 19 cars. Over the city's 48 pool slots that is 12
+  placeholders, 20 of the owner's own models (crown_victoria = his Passenger_Silver, sedan_98, fullsize_taxi /
+  police / trooper) and 16 catalogue shells (volvo_estate, bmw_e30, audi_saloon, euro_hatch, citroen_cx, jdm_pickup,
+  landrover, classic_van).
+- Where traffic gets its models: Charlotte = CityTraffic.Build (Scripts/City/CityTraffic.cs ~3265); race tracks,
+  mountain stages and the title's moving world = TrafficSystem.Build (TrafficSystem.cs ~427, the title runs it at
+  Medium). Parked: PSXRacingBuilder.PlaceParkedCars (PSXRacingBuilder.cs ~5939) is called by NO venue today (every
+  theme has parkedEvery = 0); the neighbourhood's drives (PSXRacingBuilder.Neighborhood.cs ~1798) deal 7 catalogue
+  shells and no placeholder. Charlotte's streets and lots have no parked cars.
+- The pack (INVENTORY.md in the scratch folder): 40 prefabs, 18 vehicles, all late-80s to 2000-model-year American
+  shapes; every car white, silver or champagne (the 22 numbered prefabs only switch hub caps); low poly (124-724
+  body triangles); one readable line of real text (the police car's boot: "EMERGENCY DIAL 911 ...") and a few badge
+  shapes, all painted out in the bake; no maker's name anywhere.
+
+## What changed
+- NEW Scripts/TrafficKit.cs (ScriptableObject), Scripts/TrafficModels.cs (which model on which road),
+  Editor/TrafficUaaBaker.cs (the bake), Editor/TrafficUaaShots.cs (the city before/after frames).
+- The bake (TrafficUaaBaker.Bake, or Ensure() from the neighbourhood build) runs only on a PC content pass
+  (PSX_PC_CONTENT=1) with the store files present; any other pass DELETES Resources/TrafficKit.asset, so a checkout,
+  the web or a phone build keeps today's traffic. Everything it makes stays under Assets/StoreAssets/UAAVehicles/Gen
+  (gitignored). Per vehicle: scaled to the real car (0.95-1.00), the game's car frame, the pack's own turning
+  wheels (dual rear wheels, the rig's 5 axles turn with the rear pair), the collider = the body's box without
+  mirrors, windows darkened to the car paint shader's glass, the rest matte-flagged, lamps found on the texture by
+  CarLampFinder (the rig's head lamps set by hand: the finder took its roof markers), a one-mesh far level (LOD1
+  under 4.5 % of the screen, about 95 m for a car), and REPAINTS: the pack has no colour variety, so 10 bodies get
+  2-4 colours each from a 1999 palette (green, burgundy, navy, light blue, red, teal, grey, beige, silver, white).
+- TrafficModels lists: CityMix (48 slots): 31 of the pack (23 everyday cars, 2 box trucks, a bus, 2 rigs, 2 cabs, a
+  police car), 9 of the owner's own (crown_victoria x3, sedan_98 x3, his taxi, police, trooper), 8 catalogue
+  shells x1; NO placeholder. RaceMix (stages, race tracks, title): 12 of the pack's everyday cars and vans (nothing
+  longer than a van), his 5, the 8 shells. Fits: rigs only on cls>=4 main lines (and they avoid ramps), the bus on
+  cls 2-3, box trucks not on residential streets, cabs within 3.2 km of Trade and Tryon or on freeways; long bodies
+  keep straight on at junctions. The city pool may grow past its cap by the slots held to their own roads (idle
+  ones are not drawn; live cars stay <= the cap).
+- SWITCHES: PSX_TRAFFIC_UAA=0 = today's traffic, model for model (default ON when the kit is in the build).
+  PSX_TRAFFIC_UAA_PARKED=1 (scene BUILD time) also deals the pack into the builders' parked cars: default OFF.
+
+## Shared-file edits (for the merge)
+- Scripts/City/CityTraffic.cs: Car fields kind/heavy (~198); Extend's route weights (~975-978); the pool growth
+  line (~3075); TrySpawn's Fits search (~3204-3217); HeldBack() (~3254-3262); Build's model choice and Dress
+  (~3266-3277) and the Car init (~3306).
+- Scripts/City/CityShaderWarm.cs ~55-58 (the pack's materials warmed).
+- Scripts/TrafficSystem.cs: Keys comment (~176-182), the pool (~399), Build (~429, ~436).
+- Editor/PSXRacingBuilder.cs PlaceParkedCars (~5946-5953, ~5969); Editor/PSXRacingBuilder.Neighborhood.cs
+  (~1800-1804, ~2024). Editor/TrafficPlayCheck.cs: PSX_TRAFFIC_SHOTCARS=1 close shots of the traffic cars (opt-in).
+
+## Proof (PSXCity, fresh processes, switch 0 vs 1, same camera poses)
+Sheets in `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\traffic\sheets\`:
+traffic_city_day.png (9 street-view places: driver's eye and traffic-camera eye), traffic_city_close.png (the three
+nearest vehicles at each place), traffic_city_rigs.png (the tractor-trailers on I-277 and Independence),
+traffic_city_night.png and traffic_city_night_close.png (21:30, head and tail lamps), traffic_kit.png (line-up
+beside the owner's crown_victoria and sedan_98, every vehicle front and rear), traffic_kit_skins.png (every repaint),
+traffic_stage.png (GillespieGap race traffic). Reports: scratch\traffic\out\ (reports\, tpc_*, ctc_*, uaa_bake.txt).
+- Draw cost, the live pool at Trade St 17:15 (48 cars both): base 100,240 triangles and 276 renderer-materials
+  (2,088 tris, 5.8 draws a car); after 56,750 and 282 (1,182 tris, 5.9 draws a car), and each pack vehicle drops to
+  ONE draw past ~100 m (its far level; today's shells have none). Night, lamps on: 11.0 draws a car both.
+- Mix within 200 m of the nine places (after, day): 18-29 of ~40 vehicles are the pack's; rigs seen on I-277 and
+  Independence, the bus on Trade, Tryon, South Blvd and Wilkinson, no cab on Queens Rd once the radius was 3.2 km;
+  no exception from game code in any city run (9 runs).
+- GATE city traffic check (Editor/CityTrafficCheck.cs, Charlotte, graphics on), base vs after: 37 ok / 0 FAIL both,
+  "CITY TRAFFIC OK." both. Rush hour parked: mean active 43.5 vs 46.7; driving 44.2 vs 43.4; 03:00 5.5 / 2.5 vs
+  6.0 / 2.0; red lights run 0 both; wrecks only the scripted player hit; traffic-on-traffic 0 both; physics steps
+  over 5 ms 124 vs 23. CityTraffic's own step 0.919 vs 1.048 ms (gate 1.5). Editor frame at rush hour (rendering):
+  21.05 ms with 46 cars vs 21.76 ms with 48 (the editor is CPU-bound there: half the triangles did not show as time).
+- GATE stage traffic check (TrafficPlayCheck, GillespieGap, a race with traffic) base vs after: every check ok both,
+  "TRAFFIC KEEPS RIGHT." both: keeps right (0 samples over), faces its way, rides on the tarmac (worst 0.00 m), the
+  limit, a hit car wrecks and the player takes damage, the wreck rests on the road.
+- The kit bake: PSXRacing_uaa_bake.txt "KIT 17 vehicles" (copy: scratch\traffic\out\uaa_bake.txt).
+
+## What still looks wrong (in my own sheets)
+- The pack is low-poly mobile art (124-724 body triangles, 512-1024 photo textures): close up it is plainer than
+  the owner's own crown_victoria (3,514 tris); at street distance it reads as period-correct American traffic and
+  far better than the PS1 rips it replaces.
+- On some repainted bodies a light sky reflection in the front side window stays white (it is in the photo texture).
+- The tractor-trailer is ONE rigid body (no articulation): it is held to freeway and trunk main lines and keeps
+  straight on at junctions, but a tight turn would swing the trailer stiffly.
+- Pre-existing, not this round: the owner's crown_victoria's second livery (fullsize_01_512x256) draws dark
+  camouflage-like blotches on its body (seen in the after close views at Trade St and I-77); base can pick it too.
+
+## Not done / not verified
+- Parked cars: no venue calls PlaceParkedCars today and the neighbourhood list has no placeholder; the pack can be
+  dealt there with PSX_TRAFFIC_UAA_PARKED=1 at build time, but no scene was rebuilt and looked at: default OFF.
+- The title's moving world gets RaceMix through TrafficSystem; not photographed (no title run in PSXCity).
+- No player build: frame time on the owner's PC is unmeasured; the editor numbers above are geometry counts.
+- The LifeSim self-test was not run: it references no traffic code (no TrafficSystem / CityTraffic / TrafficModels
+  in LifeSimSelfTest*.cs), and its car checks iterate CarModelLibrary.Models, which the kit is not part of.
+
+## What the coordinator must do at merge
+1. Merge `traffic-uaa` (no city re-bake: CityTileCache.Format untouched, CityTraffic is runtime).
+2. In PSXLab, extract the pack (the tool is on this branch, 64 files with their .meta):
+   `powershell -ExecutionPolicy Bypass -File tools\store-assets.ps1 -Dest C:\Users\mcgee\PSXLab -Only "UAA - City Props - Vehicles"`
+3. Bake the kit AFTER the last non-PC pass (a pass without PSX_PC_CONTENT=1 deletes it): either the PC47 scene pass
+   with PSX_PC_CONTENT=1 (the Neighborhood build calls TrafficUaaBaker.Ensure) or explicitly, 2-3 minutes:
+   `-batchmode -quit -executeMethod PSXRacing.EditorTools.TrafficUaaBaker.Bake` with PSX_PC_CONTENT=1. Check
+   `PSXLab\PSXRacing_uaa_bake.txt` ends "KIT 17 vehicles" and Assets/PSXRacing/Resources/TrafficKit.asset exists.
+   With -SkipScenes the explicit bake is required.
+4. Resources/TrafficKit.asset (+ .meta) is now in .gitignore beside Assets/StoreAssets: it points into store files.
+
+## What the owner will notice
+In Charlotte the white Sketchfab vans and the PS1 Camry are gone: most traffic is now your UAA pack's 1980s-90s
+American sedans, wagons, vans and SUVs in period colours, with box trucks, a city bus on the arterials,
+tractor-trailers on the freeways and yellow cabs around Uptown; the mountain stages and the title get the pack's
+everyday cars. PSX_TRAFFIC_UAA=0 brings back today's traffic.
+
+# HANDOFF - HOUSES: BRICK AND STONE, THE HOUSE MIX (agent "houses", branch `charlotte-houses`, 2026-11-16; NOT pushed, NOT merged)
 
 Branch `charlotte-houses` (worktree `C:\Users\mcgee\PSX Racing-houses`) = the stopped 11-15 session's work (commit 1213415c,
 "WIP from the stopped 11-15 session") + mountain-nm e26dc1f4 merged (db500c09) + today's fixes. Sandbox PSXCity (lock "houses",
