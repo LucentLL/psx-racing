@@ -46,7 +46,7 @@ namespace PSXRacing.City
         /// SplitIslandGapM apart, a SplitNoseR round tip, its sides SplitNoseOffM off each lane edge
         /// (Iowa DM 6A-11, MUTCD 3B.10: 1-2 ft), easing to the carriageway's own shoulder over
         /// noseLn (10:1, at least SplitNoseFlankMinM).</summary>
-        public const float SplitNoseR = 0.6f, SplitNoseOffM = 0.6f, SplitNoseFlankMinM = 3f, SplitNoseLateM = 20f;
+        public const float SplitNoseR = 0.6f, SplitNoseOffM = 0.6f, SplitNoseFlankMinM = 3f, SplitNoseLateM = 20f, SplitNoseFlare = 0.25f;
 
         /// <summary>One carriageway end drawn by the axis-frame profile.</summary>
         public sealed class SplitFrame
@@ -488,7 +488,7 @@ namespace PSXRacing.City
                 if (!float.IsNaN(uTip))
                 {
                     noseLn = Mathf.Max(SplitNoseFlankMinM, 10f * Mathf.Max(Mathf.Abs(fa.shIn - SplitNoseOffM), Mathf.Abs(fb.shIn - SplitNoseOffM)));
-                    noseEnd = uTip + SplitNoseR + noseLn;
+                    noseEnd = uTip + SplitNoseR + Mathf.Max(noseLn, (0.5f * GapLanes(uTip) - SplitNoseOffM) / SplitNoseFlare) + 1f;
                     splitNoseNodes.Add(sp.node);
                     fa.uTip = fb.uTip = uTip; fa.noseLn = fb.noseLn = noseLn;
                 }
@@ -500,9 +500,14 @@ namespace PSXRacing.City
                 else if (uu < uTip) off = half;
                 else
                 {
+                    // the island's half width from the gap's middle: the round tip, then a 1:4 flare (where
+                    // the lanes are already wider apart than 2.4 m at a fan's edge - n7868: 4.3 m - the
+                    // island still starts 1.2 m wide and flares out); never closer to a lane edge than the
+                    // nose's 0.6 m, eased to the carriageway's own shoulder over noseLn
                     float x = uu - uTip, r = SplitNoseR;
-                    if (x < r) off = SplitNoseOffM + r - Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x)));
-                    else off = SplitNoseOffM + (f.shIn - SplitNoseOffM) * Smooth((x - r) / Mathf.Max(0.1f, noseLn));
+                    float ih = x < r ? Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x))) : r + (x - r) * SplitNoseFlare;
+                    float offMin = SplitNoseOffM + (f.shIn - SplitNoseOffM) * Smooth(Mathf.Max(0f, x - r) / Mathf.Max(0.1f, noseLn));
+                    off = Mathf.Max(half - ih, offMin);
                 }
                 return Mathf.Min(off, half);
             }
