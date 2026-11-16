@@ -992,7 +992,7 @@ namespace PSXRacing.EditorTools
                 float gL = WorldGroundY(pts[i].x - RightAt(pts, i).x * 12f, pts[i].z - RightAt(pts, i).z * 12f);
                 float want = gR >= gL ? 1f : -1f;
                 if (want != sideNow && Mathf.Abs(gR - gL) > 1.5f) { sideNow = want; havePrev = false; }
-                Vector3 p = pts[i] + RightAt(pts, i) * sideNow * (halfW + 4.2f) + (pts[Mathf.Min(pts.Count - 1, i + 1)] - pts[i]).normalized * 2f;
+                Vector3 p = pts[i] + RightAt(pts, i) * sideNow * (halfW + 6.0f) + (pts[Mathf.Min(pts.Count - 1, i + 1)] - pts[i]).normalized * 2f;
                 p.y = DrapeY(p.x, p.z);
                 if (!Clear(p, 0.3f) || Mathf.Abs(p.y - pts[i].y) > 3f || WalledNear(i, sideNow, 2)) { havePrev = false; continue; }
                 buf.Box("darkwood", p + Vector3.up * 5.2f, Vector3.right, Vector3.up, Vector3.forward, 0.13f, 6.0f, 0.13f);
@@ -1021,7 +1021,6 @@ namespace PSXRacing.EditorTools
                         buf.Box("lantern", p + Vector3.up * 4.25f, Vector3.right, Vector3.up, Vector3.forward, 0.17f, 0.26f, 0.17f);
                         buf.Box("black", p + Vector3.up * 4.58f, Vector3.right, Vector3.up, Vector3.forward, 0.24f, 0.06f, 0.24f);
                         buf.Box("black", p + Vector3.up * 3.96f, Vector3.right, Vector3.up, Vector3.forward, 0.2f, 0.04f, 0.2f);
-                        Solid("Lamp_" + lamps, p - Vector3.up * 0.2f, 0.1f, 4.9f);
                         lamps++;
                     }
             // ---- signs: speed limits at the real zone changes, the village limits, the park, the route as words
@@ -1029,7 +1028,6 @@ namespace PSXRacing.EditorTools
             {
                 buf.Box("galv", new Vector3(at.x, (at.y - 0.4f + topY) * 0.5f, at.z), Vector3.right, Vector3.up, Vector3.forward, 0.035f, (topY - at.y + 0.4f) * 0.5f, 0.035f);
                 SignFace(buf, face, new Vector3(at.x, topY - h, at.z) + new Vector3(facing.x, 0, facing.z).normalized * 0.04f, facing, w, h);
-                Solid("Sign_" + signs, at - Vector3.up * 0.3f, 0.05f, topY - at.y + 0.3f);
                 signs++;
             }
             bool PlaceSign(float m, float side, string face, float w, float h, bool forward)
@@ -1078,7 +1076,7 @@ namespace PSXRacing.EditorTools
                     if (PlaceSign(m + 40f, -1f, "ped", 0.75f, 0.75f, false)) placedSigns++;
                 }
             TownEmit(buf, "Furniture", parent);
-            Log($"Stage world furniture: {poles} wooden utility poles with their wires (45 m, the side away from the water), {lamps} lantern lamps, {placedSigns} signs.");
+            Log($"Stage world furniture: {poles} wooden utility poles with their wires (45 m, the side away from the water, 6 m past the tarmac edge, solid), {lamps} lantern lamps and {placedSigns} signs (thin posts, drawn and not solid, as the reflector posts).");
         }
 
         /// <summary>One wire between two points, sagging: a thin cross of two
