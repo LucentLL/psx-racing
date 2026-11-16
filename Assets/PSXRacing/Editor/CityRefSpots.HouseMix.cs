@@ -90,7 +90,7 @@ namespace PSXRacing.EditorTools
                             if (HmFrontage(map, cand, 350f, e0, e1, out e, out s, out n, out count, out mixNote, out hmid) && count >= 6) got = true;
                         }
                     }
-                    else got = HmFrontage(map, LL(double.Parse(p[1], I), double.Parse(p[2], I)), 600f, e0, e1, out e, out s, out n, out count, out mixNote, out hmid);
+                    else got = HmFrontage(map, LL(double.Parse(p[1], I), double.Parse(p[2], I)), p.Length > 5 ? float.Parse(p[5], I) : 600f, e0, e1, out e, out s, out n, out count, out mixNote, out hmid);
                     if (!got) { log.Append($"{id}: no street with houses of eras {e0}-{e1} near\n"); continue; }
                     Vector2 q = e.PointAt(s);
                     float y = e.YAt(s);
