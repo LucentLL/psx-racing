@@ -1081,7 +1081,7 @@ namespace PSXRacing
                 name = "NC 226A — UPPER",
                 blurb = "The top third of NC 226A: from Little Switzerland at 1,042 m down the " +
                         "first switchbacks to 860 m. 3.7 km. Map (c) OpenStreetMap contributors.",
-                label = "860 M", startM = 33f, finishM = 3696f, reverse = false,
+                label = "860 M", startM = 33f, finishM = 3688f, reverse = false,
             },
             new SprintVariant
             {
@@ -1089,7 +1089,7 @@ namespace PSXRacing
                 name = "NC 226A — UPPER II",
                 blurb = "The top third climbed: from 860 m up the switchbacks to the village. " +
                         "3.7 km. Map (c) OpenStreetMap contributors.",
-                label = "THE VILLAGE", startM = 3696f, finishM = 33f, reverse = true,
+                label = "THE VILLAGE", startM = 3688f, finishM = 33f, reverse = true,
             },
             new SprintVariant
             {
@@ -1097,7 +1097,7 @@ namespace PSXRacing
                 name = "NC 226A — MIDDLE",
                 blurb = "The middle of the south face, 860 m down to 635 m. 4.1 km. " +
                         "Map (c) OpenStreetMap contributors.",
-                label = "635 M", startM = 3696f, finishM = 7848f, reverse = false,
+                label = "635 M", startM = 3688f, finishM = 7832f, reverse = false,
             },
             new SprintVariant
             {
@@ -1105,7 +1105,7 @@ namespace PSXRacing
                 name = "NC 226A — MIDDLE II",
                 blurb = "The middle of the south face climbed, 635 m up to 860 m. 4.1 km. " +
                         "Map (c) OpenStreetMap contributors.",
-                label = "860 M", startM = 7848f, finishM = 3696f, reverse = true,
+                label = "860 M", startM = 7832f, finishM = 3688f, reverse = true,
             },
             new SprintVariant
             {
@@ -1113,7 +1113,7 @@ namespace PSXRacing
                 name = "NC 226A — LOWER",
                 blurb = "The last of the switchbacks to the valley, 635 m down to 479 m. 3.9 km. " +
                         "Map (c) OpenStreetMap contributors.",
-                label = "THE VALLEY", startM = 7848f, finishM = 11738f, reverse = false,
+                label = "THE VALLEY", startM = 7832f, finishM = 11721f, reverse = false,
             },
             new SprintVariant
             {
@@ -1121,7 +1121,7 @@ namespace PSXRacing
                 name = "NC 226A — LOWER II",
                 blurb = "Out of the valley up the lower switchbacks, 479 m to 635 m. 3.9 km. " +
                         "Map (c) OpenStreetMap contributors.",
-                label = "635 M", startM = 11738f, finishM = 7848f, reverse = true,
+                label = "635 M", startM = 11721f, finishM = 7832f, reverse = true,
             },
 
             // LAKE LURE IN TWO (2026-11-16): the lake shore and downtown, then
