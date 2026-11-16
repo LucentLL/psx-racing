@@ -99,9 +99,10 @@ light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFAD
   stage default is one line (bandShare on the stage forest, e.g. from a PSX_FOREST_LODFADE switch).
 
 ## For PC47 / the merge
-- Branch city-treepop = mountain-nm c0a81147 + 74bbf999 (the pop knobs in RunTreeFeet) + the switch commit on top.
-  It touches 4 files (Scripts/CityMeshTrees.cs, Scripts/MeshForest.cs, Scripts/MeshForest.Pool.cs,
-  Editor/CityRefSpots.TreeFeet.cs) and adds none (no .meta). Typecheck OK.
+- Branch city-treepop = mountain-nm c0a81147 + 74bbf999 (the pop knobs in RunTreeFeet) + 3a3949d9 (THE SWITCH)
+  + 65286e02 (RunTreeFeet's motion pair) + HANDOFF commits. It touches 4 code files (Scripts/CityMeshTrees.cs,
+  Scripts/MeshForest.cs, Scripts/MeshForest.Pool.cs, Editor/CityRefSpots.TreeFeet.cs) and HANDOFF.md, and adds no
+  file (no .meta). Typecheck OK.
 - PC47 needs no kit rebuild and no re-bake: the switch is read at runtime when the city's tree pool is made.
 - To confirm in a player log: "[MeshForest] 61440 plants ... LOD 101.75/140/240 m (hand-over bands 61/34/90 m)" on
   MEDIUM (12/16/20 = the switch is off).
