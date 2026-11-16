@@ -82,6 +82,7 @@ namespace PSXRacing.EditorTools
                     if (want < demNear[i]) { demNear[i] = want; carved++; }
                 }
             int benched = WorldSwitch("PSX_LURE_TOWN") && world.stage == StagePrefix ? WorldStreetBench() : 0;
+            if (WorldSwitch("PSX_LURE_MOUTHS") && world.stage == StagePrefix) WorldMouthBench();
             Log($"Stage world street bench: {benched} near cells lowered to the road beside downtown Lake Lure and Chimney Rock's Main Street.");
             Log($"Stage world: {Path.GetFileName(path)} - {(world.buildings?.Length ?? 0)} buildings, {(world.roads?.Length ?? 0)} side roads, " +
                 $"lake at {world.lakeLevelM:0.0} m, river {(world.river?.y?.Length ?? 0)} stations; {carved} near cells carved under the river.");

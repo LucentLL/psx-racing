@@ -53,6 +53,77 @@ namespace PSXRacing.EditorTools
             return worldKeep[r * worldKeepCols + c];
         }
 
+        // ---------------------------------------------------- mouth notches
+        /// <summary>
+        /// THE MOUTH NOTCH (PSX_LURE_MOUTHGAP), from StageWorldLoad before the
+        /// roadside is planned: the stage builder plans its cuts without the
+        /// side roads, so a cut bank ran straight across 25 of the mapped
+        /// mouths and round 1 had to leave them out. Here the near grid is
+        /// LOWERED (never raised) along each side road for its first 24 m past
+        /// the tarmac, to the side road's own lidar profile eased in from the
+        /// road's edge - the notch a real side road cuts through the bank -
+        /// so the planner leaves the mouth open and the bank ends either side
+        /// of it. Not on the town streets (their own bench), not on a bridge.
+        /// </summary>
+        static int WorldMouthBench()
+        {
+            var pts = track.stagePts;
+            if (world.roads == null || pts == null || demNear == null || !WorldSwitch("PSX_LURE_MOUTHGAP")) return 0;
+            var m = demNearMeta;
+            float halfW = RoadWidth * 0.5f;
+            int lowered = 0, mouths = 0;
+            foreach (var r in world.roads)
+            {
+                if (r.xz == null || r.xz.Length < 6 || r.y == null || r.y.Length * 2 != r.xz.Length) continue;
+                if (WorldOnStreet(r.st)) continue;
+                if (world.parkRoad != null && Mathf.Abs(r.st - world.parkRoad.mouthSt) < 6f && r.cls == "service") continue;
+                int st = Mathf.Clamp(Mathf.RoundToInt(r.st / Spacing), 0, pts.Length - 1);
+                float roadY = pts[st].y - 0.12f;
+                var line = WorldPts(r.xz);
+                for (int i = 0; i < line.Length; i++) line[i].y = r.y[i];
+                // its length along, from the first point (on or by the centreline)
+                var acc = new float[line.Length];
+                for (int i = 1; i < line.Length; i++) acc[i] = acc[i - 1] + Vector2.Distance(new Vector2(line[i].x, line[i].z), new Vector2(line[i - 1].x, line[i - 1].z));
+                float reach = halfW + 24f, hw = Mathf.Max(r.w * 0.5f + 2f, 7f), ease = 6f;
+                float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
+                for (int i = 0; i < line.Length && acc[i] <= reach + 12f; i++) { x0 = Mathf.Min(x0, line[i].x); x1 = Mathf.Max(x1, line[i].x); z0 = Mathf.Min(z0, line[i].z); z1 = Mathf.Max(z1, line[i].z); }
+                int c0 = Mathf.Max(0, (int)((x0 - hw - ease - m.originX) / m.cell)), c1 = Mathf.Min(m.cols - 1, (int)((x1 + hw + ease - m.originX) / m.cell) + 1);
+                int r0 = Mathf.Max(0, (int)((z0 - hw - ease - m.originZ) / m.cell)), r1 = Mathf.Min(m.rows - 1, (int)((z1 + hw + ease - m.originZ) / m.cell) + 1);
+                bool any = false;
+                for (int rr = r0; rr <= r1; rr++)
+                    for (int cc = c0; cc <= c1; cc++)
+                    {
+                        float x = m.originX + cc * m.cell, z = m.originZ + rr * m.cell;
+                        // the road's own bed is the road's
+                        if (StageCorridor(x, z, halfW + 2.5f, out RoadFoot rf) && rf.d < halfW + 2.5f) continue;
+                        // nearest point on the side road's first stretch
+                        float best = float.MaxValue, along = 0f, sideY = roadY;
+                        for (int i = 0; i + 1 < line.Length && acc[i] <= reach + 12f; i++)
+                        {
+                            float dx = line[i + 1].x - line[i].x, dz = line[i + 1].z - line[i].z, L2 = dx * dx + dz * dz;
+                            float t = L2 > 1e-6f ? Mathf.Clamp01(((x - line[i].x) * dx + (z - line[i].z) * dz) / L2) : 0f;
+                            float ex = line[i].x + dx * t - x, ez = line[i].z + dz * t - z, d2 = ex * ex + ez * ez;
+                            if (d2 < best) { best = d2; along = acc[i] + t * Mathf.Sqrt(L2); sideY = Mathf.Lerp(line[i].y, line[i + 1].y, t); }
+                        }
+                        float perp = Mathf.Sqrt(best);
+                        if (perp > hw + ease || along > reach) continue;
+                        // from the road's edge height onto the side road's own profile over the first 16 m
+                        float target = Mathf.Lerp(roadY, sideY, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(halfW, halfW + 16f, along)));
+                        int k = rr * m.cols + cc;
+                        float have = demNear[k] * 0.1f;
+                        if (have <= target + 0.05f) continue;
+                        float keep = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(hw, hw + ease, perp));
+                        // the notch eases out at its far end too
+                        keep = Mathf.Max(keep, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(reach - 6f, reach, along)));
+                        short want = (short)Mathf.RoundToInt((target + (have - target) * keep) * 10f);
+                        if (want < demNear[k]) { demNear[k] = want; lowered++; any = true; }
+                    }
+                if (any) mouths++;
+            }
+            Log($"Stage world mouth notches: {mouths} side roads notched through the bank, {lowered} near cells lowered to their profile (PSX_LURE_MOUTHGAP).");
+            return lowered;
+        }
+
         // ------------------------------------------------------- keep-out
         /// <summary>From BuildWorldKeepOut: the open ground (bit 8) and the
         /// granite's cells.</summary>
@@ -596,8 +667,8 @@ namespace PSXRacing.EditorTools
 
         // ------------------------------------------------------- grass banks
         /// <summary>
-        /// GRASS BANKS (owner's video 7:43, 10:05): on the lake road and through
-        /// downtown and the village (to 8,100 m) the cuts beside US 64/74A are
+        /// GRASS BANKS (owner's video 7:43, 10:05, 16:50): on the lake road, through
+        /// downtown and the village (to 8,100 m) and at Bat Cave (from 10,400 m) the cuts beside US 64/74A are
         /// low, mown grass banks - a cut there under 5 m high wears grass, with
         /// no rock dressed on its face. The gorge keeps its rock. Lake Lure
         /// only (PSX_LURE_GRASSBANK=0: rock as round 1).
@@ -605,7 +676,10 @@ namespace PSXRacing.EditorTools
         internal static bool LureGrassBank(int[] run, float side)
         {
             if (StagePrefix != "lure" || world == null || !WorldSwitch("PSX_LURE_GRASSBANK") || run == null || run.Length == 0) return false;
-            if (run[run.Length - 1] * Spacing > 8100f) return false;
+            // the lake road, downtown and the village (to 8.1 km), and Bat Cave (from 10.4 km: grass over a
+            // low stone foot at 16:50); the gorge between keeps its rock
+            float m0 = run[0] * Spacing, m1 = run[run.Length - 1] * Spacing;
+            if (!(m1 <= 8100f || m0 >= 10400f)) return false;
             int s = SideIx(side);
             float top = 0f;
             foreach (int i in run) if (rsFaceH != null && i >= 0 && i < rsFaceH[s].Length) top = Mathf.Max(top, rsFaceH[s][i]);
