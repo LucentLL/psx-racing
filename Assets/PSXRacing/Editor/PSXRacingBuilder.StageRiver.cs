@@ -44,6 +44,8 @@ namespace PSXRacing.EditorTools
             public WorldRing[] lake, riverAreas; public WorldRiver river; public WorldCarve carve;
             public WorldBuilding[] buildings; public WorldRoad[] roads, streets; public WorldLot[] lots; public WorldPath[] paths;
             public float[] crossings; public WorldSpeed[] speeds; public WorldPark parkRoad;
+            // round 2: open ground, the marina's piers, the granite (x, z, y, downhill x, z, steepness per cell)
+            public WorldOpen[] open; public WorldPier[] piers; public float[] cliffs;
         }
 
         static WorldData world;
@@ -62,7 +64,7 @@ namespace PSXRacing.EditorTools
         /// file of this stage (if it has one) and its carve.</summary>
         static void StageWorldLoad()
         {
-            world = null; worldKeep = null; worldPath = null;
+            world = null; worldKeep = null; worldPath = null; worldCliffKeep = null;
             if (!WorldSwitch("PSX_LURE_WORLD")) return;
             // the Park Road stage shows the same village, river and bridge at its start (PSX_LURE_CHIMNEY=0: as it was)
             if (StagePrefix == "chimney" && !WorldSwitch("PSX_LURE_CHIMNEY")) return;
@@ -80,6 +82,7 @@ namespace PSXRacing.EditorTools
                     if (want < demNear[i]) { demNear[i] = want; carved++; }
                 }
             int benched = WorldSwitch("PSX_LURE_TOWN") && world.stage == StagePrefix ? WorldStreetBench() : 0;
+            if (WorldSwitch("PSX_LURE_MOUTHS") && world.stage == StagePrefix) WorldMouthBench();
             Log($"Stage world street bench: {benched} near cells lowered to the road beside downtown Lake Lure and Chimney Rock's Main Street.");
             Log($"Stage world: {Path.GetFileName(path)} - {(world.buildings?.Length ?? 0)} buildings, {(world.roads?.Length ?? 0)} side roads, " +
                 $"lake at {world.lakeLevelM:0.0} m, river {(world.river?.y?.Length ?? 0)} stations; {carved} near cells carved under the river.");
@@ -152,10 +155,14 @@ namespace PSXRacing.EditorTools
         internal static bool StageKeepOut(float x, float z)
         {
             if (worldKeep == null) return false;
+            if (worldCliffKeep != null && CliffKeepAt(x, z)) return true;
             int c = (int)((x - worldKeepX0) / WorldKeepCell), r = (int)((z - worldKeepZ0) / WorldKeepCell);
             if (c < 0 || r < 0 || c >= worldKeepCols || r >= worldKeepRows)
                 return world != null && world.lakeLevelY > 0f && worldLakeBox.Contains(new Vector2(x, z)) && StageDemY(x, z) < world.lakeLevelY + 0.3f;
-            return worldKeep[r * worldKeepCols + c] != 0;
+            byte v = worldKeep[r * worldKeepCols + c];
+            // parkland (the town streets' bands, PSX_LURE_OPEN): open but for the odd grove
+            if (v == KeepPark) return !ParkGrove(x, z);
+            return v != 0;
         }
 
         /// <summary>Even-odd scanline fill of one or more rings into a mask
@@ -282,6 +289,7 @@ namespace PSXRacing.EditorTools
             if (world.parkRoad != null && world.parkRoad.xz != null) WorldBand(mask, WorldPts(world.parkRoad.xz), 6f, 4);
             if (world.streets != null) foreach (var r in world.streets) WorldBand(mask, WorldPts(r.xz), r.w * 0.5f + 1.5f, 4);
             if (world.paths != null) foreach (var p in world.paths) if (p.deck != 0) WorldBand(mask, WorldPts(p.xz), 2.5f, 4);
+            WorldLandKeepOut(mask);
             int n1 = 0, n2 = 0, n4 = 0;
             foreach (var v in mask) { if ((v & 1) != 0) n1++; if ((v & 2) != 0) n2++; if ((v & 4) != 0) n4++; }
             float a = WorldKeepCell * WorldKeepCell / 1e6f;
@@ -299,6 +307,7 @@ namespace PSXRacing.EditorTools
             BuildWorldKeepOut();
             if (WorldSwitch("PSX_LURE_WATER")) { BuildWorldLake(root.transform); BuildWorldRiver(root.transform); }
             BuildWorldTown(pts, root.transform);
+            BuildWorldLand(pts, root.transform);
         }
 
         static Material WorldWaterMat(string name)

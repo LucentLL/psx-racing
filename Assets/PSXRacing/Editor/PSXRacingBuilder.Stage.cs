@@ -2668,6 +2668,7 @@ namespace PSXRacing.EditorTools
 
                     var want = new bool[n];
                     for (int i = 0; i < n; i++) want[i] = reason[i] != 0;
+                    LureMouthGaps(s, want, reason);   // a mapped side road through a mapped rail (Lake Lure: PSX_LURE_MOUTHGAP)
                     // NO STONE IN ANOTHER STRETCH'S KERB BAND. On a hairpin's
                     // tight inside the wall line comes round toward the turn's
                     // centre, and the road coming round the other side of the
@@ -6340,6 +6341,7 @@ namespace PSXRacing.EditorTools
         static RailKit ChordKit(bool deck, float m)
         {
             if (deck) return theme.parkway ? RailKit.BridgeRail : theme.rail;
+            if (InTimberSpan(m)) return RailKit.Rustic;   // a stage's timber rail stretches (Lake Lure: PSX_LURE_TIMBER)
             return OnParkwayAt(m) ? RailKit.ParkwayTimber : theme.rail;
         }
 
@@ -6983,7 +6985,8 @@ namespace PSXRacing.EditorTools
             float solidM0 = wallSolidM;
             foreach (var run in rsBankRuns)
             {
-                BuildOneStageBank(pts, run.stations, run.side, root.transform, mat, topMat, phys, runs++);
+                bool grassy = LureGrassBank(run.stations, run.side);   // Lake Lure's low grass cuts (PSX_LURE_GRASSBANK)
+                BuildOneStageBank(pts, run.stations, run.side, root.transform, grassy ? LureGrassBankMat() : mat, topMat, phys, runs++, grassy);
                 banked += run.stations.Length;
             }
             // PC: boulders and outcrops on the steep forest slopes by the road
@@ -7161,7 +7164,7 @@ namespace PSXRacing.EditorTools
         }
 
         static void BuildOneStageBank(List<Vector3> pts, int[] run, float side, Transform parent,
-                                      Material mat, Material topMat, PhysicsMaterial phys, int no)
+                                      Material mat, Material topMat, PhysicsMaterial phys, int no, bool grassy = false)
         {
             int n = pts.Count, s = SideIx(side);
             float half = RoadWidth * 0.5f;
@@ -7405,10 +7408,10 @@ namespace PSXRacing.EditorTools
             // hill behind the cliffs opened see-through slits against its own
             // rock top, the cut's ends and the walls beside it - owner
             // 2026-11-09: "transparent gaps between rockfaces and wall edges".)
-            if (PCContent)
+            if (PCContent && !grassy)
                 PlaceCliffs(pts, st, hh, facedAt, outwAt, distAt, R, no * 13 + s, crest);
             // PC: the faced chords as fractured rock (the collider above stays the smooth hull)
-            if (PCContent && RockReliefOn)
+            if (PCContent && RockReliefOn && !grassy)
             {
                 ReliefFace(verts, uvs, tris, toe, plinthTop, crest, facedAt, distAt, chordT0, chordT1, outwAt, R, no * 7 + s);
                 BuildCrestLip(parent, topMat, no, crest, outwAt, facedAt, distAt, R, no * 7 + s);

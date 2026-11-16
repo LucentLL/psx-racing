@@ -66,6 +66,8 @@ namespace PSXRacing.EditorTools
                 case "galv": return MakeMat(MeshPrefix + "TownGalv", LureTex + "metal_roof.png", tint: new Color(0.62f, 0.64f, 0.66f));
                 case "lantern": return MakeMat(MeshPrefix + "TownLantern", Root + "/Art/Buildings/Textures/ConcreteBare.png", tint: new Color(1.25f, 1.08f, 0.70f));
                 case "grass": return MakeMat(MeshPrefix + "TownGrass", Root + "/Art/City/Pack/grass_7_city.png");
+                case "sand": return MakeMat(MeshPrefix + "TownSand", Root + "/Art/Beach/sand_texture_21.png");
+                case "yellow": return MakeMat(MeshPrefix + "TownYellow", Root + "/Art/Buildings/Textures/ConcreteBare.png", tint: new Color(1.25f, 0.92f, 0.22f));
                 case "mulch": return MakeMat(MeshPrefix + "TownMulch", Root + "/Art/City/Pack/mulch_dirt_6_city.png");
                 case "signs": return MakeMat(MeshPrefix + "TownSigns", Root + "/Art/LakeLure/lure_signs.png", cutoff: 0.5f, twoSided: false);
             }
@@ -220,8 +222,11 @@ namespace PSXRacing.EditorTools
             if (world.buildings == null) return;
             var bufs = new Dictionary<int, TownBuf>();
             var collV = new Dictionary<int, List<Vector3>>(); var collT = new Dictionary<int, List<int>>();
-            int built = 0, porches = 0, signs = 0, skipped = 0;
+            int built = 0, porches = 0, signs = 0, skipped = 0, hips = 0, chimneys = 0;
             var byKind = new Dictionary<string, int>();
+            // round 2 (owner's video): real forms - a hipped roof on every pitched footprint the gable cannot cover,
+            // steeper house roofs, corner boards, chimneys, the inn's long two-storey veranda (PSX_LURE_FORMS=0: round 1)
+            bool forms = WorldSwitch("PSX_LURE_FORMS");
             float halfW = RoadWidth * 0.5f;
             foreach (var b in world.buildings)
             {
@@ -281,6 +286,7 @@ namespace PSXRacing.EditorTools
                     int k = h % 20; wall = k < 10 ? "siding" : k < 14 ? "cedar" : k < 17 ? "planks" : "darkwood";
                     int r = (h / 20) % 20; roofMat = r < 13 ? "shingle" : r < 16 ? "metalgreen" : r < 18 ? "metalred" : "metalgrey"; pitchDeg = roofMat == "shingle" ? 32f : 24f;
                 }
+                if (forms && !shop && role.Length == 0 && pitchDeg > 0f) pitchDeg = Mathf.Max(pitchDeg, 33f);
                 // the oriented box (for the roof) and how much of it the footprint fills
                 Vector3 cen = Vector3.zero; foreach (var p in ring) cen += p; cen /= ring.Count;
                 float sxx = 0, szz = 0, sxz = 0; foreach (var p in ring) { float dx = p.x - cen.x, dz = p.z - cen.z; sxx += dx * dx; szz += dz * dz; sxz += dx * dz; }
@@ -295,7 +301,7 @@ namespace PSXRacing.EditorTools
                 // the way to the road it fronts, from the bake (frame-free: right in another stage's frame too)
                 Vector3 toRoad = (b.fx * b.fx + b.fz * b.fz) > 0.25f ? new Vector3(b.fx, 0, b.fz).normalized
                                : new Vector3(roadAt.x - cen.x, 0, roadAt.z - cen.z).normalized;
-                int front = -1; float frontDot = 0.35f;
+                int front = -1; float frontDot = 0.35f, frontScore = 0f;
                 var cv = collV[chunk]; var ct = collT[chunk];
                 // ----- walls
                 for (int i = 0; i < ring.Count && !canopy; i++)
@@ -304,8 +310,11 @@ namespace PSXRacing.EditorTools
                     Vector3 e = new Vector3(c.x - a.x, 0, c.z - a.z); float len = e.magnitude; if (len < 0.3f) continue;
                     Vector3 dir = e / len, outN = new Vector3(-dir.z, 0, dir.x);   // clockwise ring: outward is to the left of travel
                     float dot = Vector3.Dot(outN, toRoad);
-                    if (dot > frontDot && len >= 4f) { frontDot = dot; front = i; }
+                    if (forms) { if (dot > 0.45f && len >= 4f && dot * len > frontScore) { frontScore = dot * len; front = i; } }
+                    else if (dot > frontDot && len >= 4f) { frontDot = dot; front = i; }
                     float wu = wall == "siding" ? 4f : 2.5f;
+                    if (forms && (wall == "siding" || wall == "planks" || wall == "cedar"))
+                        buf.Box("trim", new Vector3(a.x, (floorY + eave) * 0.5f, a.z) + outN * 0.02f, dir, Vector3.up, outN, 0.1f, (eave - floorY) * 0.5f, 0.06f);
                     float top = gable ? eave : eave + (pitchDeg > 0f || canopy ? 0f : 0.7f);
                     Vector3 A0 = new Vector3(a.x, baseY, a.z), C0 = new Vector3(c.x, baseY, c.z), A1 = new Vector3(a.x, top, a.z), C1 = new Vector3(c.x, top, c.z);
                     // stone footing to the floor, then the wall - or, over a fall, posts and a beam
@@ -334,7 +343,7 @@ namespace PSXRacing.EditorTools
                              new Vector2(0, 0), new Vector2(0, (top - floorY) / 2.5f), new Vector2(len / wu, (top - floorY) / 2.5f), new Vector2(len / wu, 0));
                     int ci = cv.Count; cv.Add(A0); cv.Add(A1); cv.Add(C1); cv.Add(C0); ct.Add(ci); ct.Add(ci + 2); ct.Add(ci + 1); ct.Add(ci); ct.Add(ci + 3); ct.Add(ci + 2);
                     // windows (and the storefront on a shop's street side)
-                    bool street = shop && dot > 0.55f && len >= 4f;
+                    bool street = shop && dot > 0.55f && len >= 4f && !(forms && role == "inn");
                     for (int f = 0; f < floors; f++)
                     {
                         float fy = floorY + f * storey;
@@ -406,6 +415,12 @@ namespace PSXRacing.EditorTools
                     // undersides of the overhang (seen from below)
                     buf.QuadR("trim", e1, r1, r0, e0, Vector2.zero, new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0));
                     buf.QuadR("trim", e3, r0, r1, e2, Vector2.zero, new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0));
+                    if (forms && !shop && role.Length == 0 && h % 2 == 0 && x1 - x0 > 6f)
+                    {
+                        float cy0 = eave - 0.4f, cy1 = ridge + 0.9f;
+                        buf.Box("brick", Pt(x0 + 1.1f, zm + (z1 - z0) * 0.12f, (cy0 + cy1) * 0.5f), ax, Vector3.up, az, 0.42f, (cy1 - cy0) * 0.5f, 0.42f);
+                        chimneys++;
+                    }
                     // gable ends: the wall material up to the ridge, on the box's short sides
                     foreach (float u in new[] { x0, x1 })
                     {
@@ -414,6 +429,7 @@ namespace PSXRacing.EditorTools
                         else buf.Tri(wall, g0, g1, g2, Vector2.zero, new Vector2((z1 - z0) / 2.5f, 0), new Vector2((z1 - z0) / 5f, rise / 2.5f));
                     }
                 }
+                else if (forms && pitchDeg > 0f && HipRoof(buf, ring, eave, pitchDeg, roofMat, Mathf.Min(x1 - x0, z1 - z0))) hips++;
                 else
                 {
                     // flat or low-slope: a cap over the footprint (ear-clipped) behind a parapet
@@ -427,12 +443,14 @@ namespace PSXRacing.EditorTools
                                 new Vector2(p0.x / 4f, p0.z / 4f), new Vector2(p1.x / 4f, p1.z / 4f), new Vector2(p2.x / 4f, p2.z / 4f));
                     }
                 }
+                int frontEnd = front;
+                if (forms && !canopy) front = PorchFront(ring, toRoad, out frontEnd);
                 // ----- porch (and the balcony over it) on the street front
                 if (!canopy && front >= 0 && (shop || zone == "village" || zone == "batcave" || (zone != "gorge" && h % 3 == 0)) && b.dist < 70f)
                 {
-                    Vector3 a = ring[front], c = ring[(front + 1) % ring.Count];
-                    Vector3 e = new Vector3(c.x - a.x, 0, c.z - a.z); float len = e.magnitude; Vector3 dir = e / len, outN = new Vector3(-dir.z, 0, dir.x);
-                    float depth = 2.2f;
+                    Vector3 a = ring[front], c = ring[(frontEnd + 1) % ring.Count];
+                    Vector3 e = new Vector3(c.x - a.x, 0, c.z - a.z); float len = e.magnitude; Vector3 dir = e / len, outN = new Vector3(-dir.z, 0, dir.x);                    bool veranda = forms && role == "inn";
+                    float depth = veranda ? 3.0f : 2.2f;
                     // stay off the shoulder: the porch's front no nearer the road than the edge + 1.6 m
                     for (int tries = 0; tries < 4; tries++)
                     {
@@ -443,7 +461,7 @@ namespace PSXRacing.EditorTools
                     }
                     if (depth >= 1.3f)
                     {
-                        float py = floorY + storey - 0.2f;
+                        float py = floorY + (veranda ? 2f : 1f) * storey - 0.2f;
                         Vector3 pa = a + dir * 0.3f, pc = c - dir * 0.3f;
                         Vector3 fa = pa + outN * depth, fc = pc + outN * depth;
                         string pr = roofMat == "tilered" ? "tilered" : roofMat == "shingle" ? "shingle" : roofMat;
@@ -455,6 +473,17 @@ namespace PSXRacing.EditorTools
                         float dy = floorY - 0.02f;
                         buf.QuadR("planks", new Vector3(pa.x, dy, pa.z), new Vector3(fa.x, dy, fa.z), new Vector3(fc.x, dy, fc.z), new Vector3(pc.x, dy, pc.z),
                                  Vector2.zero, new Vector2(0, depth / 2f), new Vector2(len / 2f, depth / 2f), new Vector2(len / 2f, 0));
+                        if (veranda)
+                        {
+                            // the gallery: its floor (seen from above and from under) and its rail
+                            float gy = floorY + storey - 0.02f;
+                            Vector3 ga = new Vector3(pa.x, gy, pa.z), gfa = new Vector3(fa.x, gy, fa.z), gfc = new Vector3(fc.x, gy, fc.z), gc = new Vector3(pc.x, gy, pc.z);
+                            buf.QuadR("planks", ga, gfa, gfc, gc, Vector2.zero, new Vector2(0, depth / 2f), new Vector2(len / 2f, depth / 2f), new Vector2(len / 2f, 0));
+                            buf.Quad("trim", ga, gfa, gfc, gc, Vector2.zero, new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0));
+                            buf.Box("trim", Vector3.Lerp(fa, fc, 0.5f) + Vector3.up * (gy + 1.0f) - outN * 0.1f, dir, Vector3.up, outN, len * 0.5f - 0.3f, 0.05f, 0.05f);
+                            for (float s = 0f; s <= len - 0.6f; s += 0.6f)
+                                buf.Box("trim", fa + dir * s - outN * 0.1f + Vector3.up * (gy + 0.5f), dir, Vector3.up, outN, 0.025f, 0.5f, 0.025f);
+                        }
                         int np = Mathf.Max(2, Mathf.RoundToInt((len - 0.6f) / 2.6f) + 1);
                         bool stonePiers = zone == "village" && h % 4 == 0;
                         for (int k = 0; k < np; k++)
@@ -496,7 +525,8 @@ namespace PSXRacing.EditorTools
                 TownCollider(collV[kv.Key], collT[kv.Key], "Buildings_" + kv.Key, parent, SolidLayer);
             }
             var kinds = new List<string>(); foreach (var kv in byKind) kinds.Add(kv.Key + " " + kv.Value);
-            Log($"Stage world buildings: {built} built on their 2024 footprints ({string.Join(", ", kinds)}), {porches} porches, {signs} shop boards; {skipped} left out (too small, too big, or reaching into the road).");
+            Log($"Stage world buildings: {built} built on their 2024 footprints ({string.Join(", ", kinds)}), {porches} porches, {signs} shop boards; {skipped} left out (too small, too big, or reaching into the road)" +
+                (forms ? $"; forms: {hips} hipped roofs, {chimneys} chimneys." : "."));
         }
 
         /// <summary>Ear clipping of a simple counter-clockwise ring (x, z).</summary>
@@ -819,6 +849,7 @@ namespace PSXRacing.EditorTools
                 }
                 TownEmit(surf, "Street_" + n, parent, RoadLayer);
                 TownCollider(colV, colT, "Street_" + n, parent, RoadLayer);
+                if (WorldSwitch("PSX_LURE_MAINST")) StreetPaintAndWalks(st, line, surf.v, parent, n);
                 n++;
             }
             Log($"Stage world streets: {n} drawn whole (Main Street through the village).");
