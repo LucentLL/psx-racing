@@ -63,6 +63,9 @@ runs under 0, and the 0-mode audit, gate and concrete runs are identical to the 
   straight kerb; the night frame has its lamp lit and the white house lit again.
 - n231 / n4025 held back: their frames (36 noon and the n231 top) are pixel-identical to the base; spot 36's NB lanes
   swing out again (u 20: -10.27 m against its own line -5.45: the spot-36 gate FAILS, as PC45).
+  `splits_bridge_n231_before_after.png`: the deck approach north of n231 from the first pass's eye pose (a camera 1.3 m
+  up on PC45's median, not a car), BEFORE | first pass | fix: the fix's frame differs from the base in 223 of 921,600
+  pixels (sky) and its top frame (r2) in none.
 
 ## Gates (base 0 -> fix bfr; first pass in brackets where it differs)
 - SPOTS (CityAudit.Splits b8 on 456c377e; the census measure in the undivided road's straight frame):
