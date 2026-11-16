@@ -523,6 +523,8 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 built++;
+                if (world.stage == StagePrefix && (bi == 43 || bi == 62 || (bi >= 3 && bi <= 18)))
+                    Log($"  building {bi}: st {b.st:0} side {b.side} floor {floorY:0.0} street {streetY:0.0} ground {gMin:0.0}-{gMax:0.0} stilts {stilts} floors {floors} wall {wall} roof {roofMat} pitch {pitchDeg:0} front {front}");
                 byKind[role.Length > 0 ? role : kind] = (byKind.TryGetValue(role.Length > 0 ? role : kind, out int nk) ? nk : 0) + 1;
             }
             foreach (var kv in bufs)

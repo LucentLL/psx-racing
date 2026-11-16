@@ -247,6 +247,21 @@ namespace PSXRacing.EditorTools
             }
             else if (world.streets != null)
                 foreach (var r in world.streets) if (r.xz != null && r.xz.Length >= 4) WorldBand(mask, WorldPts(r.xz), 18f, KeepPark);
+            // round 3 (owner's video 8:15, PSX_LURE_VIDEOLOOK): the inn's lawn open from the road, 5,240-5,470 m, out to 85 m on
+            // the inn's side - the round-2 parkland groves stood between the camera and the inn
+            if (own && WorldSwitch("PSX_LURE_VIDEOLOOK"))
+            {
+                var pts = track.stagePts;
+                var line = new List<Vector3>();
+                for (int i = Mathf.Max(0, (int)(5240f / Spacing)); i <= Mathf.Min(pts.Length - 1, (int)(5470f / Spacing)); i++)
+                {
+                    Vector3 a = pts[Mathf.Max(0, i - 1)], b2 = pts[Mathf.Min(pts.Length - 1, i + 1)];
+                    Vector3 t = b2 - a; t.y = 0f; t.Normalize();
+                    Vector3 left = new Vector3(-t.z, 0f, t.x);
+                    line.Add(pts[i] + left * 44f);
+                }
+                if (line.Count >= 2) WorldBand(mask, line.ToArray(), 42f, KeepOpen);
+            }
             int n8 = 0; foreach (var v in mask) if ((v & (KeepOpen | KeepPark)) != 0) n8++;
             Log($"Stage world open ground: {areas} mapped areas, {yards} yards, {lawnsBefore} lawns before town buildings, the town streets' bands - " +
                 $"{n8 * WorldKeepCell * WorldKeepCell / 1e6f:0.000} km2 the forest leaves open; granite keep-out {(worldCliffKeep?.Count ?? 0)} cells of 12 m.");
