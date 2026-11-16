@@ -843,8 +843,8 @@ namespace PSXRacing
             new TrackDef
             {
                 id = "LakeLure",
-                name = "LAKE LURE — US 64/74A",
-                blurb = "Lake Lure as it was before the flood: from where NC 9 comes in at the " +
+                name = "LAKE LURE — CHIMNEY ROCK",   // the brief's "LAKE LURE - US 64/74A" cut to "...US 6..." on the home screen
+                blurb = "US 64/74A as it was before the flood: from where NC 9 comes in at the " +
                         "east end of the lake, along the shore and through downtown, over the " +
                         "Rocky Broad, up Main Street through Chimney Rock village and the " +
                         "Hickory Nut Gorge to Bat Cave. 11.6 km, 222 m of climb. " +
@@ -1131,7 +1131,7 @@ namespace PSXRacing
             new SprintVariant
             {
                 id = "LakeLureShore", baseId = "LakeLure",
-                name = "US 64/74A — LAKE LURE",
+                name = "LAKE LURE — THE SHORE",
                 blurb = "Along Lake Lure before the flood: from where NC 9 comes in, the lake road's " +
                         "bends and downtown to the Rocky Broad bridge. 6.1 km. Map (c) OpenStreetMap contributors.",
                 label = "THE BRIDGE", startM = 54f, finishM = 6200f, reverse = false,
@@ -1139,7 +1139,7 @@ namespace PSXRacing
             new SprintVariant
             {
                 id = "LakeLureShoreRev", baseId = "LakeLure",
-                name = "US 64/74A — LAKE LURE II",
+                name = "LAKE LURE — THE SHORE II",
                 blurb = "The lake road the other way: from the Rocky Broad bridge through downtown and " +
                         "along the shore to NC 9. 6.1 km. Map (c) OpenStreetMap contributors.",
                 label = "NC 9", startM = 6200f, finishM = 54f, reverse = true,
@@ -1147,7 +1147,7 @@ namespace PSXRacing
             new SprintVariant
             {
                 id = "LakeLureGorge", baseId = "LakeLure",
-                name = "US 64/74A — CHIMNEY ROCK",
+                name = "CHIMNEY ROCK — THE GORGE",
                 blurb = "Over the Rocky Broad, up Main Street through Chimney Rock village and the " +
                         "Hickory Nut Gorge to Bat Cave, before the flood. 5.5 km. Map (c) OpenStreetMap contributors.",
                 label = "BAT CAVE", startM = 6200f, finishM = 11670f, reverse = false,
@@ -1155,7 +1155,7 @@ namespace PSXRacing
             new SprintVariant
             {
                 id = "LakeLureGorgeRev", baseId = "LakeLure",
-                name = "US 64/74A — CHIMNEY ROCK II",
+                name = "CHIMNEY ROCK — THE GORGE II",
                 blurb = "Down the gorge from Bat Cave, through the village and over the Rocky Broad " +
                         "to the lake. 5.5 km. Map (c) OpenStreetMap contributors.",
                 label = "THE LAKE", startM = 11670f, finishM = 6200f, reverse = true,
