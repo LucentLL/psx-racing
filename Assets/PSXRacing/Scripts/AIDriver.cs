@@ -911,8 +911,18 @@ namespace PSXRacing
                 float kYaw = 0f;
                 for (int w = -yawWin; w <= yawWin; w++) kYaw += curv[path.Wrap(wi + w)];
                 kYaw = kYaw / (2 * yawWin + 1) * (k / Mathf.Max(curv[wi], 1e-5f));
+                // THE BANK under this car's line (TrackPath.bankL/bankR): the
+                // cross slope where it will be across the road, + falling
+                // toward the inside of the bend. Superelevation leans the car
+                // into the turn; a crown's outer lane leans it out.
+                float bankIn = 0f;
+                if (k >= 1e-4f && BankAware && path.HasBank)
+                {
+                    float turnB = Vector3.SignedAngle(path.GetTangent(wi - 2), path.GetTangent(wi + 2), Vector3.up);
+                    bankIn = -path.CrossSlopeRight(wi, lat) * (turnB >= 0f ? 1f : -1f);
+                }
                 float vc = k < 1e-4f ? float.PositiveInfinity
-                         : Mathf.Min(AIGrip.CornerSpeed(car, k, limitShare, 0f), AIGrip.YawSpeed(kYaw, yawShare));
+                         : Mathf.Min(AIGrip.CornerSpeed(car, k, limitShare, 0f, bankIn), AIGrip.YawSpeed(kYaw, yawShare));
                 if (!float.IsInfinity(vc)) vc = Mathf.Max(vc, MinCornerMps);
                 // A CREST is a corner in the vertical: over it at speed the
                 // car goes light, and a city route's brow launched racers at
@@ -934,6 +944,9 @@ namespace PSXRacing
             return atCar;
         }
         float[] vcBuf = new float[0], kBuf = new float[0];
+        /// <summary>The planner reads the road's bank (PlanSpeed). PSX_AI_BANK=0
+        /// plans every bend as if flat, to measure what the bank is worth.</summary>
+        static readonly bool BankAware = System.Environment.GetEnvironmentVariable("PSX_AI_BANK") != "0";
         /// <summary>Metres over which the planner's line blends from where
         /// the car is across the road to where it is aiming.</summary>
         const float LineBlendM = 20f;

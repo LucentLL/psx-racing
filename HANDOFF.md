@@ -1,4 +1,157 @@
-﻿# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
+﻿# HANDOFF - BANK ROUND: the mountain roads crowned and superelevated from the 2018 lidar (agent "bank", branch `mountain-bank`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner (verbatim): "Did you catch the banking of the roads? I've noticed many of the mountain road tracks are very flat. They have
+turns, but almost no (if any) banking". He was right: `BuildRoad` laid every stage ring flat across and everything beside the road
+was built off the centre line's height. Worktree `C:\Users\mcgee\PSX Racing-bank` off mountain-nm 7badf362; sandbox PSXRec (Android
+target; no store packs, so every picture shows the older fallback forest). Switch `PSX_STAGE_BANK` (default ON; `=0` reads no file and
+builds today's flat road exactly). `PSX_AI_BANK=0` makes the AI plan bends as if flat.
+
+## What the lidar says (`tools/roads/bake_bank.mjs`; each file's `stats` has the detail)
+Per waypoint, five cross-section lines of the USGS 1 m lidar (NC_Phase5_2018_A18, main's cache, offline, nothing fetched) across the
+paved width less 0.5 m a side; robust fits of one plane and of a two-half-plane crown; confident = fit RMS <= 3.5 cm (p50 0.4-0.8 cm),
+>= 60% of samples kept, no edge over 14%, not on a structure, no adverse bank over 2.5% in a bend under 150 m; a +-2 station median.
+Design: AASHTO Green Book 2018 3.3 (Rmin from Table 3-7, Method 5 as e = emax(2Rmin/R - (Rmin/R)^2)), emax 8% (NCDOT's superelevation
+training works at 8% rural; the Roadway Design Manual PDF was too large to fetch), Linn Cove 10% (Muller & Barker, PCI Journal 1985).
+Built = measured where confident, design elsewhere and on structures, AASHTO runoff (Table 3-15, 2/3 on the tangent), clamp 12%.
+
+| stage | measured | crown on straights, measured / built | bank into bends R<150 m, median / p98-max: measured; design; built | runoff |
+|---|---|---|---|---|
+| NC 226A (swa) | 92.7% | 2.6% / 1.9% | 8.2 / 13.1; 8 / 8; 7.9 / 12 | 16 m |
+| Gillespie Gap (gap) | 98.0% | 1.5% / 1.2% | 6.9 / 12.6; 8 / 8; 6.8 / 12 | 24 m |
+| Mount Mitchell (mtm) | 91.3% | 3.2% / 2.3% | 7.0 / 11.7; 8 / 8; 6.5 / 12 | 24 m |
+| Beech Gap (beech) | 98.8% | 2.1% / 1.8% | 6.6 / 8.9; 8 / 8; 6.6 / 10.7 | 32 m |
+| Chimney Rock (chimney) | 82.2% | 2.2% / 1.6% | 4.0 / 11.4; 7.4 / 8; 3.4 / 12 | 16 m |
+| Blue Ridge (brp) | 78.9% | 1.2% / 0.5% | 9.0 / 10.5; 8 / 10; 8.9 / 10.7 | 48 m |
+| Little Switzerland (swiss) | 92.4% | 1.9% / 0.9% | 8.6 / 12.1; 8 / 8; 8.4 / 12 | 28 m |
+| Blowing Rock (brock) | 96.1% | 1.8% / 1.2% | 5.0 / 10.1; 8 / 8; 4.8 / 11.8 | 36 m |
+
+- No stage is flat-ish: the real roads bank 4-9% (median) in their bends, often past the 8% design; NC 226A's, NC 128's and the Little
+  Switzerland loop's switchbacks measure 12-16% on clean fits (1 cm RMS, the bank toward the inside) and are clamped to 12%. Chimney
+  Rock's park road (4%) and Blowing Rock (5%) bank least. Only 21-56% of straight stations are crowned; the rest is one plane tilted 2-4%.
+- The spots named: Chimney Rock 715 inside edge -12% (measured -12.2 to -12.9), outside +5 to +7%; 1049 -9.6% / +6.4%; NC 226A's tightest
+  switchback wp 1737 (R 17 m) 10.8%; Linn Cove (brp 1119-1223) 10% one way, a 48-55 m reversal, 10% the other.
+- Lidar could not say: decks and the Little Switzerland tunnel (design), plus each file's `stats.lidarCouldNotSay` (canopy, adverse
+  fits: Chimney Rock 113 adverse stations rejected, NC 226A 116, Mount Mitchell 101). Little Switzerland wp 1241 is a junction turn whose
+  real surface runs 6.5% the wrong way: refused as adverse, built at the design value squeezed to -2.6 / -1.6%.
+- Coast stages (Emerald Isle, Langston Bridge, Atlantic Beach Bridge): no lidar in the cache (UTM 18) and no `STAGES` entry: no file,
+  flat as before (decided: left flat).
+- For the alignment fix: the worst places where the line is off the lidar bench (confident stations, |offset| > 1.5 m for 12 m or more;
+  + = bench left of the line): gap 1162-1245 (peak 6.5 m, mean 3.5), swiss 693-731 (3.5/2.4), swiss 1666-1690 (-5.3/-2.9), brp 1402-1436
+  (3.5/2.3), brock 2375-2403 (4.0/2.6), brock 619-640 (5.3/3.0), beech 570-587 (-5.5/-3.4), beech 1100-1117 (-5.5/-4.3), beech 784-798
+  (6.0/4.1), brock 1330-1338 (-7.8/-5.6). Full list: scratchpad `bank\bench_offsets.txt`. Some are pull-offs and junctions (a wide bench).
+
+## The build (new `Editor/PSXRacingBuilder.Bank.cs`; small edits elsewhere)
+- `LoadStageBank` (called at the end of `StageLoadDem`): reads `Art/<stage>/<pre>_bank.json`, refuses a file whose count is not the
+  route's (WARN, flat), converts the slopes to metres at this road's half width, and fades a route with ends to flat over its first
+  and last 8 stations (32 m; every start line is 33-60 m in) because the end pads carry a flat road on. `BankEdge(i, side)` = that
+  side's tarmac edge over the centre line; `BankAcross(i, lateral)` = the surface, linear from the centre to the edge, the edge's
+  beyond it. Everything is zero with the switch off, with no file, or off a stage.
+- The centre line keeps its height (the bake's lidar road); the road turns about it. `BuildRoad`: the ring's left and right vertices
+  are lifted (`RingBank`, lerped on the curve's slices); the centre column, already there for the painted line, makes the crown.
+- Everything beyond an edge is that side's flat-road geometry lifted by `BankEdge`: kerb strips (`FlatKerbMesh`, street style too),
+  shoulder rows (`ShoulderStation`, `ShoulderDesignAt`), the lattice solve's samples (`ForEachStageLatticeSample`: the tarmac and
+  strip across, every section), the plan's land reads (`RoadsideLandDy`, `StageBankSolve`, the flare probes in `PlanStageRoadside`,
+  `BuiltSectionCritical`, `FinishStageCuts`), the holds (`CollectCarryHolds`, `CollectRiseHolds`, `CollectBehindWallHolds`,
+  `CollectFillFalls`), wall rings (`StageWallRing`, `CurveWallRing`: rail, stone, posts, retaining walls and the solids all read the
+  ring), reflector posts (`PlaceStagePosts`), cut faces and rock tops (`BankTopRing`, `BuildOneStageBank`), the tunnel tube's feet,
+  plant clearing (`PlantClear`: the envelope from the low edge to the high one), the cliff dressing (`PlaceCliffs`).
+- The ground field: `Refine` adds the banked surface to `RoadFoot.roadY`, so the dig under the pavement and the graded roadside follow.
+- Decks: the top is laid in five columns (deck edge, tarmac edge, centre, tarmac edge, deck edge) on a banked road, so it stays 2 cm
+  under a crown or a superelevated road across its width; soffit, fascias and piers follow; joint bands likewise. Flat: the two
+  columns it had, triangle for triangle.
+- Start and finish bands: on a banked road a 3-column band over the cross-section (yaw-only frame); flat: the quad as before.
+  `RaceHandoffApplier.PaintLine` re-lays a sprint's band over the cross-section where it is painted.
+- Grid (`BuildCars`): each slot on the banked surface under it and rolled with it.
+- `TrackPath.bankL/bankR` (new serialized fields, slopes): baked by `BakeBankInto`, reordered by `RotateInPlace`, reordered AND
+  swapped left/right by `ReverseInPlace`; `HasBank`, `CrossSlopeRight(i, lateral)`.
+- Audits read the banked edge: `TrackObstacleAudit` (tarmac height extrapolated from the inset to the edge; the ghost-barrier passes
+  measured from each barrier's own side), `LifeSimSelfTest` (shoulder rows start flush on the strip at the banked edge; deck-rail rays
+  over each side's edge), `PlantSolidAudit` (envelope on the banked surface). Flat roads read exactly as before.
+- New tools: `BankShots.Capture` (the proof frames + a raycast cross-section per spot), `BankLab.BuildOnly`; `StageLab` keeps each
+  venue's build log and a partial report.
+
+## The runtime
+- AI: `AIGrip.CornerSpeed(..., bank)` holds v^2 k = g (mu + e) / (1 - mu e) on a bank of slope e (falling toward the inside); the
+  flat answer is unchanged. `AIDriver.PlanSpeed` reads e under the line the car will take (`TrackPath.CrossSlopeRight` at the lateral
+  it plans, signed by the bend's direction: a crown's outer lane is adverse). `PSX_AI_BANK=0` plans flat.
+- Recovery: `CarController.ResetTo` (every respawn, stuck recovery and TryPlace) rolls the car about its own forward to the road
+  under it (`RollToRoad`: layer 8, from half a metre over the seat, under 15 degrees). Forward and pitch are the caller's, so on a
+  road flat across (every circuit and street) the pose is exactly what was asked for.
+- Grid restaging (`RaceHandoffApplier.StageReversedGrid`, the 1v1 restage on a two-lane road): `SeatOnBank` lifts each slot to the
+  surface under it and rolls it.
+- Camera: `ChaseCamera` builds its pose with `LookRotation(..., Vector3.up)` and its roll is a drift cue from yaw rate, so the
+  horizon stays level on a bank (checked in the low chase frames). The cockpit mount rolls with the car, as the game's does.
+
+## Proof (fresh processes; OFF = PSX_STAGE_BANK=0, ON = default)
+- Pictures (scratchpad `bank\`): `bank_sheet_before_after.png` (10 spots x driver's seat and low chase, OFF | ON, car roll and lane
+  lift printed), `bank_sheet_big_pairs.png` (4 large low-chase pairs), `bank_xsections_built.png` (per stage at its sharpest bend: the
+  lidar ground, the fit, the BUILT road raycast off the scene ON and OFF), `plots\bank_xsections_sheet.png` (the measurement's plots).
+- Car roll read off the scenes at the spots: Chimney 715 +2.9 deg, 1049 +3.6; NC 226A 1737 -6.2, 536 +6.8; Linn Cove +5.7; Gillespie 844
+  +5.9; Mount Mitchell 1527 -6.8; Beech 1505 +3.9; Little Switzerland 1589 +6.8; Blowing Rock 1984 +2.9 (OFF: 0.0 everywhere).
+- StageLab, all eight, fresh process each way: OFF base = 7 lines (Chimney EDGE FACE 1019 L / 661 R / 1021 L and UNWARRANTED wp 0 R;
+  Mount Mitchell EDGE FACE 1544-45 R; Beech UNWARRANTED 59 R and 681 L - the lidar round's documented ones). ON = 8 lines: the same less
+  Beech 59 R (gone), plus TWO NEW: Chimney EDGE FACE 712 L (0.06 m in 0.13 m at 7.25 m, the island inside the 715 hairpin, where 711 L's
+  rising section meets 712 L's falling one in the zipper; 0.06 is the threshold itself) and Blue Ridge UNWARRANTED 1631 R (a faced cut
+  station next to a graded one, rock top at +0.18 m 1.5 m behind the 4.04 m face: the base's Beech 59 R signature to the centimetre; the
+  bank lifts that edge 3 cm). Terrain audit OK, lanes OK, barrier faces OK, deck rails OK on all eight both ways.
+  Found and fixed on the way: the obstacle audit's ghost pass read the band from the centre line (24 false ghosts a stage), the tarmac
+  edge from a 0.3 m inset, the self-test's shoulder rows from the flat edge; a banked deck's end cap lay in the station plane (Blue Ridge
+  704 L, 0.07 m "drop" - caps now 2 cm past the line); the builder's planting rule read a flat envelope (plants 1 / 4 / 1 / 1 on Chimney,
+  NC 226A, Gillespie, Beech) - fixed (d7b4ee72): the four rebuilt banked, plants through solids 0 on all four, their audit lines unchanged; so ON = 0 plants on all eight.
+- LifeSim self-test: OFF 63 FAIL (PSXRec's known baseline), ON 63 FAIL, the identical list (diffed).
+- Races (race-play-check, seed 0, -Finish, no traffic, x4 time): best rival home OFF -> ON, forward: Chimney 211 -> 209 s (-0.9%), NC 226A
+  449 -> 428 (-4.7%), Blue Ridge 178 -> 171 (-3.9%), Gillespie 214 -> 209 (-2.3%), Mount Mitchell 227 -> 234 (+3.1%), Beech 331 -> 324
+  (-2.1%), Little Switzerland 296 -> 291 (-1.7%), Blowing Rock 261 -> 254 (-2.7%). Reverse twins ON: 200 / 441 / 166 / 193 / 204 / 336 /
+  277 / 258 s. Race checks OK: OFF 7/8 (Beech: 2 retired), ON 13/16 (Gillespie: a rival stuck behind a wreck 5 s wrong way; Little
+  Switzerland both ways: 2 retired = the planned driver error plus one crash). One seed: the retirements are mostly the planned mistake
+  (MISTAKE lines) and the counts are within one seed's noise; not proven either way.
+- Play checks ON (fresh processes): reverse-check 36 ok / 0 FAIL ("ALL REVERSE RACES LINE UP"); sprint-check 72 ok / 0 FAIL;
+  finish-play-check Gillespie Gap 14 ok / 0 FAIL and Chimney Rock 14 ok / 0 FAIL.
+
+## Still looks wrong / not done / not verified
+- In the pictures: the driver's-seat frames are mostly cabin at this size, the roll shows in the horizon's tilt; the low chase frames
+  show it plainly. The game's centre line sits up to 0.2-0.3 m under the lidar pavement at some strongly banked bends (the bake's
+  bench height, not this round's).
+- The two new audit lines above are not fixed (both at builder thresholds of classes the base already carries 7 of).
+- Not run: a second seed, traffic, a person driving, a PC build; the city (`Scripts/City/`) untouched. Later idea: Charlotte's ramps and
+  loops are flat across too; a real ramp carries 6-8% (AASHTO, design speed by radius). The city's 3DEP 1/3" ground cannot measure it
+  (10 m cells); it would be design values on the line model, a city round of its own.
+- Little Switzerland's terrain line about its tunnel under the PC horizon stand-in was not seen here (PSXRec builds no PC horizon).
+
+## At merge (coordinator)
+- New files: `Assets/PSXRacing/Editor/PSXRacingBuilder.Bank.cs`, `BankShots.cs`, `BankLab.cs` (metas minted in PSXRec, committed);
+  `tools/roads/bake_bank.mjs`; `Assets/PSXRacing/Art/{Swiss226A/swa, Gillespie/gap, MtMitchell/mtm, BeechGap/beech, ChimneyRock/chimney,
+  BRP/brp, Switzerland/swiss, BlowingRock/brock}_bank.json` (+ metas).
+- Shared-file edits, all small and local:
+  - `PSXRacingBuilder.cs`: `BuildTrack` (one call, `BakeBankInto(path)`, after `StageLoadDem`), `BuildRoad` (left/right ring vertex
+    lift; comment), `ShoulderStation` / the row trace / `ShoulderDesignAt` (roadY + bank), `FlatKerbMesh` / `StreetKerbMeshes` (+
+    `RingBank`), `BuildJointBands` and `BuildOneDeck` (column loop, end push) and `BuildPiers` (soffit lift), `BuildStartLine`
+    (banked band branch), `PlacePosts` / `PlaceStreetLamps` (one term each), `BuildCars` (two grid branches: lift + `gridUp`).
+  - `PSXRacingBuilder.Stage.cs`: `StageUnloadDem` / `StageLoadDem` (clear / load), `Refine` (one line), `ForEachStageLatticeSample`,
+    `CollectCarryHolds`, `CollectRiseHolds`, `CollectBehindWallHolds`, `CollectFillFalls`, `RoadsideLandDy`, `StageBankSolve`,
+    `PlanStageRoadside` (two flare probes), `BuiltSectionCritical`, `FinishStageCuts` (three reads), `PlaceStagePosts`,
+    `CurveWallRing`, `StageWallRing`, `BankTopRing`, `BuildOneStageBank` (a local `Y()`), `BuildOneTunnel` (wall feet).
+  - `PSXRacingBuilder.PlantClear.cs` (the plant solids test), `PSXRacingBuilder.Cliffs.cs` (`PlaceCliffs`), `StageLab.cs` (per-venue
+    build log, partial report), `TrackObstacleAudit.cs` (edge tarmac read; both ghost passes), `LifeSimSelfTest.cs`
+    (`CheckShoulderRibbon`, `CheckDeckRails`), `PlantSolidAudit.cs` (`IndexRoad`, `RoadFrame`).
+  - Runtime: `TrackPath.cs` (two serialized fields, `RotateInPlace`, `ReverseInPlace`, `HasBank`, `CrossSlopeRight`), `AIGrip.cs`
+    (`CornerSpeed` optional `bank`), `AIDriver.cs` (`PlanSpeed`, `BankAware`), `CarController.cs` (`ResetTo`, new `RollToRoad`),
+    `RaceHandoffApplier.cs` (`PaintLine`, `StageReversedGrid`, the 1v1 restage, new `SeatOnBank`).
+  - The lakelure agent's new stage: no bank file = flat (the builder logs it). After both merges: add its prefix to `STAGES` in
+    `tools/roads/lib3dep.mjs` if it is not there, then `node tools/roads/bake_bank.mjs <pre>` (reads its 1 m tiles from main's cache;
+    speed from TrackCatalog by id), `--check`, rebuild its scene, StageLab it.
+- Data rule: a bank file is per waypoint. After ANY re-bake that moves or re-spaces a stage's waypoints (the alignment fix you
+  mentioned), re-run `node tools/roads/bake_bank.mjs <pre>` and `--check`; a stale file is refused with a WARN and the stage builds
+  flat (count mismatch), so nothing breaks silently. The tool is a pure function of the stage files on disk, the lidar cache and
+  TrackCatalog's speed: no hand edits.
+- Scene passes: every mountain stage scene must be rebuilt (the bank is in the meshes and in TrackPath). Coast stages and the city
+  are unchanged.
+
+## What the owner will notice
+The mountain roads now lean: crowned on the straights, banked into every bend as the real road is - up to 12% on the NC 226A and NC 128
+switchbacks and Chimney Rock's hairpins, 10% across Linn Cove - and the cars (and the AI's corner speeds) lean with them.
+
+# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
 
 Restart of the concrete job stopped at 14:07 (the owner: "To the concrete pieces, yes"). Worktree `C:/Users/mcgee/PSX Racing-concrete`,
 base e2749b17 (mountain-nm 416ddfda = PC43 merged in by the coordinator). Sandbox PSXRec (Android target), every comparison two fresh

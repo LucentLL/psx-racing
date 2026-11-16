@@ -398,6 +398,7 @@ namespace PSXRacing.EditorTools
             stageWp = null; stageHash = null; stageRight = null;
             tunnelIn = null; hasTunnels = false;
             ClearStageRoadside();
+            ClearStageBank();
         }
 
         /// <summary>Load the fetch script's bake and copy/generate the stage
@@ -467,6 +468,9 @@ namespace PSXRacing.EditorTools
                 hasTunnels |= tunnelIn[i];
             }
             if (hasTunnels) Log("Stage tunnels: " + track.tunnels.Length + " span(s).");
+            // The road's cross-section (PSXRacingBuilder.Bank): before any
+            // height beside the road is asked for.
+            LoadStageBank(stageWp);
 
             EnsureStageArt();
             GenerateStageTextures();
@@ -679,6 +683,10 @@ namespace PSXRacing.EditorTools
                 float fx = Mathf.Lerp(pa.x, pb.x, foot.t), fz = Mathf.Lerp(pa.z, pb.z, foot.t);
                 foot.side = (x - fx) * r.x + (z - fz) * r.z >= 0f ? 1f : -1f;
             }
+            // The road surface over the foot's point, not the centre line's
+            // height (PSXRacingBuilder.Bank): the graded roadside, the dig
+            // under the pavement and every clearance read this.
+            if (Banked) foot.roadY += BankAcrossAt(foot.s0, foot.s1, foot.t, foot.side * foot.d);
         }
 
         /// <summary>Inside a tunnel's own footprint: within the tube's walls
@@ -1441,7 +1449,7 @@ namespace PSXRacing.EditorTools
                     if (Mathf.Abs(slope) < ShoulderSlopedEnd) continue;
                     float side = s == 0 ? -1f : 1f;
                     Vector3 at = pts[i], outw = rsRight[i] * side;
-                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + prof[m - 1].y;
+                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + BankEdge(i, side) + prof[m - 1].y;
                     float Land(float e)
                     {
                         Vector3 q = at + outw * (half + e);
@@ -1622,7 +1630,7 @@ namespace PSXRacing.EditorTools
                     if (m < 2) continue;
                     float side = s == 0 ? -1f : 1f;
                     Vector3 at = pts[i], outw = rsRight[i] * side;
-                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + prof[m - 1].y;
+                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + BankEdge(i, side) + prof[m - 1].y;
                     float Land(float e)
                     {
                         Vector3 q = at + outw * (half + e);
@@ -1771,7 +1779,7 @@ namespace PSXRacing.EditorTools
                     if (rsKind[s][i] != Roadside.Walled || BuriedTerminal(s, i)) continue;
                     float side = s == 0 ? -1f : 1f;
                     Vector3 at = pts[i], outw = rsRight[i] * side;
-                    float tarmac = at.y + RoadLift, faceE = rsWallE[s][i];
+                    float tarmac = at.y + RoadLift + BankEdge(i, side), faceE = rsWallE[s][i];
                     float standE = StageWallContactE(pts, i, s, side) + StageWallCollThick + RoadsideRules.PocketBehindM;
                     bool any = false;
                     for (float e = standE - StageBehindHoldM; e <= standE + StageBehindHoldM; e += StageCarryHoldPitchM)
@@ -1859,15 +1867,19 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < n; i++)
             {
                 if (Tube(i)) continue;
-                float roadY = pts[i].y + RoadLift;
+                float roadY0 = pts[i].y + RoadLift;
                 for (int s = 0; s < 2; s++)
                 {
-                    Vector3 outw = right[i] * (s == 0 ? -1f : 1f);
+                    float sgn = s == 0 ? -1f : 1f;
+                    Vector3 outw = right[i] * sgn;
                     for (int k = 0; k <= roadSteps; k++)
                     {
-                        Vector3 p = pts[i] + outw * (half + (-half + (half + KerbWidth) * k / roadSteps));
-                        visit(p.x, p.z, roadY - RoadsideRules.HideMarginM);
+                        float off = (half + KerbWidth) * k / roadSteps;
+                        Vector3 p = pts[i] + outw * off;
+                        visit(p.x, p.z, roadY0 + BankAcross(i, sgn * off) - RoadsideRules.HideMarginM);
                     }
+                    // The section stands on this side's banked edge.
+                    float roadY = roadY0 + BankEdge(i, sgn);
                     var prof = shoulderProfiles[s][i];
                     if (prof == null || prof.Count == 0) continue;
                     across.Clear();
@@ -1919,6 +1931,13 @@ namespace PSXRacing.EditorTools
                             dyB = EvalShoulderProfile(pb, e, false);
                             if (float.IsNaN(dyA) || float.IsNaN(dyB)) continue;
                             hold = Mathf.Min(StageLatticeHold(pa, e), StageLatticeHold(pb, e));
+                            dyA += BankEdge(a, side); dyB += BankEdge(b, side);
+                        }
+                        else
+                        {
+                            // The tarmac and strip: the banked surface across.
+                            dyA = BankAcross(a, side * (half + e));
+                            dyB = BankAcross(b, side * (half + e));
                         }
                         Vector3 pA = pts[a] + right[a] * (side * (half + e));
                         Vector3 pB = pts[b] + right[b] * (side * (half + e));
@@ -2261,7 +2280,7 @@ namespace PSXRacing.EditorTools
         static float RoadsideLandDy(List<Vector3> pts, int i, float side, float e)
         {
             Vector3 p = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + e));
-            return Mathf.Min(StageDemY(p.x, p.z) - (pts[i].y + RoadLift), StageBenchDy);
+            return Mathf.Min(StageDemY(p.x, p.z) - EdgeRoadY(pts, i, side), StageBenchDy);
         }
 
         const float CatchStepM = 0.25f;
@@ -2395,7 +2414,7 @@ namespace PSXRacing.EditorTools
                 float probe = RoadWidth * 0.5f + CutToeE + Mathf.Max(0f, h - BankPlinth) * BankBatter + 1f;
                 float px = pts[i].x + right.x * side * probe;
                 float pz = pts[i].z + right.z * side * probe;
-                h = Mathf.Clamp(StageDemY(px, pz) - pts[i].y, 0f, BankMaxH);
+                h = Mathf.Clamp(StageDemY(px, pz) - (pts[i].y + BankEdge(i, side)), 0f, BankMaxH);
                 if (h <= 0f) return 0f;
             }
             return h;
@@ -2726,7 +2745,7 @@ namespace PSXRacing.EditorTools
                                     float behindE = WallFaceE + flareOffset * frac + StageWallFaceIn
                                                   + StageWallCollThick + RoadsideRules.PocketBehindM;
                                     Vector3 behind = pts[st] + rsRight[st] * (side * (RoadWidth * 0.5f + behindE));
-                                    if (StageDemY(behind.x, behind.z) - (pts[st].y + RoadLift) < BankRiseM) break;
+                                    if (StageDemY(behind.x, behind.z) - EdgeRoadY(pts, st, side) < BankRiseM) break;
                                     overlap[st] = true;
                                     flareFaced++;
                                 }
@@ -2857,10 +2876,10 @@ namespace PSXRacing.EditorTools
                                 // (The graded field cannot be asked yet: it reads the
                                 // roadside kinds this plan is still deciding.)
                                 float landY = StageDemY(behind.x, behind.z);
-                                float dy = landY - (pts[probe].y + RoadLift);
+                                float dy = landY - EdgeRoadY(pts, probe, side);
                                 if (CutTrace(probe))
                                     Log($"  flare trace wp {probe} {(side < 0 ? "L" : "R")}: run end {endSt}, rock flare behind at {flareE:0.00} m, land {dy:+0.00;-0.00} " +
-                                        $"(dem {StageDemY(behind.x, behind.z) - (pts[probe].y + RoadLift):+0.00;-0.00}, " +
+                                        $"(dem {StageDemY(behind.x, behind.z) - EdgeRoadY(pts, probe, side):+0.00;-0.00}, " +
                                         $"dem only - the field and lattice read the kinds this plan is deciding)");
                                 // Under a face's height the cut there is graded down to
                                 // road level when it is built (+0.54 m of DEM at
@@ -3109,7 +3128,7 @@ namespace PSXRacing.EditorTools
         {
             int s = SideIx(side);
             float half = RoadWidth * 0.5f;
-            float tarmac = pts[i].y + RoadLift;
+            float tarmac = EdgeRoadY(pts, i, side);
             Vector3 outw = rsRight[i] * side;
 
             float Vertex(int gx, int gz)
@@ -3346,7 +3365,7 @@ namespace PSXRacing.EditorTools
                         Vector2 far = ring[ring.Length - 1];
                         float y1 = Mathf.Min(ring[1].y, far.y + (far.x - ring[1].x) * RoadsideRules.TraversableSlope);
                         float y2 = Mathf.Min(ring[2].y, far.y + (far.x - ring[2].x) * RoadsideRules.TraversableSlope);
-                        holds = Mathf.Min(y1, y2) - pts[i].y;
+                        holds = Mathf.Min(y1, y2) - (pts[i].y + BankEdge(i, side));
                         firstE = ring[1].x;
                         if (holds >= h) break;
                         h = holds;
@@ -3407,7 +3426,7 @@ namespace PSXRacing.EditorTools
                             Vector3 bp = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + behindE));
                             behindY = Mathf.Min(StageLatticeY(bp.x, bp.z), StageGroundHeightAt(bp.x, bp.z));
                         }
-                        float behindDy = behindY - (pts[i].y + RoadLift);
+                        float behindDy = behindY - EdgeRoadY(pts, i, side);
                         // And where another leg of a switchback owns the hill
                         // behind the collider (BankTopOwns), the rock top stops
                         // short of it and the ground there is that leg's
@@ -3425,7 +3444,7 @@ namespace PSXRacing.EditorTools
                             for (float te = 3f; te <= 12.01f; te += 1f)
                             {
                                 Vector3 tp = pts[i] + rsRight[i] * (side * (RoadWidth * 0.5f + te));
-                                float ry = pts[i].y + RoadLift;
+                                float ry = EdgeRoadY(pts, i, side);
                                 line.Append($" {te:0}:{StageDemY(tp.x, tp.z) - ry:0.0}/{StageGroundHeightAt(tp.x, tp.z) - ry:0.0}/{StageLatticeY(tp.x, tp.z) - ry:0.0}/{(BankTopOwns(tp, i, side) ? "A" : "B")}");
                             }
                             Log(line.ToString());
@@ -4247,7 +4266,7 @@ namespace PSXRacing.EditorTools
                     int m = prof != null ? prof.Count : 0;
                     if (m < 2) continue;
                     Vector3 at = pts[i], outw = rsRight[i] * side;
-                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + prof[m - 1].y;
+                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + BankEdge(i, side) + prof[m - 1].y;
                     float Land(float e)
                     {
                         Vector3 q = at + outw * (half + e);
@@ -5553,8 +5572,9 @@ namespace PSXRacing.EditorTools
                     // apex (Chimney Rock wp 1052: 5.03 m off the centreline).
                     if (TightInside(pts, i, run.side, out _) && PostInOtherKerbBand(pts, i, baseP)) { crowded++; continue; }
                     float ground = StageLatticeY(baseP.x, baseP.z);
-                    baseP.y = Mathf.Max(Mathf.Min(pts[i].y - 0.45f, ground), pts[i].y - StageWallMaxFoot) - StagePostSink;
-                    float top = pts[i].y + StageWallH + StagePostAboveWall;
+                    float py = pts[i].y + BankEdge(i, run.side);   // the banked edge (PSXRacingBuilder.Bank)
+                    baseP.y = Mathf.Max(Mathf.Min(py - 0.45f, ground), py - StageWallMaxFoot) - StagePostSink;
+                    float top = py + StageWallH + StagePostAboveWall;
                     AppendPost(verts, uvs, tris, baseP, right, StagePostW, top - baseP.y);
                     placed++;
                 }
@@ -5709,6 +5729,8 @@ namespace PSXRacing.EditorTools
         static WallRing CurveWallRing(List<Vector3> pts, in WallRing a, in WallRing b, int gap, float t, float side)
         {
             RibbonFrame(pts, gap, t, out Vector3 c, out Vector3 r);
+            // On this side's banked edge, as the station rings either side are.
+            if (a.station >= 0 && b.station >= 0) c.y += BankEdgeAt(a.station, b.station, t, side);
             var g = new WallRing
             {
                 centre = c, right = r,
@@ -5742,9 +5764,12 @@ namespace PSXRacing.EditorTools
 
         static WallRing StageWallRing(List<Vector3> pts, int i, int s, float side)
         {
+            // The ring stands on this side's banked tarmac edge
+            // (PSXRacingBuilder.Bank): every height below is from it.
+            float cy = pts[i].y + BankEdge(i, side);
             var g = new WallRing
             {
-                centre = pts[i], right = rsRight[i], station = i,
+                centre = new Vector3(pts[i].x, cy, pts[i].z), right = rsRight[i], station = i,
                 faceE = rsWallE[s][i], up = rsWallUp[s][i],
                 sag = WallChordSag(pts, i, side),
             };
@@ -5753,23 +5778,23 @@ namespace PSXRacing.EditorTools
             // a buried terminal the open foreslope the stone is sinking into.
             bool terminal = BuriedTerminal(s, i);
             float faceDy = terminal ? OpenSectionDy(g.faceE) : ShoulderDy(g.faceE);
-            g.groundY = pts[i].y + RoadLift + faceDy;
+            g.groundY = cy + RoadLift + faceDy;
             // On a deck (and the station either end it is carried onto) the
             // stone stands IN the deck; anywhere else its footing goes under
             // the lattice behind it.
-            g.baseY = pts[i].y - 0.45f;
+            g.baseY = cy - 0.45f;
             if (!DeckCoversStation(i))
             {
                 Vector3 behind = pts[i] + g.right * (side * (RoadWidth * 0.5f + g.faceE + StageWallFaceIn
                                                               + StageWallDrawThick + StageWallFootSink));
                 float lattice = StageLatticeY(behind.x, behind.z);
                 float want = Mathf.Min(g.baseY, lattice - StageWallFootSink);
-                g.footInAir = want < pts[i].y - StageWallMaxFoot;
-                g.baseY = Mathf.Max(want, pts[i].y - StageWallMaxFoot);
+                g.footInAir = want < cy - StageWallMaxFoot;
+                g.baseY = Mathf.Max(want, cy - StageWallMaxFoot);
                 // Or where the footing reaches down toward ANOTHER leg of the
                 // road below (a switchback's lower leg within reach of the
                 // solid's back): the same slab, seen from that road.
-                if (!g.footInAir && g.baseY < pts[i].y - StageWallAirFootM - RoadLift)
+                if (!g.footInAir && g.baseY < cy - StageWallAirFootM - RoadLift)
                 {
                     Vector3 backAt = pts[i] + g.right * (side * (RoadWidth * 0.5f + g.faceE + StageWallCollThick));
                     g.footInAir = LowerLegBehind(pts, i, backAt);
@@ -5784,7 +5809,7 @@ namespace PSXRacing.EditorTools
             // drawing.
             float buryDy = terminal
                 ? OpenSectionDy(g.faceE + StageWallFaceIn + StageWallDrawThick) : faceDy;
-            g.topY = Mathf.Lerp(pts[i].y + RoadLift + buryDy - 0.05f, pts[i].y + StageWallH, g.up);
+            g.topY = Mathf.Lerp(cy + RoadLift + buryDy - 0.05f, cy + StageWallH, g.up);
             // No invisible extra where a ROCK FACE stands right behind the
             // stone (a wall/cut hand-over): above the stone a car would meet
             // the collider in front of a drawn face half a metre back (Blue
@@ -6985,7 +7010,8 @@ namespace PSXRacing.EditorTools
             float half = RoadWidth * 0.5f;
             int count = BankTopSampleE.Length;
             var ring = new Vector2[count + 1];
-            float crestY = pts[i].y + hh;
+            // hh is over this side's banked edge (PSXRacingBuilder.Bank).
+            float crestY = pts[i].y + BankEdge(i, side) + hh;
             ring[0] = new Vector2(crestE, crestY);
             float farE = CutToeE + BankTopSampleE[BankTopSampleE.Length - 1];
             float limitE = farE;
@@ -7080,6 +7106,8 @@ namespace PSXRacing.EditorTools
         {
             int n = pts.Count, s = SideIx(side);
             float half = RoadWidth * 0.5f;
+            // Heights are over this side's banked edge (PSXRacingBuilder.Bank).
+            float Y(int q) => pts[q].y + BankEdge(q, side);
 
             // The stations the cut is drawn at: the run; a portal's plane where
             // the run ends into a tunnel (full height to the portal face, its
@@ -7160,14 +7188,14 @@ namespace PSXRacing.EditorTools
                 {
                     float y = StageLatticeY(atToe.x, atToe.z) - RoadsideRules.ToeTuckM;
                     toe[k] = plinthTop[k] = crest[k] = new Vector3(atToe.x, y, atToe.z);
-                    ring = BankTopRing(pts, i, side, y - pts[i].y, CutToeE, 0f, false, false);
+                    ring = BankTopRing(pts, i, side, y - Y(i), CutToeE, 0f, false, false);
                 }
                 else if (graded[k])
                 {
                     float rise = Mathf.Max(0f, h - RoadLift);
                     float crestE = CutToeE + rise / RoadsideRules.BackSlope;
                     crest[k] = pts[i] + outw * (half + crestE);
-                    crest[k].y = pts[i].y + RoadLift + rise;
+                    crest[k].y = Y(i) + RoadLift + rise;
                     toe[k] = plinthTop[k] = crest[k];
                     // A graded top climbs on at the backslope it was graded
                     // to. At the rock's batter (2:1) it stood up behind the
@@ -7181,10 +7209,10 @@ namespace PSXRacing.EditorTools
                 {
                     float plinth = Mathf.Min(h, BankPlinth);
                     float crestE = CutToeE + (h - plinth) * BankBatter;
-                    toe[k] = atToe; toe[k].y = pts[i].y - 0.5f;
-                    plinthTop[k] = atToe; plinthTop[k].y = pts[i].y + plinth;
+                    toe[k] = atToe; toe[k].y = Y(i) - 0.5f;
+                    plinthTop[k] = atToe; plinthTop[k].y = Y(i) + plinth;
                     crest[k] = pts[i] + outw * (half + crestE);
-                    crest[k].y = pts[i].y + h;
+                    crest[k].y = Y(i) + h;
                     ring = BankTopRing(pts, i, side, h, crestE, rel[k], held[k], faced: true);
                 }
 
@@ -7296,16 +7324,16 @@ namespace PSXRacing.EditorTools
                     float bottom = float.MaxValue, ch = hh[r];
                     if (r > k0)
                     {
-                        bottom = Mathf.Min(bottom, (pts[st[r - 1]].y + pts[i].y) * 0.5f);
+                        bottom = Mathf.Min(bottom, (Y(st[r - 1]) + Y(i)) * 0.5f);
                         ch = Mathf.Min(ch, hh[r - 1]);
                     }
                     if (r < k1)
                     {
-                        bottom = Mathf.Min(bottom, (pts[st[r + 1]].y + pts[i].y) * 0.5f);
+                        bottom = Mathf.Min(bottom, (Y(st[r + 1]) + Y(i)) * 0.5f);
                         ch = Mathf.Min(ch, hh[r + 1]);
                     }
                     faceBottom.Add(new Vector3(face.x, bottom - 0.6f, face.z));
-                    faceTop.Add(new Vector3(face.x, pts[i].y + ch, face.z));
+                    faceTop.Add(new Vector3(face.x, Y(i) + ch, face.z));
                     outward.Add(rsRight[i] * side);
                 }
                 BuildWallSolid("BankColl", parent, faceBottom, faceTop, outward, StageWallCollThick,
@@ -7506,12 +7534,14 @@ namespace PSXRacing.EditorTools
                 Vector3 right = RightAt(pts, i);
                 Vector3 c = pts[i];
                 float y0 = c.y - 0.45f, y1 = c.y + TunnelH;
+                // Each wall's foot under its own side's banked edge (PSXRacingBuilder.Bank).
+                float y0L = y0 + Mathf.Min(0f, BankEdge(i, -1f)), y0R = y0 + Mathf.Min(0f, BankEdge(i, 1f));
                 Vector3 l = c - right * halfW, r = c + right * halfW;
                 float u = dist / TunnelTexM;
-                ring[k, 0] = verts.Count; verts.Add(new Vector3(l.x, y0, l.z)); uvs.Add(new Vector2(u, 0f));
+                ring[k, 0] = verts.Count; verts.Add(new Vector3(l.x, y0L, l.z)); uvs.Add(new Vector2(u, 0f));
                 ring[k, 1] = verts.Count; verts.Add(new Vector3(l.x, y1, l.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM));
                 ring[k, 2] = verts.Count; verts.Add(new Vector3(r.x, y1, r.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM + halfW * 2f / TunnelTexM));
-                ring[k, 3] = verts.Count; verts.Add(new Vector3(r.x, y0, r.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM * 2f + halfW * 2f / TunnelTexM));
+                ring[k, 3] = verts.Count; verts.Add(new Vector3(r.x, y0R, r.z)); uvs.Add(new Vector2(u, TunnelH / TunnelTexM * 2f + halfW * 2f / TunnelTexM));
                 dist += Spacing;
 
                 if (k > 0)
@@ -7574,7 +7604,7 @@ namespace PSXRacing.EditorTools
                     float t = Mathf.Min(0.5f, StageWallCollThick / Mathf.Max(chord.magnitude, 1e-3f));
                     Vector3 c = Vector3.Lerp(pts[ip], pts[inb], t);
                     Vector3 right = Vector3.Lerp(RightAt(pts, ip), RightAt(pts, inb), t).normalized;
-                    Ring(c, right, halfW - 0.05f, (pts[ip].y + pts[inb].y) * 0.5f, c.y + TunnelH);
+                    Ring(c, right, halfW - 0.05f, (pts[ip].y + pts[inb].y) * 0.5f + Mathf.Min(0f, Mathf.Min(BankEdge(ip, side), BankEdge(inb, side))), c.y + TunnelH);
                 }
                 for (int k = 0; k < stations; k++)
                 {
@@ -7584,6 +7614,7 @@ namespace PSXRacing.EditorTools
                     float bottom = float.MaxValue;
                     if (k > 0) bottom = Mathf.Min(bottom, (pts[WrapIdx(from + k - 1, n)].y + pts[i].y) * 0.5f);
                     if (k < stations - 1) bottom = Mathf.Min(bottom, (pts[WrapIdx(from + k + 1, n)].y + pts[i].y) * 0.5f);
+                    bottom += Mathf.Min(0f, Mathf.Min(BankEdge(i, side), Mathf.Min(BankEdge(WrapIdx(i - 1, n), side), BankEdge(WrapIdx(i + 1, n), side))));
                     Ring(pts[i], RightAt(pts, i), portal ? halfW : halfW - 0.05f, bottom, pts[i].y + TunnelH);
                     if (k == 0) PortalDepthRing(0, 1);
                 }
@@ -7990,7 +8021,7 @@ namespace PSXRacing.EditorTools
             ResetPlantFit();
             PlantShape.ClearCache();
             // the decks, piers, walls and rock faces built so far, for the planting rule
-            PlantSolidAudit.BeginForBuilder(pts, RoadWidth);
+            PlantSolidAudit.BeginForBuilder(pts, RoadWidth, BankSlopes(-1f), BankSlopes(1f));
             try {
             var mfTilt = new Dictionary<int, Vector2>();
 
