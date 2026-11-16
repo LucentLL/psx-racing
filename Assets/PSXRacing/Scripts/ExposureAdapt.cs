@@ -66,6 +66,12 @@ namespace PSXRacing
         static readonly RaycastHit[] hits = new RaycastHit[16];
         static int pathHint = -1;
 
+        /// <summary>NEW GAME's tunnel (NewGameIntro): an eye held where it is (negative = none) - the bore's black
+        /// before the headlights - and the bore the intro's car is in (it knows it from the bake's points; the
+        /// reverse twin's path metres do not match the catalogue's tunnel table).</summary>
+        public static float Scripted = -1f;
+        public static bool ForceTunnel;
+
         /// <summary>A scene has loaded: the eye starts adapted to the open sky.</summary>
         public static void Reset()
         {
@@ -163,10 +169,10 @@ namespace PSXRacing
                           : ChaseCamera.Active != null ? ChaseCamera.Active.target : null;
             Vector3 toSun = g.sun != null ? -g.sun.transform.forward : Vector3.up;
             float open = OpennessAt(cam.transform.position, car, toSun);
-            Tunnel = rm != null && InVenueTunnel(car, rm.path, RaceHUD.VenueDef());
+            Tunnel = (rm != null && InVenueTunnel(car, rm.path, RaceHUD.VenueDef())) || ForceTunnel;
             if (Tunnel) open = 0f;
             Openness = open;
-            Target = TargetFor(open, 1f - g.night, g.dayFill);
+            Target = Scripted >= 0f ? Scripted : TargetFor(open, 1f - g.night, g.dayFill);
             Current = Step(Current, Target, dt);
             return Current;
         }
