@@ -69,6 +69,8 @@ namespace PSXRacing
         float focusDist = 30f, focusVel;
         float glitch;
         float seed;
+        /// <summary>The hand's own clock: runs with the tape (stops on a pause).</summary>
+        float handClock;
 
         public IReadOnlyList<Spot> Spots => spots;
         public bool Chasing => chasing;
@@ -243,8 +245,11 @@ namespace PSXRacing
             var replay = RaceReplay.Instance;
             var car = replay != null ? replay.Focus : null;
             if (car == null || path == null || cam == null) return;
-            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            // The tape's clock, not the wall's: a paused tape holds the frame
+            // still, a scanned one runs the hand as fast as the cars.
+            float dt = Mathf.Min(Time.unscaledDeltaTime * Mathf.Abs(replay.Rate), 0.1f);
             if (replay.Paused) dt = 0f;
+            handClock += dt;
             if (seed == 0f) seed = Random.Range(1f, 100f);
 
             carIdx = path.NearestIndex(car.transform.position, carIdx);
@@ -263,7 +268,7 @@ namespace PSXRacing
                 if (!replay.PoseAt(replay.FocusIndex, replay.ReplayTime - lag, out var bp, out var br))
                 { bp = car.transform.position - car.transform.forward * 15f; br = car.transform.rotation; }
                 eye = bp + br * new Vector3(0.38f, 1.22f, 0f);
-                float rough = Mathf.PerlinNoise(Time.time * 9f, seed) - 0.5f;
+                float rough = Mathf.PerlinNoise(handClock * 9f, seed) - 0.5f;
                 eye += Vector3.up * rough * 0.03f;
                 wantFov = 38f;
                 tremor = 1.6f;
@@ -271,7 +276,7 @@ namespace PSXRacing
             else
             {
                 var sp = spots[cur];
-                float t = Time.time + seed;
+                float t = handClock + seed;
                 // Breathing sway of the whole body, a few centimetres.
                 eye = sp.pos + new Vector3(Mathf.Sin(t * 0.9f), Mathf.Sin(t * 1.3f + 1f) * 0.6f, Mathf.Cos(t * 0.7f)) * 0.025f;
                 float dist = Vector3.Distance(eye, target);
@@ -310,7 +315,7 @@ namespace PSXRacing
             fov = Mathf.Exp(lf);
 
             // ---- the hand: tremor and drift, bigger on a long lens ----
-            float tt = Time.time;
+            float tt = handClock;
             float n1 = Mathf.PerlinNoise(tt * 2.1f, seed) - 0.5f, n2 = Mathf.PerlinNoise(seed, tt * 2.6f) - 0.5f;
             float n3 = Mathf.PerlinNoise(tt * 7.5f, seed + 5f) - 0.5f, n4 = Mathf.PerlinNoise(seed + 9f, tt * 0.35f) - 0.5f;
             float shakeYaw = (n1 * 0.9f + n3 * 0.25f + n4 * 1.2f) * tremor;
@@ -350,7 +355,7 @@ namespace PSXRacing
             bool needNew = cur < 0 && !chasing;
             if (chasing)
             {
-                if (Time.time < chaseUntil) return;
+                if (handClock < chaseUntil) return;
                 chasing = false;
                 needNew = true;
             }
@@ -377,7 +382,7 @@ namespace PSXRacing
             if (spots.Count == 0 || farAhead || (shots % ChaseEvery == 0 && replay.FocusFrame.speedKmh > 30f))
             {
                 chasing = true;
-                chaseUntil = Time.time + ChaseSeconds;
+                chaseUntil = handClock + ChaseSeconds;
                 cur = Mathf.Max(0, best);
             }
             else cur = best;
