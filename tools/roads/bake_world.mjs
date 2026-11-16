@@ -143,7 +143,7 @@ function clipLength(pts, maxM) {
 
 // ---------------------------------------------------------------- lidar
 const store = open3dep({ offline: args.includes('--offline') });
-const L0 = dem1m(store, 0), L1 = dem1m(store, 1);
+const L0 = dem1m(store, 0), L1 = dem1m(store, 1), L2 = dem1m(store, 2);
 const ll = p => proj.toLL(p.x, p.z);
 async function heights(dem, pts) { const q = pts.map(ll); await dem.prepare(q); return q.map(p => dem.sample(p.lat, p.lon)); }
 const zone = s => s < 5000 ? 'lake' : s < 6300 ? 'downtown' : s < 6850 ? 'inlet' : s < 8100 ? 'village' : s < 10950 ? 'gorge' : 'batcave';
@@ -392,6 +392,71 @@ let parkRoad = null, parkLead = null, parkDeckFrom = 0;
   console.log(`park road: ${pts.length} waypoints (${upto.toFixed(0)} m) from the ChimneyRock bake; its waypoint 0 stands ${f0.d.toFixed(1)} m off this road at ${stationM(f0).toFixed(0)} m, its end ${fE.d.toFixed(0)} m off`);
 }
 
+// ------------------------------------------------- round 2: open ground, piers
+// Open ground the forest must not fill (owner's video, 8:15: the inn stood across an open lawn): parks, pitches,
+// playgrounds, the beach, the marina and slipway, grass, retail and commercial land; and the marina's piers.
+// Overpass attic 2024-09-20 in four small boxes (attic_lakelure_open_2024-09-20.json).
+const OPEN = [], PIERS = [];
+{
+  const p = join(CACHE, 'attic_lakelure_open_2024-09-20.json');
+  for (const e of existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')).elements : []) {
+    if (e.type !== 'way' || !e.geometry) continue;
+    const t = e.tags || {}; const pts = e.geometry.map(XZ);
+    const closed = Math.hypot(pts[0].x - pts.at(-1).x, pts[0].z - pts.at(-1).z) < 0.5;
+    if (t.man_made === 'pier') { PIERS.push({ xz: flat(closed ? pts.slice(0, -1) : pts), area: closed ? 1 : 0 }); continue; }
+    if (!closed || pts.length < 4) continue;
+    OPEN.push({ kind: t.leisure || t.natural || t.landuse || '', xz: flat(pts.slice(0, -1)) });
+  }
+  console.log(`open ground: ${OPEN.length} areas (${[...new Set(OPEN.map(o => o.kind))].join(', ')}), piers: ${PIERS.length}`);
+}
+
+// ------------------------------------------------- round 2: the granite
+// Bare rock where the 2018 lidar shows it: Chimney Rock's cliffs, Rumbling Bald, the gorge walls. A 6 m grid of the
+// 1 m lidar at 4 m (its 2x2 overview) within 2.2 km of the road; a cell is CLIFF where the ground stands steeper than
+// 52 degrees AND the land within 21 m spans more than 18 m (a cliff, not a steep bank). Written as 12 m cells: centre,
+// ground, the downhill direction, steepness. Never on a gentle forested slope: the rule is the rock's own steepness.
+const CLIFFS = [];
+{
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of W) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+  const M = 2200, G = 6;
+  x0 -= M; x1 += M; z0 -= M; z1 += M;
+  const nx = Math.floor((x1 - x0) / G) + 1, nz = Math.floor((z1 - z0) / G) + 1;
+  // only the cells within 2.2 km of the road
+  const coarse = W.filter((_, i) => i % 10 === 0); const nearRoad = (x, z) => coarse.some(q => (q.x - x) * (q.x - x) + (q.z - z) * (q.z - z) < M * M);
+  const keep = new Uint8Array(nx * nz);
+  const pts = [];
+  for (let j = 0; j < nz; j += 4) for (let i = 0; i < nx; i += 4) { const x = x0 + i * G, z = z0 + j * G; if (nearRoad(x, z)) for (let b = 0; b < 4 && j + b < nz; b++) for (let a = 0; a < 4 && i + a < nx; a++) keep[(j + b) * nx + i + a] = 1; }
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) if (keep[j * nx + i]) pts.push(proj.toLL(x0 + i * G, z0 + j * G));
+  await L2.prepare(pts);
+  const H = new Float32Array(nx * nz).fill(NaN);
+  for (let j = 0, k = 0; j < nz; j++) for (let i = 0; i < nx; i++) if (keep[j * nx + i]) { const q = proj.toLL(x0 + i * G, z0 + j * G); H[j * nx + i] = L2.sample(q.lat, q.lon); }
+  const h = (i, j) => (i < 0 || j < 0 || i >= nx || j >= nz) ? NaN : H[j * nx + i];
+  const TAN = Math.tan(52 * Math.PI / 180);
+  const steep = new Uint8Array(nx * nz), gx = new Float32Array(nx * nz), gz = new Float32Array(nx * nz);
+  let nSteep = 0;
+  for (let j = 1; j < nz - 1; j++) for (let i = 1; i < nx - 1; i++) {
+    const dx = (h(i + 1, j) - h(i - 1, j)) / (2 * G), dz = (h(i, j + 1) - h(i, j - 1)) / (2 * G);
+    if (!Number.isFinite(dx) || !Number.isFinite(dz)) continue;
+    const g = Math.hypot(dx, dz); gx[j * nx + i] = dx; gz[j * nx + i] = dz;
+    if (g < TAN) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) { const v = h(i + a, j + b); if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+    if (hi - lo > 18) { steep[j * nx + i] = 1; nSteep++; }
+  }
+  // 12 m cells (2x2 samples) with at least two steep samples
+  for (let j = 1; j + 1 < nz; j += 2) for (let i = 1; i + 1 < nx; i += 2) {
+    let n = 0, sx = 0, sz = 0, y = Infinity, g = 0;
+    for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const k = (j + b) * nx + i + a; if (steep[k]) { n++; sx += gx[k]; sz += gz[k]; g += Math.hypot(gx[k], gz[k]); } if (Number.isFinite(H[k])) y = Math.min(y, H[k]); }
+    if (n < 2) continue;
+    const L = Math.hypot(sx, sz) || 1, x = x0 + (i + 0.5) * G, z = z0 + (j + 0.5) * G;
+    // the road's own cut is the stage builder's: nothing within 25 m of the centreline
+    if (foot(x, z, 40).d < 25) continue;
+    CLIFFS.push(r1(x), r1(z), r2(y - baseM), r2(-sx / L), r2(-sz / L), r2(g / n));
+  }
+  console.log(`granite: ${nSteep} steep 6 m samples, ${CLIFFS.length / 6} cliff cells of 12 m within ${M} m of the road`);
+}
+
 // ---------------------------------------------------------- speed zones
 const speeds = [];
 {
@@ -423,6 +488,9 @@ const out = {
   paths: paths.map(p => ({ xz: flat(p.pts), y: p.h.map(v => r2((Number.isFinite(v) ? v : baseM) - baseM)), deck: p.deck, kind: p.kind, st: r1(stationM(p.f)) })),
   crossings,
   speeds,
+  open: OPEN,
+  piers: PIERS,
+  cliffs: CLIFFS,
   parkRoad,
 };
 let text, outPath;
@@ -447,6 +515,9 @@ else if (FRAME === 'chimney') {
     buildings: out.buildings.filter(b => near(b.xz, 450)).map(b => ({ ...b, xz: xzTo(b.xz), g0: r2(b.g0 + dy), g1: r2(b.g1 + dy) })),
     roads: [], lots: out.lots.filter(l => near(l.xz, 450)).map(l => ({ ...l, xz: xzTo(l.xz), y: r2(l.y + dy) })),
     paths: [], crossings: [], speeds: [],
+    open: OPEN.filter(o => near(o.xz, 900)).map(o => ({ ...o, xz: xzTo(o.xz) })),
+    piers: [],
+    cliffs: (() => { const o = []; for (let k = 0; k + 5 < CLIFFS.length; k += 6) { const q = proj.toLL(CLIFFS[k], CLIFFS[k + 1]), p2 = cp.toXZ(q.lat, q.lon); o.push(r1(p2.x), r1(p2.z), r2(CLIFFS[k + 2] + dy), CLIFFS[k + 3], CLIFFS[k + 4], CLIFFS[k + 5]); } return o; })(),
     streets: [{ st: 0, side: 0, cls: 'primary', w: 7.0, lenM: (i1 - i0) * SP, xz: xzTo(sx), y: yTo(sy) }],
     parkRoad: { ...parkRoad, xz: xzTo(parkRoad.xz.slice(0, 2)), y: yTo(parkRoad.y.slice(0, 1)), leadXZ: xzTo(parkRoad.leadXZ), leadY: yTo(parkRoad.leadY) },
   };
