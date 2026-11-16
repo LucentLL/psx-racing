@@ -188,6 +188,7 @@ namespace PSXRacing
             // Stages keep their photographs; PSX_TRACKMAP_CITY=0 is the
             // per-venue picture again.
             bool cityMap = def.IsCityRace && CityMapTiles.Enabled;
+            if (cityMap) CityMapTiles.BeginCard();
             // Everything that zooms (the map, the grid and the route) sits in
             // one square stretched over the ground; the north and the scale
             // stay put over it.
