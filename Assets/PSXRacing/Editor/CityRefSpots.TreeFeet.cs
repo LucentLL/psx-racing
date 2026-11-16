@@ -217,6 +217,12 @@ namespace PSXRacing.EditorTools
                 foreach (var lv in (System.Environment.GetEnvironmentVariable("PSX_FEET_LEVELS") ?? "1,2").Split(','))
                     if (int.TryParse(lv.Trim(), out int lvi) && lvi >= 0 && lvi <= 2) levels.Add(lvi);
                 bool costAB = System.Environment.GetEnvironmentVariable("PSX_FEET_COSTAB") == "1";
+                // THE MOTION PAIR (PSX_FEET_MOTION=m): each step also shot from m metres further on with the
+                // game's own levels (c): a v c is one frame of driving (0.4 m = 86 km/h at 60 FPS), so the
+                // screen-door dither's crawl over a moving crown shows next to the parallax both runs share
+                float motionM = 0f;
+                float.TryParse(System.Environment.GetEnvironmentVariable("PSX_FEET_MOTION") ?? "", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out motionM);
+                if (motionM > 0f) log.Append($"motion pair: c = {motionM:0.00} m on, the game's levels\n");
                 bool walk = System.Environment.GetEnvironmentVariable("PSX_FEET_WALK") != "0";
                 foreach (var pid in (System.Environment.GetEnvironmentVariable("PSX_FEET_PLACES") ?? "arterial,wtrade").Split(','))
                 {
@@ -259,6 +265,16 @@ namespace PSXRacing.EditorTools
                             PSXScreenshotTool.ShotAs(cam, $"ctreefeet/{tag}/{pid}_{L}_{d:000}_b", pos, rot);
                             MeshForest.LodEyeOn = false;
                             shots += 2;
+                            if (motionM > 0f)
+                            {
+                                var qc = q + f * motionM;
+                                var posc = new Vector3(qc.x, FeetGroundAt(qc, eye.y - 1.15f) + 1.15f, qc.z);
+                                cam.transform.SetPositionAndRotation(posc, rot);
+                                SunShadows.RenderFor(cam);
+                                mt.Forest.DrawNow(cam);
+                                PSXScreenshotTool.ShotAs(cam, $"ctreefeet/{tag}/{pid}_{L}_{d:000}_c", posc, rot);
+                                shots++;
+                            }
                         }
                     }
                     ForestDetailPrefs.Override = -1; mt.Rebuild();
