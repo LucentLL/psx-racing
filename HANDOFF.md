@@ -64,6 +64,13 @@ light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFAD
   At 0.35 West Trade does not rise (28 -> 29), but the Providence cut is only -8 / -19 / -57%. My default stays 0.6:
   the owner's complaint is the pop, and Providence still carries 14x West Trade's pop afterwards. If the dotted
   edges bother him, 0.35 is the fallback.
+- IN MOTION, the dither does not crawl visibly (tags mfoff / mfon, RunTreeFeet with PSX_FEET_MOTION=0.4, fresh process
+  each). The same walk adds a third shot per step 0.4 m further on with the game's own levels, which is one frame at
+  86 km/h and 60 FPS. Over the upper 60% of the frame, one frame of driving changes Providence by -1.3 / -0.6 / -0.1%
+  pixels and +0.3 / -0.1 / +0.1% blocks with the fade v the fixed bands (LOW / MEDIUM / HIGH), and West Trade within
+  0.1%. Moving leaves already change those pixels from frame to frame, so the screen-door pattern sliding over a
+  crown mid-dissolve adds nothing measurable. (Both runs' a/b pop counts equal lfoff / lfon to the pixel: the
+  renders are deterministic.) TreePop_motion.csv.
 - Frame cost: none measurable. The ABBA medians move -1.1 / -0.9 / +2.3 ms, inside the spread between builds of the
   same mode (MEDIUM 25-31 ms; HIGH had one 100+ ms hiccup in each mode). Draws are unchanged (209 / 211 / 213).
   Triangles rise +16 / +11 / +12%: inside a band a plant draws both levels, and the lower levels are cheap. The
@@ -71,7 +78,8 @@ light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFAD
 - Files: TreePop_sheet.png (summary, charts for both places at all three levels, red-overlay frames for Providence
   MEDIUM and HIGH at 280/200/130/60 m, before | after), TreePop_look.png, TreePop_approach_MEDIUM.gif / _HIGH.gif,
   TreePop_pop.csv, TreePop35_sheet.png / TreePop35_pop.csv (before v 0.35), ctreefeet_lfoff_log.txt,
-  ctreefeet_lfon_log.txt, ctreefeet_lf35_log.txt. Copies are in the art workspace's
+  ctreefeet_lfon_log.txt, ctreefeet_lf35_log.txt, ctreefeet_mfoff_log.txt, ctreefeet_mfon_log.txt,
+  TreePop_motion.csv. Copies are in the art workspace's
   Charlotte_Trees\Review\Claude_2026-11-16\TreePop_*.
 - My runs were batch approach captures (edit mode), not watched play tests.
 
