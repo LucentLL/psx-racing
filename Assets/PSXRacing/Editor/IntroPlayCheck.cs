@@ -41,6 +41,8 @@ namespace PSXRacing.EditorTools
             VideoDir = Path.Combine(OutDir, "video");
             Directory.CreateDirectory(OutDir);
             Directory.CreateDirectory(VideoDir);
+            // the intro stands down for batch tools; this one asks for it (PSX_INTRO=0 still turns it off)
+            NewGameIntro.ForTools = Environment.GetEnvironmentVariable("PSX_INTRO") != "0";
             foreach (var f in Directory.GetFiles(OutDir, "*.png")) File.Delete(f);
             foreach (var f in Directory.GetFiles(VideoDir, "*.jpg")) File.Delete(f);
             Line("edition " + Edition.Name(Edition.Current) + ", intro " + (NewGameIntro.On ? "ON" : "OFF (PSX_INTRO=0)") +
@@ -104,6 +106,7 @@ namespace PSXRacing.EditorTools
             if (finished) return;
             finished = true;
             NewGameIntro.AutoDrive = false;
+            NewGameIntro.ForTools = false;
             TitleScreen.Skip = false;
             IntroPlayCheck.Finish();
             LifeSimManager.UseCareerSave();

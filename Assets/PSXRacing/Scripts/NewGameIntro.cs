@@ -41,14 +41,21 @@ namespace PSXRacing
     {
         // =================== switches ===================
 
-        /// <summary>The intro is on unless PSX_INTRO=0 (PSX_INTRO=1 forces it on whatever the default).</summary>
+        /// <summary>The intro is on unless PSX_INTRO=0 (PSX_INTRO=1 forces it on whatever the default). Like
+        /// the title screen it stands down for the tools - a batch job, the door and perf tours, a shot link -
+        /// so the checks that walk NEW GAME (FirstDrivePlayCheck, the menu previews) see what they always did;
+        /// IntroPlayCheck asks for it (<see cref="ForTools"/>).</summary>
         public const bool DefaultOn = true;
+        public static bool ForTools;
         public static bool On
         {
             get
             {
                 string e = System.Environment.GetEnvironmentVariable("PSX_INTRO");
-                return e == "0" ? false : e == "1" ? true : DefaultOn;
+                if (e == "0") return false;
+                if (e == "1" || ForTools) return true;
+                if (Application.isBatchMode || DoorTour.Active || PerfTour.Active || ShotLink.Active) return false;
+                return DefaultOn;
             }
         }
 
@@ -587,6 +594,7 @@ namespace PSXRacing
                         carrier.SkipButtonHeld;
             skipHeld = held ? skipHeld + Time.unscaledDeltaTime : 0f;
             carrier.ShowSkip(Mathf.Clamp01(skipHeld / SkipHoldS), true);
+            carrier.RefreshSkipLabel();
             if (skipHeld >= SkipHoldS) BeginOutro("skipped");
         }
 
@@ -701,9 +709,9 @@ namespace PSXRacing
                 var capRoot = MenuKit.Stretch(Canvas.transform, "Caption", Vector2.zero, Vector2.one, 0f, 0f, 0f, 0f);
                 caption = capRoot.gameObject.AddComponent<CanvasGroup>();
                 caption.alpha = 0f; caption.blocksRaycasts = false; caption.interactable = false;
-                MenuKit.Label(capRoot, "BLUE RIDGE PARKWAY", MenuKit.Head, new Vector2(0.5f, 1f), new Vector2(0f, -30f),
+                MenuKit.Label(capRoot, "BLUE RIDGE PARKWAY", MenuKit.Head, new Vector2(0.5f, 1f), new Vector2(0f, -84f),
                     TextAnchor.MiddleCenter, MenuKit.Accent, 900f, 44f, bold: true);
-                captionLine2 = MenuKit.Label(capRoot, "", MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(0f, -70f),
+                captionLine2 = MenuKit.Label(capRoot, "", MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(0f, -122f),
                     TextAnchor.MiddleCenter, MenuKit.Dim, 900f, 32f);
 
                 black = MenuKit.Panel(Canvas.transform, "Black", Color.black).GetComponent<Image>();
@@ -712,13 +720,13 @@ namespace PSXRacing
 
                 // SKIP, top left: the lap line's corner, which the intro leaves empty (the touch map hangs below it)
                 var sk = MenuKit.Rect(Canvas.transform, "Skip", new Vector2(0f, 1f), new Vector2(0f, 1f),
-                    new Vector2(20f, -14f), new Vector2(300f, 42f), new Color(0f, 0f, 0f, 0.45f));
+                    new Vector2(20f, -14f), new Vector2(SkipW, 42f), new Color(0f, 0f, 0f, 0.45f));
                 skip = sk.gameObject.AddComponent<CanvasGroup>();
                 skip.alpha = 0f; skip.blocksRaycasts = false;
                 skipButton = sk.gameObject.AddComponent<HoldButton>();
                 skipLabel = MenuKit.Label(sk, "HOLD ESC TO SKIP", MenuKit.Tiny, new Vector2(0f, 0.5f), new Vector2(14f, 2f),
-                    TextAnchor.MiddleLeft, MenuKit.Dim, 280f, 32f);
-                var fill = MenuKit.Rect(sk, "Fill", new Vector2(0f, 0f), new Vector2(0f, 0f), Vector2.zero, new Vector2(300f, 4f), MenuKit.Accent);
+                    TextAnchor.MiddleLeft, MenuKit.Dim, SkipW - 24f, 32f);
+                var fill = MenuKit.Rect(sk, "Fill", new Vector2(0f, 0f), new Vector2(0f, 0f), Vector2.zero, new Vector2(SkipW, 4f), MenuKit.Accent);
                 skipFill = fill.GetComponent<Image>();
                 skipFill.raycastTarget = false;
                 fill.localScale = new Vector3(0f, 1f, 1f);
@@ -738,10 +746,22 @@ namespace PSXRacing
                 string d = date.ToString("dddd d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture).ToUpperInvariant();
                 if (captionLine2 != null) captionLine2.text = "LITTLE SWITZERLAND  ·  " + d;
                 if (cardLine2 != null) cardLine2.text = "NORTH CAROLINA  ·  " + d;
-                if (skipLabel != null)
-                    skipLabel.text = TouchControls.Showing ? "HOLD HERE TO SKIP"
-                                   : Gamepad.current != null ? "HOLD START OR ESC TO SKIP" : "HOLD ESC TO SKIP";
+                RefreshSkipLabel();
             }
+
+            /// <summary>The skip prompt's words for the controls in play (the touch controls decide in their
+            /// own Start, a pad can be plugged in): set only when they change.</summary>
+            public void RefreshSkipLabel()
+            {
+                if (skipLabel == null) return;
+                string want = TouchControls.Showing ? "HOLD HERE TO SKIP"
+                            : Gamepad.current != null ? "HOLD START OR ESC TO SKIP" : "HOLD ESC TO SKIP";
+                if (skipLabel.text != want) skipLabel.text = want;
+            }
+
+            /// <summary>The skip panel's width: room for the longest prompt at the menu's smallest type, and
+            /// clear of the caption (which hangs below it) on a 4:3 screen.</summary>
+            const float SkipW = 340f;
 
             void SetBlack(float a)
             {
@@ -772,7 +792,30 @@ namespace PSXRacing
             public void LoadBehindBlack(int scene)
             {
                 SetBlack(1f);
+                stageLoadedAt = -1f;
+                SceneManager.sceneLoaded -= OnStageLoaded;
+                SceneManager.sceneLoaded += OnStageLoaded;
                 StartCoroutine(LoadSoon(scene));
+            }
+
+            float stageLoadedAt = -1f;
+            void OnStageLoaded(Scene s, LoadSceneMode m)
+            {
+                SceneManager.sceneLoaded -= OnStageLoaded;
+                stageLoadedAt = Time.unscaledTime;
+            }
+
+            /// <summary>Nothing took the stage (no RaceManager called Attach): never leave the player in the
+            /// black - home, as DRIVE THIS ONE went before.</summary>
+            void Watchdog()
+            {
+                if (!Pending || stageLoadedAt < 0f || Time.unscaledTime - stageLoadedAt < 10f) return;
+                Debug.LogWarning("[NewGameIntro] the stage never took the intro - home");
+                Pending = false;
+                stageLoadedAt = -1f;
+                RaceHandoff.ClearAll();
+                DisposeOnNextScene();
+                SceneManager.LoadScene(0);
             }
 
             IEnumerator LoadSoon(int scene)
@@ -799,6 +842,7 @@ namespace PSXRacing
             public void Dispose()
             {
                 SceneManager.sceneLoaded -= OnLoaded;
+                SceneManager.sceneLoaded -= OnStageLoaded;
                 if (inst == this) inst = null;
                 Destroy(gameObject);
             }
@@ -870,6 +914,7 @@ namespace PSXRacing
 
             void Update()
             {
+                Watchdog();
                 if (draught == null && drips == null) return;
                 if (ambienceFadeTo < ambienceGain)
                     ambienceGain = Mathf.MoveTowards(ambienceGain, ambienceFadeTo, ambienceFadeRate * Time.unscaledDeltaTime);
