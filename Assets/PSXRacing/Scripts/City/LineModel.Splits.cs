@@ -41,6 +41,9 @@ namespace PSXRacing.City
         }
         public static bool BayEndOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BAYEND") != "0";
         public static bool NoseRuleOn = System.Environment.GetEnvironmentVariable("PSX_CITY_NOSE") != "0";
+        /// <summary>PSX_CITY_REFUGECHORD=1: a refuge island's axis on the 30 m chord too, the undivided
+        /// road's last metres eased onto it (unproven: the medians gate rejects it, see BuildRefugePair).</summary>
+        public static bool RefugeChordOn = System.Environment.GetEnvironmentVariable("PSX_CITY_REFUGECHORD") == "1";
         /// <summary>The export the Beatties Ford node list is for.</summary>
         public const uint SplitsGraph = 0xb2aa3453u;
         /// <summary>Beatties Ford Road's split-type nodes (graph b2aa3453): the

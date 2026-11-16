@@ -214,7 +214,7 @@ namespace PSXRacing.EditorTools
                     var lf = LineModel.SectionLeft(e, s); var pe = e.PointAt(s);
                     float qa = Vector2.Dot(pe + lf * eP - P0, leftU), qb = Vector2.Dot(pe - lf * eM - P0, leftU);
                     su.Add(uu); sq.Add(qq);
-                    sOut.Add(Mathf.Abs(qa) > Mathf.Abs(qb) ? qa : qb); sIn.Add(Mathf.Abs(qa) > Mathf.Abs(qb) ? qb : qa);
+                    sOut.Add(qa); sIn.Add(qb);   // (both edges; the outer one is chosen by side below)
                 }
                 first = false; from = to;
             }
@@ -225,7 +225,12 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < su.Count; i++) if (su[i] >= m.uMax - 10f) { qF += sq[i]; nF++; }
             m.qF = qF / Mathf.Max(1, nF);
             m.W = m.qF - m.q0;
-            float sideOut = Mathf.Abs(m.qF) > 0.05f ? Mathf.Sign(m.qF) : Mathf.Sign(m.q0);
+            // the carriageway's side of the axis: its lanes' centre over its first 5-30 m (the far end can
+            // lie on the other side where the road curves away from the straight frame)
+            float qNear = 0f; int nNear = 0;
+            for (int i = 0; i < su.Count; i++) if (su[i] >= m.uStart + 5f && su[i] <= m.uStart + 30f) { qNear += sq[i]; nNear++; }
+            qNear = nNear > 0 ? qNear / nNear : m.q0;
+            float sideOut = Mathf.Abs(qNear) > 0.05f ? Mathf.Sign(qNear) : (Mathf.Abs(m.q0) > 0.05f ? Mathf.Sign(m.q0) : 1f);
             // the 95 % window
             float aW = Mathf.Abs(m.W), uA = float.NaN, uB = float.NaN;
             if (aW >= 0.1f)
@@ -256,6 +261,8 @@ namespace PSXRacing.EditorTools
             }
             m.mono = rev == 0;
             m.peak = peak; m.rEq = peak > 1e-5f ? 1.5f / peak : 9999f; m.over = over;
+            // the outer edge: the one further out on the carriageway's own side
+            for (int i = 0; i < sOut.Count; i++) { float qa = sOut[i], qb = sIn[i]; bool aOut = sideOut * qa >= sideOut * qb; sOut[i] = aOut ? qa : qb; sIn[i] = aOut ? qb : qa; }
             // the outer edge's bulge off the straight line between its ends (short islands)
             float bulge = 0f;
             if (sOut.Count > 2)
@@ -282,7 +289,7 @@ namespace PSXRacing.EditorTools
                 LineModel.Extents(U, sEndU, out float uM, out float uP);
                 var lfU = LineModel.SectionLeft(U, sEndU); var pu = U.PointAt(sEndU);
                 float ua = Vector2.Dot(pu + lfU * uP - P0, leftU), ub = Vector2.Dot(pu - lfU * uM - P0, leftU);
-                float uOut = Mathf.Sign(ua) == sideOut ? ua : ub;
+                float uOut = sideOut * ua >= sideOut * ub ? ua : ub;
                 m.jump = Mathf.Abs(sOut[0] - uOut);
                 // the undivided road's heading change over its last 30 m (its lane centre)
                 float sB30 = U.b == node ? Mathf.Max(0f, sEndU - 30f) : Mathf.Min(U.length, sEndU + 30f);
@@ -294,7 +301,7 @@ namespace PSXRacing.EditorTools
             // pavement edge, the undivided road's approach (40 m back) then the carriageway,
             // laterally in the straight frame, the approach's own linear trend taken out; the
             // main move within 80 m (half a short island) and the length it takes from 5 %
-            float sideO = Mathf.Abs(m.qF) > 0.5f ? Mathf.Sign(m.qF) : (Mathf.Abs(m.q0) > 0.05f ? Mathf.Sign(m.q0) : 1f);
+            float sideO = sideOut;
             var ys = new List<(float u, float y)>(800);
             {
                 // the approach: U and its mitred continuation, back 40 m from U's drawn end

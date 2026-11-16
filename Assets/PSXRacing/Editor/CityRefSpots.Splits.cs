@@ -67,7 +67,7 @@ namespace PSXRacing.EditorTools
                             var at = new Vector2(ps.x, ps.z);
                             float y = 0f;
                             if (map.NearestRoadPoint(at, 40f, false, out int ei, out float s, out _)) y = map.edges[ei].YAt(s);
-                            var pos = new Vector3(ps.x, y + 0.02f, ps.z);
+                            var pos = new Vector3(ps.x, y + 0.35f, ps.z);   // (as CityRefSpots.Curbs2 stands the car)
                             var rot = Quaternion.Euler(0f, ps.hdg, 0f);
                             world.EnsureRing(pos, 1);
                             PSXTexDecode.StampAll();

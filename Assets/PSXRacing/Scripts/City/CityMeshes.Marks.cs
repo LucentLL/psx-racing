@@ -672,6 +672,8 @@ namespace PSXRacing.City
         /// painted tip, CityMeshes.Walks IslandKerbSpan) so no centre lane runs
         /// into a 15 cm kerb unmarked.</summary>
         public static readonly HashSet<int> NoseFlushTip = new HashSet<int>();
+        /// <summary>The splits round: long-split noses (axis-frame profile) that could not be hatched.</summary>
+        public static readonly HashSet<int> SplitNoseFlushTip = new HashSet<int>();
         public const int HatchMinBars = 3;
 
         /// <summary>Does a forced-solid yellow line render solid on this
@@ -681,7 +683,7 @@ namespace PSXRacing.City
 
         static void NoseMarks(CityMap map, Trims t)
         {
-            NoseFlushTip.Clear();
+            NoseFlushTip.Clear(); SplitNoseFlushTip.Clear();
             if (!LineModel.RefugeOn || map.splt == null) return;
             var noseNodes = new HashSet<int>();
             foreach (var sp in map.splt) noseNodes.Add(sp.node);
@@ -779,7 +781,10 @@ namespace PSXRacing.City
                 // nose is not hatched - its island keeps the kerb back from the tip
                 if (pieces.Count < HatchMinBars)
                 {
-                    MarkStats.noseNoRoom++; MarkStats.noseUnsteady++; MarkStats.noseFlushTip++;
+                    MarkStats.noseNoRoom++; MarkStats.noseUnsteady++;
+                    // the splits round: a long split's nose (not a refuge pair's) keeps CurbMedian's set-back
+                    if (splitNose) { SplitNoseFlushTip.Add(sp.node); continue; }
+                    MarkStats.noseFlushTip++;
                     NoseFlushTip.Add(sp.node);
                     continue;
                 }
@@ -793,7 +798,7 @@ namespace PSXRacing.City
                     if (kind == LineModel.KYellowDash)
                     {
                         AddMark(new PaintMark { style = MkYS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: TWLTL line solid" });
-                        MarkStats.noseYs.Add(((long)U.index << 8) | (uint)k);
+                        if (!splitNose) MarkStats.noseYs.Add(((long)U.index << 8) | (uint)k);   // (the medians gate renders the refuge noses' tiles)
                         if (YellowSolidRenders(texL)) MarkStats.noseSolid++; else MarkStats.noseSolidFallback++;
                     }
                     else if (kind == LineModel.KWhiteDash) { AddMark(new PaintMark { style = MkLS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: bay line solid" }); MarkStats.noseSolid++; }

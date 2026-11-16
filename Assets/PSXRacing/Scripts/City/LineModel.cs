@@ -1340,7 +1340,10 @@ namespace PSXRacing.City
             // the splits round (J1, risk 4): in scope, the axis leaves on a 30 m chord (the exporter's
             // fillet bends the undivided road's last 6-7 m by ~10 degrees; the 10 m chord followed it)
             List<(int e, int at)> chord1 = null, chord2 = null; float cg1 = 0f, cg2 = 0f;
-            if (SplitsOn && InSplitScope(map, sp.node) && InSplitScope(map, s2.node))
+            // OFF by default (PSX_CITY_REFUGECHORD=1 on): the medians gate's relay census measures the
+            // undivided edges in their own (OSM) frame, so the eased last metres read as a 0.11-0.19
+            // lateral slope where live reads 0 (live follows the bend) - every Beatties Ford pair failed
+            if (RefugeChordOn && SplitsOn && InSplitScope(map, sp.node) && InSplitScope(map, s2.node))
             {
                 chord1 = new List<(int e, int at)>(4); chord2 = new List<(int e, int at)>(4);
                 var c1 = ChordBack(map, partner, U1, sp.node, SplitChordM, out cg1, chord1);

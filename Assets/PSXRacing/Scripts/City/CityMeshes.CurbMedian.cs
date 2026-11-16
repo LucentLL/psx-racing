@@ -281,7 +281,7 @@ namespace PSXRacing.City
 
         /// <summary>The splits round: a split nose the axis-frame profile shapes
         /// and NoseMarks hatched (a flush tip keeps PC45's set-back).</summary>
-        static bool NoseShaped(int node) => LineModel.SplitNoseShaped(node) && !NoseFlushTip.Contains(node);
+        static bool NoseShaped(int node) => LineModel.SplitNoseShaped(node) && !SplitNoseFlushTip.Contains(node);
 
         /// <summary>A node where a two-way edge of this name parts into (or
         /// joins from) the one-way carriageways.</summary>
