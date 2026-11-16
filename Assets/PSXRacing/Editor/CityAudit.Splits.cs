@@ -98,7 +98,7 @@ namespace PSXRacing.EditorTools
             var byNode = new Dictionary<int, List<SplitEndM>>();
             foreach (var m in ends) { if (!byNode.TryGetValue(m.node, out var l)) byNode[m.node] = l = new List<SplitEndM>(); l.Add(m); }
             int bfrPass = 0, bfrN = 0;
-            Line("BEATTIES FORD'S 19 SPLIT-TYPE NODES (per carriageway end: kind, speed, start q0 -> end qF lateral in the axis frame, move W over its 95% window, peak slope as a taper rate (need r), outward overshoot, angle at the node, outer-edge jump; PASS = slope at L/2 to 35 mph posted, L from 40, overshoot < 1 m, jump < 0.3 m):");
+            Line("BEATTIES FORD'S 19 SPLIT-TYPE NODES (per carriageway end: kind, speed, start q0 -> end qF lateral in the axis frame, move W over its 95% window, peak slope as a taper rate (need r), outward overshoot, angle at the node, outer-edge jump; PASS = the census measure: the outer edge's main move within 80 m (half a short island) at r/2 or flatter to 35 mph, r from 40, bulge < 1 m, jump < 0.5 m):");
             foreach (int n in LineModel.BfrSplitNodes)
             {
                 bfrN++;
@@ -124,24 +124,41 @@ namespace PSXRacing.EditorTools
                 nE++;
                 if (!m.halfOk) f2++;
                 if (!m.fullOk) f1++;
-                if (m.over >= 1f) ov++;
+                if (m.bulge >= 1f) ov++;
                 float g4 = Mathf.Atan(1f / Mathf.Max(1f, m.mph)) * Mathf.Rad2Deg;
                 if (m.angle > g4 + 0.05f) ang++;
-                if (m.jump >= 0.3f) jmp++;
+                if (m.jump >= 0.5f) jmp++;
                 angs.Add(m.angle);
                 if (!m.pass) failNodes.Add(m.node);
                 if (!kinds.TryGetValue(m.kind, out var k)) kinds[m.kind] = k = new int[4];
-                k[0]++; if (!m.halfOk) k[1]++; if (!m.fullOk) k[2]++; if (m.over >= 1f) k[3]++;
+                k[0]++; if (!m.halfOk) k[1]++; if (!m.fullOk) k[2]++; if (m.bulge >= 1f) k[3]++;
             }
             nodesFail = failNodes.Count;
             angs.Sort();
             float P(List<float> v, float p) => v.Count == 0 ? float.NaN : v[Mathf.Clamp(Mathf.FloorToInt(p * (v.Count - 1)), 0, v.Count - 1)];
-            Line($"CITY-WIDE ({nE} carriageway ends at {map.splt.Length} SPLT nodes): failing L/2 {f2}; failing full L {f1} ({(nE > 0 ? 100f * f1 / nE : 0f):0.0}%); outward overshoot 1 m or more {ov}; lane-centre angle over atan(1/V) {ang} (p50 {P(angs, 0.5f):0.0} deg, p90 {P(angs, 0.9f):0.0} deg); outer-edge jumps 0.3 m or more {jmp}; nodes failing {nodesFail}");
+            Line($"CITY-WIDE ({nE} carriageway ends at {map.splt.Length} SPLT nodes): failing L/2 {f2}; failing full L {f1} ({(nE > 0 ? 100f * f1 / nE : 0f):0.0}%); outward bulge (overshoot) 1 m or more {ov}; lane-centre angle over atan(1/V) {ang} (p50 {P(angs, 0.5f):0.0} deg, p90 {P(angs, 0.9f):0.0} deg); outer-edge jumps 0.5 m or more {jmp}; nodes failing {nodesFail}");
             foreach (var kv in kinds) Line($"  {kv.Key,-22} ends {kv.Value[0],5} | fail L/2 {kv.Value[1],5} | fail L {kv.Value[2],5} | overshoot >= 1 m {kv.Value[3],5}");
             Line($"  refuge pairs drawn {LineModel.Refuges.Count / 2}; skipped (in scope, old taper kept): {LineModel.SplitSkipped.Count}");
             int sk = 0; foreach (var s in LineModel.SplitSkipped) { if (sk++ < 60) Line("    skipped " + s); }
             foreach (var f in LineModel.SplitFrames) if (f.capped && sk++ < 120) Line($"    room shortfall n{f.node} e{f.edge}: {f.note}");
 
+            // ---- lot entrances on edges a profile shift moves (charlotte_lotent's key does not see eases) ----
+            {
+                int na = map.lotEntrances != null ? map.lotEntrances.Length : 0, moved = 0; float worst = 0f; string at = "";
+                for (int i = 0; i < na; i++)
+                {
+                    var E = map.lotEntrances[i];
+                    if (E.edge < 0 || E.edge >= map.edges.Length) continue;
+                    var e = map.edges[E.edge];
+                    if (e.lmEase == null) continue;
+                    bool prof = false; foreach (var z in e.lmEase) if (z.prof != null && z.tag < 0 && (z.shift || z.widen)) prof = true;
+                    if (!prof) continue;
+                    float sh = Mathf.Abs(LineModel.ShiftAt(e, Mathf.Clamp(E.s, 0f, e.length)));
+                    if (sh < 0.05f) continue;
+                    moved++; if (sh > worst) { worst = sh; at = $"e{E.edge} s {E.s:0.0} '{e.name}'"; }
+                }
+                Line($"LOT ENTRANCES on edges a profile shift moves (0.05 m or more at the entrance): {moved} of {na}{(moved > 0 ? $"; worst {worst:0.00} m at {at}" : "")} (charlotte_lotent.bytes is keyed without the eases: re-make it if this is not 0 against the base)");
+            }
             // ---- the ends table and the plan polylines ----
             var tsv = new StringBuilder("tag\tnode\tu\tc\tkind\tmph\trate\tq0\tqF\tW\tLt\tpeak\trEq\tover\tangle\tjump\tbulge\tmed20\tq20\town20\tmono\thalfOk\tfullOk\tpass\n");
             foreach (var m in ends)
@@ -158,7 +175,7 @@ namespace PSXRacing.EditorTools
         static int Count(IEnumerable<int> e) { int n = 0; foreach (var _ in e) n++; return n; }
 
         static string EndLine(CityMap map, SplitEndM m) =>
-            $"e{m.c} {m.kind} {m.mph:0}mph r {m.rate:0.0}: q {m.q0:+0.00;-0.00} -> {m.qF:+0.00;-0.00} W {m.W:+0.00;-0.00} over {m.Lt:0.0} m; peak {m.peak:0.000} = {m.rEq:0.0}:1 ({(m.fullOk ? "L ok" : m.halfOk ? "L/2 only" : "under L/2")}); overshoot {m.over:0.00}; angle {m.angle:0.0} deg; jump {m.jump:0.00}; outer bulge {m.bulge:0.00}; median u20 {m.med20:0.00}; U heading change {m.uHead:0.0} deg{(m.pass ? "" : " FAIL: " + m.why)}";
+            $"e{m.c} {m.kind} {m.mph:0}mph r {m.rate:0.0}: outer edge moves {m.W:+0.00;-0.00} m over {m.Lt:0.0} m = {m.rEq:0.0}:1 ({(m.fullOk ? "L ok" : m.halfOk ? "L/2 only" : "under L/2")}), peak slope {m.peak:0.000}, bulge {m.bulge:0.00}, jump {m.jump:0.00}; lanes' centre {m.q0:+0.00;-0.00} -> {m.qF:+0.00;-0.00}, overshoot {m.over:0.00}, angle at the node {m.angle:0.0} deg, U heading change {m.uHead:0.0} deg{(m.pass ? "" : " FAIL:" + m.why)}";
 
         /// <summary>One carriageway end, on the drawn lane centre (see the class summary).</summary>
         static SplitEndM MeasureSplitEnd(CityMap map, CityMeshes.Trims t, System.Func<CityMap.Edge, int, int> partner, HashSet<int> splitNodes, int node, int ui, int ci)
@@ -273,16 +290,83 @@ namespace PSXRacing.EditorTools
                 var h0 = LineModel.OwnLanePoint(U, sB26) - LineModel.OwnLanePoint(U, sB30);
                 m.uHead = h0.sqrMagnitude > 1e-6f && dirU.sqrMagnitude > 1e-6f ? Vector2.Angle(new Vector2(Vector2.Dot(h0, tU), Vector2.Dot(h0, leftU)), dirU) : 0f;
             }
-            // the verdict
-            float lim = 1.5f / m.rate;
-            m.fullOk = m.peak <= lim * 1.02f;
-            m.halfOk = m.peak <= 2f * lim * 1.02f;
+            // ---- THE CENSUS'S MEASURE (align/census census_a4, the plan's gates): the OUTER
+            // pavement edge, the undivided road's approach (40 m back) then the carriageway,
+            // laterally in the straight frame, the approach's own linear trend taken out; the
+            // main move within 80 m (half a short island) and the length it takes from 5 %
+            float sideO = Mathf.Abs(m.qF) > 0.5f ? Mathf.Sign(m.qF) : (Mathf.Abs(m.q0) > 0.05f ? Mathf.Sign(m.q0) : 1f);
+            var ys = new List<(float u, float y)>(800);
+            {
+                // the approach: U and its mitred continuation, back 40 m from U's drawn end
+                var cur = U; int at = node; float back = 0f;
+                for (int g = 0; g < 6 && back < 40f; g++)
+                {
+                    bool toward = cur.b == at;
+                    float sEnd = toward ? cur.length - (cur == U ? t.TrimAt(U, node) : 0f) : (cur == U ? t.TrimAt(U, node) : 0f);
+                    for (float x = 0f; x <= cur.length && back + x <= 40f; x += 0.5f)
+                    {
+                        float s = toward ? sEnd - x : sEnd + x;
+                        if (s < 0f || s > cur.length) break;
+                        LineModel.Extents(cur, s, out float eM, out float eP);
+                        var lf = LineModel.SectionLeft(cur, s); var pe = cur.PointAt(s);
+                        Vector2 pa = pe + lf * eP, pb = pe - lf * eM;
+                        float ya = sideO * Vector2.Dot(pa - P0, leftU), yb = sideO * Vector2.Dot(pb - P0, leftU);
+                        var po = ya > yb ? pa : pb;
+                        ys.Add((Vector2.Dot(po - P0, tU), Mathf.Max(ya, yb)));
+                    }
+                    back += Mathf.Abs(sEnd - (toward ? 0f : cur.length));
+                    int farU = cur.a == at ? cur.b : cur.a;
+                    int pi = partner(cur, farU);
+                    if (pi < 0) break;
+                    var pn = map.edges[pi]; if (pn == cur || pn.oneway) break;
+                    cur = pn; at = farU;
+                }
+                for (int i = 0; i < su.Count; i++) ys.Add((su[i], sideO * sOut[i]));
+            }
+            ys.Sort((x1, x2) => x1.u.CompareTo(x2.u));
+            float Near(float lo, float hi) { float sum = 0f; int n = 0; foreach (var y in ys) if (y.u >= lo && y.u <= hi) { sum += y.y; n++; } return n > 0 ? sum / n : float.NaN; }
+            float yApp = Near(-25f, -15f); if (float.IsNaN(yApp)) yApp = Near(-10f, -1f); if (float.IsNaN(yApp)) yApp = ys[0].y;
+            {
+                int n = 0; float mu = 0f, my = 0f;
+                foreach (var y in ys) if (y.u >= -30f && y.u <= -3f) { n++; mu += y.u; my += y.y; }
+                if (n >= 10)
+                {
+                    mu /= n; my /= n; float sxy = 0f, sxx = 0f;
+                    foreach (var y in ys) if (y.u >= -30f && y.u <= -3f) { sxy += (y.u - mu) * (y.y - my); sxx += (y.u - mu) * (y.u - mu); }
+                    float bb = sxx > 0f ? sxy / sxx : 0f;
+                    if (Mathf.Abs(bb) < 0.05f) { yApp = my - bb * mu; for (int i = 0; i < ys.Count; i++) ys[i] = (ys[i].u, ys[i].y - bb * ys[i].u); }
+                }
+            }
+            float win = island ? 0.5f * (m.uMax - m.uStart) + m.uStart : Mathf.Min(80f, m.uMax);
+            float yMax = float.MinValue, yMin = float.MaxValue, dMax = 0f, dMin = 0f, slope = 0f; int iMax = 0, iMin = 0;
+            for (int i = 0; i < ys.Count; i++)
+            {
+                var y = ys[i];
+                if (y.u >= 0f && y.u <= win) { if (y.y > yMax) { yMax = y.y; dMax = y.u; iMax = i; } if (y.y < yMin) { yMin = y.y; dMin = y.u; iMin = i; } }
+                if (y.u < -20f || y.u > win) continue;
+                int j = i; while (j + 1 < ys.Count && ys[j].u - y.u < 2f) j++;
+                if (ys[j].u - y.u >= 1.5f) slope = Mathf.Max(slope, Mathf.Abs(ys[j].y - y.y) / (ys[j].u - y.u));
+            }
+            if (yMax == float.MinValue) { yMax = yApp; yMin = yApp; }
+            float outMove = yMax - yApp, inMove = yApp - yMin; bool mainOut = outMove >= inMove;
+            float Amain = Mathf.Max(0f, mainOut ? outMove : inMove); int iA = mainOut ? iMax : iMin; float dA = mainOut ? dMax : dMin;
+            float dStart = Mathf.Max(-20f, ys[0].u);
+            for (int i = iA; i >= 0; i--) { if (ys[i].u < -20f) break; if (Mathf.Abs(ys[i].y - yApp) <= 0.05f * Amain) { dStart = ys[i].u; break; } }
+            float Lmove = Mathf.Max(0.5f, dA - dStart);
+            float yEnd = ys[ys.Count - 1].y;
+            m.W = mainOut ? Amain : -Amain; m.Lt = Lmove;
+            m.peak = slope; m.rEq = Amain > 0.05f ? Lmove / Amain : 9999f;
+            m.bulge = Mathf.Max(0f, yMax - Mathf.Max(yApp, island ? yApp : yEnd));
+            // the verdict (the census's): fail L/2 where the main move of 0.3 m or more averages steeper
+            // than r/2, L steeper than r; a bulge (outward overshoot) of 1 m or more; a 0.5 m jump
+            m.halfOk = !(Amain >= 0.3f && m.rEq < 0.5f * m.rate);
+            m.fullOk = !(Amain >= 0.3f && m.rEq < m.rate);
             bool slopeOk = m.mph <= 35.5f ? m.halfOk : m.fullOk;
-            m.pass = slopeOk && m.over < 1f && m.jump < 0.3f;
+            m.pass = slopeOk && m.bulge < 1f && m.jump < 0.5f;
             m.why = "";
-            if (!slopeOk) m.why += $" slope {m.rEq:0.0}:1 < {(m.mph <= 35.5f ? m.rate * 0.5f : m.rate):0.0}:1;";
-            if (m.over >= 1f) m.why += $" overshoot {m.over:0.00} m;";
-            if (m.jump >= 0.3f) m.why += $" outer-edge jump {m.jump:0.00} m;";
+            if (!slopeOk) m.why += $" move {Amain:0.00} m over {Lmove:0.0} m = {m.rEq:0.0}:1 < {(m.mph <= 35.5f ? m.rate * 0.5f : m.rate):0.0}:1;";
+            if (m.bulge >= 1f) m.why += $" bulge {m.bulge:0.00} m;";
+            if (m.jump >= 0.5f) m.why += $" outer-edge jump {m.jump:0.00} m;";
             return m;
         }
 
@@ -408,6 +492,23 @@ namespace PSXRacing.EditorTools
             var la = new List<LineModel.LineAt>(16);
             void P(string kind, int e, int seq, Vector2 p) => sb.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5:0.00}\t{6:0.00}\n", tag, node, kind, e, seq, p.x, p.y));
             P("node", -1, 0, c);
+            // the axis: the undivided road's 30 m chord into the node (the sheet's frame)
+            {
+                int ui = -1;
+                if (LineModel.SplitUOf(map, node, out int u0)) ui = u0;
+                else foreach (int ei in map.nodeEdges[node]) { var e = map.edges[ei]; if (!e.oneway && e.name == "Beatties Ford Road") ui = ei; }
+                if (ui >= 0)
+                {
+                    System.Func<CityMap.Edge, int, int> partner = (e, nd) =>
+                    {
+                        if (!t.mitre[nd]) return -1;
+                        int o = t.throughA[nd] == e.index ? t.throughB[nd] : t.throughB[nd] == e.index ? t.throughA[nd] : -1;
+                        return o == e.index ? -1 : o;
+                    };
+                    var tU = LineModel.SplitAxisChord(map, partner, map.edges[ui], node, 30f, out _);
+                    P("axis", ui, 0, c); P("axis", ui, 1, c + tU * 10f);
+                }
+            }
             foreach (int ei in es)
             {
                 var e = map.edges[ei];

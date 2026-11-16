@@ -354,12 +354,20 @@ namespace PSXRacing.City
             float uTip = float.NaN; SplitFrame fa = null, fb = null;
             if (frames.Count == 2) { fa = frames[0]; fb = frames[1]; }
             float GapLanes(float uu) => fa == null ? float.NaN : Mathf.Abs(fa.TAt(uu) - fb.TAt(uu)) - fa.lanesHalf - fb.lanesHalf;
-            float noseEnd = 0f;
+            float noseEnd = 0f, noseH = SplitNoseH, noseLn = SplitNoseLn;
             if (fa != null && NoseRuleOn && fa.innerSign != fb.innerSign)
             {
                 float u0 = Mathf.Max(fa.uStart, fb.uStart), u1 = Mathf.Max(fa.uEnd, fb.uEnd) + 10f;
                 for (float uu = u0; uu <= u1; uu += 0.25f) if (GapLanes(uu) >= SplitIslandGapM) { uTip = uu + RefugeTipM; break; }
-                if (!float.IsNaN(uTip)) { noseEnd = uTip + SplitNoseLn + 2f; splitNoseNodes.Add(sp.node); }
+                if (!float.IsNaN(uTip))
+                {
+                    // the nose's full half width: the widest pavement gap its flank must reach (so the
+                    // widening ends at 0 where the flank meets the pavement), the flank no steeper than 1:4
+                    float gMax = 0f;
+                    for (float uu = uTip; uu <= uTip + 40f; uu += 0.5f) gMax = Mathf.Max(gMax, GapLanes(uu) - fa.shIn - fb.shIn);
+                    noseH = Mathf.Max(0.6f, 0.5f * gMax + 0.05f); noseLn = Mathf.Max(SplitNoseLn, 4f * noseH);
+                    noseEnd = uTip + noseLn + 2f; splitNoseNodes.Add(sp.node);
+                }
             }
             // ---- THE EASES ----
             foreach (var f in frames)
@@ -394,7 +402,7 @@ namespace PSXRacing.City
                         {
                             var o = fa == f ? fb : fa;
                             float gapPave = GapLanes(uAx) - f.shIn - o.shIn;
-                            float ih = uAx < uTip ? 0f : Mathf.Min(0.5f * Mathf.Max(0f, gapPave), NoseHalf(uAx - uTip, SplitNoseH, SplitNoseLn, SplitNoseR));
+                            float ih = uAx < uTip ? 0f : Mathf.Min(0.5f * Mathf.Max(0f, gapPave), NoseHalf(uAx - uTip, noseH, noseLn, SplitNoseR));
                             float w = Mathf.Max(0f, 0.5f * gapPave - ih);
                             wd[k] = w; if (w > 0.005f) anyW = true;
                             // the inner side in e's frame
