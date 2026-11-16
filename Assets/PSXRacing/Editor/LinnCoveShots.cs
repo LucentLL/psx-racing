@@ -252,6 +252,7 @@ namespace PSXRacing.EditorTools
             log.AppendLine($"  postcard (views[0] by TitleScreen.PlaceCamera's rule): eye {eye} look {look}, viaduct wp {i0}-{i1}");
             if (sets.Contains("title"))
             {
+                GrabAB(s, "title_fall_afternoon", eye, rot, 1440, (int)Season.Fall, "AFTERNOON", false, true);   // the light of PC46's own frame
                 GrabAB(s, "title_fall_sunset", eye, rot, 1440, (int)Season.Fall, "SUNSET", false, true);
                 GrabAB(s, "title_fall_fog", eye, rot, 1440, (int)Season.Fall, "MORNING", true, false);
                 GrabAB(s, "title_summer_afternoon", eye, rot, 1440, (int)Season.Summer, "AFTERNOON", false, true);
