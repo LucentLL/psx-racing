@@ -482,7 +482,7 @@ namespace PSXRacing.EditorTools
                 if (cl < 4f) continue;
                 Vector3 dir = chord / cl, outN = new Vector3(-dir.z, 0f, dir.x);
                 float dot = Vector3.Dot(outN, toRoad);
-                if (dot <= 0.45f) continue;
+                if (dot <= 0.35f) continue;   // as round 1: a wall turned up to 69 degrees from the road still takes the porch
                 float score = cl * dot * dot * dot;
                 if (score > bestScore) { bestScore = score; best = i0; lastEdge = i1; }
             }
