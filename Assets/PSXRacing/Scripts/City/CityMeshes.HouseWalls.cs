@@ -798,9 +798,10 @@ namespace PSXRacing.City
                     Vector2 p0 = a + dir * x0, p1 = a + dir * x1;
                     Bucket.Tint = tint;
                     HmPlain(tm, kind, a + dir * x, p0, lo, hi, outward, floor, x);
-                    if (sillOn) HmRowlock(tm, kind, p0, p1, lo, ws, outward, x0);
+                    // (a rowlock stops at the band's edge: only plain pieces, whose texels match, overlap the band over and under)
+                    if (sillOn) HmRowlock(tm, kind, p0, p1, r0, ws, outward, x0);
                     else if (ws > lo + 0.002f) HmPlain(tm, kind, p0, p1, lo, ws, outward, floor, x0);
-                    if (lintOn) HmRowlock(tm, kind, p0, p1, we, hi, outward, x0);
+                    if (lintOn) HmRowlock(tm, kind, p0, p1, we, r1, outward, x0);
                     else if (hi > we + 0.002f) HmPlain(tm, kind, p0, p1, we, hi, outward, floor, x0);
                     // the window: the siding's cell, whole, as painted
                     Bucket.Tint = new Color32(128, 128, 128, 0);
