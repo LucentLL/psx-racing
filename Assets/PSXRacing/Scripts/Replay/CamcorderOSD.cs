@@ -61,6 +61,7 @@ namespace PSXRacing
 
         void Awake()
         {
+            relabelled = -1;   // a new scene, a new touch bar
             root = (RectTransform)transform;
             root.anchorMin = Vector2.zero; root.anchorMax = Vector2.one;
             root.offsetMin = Vector2.zero; root.offsetMax = Vector2.zero;
@@ -159,6 +160,7 @@ namespace PSXRacing
             float mx = pw * 0.07f, my = ph * 0.07f;
             bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
             float foot = y0 + ph * (touch ? 0.17f : 0.08f);
+            if (touch) RelabelTouch();
 
             foreach (var t in new[] { rec, counter, mode, date, clock }) t.fontSize = fs;
             help.fontSize = Mathf.Max(8, Mathf.RoundToInt(fs * 0.6f));
@@ -217,6 +219,27 @@ namespace PSXRacing
             if (Camcorder.Vcr)
                 return pad ? "A PLAY/PAUSE   D-PAD REW / FF   B EJECT" : "SPACE PLAY/PAUSE   ARROWS REW / FF   ESC EJECT";
             return pad ? "A PAUSE   D-PAD SKIP / CAR   Y CAMERA   B EXIT" : "SPACE PAUSE   ARROWS SKIP / CAR   C CAMERA   ESC EXIT";
+        }
+
+        /// <summary>The touch replay bar's skip buttons scan on the deck: say so
+        /// (TouchControls' own labels, put back for a race's replay).</summary>
+        static int relabelled = -1;
+        static void RelabelTouch()
+        {
+            int want = Camcorder.Vcr ? 1 : 0;
+            if (relabelled == want) return;
+            var bar = GameObject.Find("ReplayBar");
+            if (bar == null) return;
+            SetLabel(bar.transform, "Replay0", want == 1 ? "<< REW" : "<< 10s");
+            SetLabel(bar.transform, "Replay2", want == 1 ? "FF >>" : "10s >>");
+            relabelled = want;
+        }
+
+        static void SetLabel(Transform bar, string child, string text)
+        {
+            var b = bar.Find(child);
+            var t = b != null ? b.GetComponentInChildren<Text>(true) : null;
+            if (t != null) t.text = text;
         }
 
         bool visible = true;
