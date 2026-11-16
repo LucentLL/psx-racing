@@ -138,6 +138,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestLaneLadder), TestLaneLadder);
             Guard(nameof(TestParkwayLoops), TestParkwayLoops);
             Guard(nameof(TestReplay), TestReplay);
+            Guard(nameof(TestTapes), TestTapes);   // camcorder tapes: LifeSimSelfTest.Tapes.cs
             Guard(nameof(TestRaceMap), TestRaceMap);
             Guard(nameof(TestTimeOfDay), TestTimeOfDay);
             Guard(nameof(TestCameraViews), TestCameraViews);

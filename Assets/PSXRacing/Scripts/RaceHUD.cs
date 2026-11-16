@@ -632,10 +632,11 @@ namespace PSXRacing
         static string ReplayOffer(bool touch)
         {
             var rp = RaceReplay.Instance;
-            if (rp == null || !rp.Available) return "";
-            if (touch) return "\nTAP REPLAY TO WATCH IT BACK";
-            return UnityEngine.InputSystem.Gamepad.current != null
-                ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY";
+            // ...and SAVE TO TAPE under it (TapeOffer, 2026-11-16).
+            if (rp == null || !rp.Available) return TapeOffer.OfferLine(touch);
+            if (touch) return "\nTAP REPLAY TO WATCH IT BACK" + TapeOffer.OfferLine(touch);
+            return (UnityEngine.InputSystem.Gamepad.current != null
+                ? "\nX / SQUARE FOR REPLAY" : "\nV FOR REPLAY") + TapeOffer.OfferLine(touch);
         }
 
         void Awake()

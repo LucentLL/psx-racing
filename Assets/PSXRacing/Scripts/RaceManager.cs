@@ -202,6 +202,9 @@ namespace PSXRacing
             TitleScreen.Attach(this);
             // NEW GAME's drive out of the tunnel (NewGameIntro.Launch only).
             NewGameIntro.Attach(this);
+            // A TAPE on the VCR at home takes the race over; a career race
+            // gets SAVE TO TAPE (TapePlayback, 2026-11-16).
+            TapePlayback.Attach(this);
         }
 
         /// <summary>While this answers true the countdown waits where it is:
@@ -213,6 +216,8 @@ namespace PSXRacing
 
         void Update()
         {
+            // A tape is not a race: no countdown, no laps, no continue keys.
+            if (TapePlayback.Active) return;
             if (State == RaceState.Countdown && HoldCountdown != null && HoldCountdown()) return;
             CountdownRemaining -= Time.deltaTime;
             if (State == RaceState.Countdown)
