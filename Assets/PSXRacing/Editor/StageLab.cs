@@ -38,6 +38,10 @@ namespace PSXRacing.EditorTools
                     // built (sections and plans only, seconds instead of minutes).
                     bool noBuild = System.Environment.GetEnvironmentVariable("PSX_LAB_NOBUILD") == "1";
                     string path = noBuild ? "Assets/PSXRacing/Scenes/" + id + ".unity" : PSXRacingBuilder.BuildOneForLab(def);
+                    // Each venue's build log kept (a list of venues used to leave only the last one's).
+                    string blog = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_build_log.txt");
+                    if (!noBuild && File.Exists(blog))
+                        File.Copy(blog, Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_build_log_" + id + ".txt"), true);
                     sb.AppendLine("=== " + id + " -> " + path);
                     if (!noBuild)
                     {
@@ -63,6 +67,8 @@ namespace PSXRacing.EditorTools
                     string plans = System.Environment.GetEnvironmentVariable("PSX_LAB_PLAN") ?? "";
                     foreach (var pl in plans.Split(','))
                         if (pl.Trim().Length > 0) sb.AppendLine(Plan(path, id, pl.Trim()));
+                    // So far, after every venue: a long list that stops part-way keeps what it found.
+                    File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_stage_lab_partial.txt"), sb.ToString());
                 }
             }
             catch (System.Exception e) { sb.AppendLine("THREW " + e); }
