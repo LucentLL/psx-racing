@@ -68,6 +68,8 @@ namespace PSXRacing.EditorTools
             // the car stays out of the frame: parked well under the land
             player.transform.position += Vector3.down * 500f;
             Physics.SyncTransforms();
+            // no HUD over a pose matched to the owner's video (round 3)
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)) c.enabled = false;
             var ci = System.Globalization.CultureInfo.InvariantCulture;
             cam.fieldOfView = 50f;
             foreach (var part in (System.Environment.GetEnvironmentVariable("PSX_LOOK") ?? "").Split(';'))
@@ -77,6 +79,8 @@ namespace PSXRacing.EditorTools
                 var e = kv[1].Split(','); var t = kv[2].Split(',');
                 var eye = new Vector3(float.Parse(e[0], ci), float.Parse(e[1], ci), float.Parse(e[2], ci));
                 var tgt = new Vector3(float.Parse(t[0], ci), float.Parse(t[1], ci), float.Parse(t[2], ci));
+                // an optional fourth field: the vertical field of view (round 3: the dash camera's 68 degrees across)
+                cam.fieldOfView = kv.Length >= 4 ? float.Parse(kv[3], ci) : 50f;
                 PSXScreenshotTool.Shot(cam, "look_" + def.id + "_" + kv[0].Trim(), eye, Quaternion.LookRotation(tgt - eye, Vector3.up));
             }
             Debug.Log("[LakeLure] look shots of " + def.id + " written");
