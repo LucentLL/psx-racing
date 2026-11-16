@@ -250,9 +250,9 @@ namespace PSXRacing.EditorTools
                 box = Rect.MinMaxRect(-1e9f, -1e9f, 1e9f, 1e9f); boxes.Clear();
                 if (!string.IsNullOrEmpty(bx))
                 {
-                    // (splits2: several boxes, "x0,z0,x1,z1;x0,z0,x1,z1;..." - the Phase C spots in one run)
+                    // (splits2: several boxes, "x0,z0,x1,z1|x0,z0,x1,z1|..." (or ';') - the Phase C spots in one run)
                     boxes.Clear();
-                    foreach (var one in bx.Split(';'))
+                    foreach (var one in bx.Split(';', '|'))
                     {
                         var b = one.Split(',');
                         if (b.Length < 4) continue;
