@@ -1,4 +1,32 @@
-﻿# HANDOFF - TREES ROUND 5: THE OWNER'S UPDATED CODEX TREES V NATUREMANUFACTURE IN THE GAME - POP-IN AND CLOSE-UP (agent "trees4", branch `charlotte-trees4`, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - TREES ROUND 5b: FLOATING TREES (THE NM ONES, IN PC46) AND THE LIKE-FOR-LIKE APPROACH (agent "trees4", branch `charlotte-trees4`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner, 10:40, on round 5's sheet: "The trees look completely different and placed different locations. Some even seem to be floating in air". Sandbox PSXPerf under the lock (released; the runner now reads its lock back before syncing). Nothing under `Scripts/City`; defaults OFF.
+
+## FLOATING - the NatureManufacture trees PC46 ships float at their middle levels
+- CAUSE: `LoadVariant` / `LoadMergedVariant` stand a tree on its LOD0's foot (the bark's 2nd-percentile height, past the root tips), and every level is drawn on that one foot (`Editor/PSXRacingBuilder.MeshTrees.cs:668-684`, `PSXRacingBuilder.CityTreeKit.cs` LoadMergedVariant). The packs' coarser levels have no roots: their trunks start up to 1.03 m higher (Meadow `07_Poplar_skan` LOD2; the pine stand-in `03_Poplar_skan_pine` 0.48 m, x1.5 = 0.43 m over the ground). On MEDIUM they draw from 102 m (LOD1) and 140 m (LOD2) to 240 m.
+- AUDIT (new, `T5GroundAudit`: every planted tree's trunk base per level v the ground under its trunk and 0.45 m round it): NM round 3 (PC46) - Providence Rd 7,463 trees: 0 at LOD0, 1,467 floating at LOD1, 1,890 at LOD2; West Trade 3,922 trees: 0 / 202 / 306. Owner's kit: 0 / 0 / 0 at both (every level's trunk base is 0.00 m: the round-4 pivot seating).
+- FIX: `PSX_CT5_FOOT=1` (kit build, `Editor/PSXRacingBuilder.CityTreeKit5.cs` CT5Feet, DEFAULT OFF): each level's bark in its lowest 0.8 m stretched down to LOD0's trunk base; nothing above moves (crown and pop unchanged: Providence pop 784 -> 784 blocks). 21 variants, 35 levels. After: 0 / 0 / 0 at both places, both kits. RECOMMENDED ON for PC47 (it fixes what PC46 ships; no other change).
+- The owner's two circled trees (round 5 sheet, owner's column, 200 m): (b) a `CT4_TulipPoplar` and (a) a `CT4_LoblollyPine_WoodlandEdge` - both seated (base 0.30 m in the ground; 8 m close-ups on the sheet show the trunk on the grass). They read as floating because the trunk is a straight, flare-less column ending flat at the far edge of the walk - NM puts low bushy stand-ins there (no trunk shown). Not a seating fault; a root flare in the art would help (Codex).
+
+## LIKE FOR LIKE (`PSX_CT5_SWAP=1`, runtime, TEST ONLY: round 3's fit as it is - same sites, positions, yaw, drawn heights - each NM model swapped one for one for the owner's form of the same kind at the same height; 11,189 of 11,385 trees, snags kept; both runs with the feet fix)
+| 280 m walk, 16 px blocks changing >3% (pixels changing >22) | NM round 3 | Owner's models, same trees |
+|---|---:|---:|
+| Providence Rd MEDIUM | 784 (134,013) | 358 (192,358) |
+| Providence Rd HIGH | 309 (69,330) | 59 (108,913) |
+| West Trade MEDIUM | 9 (12,030) | 5 (20,371) |
+| West Trade HIGH | 1 (5,527) | 0 (9,306) |
+Same trees, same places: the owner's update halves (MEDIUM) to fifths (HIGH) the patches that visibly pop, and adds 44-69% fine single-pixel change (the card's per-pixel bearing dither and the dithered fades): shimmer, not pops.
+
+## Sheet (also in `Charlotte_Trees\Review\Claude_2026-11-16\`)
+`Trees5b_floating_and_like_for_like_sheet.png`: the 200 m frame first (owner's kit and NM, before / after the feet fix, with a zoom), the circled trees from 8 m, the ground-contact lines of every run, then the like-for-like approach (block charts, frames 300 -> 20 m with the popped pixels in red); `Trees5b_like_for_like_approach_Providence_MEDIUM.gif`; `Trees5b_pop_like_for_like.csv`; `Trees5b_NM_floaters_before_fix.csv` (3,866 floating NM tree-levels with position, model and gap). Scratch: `...\scratchpad\trees4\round5b\`.
+
+## Verdict
+Floating: real, in NM (PC46) at LOD1/LOD2 - fix ready behind PSX_CT5_FOOT (0 floaters after); the owner's trees do not float. Pop, like for like: the owner's update clearly reduces visible pop (-54% MEDIUM, -81% HIGH). Close-up: unchanged and still below NM - the owner's trees stay OFF.
+
+## Code (mine, this round)
+`Editor/CityRefSpots.Approach5.cs`: ground audit, probe (`PSX_CT5_PROBE`), `PSX_CT5_WALK`. `Editor/PSXRacingBuilder.CityTreeKit5.cs`: `CT5Feet` (`PSX_CT5_FOOT`). `Editor/PSXRacingBuilder.CityTreeKit4.cs`: the hook (CT5Feet, CT5NMCrowns at the start of CTRound4) and each form's trunk base per level in the kit log. `Scripts/CityMeshTrees.Round3.cs`: `PSX_CT5_SWAP` (test only). At merge: nothing changes by default; to ship the feet fix, build the kit with `PSX_CT5_FOOT=1` (or flip its default).
+
+# HANDOFF - TREES ROUND 5: THE OWNER'S UPDATED CODEX TREES V NATUREMANUFACTURE IN THE GAME - POP-IN AND CLOSE-UP (agent "trees4", branch `charlotte-trees4`, 2026-11-16; NOT pushed, NOT merged)
 
 The owner, 08:45: "Updated (non-Unity Asset) trees. In particular, less foliage on lower LOD trees to reduce pop-in visibility." Sandbox PSXPerf (lock "trees4", released; its tree kit rebuilt at the defaults at the end). Nothing under `Scripts/City`; no re-bake; road graph untouched.
 
