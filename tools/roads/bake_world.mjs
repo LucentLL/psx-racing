@@ -1,6 +1,7 @@
 // bake_world.mjs - the place around a stage's road, in the stage's own frame.
 //
 //   node tools/roads/bake_world.mjs lure [--offline]
+//   node tools/roads/bake_world.mjs lure --frame chimney     (the same place for the Park Road stage)
 //
 // Written for US 64/74A at Lake Lure as it stood BEFORE HURRICANE HELENE
 // (2024-09-27). Every input is from before the storm:
@@ -33,6 +34,13 @@
 //              Flowering Bridge, and marked crossings, near the road.
 //   parkRoad   the Chimney Rock Park Road's start, from the ChimneyRock
 //              stage's own bake (same line, same heights), in this frame.
+//
+// --frame chimney writes Art/ChimneyRock/chimney_world.json: the same place in
+// the ChimneyRock stage's frame (its projection and baseM) for the Park Road
+// stage's start - Main Street as a street, the village's buildings within
+// 450 m of the park road's mouth, the river and the lake, the park road from
+// Main Street over its bridge to that stage's waypoint 0, and that stage's own
+// near-grid carve under the river.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -44,7 +52,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const args = process.argv.slice(2);
 const pre = args[0];
-if (pre !== 'lure') { console.error('usage: node bake_world.mjs lure [--offline]'); process.exit(2); }
+if (pre !== 'lure') { console.error('usage: node bake_world.mjs lure [--offline] [--frame chimney]'); process.exit(2); }
+const FRAME = args.includes('--frame') ? args[args.indexOf('--frame') + 1] : 'lure';
 const CACHE = process.env.PSX_ROADS_CACHE || join(HERE, 'cache');
 const ART = join(ROOT, 'Assets', 'PSXRacing', 'Art', 'LakeLure');
 const RES = join(ROOT, 'Assets', 'PSXRacing', 'Resources');
@@ -244,6 +253,24 @@ const carveIdx = [], carveH = [];
 }
 console.log(`carve: ${carveIdx.length} near cells lowered under the river`);
 
+let chCarve = { idx: [], dm: [] };
+if (FRAME === 'chimney') {
+  const cs = JSON.parse(readFileSync(join(RES, 'chimney_stage.json'), 'utf8'));
+  const cm = JSON.parse(readFileSync(join(ROOT, 'Assets', 'PSXRacing', 'Art', 'ChimneyRock', 'chimney_dem_meta.json'), 'utf8')).near;
+  const cbuf = readFileSync(join(ROOT, 'Assets', 'PSXRacing', 'Art', 'ChimneyRock', 'chimney_dem_near.bytes'));
+  const cp = makeProjection(cs.lat0, cs.lon0);
+  const cw = []; for (let i = 0; i < cs.xyz.length / 3; i++) cw.push({ x: cs.xyz[3 * i], z: cs.xyz[3 * i + 2] });
+  for (let r = 0; r < cm.rows; r++) for (let c = 0; c < cm.cols; c++) {
+    const x = cm.originX + c * cm.cell, z = cm.originZ + r * cm.cell;
+    const q = cp.toLL(x, z), p = proj.toXZ(q.lat, q.lon);
+    if (!inRiver(p.x, p.z) || inRing(p.x, p.z, lakeOuter)) continue;
+    let bd = Infinity; for (const w of cw) bd = Math.min(bd, (w.x - x) ** 2 + (w.z - z) ** 2); if (bd < 81) continue;   // that stage's own road corridor
+    let bi = 0, bd2 = Infinity; for (let i = 0; i < RN; i++) { const d = (rline[i].x - p.x) ** 2 + (rline[i].z - p.z) ** 2; if (d < bd2) { bd2 = d; bi = i; } }
+    const want = Math.round((ry[bi] - 1.4 - cs.baseM) * 10), k = r * cm.cols + c;
+    if (want < cbuf.readInt16LE(k * 2)) { chCarve.idx.push(k); chCarve.dm.push(want); }
+  }
+}
+
 // -------------------------------------------------------------- buildings
 const bld = attic('buildings').filter(e => e.type === 'way' && e.geometry && e.geometry.length >= 4);
 const B = [];
@@ -261,6 +288,8 @@ for (const e of bld) {
   for (const b of B) { const v = h.slice(k, k + 1 + b.ring.length).filter(Number.isFinite); k += 1 + b.ring.length; b.g0 = Math.min(...v); b.g1 = Math.max(...v); }
 }
 const kindOf = b => b.t.building || 'yes';
+const faceOf = b => { const i = b.f.i, j = Math.min(N - 1, i + 1); const px = W[i].x + (W[j].x - W[i].x) * b.f.t, pz = W[i].z + (W[j].z - W[i].z) * b.f.t;
+  const dx = px - b.cx, dz = pz - b.cz, L = Math.hypot(dx, dz) || 1; return { fx: r2(dx / L), fz: r2(dz / L) }; };
 // A ROLE, never the name: the footprints carry real business names, and only what the place IS reaches the game.
 const ROLES = [[/lake lure inn/i, 'inn'], [/town hall|municipal/i, 'townhall'], [/welcome|visitor|chamber/i, 'welcome'], [/arcade/i, 'arcade'],
   [/post office/i, 'postoffice'], [/church|chapel/i, 'church'], [/boat ?house|marina|boat/i, 'boathouse'], [/beach/i, 'beach'], [/fire|rescue/i, 'firehall']];
@@ -388,7 +417,7 @@ const out = {
   riverAreas: riverArea.map(r => ({ hole: r.hole, xz: flat(r.pts) })),
   river: { xz: flat(rline), y: ry.map(v => r2(v - baseM)), w: rw, white: rwhite, speed: rspeed },
   carve: { idx: carveIdx, dm: carveH },
-  buildings: B.map(b => ({ xz: flat(b.ring), g0: r2(b.g0 - baseM), g1: r2(b.g1 - baseM), kind: kindOf(b), levels: +(b.t['building:levels'] || 0), roof: b.t['roof:shape'] || '', height: +(b.t.height || 0), st: r1(stationM(b.f)), side: b.f.side, dist: r1(b.f.d), area: r1(b.area), zone: zone(stationM(b.f)), role: roleOf(b) })),
+  buildings: B.map(b => ({ xz: flat(b.ring), g0: r2(b.g0 - baseM), g1: r2(b.g1 - baseM), kind: kindOf(b), levels: +(b.t['building:levels'] || 0), roof: b.t['roof:shape'] || '', height: +(b.t.height || 0), st: r1(stationM(b.f)), side: b.f.side, dist: r1(b.f.d), area: r1(b.area), zone: zone(stationM(b.f)), role: roleOf(b), ...faceOf(b) })),
   roads: SR.map(s => ({ st: r1(stationM(s.f)), side: s.f.side, cls: s.t.highway, w: +(s.t.width || 0) || WIDTH[s.t.highway] || 5, lenM: r1(s.L), xz: flat(s.pts), y: s.h.map(v => r2(v - baseM)) })),
   lots: lots.map(l => ({ xz: flat(l.ring), y: r2(l.y - baseM), st: r1(stationM(l.f)), gravel: /gravel|dirt|unpaved/.test(l.surface) ? 1 : 0 })),
   paths: paths.map(p => ({ xz: flat(p.pts), y: p.h.map(v => r2((Number.isFinite(v) ? v : baseM) - baseM)), deck: p.deck, kind: p.kind, st: r1(stationM(p.f)) })),
@@ -396,7 +425,34 @@ const out = {
   speeds,
   parkRoad,
 };
-const text = JSON.stringify(out);
-writeFileSync(join(ART, pre + '_world.json'), text);
+let text, outPath;
+if (FRAME === 'lure') { text = JSON.stringify(out); outPath = join(ART, pre + '_world.json'); }
+else if (FRAME === 'chimney') {
+  const cs = JSON.parse(readFileSync(join(RES, 'chimney_stage.json'), 'utf8'));
+  const cp = makeProjection(cs.lat0, cs.lon0), dy = baseM - cs.baseM;
+  const xzTo = a => { const o = []; for (let k = 0; k + 1 < a.length; k += 2) { const q = proj.toLL(a[k], a[k + 1]), p2 = cp.toXZ(q.lat, q.lon); o.push(r2(p2.x), r2(p2.z)); } return o; };
+  const yTo = a => a.map(v => r2(v + dy));
+  const mouth = parkLead ? { x: parkLead.xz[0], z: parkLead.xz[1] } : { x: 0, z: 0 };
+  const near = (a, m) => { for (let k = 0; k + 1 < a.length; k += 2) if (Math.hypot(a[k] - mouth.x, a[k + 1] - mouth.z) < m) return true; return false; };
+  // Main Street through the village, 400 m either side of the park road's mouth, on this road's own line and heights
+  const ms = parkRoad.mouthSt, i0 = Math.max(0, Math.floor((ms - 400) / SP)), i1 = Math.min(N - 1, Math.ceil((ms + 400) / SP));
+  const sx = [], sy = []; for (let i = i0; i <= i1; i++) { sx.push(r2(W[i].x), r2(W[i].z)); sy.push(r2(W[i].y)); }
+  const ch = {
+    version: 1, stage: 'chimney', baseM: cs.baseM, source: out.source + ' Re-projected into the ChimneyRock stage frame.',
+    lakeLevelM: out.lakeLevelM, lakeLevelY: r2(out.lakeLevelM - cs.baseM), lidarWaterM: out.lidarWaterM, shoreSlope: out.shoreSlope, maxDepthM: out.maxDepthM,
+    lake: out.lake.map(r => ({ hole: r.hole, xz: xzTo(r.xz) })),
+    riverAreas: out.riverAreas.map(r => ({ hole: r.hole, xz: xzTo(r.xz) })),
+    river: { ...out.river, xz: xzTo(out.river.xz), y: yTo(out.river.y) },
+    carve: chCarve,
+    buildings: out.buildings.filter(b => near(b.xz, 450)).map(b => ({ ...b, xz: xzTo(b.xz), g0: r2(b.g0 + dy), g1: r2(b.g1 + dy) })),
+    roads: [], lots: out.lots.filter(l => near(l.xz, 450)).map(l => ({ ...l, xz: xzTo(l.xz), y: r2(l.y + dy) })),
+    paths: [], crossings: [], speeds: [],
+    streets: [{ st: 0, side: 0, cls: 'primary', w: 7.0, lenM: (i1 - i0) * SP, xz: xzTo(sx), y: yTo(sy) }],
+    parkRoad: { ...parkRoad, xz: xzTo(parkRoad.xz.slice(0, 2)), y: yTo(parkRoad.y.slice(0, 1)), leadXZ: xzTo(parkRoad.leadXZ), leadY: yTo(parkRoad.leadY) },
+  };
+  text = JSON.stringify(ch); outPath = join(ROOT, 'Assets', 'PSXRacing', 'Art', 'ChimneyRock', 'chimney_world.json');
+  console.log(`chimney frame: ${ch.buildings.length} buildings, ${ch.lots.length} lots, Main Street ${(i1 - i0) * SP} m, carve ${chCarve.idx.length} cells`);
+}
+writeFileSync(outPath, text);
 store.saveLedger();
-console.log(`wrote Art/LakeLure/${pre}_world.json (${(text.length / 1024).toFixed(0)} KB); lidar read this run ${(store.sessionBytes() / 1e6).toFixed(1)} MB`);
+console.log(`wrote ${outPath.split(/[\\/]/).slice(-3).join('/')} (${(text.length / 1024).toFixed(0)} KB); lidar read this run ${(store.sessionBytes() / 1e6).toFixed(1)} MB`);

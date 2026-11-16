@@ -31,7 +31,7 @@ namespace PSXRacing.EditorTools
         [Serializable] class WorldRing { public int hole; public float[] xz; }
         [Serializable] class WorldRiver { public float[] xz, y, w, white, speed; }
         [Serializable] class WorldCarve { public int[] idx, dm; }
-        [Serializable] class WorldBuilding { public float[] xz; public float g0, g1; public string kind; public int levels; public string roof; public float height, st; public int side; public float dist, area; public string zone, role; }
+        [Serializable] class WorldBuilding { public float[] xz; public float g0, g1; public string kind; public int levels; public string roof; public float height, st; public int side; public float dist, area, fx, fz; public string zone, role; }
         [Serializable] class WorldRoad { public float st; public int side; public string cls; public float w, lenM; public float[] xz, y; }
         [Serializable] class WorldLot { public float[] xz; public float y, st; public int gravel; }
         [Serializable] class WorldPath { public float[] xz, y; public int deck; public string kind; public float st; }
@@ -64,6 +64,8 @@ namespace PSXRacing.EditorTools
         {
             world = null; worldKeep = null; worldPath = null;
             if (!WorldSwitch("PSX_LURE_WORLD")) return;
+            // the Park Road stage shows the same village, river and bridge at its start (PSX_LURE_CHIMNEY=0: as it was)
+            if (StagePrefix == "chimney" && !WorldSwitch("PSX_LURE_CHIMNEY")) return;
             string path = ProjectRootPath(StageArtDir + "/" + StagePrefix + "_world.json");
             if (!File.Exists(path)) return;
             world = JsonUtility.FromJson<WorldData>(File.ReadAllText(path));
@@ -77,8 +79,61 @@ namespace PSXRacing.EditorTools
                     short want = (short)Mathf.Clamp(world.carve.dm[k], short.MinValue, short.MaxValue);
                     if (want < demNear[i]) { demNear[i] = want; carved++; }
                 }
+            int benched = WorldSwitch("PSX_LURE_TOWN") && world.stage == StagePrefix ? WorldStreetBench() : 0;
+            Log($"Stage world street bench: {benched} near cells lowered to the road beside downtown Lake Lure and Chimney Rock's Main Street.");
             Log($"Stage world: {Path.GetFileName(path)} - {(world.buildings?.Length ?? 0)} buildings, {(world.roads?.Length ?? 0)} side roads, " +
                 $"lake at {world.lakeLevelM:0.0} m, river {(world.river?.y?.Length ?? 0)} stations; {carved} near cells carved under the river.");
+        }
+
+        /// <summary>The stretches that are a STREET, not a mountain road: downtown
+        /// Lake Lure and Chimney Rock village (metres along the route).</summary>
+        static readonly Vector2[] WorldStreets = { new Vector2(5050f, 6150f), new Vector2(6880f, 8040f) };
+        static bool WorldOnStreet(float m) { foreach (var z in WorldStreets) if (m >= z.x && m <= z.y) return true; return false; }
+
+        /// <summary>
+        /// THE STREET BENCH. Beside a village street the land a 12 m lattice
+        /// reads rises off the shoulder (the lidar's ground under the shops and
+        /// the hill behind them, smoothed together), and the stage builder cuts
+        /// a rock face into it - a stone wall in front of the storefronts. On
+        /// the two street stretches the near grid is LOWERED (never raised: the
+        /// river side falls away under the shops on posts) to the road's height
+        /// out to 10 m past the tarmac edge, easing back to the land by 16 m, and
+        /// only where the land stands under 3.5 m over the road (a real wall
+        /// higher than that stays a wall).
+        /// </summary>
+        static int WorldStreetBench()
+        {
+            var pts = track.stagePts; if (pts == null || demNear == null) return 0;
+            var m = demNearMeta; float half = track.roadWidth * 0.5f; int n = 0;
+            // each near cell's nearest street station, visiting only the cells within 30 m of one
+            var near = new Dictionary<int, Vector2>();   // cell -> (d^2, station)
+            foreach (var zr in WorldStreets)
+                for (int i = Mathf.Max(0, (int)(zr.x / Spacing)); i <= Mathf.Min(pts.Length - 1, (int)(zr.y / Spacing)); i++)
+                {
+                    int c0 = Mathf.Max(0, (int)((pts[i].x - 30f - m.originX) / m.cell)), c1 = Mathf.Min(m.cols - 1, (int)((pts[i].x + 30f - m.originX) / m.cell) + 1);
+                    int r0 = Mathf.Max(0, (int)((pts[i].z - 30f - m.originZ) / m.cell)), r1 = Mathf.Min(m.rows - 1, (int)((pts[i].z + 30f - m.originZ) / m.cell) + 1);
+                    for (int r = r0; r <= r1; r++)
+                        for (int c = c0; c <= c1; c++)
+                        {
+                            float x = m.originX + c * m.cell, z = m.originZ + r * m.cell;
+                            float d2 = (pts[i].x - x) * (pts[i].x - x) + (pts[i].z - z) * (pts[i].z - z);
+                            int k = r * m.cols + c;
+                            if (d2 < 900f && (!near.TryGetValue(k, out var v) || d2 < v.x)) near[k] = new Vector2(d2, i);
+                        }
+                }
+            foreach (var kv in near)
+            {
+                int k = kv.Key, best = (int)kv.Value.y;
+                float d = Mathf.Sqrt(kv.Value.x) - half;
+                if (d < 0.5f || d > 16f) continue;
+                float target = pts[best].y - 0.08f;
+                float have = demNear[k] * 0.1f;
+                if (have <= target || have - target > 3.5f) continue;
+                float keep = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(10f, 16f, d));
+                short want = (short)Mathf.RoundToInt((target + (have - target) * keep) * 10f);
+                if (want < demNear[k]) { demNear[k] = want; n++; }
+            }
+            return n;
         }
 
         static Vector3[] WorldPts(float[] xz, float y = 0f)
@@ -364,6 +419,10 @@ namespace PSXRacing.EditorTools
                             if (!anyIn) continue;
                             bool wet = ground[i00] < y || ground[i01] < y || ground[i10] < y || ground[i11] < y;
                             if (!wet) continue;
+                            // a corner outside the outline far under the water is another valley (below the dam), not the lake
+                            bool deepOut = (dist[i00] == 0f && ground[i00] < y - 5f) || (dist[i01] == 0f && ground[i01] < y - 5f)
+                                        || (dist[i10] == 0f && ground[i10] < y - 5f) || (dist[i11] == 0f && ground[i11] < y - 5f);
+                            if (deepOut) continue;
                             float mx = minX + (c + 0.5f) * LakeCell, mz = minZ + (r + 0.5f) * LakeCell;
                             if (!inside[i00] && !inside[i11] && riverRings.Count > 0 && InRiverArea(mx, mz)) continue;
                             int a = Vert(c, r), b = Vert(c + 1, r), d = Vert(c, r + 1), e = Vert(c + 1, r + 1);

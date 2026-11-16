@@ -420,7 +420,6 @@ namespace PSXRacing.EditorTools
                 demWideMeta = meta.wide;
                 demWide = ReadDemBytes(pre + "_dem_wide.bytes", meta.wide);
             }
-            StageWorldLoad();   // the stage's world file (lake, river, town) and its river carve: PSXRacingBuilder.StageRiver.cs
 
             // The surface mask is optional: a stage inland has nothing to
             // classify. Its absence is not an error, but a mask that does not
@@ -468,6 +467,7 @@ namespace PSXRacing.EditorTools
                 hasTunnels |= tunnelIn[i];
             }
             if (hasTunnels) Log("Stage tunnels: " + track.tunnels.Length + " span(s).");
+            StageWorldLoad();   // the stage's world file (lake, river, town): its river carve and street bench (PSXRacingBuilder.StageRiver.cs)
 
             EnsureStageArt();
             GenerateStageTextures();

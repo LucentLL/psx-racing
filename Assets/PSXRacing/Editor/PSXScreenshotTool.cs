@@ -299,6 +299,15 @@ namespace PSXRacing.EditorTools
             var path = Object.FindFirstObjectByType<TrackPath>();
             if (path == null || path.Count < 4) return;
             var t = player.transform;
+            // PSX_SHOT_NOON=1: the game's noon (TrackMapShots' light), for sheets against midday photographs
+            if (System.Environment.GetEnvironmentVariable("PSX_SHOT_NOON") == "1")
+            {
+                Light sunL = null;
+                foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.type == LightType.Directional) { sunL = l; break; }
+                if (sunL != null) TimeOfDay.Apply(TimeOfDay.Noon, sunL);
+                var pg = Object.FindFirstObjectByType<PSXGlobals>();
+                if (pg != null) pg.Apply();
+            }
             // The car's height over its own road point, kept wherever it is put.
             int home = path.NearestIndex(t.position);
             float lift = t.position.y - path.GetPoint(home).y;

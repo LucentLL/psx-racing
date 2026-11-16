@@ -201,12 +201,14 @@ namespace PSXRacing.EditorTools
             Physics.SyncTransforms();
             LoadSignUv();
             bool town = WorldSwitch("PSX_LURE_TOWN"), mouths = WorldSwitch("PSX_LURE_MOUTHS");
-            if (mouths) { BuildWorldMouths(pts, parent); BuildWorldParkRoad(parent); }
+            // another stage's frame (the Park Road stage's start): the place, not this road's own furniture
+            bool own = world.stage == StagePrefix;
+            if (mouths) { if (own) BuildWorldMouths(pts, parent); BuildWorldParkRoad(parent); }
             if (town)
             {
+                BuildWorldStreets(parent);
                 BuildWorldBuildings(pts, parent);
-                BuildWorldWalksAndBridges(pts, parent);
-                BuildWorldFurniture(pts, parent);
+                if (own) { BuildWorldWalksAndBridges(pts, parent); BuildWorldFurniture(pts, parent); }
             }
         }
 
@@ -247,7 +249,17 @@ namespace PSXRacing.EditorTools
                     : zone == "village" ? (h % 10 < 7 ? 2 : 1) : shop ? (h % 10 < 4 ? 2 : 1) : (h % 10 < 5 ? 2 : 1);
                 float storey = shop ? 3.4f : kind == "shed" || kind == "garage" ? 2.7f : role == "church" ? 5.5f : 3.0f;
                 float baseY = gMin - 0.6f;
-                float floorY = gMin + 0.25f + Mathf.Min(1.2f, (gMax - gMin) * 0.35f);
+                // ON POSTS where the ground falls away under it (the village's river-side shops stood
+                // over the bank on posts): the floor at the high side, posts and a beam below
+                bool stilts = (gMax - gMin) > 1.8f && zone != "lake" && zone != "downtown";
+                float floorY = stilts ? gMax + 0.2f : gMin + 0.25f + Mathf.Min(1.2f, (gMax - gMin) * 0.35f);
+                // a street front stands at the street's level (the bench lowered the land before it)
+                float streetY = stageWp[StationAt(b.st)].y;
+                if (world.stage == StagePrefix && WorldOnStreet(b.st) && b.dist < 32f && Mathf.Abs(b.g0 - streetY) < 3.5f)
+                {
+                    floorY = stilts ? Mathf.Max(streetY + 0.15f, Mathf.Min(floorY, streetY + 0.6f)) : streetY + 0.15f;
+                    baseY = Mathf.Min(baseY, floorY - 0.8f);
+                }
                 float eave = floorY + floors * storey;
                 // the look
                 string wall, roofMat; float pitchDeg;
@@ -280,7 +292,9 @@ namespace PSXRacing.EditorTools
                 bool gable = !canopy && pitchDeg > 0f && fill >= 0.72f && b.area < 1400f;
                 // toward the road
                 Vector3 roadAt = stageWp[StationAt(b.st)];
-                Vector3 toRoad = new Vector3(roadAt.x - cen.x, 0, roadAt.z - cen.z).normalized;
+                // the way to the road it fronts, from the bake (frame-free: right in another stage's frame too)
+                Vector3 toRoad = (b.fx * b.fx + b.fz * b.fz) > 0.25f ? new Vector3(b.fx, 0, b.fz).normalized
+                               : new Vector3(roadAt.x - cen.x, 0, roadAt.z - cen.z).normalized;
                 int front = -1; float frontDot = 0.35f;
                 var cv = collV[chunk]; var ct = collT[chunk];
                 // ----- walls
@@ -294,9 +308,28 @@ namespace PSXRacing.EditorTools
                     float wu = wall == "siding" ? 4f : 2.5f;
                     float top = gable ? eave : eave + (pitchDeg > 0f || canopy ? 0f : 0.7f);
                     Vector3 A0 = new Vector3(a.x, baseY, a.z), C0 = new Vector3(c.x, baseY, c.z), A1 = new Vector3(a.x, top, a.z), C1 = new Vector3(c.x, top, c.z);
-                    // stone footing to the floor, then the wall
-                    buf.Quad("stone", A0, new Vector3(a.x, floorY, a.z), new Vector3(c.x, floorY, c.z), C0,
-                             new Vector2(0, 0), new Vector2(0, (floorY - baseY) / 2f), new Vector2(len / 2f, (floorY - baseY) / 2f), new Vector2(len / 2f, 0));
+                    // stone footing to the floor, then the wall - or, over a fall, posts and a beam
+                    float ga = WorldGroundY(a.x, a.z), gc = WorldGroundY(c.x, c.z);
+                    if (stilts && Mathf.Min(ga, gc) < floorY - 1.0f)
+                    {
+                        int np = Mathf.Max(1, Mathf.RoundToInt(len / 2.4f));
+                        for (int k = 0; k <= np; k++)
+                        {
+                            Vector3 q = Vector3.Lerp(a, c, k / (float)np) - outN * 0.12f;
+                            float g = WorldGroundY(q.x, q.z) - 0.4f;
+                            if (floorY - g > 0.3f) buf.Box("darkwood", new Vector3(q.x, (g + floorY) * 0.5f, q.z), dir, Vector3.up, outN, 0.11f, (floorY - g) * 0.5f, 0.11f);
+                        }
+                        Vector3 bm = (a + c) * 0.5f - outN * 0.1f;
+                        buf.Box("darkwood", new Vector3(bm.x, floorY - 0.15f, bm.z), dir, Vector3.up, outN, len * 0.5f, 0.15f, 0.1f);
+                        A0 = new Vector3(a.x, floorY - 0.3f, a.z); C0 = new Vector3(c.x, floorY - 0.3f, c.z);
+                    }
+                    else
+                    {
+                        float fb = stilts ? Mathf.Min(ga, gc) - 0.6f : baseY;
+                        A0 = new Vector3(a.x, fb, a.z); C0 = new Vector3(c.x, fb, c.z);
+                        buf.Quad("stone", A0, new Vector3(a.x, floorY, a.z), new Vector3(c.x, floorY, c.z), C0,
+                                 new Vector2(0, 0), new Vector2(0, (floorY - fb) / 2f), new Vector2(len / 2f, (floorY - fb) / 2f), new Vector2(len / 2f, 0));
+                    }
                     buf.Quad(wall, new Vector3(a.x, floorY, a.z), A1, C1, new Vector3(c.x, floorY, c.z),
                              new Vector2(0, 0), new Vector2(0, (top - floorY) / 2.5f), new Vector2(len / wu, (top - floorY) / 2.5f), new Vector2(len / wu, 0));
                     int ci = cv.Count; cv.Add(A0); cv.Add(A1); cv.Add(C1); cv.Add(C0); ct.Add(ci); ct.Add(ci + 2); ct.Add(ci + 1); ct.Add(ci); ct.Add(ci + 3); ct.Add(ci + 2);
@@ -323,6 +356,27 @@ namespace PSXRacing.EditorTools
                                      new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0));
                         }
                     }
+                }
+                if (stilts)
+                {
+                    var ccwF = new List<Vector3>(ring); ccwF.Reverse();
+                    var triF = EarClip(ccwF);
+                    float fy = floorY - 0.3f;
+                    for (int k = 0; k + 2 < triF.Count; k += 3)
+                    {
+                        Vector3 p0 = ccwF[triF[k]], p1 = ccwF[triF[k + 1]], p2 = ccwF[triF[k + 2]];
+                        // facing DOWN: the counter-clockwise triangle given the other way round
+                        buf.Tri("planks", new Vector3(p0.x, fy, p0.z), new Vector3(p2.x, fy, p2.z), new Vector3(p1.x, fy, p1.z),
+                                new Vector2(p0.x / 2f, p0.z / 2f), new Vector2(p2.x / 2f, p2.z / 2f), new Vector2(p1.x / 2f, p1.z / 2f));
+                    }
+                }
+                if (!canopy)
+                {
+                    var ccwC = new List<Vector3>(ring); ccwC.Reverse();
+                    var triC = EarClip(ccwC);
+                    int cb = cv.Count;
+                    foreach (var p in ccwC) cv.Add(new Vector3(p.x, eave, p.z));
+                    for (int k = 0; k + 2 < triC.Count; k += 3) { ct.Add(cb + triC[k]); ct.Add(cb + triC[k + 2]); ct.Add(cb + triC[k + 1]); }
                 }
                 // ----- roof
                 float ov = 0.4f;
@@ -482,14 +536,14 @@ namespace PSXRacing.EditorTools
         /// <summary>Every road that meets the route: its mouth flared onto the
         /// tarmac edge (covering the edge line across it), laid on the ground
         /// for <see cref="MouthLenM"/> and closed there by a Type III barricade.</summary>
-        const float MouthLenM = 15f, MouthClosedAtM = 13.5f;
+        const float MouthLenM = 24f, MouthClosedOutM = 13.5f;
 
         static void BuildWorldMouths(List<Vector3> pts, Transform parent)
         {
             if (world.roads == null) return;
             float halfW = RoadWidth * 0.5f;
             var surf = new TownBuf(); var furn = new TownBuf();
-            int built = 0, walled = 0, shortOnes = 0, closures = 0;
+            int built = 0, walled = 0, shortOnes = 0, closures = 0, facedOut = 0;
             float parkSt = world.parkRoad != null ? world.parkRoad.mouthSt : -1e9f;
             foreach (var r in world.roads)
             {
@@ -529,6 +583,15 @@ namespace PSXRacing.EditorTools
                 const int across = 6;
                 int v0 = surf.Count;
                 var colV = new List<Vector3>(); var colT = new List<int>();
+                // the stub ends where it is closed: the first row standing MouthClosedOutM past the tarmac edge
+                int closeRow = -1;
+                for (int ri = 0; ri < rows.Count; ri++)
+                {
+                    StageCorridor(rows[ri].c.x, rows[ri].c.z, 80f, out RoadFoot fr);
+                    if (fr.d >= halfW + MouthClosedOutM) { closeRow = ri; break; }
+                }
+                if (closeRow > 0) rows.RemoveRange(closeRow + 2, Mathf.Max(0, rows.Count - closeRow - 2));
+                else if (rows.Count > 16) rows.RemoveRange(16, rows.Count - 16);
                 for (int ri = 0; ri < rows.Count; ri++)
                 {
                     var (c, n, d) = rows[ri];
@@ -561,11 +624,29 @@ namespace PSXRacing.EditorTools
                             colT.Add(ca); colT.Add(ca + across + 2); colT.Add(ca + across + 1); colT.Add(ca); colT.Add(ca + 1); colT.Add(ca + across + 2);
                         }
                 }
-                TownCollider(colV, colT, "Mouth_" + built, parent, RoadLayer);
-                // the closure, if the stub reached it
-                if (rows.Count > MouthClosedAtM)
+                // A FACE ACROSS THE MOUTH (the road's own cut bank, a ditch's lip): no mouth there. The stage
+                // builder plans its roadside without the side roads; a stub laid over a rock face is not a road.
+                bool faced = false;
+                for (int ri = 1; ri < rows.Count && !faced; ri++)
+                    for (int k = 0; k <= across; k++)
+                    {
+                        float y0 = colV[(ri - 1) * (across + 1) + k].y, y1 = colV[ri * (across + 1) + k].y;
+                        if (Mathf.Abs(y1 - y0) > 0.45f) { faced = true; break; }
+                        if (k > 0 && Mathf.Abs(colV[ri * (across + 1) + k].y - colV[ri * (across + 1) + k - 1].y) > 0.6f) { faced = true; break; }
+                    }
+                if (faced)
                 {
-                    var (c, n, _) = rows[Mathf.RoundToInt(MouthClosedAtM)];
+                    // take the stub back out of the buffer
+                    int drop = surf.v.Count - v0;
+                    surf.v.RemoveRange(v0, drop); surf.uv.RemoveRange(v0, drop);
+                    if (surf.sub.TryGetValue("asphalt", out var tl)) tl.RemoveAll(ix => ix >= v0);
+                    facedOut++;
+                    continue;
+                }
+                // the closure, if the stub reached it (no collider under the stub: it is laid on the ground a wheel meets)
+                if (closeRow > 0)
+                {
+                    var (c, n, _) = rows[closeRow];
                     float y = DrapeY(c.x, c.z);
                     Vector3 fwd = new Vector3(n.z, 0, -n.x);
                     BuildBarricade(furn, parent, new Vector3(c.x, y, c.z), n, fwd, Mathf.Min(r.w - 0.4f, 6.5f), built);
@@ -573,9 +654,10 @@ namespace PSXRacing.EditorTools
                 }
                 built++;
             }
-            TownEmit(surf, "Mouths", parent, RoadLayer);
+            TownEmit(surf, "Mouths", parent);
             TownEmit(furn, "MouthClosures", parent);
-            Log($"Stage world side roads: {built} mouths laid ({closures} closed by barricades at {MouthClosedAtM:0.0} m), {walled} left out where the road's own barrier runs across the mouth, {shortOnes} too short to lay.");
+            Log($"Stage world side roads: {built} mouths laid ({closures} closed by barricades {MouthClosedOutM:0.0} m past the tarmac edge), {walled} left out where the road's own barrier runs across the mouth, " +
+                $"{facedOut} where a cut bank or a ditch lip runs across it, {shortOnes} too short to lay.");
         }
 
         /// <summary>A Type III barricade: two legs, three striped rails, ROAD
@@ -612,7 +694,16 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < on.Length; i++) on[i].y = pr.y[i];
             var line = new List<Vector3>(lead);
             float upto = pr.startLineM + 150f;
-            for (int i = 1; i < on.Length && i * pr.spacing <= upto; i++) line.Add(on[i]);
+            bool own = world.stage == StagePrefix;
+            if (own) for (int i = 1; i < on.Length && i * pr.spacing <= upto; i++) line.Add(on[i]);
+            else
+            {
+                // the Park Road stage draws its own road from its waypoint 0 (and its end pad 6 m back over the bridge)
+                int cut = line.Count;
+                for (int i = 0; i < line.Count; i++) if (StageCorridor(line[i].x, line[i].z, 40f, out RoadFoot fo) && fo.station < 0.5f && Vector3.Distance(line[i], stageWp[0]) < 6.5f) { cut = i; break; }
+                line.RemoveRange(cut, line.Count - cut);
+                if (line.Count < 4) return;
+            }
             float halfW = RoadWidth * 0.5f, w = 6.1f;           // the park road is built 6.1 m wide in its own stage
             var surf = new TownBuf(); var bridge = new TownBuf();
             var colV = new List<Vector3>(); var colT = new List<int>();
@@ -625,7 +716,7 @@ namespace PSXRacing.EditorTools
                 Vector3 a = line[Mathf.Max(0, i - 1)], b = line[Mathf.Min(line.Count - 1, i + 1)];
                 Vector3 t = b - a; t.y = 0; t.Normalize(); Vector3 n = new Vector3(-t.z, 0, t.x);
                 StageCorridor(line[i].x, line[i].z, 80f, out RoadFoot f);
-                if (!started) { if (f.d < halfW - 0.45f) continue; started = true; v0 = surf.Count; }
+                if (!started) { if (own ? f.d < halfW - 0.45f : S[i] < 3.0f) continue; started = true; v0 = surf.Count; }
                 bool deck = S[i] >= pr.deckFrom - 0.5f && S[i] <= pr.deckTo + 0.5f;
                 float flare = S[i] < 6f ? 3f * (1f - S[i] / 6f) * (1f - S[i] / 6f) : 0f;
                 float hw = w * 0.5f + flare;
@@ -686,11 +777,50 @@ namespace PSXRacing.EditorTools
             TownEmit(bridge, "ParkBridge", parent);
             // closed for the race at the mouth, before the bridge
             var furn = new TownBuf();
-            int ci = 1; while (ci < S.Count - 1 && S[ci] < 13f) ci++;
+            int ci = 1;
+            while (ci < S.Count - 1) { StageCorridor(line[ci].x, line[ci].z, 120f, out RoadFoot fc); if (S[ci] >= 13f && fc.d >= halfW + MouthClosedOutM) break; ci++; }
             Vector3 cc = line[ci]; Vector3 tt = line[ci] - line[ci - 1]; tt.y = 0; tt.Normalize();
             BuildBarricade(furn, parent, new Vector3(cc.x, DrapeY(cc.x, cc.z), cc.z), new Vector3(-tt.z, 0, tt.x), tt, w - 0.6f, 900);
             TownEmit(furn, "ParkClosure", parent);
             Log($"Stage world park road: {S[S.Count - 1]:0} m from Main Street on the Park Road stage's own line, its river bridge {pr.deckFrom:0}-{pr.deckTo:0} m ({pr.deckTo - pr.deckFrom:0} m), closed at the mouth.");
+        }
+
+        /// <summary>Streets the world file carries whole (Main Street, in the Park
+        /// Road stage): the road's own heights, laid on the ground, a collider
+        /// on the Road layer.</summary>
+        static void BuildWorldStreets(Transform parent)
+        {
+            if (world.streets == null) return;
+            int n = 0;
+            foreach (var st in world.streets)
+            {
+                if (st.xz == null || st.xz.Length < 4) continue;
+                var line = WorldPts(st.xz);
+                var surf = new TownBuf(); var colV = new List<Vector3>(); var colT = new List<int>();
+                for (int i = 0; i < line.Length; i++)
+                {
+                    Vector3 a = line[Mathf.Max(0, i - 1)], b = line[Mathf.Min(line.Length - 1, i + 1)];
+                    Vector3 t = b - a; t.y = 0; t.Normalize(); Vector3 nn = new Vector3(-t.z, 0, t.x);
+                    for (int k = 0; k <= 4; k++)
+                    {
+                        Vector3 p = line[i] + nn * ((-1f + 0.5f * k) * st.w * 0.5f);
+                        p.y = Mathf.Max(st.y[i], DrapeY(p.x, p.z)) + 0.02f;
+                        surf.v.Add(p); surf.uv.Add(new Vector2(p.x / 6f, p.z / 6f)); colV.Add(p);
+                    }
+                    if (i > 0)
+                        for (int k = 0; k < 4; k++)
+                        {
+                            int q = (i - 1) * 5 + k;
+                            if (!surf.sub.TryGetValue("asphalt", out var l)) surf.sub["asphalt"] = l = new List<int>();
+                            l.Add(q); l.Add(q + 6); l.Add(q + 5); l.Add(q); l.Add(q + 1); l.Add(q + 6);
+                            colT.Add(q); colT.Add(q + 6); colT.Add(q + 5); colT.Add(q); colT.Add(q + 1); colT.Add(q + 6);
+                        }
+                }
+                TownEmit(surf, "Street_" + n, parent, RoadLayer);
+                TownCollider(colV, colT, "Street_" + n, parent, RoadLayer);
+                n++;
+            }
+            Log($"Stage world streets: {n} drawn whole (Main Street through the village).");
         }
 
         // ------------------------------------- walks, boardwalk, the Flowering Bridge
