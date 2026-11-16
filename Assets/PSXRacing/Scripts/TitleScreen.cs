@@ -196,15 +196,19 @@ namespace PSXRacing
             Debug.Log("[TitleScreen] the postcard, held still (PSX_TITLE_DRONE=1 for the drone's shots)");
         }
 
+        float stillQuitAt = -1f;
+
         void StepStill()
         {
+            // the quit runs on the real clock: the title may hold the game's time still, and Invoke would never fire
+            if (stillQuitAt > 0f && Time.unscaledTime >= stillQuitAt) { stillQuitAt = -1f; Application.Quit(); return; }
             if (droneOn || stillShotAt < 0f || Time.unscaledTime < stillShotAt) return;
             stillShotAt = -1f;
             System.IO.Directory.CreateDirectory(shotsDir);
             string file = System.IO.Path.Combine(shotsDir, "title_still_Postcard.png");
             ScreenCapture.CaptureScreenshot(file);
             Debug.Log("[TitleScreen] shot photographed: " + file);
-            Invoke(nameof(QuitAfterShots), 1.5f);
+            stillQuitAt = Time.unscaledTime + 1.5f;
         }
 
         // =================== the parked car ===================
