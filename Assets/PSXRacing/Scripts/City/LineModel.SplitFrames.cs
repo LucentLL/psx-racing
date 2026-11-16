@@ -69,6 +69,8 @@ namespace PSXRacing.City
             /// <summary>The node's nose (both frames carry it): the tip's u (NaN: none) and the
             /// flank's length; the audit's design table.</summary>
             public float uTip = float.NaN, noseLn;
+            /// <summary>Phase C: the drawn lanes' furthest distance off their own line over the blend.</summary>
+            public float devMax;
             public float HAt(float uu)
             {
                 var U = ownU; var H = ownH;
@@ -145,8 +147,8 @@ namespace PSXRacing.City
 
         static void ClearSplitFrames()
         {
-            splitFrameEdge.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0;
+            splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
+            SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
         /// <summary>Phase C (NoseMarks): the undivided edge of a framed node (a same-name meeting has no SPLT record).</summary>
@@ -166,6 +168,14 @@ namespace PSXRacing.City
         {
             left = default;
             if (splitFrameEdge.Count == 0 || !splitFrameEdge.TryGetValue(e.index, out var f)) return false;
+            if (FrameNormalOf(f, e, s, out left)) return true;
+            // Phase C: a short island's carriageway carries a profile from each of its ends (the second one's
+            // half of the island takes its own path's normal)
+            return splitFrameEdge2.Count > 0 && splitFrameEdge2.TryGetValue(e.index, out var f2) && FrameNormalOf(f2, e, s, out left);
+        }
+        static bool FrameNormalOf(SplitFrame f, CityMap.Edge e, float s, out Vector2 left)
+        {
+            left = default;
             int h = f.hintK;
             f.Foot(e.PointAt(s), ref h, out float uu, out _, out var lf);
             f.hintK = h;
@@ -174,6 +184,8 @@ namespace PSXRacing.City
             left = Vector2.Dot(lf, new Vector2(-t.y, t.x)) >= 0f ? lf : -lf;
             return true;
         }
+        /// <summary>Phase C: the second frame on an edge (a short island profiled from both its ends).</summary>
+        static readonly Dictionary<int, SplitFrame> splitFrameEdge2 = new Dictionary<int, SplitFrame>();
 
         /// <summary>Rmin (m) at e = -2 % (Green Book 2018 Table 3-7 via Iowa DM 2B), by mph.</summary>
         public static float RminAt(float mph)
@@ -343,7 +355,12 @@ namespace PSXRacing.City
                 if (chain.Count == 0 || clen < 20f) { Skip(ci, $"carriageway chain only {clen:0.0} m"); continue; }
                 // a short island (both ends split nodes within RefugeMaxM) takes the refuge path: a pair
                 // the medians gate did not accept draws as live, never a one-ended profile
-                if (splitNodes.Contains(far) && clen <= RefugeMaxM) { Skip(ci, $"short island to n{far} ({clen:0.0} m): the refuge path"); continue; }
+                // Phase C (scope city, PSX_CITY_SHORTPROFILE=0 off): a short island the medians gate did not
+                // draw as a refuge pair (PC45's taper: each end shifted out and RoomAlong letting both run to the
+                // far node - a constant 5-7 m lens, 482 ends city-wide) takes the profile from each of its ends,
+                // each blending onto its own line within 45 % of the island: OSM's island at its middle
+                bool shortIsland = splitNodes.Contains(far) && clen <= RefugeMaxM;
+                if (shortIsland && !(CityPhaseC && PhaseCShortOn)) { Skip(ci, $"short island to n{far} ({clen:0.0} m): the refuge path"); continue; }
                 // the carriageway's frame against the axis (as the SPLT block): its outer side
                 var tc = C.a == sp.node ? C.TangentAt(0f) : C.TangentAt(C.length);
                 float sign = Vector2.Dot(leftU, new Vector2(-tc.y, tc.x)) >= 0f ? 1f : -1f;
@@ -414,6 +431,7 @@ namespace PSXRacing.City
                 // PHASE C (scope city): the move read over the whole blend, the end where the own line runs on
                 // parallel, never a junction crossed off the own line (PhaseCLength)
                 if (CityPhaseC) L = PhaseCLength(map, f, rate, rmin, uMax, L);
+                if (CityPhaseC) f.devMax = BlendDev(f, Mathf.Min(L, Mathf.Max(10f, f.room)));
                 if (L > f.room) { f.capped = true; f.note = $"room {f.room:0.0} m for L {L:0.0} m" + (f.note.Length > 0 ? "; " + f.note : ""); L = Mathf.Max(10f, f.room); }
                 f.L = L; f.uEnd = f.uStart + L;
                 f.qEnd = f.OwnQAt(f.uEnd);
@@ -575,6 +593,7 @@ namespace PSXRacing.City
                         var list = add[e.index] ??= new List<Ease>(3);
                         list.Add(new Ease { shift = true, fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = ds, tag = f.tag });
                         if (!splitFrameEdge.ContainsKey(ei)) splitFrameEdge[ei] = f;
+                        else if (splitFrameEdge[ei] != f && !splitFrameEdge2.ContainsKey(ei)) splitFrameEdge2[ei] = f;
                     }
                     if (anyW && wSide != 0)
                     {
@@ -620,8 +639,26 @@ namespace PSXRacing.City
         //     blend ends PhaseCJunctionClearM before it where the drawn lanes
         //     would still be more than PhaseCJunctionOffM off the own line there
         //     (the side street meets the carriageway where OSM has it).
-        public const float PhaseCMaxL = 240f, PhaseCEndSlope = 0.08f, PhaseCJunctionOffM = 0.5f, PhaseCJunctionClearM = 6f;
-        public static int PhaseCLonger, PhaseCCurving, PhaseCJunctionCap;
+        public const float PhaseCMaxL = 240f, PhaseCEndSlope = 0.08f, PhaseCJunctionOffM = 0.5f, PhaseCJunctionClearM = 6f, PhaseCDevLaneM = 3.66f;
+        /// <summary>PSX_CITY_SHORTPROFILE=0: short islands off the refuge list keep PC45's taper under city too.</summary>
+        public static bool PhaseCShortOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHORTPROFILE") != "0";
+        public static int PhaseCLonger, PhaseCCurving, PhaseCJunctionCap, PhaseCDevCap;
+
+        /// <summary>A blend of length L's furthest distance off the own line (the Hermite TAt would draw).</summary>
+        static float BlendDev(SplitFrame f, float L)
+        {
+            L = Mathf.Max(1f, L);
+            float qE = f.OwnQAt(f.uStart + L);
+            float sE = Mathf.Clamp((f.OwnQAt(f.uStart + L + 2f) - f.OwnQAt(f.uStart + L - 2f)) / 4f, -0.15f, 0.15f);
+            float dev = 0f;
+            for (float x = 0f; x <= L + 1e-3f; x += 1f)
+            {
+                float t = x / L, t2 = t * t, t3 = t2 * t;
+                float q = f.lambda0 * (2f * t3 - 3f * t2 + 1f) + qE * (-2f * t3 + 3f * t2) + L * sE * (t3 - t2);
+                dev = Mathf.Max(dev, Mathf.Abs(q - f.OwnQAt(f.uStart + x)));
+            }
+            return dev;
+        }
 
         static float PhaseCLength(CityMap map, SplitFrame f, float rate, float rmin, float uMax, float L1)
         {
@@ -637,12 +674,42 @@ namespace PSXRacing.City
                 if (Ln <= L + 0.05f) break;
                 L = Ln;
             }
-            // the end where the own line runs on parallel (a divergence that settles)
+            // the end where the own line runs on parallel and straight (a divergence that settles; the top of
+            // a bow is level but not straight: the next 30 m must stay within 0.4 m of the tangent there)
+            bool Settled(float uu)
+            {
+                float sl = Slope(uu);
+                if (Mathf.Abs(sl) > PhaseCEndSlope) return false;
+                float q0 = f.OwnQAt(uu);
+                for (float k = 5f; k <= 30f; k += 5f)
+                {
+                    if (uu + k > uMax) break;
+                    if (Mathf.Abs(f.OwnQAt(uu + k) - (q0 + sl * k)) > 0.4f) return false;
+                }
+                return true;
+            }
             float uEnd = float.NaN;
-            for (float uu = f.uStart + L; uu <= uTop; uu += 1f)
-                if (Mathf.Abs(Slope(uu)) <= PhaseCEndSlope) { uEnd = uu; break; }
+            // (the chain ends before the length wanted: the room decides, as J1)
+            if (f.uStart + L >= uTop) uEnd = f.uStart + L;
+            else for (float uu = f.uStart + L; uu <= uTop; uu += 1f)
+                if (Settled(uu)) { uEnd = uu; break; }
             if (float.IsNaN(uEnd)) { PhaseCCurving++; f.note = "Phase C: the own line still turning to its end (a curving road): J1's length"; return L1; }
             L = Mathf.Max(L1, uEnd - f.uStart);
+            // never further off the own line (OSM's carriageway, where the lots, kerbs and buildings are) than
+            // J1's blend was, or than the lanes start off it at the node, plus half a metre - or a lane: a
+            // longer blend across a fast divergence would draw the road metres from where it is (Shopton Rd: 14 m)
+            {
+                float dev0 = Mathf.Abs(f.lambda0 - f.OwnQAt(f.uStart));
+                float lim = Mathf.Max(PhaseCDevLaneM, Mathf.Max(dev0, BlendDev(f, L1)) + 0.5f);
+                if (BlendDev(f, L) > lim)
+                {
+                    float lo = L1, hi = L;
+                    for (int it = 0; it < 12 && hi - lo > 1f; it++) { float mid = 0.5f * (lo + hi); if (BlendDev(f, mid) > lim) hi = mid; else lo = mid; }
+                    PhaseCDevCap++;
+                    f.note = $"Phase C: held to {lim:0.0} m off the own line (L {L:0.0} -> {lo:0.0})";
+                    L = lo;
+                }
+            }
             if (L > L1 + 0.5f) PhaseCLonger++;
             // a side street's junction within the blend, where the lanes would still be off the own line
             float uJ = FirstSideStreetU(map, f);

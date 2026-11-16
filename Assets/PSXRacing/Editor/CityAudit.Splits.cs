@@ -65,7 +65,7 @@ namespace PSXRacing.EditorTools
             Line($"SPLITS AUDIT (J1) run '{tag}': PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, PSX_CITY_BAYEND {(LineModel.BayEndOn ? 1 : 0)}, PSX_CITY_NOSE {(LineModel.NoseRuleOn ? 1 : 0)}, PSX_CITY_REFUGE {(LineModel.RefugeOn ? 1 : 0)}; graph {map.graphHash:x8}; SPLT nodes {map.splt.Length}");
             Line($"  drawn: refuge pairs {LineModel.Refuges.Count / 2} (listed {LineModel.RefugeListedN}), axis-frame carriageway ends {LineModel.SplitFrames.Count}, undivided chord eases {LineModel.SplitUEases}, in-scope 3-arm splits mitred {LineModel.SplitForcedMitre}, BAYEND edges {LineModel.BayEndEdges}, shaped noses {Count(LineModel.SplitNoseNodes)}");
             Line($"  marks: refuge/split noses hatched {ms.noseHatches} ({ms.noseHatchBars} bars), split noses marked {ms.noseSplit} (hatched {ms.noseSplitHatched}), bays opening at a nose {ms.noseBayOpen}, flush tips {ms.noseFlushTip}, turn arrows into a plain nose {ms.noseArrows}");
-            Line($"  PHASE C (scope city {(LineModel.CityPhaseC ? "ON" : "off")}): blends lengthened {LineModel.PhaseCLonger}, curving roads on J1's length {LineModel.PhaseCCurving}, blends ended before a side street {LineModel.PhaseCJunctionCap}, bays kept (not reaching a nose) {LineModel.PhaseCBayKept}, same-name meeting noses marked {ms.noseMeeting}; taper floors {(LineModel.TaperFloorOn ? "ON" : "off")}: SHIFT records lengthened {LineModel.TaperFloorRaised}, tapers short of their floored length for room {LineModel.TaperFloorShort}");
+            Line($"  PHASE C (scope city {(LineModel.CityPhaseC ? "ON" : "off")}): blends lengthened {LineModel.PhaseCLonger}, curving roads on J1's length {LineModel.PhaseCCurving}, blends held near the own line {LineModel.PhaseCDevCap}, blends ended before a side street {LineModel.PhaseCJunctionCap}, bays kept (not reaching a nose) {LineModel.PhaseCBayKept}, same-name meeting noses marked {ms.noseMeeting}; taper floors {(LineModel.TaperFloorOn ? "ON" : "off")}: SHIFT records lengthened {LineModel.TaperFloorRaised}, tapers short of their floored length for room {LineModel.TaperFloorShort}");
             { int q = 0; foreach (var s in LineModel.TaperFloorShortLog) if (q++ < 40) Line("    taper room short: " + s); }
             TaperCensus(map);
             foreach (var l in LineModel.BayEndLog) Line("  BAYEND " + l);
@@ -189,9 +189,15 @@ namespace PSXRacing.EditorTools
             // ---- the ends table and the plan polylines ----
             {
                 // Phase C: every framed end's design (L, room, capped and why) for the analysis
-                var fs = new StringBuilder("node\tedge\tu\tuStart\tL\tuEnd\tdelta\tlambda0\tqEnd\troom\tcapped\tmph\tnote\n");
+                var fs = new StringBuilder("node\tedge\tu\tuStart\tL\tuEnd\tdelta\tlambda0\tqEnd\troom\tcapped\tmph\tx\tz\tdevMax\tname\tnote\n");
                 foreach (var f in LineModel.SplitFrames)
-                    fs.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3:0.0}\t{4:0.0}\t{5:0.0}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9:0.0}\t{10}\t{11:0.0}\t{12}\n", f.node, f.edge, f.u, f.uStart, f.L, f.uEnd, f.delta, f.lambda0, f.qEnd, f.room, f.capped ? 1 : 0, f.mph, f.note));
+                    fs.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3:0.0}\t{4:0.0}\t{5:0.0}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9:0.0}\t{10}\t{11:0.0}\t{12:0.0}\t{13:0.0}\t{14:0.00}\t{15}\t{16}\n", f.node, f.edge, f.u, f.uStart, f.L, f.uEnd, f.delta, f.lambda0, f.qEnd, f.room, f.capped ? 1 : 0, f.mph, f.p0.x, f.p0.y, f.devMax, map.edges[f.u].name, f.note));
+                // every SPLT node's position and road (the spot lists)
+                var ns = new StringBuilder("node\tx\tz\tname\tmph\n");
+                foreach (var sp in map.splt)
+                    if (sp.u >= 0 && sp.u < map.edges.Length)
+                        ns.Append(string.Format(inv, "{0}\t{1:0.0}\t{2:0.0}\t{3}\t{4:0.0}\n", sp.node, map.nodes[sp.node].x, map.nodes[sp.node].y, map.edges[sp.u].name, LineModel.SplitSpeedMph(map.edges[sp.u])));
+                File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_splits_nodes.tsv"), ns.ToString());
                 File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_splits_frames.tsv"), fs.ToString());
             }
             var tsv = new StringBuilder("tag\tnode\tu\tc\tkind\tmph\trate\tq0\tqF\tW\tLt\tpeak\trEq\tover\tangle\tjump\tbulge\tmed20\tq20\town20\tmono\thalfOk\tfullOk\tpass\n");

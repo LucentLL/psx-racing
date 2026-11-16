@@ -126,6 +126,58 @@ namespace PSXRacing.EditorTools
                     }
                     finally { foreach (var c in canv) c.enabled = true; }
                 }
+                // PHASE C (splits2): PSX_SPLITS_SPOTS = node:x:z,... (any split node city-wide) - a top frame 78 m
+                // over the node and a driver-height frame (1.15 m, the inner travel lane in, 34 m before the node,
+                // looking along the undivided road's axis), at noon, the car out of view
+                string spots = System.Environment.GetEnvironmentVariable("PSX_SPLITS_SPOTS");
+                if (!string.IsNullOrEmpty(spots) && want.Contains("spots"))
+                {
+                    Light("noon");
+                    var canv = new List<Canvas>();
+                    foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) if (c.enabled) { c.enabled = false; canv.Add(c); }
+                    try
+                    {
+                        foreach (var tok in spots.Split(','))
+                        {
+                            if (!int.TryParse(tok.Trim().TrimStart('n'), out int n) || n < 0 || n >= map.nodes.Length) continue;
+                            var c = map.nodes[n];
+                            int ui = -1;
+                            if (LineModel.SplitUOf(map, n, out int u0)) ui = u0;
+                            else if (LineModel.SplitMeetingU(n, out int u1)) ui = u1;
+                            else foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (!e.oneway && !e.link) ui = ei; }
+                            if (ui < 0) { log.Append($"spot n{n}: no undivided road\n"); continue; }
+                            var U = map.edges[ui];
+                            var pb = U.PointAt(U.a == n ? Mathf.Min(30f, U.length) : Mathf.Max(0f, U.length - 30f));
+                            Vector2 ax = (c - pb).sqrMagnitude > 1f ? (c - pb).normalized : Vector2.up;
+                            var right = new Vector2(ax.y, -ax.x);
+                            float y = 0f;
+                            if (map.NearestRoadPoint(c, 40f, false, out int ej, out float sj, out _)) y = map.edges[ej].YAt(sj);
+                            world.EnsureRing(new Vector3(c.x, y, c.y), 1);
+                            PSXTexDecode.StampAll();
+                            // top
+                            var centre = c + ax * 30f;
+                            var eye = new Vector3(centre.x, y + 92f, centre.y);
+                            var rot = Quaternion.LookRotation(Vector3.down, new Vector3(ax.x, 0f, ax.y));
+                            var hide = eye + Vector3.down * 400f;
+                            if (car != null) car.TeleportTo(hide, Quaternion.identity); else player.transform.position = hide;
+                            cam.fieldOfView = 60f;
+                            PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_spot_n{n}_top", eye, rot);
+                            shots++;
+                            // driver height: the inner travel lane toward the node (right-hand traffic), 34 m before it
+                            float laneOff = Mathf.Clamp(0.25f * U.width, 1.8f, 5.5f);
+                            var p2 = c - ax * 34f + right * laneOff;
+                            float y2 = y;
+                            if (map.NearestRoadPoint(p2, 20f, false, out int ek, out float sk, out _)) y2 = map.edges[ek].YAt(sk);
+                            var eye2 = new Vector3(p2.x, y2 + 1.15f, p2.y);
+                            var look = new Vector3(ax.x, -0.035f, ax.y);
+                            cam.fieldOfView = 62f;
+                            PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_spot_n{n}_eye", eye2, Quaternion.LookRotation(look, Vector3.up));
+                            shots++;
+                            log.Append($"spot n{n}\tU e{ui} '{U.name}'\ttop ({centre.x:0.0},{centre.y:0.0})\teye ({eye2.x:0.0},{eye2.y:0.00},{eye2.z:0.0}) axis ({ax.x:0.000},{ax.y:0.000})\n");
+                        }
+                    }
+                    finally { foreach (var c in canv) c.enabled = true; }
+                }
                 log.Append($"{shots} frames to {dir}\nSPLITS SHOTS OK\n");
             }
             catch (System.Exception ex) { log.Append("SPLITS SHOTS FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
