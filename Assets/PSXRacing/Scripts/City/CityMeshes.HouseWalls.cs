@@ -532,7 +532,9 @@ namespace PSXRacing.City
         /// the stretch of the texture's U a rowlock course shows (no head joint in it).</summary>
         public const int HmNew = 0, HmOld = 1, HmPaint = 2, HmStone = 3;
         public static readonly Slot[] HmSlot = { Slot.FacadeBrick, Slot.FacadeMid, Slot.HousePaint, Slot.FacadeTower };
-        static readonly Vector2[] HmRep = { new Vector2(0.76f, 0.88f), new Vector2(1.25f, 1.25f), new Vector2(1.25f, 1.25f), new Vector2(2.0f, 2.0f) };
+        // (2026-11-16) brick at a real brick's size: the red tile's 3 bricks x 8 courses at 0.233 x 0.085 m
+        // (the photo's stubby 2.3 : 1 brick drawn 1.2x longer; was 0.253 x 0.110), the old tile's 15 courses at 0.07 m
+        static readonly Vector2[] HmRep = { new Vector2(0.70f, 0.68f), new Vector2(1.05f, 1.05f), new Vector2(1.05f, 1.05f), new Vector2(2.0f, 2.0f) };
         static readonly Vector2[] HmRowU = { new Vector2(0.085f, 0.245f), new Vector2(0.02f, 0.12f), new Vector2(0.02f, 0.12f), Vector2.zero };
         /// <summary>A brick front's return round the corner (m): a brick's length and a joint.</summary>
         const float HmReturnM = 0.3f;

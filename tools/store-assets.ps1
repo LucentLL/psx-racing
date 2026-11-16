@@ -5,8 +5,9 @@
 # at it survive a re-extract. A missing package is a warning, not an error:
 # every builder that reads Assets/StoreAssets falls back to its old geometry.
 #
-#   powershell -ExecutionPolicy Bypass -File tools\store-assets.ps1 [-Dest <project root>]
-param([string]$Dest = (Split-Path -Parent $PSScriptRoot))
+#   powershell -ExecutionPolicy Bypass -File tools\store-assets.ps1 [-Dest <project root>] [-Only <text>]
+# -Only: extract just the packages whose cache path contains <text> (e.g. -Only "PBR Bricks").
+param([string]$Dest = (Split-Path -Parent $PSScriptRoot), [string]$Only = "")
 
 $ErrorActionPreference = "Stop"
 $cache = Join-Path $env:APPDATA "Unity\Asset Store-5.x"
@@ -314,6 +315,7 @@ $wanted = @(
 
 $root = Join-Path $Dest "Assets\StoreAssets"
 foreach ($w in $wanted) {
+    if ($Only -and ($w.Pkg -notlike "*$Only*")) { continue }
     $pkg = Join-Path $cache $w.Pkg
     if (-not (Test-Path $pkg)) { Write-Warning "missing package: $($w.Pkg) (download it in Package Manager > My Assets)"; continue }
     # a list of pairs, even when ONE file is missing (a lone pair would unroll into its two strings)

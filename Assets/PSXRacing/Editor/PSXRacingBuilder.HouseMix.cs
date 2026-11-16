@@ -86,8 +86,16 @@ namespace PSXRacing.EditorTools
         /// Writes housemix_kit_log.txt at the project root.</summary>
         public static void HouseMixKit()
         {
+            int code = HouseMixKitBuild() ? 0 : 1;
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        /// <summary>The city kit rebuilt in this editor (no exit): a picture tool's first step
+        /// in a sandbox another branch's jobs also build the kit in.</summary>
+        public static bool HouseMixKitBuild()
+        {
             log = new System.Text.StringBuilder();
-            int code = 0;
+            bool ok = true;
             try
             {
                 psxLit = Shader.Find("PSX/Lit");
@@ -96,9 +104,9 @@ namespace PSXRacing.EditorTools
                 Log("city kit: " + kit.slots.Length + " slots; house brick " + AssetDatabase.GetAssetPath(kit.slots[(int)CityMeshes.Slot.FacadeBrick].mainTexture));
                 Log("HOUSEMIX KIT OK");
             }
-            catch (System.Exception ex) { Log("HOUSEMIX KIT FAILED " + ex); code = 1; }
+            catch (System.Exception ex) { Log("HOUSEMIX KIT FAILED " + ex); ok = false; }
             File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "housemix_kit_log.txt"), log.ToString());
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            return ok;
         }
 
         // =====================================================================
