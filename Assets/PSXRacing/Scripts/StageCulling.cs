@@ -37,6 +37,7 @@ namespace PSXRacing
         public const float DetailFadeM = 220f;
         static readonly int DetailFadeId = Shader.PropertyToID("_PSXDetailFade");
         static readonly int FarCanopyOffId = Shader.PropertyToID("_PSXFarCanopyOff");
+        static readonly int FringeOnId = Shader.PropertyToID("_PSXFringeOn");
 
         public float foliageDistance = 520f;
         /// <summary>The PC profile's DETAIL reach: the far ground's own edge
@@ -132,6 +133,7 @@ namespace PSXRacing
             Shader.SetGlobalVector(DetailFadeId, far ? new Vector4(detail - DetailFadeM - 40f, detail - 40f, 0f, 0f) : Vector4.zero);
             // THE FAR CANOPY's switch (LookChoices.FarCanopy; PSX_FARCANOPY=0 = the land as it was)
             Shader.SetGlobalFloat(FarCanopyOffId, LookChoices.FarCanopy ? 0f : 1f);
+            Shader.SetGlobalFloat(FringeOnId, LookChoices.RidgeFringe ? 1f : 0f);
             cam.layerCullDistances = d;
             LayerDistances = d;
             // Spherical rather than planar: on a switchback the next arm of

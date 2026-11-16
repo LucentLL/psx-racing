@@ -89,6 +89,14 @@ namespace PSXRacing
         /// from the 2018 lidar (PSXRacingBuilder.LandmarkRocks).
         /// PSX_LINNCOVE_ROCKS=0 = without them (their root switched off at load,
         /// colliders with it).</summary>
+        /// <summary>THE RIDGES' CROWN FRINGE (linncove 2026-11-16): upright cards
+        /// of crowns along every crest past the forest's reach. OFF: from the
+        /// title they read as dark combs laid along the ridges, not as treetops
+        /// against the sky. PSX_RIDGEFRINGE=1 shows them (a scene built with
+        /// PSX_RIDGEFRINGE=1 has them; StageCulling sets _PSXFringeOn).</summary>
+        public const bool RidgeFringeDefault = false;
+        public static bool RidgeFringe => Env("PSX_RIDGEFRINGE") ?? RidgeFringeDefault;
+
         public const bool LinnCoveRocksDefault = true;
         public static bool LinnCoveRocks => Env("PSX_LINNCOVE_ROCKS") ?? LinnCoveRocksDefault;
 

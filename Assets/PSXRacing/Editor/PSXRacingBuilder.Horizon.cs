@@ -342,7 +342,7 @@ namespace PSXRacing.EditorTools
             new[] { new Color(0.040f, 0.070f, 0.018f), new Color(0.055f, 0.090f, 0.020f), new Color(0.035f, 0.060f, 0.020f),
                     new Color(0.066f, 0.096f, 0.026f), new Color(0.045f, 0.074f, 0.030f) },
             new[] { new Color(0.156f, 0.082f, 0.015f), new Color(0.150f, 0.044f, 0.012f), new Color(0.156f, 0.100f, 0.012f),
-                    new Color(0.086f, 0.040f, 0.016f), new Color(0.078f, 0.092f, 0.018f) },
+                    new Color(0.074f, 0.086f, 0.020f), new Color(0.110f, 0.112f, 0.020f) },
             new[] { new Color(0.30f, 0.29f, 0.29f), new Color(0.36f, 0.36f, 0.37f), new Color(0.25f, 0.23f, 0.22f),
                     new Color(0.40f, 0.40f, 0.41f), new Color(0.22f, 0.20f, 0.19f) },
         };
@@ -401,7 +401,10 @@ namespace PSXRacing.EditorTools
             var broad = CanopyBroad[d];
             for (int i = 0; i < 5; i++)
             {
-                var c = broad[i] * k;
+                // a quarter toward its own grey: far crowns are never as saturated as a leaf
+                var c0 = broad[i] * k;
+                float lc0 = Lum(c0);
+                var c = Color.Lerp(c0, new Color(lc0, lc0, lc0), 0.25f);
                 m.SetColor("_CanopyP" + i, new Color(Mathf.Min(c.r, 0.95f), Mathf.Min(c.g, 0.95f), Mathf.Min(c.b, 0.95f), 1f));
             }
             var cc = CanopyConiferRaw[d] * kc;
@@ -617,7 +620,10 @@ namespace PSXRacing.EditorTools
             }
 
             // the ridges' crown fringe (PSX_FARCANOPY=0 at runtime clips it in the shader)
-            int fringeCards = FarCanopyBuild ? BuildHorizonFringe(root.transform, detail) : 0;
+            // (only with PSX_RIDGEFRINGE=1 at the build: from the title the cards read as dark combs
+            // along the ridges - LookChoices.RidgeFringe, OFF)
+            int fringeCards = FarCanopyBuild && System.Environment.GetEnvironmentVariable("PSX_RIDGEFRINGE") == "1"
+                ? BuildHorizonFringe(root.transform, detail) : 0;
             if (fine != null)
             {
                 var sw = root.AddComponent<FarCanopySwitch>();

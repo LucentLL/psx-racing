@@ -584,6 +584,7 @@ Shader "PSX/Lit"
             fixed4 _CanopyConifer, _CanopyGap;
             float4 _CanopySpruce;       // the conifers' share: x world y where it starts rising, y where it is whole, z share below, w above
             float _PSXFarCanopyOff;     // GLOBAL (StageCulling): 1 = PSX_FARCANOPY=0, the land as it was
+            float _PSXFringeOn;         // GLOBAL (StageCulling): 1 = PSX_RIDGEFRINGE=1, the ridge fringe drawn (default 0)
             // ==== THE BLUE DISTANCE, v2 (LookChoices.AerialDepth): the air between
             // the eye and a far ridge, 1 - exp(-d / L) past x m - layered ridges, each
             // a step paler and bluer (the owner's Linn Cove photograph). GLOBAL, set
@@ -2149,7 +2150,7 @@ Shader "PSX/Lit"
                         float2 cnPx = floor(i.pos.xy);
                         float cnDith = frac(52.9829189 * frac(dot(cnPx, float2(0.06711056, 0.00583715))));
                         float cnIn = saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
-                        clip(_PSXFarCanopyOff > 0.5 ? -1.0 : cnIn - cnDith - 1e-5);
+                        clip(_PSXFarCanopyOff > 0.5 || _PSXFringeOn < 0.5 ? -1.0 : cnIn - cnDith - 1e-5);
                     }
                     if (_HorizonCrowns > 0.5 && _PSXFarCanopyOff < 0.5)
                     {
@@ -2175,7 +2176,11 @@ Shader "PSX/Lit"
                             float3 cnCrown = cnR2 < cnShare ? _CanopyConifer.rgb * (0.85 + 0.3 * cnR3) : cnBroad;
                             float cnOnC = cnCr.x > 0.0 ? 1.0 : 0.0;
                             float3 cnPix = lerp(_CanopyGap.rgb, cnCrown, cnOnC);
-                            float3 cnMeanB = (PSXCanopyPick(cnS * 0.7 + 0.075) + PSXCanopyPick(cnS * 0.7 + 0.225) + PSXCanopyPick(cnS * 0.7 + 0.375)) * (1.0 / 3.0);
+                            // the stand's own mean, SMOOTH across stands (a pick of discrete
+                            // crowns read as camouflage blotches at 5 km): warm to cool
+                            float3 cnWarm = (_CanopyP0.rgb + _CanopyP1.rgb + _CanopyP2.rgb) * (1.0 / 3.0);
+                            float3 cnCool = (_CanopyP3.rgb + _CanopyP4.rgb) * 0.5;
+                            float3 cnMeanB = lerp(cnWarm, cnCool, smoothstep(0.25, 0.75, cnS)) * (0.92 + 0.16 * cnS2);
                             float3 cnMean = lerp(lerp(cnMeanB, _CanopyConifer.rgb, cnShare), _CanopyGap.rgb, 0.12);
                             float3 cnCol = lerp(cnMean, cnPix, cnVis);
                             // the DOME's light: its normal leans out from its centre;
