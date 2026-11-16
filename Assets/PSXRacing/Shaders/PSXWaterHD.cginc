@@ -364,7 +364,10 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float2 tilt = -slope + rip - rings;
     float3 N = normalize(float3(tilt.x, 1.0, tilt.y));
     float3 Nm = normalize(float3(-slope.x + rip.x * HD_SSR_SMOOTH, 1.0, -slope.y + rip.y * HD_SSR_SMOOTH));
-    float rough = saturate(length(rip) * 2.2 + white);
+    // how rough it looks: the ripples, plus what the mips have averaged away
+    // (far ripples under a pixel are still there - a far lake is no mirror)
+    float farRough = saturate((eyeDist - 40.0) / 400.0) * saturate(0.25 + ruffle);
+    float rough = saturate(length(rip) * 2.2 + white + farRough * 0.55);
 
     // ---- light ----
     float expo = PSXExposureGain();
@@ -417,7 +420,10 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // a rough surface cannot be a perfect mirror at grazing angles
     fres *= lerp(1.0, 0.72, rough);
     float3 R = reflect(-V, N);
-    R.y = max(R.y, 0.004) + ROUGH * rough * 1.3 * (1.0 - R.y);
+    // the old water's roughness tilt (a choppy surface mirrors sky from
+    // higher up, so open water is darker than its horizon), kept as a floor
+    // on the sea and scaled by how rough the surface is everywhere
+    R.y = max(R.y, 0.004) + ROUGH * 1.3 * (1.0 - R.y) * max(rough, 0.6 * saturate(i.data.y * 3.0));
     R = normalize(R);
     float skyLod = lerp(HD_SKY_LOD_CALM, HD_SKY_LOD_ROUGH, rough);
     float3 skyRefl = PSXSkyIn(R, skyLod) * (REFLECT_GAIN * adapt);
@@ -451,7 +457,11 @@ fixed4 fragHD(v2f_hd i) : SV_Target
 
     // ---- foam: the shore, white water, whitecaps ----
     float swash = sin(t * (6.2831853 / FOAM_SWASH_S) + i.wpos.x * 0.05 + i.wpos.z * 0.03) * FOAM_RUN_M * i.data.y;
-    float shoreD = max(downM - swash, 0.0);
+    // The foam keys off the mesh's own depth where it has one (the coast
+    // bakes' bathymetry: smooth, where the frame's ground drops 4 m in one
+    // terrain cell), off the frame's depth where it has none (the city).
+    float foamD = i.data.w > 0.5 ? max(depthV, 0.0) : downM;
+    float shoreD = max(foamD - swash, 0.0);
     float shore = saturate(1.0 - shoreD / (HD_FOAM_M * (1.0 + HD_FOAM_OPEN * saturate(i.data.y * 2.0))));
     float laceMix = laceA * 0.55 + laceB * 0.45;
     float cap = saturate((i.swell.y - WHITECAP) / (1.0 - WHITECAP));
@@ -466,7 +476,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
         float ph = kS * dot(wdS, i.wpos.xz) - sqrt(9.81 * kS) * t * 0.8;
         float wob = (laceB - 0.5) * 1.2;                      // a ragged front, not a ruler
         float front = pow(saturate(sin(ph + wob) * 0.5 + 0.5), 5.0);
-        float zone = saturate(1.0 - downM / HD_SURF_DEPTH_M) * saturate(downM / 0.3);
+        float zone = saturate(1.0 - foamD / HD_SURF_DEPTH_M) * saturate(foamD / 0.3);
         surf = saturate(front * 1.4) * zone * saturate(i.data.y * 2.0);
     }
     float foamWant = max(max(max(shore * shore, white), cap * cap), surf) * _WaterLook.z;

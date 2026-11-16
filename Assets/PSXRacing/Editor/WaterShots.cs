@@ -191,14 +191,18 @@ namespace PSXRacing.EditorTools
                 CityMap.Water lake = null, river = null, creek = null;
                 var lakes = new List<CityMap.Water>();
                 var creeks = new List<CityMap.Water>();
+                var rivers = new List<CityMap.Water>();
                 foreach (var w in map.waters)
                 {
                     if (w.ravine || w.pts == null || w.pts.Length < 2) continue;
                     string nm = (w.name ?? "").ToLowerInvariant();
+                    // the Catawba River is mapped as water areas (and as its lakes)
+                    if (nm.Contains("catawba river")) rivers.Add(w);
                     if (w.lake) lakes.Add(w);
-                    else if (nm.Contains("catawba")) { if (river == null || w.width > river.width) river = w; }
                     else if (w.bedY != null && nm.Contains("creek")) creeks.Add(w);
                 }
+                rivers.Sort((a, b) => ((b.bbMax - b.bbMin).x * (b.bbMax - b.bbMin).y).CompareTo((a.bbMax - a.bbMin).x * (a.bbMax - a.bbMin).y));
+                for (int k = 0; k < rivers.Count && k < 8 && river == null; k++) if (NearRoad(map, rivers[k], true, out _, out _, out _)) river = rivers[k];
                 // the biggest lake with a road beside it; the longest creek
                 // (Sugar first) with a road over or beside it - only the top
                 // few are walked against the roads
@@ -218,13 +222,18 @@ namespace PSXRacing.EditorTools
                 {
                     if (!NearRoad(map, w, !w.lake, out Vector3 eye, out Vector3 look, out string why))
                     { Debug.LogError("[WaterShot] " + name + ": no road near '" + w.name + "'"); continue; }
+                    // from a bridge deck the parapet hides the water at a
+                    // driver's eye: stand higher and look down over it
+                    bool fromBridge = why.StartsWith("from a bridge");
+                    if (fromBridge) eye += Vector3.up * 3.0f;
+                    float pitch = fromBridge ? -24f : -7f;
                     Debug.Log($"[WaterShot] {name}: '{w.name}' ({(w.lake ? "lake" : w.bedY != null ? "creek" : "river")}, {w.width:0} m wide) {why}, eye {eye}");
                     world.EnsureRing(eye, world.ring);
                     foreach (var hour in new[] { "NOON", "NIGHT" })
                     {
                         SetHour(hour, false, sun, globals);
                         world.EnsureRing(eye, world.ring);
-                        Shoot(cam, name + "_" + hour.ToLower(), eye, look, -7f);
+                        Shoot(cam, name + "_" + hour.ToLower(), eye, look, pitch);
                     }
                 }
                 if (lake != null && NearRoad(map, lake, false, out Vector3 le, out Vector3 ll, out _))
@@ -512,6 +521,10 @@ namespace PSXRacing.EditorTools
         static void TimeTiers(Camera cam, string name, Vector3 eye, Vector3 flatDir, float pitchDeg, Renderer[] water)
         {
             if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_NOTIME") == "1") return;
+            // a stage's own frame on a shared GPU swings by more than the water
+            // costs (tens of ms render to render): only the synthetic scene is
+            // timed unless asked
+            if (name != "synthetic_lake" && System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_STAGETIME") != "1") return;
             if (water == null || water.Length == 0) { Debug.LogWarning("[WaterShot] TIMING " + name + ": no water renderers"); return; }
             int tw = Even(Mathf.RoundToInt(timeLines * 16f / 9f));
             var rot = Quaternion.LookRotation(flatDir) * Quaternion.Euler(-pitchDeg, 0f, 0f);
@@ -676,8 +689,10 @@ namespace PSXRacing.EditorTools
             BuildRiverLine();
             PlaceBoulders();
 
-            var groundMat = FindByNameEnd("_Ground") ?? FindByTexture(new[] { "turf", "grass" });
-            var farMat = FindByNameEnd("_GroundFar") ?? groundMat;
+            // the far land's material for all of it: the near one reads its baked
+            // light through uv2, which this land does not have (it drew black)
+            var farMat = FindByNameEnd("_GroundFar") ?? FindByNameEnd("_Ground") ?? FindByTexture(new[] { "turf", "grass" });
+            var groundMat = farMat;
             var rockMat = FindByTexture(new[] { "rock" }) ?? groundMat;
             if (groundMat == null) { Debug.LogError("[WaterShot] test site: no ground material in the stage"); return null; }
             Debug.Log($"[WaterShot] test site at {origin}: ground {groundMat.name}, far {farMat?.name}, rock {rockMat?.name}");
@@ -701,14 +716,14 @@ namespace PSXRacing.EditorTools
             site.lakeEye.y = H(site.lakeEye.x - origin.x, site.lakeEye.z - origin.z) + origin.y + 1.3f;
             site.lakeLook = new Vector3(0.05f, 0f, 1f).normalized;
             // the river from its bank, looking upstream over the boulders
-            float sEye = riverLen * 0.55f;
+            float sEye = riverLen * 0.62f;
             Vector2 rp = RiverAt(sEye, out Vector2 rt);
-            Vector2 bank = rp + new Vector2(-rt.y, rt.x) * (HalfW + 4f);
+            Vector2 bank = rp + new Vector2(-rt.y, rt.x) * (HalfW + 1.5f);
             site.riverEye = origin + new Vector3(bank.x, 0f, bank.y);
-            site.riverEye.y = Mathf.Max(H(bank.x, bank.y) + 1.6f, RiverSurface(sEye) + 3.5f) + origin.y;
+            site.riverEye.y = Mathf.Max(H(bank.x, bank.y) + 1.6f, RiverSurface(sEye) + 5.0f) + origin.y;
             Vector2 up = -rt;
             site.riverLook = new Vector3(up.x * 0.85f - rt.y * 0.0f, 0f, up.y * 0.85f).normalized;
-            Vector2 aim = RiverAt(sEye - 45f, out _) - bank;
+            Vector2 aim = RiverAt(sEye - 30f, out _) - bank;
             site.riverLook = new Vector3(aim.x, 0f, aim.y).normalized;
             // where the river meets the lake, from above the bank
             Vector2 mp = RiverAt(riverLen - 30f, out Vector2 mt);
