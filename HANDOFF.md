@@ -55,14 +55,16 @@ Base: mountain-nm e26dc1f4 (PC46 code), merged into this branch at 42c705b1. San
 ## Proof (PSXCity, fresh processes, switch 0 vs 1, same camera poses)
 Sheets in `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\traffic\sheets\`:
 traffic_city_day.png (9 street-view places: driver's eye and traffic-camera eye), traffic_city_close.png (the three
-nearest vehicles at each place), traffic_city_night.png and traffic_city_night_close.png (21:30, lamps),
-traffic_kit.png (line-up beside the owner's crown_victoria and sedan_98, every vehicle front and rear),
-traffic_kit_skins.png (every repaint), traffic_stage.png (GillespieGap race traffic).
-- Draw cost, the live pool at Trade St 17:15: base 48 cars 100,240 triangles, 276 renderer-materials (2,088 tris and
-  5.8 draws a car); after 44 cars 50,686 triangles, 250 (1,151 tris and 5.7 draws a car), and each pack vehicle drops
-  to ONE draw past ~100 m (the far level; today's shells have none). Night (lamps on): 11.0 draws a car both.
-- Mix seen within 200 m of the nine places (after, day): 6-31 of the pack per place, rigs only on I-277 and
-  Independence, the bus on Trade / Tryon / Wilkinson / South Blvd, no exception in 18 runs of game code.
+nearest vehicles at each place), traffic_city_rigs.png (the tractor-trailers on I-277 and Independence),
+traffic_city_night.png and traffic_city_night_close.png (21:30, head and tail lamps), traffic_kit.png (line-up
+beside the owner's crown_victoria and sedan_98, every vehicle front and rear), traffic_kit_skins.png (every repaint),
+traffic_stage.png (GillespieGap race traffic). Reports: scratch\traffic\out\ (reports\, tpc_*, ctc_*, uaa_bake.txt).
+- Draw cost, the live pool at Trade St 17:15 (48 cars both): base 100,240 triangles and 276 renderer-materials
+  (2,088 tris, 5.8 draws a car); after 56,750 and 282 (1,182 tris, 5.9 draws a car), and each pack vehicle drops to
+  ONE draw past ~100 m (its far level; today's shells have none). Night, lamps on: 11.0 draws a car both.
+- Mix within 200 m of the nine places (after, day): 18-29 of ~40 vehicles are the pack's; rigs seen on I-277 and
+  Independence, the bus on Trade, Tryon, South Blvd and Wilkinson, no cab on Queens Rd once the radius was 3.2 km;
+  no exception from game code in any city run (9 runs).
 - GATE city traffic check (Editor/CityTrafficCheck.cs, Charlotte, graphics on), base vs after: 37 ok / 0 FAIL both,
   "CITY TRAFFIC OK." both. Rush hour parked: mean active 43.5 vs 46.7; driving 44.2 vs 43.4; 03:00 5.5 / 2.5 vs
   6.0 / 2.0; red lights run 0 both; wrecks only the scripted player hit; traffic-on-traffic 0 both; physics steps
