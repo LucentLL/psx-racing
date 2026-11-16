@@ -66,6 +66,10 @@ namespace PSXRacing
         public static int Hour => EnvInt("PSX_INTRO_HOUR", TimeOfDay.Morning, 0, 6);
         /// <summary>The sky over the dry road (SkyKind): the photo's grey, lightly overcast.</summary>
         public static int Sky => EnvInt("PSX_INTRO_SKY", (int)SkyKind.Overcast, 0, 2);
+        /// <summary>A PREVIEW only: PSX_INTRO_DAY=288 (15 October 1999) shows the opening on another day of the
+        /// calendar (its season and its date on the caption). The career's own start is never changed here:
+        /// that is the owner's decision (it starts on day 1, Friday 1 January 1999).</summary>
+        public static int PreviewDay => EnvInt("PSX_INTRO_DAY", 0, 0, 3650);
 
         // =================== the numbers ===================
 
@@ -74,7 +78,7 @@ namespace PSXRacing
         public const float CamIntoBore = 0.42f;     // the lens, this far through the bore
         public const float EyeH = 1.15f;            // a driver's eye over the road
         public const float IntroFov = 56f;          // the standing lens (vertical)
-        public const float RevealFromM = 60f, RevealToM = 10f;   // the black lifts as the car comes from this far behind to this far
+        public const float RevealFromM = 48f, RevealToM = 12f;   // the black lifts as the beams reach the lens: from this far behind to this far
         public const float AttachAtM = 5.5f;        // the car's centre this far past the lens: the lens starts to follow
         public const float BlendS = 1.8f;           // the ease onto the chase camera
         public const float ControlAtW = 0.4f;       // the controls pass this far into the ease
@@ -143,7 +147,7 @@ namespace PSXRacing
             RaceHandoff.CarId = s.activeCar;
             RaceHandoff.CarSpecId = s.ActiveCar.specId;
             RaceHandoff.TrackIndex = track;
-            RaceHandoff.CalendarDay = s.day;
+            RaceHandoff.CalendarDay = PreviewDay > 0 ? PreviewDay : s.day;
             RaceHandoff.TimeOfDayIndex = Hour;
             RaceHandoff.WeatherOverride = (int)Weather.Clear;
             RaceHandoff.SkyOverride = Sky;
