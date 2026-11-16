@@ -204,7 +204,8 @@ namespace PSXRacing.EditorTools
                     var solidMesh = stones[s].lods[2];
                     for (int sm = 0; sm < solidMesh.subMeshCount; sm++)
                         cell.solid.Add(new CombineInstance { mesh = solidMesh, subMeshIndex = sm, transform = trs });
-                    LandmarkKeepAdd(c.x, c.z, r + 2.5f);   // and the forest thinner round it: a boulder field is open woods
+                    LandmarkKeepAdd(c.x, c.z, r * 0.85f + 1.0f);   // the block's own footprint and a metre: the woods grow between the
+                    // blocks (2.5 m round each cleared Grandfather's flank to dark bare ground, and the title's foreground trees)
                     stonesPlaced++;
                     any = true;
                 }
