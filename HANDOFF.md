@@ -1,4 +1,83 @@
-﻿# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
+﻿# HANDOFF - LINNCOVE ROUND: the far mountains and the Linn Cove granite (agent "linncove", branch `mountain-linncove` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+
+Owner, 2026-11-16 morning, on the title postcard: "It would be nice to find a solution to the barren mountains in the
+distance on mountain maps", and "would also be nice to add some of the iconic rock face to the track and the title
+shot angle" (two photographs of the viaduct in peak fall colour).
+
+## What was found
+- The land past the forest's reach (the stage horizon: far ring, tier 0 at 60 m, apron at 480 m) wore ONE flat canopy
+  colour a dress (Editor/PSXRacingBuilder.Horizon.cs HorizonCanopy) times the Meadow hill map's luminance laid 6 km a
+  tile (Shaders/PSXLit.shader _HorizonMacro): no crown grain, no colour mosaic, no shading but the 60 m facets'. Fall's
+  colour is (0.326, 0.226, 0.054) linear, a khaki tan: PC46's own title frame shows the valley's hills as smooth
+  brown ground.
+- The DEM is bare earth: past 2.2 km every ridge meets the sky as smooth 60 m facets (the apron's 480 m cells make a
+  ridge 20 km off a polygon of 1.5-degree facets).
+- The 2018 lidar (1 m bare earth, cached by the road bake) shows the Linn Cove boulder field plainly: hundreds of
+  blocks 2-30 m across, densest uphill of the deck between 4480 and 4820 m, several under the deck (the biggest 28 x
+  22 m, 8 m proud, at 4652 m, 16 m off the line). 6 of the 9 1 m tiles round the viaduct are cached; the 3 missing are
+  the field's far NW and E corners (not under the deck, not in the title frame). Nothing was downloaded.
+- PSXPerf's TagManager had no "Horizon" layer (its settings predate the stage horizon): a stage built there had no far
+  land at all. The round's job script copies the repo's ProjectSettings/TagManager.asset in before building.
+- Lake Lure builds no stage horizon at all (BuildStageHorizon returns for a stage with water): its far land is
+  untouched by this round.
+
+## What changed (branch mountain-linncove)
+- PSX/Lit THE FAR CANOPY (_HorizonCrowns, Shaders/PSXLit.shader): past 300-1800 m the far land is crowns 9-15 m
+  across in world space, each its own colour from the dress's palette, lit as a dome by the sun, dark gaps between;
+  stands blend warm to cool over 90-280 m; spruce-fir share rises from 10 % at 1450 m to 85 % at 1750 m ASL; grey
+  rock where the 60 m slope passes 37 degrees; where a crown is under a third of a pixel the field is its smooth mean
+  (no shimmer). Procedural (no tile to repeat).
+- Editor/PSXRacingBuilder.Horizon.cs: the palettes (CanopyBroad/CanopyConiferRaw/CanopyGapCol, from the
+  NatureManufacture leaf sheets' measured means, levelled so the land keeps the 11-09 HorizonCanopy brightness);
+  SetFarCanopy on every dress of the far land; the apron built twice (480 m as before, 240 m = the wide grid's own
+  cells); BuildHorizonFringe (upright crown cards on every crest; built only with PSX_RIDGEFRINGE=1).
+- Scripts/FarCanopySwitch.cs (new): shows the 240 m apron with the canopy, the 480 m one without.
+- THE LINN COVE GRANITE: tools/roads/linncove_rocks.mjs (offline lidar read, residual over a 7 m gaussian, merged piles
+  split) -> Art/BRP/brp_rocks.json (439 blocks); Editor/PSXRacingBuilder.LandmarkRocks.cs places the 236 blocks of
+  the viaduct's window +-90 m, within 230 m of the road, as 499 NatureManufacture forest stones turned grey (_LeafVivid
+  0.28 / 4.2), each at its block's own footprint, length, height and axis, seated on the drawn ground, tilted half to
+  the slope; a block over 9 m is 2-4 stones along its axis. Nothing within a lane's reach (6 m past the tarmac plus
+  the stone's radius) of an at-grade road; under the deck at least 4.5 m below the road surface; nothing through a
+  deck, pier, joint, wall, rail or cut (OverlapBox). Plain renderers per 128 m cell (20 draws), a mesh collider of the
+  same stones named "Boulder" on the Solid layer; the forest keeps off each block (StageKeepOut, footprint + 1 m).
+  Scripts/LandmarkRocks.cs (new): PSX_LINNCOVE_ROCKS=0 switches the root (and colliders) off at load.
+- Blue distance v2 (TimeOfDay.cs, PSX/Lit _PSXAerial): with LookChoices.AerialDepth (F9 / PSX_AERIAL=1, still OFF)
+  the air's own law 1 - exp(-(d - 1.8 km) / 26 km), at most 0.75, toward the sky's blue: about a quarter at 10 km, a
+  half at 20. Replaces the old linear ramp (a tenth at 10 km) in the same switch.
+- Scripts/TitleScreen.cs Begin (ONE line, shared file): PlaceCamera runs inside `using (new LandmarkRocks.Hidden(true))`
+  so the postcard search finds the same views[0] with the granite as without (checked: identical).
+- Editor/PSXRacingBuilder.StageRiver.cs StageKeepOut (ONE line, shared): LandmarkKeepOut first (only the stage whose
+  far DEM the rocks were built against).
+- Editor/PSXRacingBuilder.cs BuildTrack (ONE line, shared): BuildLandmarkRocks after BuildStageWorld, before the forest.
+- Editor/LinnCoveShots.cs (new tool): title postcard (views[0] by the rule, or PSX_LC_EYE/LOOK), Linn Cove views, road
+  views, editor frame timing, the PC pass's own scene build for a venue list with the plant and lane audits.
+
+## Switches (all env, read at load; =0 at the SCENE BUILD makes the base exactly)
+- PSX_FARCANOPY (default ON): 0 = the land exactly as it was (old shading, the 480 m apron, no fringe).
+- PSX_LINNCOVE_ROCKS (default ON): 0 = no rocks or colliders (a scene built with it =0 also has no forest clearing).
+- PSX_RIDGEFRINGE (default OFF): 1 = the ridges' crown fringe (needs a scene built with =1).
+- PSX_AERIAL / F9 (default OFF, the owner's A/B): the blue distance v2.
+
+## Proof (PSXPerf, real editor frames through the game's dither; scratch folder
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\linncove\`)
+- BEFORE = the base code e26dc1f4 itself, its BlueRidge scene built in PSXPerf (PC content) and shot in a fresh
+  process; AFTER = this branch's scene, fresh process. Title pose = PC46's own log: eye (-431.12, 132.55, 53.44),
+  look (-490.77, 103.39, -188.24), FOV 42 - the rule finds the same views[0] in both scenes, with and without the
+  granite in the rays. NC 226A: before = this branch's scene with PSX_FARCANOPY=0 PSX_LINNCOVE_ROCKS=0 in a fresh
+  process (the switch = the land exactly as it was: 480 m apron, old shading).
+- Sheets: sheet_title.png (fall afternoon = PC46's light, fall sunset, fall fog, summer, winter; + blue distance A/B),
+  sheet_linncove.png (deck, chase, below, wide), sheet_road_SwissNC226A.png (noon/dusk, chase/vista).
+- Gates, BlueRidge, this branch vs base: plants through solids 0 / 0 (125,220 / 125,672 plants within reach checked);
+  lane obstacle audit CLEAR / CLEAR (the rock colliders are concave: "see the sweep"; placement keeps them 6 m past the
+  tarmac plus their radius, and under the deck 4.5 m below the road). Title views[0] identical.
+- Frame cost: NOT measured cleanly. Editor timing at 1920x1080 with three other Unity editors on the GPU (PSXLab,
+  PSXRec, PSXCity): canopy on/off alternated in one process, BlueRidge title +1.1 ms mean of 4 pairs, NC 226A
+  +5.0 ms of 2 pairs, both inside the noise (single frames 54-136 ms). Added geometry: the 240 m apron 150,673 verts
+  (the 480 m one hidden), BlueRidge rocks 212,745 tris in 20 draws; fringe off (0 cards). Needs the on-screen PerfTour.
+
+---
+
+# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
 
 An independent check of the first pass (f3f16ba0) found three blockers. All three are fixed on the same branch; this
 section supersedes the first-pass section below wherever they differ. Every number is from a fresh process in PSXCity
