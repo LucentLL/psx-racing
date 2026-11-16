@@ -346,7 +346,7 @@ namespace PSXRacing.EditorTools
         static readonly System.Collections.Generic.HashSet<Rigidbody> shotCars = new System.Collections.Generic.HashSet<Rigidbody>();
         static int ShootCars(TrafficSystem ts, Vector3 from, int n)
         {
-            Rigidbody best = null; float bd = 160f * 160f;
+            Rigidbody best = null; float bd = 2000f * 2000f;   // the camera goes to the car: any on the stage will do
             foreach (var rb in ts.Obstacles)
             {
                 if (rb == null || !rb.gameObject.activeInHierarchy || rb.useGravity || shotCars.Contains(rb)) continue;
