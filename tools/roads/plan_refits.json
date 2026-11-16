@@ -1,0 +1,53 @@
+{
+ "what": "Local refits (tools/roads/plan_smooth.mjs localRefits) at the S-places tools/roads/waves.py finds on the gentle-stretch-smoothed mapped line, less the S-places both lidar shelf edges carry (the real road) and those on a mapped bridge. fromM / toM: the S's first and last lobe peak, metres along the stage (waypoint index x 4). Written by: python -I tools/roads/waves.py refits --from smooth",
+ "stages": {
+  "swa": [
+   {
+    "fromM": 4143,
+    "toM": 4163,
+    "why": "S 0.55 m, beta R -0.92 L +0.40"
+   },
+   {
+    "fromM": 11328,
+    "toM": 11362,
+    "why": "S 0.40 m, beta R -1.63 L +0.54"
+   }
+  ],
+  "gap": [
+   {
+    "fromM": 3789,
+    "toM": 3824,
+    "why": "S 0.39 m, beta R +0.25 L +3.88"
+   },
+   {
+    "fromM": 5759,
+    "toM": 5810,
+    "why": "S 1.41 m, beta R -0.54 L +0.12"
+   }
+  ],
+  "mtm": [
+   {
+    "fromM": 6692,
+    "toM": 6716,
+    "why": "S 0.39 m, beta R +0.85 L +0.04"
+   }
+  ],
+  "beech": [],
+  "chimney": [],
+  "brp": [],
+  "swiss": [
+   {
+    "fromM": 9220,
+    "toM": 9303,
+    "why": "S 0.51 m, beta R +0.87 L +0.16"
+   }
+  ],
+  "brock": [
+   {
+    "fromM": 8362,
+    "toM": 8394,
+    "why": "S 0.43 m, beta R -0.51 L +2.84"
+   }
+  ]
+ }
+}
