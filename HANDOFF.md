@@ -69,6 +69,226 @@ What changed:
   build if the bake ran there).
 - Shared file: `Scripts/RouteMap.cs` (see above).
 
+# HANDOFF - LINNCOVE ROUND: the far mountains and the Linn Cove granite (agent "linncove", branch `mountain-linncove` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+
+Owner, 2026-11-16 morning, on the title postcard: "It would be nice to find a solution to the barren mountains in the
+distance on mountain maps", and "would also be nice to add some of the iconic rock face to the track and the title
+shot angle" (two photographs of the viaduct in peak fall colour).
+
+## What was found
+- The land past the forest's reach (the stage horizon: far ring, tier 0 at 60 m, apron at 480 m) wore ONE flat canopy
+  colour a dress (Editor/PSXRacingBuilder.Horizon.cs HorizonCanopy) times the Meadow hill map's luminance laid 6 km a
+  tile (Shaders/PSXLit.shader _HorizonMacro): no crown grain, no colour mosaic, no shading but the 60 m facets'. Fall's
+  colour is (0.326, 0.226, 0.054) linear, a khaki tan: PC46's own title frame shows the valley's hills as smooth
+  brown ground.
+- The DEM is bare earth: past 2.2 km every ridge meets the sky as smooth 60 m facets (the apron's 480 m cells make a
+  ridge 20 km off a polygon of 1.5-degree facets).
+- The 2018 lidar (1 m bare earth, cached by the road bake) shows the Linn Cove boulder field plainly: hundreds of
+  blocks 2-30 m across, densest uphill of the deck between 4480 and 4820 m, several under the deck (the biggest 28 x
+  22 m, 8 m proud, at 4652 m, 16 m off the line). 6 of the 9 1 m tiles round the viaduct are cached; the 3 missing are
+  the field's far NW and E corners (not under the deck, not in the title frame). Nothing was downloaded.
+- PSXPerf's TagManager had no "Horizon" layer (its settings predate the stage horizon): a stage built there had no far
+  land at all. The round's job script copies the repo's ProjectSettings/TagManager.asset in before building.
+- Lake Lure builds no stage horizon at all (BuildStageHorizon returns for a stage with water): its far land is
+  untouched by this round.
+
+## What changed (branch mountain-linncove)
+- PSX/Lit THE FAR CANOPY (_HorizonCrowns, Shaders/PSXLit.shader): past 300-1800 m the far land is crowns 9-15 m
+  across in world space, each its own colour from the dress's palette, lit as a dome by the sun, dark gaps between;
+  stands blend warm to cool over 90-280 m; spruce-fir share rises from 10 % at 1450 m to 85 % at 1750 m ASL; grey
+  rock where the 60 m slope passes 37 degrees; where a crown is under a third of a pixel the field is its smooth mean
+  (no shimmer). Procedural (no tile to repeat).
+- Editor/PSXRacingBuilder.Horizon.cs: the palettes (CanopyBroad/CanopyConiferRaw/CanopyGapCol, from the
+  NatureManufacture leaf sheets' measured means, levelled so the land keeps the 11-09 HorizonCanopy brightness);
+  SetFarCanopy on every dress of the far land; the apron built twice (480 m as before, 240 m = the wide grid's own
+  cells); BuildHorizonFringe (upright crown cards on every crest; built only with PSX_RIDGEFRINGE=1).
+- Scripts/FarCanopySwitch.cs (new): shows the 240 m apron with the canopy, the 480 m one without.
+- THE LINN COVE GRANITE: tools/roads/linncove_rocks.mjs (offline lidar read, residual over a 7 m gaussian, merged piles
+  split) -> Art/BRP/brp_rocks.json (439 blocks); Editor/PSXRacingBuilder.LandmarkRocks.cs places the 236 blocks of
+  the viaduct's window +-90 m, within 230 m of the road, as 499 NatureManufacture forest stones turned grey (_LeafVivid
+  0.28 / 4.2), each at its block's own footprint, length, height and axis, seated on the drawn ground, tilted half to
+  the slope; a block over 9 m is 2-4 stones along its axis. Nothing within a lane's reach (6 m past the tarmac plus
+  the stone's radius) of an at-grade road; under the deck at least 4.5 m below the road surface; nothing through a
+  deck, pier, joint, wall, rail or cut (OverlapBox). Plain renderers per 128 m cell (20 draws), a mesh collider of the
+  same stones named "Boulder" on the Solid layer; the forest keeps 2.5 m off each block (StageKeepOut).
+  Scripts/LandmarkRocks.cs (new): PSX_LINNCOVE_ROCKS=0 switches the root (and colliders) off at load.
+- Blue distance v2 (TimeOfDay.cs, PSX/Lit _PSXAerial): with LookChoices.AerialDepth (F9 / PSX_AERIAL=1, still OFF)
+  the air's own law 1 - exp(-(d - 1.8 km) / 26 km), at most 0.75, toward the sky's blue: about a quarter at 10 km, a
+  half at 20. Replaces the old linear ramp (a tenth at 10 km) in the same switch.
+- Scripts/TitleScreen.cs Begin (ONE line, shared file): PlaceCamera runs inside `using (new LandmarkRocks.Hidden(true))`
+  so the postcard search finds the same views[0] with the granite as without (checked: identical).
+- Editor/PSXRacingBuilder.StageRiver.cs StageKeepOut (ONE line, shared): LandmarkKeepOut first (only the stage whose
+  far DEM the rocks were built against).
+- Editor/PSXRacingBuilder.cs BuildTrack (ONE line, shared): BuildLandmarkRocks after BuildStageWorld, before the forest.
+- Editor/LinnCoveShots.cs (new tool): title postcard (views[0] by the rule, or PSX_LC_EYE/LOOK), Linn Cove views, road
+  views, editor frame timing, the PC pass's own scene build for a venue list with the plant and lane audits.
+
+## Switches (all env, read at load; =0 at the SCENE BUILD makes the base exactly)
+- PSX_FARCANOPY (default ON): 0 = the land exactly as it was (old shading, the 480 m apron, no fringe).
+- PSX_LINNCOVE_ROCKS (default ON): 0 = no rocks or colliders (a scene built with it =0 also has no forest clearing).
+- PSX_RIDGEFRINGE (default OFF): 1 = the ridges' crown fringe (needs a scene built with =1).
+- PSX_AERIAL / F9 (default OFF, the owner's A/B): the blue distance v2.
+
+## The intro agent's October bug (LittleSwitzerland, PSX_INTRO_DAY=288: no hardwoods, not even trunks) - NOT FOUND
+- Not general to the fall dress: this round's fall frames (BlueRidge title and Linn Cove views, NC 226A road and vista;
+  edit mode, SeasonDress.Apply(3), MeshForest.DrawNow on the GPU path) all draw the mesh hardwoods.
+- MeshForest reads only the dress index (DressNow -> SeasonDress.AppliedDress, clamped 0-4), never the day.
+  DressMaterials keeps every variant's bark (vr.mats) in every dress and swaps only the leaf submesh and the impostor,
+  and GpuDressChanged skips a command only when its material is null - so a per-dress MATERIAL cause cannot also take
+  the trunks. Losing trunks too means the chunks were taken over (cards hidden, SetCards) and the GPU draws came out
+  empty: look at the command states (MeshForest.Gpu.cs ~712: 0 no material / 1 drawn / 2 no chunk reached) and the
+  "[MeshForest] ... GPU lists" line in the October run against January's, and at AppliedDress in that run.
+- Init order checked: MeshForest.Awake -> Init -> InitGpu (gpuReady, lastDress -2), SeasonDress.Awake -> Apply, then
+  LateUpdate -> FrameStart sets the dress's commands - no stale-dress path found.
+
+## Proof (PSXPerf, real editor frames through the game's dither, PC profile; scratch
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\linncove\`)
+- BEFORE (title, Linn Cove) = the base code e26dc1f4 itself, its BlueRidge built in PSXPerf with PC content and shot in
+  a fresh process; AFTER = this branch, fresh process. Title pose = PC46's own log (eye (-431.12, 132.55, 53.44), look
+  (-490.77, 103.39, -188.24), FOV 42); the rule finds the same views[0] in both scenes, with and without the granite in
+  the rays. NC 226A: BEFORE = this branch's scene with PSX_FARCANOPY=0 PSX_LINNCOVE_ROCKS=0 in a fresh process.
+- sheet_title.png (fall afternoon = PC46's light, fall sunset, fall fog, summer, winter; third column = the blue
+  distance v2 A/B), sheet_linncove.png (deck, chase, below, wide), sheet_road_SwissNC226A.png (noon/dusk, chase and
+  vista, blue distance A/B), sheet_title_keepout.png (the forest round the blocks, see below).
+- THE AFTER FRAMES of those sheets come from the build with a 0.85 r + 1 m clearing (shots/after4, with the clump
+  grain). That build failed the plant gate by ONE fern 0.25 m into a stone at 4480 m, so the committed clearing is the
+  2.5 m one, whose build passed: its title frame is shots/after2 (palette re-applied, no clump grain) and
+  sheet_title_keepout.png puts the two side by side. A 1.5 m fit could not be checked: another agent took PSXPerf.
+- Gates, BlueRidge (committed 2.5 m build / base): plants through solids 0 / 0 (125,220 / 125,672 plants within reach);
+  lane obstacle audit CLEAR / CLEAR (the stones' colliders are concave: "see the sweep"; placement keeps them 6 m past
+  the tarmac plus their radius, and 4.5 m under the deck). views[0] identical.
+- Frame cost (editor, 1920x1080, render + 1 px read; other editors were sharing the GPU): base scene at the title
+  37.4-40.2 ms; this branch 35.4-36.4 ms, canopy on vs off in one process -0.6 ms (title) and +1.2 ms (NC 226A
+  vista); a noisier run +2.2 ms. Added geometry: the 240 m apron 150,673 verts (the 480 m one hidden), the rocks
+  212,745 tris in 20 draws (BlueRidge only); ridge fringe 0 (off). The on-screen PerfTour was not run.
+
+## What still looks wrong
+- At the title's distance a crown is under a pixel: the far hills read as an olive-orange mottle with clump grain, not
+  as treetops, and the skyline is still the DEM's smooth line (the fringe that was to break it read as dark combs).
+  Without the blue distance the far ridges keep their full colour to 90 km; with it (A/B column) they read as the Blue
+  Ridge's layered blue ridges. PROPOSAL: AerialDepth ON by default on a clear day (the owner decides from the sheet).
+- The big blocks are forest stones scaled up to 9 m: close up (linn_below) their texture is soft and their shape
+  generic. From the title only a few grey shapes show at the top right. The committed 2.5 m clearing thins the title's
+  foreground trees round the viaduct's start and leaves Grandfather's flank darker (sheet_title_keepout.png); a fit
+  per plant against the stones' own colliders would keep the trees (next round).
+- Mt Mitchell and Chimney Rock road views were not shot (time); their far land changes the same way as NC 226A's.
+
+---
+
+# HANDOFF - NEW GAME INTRO (agent "intro", branch `newgame-intro` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+
+Owner, 2026-11-16: "When starting a new game, the screen should be black (like you're in a long tunnel), after you
+select your car, you hear it drive up from behind, then through the camera, and the camera attaches and player takes
+over, and drives out of the tunnel to reveal the Appalachian mountain track level (like the screenshot reference) as
+the player is driving to Charlotte to start their career/life there."
+
+## What I found (file:line on e26dc1f4)
+- The career starts on day 1 = FRIDAY 1 JANUARY 1999 (LifeRules.cs:12, Epoch :111), block DAWN (LifeState.slotIndex 0).
+  It is winter: bare trees. THE PHOTO'S FALL COLOUR NEEDS THE START MOVED TO OCTOBER - the owner's decision; the
+  start is unchanged. PSX_INTRO_DAY=288 previews the opening on 15 October 1999 without touching the career.
+- BUT THE FALL DRESS IS BARREN HERE (PC46, PSXLab, the October preview): the whole drive from the east portal shows
+  bare brown slopes with a few spruces and no hardwoods at all - not even trunks - where January's leafless forest
+  stands dense in the same places (intro_jan_vs_oct.png, oct_check.png). The owner's "bare smooth brown ground with
+  no trees" on the fall title, right at the roadside. Pre-existing (the intro touches no trees); MeshForest's
+  per-dress leaves (MeshForest.cs DressMaterials / MeshForest.Gpu.cs cmdOn) are where I would look. Moving the start
+  to October needs this fixed first.
+- The car is chosen in LifeHomeScreen.Showroom.cs CommitLane (:291, the showroom's DRIVE THIS ONE) or
+  LifeHomeScreen.cs BuildCarConfirm's DRIVE THIS ONE (:1133, FULL SHEET). Both: ApplyStartingLane, Save, the
+  first-drive flags, LoadScene(0). Before it: name/age/job, the license question (NO = the guided first drive, which
+  the home screen then hops into - unchanged, the statics ride through the intro).
+- The Little Switzerland loop's bake (swiss_stage.json) runs WEST from Gillespie Gap (0 m) along the Parkway to the
+  tunnel (3992-4180 m). Toward Gillespie Gap / NC 226 / Marion / I-40 / Charlotte = the loop backwards = the reverse
+  twin LittleSwitzerlandRev (same scene; RaceHandoffApplier turns the path round).
+- The bore is a 188 m rock tube with dressed-stone portals (PC); it reads like the owner's Parkway photos. Not changed.
+- ExposureAdapt's tunnel table is read in the RUN's path metres: on a reverse twin that is wrong (forward metres
+  against a reversed path), so the eye never opens in the real bore on LittleSwitzerlandRev races
+  (ExposureAdapt.cs InVenueTunnel). The intro sets the bore itself (ForceTunnel); the general bug stays (see below).
+- The owned NM Autumn Valley `Tunel_single` (coordinator's note): a modern cast-concrete portal with wing walls and a
+  painted fake interior (35.7 x 31.3 x 16 m, 638 tris; Blender render in scratch intro\av_tunnel_views.png). Not a
+  Parkway stone arch and not a 188 m bore - not used, nothing extracted.
+
+## What I changed (switch PSX_INTRO, default ON; 0 = DRIVE THIS ONE reloads the home screen as before)
+- NEW Scripts/NewGameIntro.cs (+ .meta):
+  - The wizard (name, license, car pick, close-up) over black, its panels near-black, with the tunnel's sound
+    (procedural drips through an echo, a low draught: wind_low low-passed). A carrier object (DontDestroyOnLoad)
+    keeps the black, the sound, the skip prompt, the caption and the CHARLOTTE card across the scene loads.
+  - DRIVE THIS ONE: black at once; LittleSwitzerlandRev loads as a TEST DRIVE (banks nothing: no km, fuel, wear,
+    damage file, injury or tow), Solo, no traffic, the career's own day, 08:00-12:00 MORNING light (the career's
+    clock is untouched), a dry road under an overcast sky, rolling.
+  - The bore: the lens stands in the lane at 1.15 m, 79 m in, facing the exit; the car rolls up from 125 m behind at
+    58 km/h on its own engine (EngineAudio hears it from outside: 3D, doppler, the bore's reverb), its real
+    headlights on (the night beam over the eye's gain in the bore, the day beam after the exit), the black lifting
+    as the beams reach the lens; it passes through the lens; the lens eases (1.8 s) into the chase rig (or the
+    close one if that is the player's view); a mounted view (cockpit, hood, roof, bumper) comes back as one view
+    change when the ease is done - in the seat's view the game cuts the cabin away for the seat, and a passing car
+    read as roofless from outside (run5); the controls pass at 40 % of the ease with a 1.8 s lane-keeping hand that lets go the moment the player touches
+    anything; the HUD fades in (lap, time and position stay hidden for the intro; the map, dials and fuel show).
+  - The exit: the eye, held at 1 until the attach, opens in the bore (2.4) and closes on the day; a caption
+    BLUE RIDGE PARKWAY / LITTLE SWITZERLAND - FRIDAY 1 JANUARY 1999 on a dark band for 5.5 s.
+  - 2400 m past the exit (or 180 s, 20 s stopped, 3 s stranded): fade, CHARLOTTE (NORTH CAROLINA - the date), home.
+  - SKIP: hold Esc, a pad's Start, or the top-left HOLD HERE TO SKIP button (touch, mouse) for 1 s, any time from
+    the bore on: a short fade, CHARLOTTE, home. Pause is off during the intro (Esc and Start are the skip).
+  - A watchdog: if the stage never takes the intro (no RaceManager) the player goes home after 10 s, never stuck in
+    black. Tools (batch jobs, tours, shot links) never get the intro unless they ask (IntroPlayCheck), like the title.
+- Shared files (small): LifeHomeScreen.cs Start (the black backdrop + ambience, ~10 lines), the WizardBg colour
+  (6 call sites), BuildCarConfirm's DRIVE THIS ONE and LifeHomeScreen.Showroom.cs CommitLane (one line each:
+  `if (!NewGameIntro.Launch(S)) SceneManager.LoadScene(0);`); RaceManager.Start (+1 line, after TitleScreen.Attach);
+  EngineAudio.EarFor (+1 line); ExposureAdapt (Scripted, ForceTunnel: +2 fields, 2 lines in Tick).
+- NEW Editor/IntroPlayCheck.cs (+ .meta) and tools/intro-check.ps1 (-Off, -Skip, -View <view>, -NoWatch, -Out).
+
+## Proof (real editor play-mode frames, PSXLab Win64, fresh processes; scratch = C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\intro\)
+- intro_sheet_chase.png: the whole sequence, saved view CHASE (run4): black + UI, the car pick, black at DRIVE THIS
+  ONE, the hold, the headlights, the pass, just past, the attach, inside looking at the exit, the reveal, the
+  caption, the drive (900 m), the fade, CHARLOTTE, the home screen. Video: run4_chase\intro.mp4 (41.7 s, 10 fps:
+  the bore, 450 m out, the fade and the card).
+- intro_sheet_cockpit_skip.png (run5: START held by a virtual pad once the ease began -> CHARLOTTE -> home in
+  4.3 s) and run6_cockpit_strip.png (run6, cockpit saved: the pass on the chase rig with the roof on, then the seat).
+- intro_before_after.png: PSX_INTRO=0 (the wizard on the charcoal, straight home) against on.
+- intro_sheet_october.png: PSX_INTRO_DAY=288, the same opening on 15 October 1999 (ALL PASS; a preview for the
+  owner's call - and the barren fall dress above).
+- Every run: the home screen's career is exactly what DRIVE THIS ONE saved (money, day 1, block DAWN, the car's
+  JSON - km, fuel, wear, faults, paint - and the diary), the handoff clear, the hooks released, the sound back.
+  Runs 3, 4, 6: ALL PASS - the car at 57-58 km/h at its slowest through the approach, pass, ease and hand-over (it
+  never stops), heard from outside on the way up and from its rig after, the eye 1.00 -> 2.43 in the bore -> 1.00
+  out, 2400 m to the fade (139 s in all). Run5 (skip): ALL PASS. PSX_INTRO=0: ALL PASS.
+- LifeSim self-test on this code: SELF-TEST FAILED (63) against the sandbox's 02:37 baseline (64). The differences
+  are PC46's own (the deck-run scene-index rows moved by 6, the ChimneyRock barrier row gone, the roadside-tree
+  row's counts); nothing touches the wizard or the intro (the self-test runs in batch: the intro stands down).
+- Controller: drive as always; hold START (or Esc) 1 s to skip. Touch: the touch controls fade in with the HUD at
+  the hand-over; hold the top-left HOLD HERE TO SKIP button 1 s. Keyboard/mouse: hold Esc, or hold the button.
+
+## What still looks wrong in my own frames
+- January: bare trees, not the photo's fall (the career's date; see above).
+- The bore is a flat-roofed box whose rock texture stretches along it (a light streak along the ceiling); the
+  photo's tunnels are rough rock arches. The portal is the stage's dressed-stone arch, unchanged.
+- On the chase rig the pass is the lens inside the car's bonnet for a fraction of a second (a flat panel in a still).
+- A mounted view arrives as one camera change after the ease (with the HUD's view-name flash), not a blend.
+- The reveal 0.35 s out is overexposed on purpose (the eye closing); the caption's band is translucent.
+
+## Not done / not verified
+- No change to the tunnel's geometry; the owned NM tunnel not used (see above). The reverse-twin bug in
+  ExposureAdapt's tunnel table is left (it affects LittleSwitzerlandRev races outside the intro).
+- Not seen on a phone or with a real pad (the pad skip was a virtual pad); the skip button's phone placement
+  (top-left, above the touch map) was reasoned, not shot at a phone's aspect.
+- The 2400 m drive in the checks is the check's own autopilot (NewGameIntro.AutoDrive), not a hand on the wheel.
+
+## For the merge
+- Shared-file edits: LifeHomeScreen.cs (Start: the black backdrop + ambience, ~10 lines; the WizardBg field and its
+  call sites; BuildCarConfirm's DRIVE THIS ONE: one line), LifeHomeScreen.Showroom.cs (the CarPick panel colour;
+  CommitLane's last line), RaceManager.cs Start (+1 line), EngineAudio.cs EarFor (+1 line), ExposureAdapt.cs
+  (2 fields, 2 lines in Tick).
+- New: Scripts/NewGameIntro.cs + .meta, Editor/IntroPlayCheck.cs + .meta, tools/intro-check.ps1. No data files, no
+  scene pass, no re-bake: the intro runs in PC46's LittleSwitzerland scene.
+- Switches: PSX_INTRO (default on; 0 = before), PSX_INTRO_DAY (preview only), PSX_INTRO_HOUR (default 1 MORNING),
+  PSX_INTRO_SKY (default 2 overcast).
+
+## What the owner will notice
+NEW GAME is now dark, with water dripping in a tunnel. After he picks his car, its own engine comes up the tunnel
+behind him, its headlights light the rock, it drives through the camera, the camera settles behind it, and he drives
+out of the Little Switzerland Tunnel onto the Parkway toward Gillespie Gap before CHARLOTTE and his first day. The
+game's calendar starts on 1 January, so the trees are bare; starting the career in October would give him the
+photo's season, once the stage's fall forest draws again (today it is bare brown slopes in October).
+
 # HANDOFF - LAKE LURE ROUND 2, THE FIDELITY ROUND (agent "lakelure", branch `mountain-lakelure2` from mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
 
 The round's aim (coordinator, 11-16): what still kept Lake Lure from being "the memory of what it used to be like", most

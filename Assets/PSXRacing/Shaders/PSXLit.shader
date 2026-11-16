@@ -255,6 +255,19 @@ Shader "PSX/Lit"
         [HideInInspector] [NoScaleOffset] _HorizonMacro ("Horizon macro", 2D) = "gray" {}
         [HideInInspector] _HorizonCanopy ("Horizon canopy", Color) = (0,0,0,0)
         [HideInInspector] _HorizonFade ("Horizon fade", Vector) = (300, 1800, 0.000167, 0.34)
+        // THE FAR CANOPY (PSXRacingBuilder.Horizon, linncove 2026-11-16): the
+        // land past the forest as crowns in the dress's palette, and the ridges'
+        // crown fringe cards. 0 = off (every material that never set it).
+        [HideInInspector] _HorizonCrowns ("Far canopy", Float) = 0
+        [HideInInspector] _HorizonFringe ("Ridge fringe card", Float) = 0
+        [HideInInspector] _CanopyP0 ("Canopy 0", Color) = (0.2, 0.2, 0.1, 1)
+        [HideInInspector] _CanopyP1 ("Canopy 1", Color) = (0.2, 0.2, 0.1, 1)
+        [HideInInspector] _CanopyP2 ("Canopy 2", Color) = (0.2, 0.2, 0.1, 1)
+        [HideInInspector] _CanopyP3 ("Canopy 3", Color) = (0.2, 0.2, 0.1, 1)
+        [HideInInspector] _CanopyP4 ("Canopy 4", Color) = (0.2, 0.2, 0.1, 1)
+        [HideInInspector] _CanopyConifer ("Canopy conifer", Color) = (0.03, 0.05, 0.03, 1)
+        [HideInInspector] _CanopyGap ("Canopy gap", Color) = (0.02, 0.02, 0.015, 1)
+        [HideInInspector] _CanopySpruce ("Canopy spruce band", Vector) = (99999, 100000, 0.1, 0.1)
         // CITY POP-IN (city-popin, 2026-10-28; CityTileFade.cs): how this draw
         // takes part in Charlotte's tile fade. 0 on every material (the other
         // venues never read the table); set per renderer by a
@@ -554,6 +567,66 @@ Shader "PSX/Lit"
             sampler2D _HorizonMacro;
             fixed4 _HorizonCanopy;
             float4 _HorizonFade;
+            // ==== THE FAR CANOPY (linncove, owner 2026-11-16: "It would be nice to
+            // find a solution to the barren mountains in the distance on mountain
+            // maps"; his title frame: the far hills "bare smooth brown ground").
+            // Past the forest's reach a mountainside is seen as its canopy: crowns
+            // eight to twelve metres across, each its own colour out of the dress's
+            // palette (the near forest's own leaf sheets), lit as a dome by the sun,
+            // dark gaps between them, stands of one colour a hundred metres across,
+            // spruce-fir dark on the high ridges. Procedural in world space (no
+            // tile to repeat), and where a crown gets smaller than a pixel it
+            // turns into the mean it stands for, so nothing shimmers.
+            // PSXRacingBuilder.Horizon (HorizonDress, BuildHorizonFringe). ====
+            float _HorizonCrowns;       // 1 = this land wears the crown field (the far canopy)
+            float _HorizonFringe;       // 1 = a ridge's crown fringe card: its own alpha, faded in by _HorizonFade.xy
+            fixed4 _CanopyP0, _CanopyP1, _CanopyP2, _CanopyP3, _CanopyP4;   // the dress's broadleaf crowns, linear albedo
+            fixed4 _CanopyConifer, _CanopyGap;
+            float4 _CanopySpruce;       // the conifers' share: x world y where it starts rising, y where it is whole, z share below, w above
+            float _PSXFarCanopyOff;     // GLOBAL (StageCulling): 1 = PSX_FARCANOPY=0, the land as it was
+            float _PSXFringeOn;         // GLOBAL (StageCulling): 1 = PSX_RIDGEFRINGE=1, the ridge fringe drawn (default 0)
+            // ==== THE BLUE DISTANCE, v2 (LookChoices.AerialDepth): the air between
+            // the eye and a far ridge, 1 - exp(-d / L) past x m - layered ridges, each
+            // a step paler and bluer (the owner's Linn Cove photograph). GLOBAL, set
+            // by TimeOfDay; w 0 = off. ====
+            float4 _PSXAerial;          // x start m, y 1/L, z most it takes, w 1 = on
+            float4 _PSXAerialCol;       // the air's colour (linear)
+
+            float2 PSXCanopyHash2(float2 q)
+            {
+                q -= 4096.0 * floor(q / 4096.0);   // 37 km of crowns before a repeat; the digits stay
+                float3 p3 = frac(q.xyx * float3(0.1031, 0.1030, 0.0973));
+                p3 += dot(p3, p3.yzx + 33.33);
+                return frac((p3.xx + p3.yz) * p3.zy);
+            }
+            /// The crown over a point (cell = the crowns' spacing, m): x its dome's
+            /// height 0..1 (0 = a gap between crowns), y its own number 0..1, zw the
+            /// point's offset from its centre in radii. The tallest dome wins, so
+            /// overlapping crowns meet on a curve, as a canopy does.
+            float4 PSXCrownAt(float2 w, float cell)
+            {
+                float2 g = w / cell, gi = floor(g), gf = g - gi;
+                float bestH = 0.0;
+                float4 res = float4(0.0, 0.0, 0.0, 0.0);
+                [unroll] for (int cj = -1; cj <= 1; cj++)
+                [unroll] for (int ci = -1; ci <= 1; ci++)
+                {
+                    float2 o = float2(ci, cj);
+                    float2 h = PSXCanopyHash2(gi + o);
+                    float2 c = o + 0.12 + 0.76 * h;
+                    float r = 0.50 + 0.32 * frac(h.x * 13.17 + h.y * 7.31);
+                    float2 d = (gf - c) / r;
+                    float dd = dot(d, d);
+                    float hh = (1.0 - dd) * r;
+                    if (hh > bestH) { bestH = hh; res = float4(sqrt(saturate(1.0 - dd)), frac(h.x * 31.7 + h.y * 17.3), d); }
+                }
+                return res;
+            }
+            float3 PSXCanopyPick(float t)
+            {
+                float k = floor(frac(t) * 5.0);
+                return k < 1.0 ? _CanopyP0.rgb : k < 2.0 ? _CanopyP1.rgb : k < 3.0 ? _CanopyP2.rgb : k < 4.0 ? _CanopyP3.rgb : _CanopyP4.rgb;
+            }
             // THE DETAIL'S EDGE (StageCulling, a stage with a horizon): everything
             // but the land dissolves between x and y metres from the eye, on the
             // screen-door pattern, so nothing pops where its layer stops being
@@ -2065,12 +2138,81 @@ Shader "PSX/Lit"
                 // map (no store files) the tile is blended with itself at a
                 // seventh of the scale, so one tile never draws its own grid
                 // over a mountainside.
+                // THE FAR CANOPY's light on this pixel (1 = none; applied with the sun below)
+                float cnSun = 1.0, cnAO = 1.0;
                 if (_Horizon > 0.5)
                 {
-                    if (_HorizonCanopy.a > 0.0)
+                    float cnHd = length(i.wpos - _WorldSpaceCameraPos);
+                    // A ridge's crown fringe (BuildHorizonFringe): only with the far
+                    // canopy, and dithered in past the forest's own reach
+                    if (_HorizonFringe > 0.5)
                     {
-                        float hd = length(i.wpos - _WorldSpaceCameraPos);
-                        float hf = saturate((hd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0)) * _HorizonCanopy.a;
+                        float2 cnPx = floor(i.pos.xy);
+                        float cnDith = frac(52.9829189 * frac(dot(cnPx, float2(0.06711056, 0.00583715))));
+                        float cnIn = saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
+                        clip(_PSXFarCanopyOff > 0.5 || _PSXFringeOn < 0.5 ? -1.0 : cnIn - cnDith - 1e-5);
+                    }
+                    if (_HorizonCrowns > 0.5 && _PSXFarCanopyOff < 0.5)
+                    {
+                        float cnHf = _HorizonFringe > 0.5 ? 1.0
+                                 : saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
+                        if (cnHf > 0.0)
+                        {
+                            const float cnCell = 9.0;
+                            float2 cnW = i.wpos.xz;
+                            float4 cnCr = PSXCrownAt(cnW, cnCell);
+                            // crowns to a pixel: from about a fifth of a crown a
+                            // pixel the field turns into the mean it stands for
+                            float cnFp = max(length(dWx), length(dWy));
+                            float cnVis = 1.0 - saturate((cnFp / cnCell - 0.18) / 0.32);
+                            // STANDS: one colour runs a hundred metres or so; the
+                            // conifers gather in their own (coves of hemlock, spruce)
+                            float cnS = PSXRockNoise(cnW / 90.0) * 0.6 + PSXRockNoise(cnW / 280.0 + 3.7) * 0.4;
+                            float cnS2 = PSXRockNoise(cnW / 150.0 + 11.3);
+                            float cnShare = lerp(_CanopySpruce.z, _CanopySpruce.w, smoothstep(_CanopySpruce.x, _CanopySpruce.y, i.wpos.y));
+                            cnShare = saturate(cnShare * (0.45 + 1.1 * cnS2));
+                            float cnR2 = frac(cnCr.y * 7.13 + 0.37), cnR3 = frac(cnCr.y * 53.3 + 0.11);
+                            float3 cnBroad = PSXCanopyPick(cnS * 0.7 + cnCr.y * 0.45) * (0.8 + 0.4 * cnR3);
+                            float3 cnCrown = cnR2 < cnShare ? _CanopyConifer.rgb * (0.85 + 0.3 * cnR3) : cnBroad;
+                            float cnOnC = cnCr.x > 0.0 ? 1.0 : 0.0;
+                            float3 cnPix = lerp(_CanopyGap.rgb, cnCrown, cnOnC);
+                            // the stand's own mean, SMOOTH across stands (a pick of discrete
+                            // crowns read as camouflage blotches at 5 km): warm to cool
+                            float3 cnWarm = (_CanopyP0.rgb + _CanopyP1.rgb + _CanopyP2.rgb) * (1.0 / 3.0);
+                            float3 cnCool = (_CanopyP3.rgb + _CanopyP4.rgb) * 0.5;
+                            float3 cnMeanB = lerp(cnWarm, cnCool, smoothstep(0.25, 0.75, cnS)) * (0.92 + 0.16 * cnS2);
+                            float3 cnMean = lerp(lerp(cnMeanB, _CanopyConifer.rgb, cnShare), _CanopyGap.rgb, 0.12);
+                            // CLUMPS: crowns gather in clumps 20-60 m across, lit and shaded - the
+                            // grain the eye still reads on a ridge 5-10 km off, where one crown is
+                            // under a pixel (mean-preserving; gone where a clump is under ~2 px)
+                            float cnG = PSXRockNoise(cnW / 23.0) * 0.6 + PSXRockNoise(cnW / 61.0 + 7.1) * 0.4;
+                            cnMean *= 1.0 + 0.76 * saturate(1.0 - cnFp / 14.0) * (cnG - 0.5);
+                            float3 cnCol = lerp(cnMean, cnPix, cnVis);
+                            // the DOME's light: its normal leans out from its centre;
+                            // a gap is in its neighbours' shade, more so at a low sun
+                            float3 cnNg = normalize(i.wnrm);
+                            float3 cnLs = normalize(_PSXLightDir.xyz);
+                            float3 cnNd = normalize(cnNg + float3(cnCr.z, 0.0, cnCr.w) * 0.85);
+                            float cnHigh = saturate(cnLs.y * 1.6);
+                            float cnDome = min(saturate(dot(cnNd, cnLs)) / max(saturate(dot(cnNg, cnLs)), 0.08), 2.0);
+                            float cnSunPix = cnOnC > 0.5 ? cnDome : lerp(0.15, 0.55, cnHigh);
+                            float cnAoPix = cnOnC > 0.5 ? lerp(0.62, 1.0, cnCr.x) : 0.4;
+                            float cnSunF = lerp(lerp(0.72, 0.92, cnHigh), cnSunPix, cnVis);
+                            float cnAoF = lerp(0.8, cnAoPix, cnVis);
+                            // a cliff at the 60 m grid's own scale: grey rock between
+                            // fewer crowns (Linville Gorge's walls, Grandfather's crest)
+                            float cnRk = smoothstep(0.80, 0.66, cnNg.y) * 0.65;
+                            cnCol = lerp(cnCol, float3(0.15, 0.15, 0.145), cnRk * (1.0 - cnOnC * cnVis * 0.5));
+                            // the fringe card: its own shading, the land's colour
+                            if (_HorizonFringe > 0.5) { cnCol *= tex.rgb * 2.0; cnSunF = 1.0; cnAoF = 1.0; }
+                            tex.rgb = lerp(tex.rgb, cnCol, cnHf);
+                            cnSun = lerp(1.0, cnSunF, cnHf);
+                            cnAO = lerp(1.0, cnAoF, cnHf);
+                        }
+                    }
+                    else if (_HorizonCanopy.a > 0.0)
+                    {
+                        float hf = saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0)) * _HorizonCanopy.a;
                         if (hf > 0.0)
                         {
                             float2 mu = abs(frac(i.wpos.xz * (_HorizonFade.z * 0.5)) * 2.0 - 1.0);
@@ -2407,6 +2549,9 @@ Shader "PSX/Lit"
                 sunIn *= rkSun;
                 ambIn *= rkAO;
             #endif
+                // the far canopy's domes and gaps (1 everywhere else)
+                sunIn *= cnSun;
+                ambIn *= cnAO;
                 float3 sunAmb = ambIn * (skyKeep * PSXCarAmbientKeep(carVis, ambIn, sunIn, N)) + sunIn * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
                 // colour pass's one curve on (_PSXToneOn) the light goes
@@ -2600,6 +2745,12 @@ Shader "PSX/Lit"
                 float adapt = PSXAdaptGain();
                 float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * i.ring, V));
                 float3 col = lerp(PSXTone(lit), fogCol, i.fog);
+                // THE BLUE DISTANCE v2 (_PSXAerial; off unless LookChoices.AerialDepth)
+                if (_PSXAerial.w > 0.5)
+                {
+                    float aF = min(1.0 - exp(-max(eyeDist - _PSXAerial.x, 0.0) * _PSXAerial.y), _PSXAerial.z);
+                    col = lerp(col, PSXFogTone(PSXFogTowardSun(_PSXAerialCol.rgb * i.ring, V)), aF);
+                }
                 // The emitter mask (PSXTone.cginc): a lit surface is no light
                 // source. Its streaks on a wet road are (below), and so are
                 // its lit windows and an emissive sign at night.

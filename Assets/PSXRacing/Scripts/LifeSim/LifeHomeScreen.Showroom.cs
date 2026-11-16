@@ -230,7 +230,7 @@ namespace PSXRacing.LifeSim
             float W = Mathf.Min(1100f, MenuKit.HalfWidth * 2f - 32f);
             float H = Mathf.Min(MenuKit.DesignHeight - 20f, 700f);
             var root = MenuKit.Rect(canvas.transform, "CarPick",
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, H), MenuKit.PanelBg);
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, H), WizardBg);
             MenuKit.Label(root, "WHAT ARE YOU DRIVING?", 26, new Vector2(0.5f, 1f), new Vector2(0f, -12f),
                 TextAnchor.MiddleCenter, MenuKit.Accent, W - 60f, height: 34f, bold: true);
             MenuKit.Label(root, "Your savings are yours either way — the payments are what follow you.",
@@ -300,7 +300,8 @@ namespace PSXRacing.LifeSim
                 pendingFirstDrive = true;
                 PendingTab = "charlotte";
             }
-            SceneManager.LoadScene(0);   // reload home, now in play mode
+            // out of the tunnel first (NewGameIntro; false = off, or it cannot run here)
+            if (!NewGameIntro.Launch(S)) SceneManager.LoadScene(0);   // reload home, now in play mode
         }
     }
 }

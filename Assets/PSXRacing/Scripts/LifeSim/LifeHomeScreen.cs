@@ -202,14 +202,18 @@ namespace PSXRacing.LifeSim
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "HomeCanvas", 10);
             screenWatch = new MenuKit.ScreenWatch();
-            MenuKit.Panel(canvas.transform, "Backdrop", MenuKit.Bg);
+            wizard = !LifeSimManager.HasSave || string.IsNullOrEmpty(S.playerName);
+            // NEW GAME IN THE TUNNEL (owner, 2026-11-16; NewGameIntro, PSX_INTRO=0 = as before): the wizard and the
+            // car pick over black, with the tunnel's sound; any other page stops that sound.
+            bool tunnel = tunnelBlack = NewGameIntro.On && (wizard || S.cars.Count == 0);
+            MenuKit.Panel(canvas.transform, "Backdrop", tunnel ? Color.black : MenuKit.Bg);
             // The GT2 blueprint grid over the charcoal, then the scanlines.
             // Both go down first so every panel built after sits on top of
             // them — the effects belong to the screen, not to the content.
-            MenuKit.GridBackdrop(canvas.transform);
+            if (!tunnel) MenuKit.GridBackdrop(canvas.transform);
             MenuKit.Scanlines(canvas.transform);
+            if (tunnel) NewGameIntro.TunnelAmbience(); else NewGameIntro.StopAmbience();
 
-            wizard = !LifeSimManager.HasSave || string.IsNullOrEmpty(S.playerName);
             if (wizard) { BuildWizard(); return; }
 
             // The wizard commits the character before the car is chosen, so a
@@ -615,7 +619,7 @@ namespace PSXRacing.LifeSim
             // the tab bar bunched to the left and a job list that overlapped its
             // own rows. Fractional anchors need no measurement to be correct.
             var root = MenuKit.Stretch(canvas.transform, "Wizard",
-                Vector2.zero, Vector2.one, 40f, 40f, 24f, -24f, MenuKit.PanelBg);
+                Vector2.zero, Vector2.one, 40f, 40f, 24f, -24f, WizardBg);
 
             MenuKit.Label(root, "NEW GAME", MenuKit.Title, new Vector2(0.5f, 1f),
                 new Vector2(0f, -18f), TextAnchor.MiddleCenter, MenuKit.Accent, 700f, bold: true)
@@ -859,6 +863,11 @@ namespace PSXRacing.LifeSim
         /// on a canvas between about 1.8:1 and 2:1).</summary>
         public static bool WizardScrollOn = System.Environment.GetEnvironmentVariable("PSX_WIZARD_SCROLL") != "0";
 
+        /// <summary>NEW GAME in the tunnel (NewGameIntro): the wizard's own panels near-black too, so the screen
+        /// reads as the dark of the bore and not as a grey menu over it (the charcoal panel otherwise).</summary>
+        bool tunnelBlack;
+        Color WizardBg => tunnelBlack ? new Color(0.045f, 0.045f, 0.045f, 0.92f) : MenuKit.PanelBg;
+
         /// <summary>A new career answering NO drives the guided first drive once
         /// its car is chosen (City.FirstDrive).</summary>
         static bool wizFirstDrive;
@@ -870,7 +879,7 @@ namespace PSXRacing.LifeSim
         void AskLicense(RectTransform root, string chosen)
         {
             var ask = MenuKit.Stretch(root, "License", new Vector2(0f, 0f), new Vector2(1f, 1f), 0f, 0f, 0f, 0f,
-                new Color(0.08f, 0.08f, 0.08f, 1f));
+                tunnelBlack ? WizardBg : new Color(0.08f, 0.08f, 0.08f, 1f));
             void Begin(bool firstDrive)
             {
                 wizFirstDrive = firstDrive;
@@ -950,7 +959,7 @@ namespace PSXRacing.LifeSim
             // canvas is ~590 units high and the title went off the top.
             var root = MenuKit.Rect(canvas.transform, "CarPick",
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(900f, 110f + 3 * 132f + 14f), MenuKit.PanelBg);
+                Vector2.zero, new Vector2(900f, 110f + 3 * 132f + 14f), WizardBg);
 
             MenuKit.Label(root, "WHAT ARE YOU DRIVING?", 30, new Vector2(0.5f, 1f),
                 new Vector2(0f, -28f), TextAnchor.MiddleCenter, MenuKit.Accent, 840f, bold: true)
@@ -1069,7 +1078,7 @@ namespace PSXRacing.LifeSim
             float ViewW = Mathf.Round(W * 0.545f), ViewH = Mathf.Round(ViewW * 0.625f);
             var root = MenuKit.Rect(canvas.transform, "CarConfirm",
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(W, H), MenuKit.PanelBg);
+                Vector2.zero, new Vector2(W, H), WizardBg);
 
             MenuKit.Label(root, lane.label, 18, new Vector2(0f, 1f), new Vector2(30f, -14f),
                 TextAnchor.MiddleLeft, MenuKit.Accent, W - 60f, height: 26f, bold: true);
@@ -1143,7 +1152,8 @@ namespace PSXRacing.LifeSim
                         pendingFirstDrive = true;
                         PendingTab = "charlotte";
                     }
-                    SceneManager.LoadScene(0);   // reload home, now in play mode
+                    // out of the tunnel first (NewGameIntro; false = off, or it cannot run here)
+                    if (!NewGameIntro.Launch(S)) SceneManager.LoadScene(0);   // reload home, now in play mode
                 }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
             MenuKit.Button(root, "BACK", new Vector2(1f, 0f), new Vector2(-30f, 22f),
                 new Vector2(sw, 58f), () =>
