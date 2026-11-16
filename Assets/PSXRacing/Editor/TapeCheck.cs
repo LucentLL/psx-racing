@@ -42,7 +42,10 @@ namespace PSXRacing.EditorTools
         {
             log = new StringBuilder();
             failures = 0;
-            venue = 0;   // the city circuit: short, four cars (ReplayCheck's)
+            // A mountain stage with a field (PSX_TAPE_VENUE to change it).
+            string want = System.Environment.GetEnvironmentVariable("PSX_TAPE_VENUE");
+            if (string.IsNullOrEmpty(want)) want = "GillespieGap";
+            if (!TrackCatalog.TryIndexOf(want, out venue)) venue = TrackCatalog.IndexOf("GillespieGap");
             if (File.Exists(ReportPath)) File.Delete(ReportPath);
             if (Directory.Exists(TapeDir)) Directory.Delete(TapeDir, true);
             Directory.CreateDirectory(TapeDir);
@@ -70,7 +73,7 @@ namespace PSXRacing.EditorTools
             EditorApplication.EnterPlaymode();
         }
 
-        /// <summary>A career race at the city circuit: four cars, the AI driving.</summary>
+        /// <summary>A career race at the check's venue: four cars, the AI driving.</summary>
         internal static void Prime(int hour)
         {
             RaceHandoff.ClearAll();
@@ -192,7 +195,8 @@ namespace PSXRacing.EditorTools
 
     public class TapeCheckRunner : MonoBehaviour
     {
-        const float RecordSeconds = 12f;
+        /// <summary>The countdown (4 s) and twelve seconds of racing.</summary>
+        const float RecordSeconds = 16f;
         static readonly BindingFlags Priv = BindingFlags.NonPublic | BindingFlags.Instance;
 
         static void Check(bool ok, string what, object got = null) => TapeCheck.Check(ok, what, got);
@@ -230,6 +234,19 @@ namespace PSXRacing.EditorTools
             Check(offer != null, "a career race gets the SAVE TO TAPE offer");
             Check(!TapePlayback.Active, "and is not a tape");
             if (offer == null) yield break;
+
+            // The player's car on autopilot (RacePlayCheck's way), so the tape
+            // has the player's own car racing on it.
+            var car = rm.playerCar;
+            if (car != null)
+            {
+                var input = car.GetComponent<PlayerCarInput>();
+                if (input != null) { input.inputEnabled = false; input.enabled = false; }
+                var auto = car.gameObject.AddComponent<AIDriver>();
+                auto.path = rm.path;
+                auto.skill = 0.95f;
+                car.allowReverse = false;
+            }
 
             t0 = Time.time;
             while (Time.time - t0 < RecordSeconds) yield return null;
@@ -357,8 +374,7 @@ namespace PSXRacing.EditorTools
             yield return Real(0.5f);
             Check(rm.State == RaceManager.RaceState.Countdown && rm.CountdownRemaining >= 3.99f,
                   "the race never started under it", rm.State + " " + rm.CountdownRemaining.ToString("0.00"));
-            // Follow a car that moved (the player's sat on the grid in this check).
-            if (rp.TrackCount > 1) rp.Watch(1);
+            // The deck follows the player's own car (it drove on autopilot).
             yield return Real(2.5f);
 
             // Every car where the tape has it.

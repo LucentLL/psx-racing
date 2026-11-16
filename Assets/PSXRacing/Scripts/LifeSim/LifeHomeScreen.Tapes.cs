@@ -65,12 +65,20 @@ namespace PSXRacing.LifeSim
                 () => { tapeSel = h.id; armKey = null; tab = page; Rebuild(); }, 16,
                 picked ? MenuKit.TabOnBg : (Color?)null);
             row.gameObject.name = "Btn_tape_" + h.id;
+            // The cassette's label stripe: a colour of its own, so a shelf of
+            // them reads as a shelf of different tapes.
+            float hue = (Mathf.Abs((h.id ?? "").GetHashCode()) % 360) / 360f;
+            var stripe = MenuKit.Rect(row.transform, "Stripe", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                new Vector2(10f, 0f), new Vector2(8f, rowH - 16f), Color.HSVToRGB(hue, 0.55f, 0.85f));
+            var stripeImg = stripe.GetComponent<UnityEngine.UI.Image>();
+            if (stripeImg != null) stripeImg.raycastTarget = false;
             float rightW = 150f;
-            var label = MenuKit.Label(row.transform, h.Spine, 17, new Vector2(0f, 0.5f), new Vector2(18f, 0f),
-                TextAnchor.MiddleLeft, picked ? MenuKit.Accent : Color.white, ColW - rightW - 40f, height: 26f, bold: picked);
+            var label = MenuKit.Label(row.transform, h.Spine, 17, new Vector2(0f, 0.5f), new Vector2(28f, 0f),
+                TextAnchor.MiddleLeft, picked ? MenuKit.Accent : Color.white, ColW - rightW - 50f, height: 26f, bold: picked);
             label.raycastTarget = false;
-            MenuKit.FitOneLine(label, ColW - rightW - 40f);
-            var r = MenuKit.Label(row.transform, right, 17, new Vector2(1f, 0.5f), new Vector2(-18f - rightW, 0f),
+            MenuKit.FitOneLine(label, ColW - rightW - 50f);
+            // Right-aligned text pivots on its right edge (MenuKit.PivotXFor).
+            var r = MenuKit.Label(row.transform, right, 17, new Vector2(1f, 0.5f), new Vector2(-18f, 0f),
                 TextAnchor.MiddleRight, MenuKit.Dim, rightW, height: 26f);
             r.raycastTarget = false;
             y -= rowH + 6f;
