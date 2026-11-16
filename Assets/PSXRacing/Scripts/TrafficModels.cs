@@ -195,10 +195,10 @@ namespace PSXRacing
         // Trade and Tryon, the middle of Uptown, in the city's metres
         // (x = (lon + 80.8177) * 111320 * cos 35.18456, z = (lat - 35.18456) * 111132).
         const float UptownX = -2311f, UptownZ = 4739f;
-        /// <summary>How far from Trade and Tryon a cab still cruises: Uptown,
+        /// <summary>How far from Trade and Tryon a cab still cruises (3.2 km, 11-16: at 4.5 km three cabs stood on Queens Road West): Uptown,
         /// South End, the inner wards. Past it a cab is on a freeway (the
         /// airport run) or is not there.</summary>
-        public const float TaxiRadiusM = 4500f;
+        public const float TaxiRadiusM = 3200f;
 
         /// <summary>
         /// THE RIGHT VEHICLE ON THE RIGHT ROAD: may a car of this kind be born
