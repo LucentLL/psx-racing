@@ -50,6 +50,11 @@ namespace PSXRacing.City
         /// 16 SPLT nodes and the three same-name meetings n634, n7868, n9152.</summary>
         public static readonly int[] BfrSplitNodes = { 231, 4025, 7869, 7963, 10035, 10229, 10230, 10231, 10232, 10233, 10234, 10236, 10238, 12438, 13570, 13571, 634, 7868, 9152 };
         static HashSet<int> bfrSplitSet;
+        /// <summary>Beatties Ford nodes the bfr scope leaves as PC45 (measured, not drawn): n7963 and
+        /// n12438, where the carriageways diverge to wide medians along OSM's own lines (the profile cannot
+        /// pass the census there) and the bfr traffic census met 3 wrecks on a solid beside e11521's
+        /// shifted lanes (-3696,11302; -3694,11374), off the drive audit's box.</summary>
+        public static readonly HashSet<int> BfrHeldBack = new HashSet<int> { 7963, 12438 };
         public static bool SplitsOn => SplitAxis != "0";
 
         /// <summary>Is this split node drawn by the splits round's rules?</summary>
@@ -59,7 +64,7 @@ namespace PSXRacing.City
             if (SplitAxis == "all") return true;
             if (map.graphHash != SplitsGraph) return false;
             bfrSplitSet ??= new HashSet<int>(BfrSplitNodes);
-            return bfrSplitSet.Contains(node);
+            return bfrSplitSet.Contains(node) && !BfrHeldBack.Contains(node);
         }
 
         /// <summary>The refuge list's scope bit for the current SplitAxis: an
