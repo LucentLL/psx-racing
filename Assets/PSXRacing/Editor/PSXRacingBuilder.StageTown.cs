@@ -709,7 +709,8 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static Transform ClosureRoot(Transform parent)
         {
-            if (!WorldSwitch("PSX_LURE_EVENTCLOSURES")) return parent;
+            // UNPROVEN (its build did not run before the stop): default OFF - PSX_LURE_EVENTCLOSURES=1 makes the barricades event-only
+            if (Environment.GetEnvironmentVariable("PSX_LURE_EVENTCLOSURES") != "1") return parent;
             var holder = parent.Find("EventClosures");
             if (holder == null)
             {

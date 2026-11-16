@@ -1,0 +1,14 @@
+{
+ "t0120": {"score": "ALMOST", "note": "the left bend round the wooded hill and the trees line up; the game keeps a W-beam on the right where the video has a low stone garden wall and a lawn; the lake at the right edge is hidden"},
+ "t0305": {"score": "ALMOST", "note": "the left bend with the W-beam on the right matches; the video's canopy closes over the road, ours is thinner; pose +/-100 m (time model)"},
+ "t0600": {"score": "ALMOST", "note": "the left bend, the timber post-and-rail and the pole on the right match; the lake shows less through the trees than in the video"},
+ "t0743": {"score": "ALMOST", "note": "the straight into downtown with the grass bank on the right matches; the video's road is wider with a paved shoulder and a pole on the right"},
+ "t0815": {"score": "YES", "note": "the inn across its open lawn at the same size and place, the road curving right, the crosswalk; still differs: lantern lamps in the game, no parked cars, the inn's arched arcade"},
+ "t0845": {"score": "ALMOST", "note": "the W-beam over the marina and the far ridge match; the bare granite band on the summit is small at this distance; one big tree on the right in the video"},
+ "t0945": {"score": "ALMOST", "note": "the white flat-roofed shop on its lot at road level and the granite dome over it are there; the shop sits smaller and further right, no trucks, the red maple is missing"},
+ "t1005": {"score": "NO", "note": "a large building on the left where the video shows trees and the pole line; the house with the flag on the right is hidden; pose +/-30 m"},
+ "t1125": {"score": "NO", "note": "the river-side row of porches on the left matches in kind, but the uphill fronts on the right stand back behind a bank; the video's log shop and green gables stand at the sidewalk (needs the village kit)"},
+ "t1410": {"score": "NO", "note": "pose not located (+/-150 m, gorge without landmarks in view)"},
+ "t1620": {"score": "NO", "note": "the bend goes the other way: the pose is still off; the gravel pull-off and the signs on the right are not built"},
+ "t1650": {"score": "NO", "note": "houses ahead and the fence on the left are there, but smaller and further than in the video; pose +/-40 m"}
+}

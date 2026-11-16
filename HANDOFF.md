@@ -1,4 +1,14 @@
-﻿# HANDOFF - NEW GAME INTRO (agent "intro", branch `newgame-intro` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - LAKE LURE ROUND 3 "RECOGNIZABLE", STOPPED AT 16:00 (agent "lakelure", branch mountain-lakelure3 from c0a81147; WIP, NOT pushed)
+1. Poses LOCKED to the owner's video (dash cam solved at 8:15: 68 deg across, 1.4 m up, 1.3 m right, pitch 10.7 + grade): tools/lakelure_r3/poses_r3.json (eye, target, FOV, evidence), looks_r3.txt; overlay.py projects the map onto a frame.
+2. PROVEN in PSXPerf (PC content, r3b build, LakeLure 0 FAIL, plants 0 of 159k), default ON: PSX_LURE_DOMES, _VIDEOLOOK (inn lawn open, inlet white shop at street level + lot, village fronts), _VIDEOSIGNS, _VIDEOWALL, _VIDEOPOLES.
+3. UNPROVEN (r3c's Unity compile was interrupted, no report), default OFF: PSX_LURE_EVENTCLOSURES=1 (barricades only at a sanctioned event - the owner's 15:10 rule; Scripts/EventClosures.cs) and PSX_LURE_VIDEOVIEWS=1 (marina open, lake view at 6:00, lawn at 1:20).
+4. Proof: scratch proof_lakelure_r3b_video.png (video | round 2 | round 3 at the 12 locked poses, scored): 8:15 YES; 1:20, 3:05, 6:00, 7:43, 8:45, 9:45 ALMOST; 10:05, 11:25, 14:10, 16:20, 16:50 NO.
+5. Codex model requests: art workspace LakeLure_Codex_Model_Requests_2026-11-16.md (inn, inlet shop, village kit, poles, NC sign kit).
+6. Races NOT run this round (the watched gates were next). StageLab/ChimneyRock not re-run this round.
+NEXT: rebuild r3c in PSXPerf (check the compile; prove EVENTCLOSURES + VIDEOVIEWS, then default them ON), watched races both ways (message main first),
+re-locate 10:05, 14:10, 16:20, 16:50 (poses off), the village's uphill fronts at 11:25 (set back behind a bank), ChimneyRock lab (dome cells in its frame).
+
+# HANDOFF - NEW GAME INTRO (agent "intro", branch `newgame-intro` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
 
 Owner, 2026-11-16: "When starting a new game, the screen should be black (like you're in a long tunnel), after you
 select your car, you hear it drive up from behind, then through the camera, and the camera attaches and player takes

@@ -197,7 +197,7 @@ namespace PSXRacing.EditorTools
                         // the marina's land keeps its big shore trees (the video at 8:45): parkland, not a lawn
                         // (round 2 kept the marina's big shore trees as parkland; round 3, the video at 8:45: the docks and the
                         // covered slips show over the rail, so the marina's land is open - PSX_LURE_VIDEOLOOK=0: parkland)
-                        WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, o.kind == "marina" && !WorldSwitch("PSX_LURE_VIDEOLOOK") ? KeepPark : KeepOpen, 0);
+                        WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, o.kind == "marina" && Environment.GetEnvironmentVariable("PSX_LURE_VIDEOVIEWS") != "1" ? KeepPark : KeepOpen, 0);
                         areas++;
                     }
             if (world.buildings != null)
@@ -265,6 +265,8 @@ namespace PSXRacing.EditorTools
                 if (line.Count >= 2) WorldBand(mask, line.ToArray(), 42f, KeepOpen);
                 // 6:00 and 1:20: the lake shows through thin trees on the right (parkland, one grove in five), and at 1:20
                 // a lawn lies behind the garden wall
+                // UNPROVEN (its build did not run before the stop): default OFF, PSX_LURE_VIDEOVIEWS=1 turns it on
+                if (Environment.GetEnvironmentVariable("PSX_LURE_VIDEOVIEWS") == "1")
                 foreach (var (m0, m1, side) in new[] { (3560f, 3760f, 1f), (515f, 605f, 1f) })
                 {
                     var band = new List<Vector3>();
