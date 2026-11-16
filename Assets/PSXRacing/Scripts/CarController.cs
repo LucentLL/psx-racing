@@ -4354,6 +4354,30 @@ namespace PSXRacing
         /// probe puts the car on the overpass instead — where no clearance
         /// test ran, on a road the player was not driving.
         /// </summary>
+        /// <summary>
+        /// A ROAD MAY BE BANKED: a mountain stage's road is crowned on the
+        /// straights and superelevated up to 12% in the bends, as the real one
+        /// is (PSXRacingBuilder.Bank). A car put back on it stands ROLLED with
+        /// the cross slope under it, so all four wheels meet the road together
+        /// rather than the low side dropping onto it. Forward is the caller's
+        /// and only the roll about it changes, so on a road that is flat across
+        /// (every circuit and street) the pose is exactly what was asked for.
+        /// The road (layer 8) right under the car only: from half a metre over
+        /// the seat, so a deck overhead is never asked.
+        /// </summary>
+        public static Quaternion RollToRoad(Vector3 at, Quaternion rot)
+        {
+            const int RoadLayerMask = 1 << 8;
+            if (!Physics.Raycast(at + Vector3.up * 0.5f, Vector3.down, out var hit, 2.5f,
+                                 RoadLayerMask, QueryTriggerInteraction.Ignore))
+                return rot;
+            if (Vector3.Angle(hit.normal, Vector3.up) > 15f) return rot;
+            Vector3 fwd = rot * Vector3.forward;
+            Vector3 up = Vector3.ProjectOnPlane(hit.normal, fwd);
+            if (up.sqrMagnitude < 1e-6f || fwd.sqrMagnitude < 1e-6f) return rot;
+            return Quaternion.LookRotation(fwd, up.normalized);
+        }
+
         static Vector3 GroundedResetPos(Vector3 position)
         {
             const float ProbeUp = 6f, ProbeDown = 80f;
@@ -4458,8 +4482,8 @@ namespace PSXRacing
             // Through the teleport, not straight onto the transform: the
             // player's body is interpolated, and see TeleportTo for what that
             // does to a pose written from outside the physics step.
-            TeleportTo(seated ? position + Vector3.up * ResetLift : GroundedResetPos(position),
-                       rotation);
+            Vector3 at = seated ? position + Vector3.up * ResetLift : GroundedResetPos(position);
+            TeleportTo(at, RollToRoad(at, rotation));
             currentGear = 1;
             currentRPM = idleRPM;
             wheelSpin = 0f;

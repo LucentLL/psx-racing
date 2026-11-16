@@ -28,8 +28,42 @@
     "near": "USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice",
     "far": "USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice",
     "wide": "unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs",
-    "line": "4 stretch(es) moved onto the lidar bench (132 m of road)",
-    "holdEndsM": 120,
+    "line": "as mapped (--keep-line); gentle stretches smoothed (--plan-smooth 8: gaussian 8 m where R > 120 m, none under 50 m; largest move 0.33 m at 944 m), 4 local refit(s) at an S the lidar shelf does not carry (--refits: 3789-3824 m moved 0.46 m, tapers 72 m; 5759-5810 m moved 1.47 m, tapers 100 m; 5040-5060 m moved 0.79 m, tapers 72 m; 5600-5632 m moved 0.79 m, tapers 72 m)",
+    "planSmoothM": 8,
+    "refits": [
+      {
+        "fromM": 3789,
+        "toM": 3824,
+        "fromFadeM": 3716,
+        "toFadeM": 3896,
+        "taperM": 72,
+        "moveM": 0.463
+      },
+      {
+        "fromM": 5759,
+        "toM": 5810,
+        "fromFadeM": 5656,
+        "toFadeM": 5912,
+        "taperM": 100,
+        "moveM": 1.465
+      },
+      {
+        "fromM": 5040,
+        "toM": 5060,
+        "fromFadeM": 4968,
+        "toFadeM": 5132,
+        "taperM": 72,
+        "moveM": 0.786
+      },
+      {
+        "fromM": 5600,
+        "toM": 5632,
+        "fromFadeM": 5528,
+        "toFadeM": 5704,
+        "taperM": 72,
+        "moveM": 0.789
+      }
+    ],
     "before": "tools/roads/srtm_bakes/gap_srtm/ (the SRTM bake this replaced)",
     "files1m": [
       {
@@ -63,6 +97,14 @@
       {
         "file": "USGS_1M_17_x43y400_NC_Phase5_2018_A18.tif",
         "lastModified": "Fri, 13 Feb 2026 21:30:53 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x39y393_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:26:09 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x39y392_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:26:03 GMT"
       }
     ],
     "files13": [

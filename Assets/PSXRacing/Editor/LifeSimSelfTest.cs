@@ -177,6 +177,7 @@ namespace PSXRacing.EditorTools
             RunInsuranceR1cTests();   // R1c-B insurance: LifeSimSelfTest.InsuranceR1c.cs
             RunEventsTests();   // v29 events: LifeSimSelfTest.Events.cs
             RunFix1Tests();   // fix pass 1 (concussion, the live bench, panel by stage): LifeSimSelfTest.Fix1.cs
+            RunDamageViewTests();   // damageview: every view of a career car shows its condition: LifeSimSelfTest.DamageView.cs
             // R0b stop the leaks (LifeSimSelfTest.LeaksR0b.cs). LAST: its page
             // renders build the home screen in edit mode, and nothing after
             // them should inherit what that leaves behind.
@@ -518,9 +519,15 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < TrackCatalog.V21Count; i++)
                 if (!TrackCatalog.IsRetired(TrackCatalog.V21IdAt(i))) survivors.Add(TrackCatalog.V21IdAt(i));
             var todayIds = TrackCatalog.All.Select(t => t.id).ToList();
-            Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(todayIds),
-                  "the frozen v21 list less the retired ids is today's list, in order",
-                  TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + todayIds.Count + " today");
+            // v30 appended Lake Lure, its twin and its four sections: the v21 survivors are today's list without them
+            string[] v30Added = { "LakeLure", "LakeLureRev", "LakeLureShore", "LakeLureShoreRev", "LakeLureGorge", "LakeLureGorgeRev" };
+            var beforeV30 = todayIds.Where(id => System.Array.IndexOf(v30Added, id) < 0).ToList();
+            Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(beforeV30) && v30Added.All(id => TrackCatalog.TryIndexOf(id, out _)),
+                  "the frozen v21 list less the retired ids is today's list less the v30 additions, in order",
+                  TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + beforeV30.Count + " today before v30");
+            bool v29Same = true;
+            for (int i = 0; i < survivors.Count; i++) if (TrackCatalog.At(TrackCatalog.RemapV29Index(i)).id != survivors[i]) v29Same = false;
+            Check(v29Same, "every v29 index (the v22..v29 list) lands on the same venue today (RemapV29Index)");
             Check(TrackCatalog.All.All(t => !TrackCatalog.IsRetired(t.id) && !TrackCatalog.IsRetired(t.reverseOf) &&
                                             !TrackCatalog.IsRetired(t.sprintOf)),
                   "nothing today is, or races on, a retired venue");
@@ -7162,6 +7169,11 @@ namespace PSXRacing.EditorTools
 
             int n = wp.Length;
             bool street = PSXRacingBuilder.KerbStyleFor(t) == PSXRacingBuilder.KerbStyle.Street;
+            // A crowned or banked road (PSXRacingBuilder.Bank): each side's
+            // roadside stands on its own tarmac edge, as baked on the path.
+            var bankPath = trackRoot.GetComponent<TrackPath>();
+            bool banked = bankPath != null && bankPath.HasBank && bankPath.Count == n;
+            float EdgeLift(int i, float s) => banked ? (s < 0f ? bankPath.bankL[i] : bankPath.bankR[i]) * half : 0f;
             // Where every row would start: one metre cells, 3x3 lookup.
             var starts = new Dictionary<long, List<int>>();
             long Cell(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
@@ -7257,7 +7269,7 @@ namespace PSXRacing.EditorTools
                         else
                         {
                             Vector3 outw = right[i] * side;
-                            float roadY = wp[i].y + PSXRacingBuilder.RoadLift;
+                            float roadY = wp[i].y + PSXRacingBuilder.RoadLift + EdgeLift(i, side);
                             float prevE = 0f, prevDy = 0f, fallRun = 0f, riseRun = 0f;
                             bool rowFall = false, rowRise = false, rowOrder = false;
                             for (int q = 0; q < count; q++)
@@ -7424,6 +7436,11 @@ namespace PSXRacing.EditorTools
             float reach = t.stage ? StageRailReachM : PSXRacingBuilder.WallOffsetFor(t) - half + 1.5f;
             int casts = 0, open = 0;
             string firstOpen = null;
+            // The rays stand over each side's own tarmac edge: a banked deck's
+            // low side is up to 0.37 m under the centre line (PSXRacingBuilder.Bank).
+            var bankPath = trackRoot.GetComponent<TrackPath>();
+            bool banked = bankPath != null && bankPath.HasBank && bankPath.Count == n;
+            float EdgeLift(int i, float s) => banked ? (s < 0f ? bankPath.bankL[i] : bankPath.bankR[i]) * half : 0f;
             for (int i = 0; i < n; i++)
             {
                 if (!need[i]) continue;
@@ -7436,7 +7453,8 @@ namespace PSXRacing.EditorTools
                     foreach (float side in new[] { -1f, 1f })
                         foreach (float h in RoadsideRules.BarrierRayHeights)
                         {
-                            Vector3 a = c + Vector3.up * (PSXRacingBuilder.RoadLift + h) + r * (side * half);
+                            float lift = m == 0 ? EdgeLift(i, side) : 0.5f * (EdgeLift(i, side) + EdgeLift(nx, side));
+                            Vector3 a = c + Vector3.up * (PSXRacingBuilder.RoadLift + lift + h) + r * (side * half);
                             casts++;
                             if (Barred(a, a + r * (side * reach))) continue;
                             open++;
@@ -7938,8 +7956,8 @@ namespace PSXRacing.EditorTools
             {
                 int c = TrackCatalog.IndexOf("ChimneyRock");
                 var cd = TrackCatalog.At(c);
-                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 1,
-                      "Chimney Rock is the last scened venue", c + " of " + TrackCatalog.SceneCount);
+                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 2 && TrackCatalog.At(TrackCatalog.SceneCount - 1).id == "LakeLure",
+                      "Chimney Rock is the scened venue before Lake Lure, the last (v30)", c + " of " + TrackCatalog.SceneCount);
                 Check(cd.stage && !cd.loop && cd.FinishIndex > 0, "Chimney Rock is a stage sprint with a finish",
                       cd.FinishIndex);
                 int cr = TrackCatalog.IndexOf("ChimneyRockRev");

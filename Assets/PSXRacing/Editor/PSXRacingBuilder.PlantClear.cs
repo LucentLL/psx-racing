@@ -203,9 +203,13 @@ namespace PSXRacing.EditorTools
                 int st = WrapIdx(raw, n);
                 float along = (j - frac) * Spacing;
                 float wpY = stageWp[st].y, tarmac = wpY + RoadLift;
+                // The banked road (PSXRacingBuilder.Bank): the envelope spans
+                // its low edge to its high one; each side stands on its own.
+                float bankLo = Mathf.Min(0f, Mathf.Min(BankEdge(st, -1f), BankEdge(st, 1f)));
+                float bankHi = Mathf.Max(0f, Mathf.Max(BankEdge(st, -1f), BankEdge(st, 1f)));
                 bool deck = DeckCoversStation(st);
                 float deckHalf = DeckHalfWidth + PlantSlackM + 0.1f;
-                float soffit = wpY + DeckTopLift - DeckThick - UnderDeckClearM;
+                float soffit = wpY + DeckTopLift - DeckThick - UnderDeckClearM + bankLo;
                 for (int b = 0; b < PlantShape.Bands; b++)
                 {
                     float rb = sh.r[b] * s + PlantSlackM;
@@ -215,9 +219,9 @@ namespace PSXRacing.EditorTools
                     float y0 = y + b * bandH, y1 = y0 + bandH;
                     float uLo = u - w, uHi = u + w;
                     // THE ENVELOPE: lanes and shoulders, road surface to 4.5 m
-                    if (uHi > -envHalf && uLo < envHalf && y1 > tarmac + plantEnvFloor && y0 < tarmac + PlantEnvelopeH) return 1;
+                    if (uHi > -envHalf && uLo < envHalf && y1 > tarmac + bankLo + plantEnvFloor && y0 < tarmac + bankHi + PlantEnvelopeH) return 1;
                     // THE DECK: its width, from a metre under the soffit up
-                    if (deck && uHi > -deckHalf && uLo < deckHalf && y1 > soffit && y0 < tarmac + PlantEnvelopeH) return 2;
+                    if (deck && uHi > -deckHalf && uLo < deckHalf && y1 > soffit && y0 < tarmac + bankHi + PlantEnvelopeH) return 2;
                     if (rsKind == null) continue;
                     for (int sIx = 0; sIx < 2; sIx++)
                     {
@@ -231,7 +235,7 @@ namespace PSXRacing.EditorTools
                             if (we <= 0f) we = WallFaceE;
                             // the drawn stone, its posts and beam, and the collider behind them
                             float e0 = we - PlantSlackM, e1 = we + Mathf.Max(StageWallCollThick, StageWallFaceIn + StageWallDrawThick + StagePostGap + StagePostW) + PlantSlackM;
-                            if (eHi > e0 && eLo < e1 && y1 > tarmac - PlantWallBelowM && y0 < tarmac + PlantWallTopM) return 3;
+                            if (eHi > e0 && eLo < e1 && y1 > tarmac + BankEdge(st, sign) - PlantWallBelowM && y0 < tarmac + BankEdge(st, sign) + PlantWallTopM) return 3;
                         }
                         else if (kind == Roadside.Cut && rsCutFaced != null && rsCutFaced[sIx][st]
                                  && !(rsCutGraded != null && rsCutGraded[sIx][st]) && rsFaceH[sIx][st] > 0.5f)
@@ -239,12 +243,12 @@ namespace PSXRacing.EditorTools
                             // only a plant ROOTED in the rock (behind the face, under
                             // its crest) can come out through it
                             float faceH = rsFaceH[sIx][st];
-                            float eB = sign * u - roadHalf, yB = y - wpY;
+                            float eB = sign * u - roadHalf, yB = y - (wpY + BankEdge(st, sign));
                             // (a plant on the rock top is rooted in it too: its sunk
                             // foot must not show below the crest either)
                             bool inRock = eB > CutFaceE(Mathf.Clamp(yB, 0f, faceH)) + 0.05f;
                             if (!inRock) continue;
-                            float b0 = y0 - wpY;
+                            float b0 = y0 - (wpY + BankEdge(st, sign));
                             if (b0 < faceH - 0.05f && eLo < CutFaceE(Mathf.Clamp(b0, 0f, faceH)) + 0.02f) return 4;
                         }
                     }

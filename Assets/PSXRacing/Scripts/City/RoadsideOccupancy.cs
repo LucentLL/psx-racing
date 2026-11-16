@@ -399,10 +399,16 @@ namespace PSXRacing.City
                 nodeScratch.Add(e.a); nodeScratch.Add(e.b);
                 if (e.tunnel) continue;
                 float clear = ClearZoneOf(e);
+                // the splits round's fix (LineModel.SplitsMovedEdge): a ribbon the round moved off its
+                // OSM line is read where it is drawn - its pieces on the ribbon's own middle with its
+                // half width - not PC45's widest half each side (a straightened kerb kept the old
+                // bulge's clear zone on its narrow side; spot 34's east pole found no foot)
+                bool offC = LineModel.SplitsMovedEdge(ei);
                 // pieces at most PieceM long, cut at every vertex of the line
                 // so a chord never cuts inside a bend
                 float sPrev = 0f;
-                RoadEdgeAt(e, trims, 0f, out var pPrev, out _, out float l0, out float r0);
+                RoadEdgeAt(e, trims, 0f, out var pPrev, out var dPrev, out float l0, out float r0);
+                if (offC) pPrev += dPrev * (0.5f * (r0 - l0));
                 for (int si = 0; si + 1 < e.pts.Length; si++)
                 {
                     float sa = e.s[si], sb = e.s[si + 1];
@@ -411,7 +417,8 @@ namespace PSXRacing.City
                         Mathf.Max(va.y, vb.y) < lo.y - 30f || Mathf.Min(va.y, vb.y) > hi.y + 30f)
                     {
                         // nowhere near: carry the chain on to the segment's end
-                        RoadEdgeAt(e, trims, sb, out pPrev, out _, out l0, out r0);
+                        RoadEdgeAt(e, trims, sb, out pPrev, out dPrev, out l0, out r0);
+                        if (offC) pPrev += dPrev * (0.5f * (r0 - l0));
                         sPrev = sb;
                         continue;
                     }
@@ -419,9 +426,10 @@ namespace PSXRacing.City
                     for (int k = 1; k <= n; k++)
                     {
                         float s1 = k == n ? sb : sa + (sb - sa) * k / n, sm = 0.5f * (sPrev + s1);
-                        RoadEdgeAt(e, trims, s1, out var p1, out _, out float l1, out float r1);
+                        RoadEdgeAt(e, trims, s1, out var p1, out var d1, out float l1, out float r1);
+                        if (offC) p1 += d1 * (0.5f * (r1 - l1));
                         var a = pPrev; float s0p = sPrev; pPrev = p1; sPrev = s1;
-                        float hw = Mathf.Max(Mathf.Max(l0, r0), Mathf.Max(l1, r1));
+                        float hw = offC ? Mathf.Max(0.5f * (l0 + r0), 0.5f * (l1 + r1)) : Mathf.Max(Mathf.Max(l0, r0), Mathf.Max(l1, r1));
                         l0 = l1; r0 = r1;
                         if (Mathf.Max(a.x, p1.x) < lo.x || Mathf.Min(a.x, p1.x) > hi.x ||
                             Mathf.Max(a.y, p1.y) < lo.y || Mathf.Min(a.y, p1.y) > hi.y) continue;

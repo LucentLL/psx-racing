@@ -179,7 +179,7 @@ namespace PSXRacing.City
             MedianDressSize(n);
             System.Array.Clear(cmEv, 0, n);
             cmEdgeNow = e.index;
-            if (!CurbMedianEdge(map, e)) return;
+            if (!CurbMedianEdge(map, e)) { if (CurbMedianTrace != null) CmWhy(e, -1f, "edge: " + (CurbMedianExcluded(map, e) ?? "not an island edge")); return; }
             const int side = +1;
             // (the median dress) read further past the tile: a stop within the pocket's length of a drawn section is known
             float near = MedianDressOn ? MedianEvalNearM : 30f;
@@ -187,8 +187,11 @@ namespace PSXRacing.City
             float sFrom = sections[0].s, sTo = sections[n - 1].s;
             if (CurbMedianAll)
             {
-                if (SplitNode(map, e, e.a)) sFrom += CurbMedianSplitSetbackM;
-                if (SplitNode(map, e, e.b)) sTo -= CurbMedianSplitSetbackM;
+                // the splits round (PSX_CITY_NOSE): a nose the axis-frame profile
+                // shapes (the island grows from a rounded tip where the lane bands
+                // are 2.4 m apart) has no blunt 12 m set-back
+                if (SplitNode(map, e, e.a) && !NoseShaped(e.a)) sFrom += CurbMedianSplitSetbackM;
+                if (SplitNode(map, e, e.b) && !NoseShaped(e.b)) sTo -= CurbMedianSplitSetbackM;
             }
             var o = tm.origin;
             bool any = false;
@@ -199,27 +202,28 @@ namespace PSXRacing.City
                 float wx = ed.x + o.x, wz = ed.z + o.z;
                 if (wx < min.x - near || wx > max.x + near || wz < min.y - near || wz > max.y + near) continue;
                 cmEv[k] = true; cmTw[k] = -1;
-                if (S.s < sFrom || S.s > sTo) continue;
-                if (k > 0 && !WalkableSpan(k, side)) continue;
-                if (k + 1 < n && !WalkableSpan(k + 1, side)) continue;
+                bool tr = CurbMedianTrace != null;
+                if (S.s < sFrom || S.s > sTo) { if (tr) CmWhy(e, S.s, "split set-back"); continue; }
+                if (k > 0 && !WalkableSpan(k, side)) { if (tr) CmWhy(e, S.s, "span not a plain verge: " + SpanWhy(k, side)); continue; }
+                if (k + 1 < n && !WalkableSpan(k + 1, side)) { if (tr) CmWhy(e, S.s, "next span not a plain verge: " + SpanWhy(k + 1, side)); continue; }
                 var pw = new Vector2(wx, wz);
                 var outw = S.Out(side);
                 // a median nose graded flush (Five Points) stays as it is
-                if (NoseFlushAt(map, trims, pw, outw, ed.y, out _) > 0f) continue;
+                if (NoseFlushAt(map, trims, pw, outw, ed.y, out _) > 0f) { if (tr) CmWhy(e, S.s, "nose graded flush"); continue; }
                 float reach = CurbMedianAll ? CurbMedianWideMaxM : CurbMedianMaxM;
                 GatherNear(map, pw, pw, reach + 1f);
                 ClearRun(map, trims, pw, outw, ed.y, reach, out float oy, out float edgeRun, out bool intoFan);
                 int blk = clearRunBlockEdge;
-                if (float.IsNaN(edgeRun) || intoFan || blk < 0 || edgeRun < CurbMedianMinM || edgeRun > reach) continue;
-                if (Mathf.Abs(oy - ed.y) > CurbMedianMaxDyM) continue;
+                if (float.IsNaN(edgeRun) || intoFan || blk < 0 || edgeRun < CurbMedianMinM || edgeRun > reach) { if (tr) CmWhy(e, S.s, $"ray: run {edgeRun:0.00} fan {intoFan} block e{blk}"); continue; }
+                if (Mathf.Abs(oy - ed.y) > CurbMedianMaxDyM) { if (tr) CmWhy(e, S.s, $"height step {oy - ed.y:0.00}"); continue; }
                 // the pavement met is the twin: one-way, this name, running the
                 // other way, and itself of the island's class (a deck, ramp or
                 // refuge twin keeps its own side: no half island against it)
                 var tw = map.edges[blk];
-                if (tw.index == e.index || !tw.oneway || tw.name != e.name) continue;
-                if (CurbMedianAll && !CurbMedianClass(tw)) continue;
+                if (tw.index == e.index || !tw.oneway || tw.name != e.name) { if (tr) CmWhy(e, S.s, $"met e{tw.index}: not the twin"); continue; }
+                if (CurbMedianAll && !CurbMedianClass(tw)) { if (tr) CmWhy(e, S.s, $"twin e{tw.index} not of the class"); continue; }
                 CityElevation.ProjectOn(tw, pw + outw * edgeRun, out float sTw);
-                if (Vector2.Dot(tw.TangentAt(sTw).normalized, e.TangentAt(S.s).normalized) > -0.7f) continue;
+                if (Vector2.Dot(tw.TangentAt(sTw).normalized, e.TangentAt(S.s).normalized) > -0.7f) { if (tr) CmWhy(e, S.s, $"twin e{tw.index} not opposed"); continue; }
                 float dTw = float.MaxValue;
                 if (CurbMedianAll)
                 {
@@ -231,10 +235,10 @@ namespace PSXRacing.City
                     // tuck's 17-30 cm face bare at the axis (the junction
                     // sweep's steps at nodes where a link or side street meets
                     // one carriageway).
-                    if ((sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.a)) || (tw.length - sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.b))) continue;
+                    if ((sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.a) && !NoseShaped(tw.a)) || (tw.length - sTw < CurbMedianSplitSetbackM && SplitNode(map, tw, tw.b) && !NoseShaped(tw.b))) { if (tr) CmWhy(e, S.s, $"twin e{tw.index}'s split set-back"); continue; }
                     var q = pw + outw * edgeRun;
                     ClearRun(map, trims, q, -outw, oy, reach, out _, out float backRun, out bool backFan);
-                    if (float.IsNaN(backRun) || backFan || clearRunBlockEdge != e.index || Mathf.Abs(backRun - edgeRun) > 1f) continue;
+                    if (float.IsNaN(backRun) || backFan || clearRunBlockEdge != e.index || Mathf.Abs(backRun - edgeRun) > 1f) { if (tr) CmWhy(e, S.s, $"ray back: run {backRun:0.00} (out {edgeRun:0.00}) fan {backFan} block e{clearRunBlockEdge}"); continue; }
                     if (CurbMedianStops(map, tw, tw.a)) dTw = Mathf.Min(dTw, sTw);
                     if (CurbMedianStops(map, tw, tw.b)) dTw = Mathf.Min(dTw, tw.length - sTw);
                 }
@@ -242,6 +246,7 @@ namespace PSXRacing.City
                 cmG[k] = edgeRun; cmTw[k] = tw.index; cmTwS[k] = sTw;
                 cmFast[k] = fastE && MedianFast(map, tw);
                 cmW[k] = 0.5f * edgeRun;
+                if (tr) CmWhy(e, S.s, $"island {edgeRun:0.00}");
                 // the mean of the two edges: the curbed island's top 15 cm over
                 // it, a wide grass median's at the edges' own grade
                 cmY[k] = 0.5f * (ed.y + oy);
@@ -274,6 +279,26 @@ namespace PSXRacing.City
             }
             // the median dress: each section's top (concrete, a planted bed, grass)
             PrepareMedianDress(map, e, n);
+        }
+
+        /// <summary>The splits round: a split nose the axis-frame profile shapes
+        /// and NoseMarks hatched (a flush tip keeps PC45's set-back).</summary>
+        static bool NoseShaped(int node) => LineModel.SplitNoseShaped(node) && !SplitNoseFlushTip.Contains(node);
+
+        /// <summary>The splits round's audit: for the edges listed, every section PrepareCurbMedian
+        /// judged, with why it laid no island ("island" when it did). Null: off (no cost).</summary>
+        public static System.Action<int, float, string> CurbMedianTrace;
+        public static HashSet<int> CurbMedianTraceEdges;
+        static string SpanWhy(int i, int side)
+        {
+            if (i < 1 || i >= sections.Count || i >= spanFlags.Count) return "out of range";
+            var f = spanFlags[i]; var sf = f[side];
+            return (f.elev ? "elev " : "") + (f.skip ? "skip " : "") + (sf.union ? "union " : "") + (sf.rail ? "rail " : "") + (sf.cut ? "cut " : "") + (sf.gap ? "gap " : "") + (sf.median ? "median " : "")
+                + (sections[i - 1].Strip(side) >= 0f || sections[i].Strip(side) >= 0f ? "strip" : "");
+        }
+        static void CmWhy(CityMap.Edge e, float s, string why)
+        {
+            if (CurbMedianTrace != null && CurbMedianTraceEdges != null && CurbMedianTraceEdges.Contains(e.index)) CurbMedianTrace(e.index, s, why);
         }
 
         /// <summary>A node where a two-way edge of this name parts into (or

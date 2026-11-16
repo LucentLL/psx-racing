@@ -379,8 +379,8 @@ namespace PSXRacing.EditorTools
             LifeSimManager.Migrate(old);
             string once = JsonUtility.ToJson(old);
             LifeSimManager.Migrate(old);
-            Check(old.saveVersion == 29 && old.evHeard != null && old.evClubScores != null && JsonUtility.ToJson(old) == once,
-                  "the v29 step stamps it, and a second pass changes nothing", old.saveVersion);
+            Check(old.saveVersion == new LifeState().saveVersion && old.evHeard != null && old.evClubScores != null && JsonUtility.ToJson(old) == once,
+                  "the v29 step (and every later one) stamps it, and a second pass changes nothing", old.saveVersion);
 
             bool was = Events.On;
             Events.On = false;

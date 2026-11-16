@@ -117,7 +117,9 @@ namespace PSXRacing.EditorTools
                 Vector3 outw = outwAt[k];
                 Vector3 side = new Vector3(outw.z, 0f, -outw.x);
                 Vector3 toe = pts[i] + outw * (RoadWidth * 0.5f + CutToeE);
-                toe.y = pts[i].y;
+                // on this side's banked edge (PSXRacingBuilder.Bank)
+                float edgeY = pts[i].y + BankEdge(i, Vector3.Dot(outw, RightAt(pts, i)) >= 0f ? 1f : -1f);
+                toe.y = edgeY;
                 Vector3 top = crest != null ? crest[k] : toe + Vector3.up * h + outw * (h * BankBatter);
                 float r1 = RHash(k, seed, 201), r2 = RHash(seed, k, 203), r3 = RHash(k + 7, seed, 207);
 
@@ -155,7 +157,7 @@ namespace PSXRacing.EditorTools
                         float bs = Mathf.Lerp(0.18f, 0.95f, sz * sz) / Mathf.Max(bvar.height, 0.1f);
                         float br = BoulderRadius(bvar) * bs;
                         Vector3 tp = toe + outw * (br - 0.1f) + side * ((RHash(q, k + 5, 229) - 0.5f) * 4f);
-                        tp.y = pts[i].y - bvar.height * bs * Mathf.Lerp(0.15f, 0.45f, RHash(q + 3, k, 233));
+                        tp.y = edgeY - bvar.height * bs * Mathf.Lerp(0.15f, 0.45f, RHash(q + 3, k, 233));
                         if (!RockClearOfSolids(tp + Vector3.up * (bvar.height * bs * 0.4f), br, rockOk: true)) continue;
                         cliffPlaces.Add(new CliffPlace { pos = tp, yaw = tq * 1000f, scale = bs, v = bv, r = br, lift = bvar.height * bs * 0.4f });
                         talusN++;
@@ -165,7 +167,7 @@ namespace PSXRacing.EditorTools
                     {
                         int lv = kit.debris[0][(int)(RHash(seed, k, 239) * 9973f) % kit.debris[0].Length];
                         Vector3 lp = toe - outw * 0.35f + side * ((RHash(k, 2, 241) - 0.5f) * 3f);
-                        lp.y = pts[i].y - 0.05f;
+                        lp.y = edgeY - 0.05f;
                         // (clear of a wall's stone and rail by its own reach)
                         if (RockClearOfSolids(lp + Vector3.up * 0.3f, 1.6f, rockOk: true))
                         {

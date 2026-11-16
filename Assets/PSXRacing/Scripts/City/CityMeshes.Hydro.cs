@@ -78,8 +78,10 @@ namespace PSXRacing.City
 
         static void EmitCulvertEnd(CityMap map, TileMeshes tm, CityCulverts.End end)
         {
+            int conV = barrierBucket.v.Count;   // the concrete gate's record (CityMeshes.Concrete.cs)
             if (end.headwall) EmitHeadwall(map, tm, end);
             else EmitPipeEnd(map, tm, end);
+            ConNoteBox(ConKind.Headwall, end.headwall ? "culvert-headwall" : "culvert-pipe-end", conV);
             EmitDitch(map, tm, end);
         }
 

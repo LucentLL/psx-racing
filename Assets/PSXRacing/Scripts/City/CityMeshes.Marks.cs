@@ -70,7 +70,8 @@ namespace PSXRacing.City
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped, mouthsDotted, mouthsDottedOut, mouthsDottedYellow,
                        lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
-                       crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines;
+                       crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines,
+                       noseBayOpen, noseSplit, noseSplitHatched;
             public float auxM, exitDropM, lsM, buildMs, pocketM; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
@@ -671,6 +672,8 @@ namespace PSXRacing.City
         /// painted tip, CityMeshes.Walks IslandKerbSpan) so no centre lane runs
         /// into a 15 cm kerb unmarked.</summary>
         public static readonly HashSet<int> NoseFlushTip = new HashSet<int>();
+        /// <summary>The splits round: long-split noses (axis-frame profile) that could not be hatched.</summary>
+        public static readonly HashSet<int> SplitNoseFlushTip = new HashSet<int>();
         public const int HatchMinBars = 3;
 
         /// <summary>Does a forced-solid yellow line render solid on this
@@ -680,7 +683,7 @@ namespace PSXRacing.City
 
         static void NoseMarks(CityMap map, Trims t)
         {
-            NoseFlushTip.Clear();
+            NoseFlushTip.Clear(); SplitNoseFlushTip.Clear();
             if (!LineModel.RefugeOn || map.splt == null) return;
             var noseNodes = new HashSet<int>();
             foreach (var sp in map.splt) noseNodes.Add(sp.node);
@@ -694,7 +697,14 @@ namespace PSXRacing.City
                 // round 5 (review r4 #8): the hatch and the flush tip only at the
                 // noses of drawn (accepted) refuge pairs - every other plain nose
                 // keeps live's paint and its kerb (only its turn arrows are gone)
-                if (!LineModel.IsRefugeNode(sp.node)) { MarkStats.noseNonRefuge++; continue; }
+                // the splits round (PSX_CITY_NOSE): an in-scope long split's nose
+                // is marked too (every split nose gets its approach marking)
+                bool splitNose = !LineModel.IsRefugeNode(sp.node) && LineModel.SplitNoseMarked(map, sp.node);
+                if (!LineModel.IsRefugeNode(sp.node) && !splitNose) { MarkStats.noseNonRefuge++; continue; }
+                if (splitNose) MarkStats.noseSplit++;
+                // a bay leaving the nose toward a real junction (LaSalle St's at
+                // n10238) opens at the island's end: no hatch across its entry
+                if (LineModel.BayOpensAt(sp.node)) { MarkStats.noseBayOpen++; continue; }
                 bool forward = U.b == sp.node;                         // U runs INTO the nose a->b
                 float trimNear = t.TrimAt(U, sp.node);
                 int other = forward ? U.a : U.b;
@@ -771,7 +781,10 @@ namespace PSXRacing.City
                 // nose is not hatched - its island keeps the kerb back from the tip
                 if (pieces.Count < HatchMinBars)
                 {
-                    MarkStats.noseNoRoom++; MarkStats.noseUnsteady++; MarkStats.noseFlushTip++;
+                    MarkStats.noseNoRoom++; MarkStats.noseUnsteady++;
+                    // the splits round: a long split's nose (not a refuge pair's) keeps CurbMedian's set-back
+                    if (splitNose) { SplitNoseFlushTip.Add(sp.node); continue; }
+                    MarkStats.noseFlushTip++;
                     NoseFlushTip.Add(sp.node);
                     continue;
                 }
@@ -785,7 +798,7 @@ namespace PSXRacing.City
                     if (kind == LineModel.KYellowDash)
                     {
                         AddMark(new PaintMark { style = MkYS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: TWLTL line solid" });
-                        MarkStats.noseYs.Add(((long)U.index << 8) | (uint)k);
+                        if (!splitNose) MarkStats.noseYs.Add(((long)U.index << 8) | (uint)k);   // (the medians gate renders the refuge noses' tiles)
                         if (YellowSolidRenders(texL)) MarkStats.noseSolid++; else MarkStats.noseSolidFallback++;
                     }
                     else if (kind == LineModel.KWhiteDash) { AddMark(new PaintMark { style = MkLS, edge = U.index, s0 = s0, s1 = s1, k = k, what = "nose: bay line solid" }); MarkStats.noseSolid++; }
@@ -798,6 +811,7 @@ namespace PSXRacing.City
                 AddMark(new PaintMark { style = MkGlyph, edge = U.index, s0 = Mathf.Min(s0, s1), s1 = Mathf.Max(s0, s1), pieces = pieces, bps = uq.ToArray(), side = 0, what = "nose hatch", yellow = true,
                                         hdg = Mathf.Repeat(Mathf.Atan2(tg.x, tg.y) * Mathf.Rad2Deg, 360f) });
                 MarkStats.noseHatches++; MarkStats.noseHatchBars += pieces.Count;
+                if (splitNose) MarkStats.noseSplitHatched++;
             }
         }
 
