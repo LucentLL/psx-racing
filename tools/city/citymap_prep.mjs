@@ -15,7 +15,7 @@
 //   aisles   OSM parking aisles and service roads in lots (cache/lots_city.json)
 //   venues   the squares the race venues are framed in (RouteGeo.Frame's rule: the route's box,
 //            1.14x its longer side + 60 m, never under 420 m) for every route in
-//            Resources/charlotte_routes.json, the parking decks' squares from
+//            Resources/charlotte_routes.json and charlotte_tracks.json, the parking decks' squares from
 //            Resources/TrackMapFrames.txt, and --venues <json> extra squares ([{key, cx, cz, span}]):
 //            the deep levels of the pyramid are drawn only round these, so a new route gets its sharp
 //            tiles from the next run without a list to remember
@@ -106,9 +106,9 @@ if (existsSync(lp)) for (const e of readJson(lp).elements) {
 
 // the venues' squares: the photographed frames of the city venues + any extra (new courses)
 const venues = [];
-// every city route, framed the way RouteGeo.Frame frames its card
-const routesFile = join(RES, 'charlotte_routes.json');
-if (existsSync(routesFile)) for (const r of readJson(routesFile).routes || []) {
+// every city route - the export's (charlotte_routes.json) and the tracks added after it
+// (charlotte_tracks.json, CityTracks) - framed the way RouteGeo.Frame frames its card
+for (const routesFile of [join(RES, 'charlotte_routes.json'), join(RES, 'charlotte_tracks.json')]) if (existsSync(routesFile)) for (const r of readJson(routesFile).routes || []) {
   const p = r.pts || [];
   if (p.length < 4) continue;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
