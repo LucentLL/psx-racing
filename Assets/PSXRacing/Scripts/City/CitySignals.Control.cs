@@ -228,7 +228,7 @@ namespace PSXRacing.City
 
         /// <summary>What the warrants decided at one node: the approaches that
         /// STOP (all-way when <c>allWay</c>), or a signal.</summary>
-        struct Decision { public int node; public bool signal, allWay; public List<int> stops; }
+        struct Decision { public int node; public bool signal, allWay; public List<int> stops; public List<MitreApp> mitre; }
 
         static readonly List<int> armScratch = new List<int>(8);
 
@@ -244,7 +244,10 @@ namespace PSXRacing.City
             for (int n = 0; n < nn; n++)
             {
                 if (taken[n]) continue;
-                if (trims != null && trims.mitre != null && n < trims.mitre.Length && trims.mitre[n]) continue;
+                // a mitred node (a road meeting another at a shallow angle, no fan): skipped before the
+                // control round; with PSX_CITY_MITREWARRANT its named side streets STOP (CitySignals.Mitre)
+                bool mitred = trims != null && trims.mitre != null && n < trims.mitre.Length && trims.mitre[n];
+                if (mitred && !MitreWarrantOn) continue;
                 armScratch.Clear();
                 bool freeway = false, round = false;
                 foreach (int ei in map.nodeEdges[n])
@@ -265,7 +268,8 @@ namespace PSXRacing.City
                     int o = e.a == n ? e.b : e.a;
                     if (e.length <= 45f && sigMember[o]) { nearSig = true; break; }
                 }
-                if (nearSig) { Counts.nearSignal++; continue; }
+                if (nearSig) { if (mitred) M.nearSignal++; else Counts.nearSignal++; continue; }
+                if (mitred) { MitreSide(map, trims, n, armScratch, list); continue; }
 
                 bool split = SplitArms(map, n, out int tw, out int ia, out int oa);
                 ThroughArms(map, n, out int m1, out int m2);

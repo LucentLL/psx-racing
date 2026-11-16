@@ -480,6 +480,7 @@ namespace PSXRacing.City
             crosswalkAt = new Dictionary<long, int>();
             CrosswalkJunctions = 0; CrosswalkArmsSkipped = 0;
             Counts = default;
+            MitreReset();
             ResetPlans();
             if (map == null || map.tagged == null) return;
             int nn = map.nodes.Length;
@@ -681,11 +682,17 @@ namespace PSXRacing.City
             var flags = LoadStopFlags();
             var stopAt = new Dictionary<int, Junction>();
             var seen = new HashSet<long>();
-            void AddStop(int n, CityMap.Edge e, bool allWay, byte ctl = 2, bool warrant = false)
+            void AddStop(int n, CityMap.Edge e, bool allWay, byte ctl = 2, bool warrant = false, int atNode = -1, float stopBack = StopBackM)
             {
                 if (inCluster[n] >= 0 || sig[n]) return;              // a signal wins
                 int at = n;
-                if (Signals2On)
+                // control round (CitySignals.Mitre): the line of an arm clipped onto its host at a mitred
+                // node stands where its bar is clear of the host - the warrant's own (atNode given), or
+                // an OSM tag's there (PSX_CITY_MITREWARRANT=0: as before)
+                if (atNode < 0 && MitreTagLine(map, trims, e, n, out int mle, out int mln, out float mback))
+                { e = map.edges[mle]; atNode = mln; stopBack = mback; }
+                if (atNode >= 0) at = atNode;
+                else if (Signals2On)
                 {
                     // round 2: an arm too short for its line whose far end is a joint stands the line behind the joint
                     float len = 0f;
@@ -701,7 +708,7 @@ namespace PSXRacing.City
                     }
                 }
                 if (!seen.Add(((long)e.index << 1) | (e.b == at ? 1L : 0L))) return;
-                if (!MakeApproach(map, trims, e, at, out var a)) return;
+                if (!MakeApproach(map, trims, e, at, out var a, stopBack)) return;
                 a.ctl = ctl;
                 if (!stopAt.TryGetValue(n, out var j)) stopAt[n] = j = new Junction { signal = false, nodes = new[] { n }, warrant = warrant };
                 if (at != n && System.Array.IndexOf(j.nodes, at) < 0)
@@ -856,6 +863,12 @@ namespace PSXRacing.City
                 foreach (var d in Warrants(map, trims, taken, sigMember))
                 {
                     if (d.signal) { wsig[d.node] = true; Counts.warrantSignalNodes++; continue; }
+                    if (d.mitre != null)
+                    {
+                        // control round: a mitred node's side streets, each with its own line and control
+                        foreach (var ma in d.mitre) AddStop(d.node, map.edges[ma.edge], false, ma.ctl, true, ma.at, ma.back);
+                        continue;
+                    }
                     foreach (int ei in d.stops) AddStop(d.node, map.edges[ei], d.allWay, 2, true);
                 }
                 // the warrants' signals: one junction per cluster, as OSM's
@@ -900,7 +913,7 @@ namespace PSXRacing.City
                 Finish(map, sj, n);
                 bool stopsHere = false;
                 foreach (var a in sj.approaches) if (a.ctl == 2) stopsHere = true;
-                if (!stopsHere) Counts.osmYieldJ++;
+                if (!stopsHere) { if (sj.warrant) M.yieldJ++; else Counts.osmYieldJ++; }
                 else if (sj.warrant) { if (sj.allWay) Counts.warrantAllWay++; else Counts.warrantStopJ++; Counts.warrantStopApp += sj.approaches.Count; }
                 else { Counts.osmStopJ++; if (sj.allWay) Counts.osmAllWay++; }
             }
@@ -910,7 +923,7 @@ namespace PSXRacing.City
 
             int sigs = 0, sigApp = 0, stops = 0, stopApp = 0;
             foreach (var j in junctions) { if (j.signal) { sigs++; sigApp += j.approaches.Count; } else { stops++; stopApp += j.approaches.Count; } }
-            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop/yield-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags; " + ControlReport() + "; " + Signals2Report());
+            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop/yield-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags; " + ControlReport() + "; " + Signals2Report() + "; " + MitreReport());
         }
 
         /// <summary>The approach an edge makes into node n, if it makes one.</summary>

@@ -72,6 +72,7 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(root, "city_control.tsv"), tsv.ToString());
             Line("CONTROL (CitySignals): " + CitySignals.ControlReport());
             Line("  " + CitySignals.Signals2Report());
+            Line("  " + CitySignals.MitreReport() + $"; yield-only junctions by warrant {CitySignals.M.yieldJ}");
             Line($"  junctions furnished {all.Count}: signals {sigOsm + sigWarrant} ({sigOsm} from OSM, {sigWarrant} by warrant; {sigApp} approaches), all-way STOP {allWay} ({allWayW} by default), two-way STOP {stop} ({stopW} by default), yield only {yieldOnly}; STOP approaches {stopApp}, yield approaches {yieldApp}");
 
             // every junction node with three usable arms: what controls it
@@ -92,6 +93,8 @@ namespace PSXRacing.EditorTools
                 if (top == 0) { jLocal++; if (nodeJ.ContainsKey(n)) jLocalCtl++; }
             }
             Line($"  junction nodes (3+ usable arms, no freeway, not mitred): {jn}, in a furnished junction {jCtl}; of them local x local {jLocal}, furnished {jLocalCtl} ({jMitre} more are mitred joints)");
+            // control round: the side streets at mitred nodes, the splits, the clipped arms' lines, the plan
+            ControlMitreCensus(map, trims, all, nodeJ);
 
             // ---- against the OSM control nodes
             string f = System.Environment.GetEnvironmentVariable("PSX_CTL_OSM");
@@ -151,6 +154,14 @@ namespace PSXRacing.EditorTools
                     return on;
                 }
                 int sigN = 0, sigHit30 = 0, sigHit60 = 0, sigSpecial = 0, sigSpecialAtSignal = 0, stopN = 0, stopHit = 0, stopAtSignal = 0, stopMid = 0, stopAllN = 0, stopAllOk = 0, ywN = 0, ywHit = 0;
+                // control round: an OSM control node the exporter never placed on a game road (TAGN) stands on a
+                // way that is not in the game's graph: "needs the street data" (the download), not a fault
+                var tagIds = new HashSet<ulong>();
+                foreach (var t in map.tagged) tagIds.Add(t.nodeId);
+                var osmType = new Dictionary<ulong, string>();
+                int needSig = 0, needStop = 0, needYield = 0;
+                var needRows = new List<string>();
+                bool InGraph(string id) => ulong.TryParse(id, out ulong v) && tagIds.Contains(v);
                 var sigUsed = new HashSet<int>();
                 var missSig = new List<string>(); var missNames = new SortedDictionary<string, string>();
                 var missStop = new List<string>(); var specialAt = new List<string>();
@@ -160,7 +171,9 @@ namespace PSXRacing.EditorTools
                     var p = row.Split('\t');
                     if (p.Length < 7 || !int.TryParse(p[0], out int kind) || !float.TryParse(p[1], NumberStyles.Float, inv, out float x) || !float.TryParse(p[2], NumberStyles.Float, inv, out float z)) continue;
                     string type = p[5], ll = p[3] + "," + p[4];
+                    if (p.Length > 7 && ulong.TryParse(p[7], out ulong oidT)) osmType[oidT] = type;
                     if (!OnRoad(x, z, 45f, out int jnode, out float jd)) continue;
+                    bool inGraph = p.Length > 7 && InGraph(p[7]);
                     if (kind == 4)
                     {
                         bool special = type == "emergency" || type == "pedestrian_crossing" || type == "blinker";
@@ -174,6 +187,7 @@ namespace PSXRacing.EditorTools
                         sigN++; osmSig.Add(new Vector2(x, z));
                         if (d <= 30f) sigHit30++;
                         if (d <= 60f) { sigHit60++; sigUsed.Add(which); continue; }
+                        if (!inGraph) { needSig++; needRows.Add($"signal {p[7]} {ll} ({x:0},{z:0}){(jnode >= 0 ? $" near n{jnode} [{CtlNames(map, new[] { jnode })}] {jd:0} m" : "")}"); continue; }
                         string what = "mid-block";
                         if (jnode >= 0)
                         {
@@ -191,6 +205,7 @@ namespace PSXRacing.EditorTools
                         if (type == "all") stopAllN++;
                         if (d <= 45f) { stopHit++; if (type == "all" && all[which].allWay) stopAllOk++; continue; }
                         if (Nearest(x, z, j => j.signal, out _) <= 45f) { stopAtSignal++; continue; }
+                        if (!inGraph) { needStop++; needRows.Add($"stop {p[7]} {ll} ({x:0},{z:0}) ({type}/{p[6]}){(jnode >= 0 ? $" near n{jnode} [{CtlNames(map, new[] { jnode })}] {jd:0} m" : "")}"); continue; }
                         if (jnode < 0) { stopMid++; continue; }
                         missStop.Add($"{ll} n{jnode} [{CtlNames(map, new[] { jnode })}] at {jd:0} m ({type}/{p[6]}): {(nodeJ.TryGetValue(jnode, out int ji) ? CtlKind(all[ji]) : "nothing")}");
                     }
@@ -198,6 +213,7 @@ namespace PSXRacing.EditorTools
                     {
                         ywN++;
                         if (Nearest(x, z, j => !j.signal, out _) <= 45f) ywHit++;
+                        else if (!inGraph) { needYield++; needRows.Add($"give_way {p[7]} {ll} ({x:0},{z:0})"); }
                     }
                 }
                 Line($"  OSM JUNCTION SIGNALS on the game's roads: {sigN}; a game signal within 30 m: {sigHit30}, within 60 m: {sigHit60}; NONE within 60 m: {missSig.Count} ({missNames.Count} distinct junctions with 3+ arms, the rest mid-block: the cross street is not in the game)");
@@ -222,6 +238,41 @@ namespace PSXRacing.EditorTools
                 Line($"  OSM STOP nodes on the game's roads: {stopN}; a game STOP junction within 45 m: {stopHit}, at a game signal instead: {stopAtSignal}, mid-block (no junction node within 45 m): {stopMid}, at a junction with no STOP: {missStop.Count}; stop=all nodes {stopAllN}, at an all-way junction {stopAllOk}");
                 foreach (var m in missStop) outLog.AppendLine("    STOP-MISSING " + m);
                 Line($"  OSM give-way nodes on the game's roads: {ywN}; a game STOP / yield junction within 45 m: {ywHit}");
+                Line($"  NEEDS THE STREET DATA (an OSM control node on a way the game's graph does not have: not in TAGN, nothing in the game within reach): signals {needSig}, STOPs {needStop}, give-ways {needYield}; STOP-MISSING on the game's own ways: {missStop.Count}");
+                foreach (var m in needRows) outLog.AppendLine("    NEEDS-STREETS " + m);
+
+                // every signal junction stands on its own data: an approach (or an arm through one joint) carries a
+                // junction traffic_signals tag of its own (not an emergency, crossing or beacon signal's)
+                int sigJ = 0, sigNoTag = 0;
+                var armSet = new HashSet<int>();
+                for (int i = 0; i < all.Count; i++)
+                {
+                    var j = all[i];
+                    if (!j.signal || j.warrant) continue;
+                    sigJ++;
+                    armSet.Clear();
+                    foreach (var a in j.approaches) armSet.Add(a.edge);
+                    foreach (int n in j.nodes)
+                        foreach (int ei in map.nodeEdges[n])
+                        {
+                            armSet.Add(ei);
+                            var e = map.edges[ei];
+                            int o = e.a == n ? e.b : e.a;
+                            if (map.nodeEdges[o].Count != 2) continue;
+                            foreach (int oi in map.nodeEdges[o]) armSet.Add(oi);
+                        }
+                    bool own = false;
+                    foreach (var t in map.tagged)
+                    {
+                        if (t.kind != 4 || !armSet.Contains(t.edge)) continue;
+                        if (osmType.TryGetValue(t.nodeId, out string ty) && (ty == "emergency" || ty == "pedestrian_crossing" || ty == "blinker")) continue;
+                        own = true; break;
+                    }
+                    if (own) continue;
+                    sigNoTag++;
+                    Line($"    SIGNAL-NOTAG n{j.nodes[0]} {LatLon(j.centre.x, j.centre.y)} [{CtlNames(map, j.nodes)}]: no approach carries a junction signal tag of its own");
+                }
+                Line($"  OSM-kind signal junctions {sigJ}: with no approach carrying its own junction traffic_signals tag {sigNoTag}");
             }
             else Line("  (PSX_CTL_OSM not given: the OSM comparison is skipped)");
 
