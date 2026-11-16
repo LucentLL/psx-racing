@@ -1,4 +1,12 @@
-﻿# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
+﻿# HANDOFF - CITY TREES STAND ON THE GROUND AT EVERY LEVEL (agent "trees4", branch `city-treefeet` off mountain-nm e26dc1f4, 2026-11-16; NOT pushed, NOT merged)
+
+The owner, 10:40, on a Providence Rd frame: "Some even seem to be floating in air". Only the fix for the kit mountain-nm builds today (round 3, NatureManufacture); nothing of the round-4 work (the owner's trees) is in this branch.
+- CAUSE: LoadVariant / LoadMergedVariant stand a tree on its LOD0's foot (the bark's 2nd-percentile height, past the root tips; `Editor/PSXRacingBuilder.MeshTrees.cs:668-684`) and draw every level on it. The packs' coarser levels have no roots, so their trunks start higher - up to 1.03 m (Meadow `07_Poplar_skan` LOD2); the pine stand-in `03_Poplar_skan_pine` hangs 0.43 m over the ground. They draw from 102 m (LOD1) and 140 m (LOD2) to 240 m on MEDIUM.
+- FIX: `Editor/PSXRacingBuilder.CityTreeFeet.cs` (new, `CTFeet`), called once after `CTRound3` in `EnsureCityTreeKit` (`Editor/PSXRacingBuilder.CityTreeKit.cs`): each level's bark in its lowest 0.8 m drawn down to its LOD0 trunk base, nothing above moved (21 variants, 35 levels; meshes `Generated/CTFeet_*`). DEFAULT ON; `PSX_CT5_FOOT=0` = today's kit. Nothing under `Scripts/City`, no shader, no tile re-bake, no new kit field.
+- PROOF (`Editor/CityRefSpots.TreeFeet.cs`, new: `-executeMethod PSXRacing.EditorTools.CityRefSpots.RunTreeFeet`; PSXPerf, kit built in the same process at the defaults): planted trees floating (trunk base > 5 cm over the ground under the trunk) at LOD0 / LOD1 / LOD2 - Providence Rd 7,463 trees: before 0 / 1,467 / 1,890, after 0 / 0 / 0; West Trade St 3,922 trees: before 0 / 202 / 306, after 0 / 0 / 0. Visible pop unchanged (Providence Rd walk 300 -> 20 m, 16 px blocks changing >3%: MEDIUM 784 -> 784, HIGH 309 -> 309; pixels 133,830 -> 134,013 and 69,259 -> 69,330).
+- AT MERGE: merge `city-treefeet` (two new Editor files with .meta, one call in `PSXRacingBuilder.CityTreeKit.cs` after `CTRound3`; `HANDOFF.md` by union) and rebuild the city tree kit (`BuildCityTreeKit`, PSX_PC_CONTENT=1) before the player build - the fix lives in the kit's generated meshes. If `charlotte-trees4` is merged later, its `CT5Feet` (off by default) finds nothing left to lift.
+
+# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
 
 An independent check of the first pass (f3f16ba0) found three blockers. All three are fixed on the same branch; this
 section supersedes the first-pass section below wherever they differ. Every number is from a fresh process in PSXCity
