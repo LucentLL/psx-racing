@@ -136,7 +136,18 @@ namespace PSXRacing.EditorTools
                 fresh &= File.Exists(HmGenDir + "/" + n + ".png") && File.Exists(HmEnhDir + "/" + n + ".png")
                       && File.Exists(Path.Combine(stage, n + "_overhaul1_hd.png")) && File.Exists(Path.Combine(stage, n + "_overhaul1_hd_normal.png"))
                       && File.Exists(Path.Combine(stage, n + "_overhaul1_hd_rough.png")) && File.Exists(Path.Combine(stage, n + "_overhaul1_hd_ao.png"));
-            if (fresh) { why = "tiers up to date"; return true; }
+            if (fresh)
+            {
+                // the Enhanced map is a committed asset: a sync may have put the repo's (without the house
+                // brick) back since the tiers were made - its pairs again, or the bundle would carry none
+                var tmap = AssetDatabase.LoadAssetAtPath<TextureTierMap>("Assets/PSXRacing/Resources/TextureTierMap.asset");
+                bool inMap = false;
+                if (tmap != null && tmap.pairs != null)
+                    foreach (var pr in tmap.pairs) if (pr.enhanced == "StoreGen/HouseMix/" + HmNames[0]) { inMap = true; break; }
+                if (!inMap) TextureTierTool.BuildMap();
+                why = inMap ? "tiers up to date" : "tiers up to date (the Enhanced map rebuilt with them)";
+                return true;
+            }
 
             Directory.CreateDirectory(HmGenDir); Directory.CreateDirectory(HmEnhDir); Directory.CreateDirectory(stage);
             var sw = System.Diagnostics.Stopwatch.StartNew();
