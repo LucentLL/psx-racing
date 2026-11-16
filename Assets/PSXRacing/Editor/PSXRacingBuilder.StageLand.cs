@@ -643,6 +643,8 @@ namespace PSXRacing.EditorTools
                     });
                 }
             }
+            // the rock's own skin over every cliff cell: the far land there is bare granite, not painted canopy
+            BuildWorldGraniteSkin(parent, mat);
             if (vars.Count == 0) return;
             // the far grid this stage stands on (the Park Road stage's is smaller)
             var fm = demFarMeta;
@@ -721,6 +723,7 @@ namespace PSXRacing.EditorTools
                 go.AddComponent<MeshFilter>().sharedMesh = m;
                 go.AddComponent<MeshRenderer>().sharedMaterial = mat;
                 go.isStatic = true;
+                if (HorizonLayer >= 0) go.layer = HorizonLayer;   // drawn as far as the far ground is
                 // no collider: high on the gorge's walls, never within the road's reach
                 n++;
             }
@@ -728,6 +731,83 @@ namespace PSXRacing.EditorTools
             Log($"Stage world granite: {placed} photoscanned cliff faces on {clusters.Count} lidar clusters of 24 m ({nearRoad} by the road and {onTown} on the town left out, " +
                 $"{thinned} thinned to the budget; near LOD {(detail ? "1" : "2")}), " +
                 $"{n} chunks, {triTotal / 1000}k triangles. Cliffs (length x height, LOD0/1/2 triangles): {string.Join("; ", sizes)}.");
+        }
+
+        /// <summary>The drawn far ground's height: its 60 m cells, each split
+        /// on the (x0,z0)-(x1,z1) diagonal, as GridChunkMesh draws them.</summary>
+        static float FarSurfaceY(float x, float z)
+        {
+            float X0 = Mathf.Floor(x / FarCell) * FarCell, Z0 = Mathf.Floor(z / FarCell) * FarCell;
+            float u = (x - X0) / FarCell, w = (z - Z0) / FarCell;
+            float ha = StageGroundHeightAt(X0, Z0), hb = StageGroundHeightAt(X0, Z0 + FarCell);
+            float hc = StageGroundHeightAt(X0 + FarCell, Z0 + FarCell), he = StageGroundHeightAt(X0 + FarCell, Z0);
+            float h = w >= u ? ha + u * (hc - hb) + w * (hb - ha) : ha + u * (he - ha) + w * (hc - he);
+            return h - FarSink;
+        }
+
+        /// <summary>
+        /// THE GRANITE'S SKIN: each 12 m cliff cell of the lidar laid over the
+        /// drawn ground in the same photoscanned granite, a hair above it (the
+        /// far ground's own triangles; the near lattice by a ray). Seen from
+        /// the road at a kilometre or two this is what reads as a bare rock
+        /// face - the cliff pieces alone read as boulders on painted canopy.
+        /// Mapped across the fall line, so the rock's grain stands upright.
+        /// </summary>
+        static void BuildWorldGraniteSkin(Transform parent, Material mat)
+        {
+            var C = world.cliffs;
+            var fm = demFarMeta;
+            float fx0 = fm.originX + 2f * fm.cell, fz0 = fm.originZ + 2f * fm.cell, fx1 = fm.originX + (fm.cols - 3) * fm.cell, fz1 = fm.originZ + (fm.rows - 3) * fm.cell;
+            float halfW = RoadWidth * 0.5f;
+            var bufs = new Dictionary<long, (List<Vector3> v, List<Vector2> uv, List<int> t)>();
+            int cells = 0;
+            const float H = CliffCell * 0.5f, Tex = 9f;
+            for (int k = 0; k + 5 < C.Length; k += 6)
+            {
+                float x = C[k], z = C[k + 1], dx = C[k + 3], dz = C[k + 4];
+                if (x < fx0 || x > fx1 || z < fz0 || z > fz1) continue;
+                if (StageCorridor(x, z, halfW + 14f, out _)) continue;
+                if ((WorldKeepBits(x, z) & 7) != 0) continue;
+                bool near = RouteDistanceCoarse(x, z) < NearCoverage - NearCell;
+                long ck = ((long)Mathf.FloorToInt(x / 500f) << 32) ^ (uint)Mathf.FloorToInt(z / 500f);
+                if (!bufs.TryGetValue(ck, out var b)) bufs[ck] = b = (new List<Vector3>(), new List<Vector2>(), new List<int>());
+                int v0 = b.v.Count;
+                // across the fall line (u) and up it (v): the grain upright on the face
+                Vector2 across = new Vector2(-dz, dx);
+                for (int j = 0; j <= 2; j++)
+                    for (int i = 0; i <= 2; i++)
+                    {
+                        float px = x - H + i * H, pz = z - H + j * H;
+                        float py = near ? DrapeY(px, pz) + 0.4f : FarSurfaceY(px, pz) + 0.9f;   // clear of the ground's creases
+                        b.v.Add(new Vector3(px, py, pz));
+                        b.uv.Add(new Vector2((px * across.x + pz * across.y) / Tex, py / Tex));
+                    }
+                for (int j = 0; j < 2; j++)
+                    for (int i = 0; i < 2; i++)
+                    {
+                        int a = v0 + j * 3 + i, bb = a + 3, c = a + 4, e = a + 1;
+                        // facing up: (x0,z0) (x0,z1) (x1,z1) wound for Unity's front face from above
+                        b.t.Add(a); b.t.Add(bb); b.t.Add(c);
+                        b.t.Add(a); b.t.Add(c); b.t.Add(e);
+                    }
+                cells++;
+            }
+            int n = 0;
+            foreach (var kv in bufs)
+            {
+                var m = new Mesh { indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                m.SetVertices(kv.Value.v); m.SetUVs(0, kv.Value.uv); m.SetTriangles(kv.Value.t, 0);
+                m.RecalculateNormals(); m.RecalculateBounds();
+                SaveMesh(m, "LureGraniteSkin_" + n);
+                var go = new GameObject("GraniteSkin_" + n);
+                go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = m;
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                go.isStatic = true;
+                if (HorizonLayer >= 0) go.layer = HorizonLayer;   // drawn as far as the far ground is
+                n++;
+            }
+            Log($"Stage world granite skin: {cells} lidar cliff cells of 12 m laid in bare granite over the drawn ground ({n} chunks).");
         }
 
         // ----------------------------------------------------------- marina
