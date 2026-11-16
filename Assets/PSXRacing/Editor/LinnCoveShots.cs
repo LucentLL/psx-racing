@@ -192,7 +192,12 @@ namespace PSXRacing.EditorTools
                     if (sj.bridges[k + 1] - sj.bridges[k] > best.y - best.x || k == 0) best = new Vector2(sj.bridges[k], sj.bridges[k + 1]);
             int i0 = Mathf.Clamp(Mathf.RoundToInt(best.x / spacing), 1, path.Count - 2);
             int i1 = Mathf.Clamp(Mathf.RoundToInt(best.y / spacing), 1, path.Count - 2);
-            var (eye, look) = Postcard(path, i0, i1);
+            Vector3 eye, look;
+            // as the player does it (TitleScreen.Begin): the granite out of the rays
+            using (new LandmarkRocks.Hidden(true)) { Physics.SyncTransforms(); (eye, look) = Postcard(path, i0, i1); }
+            Physics.SyncTransforms();
+            var (eyeWith, lookWith) = Postcard(path, i0, i1);
+            log.AppendLine($"  postcard with the rocks in the rays: eye {eyeWith} look {lookWith} ({((eyeWith - eye).magnitude < 0.01f ? "the same" : "DIFFERENT - hidden in the player")})");
             string eyeArg = Env("PSX_LC_EYE", ""), lookArg = Env("PSX_LC_LOOK", "");
             if (eyeArg.Length > 0 && lookArg.Length > 0) { eye = V3(eyeArg); look = V3(lookArg); log.AppendLine("  postcard from PSX_LC_EYE/LOOK"); }
             var rot = Quaternion.LookRotation(look - eye, Vector3.up);

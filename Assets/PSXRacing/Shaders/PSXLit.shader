@@ -2141,63 +2141,63 @@ Shader "PSX/Lit"
                 float cnSun = 1.0, cnAO = 1.0;
                 if (_Horizon > 0.5)
                 {
-                    float hd = length(i.wpos - _WorldSpaceCameraPos);
+                    float cnHd = length(i.wpos - _WorldSpaceCameraPos);
                     // A ridge's crown fringe (BuildHorizonFringe): only with the far
                     // canopy, and dithered in past the forest's own reach
                     if (_HorizonFringe > 0.5)
                     {
-                        float2 fpx = floor(i.pos.xy);
-                        float fdith = frac(52.9829189 * frac(dot(fpx, float2(0.06711056, 0.00583715))));
-                        float fin = saturate((hd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
-                        clip(_PSXFarCanopyOff > 0.5 ? -1.0 : fin - fdith - 1e-5);
+                        float2 cnPx = floor(i.pos.xy);
+                        float cnDith = frac(52.9829189 * frac(dot(cnPx, float2(0.06711056, 0.00583715))));
+                        float cnIn = saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
+                        clip(_PSXFarCanopyOff > 0.5 ? -1.0 : cnIn - cnDith - 1e-5);
                     }
                     if (_HorizonCrowns > 0.5 && _PSXFarCanopyOff < 0.5)
                     {
-                        float hf = _HorizonFringe > 0.5 ? 1.0
-                                 : saturate((hd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
-                        if (hf > 0.0)
+                        float cnHf = _HorizonFringe > 0.5 ? 1.0
+                                 : saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0));
+                        if (cnHf > 0.0)
                         {
-                            const float cell = 9.0;
-                            float2 w = i.wpos.xz;
-                            float4 cr = PSXCrownAt(w, cell);
+                            const float cnCell = 9.0;
+                            float2 cnW = i.wpos.xz;
+                            float4 cnCr = PSXCrownAt(cnW, cnCell);
                             // crowns to a pixel: from about a fifth of a crown a
                             // pixel the field turns into the mean it stands for
-                            float fp = max(length(dWx), length(dWy));
-                            float vis = 1.0 - saturate((fp / cell - 0.18) / 0.32);
+                            float cnFp = max(length(dWx), length(dWy));
+                            float cnVis = 1.0 - saturate((cnFp / cnCell - 0.18) / 0.32);
                             // STANDS: one colour runs a hundred metres or so; the
                             // conifers gather in their own (coves of hemlock, spruce)
-                            float s = PSXRockNoise(w / 90.0) * 0.6 + PSXRockNoise(w / 280.0 + 3.7) * 0.4;
-                            float s2 = PSXRockNoise(w / 150.0 + 11.3);
-                            float share = lerp(_CanopySpruce.z, _CanopySpruce.w, smoothstep(_CanopySpruce.x, _CanopySpruce.y, i.wpos.y));
-                            share = saturate(share * (0.45 + 1.1 * s2));
-                            float rnd2 = frac(cr.y * 7.13 + 0.37), rnd3 = frac(cr.y * 53.3 + 0.11);
-                            float3 broad = PSXCanopyPick(s * 0.7 + cr.y * 0.45) * (0.8 + 0.4 * rnd3);
-                            float3 crown = rnd2 < share ? _CanopyConifer.rgb * (0.85 + 0.3 * rnd3) : broad;
-                            float onCrown = cr.x > 0.0 ? 1.0 : 0.0;
-                            float3 pix = lerp(_CanopyGap.rgb, crown, onCrown);
-                            float3 meanBroad = (PSXCanopyPick(s * 0.7 + 0.075) + PSXCanopyPick(s * 0.7 + 0.225) + PSXCanopyPick(s * 0.7 + 0.375)) * (1.0 / 3.0);
-                            float3 mean = lerp(lerp(meanBroad, _CanopyConifer.rgb, share), _CanopyGap.rgb, 0.12);
-                            float3 col = lerp(mean, pix, vis);
+                            float cnS = PSXRockNoise(cnW / 90.0) * 0.6 + PSXRockNoise(cnW / 280.0 + 3.7) * 0.4;
+                            float cnS2 = PSXRockNoise(cnW / 150.0 + 11.3);
+                            float cnShare = lerp(_CanopySpruce.z, _CanopySpruce.w, smoothstep(_CanopySpruce.x, _CanopySpruce.y, i.wpos.y));
+                            cnShare = saturate(cnShare * (0.45 + 1.1 * cnS2));
+                            float cnR2 = frac(cnCr.y * 7.13 + 0.37), cnR3 = frac(cnCr.y * 53.3 + 0.11);
+                            float3 cnBroad = PSXCanopyPick(cnS * 0.7 + cnCr.y * 0.45) * (0.8 + 0.4 * cnR3);
+                            float3 cnCrown = cnR2 < cnShare ? _CanopyConifer.rgb * (0.85 + 0.3 * cnR3) : cnBroad;
+                            float cnOnC = cnCr.x > 0.0 ? 1.0 : 0.0;
+                            float3 cnPix = lerp(_CanopyGap.rgb, cnCrown, cnOnC);
+                            float3 cnMeanB = (PSXCanopyPick(cnS * 0.7 + 0.075) + PSXCanopyPick(cnS * 0.7 + 0.225) + PSXCanopyPick(cnS * 0.7 + 0.375)) * (1.0 / 3.0);
+                            float3 cnMean = lerp(lerp(cnMeanB, _CanopyConifer.rgb, cnShare), _CanopyGap.rgb, 0.12);
+                            float3 cnCol = lerp(cnMean, cnPix, cnVis);
                             // the DOME's light: its normal leans out from its centre;
                             // a gap is in its neighbours' shade, more so at a low sun
-                            float3 Ng = normalize(i.wnrm);
-                            float3 Ls = normalize(_PSXLightDir.xyz);
-                            float3 Nd = normalize(Ng + float3(cr.z, 0.0, cr.w) * 0.85);
-                            float highSun = saturate(Ls.y * 1.6);
-                            float domeSun = min(saturate(dot(Nd, Ls)) / max(saturate(dot(Ng, Ls)), 0.08), 2.0);
-                            float sunPix = onCrown > 0.5 ? domeSun : lerp(0.15, 0.55, highSun);
-                            float aoPix = onCrown > 0.5 ? lerp(0.62, 1.0, cr.x) : 0.4;
-                            float sunF = lerp(lerp(0.72, 0.92, highSun), sunPix, vis);
-                            float aoF = lerp(0.8, aoPix, vis);
+                            float3 cnNg = normalize(i.wnrm);
+                            float3 cnLs = normalize(_PSXLightDir.xyz);
+                            float3 cnNd = normalize(cnNg + float3(cnCr.z, 0.0, cnCr.w) * 0.85);
+                            float cnHigh = saturate(cnLs.y * 1.6);
+                            float cnDome = min(saturate(dot(cnNd, cnLs)) / max(saturate(dot(cnNg, cnLs)), 0.08), 2.0);
+                            float cnSunPix = cnOnC > 0.5 ? cnDome : lerp(0.15, 0.55, cnHigh);
+                            float cnAoPix = cnOnC > 0.5 ? lerp(0.62, 1.0, cnCr.x) : 0.4;
+                            float cnSunF = lerp(lerp(0.72, 0.92, cnHigh), cnSunPix, cnVis);
+                            float cnAoF = lerp(0.8, cnAoPix, cnVis);
                             // a cliff at the 60 m grid's own scale: grey rock between
                             // fewer crowns (Linville Gorge's walls, Grandfather's crest)
-                            float rk = smoothstep(0.80, 0.66, Ng.y) * 0.65;
-                            col = lerp(col, float3(0.15, 0.15, 0.145), rk * (1.0 - onCrown * vis * 0.5));
+                            float cnRk = smoothstep(0.80, 0.66, cnNg.y) * 0.65;
+                            cnCol = lerp(cnCol, float3(0.15, 0.15, 0.145), cnRk * (1.0 - cnOnC * cnVis * 0.5));
                             // the fringe card: its own shading, the land's colour
-                            if (_HorizonFringe > 0.5) { col *= tex.rgb * 2.0; sunF = 1.0; aoF = 1.0; }
-                            tex.rgb = lerp(tex.rgb, col, hf);
-                            cnSun = lerp(1.0, sunF, hf);
-                            cnAO = lerp(1.0, aoF, hf);
+                            if (_HorizonFringe > 0.5) { cnCol *= tex.rgb * 2.0; cnSunF = 1.0; cnAoF = 1.0; }
+                            tex.rgb = lerp(tex.rgb, cnCol, cnHf);
+                            cnSun = lerp(1.0, cnSunF, cnHf);
+                            cnAO = lerp(1.0, cnAoF, cnHf);
                         }
                     }
                     else if (_HorizonCanopy.a > 0.0)

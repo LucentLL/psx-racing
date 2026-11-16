@@ -171,7 +171,8 @@ namespace PSXRacing
             {
                 cam.transform.SetParent(null, true);
                 cam.fieldOfView = Fov;
-                PlaceCamera(path);
+                // (the Linn Cove granite out of the rays a moment: the same postcard with it as without)
+                using (new LandmarkRocks.Hidden(true)) PlaceCamera(path);
                 Ambience(cam.gameObject);
             }
             BuildUI();

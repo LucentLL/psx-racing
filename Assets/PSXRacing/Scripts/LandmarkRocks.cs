@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PSXRacing
@@ -16,6 +17,31 @@ namespace PSXRacing
         void Awake()
         {
             if (!LookChoices.LinnCoveRocks) gameObject.SetActive(false);
+        }
+
+        /// <summary>The rocks out of the physics scene for a moment (using):
+        /// the title's postcard search (TitleScreen.PlaceCamera) casts rays for
+        /// the ground under its eye and the deck in sight, and finds the same
+        /// views[0] with the granite in place as without it.</summary>
+        public struct Hidden : System.IDisposable
+        {
+            readonly List<GameObject> off;
+            public Hidden(bool hide)
+            {
+                off = new List<GameObject>();
+                if (!hide) return;
+                foreach (var r in FindObjectsByType<LandmarkRocks>(FindObjectsInactive.Exclude))
+                {
+                    r.gameObject.SetActive(false);
+                    off.Add(r.gameObject);
+                }
+            }
+            public void Dispose()
+            {
+                if (off == null) return;
+                foreach (var g in off) if (g != null) g.SetActive(true);
+                off.Clear();
+            }
         }
 
         /// <summary>Every landmark root in the open scenes to the switch's state.</summary>
