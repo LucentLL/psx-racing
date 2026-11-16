@@ -69,6 +69,17 @@ namespace PSXRacing
             f.speed = 1f / InSeconds;
         }
 
+        /// <summary>THE VCR's scan (2026-11-16, TapePlayback): the sound off at
+        /// once and back at once - a deck mutes a search, it does not fade it.
+        /// Setting AudioListener.volume alone was pulled straight back up by
+        /// Update (the tape check's "with the sound off" failed).</summary>
+        public static void Mute(bool on)
+        {
+            var f = Get();
+            f.target = on ? 0f : 1f;
+            f.speed = 100f;
+        }
+
         void Update()
         {
             // Unscaled, because the pause menu runs at timeScale zero and a

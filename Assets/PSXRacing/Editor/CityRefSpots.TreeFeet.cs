@@ -112,6 +112,67 @@ namespace PSXRacing.EditorTools
             CarLights.PushGlobals();
         }
 
+        /// <summary>THE LOD FADE's frame cost in one process (tree pop round,
+        /// 2026-11-16): the forest built with the fixed hand-over bands and with
+        /// the wide ones in turn at one eye, <paramref name="rounds"/> builds each
+        /// in ABBA order (the editor's own noise shows in the spread); mesh trees
+        /// drawn, 1920x1080, every frame waited for with a read-back.</summary>
+        static void CostAB(Camera cam, CityMeshTrees mt, string place, Vector3 eye, Quaternion r, int rounds, StringBuilder log)
+        {
+            bool was = CityMeshTrees.LodFade;
+            cam.transform.SetPositionAndRotation(eye, r);
+            var rt = new RenderTexture(1920, 1080, 24, RenderTextureFormat.ARGB32);
+            var old = cam.targetTexture;
+            cam.targetTexture = rt;
+            var px = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            var ms = new[] { new List<double>(), new List<double>() };
+            var tris = new double[2]; var draws = new double[2]; var plants = new double[2];
+            var bands = new string[2];
+            try
+            {
+                for (int k = 0; k < rounds * 2; k++)
+                {
+                    int m = (k + k / 2) & 1;   // off, on, on, off, off, on, on, off
+                    CityMeshTrees.LodFade = m == 1; mt.Rebuild();
+                    bands[m] = $"{mt.Forest.band0:0}/{mt.Forest.band1:0}/{mt.Forest.band2:0} m";
+                    MeshForest.MeshTreesOn = true;
+                    for (int i = 0; i < 4; i++) { mt.Forest.DrawNow(cam); cam.Render(); }
+                    const int N = 24;
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    for (int i = 0; i < N; i++)
+                    {
+                        mt.Forest.DrawNow(cam); cam.Render();
+                        RenderTexture.active = rt; px.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); px.Apply(); RenderTexture.active = null;
+                    }
+                    sw.Stop();
+                    ms[m].Add(sw.Elapsed.TotalMilliseconds / N);
+                    MeshForest.StatsOn = true; MeshForest.StatsReset();
+                    for (int i = 0; i < 6; i++) { mt.Forest.DrawNow(cam); cam.Render(); }
+                    UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests();
+                    int sf = Mathf.Max(1, MeshForest.StatFrames);
+                    tris[m] = MeshForest.SumTris / sf; draws[m] = MeshForest.SumDraws / sf; plants[m] = MeshForest.SumPlants / sf;
+                    MeshForest.StatsOn = false;
+                }
+            }
+            finally
+            {
+                MeshForest.StatsOn = false;
+                CityMeshTrees.LodFade = was; mt.Rebuild();
+                cam.targetTexture = old;
+                Object.DestroyImmediate(rt); Object.DestroyImmediate(px);
+            }
+            double Med(List<double> l)
+            {
+                var c = new List<double>(l); c.Sort();
+                return c.Count == 0 ? 0 : c.Count % 2 == 1 ? c[c.Count / 2] : 0.5 * (c[c.Count / 2 - 1] + c[c.Count / 2]);
+            }
+            string All(List<double> l) => string.Join(" ", l.ConvertAll(x => x.ToString("0.00")));
+            double d = Med(ms[1]) - Med(ms[0]);
+            log.Append($"  COST A/B {place}: frame (1920x1080, editor, render + read-back, {rounds} builds each, ABBA): fixed bands ({bands[0]}) {Med(ms[0]):0.00} ms [{All(ms[0])}], " +
+                       $"LOD fade ({bands[1]}) {Med(ms[1]):0.00} ms [{All(ms[1])}], {(d >= 0 ? "+" : "")}{d:0.00} ms; drawn {plants[0]:0} -> {plants[1]:0} plants, " +
+                       $"{tris[0] / 1e6:0.00} -> {tris[1] / 1e6:0.00} M tris, {draws[0]:0} -> {draws[1]:0} draws\n");
+        }
+
         public static void RunTreeFeet()
         {
             string tag = System.Environment.GetEnvironmentVariable("PSX_FEET_TAG");
@@ -140,9 +201,30 @@ namespace PSXRacing.EditorTools
                 var mt = CityMeshTrees.EnsureFor(world);
                 if (mt == null) throw new System.Exception("CityMeshTrees did not start (kit / GPU)");
                 var kit = mt.Kit;
-                log.Append($"kit: {kit.variants.Length} species\n");
+                log.Append($"kit: {kit.variants.Length} species; quality level '{QualitySettings.names[QualitySettings.GetQualityLevel()]}', target {EditorUserBuildSettings.activeBuildTarget}\n");
+                // THE POP KNOBS (tree pop-in round): the hand-over bands as a share of each level's distance
+                // (MeshForest.TourBandShare) and each level's distance x (MeshForest.TourLodMul), for this process
+                if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_LODBAND") ?? "", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float bandShare) && bandShare > 0f)
+                    MeshForest.TourBandShare = bandShare;
+                var lm = (System.Environment.GetEnvironmentVariable("PSX_LODMUL") ?? "").Split(',');
+                if (lm.Length == 3 && float.TryParse(lm[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float m0)
+                    && float.TryParse(lm[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float m1)
+                    && float.TryParse(lm[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float m2))
+                    MeshForest.TourLodMul = new Vector3(m0, m1, m2);
+                log.Append($"pop knobs: band share {MeshForest.TourBandShare:0.00} (-1 = the forest's own), level distances x {MeshForest.TourLodMul}\n");
+                log.Append($"city LOD fade (PSX_CT_LODFADE={System.Environment.GetEnvironmentVariable("PSX_CT_LODFADE") ?? "(default)"}): {(CityMeshTrees.LodFade ? $"ON, bands {CityMeshTrees.LodFadeShare:0.00} of each level's distance" : "OFF, the fixed bands")}\n");
+                var levels = new List<int>();
+                foreach (var lv in (System.Environment.GetEnvironmentVariable("PSX_FEET_LEVELS") ?? "1,2").Split(','))
+                    if (int.TryParse(lv.Trim(), out int lvi) && lvi >= 0 && lvi <= 2) levels.Add(lvi);
+                bool costAB = System.Environment.GetEnvironmentVariable("PSX_FEET_COSTAB") == "1";
+                // THE MOTION PAIR (PSX_FEET_MOTION=m): each step also shot from m metres further on with the
+                // game's own levels (c): a v c is one frame of driving (0.4 m = 86 km/h at 60 FPS), so the
+                // screen-door dither's crawl over a moving crown shows next to the parallax both runs share
+                float motionM = 0f;
+                float.TryParse(System.Environment.GetEnvironmentVariable("PSX_FEET_MOTION") ?? "", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out motionM);
+                if (motionM > 0f) log.Append($"motion pair: c = {motionM:0.00} m on, the game's levels\n");
                 bool walk = System.Environment.GetEnvironmentVariable("PSX_FEET_WALK") != "0";
-                foreach (var pid in new[] { "arterial", "wtrade" })
+                foreach (var pid in (System.Environment.GetEnvironmentVariable("PSX_FEET_PLACES") ?? "arterial,wtrade").Split(','))
                 {
                     int pi = System.Array.FindIndex(T3Places, q => q.id == pid);
                     if (pi < 0) continue;
@@ -160,12 +242,15 @@ namespace PSXRacing.EditorTools
                     world.EnsureRing(eye - f * 160f, 2); mt.Flush();
                     log.Append($"\n{pid}\t'{e.name}' {CityAudit.LatLon(eye.x, eye.z)}\n");
                     FeetAudit(mt, kit, pid, tag, log);
-                    if (!walk || pid != "arterial") continue;
-                    foreach (int lvl in new[] { 1, 2 })
+                    if (!walk) continue;
+                    foreach (int lvl in levels)
                     {
                         ForestDetailPrefs.Override = lvl; mt.Rebuild();
                         string L = ForestDetailPrefs.Label;
                         FeetLight(sun, dressing, world);
+                        log.Append($"  {pid} {L}: levels {mt.Forest.lod0To:0} / {mt.Forest.lod1To:0} / {mt.Forest.meshRange:0} m, bands {mt.Forest.band0:0} / {mt.Forest.band1:0} / {mt.Forest.band2:0} m\n");
+                        if (pid == "arterial") { var crot = Quaternion.LookRotation(f + Vector3.down * 0.03f); Cost(cam, mt, $"{pid} {L} {tag}", eye - f * 150f + Vector3.up * 0.0f, crot, log); }
+                        if (pid == "arterial" && costAB) { var crot = Quaternion.LookRotation(f + Vector3.down * 0.03f); CostAB(cam, mt, $"{pid} {L}", eye - f * 150f, crot, 4, log); }
                         for (int d = 300; d >= 20; d -= 10)
                         {
                             var q = eye - f * d;
@@ -180,6 +265,16 @@ namespace PSXRacing.EditorTools
                             PSXScreenshotTool.ShotAs(cam, $"ctreefeet/{tag}/{pid}_{L}_{d:000}_b", pos, rot);
                             MeshForest.LodEyeOn = false;
                             shots += 2;
+                            if (motionM > 0f)
+                            {
+                                var qc = q + f * motionM;
+                                var posc = new Vector3(qc.x, FeetGroundAt(qc, eye.y - 1.15f) + 1.15f, qc.z);
+                                cam.transform.SetPositionAndRotation(posc, rot);
+                                SunShadows.RenderFor(cam);
+                                mt.Forest.DrawNow(cam);
+                                PSXScreenshotTool.ShotAs(cam, $"ctreefeet/{tag}/{pid}_{L}_{d:000}_c", posc, rot);
+                                shots++;
+                            }
                         }
                     }
                     ForestDetailPrefs.Override = -1; mt.Rebuild();

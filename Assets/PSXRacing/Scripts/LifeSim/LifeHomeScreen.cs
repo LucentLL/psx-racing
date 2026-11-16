@@ -1471,6 +1471,9 @@ namespace PSXRacing.LifeSim
                 case "events": BuildEvents(); break;   // v29: LifeHomeScreen.Events.cs
                 case "fate": BuildFate(); break;   // R1c-A
                 case "claim": BuildClaim(); break;   // R1c-B: LifeHomeScreen.Insurance.cs
+                case "tapes": BuildTapes(); break;   // camcorder tapes: LifeHomeScreen.Tapes.cs
+                case "videostore": BuildVideoStore(); break;
+                case "montage": BuildMontage(); break;
             }
 
             BuildCarSide();
@@ -1689,6 +1692,11 @@ namespace PSXRacing.LifeSim
                 case "parts": return "garage";
                 case "partfit": return "parts";
                 case "rivalroad": return "rivals";
+                // The tape shelf is a door at the MY CARS base; the store is
+                // reached from the shelf (LifeHomeScreen.Tapes.cs).
+                case "tapes": return "garage";
+                case "videostore":
+                case "montage": return "tapes";
                 default: return "main";
             }
         }
@@ -3516,6 +3524,7 @@ namespace PSXRacing.LifeSim
             // THE SHOWROOM: one car at a time over the list (LifeHomeScreen.Showroom.cs).
             if (!(Showroom.On && GarageHero(ref y))) BuildDrivingBlock(ref y);
             BuildGarageSwitcher(ref y);
+            TapeShelfDoor(ref y);   // the camcorder tapes (LifeHomeScreen.Tapes.cs)
         }
 
         /// <summary>The house is a PLACE, and this is the door. One button, so
