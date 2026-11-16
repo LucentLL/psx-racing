@@ -39,7 +39,7 @@ shot angle" (two photographs of the viaduct in peak fall colour).
   the slope; a block over 9 m is 2-4 stones along its axis. Nothing within a lane's reach (6 m past the tarmac plus
   the stone's radius) of an at-grade road; under the deck at least 4.5 m below the road surface; nothing through a
   deck, pier, joint, wall, rail or cut (OverlapBox). Plain renderers per 128 m cell (20 draws), a mesh collider of the
-  same stones named "Boulder" on the Solid layer; the forest keeps off each block (StageKeepOut, footprint + 1 m).
+  same stones named "Boulder" on the Solid layer; the forest keeps 2.5 m off each block (StageKeepOut).
   Scripts/LandmarkRocks.cs (new): PSX_LINNCOVE_ROCKS=0 switches the root (and colliders) off at load.
 - Blue distance v2 (TimeOfDay.cs, PSX/Lit _PSXAerial): with LookChoices.AerialDepth (F9 / PSX_AERIAL=1, still OFF)
   the air's own law 1 - exp(-(d - 1.8 km) / 26 km), at most 0.75, toward the sky's blue: about a quarter at 10 km, a
@@ -58,22 +58,49 @@ shot angle" (two photographs of the viaduct in peak fall colour).
 - PSX_RIDGEFRINGE (default OFF): 1 = the ridges' crown fringe (needs a scene built with =1).
 - PSX_AERIAL / F9 (default OFF, the owner's A/B): the blue distance v2.
 
-## Proof (PSXPerf, real editor frames through the game's dither; scratch folder
+## The intro agent's October bug (LittleSwitzerland, PSX_INTRO_DAY=288: no hardwoods, not even trunks) - NOT FOUND
+- Not general to the fall dress: this round's fall frames (BlueRidge title and Linn Cove views, NC 226A road and vista;
+  edit mode, SeasonDress.Apply(3), MeshForest.DrawNow on the GPU path) all draw the mesh hardwoods.
+- MeshForest reads only the dress index (DressNow -> SeasonDress.AppliedDress, clamped 0-4), never the day.
+  DressMaterials keeps every variant's bark (vr.mats) in every dress and swaps only the leaf submesh and the impostor,
+  and GpuDressChanged skips a command only when its material is null - so a per-dress MATERIAL cause cannot also take
+  the trunks. Losing trunks too means the chunks were taken over (cards hidden, SetCards) and the GPU draws came out
+  empty: look at the command states (MeshForest.Gpu.cs ~712: 0 no material / 1 drawn / 2 no chunk reached) and the
+  "[MeshForest] ... GPU lists" line in the October run against January's, and at AppliedDress in that run.
+- Init order checked: MeshForest.Awake -> Init -> InitGpu (gpuReady, lastDress -2), SeasonDress.Awake -> Apply, then
+  LateUpdate -> FrameStart sets the dress's commands - no stale-dress path found.
+
+## Proof (PSXPerf, real editor frames through the game's dither, PC profile; scratch
 `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\linncove\`)
-- BEFORE = the base code e26dc1f4 itself, its BlueRidge scene built in PSXPerf (PC content) and shot in a fresh
-  process; AFTER = this branch's scene, fresh process. Title pose = PC46's own log: eye (-431.12, 132.55, 53.44),
-  look (-490.77, 103.39, -188.24), FOV 42 - the rule finds the same views[0] in both scenes, with and without the
-  granite in the rays. NC 226A: before = this branch's scene with PSX_FARCANOPY=0 PSX_LINNCOVE_ROCKS=0 in a fresh
-  process (the switch = the land exactly as it was: 480 m apron, old shading).
-- Sheets: sheet_title.png (fall afternoon = PC46's light, fall sunset, fall fog, summer, winter; + blue distance A/B),
-  sheet_linncove.png (deck, chase, below, wide), sheet_road_SwissNC226A.png (noon/dusk, chase/vista).
-- Gates, BlueRidge, this branch vs base: plants through solids 0 / 0 (125,220 / 125,672 plants within reach checked);
-  lane obstacle audit CLEAR / CLEAR (the rock colliders are concave: "see the sweep"; placement keeps them 6 m past the
-  tarmac plus their radius, and under the deck 4.5 m below the road). Title views[0] identical.
-- Frame cost: NOT measured cleanly. Editor timing at 1920x1080 with three other Unity editors on the GPU (PSXLab,
-  PSXRec, PSXCity): canopy on/off alternated in one process, BlueRidge title +1.1 ms mean of 4 pairs, NC 226A
-  +5.0 ms of 2 pairs, both inside the noise (single frames 54-136 ms). Added geometry: the 240 m apron 150,673 verts
-  (the 480 m one hidden), BlueRidge rocks 212,745 tris in 20 draws; fringe off (0 cards). Needs the on-screen PerfTour.
+- BEFORE (title, Linn Cove) = the base code e26dc1f4 itself, its BlueRidge built in PSXPerf with PC content and shot in
+  a fresh process; AFTER = this branch, fresh process. Title pose = PC46's own log (eye (-431.12, 132.55, 53.44), look
+  (-490.77, 103.39, -188.24), FOV 42); the rule finds the same views[0] in both scenes, with and without the granite in
+  the rays. NC 226A: BEFORE = this branch's scene with PSX_FARCANOPY=0 PSX_LINNCOVE_ROCKS=0 in a fresh process.
+- sheet_title.png (fall afternoon = PC46's light, fall sunset, fall fog, summer, winter; third column = the blue
+  distance v2 A/B), sheet_linncove.png (deck, chase, below, wide), sheet_road_SwissNC226A.png (noon/dusk, chase and
+  vista, blue distance A/B), sheet_title_keepout.png (the forest round the blocks, see below).
+- THE AFTER FRAMES of those sheets come from the build with a 0.85 r + 1 m clearing (shots/after4, with the clump
+  grain). That build failed the plant gate by ONE fern 0.25 m into a stone at 4480 m, so the committed clearing is the
+  2.5 m one, whose build passed: its title frame is shots/after2 (palette re-applied, no clump grain) and
+  sheet_title_keepout.png puts the two side by side. A 1.5 m fit could not be checked: another agent took PSXPerf.
+- Gates, BlueRidge (committed 2.5 m build / base): plants through solids 0 / 0 (125,220 / 125,672 plants within reach);
+  lane obstacle audit CLEAR / CLEAR (the stones' colliders are concave: "see the sweep"; placement keeps them 6 m past
+  the tarmac plus their radius, and 4.5 m under the deck). views[0] identical.
+- Frame cost (editor, 1920x1080, render + 1 px read; other editors were sharing the GPU): base scene at the title
+  37.4-40.2 ms; this branch 35.4-36.4 ms, canopy on vs off in one process -0.6 ms (title) and +1.2 ms (NC 226A
+  vista); a noisier run +2.2 ms. Added geometry: the 240 m apron 150,673 verts (the 480 m one hidden), the rocks
+  212,745 tris in 20 draws (BlueRidge only); ridge fringe 0 (off). The on-screen PerfTour was not run.
+
+## What still looks wrong
+- At the title's distance a crown is under a pixel: the far hills read as an olive-orange mottle with clump grain, not
+  as treetops, and the skyline is still the DEM's smooth line (the fringe that was to break it read as dark combs).
+  Without the blue distance the far ridges keep their full colour to 90 km; with it (A/B column) they read as the Blue
+  Ridge's layered blue ridges. PROPOSAL: AerialDepth ON by default on a clear day (the owner decides from the sheet).
+- The big blocks are forest stones scaled up to 9 m: close up (linn_below) their texture is soft and their shape
+  generic. From the title only a few grey shapes show at the top right. The committed 2.5 m clearing thins the title's
+  foreground trees round the viaduct's start and leaves Grandfather's flank darker (sheet_title_keepout.png); a fit
+  per plant against the stones' own colliders would keep the trees (next round).
+- Mt Mitchell and Chimney Rock road views were not shot (time); their far land changes the same way as NC 226A's.
 
 ---
 
