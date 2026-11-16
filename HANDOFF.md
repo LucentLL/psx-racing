@@ -1,4 +1,114 @@
-﻿# HANDOFF - CHARLOTTE TRACKS: THE CANDIDATES, THE FREEWAY LAPS AND THE WHOLE-CITY TRACK PREVIEW (agent "tracks", branch `charlotte-tracks` from mountain-nm 3920fdde, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - TREE POP ROUND (agent "trees4", branch `city-treepop` off mountain-nm c0a81147, 2026-11-16; NOT pushed, NOT merged)
+
+Owner since 11-11: tree pop-in "on every forest setting". Round 5 found the NM city trees' pop at their MESH LOD
+switches (MEDIUM 102 / 140 m, HIGH 124 / 210 m), not at the far card.
+
+## What I found
+- PopFix (11-11) pushed the city pool's levels out (kit 55/140/240 m x FOREST DETAIL x PopLodMul = LOW 77/109/203,
+  MEDIUM 102/140/240, HIGH 124/210/360 m) but left the dithered hand-over bands at MeshForest's fixed 12/16/20 m
+  x detail scale (LOW 8/10/13, MEDIUM 12/16/20, HIGH 18/24/30 m). A crown that switches at 102 m therefore dissolves
+  into the next level within 12 m, about half a second at 85 km/h, and reads as a pop. In the red-overlay frames the
+  pop is WHOLE crowns changing in one step.
+- Screening (PSXRec, fresh process each, bands as a share of each level's distance, PSX_LODBAND):
+  Providence Rd visible pop MEDIUM 768 -> 625 (share 0.35) -> 395 (0.6); HIGH 317 -> 137 -> 58. At 0.6 every band
+  sits at its clamp (no plant ever draws three levels at once), so 0.6 means "the bands at their widest": a larger
+  share changes nothing.
+- The Android target does not skew this. The editor's quality level reads 'PC' (logged in every run), the city kit
+  is PC content forced on (PSX_PC_CONTENT=1), the LOD distances come from FOREST DETAIL rather than the quality
+  level, and the base counts match round 5's on PSXPerf (Win64): MEDIUM 768 v 784, HIGH 317 v 309.
+
+## What I changed (switch PSX_CT_LODFADE, default ON; 0 = the fixed bands as before)
+- CityMeshTrees.cs: `LodFade` / `LodFadeShare` (0.6; PSX_CT_LODFADE=0.35 etc. picks another share). MakeForest
+  passes the share to the pool.
+- MeshForest.Pool.cs: CreatePool takes `bandShare` (optional, default -1 = as before).
+- MeshForest.cs: per-forest `bandShare` ([NonSerialized], -1 = fixed bands), applied where the perf tour's
+  `bandshare=` already worked (that knob still wins). The startup log line now names the bands.
+- The mountain stages' MeshForest is untouched (bandShare stays -1 there).
+- Editor/CityRefSpots.TreeFeet.cs: logs the switch, adds PSX_FEET_LEVELS (default 1,2) and PSX_FEET_COSTAB=1 (the
+  frame-cost A/B in one process, ABBA, 4 builds each).
+- No file under Scripts/City, no re-bake, no shader or scene change, no new file. Same trees in the same places,
+  same switch distances.
+
+## Proof (PSXRec, fresh process each; scratch = C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\trees4\pop\)
+The walk is round 5's RunTreeFeet: 300 -> 20 m toward the place at driver height in 10 m steps, summer noon. Each
+step is shot with the game's LOD choice (a) and with the choice of 10 m earlier (b). Visible pop = 16 px blocks whose
+light changes > 3%; churn = pixels with any channel > 22. Before = PSX_CT_LODFADE=0 (tag lfoff); after = the default
+(tag lfon). MEDIUM and HIGH repeat the screening's counts exactly (the renders are deterministic).
+
+|                                      | LOW                  | MEDIUM              | HIGH                |
+|--------------------------------------|----------------------|---------------------|---------------------|
+| bands before -> after (m)            | 8/10/13 -> 46/29/84  | 12/16/20 -> 61/34/90 | 18/24/30 -> 74/78/135 |
+| Providence Rd visible pop            | 1622 -> 1056 (-35%)  | 768 -> 395 (-49%)   | 317 -> 58 (-82%)    |
+| Providence worst 10 m step           | 117 -> 64            | 52 -> 26            | 23 -> 7             |
+| West Trade visible pop               | 28 -> 77             | 7 -> 11             | 1 -> 1              |
+| churn (single px) Providence         | +19%                 | +49%                | +68%                |
+| isolated px in a still, Prov / WT    | +8% / +2%            | +7% / +1%           | +5% / +1%           |
+| tris at the cost eye                 | 0.32 -> 0.37 M       | 0.53 -> 0.59 M      | 1.21 -> 1.35 M      |
+| frame ms, ABBA medians (editor 1080p) | 19.54 -> 18.44      | 28.04 -> 27.12      | 34.33 -> 36.65      |
+| MIDDLE 0.35: bands (m)               | 27/29/71             | 36/34/84            | 43/74/126           |
+| MIDDLE 0.35: Providence visible pop  | 1486 (-8%)           | 625 (-19%)          | 137 (-57%)          |
+| MIDDLE 0.35: West Trade visible pop  | 29                   | 3                   | 1                   |
+| MIDDLE 0.35: isolated px, Prov / WT  | +5% / +0%            | +3% / +0%           | +2% / +0%           |
+| MIDDLE 0.35: tris; ABBA frame ms     | 0.35 M; -0.2 ms      | 0.58 M; +0.6 ms     | 1.32 M; -0.2 ms     |
+
+- Frames: before, whole crowns jump in one step (clusters of yellow blocks over a tree). After, scattered single
+  blocks on crowns that are mid-dissolve, and no whole-crown jumps. Without the overlay the two runs look the same
+  (TreePop_look.png). At 2x zoom a crown inside a band shows a mix of the two levels' leaves.
+- THE PRICE: West Trade's sparse open-crown street trees stand against the sky, and on them the long dissolve shows as
+  dotted crown edges for longer (TreePop_WestTrade_dotted_edge_LOW_300m.png: frames a and b, before | after). That is
+  West Trade LOW's 28 -> 77 (a few trees on the left, at 300, 240-220 and 160 m). The owner has called screen-door
+  dither "a speckled dotted effect" before (the shader comment on thinned plants), so if he sees dotted crowns, the
+  middle setting is PSX_CT_LODFADE=0.35 and OFF is PSX_CT_LODFADE=0.
+- THE MIDDLE SETTING (its own fresh run, tag lf35): almost all of the difference from 0.6 sits in the nearest
+  hand-over, which is 27/36/43 m wide at 0.35 against 46/61/74 m at 0.6 (the other two bands are nearly the same).
+  At 0.35 West Trade does not rise (28 -> 29), but the Providence cut is only -8 / -19 / -57%. My default stays 0.6:
+  the owner's complaint is the pop, and Providence still carries 14x West Trade's pop afterwards. If the dotted
+  edges bother him, 0.35 is the fallback.
+- IN MOTION, the dither does not crawl visibly (tags mfoff / mfon, RunTreeFeet with PSX_FEET_MOTION=0.4, fresh process
+  each). The same walk adds a third shot per step 0.4 m further on with the game's own levels, which is one frame at
+  86 km/h and 60 FPS. Over the upper 60% of the frame, one frame of driving changes Providence by -1.3 / -0.6 / -0.1%
+  pixels and +0.3 / -0.1 / +0.1% blocks with the fade v the fixed bands (LOW / MEDIUM / HIGH), and West Trade within
+  0.1%. Moving leaves already change those pixels from frame to frame, so the screen-door pattern sliding over a
+  crown mid-dissolve adds nothing measurable. (Both runs' a/b pop counts equal lfoff / lfon to the pixel: the
+  renders are deterministic.) TreePop_motion.csv.
+- Frame cost: none measurable. The ABBA medians move -1.1 / -0.9 / +2.3 ms, inside the spread between builds of the
+  same mode (MEDIUM 25-31 ms; HIGH had one 100+ ms hiccup in each mode). Draws are unchanged (209 / 211 / 213).
+  Triangles rise +16 / +11 / +12%: inside a band a plant draws both levels, and the lower levels are cheap. The
+  forest casts no shadows (SunShadows' card stand-ins) and needs no new buffers.
+- Files: TreePop_sheet.png (summary, charts for both places at all three levels, red-overlay frames for Providence
+  MEDIUM and HIGH at 280/200/130/60 m, before | after), TreePop_look.png, TreePop_approach_MEDIUM.gif / _HIGH.gif,
+  TreePop_pop.csv, TreePop35_sheet.png / TreePop35_pop.csv (before v 0.35), ctreefeet_lfoff_log.txt,
+  ctreefeet_lfon_log.txt, ctreefeet_lf35_log.txt, ctreefeet_mfoff_log.txt, ctreefeet_mfon_log.txt,
+  TreePop_motion.csv. Copies are in the art workspace's
+  Charlotte_Trees\Review\Claude_2026-11-16\TreePop_*.
+- My runs were batch approach captures (edit mode), not watched play tests.
+
+## Mountain stages (checked, not changed)
+- The stage forests are their own MeshForest (a scene component, not pooled). The PC scenes serialize lod0To 65,
+  lod1To 140, meshRange 240 and bands 12/16/20 m (BlueRidge.unity on PSXLab 14:20 and PSXPerf 13:46), not
+  50/120/230. With the FOREST DETAIL scale (0.65/1/1.5) and PopLodMul, the levels come to LOW 91/109/203 m,
+  MEDIUM 120/140/240 m and HIGH 146/210/360 m, with bands of LOW 8/10/13, MEDIUM 12/16/20 and HIGH 18/24/30 m: the
+  same narrow hand-overs the city had. At share 0.6 they would be LOW 55/17/84, MEDIUM 72/18/90 and HIGH 88/57/135 m.
+  MEDIUM's middle level covers only 20 m there (120 -> 140 m), so its second hand-over cannot widen past 18 m.
+- I did NOT measure the stages. PSXRec has no PC stage scene (it is an Android sandbox: none of its 22 scenes carry a
+  MeshForest), and PSXPerf and PSXLab were taken. The 11-11 lag-pair round on NC 226A recorded "wider dither bands
+  did not help" there, with a different measure (a 6 m lag along the stage path). So the stages keep their fixed
+  bands, and the switch is city-only.
+- To check on a stage with the PC exe (no code needed, the knobs exist): run the perf tour on NC 226A / Blue Ridge
+  with the lag pair, once plain and once with `bandshare=0.6`, at forest=1 and forest=2. If the gain holds there, the
+  stage default is one line (bandShare on the stage forest, e.g. from a PSX_FOREST_LODFADE switch).
+
+## For PC47 / the merge
+- Branch city-treepop = mountain-nm c0a81147 + 74bbf999 (the pop knobs in RunTreeFeet) + 3a3949d9 (THE SWITCH)
+  + 65286e02 (RunTreeFeet's motion pair) + HANDOFF commits. It touches 4 code files (Scripts/CityMeshTrees.cs,
+  Scripts/MeshForest.cs, Scripts/MeshForest.Pool.cs, Editor/CityRefSpots.TreeFeet.cs) and HANDOFF.md, and adds no
+  file (no .meta). Typecheck OK.
+- PC47 needs no kit rebuild and no re-bake: the switch is read at runtime when the city's tree pool is made.
+- To confirm in a player log: "[MeshForest] 61440 plants ... LOD 101.75/140/240 m (hand-over bands 61/34/90 m)" on
+  MEDIUM (12/16/20 = the switch is off).
+- A/B in one exe: env PSX_CT_LODFADE=0, or the perf tour's `ab=CityMeshTrees.LodFade:0`.
+
+# HANDOFF - CHARLOTTE TRACKS: THE CANDIDATES, THE FREEWAY LAPS AND THE WHOLE-CITY TRACK PREVIEW (agent "tracks", branch `charlotte-tracks` from mountain-nm 3920fdde, 2026-11-16; NOT pushed, NOT merged)
 
 The owner, 11-16:
 - On race tracks: "Now that Charlotte roads are more accurate, I'd like to start adding race tracks (circuits, sprints,

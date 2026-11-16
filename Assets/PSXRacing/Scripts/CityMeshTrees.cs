@@ -66,6 +66,18 @@ namespace PSXRacing.City
         /// <summary>ROUND 1's fit, for the before/after frames: no street forms,
         /// the old collider skip, the old capsule test.</summary>
         public static bool Round1Mode = System.Environment.GetEnvironmentVariable("PSX_CT_ROUND1") == "1";
+        /// <summary>THE TREE POP ROUND (2026-11-16, owner since 11-11: tree pop-in
+        /// "on every forest setting"): the pool's LOD hand-overs dither over this
+        /// share of each level's distance, i.e. at their widest (LOW 46/29/84 m,
+        /// MEDIUM 61/34/90 m, HIGH 74/78/135 m), not over the fixed 8/10/13,
+        /// 12/16/20 and 18/24/30 m. Same trees, same places, same switch
+        /// distances. Providence Rd's visible pop -35/-49/-82 %; the price: on
+        /// sparse crowns against the sky the screen-door dots last longer.
+        /// PSX_CT_LODFADE=0: the fixed bands as before; a share between 0 and 1
+        /// (e.g. 0.35): that share.</summary>
+        public static bool LodFade = System.Environment.GetEnvironmentVariable("PSX_CT_LODFADE") != "0";
+        public static float LodFadeShare = LodShareOf(ReadF("PSX_CT_LODFADE", 0.6f));
+        static float LodShareOf(float s) => s > 0f && s < 1f ? s : 0.6f;
 
         static float ReadF(string k, float d)
         {
@@ -210,7 +222,8 @@ namespace PSXRacing.City
             }
             float l0 = kit.lod0To, l1 = kit.lod1To, mr = kit.meshRange, fr = kit.farRange;
             if (LodOverride.x > 0f) { l0 = LodOverride.x; l1 = LodOverride.y; mr = LodOverride.z; }
-            forest = MeshForest.CreatePool(null, kit.variants, slots, PerSlot, l0, l1, mr, fr, CityTrees.DressNow, kit.cull);
+            forest = MeshForest.CreatePool(null, kit.variants, slots, PerSlot, l0, l1, mr, fr, CityTrees.DressNow, kit.cull,
+                                           LodFade ? LodFadeShare : -1f);
             slotOf.Clear();
             if (forest == null) { Debug.LogWarning("[CityMeshTrees] no GPU forest: the city keeps its card trees."); return; }
             foreach (var k in plantsOf.Keys) if (!pending.Contains(k)) pending.Add(k);
