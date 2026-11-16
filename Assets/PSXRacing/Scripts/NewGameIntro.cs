@@ -164,7 +164,7 @@ namespace PSXRacing
             RaceHandoff.StartFuelPct = s.ActiveCar.fuel;
             LifeHomeScreen.FillCarRequestFor(s);
             Pending = true;
-            Debug.Log("[NewGameIntro] launch: " + def.id + " on " + LifeRules.DateLabel(s.day) + ", hour " +
+            Debug.Log("[NewGameIntro] launch: " + def.id + " on " + LifeRules.DateLabel(RaceHandoff.CalendarDay) + ", hour " +
                       RaceHandoff.TimeOfDayIndex + ", car " + RaceHandoff.CarSpecId);
             Carrier.Get().LoadBehindBlack(scene);
             return true;
