@@ -52,12 +52,14 @@ namespace PSXRacing.City
         public struct MitreCounts
         {
             public int nodes, sideArms, stops, yields, splits, links, unnamed, sameName, exits, internalArms, service, shortStubs,
-                       outranks, noLine, nearSignal, taggedLines, taggedNoLine, yieldJ;
+                       outranks, noLine, nearSignal, intoSignal, taggedLines, taggedNoLine, yieldJ;
             public float lineMin, lineMax, lineSum;
         }
         public static MitreCounts M;
         /// <summary>Why each arm of a mitred node got what it got (node << 32 | edge): the audit's list.</summary>
         public static readonly Dictionary<long, string> MitreWhy = new Dictionary<long, string>();
+        /// <summary>Why the warrant never looked at a mitred node (a signal's, a tag's, a roundabout's): the audit's list.</summary>
+        public static readonly Dictionary<int, string> MitreNodeWhy = new Dictionary<int, string>();
 
         static long MitreKey(int node, int edge) => ((long)node << 32) | (uint)edge;
 
@@ -69,11 +71,11 @@ namespace PSXRacing.City
             return $"mitred-node warrant: {k.nodes} nodes with a side arm decided, {k.sideArms} side arms: STOP {k.stops}, YIELD (one-way slip) {k.yields}; " +
                    $"left as they were: carriageway splits {k.splits}, links {k.links}, unnamed {k.unnamed}, the through road's own name {k.sameName}, one-way exits {k.exits}, " +
                    $"inside a junction {k.internalArms}, service drives {k.service}, short stubs {k.shortStubs}, outranking the through road {k.outranks}, no clear place for a line {k.noLine}; " +
-                   $"nodes next to a signal {k.nearSignal}; OSM tags at mitred nodes with their line moved clear {k.taggedLines} (no clear place: {k.taggedNoLine}); " +
+                   $"arms into a signal within 45 m {k.intoSignal}; nodes next to a signal (decided all the same) {k.nearSignal}; OSM tags at mitred nodes with their line moved clear {k.taggedLines} (no clear place: {k.taggedNoLine}); " +
                    $"lines {(lines > 0 ? (k.lineSum / Mathf.Max(1, lines + k.taggedLines)).ToString("0.0") : "-")} m from the node on average, {k.lineMin:0.0}-{k.lineMax:0.0} m";
         }
 
-        static void MitreReset() { M = default; M.lineMin = float.MaxValue; MitreWhy.Clear(); }
+        static void MitreReset() { M = default; M.lineMin = float.MaxValue; MitreWhy.Clear(); MitreNodeWhy.Clear(); }
 
         /// <summary>
         /// The warrant's decision at mitred node n (its usable arms in
@@ -81,7 +83,7 @@ namespace PSXRacing.City
         /// next to a signal). Adds one Decision whose approaches carry their
         /// own control (2 STOP, 1 YIELD) and line.
         /// </summary>
-        static void MitreSide(CityMap map, CityMeshes.Trims trims, int n, List<int> arms, List<Decision> list)
+        static void MitreSide(CityMap map, CityMeshes.Trims trims, int n, List<int> arms, List<Decision> list, bool[] sigMember)
         {
             bool split = SplitArms(map, n, out int tw, out int ia, out int oa);
             if (split && arms.Count == 3)
@@ -113,6 +115,7 @@ namespace PSXRacing.City
                 else if (trims.Internal(ei)) { M.internalArms++; why = "inside a junction cluster"; }
                 else if (m.hasLset && m.lsSub == 4) { M.service++; why = "a service drive"; }
                 else if (RankOf(m) > thrRank) { M.outranks++; why = "it outranks the through road: left as before"; }
+                else if (m.length <= 45f && sigMember[m.a == n ? m.b : m.a]) { M.intoSignal++; why = "it leads into a signal within 45 m: the signal's arm"; }
                 else if (ShortStub(map, m, n)) { M.shortStubs++; why = $"a side road under {StubM:0} m from the junction behind it: yields by the traffic's rule"; }
                 else
                 {
@@ -267,6 +270,65 @@ namespace PSXRacing.City
             var e = map.edges[a.edge];
             mitreChain.Clear(); mitreChain.Add(a.edge);
             return BarClear(map, e, a.sStop, e.b == a.node);
+        }
+
+        /// <summary>Is plan point q (at height y) on any usable road's drawn pavement, or within 0.3 m of it
+        /// (the audit's furniture check)?</summary>
+        public static bool OnPavement(CityMap map, Vector2 q, float y)
+        {
+            mitreChain.Clear();
+            return !PointClear(map, q, y);
+        }
+
+        /// <summary>The audit's why for an OSM STOP / give-way tag on a game road with no control near: where its
+        /// rule takes it, and why that approach stands no line.</summary>
+        public static string ExplainTag(CityMap map, CityMeshes.Trims trims, ulong nodeId)
+        {
+            Ensure(map, trims);
+            var sb = new System.Text.StringBuilder();
+            var flags = LoadStopFlags();
+            foreach (var t in map.tagged)
+            {
+                if (t.nodeId != nodeId || t.edge < 0 || t.edge >= map.edges.Length) continue;
+                var e = map.edges[t.edge];
+                flags.TryGetValue(t.nodeId, out byte f);
+                bool fwd = (f & 2) != 0, back = (f & 4) != 0;
+                float d0 = t.s, d1 = e.length - t.s;
+                sb.Append($"[kind {t.kind} on e{t.edge} '{e.name}' {t.s:0.0} of {e.length:0.0} m, flags {f}");
+                int n, arrive;
+                if (Signals2On && !(Mathf.Min(d0, d1) < 1.5f && Degree(map, d0 <= d1 ? e.a : e.b) >= 3))
+                {
+                    if (!WalkTag(map, t.edge, t.s, fwd ? 1 : back ? -1 : e.oneway ? 1 : 0, out n, out arrive)) { sb.Append(": its walk finds no junction ahead]"); continue; }
+                    sb.Append($": walks to n{n} by e{arrive}");
+                }
+                else { n = d0 <= d1 ? e.a : e.b; arrive = t.edge; sb.Append($": at n{n}"); }
+                sb.Append($" (degree {Degree(map, n)}, {(trims.mitre[n] ? "mitred" : trims.patch[n] ? "fan" : "plain")}): ");
+                string held = null;
+                foreach (var j in junctions) if (System.Array.IndexOf(j.nodes, n) >= 0) { held = j.signal ? "the node is a signal's" : "the node's junction has no approach for it"; break; }
+                sb.Append(held ?? WhyNoApproach(map, trims, map.edges[arrive], n)).Append(']');
+            }
+            return sb.Length > 0 ? sb.ToString() : "[not in TAGN]";
+        }
+
+        /// <summary>Why arm e stands no stop line into node n (the audit's).</summary>
+        public static string WhyNoLine(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int n) => WhyNoApproach(map, trims, e, n);
+
+        static string WhyNoApproach(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int n)
+        {
+            if (Degree(map, n) < 3) return "not a junction (two arms)";
+            if (e.a == e.b) return "a loop";
+            if (e.tunnel) return "in a tunnel";
+            if (e.roundabout) return "on a roundabout";
+            if (trims.Internal(e.index)) return "the arm is inside a junction cluster";
+            if (e.cls >= 5 && !e.link) return "a freeway";
+            if (e.oneway && e.a == n) return "a one-way leaving the junction";
+            if (e.length < 6f) return $"the arm is {e.length:0.0} m long (a line needs 6)";
+            bool atB = e.b == n;
+            float trim = trims.TrimAt(e, n);
+            float sMouth = atB ? e.length - trim : trim, sStop = atB ? sMouth - StopBackM : sMouth + StopBackM;
+            if (sStop < 1f || sStop > e.length - 1f) return $"no room for the line (trim {trim:0.0} m of {e.length:0.0})";
+            if (e.ElevatedAt(sStop)) return "the line would stand on a structure";
+            return "an approach could stand: not reached by the rule";
         }
 
         /// <summary>The signal tag's kind from charlotte_sigtags.bytes (0 a junction's signal, 1 emergency,

@@ -159,7 +159,8 @@ namespace PSXRacing.EditorTools
                 var tagIds = new HashSet<ulong>();
                 foreach (var t in map.tagged) tagIds.Add(t.nodeId);
                 var osmType = new Dictionary<ulong, string>();
-                int needSig = 0, needStop = 0, needYield = 0;
+                int needSig = 0, needStop = 0, needYield = 0, ywAtSignal = 0, ywMid = 0;
+                var missYield = new List<string>();
                 var needRows = new List<string>();
                 bool InGraph(string id) => ulong.TryParse(id, out ulong v) && tagIds.Contains(v);
                 var sigUsed = new HashSet<int>();
@@ -207,13 +208,18 @@ namespace PSXRacing.EditorTools
                         if (Nearest(x, z, j => j.signal, out _) <= 45f) { stopAtSignal++; continue; }
                         if (!inGraph) { needStop++; needRows.Add($"stop {p[7]} {ll} ({x:0},{z:0}) ({type}/{p[6]}){(jnode >= 0 ? $" near n{jnode} [{CtlNames(map, new[] { jnode })}] {jd:0} m" : "")}"); continue; }
                         if (jnode < 0) { stopMid++; continue; }
-                        missStop.Add($"{ll} n{jnode} [{CtlNames(map, new[] { jnode })}] at {jd:0} m ({type}/{p[6]}): {(nodeJ.TryGetValue(jnode, out int ji) ? CtlKind(all[ji]) : "nothing")}");
+                        missStop.Add($"{ll} n{jnode} [{CtlNames(map, new[] { jnode })}] at {jd:0} m ({type}/{p[6]}): {(nodeJ.TryGetValue(jnode, out int ji) ? CtlKind(all[ji]) : "nothing")} " +
+                                     (ulong.TryParse(p[7], out ulong sid) ? CitySignals.ExplainTag(map, trims, sid) : ""));
                     }
                     else if (kind == 1)
                     {
                         ywN++;
                         if (Nearest(x, z, j => !j.signal, out _) <= 45f) ywHit++;
                         else if (!inGraph) { needYield++; needRows.Add($"give_way {p[7]} {ll} ({x:0},{z:0})"); }
+                        else if (Nearest(x, z, j => j.signal, out _) <= 45f) ywAtSignal++;
+                        else if (jnode < 0) ywMid++;
+                        else missYield.Add($"{ll} n{jnode} [{CtlNames(map, new[] { jnode })}] at {jd:0} m: {(nodeJ.TryGetValue(jnode, out int yj) ? CtlKind(all[yj]) : "nothing")} " +
+                                           (ulong.TryParse(p[7], out ulong yid) ? CitySignals.ExplainTag(map, trims, yid) : ""));
                     }
                 }
                 Line($"  OSM JUNCTION SIGNALS on the game's roads: {sigN}; a game signal within 30 m: {sigHit30}, within 60 m: {sigHit60}; NONE within 60 m: {missSig.Count} ({missNames.Count} distinct junctions with 3+ arms, the rest mid-block: the cross street is not in the game)");
@@ -237,7 +243,8 @@ namespace PSXRacing.EditorTools
                 Line($"  game signals (OSM kind) with no OSM junction signal within 60 m: {falseSig} ({falseSpecial} of them stand at a fire station's, a crossing's or a beacon's signal)");
                 Line($"  OSM STOP nodes on the game's roads: {stopN}; a game STOP junction within 45 m: {stopHit}, at a game signal instead: {stopAtSignal}, mid-block (no junction node within 45 m): {stopMid}, at a junction with no STOP: {missStop.Count}; stop=all nodes {stopAllN}, at an all-way junction {stopAllOk}");
                 foreach (var m in missStop) outLog.AppendLine("    STOP-MISSING " + m);
-                Line($"  OSM give-way nodes on the game's roads: {ywN}; a game STOP / yield junction within 45 m: {ywHit}");
+                Line($"  OSM give-way nodes on the game's roads: {ywN}; a game STOP / yield junction within 45 m: {ywHit}, at a game signal instead: {ywAtSignal}, mid-block: {ywMid}, at a junction with nothing (YIELD-MISSING): {missYield.Count}");
+                foreach (var m in missYield) outLog.AppendLine("    YIELD-MISSING " + m);
                 Line($"  NEEDS THE STREET DATA (an OSM control node on a way the game's graph does not have: not in TAGN, nothing in the game within reach): signals {needSig}, STOPs {needStop}, give-ways {needYield}; STOP-MISSING on the game's own ways: {missStop.Count}");
                 foreach (var m in needRows) outLog.AppendLine("    NEEDS-STREETS " + m);
 
@@ -311,9 +318,17 @@ namespace PSXRacing.EditorTools
                 var noHeadWhy = new List<string>();
                 bool diagWas = CitySignals.DiagNoHead;
                 CitySignals.DiagNoHead = true;
+                // control round: no furniture in a lane - every STOP sign's foot and signal pole's foot against every
+                // road's drawn pavement at its level (0.3 m clear)
+                int signsOnRoad = 0, polesOnRoad = 0;
+                var onRoadRows = new List<string>();
                 foreach (var t in tiles)
                 {
                     var st = CitySignals.Build(map, trims, bld, null, null, t.x, t.y);
+                    foreach (var sp in st.stops)
+                        if (CitySignals.OnPavement(map, new Vector2(sp.foot.x, sp.foot.z), sp.foot.y)) { signsOnRoad++; if (onRoadRows.Count < 40) onRoadRows.Add($"STOP sign at ({sp.foot.x:0.0},{sp.foot.z:0.0}) {LatLon(sp.foot.x, sp.foot.z)} for e{sp.edge}"); }
+                    foreach (var pl in st.poles)
+                        if (CitySignals.OnPavement(map, new Vector2(pl.foot.x, pl.foot.z), pl.foot.y)) { polesOnRoad++; if (onRoadRows.Count < 40) onRoadRows.Add($"signal pole at ({pl.foot.x:0.0},{pl.foot.z:0.0}) {LatLon(pl.foot.x, pl.foot.z)}"); }
                     foreach (var dl in st.diag) if (noHeadWhy.Count < 16) noHeadWhy.Add(dl.Length > 700 ? dl.Substring(0, 700) : dl);
                     ms += st.ms; heads += st.heads.Count; poles += st.poles.Count; stopSigns += st.stops.Count; refused += st.refused; bars += st.stopBars;
                     foreach (var m in new[] { st.mesh, st.lamps, st.halos })
@@ -333,6 +348,8 @@ namespace PSXRacing.EditorTools
                 Line(string.Format(inv, "  FURNITURE over {0} junction tiles: {1} signal poles, {2} heads, {3} STOP signs ({4} stop bars; {5} approaches with no clear spot for a sign or pole); signal approaches {6}, with no head at all {7}, with heads but none in the driver's view {8}; {9} triangles in all ({10:0} a tile), {11:0} ms in all ({12:0.00} ms a tile)",
                     tiles.Count, poles, heads, stopSigns, bars, refused, sigAppN, noHead, noView, tris, tiles.Count > 0 ? (double)tris / tiles.Count : 0, ms, tiles.Count > 0 ? ms / tiles.Count : 0));
                 CitySignals.DiagNoHead = diagWas;
+                Line($"  FURNITURE ON A ROAD (a foot within a road's drawn pavement + 0.3 m): STOP signs {signsOnRoad}, signal poles {polesOnRoad}");
+                foreach (var s in onRoadRows) outLog.AppendLine("    ON-ROAD " + s);
                 foreach (var s in noHeadAt) outLog.AppendLine("    NO-HEAD " + s);
                 foreach (var s in noHeadWhy) outLog.AppendLine("    NO-HEAD-WHY " + s);
             }

@@ -70,9 +70,10 @@ namespace PSXRacing.EditorTools
                     string reason;
                     if (e.oneway && e.a == n) { reason = "a one-way exit: no approach"; cExit++; }
                     else if (CitySignals.MitreWhy.TryGetValue(((long)n << 32) | (uint)ei, out string mw)) reason = mw;
-                    else if (nodeJ.TryGetValue(n, out int jj)) reason = all[jj].signal ? "in a signal junction with no approach for it" : "the node's OSM-tag junction has no approach for it";
+                    else if (nodeJ.TryGetValue(n, out int jj)) reason = (all[jj].signal ? "in a signal junction with no approach for it" : "the node's OSM-tag junction has no approach for it") + " (" + CitySignals.WhyNoLine(map, trims, e, n) + ")";
                     else if (!CitySignals.MitreWarrantOn) reason = "no warrant at mitred nodes (PC45 rule)";
-                    else reason = "next to a signal or held by a tag elsewhere";
+                    else if (CitySignals.MitreNodeWhy.TryGetValue(n, out string nw)) reason = nw;
+                    else reason = "not reached by the warrant (unknown)";
                     cNone++;
                     why[reason] = why.TryGetValue(reason, out int c) ? c + 1 : 1;
                     rows.Add($"n{n} {ll} ({map.nodes[n].x:0},{map.nodes[n].y:0}) e{ei} '{e.name}' meets '{nA}'/'{nB}'{(e.oneway ? " one-way" : "")}: {reason}");
@@ -105,19 +106,20 @@ namespace PSXRacing.EditorTools
                 if (n < map.nodes.Length) Line($"    split n{n} [{CtlNames(map, new[] { n })}]: {(nodeJ.TryGetValue(n, out int ji) ? CtlKind(all[ji]) + " (junction " + ji + ")" : "uncontrolled")}");
 
             // ---- stop lines of arms clipped onto a host at a mitred node: clear of the host's pavement?
-            int clipApps = 0, clipOnHost = 0;
+            int clipApps = 0, clipOnHost = 0, clipSig = 0, clipSigOnHost = 0;
             var hostRows = new List<string>();
             foreach (var j in all)
                 foreach (var a in j.approaches)
                 {
                     var e = map.edges[a.edge];
                     if (!trims.mitre[a.node] || trims.BranchAt(e, a.node) < 0) continue;
+                    if (j.signal) { clipSig++; if (!CitySignals.ApproachBarClear(map, a)) clipSigOnHost++; continue; }
                     clipApps++;
                     if (CitySignals.ApproachBarClear(map, a)) continue;
                     clipOnHost++;
                     if (hostRows.Count < 80) hostRows.Add($"n{a.node} {LatLon(map.nodes[a.node].x, map.nodes[a.node].y)} e{a.edge} '{e.name}' ({CtlKind(j)}{(j.warrant ? ", default" : "")}): the bar {(e.b == a.node ? e.length - a.sStop : a.sStop):0.0} m from the node lies on another road's pavement");
                 }
-            Line($"  STOP LINES OF CLIPPED ARMS at mitred nodes: {clipApps}; the bar on another road's pavement {clipOnHost}");
+            Line($"  STOP LINES OF CLIPPED ARMS at mitred nodes (STOP / yield): {clipApps}; the bar on another road's pavement {clipOnHost}. Signal approaches of clipped arms (the signals round's lines, untouched): {clipSig}, on another road's pavement {clipSigOnHost}");
             foreach (var r in hostRows) outLog.AppendLine("    BAR-ON-HOST " + r);
 
             // ---- a plan of one box's roads and controls (the picture)

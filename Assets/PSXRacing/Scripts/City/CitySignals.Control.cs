@@ -243,10 +243,10 @@ namespace PSXRacing.City
             int nn = map.nodes.Length;
             for (int n = 0; n < nn; n++)
             {
-                if (taken[n]) continue;
                 // a mitred node (a road meeting another at a shallow angle, no fan): skipped before the
                 // control round; with PSX_CITY_MITREWARRANT its named side streets STOP (CitySignals.Mitre)
                 bool mitred = trims != null && trims.mitre != null && n < trims.mitre.Length && trims.mitre[n];
+                if (taken[n]) { if (mitred && MitreWarrantOn) MitreNodeWhy[n] = sigMember[n] ? "the node is a signal's" : "an OSM STOP / give-way tag holds the node"; continue; }
                 if (mitred && !MitreWarrantOn) continue;
                 armScratch.Clear();
                 bool freeway = false, round = false;
@@ -258,7 +258,11 @@ namespace PSXRacing.City
                     if (e.roundabout) round = true;
                     armScratch.Add(ei);
                 }
-                if (armScratch.Count < 3 || freeway || round) continue;
+                if (armScratch.Count < 3 || freeway || round)
+                {
+                    if (mitred) MitreNodeWhy[n] = round ? "a roundabout entry: the roundabout's own yield" : freeway ? "a freeway node" : "under 3 usable arms";
+                    continue;
+                }
                 // within one short edge of a signal: the signal's (its other
                 // carriageway, a slip at its corner) - no sign of our own there
                 bool nearSig = false;
@@ -268,8 +272,10 @@ namespace PSXRacing.City
                     int o = e.a == n ? e.b : e.a;
                     if (e.length <= 45f && sigMember[o]) { nearSig = true; break; }
                 }
-                if (nearSig) { if (mitred) M.nearSignal++; else Counts.nearSignal++; continue; }
-                if (mitred) { MitreSide(map, trims, n, armScratch, list); continue; }
+                // a mitred node next to a signal is a junction of its own: its side streets still stop, all
+                // but an arm that leads into the signal (that arm is the signal's)
+                if (nearSig && !mitred) { Counts.nearSignal++; continue; }
+                if (mitred) { if (nearSig) M.nearSignal++; MitreSide(map, trims, n, armScratch, list, sigMember); continue; }
 
                 bool split = SplitArms(map, n, out int tw, out int ia, out int oa);
                 ThroughArms(map, n, out int m1, out int m2);

@@ -554,18 +554,34 @@ namespace PSXRacing.EditorTools
                 float d = Vector2.Distance(j.centre, from) + (busy ? 0f : 800f) + (j.allWay ? 0f : 300f);
                 if (d < bd && Vector2.Distance(j.centre, from) > 300f) { bd = d; best = j.centre; found = true; }
             }
+            // (control round, 11-16) PSX_TRAFFIC_STOPSITE="x,z": the STOP site at a given place (a new STOP at a
+            // mitred node), watched 120 s, with the cars seen standing at a STOP bar within 45 m of it
+            bool forced = false;
+            {
+                var ss = (System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_STOPSITE") ?? "").Split(',');
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                if (ss.Length == 2 && float.TryParse(ss[0], System.Globalization.NumberStyles.Float, inv, out float qx) && float.TryParse(ss[1], System.Globalization.NumberStyles.Float, inv, out float qz))
+                { best = new Vector2(qx, qz); found = true; forced = true; }
+            }
             if (!found) { CityTrafficCheck.Line("STOP sign site: none found"); yield break; }
-            CityTrafficCheck.Line($"STOP sign site: ({best.x:0},{best.y:0}), {Vector2.Distance(best, from):0} m from the spot");
+            CityTrafficCheck.Line($"STOP sign site{(forced ? " (PSX_TRAFFIC_STOPSITE)" : "")}: ({best.x:0},{best.y:0}), {Vector2.Distance(best, from):0} m from the spot");
             Park(best);
             var before = traffic.Stats;
-            float t0 = Time.time;
-            while (Time.time - t0 < 60f)
+            float t0 = Time.time, nextLook = 0f, watch = forced ? 120f : 60f;
+            int heldNear = 0, looks = 0;
+            while (Time.time - t0 < watch)
             {
                 yield return null;
                 yield return Shots(traffic, true);
+                if (forced && Time.time - t0 >= nextLook)
+                {
+                    nextLook += 1f; looks++;
+                    if (traffic.StopSignCar(out var hp, out _) && Vector2.Distance(new Vector2(hp.x, hp.z), best) <= 45f) heldNear++;
+                }
             }
             var a = traffic.Stats;
-            CityTrafficCheck.Line($"  60 s: full stops {a.stopSignStops - before.stopSignStops}, rolled {a.stopRolls - before.stopRolls}, yields {a.yields - before.yields}, active {traffic.Active}");
+            CityTrafficCheck.Line($"  {watch:0} s: full stops {a.stopSignStops - before.stopSignStops}, rolled {a.stopRolls - before.stopRolls}, yields {a.yields - before.yields}, active {traffic.Active}" +
+                                  (forced ? $"; a car standing at a STOP bar within 45 m of the site in {heldNear} of {looks} one-second looks" : ""));
             CityTrafficCheck.Check(a.stopRolls - before.stopRolls == 0, "nobody rolls the STOP signs");
         }
 
