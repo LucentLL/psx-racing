@@ -5,18 +5,22 @@
 // parade, never on the race line): every road that meets the route is shut by a row of barricades
 // up it, at the first spot from 14 m (2 m steps) where the row's centre is (its width / 2 + 1.5 m)
 // and both its ends 1.5 m off the course's pavement (each route edge's polyline +- its half-width,
-// at least 3 m); panels that still reach within 1.5 m are dropped; a road that runs beside the course
-// to its end is left open. The check walks every point of the race line (the chain's polyline) and
-// fails any row closer than the driven lanes there (the course's own half-width, at least 3.7 m)
-// + 0.5 m. Exit code 1 when anything stands on the line.
-//   node tools/city/tracks/closures.mjs i485west
+// at least 3 m); panels that still reach within 1.5 m are dropped; the row also keeps 1 m off the
+// race line's driven lanes (the check's own measure: its distance to the line, less half the race's
+// road width, or the course's pavement there where wider, at least 3.7 m); a road that runs beside the course to its end is left open.
+// The check walks every leg of the race line and fails any row under 0.5 m off the driven lanes.
+// Offline the race line is the chain of edge centrelines; in game it is the TrackPath (the lanes'
+// centre), so the game places and checks by its own line. Exit code 1 when anything stands on it.
+//   node tools/city/tracks/closures.mjs i485west     (or uptown, tryon, independence: the export's)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { city, WT, toLat, toLon, chainPoly } from './lib.mjs';
 const C = city();
 const id = process.argv[2] || 'i485west';
 const file = JSON.parse(readFileSync(WT.replace(/[\\/]$/, '') + '/Assets/PSXRacing/Resources/charlotte_tracks.json', 'utf8'));
-const r = file.routes.find(x => x.id === id);
-if (!r) throw new Error('no route ' + id);
+// a track of charlotte_tracks.json, or one of the export's own routes (charlotte_city.bytes: uptown,
+// tryon, independence - a sanctioned event closes those too, e.g. the AMERICAN STOCK CUP's)
+const r = file.routes.find(x => x.id === id) || (C.routes || []).find(x => x.id === id);
+if (!r) throw new Error('no route ' + id + ' (tracks: ' + file.routes.map(x => x.id).join(', ') + '; export: ' + (C.routes || []).map(x => x.id).join(', ') + ')');
 const SETBACK = 14, CLEAR = 1.5, PANEL = 2.4;
 const onRoute = new Set(r.edges);
 // the course's pavement
@@ -27,6 +31,21 @@ const at = (e, s) => { let k = 1; while (k < e.pts.length - 1 && e.s[k] < s) k++
 const nodes = [];
 for (let i = 0; i < r.edges.length; i++) { const e = C.edges[r.edges[i]]; if (!r.loop && i === r.edges.length - 1) break; nodes.push(r.dirs[i] < 0 ? e.a : e.b); }
 if (!r.loop) { const e0 = C.edges[r.edges[0]]; nodes.unshift(r.dirs[0] < 0 ? e0.b : e0.a); }
+// the race line (offline: the chain of edge centrelines; in game the TrackPath, the lanes' centre)
+const line = chainPoly(r.edges.map((ei, k) => ({ ei, dir: r.dirs[k] })));
+const segSeg = (a, b, c, d) => {
+  const cr = (u, v) => u[0] * v[1] - u[1] * v[0], sub = (u, v) => [u[0] - v[0], u[1] - v[1]];
+  const d1 = cr(sub(b, a), sub(c, a)), d2 = cr(sub(b, a), sub(d, a)), d3 = cr(sub(d, c), sub(a, c)), d4 = cr(sub(d, c), sub(b, c));
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  return Math.min(distSeg(a, c, d), distSeg(b, c, d), distSeg(c, a, b), distSeg(d, a, b));
+};
+// how far a row stands outside the driven lanes (the one measure the build places by and the check checks)
+const lineMargin = (a, b) => {
+  let best = Infinity, bi = 0;
+  for (let i = 1; i < line.length; i++) { const d = segSeg(a, b, line[i - 1], line[i]); if (d < best) { best = d; bi = i; } }
+  return best - Math.max(3.7, (r.roadWidth || 0) / 2, -outside(line[bi]));   // the race's whole road (the AI uses it all)
+};
+const LINECLEAR = 1.0;
 const shut = new Set(), rows = [], open = [];
 for (const n of nodes) for (const ei of C.nodeEdges[n]) {
   if (onRoute.has(ei) || shut.has(ei)) continue;
@@ -48,24 +67,14 @@ for (const n of nodes) for (const ei of C.nodeEdges[n]) {
       if (outside(ea) < CLEAR || outside(eb) < CLEAR) continue;
       lo = Math.min(lo, off - pw / 2); hi = Math.max(hi, off + pw / 2);
     }
-    if (lo <= hi) placed = { edge: ei, name: e.name || (e.link ? '(ramp)' : '(unnamed)'), a: [p[0] + ac[0] * lo, p[1] + ac[1] * lo], b: [p[0] + ac[0] * hi, p[1] + ac[1] * hi], up: +d.toFixed(0) };
+    if (lo <= hi && lineMargin([p[0] + ac[0] * lo, p[1] + ac[1] * lo], [p[0] + ac[0] * hi, p[1] + ac[1] * hi]) >= LINECLEAR) placed = { edge: ei, name: e.name || (e.link ? '(ramp)' : '(unnamed)'), a: [p[0] + ac[0] * lo, p[1] + ac[1] * lo], b: [p[0] + ac[0] * hi, p[1] + ac[1] * hi], up: +d.toFixed(0) };
   }
   if (placed) rows.push(placed); else open.push({ edge: ei, name: e.name || (e.link ? '(ramp)' : '(unnamed)') });
 }
-// THE ROUTE CHECK: every leg of the race line against every row
-const line = chainPoly(r.edges.map((ei, k) => ({ ei, dir: r.dirs[k] })));
-const segSeg = (a, b, c, d) => {
-  const cr = (u, v) => u[0] * v[1] - u[1] * v[0], sub = (u, v) => [u[0] - v[0], u[1] - v[1]];
-  const d1 = cr(sub(b, a), sub(c, a)), d2 = cr(sub(b, a), sub(d, a)), d3 = cr(sub(d, c), sub(a, c)), d4 = cr(sub(d, c), sub(b, c));
-  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
-  return Math.min(distSeg(a, c, d), distSeg(b, c, d), distSeg(c, a, b), distSeg(d, a, b));
-};
 let bad = 0, worst = null;
+// THE ROUTE CHECK: every row against every leg of the race line
 for (const row of rows) {
-  let best = Infinity, bi = 0;
-  for (let i = 1; i < line.length; i++) { const d = segSeg(row.a, row.b, line[i - 1], line[i]); if (d < best) { best = d; bi = i; } }
-  const halfLane = Math.max(3.7, -outside(line[bi]));
-  const margin = best - halfLane;
+  const margin = lineMargin(row.a, row.b);
   row.margin = +margin.toFixed(2);
   if (margin < 0.5) bad++;
   if (!worst || margin < worst.margin) worst = row;

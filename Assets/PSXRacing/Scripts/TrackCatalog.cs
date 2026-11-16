@@ -1295,7 +1295,8 @@ namespace PSXRacing
         /// diary and the pre-race page step through. In the editor and in a
         /// united build (ALL) this is exactly the old "not IsRoam" rule.
         /// </summary>
-        public static bool Offered(TrackDef def) => def != null && !def.IsRoam && Edition.Ships(def);
+        public static bool Offered(TrackDef def) => def != null && !def.IsRoam && Edition.Ships(def)
+            && (string.IsNullOrEmpty(def.hostScene) || CityTracks.Enabled);   // the new Charlotte tracks: only with PSX_CITY_TRACKS=1 (default OFF)
 
         public static bool Offered(int index) => index >= 0 && index < All.Length && Offered(All[index]);
 

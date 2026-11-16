@@ -22,6 +22,11 @@ namespace PSXRacing
     {
         public const string Resource = "charlotte_tracks";   // charlotte_*: MAIN parks it by EditionParking's rule
 
+        /// <summary>PSX_CITY_TRACKS=1 turns these races on. DEFAULT OFF until a watched race passes clean
+        /// (2026-11-16: I485West reached the finish with 4 FAILs): none of them exists, the menu as it was;
+        /// their venues stay in TrackCatalog.All for the saved indices, but are not offered.</summary>
+        public static bool Enabled => System.Environment.GetEnvironmentVariable("PSX_CITY_TRACKS") == "1";
+
         [System.Serializable]
         public class RouteData
         {
@@ -45,6 +50,7 @@ namespace PSXRacing
 
         static FileData Data()
         {
+            if (!Enabled) return null;
             if (loaded) return data;
             loaded = true;
             var ta = Resources.Load<TextAsset>(Resource);

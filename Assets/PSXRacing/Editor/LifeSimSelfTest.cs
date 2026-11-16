@@ -2469,6 +2469,12 @@ namespace PSXRacing.EditorTools
                           t.id + " races in " + t.reverseOf + " s scene");
                     continue;
                 }
+                if (!string.IsNullOrEmpty(t.hostScene))
+                {
+                    // a Charlotte track of charlotte_tracks.json races in its host's scene (CityTracksRegistrar)
+                    Check(System.IO.File.Exists("Assets/PSXRacing/Scenes/" + t.hostScene + ".unity"), t.id + " races in " + t.hostScene + " s scene");
+                    continue;
+                }
                 Check(System.IO.File.Exists("Assets/PSXRacing/Scenes/" + t.id + ".unity"),
                       t.id + " scene exists");
 

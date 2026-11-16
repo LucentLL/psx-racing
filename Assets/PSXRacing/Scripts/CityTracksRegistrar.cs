@@ -16,14 +16,18 @@ namespace PSXRacing
     [DefaultExecutionOrder(-10000)]
     public class CityTracksRegistrar : MonoBehaviour
     {
+        /// <summary>The route a sanctioned event closes this race (set in Awake, built in Start).</summary>
+        string closeRoute;
+
         void Awake()
         {
+            CityRaceClosures.ClearLast();   // nothing from an earlier race stands in this one
             var map = CityMap.Get();
             if (map == null) return;
             CityTracks.Register(map);
 
             var mode = GetComponent<CityMode>();
-            if (mode == null) mode = Object.FindFirstObjectByType<CityMode>(FindObjectsInactive.Include);
+            if (mode == null) mode = Object.FindAnyObjectByType<CityMode>(FindObjectsInactive.Include);
             if (mode == null || string.IsNullOrEmpty(mode.routeId)) return;   // free roam: the routes, and no closures
             var venue = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (venue == null || !venue.IsCityRace || venue.IsDeckRun) return;  // a deck run builds its own lap
@@ -33,7 +37,7 @@ namespace PSXRacing
                 mode.routeId = venue.cityRoute;
                 mode.venueName = venue.name;
                 mode.routeLabel = venue.dragLabel ?? "";
-                var path = Object.FindFirstObjectByType<TrackPath>(FindObjectsInactive.Include);
+                var path = Object.FindAnyObjectByType<TrackPath>(FindObjectsInactive.Include);
                 if (path != null)
                 {
                     path.roadWidth = venue.roadWidth;
@@ -44,9 +48,18 @@ namespace PSXRacing
             }
             // A SANCTIONED event's course is closed like a parade route (owner, 15:10): every road that
             // meets it shut clear of the race line. Not in a street race, not in free roam.
-            if (CityRaceClosures.ForThisRace())
-                CityRaceClosures.Build(map, map.RouteById(mode.routeId), transform);
-            else CityRaceClosures.ClearLast();
+            if (CityRaceClosures.ForThisRace()) closeRoute = mode.routeId;
+        }
+
+        /// <summary>The closures, once CityMode.Awake has built the race line: every row keeps clear
+        /// of the lanes the race actually drives (the TrackPath), not only of the map's pavement.</summary>
+        void Start()
+        {
+            if (string.IsNullOrEmpty(closeRoute)) return;
+            var map = CityMap.Get();
+            if (map == null) return;
+            var path = Object.FindAnyObjectByType<TrackPath>(FindObjectsInactive.Include);
+            CityRaceClosures.Build(map, map.RouteById(closeRoute), transform, path);
         }
     }
 }

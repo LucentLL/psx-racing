@@ -1,4 +1,28 @@
-﻿# HANDOFF - CHARLOTTE TRACKS: THE CANDIDATES, THE FREEWAY LAPS AND THE WHOLE-CITY TRACK PREVIEW (agent "tracks", branch `charlotte-tracks` from mountain-nm 3920fdde, 2026-11-16; NOT pushed, NOT merged)
+﻿# STATE AT THE STOP: agent "tracks", branch charlotte-tracks, 2026-11-16 16:05 (resume after 19:00)
+1. Done: Phase 1 + 1b (31 candidates, H1-H7 freeway laps) and Phase 2 (the whole-city track preview, merged in mountain-nm 73e6434e, PC47).
+2. Phase 3 is WIP and DEFAULT OFF. H2 is I485West (charlotte_tracks.json; CityTracks, CityTracksRegistrar and CityRaceClosures; a hosted venue). `PSX_CITY_TRACKS=1` offers the new tracks. `PSX_TRACK_CLOSURES=1` closes the roads in every city race (for the checks); `=sanctioned` closes them in sanctioned events only (the owner's rule). With both unset the game is as before: no new venue, no closures anywhere.
+3. The watched sanctioned run (15:45-15:54, closures=1, with traffic) reached the finish with 4 FAILs:
+   - one closure row stood in the race lanes: the Supra hit it at 12.5 m/s, 2.5 km in (the I-485 mainline row at the C-D split, edge 1164);
+   - the Supra drove the wrong way for 4.5 s after that hit;
+   - exposure "pumping" reached gain 2.12 (not mine; no baseline run);
+   - UNDRAWN RAILS: 2 samples, nearest 37.8 m (city data).
+   Report: scratch `tracks\race_I485West.txt`.
+4. Fixed since, NOT yet proven in Unity:
+   - The closures are built in the registrar's Start against the real TrackPath. Each row stands 1 m outside +-roadWidth/2 (the cars use the whole 18.8 m road), the same measure as the RacePlayCheck audit (`CityRaceClosures.LineMargin`).
+   - Offline, `tools/city/tracks/closures.mjs` on all 4 routes: 0 rows on the line, nearest 1.01-1.3 m clear.
+5. NEW `Editor/CityClosuresCheck.cs`: a batch, hidden check of every city route (real TrackPath, closures and the audit; run with PSX_CITY_TRACKS=1). NOT run yet. Typecheck OK.
+6. NEXT, in order:
+   - (a) run CityClosuresCheck in PSXCity;
+   - (b) a watched sanctioned I485West with `-Traffic NONE` (scratch job_race.ps1 -Extra "-Traffic NONE"), sending main one line first;
+   - (c) the card shots (job_citymap.ps1 -NoBefore -RaceSelect);
+   - (d) if all is clean, both defaults ON;
+   - (e) the owner's picks, through emit_tracks.mjs.
+7. Merge:
+   - New: CityTracks, CityTracksRegistrar, CityRaceClosures, Editor/CityClosuresCheck and Resources/charlotte_tracks.json (+metas).
+   - Shared: TrackCatalog (hostScene, venues after DeckRuns, SceneIdOf, EnsureRoute, Offered); PSXRacingBuilder.City (the registrar on every city scene, so a city SCENE PASS is needed); LifeSimSelfTest; RacePlayCheck.
+   - No Scripts/City and no charlotte_*.bytes change, so no city re-bake.
+
+# HANDOFF - CHARLOTTE TRACKS: THE CANDIDATES, THE FREEWAY LAPS AND THE WHOLE-CITY TRACK PREVIEW (agent "tracks", branch `charlotte-tracks` from mountain-nm 3920fdde, 2026-11-16; NOT pushed, NOT merged)
 
 The owner, 11-16:
 - On race tracks: "Now that Charlotte roads are more accurate, I'd like to start adding race tracks (circuits, sprints,
