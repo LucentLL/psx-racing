@@ -551,6 +551,10 @@ namespace PSXRacing.City
             var a0 = a + o * inset; var b0 = b + o * inset;
             var w = o * (BarrierW - 2f * inset);
             float h = BarrierH - inset, foot = -KerbFaceM;
+            // THE CONCRETE GATE (CityMeshes.Concrete.cs): a split's foot stands whole or not at all
+            int conV = barrierBucket.v.Count;
+            if (conActive && ConGate(ConKind.InsetJersey, a + o * (BarrierW * 0.5f), b + o * (BarrierW * 0.5f), outward, BarrierW * 0.5f - inset, h, h, false, true, true) >= 0) return;
+            ConMark();
             var bk = barrierBucket;
             bk.WallSloped(a0, b0, a0.y + foot, a0.y + h, b0.y + foot, b0.y + h, -outward, v0, v1, 0.3f, 0.45f);
             bk.WallSloped(a0 + w, b0 + w, a0.y + foot, a0.y + h, b0.y + foot, b0.y + h, outward, v0, v1, 0.3f, 0.45f);
@@ -558,6 +562,8 @@ namespace PSXRacing.City
                   new Vector2(0.45f, v0), new Vector2(0.45f, v1), new Vector2(0.5f, v1), new Vector2(0.5f, v0));
             var uv = new Vector2(0.3f, v1);
             bk.Face(b0 + Vector3.up * foot, b0 + Vector3.up * h, b0 + w + Vector3.up * h, b0 + w + Vector3.up * foot, b - a, uv, uv, uv, uv);
+            ConEmitted();
+            ConCover(conV);
         }
 
         /// <summary>(round 9, EmitUnionMedian) The two leg feet at a split end's cross-line (owner

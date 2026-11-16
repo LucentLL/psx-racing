@@ -1,4 +1,866 @@
-﻿# HANDOFF - CHARLOTTE TREES ROUND 4: THE OWNER'S TREE MODELS IN THE KIT, DEFAULT OFF (agent "trees4", branch `charlotte-trees4`, 2026-11-15; NOT pushed, NOT merged)
+﻿# HANDOFF - CONTROL ROUND (J2 of the alignment plan): the false signal at Keller Ave out, STOP signs for the side streets that meet their road at a shallow angle (agent "control", branch `charlotte-control`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner, 2026-11-16 ~01:00, four PC45 frames on Beatties Ford Rd at night in rain: "If the city and roads are to 1:1 scale, why are there so many anomoalies like this abrupt medians that force the road to meet at strange angles without stop signs." The alignment plan (12 agents, `...\scratchpad\align\PLAN.json`) split the fix: J1 the split / island geometry, J2 (this round) junction control, J3 the mountain lines, J4 the street-data download (NOT approved: nothing fetched). Worktree `C:\Users\mcgee\PSX Racing-control` off mountain-nm 7badf362 (PC45). Sandbox PSXCity (WebGL, shared with J1 by its AGENT_LOCK). Graph hash b2aa3453 before and after (no export, no data file changed by this round; `charlotte_sigtags.bytes` comes with the signals round).
+
+## Found
+1. **Shot 35's mast arms are a fire-station signal.** OSM tags 7818374409 / 7818374408 `traffic_signals=emergency` within 20 m of split n10229 made PC45 build a two-phase junction signal on {n10229, n10235} (old `MarkSignalsOld`, `CitySignals.Signals2.cs`; PC45's own audit line SIGNAL-FALSE). The stopped signals round 2 (branch `charlotte-signals` 8b54945a, merged here) builds no junction signal from emergency, pedestrian or beacon tags: Keller Ave e25101 gets its own OSM STOP 7818374405 (line 15.2 m before n10235), Beatties Ford flows free, n10229 is an uncontrolled carriageway split.
+2. **The warrants skipped every mitred node** (`CitySignals.Control.cs` Warrants, the old line 247): a road meeting another at a shallow angle, drawn with no fan (`CityMeshes.cs` ComputeTrimsCore: a through pair within 32 degrees of straight, every other arm within 60 degrees of the arm it is clipped onto). Census on the game's own trims (`CityAudit.ControlMitre.cs`; the plan's ~340 arms at ~315 nodes came from an offline emulation): 313 named non-link side arms at 307 mitred nodes; PC45 controls 50 of them (15 STOP, 19 YIELD, 16 signal) and leaves 263 with nothing.
+3. **A clipped arm's stop line stood on its host's lanes.** `MakeApproach` puts the bar StopBackM (1.2 m) from the junction's mouth, and a clipped arm at a mitred node has no mouth (trim 0): in PC45, 77 of the 78 STOP / yield bars and 117 of the 117 signal bars of clipped arms lie on another road's drawn pavement (0.3 m test, `CitySignals.BarClear`).
+4. **Six in-graph OSM STOP tags stand nothing, before and after** (`CitySignals.ExplainTag` gives each one's walk): Moss Rd n1063 and Lower Ave n5582 (3 tags) sit at carriageway splits whose crossing street is not in the game; Shopping Center Dr n13078's `stop=all` tags are on joints 26 m out with no direction (the undirected walk reaches 30 m of road and the junction is further along it); Camden Rd e14048 is tagged `direction=backward` against its own one-way; a ramp tag at Billy Graham Pkwy stands 58 m before the ramp's end (reach 40 m). None is on Beatties Ford. Left as they are (data, not the rule).
+5. **The Beatties Ford side streets' STOPs need the street data.** 526 OSM STOP nodes, 40 junction signals and 1 give-way near the game's roads stand on ways the graph does not have (not in TAGN: north of STREETS_BOX), among them 7818374420 / 21 (z 8854), 7818374403 (island 2's west driveway), 7818374397 (z 9198), 7818374225 (z 9827) and signals 7818374209 / 7818374228. The audit lists them as NEEDS-STREETS, not as faults. J4 brings them.
+
+## Changed (branch head: see the hand-back)
+- **Merge of `charlotte-signals` 8b54945a** (clean, no conflict: that branch never committed its HANDOFF section, so the section from its scratch is added below this one). Brings `PSX_CITY_SIGNALS2`, `PSX_CITY_LOCALSTOPS`, stop lines at their tags, joining flows on their own phase, `charlotte_sigtags.bytes` + `tools/city/signal_tags.mjs`, `CityAudit.RunControl`.
+- **Left-turn pockets back OFF by default** (`CityMeshes.TurnPockets.cs`: `TurnPocketsOn = PSX_CITY_TURNPOCKETS == "1"`, as in PC45; owner decision 6: they cut into the medians J1 rebuilds).
+- **`PSX_CITY_MITREWARRANT`** (default ON; `=0`, or `PSX_CITY_SIGNALS2=0`, is PC45's rule). New `Scripts/City/CitySignals.Mitre.cs`; `CitySignals.Control.cs` Warrants (the mitred branch, `Decision.mitre`); `CitySignals.cs` Ensure (`AddStop` takes a line node / distance, the warrant loop's mitred decisions, `MitreReset`, a yield-only warrant junction counted as such, `MitreReport` in the log line).
+  - THE RULE: at a mitred node OSM leaves uncontrolled, a NAMED side street (not a link, not the through road's own name, not a service drive, not a stub under 30 m, not outranking the through road, not the arm that leads into a signal 45 m away) STOPS; a one-way side roadway merging with a through flow within 50 degrees from that flow's right (either side of a one-way host) YIELDS. A 3-arm carriageway split stays uncontrolled. A mitred node one short edge from a signal is decided too (PC45 skipped it).
+  - THE LINE: where both ends of the bar are 0.3 m clear of every other road's drawn pavement at its level (3 m), StopBackM behind that, walked on through joints up to 45 m (no clear place: no line, listed). OSM's own STOP / give-way tags at mitred nodes stand their line the same way with the switch on (104 moved).
+- Audit: `Editor/CityAudit.Control.cs` (needs-the-street-data split, every signal on its own tag, YIELD-MISSING, ExplainTag on STOP-MISSING rows, furniture feet on a road) and new `Editor/CityAudit.ControlMitre.cs` (the mitred side-street census with a reason per arm, 3-arm splits, clipped arms' bars, `PSX_CTL_MAPBOX` control map).
+- New `Editor/CityControlShots.cs` (`RunOwner`: an owner pose from the game's chase rig at rest, night rain and noon, summer dress; side-street poses by edge). `Editor/CityTrafficCheck.cs`: `PSX_TRAFFIC_STOPSITE="x,z"` (the STOP site at a given junction, 120 s, cars seen standing at a bar within 45 m).
+
+## Gates (`CityAudit.RunControl`, city-wide; base = PC45's control = `PSX_CITY_SIGNALS2=0 PSX_CITY_LOCALSTOPS=0 PSX_CITY_MITREWARRANT=0`; each a fresh Unity process in PSXCity on this branch's code; the base reproduces the signals round's PC45 base to the digit)
+| | PC45 control | after |
+|---|---|---|
+| SIGNAL-FALSE (a game signal with no OSM junction signal within 60 m) | 13 (n10229 among them) | 0 |
+| signal junctions with no approach carrying its own junction traffic_signals tag | 9 | 0 |
+| n10229 / n10235 (shot 35) | one signal junction (834), heads on Keller and both Beatties Ford carriageways | n10229 uncontrolled split; n10235 STOP on Keller e25101 only |
+| 3-arm splits n10238, n10236, n10035, n10234 | uncontrolled | uncontrolled |
+| 3-arm splits (907) with a STOP or yield | 0 | 0 (33 are members of a signalised junction at their mouth, base 43) |
+| named side arms at mitred nodes (313) with no control | 263 | 183: 101 one-way exits, 66 roundabout entries (the roundabout's yield), 6 inner pieces of a signalised junction (both ends are its nodes), 3 in the control's ranked through pair (they outrank the meshes' through arm: n722 Reagan Dr, n2268 East 3rd St, n7900 Woodland Dr at Commonwealth Ave), 2 service drives, 2 no clear place for a line (East Independence Expressway at n1900, Crescent Ave at n11412), 1 short stub, 1 outranking its through road, 1 at an OSM-tag junction (n744 Old Plank Rd) |
+| ... decided by the new rule (the warrant's own count, 88 arms) | 0 | 71 STOP + 15 YIELD; their lines 10.2 m from the node at the median, 18.2 m p90, 27.2 m at most (the three over 25 m are one-way slips' YIELDs); 104 OSM-tag lines at mitred nodes moved clear the same way (up to 34.2 m) |
+| STOP / yield bars of clipped arms on another road's pavement | 77 of 78 | 3 of 175 |
+| in-graph OSM STOP with no game STOP within 45 m (STOP-MISSING) | 6 | 6 (Found 4) |
+| in-graph OSM give-way with nothing (YIELD-MISSING) | 9 | 5 (4 at the Poplar Tent Rd roundabout, a ramp at East Reese Blvd) |
+| junctions furnished | 2,593 | 4,069 (signals 1,010 -> 1,014, all-way 127 -> 434, two-way STOP 1,393 -> 2,520, yield 63 -> 101) |
+| furniture (FURNISH, 1,701 -> 2,046 junction tiles) | 1,887 STOP signs, 5,508 bars, 2,974 poles, 8,033 heads | 4,110 / 7,868 / 3,015 / 8,104 |
+| STOP signs / signal poles with a foot on a road's pavement (+0.3 m) | 0 / 0 | 0 / 0 |
+| junction furniture triangles | 759,630 | 833,608 (+9.7 %; 407 a tile) |
+
+## Pictures (real editor frames, `CityControlShots.RunOwner`; the same poses with the switches off and on, each in a fresh Unity process in PSXCity; summer dress like the owner's frames; the default catalogue car, not his Civic)
+- `...\scratchpad\control\control_sheet_A_shot35.png`: shot 35 at his pose (-3324.8, 8960) heading 9.9 from the chase rig, night rain and dry noon: PC45's two mast arms over Beatties Ford / none now; and from Keller Ave itself 30 m out: PC45's signal heads for Keller / a STOP sign and bar now.
+- `...\scratchpad\control\control_sheet_B_topdown.png` (+ `_zoom.png`): a plan of Beatties Ford z 8600-10700 from the game's own control data (`PSX_CTL_MAPBOX`), PC45 vs now: approaches with their bars, signal / STOP / YIELD symbols, OSM's tags (grey: on streets the game lacks), his four positions. A data plot, not a render.
+- `...\scratchpad\control\control_sheet_C_mitred.png`: three side streets at mitred nodes from their own lane, noon: Old Mount Holly Rd into Rozzelles Ferry Rd (n16158), Catherine Simmons Ave into Newland Rd (n853), Killian Farm Rd into NC 73 (n226): nothing in PC45, a STOP sign and bar now.
+- What still looks wrong in them: the islands, the lane kinks and the outward bulge at shots 34-35 are unchanged (J1's job); Keller's STOP faces Keller traffic, so from Beatties Ford northbound only its pole edge shows; a YIELD (one-way slips, 15 by the rule) has no sign or paint at all (the game has no YIELD sign model; the paint's yield teeth are drawn only where a LINK meets a street); the side streets the owner meant at the islands (z 8854, the west driveway, z 9198, z 9827) are not in the game, so they get nothing until the street data comes in.
+
+## Traffic (`CityTrafficCheck.Run`, play mode, -nographics, the spot Beatties Ford Rd at Keller Ave (-3319, 8983), the STOP site forced to the new STOP at n16158 Old Mount Holly Rd into Rozzelles Ferry Rd)
+- AFTER (all switches on, a fresh process, 786 s): CITY TRAFFIC OK, no FAIL line. Rush hour parked at Keller Ave: 33.4 cars active, STOP signs 8 full stops / 0 rolled, 16 stops at red, 0 ran red, 0 wrecks, 0 bumps, 0 wrong way, 0 overlaps, 0 of 7,372 samples off the pavement; driving: 7 full stops / 0 rolled, 0 wrecks; locked pairs undone 0, no HUNG (guard 1,500 s). The forced STOP site, the new STOP at n16158, 120 s: 7 full stops, 0 rolled, a car standing at a STOP bar within 45 m of it in 28 of 121 one-second looks. 03:00 parked and driving: no fault.
+- BASE (PC45 control, a fresh process): 2 FAILURES, neither in a control count: 2 traffic-on-traffic wrecks over the run (at most 1 allowed) and the driving phase's view feed (13.3 -> 4.6 cars ahead). STOP signs 4 / 2 full stops, 0 rolled; 0 wrecks in the four measured phases; the STOP site n16158 has no STOP in PC45 (0 stops, no car held there). One run each and the traffic is not seeded alike, so the base's two wrecks are not proven to be control's; the after run has none.
+
+## Not done / not verified
+- The city-wide launch audit was not run: `CityLaunchAudit*.cs` reads no junction control (no `CitySignals` reference) and this round changes no road surface, so it cannot move; furniture in a lane was checked directly instead (0 STOP signs, 0 signal poles with a foot on a road's pavement, before and after).
+- The six in-graph STOP-MISSING tags (Found 4) are left: data quirks, none on Beatties Ford. 104 signal stop lines of clipped arms still lie on another road's pavement (the signals round's own lines, untouched here; 117 of 117 in PC45).
+- YIELD approaches draw nothing (no YIELD sign model; Marks' yield teeth are for links only).
+- Keller Ave's real control (a fire-station signal that rests green) rests on OSM's `traffic_signals=emergency` tag only, not checked against imagery; a resting-green emergency signal is not built.
+- The street data (J4) is not fetched: the side streets and their STOPs at the Beatties Ford islands wait for it.
+- At n722, n2268 and n7900 the control's ranked through pair takes the named side arm as through road, so nobody stops there (the other arm of the host's own name is skipped as the through name): left for a look. Audit run v4 (census labels only; every count as v3).
+
+## At merge
+- Shared files (all junction-control code; J1 touches none of them): `Scripts/City/CitySignals.cs` (Ensure: `MitreReset`, `AddStop`'s two new optional arguments and its mitred-tag line, the warrant loop's `d.mitre`, the yield-only warrant count, `MitreReport` in the log line), `CitySignals.Control.cs` (Warrants: the mitred branch, `Decision.mitre`), `CityMeshes.TurnPockets.cs` (the default line + its comment), `Editor/CityTrafficCheck.cs` (StopSite), `Editor/CityAudit.Control.cs` (the signals round's new file). New: `CitySignals.Mitre.cs`, `Editor/CityAudit.ControlMitre.cs`, `Editor/CityControlShots.cs`, each with its Unity-minted `.meta` (committed).
+- Data: copy `Assets/PSXRacing/Resources/charlotte_sigtags.bytes` + `.meta` (the signals round's) into every sandbox / build tree.
+- RE-BAKE: the full city re-bake (signal channels and the STOP furniture are baked: `CityTileCache.Trees.WriteSignals`); share it with J1's. A build must run with the same `PSX_CITY_SIGNALS2` / `PSX_CITY_LOCALSTOPS` / `PSX_CITY_MITREWARRANT` values its tiles were baked with.
+- J1 interplay: the mitred-node set comes from `ComputeTrimsCore`, which J1 changes (it mitres every 3-arm SPLT node and redraws the Keller fan at n10235): re-run `CityAudit.RunControl` on the merged head (`...\scratchpad\control\chain_ctl.ps1` shows the env: `PSX_CTL_OSM=...\scratchpad\control\osm_ctl.tsv`, `PSX_CTL_FURNISH=1`, `PSX_CTL_MAPBOX`), and the shot-35 pair (`chain_shots.ps1`, poses `poses_owner.tsv`). 3-arm splits stay uncontrolled whatever J1 mitres.
+- No scene pass (nothing serialized changed). Graph hash unchanged.
+
+## What the owner will notice
+At Keller Ave the traffic lights over Beatties Ford are gone: it flows free, and Keller Ave has a STOP sign. About seventy side streets around the city that join their road at a shallow angle now have a STOP sign and line where their own pavement starts (a YIELD, unsigned, on one-way slips); the side streets at the Beatties Ford islands themselves come with the street download.
+
+# HANDOFF - CHARLOTTE JUNCTION CONTROL ROUND 2 + LEFT-TURN POCKETS (agent "signals", branch `charlotte-signals`, 2026-11-15; NOT pushed, NOT merged)
+
+Worktree `C:\Users\mcgee\PSX Racing-signals` off mountain-nm 50c8a3aa. Sandbox PSXRoadB (WebGL target). Graph hash b2aa3453 before and after (no export run; one new side file, `Resources/charlotte_sigtags.bytes`, written from the map cache by `tools/city/signal_tags.mjs`). Owner 2026-11-15: "Please review all roads for accuracy (including parking lots, bridges, neigborhoods, driveways)", "continue correcting roads around the city (including minor roads, driveways, neighborhood roads, etc)". The road review's items 5 and 6: 29 real signalised junctions carry STOP signs or nothing (Five Points first); left-turn lanes at signals switched off since 11-10.
+
+## Causes
+1. A signal tag on an approach marked the NEARER END of the piece of road it lies on, within 20 m, whatever way its traffic goes (was `CitySignals.cs:496-497`; now `MarkSignalsOld` in `CitySignals.Signals2.cs`). A stop-line signal 24-38 m before a wide junction marked nothing (Eastway Dr at Shamrock Dr: four tags, 27-38 m out); one whose nearer end is a joint of two road pieces was dropped by the two-arm test (`:499`; Rozzelles Ferry Rd at Five Points: 10 m from a joint, 17 m from the junction); one just past a slip lane's node marked the slip.
+2. A junction whose arms are cut by joints a few metres out could stand no stop line on them (`MakeApproach`: under 6 m, or no room past the trim), came out with fewer than two approaches and was dropped (was `CitySignals.cs:574`) - while its nodes stayed held by the signal, so no STOP sign either. Five Points: West Trade St and West 5th St arrive on 4-6 m stubs; the junction had NOTHING.
+3. Every `highway=traffic_signals` node read as a junction's red-yellow-green signal: 60 fire-station signals (`traffic_signals=emergency`), 26 pedestrian-crossing signals and 3 flashing beacons too. 13 game signals stood at those (McClintock Rd at The Plaza is Fire Station 8's signal; Dilworth Rd at Romany Rd is a beacon over an all-way stop).
+4. Two local streets meeting with no OSM tag were left with no sign at all (`CitySignals.Control.cs`, "local x local left to yield": 1,407 junctions): 265 of 1,730 neighbourhood junction nodes carried a control.
+5. Left-turn pockets: off only because the city-wide launch audit had not been re-run after the last skip list (`CityMeshes.TurnPockets.cs:41-50`).
+
+## What changed
+All behind `PSX_CITY_SIGNALS2=0` (the controls as they were) unless said; `PSX_CITY_LOCALSTOPS=0` alone puts back "two local streets with no tag: no sign".
+- NEW `Scripts/City/CitySignals.Signals2.cs` (the rule's header, the marks, the walk, the counts); edits in `CitySignals.cs` (`Ensure`: marks, clusters, `BuildCluster`, `AddStop`, the STOP and yield rows) and `CitySignals.Control.cs` (`Warrants`: local streets; `PlanSignals`: joining flows).
+- SIGNALS: a tag at a junction node marks it; a tag on an approach marks the junction its traffic drives INTO - along its own way in the tagged direction (`traffic_signals:direction` / `direction`, a one-way's own sense), through joints and carriageway splits, within 45 m; with no direction on a two-way road the nearer junction within the old 20 m; nothing ahead: the junction behind, as before. Emergency and pedestrian signals mark nothing; a beacon is an all-way STOP.
+- CLUSTERS: marked nodes joined through joints within 40 m are one junction; a node across a short edge stays OUT when that edge carries the junction's own stop-line tag (a slip leaving before the line stays outside); an arm too short for its line whose far end is a joint takes the joint in. A junction this round makes must have two roads at it (a carriageway split beside a signal whose side street is not in the game is no junction). A cluster that cannot be built gives its nodes back to the STOP tags and the defaults (before: held, so nothing).
+- STOP LINES of signals stand where their own directed tag is (at a fan no more than 15 m behind the junction's own line; at a mitred node - a ramp joining a carriageway - the tag's own place); not on an arm with a crosswalk.
+- PHASES: two flows that JOIN at one node (a ramp into a carriageway at a signal) take turns (they were one phase).
+- STOP / YIELD tags: a tag on an approach controls the junction its traffic drives into (the same walk, 40 m); `stop=all` on an approach makes its junction all-way; `stop=minor` on a junction node stops the minor road by the through road (the stem of a T); a line stands behind a joint where the arm is a stub.
+- LOCAL STREETS where OSM is silent: the stem of a T stops; side streets of a local through street stop; two equal local streets crossing are an all-way STOP. The split follows Charlotte's own tagged junctions: of 130 tagged three-arm local junctions 94 stop the stem alone; of 130 tagged local crossings 69 are all-way (and where one street stops, the longer street is the one that goes only 26 times in 54: no rule picks it).
+- NEW data `Assets/PSXRacing/Resources/charlotte_sigtags.bytes` (7.6 KB; 849 signal / give-way nodes with a direction or a kind) + `tools/city/signal_tags.mjs` (reads `tools/city/cache/nodes_all.json`; `node tools/city/signal_tags.mjs <cacheDir>`).
+- NEW tool `Editor/CityAudit.Control.cs` (`CityAudit.RunControl` -> `city_control.txt` / `.tsv`; env in its header). `Editor/CityTrafficCheck.cs`: `PSX_TRAFFIC_SPOT="x,z"` (the check at another place).
+
+## Numbers (CityAudit.RunControl, city-wide, base = both switches off, each a fresh Unity process in PSXRoadB)
+| | before | after |
+|---|---|---|
+| junctions furnished | 2,593 | 3,984 |
+| signals | 1,010 (1,009 from tags, 1 by default) | 1,014 (1,013 + 1) |
+| all-way STOP | 127 (110 tagged, 17 by default) | 434 (122 tagged, 312 by default) |
+| two-way STOP | 1,393 (425 tagged, 968 by default) | 2,450 (424 tagged, 2,026 by default) |
+| yield only | 63 | 86 |
+| junction nodes with a control (of 5,299 with 3+ usable arms, not mitred) | 3,267 | 4,640 |
+| neighbourhood (local x local) junction nodes with a control (of 1,730) | 265 | 1,619 |
+| OSM junction signals on the game's roads (2,522) with a game signal within 60 m | 2,005 | 2,035 |
+| ... with none, at a junction the game has | 19 names | 7 names (3 on bridge decks, 4 carriageway splits with no side street in the game) |
+| game signals with no OSM junction signal within 60 m | 13 (all at a fire station's, a crossing's or a beacon's signal) | 0 |
+| OSM STOP nodes on the game's roads (1,330) with a game STOP within 45 m | 709 | 713 (553 more are mid-block: the side street is not in the game) |
+| OSM stop=all nodes (193) at an all-way junction | 110 | 141 |
+| OSM give-way nodes (136) with a game yield / STOP within 45 m | 82 | 99 |
+- Signals: 21 new junctions, 13 removed (2 beacons -> all-way STOP; 7 fire-station and 4 pedestrian signals -> the junction's own STOP tags or defaults, or nothing where it is no junction), 4 pairs of half-junctions joined into one, 34 existing signals with an approach added or moved to where its line is tagged. 112 stop lines stand at their own tag. Junction-by-junction list: `...\scratchpad\signals\ctl_diff.txt`.
+- Furniture as built, city-wide: signal poles 2,974 -> 2,981, heads 8,033 -> 8,070, STOP signs 1,887 -> 4,029, stop bars 5,508 -> 7,797; approaches with no clear spot for a sign or pole 607 -> 758; signal approaches with no head at all 7 -> 8 (the new one: the I-485 ramp at Brookshire Blvd / NC 16, n9118 e7527).
+- Cost: junction furniture city-wide 759,630 -> 828,488 triangles (+9%) over 1,701 -> 2,028 tiles that hold a junction; its build 40.3 -> 50.3 s over all those tiles (23.7 -> 24.8 ms a tile). 3 x 3 rings, triangles a tile (tile meshes / furniture): Uptown 46,254 / 1,886 -> the same; Dilworth 42,889 / 267 -> 42,889 / 370; SouthPark 26,181 / 211 -> the same; I-77 at I-277 37,440 / 376 -> 37,440 / 473; Five Points 43,537 / 155 -> 43,692 / 336; Albemarle Rd pocket 10,559 / 228 -> 10,965 / 229; Providence Rd pocket 13,961 / 173 -> 14,041 / 174. Tile build time moved inside the machine's noise (other agents were building). Baked size not measured (no bake run).
+
+## The road review's 29 names
+FIXED, a signal now (11 names): Five Points (3 names: Beatties Ford x Rozzelles Ferry x W Trade, Beatties Ford x W 5th x W Trade, (unnamed) x W Trade - one junction, 4 approaches, 2 phases), Eastway Dr x Shamrock Dr (+ its two slip names: 4 approaches), N Graham St x Statesville Ave and N Graham St x W Liddell St (one junction, 3 approaches), ramp x Wilkinson Blvd (n5795), ramp x Little Rock Rd, ramp x N Josh Birmingham Pkwy, ramp x Gold Hill Rd, ramp x (unnamed) and (unnamed) x NC 51 (the mall entrance, n14481 / n14482), ramp x Brookshire Blvd at I-485 (n9117, n9118) and its south terminal at I-85 (n4983).
+NOT FIXED (3): ramp x Brookshire Blvd at I-85 (n244 ...), ramp x Freedom Dr at I-85, ramp x Tyvola Rd at I-77. All three junctions stand on the bridge deck; `CitySignals.MakeApproach` (`CitySignals.cs`, `if (e.ElevatedAt(sStop)) return false`) stands no stop line on structure and no signal pole may stand on a deck cell (`FootOk`, `Hard` includes `RoadsideOccupancy.Deck`). Needs deck-mounted supports.
+NOT A JUNCTION SIGNAL in reality (9; the game is right to have none): fire-station signals at Wilkinson Blvd (n6796), W Sugar Creek Rd, S Tryon St, Bryant Farms Rd, Little Rock Rd x Paw Creek Rd, South Blvd (n15095), Commonwealth Ave x The Plaza (an all-way STOP by its own tag, as before); pedestrian signals at Pineville-Matthews Rd and Rensselaer Ave x South Blvd. Neither kind is drawn (no dark / flashing signal heads there).
+NOT A JUNCTION IN THE GAME (4): George W Liles Pkwy, Eastway Dr (2 places), Idlewild Rd, Monroe Rd - an undivided road opening into its carriageways beside a signal whose side street is not in the game (the same case as the ~500 mid-block ones).
+
+## Left-turn pockets (`PSX_CITY_TURNPOCKETS`, now ON by default; =0 the roads as they were)
+- 246 pockets (17.7 km of lane and taper, narrowest 3.02 m), 188 at a signalised junction; by road: Albemarle Rd 19, University City Blvd 18, Freedom Dr 15, Wilkinson Blvd 14, Queens Rd 12, South Tryon St 11, Brookshire Blvd 10 ... Left as they were, by the rule's own count: 440 approaches whose left lane is a turn lane already (Park Rd at Woodlawn Rd is one: its turn lanes are in the lane count and painted with arrows, no pocket), 348 a secondary street's opening to a minor street, 446 openings that are a link leaving a through road, 176 the median too narrow, 61 no twin carriageway beside the storage, and the 6 junctions of `PocketSkipNodes` (unchanged).
+- LAUNCH AUDIT, city-wide, two fresh processes (27 and 29 minutes): 91 LAUNCH / 564 UNLOAD with the pockets off and with them on; by tier identical (LAUNCH T1 39 / T2 38 / T3 14, UNLOAD 140 / 325 / 99); 984 separations on 119,169 paths both; flown turns off the pavement 0 both; routes uptown 1 / 4, tryon 0 / 0, independence 0 / 1 both. WHICH CODE: the OFF run flew mountain-nm 50c8a3aa; the ON run was held behind the control audits and flew this branch's first working state with `PSX_CITY_SIGNALS2=0` (the old marks; controls are furniture and paint, not road surface - the control audit with the switch off reproduces the morning's counts to the digit - but it was not the identical code, and the audit was NOT run again with `PSX_CITY_SIGNALS2` on).
+- Spot by spot (`PSX_LAUNCH_CSV_ALL=1`, `...\scratchpad\signals\launch_cmp.txt`): one existing UNLOAD spot 1.4 cm deeper with the pockets (0.062 -> 0.076 m; the ramp e4930 beside Johnston Rd's pocket junction n2813), one 2.6 cm shallower and moved 9 m (Bud Henderson Rd at Vance Rd, n13084), one 2.0 cm shallower (Sharon Rd West at South Blvd, n8598). 25 more rows differ only in which path names the same place and depth (same x, z and separation, 300 m to 3 km from any pocket); why the two runs name them differently was not looked into.
+- DRIVE AUDIT on 44 pocket edges (every 6th pocket + the four pictured; 10.2 km, 89 tiles, 359,133 probes): nothing solid across a lane, no blunt face, no step over 12 cm, no hole, no surface off its solve, no land on a lane - 0 each, pockets on and off. Beside those lanes (other roads on the same tiles): steps 5 -> 4, grass on tarmac 56 -> 55, blunt 4 -> 4. Two FAIL lines, the same on and off: a boxed median on Albemarle Rd at (15285,3906), e2014 (14 rays / 1 place) - there with the pockets off; the concrete agent's kind.
+- THE 100-TILE SAMPLE (both switches on) against this morning's base file: the 12 FAIL lines are the same lines with the same counts, but one that is lower (inner box, colliders with no drawn face 95 -> 91). The morning's file was made on the pre-merge code in another sandbox; no same-sandbox base of the sample was run.
+
+## At merge
+- Shared-file edits: NONE in `CityMeshes.cs`, `CityWorld.cs`, `CityMap.cs` or another agent's file. Mine: `CitySignals.cs` (`Ensure` only), `CitySignals.Control.cs` (`Warrants`: the two "local" branches; `PlanSignals`: one line in the axis loop), `CityMeshes.TurnPockets.cs` (the switch's default and the skip list), new `CitySignals.Signals2.cs`. Editor: new `CityAudit.Control.cs`; `CityTrafficCheck.cs` (+7 lines, `PSX_TRAFFIC_SPOT`).
+- Data to copy by path into every sandbox / build tree: `Assets/PSXRacing/Resources/charlotte_sigtags.bytes` + `.meta` (a `charlotte_*` Resources-root file: the edition lists take it by its prefix). Without it the game logs a warning and reads every signal tag as a plain undirected signal.
+- BAKE: no new slot, bucket, material or baked field; `CityTileCache.Format` untouched. But the junction furniture is baked (`CityTileCache.Trees.WriteSignals`) and a signal head carries its CHANNEL number, which is assigned over the whole city's junction list: with this round the list changes, so EVERY tile with a signal must be baked again (a full re-bake does it), and a build must run with the same `PSX_CITY_SIGNALS2` / `PSX_CITY_LOCALSTOPS` values its tiles were baked with (the switches are for editor before / after, not for a baked build).
+- No scene pass needed (nothing serialized changed).
+
+# HANDOFF - LAKE LURE ROUND (venue LAKE LURE): US 64/74A, Lake Lure - Chimney Rock - Bat Cave, before Helene (agent "lakelure", branch `mountain-lakelure`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner (2026-11-16): "add a mountain track for US-64/74A Lake Lure through Chimney Rock ... I'm specifically looking for the
+roads and buildings, etc from BEFORE Hurricane Helene to capture the memory of what it used to be like." Worktree
+`C:/Users/mcgee/PSX Racing-lakelure`, base mountain-nm 7badf362, sandbox PSXPerf (Windows target; the store packs extracted into it
+with tools/store-assets.ps1 this round). Every input is from before the storm: OpenStreetMap as of 2024-09-20 (Overpass attic
+queries) and the USGS 3DEP 1 m lidar NC_Phase5_2018.
+
+## The road (tools/roads)
+- `fetch_road.mjs lakelure`: the 15 ways that carry US 64 + US 74A + NC 9 together, MATCHED BY WAY ID (both routes carry on past
+  either end), plus 60 m of US 64/74A east as the lead and 200 m of US 74A / NC 9 north of Bat Cave as the run-out. New row options:
+  `attic` (a dated Overpass query, the classes the pre-Helene extract used; the user agent carries no e-mail), `osmCache`,
+  `match.ways`, `planSmoothM`; the cache dir honours PSX_ROADS_CACHE. Then `bake_3dep.mjs lure --keep-line` (STAGES row `lure`).
+- Timed 11,616 m (54 -> 11,670 m of an 11,860 m line), 309.7 -> 451.2 m, +222 / -80 m. Steepest 50 m: +6.1% at 9,880 m (the gorge),
+  -6.5% at 2,560 m (lake road). Tightest bends (8 m chords) R 22 m at 2,944 m, 23 at 544, 24 at 1,988, 25 at 952, 26 at 2,788 - the
+  lake shore. Vertical curves >= 667 m (the self-test floor is 200). Built 7.0 m wide (lidar bench median 13 m, narrowest tenth
+  8.5 m: pavement + shoulders + verges, an upper bound; OSM lanes=2, no width).
+- NO WAVES (coordinator's alignment note): the OSM line kept as mapped and an 8 m gaussian on its gentle stretches only (R > 120 m;
+  largest move 0.32 m). `tools/roads/plan_wiggle.py`: 0 abrupt reversals (bends < 250 m both ways within 40 m, < 3 m off the
+  chord), wiggle (each waypoint against a 40 m cubic, worst per 100 m) median 0.034 m, p95 0.212 m, worst 0.282 m (the R 22 bend).
+  The bench-moved line (bake_3dep's default) had 4 such jogs: R 61-82 m, 1.1-1.8 m off the chord at 116-188 m and 10,908-10,964 m.
+- THE LAKE WAS DRAWN DOWN IN THE LIDAR: its hydro-flattened water is 298.26 m NAVD88; the mapped full-pool shore stands at a median
+  300.9 m in it (p75 301.8). Full pond is 990.5 ft (Town of Lake Lure) = 301.9 m. Lake Lure is built at FULL POOL, 301.8 m, not at
+  the lidar's level. No lake bed in the lidar: depth estimated from the drawdown band's slope (median 0.27 over 553 profiles), cap 20 m.
+- 1/3" DEM: n36w083 Last-Modified 2022-08-30 (before the storm); against the 2018 1 m it reads 0.00 m on the lake and +0.23 m
+  median (p95 +1.16 m) along the river - no scour. The near grid stays from the 1/3".
+- Reads into main's tools/roads/cache/3dep: ~53 MB this round (ledger sources.json); Overpass attic files
+  `overpass_lakelure_2024-09-20.json` and `attic_lakelure_<kind>_2024-09-20.json` beside them.
+
+## The world (tools/roads/bake_world.mjs -> Art/LakeLure/lure_world.json; Editor PSXRacingBuilder.StageRiver.cs / .StageTown.cs)
+- The world file: `node tools/roads/bake_world.mjs lure` (and `--frame chimney` for the Park Road stage: Art/ChimneyRock/
+  chimney_world.json). Inputs: the 2024-09-20 attic extracts in main's tools/roads/cache and the 2018 lidar. No real business name
+  reaches the game: a footprint's name only selects a ROLE (inn, arcade, welcome, post office, church, fire hall, boathouse).
+- LAKE LURE at full pool 301.8 m: 22,780 cells of 12 m in 34 chunks, PSX/Water through the existing MakeWaterMat (a deeper
+  green-blue tint in LakeLure's own theme row). No water is hung over the valley below the dam.
+- THE ROCKY BROAD (OSM "Broad River"): 6.53 km in view, 459.4 -> 301.8 m (the lake backs it up to full pool), widths from the OSM
+  river area (median 21.9 m), white water on 3.6 km (grade > 1.2%), flow 0.4-4 m/s, 698 NatureManufacture forest stones in the rapids
+  and along the banks (no colliders: below the road's barriers). The 12 m near grid is carved 1.4 m under the water inside the river
+  area (1,091 cells; never within 9 m of the road).
+- VERTEX CONTRACT on every water mesh (for the water agent's shader): colour r = depth over the bed (0.5 at the waterline, +/-12 m
+  across the range, as the sea); g = 0; b = white water 0..1 (0 on the lake); uv2.xy = flow velocity in world x, z (m/s; 0 on the lake).
+- BUILDINGS: 149 of the 151 footprints within 150 m of the road (2 too small / too big): walls in the city's own house-atlas
+  materials cropped to tile (white lap siding, weathered planks for the village's board and log fronts, cedar, dark wood, stucco,
+  painted brick), windows, storefronts on the shops' street sides, 86 porches (a balcony rail on two-storey fronts), 71 shop boards
+  in generic words (GEMS, CAFE, GIFTS, LODGE, ICE CREAM, ...), green / red / grey standing-seam metal, asphalt shingle and clay-tile
+  roofs; the river-side shops in the village stand on posts over the bank; colliders are the walls capped at the eave. Landmarks:
+  the Lake Lure Inn (3 storeys, white stucco, clay tile, porch), the Arcade (brick), the welcome centre, two post offices, the fire
+  hall, two churches, four canopies.
+- THE STREET BENCH: beside downtown Lake Lure (5,050-6,150 m) and from the inlet's shops through Main Street (6,420-8,040 m) the
+  near grid is lowered to the road out to 10 m past the tarmac edge (easing back by 16 m; never raised; land over 3.5 m above the
+  road stays a wall), so the builder lays an open roadside there instead of a rock face in front of the storefronts; street-front
+  shops stand at the street's level.
+- SIDE ROADS: 70 mouths in the data (37 residential, 31 service, 2 secondary, 1 primary). [MOUTHS] Each is a decal draped on the
+  ground a wheel meets (the edge line is covered across the mouth) and closed 13.5 m past the tarmac edge by a Type III barricade
+  with ROAD CLOSED (box collider) - past the obstacle audit's reach, so no pocket. NOT laid: where the road's own barrier runs across
+  the mouth or a cut face / ditch lip does (the stage builder plans its roadside without side roads; a real mouth there needs the
+  roadside planner to know about mouths - the bank agent's functions, not touched).
+- THE PARK ROAD from Main Street: 286 m on the ChimneyRock stage's own line and heights (its waypoints re-projected), over its
+  67 m river bridge (OSM 2024 way 267913868: a deck slab, 0.85 m concrete parapets with box colliders, two piers), closed at the
+  mouth. The ChimneyRock stage itself starts at the bridge's south end (its 2026 OSM has no bridge way), so in that stage the same
+  bridge, Main Street (804 m of it), 44 village buildings, the river and the lake are drawn behind its grid (PSX_LURE_CHIMNEY).
+- WALKS: 703 sidewalk panels (concrete, flush on the shoulder: the stage keeps no step beside its tarmac, so the curb is a flush
+  line), 3 crosswalks (OSM nodes), the lakeside boardwalk on posts and the Flowering Bridge (the 1925 three-arch bridge beside the
+  river bridge: arches, balustrades, garden beds).
+- FURNITURE: 181 wooden utility poles every 45 m on the side away from the water, with five wires each (three on the crossarm, two
+  lower), capsule colliders, placed between the audit's station lines; 91 black lantern street lamps downtown and on Main Street;
+  20 signs: SPEED LIMIT 25 / 35 / 20 / 35 at the OSM zone changes (both directions), CHIMNEY ROCK VILLAGE LIMITS, the brown
+  CHIMNEY ROCK STATE PARK sign with its arrow at the park road, US 64 / US 74A / NC 9 as words (WEST / NORTH after the start, EAST /
+  SOUTH before Bat Cave: no shields), NC SCENIC BYWAY, LAKE LURE, BAT CAVE, pedestrian crossing (a pictogram) at the crossings.
+  Sign faces: Art/LakeLure/lure_signs.png (tools/roads/lure_art.py, the repo's Overpass font).
+- KEEP-OUT: the forest and every plant pass ask StageKeepOut: nothing planted in the water (3.5 km2), on a building (+6 m), a lot,
+  a mouth or a deck path. Plants through solids: 0.
+- SURVEYED RAILS (Art/LakeLure/lure_rails.json): eleven places looked at in the video; W-beam at 3:05 and 8:45 (both already
+  warranted by the game; recorded), a third at 14:10 not placed (its bend could not be matched); timber post-and-rail at 6:00 and
+  16:50 (the game builds W-beam at 6:00).
+
+## Gates
+All in PSXPerf (Windows target), each job a fresh process; the build settings' scene list rewritten first
+(LakeLureTools.WriteSceneList: 22 scenes, 0 missing).
+- StageLab, LakeLure (lab4, the world ON): roadside checks 0 failing; obstacle audit CLEAR, SURFACE OK, no FAIL line; terrain ok
+  (road 0.32 m clear of the ground, lattice under every shoulder); LANE AUDIT OK; plants through solids 0 (4,688 checked). The bare
+  stage (lab1) passed the same. On the way: lab2 failed 17 EDGE FACE (the side-road stubs had colliders and climbed cut faces) and 2
+  UNWARRANTED BARRIER (a building wall 5.3 m out, the park road's closure); fixed by decal mouths, closures past the reach and
+  eave-capped building colliders (lab3 and lab4: 0 FAIL).
+- StageLab, ChimneyRock: with the world ON (lab6) exactly the 4 lines its own base build has with the world OFF in a
+  fresh process (lab5off): EDGE FACE 1019 L 0.12 m at 6.95 m, 661 R 0.10 m at 7.10 m, 1021 L 0.08 m at 7.15 m, and UNWARRANTED
+  BARRIER 0 R (the stage's own wall over its end pad). These are mountain-nm's (the lidar round's open chimney failures), not this
+  branch; OwnerAccepted stays empty; roadside 0 failing, CLEAR, LANE AUDIT OK, plants 0. Lab4 had shown 2 more of mine (a parapet
+  of the park road's bridge over its end pad, and US 64/74A's own furniture laid along the park road: the world file's stage tag
+  matched the prefix) - both fixed (bbac9898): lab6 adds nothing.
+- race-play-check -Finish (TimeScale 3, seed 0): LakeLureRev - every car home (Supra 406 s, Charger 451, Skyline 460, player
+  472 s), 0 retired, 0 head-ons. LakeLure (forward) on lab4 - player and Skyline home, but 2 rivals ran 6 m wide at 150 km/h
+  through Chimney Rock and retired on a lantern post (wp 1970) - FAIL "at most one rival retires" [2]. Fixed: lamp and sign posts
+  drawn and not solid (as the stage's reflector posts), poles 6 m out. Re-run on lab6: every car home (Skyline 403 s, Charger 410, player 426, Supra 429), 0 retired, 0 head-ons, no FAIL line.
+- sprint-check: the four Lake Lure sections pass every line. 22 failures in the same run are all on BLOWING ROCK SPRINT II and the
+  NC 226A sections: PSXPerf's SwissNC226A scene is stale (2,986 waypoints against the catalog's 2,981), not this branch.
+- reverse-check: exit 0 (LAKE LURE - CHIMNEY ROCK II lines up with the rest). finish-play-check LakeLure: every line ok.
+- LifeSim self-test (quick, same sandbox): base (7badf362 code) 4,598 ok / 64 FAIL; branch 4,726 ok / 65 FAIL - the one new line
+  ("each step stamps its own number exactly once": v30 was stamped twice) is fixed in 0a820b64; re-run: 4,724 ok / 64 FAIL, the same 64 lines as the base: no new failure. The base's 64 are
+  this sandbox's (deck-run scenes not built, and others), identical in both runs.
+- Menu preview (PSX_PREVIEW_VENUE=LakeLureRev): the brief's name clipped ("RACE NIGHT - LAKE LURE - US 6...") at all three aspects;
+  renamed LAKE LURE - CHIMNEY ROCK. Re-run: "LAKE LURE - CHIMNEY ROCK" still cut ("RACE NIGHT - LAKE LURE - CHIM...", 130 clips in all, the rest are car and rival names the base has); the home line cuts at about 13 characters, so the venue is now LAKE LURE / LAKE LURE II (29ece13f) - that last name was not re-run through the preview
+- Door tour: needs a built player (tools/door-tour.mjs); LakeLure and LakeLureRev are in DoorTour.MainDoors for the coordinator's PC
+  build. Not run here (no player builds by agents).
+- Track map: StreamingAssets/TrackMaps/LakeLure.jpg shot (lab scene: tiled canopy; re-shoot on PC-pass scenes).
+- Proof sheets (scratchpad lakelure\): proof_lakelure_s4.png (11 video moments, real against game, driver's eye, noon),
+  plan_lakelure.png (the route on the 2024 map), before_after_lakelure.png (Chimney Rock OFF/ON, fresh processes),
+  park_road_both_venues.png (one place, both venues).
+
+## Switches (all default ON; =0 is the stage as it was)
+PSX_LURE_WORLD (no world file at all), PSX_LURE_WATER (lake, river, carve), PSX_LURE_TOWN (buildings, street bench, walks,
+furniture, signs), PSX_LURE_MOUTHS (side-road mouths, the park road and its bridge, closures), PSX_LURE_CHIMNEY (the Park Road
+stage's start dressing). Shot tools: PSX_SHOT_DRIVER=1 (a driver's-eye frame), PSX_SHOT_NOON=1 (the game's noon).
+
+## Merge notes
+- NEW files (theirs to keep): Editor/PSXRacingBuilder.StageRiver.cs, Editor/PSXRacingBuilder.StageTown.cs, Editor/LakeLureTools.cs
+  (+ metas); tools/roads/bake_world.mjs, plan_wiggle.py, lure_art.py; Resources/lure_stage.json; Art/LakeLure/* (DEM grids, world
+  file, signs atlas, Tex/, rails); Art/ChimneyRock/chimney_world.json; StreamingAssets/TrackMaps/LakeLure.jpg;
+  tools/roads/srtm_bakes/lure_srtm/; Docs/lidar_audit/after/lure_audit.json.
+- ONE-LINE HOOKS in shared files: PSXRacingBuilder.Stage.cs StageLoadDem (StageWorldLoad() after the tunnel table) and
+  BuildStageForest (2x `if (StageKeepOut(..)) continue;`, near and far forest); PSXRacingBuilder.cs BuildTrack (BuildStageWorld()
+  before BuildStageForest) and the theme table (["LakeLure"] = LakeLureTheme() + the 9-line LakeLureTheme()); MeshTrees.cs
+  (StageKeepOut in ground cover, debris, ExtraCanopySite, understory); RockRelief.cs (boulders); Fences.cs (fence posts);
+  PSXScreenshotTool.CaptureSpotsOnly (PSX_SHOT_NOON, PSX_SHOT_DRIVER). None touches BuildRoad, the ribbon or the cross-section.
+- CATALOG (Scripts): TrackCatalog.Authored + LakeLure after ChimneyRock, HeldBack { }, 4 SprintVariants appended at the end, RemapV29Index;
+  LifeState.saveVersion 30; LifeSimManager.Migrate (writtenAt + the v30 step MigrateToLakeLure); CarMeets touge list; DoorTour
+  MainDoors (LakeLure, LakeLureRev); Climate venue row. Self-test pins: LifeSimSelfTest.TestRetiredVenues (v21 survivors = today
+  less the v30 additions; every v29 index lands on its venue), the Chimney-is-last pin (now: before Lake Lure), and
+  LifeSimSelfTest.Events (the v29 step stamps the CURRENT version). If another branch also adds a save version, renumber at merge
+  (TestSaveVersionLadder) and keep MigrateToLakeLure's `writtenAt >= 22` rule.
+- AFTER MERGE: a full scene build (the build settings' list moves: Lake Lure is scene 16 and everything after it moves by one;
+  in a sandbox LakeLureTools.WriteSceneList writes it without building); the store packs must be in the building sandbox (NM stones
+  for the river boulders; without them the river has no boulders and says so); re-shoot TrackMaps/LakeLure.jpg on PC-pass scenes
+  (this one is a lab scene: tiled canopy); run tools/roads/bake_bank.mjs on `lure` with the other stages (its stage files are in
+  today's format); the PC build's door tour then reaches LAKE LURE - CHIMNEY ROCK and its II.
+- DATA in main's tools/roads/cache (gitignored, added this round): overpass_lakelure_2024-09-20.json, attic_lakelure_*_2024-09-20.json,
+  3DEP tiles (+53 MB, ledger updated). A fresh checkout re-fetches the attic files with the same date (fetch_road.mjs `attic`).
+
+## What still looks wrong (own sheets, honestly)
+- The granite domes and cliffs above the village and the marina (8:45, 9:45) are missing: the far land is forested, no bare rock.
+- Where the real road has grassy banks between downtown and the village (10:15) the builder still cuts rock faces; the street bench
+  covers only the street stretches.
+- The ground and shoulders are the mountain stages' brown dirt, where the real road has mown grass verges.
+- Buildings are boxes in the city's house-atlas textures: no log-cabin corner notching, no stone pillars, no dormers; the Lake Lure
+  Inn reads white with a red roof but has no arcade. The marina's covered slips are not modelled (OSM has no footprint for them).
+- 25 of 70 side roads have no mouth (a rail or a cut face runs across them).
+- Main Street in the Park Road stage is plain asphalt without lane paint, laid on that stage's 12 m lattice.
+- Near crowns in the forest are the pixelated impostor cards every stage has.
+- The 26 m downtown bridge is road on an embankment (spans under 56 m are not decks in the stage builder).
+- Video positions at 3:05, 6:00, 14:10 and 16:50 are estimated from timing (+/-150 m); 14:10's bend does not match.
+
+## Combined event (Lake Lure, then up the park road) - not built, what it would take
+The two venues are separate scenes. A combined race needs one route: the LakeLure line to the park road's mouth (7,640 m), the park
+road lead over its bridge (99 m, already in lure_world.json), then the ChimneyRock line - one stage json (fetch_road with a match list
+of both roads, or a join tool), its own scene (~16 km of stage), and the turn at the mouth (a 90 degree junction, R ~12 m) through the
+roadside planner. Or a scene-to-scene handover at the park road's closure, which the race code does not do today.
+
+# HANDOFF - J3 STAGE LINES, PHASE 1: the mountain waves taken out of all eight stage lines (agent "lines", branch `mountain-lines`, 2026-11-16 night; NOT pushed, NOT merged)
+
+The owner, 2026-11-16 ~01:00, after PC45: "I've noticed this in mountain tracks as [well] where an otherwise straight road will
+wave back and forth abruptly in a way that DOT would never approve." Spec: the align investigation's PLAN.json, job J3, Phase 1
+only (offline: node and python, no Unity, no sandbox). Worktree `C:/Users/mcgee/PSX Racing-lines`, base mountain-nm 7badf362
+(PC45). The 3DEP cache and Overpass files were copied to the scratch folder and PSX_ROADS_CACHE pointed there, so no bake wrote
+to the main checkout. Before anything changed, `bake_3dep.mjs swa --check` reproduced the PC45 files exactly.
+
+## What made the waves (the investigation's causes, re-measured with the same detectors)
+- The mapped (OSM) line's own digitising jogs, drawn faithfully by the builder's chord-length Catmull-Rom
+  (PSXRacingBuilder.Ribbon.cs RibbonFrame): the mapped line alone has 25 S-places, 108 short-tangent jogs, 74 abrupt reversals.
+- The Nov 10 lidar round's 38 bench moves, faded in and out over 24 m (bake_3dep.mjs TAPER = 6 stations): PC45 has 37 S-places,
+  133 jogs, 91 abrupt reversals. `bake_3dep.mjs <pre> --offline --out <dir>` (the old path, untouched) re-derives the same 38.
+
+## What changed
+- `tools/roads/plan_smooth.mjs` (new). planSmooth = lakelure's planSmoothM (7a9f964d fetch_road.mjs) as a tool of its own: a
+  gaussian of 8 m, full where R > 120 m (circle through +-12 m), none under 50 m, the blend following the tightest curvature within
+  3 sigma and itself blurred, open stages keep their first and last 3 sigma, loops wrap. It does NOT re-space the line: every
+  waypoint keeps its index, so everything given in metres along a stage (start, finish, bridges, crossings, sprint cuts, rails;
+  the game reads them as waypoint round(m / 4)) stays on the same stretch of road. localRefits = variant L, made to work: the
+  plan's single 200 m quadratic was refused at all seven S-places it was tried on (it would have moved the line 1.2-7.7 m: every
+  200 m window reaches a real bend). Instead the line is redrawn as the curve closest to it with the least change of curvature
+  (weighted squared distance + 100 x the squared third differences of the waypoints), held loosely (weight 0.05) between the S's
+  peaks, ever more firmly over a quintic taper each side, and pinned at the window's ends (position, heading and curvature carry
+  on). An S has a great deal of curvature change, an arc or a spiral almost none. Each taper is max(72 m, 45 W, 1.5 W S) for the
+  move W at the posted speed S (TrackCatalog: swa/mtm/swiss/brock 35 mph, gap/beech/brp 45, chimney 25); moves over 2 m are refused.
+- `tools/roads/bake_3dep.mjs`: `--plan-smooth <m> [--refits]` (with --keep-line). Recorded in the meta (source.line, planSmoothM,
+  refits) and honoured by --check; places along the stage are not remapped (same indices). The header says why the 24 m bench
+  moves are gone and what a move needs if it comes back (L >= max(45 W, 61 m) per side and 1.5 W S).
+- `tools/roads/plan_refits.json` (new): the 14 refits and why each was made (7 S-places + 7 abrupt reversals; see below).
+- `tools/roads/waves.py` (new): the investigation's detectors (align/verify-mountain/vm.py S-places and jogs, the counts the plan's
+  gates were written in; align/mountain/wavelib.py's moving fit), plan_wiggle.py's abrupt reversals, the lidar shelf betas
+  (both edges must carry an S, beta >= 0.7 with the shelf found at 60 % of the stations, to count as the real road), mapped OSM
+  bridges (bake_3dep's osmSpans), off-shelf runs; `report` and `refits` commands. `tools/roads/shelf_edges.mjs` (new): both lidar
+  shelf edges at every waypoint, offline, no ledger write. `tools/roads/plan_wiggle.py`: copied unchanged from lakelure 7a9f964d
+  (identical to lakelure HEAD; lakelure owns it). On a loop pass `--from 0 --to <length>`: with start = finish = 0 it crashes.
+- `tools/roads/pc45_lines/`: the eight stage lines PC45 shipped (the before).
+- The eight stages re-baked: `node tools/roads/bake_3dep.mjs <pre> --keep-line --offline --plan-smooth 8 --refits`
+  (Resources/<pre>_stage.json + Art/<stage>/<pre>_dem_meta.json). The 38 short-fade bench moves are gone; no long moves (owner
+  decision 2 pending). Heights are the lidar bench's on the new line (against PC45 at the same place: rms 0.01-0.09 m, worst
+  +-0.5 m). Near and far grids byte-identical to PC45 (no .bytes file in the diff). `--check` OK on all eight.
+- `Art/Swiss226A/swa_rails.json`: the surveyed rail 256-372 m -> 252-368 m, the same stretch of road on the new line.
+- No C#, no TrackCatalog, no fetch_road / fetch_loop / lib3dep change. No runtime switch: the line is baked into the stage scenes
+  and read by TrackPath, AI and the minimap; the A/B is PC45 against the next build.
+
+## Gates (the builder's curve at 1 m; new against PC45; per stage swa / gap / mtm / beech / chimney / brp / swiss / brock)
+- S-places: 37 -> 3 (7/7/9/3/1/3/4/3 -> 1/1/0/0/0/0/1/0). PASS: the 3 left are carried by both shelf edges (the real road):
+  swa 1324-1410 (beta R 1.96, L 1.14), gap 931-1002 (1.64 / 0.75), swiss 5577-5680 (2.35 / 1.19). None on a bridge.
+- Short-tangent reverse curves (jogs): 133 -> 27 (29/32/22/7/5/4/13/21 -> 9/6/2/1/1/0/5/3). PASS (<= 50); every one is on the
+  mapped line too (both curves, same sign, within 8 m).
+- plan_wiggle abrupt reversals: 91 -> 16 (40/15/15/4/5/0/8/4 -> 9/1/0/0/4/0/1/1). FAIL against 0: 11 of the 16 are carried by
+  both shelf edges; the other 5 were left as mapped because a refit would put the road further off the shelf (swa 2004, 2180,
+  3948, 4300) or move it 2.3 m (brock 4180). All 16 are on the mapped line. They are bends of R 45-240 m, 1-2.9 m off the chord.
+- plan_wiggle worst wiggle per 100 m: 0.60 / 0.57 / 0.38 / 0.43 / 1.95 / 0.08 / 0.65 / 0.58 m (PC45 0.63 / 0.61 / 0.47 / 0.40 /
+  1.68 / 0.17 / 0.65 / 0.58). FAIL against 0.30 except brp. The worst readings are hairpins, not wiggles: a cubic over 40 m cannot
+  follow a 6-30 m hairpin (chimney's 1.95 m is its 6.1 m hairpin at 4208 m). Medians fell 2-6x (e.g. mtm 0.105 -> 0.025 m).
+- Largest plan move on gentle stretches (mapped R over 120 m): 0.31 / 0.26 / 0.26 / 0.26 / 0.25 / 0.67 / 0.26 / 0.28 m. PASS
+  except brp 0.67 m at 6572 m: the Linn Cove viaduct's south abutment, a 26.9 m kink in the map (3-point R 26.9 -> 41.6 m). Moves in
+  real bends (R under 50 m): 0.00 m.
+- Lateral moves off the mapped line (the 14 refits): W 0.39-1.54 m, tapers 72-100 m per side, each >= max(45 W, 61 m) and
+  >= 1.5 W S, each whole move longer than 2 L. PASS. (The gaussian's own moves are under 0.5 m and only take out the map's jogs.)
+- Tightest corner no tighter than mapped (-0.75 m): equal on seven stages, brp looser (26.9 -> 41.6 m). PASS.
+- Tightest vertical curve: 591 / 341 / 523 / 424 / 255 / 600 / 332 / 230 m (gaussian sigma 8 m everywhere). PASS (>= 230).
+  Max grade: chimney 14.8 % (under the self-test's 15 %), the rest 6.1-13.0 %.
+
+## Places along the stages (metres -> waypoint round(m / 4)), PC45 -> new
+- TrackCatalog (lakelure owns it, NOT edited): the eight SwissNC226A sprint rows (TrackCatalog.cs:1057-1097) must go back to their
+  pre-11-09 values, the same places on the mapped line: 3696 -> 3688, 7848 -> 7832, 11738 -> 11721. Unchanged they would land
+  9.3, 16.1 and 19.8 m from where PC45 has them. Labels stay (860 M: 858.4 m; 635 M: 634.5 m; THE VALLEY 479 m). Blowing Rock's
+  0 / 6328: 0.11 / 0.03 m, no change. The 3688 cut stands 3.3 m to the side of PC45's: PC45 had moved that stretch onto the bench.
+- swa_rails.json: 256-372 -> 252-368 (done here, 0.85 m to the side).
+- Start lines move <= 0.6 m. Finish lines on gap / mtm / beech / chimney move 2.7 / 3.1 / 2.6 / 2.8 m: the bake now keeps the
+  mapped line's own start and finish; the 11-09 remap had let them drift (arc length against waypoint index).
+
+## What still looks wrong (my own sheet, scratch\lines\worst10_before_after.png)
+- The waves are gone at all ten places. At four of them the new road sits 3-6 m past the lidar shelf's edge where PC45's bench
+  moves had put it on the shelf (with S-bends): mtm 4593-4663, mtm 5023-5545, chimney 1360-1433, swa 11148-11232 (the mapped bend
+  is tighter than the shelf). Stage-wide, road-edge station-sides more than 1 m past the shelf: PC45 3,206 -> new 3,815; 644 of the
+  786 new-or-worse stations lie within 40 m of a dropped bench move (mtm 425, swa 148, gap 47, chimney 22). That is the plan's risk
+  8 and owner decision 2 (long DOT-length moves where both shelf edges agree). Phase 2's off-shelf gate will fail without them.
+  The full list: scratch\lines\offshelf_new.csv (every run, side, worst, PC45 at the same place).
+- 5 abrupt reversals and the hairpin wiggle readings above.
+
+## Not done
+- Phase 2 (after the bank merge): bake_bank.mjs for the 8, StageLab audits, finish-play-check, driver's-eye pictures (PSXRec).
+- Nothing was seen in a running game or a Unity build. The pictures are straightened plan strips over the lidar slope.
+- No long bench moves (owner decision 2). The investigation's other "REAL?" S-places (swiss 5438/9012, swa 1331, gap 2554, mtm
+  5856, measured on PC45) were re-judged on the smoothed line: only the three above remain and all three are carried.
+
+## At merge
+- Merge after bank. bank's eight Art/<stage>/<pre>_bank.json are per waypoint of the PC45 lines (swa 2986 -> 2981, mtm 1871 ->
+  1867, beech 2820 -> 2819 waypoints: the loader skips a count mismatch, so those three would drive flat; on the others the
+  stations shift up to ~3 m). Re-run `node tools/roads/bake_bank.mjs <pre>` for all eight on these lines before a build.
+- Rebuild all eight stage scenes in the next PC build: never ship these stage JSONs with PC45's scenes.
+- TrackCatalog swa sprint cuts as above (after lakelure merges). plan_wiggle.py is byte-identical on both branches.
+- Re-bake check: `node tools/roads/bake_3dep.mjs <pre> --check` (with PSX_ROADS_CACHE = the main checkout's tools/roads/cache).
+- No city re-bake. No shared C# edits.
+
+# HANDOFF - BANK ROUND: the mountain roads crowned and superelevated from the 2018 lidar (agent "bank", branch `mountain-bank`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner (verbatim): "Did you catch the banking of the roads? I've noticed many of the mountain road tracks are very flat. They have
+turns, but almost no (if any) banking". He was right: `BuildRoad` laid every stage ring flat across and everything beside the road
+was built off the centre line's height. Worktree `C:\Users\mcgee\PSX Racing-bank` off mountain-nm 7badf362; sandbox PSXRec (Android
+target; no store packs, so every picture shows the older fallback forest). Switch `PSX_STAGE_BANK` (default ON; `=0` reads no file and
+builds today's flat road exactly). `PSX_AI_BANK=0` makes the AI plan bends as if flat.
+
+## What the lidar says (`tools/roads/bake_bank.mjs`; each file's `stats` has the detail)
+Per waypoint, five cross-section lines of the USGS 1 m lidar (NC_Phase5_2018_A18, main's cache, offline, nothing fetched) across the
+paved width less 0.5 m a side; robust fits of one plane and of a two-half-plane crown; confident = fit RMS <= 3.5 cm (p50 0.4-0.8 cm),
+>= 60% of samples kept, no edge over 14%, not on a structure, no adverse bank over 2.5% in a bend under 150 m; a +-2 station median.
+Design: AASHTO Green Book 2018 3.3 (Rmin from Table 3-7, Method 5 as e = emax(2Rmin/R - (Rmin/R)^2)), emax 8% (NCDOT's superelevation
+training works at 8% rural; the Roadway Design Manual PDF was too large to fetch), Linn Cove 10% (Muller & Barker, PCI Journal 1985).
+Built = measured where confident, design elsewhere and on structures, AASHTO runoff (Table 3-15, 2/3 on the tangent), clamp 12%.
+
+| stage | measured | crown on straights, measured / built | bank into bends R<150 m, median / p98-max: measured; design; built | runoff |
+|---|---|---|---|---|
+| NC 226A (swa) | 92.7% | 2.6% / 1.9% | 8.2 / 13.1; 8 / 8; 7.9 / 12 | 16 m |
+| Gillespie Gap (gap) | 98.0% | 1.5% / 1.2% | 6.9 / 12.6; 8 / 8; 6.8 / 12 | 24 m |
+| Mount Mitchell (mtm) | 91.3% | 3.2% / 2.3% | 7.0 / 11.7; 8 / 8; 6.5 / 12 | 24 m |
+| Beech Gap (beech) | 98.8% | 2.1% / 1.8% | 6.6 / 8.9; 8 / 8; 6.6 / 10.7 | 32 m |
+| Chimney Rock (chimney) | 82.2% | 2.2% / 1.6% | 4.0 / 11.4; 7.4 / 8; 3.4 / 12 | 16 m |
+| Blue Ridge (brp) | 78.9% | 1.2% / 0.5% | 9.0 / 10.5; 8 / 10; 8.9 / 10.7 | 48 m |
+| Little Switzerland (swiss) | 92.4% | 1.9% / 0.9% | 8.6 / 12.1; 8 / 8; 8.4 / 12 | 28 m |
+| Blowing Rock (brock) | 96.1% | 1.8% / 1.2% | 5.0 / 10.1; 8 / 8; 4.8 / 11.8 | 36 m |
+
+- No stage is flat-ish: the real roads bank 4-9% (median) in their bends, often past the 8% design; NC 226A's, NC 128's and the Little
+  Switzerland loop's switchbacks measure 12-16% on clean fits (1 cm RMS, the bank toward the inside) and are clamped to 12%. Chimney
+  Rock's park road (4%) and Blowing Rock (5%) bank least. Only 21-56% of straight stations are crowned; the rest is one plane tilted 2-4%.
+- The spots named: Chimney Rock 715 inside edge -12% (measured -12.2 to -12.9), outside +5 to +7%; 1049 -9.6% / +6.4%; NC 226A's tightest
+  switchback wp 1737 (R 17 m) 10.8%; Linn Cove (brp 1119-1223) 10% one way, a 48-55 m reversal, 10% the other.
+- Lidar could not say: decks and the Little Switzerland tunnel (design), plus each file's `stats.lidarCouldNotSay` (canopy, adverse
+  fits: Chimney Rock 113 adverse stations rejected, NC 226A 116, Mount Mitchell 101). Little Switzerland wp 1241 is a junction turn whose
+  real surface runs 6.5% the wrong way: refused as adverse, built at the design value squeezed to -2.6 / -1.6%.
+- Coast stages (Emerald Isle, Langston Bridge, Atlantic Beach Bridge): no lidar in the cache (UTM 18) and no `STAGES` entry: no file,
+  flat as before (decided: left flat).
+- For the alignment fix: the worst places where the line is off the lidar bench (confident stations, |offset| > 1.5 m for 12 m or more;
+  + = bench left of the line): gap 1162-1245 (peak 6.5 m, mean 3.5), swiss 693-731 (3.5/2.4), swiss 1666-1690 (-5.3/-2.9), brp 1402-1436
+  (3.5/2.3), brock 2375-2403 (4.0/2.6), brock 619-640 (5.3/3.0), beech 570-587 (-5.5/-3.4), beech 1100-1117 (-5.5/-4.3), beech 784-798
+  (6.0/4.1), brock 1330-1338 (-7.8/-5.6). Full list: scratchpad `bank\bench_offsets.txt`. Some are pull-offs and junctions (a wide bench).
+
+## The build (new `Editor/PSXRacingBuilder.Bank.cs`; small edits elsewhere)
+- `LoadStageBank` (called at the end of `StageLoadDem`): reads `Art/<stage>/<pre>_bank.json`, refuses a file whose count is not the
+  route's (WARN, flat), converts the slopes to metres at this road's half width, and fades a route with ends to flat over its first
+  and last 8 stations (32 m; every start line is 33-60 m in) because the end pads carry a flat road on. `BankEdge(i, side)` = that
+  side's tarmac edge over the centre line; `BankAcross(i, lateral)` = the surface, linear from the centre to the edge, the edge's
+  beyond it. Everything is zero with the switch off, with no file, or off a stage.
+- The centre line keeps its height (the bake's lidar road); the road turns about it. `BuildRoad`: the ring's left and right vertices
+  are lifted (`RingBank`, lerped on the curve's slices); the centre column, already there for the painted line, makes the crown.
+- Everything beyond an edge is that side's flat-road geometry lifted by `BankEdge`: kerb strips (`FlatKerbMesh`, street style too),
+  shoulder rows (`ShoulderStation`, `ShoulderDesignAt`), the lattice solve's samples (`ForEachStageLatticeSample`: the tarmac and
+  strip across, every section), the plan's land reads (`RoadsideLandDy`, `StageBankSolve`, the flare probes in `PlanStageRoadside`,
+  `BuiltSectionCritical`, `FinishStageCuts`), the holds (`CollectCarryHolds`, `CollectRiseHolds`, `CollectBehindWallHolds`,
+  `CollectFillFalls`), wall rings (`StageWallRing`, `CurveWallRing`: rail, stone, posts, retaining walls and the solids all read the
+  ring), reflector posts (`PlaceStagePosts`), cut faces and rock tops (`BankTopRing`, `BuildOneStageBank`), the tunnel tube's feet,
+  plant clearing (`PlantClear`: the envelope from the low edge to the high one), the cliff dressing (`PlaceCliffs`).
+- The ground field: `Refine` adds the banked surface to `RoadFoot.roadY`, so the dig under the pavement and the graded roadside follow.
+- Decks: the top is laid in five columns (deck edge, tarmac edge, centre, tarmac edge, deck edge) on a banked road, so it stays 2 cm
+  under a crown or a superelevated road across its width; soffit, fascias and piers follow; joint bands likewise. Flat: the two
+  columns it had, triangle for triangle.
+- Start and finish bands: on a banked road a 3-column band over the cross-section (yaw-only frame); flat: the quad as before.
+  `RaceHandoffApplier.PaintLine` re-lays a sprint's band over the cross-section where it is painted.
+- Grid (`BuildCars`): each slot on the banked surface under it and rolled with it.
+- `TrackPath.bankL/bankR` (new serialized fields, slopes): baked by `BakeBankInto`, reordered by `RotateInPlace`, reordered AND
+  swapped left/right by `ReverseInPlace`; `HasBank`, `CrossSlopeRight(i, lateral)`.
+- Audits read the banked edge: `TrackObstacleAudit` (tarmac height extrapolated from the inset to the edge; the ghost-barrier passes
+  measured from each barrier's own side), `LifeSimSelfTest` (shoulder rows start flush on the strip at the banked edge; deck-rail rays
+  over each side's edge), `PlantSolidAudit` (envelope on the banked surface). Flat roads read exactly as before.
+- New tools: `BankShots.Capture` (the proof frames + a raycast cross-section per spot), `BankLab.BuildOnly`; `StageLab` keeps each
+  venue's build log and a partial report.
+
+## The runtime
+- AI: `AIGrip.CornerSpeed(..., bank)` holds v^2 k = g (mu + e) / (1 - mu e) on a bank of slope e (falling toward the inside); the
+  flat answer is unchanged. `AIDriver.PlanSpeed` reads e under the line the car will take (`TrackPath.CrossSlopeRight` at the lateral
+  it plans, signed by the bend's direction: a crown's outer lane is adverse). `PSX_AI_BANK=0` plans flat.
+- Recovery: `CarController.ResetTo` (every respawn, stuck recovery and TryPlace) rolls the car about its own forward to the road
+  under it (`RollToRoad`: layer 8, from half a metre over the seat, under 15 degrees). Forward and pitch are the caller's, so on a
+  road flat across (every circuit and street) the pose is exactly what was asked for.
+- Grid restaging (`RaceHandoffApplier.StageReversedGrid`, the 1v1 restage on a two-lane road): `SeatOnBank` lifts each slot to the
+  surface under it and rolls it.
+- Camera: `ChaseCamera` builds its pose with `LookRotation(..., Vector3.up)` and its roll is a drift cue from yaw rate, so the
+  horizon stays level on a bank (checked in the low chase frames). The cockpit mount rolls with the car, as the game's does.
+
+## Proof (fresh processes; OFF = PSX_STAGE_BANK=0, ON = default)
+- Pictures (scratchpad `bank\`): `bank_sheet_before_after.png` (10 spots x driver's seat and low chase, OFF | ON, car roll and lane
+  lift printed), `bank_sheet_big_pairs.png` (4 large low-chase pairs), `bank_xsections_built.png` (per stage at its sharpest bend: the
+  lidar ground, the fit, the BUILT road raycast off the scene ON and OFF), `plots\bank_xsections_sheet.png` (the measurement's plots).
+- Car roll read off the scenes at the spots: Chimney 715 +2.9 deg, 1049 +3.6; NC 226A 1737 -6.2, 536 +6.8; Linn Cove +5.7; Gillespie 844
+  +5.9; Mount Mitchell 1527 -6.8; Beech 1505 +3.9; Little Switzerland 1589 +6.8; Blowing Rock 1984 +2.9 (OFF: 0.0 everywhere).
+- StageLab, all eight, fresh process each way: OFF base = 7 lines (Chimney EDGE FACE 1019 L / 661 R / 1021 L and UNWARRANTED wp 0 R;
+  Mount Mitchell EDGE FACE 1544-45 R; Beech UNWARRANTED 59 R and 681 L - the lidar round's documented ones). ON = 8 lines: the same less
+  Beech 59 R (gone), plus TWO NEW: Chimney EDGE FACE 712 L (0.06 m in 0.13 m at 7.25 m, the island inside the 715 hairpin, where 711 L's
+  rising section meets 712 L's falling one in the zipper; 0.06 is the threshold itself) and Blue Ridge UNWARRANTED 1631 R (a faced cut
+  station next to a graded one, rock top at +0.18 m 1.5 m behind the 4.04 m face: the base's Beech 59 R signature to the centimetre; the
+  bank lifts that edge 3 cm). Terrain audit OK, lanes OK, barrier faces OK, deck rails OK on all eight both ways.
+  Found and fixed on the way: the obstacle audit's ghost pass read the band from the centre line (24 false ghosts a stage), the tarmac
+  edge from a 0.3 m inset, the self-test's shoulder rows from the flat edge; a banked deck's end cap lay in the station plane (Blue Ridge
+  704 L, 0.07 m "drop" - caps now 2 cm past the line); the builder's planting rule read a flat envelope (plants 1 / 4 / 1 / 1 on Chimney,
+  NC 226A, Gillespie, Beech) - fixed (d7b4ee72): the four rebuilt banked, plants through solids 0 on all four, their audit lines unchanged; so ON = 0 plants on all eight.
+- LifeSim self-test: OFF 63 FAIL (PSXRec's known baseline), ON 63 FAIL, the identical list (diffed).
+- Races (race-play-check, seed 0, -Finish, no traffic, x4 time): best rival home OFF -> ON, forward: Chimney 211 -> 209 s (-0.9%), NC 226A
+  449 -> 428 (-4.7%), Blue Ridge 178 -> 171 (-3.9%), Gillespie 214 -> 209 (-2.3%), Mount Mitchell 227 -> 234 (+3.1%), Beech 331 -> 324
+  (-2.1%), Little Switzerland 296 -> 291 (-1.7%), Blowing Rock 261 -> 254 (-2.7%). Reverse twins ON: 200 / 441 / 166 / 193 / 204 / 336 /
+  277 / 258 s. Race checks OK: OFF 7/8 (Beech: 2 retired), ON 13/16 (Gillespie: a rival stuck behind a wreck 5 s wrong way; Little
+  Switzerland both ways: 2 retired = the planned driver error plus one crash). One seed: the retirements are mostly the planned mistake
+  (MISTAKE lines) and the counts are within one seed's noise; not proven either way.
+- Play checks ON (fresh processes): reverse-check 36 ok / 0 FAIL ("ALL REVERSE RACES LINE UP"); sprint-check 72 ok / 0 FAIL;
+  finish-play-check Gillespie Gap 14 ok / 0 FAIL and Chimney Rock 14 ok / 0 FAIL.
+
+## Still looks wrong / not done / not verified
+- In the pictures: the driver's-seat frames are mostly cabin at this size, the roll shows in the horizon's tilt; the low chase frames
+  show it plainly. The game's centre line sits up to 0.2-0.3 m under the lidar pavement at some strongly banked bends (the bake's
+  bench height, not this round's).
+- The two new audit lines above are not fixed (both at builder thresholds of classes the base already carries 7 of).
+- Not run: a second seed, traffic, a person driving, a PC build; the city (`Scripts/City/`) untouched. Later idea: Charlotte's ramps and
+  loops are flat across too; a real ramp carries 6-8% (AASHTO, design speed by radius). The city's 3DEP 1/3" ground cannot measure it
+  (10 m cells); it would be design values on the line model, a city round of its own.
+- Little Switzerland's terrain line about its tunnel under the PC horizon stand-in was not seen here (PSXRec builds no PC horizon).
+
+## At merge (coordinator)
+- New files: `Assets/PSXRacing/Editor/PSXRacingBuilder.Bank.cs`, `BankShots.cs`, `BankLab.cs` (metas minted in PSXRec, committed);
+  `tools/roads/bake_bank.mjs`; `Assets/PSXRacing/Art/{Swiss226A/swa, Gillespie/gap, MtMitchell/mtm, BeechGap/beech, ChimneyRock/chimney,
+  BRP/brp, Switzerland/swiss, BlowingRock/brock}_bank.json` (+ metas).
+- Shared-file edits, all small and local:
+  - `PSXRacingBuilder.cs`: `BuildTrack` (one call, `BakeBankInto(path)`, after `StageLoadDem`), `BuildRoad` (left/right ring vertex
+    lift; comment), `ShoulderStation` / the row trace / `ShoulderDesignAt` (roadY + bank), `FlatKerbMesh` / `StreetKerbMeshes` (+
+    `RingBank`), `BuildJointBands` and `BuildOneDeck` (column loop, end push) and `BuildPiers` (soffit lift), `BuildStartLine`
+    (banked band branch), `PlacePosts` / `PlaceStreetLamps` (one term each), `BuildCars` (two grid branches: lift + `gridUp`).
+  - `PSXRacingBuilder.Stage.cs`: `StageUnloadDem` / `StageLoadDem` (clear / load), `Refine` (one line), `ForEachStageLatticeSample`,
+    `CollectCarryHolds`, `CollectRiseHolds`, `CollectBehindWallHolds`, `CollectFillFalls`, `RoadsideLandDy`, `StageBankSolve`,
+    `PlanStageRoadside` (two flare probes), `BuiltSectionCritical`, `FinishStageCuts` (three reads), `PlaceStagePosts`,
+    `CurveWallRing`, `StageWallRing`, `BankTopRing`, `BuildOneStageBank` (a local `Y()`), `BuildOneTunnel` (wall feet).
+  - `PSXRacingBuilder.PlantClear.cs` (the plant solids test), `PSXRacingBuilder.Cliffs.cs` (`PlaceCliffs`), `StageLab.cs` (per-venue
+    build log, partial report), `TrackObstacleAudit.cs` (edge tarmac read; both ghost passes), `LifeSimSelfTest.cs`
+    (`CheckShoulderRibbon`, `CheckDeckRails`), `PlantSolidAudit.cs` (`IndexRoad`, `RoadFrame`).
+  - Runtime: `TrackPath.cs` (two serialized fields, `RotateInPlace`, `ReverseInPlace`, `HasBank`, `CrossSlopeRight`), `AIGrip.cs`
+    (`CornerSpeed` optional `bank`), `AIDriver.cs` (`PlanSpeed`, `BankAware`), `CarController.cs` (`ResetTo`, new `RollToRoad`),
+    `RaceHandoffApplier.cs` (`PaintLine`, `StageReversedGrid`, the 1v1 restage, new `SeatOnBank`).
+  - The lakelure agent's new stage: no bank file = flat (the builder logs it). After both merges: add its prefix to `STAGES` in
+    `tools/roads/lib3dep.mjs` if it is not there, then `node tools/roads/bake_bank.mjs <pre>` (reads its 1 m tiles from main's cache;
+    speed from TrackCatalog by id), `--check`, rebuild its scene, StageLab it.
+- Data rule: a bank file is per waypoint. After ANY re-bake that moves or re-spaces a stage's waypoints (the alignment fix you
+  mentioned), re-run `node tools/roads/bake_bank.mjs <pre>` and `--check`; a stale file is refused with a WARN and the stage builds
+  flat (count mismatch), so nothing breaks silently. The tool is a pure function of the stage files on disk, the lidar cache and
+  TrackCatalog's speed: no hand edits.
+- Scene passes: every mountain stage scene must be rebuilt (the bank is in the meshes and in TrackPath). Coast stages and the city
+  are unchanged.
+
+## What the owner will notice
+The mountain roads now lean: crowned on the straights, banked into every bend as the real road is - up to 12% on the NC 226A and NC 128
+switchbacks and Chimney Rock's hairpins, 10% across Linn Cove - and the cars (and the AI's corner speeds) lean with them.
+
+# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
+
+Restart of the concrete job stopped at 14:07 (the owner: "To the concrete pieces, yes"). Worktree `C:/Users/mcgee/PSX Racing-concrete`,
+base e2749b17 (mountain-nm 416ddfda = PC43 merged in by the coordinator). Sandbox PSXRec (Android target), every comparison two fresh
+processes, the base with `PSX_CITY_CONCRETE=0`. Graph hash b2aa3453 (GHSH) in every run; no data file touched, no export run.
+
+## Step 1 - round 1's gate re-proved on the merged base (PC43 changed the tiles under it: curbs 3, inlets, lot entrances, bridges)
+- Per-tile meshes, city-wide (5,073 tiles; every tile the gate changes is rebuilt with the gate off and compared): the gate changed a
+  piece on 112 tiles; meshes that differ there: ground 0, roads 0, kerbs 0, guardrails 0, barriers 112, structure 4 (the city bridge's
+  metal bar is not laid on a parapet piece rule 1 clipped). Barrier triangles on those tiles 121,584 -> 116,528; build 264 -> 284 ms a
+  tile (warm pair). Tiles with barrier vertices no gate call accounts for: 0. Rule 1 took 569 m off pavement, rule 4 left out 227
+  pieces (492 m), rule 5 turned 71 free square ends down. Pieces the gate changed that were in no stray class: 39 (39 m: side-median
+  7, side-rail-ground 18, union-median-ground-twin 14 - ends turned down by rule 5 and pieces clipped at junction mouths).
+- Bridges audit, city-wide (1,086 runs, 502 tiles), off -> on: RAIL-DROP 1 = 1 (the same place), RAIL-FLUSH 17 = 17, WALL-IN-LANE
+  10 -> 7, RAIL-ON-LANE 3 -> 2, BLUNT-END 84 -> 81, APPROACH-RAIL 45 = 45. None rose. Two places are new with the gate on (their
+  classes still fell): RAIL-ON-LANE on the owner's deck, e11321 s 12 (35.24745,-80.89613), a piece whose top stands 0.30 m over that
+  ramp's lane line where the full-height WALL-IN-LANE on e13604 10 m away is gone (the two ramps' ribbons overlap at different heights:
+  the deck surface, spui's job); BLUNT-END at I-77 / Tyvola Rd, e2747 s 17 (35.16301,-80.89024): a parapet cut where pavement lies past
+  both its faces keeps its full height to its cut end (it guards a fall).
+- Drive audit, the 48 edges, off -> on: nothing solid across a lane 0 = 0; fall holes 0 = 0; lane steps 3 = 3; BLUNT 7 -> 6; MEDIAN
+  ACROSS two+ 5 = 5; a split's V read as two walls 345 -> 325 rays; MEDIAN ACROSS none 13 -> 16 rays, all at East Independence
+  Boulevard e11785 by e7235 (8522,-4181), the same with the zone fix, so not a seam: the opening is real (the junction with e7235);
+  rule 5 turned down the square end of the median beside it and the last 6 m of that end are under the audit's ray. Explained, not
+  changed. The other roads on those tiles: walls 30 -> 1, blunt 16 -> 14.
+- LifeSim self-test, PSXRec: gate off (baseline, fresh process) 4,587 ok / 63 FAIL; gate on 4,587 ok / 63 FAIL: the same 63 (0 new, 0 gone; `st_m0.txt`, `st_m1.txt` in the scratch folder).
+- The inventory, city-wide, gate off -> on (km of standing concrete in a stray class): 17.70 -> 16.27. Table in "The stray table" below.
+
+## Step 2 - class d, two Jerseys along one narrow median (PSX_CITY_CONC_TWIN, default ON)
+CAUSE, from the ground-twin walk's own verdict at every class d piece city-wide (`CityAudit.Concrete.cs` census, run `mcen`): of 8.4 km,
+1.8 km the walk refused because its line model reads the gap 9.5-12 m although the two walls stand 9.5 m apart or less
+(`CityMeshes.Unions.cs` GroundTwinSample, the `gap > GroundTwinGapMaxM` test); 1.0 km because the two carriageways carry different names
+(the `c.name != X.name` test: I-77 south of I-485 is "B. Bayles Mack Highway" one way in OSM; Independence Blvd at Matthews is
+"Independence Boulevard" / "East Independence Boulevard"); 1.9 km are those pairs' partners (the lower-numbered edge owns a pair);
+1.8 km are two shared (union) medians standing side by side on one edge (the walk laid both; cause not found this round, not touched);
+0.55 km rails at drops on ramps beside each other (not a barriered one-way: outside the walk). Each refused carriageway then stood its
+own Jersey at its own median edge (CityMeshes.cs EmitSide, `sf.median`).
+FIX, in the caller (GroundTwinSample), decided at load from the whole map (the union runs), so both tiles of a seam agree: the walk pairs
+two opposing carriageways whatever their names - only median side to median side both ways, only within 25 degrees of opposite, up to a
+line-model gap of 12 m (`PSX_CITY_CONC_TWIN_GAP`) - and the pair carries the walk's own shared median: ONE Jersey on the strip's centre
+line, the strip floored flush, each carriageway's own Jersey standing down under it (exactly as every same-name pair up to 9.5 m already is).
+KEPT TWO on purpose: US 74 Independence's busway corridor (names "East Independence Expressway", "US 74": the busway and its 2026
+express lanes are in that median, not drawn yet) and any structure (twin decks keep their parapets; with decks paired the bridges audit's
+RAIL-FLUSH rose by one on I-77, so they are out).
+NOT DONE: the split-level median (the high side's barrier on a retaining wall faced toward the low road). The walk keeps its 1 m height
+limit (the shared Jersey's two-level form); the inventory does not count a rail on a retaining face beside a Jersey as a double (the rail
+guards a fall), and I did not count those places this round.
+STANDARDS: AASHTO Roadside Design Guide 2011 ch. 6 (FHWA copy aii.transportation.org/Documents/FHWA-AASHTORSDGChapter6.pdf): a median
+barrier is recommended where the median is 30 ft (9 m) or less, weighed at 30-50 ft, not normally considered past 50 ft - one barrier,
+never two; TxDOT Roadway Design Manual 17.7.2 (after the RDG): a barrier on flat ground, a median too steep is regraded or filled and given
+a split-level concrete barrier, barriers on both sides "not desirable"; NCDOT Roadway Standard Drawings 854.07 (single slope concrete
+barrier) and 854.06 (median hazard protection), 2024 edition; TDOT S-SSMB-9 (single slope barrier wall for a grade-separated median)
+for the split-level form.
+RESULT: class d city-wide 8,658 m (gate off) -> 8,434 m (round 1 gate) -> 3,492 m (every rule on). What is left: 1.8 km two shared medians side by side on one edge (not touched), 0.93 km the US 74 busway corridor kept two on purpose (433 m and their partners: East Independence Expressway from Commonwealth Ave to Idlewild Rd), 0.56 km drop rails on ramps beside each other, the rest under 0.2 km. The walk now lays shared medians on 107 more tiles (roads, ground and kerbs meshes differ there: the flush strip; 94 of them hold or touch a class d or b piece of the gate-off inventory, the others are medians whose two walls stood more than 9.5 m apart, now one barrier too).
+
+## Step 3 - class b, walls with no reason (rule 6, PSX_CITY_CONC_REASON, default ON)
+A median Jersey whose carriageway has no road the other way beyond it within 250 m (the Guion Lane kind), and a fan chord's Jersey with no
+road in the clear zone beyond it, neither guarding a fall, are not built (CityMeshes.Concrete.cs ConGate / ConNoReason). Kept: a fall beside
+it or land over it (the run rules' own probe), structure or a retaining face, ANY road within the clear zone beyond it (10 m, AASHTO RDG
+Table 3.1 for 60-70 mph), a road the other way within 250 m, a structure within 40 m (piers, abutments: R3; the inventory's approach rule).
+Decided from the map at the piece alone, so every tile agrees. Cut walls are NOT judged: the first city-wide run with them took 3 km of
+walls that hold land (judged at build time the ground read flatter than the inventory reads it after the build); the inventory finds no
+cut wall without a reason on the merged base.
+RESULT: rule 6 left out 682 pieces, 3,621 m city-wide (median Jerseys and fan chords). Of every piece the gate changed, 50 (80 m) were in no stray class before (side-median 18, side-rail-ground 18, shared median 14); round 1s gate alone changed 39 such (39 m: rules 1 and 5 at junction mouths and ends), so rule 6 took at most 11 median pieces (about 40 m) the inventory counts as having a reason. Class b 2,621 m (gate off) -> 2,533 m (round 1) -> 736 m. Left: 427 m of median Jerseys rule 6 keeps (a road in the clear zone, a road the other way within 250 m by the map, or a structure within 40 m, where the inventory's probe of the drawn pavement finds none: East Independence Expressway at N Sharon Amity and at Idlewild Rd), 159 m of fan-chord Jerseys with a road in their clear zone, 146 m of shared-median Jerseys (not judged by rule 6).
+
+## Step 4 - classes f and c
+Not changed beyond round 1's rules 4 (no orphan) and 5 (an end is a real end). What is left of them guards a fall or holds land (see
+"where unnecessary concrete still stands").
+
+## Step 5 - the owner's Freedom Drive deck (I-85, tile -28,27)
+Inside the paved deck there now stand only the parapets round its three openings (the middle triangle and the two notches where I-85 shows through), three fan-chord rails (14 m) and the gore noses (block, sloped legs and tails, 38 m) - drawn by EmitSide's deck parapet (side-rail-deck), BuildJunctions' fan chords (fan-chord-rail-deck) and EmitNose (nose-*-deck); each guards a real fall onto I-85 and goes when the deck plate (charlotte-spui) floors the openings. PSX_CITY_CONC_PLATE stays off. The bridges audit's RAIL-ON-LANE on e11321 there is the gore nose's sloped leg on Freedom Drive's ramp (e6087), the same piece before and after, reported now that the full-height wall beside it is gone.
+
+## The stray table, city-wide (5,073 tiles; metres, pieces)
+```
+class	gate off (as asked)	round 1 gate	every rule on   (metres; pieces)
+a ON-PAVEMENT     	   737 m (507)	     3 m (2)	     3 m (2)
+b NO-REASON       	  2621 m (749)	  2533 m (715)	   736 m (363)
+c ORPHAN          	  2134 m (1086)	  1599 m (842)	  1566 m (833)
+d DOUBLE/BOX      	  8658 m (2741)	  8434 m (2655)	  3492 m (1560)
+e STARTS-AND-STOPS	   234 m (60)	   229 m (57)	   210 m (61)
+f BAD-END         	  2427 m (558)	  2090 m (508)	  2073 m (516)
+g UP-AND-DOWN     	   748 m (303)	   723 m (270)	   690 m (263)
+h OVERSIZE        	     0 m (0)	     0 m (0)	     0 m (0)
+h2 TALL-OVER-LANE 	  1842 m (714)	  1765 m (673)	  1765 m (673)
+all strays        	 17.70 km	 16.27 km	  9.58 km
+```
+
+## Where unnecessary concrete still stands, and why
+- a ON-PAVEMENT: 3 m - by rule: union-median-ground-twin 3 | heaviest places: 35.08601,-80.66283 2 m; 35.21896,-80.82434 1 m
+- b NO-REASON: 733 m - by rule: side-median 427, fan-chord-jersey 159, union-median-ground-twin 146, union-split-feet 0, union-median-ground 0 | heaviest places: 35.19372,-80.76527 106 m; 35.18382,-80.75643 80 m; 35.16309,-80.89001 39 m; 35.08601,-80.66283 36 m; 35.08729,-80.66425 34 m
+- c ORPHAN: 1566 m - by rule: side-rail-ground 756, side-rail-retain 169, side-cut-wall 162, side-rail-deck 149, side-median 143 | heaviest places: 35.23378,-80.84741 72 m; 35.24761,-80.89662 59 m; 35.08578,-80.83456 57 m; 35.17996,-80.89001 53 m; 35.05982,-80.76974 50 m
+- d DOUBLE/BOX: 3483 m - by rule: union-median-ground-twin 1812, side-median 1038, side-rail-ground 563, union-split-feet 70 | heaviest places: 35.21031,-80.80093 253 m; 35.19076,-80.76272 168 m; 35.18743,-80.75983 163 m; 35.17582,-80.74931 117 m; 35.17737,-80.75081 106 m
+- e STARTS-AND-STOPS: 210 m - by rule: side-median 98, side-cut-wall 38, side-rail-deck 27, side-rail-ground 16, union-median-deck 10 | heaviest places: 35.27174,-80.84685 16 m; 35.26212,-80.87851 15 m; 35.20301,-80.79093 12 m; 35.19944,-80.77199 12 m; 35.20140,-80.78152 12 m
+- f BAD-END: 2074 m - by rule: side-cut-wall 714, side-rail-deck 509, side-rail-ground 225, side-rail-retain 167, side-median 138 | heaviest places: 35.34851,-80.84930 49 m; 35.24761,-80.89662 39 m; 35.36230,-80.74910 36 m; 35.42538,-80.99909 35 m; 35.26212,-80.87851 31 m
+- g UP-AND-DOWN: 689 m - by rule: side-rail-ground 248, nose-leg-deck 158, side-median 105, side-rail-deck 97, union-median-ground-twin 19 | heaviest places: 35.22780,-80.82922 55 m; 35.12740,-80.91521 33 m; 35.25293,-80.96714 32 m; 35.24398,-80.84788 25 m; 35.20203,-80.78699 24 m
+- h2 TALL-OVER-LANE: 1767 m - by rule: side-rail-retain 1548, side-rail-ground 144, side-rail-deck 73, nose-tail-deck 2 | heaviest places: 35.27739,-80.79793 153 m; 35.27625,-80.80233 124 m; 35.24136,-80.96159 92 m; 35.06536,-80.84581 85 m; 35.24219,-80.90067 85 m
+- In words: d - two shared medians side by side (1.8 km, not touched), the US 74 busway corridor (kept two on purpose), drop rails on ramps beside each other; b - the median Jerseys and fan chords rule 6 keeps for a road within its tests; c, f, g, h2 - short or square-ended rails and walls that guard a fall or hold land (rule 4 and 5 never take them: protection is not removed; the real fix is a longer run or a tie-in, not done); the deck - see step 5.
+
+## Gates for steps 2-3 (every rule on, fresh process, against the same sandbox's runs)
+- Per-tile meshes, city-wide, every rule on (run `pall`) against round 1's gate (`mall`), both fresh processes, same sandbox: roads,
+  ground and kerbs differ on 107-109 tiles (the shared medians' flush strips; 94-96 of them hold or touch a class d or b piece of the
+  gate-off inventory, the rest are medians whose two walls stood more than 9.5 m apart, now one barrier as well: I-485 tiles -51,-63..-61,
+  I-85 tiles 38..40,83..89); barriers differ on 129 tiles; structure on 5 and guardrails on 3 (tiles 48,98 and 50,-39 hold no class d or
+  b piece: not explained this round). Triangles on the changed tiles: roads 490,724 -> 550,316, ground 728,421 -> 661,193, kerbs 128,158 ->
+  124,260, barriers 86,126 -> 97,592. Whole city: barriers mesh 894,982 -> 906,448 triangles; tile build 161 -> 159 ms a tile (city-wide
+  mean). Within the run (the gate's rules rebuilt as asked and compared): ground, roads, kerbs, guardrails 0 tiles; barriers 125;
+  structure 4 (as round 1). Barrier vertices no gate call accounts for: 0.
+- Cost on sample tiles (one cold build each, `cost.py`): Uptown -12,16, a suburb 11,7 and the owner's deck -28,27: no mesh changed by
+  steps 2-3; I-77 at the state line -41,-38: 11,630 -> 11,362 triangles (ground 6,124 -> 4,480, roads 3,930 -> 5,378, kerbs 830 -> 562,
+  barriers 746 -> 942), build 130 -> 193 ms. Baked size not measured (it follows the triangles).
+- Bridges audit, city-wide, gate off (m0) -> round 1 (m1) -> every rule on (p1): RAIL-DROP 1 / 1 / 1, RAIL-FLUSH 17 / 17 / 17, WALL-IN-LANE
+  10 / 7 / 7, RAIL-ON-LANE 3 / 2 / 2, BLUNT-END 84 / 81 / 81, APPROACH-RAIL 45 / 45 / 45: none rose; p1 has the same places as m1 (the
+  first run with twin decks paired raised RAIL-FLUSH to 18 at I-77 e1293, 35.11508,-80.92412: structures are now out of the relaxed walk).
+- Drive audit, the 48 edges, m0 / m1 / p1: nothing solid across a lane 0 / 0 / 0; fall holes 0; lane steps 3 / 3 / 3; BLUNT 7 / 6 / 6;
+  MEDIAN ACROSS one wall 1,200 / 1,253 / 2,615 rays, two or more 5 / 5 / 8, none 13 / 16 / 17; a split's V read as two walls 345 / 325 /
+  243 rays. The 3 new two-wall rays are a pair the audit sees only now that the walk pairs carriageways of other names: East Independence
+  Expressway e1136 / e1402 at (-520,3823), 35.2190,-80.8234, in the busway corridor where two walls are kept on purpose; the 1 new none-ray
+  is the same real opening at e7235 (East Independence Boulevard, 8523,-4183), its turned-down end 2 m longer under the ray.
+- LifeSim self-test, PSXRec: gate off 4,587 ok / 63 FAIL; every rule on 4,587 ok / 63 FAIL: the same 63 (0 new, 0 gone; `st_m0.txt`, `st_p1.txt`).
+
+## Proof sheet
+`C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\concrete\final_sheet.png`: the owner's deck first (the bridges sheet's three poses and a top view), then the five worst class d clusters and the five worst class b clusters; four cells a place: BEFORE (gate off, fresh process), BEFORE with every stray piece boxed in its class's colour (a red, f orange, d magenta, b yellow, c cyan, e blue, g green, h white), AFTER (every rule on, fresh process), AFTER boxed.
+What still looks wrong in it: on the deck the parapets round the openings (cyan, orange) still stand and the "long low beam" in cell 3 is the step between two ramp ribbons (the deck surface, spui's job); the fifth class d place is I-77 at 35.13150,-80.91335 (74 pieces) because the fifth by count (I-485 at 35.36400,-80.71830, 101 pieces) had no driver's-eye pose in the cluster file; row 8 (East Independence Expressway at Commonwealth Ave) is unchanged on purpose (busway corridor); in the class d rows the one Jersey now stands on the centre of a fully paved median, which reads wider than a grass median with a centre barrier would.
+
+## Switches (all default as listed; `PSX_CITY_CONCRETE=0` turns every one off: the picture as it was)
+PSX_CITY_CONC_PAVE (rule 1, ON), PSX_CITY_CONC_ORPHAN (rule 4, ON), PSX_CITY_CONC_ENDS (rule 5, ON), PSX_CITY_CONC_TWIN (class d, ON;
+=0 off), PSX_CITY_CONC_TWIN_GAP (metres, 12), PSX_CITY_CONC_REASON (rule 6, ON; =0 off), PSX_CITY_CONC_PLATE (rule 3, OFF: never ship
+it on), PSX_CITY_CONC_SPUI (OFF, untested).
+
+## For the merge
+- Shared-file edits: `Scripts/City/CityMeshes.Unions.cs` only: GroundTwinRuns l.1033 (an unnamed carriageway pairs), GroundTwinWhy l.1087
+  (the same), GroundTwinSample l.1121-1173 (the candidate filter: another name only within 25 degrees and on the median side; after the
+  pair is found: median to median, the 12 m gap, kept-two). Everything else is in my own files (`CityMeshes.Concrete.cs`,
+  `Editor/CityAudit.Concrete.cs`). Round 1's shared-file edits are listed in its section below.
+- No new mesh slot, bucket, material or baked field; CityTileCache.Format untouched; no data file; no scene pass.
+- A CITY RE-BAKE IS NEEDED for the PC build (the coordinator's): the shared medians change the roads, ground, kerbs and barriers meshes
+  on the tiles of the newly paired medians, rule 6 the barriers mesh where median Jerseys go.
+- The deck plate (charlotte-spui) as round 1 says: when it lands, rule 1 must see its pavement (`CityMeshes.ConcreteExtraPave`, or try
+  `PSX_CITY_CONC_SPUI=1`), then RunBridges: RAIL-DROP must not rise. Keep PSX_CITY_CONC_PLATE off.
+
+# HANDOFF - CONCRETE ROUND 1 (charlotte-concrete, 2026-11-15): one gate for every piece of standing concrete, the inventory by the owner's question
+
+Branch `charlotte-concrete` (worktree `C:/Users/mcgee/PSX Racing-concrete`, off `charlotte-bridges` 109f4c89). Not merged, not pushed.
+Graph hash b2aa3453 before and after (no data file touched, no export run). Sandbox PSXRec (Android target).
+The owner, 11:35, looking at the bridges sheet (the deck where the ramps meet at I-85 and Freedom Drive): "can you see this
+massacre of unnecessary concrete median pieces? this is still an issue all across the city after weeks of attempts to correct them".
+
+## What this round is
+Six weeks of rounds each patched one rule and counted its class. This round put ONE function in front of everything that
+writes standing concrete into the barriers mesh, made it keep a record of every piece (who asked, where it stands, how
+tall), and built an inventory that reads those records and asks of every piece: why is this concrete here?
+
+## The inventory: `Editor/CityAudit.Concrete.cs`, `-executeMethod PSXRacing.EditorTools.CityAudit.RunConcrete`
+Reads `CityMeshes.concreteLog` (the gate's own records: the audit and the builder cannot disagree) from the tiles the game
+builds (CityMeshes.Build), then from the whole map: joins pieces into RUNS (ends within 0.75 m, across rules, edges and
+tiles; W-beams and the cable median tie a run), finds what each piece stands on and its REASON (R1 divides opposing
+traffic: the other carriageway within 80 m; R2 guards a fall: on structure, a fall of 0.6 m within 8 m / 1.5 m within 12 m
+on the graded ground, on a retaining face, or within 40 m along its run of a structure's rail; R2 holds land: land over it
+steeper than 1V:3H; R4 kerb height), and classes the strays:
+a ON-PAVEMENT (pavement past both its faces and under it, at its level), b NO-REASON, c ORPHAN (a run under 30 m),
+d DOUBLE/BOX (two walls 0.6-9.5 m apart that BOTH guard nothing, no lane and no fall between), e STARTS-AND-STOPS (two run
+ends in line under 40 m apart, nothing real opening between), f BAD-END (a free end over 0.3 m within reach of pavement),
+g UP-AND-DOWN (a step or dip at a joint), h OVERSIZE, h2 TALL-OVER-LANE (top over 1.35 m above the lane beside it).
+Outputs in the sandbox root: `city_concrete_<tag>.txt` (tables before / after, by rule, 40 clusters), `_pieces.tsv` (every
+stray piece, both sets), `_tiles.tsv` (per-tile mesh hashes), `_clusters.tsv` (90 clusters with a driver's-eye pose),
+`_plans.tsv` (the pavement and every piece at the five worst clusters of b, d, f, for `plan.py`), `_log.bin` (the records:
+`PSX_CONC_LOAD=<tag>` classifies them again in minutes without building a tile).
+Env: PSX_CONC_TAG, PSX_CONC_NEAR "x,z,r", PSX_CONC_POP=ramps (the sample: tiles with a ramp or a structure),
+PSX_CONC_MINUTES, PSX_CONC_PLAN "x,z,r;...", PSX_CONC_DUMP_ALL=1, PSX_CONC_LOAD. Cost runner: `CityAudit.RunConcreteCost`.
+With the gate on, one pass gives BEFORE (as asked) and AFTER (as built), and every tile the gate changed is rebuilt
+with the gate off and compared mesh by mesh.
+Pictures: `CityRefSpots.RunBridges2` now takes `PSX_BRSHOT_SPOTS_FILE`, world poses (`id@ex,ey,ez,lx,ly,lz`),
+`PSX_BRSHOT_SWITCH=concrete` (before / after flips the gate; mode `plate` adds the plate rule) and `PSX_BRSHOT_TINT=<_pieces.tsv>`
+(a second frame `_tint` with every stray piece boxed in its class's colour).
+
+## The gate: `Scripts/City/CityMeshes.Concrete.cs` (PSX_CITY_CONCRETE=0: everything as asked, the picture as it was)
+Every writer of the barriers mesh passes it: EmitBarrier, EmitRail (and through it EmitRailOffLanes: fan chords, gore
+noses), EmitUnionJersey, EmitUnionLegs, EmitInsetJersey; the face writers (retaining faces, the union end cap, culvert
+headwalls) are accounted (the audit fails on any barrier vertex no gate call covers: 0 on every tile built).
+- Rule 1 NOTHING ON PAVEMENT (`PSX_CITY_CONC_PAVE`, on): a piece with drawn pavement (any ribbon as drawn, its own
+  included, or a junction fan; the whole-map outlines, so tiles agree) past BOTH its faces and under it, at the level it
+  stands on, is clipped to what stands outside. A barrier's cut end is turned down over 8 m; a parapet's is capped at
+  full height (it guards a fall). What is left under 3 m (a parapet: 0.5 m) goes. The one piece that belongs between two
+  pavements stays: a barrier between the opposing carriageways of a divided road (not ramps).
+- Rule 4 NO ORPHAN (`PSX_CITY_CONC_ORPHAN`, on): a run under 30 m - counted as it stands, across rules and edges, after
+  rule 1 - that guards nothing is not built. Never taken: anything on structure, on a retaining face, with a fall beside
+  it or holding land, tied to a W-beam or the cable, or reaching within 10 m of the tile's border (the next tile may hold
+  more of it: both tiles leave it).
+- Rule 5 AN END IS A REAL END (`PSX_CITY_CONC_ENDS`, on): a barrier's free square end (EmitBarrier's pieces only) that
+  guards nothing and has no barrier ahead in its line within 12 m is turned down along its last piece. Parapets keep
+  their height.
+- Rule 3 THE PLATE (`PSX_CITY_CONC_PLATE=1`, OFF): an opening that drawn pavement closes round (twelve rays, 30 m)
+  counts as pavement. It exists to show what rule 1 does once the deck plate floors the openings; on today's decks it
+  would open unguarded falls. Do not ship it on.
+- `CityMeshes.ConcreteExtraPave` (a delegate, null): pavement that neither a ribbon nor a fan holds. And
+  `PSX_CITY_CONC_SPUI=1` (OFF, untested: the plates are not in this branch): reads CityDeckPlates' hulls by name and
+  counts a point as plate when it is inside a hull and 2 m from its rim.
+There is no height rule: the inventory found no piece taller or thicker than its kind city-wide.
+PROTECTION: nothing on structure, on a retaining face, beside a fall or holding land is ever dropped or lowered; it is
+clipped only where pavement lies past both its faces and under it.
+
+## What was found
+1. No rule that stands concrete asked what the piece stands on, and nothing looked at all of them together: 19 rules
+   (the caller tags in the records) write through `EmitBarrier` (CityMeshes.cs:8714), `EmitRail` (:8777),
+   `EmitUnionJersey` / `EmitUnionLegs` (CityMeshes.Unions.cs:1700 / :1790) and `EmitInsetJersey` (CityMeshes.Medians9.cs:546).
+2. THE OWNER'S DECK (I-85 at Freedom Drive, tile -28,27). The deck is drawn as the ramps' own ribbons and one junction fan,
+   standing up to 0.8 m apart in height (e2908 141.1 m, e13604 140.3 m), with OPENINGS between them (I-85 shows through:
+   one closed triangle in the middle, an open notch on the west, an open notch on the south-east). What he circled is
+   three different things:
+   a. pieces standing ON pavement: the second wall of the double row along e13602, the T-shaped block at the island's end,
+      the wall behind the "staircase", a nose leg across the lanes of e13610 / e2899, a chord rail: rule 1 takes them
+      (56 pieces changed on the tile, the barriers mesh 5,368 -> 4,934 triangles);
+   b. the parapets, three fan-chord rails and the gore noses (the "staircase": a nose block with its two sloped legs)
+      at the RIMS of the openings: about 60 m round the middle triangle plus the notches' rails. Each guards a real
+      fall onto I-85 (RAIL-DROP if taken), so the gate leaves them. They go when the openings are floored: shown with
+      the plate rule on (the sheet's deck rows; the middle of the deck comes out clean, and the west opening shows
+      unguarded, which is why the rule is off);
+   c. the "long low beam lying across the pavement" is not concrete: it is the 20 cm step between two ramp ribbons seen
+      edge on (the deck's surface: the spui agent's work).
+   The walls "above the driver's eye": every piece on the deck is 0.95 m (a parapet) or lower; they stand on ribbons
+   0.2-0.8 m higher than the lane the camera is in, and the eye is at 1.15 m. City-wide no piece is taller or thicker
+   than its kind (class h: 0).
+3. City-wide, the unnecessary concrete is mostly NOT at the interchanges. By metres: two Jerseys along one median
+   (d, 14 km: the ground-twin rule refusing a pair), Jerseys and cut walls with no reason (b, 5 km), free square ends
+   (f), short runs (c). See STAGE1.md for the classes checked by eye.
+
+## Gates (same sandbox, base = PSX_CITY_CONCRETE=0)
+- Per-tile meshes, city-wide (every tile the gate changes is rebuilt with the gate off and compared): Ground, Roads,
+  Kerbs and Guardrails identical on every tile; Barriers differ only on the tiles the gate changed a piece on; Structure
+  differs on 4 tiles (the city bridge's metal bar is not laid on a parapet piece the gate clipped). A tile the gate
+  changes no piece on emits every piece through the same call with the same arguments. Re-run on the merged base (PC43, e2749b17), city-wide, same sandbox: tiles built: 5073 of 5073 in 815 s (161 ms a tile); barriers mesh 894982 triangles; tiles with barrier vertices no gate call accounts for: 0; the gate: rule 1 (nothing on pavement) took 569 m off pavement; rule 4 (no orphan, on) left out 227 pieces, 492 m; rule 5 (an end is a real end, on) turned 71 free square barrier ends down; rule 3 (the plate) off; tiles the gate changed a piece on: 112 of 5073; each rebuilt as asked (gate off) and compared mesh by mesh - tiles whose mesh differs: ground 0, roads 0, kerbs 0, barriers 112, structure 4, guardrails 0; barriers triangles on those tiles 121584 as asked -> 116528 gated; build time on those tiles (warm pair) 264 ms as asked -> 284 ms gated; pieces the gate changed or left out: 797; of these in NO stray class before: 39 (39 m) side-median 7 side-rail-ground 18 union-median-ground-twin 14.
+- Bridges audit, city-wide (1,086 runs, 999 tiles), gate off -> on: gate off (m0) -> on (m1), merged base: RAIL-DROP 1 = 1 (the same place), RAIL-FLUSH 17 = 17, WALL-IN-LANE 10 -> 7, RAIL-ON-LANE 3 -> 2, BLUNT-END 84 -> 81, APPROACH-RAIL 45 = 45: none rose. Two places are new with the gate on (each class still fell): a RAIL-ON-LANE on the owner's deck, e11321 s 12 (35.24745,-80.89613), a piece whose top stands 0.30 m over that ramp's lane line where the full-height WALL-IN-LANE on e13604 10 m away is gone; a BLUNT-END at I-77 / Tyvola Rd, e2747 s 17 (35.16301,-80.89024), a parapet cut where pavement lies past both its faces keeps its full height to its cut end (it guards a fall). `city_bridges_audit_m0/_m1.*` in PSXRec.
+- Drive audit on 48 edges (the two worst edges of each of the 24 heaviest clusters and the deck's), re-run on the merged base with the zone fix
+  (`city_drive_m0.txt` / `_m1.txt`): the numbers below are unchanged from the first run. Nothing solid
+  across any lane 0 = 0; fall holes 0 = 0; lane steps 3 = 3; land on a lane 0 = 0; BLUNT 7 -> 6; MEDIAN ACROSS two or
+  more walls 5 = 5; a split's V read as two walls 345 -> 325 rays; MEDIAN ACROSS none 13 -> 16 rays at ONE place: East
+  Independence Boulevard (e842 / e11785 at 8515,-4185), where an existing 6 m opening at e7235's junction reads 12 m
+  because rule 5 turned down the square end of the median beside it (a turned-down end is under the audit's ray).
+  Re-run with the zone fix: the same 13 -> 16, so it is not a seam: the opening is real (the junction with e7235), the 3 rays (6 m) are the
+  last metres of the turned-down end, lower than the audit's ray; the median runs on to the opening. Explained, not fixed.
+- Cost (CityAudit.RunConcreteCost: each tile three times per mode, the quickest, no records kept), as asked -> gated:
+  | tile | what | build ms | barrier triangles | all triangles |
+  |---|---|---|---|---|
+  | -12,16 | Uptown, S Tryon / Church / College over I-277 | 754 -> 773 | 2,562 = | 47,610 = |
+  | 11,7 | suburb, Eastway Dr over a creek | 731 -> 823 | 2,674 = | 39,779 = |
+  | -28,27 | I-85 at Freedom Dr | 789 -> 864 | 5,368 -> 4,934 | 41,358 -> 40,892 |
+  | -26,-10 | I-77 at Tyvola Rd | 892 -> 942 | 5,702 -> 5,656 | 61,940 -> 61,862 |
+  The gate's probes cost 2-12 % of a barrier-heavy tile's build; triangles only fall. Baked size not measured (it
+  follows the triangles: about -5,400 of 895,000 barrier triangles city-wide).
+- NOT run: the median gates of CityAudit.MedianGates.cs (the offline refuge-island list: no line-model input changed),
+  the Twin audit, the launch audit and the flicker finder (no surface moved, no face added), the traffic check (no
+  lane path moved).
+
+## Where unnecessary concrete still stands (after the gate)
+See round 2 (the section above): the stray table after every rule, by class and place.
+
+## For the merge
+- Shared-file edits (all small, marked "concrete gate"):
+  `CityMeshes.cs`: BuildCentreMedians (l.222 context tag), TileSteps (l.2250 ConcreteTileBegin, l.2317
+  ConcreteRunRulesNow before CloseOpenGround, l.2344 ConcreteTileEnd), EmitNose (l.3399-3475 context tags), EmitSide
+  (l.6716-6880: context tags, `conLastWhole` before EmitCityRail, the retaining face accounted, W-beam notes),
+  EmitBarrier / EmitRail (l.8714-8815: each is now a wrapper over EmitBarrierCore / EmitRailCore), BuildJunctions' fan
+  chords (l.10693-10716).
+  `CityMeshes.Unions.cs`: EmitUnionMedian (l.1578, 1644, 1664 tags), EmitUnionJersey (l.1700 wrapper + Core),
+  EmitUnionLegs (l.1823, 1843), EmitUnionEnd (l.1902 cap accounted). `CityMeshes.Medians9.cs`: EmitInsetJersey (l.554-566).
+  `CityMeshes.Hydro.cs`: EmitCulvertEnd (l.81-84). `CityMeshes.Dividers.cs`: EmitCablePiece (l.2068, one line: the cable
+  ties a run). `Editor/CityRefSpots.Bridges.cs`: RunBridges2 (spots file, world poses, the concrete switch, tint).
+- New files: `Scripts/City/CityMeshes.Concrete.cs`, `Editor/CityAudit.Concrete.cs`. No new mesh slot, bucket, material
+  or baked field; CityTileCache.Format untouched; no data file; no scene pass. A re-bake is needed (barriers mesh on
+  about 130 tiles).
+- THE DECK PLATE (charlotte-spui, not there yet): when it lands, rule 1 must see its pavement or every wall inside the
+  plate stays. Either set `CityMeshes.ConcreteExtraPave` (a point-in-plate test from the map alone), or try
+  `PSX_CITY_CONC_SPUI=1` (reads CityDeckPlates.Plates' hulls by name, 2 m in from the rim; untested). Then run
+  `CityAudit.RunBridges`: RAIL-DROP must not rise, and where the plate reaches past the old parapets its rim needs a
+  parapet of its own. Do not turn on PSX_CITY_CONC_PLATE in a build.
+- The other four agents' branches do not touch the gate; a new writer of the barriers mesh that does not go through it
+  shows as "barrier vertices no gate call accounts for" in the inventory (0 today).
+
+## Tools (scratch folder `...\scratchpad\concrete\`)
+`job.ps1` (the runner), `gates.ps1` / `chain2.ps1` (the gate chains), `plan.py` / `plans.py` (plans from the records),
+`mkspots.py`, `vis.py` (stray pixels seen in the tinted frames), `stage.py` / `sheet2.py` (sheets), `mk_stage1.py`.
+
+# HANDOFF - DAMAGEVIEW: every view of a car shows its current condition (agent "damageview", branch `damage-view`, 2026-11-15 pm; NOT pushed)
+
+The owner (verbatim): "I wrecked my NSX during the race. The damage was shown during the race and replay, but in the garage view the car is in mint condition, visibly. The viewing of cars should always be accurate, especially since flipping cars is a feature. the current condition should be visible in all modes." Branch = mountain-nm 416ddfda (the PC43 exe) + this round. Sandbox PSXPerf, Windows target. Player-only: nothing under `Scripts/City`, no re-bake, no data files, no save change.
+
+## Cause
+- The drive's look lives in `Scripts/DamageLook.cs`, a component on the DRIVEN CarController, attached by the career ledger (`DamageModel.cs:598`); it was the only writer of PSX/CarPaint's damage block. No display model ever called it: `CarViewer.Show / ShowOwned` (`Scripts/LifeSim/CarViewer.cs:455-573`) put the skin material on the turntable body and nothing else, and every menu view goes through that one viewer; `CarShell.Spawn` (`Scripts/OnFoot/CarShell.cs:69`) the same on foot. The rows were there all along (OwnedCar.faults; DamageBank folds a drive's hits at its exit), the views just never read them.
+
+## View inventory (view: car shown; condition before -> after)
+- Car pages' side panel: SPECS, SERVICE (the mechanic), PAINT (the booth, the hovered colour), TUNE/SETUP on wide screens (`BuildCarSide` -> CarViewPanel, the owner's spot "DRAG TO TURN / VALUE"): the career car; mint -> its condition.
+- CAR MENU stage (`CarMenuHero` -> OwnedHero, the GT-style showroom) and MY CARS (`GarageHero`, < > between cars; classic: `BuildDrivingBlock`): career cars; mint -> each car's own condition.
+- INSPECT plan and side views (`DrawChassis`), STORED WHEELS (`BuildStoredWheels`): the career car; mint -> condition (stored wheels not shot: needs stored wheels; same ShowOwned call).
+- On foot: the garage bays (`GarageWorld.SpawnShell`) and the pizza shop's kerb (`PizzaShift.StandTheCarUp`): career cars; mint (+ the bay's shine) -> condition.
+- The drive, the replay, the player's car at a meet: the drive's own car (DamageLook): already showed it; unchanged.
+- Cars for sale: dealer lot stage (`DealerHero`; Town `FillDealer` shells), the paper's BUY page and the VIEWING page (`ViewHero` / CarViewPanel), the seller's drive on foot (`SellerLotWorld`), the junkyard (`FillYard`), the new game's lanes (`BuildCarPickShowroom`, thumbnails): mint -> mint, EXCEPT a car the player has gone to see: dressed with the visit's car (its rows and its paint = the advert's condition, so a tired car's shine is dull). THE MARKET'S CARS CARRY NO BODY ROWS YET: a CarListing holds only cond / odometer / a disclosed problem, and the used-fault pool (`Resources/rg2_faults.json` "used", 36 rows) has no panel_damage / lamp_out / roof_glass / bumper_bar; the path is ready (the visit's rows show the day R3 / R4c rolls them).
+- AI and traffic (Town meets and club cars, traffic shells, rivals): untouched (a shell with no owner is never dressed). Arcade car select and the city edition's pick: no career car, unchanged. Title screen: no player car. No photo mode exists.
+
+## What changed (switch `PSX_VIEW_DAMAGE=0` = today's mint views; default ON)
+- NEW `Scripts/DamageView.cs`: `DamageView.Dress(frame, body, box centre, box size, OwnedCar)` (+ an overload off def / ShellFit / slide): the drive's rows -> look (`DamageLook.Read`, plus a drive under way on that car), written by the drive's per-renderer code (`DamageLook.WriteBlock`, the same seed), plus `PaintGloss.Of` (paint, paint faults, dirt). Respects PSX_FAULT_LOOK / _BODY / _LAMPS. No steam (engine off), no SRS bag (no cockpit drawn in a view). A mint car or none clears a reused model. `LookOf`, `Signature`.
+- NEW `Scripts/DamageViewWatch.cs`: on each dressed model, the rows' signature every 0.5 s by InvokeRepeating (no Update): a repair at the mechanic / in the garage / on the bench shows at once.
+- `Scripts/DamageLook.cs`: Push's per-renderer block write extracted into `public static WriteBlock(...)` and `Seed(carId)`: the same math, line for line (the drive's look is unchanged).
+- `Scripts/LifeSim/CarViewer.cs`: ShowOwned hands its car to Show; `Show(def, skin, geo)` dresses at its end and on its same-shell early return (< > between two cars of one model); any other Show = mint. New public `Dress(OwnedCar)`, `BodyRenderer`, `Picture`, `ShownSlide`.
+- `Scripts/OnFoot/CarShell.cs`: Spawn dresses when `owned` is given; new `CarShell.Dress(shell, def, spec, widthMm, car)`. `Scripts/OnFoot/SellerLotWorld.cs`: the seller's shell dressed with `visit.car`.
+- `Scripts/LifeSim/LifeHomeScreen.cs`: `VisitCar()`; CarViewPanel's for-sale path dresses with it. `LifeHomeScreen.Showroom.cs`: DealerHero / ViewHero the same.
+- Editor: `LifeSimSelfTest.DamageView.cs` (+ one line in `LifeSimSelfTest.cs` RunAll), `DamageViewShots.cs` (the pictures; `PSX_DV_TAG`).
+
+## Proof
+- Sheet: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\damageview\out\damageview_sheet.png`. A career NSX 3 / 3, wrecked through the bank (`DamageBank.ApplyIncident`, as a drive's exit folds a crash: panel_damage front stage 3 + lamp_out front-left 8.6 m/s, panel_damage left side stage 2 4.4 m/s, roof_glass stage 1 3.2 m/s; hidden, causes stamped). Fresh processes, same seeded save (cash $1,127 in both): left PSX_VIEW_DAMAGE=0, right ON: SPECS side panel (+ zoom), SERVICE, CAR MENU stage, MY CARS, INSPECT, PAINT BOOTH, the turntable frame, the on-foot shell; then the drive's look at the same rig and angle, the repair, the second car. Pixel diff before/after: only the car changes (side panel pages 15,972 px, stages ~93,500, inspect 34,399); the repaired NSX, the clean second car and the drive's frame are pixel-identical in both runs.
+- The drive's look and the views' look read the same from the same rows: zones (1.00, 0.00, 0.67, 0.00), roof 0.33, lamps 1 (head left).
+- Self-test (PSXPerf, Windows): base 416ddfda = 62 FAIL / 4,561 ok; this branch = the same 62 FAIL lines (0 new, 0 gone) / 4,575 ok; the 14 new checks all hold (mint carries no block; > to the wreck wears it; same look and seed as the drive; < back clean; watched; repair goes clean at once; a new incident shows; a car for sale mint and unwatched; the on-foot shell wears it, never a wheel; an unowned shell untouched; PSX_VIEW_DAMAGE=0 mint).
+- Menus: no new control or label; every page's pad-reach, scroll and clip report is line-for-line identical before / after (16 lines).
+- Cost: the dressing 0.004-0.010 ms per view open (and per < >); the watch's check 0.5-0.7 us every 0.5 s; per frame 0 (no Update). A first ShowOwned (model + dress) 2.4-7.2 ms as before.
+- The sandbox was on WebGL: the switch to Windows cost about a minute on the first job (initial refresh 50 s; that job 5.5 min).
+
+## Still not shown (and why)
+- The market's body rows (above): none exist yet - R3 / R4c's work. An advert not yet visited holds no car: shown mint at full shine.
+- Wear, age and neglect have only the lost shine (`_PSXGloss`: paint %, paint_fade / paint_bubble / minor_rust / panel_rust, dirt since the last wash). There is no colour look anywhere (no dirt film, rust spots, faded or bubbled paint), in the drive or the views: a shader gap.
+- Legacy rows from before R1a (R0a's `bumper_crack`, alignment, ...) have no look in the drive either; an old save's crash shows nothing.
+- The lamp out reads weakly on a pop-up-lamp car (the NSX): the dark lens is the lamp map's texels; with the lids down there is little to darken. The SRS bag and the steam stay drive-only (no cockpit, no running engine in a view).
+- The dent is the drive's shader (a few cm push, creases, scrapes, the glass web), not a mesh crush; at the 320 x 200 side panel it reads as scraped and creased more than crumpled.
+- Pictures: the on-foot shell and the drive's car were filmed on the turntable rig (same camera, same light), not in the garage scene or a live drive (the drive's CarBody was built in the editor; its wheels were not set up). The self-test covers the shell's block; the drive's frame is DamageLook's own code on the drive's body.
+
+## Merge notes
+- Shared files touched: `DamageLook.cs` (Push -> WriteBlock / Seed), `CarViewer.cs`, `CarShell.cs`, `SellerLotWorld.cs`, `LifeHomeScreen.cs` (VisitCar + CarViewPanel line), `LifeHomeScreen.Showroom.cs` (two lines), `LifeSimSelfTest.cs` (one RunAll line). New .meta files with fixed GUIDs for the four new scripts.
+- No scene pass, no re-bake, no Resources change, no save version: a player-only build carries it.
+
+# HANDOFF - CHARLOTTE TREES ROUND 4: THE OWNER'S TREE MODELS IN THE KIT, DEFAULT OFF (agent "trees4", branch `charlotte-trees4`, 2026-11-15; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-trees4` off mountain-nm 416ddfda. Sandbox PSXLab (lock released 18:07). STATUS: the owner on the first before/after sheet: "the 'after' trees look pretty poor in comparison" - nothing ships: `PSX_CT_CHARLOTTE` and `PSX_CT_R4KIT` are DEFAULT OFF, so a merge changes no picture and no kit (round 3's 69 species). No file under `Scripts/City`; no re-bake; road graph untouched (no export run).
 
@@ -531,7 +1393,7 @@ Worktree `C:\Users\mcgee\PSX Racing-events` off mountain-nm 9ced6b84. Sandbox PS
 - Racing rep is not in the header (header REP = street rep); it is on the EVENTS page. No rep decay for racing rep. Club standings never reset (no seasons). Not in the month view.
 - MAIN-edition fallbacks checked by the self-test only; no race sweep / city check run.
 
-﻿# HANDOFF - GT-STYLE SHOWROOM (agent "showroom", branch gt-showroom, 2026-11-15; NOT pushed, NOT merged)
+# HANDOFF - GT-STYLE SHOWROOM (agent "showroom", branch gt-showroom, 2026-11-15; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-showroom` off mountain-nm eb6fa63a (PC38 + one wizard pad link). Sandbox PSXCity. Owner 2026-11-15: "I want car viewing and car selection to look like the early Gran Turismo games, with the car rotating (or able to be rotated by player)" (reference: a GT2 garage screen). Same KIND of screen in the game's own MenuKit palette; no GT icons, logos, fonts or credit symbol; the drivetrain diagram is drawn from UI rects.
 

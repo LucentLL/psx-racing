@@ -480,23 +480,24 @@ namespace PSXRacing.City
             crosswalkAt = new Dictionary<long, int>();
             CrosswalkJunctions = 0; CrosswalkArmsSkipped = 0;
             Counts = default;
+            MitreReset();
             ResetPlans();
             if (map == null || map.tagged == null) return;
             int nn = map.nodes.Length;
 
             // ---- signals: the nodes they mark
+            // (round 2, CitySignals.Signals2: by each tag's own way and direction;
+            // PSX_CITY_SIGNALS2=0: the nearer end of the tag's edge, as it was)
             var sig = new bool[nn];
-            if (map.nodeControl != null)
-                for (int i = 0; i < nn; i++) if (map.nodeControl[i] == 4) sig[i] = true;
-            foreach (var t in map.tagged)
+            bool[] lineEdge = null, fresh = null, touched = null;
+            float[] stubLen = null, lineBack = null;
+            var blinkers = new List<int>();
+            if (Signals2On)
             {
-                if (t.kind != 4 || t.edge < 0 || t.edge >= map.edges.Length) continue;
-                var e = map.edges[t.edge];
-                float d0 = t.s, d1 = e.length - t.s;
-                if (Mathf.Min(d0, d1) > SignalSnapM) continue;    // mid-block: a crossing's, not a junction's
-                sig[d0 <= d1 ? e.a : e.b] = true;
+                lineEdge = new bool[map.edges.Length]; lineBack = new float[map.edges.Length * 2]; fresh = new bool[nn]; touched = new bool[nn]; stubLen = new float[nn];
+                MarkSignals2(map, sig, lineEdge, lineBack, blinkers, fresh);
             }
-            for (int i = 0; i < nn; i++) if (sig[i] && Degree(map, i) < 3) sig[i] = false;
+            else { sigTagsFor = null; S2 = default; Sig2Refused.Clear(); Sig2Special.Clear(); MarkSignalsOld(map, sig); }
 
             // ---- one junction per cluster of marked nodes
             var parent = new int[nn];
@@ -508,13 +509,41 @@ namespace PSXRacing.City
             {
                 if (!sig[i]) continue;
                 member[i] = true;
+                if (Signals2On && fresh[i]) touched[i] = true;
                 foreach (int ei in map.nodeEdges[i])
                 {
                     var e = map.edges[ei];
                     if (e.a == e.b || e.length > ClusterM) continue;
                     int o = e.a == i ? e.b : e.a;
                     if (sig[o]) Union(i, o);
-                    else if (e.length <= 30f && Degree(map, o) >= 3 && !(e.cls >= 5 && !e.link)) { member[o] = true; Union(i, o); }
+                    else if (e.length <= 30f && Degree(map, o) >= 3 && !(e.cls >= 5 && !e.link))
+                    {
+                        // round 2: the stop line stands ON this edge (its own tag): the node behind it stays outside
+                        if (Signals2On && lineEdge[ei] && ApproachWhyNot(map, trims, e, i).Length == 0) { S2.joinsHeld++; continue; }
+                        member[o] = true; Union(i, o);
+                    }
+                    else if (Signals2On && Degree(map, o) == 2)
+                    {
+                        // round 2: marked nodes joined through joints (a way split a few metres out) are one junction
+                        float len = e.length; int at = o, via = ei;
+                        chainScratch.Clear(); chainScratch.Add(o);
+                        for (int hop = 0; hop < 6 && len <= ClusterM; hop++)
+                        {
+                            int next = -1;
+                            foreach (int oi in map.nodeEdges[at]) { var x = map.edges[oi]; if (oi != via && x.a != x.b) next = oi; }
+                            if (next < 0) break;
+                            var ne = map.edges[next];
+                            len += ne.length; via = next;
+                            at = ne.a == at ? ne.b : ne.a;
+                            if (Degree(map, at) != 2) break;
+                            chainScratch.Add(at);
+                        }
+                        if (len <= ClusterM && at != i && sig[at] && Degree(map, at) >= 3)
+                        {
+                            foreach (int m in chainScratch) { member[m] = true; touched[m] = true; Union(i, m); }
+                            Union(i, at); S2.chainJoins++;
+                        }
+                    }
                 }
             }
             var clusters = new Dictionary<int, List<int>>();
@@ -531,12 +560,53 @@ namespace PSXRacing.City
 
             var keys = new List<int>(clusters.Keys);
             keys.Sort();
-            foreach (int root in keys) if (BuildCluster(clusters[root], root, false)) Counts.osmSignals++;
+            foreach (int root in keys)
+            {
+                if (BuildCluster(clusters[root], root, false)) { Counts.osmSignals++; continue; }
+                if (!Signals2On) continue;
+                // round 2: a cluster that stands no signal gives its nodes back to the STOP tags and the warrants
+                foreach (int n in clusters[root]) { inCluster[n] = -1; sig[n] = false; member[n] = false; S2.released++; }
+            }
 
             // one signalised junction per cluster: its approaches, its crosswalks
             // (OSM's only: a warrant's leaves the road paint as it was)
             bool BuildCluster(List<int> ns, int root, bool warrant)
             {
+                bool round2 = Signals2On && !warrant, isNew = false;
+                if (round2)
+                {
+                    // an arm too short for its stop line whose far end is a joint: the joint comes in,
+                    // and the line stands on the road behind it (Five Points: 4-6 m stubs)
+                    for (int k = 0; k < ns.Count && ns.Count < 48; k++)
+                    {
+                        int n = ns[k];
+                        if (touched[n]) isNew = true;
+                        // the whole paved junction of each node (a junction cluster of the meshes: the
+                        // edges inside it have no ribbon to stand a line on) is the signal's
+                        var jc = trims.ClusterOfNode(n);
+                        if (jc != null)
+                            foreach (int m in jc.nodes)
+                                if (inCluster[m] < 0) { inCluster[m] = root; touched[m] = true; ns.Add(m); S2.meshNodesIn++; }
+                        foreach (int ei in map.nodeEdges[n])
+                        {
+                            var e = map.edges[ei];
+                            if (e.a == e.b) continue;
+                            int o = e.a == n ? e.b : e.a;
+                            if (inCluster[o] >= 0 || Degree(map, o) != 2) continue;
+                            if (e.oneway && e.a == n) continue;                      // it leaves: no line to stand
+                            if (stubLen[n] + e.length > StubReachM || !ArmTooShort(trims, e, n)) continue;
+                            inCluster[o] = root; stubLen[o] = stubLen[n] + e.length; touched[o] = true;
+                            ns.Add(o); S2.stubsIn++; isNew = true;
+                        }
+                    }
+                    // no new signal without a crossing: two roads at least
+                    if (isNew && RoadsAt(map, ns, inCluster, root) < 2)
+                    {
+                        S2.refusedNoCross++;
+                        if (Sig2Refused.Count < 400) Sig2Refused.Add($"n{root} ({map.nodes[root].x:0},{map.nodes[root].y:0}) [{NamesAt(map, ns)}] {ns.Count} nodes: one road, no crossing in the game");
+                        return false;
+                    }
+                }
                 var j = new Junction { signal = true, nodes = ns.ToArray(), warrant = warrant };
                 int arms = 0;
                 // roads pass L7 (Q5 a): a tier-1 signalised junction (its best
@@ -569,9 +639,30 @@ namespace PSXRacing.City
                             cwPending.Add(new Crosswalk { edge = e.index, node = n, sNear = mouth + dir * CrossInsetM,
                                                          sFar = mouth + dir * (CrossInsetM + CrossWideM), sStop = mouth + dir * CrossStopBackM });
                         }
-                        if (MakeApproach(map, trims, e, n, out var a, cw ? CrossStopBackM : StopBackM)) j.approaches.Add(a);
+                        float stopBack = cw ? CrossStopBackM : StopBackM;
+                        if (round2 && !cw)
+                        {
+                            // round 2: the stop line where its own tag stands (a mapper puts a directed
+                            // signal AT the stop line: 15-40 m back at a wide junction or where a ramp
+                            // joins), never nearer than the junction's own line; at a junction with a
+                            // fan no more than 15 m behind it (the game's box is the smaller one), at a
+                            // mitred node (a ramp joining a carriageway: no mouth of its own) the tag's own place
+                            float lb = lineBack[(ei << 1) | (e.b == n ? 1 : 0)];
+                            float tagBack = lb > 0f ? Mathf.Min(lb, SignalReachM) - trims.TrimAt(e, n) : 0f;
+                            if (trims.patch[n]) tagBack = Mathf.Min(tagBack, stopBack + 15f);
+                            if (tagBack > stopBack && MakeApproach(map, trims, e, n, out var at, tagBack)) { j.approaches.Add(at); S2.linesAtTag++; continue; }
+                        }
+                        if (MakeApproach(map, trims, e, n, out var a, stopBack)) j.approaches.Add(a);
                     }
-                if (arms < 3 || j.approaches.Count < 2) return false;
+                if (arms < 3 || j.approaches.Count < 2)
+                {
+                    if (round2)
+                    {
+                        S2.refusedArms++;
+                        if (Sig2Refused.Count < 400) Sig2Refused.Add($"n{root} ({map.nodes[root].x:0},{map.nodes[root].y:0}) [{NamesAt(map, ns)}] {ns.Count} nodes: {arms} arms, {j.approaches.Count} approaches that can stand a stop line:{ArmsWhyNot(map, trims, ns, inCluster, root)}");
+                    }
+                    return false;
+                }
                 for (int i = 0; i < j.approaches.Count; i++) { var ap = j.approaches[i]; ap.ctl = 4; j.approaches[i] = ap; }
                 Finish(map, j, root);
                 j.walks = cwPending.Count > 0;
@@ -591,16 +682,52 @@ namespace PSXRacing.City
             var flags = LoadStopFlags();
             var stopAt = new Dictionary<int, Junction>();
             var seen = new HashSet<long>();
-            void AddStop(int n, CityMap.Edge e, bool allWay, byte ctl = 2, bool warrant = false)
+            void AddStop(int n, CityMap.Edge e, bool allWay, byte ctl = 2, bool warrant = false, int atNode = -1, float stopBack = StopBackM)
             {
                 if (inCluster[n] >= 0 || sig[n]) return;              // a signal wins
-                if (!seen.Add(((long)e.index << 1) | (e.b == n ? 1L : 0L))) return;
-                if (!MakeApproach(map, trims, e, n, out var a)) return;
+                int at = n;
+                // control round (CitySignals.Mitre): the line of an arm clipped onto its host at a mitred
+                // node stands where its bar is clear of the host - the warrant's own (atNode given), or
+                // an OSM tag's there (PSX_CITY_MITREWARRANT=0: as before)
+                if (atNode < 0 && MitreTagLine(map, trims, e, n, out int mle, out int mln, out float mback))
+                { e = map.edges[mle]; atNode = mln; stopBack = mback; }
+                if (atNode >= 0) at = atNode;
+                else if (Signals2On)
+                {
+                    // round 2: an arm too short for its line whose far end is a joint stands the line behind the joint
+                    float len = 0f;
+                    for (int hop = 0; hop < 3; hop++)
+                    {
+                        if ((e.oneway && e.a == at) || !ArmTooShort(trims, e, at)) break;
+                        int far = e.a == at ? e.b : e.a;
+                        if (Degree(map, far) != 2 || inCluster[far] >= 0 || len + e.length > StubReachM) break;
+                        int next = -1;
+                        foreach (int oi in map.nodeEdges[far]) { var x = map.edges[oi]; if (oi != e.index && x.a != x.b) next = oi; }
+                        if (next < 0) break;
+                        len += e.length; e = map.edges[next]; at = far;
+                    }
+                }
+                if (!seen.Add(((long)e.index << 1) | (e.b == at ? 1L : 0L))) return;
+                if (!MakeApproach(map, trims, e, at, out var a, stopBack)) return;
                 a.ctl = ctl;
                 if (!stopAt.TryGetValue(n, out var j)) stopAt[n] = j = new Junction { signal = false, nodes = new[] { n }, warrant = warrant };
+                if (at != n && System.Array.IndexOf(j.nodes, at) < 0)
+                {
+                    var grown = new int[j.nodes.Length + 1];
+                    j.nodes.CopyTo(grown, 0); grown[j.nodes.Length] = at;
+                    j.nodes = grown; S2.stopStubs++;
+                }
                 j.approaches.Add(a);
                 j.allWay |= allWay;
             }
+            // round 2: a flashing beacon's junction is an all-way STOP
+            if (Signals2On)
+                foreach (int n in blinkers)
+                {
+                    if (sig[n] || inCluster[n] >= 0) continue;
+                    foreach (int ei in map.nodeEdges[n]) AddStop(n, map.edges[ei], true);
+                    S2.blinkerAllWay++;
+                }
             foreach (var t in map.tagged)
             {
                 if (t.kind != 2 || t.edge < 0 || t.edge >= map.edges.Length) continue;
@@ -608,11 +735,44 @@ namespace PSXRacing.City
                 flags.TryGetValue(t.nodeId, out byte f);
                 bool fwd = (f & 2) != 0, back = (f & 4) != 0;
                 float d0 = t.s, d1 = e.length - t.s;
+                if (Signals2On && !(Mathf.Min(d0, d1) < 1.5f && Degree(map, d0 <= d1 ? e.a : e.b) >= 3))
+                {
+                    // round 2: on an approach (or on a joint): the junction its traffic drives into, along its own way
+                    if (!WalkTag(map, t.edge, t.s, fwd ? 1 : back ? -1 : e.oneway ? 1 : 0, out int n, out int arrive)) continue;
+                    if (arrive != t.edge || Mathf.Min(d0, d1) > StopSnapM) S2.stopRowsWalked++;
+                    if ((f & 1) != 0)
+                    {
+                        // stop=all on an approach: every approach of its junction stops
+                        S2.stopAllWayByRow++;
+                        foreach (int ei in map.nodeEdges[n]) AddStop(n, map.edges[ei], true);
+                    }
+                    else AddStop(n, map.edges[arrive], false);
+                    continue;
+                }
                 if (Mathf.Min(d0, d1) < 1.5f)
                 {
                     // AT a junction node
                     int n = d0 <= d1 ? e.a : e.b;
                     if (Degree(map, n) < 3) continue;
+                    if (Signals2On && (f & 8) != 0 && (f & 1) == 0 && !fwd && !back)
+                    {
+                        // round 2: stop=minor on a junction node: the node's minor road by its THROUGH road -
+                        // the stem of a T stops, never the street that carries on (two streets of one class
+                        // were both stopped). A plain STOP on a junction node stays as it was: OSM's own
+                        // convention for it is the all-way stop.
+                        ThroughArms(map, n, out int t1, out int t2);
+                        if (t1 >= 0 && t2 >= 0)
+                        {
+                            foreach (int ei in map.nodeEdges[n])
+                            {
+                                var o = map.edges[ei];
+                                if (o.wayId != t.wayId) continue;
+                                if (ei == t1 || ei == t2) { S2.stopThroughKept++; continue; }
+                                AddStop(n, o, false);
+                            }
+                            continue;
+                        }
+                    }
                     if ((f & 1) != 0)
                     {
                         foreach (int ei in map.nodeEdges[n]) AddStop(n, map.edges[ei], true);
@@ -661,6 +821,17 @@ namespace PSXRacing.City
                 if (t.kind != 1 || t.edge < 0 || t.edge >= map.edges.Length) continue;
                 var e = map.edges[t.edge];
                 float d0 = t.s, d1 = e.length - t.s;
+                if (Signals2On && !(Mathf.Min(d0, d1) < 1.5f && Degree(map, d0 <= d1 ? e.a : e.b) >= 3))
+                {
+                    // round 2: on an approach: the junction its traffic drives into, along its own way
+                    byte yf = 0;
+                    if (sigTagsFor != null) sigTagsFor.TryGetValue(t.nodeId, out yf);
+                    int yd = (yf & 3) == 1 ? 1 : (yf & 3) == 2 ? -1 : e.oneway ? 1 : 0;
+                    if (!WalkTag(map, t.edge, t.s, yd, out int yn, out int ya)) continue;
+                    if (ya != t.edge || Mathf.Min(d0, d1) > StopSnapM) S2.yieldRowsWalked++;
+                    AddStop(yn, map.edges[ya], false, 1);
+                    continue;
+                }
                 int n = d0 <= d1 ? e.a : e.b;
                 if (Degree(map, n) < 3) continue;
                 if (Mathf.Min(d0, d1) < 1.5f)
@@ -692,6 +863,12 @@ namespace PSXRacing.City
                 foreach (var d in Warrants(map, trims, taken, sigMember))
                 {
                     if (d.signal) { wsig[d.node] = true; Counts.warrantSignalNodes++; continue; }
+                    if (d.mitre != null)
+                    {
+                        // control round: a mitred node's side streets, each with its own line and control
+                        foreach (var ma in d.mitre) AddStop(d.node, map.edges[ma.edge], false, ma.ctl, true, ma.at, ma.back);
+                        continue;
+                    }
                     foreach (int ei in d.stops) AddStop(d.node, map.edges[ei], d.allWay, 2, true);
                 }
                 // the warrants' signals: one junction per cluster, as OSM's
@@ -736,7 +913,7 @@ namespace PSXRacing.City
                 Finish(map, sj, n);
                 bool stopsHere = false;
                 foreach (var a in sj.approaches) if (a.ctl == 2) stopsHere = true;
-                if (!stopsHere) Counts.osmYieldJ++;
+                if (!stopsHere) { if (sj.warrant) M.yieldJ++; else Counts.osmYieldJ++; }
                 else if (sj.warrant) { if (sj.allWay) Counts.warrantAllWay++; else Counts.warrantStopJ++; Counts.warrantStopApp += sj.approaches.Count; }
                 else { Counts.osmStopJ++; if (sj.allWay) Counts.osmAllWay++; }
             }
@@ -746,7 +923,7 @@ namespace PSXRacing.City
 
             int sigs = 0, sigApp = 0, stops = 0, stopApp = 0;
             foreach (var j in junctions) { if (j.signal) { sigs++; sigApp += j.approaches.Count; } else { stops++; stopApp += j.approaches.Count; } }
-            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop/yield-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags; " + ControlReport());
+            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop/yield-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags; " + ControlReport() + "; " + Signals2Report() + "; " + MitreReport());
         }
 
         /// <summary>The approach an edge makes into node n, if it makes one.</summary>

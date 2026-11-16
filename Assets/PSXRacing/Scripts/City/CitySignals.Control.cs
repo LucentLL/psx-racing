@@ -228,7 +228,7 @@ namespace PSXRacing.City
 
         /// <summary>What the warrants decided at one node: the approaches that
         /// STOP (all-way when <c>allWay</c>), or a signal.</summary>
-        struct Decision { public int node; public bool signal, allWay; public List<int> stops; }
+        struct Decision { public int node; public bool signal, allWay; public List<int> stops; public List<MitreApp> mitre; }
 
         static readonly List<int> armScratch = new List<int>(8);
 
@@ -243,8 +243,11 @@ namespace PSXRacing.City
             int nn = map.nodes.Length;
             for (int n = 0; n < nn; n++)
             {
-                if (taken[n]) continue;
-                if (trims != null && trims.mitre != null && n < trims.mitre.Length && trims.mitre[n]) continue;
+                // a mitred node (a road meeting another at a shallow angle, no fan): skipped before the
+                // control round; with PSX_CITY_MITREWARRANT its named side streets STOP (CitySignals.Mitre)
+                bool mitred = trims != null && trims.mitre != null && n < trims.mitre.Length && trims.mitre[n];
+                if (taken[n]) { if (mitred && MitreWarrantOn) MitreNodeWhy[n] = sigMember[n] ? "the node is a signal's" : "an OSM STOP / give-way tag holds the node"; continue; }
+                if (mitred && !MitreWarrantOn) continue;
                 armScratch.Clear();
                 bool freeway = false, round = false;
                 foreach (int ei in map.nodeEdges[n])
@@ -255,7 +258,11 @@ namespace PSXRacing.City
                     if (e.roundabout) round = true;
                     armScratch.Add(ei);
                 }
-                if (armScratch.Count < 3 || freeway || round) continue;
+                if (armScratch.Count < 3 || freeway || round)
+                {
+                    if (mitred) MitreNodeWhy[n] = round ? "a roundabout entry: the roundabout's own yield" : freeway ? "a freeway node" : "under 3 usable arms";
+                    continue;
+                }
                 // within one short edge of a signal: the signal's (its other
                 // carriageway, a slip at its corner) - no sign of our own there
                 bool nearSig = false;
@@ -265,7 +272,10 @@ namespace PSXRacing.City
                     int o = e.a == n ? e.b : e.a;
                     if (e.length <= 45f && sigMember[o]) { nearSig = true; break; }
                 }
-                if (nearSig) { Counts.nearSignal++; continue; }
+                // a mitred node next to a signal is a junction of its own: its side streets still stop, all
+                // but an arm that leads into the signal (that arm is the signal's)
+                if (nearSig && !mitred) { Counts.nearSignal++; continue; }
+                if (mitred) { if (nearSig) M.nearSignal++; MitreSide(map, trims, n, armScratch, list, sigMember); continue; }
 
                 bool split = SplitArms(map, n, out int tw, out int ia, out int oa);
                 ThroughArms(map, n, out int m1, out int m2);
@@ -316,7 +326,12 @@ namespace PSXRacing.City
                         if (!(e.oneway ? e.lanes >= 2 : e.lanes >= 4)) multi = false;
                     }
                     if (r2 >= 3 || (r2 >= 2 && multi)) { list.Add(new Decision { node = n, signal = true }); continue; }
-                    if (r1 < 1) { Counts.localLocal++; continue; }
+                    if (r1 < 1)
+                    {
+                        // round 2 (CitySignals.Signals2): two equal local streets crossing are an all-way STOP
+                        if (!LocalStopsOn) { Counts.localLocal++; continue; }
+                        S2.localAllWay++;
+                    }
                     var all = new List<int>();
                     foreach (int ei in armScratch)
                     {
@@ -352,7 +367,15 @@ namespace PSXRacing.City
                         continue;
                     }
                     if (thrCls >= 3 && m.cls >= 3 && !string.IsNullOrEmpty(m.name) && m.name != A.name && m.name != B.name) { signal = true; continue; }
-                    if (thrCls == 0 && m.cls == 0) { Counts.localLocal++; continue; }
+                    if (thrCls == 0 && m.cls == 0)
+                    {
+                        // round 2 (CitySignals.Signals2): a local street meeting a local through street stops (the stem of a T)
+                        if (!LocalStopsOn) { Counts.localLocal++; continue; }
+                        if (ShortStub(map, m, n)) { Counts.shortStubs++; continue; }
+                        S2.localStems++;
+                        (stops ??= new List<int>()).Add(ei);
+                        continue;
+                    }
                     if (ShortStub(map, m, n)) { Counts.shortStubs++; continue; }
                     (stops ??= new List<int>()).Add(ei);
                 }
@@ -590,6 +613,11 @@ namespace PSXRacing.City
                         {
                             float dq = Vector2.Dot(a.u, refs[q].j.approaches[refs[q].i].u);
                             if (dq > 0f && dq < cosSide) { mn = -1f; break; }   // the same side, a skew apart
+                            // round 2 (CitySignals.Signals2): two flows that JOIN at one node take turns - one
+                            // phase would show both a green: the same sense (a ramp into a carriageway), or two
+                            // one-ways arriving head on (neither can go on along the other: both leave by the same arms)
+                            var bq = refs[q].j.approaches[refs[q].i];
+                            if (Signals2On && bq.node == a.node && (dq > 0f || (map.edges[a.edge].oneway && map.edges[bq.edge].oneway))) { mn = -1f; S2.mergePhases++; break; }
                             mn = Mathf.Min(mn, Mathf.Abs(dq));
                         }
                         if (mn >= cosAxis && mn > bestMin) { bestMin = mn; best = x; }

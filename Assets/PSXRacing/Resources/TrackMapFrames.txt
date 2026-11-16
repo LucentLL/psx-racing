@@ -11,6 +11,7 @@ deck_90480727 -2554.9 4665.8 420.0
 EmeraldIsle -177.3 -54.2 3565.5
 GillespieGap -6.2 -670.6 5421.8
 independence 2222.6 2197.0 6637.3
+LakeLure -1236.9 163.4 9718.0
 LangstonBridge 7.3 -30.2 2089.4
 LittleSwitzerland 5.2 175.1 4420.3
 MtMitchell 141.7 -281.9 6304.3

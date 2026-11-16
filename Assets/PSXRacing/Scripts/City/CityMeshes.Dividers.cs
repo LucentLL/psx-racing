@@ -2065,6 +2065,7 @@ namespace PSXRacing.City
             var bk = structBucket;
             cableSpans++; tm.cablePieces++;
             Vector3 a = divP[j], b = divP[j + 1];
+            ConNote(ConKind.WBeam, "cable", a, b, 0.1f, 0.8f, 0.8f);   // the concrete gate: a run that ties into the cable is not an orphan
             float dA = divD[j], dB = divD[j + 1];
             var o3 = new Vector3(divO[j].x + divO[j + 1].x, 0f, divO[j].y + divO[j + 1].y).normalized;
             float H(float h, float dd) => dd >= CableTermM ? h : Mathf.Lerp(0.12f, h, Mathf.Clamp01(dd / CableTermM));
