@@ -37,9 +37,12 @@ namespace PSXRacing
 
         /// <summary>A pooled forest of <paramref name="slots"/> x <paramref name="per"/>
         /// plants under <paramref name="parent"/> (identity root). Null when the
-        /// machine cannot run the GPU path (the tiles then keep their cards).</summary>
+        /// machine cannot run the GPU path (the tiles then keep their cards).
+        /// <paramref name="bandShare"/>: the hand-over bands as a share of each
+        /// level's distance (MeshForest.bandShare; &lt;= 0 the fixed bands).</summary>
         public static MeshForest CreatePool(Transform parent, Variant[] variants, int slots, int per,
-                                            float lod0, float lod1, float mesh, float far, System.Func<int> dress, ComputeShader cull)
+                                            float lod0, float lod1, float mesh, float far, System.Func<int> dress, ComputeShader cull,
+                                            float bandShare = -1f)
         {
             if (!SystemInfo.supportsComputeShaders || !SystemInfo.supportsInstancing || variants == null || variants.Length == 0) return null;
             var go = new GameObject("CityMeshForest") { hideFlags = HideFlags.DontSave };
@@ -52,6 +55,7 @@ namespace PSXRacing
             f.dressSource = dress;
             f.variants = variants;
             f.lod0To = lod0; f.lod1To = lod1; f.meshRange = mesh; f.farRange = far;
+            f.bandShare = bandShare;
             int n = slots * per;
             f.poolPer = per;
             f.poolUsed = new bool[slots];
