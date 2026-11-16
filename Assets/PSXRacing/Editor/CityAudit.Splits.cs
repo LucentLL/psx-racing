@@ -181,6 +181,29 @@ namespace PSXRacing.EditorTools
             Line($"CITY-WIDE ({nE} carriageway ends at {map.splt.Length} SPLT nodes): failing L/2 {f2}; failing full L {f1} ({(nE > 0 ? 100f * f1 / nE : 0f):0.0}%); outward bulge (overshoot) 1 m or more {ov}; lane-centre angle over atan(1/V) {ang} (p50 {P(angs, 0.5f):0.0} deg, p90 {P(angs, 0.9f):0.0} deg); outer-edge jumps 0.5 m or more {jmp}; nodes failing {nodesFail}");
             foreach (var kv in kinds) Line($"  {kv.Key,-22} ends {kv.Value[0],5} | fail L/2 {kv.Value[1],5} | fail L {kv.Value[2],5} | overshoot >= 1 m {kv.Value[3],5}");
             Line($"  refuge pairs drawn {LineModel.Refuges.Count / 2}; skipped (in scope, old taper kept): {LineModel.SplitSkipped.Count}");
+            {
+                // Phase C: every skip by its reason (the first 60 listed below as before)
+                var why = new Dictionary<string, int>();
+                foreach (var s in LineModel.SplitSkipped)
+                {
+                    int c = s.IndexOf("': ");
+                    string r = c >= 0 ? s.Substring(c + 3) : s;
+                    r = System.Text.RegularExpressions.Regex.Replace(r, @"[-+]?\d+(\.\d+)?", "#");
+                    if (r.Length > 70) r = r.Substring(0, 70);
+                    why[r] = (why.TryGetValue(r, out int v) ? v : 0) + 1;
+                }
+                var wl = new List<KeyValuePair<string, int>>(why); wl.Sort((x, y) => y.Value.CompareTo(x.Value));
+                Line($"  skipped by reason ({LineModel.SplitSkipped.Count}): " + string.Join("; ", wl.ConvertAll(kv => $"{kv.Value} {kv.Key}")));
+                int capped = 0, capJ = 0, capDev = 0, curving = 0;
+                foreach (var f in LineModel.SplitFrames)
+                {
+                    if (f.capped) capped++;
+                    if (f.note.Contains("side street")) capJ++;
+                    if (f.note.Contains("held to")) capDev++;
+                    if (f.note.Contains("curving")) curving++;
+                }
+                Line($"  framed ends {LineModel.SplitFrames.Count}: blend cut short by room {capped}, ended before a side street {capJ}, held near the own line {capDev}, curving (J1's length) {curving}");
+            }
             int sk = 0; foreach (var s in LineModel.SplitSkipped) { if (sk++ < 60) Line("    skipped " + s); }
             foreach (var f in LineModel.SplitFrames) if (f.capped && sk++ < 120) Line($"    room shortfall n{f.node} e{f.edge}: {f.note}");
 
