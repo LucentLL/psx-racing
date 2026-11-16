@@ -148,7 +148,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0;
+            SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
         /// <summary>Phase C (NoseMarks): the undivided edge of a framed node (a same-name meeting has no SPLT record).</summary>
@@ -471,6 +471,26 @@ namespace PSXRacing.City
                 if (CityPhaseC && !BfrNode(map, sp.node)) L = PhaseCLength(map, f, rate, rmin, uMax, L);
                 if (CityPhaseC) f.devMax = BlendDev(f, Mathf.Min(L, Mathf.Max(10f, f.room)));
                 if (L > f.room) { f.capped = true; f.note = $"room {f.room:0.0} m for L {L:0.0} m" + (f.note.Length > 0 ? "; " + f.note : ""); L = Mathf.Max(10f, f.room); }
+                // Phase C (the census, 15:45: 29 "corners in the line" mid-road on West Blvd, South Blvd, Eastway Dr,
+                // none under bfr): the cubic's end slope is clamped at 0.15, so a blend that ends where the own line
+                // still moves faster than that (a cap - room, a side street, the hold near the own line - landing
+                // in the middle of a wide divergence) joins it with a corner. Under city the end must sit where the
+                // own line runs at PhaseCEndSlopeMax or less: the longest such blend up to L, else no profile here
+                // (the old taper, listed). Beatties Ford's 19 nodes keep J1's drawing.
+                if (CityPhaseC && !BfrNode(map, sp.node))
+                {
+                    float SlopeRaw(float uu) => (f.OwnQAt(uu + 2f) - f.OwnQAt(uu - 2f)) / 4f;
+                    if (Mathf.Abs(SlopeRaw(f.uStart + L)) > PhaseCEndSlopeMax)
+                    {
+                        float Lk = float.NaN;
+                        for (float l = L; l >= 10f; l -= 1f) if (Mathf.Abs(SlopeRaw(f.uStart + l)) <= PhaseCEndSlopeMax) { Lk = l; break; }
+                        if (float.IsNaN(Lk)) { PhaseCSteepEnd++; Skip(ci, $"the own line still moves {Mathf.Abs(SlopeRaw(f.uStart + L)):0.00} m/m where the blend can end (a corner in the lane): no profile"); continue; }
+                        PhaseCEndShortened++;
+                        f.note = $"Phase C: ended where the own line runs at {PhaseCEndSlopeMax:0.00} or less (L {L:0.0} -> {Lk:0.0})" + (f.note.Length > 0 ? "; " + f.note : "");
+                        f.capped = f.capped || Lk < L - 0.5f;
+                        L = Lk;
+                    }
+                }
                 f.L = L; f.uEnd = f.uStart + L;
                 f.qEnd = f.OwnQAt(f.uEnd);
                 f.slopeEnd = Mathf.Clamp((f.OwnQAt(f.uEnd + 2f) - f.OwnQAt(f.uEnd - 2f)) / 4f, -0.15f, 0.15f);
@@ -680,7 +700,9 @@ namespace PSXRacing.City
         public const float PhaseCMaxL = 240f, PhaseCEndSlope = 0.08f, PhaseCJunctionOffM = 0.5f, PhaseCJunctionClearM = 6f, PhaseCDevLaneM = 3.66f;
         /// <summary>PSX_CITY_SHORTPROFILE=0: short islands off the refuge list keep PC45's taper under city too.</summary>
         public static bool PhaseCShortOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SHORTPROFILE") != "0";
-        public static int PhaseCLonger, PhaseCCurving, PhaseCJunctionCap, PhaseCDevCap;
+        public static int PhaseCLonger, PhaseCCurving, PhaseCJunctionCap, PhaseCDevCap, PhaseCSteepEnd, PhaseCEndShortened;
+        /// <summary>Phase C: the own line's slope where a blend may end (the cubic's end tangent is clamped at 0.15).</summary>
+        public const float PhaseCEndSlopeMax = 0.12f;
 
         /// <summary>Is this one of Beatties Ford's 19 split-type nodes (graph b2aa3453)?</summary>
         static bool BfrNode(CityMap map, int node)
