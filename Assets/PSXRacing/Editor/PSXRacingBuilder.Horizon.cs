@@ -617,7 +617,11 @@ namespace PSXRacing.EditorTools
         // on the Horizon layer, dithered in past the detail's edge (where the
         // mesh forest has stopped), clipped whole by PSX_FARCANOPY=0.
         const float FringeW = 72f, FringeCrossW = 48f, FringeH = 30f, FringeSink = 8f, FringeTexM = 96f;
-        static string FringePath(bool spruce) => StageGenDir + (spruce ? "/HorizonFringeSpruce.png" : "/HorizonFringe.png");
+        /// <summary>"FarLand_": the texture sweep (ConfigureTextureImporters,
+        /// PSXTextureCaps.IsFarLand) keeps it at 512, trilinear with mips, as
+        /// it does the far land - point-sampled and unmipped, a row of crowns
+        /// 5 km off would sparkle.</summary>
+        static string FringePath(bool spruce) => StageGenDir + (spruce ? "/FarLand_FringeSpruce.png" : "/FarLand_Fringe.png");
 
         static float FringeHash(int a, int b) { uint h = (uint)(a * 73856093) ^ (uint)(b * 19349663); h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15; return (h & 0xffffu) / 65535f; }
 
@@ -653,7 +657,9 @@ namespace PSXRacing.EditorTools
                 float ym = (y + 0.5f) * FringeH / H - FringeSink;   // over the ground
                 // the outline's leaves: a ragged edge half a metre deep
                 float rag = (FringeHash(x, 23) - 0.5f) * 0.9f + (FringeHash(x / 3, 29) - 0.5f) * 0.8f;
-                bool on = ym < top[x] + rag;
+                // (the card's foot, deep underground, clear too: the sweep wraps V,
+                // and a clear foot under a clear top bleeds nothing at either edge)
+                bool on = ym < top[x] + rag && ym > 2.5f - FringeSink;
                 float under = Mathf.Clamp01((top[x] - ym) / Mathf.Max(depth[x], 1f));
                 float g = Mathf.Lerp(0.62f, 0.30f, under);
                 byte v = (byte)Mathf.RoundToInt(g * 255f);
@@ -662,10 +668,10 @@ namespace PSXRacing.EditorTools
             var imp = AssetImporter.GetAtPath(FringePath(spruce)) as TextureImporter;
             if (imp == null) return;
             bool dirty = !imp.mipmapEnabled || !imp.mipMapsPreserveCoverage || Mathf.Abs(imp.alphaTestReferenceValue - 0.5f) > 0.01f ||
-                         imp.wrapModeU != TextureWrapMode.Repeat || imp.wrapModeV != TextureWrapMode.Clamp ||
+                         imp.wrapMode != TextureWrapMode.Repeat || imp.maxTextureSize != 512 || Mathf.Abs(imp.mipMapBias + 0.4f) > 0.001f ||
                          imp.filterMode != FilterMode.Trilinear || !imp.alphaIsTransparency || imp.sRGBTexture;
             imp.mipmapEnabled = true; imp.mipMapsPreserveCoverage = true; imp.alphaTestReferenceValue = 0.5f;
-            imp.wrapModeU = TextureWrapMode.Repeat; imp.wrapModeV = TextureWrapMode.Clamp;
+            imp.wrapMode = TextureWrapMode.Repeat; imp.maxTextureSize = 512; imp.mipMapBias = -0.4f;   // the sweep's own far-land settings
             imp.filterMode = FilterMode.Trilinear; imp.anisoLevel = 4; imp.alphaIsTransparency = true;
             imp.sRGBTexture = false;   // the shading is a factor, not a colour
             imp.textureCompression = TextureImporterCompression.Uncompressed;
