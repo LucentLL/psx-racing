@@ -5,7 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\intro-check.ps1 [-Off] [-NoCopy] [-NoWatch] [-Out <dir>]
 #
 # -Off     PSX_INTRO=0: the before (the wizard on the charcoal, DRIVE THIS ONE straight home).
-# -Skip    a virtual pad holds START once the headlights are up: the skip, and its end state.
+# -Skip    a virtual pad holds START once the ease onto the car has begun: the skip, and its end state.
 # -View    the player's saved camera view for the run (Chase, Close, Cockpit, Hood...): put back after.
 # -NoCopy  run on the code already in the sandbox.
 # -Out     copy the frames, the report and the video (intro.mp4, when ffmpeg is on PATH) there.

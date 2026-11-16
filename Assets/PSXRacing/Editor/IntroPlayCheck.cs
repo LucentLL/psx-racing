@@ -266,7 +266,7 @@ namespace PSXRacing.EditorTools
             Note($"bore {intro.BoreIn}..{intro.BoreOut}, hour {RaceHandoff.TimeOfDayIndex}, day {RaceHandoff.CalendarDay} " +
                  $"({LifeRules.DateLabel(RaceHandoff.CalendarDay)}), season {Seasons.Current}, sky {RaceHandoff.SkyOverride}");
 
-            // PSX_INTRO_CHECK=skip: a virtual pad holds START once the headlights are up (the real input path)
+            // PSX_INTRO_CHECK=skip: a virtual pad holds START once the ease has begun (the real input path)
             bool skipRun = Environment.GetEnvironmentVariable("PSX_INTRO_CHECK") == "skip";
             Gamepad pad = null;
             float pressedAt = -1f;
@@ -298,7 +298,7 @@ namespace PSXRacing.EditorTools
                 if (intro.Now == NewGameIntro.Phase.Approach && NewGameIntro.EarOutside) earOut = true;
                 if (intro.Now == NewGameIntro.Phase.Drive && !NewGameIntro.EarOutside) earBack = true;
                 endReason = intro.EndReason;
-                if (skipRun && lamps && pad == null && pressedAt < 0f)
+                if (skipRun && attach && pad == null && pressedAt < 0f)
                 {
                     try { pad = InputSystem.AddDevice<Gamepad>(); }
                     catch (Exception e) { Note("no virtual pad: " + e.Message); }
