@@ -28,7 +28,18 @@
     "near": "USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice",
     "far": "USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice",
     "wide": "unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs",
-    "line": "2 stretch(es) moved onto the lidar bench (88 m of road)",
+    "line": "as mapped (--keep-line); gentle stretches smoothed (--plan-smooth 8: gaussian 8 m where R > 120 m, none under 50 m; largest move 0.31 m at 64 m), 1 local refit(s) at an S the lidar shelf does not carry (--refits: 5572-5584 m moved 1.15 m, tapers 80 m)",
+    "planSmoothM": 8,
+    "refits": [
+      {
+        "fromM": 5572,
+        "toM": 5584,
+        "fromFadeM": 5492,
+        "toFadeM": 5664,
+        "taperM": 80,
+        "moveM": 1.15
+      }
+    ],
     "before": "tools/roads/srtm_bakes/beech_srtm/ (the SRTM bake this replaced)",
     "files1m": [
       {
@@ -62,6 +73,14 @@
       {
         "file": "USGS_1M_17_x43y400_NC_Phase5_2018_A18.tif",
         "lastModified": "Fri, 13 Feb 2026 21:30:53 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x39y393_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:26:09 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x39y392_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:26:03 GMT"
       }
     ],
     "files13": [

@@ -1,6 +1,6 @@
 {
-  "source": "Guardrails the real NC 226A has, by distance along swa_stage.json (the 3DEP bake of 2026-11-09). Looked up on public road-level imagery (Google Street View, captures of May 2024 and Feb 2025) on 2026-11-10; reference only, nothing copied. Only places that were looked at are listed: 17 places, a rail at one.",
+  "source": "Guardrails the real NC 226A has, by distance along swa_stage.json (the mapped line of 2026-11-16, bake_3dep --keep-line --plan-smooth 8: the span is the same stretch of road, 4 m lower in metres than on the 2026-11-09 bake, whose bench moves made the road longer; it read 256-372 m there, and the places it was seen from were 240, 292 and 360 m on that line). Looked up on public road-level imagery (Google Street View, captures of May 2024 and Feb 2025) on 2026-11-10; reference only, nothing copied. Only places that were looked at are listed: 17 places, a rail at one.",
   "spans": [
-    { "fromM": 256, "toM": 372, "side": "L", "seen": "W-beam rail on the left through the first left-hand bend below the village; seen from 240 m and 292 m looking down the road and from 360 m looking back. Its lower end was not seen." }
+    { "fromM": 252, "toM": 368, "side": "L", "seen": "W-beam rail on the left through the first left-hand bend below the village; seen from 240 m and 292 m looking down the road and from 360 m looking back. Its lower end was not seen." }
   ]
 }

@@ -1,4 +1,102 @@
-﻿# HANDOFF - BANK ROUND: the mountain roads crowned and superelevated from the 2018 lidar (agent "bank", branch `mountain-bank`, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - J3 STAGE LINES, PHASE 1: the mountain waves taken out of all eight stage lines (agent "lines", branch `mountain-lines`, 2026-11-16 night; NOT pushed, NOT merged)
+
+The owner, 2026-11-16 ~01:00, after PC45: "I've noticed this in mountain tracks as [well] where an otherwise straight road will
+wave back and forth abruptly in a way that DOT would never approve." Spec: the align investigation's PLAN.json, job J3, Phase 1
+only (offline: node and python, no Unity, no sandbox). Worktree `C:/Users/mcgee/PSX Racing-lines`, base mountain-nm 7badf362
+(PC45). The 3DEP cache and Overpass files were copied to the scratch folder and PSX_ROADS_CACHE pointed there, so no bake wrote
+to the main checkout. Before anything changed, `bake_3dep.mjs swa --check` reproduced the PC45 files exactly.
+
+## What made the waves (the investigation's causes, re-measured with the same detectors)
+- The mapped (OSM) line's own digitising jogs, drawn faithfully by the builder's chord-length Catmull-Rom
+  (PSXRacingBuilder.Ribbon.cs RibbonFrame): the mapped line alone has 25 S-places, 108 short-tangent jogs, 74 abrupt reversals.
+- The Nov 10 lidar round's 38 bench moves, faded in and out over 24 m (bake_3dep.mjs TAPER = 6 stations): PC45 has 37 S-places,
+  133 jogs, 91 abrupt reversals. `bake_3dep.mjs <pre> --offline --out <dir>` (the old path, untouched) re-derives the same 38.
+
+## What changed
+- `tools/roads/plan_smooth.mjs` (new). planSmooth = lakelure's planSmoothM (7a9f964d fetch_road.mjs) as a tool of its own: a
+  gaussian of 8 m, full where R > 120 m (circle through +-12 m), none under 50 m, the blend following the tightest curvature within
+  3 sigma and itself blurred, open stages keep their first and last 3 sigma, loops wrap. It does NOT re-space the line: every
+  waypoint keeps its index, so everything given in metres along a stage (start, finish, bridges, crossings, sprint cuts, rails;
+  the game reads them as waypoint round(m / 4)) stays on the same stretch of road. localRefits = variant L, made to work: the
+  plan's single 200 m quadratic was refused at all seven S-places it was tried on (it would have moved the line 1.2-7.7 m: every
+  200 m window reaches a real bend). Instead the line is redrawn as the curve closest to it with the least change of curvature
+  (weighted squared distance + 100 x the squared third differences of the waypoints), held loosely (weight 0.05) between the S's
+  peaks, ever more firmly over a quintic taper each side, and pinned at the window's ends (position, heading and curvature carry
+  on). An S has a great deal of curvature change, an arc or a spiral almost none. Each taper is max(72 m, 45 W, 1.5 W S) for the
+  move W at the posted speed S (TrackCatalog: swa/mtm/swiss/brock 35 mph, gap/beech/brp 45, chimney 25); moves over 2 m are refused.
+- `tools/roads/bake_3dep.mjs`: `--plan-smooth <m> [--refits]` (with --keep-line). Recorded in the meta (source.line, planSmoothM,
+  refits) and honoured by --check; places along the stage are not remapped (same indices). The header says why the 24 m bench
+  moves are gone and what a move needs if it comes back (L >= max(45 W, 61 m) per side and 1.5 W S).
+- `tools/roads/plan_refits.json` (new): the 14 refits and why each was made (7 S-places + 7 abrupt reversals; see below).
+- `tools/roads/waves.py` (new): the investigation's detectors (align/verify-mountain/vm.py S-places and jogs, the counts the plan's
+  gates were written in; align/mountain/wavelib.py's moving fit), plan_wiggle.py's abrupt reversals, the lidar shelf betas
+  (both edges must carry an S, beta >= 0.7 with the shelf found at 60 % of the stations, to count as the real road), mapped OSM
+  bridges (bake_3dep's osmSpans), off-shelf runs; `report` and `refits` commands. `tools/roads/shelf_edges.mjs` (new): both lidar
+  shelf edges at every waypoint, offline, no ledger write. `tools/roads/plan_wiggle.py`: copied unchanged from lakelure 7a9f964d
+  (identical to lakelure HEAD; lakelure owns it). On a loop pass `--from 0 --to <length>`: with start = finish = 0 it crashes.
+- `tools/roads/pc45_lines/`: the eight stage lines PC45 shipped (the before).
+- The eight stages re-baked: `node tools/roads/bake_3dep.mjs <pre> --keep-line --offline --plan-smooth 8 --refits`
+  (Resources/<pre>_stage.json + Art/<stage>/<pre>_dem_meta.json). The 38 short-fade bench moves are gone; no long moves (owner
+  decision 2 pending). Heights are the lidar bench's on the new line (against PC45 at the same place: rms 0.01-0.09 m, worst
+  +-0.5 m). Near and far grids byte-identical to PC45 (no .bytes file in the diff). `--check` OK on all eight.
+- `Art/Swiss226A/swa_rails.json`: the surveyed rail 256-372 m -> 252-368 m, the same stretch of road on the new line.
+- No C#, no TrackCatalog, no fetch_road / fetch_loop / lib3dep change. No runtime switch: the line is baked into the stage scenes
+  and read by TrackPath, AI and the minimap; the A/B is PC45 against the next build.
+
+## Gates (the builder's curve at 1 m; new against PC45; per stage swa / gap / mtm / beech / chimney / brp / swiss / brock)
+- S-places: 37 -> 3 (7/7/9/3/1/3/4/3 -> 1/1/0/0/0/0/1/0). PASS: the 3 left are carried by both shelf edges (the real road):
+  swa 1324-1410 (beta R 1.96, L 1.14), gap 931-1002 (1.64 / 0.75), swiss 5577-5680 (2.35 / 1.19). None on a bridge.
+- Short-tangent reverse curves (jogs): 133 -> 27 (29/32/22/7/5/4/13/21 -> 9/6/2/1/1/0/5/3). PASS (<= 50); every one is on the
+  mapped line too (both curves, same sign, within 8 m).
+- plan_wiggle abrupt reversals: 91 -> 16 (40/15/15/4/5/0/8/4 -> 9/1/0/0/4/0/1/1). FAIL against 0: 11 of the 16 are carried by
+  both shelf edges; the other 5 were left as mapped because a refit would put the road further off the shelf (swa 2004, 2180,
+  3948, 4300) or move it 2.3 m (brock 4180). All 16 are on the mapped line. They are bends of R 45-240 m, 1-2.9 m off the chord.
+- plan_wiggle worst wiggle per 100 m: 0.60 / 0.57 / 0.38 / 0.43 / 1.95 / 0.08 / 0.65 / 0.58 m (PC45 0.63 / 0.61 / 0.47 / 0.40 /
+  1.68 / 0.17 / 0.65 / 0.58). FAIL against 0.30 except brp. The worst readings are hairpins, not wiggles: a cubic over 40 m cannot
+  follow a 6-30 m hairpin (chimney's 1.95 m is its 6.1 m hairpin at 4208 m). Medians fell 2-6x (e.g. mtm 0.105 -> 0.025 m).
+- Largest plan move on gentle stretches (mapped R over 120 m): 0.31 / 0.26 / 0.26 / 0.26 / 0.25 / 0.67 / 0.26 / 0.28 m. PASS
+  except brp 0.67 m at 6572 m: the Linn Cove viaduct's south abutment, a 26.9 m kink in the map (3-point R 26.9 -> 41.6 m). Moves in
+  real bends (R under 50 m): 0.00 m.
+- Lateral moves off the mapped line (the 14 refits): W 0.39-1.54 m, tapers 72-100 m per side, each >= max(45 W, 61 m) and
+  >= 1.5 W S, each whole move longer than 2 L. PASS. (The gaussian's own moves are under 0.5 m and only take out the map's jogs.)
+- Tightest corner no tighter than mapped (-0.75 m): equal on seven stages, brp looser (26.9 -> 41.6 m). PASS.
+- Tightest vertical curve: 591 / 341 / 523 / 424 / 255 / 600 / 332 / 230 m (gaussian sigma 8 m everywhere). PASS (>= 230).
+  Max grade: chimney 14.8 % (under the self-test's 15 %), the rest 6.1-13.0 %.
+
+## Places along the stages (metres -> waypoint round(m / 4)), PC45 -> new
+- TrackCatalog (lakelure owns it, NOT edited): the eight SwissNC226A sprint rows (TrackCatalog.cs:1057-1097) must go back to their
+  pre-11-09 values, the same places on the mapped line: 3696 -> 3688, 7848 -> 7832, 11738 -> 11721. Unchanged they would land
+  9.3, 16.1 and 19.8 m from where PC45 has them. Labels stay (860 M: 858.4 m; 635 M: 634.5 m; THE VALLEY 479 m). Blowing Rock's
+  0 / 6328: 0.11 / 0.03 m, no change. The 3688 cut stands 3.3 m to the side of PC45's: PC45 had moved that stretch onto the bench.
+- swa_rails.json: 256-372 -> 252-368 (done here, 0.85 m to the side).
+- Start lines move <= 0.6 m. Finish lines on gap / mtm / beech / chimney move 2.7 / 3.1 / 2.6 / 2.8 m: the bake now keeps the
+  mapped line's own start and finish; the 11-09 remap had let them drift (arc length against waypoint index).
+
+## What still looks wrong (my own sheet, scratch\lines\worst10_before_after.png)
+- The waves are gone at all ten places. At four of them the new road sits 3-6 m past the lidar shelf's edge where PC45's bench
+  moves had put it on the shelf (with S-bends): mtm 4593-4663, mtm 5023-5545, chimney 1360-1433, swa 11148-11232 (the mapped bend
+  is tighter than the shelf). Stage-wide, road-edge station-sides more than 1 m past the shelf: PC45 3,206 -> new 3,815; 644 of the
+  786 new-or-worse stations lie within 40 m of a dropped bench move (mtm 425, swa 148, gap 47, chimney 22). That is the plan's risk
+  8 and owner decision 2 (long DOT-length moves where both shelf edges agree). Phase 2's off-shelf gate will fail without them.
+  The full list: scratch\lines\offshelf_new.csv (every run, side, worst, PC45 at the same place).
+- 5 abrupt reversals and the hairpin wiggle readings above.
+
+## Not done
+- Phase 2 (after the bank merge): bake_bank.mjs for the 8, StageLab audits, finish-play-check, driver's-eye pictures (PSXRec).
+- Nothing was seen in a running game or a Unity build. The pictures are straightened plan strips over the lidar slope.
+- No long bench moves (owner decision 2). The investigation's other "REAL?" S-places (swiss 5438/9012, swa 1331, gap 2554, mtm
+  5856, measured on PC45) were re-judged on the smoothed line: only the three above remain and all three are carried.
+
+## At merge
+- Merge after bank. bank's eight Art/<stage>/<pre>_bank.json are per waypoint of the PC45 lines (swa 2986 -> 2981, mtm 1871 ->
+  1867, beech 2820 -> 2819 waypoints: the loader skips a count mismatch, so those three would drive flat; on the others the
+  stations shift up to ~3 m). Re-run `node tools/roads/bake_bank.mjs <pre>` for all eight on these lines before a build.
+- Rebuild all eight stage scenes in the next PC build: never ship these stage JSONs with PC45's scenes.
+- TrackCatalog swa sprint cuts as above (after lakelure merges). plan_wiggle.py is byte-identical on both branches.
+- Re-bake check: `node tools/roads/bake_3dep.mjs <pre> --check` (with PSX_ROADS_CACHE = the main checkout's tools/roads/cache).
+- No city re-bake. No shared C# edits.
+
+# HANDOFF - BANK ROUND: the mountain roads crowned and superelevated from the 2018 lidar (agent "bank", branch `mountain-bank`, 2026-11-16; NOT pushed, NOT merged)
 
 The owner (verbatim): "Did you catch the banking of the roads? I've noticed many of the mountain road tracks are very flat. They have
 turns, but almost no (if any) banking". He was right: `BuildRoad` laid every stage ring flat across and everything beside the road

@@ -1,6 +1,6 @@
 // bake_3dep.mjs - re-bake a mountain stage from USGS 3DEP lidar ground.
 //
-//   node tools/roads/bake_3dep.mjs <prefix> [--check] [--offline] [--keep-line] [--hold-ends <m>] [--out <dir>]
+//   node tools/roads/bake_3dep.mjs <prefix> [--check] [--offline] [--keep-line] [--plan-smooth <m> [--refits]] [--hold-ends <m>] [--out <dir>]
 //
 // The stages were baked from OpenStreetMap lines and "SRTM" heights
 // (fetch_road.mjs / fetch_loop.mjs / tools/brp). This reads that bake and
@@ -25,6 +25,13 @@
 //   around 6.4 m of road, grass shoulders that are not the same width on
 //   both sides), because there the shelf's middle does not say where the
 //   pavement is to better than a couple of metres.
+//   --plan-smooth <m> [--refits] (with --keep-line; 2026-11-16, all eight
+//   stages): the mapped line keeps its place but loses its own digitising
+//   jogs, the waves the owner saw ("an otherwise straight road will wave back
+//   and forth abruptly"): tools/roads/plan_smooth.mjs. The 24 m fades of the
+//   moves above made S-bends of their own (2 m over 24 m is R 48 m), so the
+//   stages are baked without them; a move onto the bench, if it comes back,
+//   needs L >= max(45 W, 61 m) per side and 1.5 W S.
 //
 //   THE HEIGHTS are the lidar ground on the bench under each waypoint (median
 //   of the ground within 1.5 m of the bench's middle), straight across bridges,
@@ -56,6 +63,7 @@ import { fileURLToPath } from 'node:url';
 import { makeProjection, arcPositions, splineResample, tightestPlan, profileStats } from './lib.mjs';
 import { open3dep, dem13, dem1m, STAGES, loadStage, PROJECT_1M } from './lib3dep.mjs';
 import { ribbon, findBench, gaussSmooth } from './bench.mjs';
+import { planSmooth, localRefits, refitsFor, STAGE_MPH } from './plan_smooth.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -63,7 +71,7 @@ const args = process.argv.slice(2);
 const flag = n => args.includes(n);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const pre = args[0];
-if (!pre || !STAGES[pre]) { console.error('usage: node bake_3dep.mjs <' + Object.keys(STAGES).join('|') + '> [--check] [--offline] [--keep-line] [--out dir]'); process.exit(2); }
+if (!pre || !STAGES[pre]) { console.error('usage: node bake_3dep.mjs <' + Object.keys(STAGES).join('|') + '> [--check] [--offline] [--keep-line] [--plan-smooth <m> [--refits]] [--out dir]'); process.exit(2); }
 const CHECK = flag('--check');
 const st = STAGES[pre];
 const roadsCache = process.env.PSX_ROADS_CACHE || join(HERE, 'cache');
@@ -140,6 +148,14 @@ const KEEP_LINE = flag('--keep-line') || loop || bakedKeepLine;
 // the meta and honoured by --check.
 const bakedHold = CHECK && existsSync(metaPath) ? (JSON.parse(readFileSync(metaPath, 'utf8')).source?.holdEndsM || 0) : 0;
 const HOLD_ENDS = +opt('--hold-ends', bakedHold) || 0;
+// --plan-smooth <m> [--refits]: the mapped line kept (--keep-line) with its own digitising jogs taken out
+// (tools/roads/plan_smooth.mjs: the Lake Lure gentle-stretch gaussian, then a local refit at each S it leaves that the
+// lidar shelf does not carry, listed in tools/roads/plan_refits.json). Every waypoint keeps its index, so the start,
+// finish, bridges, crossings and TrackCatalog's sprint cuts stay where they were. Recorded in the meta (planSmoothM,
+// refits) and honoured by --check.
+const bakedSrc = CHECK && existsSync(metaPath) ? (JSON.parse(readFileSync(metaPath, 'utf8')).source || {}) : {};
+const PLAN_SMOOTH = +opt('--plan-smooth', bakedSrc.planSmoothM || 0) || 0;
+const REFITS = CHECK ? (bakedSrc.refits || []).map(r => ({ fromM: r.fromM, toM: r.toM })) : flag('--refits') ? refitsFor(pre) : [];
 if (!KEEP_LINE) {
   const widths = []; for (let i = 0; i < n; i++) if (b0.conf[i]) widths.push(b0.width[i]);
   widths.sort((a, b) => a - b);
@@ -187,6 +203,19 @@ if (!KEEP_LINE) {
   for (let i = 0; i <= n; i++) { const on = i < n && Math.abs(b0.offF[i]) > 2; if (on && a < 0) a = i; if (!on && a >= 0) { if ((i - a) * SP >= 16) over.push(`${a * SP}-${(i - 1) * SP} m`); a = -1; } }
   console.log(`  line: left as mapped (${loop ? 'a loop' : '--keep-line'}); the bench reads over 2 m off it for 16 m or more at ${over.length} place(s)${over.length ? ': ' + over.join(', ') : ''}`);
 }
+let planNote = null, refitsDone = [];
+if (PLAN_SMOOTH > 0) {
+  if (!KEEP_LINE) throw new Error('--plan-smooth smooths the mapped line: use it with --keep-line');
+  const sm = planSmooth(wp, { sigmaM: PLAN_SMOOTH, spacing: SP, loop });
+  wp = sm.wp;
+  const rf = localRefits(wp, REFITS, { spacing: SP, loop, mph: STAGE_MPH[pre] ?? 45 });
+  if (rf.refused.length) throw new Error(`refit refused: ${rf.refused.map(r => `${r.fromM}-${r.toM} m: ${r.why}`).join('; ')}`);
+  wp = rf.wp; refitsDone = rf.done;
+  planNote = `gentle stretches smoothed (--plan-smooth ${PLAN_SMOOTH}: gaussian ${PLAN_SMOOTH} m where R > 120 m, none under 50 m; largest move ${sm.maxMove.toFixed(2)} m at ${sm.maxAt} m)` +
+    (refitsDone.length ? `, ${refitsDone.length} local refit(s) at an S the lidar shelf does not carry (--refits: ${refitsDone.map(r => `${r.fromM}-${r.toM} m moved ${r.moveM.toFixed(2)} m, tapers ${r.taperM} m`).join('; ')})` : '');
+  console.log(`  line: ${planNote}`);
+}
+const IN_PLACE = PLAN_SMOOTH > 0;      // same waypoints, same indices: places along the stage need no remapping
 const N = wp.length;
 const t0 = tightestPlan(S.wp, 12, { loop }), t1 = tightestPlan(wp, 12, { loop });
 const len0 = arcPositions(S.wp).at(-1), len1 = arcPositions(wp).at(-1);
@@ -208,7 +237,7 @@ function remap(sOld) {
   return bs;
 }
 const moved = wp.length !== n || wp.some((p, i) => Math.abs(p.x - S.wp[i].x) > 1e-9 || Math.abs(p.z - S.wp[i].z) > 1e-9);
-const mapS = s => (moved ? remap(s) : s);
+const mapS = s => (moved && !IN_PLACE ? remap(s) : s);
 const bridges1 = bridgeSpans.map(([a, b]) => [Math.round(mapS(a) / SP) * SP, Math.round(mapS(b) / SP) * SP]);
 const tunnels1 = tunnelSpans.map(([a, b]) => [Math.round(mapS(a) / SP) * SP, Math.round(mapS(b) / SP) * SP]);
 
@@ -290,8 +319,9 @@ const metaOut = {
     near: 'USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice',
     far: 'USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice',
     wide: meta.wide ? 'unchanged: SRTM 1 arc-second, tools/roads/bake_wide.mjs' : undefined,
-    line: moved ? `${moves.filter(m => m.moved).length} stretch(es) moved onto the lidar bench (${moves.filter(m => m.moved).reduce((s, m) => s + m.lengthM, 0)} m of road)` : 'as mapped' + (KEEP_LINE && !loop ? ' (--keep-line)' : ''),
+    line: moved && !IN_PLACE ? `${moves.filter(m => m.moved).length} stretch(es) moved onto the lidar bench (${moves.filter(m => m.moved).reduce((s, m) => s + m.lengthM, 0)} m of road)` : 'as mapped' + (KEEP_LINE && !loop ? ' (--keep-line)' : '') + (planNote ? '; ' + planNote : ''),
     ...(HOLD_ENDS > 0 ? { holdEndsM: HOLD_ENDS } : {}),
+    ...(PLAN_SMOOTH > 0 ? { planSmoothM: PLAN_SMOOTH, refits: refitsDone } : {}),
     before: `tools/roads/srtm_bakes/${pre}_srtm/ (the SRTM bake this replaced)`,
     files1m: tilesOf('1m_'), files13: tilesOf('13_'),
   },
