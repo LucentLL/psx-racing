@@ -1,4 +1,161 @@
-﻿# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
+﻿# HANDOFF - LAKE LURE ROUND (venue LAKE LURE): US 64/74A, Lake Lure - Chimney Rock - Bat Cave, before Helene (agent "lakelure", branch `mountain-lakelure`, 2026-11-16; NOT pushed, NOT merged)
+
+The owner (2026-11-16): "add a mountain track for US-64/74A Lake Lure through Chimney Rock ... I'm specifically looking for the
+roads and buildings, etc from BEFORE Hurricane Helene to capture the memory of what it used to be like." Worktree
+`C:/Users/mcgee/PSX Racing-lakelure`, base mountain-nm 7badf362, sandbox PSXPerf (Windows target; the store packs extracted into it
+with tools/store-assets.ps1 this round). Every input is from before the storm: OpenStreetMap as of 2024-09-20 (Overpass attic
+queries) and the USGS 3DEP 1 m lidar NC_Phase5_2018.
+
+## The road (tools/roads)
+- `fetch_road.mjs lakelure`: the 15 ways that carry US 64 + US 74A + NC 9 together, MATCHED BY WAY ID (both routes carry on past
+  either end), plus 60 m of US 64/74A east as the lead and 200 m of US 74A / NC 9 north of Bat Cave as the run-out. New row options:
+  `attic` (a dated Overpass query, the classes the pre-Helene extract used; the user agent carries no e-mail), `osmCache`,
+  `match.ways`, `planSmoothM`; the cache dir honours PSX_ROADS_CACHE. Then `bake_3dep.mjs lure --keep-line` (STAGES row `lure`).
+- Timed 11,616 m (54 -> 11,670 m of an 11,860 m line), 309.7 -> 451.2 m, +222 / -80 m. Steepest 50 m: +6.1% at 9,880 m (the gorge),
+  -6.5% at 2,560 m (lake road). Tightest bends (8 m chords) R 22 m at 2,944 m, 23 at 544, 24 at 1,988, 25 at 952, 26 at 2,788 - the
+  lake shore. Vertical curves >= 667 m (the self-test floor is 200). Built 7.0 m wide (lidar bench median 13 m, narrowest tenth
+  8.5 m: pavement + shoulders + verges, an upper bound; OSM lanes=2, no width).
+- NO WAVES (coordinator's alignment note): the OSM line kept as mapped and an 8 m gaussian on its gentle stretches only (R > 120 m;
+  largest move 0.32 m). `tools/roads/plan_wiggle.py`: 0 abrupt reversals (bends < 250 m both ways within 40 m, < 3 m off the
+  chord), wiggle (each waypoint against a 40 m cubic, worst per 100 m) median 0.034 m, p95 0.212 m, worst 0.282 m (the R 22 bend).
+  The bench-moved line (bake_3dep's default) had 4 such jogs: R 61-82 m, 1.1-1.8 m off the chord at 116-188 m and 10,908-10,964 m.
+- THE LAKE WAS DRAWN DOWN IN THE LIDAR: its hydro-flattened water is 298.26 m NAVD88; the mapped full-pool shore stands at a median
+  300.9 m in it (p75 301.8). Full pond is 990.5 ft (Town of Lake Lure) = 301.9 m. Lake Lure is built at FULL POOL, 301.8 m, not at
+  the lidar's level. No lake bed in the lidar: depth estimated from the drawdown band's slope (median 0.27 over 553 profiles), cap 20 m.
+- 1/3" DEM: n36w083 Last-Modified 2022-08-30 (before the storm); against the 2018 1 m it reads 0.00 m on the lake and +0.23 m
+  median (p95 +1.16 m) along the river - no scour. The near grid stays from the 1/3".
+- Reads into main's tools/roads/cache/3dep: ~53 MB this round (ledger sources.json); Overpass attic files
+  `overpass_lakelure_2024-09-20.json` and `attic_lakelure_<kind>_2024-09-20.json` beside them.
+
+## The world (tools/roads/bake_world.mjs -> Art/LakeLure/lure_world.json; Editor PSXRacingBuilder.StageRiver.cs / .StageTown.cs)
+- The world file: `node tools/roads/bake_world.mjs lure` (and `--frame chimney` for the Park Road stage: Art/ChimneyRock/
+  chimney_world.json). Inputs: the 2024-09-20 attic extracts in main's tools/roads/cache and the 2018 lidar. No real business name
+  reaches the game: a footprint's name only selects a ROLE (inn, arcade, welcome, post office, church, fire hall, boathouse).
+- LAKE LURE at full pool 301.8 m: 22,780 cells of 12 m in 34 chunks, PSX/Water through the existing MakeWaterMat (a deeper
+  green-blue tint in LakeLure's own theme row). No water is hung over the valley below the dam.
+- THE ROCKY BROAD (OSM "Broad River"): 6.53 km in view, 459.4 -> 301.8 m (the lake backs it up to full pool), widths from the OSM
+  river area (median 21.9 m), white water on 3.6 km (grade > 1.2%), flow 0.4-4 m/s, 698 NatureManufacture forest stones in the rapids
+  and along the banks (no colliders: below the road's barriers). The 12 m near grid is carved 1.4 m under the water inside the river
+  area (1,091 cells; never within 9 m of the road).
+- VERTEX CONTRACT on every water mesh (for the water agent's shader): colour r = depth over the bed (0.5 at the waterline, +/-12 m
+  across the range, as the sea); g = 0; b = white water 0..1 (0 on the lake); uv2.xy = flow velocity in world x, z (m/s; 0 on the lake).
+- BUILDINGS: 149 of the 151 footprints within 150 m of the road (2 too small / too big): walls in the city's own house-atlas
+  materials cropped to tile (white lap siding, weathered planks for the village's board and log fronts, cedar, dark wood, stucco,
+  painted brick), windows, storefronts on the shops' street sides, 86 porches (a balcony rail on two-storey fronts), 71 shop boards
+  in generic words (GEMS, CAFE, GIFTS, LODGE, ICE CREAM, ...), green / red / grey standing-seam metal, asphalt shingle and clay-tile
+  roofs; the river-side shops in the village stand on posts over the bank; colliders are the walls capped at the eave. Landmarks:
+  the Lake Lure Inn (3 storeys, white stucco, clay tile, porch), the Arcade (brick), the welcome centre, two post offices, the fire
+  hall, two churches, four canopies.
+- THE STREET BENCH: beside downtown Lake Lure (5,050-6,150 m) and from the inlet's shops through Main Street (6,420-8,040 m) the
+  near grid is lowered to the road out to 10 m past the tarmac edge (easing back by 16 m; never raised; land over 3.5 m above the
+  road stays a wall), so the builder lays an open roadside there instead of a rock face in front of the storefronts; street-front
+  shops stand at the street's level.
+- SIDE ROADS: 70 mouths in the data (37 residential, 31 service, 2 secondary, 1 primary). [MOUTHS] Each is a decal draped on the
+  ground a wheel meets (the edge line is covered across the mouth) and closed 13.5 m past the tarmac edge by a Type III barricade
+  with ROAD CLOSED (box collider) - past the obstacle audit's reach, so no pocket. NOT laid: where the road's own barrier runs across
+  the mouth or a cut face / ditch lip does (the stage builder plans its roadside without side roads; a real mouth there needs the
+  roadside planner to know about mouths - the bank agent's functions, not touched).
+- THE PARK ROAD from Main Street: 286 m on the ChimneyRock stage's own line and heights (its waypoints re-projected), over its
+  67 m river bridge (OSM 2024 way 267913868: a deck slab, 0.85 m concrete parapets with box colliders, two piers), closed at the
+  mouth. The ChimneyRock stage itself starts at the bridge's south end (its 2026 OSM has no bridge way), so in that stage the same
+  bridge, Main Street (804 m of it), 44 village buildings, the river and the lake are drawn behind its grid (PSX_LURE_CHIMNEY).
+- WALKS: 703 sidewalk panels (concrete, flush on the shoulder: the stage keeps no step beside its tarmac, so the curb is a flush
+  line), 3 crosswalks (OSM nodes), the lakeside boardwalk on posts and the Flowering Bridge (the 1925 three-arch bridge beside the
+  river bridge: arches, balustrades, garden beds).
+- FURNITURE: 181 wooden utility poles every 45 m on the side away from the water, with five wires each (three on the crossarm, two
+  lower), capsule colliders, placed between the audit's station lines; 91 black lantern street lamps downtown and on Main Street;
+  20 signs: SPEED LIMIT 25 / 35 / 20 / 35 at the OSM zone changes (both directions), CHIMNEY ROCK VILLAGE LIMITS, the brown
+  CHIMNEY ROCK STATE PARK sign with its arrow at the park road, US 64 / US 74A / NC 9 as words (WEST / NORTH after the start, EAST /
+  SOUTH before Bat Cave: no shields), NC SCENIC BYWAY, LAKE LURE, BAT CAVE, pedestrian crossing (a pictogram) at the crossings.
+  Sign faces: Art/LakeLure/lure_signs.png (tools/roads/lure_art.py, the repo's Overpass font).
+- KEEP-OUT: the forest and every plant pass ask StageKeepOut: nothing planted in the water (3.5 km2), on a building (+6 m), a lot,
+  a mouth or a deck path. Plants through solids: 0.
+- SURVEYED RAILS (Art/LakeLure/lure_rails.json): eleven places looked at in the video; W-beam at 3:05 and 8:45 (both already
+  warranted by the game; recorded), a third at 14:10 not placed (its bend could not be matched); timber post-and-rail at 6:00 and
+  16:50 (the game builds W-beam at 6:00).
+
+## Gates
+All in PSXPerf (Windows target), each job a fresh process; the build settings' scene list rewritten first
+(LakeLureTools.WriteSceneList: 22 scenes, 0 missing).
+- StageLab, LakeLure (lab4, the world ON): roadside checks 0 failing; obstacle audit CLEAR, SURFACE OK, no FAIL line; terrain ok
+  (road 0.32 m clear of the ground, lattice under every shoulder); LANE AUDIT OK; plants through solids 0 (4,688 checked). The bare
+  stage (lab1) passed the same. On the way: lab2 failed 17 EDGE FACE (the side-road stubs had colliders and climbed cut faces) and 2
+  UNWARRANTED BARRIER (a building wall 5.3 m out, the park road's closure); fixed by decal mouths, closures past the reach and
+  eave-capped building colliders (lab3 and lab4: 0 FAIL).
+- StageLab, ChimneyRock: with the world ON (lab6) exactly the 4 lines its own base build has with the world OFF in a
+  fresh process (lab5off): EDGE FACE 1019 L 0.12 m at 6.95 m, 661 R 0.10 m at 7.10 m, 1021 L 0.08 m at 7.15 m, and UNWARRANTED
+  BARRIER 0 R (the stage's own wall over its end pad). These are mountain-nm's (the lidar round's open chimney failures), not this
+  branch; OwnerAccepted stays empty; roadside 0 failing, CLEAR, LANE AUDIT OK, plants 0. Lab4 had shown 2 more of mine (a parapet
+  of the park road's bridge over its end pad, and US 64/74A's own furniture laid along the park road: the world file's stage tag
+  matched the prefix) - both fixed (bbac9898): lab6 adds nothing.
+- race-play-check -Finish (TimeScale 3, seed 0): LakeLureRev - every car home (Supra 406 s, Charger 451, Skyline 460, player
+  472 s), 0 retired, 0 head-ons. LakeLure (forward) on lab4 - player and Skyline home, but 2 rivals ran 6 m wide at 150 km/h
+  through Chimney Rock and retired on a lantern post (wp 1970) - FAIL "at most one rival retires" [2]. Fixed: lamp and sign posts
+  drawn and not solid (as the stage's reflector posts), poles 6 m out. Re-run on lab6: every car home (Skyline 403 s, Charger 410, player 426, Supra 429), 0 retired, 0 head-ons, no FAIL line.
+- sprint-check: the four Lake Lure sections pass every line. 22 failures in the same run are all on BLOWING ROCK SPRINT II and the
+  NC 226A sections: PSXPerf's SwissNC226A scene is stale (2,986 waypoints against the catalog's 2,981), not this branch.
+- reverse-check: exit 0 (LAKE LURE - CHIMNEY ROCK II lines up with the rest). finish-play-check LakeLure: every line ok.
+- LifeSim self-test (quick, same sandbox): base (7badf362 code) 4,598 ok / 64 FAIL; branch 4,726 ok / 65 FAIL - the one new line
+  ("each step stamps its own number exactly once": v30 was stamped twice) is fixed in 0a820b64; re-run: 4,724 ok / 64 FAIL, the same 64 lines as the base: no new failure. The base's 64 are
+  this sandbox's (deck-run scenes not built, and others), identical in both runs.
+- Menu preview (PSX_PREVIEW_VENUE=LakeLureRev): the brief's name clipped ("RACE NIGHT - LAKE LURE - US 6...") at all three aspects;
+  renamed LAKE LURE - CHIMNEY ROCK. Re-run: "LAKE LURE - CHIMNEY ROCK" still cut ("RACE NIGHT - LAKE LURE - CHIM...", 130 clips in all, the rest are car and rival names the base has); the home line cuts at about 13 characters, so the venue is now LAKE LURE / LAKE LURE II (29ece13f) - that last name was not re-run through the preview
+- Door tour: needs a built player (tools/door-tour.mjs); LakeLure and LakeLureRev are in DoorTour.MainDoors for the coordinator's PC
+  build. Not run here (no player builds by agents).
+- Track map: StreamingAssets/TrackMaps/LakeLure.jpg shot (lab scene: tiled canopy; re-shoot on PC-pass scenes).
+- Proof sheets (scratchpad lakelure\): proof_lakelure_s4.png (11 video moments, real against game, driver's eye, noon),
+  plan_lakelure.png (the route on the 2024 map), before_after_lakelure.png (Chimney Rock OFF/ON, fresh processes),
+  park_road_both_venues.png (one place, both venues).
+
+## Switches (all default ON; =0 is the stage as it was)
+PSX_LURE_WORLD (no world file at all), PSX_LURE_WATER (lake, river, carve), PSX_LURE_TOWN (buildings, street bench, walks,
+furniture, signs), PSX_LURE_MOUTHS (side-road mouths, the park road and its bridge, closures), PSX_LURE_CHIMNEY (the Park Road
+stage's start dressing). Shot tools: PSX_SHOT_DRIVER=1 (a driver's-eye frame), PSX_SHOT_NOON=1 (the game's noon).
+
+## Merge notes
+- NEW files (theirs to keep): Editor/PSXRacingBuilder.StageRiver.cs, Editor/PSXRacingBuilder.StageTown.cs, Editor/LakeLureTools.cs
+  (+ metas); tools/roads/bake_world.mjs, plan_wiggle.py, lure_art.py; Resources/lure_stage.json; Art/LakeLure/* (DEM grids, world
+  file, signs atlas, Tex/, rails); Art/ChimneyRock/chimney_world.json; StreamingAssets/TrackMaps/LakeLure.jpg;
+  tools/roads/srtm_bakes/lure_srtm/; Docs/lidar_audit/after/lure_audit.json.
+- ONE-LINE HOOKS in shared files: PSXRacingBuilder.Stage.cs StageLoadDem (StageWorldLoad() after the tunnel table) and
+  BuildStageForest (2x `if (StageKeepOut(..)) continue;`, near and far forest); PSXRacingBuilder.cs BuildTrack (BuildStageWorld()
+  before BuildStageForest) and the theme table (["LakeLure"] = LakeLureTheme() + the 9-line LakeLureTheme()); MeshTrees.cs
+  (StageKeepOut in ground cover, debris, ExtraCanopySite, understory); RockRelief.cs (boulders); Fences.cs (fence posts);
+  PSXScreenshotTool.CaptureSpotsOnly (PSX_SHOT_NOON, PSX_SHOT_DRIVER). None touches BuildRoad, the ribbon or the cross-section.
+- CATALOG (Scripts): TrackCatalog.Authored + LakeLure after ChimneyRock, HeldBack { }, 4 SprintVariants appended at the end, RemapV29Index;
+  LifeState.saveVersion 30; LifeSimManager.Migrate (writtenAt + the v30 step MigrateToLakeLure); CarMeets touge list; DoorTour
+  MainDoors (LakeLure, LakeLureRev); Climate venue row. Self-test pins: LifeSimSelfTest.TestRetiredVenues (v21 survivors = today
+  less the v30 additions; every v29 index lands on its venue), the Chimney-is-last pin (now: before Lake Lure), and
+  LifeSimSelfTest.Events (the v29 step stamps the CURRENT version). If another branch also adds a save version, renumber at merge
+  (TestSaveVersionLadder) and keep MigrateToLakeLure's `writtenAt >= 22` rule.
+- AFTER MERGE: a full scene build (the build settings' list moves: Lake Lure is scene 16 and everything after it moves by one;
+  in a sandbox LakeLureTools.WriteSceneList writes it without building); the store packs must be in the building sandbox (NM stones
+  for the river boulders; without them the river has no boulders and says so); re-shoot TrackMaps/LakeLure.jpg on PC-pass scenes
+  (this one is a lab scene: tiled canopy); run tools/roads/bake_bank.mjs on `lure` with the other stages (its stage files are in
+  today's format); the PC build's door tour then reaches LAKE LURE - CHIMNEY ROCK and its II.
+- DATA in main's tools/roads/cache (gitignored, added this round): overpass_lakelure_2024-09-20.json, attic_lakelure_*_2024-09-20.json,
+  3DEP tiles (+53 MB, ledger updated). A fresh checkout re-fetches the attic files with the same date (fetch_road.mjs `attic`).
+
+## What still looks wrong (own sheets, honestly)
+- The granite domes and cliffs above the village and the marina (8:45, 9:45) are missing: the far land is forested, no bare rock.
+- Where the real road has grassy banks between downtown and the village (10:15) the builder still cuts rock faces; the street bench
+  covers only the street stretches.
+- The ground and shoulders are the mountain stages' brown dirt, where the real road has mown grass verges.
+- Buildings are boxes in the city's house-atlas textures: no log-cabin corner notching, no stone pillars, no dormers; the Lake Lure
+  Inn reads white with a red roof but has no arcade. The marina's covered slips are not modelled (OSM has no footprint for them).
+- 25 of 70 side roads have no mouth (a rail or a cut face runs across them).
+- Main Street in the Park Road stage is plain asphalt without lane paint, laid on that stage's 12 m lattice.
+- Near crowns in the forest are the pixelated impostor cards every stage has.
+- The 26 m downtown bridge is road on an embankment (spans under 56 m are not decks in the stage builder).
+- Video positions at 3:05, 6:00, 14:10 and 16:50 are estimated from timing (+/-150 m); 14:10's bend does not match.
+
+## Combined event (Lake Lure, then up the park road) - not built, what it would take
+The two venues are separate scenes. A combined race needs one route: the LakeLure line to the park road's mouth (7,640 m), the park
+road lead over its bridge (99 m, already in lure_world.json), then the ChimneyRock line - one stage json (fetch_road with a match list
+of both roads, or a join tool), its own scene (~16 km of stage), and the turn at the mouth (a 90 degree junction, R ~12 m) through the
+roadside planner. Or a scene-to-scene handover at the park road's closure, which the race code does not do today.
+
+# HANDOFF - CONCRETE ROUND 2: one barrier per median, no wall without a reason (agent "concrete", branch `charlotte-concrete`, 2026-11-15 evening; NOT pushed, NOT merged)
 
 Restart of the concrete job stopped at 14:07 (the owner: "To the concrete pieces, yes"). Worktree `C:/Users/mcgee/PSX Racing-concrete`,
 base e2749b17 (mountain-nm 416ddfda = PC43 merged in by the coordinator). Sandbox PSXRec (Android target), every comparison two fresh
