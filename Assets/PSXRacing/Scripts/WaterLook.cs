@@ -97,9 +97,12 @@ namespace PSXRacing
             // a tool may force a tier, never one whose textures are not there
             if (ForceTier >= 0 && cam == ForceCamera) return copies ? ForceTier : 0;
             if (!copies) return 0;
+            // only the game's own view (and the editor's scene view) pays for
+            // the copies: a mirror, a menu or a probe keeps the cheap water
+            bool gameView = cam.cameraType == CameraType.Game
+                            && cam.TryGetComponent(out PSXCameraOutput output) && output.isActiveAndEnabled;
+            if (!gameView) return cam.cameraType == CameraType.SceneView ? 1 : 0;
             if (Application.isMobilePlatform || !ReflectionPrefs.On) return 1;
-            if (cam.cameraType != CameraType.Game) return 1;
-            if (!cam.TryGetComponent(out PSXCameraOutput output) || !output.isActiveAndEnabled) return 1;
             return 2;
         }
 
