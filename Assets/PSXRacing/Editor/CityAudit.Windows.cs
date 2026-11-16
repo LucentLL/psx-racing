@@ -149,7 +149,7 @@ namespace PSXRacing.EditorTools
                     var tm = CityMeshes.Build(map, trims, proc, t.tx, t.tz);
                     double tms = tsw.Elapsed.TotalMilliseconds;
                     msBy.TryGetValue(t.why, out var mb); msBy[t.why] = (mb.ms + tms, mb.n + 1, System.Math.Max(mb.max, tms));
-                    int tw = 0, tc = 0, tb = 0;
+                    int tw = 0, tc = 0, tb = 0; long tTris = 0;
                     if (tm.buildings != null && tm.buildingSlots != null)
                     {
                         var mesh = tm.buildings;
@@ -157,7 +157,7 @@ namespace PSXRacing.EditorTools
                         for (int si = 0; si < tm.buildingSlots.Length; si++)
                         {
                             var tri = mesh.GetTriangles(si);
-                            tileTris += tri.Length / 3;
+                            tileTris += tri.Length / 3; tTris += tri.Length / 3;
                             if (tm.buildingSlots[si] == CityMeshes.Slot.RoofTiles) roofTris += tri.Length / 3;
                             if (System.Array.IndexOf(CityMeshes.HmSlot, tm.buildingSlots[si]) >= 0) mixTris += tri.Length / 3;
                             if (tm.buildingSlots[si] != CityMeshes.Slot.FacadeHouse) continue;
@@ -168,9 +168,9 @@ namespace PSXRacing.EditorTools
                     if (tm.buildings != null && tm.buildingSlots != null) roofHoles += RoofHoles(map, tm, t.tx, t.tz, ref roofPts, holeList);
                     if (tw + tc + tb > 0) tilesWithHouses++;
                     whole += tw; cut += tc; buried += tb;
-                    Line(string.Format(I, "  tile {0},{1} ({2}, {3}): windows whole {4}, CUT {5}, BURIED {6}; laid {7}, bands left plain for the ground {8}",
+                    Line(string.Format(I, "  tile {0},{1} ({2}, {3}): windows whole {4}, CUT {5}, BURIED {6}; laid {7}, bands left plain for the ground {8}; building triangles {9}, {10:0} ms",
                         t.tx, t.tz, t.why, LatLon((t.tx + 0.5f) * CityMeshes.TileSize, (t.tz + 0.5f) * CityMeshes.TileSize), tw, tc, tb,
-                        CityMeshes.HouseWinLaid, CityMeshes.HouseWinGroundDropped));
+                        CityMeshes.HouseWinLaid, CityMeshes.HouseWinGroundDropped, tTris, tms));
                     foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.structure, tm.medianPlants })
                         if (m != null) Object.DestroyImmediate(m);
                 }
