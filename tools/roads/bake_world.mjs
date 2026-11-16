@@ -438,7 +438,7 @@ else if (FRAME === 'chimney') {
   const ms = parkRoad.mouthSt, i0 = Math.max(0, Math.floor((ms - 400) / SP)), i1 = Math.min(N - 1, Math.ceil((ms + 400) / SP));
   const sx = [], sy = []; for (let i = i0; i <= i1; i++) { sx.push(r2(W[i].x), r2(W[i].z)); sy.push(r2(W[i].y)); }
   const ch = {
-    version: 1, stage: 'chimney', baseM: cs.baseM, source: out.source + ' Re-projected into the ChimneyRock stage frame.',
+    version: 1, stage: 'lure', frame: 'chimney', baseM: cs.baseM, source: out.source + ' Re-projected into the ChimneyRock stage frame.',
     lakeLevelM: out.lakeLevelM, lakeLevelY: r2(out.lakeLevelM - cs.baseM), lidarWaterM: out.lidarWaterM, shoreSlope: out.shoreSlope, maxDepthM: out.maxDepthM,
     lake: out.lake.map(r => ({ hole: r.hole, xz: xzTo(r.xz) })),
     riverAreas: out.riverAreas.map(r => ({ hole: r.hole, xz: xzTo(r.xz) })),

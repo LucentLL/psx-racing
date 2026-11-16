@@ -747,6 +747,7 @@ namespace PSXRacing.EditorTools
             {
                 if (!(S[i] >= pr.deckFrom - 0.5f && S[i + 1] <= pr.deckTo + 0.5f)) continue;
                 Vector3 a = line[i], b = line[i + 1];
+                if (!own && Vector3.Distance((a + b) * 0.5f, stageWp[0]) < 20f) continue;
                 Vector3 t = b - a; t.y = 0; float L = t.magnitude; t /= Mathf.Max(0.01f, L); Vector3 n = new Vector3(-t.z, 0, t.x);
                 foreach (float sgn in new[] { -1f, 1f })
                 {
