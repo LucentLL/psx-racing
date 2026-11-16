@@ -231,6 +231,7 @@ const ROADS = {
     start: { lat: 35.415738, lon: -82.196064, elevM: 304 },   // NC 9 comes in (lidar road; the lake is a metre or two under)
     end:   { lat: 35.451576, lon: -82.287075, elevM: 431 },   // Bat Cave: US 64 leaves west (lidar road)
     leadM: 60, shutdownM: 200, smoothSigma: 45, maxGrade: 0.12,
+    planSmoothM: 8,
   },
 };
 
@@ -470,6 +471,38 @@ if (!forward) { cut.reverse(); cutBridge.reverse(); }
 let wp = splineResample(cut, SPACING);
 const cutS = arcPositions(cut);
 console.log(`waypoints: ${wp.length} (${(wp.length * SPACING / 1000).toFixed(2)} km)`);
+
+// NO JOGS ON THE GENTLE STRETCHES (owner, 2026-11-16: "an otherwise straight
+// road will wave back and forth abruptly in a way that DOT would never
+// approve"). A mapped line can carry a metre of digitising jog - two bends of
+// R 100 m the opposite ways inside 20 m - which the spline faithfully draws.
+// planSmoothM: a gaussian of that sigma along the line, applied in full where
+// the road bends gently (R over 120 m) and not at all in a real bend (R under
+// 50 m), the blend itself smoothed so nothing switches abruptly. On a gentle
+// curve it moves the line by sigma^2 / 2R, a few centimetres; a 20 m jog loses
+// nearly all of itself. The ends keep their points (the anchors name them).
+// tools/roads/plan_wiggle.py measures what is left.
+if (CFG.planSmoothM) {
+  const sig = CFG.planSmoothM / SPACING, R = Math.ceil(3 * sig), n = wp.length;
+  const kern = []; for (let j = -R; j <= R; j++) kern.push(Math.exp(-0.5 * (j / sig) ** 2));
+  const blur = (get) => { const o = new Float64Array(n); for (let i = 0; i < n; i++) { let a = 0, w = 0; for (let j = -R; j <= R; j++) { const k = Math.min(n - 1, Math.max(0, i + j)); a += get(k) * kern[j + R]; w += kern[j + R]; } o[i] = a / w; } return o; };
+  const sx = blur(i => wp[i].x), sz = blur(i => wp[i].z);
+  const curv = i => { if (i < 3 || i >= n - 3) return 0; const a = wp[i - 3], b = wp[i], c = wp[i + 3];
+    const cr = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+    const l = Math.hypot(b.x - c.x, b.z - c.z) * Math.hypot(a.x - c.x, a.z - c.z) * Math.hypot(a.x - b.x, a.z - b.z);
+    return l > 0 ? Math.abs(2 * cr / l) : 0; };
+  const ss = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  const w0 = new Float64Array(n); for (let i = 0; i < n; i++) w0[i] = (i < R || i >= n - R) ? 0 : 1 - ss(1 / 120, 1 / 50, curv(i));
+  // the blend follows the TIGHTEST curvature nearby, so a bend's approach keeps its line too
+  const w1 = new Float64Array(n); for (let i = 0; i < n; i++) { let m = 1; for (let j = -R; j <= R; j++) { const k = Math.min(n - 1, Math.max(0, i + j)); m = Math.min(m, w0[k]); } w1[i] = m; }
+  const wgt = blur(i => w1[i]);
+  let moved = 0;
+  // srcI (the cut vertex each waypoint came from) carries the bridge flags: keep it through the re-spacing
+  const srcOf = wp.map(p => p.srcI);
+  wp = wp.map((p, i) => { const q = { x: p.x + (sx[i] - p.x) * wgt[i], z: p.z + (sz[i] - p.z) * wgt[i] }; moved = Math.max(moved, Math.hypot(q.x - p.x, q.z - p.z)); return q; });
+  wp = splineResample(wp, SPACING).map(p => ({ ...p, srcI: srcOf[Math.min(srcOf.length - 1, Math.max(0, Math.floor(p.srcI)))] }));
+  console.log(`plan smoothed: gaussian ${CFG.planSmoothM} m on the gentle stretches, largest move ${moved.toFixed(2)} m; ${wp.length} waypoints`);
+}
 
 // THE TIGHTEST CORNER, IN PLAN, MEASURED AND THEN ENFORCED.
 //

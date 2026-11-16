@@ -2,14 +2,14 @@
   "baseM": 264,
   "near": {
     "originX": -6672.848127922803,
-    "originZ": -3073.9341422532066,
+    "originZ": -3073.9335968852884,
     "cell": 12,
     "cols": 907,
     "rows": 541
   },
   "far": {
     "originX": -14472.848127922804,
-    "originZ": -10873.934142253207,
+    "originZ": -10873.933596885288,
     "cell": 60,
     "cols": 443,
     "rows": 369
@@ -20,7 +20,7 @@
     "road": "USGS 3DEP 1 m lidar DEM NC_Phase5_2018_A18 (NAD83 / UTM 17N, NAVD88): ground on the road bench, gaussian sigma 8 m along the road, no grade clamp",
     "near": "USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice",
     "far": "USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice",
-    "line": "2 stretch(es) moved onto the lidar bench (60 m of road)",
+    "line": "as mapped (--keep-line)",
     "before": "tools/roads/srtm_bakes/lure_srtm/ (the SRTM bake this replaced)",
     "files1m": [
       {
@@ -82,12 +82,5 @@
         "lastModified": "Tue, 11 Jun 2024 17:13:02 GMT"
       }
     ]
-  },
-  "wide": {
-    "originX": -50880,
-    "originZ": -47040,
-    "cell": 240,
-    "cols": 414,
-    "rows": 394
   }
 }
