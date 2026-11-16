@@ -40,8 +40,10 @@ namespace PSXRacing
     {
         public const string Keyword = "PSX_WATER_HD";
         public const string ShaderName = "PSX/Water";
-        /// <summary>PSX/Water's pass that copies the depth attachment
-        /// (SpeedBlurFeature.WaterDepthPass draws it).</summary>
+        /// <summary>The hidden shader and pass that copy the depth attachment
+        /// (SpeedBlurFeature.WaterDepthPass draws it; always-included). Not a
+        /// pass of PSX/Water: that changed the opaques' order with HD off.</summary>
+        public const string DepthCopyShader = "Hidden/PSX/WaterDepthCopy";
         public const string DepthCopyPass = "PSXWaterDepthCopy";
 
         /// <summary>PSX_WATER_HD_SEA=1: the HD water on the coast stages' open

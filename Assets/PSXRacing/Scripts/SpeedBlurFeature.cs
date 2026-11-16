@@ -179,8 +179,8 @@ namespace PSXRacing
             if (!WaterLook.DepthCopyFor(cam)) return;
             if (waterCopyMaterial == null)
             {
-                var sh = Shader.Find(WaterLook.ShaderName);
-                // No water shader in this build: no copy (the water falls back).
+                var sh = Shader.Find(WaterLook.DepthCopyShader);
+                // No copy shader in this build: no copy (the water falls back).
                 if (sh == null || !sh.isSupported) return;
                 waterCopyMaterial = CoreUtils.CreateEngineMaterial(sh);
             }

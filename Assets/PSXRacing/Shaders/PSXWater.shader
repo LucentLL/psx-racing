@@ -40,6 +40,9 @@
 // TRANSPARENTS (2501): still opaque (no blend, depth written), but drawn after
 // URP's copy of the frame and the water's depth copy, which is what lets the
 // HD variant see the bed through it and the world in it.
+// The depth copy the HD variant reads is its own hidden shader
+// (PSXWaterDepthCopy.shader): a second pass here changed the opaques' draw
+// order with the HD water off.
 //
 // THE VERTEX CONTRACT (shared with the stage builders):
 //   colour r = depth over the ground (0.5 at the waterline, +/- 12 m),
@@ -381,30 +384,6 @@ Shader "PSX/Water"
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit * (1.0 - i.fog) : 1.0);
             }
             #endif
-            ENDCG
-        }
-        // THE WATER'S DEPTH COPY (2026-11-16; SpeedBlurFeature.WaterDepthPass
-        // draws it, never URP: its LightMode is its own). The camera's depth
-        // attachment, texel for texel, into _PSXWaterDepth for the HD variant.
-        Pass
-        {
-            Name "PSXWaterDepthCopy"
-            Tags { "LightMode"="PSXWaterDepthCopy" }
-            ZTest Always ZWrite Off Cull Off
-            CGPROGRAM
-            #pragma vertex vertCopy
-            #pragma fragment fragCopy
-            #pragma target 3.5
-            Texture2D<float> _PSXWaterDepthSrc;
-            float4 vertCopy (uint id : SV_VertexID) : SV_POSITION
-            {
-                float2 p = float2((id << 1) & 2, id & 2);
-                return float4(p * 2.0 - 1.0, 0.5, 1.0);
-            }
-            float fragCopy (float4 pos : SV_POSITION) : SV_Target
-            {
-                return _PSXWaterDepthSrc.Load(int3(pos.xy, 0));
-            }
             ENDCG
         }
     }
