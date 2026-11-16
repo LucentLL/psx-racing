@@ -265,7 +265,7 @@ namespace PSXRacing.City
             if (ePlus == 0f && eMinus == 0f) { ePlus = eMinus = e.width * 0.5f; return; }
             var ez = e.lmEase;
             if (ez == null) return;
-            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f;
+            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f, np = 0f, nm = 0f;
             for (int i = 0; i < ez.Length; i++)
             {
                 if (ez[i].relay) continue;
@@ -273,6 +273,10 @@ namespace PSXRacing.City
                 {
                     if (!pave) continue;
                     float w = ez[i].widen ? Reduction(e, ez[i], s) : AuxAt(e, ez[i], s);
+                    // the splits round's flush nose: a NEGATIVE widen trims the inner shoulder where
+                    // the two carriageways' lane bands are closer than their shoulders (only the
+                    // axis-frame profile writes one; every other widen is >= 0 as before)
+                    if (w < 0f) { if (ez[i].side > 0) { if (w < np) np = w; } else if (w < nm) nm = w; continue; }
                     if (ez[i].side > 0) { if (w > ap) ap = w; } else if (w > am) am = w;
                     continue;
                 }
@@ -282,7 +286,7 @@ namespace PSXRacing.City
                 if (ez[i].side > 0) { if (r > rp) rp = r; } else if (r > rm) rm = r;
             }
             ePlus -= rp - sh; eMinus -= rm + sh;
-            ePlus += ap; eMinus += am;
+            ePlus += ap + np; eMinus += am + nm;
         }
 
         /// <summary>The pavement's extents with no aux lane (roads pass L5):

@@ -53,8 +53,13 @@ namespace PSXRacing.City
         /// <summary>Beatties Ford nodes the bfr scope leaves as PC45 (measured, not drawn): n7963 and
         /// n12438, where the carriageways diverge to wide medians along OSM's own lines (the profile cannot
         /// pass the census there) and the bfr traffic census met 3 wrecks on a solid beside e11521's
-        /// shifted lanes (-3696,11302; -3694,11374), off the drive audit's box.</summary>
-        public static readonly HashSet<int> BfrHeldBack = new HashSet<int> { 7963, 12438 };
+        /// shifted lanes (-3696,11302; -3694,11374), off the drive audit's box. The fix round adds the
+        /// I-85 interchange's two ramp-terminal splits, n231 (south) and n4025 (north): their
+        /// carriageways run onto the deck and its median walls, and the profile pulled the two pavements
+        /// over each other (0.36-0.84 m) into the deck-approach median's square wall ends (the concrete
+        /// inventory's ORPHAN rail pieces 14 -> 40 on the deck north of n231). They wait until that
+        /// median is given a nose of its own.</summary>
+        public static readonly HashSet<int> BfrHeldBack = new HashSet<int> { 7963, 12438, 231, 4025 };
         public static bool SplitsOn => SplitAxis != "0";
 
         /// <summary>Is this split node drawn by the splits round's rules?</summary>
@@ -211,5 +216,48 @@ namespace PSXRacing.City
 
         /// <summary>The scope BAYEND was last applied for (the audits).</summary>
         public static string BayEndScope => bayEndScope;
+
+        /// <summary>The fix round: two carriageways of one shaped split nose (the axis-frame profile
+        /// with a nose) are not a branch and its host. Their pavements meet in the middle of the lane
+        /// gap up to the nose and part around the island; the gore painter attached them while the
+        /// gap was under 4.5 m and paved the island's first 20 m flat (n10035: no curb until u 46,
+        /// a square-ended block). As LineModel.SameRefuge for a refuge island.</summary>
+        public static bool SameSplitNose(int a, int b)
+        {
+            if (splitFrameEdge.Count == 0 || splitNoseNodes.Count == 0) return false;
+            var fa = SplitFrameOf(a); var fb = SplitFrameOf(b);
+            return fa != null && fb != null && fa != fb && fa.node == fb.node && splitNoseNodes.Contains(fa.node);
+        }
+
+        /// <summary>The fix round: is this edge drawn off PC45 by the splits round in the current
+        /// scope - a split frame's carriageway, or a refuge pair that the PSX_CITY_SPLITAXIS=0 list
+        /// does not draw? The roadside occupancy then reads its ribbon where it is drawn (off its OSM
+        /// line) instead of PC45's widest half each side: at spot 34 the straightened carriageway's
+        /// kerb kept the old bulge's clear zone on the narrow side and the east pole station (a
+        /// cobra-head light) found no foot.</summary>
+        public static bool SplitsMovedEdge(int edge)
+        {
+            if (!SplitsOn) return false;
+            if (splitFrameEdge.Count > 0 && splitFrameEdge.ContainsKey(edge)) return true;
+            var r = RefugeOf(edge);
+            return r != null && !RefugePairPc45(r.pk);
+        }
+        static HashSet<long> pc45Pairs;
+        /// <summary>Is a refuge pair drawn under PSX_CITY_SPLITAXIS=0 (its list entry has scope bit
+        /// 16 or no scope bit)?</summary>
+        public static bool RefugePairPc45(long pk)
+        {
+            if (pc45Pairs == null)
+            {
+                var h = new HashSet<long>();
+                for (int i = 0; i + 2 < RefugeListData.Length; i += 3)
+                {
+                    int md = (int)RefugeListData[i + 2];
+                    if ((md & RefugeScopeMask) == 0 || (md & 16) != 0) h.Add(RefugeListData[i]);
+                }
+                pc45Pairs = h;
+            }
+            return pc45Pairs.Contains(pk);
+        }
     }
 }

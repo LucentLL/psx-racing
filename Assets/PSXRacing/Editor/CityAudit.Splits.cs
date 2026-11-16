@@ -136,6 +136,8 @@ namespace PSXRacing.EditorTools
             // ---- the owner's four spots ----
             Line("THE OWNER'S FOUR SPOTS:");
             SpotLines(map, t, byNode);
+            // ---- the fix round: each framed nose's design, its curb as the tiles lay it, the poles ----
+            NoseLines(map, t);
 
             // ---- city-wide ----
             int nE = 0, f2 = 0, f1 = 0, ov = 0, ang = 0, jmp = 0, nodesFail = 0; var failNodes = new HashSet<int>();
@@ -517,6 +519,83 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The plan polylines within 90 m of a node (axis frame is the sheet's job).</summary>
+        /// <summary>The fix round (2026-11-16): per Beatties Ford node the profile frames, the nose's
+        /// design (u, the lane gap, each side's inner pavement edge off its lane edge) and, from the
+        /// tiles built over it with CityMeshes.CurbMedianTrace on, where the curbed island starts and
+        /// why each section before it has none. PSX_SPLITS_POLES "x:z:r": the pole-line stations
+        /// round a point, each foot tried (CityPoles.Explain).</summary>
+        static void NoseLines(CityMap map, CityMeshes.Trims t)
+        {
+            Line("SPLIT NOSES (Beatties Ford nodes the profile frames; design: u -> lane gap, each side's inner pavement edge off its lane edge, 0.6 at the nose, half the gap = flush):");
+            Dictionary<long, List<CityBuildings.B>> buildings = null;
+            foreach (int n in LineModel.BfrSplitNodes)
+            {
+                if (!LineModel.SplitNoseTable.TryGetValue(n, out var tab)) continue;
+                LineModel.SplitFrame fA = null, fB = null;
+                foreach (var f in LineModel.SplitFrames) if (f.node == n) { if (fA == null) fA = f; else fB = f; }
+                if (fA == null) continue;
+                Line($"  n{n}: tip u {fA.uTip:0.0} (flank {fA.noseLn:0.0} m), shaped {LineModel.SplitNoseShaped(n)}; e{fA.edge} shIn {fA.shIn:0.00}" + (fB != null ? $", e{fB.edge} shIn {fB.shIn:0.00}" : ""));
+                var sb = new StringBuilder("    ");
+                float uT = float.IsNaN(fA.uTip) ? 40f : fA.uTip;
+                foreach (var r in tab)
+                    if (Mathf.Abs(r.u * 0.4f - Mathf.Round(r.u * 0.4f)) < 0.01f && r.u <= uT + 30f)
+                        sb.Append($"u{r.u:0.0} gap {r.gap:0.00} off {r.offA:0.00}/{r.offB:0.00}; ");
+                Line(sb.ToString());
+                // the curb as the tiles lay it
+                buildings ??= CityBuildings.Precompute(map);
+                var edges = new HashSet<int>();
+                foreach (var f in new[] { fA, fB }) if (f != null) for (int i = 0; i < Mathf.Min(4, f.chain.Length); i++) edges.Add(f.chain[i]);
+                var rec = new List<(int e, float s, string why)>();
+                var tiles = new HashSet<long>();
+                for (float uu = -10f; uu <= uT + 40f; uu += 8f)
+                {
+                    var p = fA.p0 + fA.tU * uu;
+                    tiles.Add(((long)Mathf.FloorToInt(p.x / CityMeshes.TileSize) << 32) | (uint)Mathf.FloorToInt(p.y / CityMeshes.TileSize));
+                }
+                CityMeshes.CurbMedianTraceEdges = edges;
+                CityMeshes.CurbMedianTrace = (ei, s, why) => rec.Add((ei, s, why));
+                try { foreach (long k in tiles) CityMeshes.Build(map, t, buildings, (int)(k >> 32), (int)(uint)k); }
+                finally { CityMeshes.CurbMedianTrace = null; CityMeshes.CurbMedianTraceEdges = null; }
+                foreach (int ei in edges)
+                {
+                    var e = map.edges[ei];
+                    var mine = rec.FindAll(r => r.e == ei);
+                    mine.Sort((x, y) => x.s.CompareTo(y.s));
+                    var runs = new StringBuilder();
+                    string cur = null; float u0 = 0f, u1 = 0f; int nr = 0;
+                    foreach (var r in mine)
+                    {
+                        string key = r.s < 0f ? r.why : r.why.StartsWith("island") ? "island" : r.why.StartsWith("ray:") ? "ray" : r.why;
+                        float uu = r.s < 0f ? float.NaN : Vector2.Dot(e.PointAt(r.s) - fA.p0, fA.tU);
+                        if (key != cur)
+                        {
+                            if (cur != null && nr++ < 24) runs.Append($" [{u0:0.0}..{u1:0.0} {cur}]");
+                            cur = key; u0 = uu;
+                        }
+                        u1 = uu;
+                        if (key == "ray" && nr < 24 && runs.Length < 1500) runs.Append($" ({uu:0.0}: {r.why})");
+                    }
+                    if (cur != null) runs.Append($" [{u0:0.0}..{u1:0.0} {cur}]");
+                    Line($"    curb on e{ei} (u along the axis):{(mine.Count == 0 ? " no section judged" : runs.ToString())}");
+                }
+            }
+            var spec = System.Environment.GetEnvironmentVariable("PSX_SPLITS_POLES");
+            if (!string.IsNullOrEmpty(spec))
+            {
+                var inv = CultureInfo.InvariantCulture;
+                var f = spec.Split(':');
+                if (f.Length == 3)
+                {
+                    float px = float.Parse(f[0], inv), pz = float.Parse(f[1], inv), pr = float.Parse(f[2], inv);
+                    buildings ??= CityBuildings.Precompute(map);
+                    var sb = new StringBuilder();
+                    CityPoles.Explain(map, t, buildings, new Vector2(px - pr, pz - pr), new Vector2(px + pr, pz + pr), sb);
+                    Line($"POLES with a station within {pr:0} m of ({px:0.0},{pz:0.0}):");
+                    foreach (var l in sb.ToString().Split('\n')) if (l.Trim().Length > 0) Line("  " + l.TrimEnd());
+                }
+            }
+        }
+
         static void PlanDump(CityMap map, CityMeshes.Trims t, int node, string tag, StringBuilder sb, CultureInfo inv)
         {
             var c = map.nodes[node];

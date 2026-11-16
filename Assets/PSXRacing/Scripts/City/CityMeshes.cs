@@ -2998,6 +2998,8 @@ namespace PSXRacing.City
                     // island's axis at the nose and part around it; the gore
                     // painter filled every gap under 4.5 m, i.e. the whole island
                     if (LineModel.SameRefuge(ei, hostIdx)) continue;
+                    // the splits round's fix: nor a shaped split nose's two carriageways (LineModel.SameSplitNose)
+                    if (LineModel.SameSplitNose(ei, hostIdx)) continue;
                     var np = map.nodes[n];
                     if (np.x < min.x - GoreReach - 20f || np.x > max.x + GoreReach + 20f ||
                         np.y < min.y - GoreReach - 20f || np.y > max.y + GoreReach + 20f) continue;

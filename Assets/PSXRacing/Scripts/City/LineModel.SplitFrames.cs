@@ -42,7 +42,11 @@ namespace PSXRacing.City
     public static partial class LineModel
     {
         public const float SplitChordM = 30f, SplitTurnMaxDeg = 35f, SplitSepMaxM = 15f, SplitFloorM = 30.5f, SplitIslandGapM = 2.4f;
-        public const float SplitNoseH = 2.0f, SplitNoseLn = 8f, SplitNoseR = 0.45f;
+        /// <summary>THE NOSE (the fix round): the island's tip stands where the two lane bands are
+        /// SplitIslandGapM apart, a SplitNoseR round tip, its sides SplitNoseOffM off each lane edge
+        /// (Iowa DM 6A-11, MUTCD 3B.10: 1-2 ft), easing to the carriageway's own shoulder over
+        /// noseLn (10:1, at least SplitNoseFlankMinM).</summary>
+        public const float SplitNoseR = 0.6f, SplitNoseOffM = 0.6f, SplitNoseFlankMinM = 3f, SplitNoseLateM = 20f;
 
         /// <summary>One carriageway end drawn by the axis-frame profile.</summary>
         public sealed class SplitFrame
@@ -59,8 +63,23 @@ namespace PSXRacing.City
             /// uEnd it is the own line), polyline with arc.</summary>
             public Vector2[] ax; public float[] axS;
             public int hintK; public long tag;
-            /// <summary>The axis-frame lateral of the own line (the audit), by u.</summary>
-            public float[] ownU, ownQ;
+            /// <summary>The axis-frame lateral of the own line (the audit), by u, and the own lane
+            /// band's half width there (a lane added or dropped on the carriageway changes it).</summary>
+            public float[] ownU, ownQ, ownH;
+            /// <summary>The node's nose (both frames carry it): the tip's u (NaN: none) and the
+            /// flank's length; the audit's design table.</summary>
+            public float uTip = float.NaN, noseLn;
+            public float HAt(float uu)
+            {
+                var U = ownU; var H = ownH;
+                if (U == null || H == null || U.Length == 0) return lanesHalf;
+                if (uu <= U[0]) return H[0];
+                int lo = 0, hi = U.Length - 1;
+                if (uu >= U[hi]) return H[hi];
+                while (hi - lo > 1) { int m = (lo + hi) >> 1; if (U[m] <= uu) lo = m; else hi = m; }
+                float f = (uu - U[lo]) / Mathf.Max(1e-4f, U[hi] - U[lo]);
+                return H[lo] + (H[hi] - H[lo]) * f;
+            }
             public float TAt(float uu)
             {
                 if (uu <= uStart) return lambda0;
@@ -126,7 +145,7 @@ namespace PSXRacing.City
 
         static void ClearSplitFrames()
         {
-            splitFrameEdge.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear();
+            splitFrameEdge.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
             SplitProfiled = 0; SplitUEases = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -272,6 +291,17 @@ namespace PSXRacing.City
             Ext(e, s, false, out float eM, out float eP);
             return 0.5f * ((eP - e.shl) - (eM - e.shr));
         }
+        /// <summary>The lanes' centre and the lane band's half width at s (the eases already made).</summary>
+        static float LanesPre(CityMap.Edge e, float s, out float half)
+        {
+            Ext(e, s, false, out float eM, out float eP);
+            half = 0.5f * ((eP - e.shl) + (eM - e.shr));
+            return 0.5f * ((eP - e.shl) - (eM - e.shr));
+        }
+
+        /// <summary>The audits: one framed node's design (u, the lane gap, each side's inner
+        /// pavement edge off its lane edge), as BuildSplitNode laid the nose.</summary>
+        public static readonly Dictionary<int, List<(float u, float gap, float offA, float offB)>> SplitNoseTable = new Dictionary<int, List<(float, float, float, float)>>();
 
         /// <summary>
         /// Build the axis-frame profile at one split node (both carriageways
@@ -327,7 +357,7 @@ namespace PSXRacing.City
                 f.fan = trim > 0.05f;
                 f.uStart = f.fan ? Mathf.Max(0f, Vector2.Dot(C.PointAt(C.a == sp.node ? Mathf.Min(trim, C.length) : Mathf.Max(0f, C.length - trim)) - P0, tU)) : 0f;
                 // the own lanes' centre along the chain, in the axis frame
-                var us = new List<float>(256); var qs = new List<float>(256);
+                var us = new List<float>(256); var qs = new List<float>(256); var hs = new List<float>(256);
                 {
                     int from = sp.node; float d0 = 0f;
                     foreach (int ei in f.chain)
@@ -341,17 +371,17 @@ namespace PSXRacing.City
                         {
                             float s = fwd ? k * ds : e.length - k * ds;
                             var t = e.TangentAt(s); var nl = new Vector2(-t.y, t.x);
-                            var o = e.PointAt(s) + nl * LanesCentrePre(e, s);
+                            var o = e.PointAt(s) + nl * LanesPre(e, s, out float hh);
                             float uu = Vector2.Dot(o - P0, tU), qq = Vector2.Dot(o - P0, leftU);
                             if (us.Count > 0 && uu <= us[us.Count - 1] + 1e-3f) continue;
-                            us.Add(uu); qs.Add(qq);
+                            us.Add(uu); qs.Add(qq); hs.Add(hh);
                         }
                         e.lmEase = keep;
                         d0 += e.length; from = fwd ? e.b : e.a;
                     }
                 }
                 if (us.Count < 8) { Skip(ci, "own line too short"); continue; }
-                f.ownU = us.ToArray(); f.ownQ = qs.ToArray();
+                f.ownU = us.ToArray(); f.ownQ = qs.ToArray(); f.ownH = hs.ToArray();
                 float uMax = us[us.Count - 1];
                 // a turning roadway: the own line's heading 60 m on (the census's netTurn) over 35 degrees
                 {
@@ -407,40 +437,88 @@ namespace PSXRacing.City
             // ---- THE NOSE: the island's tip where the lane bands are 2.4 m apart ----
             float uTip = float.NaN; SplitFrame fa = null, fb = null;
             if (frames.Count == 2) { fa = frames[0]; fb = frames[1]; }
-            float GapLanes(float uu) => fa == null ? float.NaN : Mathf.Abs(fa.TAt(uu) - fb.TAt(uu)) - fa.lanesHalf - fb.lanesHalf;
+            // the lane gap from each band's own half width there (the fix round: n10035's SB turn lane
+            // narrows over e11017, so a constant half width read the gap 0.8 m too small and the
+            // pavements, widened by that, left a grass crack)
+            float GapLanes(float uu) => fa == null ? float.NaN : Mathf.Abs(fa.TAt(uu) - fb.TAt(uu)) - fa.HAt(uu) - fb.HAt(uu);
             // the two carriageways carry more lanes than the undivided road (Beatties Ford n7869: a 2-lane
             // road into 2 + 3 lanes): their lane bands would start on top of each other and cross while
             // they blend - no profile, the old taper (listed)
             if (fa != null)
             {
+                // (judged on the carriageways' full lane counts, as the first pass did: a band that carries
+                // more lanes than the undivided road gains them somewhere in the blend - n9152's lane gap
+                // read along the chain reaches the nose's 2.4 m only 196 m on)
+                float GapFull(float uu) => Mathf.Abs(fa.TAt(uu) - fb.TAt(uu)) - fa.lanesHalf - fb.lanesHalf;
                 float u0 = Mathf.Max(fa.uStart, fb.uStart), worst = 0f;
-                for (float uu = u0; uu <= Mathf.Max(fa.uEnd, fb.uEnd); uu += 1f) worst = Mathf.Min(worst, GapLanes(uu));
+                for (float uu = u0; uu <= Mathf.Max(fa.uEnd, fb.uEnd); uu += 1f) worst = Mathf.Min(worst, GapFull(uu));
                 if (worst < -0.3f || Mathf.Sign(fa.TAt(u0) - fb.TAt(u0)) != Mathf.Sign(fa.OwnQAt(Mathf.Max(fa.uEnd, fb.uEnd)) - fb.OwnQAt(Mathf.Max(fa.uEnd, fb.uEnd))))
                 {
                     foreach (var f in frames) Skip(f.edge, $"the two carriageways' lane bands overlap {-worst:0.00} m or cross while they blend (more lanes than the undivided road carries)");
                     return done;
                 }
             }
-            float noseEnd = 0f, noseH = SplitNoseH, noseLn = SplitNoseLn;
-            if (fa != null && NoseRuleOn && fa.innerSign != fb.innerSign)
+            // THE NOSE (the fix round; the first pass grew the island from 0 along a flank sized to the
+            // widest gap 40 m on - n10035: under 0.8 m for 10 m, a grass crack, then a 0.65 m step where
+            // the widening ended - and let the shoulders overlap where the bands met). Now each side's
+            // inner pavement edge is OffAt metres off its own lane edge:
+            //   before the tip  half the lane gap (the two pavements meet in its middle: flush, no
+            //                   overlap - a shoulder wider than half the gap is trimmed);
+            //   the tip         where the gap reaches SplitIslandGapM: a SplitNoseR round end, the
+            //                   island 1.2 m wide, SplitNoseOffM off each lane edge;
+            //   the flank       SplitNoseOffM eased to the carriageway's own shoulder over noseLn;
+            //   past it         its own shoulder (no widening, no step), never past the gap's middle.
+            bool noseOn = fa != null && NoseRuleOn && fa.innerSign != fb.innerSign;
+            float noseLn = 0f, noseEnd = 0f;
+            if (noseOn)
             {
-                float u0 = Mathf.Max(fa.uStart, fb.uStart), u1 = Mathf.Max(fa.uEnd, fb.uEnd) + 10f;
-                for (float uu = u0; uu <= u1; uu += 0.25f) if (GapLanes(uu) >= SplitIslandGapM) { uTip = uu + RefugeTipM; break; }
+                // (searched along both own lines: a tip past the blends is late, never missing - a flush
+                // widening that stopped where the profile does would leave a step)
+                float u0 = Mathf.Max(fa.uStart, fb.uStart), u1 = Mathf.Min(fa.ownU[fa.ownU.Length - 1], fb.ownU[fb.ownU.Length - 1]) - 2f;
+                if (GapLanes(u0) >= SplitIslandGapM) uTip = u0 + RefugeTipM;
+                else for (float uu = u0; uu <= u1; uu += 0.25f) if (GapLanes(uu) >= SplitIslandGapM) { uTip = uu; break; }
+                // the bands part only far past the blends (n9152: 196.6 m, a flush stretch that long is a
+                // painted median nobody asked for) or never: no profile here, the old taper (listed)
+                float uLim = Mathf.Max(fa.uEnd, fb.uEnd) + SplitNoseLateM;
+                if (float.IsNaN(uTip) || uTip > uLim)
+                {
+                    foreach (var f in frames) Skip(f.edge, float.IsNaN(uTip) ? "the lane bands never part 2.4 m (no nose)" : $"the lane bands part 2.4 m only at u {uTip:0.0}, past the blends (+{SplitNoseLateM:0} m: {uLim:0.0})");
+                    return done;
+                }
                 if (!float.IsNaN(uTip))
                 {
-                    // the nose's full half width: the widest pavement gap its flank must reach (so the
-                    // widening ends at 0 where the flank meets the pavement), the flank no steeper than 1:4
-                    float gMax = 0f;
-                    for (float uu = uTip; uu <= uTip + 40f; uu += 0.5f) gMax = Mathf.Max(gMax, GapLanes(uu) - fa.shIn - fb.shIn);
-                    noseH = Mathf.Max(0.6f, 0.5f * gMax + 0.05f); noseLn = Mathf.Max(SplitNoseLn, 4f * noseH);
-                    noseEnd = uTip + noseLn + 2f; splitNoseNodes.Add(sp.node);
+                    noseLn = Mathf.Max(SplitNoseFlankMinM, 10f * Mathf.Max(Mathf.Abs(fa.shIn - SplitNoseOffM), Mathf.Abs(fb.shIn - SplitNoseOffM)));
+                    noseEnd = uTip + SplitNoseR + noseLn;
+                    splitNoseNodes.Add(sp.node);
+                    fa.uTip = fb.uTip = uTip; fa.noseLn = fb.noseLn = noseLn;
                 }
+            }
+            float OffAt(SplitFrame f, float uu)
+            {
+                float half = 0.5f * Mathf.Max(0f, GapLanes(uu)), off;
+                if (float.IsNaN(uTip)) off = f.shIn;                 // no island anywhere: only the overlap trimmed
+                else if (uu < uTip) off = half;
+                else
+                {
+                    float x = uu - uTip, r = SplitNoseR;
+                    if (x < r) off = SplitNoseOffM + r - Mathf.Sqrt(Mathf.Max(0f, r * r - (r - x) * (r - x)));
+                    else off = SplitNoseOffM + (f.shIn - SplitNoseOffM) * Smooth((x - r) / Mathf.Max(0.1f, noseLn));
+                }
+                return Mathf.Min(off, half);
+            }
+            if (noseOn)
+            {
+                var tab = new List<(float, float, float, float)>(160);
+                float uA = Mathf.Max(fa.uStart, fb.uStart), uB = Mathf.Min(Mathf.Max(fa.uEnd, fb.uEnd), (float.IsNaN(uTip) ? 0f : noseEnd) + 60f);
+                for (float uu = uA; uu <= uB + 1e-3f; uu += 0.5f) tab.Add((uu, GapLanes(uu), OffAt(fa, uu), OffAt(fb, uu)));
+                SplitNoseTable[sp.node] = tab;
             }
             // ---- THE EASES ----
             foreach (var f in frames)
             {
                 int from = sp.node; float d0 = 0f; int hint = 0;
                 float uLast = Mathf.Max(f.uEnd, float.IsNaN(uTip) ? 0f : noseEnd) + 1f;
+                var fo = fa == f ? fb : fa;
                 foreach (int ei in f.chain)
                 {
                     var e = map.edges[ei];
@@ -464,14 +542,13 @@ namespace PSXRacing.City
                             sh[k] = -qL - LanesCentrePre(e, s);
                             anyIn = true;
                         }
-                        // the nose: inner pavement widened to the island (flush before its tip)
-                        if (!float.IsNaN(uTip) && uAx <= noseEnd)
+                        // the nose: the inner pavement edge OffAt off the lane edge (flush before the
+                        // tip, the round tip and flank, then the own shoulder - trimmed wherever the
+                        // bands come closer than the two shoulders, over the whole profile)
+                        if (noseOn && fo != null && uAx <= uLast)
                         {
-                            var o = fa == f ? fb : fa;
-                            float gapPave = GapLanes(uAx) - f.shIn - o.shIn;
-                            float ih = uAx < uTip ? 0f : Mathf.Min(0.5f * Mathf.Max(0f, gapPave), NoseHalf(uAx - uTip, noseH, noseLn, SplitNoseR));
-                            float w = Mathf.Max(0f, 0.5f * gapPave - ih);
-                            wd[k] = w; if (w > 0.005f) anyW = true;
+                            float w = OffAt(f, uAx) - f.shIn;
+                            wd[k] = w; if (Mathf.Abs(w) > 0.005f) anyW = true;
                             // the inner side in e's frame
                             int innerE = Vector2.Dot(leftU * f.innerSign, el) >= 0f ? 1 : -1;
                             wSide = innerE;

@@ -49,8 +49,12 @@ namespace PSXRacing.EditorTools
                 {
                     ("34", -3358.8f, 8768f, 9.8f), ("35", -3324.8f, 8960f, 9.9f), ("36", -3307.4f, 9386f, 356.5f), ("37", -3467.8f, 10422f, 347f),
                 };
+                // (the fix round) drops on the lens in the rain only: PSX_SPLITS_LENS_RAIN (or PSX_LENS_RAIN)
+                // is put on the lens for the night-in-rain frames and taken off for the dry noon and tops
+                string lensNight = System.Environment.GetEnvironmentVariable("PSX_SPLITS_LENS_RAIN") ?? System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN");
                 void Light(string cond)
                 {
+                    System.Environment.SetEnvironmentVariable("PSX_LENS_RAIN", cond == "night_rain" ? lensNight : null);
                     RaceHandoff.CalendarDay = 0;
                     RaceHandoff.WeatherOverride = cond == "night_rain" ? (int)Weather.Rain : -1;
                     int hour = cond == "night_rain" ? HourOf("night") : HourOf("noon");
@@ -80,7 +84,7 @@ namespace PSXRacing.EditorTools
                             PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_{ps.id}_{cond}", cp, cr);
                             if (cond == "night_rain") WeatherFx.PreviewClear();
                             shots++;
-                            log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.0},{cp.y:0.00},{cp.z:0.0}) vfov {vfov:0.0}\te{(ei)}\n");
+                            log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.0},{cp.y:0.00},{cp.z:0.0}) vfov {vfov:0.0}\te{(ei)}\tlens rain {System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN") ?? "off"}\n");
                         }
                     }
                 if (want.Contains("tops"))
