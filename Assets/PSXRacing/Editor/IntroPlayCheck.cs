@@ -264,7 +264,7 @@ namespace PSXRacing.EditorTools
             bool hold = false, lamps = false, pass = false, pass2 = false, attach = false, inside = false, reveal = false,
                  caption = false, drv = false, fade = false, card = false;
             float maxAlongGap = 0f, lastAlong = intro.Along;
-            float minSpeed = float.MaxValue;
+            float minSpeed = float.MaxValue, botMin = float.MaxValue, driveSeenAt = -1f;
             bool earOut = false, earBack = false;
             float eyeInBore = 0f, eyeOut = 9f;
 
@@ -273,7 +273,13 @@ namespace PSXRacing.EditorTools
                 float t = Time.time - start;
                 var car = intro.Car;
                 float kmh = car != null ? car.speedKmh : 0f;
-                if (intro.Now != NewGameIntro.Phase.Outro && t > 2f && kmh < minSpeed) minSpeed = kmh;
+                // the scripted part: the approach, the ease, and three seconds of the hand-over (the drive after
+                // that is the tools' own driver, which brakes for the bends)
+                if (intro.Now == NewGameIntro.Phase.Drive && driveSeenAt < 0f) driveSeenAt = t;
+                bool scripted = intro.Now == NewGameIntro.Phase.Approach || intro.Now == NewGameIntro.Phase.Attach ||
+                                (intro.Now == NewGameIntro.Phase.Drive && t - driveSeenAt < 3f);
+                if (scripted && t > 2f && kmh < minSpeed) minSpeed = kmh;
+                if (intro.Now == NewGameIntro.Phase.Drive && !scripted && kmh < botMin) botMin = kmh;
                 maxAlongGap = Mathf.Max(maxAlongGap, Mathf.Abs(intro.Along - lastAlong));
                 lastAlong = intro.Along;
                 if (intro.Now == NewGameIntro.Phase.Approach && NewGameIntro.EarOutside) earOut = true;
@@ -333,7 +339,8 @@ namespace PSXRacing.EditorTools
             Check(hold && lamps && pass && attach && inside && reveal && drv && card, "every phase came",
                   $"hold {hold} lamps {lamps} pass {pass} attach {attach} inside {inside} reveal {reveal} caption {caption} drive {drv} fade {fade} card {card}");
             Check(earOut && earBack, "the car is heard from outside on its way up, from its chase rig after", $"outside {earOut}, back {earBack}");
-            Check(minSpeed > 25f, "the car never stops dead (the slowest from 2 s to the fade)", minSpeed.ToString("0") + " km/h");
+            Check(minSpeed > 40f, "the car never stops dead: the approach, the pass, the ease and the hand-over", minSpeed.ToString("0") + " km/h at the slowest");
+            Note($"  (the tools' driver after that: slowest {botMin:0} km/h, for a bend)");
             Check(eyeInBore > 1.3f && eyeOut < eyeInBore, "the eye opens in the bore and closes on the day",
                   $"in the bore {eyeInBore:0.00}, out {eyeOut:0.00}");
             Note("video frames: " + videoFrame);

@@ -199,7 +199,7 @@ namespace PSXRacing
         float laneOff;
         float t0, attachT0 = -1f, controlT0 = -1f, driveT0 = -1f, outroT0 = -1f, cardT0 = -1f;
         float skipHeld, stoppedFor, strandedFor, sweepAt;
-        bool assistOff, viewRestored, ambienceFading, haveLastProj;
+        bool assistOff, viewRestored, viewTaken, haveLastProj;
         Matrix4x4 lastProj;
         ChaseCamera.View savedView;
         readonly List<CanvasGroup> hudGroups = new List<CanvasGroup>();
@@ -293,8 +293,7 @@ namespace PSXRacing
             var chase = FindAnyObjectByType<ChaseCamera>();
             cam = chase != null ? chase.GetComponent<Camera>() : Camera.main;
             if (cam == null) return false;
-            savedView = ChaseCamera.Current;
-            ChaseCamera.PreviewView(savedView == ChaseCamera.View.Close ? ChaseCamera.View.Close : ChaseCamera.View.Chase);
+            // (the player's view is taken on the first frame: ChaseCamera.Start may run after this and read it)
             cam.transform.SetPositionAndRotation(camEye, camRot);
 
             // The car's own sound from outside, its lamps on, the eye held shut.
@@ -343,6 +342,15 @@ namespace PSXRacing
             carIdx = path.NearestIndex(car.transform.position, carIdx, 30);
             Along = Vector3.Dot(car.transform.position - camEye, camFwd);
 
+            if (!viewTaken)
+            {
+                // Every Start has run: the view is the player's own now. The standing lens and the ease use the
+                // chase rig (or the close one); a mounted view comes back when the ease is done.
+                viewTaken = true;
+                savedView = ChaseCamera.Current;
+                var rig = savedView == ChaseCamera.View.Close ? ChaseCamera.View.Close : ChaseCamera.View.Chase;
+                if (rig != savedView) ChaseCamera.PreviewView(rig);
+            }
             StepSkip(dt);
             if (Now == Phase.Outro) { StepOutro(); return; }
 
@@ -720,10 +728,14 @@ namespace PSXRacing
                 var capRoot = MenuKit.Stretch(Canvas.transform, "Caption", Vector2.zero, Vector2.one, 0f, 0f, 0f, 0f);
                 caption = capRoot.gameObject.AddComponent<CanvasGroup>();
                 caption.alpha = 0f; caption.blocksRaycasts = false; caption.interactable = false;
+                // a dark band under the words: they hang in the sky, and an overcast sky is nearly white
+                var band = MenuKit.Rect(capRoot, "Band", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -56f),
+                    new Vector2(940f, 104f), new Color(0f, 0f, 0f, 0.5f));
+                band.GetComponent<Image>().raycastTarget = false;
                 MenuKit.Label(capRoot, "BLUE RIDGE PARKWAY", MenuKit.Head, new Vector2(0.5f, 1f), new Vector2(0f, -84f),
                     TextAnchor.MiddleCenter, MenuKit.Accent, 900f, 44f, bold: true);
                 captionLine2 = MenuKit.Label(capRoot, "", MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(0f, -122f),
-                    TextAnchor.MiddleCenter, MenuKit.Dim, 900f, 32f);
+                    TextAnchor.MiddleCenter, new Color(0.9f, 0.9f, 0.9f), 900f, 32f);
 
                 black = MenuKit.Panel(Canvas.transform, "Black", Color.black).GetComponent<Image>();
                 black.raycastTarget = false;
@@ -731,12 +743,12 @@ namespace PSXRacing
 
                 // SKIP, top left: the lap line's corner, which the intro leaves empty (the touch map hangs below it)
                 var sk = MenuKit.Rect(Canvas.transform, "Skip", new Vector2(0f, 1f), new Vector2(0f, 1f),
-                    new Vector2(20f, -14f), new Vector2(SkipW, 42f), new Color(0f, 0f, 0f, 0.45f));
+                    new Vector2(20f, -14f), new Vector2(SkipW, 42f), new Color(0f, 0f, 0f, 0.62f));
                 skip = sk.gameObject.AddComponent<CanvasGroup>();
                 skip.alpha = 0f; skip.blocksRaycasts = false;
                 skipButton = sk.gameObject.AddComponent<HoldButton>();
                 skipLabel = MenuKit.Label(sk, "HOLD ESC TO SKIP", MenuKit.Tiny, new Vector2(0f, 0.5f), new Vector2(14f, 2f),
-                    TextAnchor.MiddleLeft, MenuKit.Dim, SkipW - 24f, 32f);
+                    TextAnchor.MiddleLeft, new Color(0.88f, 0.88f, 0.88f), SkipW - 24f, 32f);
                 var fill = MenuKit.Rect(sk, "Fill", new Vector2(0f, 0f), new Vector2(0f, 0f), Vector2.zero, new Vector2(SkipW, 4f), MenuKit.Accent);
                 skipFill = fill.GetComponent<Image>();
                 skipFill.raycastTarget = false;
