@@ -2202,7 +2202,7 @@ Shader "PSX/Lit"
                     }
                     else if (_HorizonCanopy.a > 0.0)
                     {
-                        float hf = saturate((hd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0)) * _HorizonCanopy.a;
+                        float hf = saturate((cnHd - _HorizonFade.x) / max(_HorizonFade.y - _HorizonFade.x, 1.0)) * _HorizonCanopy.a;
                         if (hf > 0.0)
                         {
                             float2 mu = abs(frac(i.wpos.xz * (_HorizonFade.z * 0.5)) * 2.0 - 1.0);
