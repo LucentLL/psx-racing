@@ -41,9 +41,42 @@ namespace PSXRacing
         /// (SpeedBlurFeature.WaterDepthPass draws it).</summary>
         public const string DepthCopyPass = "PSXWaterDepthCopy";
 
+        /// <summary>PSX_WATER_HD_SEA=1: the HD water on the coast stages' open
+        /// sea too. Default OFF (2026-11-16): on the Bogue Banks sea the HD
+        /// variant lost today's white swash line and the foam fringes round the
+        /// sandbars (the water sheet's frames), so a scene with an ocean-swell
+        /// sea keeps the old water until that is fixed. Lakes, rivers and the
+        /// city take the HD water.</summary>
+        public static readonly bool SeaOn = System.Environment.GetEnvironmentVariable("PSX_WATER_HD_SEA") == "1";
+
+        static int seaScene = int.MinValue;
+        static bool seaHere;
+
+        /// <summary>The HD variant for the active scene: on, unless it holds an
+        /// open-ocean sea (a PSX/Water material with _OceanWaves) and
+        /// PSX_WATER_HD_SEA is not 1. One scan per scene.</summary>
+        public static bool ActiveHere()
+        {
+            if (!On) return false;
+            if (SeaOn) return true;
+            int h = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetHashCode();
+            if (h != seaScene)
+            {
+                seaScene = h;
+                seaHere = false;
+                foreach (var r in Object.FindObjectsByType<MeshRenderer>())
+                {
+                    var m = r.sharedMaterial;
+                    if (m != null && m.shader != null && m.shader.name == ShaderName
+                        && m.HasProperty("_OceanWaves") && m.GetFloat("_OceanWaves") > 0.5f) { seaHere = true; break; }
+                }
+            }
+            return !seaHere;
+        }
+
         /// <summary>Does <paramref name="cam"/> need the water's depth copy
         /// this frame (the HD tiers 1 and 2)?</summary>
-        public static bool DepthCopyFor(Camera cam) => On && TierFor(cam) >= 1;
+        public static bool DepthCopyFor(Camera cam) => ActiveHere() && TierFor(cam) >= 1;
 
         /// <summary>False with PSX_WATER_HD=0: the water as it was.</summary>
         public static readonly bool On = System.Environment.GetEnvironmentVariable("PSX_WATER_HD") != "0";
@@ -83,7 +116,7 @@ namespace PSXRacing
 
         static void ApplyKeyword()
         {
-            if (On) Shader.EnableKeyword(Keyword);
+            if (ActiveHere()) Shader.EnableKeyword(Keyword);
             else Shader.DisableKeyword(Keyword);
         }
 
@@ -129,7 +162,7 @@ namespace PSXRacing
         public static void Push(Camera cam)
         {
             ApplyKeyword();
-            if (!On) return;
+            if (!ActiveHere()) return;
             int tier = TierFor(cam);
             Shader.SetGlobalVector(TierId, new Vector4(tier >= 1 ? 1f : 0f, tier >= 2 ? 1f : 0f, tier >= 2 ? 1f : 0f, 0f));
             Vector2 wind;
