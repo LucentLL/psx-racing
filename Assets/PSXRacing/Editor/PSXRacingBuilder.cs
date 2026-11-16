@@ -497,6 +497,10 @@ namespace PSXRacing.EditorTools
                                                 rail: RailKit.Rustic),
             ["SwissNC226A"] = MountainLoopTheme(Root + "/Art/Swiss226A", "swa"),
             ["GillespieGap"] = MountainLoopTheme(Root + "/Art/Gillespie", "gap"),
+            // US 64/74A, Lake Lure to Bat Cave, before Helene: white edge
+            // lines and a double yellow, W-beam on the lake side (the owner's
+            // 2022 dash-cam video).
+            ["LakeLure"] = LakeLureTheme(),
 
             // Bogue Banks. One look, three venues: pale sand, scrub behind the
             // dune line, water on both sides of everything. All three share a
@@ -584,6 +588,16 @@ namespace PSXRacing.EditorTools
             edgeLines = edgeLines,
             rail = rail,
         };
+
+        /// <summary>The mountain look, with Lake Lure's water: a deep green-blue
+        /// mountain lake rather than the coast's pale sound.</summary>
+        static Theme LakeLureTheme()
+        {
+            var t = MountainLoopTheme(Root + "/Art/LakeLure", "lure");
+            t.waterDeepTint = new Color(0.36f, 0.47f, 0.46f);
+            t.waterSandColor = new Color(0.48f, 0.42f, 0.32f);
+            return t;
+        }
 
         /// <summary>For the self-test: every catalog track needs a theme, and a
         /// missing one only shows up as a circuit that quietly looks like the
@@ -810,6 +824,9 @@ namespace PSXRacing.EditorTools
             // GroundHeightAt silently answers for whichever world is loaded.
             if (def.stage) StageLoadDem();
             else StageUnloadDem();
+            // The road's cross-section, for the AI's corner speeds
+            // (PSXRacingBuilder.Bank; null on a flat road).
+            BakeBankInto(path);
 
             // Before anything that has to sit ON the ground, which is
             // everything below: the road is the only thing here whose height is
@@ -846,6 +863,7 @@ namespace PSXRacing.EditorTools
             if (def.stage) BuildStageTunnels(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
             BuildStartLine(waypoints, pathGO.transform);
+            if (def.stage) BuildStageWorld(waypoints, pathGO.transform);   // lake, river, town from <pre>_world.json (StageRiver.cs / StageTown.cs)
             if (def.stage && theme.stageForest) BuildStageForest(waypoints, pathGO.transform);
             else BuildScenery(waypoints, pathGO.transform);
             if (def.stage && theme.stageHomes) BuildStageHomes(waypoints, pathGO.transform);
@@ -1998,10 +2016,12 @@ namespace PSXRacing.EditorTools
             // (bilinear) line by up to 2c(1-c) of the rungs' mismatch: 3-5 cm
             // on the tight stages' hairpins (lane census 2026-09-28, gate
             // 2.5 cm), a centre line that zigzags quad by quad. With the
-            // column the worst is 2 mm. The ring is flat across (RightAt is
-            // horizontal), so the centre vertex lies ON the old surface; the
-            // collider only moves where a quad was twisted, and toward the
-            // smooth surface. RoadStride is what the audits read.
+            // column the worst is 2 mm. RightAt is horizontal; the ring WAS
+            // flat across, and on a stage it is now crowned or banked about
+            // that centre vertex (PSXRacingBuilder.Bank: each half a plane,
+            // the edges lifted by the measured cross slope), which is also
+            // what the third vertex was waiting for. RoadStride is what the
+            // audits read.
             //
             // And between two waypoints the rings are SLICES of a curve, not
             // one chord (PSXRacingBuilder.Ribbon.cs): a station ring is the
@@ -2049,9 +2069,12 @@ namespace PSXRacing.EditorTools
                 // road doesn't z-fight ("flash orange") against it at distance
                 Vector3 center = ring.centre + Vector3.up * RoadLift;
                 int v0 = ri * RoadStride;
-                verts[v0] = center - right * (RoadWidth * 0.5f);
+                // Crowned or banked about the centre line (PSXRacingBuilder.Bank):
+                // each half a plane from the centre to its edge. Flat when
+                // the stage has no bank (PSX_STAGE_BANK=0, no file, not a stage).
+                verts[v0] = center - right * (RoadWidth * 0.5f) + Vector3.up * RingBank(ring, -1f);
                 verts[v0 + 1] = center;
-                verts[v0 + 2] = center + right * (RoadWidth * 0.5f);
+                verts[v0 + 2] = center + right * (RoadWidth * 0.5f) + Vector3.up * RingBank(ring, 1f);
                 // U ACROSS the carriageway, V along it — Charlotte's mapping,
                 // and the reason its markings are the right size. The old
                 // mapping ran U along the road and squeezed the whole texture
@@ -2531,7 +2554,7 @@ namespace PSXRacing.EditorTools
                           .Append(caught ? " caught" : "").Append(pastBend ? " pastBend" : "").Append(tailed ? " tailed" : "")
                           .Append(" bend ").Append(ShoulderBendReach(pts, idx, side).ToString("0.00"))
                           .Append(" fold ").Append(ShoulderFoldReach(pts, idx, side).ToString("0.00")).Append(':');
-                        float ry = pts[idx].y + RoadLift;
+                        float ry = pts[idx].y + RoadLift + BankEdge(idx, side);
                         for (int k = 0; k < pos[s][idx].Length; k++)
                         {
                             var q = pos[s][idx][k];
@@ -3037,7 +3060,8 @@ namespace PSXRacing.EditorTools
             if (prof == null || prof.Count == 0) return false;
             float half = RoadWidth * 0.5f;
             Vector3 outw = RightAt(pts, idx) * side;
-            float roadY = pts[idx].y + RoadLift;
+            // The section stands on this side's banked tarmac edge (PSXRacingBuilder.Bank).
+            float roadY = pts[idx].y + RoadLift + BankEdge(idx, side);
             int m = prof.Count;
             // On a deck the thing the toe crosses is the concrete box, which
             // is always under a tuck (DeckTopBelowTarmac down, DeckThick deep).
@@ -3619,7 +3643,7 @@ namespace PSXRacing.EditorTools
             Vector3 foot = Vector3.Lerp(pts[a], pts[b], bestT);
             float lateral = (x - foot.x) * right.x + (z - foot.z) * right.z;
             e = Mathf.Abs(lateral) - RoadWidth * 0.5f;
-            float roadY = foot.y + RoadLift;
+            float roadY = foot.y + RoadLift + BankAcrossAt(a, b, bestT, lateral);
             if (e <= 0f) { y = roadY; eLast = float.MaxValue; return true; }
             int s = lateral < 0f ? 0 : 1;
             var pa = shoulderProfiles[s][a];
@@ -4037,7 +4061,7 @@ namespace PSXRacing.EditorTools
                 // Flush with the road ribbon, which ends exactly where this
                 // begins: they share an edge and never an area, so there is no
                 // depth to fight over.
-                Vector3 inner = ring.centre + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
+                Vector3 inner = ring.centre + Vector3.up * (RoadLift + KerbStripLift + RingBank(ring, side)) + outw * (RoadWidth * 0.5f);
                 Vector3 outer = inner + outw * KerbWidth;
                 int v = verts.Count;
                 verts.Add(inner); verts.Add(outer);
@@ -4086,7 +4110,7 @@ namespace PSXRacing.EditorTools
                 var ring = rings[ri];
                 Vector3 outw = ring.right * side;
                 Vector3 rise = Vector3.up * RibbonKerbLift(ring, n, side);
-                Vector3 a = ring.centre + Vector3.up * (RoadLift + KerbStripLift) + outw * (RoadWidth * 0.5f);
+                Vector3 a = ring.centre + Vector3.up * (RoadLift + KerbStripLift + RingBank(ring, side)) + outw * (RoadWidth * 0.5f);
                 Vector3 b = a + rise + outw * StreetKerbFaceBatter;
                 Vector3 c = a + rise + outw * StreetKerbTop;
                 Vector3 d = a + rise + outw * KerbWidth;
@@ -5125,12 +5149,24 @@ namespace PSXRacing.EditorTools
                 // coplanar surfaces z-fight, and a joint that flickers is worse
                 // than no joint at all. 6 mm is under the suspension's notice.
                 Vector3 c = pts[i] + Vector3.up * 0.126f;
-                int b = verts.Count;
-                verts.Add(c - right * hw - fwd * halfLen); uvs.Add(new Vector2(0f, 0f));
-                verts.Add(c + right * hw - fwd * halfLen); uvs.Add(new Vector2(1f, 0f));
-                verts.Add(c + right * hw + fwd * halfLen); uvs.Add(new Vector2(1f, 1f));
-                verts.Add(c - right * hw + fwd * halfLen); uvs.Add(new Vector2(0f, 1f));
-                tris.AddRange(new[] { b, b + 3, b + 2, b, b + 2, b + 1 });
+                // Across the banked road (PSXRacingBuilder.Bank): one quad per
+                // column pair of the tarmac's own cross-section.
+                float halfR = RoadWidth * 0.5f;
+                float[] across = Banked && hw > halfR + 0.01f
+                    ? new[] { -hw, -halfR, 0f, halfR, hw } : new[] { -hw, hw };
+                for (int j = 0; j + 1 < across.Length; j++)
+                {
+                    float x0 = across[j], x1 = across[j + 1];
+                    Vector3 l = c + right * x0 + Vector3.up * BankAcross(i, x0);
+                    Vector3 r = c + right * x1 + Vector3.up * BankAcross(i, x1);
+                    float u0 = (x0 + hw) / (2f * hw), u1 = (x1 + hw) / (2f * hw);
+                    int b = verts.Count;
+                    verts.Add(l - fwd * halfLen); uvs.Add(new Vector2(u0, 0f));
+                    verts.Add(r - fwd * halfLen); uvs.Add(new Vector2(u1, 0f));
+                    verts.Add(r + fwd * halfLen); uvs.Add(new Vector2(u1, 1f));
+                    verts.Add(l + fwd * halfLen); uvs.Add(new Vector2(u0, 1f));
+                    tris.AddRange(new[] { b, b + 3, b + 2, b, b + 2, b + 1 });
+                }
             }
 
             var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
@@ -5160,7 +5196,17 @@ namespace PSXRacing.EditorTools
 
             // Four ribbons sharing one mesh: deck top, soffit, and a fascia
             // down each side. Emitted station by station so they stay in step.
-            var top = new int[stations * 2];
+            // THE TOP FOLLOWS THE BANK (PSXRacingBuilder.Bank): on a banked
+            // road its columns are the tarmac's - the deck's edge, the tarmac
+            // edge, the centre line, the other tarmac edge, the other deck
+            // edge - so it stays 2 cm under a crowned or superelevated road
+            // across its whole width (two columns would cut the plane's chord
+            // through the low side's tarmac). Flat: the two columns it had.
+            float halfR = RoadWidth * 0.5f;
+            float[] across = Banked && hw > halfR + 0.01f
+                ? new[] { -hw, -halfR, 0f, halfR, hw } : new[] { -hw, hw };
+            int C = across.Length;
+            var top = new int[stations * C];
             var bot = new int[stations * 2];
 
             for (int k = 0; k < stations; k++)
@@ -5172,6 +5218,20 @@ namespace PSXRacing.EditorTools
                 // same pixels and a car leaving the strip drops an inch.
                 Vector3 c = pts[i] + Vector3.up * DeckTopLift;
                 Vector3 under = pts[i] + Vector3.up * (DeckTopLift - DeckThick);
+                // THE END CAPS OFF THE STATION PLANE (banked decks): the first
+                // and last rings sit on a station's cross-section line, which is
+                // the line the kerb strip's ring edge lies on and the edge audit
+                // casts down. A vertical cap IN that plane answers a ray along it
+                // anywhere down its face (Blue Ridge wp 704 L: "a 0.07 m drop onto
+                // BridgeDeck3" under the kerb), so on a banked road each end is
+                // carried 2 cm on along the road, past the line. Flat decks are
+                // the boxes they were.
+                if (C > 2 && stations > 1 && (k == 0 || k == stations - 1))
+                {
+                    Vector3 push = Vector3.Cross(right, Vector3.up).normalized * (k == 0 ? -DeckEndPushM : DeckEndPushM);
+                    c += push;
+                    under += push;
+                }
 
                 // Concrete tiles by the METRE in both directions. The old UVs
                 // ran 0..1 across the deck whatever its width, which on a 23 m
@@ -5182,31 +5242,49 @@ namespace PSXRacing.EditorTools
                 float v = dist / ConcreteTile;
                 float uOut = hw * 2f / ConcreteTile;
                 float uLip = DeckThick / ConcreteTile;
-                top[k * 2] = verts.Count; verts.Add(c - right * hw); uvs.Add(new Vector2(v, 0f));
-                top[k * 2 + 1] = verts.Count; verts.Add(c + right * hw); uvs.Add(new Vector2(v, uOut));
-                bot[k * 2] = verts.Count; verts.Add(under - right * hw); uvs.Add(new Vector2(v, -uLip));
-                bot[k * 2 + 1] = verts.Count; verts.Add(under + right * hw); uvs.Add(new Vector2(v, uOut + uLip));
+                for (int j = 0; j < C; j++)
+                {
+                    float x = across[j];
+                    top[k * C + j] = verts.Count;
+                    verts.Add(c + right * x + Vector3.up * BankAcross(i, x));
+                    uvs.Add(new Vector2(v, (x + hw) / ConcreteTile));
+                }
+                bot[k * 2] = verts.Count; verts.Add(under - right * hw + Vector3.up * BankEdge(i, -1f)); uvs.Add(new Vector2(v, -uLip));
+                bot[k * 2 + 1] = verts.Count; verts.Add(under + right * hw + Vector3.up * BankEdge(i, 1f)); uvs.Add(new Vector2(v, uOut + uLip));
                 dist += Spacing;
             }
 
             for (int k = 0; k + 1 < stations; k++)
             {
                 int a = k * 2, b = (k + 1) * 2;
+                int ta = k * C, tb = (k + 1) * C;
                 // Top, facing up.
-                tris.AddRange(new[] { top[a], top[b], top[a + 1], top[a + 1], top[b], top[b + 1] });
+                for (int j = 0; j + 1 < C; j++)
+                    tris.AddRange(new[] { top[ta + j], top[tb + j], top[ta + j + 1], top[ta + j + 1], top[tb + j], top[tb + j + 1] });
                 // Soffit, facing down: the opposite winding, which is what makes
                 // it visible from the gorge floor rather than from the sky.
                 tris.AddRange(new[] { bot[a], bot[a + 1], bot[b], bot[a + 1], bot[b + 1], bot[b] });
                 // Left fascia, facing out (-right).
-                tris.AddRange(new[] { top[a], bot[a], top[b], bot[a], bot[b], top[b] });
+                tris.AddRange(new[] { top[ta], bot[a], top[tb], bot[a], bot[b], top[tb] });
                 // Right fascia, facing out (+right).
-                tris.AddRange(new[] { top[a + 1], top[b + 1], bot[a + 1], bot[a + 1], top[b + 1], bot[b + 1] });
+                tris.AddRange(new[] { top[ta + C - 1], top[tb + C - 1], bot[a + 1], bot[a + 1], top[tb + C - 1], bot[b + 1] });
             }
             // Abutment end caps, so the deck reads as a box and not as a ribbon
-            // when you come over the crest at it.
-            AddQuad(tris, top[0], top[1], bot[1], bot[0]);
-            int e = (stations - 1) * 2;
-            AddQuad(tris, top[e + 1], top[e], bot[e], bot[e + 1]);
+            // when you come over the crest at it: a fan from the bottom corner
+            // over the top's columns (the quad it was, when the top is two).
+            int e = (stations - 1) * 2, te = (stations - 1) * C;
+            if (C == 2)
+            {
+                AddQuad(tris, top[0], top[1], bot[1], bot[0]);
+                AddQuad(tris, top[te + 1], top[te], bot[e], bot[e + 1]);
+            }
+            else
+            {
+                for (int j = 0; j + 1 < C; j++) tris.AddRange(new[] { bot[0], top[j], top[j + 1] });
+                tris.AddRange(new[] { bot[0], top[C - 1], bot[1] });
+                for (int j = C - 1; j > 0; j--) tris.AddRange(new[] { bot[e + 1], top[te + j], top[te + j - 1] });
+                tris.AddRange(new[] { bot[e + 1], top[te], bot[e] });
+            }
 
             var mesh = new Mesh { vertices = verts.ToArray(), uv = uvs.ToArray(), triangles = tris.ToArray() };
             SaveMesh(mesh, "BridgeDeck" + no);
@@ -5259,9 +5337,9 @@ namespace PSXRacing.EditorTools
             for (int k = 0; k < stations; k += step)
             {
                 int i = (from + k) % n;
-                float deckBottom = pts[i].y + DeckTopLift - DeckThick;
+                float deckBottom0 = pts[i].y + DeckTopLift - DeckThick;
                 float ground = GroundHeightAt(pts[i].x, pts[i].z);
-                float h = deckBottom - ground;
+                float h = deckBottom0 - ground;
                 // Nothing to hold up at the abutments, where the ramp has
                 // already brought the ground back to the deck.
                 if (h < 2f) continue;
@@ -5285,6 +5363,9 @@ namespace PSXRacing.EditorTools
                     // exactly on a mesh you can see under shows daylight beneath
                     // itself the moment the ground facet tilts.
                     float baseY = ground - 1f;
+                    // Up to the banked soffit over it (PSXRacingBuilder.Bank):
+                    // the soffit runs straight between its two edges.
+                    float deckBottom = deckBottom0 + Mathf.Lerp(BankEdge(i, -1f), BankEdge(i, 1f), 0.5f + 0.5f * side * 0.55f);
                     go.transform.position = new Vector3(pts[i].x, (baseY + deckBottom) * 0.5f, pts[i].z)
                                           + right * side * (DeckHalfWidth * 0.55f);
                     go.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up);
@@ -5325,6 +5406,40 @@ namespace PSXRacing.EditorTools
             {
                 Vector3 fwd = pts[Mathf.Min(idx + 1, pts.Count - 1)] - pts[idx];
                 if (fwd.sqrMagnitude < 0.001f) fwd = Vector3.forward;
+                if (Banked)
+                {
+                    // ON A BANKED ROAD the band is laid over the road's own
+                    // cross-section (PSXRacingBuilder.Bank) - its left edge,
+                    // centre and right edge, 5 cm over the tarmac - in a frame
+                    // turned only about the vertical, which is the frame
+                    // RaceHandoffApplier.PaintLine lays a sprint's band in. A
+                    // flat quad would float over a crown's edges and cut into
+                    // a bend's high side.
+                    Vector3 flat = new Vector3(fwd.x, 0f, fwd.z).normalized;
+                    var lineGo = new GameObject(name);
+                    lineGo.transform.SetParent(parent, false);
+                    lineGo.transform.position = pts[idx] + Vector3.up * 0.17f;
+                    lineGo.transform.rotation = Quaternion.LookRotation(flat, Vector3.up);
+                    float hw = RoadWidth * 0.5f;
+                    var lv = new List<Vector3>();
+                    var lu = new List<Vector2>();
+                    foreach (float z in new[] { -1.5f, 1.5f })
+                        foreach (float x in new[] { -hw, 0f, hw })
+                        {
+                            lv.Add(new Vector3(x, BankAcross(idx, x), z));
+                            lu.Add(new Vector2(x / RoadWidth + 0.5f, z / 3f + 0.5f));
+                        }
+                    // rows of three: 0-2 behind, 3-5 ahead; faces up.
+                    var lt = new[] { 0, 3, 4, 0, 4, 1, 1, 4, 5, 1, 5, 2 };
+                    var lm = new Mesh { vertices = lv.ToArray(), uv = lu.ToArray(), triangles = lt };
+                    lm.RecalculateNormals();
+                    lm.RecalculateBounds();
+                    SaveMesh(lm, name + "Band");
+                    lineGo.AddComponent<MeshFilter>().sharedMesh = lm;
+                    lineGo.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                    lineGo.isStatic = true;
+                    return;
+                }
                 var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 UnityEngine.Object.DestroyImmediate(go.GetComponent<Collider>());
                 go.name = name;
@@ -5429,8 +5544,8 @@ namespace PSXRacing.EditorTools
                         var prof = shoulderProfiles != null ? shoulderProfiles[side < 0f ? 0 : 1][i] : null;
                         float postE = KerbWidth + PostVergeOffset;
                         float onShoulder = prof != null ? EvalShoulderProfile(prof, postE, false) : float.NaN;
-                        baseP.y = !float.IsNaN(onShoulder) ? pts[i].y + RoadLift + onShoulder
-                                : OverGorge(i) ? pts[i].y + DeckTopLift
+                        baseP.y = !float.IsNaN(onShoulder) ? pts[i].y + RoadLift + BankEdge(i, side) + onShoulder
+                                : OverGorge(i) ? pts[i].y + DeckTopLift + BankEdge(i, side)
                                 : GroundHeightAt(baseP.x, baseP.z);
                         AppendPost(verts, uvs, tris, baseP, right, PostW,
                                    PostShaftH + PostCapH);
@@ -5593,7 +5708,7 @@ namespace PSXRacing.EditorTools
                 // ground is ten metres down and the thing to stand on is the
                 // deck. The lamp line sits at WallOffset + 0.8, inside the deck
                 // edge at WallOffset + 1.4, so there is something under it.
-                baseP.y = OverGorge(i) ? pts[i].y + DeckTopLift
+                baseP.y = OverGorge(i) ? pts[i].y + DeckTopLift + BankEdge(i, side)
                                        : ShoulderLatticeY(baseP.x, baseP.z);
 
                 var post = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -7530,7 +7645,7 @@ namespace PSXRacing.EditorTools
                 // elongated oval is the apex of a hairpin. Extrapolating 28.5 m
                 // backwards from there put the whole grid on the far side of
                 // the barrier, in a spot with no way back onto the road.
-                Vector3 right, tangent, gridPos;
+                Vector3 right, tangent, gridPos, gridUp = Vector3.up;
 
                 if (track.IsDragEvent)
                 {
@@ -7582,8 +7697,10 @@ namespace PSXRacing.EditorTools
                     int i1 = Mathf.Min(pts.Count - 1, i0 + 1);
                     right = RightAt(pts, i0);
                     tangent = Vector3.Cross(right, Vector3.up).normalized;
-                    gridPos = Vector3.Lerp(pts[i0], pts[i1], Mathf.Clamp01(fIdx - i0))
-                            + right * lateral + Vector3.up * 0.35f;
+                    float tg = Mathf.Clamp01(fIdx - i0);
+                    gridPos = Vector3.Lerp(pts[i0], pts[i1], tg)
+                            + right * lateral + Vector3.up * (0.35f + BankAcrossAt(i0, i1, tg, lateral));
+                    gridUp = BankNormalAt(pts, i0, i1, tg, lateral);
                 }
                 else
                 {
@@ -7604,11 +7721,15 @@ namespace PSXRacing.EditorTools
                     right = RightAt(pts, i0);
                     tangent = Vector3.Cross(right, Vector3.up).normalized;
                     gridPos = Vector3.Lerp(pts[i0], pts[i1], fIdx - step)
-                            + right * lateral + Vector3.up * 0.35f;
+                            + right * lateral + Vector3.up * (0.35f + BankAcrossAt(i0, i1, fIdx - step, lateral));
+                    gridUp = BankNormalAt(pts, i0, i1, fIdx - step, lateral);
                 }
 
+                // Standing on the banked road, rolled with it (PSXRacingBuilder.Bank;
+                // level where the road is flat): forward is the road's, up the
+                // surface's under the car.
                 cars.Add(BuildOneCar(carsRoot.transform, setup, isPlayer,
-                    gridPos, Quaternion.LookRotation(tangent, Vector3.up), physMat, blobMat));
+                    gridPos, Quaternion.LookRotation(tangent, gridUp), physMat, blobMat));
             }
             return cars;
         }

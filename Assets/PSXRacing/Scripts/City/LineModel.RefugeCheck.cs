@@ -31,6 +31,8 @@ namespace PSXRacing.City
     /// </summary>
     public static partial class LineModel
     {
+        /// <summary>The splits round: a flush median's tip-join zone (see MeasureRefuges).</summary>
+        public const float TipJoinM = 1.0f;
         public struct RefugeM { public float island, wI, islandErr, nonMono, noseW, outerDev, lineMove, pathMove, slope, step, lineMoveO, pathMoveO, overlap, overlapAt, overlapTip, innerMin, uSlope; public string slopeAt, uSlopeAt; }
 
         /// <summary>The checks a profiled carriageway fails ("" = none), each
@@ -216,10 +218,16 @@ namespace PSXRacing.City
                     // line is); the tip zones, where both carriageways join the
                     // undivided road's pavement, reported apart (overlapTip)
                     float ov = float.MaxValue, ovAt = 0f, ovTip = float.MaxValue;
+                    // the splits round (J1 Phase A, the tip-zone re-check): on a
+                    // FLUSH painted median in scope, the first TipJoinM past each
+                    // tip is where both carriageways' inner shoulders still lie on
+                    // the undivided road's pavement (one surface, the yellow on the
+                    // axis): reported with the tip zone, not gated
+                    float tj = r.half <= 0f && InSplitScope(map, r.node) ? TipJoinM : 0f;
                     for (float u = 0.25f; u <= L - 0.25f; u += 0.25f)
                     {
                         float w = At(A, u) + At(B, u);
-                        if (u >= r.x0s && u <= L - r.x0e) { if (w < ov) { ov = w; ovAt = u; } }
+                        if (u >= r.x0s + tj && u <= L - r.x0e - tj) { if (w < ov) { ov = w; ovAt = u; } }
                         else ovTip = Mathf.Min(ovTip, w);
                     }
                     m.overlap = ov == float.MaxValue ? 0f : ov; m.overlapAt = ovAt; m.overlapTip = ovTip == float.MaxValue ? 0f : ovTip;

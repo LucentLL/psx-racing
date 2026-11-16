@@ -96,7 +96,7 @@ namespace PSXRacing
         /// Downforce grows with v^2 too, so past the speed where the two cross
         /// the tyres' side is flat out.
         /// </summary>
-        public static float CornerSpeed(CarController c, float k, float share, float kYaw = -1f)
+        public static float CornerSpeed(CarController c, float k, float share, float kYaw = -1f, float bank = 0f)
         {
             float mu = NominalMu(c) * share * 9.81f;
             float a = AeroPerV2(c);
@@ -109,6 +109,23 @@ namespace PSXRacing
                 if (den <= 1e-6f) { v = float.PositiveInfinity; break; }
                 v = Mathf.Sqrt(g0 / den);
             }
+            // A BANKED BEND (bank = the cross slope under the car, + falling
+            // toward the inside: a mountain stage's superelevation,
+            // PSXRacingBuilder.Bank). The road leans the car into the turn and
+            // presses it harder onto its tyres: on a bank of slope e a car whose
+            // flat-road limit is mu g holds v^2 k = g (mu + e) / (1 - mu e). At
+            // the cars' 1.4 g an 8% bank is worth about 9% more speed; an
+            // adverse slope takes it away. Iterated from the flat answer, the
+            // calibration and the downforce moving with v as above.
+            bank = Mathf.Clamp(bank, -0.15f, 0.15f);
+            if (Mathf.Abs(bank) > 1e-4f && !float.IsInfinity(v))
+                for (int it = 0; it < 3; it++)
+                {
+                    float muG = mu * LateralCalAt(v) * (1f + a * v * v) / 9.81f;
+                    float den = 1f - muG * bank;
+                    if (den <= 0.05f) { v = float.PositiveInfinity; break; }
+                    v = Mathf.Sqrt(Mathf.Max(9.81f * (muG + bank) / den, 0.1f) / k);
+                }
             return Mathf.Min(v, YawSpeed(kYaw >= 0f ? kYaw : k, share));
         }
 

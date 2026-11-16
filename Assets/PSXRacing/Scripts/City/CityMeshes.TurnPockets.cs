@@ -38,12 +38,25 @@ namespace PSXRacing.City
     //  (the median dress). The paint: the yellow left edge line rides the
     //  pocket; a solid white lane line (MkAuxLS) between the pocket and the
     //  through lanes over the storage; a left arrow in the pocket.
-    //  OFF BY DEFAULT (PSX_CITY_TURNPOCKETS=1 draws them), 2026-11-10: on the
-    //  merged head the city-wide launch audit kept its 91 LAUNCH spots but
-    //  counted 3 new UNLOAD spots (6-10 cm, each on a pocket junction's wider
-    //  fan: 565 -> 568). Those junctions are in PocketSkipNodes now, but the
-    //  audit was not run again, nor the traffic check or the flicker finder
-    //  (the session was wound down): default ON once those three are green.
+    //  OFF BY DEFAULT again (PSX_CITY_TURNPOCKETS=1 draws them), 2026-11-16
+    //  (control round, owner decision 6 of the alignment plan): the pockets
+    //  cut into the same medians the splits round rebuilds, so they stay off
+    //  as in PC45 until the launch audit is re-run on the new medians. The
+    //  record below is the signals round's, which had turned them on.
+    //  2026-11-10 left them off: the city-wide launch audit kept
+    //  its 91 LAUNCH spots but counted 3 new UNLOAD spots (6-10 cm, each on a
+    //  pocket junction's wider fan: 565 -> 568); those junctions went into
+    //  PocketSkipNodes and the audit was not run again. 2026-11-15 (signals
+    //  round 2), city-wide, two fresh processes: pockets OFF on mountain-nm
+    //  50c8a3aa, pockets ON on this branch's first working state with
+    //  PSX_CITY_SIGNALS2=0 (the round's own rule off; junction furniture is
+    //  not road surface, but it was not the identical code): 91 LAUNCH / 564
+    //  UNLOAD both, by tier identical, 0 flown turns off the pavement both.
+    //  One existing UNLOAD spot 1.4 cm deeper (0.062 -> 0.076 m, the ramp
+    //  e4930 beside Johnston Rd's n2813), two 2-2.6 cm shallower; 25 more
+    //  rows of the spot list name the same place and depth under another
+    //  path (why is not known). 246 pockets, 188 at a signalised junction.
+    //  NOT re-run with PSX_CITY_SIGNALS2 on.
     // ======================================================================
     public static partial class CityMeshes
     {

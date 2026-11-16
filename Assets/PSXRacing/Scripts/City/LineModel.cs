@@ -185,6 +185,8 @@ namespace PSXRacing.City
                     if ((map.tapr[i].flags & 16) == 0) taprAt[TaprKey(map.tapr[i].edge, map.tapr[i].end, map.tapr[i].side)] = i;
             MirroredFixed = 0; MirroredLeft = 0;
             if (map.tapr != null) foreach (var t in map.tapr) if ((t.flags & 16) == 0) FixMirrored(map, t);
+            // the splits round (PSX_CITY_BAYEND): bays that serve no street of the graph, ended
+            ApplyBayEnds(map);
         }
 
         /// <summary>WP-10's data: 14 of its 7,652 lane-count changes (all two
@@ -263,7 +265,7 @@ namespace PSXRacing.City
             if (ePlus == 0f && eMinus == 0f) { ePlus = eMinus = e.width * 0.5f; return; }
             var ez = e.lmEase;
             if (ez == null) return;
-            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f;
+            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f, np = 0f, nm = 0f;
             for (int i = 0; i < ez.Length; i++)
             {
                 if (ez[i].relay) continue;
@@ -271,6 +273,10 @@ namespace PSXRacing.City
                 {
                     if (!pave) continue;
                     float w = ez[i].widen ? Reduction(e, ez[i], s) : AuxAt(e, ez[i], s);
+                    // the splits round's flush nose: a NEGATIVE widen trims the inner shoulder where
+                    // the two carriageways' lane bands are closer than their shoulders (only the
+                    // axis-frame profile writes one; every other widen is >= 0 as before)
+                    if (w < 0f) { if (ez[i].side > 0) { if (w < np) np = w; } else if (w < nm) nm = w; continue; }
                     if (ez[i].side > 0) { if (w > ap) ap = w; } else if (w > am) am = w;
                     continue;
                 }
@@ -280,7 +286,7 @@ namespace PSXRacing.City
                 if (ez[i].side > 0) { if (r > rp) rp = r; } else if (r > rm) rm = r;
             }
             ePlus -= rp - sh; eMinus -= rm + sh;
-            ePlus += ap; eMinus += am;
+            ePlus += ap + np; eMinus += am + nm;
         }
 
         /// <summary>The pavement's extents with no aux lane (roads pass L5):
@@ -418,6 +424,9 @@ namespace PSXRacing.City
         {
             var add = new List<Ease>[map.edges.Length];
             foreach (var e in map.edges) e.lmEase = null;
+            // the splits round: the line sets for the current scope (the gate switches it in-process)
+            if (bayEndMap != map || bayEndScope != SplitAxis) ApplyBayEnds(map);
+            ClearSplitFrames();
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
@@ -592,10 +601,18 @@ namespace PSXRacing.City
             // never one road that bulges into two
             var refuge = RefugeOn ? FindRefuges(map, add, partner, plan) : null;
             if (!RefugeOn) ClearRefuges();
+            // the splits round (J1 Phase B, PSX_CITY_SPLITAXIS): the axis-frame profile at in-scope split nodes
+            HashSet<int> splitNodeSet = null; HashSet<long> refugeEndSet = null;
+            if (SplitsOn)
+            {
+                splitNodeSet = new HashSet<int>(splitAt.Keys);
+                refugeEndSet = refuge != null ? new HashSet<long>(refuge.Keys) : new HashSet<long>();
+            }
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
                 var U = map.edges[sp.u];
+                var framed = SplitsOn && InSplitScope(map, sp.node) ? BuildSplitNode(map, add, partner, sp, splitNodeSet, refugeEndSet) : null;
                 var tu = U.a == sp.node ? -U.TangentAt(0f) : U.TangentAt(U.length);   // into the node
                 var leftU = new Vector2(-tu.y, tu.x);
                 for (int c = 0; c < 2; c++)
@@ -625,10 +642,17 @@ namespace PSXRacing.City
                     // to end. Round 5: only accepted pairs are refuges at all (no
                     // round-1 cap); any other split tapers exactly as live
                     if (refuge != null && refuge.ContainsKey(RefugeKey(sp.node, ci))) { RefugeTapers++; continue; }
+                    if (framed != null && framed.Contains(ci)) continue;   // the splits round: drawn by its axis-frame profile
                     PropagateShift(map, add, partner, C, sp.node, shift0, len, 0f, 0);
                     SplitTapers++;
                 }
             }
+            // the splits round (J1 Phase B): the same profile at same-name fan meetings (a two-way
+            // road meeting its own carriageways at a junction, no SPLT record: n7868, n9152 on
+            // Beatties Ford) - PSX_CITY_SPLITMEET=0 leaves them as live (no taper at a fan)
+            if (SplitsOn && SplitMeetOn)
+                foreach (var ms in SameNameMeetings(map, splitAt))
+                    BuildSplitNode(map, add, partner, ms, splitNodeSet, refugeEndSet);
             // SHIFT records (roads pass L4, plan B6 FX3): a run re-anchored at
             // a junction starts where the lanes were and eases back onto its
             // line past it - never a jump across the junction
@@ -911,16 +935,34 @@ namespace PSXRacing.City
         public static readonly List<Refuge> RefugeNotDrawn = new List<Refuge>();
         public static long RefugePairKey(int a, int b) => ((long)Mathf.Min(a, b) << 32) | (uint)Mathf.Max(a, b);
 
-        static Dictionary<long, (byte mode, uint fp)> compiledList; static CityMap compiledFor;
+        static Dictionary<long, (byte mode, uint fp)> compiledList; static CityMap compiledFor; static int compiledScope;
         static Dictionary<long, (byte mode, uint fp)> CompiledRefugeList(CityMap map)
         {
-            if (compiledFor == map && compiledList != null) return compiledList;
-            compiledFor = map; compiledList = new Dictionary<long, (byte, uint)>();
+            // the splits round: an entry carrying scope bits (16 = PSX_CITY_SPLITAXIS=0, 32 = bfr,
+            // 64 = all) is drawn only under those scopes; one without any, under every scope
+            int bit = SplitScopeBit;
+            if (compiledFor == map && compiledList != null && compiledScope == bit) return compiledList;
+            compiledFor = map; compiledScope = bit; compiledList = new Dictionary<long, (byte, uint)>();
             RefugeListStale = map.edges.Length != RefugeListEdges || map.nodes.Length != RefugeListNodes;
             if (RefugeListStale) return compiledList;
             for (int i = 0; i + 2 < RefugeListData.Length; i += 3)
-                compiledList[RefugeListData[i]] = ((byte)RefugeListData[i + 2], (uint)RefugeListData[i + 1]);
+            {
+                int md = (int)RefugeListData[i + 2];
+                if ((md & RefugeScopeMask) != 0 && (md & bit) == 0) continue;
+                compiledList[RefugeListData[i]] = ((byte)(md & 3), (uint)RefugeListData[i + 1]);
+            }
             return compiledList;
+        }
+        /// <summary>The compiled list's pairs for a scope bit (the gate's report).</summary>
+        public static int CompiledRefugeCount(int bit)
+        {
+            int n = 0;
+            for (int i = 0; i + 2 < RefugeListData.Length; i += 3)
+            {
+                int md = (int)RefugeListData[i + 2];
+                if ((md & RefugeScopeMask) == 0 || (md & bit) != 0) n++;
+            }
+            return n;
         }
 
         /// <summary>The pair's own data, hashed (FNV-1a over ids and mm-rounded widths/extents/positions).</summary>
@@ -1034,7 +1076,7 @@ namespace PSXRacing.City
             if (RefugeOverride == null && refugeLoggedFor != map)
             {
                 refugeLoggedFor = map;
-                Debug.Log($"[city] refuge pairs listed {RefugeListedN}/{RefugeListData.Length / 3} (drawn {Refuges.Count / 2}; stale fingerprints {RefugeStaleFp}; list {(RefugeListStale ? "STALE" : "ok")}; plan {RefugePlanMs:0.0} ms + build {RefugeBuildMs:0.0} ms)");
+                Debug.Log($"[city] refuge pairs listed {RefugeListedN}/{CompiledRefugeCount(SplitScopeBit)} (PSX_CITY_SPLITAXIS {SplitAxis}; drawn {Refuges.Count / 2}; stale fingerprints {RefugeStaleFp}; list {(RefugeListStale ? "STALE" : "ok")}; plan {RefugePlanMs:0.0} ms + build {RefugeBuildMs:0.0} ms)");
             }
             return res;
         }
@@ -1062,7 +1104,7 @@ namespace PSXRacing.City
         public static bool RefugeNormal(CityMap.Edge e, float s, out Vector2 left)
         {
             left = default;
-            if (refugeEdge.Count == 0 || !refugeEdge.TryGetValue(e.index, out var r)) return false;
+            if (refugeEdge.Count == 0 || !refugeEdge.TryGetValue(e.index, out var r)) return SplitFrameNormal(e, s, out left);
             Vector2 lf;
             // at its split node exactly the undivided road's end cut (round 3:
             // the 64-piece axis's first chord is a few hundredths off it)
@@ -1113,10 +1155,11 @@ namespace PSXRacing.City
         public static bool SectionNormal(CityMap.Edge e, float s, out Vector2 left)
         {
             if (RefugeNormal(e, s, out left)) return true;
-            if (refugeNodeDir.Count == 0) return false;
+            if (refugeNodeDir.Count == 0 && splitNodeDir.Count == 0) return false;
             Vector2 d;
-            if (s <= 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.a, e.index)) && refugeNodeDir.TryGetValue(e.a, out d)) { }
-            else if (s >= e.length - 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.b, e.index)) && refugeNodeDir.TryGetValue(e.b, out d)) { }
+            bool Dir(int n, out Vector2 v) => refugeNodeDir.TryGetValue(n, out v) || splitNodeDir.TryGetValue(n, out v);
+            if (s <= 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.a, e.index)) && Dir(e.a, out d)) { }
+            else if (s >= e.length - 1e-3f && refugeNodeEdge.Contains(RefugeKey(e.b, e.index)) && Dir(e.b, out d)) { }
             else return false;
             var t = e.TangentAt(s);
             var lf = new Vector2(-d.y, d.x);
@@ -1141,7 +1184,7 @@ namespace PSXRacing.City
         public static void ExtentsAlongOsm(CityMap.Edge e, float s, out float eMinus, out float ePlus)
         {
             Extents(e, s, out eMinus, out ePlus);
-            if (refugeEdge.Count == 0 || !RefugeNormal(e, s, out var nL)) return;
+            if ((refugeEdge.Count == 0 && splitFrameEdge.Count == 0) || !RefugeNormal(e, s, out var nL)) return;
             var t = e.TangentAt(s);
             float c = Mathf.Max(0.5f, Vector2.Dot(nL, new Vector2(-t.y, t.x)));
             eMinus /= c; ePlus /= c;
@@ -1156,7 +1199,7 @@ namespace PSXRacing.City
         public static bool RefugeTangent(CityMap.Edge e, float s, float lat, out Vector2 tan)
         {
             tan = default;
-            if (refugeEdge.Count == 0 || !refugeEdge.ContainsKey(e.index)) return false;
+            if (!refugeEdge.ContainsKey(e.index) && !splitFrameEdge.ContainsKey(e.index)) return false;
             float s0 = Mathf.Max(0f, s - 0.5f), s1 = Mathf.Min(e.length, s + 0.5f);
             if (s1 - s0 < 1e-3f) return false;
             // round 4: the lane band's own move (shift + the joins' relays and
@@ -1164,7 +1207,7 @@ namespace PSXRacing.City
             float sh = LaneCentre(e, s);
             Vector2 P(float x)
             {
-                RefugeNormal(e, x, out var n);
+                if (!RefugeNormal(e, x, out var n)) { var tx = e.TangentAt(x); n = new Vector2(-tx.y, tx.x); }
                 return e.PointAt(x) + n * (lat + LaneCentre(e, x) - sh);
             }
             var d = P(s1) - P(s0);
@@ -1305,6 +1348,20 @@ namespace PSXRacing.City
             // THE AXIS: the undivided road's line carried through on both approach tangents
             Vector2 P1 = map.nodes[sp.node], P2 = map.nodes[s2.node];
             Vector2 t1 = ChordInto(map, U1, sp.node), t2 = -ChordInto(map, U2, s2.node);
+            // the splits round (J1, risk 4): in scope, the axis leaves on a 30 m chord (the exporter's
+            // fillet bends the undivided road's last 6-7 m by ~10 degrees; the 10 m chord followed it)
+            List<(int e, int at)> chord1 = null, chord2 = null; float cg1 = 0f, cg2 = 0f;
+            // OFF by default (PSX_CITY_REFUGECHORD=1 on): the medians gate's relay census measures the
+            // undivided edges in their own (OSM) frame, so the eased last metres read as a 0.11-0.19
+            // lateral slope where live reads 0 (live follows the bend) - every Beatties Ford pair failed
+            if (RefugeChordOn && SplitsOn && InSplitScope(map, sp.node) && InSplitScope(map, s2.node))
+            {
+                chord1 = new List<(int e, int at)>(4); chord2 = new List<(int e, int at)>(4);
+                var c1 = ChordBack(map, partner, U1, sp.node, SplitChordM, out cg1, chord1);
+                var c2 = ChordBack(map, partner, U2, s2.node, SplitChordM, out cg2, chord2);
+                if (cg1 >= 8f) t1 = c1;
+                if (cg2 >= 8f) t2 = -c2;
+            }
             float L = Vector2.Distance(P1, P2);
             if (L < 8f || Vector2.Dot(t1, (P2 - P1) / L) < 0.5f || Vector2.Dot(t2, (P2 - P1) / L) < 0.5f) { Why(pr, "axis: short or turned"); return false; }
             const int NA = 64;
@@ -1407,6 +1464,8 @@ namespace PSXRacing.City
             RefugeProfile(map, add, pr, forceFlush);
             foreach (var r in pr) foreach (int ei in r.chain) refugeEdge[ei] = r;
             refugeNodeDir[sp.node] = t1; refugeNodeDir[s2.node] = -t2;
+            if (chord1 != null && cg1 >= 8f) UChordEase(map, add, chord1, sp.node, map.nodes[sp.node], t1, cg1);
+            if (chord2 != null && cg2 >= 8f) UChordEase(map, add, chord2, s2.node, map.nodes[s2.node], -t2, cg2);
             refugeNodeEdge.Add(RefugeKey(sp.node, sp.u)); refugeNodeEdge.Add(RefugeKey(s2.node, s2.u));
             foreach (var r in pr) { refugeNodeEdge.Add(RefugeKey(r.node, r.chain[0])); refugeNodeEdge.Add(RefugeKey(r.far, r.chain[r.chain.Length - 1])); }
             return true;
@@ -1591,6 +1650,11 @@ namespace PSXRacing.City
                     return 0.5f * axLen;
                 }
                 x0s = SetBack(true); x0e = SetBack(false);
+                // the splits round (PSX_CITY_NOSE): where a bay opens at the
+                // island's end (LaSalle St's at n10238), the tip stands 0.6 m
+                // off the bay's start (Iowa DM 6A-11), no hatch across its entry
+                if (BayOpensAt(pr[0].node)) x0s = Mathf.Max(x0s, BayOpenTipM);
+                if (BayOpensAt(pr[0].far)) x0e = Mathf.Max(x0e, BayOpenTipM);
                 ln = Mathf.Min(lnG, Mathf.Max(1.5f, 0.5f * (axLen - 1f - x0s - x0e)));
                 // ROUND 4 (n12028): both noses must reach the full width before
                 // mid with some island between them - else the flanks meet in a

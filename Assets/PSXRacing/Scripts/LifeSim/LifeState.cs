@@ -74,7 +74,7 @@ namespace PSXRacing.LifeSim
         // v29 (2026-11-15): EVENTS - evEntries/evHeard/racingRep/evClubScores/
         //     evNews (see Events); ADDED fields, the step gives an old career
         //     empty lists and racing rep 0.
-        public int saveVersion = 29;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 30;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         /// <summary>
         /// The save version of the BUILD that last wrote this career (R0a,

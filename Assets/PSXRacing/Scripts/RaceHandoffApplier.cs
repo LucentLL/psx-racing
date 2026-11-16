@@ -593,9 +593,17 @@ namespace PSXRacing
                     var rot = path.GetRotation(idx);
                     Vector3 right = rot * Vector3.right;
                     float lane = path.roadWidth * 0.25f;
-                    Vector3 lift = Vector3.up * (rival.position.y - centre.y);
-                    aiCars[0].TeleportTo(centre - right * lane + lift, rot);
-                    playerCar.TeleportTo(centre + right * lane + lift, rot);
+                    // The rival's lift over the road under IT (a banked road
+                    // stands the two lanes at different heights).
+                    float rivalLat = Vector3.Dot(rival.position - centre, right);
+                    float liftY = rival.position.y - centre.y - path.CrossSlopeRight(idx, rivalLat) * rivalLat;
+                    Vector3 lift = Vector3.up * liftY;
+                    Vector3 pa = centre - right * lane + lift, pp = centre + right * lane + lift;
+                    Quaternion ra = rot, rp = rot;
+                    SeatOnBank(path, idx, -lane, ref pa, ref ra);
+                    SeatOnBank(path, idx, lane, ref pp, ref rp);
+                    aiCars[0].TeleportTo(pa, ra);
+                    playerCar.TeleportTo(pp, rp);
                 }
                 else
                 {
@@ -870,6 +878,23 @@ namespace PSXRacing
                     if (bj.path == tp) bj.ReverseIndices();
         }
 
+        /// <summary>
+        /// A grid pose <paramref name="lateral"/> metres right of waypoint
+        /// <paramref name="idx"/>'s centre line, laid level at the centre
+        /// line's height, SEATED on a banked road's cross-section there
+        /// (TrackPath.bankL/bankR, PSXRacingBuilder.Bank): the same lift over
+        /// the surface under the car, rolled with it about its own forward.
+        /// Nothing changes on a flat path.
+        /// </summary>
+        static void SeatOnBank(TrackPath path, int idx, float lateral, ref Vector3 pos, ref Quaternion rot)
+        {
+            if (path == null || !path.HasBank) return;
+            float s = path.CrossSlopeRight(idx, lateral);
+            pos += Vector3.up * (s * lateral);
+            Vector3 fwd = rot * Vector3.forward, right = rot * Vector3.right;
+            rot = Quaternion.LookRotation(fwd, (Vector3.up - right * s).normalized);
+        }
+
         /// <summary>Is one of the stage's own painted lines already here?</summary>
         static bool LineNear(Vector3 p)
         {
@@ -894,6 +919,28 @@ namespace PSXRacing
             go.name = name;
             go.isStatic = false;
             float lift = src.transform.position.y - tp.GetPoint(tp.NearestIndex(src.transform.position)).y;
+            var mf = go.GetComponent<MeshFilter>();
+            if (tp.HasBank && mf != null && mf.sharedMesh != null && mf.sharedMesh.vertexCount == 6)
+            {
+                // A BANKED ROAD's band (PSXRacingBuilder.Bank: the builder lays
+                // the scene's own over the road's cross-section, in a frame
+                // turned only about the vertical): the same three columns,
+                // re-laid over the cross-section HERE.
+                Vector3 fwd = tp.GetTangent(i); fwd.y = 0f;
+                if (fwd.sqrMagnitude < 1e-6f) fwd = Vector3.forward;
+                go.transform.SetPositionAndRotation(
+                    tp.GetPoint(i) + Vector3.up * Mathf.Clamp(lift, 0.05f, 0.3f),
+                    Quaternion.LookRotation(fwd.normalized, Vector3.up));
+                var v = mf.sharedMesh.vertices;
+                for (int k = 0; k < v.Length; k++)
+                    v[k].y = v[k].x * tp.CrossSlopeRight(i, v[k].x);
+                var m = Object.Instantiate(mf.sharedMesh);
+                m.vertices = v;
+                m.RecalculateNormals();
+                m.RecalculateBounds();
+                mf.sharedMesh = m;
+                return;
+            }
             go.transform.SetPositionAndRotation(
                 tp.GetPoint(i) + Vector3.up * Mathf.Clamp(lift, 0.05f, 0.3f),
                 Quaternion.LookRotation(Vector3.down, tp.GetTangent(i)));
@@ -971,8 +1018,10 @@ namespace PSXRacing
                 // INTERPOLATED body in the field, and it paints its own baked
                 // pose back over anything written from outside a physics step.
                 // See CarController.TeleportTo.
-                car.TeleportTo(centre + right * lateral + Vector3.up * GridLiftM,
-                               Quaternion.LookRotation(fwd, Vector3.up));
+                Vector3 gpos = centre + right * lateral + Vector3.up * GridLiftM;
+                Quaternion grot = Quaternion.LookRotation(fwd, Vector3.up);
+                SeatOnBank(path, path.NearestIndex(centre), lateral, ref gpos, ref grot);
+                car.TeleportTo(gpos, grot);
 
                 // The AI caches its path index in Start, and Start has no
                 // defined order against RaceManager's. One that already ran is

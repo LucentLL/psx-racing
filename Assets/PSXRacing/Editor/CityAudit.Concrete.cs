@@ -1,0 +1,980 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using UnityEditor;
+using UnityEngine;
+using PSXRacing.City;
+
+namespace PSXRacing.EditorTools
+{
+    /// <summary>
+    /// THE CONCRETE INVENTORY (2026-11-15, the owner: "can you see this massacre
+    /// of unnecessary concrete median pieces? this is still an issue all across
+    /// the city after weeks of attempts to correct them"). Every earlier audit
+    /// looked along lane lines and counted one rule's class. This one asks the
+    /// owner's question of EVERY piece of standing concrete the tiles build,
+    /// whatever rule asked for it: "why is this concrete here?"
+    ///
+    /// It reads the concrete gate's own records (CityMeshes.concreteLog: every
+    /// piece that entered the barriers mesh, as asked and as let through), from
+    /// the tiles the game itself builds, then from the WHOLE map (so tiles
+    /// agree at their seams) joins the pieces into RUNS (ends within 0.75 m),
+    /// finds what each piece stands on and its REASON:
+    ///   R1 divides opposing traffic of a divided road, R2 guards a fall (a
+    ///   structure's edge, a drop beside it) or holds land, R4 a kerb.
+    /// and classes the strays, in the owner's words:
+    ///   a ON-PAVEMENT   pavement past both its faces at its own level
+    ///   b NO-REASON     none of R1-R4 where it stands
+    ///   c ORPHAN        a run under 30 m (MinMedianRunM, now for every kind)
+    ///   d DOUBLE/BOX    two walls side by side, no lane and no fall between
+    ///   e STARTS-STOPS  a gap between two run ends in line, nothing real opening in it
+    ///   f BAD-END       a free end standing square (over 0.3 m) within reach of pavement
+    ///   g UP-AND-DOWN   a step or a dip in a run's top at a joint
+    ///   h OVERSIZE      taller than its kind; and TALL: top over 1.35 m above the lane beside it
+    ///   -executeMethod PSXRacing.EditorTools.CityAudit.RunConcrete
+    /// PSX_CONC_TAG names the report (city_concrete_&lt;tag&gt;.txt, _pieces.tsv,
+    /// _tiles.tsv, _clusters.tsv); PSX_CONC_NEAR "x,z,r" restricts the tiles;
+    /// PSX_CONC_MINUTES caps the tile building (default 70; from the owner's
+    /// deck outward). With the gate on, one pass gives BEFORE (as asked) and
+    /// AFTER (as built).
+    /// </summary>
+    public static partial class CityAudit
+    {
+        const float CnTie = 0.75f, CnTieY = 0.8f, CnOrphanM = 30f, CnCell = 4f;
+        const int CnPave = 1, CnNoReason = 2, CnOrphan = 4, CnDouble = 8, CnGap = 16, CnBadEnd = 32, CnUpDown = 64, CnOversize = 128, CnTall = 256;
+        static readonly string[] CnNames = { "a ON-PAVEMENT", "b NO-REASON", "c ORPHAN", "d DOUBLE/BOX", "e STARTS-AND-STOPS", "f BAD-END", "g UP-AND-DOWN", "h OVERSIZE", "h2 TALL-OVER-LANE" };
+        static readonly Vector2 CnDeck = new Vector2(-7151f, 7028f);   // the owner's deck: I-85 at Freedom Drive
+
+        sealed class CnResult
+        {
+            public List<CityMeshes.ConcretePiece> p;
+            public int[] run, cls; public byte[] reason; public float[] runLen; public bool[] freeA, freeB;
+            public int runs;
+        }
+
+        static CityMap cnMap; static CityMeshes.Trims cnTrims;
+        static Vector2 CnXZ(Vector3 v) => new Vector2(v.x, v.z);
+        static long CnKey(float x, float z, float cell) => ((long)Mathf.FloorToInt(x / cell) << 32) ^ (uint)Mathf.FloorToInt(z / cell);
+        static bool CnLine(CityMeshes.ConKind k) => k <= CityMeshes.ConKind.InsetJersey || k == CityMeshes.ConKind.WBeam;
+        static bool CnConcrete(CityMeshes.ConKind k) => k <= CityMeshes.ConKind.InsetJersey;
+        static bool CnProbe(Vector2 q, float y, bool loose, out int who, out Vector2 travel, out float yLane) =>
+            CityMeshes.ConcretePaveProbe(cnMap, cnTrims, q, y, loose, out who, out travel, out yLane);
+
+        static int CnFind(int[] par, int i) { while (par[i] != i) { par[i] = par[par[i]]; i = par[i]; } return i; }
+
+        /// <summary>Plan distance from q to the segment a-b and the parameter of the nearest point.</summary>
+        static float CnSegDist(Vector2 q, Vector2 a, Vector2 b, out float t)
+        {
+            var d = b - a; float L2 = d.sqrMagnitude;
+            t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, d) / L2) : 0f;
+            return Vector2.Distance(q, a + d * t);
+        }
+
+        static readonly float[] CnProbeM = { 1.5f, 3f, 5f, 8f, 12f };
+        /// <summary>How far along a run from a structure's rail a rail on the ground is its approach (R2).</summary>
+        const float CnApproachM = 40f;
+
+        /// <summary>(round 2) The ground-twin walk's verdict at the foot of <paramref name="q"/> on
+        /// <paramref name="X"/>, numbers as #; where it saw no twin, what does stand opposite within 25 m.</summary>
+        static string CnTwinCensus(CityMap map, CityMeshes.Trims trims, CityMap.Edge X, Vector2 q)
+        {
+            if (X.pts == null || X.pts.Length < 2) return "no polyline";
+            float bestD = float.MaxValue, s = 0f;
+            for (int i = 0; i + 1 < X.pts.Length; i++)
+            {
+                float d = CnSegDist(q, X.pts[i], X.pts[i + 1], out float t);
+                if (d < bestD) { bestD = d; s = Mathf.Lerp(X.s[i], X.s[i + 1], t); }
+            }
+            string why = CityMeshes.GroundTwinWhy(map, trims, X, s);
+            string k = System.Text.RegularExpressions.Regex.Replace(why, @"e\d+", "e#");
+            k = System.Text.RegularExpressions.Regex.Replace(k, @"-?\d+(\.\d+)?", "#");
+            if (k.StartsWith("gap") || k.StartsWith("dy"))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(why, @"-?\d+(\.\d+)?");
+                if (m.Success && float.TryParse(m.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float v))
+                    k += k.StartsWith("gap") ? $" [{(v < 0.3f ? "<0.3" : v <= 9.5f ? "0.3-9.5" : v <= 12f ? "9.5-12" : v <= 16f ? "12-16" : ">16")}]" : $" [{(v <= 1.5f ? "1-1.5" : v <= 3f ? "1.5-3" : ">3")}]";
+            }
+            if (why.StartsWith("no twin beside"))
+            {
+                var p = X.PointAt(s); var tan = X.TangentAt(s);
+                var segs = new HashSet<int>();
+                map.EdgeSegsInRect(p - Vector2.one * 30f, p + Vector2.one * 30f, segs);
+                CityMap.Edge best = null; float bd = 30f;
+                foreach (int seg in segs)
+                {
+                    var c = map.edges[seg >> 12];
+                    if (c == X || c.a == c.b) continue;
+                    int si = seg & 0xFFF;
+                    if (si + 1 >= c.pts.Length) continue;
+                    var a0 = c.pts[si]; var dd = c.pts[si + 1] - a0; float L = dd.magnitude;
+                    if (L < 1e-4f) continue;
+                    dd /= L;
+                    if (Vector2.Dot(tan, dd) > -0.5f) continue;
+                    float d = Vector2.Distance(p, a0 + dd * Mathf.Clamp(Vector2.Dot(p - a0, dd), 0f, L));
+                    if (d < bd) { bd = d; best = c; }
+                }
+                k += best == null ? " (nothing the other way within 30 m)"
+                    : $" (the other way within {(bd <= 15f ? "15" : "30")} m: {(best.oneway ? "one-way" : "two-way")}{(best.link ? " ramp" : "")}{(best.bridge ? " bridge" : "")}, {(string.IsNullOrEmpty(best.name) ? "no name" : best.name == X.name ? "same name" : "other name")}{(string.IsNullOrEmpty(X.name) ? ", this one unnamed" : "")})";
+            }
+            return k;
+        }
+
+        static byte CnReason(in CityMeshes.ConcretePiece p)
+        {
+            float h = Mathf.Max(p.hA, p.hB);
+            if (h <= 0.2f) return 4;
+            if (p.elev || p.hold) return 2;
+            Vector2 a2 = CnXZ(p.a), b2 = CnXZ(p.b), m = (a2 + b2) * 0.5f;
+            float y = 0.5f * (p.a.y + p.b.y);
+            var d = b2 - a2; float len = d.magnitude;
+            if (len < 0.05f) return 0;
+            d /= len;
+            var perp = new Vector2(d.y, -d.x);
+            // a fall beside it (0.6 m within 8 m, 1.5 m within 12 m), or land it holds (land standing
+            // over it more steeply than the 1V:3H back slope a cut is graded at)
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                for (int k = 0; k < CnProbeM.Length; k++)
+                {
+                    float o = CnProbeM[k];
+                    float g = CityElevation.GroundY(cnMap, m.x + perp.x * sgn * o, m.y + perp.y * sgn * o);
+                    if (g < y - (o > 8f ? 1.5f : 0.6f)) return 2;
+                    if (g > y + Mathf.Max(0.3f, o / 3f)) return 3;
+                }
+            // R1: it stands along a carriageway (the nearest pavement, within 14 m) and a road running the opposite way
+            // lies beside it within 250 m (a median of any width: on I-77 north the carriageways stand over 80 m apart)
+            bool own = false; Vector2 tOwn = default; float oOwn = float.MaxValue;
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                for (float o = p.half + 0.3f; o <= 14f && o < oOwn; o += 0.75f)
+                    if (CnProbe(m + perp * (sgn * o), y, true, out int wq, out var tq, out _))
+                    {
+                        if (wq >= 0) { own = true; tOwn = tq; oOwn = o; }
+                        break;
+                    }
+            if (!own || Mathf.Abs(Vector2.Dot(tOwn, d)) <= 0.7f) return 0;
+            // (the other carriageway of a split-level road stands up to 15 m over or under this one: I-77 north of Uptown)
+            CityMeshes.ConcreteLooseDyM = 15f;
+            try
+            {
+                for (int sgn = -1; sgn <= 1; sgn += 2)
+                    for (float o = p.half + 0.3f; o <= 250f; o += o < 14f ? 0.75f : 2f)
+                        if (CnProbe(m + perp * (sgn * o), y, true, out int wq, out var tq, out _) && wq >= 0 && Vector2.Dot(tq, tOwn) < -0.5f) return 1;
+            }
+            finally { CityMeshes.ConcreteLooseDyM = 3f; }
+            return 0;
+        }
+
+        static CnResult CnClassify(List<CityMeshes.ConcretePiece> P, HashSet<long> built)
+        {
+            int n = P.Count;
+            var R = new CnResult { p = P, run = new int[n], cls = new int[n], reason = new byte[n], runLen = new float[n], freeA = new bool[n], freeB = new bool[n] };
+            var grid = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                R.run[i] = i;
+                if (!CnLine(P[i].kind)) continue;
+                Vector2 a = CnXZ(P[i].a), b = CnXZ(P[i].b);
+                int x0 = Mathf.FloorToInt((Mathf.Min(a.x, b.x) - CnTie) / CnCell), x1 = Mathf.FloorToInt((Mathf.Max(a.x, b.x) + CnTie) / CnCell);
+                int z0 = Mathf.FloorToInt((Mathf.Min(a.y, b.y) - CnTie) / CnCell), z1 = Mathf.FloorToInt((Mathf.Max(a.y, b.y) + CnTie) / CnCell);
+                if ((x1 - x0 + 1) * (z1 - z0 + 1) > 400) continue;
+                for (int x = x0; x <= x1; x++)
+                    for (int z = z0; z <= z1; z++)
+                    {
+                        long k = ((long)x << 32) ^ (uint)z;
+                        if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>(4);
+                        l.Add(i);
+                    }
+            }
+            // ---- runs: ends tied to another piece (end to end, or a T onto its body)
+            var joints = new List<(int i, int ei, int j, int ej)>();   // end-to-end ties (ei, ej: 0 = a, 1 = b)
+            var adj = new List<int>[n];
+            var openPieces = new List<int>();   // pieces whose run carries on into a tile that was not built
+            float T = CityMeshes.TileSize;
+            for (int i = 0; i < n; i++)
+            {
+                if (!CnLine(P[i].kind)) continue;
+                for (int end = 0; end < 2; end++)
+                {
+                    var e3 = end == 0 ? P[i].a : P[i].b; var e2 = CnXZ(e3);
+                    bool tied = false;
+                    if (grid.TryGetValue(CnKey(e2.x, e2.y, CnCell), out var l))
+                        foreach (int j in l)
+                        {
+                            if (j == i) continue;
+                            Vector2 a = CnXZ(P[j].a), b = CnXZ(P[j].b);
+                            float dist = CnSegDist(e2, a, b, out float t);
+                            if (dist > CnTie || Mathf.Abs(Mathf.Lerp(P[j].a.y, P[j].b.y, t) - e3.y) > CnTieY) continue;
+                            tied = true;
+                            (adj[i] ?? (adj[i] = new List<int>(2))).Add(j);
+                            (adj[j] ?? (adj[j] = new List<int>(2))).Add(i);
+                            int ri = CnFind(R.run, i), rj = CnFind(R.run, j);
+                            if (ri != rj) R.run[ri] = rj;
+                            float lj = Vector2.Distance(a, b);
+                            if (i < j && (t * lj < CnTie || (1f - t) * lj < CnTie)) joints.Add((i, end, j, t * lj < CnTie ? 0 : 1));
+                        }
+                    if (!tied && built != null)
+                    {
+                        // an end on the border of a tile that was not built: its run may carry on there
+                        float fx = e2.x - Mathf.Floor(e2.x / T) * T, fz = e2.y - Mathf.Floor(e2.y / T) * T;
+                        int tx = Mathf.FloorToInt(e2.x / T), tz = Mathf.FloorToInt(e2.y / T);
+                        if ((fx < 1f && !built.Contains(BrKey(tx - 1, tz))) || (fx > T - 1f && !built.Contains(BrKey(tx + 1, tz))) ||
+                            (fz < 1f && !built.Contains(BrKey(tx, tz - 1))) || (fz > T - 1f && !built.Contains(BrKey(tx, tz + 1)))) { tied = true; openPieces.Add(i); }
+                    }
+                    if (end == 0) R.freeA[i] = !tied; else R.freeB[i] = !tied;
+                }
+            }
+            var lenOf = new Dictionary<int, float>();
+            for (int i = 0; i < n; i++)
+            {
+                if (!CnLine(P[i].kind)) continue;
+                int r = CnFind(R.run, i);
+                lenOf.TryGetValue(r, out float L);
+                lenOf[r] = L + Vector2.Distance(CnXZ(P[i].a), CnXZ(P[i].b));
+            }
+            R.runs = lenOf.Count;
+            var openRuns = new HashSet<int>();
+            foreach (int i in openPieces) openRuns.Add(CnFind(R.run, i));
+            // ---- reasons; a rail on the ground within CnApproachM along its run of a structure's rail is its approach (R2)
+            var apDist = new float[n];
+            var queue = new Queue<int>();
+            for (int i = 0; i < n; i++)
+            {
+                apDist[i] = float.MaxValue;
+                if (!CnConcrete(P[i].kind)) continue;
+                R.reason[i] = CnReason(P[i]);
+                if (P[i].elev && Mathf.Max(P[i].hA, P[i].hB) > 0.2f) { apDist[i] = 0f; queue.Enqueue(i); }
+            }
+            while (queue.Count > 0)
+            {
+                int i = queue.Dequeue();
+                if (adj[i] == null) continue;
+                foreach (int j in adj[i])
+                {
+                    float nd = apDist[i] + Vector2.Distance(CnXZ(P[j].a), CnXZ(P[j].b));
+                    if (nd >= apDist[j] || nd > CnApproachM) continue;
+                    apDist[j] = nd;
+                    if ((R.reason[j] == 0 || R.reason[j] == 1) && CnConcrete(P[j].kind)) R.reason[j] = 2;   // (an approach guards, whatever else it does)
+                    queue.Enqueue(j);
+                }
+            }
+            // ---- per piece: on pavement, no reason, orphan, oversize
+            for (int i = 0; i < n; i++)
+            {
+                var p = P[i];
+                if (!CnConcrete(p.kind)) continue;
+                int r = CnFind(R.run, i);
+                R.runLen[i] = lenOf[r];
+                float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                if (p.paveM > 0f) R.cls[i] |= CnPave;
+                if (R.reason[i] == 0 && (R.cls[i] & CnPave) == 0) R.cls[i] |= CnNoReason;
+                if (R.runLen[i] < CnOrphanM && Mathf.Max(p.hA, p.hB) > 0.2f && !openRuns.Contains(r)) R.cls[i] |= CnOrphan;
+                float cap = p.kind == CityMeshes.ConKind.Rail ? CityMeshes.RailH : CityMeshes.BarrierH;
+                if (Mathf.Max(p.hA, p.hB) > cap + 0.03f || p.half * 2f > 0.75f) R.cls[i] |= CnOversize;
+                if (len >= 0.05f)
+                {
+                    Vector2 a2 = CnXZ(p.a), b2 = CnXZ(p.b), m = (a2 + b2) * 0.5f, d = (b2 - a2) / len, perp = new Vector2(d.y, -d.x);
+                    float y = 0.5f * (p.a.y + p.b.y), top = y + 0.5f * (p.hA + p.hB);
+                    for (int q = 0; q < 4; q++)
+                    {
+                        float o = (q < 2 ? p.half + 0.6f : p.half + 1.8f) * ((q & 1) == 0 ? 1f : -1f);
+                        if (CnProbe(m + perp * o, y, true, out _, out _, out float yl) && top - yl > 1.35f && top - yl < 3.5f) { R.cls[i] |= CnTall; break; }
+                    }
+                }
+            }
+            // ---- double / box
+            var seen = new HashSet<int>();
+            for (int i = 0; i < n; i++)
+            {
+                var p = P[i];
+                if (!CnConcrete(p.kind) || Mathf.Max(p.hA, p.hB) <= 0.3f || (R.cls[i] & CnPave) != 0) continue;
+                // (a piece that guards a fall or holds land beside another wall is a designed pair: a barrier beside a
+                // bridge parapet, the two parapets of twin bridges, a rail on a retaining face)
+                if (R.reason[i] == 2 || R.reason[i] == 3) continue;
+                Vector2 a2 = CnXZ(p.a), b2 = CnXZ(p.b); float len = Vector2.Distance(a2, b2);
+                if (len < 0.5f) continue;
+                Vector2 m = (a2 + b2) * 0.5f, d = (b2 - a2) / len, perp = new Vector2(d.y, -d.x);
+                float y = 0.5f * (p.a.y + p.b.y);
+                seen.Clear();
+                bool dbl = false;
+                for (float o = -9.5f; o <= 9.5f && !dbl; o += 1.9f)
+                {
+                    var q = m + perp * o;
+                    if (!grid.TryGetValue(CnKey(q.x, q.y, CnCell), out var l)) continue;
+                    foreach (int j in l)
+                    {
+                        if (j == i || !seen.Add(j)) continue;
+                        var pj = P[j];
+                        if (Mathf.Max(pj.hA, pj.hB) <= 0.3f) continue;
+                        if (CnConcrete(pj.kind) && (R.reason[j] == 2 || R.reason[j] == 3)) continue;
+                        Vector2 aj = CnXZ(pj.a), bj = CnXZ(pj.b); float lj = Vector2.Distance(aj, bj);
+                        if (lj < 0.5f) continue;
+                        var dj = (bj - aj) / lj;
+                        if (Mathf.Abs(Vector2.Dot(d, dj)) < 0.94f) continue;
+                        float u = Vector2.Dot(m - aj, dj);
+                        if (u < 0f || u > lj) continue;
+                        var foot = aj + dj * u;
+                        float lat = Vector2.Distance(m, foot);
+                        if (lat < 0.6f || lat > 9.5f) continue;
+                        float yj = Mathf.Lerp(pj.a.y, pj.b.y, u / lj);
+                        if (Mathf.Abs(yj - y) > 1.5f) continue;
+                        bool between = false;
+                        for (int k = 1; k <= 3 && !between; k++)
+                        {
+                            var bq = Vector2.Lerp(m, foot, k / 4f);
+                            if (CnProbe(bq, Mathf.Lerp(y, yj, k / 4f), true, out _, out _, out _)) between = true;
+                            else if (k == 2 && CityElevation.GroundY(cnMap, bq.x, bq.y) < Mathf.Min(y, yj) - 1.5f) between = true;   // a real gap between two decks
+                        }
+                        if (between) continue;
+                        dbl = true;
+                        if (CnConcrete(pj.kind)) R.cls[j] |= CnDouble;
+                        break;
+                    }
+                }
+                if (dbl) R.cls[i] |= CnDouble;
+            }
+            // ---- free ends: bad ends, and gaps between two ends in line
+            var ends = new List<(int i, Vector3 p, Vector2 outw, float h)>();
+            var endGrid = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                var p = P[i];
+                if (!CnConcrete(p.kind)) continue;
+                Vector2 a2 = CnXZ(p.a), b2 = CnXZ(p.b); float len = Vector2.Distance(a2, b2);
+                if (len < 0.05f) continue;
+                var d = (b2 - a2) / len;
+                for (int end = 0; end < 2; end++)
+                {
+                    if (end == 0 ? !R.freeA[i] : !R.freeB[i]) continue;
+                    var e3 = end == 0 ? p.a : p.b; float h = end == 0 ? p.hA : p.hB;
+                    var e2 = CnXZ(e3);
+                    if (h > 0.3f && (R.cls[i] & CnPave) == 0)
+                    {
+                        bool reach = CnProbe(e2 + (end == 0 ? -d : d) * 1.2f, e3.y, false, out _, out _, out _);
+                        for (int k = 0; k < 8 && !reach; k++)
+                        {
+                            float ang = k * Mathf.PI / 4f;
+                            reach = CnProbe(e2 + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * 1.5f, e3.y, false, out _, out _, out _);
+                        }
+                        if (reach) R.cls[i] |= CnBadEnd;
+                    }
+                    long k2 = CnKey(e2.x, e2.y, 40f);
+                    if (!endGrid.TryGetValue(k2, out var l)) endGrid[k2] = l = new List<int>(4);
+                    l.Add(ends.Count);
+                    ends.Add((i, e3, end == 0 ? -d : d, h));
+                }
+            }
+            for (int a = 0; a < ends.Count; a++)
+            {
+                var ea = ends[a]; var pa = CnXZ(ea.p);
+                int cx = Mathf.FloorToInt(pa.x / 40f), cz = Mathf.FloorToInt(pa.y / 40f);
+                for (int x = cx - 1; x <= cx + 1; x++)
+                    for (int z = cz - 1; z <= cz + 1; z++)
+                    {
+                        if (!endGrid.TryGetValue(((long)x << 32) ^ (uint)z, out var l)) continue;
+                        foreach (int b in l)
+                        {
+                            if (b <= a) continue;
+                            var eb = ends[b];
+                            if (CnFind(R.run, ea.i) == CnFind(R.run, eb.i)) continue;
+                            var v = CnXZ(eb.p) - pa; float dist = v.magnitude;
+                            if (dist < CnTie || dist > 40f || Mathf.Abs(eb.p.y - ea.p.y) > 1.5f) continue;
+                            v /= dist;
+                            if (Vector2.Dot(v, ea.outw) < 0.94f || Vector2.Dot(-v, eb.outw) < 0.94f) continue;
+                            // does something real open in the gap: pavement passing through it
+                            var perp = new Vector2(v.y, -v.x);
+                            bool opens = false;
+                            for (float s = 0.5f; s < dist && !opens; s += 1f)
+                            {
+                                var q = pa + v * s; float y = Mathf.Lerp(ea.p.y, eb.p.y, s / dist);
+                                opens = CnProbe(q + perp * 0.9f, y, false, out _, out _, out _) && CnProbe(q - perp * 0.9f, y, false, out _, out _, out _);
+                            }
+                            if (opens) continue;
+                            R.cls[ea.i] |= CnGap; R.cls[eb.i] |= CnGap;
+                        }
+                    }
+            }
+            // ---- up and down: a step or a dip at an end-to-end joint in line
+            foreach (var (i, ei, j, ej) in joints)
+            {
+                var pi = P[i]; var pj = P[j];
+                if (!CnConcrete(pi.kind) || !CnConcrete(pj.kind)) continue;
+                Vector2 di = (CnXZ(pi.b) - CnXZ(pi.a)).normalized, dj = (CnXZ(pj.b) - CnXZ(pj.a)).normalized;
+                if (Mathf.Abs(Vector2.Dot(di, dj)) < 0.87f) continue;
+                float hi = ei == 0 ? pi.hA : pi.hB, hj = ej == 0 ? pj.hA : pj.hB;
+                float ti = (ei == 0 ? pi.a.y : pi.b.y) + hi, tj = (ej == 0 ? pj.a.y : pj.b.y) + hj;
+                bool step = Mathf.Abs(ti - tj) > 0.15f;
+                bool dip = hi < 0.45f && hj < 0.45f && Mathf.Max(pi.hA, pi.hB) > 0.6f && Mathf.Max(pj.hA, pj.hB) > 0.6f;
+                if (step || dip) { R.cls[i] |= CnUpDown; R.cls[j] |= CnUpDown; }
+            }
+            for (int i = 0; i < n; i++) R.run[i] = CnFind(R.run, i);
+            return R;
+        }
+
+        static void CnDestroy(CityMeshes.TileMeshes tm)
+        {
+            if (tm == null) return;
+            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.buildingCollider, tm.structure, tm.medianPlants })
+                if (m != null) UnityEngine.Object.DestroyImmediate(m);
+        }
+
+        static string CnLatLon(Vector2 p) =>
+            string.Format(CultureInfo.InvariantCulture, "{0:0.00000},{1:0.00000}", p.y / 111132.0 + 35.18456015184093, p.x / (111320.0 * Math.Cos(35.18456 * Math.PI / 180.0)) - 80.81770185962013);
+
+        /// <summary>The driver's seat u metres along e (before its start: on the road it comes from).</summary>
+        static Vector3 CnSeat(CityMap map, CityMap.Edge e, float u)
+        {
+            var ee = e; float s = Mathf.Clamp(u, 0.5f, Mathf.Max(0.5f, e.length - 0.5f)); bool f = true;
+            if (u < 0.5f)
+            {
+                Vector2 dirE = e.TangentAt(0f);
+                CityMap.Edge best = null; float bestDot = -0.3f;
+                foreach (int oi in map.nodeEdges[e.a])
+                {
+                    if (oi == e.index) continue;
+                    var o = map.edges[oi];
+                    Vector2 dirO = o.a == e.a ? o.TangentAt(0f) : -o.TangentAt(o.length);
+                    float dot = Vector2.Dot(dirE, dirO);
+                    if (dot < bestDot) { bestDot = dot; best = o; }
+                }
+                if (best != null)
+                {
+                    float dd = Mathf.Min(0.5f - u, best.length - 0.5f);
+                    ee = best;
+                    if (best.a == e.a) { s = dd; f = false; } else { s = best.length - dd; f = true; }
+                }
+            }
+            var p = ee.PointAt(s); var t = ee.TangentAt(s);
+            LineModel.Extents(ee, s, out float eM, out float eP);
+            if (!f) { t = -t; float q = eM; eM = eP; eP = q; }
+            var right = new Vector2(-t.y, t.x);
+            float lat = ee.oneway ? -eM + 0.5f * (eM + eP) : -eM * 0.5f;
+            var w = p + right * lat;
+            return new Vector3(w.x, ee.YAt(s), w.y);
+        }
+
+        /// <summary>The gate's cost: PSX_CONC_COST="tx,tz;tx,tz;..." tiles, each built three times as asked
+        /// (gate off) and three times gated, no records kept (as the game builds): the quickest of each,
+        /// and the tile's triangles. city_concrete_cost.txt.
+        ///   -executeMethod PSXRacing.EditorTools.CityAudit.RunConcreteCost</summary>
+        public static void RunConcreteCost()
+        {
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string file = Path.Combine(root, "city_concrete_cost.txt");
+            if (File.Exists(file)) File.Delete(file);
+            var sb = new StringBuilder("tile\tbuild_ms_as_asked\tbuild_ms_gated\tbarrier_tris_as_asked\tbarrier_tris_gated\tall_tris_as_asked\tall_tris_gated\tpieces_changed\n");
+            int code = 0;
+            try
+            {
+                var map = CityMap.Get();
+                var trims = CityMeshes.NodeTrims(map);
+                var buildings = CityBuildings.Precompute(map);
+                CityMeshes.concreteLog = null;
+                foreach (var item in (Environment.GetEnvironmentVariable("PSX_CONC_COST") ?? "-12,16;11,7;-28,27").Split(';'))
+                {
+                    var v = item.Split(',');
+                    int tx = int.Parse(v[0]), tz = int.Parse(v[1]);
+                    var ms = new double[] { double.MaxValue, double.MaxValue }; var bt = new int[2]; var at = new int[2]; int changed = 0;
+                    for (int rep = 0; rep < 4; rep++)
+                        for (int on = 0; on < 2; on++)
+                        {
+                            CityMeshes.ConcreteOn = on == 1;
+                            var c = System.Diagnostics.Stopwatch.StartNew();
+                            var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                            double t = c.Elapsed.TotalMilliseconds;
+                            if (rep > 0) ms[on] = Math.Min(ms[on], t);   // (the first pair warms the caches)
+                            if (tm == null) continue;
+                            bt[on] = tm.barriers != null ? tm.barriers.triangles.Length / 3 : 0;
+                            int all = 0;
+                            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings, tm.structure, tm.medianPlants })
+                                if (m != null) all += m.triangles.Length / 3;
+                            at[on] = all;
+                            if (on == 1) changed = CityMeshes.conChanged;
+                            CnDestroy(tm);
+                        }
+                    sb.AppendLine($"{tx},{tz}\t{ms[0]:0}\t{ms[1]:0}\t{bt[0]}\t{bt[1]}\t{at[0]}\t{at[1]}\t{changed}");
+                }
+                CityMeshes.ConcreteOn = true;
+            }
+            catch (Exception ex) { sb.AppendLine("FAILED: " + ex); Debug.LogException(ex); code = 1; }
+            File.WriteAllText(file, sb.ToString());
+            Debug.Log("[ConcreteCost]\n" + sb);
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        static void CnSaveLog(string path, List<CityMeshes.ConcretePiece> log, HashSet<long> built, int popAll, string said)
+        {
+            var rules = new List<string>(); var ruleAt = new Dictionary<string, int>();
+            foreach (var p in log) if (!ruleAt.ContainsKey(p.rule ?? "?")) { ruleAt[p.rule ?? "?"] = rules.Count; rules.Add(p.rule ?? "?"); }
+            using (var w = new BinaryWriter(File.Create(path)))
+            {
+                w.Write(0x434F4E32); w.Write(popAll); w.Write(said);
+                w.Write(rules.Count); foreach (var r in rules) w.Write(r);
+                w.Write(built.Count); foreach (long k in built) w.Write(k);
+                w.Write(log.Count);
+                foreach (var p in log)
+                {
+                    w.Write((byte)p.kind); w.Write(ruleAt[p.rule ?? "?"]); w.Write(p.edge); w.Write(p.side); w.Write(p.node); w.Write(p.tx); w.Write(p.tz);
+                    w.Write(p.a.x); w.Write(p.a.y); w.Write(p.a.z); w.Write(p.b.x); w.Write(p.b.y); w.Write(p.b.z);
+                    w.Write(p.half); w.Write(p.hA); w.Write(p.hB); w.Write(p.paveM); w.Write(p.stage);
+                    w.Write((byte)((p.capA ? 1 : 0) | (p.capB ? 2 : 0) | (p.elev ? 4 : 0) | (p.hold ? 8 : 0) | (p.cutA ? 16 : 0) | (p.cutB ? 32 : 0)));
+                }
+            }
+        }
+
+        static string CnLoadLog(string path, List<CityMeshes.ConcretePiece> log, HashSet<long> built, out int popAll)
+        {
+            using (var r = new BinaryReader(File.OpenRead(path)))
+            {
+                if (r.ReadInt32() != 0x434F4E32) throw new Exception("not a concrete log: " + path);
+                popAll = r.ReadInt32();
+                string said = r.ReadString();
+                var rules = new string[r.ReadInt32()];
+                for (int i = 0; i < rules.Length; i++) rules[i] = r.ReadString();
+                int nb = r.ReadInt32();
+                for (int i = 0; i < nb; i++) built.Add(r.ReadInt64());
+                int n = r.ReadInt32();
+                for (int i = 0; i < n; i++)
+                {
+                    var p = new CityMeshes.ConcretePiece { kind = (CityMeshes.ConKind)r.ReadByte(), rule = rules[r.ReadInt32()], edge = r.ReadInt32(), side = r.ReadInt32(), node = r.ReadInt32(), tx = r.ReadInt32(), tz = r.ReadInt32() };
+                    p.a = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); p.b = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+                    p.half = r.ReadSingle(); p.hA = r.ReadSingle(); p.hB = r.ReadSingle(); p.paveM = r.ReadSingle(); p.stage = r.ReadByte();
+                    byte f = r.ReadByte();
+                    p.capA = (f & 1) != 0; p.capB = (f & 2) != 0; p.elev = (f & 4) != 0; p.hold = (f & 8) != 0; p.cutA = (f & 16) != 0; p.cutB = (f & 32) != 0;
+                    log.Add(p);
+                }
+                return said;
+            }
+        }
+
+        /// <summary>The driver's eye for a piece: in the lane nearest it on the nearest road at its level, 18 m
+        /// before it along that road, looking AT it. False: no road at its level within 30 m.</summary>
+        static bool CnPose(CityMap map, in CityMeshes.ConcretePiece bp, HashSet<int> segs, out Vector3 eye, out Vector3 look)
+        {
+            var tgt = (bp.a + bp.b) * 0.5f;
+            look = tgt + Vector3.up * 0.45f;
+            eye = tgt + new Vector3(-18f, 1.15f, 0f);
+            CityMap.Edge pe = bp.edge >= 0 ? map.edges[bp.edge] : null;
+            if (pe == null)
+            {
+                float bd = float.MaxValue;
+                segs.Clear();
+                map.EdgeSegsInRect(CnXZ(tgt) - Vector2.one * 30f, CnXZ(tgt) + Vector2.one * 30f, segs);
+                foreach (int packed in segs)
+                {
+                    var o = map.edges[packed >> 12];
+                    float ao = BrArcNear(o, CnXZ(tgt), out float dd);
+                    if (Mathf.Abs(o.YAt(ao) - tgt.y) > 1.2f || dd >= bd) continue;
+                    bd = dd; pe = o;
+                }
+            }
+            if (pe == null) return false;
+            float at = BrArcNear(pe, CnXZ(tgt), out _);
+            if (at - 18f < 0.5f && pe.length - at < 19f) { eye = CnSeat(map, pe, at - 18f) + Vector3.up * 1.15f; return true; }
+            float s = at - 18f >= 0.5f ? at - 18f : at + 18f;
+            Vector2 t0 = pe.TangentAt(at), left0 = new Vector2(-t0.y, t0.x);
+            float latPiece = Vector2.Dot(CnXZ(tgt) - pe.PointAt(at), left0);
+            LineModel.Extents(pe, s, out float eM, out float eP);
+            Vector2 ts = pe.TangentAt(s), ls = new Vector2(-ts.y, ts.x);
+            // the lane nearest the piece: 1.8 m inside the pavement's edge on its side
+            float lat = latPiece >= 0f ? Mathf.Max(eP - 1.8f, -eM + 1f) : Mathf.Min(-eM + 1.8f, eP - 1f);
+            var w2 = pe.PointAt(s) + ls * lat;
+            eye = new Vector3(w2.x, pe.YAt(s) + 1.15f, w2.y);
+            return true;
+        }
+
+        public static void RunConcrete()
+        {
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string tag = Environment.GetEnvironmentVariable("PSX_CONC_TAG");
+            if (string.IsNullOrEmpty(tag)) tag = "run";
+            string file = Path.Combine(root, $"city_concrete_{tag}.txt");
+            foreach (var f in new[] { file, Path.Combine(root, $"city_concrete_{tag}_pieces.tsv"), Path.Combine(root, $"city_concrete_{tag}_tiles.tsv"), Path.Combine(root, $"city_concrete_{tag}_clusters.tsv") })
+                if (File.Exists(f)) File.Delete(f);
+            var sb = new StringBuilder();
+            var inv = CultureInfo.InvariantCulture;
+            int code = 0;
+            try
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var map = CityMap.Get();
+                if (map == null) throw new Exception("no city data");
+                var trims = CityMeshes.NodeTrims(map);
+                var buildings = CityBuildings.Precompute(map);
+                cnMap = map; cnTrims = trims;
+                float capMin = 70f;
+                if (float.TryParse(Environment.GetEnvironmentVariable("PSX_CONC_MINUTES"), NumberStyles.Float, inv, out float cm)) capMin = cm;
+                sb.AppendLine($"CITY CONCRETE INVENTORY ({tag}) {DateTime.Now:s}; graph hash {map.graphHash:x8} (GHSH); gate {(CityMeshes.ConcreteOn ? "ON" : "OFF")} (pave {(CityMeshes.ConcretePaveOn ? "on" : "off")}); BRIDGE2 {(CityMeshes.Bridge2On ? "ON" : "OFF")}; solved in {clock.Elapsed.TotalSeconds:0} s");
+
+                // ---- the population: every tile with a freeway, trunk, ramp, structure or divided (one-way) road
+                float T = CityMeshes.TileSize;
+                var tiles = new HashSet<long>();
+                int capable = 0;
+                // PSX_CONC_POP=ramps: the sample - every tile with a ramp or a road on structure (every interchange, every bridge)
+                bool popRamps = Environment.GetEnvironmentVariable("PSX_CONC_POP") == "ramps";
+                foreach (var e in map.edges)
+                {
+                    if (e.tunnel || e.pts == null || e.pts.Length < 2) continue;
+                    bool elev = false;
+                    if (e.stElev != null) foreach (bool b in e.stElev) if (b) { elev = true; break; }
+                    if (popRamps ? !(e.link || elev) : !(e.cls >= 4 || e.link || e.oneway || elev)) continue;
+                    capable++;
+                    float pad = e.HalfMax + 3f;
+                    for (int i = 0; i + 1 < e.pts.Length; i++)
+                    {
+                        Vector2 a = e.pts[i], b = e.pts[i + 1];
+                        int x0 = Mathf.FloorToInt((Mathf.Min(a.x, b.x) - pad) / T), x1 = Mathf.FloorToInt((Mathf.Max(a.x, b.x) + pad) / T);
+                        int z0 = Mathf.FloorToInt((Mathf.Min(a.y, b.y) - pad) / T), z1 = Mathf.FloorToInt((Mathf.Max(a.y, b.y) + pad) / T);
+                        for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++) tiles.Add(BrKey(x, z));
+                    }
+                }
+                int popAll = tiles.Count;
+                string near = Environment.GetEnvironmentVariable("PSX_CONC_NEAR");
+                if (!string.IsNullOrWhiteSpace(near))
+                {
+                    var v = near.Split(',');
+                    var c = new Vector2(float.Parse(v[0], inv), float.Parse(v[1], inv)); float r = float.Parse(v[2], inv);
+                    tiles.RemoveWhere(k => { int tx = (int)(k >> 24), tz = (int)(k & 0xFFFFFF); if (tz >= 0x800000) tz -= 0x1000000; var tc = new Vector2((tx + 0.5f) * T, (tz + 0.5f) * T); return Vector2.Distance(tc, c) > r + T * 0.71f; });
+                }
+                var order = new List<long>(tiles);
+                Vector2 TileC(long k) { int tx = (int)(k >> 24), tz = (int)(k & 0xFFFFFF); if (tz >= 0x800000) tz -= 0x1000000; return new Vector2((tx + 0.5f) * T, (tz + 0.5f) * T); }
+                order.Sort((x, y) => Vector2.SqrMagnitude(TileC(x) - CnDeck).CompareTo(Vector2.SqrMagnitude(TileC(y) - CnDeck)));
+                sb.AppendLine($"population: {capable} roads ({(popRamps ? "THE SAMPLE: ramps and anything on structure" : "class 4+, ramps, one-way carriageways, anything on structure")}) of {map.edges.Length}; {popAll} tiles hold one; {order.Count} taken{(string.IsNullOrWhiteSpace(near) ? "" : " (PSX_CONC_NEAR " + near + ")")}");
+
+                // ---- the tiles
+                var log = new List<CityMeshes.ConcretePiece>(1 << 16);
+                CityMeshes.conNoReasonN = 0; CityMeshes.conNoReasonM = 0f;
+                CityMeshes.concreteLog = log;
+                var built = new HashSet<long>();
+                // PSX_CONC_LOAD=<tag>: the records an earlier run saved (city_concrete_<tag>_log.bin), classified again: no tile is built
+                string loadTag = Environment.GetEnvironmentVariable("PSX_CONC_LOAD");
+                if (!string.IsNullOrWhiteSpace(loadTag))
+                {
+                    string said = CnLoadLog(Path.Combine(root, $"city_concrete_{loadTag}_log.bin"), log, built, out popAll);
+                    sb.AppendLine($"THE RECORDS OF RUN '{loadTag}', classified again ({log.Count} records, {built.Count} tiles; no tile built now). That run said:");
+                    sb.AppendLine(said.TrimEnd());
+                    sb.AppendLine("(end of that run's lines)");
+                    order.Clear();
+                }
+                var tileRows = new StringBuilder("tx\tz\tms\tground_tris\tground_hash\troads_tris\troads_hash\tkerbs_tris\tkerbs_hash\tbarriers_tris\tbarriers_hash\tstructure_tris\tstructure_hash\tguardrails_tris\tguardrails_hash\tasked\tchanged\tpave_cut_m\tunknown_verts\n");
+                double buildMs = 0; int unknownTiles = 0; long barrierTris = 0;
+                int orphanN = 0, endsN = 0; float orphanM = 0f, paveCutM = 0f;
+                int changedTiles = 0, logMark = 0; var diff = new int[6]; long triOff = 0, triOnChanged = 0; double offMs = 0, onMs = 0;
+                foreach (long k in order)
+                {
+                    if (clock.Elapsed.TotalMinutes > capMin) break;
+                    int tx = (int)(k >> 24), tz = (int)(k & 0xFFFFFF); if (tz >= 0x800000) tz -= 0x1000000;
+                    var c = System.Diagnostics.Stopwatch.StartNew();
+                    var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                    double ms = c.Elapsed.TotalMilliseconds;
+                    buildMs += ms;
+                    built.Add(k);
+                    int logEnd = log.Count;   // this tile's records end here (the rebuilds below add none)
+                    if (tm != null)
+                    {
+                        string Cell(Mesh m) => m == null ? "0\t0" : $"{m.triangles.Length / 3}\t{BrMeshHash(m):x16}";
+                        tileRows.Append($"{tx}\t{tz}\t{ms:0}\t{Cell(tm.ground)}\t{Cell(tm.roads)}\t{Cell(tm.kerbs)}\t{Cell(tm.barriers)}\t{Cell(CityMeshes.StructureMeshOf(tm))}\t{Cell(tm.guardrails)}\t{CityMeshes.conAsked}\t{CityMeshes.conChanged}\t{CityMeshes.conPaveCutM.ToString("0.0", inv)}\t{CityMeshes.concreteUnknownVerts}\n");
+                        if (CityMeshes.concreteUnknownVerts != 0) unknownTiles++;
+                        orphanN += CityMeshes.conOrphans; orphanM += CityMeshes.conOrphanM; paveCutM += CityMeshes.conPaveCutM; endsN += CityMeshes.conEndsTurned;
+                        if (tm.barriers != null) barrierTris += tm.barriers.triangles.Length / 3;
+                        // a tile the gate changed: the same tile as asked (gate off) - which of its meshes differ?
+                        // (a tile the gate changed nothing on emits every piece through the same call with the
+                        // same arguments: identical by construction)
+                        if (CityMeshes.ConcreteOn && CityMeshes.conChanged > 0)
+                        {
+                            Mesh[] on = { tm.ground, tm.roads, tm.kerbs, tm.barriers, CityMeshes.StructureMeshOf(tm), tm.guardrails };
+                            var hOn = new ulong[on.Length];
+                            for (int q = 0; q < on.Length; q++) hOn[q] = on[q] == null ? 0UL : BrMeshHash(on[q]);
+                            int triOn = tm.barriers != null ? tm.barriers.triangles.Length / 3 : 0;
+                            CityMeshes.concreteLog = null; CityMeshes.ConcreteOn = false;
+                            var c0 = System.Diagnostics.Stopwatch.StartNew();
+                            var tm0 = CityMeshes.Build(map, trims, buildings, tx, tz);
+                            offMs += c0.Elapsed.TotalMilliseconds;
+                            CityMeshes.ConcreteOn = true; CityMeshes.concreteLog = log;
+                            c0.Restart();
+                            var tm1 = CityMeshes.Build(map, trims, buildings, tx, tz);   // and again as gated, warm like the other (the cost pair)
+                            onMs += c0.Elapsed.TotalMilliseconds;
+                            log.RemoveRange(logEnd, log.Count - logEnd);                   // (the tile's records are the first build's)
+                            CnDestroy(tm1);
+                            changedTiles++;
+                            if (tm0 != null)
+                            {
+                                Mesh[] off = { tm0.ground, tm0.roads, tm0.kerbs, tm0.barriers, CityMeshes.StructureMeshOf(tm0), tm0.guardrails };
+                                for (int q = 0; q < off.Length; q++) if ((off[q] == null ? 0UL : BrMeshHash(off[q])) != hOn[q]) diff[q]++;
+                                triOff += tm0.barriers != null ? tm0.barriers.triangles.Length / 3 : 0;
+                                triOnChanged += triOn;
+                                CnDestroy(tm0);
+                            }
+                        }
+                        CnDestroy(tm);
+                    }
+                    logMark = log.Count;
+                    if (built.Count % 500 == 0) { Debug.Log($"[Concrete] {built.Count}/{order.Count} tiles, {log.Count} pieces, {clock.Elapsed.TotalMinutes:0.0} min"); Resources.UnloadUnusedAssets(); }
+                }
+                CityMeshes.concreteLog = null;
+                if (string.IsNullOrWhiteSpace(loadTag)) File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_tiles.tsv"), tileRows.ToString());
+                // PSX_CONC_PLAN "x,z,r": the pavement the gate tests against there, for a plan drawing (with PSX_CONC_DUMP_ALL=1)
+                string plan = Environment.GetEnvironmentVariable("PSX_CONC_PLAN");
+                var planAt = new List<Vector3>();   // x, z, r
+                if (!string.IsNullOrWhiteSpace(plan))
+                {
+                    var psb = new StringBuilder();
+                    foreach (var one in plan.Split(';'))
+                    {
+                        var v = one.Split(',');
+                        if (v.Length < 3) continue;
+                        var pc = new Vector3(float.Parse(v[0], inv), float.Parse(v[1], inv), float.Parse(v[2], inv));
+                        planAt.Add(pc);
+                        psb.Append(string.Format(inv, "P\t{0}\t{1}\t{2}\n", pc.x, pc.y, pc.z));
+                        CityMeshes.ConcretePlanDump(map, trims, new Vector2(pc.x, pc.y), pc.z, psb);
+                    }
+                    File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_plan.tsv"), psb.ToString());
+                }
+                if (string.IsNullOrWhiteSpace(loadTag)) sb.AppendLine($"tiles built: {built.Count} of {order.Count} in {buildMs / 1000:0} s ({buildMs / Mathf.Max(1, built.Count):0} ms a tile); barriers mesh {barrierTris} triangles; tiles with barrier vertices no gate call accounts for: {unknownTiles}");
+                if (CityMeshes.ConcreteOn && string.IsNullOrWhiteSpace(loadTag)) sb.AppendLine($"the gate: rule 1 (nothing on pavement) took {paveCutM:0} m off pavement; rule 4 (no orphan, {(CityMeshes.ConcreteOrphanOn ? "on" : "off")}) left out {orphanN} pieces, {orphanM:0} m; rule 5 (an end is a real end, {(CityMeshes.ConcreteEndsOn ? "on" : "off")}) turned {endsN} free square barrier ends down; rule 3 (the plate) {(CityMeshes.ConcretePlateOn ? "ON" : "off")}; rule 6 (no reason, {(CityMeshes.ConcreteReasonOn ? "on" : "off")}) left out {CityMeshes.conNoReasonN} pieces, {CityMeshes.conNoReasonM:0} m; twin names (class d, {(CityMeshes.ConTwinNamesOn ? "on" : "off")})");
+                if (CityMeshes.ConcreteOn && string.IsNullOrWhiteSpace(loadTag))
+                    sb.AppendLine($"tiles the gate changed a piece on: {changedTiles} of {built.Count}; each rebuilt as asked (gate off) and compared mesh by mesh - tiles whose mesh differs: ground {diff[0]}, roads {diff[1]}, kerbs {diff[2]}, barriers {diff[3]}, structure {diff[4]}, guardrails {diff[5]}; barriers triangles on those tiles {triOff} as asked -> {triOnChanged} gated; build time on those tiles (warm pair) {offMs / Mathf.Max(1, changedTiles):0} ms as asked -> {onMs / Mathf.Max(1, changedTiles):0} ms gated");
+
+                if (string.IsNullOrWhiteSpace(loadTag)) CnSaveLog(Path.Combine(root, $"city_concrete_{tag}_log.bin"), log, built, popAll, sb.ToString());
+
+                // ---- before (as asked) and after (as built)
+                var before = new List<CityMeshes.ConcretePiece>(log.Count);
+                var after = new List<CityMeshes.ConcretePiece>(log.Count);
+                foreach (var p in log)
+                {
+                    if (p.stage == 0 || p.stage == 2) before.Add(p);
+                    if (p.stage == 1 || p.stage == 2) after.Add(p);
+                }
+                bool two = before.Count != after.Count || log.Exists(p => p.stage != 2);
+                var RB = CnClassify(before, built.Count < popAll ? built : null);
+                var RA = two ? CnClassify(after, built.Count < popAll ? built : null) : RB;
+                sb.AppendLine($"classified in {clock.Elapsed.TotalMinutes:0.0} min total");
+
+                void Table(string title, CnResult R)
+                {
+                    int pieces = 0; float metres = 0f;
+                    var cnt = new int[CnNames.Length]; var met = new float[CnNames.Length]; var guardM = new float[CnNames.Length];
+                    var byRule = new SortedDictionary<string, (int n, float m, int stray, float strayM, int[] c)>(StringComparer.Ordinal);
+                    var reasons = new float[5];
+                    int strayPieces = 0; float strayM = 0f;
+                    for (int i = 0; i < R.p.Count; i++)
+                    {
+                        var p = R.p[i];
+                        if (!CnConcrete(p.kind)) continue;
+                        float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        pieces++; metres += len;
+                        reasons[R.reason[i]] += len;
+                        if (!byRule.TryGetValue(p.rule, out var br)) br = (0, 0f, 0, 0f, new int[CnNames.Length]);
+                        br.n++; br.m += len;
+                        if (R.cls[i] != 0) { strayPieces++; strayM += len; br.stray++; br.strayM += len; }
+                        for (int b = 0; b < CnNames.Length; b++) if ((R.cls[i] & (1 << b)) != 0) { cnt[b]++; met[b] += len; br.c[b]++; if (R.reason[i] == 2 || R.reason[i] == 3) guardM[b] += len; }
+                        byRule[p.rule] = br;
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine($"==== {title}: {pieces} pieces of standing concrete, {metres / 1000f:0.0} km, in {R.runs} runs; {strayPieces} pieces ({strayM / 1000f:0.00} km) in a stray class");
+                    sb.AppendLine($"reason (km): R1 divides opposing traffic {reasons[1] / 1000f:0.0}; R2 guards a fall / on structure {reasons[2] / 1000f:0.0}; R2 holds land {reasons[3] / 1000f:0.0}; R4 kerb height {reasons[4] / 1000f:0.0}; none {reasons[0] / 1000f:0.0}");
+                    sb.AppendLine("class\tpieces\tmetres\tof which guard a fall or hold land (m)");
+                    for (int b = 0; b < CnNames.Length; b++) sb.AppendLine($"{CnNames[b]}\t{cnt[b]}\t{met[b]:0}\t{guardM[b]:0}");
+                    sb.AppendLine("by rule:\tpieces\tmetres\tstray\tstray_m\ta\tb\tc\td\te\tf\tg\th\th2");
+                    foreach (var kv in byRule) sb.AppendLine($"{kv.Key}\t{kv.Value.n}\t{kv.Value.m:0}\t{kv.Value.stray}\t{kv.Value.strayM:0}\t{string.Join("\t", kv.Value.c)}");
+                }
+                Table(two ? "BEFORE (as the rules asked)" : "INVENTORY", RB);
+                if (two) Table("AFTER (as the gate built)", RA);
+                if (two)
+                {
+                    // did the gate touch anything outside the stray classes?
+                    int touched = 0, outside = 0; float outsideM = 0f;
+                    var outRules = new SortedDictionary<string, int>(StringComparer.Ordinal);
+                    for (int i = 0; i < RB.p.Count; i++)
+                    {
+                        var p = RB.p[i];
+                        if (p.stage != 0 || !CnConcrete(p.kind)) continue;
+                        touched++;
+                        if (RB.cls[i] != 0) continue;
+                        outside++; outsideM += Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        outRules.TryGetValue(p.rule, out int c); outRules[p.rule] = c + 1;
+                    }
+                    var ors = new StringBuilder();
+                    foreach (var kv in outRules) ors.Append($" {kv.Key} {kv.Value}");
+                    sb.AppendLine();
+                    sb.AppendLine($"pieces the gate changed or left out: {touched}; of these in NO stray class before: {outside} ({outsideM:0} m){ors}");
+                }
+
+                // ---- (round 2) class d: why the ground-twin walk laid no shared median where two walls stand side by side
+                {
+                    var R = two ? RA : RB;
+                    var why = new Dictionary<string, float>();
+                    var whyN = new Dictionary<string, int>();
+                    for (int i = 0; i < R.p.Count; i++)
+                    {
+                        var p = R.p[i];
+                        if ((R.cls[i] & CnDouble) == 0 || p.edge < 0 || p.edge >= map.edges.Length) continue;
+                        if (p.rule != "side-median" && p.rule != "side-rail-ground" && p.rule != "union-median-ground-twin" && p.rule != "union-split-feet") continue;
+                        float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        bool was = CityMeshes.ConTwinNamesOn;
+                        string k = p.rule + ": " + CnTwinCensus(map, trims, map.edges[p.edge], CnXZ((p.a + p.b) * 0.5f));
+                        // the same walk with the names relaxed (the trims were built as the switch stands)
+                        CityMeshes.ConTwinNamesOn = true;
+                        string k2 = CnTwinCensus(map, trims, map.edges[p.edge], CnXZ((p.a + p.b) * 0.5f));
+                        CityMeshes.ConTwinNamesOn = was;
+                        k += "  ||  names relaxed: " + k2;
+                        why.TryGetValue(k, out float m0); why[k] = m0 + len;
+                        whyN.TryGetValue(k, out int n0); whyN[k] = n0 + 1;
+                    }
+                    var keys = new List<string>(why.Keys);
+                    keys.Sort((x, y) => why[y].CompareTo(why[x]));
+                    sb.AppendLine();
+                    sb.AppendLine($"==== class d ({(two ? "AFTER" : "as built")}): what the ground-twin walk says where the piece stands (metres, pieces; numbers as #)");
+                    for (int q = 0; q < keys.Count && q < 45; q++) sb.AppendLine(string.Format(inv, "{0,8:0} m {1,6}  {2}", why[keys[q]], whyN[keys[q]], keys[q]));
+                    // class b: what rule 6 (no reason) would do with each piece, by rule
+                    var r6 = new SortedDictionary<string, (float drop, float keep, int nd, int nk)>(StringComparer.Ordinal);
+                    for (int i = 0; i < R.p.Count; i++)
+                    {
+                        var p = R.p[i];
+                        if ((R.cls[i] & CnNoReason) == 0 || p.edge < 0 || p.edge >= map.edges.Length || p.kind != CityMeshes.ConKind.Jersey) continue;
+                        var e = map.edges[p.edge];
+                        var mq = CnXZ((p.a + p.b) * 0.5f);
+                        float bd = float.MaxValue; Vector2 foot = mq;
+                        for (int j = 0; j + 1 < e.pts.Length; j++) { float dd = CnSegDist(mq, e.pts[j], e.pts[j + 1], out float tt); if (dd < bd) { bd = dd; foot = Vector2.Lerp(e.pts[j], e.pts[j + 1], tt); } }
+                        var ow = (mq - foot).sqrMagnitude > 1e-6f ? (mq - foot).normalized : Vector2.zero;
+                        bool drop = CityMeshes.ConcreteNoReasonProbe(map, trims, p.edge, p.side, p.a, p.b, ow);
+                        float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        r6.TryGetValue(p.rule, out var v);
+                        if (drop) { v.drop += len; v.nd++; } else { v.keep += len; v.nk++; }
+                        r6[p.rule] = v;
+                    }
+                    sb.AppendLine($"==== class b ({(two ? "AFTER" : "as built")}): rule 6 (no reason) on each Jersey, by rule: metres it leaves out (pieces) / metres it keeps (pieces)");
+                    foreach (var kv in r6) sb.AppendLine(string.Format(inv, "{0}\t{1:0} m ({2})\t/ {3:0} m ({4})", kv.Key, kv.Value.drop, kv.Value.nd, kv.Value.keep, kv.Value.nk));
+                }
+
+                // ---- clusters (200 m cells) of the BEFORE strays; the pieces file
+                var cells = new Dictionary<long, (float w, int[] c, Vector2 sum, float sumW, int best, float bestW)>();
+                var pieces = new StringBuilder("set\tclass_bits\trule\tkind\tedge\tside\tnode\tx\ty\tz\tlen\thA\thB\thalf\tpaveM\treason\trun\trunLen\tfreeA\tfreeB\ttx\ttz\tax\taz\tbx\tbz\tay\tby\n");
+                bool dumpAll = Environment.GetEnvironmentVariable("PSX_CONC_DUMP_ALL") == "1";
+                void Dump(string set, CnResult R, bool cluster)
+                {
+                    for (int i = 0; i < R.p.Count; i++)
+                    {
+                        var p = R.p[i];
+                        if (!CnConcrete(p.kind)) continue;
+                        var m3 = (p.a + p.b) * 0.5f; float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                        if (R.cls[i] == 0 && !dumpAll)
+                        {
+                            bool inPlan = false;
+                            foreach (var pc in planAt) if ((m3.x - pc.x) * (m3.x - pc.x) + (m3.z - pc.y) * (m3.z - pc.y) < pc.z * pc.z) { inPlan = true; break; }
+                            if (!inPlan) continue;
+                        }
+                        pieces.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7:0.0}\t{8:0.00}\t{9:0.0}\t{10:0.0}\t{11:0.00}\t{12:0.00}\t{13:0.00}\t{14:0.0}\tR{15}\t{16}\t{17:0}\t{18}\t{19}\t{20}\t{21}\t{22:0.00}\t{23:0.00}\t{24:0.00}\t{25:0.00}\t{26:0.00}\t{27:0.00}\n",
+                            set, R.cls[i], p.rule, p.kind, p.edge, p.side, p.node, m3.x, m3.y, m3.z, len, p.hA, p.hB, p.half, p.paveM, R.reason[i], R.run[i], R.runLen[i], R.freeA[i] ? 1 : 0, R.freeB[i] ? 1 : 0, p.tx, p.tz, p.a.x, p.a.z, p.b.x, p.b.z, p.a.y, p.b.y));
+                        if (!cluster || R.cls[i] == 0) continue;
+                        // what reads as junk from a lane weighs most: a piece on pavement, then a bad end, an orphan, a gap, a step;
+                        // a wall with no reason; last the long pairs and the tall retaining rails (from a lane: an ordinary barrier)
+                        int junk = CnBadEnd | CnOrphan | CnGap | CnUpDown;
+                        float w = Mathf.Max(1f, len) * ((R.cls[i] & CnPave) != 0 ? 8f : (R.cls[i] & junk) != 0 ? 4f : (R.cls[i] & CnNoReason) != 0 ? 1f : (R.cls[i] & CnDouble) != 0 ? 0.5f : 0.25f);
+                        long k = CnKey(m3.x, m3.z, 200f);
+                        if (!cells.TryGetValue(k, out var c)) c = (0f, new int[CnNames.Length], Vector2.zero, 0f, -1, 0f);
+                        c.w += w; c.sum += CnXZ(m3) * w; c.sumW += w;
+                        for (int b = 0; b < CnNames.Length; b++) if ((R.cls[i] & (1 << b)) != 0) c.c[b]++;
+                        float pw = ((R.cls[i] & CnPave) != 0 ? 300f : (R.cls[i] & junk) != 0 ? 200f : (R.cls[i] & CnNoReason) != 0 ? 50f : 0f) + len;
+                        if (pw > c.bestW) { c.bestW = pw; c.best = i; }
+                        cells[k] = c;
+                    }
+                }
+                Dump("before", RB, true);
+                if (two) Dump("after", RA, false);
+
+                var ranked = new List<long>(cells.Keys);
+                ranked.Sort((x, y) => cells[y].w.CompareTo(cells[x].w));
+                // the owner's deck first
+                long deckKey = CnKey(CnDeck.x, CnDeck.y, 200f);
+                float bestD = float.MaxValue;
+                foreach (long k in cells.Keys) { float dd = Vector2.Distance(cells[k].sum / cells[k].sumW, CnDeck); if (dd < bestD) { bestD = dd; deckKey = k; } }
+                if (bestD < 220f) { ranked.Remove(deckKey); ranked.Insert(0, deckKey); }
+                var cl = new StringBuilder("rank\tid\tname\tlat_lon\tx\tz\tweight\ta\tb\tc\td\te\tf\tg\th\th2\teye_x\teye_y\teye_z\tlook_x\tlook_y\tlook_z\ttop_x\ttop_y\ttop_z\tworst_rule\tworst_bits\n");
+                sb.AppendLine();
+                sb.AppendLine($"==== the {Mathf.Min(40, ranked.Count)} worst clusters (200 m cells of the BEFORE strays; {ranked.Count} cells hold one)");
+                sb.AppendLine("rank\tname\tlat,lon\tweight\ta\tb\tc\td\te\tf\tg\th\th2");
+                var segs = new HashSet<int>();
+                for (int r = 0; r < ranked.Count && r < 90; r++)
+                {
+                    var c = cells[ranked[r]];
+                    var ctr = c.sum / c.sumW;
+                    // its name: the two highest roads near its middle
+                    segs.Clear();
+                    map.EdgeSegsInRect(ctr - Vector2.one * 110f, ctr + Vector2.one * 110f, segs);
+                    var names = new Dictionary<string, int>();
+                    foreach (int packed in segs)
+                    {
+                        var o = map.edges[packed >> 12];
+                        if (string.IsNullOrEmpty(o.name)) continue;
+                        names.TryGetValue(o.name, out int sc);
+                        names[o.name] = Mathf.Max(sc, o.cls * 10 + (o.link ? 0 : 5));
+                    }
+                    var nl = new List<string>(names.Keys);
+                    nl.Sort((x, y) => names[y].CompareTo(names[x]));
+                    string name = nl.Count == 0 ? "unnamed" : nl.Count == 1 ? nl[0] : nl[0] + " at " + nl[1];
+                    // the driver's eye: in the lane nearest the cluster's worst piece, 18 m before it, looking at it
+                    var bp = RB.p[c.best];
+                    var tgt = (bp.a + bp.b) * 0.5f;
+                    CnPose(map, bp, segs, out var eye, out var look);
+                    string id = (r == 0 && bestD < 220f) ? "c00_deck" : $"c{r:00}";
+                    if (r < 40) sb.AppendLine(string.Format(inv, "{0}\t{1}\t{2}\t{3:0}\t{4}", r + 1, name, CnLatLon(ctr), c.w, string.Join("\t", c.c)));
+                    cl.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4:0.0}\t{5:0.0}\t{6:0}\t{7}\t{8:0.00}\t{9:0.00}\t{10:0.00}\t{11:0.00}\t{12:0.00}\t{13:0.00}\t{14:0.0}\t{15:0.0}\t{16:0.0}\t{17}\t{18}\n",
+                        r + 1, id, name, CnLatLon(ctr), ctr.x, ctr.y, c.w, string.Join("\t", c.c), eye.x, eye.y, eye.z, look.x, look.y, look.z, ctr.x, tgt.y, ctr.y, bp.rule, RB.cls[c.best]));
+                }
+                File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_clusters.tsv"), cl.ToString());
+                // ---- to check the big classes by eye: a plan (the pavement, every piece) of the five clusters with the most
+                // b NO-REASON, d DOUBLE/BOX and f BAD-END pieces (city_concrete_<tag>_plans.tsv: P rows name them)
+                {
+                    var psb2 = new StringBuilder();
+                    var auto = new List<Vector3>();
+                    foreach (int bit in new[] { 1, 3, 5 })
+                    {
+                        var byCls = new List<long>(cells.Keys);
+                        byCls.Sort((x, y) => cells[y].c[bit].CompareTo(cells[x].c[bit]));
+                        for (int q = 0; q < byCls.Count && q < 5; q++)
+                        {
+                            var c = cells[byCls[q]];
+                            if (c.c[bit] == 0) break;
+                            if (c.best < 0) continue;
+                            var ctr = c.sum / c.sumW;
+                            var bp = RB.p[c.best];
+                            var m = (bp.a + bp.b) * 0.5f;
+                            auto.Add(new Vector3(m.x, m.z, 70f));
+                            psb2.Append(string.Format(inv, "P\t{0}\t{1}\t{2:0.0}\t{3:0.0}\t{4}\t{5}\t{6}\n", "abcdefgh"[bit], q + 1, m.x, m.z, c.c[bit], CnLatLon(ctr), ranked.IndexOf(byCls[q]) + 1));
+                            CityMeshes.ConcretePlanDump(map, trims, new Vector2(m.x, m.z), 70f, psb2);
+                        }
+                    }
+                    File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_plans.tsv"), psb2.ToString());
+                    void DumpNear(string set, CnResult R)
+                    {
+                        for (int i = 0; i < R.p.Count; i++)
+                        {
+                            var p = R.p[i];
+                            if (R.cls[i] != 0 || !CnConcrete(p.kind)) continue;
+                            var m3 = (p.a + p.b) * 0.5f;
+                            bool inPlan = false;
+                            foreach (var pc in auto) if ((m3.x - pc.x) * (m3.x - pc.x) + (m3.z - pc.y) * (m3.z - pc.y) < pc.z * pc.z) { inPlan = true; break; }
+                            if (!inPlan) continue;
+                            float len = Vector2.Distance(CnXZ(p.a), CnXZ(p.b));
+                            pieces.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7:0.0}\t{8:0.00}\t{9:0.0}\t{10:0.0}\t{11:0.00}\t{12:0.00}\t{13:0.00}\t{14:0.0}\tR{15}\t{16}\t{17:0}\t{18}\t{19}\t{20}\t{21}\t{22:0.00}\t{23:0.00}\t{24:0.00}\t{25:0.00}\t{26:0.00}\t{27:0.00}\n",
+                                set, R.cls[i], p.rule, p.kind, p.edge, p.side, p.node, m3.x, m3.y, m3.z, len, p.hA, p.hB, p.half, p.paveM, R.reason[i], R.run[i], R.runLen[i], R.freeA[i] ? 1 : 0, R.freeB[i] ? 1 : 0, p.tx, p.tz, p.a.x, p.a.z, p.b.x, p.b.z, p.a.y, p.b.y));
+                        }
+                    }
+                    if (!dumpAll) { DumpNear("before", RB); if (two) DumpNear("after", RA); }
+                }
+                File.WriteAllText(Path.Combine(root, $"city_concrete_{tag}_pieces.tsv"), pieces.ToString());
+                sb.AppendLine();
+                sb.AppendLine($"CITY CONCRETE INVENTORY OK ({clock.Elapsed.TotalMinutes:0.0} min)");
+            }
+            catch (Exception ex) { sb.AppendLine("CITY CONCRETE INVENTORY FAILED: " + ex); Debug.LogException(ex); code = 1; }
+            finally
+            {
+                CityMeshes.concreteLog = null;
+                File.WriteAllText(file, sb.ToString());
+                Debug.Log("[Concrete]\n" + sb);
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+    }
+}

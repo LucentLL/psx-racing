@@ -175,8 +175,36 @@ namespace PSXRacing
                 Ambience(cam.gameObject);
             }
             BuildUI();
-            // the drone film's shots, from the postcard spots found above (TitleScreen.Drone.cs)
-            BeginDrone();
+            // THE POSTCARD, HELD STILL (owner, 2026-11-16, on this very frame: "I think this view should be
+            // the opening menu. No panning."): the camera stays on views[0], placed above; the world keeps
+            // moving behind the menu (traffic and racers on the viaduct, the season turning over at a fade).
+            // PSX_TITLE_DRONE=1 flies the drone film's shots again (TitleScreen.Drone.cs, 2026-11-02).
+            if (System.Environment.GetEnvironmentVariable("PSX_TITLE_DRONE") == "1") BeginDrone();
+            else BeginStill();
+        }
+
+        float stillShotAt = -1f;
+
+        /// <summary>The held postcard. <c>-titleshots &lt;folder&gt;</c> (or PSX_TITLE_SHOTS)
+        /// photographs it once, six seconds in, and quits - the check of the real player.</summary>
+        void BeginStill()
+        {
+            shotsDir = System.Environment.GetEnvironmentVariable("PSX_TITLE_SHOTS");
+            var args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++) if (args[i] == "-titleshots") shotsDir = args[i + 1];
+            if (!string.IsNullOrEmpty(shotsDir)) stillShotAt = Time.unscaledTime + 6f;
+            Debug.Log("[TitleScreen] the postcard, held still (PSX_TITLE_DRONE=1 for the drone's shots)");
+        }
+
+        void StepStill()
+        {
+            if (droneOn || stillShotAt < 0f || Time.unscaledTime < stillShotAt) return;
+            stillShotAt = -1f;
+            System.IO.Directory.CreateDirectory(shotsDir);
+            string file = System.IO.Path.Combine(shotsDir, "title_still_Postcard.png");
+            ScreenCapture.CaptureScreenshot(file);
+            Debug.Log("[TitleScreen] shot photographed: " + file);
+            Invoke(nameof(QuitAfterShots), 1.5f);
         }
 
         // =================== the parked car ===================
@@ -455,6 +483,7 @@ namespace PSXRacing
                 nextRacer = Time.time + Random.Range(RacerEveryMinS, RacerEveryMaxS);
             }
             StepDrone();
+            StepStill();
             // the drone turns the season over at its own cuts
             if (!droneOn && atBlack == null && Time.unscaledTime >= nextSeason)
             {

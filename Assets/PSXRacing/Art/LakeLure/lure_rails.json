@@ -1,0 +1,7 @@
+{
+  "source": "Guardrails the real US 64/74A had before Hurricane Helene, by distance along lure_stage.json. Looked at in the owner's dash-cam video of 2022-10-28 ('Autumn drive through Lake Lure ... before the flooding'), on 2026-11-16; reference only, nothing copied. Positions come from the video's timing between landmarks (the NC 9 junction, the Lake Lure Inn, the village limits sign, the state park sign) and are good to about 100 m. Eleven places were looked at: W-beam at 3:05 (right, lake side), 8:45 (right, above the marina's covered slips) and 14:10 (left, river side, in the gorge; its position could not be matched to a bend, so it is not listed); a timber post-and-rail fence at 6:00 (right, the lake) and 16:50 (left, Bat Cave); none seen at 1:20, 8:15, 9:45, 10:15, 11:25 and 11:40.",
+  "spans": [
+    { "fromM": 1360, "toM": 1450, "side": "R", "seen": "3:05: W-beam on the right, the lake side, through a left-hand bend under the trees." },
+    { "fromM": 5710, "toM": 5800, "side": "R", "seen": "8:45: W-beam on the right above the marina's covered boat slips, the rock dome ahead." }
+  ]
+}

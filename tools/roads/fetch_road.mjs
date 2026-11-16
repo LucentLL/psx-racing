@@ -41,7 +41,7 @@ import {
 } from './lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const cacheDir = join(here, 'cache');
+const cacheDir = process.env.PSX_ROADS_CACHE || join(here, 'cache');
 const projectRoot = join(here, '..', '..');
 mkdirSync(cacheDir, { recursive: true });
 
@@ -197,6 +197,42 @@ const ROADS = {
     // in the run-out past the finish. Car/road floor on 9 m: 6.0.
     minRadiusM: 8,
   },
+
+  // US 64/74A FROM LAKE LURE TO BAT CAVE, AS IT STOOD BEFORE HURRICANE HELENE
+  // (owner, 2026-11-16: "add a mountain track for US-64/74A Lake Lure through
+  // Chimney Rock ... from BEFORE Hurricane Helene to capture the memory of what
+  // it used to be like"). The storm (2024-09-27) scoured the Rocky Broad's
+  // channel and took out much of Chimney Rock village, so the LINE comes from
+  // OpenStreetMap as it stood on 2024-09-20 (an Overpass attic query, cached
+  // as overpass_lakelure_2024-09-20.json; re-fetching asks for the same date)
+  // and the heights from the 2018 lidar (bake_3dep.mjs lure).
+  //
+  // The road is the 15 ways that carry US 64, US 74A and NC 9 together, from
+  // where NC 9 comes in at the east end of the lake, west along the lake
+  // shore (Memorial Highway), through downtown Lake Lure, over the Rocky
+  // Broad where it enters the lake, through Chimney Rock village (Main
+  // Street) and up the Hickory Nut Gorge to Bat Cave, where US 64 leaves to
+  // the west. Matched by WAY ID, not by ref: US 64 and US 74A both carry on
+  // past either end, and the lead (US 64/74A east of the junction) and the
+  // run-out (US 74A / NC 9 north of Bat Cave) are named the same way.
+  lakelure: {
+    name: 'Lake Lure — US 64/74A',
+    artDir: 'LakeLure', prefix: 'lure', resKey: 'lure_stage',
+    bbox: { s: 35.40, w: -82.30, n: 35.47, e: -82.17 },
+    attic: '2024-09-20T00:00:00Z',
+    osmCache: 'overpass_lakelure_2024-09-20.json',
+    match: { ways: [
+      16764570, 1300422906,                                   // lead: US 64/74A east of the junction
+      16764567, 270316593, 270316592, 719032438, 730188243,   // Memorial Highway along the lake
+      270149863, 270149866, 719032437, 738602468, 276156791,  // downtown, the Rocky Broad bridge
+      276156790, 16763555, 718998123, 718998122, 16629582,    // Main Street, the gorge, Lake Lure Highway
+      16618601,                                               // run-out: US 74A / NC 9 north of Bat Cave
+    ] },
+    start: { lat: 35.415738, lon: -82.196064, elevM: 304 },   // NC 9 comes in (lidar road; the lake is a metre or two under)
+    end:   { lat: 35.451576, lon: -82.287075, elevM: 431 },   // Bat Cave: US 64 leaves west (lidar road)
+    leadM: 60, shutdownM: 200, smoothSigma: 45, maxGrade: 0.12,
+    planSmoothM: 8,
+  },
 };
 
 const KEY = process.argv[2];
@@ -232,13 +268,18 @@ const FAR_CELL = 60, FAR_MARGIN = 9000;
 console.log('=== ' + CFG.name + ' (' + KEY + ') ===');
 console.log('  ' + CFG.start.elevM + ' m -> ' + CFG.end.elevM + ' m, surveyed');
 
-const USER_AGENT = 'psx-racing-brp-bake/1.0 (game map bake; contact: mcgeevarnell@gmail.com)';
+const USER_AGENT = CFG.attic ? 'psx-racing-map-bake/1.0' : 'psx-racing-brp-bake/1.0 (game map bake; contact: mcgeevarnell@gmail.com)';
 
 function fetchOverpassBbox() {
-  const query = `[out:json][timeout:120];
+  // AN ATTIC ROW asks for the map as it stood on that date, in the classes
+  // the pre-Helene extract was made with (a whole-bbox attic query of every
+  // highway runs the server out of memory).
+  const query = CFG.attic
+    ? `[out:json][timeout:240][maxsize:536870912][date:"${CFG.attic}"];(way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|primary_link|secondary_link|tertiary_link)$"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e}););out geom;`
+    : `[out:json][timeout:120];
 way["highway"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e});
 out tags geom;`;
-  return fetchOverpass({ cacheDir, name: 'overpass_' + KEY + '.json', query, userAgent: USER_AGENT });
+  return fetchOverpass({ cacheDir, name: CFG.osmCache || ('overpass_' + KEY + '.json'), query, userAgent: USER_AGENT });
 }
 
 // ------------------------------------------------------- assemble chain
@@ -257,7 +298,7 @@ function matchesRoad(tags) {
 }
 
 function assembleChain(overpass) {
-  const ways = overpass.elements.filter(e => e.type === 'way' && matchesRoad(e.tags));
+  const ways = overpass.elements.filter(e => e.type === 'way' && (CFG.match.ways ? CFG.match.ways.includes(e.id) : matchesRoad(e.tags)));
   if (!ways.length) throw new Error('no parkway ways in bbox');
   console.log(`parkway ways in bbox: ${ways.length}`);
 
@@ -430,6 +471,38 @@ if (!forward) { cut.reverse(); cutBridge.reverse(); }
 let wp = splineResample(cut, SPACING);
 const cutS = arcPositions(cut);
 console.log(`waypoints: ${wp.length} (${(wp.length * SPACING / 1000).toFixed(2)} km)`);
+
+// NO JOGS ON THE GENTLE STRETCHES (owner, 2026-11-16: "an otherwise straight
+// road will wave back and forth abruptly in a way that DOT would never
+// approve"). A mapped line can carry a metre of digitising jog - two bends of
+// R 100 m the opposite ways inside 20 m - which the spline faithfully draws.
+// planSmoothM: a gaussian of that sigma along the line, applied in full where
+// the road bends gently (R over 120 m) and not at all in a real bend (R under
+// 50 m), the blend itself smoothed so nothing switches abruptly. On a gentle
+// curve it moves the line by sigma^2 / 2R, a few centimetres; a 20 m jog loses
+// nearly all of itself. The ends keep their points (the anchors name them).
+// tools/roads/plan_wiggle.py measures what is left.
+if (CFG.planSmoothM) {
+  const sig = CFG.planSmoothM / SPACING, R = Math.ceil(3 * sig), n = wp.length;
+  const kern = []; for (let j = -R; j <= R; j++) kern.push(Math.exp(-0.5 * (j / sig) ** 2));
+  const blur = (get) => { const o = new Float64Array(n); for (let i = 0; i < n; i++) { let a = 0, w = 0; for (let j = -R; j <= R; j++) { const k = Math.min(n - 1, Math.max(0, i + j)); a += get(k) * kern[j + R]; w += kern[j + R]; } o[i] = a / w; } return o; };
+  const sx = blur(i => wp[i].x), sz = blur(i => wp[i].z);
+  const curv = i => { if (i < 3 || i >= n - 3) return 0; const a = wp[i - 3], b = wp[i], c = wp[i + 3];
+    const cr = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+    const l = Math.hypot(b.x - c.x, b.z - c.z) * Math.hypot(a.x - c.x, a.z - c.z) * Math.hypot(a.x - b.x, a.z - b.z);
+    return l > 0 ? Math.abs(2 * cr / l) : 0; };
+  const ss = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  const w0 = new Float64Array(n); for (let i = 0; i < n; i++) w0[i] = (i < R || i >= n - R) ? 0 : 1 - ss(1 / 120, 1 / 50, curv(i));
+  // the blend follows the TIGHTEST curvature nearby, so a bend's approach keeps its line too
+  const w1 = new Float64Array(n); for (let i = 0; i < n; i++) { let m = 1; for (let j = -R; j <= R; j++) { const k = Math.min(n - 1, Math.max(0, i + j)); m = Math.min(m, w0[k]); } w1[i] = m; }
+  const wgt = blur(i => w1[i]);
+  let moved = 0;
+  // srcI (the cut vertex each waypoint came from) carries the bridge flags: keep it through the re-spacing
+  const srcOf = wp.map(p => p.srcI);
+  wp = wp.map((p, i) => { const q = { x: p.x + (sx[i] - p.x) * wgt[i], z: p.z + (sz[i] - p.z) * wgt[i] }; moved = Math.max(moved, Math.hypot(q.x - p.x, q.z - p.z)); return q; });
+  wp = splineResample(wp, SPACING).map(p => ({ ...p, srcI: srcOf[Math.min(srcOf.length - 1, Math.max(0, Math.floor(p.srcI)))] }));
+  console.log(`plan smoothed: gaussian ${CFG.planSmoothM} m on the gentle stretches, largest move ${moved.toFixed(2)} m; ${wp.length} waypoints`);
+}
 
 // THE TIGHTEST CORNER, IN PLAN, MEASURED AND THEN ENFORCED.
 //

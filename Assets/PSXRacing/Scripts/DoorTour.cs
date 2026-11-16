@@ -129,7 +129,7 @@ namespace PSXRacing
         {
             var doors = new List<Door>();
             foreach (var id in new[] { "GillespieGap", "BlueRidge", "BlueRidgeRev", "BlowingRockSprint",
-                                       "ChimneyRock", "ChimneyRockRev", "EmeraldIsle",
+                                       "ChimneyRock", "ChimneyRockRev", "LakeLure", "LakeLureRev", "EmeraldIsle",
                                        // ALL only (MAIN skips it: not shipped): a Charlotte race through
                                        // SceneGate and the charlotte.bundle download (2026-10-24)
                                        "UptownLoop" })

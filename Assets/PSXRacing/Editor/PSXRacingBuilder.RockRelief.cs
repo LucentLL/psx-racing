@@ -593,6 +593,7 @@ namespace PSXRacing.EditorTools
                     Vector3 p = pts[i] + right * (side * (half + e)) + fwd * ((r1 - 0.21f) * 6f);
                     // the nearest road there must be this one, this far away
                     if (!StageCorridor(p.x, p.z, half + BoulderFarE + 4f, out RoadFoot f)) continue;
+                    if (StageKeepOut(p.x, p.z)) continue;
                     if (Mathf.Abs(f.station - i) > 6f || f.d - half < BoulderNearE + rad - 0.3f) continue;
                     if (OtherRoadNear(p.x, p.z, half + BoulderFarE + rad + 2f, i, out RoadFoot _)) continue;
                     // STEEP: the slope across 4 m

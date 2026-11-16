@@ -154,7 +154,23 @@ namespace PSXRacing.OnFoot
             // A car, for SPEED BLUR: MOTION's mask: the lens moving never
             // smears one (traffic, the town's cars, the lots).
             SpeedBlur.MarkOtherCar(shell);
+            // The player's own car stands in its current condition, as it
+            // drives (DamageView); a shell with no owner is untouched.
+            if (owned != null) DamageView.Dress(shell, br, def, fit, slide, owned);
             return shell;
+        }
+
+        /// <summary>A shell spawned with no owner, dressed in a car's condition
+        /// (DamageView): the seller's car on its drive wears the rows and the
+        /// paint of the visit's car. Same fit as <see cref="Spawn"/>.</summary>
+        public static void Dress(Transform shell, CarModelDef def, CarSpec spec, int widthMm, OwnedCar car)
+        {
+            if (shell == null || def == null || car == null) return;
+            var body = shell.Find("Body");
+            var br = body != null ? body.GetComponent<Renderer>() : null;
+            var fit = CarModelLibrary.Fit(def, spec != null ? CarModelLibrary.SpecGeometry.Of(spec)
+                                                            : CarModelLibrary.SpecGeometry.WidthOnly(widthMm));
+            DamageView.Dress(shell, br, def, fit, new Vector3(0f, 0f, -fit.P(def.colliderCenter).z), car);
         }
 
         static Mesh standMesh;
