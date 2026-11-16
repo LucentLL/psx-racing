@@ -281,19 +281,23 @@ namespace PSXRacing.EditorTools
                            Vector3 near, List<GameObject> staged, StringBuilder log)
         {
             int Find(string n) => kit.names != null ? System.Array.IndexOf(kit.names, n) : -1;
-            int oak = Find("CT4_WillowOak_YoungStreet"), pine = Find("CT4_LoblollyPine_Young"), beech = -1;
+            // PSX_CT5_TRIO = "owner form,owner form,NM form" (default: round 4's young willow oak, young loblolly, a small Forest beech)
+            var trio = (System.Environment.GetEnvironmentVariable("PSX_CT5_TRIO") ?? "CT4_WillowOak_YoungStreet,CT4_LoblollyPine_Young,").Split(',');
+            int oak = Find(trio[0]), pine = trio.Length > 1 ? Find(trio[1]) : -1, beech = trio.Length > 2 && trio[2].Length > 0 ? Find(trio[2]) : -1;
             for (int v = 0; v < kit.variants.Length && beech < 0; v++) if (kit.Group3(v) == 0 && kit.roles[v] == CityTreeKit.Role.Small) beech = v;
+            var dists = T4Dists(); var gaps = new float[dists.Length];
+            for (int i = 0; i < dists.Length; i++) gaps[i] = T4Gap(dists[i]);
             if (oak < 0 || pine < 0 || beech < 0) { log.Append($"  CLOSE: a model missing (oak {oak}, pine {pine}, beech {beech})\n"); return 0; }
             Physics.SyncTransforms();
-            if (!T4Lawn(map, mt, kit, near, out var c, out var f, out string how)) { log.Append("  CLOSE: no lawn found near the place (" + how + "): no close frames\n"); return 0; }
+            if (!T4Lawn(map, mt, kit, near, dists, gaps, out var c, out var f, out string how)) { log.Append("  CLOSE: no lawn found near the place (" + how + "): no close frames\n"); return 0; }
             T4Light(sun, dressing, world, TimeOfDay.Noon, (int)Season.Summer);
             var right = Vector3.Cross(Vector3.up, f);
             int n = 0;
-            foreach (float D in new[] { 3f, 8f })
+            foreach (float D in dists)
             {
                 foreach (var g in staged) if (g != null) Object.DestroyImmediate(g);
                 staged.Clear();
-                float gap = D < 5f ? 2.6f : 5.5f;
+                float gap = T4Gap(D);
                 int[] which = { oak, pine, beech };
                 for (int k = 0; k < 3; k++)
                 {
@@ -331,6 +335,18 @@ namespace PSXRacing.EditorTools
             return n;
         }
 
+        /// <summary>The staged frames' distances to the nearest trunk (PSX_CT5_CLOSE, metres; default 3,8).</summary>
+        static float[] T4Dists()
+        {
+            var l = new List<float>();
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_CT5_CLOSE") ?? "3,8").Split(','))
+                if (float.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) && v > 0.5f) l.Add(v);
+            return l.Count > 0 ? l.ToArray() : new[] { 3f, 8f };
+        }
+
+        /// <summary>The trunks' spacing for a staged frame at that distance (the three in view).</summary>
+        static float T4Gap(float D) => D < 5f ? 2.6f : D < 10f ? 5.5f : Mathf.Min(12f, D * 0.5f);
+
         static float T4Ground(Vector3 p, float nearY)
         {
             var from = new Vector3(p.x, nearY + 60f, p.z);
@@ -363,7 +379,7 @@ namespace PSXRacing.EditorTools
         /// every planted tree, on ground within a metre of level; the camera spots (3 m and 8 m in front)
         /// 1.5 m off every pavement, outside buildings and lots, 2 m from planted trees, looking away from
         /// the nearest road.</summary>
-        static bool T4Lawn(CityMap map, CityMeshTrees mt, CityTreeKit kit, Vector3 near, out Vector3 centre, out Vector3 dir, out string how)
+        static bool T4Lawn(CityMap map, CityMeshTrees mt, CityTreeKit kit, Vector3 near, float[] dists, float[] gaps, out Vector3 centre, out Vector3 dir, out string how)
         {
             centre = near; dir = Vector3.forward; how = "";
             var n2 = new Vector2(near.x, near.z);
@@ -441,7 +457,7 @@ namespace PSXRacing.EditorTools
                     bool ok = true;
                     float minRoad = float.MaxValue, minCamRoad = float.MaxValue;
                     float gy0 = T4Ground(new Vector3(c.x, 0f, c.y), near.y), gMin = gy0, gMax = gy0;
-                    foreach (float gap in new[] { 2.6f, 5.5f })
+                    foreach (float gap in gaps)
                         for (int k = -1; k <= 1 && ok; k++)
                         {
                             var p = c + rt * (k * gap);
@@ -451,7 +467,7 @@ namespace PSXRacing.EditorTools
                             float gy = T4Ground(new Vector3(p.x, 0f, p.y), near.y); gMin = Mathf.Min(gMin, gy); gMax = Mathf.Max(gMax, gy);
                         }
                     if (!ok) continue;
-                    foreach (float D in new[] { 3f, 8f })
+                    foreach (float D in dists)
                     {
                         var q = c - f * D;
                         float rg = RoadGap(q, out _);
@@ -463,21 +479,21 @@ namespace PSXRacing.EditorTools
                     // THE SOLIDS THE MAP'S FOOTPRINTS DO NOT HOLD (the procedural houses, walls, fences: the first lawn
                     // put the camera against a generated house): nothing solid round a staged tree to 10 m up or round
                     // the camera, and a clear line from the camera to every trunk
-                    foreach (float gap in new[] { 2.6f, 5.5f })
+                    foreach (float gap in gaps)
                         for (int k = -1; k <= 1 && ok; k++)
                         {
                             var p = c + rt * (k * gap);
                             float gy = T4Ground(new Vector3(p.x, 0f, p.y), near.y);
                             if (Physics.CheckCapsule(new Vector3(p.x, gy + 3.1f, p.y), new Vector3(p.x, gy + 10f, p.y), 2.5f, ~0, QueryTriggerInteraction.Ignore)) ok = false;
                         }
-                    foreach (float D in new[] { 3f, 8f })
+                    foreach (float D in dists)
                     {
                         if (!ok) break;
                         var q = c - f * D;
                         float gq = T4Ground(new Vector3(q.x, 0f, q.y), near.y);
                         var eyeQ = new Vector3(q.x, gq + 1.6f, q.y);
                         if (Physics.CheckCapsule(new Vector3(q.x, gq + 1.1f, q.y), new Vector3(q.x, gq + 2.2f, q.y), 0.5f, ~0, QueryTriggerInteraction.Ignore)) { ok = false; break; }
-                        float gap = D < 5f ? 2.6f : 5.5f;
+                        float gap = T4Gap(D);
                         for (int k = -1; k <= 1; k++)
                         {
                             var p = c + rt * (k * gap);
@@ -485,6 +501,10 @@ namespace PSXRacing.EditorTools
                             var dv = tgt - eyeQ;
                             if (Physics.Raycast(eyeQ, dv.normalized, dv.magnitude - 0.6f, ~0, QueryTriggerInteraction.Ignore)) { ok = false; break; }
                         }
+                        if (!ok) break;
+                        var fv = new Vector3(f.x, 0f, f.y);
+                        foreach (float el in new[] { 12f, 24f, 36f })
+                            if (Physics.Raycast(eyeQ, (fv * Mathf.Cos(el * Mathf.Deg2Rad) + Vector3.up * Mathf.Sin(el * Mathf.Deg2Rad)).normalized, 40f, ~0, QueryTriggerInteraction.Ignore)) { ok = false; break; }
                     }
                     if (!ok) continue;
                     centre = new Vector3(c.x, gy0, c.y);
