@@ -411,6 +411,18 @@ namespace PSXRacing.EditorTools
             m.SetFloat("_HorizonCrowns", 1f);
         }
 
+        /// <summary>A built scene's far-land material re-dressed with the
+        /// palette as the code now has it, its spruce band kept (the tools'
+        /// look at a palette change without a scene build: LinnCoveShots,
+        /// PSX_LC_RECANOPY=1).</summary>
+        internal static void RetuneFarCanopy(Material m, int d)
+        {
+            if (m == null || !m.HasProperty("_CanopySpruce")) return;
+            var band = m.GetVector("_CanopySpruce");
+            SetFarCanopy(m, d);
+            m.SetVector("_CanopySpruce", band);
+        }
+
         /// <summary>Every dress of a far-ground material, by dress index (the
         /// fall one is the base).</summary>
         static Material[] DressesOf(Material baseMat)

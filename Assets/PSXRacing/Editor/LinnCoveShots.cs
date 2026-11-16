@@ -130,6 +130,21 @@ namespace PSXRacing.EditorTools
             foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include))
                 if (c.isRootCanvas && c.gameObject.name != "DisplayCanvas" && c.enabled) { c.enabled = false; hud++; }
             log.AppendLine($"  canvases off: {hud}");
+            // PSX_LC_RECANOPY=1: the far land's palette as the code has it now (no scene build)
+            if (Env("PSX_LC_RECANOPY", "0") == "1" && s.dressing != null && s.dressing.entries != null)
+            {
+                int re = 0;
+                // by reflection: the same tool compiles against the base code, which has none
+                var retune = typeof(PSXRacingBuilder).GetMethod("RetuneFarCanopy", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                foreach (var e in s.dressing.entries)
+                    if (e != null && e.variants != null)
+                        for (int d = 0; d < e.variants.Length; d++)
+                        {
+                            var m = e.variants[d];
+                            if (m != null && m.HasProperty("_HorizonCrowns") && m.GetFloat("_HorizonCrowns") > 0.5f) { retune?.Invoke(null, new object[] { m, d }); re++; }
+                        }
+                log.AppendLine($"  far canopy palette re-applied from the code: {re} material dresses");
+            }
             int rocks = LandmarkRocks.ApplyAll();
             int switches = FarCanopySwitch.ApplyAll();
             Physics.SyncTransforms();
