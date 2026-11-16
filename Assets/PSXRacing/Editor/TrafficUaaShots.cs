@@ -225,7 +225,9 @@ namespace PSXRacing.EditorTools
                 // 3-5 the nearest vehicle of the spot's kind (else the nearest), then
                 // the two nearest other models, close
                 closeKeys.Clear();
-                yield return Close(pre, at, sp.want, 1);
+                // PSX_UAA_SHOT_WANT=rig|bus|truck|taxi|police|van|car: that kind at every spot
+                int want = System.Array.IndexOf(TrafficModels.KindNames, System.Environment.GetEnvironmentVariable("PSX_UAA_SHOT_WANT") ?? "");
+                yield return Close(pre, at, want >= 0 ? want : sp.want, 1);
                 yield return Close(pre, at, -1, 2);
                 yield return Close(pre, at, -1, 3);
                 Time.timeScale = 1f;
