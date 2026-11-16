@@ -178,6 +178,51 @@ namespace PSXRacing.EditorTools
                     world.EnsureRing(target - f * 160f, 2); mt.Flush();
                     log.Append($"\n{pid}\t'{e.name}' {CityAudit.LatLon(target.x, target.z)} heading ({f.x:0.00}, {f.z:0.00}); {how}\n");
                     T5GroundAudit(mt, kit, pid, tag, root, log);
+                    // THE PROBE (round 5b): the frame at PSX_CT5_PROBE metres, every tree in it labelled, and the three largest
+                    // trees left of the road shot at their trunk's base from 8 m (the owner's circled trees)
+                    if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CT5_PROBE") ?? "", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float pd))
+                    {
+                        ForestDetailPrefs.Override = 1; mt.Rebuild();
+                        T4Light(sun, dressing, world, TimeOfDay.Noon, (int)Season.Summer);
+                        var q0 = target - f * pd;
+                        var ppos = new Vector3(q0.x, T4Ground(q0, target.y - 1.15f) + 1.15f, q0.z);
+                        var prot = Quaternion.LookRotation(f + Vector3.down * 0.03f);
+                        if (car != null) car.TeleportTo(ppos - f * 6f - Vector3.up * 0.8f, Quaternion.LookRotation(f));
+                        cam.transform.SetPositionAndRotation(ppos, prot);
+                        SunShadows.RenderFor(cam); MeshForest.MeshTreesOn = true; mt.Forest.DrawNow(cam);
+                        PSXScreenshotTool.ShotAs(cam, $"ctrees5/{tag}/{pid}_probe_{pd:0}", ppos, prot);
+                        T4Labels(cam, mt, kit, Path.Combine(dir, $"{pid}_probe_{pd:0}_labels.csv"), ppos, prot);
+                        float th = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad), asp = 1280f / 720f;
+                        var inv = Quaternion.Inverse(prot);
+                        var cands = new List<(float px, MeshForest.PoolPlant pl, float sx)>();
+                        foreach (long key in mt.FittedKeys)
+                        {
+                            var pls = mt.PlantsOf(key); if (pls == null) continue;
+                            foreach (var pp in pls)
+                            {
+                                var lf = inv * (pp.pos - ppos);
+                                if (lf.z < 3f || lf.z > 90f) continue;
+                                float sx = (lf.x / (lf.z * th * asp) * 0.5f + 0.5f) * 1280f;
+                                if (sx < 0f || sx > 560f) continue;
+                                float hpx = kit.variants[pp.variant].height * pp.scale / (lf.z * th) * 360f;
+                                cands.Add((hpx, pp, sx));
+                            }
+                        }
+                        cands.Sort((x, y) => y.px.CompareTo(x.px));
+                        for (int k = 0; k < Mathf.Min(3, cands.Count); k++)
+                        {
+                            var pp = cands[k].pl;
+                            var away = new Vector3(ppos.x - pp.pos.x, 0f, ppos.z - pp.pos.z).normalized;
+                            var cpos = pp.pos + away * 8f; cpos.y = T4Ground(cpos, pp.pos.y) + 1.2f;
+                            var crot = Quaternion.LookRotation((pp.pos + Vector3.up * 1.6f) - cpos);
+                            cam.transform.SetPositionAndRotation(cpos, crot);
+                            SunShadows.RenderFor(cam); mt.Forest.DrawNow(cam);
+                            PSXScreenshotTool.ShotAs(cam, $"ctrees5/{tag}/{pid}_probe_close{k}", cpos, crot);
+                            float gC = T5GroundY(pp.pos);
+                            log.Append($"  PROBE {pid} close{k}: {kit.names[pp.variant]} at {CityAudit.LatLon(pp.pos.x, pp.pos.z)} (screen x {cands[k].sx:0}, {cands[k].px:0} px tall), foot {pp.pos.y:0.00} m, physics ground {gC:0.00} m, trunk base {pp.pos.y + T5Base(kit, pp.variant)[0] * pp.scale:0.00} m\n");
+                        }
+                        ForestDetailPrefs.Override = -1; mt.Rebuild();
+                    }
                     if (System.Environment.GetEnvironmentVariable("PSX_CT5_WALK") == "0") continue;
                     foreach (var ls in levels)
                     {
