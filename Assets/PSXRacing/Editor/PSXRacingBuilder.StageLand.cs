@@ -195,7 +195,9 @@ namespace PSXRacing.EditorTools
                     if (o.xz != null && o.xz.Length >= 6)
                     {
                         // the marina's land keeps its big shore trees (the video at 8:45): parkland, not a lawn
-                        WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, o.kind == "marina" ? KeepPark : KeepOpen, 0);
+                        // (round 2 kept the marina's big shore trees as parkland; round 3, the video at 8:45: the docks and the
+                        // covered slips show over the rail, so the marina's land is open - PSX_LURE_VIDEOLOOK=0: parkland)
+                        WorldFill(mask, new List<Vector3[]> { WorldPts(o.xz) }, o.kind == "marina" && !WorldSwitch("PSX_LURE_VIDEOLOOK") ? KeepPark : KeepOpen, 0);
                         areas++;
                     }
             if (world.buildings != null)
@@ -261,6 +263,20 @@ namespace PSXRacing.EditorTools
                     line.Add(pts[i] + left * 44f);
                 }
                 if (line.Count >= 2) WorldBand(mask, line.ToArray(), 42f, KeepOpen);
+                // 6:00 and 1:20: the lake shows through thin trees on the right (parkland, one grove in five), and at 1:20
+                // a lawn lies behind the garden wall
+                foreach (var (m0, m1, side) in new[] { (3560f, 3760f, 1f), (515f, 605f, 1f) })
+                {
+                    var band = new List<Vector3>();
+                    for (int i = Mathf.Max(0, (int)(m0 / Spacing)); i <= Mathf.Min(pts.Length - 1, (int)(m1 / Spacing)); i++)
+                    {
+                        Vector3 a = pts[Mathf.Max(0, i - 1)], b2 = pts[Mathf.Min(pts.Length - 1, i + 1)];
+                        Vector3 t = b2 - a; t.y = 0f; t.Normalize();
+                        Vector3 right = new Vector3(t.z, 0f, -t.x);
+                        band.Add(pts[i] + right * (side * 24f));
+                    }
+                    if (band.Count >= 2) WorldBand(mask, band.ToArray(), 19f, KeepPark);
+                }
             }
             int n8 = 0; foreach (var v in mask) if ((v & (KeepOpen | KeepPark)) != 0) n8++;
             Log($"Stage world open ground: {areas} mapped areas, {yards} yards, {lawnsBefore} lawns before town buildings, the town streets' bands - " +
