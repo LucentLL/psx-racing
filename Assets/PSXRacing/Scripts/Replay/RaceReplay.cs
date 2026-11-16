@@ -479,6 +479,13 @@ namespace PSXRacing
                                 idx => TrackCatalog.InTunnel(venue, idx * spacing));
             }
             savedView = ChaseCamera.Current;
+            // The camcorder's date stamp: the career's day and the race's hour
+            // (a tape at home has already set its own).
+            if (!Camcorder.Vcr)
+            {
+                Camcorder.StampDay = RaceHandoff.CalendarDay;
+                Camcorder.StampClock = TimeOfDay.ClockHours(TimeOfDay.Current);
+            }
             if (cam != null && Camcorder.Enabled)
             {
                 camcorderCam = cam.GetComponent<CamcorderCam>();
