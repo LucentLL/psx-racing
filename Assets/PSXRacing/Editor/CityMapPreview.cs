@@ -53,6 +53,13 @@ namespace PSXRacing.EditorTools
                     }
                     if (pts.Count < 2) continue;
                     var def = new TrackCatalog.TrackDef { id = f[0], name = f[1], city = true, cityRoute = "cand_" + f[0], loop = f[2] == "1", laps = 1, roadWidth = 12f };
+                    // not a venue yet: its facts are its own points (the catalog's route lookup would
+                    // find nothing and end it one station after the start)
+                    float len = 0f;
+                    for (int k = 1; k < pts.Count; k++) len += Vector3.Distance(pts[k - 1], pts[k]);
+                    def.routeLoaded = true;
+                    def.routeLengthM = len; def.routeStartM = 0f; def.routeFinishM = def.loop ? 0f : len;
+                    def.routePts = pts.ToArray();
                     shots.Add((def, pts));
                 }
             foreach (var (def, pts) in shots) Shoot(outDir, def, pts);

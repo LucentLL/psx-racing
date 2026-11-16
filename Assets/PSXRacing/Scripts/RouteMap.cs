@@ -212,8 +212,8 @@ namespace PSXRacing
                 {
                     wideCentre = CityMapTiles.CityCentre;
                     wideSpan = Mathf.Max(span * 4f, CityMapTiles.CitySpan * 0.75f);
-                    // the city under the opening view, at the level that view wants
-                    CityMapTiles.PlaceLevel(content, CityMapTiles.LevelFor(wideSpan, (size - 4f) * pxPerUnit), centre, span, wideCentre, wideSpan);
+                    // the city under the whole flight, each level where it is sharp
+                    CityMapTiles.PlaceFlight(content, centre, span, wideCentre, wideSpan, (size - 4f) * pxPerUnit);
                 }
                 CityMapTiles.Place(content, centre, span, (size - 4f) * pxPerUnit);
             }

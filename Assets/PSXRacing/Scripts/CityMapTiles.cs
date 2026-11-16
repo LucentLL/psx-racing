@@ -109,6 +109,30 @@ namespace PSXRacing
             LastWantedMetresPerPixel = span / Mathf.Max(32f, sizePx);
         }
 
+        /// <summary>
+        /// The city under a card that FLIES IN (RouteMapZoom): the opening view (the whole city) at its
+        /// own level, then each finer whole-city level over the stretch of the flight where it is drawn
+        /// about 1:1, centred where the view is at that moment - so the roads stay sharp all the way
+        /// down instead of the opening level swelling into a blur round the route's frame. Under
+        /// <see cref="Place"/>, which then lays the route's own frame on top.
+        /// </summary>
+        public static void PlaceFlight(RectTransform content, Vector2 centre, float span, Vector2 wideCentre, float wideSpan, float sizePx)
+        {
+            if (!Enabled || content == null || wideSpan <= span) return;
+            int l0 = LevelFor(wideSpan, sizePx), l1 = Mathf.Min(LevelFor(span, sizePx), fullLevel);
+            PlaceLevel(content, l0, centre, span, wideCentre, wideSpan);
+            float lnW = Mathf.Log(wideSpan), lnS = Mathf.Log(span);
+            for (int l = l0 + 1; l <= l1; l++)
+            {
+                // the view this level is drawn 1:1 at, and where the view stands then (RouteMapZoom.Apply)
+                float v = citySpan / (1 << l) / tilePx * Mathf.Max(32f, sizePx);
+                if (v >= wideSpan || v <= span) continue;
+                float e = (lnW - Mathf.Log(v)) / (lnW - lnS);
+                Vector2 at = centre - (1f - e) * (centre - wideCentre) * (v / wideSpan);
+                PlaceLevel(content, l, centre, span, at, v * 1.6f);
+            }
+        }
+
         /// <summary>What the last card was given (the preview tools report it).</summary>
         public static int LastLevel, LastPlaced;
         public static float LastMetresPerPixel, LastWantedMetresPerPixel;
