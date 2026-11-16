@@ -363,7 +363,7 @@ namespace PSXRacing
             // ---- the smear of a fast pan at 1/60 s, in screen widths ----
             float hfov = 2f * Mathf.Atan(Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad) * 4f / 3f) * Mathf.Rad2Deg;
             float smear = (yawVel / Mathf.Max(hfov, 1f)) * (1f / 60f);
-            Camcorder.PanSmear = Mathf.Clamp(smear, -0.06f, 0.06f) * (4f / 3f) / Mathf.Max(cam.aspect, 0.5f);
+            Camcorder.PanSmear = Mathf.Clamp(smear, -0.03f, 0.03f) * (4f / 3f) / Mathf.Max(cam.aspect, 0.5f);
 
             // ---- a glitch at the start of a recording, now and then ----
             Camcorder.Interior = chasing;

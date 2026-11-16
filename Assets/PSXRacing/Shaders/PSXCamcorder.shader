@@ -221,8 +221,8 @@ Shader "PSX/Camcorder"
                 // focus hunts, smeared along a fast pan ----
                 float px = win.y / 320.0;
                 float defocus = saturate(_PSXCam0.y);
-                float2 dh = float2(px * (0.8 + defocus * 3.0), 0) + float2(_PSXCam0.z * 0.5, 0);
-                float2 dv = float2(0, px * _PSXCam1.x / win.y * defocus * 2.5 * win.w);
+                float2 dh = float2(px * (0.8 + defocus * 2.0), 0) + float2(_PSXCam0.z * 0.5, 0);
+                float2 dv = float2(0, px * _PSXCam1.x / win.y * defocus * 1.8 * win.w);
                 float3 c0 = Tap(suv);
                 float3 lum = c0 * 0.36
                            + (Tap(suv + dh) + Tap(suv - dh)) * 0.22
