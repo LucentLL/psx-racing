@@ -43,7 +43,7 @@ namespace PSXRacing
         public const float SpotEveryM = 130f;
         public const float EyeM = 1.6f, CrouchM = 1.05f;
         /// <summary>Clear of the road edge: a kerb operator and one further back.</summary>
-        public const float KerbStandoffM = 2.2f, BackStandoffM = 5.5f;
+        public const float KerbStandoffM = 2.2f, BackStandoffM = 3.8f;   // inside the cleared verge, in front of the tree line
         /// <summary>Every this many shots, the buddy's car.</summary>
         public const int ChaseEvery = 3;
         public const float ChaseSeconds = 7f;
@@ -241,7 +241,12 @@ namespace PSXRacing
             Vector3 d = to - from;
             float len = d.magnitude;
             if (len < 0.5f) return false;
-            return Physics.Raycast(from, d / len, len - 2.5f, SolidMask, QueryTriggerInteraction.Ignore);
+            if (Physics.Raycast(from, d / len, len - 2.5f, SolidMask, QueryTriggerInteraction.Ignore)) return true;
+            // A tree right in front of the lens (run 2: a trunk filled a shot).
+            // Only near: the woods further off are what the road runs through.
+            int foliage = LayerMask.NameToLayer("Foliage");
+            return foliage >= 0 && Physics.Raycast(from, d / len, Mathf.Min(7f, len - 2.5f), 1 << foliage,
+                                                   QueryTriggerInteraction.Ignore);
         }
 
         // ------------------------------------------------------------------
