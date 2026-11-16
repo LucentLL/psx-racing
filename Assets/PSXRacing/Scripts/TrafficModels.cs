@@ -96,9 +96,12 @@ namespace PSXRacing
         };
 
         /// <summary>Forty-eight pool slots (the desktop cap once, the PC's 96
-        /// twice, a phone's 24 the first half): 26 of the pack's everyday
+        /// twice, a phone's 24 the first half): 24 of the pack's everyday
         /// cars, 7 of its special vehicles (2 box trucks, a bus, a rig, 2
-        /// taxis, a police car), 7 of the owner's own and 8 catalogue shells.</summary>
+        /// taxis, a police car), 9 of the owner's own (crown_victoria and
+        /// sedan_98 three times each, his taxi, police car and trooper) and 8
+        /// catalogue shells once each. Today's list (TrafficSystem.Keys over
+        /// 48 slots) had 12 placeholders, 20 of his own and 16 catalogue shells.</summary>
         static readonly string[] CityMix =
         {
             "uaa_sedan_mid", "crown_victoria", "uaa_van_cargo", "uaa_sedan_old", "sedan_98", "uaa_suv", "uaa_wagon_box", "uaa_truck_box",
@@ -106,7 +109,7 @@ namespace PSXRacing
             "fullsize_police", "uaa_sedan_box", "jdm_pickup", "uaa_sedan_mid", "uaa_rig", "uaa_van_cargo", "bmw_e30", "uaa_sedan_old",
             "uaa_taxi", "uaa_suv", "crown_victoria", "uaa_sedan_small", "audi_saloon", "uaa_wagon_box", "uaa_truck_box", "uaa_sedan_lux",
             "sedan_98", "uaa_van_pass", "uaa_police", "uaa_sedan_96", "landrover", "uaa_sedan_box", "uaa_taxi_box", "uaa_wagon_wood",
-            "euro_hatch", "uaa_van_cargo", "fullsize_trooper", "uaa_sedan_mid", "citroen_cx", "uaa_suv", "classic_van", "uaa_sedan_old",
+            "euro_hatch", "uaa_van_cargo", "fullsize_trooper", "uaa_sedan_mid", "citroen_cx", "crown_victoria", "classic_van", "sedan_98",
         };
 
         static readonly string[] ParkedMix =

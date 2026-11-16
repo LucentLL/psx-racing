@@ -128,7 +128,7 @@ namespace PSXRacing.EditorTools
         };
 
         static readonly List<string> log = new List<string>();
-        static bool done;
+        static bool done, failed;
 
         // ------------------------------------------------------------------
         //  Entry points
@@ -140,7 +140,7 @@ namespace PSXRacing.EditorTools
             try
             {
                 var kit = Ensure(true);
-                if (kit == null) { Debug.LogError("[TrafficUaa] no kit written (PSX_PC_CONTENT=1? store files in " + Src + "?)"); code = 1; }
+                if (kit == null || failed) { Debug.LogError("[TrafficUaa] no kit written (PSX_PC_CONTENT=1? store files in " + Src + "? see " + LogFile + ")"); code = 1; }
                 else if (Environment.GetEnvironmentVariable("PSX_UAA_PREVIEW") == "1") Preview();
             }
             catch (Exception e) { Debug.LogException(e); code = 1; }
@@ -164,7 +164,23 @@ namespace PSXRacing.EditorTools
                 return null;
             }
             if (done && !force) return AssetDatabase.LoadAssetAtPath<TrafficKit>(KitPath);
-            log.Clear();
+            // A scene build calls this (the neighbourhood's): a kit that fails
+            // to bake is logged and leaves the traffic as it was - it never
+            // fails the scene.
+            try { return BakeNow(); }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                log.Add("BAKE FAILED: " + e.Message); failed = true;
+                try { File.WriteAllLines(LogFile, log); } catch { }
+                done = true;
+                return AssetDatabase.LoadAssetAtPath<TrafficKit>(KitPath);
+            }
+        }
+
+        static TrafficKit BakeNow()
+        {
+            log.Clear(); failed = false;
             foreach (var d in new[] { Gen, Gen + "/tex", Gen + "/mat", Gen + "/mesh", Gen + "/def" }) Directory.CreateDirectory(d);
             AssetDatabase.Refresh();
             var shader = Shader.Find("PSX/CarPaint");
@@ -728,6 +744,32 @@ namespace PSXRacing.EditorTools
             TrafficModels.Reset();
             var kit = AssetDatabase.LoadAssetAtPath<TrafficKit>(KitPath);
             if (kit == null) return;
+
+            // THE SCALE PROOF: four of the pack beside the owner's own saloon
+            // (crown_victoria, his Passenger_Silver) and his '98 sedan, side by
+            // side on one floor, each through CarShell as the traffic spawns it
+            {
+                string[] line = { "uaa_sedan_small", "uaa_sedan_mid", "crown_victoria", "uaa_van_pass", "sedan_98", "uaa_suv" };
+                var lineRoots = new List<GameObject>();
+                for (int i = 0; i < line.Length; i++)
+                {
+                    var ke = TrafficModels.Entry(line[i]);
+                    var d = ke != null ? ke.def : CarModelLibrary.Load(line[i]);
+                    if (d == null) continue;
+                    var root = new GameObject("line_" + line[i]);
+                    root.transform.position = new Vector3((i - (line.Length - 1) * 0.5f) * 3.1f, 0f, 0f);
+                    var sh = OnFoot.CarShell.Spawn(root.transform, d, Mathf.Min(1, Mathf.Max(0, d.SkinCount - 1)), out _, solid: false);
+                    TrafficModels.Dress(sh, d);
+                    var lg = sh.GetComponent<LODGroup>();
+                    if (lg != null) lg.ForceLOD(0);
+                    lineRoots.Add(root);
+                }
+                var mid = new Vector3(0f, 0.9f, 0f);
+                Shot(cam, "lineup_34", mid + new Vector3(5.5f, 4.0f, 21f), mid);
+                Shot(cam, "lineup_front", mid + new Vector3(0f, 0.6f, 24f), mid);
+                foreach (var r in lineRoots) UnityEngine.Object.DestroyImmediate(r);
+            }
+
             foreach (var e in kit.entries)
             {
                 var def = e.def;

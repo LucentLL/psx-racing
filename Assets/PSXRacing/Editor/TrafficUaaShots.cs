@@ -267,8 +267,10 @@ namespace PSXRacing.EditorTools
             var right = Vector3.Cross(Vector3.up, fwd);
             float halfL = c.box.size.z * 0.5f, hgt = c.box.size.y;
             float back = Mathf.Max(5.5f, halfL * 1.25f + 3f);
-            var eye = c.pos + fwd * back + right * (back * 0.62f) + Vector3.up * Mathf.Max(1.6f, hgt * 0.75f);
-            var look = c.pos + fwd * (halfL * 0.15f) + Vector3.up * (hgt * 0.35f);
+            // at night the second close view is from behind: the tail lamps
+            float s = TrafficUaaShots.Night && n == 2 ? -1f : 1f;
+            var eye = c.pos + fwd * (back * s) + right * (back * 0.62f) + Vector3.up * Mathf.Max(1.6f, hgt * 0.75f);
+            var look = c.pos + fwd * (halfL * 0.15f * s) + Vector3.up * (hgt * 0.35f);
             string key = KeyOf(c.box.gameObject);
             TrafficUaaShots.Line($"  close {n}: {key} ({TrafficModels.KindNames[TrafficModels.KindOf(key)]}{(bestKind || want < 0 ? "" : ", not the wanted " + TrafficModels.KindNames[want])}) {Mathf.Sqrt(bestD):0} m from the spot");
             yield return Shot(pre + "_close" + n + "_" + key + ".png", eye, look);
