@@ -1,4 +1,16 @@
-﻿# HANDOFF - TREE POP ROUND (agent "trees4", branch `city-treepop` off mountain-nm c0a81147, 2026-11-16; NOT pushed, NOT merged)
+﻿# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
+1. STATE: replays look like 1999 camcorder tapes (PSX_CAMCORDER, default ON - proven in three WATCHED PSXRec runs, mountain + Charlotte, day + night, every check ok but one city countdown timeout); tapes save / shelf / VCR / VIDEO STORE sale work (PSX_TAPES, default ON); MONTAGE behind PSX_MONTAGE=1 (default OFF).
+2. Proof so far (scratchpad\camcorder\): camcorder_replay_sheet.png, camcorder_tapes_sheet.png, camcorder_replay_clip.mp4 (8 s, frames only), shots\, shots2\, tapes\ (frames + reports). camcorder_before_after.png is NOT valid yet (the base run died in a lock race).
+3. Self-test in PSXRec: base 65 FAIL vs mine 66; the one extra is "PSX/Camcorder in always-included shaders" because PSXRec's ProjectSettings are stale (my GraphicsSettings.asset adds it; the sandbox also lacks the water round's two lines). TestTapes + TestCamcorder all ok. Saves untouched (load both ways).
+4. Fixed after the first tape check, NOT yet re-run: the deck's scan mute (AudioFader.Mute) and TapeCheck skipping the title (a watched editor booted the title on the first trip home).
+5. Round 3 (director: no ride on the grid / near cars, operators added on the way, dash + A-pillar in the ride, smaller smear) was mid-run at the stop: Uptown Loop noon passed; its job finishes on its own and releases PSXRec's lock; no further job starts.
+6. NEXT: re-run tools\tape-check.ps1 -SkipPages (watched), tools\camcorder-shots.ps1 -Base -Plan "GillespieGap:Noon,UptownLoop:Noon" for the honest before, one self-test with the GraphicsSettings copied in (camcorder-shots -Extra "ProjectSettings\GraphicsSettings.asset").
+7. NEXT: rebuild the sheets (scratchpad\camcorder\build_sheets.py, CITY=shots3) and write the full hand-back (drafts: scratchpad\camcorder\handoff_*.md).
+8. MERGE NOTES: shared edits in SpeedBlurFeature.cs, SpeedBlur.cs, RaceHUD.cs, RaceManager.cs, LifeHomeScreen.cs, LifeSimSelfTest.cs, AudioFader.cs, RaceReplay.cs; ProjectSettings/GraphicsSettings.asset MUST ship (without it a player has no camcorder picture - it stands down, never pink).
+9. SANDBOX NOTES: tools\unity-wait.ps1 defaults to -buildTarget WebGL (pin PSX_BUILD_TARGET=Android on PSXRec); AGENT_LOCK is check-then-write (a race at 15:24 - camcorder-shots.ps1 now re-checks after taking it).
+10. Not done: Android device run, overpass operators (none found yet), crowd sound, a blocky OSD font.
+
+# HANDOFF - TREE POP ROUND (agent "trees4", branch `city-treepop` off mountain-nm c0a81147, 2026-11-16; NOT pushed, NOT merged)
 
 Owner since 11-11: tree pop-in "on every forest setting". Round 5 found the NM city trees' pop at their MESH LOD
 switches (MEDIUM 102 / 140 m, HIGH 124 / 210 m), not at the far card.

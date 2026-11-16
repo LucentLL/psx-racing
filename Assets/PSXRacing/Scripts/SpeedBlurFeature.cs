@@ -117,8 +117,20 @@ namespace PSXRacing
         WaterDepthPass waterDepthPass;
         Material waterCopyMaterial;
 
+        /// <summary>THE CAMCORDER (2026-11-16, <see cref="Camcorder"/>): a replay
+        /// or a tape as 1999 camcorder footage, after the glare, before the
+        /// stacked HUD camera. Found by name; kept in a player build by
+        /// GraphicsSettings' always-included shaders.</summary>
+        Material camcorderMaterial;
+        CamcorderPass camcorderPass;
+
         public override void Create()
         {
+            camcorderPass = new CamcorderPass
+            {
+                renderPassEvent = RenderPassEvent.AfterRenderingTransparents + 3,
+                requiresIntermediateTexture = true,
+            };
             pass = new BlurPass
             {
                 renderPassEvent = RenderPassEvent.AfterRenderingTransparents,
@@ -170,6 +182,22 @@ namespace PSXRacing
             AddGlare(renderer, cam);
             AddWaterDepth(renderer, cam);
             if (WetReflections.WantedFor(cam)) renderer.EnqueuePass(wetPass);
+            AddCamcorder(renderer, cam);
+        }
+
+        void AddCamcorder(ScriptableRenderer renderer, Camera cam)
+        {
+            if (cam != Camcorder.Camera || camcorderPass == null) return;
+            if (camcorderMaterial == null)
+            {
+                var sh = Shader.Find(Camcorder.ShaderName);
+                // No shader in this build: the replay as it was. Never pink.
+                if (sh == null || !sh.isSupported) return;
+                camcorderMaterial = CoreUtils.CreateEngineMaterial(sh);
+            }
+            CamcorderPass.Publish(camcorderMaterial, cam);
+            camcorderPass.material = camcorderMaterial;
+            renderer.EnqueuePass(camcorderPass);
         }
 
         /// <summary>The water's depth copy, for a camera whose water draws
@@ -345,6 +373,9 @@ namespace PSXRacing
             CoreUtils.Destroy(waterCopyMaterial);
             waterCopyMaterial = null;
             waterDepthPass?.Release();
+            CoreUtils.Destroy(camcorderMaterial);
+            camcorderMaterial = null;
+            camcorderPass?.Release();
         }
 
         /// <summary>
