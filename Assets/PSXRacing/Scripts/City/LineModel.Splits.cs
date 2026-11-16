@@ -196,6 +196,9 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>PSX_CITY_SPLITMITRE=1: mitre every in-scope 3-arm SPLT node (the plan's rule; OFF by
+        /// default - unproven: where the profile then declines the node the mitred joint kinks).</summary>
+        public static bool SplitMitreOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SPLITMITRE") == "1";
         /// <summary>In-scope 3-arm split nodes ComputeTrimsCore mitred (no fan), the last solve.</summary>
         public static int SplitForcedMitre;
         /// <summary>The undivided edge of a SPLT node.</summary>

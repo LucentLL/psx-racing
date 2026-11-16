@@ -1789,7 +1789,10 @@ namespace PSXRacing.City
                 // and the carriageway most nearly opposite it go through, the other
                 // carriageway clips onto that one (the axis-frame profile then
                 // starts both carriageways' lanes where they are in the road)
-                if (arms.Count == 3 && !crossing && LineModel.SplitsOn && LineModel.InSplitScope(map, n) && LineModel.SplitUOf(map, n, out int spU))
+                // OFF by default (PSX_CITY_SPLITMITRE=1 on): a node the profile then does not draw (lane
+                // bands that overlap: n7963, n7869) kept a mitred 35 degree joint the launch audit reads as
+                // a lateral step; with the fan kept, the profile starts at the fan's edge (as at n231)
+                if (LineModel.SplitMitreOn && arms.Count == 3 && !crossing && LineModel.SplitsOn && LineModel.InSplitScope(map, n) && LineModel.SplitUOf(map, n, out int spU))
                 {
                     int iu = -1;
                     for (int i = 0; i < 3; i++) if (arms[i].e.index == spU) iu = i;
