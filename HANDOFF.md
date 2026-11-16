@@ -24,6 +24,9 @@ The review (`scratchpad\water\REVIEW_SYN.json`, items 1-5) and the coordinator: 
    transparents, after URP's frame copy and the depth copy): the scene's materials at its first frame, the city's streamed tiles
    through `WetReflections.Tag` (every CityWorld tile renderer passes through it). The builders reset `renderQueue` to -1 and
    WaterShots restores every moved material, so no asset keeps 2501.
+6. THE DEPTH COPY IS ITS OWN SHADER (also found by the proof): `Hidden/PSX/WaterDepthCopy` (Shaders/PSXWaterDepthCopy.shader,
+   always-included, GUID b5ea6883...), drawn only by SpeedBlurFeature.WaterDepthPass while HD is on. As a second pass of
+   PSX/Water it changed the opaques' draw order with HD off (a wet bridge deck's gutter at Langston in rain).
 
 ## Proof (PSXPerf, D3D12 RTX 3070, fresh processes)
 - OFF = 7badf362, pixel for pixel. Two runs of WaterShots (charlotte, emerald, langston sets; 16 frames at 1920x1080 through
@@ -33,9 +36,16 @@ The review (`scratchpad\water\REVIEW_SYN.json`, items 1-5) and the coordinator: 
   this test only, `freeze_time.py` rewrote every `_Time` read in the test sandbox's shaders (8 files) to `_PSXTestTime`, which
   the tool sets to one fixed instant - identically in A and B. Result with the queue still at 2501 (commit 64939945): 14 of 16
   frames 0 px, including all 8 required pairs (charlotte_lake/_catawba/_creek and emerald_surf, noon and night); 2 differed:
-  langston_sound_rain 1,612 px (max 35: the wet deck's gutter, whose mirror copies the frame before the water was drawn) and
-  emerald_surf_sunward_sunset 3 px (the sea's far edge on the horizon: the sky and the water drawn in the other order). Both are
-  the queue move, so the queue went back to Geometry (item 5 above). The final code (queue Geometry, 93cc1cbf) through the same test: PENDING_A2.
+  langston_sound_rain 1,612 px (max 35/255, a 100x40 px strip of the wet bridge deck's gutter, not water) and
+  emerald_surf_sunward_sunset 3 px (the sea's far edge on the horizon). The queue went back to Geometry (93cc1cbf): 15 of 16,
+  sunward sunset now 0 px; Langston rain unchanged, so not the queue. My two branch runs in separate processes agree exactly on
+  that frame (0 px), so it is deterministic and caused by the shader file. E1 = my PSX/Water without its second pass (the depth
+  copy): all 5 Langston frames 0 px against the base, rain included. So the copy moved to its own hidden shader (item 6,
+  dc964b23). FINAL (dc964b23, F1 vs B): 15 of 16 frames 0 px - every required pair, every noon, sunset, night and Emerald rain
+  frame, and the water pixels of the 16th; Langston rain again shows the same 1,612 px on the same deck gutter. With a pass
+  removed from PSX/Water it vanished, and with one new unused shader asset in the project it returned, so it is the deck's
+  coplanar wet surfaces resolving in draw order, which follows the project's shader set (the review's S1 saw this deck differ
+  between processes too). The control that would show it directly (7badf362's PSX/Water with this commit's code, i.e. the same shader set: expect 0 px against F1) was queued behind another job's lock at the time of writing.
 - Depth copies enqueued: 0 in every OFF run (log line), 28 in the HD run. The log says `[WaterLook] HD water OFF ...`.
 - Import kept (item 2): after a run whose sets called EnsureCityTextures, the sheet reads Trilinear, mips (10 levels), 512 px,
   sRGB off, alphaIsTransparency off; mip 0 read back from the GPU is byte-identical to the source PNG (0 of 262,144 px), so the
@@ -47,12 +57,23 @@ The review (`scratchpad\water\REVIEW_SYN.json`, items 1-5) and the coordinator: 
   the creek (mirrored trees, the SSR hit/miss flip) remains: F01, Part B item 6.
 - No sheet (item 3): city water with `_RippleTex` cleared vs the same water with ripple strength 0, tier 2, the Lake Wylie pose
   turned 0/90/270 degrees (180: no water in view): mean water luminance ratios 0.997, 0.996, 1.004.
-- Self-test (default OFF): job C (64939945, no variable set): FAILED (67) = PSXPerf's base run with 7badf362's code, FAILED (67); no new failing check (one pre-existing failing check, "the release budget's set and the labels agree", lists 51 textures instead of 13, because the Charlotte shot set's EnsureCityTextures rewrote city textures in the sandbox between the two runs). Final code: PENDING_ST.
+- Self-test (default OFF): job C (64939945, no variable set): FAILED (67) = PSXPerf's base run with 7badf362's code, FAILED (67); no new failing check (one pre-existing failing check, "the release budget's set and the labels agree", lists 51 textures instead of 13, because the Charlotte shot set's EnsureCityTextures rewrote city textures in the sandbox between the two runs). Final code
+  (dc964b23, F2): FAILED (67), the same failing checks as the base (the same count difference on that one check), 4 more ok
+  lines (including "PSX/Water ..." and "Hidden/PSX/WaterDepthCopy is in GraphicsSettings' always-included shaders"). An earlier
+  self-test (job D, 09:55) is VOID: another job rewrote PSXPerf's code directories while my lock was held (the Editor folder
+  changed under it, and its shot step then could not find WaterShots).
+- HD with the final code (F2, PSX_WATER_HD=1 and _SEA=1): depth copies 28, import as above, null sheet 0.997 / 0.995 / 1.005;
+  grain at the same five poses: Lake Wylie 71.6, Sugar Creek 53.5, Langston foot 16.1, Emerald 17.8, Catawba 7.5 (this run is not
+  time-frozen, so the figures move a little run to run).
 
 ## For the coordinator at merge (PC47)
-- The full scene pass needs nothing special: no data file, no city re-bake. Each sandbox needs PSX/Water in GraphicsSettings'
-  always-included list (committed in ProjectSettings; the self-test checks it) and water_ripples.png with its committed .meta
-  (a scene pass now leaves it alone).
+- The full scene pass needs nothing special: no data file, no city re-bake, no -SkipScenes assumption (with HD off the water
+  materials keep their shader's queue; the builders write renderQueue -1). Each sandbox needs PSX/Water (2b0cd64e...) and
+  Hidden/PSX/WaterDepthCopy (b5ea6883...) in GraphicsSettings' always-included list (committed in ProjectSettings; the self-test
+  checks both) and water_ripples.png with its committed .meta (a scene pass now leaves it alone).
+- Sandbox note: in PSXPerf another job (the trees job's lock name is trees4) took the lock in the seconds between my chained jobs
+  three times, and once rewrote PSXPerf's code while my lock was held (job D's self-test is void for that reason). Re-sync
+  PSXPerf's Scripts/Editor/Shaders before using it; my runs also left its Shaders unfrozen and its CityWater.mat re-dressed.
 - When lakelure merges: `PSXRacingBuilder.StageRiver.cs:308` becomes
   `return MakeWaterMat(MeshPrefix + name, shallow, deep, name == "RiverWater" ? WaterPreset.River : WaterPreset.Lake);`
   (with item 4 the lake would get Lake anyway; the river needs the explicit River).
