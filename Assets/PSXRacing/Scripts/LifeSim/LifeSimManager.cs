@@ -1483,11 +1483,13 @@ namespace PSXRacing.LifeSim
         public static void MigrateToLakeLure(LifeState s, bool remap = true)
         {
             if (s == null || CodeVersion < 30) return;
-            if (!remap) { s.saveVersion = 30; return; }
             int Map(int i) { int now = TrackCatalog.RemapV29Index(i); return now >= 0 ? now : i; }
-            if (s.trackIndex >= 0) s.trackIndex = Map(s.trackIndex);
-            if (s.bookings != null) foreach (var b in s.bookings) if (b != null && b.trackIndex >= 0) b.trackIndex = Map(b.trackIndex);
-            if (s.blChallenge != null && s.blChallenge.trackIndex >= 0) s.blChallenge.trackIndex = Map(s.blChallenge.trackIndex);
+            if (remap)
+            {
+                if (s.trackIndex >= 0) s.trackIndex = Map(s.trackIndex);
+                if (s.bookings != null) foreach (var b in s.bookings) if (b != null && b.trackIndex >= 0) b.trackIndex = Map(b.trackIndex);
+                if (s.blChallenge != null && s.blChallenge.trackIndex >= 0) s.blChallenge.trackIndex = Map(s.blChallenge.trackIndex);
+            }
             s.saveVersion = 30;
         }
 
