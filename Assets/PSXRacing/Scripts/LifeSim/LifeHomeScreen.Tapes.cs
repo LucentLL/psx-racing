@@ -130,7 +130,15 @@ namespace PSXRacing.LifeSim
             MenuKit.Button(body, "TO THE VIDEO STORE  >>", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(ColL + bw + 12f, bw), y), new Vector2(bw, 50f),
                 () => { armKey = null; tab = "videostore"; Rebuild(); }, 18);
-            y -= 64f;
+            y -= 58f;
+            if (Tapes.MontageEnabled)
+            {
+                MenuKit.Button(body, "MONTAGE: MARK IN / OUT  >>", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL, bw), y), new Vector2(bw, 46f),
+                    () => { armKey = null; MontagePick(captured); tab = "montage"; Rebuild(); }, 17);
+                y -= 54f;
+            }
+            y -= 6f;
 
             MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
                 new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Line);
@@ -220,6 +228,147 @@ namespace PSXRacing.LifeSim
             var shelf = ShelfNow();
             var pick = PickedTape(shelf);
             if (pick != null) SellTape(pick);
+        }
+
+        // =================== THE MONTAGE ===================
+        /// <summary>The clips so far (tape id, in, out), and the IN / OUT being
+        /// marked on the picked tape.</summary>
+        readonly List<(string id, float tIn, float tOut)> montClips = new List<(string, float, float)>();
+        float montIn, montOut = -1f;
+        string montTape = "";
+
+        void MontagePick(Tapes.Header h)
+        {
+            if (h == null) return;
+            tapeSel = h.id;
+            if (montTape != h.id)
+            {
+                montTape = h.id;
+                montIn = 0f;
+                montOut = Mathf.Min(h.duration, 20f);
+            }
+        }
+
+        void MarkRow(string label, float value, System.Action<float> nudge, ref float y)
+        {
+            float lw = 230f, bw = 86f, gap = 8f;
+            MenuKit.Label(body, label + "  " + Camcorder.Counter(value) + "." + Mathf.FloorToInt((value % 1f) * 10f),
+                18, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, lw, height: 40f)
+                .raycastTarget = false;
+            float[] steps = { -10f, -1f, 1f, 10f };
+            string[] names = { "-10 s", "-1 s", "+1 s", "+10 s" };
+            for (int i = 0; i < steps.Length; i++)
+            {
+                float d = steps[i];
+                MenuKit.Button(body, names[i], new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + lw + i * (bw + gap), bw), y), new Vector2(bw, 40f),
+                    () => { nudge(d); Rebuild(); }, 16).gameObject.name = "Btn_" + label + names[i];
+            }
+            y -= 48f;
+        }
+
+        /// <summary>
+        /// MONTAGE: mark IN and OUT on a tape (steppers, so a pad and a thumb
+        /// work it as well as a mouse), ADD CLIP, and SAVE joins the clips onto
+        /// a new tape (<see cref="Tapes.Montage"/>). One road and one field per
+        /// montage; the tapes cut from are taped over, and the montage sells
+        /// for a little more than they would have.
+        /// </summary>
+        void BuildMontage()
+        {
+            float y = -14f;
+            PageHeader(ref y, "MONTAGE");
+            var shelf = ShelfNow();
+            var pick = PickedTape(shelf);
+            if (pick == null)
+            {
+                MenuKit.Label(body, "No tapes on the shelf.", 18, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                    TextAnchor.MiddleLeft, Color.white, ColW, height: 28f).raycastTarget = false;
+                return;
+            }
+            MontagePick(pick);
+            // Clips whose tape has left the shelf go with it.
+            montClips.RemoveAll(c => shelf.Find(t => t.id == c.id) == null);
+            Tapes.Header first = montClips.Count > 0 ? shelf.Find(t => t.id == montClips[0].id) : null;
+
+            MenuKit.Para(body, "Mark IN and OUT on a tape and ADD CLIP. Clips of the same race join, in order, onto a " +
+                "new tape when you SAVE; the tapes you cut from are taped over (the montage sells for a little more " +
+                "than they would have).", MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float ih,
+                TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= ih + 12f;
+            MenuKit.Label(body, Clip(pick.Spine, 60) + "   ·   " + pick.Length, 18, new Vector2(0.5f, 1f),
+                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Accent, ColW, height: 28f, bold: true).raycastTarget = false;
+            y -= 36f;
+
+            float dur = pick.duration;
+            MarkRow("IN ", montIn, d => { montIn = Mathf.Clamp(montIn + d, 0f, Mathf.Max(0f, montOut - 1f)); }, ref y);
+            MarkRow("OUT", montOut, d => { montOut = Mathf.Clamp(montOut + d, Mathf.Min(dur, montIn + 1f), dur); }, ref y);
+
+            bool sameRace = first == null || Tapes.SameRace(first, pick);
+            float len = Mathf.Max(0f, montOut - montIn);
+            float w = Mathf.Min(460f, ColW);
+            var capturedPick = pick;
+            MenuKit.Button(body, sameRace ? "ADD CLIP  (" + Camcorder.Counter(len) + ")" : "NOT THE SAME RACE AS THE FIRST CLIP",
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, w), y), new Vector2(w, 46f),
+                sameRace && len >= 1f ? (UnityEngine.Events.UnityAction)(() =>
+                {
+                    montClips.Add((capturedPick.id, montIn, montOut));
+                    montIn = montOut;
+                    montOut = Mathf.Min(capturedPick.duration, montIn + 20f);
+                    Rebuild();
+                }) : null, 17, sameRace && len >= 1f ? (Color?)null : MenuKit.BtnBgDisabled).gameObject.name = "Btn_addclip";
+            y -= 56f;
+
+            MenuKit.Rect(body, "Rule", new Vector2(0.5f, 1f), new Vector2(0f, 1f),
+                new Vector2(ColL, y), new Vector2(ColW, 2f), MenuKit.Line);
+            y -= 14f;
+            float total = 0f;
+            foreach (var c in montClips) total += c.tOut - c.tIn;
+            MenuKit.Label(body, "CLIPS (" + montClips.Count + ")   ·   " + Camcorder.Counter(total), 16,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f)
+                .raycastTarget = false;
+            y -= 30f;
+            for (int i = 0; i < montClips.Count; i++)
+            {
+                var c = montClips[i];
+                var t = shelf.Find(x => x.id == c.id);
+                int idx = i;
+                var lab = MenuKit.Label(body, (i + 1) + ".  " + (t != null ? t.venueName.ToUpperInvariant() + " " + Camcorder.DateStamp(t.day) : "?") +
+                    "   " + Camcorder.Counter(c.tIn) + " - " + Camcorder.Counter(c.tOut), 17, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, Color.white, ColW - 150f, height: 36f);
+                lab.raycastTarget = false;
+                MenuKit.FitOneLine(lab, ColW - 150f);
+                MenuKit.Button(body, "REMOVE", new Vector2(0.5f, 1f), new Vector2(MenuKit.ColRight(ColR, 130f), y),
+                    new Vector2(130f, 36f), () => { if (idx < montClips.Count) montClips.RemoveAt(idx); Rebuild(); }, 15)
+                    .gameObject.name = "Btn_removeclip" + i;
+                y -= 42f;
+            }
+            y -= 6f;
+            string refusal = montClips.Count == 0 ? "ADD A CLIP FIRST" : total < Tapes.MinSeconds ? "AT LEAST 5 SECONDS" : null;
+            ArmedButton("montage:save", "SAVE THE MONTAGE", refusal, SaveMontage, w, ref y);
+        }
+
+        void SaveMontage()
+        {
+            var shelf = ShelfNow();
+            var clips = new List<Tapes.Clip>();
+            foreach (var c in montClips)
+            {
+                var t = shelf.Find(x => x.id == c.id);
+                if (t != null) clips.Add(new Tapes.Clip { tape = t, tIn = c.tIn, tOut = c.tOut });
+            }
+            var h = Tapes.Montage(clips, out string why);
+            if (h == null) { Toast("THE MONTAGE DID NOT TAKE: " + why); Rebuild(); return; }
+            montClips.Clear();
+            montTape = "";
+            shelfCache = null;
+            tapeSel = h.id;
+            S.calendarLog.Add(LifeRules.LogDate(S.day) + ": cut a montage (" + h.venueName + ", " + clips.Count +
+                              (clips.Count == 1 ? " clip" : " clips") + ")");
+            LifeSimManager.Save();
+            Toast("MONTAGE ON THE SHELF: " + h.venueName.ToUpperInvariant() + " · " + h.Length + " · WORTH " + MenuKit.Money(Tapes.Price(h)));
+            tab = "tapes";
+            Rebuild();
         }
     }
 }

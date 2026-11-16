@@ -34,7 +34,20 @@ namespace PSXRacing
     /// </summary>
     public static class Tapes
     {
-        static int enabled = -1;
+        static int enabled = -1, montageOn = -1;
+
+        /// <summary>THE MONTAGE door on the shelf (PSX_MONTAGE=1 to open it;
+        /// off by default until its own check has played one).</summary>
+        public static bool MontageEnabled
+        {
+            get
+            {
+                if (montageOn < 0) montageOn = System.Environment.GetEnvironmentVariable("PSX_MONTAGE") == "1" ? 1 : 0;
+                return montageOn == 1 && Enabled;
+            }
+        }
+        /// <summary>For tools: open or shut the montage door in this process.</summary>
+        public static void ForceMontage(bool on) => montageOn = on ? 1 : 0;
         /// <summary>The tape doors are open (PSX_TAPES, default on).</summary>
         public static bool Enabled
         {
@@ -100,6 +113,16 @@ namespace PSXRacing
             /// <summary>The order tapes went on the shelf (file time, not stored).</summary>
             public long shelvedTicks;
 
+            /// <summary>A MONTAGE: clips of one road and one field joined into
+            /// one tape (<see cref="Montage"/>). Its price is set when it is cut
+            /// (<see cref="basePrice"/>), and <see cref="cuts"/> are the tape
+            /// times each clip after the first starts at - the deck cuts there
+            /// (a hard seek) instead of sliding the cars across the map.
+            /// Stored in the tape's extension block (after the samples).</summary>
+            public bool montage;
+            public int basePrice;
+            public List<float> cuts = new List<float>();
+
             public string PlayerCarName => playerIndex >= 0 && playerIndex < cars.Count ? cars[playerIndex].name : "";
 
             /// <summary>The spine: "CHIMNEY ROCK · NOV 16 1999 · P1 OF 4".</summary>
@@ -122,6 +145,7 @@ namespace PSXRacing
         public static int Price(Header h)
         {
             if (h == null) return 0;
+            if (h.montage && h.basePrice > 0) return h.basePrice;
             float v = 15f;
             if (h.won) v += 40f;
             v += 5f * Mathf.Clamp(h.fieldSize - 1, 0, 8);
@@ -443,6 +467,16 @@ namespace PSXRacing
             }
             w.Write(payload.Length);
             w.Write(payload);
+            // The extension block: only a montage has one.
+            if (h.montage || (h.cuts != null && h.cuts.Count > 0))
+            {
+                w.Write(System.Text.Encoding.ASCII.GetBytes(ExtMagic));
+                w.Write(h.montage);
+                w.Write(h.basePrice);
+                int nc = h.cuts != null ? h.cuts.Count : 0;
+                w.Write(nc);
+                for (int i = 0; i < nc; i++) w.Write(h.cuts[i]);
+            }
             w.Flush();
         }
 
@@ -459,10 +493,164 @@ namespace PSXRacing
                 ushort v = r.ReadUInt16();
                 if (v > Version) { why = "A TAPE FROM A NEWER BUILD (v" + v + ")"; return null; }
                 if (v < 1) { why = "UNKNOWN TAPE VERSION " + v; return null; }
-                return ReadHeaderBody(r, v);
+                var h = ReadHeaderBody(r, v);
+                ReadExtension(s, r, h);
+                return h;
             }
             catch (System.Exception e) { why = "UNREADABLE (" + e.GetType().Name + ")"; return null; }
         }
+
+        const string ExtMagic = "EXT1";
+
+        /// <summary>The extension block after the samples (a montage's cuts and
+        /// price), read without disturbing the stream: it is put back where the
+        /// header ended, so the samples can be read next. A tape without one
+        /// (every race tape) reads as it is.</summary>
+        static void ReadExtension(Stream s, BinaryReader r, Header h)
+        {
+            if (!s.CanSeek) return;
+            long at = s.Position;
+            try
+            {
+                if (s.Length - at < 4) return;
+                int len = r.ReadInt32();
+                if (len <= 0 || at + 4 + len + 4 > s.Length) return;
+                s.Position = at + 4 + len;
+                var magic = r.ReadBytes(4);
+                if (magic.Length != 4 || System.Text.Encoding.ASCII.GetString(magic) != ExtMagic) return;
+                h.montage = r.ReadBoolean();
+                h.basePrice = r.ReadInt32();
+                int nc = r.ReadInt32();
+                if (nc < 0 || nc > 4096) { h.montage = false; h.basePrice = 0; return; }
+                for (int i = 0; i < nc; i++) h.cuts.Add(r.ReadSingle());
+            }
+            catch (System.Exception) { h.cuts.Clear(); }
+            finally { s.Position = at; }
+        }
+
+        // ------------------------------------------------------------------
+        //  THE MONTAGE: clips joined into a new tape
+        // ------------------------------------------------------------------
+        public class Clip
+        {
+            public Header tape;
+            public float tIn, tOut;
+            public float Length => Mathf.Max(0f, tOut - tIn);
+        }
+
+        /// <summary>A clip can join a montage that starts with
+        /// <paramref name="first"/>: the same road and the same field (the
+        /// deck plays one venue with one set of cars).</summary>
+        public static bool SameRace(Header first, Header h)
+        {
+            if (first == null || h == null) return false;
+            if (first.venueId != h.venueId || first.cars.Count != h.cars.Count || first.playerIndex != h.playerIndex) return false;
+            for (int i = 0; i < h.cars.Count; i++)
+                if ((first.cars[i].specId ?? "") != (h.cars[i].specId ?? "")) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Cut the clips out of their tapes and join them, in order, onto a new
+        /// tape. The tapes the clips came from are taped over (they leave the
+        /// shelf) once the montage is safely written: an edit is made from the
+        /// originals, and one race cannot be sold twice. The montage sells for
+        /// what its tapes would have, and a little more for the editing.
+        /// </summary>
+        public static Header Montage(List<Clip> clips, out string why)
+        {
+            why = null;
+            if (clips == null || clips.Count == 0) { why = "NO CLIPS"; return null; }
+            var first = clips[0].tape;
+            foreach (var c in clips)
+            {
+                if (c.tape == null || string.IsNullOrEmpty(c.tape.path)) { why = "A CLIP HAS NO TAPE"; return null; }
+                if (!SameRace(first, c.tape)) { why = "ONE ROAD AND ONE FIELD PER MONTAGE"; return null; }
+                if (c.Length < 1f) { why = "A CLIP IS UNDER A SECOND"; return null; }
+            }
+
+            var cache = new Dictionary<string, (List<float> t, List<List<RaceReplay.Frame>> f)>();
+            var times = new List<float>();
+            var frames = new List<List<RaceReplay.Frame>>();
+            for (int i = 0; i < first.cars.Count; i++) frames.Add(new List<RaceReplay.Frame>());
+            var cuts = new List<float>();
+            var sources = new List<Header>();
+            float topKmh = 0f;
+            foreach (var c in clips)
+            {
+                if (!cache.TryGetValue(c.tape.path, out var src))
+                {
+                    var hh = Load(c.tape.path, out var tt, out var ff, out string w);
+                    if (hh == null) { why = "A TAPE WILL NOT LOAD: " + w; return null; }
+                    src = (tt, ff);
+                    cache[c.tape.path] = src;
+                    sources.Add(c.tape);
+                }
+                int k0 = -1, k1 = -1;
+                for (int k = 0; k < src.t.Count; k++)
+                {
+                    if (src.t[k] < c.tIn - 1e-4f) continue;
+                    if (src.t[k] > c.tOut + 1e-4f) break;
+                    if (k0 < 0) k0 = k;
+                    k1 = k;
+                }
+                if (k0 < 0 || k1 - k0 < 2) { why = "A CLIP HAS NO PICTURE ON IT"; return null; }
+                // The clip starts where the last one ended: the same instant,
+                // so the join is a cut, not a slide (the deck seeks hard there).
+                float offset = times.Count > 0 ? times[times.Count - 1] : 0f;
+                if (times.Count > 0) cuts.Add(offset);
+                float t0 = src.t[k0];
+                for (int k = k0; k <= k1; k++)
+                {
+                    times.Add(offset + (src.t[k] - t0));
+                    for (int car = 0; car < frames.Count; car++) frames[car].Add(src.f[car][k]);
+                    topKmh = Mathf.Max(topKmh, src.f[first.playerIndex][k].speedKmh);
+                }
+            }
+            if (times.Count < 2 || times[times.Count - 1] < MinSeconds) { why = "TOO SHORT FOR A TAPE"; return null; }
+
+            var h = new Header
+            {
+                venueId = first.venueId, venueName = first.venueName,
+                day = first.day, clock = first.clock, hour = first.hour, weather = first.weather,
+                finishPos = first.finishPos, fieldSize = first.fieldSize,
+                playerIndex = first.playerIndex,
+                montage = true, cuts = cuts,
+                topKmh = topKmh,
+            };
+            foreach (var c in first.cars) h.cars.Add(new Car { specId = c.specId, paint = c.paint, name = c.name, player = c.player });
+            float worth = 0f;
+            h.margin = 99f;
+            foreach (var sh in sources)
+            {
+                worth += Price(sh);
+                h.won |= sh.won;
+                h.margin = Mathf.Min(h.margin, sh.margin);
+                h.nearMisses += sh.nearMisses;
+                h.crashes += sh.crashes;
+            }
+            h.basePrice = Mathf.Max(5, Mathf.RoundToInt(worth * MontageBonus));
+            h.result = "MONTAGE · " + clips.Count + (clips.Count == 1 ? " CLIP" : " CLIPS");
+            h.id = System.DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "_m" + Random.Range(0, 0xFFF).ToString("x3");
+            try
+            {
+                Directory.CreateDirectory(Dir);
+                h.path = Path.Combine(Dir, h.id + ".tape");
+                using (var fs = File.Create(h.path)) Write(fs, h, times, frames);
+                h.shelvedTicks = System.DateTime.UtcNow.Ticks;
+            }
+            catch (System.Exception e)
+            {
+                why = "THE TAPE JAMMED (" + e.GetType().Name + ")";
+                return null;
+            }
+            // Written: the originals are taped over.
+            foreach (var sh in sources) Remove(sh);
+            return h;
+        }
+
+        /// <summary>An edited tape sells for this much more than its tapes would.</summary>
+        public const float MontageBonus = 1.15f;
 
         /// <summary>The whole tape: header, sample clock and every car's frames.</summary>
         public static Header Read(Stream s, out List<float> times, out List<List<RaceReplay.Frame>> frames, out string why)

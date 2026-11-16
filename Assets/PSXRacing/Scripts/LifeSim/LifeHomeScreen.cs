@@ -1473,6 +1473,7 @@ namespace PSXRacing.LifeSim
                 case "claim": BuildClaim(); break;   // R1c-B: LifeHomeScreen.Insurance.cs
                 case "tapes": BuildTapes(); break;   // camcorder tapes: LifeHomeScreen.Tapes.cs
                 case "videostore": BuildVideoStore(); break;
+                case "montage": BuildMontage(); break;
             }
 
             BuildCarSide();
@@ -1694,7 +1695,8 @@ namespace PSXRacing.LifeSim
                 // The tape shelf is a door at the MY CARS base; the store is
                 // reached from the shelf (LifeHomeScreen.Tapes.cs).
                 case "tapes": return "garage";
-                case "videostore": return "tapes";
+                case "videostore":
+                case "montage": return "tapes";
                 default: return "main";
             }
         }

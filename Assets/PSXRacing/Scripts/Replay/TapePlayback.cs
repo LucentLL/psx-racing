@@ -181,7 +181,22 @@ namespace PSXRacing
             if (scanning && !muted) { savedVolume = AudioListener.volume; AudioListener.volume = 0f; muted = true; }
             else if (!scanning && muted) { AudioListener.volume = savedVolume; muted = false; }
             if (!labelled) labelled = RelabelTouchBar();
+
+            // A MONTAGE's joins are cuts: crossing one (either way, at any
+            // speed) re-seats every car hard and the camcorder picks a fresh
+            // operator, instead of the cars sliding across the map to the
+            // next clip's poses.
+            float now = rp.ReplayTime;
+            if (header.cuts != null && header.cuts.Count > 0 && lastTime >= 0f)
+                foreach (float cut in header.cuts)
+                    if ((lastTime < cut && now >= cut) || (lastTime >= cut && now < cut))
+                    {
+                        rp.Seek(now, hard: true);
+                        break;
+                    }
+            lastTime = now;
         }
+        float lastTime = -1f;
 
         /// <summary>The phone's replay bar says SKIP 10 s on the two arrows;
         /// on the deck they are REW and FF.</summary>

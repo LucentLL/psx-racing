@@ -173,6 +173,47 @@ namespace PSXRacing.EditorTools
                     Check(loaded != null && lt.Count == n && lf.Count == 2, "a shelved tape loads whole", w5);
                     Check(Tapes.Remove(shelf[0]) && Tapes.Shelf().Count == 0, "a sold tape leaves the shelf");
                 }
+
+                // THE MONTAGE: two clips of one tape joined, the join a cut,
+                // the original taped over, the price a little over the tape's.
+                File.WriteAllBytes(Path.Combine(dir, "a.tape"), bytes);
+                var src = Tapes.Shelf();
+                if (src.Count == 1)
+                {
+                    var a = src[0];
+                    int srcPrice = Tapes.Price(a);
+                    var other = new Tapes.Header { venueId = "BlueRidge", playerIndex = 0 };
+                    other.cars.Add(new Tapes.Car { specId = "spec_a" }); other.cars.Add(new Tapes.Car { specId = "spec_b" });
+                    Check(Tapes.SameRace(a, a) && !Tapes.SameRace(a, other), "a montage is one road and one field");
+                    var clips = new List<Tapes.Clip>
+                    {
+                        new Tapes.Clip { tape = a, tIn = 2f, tOut = 8f },
+                        new Tapes.Clip { tape = a, tIn = 12f, tOut = 17f },
+                    };
+                    var m = Tapes.Montage(clips, out string wm);
+                    Check(m != null, "two clips join onto a new tape", wm);
+                    if (m != null)
+                    {
+                        var mm = Tapes.Load(m.path, out var mt, out var mf, out string wl);
+                        Check(mm != null && mm.montage && mm.cuts.Count == 1 && Mathf.Abs(mm.cuts[0] - 6f) < 0.07f,
+                              "it is a montage with one cut, where the second clip starts", mm != null && mm.cuts.Count > 0 ? mm.cuts[0].ToString("0.00") : wl);
+                        Check(mm != null && Mathf.Abs(mm.duration - 11f) < 0.15f, "six seconds and five, end to end",
+                              mm != null ? mm.duration.ToString("0.00") + " s" : "");
+                        if (mm != null && mt != null)
+                        {
+                            // The first sample after the cut is the second clip's first.
+                            int kc = mt.FindIndex(x => x >= mm.cuts[0] - 1e-4f);
+                            int ks = Mathf.RoundToInt(12f * hz);
+                            bool seated = kc >= 0 && kc + 1 < mt.Count && (mf[0][kc + 1].pos - frames[0][ks].pos).magnitude < 0.01f;
+                            bool clockUp = true;
+                            for (int k = 1; k < mt.Count; k++) if (mt[k] < mt[k - 1]) clockUp = false;
+                            Check(seated && clockUp, "after the cut the cars stand where the second clip starts, the clock never runs back");
+                        }
+                        Check(Tapes.Price(m) == Mathf.RoundToInt(srcPrice * Tapes.MontageBonus) && Tapes.Price(m) > srcPrice,
+                              "it sells for a little more than the tape", "$" + srcPrice + " -> $" + Tapes.Price(m));
+                        Check(!File.Exists(a.path) && Tapes.Shelf().Count == 1, "the tape it was cut from is taped over");
+                    }
+                }
             }
             finally
             {
