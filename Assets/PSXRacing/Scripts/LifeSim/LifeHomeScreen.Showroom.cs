@@ -300,7 +300,8 @@ namespace PSXRacing.LifeSim
                 pendingFirstDrive = true;
                 PendingTab = "charlotte";
             }
-            SceneManager.LoadScene(0);   // reload home, now in play mode
+            // out of the tunnel first (NewGameIntro; false = off, or it cannot run here)
+            if (!NewGameIntro.Launch(S)) SceneManager.LoadScene(0);   // reload home, now in play mode
         }
     }
 }

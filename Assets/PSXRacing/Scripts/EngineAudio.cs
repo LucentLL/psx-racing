@@ -440,6 +440,8 @@ namespace PSXRacing
         public static Ear EarFor(CarController car)
         {
             if (car == null) return Ear.Outside;
+            // NEW GAME's tunnel: the car coming up from behind the standing lens is a car out in the world.
+            if (NewGameIntro.EarOutside) return Ear.Outside;
             var rr = RaceReplay.Instance;
             if (RaceReplay.Playing && rr != null && rr.Mode == RaceReplay.CamMode.Trackside) return Ear.Outside;
             var cc = ChaseCamera.Active;

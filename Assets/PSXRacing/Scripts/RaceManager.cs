@@ -200,6 +200,8 @@ namespace PSXRacing
 
             // THE TITLE SCREEN takes the race over (a cold boot only).
             TitleScreen.Attach(this);
+            // NEW GAME's drive out of the tunnel (NewGameIntro.Launch only).
+            NewGameIntro.Attach(this);
         }
 
         /// <summary>While this answers true the countdown waits where it is:

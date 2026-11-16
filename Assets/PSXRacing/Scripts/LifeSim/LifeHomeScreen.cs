@@ -202,14 +202,18 @@ namespace PSXRacing.LifeSim
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "HomeCanvas", 10);
             screenWatch = new MenuKit.ScreenWatch();
-            MenuKit.Panel(canvas.transform, "Backdrop", MenuKit.Bg);
+            wizard = !LifeSimManager.HasSave || string.IsNullOrEmpty(S.playerName);
+            // NEW GAME IN THE TUNNEL (owner, 2026-11-16; NewGameIntro, PSX_INTRO=0 = as before): the wizard and the
+            // car pick over black, with the tunnel's sound; any other page stops that sound.
+            bool tunnel = NewGameIntro.On && (wizard || S.cars.Count == 0);
+            MenuKit.Panel(canvas.transform, "Backdrop", tunnel ? Color.black : MenuKit.Bg);
             // The GT2 blueprint grid over the charcoal, then the scanlines.
             // Both go down first so every panel built after sits on top of
             // them — the effects belong to the screen, not to the content.
-            MenuKit.GridBackdrop(canvas.transform);
+            if (!tunnel) MenuKit.GridBackdrop(canvas.transform);
             MenuKit.Scanlines(canvas.transform);
+            if (tunnel) NewGameIntro.TunnelAmbience(); else NewGameIntro.StopAmbience();
 
-            wizard = !LifeSimManager.HasSave || string.IsNullOrEmpty(S.playerName);
             if (wizard) { BuildWizard(); return; }
 
             // The wizard commits the character before the car is chosen, so a
@@ -1143,7 +1147,8 @@ namespace PSXRacing.LifeSim
                         pendingFirstDrive = true;
                         PendingTab = "charlotte";
                     }
-                    SceneManager.LoadScene(0);   // reload home, now in play mode
+                    // out of the tunnel first (NewGameIntro; false = off, or it cannot run here)
+                    if (!NewGameIntro.Launch(S)) SceneManager.LoadScene(0);   // reload home, now in play mode
                 }, MenuKit.Body, new Color(0.62f, 0.48f, 0.12f, 1f));
             MenuKit.Button(root, "BACK", new Vector2(1f, 0f), new Vector2(-30f, 22f),
                 new Vector2(sw, 58f), () =>
