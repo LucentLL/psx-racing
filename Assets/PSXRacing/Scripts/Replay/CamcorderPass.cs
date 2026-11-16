@@ -164,7 +164,7 @@ namespace PSXRacing
             float aspect = h > 0 ? (float)w / h : cam.aspect;
             m.SetVector(Cam0Id, new Vector4(now, Camcorder.Defocus, Camcorder.PanSmear, Camcorder.Tracking));
             m.SetVector(Cam1Id, new Vector4(aspect, 1f, Camcorder.Transport, Camcorder.ScanRate));
-            m.SetVector(Cam2Id, new Vector4(w, h, frameCounter, h >= 480 ? 1f : 0f));
+            m.SetVector(Cam2Id, new Vector4(w, h, frameCounter % 8192, h >= 480 ? 1f : 0f));
             // The eye's two time constants: exposure ~0.7 s, white balance ~2.5 s.
             float k = 1f - Mathf.Exp(-dt / 0.7f);
             float kc = 1f - Mathf.Exp(-dt / 2.5f);
