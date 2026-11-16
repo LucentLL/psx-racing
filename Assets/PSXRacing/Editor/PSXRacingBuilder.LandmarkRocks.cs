@@ -204,8 +204,9 @@ namespace PSXRacing.EditorTools
                     var solidMesh = stones[s].lods[2];
                     for (int sm = 0; sm < solidMesh.subMeshCount; sm++)
                         cell.solid.Add(new CombineInstance { mesh = solidMesh, subMeshIndex = sm, transform = trs });
-                    LandmarkKeepAdd(c.x, c.z, r * 0.85f + 1.0f);   // the block's own footprint and a metre: the woods grow between the
-                    // blocks (2.5 m round each cleared Grandfather's flank to dark bare ground, and the title's foreground trees)
+                    LandmarkKeepAdd(c.x, c.z, r + 1.5f);   // the block and a metre and a half: the woods grow between the blocks
+                    // (r + 2.5 cleared Grandfather's flank to dark bare ground and the title's foreground trees, plants through
+                    // solids 0; 0.85 r + 1 let a fern 0.25 m into a stone at 4480 m, plants through solids 1)
                     stonesPlaced++;
                     any = true;
                 }
