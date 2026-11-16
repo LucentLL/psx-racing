@@ -843,7 +843,7 @@ namespace PSXRacing
             new TrackDef
             {
                 id = "LakeLure",
-                name = "LAKE LURE — CHIMNEY ROCK",   // the brief's "LAKE LURE - US 64/74A" cut to "...US 6..." on the home screen
+                name = "LAKE LURE",   // the home screen's "RACE NIGHT - <venue>" cuts at ~13 characters: "LAKE LURE - US 64/74A" and "LAKE LURE - CHIMNEY ROCK" both showed "..."
                 blurb = "US 64/74A as it was before the flood: from where NC 9 comes in at the " +
                         "east end of the lake, along the shore and through downtown, over the " +
                         "Rocky Broad, up Main Street through Chimney Rock village and the " +
