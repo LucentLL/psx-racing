@@ -519,9 +519,15 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < TrackCatalog.V21Count; i++)
                 if (!TrackCatalog.IsRetired(TrackCatalog.V21IdAt(i))) survivors.Add(TrackCatalog.V21IdAt(i));
             var todayIds = TrackCatalog.All.Select(t => t.id).ToList();
-            Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(todayIds),
-                  "the frozen v21 list less the retired ids is today's list, in order",
-                  TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + todayIds.Count + " today");
+            // v30 appended Lake Lure, its twin and its four sections: the v21 survivors are today's list without them
+            string[] v30Added = { "LakeLure", "LakeLureRev", "LakeLureShore", "LakeLureShoreRev", "LakeLureGorge", "LakeLureGorgeRev" };
+            var beforeV30 = todayIds.Where(id => System.Array.IndexOf(v30Added, id) < 0).ToList();
+            Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(beforeV30) && v30Added.All(id => TrackCatalog.TryIndexOf(id, out _)),
+                  "the frozen v21 list less the retired ids is today's list less the v30 additions, in order",
+                  TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + beforeV30.Count + " today before v30");
+            bool v29Same = true;
+            for (int i = 0; i < survivors.Count; i++) if (TrackCatalog.At(TrackCatalog.RemapV29Index(i)).id != survivors[i]) v29Same = false;
+            Check(v29Same, "every v29 index (the v22..v29 list) lands on the same venue today (RemapV29Index)");
             Check(TrackCatalog.All.All(t => !TrackCatalog.IsRetired(t.id) && !TrackCatalog.IsRetired(t.reverseOf) &&
                                             !TrackCatalog.IsRetired(t.sprintOf)),
                   "nothing today is, or races on, a retired venue");
@@ -7939,8 +7945,8 @@ namespace PSXRacing.EditorTools
             {
                 int c = TrackCatalog.IndexOf("ChimneyRock");
                 var cd = TrackCatalog.At(c);
-                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 1,
-                      "Chimney Rock is the last scened venue", c + " of " + TrackCatalog.SceneCount);
+                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 2 && TrackCatalog.At(TrackCatalog.SceneCount - 1).id == "LakeLure",
+                      "Chimney Rock is the scened venue before Lake Lure, the last (v30)", c + " of " + TrackCatalog.SceneCount);
                 Check(cd.stage && !cd.loop && cd.FinishIndex > 0, "Chimney Rock is a stage sprint with a finish",
                       cd.FinishIndex);
                 int cr = TrackCatalog.IndexOf("ChimneyRockRev");
