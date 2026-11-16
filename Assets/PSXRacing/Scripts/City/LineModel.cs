@@ -430,7 +430,7 @@ namespace PSXRacing.City
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0;
+            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear();
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
@@ -665,7 +665,10 @@ namespace PSXRacing.City
                     // at a MITRED node the join's own eases already draw the
                     // step smoothly (held / crossed above): no second shift
                     if (partner(e, t.end == 0 ? e.a : e.b) >= 0) continue;
-                    PropagateShift(map, add, partner, e, t.end == 0 ? e.a : e.b, t.off, Mathf.Max(0.5f, t.len), 0f, 0);
+                    // J1b: the record was written at L/2 in places: at least the floored length
+                    float shL = TaperFloorOn ? Mathf.Max(t.len, FlooredLength(e, Mathf.Abs(t.off))) : t.len;
+                    if (TaperFloorOn && shL > t.len + 0.05f) TaperFloorRaised++;
+                    PropagateShift(map, add, partner, e, t.end == 0 ? e.a : e.b, t.off, Mathf.Max(0.5f, shL), 0f, 0);
                     ReShifts++;
                 }
             for (int i = 0; i < add.Length; i++) if (add[i] != null) map.edges[i].lmEase = add[i].ToArray();
@@ -1809,7 +1812,10 @@ namespace PSXRacing.City
             if (move < 0.005f && !ends) return;
             float mph = Mathf.Max(SpeedMph(E), SpeedMph(O));
             float rate = Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
-            float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : 0.5f));
+            // J1b: the shifting taper's L/2 only to 35 mph; full L from 40 (and the smoothstep's Rmin)
+            float half = TaperFloorOn && mph > 37.5f ? 1f : 0.5f;
+            float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : half));
+            if (TaperFloorOn && !ends) L = Mathf.Max(L, Mathf.Sqrt(6f * move * RminAt(mph)));
             // Round 4 (review r3 #5): an arm whose far end is a carriageway
             // split's nose keeps the nose approach (RelayNoseKeepM) clear of the
             // relay - at n10229 a 46 m relay from the junction behind left the
@@ -1967,7 +1973,7 @@ namespace PSXRacing.City
         static void PropagateShift(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                                    CityMap.Edge e, int fromNode, float shift, float len, float d0, int depth)
         {
-            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, 1, true)));
+            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlongFloor(map, partner, e, fromNode, 1, true, len)));
             (add[e.index] ??= new List<Ease>(2)).Add(new Ease { shift = true, fromA = e.a == fromNode, dw = shift, len = len, d0 = d0 });
             shiftLog?.Add(e.index);
             if (d0 + e.length >= len || depth >= 12) return;
@@ -1994,7 +2000,7 @@ namespace PSXRacing.City
             // never longer than the run it eases: the next change along owns the
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
-            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, side, false)));
+            if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlongFloor(map, partner, e, fromNode, side, false, len)));
             var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag };
             if (taggedEdges != null) { if (!taggedEdges.TryGetValue(tag, out var tl)) taggedEdges[tag] = tl = new List<int>(2); tl.Add(e.index); }
             var lay = LayoutOf(e);
@@ -2219,7 +2225,7 @@ namespace PSXRacing.City
             {
                 var t = taprMap.tapr[ti];
                 int tSide = t.side == 0 ? 1 : -1;
-                if (tSide == side && t.len >= 0.5f) { fromTapr = true; return t.len; }
+                if (tSide == side && t.len >= 0.5f) { fromTapr = true; return TaperFloorOn ? Mathf.Max(t.len, FlooredLength(w, dw)) : t.len; }
                 // "full width at the node" (a junction mouth) that the builder
                 // mitres - a lane that opens at a merge, beside the branch
                 // that brings it: the shortest taper the class allows
@@ -2227,12 +2233,57 @@ namespace PSXRacing.City
             }
             float mph = w.speedKmh > 0 ? w.speedKmh / 1.609344f : w.link ? 35f : ClassMph[Mathf.Clamp(w.cls, 0, 5)];
             float rate = mph <= 40f ? mph * mph / 60f : mph;
+            if (TaperFloorOn) return FlooredLength(w, dw);
             return Mathf.Max(FloorOf(w), dw * rate);
         }
         static readonly float[] ClassMph = { 25f, 35f, 40f, 45f, 55f, 65f };
         /// <summary>The taper floors (plan A4 WP-10 item 6): street 15,
-        /// arterial 30, freeway 90 m.</summary>
-        static float FloorOf(CityMap.Edge w) => (w.cls >= 5 || (w.cls == 4 && w.oneway && !w.link)) ? 90f : (w.link || w.cls >= 2) ? 30f : 15f;
+        /// arterial 30, freeway 90 m. J1b (TaperFloorOn): every urban street
+        /// 30.5 m (MUTCD's 100 ft), freeways 90 m as before.</summary>
+        static float FloorOf(CityMap.Edge w) => (w.cls >= 5 || (w.cls == 4 && w.oneway && !w.link)) ? 90f : TaperFloorOn ? TaperUrbanFloorM : (w.link || w.cls >= 2) ? 30f : 15f;
+
+        // ================================================================
+        //  J1b, THE TAPER FLOORS (splits2, Phase C; PSX_CITY_TAPERFLOOR)
+        // ================================================================
+        // MUTCD 11th 3B.12-3B.13 (2009 3B.09-3B.10): a lateral move of W needs
+        // L = W S^2/60 to 40 mph and W S from 45 mph; never under 100 ft
+        // (30.5 m) urban, 200 ft (61 m) rural; and a smoothstep of W over L
+        // has its least radius L^2/(6W), so L >= sqrt(6 W Rmin(S)) keeps it
+        // inside Green Book's Rmin at -2 %. The exporter wrote TAPR lengths and
+        // SHIFT records at L/2 in places, the street floor was 15 m, and the
+        // relays used L/2 at every speed. Now (scope city by default):
+        //   * every taper (a TAPR record's own length too) at least
+        //     max(floor, r(S) W, sqrt(6 W Rmin(S)));
+        //   * the street floor 30.5 m (Charlotte is urban);
+        //   * a relay's shifting taper L/2 only to 35 mph, full L from 40;
+        //   * a SHIFT record's ease at least the floored length;
+        // each still within the room RoomAlong gives (a short room is counted,
+        // TaperFloorShort, never squeezed further than before).
+        public const float TaperUrbanFloorM = 30.5f;
+        static readonly string taperFloorEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_TAPERFLOOR");
+        /// <summary>PSX_CITY_TAPERFLOOR=1 on in every scope, =0 off; unset: on under the scope 'city' only.</summary>
+        public static bool TaperFloorOn => taperFloorEnv == "1" || (taperFloorEnv != "0" && CityPhaseC);
+        public static int TaperFloorRaised, TaperFloorShort;
+        static float FlooredLength(CityMap.Edge w, float dw)
+        {
+            float mph = SpeedMph(w);
+            float rate = mph <= 40f ? mph * mph / 60f : mph;
+            return Mathf.Max(FloorOf(w), Mathf.Max(dw * rate, Mathf.Sqrt(6f * Mathf.Max(0f, dw) * SplitRminOf(mph))));
+        }
+        static float SplitRminOf(float mph) => RminAt(mph);
+        /// <summary>J1b: the room for a taper, counted (and the first 300 listed) where the floored length
+        /// does not fit: listed, never squeezed further than the room.</summary>
+        public static readonly List<string> TaperFloorShortLog = new List<string>();
+        static float RoomAlongFloor(CityMap map, System.Func<CityMap.Edge, int, int> partner, CityMap.Edge e, int fromNode, int side, bool shift, float want)
+        {
+            float room = RoomAlong(map, partner, e, fromNode, side, shift);
+            if (TaperFloorOn && room < want - 0.5f)
+            {
+                TaperFloorShort++;
+                if (TaperFloorShortLog.Count < 300) TaperFloorShortLog.Add($"e{e.index} '{e.name}' from n{fromNode}: room {room:0.0} m for {want:0.0} m ({(shift ? "shift" : "taper")})");
+            }
+            return room;
+        }
 
         /// <summary>Where along an edge its tapers start and end (arc
         /// positions), for the builder's sections (every taper end is a

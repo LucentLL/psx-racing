@@ -65,6 +65,9 @@ namespace PSXRacing.EditorTools
             Line($"SPLITS AUDIT (J1) run '{tag}': PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, PSX_CITY_BAYEND {(LineModel.BayEndOn ? 1 : 0)}, PSX_CITY_NOSE {(LineModel.NoseRuleOn ? 1 : 0)}, PSX_CITY_REFUGE {(LineModel.RefugeOn ? 1 : 0)}; graph {map.graphHash:x8}; SPLT nodes {map.splt.Length}");
             Line($"  drawn: refuge pairs {LineModel.Refuges.Count / 2} (listed {LineModel.RefugeListedN}), axis-frame carriageway ends {LineModel.SplitFrames.Count}, undivided chord eases {LineModel.SplitUEases}, in-scope 3-arm splits mitred {LineModel.SplitForcedMitre}, BAYEND edges {LineModel.BayEndEdges}, shaped noses {Count(LineModel.SplitNoseNodes)}");
             Line($"  marks: refuge/split noses hatched {ms.noseHatches} ({ms.noseHatchBars} bars), split noses marked {ms.noseSplit} (hatched {ms.noseSplitHatched}), bays opening at a nose {ms.noseBayOpen}, flush tips {ms.noseFlushTip}, turn arrows into a plain nose {ms.noseArrows}");
+            Line($"  PHASE C (scope city {(LineModel.CityPhaseC ? "ON" : "off")}): blends lengthened {LineModel.PhaseCLonger}, curving roads on J1's length {LineModel.PhaseCCurving}, blends ended before a side street {LineModel.PhaseCJunctionCap}, bays kept (not reaching a nose) {LineModel.PhaseCBayKept}, same-name meeting noses marked {ms.noseMeeting}; taper floors {(LineModel.TaperFloorOn ? "ON" : "off")}: SHIFT records lengthened {LineModel.TaperFloorRaised}, tapers short of their floored length for room {LineModel.TaperFloorShort}");
+            { int q = 0; foreach (var s in LineModel.TaperFloorShortLog) if (q++ < 40) Line("    taper room short: " + s); }
+            TaperCensus(map);
             foreach (var l in LineModel.BayEndLog) Line("  BAYEND " + l);
 
             var ends = new List<SplitEndM>(2048);
@@ -184,6 +187,13 @@ namespace PSXRacing.EditorTools
                 Line($"LOT ENTRANCES on edges a profile shift moves (0.05 m or more at the entrance): {moved} of {na}{(moved > 0 ? $"; worst {worst:0.00} m at {at}" : "")} (charlotte_lotent.bytes is keyed without the eases: re-make it if this is not 0 against the base)");
             }
             // ---- the ends table and the plan polylines ----
+            {
+                // Phase C: every framed end's design (L, room, capped and why) for the analysis
+                var fs = new StringBuilder("node\tedge\tu\tuStart\tL\tuEnd\tdelta\tlambda0\tqEnd\troom\tcapped\tmph\tnote\n");
+                foreach (var f in LineModel.SplitFrames)
+                    fs.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3:0.0}\t{4:0.0}\t{5:0.0}\t{6:0.00}\t{7:0.00}\t{8:0.00}\t{9:0.0}\t{10}\t{11:0.0}\t{12}\n", f.node, f.edge, f.u, f.uStart, f.L, f.uEnd, f.delta, f.lambda0, f.qEnd, f.room, f.capped ? 1 : 0, f.mph, f.note));
+                File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_splits_frames.tsv"), fs.ToString());
+            }
             var tsv = new StringBuilder("tag\tnode\tu\tc\tkind\tmph\trate\tq0\tqF\tW\tLt\tpeak\trEq\tover\tangle\tjump\tbulge\tmed20\tq20\town20\tmono\thalfOk\tfullOk\tpass\n");
             foreach (var m in ends)
                 tsv.Append(string.Format(inv, "{0}\t{1}\t{2}\t{3}\t{4}\t{5:0.0}\t{6:0.0}\t{7:0.00}\t{8:0.00}\t{9:0.00}\t{10:0.0}\t{11:0.0000}\t{12:0.0}\t{13:0.00}\t{14:0.00}\t{15:0.00}\t{16:0.00}\t{17:0.00}\t{18:0.00}\t{19:0.00}\t{20}\t{21}\t{22}\t{23}\n",
@@ -191,9 +201,78 @@ namespace PSXRacing.EditorTools
             string root = Directory.GetParent(Application.dataPath).FullName;
             File.WriteAllText(Path.Combine(root, "city_splits_ends.tsv"), tsv.ToString());
             foreach (int n in LineModel.BfrSplitNodes) if (n < map.nodes.Length) PlanDump(map, t, n, tag, plan, inv);
+            // Phase C: PSX_SPLITS_PLANNODES=n1,n2,... dumps those nodes' plans too (the worst spots city-wide)
+            foreach (var tok in (System.Environment.GetEnvironmentVariable("PSX_SPLITS_PLANNODES") ?? "").Split(','))
+                if (int.TryParse(tok.Trim().TrimStart('n'), out int pn) && pn >= 0 && pn < map.nodes.Length && System.Array.IndexOf(LineModel.BfrSplitNodes, pn) < 0) PlanDump(map, t, pn, tag, plan, inv);
             File.WriteAllText(Path.Combine(root, "city_splits_plan.tsv"), plan.ToString());
+            // Phase C: lot entrances whose drawn pavement edge moves against PSX_CITY_SPLITAXIS=0 (the eases
+            // the lotent key does not read) - PSX_SPLITS_LOTBASE=1 (a second solve under scope 0, last)
+            if (System.Environment.GetEnvironmentVariable("PSX_SPLITS_LOTBASE") == "1" && map.lotEntrances != null)
+            {
+                int na = map.lotEntrances.Length;
+                var cur = new float[na];
+                for (int i = 0; i < na; i++) cur[i] = EntranceEdge(map, map.lotEntrances[i]);
+                string was = LineModel.SplitAxis;
+                LineModel.SplitAxis = "0";
+                CityMeshes.ComputeTrims(map);
+                int moved = 0, moved25 = 0; float worst = 0f; string at = ""; var hist = new int[5];
+                for (int i = 0; i < na; i++)
+                {
+                    float b = EntranceEdge(map, map.lotEntrances[i]);
+                    if (float.IsNaN(b) || float.IsNaN(cur[i])) continue;
+                    float d = Mathf.Abs(cur[i] - b);
+                    if (d < 0.05f) continue;
+                    moved++; if (d >= 0.25f) moved25++;
+                    hist[d < 0.25f ? 0 : d < 0.5f ? 1 : d < 1f ? 2 : d < 2f ? 3 : 4]++;
+                    if (d > worst) { var E = map.lotEntrances[i]; worst = d; at = $"e{E.edge} s {E.s:0.0} '{map.edges[E.edge].name}'"; }
+                }
+                LineModel.SplitAxis = was;
+                Line($"LOT ENTRANCES against scope 0 (the drawn pavement edge on the entrance's side): {moved} of {na} move 0.05 m or more ({moved25} 0.25 m or more; 0.05-0.25 {hist[0]}, 0.25-0.5 {hist[1]}, 0.5-1 {hist[2]}, 1-2 {hist[3]}, 2+ {hist[4]}){(moved > 0 ? $"; worst {worst:0.00} m at {at}" : "")}");
+            }
             Line($"(splits audit {clock.Elapsed.TotalSeconds:0.0} s)");
             FinishTo("city_splits.txt");
+        }
+
+        /// <summary>Phase C: the drawn pavement edge (lateral off the OSM line) on a lot entrance's side.</summary>
+        static float EntranceEdge(CityMap map, CityMap.LotEntrance E)
+        {
+            if (E.edge < 0 || E.edge >= map.edges.Length) return float.NaN;
+            var e = map.edges[E.edge];
+            float s = Mathf.Clamp(E.s, 0f, e.length);
+            LineModel.Extents(e, s, out float eM, out float eP);
+            return E.side >= 0 ? eP : -eM;
+        }
+
+        /// <summary>J1b's census (b) on the drawn eases: every one-sided taper and shift (not a profile, not a
+        /// relay) of 5 cm or more, its length against MUTCD's for its move at the edge's speed: under L/2,
+        /// under full L at 40 mph and above, under the 30.5 m floor.</summary>
+        static void TaperCensus(CityMap map)
+        {
+            int n = 0, halfFail = 0, fullFail40 = 0, floorFail = 0, relays = 0;
+            var worst = new List<(float r, string at)>();
+            foreach (var e in map.edges)
+            {
+                if (e.lmEase == null) continue;
+                float mph = e.speedKmh > 0 ? e.speedKmh / 1.609344f : e.link ? 35f : (e.cls >= 5 ? 65f : e.cls == 4 ? 55f : e.cls == 3 ? 45f : e.cls == 2 ? 40f : e.cls == 1 ? 35f : 25f);
+                float rate = mph <= 40f ? mph * mph / 60f : mph;
+                foreach (var z in e.lmEase)
+                {
+                    if (z.relay) { relays++; continue; }
+                    if (z.prof != null || z.aux || z.d0 > 0.01f) continue;
+                    float w = Mathf.Abs(z.dw);
+                    if (w < 0.05f || z.len < 0.5f) continue;
+                    n++;
+                    float ratio = z.len / w;
+                    bool hf = ratio < 0.5f * rate, ff = mph >= 37.5f && ratio < rate, fl = z.len < 30.4f && e.cls < 5;
+                    if (hf) halfFail++;
+                    if (ff) fullFail40++;
+                    if (fl) floorFail++;
+                    if (hf && worst.Count < 400) worst.Add((ratio / rate, $"e{e.index} '{e.name}' {(z.shift ? "shift" : "taper")} {w:0.00} m over {z.len:0.0} m = {ratio:0.0}:1 (r {rate:0.0}, {mph:0} mph)"));
+                }
+            }
+            worst.Sort((a, b) => a.r.CompareTo(b.r));
+            Line($"  TAPER CENSUS (J1b, the drawn one-sided tapers and shifts of 5 cm or more, {n}): under L/2 {halfFail}; under full L at 40 mph and above {fullFail40}; under the 30.5 m floor {floorFail} (relays {relays}, the line model's RelayShort {LineModel.RelayShort} of {LineModel.RelayJoins})");
+            for (int i = 0; i < Mathf.Min(12, worst.Count); i++) Line("    steepest: " + worst[i].at);
         }
 
         static int Count(IEnumerable<int> e) { int n = 0; foreach (var _ in e) n++; return n; }

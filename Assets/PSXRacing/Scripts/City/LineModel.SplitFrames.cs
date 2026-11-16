@@ -146,9 +146,15 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            SplitProfiled = 0; SplitUEases = 0;
+            SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
+        /// <summary>Phase C (NoseMarks): the undivided edge of a framed node (a same-name meeting has no SPLT record).</summary>
+        public static bool SplitMeetingU(int node, out int u)
+        {
+            foreach (var f in SplitFrames) if (f.node == node) { u = f.u; return true; }
+            u = -1; return false;
+        }
         public static bool SplitNoseMarked(CityMap map, int node) => NoseRuleOn && splitNoseNodes.Contains(node);
         public static bool SplitNoseShaped(int node) => NoseRuleOn && splitNoseNodes.Count > 0 && splitNoseNodes.Contains(node);
         public static IEnumerable<int> SplitNoseNodes => splitNoseNodes;
@@ -245,7 +251,7 @@ namespace PSXRacing.City
         static List<Split> SameNameMeetings(CityMap map, Dictionary<int, Split> splitAt)
         {
             var res = new List<Split>(); SplitMeetings = 0;
-            IEnumerable<int> nodes = SplitAxis == "all" ? null : BfrSplitNodes;
+            IEnumerable<int> nodes = SplitAxis == "all" || SplitAxis == "city" ? null : BfrSplitNodes;
             var all = nodes ?? System.Linq.Enumerable.Range(0, map.nodes.Length);
             foreach (int n in all)
             {
@@ -405,7 +411,10 @@ namespace PSXRacing.City
                     if (Mathf.Abs(Ln - L) < 0.05f) { L = Ln; break; }
                     L = Ln;
                 }
-                if (L > f.room) { f.capped = true; f.note = $"room {f.room:0.0} m for L {L:0.0} m"; L = Mathf.Max(10f, f.room); }
+                // PHASE C (scope city): the move read over the whole blend, the end where the own line runs on
+                // parallel, never a junction crossed off the own line (PhaseCLength)
+                if (CityPhaseC) L = PhaseCLength(map, f, rate, rmin, uMax, L);
+                if (L > f.room) { f.capped = true; f.note = $"room {f.room:0.0} m for L {L:0.0} m" + (f.note.Length > 0 ? "; " + f.note : ""); L = Mathf.Max(10f, f.room); }
                 f.L = L; f.uEnd = f.uStart + L;
                 f.qEnd = f.OwnQAt(f.uEnd);
                 f.slopeEnd = Mathf.Clamp((f.OwnQAt(f.uEnd + 2f) - f.OwnQAt(f.uEnd - 2f)) / 4f, -0.15f, 0.15f);
@@ -589,6 +598,94 @@ namespace PSXRacing.City
                 foreach (var f in frames) refugeNodeEdge.Add(RefugeKey(sp.node, f.edge));
             }
             return done;
+        }
+
+        // ================================================================
+        //  PHASE C (splits2, 2026-11-16 afternoon): the blend's length city-wide
+        // ================================================================
+        // J1 read the move d at most 60 m on (a straight frame reads a curving
+        // road's drift as a move). City-wide, under 'all', 395 of the 664 ends
+        // the profile drew still failed the census's L/2: the own line went on
+        // diverging past 60 m (a median opening to 10-20 m), or bowed out and
+        // back (n7868: 3.6 m), so the blend joined it mid-move and the drawn
+        // lanes then followed OSM's divergence at its own rate. Now (scope city):
+        //   * d is the own line's FURTHEST point from where the lanes start, over
+        //     the whole blend (iterated: a longer blend reads further), so a
+        //     divergence that goes on, or a bow, is taken in whole;
+        //   * the blend ends where the own line runs on nearly parallel to the
+        //     axis (|slope| <= PhaseCEndSlope) - a divergence that settles - and
+        //     never at a point where it is still turning; a curving road (no
+        //     such point within PhaseCMaxL) keeps J1's length;
+        //   * a side street's junction on the carriageway within the blend: the
+        //     blend ends PhaseCJunctionClearM before it where the drawn lanes
+        //     would still be more than PhaseCJunctionOffM off the own line there
+        //     (the side street meets the carriageway where OSM has it).
+        public const float PhaseCMaxL = 240f, PhaseCEndSlope = 0.08f, PhaseCJunctionOffM = 0.5f, PhaseCJunctionClearM = 6f;
+        public static int PhaseCLonger, PhaseCCurving, PhaseCJunctionCap;
+
+        static float PhaseCLength(CityMap map, SplitFrame f, float rate, float rmin, float uMax, float L1)
+        {
+            float uTop = Mathf.Min(uMax - 2f, f.uStart + PhaseCMaxL);
+            float Slope(float uu) => (f.OwnQAt(uu + 2f) - f.OwnQAt(uu - 2f)) / 4f;
+            // the length for the whole move (iterated: a longer blend reads further)
+            float L = Mathf.Max(SplitFloorM, L1);
+            for (int it = 0; it < 10; it++)
+            {
+                float uR = Mathf.Min(f.uStart + L, uTop), dq = 0f;
+                for (float uu = f.uStart; uu <= uR + 1e-3f; uu += 1f) dq = Mathf.Max(dq, Mathf.Abs(f.OwnQAt(uu) - f.lambda0));
+                float Ln = Mathf.Min(PhaseCMaxL, Mathf.Max(SplitFloorM, Mathf.Max(1.2f * rate * dq, Mathf.Sqrt(6f * dq * rmin))));
+                if (Ln <= L + 0.05f) break;
+                L = Ln;
+            }
+            // the end where the own line runs on parallel (a divergence that settles)
+            float uEnd = float.NaN;
+            for (float uu = f.uStart + L; uu <= uTop; uu += 1f)
+                if (Mathf.Abs(Slope(uu)) <= PhaseCEndSlope) { uEnd = uu; break; }
+            if (float.IsNaN(uEnd)) { PhaseCCurving++; f.note = "Phase C: the own line still turning to its end (a curving road): J1's length"; return L1; }
+            L = Mathf.Max(L1, uEnd - f.uStart);
+            if (L > L1 + 0.5f) PhaseCLonger++;
+            // a side street's junction within the blend, where the lanes would still be off the own line
+            float uJ = FirstSideStreetU(map, f);
+            if (!float.IsNaN(uJ) && uJ < f.uStart + L)
+            {
+                float lam = f.lambda0, qE = f.OwnQAt(f.uStart + L), sE = Mathf.Clamp(Slope(f.uStart + L), -0.15f, 0.15f);
+                float t = Mathf.Clamp01((uJ - f.uStart) / L), t2 = t * t, t3 = t2 * t;
+                float q = lam * (2f * t3 - 3f * t2 + 1f) + qE * (-2f * t3 + 3f * t2) + L * sE * (t3 - t2);
+                if (Mathf.Abs(q - f.OwnQAt(uJ)) > PhaseCJunctionOffM)
+                {
+                    float Lj = Mathf.Max(10f, uJ - PhaseCJunctionClearM - f.uStart);
+                    if (Lj < L)
+                    {
+                        PhaseCJunctionCap++;
+                        f.capped = Lj < L1 - 0.5f;
+                        f.note = $"Phase C: a side street's junction at u {uJ:0.0}: the blend ends {PhaseCJunctionClearM:0} m before it (L {L:0.0} -> {Lj:0.0})";
+                        L = Lj;
+                    }
+                }
+            }
+            return L;
+        }
+
+        /// <summary>The axis u of the first node along a framed carriageway's chain where a street of
+        /// another name meets it (NaN: none).</summary>
+        static float FirstSideStreetU(CityMap map, SplitFrame f)
+        {
+            int from = f.node;
+            for (int k = 0; k < f.chain.Length; k++)
+            {
+                var e = map.edges[f.chain[k]];
+                int far = e.a == from ? e.b : e.a;
+                var arms = map.nodeEdges[far];
+                if (arms != null)
+                    foreach (int i in arms)
+                    {
+                        var o = map.edges[i];
+                        if (o.a == o.b) continue;
+                        if (o.name != e.name) return Vector2.Dot(map.nodes[far] - f.p0, f.tU);
+                    }
+                from = far;
+            }
+            return float.NaN;
         }
 
         /// <summary>The undivided road's last up-to-30 m eased onto the axis

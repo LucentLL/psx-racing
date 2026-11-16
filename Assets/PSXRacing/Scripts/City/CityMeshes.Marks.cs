@@ -71,7 +71,7 @@ namespace PSXRacing.City
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped, mouthsDotted, mouthsDottedOut, mouthsDottedYellow,
                        lsLines, lsEdges, bays, groups, groupsSkipped, noseArrows, noseArrowsRefuge, noseSkipped, noseHatches, noseHatchBars, noseSolid, noseNoRoom, noseWhiteOnly, noseUnsteady, noseNoCentre, noseFlushTip, noseSolidFallback, ysDrawn, ysFallback, noseNonRefuge, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
                        crosswalks, crosswalkBars, crosswalksSkipped, pocketLines, pocketArrows, pocketZoneLines,
-                       noseBayOpen, noseSplit, noseSplitHatched;
+                       noseBayOpen, noseSplit, noseSplitHatched, noseMeeting;
             public float auxM, exitDropM, lsM, buildMs, pocketM; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
@@ -634,6 +634,13 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>Phase C: every arm of node nd carries e's name (a plain same-name meeting).</summary>
+        static bool SameNameArms(CityMap map, int nd, CityMap.Edge e)
+        {
+            if (string.IsNullOrEmpty(e.name)) return false;
+            foreach (int i in map.nodeEdges[nd]) if (map.edges[i].name != e.name) return false;
+            return true;
+        }
         static CityMap noseMap; static HashSet<int> noseSplits;
         /// <summary>Is node nd a carriageway split (section SPLT) whose arms
         /// all carry e's name - the nose of an island, no side street?</summary>
@@ -688,12 +695,22 @@ namespace PSXRacing.City
             var noseNodes = new HashSet<int>();
             foreach (var sp in map.splt) noseNodes.Add(sp.node);
             var ls = new List<LineModel.LineAt>(16);
-            foreach (var sp in map.splt)
+            // Phase C (scope city): a same-name meeting's shaped nose (no SPLT record: n7868, n9152 on Beatties
+            // Ford) gets its approach marking too, where every arm carries the road's name (no side street's
+            // mouth for a hatch to cross); J1 walked map.splt only
+            var noseList = new List<(int node, int u)>(map.splt.Length + 64);
+            foreach (var sp0 in map.splt) noseList.Add((sp0.node, sp0.u));
+            if (LineModel.CityPhaseC)
+                foreach (int mn in LineModel.SplitNoseNodes)
+                    if (!noseNodes.Contains(mn) && LineModel.SplitMeetingU(mn, out int mu)) noseList.Add((mn, mu));
+            foreach (var sp in noseList)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
                 var U = map.edges[sp.u];
                 if (U.a == U.b || U.oneway || U.link || Barriered(U) || CityTier.Of(U) > 2) continue;
-                if (!PlainSplitNose(map, sp.node, U)) continue;
+                bool meeting = !noseNodes.Contains(sp.node);
+                if (meeting ? !SameNameArms(map, sp.node, U) : !PlainSplitNose(map, sp.node, U)) continue;
+                if (meeting) MarkStats.noseMeeting++;
                 // round 5 (review r4 #8): the hatch and the flush tip only at the
                 // noses of drawn (accepted) refuge pairs - every other plain nose
                 // keeps live's paint and its kerb (only its turn arrows are gone)
