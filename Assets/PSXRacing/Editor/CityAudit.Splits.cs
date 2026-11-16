@@ -97,6 +97,21 @@ namespace PSXRacing.EditorTools
                 foreach (int ci in cs) { var m = MeasureSplitEnd(map, t, partner, splitNodes, n, u, ci); if (m.kind != null) { m.kind = "meet-" + m.kind; ends.Add(m); } }
             }
 
+            // Phase C: every other same-name meeting city-wide (the n7868 type), measured in every scope alike
+            // ("meet*-": kept apart from the SPLT ends in the CITY-WIDE line)
+            {
+                int nm = 0;
+                foreach (var mt in LineModel.MeetingNodesAll(map))
+                {
+                    if (map.graphHash == LineModel.SplitsGraph && (mt.node == 634 || mt.node == 7868 || mt.node == 9152)) continue;
+                    foreach (int ci in new[] { mt.a, mt.b })
+                    {
+                        var m = MeasureSplitEnd(map, t, partner, splitNodes, mt.node, mt.u, ci);
+                        if (m.kind != null) { m.kind = "meetC-" + m.kind; ends.Add(m); nm++; }
+                    }
+                }
+                Line($"  SAME-NAME MEETINGS city-wide (no SPLT record; the n7868 type): {nm} carriageway ends measured (kind meetC-*)");
+            }
             // ---- refuge carriageways: judged by the medians gate's own measure (the island's frame) ----
             {
                 var refs = new List<LineModel.Refuge>(LineModel.Refuges);
@@ -147,7 +162,7 @@ namespace PSXRacing.EditorTools
             var angs = new List<float>(); var kinds = new Dictionary<string, int[]>();
             foreach (var m in ends)
             {
-                if (m.kind.StartsWith("meet-")) continue;
+                if (m.kind.StartsWith("meet")) continue;   // (the meetings: their own line below)
                 nE++;
                 if (!m.halfOk) f2++;
                 if (!m.fullOk) f1++;

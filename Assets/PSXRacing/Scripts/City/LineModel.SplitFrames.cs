@@ -297,6 +297,42 @@ namespace PSXRacing.City
             return res;
         }
 
+        /// <summary>The audits (Phase C): every same-name meeting city-wide, whatever the scope - a node with no
+        /// SPLT record where exactly one two-way edge of a name meets one-way edges of that name, one leaving and
+        /// one arriving, on opposite sides (SameNameMeetings' pattern without its scope test): (node, u, a, b).</summary>
+        public static List<(int node, int u, int a, int b)> MeetingNodesAll(CityMap map)
+        {
+            var res = new List<(int, int, int, int)>();
+            var spl = new HashSet<int>();
+            if (map.splt != null) foreach (var sp in map.splt) spl.Add(sp.node);
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (spl.Contains(n)) continue;
+                var arms = map.nodeEdges[n];
+                if (arms == null || arms.Count < 3) continue;
+                string nm = null;
+                foreach (int ei in arms) { var e = map.edges[ei]; if (e.oneway && !e.link && !string.IsNullOrEmpty(e.name)) { nm = e.name; break; } }
+                if (nm == null) continue;
+                int u = -1, a = -1, b = -1, nU = 0;
+                foreach (int ei in arms) { var e = map.edges[ei]; if (!e.oneway && !e.link && e.a != e.b && e.name == nm) { u = ei; nU++; } }
+                if (nU != 1) continue;
+                var U = map.edges[u];
+                foreach (int ei in arms)
+                {
+                    var e = map.edges[ei];
+                    if (!e.oneway || e.link || e.name != U.name || e.a == e.b) continue;
+                    if (e.a == n && a < 0) a = ei; else if (e.b == n && b < 0) b = ei;
+                }
+                if (a < 0 || b < 0) continue;
+                var tin = U.a == n ? -U.TangentAt(0f) : U.TangentAt(U.length);
+                var left = new Vector2(-tin.y, tin.x);
+                float Side(int ci) { var c = map.edges[ci]; var p = c.PointAt(c.a == n ? Mathf.Min(20f, c.length) : Mathf.Max(0f, c.length - 20f)); return Vector2.Dot(p - map.nodes[n], left); }
+                if (Mathf.Sign(Side(a)) == Mathf.Sign(Side(b))) continue;
+                res.Add((n, u, a, b));
+            }
+            return res;
+        }
+
         /// <summary>The audits: a carriageway's chain from its split node (see CarriagewayChain).</summary>
         public static void SplitChain(CityMap map, HashSet<int> splitNodes, int ei, int node, float maxLen, List<int> chain, out int far, out float len) =>
             CarriagewayChain(map, splitNodes, ei, node, maxLen, chain, out far, out len);
