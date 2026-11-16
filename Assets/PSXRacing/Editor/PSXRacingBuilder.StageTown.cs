@@ -270,6 +270,8 @@ namespace PSXRacing.EditorTools
                     floorY = stilts ? Mathf.Max(streetY + 0.15f, Mathf.Min(floorY, streetY + 0.6f)) : streetY + 0.15f;
                     baseY = Mathf.Min(baseY, floorY - 0.8f);
                 }
+                // a building the video shows at its street's level stands there, not on posts over its lot (round 3)
+                if (look != null && look.street) { stilts = false; floorY = streetY + 0.2f; baseY = Mathf.Min(baseY, floorY - 0.8f); }
                 float eave = floorY + floors * storey;
                 // the look
                 string wall, roofMat; float pitchDeg;

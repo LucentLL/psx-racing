@@ -270,11 +270,17 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------ round 3: the video
         /// <summary>A building matched to the owner's 2022 video at a locked pose
         /// (r3/poses_r3.json), and what the video shows of it.</summary>
-        internal class LureLook { public string wall, roof; public float pitch = -1f; public int floors; public bool noPorch; }
+        internal class LureLook { public string wall, roof; public float pitch = -1f; public int floors; public bool noPorch, street; }
         static readonly Dictionary<int, LureLook> VideoLooks = new Dictionary<int, LureLook>
         {
-            // 9:45: the single-storey white shop with the flat roof and the gravel lot, under the granite dome
-            [43] = new LureLook { wall = "paint", pitch = 0f, floors = 1, noPorch = true },
+            // 9:45: the single-storey white shop with the flat roof and the gravel lot, under the granite dome - at the
+            // lot's level (the lidar under its back rises 5.6 m into the dome's foot; round 2 stood it on posts above it)
+            [43] = new LureLook { wall = "paint", pitch = 0f, floors = 1, noPorch = true, street = true },
+            // 11:25, Chimney Rock's Main Street, the uphill (right-hand) fronts nearest the camera: the log-sided shop
+            // with the red roof, then the green-gabled shops with their porches and balconies
+            [18] = new LureLook { wall = "darkwood", roof = "metalred", pitch = 32f, floors = 2 },
+            [6] = new LureLook { wall = "siding", roof = "metalgreen", pitch = 34f, floors = 2 },
+            [5] = new LureLook { wall = "siding", roof = "metalgreen", pitch = 34f, floors = 2 },
         };
         /// <summary>The pole line's side where the owner's video shows it (+1 right, -1 left, 0: round 1's rule, the
         /// higher ground): right above the lake at 6:00 and into downtown at 7:43, left from the marina through
@@ -286,6 +292,50 @@ namespace PSXRacing.EditorTools
             if (m >= 4780f && m <= 5020f) return 1f;
             if (m >= 5560f && m <= 7700f) return -1f;
             return 0f;
+        }
+
+        /// <summary>The pad a street-level building of the video stands on (round 3): the near grid under its footprint,
+        /// grown 6 m, lowered (never raised) to its street's level, so the white shop at 9:45 sits on its lot with
+        /// the slope cut behind it instead of floating over it.</summary>
+        static void WorldVideoPads()
+        {
+            if (!WorldSwitch("PSX_LURE_VIDEOLOOK") || world.buildings == null || demNear == null) return;
+            var m = demNearMeta; var pts = track.stagePts; int lowered = 0;
+            foreach (var kv in VideoLooks)
+            {
+                if (!kv.Value.street || kv.Key >= world.buildings.Length) continue;
+                var b = world.buildings[kv.Key];
+                var ring = WorldPts(b.xz);
+                float y = pts[Mathf.Clamp(Mathf.RoundToInt(b.st / Spacing), 0, pts.Length - 1)].y + 0.05f;
+                float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
+                foreach (var p in ring) { x0 = Mathf.Min(x0, p.x); x1 = Mathf.Max(x1, p.x); z0 = Mathf.Min(z0, p.z); z1 = Mathf.Max(z1, p.z); }
+                const float grow = 6f;
+                for (int r = Mathf.Max(0, (int)((z0 - grow - m.originZ) / m.cell)); r <= Mathf.Min(m.rows - 1, (int)((z1 + grow - m.originZ) / m.cell) + 1); r++)
+                    for (int c = Mathf.Max(0, (int)((x0 - grow - m.originX) / m.cell)); c <= Mathf.Min(m.cols - 1, (int)((x1 + grow - m.originX) / m.cell) + 1); c++)
+                    {
+                        float x = m.originX + c * m.cell, z = m.originZ + r * m.cell;
+                        // inside the footprint or within the growth of it
+                        bool inside = false;
+                        for (int i = 0, j = ring.Length - 1; i < ring.Length; j = i++)
+                            if ((ring[i].z > z) != (ring[j].z > z) && x < ring[j].x + (z - ring[j].z) / (ring[i].z - ring[j].z) * (ring[i].x - ring[j].x)) inside = !inside;
+                        if (!inside)
+                        {
+                            float best = float.MaxValue;
+                            for (int i = 0, j = ring.Length - 1; i < ring.Length; j = i++)
+                            {
+                                float dx = ring[i].x - ring[j].x, dz = ring[i].z - ring[j].z, L2 = dx * dx + dz * dz;
+                                float t = L2 > 1e-6f ? Mathf.Clamp01(((x - ring[j].x) * dx + (z - ring[j].z) * dz) / L2) : 0f;
+                                float ex = ring[j].x + dx * t - x, ez = ring[j].z + dz * t - z;
+                                best = Mathf.Min(best, ex * ex + ez * ez);
+                            }
+                            if (best > grow * grow) continue;
+                        }
+                        int k = r * m.cols + c;
+                        short want = (short)Mathf.RoundToInt(y * 10f);
+                        if (want < demNear[k]) { demNear[k] = want; lowered++; }
+                    }
+            }
+            Log($"Stage world video pads: {lowered} near cells lowered to the street under the video's street-level buildings (the white shop at 9:45).");
         }
 
         /// <summary>PSX_LURE_VIDEOLOOK=0: the building as round 2 built it.</summary>
