@@ -64,6 +64,10 @@ namespace PSXRacing.EditorTools
         /// in than this (33-60 m).</summary>
         internal const int BankEndFadeStations = 8;
 
+        /// <summary>How far a banked deck's end cap stands past its station
+        /// line (PSXRacingBuilder.BuildOneDeck).</summary>
+        internal const float DeckEndPushM = 0.02f;
+
         internal static bool StageBankSwitchOn =>
             Environment.GetEnvironmentVariable("PSX_STAGE_BANK") != "0";
 

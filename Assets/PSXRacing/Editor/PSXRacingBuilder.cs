@@ -5203,6 +5203,20 @@ namespace PSXRacing.EditorTools
                 // same pixels and a car leaving the strip drops an inch.
                 Vector3 c = pts[i] + Vector3.up * DeckTopLift;
                 Vector3 under = pts[i] + Vector3.up * (DeckTopLift - DeckThick);
+                // THE END CAPS OFF THE STATION PLANE (banked decks): the first
+                // and last rings sit on a station's cross-section line, which is
+                // the line the kerb strip's ring edge lies on and the edge audit
+                // casts down. A vertical cap IN that plane answers a ray along it
+                // anywhere down its face (Blue Ridge wp 704 L: "a 0.07 m drop onto
+                // BridgeDeck3" under the kerb), so on a banked road each end is
+                // carried 2 cm on along the road, past the line. Flat decks are
+                // the boxes they were.
+                if (C > 2 && stations > 1 && (k == 0 || k == stations - 1))
+                {
+                    Vector3 push = Vector3.Cross(right, Vector3.up).normalized * (k == 0 ? -DeckEndPushM : DeckEndPushM);
+                    c += push;
+                    under += push;
+                }
 
                 // Concrete tiles by the METRE in both directions. The old UVs
                 // ran 0..1 across the deck whatever its width, which on a 23 m
