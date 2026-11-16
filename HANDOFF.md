@@ -1,4 +1,146 @@
-﻿# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
+﻿# HANDOFF - HOUSES: BRICK AND STONE, THE HOUSE MIX (agent "houses", branch `charlotte-houses`, 2026-11-16; NOT pushed, NOT merged)
+
+Branch `charlotte-houses` (worktree `C:\Users\mcgee\PSX Racing-houses`) = the stopped 11-15 session's work (commit 1213415c,
+"WIP from the stopped 11-15 session") + mountain-nm e26dc1f4 merged (db500c09) + today's fixes. Sandbox PSXCity (lock "houses",
+shared with "traffic", removed after every job). The owner: "Why aren't my PBR bricks ... added?" (11-15), "You can also use
+brick and stone textures for houses (front face or full) as necessary for variety" (11-15), 11-11 "replacing these very
+unrealistic generic textures with windows going through roofs" (top priority).
+
+## Found
+- BEFORE is not all siding: round 1's PSX_CITY_HOUSEBRICK put the facade ATLAS's brick columns (tall office sash windows) on
+  15-85 % of houses by 350 m cell (CityMeshes.HouseWalls.cs HouseBrickChoose), so whole pre-war streets read as brick blocks
+  (round 3's own note: "Plaza Midwood row reads as brick ranches; real: siding bungalows"). The mix replaces that rule.
+- OSM gives nothing to class houses by: of 76,372 house-ish buildings in tools/city/cache/buildings_city.json, 2 carry
+  building:material and ~20 start_date. The class therefore comes from the spot (distance and bearing from the Square, a
+  600 m era cell, a 350 m brick cell) and a hash of the house's centre (steady from visit to visit, tile = far proxy).
+- The owner's pack (Asset Store cache: Objective Environment / PBR Bricks Materials, 123 MB): Brick01 TileDown + TileMed,
+  Brick02, Brick03, Brick04, each with N / AO / DISP. Used: Brick02 = the red brick (3 x 8 bricks cut out of its 3.46-brick
+  tile so it repeats), Brick01_TileMed = the old brick and, painted over, the painted brick. Not used: Brick01_TileDown
+  (a wall foot going grey: does not repeat upward), Brick03 / Brick04 (derelict: plaster patches, spalled faces). The pack
+  has no stone: the stone is the stage walls' coursed stone (Art/Roads/T (3).jpg, Classic 256 + Enhanced 512, no HD set).
+
+## The wall classes and their shares (CityMeshes.HouseWalls.cs HmShare / HmDistrict; % of houses; stone = an overlay)
+| district / era row (where, by rule) | siding | full brick | brick front | painted brick | stone | source |
+|---|---|---|---|---|---|---|
+| 0 pre-1940 streetcar suburbs (< 4.6 km: Dilworth, Elizabeth, Plaza Midwood, Wilmore) | 62 | 26 | 0 | 12 | 3 | frame bungalows the majority, brick bungalows / Tudors the rest (Dilworth, Elizabeth NR districts; the owner's "wood-sided bungalows") |
+| 1 Wesley Heights (268-302 deg, 1.4-2.7 km) | 35 | 55 | 0 | 10 | 2 | county landmark page: "rows of brick Colonials and frame bungalows" (hl.mecknc.gov); NR MK1793 lists brick veneer |
+| 2 Myers Park / Eastover (140-188 deg, 3-5.9 km) | 25 | 50 | 0 | 25 | 5 | Myers Park NR inventory (charlottenc.gov): brick Colonial / Tudor Revival, painted brick common |
+| 3 North Charlotte mill village (36-72 deg, >= 3.3 km) | 95 | 3 | 0 | 2 | 0 | frame mill houses (North Charlotte NR district) |
+| 4 ranch belt 1945-69 (4.6-7.5 km: 85 % of 600 m cells) | 25 | 65 | 2 | 8 | 3 | post-war brick-veneer ranches |
+| 5 Beatties Ford belt (318-4 deg, >= 2.5 km: McCrorey Heights, Oaklawn Park) | 7 | 88 | 0 | 5 | 3 | NR forms MK3221 / MK3220 (hpo.nc.gov): "one-story brick veneer Ranches" built 1950-77 |
+| 6 1970-89 | 45 | 45 | 7 | 3 | 3 | |
+| 7 1990-2009 | 37 | 33 | 27 | 3 | 8 | Census new houses, South, 2010: brick the principal wall 40 %, vinyl 30 % (ProBuilder on the Census survey); the brick-front / vinyl-sides builder house |
+| 8 2010- (and 1 in 12 old-district houses: infill) | 55 | 15 | 20 | 10 | 20 | fiber cement and stone accents on new Charlotte houses; white painted brick |
+Eras beyond 7.5 km by 600 m cell: 7.5-10 km 45 % 1945-69 / 40 % 1970-89 / 10 % 1990-2009 / 5 % 2010-; 10-13 km 10 / 45 / 35 / 10; 13-17 km 20 % 1970-89 / 50 % 1990-2009 / 30 % 2010-; beyond 17 km 10 / 45 / 45.
+Brick by era: old brick before 1940 (and in 40 % of the 1945-69 cells, 25 % of the 1970-89 cells), else the red brick; two tints of it a 350 m cell. Stone: on a siding house a stone foundation, or (1990 on) a stone water table on its front; on a brick-front house of 1990 on, a stone front instead; a stone chimney.
+
+## Changed (switches: PSX_CITY_HOUSEMIX=0 = the picture before; =2 forces the mix without the pack, a test)
+- `Scripts/City/CityMeshes.HouseWalls.cs` (mine): the HOUSE MIX block. HouseMixOf(centre) = era, class, masonry, tints, foundation,
+  water table, chimney (by position alone: tile, neighbour tile and far proxy agree). HmWall lays a masonry wall by the siding
+  wall's own layout (same bays, storeys, window band, head clearance, ground rule), the window = the siding texture's whole
+  window cell (white frame; night mask and windows audit as before) between brick piers, a rowlock sill under it and a rowlock
+  lintel over it on a house a street comes within 45 m of. Brick is mapped in world metres from the wall's start and the
+  house's floor (courses run on round the corner); a brick front's brick returns 0.3 m round its outside front corners, the
+  siding side walls on a brick foundation band; a 1990+ siding house with stone gets a stone water table to its sills with a
+  concrete ledge. HouseBrickChoose: round 1's atlas brick replaced by the class (no double count), HouseTintOf: the class's
+  siding / trim / paint colour (far proxies: the colour the walls read as). HmReady: only with the owner's pack in the kit.
+- `Scripts/City/CityMeshes.HouseParts.cs` (mine): the chimney in the house's brick or stone; a block is not a house (siding as before).
+- `Scripts/City/CityMeshes.cs` (shared, 3 lines): Slot.HousePaint appended before COUNT (painted brick); vertex colours on the
+  four masonry buckets; HousePaint in the building slot list. FacadeBrick / FacadeMid / FacadeTower (empty since the facade
+  atlas) now hold the red brick / old brick / stone.
+- `Scripts/City/CityKit.cs` (shared, 1 field): houseMixPack (the kit's brick came from the pack).
+- `Editor/PSXRacingBuilder.HouseMix.cs` (new): the pack's three tiers at kit-build time (14 s, kept while fresh): HD 1024
+  colour + normal + rough + AO to `<project>\StoreGen\HouseMixHD` (TextureHDTool.Import reads it), Enhanced 512 to
+  `Assets/PSXRacing/EnhancedSrc/TexEnhanced/StoreGen/HouseMix` (rows in `Assets/StoreAssets/Gen/TextureTierManifest_store.txt`),
+  Classic 256 to `Assets/StoreAssets/Gen/HouseMix`; the four materials (CityFacadeBrick, CityHouseBrickOld, CityHousePaint,
+  CityHouseStone; .mat committed). All generated files are gitignored (the repo is public; the pack is a store file).
+- `Editor/PSXRacingBuilder.City.cs` (shared, 2 lines): HouseMixMaterials(m) instead of the three unused facade materials; kit.houseMixPack.
+- `Editor/TextureHDTool.cs`, `Editor/TextureTierTool.cs` (shared, 2 + 1 lines): read the HD stage and the store manifest.
+- `tools/store-assets.ps1`: the PBR Bricks entry (8 files) and `-Only <text>`. `.gitignore`: the generated folders.
+- Tools: `Editor/CityRefSpots.HouseMix.cs` (RunHouseMix: streets by era, close-ups by class, tiers, depth-tie frames),
+  `Editor/CityAudit.Windows.cs` (house-mix counters and the city-wide class census).
+
+## Tiers (what each class draws with)
+| masonry | Classic | Enhanced | HD (PC: colour + normal + roughness + AO) |
+|---|---|---|---|
+| red brick (Brick02) | house_brick_red 256 (generated) | 512 (generated) | 1024 set (generated) |
+| old brick (Brick01_TileMed) | house_brick_old 256 | 512 | 1024 set |
+| painted brick (Brick01_TileMed painted) | house_brick_paint 256 | 512 | 1024 set |
+| stone (Art/Roads/T (3).jpg) | 256 (in repo) | stonewall.png 512 (in repo) | NONE: Enhanced stands in (request below) |
+| the window cell, gables, trim | city_facade_house 64 | 128 | none (as before) |
+Tile checks (art AGENTS.md) on the generated exports after resizing: unmarked 3x3, half-tile offset (both seams through the
+middle) and 8x8 at reduced size, every tier and map, the normal map decoded as lit: sheet `houses\tiles_v1.png`.
+Red brick: 3 bricks x 8 courses, the cut's seam inside brick faces, head joints of alternate courses offset as the photo's;
+old / painted: the pack's own 15-course tile, its broad grey band evened out (HmFlatten). Repeat units: U = 0.70 m / 1.05 m,
+V = 0.68 m / 1.05 m (real brick sizes: 0.233 x 0.085 m red, 0.22 x 0.07 m old). No intentionally non-repeating axis.
+
+## Request for the texture workflow (art workspace AGENTS.md names; 4x the authoring size)
+- `T (3)_overhaul1_hd.png` + `_overhaul1_hd_normal` + `_rough` + `_ao` (1024 x 1024, from the 256 px `Assets/PSXRacing/Art/Roads/T (3).jpg`):
+  the coursed rough-faced grey-tan stone, seamless in U and V, 2 m a repeat on a wall. It upgrades the house stone (water
+  tables, stone fronts, chimneys) AND the mountain stages' retaining walls (the same texture).
+- Worth it next: `city_facade_house_overhaul1_hd` set (256 px, the siding with its window cell at u 0.3125-0.6875, v 0.25-0.75
+  kept): beside the 1024 px brick the 64 / 128 px siding and its window are now the weakest texture on a street.
+
+## At merge (PC47)
+1. Merge `charlotte-houses` (it already holds mountain-nm e26dc1f4). Shared-file edits: `Scripts/City/CityMeshes.cs` (Slot enum:
+   HousePaint before COUNT; NewBuckets: one `if (HouseMixOn)` line giving the four masonry buckets vertex colours; the building
+   slot list: `Slot.HousePaint` added after `Slot.Crown`), `Scripts/City/CityKit.cs` (field houseMixPack),
+   `Editor/PSXRacingBuilder.City.cs` (CityMaterials: `HouseMixMaterials(m)` replaces the three FacadeTower / Mid / Brick
+   material lines; EnsureCityKit: `kit.houseMixPack = hmPackUsed;`), `Editor/TextureHDTool.cs` (Import: the HD stage folder;
+   FindOriginal: Assets/StoreAssets/Gen too), `Editor/TextureTierTool.cs` (ReadManifest: the store rows), `tools/store-assets.ps1`.
+2. In PSXLab, BEFORE the scene pass: `powershell -ExecutionPolicy Bypass -File tools\store-assets.ps1 -Dest C:\Users\mcgee\PSXLab -Only "PBR Bricks"`
+   (8 files, 34 MB, into Assets\StoreAssets\PBRBricks; nothing is downloaded: the package is in the owner's Asset Store cache).
+3. The scene pass builds the kit, which makes the three tiers (14 s, kept while fresh). Check the build log for
+   `house mix: the owner's PBR Bricks pack ... three tiers made` (or `tiers up to date`) and `city kit: 102 slots ... from the pack True`.
+   `house mix: NO PACK` means step 2 was missed: every house then stays sided (nothing breaks, the mix is simply off).
+4. Re-bake the city tiles (Scripts/City changed; PSX_CITY_HOUSEMIX is in the bake signature). CityTileCache.Format NOT changed.
+   New Slot (HousePaint, appended last) = the kit must be rebuilt (the scene pass does it).
+5. The player: PSXBuildWin64 already runs TextureTierTool.BuildBundle (reads the store rows) and TextureHDTool.Import (reads
+   `<PSXLab>\StoreGen\HouseMixHD`); its [TextureHD] log lists `house_brick_red / _old / _paint`. No other HD source is needed.
+6. Never commit what the kit makes: `Assets/StoreAssets/` (incl. Gen), `Assets/PSXRacing/EnhancedSrc/TexEnhanced/StoreGen/`
+   and `/StoreGen/` are gitignored. Any sandbox or player build without the pack shows today's siding (the kit flag).
+7. Do not mirror `Assets\PSXRacing\EnhancedSrc` (or `StoreGen\`) into PSXLab between the scene pass and the player build: the
+   generated Enhanced brick lives there and the repo has no copy. If it was mirrored, run
+   `-executeMethod PSXRacing.EditorTools.PSXRacingBuilder.HouseMixKit` once before the player build (remakes them, 2 min job).
+
+## Still generic / not done
+- One window for every house (the siding's 4-pane cell, white frame), brick or siding; the rowlock sill and lintel are flush
+  (a shade darker, no relief). No brick porch piers, steps or garden walls; chimney caps stay concrete.
+- The red brick (Brick02) is an even orange-red with blue-grey joints: it reads as new machine brick; the 1950s ranch red is
+  only its darker tints. The stone front reads heavy (rough coursed stone, no HD set).
+- 1990s subdivisions are fill houses standing 60-75 m back behind yard trees: from the road their brick fronts barely show
+  (house placement is the hoods agent's; the close-ups prove the walls).
+- Beside the 1024 px brick (HD) the 64 / 128 px siding and its window are now the softest texture on a street.
+- Not run: PerfTour / frame time, the house census (CityAudit.Houses, PSX_WIN_HOUSES=1: wall extents unchanged), the PC
+  bake (CityTileBake), a player build, the Win64 bundle path, far-proxy colours in a frame, Classic street views.
+
+## Proof (PSXCity, fresh processes; base = PSX_CITY_HOUSEMIX=0 on the same code)
+- Sheets (every cell labelled, the same pose before | after; streets in the PC tier = Enhanced + HD sets):
+  `houses_final_streets_noon.png`, `houses_final_streets_night.png`, `houses_final_close.png` (wall close-ups in HD, Enhanced and
+  Classic; TREES HIDDEN in the close-ups only, labelled STAGED), `houses_final_nandina.png` (Nandina Street, the clearest street change:
+  round 1 had drawn the whole row as atlas-brick blocks; an earlier pair in the Classic tier + HD sets, labelled so),
+  `tiles_v1.png` (the tile proof) - all in `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\houses\`.
+- Windows audit (CityAudit.WindowsAudit, the 64-tile sample + 3 cost tiles): CUT 0 / BURIED 0 before and after; whole windows
+  14,331 -> 30,624 (the old atlas-brick houses' windows were atlas cells, not counted; now every house's are); roof closure
+  897 of 109,367 points -> 897 of 109,367 points (unchanged code). House mix in the sample: 2,252 houses - siding 1,199, full brick 720,
+  brick front 76, painted 243, stone front 14; stone water tables 28, infill 106, brick returns 131, brick fronts with no street
+  within 80 m (left sided) 27. City-wide, the 25,717 mapped house footprints: siding 52.1 %, full brick 35.1 %, brick front 1.6 %,
+  painted 10.9 %, stone front 0.3 %, any stone 960; by era pre-1940 17,411 / mill 1,463 / 1945-69 4,714 / 1970-89 65 / 2010- 2,064
+  (the 1970-2009 suburbs are fill houses, classed the same way: the sample's fill tiles hold 177 / 111 of those eras).
+- Cost: building triangles a sampled tile 4,281 -> 5,732; build ms a tile, OSM-house tiles 349 -> 390, fill suburbs
+  126 -> 172. The three tiles: subdivision (Lansdowne Rd) 1,832 -> 2,832 tris; in-town (McClintock Rd) 3,772 -> 4,788;
+  the Square 11,276 -> 11,276 (no house). The baked tiles grow with the building triangles (roads and ground unchanged).
+- Flicker (depth ties: each frame against itself with the near plane x1.01, CityFlickerFinder's test; pixels changing > 30):
+  54 frames each (every street and close-up pose in the first tier): base 1,644 pixels, after 1,644, frame by frame the same within 1 px. The ties are on the ground and lot pads, identical before and after: the masonry adds none (no coplanar faces of
+  two textures: only plain pieces overlap 3 mm, on matching texels).
+- Night: windows on brick light by the siding's night mask as every siding house does (city_facade_house_night); 1999 lamps.
+
+## What the owner will notice
+Charlotte's houses are no longer one siding: red-brick ranches along Beatties Ford, old brick and painted brick among the
+sided bungalows of Dilworth and Plaza Midwood (the brick blocks with office windows are gone), brick-front houses with
+siding sides and stone water tables in the newer streets - with his own PBR Bricks on them.
+
+# HANDOFF - SPLITS ROUND, FIX ROUND (J1, agent "splits", branch `charlotte-splits`, 2026-11-16 morning; NOT pushed, NOT merged)
 
 An independent check of the first pass (f3f16ba0) found three blockers. All three are fixed on the same branch; this
 section supersedes the first-pass section below wherever they differ. Every number is from a fresh process in PSXCity
