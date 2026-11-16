@@ -333,7 +333,7 @@ namespace PSXRacing.EditorTools
             new[] { new Color(0.040f, 0.070f, 0.018f), new Color(0.055f, 0.090f, 0.020f), new Color(0.035f, 0.060f, 0.020f),
                     new Color(0.066f, 0.096f, 0.026f), new Color(0.045f, 0.074f, 0.030f) },
             new[] { new Color(0.156f, 0.082f, 0.015f), new Color(0.150f, 0.044f, 0.012f), new Color(0.156f, 0.100f, 0.012f),
-                    new Color(0.100f, 0.055f, 0.020f), new Color(0.078f, 0.092f, 0.018f) },
+                    new Color(0.086f, 0.040f, 0.016f), new Color(0.078f, 0.092f, 0.018f) },
             new[] { new Color(0.30f, 0.29f, 0.29f), new Color(0.36f, 0.36f, 0.37f), new Color(0.25f, 0.23f, 0.22f),
                     new Color(0.40f, 0.40f, 0.41f), new Color(0.22f, 0.20f, 0.19f) },
         };

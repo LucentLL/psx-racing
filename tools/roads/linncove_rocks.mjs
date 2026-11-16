@@ -140,28 +140,38 @@ for (let k = 0; k < W * H; k++) {
   if (corridor[k] || res[k] !== res[k]) continue;
   if (res[k] > 1.0 || (slope[k] > 1.4 && res[k] > 0.4)) isRock[k] = 1;
 }
-const label = new Int32Array(W * H).fill(-1);
+// Connected regions; a region bigger than BIG m2 is a pile of blocks the
+// smoothing merged - split again at a residual a metre higher, and again, so
+// each block is its own (the ground between blocks is the gap the smoothing
+// filled). A block keeps the cells over its own threshold.
+const BIG = 260;
 const rocks = [];
-for (let k0 = 0; k0 < W * H; k0++) {
-  if (!isRock[k0] || label[k0] >= 0) continue;
-  const stack = [k0]; label[k0] = rocks.length;
-  const cells = [];
-  while (stack.length) {
-    const k = stack.pop(); cells.push(k);
-    const r = (k / W) | 0, c = k % W;
-    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const rr = r + dr, cc = c + dc; if (rr < 0 || rr >= H || cc < 0 || cc >= W) continue;
-      const kk = rr * W + cc; if (!isRock[kk] || label[kk] >= 0) continue;
-      label[kk] = rocks.length; stack.push(kk);
+function regions(cellsIn, thr) {
+  const inSet = new Set(cellsIn.filter(k => thr <= 1.0 ? true : res[k] > thr));
+  const seen = new Set(), out = [];
+  for (const k0 of inSet) {
+    if (seen.has(k0)) continue;
+    const stack = [k0]; seen.add(k0);
+    const cells = [];
+    while (stack.length) {
+      const k = stack.pop(); cells.push(k);
+      const r = (k / W) | 0, c = k % W;
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const rr = r + dr, cc = c + dc; if (rr < 0 || rr >= H || cc < 0 || cc >= W) continue;
+        const kk = rr * W + cc; if (!inSet.has(kk) || seen.has(kk)) continue;
+        seen.add(kk); stack.push(kk);
+      }
     }
+    out.push(cells);
   }
-  if (cells.length < 6) { rocks.push(null); continue; }
-  let sx = 0, sz = 0, peak = 0, pk = cells[0], minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9, steep = 0;
+  return out;
+}
+function describe(cells) {
+  let sx = 0, sz = 0, peak = 0, steep = 0;
   for (const k of cells) {
     const r = (k / W) | 0, c = k % W;
     sx += c; sz += r;
-    if (res[k] > peak) { peak = res[k]; pk = k; }
-    minX = Math.min(minX, c); maxX = Math.max(maxX, c); minZ = Math.min(minZ, r); maxZ = Math.max(maxZ, r);
+    if (res[k] > peak) peak = res[k];
     if (slope[k] > 1.4) steep++;
   }
   // its extent's principal axis (second moments)
@@ -177,14 +187,33 @@ for (let k0 = 0; k0 < W * H; k0++) {
   const fall = Math.atan2(-gx, -gz) * 180 / Math.PI;   // degrees from +z (north), clockwise to +x (east)
   const x = x0 + mx, z = z0 + mz;
   const f = roadFoot(x, z);
-  rocks.push({
+  return {
     x: +x.toFixed(1), z: +z.toFixed(1), y: +h[kc].toFixed(2),
     area: cells.length, long: +(4 * Math.sqrt(l1)).toFixed(1), wide: +(4 * Math.sqrt(Math.max(l2, 0))).toFixed(1), axis: +axis.toFixed(0),
     peak: +peak.toFixed(2), steepShare: +(steep / cells.length).toFixed(2), slope: +Math.hypot(gx, gz).toFixed(2), fall: +fall.toFixed(0),
     station: f.s, offset: +f.off.toFixed(1), road: +f.d.toFixed(1), roadY: +(f.roadY - baseM).toFixed(2),
     underDeck: f.s >= via[0] && f.s <= via[1] && f.d < 30,
-  });
+  };
 }
+const label = new Int32Array(W * H).fill(-1);
+let splits = 0;
+function take(cells, thr) {
+  if (cells.length < 6) return;
+  if (cells.length > BIG && thr < 6) {
+    const parts = regions(cells, thr + 1.0).filter(p => p.length >= 6);
+    if (parts.length >= 2 || (parts.length === 1 && parts[0].length < cells.length * 0.6)) {
+      splits++;
+      for (const p of parts) take(p, thr + 1.0);
+      return;
+    }
+  }
+  for (const k of cells) label[k] = rocks.length;
+  rocks.push(describe(cells));
+}
+const all = [];
+for (let k = 0; k < W * H; k++) if (isRock[k]) all.push(k);
+for (const cells of regions(all, 1.0)) take(cells, 1.0);
+console.log(`${splits} merged regions split into their blocks`);
 const found = rocks.filter(r => r);
 found.sort((a, b) => b.peak * Math.sqrt(b.area) - a.peak * Math.sqrt(a.area));
 console.log(`${found.length} rock features (>= 6 m2): ${found.filter(r => r.underDeck).length} under the deck, ` +
