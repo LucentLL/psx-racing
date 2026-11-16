@@ -305,7 +305,8 @@ namespace PSXRacing.EditorTools
         {
             // the owner's PSX Textures water sheets, as the coast uses them
             const string shallow = Root + "/Art/Water/water_2.png", deep = Root + "/Art/Water/water_1.png";
-            return MakeWaterMat(MeshPrefix + name, shallow, deep);
+            // the HD water's preset (water-hd): the Rocky Broad runs as a river, Lake Lure as a lake
+            return MakeWaterMat(MeshPrefix + name, shallow, deep, name == "RiverWater" ? WaterPreset.River : WaterPreset.Lake);
         }
 
         static void WorldWaterGO(Transform parent, string name, Mesh mesh, Material mat)
