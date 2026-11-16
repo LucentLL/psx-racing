@@ -13,7 +13,7 @@
 # copied to -Out.
 # Exit code 0 = the report has no FAIL.
 param([switch]$NoWatch, [int]$MaxMinutes = 35, [switch]$Base, [string]$Plan = "", [switch]$Seq,
-      [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "")
+      [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "", [string]$Extra = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
 $src  = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
@@ -33,12 +33,24 @@ function Wait-Lock {
     }
 }
 
-Wait-Lock
-"$Me $(Get-Date -Format s)" | Out-File -FilePath $lock -Encoding ascii
+# Take the lock, then look again: two jobs that both saw it free a second apart
+# both wrote it (15:24 on 11-16). The later writer wins; the other waits on.
+while ($true) {
+    Wait-Lock
+    "$Me $(Get-Date -Format s)" | Out-File -FilePath $lock -Encoding ascii
+    Start-Sleep -Seconds 3
+    if ((Test-Path $lock) -and (Get-Content $lock -Raw).Trim().StartsWith($Me)) { break }
+    "lost the lock to '$((Get-Content $lock -Raw).Trim())' - waiting again"
+}
 $code = 1
 try {
     foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+    }
+    # Data files by explicit path (e.g. ProjectSettings\GraphicsSettings.asset).
+    foreach ($f in @($Extra -split ',' | Where-Object { $_ })) {
+        Copy-Item (Join-Path (Split-Path -Parent $PSScriptRoot) $f) (Join-Path $proj $f) -Force
+        "copied $f"
     }
     $tag = if ($Base) { "base" } else { "cam" }
     $report = "$proj\PSXRacing_camcorder_shots_$tag.txt"
