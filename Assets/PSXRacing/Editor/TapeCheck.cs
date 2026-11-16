@@ -101,10 +101,12 @@ namespace PSXRacing.EditorTools
         internal static void Check(bool ok, string what, object got = null)
         {
             if (!ok) failures++;
-            log.AppendLine("  " + (ok ? "ok   " : "FAIL ") + what + (got != null ? "  [" + got + "]" : ""));
+            string line = "  " + (ok ? "ok   " : "FAIL ") + what + (got != null ? "  [" + got + "]" : "");
+            log.AppendLine(line);
+            Debug.Log("[TapeCheck]" + line);
         }
 
-        internal static void Line(string s) => log.AppendLine(s);
+        internal static void Line(string s) { log.AppendLine(s); Debug.Log("[TapeCheck] " + s); }
 
         internal static void Finish()
         {
@@ -148,12 +150,27 @@ namespace PSXRacing.EditorTools
                 };
                 string pick = shelf.Count > 0 ? shelf[0].id : "";
                 var fields = new (string name, object value)[] { ("tapeSel", pick) };
+                // The montage door open for the pictures (PSX_MONTAGE=1 in a game).
+                Tapes.ForceMontage(true);
                 LifeHomePreview.Shoot(ShotDir, "garage_tapedoor", "garage", scrollTo: 0f, sizes: sizes);
                 LifeHomePreview.Shoot(ShotDir, "tape_shelf", "tapes", sizes: sizes, fields: fields);
                 LifeHomePreview.Shoot(ShotDir, "video_store", "videostore", sizes: sizes, fields: fields);
                 // Armed: the second press is the sale.
                 var armed = new (string name, object value)[] { ("tapeSel", pick), ("armKey", "selltape:" + pick) };
                 LifeHomePreview.Shoot(ShotDir, "video_store_armed", "videostore", sizes: sizes, fields: armed);
+
+                // THE MONTAGE page: IN / OUT marked on the picked tape, one clip
+                // already added.
+                if (shelf.Count > 0)
+                {
+                    var one = new List<(string id, float tIn, float tOut)> { (pick, 1f, Mathf.Min(shelf[0].duration, 6f)) };
+                    var mfields = new (string name, object value)[]
+                    {
+                        ("tapeSel", pick), ("montTape", pick), ("montIn", Mathf.Min(shelf[0].duration - 2f, 7f)),
+                        ("montOut", Mathf.Min(shelf[0].duration, 11f)), ("montClips", one),
+                    };
+                    LifeHomePreview.Shoot(ShotDir, "montage", "montage", sizes: sizes, fields: mfields);
+                }
 
                 // THE SALE, as the second press makes it, then the store again.
                 if (shelf.Count > 0)
@@ -185,6 +202,7 @@ namespace PSXRacing.EditorTools
             finally
             {
                 Tapes.DirOverride = null;
+                Tapes.ForceMontage(false);
                 LifeSimManager.UseCareerSave();
                 log.AppendLine(failures == 0 ? "PAGES OK." : failures + " FAILURE(S).");
                 File.WriteAllText(report, log.ToString());
@@ -215,6 +233,7 @@ namespace PSXRacing.EditorTools
                 yield return Race("night", h => second = h);
             }
             if (first != null) yield return Vcr(first);
+            if (second != null) yield return MontagePlay(second);
             Done();
         }
 
@@ -458,6 +477,59 @@ namespace PSXRacing.EditorTools
             Check(!RaceHandoff.ResultReady && !Camcorder.Vcr && !TapePlayback.Active, "no result, no deck left running");
             Check(S.money == money0 && S.day == day0 && S.slotIndex == slot0, "no money, no block of the day spent",
                   "money " + money0 + "->" + S.money + ", day " + day0 + "->" + S.day + ", block " + slot0 + "->" + S.slotIndex);
+        }
+
+        /// <summary>THE MONTAGE: two clips of the night tape joined, played on
+        /// the deck across the cut, then ejected.</summary>
+        IEnumerator MontagePlay(Tapes.Header src)
+        {
+            TapeCheck.Line("the montage:");
+            float d = src.duration;
+            var clips = new List<Tapes.Clip>
+            {
+                new Tapes.Clip { tape = src, tIn = 1f, tOut = Mathf.Max(3f, d * 0.4f) },
+                new Tapes.Clip { tape = src, tIn = d * 0.6f, tOut = d - 0.5f },
+            };
+            var m = Tapes.Montage(clips, out string why);
+            Check(m != null && m.montage && m.cuts.Count == 1, "two clips of the night tape join onto a montage", m != null ? m.Spine + " cut at " + m.cuts[0].ToString("0.00") : why);
+            if (m == null) yield break;
+            Check(!File.Exists(src.path), "the night tape is taped over");
+            Check(TapePlayback.Play(m, out why), "the montage goes in the VCR", why);
+            float t0 = Time.realtimeSinceStartup;
+            while (!(TapePlayback.Active && RaceReplay.Playing) && Time.realtimeSinceStartup - t0 < 90f) yield return null;
+            var rp = RaceReplay.Instance;
+            Check(RaceReplay.Playing && rp != null, "and plays");
+            if (rp == null || !RaceReplay.Playing) yield break;
+            var tape = Tapes.Load(m.path, out var tt, out var ff, out _);
+            float cut = m.cuts[0];
+            rp.Seek(Mathf.Max(0f, cut - 0.6f), hard: true);
+            yield return Real(0.25f);
+            yield return Shot("montage_before_cut");
+            // Across the cut at play speed, then look at where the cars stand.
+            float waitUntil = Time.realtimeSinceStartup + 3f;
+            while (rp.ReplayTime < cut + 0.25f && Time.realtimeSinceStartup < waitUntil) yield return null;
+            yield return null;
+            if (tape != null)
+            {
+                float rt = rp.ReplayTime, worst = 0f;
+                int k = 0;
+                while (k < tt.Count - 2 && tt[k + 1] <= rt) k++;
+                float u = tt[k + 1] > tt[k] ? Mathf.Clamp01((rt - tt[k]) / (tt[k + 1] - tt[k])) : 0f;
+                for (int c = 0; c < rp.TrackCount; c++)
+                {
+                    var car = rp.TrackCar(c);
+                    if (car == null) continue;
+                    worst = Mathf.Max(worst, (car.transform.position - Vector3.Lerp(ff[c][k].pos, ff[c][k + 1].pos, u)).magnitude);
+                }
+                Check(rt > cut && worst < 2.5f, "past the cut every car stands in the second clip", worst.ToString("0.00") + " m at " + rt.ToString("0.00") + " s (cut " + cut.ToString("0.00") + ")");
+            }
+            yield return Shot("montage_after_cut");
+            bool took = RaceReplay.ExitHook != null && RaceReplay.ExitHook();
+            Check(took, "EJECT");
+            t0 = Time.realtimeSinceStartup;
+            while (SceneManager.GetActiveScene().buildIndex != 0 && Time.realtimeSinceStartup - t0 < 30f) yield return null;
+            yield return null;
+            Check(SceneManager.GetActiveScene().buildIndex == 0 && !TapePlayback.Active, "home again");
         }
 
         void Done()
