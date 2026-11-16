@@ -236,9 +236,31 @@ namespace PSXRacing.EditorTools
             // The flag, for the check: the recorder stops here (ReplayCheck's way).
             typeof(RaceReplay).GetField("recording", Priv).SetValue(rp, false);
             Check(rp.RecordingDone, "the recording is done", rp.FrameCount + " samples");
+            bool staged = label == "evening";
+            if (staged)
+            {
+                // STAGED: the results screen, with the race ended by the check
+                // (nobody drove to the flag), to show the SAVE TO TAPE line and
+                // the touch / mouse button where a player sees them.
+                typeof(RaceManager).GetProperty("State").SetValue(rm, RaceManager.RaceState.Finished);
+                TapeOffer.ShowButtonForTools = true;
+                yield return null;
+                yield return null;
+                PutButtonInFrame(offer);
+                yield return Shot("results_staged");
+                Check(TapeOffer.OfferLine(false).Contains("SAVE TO TAPE"), "the results offer SAVE TO TAPE", TapeOffer.OfferLine(false).Trim());
+            }
             offer.PressForTest();
             yield return null;
             yield return null;
+            if (staged)
+            {
+                yield return null;
+                PutButtonInFrame(offer);
+                yield return Shot("results_saved_staged");
+                Check(TapeOffer.OfferLine(false).Contains("ON THE SHELF"), "and then say where it went", TapeOffer.OfferLine(false).Trim());
+                TapeOffer.ShowButtonForTools = false;
+            }
             var h = offer.SavedTape;
             Check(h != null && File.Exists(h.path), "SAVE TO TAPE cut a tape", h != null ? h.path : offer.Refusal);
             if (h == null) yield break;
@@ -291,7 +313,23 @@ namespace PSXRacing.EditorTools
             TapeCheck.Line("  shot vcr_" + name + " (" + fb.width + "x" + fb.height + ")");
         }
 
-        static float Wait(float s) => s;
+        /// <summary>The SAVE TO TAPE button lives on an overlay canvas, which a
+        /// framebuffer read never sees: for the picture it is drawn into the
+        /// PSX camera's frame at the same relative place (its scaler is
+        /// resolution-relative), over everything.</summary>
+        static void PutButtonInFrame(TapeOffer offer)
+        {
+            var go = offer != null ? offer.ButtonCanvas : null;
+            var cam = Camera.main;
+            if (go == null || cam == null) { TapeCheck.Line("  (no button canvas to draw)"); return; }
+            var c = go.GetComponent<Canvas>();
+            c.renderMode = RenderMode.ScreenSpaceCamera;
+            c.worldCamera = cam;
+            c.planeDistance = Mathf.Max(cam.nearClipPlane * 1.5f, 0.4f);
+            var hud = HudOnTop.Material;
+            if (hud != null) foreach (var g in go.GetComponentsInChildren<UnityEngine.UI.Graphic>(true)) g.material = hud;
+            Canvas.ForceUpdateCanvases();
+        }
 
         IEnumerator Real(float seconds)
         {

@@ -323,7 +323,7 @@ namespace PSXRacing
             if (mouse != null && (mouse.delta.ReadValue().sqrMagnitude > 0.5f || mouse.leftButton.wasPressedThisFrame))
                 mouseSeenAt = Time.unscaledTime;
             var touch = TouchControls.Instance;
-            bool pointer = (touch != null && touch.Visible) || Time.unscaledTime - mouseSeenAt < 4f;
+            bool pointer = ShowButtonForTools || (touch != null && touch.Visible) || Time.unscaledTime - mouseSeenAt < 4f;
             if (saved && savedAt < 0f) savedAt = Time.unscaledTime;
             bool show = pointer && (offered || want || saved) && (!saved || Time.unscaledTime - savedAt < 4f);
             if (!show) { if (canvasGo != null && canvasGo.activeSelf) canvasGo.SetActive(false); return; }
@@ -384,6 +384,9 @@ namespace PSXRacing
 
         /// <summary>For the check: press SAVE TO TAPE as a player would.</summary>
         public void PressForTest() => Press();
+        /// <summary>For the shot tools: the button as a touch player sees it.</summary>
+        public static bool ShowButtonForTools;
+        public GameObject ButtonCanvas => canvasGo;
         public Tapes.Header SavedTape => tape;
         public string Refusal => why;
     }
