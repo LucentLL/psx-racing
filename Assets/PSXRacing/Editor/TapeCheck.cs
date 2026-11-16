@@ -1,0 +1,415 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Text;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using PSXRacing;
+using PSXRacing.LifeSim;
+
+namespace PSXRacing.EditorTools
+{
+    /// <summary>
+    /// THE TAPES, played for real (2026-11-16, <see cref="Tapes"/>,
+    /// <see cref="TapePlayback"/>). Run: a career race with the AI driving is
+    /// recorded for a few seconds, SAVE TO TAPE cuts a tape (twice, an evening
+    /// and a night race), the tape goes in the VCR (the venue loaded through
+    /// TapePlayback.Play, the race taken over before its countdown), the deck
+    /// plays, scans forward and back, pauses, stops at the end and EJECTS home
+    /// with nothing banked. Frames of the deck are written as it goes. Pages:
+    /// the shelf and the VIDEO STORE photographed at three screen shapes from
+    /// the tapes Run cut, before and after a sale.
+    ///
+    /// Tapes go to &lt;project&gt;/TapeCheck/Tapes, never the player's folder, and
+    /// the career is a scratch save. Report: PSXRacing_tape_check.txt.
+    /// </summary>
+    public static class TapeCheck
+    {
+        internal static StringBuilder log;
+        internal static int failures;
+        internal static int venue;
+
+        internal static string ProjectDir => Path.GetDirectoryName(Application.dataPath);
+        internal static string TapeDir => Path.Combine(ProjectDir, "TapeCheck", "Tapes");
+        internal static string ShotDir => Path.Combine(ProjectDir, "Screenshots", "tapes");
+        internal static string ReportPath => Path.Combine(ProjectDir, "PSXRacing_tape_check.txt");
+
+        [MenuItem("PSX Racing/Check Tapes (play mode)")]
+        public static void Run()
+        {
+            log = new StringBuilder();
+            failures = 0;
+            venue = 0;   // the city circuit: short, four cars (ReplayCheck's)
+            if (File.Exists(ReportPath)) File.Delete(ReportPath);
+            if (Directory.Exists(TapeDir)) Directory.Delete(TapeDir, true);
+            Directory.CreateDirectory(TapeDir);
+            Directory.CreateDirectory(ShotDir);
+            Tapes.DirOverride = TapeDir;
+
+            // A scratch career: eject lands on the home screen, and the check
+            // reads its clock and its money there.
+            LifeSimManager.UseScratchSave("tapecheck");
+            LifeSimManager.StartNewGame("TAPES", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(LifeSimManager.State);
+            LifeSimManager.Save();
+
+            var scenes = EditorBuildSettings.scenes;
+            int s = TrackCatalog.SceneIndex(venue);
+            if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path))
+            { Check(false, "scene not built"); Finish(); EditorApplication.Exit(1); return; }
+            log.AppendLine("venue " + TrackCatalog.At(venue).id + " scene " + s + " " + scenes[s].path);
+
+            EditorSceneManager.OpenScene(scenes[s].path);
+            Prime(TimeOfDay.Sunset);
+            EditorSettings.enterPlayModeOptionsEnabled = true;
+            EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
+            EditorApplication.playModeStateChanged += OnState;
+            EditorApplication.EnterPlaymode();
+        }
+
+        /// <summary>A career race at the city circuit: four cars, the AI driving.</summary>
+        internal static void Prime(int hour)
+        {
+            RaceHandoff.ClearAll();
+            RaceHandoff.FromLifeSim = true;
+            RaceHandoff.TrackIndex = venue;
+            RaceHandoff.CalendarDay = 320;   // NOV 16 1999
+            RaceHandoff.TimeOfDayIndex = hour;
+            RaceHandoff.TrafficLevel = 0;
+            var cars = CarCatalog.All;
+            if (cars.Count > 4)
+            {
+                RaceHandoff.CarSpecId = cars[0].id;
+                RaceHandoff.OpponentSpecIds = cars[1].id + ";" + cars[2].id + ";" + cars[3].id;
+                RaceHandoff.OpponentSkills = "1.0;0.95;0.9";
+            }
+        }
+
+        static void OnState(PlayModeStateChange st)
+        {
+            if (st != PlayModeStateChange.EnteredPlayMode) return;
+            EditorApplication.playModeStateChanged -= OnState;
+            new GameObject("TapeCheckRunner").AddComponent<TapeCheckRunner>();
+        }
+
+        internal static void Check(bool ok, string what, object got = null)
+        {
+            if (!ok) failures++;
+            log.AppendLine("  " + (ok ? "ok   " : "FAIL ") + what + (got != null ? "  [" + got + "]" : ""));
+        }
+
+        internal static void Line(string s) => log.AppendLine(s);
+
+        internal static void Finish()
+        {
+            log.AppendLine(failures == 0 ? "THE TAPES PLAY." : failures + " FAILURE(S).");
+            File.WriteAllText(ReportPath, log.ToString());
+            Debug.Log(log.ToString());
+            Tapes.DirOverride = null;
+            LifeSimManager.UseCareerSave();
+        }
+
+        // ------------------------------------------------------------------
+        //  The pages, in edit mode, from the tapes Run cut
+        // ------------------------------------------------------------------
+        [MenuItem("PSX Racing/Preview Tape Shelf + Video Store")]
+        public static void Pages()
+        {
+            log = new StringBuilder();
+            failures = 0;
+            string report = Path.Combine(ProjectDir, "PSXRacing_tape_pages.txt");
+            if (File.Exists(report)) File.Delete(report);
+            Directory.CreateDirectory(ShotDir);
+            Tapes.DirOverride = TapeDir;
+            try
+            {
+                LifeSimManager.UseScratchSave("tapepages");
+                LifeSimManager.StartNewGame("TAPES", 25, LifeRules.DefaultJobIndex);
+                LifeRules.SeedFallbackCar(LifeSimManager.State);
+                var st = LifeSimManager.State;
+                st.money = 1250;
+                LifeSimManager.Save();
+
+                var shelf = Tapes.Shelf();
+                Check(shelf.Count >= 1, "the check's tapes are on the shelf", shelf.Count);
+                Line("shelf: " + shelf.Count + " tape(s) in " + TapeDir);
+                foreach (var h in shelf)
+                    Line("  " + h.Spine + "  " + h.Length + "  $" + Tapes.Price(h) + "  " + new FileInfo(h.path).Length + " bytes");
+
+                var sizes = new (string name, int w, int h)[]
+                {
+                    ("phone_wide", 1998, 891), ("landscape_16x9", 1280, 720), ("tablet_4x3", 1024, 768), ("owner_2000x1077", 2000, 1077),
+                };
+                string pick = shelf.Count > 0 ? shelf[0].id : "";
+                var fields = new (string name, object value)[] { ("tapeSel", pick) };
+                LifeHomePreview.Shoot(ShotDir, "garage_tapedoor", "garage", scrollTo: 0f, sizes: sizes);
+                LifeHomePreview.Shoot(ShotDir, "tape_shelf", "tapes", sizes: sizes, fields: fields);
+                LifeHomePreview.Shoot(ShotDir, "video_store", "videostore", sizes: sizes, fields: fields);
+                // Armed: the second press is the sale.
+                var armed = new (string name, object value)[] { ("tapeSel", pick), ("armKey", "selltape:" + pick) };
+                LifeHomePreview.Shoot(ShotDir, "video_store_armed", "videostore", sizes: sizes, fields: armed);
+
+                // THE SALE, as the second press makes it, then the store again.
+                if (shelf.Count > 0)
+                {
+                    int before = st.money;
+                    int offer = Tapes.Price(shelf[0]);
+                    int log0 = st.calendarLog.Count;
+                    var host = new GameObject("SellHost");
+                    var screen = host.AddComponent<LifeHomeScreen>();
+                    screen.GetType().GetField("tapeSel", BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(screen, pick);
+                    var sell = typeof(LifeHomeScreen).GetMethod("SellTape", BindingFlags.NonPublic | BindingFlags.Instance);
+                    // SellTape rebuilds the page; with no page built that is a
+                    // no-op, and the money, the diary and the file are the sale.
+                    try { sell.Invoke(screen, new object[] { shelf[0] }); }
+                    catch (System.Exception e) { Line("  (rebuild after the sale: " + (e.InnerException ?? e).GetType().Name + ")"); }
+                    Object.DestroyImmediate(host);
+                    st = LifeSimManager.State;
+                    Check(st.money == before + offer, "the sale pays the offer into the wallet", before + " + " + offer + " = " + st.money);
+                    Check(st.calendarLog.Count == log0 + 1 && st.calendarLog[st.calendarLog.Count - 1].Contains("video store"),
+                          "one diary line", st.calendarLog.Count > 0 ? st.calendarLog[st.calendarLog.Count - 1] : "");
+                    Check(!File.Exists(shelf[0].path) && Tapes.Shelf().Count == shelf.Count - 1, "and the tape has left the shelf");
+                    var left = Tapes.Shelf();
+                    var after = new (string name, object value)[] { ("tapeSel", left.Count > 0 ? left[0].id : "") };
+                    LifeHomePreview.Shoot(ShotDir, "video_store_sold", "videostore", sizes: sizes, fields: after);
+                    LifeHomePreview.Shoot(ShotDir, "main_after_sale", "main", sizes: new[] { sizes[1] });
+                }
+            }
+            catch (System.Exception e) { Check(false, "pages threw", e.GetType().Name + ": " + e.Message); Debug.LogException(e); }
+            finally
+            {
+                Tapes.DirOverride = null;
+                LifeSimManager.UseCareerSave();
+                log.AppendLine(failures == 0 ? "PAGES OK." : failures + " FAILURE(S).");
+                File.WriteAllText(report, log.ToString());
+                Debug.Log(log.ToString());
+            }
+        }
+    }
+
+    public class TapeCheckRunner : MonoBehaviour
+    {
+        const float RecordSeconds = 12f;
+        static readonly BindingFlags Priv = BindingFlags.NonPublic | BindingFlags.Instance;
+
+        static void Check(bool ok, string what, object got = null) => TapeCheck.Check(ok, what, got);
+
+        IEnumerator Start()
+        {
+            DontDestroyOnLoad(gameObject);
+            Tapes.Header first = null, second = null;
+            yield return Race("evening", h => first = h);
+            if (first != null)
+            {
+                // A second tape, at night: the scene again under the night.
+                TapeCheck.Prime(TimeOfDay.Night);
+                SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+                yield return null;
+                yield return Race("night", h => second = h);
+            }
+            if (first != null) yield return Vcr(first);
+            Done();
+        }
+
+        /// <summary>Wait for the race, let the AI drive, cut the tape.</summary>
+        IEnumerator Race(string label, System.Action<Tapes.Header> got)
+        {
+            TapeCheck.Line(label + " race:");
+            float t0 = Time.realtimeSinceStartup;
+            while ((RaceManager.Instance == null || RaceReplay.Instance == null) && Time.realtimeSinceStartup - t0 < 60f)
+                yield return null;
+            var rm = RaceManager.Instance;
+            var rp = RaceReplay.Instance;
+            Check(rm != null && rp != null, "the race and its recorder are up");
+            if (rm == null || rp == null) yield break;
+            yield return null;
+            var offer = TapeOffer.Instance;
+            Check(offer != null, "a career race gets the SAVE TO TAPE offer");
+            Check(!TapePlayback.Active, "and is not a tape");
+            if (offer == null) yield break;
+
+            t0 = Time.time;
+            while (Time.time - t0 < RecordSeconds) yield return null;
+            // The flag, for the check: the recorder stops here (ReplayCheck's way).
+            typeof(RaceReplay).GetField("recording", Priv).SetValue(rp, false);
+            Check(rp.RecordingDone, "the recording is done", rp.FrameCount + " samples");
+            offer.PressForTest();
+            yield return null;
+            yield return null;
+            var h = offer.SavedTape;
+            Check(h != null && File.Exists(h.path), "SAVE TO TAPE cut a tape", h != null ? h.path : offer.Refusal);
+            if (h == null) yield break;
+            long bytes = new FileInfo(h.path).Length;
+            Check(bytes > 100 && bytes < 1024 * 1024, "the tape is small", bytes + " bytes for " + h.duration.ToString("0.0") + " s, " + h.cars.Count + " cars");
+            TapeCheck.Line("  label: " + h.Spine + "  facts: top " + h.topKmh.ToString("0") + " km/h, crashes " + h.crashes +
+                           ", near misses " + h.nearMisses + ", margin " + h.margin.ToString("0.00") + "  price $" + Tapes.Price(h));
+            Check(h.cars.Count == rp.TrackCount && h.cars[h.playerIndex].player, "the field is on the label, the player's car marked",
+                  h.cars.Count + " cars, player #" + h.playerIndex);
+            Check(Camcorder.DateStamp(h.day) == "NOV 16 1999", "the career's date is on it", Camcorder.DateStamp(h.day));
+
+            // The tape is the recording, at 15 Hz.
+            var back = Tapes.Load(h.path, out var tt, out var ff, out string why);
+            Check(back != null, "it loads back", why);
+            if (back != null)
+            {
+                float worst = 0f;
+                for (int c = 0; c < rp.TrackCount; c++)
+                {
+                    var src = rp.TrackFrames(c);
+                    for (int k = 0; k < tt.Count; k += 5)
+                    {
+                        int j = Mathf.Min(k * 2, src.Count - 1);
+                        worst = Mathf.Max(worst, (src[j].pos - ff[c][k].pos).magnitude);
+                    }
+                }
+                Check(worst < 0.01f, "every car where the recording had it", worst.ToString("0.0000") + " m");
+                Check(Mathf.Abs(tt.Count - rp.FrameCount / 2f) <= 2f, "every other sample (15 Hz)", tt.Count + " of " + rp.FrameCount);
+            }
+            got(h);
+        }
+
+        IEnumerator Shot(string name)
+        {
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            var cam = Camera.main;
+            if (cam == null || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+            { TapeCheck.Line("  shot " + name + " not taken (no camera / no graphics)"); yield break; }
+            var fb = cam.targetTexture;
+            if (fb == null) { TapeCheck.Line("  shot " + name + " not taken (no framebuffer)"); yield break; }
+            var prev = RenderTexture.active;
+            RenderTexture.active = fb;
+            var tex = new Texture2D(fb.width, fb.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, fb.width, fb.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            File.WriteAllBytes(Path.Combine(TapeCheck.ShotDir, "vcr_" + name + ".png"), tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            TapeCheck.Line("  shot vcr_" + name + " (" + fb.width + "x" + fb.height + ")");
+        }
+
+        static float Wait(float s) => s;
+
+        IEnumerator Real(float seconds)
+        {
+            float t = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - t < seconds) yield return null;
+        }
+
+        IEnumerator Vcr(Tapes.Header h)
+        {
+            TapeCheck.Line("the VCR:");
+            var S = LifeSimManager.State;
+            int money0 = S.money, day0 = S.day, slot0 = S.slotIndex;
+
+            Check(TapePlayback.Play(h, out string why), "PLAY ON THE VCR loads the venue", why);
+            float t0 = Time.realtimeSinceStartup;
+            while (!(TapePlayback.Active && RaceReplay.Playing) && Time.realtimeSinceStartup - t0 < 90f) yield return null;
+            var rp = RaceReplay.Instance;
+            var rm = RaceManager.Instance;
+            Check(TapePlayback.Active && RaceReplay.Playing, "the tape is playing", (Time.realtimeSinceStartup - t0).ToString("0.0") + " s after PLAY");
+            if (rp == null || rm == null || !RaceReplay.Playing) yield break;
+            Check(rp.VcrControls && Camcorder.Vcr, "on the deck's transport, with the deck's OSD");
+            Check(TapeOffer.Instance == null, "a tape offers no SAVE TO TAPE of itself");
+            Check(rp.TrackCount == h.cars.Count, "the whole field is on the screen", rp.TrackCount + " of " + h.cars.Count);
+            Check(Camcorder.StampDay == h.day, "the burned-in date is the tape's", Camcorder.DateStamp(Camcorder.StampDay));
+            yield return Real(0.5f);
+            Check(rm.State == RaceManager.RaceState.Countdown && rm.CountdownRemaining >= 3.99f,
+                  "the race never started under it", rm.State + " " + rm.CountdownRemaining.ToString("0.00"));
+            // Follow a car that moved (the player's sat on the grid in this check).
+            if (rp.TrackCount > 1) rp.Watch(1);
+            yield return Real(2.5f);
+
+            // Every car where the tape has it.
+            var tape = Tapes.Load(h.path, out var tt, out var ff, out _);
+            if (tape != null)
+            {
+                float rt = rp.ReplayTime, worst = 0f;
+                int k = 0;
+                while (k < tt.Count - 2 && tt[k + 1] <= rt) k++;
+                float u = tt[k + 1] > tt[k] ? Mathf.Clamp01((rt - tt[k]) / (tt[k + 1] - tt[k])) : 0f;
+                for (int c = 0; c < rp.TrackCount; c++)
+                {
+                    var car = rp.TrackCar(c);
+                    if (car == null) continue;
+                    var want = Vector3.Lerp(ff[c][k].pos, ff[c][k + 1].pos, u);
+                    worst = Mathf.Max(worst, (car.transform.position - want).magnitude);
+                }
+                Check(worst < 2.5f, "every car on its taped pose", worst.ToString("0.00") + " m at " + rt.ToString("0.0") + " s");
+            }
+            yield return Shot("play");
+
+            var rate = typeof(RaceReplay).GetProperty("Rate");
+            var paused = typeof(RaceReplay).GetField("paused", Priv);
+            float vol = AudioListener.volume;
+
+            // FF
+            float a = rp.ReplayTime;
+            rate.SetValue(rp, RaceReplay.ScanRate);
+            yield return Real(0.6f);
+            Check(Camcorder.Transport == 2 && Camcorder.ScanRate > 1f, "FF scans", "transport " + Camcorder.Transport + " x" + Camcorder.ScanRate);
+            Check(AudioListener.volume == 0f, "with the sound off");
+            yield return Shot("ff");
+            float b = rp.ReplayTime;
+            Check(b - a > 1.5f, "the picture runs fast forward", (b - a).ToString("0.0") + " s of tape in 0.6 s");
+
+            // REW
+            rate.SetValue(rp, -RaceReplay.ScanRate);
+            yield return Real(0.5f);
+            float c2 = rp.ReplayTime;
+            Check(c2 < b - 1f && Camcorder.ScanRate < -1f, "REW scans back", (b - c2).ToString("0.0") + " s back");
+            yield return Shot("rew");
+
+            // PLAY again: the sound comes back.
+            rate.SetValue(rp, 1f);
+            yield return Real(0.4f);
+            Check(Mathf.Approximately(AudioListener.volume, vol) && Camcorder.Transport == 0, "PLAY brings the sound back", AudioListener.volume);
+
+            // PAUSE holds the frame.
+            paused.SetValue(rp, true);
+            yield return Real(0.2f);
+            float p0 = rp.ReplayTime;
+            yield return Real(0.8f);
+            Check(Mathf.Abs(rp.ReplayTime - p0) < 0.01f && Camcorder.Transport == 1, "PAUSE holds the frame", rp.ReplayTime - p0);
+            yield return Shot("pause");
+            paused.SetValue(rp, false);
+
+            // The end of the tape stops the deck instead of looping.
+            rp.Seek(rp.Duration - 0.4f, hard: true);
+            yield return Real(1.2f);
+            Check(rp.Paused && rp.ReplayTime >= rp.Duration - 0.01f, "the end of the tape stops the deck", rp.ReplayTime.ToString("0.00") + " / " + rp.Duration.ToString("0.00"));
+
+            // EJECT: home, nothing banked.
+            bool took = RaceReplay.ExitHook != null && RaceReplay.ExitHook();
+            Check(took, "EJECT takes the exit press");
+            t0 = Time.realtimeSinceStartup;
+            LifeHomeScreen home = null;
+            while (home == null && Time.realtimeSinceStartup - t0 < 30f)
+            {
+                yield return null;
+                if (SceneManager.GetActiveScene().buildIndex == 0) home = Object.FindFirstObjectByType<LifeHomeScreen>();
+            }
+            yield return null;
+            yield return null;
+            Check(SceneManager.GetActiveScene().buildIndex == 0 && home != null, "EJECT lands at home");
+            if (home != null)
+            {
+                var tab = typeof(LifeHomeScreen).GetField("tab", Priv)?.GetValue(home) as string;
+                Check(tab == "tapes", "on the tape shelf", tab);
+            }
+            S = LifeSimManager.State;
+            Check(!RaceHandoff.ResultReady && !Camcorder.Vcr && !TapePlayback.Active, "no result, no deck left running");
+            Check(S.money == money0 && S.day == day0 && S.slotIndex == slot0, "no money, no block of the day spent",
+                  "money " + money0 + "->" + S.money + ", day " + day0 + "->" + S.day + ", block " + slot0 + "->" + S.slotIndex);
+        }
+
+        void Done()
+        {
+            TapeCheck.Finish();
+            EditorApplication.Exit(TapeCheck.failures == 0 ? 0 : 1);
+        }
+    }
+}
