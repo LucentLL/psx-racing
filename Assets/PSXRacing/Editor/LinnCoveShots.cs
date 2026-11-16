@@ -251,6 +251,29 @@ namespace PSXRacing.EditorTools
                 GrabAB(s, "title_winter_noon", eye, rot, 1440, (int)Season.Winter, "NOON", false, true);
             }
             if (sets.Contains("perf")) Perf(s, eye, rot);
+            // THE TITLE ANGLE, small moves (brief C): PSX_LC_ALT = "up,along,side,lookY;..." metres off
+            // views[0] in the deck's own frame (along the road from the viaduct's start, side toward
+            // the camera's own side, up), each a fall golden-hour frame
+            if (sets.Contains("alt"))
+            {
+                var along0 = path.GetTangent(i0); along0.y = 0f; along0.Normalize();
+                var right0 = Vector3.Cross(Vector3.up, along0);
+                float sideSign = Vector3.Dot(eye - path.GetPoint(i0), right0) >= 0f ? 1f : -1f;
+                int k = 0;
+                foreach (var spec in Env("PSX_LC_ALT", "-8,0,0,-4;0,25,0,0;-6,15,-10,-6;10,-15,10,0").Split(';'))
+                {
+                    var q = spec.Split(',');
+                    if (q.Length < 4) continue;
+                    float dUp = float.Parse(q[0], CultureInfo.InvariantCulture), dAl = float.Parse(q[1], CultureInfo.InvariantCulture);
+                    float dSide = float.Parse(q[2], CultureInfo.InvariantCulture), dLook = float.Parse(q[3], CultureInfo.InvariantCulture);
+                    var e2 = eye + Vector3.up * dUp + along0 * dAl + right0 * (sideSign * dSide);
+                    var l2 = look + Vector3.up * dLook;
+                    float clear = e2.y - GroundY(e2, e2.y - 100f);
+                    log.AppendLine($"  alt {k} ({spec}): eye {e2} look {l2}, {clear:0.0} m over the ground");
+                    GrabAB(s, "title_alt" + k, e2, Quaternion.LookRotation(l2 - e2, Vector3.up), 1080, (int)Season.Fall, "SUNSET", false, false);
+                    k++;
+                }
+            }
             s.cam.fieldOfView = fovWas;
             if (sets.Contains("linn"))
             {
