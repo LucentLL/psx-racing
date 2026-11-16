@@ -171,7 +171,7 @@ namespace PSXRacing.City
             if (FrameNormalOf(f, e, s, out left)) return true;
             // Phase C: a short island's carriageway carries a profile from each of its ends (the second one's
             // half of the island takes its own path's normal)
-            return splitFrameEdge2.Count > 0 && splitFrameEdge2.TryGetValue(e.index, out var f2) && FrameNormalOf(f2, e, s, out left);
+            return CityPhaseC && splitFrameEdge2.Count > 0 && splitFrameEdge2.TryGetValue(e.index, out var f2) && FrameNormalOf(f2, e, s, out left);
         }
         static bool FrameNormalOf(SplitFrame f, CityMap.Edge e, float s, out Vector2 left)
         {
@@ -593,7 +593,7 @@ namespace PSXRacing.City
                         var list = add[e.index] ??= new List<Ease>(3);
                         list.Add(new Ease { shift = true, fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = ds, tag = f.tag });
                         if (!splitFrameEdge.ContainsKey(ei)) splitFrameEdge[ei] = f;
-                        else if (splitFrameEdge[ei] != f && !splitFrameEdge2.ContainsKey(ei)) splitFrameEdge2[ei] = f;
+                        else if (CityPhaseC && splitFrameEdge[ei] != f && !splitFrameEdge2.ContainsKey(ei)) splitFrameEdge2[ei] = f;   // (bfr / all: J1 kept the first frame only)
                     }
                     if (anyW && wSide != 0)
                     {
