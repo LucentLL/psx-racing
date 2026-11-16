@@ -189,35 +189,53 @@ namespace PSXRacing
         }
 
         // ---- the tiles themselves: read once, kept while they are used ----
-        const int CacheMax = 48;
+        // A card that flies in carries 40-odd tiles; the cache keeps the last cards' tiles and never
+        // frees one the card being built has asked for (a texture freed under a live RawImage draws
+        // white: the first fly-in strip showed an L of white over the city).
+        const int CacheMax = 64;
         static readonly Dictionary<long, Texture2D> cache = new Dictionary<long, Texture2D>();
         static readonly LinkedList<long> lru = new LinkedList<long>();
         static readonly Dictionary<long, LinkedListNode<long>> lruAt = new Dictionary<long, LinkedListNode<long>>();
+        static readonly Dictionary<long, int> usedBy = new Dictionary<long, int>();
+        static int card;
         static readonly HashSet<long> fetching = new HashSet<long>();
         static readonly List<(long key, RawImage img)> waiting = new List<(long, RawImage)>();
 
         static long CacheKey(int level, int tx, int ty) => ((long)level << 40) | ((long)tx << 20) | (long)ty;
 
+        /// <summary>A new card is being built: tiles the cards before it used may now be freed.</summary>
+        public static void BeginCard() => card++;
+
         static void Touch(long key)
         {
             if (lruAt.TryGetValue(key, out var node)) lru.Remove(node);
             lruAt[key] = lru.AddFirst(key);
+            usedBy[key] = card;
         }
 
         static void Keep(long key, Texture2D tex)
         {
             cache[key] = tex;
             Touch(key);
-            while (cache.Count > CacheMax && lru.Last != null)
+            // the least recently used first, never one this card uses (the cache may run over its
+            // size for one big card rather than free a tile it shows)
+            var at = lru.Last;
+            while (cache.Count > CacheMax && at != null)
             {
-                long old = lru.Last.Value;
-                lru.RemoveLast();
-                lruAt.Remove(old);
-                if (cache.TryGetValue(old, out var t) && t != null)
+                var prev = at.Previous;
+                long old = at.Value;
+                if (!usedBy.TryGetValue(old, out int c) || c < card - 1)   // this card and the one before it (a page may show two)
                 {
-                    if (Application.isPlaying) Object.Destroy(t); else Object.DestroyImmediate(t);
+                    lru.Remove(at);
+                    lruAt.Remove(old);
+                    usedBy.Remove(old);
+                    if (cache.TryGetValue(old, out var t) && t != null)
+                    {
+                        if (Application.isPlaying) Object.Destroy(t); else Object.DestroyImmediate(t);
+                    }
+                    cache.Remove(old);
                 }
-                cache.Remove(old);
+                at = prev;
             }
         }
 
