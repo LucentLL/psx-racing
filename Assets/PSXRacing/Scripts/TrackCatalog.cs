@@ -849,7 +849,36 @@ namespace PSXRacing
         /// in here once, cd63392, before anything was pushed; the owner
         /// released it on 2026-09-29.)
         /// </summary>
-        public static readonly TrackDef[] HeldBack = { };
+        public static readonly TrackDef[] HeldBack =
+        {
+            // US 64/74A from Lake Lure through Chimney Rock to Bat Cave, AS IT
+            // STOOD BEFORE HURRICANE HELENE (owner, 2026-11-16: "I'm
+            // specifically looking for the roads and buildings, etc from
+            // BEFORE Hurricane Helene to capture the memory of what it used to
+            // be like"). The line is OpenStreetMap of 2024-09-20, a week
+            // before the storm; the heights the 2018 lidar. Waits here until
+            // its gates pass, then is appended with a save remap like v20's.
+            new TrackDef
+            {
+                id = "LakeLure",
+                name = "LAKE LURE — US 64/74A",
+                blurb = "Lake Lure as it was before the flood: from where NC 9 comes in at the " +
+                        "east end of the lake, along the shore and through downtown, over the " +
+                        "Rocky Broad, up Main Street through Chimney Rock village and the " +
+                        "Hickory Nut Gorge to Bat Cave. 11.6 km, 222 m of climb. " +
+                        "Map (c) OpenStreetMap contributors, as of 2024-09-20.",
+                // US 64/74A, a primary route: two 11.5 ft lanes. The lidar bench
+                // (pavement, shoulders, verges) is 13 m at the median and 8.5 m
+                // at its narrowest tenth; OSM has lanes=2 and no width.
+                roadWidth = 7.0f,
+                laps = 1,
+                speedLimitKmh = 56f,    // 35 mph; 25 through downtown, 20 in the village
+                stage = true,
+                stageData = "lure_stage",
+                dragLabel = "BAT CAVE",
+                noDelivery = true,      // a par for a drop here is the owner's economy call
+            },
+        };
 
         /// <summary>
         /// A reverse twin: the same venue driven backwards, named the way Gran

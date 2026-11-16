@@ -1,0 +1,93 @@
+{
+  "baseM": 264,
+  "near": {
+    "originX": -6672.848127922803,
+    "originZ": -3073.9341422532066,
+    "cell": 12,
+    "cols": 907,
+    "rows": 541
+  },
+  "far": {
+    "originX": -14472.848127922804,
+    "originZ": -10873.934142253207,
+    "cell": 60,
+    "cols": 443,
+    "rows": 369
+  },
+  "source": {
+    "baked": "tools/roads/bake_3dep.mjs lure",
+    "credit": "U.S. Geological Survey, 3D Elevation Program (public domain); route (c) OpenStreetMap contributors",
+    "road": "USGS 3DEP 1 m lidar DEM NC_Phase5_2018_A18 (NAD83 / UTM 17N, NAVD88): ground on the road bench, gaussian sigma 8 m along the road, no grade clamp",
+    "near": "USGS 3DEP 1/3 arc-second DEM, full resolution (about 9 m), bilinear on the 12 m lattice",
+    "far": "USGS 3DEP 1/3 arc-second DEM, 4x overview (about 37 m), bilinear on the 60 m lattice",
+    "line": "2 stretch(es) moved onto the lidar bench (60 m of road)",
+    "before": "tools/roads/srtm_bakes/lure_srtm/ (the SRTM bake this replaced)",
+    "files1m": [
+      {
+        "file": "USGS_1M_17_x40y397_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:27:34 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x38y396_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:25:16 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x32y391_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:19:59 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x38y393_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:25:08 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x42y400_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:29:50 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x43y401_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:30:57 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x44y401_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:31:45 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x43y400_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:30:53 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x39y393_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:26:09 GMT"
+      },
+      {
+        "file": "USGS_1M_17_x39y392_NC_Phase5_2018_A18.tif",
+        "lastModified": "Fri, 13 Feb 2026 21:26:03 GMT"
+      }
+    ],
+    "files13": [
+      {
+        "file": "USGS_13_n36w083.tif",
+        "lastModified": "Tue, 30 Aug 2022 16:32:10 GMT"
+      },
+      {
+        "file": "USGS_13_n36w082.tif",
+        "lastModified": "Fri, 17 Apr 2026 18:37:32 GMT"
+      },
+      {
+        "file": "USGS_13_n36w084.tif",
+        "lastModified": "Tue, 30 Aug 2022 16:32:16 GMT"
+      },
+      {
+        "file": "USGS_13_n37w082.tif",
+        "lastModified": "Tue, 11 Jun 2024 17:13:02 GMT"
+      }
+    ]
+  },
+  "wide": {
+    "originX": -50880,
+    "originZ": -47040,
+    "cell": 240,
+    "cols": 414,
+    "rows": 394
+  }
+}

@@ -497,6 +497,10 @@ namespace PSXRacing.EditorTools
                                                 rail: RailKit.Rustic),
             ["SwissNC226A"] = MountainLoopTheme(Root + "/Art/Swiss226A", "swa"),
             ["GillespieGap"] = MountainLoopTheme(Root + "/Art/Gillespie", "gap"),
+            // US 64/74A, Lake Lure to Bat Cave, before Helene: white edge
+            // lines and a double yellow, W-beam on the lake side (the owner's
+            // 2022 dash-cam video).
+            ["LakeLure"] = MountainLoopTheme(Root + "/Art/LakeLure", "lure"),
 
             // Bogue Banks. One look, three venues: pale sand, scrub behind the
             // dune line, water on both sides of everything. All three share a

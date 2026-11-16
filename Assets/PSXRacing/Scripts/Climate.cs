@@ -269,6 +269,7 @@ namespace PSXRacing
             new Venue { id = "SwissNC226A",       region = ClimateRegion.Mountains, elevM = 820f },
             new Venue { id = "GillespieGap",      region = ClimateRegion.Mountains, elevM = 750f },
             new Venue { id = "ChimneyRock",       region = ClimateRegion.Mountains, elevM = 500f },
+            new Venue { id = "LakeLure",          region = ClimateRegion.Mountains, elevM = 380f },
             new Venue { id = "EmeraldIsle",       region = ClimateRegion.Coast, elevM = CoastElevM },
             new Venue { id = "LangstonBridge",    region = ClimateRegion.Coast, elevM = CoastElevM },
             new Venue { id = "AtlanticBeachBridge", region = ClimateRegion.Coast, elevM = CoastElevM },
