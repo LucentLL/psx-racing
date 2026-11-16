@@ -191,7 +191,7 @@ namespace PSXRacing.EditorTools
                     var se = new System.Text.StringBuilder();
                     for (int k = 0; k < CityMeshes.HmEras; k++) se.Append($"{CityMeshes.HmEraNames[k]} {CityMeshes.HouseMixEra[k]}; ");
                     Line($"HOUSE MIX {CityMeshes.HouseMixOn}: {mixN} houses built - {sb}stone water tables {CityMeshes.HouseMixStone}, infill houses {CityMeshes.HouseMixInfill}, masonry walls {CityMeshes.HouseMixWalls}, " +
-                         $"brick returns {CityMeshes.HouseMixReturns}, fronts with no street within 60 m {CityMeshes.HouseMixNoFront}; masonry triangles {mixTris}");
+                         $"brick returns {CityMeshes.HouseMixReturns}, fronts with no street within 80 m {CityMeshes.HouseMixNoFront}; masonry triangles {mixTris}");
                     Line($"HOUSE MIX eras (sample): {se}");
                     if (CityMeshes.HouseMixOn)
                     {

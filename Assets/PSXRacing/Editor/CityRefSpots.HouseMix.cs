@@ -71,7 +71,7 @@ namespace PSXRacing.EditorTools
                     if (p.Length < 5) continue;
                     string id = p[0];
                     int e0 = int.Parse(p[3], I), e1 = int.Parse(p[4], I);
-                    CityMap.Edge e = null; float s = 0f; Vector2 n = Vector2.zero; int count = 0; string mixNote = "";
+                    CityMap.Edge e = null; float s = 0f; Vector2 n = Vector2.zero, hmid = Vector2.zero; int count = 0; string mixNote = "";
                     bool got = false;
                     if (p[1] == "auto")
                     {
@@ -87,10 +87,10 @@ namespace PSXRacing.EditorTools
                             if (era < e0 || era > e1) continue;
                             var fill = CityHouses.FillOf(map, Mathf.FloorToInt(cand.x / CityMeshes.TileSize), Mathf.FloorToInt(cand.y / CityMeshes.TileSize));
                             if (fill == null || fill.Count < 8) continue;
-                            if (HmFrontage(map, cand, 350f, e0, e1, out e, out s, out n, out count, out mixNote) && count >= 6) got = true;
+                            if (HmFrontage(map, cand, 350f, e0, e1, out e, out s, out n, out count, out mixNote, out hmid) && count >= 6) got = true;
                         }
                     }
-                    else got = HmFrontage(map, LL(double.Parse(p[1], I), double.Parse(p[2], I)), 600f, e0, e1, out e, out s, out n, out count, out mixNote);
+                    else got = HmFrontage(map, LL(double.Parse(p[1], I), double.Parse(p[2], I)), 600f, e0, e1, out e, out s, out n, out count, out mixNote, out hmid);
                     if (!got) { log.Append($"{id}: no street with houses of eras {e0}-{e1} near\n"); continue; }
                     Vector2 q = e.PointAt(s);
                     float y = e.YAt(s);
@@ -106,6 +106,13 @@ namespace PSXRacing.EditorTools
                         ("raised", new Vector3(q.x, y, q.y) - n3 * 2f - t3 * 18f + Vector3.up * 8f,
                             Quaternion.LookRotation(n3 * 22f + t3 * 30f - Vector3.up * 5f)),
                     };
+                    {
+                        // "houses": 6 m up over the near kerb, looking at the middle of the houses this frame faces
+                        // (a subdivision's fill houses stand up to 75 m back, out of the other two frames)
+                        Vector3 eyeH = kerb + Vector3.up * 6f - t3 * 6f;
+                        float gh = CityElevation.GroundY(map, hmid.x, hmid.y);
+                        poses.Add(("houses", eyeH, Quaternion.LookRotation(new Vector3(hmid.x, gh + 2.5f, hmid.y) - eyeH)));
+                    }
                     log.Append(string.Format(I, "{0}\t'{1}' cls {2} s {3:0} fronts {4} ({5})\tkerb ({6:0.0}, {7:0.0}) {8}\n",
                         id, e.name, e.cls, s, count, mixNote, kerb.x, kerb.z, LatLonOf(kerb.x, kerb.z)));
                     shots += HmShoot(cam, sun, "hm_" + id, poses, hours, tiers, tag, log);
@@ -229,9 +236,9 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>BestFrontage with an era filter (the house mix's era of each house) and a radius.</summary>
-        static bool HmFrontage(CityMap map, Vector2 at, float radius, int era0, int era1, out CityMap.Edge best, out float bestS, out Vector2 bestN, out int bestCount, out string note)
+        static bool HmFrontage(CityMap map, Vector2 at, float radius, int era0, int era1, out CityMap.Edge best, out float bestS, out Vector2 bestN, out int bestCount, out string note, out Vector2 mid)
         {
-            best = null; bestS = 0f; bestN = Vector2.zero; bestCount = 0; note = "";
+            best = null; bestS = 0f; bestN = Vector2.zero; bestCount = 0; note = ""; mid = Vector2.zero;
             var houses = new List<Vector2>();
             float r2 = (radius + 100f) * (radius + 100f);
             foreach (var f in map.footprints)
@@ -271,17 +278,19 @@ namespace PSXRacing.EditorTools
             }
             if (best == null || bestCount < 4) return false;
             // the classes of the houses this frame faces
-            var cnt = new int[CityMeshes.HmClasses];
+            var cnt = new int[CityMeshes.HmClasses]; int nm = 0;
             Vector2 bq = best.PointAt(bestS), bt = best.TangentAt(bestS).normalized;
             foreach (var h in houses)
             {
                 var d = h - bq;
                 float al = Vector2.Dot(d, bt), off = Vector2.Dot(d, bestN);
                 if (Mathf.Abs(al) < 60f && off > 0f && off < 60f) cnt[CityMeshes.HouseMixOf(h).cls]++;
+                if (Mathf.Abs(al) < 40f && off > 6f + best.width * 0.5f && off < 75f) { mid += h; nm++; }
             }
             var sb = new StringBuilder();
             for (int k = 0; k < cnt.Length; k++) if (cnt[k] > 0) sb.Append(CityMeshes.HmClassNames[k]).Append(' ').Append(cnt[k]).Append(", ");
             note = sb.ToString().TrimEnd(',', ' ');
+            mid = nm > 0 ? mid / nm : bq + bestN * 25f;
             return true;
         }
 

@@ -712,13 +712,13 @@ namespace PSXRacing.City
         }
 
         /// <summary>The house's front: the direction of its walls (the first wall's line and
-        /// its normal) that faces the nearest street within 60 m. None: no front (a brick
+        /// its normal) that faces the nearest street within 80 m (a fill house stands up to 75 m back). None: no front (a brick
         /// front's house stays in siding).</summary>
         static void HmFront(Vector2 a, Vector2 c)
         {
             if (hmFrontTried) return;
             hmFrontTried = true; hmFrontOk = false;
-            if (hwMap == null || !hwMap.NearestRoadPoint(hmAt, 60f, true, out int ei, out float s, out _))
+            if (hwMap == null || !hwMap.NearestRoadPoint(hmAt, 80f, true, out int ei, out float s, out _))
             {
                 if (hm.cls == HmBrickFront || hm.cls == HmStoneFront) HouseMixNoFront++;
                 return;
@@ -775,6 +775,7 @@ namespace PSXRacing.City
             Vector2 ru = HmRowU[kind];
             float hr = (ru.y - ru.x) * HmRep[kind].x;
             bool dress = hr > 0.01f && HouseNearStreet(hmAt);
+            var rowTint = new Color32(TintByte(tint.r * 0.84f / 127.5f), TintByte(tint.g * 0.84f / 127.5f), TintByte(tint.b * 0.84f / 127.5f), tint.a);
             const float ov = 0.003f;
             var win = buckets[(int)Slot.FacadeHouse];
             float y = y0;
@@ -798,11 +799,14 @@ namespace PSXRacing.City
                     Vector2 p0 = a + dir * x0, p1 = a + dir * x1;
                     Bucket.Tint = tint;
                     HmPlain(tm, kind, a + dir * x, p0, lo, hi, outward, floor, x);
-                    // (a rowlock stops at the band's edge: only plain pieces, whose texels match, overlap the band over and under)
+                    // (a rowlock stops at the band's edge: only plain pieces, whose texels match, overlap the band over and under;
+                    // a shade darker, as a sill's face under its own drip and a lintel's soldiers read from the street)
+                    Bucket.Tint = rowTint;
                     if (sillOn) HmRowlock(tm, kind, p0, p1, r0, ws, outward, x0);
-                    else if (ws > lo + 0.002f) HmPlain(tm, kind, p0, p1, lo, ws, outward, floor, x0);
                     if (lintOn) HmRowlock(tm, kind, p0, p1, we, r1, outward, x0);
-                    else if (hi > we + 0.002f) HmPlain(tm, kind, p0, p1, we, hi, outward, floor, x0);
+                    Bucket.Tint = tint;
+                    if (!sillOn && ws > lo + 0.002f) HmPlain(tm, kind, p0, p1, lo, ws, outward, floor, x0);
+                    if (!lintOn && hi > we + 0.002f) HmPlain(tm, kind, p0, p1, we, hi, outward, floor, x0);
                     // the window: the siding's cell, whole, as painted
                     Bucket.Tint = new Color32(128, 128, 128, 0);
                     win.Wall(L(p0, 0f, tm), L(p1, 0f, tm), ws, we, outward, HouseWinU0, HouseWinU1, HouseWinV0, HouseWinV1);
