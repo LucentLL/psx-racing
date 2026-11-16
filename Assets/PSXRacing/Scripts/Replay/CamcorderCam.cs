@@ -175,7 +175,7 @@ namespace PSXRacing
                     if (groundAt(o1.x, o1.z).y > 0.5f || groundAt(o2.x, o2.z).y > 0.5f) continue;
                     bool crouch = kerb && Hash(s * 31 + attempt) % 2 == 0;
                     p.y = g.x + (crouch ? CrouchM : EyeM);
-                    if (blocked(p, road + Vector3.up * 0.8f) || blocked(p, ahead + Vector3.up * 0.8f)) continue;
+                    if (blocked(p, road + Vector3.up * 1.1f) || blocked(p, ahead + Vector3.up * 1.1f)) continue;   // a car's roof, over a Jersey barrier
                     list.Add(new Spot { idx = idx, pos = p, kind = kerb ? Kind.Kerb : Kind.Roadside });
                     placed = true;
                 }
@@ -189,10 +189,12 @@ namespace PSXRacing
                                 System.Func<Vector3, Vector3, bool> blocked, Vector3 ahead, out Vector3 pos)
         {
             pos = default;
-            Vector3 from = road + Vector3.up * 1.2f;
-            if (!Physics.Raycast(from, Vector3.up, out var hit, 14f, SolidMask, QueryTriggerInteraction.Ignore)) return false;
-            if (hit.distance < 3f) return false;
-            float deckY = hit.point.y + 0.3f;
+            // Looked for from ABOVE: a deck's collider faces up, and a ray from
+            // the road below passes through its back face (run 1 found none).
+            Vector3 from = road + Vector3.up * 18f;
+            if (!Physics.Raycast(from, Vector3.down, out var hit, 16.5f, SolidMask, QueryTriggerInteraction.Ignore)) return false;
+            if (hit.point.y - road.y < 4f) return false;
+            float deckY = hit.point.y;
             // Walk back down the route (toward the oncoming car) to the deck's edge.
             float edge = -1f;
             for (float s = 1f; s <= 16f; s += 1f)
