@@ -295,7 +295,21 @@ $wanted = @(
          @("4e42be3377eaccd40abd3f48bd6554a5", "OE/Oak/barkOak001_N.png"),
          @("211ca27924489134f88b69b65575eaaf", "OE/Oak/BranchesOak001.tif"),
          @("bd54ef767ea3f2e44b44c035dc07379d", "OE/Oak/BranchesOak001_N.png"),
-         @("1883fac2a09401945b4d1b5f0c903f5e", "OE/Oak/BigOakBillboard01.tif")) }
+         @("1883fac2a09401945b4d1b5f0c903f5e", "OE/Oak/BigOakBillboard01.tif")) },
+    # Charlotte's house brick (2026-11-15, the house mix: Editor/PSXRacingBuilder.HouseMix.cs makes the
+    # three texture tiers from these at kit-build time). Brick02 = the red brick, Brick01_TileMed = the
+    # old brick and the painted brick. Not listed: Brick01_TileDown (does not repeat upward), Brick03
+    # and Brick04 (derelict walls).
+    @{ Pkg = "Objective Environment\Textures Materials\PBR Bricks Materials.unitypackage"
+       Files = @(
+         @("1b845707778f2134b893b8f7d3a01ce7", "PBRBricks/Brick02.png"),
+         @("4487aeb52b4413140b75e0b2628b2a6c", "PBRBricks/Brick02_N.png"),
+         @("41118d5a9061c424caf737f84ac066f0", "PBRBricks/Brick02_AO.png"),
+         @("4116efa6f624aa444bbed8ca48174589", "PBRBricks/Brick02_DISP.png"),
+         @("0dec8928d4e93f24db1b9924363587b8", "PBRBricks/Brick01_TileMed_D.png"),
+         @("61e7f5c6cd688da479b616a37a5e55c2", "PBRBricks/Brick01_TileMed_N.png"),
+         @("030b48fe363ef38489277f0288f56661", "PBRBricks/Brick01_TileMed_AO.png"),
+         @("98d85bfa85026a9429426a11bb03a5c5", "PBRBricks/Brick01_TileMed_DISP.png")) }
 )
 
 $root = Join-Path $Dest "Assets\StoreAssets"

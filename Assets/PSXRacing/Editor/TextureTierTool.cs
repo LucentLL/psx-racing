@@ -97,7 +97,11 @@ namespace PSXRacing.EditorTools
         static List<Row> ReadManifest()
         {
             var rows = new List<Row>();
-            foreach (var line in File.ReadAllLines(Manifest))
+            var lines = new List<string>(File.ReadAllLines(Manifest));
+            // HOUSE MIX (2026-11-15): textures made from the owner's store packs at kit-build
+            // time have their rows beside them (gitignored with them: PSXRacingBuilder.HouseMix)
+            if (File.Exists(PSXRacingBuilder.HouseMixStoreManifest)) lines.AddRange(File.ReadAllLines(PSXRacingBuilder.HouseMixStoreManifest));
+            foreach (var line in lines)
             {
                 if (line.Length == 0 || line[0] == '#') continue;
                 var c = line.Split('\t');

@@ -639,12 +639,12 @@ namespace PSXRacing.EditorTools
             // (Art/City/Night, see WithNightWindows); brick and both roofs are
             // written WITHOUT one, which is not a no-op — it clears whatever a
             // stale asset on disk might still hold.
-            m[(int)CityMeshes.Slot.FacadeTower] = WithNightWindows(
-                MakeMat("CityFacadeTower", CityTexDir + "/city_facade_tower.jpg"), "city_facade_tower_night.png");
-            m[(int)CityMeshes.Slot.FacadeMid] = WithNightWindows(
-                MakeMat("CityFacadeMid", CityTexDir + "/city_facade_mid.jpg"), "city_facade_mid_night.png");
-            m[(int)CityMeshes.Slot.FacadeBrick] = WithNightWindows(
-                MakeMat("CityFacadeBrick", CityTexDir + "/city_facade_brick.jpg"), null);
+            // THE HOUSE MIX (2026-11-15, PSXRacingBuilder.HouseMix.cs): the three facade slots
+            // nothing has emitted into since the facade atlas (FacadeTower, FacadeMid,
+            // FacadeBrick) and the new last slot HousePaint hold a house's stone, old brick,
+            // red brick and painted brick - from the owner's PBR Bricks pack when it is
+            // extracted (tools/store-assets.ps1), else from in-repo brick
+            HouseMixMaterials(m);
             m[(int)CityMeshes.Slot.Shops] = WithNightWindows(
                 MakeMat("CityShops", CityTexDir + "/city_shops.png"), "city_shops_night.png");
             m[(int)CityMeshes.Slot.FacadeGlass] = FacadeAtlasMat();

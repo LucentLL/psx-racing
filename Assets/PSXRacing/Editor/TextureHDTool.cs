@@ -51,6 +51,8 @@ namespace PSXRacing.EditorTools
             // PSX_HD_SRC may name several folders, ';' between (a stage plus a test set)
             var dirs = new List<string>();
             foreach (var d in SrcDir.Split(';', '|')) if (!string.IsNullOrWhiteSpace(d) && Directory.Exists(d.Trim())) dirs.Add(d.Trim());
+            // HOUSE MIX (2026-11-15): the house brick's HD sets, made from the owner's PBR Bricks pack at kit-build time
+            if (Directory.Exists(PSXRacingBuilder.HouseMixHdStage)) dirs.Add(PSXRacingBuilder.HouseMixHdStage);
             if (dirs.Count == 0)
             {
                 WriteMap(pairs);
@@ -380,7 +382,9 @@ namespace PSXRacing.EditorTools
         static Texture2D FindOriginal(string key)
         {
             Texture2D found = null;
-            foreach (var guid in AssetDatabase.FindAssets(key + " t:Texture2D", new[] { "Assets/PSXRacing" }))
+            // (HOUSE MIX: a texture made from a store pack lives under Assets/StoreAssets/Gen)
+            var folders = AssetDatabase.IsValidFolder("Assets/StoreAssets/Gen") ? new[] { "Assets/PSXRacing", "Assets/StoreAssets/Gen" } : new[] { "Assets/PSXRacing" };
+            foreach (var guid in AssetDatabase.FindAssets(key + " t:Texture2D", folders))
             {
                 string p = AssetDatabase.GUIDToAssetPath(guid);
                 if (p.Contains("/HDSrc/") || p.Contains("/EnhancedSrc/")) continue;

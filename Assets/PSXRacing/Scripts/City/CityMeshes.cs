@@ -428,6 +428,11 @@ namespace PSXRacing.City
             /// Tryon and Trade Streets' sidewalks (CityMeshes.StreetDress), a
             /// submesh of the ground like <see cref="Sidewalk"/>. Last, so no slot moves.</summary>
             WalkPaver,
+            /// <summary>The house mix (2026-11-15, CityMeshes.HouseWalls.cs): a
+            /// house's PAINTED brick. (Its red brick, old brick and stone ride the
+            /// three facade slots nothing has emitted into since the facade atlas:
+            /// FacadeBrick, FacadeMid, FacadeTower.) Last, so no slot moves.</summary>
+            HousePaint,
             COUNT,
         }
 
@@ -1276,6 +1281,7 @@ namespace PSXRacing.City
             b[(int)Slot.FacadeGlass].col = new List<Color32>(512);   // the facade atlas (Uptown B1)
             b[(int)Slot.FacadeGlass].fac = new List<Vector4>(512);   // its walls (facade structure)
             b[(int)Slot.FacadeHouse].col = new List<Color32>(512);   // HOUSE WALLS: the siding's colour (PSX/Lit _HouseTint)
+            if (HouseMixOn) foreach (var hs in HmSlot) b[(int)hs].col = new List<Color32>(256);   // HOUSE MIX: a house's brick / paint / stone colour
             if (HouseRoofTintOn) b[(int)Slot.RoofTiles].col = new List<Color32>(512);   // HOUSES ROUND 3: shingle tones (alpha 255 = a house roof)
             return b;
         }
@@ -2408,7 +2414,7 @@ namespace PSXRacing.City
         {
             Slot.FacadeTower, Slot.FacadeMid, Slot.FacadeBrick, Slot.Shops,
             Slot.FacadeGlass, Slot.FacadeHouse, Slot.RoofTiles, Slot.RoofFlat,
-            Slot.Crown,
+            Slot.Crown, Slot.HousePaint,
         };
 
         /// <summary>Every driving surface plus the structural concrete, in slot

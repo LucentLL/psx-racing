@@ -34,6 +34,9 @@ Assets/PSXShaderKit.meta
 # tools/store-assets.ps1 into every checkout and sandbox that builds.
 Assets/StoreAssets/
 Assets/StoreAssets.meta
+/Assets/PSXRacing/EnhancedSrc/TexEnhanced/StoreGen/
+/Assets/PSXRacing/EnhancedSrc/TexEnhanced/StoreGen.meta
+/StoreGen/
 
 tools/brp/cache/
 # The generalised road bake downloads SRTM tiles and Overpass results here.
