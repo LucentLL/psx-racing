@@ -59,6 +59,11 @@ namespace PSXRacing
         /// <summary>The blue distance (LookChoices.AerialDepth): where it starts,
         /// and the share of the air's colour a ridge takes at AerialFarM.</summary>
         public const float AerialNearM = 2500f, AerialFarM = 40000f, AerialMax = 0.45f;
+        /// <summary>The blue distance v2 (PSX/Lit _PSXAerial): from this far, a
+        /// share 1 - exp(-d / L) of the air's colour, at most AerialMost - about
+        /// a quarter at 10 km, half at 20 (clear autumn air in the Blue Ridge).</summary>
+        public const float AerialStartM = 1800f, AerialLengthM = 26000f, AerialMost = 0.75f;
+        static readonly int AerialId = Shader.PropertyToID("_PSXAerial"), AerialColId = Shader.PropertyToID("_PSXAerialCol");
         public static bool FogOnlyWhenFoggy = true;
 
         public struct Preset
@@ -429,6 +434,8 @@ namespace PSXRacing
                 globals.ambient = p.ambient;
                 float scale = Mathf.Max(0.01f, globals.fogScale);
                 float curve = FogCurve;
+                // the blue distance v2 is off unless a horizon's clear day asks (below)
+                Shader.SetGlobalVector(AerialId, Vector4.zero);
                 if (weather == Weather.Fog || !FogOnlyWhenFoggy)
                 {
                     // A FOGGY DAY: the hour's band as signed off. Through the
@@ -502,14 +509,16 @@ namespace PSXRacing
                         // AerialFarM - about a tenth at 10 km - toward the sky's own
                         // blue by day (never its pale horizon) and toward the dark
                         // at night.
+                        // v2 (linncove 2026-11-16, the owner's Linn Cove photograph:
+                        // layered ridges, each a step paler and bluer): the air's
+                        // own law, 1 - exp(-d / L) past AerialStartM, in PSX/Lit's
+                        // _PSXAerial - the end-of-view fade stays where it is.
                         if (LookChoices.AerialDepth)
                         {
                             float nt = NightFor(index);
-                            var air = Color.Lerp(p.skyHorizon, p.skyTop, 0.55f) * Mathf.Lerp(0.9f, 0.4f, nt);
-                            globals.fogColor = new Color(air.r, air.g, air.b, hz.a);
-                            globals.fogNear = AerialNearM;
-                            globals.fogFar = AerialNearM + (AerialFarM - AerialNearM) / AerialMax;
-                            curve = 1f;
+                            var air = Color.Lerp(p.skyHorizon, p.skyTop, 0.45f) * Mathf.Lerp(0.95f, 0.4f, nt);
+                            Shader.SetGlobalVector(AerialId, new Vector4(AerialStartM, 1f / AerialLengthM, AerialMost, 1f));
+                            Shader.SetGlobalVector(AerialColId, new Vector4(air.r, air.g, air.b, 1f));
                         }
                     }
                     Shader.SetGlobalFloat("_PSXHorizonBandCut", bandCut);

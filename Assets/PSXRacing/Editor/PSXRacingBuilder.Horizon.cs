@@ -313,6 +313,95 @@ namespace PSXRacing.EditorTools
             new Color(0.326f, 0.226f, 0.054f), new Color(0.42f, 0.41f, 0.40f),
         };
 
+        // ---- THE FAR CANOPY (linncove, owner 2026-11-16: "It would be nice to
+        // find a solution to the barren mountains in the distance on mountain
+        // maps"; his title frame showed the far hills as bare, smooth brown
+        // ground). PSX/Lit _HorizonCrowns paints the land past the forest as
+        // crowns; these are its colours, per dress (Winter, Spring, Summer,
+        // Fall, Snow), linear albedo BEFORE the dress's level is set (below).
+        // Taken from the near forest's own leaf sheets (leafmeans.py over the
+        // NatureManufacture sheets): the autumn beech sheets' mean is (0.156,
+        // 0.082, 0.015), and the forest wears it plain, under FallTints' red
+        // and gold, and late green; the oaks' russet; the bare sheets'
+        // grey-brown (0.132, 0.108, 0.090) with the winter oaks' tan.
+        static readonly Color[][] CanopyBroad =
+        {
+            new[] { new Color(0.132f, 0.108f, 0.090f), new Color(0.110f, 0.090f, 0.086f), new Color(0.150f, 0.118f, 0.082f),
+                    new Color(0.122f, 0.106f, 0.096f), new Color(0.094f, 0.079f, 0.068f) },
+            new[] { new Color(0.070f, 0.100f, 0.020f), new Color(0.086f, 0.116f, 0.028f), new Color(0.060f, 0.086f, 0.030f),
+                    new Color(0.096f, 0.106f, 0.046f), new Color(0.054f, 0.076f, 0.034f) },
+            new[] { new Color(0.040f, 0.070f, 0.018f), new Color(0.055f, 0.090f, 0.020f), new Color(0.035f, 0.060f, 0.020f),
+                    new Color(0.066f, 0.096f, 0.026f), new Color(0.045f, 0.074f, 0.030f) },
+            new[] { new Color(0.156f, 0.082f, 0.015f), new Color(0.150f, 0.044f, 0.012f), new Color(0.156f, 0.100f, 0.012f),
+                    new Color(0.100f, 0.055f, 0.020f), new Color(0.078f, 0.092f, 0.018f) },
+            new[] { new Color(0.30f, 0.29f, 0.29f), new Color(0.36f, 0.36f, 0.37f), new Color(0.25f, 0.23f, 0.22f),
+                    new Color(0.40f, 0.40f, 0.41f), new Color(0.22f, 0.20f, 0.19f) },
+        };
+        /// <summary>Spruce, fir, hemlock and the rhododendron under them: the
+        /// dark of every dress (the snow's dusted).</summary>
+        static readonly Color[] CanopyConiferRaw =
+        {
+            new Color(0.020f, 0.032f, 0.020f), new Color(0.022f, 0.038f, 0.020f), new Color(0.018f, 0.034f, 0.018f),
+            new Color(0.022f, 0.040f, 0.020f), new Color(0.050f, 0.065f, 0.055f),
+        };
+        /// <summary>Between the crowns: the shaded floor (the snow's is snow).</summary>
+        static readonly Color[] CanopyGapCol =
+        {
+            new Color(0.030f, 0.025f, 0.020f), new Color(0.012f, 0.012f, 0.008f), new Color(0.008f, 0.012f, 0.006f),
+            new Color(0.012f, 0.010f, 0.007f), new Color(0.55f, 0.56f, 0.59f),
+        };
+        /// <summary>Where the spruce-fir takes over (m above sea level), and
+        /// the conifers' share below and above: hemlock and white pine a tenth
+        /// of the coves, spruce-fir most of the Black Mountains and
+        /// Grandfather's crest.</summary>
+        const float SpruceFromM = 1450f, SpruceByM = 1750f, ConiferLow = 0.10f, ConiferHigh = 0.85f;
+        /// <summary>The mean light the crowns take (PSX/Lit: AO 0.8, the domes'
+        /// sun ~0.85 of a flat face's) and the gaps' share of the land.</summary>
+        const float CanopyMeanLight = 0.82f, CanopyGapShare = 0.12f, CanopyConiferMid = 0.15f;
+
+        static float Lum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+        /// <summary>The level a dress's crowns are set to: their mean, lit as
+        /// PSX/Lit lights them, is the measured canopy (HorizonCanopy) - so the
+        /// land past the forest keeps the brightness the 2026-11-09 probe fitted
+        /// to the forest beside it, and gains only its grain. The conifers
+        /// rise by the root of it: they stay dark.</summary>
+        static float CanopyLevel(int d)
+        {
+            var broad = CanopyBroad[d];
+            float lb = 0f; foreach (var c in broad) lb += Lum(c); lb /= broad.Length;
+            float lc = Lum(CanopyConiferRaw[d]), lg = Lum(CanopyGapCol[d]);
+            float target = Lum(HorizonCanopy[Mathf.Clamp(d, 0, HorizonCanopy.Length - 1)]) / CanopyMeanLight;
+            float lo = 0.1f, hi = 20f;
+            for (int it = 0; it < 40; it++)
+            {
+                float k = 0.5f * (lo + hi);
+                float mean = (1f - CanopyGapShare) * ((1f - CanopyConiferMid) * lb * k + CanopyConiferMid * lc * Mathf.Sqrt(k)) + CanopyGapShare * lg;
+                if (mean < target) lo = k; else hi = k;
+            }
+            return 0.5f * (lo + hi);
+        }
+
+        /// <summary>A far-land material's crowns for a dress (PSX/Lit
+        /// _HorizonCrowns, _CanopyP0-4, _CanopyConifer, _CanopyGap, _CanopySpruce).</summary>
+        static void SetFarCanopy(Material m, int d)
+        {
+            if (m == null || !m.HasProperty("_HorizonCrowns")) return;
+            d = Mathf.Clamp(d, 0, CanopyBroad.Length - 1);
+            float k = CanopyLevel(d), kc = Mathf.Sqrt(k);
+            var broad = CanopyBroad[d];
+            for (int i = 0; i < 5; i++)
+            {
+                var c = broad[i] * k;
+                m.SetColor("_CanopyP" + i, new Color(Mathf.Min(c.r, 0.95f), Mathf.Min(c.g, 0.95f), Mathf.Min(c.b, 0.95f), 1f));
+            }
+            var cc = CanopyConiferRaw[d] * kc;
+            m.SetColor("_CanopyConifer", new Color(cc.r, cc.g, cc.b, 1f));
+            m.SetColor("_CanopyGap", CanopyGapCol[d]);
+            m.SetVector("_CanopySpruce", new Vector4(SpruceFromM - stageBaseM, SpruceByM - stageBaseM, ConiferLow, ConiferHigh));
+            m.SetFloat("_HorizonCrowns", 1f);
+        }
+
         /// <summary>Every dress of a far-ground material, by dress index (the
         /// fall one is the base).</summary>
         static Material[] DressesOf(Material baseMat)
@@ -343,6 +432,7 @@ namespace PSXRacing.EditorTools
                 m.SetTexture("_HorizonMacro", macro);
                 m.SetColor("_HorizonCanopy", new Color(c.r, c.g, c.b, macro != null ? 1f : 0f));
                 m.SetVector("_HorizonFade", new Vector4(CanopyFromM, CanopyByM, 1f / HillMapM, HillMapLum));
+                SetFarCanopy(m, d);
                 bool floor = m.mainTexture != null && !PSXTextureCaps.IsFarLand(AssetDatabase.GetAssetPath(m.mainTexture));
                 if (floor && NMGroundOn)
                 {
@@ -490,6 +580,9 @@ namespace PSXRacing.EditorTools
                     apron++;
                 }
 
+            // the ridges' crown fringe (PSX_FARCANOPY=0 clips it in the shader)
+            int fringeCards = BuildHorizonFringe(root.transform, detail);
+
             // The far plane: past the apron's furthest corner from anywhere on the route.
             float reach = 0f;
             foreach (var corner in new[] { new Vector2(ex0, ez0), new Vector2(ex1, ez0), new Vector2(ex0, ez1), new Vector2(ex1, ez1) })
@@ -504,8 +597,198 @@ namespace PSXRacing.EditorTools
             Log($"Stage horizon, PC: {standIns} corridor stand-ins ({standVerts} verts), tier 0 {tier} chunks ({tierVerts} verts) over the " +
                 $"{(dx1 - dx0) / 1000f:0.0} x {(dz1 - dz0) / 1000f:0.0} km DEM, apron {apron} chunks ({apronVerts} verts) over {(ex1 - ex0) / 1000f:0} x {(ez1 - ez0) / 1000f:0} km " +
                 $"({(demWide != null ? "the wide grid's real land" : "the DEM mirrored: no wide grid, tools/roads/bake_wide.mjs")}); " +
-                $"far plane {stageHorizonFar:0} m, detail to {detail:0} m.");
+                $"far plane {stageHorizonFar:0} m, detail to {detail:0} m; ridge fringe {fringeCards} cards.");
             return stageHorizonFar;
+        }
+
+        // ---- THE RIDGES' CROWN FRINGE (linncove 2026-11-16) ------------------
+        // The DEM is bare earth: past the forest's reach a ridge met the sky as
+        // a smooth line of 60 m facets, 20-30 m under where the real treetops
+        // stand. Every crest of the 60 m lattice (higher than both neighbours
+        // across it, by a convex 6 m over 240 m) carries a pair of upright
+        // cards, one along the ridge and one across, whose alpha is a row of
+        // crowns - broadleaf domes, or spruce-fir spires up high - and whose
+        // colour is the land's own crown field (PSX/Lit _HorizonFringe). Drawn
+        // on the Horizon layer, dithered in past the detail's edge (where the
+        // mesh forest has stopped), clipped whole by PSX_FARCANOPY=0.
+        const float FringeW = 72f, FringeCrossW = 48f, FringeH = 30f, FringeSink = 8f, FringeTexM = 96f;
+        static string FringePath(bool spruce) => StageGenDir + (spruce ? "/HorizonFringeSpruce.png" : "/HorizonFringe.png");
+
+        static float FringeHash(int a, int b) { uint h = (uint)(a * 73856093) ^ (uint)(b * 19349663); h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15; return (h & 0xffffu) / 65535f; }
+
+        /// <summary>A row of crowns across 96 m, the card's 30 m tall with the
+        /// ground 8 m up it: alpha the forest's outline, grey its shading
+        /// (lighter toward each crown's top). Seamless across.</summary>
+        static void WriteFringeTexture(bool spruce)
+        {
+            const int W = 512, H = 128;
+            var top = new float[W];
+            var depth = new float[W];   // how deep the crown that makes the top runs (for the shading)
+            for (int x = 0; x < W; x++) { top[x] = 6f; depth[x] = 6f; }
+            float spacing = spruce ? 5.2f : 8.6f;
+            int n = Mathf.RoundToInt(FringeTexM / spacing);
+            for (int k = 0; k < n; k++)
+            {
+                float cx = (k + 0.15f + 0.7f * FringeHash(k, spruce ? 7 : 3)) * FringeTexM / n;
+                float ty = (spruce ? 17f : 16f) + (spruce ? 8f : 6.5f) * FringeHash(k, 11);
+                float rx = spruce ? 2.4f + 1.0f * FringeHash(k, 13) : 4.2f + 2.4f * FringeHash(k, 13);
+                float ry = spruce ? 10f : 5.5f + 2.5f * FringeHash(k, 17);
+                for (int x = 0; x < W; x++)
+                {
+                    float xm = (x + 0.5f) * FringeTexM / W;
+                    float dx = Mathf.Abs(xm - cx); dx = Mathf.Min(dx, FringeTexM - dx);   // seamless
+                    if (dx >= rx) continue;
+                    float y = spruce ? ty - ry * (dx / rx)                                      // a spire
+                                     : ty - ry + ry * Mathf.Sqrt(1f - (dx / rx) * (dx / rx));     // a dome
+                    if (y > top[x]) { top[x] = y; depth[x] = ry; }
+                }
+            }
+            WriteTexture(FringePath(spruce), W, H, (x, y) =>
+            {
+                float ym = (y + 0.5f) * FringeH / H - FringeSink;   // over the ground
+                // the outline's leaves: a ragged edge half a metre deep
+                float rag = 0.35f * Mathf.Sin(x * 1.7f + y * 0.3f) + 0.25f * Mathf.Sin(x * 3.1f + 1.3f);
+                bool on = ym < top[x] + rag;
+                float under = Mathf.Clamp01((top[x] - ym) / Mathf.Max(depth[x], 1f));
+                float g = Mathf.Lerp(0.62f, 0.30f, under);
+                byte v = (byte)Mathf.RoundToInt(g * 255f);
+                return new Color32(v, v, v, (byte)(on ? 255 : 0));
+            });
+            var imp = AssetImporter.GetAtPath(FringePath(spruce)) as TextureImporter;
+            if (imp == null) return;
+            bool dirty = !imp.mipmapEnabled || !imp.mipMapsPreserveCoverage || Mathf.Abs(imp.alphaTestReferenceValue - 0.5f) > 0.01f ||
+                         imp.wrapModeU != TextureWrapMode.Repeat || imp.wrapModeV != TextureWrapMode.Clamp ||
+                         imp.filterMode != FilterMode.Trilinear || !imp.alphaIsTransparency || imp.sRGBTexture;
+            imp.mipmapEnabled = true; imp.mipMapsPreserveCoverage = true; imp.alphaTestReferenceValue = 0.5f;
+            imp.wrapModeU = TextureWrapMode.Repeat; imp.wrapModeV = TextureWrapMode.Clamp;
+            imp.filterMode = FilterMode.Trilinear; imp.anisoLevel = 4; imp.alphaIsTransparency = true;
+            imp.sRGBTexture = false;   // the shading is a factor, not a colour
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            if (dirty) imp.SaveAndReimport();
+        }
+
+        /// <summary>The fringe's material, in every dress (the land's crowns).</summary>
+        static Material FringeMat(bool spruce, float detail)
+        {
+            WriteFringeTexture(spruce);
+            string key = MeshPrefix + (spruce ? "HorizonFringeS" : "HorizonFringe");
+            var baseMat = MakeMat(key, FringePath(spruce), cutoff: 0.5f, affine: 0f, twoSided: true);
+            RegisterSeasonalTexture(key, baseMat, d => FringePath(spruce), "far", cutoff: 0.5f, twoSided: true);
+            var dresses = DressesOf(baseMat);
+            for (int d = 0; d < dresses.Length; d++)
+            {
+                var m = dresses[d];
+                if (m == null) continue;
+                m.SetFloat("_Horizon", 1f);
+                m.SetFloat("_HorizonFringe", 1f);
+                SetFarCanopy(m, d);
+                // spires all the way up: the share of conifers 1 on the spruce cards
+                if (spruce) m.SetVector("_CanopySpruce", new Vector4(-1e5f, -1e5f + 1f, 1f, 1f));
+                // dithered in from just inside the detail's edge to just past it
+                m.SetVector("_HorizonFade", new Vector4(detail - 260f, detail + 60f, 1f / HillMapM, HillMapLum));
+                EditorUtility.SetDirty(m);
+            }
+            return baseMat;
+        }
+
+        /// <summary>The land as the horizon draws it (tier 0's own height).</summary>
+        static float FringeGroundY(float x, float z) => HorizonFieldY(x, z) - FarSink - HorizonDrop(x, z);
+
+        static int BuildHorizonFringe(Transform parent, float detail)
+        {
+            if (demFar == null || demFarMeta == null) return 0;
+            var broadMat = FringeMat(false, detail);
+            var spruceMat = FringeMat(true, detail);
+            var root = new GameObject("RidgeFringe");
+            root.transform.SetParent(parent, false);
+            HorizonDemRect(out float dx0, out float dx1, out float dz0, out float dz1);
+            const float S = FarCell;
+            int gx0 = Mathf.CeilToInt((dx0 + 2f * S) / S), gx1 = Mathf.FloorToInt((dx1 - 2f * S) / S);
+            int gz0 = Mathf.CeilToInt((dz0 + 2f * S) / S), gz1 = Mathf.FloorToInt((dz1 - 2f * S) / S);
+            int cols = gx1 - gx0 + 1, rows = gz1 - gz0 + 1;
+            if (cols < 5 || rows < 5) return 0;
+            var h = new float[cols * rows];
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                    h[r * cols + c] = HorizonFieldY((gx0 + c) * S, (gz0 + r) * S);
+            float H(int c, int r) => h[Mathf.Clamp(r, 0, rows - 1) * cols + Mathf.Clamp(c, 0, cols - 1)];
+            var dirs = new[] { new Vector2Int(1, 0), new Vector2Int(0, 1), new Vector2Int(1, 1), new Vector2Int(1, -1) };
+            // per horizon chunk: broadleaf and spruce card lists
+            var meshes = new Dictionary<long, (List<Vector3> v, List<Vector3> n, List<Vector2> u, List<int> t, List<Vector3> sv, List<Vector3> sn, List<Vector2> su, List<int> st)>();
+            int cards = 0;
+            void Card(Vector3 centre, Vector3 along, float width, Vector3 nrm, bool spruce, float u0)
+            {
+                int cx = Mathf.FloorToInt(centre.x / HorizonChunk), cz = Mathf.FloorToInt(centre.z / HorizonChunk);
+                long key = ((long)cx << 32) ^ (uint)cz;
+                if (!meshes.TryGetValue(key, out var m))
+                    meshes[key] = m = (new List<Vector3>(), new List<Vector3>(), new List<Vector2>(), new List<int>(),
+                                       new List<Vector3>(), new List<Vector3>(), new List<Vector2>(), new List<int>());
+                var vs = spruce ? m.sv : m.v; var ns = spruce ? m.sn : m.n; var us = spruce ? m.su : m.u; var ts = spruce ? m.st : m.t;
+                float ox = cx * HorizonChunk, oz = cz * HorizonChunk;
+                Vector3 a = centre - along * (width * 0.5f), b = centre + along * (width * 0.5f);
+                float ya = FringeGroundY(a.x, a.z), yb = FringeGroundY(b.x, b.z);
+                int i0 = vs.Count;
+                vs.Add(new Vector3(a.x - ox, ya - FringeSink, a.z - oz));
+                vs.Add(new Vector3(a.x - ox, ya - FringeSink + FringeH, a.z - oz));
+                vs.Add(new Vector3(b.x - ox, yb - FringeSink + FringeH, b.z - oz));
+                vs.Add(new Vector3(b.x - ox, yb - FringeSink, b.z - oz));
+                float u1 = u0 + width / FringeTexM;
+                us.Add(new Vector2(u0, 0f)); us.Add(new Vector2(u0, 1f)); us.Add(new Vector2(u1, 1f)); us.Add(new Vector2(u1, 0f));
+                for (int q = 0; q < 4; q++) ns.Add(nrm);
+                ts.Add(i0); ts.Add(i0 + 1); ts.Add(i0 + 2); ts.Add(i0); ts.Add(i0 + 2); ts.Add(i0 + 3);
+                cards++;
+            }
+            for (int r = 2; r < rows - 2; r++)
+                for (int c = 2; c < cols - 2; c++)
+                {
+                    float h0 = H(c, r);
+                    float best = 0f; int bestD = -1;
+                    for (int k = 0; k < dirs.Length; k++)
+                    {
+                        var d = dirs[k];
+                        float a1 = H(c - d.x, r - d.y), b1 = H(c + d.x, r + d.y);
+                        if (h0 <= a1 || h0 <= b1) continue;
+                        float a2 = H(c - 2 * d.x, r - 2 * d.y), b2 = H(c + 2 * d.x, r + 2 * d.y);
+                        float convex = h0 - 0.5f * (a2 + b2);
+                        if (d.x != 0 && d.y != 0) convex *= 0.7071f;   // the diagonals' 85 m steps, per 60
+                        if (convex > best) { best = convex; bestD = k; }
+                    }
+                    if (bestD < 0 || best < 6f) continue;
+                    float x = (gx0 + c) * S, z = (gz0 + r) * S;
+                    if (RouteDistanceCoarse(x, z) < 25f) continue;   // never over the road's own line
+                    var dd = new Vector3(dirs[bestD].x, 0f, dirs[bestD].y).normalized;
+                    var along = new Vector3(-dd.z, 0f, dd.x);
+                    float y = FringeGroundY(x, z);
+                    float gxs = (H(c + 1, r) - H(c - 1, r)) / (2f * S), gzs = (H(c, r + 1) - H(c, r - 1)) / (2f * S);
+                    var nrm = new Vector3(-gxs, 1f, -gzs).normalized;
+                    float elev = stageBaseM + y;
+                    float pSpruce = Mathf.Lerp(ConiferLow, ConiferHigh, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SpruceFromM, SpruceByM, elev)));
+                    bool spruce = FringeHash(c * 3 + 1, r * 7 + 5) < pSpruce;
+                    var centre = new Vector3(x, y, z);
+                    Card(centre, along, FringeW, nrm, spruce, FringeHash(c, r));
+                    Card(centre, dd, FringeCrossW, nrm, spruce, FringeHash(r, c));
+                }
+            int chunks = 0;
+            foreach (var kv in meshes)
+            {
+                int cx = (int)(kv.Key >> 32), cz = (int)(kv.Key & 0xffffffff);
+                float ox = cx * HorizonChunk, oz = cz * HorizonChunk;
+                var m = kv.Value;
+                for (int s = 0; s < 2; s++)
+                {
+                    var vs = s == 1 ? m.sv : m.v;
+                    if (vs.Count == 0) continue;
+                    var mesh = new Mesh { indexFormat = vs.Count < 65000 ? UnityEngine.Rendering.IndexFormat.UInt16 : UnityEngine.Rendering.IndexFormat.UInt32 };
+                    mesh.SetVertices(vs); mesh.SetNormals(s == 1 ? m.sn : m.n); mesh.SetUVs(0, s == 1 ? m.su : m.u);
+                    mesh.SetTriangles(s == 1 ? m.st : m.t, 0);
+                    mesh.RecalculateBounds();
+                    HorizonGO(parent: root.transform, name: "Fringe" + (s == 1 ? "S_" : "_") + cx + "_" + cz, mesh: mesh,
+                              mat: s == 1 ? spruceMat : broadMat, ox: ox, oz: oz, meshName: "StageHorizonF" + (s == 1 ? "S_" : "_") + cx + "_" + cz);
+                    chunks++;
+                }
+            }
+            Log($"Stage horizon: ridge fringe {cards} cards in {chunks} meshes over {cols} x {rows} lattice points.");
+            return cards;
         }
     }
 }
