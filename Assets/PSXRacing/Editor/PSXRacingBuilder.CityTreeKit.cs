@@ -274,6 +274,8 @@ namespace PSXRacing.EditorTools
             // ---- ROUND 3: Charlotte's forms (round street trees, avenue oaks, pines, crape myrtles) ----
             var groups3 = new List<byte>();
             CTRound3(list, names, roles, groups3);
+            // ---- every level standing on the ground (the packs' coarser levels have no roots: PSX_CT5_FOOT=0 = as they were) ----
+            CTFeet(list, names);
             // ---- the crowns ----
             var crown = new float[list.Count * CityTreeKit.Bands];
             var cbase = new float[list.Count];
