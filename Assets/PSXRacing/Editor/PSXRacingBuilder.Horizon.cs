@@ -47,7 +47,12 @@ namespace PSXRacing.EditorTools
     {
         /// <summary>Tier 0's chunk: four far chunks a side, 64 x 64 DEM cells.</summary>
         const float HorizonChunk = FarChunk * 4f;
-        const float ApronCell = 480f, ApronChunk = HorizonChunk * 4f, ApronReachM = 24000f;
+        const float ApronChunk = HorizonChunk * 4f, ApronReachM = 24000f;
+        /// <summary>The apron's drawn cell: the wide grid's own 240 m (linncove
+        /// 2026-11-16: at 480 m a ridge 20 km off met the sky as a polygon of
+        /// one-and-a-half-degree facets - "smooth" hills); 480 with
+        /// PSX_FARCANOPY=0 at the scene build (the land as it was).</summary>
+        static float ApronCell => System.Environment.GetEnvironmentVariable("PSX_FARCANOPY") == "0" ? 480f : 240f;
         /// <summary>The corridor stand-in sits this far under the lowest
         /// ground round each of its vertices, and starts this far inside the
         /// detail's edge.</summary>
@@ -624,15 +629,15 @@ namespace PSXRacing.EditorTools
             const int W = 512, H = 128;
             var top = new float[W];
             var depth = new float[W];   // how deep the crown that makes the top runs (for the shading)
-            for (int x = 0; x < W; x++) { top[x] = 6f; depth[x] = 6f; }
-            float spacing = spruce ? 5.2f : 8.6f;
+            for (int x = 0; x < W; x++) { top[x] = spruce ? 7f : 11f; depth[x] = 6f; }
+            float spacing = spruce ? 4.3f : 6.2f;
             int n = Mathf.RoundToInt(FringeTexM / spacing);
             for (int k = 0; k < n; k++)
             {
                 float cx = (k + 0.15f + 0.7f * FringeHash(k, spruce ? 7 : 3)) * FringeTexM / n;
-                float ty = (spruce ? 17f : 16f) + (spruce ? 8f : 6.5f) * FringeHash(k, 11);
-                float rx = spruce ? 2.4f + 1.0f * FringeHash(k, 13) : 4.2f + 2.4f * FringeHash(k, 13);
-                float ry = spruce ? 10f : 5.5f + 2.5f * FringeHash(k, 17);
+                float ty = (spruce ? 14f : 14.5f) + (spruce ? 11f : 8f) * FringeHash(k, 11);
+                float rx = spruce ? 1.9f + 1.4f * FringeHash(k, 13) : 3.2f + 3.2f * FringeHash(k, 13);
+                float ry = spruce ? 8f + 5f * FringeHash(k, 17) : 4.5f + 3f * FringeHash(k, 17);
                 for (int x = 0; x < W; x++)
                 {
                     float xm = (x + 0.5f) * FringeTexM / W;
@@ -647,7 +652,7 @@ namespace PSXRacing.EditorTools
             {
                 float ym = (y + 0.5f) * FringeH / H - FringeSink;   // over the ground
                 // the outline's leaves: a ragged edge half a metre deep
-                float rag = 0.35f * Mathf.Sin(x * 1.7f + y * 0.3f) + 0.25f * Mathf.Sin(x * 3.1f + 1.3f);
+                float rag = (FringeHash(x, 23) - 0.5f) * 0.9f + (FringeHash(x / 3, 29) - 0.5f) * 0.8f;
                 bool on = ym < top[x] + rag;
                 float under = Mathf.Clamp01((top[x] - ym) / Mathf.Max(depth[x], 1f));
                 float g = Mathf.Lerp(0.62f, 0.30f, under);
