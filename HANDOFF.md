@@ -1,4 +1,113 @@
-﻿# HANDOFF - THE GRIP ROUND (agent "grip", branch `tyre-grip` off mountain-nm 749e05de = PC50, 2026-11-17 01:30-03:40; NOT pushed, NOT merged)
+﻿# HANDOFF - THE LINE GATE (agents "linegate" then its Opus 5.5 successor, branch `city-linegate` off mountain-nm 742315cd, 2026-11-16/17; NOT pushed, NOT merged)
+
+The owner, PC48, North Tryon Street: "I still see a lot of areas around Charlotte where the road and/or road lines do not make
+sense, are not accurate, and would never pass DOT requirements ... these issues cannot get through the quality gate audits."
+
+## THE RULE (also in Docs\CHARLOTTE.md, "The line gate")
+`tools\city-linegate.ps1` is part of every Charlotte merge and build. A branch may not raise any class above
+`tools\city\baseline\linegate_baseline.json` (the tool exits 1; 2 when the run fails). The build note quotes its totals line.
+A class is closed only at 0; no "known, ignore" list. No Charlotte race track ships on a road that fails. Re-record the
+baseline (`-WriteBaseline`) only in a commit that brought a class DOWN, or that changed a rule with its proof.
+
+## The baseline (full4: drawing code 742315cd, gate 416dd3b7 (+ b7f92df4: hairpins, after the run), graph b2aa3453, 10,626 road tiles, 23 min in PSXRoadA)
+| class | failing places | T1 freeways + primary | T2 minor | T3 neighbourhood |
+|---|---:|---:|---:|---:|
+| SHIFT | 2,703 | 1,326 | 1,361 | 16 |
+| SJOG | 2,851 | 1,408 | 1,429 | 14 |
+| KINK | 3,231 | 1,662 | 968 | 601 |
+| WIDTH | 630 | 313 | 316 | 1 |
+| CONT | 1,725 | 793 | 922 | 10 |
+| SURFACE | 261 | 260 | 1 | 0 |
+| JUNCTION | 657 | 102 | 407 | 148 |
+| MEDIAN | 76 | 9 | 45 | 22 |
+| STEP | 9,684 | 2,240 | 4,162 | 3,282 |
+| BARRIER | 1,622 | 379 | 1,193 | 50 |
+| BRIDGE | 12 | 9 | 3 | 0 |
+| **ALL** | **23,452** | | | |
+
+The totals line the tool prints (quote it in every build note):
+
+    LINE GATE full4 graph b2aa3453: SHIFT 2703 SJOG 2851 KINK 3231 WIDTH 630 CONT 1725 SURFACE 261 JUNCTION 657 MEDIAN 76 STEP 9684 BARRIER 1622 BRIDGE 12 | ALL 23452 failing places
+
+## What was found
+1. The old line gate never gated: `Editor/SmoothRules.cs:215` `ReportOnly = true` since 2026-09-29, `CitySmooth.RunFull`
+   exits 0; its offline twin lists 368,982 runs on today's data and exits 0; it judges the builder against its own plan.
+   The city audit's line reports are boxed to Uptown (`CityAudit.Hooks.cs:82`) and judge colour / meaning, not rate.
+2. The owner's spot (x 2470 z 8201, e15599 / e9470 / e15598 / e15597 / e15596, 45 mph) is caught: the relay
+   (`Scripts/City/LineModel.cs:1774` NeedsRelay, `:578` Relay) moves the centre line 2.9 m in 40 m and 3.2 m back in 57 m
+   (needs 131 / 144 m); a lane line ends at a joint (a 6.2-6.9 m lane). Real road: 3 + TWLTL + 3, straight (splits2).
+3. CORRECTION of the first note: the "dark stripes" are NOT the stretched road texture. The HD road base
+   (`HDSrc/TexHD/city_road_base_*`), its normal / AO / roughness maps and the paint masks' grain channel are flat (column and
+   row means within 1/255 over 64 bins); stretching an even texture draws nothing. Likely tyre marks (`Scripts/SkidMarks.cs`,
+   every sliding car): settled by splits2's fresh PC-look frame of the spot (no stripes). SURFACE "stretched" is census
+   only (`PSX_LG_STRETCHFAIL=1` fails it again).
+4. One-cause classes: the junction slab's 12 mm lip, 5,801 places from ONE constant (`CityMeshes.cs:10791` FanProudM = 0.012; NCDOT 610-12 allows 3.2 mm; also tracks S1); parapets / rails on the edge line 1,622; grade breaks 3,883; the line model's relays and short tapers (SJOG / SHIFT / WIDTH / CONT: scratchpad\linegate\WORKLIST_FOR_SPLITS2.md ranks them)
+
+## False positives: checked on frames, fixed (all in the census line "passed by rule:" of city_linegate.txt)
+Each rule below was proven on sampled editor frames (sheets in Review\Charlotte_Line_Gate_2026-11-16\samples*_<CLASS>.jpg);
+the recorded run passed by them:
+- 109125 curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve)
+- 1632 sharp kinks, S-jogs or line shifts (10 deg, 45 deg, steeper than 1:1.5) within 60 m of a ramp's diverge / merge (its gore's V read through hidden paint)
+- 521 more over another road's pavement (recorded as SURFACE: two roads' pavement drawn over each other)
+- 15627 grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets)
+- 1550 pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper (25:1)
+- 18434 kinks (2490 more at a gore's nose) and 3453 pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return)
+- 638 line ends inside an edge and 532 at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change)
+- 1175 line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18)
+- 3699 edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings)
+- 1503 side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule)
+- 523 road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow
+- not failed at all (census only): stretched pavement texture (`PSX_LG_STRETCHFAIL=1`); stop-line placement read from the
+  signal plan, not the mesh (`PSX_LG_STOPLINE=1`)
+- rule changes besides: KINK must hold over 8 / 16 m chords; grade breaks over 20 / 40 m; WIDTH: under 1.8 m is a
+  buffer, a solid line near the curb a shoulder, two edge lines no lane; JUNCTION mouth: the nearest line within 3 m,
+  not a centre line; doubled lines: parallel for 20 m; BRIDGE: a twin deck counts half the lanes; line ends join
+  only within 45 deg
+
+## What I changed (new files only; an audit: no drawing code, no switch)
+- `Assets/PSXRacing/Editor/CityAudit.LineGate.cs`, `.LineGate2.cs` (`CityAudit.RunLineGate`), `.LineGateShots.cs`
+  (`CityAudit.RunLineGateShots`: plan / driver's eye / UV-grid editor frames; `PSX_LG_NOBLD=1` no buildings), .meta files.
+- `tools\city-linegate.ps1` (the gate; the baseline records the drawing commit), `tools\city\baseline\linegate_baseline.json`,
+  `tools\city\linegate_report.py`, `_tracks.py`, `_worklist.py`, `_samples.py` (`--nfor`, `--uv`, stratified by kind).
+- `Docs\CHARLOTTE.md`: "The line gate" section appended (the rule, what it reads and judges, the baseline table).
+- Gate env: PSX_LG_BOX, _NAME, _TAG, _SPOT, _PLANS, _PLAN_AT, _FOOD, _SHOTS, _NOBLD (frames), _STRETCHFAIL and _STOPLINE (=1
+  fail the two kinds that are census only).
+
+## Proof
+- Runs (PSXRoadA, WebGL, all whole-city unless said): full1 (first run, before the fixes: 46,175 places), full2 (after the
+  first false-positive fixes: 27,393), full4 (the baseline, through `tools\city-linegate.ps1 -WriteBaseline`: the tool's first
+  end-to-end run), full3 (the first tool run; superseded after its worst frames showed ramp-overlap readings), box runs b1 (I-485 gores) / b2 (a spot dump at one gore). Outputs: scratchpad\linegate\out\<tag>_*.
+- The tool's exit codes: `scratchpad\linegate\tooltest.ps1` (no Unity) on the recorded run: write 0, same run 0, one class
+  +1 place exit 1 ("LINE GATE FAILED: 1 class(es) raised: KINK n -> n+1"), classes lowered 0 (CLOSED shown), box run 0 (not
+  compared), no baseline 1, no run file 2: 7 of 7.
+- False-positive sheets (real editor plan frames, 64 x 36 m, every cell labelled with what the gate said):
+  `Review\Charlotte_Line_Gate_2026-11-16\samples_<CLASS>.jpg` (312 places of full1) and `samples2_<CLASS>.jpg` (222 of
+  full2, stratified by kind); scratchpad\linegate\report\s1\m_*.png close-ups (gore hooks, stop lines, curbs, steps).
+- The owner's spot: `Review\Charlotte_Line_Gate_2026-11-16\owner_spot.png` (plan + driver's eye, same code as PC48).
+- The worst 60: `Review\Charlotte_Line_Gate_2026-11-16\worst_01..06.png`; the heat map
+  `Charlotte_Line_Gate_2026-11-16.png`; the note `Charlotte_Line_Gate_2026-11-16.md`, every failure in `.csv`.
+
+## Not done / not verified
+- Street-level comparison of the sampled places (the gate proves the drawn road against the standard, not against the
+  real street); (the stripes are settled: tyre marks).
+- The older Unity audits were not re-run at the spot (read in code: none measures a line's sideways rate; the smoothness
+  gate's offline twin was run: 368,982 runs, exit 0).
+- Not judged: turn-lane storage, median nose shape / island width, crosswalk / arrow / stop-line placement (the stop-line
+  check read the signal plan, not the mesh: off, PSX_LG_STOPLINE=1), paint under another ribbon (counted only).
+- AASHTO Green Book 9.7.2 (bay tapers) and 10.9.6 (ramp terminal 25:1) are from memory, not re-read; NCDOT's RDM PDF was
+  not readable as text (FDOT / TxDOT tables used, read 2026-11-16).
+- MEDIAN, BARRIER, BRIDGE, STEP fan lips and grade breaks were confirmed on frames as drawn faults by the measure; whether a
+  bridge's real parapet also stands on its edge line was not checked against imagery.
+
+## At merge
+- New files only, plus one section appended at the end of `Docs\CHARLOTTE.md` and this HANDOFF section. No scene pass,
+  no re-bake, no data file. The Editor .meta files are committed (minted in PSXRoadA).
+- After merging anything that touches Scripts/City or the city data: run `tools\city-linegate.ps1` (about 27 min in a WebGL
+  sandbox); exit 1 = a class rose: the branch does not merge until it is back at or under the baseline.
+- splits2's branch (charlotte-splits2) adds RoadProfiles.Tw7 and moves lines: after it merges, run the gate and re-record
+  the baseline in that merge commit if every class went down or held.
+
+# HANDOFF - THE GRIP ROUND (agent "grip", branch `tyre-grip` off mountain-nm 749e05de = PC50, 2026-11-17 01:30-03:40; NOT pushed, NOT merged)
 
 Owner, 11-17 ~01:30: "I noticed that cars slide on banked roads. Even when resting in place at the start of a race. This
 means tires don't actually grip the roads." Scratch: `scratchpad\grip\` (PROGRESS.md, drift_table.txt, sheet_*.png,

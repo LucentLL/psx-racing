@@ -1,0 +1,119 @@
+{
+    "note":  "The line gate\u0027s baseline: failing places per class, whole city. A branch may not raise any class.",
+    "commit":  "416dd3b7",
+    "drawing":  "742315cd",
+    "date":  "2026-11-17 03:39",
+    "graph":  "b2aa3453",
+    "tiles":  10626,
+    "classes":  {
+                    "SHIFT":  {
+                                  "places":  2703,
+                                  "failures":  6010,
+                                  "T1":  1326,
+                                  "T2":  1361,
+                                  "T3":  16
+                              },
+                    "SJOG":  {
+                                 "places":  2851,
+                                 "failures":  6315,
+                                 "T1":  1408,
+                                 "T2":  1429,
+                                 "T3":  14
+                             },
+                    "KINK":  {
+                                 "places":  3231,
+                                 "failures":  9665,
+                                 "T1":  1662,
+                                 "T2":  968,
+                                 "T3":  601
+                             },
+                    "WIDTH":  {
+                                  "places":  630,
+                                  "failures":  691,
+                                  "T1":  313,
+                                  "T2":  316,
+                                  "T3":  1
+                              },
+                    "CONT":  {
+                                 "places":  1725,
+                                 "failures":  2780,
+                                 "T1":  793,
+                                 "T2":  922,
+                                 "T3":  10
+                             },
+                    "SURFACE":  {
+                                    "places":  261,
+                                    "failures":  263,
+                                    "T1":  260,
+                                    "T2":  1,
+                                    "T3":  0
+                                },
+                    "JUNCTION":  {
+                                     "places":  657,
+                                     "failures":  902,
+                                     "T1":  102,
+                                     "T2":  407,
+                                     "T3":  148
+                                 },
+                    "MEDIAN":  {
+                                   "places":  76,
+                                   "failures":  80,
+                                   "T1":  9,
+                                   "T2":  45,
+                                   "T3":  22
+                               },
+                    "STEP":  {
+                                 "places":  9684,
+                                 "failures":  20417,
+                                 "T1":  2240,
+                                 "T2":  4162,
+                                 "T3":  3282
+                             },
+                    "BARRIER":  {
+                                    "places":  1622,
+                                    "failures":  6122,
+                                    "T1":  379,
+                                    "T2":  1193,
+                                    "T3":  50
+                                },
+                    "BRIDGE":  {
+                                   "places":  12,
+                                   "failures":  14,
+                                   "T1":  9,
+                                   "T2":  3,
+                                   "T3":  0
+                               }
+                },
+    "kinds":  {
+                  "BARRIER / wall or barrier against the edge line":  1599,
+                  "BARRIER / wall or barrier inside the edge line":  23,
+                  "BRIDGE / carriageway too narrow on a structure":  3,
+                  "BRIDGE / lane count changes on the structure only":  9,
+                  "CONT / line ends at a joint":  582,
+                  "CONT / line ends inside its road":  1045,
+                  "CONT / line steps at a joint":  89,
+                  "CONT / pavement edge steps":  1,
+                  "CONT / two roads\u0027 lines cross":  6,
+                  "CONT / two roads\u0027 lines doubled up":  2,
+                  "JUNCTION / side road with no control":  260,
+                  "JUNCTION / solid line across a road mouth":  306,
+                  "JUNCTION / through lanes deflect across the junction":  91,
+                  "KINK / painted line":  1493,
+                  "KINK / pavement edge":  1738,
+                  "MEDIAN / curb or island in the travelled way":  76,
+                  "SHIFT / lane-add (bay) taper":  618,
+                  "SHIFT / lane-drop taper":  1017,
+                  "SHIFT / through lanes shift":  1068,
+                  "SJOG / the line model\u0027s":  1775,
+                  "SJOG / the road\u0027s own line":  1076,
+                  "STEP / grade break":  3883,
+                  "STEP / junction fan lip":  5801,
+                  "SURFACE / two roads\u0027 pavement drawn over each other":  261,
+                  "WIDTH / curb lane too narrow":  1,
+                  "WIDTH / curb lane too wide":  84,
+                  "WIDTH / lane too narrow":  17,
+                  "WIDTH / lane too wide":  506,
+                  "WIDTH / paved width beyond the edge line":  20,
+                  "WIDTH / two-way left-turn lane too narrow":  2
+              }
+}
