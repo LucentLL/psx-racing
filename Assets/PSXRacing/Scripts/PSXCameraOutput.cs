@@ -228,6 +228,8 @@ namespace PSXRacing
             // other picture stays point: its pixels ARE the look.
             bool fxaa = Application.isPlaying && PSXQuality.PCHD;
             if (blit.HasProperty("_Fxaa")) blit.SetFloat("_Fxaa", fxaa ? 1f : 0f);
+            // RENDER SCALE under 100 %: the blit is scaling the picture up, and sharpens it
+            if (blit.HasProperty("_Sharpen")) blit.SetFloat("_Sharpen", fxaa ? RenderScalePrefs.Sharpen : 0f);
             if (rt != null) rt.filterMode = fxaa ? FilterMode.Bilinear : FilterMode.Point;
             // The saved material carries 0, so a scene opened in the editor
             // (and any tool that does not ask) shows the picture ungraded.

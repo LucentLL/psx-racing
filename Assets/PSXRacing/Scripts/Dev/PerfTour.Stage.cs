@@ -368,7 +368,7 @@ namespace PSXRacing
 
                 // offscreen=WxH: the main view into a texture of that size, waited for (see the header)
                 OffscreenView off = null;
-                if (!string.IsNullOrEmpty(offscreenArg) && Camera.main != null)
+                if (!string.IsNullOrEmpty(offscreenArg) && Camera.main != null && string.IsNullOrEmpty(probeArg))
                 {
                     var wh = offscreenArg.ToLowerInvariant().Split('x');
                     if (wh.Length == 2 && int.TryParse(wh[0], out int ow) && int.TryParse(wh[1], out int oh) && ow >= 16 && oh >= 16)
@@ -397,6 +397,13 @@ namespace PSXRacing
                     car.ResetTo(path.GetPoint(i0) + Vector3.up * 0.45f, Quaternion.LookRotation(Flat(path.GetTangent(i0)), Vector3.up), seated: true);
                     yield return new WaitForSecondsRealtime(2f);
                 }
+                if (probeArg == "park")
+                {
+                    // (the probe, standing here: PerfTour.Probe.cs)
+                    for (float w0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - w0 < 4f;) { car.brakeInput = 1f; car.throttleInput = 0f; yield return null; }
+                    yield return Probe(id);
+                    continue;
+                }
                 car.allowReverse = false;
                 var old = car.GetComponent<AIDriver>();
                 if (old != null) Destroy(old);
@@ -418,6 +425,15 @@ namespace PSXRacing
                 var tris = Unity.Profiling.ProfilerRecorder.StartNew(Unity.Profiling.ProfilerCategory.Render, "Triangles Count");
                 float wait0 = Time.realtimeSinceStartup;
                 while (Mathf.Abs(car.forwardSpeed) < 3f && Time.realtimeSinceStartup - wait0 < 15f) yield return null;
+                if (probeArg == "drive")
+                {
+                    batches.Dispose(); setPass.Dispose(); tris.Dispose();
+                    MeshForest.StatsOn = false;
+                    yield return Probe(id);
+                    Destroy(ai);
+                    continue;
+                }
+                PerfClock.CamReset();
                 recT0 = Time.realtimeSinceStartup;
                 PerfClock.FrameDone = OnFrame;
                 recording = true;
@@ -516,6 +532,7 @@ namespace PSXRacing
                 sum1.AppendLine($"mean ms: scripts update {mUpd / dn:0.00} late {mLate / dn:0.00} fixed {mFix / dn:0.00} ui {mUi / dn:0.00}; render submit {mRend / dn:0.00}; outside the loop (present, GPU wait) {mOut / dn:0.00}");
                 sum1.AppendLine($"drawn: batches avg {(rn > 0 ? bSum / rn : 0):0} max {bMax}; set-pass avg {(rn > 0 ? sSum / rn : 0):0}; triangles avg {(rn > 0 ? tSum / rn / 1e6 : 0):0.00} M max {tMax / 1e6:0.00} M");
                 sum1.AppendLine($"gc collections {gcN}");
+                sum1.Append(ExtraSummary(n));
                 // the mesh forest's own share (PerfClock slots) and what it put on the GPU
                 // (its own count: Unity's triangle counter does not see an indirect draw's instances)
                 double fCull = 0, fDraw = 0, fOther = 0, fRefl = 0, oCpu = 0, oGpu = 0;
