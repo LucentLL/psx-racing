@@ -316,6 +316,11 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "PICTURE", () => PSXQuality.Name,
                  "HD: your screen's lines (up to 1440). SHARP: 480. RETRO: a PlayStation.",
                  () => PSXQuality.Cycle(1));
+            // HD in the PC tier's picture only (RenderScalePrefs): the one row that buys frame rate everywhere
+            if (PlatformProfile.PCPicture)
+                Step(SettingsTab.Visuals, "RENDER SCALE", () => RenderScalePrefs.Label,
+                     "HD drawn at this share of your screen and scaled up. Lower is faster.",
+                     () => RenderScalePrefs.Cycle());
             Step(SettingsTab.Visuals, "TEXTURES", () => TexturePrefs.Label,
                  "ENHANCED: the remastered surfaces, twice the detail. CLASSIC: the original textures.",
                  () => TexturePrefs.Toggle());

@@ -125,6 +125,9 @@ namespace PSXRacing
             t.probeArg = ShotLink.Query(url, "probe") ?? "";
             t.pvArg = ShotLink.Query(url, "pv") ?? "";
             t.probeCfg = ShotLink.Query(url, "pcfg") ?? "";
+            // &scale=75: RENDER SCALE for this run only
+            string rs = ShotLink.Query(url, "scale");
+            if (!string.IsNullOrEmpty(rs) && int.TryParse(rs, out int rsv)) RenderScalePrefs.Override = rsv;
             // &forest=0|1|2: FOREST DETAIL for this run only; &popwalk=STEP[&popm=M]: the pop measure (PerfTour.Stage.cs)
             string fo = ShotLink.Query(url, "forest");
             if (!string.IsNullOrEmpty(fo) && int.TryParse(fo, out int foi)) ForestDetailPrefs.Override = foi;
