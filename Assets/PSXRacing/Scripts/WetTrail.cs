@@ -64,10 +64,10 @@ namespace PSXRacing
         void LateUpdate()
         {
             if (!Rain2.Measure) { Step(); return; }
-            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = Rain2.AllocNow();
             Step();
             Rain2.SprayTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
-            Rain2.SprayAlloc += System.GC.GetAllocatedBytesForCurrentThread() - a0;
+            Rain2.SprayAlloc += Rain2.AllocSince(a0);
         }
 
         void Step()

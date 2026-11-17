@@ -200,6 +200,13 @@ namespace PSXRacing.EditorTools
 
             Rain2.Measure = true;
             Rain2.MeterReset();
+            // the meter must be able to SEE an allocation, or its zero means nothing
+            long m0 = Rain2.AllocNow();
+            var probe = new byte[256 * 1024];
+            long seen = Rain2.AllocSince(m0);
+            probe[0] = 1;
+            Rain2PlayCheck.Line($"alloc meter: a 256 KB array reads as {seen} B ({(System.GC.GetAllocatedBytesForCurrentThread() != 0 ? "the thread's own count" : "the heap in use")})");
+            Rain2PlayCheck.Check(seen >= 128 * 1024, "the allocation meter sees an allocation", seen);
             int gc0 = System.GC.CollectionCount(0);
             int strokes0 = CockpitInterior.WiperStrokes;
             int maxSplash = 0, maxAnchors = 0;
@@ -284,7 +291,8 @@ namespace PSXRacing.EditorTools
                 }
                 yield return null;
             }
-            Rain2PlayCheck.Line($"RACE: {Stats()}; top {top / 1.609f:0} mph after {raceT:0.0} s; splashes alive now {Rain2Driver.LiveSplashes}");
+            Rain2PlayCheck.Line($"RACE: {Stats()}; top {top / 1.609f:0} mph after {raceT:0.0} s; splashes alive now {Rain2Driver.LiveSplashes}; " +
+                                $"traffic cars known {Rain2Traffic.Cars}, their mist puffs alive {Rain2Traffic.Live}");
 
             // ---- what it did, what it cost
             var spray = car.GetComponent<TireSpray>();

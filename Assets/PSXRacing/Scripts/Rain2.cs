@@ -94,6 +94,17 @@ namespace PSXRacing
         public static bool Measure;
         public static long DriverTicks, DriverMaxTicks, DriverAlloc, AudioTicks, AudioAlloc, SprayTicks, SprayMaxTicks, SprayAlloc;
         public static int DriverFrames, SprayCalls;
+        /// <summary>The managed allocation counter the meter reads: the thread's
+        /// own count where the runtime keeps one, else the heap in use (the
+        /// editor's Mono keeps none; a collection between two reads then shows
+        /// as a drop, which <see cref="AllocSince"/> counts as nothing).</summary>
+        public static long AllocNow()
+        {
+            long a = System.GC.GetAllocatedBytesForCurrentThread();
+            return a != 0 ? a : System.GC.GetTotalMemory(false);
+        }
+        public static long AllocSince(long was) { long d = AllocNow() - was; return d > 0 ? d : 0; }
+
         public static void MeterReset()
         {
             DriverTicks = DriverMaxTicks = DriverAlloc = AudioTicks = AudioAlloc = SprayTicks = SprayMaxTicks = SprayAlloc = 0;

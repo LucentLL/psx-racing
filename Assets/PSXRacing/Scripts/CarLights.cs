@@ -67,6 +67,8 @@ namespace PSXRacing
         [System.NonSerialized] public bool externalBrake;
 
         static readonly List<CarLights> all = new List<CarLights>();
+        /// <summary>Every enabled CarLights (read only): the traffic's mist in the rain finds its cars here (Rain2Traffic).</summary>
+        internal static List<CarLights> AllLive => all;
         static bool lightsOn;
         static bool lightsDecided;
 

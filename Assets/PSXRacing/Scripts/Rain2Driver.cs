@@ -110,7 +110,7 @@ namespace PSXRacing
 
         void OnEnable() { SceneManager.sceneLoaded += OnScene; }
         void OnDisable() { SceneManager.sceneLoaded -= OnScene; }
-        void OnScene(Scene s, LoadSceneMode m) { if (m == LoadSceneMode.Single) { snap = true; ClearGround(); } }
+        void OnScene(Scene s, LoadSceneMode m) { if (m == LoadSceneMode.Single) { snap = true; ClearGround(); Rain2Traffic.Clear(); } }
 
         void OnDestroy()
         {
@@ -140,12 +140,12 @@ namespace PSXRacing
         void LateUpdate()
         {
             if (!Rain2.Measure) { Step(); return; }
-            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = Rain2.AllocNow();
             Step();
             long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
             Rain2.DriverTicks += dt;
             if (dt > Rain2.DriverMaxTicks) Rain2.DriverMaxTicks = dt;
-            Rain2.DriverAlloc += System.GC.GetAllocatedBytesForCurrentThread() - a0;
+            Rain2.DriverAlloc += Rain2.AllocSince(a0);
             Rain2.DriverFrames++;
         }
 
@@ -194,13 +194,17 @@ namespace PSXRacing
             fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
             Vector3 centre = eye + fwd * ProbeAhead + camVel * ProbeLead;
 
-            int probes = ProbesFor(tier);
+            // (at racing speed no splash is drawn and a ring is a blur: two probes keep the cover mask)
+            float speed = camVel.magnitude;
+            int probes = speed > SplashFadeTo ? Mathf.Min(ProbesFor(tier), 2) : ProbesFor(tier);
             for (int i = 0; i < probes; i++) Probe(centre, eye.y);
             UploadMask(eye);
 
+            // the traffic's own mist (the player's and the rivals' is TireSpray's)
+            Rain2Traffic.Tick(dt, eye, tier);
+
             // 3 - the drops that are drawn landing
             if (!Rain2.Splashes || dt <= 0f) return;
-            float speed = camVel.magnitude;
             float k = rain * (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(SplashFadeFrom, SplashFadeTo, speed)));
             if (k <= 0.01f || anchorCount == 0) { crownOwed = 0f; ringOwed = 0f; return; }
             if (crowns == null && !BuildSplashes()) return;

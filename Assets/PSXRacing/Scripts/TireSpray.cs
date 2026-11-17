@@ -162,12 +162,12 @@ namespace PSXRacing
         {
             if (!Rain2.Measure) { Step(); return; }
             // (the rain play check's meter: every car's spray, summed)
-            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = Rain2.AllocNow();
             Step();
             long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
             Rain2.SprayTicks += dt;
             if (dt > Rain2.SprayMaxTicks) Rain2.SprayMaxTicks = dt;
-            Rain2.SprayAlloc += System.GC.GetAllocatedBytesForCurrentThread() - a0;
+            Rain2.SprayAlloc += Rain2.AllocSince(a0);
             Rain2.SprayCalls++;
         }
 
@@ -433,7 +433,7 @@ namespace PSXRacing
             return true;
         }
 
-        static Material SprayMaterial()
+        internal static Material SprayMaterial()
         {
             if (sharedMat != null) return sharedMat;
             var shader = Shader.Find("PSX/Rain");
