@@ -432,11 +432,14 @@ namespace PSXRacing.EditorTools
             }
             // ---- the bystanders (after the tape: a streamed place is judged when a car or the tape reaches it) ----
             int withLens = 0, lenses = 0, far = 0, onRoad = 0, blind = 0;
+            // The points the tape reached (a race cut short by the check never saw the rest).
+            var reached = new HashSet<int>();
+            foreach (var c in clips) reached.Add(c.point);
             for (int i = 0; i < plan.course.points.Count; i++)
             {
                 var p = plan.course.points[i];
                 var st = plan.stations[i];
-                if (st.lenses.Count > 0) withLens++;
+                if (st.lenses.Count > 0 && reached.Contains(i)) withLens++;
                 string where = "";
                 foreach (var l in st.lenses)
                 {
@@ -453,7 +456,8 @@ namespace PSXRacing.EditorTools
                                     ": " + st.lenses.Count + " camera(s)" + (Mathf.Abs(st.slidM) > 0.1f ? " (the point slid " + st.slidM.ToString("0") + " m)" : "") +
                                     (st.judged ? "" : " (ground not built yet)") + where);
             }
-            CamcorderShots.Check(withLens == plan.course.points.Count, "a camera at every race point", withLens + " of " + plan.course.points.Count + " points, " + lenses + " cameras, " + far + " long lens");
+            CamcorderShots.Check(withLens == reached.Count, "a camera at every race point the tape reached",
+                                 withLens + " of " + reached.Count + " points (" + plan.course.points.Count + " on the course), " + lenses + " cameras, " + far + " long lens");
             CamcorderShots.Check(onRoad == 0, "no camera stands on a road", onRoad);
             CamcorderShots.Check(blind == 0, "every camera sees its point", blind + " blind");
 
