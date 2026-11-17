@@ -403,8 +403,8 @@ namespace PSXRacing
             /// own copy (part B, item 16, m4: the editor's Scene and Game views
             /// of different sizes reallocated one copy every frame).</summary>
             public Camera camera;
-            readonly Dictionary<int, (RTHandle rt, int frame)> copies = new Dictionary<int, (RTHandle, int)>();
-            readonly List<int> drop = new List<int>();
+            readonly Dictionary<Camera, (RTHandle rt, int frame)> copies = new Dictionary<Camera, (RTHandle, int)>();
+            readonly List<Camera> drop = new List<Camera>();
             const int IdleFrames = 300;
             static readonly int SrcId = Shader.PropertyToID("_PSXWaterDepthSrc");
             static readonly int DstId = Shader.PropertyToID("_PSXWaterDepth");
@@ -430,18 +430,18 @@ namespace PSXRacing
                 int now = Time.frameCount;
                 drop.Clear();
                 foreach (var kv in copies) if (now - kv.Value.frame > IdleFrames) drop.Add(kv.Key);
-                foreach (int k in drop) { copies[k].rt?.Release(); copies.Remove(k); }
+                foreach (var k in drop) { copies[k].rt?.Release(); copies.Remove(k); }
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
             {
                 var resources = frameData.Get<UniversalResourceData>();
-                if (resources.isActiveTargetBackBuffer || material == null) return;
+                if (resources.isActiveTargetBackBuffer || material == null || camera == null) return;
                 var depth = resources.activeDepthTexture;
                 if (!depth.IsValid()) return;
                 var cd = renderGraph.GetTextureDesc(resources.activeColorTexture);
                 int w = Mathf.Max(cd.width, 1), h = Mathf.Max(cd.height, 1);
-                int key = camera != null ? camera.GetInstanceID() : 0;
+                var key = camera;
                 copies.TryGetValue(key, out var entry);
                 var copy = entry.rt;
                 if (copy == null || copy.rt == null || copy.rt.width != w || copy.rt.height != h)

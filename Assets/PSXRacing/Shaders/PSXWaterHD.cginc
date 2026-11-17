@@ -228,10 +228,12 @@ v2f_hd vertHD(appdata_hd v)
 // d = the octave's own heading; scaleM its repeat; drift its phase speed.
 // dxz, dyz: the world position's screen derivatives (taken outside any
 // branch, so the finest octave can be skipped on the cheap tiers).
-void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float drift, float2 flowMs, float t,
+void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float drift, float2 flowMs, float t, float seaK,
               out float2 nrm, out float lace)
 {
     float moving = saturate(length(flowMs) * 3.0);
+    // (the sea keeps its one reading, run downwind as before: stillMix 0)
+    float stillMix = (1.0 - moving) * (1.0 - seaK);
     // STILL WATER WORKS IN PLACE (part B; the owner on PC49's HD Lake Lure:
     // "the current/tide/waves were moving very fast for a lake. It looked
     // like an ocean"). One reading of the sheet slid rigidly downwind at the
@@ -239,11 +241,11 @@ void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float d
     // turned +-HD_STILL_TURN off the wind and each creeping its own way, at
     // equal weight: the ripples rise and fade where they are, as a ruffled
     // lake's do. Running water keeps the flow map's two phases (one heading).
-    float turn = HD_STILL_TURN * (1.0 - moving);
+    float turn = HD_STILL_TURN * stillMix;
     float2 d0 = Rot(d, turn), d1 = Rot(d, -turn);
     float2 e0 = float2(-d0.y, d0.x), e1 = float2(-d1.y, d1.x);
     float2 uv0 = float2(dot(xz, d0), dot(xz, e0)) / scaleM;
-    float2 uv1 = float2(dot(xz, d1), dot(xz, e1)) / scaleM + float2(0.37, 0.61) * (1.0 - moving);
+    float2 uv1 = float2(dot(xz, d1), dot(xz, e1)) / scaleM + float2(0.37, 0.61) * stillMix;
     float2 gx0 = float2(dot(dxz, d0), dot(dxz, e0)) / scaleM, gy0 = float2(dot(dyz, d0), dot(dyz, e0)) / scaleM;
     float2 gx1 = float2(dot(dxz, d1), dot(dxz, e1)) / scaleM, gy1 = float2(dot(dyz, d1), dot(dyz, e1)) / scaleM;
     uv0.x -= drift * t / scaleM;
@@ -262,7 +264,7 @@ void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float d
     float w0 = lerp(0.5, 1.0 - abs(1.0 - 2.0 * p0), moving);
     float w1 = 1.0 - w0;
     // the blend of two unrelated fields is flatter: give the contrast back
-    float c = rsqrt(max(w0 * w0 + w1 * w1, 0.5));
+    float c = lerp(1.0, rsqrt(max(w0 * w0 + w1 * w1, 0.5)), max(moving, stillMix));
     float2 a0 = s0.rg * 2.0 - 1.0, a1 = s1.rg * 2.0 - 1.0;
     // the sheet's +U is each reading's heading: back to world x,z
     nrm = ((d0 * a0.x + e0 * a0.y) * w0 + (d1 * a1.x + e1 * a1.y) * w1) * c;
@@ -428,11 +430,12 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float2 gp = i.wpos.xz / HD_GUST_TILE_M - wdir * (t * wspd * lerp(HD_GUST_DRIFT.x, HD_GUST_DRIFT.y, seaK) / HD_GUST_TILE_M);
     // three readings of the breakup field at unrelated scales and turns (item
     // 17: with two, the calm patches came back every 190 m)
-    float gust = tex2D(_RippleTex, gp).a * 0.50
-               + tex2D(_RippleTex, Rot(gp, 1.1) * 0.43 + 0.31).a * 0.30
-               + tex2D(_RippleTex, Rot(gp, -2.3) * 0.161 + 0.67).a * 0.20;
+    // (the sea keeps its two, as before)
+    float gA = tex2D(_RippleTex, gp).a, gB = tex2D(_RippleTex, Rot(gp, 1.1) * 0.43 + 0.31).a;
+    float gC = tex2D(_RippleTex, Rot(gp, -2.3) * 0.161 + 0.67).a;
+    float gust = lerp(gA * 0.50 + gB * 0.30 + gC * 0.20, gA * 0.62 + gB * 0.38, seaK);
     float windK = lerp(HD_WIND_CALM, 1.0, saturate(wspd / HD_WIND_FULL));
-    float patch = lerp(HD_GUST_MIN, 1.0, smoothstep(0.33, 0.72, gust));
+    float patch = lerp(HD_GUST_MIN, 1.0, smoothstep(lerp(0.33, 0.30, seaK), lerp(0.72, 0.78, seaK), gust));
     // a strong wind ruffles everything; a light or moderate one only its gusts
     float ruffle = lerp(patch, 1.0, saturate((wspd - 5.0) / 7.0)) * windK;
     // running water is rough whatever the wind
@@ -451,8 +454,8 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // (and under a river's flow) a slow creep, slower still in a light air
     float3 drift = sqrt(9.81 * tile * HD_OCT_SCALE * 0.2 / 6.2831853)
                  * lerp(HD_STILL_DRIFT * lerp(0.5, 1.0, saturate(wspd / HD_WIND_FULL)), 1.0, seaK);
-    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.x), tile * HD_OCT_SCALE.x, drift.x, flowMs, t, nA, laceA);
-    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.y), tile * HD_OCT_SCALE.y, drift.y, flowMs, t, nB, laceB);
+    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.x), tile * HD_OCT_SCALE.x, drift.x, flowMs, t, seaK, nA, laceA);
+    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.y), tile * HD_OCT_SCALE.y, drift.y, flowMs, t, seaK, nB, laceB);
     rip = nA * HD_OCT_GAIN.x + nB * HD_OCT_GAIN.y;
     // TOKSVIG (item 6): what each octave's mips have averaged away at this
     // pixel's footprint is not gone - it is roughness. The share lost, from the
@@ -464,7 +467,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float lostVar = lost.x * g2.x + lost.y * g2.y + g2.z;
     [branch] if (_PSXWaterTier.z > 0.5)
     {
-        HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.z), tile * HD_OCT_SCALE.z, drift.z, flowMs, t, nC, laceC);
+        HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.z), tile * HD_OCT_SCALE.z, drift.z, flowMs, t, seaK, nC, laceC);
         // the finest octave is drawn only to 40 m and gone by 60 m (item 6):
         // beyond, its slopes are roughness
         float fC = saturate((60.0 - eyeDist) / 20.0);

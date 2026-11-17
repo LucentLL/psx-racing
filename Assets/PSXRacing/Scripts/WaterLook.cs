@@ -184,6 +184,20 @@ namespace PSXRacing
         public static bool WaterInView(Camera cam)
         {
             if (cam == null || waters.Count == 0) return false;
+            // asked three times a camera a frame (the copies switch, the push,
+            // the depth copy): once per camera per frame in the game
+            if (Application.isPlaying && cam == viewCam && Time.frameCount == viewFrame) return viewAns;
+            viewAns = InViewNow(cam);
+            viewCam = cam; viewFrame = Time.frameCount;
+            return viewAns;
+        }
+
+        static Camera viewCam;
+        static int viewFrame = -1;
+        static bool viewAns;
+
+        static bool InViewNow(Camera cam)
+        {
             GeometryUtility.CalculateFrustumPlanes(cam, planes);
             int mask = cam.cullingMask;
             for (int i = waters.Count - 1; i >= 0; i--)
