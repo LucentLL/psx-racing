@@ -321,15 +321,8 @@ namespace PSXRacing.EditorTools
                                     "MetersDriven is the honest odometer (0.9-1.4 x the route)", $"{metres:0} m for a {route:0} m race");
             }
             // no closure, no barricade, no cone anywhere in the race
-            int props = 0;
-            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include))
-            {
-                string n = t.name;
-                if (n.IndexOf("Barricade", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    n.IndexOf("Closure", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    n.IndexOf("TrafficCone", System.StringComparison.OrdinalIgnoreCase) >= 0) props++;
-            }
-            RacePlayCheck.Check(props == 0 && string.IsNullOrEmpty(CityRaceClosures.LastRoute), "no barricade, closure or cone in the race", props);
+            int props = RacePlayCheck.RaceBarricades(out string what);
+            RacePlayCheck.Check(props == 0, "no barricade, closure or cone in the race", what);
             string tst = System.Environment.GetEnvironmentVariable("PSX_CP_TEST") ?? "";
             if (tst.Contains("reset")) RacePlayCheck.Check(resetDone, "the reset test ran", resetResult);
             if (tst.Contains("wrongway")) RacePlayCheck.Check(wwPhase == 3, "the wrong-way test ran", wwPhase);

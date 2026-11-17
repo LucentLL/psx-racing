@@ -231,6 +231,23 @@ namespace PSXRacing.EditorTools
 
         internal static void Note(string what) => log.AppendLine("  " + what);
 
+        /// <summary>Objects in the scene named a barricade, a closure or a traffic cone (inactive ones too), and the
+        /// first few names.</summary>
+        internal static int RaceBarricades(out string what)
+        {
+            int n = 0; var names = new System.Text.StringBuilder();
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include))
+            {
+                string nm = t.name;
+                if (nm.IndexOf("Barricade", System.StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nm.IndexOf("Closure", System.StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nm.IndexOf("TrafficCone", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (n++ < 4) names.Append(nm).Append(' ');
+            }
+            what = n == 0 ? "none" : n + ": " + names.ToString().Trim();
+            return n;
+        }
+
         internal static void Finish()
         {
             // Under a forced SPEED BLUR: MOTION, say whether it ran: frames
@@ -301,8 +318,10 @@ namespace PSXRacing.EditorTools
             var car = rm != null ? rm.playerCar : null;
             RacePlayCheck.Check(rm != null && car != null && rm.path != null, "the scene has a race, a player and a path");
             if (rm == null || car == null) { Done(); yield break; }
-            // NO CLOSURES anywhere (owner 2026-11-16 ~21:00): none may have been built for this race.
-            RacePlayCheck.Check(string.IsNullOrEmpty(CityRaceClosures.LastRoute), "no road closure built for this race");
+            // NO BARRICADES in ANY race (owner 2026-11-16 ~21:00 and 11-17: "I asked for all road construction
+            // barricades to be removed from races"): nothing named a barricade, closure or cone in the scene, city or
+            // stage (Lake Lure's mouths were the last; CityRaceClosures is gone)
+            RacePlayCheck.Check(RacePlayCheck.RaceBarricades(out string bwhat) == 0, "no barricade, closure or cone in this race's scene", bwhat);
 
             var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (deckVenue.IsDeckRun) StartCoroutine(DeckWatch(car));
