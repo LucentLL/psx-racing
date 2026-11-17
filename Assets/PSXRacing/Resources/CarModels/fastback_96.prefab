@@ -54,7 +54,7 @@ MonoBehaviour:
   - fastback_96_white_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.44127527, g: 0.43593845, b: 0.42609593, a: 1}
+  - {r: 0.4389439, g: 0.42460898, b: 0.41402408, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.021914408
   bodyZOffset: 0
@@ -70,21 +70,24 @@ MonoBehaviour:
   cowlY: 0.78881705
   noseZ: 2.21945
   roofY: 1.2093799
-  headLamp: {x: 0.5692214, y: 0.5235295, z: 2.0870392}
-  headLampNormal: {x: 0.260341, y: 0.65750915, z: 0.7070391}
-  headLampSize: {x: 0.24049366, y: 0.14005733}
-  tailLamp: {x: 0.5697651, y: 0.6723684, z: -2.0967326}
+  headLamp: {x: 0.5728011, y: 0.50727475, z: 2.0926983}
+  headLampNormal: {x: 0.24051471, y: 0.74783266, z: 0.61878836}
+  headLampSize: {x: 0.39917272, y: 0.13045825}
+  tailLamp: {x: 0.55626774, y: 0.6719909, z: -2.100099}
   tailLampNormal: {x: 0.23998572, y: 0.06015938, z: -0.96891063}
-  tailLampSize: {x: 0.32792604, y: 0.1626803}
+  tailLampSize: {x: 0.34906703, y: 0.15643433}
   lampsUpMesh: {fileID: -2432090755550338912, guid: 9168ac1a8c421be4e921bd5a492bbb91, type: 3}
-  headLampUp: {x: 0.5462053, y: 0.63709474, z: 1.9572856}
-  headLampUpNormal: {x: -0.06153253, y: 0.040232304, z: 0.9972939}
-  headLampUpSize: {x: 0.19822882, y: 0.11634281}
+  headLampUp: {x: 0.5445217, y: 0.6230885, z: 1.958063}
+  headLampUpNormal: {x: 0.00040095462, y: 0.15596771, z: 0.98776203}
+  headLampUpSize: {x: 0.18149158, y: 0.11938527}
   lensBodyMesh: {fileID: 0}
   lensHeadMesh: {fileID: 0}
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.67864364, z: -0.040549994}
-  colliderSize: {x: 1.6804122, y: 0.99133015, z: 4.3166}
+  coverMesh: {fileID: -2432090755550338912, guid: 95e19db2e5734d6ca572e36d769b86ee, type: 3}
+  coverUpMesh: {fileID: -2432090755550338912, guid: 63c91765ba00485e9808c2e6a008f7c8, type: 3}
+  coverMaterial: {fileID: 2100000, guid: 6996295685da56445a1236d42587a5ee, type: 2}
+  colliderCenter: {x: 0, y: 0.6776841, z: -0.040549994}
+  colliderSize: {x: 1.6804122, y: 0.9930573, z: 4.3166}
   blobSize: {x: 2.2405496, y: 4.8364}
