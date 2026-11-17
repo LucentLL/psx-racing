@@ -269,14 +269,17 @@ Shader "PSX/Lit"
         [HideInInspector] _CanopyGap ("Canopy gap", Color) = (0.02, 0.02, 0.015, 1)
         [HideInInspector] _CanopySpruce ("Canopy spruce band", Vector) = (99999, 100000, 0.1, 0.1)
         // THE FAR MOUNTAIN TEMPLATE (farmtn, PSXRacingBuilder.FarMtn): on the far
-        // canopy's land, bare rock where the land is steep - the share of rock
-        // the stage's 12 m grid shows at that slope (.x/.y the normal's y where
-        // it starts / is whole, .z the most, .w the clumps' size m), in the
-        // stage's rock colour, faded in between _FarRockFade.x and .y metres.
+        // canopy's land, bare rock where the land is really steep - the stage's
+        // rock mask (12 m texels, the skin's own cells; _FarRockMaskST maps world
+        // x z to its uv, .x 0 = none), and past the mask the share of rock the
+        // 12 m grid shows at the 60 m slope (_FarRockShare: .x/.y the normal's y
+        // where it starts / is whole, .z the most, .w the clumps' size m), in the
+        // stage's rock colour.
         [HideInInspector] _FarRock ("Far rock", Float) = 0
         [HideInInspector] _FarRockCol ("Far rock colour", Color) = (0.22, 0.21, 0.2, 1)
         [HideInInspector] _FarRockShare ("Far rock share", Vector) = (0.875, 0.669, 0.5, 36)
-        [HideInInspector] _FarRockFade ("Far rock fade", Vector) = (2000, 2800, 0, 0)
+        [HideInInspector] [NoScaleOffset] _FarRockMask ("Far rock mask", 2D) = "black" {}
+        [HideInInspector] _FarRockMaskST ("Far rock mask uv", Vector) = (0, 0, 0, 0)
         // CITY POP-IN (city-popin, 2026-10-28; CityTileFade.cs): how this draw
         // takes part in Charlotte's tile fade. 0 on every material (the other
         // venues never read the table); set per renderer by a
@@ -601,7 +604,8 @@ Shader "PSX/Lit"
             float _FarRock;             // 1 = this far land wears the template's rock
             fixed4 _FarRockCol;         // the stage's rock, linear albedo
             float4 _FarRockShare;       // x normal y where rock starts, y where its share is whole, z the share there, w clump m
-            float4 _FarRockFade;        // x m from the eye where it starts, y where it is whole
+            sampler2D _FarRockMask;     // the stage's rock, 12 m texels (R), mips = the share far away
+            float4 _FarRockMaskST;      // world x z -> uv: xy scale, zw offset (x 0 = no mask)
             float _PSXFarMtnOff;        // GLOBAL (FarMtnSwitch): 1 = PSX_FARMTN_TEMPLATE=0, the land as it was
             // the rock's clumps: the rock noise (float only: every target), its middle spread back toward uniform
             float PSXFarRockClump(float2 w, float cell)
@@ -2226,14 +2230,25 @@ Shader "PSX/Lit"
                             // fewer crowns (Linville Gorge's walls, Grandfather's crest)
                             if (_FarRock > 0.5 && _PSXFarMtnOff < 0.5)
                             {
-                                // THE FAR MOUNTAIN TEMPLATE: the share of rock this slope
-                                // carries, in clumps; where a clump is under ~2 px, its mean
+                                // THE FAR MOUNTAIN TEMPLATE: past the mask, the share of rock
+                                // this slope carries, in clumps; where a clump is under ~2 px, its mean
                                 float rkShare = _FarRockShare.z * smoothstep(_FarRockShare.x, _FarRockShare.y, cnNg.y);
                                 float rkN = PSXFarRockClump(cnW, _FarRockShare.w);
                                 float rkPatch = saturate((rkShare - rkN) / 0.05 + 0.5);
                                 float rkVis = saturate(1.0 - cnFp / (_FarRockShare.w * 0.5));
-                                float rkA = lerp(rkShare, rkPatch, rkVis)
-                                          * saturate((cnHd - _FarRockFade.x) / max(_FarRockFade.y - _FarRockFade.x, 1.0));
+                                float rkA = lerp(rkShare, rkPatch, rkVis);
+                                // on the mask: the stage's own cells (the skin's), crisp where a
+                                // texel is a few px, their mean (the mips) where it is under one
+                                if (_FarRockMaskST.x > 0.0)
+                                {
+                                    float2 rkUV = cnW * _FarRockMaskST.xy + _FarRockMaskST.zw;
+                                    float2 rkEdge = min(rkUV, 1.0 - rkUV);
+                                    float rkOn = saturate(min(rkEdge.x, rkEdge.y) / 0.03);
+                                    float rkM = tex2Dgrad(_FarRockMask, rkUV, dWx.xz * _FarRockMaskST.xy, dWy.xz * _FarRockMaskST.xy).r;
+                                    float rkCrisp = saturate(1.0 - cnFp / 9.0);
+                                    float rkMask = lerp(rkM, smoothstep(0.3, 0.7, rkM), rkCrisp);
+                                    rkA = lerp(rkA, rkMask, rkOn);
+                                }
                                 // the face's own grain: ledges and stains a few metres across
                                 float rkG = PSXRockNoise(cnW / 7.0) * 0.6 + PSXRockNoise(cnW / 19.0 + 4.1) * 0.4;
                                 float3 rkCol = _FarRockCol.rgb * (0.78 + 0.44 * rkG);

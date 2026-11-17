@@ -103,20 +103,111 @@ namespace PSXRacing.EditorTools
             return Mathf.Clamp01(0.5f + (v - 0.5f) * 1.6f);
         }
 
-        /// <summary>The template's rock cells for the loaded stage (x, z, downhill
-        /// x, downhill z): the near grid's rule and the far grid's share (none on
-        /// a lidar stage). Needs the DEM and the route (StageLoadDem).</summary>
-        static List<Vector4> PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep)
+        /// <summary>THE ROCK MASK: one byte a 12 m cell over the whole far grid,
+        /// on the near grid's own lattice (a near node is a mask texel); 255 =
+        /// bare rock. It is the template's one source: the skin's cells are its
+        /// rock within the far forest's reach, and PSX/Lit paints the far land
+        /// from it (_FarRockMask) - so a face the skin draws near is the face the
+        /// land draws far, cell for cell, and nothing changes as the skin
+        /// dissolves at the detail's edge.</summary>
+        class FarRockMaskData { public byte[] v; public float ox, oz, cell; public int cols, rows; }
+
+        /// <summary>The mask and the skin's cells (x, z, downhill x, downhill z)
+        /// for the loaded stage: the near grid's rule, the far grid's share past
+        /// it; on a lidar stage (its world file's cliff cells) those cells within
+        /// 2.2 km of the road (the lidar's own reach) and the share past them,
+        /// and no skin of the template's (the lidar granite has its own). Needs
+        /// the DEM and the route (StageLoadDem).</summary>
+        static List<Vector4> PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep,
+                                             out FarRockMaskData mask)
         {
             lidar = world != null && world.cliffs != null && world.cliffs.Length >= 6 && WorldSwitch("PSX_LURE_GRANITE");
-            var cells = new List<Vector4>();   // x, z, downhill x, downhill z
+            var cells = new List<Vector4>();
             int nC = 0, fC = 0, sR = 0, sK = 0;
             float halfW = RoadWidth * 0.5f;
             float reach = Mathf.Min(FarForestMaxM, FarCoverage - FarCell) + FarCell;
-            var nm = demNearMeta;
-            bool InNear(float x, float z) =>
-                x > nm.originX + 2f * nm.cell && x < nm.originX + (nm.cols - 3) * nm.cell &&
-                z > nm.originZ + 2f * nm.cell && z < nm.originZ + (nm.rows - 3) * nm.cell;
+            const float LidarReachM = 2200f;   // bake_world.mjs: cliffs within 2.2 km of the road
+            var nm = demNearMeta; var fm = demFarMeta;
+            float c = nm.cell;
+            int kx = Mathf.CeilToInt((nm.originX - fm.originX) / c), kz = Mathf.CeilToInt((nm.originZ - fm.originZ) / c);
+            var M = new FarRockMaskData { cell = c, ox = nm.originX - kx * c, oz = nm.originZ - kz * c };
+            M.cols = Mathf.FloorToInt((fm.originX + (fm.cols - 1) * fm.cell - M.ox) / c) + 1;
+            M.rows = Mathf.FloorToInt((fm.originZ + (fm.rows - 1) * fm.cell - M.oz) / c) + 1;
+            M.v = new byte[M.cols * M.rows];
+            var dir = new Dictionary<int, Vector2>();   // a rock texel's downhill
+            bool InNear(int i, int j)
+            {
+                int cc = i - kx, rr = j - kz;
+                return cc >= 2 && cc < nm.cols - 2 && rr >= 2 && rr < nm.rows - 2;
+            }
+            // the far grid's slope share, per far node
+            var share = new float[fm.cols * fm.rows];
+            var fdir = new Vector2[fm.cols * fm.rows];
+            for (int r = 1; r < fm.rows - 1; r++)
+                for (int q = 1; q < fm.cols - 1; q++)
+                {
+                    float dx = (demFar[r * fm.cols + q + 1] - demFar[r * fm.cols + q - 1]) * 0.1f / (2f * fm.cell);
+                    float dz = (demFar[(r + 1) * fm.cols + q] - demFar[(r - 1) * fm.cols + q]) * 0.1f / (2f * fm.cell);
+                    float g = Mathf.Sqrt(dx * dx + dz * dz);
+                    share[r * fm.cols + q] = FarRockShare(Mathf.Atan(g) * Mathf.Rad2Deg);
+                    fdir[r * fm.cols + q] = g > 1e-4f ? new Vector2(-dx / g, -dz / g) : Vector2.up;
+                }
+            if (lidar)
+            {
+                // the lidar's cells, each on its nearest texel
+                var C = world.cliffs;
+                for (int k = 0; k + 5 < C.Length; k += 6)
+                {
+                    int i = Mathf.RoundToInt((C[k] - M.ox) / c), j = Mathf.RoundToInt((C[k + 1] - M.oz) / c);
+                    if (i < 0 || j < 0 || i >= M.cols || j >= M.rows) continue;
+                    M.v[j * M.cols + i] = 255;
+                }
+            }
+            else
+            {
+                // the near grid's rule: slope by central differences over 24 m, relief over 5 x 5 nodes
+                float tanT = Mathf.Tan(FarRockSlopeDeg * Mathf.Deg2Rad);
+                for (int r = 2; r < nm.rows - 2; r++)
+                    for (int q = 2; q < nm.cols - 2; q++)
+                    {
+                        float dx = (demNear[r * nm.cols + q + 1] - demNear[r * nm.cols + q - 1]) * 0.1f / (2f * c);
+                        float dz = (demNear[(r + 1) * nm.cols + q] - demNear[(r - 1) * nm.cols + q]) * 0.1f / (2f * c);
+                        if (dx * dx + dz * dz < tanT * tanT) continue;
+                        short lo = short.MaxValue, hi = short.MinValue;
+                        for (int bb = -2; bb <= 2; bb++)
+                            for (int aa = -2; aa <= 2; aa++)
+                            {
+                                short v = demNear[(r + bb) * nm.cols + q + aa];
+                                if (v < lo) lo = v;
+                                if (v > hi) hi = v;
+                            }
+                        if ((hi - lo) * 0.1f < FarRockReliefM) continue;
+                        int idx = (r + kz) * M.cols + q + kx;
+                        if (idx < 0 || idx >= M.v.Length) continue;
+                        M.v[idx] = 255;
+                        float g = Mathf.Sqrt(dx * dx + dz * dz);
+                        dir[idx] = new Vector2(-dx / g, -dz / g);
+                    }
+            }
+            // the far grid's share, laid in clumps: past the near grid (past the
+            // lidar's reach on a lidar stage)
+            for (int j = 0; j < M.rows; j++)
+                for (int i = 0; i < M.cols; i++)
+                {
+                    if (!lidar && InNear(i, j)) continue;
+                    float x = M.ox + i * c, z = M.oz + j * c;
+                    int fq = Mathf.Clamp(Mathf.RoundToInt((x - fm.originX) / fm.cell), 0, fm.cols - 1);
+                    int fr = Mathf.Clamp(Mathf.RoundToInt((z - fm.originZ) / fm.cell), 0, fm.rows - 1);
+                    float sh = share[fr * fm.cols + fq];
+                    if (sh < 0.01f || FarRockClump(x, z) >= sh) continue;
+                    if (lidar && RouteDistanceCoarse(x, z) < LidarReachM) continue;
+                    int idx = j * M.cols + i;
+                    M.v[idx] = 255;
+                    dir[idx] = fdir[fr * fm.cols + fq];
+                }
+            // within the far forest's reach: nothing by the road or on the world's
+            // keep-out (in the mask too: the land is never painted where the skin
+            // may not be), and the rest are the skin's cells
             bool Clear(float x, float z)
             {
                 if (RouteDistanceCoarse(x, z) < FarRockRoadM + 40f && StageCorridor(x, z, Mathf.Max(FarRockRoadM, halfW + 14f), out _)) { sR++; return false; }
@@ -124,67 +215,80 @@ namespace PSXRacing.EditorTools
                 if (StageKeepOut(x, z)) { sK++; return false; }
                 return true;
             }
-            if (!lidar)
+            for (int idx = 0; idx < M.v.Length; idx++)
             {
-                // the near grid: slope by central differences over 24 m, relief over 5 x 5 cells
-                int cols = nm.cols, rows = nm.rows;
-                float c2 = 2f * nm.cell, tanT = Mathf.Tan(FarRockSlopeDeg * Mathf.Deg2Rad);
-                for (int r = 2; r < rows - 2; r++)
-                    for (int c = 2; c < cols - 2; c++)
-                    {
-                        float dx = (demNear[r * cols + c + 1] - demNear[r * cols + c - 1]) * 0.1f / c2;
-                        float dz = (demNear[(r + 1) * cols + c] - demNear[(r - 1) * cols + c]) * 0.1f / c2;
-                        if (dx * dx + dz * dz < tanT * tanT) continue;
-                        short lo = short.MaxValue, hi = short.MinValue;
-                        for (int b = -2; b <= 2; b++)
-                            for (int a = -2; a <= 2; a++)
-                            {
-                                short v = demNear[(r + b) * cols + c + a];
-                                if (v < lo) lo = v; if (v > hi) hi = v;
-                            }
-                        if ((hi - lo) * 0.1f < FarRockReliefM) continue;
-                        float x = nm.originX + c * nm.cell, z = nm.originZ + r * nm.cell;
-                        if (RouteDistanceCoarse(x, z) > reach) continue;
-                        if (!Clear(x, z)) continue;
-                        float g = Mathf.Sqrt(dx * dx + dz * dz);
-                        cells.Add(new Vector4(x, z, -dx / g, -dz / g));
-                        nC++;
-                    }
-            }
-            // past the near grid, to the far forest's reach: the far grid's
-            // share, laid as 12 m cells in clumps (not on a lidar stage: the
-            // lidar's cells reach 2.2 km from its road, the far forest's 2.1)
-            if (!lidar)
-            {
-                var fm = demFarMeta;
-                int cols = fm.cols, rows = fm.rows;
-                float c2 = 2f * fm.cell;
-                for (int r = 1; r < rows - 1; r++)
-                    for (int c = 1; c < cols - 1; c++)
-                    {
-                        float x0 = fm.originX + c * fm.cell, z0 = fm.originZ + r * fm.cell;
-                        if (InNear(x0, z0)) continue;
-                        float dx = (demFar[r * cols + c + 1] - demFar[r * cols + c - 1]) * 0.1f / c2;
-                        float dz = (demFar[(r + 1) * cols + c] - demFar[(r - 1) * cols + c]) * 0.1f / c2;
-                        float g = Mathf.Sqrt(dx * dx + dz * dz);
-                        float share = FarRockShare(Mathf.Atan(g) * Mathf.Rad2Deg);
-                        if (share < 0.01f) continue;
-                        if (RouteDistanceCoarse(x0, z0) > reach + fm.cell) continue;
-                        for (int j = -2; j <= 2; j++)
-                            for (int i = -2; i <= 2; i++)
-                            {
-                                float x = x0 + i * CliffCell, z = z0 + j * CliffCell;
-                                if (InNear(x, z)) continue;
-                                if (FarRockClump(x, z) >= share) continue;
-                                if (RouteDistanceCoarse(x, z) > reach) continue;
-                                if (!Clear(x, z)) continue;
-                                cells.Add(new Vector4(x, z, -dx / g, -dz / g));
-                                fC++;
-                            }
-                    }
+                if (M.v[idx] == 0) continue;
+                int i = idx % M.cols, j = idx / M.cols;
+                float x = M.ox + i * c, z = M.oz + j * c;
+                if (lidar) continue;   // the lidar granite has its own skin and keep-out
+                if (RouteDistanceCoarse(x, z) > reach) continue;
+                if (!Clear(x, z)) { M.v[idx] = 0; continue; }
+                var dd = dir.TryGetValue(idx, out var d0) ? d0 : Vector2.up;
+                cells.Add(new Vector4(x, z, dd.x, dd.y));
+                if (InNear(i, j)) nC++; else fC++;
             }
             nearCells = nC; farCells = fC; skipRoad = sR; skipKeep = sK;
+            mask = M;
             return cells;
+        }
+
+        /// <summary>The mask as a texture (one channel, linear, mips: far away a
+        /// texel's mean is the share of rock) and its world-to-uv transform.
+        /// Under Generated, out of the Art folder's 256 px importer sweep.</summary>
+        static Texture2D WriteFarRockMask(FarRockMaskData M, out Vector4 st)
+        {
+            string path = GenDir + "/" + MeshPrefix + "FarRockMask.png";
+            var tex = new Texture2D(M.cols, M.rows, TextureFormat.RGBA32, false);
+            var px = new Color32[M.cols * M.rows];
+            for (int k = 0; k < px.Length; k++) { byte v = M.v[k]; px[k] = new Color32(v, v, v, 255); }
+            tex.SetPixels32(px); tex.Apply();
+            System.IO.File.WriteAllBytes(ProjectRootPath(path), tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (imp != null)
+            {
+                imp.textureType = TextureImporterType.SingleChannel;
+                var ts = new TextureImporterSettings();
+                imp.ReadTextureSettings(ts);
+                ts.singleChannelComponent = TextureImporterSingleChannelComponent.Red;
+                imp.SetTextureSettings(ts);
+                imp.sRGBTexture = false; imp.mipmapEnabled = true; imp.filterMode = FilterMode.Trilinear; imp.anisoLevel = 4;
+                imp.wrapMode = TextureWrapMode.Clamp; imp.maxTextureSize = 4096; imp.npotScale = TextureImporterNPOTScale.None;
+                imp.textureCompression = TextureImporterCompression.Uncompressed;
+                imp.SaveAndReimport();
+            }
+            // texel i's centre is the lattice node ox + i * cell
+            float w = M.cols * M.cell, h = M.rows * M.cell;
+            st = new Vector4(1f / w, 1f / h, (0.5f * M.cell - M.ox) / w, (0.5f * M.cell - M.oz) / h);
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        /// <summary>The mask on every far-land material dress that wears the
+        /// template's rock (SetFarRock set _FarRock on them in HorizonDress).</summary>
+        static int SetFarRockMask(IEnumerable<Material> mats, Texture2D mask, Vector4 st)
+        {
+            int n = 0;
+            var seen = new HashSet<Material>();
+            foreach (var m in mats)
+            {
+                if (m == null || !seen.Add(m) || !m.HasProperty("_FarRockMask") || m.GetFloat("_FarRock") < 0.5f) continue;
+                m.SetTexture("_FarRockMask", mask);
+                m.SetVector("_FarRockMaskST", mask != null ? st : Vector4.zero);
+                EditorUtility.SetDirty(m);
+                n++;
+            }
+            return n;
+        }
+
+        static IEnumerable<Material> SeasonMaterials()
+        {
+            foreach (var e in seasonEntries)
+            {
+                if (e == null) continue;
+                if (e.baseMat != null) yield return e.baseMat;
+                if (e.variants != null) foreach (var m in e.variants) if (m != null) yield return m;
+            }
         }
 
         /// <summary>
@@ -199,7 +303,11 @@ namespace PSXRacing.EditorTools
             if (!FarMtnBuild || stageWp == null || demNear == null || demFar == null) return;
             // a mountain's distance only (the horizon's and the far forest's own rule)
             if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return;
-            var cells = PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep);
+            var cells = PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep, out var mask);
+            var maskTex = WriteFarRockMask(mask, out var maskST);
+            int dressed = SetFarRockMask(SeasonMaterials(), maskTex, maskST);
+            int rockTexels = 0; foreach (var v in mask.v) if (v != 0) rockTexels++;
+            Log($"Far mountain template: rock mask {mask.cols} x {mask.rows} texels of {mask.cell:0} m, {rockTexels} rock ({rockTexels * mask.cell * mask.cell / 1e6f:0.00} km2), on {dressed} far-land material dresses.");
             // the root and its switch on every stage the template is built on, rock or
             // not: the switch is also the far land's (PSX/Lit _PSXFarMtnOff)
             var root = new GameObject("FarMtn");
@@ -276,10 +384,10 @@ namespace PSXRacing.EditorTools
             return n;
         }
 
-        /// <summary>The far land's own rock (PSX/Lit _FarRock): past the far
-        /// forest the land is painted with the same share of rock the cells
-        /// above follow, in the stage's rock, fading in from 2.0 km (where the
-        /// skin's cells carry it) to 2.8 km.</summary>
+        /// <summary>The far land's own rock (PSX/Lit _FarRock), set by
+        /// HorizonDress on every far-land dress: the stage's rock colour and the
+        /// 60 m share past the mask; BuildFarMtn hands it the mask itself
+        /// (SetFarRockMask) once the cells are planned.</summary>
         static void SetFarRock(Material m)
         {
             if (m == null || !m.HasProperty("_FarRock")) return;
@@ -289,35 +397,54 @@ namespace PSXRacing.EditorTools
             var mean = FarRockAlbedoMean;
             m.SetColor("_FarRockCol", new Color(mean.r * tint.r, mean.g * tint.g, mean.b * tint.b, 1f));
             m.SetVector("_FarRockShare", new Vector4(Mathf.Cos(FarRockShareLo * Mathf.Deg2Rad), Mathf.Cos(FarRockShareHi * Mathf.Deg2Rad), FarRockShareMax, FarRockClumpM));
-            m.SetVector("_FarRockFade", new Vector4(2000f, 2800f, 0f, 0f));
+            m.SetVector("_FarRockMaskST", Vector4.zero);
             m.SetFloat("_FarRock", 1f);
+        }
+
+        /// <summary>A stage's builder state without building it: the waypoints,
+        /// the DEM and the world file, the terrain field (the road plan's own
+        /// first steps), in an empty scene.</summary>
+        static void LoadStageForLab(TrackCatalog.TrackDef def)
+        {
+            log = new System.Text.StringBuilder();
+            EnsureFolders(); GenerateTrackTextures(); EnsureRoadLayer();
+            psxLit = Shader.Find("PSX/Lit");
+            track = def; theme = ThemeFor(def);
+            matByTex.Clear(); matByKey.Clear(); ClearSeasonEntries();
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene, UnityEditor.SceneManagement.NewSceneMode.Single);
+            var waypoints = BuildWaypoints(out _);
+            StageLoadDem();
+            BuildTerrainField(waypoints);
         }
 
         /// <summary>
         /// THE LAB'S PATCH for a stage whose rock is its world file's lidar
-        /// granite (Lake Lure, Chimney Rock): there the template builds no cells
+        /// granite (Lake Lure, Chimney Rock): there the template builds no skin
         /// and plants exactly as before, so a scene built without it differs
-        /// from one built with it only by the far land's materials (SetFarRock,
-        /// from HorizonDress) and the switch's root. This makes those two
-        /// changes on a built scene and saves it - the scene a build with the
-        /// template would make, in a minute instead of forty. Refuses a stage
-        /// without lidar cliffs (its cells change the forest: build it).
+        /// from one built with it only by the far land's materials (SetFarRock
+        /// and the mask) and the switch's root. This plans the mask, then makes
+        /// those changes on the built scene and saves it - the scene a build
+        /// with the template would make, in minutes instead of forty. Refuses a
+        /// stage without lidar cliffs (its cells change the forest: build it).
         /// Returns a line for the log.
         /// </summary>
-        internal static string PatchLidarStageForLab(TrackCatalog.TrackDef def, UnityEngine.SceneManagement.Scene scene)
+        internal static string PatchLidarStageForLab(TrackCatalog.TrackDef def)
         {
-            track = def; theme = ThemeFor(def);
-            string pre = StagePrefix, dir = theme.stageDir;
-            string wpath = ProjectRootPath(dir + "/" + pre + "_world.json");
-            if (!System.IO.File.Exists(wpath) || !System.IO.File.ReadAllText(wpath).Contains("\"cliffs\":[")) return def.id + ": no lidar cliffs in its world file - build it instead";
+            LoadStageForLab(def);
             if (!FarMtnBuild) return def.id + ": PSX_FARMTN_TEMPLATE=0 / not the PC pass - nothing patched";
+            var cells = PlanFarMtnCells(out bool lidar, out _, out _, out _, out _, out var mask);
+            if (!lidar || cells.Count > 0) return def.id + ": not a lidar stage (its cells change the forest) - build it instead";
+            var maskTex = WriteFarRockMask(mask, out var maskST);
+            int rockTexels = 0; foreach (var v in mask.v) if (v != 0) rockTexels++;
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/PSXRacing/Scenes/" + def.id + ".unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
             if (UnityEngine.Object.FindAnyObjectByType<FarMtnSwitch>(FindObjectsInactive.Include) != null) return def.id + ": already has the template's root";
             var mats = new HashSet<Material>();
             void Take(Material m) { if (m != null && m.HasProperty("_FarRock") && m.GetFloat("_Horizon") > 0.5f && m.GetFloat("_HorizonCrowns") > 0.5f && m.GetFloat("_HorizonFringe") < 0.5f) mats.Add(m); }
             foreach (var r in UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include)) foreach (var m in r.sharedMaterials) Take(m);
             foreach (var sd in UnityEngine.Object.FindObjectsByType<SeasonDress>(FindObjectsInactive.Include))
                 if (sd.entries != null) foreach (var e in sd.entries) if (e != null) { Take(e.baseMat); if (e.variants != null) foreach (var m in e.variants) Take(m); }
-            foreach (var m in mats) { SetFarRock(m); EditorUtility.SetDirty(m); }
+            foreach (var m in mats) SetFarRock(m);
+            int dressed = SetFarRockMask(mats, maskTex, maskST);
             var tp = UnityEngine.Object.FindAnyObjectByType<TrackPath>();
             var parent = tp != null ? tp.transform : null;
             var root = new GameObject("FarMtn");
@@ -329,26 +456,23 @@ namespace PSXRacing.EditorTools
             UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
             AssetDatabase.SaveAssets();
             bool ok = UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
-            return $"{def.id}: far land's rock set on {mats.Count} material dresses, the switch's root added under {(parent != null ? parent.name : "the scene")}, saved {ok}";
+            return $"{def.id}: rock mask {mask.cols}x{mask.rows} ({rockTexels} rock texels), far land's rock on {dressed} of {mats.Count} material dresses, " +
+                   $"the switch's root under {(parent != null ? parent.name : "the scene")}, saved {ok}";
         }
 
         /// <summary>The template's cells for a stage without building anything
         /// (the lab's dry run: the road plan's own first steps, then the plan).</summary>
         public static string PlanFarMtnForLab(TrackCatalog.TrackDef def)
         {
-            log = new System.Text.StringBuilder();
             if (!def.stage) return def.id + " is not a stage";
-            EnsureFolders(); GenerateTrackTextures(); EnsureRoadLayer();
-            psxLit = Shader.Find("PSX/Lit");
-            track = def; theme = ThemeFor(def);
-            matByTex.Clear(); matByKey.Clear(); ClearSeasonEntries();
-            UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene, UnityEditor.SceneManagement.NewSceneMode.Single);
-            var waypoints = BuildWaypoints(out _);
-            StageLoadDem();
-            BuildTerrainField(waypoints);
+            LoadStageForLab(def);
             if (!FarMtnBuild) return def.id + ": the template is off (PSX_FARMTN_TEMPLATE=0 or not the PC pass)";
-            var cells = PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep);
-            return $"{def.id}: {cells.Count} rock cells ({nearCells} near rule, {farCells} far share{(lidar ? ", lidar stage" : "")}), " +
+            var cells = PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep, out var mask);
+            int rockTexels = 0; foreach (var v in mask.v) if (v != 0) rockTexels++;
+            // (PSX_FM_PLANWRITE=1: the mask texture written and imported too - the build's own step, tried)
+            if (System.Environment.GetEnvironmentVariable("PSX_FM_PLANWRITE") == "1") { var t = WriteFarRockMask(mask, out var st0); rockTexels = t != null ? rockTexels : -1; }
+            return $"{def.id}: mask {mask.cols}x{mask.rows}, {rockTexels} rock texels; skin " +
+                   $"{def.id}: {cells.Count} rock cells ({nearCells} near rule, {farCells} far share{(lidar ? ", lidar stage" : "")}), " +
                    $"{cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2; left out {skipRoad} by the road, {skipKeep} on the keep-out; tint {FarRockTint}";
         }
 

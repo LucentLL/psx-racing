@@ -107,8 +107,7 @@ namespace PSXRacing.EditorTools
                     TrackCatalog.TrackDef def = null;
                     foreach (var d in TrackCatalog.Scened) if (d.id == id) def = d;
                     if (def == null) { sb.AppendLine("no venue " + id); code = 1; continue; }
-                    var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/PSXRacing/Scenes/" + id + ".unity", UnityEditor.SceneManagement.OpenSceneMode.Single);
-                    sb.AppendLine(PSXRacingBuilder.PatchLidarStageForLab(def, scene));
+                    sb.AppendLine(PSXRacingBuilder.PatchLidarStageForLab(def));
                 }
             }
             catch (System.Exception e) { sb.AppendLine("THREW " + e); code = 1; }
