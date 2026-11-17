@@ -45,6 +45,24 @@ namespace PSXRacing
             }
         }
 
+        static float gainCap = -1f;
+        /// <summary>The most the camcorder's GAIN UP multiplies a dark picture
+        /// by: PSX_CAM_GAIN, default 3.2 (the value every night frame of
+        /// round 2 was shot at; round 1's was 1.7). Lower = darker nights.</summary>
+        public static float GainCap
+        {
+            get
+            {
+                if (gainCap < 0f)
+                {
+                    gainCap = 3.2f;
+                    if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_CAM_GAIN") ?? "", System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out float g)) gainCap = Mathf.Clamp(g, 1f, 6f);
+                }
+                return gainCap;
+            }
+        }
+
         /// <summary>For tools: force the switch either way in this process.</summary>
         public static void ForceEnabled(bool on) => enabled = on ? 1 : 0;
 

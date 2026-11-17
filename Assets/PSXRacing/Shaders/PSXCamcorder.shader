@@ -40,7 +40,8 @@ Shader "PSX/Camcorder"
         // Eye pass: x: luma ease this frame; y: chroma ease; z: 1 = start
         // over; w: where it starts, as a factor on the measured luma.
         float4 _PSXCamEyeK;
-        // x: the static between two recordings (a cut to another camera), 0..1.
+        // x: the static between two recordings (a cut to another camera), 0..1;
+        // y: the most the gain-up multiplies a dark picture by (PSX_CAM_GAIN).
         float4 _PSXCam3;
 
         TEXTURE2D(_PSXCamEyePrev);
@@ -243,7 +244,7 @@ Shader "PSX/Camcorder"
                 float transient = clamp(pow(nowL / adapted, 0.65), 0.45, 2.3);
                 // GAIN UP in the dark (round 2: night mountain tapes were too
                 // black to enjoy): up to 3.2x, and the grain comes up with it.
-                float gain = clamp(pow(0.17 / adapted, 0.42), 1.0, 3.2);
+                float gain = clamp(pow(0.17 / adapted, 0.42), 1.0, max(1.0, _PSXCam3.y));
                 float exposure = transient * gain;
                 Y *= exposure;
                 yiq.yz *= exposure;

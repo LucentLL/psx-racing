@@ -173,7 +173,7 @@ namespace PSXRacing
             // The eye's two time constants: exposure ~0.7 s, white balance ~2.5 s.
             float k = 1f - Mathf.Exp(-dt / 0.7f);
             float kc = 1f - Mathf.Exp(-dt / 2.5f);
-            m.SetVector(Cam3Id, new Vector4(Mathf.Clamp01(Camcorder.Static), 0f, 0f, 0f));
+            m.SetVector(Cam3Id, new Vector4(Mathf.Clamp01(Camcorder.Static), Camcorder.GainCap, 0f, 0f));
             m.SetVector(EyeKId, new Vector4(k, kc, Camcorder.EyeReset ? 1f : 0f,
                                             Camcorder.EyeReset ? Mathf.Max(0.05f, Camcorder.EyeKick) : 1f));
             Camcorder.EyeReset = false;
