@@ -39,7 +39,7 @@ namespace PSXRacing
         /// Past its own flag, rolling to a stop. Distinct from plain
         /// `!driving`, which is the GRID: a car waiting on the line wants no
         /// steering and a firm brake, and a car that has just crossed at speed
-        /// wants the opposite — the road it is on, and enough brake to be
+        /// wants the opposite â€” the road it is on, and enough brake to be
         /// stopped soon without standing the field on its nose.
         /// </summary>
         public bool ShuttingDown { get; private set; }
@@ -47,7 +47,7 @@ namespace PSXRacing
         /// <summary>Brake a finisher carries until it is nearly stopped. Under
         /// the grid's 0.4 on purpose: this is a slowing-down lap, not a panic
         /// stop, and a car that hauls up in its own length is a car the player
-        /// — who still has their own throttle past the flag — drives into.</summary>
+        /// â€” who still has their own throttle past the flag â€” drives into.</summary>
         const float ShutdownBrake = 0.22f;
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
         const float RetiredBrake = 0.6f;
@@ -85,7 +85,9 @@ namespace PSXRacing
                 var rb = ts.Obstacles[i];
                 if (rb == null) return 1e6f;
                 Vector3 pos = rb.position;
-                int oi = path.NearestIndex(pos, nearestIdx, 60);
+                // (PASS WINDOW: searched round where it is up the road, not only 240 m round this car - a car 300 m
+                // off, closing at 50 m/s, was nobody's oncoming car)
+                int oi = PassWindowOn ? RoadIndexNear(pos) : path.NearestIndex(pos, nearestIdx, 60);
                 Vector3 wp = path.GetPoint(oi), tan = path.GetTangent(oi), d = pos - wp;
                 if (Mathf.Abs(d.y) > 4f) return 1e6f;
                 float lat = Vector3.Dot(d, Vector3.Cross(Vector3.up, tan).normalized);
@@ -126,7 +128,7 @@ namespace PSXRacing
         /// lookahead point on the path, offset onto this car's own line.
         ///
         /// Its own method so the shutdown steers exactly as the race does
-        /// rather than with a second, nearly-identical copy of it — the thing
+        /// rather than with a second, nearly-identical copy of it â€” the thing
         /// that eventually disagrees.
         /// </summary>
         float SteerToLine(float speed)
@@ -738,12 +740,12 @@ namespace PSXRacing
         }
 
         // ---- recovery (P2) ----
-        /// <summary>Stuck in clear air — probably facing a kerb or in the scenery.
+        /// <summary>Stuck in clear air â€” probably facing a kerb or in the scenery.
         /// The long timer is deliberate: a car crawling out of a hairpin is not
         /// stuck, and teleporting it would look worse than the crawl.</summary>
         const float StuckSeconds = 4f;
         /// <summary>Stuck WHILE grinding a barrier. A pinned car never recovers on
-        /// its own — the wall takes the speed as fast as the engine makes it — so
+        /// its own â€” the wall takes the speed as fast as the engine makes it â€” so
         /// waiting the full four seconds just leaves a car parked on the racing
         /// line for four seconds.</summary>
         const float PinnedSeconds = 1.5f;
@@ -771,7 +773,7 @@ namespace PSXRacing
         /// And never more than this much over the PLAYER'S car. The field is
         /// drawn from a price band up to 1.65x the player's car, so a 204 km/h
         /// Miata could line up against an S15 the AI would run to 245 on the
-        /// straight — and a car that walks past you on a straight is the one
+        /// straight â€” and a car that walks past you on a straight is the one
         /// thing that kills the sense of speed stone dead (NWR's MW review
         /// names exactly that failure). 5% over lets a faster car still get a
         /// pass done off a bad shift without ever simply driving away.
@@ -1131,7 +1133,7 @@ namespace PSXRacing
         /// Take the path index again from scratch.
         ///
         /// FixedUpdate only ever REFINES the cached index, searching a window
-        /// around it — which is right while a car is driving and wrong the
+        /// around it â€” which is right while a car is driving and wrong the
         /// moment something moves it a long way, or turns the list it is an
         /// index into round underneath it. Both happen on a reverse venue:
         /// RaceHandoffApplier flips the waypoints and restages the grid, and
@@ -1354,7 +1356,7 @@ namespace PSXRacing
 
         /// <summary>
         /// Nudge off the line of any car this one is closing on, and lift when the
-        /// gap is shutting. Not overtaking logic — the AI has no notion of a pass,
+        /// gap is shutting. Not overtaking logic â€” the AI has no notion of a pass,
         /// and pretending otherwise would have it dive for gaps it cannot make.
         /// The goal is only that a car ahead stops being furniture.
         /// </summary>
@@ -1484,6 +1486,18 @@ namespace PSXRacing
             }
         }
         Vector3 RightAt(int i) => Vector3.Cross(Vector3.up, path.GetTangent(i)).normalized;
+        /// <summary>The waypoint of this car's road nearest <paramref name="pos"/>, searched round where it lies up the
+        /// road (this car's index plus its distance ahead), so a car 500 m off is found where it is.</summary>
+        int RoadIndexNear(Vector3 pos)
+        {
+            float z = transform.InverseTransformPoint(pos).z;
+            int guess = nearestIdx + Mathf.RoundToInt(z / path.spacing);
+            if (path.HasEnds) guess = Mathf.Clamp(guess, 0, path.Count - 1);
+            int a = path.NearestIndex(pos, guess, 30);
+            // round a bend the straight line is shorter than the road: look on from the window's far edge once
+            if (Mathf.Abs(a - guess) >= 29 && z > 0f) a = path.NearestIndex(pos, path.HasEnds ? Mathf.Min(a + 30, path.Count - 1) : a + 30, 30);
+            return a;
+        }
         /// <summary>Metres of the other lane this car can see up its road (cached 0.2 s), and what ends it: "bend",
         /// "crest", "junction" (a routed road's turn zone), "end" or "clear".</summary>
         float SightAhead(out string why)
@@ -1542,7 +1556,8 @@ namespace PSXRacing
             // THE QUEUE the car is in: a car going this way within PassQueueGapM (+ s) beyond it, in its lane - the pass
             // takes the whole queue (the lane past the last car is the room to come back to)
             float headZ = z, headSpeed = theirSpeed;
-            float headLat = target != null ? Vector3.Dot(target.position - path.GetPoint(path.NearestIndex(target.position, nearestIdx)), RightAt(path.NearestIndex(target.position, nearestIdx))) : line + 2.5f;
+            int hti = target != null ? RoadIndexNear(target.position) : nearestIdx;
+            float headLat = target != null ? Vector3.Dot(target.position - path.GetPoint(hti), RightAt(hti)) : line + 2.5f;
             for (int pass = 0; pass < 6; pass++)
             {
                 float gapMax = PassQueueGapM + PassQueueGapS * mine + PassCarLenM;
@@ -1559,7 +1574,7 @@ namespace PSXRacing
                     if (lo.z <= headZ + 0.5f || lo.z > headZ + gapMax || Mathf.Abs(lo.y) > 4f) continue;
                     float along = Vector3.Dot(rb.linearVelocity, transform.forward);
                     if (along < -1f) continue;                                   // coming at us: the oncoming check below
-                    int qi = path.NearestIndex(pos, nearestIdx);
+                    int qi = RoadIndexNear(pos);
                     float lat = Vector3.Dot(pos - path.GetPoint(qi), RightAt(qi));
                     if (Mathf.Abs(lat - headLat) > 2.2f) continue;               // not in that car's lane
                     if (lo.z < bestZ) { bestZ = lo.z; bestV = Mathf.Max(along, 0f); bestLat = lat; }
@@ -1597,7 +1612,7 @@ namespace PSXRacing
                     if (ahead > 1e5f) continue;
                     if (!path.HasEnds) { if (ahead > total * 0.5f) ahead -= total; else if (ahead < -total * 0.5f) ahead += total; }
                     if (ahead < -3f || ahead > runM + 900f) continue;
-                    int oi = path.NearestIndex(rb.position, nearestIdx);
+                    int oi = RoadIndexNear(rb.position);
                     float lat = Vector3.Dot(rb.position - path.GetPoint(oi), RightAt(oi));
                     float half = i < ts.ObstacleHalfW.Count ? ts.ObstacleHalfW[i] : 1f;
                     float along = Vector3.Dot(rb.linearVelocity, path.GetTangent(oi));
@@ -1834,7 +1849,7 @@ namespace PSXRacing
 
                     float closeness = 1f - local.z / AvoidLookM;      // 0 far, 1 touching
                     // Push away from the side they are on. Dead ahead resolves
-                    // left, arbitrarily but consistently — a car that dithered
+                    // left, arbitrarily but consistently â€” a car that dithered
                     // between the two would weave.
                     float dir = local.x >= 0f ? -1f : 1f;
                     float pull = dir * AvoidMaxM * closeness;
@@ -2339,6 +2354,11 @@ namespace PSXRacing
                 DebugLeftLimit = float.NegativeInfinity;
                 leftLimit = float.NegativeInfinity;
             }
+            // ...and with traffic on the road, PREFER THE RIGHT LANE: over the line with no pass that holds (the follow
+            // held the car where it was - out in the other lane - for up to 19 s), back to its own lane. Not off a
+            // hairpin's open line, and not into a rival level with it on its right (it stays out until it can come in).
+            else if (windowRoad && float.IsNegativeInfinity(leftLimit) && Mathf.Abs(openLine) < 0.1f && !RivalBesideRight())
+                leftLimit = OwnLaneInnerM - lineOffset;
             if (wanted < leftLimit && alongsideHold && car.forwardSpeed > DropBehindMinMps)
             {
                 // Out in the other lane, level with the car being passed, and
@@ -2427,6 +2447,19 @@ namespace PSXRacing
         }
         float passLostT;
         Rigidbody candPass, lastDone; int candSide; bool candHeld, candOncoming;
+        /// <summary>A rival level with this car on its right (the start's two abreast, a pass side by side).</summary>
+        bool RivalBesideRight()
+        {
+            var rm = RaceManager.Instance;
+            if (rm == null) return false;
+            foreach (var other in rm.allCars)
+            {
+                if (other == null || other == car || !other.gameObject.activeInHierarchy) continue;
+                Vector3 lo = transform.InverseTransformPoint(other.transform.position);
+                if (lo.x > 0.5f && lo.x < 4f && lo.z > -5f && lo.z < 6f && Mathf.Abs(lo.y) < 3f) return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Put the car back on the road when it can no longer get there itself.
