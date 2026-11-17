@@ -119,6 +119,36 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(code);
         }
 
+        /// <summary>PSX_FM_PLAN="BlueRidge,...": the template's cells per stage, nothing
+        /// built or saved (a dry run that also compiles the branch's code and shader).</summary>
+        public static void Plan()
+        {
+            Directory.CreateDirectory(Shots);
+            string tag = Env("PSX_FM_TAG", "x");
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("farmtn plan " + tag + " " + System.DateTime.Now.ToString("s"));
+            int code = 0;
+            var lit = Shader.Find("PSX/Lit");
+            sb.AppendLine("PSX/Lit " + (lit == null ? "MISSING" : (lit.isSupported ? "supported" : "NOT SUPPORTED")) +
+                          (lit != null && ShaderUtil.ShaderHasError(lit) ? " - HAS ERRORS" : ""));
+            if (lit != null)
+                foreach (var m in ShaderUtil.GetShaderMessages(lit)) sb.AppendLine("  shader message: " + m.message + " line " + m.line + " " + m.platform);
+            foreach (var raw in Env("PSX_FM_PLAN", "").Split(','))
+            {
+                string id = raw.Trim(); if (id.Length == 0) continue;
+                TrackCatalog.TrackDef def = null;
+                foreach (var d in TrackCatalog.Scened) if (d.id == id) def = d;
+                if (def == null) { sb.AppendLine("no venue " + id); code = 1; continue; }
+                try { sb.AppendLine(PSXRacingBuilder.PlanFarMtnForLab(def)); }
+                catch (System.Exception e) { sb.AppendLine(id + " THREW " + e); code = 1; }
+                File.WriteAllText(Path.Combine(Shots, "fm_plan_" + tag + ".txt"), sb.ToString());
+            }
+            sb.AppendLine("DONE");
+            File.WriteAllText(Path.Combine(Shots, "fm_plan_" + tag + ".txt"), sb.ToString());
+            Debug.Log("[FarMtnLab] " + sb);
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
         // ------------------------------------------------------------ poses
         [System.Serializable] public class Pose { public string name; public float m = -1f, yaw, pitch = 2f, lane = 1f, height = 1.15f, fov; public float[] eye, look; }
         [System.Serializable] public class VenuePoses { public string id; public Pose[] poses; }

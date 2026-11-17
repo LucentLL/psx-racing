@@ -103,21 +103,14 @@ namespace PSXRacing.EditorTools
             return Mathf.Clamp01(0.5f + (v - 0.5f) * 1.6f);
         }
 
-        /// <summary>
-        /// THE TEMPLATE, from BuildTrack after the landmark rocks and before
-        /// the forest (which takes its keep-out): plan the rock cells, lay the
-        /// skin. The far land's own rock is set on its materials by
-        /// HorizonDress.
-        /// </summary>
-        static void BuildFarMtn(List<Vector3> pts, Transform parent)
+        /// <summary>The template's rock cells for the loaded stage (x, z, downhill
+        /// x, downhill z): the near grid's rule and the far grid's share (none on
+        /// a lidar stage). Needs the DEM and the route (StageLoadDem).</summary>
+        static List<Vector4> PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep)
         {
-            farRockKeep = null;
-            if (!FarMtnBuild || stageWp == null || demNear == null || demFar == null) return;
-            // a mountain's distance only (the horizon's and the far forest's own rule)
-            if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return;
-            bool lidar = world != null && world.cliffs != null && world.cliffs.Length >= 6 && WorldSwitch("PSX_LURE_GRANITE");
+            lidar = world != null && world.cliffs != null && world.cliffs.Length >= 6 && WorldSwitch("PSX_LURE_GRANITE");
             var cells = new List<Vector4>();   // x, z, downhill x, downhill z
-            int nearCells = 0, farCells = 0, skipRoad = 0, skipKeep = 0;
+            int nC = 0, fC = 0, sR = 0, sK = 0;
             float halfW = RoadWidth * 0.5f;
             float reach = Mathf.Min(FarForestMaxM, FarCoverage - FarCell) + FarCell;
             var nm = demNearMeta;
@@ -126,9 +119,9 @@ namespace PSXRacing.EditorTools
                 z > nm.originZ + 2f * nm.cell && z < nm.originZ + (nm.rows - 3) * nm.cell;
             bool Clear(float x, float z)
             {
-                if (RouteDistanceCoarse(x, z) < FarRockRoadM + 40f && StageCorridor(x, z, Mathf.Max(FarRockRoadM, halfW + 14f), out _)) { skipRoad++; return false; }
-                if (world != null && (WorldKeepBits(x, z) & 7) != 0) { skipKeep++; return false; }
-                if (StageKeepOut(x, z)) { skipKeep++; return false; }
+                if (RouteDistanceCoarse(x, z) < FarRockRoadM + 40f && StageCorridor(x, z, Mathf.Max(FarRockRoadM, halfW + 14f), out _)) { sR++; return false; }
+                if (world != null && (WorldKeepBits(x, z) & 7) != 0) { sK++; return false; }
+                if (StageKeepOut(x, z)) { sK++; return false; }
                 return true;
             }
             if (!lidar)
@@ -155,7 +148,7 @@ namespace PSXRacing.EditorTools
                         if (!Clear(x, z)) continue;
                         float g = Mathf.Sqrt(dx * dx + dz * dz);
                         cells.Add(new Vector4(x, z, -dx / g, -dz / g));
-                        nearCells++;
+                        nC++;
                     }
             }
             // past the near grid, to the far forest's reach: the far grid's
@@ -186,10 +179,27 @@ namespace PSXRacing.EditorTools
                                 if (RouteDistanceCoarse(x, z) > reach) continue;
                                 if (!Clear(x, z)) continue;
                                 cells.Add(new Vector4(x, z, -dx / g, -dz / g));
-                                farCells++;
+                                fC++;
                             }
                     }
             }
+            nearCells = nC; farCells = fC; skipRoad = sR; skipKeep = sK;
+            return cells;
+        }
+
+        /// <summary>
+        /// THE TEMPLATE, from BuildTrack after the landmark rocks and before
+        /// the forest (which takes its keep-out): plan the rock cells, lay the
+        /// skin. The far land's own rock is set on its materials by
+        /// HorizonDress.
+        /// </summary>
+        static void BuildFarMtn(List<Vector3> pts, Transform parent)
+        {
+            farRockKeep = null;
+            if (!FarMtnBuild || stageWp == null || demNear == null || demFar == null) return;
+            // a mountain's distance only (the horizon's and the far forest's own rule)
+            if (!string.IsNullOrEmpty(theme.farGround) || !string.IsNullOrEmpty(theme.sand) || track.stageWaterY > 0f) return;
+            var cells = PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep);
             // the root and its switch on every stage the template is built on, rock or
             // not: the switch is also the far land's (PSX/Lit _PSXFarMtnOff)
             var root = new GameObject("FarMtn");
@@ -320,6 +330,26 @@ namespace PSXRacing.EditorTools
             AssetDatabase.SaveAssets();
             bool ok = UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
             return $"{def.id}: far land's rock set on {mats.Count} material dresses, the switch's root added under {(parent != null ? parent.name : "the scene")}, saved {ok}";
+        }
+
+        /// <summary>The template's cells for a stage without building anything
+        /// (the lab's dry run: the road plan's own first steps, then the plan).</summary>
+        public static string PlanFarMtnForLab(TrackCatalog.TrackDef def)
+        {
+            log = new System.Text.StringBuilder();
+            if (!def.stage) return def.id + " is not a stage";
+            EnsureFolders(); GenerateTrackTextures(); EnsureRoadLayer();
+            psxLit = Shader.Find("PSX/Lit");
+            track = def; theme = ThemeFor(def);
+            matByTex.Clear(); matByKey.Clear(); ClearSeasonEntries();
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene, UnityEditor.SceneManagement.NewSceneMode.Single);
+            var waypoints = BuildWaypoints(out _);
+            StageLoadDem();
+            BuildTerrainField(waypoints);
+            if (!FarMtnBuild) return def.id + ": the template is off (PSX_FARMTN_TEMPLATE=0 or not the PC pass)";
+            var cells = PlanFarMtnCells(out bool lidar, out int nearCells, out int farCells, out int skipRoad, out int skipKeep);
+            return $"{def.id}: {cells.Count} rock cells ({nearCells} near rule, {farCells} far share{(lidar ? ", lidar stage" : "")}), " +
+                   $"{cells.Count * CliffCell * CliffCell / 1e6f:0.000} km2; left out {skipRoad} by the road, {skipKeep} on the keep-out; tint {FarRockTint}";
         }
 
         /// <summary>T_Photoscanned_Cliff_01_BC's mean albedo, linear (the 4096 px
