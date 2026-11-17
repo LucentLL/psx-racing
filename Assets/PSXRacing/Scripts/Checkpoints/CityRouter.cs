@@ -467,7 +467,7 @@ namespace PSXRacing
         public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc, float now, int prefer = -1)
         {
             int keep = loc.valid && !loc.offGraph ? loc.edge : -1;
-            bool found = NearestScored(pos, vel, 25f, 4f, prefer, out int e, out float s, out float d, out float score);
+            bool found = NearestScored(pos, vel, 25f, 4f, prefer, keep < 0, out int e, out float s, out float d, out float score);
             // the kept edge is followed along its own arc from where the car was (a window that grows with the
             // distance moved): inside a loop ramp the edge's far side never steals the projection
             float win = 30f + 1.5f * new Vector2(pos.x - loc.at.x, pos.z - loc.at.z).magnitude;
@@ -577,7 +577,16 @@ namespace PSXRacing
         }
 
         const float PreferBonusM = 3f;
+        /// <summary>The suggested route's own roads (CheckpointRace sets it): a FRESH locate (the grid, a respawn) on a
+        /// freeway with ramps, C-D roads and streets under it takes the route's road when the car is on its pavement
+        /// (UptownLoop: a rival planned from the road beside the grid and spun 400 m off the course at 12 s).</summary>
+        public HashSet<int> RouteSet;
+        const float RouteSetBonusM = 6f;
+
         bool NearestScored(Vector3 pos, Vector3 vel, float r, float dy, int prefer, out int edge, out float s, out float dist, out float score)
+            => NearestScored(pos, vel, r, dy, prefer, false, out edge, out s, out dist, out score);
+
+        bool NearestScored(Vector3 pos, Vector3 vel, float r, float dy, int prefer, bool fresh, out int edge, out float s, out float dist, out float score)
         {
             edge = -1; s = 0f; dist = float.PositiveInfinity; score = float.PositiveInfinity;
             var p = new Vector2(pos.x, pos.z);
@@ -600,11 +609,17 @@ namespace PSXRacing
                 if (dy > 0f && Mathf.Abs(pos.y - e.YAt(sAt)) > dy) continue;
                 float sc = d;
                 if (ei == prefer && d <= e.HalfMax + 1.5f) sc -= PreferBonusM;
+                if (fresh && RouteSet != null && d <= e.HalfMax + 1.5f && RouteSet.Contains(ei)) sc -= RouteSetBonusM;
                 if (v != Vector2.zero && L2 > 1e-8f) sc += 6f * (1f - Mathf.Abs(Vector2.Dot(v, ab / Mathf.Sqrt(L2))));
                 if (sc < score) { score = sc; dist = d; edge = ei; s = sAt; }
             }
             return edge >= 0;
         }
+
+        /// <summary>A FRESH placement on the graph (a planner with no road yet): heading-aware, the suggested route's
+        /// roads first (<see cref="RouteSet"/>), within <paramref name="r"/> m and <paramref name="dy"/> m of height.</summary>
+        public bool NearestFresh(Vector3 pos, Vector3 vel, float r, float dy, out int edge, out float s, out float dist)
+            => NearestScored(pos, vel, r, dy, -1, true, out edge, out s, out dist, out _);
 
         /// <summary>The car's projection onto one edge: arc and plan distance, over the segments within
         /// <paramref name="window"/> metres of arc <paramref name="s0"/> (window &lt;= 0: every segment).</summary>

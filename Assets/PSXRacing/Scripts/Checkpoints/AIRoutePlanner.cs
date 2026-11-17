@@ -131,7 +131,7 @@ namespace PSXRacing
             if (RerouteOn && !cp.isPlayer && Path != null && !queued && ai != null && ai.path == Path && Time.time - lastReroute > 3f)
             {
                 var pr = RaceManager.Instance != null ? RaceManager.Instance.GetProgress(cp.car) : null;
-                if (pr != null && !pr.finished && !pr.retired && RaceManager.Instance.State == RaceManager.RaceState.Racing)
+                if (pr != null && !pr.finished && !pr.retired && cp.sweptInit && RaceManager.Instance.State == RaceManager.RaceState.Racing)
                 {
                     bool off = cp.loc.valid && cp.loc.dist > 20f;
                     if (off) { if (offSince < 0f) offSince = Time.time; } else offSince = -1f;
@@ -391,7 +391,8 @@ namespace PSXRacing
             // the graph under the car (height-aware), the way it is pointed / moving
             var loc = cp.loc;
             Vector3 vel = cp.car.Body != null ? cp.car.Body.linearVelocity : Vector3.zero;
-            if (!R.Nearest(pos, 40f, 6f, -1, 0f, out int e2, out float s2, out _)) return false;
+            // the suggested route's roads first, heading-aware (UptownLoop's grid stands beside other roads)
+            if (!R.NearestFresh(pos, vel, 40f, 4f, out int e2, out float s2, out _) && !R.Nearest(pos, 40f, 6f, -1, 0f, out e2, out s2, out _)) return false;
             var ed2 = R.map.edges[e2];
             int d2 = R.DirOf(e2, s2, vel, cp.car.transform.forward);
             st = e2 * 2 + (d2 == 1 ? 0 : 1);

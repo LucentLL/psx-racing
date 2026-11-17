@@ -202,6 +202,11 @@ namespace PSXRacing
         void Setup()
         {
             R = CityRouter.For(map);
+            // the suggested route's roads: a fresh locate or a first plan takes them where roads overlap
+            var route = map.RouteById(data.route);
+            var set = new HashSet<int>();
+            if (route != null && route.edges != null) foreach (int e in route.edges) set.Add(e);
+            R.RouteSet = set.Count > 0 ? set : null;
             var cps = chain.cps;
             GateCount = cps.Length;
             gates = new GateRT[GateCount];
