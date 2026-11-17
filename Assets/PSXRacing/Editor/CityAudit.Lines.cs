@@ -209,6 +209,8 @@ namespace PSXRacing.EditorTools
                     var lf = LineModel.SectionLeft(e, ss); var p = e.PointAt(ss);
                     PL("edgeP", ei, seq, p + lf * eP); PL("edgeM", ei, seq, p - lf * eM);
                     PL("lane", ei, seq, LineModel.OwnLanePoint(e, ss));
+                    // the centre line's height along the frame (x = u, z = y): for a drawing in a camera's view
+                    PL("ycl", ei, seq, new Vector2(Vector2.Dot(p - P0, fwd), e.YAt(ss)));
                     LineModel.LinesAt(e, ss, la);
                     foreach (var l in la)
                     {
