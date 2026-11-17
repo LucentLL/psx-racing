@@ -657,6 +657,10 @@ namespace PSXRacing
         /// <summary>Nearest an ONCOMING car is placed ahead of the grid at the
         /// green (Populate).</summary>
         const float OncomingStartM = 400f;
+        /// <summary>No car born where a racer would meet or close on it within this many seconds, plus these metres
+        /// (TrySpawn). PSX_TRAFFIC_BIRTH_CLEAR=0: born anywhere 22 m clear of a racer, as before.</summary>
+        const float BirthClearS = 6f, BirthClearM = 40f;
+        static readonly bool BirthClearOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_BIRTH_CLEAR") != "0";
 
         IEnumerable<int> Dirs()
         {
@@ -728,6 +732,24 @@ namespace PSXRacing
             Vector3 at = p0 + Vector3.Cross(Vector3.up, t0).normalized * lat;
             foreach (var f in field)
                 if ((f.pos - at).sqrMagnitude < MinGap * MinGap) return false;
+            // NOT BORN IN FRONT OF A RACER (aipass 11-17): the window's far edge is 700 m ahead of the PLAYER, and a rival
+            // running near it saw a car appear 22 m up the road - in the oncoming lane, closing at 50 m/s, out of a pass
+            // that had nothing coming. A car is born only where every racer coming up to it is further off than it
+            // would meet (oncoming) or close on (going its way) in BirthClearS, plus BirthClearM.
+            if (BirthClearOn)
+            {
+                var defB = TrackCatalog.At(RaceHandoff.TrackIndex);
+                float limitB = (defB != null ? defB.speedLimitKmh : 80f) / 3.6f;
+                foreach (var f in field)
+                {
+                    float d = Delta(f.s, s);                          // the birth point, metres up the road from the racer
+                    if (d < -10f) continue;                            // behind it: never met
+                    Sample(f.s, out _, out Vector3 tanF);
+                    float vf = Mathf.Max(0f, Vector3.Dot(f.vel, tanF));
+                    float closing = dir < 0 ? vf + limitB * TrafficLevels.CruiseMax[Level] : vf - limitB * TrafficLevels.CruiseMin[Level];
+                    if (d < Mathf.Max(closing, 0f) * BirthClearS + BirthClearM) return false;
+                }
+            }
 
             var free = pool.Find(x => !x.active);
             if (free == null) return false;

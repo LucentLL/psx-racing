@@ -46,8 +46,17 @@ namespace PSXRacing.EditorTools
             owMeets = 0; owSeconds = 0f; owAt.Clear(); owLines.Clear(); respawnAt.Clear(); headLines.Clear();
             headOnsRival = headOnsPlayer = headOnsSlow = headOnsAfterRespawn = headOnsOneWay = headOnsPassing = 0;
             RaceManager.Respawned -= OnRespawned;
+            AIDriver.ResetPassStats();
             if (rm == null) return;
             RaceManager.Respawned += OnRespawned;
+            // PSX_PASS_SHOTS=dir (graphics only): frame strips of rivals' passes in the oncoming lane (LaneUseShots)
+            string shots = System.Environment.GetEnvironmentVariable("PSX_PASS_SHOTS");
+            if (!string.IsNullOrEmpty(shots) && SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                var go = new GameObject("LaneUseShots");
+                var ls = go.AddComponent<LaneUseShots>();
+                ls.Init(rm, shots, System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTTAG") ?? "pass");
+            }
             RacePlayCheck.Note($"LANE USE: PSX_AI_PASS_ONCOMING {(AIDriver.PassOncoming ? "ON (pass in the oncoming lane, the better line where clear)" : "OFF (the lane discipline as before)")}");
         }
 
@@ -178,6 +187,13 @@ namespace PSXRacing.EditorTools
             foreach (var s in per) RacePlayCheck.Note("  " + s);
             foreach (var s in missLines) RacePlayCheck.Note("  " + s);
             RacePlayCheck.Note($"ONE-WAY MEETS (oncoming-stream traffic within 60 m ahead on a road the rival's map calls one-way): {owMeets}, {owSeconds:0} s");
+            {
+                var refused = new List<string>();
+                foreach (var kv in AIDriver.PassRefused) refused.Add(kv.Key + " " + kv.Value);
+                RacePlayCheck.Note($"PASS WINDOW {(AIDriver.PassWindowOn ? "ON" : "OFF")}: {AIDriver.PassJudgeCount} judgements, {AIDriver.PassJudgeMs:0.0} ms in all " +
+                                   $"({(AIDriver.PassJudgeCount > 0 ? AIDriver.PassJudgeMs * 1000.0 / AIDriver.PassJudgeCount : 0):0} us each, worst {AIDriver.PassJudgeWorstMs * 1000.0:0} us); " +
+                                   $"refused (judgements) by: {(refused.Count > 0 ? string.Join(", ", refused) : "none")}");
+            }
             foreach (var s in owLines) RacePlayCheck.Note("  " + s);
             foreach (var s in headLines) RacePlayCheck.Note("  " + s);
             RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
@@ -186,5 +202,121 @@ namespace PSXRacing.EditorTools
             RaceManager.Respawned -= OnRespawned;
             rm = null;
         }
+    }
+
+    /// <summary>PSX_PASS_SHOTS=dir (aipass 11-17, graphics only): FRAME STRIPS of rivals passing in the oncoming lane.
+    /// When a rival on a two-way road chooses the left side round a car and swings out, a camera 15 m behind and 6.5 m
+    /// over it takes eight frames 0.5 s apart; the strip is kept only if that became a pass into the oncoming lane
+    /// (AIDriver.PassesOncoming), with each frame's label (time, speed, where across the road, the nearest oncoming
+    /// car) and the outcome in a .txt beside it. A harness camera (not a game view): the frames say so.</summary>
+    public class LaneUseShots : MonoBehaviour
+    {
+        const int MaxStrips = 4, Frames = 8;
+        const float FrameEveryS = 0.5f, StripCoolS = 6f;
+        RaceManager rm;
+        string dir, tag;
+        Camera cam;
+        AIDriver who;
+        int strips, frame, oncoming0, done0, aborted0;
+        float nextAt, coolUntil;
+        readonly List<byte[]> jpgs = new List<byte[]>();
+        readonly List<string> labels = new List<string>();
+
+        public void Init(RaceManager race, string folder, string shotTag)
+        {
+            rm = race; dir = folder; tag = shotTag;
+            System.IO.Directory.CreateDirectory(dir);
+        }
+
+        void LateUpdate()
+        {
+            if (rm == null) { Destroy(gameObject); return; }
+            if (rm.State == RaceManager.RaceState.Countdown) return;
+            if (who == null)
+            {
+                if (strips >= MaxStrips || Time.time < coolUntil) return;
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null || c == rm.playerCar) continue;
+                    var ai = c.GetComponent<AIDriver>();
+                    var p = rm.GetProgress(c);
+                    if (ai == null || p == null || p.finished || p.retired) continue;
+                    if (ai.DebugPassSide < 0 && ai.DebugTwoWayHere && ai.DebugBias < -0.3f)
+                    {
+                        who = ai; frame = 0; nextAt = Time.time; jpgs.Clear(); labels.Clear();
+                        oncoming0 = ai.PassesOncoming; done0 = ai.PassesDone; aborted0 = ai.PassesAborted;
+                        break;
+                    }
+                }
+                if (who == null) return;
+            }
+            if (Time.time < nextAt) return;
+            nextAt = Time.time + FrameEveryS;
+            var t = who.transform;
+            if (cam == null)
+            {
+                var go = new GameObject("PassStripCam");
+                cam = go.AddComponent<Camera>();
+                if (Camera.main != null) cam.CopyFrom(Camera.main);
+                cam.fieldOfView = 55f; cam.nearClipPlane = 0.3f; cam.farClipPlane = Mathf.Max(cam.farClipPlane, 900f);
+                cam.enabled = false;
+            }
+            Vector3 fwd = Vector3.ProjectOnPlane(t.forward, Vector3.up).normalized;
+            Vector3 right = Vector3.Cross(Vector3.up, fwd);
+            cam.transform.position = t.position - fwd * 15f + Vector3.up * 6.5f - right * 1.0f;
+            cam.transform.rotation = Quaternion.LookRotation(t.position + fwd * 22f + Vector3.up * 0.5f - cam.transform.position, Vector3.up);
+            const int w = 960, h = 540;
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+            rt.Create();
+            StreetLights.Push(cam.transform.position, cam.transform.forward);
+            var req = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, req))
+            {
+                UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, req);
+                var shown = PSXScreenshotTool.Dithered(rt);
+                var prev = RenderTexture.active;
+                RenderTexture.active = shown;
+                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev == rt || prev == shown ? null : prev;
+                if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
+                jpgs.Add(tex.EncodeToJPG(88));
+                Object.DestroyImmediate(tex);
+            }
+            rt.Release(); Object.DestroyImmediate(rt);
+            // the nearest oncoming traffic car up the road from the rival
+            float near = float.PositiveInfinity;
+            var ts = TrafficSystem.Instance;
+            if (ts != null)
+                for (int i = 0; i < ts.Obstacles.Count; i++)
+                {
+                    var rb = ts.Obstacles[i];
+                    if (rb == null || rb.useGravity || Vector3.Dot(rb.linearVelocity, t.forward) > -1f) continue;
+                    Vector3 lo = t.InverseTransformPoint(rb.position);
+                    if (lo.z > -3f && lo.z < near && Mathf.Abs(lo.x) < 12f) near = lo.z;
+                }
+            var car = who.GetComponent<CarController>();
+            labels.Add($"{who.name} +{frame * FrameEveryS:0.0}s {Mathf.Abs(car != null ? car.forwardSpeed : 0f) * 3.6f:0} km/h lat {who.DebugRoadLat:+0.0;-0.0} m" +
+                       $" | oncoming {(float.IsPositiveInfinity(near) ? "none" : near.ToString("0") + " m")} | {(who.DebugGiveWhy ?? "-")}" +
+                       (float.IsNaN(who.LastPassMargin) ? "" : $" | window {who.LastPassMargin:0.0} s ({who.LastPassWhy})"));
+            frame++;
+            if (frame < Frames) return;
+            // the strip is a pass into the oncoming lane: keep it
+            bool pass = who.PassesOncoming > oncoming0;
+            string outcome = who.PassesDone > done0 ? "pass done" : who.PassesAborted > aborted0 ? "pass given up" : "pass under way";
+            if (pass)
+            {
+                for (int k = 0; k < jpgs.Count; k++)
+                    System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, $"{tag}_strip{strips}_{k}.jpg"), jpgs[k]);
+                labels.Add("OUTCOME " + outcome + " | harness camera 15 m behind, 6.5 m up (not a game view)");
+                System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, $"{tag}_strip{strips}.txt"), labels);
+                RacePlayCheck.Note($"PASS STRIP {strips}: {who.name}, {jpgs.Count} frames, {outcome}");
+                strips++;
+            }
+            who = null; coolUntil = Time.time + StripCoolS;
+        }
+
+        void OnDestroy() { if (cam != null) Destroy(cam.gameObject); }
     }
 }
