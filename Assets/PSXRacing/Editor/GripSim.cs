@@ -117,6 +117,21 @@ namespace PSXRacing.EditorTools
                 foreach (var c in new[] { 0f, 0.025f, 0.08f }) sb.Append(Straight(c));
                 sb.AppendLine("=== IN MOTION: a 40 m ring, speed raised until the car runs wide (the bank's help) ===");
                 foreach (var b in new[] { 0f, 0.08f }) sb.Append(Ring(b));
+                // THE COST: the patch is per-wheel arithmetic (an exp and two
+                // square roots); timed here in the editor's JIT, worst case
+                // (two patches per wheel, every tick).
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                float acc = 0f, ps = 0f;
+                const int N = 2000000;
+                for (int i = 0; i < N; i++)
+                {
+                    acc += CarController.PatchForce(ref ps, 0.01f * (i & 7), 1.3f, 33000f, 300f, 3700f, Dt);
+                    acc += CarController.StaticGripWeight(0.001f * (i & 2047));
+                }
+                clock.Stop();
+                double ns = clock.Elapsed.TotalMilliseconds * 1e6 / N;
+                sb.AppendLine(string.Format("=== COST: {0:0.0} ns per patch + weight (editor JIT); 8 cars x 4 wheels x 2 patches x 60 Hz = {1:0.000} ms per second, {2:0.0} us per 60 Hz tick (checksum {3:0})",
+                    ns, ns * 8 * 4 * 2 * 60 * 1e-6, ns * 8 * 4 * 2 * 1e-3, acc));
             }
             finally
             {
