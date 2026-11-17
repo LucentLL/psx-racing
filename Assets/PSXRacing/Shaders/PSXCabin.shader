@@ -33,6 +33,16 @@ Shader "PSX/Cabin"
         _Mode ("Mode", Float) = 0
         _Rough ("Roughness (atlas)", Range(0, 1)) = 0.8
         _Bump ("Normal strength", Range(0, 2)) = 1
+        // DAMAGE ROUND 3 (DamageCabin.cs): the same cabin seen from OUTSIDE,
+        // through a broken pane. Copies of the materials test the stencil the
+        // holed body marked (PSX/CarPaint _PSXHoleMode), so the cabin is drawn
+        // inside the hole and nowhere else, and _PSXCabOut 1 lights it as a
+        // room under its roof and fogs it as the paint round it is fogged.
+        // The cockpit's own materials keep these defaults (no test, 0).
+        [HideInInspector] _PSXStRef ("Stencil ref", Float) = 0
+        [HideInInspector] _PSXStRead ("Stencil read mask", Float) = 255
+        [HideInInspector] _PSXStComp ("Stencil compare (8 always)", Float) = 8
+        [HideInInspector] _PSXCabOut ("Seen from outside the car 0/1", Float) = 0
     }
     SubShader
     {
@@ -40,6 +50,12 @@ Shader "PSX/Cabin"
         Pass
         {
             Cull Back
+            Stencil
+            {
+                Ref [_PSXStRef]
+                ReadMask [_PSXStRead]
+                Comp [_PSXStComp]
+            }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -64,15 +80,23 @@ Shader "PSX/Cabin"
             fixed4 _PSXFogColor;
             float _PSXNight;
             float _PSXSunModel;
+            float _PSXCabOut;
+            float _PSXFogNear, _PSXFogFar, _PSXFogCurve;
 
             #define WORLD_TOE  0.80
             #define WORLD_SPAN 0.50
             #define PSX_WORLD_RECEIVER
             #include "PSXSunShadow.cginc"
             #include "PSXSkyReflect.cginc"
+            #include "PSXFogRing.cginc"
 
             #define CABIN_F0       0.04   // plastic, vinyl, leather: a dielectric's face-on reflectance
             #define CABIN_SKY_KEEP 0.35   // the sky a cabin surface can see is mostly its own roof
+            // Seen from outside (_PSXCabOut): a room under its own roof, lit through its windows. The
+            // sun reaches a patch of it, the sky a share; the car shadow map does this for the driven
+            // car only (a parked or showroom car has none).
+            #define CABIN_OUT_SUN  0.30
+            #define CABIN_OUT_AMB  0.55
 
             struct appdata
             {
@@ -91,6 +115,7 @@ Shader "PSX/Cabin"
                 float3 wnrm : TEXCOORD2;
                 float4 wtan : TEXCOORD3;
                 fixed4 color : TEXCOORD4;
+                float fog : TEXCOORD5;     // seen from outside: the paint's haze
             };
 
             v2f vert(appdata v)
@@ -103,6 +128,10 @@ Shader "PSX/Cabin"
                 // A mirrored (RHD) cabin flips the bitangent with the scale.
                 o.wtan = float4(UnityObjectToWorldDir(v.tangent.xyz), v.tangent.w * unity_WorldTransformParams.w);
                 o.color = v.color;
+                // the haze as PSX/CarPaint takes it (camera-relative, 5 km from the origin)
+                float dist = length(mul((float3x3)unity_ObjectToWorld, v.vertex.xyz) + (unity_ObjectToWorld._m03_m13_m23 - _WorldSpaceCameraPos));
+                float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
+                o.fog = _PSXCabOut > 0.5 ? pow(fogT, max(_PSXFogCurve, 1.0)) : 0.0;
                 return o;
             }
 
@@ -148,6 +177,7 @@ Shader "PSX/Cabin"
                 if (_PSXSunModel < 0.5) { amb = saturate(amb + sunL); sunL = 0; }
                 float carVis;
                 float sunVis = PSXSunShadowCar(i.wpos, Ng, eyeDist, 0.0, carVis);
+                if (_PSXCabOut > 0.5) { sunVis = min(sunVis, CABIN_OUT_SUN); amb *= CABIN_OUT_AMB; }
                 float3 sunAmb = amb * (PSXSkyOpen(i.wpos, Ng, 0.0) * PSXCarAmbientKeep(carVis, amb, sunL, Ng)) + sunL * sunVis;
                 float3 over = max(sunAmb - WORLD_TOE, 0.0) * (_PSXSunModel * (1.0 - _PSXToneOn));
                 sunAmb = sunAmb - over + WORLD_SPAN * (1.0 - exp(-over / WORLD_SPAN));
@@ -167,7 +197,10 @@ Shader "PSX/Cabin"
                 float3 sky = PSXSkyIn(reflect(-V, N), 4.0 * rough + 1.0) * PSXAdaptGain();
                 float3 sheen = sky * (fres * gloss * gloss * CABIN_SKY_KEEP * carVis + fres * gloss * 0.08);
                 lit += (spec * _PSXSunModel * expo + sheen * (1.0 - saturate(_PSXNight)));
-                return fixed4(PSXTone(lit), 0.0);
+                float3 outC = PSXTone(lit);
+                if (_PSXCabOut > 0.5)
+                    outC = lerp(outC, PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V)), i.fog);
+                return fixed4(outC, 0.0);
             }
             ENDCG
         }

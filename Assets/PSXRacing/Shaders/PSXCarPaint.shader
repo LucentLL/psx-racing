@@ -225,6 +225,23 @@ Shader "PSX/CarPaint"
         // inside. Every other material keeps Cull Back (2) and 0.
         [HideInInspector] _PSXCull ("Cull mode (2 back, 1 front)", Float) = 2
         [HideInInspector] _PSXInside ("Inside of the shell 0/1", Float) = 0
+        // DAMAGE ROUND 3 (DamageCabin.cs): THE COCKPIT THROUGH A HOLE. Two
+        // companion renderers of a holed body, on copies of its material, both
+        // after every shell (render queue 2001, 2002): _PSXHoleMode 1 marks the
+        // hole's pixels in the stencil (no colour, no depth); 2 pushes the
+        // body's depth 3 m back along each sightline in the marked pixels only,
+        // so the cockpit model (PSX/Cabin, stencil-tested, 2003) draws inside
+        // the hole and nowhere else. Every other material keeps these defaults:
+        // stencil untouched, depth as before, all colour.
+        [HideInInspector] _PSXHoleMode ("Hole pass 0 / 1 mark / 2 depth", Float) = 0
+        [HideInInspector] _PSXStRef ("Stencil ref", Float) = 0
+        [HideInInspector] _PSXStRead ("Stencil read mask", Float) = 255
+        [HideInInspector] _PSXStWrite ("Stencil write mask", Float) = 255
+        [HideInInspector] _PSXStComp ("Stencil compare (8 always)", Float) = 8
+        [HideInInspector] _PSXStPass ("Stencil pass op (0 keep)", Float) = 0
+        [HideInInspector] _PSXZWrite ("Depth write", Float) = 1
+        [HideInInspector] _PSXZTest ("Depth test (4 less-equal)", Float) = 4
+        [HideInInspector] _PSXColorMask ("Colour mask (15 all)", Float) = 15
     }
     SubShader
     {
@@ -232,6 +249,17 @@ Shader "PSX/CarPaint"
         Pass
         {
             Cull [_PSXCull]
+            ZWrite [_PSXZWrite]
+            ZTest [_PSXZTest]
+            ColorMask [_PSXColorMask]
+            Stencil
+            {
+                Ref [_PSXStRef]
+                ReadMask [_PSXStRead]
+                WriteMask [_PSXStWrite]
+                Comp [_PSXStComp]
+                Pass [_PSXStPass]
+            }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -280,6 +308,10 @@ Shader "PSX/CarPaint"
             float _HeadLights;
             float _LensLayer;
             float _PSXInside;
+            float _PSXHoleMode;
+            // How far behind the glass a hole's depth is pushed (_PSXHoleMode 2): past
+            // the far side of any cabin, so the cockpit model inside passes its test.
+            #define HOLE_DEPTH_M 3.0
 
             // THE HD CAR TIER (owner, 2026-11-11, a yellow FD at a seller's drive:
             // "why are body panel lines so smeared? I used bitmap for these to give
@@ -597,6 +629,13 @@ Shader "PSX/CarPaint"
                 v.vertex.xyz = PSXArchFlare(v.vertex.xyz);   // borrowed shell, bigger tyre (ArchFlare.cs)
                 v.vertex.xyz = PSXCarDamageVert(v.vertex.xyz);   // R1a part 2a: a dent pushes the skin in
                 float4 clipPos = UnityObjectToClipPos(v.vertex);
+                // round 3, the hole's depth pass: the same pixel, further along its sightline
+                if (_PSXHoleMode > 1.5)
+                {
+                    float3 vp = UnityObjectToViewPos(v.vertex.xyz);
+                    vp *= 1.0 + HOLE_DEPTH_M / max(length(vp), 1e-3);
+                    clipPos = mul(UNITY_MATRIX_P, float4(vp, 1.0));
+                }
 
             #ifndef PSX_CAR_HD
                 // (the HD tier never snaps or warps: a PS3-PS4 car is still)
@@ -674,6 +713,8 @@ Shader "PSX/CarPaint"
                     if (_PSXCabinOn * _PSXCabinOwn < 0.5 || cp.z < _PSXCabinBox.x) discard;
                     return fixed4(0.018, 0.018, 0.02, _PSXEmitWrite > 0.5 ? 0.0 : 1.0);
                 }
+                // round 3: the hole's depth (ColorMask 0; the stencil picks the pixels)
+                if (_PSXHoleMode > 1.5) return fixed4(0, 0, 0, 0);
             #ifdef PSX_CAR_HD
                 // (a shut line is 2-3 texels at 2048: read a little sharper than the
                 // mip the pixel's footprint asks for, so it holds out to the chase
@@ -728,6 +769,12 @@ Shader "PSX/CarPaint"
                         PSXCarGlass2(dmgCol, N, glsFlat, glsCave, i.bpos, i.bnrm, uvD, dbx, dby, uvDx, uvDy,
                                      i.wpos - _WorldSpaceCameraPos);
                     tex.rgb = dmgCol;
+                }
+                // round 3: the hole's mark - its pixels and nothing else (ColorMask 0, stencil replace)
+                if (_PSXHoleMode > 0.5)
+                {
+                    if (glsCave < 0.5) discard;
+                    return fixed4(0, 0, 0, 0);
                 }
                 if (_PSXWheelRash.x > 0.001)
                 {

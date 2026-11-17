@@ -23,6 +23,12 @@
 // eased in, 0 under cover), drying off slowly; _PaneRain how much of it
 // each pane catches. A drop is a little lens: the sky (and at night a street
 // lamp) in its dome, a bright spec where it faces up, a dark rim.
+//
+// DAMAGE ROUND 3 (DamageLook.CockpitPanes): a side or rear pane the shell has
+// broken is broken here too (_PSXBreak: x 0.5 crazed / 1 shattered, y seed, zw
+// the strike as a share of the pane). Crazed: the white mosaic of
+// PSXGlassBreak.cginc, a small hole at the strike. Shattered: gone - only jagged
+// crazed remnants in the frame, more of them low in the channel - and no rain.
 Shader "PSX/CabinGlass"
 {
     Properties
@@ -33,6 +39,7 @@ Shader "PSX/CabinGlass"
         _Wind ("Wind direction (metres frame); z = outward bend", Vector) = (0, 1, 0, 0)
         _Out ("Outward (metres frame), for the bend", Vector) = (1, 0, 0, 0)
         _PaneRain ("This pane's share of the rain", Range(0, 1)) = 1
+        [HideInInspector] _PSXBreak ("Break: x state, y seed, zw strike (share of the pane)", Vector) = (0, 0, 0, 0)
     }
     SubShader
     {
@@ -53,6 +60,7 @@ Shader "PSX/CabinGlass"
             fixed4 _Tint;
             float4 _Metres, _Down, _Wind, _Out;
             float _PaneRain;
+            float4 _PSXBreak;
             float _CabinRain, _CabinWind, _CabinRun, _CabinBlow;
             fixed4 _PSXSkyAmbient;
             fixed4 _PSXAmbient;
@@ -61,6 +69,7 @@ Shader "PSX/CabinGlass"
             float4 _PSXLightDir;
             float _PSXNight;
             #include "PSXSkyReflect.cginc"
+            #include "PSXGlassBreak.cginc"
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float3 wpos : TEXCOORD1; float3 wnrm : TEXCOORD2; };
@@ -141,8 +150,42 @@ Shader "PSX/CabinGlass"
                 float3 rgb = _Tint.rgb * ambient * a + sky * (fres * 0.10 * lerp(0.35, 1.0, day));
                 a += fres * 0.06;
 
+                // Round 3: the pane broken as the shell's is.
+                float rainK = 1.0;
+                float2 qm = i.uv * _Metres.xy;
+                float bpx = max(max(length(ddx(qm)), length(ddy(qm))), 1e-5);
+                if (_PSXBreak.x > 0.1)
+                {
+                    float2 qs = qm - _PSXBreak.zw * _Metres.xy;
+                    float3 cz = GlsCrazed(qs, _PSXBreak.y, bpx);
+                    float3 lightC = ambient * 1.4 + _PSXLightColor.rgb * (0.30 * day) * PSXExposureGain();
+                    if (_PSXBreak.x > 0.75)
+                    {
+                        // shattered: only jagged crazed remnants in the frame, more low in the channel
+                        float2 e2 = min(qm, _Metres.xy - qm);
+                        float dEdge = min(e2.x, e2.y);
+                        float2 upM = -_Down.xy;
+                        float dLow = abs(upM.y) > abs(upM.x) ? (upM.y > 0.0 ? qm.y : _Metres.y - qm.y)
+                                                             : (upM.x > 0.0 ? qm.x : _Metres.x - qm.x);
+                        float teeth = 0.012 + 0.085 * pow(max(GlsN2(qm * 13.0 + _PSXBreak.y * 9.0), 1e-4), 1.6)
+                                    + 0.035 * (1.0 - smoothstep(0.0, 0.12, dLow));
+                        float rem = 1.0 - smoothstep(teeth, teeth + max(bpx, 0.003), dEdge);
+                        a = rem * 0.94;
+                        rgb = cz * lightC * a;
+                        rainK = 0.0;
+                    }
+                    else
+                    {
+                        // crazed: a white mosaic you cannot see through, a small hole where it was struck
+                        float hole = 1.0 - smoothstep(0.008, 0.02 + bpx, length(qs));
+                        a = 0.88 * (1.0 - hole);
+                        rgb = cz * lightC * a;
+                        rainK = 0.5;
+                    }
+                }
+
                 // The rain.
-                float rain = _CabinRain * _PaneRain;
+                float rain = _CabinRain * _PaneRain * rainK;
                 if (rain > 0.002)
                 {
                     float2 q = i.uv * _Metres.xy;

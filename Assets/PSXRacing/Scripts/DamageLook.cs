@@ -245,6 +245,8 @@ namespace PSXRacing
                     // round 2: the windscreen's own break, where it was struck
                     int lvl = DamageGlass.Level(Now.panes.x);
                     if (lvl != crackLevel) PlaceBreak(lvl);
+                    // round 3: the side and rear glass from the seat too
+                    CockpitPanes();
                 }
                 else if (BodyOn && Now.roof > 0f && crack == null) PlaceCrack();
             }
@@ -302,10 +304,12 @@ namespace PSXRacing
                 bool onShell = root != null && t.IsChildOf(root);
                 Matrix4x4 lw = onShell ? restM * t.localToWorldMatrix : t.localToWorldMatrix;
                 WriteBlock(r, Now, any && !wheel, lw, onShell ? restQ * t.rotation : t.rotation, cW, half,
-                           bt.forward, bt.right, bt.up, seed, cabin);
+                           bt.forward, bt.right, bt.up, seed, cabin, body != null ? body.Def : null);
                 // round 2: this wheel's rash (the block turns with the wheel)
                 if (wi >= 0) WheelScuff.Write(r, Now.rash[wi], Now.rashSeed[wi], car.WheelRadiusOf(wi));
             }
+            // round 3: the cockpit model through a shattered pane (DamageCabin)
+            DamageCabin.ForCar(car, body, Now);
         }
 
         /// <summary>The dents' noise seed of a car (its owned id), the same in
@@ -322,10 +326,12 @@ namespace PSXRacing
         /// Keeps what other writers put in the block (gloss, arches, lamps).
         /// </summary>
         public static void WriteBlock(Renderer r, Look now, bool on, Matrix4x4 lw, Quaternion rot, Vector3 cW,
-                                      Vector3 half, Vector3 fwdW, Vector3 rightW, Vector3 upW, float seed, Vector4 cabin = default)
+                                      Vector3 half, Vector3 fwdW, Vector3 rightW, Vector3 upW, float seed, Vector4 cabin = default,
+                                      CarModelDef def = null)
         {
             if (r == null) return;
             if (block == null) block = new MaterialPropertyBlock();
+            BlockVersion++;   // round 3: DamageCabin's hole companions copy the body's block when it changes
             Quaternion inv = Quaternion.Inverse(rot);
             var axis = new Vector3(((Vector3)lw.GetColumn(0)).magnitude, ((Vector3)lw.GetColumn(1)).magnitude, ((Vector3)lw.GetColumn(2)).magnitude);
             Vector3 cB = Vector3.Scale(lw.inverse.MultiplyPoint3x4(cW), axis);
@@ -340,9 +346,14 @@ namespace PSXRacing
             block.SetVector(CId, new Vector4(cB.x, cB.y, cB.z, 0f));
             int lo = now.lampOut;
             block.SetVector(LampOutId, new Vector4(lo & 1, (lo >> 1) & 1, (lo >> 2) & 1, (lo >> 3) & 1));
-            DamageGlass.Write(block, now, on, half, cabin == default ? DamageGlass.Cabin(null, 1f, half) : cabin);   // round 2: the panes
+            DamageGlass.Write(block, now, on, half, cabin == default ? DamageGlass.Cabin(null, 1f, half) : cabin,   // round 2: the panes
+                              DamageGlass.Mirrors(def, lw, cW, rightW, upW, fwdW));                          // round 3: the mirrors' sails
             r.SetPropertyBlock(block);
         }
+
+        /// <summary>Counts every block written (DamageCabin copies a holed
+        /// body's block onto its hole companions when this moves).</summary>
+        public static int BlockVersion;
 
         // ================= steam =================
         ParticleSystem steam;
@@ -591,6 +602,31 @@ namespace PSXRacing
             mr.receiveShadows = false;
             crackLevel = level;
             ci.CollectRenderers();
+        }
+
+        CockpitInterior paneCi;
+        Vector4 panePushed = new Vector4(-1f, 0f, 0f, 0f);
+
+        /// <summary>
+        /// Damage round 3 (round 2 left it: "from the cockpit only the
+        /// windscreen shows breaks"): the cockpit's own side and rear panes
+        /// crazed or shattered as the shell's are (PSX/CabinGlass _PSXBreak,
+        /// DamageGlass.CockpitPane), each on the car's side it stands on. Pushed
+        /// when the panes change or the cockpit is built anew; nothing else.
+        /// </summary>
+        void CockpitPanes()
+        {
+            if (paneCi == null || paneCi.transform.parent == null || !paneCi.transform.IsChildOf(car.transform))
+            {
+                paneCi = car.GetComponentInChildren<CockpitInterior>(true);
+                panePushed.x = -1f;
+            }
+            if (paneCi == null) return;
+            if (panePushed == Now.panes) return;
+            panePushed = Now.panes;
+            paneCi.SetPaneBreaks(DamageGlass.CockpitPane(Now.panes.z, Now.hitL, false),
+                                 DamageGlass.CockpitPane(Now.panes.w, Now.hitT, false),
+                                 DamageGlass.CockpitPane(Now.panes.y, Now.hitX, true));
         }
 
         /// <summary>The cockpit's windscreen break, as placed (tests and the picture tools).</summary>
