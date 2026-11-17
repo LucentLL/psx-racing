@@ -1,4 +1,72 @@
-﻿# HANDOFF - THE CAMCORDER, ROUND 2: a camera at every race point, flex scoring (agent "camcorder", branch `replay-camcorder2` off mountain-nm 742315cd, 2026-11-16 night; NOT pushed, NOT merged)
+﻿# HANDOFF - THE FAR MOUNTAIN TEMPLATE (agent "farmtn", branch `far-mountains` off mountain-nm 457beadd, 2026-11-17 night; NOT pushed, NOT merged; the scene build is OPT-IN: PSX_FARMTN_TEMPLATE=1)
+
+Owner, 2026-11-17 ~01:25 (PC49, the BAT CAVE race, fall): "I like the rockface and distant tree textures on distant
+mountains. This should be a template for distant mountains on other maps."
+
+## What I found (file:line on 457beadd)
+- "BAT CAVE" is the LAKE LURE stage (full race `dragLabel`, TrackCatalog.cs:871; Gorge sprint, :1240-1245). His hill
+  is the one WNW of the Rocky Broad bridge at ~6.34 km (the pose finder's best ridge view on that stage).
+- ROCK FACES = Lake Lure's own lidar granite, nothing shared: `bake_world.mjs`:414-457 marks 12 m cells steeper than 52
+  deg over 18 m of relief in the 2018 1 m lidar within 2.2 km of the road (2,992 cells, in `lure_world.json` and, in its
+  own frame, `chimney_world.json`); `BuildWorldGraniteSkin` (StageLand.cs:764-819) lays the Meadow photoscanned cliff over
+  each cell, `BuildWorldGranite` (:609-742) adds photoscanned cliff MESHES on 24 m clusters (700k tris on Lake Lure), and
+  the keep-out (:168-178, StageKeepOut StageRiver.cs:155-160) clears every tree from them. Frames with each part taken
+  out (scratch farmtn\sheet_parts_LakeLure_base.png): the pale faces are the skin, the DARK relief on them the pieces.
+- CANOPY = shared by every mountain stage: the far forest (`BuildStageFarForest`, Stage.cs:8450-8560, to 2.1 km) over
+  the far canopy's crown field (PSX/Lit `_HorizonCrowns`, PSXLit.shader:2143-2212; palette Horizon.cs:319-415). The far
+  canopy's own "cliff" is a 60 m-normal grey (PSXLit.shader:2202-2205) that almost never fires (60 m slope p99 31-37 deg).
+- So every other map had the same canopy and NO rock faces past the road cuts.
+- The 3DEP near grid (12 m, 1/3 arc-second, ~1 km round the route) can stand in for the lidar: on Lake Lure "12 m slope
+  >= 45 deg and 5x5 relief >= 18 m" against the lidar's cliff cells = precision 0.90, recall 0.99. The far 60 m grid's
+  slope gives the near grid's rock share (30-35 deg 1-9 %, 35-40 7-22 %, 40-45 36-41 %, five stages).
+- Season: the crown field past the far forest is ~half as saturated and 1.2-1.5x as bright as the far forest in front of
+  it, every dress (scratch farmtn\FOR_TREES.md) - for treeseason (owner of the tree colours).
+
+## What changed (switch PSX_FARMTN_TEMPLATE: build OPT-IN =1 for now; at load =0 hides it)
+- NEW `Editor/PSXRacingBuilder.FarMtn.cs`: ONE ROCK MASK per stage (12 m texels on the near grid's lattice over the whole
+  far grid: the near grid's rule, the far grid's share in clumps past it; a lidar stage = its lidar cells + the share
+  past their 2.2 km), written to `Generated/<id>_FarRockMask.png`. Within the far forest's reach and PAST THE ROADSIDE BAND
+  (ForestBand + 24 m) its cells are the SKIN (Lake Lure's, shared: BuildRockSkin), the PHOTOSCANNED PIECES (Lake Lure's,
+  shared: PlaceRockPieces, 0.8 M tri budget; PSX_FARMTN_PIECES=0 = skin only) and the keep-out; PSX/Lit paints the far
+  land from the same mask (`_FarRockMask`), so when the skin dissolves at the detail's edge (~2 km) the same faces stay.
+  Stage rock: Hickory Nut Gorge granite (0.84/0.83/0.80) on Lake Lure / Chimney, Blue Ridge gneiss (0.74/0.73/0.70) else.
+  Lidar stages keep their own granite near the road (no new cells there).
+- NEW `Scripts/FarMtnSwitch.cs` (root "FarMtn" under Track; rock on/off + global `_PSXFarMtnOff`), `LookChoices.FarMtnTemplate`
+  (`FarMtnTemplateDefault` is a static bool: the perf tour's `ab=LookChoices.FarMtnTemplateDefault:0`).
+- Shared edits: `PSXRacingBuilder.cs` BuildTrack (one line: BuildFarMtn after BuildLandmarkRocks); `Stage.cs` StageLoadDem
+  (one line: farRockKeep = null); `StageRiver.cs` StageKeepOut (one line: the rock keep-out); `Horizon.cs` HorizonDress
+  (one line: SetFarRock); `StageLand.cs` BuildWorldGranite / BuildWorldGraniteSkin now call the shared BuildRockSkin /
+  LoadGraniteVars / PlaceRockPieces (same cells, order, random stream - NOT yet rebuilt to prove it, see below);
+  `PSXLit.shader` (props `_FarRock*`, `_FarRockMask*`, the far canopy's cliff line: old line kept when off).
+- Lab: `Editor/FarMtnLab.cs` (Build / BuildAndCapture / Capture with PARTS / Plan dry run / PatchAndCapture / editor perf A/B).
+
+## Proof (scratch C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\farmtn\)
+- sheet_compare_base.png: every map's distant mountains from the driver's seat (one pose rule, posefind.py), fall /
+  summer / winter + the title postcard, base code.
+- sheet_ba_fall.png, sheet_ba_summer_winter.png: before | after. Lake Lure + Chimney Rock = FINAL code (patched scenes,
+  exact). Blue Ridge, Gillespie, Mt Mitchell (+ NC 226A, L. Switzerland, Blowing Rock, Beech when the last job lands) =
+  the FIRST build, before the roadside-band fix. rockmap.png: where the rock goes on each map.
+- Gates (first build): plants through solids 0 on BlueRidge, GillespieGap, MtMitchell; obstacle audit: Gillespie 1 EDGE
+  FACE at wp 1226 on a roadside boulder placed before the template runs (logs identical up to it) = pre-existing.
+- Cost: editor A/B at 3832x2054, 24 frames a side: ON-OFF -0.5 .. +0.3 ms on 5 stages (the editor's noise is ~1 ms at
+  ~50 ms): not measurable there. BlueRidge's pieces 233k tris, 557 pieces; skin ~10k verts a stage; one R8 mask
+  1.6-2.2 k texels square (~5 MB with mips). In-player A/B NOT run (no dev exe with this code).
+- Self-test: base 105 FAIL lines (selftest_base.txt); mine NOT run.
+
+## What still looks wrong / unproven
+- THE FIRST BUILD'S TITLE POSTCARD CHANGED: same eye and look, but the keep-out inside the roadside band moved the band's
+  fill trees (more foreground over the viaduct). Fixed in code (36d9fc24: no cell within ForestBand + 24 m; keep-out never
+  in the band) but NOT BUILT. That is why the build is opt-in.
+- Visible rock is small on most maps because the real land is: from the roads, past the band, Blue Ridge shows ~100
+  cells (Grandfather's flank), Beech ~18, NC 226A ~5, Mt Mitchell / Gillespie / Blowing Rock / Little Switzerland ~0.
+- The far canopy past the far forest is paler and greyer than the trees in front (FOR_TREES.md): not changed here.
+
+## Merge
+- Code only; no data files. The PC scene pass rebuilds the stages; with PSX_FARMTN_TEMPLATE=1 it adds the rock.
+- Lake Lure's granite now goes through the shared functions: on the next Lake Lure build check its log reads
+  "granite skin: 2977 ... (96 chunks)" and "1535 photoscanned cliff faces on 1552 ... 95 chunks, 700k triangles" (base).
+
+# HANDOFF - THE CAMCORDER, ROUND 2: a camera at every race point, flex scoring (agent "camcorder", branch `replay-camcorder2` off mountain-nm 742315cd, 2026-11-16 night; NOT pushed, NOT merged)
 
 Owner, 21:50, after playing PC48: "As for the camcorder replays, I don't like the follow cams. Now that checkpoints are
 being added, at least one camera can should record at each checkpoint. Logically, it proves the cars started at the
