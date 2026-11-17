@@ -1,4 +1,78 @@
-﻿# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
+﻿# CHARLOTTE TRACKS LANE D: H6, H7, C7 (agent "laneD", branch tracks-lane-D off charlotte-tracks ec1dd760, sandbox PSXLab, 2026-11-16 19:58-21:00; NOT pushed, NOT merged)
+
+The owner: "start adding more Charlotte tracks". Built through the foundation's path (BUILDER_GUIDE.md): per-track
+files only, no .cs edit. All three pass, ONE LAP EACH (finding 1). Scratch: `tracksb1\laneD\` (PROGRESS.md, out\).
+
+## What I found
+1. A HOSTED CITY TRACK RACES ITS HOST SCENE'S LAP COUNT, NOT ITS FILE'S. `RaceManager.totalLaps` is set only at scene
+   build (`Editor/PSXRacingBuilder.cs:8603`). UptownLoop.unity holds `totalLaps: 1`. `CityTracksRegistrar.Awake`
+   (`Scripts/CityTracksRegistrar.cs:34-48`) swaps the route, the names and the TrackPath, but not the laps. CltH6, with
+   laps 3 in its file, raced ONE lap (all home in 147-155 s over 4.2 km), while the menu would have said 3 LAPS. Every
+   lane's multi-lap circuit has this. Lane D used the data fix: laps 1 in its files. The proposed one-place fix for the
+   integrator, NOT applied, goes in the registrar's hosted-venue block:
+   `var rm = Object.FindAnyObjectByType<RaceManager>(FindObjectsInactive.Include); if (rm != null) rm.totalLaps = Mathf.Max(1, venue.laps);`
+2. The planned driver error fires early on these loops. On CltH6 the Supra's was planned at 51 % but fired 26 s in
+   (820 m into a 4.2 km lap), and the Supra retired. This is the known issue (`RaceManager.RaceFraction`,
+   RaceManager.cs:631), shared code, unchanged. "At most one rival retires" passes.
+3. H7's start line (440 m) is 23 m past the University Pointe Blvd deck over I-85 (edge 5213, which crosses the lap
+   at 417 m and again at 4218 m on the other carriageway). Its girders are
+   about 4.55 m over the main line: HANDOFF "GIRDERS UNDER THE CLEARANCE", left listed there. The grid eye frame
+   shows the underside close overhead. The candidate sheet notes it as drivable, and the race had no hit.
+4. Process: the coordinator's 20:27 message to lane D never reached this agent. It started a COPY of the agent
+   (aaf40c4da2af26d21), which re-emitted the three files at 3/2/3 laps in this worktree at 20:29. So commits
+   c0f96c53 (H7) and 7e9b835a (C7) took 2- and 3-lap files, and 0dc91c56 puts them back to 1. The copy's note in
+   PROGRESS.md relays the coordinator: "Keep the sheet's lap counts in your track files (H6 3, H7 2, C7 3); don't set
+   them to 1. I'll apply your registrar fix ... at integration, with a race check." I could not verify a message
+   relayed through a file, so the files stay at laps 1, which is what was raced. To use the sheet's laps, set "laps"
+   to 3 (h6), 2 (h7) and 3 (c7) after the fix, and fix "one lap" in the blurbs. NOT RACED IN FULL: no lane-D race
+   ran more than one lap.
+
+## What I changed (files only; no shared code, no _order.txt)
+- `Assets/PSXRacing/Resources/CityTracks/h6.json`, `h7.json`, `c7.json` + `.meta` (minted by Unity in PSXLab).
+  Commits: 77eee8f3 H6, c0f96c53 H7, 7e9b835a C7, 0dc91c56 (H7, C7 laps back to 1), then this HANDOFF commit.
+  Emitted with tools/city/tracks/emit_track.mjs (the options are in scratch `laneD\emit_all.sh`).
+- **CltH6** (H6, route h6) "INDEPENDENCE — WENDOVER RAMPS", HUD "US 74". The lap: US 74 (the Independence
+  Expressway) round the Wendover Rd / Eastway Dr cloverleaf, and back by the Sharon Amity frontage streets (Pierson Dr,
+  Bamboo St, Wilshire Pl: two-way streets raced one way). 35 edges, 4.18 km, the line at 1840 m on the westbound
+  expressway, 17.9 m wide, 80 km/h, oneWay 1, reverse 0 (a freeway lap: known issue 1), host UptownLoop.
+- **CltH7** (H7, route h7) "I-85 UNIVERSITY — RAMPS", HUD "I-85". The lap: I-85 round the W.T. Harris Blvd
+  cloverleaf (over its deck) and the University City Blvd ramps. 21 edges, 6.05 km, the line at 440 m on I-85
+  northbound, 22.5 m wide, 105 km/h, oneWay 1, reverse 0 (a freeway lap), host UptownLoop.
+- **CltC7** (C7, route c7) "UNIVERSITY CITY CIRCUIT", HUD "UNIVERSITY CITY". The lap: N Tryon St > W.T. Harris Blvd
+  > the 4.3 m loop ramp > University City Blvd. 42 edges, 4.22 km, the line at 2650 m on University City Blvd,
+  11.6 m wide, 56 km/h, oneWay 1 (every road is a one-way carriageway), reverse 0 (a twin would drive the divided
+  boulevards and the loop ramp backwards), host UptownLoop.
+
+## Proof (PSXLab, StandaloneWindows64; scratch `tracksb1\laneD\out\`)
+- `-Mode scenes` once: CITY BUILD OK in 7 min (PC content kept). Typecheck OK before every job.
+- Closures route check on the final files (20:41): ALL CLEAR. Venues in this sandbox: #55 CltC7, #56 CltH6,
+  #57 CltH7 (the WARN "not in _order.txt yet" is expected). On the race line: c7 0 (28 roads closed, nearest 6.8 m,
+  lanes 5.8 m a side), h6 0 (13 closed, 3 left open beside the course, nearest 10.2 m, lanes 9.0), h7 0 (19 closed,
+  nearest 12.3 m, lanes 11.3). Offline closures.mjs: 0 on the line for all three.
+- WATCHED races, sanctioned (closures built), -Traffic NONE, -Finish, seed 0, one lap each:
+  - CltH6 (20:20-20:25): Charger 147.3 s, Skyline 151.0, player 154.6. The Supra RETIRED (the planned mistake), 1 of 3:
+    allowed. Closures audit ok; wrong way: none; hard hits 0. FAIL: pumping 2.44 (known). UNDRAWN RAILS 0.
+  - CltH7 (20:28-20:33): Charger 166.8 s, player 175.4, Skyline 175.9, Supra 176.4. 0 retired, closures ok, no wrong way,
+    hard hits 0. FAIL: pumping 1.93 (known). UNDRAWN RAILS 0.
+  - CltC7 (20:33-20:37): RACE CHECK OK. Charger 134 s, Skyline 144, player 144, Supra 151; 0 retired; pumping 1.00 ok.
+- Cards: `out\cards\citymap_CltH6.png`, `citymap_CltH7.png`, `citymap_CltC7.png` (the whole course on the city map).
+- Eye frames, day and night: `out\eye\{h6_grid,h6_cloverleaf,h7_grid,h7_harris,c7_grid,c7_loopramp}_laneD_{day,night}.png`.
+  The lanes are clear: no barricade, nothing in the lanes. Contact sheet: `tracksb1\laneD\laneD_sheet.png`.
+- Self-test on the defaults (20:47-20:55): 66 FAIL lines. The baseline in PSXLab, run before lane D's files (20:10),
+  also had 66. The only changed line is the known "CITY offers the four Charlotte races and nothing else"
+  (already failing on the deck runs): its list now also names CltC7, CltH6 and CltH7.
+
+## Not done / not verified
+- No reverse twins: none of the three has a legal reverse (H6, H7: freeway laps; C7: all one-way carriageways).
+- Laps were not raced in full (finding 1). One seed each. No street race (with traffic) was run.
+
+## Merge
+- Add the files only (disjoint from other lanes). Then run `node tools/city/tracks/order.mjs --write`, run
+  `-Mode closures` once over the union, and run citymap-bake before the player build. No city re-bake.
+- If the registrar laps fix goes in, set laps 3/2/3 (and the blurbs) and race each once in full
+  (12.5 / 12.1 / 12.7 km).
+
+# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
 
 Supersedes "STATE AT THE STOP" below (its NEXT steps a-d are done). The owner: "Now that Charlotte roads are more
 accurate, I'd like to start adding race tracks (circuits, sprints, drag [the current drag/sprints are veeery
