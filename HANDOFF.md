@@ -14,7 +14,7 @@ agent, every run's outputs in `out\<tag>_*`).
   switches) and two gate rules that only pass more (the TWLTL hand-over; the twin frame, which touches no default edge).
 - LINEFIX everywhere (r3lfA): `SHIFT 2678 SJOG 2753 KINK 3236 WIDTH 503 CONT 1566 SURFACE 261 JUNCTION 658 MEDIAN 77 STEP 3950 BARRIER 1627 BRIDGE 13 | ALL 17322`
   - raises KINK +5, JUNCTION +1, MEDIAN +1, BRIDGE +1 -> LineFixSkipEdges (35 edges) made from it, NOT yet verified.
-- LINEFIX + every tight twin (r3twB, smoothing + twin frame): `SHIFT 2963 SJOG 2779 KINK 3262 WIDTH 507 CONT 1614 SURFACE 297 JUNCTION 653 MEDIAN 86 STEP 3953 BARRIER 1630 BRIDGE 13 | ALL 17757`
+- LINEFIX + every tight twin (r3twB, smoothing + the twin frame ON - now off by default, so SHIFT reads higher): `SHIFT 2963 SJOG 2779 KINK 3262 WIDTH 507 CONT 1614 SURFACE 297 JUNCTION 653 MEDIAN 86 STEP 3953 BARRIER 1630 BRIDGE 13 | ALL 17757`
   - per pair: 6 of 143 twins raise no class in their region; North Tryon's fork n3158 does (SHIFT 3 -> 5, SJOG 1 -> 2).
 
 ## What I found
@@ -38,7 +38,8 @@ agent, every run's outputs in `out\<tag>_*`).
    Figure 3B-7); the gate joined a line only to its own colour (CityAudit.LineGate.cs LgLinkJoints Nearest). 428 such
    joints with LINEFIX; 12 random ones on frames, all the Figure 3B-7 pattern.
 6. A tight twin's SHIFT in its OWN mapped frame read the mapped fan as a move ("the solid yellow line moves 9.68 m in 21 m"
-   where the drawn lines run straight): now read from the middle of the pair's mapped lines (486 readings passed in r3twB).
+   where the drawn lines run straight): a rule reads it from the middle of the pair's mapped lines (486 readings passed
+   in r3twB) - but 2 of its 12 sample frames look like real moves, so it is OFF by default (eeaba29a, PSX_LG_TWINFRAME=1).
 7. LINEFIX's own rises (r3lfA): Mallard Creek Rd e3120, a 48 m BRIDGE piece the lane fit made five lanes (tagged centre
    turn lane) between four-lane approaches; new solid bay / hand-over white lines that now sample map vertices the
    broken lines skipped (Mount Holly-Huntersville, Bellhaven); three junction deflections (E Morehead, E 7th, Oakdale);
@@ -50,7 +51,12 @@ agent, every run's outputs in `out\<tag>_*`).
 9. H4 / Uptown Loop (rivals "HARD into Ground" at 39-51 m/s on I-277 e1832 between two decks): the ground probe (gp1:
    game colliders, rays down every 1 m x 0.5 m across e9697 / e1832 / e2421) finds NO Ground face over or within 1 cm of the
    road anywhere; the top face is the road everywhere but the parapet at the edges. The wall test (rays along the lanes
-   at bumper heights across each deck end, gp2): <see the hand-back / NEXT.md>.
+   at 0.12-1.0 m, 12 m before to 12 m past every end of the three edges, gp2) meets NO Ground either - only the right
+   parapet where a straight ray leaves the curving outer lane 11-23 m on. So there is no static Ground face on or across
+   those lanes: the race's "Ground" hit is elsewhere (wp 1282's real position - the race log gives the hit object's
+   origin, not the contact point), or dynamic (the Ground collider of a streamed tile before its Roads collider).
+   Outputs `scratchpad\roads3\out\gp1_city_groundprobe.txt`, `gp2_*`. RAILSHY frames: `railshy_before_after.jpg` (the
+   right edge line shows again beside the parapet).
 10. BARRIER (1,630): every street bridge parapet / retaining-wall rail / W-beam on a marked street stands with its face
     RailW (0.3 m) inside the drawn edge (CityMeshes.EmitRail) - on the edge line's outer paint (6 cm from its centre) on a
     0.3 m street shoulder. A Jersey barrier's face is at the edge.
@@ -60,7 +66,8 @@ agent, every run's outputs in `out\<tag>_*`).
 - b272bd4f gate: deterministic place order. 05cda1f8, baee68f8: the baseline re-recorded ALONE (cherry-pick b272bd4f, then
   05cda1f8 + baee68f8 or baee68f8's file whole).
 - 241cff9c gate rule: the TWLTL hands over to a turn lane (MUTCD cites, proof `linegate_twltl_handover_proof.jpg`).
-- 9eff375f gate rule: the tight twin's frame (no default edge; proof job s3).
+- 9eff375f gate rule: the tight twin's frame (no default edge); eeaba29a OFF by default - sample frames
+  `linegate_twinframe_proof.jpg`: 10 of 12 lines run on, TF04 / TF07 look like real moves.
 - 529da05d, 47110185 tight twins: coarse look (cost), the drawn line smoothed in the world (PSX_CITY_TWINSMOOTH), the TWIN
   LIST (PSX_CITY_TWINS builds only listed pairs; PSX_CITY_TWINLIST=0 all) and the LINEFIX SKIP LIST
   (PSX_CITY_LINEFIXLIST=0 all) in LineModel.TwinList.cs (+ .meta), keyed by graph b2aa3453.
