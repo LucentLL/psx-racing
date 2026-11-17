@@ -82,7 +82,7 @@ try {
     elseif ($Mode -eq "cards") {
         # the race cards (CityMapPreview: every city venue's card over the whole-city map), checkpoint mode on
         $env:PSX_CP_RACES = $CpRaces
-        $shotDir = "$SandboxScreenshots"
+        $shotDir = Join-Path $Sandbox "Screenshots"
         Get-ChildItem $shotDir -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
         $log = "$Sandbox\cp_cards.log"
         $ok = Invoke-UnityJob -Log $log -MaxMinutes $mm -UnityArgs @("-quit", "-batchmode", "-projectPath", $Sandbox,
