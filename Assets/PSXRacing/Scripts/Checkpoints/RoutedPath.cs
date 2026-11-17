@@ -98,13 +98,18 @@ namespace PSXRacing
                 var p = Vector2.LerpUnclamped(pts[seg], pts[seg + 1], t);
                 wps[i] = new Vector3(p.x, Mathf.LerpUnclamped(ys[seg], ys[seg + 1], t), p.y);
                 int ea = rawE[seg], eb = rawE[seg + 1];
-                int ei = t < 0.5f || ea == eb ? ea : eb;
-                // across a join the arc runs on from each side's own point (the shared node is not a raw point of
-                // the second edge): a waypoint just onto the next edge reads a few metres along it, not that edge's
-                // first vertex (which put an AI past the Wilkinson apex gate's arc without crossing it)
-                float es = ea == eb ? Mathf.LerpUnclamped(rawS[seg], rawS[seg + 1], t)
-                         : ei == ea ? rawS[seg] + rawD[seg] * t * segL
-                                    : rawS[seg + 1] - rawD[seg + 1] * (1f - t) * segL;
+                // ACROSS A JOIN: the first edge's last raw point IS the shared node, so the whole raw segment from it
+                // to the next edge's first point lies on the NEXT edge, its arc running from that edge's node end
+                // (it was the next edge's first vertex, 40 m on, for half the segment: that put an AI past the
+                // Wilkinson apex gate's arc without crossing it, in the final watched race)
+                int ei = ea == eb ? ea : eb;
+                float es;
+                if (ea == eb) es = Mathf.LerpUnclamped(rawS[seg], rawS[seg + 1], t);
+                else
+                {
+                    float nodeS = rawD[seg + 1] > 0 ? 0f : map.edges[eb].length;
+                    es = Mathf.LerpUnclamped(nodeS, rawS[seg + 1], t);
+                }
                 es = Mathf.Clamp(es, 0f, map.edges[ei].length);
                 edgeAt[i] = ei; sAtW[i] = es; dirAtW[i] = (sbyte)(ei == ea ? rawD[seg] : rawD[seg + 1]);
             }
