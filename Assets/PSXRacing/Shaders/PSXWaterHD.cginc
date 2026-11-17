@@ -121,7 +121,9 @@ sampler2D _CameraOpaqueTexture;        // URP's copy of the frame after the sky 
 #define HD_SSR_EDGE        0.06
 #define HD_SSR_SMOOTH      0.30     // the march reads the ripples at this share (a steadier mirror)...
 #define HD_SSR_WOBBLE      0.035    //   ...and they wobble what it found by this much of the frame
-#define HD_SSR_ROUGH_OFF   float2(0.62, 0.86)   // no march where it is this rough (a ramp, not a cut)...
+#define HD_SSR_BLUR        0.022    // rough water mirrors its banks BLURRED (this share of the frame at rough 1),
+                                    //   never the sky instead: the march's rough cut-off showed the Bat Cave river in
+                                    //   rain as a pale sheet (the bright overcast horizon) - the owner's complaint
 #define HD_SSR_FRES_ON     float2(0.024, 0.05)  // ...or where the mirror is this faint (looking down into it)
 // SPECULAR ANTI-ALIASING (Toksvig). The sheet's slope variance at full
 // detail (tools/water/make_ripples.py's sheet, measured: E|s|^2 = 0.0441),
@@ -318,6 +320,19 @@ float2 HDUV(float2 ndc) { return float2(ndc.x, ndc.y * _ProjectionParams.x) * 0.
 // off a side reads the edge column (what is most likely there) instead of
 // ending in the sky (part B, item 10: the bright bars down both sides of a
 // lake mirroring a dark ridge).
+// The frame's copy where the mirror found something, blurred by how rough
+// the water is: four taps, wider up the screen (a rough surface streaks a
+// reflection vertically).
+float4 HDMirrorTap(float2 uv, float blur)
+{
+    if (blur < 1e-4) return tex2Dlod(_CameraOpaqueTexture, float4(saturate(uv), 0.0, 0.0));
+    float4 c = tex2Dlod(_CameraOpaqueTexture, float4(saturate(uv + float2(blur, 0.0)), 0.0, 0.0));
+    c += tex2Dlod(_CameraOpaqueTexture, float4(saturate(uv - float2(blur, 0.0)), 0.0, 0.0));
+    c += tex2Dlod(_CameraOpaqueTexture, float4(saturate(uv + float2(0.0, blur * 2.2)), 0.0, 0.0));
+    c += tex2Dlod(_CameraOpaqueTexture, float4(saturate(uv - float2(0.0, blur * 0.8)), 0.0, 0.0));
+    return c * 0.25;
+}
+
 float2 HDRayUV(float2 s0, float2 s1, float t)
 {
     float2 s = lerp(s0, s1, t);
@@ -603,11 +618,11 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float3 skyToned = reflToned;
     float reflEmit = 0.0;
     float dbgConf = 0.0;
-    // THE WORLD IN IT, where its mirror can show (item 14: no march on rough
-    // water or looking down into it - a ramp, not a cut); rain takes most of
-    // the mirror away (item 8)
-    float marchW = (1.0 - smoothstep(HD_SSR_ROUGH_OFF.x, HD_SSR_ROUGH_OFF.y, rough))
-                 * smoothstep(HD_SSR_FRES_ON.x, HD_SSR_FRES_ON.y, fres)
+    // THE WORLD IN IT, except looking steeply down into the water (item 14:
+    // a ramp, not a cut). Rough water keeps its mirror, BLURRED (HDMirrorTap):
+    // a roughness cut-off showed the sky instead, a pale sheet in rain. Rain
+    // takes part of the mirror away and breaks the rest up (item 8).
+    float marchW = smoothstep(HD_SSR_FRES_ON.x, HD_SSR_FRES_ON.y, fres)
                  * (1.0 - HD_RAIN_MIRROR * rainK);
     [branch] if (_PSXWaterTier.y > 0.5 && scene && marchW > 0.01)
     {
@@ -624,15 +639,16 @@ fixed4 fragHD(v2f_hd i) : SV_Target
         float2 wob = float2(dot(dn, rgt), dot(dn, upH) * _ProjectionParams.x) * (HD_SSR_WOBBLE * (1.0 + HD_RAIN_WOBBLE * rainK));
         float3 hit = reflToned;
         float he = 0.0;
+        float blur = HD_SSR_BLUR * saturate((rough - 0.25) / 0.75);
         [branch] if (wB > 0.0)
         {
-            float4 mb = tex2Dlod(_CameraOpaqueTexture, float4(saturate(uvB + wob), 0.0, 0.0));
+            float4 mb = HDMirrorTap(uvB + wob, blur);
             hit = lerp(hit, mb.rgb, wB);
             he = mb.a * wB;
         }
         [branch] if (wA > 0.0)
         {
-            float4 ma = tex2Dlod(_CameraOpaqueTexture, float4(saturate(uvA + wob), 0.0, 0.0));
+            float4 ma = HDMirrorTap(uvA + wob, blur);
             hit = lerp(hit, ma.rgb, wA);
             he = lerp(he, ma.a, wA);
         }
