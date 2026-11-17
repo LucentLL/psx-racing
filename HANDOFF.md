@@ -1,4 +1,71 @@
-﻿# CHARLOTTE TRACKS, BATCH 1 INTEGRATED: 3 verified tracks, 4 venues (agent "integ", branch charlotte-tracks-b1 off ec1dd760, 2026-11-16 22:20-22:50; NOT pushed, NOT merged)
+﻿# HANDOFF - THE OWNER'S 11-14..11-16 CAR MODELS IN THE GAME (agent "cars-1116", branch `cars-1116` off mountain-nm 742315cd, 2026-11-16 21:40-23:50; NOT pushed, NOT merged)
+
+Owner, 2026-11-16 ~21:25: "Please add these updated car models to the game. Some of them are WIP, but they can be updated again later."
+Scratch: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\cars1116\` (INVENTORY.md, PROGRESS.md, sheets\, run.ps1, Cars1116Jobs.cs, the gate reports).
+
+## Per car (nothing skipped; catalog 320 cars across 47 of 57 shells)
+| Delivery taken | Shell | What | Rows |
+|---|---|---|---|
+| Silvia_S13_HD_v03 | `coupe_88` | NEW | the four S13 Silvias (K's / Q's `88, `91), off the 180SX hatch |
+| FC_1987_Bronze_HD_v03 (closed + raised) | `rotary_coupe_87` | NEW, pop-ups | the three FC rows (GT-Limited `85, GT-X `90, INFINI III `90), off the built-in FD |
+| Soarer_1998_HD_v03 | `lux_coupe_97` | NEW (WIP) | Lexus SC300 `97, off the pack's grand tourer |
+| MA70_TurboA_HD_v03 | `gt_liftback_88` | NEW (WIP: only a lamps-up pose exists) | Supra 3.0GT Turbo A `88 + 2.5GT Twin Turbo R `90, off the pack's grand tourer |
+| Camaro67_SS350_HD_v02 (v03 = textures only, no model) | `pony_coupe_67` | NEW + NEW catalog row | `chevrolet_camaro_ss_350__67` "Chevrolet Camaro SS 350 `67" |
+| NSX_Yellow_HD_v31 | `midship_coupe` | updated in place (was v15) | all 12 NSX rows |
+| TypeX_White_HD_v13 | `fastback_96` | updated in place (was v08) | Nissan 240SX `94 |
+| FD_Shared_Independent_v01/Textured_27 | `rx7_fd_93` / `_99` / `_nowing` | updated in place (was Textured_18) | the 9 FD rows + the `98 Type RS |
+
+## What I found
+- Every delivery is a 2048x1024 HD PBR set + an RGBA lamp map + GLB. The game sheet is the 4x box filter (512x256); the 2048 set goes through the HD car tier.
+- The S13 Silvia rows wore the 180SX HATCH and the FC rows the FD: both now wear their own body. The catalog had no '67 Camaro (GT4 has only the '69): new row.
+- Soarer v03 (no README: still being written) delivers see-through tinted glass over a modelled cabin; the game draws glass opaque off the sheet, and its backlight / sunroof UVs land on PAINT: pinned to the quarter glass's texel in the exporter (`uvPin`).
+- MA70 v01-v03 hold only `HeadlightsUp`: the lamps stand raised day and night until a closed pose comes.
+- NSX v31 is 75,716 / 76,776 triangles, seven times every other shell (the artist's own cap is 10,000). It runs; it is the first thing to ask Codex for.
+- `Scripts/CockpitFit.Table.cs`: the probe's calibration is the catalogue's MEDIAN, so adding five shells would have stretched every car's cabin 2.8 %. Kept at the 52-shell values (and with them the fit gate passes; with the new medians the three FDs failed its nose gate by one ray).
+- NOT MINE, found on the way: `Resources/ArchHubs.bytes` at 742315cd is stale for other shells - the fit code moved after 11-11, so 15 catalog cars sit on the blunt arch field instead of their exact rows (civic_eg x8, rally_sedan_99 x3, flatsix_coupe, viper_gts, and the two Ford RS200s that changed shell on 11-15). `Scripts/ChaseSilhouettes.Table.cs` differs from a fresh emit on 40 other shells by millimetres. I changed ONLY my ten shells' rows. A full fresh pair is in scratch (`ArchHubs_full_rebake.bytes`, `ChaseSilhouettes_full_emit.Table.cs`); the re-bake is `ArchProbe.Bake` + `BakeExact`, 3 minutes.
+- PSXPerf lacked a tracked file (`Generated/CarModels/flatsix_coupe_87_wheel.asset`): the Yellow Bird baked with no wheels there (base self-test "1 shell without a wheel mesh"). Copied in.
+- Classifier question for the owner: `lexus_sc300__97` is LHD by its name (DriveSide.csv), while car_facts treats it as the JDM car (1JZ-GTE, 280 PS) and his model is a right-hand-drive Soarer.
+
+## What I changed (switch PSX_CARS1116, default ON; 0 = the five new rows on their old shells; the in-place updates have no switch)
+- `tools/carmodels/export_models.mjs` (5 new models, 3 new sources, `cover`, `uvPin`), `tools/carmodels/stage_carhd.py` (new sets, `ormA`), `tools/carmodels/lamps/cars1116_fix.py`.
+- Per shell: `Art/Car/Models/<shell>/`, `tools/carmodels/converted/<shell>_vNN/`, `Resources/CarLights/<shell>_lightmask.png`, `Resources/CarModels/<shell>.prefab`, `Generated/CarModels/<shell>_wheel.asset`, `Materials/CarModels/<shell>_*.mat`.
+- `Scripts/CarModelLibrary.cs` (Models +5, HandRules, the switch), `Scripts/LifeSim/CarMarket.cs` (StarterBodies: `coupe_88`), `Scripts/LifeSim/CarViewer.cs` (PaintedBrakes +5), `Editor/CarHDShots.cs` (BakeImport's list +7), `Editor/LifeSimSelfTest.cs` (pins).
+- `Resources/rg2_cars.json` (+1 row: the '69 SS's L48 350 with the '67's own figures; 299 PS, 1380 kg, 2746 wb, $28,500, 256 km/h), `Resources/car_facts.json` (+1; the tool's re-bake also refreshes 15 older rows' origin after the 11-15 fix), `Resources/DriveSide.csv`, `Docs/drive_side.csv`, `tools/bake_car_facts.py`, `Docs/car_model_mapping.txt`.
+- Tables: `Resources/ArchCeilings.bytes`, `Resources/ArchHubs.bytes`, `Scripts/DoorMirrors.Table.cs`, `Scripts/CockpitFit.Table.cs`, `Scripts/ChaseSilhouettes.Table.cs` - my ten shells' rows only.
+- Lamp maps: the Soarer's parcel-shelf stop lamp zeroed (behind opaque glass), the Camaro's scatter channel derived (A = 0.35 x B).
+
+## Proof (PSXPerf, StandaloneWindows64, fresh process per job)
+Sheets, one per car, 18-19 labelled cells (GT showroom x2, seller's lot 3/4 front and rear, chase noon / noon braking / night / night braking, track front 3/4 noon and night, lot dusk lamps and brake, cockpit ahead and left, both left wheels in their arches, STAGED beside a known car from the front and from above, BEFORE for the five new rows):
+`...\scratchpad\cars1116\sheets\cars1116_<shell>.png` for coupe_88, rotary_coupe_87, lux_coupe_97, gt_liftback_88, pony_coupe_67, midship_coupe, fastback_96, rx7_fd_93, rx7_fd_99 (and rx7_fd_nowing: lot cells only, no catalog row wears it).
+- Bake: all ten shells; raised bodies coincide with the closed ones (0.0 mm); pop-up lamps found on the FC, NSX, Type X, FD; head lamps by the surface fallback on the S13 (optics behind covers), tail lamps by the fallback on the Soarer (the finder reads garnet paint as lamp red).
+- Cockpit fit gate 57 shells 0 FAIL; door mirrors 57 shells 0 FAIL (all five new shells have two live mirrors); arch sweep 320 rows, 0 tyre over its arch at rest, 15 on the field (the stale rows above, none mine).
+- Chase framing, my ten shells: 18 of 120 cases out of band = the standing 16:9 CHASE-at-200 horizon miss every shell has (10) + close-view tail clip 0.5-1.2 % past the allowed on the FDs, the Type X and the Soarer (6) + two rounding ties (FC, Camaro).
+- Self-test: base 68 FAIL (the sandbox's state), mine 70 on the first run = +3 lamp-map checks on new shells, -1 (the missing wheel asset). Two of the three corrected afterwards and confirmed by the lamp check alone; ONE stays: `lux_coupe_97: ...on faces that look forward (18)` = the Soarer's projector-barrel walls (normals exactly radial) share the lens rim's texels. The full self-test was not re-run after the corrections.
+- One WATCHED race (23:42, PSXPerf; the owner's game was not running at the check): Gillespie Gap, 90 s, the player on autopilot in the new `67 Camaro, the field handed over as Silvia K's, RX-7 GT-Limited (FC), SC300, Supra Turbo A (the scene starts three rivals; no picture was taken, so which three is by the hand-over order): the race goes live, 1,880 m for the player and 2,350-2,384 m for the rivals, 0 hard hits, 0 retirements. Its one FAILURE is the exposure gate ("no pumping on the open road", gain 1.24 against 1.10), which no car model touches; not compared with a base run.
+- What still looks wrong in my own sheets: the MA70's lamps are up at noon; ripples in the paint near the tail lamps on the S13, FC and NSX from the side; a dashed dark seam round the Soarer's tail-lamp covers at chase distance; at night every body is nearly black behind its lamps (the game's night, not these cars).
+- Two mistakes of mine, both fixed: the first track frames carried the first shell's lamp map on every later car (CarLights re-fits in LateUpdate, which does not run outside play; the tool re-fits now, frames re-shot); the cockpit-shots job ran without -quit and sat building Unity's search index (~6 GB of PSXPerf's Library) until I asked it to close.
+
+## For Codex (what is visibly unfinished)
+- MA70: a HeadlightsDown pose (closed lids), same frame and atlas, so the pop-ups can work like the FD's. Tyres 656 mm against the sheet's 631.
+- Soarer: opaque dark glass texels for EVERY pane (backlight and sunroof sit on paint; v02 had opaque glazing); the high stop lamp on the outside if it should show; projector-barrel walls off the lit lens texels; the dashed seam at the tail-lamp covers; tyres 622 mm against 654 (the rear needs a 33 mm arch flare); 9 % of the sheet has alpha 0. README / validation for v03.
+- NSX: a game mesh at the 10,000-triangle cap (v31 is 75,716); the lens-coat map is not read by the game.
+- Camaro: the model for v03 (the folder has textures only); a lens-scatter channel in the lamp map (A is empty; derived here); sheet alpha in two classes only (128 matte / 255 gloss; it uses sixteen values).
+- S13: README / validation / preview for v03; the rear-quarter ripple; tyres 602 mm against 615-627.
+- FC: the shoulder ripple toward the rear lamp (its own README names it); tyres 600 mm against 627-632.
+- Type X: sheet alpha is 255 everywhere (no matte class for rubber and trim).
+- FD: nothing new.
+
+## For the coordinator at merge
+1. Merge `cars-1116`. Shared files: `Scripts/CarModelLibrary.cs` (Models, HandRules, `HandKey`, `Cars1116On` / `Before1116`), `Scripts/LifeSim/CarMarket.cs` (`StarterBodies`), `Scripts/LifeSim/CarViewer.cs` (`PaintedBrakes`), `Editor/CarHDShots.cs` (`BakeImport` key list), `Editor/LifeSimSelfTest.cs` (the mapping block, two edits), the three `*.Table.cs` (rows), `Resources/rg2_cars.json` (one row appended), `Resources/car_facts.json`, `Resources/DriveSide.csv`.
+2. HD car files: copy everything in `C:\Users\mcgee\PSXHDStage\carhd_cars1116\` over `C:\Users\mcgee\PSXHDStage\carhd\` (68 files: 27 identical, the 12 FD files replaced, 28 new, the manifest), or build with `PSX_CAR_HD_SRC` pointing at it. 17 sets, 16 lamp maps.
+3. The car re-bake build (the pc27 / pc_carbuild flow): copy the changed asset files by path (`git diff --name-only 742315cd..cars-1116 -- Assets`, 208 files), then `CarHDShots.BakeImport` (its list now holds the seven new HD bodies; it re-bakes them in PSXLab and imports the HD sets), then the player. The new shells' prefabs, materials, wheel assets, cover materials and metas are committed; the updated shells' prefabs keep PSXLab's own cover-material GUIDs.
+4. Decide: the full arch / silhouette re-bake for the OTHER shells (above), the SC300's drive side, and whether the cockpit calibration should follow the 57-shell medians.
+5. PSXPerf: my baked car assets stay there; its Library is ~6 GB bigger (search index).
+
+## What the owner will notice
+The Silvias are now the S13 notchback and the old RX-7s the FC with working pop-ups, instead of borrowed 180SX and FD bodies; the SC300, the two A70 Supras and a new '67 Camaro SS 350 have their own cars; the NSX, the Type X and every FD wear his newest versions. On PC all of them carry his HD paint and panel lines. The Supra drives with its lamps up all day until a closed pose exists.
+
+# CHARLOTTE TRACKS, BATCH 1 INTEGRATED: 3 verified tracks, 4 venues (agent "integ", branch charlotte-tracks-b1 off ec1dd760, 2026-11-16 22:20-22:50; NOT pushed, NOT merged)
 
 The owner today: "start adding more Charlotte tracks". Four lanes built 13 candidates (A: H3 C1 X1; B: S1 X3 C2 H4;
 C: H5 C9 D3; D: H6 H7 C7), and each lane had an independent checker. Only the three that passed BOTH the lane and

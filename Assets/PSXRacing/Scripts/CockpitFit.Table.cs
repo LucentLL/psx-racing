@@ -19,11 +19,12 @@ namespace PSXRacing
             new Row("classic_roadster", -0.0163f, 1.1896f, 0.7246f, 0.7773f),
             new Row("classic_van", 1.3864f, 1.9323f, 0.8046f, 1.3132f),
             new Row("coupe_03", 0.0610f, 1.3225f, 0.7607f, 0.8170f),
+            new Row("coupe_88", 0.1121f, 1.2066f, 0.7336f, 0.7393f),
             new Row("coupe_99", 0.0378f, 1.2566f, 0.7346f, 0.8416f),
             new Row("crown_victoria", 0.0048f, 1.4260f, 0.8258f, 0.7964f),
             new Row("daytona_69", 0.2708f, 1.3664f, 0.8363f, 0.9132f),
             new Row("euro_hatch", 0.2975f, 1.3259f, 0.6762f, 0.8042f),
-            new Row("fastback_96", 0.0993f, 1.1799f, 0.7436f, 0.6788f),
+            new Row("fastback_96", 0.0993f, 1.1797f, 0.7436f, 0.6788f),
             new Row("fixed_roof_99", -0.1045f, 1.1533f, 0.8257f, 0.6980f),
             new Row("flatsix_coupe", 0.1003f, 1.1841f, 0.6757f, 0.7117f),
             new Row("flatsix_coupe_87", 0.1003f, 1.1841f, 0.6757f, 0.7117f),
@@ -33,6 +34,7 @@ namespace PSXRacing
             new Row("fullsize_taxi", -0.2352f, 1.6030f, 0.8258f, 0.7964f),
             new Row("fullsize_trooper", -0.2152f, 1.6133f, 0.8258f, 0.7964f),
             new Row("gt_hardtop_73", 0.0737f, 1.2709f, 0.7326f, 0.7929f),
+            new Row("gt_liftback_88", 0.0640f, 1.2379f, 0.6854f, 0.8128f),
             new Row("gt_liftback_97", -0.1209f, 1.2230f, 0.7079f, 0.8171f),
             new Row("gto_66", 0.1299f, 1.3270f, 0.8922f, 0.9101f),
             new Row("gtr_89", 0.1289f, 1.2770f, 0.7624f, 0.7787f),
@@ -43,27 +45,33 @@ namespace PSXRacing
             new Row("landrover", -0.0786f, 1.9005f, 0.7386f, 1.3957f),
             new Row("liftback_95", 0.1242f, 1.2604f, 0.7133f, 0.7982f),
             new Row("longnose_71", -0.1016f, 1.2142f, 0.6921f, 0.7392f),
+            new Row("lux_coupe_97", 0.0015f, 1.2732f, 0.7719f, 0.7990f),
             new Row("mb_pagoda", 0.1621f, 1.2622f, 0.6798f, 0.8088f),
-            new Row("midship_coupe", 0.1786f, 1.1183f, 0.7246f, 0.7127f),
+            new Row("midship_coupe", 0.1706f, 1.1127f, 0.7330f, 0.7044f),
             new Row("mustang_67", 0.0438f, 1.3708f, 0.7234f, 0.8313f),
             new Row("nissan_180sx", 0.0607f, 1.2422f, 0.7681f, 0.7499f),
+            new Row("pony_coupe_67", 0.2201f, 1.2515f, 0.7844f, 0.7900f),
             new Row("pony_fastback_69", 0.0375f, 1.2574f, 0.7359f, 0.8578f),
             new Row("rally_coupe_98", -0.0678f, 1.2996f, 0.6999f, 0.7759f),
             new Row("rally_sedan_99", 0.0190f, 1.3650f, 0.7431f, 0.8091f),
             new Row("roadster_99", -0.1182f, 1.2435f, 0.7183f, 0.7655f),
             new Row("roadster_na_popup", 0.0408f, 1.1801f, 0.6758f, 0.7557f),
+            new Row("rotary_coupe_87", -0.0088f, 1.2092f, 0.7200f, 0.7464f),
             new Row("rx7_fd", -0.1915f, 1.2235f, 0.7102f, 0.6913f),
-            new Row("rx7_fd_93", -0.0863f, 1.1562f, 0.6858f, 0.7114f),
-            new Row("rx7_fd_99", -0.0863f, 1.1562f, 0.6858f, 0.7114f),
-            new Row("rx7_fd_nowing", -0.0863f, 1.1562f, 0.6858f, 0.7114f),
+            new Row("rx7_fd_93", -0.1056f, 1.1574f, 0.6817f, 0.7157f),
+            new Row("rx7_fd_99", -0.1056f, 1.1574f, 0.6817f, 0.7157f),
+            new Row("rx7_fd_nowing", -0.1056f, 1.1574f, 0.6817f, 0.7157f),
             new Row("sedan_98", 0.0865f, 1.3685f, 0.7565f, 0.8280f),
             new Row("skyline_r32", 0.1323f, 1.2789f, 0.7630f, 0.7484f),
             new Row("supra_a80", -0.2479f, 1.2641f, 0.7597f, 0.8168f),
             new Row("viper_gts", -0.3690f, 1.1483f, 0.7486f, 0.7246f),
             new Row("volvo_estate", 0.3310f, 1.3941f, 0.7558f, 0.8440f),
         };
-        /// <summary>The catalogue's median windscreen against his pane (52 shells): his cabin's own
+        /// <summary>The catalogue's median windscreen against his pane (57 shells): his cabin's own
         /// proportion, so the fit moves each car from the middle of the catalogue, not from the probe's header line.</summary>
         public const float CalibZ = 1.1444f, CalibY = 1.2141f;
+        // cars-1116 (2026-11-16): KEPT at the 52-shell medians. The probe wrote 1.1137 / 1.2048 for 57 shells
+        // (the five new shells and the re-measured NSX and FD move the median), which would stretch EVERY
+        // car's cabin 2.8 % along and 0.8 % up. A new shell must not move the other cars' cockpits.
     }
 }

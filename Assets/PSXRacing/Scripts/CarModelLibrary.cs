@@ -162,6 +162,19 @@ namespace PSXRacing
             new Model { key = "fixed_roof_99",    name = "Fixed Roof 99",        region = Region.America, year = 1999, body = Body.Sports, kg = 1408, handOnly = true, widthMm = 1890 },
             new Model { key = "pony_fastback_69", name = "Pony Fastback 69",     region = Region.America, year = 1969, body = Body.Muscle, kg = 1450, handOnly = true, widthMm = 1830 },
             new Model { key = "gt_hardtop_73",    name = "GT Hardtop 73",        region = Region.Japan,   year = 1973, body = Body.GT,     kg = 1185, handOnly = true, widthMm = 1695 },
+            // 2026-11-16 (cars-1116, owner: "Please add these updated car models to the
+            // game. Some of them are WIP"): five new shells, each on its exact rows
+            // (HandRules): the fixed-lamp S13 notchback (the four S13 Silvias, off the
+            // 180SX hatch), the FC with pop-ups (the three FC rows, off the built-in
+            // FD), the Z30 coupe (the SC300 `97, off the pack's grand tourer), the A70
+            // liftback (the `88 Turbo A and `90 Twin Turbo R, off the pack's grand
+            // tourer; lamps-up pose only so far) and the `67 pony coupe (a new catalog
+            // row, Chevrolet Camaro SS 350 `67).
+            new Model { key = "coupe_88",         name = "Coupe 88 (S13)",        region = Region.Japan,   year = 1988, body = Body.Sports, kg = 1180, handOnly = true, widthMm = 1690 },
+            new Model { key = "rotary_coupe_87",  name = "Rotary Coupe 87 (FC)",  region = Region.Japan,   year = 1987, body = Body.Sports, kg = 1280, handOnly = true, widthMm = 1690 },
+            new Model { key = "lux_coupe_97",     name = "Lux Coupe 97 (Z30)",    region = Region.Japan,   year = 1997, body = Body.GT,     kg = 1522, handOnly = true, widthMm = 1805 },
+            new Model { key = "gt_liftback_88",   name = "GT Liftback 88 (A70)",  region = Region.Japan,   year = 1988, body = Body.GT,     kg = 1533, handOnly = true, widthMm = 1745 },
+            new Model { key = "pony_coupe_67",    name = "Pony Coupe 67 (F-body)", region = Region.America, year = 1967, body = Body.Muscle, kg = 1380, handOnly = true, widthMm = 1842 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -555,6 +568,11 @@ namespace PSXRacing
             (@"^Chevrolet\ Corvette\ Z06\ \(C5\)\ `99$",                 "fixed_roof_99"),
             (@"^Shelby\ Mustang\ G\.T\.\ 350R\ `65$|^Mercury\ Cougar",  "pony_fastback_69"),
             (@"^Nissan\ SKYLINE\ 2000GT-R\ \(KPGC110\)\ `73$",           "gt_hardtop_73"),
+            // cars-1116 (2026-11-16): the owner's five new shells on their exact rows.
+            (@"^Mazda\ RX-7\ .*\(FC,\ J\)\ `\d\d$",                     "rotary_coupe_87"),
+            (@"^Lexus\ SC300\ `97$",                                    "lux_coupe_97"),
+            (@"^Toyota\ SUPRA\ (3\.0GT\ Turbo\ A\ `88|2\.5GT\ Twin\ Turbo\ R\ `90)$", "gt_liftback_88"),
+            (@"^Chevrolet\ Camaro\ SS\ 350\ `67$",                      "pony_coupe_67"),
             // 2026-10-06, the owner's Car Models Tracker remap (approved "all look good"):
             // 38 cars moved onto the existing shell closest to the real car. Exact names,
             // first so they win; review page https://claude.ai/artifact/MvczJsa8sF44Jj2YkECfAw
@@ -586,10 +604,11 @@ namespace PSXRacing
             (@"^Nissan\ BLUEBIRD\ Rally\ Car\ \(510\)\ `69$", "bmw_e30"),
             (@"^Nissan\ Fairlady\ Z\ 280Z\-L\ 2seater\ \(S130\)\ `78$", "mustang_67"),
             (@"^Nissan\ SILVIA\ 240RS\ \(S100\)\ `83$", "citroen_cx"),
-            (@"^Nissan\ SILVIA\ K's\ \(S13\)\ `88$", "nissan_180sx"),
-            (@"^Nissan\ SILVIA\ K's\ \(S13\)\ `91$", "nissan_180sx"),
-            (@"^Nissan\ SILVIA\ Q's\ \(S13\)\ `88$", "nissan_180sx"),
-            (@"^Nissan\ SILVIA\ Q's\ \(S13\)\ `91$", "nissan_180sx"),
+            // cars-1116: the S13 Silvias wear the owner's own S13 notchback now.
+            (@"^Nissan\ SILVIA\ K's\ \(S13\)\ `88$", "coupe_88"),
+            (@"^Nissan\ SILVIA\ K's\ \(S13\)\ `91$", "coupe_88"),
+            (@"^Nissan\ SILVIA\ Q's\ \(S13\)\ `88$", "coupe_88"),
+            (@"^Nissan\ SILVIA\ Q's\ \(S13\)\ `91$", "coupe_88"),
             (@"^SILEIGHTY\ `98$", "nissan_180sx"),
             (@"^TVR\ Griffith\ 500\ `94$", "mb_pagoda"),
             (@"^Toyota\ 2000GT\ `67$", "mb_pagoda"),
@@ -848,8 +867,25 @@ namespace PSXRacing
                     hand[i] = new Regex(HandRules[i].pattern, RegexOptions.IgnoreCase);
             }
             for (int i = 0; i < hand.Length; i++)
-                if (hand[i].IsMatch(car.name)) return HandRules[i].key;
+                if (hand[i].IsMatch(car.name)) return Cars1116On ? HandRules[i].key : Before1116(HandRules[i].key);
             return null;
+        }
+
+        /// <summary>PSX_CARS1116=0: the owner's 2026-11-16 shells off - their rows wear
+        /// what they wore before (the S13 Silvias the 180SX hatch, the FCs the built-in
+        /// FD, the SC300 and the two A70s the pack's grand tourer, the new `67 Camaro
+        /// row the Camaros' GTO). The NSX, Type X and FD updates are in place (no switch).</summary>
+        public static readonly bool Cars1116On = System.Environment.GetEnvironmentVariable("PSX_CARS1116") != "0";
+        static string Before1116(string key)
+        {
+            switch (key)
+            {
+                case "coupe_88": return "nissan_180sx";
+                case "rotary_coupe_87": return Default;
+                case "lux_coupe_97": case "gt_liftback_88": return "supra_a80";
+                case "pony_coupe_67": return "gto_66";
+                default: return key;
+            }
         }
 
         // ------------------------------------------------------------------
