@@ -330,6 +330,13 @@ namespace PSXRacing.EditorTools
                         world.EnsureRing(eye, world.ring);
                         Shoot(cam, name + "_" + hour.ToLower(), eye, look, pitch);
                     }
+                    // part B: a motion strip of the same noon pose (the static test in time:
+                    // a crawl shows as 1-px change between frames 0.5 s apart)
+                    if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_STRIPS") == "1")
+                    {
+                        SetHour("NOON", false, sun, globals);
+                        Strip(cam, name + "_motion", eye, Quaternion.LookRotation(look) * Quaternion.Euler(-pitch, 0f, 0f), cam.fieldOfView, WaterRenderers().ToArray());
+                    }
                     // part B, item 13: the same noon frame at tiers 0 and 1 (a phone or a
                     // mirror; a PC with REFLECTIONS off)
                     if (System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_TIERS") == "1")

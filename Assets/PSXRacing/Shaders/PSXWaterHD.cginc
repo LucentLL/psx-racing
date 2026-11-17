@@ -230,7 +230,7 @@ v2f_hd vertHD(appdata_hd v)
 // dxz, dyz: the world position's screen derivatives (taken outside any
 // branch, so the finest octave can be skipped on the cheap tiers).
 void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float drift, float2 flowMs, float t, float seaK,
-              out float2 nrm, out float lace)
+              bool soft, out float2 nrm, out float lace, out float2 nrmSoft)
 {
     float moving = saturate(length(flowMs) * 3.0);
     // (the sea keeps its one reading, run downwind as before: stillMix 0)
@@ -270,6 +270,17 @@ void HDOctave(float2 xz, float2 dxz, float2 dyz, float2 d, float scaleM, float d
     // the sheet's +U is each reading's heading: back to world x,z
     nrm = ((d0 * a0.x + e0 * a0.y) * w0 + (d1 * a1.x + e1 * a1.y) * w1) * c;
     lace = s0.b * w0 + s1.b * w1;
+    // the same octave two mips softer (part B, item 6): what the mirror is
+    // marched along and wobbled by - the ripples' shapes, never their
+    // single-pixel detail (that flicked the mirrored world pixel by pixel)
+    nrmSoft = 0.0;
+    if (soft)
+    {
+        float4 q0 = tex2Dgrad(_RippleTex, uv0 - f0 * (p0 * HD_FLOW_PERIOD) + j0, gx0 * 4.0, gy0 * 4.0);
+        float4 q1 = tex2Dgrad(_RippleTex, uv1 - f1 * (p1 * HD_FLOW_PERIOD) + j1, gx1 * 4.0, gy1 * 4.0);
+        float2 b0 = q0.rg * 2.0 - 1.0, b1 = q1.rg * 2.0 - 1.0;
+        nrmSoft = ((d0 * b0.x + e0 * b0.y) * w0 + (d1 * b1.x + e1 * b1.y) * w1) * c;
+    }
 }
 
 // Rain on the water: rings spreading from drops, two layers of cells.
@@ -450,13 +461,13 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float2 dxz = ddx(i.wpos.xz), dyz = ddy(i.wpos.xz);
     float2 rip = 0.0;
     float laceA = 0.0, laceB = 0.0, laceC = 0.0;
-    float2 nA = 0.0, nB = 0.0, nC = 0.0;
+    float2 nA = 0.0, nB = 0.0, nC = 0.0, softA = 0.0, unusedSoft = 0.0;
     // each octave's drift: its waves' phase speed on the sea; on still water
     // (and under a river's flow) a slow creep, slower still in a light air
     float3 drift = sqrt(9.81 * tile * HD_OCT_SCALE * 0.2 / 6.2831853)
                  * lerp(HD_STILL_DRIFT * lerp(0.5, 1.0, saturate(wspd / HD_WIND_FULL)), 1.0, seaK);
-    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.x), tile * HD_OCT_SCALE.x, drift.x, flowMs, t, seaK, nA, laceA);
-    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.y), tile * HD_OCT_SCALE.y, drift.y, flowMs, t, seaK, nB, laceB);
+    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.x), tile * HD_OCT_SCALE.x, drift.x, flowMs, t, seaK, true, nA, laceA, softA);
+    HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.y), tile * HD_OCT_SCALE.y, drift.y, flowMs, t, seaK, false, nB, laceB, unusedSoft);
     rip = nA * HD_OCT_GAIN.x + nB * HD_OCT_GAIN.y;
     // TOKSVIG (item 6): what each octave's mips have averaged away at this
     // pixel's footprint is not gone - it is roughness. The share lost, from the
@@ -468,7 +479,7 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float lostVar = lost.x * g2.x + lost.y * g2.y + g2.z;
     [branch] if (_PSXWaterTier.z > 0.5)
     {
-        HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.z), tile * HD_OCT_SCALE.z, drift.z, flowMs, t, seaK, nC, laceC);
+        HDOctave(i.wpos.xz, dxz, dyz, Rot(wdir, HD_OCT_TURN.z), tile * HD_OCT_SCALE.z, drift.z, flowMs, t, seaK, false, nC, laceC, unusedSoft);
         // the finest octave is drawn only to 40 m and gone by 60 m (item 6):
         // beyond, its slopes are roughness
         float fC = saturate((60.0 - eyeDist) / 20.0);
@@ -510,8 +521,8 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float3 N = normalize(float3(tilt.x, 1.0, tilt.y));
     // the march reads less of the ripples as their mips average them away
     // (a steady far mirror, item 6)
-    float ssrShare = HD_SSR_SMOOTH * (1.0 - lost.x);
-    float3 Nm = normalize(float3(-slope.x + rip.x * ssrShare, 1.0, -slope.y + rip.y * ssrShare));
+    float2 ripSoft = softA * (HD_OCT_GAIN.x * sv);
+    float3 Nm = normalize(float3(-slope.x + ripSoft.x * HD_SSR_SMOOTH, 1.0, -slope.y + ripSoft.y * HD_SSR_SMOOTH));
     // how rough it looks: the ripples it draws; what the mips averaged away
     // (Toksvig); the normal's own spread across the pixel (screen-space
     // specular AA, capped); white water; and the rain, at every distance
@@ -607,8 +618,10 @@ fixed4 fragHD(v2f_hd i) : SV_Target
         float wA, wB;
         HDMarch(i.wpos, Rm, eyeDist, uvA, wA, uvB, wB);
         // the ripples wobble what it found - less as they average away
-        float2 dn = N.xz - Nm.xz;
-        float2 wob = float2(dot(dn, rgt), dot(dn, upH) * _ProjectionParams.x) * (HD_SSR_WOBBLE * (1.0 - lost.x) * (1.0 + HD_RAIN_WOBBLE * rainK));
+        // the soft ripples (and the rain's rings) wobble what it found: the
+        // shapes of the waves, never single-pixel detail (item 6)
+        float2 dn = ripSoft * (1.0 - HD_SSR_SMOOTH) - rings;
+        float2 wob = float2(dot(dn, rgt), dot(dn, upH) * _ProjectionParams.x) * (HD_SSR_WOBBLE * (1.0 + HD_RAIN_WOBBLE * rainK));
         float3 hit = reflToned;
         float he = 0.0;
         [branch] if (wB > 0.0)
