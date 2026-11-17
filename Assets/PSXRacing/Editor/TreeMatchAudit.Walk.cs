@@ -24,8 +24,21 @@ namespace PSXRacing.EditorTools
     {
         public static void RunStageWalk()
         {
+            // (PSX_TM_WALKS = "venue:m[,m];venue:m...": several stages in one process; else PSX_TM_VENUE + PSX_TM_M)
+            string walks = Env("PSX_TM_WALKS", Env("PSX_TM_VENUE", "SwissNC226A") + ":" + Env("PSX_TM_M", "7900"));
+            int code = 0;
+            foreach (var spec in walks.Split(';'))
+            {
+                var q = spec.Split(':');
+                if (q.Length != 2 || q[0].Trim().Length == 0) continue;
+                code |= StageWalkOne(q[0].Trim(), q[1].Trim());
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
+        static int StageWalkOne(string id, string mList)
+        {
             string tag = Env("PSX_TM_TAG", "walk");
-            string id = Env("PSX_TM_VENUE", "SwissNC226A");
             string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treeseason");
             Directory.CreateDirectory(Path.Combine(root, tag));
             var log = new StringBuilder($"TREE SEASON WALK {id} ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}; PSX_TREE_MATCH={Env("PSX_TREE_MATCH", "(default)")}\n");
@@ -77,7 +90,7 @@ namespace PSXRacing.EditorTools
                     if (!int.TryParse(ds.Trim(), out int dress) || dress < 0 || dress >= Seasons.DressCount) continue;
                     if (dressing != null) dressing.Apply(dress);
                     string dn = Seasons.DressNames[dress];
-                    foreach (var ms in Env("PSX_TM_M", "7900").Split(','))
+                    foreach (var ms in mList.Split(','))
                     {
                         if (!float.TryParse(ms.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float m)) continue;
                         Vector3 target = At(path, m, out _) + Vector3.up * 3f;
@@ -124,7 +137,7 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_{id}_log.txt"), log.ToString());
                 Debug.Log("[TreeSeasonWalk]\n" + log);
             }
-            if (Application.isBatchMode) EditorApplication.Exit(code);
+            return code;
         }
 
         /// <summary>THE FOLIAGE ALONE in the camera's view as it stands (everything else left out, a key
