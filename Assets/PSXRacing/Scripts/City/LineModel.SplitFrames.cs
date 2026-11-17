@@ -1083,13 +1083,13 @@ namespace PSXRacing.City
 
         public static int TwinPruned;
         const float TwinDs = 1f;
-        /// <summary>True when at every 20 m from 40 m to the chain's end along A the mapped lane bands (the export's offset in) stand
+        /// <summary>True when at every 20 m past the fan at either end (40 m) along A the mapped lane bands (the export's offset in) stand
         /// more than TwinPruneM apart.</summary>
         const float TwinPruneM = 4.5f;
         static bool TwinClear(CityMap map, List<int> chA, List<int> chB, int node, float len)
         {
             int checks = 0;
-            for (float d = TightPastFanM; d <= Mathf.Min(420f, len - 2f); d += 20f)
+            for (float d = TightPastFanM; d <= Mathf.Min(420f, len - TightPastFanM); d += 20f)
             {
                 if (!ChainPointBand(map, chA, node, d, out var pa, out float ha)) return false;
                 // B's nearest sample, coarse: walk B every 4 m
