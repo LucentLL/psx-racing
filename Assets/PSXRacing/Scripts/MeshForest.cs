@@ -215,6 +215,20 @@ namespace PSXRacing
         /// perf tour's ab=MeshForest.TreeMatch:0 before the stage loads): the
         /// pack's sheets as before.</summary>
         public static bool TreeMatch = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH") != "0";
+        /// <summary>THE STAGES' HAND-OVER BANDS as a share of each level's
+        /// distance (the city's pool has its own: CityMeshTrees.LodFadeShare).
+        /// The 11-11 lag-pair round found wider bands no help on a stage - with
+        /// far cards that did not match their meshes, a longer dissolve only
+        /// showed the mismatch for longer. With the tree-match cards both sides
+        /// of a hand-over are the same tree. PSX_FOREST_LODFADE=0.6 (a share
+        /// between 0 and 1) widens them; unset or 0: the fixed 12/16/20 m
+        /// (x FOREST DETAIL) as before, until the stage walks say otherwise.</summary>
+        public static float StageBandShare = StageShare();
+        static float StageShare()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_FOREST_LODFADE");
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f && f < 1f ? f : -1f;
+        }
         /// <summary>Per species: its far card stands on its mesh's origin (the
         /// card's matrix takes the mesh's translation bit for bit).</summary>
         bool[] sameOrigin;
@@ -258,7 +272,7 @@ namespace PSXRacing
             }
             // the pop measure's knobs (perf tour lodmul=a,b,c&bandshare=s): each level's distance x, bands as a share
             lod0To *= TourLodMul.x; lod1To *= TourLodMul.y; meshRange *= TourLodMul.z;
-            float share = TourBandShare > 0f ? TourBandShare : bandShare;
+            float share = TourBandShare > 0f ? TourBandShare : bandShare > 0f ? bandShare : !pooled ? StageBandShare : -1f;
             if (share > 0f)
             {
                 // a hand-over band as a share of its distance, not a fixed few metres
