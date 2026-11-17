@@ -71,7 +71,15 @@ namespace PSXRacing.EditorTools
         /// <summary>Rock cells (12 m keys, grown one cell): no tree or plant.</summary>
         static HashSet<long> farRockKeep;
         static bool FarRockKeepAt(float x, float z) =>
-            farRockKeep != null && farRockKeep.Contains(CliffKey(Mathf.FloorToInt(x / CliffCell), Mathf.FloorToInt(z / CliffCell)));
+            farRockKeep != null && farRockKeep.Contains(CliffKey(Mathf.FloorToInt(x / CliffCell), Mathf.FloorToInt(z / CliffCell)))
+            && RouteDistanceCoarse(x, z) >= ForestBand;   // never in the roadside band (see FarRockBandM)
+        /// <summary>THE ROADSIDE BAND IS LEFT AS IT IS: no rock cell nearer the
+        /// route than the roadside forest's band and two cells. A clearing in the
+        /// band moves its fill trees (and the title postcard's foreground at Linn
+        /// Cove with them - the first build showed it); near the road the rock is
+        /// the road builder's (the cuts, the boulders, Linn Cove's granite). The
+        /// band's forest, its trunks and every collider stay exactly the base's.</summary>
+        const float FarRockBandM = ForestBand + 2f * CliffCell;
 
         /// <summary>The stage's rock (linear tint on the photoscanned granite):
         /// Hickory Nut Gorge's pale granite gneiss (the Lake Lure granite's
@@ -236,7 +244,9 @@ namespace PSXRacing.EditorTools
                 int i = idx % M.cols, j = idx / M.cols;
                 float x = M.ox + i * c, z = M.oz + j * c;
                 if (lidar) continue;   // the lidar granite has its own skin and keep-out
-                if (RouteDistanceCoarse(x, z) > reach) continue;
+                float dRoute = RouteDistanceCoarse(x, z);
+                if (dRoute < FarRockBandM) { M.v[idx] = 0; continue; }
+                if (dRoute > reach) continue;
                 if (!Clear(x, z)) { M.v[idx] = 0; continue; }
                 var dd = dir.TryGetValue(idx, out var d0) ? d0 : Vector2.up;
                 cells.Add(new Vector4(x, z, dd.x, dd.y));
