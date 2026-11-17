@@ -171,6 +171,7 @@ namespace PSXRacing
             def = d; boxC = c; boxS = s; slide = sl; ls = lengthScale; lift = bodyLift; ws = widthScale; rhd = isRhd;
             panes = p;
             holed = true;
+            if (!enabled) enabled = true;
             seenVersion = -1;
             if (refit) { fitted = false; if (inst != null) Place(); }
             if (!all.Contains(this)) all.Add(this);
@@ -184,6 +185,7 @@ namespace PSXRacing
             holed = false;
             Release();
             all.Remove(this);
+            enabled = false;   // no per-frame work for a car with no hole
         }
 
         // Hidden with its frame (a hidden menu model): the cabin is its child and
