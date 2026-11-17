@@ -99,6 +99,7 @@ namespace PSXRacing
             public float towardAcc;
             public float missedRg;
             public float flipT;
+            public AIDriver ai;
             /// <summary>A two-way street where turning round is clearly the better way (WRONG WAY's two-way rule).</summary>
             public bool turnBack; public float turnBackT;
             /// <summary>The road the GPS route takes next, preferred by the locate where two overlap (a ramp's gore);
@@ -470,6 +471,14 @@ namespace PSXRacing
             c.remaining = rg + LegsAfter(c);
             p.progress = TotalM - c.remaining;
             if (c.remaining < 1e8f && rg < c.lastRemGateSample - 25f) { c.lastRemGateSample = rg; c.lastAdvanceTime = Time.time; }
+            // a rival GIVING WAY (held behind traffic, following, backing out of a jam) is not lost: its clock waits
+            // (the Tryon street race at MEDIUM: 18 re-routes and two cars put back on their road while queued)
+            if (!c.isPlayer)
+            {
+                if (c.ai == null) c.ai = car.GetComponent<AIDriver>();
+                var aiw = c.ai;
+                if (aiw != null && (aiw.DebugTrafficBrake > 0f || aiw.DebugLift > 0.05f || aiw.DebugBackingUp)) c.lastAdvanceTime = Time.time;
+            }
             // THE LOST-AI WATCHDOG (DESIGN_v2 2.6): a rival whose remaining distance has not fallen 50 m in 20 s
             // (its own stuck detection has not fired) goes back on its road
             if (!c.isPlayer && Time.time - c.lastAdvanceTime > 20f && CheckpointFile.On("PSX_CP_RESPAWN"))
@@ -501,6 +510,13 @@ namespace PSXRacing
         /// <summary>The edge the locate should favour: the route's next one from the last road the car was on the
         /// route, held 80 m past a node where the car was read on another road.</summary>
         int PreferEdge(CarCP c, CityRouter.Field F, Vector3 pos) => R.Prefer(ref c.prefer, F, c.next, c.loc, c.rDir, pos);
+
+        /// <summary>Which way along its located edge the car's nose points (+1 a->b).</summary>
+        int NoseDir(CarCP c)
+        {
+            var f = c.car.transform.forward;
+            return Vector2.Dot(new Vector2(f.x, f.z), map.edges[c.loc.edge].TangentAt(c.loc.s)) >= 0f ? 1 : -1;
+        }
 
         float LegsAfter(CarCP c)
         {
@@ -575,7 +591,9 @@ namespace PSXRacing
             if (c.loc.valid && !c.loc.offGraph)
             {
                 if (c.loc.edge != c.rEdge) { c.rEdge = c.loc.edge; c.rDir = c.loc.dir == -1 ? -1 : 1; c.flipT = 0f; }
-                else if (!map.edges[c.loc.edge].oneway && c.loc.dir != c.rDir && new Vector2(vel.x, vel.z).magnitude > 4f)
+                // ...driving FORWARDS the other way: a car backing out of a jam still faces its way (the Tryon street
+                // race of 02:45: the autopilot reversing in traffic flipped the ruler, +539 m)
+                else if (!map.edges[c.loc.edge].oneway && NoseDir(c) != c.rDir && car.forwardSpeed > 4f)
                 {
                     c.flipT += Time.deltaTime;
                     if (c.flipT >= 1f) { c.rDir = c.loc.dir; c.flipT = 0f; }
