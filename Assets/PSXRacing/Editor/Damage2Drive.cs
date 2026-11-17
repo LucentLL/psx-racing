@@ -124,7 +124,7 @@ namespace PSXRacing.EditorTools
         Camera cam;
         OwnedCar owned;
         CityWorld world;
-        bool hold;
+        bool hold, coast;
         float holdMps, steer;
         int groundMask = ~0;
 
@@ -137,7 +137,7 @@ namespace PSXRacing.EditorTools
             if (car == null || rb == null) return;
             float vf = Vector3.Dot(rb.linearVelocity, car.transform.forward);
             car.throttleInput = hold ? Mathf.Clamp01(0.35f + (holdMps - vf) * 0.6f) : 0f;
-            car.brakeInput = hold ? 0f : 1f;
+            car.brakeInput = hold || coast ? 0f : 1f;
             car.steerInput = steer;
             car.handbrakeInput = false;
             var tank = car.GetComponent<FuelTank>();
@@ -389,7 +389,8 @@ namespace PSXRacing.EditorTools
                 {
                     if (h.collider.attachedRigidbody != null || Mathf.Abs(h.normal.y) > 0.3f || h.distance < 12f) continue;
                     if (Vector3.Dot(h.normal, -d) < 0.92f) continue;                     // near square on
-                    if (Physics.Raycast(from + Vector3.up * 0.6f, d, h.distance - 0.5f, wallMask, QueryTriggerInteraction.Ignore)) continue;   // a clear run to it
+                    if (Physics.Raycast(from, d, h.distance - 0.5f, wallMask, QueryTriggerInteraction.Ignore)) continue;                       // a clear run to it
+                    if (Physics.Raycast(from + Vector3.up * 0.6f, d, h.distance - 0.5f, wallMask, QueryTriggerInteraction.Ignore)) continue;
                     if (!Physics.Raycast(h.point + h.normal * 0.2f + Vector3.up * 1.2f, -h.normal, 0.6f, wallMask, QueryTriggerInteraction.Ignore)) continue;   // it stands over the bonnet too
                     if (h.distance < wallD) { wallD = h.distance; wall = h; }
                 }
@@ -421,8 +422,14 @@ namespace PSXRacing.EditorTools
                 rb.linearVelocity = -car.transform.forward * (25f / 3.6f);
                 t = 0f;
                 hold = false;
-                car.brakeInput = 0f;
-                while (t < 4f && !L.incidents.Skip(before).Any(i => i.kind == DamageModel.KHit)) { t += Time.fixedDeltaTime; car.brakeInput = 0f; rb.linearVelocity = Vector3.Lerp(rb.linearVelocity, -car.transform.forward * (25f / 3.6f), 0.2f); yield return new WaitForFixedUpdate(); }
+                coast = true;
+                while (t < 4f && !L.incidents.Skip(before).Any(i => i.kind == DamageModel.KHit))
+                {
+                    t += Time.fixedDeltaTime;
+                    rb.linearVelocity = Vector3.Lerp(rb.linearVelocity, -car.transform.forward * (25f / 3.6f), 0.2f);
+                    yield return new WaitForFixedUpdate();
+                }
+                coast = false;
                 yield return Stop(1.5f);
                 Note("25 km/h back-in: " + Rows(L));
                 Check(look.Now.zones.y >= 0.66f, "25 km/h back-in: the tail dented or worse", look.Now.zones.y.ToString("0.00"));
