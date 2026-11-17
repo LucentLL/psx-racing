@@ -49,6 +49,12 @@ namespace PSXRacing
             l.root.SetParent(transform, false);
             l.beamMat = Mat(beamTex, Xenon, 1f);
             l.coreMat = Mat(beamTex, Xenon, 1f);
+            // NOT FADED BY THE FOG BAND: PSX/Glow fades a lamp out into the fog (its vertex distance against the
+            // global _PSXFogNear/_PSXFogFar), which hid the beam beyond 400-600 m in the watched night-rain race - a
+            // searchlight is what shows best in rain and haze. This material's own values win over the globals; the
+            // beam's own far fade (2.5-3 km) is applied in Animate.
+            foreach (var m in new[] { l.beamMat, l.coreMat })
+                if (m != null) { m.SetFloat("_PSXFogNear", 1e5f); m.SetFloat("_PSXFogFar", 2e5f); }
             l.bandMat = Mat(bandTex, Xenon, 1f);
             l.postMat = Mat(postTex, Xenon, 1f);
             l.beam = MeshObj(l.root, "Beam", beamMesh, l.beamMat);
