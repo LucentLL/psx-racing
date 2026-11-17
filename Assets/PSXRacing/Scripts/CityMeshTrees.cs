@@ -248,8 +248,16 @@ namespace PSXRacing.City
         // the colours the meshes are. Done here, not in Scripts/City (a change there is
         // a 40-minute tile re-bake): the kit's list entries are swapped for the copies
         // while this component lives, and put back when it goes.
-        /// <summary>A/B: PSX_TREE_MATCH_CARDS=0 keeps the retro atlas on the cards.</summary>
-        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        /// <summary>PSX_TREE_MATCH_CARDS=1: the tiles' cards wear the kit's own trees. DEFAULT OFF (the retro atlas):
+        /// MEASURED 2026-11-17 (CityRefSpots.RunTreeCards / TreeMatchAudit.RunStageCards, the trees alone, same eye,
+        /// before = PSX_TREE_MATCH=0): the kit's own trees on the cards match the meshes' colour and leaf state, but
+        /// the CARD MESHES are the old plantings' - 1/1.3 (Charlotte's tiles) and 1/1.6 (a stage's B cards) of their
+        /// mesh trees' height - and the kit's trees are narrower than the retro billboards' round crowns: the cards'
+        /// cover fell to 0.3-0.4 of the mesh trees' in winter and 0.4-0.7 in fall (the retro cards: 0.9-1.1). A
+        /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
+        /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
+        /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
+        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
         /// <summary>The cards' light normal (PSX/Lit _PSXCrownCard): a share of the direction to the eye, and up.</summary>
         public static Vector2 CardLight = new Vector2(ReadF("PSX_TM_CARDN", 0.32f), ReadF("PSX_TM_CARDUP", 0.4f));
         /// <summary>The tile cards' albedo gain over the kit atlas: MEASURED (cardsA, 2026-11-17: Charlotte arterial from

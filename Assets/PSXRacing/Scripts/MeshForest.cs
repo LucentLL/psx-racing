@@ -565,8 +565,17 @@ namespace PSXRacing
         // cards and crowns: the retro billboard pack's photographs in the dress (other trees, other
         // colours). Here they wear matchCardAtlas, the same cells cut from the kit's own trees in the
         // dress, through copies of whatever material SeasonDress gives them (it does not know the copies,
-        // so this re-dresses them when the dress changes). PSX_TREE_MATCH_CARDS=0: the billboards.
-        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        // so this re-dresses them when the dress changes).
+        /// <summary>PSX_TREE_MATCH_CARDS=1 puts them on. DEFAULT OFF (the billboards, as before):
+        /// MEASURED 2026-11-17 (CityRefSpots.RunTreeCards / TreeMatchAudit.RunStageCards, the trees alone, same eye,
+        /// before = PSX_TREE_MATCH=0): the kit's own trees on the cards match the meshes' colour and leaf state, but
+        /// the CARD MESHES are the old plantings' - 1/1.3 (Charlotte's tiles) and 1/1.6 (a stage's B cards) of their
+        /// mesh trees' height - and the kit's trees are narrower than the retro billboards' round crowns: the cards'
+        /// cover fell to 0.3-0.4 of the mesh trees' in winter and 0.4-0.7 in fall (the retro cards: 0.9-1.1). A
+        /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
+        /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
+        /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
+        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
         /// <summary>The B cards' light normal (PSX/Lit _PSXCrownCard), as Charlotte's tile cards take it.</summary>
         static readonly Vector2 BCardLight = new Vector2(0.32f, 0.4f);
         /// <summary>The B cards' albedo gain over the kit atlas: MEASURED (stcards226A / stcardsLSA, 2026-11-17: the
