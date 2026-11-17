@@ -72,7 +72,7 @@ namespace PSXRacing.EditorTools
             string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treematch", tag);
             Directory.CreateDirectory(root);
             var summary = new StringBuilder($"TREE MATCH AUDIT ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}; PSX_TREE_MATCH={Env("PSX_TREE_MATCH", "(default)")}\n" +
-                $"limits: LEAF area ratio >= {F(AreaRatioMin)}, SIZE within {F(SizeTol * 100f, "0")} %, HUE within {F(HueTolDeg, "0")} deg, SAT within {F(SatTol)}, VALUE (luma) within {F(LumaTol * 100f, "0")} %\n");
+                $"limits: LEAF area ratio >= {F(AreaRatioMin)}, SIZE (the span of 96 % of the drawn pixels each way) within {F(SizeTol * 100f, "0")} % and 3 px, HUE within {F(HueTolDeg, "0")} deg, SAT within {F(SatTol)}, VALUE (luma) within {F(LumaTol * 100f, "0")} %\n");
             int code = 0;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             int keepDay = RaceHandoff.CalendarDay, keepWeather = RaceHandoff.WeatherOverride, keepDetail = ForestDetailPrefs.Override;
@@ -204,6 +204,8 @@ namespace PSXRacing.EditorTools
             int dressNow = (int)Season.Summer;
             var forest = MeshForest.CreatePool(null, variants, 1, per, lod0, lod1, mesh, far, () => dressNow, cull, bandShare);
             if (forest == null) { log.Append($"{id}: no GPU forest on this machine\n"); return null; }
+            // (the levels as the forest draws them: with the tree match on, its far level is the match card)
+            variants = forest.variants;
             var rows = new List<PairRow>();
             float gameFov = cam.fieldOfView, keepFov = gameFov, keepAspect = cam.aspect, keepFar = cam.farClipPlane;
             var keepFlags = cam.clearFlags; var keepBg = cam.backgroundColor; int keepMask = cam.cullingMask;
@@ -252,8 +254,9 @@ namespace PSXRacing.EditorTools
                             bool leafy = m.GetVector("_LeafVivid").z > 0.5f;
                             float g = leafy ? PSXRacingBuilder.TMLeafGain : PSXRacingBuilder.TMBareGain;
                             m.color = new Color(g, g, g);
-                            m.SetVector("_PSXCrownCard", leafy ? new Vector4(PSXRacingBuilder.TMLeafN, PSXRacingBuilder.TMLeafUp, 0f, 0f)
-                                                               : new Vector4(PSXRacingBuilder.TMBareN, PSXRacingBuilder.TMBareUp, 0f, 0f));
+                            var cc = m.GetVector("_PSXCrownCard");
+                            m.SetVector("_PSXCrownCard", leafy ? new Vector4(PSXRacingBuilder.TMLeafN, PSXRacingBuilder.TMLeafUp, cc.z, 0f)
+                                                               : new Vector4(PSXRacingBuilder.TMBareN, PSXRacingBuilder.TMBareUp, cc.z, 0f));
                             tuned++;
                         }
                     }
@@ -358,25 +361,44 @@ namespace PSXRacing.EditorTools
             RenderTexture.ReleaseTemporary(rt);
             MeshForest.LodEyeOn = false;
             tile.mpp = 2f * D * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) / size;
-            tile.st = Measure(tile.px, size, tile.mpp);
+            // (the eye looks level at half the tree's height: its foot is that far under the picture's middle; 0.3 m of grace)
+            tile.st = Measure(tile.px, size, tile.mpp, Mathf.FloorToInt(size * 0.5f - (h * 0.5f + 0.3f) / tile.mpp));
             return tile;
         }
 
-        static Stat Measure(Color32[] px, int size, float mpp)
+        /// <summary>The plant off its picture. Rows under <paramref name="footRow"/> are left out (what a
+        /// model carries under its own foot - roots, a drooping limb - is in the ground in the game). The
+        /// outline is where 96 % of its drawn pixels lie each way (2nd to 98th percentile): one twig's
+        /// pixel out at the edge is not the tree's size.</summary>
+        static Stat Measure(Color32[] px, int size, float mpp, int footRow = 0)
         {
             var s = new Stat { x0 = size, y0 = size, x1 = -1, y1 = -1 };
             double r = 0, g = 0, b = 0;
-            for (int y = 0; y < size; y++)
+            var colN = new int[size]; var rowN = new int[size];
+            for (int y = Mathf.Max(0, footRow); y < size; y++)
                 for (int x = 0; x < size; x++)
                 {
                     var c = px[y * size + x];
                     if (Mathf.Abs(c.r - Bg.r) <= 10 && c.g <= 10 && Mathf.Abs(c.b - Bg.b) <= 10) continue;
                     s.n++;
                     r += c.r; g += c.g; b += c.b;
-                    if (x < s.x0) s.x0 = x; if (x > s.x1) s.x1 = x;
-                    if (y < s.y0) s.y0 = y; if (y > s.y1) s.y1 = y;
+                    colN[x]++; rowN[y]++;
                 }
             if (s.n == 0) return s;
+            int lo = Mathf.Max(1, Mathf.RoundToInt(s.n * 0.02f)), hi = s.n - lo + 1;
+            void Span(int[] hist, out int a0, out int a1)
+            {
+                a0 = 0; a1 = hist.Length - 1;
+                int acc = 0; bool got0 = false;
+                for (int i = 0; i < hist.Length; i++)
+                {
+                    acc += hist[i];
+                    if (!got0 && acc >= lo) { a0 = i; got0 = true; }
+                    if (acc >= hi) { a1 = i; break; }
+                }
+            }
+            Span(colN, out s.x0, out s.x1);
+            Span(rowN, out s.y0, out s.y1);
             s.r = (float)(r / s.n / 255.0); s.g = (float)(g / s.n / 255.0); s.b = (float)(b / s.n / 255.0);
             Color.RGBToHSV(new Color(s.r, s.g, s.b), out s.hue, out s.sat, out s.val);
             s.hue *= 360f;

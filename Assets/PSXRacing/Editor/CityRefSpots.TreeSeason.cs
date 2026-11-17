@@ -121,5 +121,91 @@ namespace PSXRacing.EditorTools
             }
             if (Application.isBatchMode) EditorApplication.Exit(code);
         }
+
+        /// <summary>
+        /// CHARLOTTE'S CARDS AGAINST ITS MESH TREES: from 60 m over a place of round 3's survey, the game's
+        /// ring of tiles stood up, each dress - the trees drawn as the game draws them in the view (meshes,
+        /// far cards) and as the tiles' own cards (what shows past the far range, outside the view's cone and
+        /// until a tile is fitted). The foliage alone is measured (TreeMatchAudit.FoliageStat).
+        ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunTreeCards   PSX_TM_TAG  PSX_TM_PLACES  PSX_TM_DRESSES
+        /// Output: Screenshots/treeseason/&lt;tag&gt;/cards_Charlotte_&lt;place&gt;_&lt;DRESS&gt;_mesh|cards.png, treeseason_&lt;tag&gt;_Charlotte_cards.txt
+        /// </summary>
+        public static void RunTreeCards()
+        {
+            string tag = TsEnv("PSX_TM_TAG", "cards");
+            string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treeseason");
+            Directory.CreateDirectory(Path.Combine(root, tag));
+            var log = new StringBuilder($"TREE CARDS v MESH TREES Charlotte ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}; PSX_TREE_MATCH={TsEnv("PSX_TREE_MATCH", "(default)")}, PSX_TREE_MATCH_CARDS={TsEnv("PSX_TREE_MATCH_CARDS", "(default)")}\n");
+            int code = 0;
+            try
+            {
+                System.Environment.SetEnvironmentVariable("PSX_PC_CONTENT", "1");
+                if (TsEnv("PSX_TM_KEEPKIT", "1") != "1" && PSXRacingBuilder.EnsureCityTreeKit(true) == null) throw new System.Exception("no city tree kit");
+                var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
+                if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
+                var output = Object.FindFirstObjectByType<PSXCameraOutput>();
+                if (output != null) output.height = TexShotHeight;
+                TexturePrefs.Enhanced = true;
+                var world = Object.FindAnyObjectByType<CityWorld>();
+                var map = CityMap.Get();
+                if (world == null || map == null) throw new System.Exception("no CityWorld / city data");
+                var sun = NightLookShots.FindSun();
+                var dressing = Object.FindAnyObjectByType<SeasonDress>();
+                CityMeshTrees.ResetCounts();
+                ForestDetailPrefs.Override = 1;
+                var mt = CityMeshTrees.EnsureFor(world);
+                if (mt == null) throw new System.Exception("CityMeshTrees did not start (kit / GPU)");
+                log.Append($"forest draws match cards for {mt.Forest.MatchCount} species; the tiles' cards wear the kit's own trees: {mt.CardsMatched}\n");
+                int ring = Mathf.Clamp(int.Parse(TsEnv("PSX_TM_RING", "4"), CultureInfo.InvariantCulture), 1, 5);
+                foreach (var pid in TsEnv("PSX_TM_PLACES", "arterial,woodland").Split(','))
+                {
+                    int pi = System.Array.FindIndex(T3Places, q => q.id == pid);
+                    if (pi < 0) { log.Append(pid + ": no such place\n"); continue; }
+                    var pl = T3Places[pi];
+                    CityMap.Edge e; float s; bool named = true;
+                    if (pl.onewayOnly) { if (!T3SnapOneway(map, LL(pl.lat, pl.lon), pl.roads[0], pl.hdg, out e, out s)) { log.Append(pid + ": no divided piece\n"); continue; } }
+                    else if (!CtSnap(map, LL(pl.lat, pl.lon), pl.roads, out e, out s, out named)) { log.Append(pid + ": no road near\n"); continue; }
+                    var p0 = e.PointAt(s);
+                    var anchor = new Vector3(p0.x, e.YAt(s), p0.y);
+                    world.DropAll(); mt.Flush();
+                    world.EnsureRing(anchor, 2); mt.Flush();
+                    var cp = new CtPlace { id = pl.id, lat = pl.lat, lon = pl.lon, roads = pl.roads, hdg = pl.hdg, kind = pl.kind, what = pl.what };
+                    if (!CtPose(cp, map, mt, e, s, out var eye, out var fwd, out _, out string how)) { log.Append($"{pid}: no pose ({how})\n"); continue; }
+                    var f = new Vector3(fwd.x, 0f, fwd.z).normalized;
+                    world.EnsureRing(eye, ring); mt.Flush();
+                    mt.Rebuild();
+                    var pos = eye + Vector3.up * 60f;
+                    var rot = Quaternion.LookRotation((f + Vector3.down * 0.16f).normalized);
+                    foreach (var ds in TsEnv("PSX_TM_DRESSES", "0,3").Split(','))
+                    {
+                        if (!int.TryParse(ds.Trim(), out int dress) || dress < 0 || dress >= Seasons.DressCount) continue;
+                        string dn = Seasons.DressNames[dress];
+                        FeetLight(sun, dressing, world);
+                        SetDress(dressing, world, dress);
+                        cam.transform.SetPositionAndRotation(pos, rot);
+                        SunShadows.RenderFor(cam);
+                        MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true; mt.Forest.DrawNow(cam);
+                        PSXScreenshotTool.ShotAs(cam, $"treeseason/{tag}/cards_Charlotte_{pid}_{dn}_mesh", pos, rot);
+                        mt.Forest.DrawNow(cam);
+                        string a = TreeMatchAudit.FoliageStat(cam, CityTrees.FoliageLayer, out float cA, out float hA, out float sA, out float lA);
+                        MeshForest.MeshTreesOn = false; mt.Forest.CardsNow();
+                        PSXScreenshotTool.ShotAs(cam, $"treeseason/{tag}/cards_Charlotte_{pid}_{dn}_cards", pos, rot);
+                        string b = TreeMatchAudit.FoliageStat(cam, CityTrees.FoliageLayer, out float cB, out float hB, out float sB, out float lB);
+                        MeshForest.MeshTreesOn = true;
+                        log.Append($"  Charlotte {pid} {dn}: mesh trees {a} | cards {b} -> {TreeMatchAudit.TwoWays(cA, hA, sA, lA, cB, hB, sB, lB)}\n");
+                    }
+                }
+                log.Append("TREE CARDS OK\n");
+            }
+            catch (System.Exception ex) { log.Append("TREE CARDS FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
+            finally
+            {
+                ForestDetailPrefs.Override = -1;
+                MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
+                File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_cards.txt"), log.ToString());
+                Debug.Log("[TreeCards]\n" + log);
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
     }
 }

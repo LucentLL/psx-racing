@@ -142,7 +142,8 @@ Shader "PSX/Lit"
         // mesh's origin, so both draw the same per-tree colour). 0 = the origin.
         [HideInInspector] _PSXGrowFoot ("Grow foot", Vector) = (0,0,0,0)
         // x > 0: a tree's far card, lit as its crown (the vertex light's normal is
-        // x times the direction to the eye from the tree, plus y straight up)
+        // x times the direction to the eye from the tree, plus y straight up);
+        // z = n > 0 (PSX_LODFADE): the card turns to the eye, its sheet n views in a row
         [HideInInspector] _PSXCrownCard ("Crown card", Vector) = (0,0,0,0)
         // The mountain forest's leaves (MeshForest): saturation and brightness
         // of the texel before the light - 1, 1 everywhere else.
@@ -1461,6 +1462,29 @@ Shader "PSX/Lit"
                     float3 p3 = frac(it * 0.1031);
                     p3 += dot(p3, p3.yzx + 33.33);
                     o.lodD = float2(length(it - (_PSXLodEye.w > 0.5 ? _PSXLodEye.xyz : _WorldSpaceCameraPos)), frac((p3.x + p3.y) * p3.z));
+                    // TREE MATCH: a tree's FAR CARD TURNS TO THE EYE about the tree's
+                    // own upright (_PSXCrownCard.z = n > 0), wearing the nearest of the
+                    // 2n pictures taken round its mesh (n over the half turn, in a row
+                    // on its sheet; the other half are those mirrored: a tree seen from
+                    // behind is its own outline flipped). A cross of two fixed cards
+                    // showed a crown 0.79 of its width from 30 degrees off a card and
+                    // 0.71 from 45 - the outline changed at the hand-over.
+                    if (_PSXCrownCard.z > 0.5)
+                    {
+                        float3 ccFoot = _PSXGrowFoot.xyz;
+                        float3 ccEye = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0)).xyz - ccFoot;
+                        float ccTh = atan2(-ccEye.x, -ccEye.z);
+                        float ccN = _PSXCrownCard.z;
+                        float ccK = floor(ccTh / (3.14159265 / ccN) + 0.5);
+                        ccK -= 2.0 * ccN * floor(ccK / (2.0 * ccN));
+                        bool ccMir = ccK > ccN - 0.5;
+                        if (ccMir) ccK -= ccN;
+                        float3 ccP = v.vertex.xyz - ccFoot;
+                        float ccS, ccC;
+                        sincos(ccTh, ccS, ccC);
+                        v.vertex.xyz = ccFoot + float3(ccC * ccP.x, ccP.y, -ccS * ccP.x);
+                        v.uv.x = (ccMir ? 1.0 / ccN - v.uv.x : v.uv.x) + ccK / ccN;
+                    }
                     // A THINNED plant at its draw limit SHRINKS to nothing about
                     // its own origin rather than dissolving in a screen-door
                     // dither (owner: "a speckled dotted effect" in game).

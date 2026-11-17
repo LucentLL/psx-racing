@@ -292,6 +292,8 @@ namespace PSXRacing.EditorTools
             kit.crown = crown;
             kit.crownBase = cbase;
             kit.group3 = groups3.ToArray();
+            // TREE MATCH: the cards' atlas (tile cards, CityFar's far trees) cut from the kit's own trees, per dress
+            kit.cardAtlas = TMCityCardAtlas();
             kit.lodTris = new int[list.Count * 3];
             for (int v = 0; v < list.Count; v++)
                 for (int l = 0; l < 3; l++) kit.lodTris[v * 3 + l] = list[v].lods[l] != null ? (int)Tris(list[v].lods[l]) : 0;

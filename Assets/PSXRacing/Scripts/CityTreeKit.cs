@@ -79,6 +79,12 @@ namespace PSXRacing
         public const byte G3Myrtle = 4;
         public int Group3(int v) => group3 != null && v < group3.Length ? group3[v] : 0;
         public ComputeShader cull;
+        /// <summary>TREE MATCH (2026-11-16): the city's CARD atlas per dress (5; the sixteen cells of
+        /// CityTrees.Cells), cut from this kit's own trees in that dress - worn by the tiles' card
+        /// meshes and CityFar's far trees in place of the retro billboard atlas while the mesh trees
+        /// draw (CityMeshTrees), so a tree's cards and its meshes are the same trees in the same
+        /// leaf. Null entries: the retro atlas as before.</summary>
+        public Texture2D[] cardAtlas;
         /// <summary>The MEDIUM level distances (ForestDetailPrefs and PopFix scale
         /// them as the stages').</summary>
         public float lod0To = 65f, lod1To = 140f, meshRange = 240f, farRange = 1200f;
