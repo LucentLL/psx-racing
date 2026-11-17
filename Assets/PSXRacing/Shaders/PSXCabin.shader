@@ -95,8 +95,8 @@ Shader "PSX/Cabin"
             // Seen from outside (_PSXCabOut): a room under its own roof, lit through its windows. The
             // sun reaches a patch of it, the sky a share; the car shadow map does this for the driven
             // car only (a parked or showroom car has none).
-            #define CABIN_OUT_SUN  0.30
-            #define CABIN_OUT_AMB  0.55
+            #define CABIN_OUT_SUN  0.40
+            #define CABIN_OUT_AMB  1.00
 
             struct appdata
             {

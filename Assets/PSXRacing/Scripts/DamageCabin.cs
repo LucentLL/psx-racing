@@ -230,7 +230,7 @@ namespace PSXRacing
                 int n = 0;
                 foreach (var d in all)
                 {
-                    bool want = d.holed && d.isActiveAndEnabled && (now || t - d.lastWanted < KeepSeconds) && !d.CockpitShown();
+                    bool want = d.holed && (now || (d.enabled && d.gameObject.activeInHierarchy && t - d.lastWanted < KeepSeconds)) && !d.CockpitShown();
                     if (want && n < MaxCabins) { n++; d.Acquire(); }
                     else d.Release();
                     d.nearest = float.MaxValue;

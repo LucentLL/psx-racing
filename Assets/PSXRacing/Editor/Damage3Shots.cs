@@ -41,7 +41,7 @@ namespace PSXRacing.EditorTools
         static StringBuilder log;
         static string outDir;
         static readonly (string name, int w, int h)[] Size = { ("landscape_16x9", 1280, 720) };
-        const string DefaultShells = "civic_eg,rx7_fd,pony_coupe_67,sedan_98,jdm_pickup";
+        const string DefaultShells = "civic_eg,rx7_fd_93,pony_coupe_67,sedan_98,jdm_pickup";
         const int S = DamageModel.ZSide, R = DamageModel.ZRear;
 
         static void L(string s) { log.AppendLine(s); }
@@ -90,7 +90,8 @@ namespace PSXRacing.EditorTools
 
                 if (parts.Contains("A")) foreach (var c in cars) Stage(c.key, c.car);
                 if (parts.Contains("B")) foreach (var c in cars) Rig(c.key, c.car, c.spec);
-                if (parts.Contains("C")) Venue(cars);
+                if (parts.Contains("W")) Severities(st, cars);
+                if (parts.Contains("C")) Venue(cars, parts.Contains("W") ? st : null);
                 if (parts.Contains("D")) Lot(st, cars);
             }
             catch (System.Exception e) { L("FAIL " + e); Debug.LogError("[Damage3] " + e); }
@@ -110,9 +111,16 @@ namespace PSXRacing.EditorTools
         static CarSpec SpecFor(string key)
         {
             if (key == "civic_eg") { var eg = CarCatalog.Get("honda_civic_sir_ii__eg___91"); if (eg != null) return eg; }
+            // the shell's own car first (rx7_fd is also the fallback shell of many rows)
+            string hint = key.StartsWith("rx7_fd") ? "RX-7" : key == "pony_coupe_67" ? "Camaro" : null;
+            CarSpec any = null;
             foreach (var s in CarCatalog.All)
-                if (CarModelLibrary.KeyFor(s) == key) return s;
-            return null;
+            {
+                if (CarModelLibrary.KeyFor(s) != key) continue;
+                if (hint == null || (s.name != null && s.name.Contains(hint))) return s;
+                if (any == null) any = s;
+            }
+            return any;
         }
 
         /// <summary>The left door crumpled (left glass shattered) and the tail
@@ -138,9 +146,49 @@ namespace PSXRacing.EditorTools
         }
 
         // ------------------------------------------------------------------
+        //  W: the body at every glass severity (owner 11-17: "The wavy lines
+        //  when glass breaks also appear on the car body")
+        // ------------------------------------------------------------------
+        const int F = DamageModel.ZFront, T = DamageModel.ZRoof;
+
+        /// <summary>Round 2's glass cases, each through the game's bank.</summary>
+        static readonly (string name, System.Action<LifeState, OwnedCar> wreck)[] Sev =
+        {
+            ("g1_chip", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88101, T, 0, 3.5f, (DamageModel.GlassId, 1, T, 0))),
+            ("g2_crack", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88102, T, 0, 6f, (DamageModel.GlassId, 1, T, 0))),
+            ("g3_web", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88103, T, 0, 7f, (DamageModel.GlassId, 2, T, 0))),
+            ("g4_crushed", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88104, T, 0, 12f, (DamageModel.GlassId, 3, T, 0))),
+            ("f_web", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88105, F, -1, 9f, (DamageModel.PanelId, 3, F, -1), (DamageModel.BarId, 2, F, 0),
+                                                         (DamageModel.LampId, 1, F, -1))),
+            ("s2_crazed", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88106, S, -1, 4.4f, (DamageModel.PanelId, 2, S, -1))),
+            ("s3_shattered", (s, c) => LifeSimSelfTest.DvCrash(s, c, 88107, S, -1, 7f, (DamageModel.PanelId, 3, S, -1))),
+        };
+
+        static void Severities(LifeState st, List<(string key, OwnedCar car, CarSpec spec)> cars)
+        {
+            foreach (var (key, car, spec) in cars)
+            {
+                bool eg = key == "civic_eg";
+                foreach (var c in Sev)
+                {
+                    // the EG at every severity; the other shells at the crumpled door and the crushed roof
+                    if (!eg && c.name != "s3_shattered" && c.name != "g4_crushed") continue;
+                    car.faults.Clear();
+                    if (car.history != null) car.history.Clear();
+                    c.wreck(st, car);
+                    Rig(key + "_" + c.name, car, spec, "door,nose,chase");
+                }
+                int hit = 93300;
+                Wreck(st, car, ref hit);   // back to the standard holes for the parts after
+            }
+        }
+
+        // ------------------------------------------------------------------
         //  B: the turntable rig, close
         // ------------------------------------------------------------------
-        static void Rig(string key, OwnedCar car, CarSpec spec)
+        static void Rig(string key, OwnedCar car, CarSpec spec) => Rig(key, car, spec, "side,close,rearq");
+
+        static void Rig(string key, OwnedCar car, CarSpec spec, string frames)
         {
             try
             {
@@ -170,9 +218,17 @@ namespace PSXRacing.EditorTools
                     viewer.RenderNow();
                     SaveRT(viewer.Picture, Path.Combine(outDir, key + "_rig_" + f + ".png"));
                 }
-                Frame("side", new Vector3(-2.7f, belt + 0.35f, cowl - 0.6f), new Vector3(-0.6f, belt + 0.14f, cowl - 0.95f), 32f);
-                Frame("close", new Vector3(-1.45f, belt + 0.22f, cowl - 0.85f), new Vector3(-0.5f, belt + 0.12f, cowl - 0.9f), 38f);
-                Frame("rearq", new Vector3(-2.2f, belt + 0.9f, cz - half - 2.6f), new Vector3(0f, belt + 0.15f, cz - half * 0.45f), 34f);
+                foreach (var f in frames.Split(','))
+                    switch (f)
+                    {
+                        case "side": Frame(f, new Vector3(-2.7f, belt + 0.35f, cowl - 0.6f), new Vector3(-0.6f, belt + 0.14f, cowl - 0.95f), 32f); break;
+                        case "close": Frame(f, new Vector3(-1.45f, belt + 0.22f, cowl - 0.85f), new Vector3(-0.5f, belt + 0.12f, cowl - 0.9f), 38f); break;
+                        case "rearq": Frame(f, new Vector3(-2.2f, belt + 0.9f, cz - half - 2.6f), new Vector3(0f, belt + 0.15f, cz - half * 0.45f), 34f); break;
+                        // the body: the left door and wing square on, the nose's left quarter, the chase camera's distance
+                        case "door": Frame(f, new Vector3(-3.2f, belt - 0.05f, cowl - 0.7f), new Vector3(-0.7f, belt - 0.25f, cowl - 0.55f), 40f); break;
+                        case "nose": Frame(f, new Vector3(-2.3f, belt + 0.45f, cz + half + 2.0f), new Vector3(-0.3f, belt - 0.2f, cz + half * 0.45f), 36f); break;
+                        case "chase": Frame(f, new Vector3(-2.6f, 2.0f, cz - half - 5.6f), new Vector3(0f, 0.75f, cz), 34f); break;
+                    }
                 Object.DestroyImmediate(host);
             }
             catch (System.Exception e) { L("FAIL rig " + key + ": " + e); }
@@ -193,7 +249,7 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         //  C: a venue - chase, trackside, beside, the seat; day, night, rain
         // ------------------------------------------------------------------
-        static void Venue(List<(string key, OwnedCar car, CarSpec spec)> cars)
+        static void Venue(List<(string key, OwnedCar car, CarSpec spec)> cars, LifeState sevSt)
         {
             var vdef = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
@@ -229,7 +285,7 @@ namespace PSXRacing.EditorTools
                     for (int i = 0; i < 4; i++) radii[i] = car.WheelRadiusOf(i);
                     DamageView.Dress(t, body.bodyRenderer, box.center, box.size, owned, shell, body.LengthScale, wheels, radii);
                     var look = DamageView.LookOf(owned);
-                    bool full = key == "civic_eg" || key == "rx7_fd";
+                    bool full = key == "civic_eg" || key.StartsWith("rx7_fd");
                     var hours = full ? new[] { "day", "night", "rain" } : new[] { "day" };
                     foreach (var h in hours)
                     {
@@ -283,6 +339,40 @@ namespace PSXRacing.EditorTools
                         L($"  C {key} {h}: cabin {(dc != null && dc.HasCabin ? "built" : "none")}, cockpit panes L {ci.PaneBreak(ci.RHD ? "door_r" : "door_l")} rear {ci.PaneBreak("rear")}");
                         ci.Show(false, false);
                         if (cv != null) cv.PreviewShow(false);
+                    }
+                    // W: the EG's body at the glass severities, day and night, on the road
+                    if (sevSt != null && key == "civic_eg")
+                    {
+                        ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+                        CabinClip.Close();
+                        foreach (var c in Sev)
+                        {
+                            if (c.name == "g1_chip" || c.name == "g2_crack") continue;
+                            owned.faults.Clear();
+                            if (owned.history != null) owned.history.Clear();
+                            c.wreck(sevSt, owned);
+                            DamageView.Dress(t, body.bodyRenderer, box.center, box.size, owned, shell, body.LengthScale, wheels, radii);
+                            foreach (var h in new[] { "day", "night" })
+                            {
+                                SetHour(h, sun, globals, cam);
+                                DamageCabin.Step(true);
+                                var frame = ChaseCamera.FrameOf(player);
+                                ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, 40f, t, frame, ChaseCamera.LiveDials(), out var eye, out var rot, out var fov, out _);
+                                cam.fieldOfView = fov;
+                                PSXScreenshotTool.ShotAs(cam, sub + key + "_" + c.name + "_chase_" + h, eye, rot);
+                                Vector3 se = t.TransformPoint(new Vector3(-3.4f, 1.1f, 0.4f));
+                                cam.fieldOfView = 40f;
+                                PSXScreenshotTool.ShotAs(cam, sub + key + "_" + c.name + "_beside_" + h, se,
+                                                         Quaternion.LookRotation(t.TransformPoint(new Vector3(-0.6f, 0.75f, 0.4f)) - se, t.up));
+                                Vector3 ne = t.TransformPoint(new Vector3(-2.4f, 1.3f, 4.2f));
+                                cam.fieldOfView = 38f;
+                                PSXScreenshotTool.ShotAs(cam, sub + key + "_" + c.name + "_nose_" + h, ne,
+                                                         Quaternion.LookRotation(t.TransformPoint(new Vector3(-0.3f, 0.7f, 1.2f)) - ne, t.up));
+                            }
+                            L($"  W {key} {c.name}: venue day + night");
+                        }
+                        int hh = 93400;
+                        Wreck(sevSt, owned, ref hh);
                     }
                 }
             }

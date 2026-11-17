@@ -136,7 +136,19 @@ namespace PSXRacing
             return new Vector4(belt, cowl - 1.10f, roof, 0f);
         }
 
-        static readonly int MId = Shader.PropertyToID("_PSXGlsM"), DarkId = Shader.PropertyToID("_PSXGlsDark");
+        static readonly int MId = Shader.PropertyToID("_PSXGlsM"), DarkId = Shader.PropertyToID("_PSXGlsDark"),
+            LinesId = Shader.PropertyToID("_PSXDmgLines");
+
+        /// <summary>
+        /// Damage round 3 (owner, 11-17: "The wavy lines when glass breaks also
+        /// appear on the car body. I don't like them, but otherwise the
+        /// deformation and cracked glass looks decent"): the body's two dark
+        /// noise contours - the "cracked cover" lines on every face the hit met
+        /// and the creases' dark line - are no longer drawn; the folds stay in
+        /// the reflections and the light, the dents in the skin, the scrapes.
+        /// PSX_DMG_NOWAVY=0: round 2's lines.
+        /// </summary>
+        public static bool NoWavyOn = System.Environment.GetEnvironmentVariable("PSX_DMG_NOWAVY") != "0";
 
         /// <summary>
         /// Damage round 3 ("dark trim above the belt line is read as glass and
@@ -194,6 +206,8 @@ namespace PSXRacing
             b.SetFloat(OnId, glass ? 1f : 0f);
             // round 3: a hole shows the dark cabin, the cockpit model drawn into it (DamageCabin)
             Shader.SetGlobalFloat(DarkId, DamageCabin.On ? 1f : 0f);
+            // round 3: no wavy contour lines on the body (PSXCarDamage.cginc _PSXDmgLines)
+            Shader.SetGlobalFloat(LinesId, NoWavyOn ? 0f : 1f);
             if (!glass) return;
             b.SetVector(MId, mirrors);
             float belt = cabin.x, seatZ = cabin.y, roof = cabin.z, gh = Mathf.Max(0.2f, roof - belt - 0.05f);
