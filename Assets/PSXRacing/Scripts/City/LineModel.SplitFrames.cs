@@ -970,6 +970,45 @@ namespace PSXRacing.City
 
         /// <summary>The nearest point of a twin line to p: its distance, the lane band's half width there,
         /// and whether the foot is past the line's end (no twin beside p any more).</summary>
+        /// <summary>(11-17, the cost) TwinNearest searched near the last answer: both lines run the same way, so the
+        /// foot moves a few samples a query; a foot at the window's edge falls back to the whole line. The full scan
+        /// on every sample of every split's pair was O(n^2) at all ~1,000 split nodes, every load.</summary>
+        static float TwinNearest(List<TwinSample> L, Vector2 p, ref int hint, out float half, out Vector2 at, out bool pastEnd)
+        {
+            const int Win = 24;
+            int lo = Mathf.Max(1, hint - Win), hi = Mathf.Min(L.Count - 1, hint + Win);
+            if (hint <= 0 || L.Count < 2 * Win + 4) return TwinNearestAll(L, p, ref hint, out half, out at, out pastEnd);
+            float best = float.MaxValue; int bi = -1; float bt = 0f;
+            for (int i = lo; i <= hi; i++)
+            {
+                Vector2 a = L[i - 1].p, ab = L[i].p - a;
+                float l2 = ab.sqrMagnitude;
+                float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                float d = (p - (a + ab * t)).sqrMagnitude;
+                if (d < best) { best = d; bi = i; bt = t; }
+            }
+            if (bi < 0 || (bi == lo && lo > 1) || (bi == hi && hi < L.Count - 1)) return TwinNearestAll(L, p, ref hint, out half, out at, out pastEnd);
+            hint = bi;
+            Vector2 a0 = L[bi - 1].p, ab0 = L[bi].p - a0;
+            at = a0 + ab0 * bt; half = Mathf.Lerp(L[bi - 1].half, L[bi].half, bt); pastEnd = bi == L.Count - 1 && bt >= 0.999f;
+            return Mathf.Sqrt(best);
+        }
+        static float TwinNearestAll(List<TwinSample> L, Vector2 p, ref int hint, out float half, out Vector2 at, out bool pastEnd)
+        {
+            float best = float.MaxValue; half = 0f; at = L[0].p; pastEnd = false; int bi = 1;
+            for (int i = 1; i < L.Count; i++)
+            {
+                Vector2 a = L[i - 1].p, ab = L[i].p - a;
+                float l2 = ab.sqrMagnitude;
+                float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                var q = a + ab * t;
+                float d = (p - q).sqrMagnitude;
+                if (d < best) { best = d; at = q; half = Mathf.Lerp(L[i - 1].half, L[i].half, t); pastEnd = i == L.Count - 1 && t >= 0.999f; bi = i; }
+            }
+            hint = bi;
+            return Mathf.Sqrt(best);
+        }
+
         static float TwinNearest(List<TwinSample> L, Vector2 p, out float half, out Vector2 at, out bool pastEnd)
         {
             float best = float.MaxValue; half = 0f; at = L[0].p; pastEnd = false;
@@ -1052,9 +1091,10 @@ namespace PSXRacing.City
                 var LA = TwinLine(map, add, chA, sp.node, 1f); var LB = TwinLine(map, add, chB, sp.node, 1f);
                 // tight past the mapped fan: the shortfall's run from TightPastFanM on (half the pair on a short one)
                 float past = Mathf.Min(TightPastFanM, 0.5f * Mathf.Min(lenA, lenB)), run = 0f, worst = 0f, runAll = 0f;
+                int hintD = 0;
                 for (int i = 1; i < LA.Count; i++)
                 {
-                    float d = TwinNearest(LB, LA[i].p, out float hb, out _, out bool end);
+                    float d = TwinNearest(LB, LA[i].p, ref hintD, out float hb, out _, out bool end);
                     if (end) break;
                     float gap = d - LA[i].half - hb;
                     if (gap < TightGapM - 0.05f) { runAll += LA[i].d - LA[i - 1].d; if (LA[i].d >= past) { run += LA[i].d - LA[i - 1].d; worst = Mathf.Min(worst, gap); } }
@@ -1076,7 +1116,7 @@ namespace PSXRacing.City
                     // pass 1: what each sample needs (m, unsigned) and which way (the edge's left = +1)
                     var needs = new List<float[]>(chain.Count); var sides = new List<float[]>(chain.Count);
                     var dsOf = new List<float>(chain.Count); var fwdOf = new List<bool>(chain.Count);
-                    int from = sp.node; float mph = 0f;
+                    int from = sp.node; float mph = 0f; int hintN = 0;
                     foreach (int ei in chain)
                     {
                         var e = map.edges[ei];
@@ -1092,7 +1132,7 @@ namespace PSXRacing.City
                             var t = e.TangentAt(s); var el = new Vector2(-t.y, t.x);
                             float cc = LanesPre(e, s, out float hh);
                             var p = e.PointAt(s) + el * cc;
-                            float d = TwinNearest(other, p, out float ho, out var at, out bool end);
+                            float d = TwinNearest(other, p, ref hintN, out float ho, out var at, out bool end);
                             if (end) continue;
                             // away from the other carriageway (at the fan, where the two lines cross: its side further on)
                             Vector2 nrm;
