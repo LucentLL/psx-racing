@@ -19,14 +19,24 @@ MODELS = os.path.join(repo, 'Assets', 'PSXRacing', 'Art', 'Car', 'Models')
 LAMPS = os.path.join(repo, 'Assets', 'PSXRacing', 'Resources', 'CarLights')
 
 # 2026-11-11 afternoon: FD Textured_18, Viper v14, CTR blue v06, Yellowbird v02.
-FD = 'FD_Shared_Independent_v01/Textured_18/'
+# 2026-11-16 (cars-1116): FD Textured_27, NSX v31, Type X v13 and the five new
+# shells (S13 Silvia v03, FC v03, Soarer v03, MA70 v03, Camaro v02).
+FD = 'FD_Shared_Independent_v01/Textured_27/'
 VIP = 'Viper_GTS_HoodSightline_v14/'
 CTRB = 'CTR_Blue_HD_Spoilerless_v06/Maps/'
 CTRY = 'CTR_Yellowbird_HD_v02/Maps/'
 EVO = 'EvoVI_HD_Textured_v17/'
 EG = 'EG_Independent_Textured_v21/'
 S2K = 'S2000_Independent_Textured_v12/'
-# body, game sheet, delivery stem, surface kind ('orm' RGB AO/rough/metal, 'surface' RGBA coat/rough/metal/AO, 'ctr' RGB AO/rough/metal)
+NSX = 'NSX_Yellow_HD_v31/'
+TYPEX = 'TypeX_White_HD_v13/'
+S13 = 'Silvia_S13_HD_v03/'
+FC = 'FC_1987_Bronze_HD_v03/'
+SC = 'Soarer_1998_HD_v03/'
+MA70 = 'MA70_TurboA_HD_v03/'
+CAM = 'Camaro67_SS350_HD_v02/'
+# body, game sheet, delivery stem, surface kind ('orm' RGB AO/rough/metal, 'ormA' RGBA AO/rough/metal/coat,
+# 'surface' RGBA coat/rough/metal/AO, 'ctr' RGB AO/rough/metal)
 SETS = [
     ('rx7_fd_93', 'fd_shared_512x256', FD + 'fd_1993_down', 'orm'),
     ('rx7_fd_99', 'fd_shared_512x256', FD + 'fd_1999_down', 'orm'),
@@ -38,6 +48,13 @@ SETS = [
     ('rally_sedan_99', 'rally_sedan_99_blue_512x256', EVO + 'evo_vi', 'surface'),
     ('civic_eg', 'hatch_93_red_512x256', EG + 'eg_red', 'surface'),
     ('roadster_99', 'roadster_99_red_512x256', S2K + 's2000_red', 'surface'),
+    ('midship_coupe', 'midship_coupe_yellow_512x256', NSX + 'nsx_yellow', 'orm'),
+    ('fastback_96', 'fastback_96_white_512x256', TYPEX + 'TypeX_White', 'orm'),
+    ('coupe_88', 'coupe_88_green_512x256', S13 + 'Silvia_S13', 'ormA'),
+    ('rotary_coupe_87', 'rotary_coupe_87_bronze_512x256', FC + 'FC_1987_Bronze', 'ormA'),
+    ('lux_coupe_97', 'lux_coupe_97_garnet_512x256', SC + 'Soarer_Garnet', 'ormA'),
+    ('gt_liftback_88', 'gt_liftback_88_black_512x256', MA70 + 'MA70_Black', 'ormA'),
+    ('pony_coupe_67', 'pony_coupe_67_blue_512x256', CAM + 'Camaro67_Blue', 'orm'),
 ]
 LAMPMAPS = {
     'rx7_fd_93': FD + 'FD_LightMask_RGB.png', 'rx7_fd_99': FD + 'FD_LightMask_RGB.png', 'rx7_fd_nowing': FD + 'FD_LightMask_RGB.png',
@@ -47,6 +64,13 @@ LAMPMAPS = {
     'rally_sedan_99': EVO + 'Lighting/EvoVI_LightMask_RGB.png',
     'civic_eg': EG + 'Civic_LightMask_RGB.png',
     'roadster_99': S2K + 'Lighting/S2000_LightMask_RGB.png',
+    'midship_coupe': NSX + 'NSX_LightMask_RGB.png',
+    'fastback_96': TYPEX + 'Lighting/TypeX_LightMask_RGBA.png',
+    'coupe_88': S13 + 'Lighting/Silvia_S13_LightMask_RGBA.png',
+    'rotary_coupe_87': FC + 'Lighting/FC_LightMask_RGB.png',
+    'lux_coupe_97': SC + 'Lighting/Soarer_LightMask_RGB.png',
+    'gt_liftback_88': MA70 + 'Lighting/MA70_LightMask_RGB.png',
+    'pony_coupe_67': CAM + 'Lighting/Camaro67_LightMask_RGBA.png',
 }
 
 def load(p, mode=None):
@@ -74,6 +98,8 @@ for body, sheet, stem, kind in SETS:
     if kind == 'surface':
         s = load(src + '_overhaul1_hd_surface.png', 'RGBA')
         orm = np.stack([s[..., 3], s[..., 1], s[..., 2], s[..., 0]], -1)
+    elif kind == 'ormA':
+        orm = load(src + '_overhaul1_hd_orm.png', 'RGBA')
     else:
         s = load(src + ('_overhaul1_hd_orm.png' if kind == 'orm' else '_overhaul1_hd_surface.png'), 'RGB')
         orm = np.concatenate([s, np.full((H, W, 1), 255, np.uint8)], -1)
