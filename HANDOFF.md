@@ -80,7 +80,9 @@ PSX_RACEFRACTION_FIX default OFF (=1: fixed-line loops' fraction without the ext
   Wilkinson apex arc without a crossing (MISSED at 82 s, routed back, home 247 s), behind it 1 progress fall + 2
   flickers. Cause found after: across a join a routed waypoint read the next edge at its first vertex (40 m on);
   fixed (a59725b2: the join segment lies on the next edge from its node end; the arc pass also counts a car that
-  came onto the gate state over a node). Those two fixes are checked by the batch self-test only, not a watched race.
+  came onto the gate state over a node). Those two fixes are checked by the batch self-test only (01:05, ALL PASS,
+  with a new check that the routed roads' (edge, s) back-map is continuous across every join on all 15 legs; routed
+  build worst 5.3 ms), not by a watched race.
 - UptownLoop fixed-line regression (no checkpoint file, PSX_CP_RACES on): NOT RUN TO THE END - started 00:32, then
   a PSXRacing.exe window took the focus (00:43, the owner's or the coordinator's game) and the watched editor sat
   at frame 289; I did not launch more watched editors over a running game.
