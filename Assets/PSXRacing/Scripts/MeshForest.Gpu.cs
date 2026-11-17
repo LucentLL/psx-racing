@@ -591,8 +591,19 @@ namespace PSXRacing
             return true;
         }
 
+        /// <summary>The forest whose buffers the cull shader holds now. The cull is ONE
+        /// ComputeShader asset shared by every MeshForest: its buffer bindings and counts
+        /// are the shader's, not a forest's, so a second forest's InitGpu took them over
+        /// and the first one's cull then filled the second one's lists while its own
+        /// draws kept the lists of its last cull (tree-cost round, 2026-11-17: the round's
+        /// stage cost A/B - two forests in one editor - drew its "A" from a list frozen at
+        /// the scene's opening eye, the "+20 % plants" was that). Re-bound by whichever
+        /// forest culls next (GpuFrame).</summary>
+        static MeshForest cullBoundTo;
+
         void BindCull()
         {
+            cullBoundTo = this;
             cullShader.SetBuffer(kClear, IdCount, countBuf);
             cullShader.SetBuffer(kCull, IdMat, matBuf);
             cullShader.SetBuffer(kCull, IdMeta, metaBuf);
@@ -650,6 +661,7 @@ namespace PSXRacing
         void ReleaseGpu()
         {
             gpuReady = false;
+            if (ReferenceEquals(cullBoundTo, this)) cullBoundTo = null;
             matBuf?.Release(); metaBuf?.Release(); varBuf?.Release(); chunkBuf?.Release(); bucketBuf?.Release();
             cmdBucketBuf?.Release(); countBuf?.Release(); visBuf?.Release(); argsBuf?.Release();
             matBuf = metaBuf = varBuf = chunkBuf = bucketBuf = cmdBucketBuf = countBuf = visBuf = argsBuf = null;
@@ -761,6 +773,7 @@ namespace PSXRacing
                 planeVec[k] = new Vector4(pn.x, pn.y, pn.z, instPlanes[k].distance);
             }
             cullPos = camPos; cullFwd = cam.transform.forward; cullLens = cam.projectionMatrix.m11;
+            if (cullBoundTo != this) BindCull();   // (another forest's InitGpu or cull had the shader: its buffers back to this one's)
             cullShader.SetVector(IdCam, new Vector4(camPos.x, camPos.y, camPos.z, DebugExact ? 1f : 0f));
             cullShader.SetVector(IdLod, new Vector4(lod0To * lod0To, lod1To * lod1To, meshRange * meshRange, DebugExact ? Margin : GpuMargin));
             cullShader.SetVectorArray(IdPlanes, planeVec);
