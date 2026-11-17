@@ -382,8 +382,15 @@ namespace PSXRacing
             return r.GetComponentInParent<Rigidbody>() != null || r.bounds.extents.magnitude * 2f >= MinCasterM;
         }
 
+        /// <summary>Measuring only (the perf tour's probe): no map drawn and
+        /// none sampled while set - what the sun's and the sky's maps cost.</summary>
+        public static bool ForceOff;
+        static bool forcedOff;
+
         static void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
+            if (ForceOff) { if (!forcedOff) { forcedOff = true; PushOff(); } return; }
+            forcedOff = false;
             if (cam == null || Off) return;
             // The HUD overlay and the output blit draw only the UI layer.
             if ((cam.cullingMask & ~(1 << 5)) == 0) return;
@@ -397,7 +404,9 @@ namespace PSXRacing
                 if (Time.frameCount == renderedFrame || !StreetLights.IsDriver(cam)) return;
                 renderedFrame = Time.frameCount;
             }
+            long pc = PerfClock.On ? PerfClock.Now() : 0;
             RenderFor(cam);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.SunShadowMaps, pc);
         }
 
         // ------------------------------------------------------------------

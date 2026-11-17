@@ -121,6 +121,10 @@ namespace PSXRacing
             t.dayArg = ShotLink.Query(url, "day") ?? "";
             t.capArg = ShotLink.Query(url, "cap") ?? "";
             t.offscreenArg = ShotLink.Query(url, "offscreen") ?? "";
+            // &probe=park|drive: each feature's cost by switching it inside the run (PerfTour.Probe.cs)
+            t.probeArg = ShotLink.Query(url, "probe") ?? "";
+            t.pvArg = ShotLink.Query(url, "pv") ?? "";
+            t.probeCfg = ShotLink.Query(url, "pcfg") ?? "";
             // &forest=0|1|2: FOREST DETAIL for this run only; &popwalk=STEP[&popm=M]: the pop measure (PerfTour.Stage.cs)
             string fo = ShotLink.Query(url, "forest");
             if (!string.IsNullOrEmpty(fo) && int.TryParse(fo, out int foi)) ForestDetailPrefs.Override = foi;
@@ -379,6 +383,22 @@ namespace PSXRacing
         {
             var r = map.RouteById(id);
             if (r != null) return r;
+            // at~name~lat~lon~towardLat~towardLon~RoadNameHas[~metres]: any road, from any place (the perf round's spots)
+            if (id.StartsWith("at~"))
+            {
+                var f = id.Split('~');
+                var ci = CultureInfo.InvariantCulture;
+                if (f.Length >= 7 && double.TryParse(f[2], NumberStyles.Float, ci, out double la) && double.TryParse(f[3], NumberStyles.Float, ci, out double lo) &&
+                    double.TryParse(f[4], NumberStyles.Float, ci, out double la2) && double.TryParse(f[5], NumberStyles.Float, ci, out double lo2))
+                {
+                    float maxM = 4000f;
+                    if (f.Length > 7) float.TryParse(f[7], NumberStyles.Float, ci, out maxM);
+                    var at = FollowRoad(map, f[1], LL(la, lo), LL(la2, lo2), f[6], maxM);
+                    if (at != null) { at.id = f[1]; at.name = f[1]; }
+                    return at;
+                }
+                return null;
+            }
             switch (id)
             {
                 // West Trade from I-77 through the Square, then East Trade to the 277
@@ -431,6 +451,7 @@ namespace PSXRacing
             cSteps = new byte[Cap]; cGc = new byte[Cap]; cTiles = new byte[Cap]; cCars = new byte[Cap]; cEv = new string[Cap];
             cSlot = new float[(int)PerfClock.Slot.COUNT][];
             for (int s = 0; s < cSlot.Length; s++) cSlot[s] = new float[Cap];
+            TimingAlloc();
             var names = PerfClock.SystemNames;
             for (int i = 0; i < names.Length; i++)
             {
@@ -455,6 +476,7 @@ namespace PSXRacing
             int i = n++;
             cT[i] = Time.realtimeSinceStartup - recT0;
             cMs[i] = (float)frameMs; cOut[i] = (float)outsideMs;
+            TimingFrame(i);
             float fix = 0f; foreach (int k in iFix) fix += Sys(k);
             float ui = 0f; foreach (int k in iUi) ui += Sys(k);
             cFix[i] = fix; cPhys[i] = Sys(iPhys); cFixS[i] = Sys(iFixS); cUpd[i] = Sys(iUpd); cLate[i] = Sys(iLate); cRend[i] = Sys(iRend); cUi[i] = ui;
@@ -520,6 +542,7 @@ namespace PSXRacing
             var map = world.Map;
             car = mode.player;
             var route = RouteFor(map, id);
+            if (id.StartsWith("at~")) id = route != null ? route.id : "at";
             if (route == null || route.edges == null || route.edges.Length == 0) { Say("SKIP " + id + ": no such route"); Post(id + "_summary.txt", "SKIP no such route"); yield break; }
             var pgo = new GameObject("PerfTourPath_" + id);
             var path = pgo.AddComponent<TrackPath>();
@@ -529,6 +552,9 @@ namespace PSXRacing
 
             // to the start, the ground under it first, then the ring streamed in
             int i0 = route.loop ? 0 : 2;
+            // &from=M: the start that far down the route (the perf round's spots)
+            if (float.TryParse(fromArg, NumberStyles.Float, CultureInfo.InvariantCulture, out float cityFrom) && cityFrom > 1f)
+                i0 = Mathf.Clamp(Mathf.RoundToInt(cityFrom / Mathf.Max(0.5f, path.spacing)), 2, Mathf.Max(2, path.Count - 40));
             var pos = path.GetPoint(i0) + Vector3.up * 0.45f;
             var rot = Quaternion.LookRotation(Flat(path.GetTangent(i0)), Vector3.up);
             var input = car.GetComponent<PlayerCarInput>();
@@ -554,6 +580,14 @@ namespace PSXRacing
             }
             float settleS = Time.realtimeSinceStartup - settle0;
             yield return new WaitForSecondsRealtime(1.5f);
+            if (probeArg == "park")
+            {
+                // (the probe, standing here: PerfTour.Probe.cs)
+                for (float w0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - w0 < 6f;) { car.brakeInput = 1f; car.throttleInput = 0f; yield return null; }
+                yield return Probe(id);
+                Destroy(pgo);
+                yield break;
+            }
 
             // the race AI at the wheel, through the traffic
             foreach (var col in car.GetComponentsInChildren<Collider>(true))
@@ -583,6 +617,14 @@ namespace PSXRacing
             // rolling: the clock starts when the car is moving
             float wait0 = Time.realtimeSinceStartup;
             while (Mathf.Abs(car.forwardSpeed) < 3f && Time.realtimeSinceStartup - wait0 < 15f) yield return null;
+            if (probeArg == "drive")
+            {
+                yield return Probe(id);
+                Destroy(ai);
+                Destroy(pgo);
+                yield break;
+            }
+            PerfClock.CamReset();
             recT0 = Time.realtimeSinceStartup;
             trafWas = CityTraffic.Instance != null ? CityTraffic.Instance.StepMsSum : -1.0;
             PerfClock.FrameDone = OnFrame;
@@ -669,6 +711,7 @@ namespace PSXRacing
             sum1.AppendLine($"frames {n}  avg fps {(sum > 0 ? n * 1000.0 / sum : 0):0.0}  p50 {P(0.5f):0.0}  p95 {P(0.95f):0.0}  p99 {P(0.99f):0.0}  worst {P(1f):0.0} ms");
             sum1.AppendLine($"over 33 ms {over33}  over 50 ms {over50}  over 100 ms {over100}");
             sum1.AppendLine($"gc collections {gcN}  heap used MB {heap0 / 1048576.0:0} -> {heap1 / 1048576.0:0}  reserved MB {res0 / 1048576.0:0} -> {res1 / 1048576.0:0}");
+            sum1.Append(ExtraSummary(n));
             sum1.AppendLine($"settle {settleS:0.0} s; tiles abandoned so far {CityWorld.JobsAbandoned}");
             sum1.AppendLine($"traffic cars live avg {(n > 0 ? carsSum / n : 0):0.0} max {carsMax} (cap {(CityTraffic.Instance != null ? CityTraffic.Instance.Cap : 0)})");
             // the baked city since load (city-tree-bake): tiles and tree frames off the bake, the verify's verdicts
