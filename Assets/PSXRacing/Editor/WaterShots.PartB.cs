@@ -204,6 +204,99 @@ namespace PSXRacing.EditorTools
         //  Lake Lure / Chimney Rock / Bat Cave
         // ------------------------------------------------------------------
 
+        // ---- choosing poses by the water the camera SEES (part B) ----
+        static RenderTexture probeRT;
+
+        /// <summary>The share of a small view that is water: rendered with
+        /// the water shown and hidden (tier 0: cheap), pixels that change.</summary>
+        static float WaterShare(Camera cam, Vector3 eye, Quaternion rot, float fov, float shift, Renderer[] water)
+        {
+            if (probeRT == null) { probeRT = new RenderTexture(192, 108, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point }; probeRT.Create(); }
+            cam.transform.SetPositionAndRotation(eye, rot);
+            cam.fieldOfView = fov; cam.aspect = 16f / 9f;
+            if (Mathf.Abs(shift) > 1e-5f) cam.projectionMatrix = ChaseCamera.ShiftedProjection(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane, shift);
+            else cam.ResetProjectionMatrix();
+            int keep = shotTier; shotTier = 0;
+            WaterLook.ForceCamera = cam; WaterLook.ForceTier = 0;
+            var a = ReadBack(cam, probeRT);
+            Show(water, false);
+            var b = ReadBack(cam, probeRT);
+            Show(water, true);
+            shotTier = keep;
+            cam.ResetProjectionMatrix(); cam.ResetAspect();
+            int n = 0;
+            for (int k = 0; k < a.Length; k++) if (Mathf.Abs(a[k].r - b[k].r) + Mathf.Abs(a[k].g - b[k].g) + Mathf.Abs(a[k].b - b[k].b) > 6) n++;
+            return n / (float)a.Length;
+        }
+
+        static Quaternion DriverRot(Drive d) => Quaternion.LookRotation(Quaternion.Euler(0f, d.yawToWater, 0f) * d.fwd) * Quaternion.Euler(-d.pitch, 0f, 0f);
+        static Vector3 DriverEye(Drive d) => d.road + Vector3.up * DriverEyeM - Vector3.Cross(Vector3.up, d.fwd).normalized * 0.35f;
+
+        /// <summary>The chase view's and the driver's (best glance) water share
+        /// at a pose; the glance is set on the pose.</summary>
+        static float ScorePose(Camera cam, GameObject car, ref Drive d, Renderer[] water, out float chaseShare)
+        {
+            PlaceCar(car, d.road, d.fwd);
+            chaseShare = 0f;
+            if (car != null)
+            {
+                ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, car.transform,
+                                       ChaseCamera.FrameOf(car), default, out Vector3 eye, out Quaternion look, out float fov, out float shift);
+                chaseShare = WaterShare(cam, eye, look, fov, shift, water);
+            }
+            var rs = car != null ? car.GetComponentsInChildren<Renderer>(true) : new Renderer[0];
+            foreach (var r in rs) r.forceRenderingOff = true;
+            float best = -1f, bestYaw = 0f;
+            foreach (float yaw in new[] { 0f, -30f, 30f, -55f, 55f })
+            {
+                var q = d; q.yawToWater = yaw;
+                float sh = WaterShare(cam, DriverEye(q), DriverRot(q), 60f, 0f, water);
+                if (sh > best + 0.01f) { best = sh; bestYaw = yaw; }
+            }
+            foreach (var r in rs) r.forceRenderingOff = false;
+            d.yawToWater = bestYaw;
+            return best;
+        }
+
+        // the poses one run found, for the next runs (the same frames in each)
+        static string PoseFile(string set) => Path.Combine(dir, "poses_" + set + ".txt");
+        static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        static List<Drive> LoadPoses(string set)
+        {
+            string src = System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_POSEDIR");
+            string f = string.IsNullOrEmpty(src) ? null : Path.Combine(src, "poses_" + set + ".txt");
+            if (f == null || !File.Exists(f)) return null;
+            var list = new List<Drive>();
+            foreach (var line in File.ReadAllLines(f))
+            {
+                var c = line.Split('|');
+                if (c.Length < 10) continue;
+                list.Add(new Drive
+                {
+                    name = c[0], road = new Vector3(float.Parse(c[1], Inv), float.Parse(c[2], Inv), float.Parse(c[3], Inv)),
+                    fwd = new Vector3(float.Parse(c[4], Inv), 0f, float.Parse(c[5], Inv)), yawToWater = float.Parse(c[6], Inv),
+                    pitch = float.Parse(c[7], Inv), staged = c[8] == "1", waterY = float.Parse(c[9], Inv), what = c.Length > 10 ? c[10] : "",
+                });
+            }
+            Debug.Log($"[WaterShot] {set}: {list.Count} poses read from {f} (the same frames as the run that chose them)");
+            return list;
+        }
+
+        static void SavePoses(string set, List<Drive> poses)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var d in poses)
+                sb.AppendLine(string.Join("|", d.name, d.road.x.ToString("R", Inv), d.road.y.ToString("R", Inv), d.road.z.ToString("R", Inv),
+                                          d.fwd.x.ToString("R", Inv), d.fwd.z.ToString("R", Inv), d.yawToWater.ToString("R", Inv), d.pitch.ToString("R", Inv),
+                                          d.staged ? "1" : "0", d.waterY.ToString("R", Inv), (d.what ?? "").Replace("|", "/")));
+            File.WriteAllText(PoseFile(set), sb.ToString());
+        }
+
+        // ------------------------------------------------------------------
+        //  Lake Lure / Chimney Rock / Bat Cave
+        // ------------------------------------------------------------------
+
         static void Lure()
         {
             TrackCatalog.TrackDef def = null;
@@ -215,81 +308,100 @@ namespace PSXRacing.EditorTools
             if (path == null || path.Count < 10) { Debug.LogError("[WaterShot] LakeLure: no path"); return; }
             QuietKeepCar();
             var waters = WaterRenderers();
-            var lakePts = new List<Vector3>(); var riverPts = new List<Vector3>();
+            var water = waters.ToArray();
+            var lakeR = waters.FindAll(r => r.sharedMaterial != null && !r.sharedMaterial.name.Contains("River")).ToArray();
+            var riverR = waters.FindAll(r => r.sharedMaterial != null && r.sharedMaterial.name.Contains("River")).ToArray();
+            // where each body of water is, on a 25 m grid (only stations near it are scored)
+            var lakeCells = new HashSet<long>(); var riverCells = new HashSet<long>();
             foreach (var r in waters)
             {
                 LogMesh(r);
                 var mf = r.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
-                bool river = r.sharedMaterial != null && r.sharedMaterial.name.Contains("River");
-                var vs = mf.sharedMesh.vertices;
-                int step = Mathf.Max(1, vs.Length / 1500);
-                for (int k = 0; k < vs.Length; k += step) (river ? riverPts : lakePts).Add(r.transform.TransformPoint(vs[k]));
-            }
-            Debug.Log($"[WaterShot] LakeLure: {waters.Count} water renderers, {lakePts.Count} lake + {riverPts.Count} river sample points, {path.Count} stations");
-
-            // how much of a body of water lies ahead of station i, in a cone
-            int Ahead(List<Vector3> pts, int i, float near, float far, float coneDeg, out float yAvg)
-            {
-                Vector3 at = path.GetPoint(i);
-                Vector3 f = path.GetPoint(Mathf.Min(path.Count - 1, i + 2)) - path.GetPoint(Mathf.Max(0, i - 2)); f.y = 0f; f.Normalize();
-                float c = Mathf.Cos(coneDeg * Mathf.Deg2Rad);
-                int n = 0; double ys = 0;
-                foreach (var p in pts)
+                bool river = System.Array.IndexOf(riverR, r) >= 0;
+                foreach (var v in mf.sharedMesh.vertices)
                 {
-                    Vector3 v = p - at; v.y = 0f;
-                    float dd = v.magnitude;
-                    if (dd < near || dd > far) continue;
-                    if (Vector3.Dot(v / dd, f) < c) continue;
-                    n++; ys += p.y;
+                    var w = r.transform.TransformPoint(v);
+                    (river ? riverCells : lakeCells).Add(((long)Mathf.FloorToInt(w.x / 25f) << 32) ^ (uint)Mathf.FloorToInt(w.z / 25f));
                 }
-                yAvg = n > 0 ? (float)(ys / n) : float.NaN;
-                return n;
             }
-            int Best(List<Vector3> pts, int from, int to, float near, float far, float cone)
+            bool Near(HashSet<long> cells, Vector3 p, int rCells)
             {
-                int best = -1, bestN = 0;
-                for (int i = Mathf.Max(2, from); i < Mathf.Min(path.Count - 3, to); i += 3)
-                {
-                    int n = Ahead(pts, i, near, far, cone, out _);
-                    if (n > bestN) { bestN = n; best = i; }
-                }
-                return best;
+                int cx = Mathf.FloorToInt(p.x / 25f), cz = Mathf.FloorToInt(p.z / 25f);
+                for (int dx = -rCells; dx <= rCells; dx++)
+                    for (int dz = -rCells; dz <= rCells; dz++)
+                        if (cells.Contains(((long)(cx + dx) << 32) ^ (uint)(cz + dz))) return true;
+                return false;
             }
-            Drive Make(string name, int i, List<Vector3> pts, string what, float yawCone)
+            float metresPer = path.TotalLength / Mathf.Max(1, path.Count - 1);
+            Drive At(int i, string name, string what)
             {
                 Vector3 at = path.GetPoint(i);
                 Vector3 f = path.GetPoint(Mathf.Min(path.Count - 1, i + 2)) - path.GetPoint(Mathf.Max(0, i - 2)); f.y = 0f; f.Normalize();
                 Vector3 right = Vector3.Cross(Vector3.up, f).normalized;
-                // which side the water lies on, for the driver's glance
-                float side = 0f; int n = 0; float wy = float.NaN; double ys = 0;
-                foreach (var p in pts)
+                return new Drive { name = name, road = at + right * (path.roadWidth * 0.25f), fwd = f, pitch = -2f, waterY = float.NaN,
+                                   what = $"wp {i} ({i * metresPer:0} m along the stage), {what}" };
+            }
+            // the station in [from, to) whose CHASE view (the owner's camera)
+            // shows the most of this water; the driver's glance chosen there
+            Drive Search(string name, string what, HashSet<long> cells, Renderer[] body, int from, int to)
+            {
+                int best = -1; float bestSh = 0f; int tried = 0;
+                for (int i = Mathf.Max(2, from); i < Mathf.Min(path.Count - 3, to); i += 6)
                 {
-                    Vector3 v = p - at; v.y = 0f;
-                    float dd = v.magnitude;
-                    if (dd < 8f || dd > 160f || Vector3.Dot(v / dd, f) < 0.2f) continue;
-                    side += Mathf.Sign(Vector3.Dot(v, right)); n++; ys += p.y;
+                    if (!Near(cells, path.GetPoint(i), 4)) continue;
+                    var d = At(i, name, what);
+                    PlaceCar(car, d.road, d.fwd);
+                    ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, ChaseCamera.DefaultSpeedFullMps, car.transform,
+                                           ChaseCamera.FrameOf(car), default, out Vector3 eye, out Quaternion look, out float fov, out float shift);
+                    float sh = WaterShare(cam, eye, look, fov, shift, body);
+                    tried++;
+                    if (sh > bestSh) { bestSh = sh; best = i; }
                 }
-                if (n > 0) wy = (float)(ys / n);
-                return new Drive
-                {
-                    name = name, road = at + right * (path.roadWidth * 0.25f), fwd = f,
-                    yawToWater = n == 0 ? 0f : Mathf.Sign(side) * yawCone, pitch = -2f, waterY = wy,
-                    what = $"wp {i} ({i * (path.TotalLength / Mathf.Max(1, path.Count - 1)):0} m), {what}",
-                };
+                if (best < 0) { Debug.LogWarning($"[WaterShot] {name}: no station shows that water ({tried} tried)"); return default; }
+                var p = At(best, name, what);
+                float dsh = ScorePose(cam, car, ref p, body, out float csh);
+                p.what += $"; water in view: chase {csh * 100f:0}%, driver {dsh * 100f:0}% (best of {tried} stations, glance {p.yawToWater:0} deg)";
+                return p;
             }
 
-            var poses = new List<Drive>();
-            int lakeI = Best(lakePts, 0, path.Count, 15f, 400f, 35f);
-            if (lakeI >= 0) poses.Add(Make("lure_lake_lane", lakeI, lakePts, "Lake Lure ahead and beside US 64/74A", 25f));
-            if (1439 < path.Count) poses.Add(Make("lure_marina", 1439, lakePts, "above the marina (the owner's video at 8:45, v0525)", 20f));
-            int riverI = Best(riverPts, (int)(path.Count * 0.55f), (int)(path.Count * 0.85f), 8f, 150f, 40f);
-            if (riverI >= 0) poses.Add(Make("lure_river_lane", riverI, riverPts, "the Rocky Broad beside US 64/74A in the gorge", 30f));
-            int batI = Best(riverPts, (int)(path.Count * 0.85f), path.Count, 8f, 150f, 40f);
-            if (batI >= 0) poses.Add(Make("lure_batcave", batI, riverPts, "the Bat Cave end: the Rocky Broad beside the road (the owner's PC49 screenshot: chase, heavy rain)", 30f));
-            foreach (var p in poses) Debug.Log($"[WaterShot] LakeLure pose {p.name}: {p.what}, road {p.road}, water y {p.waterY:0.0}");
+            SetHour("NOON", false, sun, globals);
+            var poses = LoadPoses("lure");
+            if (poses == null)
+            {
+                poses = new List<Drive>();
+                int n = path.Count;
+                var lake = Search("lure_lake_lane", "Lake Lure from US 64/74A", lakeCells, lakeR, 0, (int)(n * 0.62f));
+                if (lake.name != null) poses.Add(lake);
+                var marina = At(Mathf.Min(1439, n - 4), "lure_marina", "above the marina (the owner's video at 8:45, v0525)");
+                float msh = ScorePose(cam, car, ref marina, lakeR, out float mcs);
+                marina.what += $"; water in view: chase {mcs * 100f:0}%, driver {msh * 100f:0}%";
+                poses.Add(marina);
+                var gorge = Search("lure_river_lane", "the Rocky Broad beside US 64/74A (Chimney Rock to the gorge)", riverCells, riverR, (int)(n * 0.58f), (int)(n * 0.84f));
+                if (gorge.name != null) poses.Add(gorge);
+                var bat = Search("lure_batcave", "the Bat Cave end: the Rocky Broad beside the road (the owner's PC49 screenshot's place)", riverCells, riverR, (int)(n * 0.84f), n);
+                if (bat.name != null) poses.Add(bat);
+                // the steep look into the lake (item 11): STAGED, 7 m above the
+                // road where the lake shows most below it, 35 deg down
+                int steepI = -1; float steepSh = 0f; Vector3 steepTo = Vector3.zero;
+                for (int i = 2; i < (int)(n * 0.62f); i += 12)
+                {
+                    Vector3 at = path.GetPoint(i);
+                    if (!Near(lakeCells, at, 1)) continue;
+                    foreach (var dirn in new[] { Vector3.forward, Vector3.right, Vector3.back, Vector3.left })
+                    {
+                        float sh = WaterShare(cam, at + Vector3.up * 7f, Quaternion.LookRotation(dirn) * Quaternion.Euler(35f, 0f, 0f), 55f, 0f, lakeR);
+                        if (sh > steepSh) { steepSh = sh; steepI = i; steepTo = dirn; }
+                    }
+                }
+                if (steepI >= 0)
+                    poses.Add(new Drive { name = "lure_lake_steep", road = path.GetPoint(steepI) + Vector3.up * 7f, fwd = steepTo, pitch = -35f, staged = true, waterY = float.NaN,
+                                          what = $"wp {steepI}: 7 m above the road, 35 deg down into the lake ({steepSh * 100f:0}% water)" });
+                SavePoses("lure", poses);
+            }
+            foreach (var p in poses) Debug.Log($"[WaterShot] LakeLure pose {p.name}: {p.what}, road {p.road}");
 
-            // the owner's screenshot first: Bat Cave, chase, heavy rain (the game's own rain, then a downpour)
+            // the owner's screenshot first: Bat Cave, chase, the game's rain, then a downpour
             foreach (var p in poses)
             {
                 if (p.name != "lure_batcave") continue;
@@ -301,44 +413,23 @@ namespace PSXRacing.EditorTools
             }
             foreach (var p in poses)
             {
+                if (p.staged) { ShootDrive(cam, p, "NOON", false, true, false, car, globals, sun, path, def); continue; }
                 ShootDrive(cam, p, "NOON", false, true, true, car, globals, sun, path, def);
+                ShootDrive(cam, p, "SUNSET", false, true, false, car, globals, sun, path, def);
                 ShootDrive(cam, p, "NIGHT", false, true, true, car, globals, sun, path, def);
                 ShootDrive(cam, p, "AFTERNOON", true, true, p.name != "lure_batcave", car, globals, sun, path, def);
                 ShootDrive(cam, p, "NIGHT", true, true, true, car, globals, sun, path, def);
-            }
-            // the steep look into the lake (item 11: the lidar's drawdown floor
-            // must not show): STAGED, 7 m above the road where the lake is
-            // nearest, pitched down 35 degrees
-            int steepI = -1; float steepD = 1e9f; Vector3 steepTo = Vector3.zero;
-            for (int i = 2; i < path.Count - 3; i += 4)
-            {
-                Vector3 at = path.GetPoint(i);
-                foreach (var lp in lakePts)
-                {
-                    float dd = Vector2.Distance(new Vector2(at.x, at.z), new Vector2(lp.x, lp.z));
-                    if (dd > 12f && dd < steepD) { steepD = dd; steepI = i; steepTo = lp; }
-                }
-            }
-            if (steepI >= 0)
-            {
-                Vector3 at = path.GetPoint(steepI);
-                Vector3 to = steepTo - at; to.y = 0f; to.Normalize();
-                var st = new Drive { name = "lure_lake_steep", road = at + Vector3.up * 7f, fwd = to, yawToWater = 0f, pitch = -35f,
-                                     waterY = steepTo.y, staged = true, what = $"wp {steepI}: 7 m above the road, looking down 35 deg into the lake {steepD:0} m off" };
-                ShootDrive(cam, st, "NOON", false, true, false, car, globals, sun, path, def);
             }
             // MOTION (the owner: "moving very fast for a lake"): strips of the
             // lake and the river from the driver's eye at noon
             foreach (var p in poses)
             {
-                if (p.name != "lure_lake_lane" && p.name != "lure_river_lane" && p.name != "lure_batcave") continue;
+                if (p.staged || p.name == "lure_marina") continue;
                 SetHour("NOON", false, sun, globals);
                 PlaceCar(car, p.road, p.fwd);
-                Vector3 right = Vector3.Cross(Vector3.up, p.fwd).normalized;
                 var rs = car.GetComponentsInChildren<Renderer>(true);
                 foreach (var r in rs) r.forceRenderingOff = true;
-                Vector3 look = Quaternion.Euler(0f, p.yawToWater, 0f) * p.fwd;
-                Strip(cam, p.name + "_motion", p.road + Vector3.up * DriverEyeM - right * 0.35f, Quaternion.LookRotation(look) * Quaternion.Euler(4f, 0f, 0f), 60f, waters.ToArray());
+                Strip(cam, p.name + "_motion", DriverEye(p), DriverRot(p), 60f, water);
                 foreach (var r in rs) r.forceRenderingOff = false;
             }
             // tiers 0 and 1 at the lake (a PC with REFLECTIONS off; a phone / a mirror)
@@ -352,12 +443,6 @@ namespace PSXRacing.EditorTools
                     ShootDrive(cam, q, "NOON", false, true, false, car, globals, sun, path, def);
                 }
                 shotTier = 2;
-            }
-            if (WaterLook.On && System.Environment.GetEnvironmentVariable("PSX_WATERSHOT_STAGETIME") == "1" && lakeI >= 0)
-            {
-                var p = poses[0];
-                Vector3 right = Vector3.Cross(Vector3.up, p.fwd).normalized;
-                TimeTiers(cam, "lure_lake_lane", p.road + Vector3.up * DriverEyeM - right * 0.35f, Quaternion.Euler(0f, p.yawToWater, 0f) * p.fwd, -2f, waters.ToArray());
             }
         }
 
@@ -383,10 +468,31 @@ namespace PSXRacing.EditorTools
             foreach (var w in map.waters)
                 if (w.lake && (w.name ?? "").Contains("Wylie") && (wylie == null || Area(w) > Area(wylie))) wylie = w;
             if (wylie == null) { Debug.LogError("[WaterShot] no Lake Wylie"); return; }
-            var poses = new List<Drive>();
-            // in lane beside it (a road on the ground 12-60 m off the water) and on a bridge over it
-            if (LaneBy(map, wylie, false, out var beside)) { beside.name = "wylie_lane"; poses.Add(beside); }
-            if (LaneBy(map, wylie, true, out var bridge)) { bridge.name = "wylie_bridge_seat"; poses.Add(bridge); }
+            SetHour("NOON", false, sun, globals);
+            var poses = LoadPoses("drive");
+            if (poses == null)
+            {
+                poses = new List<Drive>();
+                foreach (bool onBridge in new[] { false, true })
+                {
+                    var cands = LanesBy(map, wylie, onBridge, 10);
+                    Drive best = default; float bestSc = -1f;
+                    foreach (var c0 in cands)
+                    {
+                        var c = c0;
+                        world.DropAll();
+                        world.EnsureRing(c.road + c.fwd * 60f, 1);
+                        var water = WaterRenderers().ToArray();
+                        float sh = ScorePose(cam, car, ref c, water, out float csh);
+                        float score = sh + 0.5f * csh;
+                        if (score > bestSc) { bestSc = score; best = c; best.what += $"; water in view: driver {sh * 100f:0}%, chase {csh * 100f:0}% (best of {cands.Count})"; }
+                    }
+                    if (bestSc < 0f) continue;
+                    best.name = onBridge ? "wylie_bridge_seat" : "wylie_lane";
+                    poses.Add(best);
+                }
+                SavePoses("drive", poses);
+            }
             foreach (var p in poses) Debug.Log($"[WaterShot] Charlotte pose {p.name}: {p.what}, road {p.road}");
             foreach (var p in poses)
             {
@@ -405,18 +511,16 @@ namespace PSXRacing.EditorTools
                         var q = p; q.name = "wylie_lane_tier" + tier;
                         ShootDrive(cam, q, "NOON", false, true, false, car, globals, sun, path, def);
                     }
-                    shotTier = 0;
                     // the rear-view mirror's view (tier 0: mirrors never get the copies)
+                    shotTier = 0;
                     var m = p; m.name = "wylie_mirror"; m.yawToWater = 180f - p.yawToWater * 0.5f;
                     ShootDrive(cam, m, "NOON", false, true, false, car, globals, sun, path, def);
                     shotTier = 2;
                     SetHour("NOON", false, sun, globals);
                     PlaceCar(car, p.road, p.fwd);
-                    Vector3 right = Vector3.Cross(Vector3.up, p.fwd).normalized;
                     var rs = car.GetComponentsInChildren<Renderer>(true);
                     foreach (var r in rs) r.forceRenderingOff = true;
-                    Strip(cam, "wylie_lane_motion", p.road + Vector3.up * DriverEyeM - right * 0.35f,
-                          Quaternion.LookRotation(Quaternion.Euler(0f, p.yawToWater, 0f) * p.fwd) * Quaternion.Euler(4f, 0f, 0f), 60f, waters);
+                    Strip(cam, "wylie_lane_motion", DriverEye(p), DriverRot(p), 60f, waters);
                     foreach (var r in rs) r.forceRenderingOff = false;
                     // the gusts from 30 m up in a 6 m/s wind (item 17's long repeat): STAGED
                     WaterLook.ForceWind = new Vector2(6f, 0f);
@@ -428,15 +532,11 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static float Area(CityMap.Water w) => (w.bbMax - w.bbMin).x * (w.bbMax - w.bbMin).y;
-
-        /// <summary>The right-hand lane of the nearest road beside (or on a
-        /// bridge over) the water, facing along the road, the driver's look
-        /// turned toward the water.</summary>
-        static bool LaneBy(CityMap map, CityMap.Water w, bool onBridge, out Drive d)
+        /// <summary>Up to <paramref name="max"/> right-hand-lane poses spread
+        /// along the roads beside (or on bridges over) the water.</summary>
+        static List<Drive> LanesBy(CityMap map, CityMap.Water w, bool onBridge, int max)
         {
-            d = default;
-            float best = float.MaxValue; int bi = -1; float bs = 0f; Vector2 near = Vector2.zero;
+            var all = new List<(float score, int ei, float s)>();
             Vector2 c = (w.bbMin + w.bbMax) * 0.5f;
             float reach = Mathf.Max((w.bbMax - w.bbMin).magnitude * 0.5f, 50f) + 200f;
             for (int ei = 0; ei < map.edges.Length; ei++)
@@ -445,36 +545,42 @@ namespace PSXRacing.EditorTools
                 if (e.length < 30f) continue;
                 var pa = e.PointAt(0f); var pb = e.PointAt(e.length);
                 if (Vector2.Distance(pa, c) > reach + e.length && Vector2.Distance(pb, c) > reach + e.length) continue;
-                for (float s = 10f; s < e.length - 10f; s += 8f)
+                for (float s = 10f; s < e.length - 10f; s += 30f)
                 {
                     var p = e.PointAt(s);
                     if (Vector2.Distance(p, c) > reach) continue;
-                    float dd = WaterDistance(w, p, out Vector2 nearest);
+                    float dd = WaterDistance(w, p, out _);
                     bool el = e.ElevatedAt(s);
-                    float score;
-                    if (onBridge) { if (!el || dd > -8f) continue; score = -dd > 30f ? 0f : 30f + dd; }   // well out over it
-                    else { if (el || dd < 12f || dd > 60f) continue; score = dd; }
-                    if (score >= best) continue;
-                    best = score; bi = ei; bs = s; near = nearest;
+                    if (onBridge) { if (!el || dd > -8f) continue; all.Add((-dd, ei, s)); }
+                    else { if (el || dd < 8f || dd > 70f) continue; all.Add((dd, ei, s)); }
                 }
             }
-            if (bi < 0) return false;
-            var ed = map.edges[bi];
-            var t2 = ed.TangentAt(bs).normalized;
-            var r2 = new Vector2(t2.y, -t2.x);
-            float divTR = ed.oneway ? 0f : -LineModel.DividerLat(ed);
-            var pe = ed.PointAt(bs) + r2 * (ed.oneway ? 0f : divTR + 1.83f);
-            var fwd = new Vector3(t2.x, 0f, t2.y);
-            Vector2 toW = (near - pe).normalized;
-            float yaw = Vector2.SignedAngle(toW, new Vector2(fwd.x, fwd.z));   // + = the water lies to the right
-            d = new Drive
+            all.Sort((a, b) => a.score.CompareTo(b.score));
+            var outL = new List<Drive>();
+            var used = new List<Vector2>();
+            foreach (var a in all)
             {
-                road = new Vector3(pe.x, ed.YAt(bs), pe.y), fwd = fwd,
-                yawToWater = onBridge ? Mathf.Sign(yaw) * 30f : Mathf.Clamp(yaw, -50f, 50f), pitch = -2f, waterY = float.NaN,
-                what = $"'{ed.name}' {(onBridge ? "on a bridge over" : "beside")} '{w.name}' (edge {bi} at {bs:0} m), the right-hand lane",
-            };
-            return true;
+                var ed = map.edges[a.ei];
+                var p2 = ed.PointAt(a.s);
+                bool close = false;
+                foreach (var u in used) if (Vector2.Distance(u, p2) < 150f) { close = true; break; }
+                if (close) continue;
+                used.Add(p2);
+                var t2 = ed.TangentAt(a.s).normalized;
+                var r2 = new Vector2(t2.y, -t2.x);
+                float divTR = ed.oneway ? 0f : -LineModel.DividerLat(ed);
+                var pe = p2 + r2 * (ed.oneway ? 0f : divTR + 1.83f);
+                outL.Add(new Drive
+                {
+                    road = new Vector3(pe.x, ed.YAt(a.s), pe.y), fwd = new Vector3(t2.x, 0f, t2.y), pitch = -2f, waterY = float.NaN,
+                    what = $"'{ed.name}' {(onBridge ? "on a bridge over" : "beside")} '{w.name}' (edge {a.ei} at {a.s:0} m, {a.score:0} m {(onBridge ? "in from its shore" : "off the water")}), the right-hand lane",
+                });
+                if (outL.Count >= max) break;
+            }
+            return outL;
         }
+
+        static float Area(CityMap.Water w) => (w.bbMax - w.bbMin).x * (w.bbMax - w.bbMin).y;
 
         // ------------------------------------------------------------------
         //  The sea, unchanged (a strip), and the test river's headings
