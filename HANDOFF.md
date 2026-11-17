@@ -1,4 +1,150 @@
-﻿# HANDOFF - DAMAGE ROUND 3: the cockpit model through a broken pane, no wavy lines on the body (agent "damage3", branch `damage-cabin` off mountain-nm 457beadd, 2026-11-17 01:00-04:45; NOT pushed, NOT merged)
+﻿# HANDOFF - TREE SEASON: a tree looks the same at every distance (agent "treeseason": Fable 11-16 night, then Opus 5.5 11-17; branch `tree-season` off mountain-nm 742315cd + merge of 1527e2b1; NOT pushed, NOT merged)
+
+Owner, 11-16 ~22:00, after PC47/PC48: "Tree pop-in is egregious. It is very distracting to see trees full of leaves (or
+different color trees in Fall) pop-in as you approach and then the tree is leafless (or different colors trees overtake
+one another in Fall orange, red, green." ... "Drive around Charlotte in Winter and a mountain track in Fall".
+
+## What was found (file:line on 1527e2b1)
+1. WINTER, a leafy far card over a bare mesh: past the 240 m mesh range every tree is its "far card", and the far
+   cards were the packs' SUMMER pictures darkened (PSXRacingBuilder.CityTreeKit.cs 186-189 Meadow poplars, 261-264 Big
+   Oak; PSXRacingBuilder.MeshTrees.cs 346-348 the stages' tulip poplar). City: 55 of 58 species failed LEAF.
+2. WINTER beeches: orange leaf speckle over grey twigs (MeshTrees.cs 820-856 BareImpostorPath: the removed leaf texels
+   keep their orange under alpha 0 and the mips bleed it back).
+3. Big Oak's far card a solid grey box 43 m wide (CityTreeKit.cs 254-264: the keyed billboard draws opaque).
+4. Street forms' far cards the wrong height (12.7 v 8.2 m: CityTreeKit2.cs ReworkMesh's impostor cut).
+5. 8 city species had NO far level and ended at the mesh range (MeshForest.Init: m = Min(m, meshRange)).
+6. FALL / SUMMER: far cards more saturated and brighter than their meshes (pack sheets + CTImpostorGain 1.3,
+   CityTreeKit2.cs 149; a flat card's light normal, MeshTrees.cs 374, 1.6-1.8 x its mesh at noon); a cross of two cards
+   is 0.71-0.79 of the crown's width from a diagonal. Every tree changed colour and outline at the hand-over.
+7. The stages' old "B" cards (what the MIRRORS show behind the car, and the forest past 2.2 km) wear the retro
+   billboard pack: in winter they read as dark brown leafy crowns over a bare grey forest (PSXRacingBuilder.Stage.cs
+   8306/8347, Season.cs 105 DressAtlasPath). They are also 1/1.6 of their mesh trees' height (Stage.cs 8238
+   MeshTreeHeightScale 1.6 v AddTreeQuads(h)): NOT fixed (needs a stage scene pass, below).
+8. Charlotte's tile cards (past 1.2 km, outside the view's cone, before a tile is fitted) and CityFar's far trees wear
+   the same retro atlas (City/CityTrees.cs 937 MaterialFor). Tiles stood up before CityMeshTrees started kept it even
+   with the kit's atlas on (CityWorld.cs 1291 takes the material when the tile stands).
+9. NEW with the turning far card (round 1): it showed the nearest of its views, so its whole picture switched every
+   45 degrees of bearing: 87-91 % of its pixels changed between bearings 1.5 degrees apart, against the LOW mesh's own
+   20 % (the audit's sweep, cal1).
+10. Mesh levels against each other in winter (LOD0-LOD1, LOD1-LOD2): the packs' coarser levels drop twigs (class 7 of
+   round 1): a pop inside the mesh levels, not a season mismatch. NOT touched.
+11. A far card grows to 2.4 x by 1.8 km (_PSXFarGrow, MeshTrees.cs 728): trees shrink as they are approached and the
+   ones behind come out. Knob PSX_FOREST_FARGROW=1; default unchanged (it was the owner's "barren far slopes" fix).
+12. Stage cliff meshes (cliff_base / cliff_piece) have no far level: MeshForest.Init caps them at the mesh range, so
+   rock faces dissolve at 240 m. Not trees; for a later round.
+13. The October "no hardwoods" bug on Little Switzerland does not reproduce on PC48/PC49's scene (forest draws in edit
+   and play mode). RunStageCards logs the plants listed per dress and fails on 0.
+14. TOOLING TRAP (mine, fixed): one chain of jobs = one PowerShell process, and job.ps1 left each job's env vars set,
+   so a later job inherited an earlier one's switches. Every result below is from jobs run after the fix.
+
+15. The packs' far card of the tulip poplar (city Columnar + every stage) drew its billboard sheet's FOUR views side by
+   side on one card: four thin poplars where one stands (MeshTrees.cs 503 AddBillboardImpostor, aspect 8.7/23.2).
+   Gone with the match cards.
+16. Charlotte's pine stand-ins (03/05_Poplar_skan_pine and their r3 forms) are green poplar meshes: in winter they read
+   as leafy broadleaf trees, near and far alike (no hand-over mismatch; a species question for a later round).
+
+## What changed (branch tree-season; switches, defaults)
+- PSX_TREE_MATCH (default ON; 0 = the packs' far sheets, as PC49): every tree's far card is a picture of its own LOW
+  mesh in each dress (Editor PSXRacingBuilder.TreeMatch.cs; made inside EnsureCityTreeKit / LoadMeshTreeKit, or in place
+  by TreeMatchBuild.CityMatchOnly / PatchStages), on the mesh's own origin (same per-tree fall colour and shade), turned
+  to the eye (4 views = 8 bearings), lit as a crown (PSX/Lit _PSXCrownCard). City species with no far level get one.
+- Each card's albedo gain MEASURED against its own mesh (Editor/TreeMatchGains.txt, 204 cards, 0.79-1.19; the winter
+  twig cards were 10-17 % dark, the poplars' leaf cards 26 % bright).
+- VIEW FADE (PSX_TM_VIEWFADE at bake, default 0.16 of a view step; 0 = the switch): between two views the next one
+  dithers in by 2 x 2 pixel quads, the same pixels for the same pair (PSX/Lit, inside PSX_LODFADE).
+- PSX_TREE_MATCH_CARDS=1 (default OFF = the retro billboards, as PC49): Charlotte's tile / CityFar cards
+  (CityTreeKit.cardAtlas, round 1) and now a STAGE's B cards and crowns (MeshForest.matchCardAtlas, cut by
+  TMStageCardAtlas from the stage kit's match sheets, each broadleaf cell the kit tree whose fall dress is that cell's
+  colour) wear the kit's own trees in the dress. Gains measured: city x0.77 (PSX_TM_CARDGAIN), stage x0.65
+  (PSX_TM_BCARDGAIN). OFF because the cards' cover measured 0.3-0.7 of the mesh trees' (below). CityMeshTrees redresses
+  the tiles that stood before it started (CityWorld.Redress) when it is on.
+- Tools (Editor only): TreeMatchAudit (+ the bearing sweep PSX_TM_SWEEP, rock faces / fences skipped), RunStageCards
+  measured on the Foliage layer, RunStageWalk for several stages in one process, RunTreeMatchCost / RunStageMatchCost.
+- Unchanged: LOD distances and bands (PSX_FOREST_LODFADE stays OFF), the far grow (PSX_FOREST_FARGROW unset), the mesh
+  levels, the far canopy.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\treeseason\`)
+- ONE TABLE, ONE MEASURE: `sheets\TM_TABLE_before_after.txt` (TreeMatchAudit at the head; before = PSX_TREE_MATCH=0 in a
+  fresh process; city + all 9 mountain stages; city and Blue Ridge every dress and hand-over, the other 8 stages the far
+  hand-over in winter / summer / fall). The far hand-over (mesh -> far card): 533 species-pairs, failing 533 -> 105.
+  By reason: LEAF 267 -> 0, NOFAR 40 -> 0, SAT 217 -> 2, VALUE 483 -> 6, HUE 9 -> 2, SIZE 483 -> 95, GONE 0 -> 2.
+  Stages: summer and fall 0 left on all 9; winter 1 (beech_tree_08 at one bearing: width 5.1 v 3.8 m). The mesh levels
+  (LOD0-1-2) are unchanged (the packs' own; winter SIZE 20-21 city species, class 10).
+- PICTURES of the classes, before | after: `sheets\tm_city_winter_before_after.png`, `tm_city_fall_before_after.png`,
+  `tm_stage_before_after.png` (LOW mesh | far card at the 240 m hand-over, the same eye; labels in each cell).
+- VIEW FADE (the audit's bearing sweep, the tree's picture from bearings 1.5 deg apart): the far card's largest change
+  per step 91 % -> 11 % (city median), 87 % -> 10 % (stages), worst species 140 % -> 22 %; the LOW mesh's own 20 %.
+- APPROACH STRIPS 400 -> 20 m, before | after, fresh processes: `sheets\strip_charlotte_before_after.png`,
+  `strip_226a_before_after.png`, `strip_ls_lure_before_after.png`. THE POP MEASURE (16 px blocks whose light changes
+  > 3 % when the levels step 10 m, RunTreeFeet's): Charlotte arterial winter 968 -> 548, fall 638 -> 495, W Trade
+  winter 16 -> 1, fall 34 -> 34; Little Switzerland winter 115 -> 73, fall 23 -> 19; NC 226A winter 97 -> 104, fall
+  27 -> 21; Blue Ridge winter 34 -> 44, fall 10 -> 9; Lake Lure winter 35 -> 36, fall 18 -> 19. Charlotte 1656 -> 1078
+  (-35 %), the four stages 359 -> 325 (-9 %; their far trees sit behind the corridor's near ones).
+- THE PLAY DRIVES, after, WATCHED once each (owner's game closed; main told before each): NC 226A 15 Oct (02:28) and
+  Charlotte / Independence sprint 15 Jan (02:47); `sheets\drives_before_after.png` = before (11-16) | after frames.
+- THE CARDS (Charlotte's tiles past 1.2 km, a stage's B cards past 2.2 km and in the mirrors) v the mesh trees, same eye:
+  `sheets\cards_before_after.png`. With the kit's own trees on them the colour and leaf state match (226A fall: all
+  limits pass; Charlotte winter luma 0.272 v 0.271), but the cover falls to 0.3-0.7 of the mesh trees' (retro 0.9-1.1):
+  the card meshes are 1/1.3 and 1/1.6 of their mesh trees. So PSX_TREE_MATCH_CARDS is OFF by default.
+
+## Cost (editor, 1920 x 1080, render + read-back, ABBA x 4, one process; `cost\`)
+- Charlotte arterial, fall: driver's eye +0.83 ms (32.6 -> 33.4), 60 m up +0.26 ms; plants drawn +19 % (the 8 city
+  species that had no far level now stand to 1.2 km), triangles 0.44 -> 0.45 M, draws 198 -> 205.
+- NC 226A 7900 m, fall: driver's eye +1.82 ms (48.2 -> 50.0), vista 25 m up +4.01 ms (48.1 -> 52.2, all four rounds
+  apart); plants drawn 42.8 k -> 51.9 k (+20 %), triangles 5.81 -> 6.04 M (far level 0.151 -> 0.170 M), draws 266 -> 266.
+  The +20 % plants on a stage is NOT explained (no species gains a far level there): suspect the turning card's cull
+  sphere (InitGpu, the impostor sphere: the whole turn's circle x the far grow + the foot offset) passing more far
+  instances; for perf to confirm in the player. Editor ms are noisy (spreads in the file).
+- Memory: city 186 sheets 8.4 M texels, stage 21 sheets 1.1 M texels (DXT5 + mips, ~12 MB in all); 5 + 5 card atlases
+  512 px. FOR_PERF.md lists every line touched.
+
+## Self-test
+LifeSimSelfTest in PSXLab, hidden, fresh processes: this branch 64 FAIL, mountain-nm 1527e2b1 64 FAIL, NEW 0, GONE 0.
+(Run at 6d1cb3cb; 24851285 after it only turned the cards' default off.)
+
+## Not done / not verified
+- The cards beyond the mesh forest (Charlotte's tiles past 1.2 km and CityFar to 2.2 km; a stage's B cards past 2.2 km)
+  and in the MIRRORS are still the retro billboards (PSX_TREE_MATCH_CARDS=1 puts the kit's trees on them, measured
+  sparse). The fix is in the bakes: Charlotte's tile cards (City/CityTrees.cs 771 CardWidth/h, a 40-minute tile
+  re-bake) and a stage's B cards (PSXRacingBuilder.Stage.cs 8306 AddTreeQuads(.., h, ..): give them the mesh variant's
+  height and that species' cell) sized as their mesh trees, then PSX_TREE_MATCH_CARDS on.
+- SIZE at the far hand-over: 95 species-pairs left, nearly all city saplings, snags and street forms a few pixels wide
+  in winter (twigs at the outline; a sapling's trunk under one pixel wide dropped by the mesh, dotted on the card) and
+  the 15-degree view step (beech_tree_08 at one bearing). 8 views a sheet would halve the step (2 x the sheets).
+- 2 city street beeches in fall: the card more saturated than the mesh (sat 0.61 v 0.87): not traced.
+- The mesh levels' own winter twig drop (LOD0-1-2, 20-21 city species) and the far grow (class 11) are untouched.
+- The audit's "control" column does not work (turning the eye about the plant kept it centred): not used anywhere.
+- The stage cost's +20 % plants drawn is not explained (above). The wide stage bands (PSX_FOREST_LODFADE=0.6) were not
+  walked (dropped for sandbox time).
+- Coast stages (Emerald Isle, Atlantic Beach bridge, Langston bridge): no mesh forest, nothing to match.
+
+## What the coordinator must do at merge / for a PC build
+- Merge `tree-season` (no conflicts with mountain-nm 1527e2b1; merged in at 95eaf2a4). Shared-file edits:
+  `Scripts/MeshForest.cs` (Variant.matchLod/matchDress/matchPre + WithMatch/HasMatch; matchCardAtlas; the statics
+  TreeMatch, StageBandShare, FarGrowZ, MatchCardsOn; Init's match swap; FarMatrix; MatchBCards called at the head of
+  DressMaterials; OnDestroy frees the copies; Faded's far-grow knob), `MeshForest.Gpu.cs` (InitGpu's impostor sphere,
+  BakeGpu's impostor rows: perf's GpuDressChanged / GpuFrame untouched), `MeshForest.Pool.cs` (PoolFill's impostor
+  rows), `CityMeshTrees.cs` (MatchCards, Redress, CardGain), `CityTreeKit.cs` (cardAtlas), `Shaders/PSXLit.shader`
+  (inside PSX_LODFADE: the turning card + view fade, lodD float4, a uv swap before every clip; the crown-card light;
+  _PSXIdOn 2 albedo out; _PSXGrowFoot), Editor `PSXRacingBuilder.CityTreeKit.cs` / `.MeshTrees.cs` (the bake hooks),
+  `.Stage.cs` (one line: mfc.matchCardAtlas). New Editor files with metas, and `Editor/TreeMatchGains.txt` (+ meta).
+- THE CARDS ARE DATA: the PC scene pass makes them with this code (EnsureCityTreeKit, LoadMeshTreeKit); without a
+  scene pass: `-executeMethod PSXRacing.EditorTools.TreeMatchBuild.CityMatchOnly` after the city kit is built (3.5 min)
+  and `...TreeMatchBuild.PatchStages` (every stage scene with a mesh forest, in place, ~9 min, no rebuild). PSXLab holds
+  them now (city 02:04, the 9 stages 02:20, from 7893a673's bake code = the head's). A kit rebuilt with mountain-nm's
+  code loses them: run CityMatchOnly again. NO city tile re-bake.
+- Generated, not in git (as other bakes): Assets/StoreAssets/Gen/TreeMatch/*.png, Materials/TM_*.mat,
+  Generated/TM_*.asset.
+- The PSXLab sandbox ends with mountain-nm 1527e2b1's Scripts/Editor/Shaders (the base self-test synced them).
+
+## What the owner will notice
+A tree no longer changes as you drive up to it: in winter the far trees are bare like the near ones (no dark leafy
+crowns, no orange speckle, no grey box), in fall each far tree keeps the colour it has up close, and the far poplar
+is one tree, not four. Far trees also stop flickering their shape as you pass them. Past about 1.2 km in the city and
+2.2 km on the mountains, and in the mirrors, the trees are still the old billboards until those cards are re-baked.
+
+
+# HANDOFF - DAMAGE ROUND 3: the cockpit model through a broken pane, no wavy lines on the body (agent "damage3", branch `damage-cabin` off mountain-nm 457beadd, 2026-11-17 01:00-04:45; NOT pushed, NOT merged)
 
 The owner, 11-17 ~01:25, on round 2's "left glass shattered" cell: "I'm not a fan of the low-poly blocky interior when windows are broken. If shown, the cockpit model should be used." Then (via the coordinator): "The wavy lines when glass breaks also appear on the car body. I don't like them, but otherwise the deformation and cracked glass looks decent." He liked the rest of round 2 (chip / crack / web, crazed and shattered side glass, wheel curb rash).
 

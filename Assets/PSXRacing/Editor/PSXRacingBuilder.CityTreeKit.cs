@@ -276,6 +276,8 @@ namespace PSXRacing.EditorTools
             CTRound3(list, names, roles, groups3);
             // ---- every level standing on the ground (the packs' coarser levels have no roots: PSX_CT5_FOOT=0 = as they were) ----
             CTFeet(list, names);
+            // ---- TREE MATCH: every tree's far card made from its own LOW mesh, in each dress (PSX_TREE_MATCH=0: none) ----
+            TreeMatchKit(list, names, "city", null, true);
             // ---- the crowns ----
             var crown = new float[list.Count * CityTreeKit.Bands];
             var cbase = new float[list.Count];
@@ -290,6 +292,8 @@ namespace PSXRacing.EditorTools
             kit.crown = crown;
             kit.crownBase = cbase;
             kit.group3 = groups3.ToArray();
+            // TREE MATCH: the cards' atlas (tile cards, CityFar's far trees) cut from the kit's own trees, per dress
+            kit.cardAtlas = TMCityCardAtlas();
             kit.lodTris = new int[list.Count * 3];
             for (int v = 0; v < list.Count; v++)
                 for (int l = 0; l < 3; l++) kit.lodTris[v * 3 + l] = list[v].lods[l] != null ? (int)Tris(list[v].lods[l]) : 0;

@@ -82,6 +82,32 @@ namespace PSXRacing
             public float thin;
             /// <summary>Casts shadows at HIGH and MID (trees, not grass).</summary>
             public bool shadows = true;
+            /// <summary>TREE MATCH (2026-11-16; owner: "trees full of leaves (or
+            /// different color trees in Fall) pop-in as you approach and then
+            /// the tree is leafless"): the far level made FROM THIS TREE - a
+            /// cross of two cards wearing a picture of its own LOW mesh in
+            /// each dress (bare where the mesh is bare, the mesh's own leaf
+            /// colour where it is in leaf), in place of the pack's sheet of a
+            /// tree in summer leaf, darkened or recoloured. Null on a kit made
+            /// before it, and with PSX_TREE_MATCH=0 never used.</summary>
+            public Mesh matchLod;
+            /// <summary>The match card's material per dress (5).</summary>
+            public Material[] matchDress;
+            /// <summary>The match card's node transform (its origin the mesh's own).</summary>
+            public Matrix4x4 matchPre = Matrix4x4.identity;
+
+            /// <summary>This species with its match card as its far level.</summary>
+            public Variant WithMatch()
+            {
+                var v = (Variant)MemberwiseClone();
+                v.lods = new[] { lods.Length > 0 ? lods[0] : null, lods.Length > 1 ? lods[1] : null, lods.Length > 2 ? lods[2] : null, matchLod };
+                v.impostorDress = matchDress;
+                v.impostorPre = matchPre;
+                // (a tree that had no far level - it thinned out and ended at the mesh range - now stands to the far range like the rest)
+                if (lods.Length < 4 || lods[3] == null) v.thin = 0f;
+                return v;
+            }
+            public bool HasMatch => matchLod != null && matchDress != null && matchDress.Length == 5;
         }
 
         [System.Serializable]
@@ -102,6 +128,11 @@ namespace PSXRacing
         /// the slope.</summary>
         public Vector2[] instTilt;
         public Material[] leafByDress = new Material[5];
+        /// <summary>TREE MATCH (stages): the "B" cards' and crowns' atlas per dress (5), cut from the kit's
+        /// own match sheets - the cells of the broadleaf trees the meshes stand for; the conifers' cells as
+        /// they were. Null (a scene built before it, or PSX_TREE_MATCH=0 / PSX_TREE_MATCH_CARDS=0): the
+        /// retro billboards, as before.</summary>
+        public Texture2D[] matchCardAtlas;
 
         // The MEDIUM distances (ForestDetailPrefs scales them): the 100/200/320
         // of the pop-in round dropped the owner under 20 FPS with leaves on.
@@ -183,10 +214,63 @@ namespace PSXRacing
 
         void Awake() => Init();
 
+        /// <summary>TREE MATCH: every tree's far level is a picture of its own
+        /// mesh in today's dress (Variant.matchLod), standing on the mesh's own
+        /// origin so both draw the same per-tree colour. PSX_TREE_MATCH=0 (or a
+        /// perf tour's ab=MeshForest.TreeMatch:0 before the stage loads): the
+        /// pack's sheets as before.</summary>
+        public static bool TreeMatch = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH") != "0";
+        /// <summary>THE STAGES' HAND-OVER BANDS as a share of each level's
+        /// distance (the city's pool has its own: CityMeshTrees.LodFadeShare).
+        /// The 11-11 lag-pair round found wider bands no help on a stage - with
+        /// far cards that did not match their meshes, a longer dissolve only
+        /// showed the mismatch for longer. With the tree-match cards both sides
+        /// of a hand-over are the same tree. PSX_FOREST_LODFADE=0.6 (a share
+        /// between 0 and 1) widens them; unset or 0: the fixed 12/16/20 m
+        /// (x FOREST DETAIL) as before, until the stage walks say otherwise.</summary>
+        public static float StageBandShare = StageShare();
+        static float StageShare()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_FOREST_LODFADE");
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f && f < 1f ? f : -1f;
+        }
+        /// <summary>A FAR CARD'S GROWTH WITH DISTANCE (PSX/Lit _PSXFarGrow: x 2.4
+        /// by 1.8 km since 2026-11-09, so a far slope of narrow cards stays a
+        /// closed canopy). A tree that is 2.4 times its size at 1.8 km and its
+        /// own size at 450 m shrinks as it is approached, and the trees it hid
+        /// come out from behind it. PSX_FOREST_FARGROW=1 (or 1.5 ...) sets the
+        /// factor for this process; unset: each card's own.</summary>
+        public static float FarGrowZ = FarGrowEnv();
+        static float FarGrowEnv()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_FOREST_FARGROW");
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f >= 1f ? f : -1f;
+        }
+        /// <summary>Per species: its far card stands on its mesh's origin (the
+        /// card's matrix takes the mesh's translation bit for bit).</summary>
+        bool[] sameOrigin;
+        public int MatchCount { get; private set; }
+
         void Init()
         {
             instance = this;
             inited = true;
+            // (a copy: the kit's own list - a scene's, the city kit asset's - stays as it was built)
+            sameOrigin = new bool[variants.Length];
+            MatchCount = 0;
+            if (TreeMatch)
+            {
+                Variant[] mine = null;
+                for (int v = 0; v < variants.Length; v++)
+                {
+                    if (variants[v] == null || !variants[v].HasMatch) continue;
+                    mine ??= (Variant[])variants.Clone();
+                    mine[v] = variants[v].WithMatch();
+                    sameOrigin[v] = true;
+                    MatchCount++;
+                }
+                if (mine != null) variants = mine;
+            }
             float q = ForestDetailPrefs.Scale;
             lod0To *= q; lod1To *= q; meshRange *= q;
             band0 *= q; band1 *= q; band2 *= q;
@@ -205,7 +289,7 @@ namespace PSXRacing
             }
             // the pop measure's knobs (perf tour lodmul=a,b,c&bandshare=s): each level's distance x, bands as a share
             lod0To *= TourLodMul.x; lod1To *= TourLodMul.y; meshRange *= TourLodMul.z;
-            float share = TourBandShare > 0f ? TourBandShare : bandShare;
+            float share = TourBandShare > 0f ? TourBandShare : bandShare > 0f ? bandShare : !pooled ? StageBandShare : -1f;
             if (share > 0f)
             {
                 // a hand-over band as a share of its distance, not a fixed few metres
@@ -258,7 +342,8 @@ namespace PSXRacing
             if (!gpu && !pooled) EnsureLegacy();
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
                       $"LOD {lod0To}/{lod1To}/{meshRange} m (hand-over bands {band0:0}/{band1:0}/{band2:0} m), impostors to {farRange} m; F8 = A/B; " +
-                      (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") + ".");
+                      (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") +
+                      (TreeMatch ? $"; tree match: {MatchCount} species' far cards made from their own meshes" : "; tree match OFF (PSX_TREE_MATCH=0)") + ".");
         }
 
         /// <summary>A plant's matrix under the forest's root, as the builder placed it.</summary>
@@ -270,6 +355,18 @@ namespace PSXRacing
             return Matrix4x4.TRS(new Vector3(p.x, p.y, p.z),
                 Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, p.w, 0f), new Vector3(s, s, s))
                 * variants[(int)instScaleVar[i].y].pre;
+        }
+
+        /// <summary>A plant's far card matrix from its mesh matrix. A match
+        /// card stands on the mesh's own origin, and PSX/Lit works each tree's
+        /// shade, hue and fall colour out of that origin - so it is the mesh's
+        /// to the last bit, not to the rounding of two matrix products (a
+        /// millimetre's difference is another number altogether).</summary>
+        Matrix4x4 FarMatrix(Matrix4x4 m, int v)
+        {
+            var mi = m * impFix[v];
+            if (sameOrigin != null && sameOrigin[v]) { mi.m03 = m.m03; mi.m13 = m.m13; mi.m23 = m.m23; }
+            return mi;
         }
 
         /// <summary>The CPU path's tables (a matrix a plant, twice): made the
@@ -313,7 +410,7 @@ namespace PSXRacing
                     int vi = (int)instScaleVar[i].y;
                     var vr = variants[vi];
                     if (vr.lods.Length < L || vr.lods[3] == null || vr.maxDist > 0f) continue;
-                    tmp[vi].Add(worldM[i] * impFix[vi]);
+                    tmp[vi].Add(FarMatrix(worldM[i], vi));
                 }
                 farLists[ci] = new Matrix4x4[variants.Length][];
                 for (int v = 0; v < variants.Length; v++)
@@ -386,6 +483,9 @@ namespace PSXRacing
         void OnDestroy()
         {
             ReleaseGpu();
+            // (the B cards' tree-match copies are this forest's own: gone with it)
+            foreach (var m in bCardCopy.Values) if (m != null) { if (Application.isPlaying) Destroy(m); else DestroyImmediate(m); }
+            bCardCopy.Clear();
             if (chunks != null)
                 foreach (var c in chunks)
                     if (c.cards != null)
@@ -459,9 +559,77 @@ namespace PSXRacing
             foreach (var r in c.cards) if (r != null && r.enabled != on) r.enabled = on;
         }
 
+        // ---- TREE MATCH: THE B CARDS IN THE KIT'S OWN TREES (2026-11-17) ----
+        // Where the mesh forest does not draw - out of the view's cone (the mirrors' trees behind the car,
+        // the reflection faces) and past the far range - a stage's broadleaf trees are the chunks' "B"
+        // cards and crowns: the retro billboard pack's photographs in the dress (other trees, other
+        // colours). Here they wear matchCardAtlas, the same cells cut from the kit's own trees in the
+        // dress, through copies of whatever material SeasonDress gives them (it does not know the copies,
+        // so this re-dresses them when the dress changes).
+        /// <summary>PSX_TREE_MATCH_CARDS=1 puts them on. DEFAULT OFF (the billboards, as before):
+        /// MEASURED 2026-11-17 (CityRefSpots.RunTreeCards / TreeMatchAudit.RunStageCards, the trees alone, same eye,
+        /// before = PSX_TREE_MATCH=0): the kit's own trees on the cards match the meshes' colour and leaf state, but
+        /// the CARD MESHES are the old plantings' - 1/1.3 (Charlotte's tiles) and 1/1.6 (a stage's B cards) of their
+        /// mesh trees' height - and the kit's trees are narrower than the retro billboards' round crowns: the cards'
+        /// cover fell to 0.3-0.4 of the mesh trees' in winter and 0.4-0.7 in fall (the retro cards: 0.9-1.1). A
+        /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
+        /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
+        /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
+        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
+        /// <summary>The B cards' light normal (PSX/Lit _PSXCrownCard), as Charlotte's tile cards take it.</summary>
+        static readonly Vector2 BCardLight = new Vector2(0.32f, 0.4f);
+        /// <summary>The B cards' albedo gain over the kit atlas: MEASURED (stcards226A / stcardsLSA, 2026-11-17: the
+        /// forest from 25 m over the road, the foliage's mean luma, mesh forest / cards: 0.59 in fall on both stages,
+        /// 0.64 and 0.78 in winter). PSX_TM_BCARDGAIN sets it for a process.</summary>
+        static readonly float BCardGain = BCardGainEnv();
+        static float BCardGainEnv()
+        {
+            var s = System.Environment.GetEnvironmentVariable("PSX_TM_BCARDGAIN");
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f ? f : 0.65f;
+        }
+        Renderer[] bCardR; Material[] bCardBase;
+        readonly System.Collections.Generic.Dictionary<Material, Material> bCardCopy = new System.Collections.Generic.Dictionary<Material, Material>();
+        int bCardDress = -1;
+        public bool BCardsMatched => bCardDress >= 0;
+
+        void MatchBCards(int di)
+        {
+            if (di == bCardDress || pooled || !TreeMatch || !MatchCardsOn || chunks == null || matchCardAtlas == null || matchCardAtlas.Length < 5) return;
+            if (bCardR == null)
+            {
+                var rs = new System.Collections.Generic.List<Renderer>();
+                foreach (var c in chunks)
+                    if (c != null && c.cards != null)
+                        foreach (var r in c.cards) if (r != null && r.sharedMaterial != null) rs.Add(r);
+                bCardR = rs.ToArray();
+                bCardBase = new Material[bCardR.Length];
+                for (int i = 0; i < bCardR.Length; i++) bCardBase[i] = bCardR[i].sharedMaterial;
+            }
+            var atlas = matchCardAtlas[di];
+            for (int i = 0; i < bCardR.Length; i++)
+            {
+                var r = bCardR[i];
+                if (r == null) continue;
+                var want = SeasonDress.Substitute(bCardBase[i]);
+                if (atlas == null || want == null || !want.HasProperty("_MainTex")) { r.sharedMaterial = want; continue; }
+                if (!bCardCopy.TryGetValue(want, out var copy) || copy == null)
+                {
+                    copy = new Material(want) { name = want.name + " (tree match)", hideFlags = HideFlags.DontSave };
+                    copy.SetVector("_PSXCrownCard", new Vector4(BCardLight.x, BCardLight.y, 0f, 0f));
+                    if (copy.HasProperty("_Color")) copy.color = want.color * new Color(BCardGain, BCardGain, BCardGain, 1f);
+                    bCardCopy[want] = copy;
+                }
+                // (the texel decode is read off the texture the slot holds: stamped after the swap)
+                if (copy.mainTexture != atlas) { copy.mainTexture = atlas; PSXTexDecode.Stamp(copy); }
+                if (r.sharedMaterial != copy) r.sharedMaterial = copy;
+            }
+            bCardDress = di;
+        }
+
         void DressMaterials(int dress)
         {
             int di = dress >= 0 && dress < 5 ? dress : 2;
+            MatchBCards(di);
             for (int v = 0; v < variants.Length; v++)
             {
                 var vr = variants[v];
@@ -534,14 +702,14 @@ namespace PSXRacing
             int b = vi * L + lod;
             if (bucketN[b] == bucket[b].Length)
                 System.Array.Resize(ref bucket[b], bucket[b].Length * 2);
-            var m = lod == 3 ? worldM[i] * impFix[vi] : worldM[i];
+            var m = lod == 3 ? FarMatrix(worldM[i], vi) : worldM[i];
             bucket[b][bucketN[b]++] = m;
             // the other cameras: a canopy tree once, as its impostor
             var vr = variants[vi];
             if (vr.lods.Length > 3 && vr.lods[3] != null && vr.maxDist <= 0f && lastPut[vi] != i)
             {
                 if (mirrorN[vi] == mirrorM[vi].Length) System.Array.Resize(ref mirrorM[vi], mirrorM[vi].Length * 2);
-                mirrorM[vi][mirrorN[vi]++] = lod == 3 ? m : m * impFix[vi];
+                mirrorM[vi][mirrorN[vi]++] = lod == 3 ? m : FarMatrix(m, vi);
                 lastPut[vi] = i;
             }
         }
@@ -553,6 +721,12 @@ namespace PSXRacing
             if (f == Vector4.zero) return m;
             if (faded.TryGetValue((m, f, thin), out var c) && c != null) return c;
             c = new Material(m) { name = m.name + "_fade", enableInstancing = true };
+            // (the far cards' growth with distance as this process asks: PSX_FOREST_FARGROW)
+            if (FarGrowZ >= 1f && m.HasProperty("_PSXFarGrow"))
+            {
+                var fg = m.GetVector("_PSXFarGrow");
+                if (fg.z > 1f) c.SetVector("_PSXFarGrow", new Vector4(fg.x, fg.y, FarGrowZ, fg.w));
+            }
             c.SetVector("_PSXLodFade", f);
             c.SetVector("_PSXLodThin", new Vector4(thin, 0f, 0f, 0f));
             c.EnableKeyword("PSX_LODFADE");

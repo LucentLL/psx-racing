@@ -8381,6 +8381,7 @@ namespace PSXRacing.EditorTools
                 var mfc = root.AddComponent<MeshForest>();
                 mfc.variants = kit.variants;
                 mfc.leafByDress = kit.leafByDress;
+                mfc.matchCardAtlas = kit.matchCardAtlas;   // (tree match: the B cards in the kit's own trees)
                 mfc.chunks = mfChunks.ToArray();
                 mfc.inst = mfInst.ToArray();
                 mfc.instScaleVar = mfScaleVar.ToArray();
