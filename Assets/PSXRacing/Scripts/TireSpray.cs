@@ -116,7 +116,7 @@ namespace PSXRacing
         // grows into a rooster tail: taller, longer-lived, thrown higher.
         // Rain2.Spray off (or PSX_RAIN2=0): none of it, the spray as it was.
         /// <summary>How far from the camera (m) a car's wheels still look for pools.</summary>
-        public const float PoolReach = 120f;
+        public const float PoolReach = 80f;
         /// <summary>Standing water (0..1) where a wheel is "in" a pool, and where it has left it.</summary>
         public const float PoolIn = 0.5f, PoolOut = 0.3f;
         /// <summary>The burst a tyre throws entering a pool: droplets, at PoolBurstFull m/s and above.</summary>

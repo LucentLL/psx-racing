@@ -31,10 +31,10 @@ namespace PSXRacing
         public const int Segs = 36;
         public const float Life = 1.7f, Width = 0.21f, Lift = 0.012f;
         /// <summary>Cars further than this from the camera lay nothing.</summary>
-        public const float Reach = 90f;
+        public const float Reach = 60f;
         /// <summary>How dark the strip is on the film, and in standing water.</summary>
         public const float AlphaFilm = 0.30f, AlphaPool = 0.08f;
-        const float MinSeg = 0.45f, SegPerSpeed = 0.028f, BreakDist = 5f, FadeEvery = 0.05f, MinSpeed = 2f;
+        const float MinSeg = 0.45f, SegPerSpeed = 0.028f, BreakDist = 5f, FadeEvery = 0.08f, MinSpeed = 2f;
 
         static Material sharedMat;
         static Texture2D sharedTex;
