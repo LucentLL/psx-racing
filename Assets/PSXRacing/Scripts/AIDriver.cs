@@ -1475,7 +1475,7 @@ namespace PSXRacing
         const float PassLaneBufM = 1.4f;
         /// <summary>The longest pass (s), the slowest a car pulls out at (m/s) past a car that is moving, and the closing
         /// a pass gains on the car being passed (m/s2).</summary>
-        const float PassMaxS = 6.5f, PassMinMps = 7f, PassAccel = 2.0f;
+        const float PassMaxS = 6.5f, PassMinMps = 7f, PassAccel = 2.0f, PassAccelRival = 0.4f;
         /// <summary>The pass ends with this car's centre a length plus air (m, + s of its speed) past the car's centre,
         /// then the swing back takes PassSwingS. A car within PassQueueGapM (+ s of speed) beyond the one passed is in its
         /// queue: the pass takes that one too, or is not made.</summary>
@@ -1512,7 +1512,7 @@ namespace PSXRacing
         public static int PassJudgeCount;
         public static double PassJudgeMs, PassJudgeWorstMs;
         public static readonly System.Collections.Generic.Dictionary<string, int> PassRefused = new System.Collections.Generic.Dictionary<string, int>();
-        public static void ResetPassStats() { PassJudgeCount = 0; PassJudgeMs = 0; PassJudgeWorstMs = 0; PassRefused.Clear(); }
+        public static void ResetPassStats() { PassJudgeCount = 0; PassJudgeMs = 0; PassJudgeWorstMs = 0; PassRefused.Clear(); AbortWhy.Clear(); }
         static readonly System.Diagnostics.Stopwatch passWatch = new System.Diagnostics.Stopwatch();
         float passRetryAt = -99f, sightAt = -99f, sightM; string sightWhy = "";
         float designOncoming = -1f;
@@ -1634,9 +1634,14 @@ namespace PSXRacing
             float v0 = Mathf.Max(mine - headSpeed, 0f);
             float vMax = Mathf.Max(wantRel, v0);
             if (vMax < 0.5f) { why = "nothing to gain"; return float.NaN; }
+            // what it gains: a traffic car holds its speed, so this car's own pull (less the faster it goes); a RIVAL
+            // pulls too, so little - a rival pass is made on the closing there is (planned on 2 m/s2 at 150 km/h, held
+            // passes of rivals ran long and were given up side by side: the weave)
+            bool rivalTarget = target != null && target.GetComponent<CarController>() != null;
+            float accel = rivalTarget ? PassAccelRival : PassAccel * Mathf.Clamp(1f - mine / 50f, 0.3f, 1f);
             float t;
-            float t1 = (vMax - v0) / PassAccel, d1 = v0 * t1 + 0.5f * PassAccel * t1 * t1;
-            if (d1 >= relDist) t = (-v0 + Mathf.Sqrt(v0 * v0 + 2f * PassAccel * relDist)) / PassAccel;
+            float t1 = (vMax - v0) / accel, d1 = v0 * t1 + 0.5f * accel * t1 * t1;
+            if (d1 >= relDist) t = (-v0 + Mathf.Sqrt(v0 * v0 + 2f * accel * relDist)) / accel;
             else t = t1 + (relDist - d1) / vMax;
             if (t > PassMaxS) { why = "long"; return float.NaN; }
             float tOcc = t + PassSwingS;
@@ -2197,6 +2202,7 @@ namespace PSXRacing
                         // the harness's pass: a candidate until the car has really moved out for it (end of tick)
                         candPass = bo.rb; candSide = DebugPassSide; candHeld = bo.held;
                         candOncoming = DebugPassSide < 0 && twoWay != null && TwoWayHere(twoWay);
+                        candOver = candOncoming && pick == left && left - myHalf < OverLineM;
                         passRb = bo.rb;
                         passSide = DebugPassSide;
                         if (pick > tarmacEdge) { usedVerge = true; DebugOnVerge = true; }
@@ -2490,12 +2496,14 @@ namespace PSXRacing
                     countedPass = candPass; passLostT = 0f; PassesBegun++;
                     if (candOncoming) PassesOncoming++;
                     if (candHeld) PassesHeld++;
+                    countedOver = candOver; countedSide = candSide;
+                    if (candOver) PassesOverLine++;
                 }
             }
             if (countedPass != null)
             {
                 Vector3 cl = transform.InverseTransformPoint(countedPass.position);
-                if (cl.z < -2f) { PassesDone++; lastDone = countedPass; countedPass = null; passLostT = 0f; }
+                if (cl.z < -2f) { PassesDone++; if (countedOver) PassesOverLineDone++; lastDone = countedPass; countedPass = null; passLostT = 0f; }
                 else if (passRb != countedPass && Mathf.Abs(avoidBias) < 0.5f)
                 {
                     passLostT += dt;
@@ -2503,6 +2511,10 @@ namespace PSXRacing
                     {
                         PassesAborted++; countedPass = null; passLostT = 0f;
                         if (PassWindowOn) passRetryAt = Mathf.Max(passRetryAt, Time.time + PassRetryS);
+                        // for the harness: why it was given up (over the line: the window's last word)
+                        string why = countedOver ? "over the line, " + (LastPassWhy ?? "?") : countedSide < 0 ? "left, own side" : "right";
+                        AbortWhy.TryGetValue(why, out int k);
+                        AbortWhy[why] = k + 1;
                     }
                 }
                 else passLostT = 0f;
@@ -2511,6 +2523,13 @@ namespace PSXRacing
         }
         float passLostT;
         Rigidbody candPass, lastDone; int candSide; bool candHeld, candOncoming;
+        bool candOver, countedOver; int countedSide;
+        /// <summary>For the harness: passes begun with the car over the centreline (through the pass window, or on
+        /// the guard's say with the window off: a left line whose car side is over it) and of those, done.</summary>
+        public int PassesOverLine { get; private set; }
+        public int PassesOverLineDone { get; private set; }
+        /// <summary>For the harness: passes given up, by reason (static, reset with the pass window's stats).</summary>
+        public static readonly System.Collections.Generic.Dictionary<string, int> AbortWhy = new System.Collections.Generic.Dictionary<string, int>();
         /// <summary>A rival level with this car on its right (the start's two abreast, a pass side by side).</summary>
         bool RivalBesideRight()
         {

@@ -189,7 +189,7 @@ namespace PSXRacing.EditorTools
         public static void End()
         {
             if (rm == null) return;
-            int begun = 0, oncoming = 0, held = 0, done = 0, aborted = 0;
+            int begun = 0, oncoming = 0, held = 0, done = 0, aborted = 0, overBegun = 0, overDone = 0;
             float over = 0f, lg = 0f, open = 0f; int stayN = 0; string lgWho = "";
             var per = new List<string>();
             foreach (var c in rm.allCars)
@@ -198,6 +198,7 @@ namespace PSXRacing.EditorTools
                 var ai = c.GetComponent<AIDriver>();
                 if (ai == null) continue;
                 begun += ai.PassesBegun; oncoming += ai.PassesOncoming; held += ai.PassesHeld; done += ai.PassesDone; aborted += ai.PassesAborted;
+                overBegun += ai.PassesOverLine; overDone += ai.PassesOverLineDone;
                 open += ai.OpenLineSeconds;
                 overS.TryGetValue(c, out float o); over += o;
                 stays.TryGetValue(c, out int n); stayN += n;
@@ -215,13 +216,17 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Note($"PASS WINDOW {(AIDriver.PassWindowOn ? "ON" : "OFF")}: {AIDriver.PassJudgeCount} judgements, {AIDriver.PassJudgeMs:0.0} ms in all " +
                                    $"({(AIDriver.PassJudgeCount > 0 ? AIDriver.PassJudgeMs * 1000.0 / AIDriver.PassJudgeCount : 0):0} us each, worst {AIDriver.PassJudgeWorstMs * 1000.0:0} us); " +
                                    $"refused (judgements) by: {(refused.Count > 0 ? string.Join(", ", refused) : "none")}");
+                var ab = new List<string>();
+                foreach (var kv in AIDriver.AbortWhy) ab.Add(kv.Key + " " + kv.Value);
+                RacePlayCheck.Note($"PASSES OVER THE LINE: begun {overBegun}, done {overDone}; given up (all passes) by: {(ab.Count > 0 ? string.Join("; ", ab) : "none")}; " +
+                                   $"mean stay over the line {(stayN > 0 ? over / stayN : 0f):0.0} s");
             }
             foreach (var s in owLines) RacePlayCheck.Note("  " + s);
             foreach (var s in headLines) RacePlayCheck.Note("  " + s);
             foreach (var s in streamLines) RacePlayCheck.Note("  " + s);
             RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
                                   $" | head-ons rival {headOnsRival} player {headOnsPlayer} (slow {headOnsSlow}, after respawn {headOnsAfterRespawn}, one-way {headOnsOneWay}, passing {headOnsPassing}) | one-way meets {owMeets} {owSeconds:0}s" +
-                                  $" | oncoming-stream hits {oncomingStreamHits} (hard {oncomingStreamHard})");
+                                  $" | oncoming-stream hits {oncomingStreamHits} (hard {oncomingStreamHard}) | over-line passes {overBegun} done {overDone} | mean stay {(stayN > 0 ? over / stayN : 0f):0.0}s");
             RacePlayCheck.Check(lg <= 20f, "every rival comes back to the right lane (no stay over the centreline past 20 s)", $"{lg:0.0} s ({lgWho})");
             RaceManager.Respawned -= OnRespawned;
             rm = null;
