@@ -32,6 +32,7 @@ namespace PSXRacing
         public readonly float[] succTurn;
         public readonly int[] predStart, pred;
         public readonly float[] predTurn;
+        readonly float[] predTurnCost;
         public const float UTurnMax = 2.6f, TurnPen = 60f;
 
         static CityRouter cached;
@@ -101,14 +102,14 @@ namespace PSXRacing
             predStart = new int[NS + 1];
             for (int k = 0; k < succ.Length; k++) predStart[succ[k] + 1]++;
             for (int i = 0; i < NS; i++) predStart[i + 1] += predStart[i];
-            pred = new int[succ.Length]; predTurn = new float[succ.Length];
+            pred = new int[succ.Length]; predTurn = new float[succ.Length]; predTurnCost = new float[succ.Length];
             var fill = new int[NS];
             System.Array.Copy(predStart, fill, NS);
             for (int st = 0; st < NS; st++)
                 for (int k = succStart[st]; k < succStart[st + 1]; k++)
                 {
                     int y = succ[k], at = fill[y]++;
-                    pred[at] = st; predTurn[at] = succTurn[k];
+                    pred[at] = st; predTurn[at] = succTurn[k]; predTurnCost[at] = TurnCost(succTurn[k]);
                 }
             heapK = new float[NS * 6]; heapV = new int[NS * 6];
         }
@@ -186,16 +187,18 @@ namespace PSXRacing
                 float v = s.g * F.Mul(s.st);
                 if (v < F.D[s.st]) { F.D[s.st] = v; F.seedG[s.st] = s.g; Push(v, s.st); }
             }
+            var D = F.D; var sg = F.seedG; var mul = F.mul;
             while (hn > 0)
             {
                 Pop(out float d, out int y);
-                if (d > F.D[y]) continue;
-                for (int k = predStart[y]; k < predStart[y + 1]; k++)
+                if (d > D[y]) continue;
+                int k1 = predStart[y + 1];
+                for (int k = predStart[y]; k < k1; k++)
                 {
                     int x = pred[k];
-                    if (F.seedG[x] >= 0f) continue;
-                    float c = len[x] * F.Mul(x) + (costMode ? TurnCost(predTurn[k]) : 0f) + d;
-                    if (c < F.D[x]) { F.D[x] = c; Push(c, x); }
+                    if (sg[x] >= 0f) continue;
+                    float c = mul != null ? len[x] * mul[x] + predTurnCost[k] + d : len[x] + d;
+                    if (c < D[x]) { D[x] = c; Push(c, x); }
                 }
             }
             for (int n = 0; n < F.pot.Length; n++) F.pot[n] = float.PositiveInfinity;

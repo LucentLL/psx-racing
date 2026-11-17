@@ -900,9 +900,10 @@ namespace PSXRacing
                 // held on the rim when it is off the map; the finish a chequer
                 var cc = CarCtl();
                 var cp = cpr.Of(cc);
-                int next = cp != null ? cp.next : -1;
+                var pfin = cc != null ? race.GetProgress(cc) : null;
+                int next = cp != null && (pfin == null || !pfin.finished) ? cp.next : -1;
                 int after = next >= 0 && !cpr.IsFinishGate(cp, next) ? cpr.NextAfter(next) : -1;
-                for (int k = 0; k < cpr.GateCount; k++)
+                for (int k = 0; k < cpr.GateCount && next >= 0; k++)
                 {
                     if (k == next || k == after) continue;
                     var at = LiveLocal(cpr.GatePlan(k));

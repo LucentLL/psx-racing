@@ -599,6 +599,7 @@ namespace PSXRacing
         {
             var c = Of(car); if (c == null) return "";
             var p = rm.GetProgress(car);
+            if (p != null && p.finished) return "FINISHED";
             bool fin = IsFinishGate(c, c.next);
             string cp = fin ? "FINISH" : "CHECKPOINT " + DisplayIndex(c, c.next) + "/" + DisplayCount;
             if (Loop && rm.totalLaps > 1)
