@@ -24,7 +24,7 @@ namespace PSXRacing.EditorTools
     ///   A  the CAR MENU's showroom stage (the owner's view, the real page);
     ///   B  the turntable rig, camera moved in: the left glass at 2.7 m and at
     ///      1.4 m (the alignment: sills, roof, pillars), the rear three-quarter;
-    ///   C  a venue (BeechGap), the player's car in the shell: the chase camera,
+    ///   C  a venue (UptownLoop, Charlotte), the player's car in the shell: the chase camera,
     ///      a replay's trackside camera, beside the left door, and the cockpit
     ///      looking at the left glass from the seat (round 2's leftover: the side
     ///      glass now breaks there too) - day for every shell, night and rain for
@@ -272,7 +272,7 @@ namespace PSXRacing.EditorTools
         {
             var vdef = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
-            if (string.IsNullOrEmpty(only)) only = "BeechGap";
+            if (string.IsNullOrEmpty(only)) only = "UptownLoop";   // Charlotte: its street lamps light the night frames
             foreach (var d in TrackCatalog.All) if (d.id == only) { vdef = d; break; }
             if (!PSXScreenshotTool.Open(vdef, out var cam, out var player)) { L("FAIL venue " + only + " did not open"); return; }
             foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
