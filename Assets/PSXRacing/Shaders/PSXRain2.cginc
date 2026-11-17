@@ -12,7 +12,7 @@
 //     that), so the steeper the pixel the less stands on it: a flat lot or a
 //     sag fills first, a 2 % crossfall holds wheel-path dips, a 6 % bank or
 //     grade holds nothing. The dips themselves are two octaves of world noise
-//     (about 5 m and 1.6 m: a wheel-path dip, a patch joint), and the day's
+//     (about 3.8 m and 1.6 m: a wheel-path dip, a patch joint), and the day's
 //     standing water (_PSXRain2.z, the weather's own road water) raises the
 //     water line through them - so pools grow as it rains and are the last
 //     thing to dry. A pool is a full mirror; the film round it mirrors R2_FILM
@@ -49,10 +49,10 @@ float4 _PoolBand;               // per renderer: (v from, v to, 1 = on) - the gu
 #define R2_SLOPE_LO      0.008  // tilt (rise over run) where a surface starts to shed its pools..
 #define R2_SLOPE_HI      0.070  //   ..and where it holds none
 #define R2_SHED          0.40   // how far a shedding surface lifts the water line (noise units)
-#define R2_DIP_A         0.19   // the dips: cells about 5 m..
+#define R2_DIP_A         0.26   // the dips: cells about 3.8 m..
 #define R2_DIP_B         0.61   //   ..and 1.6 m
-#define R2_LINE_DRY      0.82   // the water line through the dips with almost none standing..
-#define R2_LINE_FULL     0.54   //   ..and in a downpour (about 38 % of a flat lot, 27 % of a 2 % crossfall)
+#define R2_LINE_DRY      0.86   // the water line through the dips with almost none standing..
+#define R2_LINE_FULL     0.60   //   ..and in a downpour (about 30 % of a flat lot, 22 % of a 2 % crossfall)
 #define R2_EDGE          0.035  // a pool's edge, in noise units: crisp, it is a water line
 #define R2_POOL_FADE_M   55.0   // beyond this the pools fade to their mean share over..
 #define R2_POOL_FADE_SPAN 70.0  //   ..this many metres: a 1.6 m dip is under a pixel out there
@@ -115,7 +115,7 @@ void PSXRain2At(float wetMat, float3 wpos, float3 N, float eyeDist, float2 uv)
     {
         float slope = length(N.xz) / max(N.y, 0.25);
         float shed = smoothstep(R2_SLOPE_LO, R2_SLOPE_HI, slope);
-        float n = PSXLitNoise(p * R2_DIP_A + 31.7) * 0.62 + PSXLitNoise(p * R2_DIP_B + 7.3) * 0.38;
+        float n = PSXLitNoise(p * R2_DIP_A + 31.7) * 0.58 + PSXLitNoise(p * R2_DIP_B + 7.3) * 0.42;
         float waterLine = lerp(R2_LINE_DRY, R2_LINE_FULL, level) + shed * R2_SHED;
         pool = smoothstep(waterLine, waterLine + R2_EDGE, n);
         float farT = saturate((eyeDist - R2_POOL_FADE_M) / R2_POOL_FADE_SPAN);

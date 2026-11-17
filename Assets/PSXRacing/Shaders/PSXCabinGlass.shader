@@ -221,9 +221,11 @@ Shader "PSX/CabinGlass"
                     float rainW = rain * fill;
                     // The windscreen's streaks bend outward from its middle.
                     float2 wdir = normalize(_Wind.xy + _Out.xy * (dot(q, _Out.xy) - _Wind.w) * _Wind.z * wind);
-                    float hB = max(Beads(q, 0.016, rainW * lerp(0.55, 0.25, wind), 1.7),
-                                   Beads(q, 0.028, rainW * lerp(0.35, 0.15, wind), 9.3));
-                    // (RAIN 2) a third, finer size while parked: the pane is COVERED
+                    // (RAIN 2: a parked pane is COVERED - more of the two sizes'
+                    // cells hold a bead, and a third, finer size sits between them)
+                    float dens = 1.0 + 0.65 * _CabinRain2.y * (1.0 - wind);
+                    float hB = max(Beads(q, 0.016, rainW * lerp(0.55, 0.25, wind) * dens, 1.7),
+                                   Beads(q, 0.028, rainW * lerp(0.35, 0.15, wind) * dens, 9.3));
                     if (_CabinRain2.y > 0.5) hB = max(hB, Beads(q, 0.0085, rainW * 0.62 * (1.0 - wind), 5.9) * 0.8);
                     float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * 0.45, 4.1, 0.0) * (1.0 - wind);
                     float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;

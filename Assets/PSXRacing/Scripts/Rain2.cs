@@ -142,8 +142,8 @@ namespace PSXRacing
         }
 
         // ---- the pool, on the CPU (PSXRain2.cginc's PSXRain2At, part 1) ---
-        const float SlopeLo = 0.008f, SlopeHi = 0.070f, Shed = 0.40f, DipA = 0.19f, DipB = 0.61f;
-        const float LineDry = 0.82f, LineFull = 0.54f, Edge = 0.035f;
+        const float SlopeLo = 0.008f, SlopeHi = 0.070f, Shed = 0.40f, DipA = 0.26f, DipB = 0.61f;
+        const float LineDry = 0.86f, LineFull = 0.60f, Edge = 0.035f;
 
         /// <summary>How much water stands at world point <paramref name="p"/>
         /// of a surface with normal <paramref name="n"/>, 0..1: the tyres'
@@ -155,8 +155,8 @@ namespace PSXRacing
             if (level <= 0.001f || n.y * 4f - 2.8f <= 0f) return 0f;
             float slope = Mathf.Sqrt(n.x * n.x + n.z * n.z) / Mathf.Max(n.y, 0.25f);
             float shed = RoadSurface.SmoothStep01(SlopeLo, SlopeHi, slope);
-            float nz = RoadSurface.Noise(p.x * DipA + 31.7f, p.z * DipA + 31.7f) * 0.62f
-                     + RoadSurface.Noise(p.x * DipB + 7.3f, p.z * DipB + 7.3f) * 0.38f;
+            float nz = RoadSurface.Noise(p.x * DipA + 31.7f, p.z * DipA + 31.7f) * 0.58f
+                     + RoadSurface.Noise(p.x * DipB + 7.3f, p.z * DipB + 7.3f) * 0.42f;
             float line = Mathf.Lerp(LineDry, LineFull, level) + shed * Shed;
             return RoadSurface.SmoothStep01(line, line + Edge, nz);
         }

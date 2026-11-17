@@ -310,8 +310,8 @@ namespace PSXRacing
                 position = p + n * 0.012f,
                 velocity = n * Random.Range(0.10f, 0.35f),
                 startLifetime = Random.Range(0.14f, 0.26f),
-                startSize = Random.Range(0.05f, 0.11f),
-                startColor = new Color(0.86f, 0.90f, 0.96f, 0.75f),
+                startSize = Random.Range(0.035f, 0.075f),
+                startColor = new Color(0.86f, 0.90f, 0.96f, 0.55f),
             };
             crowns.Emit(e, 1);
         }
@@ -324,8 +324,8 @@ namespace PSXRacing
                 position = p + n * 0.015f,
                 velocity = Vector3.zero,
                 startLifetime = Random.Range(0.30f, 0.48f),
-                startSize = Random.Range(0.20f, 0.34f),
-                startColor = new Color(0.86f, 0.90f, 0.96f, 0.42f),
+                startSize = Random.Range(0.14f, 0.26f),
+                startColor = new Color(0.86f, 0.90f, 0.96f, 0.20f),
                 rotation3D = Quaternion.FromToRotation(Vector3.up, n).eulerAngles,
             };
             rings.Emit(e, 1);
@@ -346,6 +346,8 @@ namespace PSXRacing
             cr.alignment = ParticleSystemRenderSpace.View;
             // the sprite stands ON its point: a crown rises from the surface
             cr.pivot = new Vector3(0f, 0.5f, 0f);
+            // half of them mirrored: one drawing, two crowns
+            cr.flip = new Vector3(0.5f, 0f, 0f);
             cr.sharedMaterial = crownMat;
             // thrown up fast, then it hangs: grows over its short life
             var cs = crowns.sizeOverLifetime;
@@ -374,8 +376,9 @@ namespace PSXRacing
         {
             var m = new Material(shader) { name = name + " (runtime)", hideFlags = HideFlags.HideAndDontSave, mainTexture = tex };
             m.SetColor("_Tint", Color.white);
-            m.SetFloat("_NearM", 0.5f);
-            m.SetFloat("_NearRamp", 1.0f);
+            // a 5 cm crown a pace from the lens would be drawn a hand tall: it fades in from 1 m to 3
+            m.SetFloat("_NearM", 1.0f);
+            m.SetFloat("_NearRamp", 2.0f);
             return m;
         }
 
@@ -427,7 +430,7 @@ namespace PSXRacing
         }
 
         /// <summary>A crown seen from the side: a low cup of water at the foot
-        /// and five jets leaning out of it, a droplet off each tip.</summary>
+        /// and three uneven jets leaning out of it, a droplet off each tip.</summary>
         static Texture2D CrownTexture()
         {
             const int n = 32;
@@ -437,17 +440,17 @@ namespace PSXRacing
                 for (int xx = 0; xx < n; xx++)
                 {
                     float x = (xx + 0.5f) / n * 2f - 1f, y = (yy + 0.5f) / n;
-                    float a = Mathf.Clamp01(1f - Mathf.Abs(x) / 0.62f) * Mathf.Clamp01(1f - y / 0.22f) * 0.9f;
-                    for (int j = 0; j < 5; j++)
+                    float a = Mathf.Clamp01(1f - Mathf.Abs(x) / 0.70f) * Mathf.Clamp01(1f - y / 0.16f) * 0.8f;
+                    for (int j = 0; j < 3; j++)
                     {
-                        float ang = (j - 2) * 0.42f;
+                        float ang = j == 0 ? -0.62f : j == 1 ? 0.08f : 0.50f;
+                        float len = j == 0 ? 0.52f : j == 1 ? 0.74f : 0.40f;
                         float sa = Mathf.Sin(ang), ca = Mathf.Cos(ang);
                         float along = x * sa + y * ca, across = Mathf.Abs(x * ca - y * sa);
-                        float len = 0.62f + 0.22f * ((j * 37) % 5) / 4f;
-                        if (along > 0.05f && along < len)
-                            a = Mathf.Max(a, Mathf.Clamp01(1f - across / 0.085f) * (1f - along / len * 0.6f));
-                        float ddx = x - sa * (len + 0.10f), ddy = y - ca * (len + 0.10f);
-                        a = Mathf.Max(a, Mathf.Clamp01(1f - Mathf.Sqrt(ddx * ddx + ddy * ddy) / 0.10f));
+                        if (along > 0.04f && along < len)
+                            a = Mathf.Max(a, Mathf.Clamp01(1f - across / 0.06f) * (0.75f - along / len * 0.45f));
+                        float ddx = x - sa * (len + 0.09f), ddy = y - ca * (len + 0.09f);
+                        a = Mathf.Max(a, Mathf.Clamp01(1f - Mathf.Sqrt(ddx * ddx + ddy * ddy) / 0.075f) * 0.9f);
                     }
                     px[yy * n + xx] = new Color32(255, 255, 255, (byte)(255f * Mathf.Clamp01(a)));
                 }
@@ -467,7 +470,7 @@ namespace PSXRacing
                 {
                     float x = (xx + 0.5f) / n * 2f - 1f, y = (yy + 0.5f) / n * 2f - 1f;
                     float r = Mathf.Sqrt(x * x + y * y);
-                    float a = Mathf.Clamp01(1f - Mathf.Abs(r - 0.78f) / 0.14f);
+                    float a = Mathf.Clamp01(1f - Mathf.Abs(r - 0.80f) / 0.10f);
                     px[yy * n + xx] = new Color32(255, 255, 255, (byte)(255f * a * a));
                 }
             t.SetPixels32(px);
