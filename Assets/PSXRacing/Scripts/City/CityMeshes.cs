@@ -10661,6 +10661,7 @@ namespace PSXRacing.City
                 const float proud = FanProudM;
                 FanCorners(map, trims, n, tm.origin, corners);
                 if (corners.Count < 3) continue;
+                if (FanLipOn) SeatMouths(corners);
 
                 FanCentre(map, trims, n, out var fc, out float fcY);
                 var centre = new Vector3(fc.x - tm.origin.x, fcY + proud, fc.y - tm.origin.z);
@@ -10854,6 +10855,35 @@ namespace PSXRacing.City
         public static readonly Dictionary<long, string> CurbPastAt = new Dictionary<long, string>();
         /// <summary>The perimeter chords a corner walk laid (streets pass 4).</summary>
         static readonly HashSet<int> walkGroupOf = new HashSet<int>();
+
+        // =====================================================================
+        //  THE FAN'S MOUTH LIP (the line gate, 2026-11-17; TRACK_FAULTS S1)
+        // =====================================================================
+        // Every junction slab stood FanProudM (12 mm) over the ribbons at its mouths - against z-fighting where
+        // the two overlap - so every car crossed a 12 mm step into and out of every junction: the line gate's
+        // STEP / fan lip, 5,781 places (the NCDOT limit is 1/8 inch, 3.2 mm: Std Spec 610-12), and the track
+        // races' rolls at Providence Road's Ardsley Rd / Fenton Pl mouths at 150-215 km/h. At a mouth the fan and
+        // the ribbon meet edge to edge and do not overlap: nothing there needs the lift. The ribbon corners of the
+        // ring (an arm's two mouth corners: not a curb return's arc, not an envelope point) are seated on the
+        // arm's own height (FanMouthProudM over it); the centre, the Steiner points and the curb returns keep the
+        // lift, so the slab still stands clear of whatever it does overlap inside, rising 12 mm over its first
+        // metres - a slope of a few hundredths of a percent. The crack along the seated mouth is the road slab's
+        // JOIN (two faces looking at each other, RoadSlab), as at any ribbon-to-ribbon joint. Verges, kerbs and
+        // fills that read the corners read the seated height. PSX_CITY_FANLIP=1 (default OFF until proven): seated.
+        public static bool FanLipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANLIP") == "1";
+        const float FanMouthProudM = 0f;
+        public static int FanMouthsSeated;
+        static void SeatMouths(List<FanCorner> corners)
+        {
+            for (int i = 0; i < corners.Count; i++)
+            {
+                var c = corners[i];
+                if (c.extra || c.arc || c.edge < 0) continue;
+                float y = c.yArm + FanMouthProudM;
+                if (c.pos.y <= y + 1e-5f) continue;
+                c.pos.y = y; corners[i] = c; FanMouthsSeated++;
+            }
+        }
 
         struct FanCorner
         {
