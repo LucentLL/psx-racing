@@ -573,10 +573,11 @@ namespace PSXRacing
             float sp = v.magnitude;
             if (sp < 3f) return 0f;
             var t = map.edges[e].TangentAt(s);
-            return 6f * (1f - Mathf.Abs(Vector2.Dot(v / sp, t)));
+            float cos = Vector2.Dot(v / sp, t);
+            return 6f * (1f - Mathf.Abs(cos)) + (map.edges[e].oneway && cos < -0.3f ? OneWayAgainstM : 0f);
         }
 
-        const float PreferBonusM = 3f;
+        const float PreferBonusM = 3f, OneWayAgainstM = 8f;
         /// <summary>The suggested route's own roads (CheckpointRace sets it): a FRESH locate (the grid, a respawn) on a
         /// freeway with ramps, C-D roads and streets under it takes the route's road when the car is on its pavement
         /// (UptownLoop: a rival planned from the road beside the grid and spun 400 m off the course at 12 s).</summary>
@@ -610,7 +611,14 @@ namespace PSXRacing
                 float sc = d;
                 if (ei == prefer && d <= e.HalfMax + 1.5f) sc -= PreferBonusM;
                 if (fresh && RouteSet != null && d <= e.HalfMax + 1.5f && RouteSet.Contains(ei)) sc -= RouteSetBonusM;
-                if (v != Vector2.zero && L2 > 1e-8f) sc += 6f * (1f - Mathf.Abs(Vector2.Dot(v, ab / Mathf.Sqrt(L2))));
+                if (v != Vector2.zero && L2 > 1e-8f)
+                {
+                    float cos = Vector2.Dot(v, ab / Mathf.Sqrt(L2));
+                    sc += 6f * (1f - Mathf.Abs(cos));
+                    // a ONE-WAY road the car is driving against: the other carriageway or a ramp the other way, 10 m
+                    // off (CltH6: a ramp read for the parallel one coming back, +3.8 km for a second)
+                    if (e.oneway && cos < -0.3f) sc += OneWayAgainstM;
+                }
                 if (sc < score) { score = sc; dist = d; edge = ei; s = sAt; }
             }
             return edge >= 0;
