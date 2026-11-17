@@ -122,6 +122,9 @@ namespace PSXRacing
             {
                 if (!IsWet(mats[i])) continue;
                 r.renderingLayerMask |= WetRenderingLayer;
+                // RAIN 2: the city's gutter pans run full (a no-op for every
+                // other renderer, and with PSX_RAIN2=0)
+                Rain2.TagRenderer(r, mats);
                 return true;
             }
             return false;

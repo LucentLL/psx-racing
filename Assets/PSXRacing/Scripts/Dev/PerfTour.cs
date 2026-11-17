@@ -382,7 +382,7 @@ namespace PSXRacing
             };
         }
 
-        static CityMap.Route RouteFor(CityMap map, string id)
+        public static CityMap.Route RouteFor(CityMap map, string id)
         {
             var r = map.RouteById(id);
             if (r != null) return r;

@@ -108,6 +108,30 @@ namespace PSXRacing
         GameObject dropHolder;
         readonly float[] dropBudget = new float[4];
 
+        // RAIN 2 (2026-11-16): STANDING WATER and THE ROOSTER TAIL. A tyre
+        // that runs into a pool (Rain2.PoolAt: the very pools the road shows)
+        // throws a burst and then a sheet out to both sides for as long as it
+        // is in the water, with more mist behind it; the player's car is
+        // heard hitting it. And from TailFrom km/h the mist behind a car
+        // grows into a rooster tail: taller, longer-lived, thrown higher.
+        // Rain2.Spray off (or PSX_RAIN2=0): none of it, the spray as it was.
+        /// <summary>How far from the camera (m) a car's wheels still look for pools.</summary>
+        public const float PoolReach = 80f;
+        /// <summary>Standing water (0..1) where a wheel is "in" a pool, and where it has left it.</summary>
+        public const float PoolIn = 0.5f, PoolOut = 0.3f;
+        /// <summary>The burst a tyre throws entering a pool: droplets, at PoolBurstFull m/s and above.</summary>
+        public const int PoolBurst = 14;
+        public const float PoolBurstFrom = 4f, PoolBurstFull = 25f;
+        /// <summary>In a pool the droplets come this many times as fast, the mist this many.</summary>
+        public const float PoolDropGain = 3.0f, PoolMistGain = 1.6f;
+        /// <summary>The rooster tail: from this road speed (km/h) to full.</summary>
+        public const float TailFrom = 130f, TailFull = 240f;
+        public const int TailCapacity = 176;
+        readonly bool[] inPool = new bool[4];
+        float tail;
+        /// <summary>For the checks: puddle hits this car's wheels have made.</summary>
+        public int PoolHits { get; private set; }
+
         // One material and one texture for every car in every scene. Static,
         // HideAndDontSave, and re-made if Unity destroyed them (the Unity null
         // check catches that), so nothing leaks per scene.
@@ -136,6 +160,19 @@ namespace PSXRacing
 
         void LateUpdate()
         {
+            if (!Rain2.Measure) { Step(); return; }
+            // (the rain play check's meter: every car's spray, summed)
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = Rain2.AllocNow();
+            Step();
+            long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            Rain2.SprayTicks += dt;
+            if (dt > Rain2.SprayMaxTicks) Rain2.SprayMaxTicks = dt;
+            Rain2.SprayAlloc += Rain2.AllocSince(a0);
+            Rain2.SprayCalls++;
+        }
+
+        void Step()
+        {
             if (car == null) return;
             // No spray is drawn inside its own car (OwnCarClip).
             if (body == null) body = car.GetComponent<BoxCollider>();
@@ -161,17 +198,44 @@ namespace PSXRacing
             Vector3 right = car.transform.right;
             float lat = Vector3.Dot(carVel, right);
             Vector3 slideOut = Mathf.Abs(lat) > 0.5f ? right * Mathf.Sign(lat) : Vector3.zero;
+            // RAIN 2: the pools under the wheels (cars near the camera only) and the tail
+            bool r2 = rain && Rain2.On && Rain2.Spray;
+            bool pools = false;
+            float speedMps = Mathf.Abs(car.speedKmh) / 3.6f;
+            tail = r2 ? Mathf.Clamp01((car.speedKmh - TailFrom) / (TailFull - TailFrom)) : 0f;
+            if (r2 && Rain2.PoolLevel > 0.001f)
+            {
+                var cam = Camera.main;
+                pools = cam != null && (cam.transform.position - car.transform.position).sqrMagnitude < PoolReach * PoolReach;
+            }
             for (int k = 0; k < 4; k++)
             {
                 var c = contacts[k];
                 float share = k < 2 ? FrontShare : 1f;
+                float pool = pools && c.grounded && c.onRoad ? Rain2.PoolAt(c.point, c.normal) : 0f;
+                if (!pools || !c.grounded || !c.onRoad) inPool[k] = false;
+                else if (!inPool[k] && pool > PoolIn)
+                {
+                    inPool[k] = true;
+                    PoolHits++;
+                    float hitK = Mathf.Clamp01((speedMps - PoolBurstFrom) / (PoolBurstFull - PoolBurstFrom));
+                    if (hitK > 0f && (drops != null || BuildDrops()))
+                    {
+                        int nb = Mathf.RoundToInt(PoolBurst * (0.4f + 0.6f * hitK));
+                        for (int j = 0; j < nb; j++) SpawnDrop(c, carVel, dir, 0f, Vector3.zero, 1f);
+                        var chase = ChaseCamera.Active;
+                        if (chase != null && chase.target == car.transform) Rain2Audio.PuddleHit(0.35f + 0.65f * hitK);
+                    }
+                }
+                else if (inPool[k] && pool < PoolOut) inPool[k] = false;
+                float inWater = inPool[k] ? Mathf.Clamp01(pool * 1.5f) * Mathf.Clamp01(speedMps / 12f) : 0f;
                 // Airborne, off the tarmac (grass does not throw a sheet of
                 // water), or dry: nothing, and no banked budget - landing
                 // would otherwise dump every puff the wheel owed in the air.
                 if (!rain || !c.grounded || !c.onRoad) { budget[k] = 0f; dropBudget[k] = 0f; continue; }
                 float slide = Mathf.Clamp01((c.slide - SlideStart) / (SlideFull - SlideStart));
-                float mistRate = t * RateAtFull * share + slide * SlideMistRate;
-                float dropRate = td * DropRateAtFull * share + slide * SlideDropRate;
+                float mistRate = (t * RateAtFull * share + slide * SlideMistRate) * (1f + (PoolMistGain - 1f) * inWater + 0.5f * tail);
+                float dropRate = (td * DropRateAtFull * share + slide * SlideDropRate) * (1f + (PoolDropGain - 1f) * inWater);
                 if (mistRate > 0f)
                 {
                     if (ps == null && !Build()) return;
@@ -189,7 +253,7 @@ namespace PSXRacing
                     dropBudget[k] += dropRate * dt;
                     int n = Mathf.Min(Mathf.FloorToInt(dropBudget[k]), 8);
                     dropBudget[k] -= n;
-                    for (int j = 0; j < n; j++) SpawnDrop(c, carVel, dir, slide, slideOut);
+                    for (int j = 0; j < n; j++) SpawnDrop(c, carVel, dir, slide, slideOut, inWater);
                 }
                 else dropBudget[k] = 0f;
             }
@@ -216,13 +280,14 @@ namespace PSXRacing
             // Up and back off the tread, a little sideways, on top of the share
             // of the car's own motion.
             emit.velocity = carVel * Inherit
-                            + n * Random.Range(0.9f, 2.2f)
+                            + n * (Random.Range(0.9f, 2.2f) + 2.6f * tail)
                             - fwd * (Random.Range(0.5f, 1.6f) * dir)
                             + side * Random.Range(-0.9f, 0.9f);
-            emit.startLifetime = Life * Random.Range(0.8f, 1.15f);
+            // (RAIN 2's rooster tail: tail is 0 below TailFrom km/h and with it off)
+            emit.startLifetime = Life * Random.Range(0.8f, 1.15f) * (1f + 0.7f * tail);
             // The size over life is a multiplier on this (SizeStart/SizeEnd
             // -> 1), so start size here is the size a puff DIES at.
-            emit.startSize = SizeEnd * Random.Range(0.8f, 1.2f);
+            emit.startSize = SizeEnd * Random.Range(0.8f, 1.2f) * (1f + 0.6f * tail);
             emit.startColor = SprayColour;
             // Spin, so a dozen copies of one texture are not a dozen copies.
             emit.rotation = Random.Range(0f, 360f);
@@ -247,7 +312,7 @@ namespace PSXRacing
             main.scalingMode = ParticleSystemScalingMode.Local;
             main.loop = true;
             main.playOnAwake = false;
-            main.maxParticles = Capacity;
+            main.maxParticles = Rain2.On && Rain2.Spray ? TailCapacity : Capacity;
             main.startLifetime = Life;
             main.startSpeed = 0f;
             main.startSize = SizeEnd;
@@ -301,7 +366,7 @@ namespace PSXRacing
         /// <summary>One droplet: off the top of the tread, up and back (a
         /// rooster tail) with the car's own motion under it, and when the tyre
         /// slides, out toward the slide.</summary>
-        void SpawnDrop(CarController.WheelContact c, Vector3 carVel, float dir, float slide, Vector3 slideOut)
+        void SpawnDrop(CarController.WheelContact c, Vector3 carVel, float dir, float slide, Vector3 slideOut, float inWater = 0f)
         {
             Vector3 n = c.normal.sqrMagnitude > 1e-6f ? c.normal.normalized : Vector3.up;
             Vector3 fwd = c.forward.sqrMagnitude > 1e-6f ? c.forward.normalized : car.transform.forward;
@@ -315,9 +380,12 @@ namespace PSXRacing
                            + n * Random.Range(1.2f, 3.6f)
                            - fwd * (Random.Range(1.0f, 3.2f) * dir)
                            + side * Random.Range(-1.1f, 1.1f)
-                           + slideOut * (slide * Random.Range(2.0f, 5.5f)),
-                startLifetime = DropLife * Random.Range(0.7f, 1.2f),
-                startSize = Random.Range(0.05f, 0.11f) * (1f + slide * 0.6f),
+                           + slideOut * (slide * Random.Range(2.0f, 5.5f))
+                           // (RAIN 2) in standing water: a sheet out to BOTH sides, and higher
+                           + (inWater > 0f ? side * ((Random.value < 0.5f ? -1f : 1f) * Random.Range(1.5f, 5.0f) * inWater)
+                                             + n * (Random.Range(0.5f, 2.2f) * inWater) : Vector3.zero),
+                startLifetime = DropLife * Random.Range(0.7f, 1.2f) * (1f + 0.35f * inWater),
+                startSize = Random.Range(0.05f, 0.11f) * (1f + slide * 0.6f + inWater * 0.5f),
                 startColor = DropColour,
             };
             drops.Emit(e, 1);
@@ -365,7 +433,7 @@ namespace PSXRacing
             return true;
         }
 
-        static Material SprayMaterial()
+        internal static Material SprayMaterial()
         {
             if (sharedMat != null) return sharedMat;
             var shader = Shader.Find("PSX/Rain");

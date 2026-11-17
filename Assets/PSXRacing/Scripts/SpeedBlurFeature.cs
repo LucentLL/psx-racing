@@ -181,6 +181,11 @@ namespace PSXRacing
             AddLens(renderer, cam);
             AddGlare(renderer, cam);
             AddWaterDepth(renderer, cam);
+            // (RAIN 2: the cockpit's glass reads the wet pass's frame copy
+            // through its drops - PSX/CabinGlass, _PSXSSRLive. Cleared here for
+            // every camera and raised by the pass itself, so a camera without
+            // the pass never reads a copy that is not this frame's.)
+            Shader.SetGlobalFloat(WetPass.LiveId, 0f);
             if (WetReflections.WantedFor(cam)) renderer.EnqueuePass(wetPass);
             AddCamcorder(renderer, cam);
         }
@@ -464,6 +469,7 @@ namespace PSXRacing
             static readonly int ColourId = Shader.PropertyToID("_PSXSSRColour");
             static readonly int DepthId = Shader.PropertyToID("_PSXSSRDepth");
             static readonly int ParamsId = Shader.PropertyToID("_PSXSSRParams");
+            public static readonly int LiveId = Shader.PropertyToID("_PSXSSRLive");
 
             class WetData
             {
@@ -471,6 +477,7 @@ namespace PSXRacing
                 public TextureHandle depth;
                 public RendererListHandle wet;
                 public Vector4 prms;
+                public float live;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -510,11 +517,20 @@ namespace PSXRacing
                     builder.UseTexture(depth);
                     builder.SetRenderAttachment(colour, 0, AccessFlags.ReadWrite);
                     builder.AllowGlobalStateModification(true);
+                    // RAIN 2: the copy stays alive (and bound as _PSXSSRColour)
+                    // for the transparents after this pass - the cockpit's
+                    // glass looks through its drops at it. Only with the
+                    // glass's own switch: without it the copy's lifetime is
+                    // exactly what it was.
+                    bool keep = Rain2.On && Rain2.Glass;
+                    if (keep) builder.SetGlobalTextureAfterPass(copy, ColourId);
+                    data.live = keep ? 1f : 0f;
                     builder.SetRenderFunc(static (WetData d, RasterGraphContext ctx) =>
                     {
                         ctx.cmd.SetGlobalTexture(ColourId, d.copy);
                         ctx.cmd.SetGlobalTexture(DepthId, d.depth);
                         ctx.cmd.SetGlobalVector(ParamsId, d.prms);
+                        ctx.cmd.SetGlobalFloat(LiveId, d.live);
                         ctx.cmd.DrawRendererList(d.wet);
                     });
                 }
