@@ -160,6 +160,19 @@ namespace PSXRacing
 
         void LateUpdate()
         {
+            if (!Rain2.Measure) { Step(); return; }
+            // (the rain play check's meter: every car's spray, summed)
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            Step();
+            long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            Rain2.SprayTicks += dt;
+            if (dt > Rain2.SprayMaxTicks) Rain2.SprayMaxTicks = dt;
+            Rain2.SprayAlloc += System.GC.GetAllocatedBytesForCurrentThread() - a0;
+            Rain2.SprayCalls++;
+        }
+
+        void Step()
+        {
             if (car == null) return;
             // No spray is drawn inside its own car (OwnCarClip).
             if (body == null) body = car.GetComponent<BoxCollider>();

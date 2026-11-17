@@ -61,6 +61,15 @@ namespace PSXRacing
 
         void Update()
         {
+            if (!Rain2.Measure) { Step(); return; }
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            Step();
+            Rain2.AudioTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            Rain2.AudioAlloc += System.GC.GetAllocatedBytesForCurrentThread() - a0;
+        }
+
+        void Step()
+        {
             float dt = Time.unscaledDeltaTime;
             if (hitCooldown > 0f) hitCooldown -= dt;
             float rain = Rain2.On && Rain2.Audio ? Rain2.RainNow : 0f;

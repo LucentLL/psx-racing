@@ -84,6 +84,19 @@ namespace PSXRacing
         /// <summary>Tools: force a tier (or -1 for the platform's).</summary>
         public static void ForceTier(int tier) { tierCached = tier < 0 ? -2 : Mathf.Clamp(tier, 0, 2); }
 
+        // ---- the play check's meter ---------------------------------------
+        /// <summary>The play check turns this on: the three per-frame parts
+        /// (the driver, the audio, every car's spray) then add their own time
+        /// and managed allocation here. Off (the game): two branches a frame.</summary>
+        public static bool Measure;
+        public static long DriverTicks, DriverMaxTicks, DriverAlloc, AudioTicks, AudioAlloc, SprayTicks, SprayMaxTicks, SprayAlloc;
+        public static int DriverFrames, SprayCalls;
+        public static void MeterReset()
+        {
+            DriverTicks = DriverMaxTicks = DriverAlloc = AudioTicks = AudioAlloc = SprayTicks = SprayMaxTicks = SprayAlloc = 0;
+            DriverFrames = SprayCalls = 0;
+        }
+
         // ---- what the shaders read ----------------------------------------
         static readonly int R2Id = Shader.PropertyToID("_PSXRain2");
         static readonly int CoverId = Shader.PropertyToID("_PSXRain2Cover");

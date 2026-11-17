@@ -138,6 +138,18 @@ namespace PSXRacing
 
         void LateUpdate()
         {
+            if (!Rain2.Measure) { Step(); return; }
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp(), a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            Step();
+            long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            Rain2.DriverTicks += dt;
+            if (dt > Rain2.DriverMaxTicks) Rain2.DriverMaxTicks = dt;
+            Rain2.DriverAlloc += System.GC.GetAllocatedBytesForCurrentThread() - a0;
+            Rain2.DriverFrames++;
+        }
+
+        void Step()
+        {
             if (!Rain2.On)
             {
                 if (wasOn) { wasOn = false; Rain2.Push(0f, 0f); Rain2.PushCover(null, 1f); ClearGround(); }
