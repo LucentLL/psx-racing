@@ -145,6 +145,45 @@ namespace PSXRacing
         }
 
         public int LensCount { get { int n = 0; foreach (var s in stations) n += s.lenses.Count; return n; } }
+        public int Judged { get { int n = 0; foreach (var s in stations) if (s.judged) n++; return n; } }
+
+        /// <summary>
+        /// DURING THE RACE (the recorder calls this a couple of times a
+        /// second): a streamed city has ground only round the cars, so a
+        /// point's bystanders are found when a car first comes within 150 m
+        /// of it - the tiles there are built then. By the flag every point
+        /// the field reached has its cameras, and SAVE TO TAPE scores at the
+        /// points as they finally stand.
+        /// </summary>
+        public static void Scout(RaceManager rm, RaceReplay rp)
+        {
+            if (rm == null || rp == null || rp.TrackCount == 0) return;
+            var plan = For(rm, rp);
+            if (plan == null) return;
+            for (int i = 0; i < plan.stations.Length; i++)
+            {
+                if (plan.stations[i].judged) continue;
+                Vector3 p = plan.course.points[i].pos;
+                for (int c = 0; c < rp.TrackCount; c++)
+                {
+                    var car = rp.TrackCar(c);
+                    if (car == null || (car.transform.position - p).sqrMagnitude > 150f * 150f) continue;
+                    plan.Ensure(i);
+                    break;
+                }
+            }
+        }
+
+        /// <summary>The ground is there at a point and under its cameras (a
+        /// streamed tile is built): the tape may cut to it.</summary>
+        public bool GroundReady(int i)
+        {
+            if (i < 0 || i >= stations.Length) return true;
+            if (!GroundThere(course.points[i].pos)) return false;
+            foreach (var l in stations[i].lenses)
+                if (!Physics.Raycast(l.pos + Vector3.up * 0.3f, Vector3.down, 8f, SolidMask, QueryTriggerInteraction.Ignore)) return false;
+            return true;
+        }
 
         // ------------------------------------------------------------------
         //  Placing one point's bystanders

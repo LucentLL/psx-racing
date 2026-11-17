@@ -326,6 +326,9 @@ namespace PSXRacing
                 tr.frames.Add(Capture(tr, rm));
             CaptureCargo();
             CaptureTraffic();
+            // The camcorders' bystanders are found as the field reaches each
+            // race point (a streamed city has ground only round the cars).
+            if ((Camcorder.Enabled || Tapes.Enabled) && times.Count % 15 == 3) RacePlan.Scout(rm, this);
         }
 
         void CaptureTraffic()

@@ -29,7 +29,7 @@ namespace PSXRacing
         public const float MaxPanDegS = 240f;
         /// <summary>The static between two recordings, seconds; and the
         /// longest the tape waits for a streamed place to be there.</summary>
-        public const float CutStaticS = 0.28f, CutWaitS = 3f;
+        public const float CutStaticS = 0.28f, CutWaitS = 4f;
 
         RaceReplay replay;
         Camera cam;
@@ -179,7 +179,7 @@ namespace PSXRacing
             {
                 // The place may still be streaming in (a city tile): the
                 // bystanders are found once the ground is there to stand on.
-                bool there = plan.Ensure(pi);
+                bool there = plan.Ensure(pi) && plan.GroundReady(pi);
                 if ((there && now >= holdUntil) || now >= holdGiveUp) holding = false;
             }
             replay.Hold = holding;

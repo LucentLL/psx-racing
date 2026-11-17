@@ -355,32 +355,8 @@ namespace PSXRacing.EditorTools
                 }
             }
 
-            // ---- the bystanders ----
-            int withLens = 0, lenses = 0, far = 0, onRoad = 0, blind = 0;
-            for (int i = 0; i < plan.course.points.Count; i++)
-            {
-                var p = plan.course.points[i];
-                var st = plan.stations[i];
-                if (st.lenses.Count > 0) withLens++;
-                string where = "";
-                foreach (var l in st.lenses)
-                {
-                    lenses++;
-                    if (l.far) far++;
-                    if (RacePlan.RoadUnder(l.pos)) onRoad++;
-                    if (RacePlan.Blocked(l.pos, p.pos + Vector3.up * 1.1f)) blind++;
-                    float lat = Mathf.Abs(Vector3.Dot(l.pos - p.pos, Vector3.Cross(Vector3.up, p.heading)));
-                    float along = Vector3.Dot(l.pos - p.pos, p.heading);
-                    where += "  " + (l.back ? "BACK" : "FRONT") + (l.far ? " (long lens)" : "") + " " + along.ToString("0") + " m along, " +
-                             lat.ToString("0.0") + " m off the middle" + (l.crouch ? ", crouched" : "");
-                }
-                CamcorderShots.Line("    " + (p.kind == RacePoint.Kind.Checkpoint ? "CHECKPOINT " + p.index : p.kind.ToString().ToUpperInvariant()) +
-                                    ": " + st.lenses.Count + " camera(s)" + (Mathf.Abs(st.slidM) > 0.1f ? " (the point slid " + st.slidM.ToString("0") + " m)" : "") +
-                                    (st.judged ? "" : " (ground not built yet)") + where);
-            }
-            CamcorderShots.Check(withLens == plan.course.points.Count, "a camera at every race point", withLens + " of " + plan.course.points.Count + " points, " + lenses + " cameras, " + far + " long lens");
-            CamcorderShots.Check(onRoad == 0, "no camera stands on a road", onRoad);
-            CamcorderShots.Check(blind == 0, "every camera sees its point", blind + " blind");
+            CamcorderShots.Line("  bystanders found during the race: " + plan.Judged + " of " + plan.stations.Length +
+                                " points judged, " + plan.LensCount + " cameras");
 
             // ---- the replay ----
             rp.Begin();
@@ -401,13 +377,15 @@ namespace PSXRacing.EditorTools
                 var st = plan.stations[Mathf.Clamp(c.point, 0, plan.stations.Length - 1)];
                 if (camOn && cc != null)
                 {
-                    if (st.lenses.Count == 0) { CamcorderShots.Line("    " + label + ": no camera, not on the tape"); continue; }
+                    // (A point not judged yet is judged when the tape cuts to it.)
+                    if (st.judged && st.lenses.Count == 0) { CamcorderShots.Line("    " + label + ": no camera, not on the tape"); continue; }
                     // The tape plays on its own (it cuts itself): wait for this clip's pass.
                     float w0 = Time.realtimeSinceStartup;
                     float front = Mathf.Max(c.tIn + 0.4f, c.tPass - 0.3f);
                     while (Time.realtimeSinceStartup - w0 < 60f && !(cc.CurrentClip == i && !rp.Hold && rp.ReplayTime >= front))
                     { dtSum += Time.unscaledDeltaTime; dtN++; yield return null; }
                     bool onIt = cc.CurrentClip == i;
+                    if (st.lenses.Count == 0) { CamcorderShots.Line("    " + label + ": no camera found when the tape cut to it"); continue; }
                     Vector3 at = cam.transform.position;
                     yield return Shot(file);
                     string osd = CamcorderOSD.Describe();
@@ -446,12 +424,39 @@ namespace PSXRacing.EditorTools
                     CamcorderShots.Line("    t " + rp.ReplayTime.ToString("0.0") + " s  " + rp.Mode + "  (" + label + ")");
                 }
             }
-            if (dtN > 0) CamcorderShots.Line("  mean frame " + (1000f * dtSum / dtN).ToString("0.0") + " ms (editor, watched)");
+            if (dtN > 0) CamcorderShots.Line("  mean frame " + (1000f * dtSum / dtN).ToString("0.0") + " ms (editor, " + (Application.isBatchMode ? "hidden" : "watched") + ")");
             if (camOn && cc != null)
             {
                 CamcorderShots.Check(shot > 0 && labelled == shot, "the OSD names every clip", labelled + " of " + shot);
                 CamcorderShots.Check(travelling == 0, "no camera travels: each lens at its bystander's spot", travelling + " moved");
             }
+            // ---- the bystanders (after the tape: a streamed place is judged when a car or the tape reaches it) ----
+            int withLens = 0, lenses = 0, far = 0, onRoad = 0, blind = 0;
+            for (int i = 0; i < plan.course.points.Count; i++)
+            {
+                var p = plan.course.points[i];
+                var st = plan.stations[i];
+                if (st.lenses.Count > 0) withLens++;
+                string where = "";
+                foreach (var l in st.lenses)
+                {
+                    lenses++;
+                    if (l.far) far++;
+                    if (RacePlan.RoadUnder(l.pos)) onRoad++;
+                    if (RacePlan.Blocked(l.pos, p.pos + Vector3.up * 1.1f)) blind++;
+                    float lat = Mathf.Abs(Vector3.Dot(l.pos - p.pos, Vector3.Cross(Vector3.up, p.heading)));
+                    float along = Vector3.Dot(l.pos - p.pos, p.heading);
+                    where += "  " + (l.back ? "BACK" : "FRONT") + (l.far ? " (long lens)" : "") + " " + along.ToString("0") + " m along, " +
+                             lat.ToString("0.0") + " m off the middle" + (l.crouch ? ", crouched" : "");
+                }
+                CamcorderShots.Line("    " + (p.kind == RacePoint.Kind.Checkpoint ? "CHECKPOINT " + p.index : p.kind.ToString().ToUpperInvariant()) +
+                                    ": " + st.lenses.Count + " camera(s)" + (Mathf.Abs(st.slidM) > 0.1f ? " (the point slid " + st.slidM.ToString("0") + " m)" : "") +
+                                    (st.judged ? "" : " (ground not built yet)") + where);
+            }
+            CamcorderShots.Check(withLens == plan.course.points.Count, "a camera at every race point", withLens + " of " + plan.course.points.Count + " points, " + lenses + " cameras, " + far + " long lens");
+            CamcorderShots.Check(onRoad == 0, "no camera stands on a road", onRoad);
+            CamcorderShots.Check(blind == 0, "every camera sees its point", blind + " blind");
+
             rp.End();
             CamcorderShots.Check(!RaceReplay.Playing && Camcorder.Camera == null, "the replay ends and the look goes with it");
             yield return null;
