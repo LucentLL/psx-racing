@@ -931,6 +931,8 @@ namespace PSXRacing
         float staticWheelLoad;
         float impactGraceTimer, impactGraceDuration;
         int suspensionMask;
+        /// <summary>The layers the wheels stand on (damage round 2: WheelScuff reads the kerbs beside them).</summary>
+        public int SuspensionMask => suspensionMask;
 
         void Awake()
         {

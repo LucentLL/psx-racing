@@ -107,6 +107,10 @@ Shader "PSX/Blit"
         // HD in the PC tier's picture, PlatformProfile.PCPicture). 0 in every
         // saved material.
         [HideInInspector] _Fxaa ("FXAA", Float) = 0
+        // RENDER SCALE under 100 % (RenderScalePrefs): the framebuffer is
+        // scaled up to the display, and sharpened by this much. 0 in every
+        // saved material and at 100 %.
+        [HideInInspector] _Sharpen ("Upscale sharpen", Float) = 0
     }
     SubShader
     {
@@ -131,6 +135,7 @@ Shader "PSX/Blit"
             sampler2D _GlowTex;     // the halation, built by Halation.cs
             float _GlowOn;          // 1 = _GlowTex was built for this material's frame
             float _Fxaa;            // 1 = FXAA (the PC tier's HD picture)
+            float _Sharpen;         // > 0 = the picture is scaled up: sharpen it (RenderScalePrefs)
             // Globals (PSXGlobals pushes them every frame from the hour;
             // see the header). NOT in Properties, on purpose.
             float _PSXGradeNight;   // 0 day .. 1 night
@@ -437,6 +442,20 @@ Shader "PSX/Blit"
                 UNITY_BRANCH
                 if (_Fxaa > 0.5) col = Fxaa(i.uv);
                 else col = tex2D(_MainTex, i.uv).rgb;
+                // THE UPSCALE'S SHARPEN (RENDER SCALE under 100 %): an unsharp
+                // mask from the four neighbours one FRAMEBUFFER pixel away,
+                // held inside those five samples' own range - so an edge gets
+                // steeper and never rings past either side of it.
+                UNITY_BRANCH
+                if (_Sharpen > 0.001)
+                {
+                    float2 sts = _MainTex_TexelSize.xy;
+                    float3 sn = FxaaTap(i.uv + float2(0.0, -sts.y)), ss = FxaaTap(i.uv + float2(0.0, sts.y));
+                    float3 se = FxaaTap(i.uv + float2(sts.x, 0.0)), sw = FxaaTap(i.uv - float2(sts.x, 0.0));
+                    float3 smn = min(col, min(min(sn, ss), min(se, sw)));
+                    float3 smx = max(col, max(max(sn, ss), max(se, sw)));
+                    col = clamp(col + (col - (sn + ss + se + sw) * 0.25) * _Sharpen, smn, smx);
+                }
 
                 // QUANTIZE IN GAMMA SPACE. The project renders in linear
                 // colour, so the framebuffer sample here is linear, and 31

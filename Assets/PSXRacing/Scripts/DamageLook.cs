@@ -66,7 +66,16 @@ namespace PSXRacing
             /// <summary>Bits: 1 head L, 2 head R, 4 tail L, 8 tail R.</summary>
             public int lampOut;
             public int bags, radStage;
-            public bool Any => zones != Vector4.zero || roof > 0f || lampOut != 0;
+            /// <summary>Damage round 2 (DamageGlass): the panes - windscreen (1/3 a
+            /// chip, 2/3 a crack, 1 a web), rear, left, right (tempered: 0.5
+            /// crazed, 1 shattered) - and where each was struck (x across or
+            /// along -1..1, y up 0..1, z seed, w the way a crack runs).</summary>
+            public Vector4 panes, hitW, hitX, hitL, hitT;
+            /// <summary>Damage round 2 (WheelScuff): each wheel's rash (FL, FR,
+            /// RL, RR: 1/3, 2/3, 1) and its seed.</summary>
+            public Vector4 rash, rashSeed;
+            public bool frontGlass, rearGlass;
+            public bool Any => zones != Vector4.zero || roof > 0f || lampOut != 0 || panes != Vector4.zero;
         }
         public Look Now;
         Look pushed;
@@ -122,7 +131,7 @@ namespace PSXRacing
             look.Bind(look.car, look.ledger);
             look.Now = Read(look.carried, look.ledger);
             if (!LampsOn) look.Now.lampOut = 0;
-            if (!BodyOn) { look.Now.zones = Vector4.zero; look.Now.roof = 0f; }
+            if (!BodyOn) { look.Now.zones = Vector4.zero; look.Now.roof = 0f; look.Now.panes = Vector4.zero; }
             if (!SrsOn) look.Now.bags = 0;
             if (look.Now.bags == 0 && look.bagsPlaced > 0)
             {
@@ -132,7 +141,12 @@ namespace PSXRacing
                 var ci = look.car.GetComponentInChildren<CockpitInterior>(true);
                 if (ci != null) ci.CollectRenderers();
             }
-            if (look.Now.roof <= 0f && look.crack != null) { DestroyNow(look.crack); look.crack = null; }
+            if ((DamageGlass.On ? DamageGlass.Level(look.Now.panes.x) == 0 : look.Now.roof <= 0f) && look.crack != null)
+            {
+                DestroyNow(look.crack);
+                look.crack = null;
+                look.crackLevel = 0;
+            }
             if (look.Now.radStage == 0 && look.steam != null)
             {
                 var em = look.steam.emission;
@@ -177,21 +191,34 @@ namespace PSXRacing
         public static Look Read(List<CarFault> rows, DamageLedger L)
         {
             var k = new Look();
-            bool barF = false, barR = false;
+            bool barF = false, barR = false, barF2 = false, barR2 = false;
             if (rows != null)
                 foreach (var f in rows)
                 {
                     if (f == null) continue;
-                    if (f.id == DamageModel.BarId) { barF |= f.zone1 == DamageModel.ZFront; barR |= f.zone1 == DamageModel.ZRear; continue; }
+                    if (f.id == DamageModel.BarId)
+                    {
+                        barF |= f.zone1 == DamageModel.ZFront; barR |= f.zone1 == DamageModel.ZRear;
+                        barF2 |= f.zone1 == DamageModel.ZFront && f.stage >= 2f; barR2 |= f.zone1 == DamageModel.ZRear && f.stage >= 2f;
+                        continue;
+                    }
                     Fold(ref k, f.id, Mathf.RoundToInt(f.stage), f.zone1, f.hitSide, f.corner1 - 1, f.mag);
+                    DamageGlass.Fold(ref k, f.id, Mathf.RoundToInt(f.stage), f.zone1, f.hitSide, f.corner1 - 1, f.hitMps, f.hitId);
                 }
             if (L != null)
                 foreach (var inc in L.incidents)
                     foreach (var r in inc.outcome.rows)
                     {
-                        if (r.id == DamageModel.BarId) { barF |= r.zone == DamageModel.ZFront; barR |= r.zone == DamageModel.ZRear; continue; }
+                        if (r.id == DamageModel.BarId)
+                        {
+                            barF |= r.zone == DamageModel.ZFront; barR |= r.zone == DamageModel.ZRear;
+                            barF2 |= r.zone == DamageModel.ZFront && r.stage >= 2; barR2 |= r.zone == DamageModel.ZRear && r.stage >= 2;
+                            continue;
+                        }
                         Fold(ref k, r.id, r.stage, r.zone, r.side, r.corner, r.mag);
+                        DamageGlass.Fold(ref k, r.id, r.stage, r.zone, r.side, r.corner, inc.dv, inc.hitId);
                     }
+            DamageGlass.Bars(ref k, barF2, barR2);   // round 2: a bar pushed back took the glass further
             // a crushed bar is hidden: it only lets a cover that already shows sit deeper
             if (barF && k.zones.x > 0f) k.zones.x = Mathf.Min(1f, k.zones.x + 0.12f);
             if (barR && k.zones.y > 0f) k.zones.y = Mathf.Min(1f, k.zones.y + 0.12f);
@@ -207,19 +234,27 @@ namespace PSXRacing
                 nextRead = now + 0.2f;
                 Now = Read(carried, ledger);
                 if (!LampsOn) Now.lampOut = 0;
-                if (!BodyOn) { Now.zones = Vector4.zero; Now.roof = 0f; }
+                if (!BodyOn) { Now.zones = Vector4.zero; Now.roof = 0f; Now.panes = Vector4.zero; }
                 if (!SrsOn) Now.bags = 0;
                 if (bodyOnly) { Now.lampOut = 0; Now.bags = 0; Now.radStage = 0; }
                 bool changed = !pushedOnce || !Same(Now, pushed);
                 if (changed || now >= nextPush) { Push(); nextPush = now + 2f; }
                 if (Now.bags > 0 && bagsPlaced == 0) PlaceBags();
-                if (BodyOn && Now.roof > 0f && crack == null) PlaceCrack();
+                if (BodyOn && DamageGlass.On)
+                {
+                    // round 2: the windscreen's own break, where it was struck
+                    int lvl = DamageGlass.Level(Now.panes.x);
+                    if (lvl != crackLevel) PlaceBreak(lvl);
+                }
+                else if (BodyOn && Now.roof > 0f && crack == null) PlaceCrack();
             }
             Steam();
         }
 
         static bool Same(Look a, Look b) =>
-            a.zones == b.zones && a.roof == b.roof && a.biasF == b.biasF && a.biasR == b.biasR && a.lampOut == b.lampOut;
+            a.zones == b.zones && a.roof == b.roof && a.biasF == b.biasF && a.biasR == b.biasR && a.lampOut == b.lampOut &&
+            a.panes == b.panes && a.hitW == b.hitW && a.hitX == b.hitX && a.hitL == b.hitL && a.hitT == b.hitT &&
+            a.rash == b.rash && a.rashSeed == b.rashSeed;
 
         // ================= the body and the lenses (PSX/CarPaint) =================
         public static readonly int OnId = Shader.PropertyToID("_PSXDmgOn"), AId = Shader.PropertyToID("_PSXDmgA"),
@@ -242,6 +277,7 @@ namespace PSXRacing
             half = Vector3.Max(half, Vector3.one * 0.1f);
             float seed = Seed(carId);
             bool any = Now.Any;
+            Vector4 cabin = DamageGlass.Cabin(body != null ? body.Def : null, body != null && body.Def != null ? body.Fit.sz : 1f, half);
             // the shell as it rests on the chassis (CarBodyLean's lean taken out)
             Transform root = RestOn && body != null && body.bodyRoot != null && body.bodyRoot.parent != null ? body.bodyRoot : null;
             Matrix4x4 restM = Matrix4x4.identity;
@@ -256,16 +292,19 @@ namespace PSXRacing
             foreach (var r in rends)
             {
                 if (r == null) continue;
-                bool wheel = false;
+                int wi = -1;
                 if (body != null && body.wheelRenderers != null)
-                    foreach (var w in body.wheelRenderers) wheel |= w == r;
+                    for (int q = 0; q < body.wheelRenderers.Length && q < 4; q++) if (body.wheelRenderers[q] == r) wi = q;
+                bool wheel = wi >= 0;
                 var m = r.sharedMaterial;
                 if (m != null && m.HasProperty("_Dull") && m.GetFloat("_Dull") > 0.5f) wheel = true;
                 var t = r.transform;
                 bool onShell = root != null && t.IsChildOf(root);
                 Matrix4x4 lw = onShell ? restM * t.localToWorldMatrix : t.localToWorldMatrix;
                 WriteBlock(r, Now, any && !wheel, lw, onShell ? restQ * t.rotation : t.rotation, cW, half,
-                           bt.forward, bt.right, bt.up, seed);
+                           bt.forward, bt.right, bt.up, seed, cabin);
+                // round 2: this wheel's rash (the block turns with the wheel)
+                if (wi >= 0) WheelScuff.Write(r, Now.rash[wi], Now.rashSeed[wi], car.WheelRadiusOf(wi));
             }
         }
 
@@ -283,7 +322,7 @@ namespace PSXRacing
         /// Keeps what other writers put in the block (gloss, arches, lamps).
         /// </summary>
         public static void WriteBlock(Renderer r, Look now, bool on, Matrix4x4 lw, Quaternion rot, Vector3 cW,
-                                      Vector3 half, Vector3 fwdW, Vector3 rightW, Vector3 upW, float seed)
+                                      Vector3 half, Vector3 fwdW, Vector3 rightW, Vector3 upW, float seed, Vector4 cabin = default)
         {
             if (r == null) return;
             if (block == null) block = new MaterialPropertyBlock();
@@ -301,6 +340,7 @@ namespace PSXRacing
             block.SetVector(CId, new Vector4(cB.x, cB.y, cB.z, 0f));
             int lo = now.lampOut;
             block.SetVector(LampOutId, new Vector4(lo & 1, (lo >> 1) & 1, (lo >> 2) & 1, (lo >> 3) & 1));
+            DamageGlass.Write(block, now, on, half, cabin == default ? DamageGlass.Cabin(null, 1f, half) : cabin);   // round 2: the panes
             r.SetPropertyBlock(block);
         }
 
@@ -478,6 +518,84 @@ namespace PSXRacing
             mr.receiveShadows = false;
             ci.CollectRenderers();
         }
+
+        int crackLevel;
+
+        /// <summary>
+        /// Damage round 2: the windscreen's break from the seat - a chip, a
+        /// crack or a web (DamageGlass.CockpitTexture), on the pane's own plane
+        /// where the incident struck it (the struck side, low for a front hit).
+        /// Thin pale lines: the road stays plain between them.
+        /// </summary>
+        void PlaceBreak(int level)
+        {
+            if (Time.time < nextCrackTry) return;
+            nextCrackTry = Time.time + 0.5f;
+            if (crack != null) { DestroyNow(crack); crack = null; }
+            if (level <= 0) { crackLevel = 0; return; }
+            var ci = car.GetComponentInChildren<CockpitInterior>(true);
+            var smoke = car.GetComponent<TireSmoke>();
+            if (ci == null || smoke == null || smoke.material == null) return;
+            Renderer screen = null;
+            foreach (var r in ci.GetComponentsInChildren<Renderer>(true))
+                if (r.sharedMaterial != null && r.sharedMaterial.name == "Cockpit_Glass_windshield") { screen = r; break; }
+            var mf = screen != null ? screen.GetComponent<MeshFilter>() : null;
+            if (mf == null || mf.sharedMesh == null) return;
+            var ct = car.transform;
+            var vs = mf.sharedMesh.vertices;
+            var ts = mf.sharedMesh.triangles;
+            Vector3 nSum = Vector3.zero, cSum = Vector3.zero;
+            float aSum = 0f;
+            for (int i = 0; i + 2 < ts.Length; i += 3)
+            {
+                Vector3 a = screen.transform.TransformPoint(vs[ts[i]]), b = screen.transform.TransformPoint(vs[ts[i + 1]]),
+                        c = screen.transform.TransformPoint(vs[ts[i + 2]]);
+                Vector3 x = Vector3.Cross(b - a, c - a);
+                if (Vector3.Dot(x, ct.forward) > 0f) x = -x;           // every face toward the cabin
+                float area = x.magnitude * 0.5f;
+                nSum += x;
+                cSum += (a + b + c) / 3f * area;
+                aSum += area;
+            }
+            if (aSum < 1e-4f) return;
+            Vector3 n = nSum.normalized, centre = cSum / aSum;
+            Vector3 up = Vector3.ProjectOnPlane(ct.up, n).normalized;
+            Vector3 right = Vector3.ProjectOnPlane(ct.right, n).normalized;
+            float minU = float.PositiveInfinity, maxU = float.NegativeInfinity, maxR = 0f;
+            foreach (var v in vs)
+            {
+                Vector3 w = screen.transform.TransformPoint(v) - centre;
+                float u = Vector3.Dot(w, up);
+                minU = Mathf.Min(minU, u); maxU = Mathf.Max(maxU, u);
+                maxR = Mathf.Max(maxR, Mathf.Abs(Vector3.Dot(w, right)));
+            }
+            float fy = Mathf.Clamp(Now.hitW.y, 0.12f, 0.88f);
+            Vector3 at = centre + n * 0.012f + right * (Mathf.Clamp(Now.hitW.x, -1f, 1f) * 0.75f * maxR) + up * Mathf.Lerp(minU, maxU, fy);
+            crack = new GameObject("GlassCrack") { layer = ci.gameObject.layer };
+            crack.transform.SetPositionAndRotation(at, Quaternion.LookRotation(-n, up));
+            crack.transform.SetParent(ci.transform, true);
+            var m = new Mesh { name = "GlassCrack" };
+            float H = DamageGlass.QuadMetres(level) * 0.5f;
+            m.vertices = new[] { new Vector3(-H, -H, 0f), new Vector3(-H, H, 0f), new Vector3(H, H, 0f), new Vector3(H, -H, 0f) };
+            m.uv = new[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) };
+            m.colors = new[] { Color.white, Color.white, Color.white, Color.white };
+            m.triangles = new[] { 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 };
+            m.RecalculateBounds();
+            crack.AddComponent<MeshFilter>().sharedMesh = m;
+            var mr = crack.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = new Material(smoke.material)
+            {
+                name = "GlassCrack", mainTexture = DamageGlass.CockpitTexture(level, Now.hitW.z, Now.hitW.w), hideFlags = HideFlags.HideAndDontSave,
+            };
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            crackLevel = level;
+            ci.CollectRenderers();
+        }
+
+        /// <summary>The cockpit's windscreen break, as placed (tests and the picture tools).</summary>
+        public int CrackLevel => crackLevel;
+        public GameObject CrackObject => crack;
 
         /// <summary>A star of cracks: jagged rays from a strike and broken rings round it.</summary>
         static Texture2D CrackTex()

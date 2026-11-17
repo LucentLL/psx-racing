@@ -129,6 +129,10 @@ namespace PSXRacing.LifeSim
             { "lamp_out", FaultClassKind.Body },
             { "srs_deployed", FaultClassKind.Body },   // R1a part 2a
             { "roof_glass", FaultClassKind.Body },
+            { "wheel_rash_fl", FaultClassKind.Chassis },     // damage round 2: a wheel's curb rash (WheelScuff)
+            { "wheel_rash_fr", FaultClassKind.Chassis },
+            { "wheel_rash_rl", FaultClassKind.Chassis },
+            { "wheel_rash_rr", FaultClassKind.Chassis },
             { "frame_bent", FaultClassKind.Chassis },        // R1c-A: a FAIL's rows
             { "subframe_failed", FaultClassKind.Chassis },
             { "knuckle_broken", FaultClassKind.Chassis },

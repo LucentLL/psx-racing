@@ -485,6 +485,8 @@ R("subaru_impreza_sedan_wrx_sti_version_vi__gc___99", "JDM", "EJ20 turbo", "dual
 R("subaru_impreza_sport_wagon_wrx_sti_version_vi__gf___99", "JDM", "EJ20 turbo", "dual", "disc")
 R("toyota_supra_2_5gt_twin_turbo_r__90", "JDM", "1JZ-GTE", "none", "disc")
 R("chevrolet_camaro_ss__69", "US", "SBC 350 L48", "none", "drum", ac="none", lo="ac")
+R("chevrolet_camaro_ss_350__67", "US", "SBC 350 L48", "none", "drum", ac="none", lo="ac",
+  note="cars-1116: the owner's 1967 SS 350 model; not a GT4 row")
 R("lexus_is200__j___98", "JDM", "3S-GE BEAMS", "dual", "disc", lo="airbags",
   note=NOTE_JDM_US_NAME + " (Toyota Altezza RS200, 3S-GE)")
 R("lexus_is200__98", "EUR", "1G-FE BEAMS", "dual+side", "disc", lo="market,airbags",

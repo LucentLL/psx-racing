@@ -243,6 +243,11 @@ namespace PSXRacing
         /// true when it took the press itself (a tape at home ejects to the
         /// house rather than to the results screen).</summary>
         public static System.Func<bool> ExitHook;
+        /// <summary>The camcorder's cut between two clips: the tape stands
+        /// still (a burst of static) while the next point's camera is found.
+        /// Not a pause: nothing says PAUSED.</summary>
+        public bool Hold;
+        bool CamcorderUsable => Camcorder.Enabled && camcorderCam != null && camcorderCam.Usable;
         /// <summary>Samples per second of the recording on screen: 30 for a
         /// race just run, the tape's own rate for a tape.</summary>
         float indexHz = SampleHz;
@@ -321,6 +326,9 @@ namespace PSXRacing
                 tr.frames.Add(Capture(tr, rm));
             CaptureCargo();
             CaptureTraffic();
+            // The camcorders' bystanders are found as the field reaches each
+            // race point (a streamed city has ground only round the cars).
+            if ((Camcorder.Enabled || Tapes.Enabled) && times.Count % 15 == 3) RacePlan.Scout(rm, this);
         }
 
         void CaptureTraffic()
@@ -490,15 +498,14 @@ namespace PSXRacing
             {
                 camcorderCam = cam.GetComponent<CamcorderCam>();
                 if (camcorderCam == null) camcorderCam = cam.gameObject.AddComponent<CamcorderCam>();
-                var venueC = RaceHUD.VenueDef();
-                var pathC = rm != null ? rm.path : Object.FindFirstObjectByType<TrackPath>();
-                float spacingC = pathC != null ? pathC.spacing : 4f;
-                camcorderCam.Setup(pathC, cam, pathC != null ? pathC.roadWidth : 12f,
-                                   idx => TrackCatalog.InTunnel(venueC, idx * spacingC));
+                // The race's points (start, checkpoints, finish) and the
+                // bystanders at them: RacePlan.
+                camcorderCam.Setup(this, cam);
                 camcorderCam.enabled = false;
             }
             Rate = 1f;
-            SetMode(Camcorder.Enabled && camcorderCam != null ? CamMode.Camcorder : CamMode.Trackside, flash: false);
+            Hold = false;
+            SetMode(CamcorderUsable ? CamMode.Camcorder : CamMode.Trackside, flash: false);
 
             // The cabin is the driver's; a spectator gets the race data only.
             var hud = Object.FindFirstObjectByType<RaceHUD>();
@@ -553,6 +560,7 @@ namespace PSXRacing
             if (replayCam != null) replayCam.enabled = false;
             if (camcorderCam != null) camcorderCam.enabled = false;
             Rate = 1f;
+            Hold = false;
             if (chase != null)
             {
                 chase.enabled = true;
@@ -637,7 +645,7 @@ namespace PSXRacing
             if (camKey)
             {
                 var next = (CamMode)(((int)Mode + 1) % CamNames.Length);
-                if (next == CamMode.Camcorder && camcorderCam == null) next = CamMode.Trackside;
+                if (next == CamMode.Camcorder && !CamcorderUsable) next = CamMode.Trackside;
                 SetMode(next, flash: true);
             }
 
@@ -706,7 +714,7 @@ namespace PSXRacing
 
         void StepPlayback()
         {
-            if (!paused)
+            if (!paused && !Hold)
             {
                 replayTime += Time.fixedDeltaTime * Rate;
                 if (VcrControls)
@@ -1110,17 +1118,6 @@ namespace PSXRacing
 
         /// <summary>Watch this car (a tape opens on the player's own).</summary>
         public void Watch(int i) => SetFocus(i);
-
-        /// <summary>A car's recorded pose at a replay time (the camcorder's
-        /// buddy car runs the focus car's own line a beat behind it).</summary>
-        public bool PoseAt(int car, float t, out Vector3 pos, out Quaternion rot)
-        {
-            pos = default; rot = Quaternion.identity;
-            if (car < 0 || car >= tracks.Count || tracks[car].frames.Count == 0) return false;
-            var f = Sample(tracks[car], Mathf.Clamp(t, 0f, Duration));
-            pos = f.pos; rot = f.rot;
-            return true;
-        }
 
         /// <summary>Feed synthetic frames straight in. Test only.</summary>
         public void InjectForTest(CarController car, List<float> t, List<Frame> frames)

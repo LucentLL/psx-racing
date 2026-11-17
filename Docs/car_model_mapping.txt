@@ -1,5 +1,5 @@
 PSX Racing — catalog car to body shell
-319 cars across 42 of 52 shells; 222 hand-mapped, 97 scored.
+320 cars across 47 of 57 shells; 223 hand-mapped, 97 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
   Per car, TO SPEC (CarModelLibrary.Fit, the owner's GT4 Specs sheet): wheelbase sheet/shell
@@ -7,7 +7,7 @@ PSX Racing — catalog car to body shell
   tyre diameter x section F/R, along/across stretch, camber F/R (top in) and any poke past
   the model's own wheel left after it. !CLAMP = a stretch hit its fence; !POKE = still out.
 
-CAMBER (128 cars)
+CAMBER (134 cars)
     Honda CIVIC 1500 3door CX `79 [euro_hatch]: F 3.2 R 3.7 deg
     Honda CIVIC 1500 3door 25i `83 [euro_hatch]: F 3.9 R 4.7 deg
     Alpine A110 1600S `73 [mb_pagoda]: F 6.0 R 5.0 deg
@@ -20,13 +20,11 @@ CAMBER (128 cars)
     Mazda DEMIO (J) `99 [euro_hatch]: F 3.2 R 2.2 deg
     Mazda Mazda 323F `93 [euro_hatch]: F 5.4 R 5.4 deg
     Honda ACCORD Coupe `88 [citroen_cx]: F 0.8 R 0.5 deg
-    Nissan SILVIA K's (S13) `88 [nissan_180sx]: F 0.4 R 0.4 deg
     Nissan EXA CANOPY L.A.Version Type S (N13) `88 [euro_hatch]: F 3.8 R 3.8 deg
     Toyota SERA `92 [euro_hatch]: F 3.8 R 3.8 deg
     Toyota CARINA ED 2.0 X 4WS `89 [audi_saloon]: F 1.6 R 0.0 deg
     Toyota STARLET Glanza V `97 [euro_hatch]: F 4.8 R 4.5 deg
     BUICK Special `62 [gto_66]: F 1.9 R 1.8 deg
-    Nissan SILVIA K's (S13) `91 [nissan_180sx]: F 0.8 R 0.8 deg
     Honda CR-X SiR `90 [euro_hatch]: F 4.7 R 5.0 deg
     Lotus Europa Special `71 [mb_pagoda]: F 4.9 R 5.7 deg
     Mitsubishi Lancer EX 1800GSR IC Turbo `83 [audi_saloon]: F 0.5 R 0.0 deg
@@ -38,7 +36,7 @@ CAMBER (128 cars)
     Mazda MX-5 Miata V-Special Type II (NA, J) `93 [roadster_na_popup]: F 1.1 R 0.9 deg
     Mazda MX-5 Miata VR-Limited (NA, J) `95 [roadster_na_popup]: F 1.6 R 1.4 deg
     Mitsubishi MIRAGE CYBORG ZR `97 [euro_hatch]: F 5.0 R 5.4 deg
-    Nissan 240SX `96 [fastback_96]: F 0.7 R 0.7 deg
+    Nissan 240SX `94 [fastback_96]: F 0.7 R 0.7 deg
     Mazda MX-5 Miata SR-Limited (NA, J) `97 [roadster_na_popup]: F 1.1 R 0.9 deg
     Opel Tigra 1.6i `99 [euro_hatch]: F 4.9 R 4.9 deg
     Lotus Elan S1 `62 [mb_pagoda]: F 4.0 R 5.8 deg
@@ -82,8 +80,9 @@ CAMBER (128 cars)
     Honda S2000 `99 [roadster_99]: F 0.0 R 0.9 deg
     Nissan STAGEA 25t RS FOUR S `98 [volvo_estate]: F 2.2 R 2.7 deg
     Lancia STRATOS `73 [mb_pagoda]: F 3.8 R 4.8 deg
-    Mitsubishi Lancer Evolution VI GSR `99 [rally_sedan_99]: F 0.4 R 0.4 deg
+    Mitsubishi Lancer Evolution VI GSR `99 [rally_sedan_99]: F 0.0 R 0.4 deg
     Alfa Romeo Spider 1600 Duetto `66 [mb_pagoda]: F 1.5 R 0.0 deg
+    Ford RS200 `84 [audi_saloon]: F 1.8 R 1.2 deg
     Lotus Elise Sport 190 `98 [mb_pagoda]: F 5.6 R 6.9 deg
     Plymouth Cuda 440 Six Pack `71 [charger_69]: F 0.0 R 0.5 deg
     Spoon INTEGRA TYPE R (DC2) `99 [liftback_95]: F 3.5 R 3.8 deg
@@ -111,14 +110,21 @@ CAMBER (128 cars)
     Dodge VIPER GTS `99 [viper_gts]: F 1.1 R 1.3 deg
     Ford Escort Rally Car `98 [euro_hatch]: F 5.3 R 5.3 deg
     Mercedes-Benz SL 500 (R129) `98 [mb_pagoda]: F 6.7 R 6.2 deg
+    Acura NSX Coupe `97 [midship_coupe]: F 0.0 R 0.5 deg
+    Honda NSX `97 [midship_coupe]: F 0.0 R 0.5 deg
     Ford FOCUS Rally Car `99 [euro_hatch]: F 6.2 R 6.2 deg
-    RUF BTR `86 [flatsix_coupe]: F 2.1 R 0.5 deg
+    Honda NSX `99 [midship_coupe]: F 0.0 R 0.5 deg
+    RUF BTR `86 [flatsix_coupe]: F 1.9 R 0.5 deg
+    Honda NSX Type S `97 [midship_coupe]: F 0.0 R 0.5 deg
+    Honda NSX Type S `99 [midship_coupe]: F 0.0 R 0.5 deg
     Mercury Cougar XR-7 `67 [pony_fastback_69]: F 2.2 R 1.1 deg
+    Honda NSX Type S Zero `97 [midship_coupe]: F 0.0 R 0.5 deg
     Opel Calibra Touring Car `94 [audi_saloon]: F 7.0 R 8.0 deg
+    Honda NSX Type S Zero `99 [midship_coupe]: F 0.0 R 0.5 deg
     Honda S800 RSC Race Car `68 [mb_pagoda]: F 3.2 R 2.0 deg
     Mercedes-Benz SL 600 (R129) `98 [mb_pagoda]: F 6.7 R 6.2 deg
     Mitsubishi FTO Super Touring Car `97 [rx7_fd]: F 3.1 R 2.9 deg
-    RUF CTR "Yellow Bird" `87 [flatsix_coupe_87]: F 2.4 R 1.6 deg
+    RUF CTR "Yellow Bird" `87 [flatsix_coupe_87]: F 4.0 R 1.6 deg
     Lancia Delta S4 Rally Car `85 [euro_hatch]: F 4.3 R 5.5 deg
     Mercedes-Benz 300 SL Coupe `54 [mb_pagoda]: F 0.0 R 1.3 deg
     Honda MUGEN MOTUL CIVIC Si Race Car `87 [euro_hatch]: F 4.4 R 3.7 deg
@@ -147,12 +153,8 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     AC Cars 427 S/C `66 [mb_pagoda]: F 0 mm R 13 mm out after F 5.1 R 8.0 deg
     Shelby Cobra 427 `67 [mb_pagoda]: F 0 mm R 22 mm out after F 5.6 R 8.0 deg
 
-=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 35 cars
+=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 31 cars
     model: wheelbase 2425 mm, track 1460/1460 mm, tyre 667/667 mm, lower body 1760 mm, 10 liveries
-    ~ 1985 usa 4WD 1153kg  426hp Coupe    Ford RS200 Rally Car `85
-        wb 2530/2530  track F 1502/1463 R 1498/1463  tyre 631x225 / 631x225  along x1.043 across x1.002  camber 0.0/0.0  poke -9/-11 mm
-    = 1985 jpn FR  1280kg  185hp Coupe    Mazda RX-7 GT-Limited (FC, J) `85
-        wb 2430/2430  track F 1450/1402 R 1440/1402  tyre 627x205 / 627x205  along x1.002 across x0.960  camber 0.0/0.0  poke -9/-14 mm
     ~ 1986 jpn MR  1159kg  130hp Coupe    Toyota MR2 1600 G `86
         wb 2320/2320  track F 1440/1381 R 1440/1381  tyre 578x185 / 578x185  along x0.957 across x0.946  camber 0.0/0.0  poke -11/-11 mm
     ~ 1986 jpn MR  1107kg  145hp Coupe    Toyota MR2 1600 G-Limited Super Charger `86
@@ -161,10 +163,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2720/2720  track F 1650/1618 R 1650/1618  tyre 652x245 / 652x245  along x1.122 across x1.108  camber 0.0/0.0  poke -17/-17 mm
     = 1990 usa FR  1562kg  380hp Coupe    Chevrolet Corvette ZR-1 (C4) `90
         wb 2443/2443  track F 1466/1542 R 1501/1542  tyre 652x275 / 652x315  along x1.007 across x1.056  camber 0.0/0.0  poke -49/-12 mm
-    = 1990 jpn FR  1249kg  205hp Coupe    Mazda RX-7 GT-X (FC, J) `90
-        wb 2430/2430  track F 1450/1402 R 1440/1402  tyre 627x205 / 627x205  along x1.002 across x0.960  camber 0.0/0.0  poke -9/-14 mm
-    = 1990 jpn FR  1242kg  215hp Coupe    Mazda RX-7 INFINI III (FC, J) `90
-        wb 2430/2430  track F 1450/1402 R 1440/1402  tyre 632x205 / 632x205  along x1.002 across x0.960  camber 0.0/0.0  poke -9/-14 mm
     ~ 1991 jpn FF  1280kg  200hp Coupe    Honda PRELUDE Si VTEC `91
         wb 2550/2550  track F 1525/1464 R 1515/1464  tyre 606x205 / 606x205  along x1.052 across x1.003  camber 0.0/0.0  poke -8/-13 mm
     ~ 1991 jpn FF  1309kg  165hp Coupe    Toyota CELICA GT-R (ST183, 4WS) `91
@@ -177,7 +175,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2500/2500  track F 1490/1439 R 1485/1439  tyre 611x205 / 611x205  along x1.031 across x0.986  camber 0.0/0.0  poke -11/-13 mm
     ~ 1994 jpn FF  1191kg  170hp Coupe    Mitsubishi FTO GR `94
         wb 2500/2500  track F 1475/1439 R 1470/1439  tyre 615x195 / 615x195  along x1.031 across x0.986  camber 0.0/0.0  poke -23/-26 mm
-    = 1994 eur FR  1284kg  270hp Coupe    NISMO 270R `94
+    = 1994 jpn FR  1284kg  270hp Coupe    NISMO 270R `94
         wb 2525/2525  track F 1485/1435 R 1475/1435  tyre 621x215 / 631x225  along x1.041 across x0.983  camber 0.0/0.0  poke -6/-6 mm
     ~ 1995 jpn FF  1329kg  230hp Coupe    Mitsubishi ECLIPSE GT `95
         wb 2510/2510  track F 1515/1448 R 1505/1448  tyre 627x205 / 627x205  along x1.035 across x0.991  camber 0.0/0.0  poke -3/-8 mm
@@ -220,11 +218,11 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     ~ 1999 jpn FF  1180kg  190hp Coupe    Toyota CELICA SS-II (ZZT231) `99
         wb 2600/2600  track F 1490/1439 R 1480/1439  tyre 586x205 / 586x205  along x1.072 across x0.986  camber 0.0/0.0  poke -11/-16 mm
 
-=== supra_a80  (Toyota Supra (A80), Japan 1993 GT)  — 46 cars
+=== supra_a80  (Toyota Supra (A80), Japan 1993 GT)  — 43 cars
     model: wheelbase 2547 mm, track 1526/1526 mm, tyre 700/700 mm, lower body 1860 mm, 11 liveries
     ~ 1970 jpn MR   729kg  800hp GT       Toyota 7 Race Car `70
         wb 2350/2350  track F 1520/1674 R 1560/1674  tyre 605x280 / 647x380  along x0.923 across x1.097  camber 0.0/0.0  poke -121/-51 mm
-    ~ 1978 eur MR   985kg  145hp GT       DOME ZERO `78
+    ~ 1978 jpn MR   985kg  145hp GT       DOME ZERO `78
         wb 2400/2400  track F 1400/1452 R 1450/1452  tyre 552x185 / 636x255  along x0.942 across x0.952  camber 0.0/0.0  poke -94/-34 mm
     = 1981 jpn FR  1278kg  170hp Coupe    Toyota CELICA XX 2800GT `81
         wb 2615/2615  track F 1425/1382 R 1385/1382  tyre 629x195 / 629x195  along x1.027 across x0.906  camber 0.0/0.0  poke -34/-54 mm
@@ -238,8 +236,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2438/2438  track F 1511/1526 R 1511/1526  tyre 615x195 / 663x235  along x0.957 across x1.000  camber 0.0/0.0  poke -78/-58 mm
     ~ 1988 gbr MR  1052kg  760hp GT       Jaguar XJR-9 Race Car `88
         wb 2710/2710  track F 1631/1641 R 1575/1641  tyre 645x305 / 645x305  along x1.064 across x1.075  camber 0.0/0.0  poke -33/-61 mm
-    = 1988 jpn FR  1533kg  240hp Coupe    Toyota SUPRA 3.0GT Turbo A `88
-        wb 2595/2595  track F 1470/1432 R 1475/1432  tyre 631x225 / 631x225  along x1.019 across x0.938  camber 0.0/0.0  poke -26/-24 mm
     ~ 1989 jpn MR  1000kg  800hp GT       MINOLTA Toyota 88C-V Race Car `89
         wb 2650/2650  track F 1550/1592 R 1520/1592  tyre 624x320 / 763x350  along x1.040 across x1.043  camber 0.0/0.0  poke -36/-36 mm
     = 1989 jpn FR  1474kg  280hp Coupe    Nissan 300ZX 2seater (Z32) `89
@@ -248,8 +244,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2794/2794  track F 1600/1633 R 1560/1633  tyre 642x300 / 737x350  along x1.097 across x1.070  camber 0.0/0.0  poke -46/-41 mm
     ~ 1989 ger MR  1051kg  720hp GT       Sauber Mercedes C 9 Race Car `89
         wb 2700/2700  track F 1600/1624 R 1550/1624  tyre 624x320 / 721x340  along x1.060 across x1.065  camber 0.0/0.0  poke -31/-46 mm
-    = 1990 jpn FR  1484kg  280hp Coupe    Toyota SUPRA 2.5GT Twin Turbo R `90
-        wb 2595/2595  track F 1470/1432 R 1475/1432  tyre 631x225 / 631x225  along x1.019 across x0.938  camber 0.0/0.0  poke -26/-24 mm
     ~ 1991 jpn MR   976kg  700hp GT       Mazda 787B Race Car `91
         wb 2662/2662  track F 1534/1636 R 1504/1636  tyre 637x300 / 706x355  along x1.045 across x1.072  camber 0.0/0.0  poke -81/-69 mm
     ~ 1991 gbr FR  1087kg  243hp GT       TVR V8S `91
@@ -272,12 +266,10 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2470/2470  track F 1560/1509 R 1580/1509  tyre 657x225 / 657x225  along x0.970 across x0.989  camber 0.0/0.0  poke -29/-19 mm
     = 1996 jpn 4WD 1669kg  280hp Coupe    Mitsubishi 3000GT VR-4 Turbo (J) `96
         wb 2470/2470  track F 1560/1509 R 1580/1509  tyre 653x245 / 653x245  along x0.970 across x0.989  camber 0.0/0.0  poke -19/-9 mm
-    ~ 1997 ger MR  1118kg  600hp GT       BMW McLaren F1 GTR Race Car `97
+    ~ 1997 gbr MR  1118kg  600hp GT       BMW McLaren F1 GTR Race Car `97
         wb 2718/2718  track F 1598/1575 R 1556/1575  tyre 646x270 / 697x300  along x1.067 across x1.032  camber 0.0/0.0  poke -27/-33 mm
     = 1997 usa FR  1524kg  289hp Coupe    Chevrolet Camaro Z28 Coupe `97
         wb 2568/2568  track F 1542/1544 R 1539/1544  tyre 651x245 / 651x245  along x1.008 across x1.012  camber 0.0/0.0  poke -49/-50 mm
-    = 1997 jpn FR  1522kg  280hp Coupe    Lexus SC300 `97
-        wb 2690/2690  track F 1520/1481 R 1520/1481  tyre 654x225 / 654x225  along x1.056 across x0.970  camber 0.0/0.0  poke -31/-31 mm
     ~ 1997 gbr FR  1169kg  355hp GT       TVR Cerbera Speed Six `97
         wb 2566/2566  track F 1464/1530 R 1470/1530  tyre 631x225 / 631x225  along x1.007 across x1.003  camber 0.0/0.0  poke -89/-86 mm
     ~ 1998 ger MR  1176kg  608hp GT       AMG Mercedes CLK-GTR Race Car `98
@@ -300,7 +292,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2720/2720  track F 1710/1641 R 1640/1641  tyre 653x280 / 725x335  along x1.068 across x1.075  camber 0.0/0.0  poke -6/-14 mm
     ~ 1998 jpn MR  1221kg  350hp GT       Nissan R390 GT1 Road Car `98
         wb 2720/2720  track F 1730/1641 R 1670/1641  tyre 653x245 / 689x295  along x1.068 across x1.075  camber 0.0/0.0  poke -14/-19 mm
-    ~ 1998 eur FR  1353kg  600hp GT       Panoz Esperante GTR-1 Race Car `98
+    ~ 1998 usa FR  1353kg  600hp GT       Panoz Esperante GTR-1 Race Car `98
         wb 2548/2548  track F 1514/1508 R 1475/1508  tyre 687x255 / 706x355  along x1.000 across x0.988  camber 0.0/0.0  poke -36/-5 mm
     ~ 1999 gbr FR  1924kg  558hp GT       Aston Martin V8 Vantage `99
         wb 2611/2611  track F 1548/1595 R 1566/1595  tyre 714x285 / 714x285  along x1.025 across x1.045  camber 0.0/0.0  poke -57/-48 mm
@@ -315,7 +307,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     ~ 1999 jpn MR  1059kg  608hp GT       Toyota GT-ONE Race Car (TS020) `99
         wb 2840/2840  track F 1600/1641 R 1644/1641  tyre 660x290 / 705x310  along x1.115 across x1.075  camber 0.0/0.0  poke -56/-24 mm
 
-=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 32 cars
+=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 31 cars
     model: wheelbase 2619 mm, track 1515/1515 mm, tyre 678/678 mm, lower body 1802 mm, 11 liveries
     = 1967 jpn FR  1133kg  125hp GT       Nissan SKYLINE 2000GT-B (S54A) `67
         wb 2590/2590  track F 1265/1269 R 1255/1269  tyre 562x145 / 562x145  along x0.989 across x0.838  camber 0.0/0.0  poke -60/-65 mm
@@ -323,8 +315,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2570/2570  track F 1370/1400 R 1365/1400  tyre 620x165 / 620x165  along x0.981 across x0.924  camber 0.0/0.0  poke -77/-79 mm
     = 1983 jpn FR  1216kg  190hp Coupe    Nissan SKYLINE Hard Top 2000 Turbo RS (R30) `83
         wb 2615/2615  track F 1410/1400 R 1400/1400  tyre 615x195 / 615x195  along x0.999 across x0.924  camber 0.0/0.0  poke -42/-47 mm
-    ~ 1984 usa 4WD 1346kg  250hp Coupe    Ford RS200 `84
-        wb 2530/2530  track F 1502/1483 R 1498/1483  tyre 631x225 / 631x225  along x0.966 across x0.979  camber 0.0/0.0  poke -31/-33 mm
     ~ 1984 jpn 4WD 1471kg  360hp Coupe    Mitsubishi STARION 4WD Rally Car `84
         wb 2435/2435  track F 1450/1425 R 1460/1425  tyre 606x225 / 606x225  along x0.930 across x0.941  camber 0.0/0.0  poke -22/-17 mm
     = 1984 jpn FR  1249kg  205hp Coupe    Nissan SKYLINE Hard Top 2000 RS-X Turbo C (R30) `84
@@ -345,7 +335,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2510/2510  track F 1465/1425 R 1470/1425  tyre 627x205 / 627x205  along x0.959 across x0.941  camber 0.0/0.0  poke -24/-22 mm
     = 1995 jpn 4WD 1260kg  270hp Coupe    Mitsubishi Lancer Evolution III GSR `95
         wb 2510/2510  track F 1465/1425 R 1470/1425  tyre 627x205 / 627x205  along x0.959 across x0.941  camber 0.0/0.0  poke -24/-22 mm
-    = 1995 eur FR  1542kg  305hp Coupe    NISMO GT-R LM Road Going Version `95
+    = 1995 jpn FR  1542kg  305hp Coupe    NISMO GT-R LM Road Going Version `95
         wb 2720/2720  track F 1550/1580 R 1580/1580  tyre 709x315 / 725x335  along x1.039 across x1.043  camber 0.0/0.4  poke -20/0 mm
     = 1995 jpn 4WD 1493kg  280hp Coupe    Nissan SKYLINE GT-R (R33) `95
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
@@ -355,7 +345,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
     = 1996 jpn 4WD 1349kg  280hp Coupe    Mitsubishi Lancer Evolution IV GSR `96
         wb 2510/2510  track F 1470/1421 R 1470/1421  tyre 611x205 / 611x205  along x0.959 across x0.938  camber 0.0/0.0  poke -19/-19 mm
-    = 1996 eur 4WD 1513kg  400hp Coupe    NISMO 400R `96
+    = 1996 jpn 4WD 1513kg  400hp Coupe    NISMO 400R `96
         wb 2720/2720  track F 1500/1538 R 1510/1538  tyre 650x275 / 650x275  along x1.039 across x1.016  camber 0.0/0.0  poke -40/-35 mm
     = 1996 jpn 4WD 1493kg  280hp Coupe    Nissan SKYLINE GT-R (R33) `96
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
@@ -389,63 +379,55 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
 === civic_eg  (Honda Civic (EG), Japan 1991 Hatch)  — 8 cars
     model: wheelbase 2543 mm, track 1462/1452 mm, tyre 589/589 mm, lower body 1670 mm, 1 liveries
     = 1991 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `91
-        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -4/-4 mm
+        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -6/-4 mm
     = 1992 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `92
-        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -4/-4 mm
+        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -6/-4 mm
     = 1992 jpn FF  1139kg  170hp Hatch    Honda CR-X del Sol SiR `92
-        wb 2370/2370  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x0.932 across x1.015  camber 0.0/0.0  poke -4/-4 mm
+        wb 2370/2370  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x0.932 across x1.015  camber 0.0/0.0  poke -6/-4 mm
     = 1993 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `93
-        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -4/-4 mm
+        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -6/-4 mm
     = 1995 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `95
-        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -4/-4 mm
+        wb 2570/2570  track F 1475/1484 R 1465/1474  tyre 596x195 / 596x195  along x1.011 across x1.015  camber 0.0/0.0  poke -6/-4 mm
     = 1997 jpn FF  1087kg  185hp Hatch    Honda CIVIC TYPE R (EK) `97
-        wb 2620/2620  track F 1480/1484 R 1480/1474  tyre 596x195 / 596x195  along x1.030 across x1.015  camber 0.0/0.0  poke -1/4 mm
+        wb 2620/2620  track F 1480/1484 R 1480/1474  tyre 596x195 / 596x195  along x1.030 across x1.015  camber 0.0/0.0  poke -4/4 mm
     = 1998 jpn FF  1087kg  185hp Hatch    Honda CIVIC TYPE R (EK) `98
-        wb 2620/2620  track F 1480/1484 R 1480/1474  tyre 596x195 / 596x195  along x1.030 across x1.015  camber 0.0/0.0  poke -1/4 mm
+        wb 2620/2620  track F 1480/1484 R 1480/1474  tyre 596x195 / 596x195  along x1.030 across x1.015  camber 0.0/0.0  poke -4/4 mm
     = 1998 jpn FF  1094kg  185hp Hatch    Honda Gathers Drider CIVIC Race Car `98
-        wb 2620/2620  track F 1480/1484 R 1480/1474  tyre 596x195 / 596x195  along x1.030 across x1.015  camber 0.0/0.0  poke -1/4 mm
+        wb 2620/2620  track F 1480/1484 R 1480/1474  tyre 596x195 / 596x195  along x1.030 across x1.015  camber 0.0/0.0  poke -4/4 mm
 
-=== nissan_180sx  (Nissan 180SX / 240SX (S13), Japan 1989 Sports)  — 5 cars
+=== nissan_180sx  (Nissan 180SX / 240SX (S13), Japan 1989 Sports)  — 1 car
     model: wheelbase 2476 mm, track 1465/1460 mm, tyre 615/615 mm, lower body 1699 mm, 1 liveries
-    = 1988 jpn FR  1180kg  175hp Coupe    Nissan SILVIA K's (S13) `88
-        wb 2475/2475  track F 1465/1458 R 1460/1453  tyre 615x195 / 615x195  along x1.000 across x0.995  camber 0.4/0.4  poke 0/0 mm
-    = 1988 jpn FR  1128kg  135hp Coupe    Nissan SILVIA Q's (S13) `88
-        wb 2475/2475  track F 1465/1458 R 1460/1453  tyre 615x185 / 615x185  along x1.000 across x0.995  camber 0.0/0.0  poke -1/-1 mm
-    = 1991 jpn FR  1211kg  205hp Coupe    Nissan SILVIA K's (S13) `91
-        wb 2475/2475  track F 1465/1458 R 1460/1453  tyre 627x205 / 627x205  along x1.000 across x0.995  camber 0.8/0.8  poke 0/0 mm
-    = 1991 jpn FR  1148kg  140hp Coupe    Nissan SILVIA Q's (S13) `91
-        wb 2475/2475  track F 1465/1458 R 1460/1453  tyre 615x185 / 615x185  along x1.000 across x0.995  camber 0.0/0.0  poke -1/-1 mm
-    = 1998 eur FR  1211kg  205hp Coupe    SILEIGHTY `98
+    = 1998 jpn FR  1211kg  205hp Coupe    SILEIGHTY `98
         wb 2475/2475  track F 1465/1458 R 1460/1453  tyre 627x205 / 627x205  along x1.000 across x0.995  camber 0.8/0.8  poke 0/0 mm
 
 === rx7_fd_93  (Mazda RX-7 (FD), 1993 spoiler, Japan 1993 Sports)  — 9 cars
-    model: wheelbase 2409 mm, track 1469/1469 mm, tyre 648/648 mm, lower body 1702 mm, 1 liveries
+    model: wheelbase 2408 mm, track 1469/1469 mm, tyre 648/648 mm, lower body 1723 mm, 1 liveries
     = 1991 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `91
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 631x225 / 631x225  along x1.007 across x1.034  camber 0.0/0.0  poke -28/-28 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 631x225 / 631x225  along x1.007 across x1.022  camber 0.0/0.0  poke -18/-18 mm
     = 1992 jpn FR  1273kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `92
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x225 / 636x225  along x1.007 across x1.034  camber 0.0/0.0  poke -28/-28 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x225 / 636x225  along x1.007 across x1.022  camber 0.0/0.0  poke -18/-18 mm
     = 1993 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `93
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 631x225 / 631x225  along x1.007 across x1.034  camber 0.0/0.0  poke -28/-28 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 631x225 / 631x225  along x1.007 across x1.022  camber 0.0/0.0  poke -18/-18 mm
     = 1993 jpn FR  1284kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `93
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 631x235 / 631x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 631x235 / 631x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
     = 1995 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R-S (FD, J) `95
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x235 / 636x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x235 / 636x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
     = 1995 jpn FR  1249kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `95
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x235 / 636x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x235 / 636x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
     = 1996 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS (FD, J) `96
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x235 / 636x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x235 / 636x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
     = 1996 jpn FR  1249kg  265hp Coupe    Mazda RX-7 Type RZ (FD, J) `96
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x235 / 636x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x235 / 636x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
     = 1997 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS-R (FD) `97
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x235 / 636x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x235 / 636x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
 
 === rx7_fd_99  (Mazda RX-7 (FD), 1999 wing, Japan 1999 Sports)  — 1 car
-    model: wheelbase 2409 mm, track 1469/1469 mm, tyre 648/648 mm, lower body 1702 mm, 1 liveries
+    model: wheelbase 2408 mm, track 1469/1469 mm, tyre 648/648 mm, lower body 1723 mm, 1 liveries
     = 1998 jpn FR  1280kg  280hp Coupe    Mazda RX-7 Type RS (FD) `98
-        wb 2425/2425  track F 1460/1519 R 1460/1519  tyre 643x235 / 636x255  along x1.007 across x1.034  camber 0.0/0.0  poke -23/-13 mm
+        wb 2425/2425  track F 1460/1500 R 1460/1500  tyre 643x235 / 636x255  along x1.007 across x1.022  camber 0.0/0.0  poke -13/-3 mm
 
 === rx7_fd_nowing  (Mazda RX-7 (FD), no spoiler, Japan 1993 Sports)  — 0 cars
-    model: wheelbase 2409 mm, track 1469/1469 mm, tyre 648/648 mm, lower body 1702 mm, 1 liveries
+    model: wheelbase 2408 mm, track 1469/1469 mm, tyre 648/648 mm, lower body 1723 mm, 1 liveries
     (no catalog car — used as roadside scenery)
 
 === viper_gts  (Dodge Viper GTS, America 1996 Sports)  — 1 car
@@ -456,12 +438,12 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
 === flatsix_coupe  (Flat-six coupe (911), Europe 1986 Sports)  — 1 car
     model: wheelbase 2265 mm, track 1370/1492 mm, tyre 574/574 mm, lower body 1747 mm, 1 liveries
     = 1986 ger RR  1221kg  374hp Coupe    RUF BTR `86
-        wb 2272/2272  track F 1446/1393 R 1515/1517  tyre 643x235 / 636x255  along x1.003 across x1.016  camber 2.1/0.5  poke 0/0 mm
+        wb 2272/2272  track F 1446/1393 R 1515/1517  tyre 643x235 / 636x255  along x1.003 across x1.016  camber 1.9/0.5  poke 0/0 mm
 
 === flatsix_coupe_87  (Flat-six coupe 87 (whale tail), Europe 1987 Sports)  — 1 car
     model: wheelbase 2265 mm, track 1370/1492 mm, tyre 574/574 mm, lower body 1747 mm, 1 liveries
     = 1987 ger RR  1272kg  469hp Coupe    RUF CTR "Yellow Bird" `87
-        wb 2272/2272  track F 1395/1328 R 1456/1446  tyre 625x215 / 636x255  along x1.003 across x0.969  camber 2.4/1.6  poke 0/0 mm
+        wb 2272/2272  track F 1395/1328 R 1456/1446  tyre 625x215 / 636x255  along x1.003 across x0.969  camber 4.0/1.6  poke 0/0 mm
 
 === flatsix_turbo_96  (Flat-six turbo (993), Europe 1996 Sports)  — 1 car
     model: wheelbase 2312 mm, track 1452/1452 mm, tyre 685/685 mm, lower body 1765 mm, 1 liveries
@@ -469,31 +451,31 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2302/2302  track F 1405/1428 R 1453/1428  tyre 654x245 / 654x285  along x0.996 across x0.983  camber 0.0/3.7  poke -2/0 mm
 
 === midship_coupe  (Midship coupe (NSX), Japan 1990 Sports)  — 12 cars
-    model: wheelbase 2544 mm, track 1543/1563 mm, tyre 595/639 mm, lower body 1810 mm, 1 liveries
+    model: wheelbase 2533 mm, track 1537/1557 mm, tyre 592/636 mm, lower body 1816 mm, 1 liveries
     = 1990 jpn MR  1349kg  280hp GT       Honda NSX `90
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 586x205 / 631x225  along x0.994 across x1.000  camber 0.0/0.0  poke -22/-12 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 586x205 / 631x225  along x0.999 across x0.997  camber 0.0/0.0  poke -15/-5 mm
     = 1991 jpn MR  1365kg  274hp GT       Acura NSX `91
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 586x205 / 631x225  along x0.994 across x1.000  camber 0.0/0.0  poke -22/-12 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 586x205 / 631x225  along x0.999 across x0.997  camber 0.0/0.0  poke -15/-5 mm
     = 1992 jpn MR  1273kg  280hp GT       Honda NSX Type R `92
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 586x205 / 631x225  along x0.994 across x1.000  camber 0.0/0.0  poke -22/-12 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 586x205 / 631x225  along x0.999 across x0.997  camber 0.0/0.0  poke -15/-5 mm
     = 1993 jpn MR  1349kg  280hp GT       Honda NSX `93
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 586x205 / 631x225  along x0.994 across x1.000  camber 0.0/0.0  poke -22/-12 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 586x205 / 631x225  along x0.999 across x0.997  camber 0.0/0.0  poke -15/-5 mm
     = 1995 jpn MR  1349kg  280hp GT       Honda NSX `95
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 586x205 / 631x225  along x0.994 across x1.000  camber 0.0/0.0  poke -22/-12 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 586x205 / 631x225  along x0.999 across x0.997  camber 0.0/0.0  poke -15/-5 mm
     = 1997 jpn MR  1392kg  294hp GT       Acura NSX Coupe `97
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
     = 1997 jpn MR  1349kg  280hp GT       Honda NSX `97
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
     = 1997 jpn MR  1320kg  280hp GT       Honda NSX Type S `97
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
     = 1997 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `97
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
     = 1999 jpn MR  1349kg  280hp GT       Honda NSX `99
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
     = 1999 jpn MR  1320kg  280hp GT       Honda NSX Type S `99
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
     = 1999 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `99
-        wb 2530/2530  track F 1510/1543 R 1530/1563  tyre 600x215 / 628x245  along x0.994 across x1.000  camber 0.0/0.0  poke -17/-2 mm
+        wb 2530/2530  track F 1510/1531 R 1530/1551  tyre 600x215 / 628x245  along x0.999 across x0.997  camber 0.0/0.5  poke -10/0 mm
 
 === classic_roadster  (Classic roadster (Miata), Japan 1989 Roadster)  — 1 car
     model: wheelbase 2280 mm, track 1419/1439 mm, tyre 582/582 mm, lower body 1683 mm, 1 liveries
@@ -558,15 +540,15 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
 === rally_sedan_99  (Rally Sedan 99, Japan 1999 Saloon)  — 3 cars
     model: wheelbase 2505 mm, track 1510/1505 mm, tyre 633/633 mm, lower body 1769 mm, 1 liveries
     = 1999 jpn 4WD 1360kg  280hp Coupe    Mitsubishi Lancer Evolution VI GSR `99
-        wb 2510/2510  track F 1510/1510 R 1505/1505  tyre 634x225 / 634x225  along x1.002 across x1.000  camber 0.4/0.4  poke 0/0 mm
+        wb 2510/2510  track F 1510/1510 R 1505/1505  tyre 634x225 / 634x225  along x1.002 across x1.000  camber 0.0/0.4  poke 3/0 mm
     = 1999 jpn 4WD 1447kg  302hp Coupe    Mitsubishi Lancer Evolution VI Rally Car `99
-        wb 2510/2510  track F 1510/1510 R 1505/1505  tyre 651x215 / 651x215  along x1.002 across x1.000  camber 0.0/0.0  poke -1/-1 mm
+        wb 2510/2510  track F 1510/1510 R 1505/1505  tyre 651x215 / 651x215  along x1.002 across x1.000  camber 0.0/0.0  poke -2/-1 mm
     = 1999 jpn 4WD 1260kg  280hp Coupe    Mitsubishi Lancer Evolution VI RS `99
-        wb 2510/2510  track F 1495/1510 R 1490/1505  tyre 627x205 / 627x205  along x1.002 across x1.000  camber 0.0/0.0  poke -13/-13 mm
+        wb 2510/2510  track F 1495/1510 R 1490/1505  tyre 627x205 / 627x205  along x1.002 across x1.000  camber 0.0/0.0  poke -15/-13 mm
 
 === fastback_96  (Fastback 96 (pop-up), Japan 1996 Sports)  — 1 car
     model: wheelbase 2472 mm, track 1463/1458 mm, tyre 626/626 mm, lower body 1706 mm, 1 liveries
-    = 1996 jpn FR  1262kg  205hp Coupe    Nissan 240SX `96
+    = 1994 jpn FR  1262kg  205hp Coupe    Nissan 240SX `94
         wb 2475/2475  track F 1465/1453 R 1460/1448  tyre 627x205 / 627x205  along x1.001 across x0.993  camber 0.7/0.7  poke 0/0 mm
 
 === liftback_95  (Liftback (Integra DC2), Japan 1995 Sports)  — 4 cars
@@ -577,7 +559,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2570/2570  track F 1480/1407 R 1485/1407  tyre 600x215 / 600x215  along x1.006 across x0.985  camber 3.5/3.8  poke 0/0 mm
     = 1999 jpn FF  1118kg  200hp Hatch    Honda INTEGRA TYPE R (DC2) `99
         wb 2570/2570  track F 1480/1407 R 1485/1407  tyre 600x215 / 600x215  along x1.006 across x0.985  camber 3.5/3.8  poke 0/0 mm
-    = 1999 eur FF  1271kg  230hp Coupe    Spoon INTEGRA TYPE R (DC2) `99
+    = 1999 jpn FF  1271kg  230hp Coupe    Spoon INTEGRA TYPE R (DC2) `99
         wb 2570/2570  track F 1480/1407 R 1485/1407  tyre 600x215 / 600x215  along x1.006 across x0.985  camber 3.5/3.8  poke 0/0 mm
 
 === roadster_99  (Roadster 99 (S2000), Japan 1999 Roadster)  — 1 car
@@ -619,13 +601,13 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2489/2489  track F 1429/1513 R 1448/1513  tyre 677x185 / 677x185  along x0.922 across x1.009  camber 0.0/0.0  poke -55/-46 mm
     = 1963 usa FR  1374kg  608hp Muscle   Chevrolet Corvette Z06 (C2) Race Car `63
         wb 2489/2489  track F 1430/1513 R 1448/1513  tyre 654x195 / 654x195  along x0.922 across x1.009  camber 0.0/0.0  poke -50/-41 mm
-    = 1967 eur MR   907kg  426hp Muscle   Chaparral 2D Race Car `67
+    = 1967 usa MR   907kg  426hp Muscle   Chaparral 2D Race Car `67
         wb 2311/2311  track F 1422/1478 R 1346/1478  tyre 633x280 / 689x280  along x0.856 across x0.985  camber 0.8/0.0  poke 0/-29 mm
     = 1969 usa FR  1489kg  355hp Muscle   Chevrolet Corvette Stingray L46 350 (C3) `69
         wb 2489/2489  track F 1491/1500 R 1509/1500  tyre 682x215 / 682x215  along x0.922 across x1.000  camber 0.0/0.6  poke -2/0 mm
     = 1969 usa MR  1174kg  500hp Muscle   Ford GT40 Race Car `69
         wb 2421/2421  track F 1497/1522 R 1539/1522  tyre 652x205 / 690x355  along x0.897 across x1.015  camber 0.0/6.6  poke -16/0 mm
-    = 1970 eur MR   966kg  689hp Muscle   Chaparral 2J Race Car `70
+    = 1970 usa MR   966kg  689hp Muscle   Chaparral 2J Race Car `70
         wb 2134/2134  track F 1524/1696 R 1397/1696  tyre 577x280 / 668x410  along x0.790 across x1.130  camber 0.0/0.0  poke -64/-63 mm
     = 1970 jpn FR  1048kg  125hp Coupe    Mitsubishi GALANT GTO MR `70
         wb 2420/2420  track F 1295/1352 R 1285/1352  tyre 561x165 / 561x165  along x0.896 across x0.902  camber 0.0/0.0  poke -40/-45 mm
@@ -648,7 +630,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     = 1970 usa FR  1713kg  431hp Muscle   Plymouth Super Bird `70
         wb 2941/2941  track F 1516/1647 R 1491/1647  tyre 663x235 / 663x235  along x0.984 across x0.936  camber 0.0/0.0  poke -64/-77 mm
 
-=== bmw_e30  (BMW 3-Series (E30), Europe 1985 Saloon)  — 10 cars
+=== bmw_e30  (BMW 3-Series (E30), Europe 1985 Saloon)  — 11 cars
     model: wheelbase 2547 mm, track 1420/1420 mm, tyre 645/645 mm, lower body 1647 mm, 8 liveries
     = 1965 ita FR   796kg  115hp Hatch    Alfa Romeo Giulia Sprint GTA 1600 `65
         wb 2350/2350  track F 1324/1362 R 1274/1362  tyre 598x155 / 598x155  along x0.923 across x0.959  camber 0.0/0.0  poke -45/-70 mm
@@ -664,6 +646,8 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2340/2340  track F 1285/1315 R 1255/1315  tyre 578x155 / 578x155  along x0.919 across x0.926  camber 0.0/0.0  poke -37/-52 mm
     = 1974 jpn FR   971kg  160hp Saloon   Mitsubishi Lancer 1600 GSR Rally Car `74
         wb 2340/2340  track F 1285/1315 R 1255/1315  tyre 594x165 / 594x165  along x0.919 across x0.926  camber 0.0/0.0  poke -32/-47 mm
+    ~ 1985 eur 4WD 1153kg  426hp Coupe    Ford RS200 Rally Car `85
+        wb 2530/2530  track F 1502/1521 R 1498/1521  tyre 631x225 / 631x225  along x0.993 across x1.071  camber 0.0/0.0  poke -12/-14 mm
     = 1991 ger FR  1340kg  235hp Coupe    Mercedes-Benz 190 E 2.5 - 16 Evolution II `91
         wb 2665/2665  track F 1475/1483 R 1455/1483  tyre 628x245 / 628x245  along x1.046 across x1.045  camber 0.6/0.0  poke 0/-4 mm
     = 1992 ger FR  1153kg  378hp Coupe    AMG Mercedes 190 E 2.5 - 16 Evolution II Touring Car `92
@@ -671,12 +655,14 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     = 1998 ger FR  1465kg  321hp Coupe    BMW M Coupe `98
         wb 2459/2459  track F 1422/1500 R 1491/1500  tyre 634x225 / 628x245  along x0.965 across x1.057  camber 0.0/0.4  poke -40/0 mm
 
-=== audi_saloon  (Audi 80/100, Europe 1986 Saloon)  — 8 cars
+=== audi_saloon  (Audi 80/100, Europe 1986 Saloon)  — 9 cars
     model: wheelbase 2649 mm, track 1473/1473 mm, tyre 682/682 mm, lower body 1735 mm, 8 liveries
     = 1982 ger 4WD 1289kg  203hp Coupe    Audi quattro `82
         wb 2524/2524  track F 1421/1463 R 1458/1463  tyre 627x205 / 627x205  along x0.953 across x0.993  camber 0.0/0.0  poke -11/3 mm
     = 1983 jpn FR  1122kg  160hp Saloon   Mitsubishi Lancer EX 1800GSR IC Turbo `83
         wb 2440/2440  track F 1365/1376 R 1340/1376  tyre 590x195 / 590x195  along x0.921 across x0.934  camber 0.5/0.0  poke 0/-12 mm
+    ~ 1984 eur 4WD 1346kg  250hp Coupe    Ford RS200 `84
+        wb 2530/2530  track F 1502/1498 R 1498/1498  tyre 631x225 / 631x225  along x0.955 across x1.017  camber 1.8/1.2  poke 0/0 mm
     ~ 1989 jpn FF  1242kg  125hp Saloon   Toyota CARINA ED 2.0 X 4WS `89
         wb 2525/2525  track F 1465/1435 R 1430/1435  tyre 596x185 / 596x185  along x0.953 across x0.974  camber 1.6/0.0  poke 0/-5 mm
     ~ 1990 jpn FF  1252kg  150hp Saloon   Infiniti G20 `90
@@ -730,7 +716,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2415/2415  track F 1450/1365 R 1460/1365  tyre 596x195 / 596x195  along x1.087 across x1.109  camber 5.0/5.4  poke 0/0 mm
     ~ 1997 jpn FF   985kg  135hp Hatch    Toyota STARLET Glanza V `97
         wb 2300/2300  track F 1400/1321 R 1395/1321  tyre 559x185 / 559x185  along x1.035 across x1.073  camber 4.8/4.5  poke 0/0 mm
-    = 1998 usa 4WD 1447kg  304hp Coupe    Ford Escort Rally Car `98
+    = 1998 eur 4WD 1447kg  304hp Coupe    Ford Escort Rally Car `98
         wb 2550/2550  track F 1530/1438 R 1530/1438  tyre 651x215 / 651x215  along x1.148 across x1.168  camber 5.3/5.3  poke 0/0 mm
     = 1998 ger FF  1154kg  102hp Hatch    Mercedes-Benz A 160 Avantgarde `98
         wb 2423/2423  track F 1503/1397 R 1452/1397  tyre 576x195 / 576x195  along x1.090 across x1.135  camber 6.0/3.5  poke 0/0 mm
@@ -742,7 +728,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2465/2465  track F 1470/1378 R 1450/1378  tyre 596x195 / 596x195  along x1.109 across x1.119  camber 5.3/4.3  poke 0/0 mm
     = 1999 fra FF  1129kg  299hp Hatch    Citroen Xsara Rally Car `99
         wb 2555/2555  track F 1647/1477 R 1621/1477  tyre 651x215 / 651x215  along x1.150 across x1.200  camber 8.0/7.3  poke 5/0 mm  !CLAMP  !POKE
-    = 1999 usa 4WD 1447kg  304hp Coupe    Ford FOCUS Rally Car `99
+    = 1999 eur 4WD 1447kg  304hp Coupe    Ford FOCUS Rally Car `99
         wb 2635/2635  track F 1550/1438 R 1550/1438  tyre 651x215 / 651x215  along x1.186 across x1.168  camber 6.2/6.2  poke 0/0 mm
     ~ 1999 jpn FF  1027kg  100hp Hatch    Mazda DEMIO (J) `99
         wb 2390/2390  track F 1420/1357 R 1400/1357  tyre 566x175 / 566x175  along x1.076 across x1.102  camber 3.2/2.2  poke 0/0 mm
@@ -911,7 +897,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
 
 === gtr_99  (Twin-Turbo Coupe 99, Japan 1999 Sports)  — 5 cars
     model: wheelbase 2669 mm, track 1484/1498 mm, tyre 658/658 mm, lower body 1782 mm, 1 liveries
-    = 1999 eur 4WD 1522kg  450hp Coupe    NISMO Skyline GT-R R-tune (R34) `99
+    = 1999 jpn 4WD 1522kg  450hp Coupe    NISMO Skyline GT-R R-tune (R34) `99
         wb 2665/2665  track F 1480/1486 R 1490/1500  tyre 650x275 / 650x275  along x0.998 across x1.001  camber 0.0/0.0  poke -11/-13 mm
     = 1999 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R (R34) `99
         wb 2665/2665  track F 1480/1486 R 1490/1500  tyre 653x245 / 653x245  along x0.998 across x1.001  camber 0.0/0.0  poke -26/-28 mm
@@ -950,4 +936,41 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     model: wheelbase 2610 mm, track 1395/1375 mm, tyre 630/630 mm, lower body 1783 mm, 1 liveries
     = 1973 jpn FR  1185kg  160hp GT       Nissan SKYLINE 2000GT-R (KPGC110) `73
         wb 2610/2610  track F 1395/1326 R 1375/1307  tyre 636x175 / 636x175  along x1.000 across x0.951  camber 3.5/3.5  poke 0/0 mm
+
+=== coupe_88  (Coupe 88 (S13), Japan 1988 Sports)  — 4 cars
+    model: wheelbase 2463 mm, track 1461/1459 mm, tyre 599/599 mm, lower body 1687 mm, 1 liveries
+    = 1988 jpn FR  1180kg  175hp Coupe    Nissan SILVIA K's (S13) `88
+        wb 2475/2475  track F 1465/1463 R 1460/1461  tyre 615x195 / 615x195  along x1.005 across x1.002  camber 0.0/0.0  poke -1/-3 mm
+    = 1988 jpn FR  1128kg  135hp Coupe    Nissan SILVIA Q's (S13) `88
+        wb 2475/2475  track F 1465/1463 R 1460/1461  tyre 615x185 / 615x185  along x1.005 across x1.002  camber 0.0/0.0  poke -6/-8 mm
+    = 1991 jpn FR  1211kg  205hp Coupe    Nissan SILVIA K's (S13) `91
+        wb 2475/2475  track F 1465/1463 R 1460/1461  tyre 627x205 / 627x205  along x1.005 across x1.002  camber 0.0/0.0  poke 4/2 mm
+    = 1991 jpn FR  1148kg  140hp Coupe    Nissan SILVIA Q's (S13) `91
+        wb 2475/2475  track F 1465/1463 R 1460/1461  tyre 615x185 / 615x185  along x1.005 across x1.002  camber 0.0/0.0  poke -6/-8 mm
+
+=== rotary_coupe_87  (Rotary Coupe 87 (FC), Japan 1987 Sports)  — 3 cars
+    model: wheelbase 2445 mm, track 1465/1455 mm, tyre 604/604 mm, lower body 1694 mm, 1 liveries
+    = 1985 jpn FR  1280kg  185hp Coupe    Mazda RX-7 GT-Limited (FC, J) `85
+        wb 2430/2430  track F 1450/1462 R 1440/1452  tyre 627x205 / 627x205  along x0.994 across x0.998  camber 0.0/0.0  poke -9/-9 mm
+    = 1990 jpn FR  1249kg  205hp Coupe    Mazda RX-7 GT-X (FC, J) `90
+        wb 2430/2430  track F 1450/1462 R 1440/1452  tyre 627x205 / 627x205  along x0.994 across x0.998  camber 0.0/0.0  poke -9/-9 mm
+    = 1990 jpn FR  1242kg  215hp Coupe    Mazda RX-7 INFINI III (FC, J) `90
+        wb 2430/2430  track F 1450/1462 R 1440/1452  tyre 632x205 / 632x205  along x0.994 across x0.998  camber 0.0/0.0  poke -9/-9 mm
+
+=== lux_coupe_97  (Lux Coupe 97 (Z30), Japan 1997 GT)  — 1 car
+    model: wheelbase 2693 mm, track 1551/1551 mm, tyre 623/623 mm, lower body 1835 mm, 1 liveries
+    = 1997 jpn FR  1522kg  280hp Coupe    Lexus SC300 `97
+        wb 2690/2690  track F 1520/1525 R 1520/1525  tyre 654x225 / 654x225  along x0.999 across x0.983  camber 0.0/0.0  poke -1/-1 mm
+
+=== gt_liftback_88  (GT Liftback 88 (A70), Japan 1988 GT)  — 2 cars
+    model: wheelbase 2598 mm, track 1491/1501 mm, tyre 656/656 mm, lower body 1738 mm, 1 liveries
+    = 1988 jpn FR  1533kg  240hp Coupe    Toyota SUPRA 3.0GT Turbo A `88
+        wb 2595/2595  track F 1470/1496 R 1475/1506  tyre 631x225 / 631x225  along x0.999 across x1.004  camber 0.0/0.0  poke -15/-17 mm
+    = 1990 jpn FR  1484kg  280hp Coupe    Toyota SUPRA 2.5GT Twin Turbo R `90
+        wb 2595/2595  track F 1470/1496 R 1475/1506  tyre 631x225 / 631x225  along x0.999 across x1.004  camber 0.0/0.0  poke -15/-17 mm
+
+=== pony_coupe_67  (Pony Coupe 67 (F-body), America 1967 Muscle)  — 1 car
+    model: wheelbase 2743 mm, track 1566/1566 mm, tyre 656/656 mm, lower body 1835 mm, 1 liveries
+    = 1967 usa FR  1380kg  299hp Muscle   Chevrolet Camaro SS 350 `67
+        wb 2746/2746  track F 1499/1572 R 1496/1572  tyre 652x195 / 652x195  along x1.001 across x1.004  camber 0.0/0.0  poke -49/-51 mm
 

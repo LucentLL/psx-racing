@@ -1,0 +1,93 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &611171106560164288
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7662496861555077234}
+  - component: {fileID: 1704476538448402708}
+  m_Layer: 0
+  m_Name: lux_coupe_97
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7662496861555077234
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 611171106560164288}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1704476538448402708
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 611171106560164288}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: lux_coupe_97
+  displayName: Lux Coupe 97 (Z30)
+  bodyMesh: {fileID: -2432090755550338912, guid: 6c1bfaa13ae115a4cb53d9b7e9072c1c, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 426748e9f9d2fdf49921ea627d9c8783, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 4acf89750ccace04f8cac03165989a37, type: 2}
+  skinNames:
+  - lux_coupe_97_garnet_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.36694974, g: 0.19523752, b: 0.1823439, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.022792354
+  bodyZOffset: 0
+  wheelbase: 2.692641
+  trackWidth: 1.550521
+  wheelRadius: 0.28951412
+  wheelMeshScale: 0.93
+  trackRear: 1.550521
+  tyreRadiusRear: 0.31130552
+  tyreWidthRear: 0.22522104
+  lowerBodyWidth: 1.835488
+  cowlZ: 0.82150733
+  cowlY: 0.88903487
+  noseZ: 2.3680696
+  roofY: 1.302164
+  headLamp: {x: 0.5880842, y: 0.5979792, z: 2.0686016}
+  headLampNormal: {x: 0.43681204, y: -0.22255726, z: 0.8715868}
+  headLampSize: {x: 0.24115227, y: 0.10058278}
+  tailLamp: {x: 0.68575245, y: 0.7388637, z: -2.2638755}
+  tailLampNormal: {x: 0.16987337, y: -0.91874915, z: -0.3564309}
+  tailLampSize: {x: 0.48626083, y: 0.2701449}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
+  coverMesh: {fileID: -2432090755550338912, guid: 5f0c2c285273c4e45b3e7aba46bb47f7, type: 3}
+  coverUpMesh: {fileID: 0}
+  coverMaterial: {fileID: 2100000, guid: f46c73227fb4d4946bbe2cb040f56a3a, type: 2}
+  colliderCenter: {x: 0, y: 0.7353826, z: -0.08193004}
+  colliderSize: {x: 1.9014047, y: 1.0566486, z: 4.6794996}
+  blobSize: {x: 2.5352063, y: 5.243}

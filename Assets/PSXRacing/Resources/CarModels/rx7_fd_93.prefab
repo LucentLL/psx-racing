@@ -54,32 +54,32 @@ MonoBehaviour:
   - fd_shared_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.6379406, g: 0.5056638, b: 0.16551894, a: 1}
+  - {r: 0.64221525, g: 0.50934476, b: 0.169133, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.022687284
+  bodyYOffset: -0.022684513
   bodyZOffset: 0
-  wheelbase: 2.408753
-  trackWidth: 1.4687519
-  wheelRadius: 0.3014172
+  wheelbase: 2.408455
+  trackWidth: 1.46857
+  wheelRadius: 0.30137998
   wheelMeshScale: 0.93
-  trackRear: 1.4687519
-  tyreRadiusRear: 0.32410452
-  tyreWidthRear: 0.21541601
-  lowerBodyWidth: 1.701794
-  cowlZ: 0.68872595
-  cowlY: 0.8014162
-  noseZ: 2.0396008
-  roofY: 1.1869656
-  headLamp: {x: 0.5767054, y: 0.5381803, z: 1.8349943}
-  headLampNormal: {x: 0.16873382, y: 0.8275264, z: 0.53547084}
-  headLampSize: {x: 0.48368838, y: 0.28}
-  tailLamp: {x: 0.5424899, y: 0.64399034, z: -2.0568366}
-  tailLampNormal: {x: 0.16015403, y: -0.14117235, z: -0.9769448}
-  tailLampSize: {x: 0.24326749, y: 0.28}
+  trackRear: 1.46857
+  tyreRadiusRear: 0.3240645
+  tyreWidthRear: 0.21538997
+  lowerBodyWidth: 1.722778
+  cowlZ: 0.6943598
+  cowlY: 0.7857061
+  noseZ: 2.0452347
+  roofY: 1.1873323
+  headLamp: {x: 0.59275603, y: 0.5152931, z: 1.8470975}
+  headLampNormal: {x: 0.32006565, y: 0.5781635, z: 0.7505231}
+  headLampSize: {x: 0.19396016, y: 0.11634517}
+  tailLamp: {x: 0.5806434, y: 0.6307027, z: -2.0459056}
+  tailLampNormal: {x: 0.24429004, y: -0.001979545, z: -0.9697002}
+  tailLampSize: {x: 0.23630658, y: 0.28}
   lampsUpMesh: {fileID: -2432090755550338912, guid: 635207fb854128940a20f8bf4cefff21, type: 3}
-  headLampUp: {x: 0.5824081, y: 0.673959, z: 1.7607582}
-  headLampUpNormal: {x: 0.013565204, y: 0.000087918495, z: 0.999908}
-  headLampUpSize: {x: 0.22904424, y: 0.16346201}
+  headLampUp: {x: 0.60468733, y: 0.65942305, z: 1.7496696}
+  headLampUpNormal: {x: 0.28719017, y: -0.033606905, z: 0.9572839}
+  headLampUpSize: {x: 0.19133839, y: 0.14974463}
   lensBodyMesh: {fileID: 0}
   lensHeadMesh: {fileID: 0}
   lensTailMesh: {fileID: 0}
@@ -88,6 +88,6 @@ MonoBehaviour:
   coverMesh: {fileID: -2432090755550338912, guid: 29f50d61a77d4824b048dad2a9498169, type: 3}
   coverUpMesh: {fileID: -2432090755550338912, guid: 263dfcde108d4b2ca0aebd9a178e9165, type: 3}
   coverMaterial: {fileID: 2100000, guid: 8eebd202ecca4ad46a5c8623d2594c4e, type: 2}
-  colliderCenter: {x: 0, y: 0.66657424, z: -0.1003989}
-  colliderSize: {x: 1.7022111, y: 0.97554505, z: 4.0873995}
-  blobSize: {x: 2.269615, y: 4.5796}
+  colliderCenter: {x: 0, y: 0.66254497, z: -0.09476507}
+  colliderSize: {x: 1.7200774, y: 0.98065174, z: 4.0873995}
+  blobSize: {x: 2.2934365, y: 4.5796}
