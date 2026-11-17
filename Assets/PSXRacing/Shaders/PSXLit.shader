@@ -1476,15 +1476,18 @@ Shader "PSX/Lit"
                         float ccTh = atan2(-ccEye.x, -ccEye.z);
                         float ccN = _PSXCrownCard.z;
                         float ccF = ccTh / (3.14159265 / ccN);
-                        float ccK = floor(ccF + 0.5);
-                        // (VIEW FADE, _PSXCrownCard.w = b > 0: within b of a view step of the
-                        // half-way bearing between two views, the next view takes over a 2 x 2
-                        // pixel screen-door share of the card - half at the half-way bearing -
-                        // instead of the whole picture switching there: an eye passing a far
-                        // tree saw its leaves and outline jump every 45 degrees of bearing)
-                        float ccD = ccF - ccK;
-                        float ccK2 = ccK + (ccD >= 0.0 ? 1.0 : -1.0);
-                        float ccW = _PSXCrownCard.w > 0.0 ? saturate((abs(ccD) - (0.5 - _PSXCrownCard.w)) / _PSXCrownCard.w) * 0.5 : 0.0;
+                        // (VIEW FADE, _PSXCrownCard.w = b > 0: the two views either side of the
+                        // eye's bearing - the one at or before it, ccK, and the next, ccK2 - and
+                        // within b of a view step of the half-way bearing between them the next
+                        // one takes a 2 x 2 pixel screen-door share of the card, 0 to all of it
+                        // across the band, ALWAYS by the same pixels for the same pair, so no
+                        // pixel flips back and forth; outside the band the nearer view whole.
+                        // b = 0: the nearer view whole, switched at the half-way bearing - an
+                        // eye passing a far tree saw its leaves and outline jump every 45 degrees.)
+                        float ccK = floor(ccF);
+                        float ccT = ccF - ccK;
+                        float ccK2 = ccK + 1.0;
+                        float ccW = _PSXCrownCard.w > 0.0 ? saturate((ccT - (0.5 - _PSXCrownCard.w)) / (2.0 * _PSXCrownCard.w)) : step(0.5, ccT);
                         ccK -= 2.0 * ccN * floor(ccK / (2.0 * ccN));
                         bool ccMir = ccK > ccN - 0.5;
                         if (ccMir) ccK -= ccN;
@@ -1826,14 +1829,14 @@ Shader "PSX/Lit"
                 uv = i.atlas.xy + frac(uv) * i.atlas.zw;
             #endif
             #ifdef PSX_LODFADE
-                // TREE MATCH VIEW FADE: near the half-way bearing a 2 x 2 pixel
-                // screen-door share of the far card wears its next view (whole
-                // pixel quads, so the texture's mip is taken within one view)
+                // TREE MATCH VIEW FADE: a 2 x 2 pixel screen-door share of the far
+                // card wears its next view (whole pixel quads, so the texture's mip
+                // is taken within one view); all of it past the band
                 if (i.lodD.w > 0.0)
                 {
                     float2 vpx = floor(i.pos.xy * 0.5);
                     float vdith = frac(52.9829189 * frac(dot(vpx, float2(0.06711056, 0.00583715)) + 0.37));
-                    if (vdith < i.lodD.w) uv.x = i.lodD.z * _MainTex_ST.x + _MainTex_ST.z;
+                    if (i.lodD.w > 0.999 || vdith < i.lodD.w) uv.x = i.lodD.z * _MainTex_ST.x + _MainTex_ST.z;
                 }
             #endif
                 // Where the facade texture repeats, for the lit windows below.
