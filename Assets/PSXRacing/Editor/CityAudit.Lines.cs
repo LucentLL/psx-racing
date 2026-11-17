@@ -21,6 +21,81 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class CityAudit
     {
+        /// <summary>(11-17 roads3) THE GROUND PROBE (track fault H4: the Uptown Loop's rivals hit "Ground" at 39-51 m/s on
+        /// I-277 e1832, between two decks). The tiles round the listed edges built and attached as the game attaches
+        /// them (CityWorld.Attach, its colliders), then every PSX_GP_STEP m along each edge, across the drawn road every
+        /// PSX_GP_LAT m, a ray down from 30 m over the road: every hit, the road's top and the highest Ground face there.
+        ///   PSX_GP_EDGES=1832,9697,2421 [PSX_GP_STEP=1] [PSX_GP_LAT=0.5]   Out: city_groundprobe.txt / .tsv</summary>
+        public static void RunGroundProbe()
+        {
+            outLog = new StringBuilder(); failures = 0;
+            var map = CityMap.Get();
+            if (map == null) { Fail("charlotte_city.bytes missing"); FinishTo("city_groundprobe.txt"); return; }
+            var inv = CultureInfo.InvariantCulture;
+            var edges = new List<int>();
+            foreach (var p in EnvS("PSX_GP_EDGES", "1832,9697,2421").Split(',')) if (int.TryParse(p.Trim(), out int ei) && ei >= 0 && ei < map.edges.Length) edges.Add(ei);
+            float step = EnvF("PSX_GP_STEP", 1f), latStep = EnvF("PSX_GP_LAT", 0.5f);
+            var t = CityMeshes.ComputeTrims(map);
+            var noBld = new Dictionary<long, List<CityBuildings.B>>();
+            // the tiles under the edges
+            var tiles = new HashSet<(int, int)>();
+            foreach (int ei in edges)
+                foreach (var q in map.edges[ei].pts)
+                    for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
+                        tiles.Add((Mathf.FloorToInt((q.x + dx * 30f) / CityMeshes.TileSize), Mathf.FloorToInt((q.y + dz * 30f) / CityMeshes.TileSize)));
+            var root = new GameObject("~GroundProbe");
+            foreach (var (tx, tz) in tiles)
+            {
+                var tm = CityMeshes.Build(map, t, noBld, tx, tz);
+                if (tm == null) continue;
+                var go = new GameObject($"~gp_{tx}_{tz}"); go.transform.SetParent(root.transform, false); go.transform.position = tm.origin;
+                CityWorld.Attach(go, tm, null);   // (the game's own colliders only: Ground, Roads, Barriers, ...)
+            }
+            Physics.SyncTransforms();
+            Line($"GROUND PROBE: edges {string.Join(",", edges)}; {tiles.Count} tiles; step {step} m, across {latStep} m; graph {map.graphHash:x8}; PSX_CITY_SPLITAXIS {LineModel.SplitAxis}");
+            var tsv = new StringBuilder("edge\ts\tlat\tx\tz\troadY\tgroundTop\tdy\ttop\thits\n");
+            var hitsBuf = new RaycastHit[32];
+            foreach (int ei in edges)
+            {
+                var e = map.edges[ei];
+                float worst = float.MinValue, worstS = 0f, worstLat = 0f; int above = 0, samples = 0, topNotRoad = 0;
+                for (float s = 0f; s <= e.length + 1e-3f; s += step)
+                {
+                    LineModel.Extents(e, s, out float eM, out float eP);
+                    var c = e.PointAt(s); var tg = e.TangentAt(s); var nl = new Vector2(-tg.y, tg.x);
+                    float y0 = e.YAt(s);
+                    for (float lat = -eM + 0.2f; lat <= eP - 0.2f + 1e-3f; lat += latStep)
+                    {
+                        var p = c + nl * lat;
+                        int n = Physics.RaycastNonAlloc(new Vector3(p.x, y0 + 30f, p.y), Vector3.down, hitsBuf, 60f, ~0, QueryTriggerInteraction.Ignore);
+                        float roadY = float.NaN, groundTop = float.NaN, topY = float.MinValue; string top = "", all = "";
+                        for (int h = 0; h < n; h++)
+                        {
+                            var hit = hitsBuf[h]; string nm = hit.collider.gameObject.name; float hy = hit.point.y;
+                            if (Mathf.Abs(hy - y0) > 6f) continue;      // another level (a deck over or a road under)
+                            if (hy > topY) { topY = hy; top = nm; }
+                            if (nm.StartsWith("Road") && (float.IsNaN(roadY) || hy > roadY)) roadY = hy;
+                            if (nm.StartsWith("Ground") && (float.IsNaN(groundTop) || hy > groundTop)) groundTop = hy;
+                            all += $"{nm}@{hy - y0:+0.000;-0.000} ";
+                        }
+                        samples++;
+                        if (top.Length > 0 && !top.StartsWith("Road")) topNotRoad++;
+                        float dy = float.IsNaN(roadY) || float.IsNaN(groundTop) ? float.NaN : groundTop - roadY;
+                        if (!float.IsNaN(dy) && dy > -0.01f) above++;
+                        if (!float.IsNaN(dy) && dy > worst) { worst = dy; worstS = s; worstLat = lat; }
+                        if ((!float.IsNaN(dy) && dy > -0.05f) || (top.Length > 0 && !top.StartsWith("Road")) || float.IsNaN(roadY))
+                            tsv.Append(ei).Append('\t').Append(s.ToString("0.0", inv)).Append('\t').Append(lat.ToString("0.0", inv)).Append('\t').Append(p.x.ToString("0.00", inv)).Append('\t').Append(p.y.ToString("0.00", inv)).Append('\t')
+                               .Append(float.IsNaN(roadY) ? "-" : (roadY - y0).ToString("0.000", inv)).Append('\t').Append(float.IsNaN(groundTop) ? "-" : (groundTop - y0).ToString("0.000", inv)).Append('\t')
+                               .Append(float.IsNaN(dy) ? "-" : dy.ToString("0.000", inv)).Append('\t').Append(top).Append('\t').Append(all.Trim()).Append('\n');
+                    }
+                }
+                Line($"  e{ei} '{e.name}' {e.length:0.0} m bridge {e.bridge}: {samples} rays; top face not the road at {topNotRoad}; Ground within 1 cm of the road or over it at {above}; the highest Ground over the road {(worst > float.MinValue ? worst.ToString("+0.000;-0.000", inv) : "-")} m at s {worstS:0.0} lat {worstLat:0.0}");
+            }
+            File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_groundprobe.tsv"), tsv.ToString());
+            Object.DestroyImmediate(root);
+            FinishTo("city_groundprobe.txt");
+        }
+
         static string EnvS(string k, string d) { var v = System.Environment.GetEnvironmentVariable(k); return string.IsNullOrEmpty(v) ? d : v; }
         static float EnvF(string k, float d) => float.TryParse(System.Environment.GetEnvironmentVariable(k) ?? "", NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ? v : d;
 
