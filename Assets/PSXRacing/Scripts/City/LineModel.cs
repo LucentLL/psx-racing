@@ -430,7 +430,7 @@ namespace PSXRacing.City
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear();
+            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear(); RelayHandOvers = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
@@ -495,6 +495,12 @@ namespace PSXRacing.City
                             fixT = owForward ? -1 : 1;
                         }
                         else if (TwoSided(W, n)) fixT = 0;   // Q4: each direction widens on its own outside
+                        // the road-lines round (PSX_CITY_LINEFIX): a CENTRE LANE opens - the wide arm carries the
+                        // narrow arm's lanes each way and a two-way left-turn lane between them (six lanes into the
+                        // seven-lane street): both directions move out half a lane, each on its own side
+                        else if (LineFixOn && !W.oneway && !N.oneway && W.hasLset && N.hasLset && W.lsCentre == 2 && N.lsCentre == 1
+                                 && (((W.a == n) != (N.a == n)) ? (W.lsNF == N.lsNF && W.lsNB == N.lsNB) : (W.lsNF == N.lsNB && W.lsNB == N.lsNF))
+                                 && Mathf.Abs(Mathf.Abs(dLt) - Mathf.Abs(dRt)) < 0.05f) fixT = 0;
                         else if (taprAt != null && (taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 0), out int tiW)
                                                     || taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 1), out tiW)))
                         {
@@ -1806,6 +1812,8 @@ namespace PSXRacing.City
             var lE = LayoutOf(E); var lO = LayoutOf(O);
             bool same = (E.a == n) != (O.a == n);              // one arrives, one leaves: one a->b frame
             var oInE = same ? lO : Flipped(lO);
+            // the road-lines round (PSX_CITY_LINEFIX): the centre lane changes hands - no line moves
+            if (LineFixOn && CentreHandOver(E, O, lE, oInE, same)) { RelayHandOvers++; return; }
             var pE = RelayPairs(lE, oInE);                      // E line k -> O's m (E frame), or NaN
             var eInO = same ? lE : Flipped(lE);
             var pO = RelayPairs(lO, eInO);
@@ -1853,6 +1861,50 @@ namespace PSXRacing.City
             float fE = lenE + lenO > 1e-3f ? lenE / (lenE + lenO) : 0.5f;
             AddRelay(add, E, n, lE, pE, fE, lenE);
             AddRelay(add, O, n, lO, pO, 1f - fE, lenO);
+        }
+
+        // ================================================================
+        //  THE CENTRE LANE CHANGES HANDS (the road-lines round, 2026-11-17)
+        // ================================================================
+        // 788 joins city-wide relay between two line sets of one profile; at 428 of them (and at the
+        // untagged ones on the odd, centre-turn-lane profiles) the only thing that differs is WHOSE the
+        // centre lane is: one direction's left bay, the other's, or a two-way left-turn lane (East 7th
+        // Street, Gleneagles Road, Beam Road...: 3 + 2 / 2 + 3, 2 + 1 / 1 + 2 piece after piece). Every
+        // line of the two layouts is in the same place - the lane's two boundaries only change kind (the
+        // double yellow is on its far side, a white bay line on its near side) - but the relay paired
+        // yellow with yellow and carried the double yellow diagonally ACROSS the centre lane and back at
+        // the next piece: the owner's S, 214 times. A real centre lane's boundaries never move: where a
+        // bay begins the two-way lane's broken yellow ends and a white line starts in its place. So:
+        // where the two layouts' lines all sit within 0.3 m of a line of the other, and each direction's
+        // THROUGH lanes are the same on both pieces (an inner turn-only lane, the centre lane of an odd
+        // profile, or a TWLTL is not a through lane), there is no relay: each piece draws its own lines
+        // to the join. A join where a through lane really ends keeps its relay (and its taper length).
+        public static int RelayHandOvers;
+        static void ThruOf(CityMap.Edge e, out int tf, out int tb)
+        {
+            CityMeshes.TurnOnly(e, out int fw, out int bw, out int nF, out int nB, out _);
+            tf = nF - ((fw & 1) != 0 && nF >= 2 ? 1 : 0);
+            tb = nB - ((bw & 1) != 0 && nB >= 2 ? 1 : 0);
+            // an odd profile's middle lane IS the centre lane (RoadProfiles.IndexFor): on an uneven split
+            // with a double yellow the larger direction's extra lane is that lane, tagged as a bay or not
+            if (e.lsCentre == 1 && RoadProfiles.All[e.profile].turnLane && nF != nB)
+            {
+                int k = (RoadProfiles.All[e.profile].lanes - 1) / 2;
+                if (nF == k + 1 && nB == k) tf = Mathf.Min(tf, k);
+                else if (nB == k + 1 && nF == k) tb = Mathf.Min(tb, k);
+            }
+        }
+        static bool CentreHandOver(CityMap.Edge E, CityMap.Edge O, Layout a, Layout b, bool same)
+        {
+            if (E.profile != O.profile || a.m.Length == 0 || b.m.Length == 0) return false;
+            ThruOf(E, out int ef, out int eb); ThruOf(O, out int of, out int ob);
+            if (!same) { int q = of; of = ob; ob = q; }
+            if (ef != of || eb != ob) return false;
+            const float tol = 0.30f;
+            bool Has(Layout l, float m) { for (int i = 0; i < l.m.Length; i++) if (Mathf.Abs(l.m[i] - m) <= tol) return true; return false; }
+            for (int i = 0; i < a.m.Length; i++) if (!Has(b, a.m[i])) return false;
+            for (int i = 0; i < b.m.Length; i++) if (!Has(a, b.m[i])) return false;
+            return true;
         }
 
         /// <summary>Round 5: the split nodes of the refuge pairs drawn (null: none).</summary>

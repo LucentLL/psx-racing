@@ -7,12 +7,14 @@ namespace PSXRacing.City
 {
     public static partial class LineModel
     {
-        /// <summary>19 ways, 1.08 km.</summary>
+        /// <summary>25 ways, 1.72 km.</summary>
         static readonly uint[] LaneFitData = {
+            1173891313u, 1, 1, 1, 0, 0,   // East Boulevard 22 m [centre turn lane]
             1483334978u, 2, 5, 0, 0, 19,   // East Sugar Creek Road 81 m
             1022911903u, 4, 3, 0, 0, 0,   // Eastway Drive 16 m
             1022911907u, 4, 3, 0, 9, 0,   // Eastway Drive 82 m
             1022911909u, 4, 3, 0, 0, 0,   // Eastway Drive 4 m
+            204788641u, 2, 2, 1, 0, 0,   // Mallard Creek Road 48 m [centre turn lane]
             1420722600u, 4, 3, 0, 8, 4,   // Monroe Road 30 m
             1350307459u, 3, 4, 0, 4, 1,   // NC Highway 49 33 m
             120116929u, 3, 3, 1, 0, 4,   // North Tryon Street 75 m [lent]
@@ -22,8 +24,12 @@ namespace PSXRacing.City
             1346185919u, 3, 4, 0, 0, 1,   // North Tryon Street 43 m
             1346185920u, 3, 4, 0, 0, 1,   // North Tryon Street 27 m
             1346185921u, 3, 3, 1, 4, 0,   // North Tryon Street 28 m
+            549803187u, 1, 1, 1, 0, 0,   // Parkwood Avenue 290 m [centre turn lane]
+            1116753574u, 1, 1, 1, 0, 0,   // Parkwood Avenue 135 m [centre turn lane]
+            1449680437u, 1, 1, 1, 0, 0,   // Parkwood Avenue 80 m [centre turn lane]
             648860946u, 5, 3, 0, 19, 4,   // Pineville-Matthews Road 104 m
             1507499688u, 4, 2, 1, 8, 2,   // Poplar Tent Road 70 m
+            1312360147u, 1, 1, 1, 0, 0,   // Sam Newell Road 70 m [centre turn lane]
             1396545160u, 2, 5, 0, 0, 19,   // South Tryon Street 109 m
             839702033u, 4, 3, 0, 9, 4,   // Sunset Road 29 m
             16716621u, 3, 4, 0, 4, 1,   // West Tyvola Road 81 m

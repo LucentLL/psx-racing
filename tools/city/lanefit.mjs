@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRaw } from './splitcensus/osmraw.mjs';
+import { load } from './splitcensus/load.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const OUT = path.join(ROOT, 'Assets', 'PSXRacing', 'Scripts', 'City', 'LineModel.LaneFitList.cs');
@@ -80,11 +81,41 @@ for (let pass = 0; pass < 4; pass++) {
   if (!added) break;
 }
 
+// (C) a tagged centre two-way left-turn lane (lanes:both_ways, centre_turn_lane, turn:lanes:both_ways) that
+// the exported row draws as a double yellow, where the lanes add to three or five - the game has those
+// profiles (1 + TWLTL + 1, 2 + TWLTL + 2) and the exporter did not take them (Parkwood Avenue: lanes=2 +
+// centre_turn_lane=yes drawn as a plain two-lane street). Four lanes with a centre lane (1 + TWLTL + 2)
+// have no profile: listed in the print, not in the table.
+const noProfile = [];
+{
+  const city = load();
+  const seen = new Set();
+  for (const e of city.edges) {
+    if (e.oneway || e.link || e.a === e.b || !e.lset || !(e.lset.flags & 1) || e.lset.centre === 2) continue;
+    const w = ways.get(e.wayId); if (!w || rows.has(w.id) || seen.has(w.id)) continue;
+    const t = w.tags;
+    if (!twoWay(t)) continue;
+    const both = int(t['lanes:both_ways']) > 0 || t.centre_turn_lane === 'yes' || !!t['turn:lanes:both_ways'];
+    if (!both) continue;
+    seen.add(w.id);
+    let lf = int(t['lanes:forward']), lb = int(t['lanes:backward']);
+    const L = int(t.lanes);
+    if (!(lf >= 1 && lb >= 1)) {
+      // no split tagged: the lanes shared evenly either side of the centre lane (lanes counts it, or not)
+      if (L === 2 || L === 3) lf = lb = 1; else if (L === 4 || L === 5) lf = lb = 2; else continue;
+    }
+    const total = lf + lb + 1;
+    if (total !== 3 && total !== 5) { noProfile.push(`way ${w.id} '${t.name || t.ref || ''}' ${lenOf(w).toFixed(0)} m: ${lf} + TWLTL + ${lb}`); continue; }
+    rows.set(w.id, { lf, lb, both: 1, bf: turnOnlyBits(t['turn:lanes:forward']), bb: turnOnlyBits(t['turn:lanes:backward']), why: 'twltl', name: t.name || t.ref || '', len: lenOf(w) });
+  }
+}
+
 const list = [...rows.entries()].sort((a, b) => (a[1].name < b[1].name ? -1 : a[1].name > b[1].name ? 1 : a[0] - b[0]));
 let km = 0; for (const [, r] of list) km += r.len / 1000;
 const byRoad = new Map();
 for (const [, r] of list) { const q = byRoad.get(r.name) || { n: 0, m: 0 }; q.n++; q.m += r.len; byRoad.set(r.name, q); }
-console.log(`lane fit: ${list.length} two-way ways (${km.toFixed(2)} km): ${list.filter(x => x[1].why === 'tags').length} tagged seven lanes or more, ${list.filter(x => x[1].why === 'lent').length} lent`);
+console.log(`lane fit: ${list.length} two-way ways (${km.toFixed(2)} km): ${list.filter(x => x[1].why === 'tags').length} tagged seven lanes or more, ${list.filter(x => x[1].why === 'lent').length} lent, ${list.filter(x => x[1].why === 'twltl').length} with a tagged centre turn lane drawn as a double yellow (three or five lanes)`);
+if (noProfile.length) { console.log(`  no profile (four lanes with a centre turn lane, left as exported): ${noProfile.length}`); for (const s of noProfile) console.log('    ' + s); }
 for (const [k, v] of [...byRoad.entries()].sort((a, b) => b[1].m - a[1].m)) console.log(`  ${k}: ${v.n} ways, ${(v.m / 1000).toFixed(2)} km`);
 for (const [id, r] of list) console.log(`  way ${id} '${r.name}' ${r.len.toFixed(0)} m: ${r.lf} + ${r.both ? 'TWLTL + ' : ''}${r.lb} (turn-only f ${r.bf.toString(2)} b ${r.bb.toString(2)}) [${r.why}]`);
 
@@ -98,7 +129,7 @@ if (!process.argv.includes('--check')) {
   s += 'namespace PSXRacing.City\r\n{\r\n    public static partial class LineModel\r\n    {\r\n';
   s += `        /// <summary>${list.length} ways, ${km.toFixed(2)} km.</summary>\r\n`;
   s += '        static readonly uint[] LaneFitData = {\r\n';
-  for (const [id, r] of list) s += `            ${id}u, ${r.lf}, ${r.lb}, ${r.both}, ${r.bf}, ${r.bb},   // ${r.name.replace(/[\\\r\n]/g, ' ')} ${r.len.toFixed(0)} m${r.why === 'lent' ? ' [lent]' : ''}\r\n`;
+  for (const [id, r] of list) s += `            ${id}u, ${r.lf}, ${r.lb}, ${r.both}, ${r.bf}, ${r.bb},   // ${r.name.replace(/[\\\r\n]/g, ' ')} ${r.len.toFixed(0)} m${r.why === 'lent' ? ' [lent]' : r.why === 'twltl' ? ' [centre turn lane]' : ''}\r\n`;
   s += '        };\r\n    }\r\n}\r\n';
   fs.writeFileSync(OUT, s);
   console.log('wrote ' + OUT);

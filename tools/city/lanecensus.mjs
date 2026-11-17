@@ -139,13 +139,14 @@ for (const r of relays) {
 console.log(`S (the centre line a lane or more one way and back within 300 m): ${sCount}`);
 for (const [name, n] of [...sRoads.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`    ${name}: ${n}`);
 
+const nodeAt = (e, n) => e.a === n ? e.pts[0] : e.pts[e.pts.length - 1];
 const ti = process.argv.indexOf('--tsv');
 if (ti > 0) {
   let s = 'class\tedge\tedge2\tnode\troad\tx\tz\tlat\tlon\trowA\trowB\tmove\tmph\tneed\troom\n';
   for (const k of ['ABOVE', 'SQUEEZED', 'TWLTL-'])
     for (const e of cls[k]) { const p = e.pts[Math.floor(e.pts.length / 2)]; const [la, lo] = toLL(p[0], p[1]); s += `${k}\t${e.index}\t\t\t${e.name}\t${p[0].toFixed(0)}\t${p[1].toFixed(0)}\t${la.toFixed(6)}\t${lo.toFixed(6)}\t${e.lset.nF}+${e.lset.nB}c${e.lset.centre}\ttags ${e.tag.lf}+${e.tag.lb}${e.tag.both ? '+T' : ''} lanes=${e.tag.L}\t\t\t\t${e.length.toFixed(0)}\n`; }
-  for (const r of relays) { const p = city.nodes[r.node]; const [la, lo] = toLL(p[0], p[1]); s += `${r.through ? 'RELAY-THROUGH' : 'RELAY-CENTRE'}\t${r.e.index}\t${r.o.index}\t${r.node}\t${r.e.name}\t${p[0].toFixed(0)}\t${p[1].toFixed(0)}\t${la.toFixed(6)}\t${lo.toFixed(6)}\t${r.A.nF}+${r.A.nB}c${r.A.c}\t${r.B.nF}+${r.B.nB}c${r.B.c}\t${r.move.toFixed(2)}\t${r.mph.toFixed(0)}\t${r.need.toFixed(0)}\t${r.room.toFixed(0)}\n`; }
-  for (const x of sList) { const p = city.nodes[x.r.node]; const [la, lo] = toLL(p[0], p[1]); s += `S\t${x.r.e.index}\t${x.nx.index}\t${x.r.node}\t${x.r.e.name}\t${p[0].toFixed(0)}\t${p[1].toFixed(0)}\t${la.toFixed(6)}\t${lo.toFixed(6)}\t\t\t${x.r.move.toFixed(2)}\t${x.r.mph.toFixed(0)}\t\t${x.dist.toFixed(0)}\n`; }
+  for (const r of relays) { const p = nodeAt(r.e, r.node); const [la, lo] = toLL(p[0], p[1]); s += `${r.through ? 'RELAY-THROUGH' : 'RELAY-CENTRE'}\t${r.e.index}\t${r.o.index}\t${r.node}\t${r.e.name}\t${p[0].toFixed(0)}\t${p[1].toFixed(0)}\t${la.toFixed(6)}\t${lo.toFixed(6)}\t${r.A.nF}+${r.A.nB}c${r.A.c}\t${r.B.nF}+${r.B.nB}c${r.B.c}\t${r.move.toFixed(2)}\t${r.mph.toFixed(0)}\t${r.need.toFixed(0)}\t${r.room.toFixed(0)}\n`; }
+  for (const x of sList) { const p = nodeAt(x.r.e, x.r.node); const [la, lo] = toLL(p[0], p[1]); s += `S\t${x.r.e.index}\t${x.nx.index}\t${x.r.node}\t${x.r.e.name}\t${p[0].toFixed(0)}\t${p[1].toFixed(0)}\t${la.toFixed(6)}\t${lo.toFixed(6)}\t\t\t${x.r.move.toFixed(2)}\t${x.r.mph.toFixed(0)}\t\t${x.dist.toFixed(0)}\n`; }
   fs.writeFileSync(process.argv[ti + 1], s);
   console.log('wrote ' + process.argv[ti + 1]);
 }

@@ -31,6 +31,13 @@ namespace PSXRacing.City
     /// relay between a TWLTL piece and a bay piece changes the centre lane's lines and nothing else. A
     /// six-lane piece lying between two seven-lane ones (the mapper left the centre lane out) is lent
     /// 3 + TWLTL + 3. More than seven tagged lanes: the turn lane that does not fit is not drawn.
+    ///
+    /// THE SAME FIT FOR THE SMALLER STREETS (11-17): a way with a TAGGED centre two-way left-turn lane
+    /// whose exported row draws a double yellow, where the lanes add to three or five, takes the profile
+    /// the game already has for it (1 + TWLTL + 1, 2 + TWLTL + 2): Parkwood Avenue (lanes=2 +
+    /// centre_turn_lane=yes, exported as a plain two-lane street), Sam Newell Road, East Boulevard,
+    /// Mallard Creek Road. Four lanes with a centre lane (1 + TWLTL + 2) have no profile: five ways,
+    /// 0.2 km, left as exported (tools/city/lanefit.mjs prints them).
     /// </summary>
     public static partial class LineModel
     {
@@ -47,12 +54,17 @@ namespace PSXRacing.City
             if (!LineFixOn || map == null || map.edges == null) return;
             var at = new Dictionary<uint, int>();
             for (int i = 0; i + 5 < LaneFitData.Length; i += 6) at[LaneFitData[i]] = i;
-            var pr = RoadProfiles.All[RoadProfiles.Tw7];
             foreach (var e in map.edges)
             {
                 if (e == null || e.oneway || e.link || e.a == e.b || e.wayId == 0 || !at.TryGetValue(e.wayId, out int r)) continue;
                 int lf = (int)LaneFitData[r + 1], lb = (int)LaneFitData[r + 2], both = (int)LaneFitData[r + 3];
                 int bf = (int)LaneFitData[r + 4], bb = (int)LaneFitData[r + 5];
+                // the profile the tagged lanes need: seven or more -> the seven-lane street; a tagged centre
+                // turn lane on three or five lanes -> 1 + TWLTL + 1 / 2 + TWLTL + 2 (RoadProfiles.All 1, 3)
+                int total = lf + lb + both;
+                int target = total >= 7 ? RoadProfiles.Tw7 : both == 1 && total == 5 ? 3 : both == 1 && total == 3 ? 1 : -1;
+                if (target < 0) continue;
+                var pr = RoadProfiles.All[target];
                 // more than the seven the profile holds: the larger direction's turn lane that does not fit
                 // is not drawn (its outer turn lane first, then an inner bay, then a lane)
                 string dropped = "";
@@ -78,7 +90,7 @@ namespace PSXRacing.City
                 int nF = flip ? lb : lf, nB = flip ? lf : lb, tF = flip ? bb : bf, tB = flip ? bf : bb;
                 if (LaneFitLog.Count < 200)
                     LaneFitLog.Add($"e{e.index} '{e.name}' way {e.wayId} {e.length:0} m: {RoadProfiles.All[e.profile].key} {e.lsNF}+{e.lsNB} centre {e.lsCentre} -> {pr.key} {nF}{(both == 1 ? " + TWLTL" : "")} + {nB} (turn-only f {System.Convert.ToString(tF, 2)} b {System.Convert.ToString(tB, 2)}){(dropped.Length > 0 ? "; not drawn:" + dropped : "")}{(flip ? " [the edge runs against its way]" : "")}");
-                e.profile = RoadProfiles.Tw7;
+                e.profile = target;
                 e.width = pr.Width; e.shl = pr.shl; e.shr = pr.shr;
                 e.lanes = pr.lanes; e.turnLane = both == 1;
                 e.hasLset = true;
@@ -87,7 +99,7 @@ namespace PSXRacing.City
                 e.lsFlags = (byte)((e.lsFlags | 1) & ~(2 | 4));
                 LaneFitEdges++;
             }
-            if (LaneFitEdges > 0) Debug.Log($"[city] lane fit (PSX_CITY_LINEFIX): {LaneFitEdges} edges on the seven-lane profile with their tagged lanes ({LaneFitWays} ways listed)");
+            if (LaneFitEdges > 0) Debug.Log($"[city] lane fit (PSX_CITY_LINEFIX): {LaneFitEdges} edges on the profile their tagged lanes need, with their own line set ({LaneFitWays} ways listed)");
         }
     }
 }
