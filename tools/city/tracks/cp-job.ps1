@@ -20,7 +20,7 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet("cpselftest", "race", "cards", "lifeselftest")][string]$Mode,
     [string]$Venue = "I485West", [int]$Seconds = 900, [int]$MaxMinutes = 0, [string]$Hour = "morning",
     [string]$Weather = "", [string]$Traffic = "NONE", [int]$Field = 8, [int]$Laps = 0, [string]$CpRaces = "1",
-    [string]$CpTest = "", [switch]$Shots, [string]$Label = "cp", [string]$Out = "", [string]$Extra = "", [string]$Matrix = "",
+    [string]$CpTest = "", [switch]$Shots, [string]$Label = "cp", [string]$Out = "", [string]$Extra = "", [string]$Matrix = "", [switch]$Release,
     [switch]$NoWatch
 )
 $ErrorActionPreference = "Stop"
@@ -73,10 +73,13 @@ try {
         $rep = "$Sandbox\PSXRacing_checkpoint_selftest.txt"
         Remove-Item $rep -ErrorAction SilentlyContinue
         $log = "$Sandbox\cpselftest.log"
-        $ok = Invoke-UnityJob -Log $log -MaxMinutes $mm -UnityArgs @("-quit", "-batchmode", "-nographics", "-projectPath", $Sandbox,
-            "-executeMethod", "PSXRacing.EditorTools.CheckpointSelfTest.Run", "-logFile", $log, "-accept-apiupdate")
+        # -Release: the editor's scripts compiled with RELEASE code optimisation (closer to a player's timings)
+        [string[]]$opt = if ($Release) { @("-releaseCodeOptimization") } else { @() }
+        $ok = Invoke-UnityJob -Log $log -MaxMinutes $mm -UnityArgs (@("-quit", "-batchmode", "-nographics", "-projectPath", $Sandbox) + $opt + @(
+            "-executeMethod", "PSXRacing.EditorTools.CheckpointSelfTest.Run", "-logFile", $log, "-accept-apiupdate"))
         Select-String -Path $log -Pattern "error CS" -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { $_.Line }
-        if (Test-Path $rep) { Copy-Item $rep "$Out\cp_selftest.txt" -Force; Get-Content $rep }
+        $tag = if ($Release) { "_release" } else { "" }
+        if (Test-Path $rep) { Copy-Item $rep "$Out\cp_selftest$tag.txt" -Force; Get-Content $rep }
         else { Write-Host "NO REPORT"; Get-Content $log -Tail 25; $code = 1 }
     }
     elseif ($Mode -eq "cards") {
