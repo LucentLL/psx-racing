@@ -162,6 +162,9 @@ namespace PSXRacing.EditorTools
                 LifeHomePreview.Shoot(ShotDir, "garage_tapedoor", "garage", scrollTo: 0f, sizes: sizes);
                 LifeHomePreview.Shoot(ShotDir, "tape_shelf", "tapes", sizes: sizes, fields: fields);
                 LifeHomePreview.Shoot(ShotDir, "video_store", "videostore", sizes: sizes, fields: fields);
+                // The foot of each page: the tapes' rows, each with its best clip under its spine.
+                LifeHomePreview.Shoot(ShotDir, "tape_shelf_rows", "tapes", scrollTo: 0f, sizes: sizes, fields: fields);
+                LifeHomePreview.Shoot(ShotDir, "video_store_rows", "videostore", scrollTo: 0f, sizes: sizes, fields: fields);
                 // Armed: the second press is the sale.
                 var armed = new (string name, object value)[] { ("tapeSel", pick), ("armKey", "selltape:" + pick) };
                 LifeHomePreview.Shoot(ShotDir, "video_store_armed", "videostore", sizes: sizes, fields: armed);
