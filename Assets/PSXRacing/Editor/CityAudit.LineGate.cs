@@ -78,6 +78,14 @@ namespace PSXRacing.EditorTools
         /// 9-1 uses the same family. Between the two speeds: linear.</summary>
         public static float BayRate(float mph) => Mathf.Lerp(8f, 15f, Mathf.InverseLerp(30f, 50f, mph));
 
+        /// <summary>A freeway ramp terminal's speed-change lane (AASHTO Green Book 2018 10.9.6, from
+        /// memory, not re-read: the parallel-type entrance ends in a 300 ft taper and the exit opens with
+        /// a 250 ft one for a 12 ft lane, 25:1 and 21:1). MUTCD's L = W S is for through lanes that end
+        /// (2009 3B.09); an acceleration lane is not one. The gate takes 25:1, the stricter, for both, on
+        /// the pavement edge and edge line of a freeway or expressway (class 4+) or a ramp within
+        /// <see cref="TerminalReachM"/> of a node where a ramp meets the mainline.</summary>
+        public const float TerminalRate = 25f, TerminalReachM = 350f;
+
         /// <summary>A measured taper may be 10 % short before it fails (the
         /// measurement's own tolerance: the 1 cm onset threshold).</summary>
         public const float TaperTol = 0.90f;
@@ -338,7 +346,7 @@ namespace PSXRacing.EditorTools
         static readonly List<LgStrand> lgStrands = new List<LgStrand>();
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
-        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed;
+        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed;
         static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
@@ -872,6 +880,35 @@ namespace PSXRacing.EditorTools
         static double LgTurnLat(List<LgR> r, int i, int b) =>
             (Math.Atan2(r[i + b].lat - r[i].lat, b) - Math.Atan2(r[i].lat - r[i - b].lat, b)) * 180.0 / Math.PI;
 
+        /// <summary>Does arc s of edge ei lie within <see cref="LineGateRules.TerminalReachM"/> (along the road,
+        /// through joints) of a node where a ramp (a link) meets a freeway or expressway (class 4+), with
+        /// ei itself one of the two?</summary>
+        static bool LgAtRampTerminal(CityMap map, int ei, float s)
+        {
+            var e0 = map.edges[ei];
+            bool fwy0 = e0.cls >= 4;
+            if (!fwy0 && !e0.link) return false;
+            for (int side = 0; side < 2; side++)
+            {
+                var e = e0; float left = LineGateRules.TerminalReachM - (side == 0 ? s : e0.length - s);
+                int node = side == 0 ? e0.a : e0.b;
+                for (int hop = 0; hop < 6 && left >= 0f; hop++)
+                {
+                    var arms = map.nodeEdges[node];
+                    bool link = false, fwy = false;
+                    foreach (int o in arms) { var oe = map.edges[o]; link |= oe.link; fwy |= !oe.link && oe.cls >= 4; }
+                    if (link && fwy) return true;
+                    if (arms.Count != 2) break;
+                    int next = arms[0] == e.index ? arms[1] : arms[0];
+                    if (next == e.index) break;
+                    e = map.edges[next];
+                    left -= e.length;
+                    node = e.a == node ? e.b : e.a;
+                }
+            }
+            return false;
+        }
+
         /// <summary>The angle point at sample i over chords of b and 2b metres: |2 turn(b) - turn(2b)|, less
         /// the same in the road's lateral frame (a taper's own break is SHIFT's); no lateral frame across a
         /// change of edge direction.</summary>
@@ -976,8 +1013,12 @@ namespace PSXRacing.EditorTools
                 if (W < LineGateRules.JogMinM || W > LineGateRules.JogMaxM) continue;
                 var e = map.edges[r[i1].e];
                 float mph = LineGateRules.Mph(e); float rate = LineGateRules.TaperRate(mph);
+                // the pavement edge (or edge line) bulging out and back at a freeway ramp terminal: the
+                // speed-change lane, judged on the terminal's taper (AASHTO), not MUTCD's through-lane drop
+                bool terminal = st0.Boundary && LgAtRampTerminal(map, r[i1].e, r[i1].s);
+                if (terminal) rate = Mathf.Min(rate, LineGateRules.TerminalRate);
                 double need = rate * W;
-                if (D >= LineGateRules.TaperTol * need) continue;
+                if (D >= LineGateRules.TaperTol * need) { if (terminal) lgTerminalPassed++; continue; }
                 // two real curves, each no tighter than its speed allows, are an alignment, not a jog
                 float cMph = e.advisoryMph > 0 ? Mathf.Min(mph, e.advisoryMph) : mph;
                 double rMin = LineGateRules.MinRadiusM(cMph);
@@ -988,7 +1029,7 @@ namespace PSXRacing.EditorTools
                 for (int i = ja; i <= jb; i++) { latMin = Mathf.Min(latMin, r[i].lat); latMax = Mathf.Max(latMax, r[i].lat); if (i > ja && r[i].e != r[i - 1].e && Mathf.Abs(r[i].lat - r[i - 1].lat) > 0.2f) oneFrame = false; }
                 bool model = oneFrame && latMax - latMin >= 0.5 * W;
                 lgFails.Add(new LgFail { cls = "SJOG", sub = model ? "the line model's" : "the road's own line", edge = e.index, s = r[ja].s, s1 = r[jb].s, x = r[i1].x, z = r[i1].z, measure = (float)D, limit = (float)need, unit = "m", mph = mph, line = kind, model = model,
-                                         what = $"the {kind} swings {Math.Max(a1, a2):0.0} deg and back, {W:0.00} m sideways in {D:0} m; at {mph:0} mph that shift needs {need:0} m (MUTCD L = W x {rate:0.0})" });
+                                         what = $"the {kind} swings {Math.Max(a1, a2):0.0} deg and back, {W:0.00} m sideways in {D:0} m; at {mph:0} mph that shift needs {need:0} m ({(terminal ? $"AASHTO ramp terminal taper {rate:0}:1" : $"MUTCD L = W x {rate:0.0}")})" });
             }
             // ---- SHIFT: a monotone lateral move in the road's own frame, against the taper its kind needs.
             {
@@ -1013,9 +1054,13 @@ namespace PSXRacing.EditorTools
                     // what moves: this boundary alone (a lane added or dropped), or the travelled lanes
                     string type = LgShiftType(map, members, r, ja, jb, out bool through);
                     float rate = type == "add" ? LineGateRules.BayRate(mph) : LineGateRules.TaperRate(mph);
+                    // a freeway's ramp terminal: the speed-change lane's pavement edge and edge line run in on the
+                    // terminal's own taper (AASHTO), not MUTCD's through-lane drop
+                    bool terminal = type == "drop" && members[0].Boundary && LgAtRampTerminal(map, r[im].e, r[im].s);
+                    if (terminal) rate = Mathf.Min(rate, LineGateRules.TerminalRate);
                     float need = rate * Mathf.Abs(W);
-                    if (L >= LineGateRules.TaperTol * need) return;
-                    string rule = type == "add" ? $"AASHTO bay taper {rate:0.0}:1" : $"MUTCD L = W x {rate:0.0}";
+                    if (L >= LineGateRules.TaperTol * need) { if (terminal) lgTerminalPassed++; return; }
+                    string rule = type == "add" ? $"AASHTO bay taper {rate:0.0}:1" : terminal ? $"AASHTO ramp terminal taper {rate:0}:1" : $"MUTCD L = W x {rate:0.0}";
                     lgFails.Add(new LgFail { cls = "SHIFT", sub = type == "add" ? "lane-add (bay) taper" : type == "drop" ? "lane-drop taper" : "through lanes shift", edge = e.index, s = r[ja].s, s1 = r[jb].s, x = r[im].x, z = r[im].z, measure = L, limit = need, unit = "m", mph = mph, line = kind, model = true,
                                              what = $"the {kind} moves {Mathf.Abs(W):0.00} m sideways in {L:0} m; at {mph:0} mph that needs {need:0} m ({rule})" });
                 }
@@ -1276,7 +1321,7 @@ namespace PSXRacing.EditorTools
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
             lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
