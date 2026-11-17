@@ -17,6 +17,14 @@
 // _Mode 1 = the MIRROR face: _FaceTex is the mirror camera's render texture,
 // U flipped as the variant needs (a mirror shows the scene the right way
 // round only because the camera looking back is reversed).
+//
+// RAIN 2 (2026-11-17; the owner's parked clip: beads on the door mirror's
+// glass). A door mirror's material carries its glass's size (_MirrorMetres,
+// DoorMirrorRig); the cabin's rain (_CabinRain, _CabinWind) and RAIN 2's glass
+// switch (_CabinRain2.y) are globals. Each bead is a little lens on the
+// mirror's own picture (read upside down from round it), a dark rim and a
+// glint; at speed the beads thin out. The interior mirror and every gauge
+// leave _MirrorMetres at zero: unchanged to the bit, as is PSX_RAIN2=0.
 Shader "PSX/CabinGauge"
 {
     Properties
@@ -29,6 +37,7 @@ Shader "PSX/CabinGauge"
         _Glow ("Backlight", Range(0, 1)) = 1
         _FlipU ("Flip U", Float) = 0
         _Mode ("Mode (0 gauge, 1 mirror)", Float) = 0
+        _MirrorMetres ("Door mirror glass metres (RAIN 2)", Vector) = (0, 0, 0, 0)
     }
     SubShader
     {
@@ -52,6 +61,26 @@ Shader "PSX/CabinGauge"
             float _FlipU;
             float _Mode;
             float _PSXNight;
+            float4 _MirrorMetres;   // (RAIN 2) x, y: the glass's metres across U and up V (0 = no rain on it)
+            float _CabinRain, _CabinWind;
+            float4 _CabinRain2;
+
+            float4 MirH42(float2 p)
+            {
+                float4 p4 = frac(float4(p.xyxy) * float4(0.1031, 0.1030, 0.0973, 0.1099));
+                p4 += dot(p4, p4.wzxy + 33.33);
+                return frac((p4.xxyz + p4.yzzw) * p4.zywx);
+            }
+            // a bead (x: height; yz: where in it, over its radius) on a grid of `cell` metres
+            float3 MirBead(float2 q, float cell, float density, float seed)
+            {
+                float2 id = floor(q / cell);
+                float4 h = MirH42(id + seed);
+                float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+                float r = cell * lerp(0.16, 0.34, h.w);
+                float2 n = (q - c) / r;
+                return float3(saturate(1.0 - dot(n, n)) * step(h.z, density), n);
+            }
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -107,6 +136,26 @@ Shader "PSX/CabinGauge"
                 float2 uv = i.uv;
                 if (_Mode > 0.5)
                 {
+                    float rainM = _CabinRain * _CabinRain2.y * step(0.001, _MirrorMetres.x);
+                    if (rainM > 0.01)
+                    {
+                        float2 q = uv * _MirrorMetres.xy;
+                        float dens = rainM * lerp(0.75, 0.30, _CabinWind);
+                        float3 b1 = MirBead(q, 0.011, dens, 3.7);
+                        float3 b2 = MirBead(q, 0.006, dens * 0.9, 8.1);
+                        float3 b = b1.x >= b2.x ? b1 : b2;
+                        float cover = smoothstep(0.0, 0.15, b.x);
+                        float rn = length(b.yz);
+                        // the picture through the bead: from round it, upside down
+                        float2 bent = uv - b.yz * (0.012 * cover) / max(_MirrorMetres.xy, 0.02);
+                        float3 m2 = tex2D(_FaceTex, bent).rgb * 0.82;
+                        float3 m0 = tex2D(_FaceTex, uv).rgb * 0.82;
+                        float rim = smoothstep(0.70, 0.98, rn);
+                        float glint = 1.0 - smoothstep(0.0, 0.34, length(b.yz - float2(-0.3, 0.4)));
+                        float3 m = lerp(m0, m2 * (1.35 - 0.75 * rim), cover)
+                                 + glint * cover * (0.25 + m0 * 1.5) * (1.0 - _CabinWind * 0.5);
+                        return fixed4(m, 0.0);
+                    }
                     float3 m = tex2D(_FaceTex, uv).rgb * 0.82;
                     return fixed4(m, 0.0);
                 }

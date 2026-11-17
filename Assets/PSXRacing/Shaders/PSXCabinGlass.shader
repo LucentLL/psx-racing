@@ -85,6 +85,9 @@ Shader "PSX/CabinGlass"
             #define R2G_MAXPX   46.0       // ...never further than this many pixels (of a 1080-line frame)
             #define R2G_SHEET   0.50       // how much of the pane a downpour's sheet covers while parked
             #define R2G_WOBBLE  2.2        // the sheet's wobble of what is seen through it, pixels of a 1080-line frame
+            #define R2G_RIDGE_M 0.022      // the bank of water a blade leaves at the edges of its arc, metres wide
+            #define R2G_FISH    5.0        // a bead shows the scene from this many of its own radii round it, upside down
+            #define R2G_VEIL    0.10       // a parked pane's sheet of water scatters this much of the light on it
             fixed4 _PSXSkyAmbient;
             fixed4 _PSXAmbient;
             fixed4 _PSXFogColor;
@@ -115,6 +118,24 @@ Shader "PSX/CabinGlass"
 
             // A dome of height 1 at the centre, 0 at radius r.
             float Dome(float2 d, float r) { return saturate(1.0 - dot(d, d) / (r * r)); }
+
+            // (RAIN 2) a bead's height (x) and where in it this point is (yz:
+            // the offset from its middle over its radius, |yz| < 1 inside) -
+            // the lens's direction, exact, where ddx of a 3-pixel bead is not;
+            // w: its radius, metres
+            float4 Bead3(float2 q, float cell, float density, float seed, float rMul)
+            {
+                float2 g = q / cell;
+                float2 id = floor(g);
+                float4 h = H42(id + seed);
+                float2 c = (id + 0.5 + (h.xy - 0.5) * 0.5) * cell;
+                float life = frac(_Time.y * (0.05 + 0.08 * h.w) + h.z);
+                float alive = step(h.z, density) * smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.75, 1.0, life));
+                float r = cell * lerp(0.12, 0.30, h.w) * rMul;
+                float2 n = (q - c) / r;
+                return float4(saturate(1.0 - dot(n, n)) * alive, n, r);
+            }
+            float4 BeadMax(float4 a, float4 b) { return a.x >= b.x ? a : b; }
 
             // Beads on a grid of `cell` metres: present for a while, then gone.
             float Beads(float2 q, float cell, float density, float seed)
@@ -183,6 +204,7 @@ Shader "PSX/CabinGlass"
                 // RAIN 2, THE WIPERS: where the blades are, and how long ago
                 // one last passed this point.
                 float fill = 1.0;
+                float ridge = 0.0;      // (RAIN 2) the water a blade leaves piled along the edges of its arc
                 if (_CabinWipe.w > 0.5 && _Wiper.w > 0.0)
                 {
                     float tc = _CabinWipe.x, D = max(_CabinWipe.y, 0.05);
@@ -204,6 +226,14 @@ Shader "PSX/CabinGlass"
                             float tUp = 0.5 * sp * D, tDn = (1.0 - 0.5 * sp) * D;
                             since = min(since, tc >= tDn ? tc - tDn : tc >= tUp ? tc - tUp : tc + _CabinWipe.z - tDn);
                         }
+                        // just outside the swept arc (beyond the blade's tip, or past
+                        // the top of the stroke): a ragged bank of pushed water
+                        float outR = (r - r1) / R2G_RIDGE_M;
+                        float outA = (sp - 1.0) * _WiperArc.y * r / R2G_RIDGE_M;
+                        float rgk = 0.0;
+                        if (sp > 0.0 && sp < 1.0 && outR > 0.0 && outR < 1.0) rgk = 1.0 - outR;
+                        if (r > r0 && r < r1 && outA > 0.0 && outA < 1.0) rgk = max(rgk, 1.0 - outA);
+                        ridge = max(ridge, rgk);
                         float al = dot(v, bd);
                         float dB = length(v - bd * clamp(al, r0, r1));
                         float dA = length(v - bd * clamp(al, 0.0, (r0 + r1) * 0.5));
@@ -228,12 +258,27 @@ Shader "PSX/CabinGlass"
                     // stands a full arm from the eye, where a 4 mm bead is three
                     // pixels of a 1080-line frame and the pane reads as grain)
                     float bs = 1.0 + 0.6 * _CabinRain2.y * step(0.001, _Wiper.w);
-                    float hB = max(Beads(q, 0.016 * bs, rainW * lerp(0.55, 0.25, wind) * dens, 1.7),
-                                   Beads(q, 0.028 * bs, rainW * lerp(0.35, 0.15, wind) * dens, 9.3));
-                    if (_CabinRain2.y > 0.5) hB = max(hB, Beads(q, 0.0085 * bs, rainW * 0.62 * (1.0 - wind), 5.9) * 0.8);
-                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * 0.45 * dens, 4.1, 0.0) * (1.0 - wind);
+                    // (RAIN 2, parked: a fourth size - the screen is COVERED in small
+                    // bright beads in his clip - and the fine one far denser)
+                    float park = _CabinRain2.y * (1.0 - wind);
+                    float4 bB = BeadMax(Bead3(q, 0.016 * bs, rainW * lerp(0.55, 0.25, wind) * dens, 1.7, 1.0),
+                                        Bead3(q, 0.028 * bs, rainW * lerp(0.35, 0.15, wind) * dens, 9.3, 1.0));
+                    if (park > 0.01)
+                    {
+                        float4 f1 = Bead3(q, 0.0085 * bs, rainW * 0.92 * park, 5.9, 1.15);
+                        float4 f2 = Bead3(q, 0.0060 * bs, rainW * 0.85 * park, 2.3, 1.25);
+                        f1.x *= 0.85; f2.x *= 0.75;
+                        bB = BeadMax(bB, BeadMax(f1, f2));
+                    }
+                    float hB = bB.x;
+                    // (RAIN 2, parked: more runners, their trails unbroken - the
+                    // running sheets of his clip)
+                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * (0.45 * dens + 0.25 * park), 4.1, 0.55 * park) * (1.0 - wind);
                     float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
+                    // (RAIN 2) the bank a blade leaves, ragged
+                    if (ridge > 0.0) hgt = max(hgt, ridge * rain * (0.55 + 0.45 * H42(floor(q / 0.006)).x));
+                    bool beadTop = hB >= max(hR, hS) && hB > 0.0;
                     // WATER, not paint: a drop is clear in the middle (a
                     // little of the sky it bends in), dark at its rim where it
                     // bends the scene away, with one small bright glint where
@@ -255,23 +300,42 @@ Shader "PSX/CabinGlass"
                         // (metres on the pane); the slope per PIXEL over the
                         // pane's metres-per-pixel squared is that in pixels,
                         // so R2G_LENS is r x r / 2 for a typical bead (5-6 mm).
-                        // Between the beads a parked pane in a downpour wears
-                        // a sheet that wobbles what is seen through it.
+                        // A BEAD is a little fisheye: it shows the scene from
+                        // R2G_FISH of its radii round it, upside down, and so
+                        // catches the lamps and the sky above it - his clip's
+                        // screen of bright beads. Between the beads a parked
+                        // pane in a downpour wears a sheet that wobbles what is
+                        // seen through it and scatters a little light.
                         float m2 = max(abs(qdx.x * qdy.y - qdx.y * qdy.x), 1e-12);
                         float px1080 = _ScreenParams.y / 1080.0;
                         float2 dpx = clamp(gpx * (R2G_LENS / m2), -R2G_MAXPX * px1080, R2G_MAXPX * px1080);
+                        if (beadTop)
+                        {
+                            // this point's offset from the bead's middle, pane metres ->
+                            // pixels (the inverse of the pane's frame per pixel); the
+                            // bead shows the scene R2G_FISH times as far out, upside down
+                            float2 dq = bB.yz * bB.w;
+                            float det = qdx.x * qdy.y - qdx.y * qdy.x;
+                            float2 dp = float2(qdy.y * dq.x - qdy.x * dq.y, qdx.x * dq.y - qdx.y * dq.x) / (abs(det) > 1e-12 ? det : 1e-12);
+                            dpx = clamp(-dp * ((R2G_FISH + 1.0) * cover), -R2G_MAXPX * px1080, R2G_MAXPX * px1080);
+                        }
                         float sheet = rainW * R2G_SHEET * (1.0 - wind) * (1.0 - cover);
                         float2 wob = float2(sin(q.y * 95.0 + sin(q.x * 37.0 + _CabinRun * 9.0) * 1.7),
                                             sin(q.x * 80.0 + sin(q.y * 41.0 - _CabinRun * 12.0) * 1.9));
                         dpx += wob * (R2G_WOBBLE * px1080 * sheet);
                         float wetA = saturate(max(cover, sheet));
                         float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
-                        // (a bead gathers light: brighter in its middle, dark at its rim)
+                        // (a bead gathers light: brighter in its middle, dark only at its very rim)
+                        float rim = beadTop ? smoothstep(0.72, 0.98, length(bB.yz)) : edge;
+                        float gather = beadTop ? 1.0 + 0.9 * park + 0.6 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.5 * smoothstep(0.45, 0.95, hgt);
                         through = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb
-                                * (wetA * (1.0 - 0.45 * edge * cover) * (1.0 + 0.5 * smoothstep(0.45, 0.95, hgt)));
+                                * (wetA * (1.0 - 0.6 * rim * cover) * gather);
+                        // the glint: one bright point up and to the side of each bead's crown
+                        float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
                         dropA = wetA;
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
-                              + glint * (sky * 0.5 + _PSXLightColor.rgb * 0.35 * day + lamp * 1.5);
+                              + g2 * (sky * 0.6 + _PSXLightColor.rgb * 0.35 * day + lamp * 2.0 + ambient * 0.25)
+                              + sheet * R2G_VEIL * park * (ambient * 0.5 + sky * 0.25 + lamp);
                     }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);

@@ -34,6 +34,14 @@ namespace PSXRacing.EditorTools
         static int EnvInt(string n, int d) => int.TryParse(System.Environment.GetEnvironmentVariable(n), out int v) ? v : d;
         static void Line(string s) { log.AppendLine(s); Debug.Log("[Rain2Shots] " + s); }
 
+        /// <summary>The rule checks first (LifeSimSelfTest.RunRain2, seconds), then the
+        /// frames: one editor start for both.</summary>
+        public static void RunWithSelfTest()
+        {
+            try { LifeSimSelfTest.RunRain2(); } catch (System.Exception e) { Debug.LogError("[Rain2Shots] RunRain2 threw " + e); }
+            Run();
+        }
+
         public static void Run()
         {
             log = new StringBuilder();
@@ -238,7 +246,17 @@ namespace PSXRacing.EditorTools
             DriveSide.Override = false;
             var ci = Cabin(cam, player, car, mps, into, rain, out Vector3 pos, out Quaternion rot);
             if (ci == null) { Line("  no CockpitInterior on the player: " + name + " skipped"); return; }
+            // the door mirrors drawn once from here (their glass carries beads now)
+            cam.transform.SetPositionAndRotation(pos, rot);
+            ci.PreviewDoorMirrors(cam);
+            ci.HideShell(true);
             Take(cam, name, pos, rot, rain, level, mps);
+            if (mps < 0.5f && name.EndsWith("_night"))
+            {
+                // a look at the driver's door mirror, parked (his clip: beads on its glass)
+                var side = rot * Quaternion.Euler(6f, -34f * CockpitLook.PassengerSign, 0f);
+                Take(cam, "cockpit_mirror_night", pos, side, rain, level, mps);
+            }
             Line($"    {name}: {mps * 2.237f:0} mph, wipers {(into < 0f ? "parked" : into.ToString("0.00") + " s into the stroke")} " +
                  $"_CabinWipe {Shader.GetGlobalVector("_CabinWipe")} _CabinRain2 {Shader.GetGlobalVector("_CabinRain2")} live {Shader.GetGlobalFloat("_PSXSSRLive")}");
             ci.HideShell(false);
@@ -340,9 +358,15 @@ namespace PSXRacing.EditorTools
             return v.Count == 0 ? 0.0 : (v.Count & 1) == 1 ? v[v.Count / 2] : 0.5 * (v[v.Count / 2 - 1] + v[v.Count / 2]);
         }
 
-        /// <summary>Median render time with <paramref name="set"/>(false) and
-        /// (true), alternating render by render, each drained.</summary>
-        static (double off, double on) Alternate(Camera cam, int w, int h, int n, System.Action<bool> set)
+        /// <summary>The cost of <paramref name="set"/>(true) over (false):
+        /// <paramref name="n"/> PAIRS, each pair rendered in an A-B / B-A order
+        /// that alternates (so a drift in the machine's load cancels), every
+        /// render drained (so the GPU's share is inside the clock). Returns the
+        /// medians of each side, the median of the PAIRED differences (the
+        /// figure: a pair's two renders are 40-80 ms apart, so whatever else the
+        /// machine is doing is nearly the same for both) and that difference's
+        /// 25th / 75th percentiles.</summary>
+        static (double off, double on, double cost, double q25, double q75) Alternate(Camera cam, int w, int h, int n, System.Action<bool> set)
         {
             var rt = new RenderTexture(w, h, 32, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
             rt.Create();
@@ -351,38 +375,50 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < 8; i++) { set((i & 1) == 1); Submit(cam, rt); Drain(rt, one); }
             var offs = new List<double>();
             var ons = new List<double>();
+            var diffs = new List<double>();
             var sw = new System.Diagnostics.Stopwatch();
-            for (int i = 0; i < 2 * n; i++)
+            double Once(bool on)
             {
-                bool on = (i & 1) == 1;
                 set(on);
                 sw.Restart();
                 Submit(cam, rt);
                 Drain(rt, one);
                 sw.Stop();
-                (on ? ons : offs).Add(sw.Elapsed.TotalMilliseconds);
+                return sw.Elapsed.TotalMilliseconds;
             }
+            for (int i = 0; i < n; i++)
+            {
+                double a, b;
+                if ((i & 1) == 0) { a = Once(false); b = Once(true); }
+                else { b = Once(true); a = Once(false); }
+                offs.Add(a); ons.Add(b); diffs.Add(b - a);
+            }
+            set(true);
             Object.DestroyImmediate(one);
             rt.Release();
             Object.DestroyImmediate(rt);
-            return (Median(offs), Median(ons));
+            diffs.Sort();
+            double Q(double f) => diffs.Count == 0 ? 0.0 : diffs[Mathf.Clamp((int)System.Math.Round(f * (diffs.Count - 1)), 0, diffs.Count - 1)];
+            return (Median(offs), Median(ons), Median(diffs), Q(0.25), Q(0.75));
         }
 
         static void Timing(Camera cam, GameObject player, CarController car, Vector3 chaseEye, Quaternion chaseRot,
                            Vector3 curbEye, Quaternion curbRot, float rain, float level)
         {
             if (!Rain2.On) { Line("TIMING skipped: this process has PSX_RAIN2=0"); return; }
-            int tw = EnvInt("PSX_RAIN2_TW", 3832), th = EnvInt("PSX_RAIN2_TH", 2054), n = EnvInt("PSX_RAIN2_TN", 40);
-            Line($"TIMING at {tw}x{th}, {n} renders a side, drained per render, medians (ms). GPU {SystemInfo.graphicsDeviceName}");
+            int tw = EnvInt("PSX_RAIN2_TW", 3832), th = EnvInt("PSX_RAIN2_TH", 2054), n = EnvInt("PSX_RAIN2_TN", 100);
+            Line($"TIMING at {tw}x{th}, {n} pairs a row (A-B / B-A), drained per render, paired medians (ms). GPU {SystemInfo.graphicsDeviceName}");
             var r2Id = Shader.PropertyToID("_PSXRain2");
             var wipeId = Shader.PropertyToID("_CabinWipe");
             var glassId = Shader.PropertyToID("_CabinRain2");
 
             void Row(string what, System.Action<bool> set)
             {
-                var (off, on) = Alternate(cam, tw, th, n, set);
-                Line($"  {what}: off {off:0.00}  on {on:0.00}  cost {on - off:+0.00;-0.00}");
+                var (off, on, cost, q25, q75) = Alternate(cam, tw, th, n, set);
+                Line($"  {what}: off {off:0.00}  on {on:0.00}  cost {cost:+0.00;-0.00} (paired median; quartiles {q25:+0.00;-0.00} .. {q75:+0.00;-0.00})");
             }
+            // THE NOISE FLOOR: the same measurement with nothing switched
+            void Null() => Row("NULL (nothing switched: the floor)", on => { });
             void Splashes(bool on)
             {
                 foreach (var ps in Resources.FindObjectsOfTypeAll<ParticleSystemRenderer>())
@@ -399,6 +435,7 @@ namespace PSXRacing.EditorTools
                 Vector4 full = Shader.GetGlobalVector(r2Id);
                 Line($" pose {pn}: _PSXRain2 {full}, splashes {Rain2Driver.LiveSplashes}");
                 Splashes(true);
+                Null();
                 Row("ground, pools only (shader)", on => Shader.SetGlobalVector(r2Id, on ? new Vector4(full.x, 0f, full.z, 0f) : Vector4.zero));
                 Row("ground, pools + rings (shader)", on => Shader.SetGlobalVector(r2Id, on ? full : Vector4.zero));
                 Shader.SetGlobalVector(r2Id, full);
@@ -418,6 +455,7 @@ namespace PSXRacing.EditorTools
                 CarLights.PushGlobals();
                 Vector4 full = Shader.GetGlobalVector(r2Id), wipe = Shader.GetGlobalVector(wipeId), glass = Shader.GetGlobalVector(glassId);
                 Line($" pose {sn}: _CabinWipe {wipe} _CabinRain2 {glass}");
+                Null();
                 Row("glass: wipers", on => Shader.SetGlobalVector(wipeId, on ? wipe : Vector4.zero));
                 Row("glass: look-through + fine beads", on => Shader.SetGlobalVector(glassId, on ? glass : Vector4.zero));
                 Row("WHOLE package (ground + splashes + glass)", on =>
