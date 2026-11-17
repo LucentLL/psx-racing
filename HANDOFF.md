@@ -1,4 +1,151 @@
-﻿# HANDOFF - THE OWNER'S 11-14..11-16 CAR MODELS IN THE GAME (agent "cars-1116", branch `cars-1116` off mountain-nm 742315cd, 2026-11-16 21:40-23:50; NOT pushed, NOT merged)
+﻿# HANDOFF - THE CAMCORDER, ROUND 2: a camera at every race point, flex scoring (agent "camcorder", branch `replay-camcorder2` off mountain-nm 742315cd, 2026-11-16 night; NOT pushed, NOT merged)
+
+Owner, 21:50, after playing PC48: "As for the camcorder replays, I don't like the follow cams. Now that checkpoints are
+being added, at least one camera can should record at each checkpoint. Logically, it proves the cars started at the
+starting line, reached each checkpoint, then reached the finish line. It also gives players a chance to 'flex' at
+checkpoints to improve their tape's value."
+
+## What I found (file:line on 742315cd)
+- Round 1's director planted an operator every ~130 m and, every third shot or wherever nobody stood ahead, rode a
+  "buddy's car" on the focus car's own line (CamcorderCam.cs:48 ChaseEvery, :293 BuddyEye, :384-409): the follow cam.
+  On Charlotte's Uptown Loop most of a tape was that car, because few operators could be planted.
+- The checkpoint design (scratchpad\checkpoints\DESIGN_v2.md 1.1, 1.3, 2.2): gates are `cps[]` with kind, x y z, hx hz,
+  spans (l0 l1); a circuit's gate 0 is its lap line, a sprint's last gate is its finish and its start is the grid;
+  the suggested route stays `rm.path`; cars may take any road between gates. Its stage 2 planned "trajectory lenses"
+  for CamcorderCam (7.1): that is what this round's clips already are.
+- Nothing times a split on a stage or a strip today (no split points exist in the game): the fallback plants them.
+- A city race on ANDROID streams its ground round the cars only (CityWorld.cs:153 CourseOn = PC profile; the course
+  preload that pins every tile of the route is PC-only): at replay time the ground at a far checkpoint is not there
+  to stand a bystander on. My first city run found cameras at 2 of 14 points for that reason.
+- Foliage has no colliders: a line-of-sight test cannot see leaves. A camera 23 m into the woods at Gillespie Gap's
+  finish filmed leaves (the first mountain run).
+- A batch (hidden) editor draws no frames; a camera rendered on request there shows the camcorder's picture but not
+  the HUD canvas (the OSD), and its framebuffer is 640x480.
+- PowerShell: `$x = if (..) { @("a") }` is a string, and string + array glues into one argument (my own bug, below).
+
+## What changed
+Switches: PSX_CAMCORDER=0 = the trackside replay as before the camcorder; PSX_TAPE_FLEX=0 = round 1's tape price (no
+clips scored); PSX_CAM_CPFILE=1 = read Resources/CityCheckpoints/<route>.json directly when no provider answers
+(default OFF: no real file has been filmed); PSX_CAM_MIC, PSX_TAPES, PSX_MONTAGE as before. Defaults: camcorder ON,
+flex ON, file reader OFF, montage OFF.
+
+- `Scripts/Replay/RacePoints.cs` (new): THE INTERFACE. `RacePoint` = kind (Start / Checkpoint / Finish), index, pos,
+  heading, halfWidth (+ pathIdx, soft). `RaceCourse` = points, loop, laps. `RacePoints.Provider` (a static
+  Func<RaceManager, RaceCourse>) is where the checkpoint system feeds it; `RacePoints.FromGates(gates, loop, laps,
+  gridPos, gridHeading)` takes its chain in the checkpoint file's own shape (`RacePoints.Gate`: kind, x, y, z, hx, hz,
+  l0, l1). Until then `FromPath`: the venue's start and finish plus EVENLY SPACED points every ~700 m on a city route,
+  SPLIT points every ~1 km on a stage or a circuit, a strip's half-way.
+- `Scripts/Replay/RacePlan.cs` (new): the bystanders. At every point a FRONT camera (past the point, looking back up
+  the road) and a BACK one (before it, the other side when it can be) - on ground that is not road, not water, not a
+  car, not a roof or a wall top, level enough to stand on, no road further out (a median), nothing solid within an
+  arm's length, the point and the road each side of it in sight. A city may stand them up to 24 m back; a stage keeps
+  them on the cleared verge (8 m). A LONG LENS from further along when nowhere near will do. A point the feed invented
+  slides up to 120 m along the road to where somebody can stand; a real gate never moves. Found DURING THE RACE as the
+  field reaches each point (`Scout`, called by the recorder twice a second): a streamed city has ground only there.
+- `Scripts/Replay/TapeClips.cs` (new): THE CLIPS. From a car's recorded trajectory (not the path: any road between
+  gates works): START (the grid 2.5 s before it moves, to 70 m past the line), each CHECKPOINT in order (150 m out to
+  70 m past), the lap line between laps, FINISH (to the end of the tape). A point never reached ends the tape there.
+  A respawn's jump is not a crossing. And THE FLEX: `Score` = what the clip's camera saw.
+- `Scripts/Replay/CamcorderCam.cs` (rewritten): plays the clips in order; FRONT until the car is at the point, BACK
+  after; a burst of static between two recordings (and the tape waits in it, up to 4 s, until a streamed place's
+  ground is there); skip keys land on the clip before / after; a deck stops at the tape's end. The hand, zoom, focus,
+  exposure kick as before. NOTHING TRAVELS: the buddy's car, its dash and pillar, PoseAt are gone.
+- `CamcorderOSD.cs`: the clip's name on the second line (START, CHECKPOINT 3/9, LAP 2/3, FINISH) over the tape clock;
+  the touch bar's skips read << CLIP / CLIP >>. `Camcorder.cs`: ClipLabel, Static, TapeCourse. `RaceReplay.cs`: Hold
+  (the cut's static is not a pause), Scout from the recorder, CamcorderCam.Setup(replay, camera).
+- FLEX SCORING (per clip, the player's car): speed through the point ((km/h - 60) x 0.12, to $25); SLIDE = the body
+  12-100 degrees off the way it is going for 0.4 s or more ($12 a second to $30, + up to $15 for the angle); AIR $20;
+  LED $10; PASS $20 (a place gained in view); DOOR TO DOOR $12; NEAR MISS $15 each (two counted); CRASH -$35; SPIN
+  -$20. The tape = the sum of its clips + the result (a race at all, a win or a podium, the field, a close finish).
+- `Tapes.cs`: tape v2 - the points and the clips (with their tags and dollars) ride in an EXT2 block; a v1 tape loads
+  and plays and keeps its old price; a tape from a newer build is refused by name. The VCR films a v2 tape at the
+  tape's own points. `LifeHomeScreen.Tapes.cs`: each row's second line is the tape's best clip ("BEST  CP 3: 77 MPH ·
+  SLIDE"); the shelf and the VIDEO STORE list WHAT THE CAMERAS SAW, the store with each clip's dollars.
+- `Shaders/PSXCamcorder.shader`: the static between recordings; GAIN UP to 3.2x in the dark with a shadow lift (night
+  mountain tapes were too black); the interior silhouette removed.
+- Tools: `tools/sandbox-lock.ps1` (the atomic lock: random pause, check, unique stamp, 3 s read-back),
+  `tools/camcorder-shots.ps1` + `Editor/CamcorderShots.cs` (full races fast-forwarded, a frame at every clip, the flex
+  proof; HIDDEN while PSXRacing.exe runs), `tools/tape-check.ps1`, `Editor/LifeSimSelfTest.Camcorder.cs`.
+
+## Proof (real editor frames, PSXRec, Android target, career day 320 = NOV 16 1999)
+Sheets in `scratchpad\camcorder\` (every cell labelled): `r2_owner_sheet.png` (the one for the owner),
+`r2_points_city_day.png` / `r2_points_city_night.png` (Uptown Loop, one lap: START, CHECKPOINT 1/12 .. 12/12, FINISH,
+each frame with its OSD), `r2_points_mountain_day.png` / `r2_points_mountain_night.png` (Gillespie Gap: START, 6
+checkpoints, FINISH, front and back camera), `r2_flex.png`, `r2_before_after.png`, `r2_tapes.png`.
+How they were shot: the mountain day and the flex runs WATCHED (854x480, pillarboxed); everything from 23:28 HIDDEN
+(-batchmode, no window, later silent) because the owner was playing - a hidden editor's framebuffer is 640x480, the
+4:3 picture whole, OSD drawn. The BEFORE frames are the trackside replay rendered on request in a hidden run: the
+world only, without the replay's own HUD text.
+- Mountain, Gillespie Gap (6.7 km stage): 8 race points (START, 6 split checkpoints, FINISH), 16 cameras (two at every
+  point), 0 on a road, 0 blind, the OSD names 8 of 8 clips, no camera travels (the lens within its sway of its
+  bystander's spot at every shot). Whole race day (watched) and night (hidden).
+- Charlotte, Uptown Loop (9.2 km circuit, one lap, the city STREAMED as on Android): 14 race points (START, 12
+  checkpoints, FINISH), 23 cameras, all 14 found during the race, 0 on a road, the OSD names 14 of 14 clips; noon
+  and night. Two points have one camera (CP 8, CP 11).
+- FLEX: the same race clean and with a slide at checkpoint 3 (the autopilot's handbrake): clean tape $56 (CP 3: 92
+  MPH +$11) against $98 (CP 3: 77 MPH · SLIDE +$53). The first try threw it sideways at 133 km/h into the trees:
+  CP 2: SLIDE · CRASH +$6 (a crash in view loses the value). City tapes of one lap: $174 .. $268 ("The start, 12
+  checkpoints and the finish, a win." $252, its last checkpoints LED).
+- TapeCheck on this round's code (hidden, once): 51 ok, 0 FAIL. Round 1's two failures pass: FF scans "with the
+  sound off", "EJECT lands at home ... on the tape shelf". The deck plays a v2 tape through its clips, REW, FF,
+  PAUSE, the end stops the deck; the montage still joins. Pages: the store lists every clip with its tags and
+  dollars; the sale pays ($1250 + $252 = $1502).
+- Self-test (LifeSimSelfTest, PSXRec, fresh processes): see the numbers at the foot of this section. TestCamcorder:
+  49 checks, all ok (the feeds, the clips of a synthetic two-lap drive, every flex tag, the v2 tape, a v1 tape
+  still loads at its old price, a newer tape refused).
+
+## What still looks wrong
+- Uptown Loop's CHECKPOINT 3 front camera has a UTILITY POLE across a third of its frame (day and night sheets). The
+  fix is written (PSX_CAM_CLEARVIEW=1, a 60 degree look for things in the foreground) but NOT RUN: default OFF.
+- City nights under street light come out BRIGHT AND WASHED: the gain-up that makes the unlit mountain readable
+  (3.2x) also lifts the lit city. PSX_CAM_GAIN sets the cap (round 1's was 1.7); only 3.2 has been looked at.
+- Mountain night: the road and the verge read, the cars are still lamps more than shapes.
+- The START's back camera stands 3 m from the grid: the cars fill the frame as they leave.
+- The fallback's checkpoints are evenly spaced points, not the checkpoint system's gates (not wired yet, see merge).
+- A tape is clips: between two the picture jumps (0.3 s of static). Whole laps are in TRACKSIDE / CHASE, one key away.
+
+## Unproven (say so to the owner)
+- REAL GATES: no race has fed `RacePoints.Provider`; `FromGates` and the file reader are covered by the self-test's
+  synthetic chain only (the reader stays behind PSX_CAM_CPFILE=1).
+- A circuit of several laps (the LAP 2/3 clips), a drag strip and a sprint variant: self-test only; the play runs
+  were one lap of Uptown Loop and the Gillespie Gap stage.
+- The VCR on a CITY tape (the deck's cut waiting for streamed ground): TapeCheck plays a mountain tape. No Android
+  device run at all.
+- PSX_CAM_CLEARVIEW=1 and any PSX_CAM_GAIN but 3.2: never run.
+- The honest BEFORE with its HUD text, and a watched city run: not shot (the owner asked for the tests to stop).
+- How the camcorder's sound is: nobody has listened to it.
+
+## What the coordinator must do at merge
+- Files (all the camcorder's own; no scene pass, no re-bake, no data, ProjectSettings untouched this round):
+  new `Scripts/Replay/RacePoints.cs`, `RacePlan.cs`, `TapeClips.cs` (+ .meta), `tools/sandbox-lock.ps1`; changed
+  `Scripts/Replay/Camcorder.cs`, `CamcorderCam.cs` (rewritten), `CamcorderOSD.cs`, `CamcorderPass.cs`,
+  `RaceReplay.cs` (Begin: CamcorderCam.Setup(this, cam); Hold; the recorder's Scout line; PoseAt removed),
+  `TapePlayback.cs`, `Tapes.cs`, `LifeSim/LifeHomeScreen.Tapes.cs`, `Shaders/PSXCamcorder.shader`,
+  `Editor/CamcorderShots.cs`, `Editor/TapeCheck.cs`, `Editor/LifeSimSelfTest.Camcorder.cs`,
+  `tools/camcorder-shots.ps1`, `tools/tape-check.ps1`.
+- THE CHECKPOINT WORKFLOW (city-checkpoints) must, in CheckpointRace.TryBegin: `RacePoints.Provider = rm => (rm == its
+  race) ? RacePoints.FromGates(gates, loop, rm.totalLaps, gridPos, gridHeading) : null;` with one `RacePoints.Gate`
+  per cps[] entry (kind, x, y, z, hx, hz, l0 = the spans' least l0, l1 = their greatest l1), and clear it when the
+  race goes. Its DESIGN_v2 7.1 / stage-2 item 5 ("trajectory lenses for CamcorderCam", `CamcorderCam.Setup/Plan`)
+  is DONE DIFFERENTLY here: those signatures are gone, the clips are already cut from the recorded trajectory.
+  Its own planned edits to RaceReplay.cs (PauseList, explicit rm.path) touch the file this branch changes near Begin.
+- `tools/sandbox-lock.ps1` is there for every agent's scripts (Enter-SandboxLock / Exit-SandboxLock).
+
+## What the owner will notice
+The camcorder replay no longer rides along: it is a tape of clips from people standing at the start line, at every
+checkpoint and at the finish line, each named on the picture (START, CHECKPOINT 3/12, FINISH). The shelf and the
+video store list what each camera saw, and a slide, a pass or a lead through a checkpoint is worth money.
+
+## Self-test and the runs, in numbers
+- LifeSimSelfTest in PSXRec, fresh processes: base 742315cd = 62 failures, this branch (70f0fe50) = 62 failures, the
+  SAME list (diff empty). The later commits only add two page shots to an editor tool (typechecked).
+- Play runs: 3 watched (22:27-22:55: first look, the flex pair, the mountain day), the rest hidden. The owner was
+  playing: he closed two of my watched editors, and a PowerShell bug of mine opened two ordinary visible editors at
+  23:00-23:03 (hidden mode's arguments glued into one string; fixed e5b02830). At 23:58 he asked for the tests to
+  stop; after that one hidden, silent TapeCheck, the two self-tests and one page capture ran, once each.
+- Head: see the hand-back. Nothing pushed, nothing merged.
+
+# HANDOFF - THE OWNER'S 11-14..11-16 CAR MODELS IN THE GAME (agent "cars-1116", branch `cars-1116` off mountain-nm 742315cd, 2026-11-16 21:40-23:50; NOT pushed, NOT merged)
 
 Owner, 2026-11-16 ~21:25: "Please add these updated car models to the game. Some of them are WIP, but they can be updated again later."
 Scratch: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\cars1116\` (INVENTORY.md, PROGRESS.md, sheets\, run.ps1, Cars1116Jobs.cs, the gate reports).

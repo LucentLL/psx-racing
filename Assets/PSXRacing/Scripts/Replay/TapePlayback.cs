@@ -167,6 +167,10 @@ namespace PSXRacing
             Camcorder.Vcr = true;
             Camcorder.StampDay = header.day;
             Camcorder.StampClock = header.clock;
+            // The points the tape was shot at (v2): its cameras stand there
+            // whatever this build's own feed would plant. A v1 tape has none
+            // and is filmed at the build's points.
+            Camcorder.TapeCourse = header.course != null && header.course.points.Count >= 2 ? header.course : null;
             rp.Begin();
             if (!RaceReplay.Playing) { Debug.LogWarning("[TapePlayback] the replay refused the tape"); Eject(); return; }
             // The player's own car first, as the camcorder followed it.
@@ -240,6 +244,7 @@ namespace PSXRacing
             if (instance != null && instance.muted) { AudioFader.Mute(false); instance.muted = false; }
             instance = null;
             RaceReplay.ExitHook = null;
+            Camcorder.TapeCourse = null;
             Camcorder.Vcr = false;
             Camcorder.Transport = 0;
             Camcorder.ScanRate = 0f;
@@ -255,6 +260,7 @@ namespace PSXRacing
             if (instance == this) instance = null;
             if (muted) { AudioFader.Mute(false); muted = false; }
             if (RaceReplay.ExitHook == (System.Func<bool>)OnExit) RaceReplay.ExitHook = null;
+            Camcorder.TapeCourse = null;
             Camcorder.Vcr = false;
             Camcorder.Transport = 0;
             Camcorder.ScanRate = 0f;

@@ -46,6 +46,18 @@ namespace PSXRacing
                 return montageOn == 1 && Enabled;
             }
         }
+        static int flexOn = -1;
+        /// <summary>The flex score (PSX_TAPE_FLEX, default on): a tape's price
+        /// is the sum of its clips plus the result. 0 = round 1's price.</summary>
+        public static bool FlexOn
+        {
+            get
+            {
+                if (flexOn < 0) flexOn = System.Environment.GetEnvironmentVariable("PSX_TAPE_FLEX") == "0" ? 0 : 1;
+                return flexOn == 1;
+            }
+        }
+
         /// <summary>For tools: open or shut the montage door in this process.</summary>
         public static void ForceMontage(bool on) => montageOn = on ? 1 : 0;
         /// <summary>The tape doors are open (PSX_TAPES, default on).</summary>
@@ -59,7 +71,11 @@ namespace PSXRacing
         }
 
         public const string Magic = "PSXT";
-        public const ushort Version = 1;
+        /// <summary>2 (2026-11-16, round 2): a tape carries the race points it
+        /// was shot at and the clips its cameras took, each with what it saw
+        /// (the EXT2 block after the samples). A v1 tape has neither: it
+        /// loads and plays, and is priced the old way.</summary>
+        public const ushort Version = 2;
         /// <summary>Samples per second on a tape: every other sample of the race's 30.</summary>
         public const int TapeHz = 15;
         /// <summary>No tape shorter than this: a countdown is not a tape.</summary>
@@ -123,6 +139,24 @@ namespace PSXRacing
             public int basePrice;
             public List<float> cuts = new List<float>();
 
+            /// <summary>THE RACE POINTS the tape was shot at (v2; null on a v1
+            /// tape and on a montage) and THE CLIPS its cameras took of the
+            /// player's car, in order, each with its flex score.</summary>
+            public RaceCourse course;
+            public List<TapeClip> clips = new List<TapeClip>();
+            public int Laps => course != null ? Mathf.Max(1, course.laps) : 1;
+
+            /// <summary>The clip worth the most, or -1.</summary>
+            public int BestClip
+            {
+                get
+                {
+                    int best = -1;
+                    for (int i = 0; i < clips.Count; i++) if (best < 0 || clips[i].value > clips[best].value) best = i;
+                    return best;
+                }
+            }
+
             public string PlayerCarName => playerIndex >= 0 && playerIndex < cars.Count ? cars[playerIndex].name : "";
 
             /// <summary>The spine: "CHIMNEY ROCK · NOV 16 1999 · P1 OF 4".</summary>
@@ -146,6 +180,13 @@ namespace PSXRacing
         {
             if (h == null) return 0;
             if (h.montage && h.basePrice > 0) return h.basePrice;
+            // ROUND 2: the sum of what each point's camera saw, plus the result.
+            if (h.clips != null && h.clips.Count > 0)
+            {
+                float sum = ResultValue(h);
+                foreach (var c in h.clips) sum += c.value;
+                return Mathf.Max(5, Mathf.RoundToInt(sum));
+            }
             float v = 15f;
             if (h.won) v += 40f;
             v += 5f * Mathf.Clamp(h.fieldSize - 1, 0, 8);
@@ -163,9 +204,65 @@ namespace PSXRacing
             return Mathf.Max(5, Mathf.RoundToInt(v * len));
         }
 
+        /// <summary>The RESULT's share of a clip tape's price: that it is a
+        /// race at all, a win or a podium, the size of the field, a close
+        /// finish. (A police chase would go here: the game has none.)</summary>
+        public static int ResultValue(Header h)
+        {
+            if (h == null) return 0;
+            float v = 10f;
+            if (h.won) v += 40f;
+            else if (h.finishPos > 0 && h.finishPos <= 3 && h.fieldSize >= 4) v += 15f;
+            v += 4f * Mathf.Clamp(h.fieldSize - 1, 0, 7);
+            if (h.fieldSize > 1)
+            {
+                if (h.margin < 0.25f) v += 50f;
+                else if (h.margin < 0.5f) v += 35f;
+                else if (h.margin < 1f) v += 20f;
+            }
+            v += 60f * Mathf.Clamp(h.police, 0, 1);
+            return Mathf.RoundToInt(v);
+        }
+
+        /// <summary>The clips, one line each: "CP 3: 94 MPH · SLIDE · LED  +$37".</summary>
+        public static List<string> ClipLines(Header h, bool withValue)
+        {
+            var lines = new List<string>();
+            if (h == null || h.clips == null) return lines;
+            foreach (var c in h.clips)
+            {
+                string line = TapeClips.Line(c, h.Laps);
+                if (withValue) line += (c.value >= 0 ? "  +$" + c.value : "  -$" + (-c.value));
+                lines.Add(line);
+            }
+            return lines;
+        }
+
+        /// <summary>The tape's best clip: "CP 3: 94 MPH · SLIDE · LED".</summary>
+        public static string BestLine(Header h)
+        {
+            if (h == null || h.clips == null || h.clips.Count == 0) return "";
+            return TapeClips.Line(h.clips[h.BestClip], h.Laps);
+        }
+
+        /// <summary>The line under a tape's spine on its row: its best clip
+        /// when a camera saw something worth money ("BEST  CP 3: 94 MPH ·
+        /// SLIDE · LED"), else what is on it ("START · 3 CHECKPOINTS · NO
+        /// FINISH"). Empty for a tape with no clips.</summary>
+        public static string RowLine(Header h)
+        {
+            if (h == null || h.clips == null || h.clips.Count == 0) return "";
+            var best = h.clips[h.BestClip];
+            if (best.value > 0 && best.kind != TapeClip.Kind.Start) return "BEST  " + TapeClips.Line(best, h.Laps);
+            int cps = 0; bool finish = false;
+            foreach (var c in h.clips) { if (c.kind == TapeClip.Kind.Checkpoint) cps++; if (c.kind == TapeClip.Kind.Finish) finish = true; }
+            return "START  ·  " + cps + (cps == 1 ? " CHECKPOINT" : " CHECKPOINTS") + "  ·  " + (finish ? "FINISH" : "NO FINISH");
+        }
+
         /// <summary>What is on it, as the clerk would say it.</summary>
         public static string Pitch(Header h)
         {
+            if (h != null && h.clips != null && h.clips.Count > 0) return ClipPitch(h);
             var parts = new List<string>();
             if (h.won) parts.Add("a win");
             else if (h.finishPos > 0 && h.fieldSize > 1) parts.Add("P" + h.finishPos + " of " + h.fieldSize);
@@ -175,6 +272,64 @@ namespace PSXRacing
             if (h.topKmh >= 160f) parts.Add(Mathf.RoundToInt(SpeedUnits.FromKmh(h.topKmh)) + SpeedUnits.Suffix + " on the clock");
             if (parts.Count == 0) return "Nothing much happens on it.";
             return char.ToUpperInvariant(parts[0][0]) + string.Join(", ", parts).Substring(1) + ".";
+        }
+
+        /// <summary>A clip tape in the clerk's words: how much of the race is
+        /// on it and the moments worth money.</summary>
+        static string ClipPitch(Header h)
+        {
+            int cps = 0, slides = 0, passes = 0, misses = 0, crashes = 0, air = 0;
+            bool start = false, finish = false;
+            foreach (var c in h.clips)
+            {
+                if (c.kind == TapeClip.Kind.Start) start = true;
+                if (c.kind == TapeClip.Kind.Finish) finish = true;
+                if (c.kind == TapeClip.Kind.Checkpoint) cps++;
+                if (c.Has(TapeClip.Slide)) slides++;
+                if (c.Has(TapeClip.Pass)) passes++;
+                if (c.Has(TapeClip.NearMiss)) misses++;
+                if (c.Has(TapeClip.Crash) || c.Has(TapeClip.Spin)) crashes++;
+                if (c.Has(TapeClip.Air)) air++;
+            }
+            var parts = new List<string>();
+            parts.Add((start ? "the start, " : "") + cps + (cps == 1 ? " checkpoint" : " checkpoints") +
+                      (finish ? " and the finish" : ", no finish"));
+            if (h.won) parts.Add("a win");
+            else if (h.finishPos > 0 && h.fieldSize > 1 && finish) parts.Add("P" + h.finishPos + " of " + h.fieldSize);
+            if (slides > 0) parts.Add(slides == 1 ? "a slide on camera" : slides + " slides on camera");
+            if (passes > 0) parts.Add(passes == 1 ? "a pass" : passes + " passes");
+            if (misses > 0) parts.Add(misses == 1 ? "a near miss" : misses + " near misses");
+            if (air > 0) parts.Add("air");
+            if (crashes > 0) parts.Add(crashes == 1 ? "one mess" : crashes + " messes");
+            string t = string.Join(", ", parts);
+            return char.ToUpperInvariant(t[0]) + t.Substring(1) + ".";
+        }
+
+        /// <summary>
+        /// THE CLIPS of the race just run: what each point's camera took of
+        /// the player's car and what it saw (round 2). Fills
+        /// <see cref="Header.course"/> and <see cref="Header.clips"/>.
+        /// </summary>
+        public static void Flex(Header h, RaceReplay rp, RaceManager rm)
+        {
+            var plan = RacePlan.For(rm, rp);
+            if (plan == null || plan.course == null || h.playerIndex < 0 || h.playerIndex >= rp.TrackCount) return;
+            var times = rp.SampleTimes;
+            var mine = rp.TrackFrames(h.playerIndex);
+            var clips = TapeClips.Plan(plan.course, times, mine);
+            var others = new List<IReadOnlyList<RaceReplay.Frame>>();
+            for (int i = 0; i < rp.TrackCount; i++) if (i != h.playerIndex) others.Add(rp.TrackFrames(i));
+            for (int i = 0; i < clips.Count; i++)
+            {
+                var c = clips[i];
+                TapeClips.Score(ref c, times, mine, others, Mathf.Max(1, h.fieldSize), rp.TrafficAt);
+                clips[i] = c;
+            }
+            // The tape's own copy of the course: a later feed cannot change it.
+            var course = new RaceCourse { loop = plan.course.loop, laps = plan.course.laps, source = plan.course.source };
+            course.points.AddRange(plan.course.points);
+            h.course = course;
+            h.clips = clips;
         }
 
         // ------------------------------------------------------------------
@@ -269,6 +424,12 @@ namespace PSXRacing
 
             // The facts the price is made of, off the full-rate recording.
             Facts(rp, h.playerIndex, out h.topKmh, out h.crashes, out h.nearMisses);
+            // ...and what each race point's camera saw (round 2).
+            if (FlexOn)
+            {
+                try { Flex(h, rp, rm); }
+                catch (System.Exception e) { Debug.LogWarning("[Tapes] flex scoring failed: " + e.Message); h.course = null; h.clips = new List<TapeClip>(); }
+            }
 
             h.duration = ts[ts.Count - 1];
             h.samples = ts.Count;
@@ -477,6 +638,12 @@ namespace PSXRacing
                 w.Write(nc);
                 for (int i = 0; i < nc; i++) w.Write(h.cuts[i]);
             }
+            // The race points and the clips (v2).
+            if (h.course != null && h.course.points.Count > 0)
+            {
+                w.Write(System.Text.Encoding.ASCII.GetBytes(Ext2Magic));
+                WriteCourse(w, h);
+            }
             w.Flush();
         }
 
@@ -500,7 +667,79 @@ namespace PSXRacing
             catch (System.Exception e) { why = "UNREADABLE (" + e.GetType().Name + ")"; return null; }
         }
 
-        const string ExtMagic = "EXT1";
+        const string ExtMagic = "EXT1", Ext2Magic = "EXT2";
+
+        static void WriteCourse(BinaryWriter w, Header h)
+        {
+            var c = h.course;
+            w.Write((byte)Mathf.Clamp(c.laps, 1, 255));
+            w.Write(c.loop);
+            w.Write(c.source ?? "");
+            w.Write((ushort)c.points.Count);
+            foreach (var p in c.points)
+            {
+                w.Write((byte)p.kind);
+                w.Write((ushort)Mathf.Clamp(p.index, 0, 65535));
+                w.Write(p.pos.x); w.Write(p.pos.y); w.Write(p.pos.z);
+                w.Write(p.heading.x); w.Write(p.heading.z);
+                w.Write(p.halfWidth);
+            }
+            int n = h.clips != null ? h.clips.Count : 0;
+            w.Write((ushort)n);
+            for (int i = 0; i < n; i++)
+            {
+                var k = h.clips[i];
+                w.Write((byte)k.kind);
+                w.Write((ushort)Mathf.Clamp(k.point, 0, 65535));
+                w.Write((ushort)Mathf.Clamp(k.index, 0, 65535));
+                w.Write((byte)Mathf.Clamp(k.lap, 0, 255));
+                w.Write(k.tIn); w.Write(k.tPass); w.Write(k.tOut);
+                w.Write(k.kmh);
+                w.Write(k.tags);
+                w.Write(k.slideSec); w.Write(k.slideDeg);
+                w.Write((short)Mathf.Clamp(k.value, -32000, 32000));
+            }
+        }
+
+        static void ReadCourse(BinaryReader r, Header h)
+        {
+            var c = new RaceCourse { source = "tape" };
+            c.laps = Mathf.Max(1, (int)r.ReadByte());
+            c.loop = r.ReadBoolean();
+            r.ReadString();   // where the points came from when it was shot
+            int np = r.ReadUInt16();
+            if (np > 4096) throw new System.IO.InvalidDataException("points");
+            for (int i = 0; i < np; i++)
+            {
+                var p = new RacePoint { pathIdx = -1 };
+                p.kind = (RacePoint.Kind)r.ReadByte();
+                p.index = r.ReadUInt16();
+                p.pos = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+                float hx = r.ReadSingle(), hz = r.ReadSingle();
+                p.heading = new Vector3(hx, 0f, hz);
+                p.halfWidth = r.ReadSingle();
+                c.points.Add(p);
+            }
+            int nk = r.ReadUInt16();
+            if (nk > 8192) throw new System.IO.InvalidDataException("clips");
+            var clips = new List<TapeClip>(nk);
+            for (int i = 0; i < nk; i++)
+            {
+                var k = new TapeClip();
+                k.kind = (TapeClip.Kind)r.ReadByte();
+                k.point = r.ReadUInt16();
+                k.index = r.ReadUInt16();
+                k.lap = r.ReadByte();
+                k.tIn = r.ReadSingle(); k.tPass = r.ReadSingle(); k.tOut = r.ReadSingle();
+                k.kmh = r.ReadSingle();
+                k.tags = r.ReadUInt16();
+                k.slideSec = r.ReadSingle(); k.slideDeg = r.ReadSingle();
+                k.value = r.ReadInt16();
+                clips.Add(k);
+            }
+            h.course = c;
+            h.clips = clips;
+        }
 
         /// <summary>The extension block after the samples (a montage's cuts and
         /// price), read without disturbing the stream: it is put back where the
@@ -516,15 +755,24 @@ namespace PSXRacing
                 int len = r.ReadInt32();
                 if (len <= 0 || at + 4 + len + 4 > s.Length) return;
                 s.Position = at + 4 + len;
-                var magic = r.ReadBytes(4);
-                if (magic.Length != 4 || System.Text.Encoding.ASCII.GetString(magic) != ExtMagic) return;
-                h.montage = r.ReadBoolean();
-                h.basePrice = r.ReadInt32();
-                int nc = r.ReadInt32();
-                if (nc < 0 || nc > 4096) { h.montage = false; h.basePrice = 0; return; }
-                for (int i = 0; i < nc; i++) h.cuts.Add(r.ReadSingle());
+                // The blocks after the samples, in the order they were written.
+                while (s.Length - s.Position >= 4)
+                {
+                    var magic = r.ReadBytes(4);
+                    string m = magic.Length == 4 ? System.Text.Encoding.ASCII.GetString(magic) : "";
+                    if (m == ExtMagic)
+                    {
+                        h.montage = r.ReadBoolean();
+                        h.basePrice = r.ReadInt32();
+                        int nc = r.ReadInt32();
+                        if (nc < 0 || nc > 4096) { h.montage = false; h.basePrice = 0; return; }
+                        for (int i = 0; i < nc; i++) h.cuts.Add(r.ReadSingle());
+                    }
+                    else if (m == Ext2Magic) ReadCourse(r, h);
+                    else break;
+                }
             }
-            catch (System.Exception) { h.cuts.Clear(); }
+            catch (System.Exception) { h.cuts.Clear(); h.course = null; h.clips = new List<TapeClip>(); }
             finally { s.Position = at; }
         }
 
