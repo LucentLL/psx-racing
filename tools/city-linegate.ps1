@@ -60,9 +60,9 @@ if (-not $NoLock) {
         $cur = Read-Lock
         if ($null -ne $cur) {
             $age = ((Get-Date) - (Get-Item $lock).LastWriteTime).TotalMinutes
-            if ($age -lt 90 -or (Test-SandboxUnity)) { Start-Sleep -Seconds 10; continue }
+            if ($age -lt 90 -or (Test-SandboxUnity)) { Start-Sleep -Seconds 2; continue }
         }
-        if (Test-SandboxUnity) { Start-Sleep -Seconds 10; continue }
+        if (Test-SandboxUnity) { Start-Sleep -Seconds 2; continue }
         Set-Content -Path $lock -Value $token -Encoding ascii
         Start-Sleep -Seconds 3
         if ((Read-Lock) -eq $token) { $mine = $true; break }
