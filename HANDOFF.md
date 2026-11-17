@@ -1,4 +1,306 @@
-﻿# HANDOFF - TREE SEASON: a tree looks the same at every distance (agent "treeseason": Fable 11-16 night, then Opus 5.5 11-17; branch `tree-season` off mountain-nm 742315cd + merge of 1527e2b1; NOT pushed, NOT merged)
+﻿# CHECKPOINT RACES: STAGE 1 FIXED, STAGE 2 BUILT; NO BARRICADES ANYWHERE; RACERS PASS IN THE ONCOMING LANE (agent "cpfix", branch `city-checkpoints`, 2026-11-17 01:40-06:20; NOT pushed, NOT merged)
+
+Base: city-checkpoints 6d2e07cc (stage 1, whose independent check FAILED with 4 blockers) + mountain-nm 749e05de (PC50) merged
+(09ff1dc8; conflicts only in CityRaceClosures.cs and this file). Scratch: `scratchpad\cpfix\` (PROGRESS.md, out\ = every report).
+The owner: 11-16 ~21:00 "the Midnight Club approach is the way with checkpoints and allow players to pathfind"; 11-17 (via the
+coordinator) "I asked for all road construction barricades to be removed from races. I don't like racers being forced to stay in
+a particular lane. They should prefer staying in the 'right' lane, but passing around cars in the oncoming lane is an iconic part
+of street racing".
+
+## What was wrong (the check's blockers, at their cause)
+1. THE RULER WHEN A CAR LEAVES ITS ROAD (CityRouter.Locate): any edge 4 m nearer took a car standing off the road, so a car knocked
+   23 m off the Wilkinson loop ramp was measured 190 m behind its own station. Now the kept edge holds while the car is within 80 m
+   of it (projected along its own arc, so a loop ramp's far side never steals it); another road only when the car is ON its
+   pavement; a rival is held on its own road to 80 m; off the pavement the ruler adds the metres beyond (continuous).
+2. A FALSE MISSED ON A RE-CROSSED GATE (CheckpointRace.Step): any passed gate crossed forward raised MISSED. Now only gates AFTER the
+   pending one in this lap's order, and only while the car is not closing on its own gate; MISSED by distance needs the car near the
+   gate BY THE ROAD (120 m) as well as in the air; a teleport restarts the approach.
+3. THE GPS/AI FIELD vs THE RANKING FIELD (CityRouter.Build): two fields, cost for the route and plain metres for positions, disagreed
+   off the suggested line (Todd Rd: +602 m at a node, MISSED for 15 s). Now ONE field per gate: its descent is the GPS line and every
+   AI's road, and its RM is the metres ALONG THAT ROUTE (the ruler). Following the line the remaining falls metre for metre. On a
+   two-way street the ruler measures the way the car is going (cost-chosen, it flipped on local streets the freeway profile prices
+   x4); turning round when clearly better is WRONG WAY's job, and the GPS line then points back. The player (also the play check's
+   autopilot) is always measured by the locate, as the real player is.
+4. THE 11-17 RULES: mountain-nm merged; the camcorder's course is the race's gates (RacePoints.Provider set in TryBegin, cleared in
+   OnDestroy, after the replay): "CAMCORDER COURSE: checkpoints i485west fwd, 16 points (14 checkpoints)".
+5. Found on the way: at an exit ramp's gore the I-485 main line's OSM line lies under a car taking the ramp for 100 m (the ramp's line
+   2.5 m away): the locate now prefers the road the route takes next (held 80 m past a node) and leaves a kept road for a node's
+   non-route road only off its pavement (+19 km for a second, MISSED, in the first two H2 races).
+6. Field time: one Dijkstra per gate with the descent's successor recorded, metres summed in settle order, BCL fills.
+
+(results, switches, merge notes: filled at the end)
+
+## What changed (switches: =0 is the old behaviour unless said)
+- Scripts/Checkpoints/CityRouter.cs: Field.RM / nxt / potM (one field, the ruler's metres along its own descent), RouteFrom,
+  RouteRemaining, the sticky locate (Project along the kept arc, NearestScored with a heading penalty and the route preference,
+  PreferState held 80 m, the node rule), Remaining in metres. CheckpointRace.cs: one field per gate (FieldComputeMs), the
+  rival's own-road hold to 80 m, the player always by the locate, the travel-direction ruler on two-way streets (+ WRONG WAY's
+  two-way rule, the GPS turning back), MISSED rules, teleports restart the approach, the giving-way pause of the lost-AI clock,
+  RouteChoice event, the camcorder Provider, the suggested route's roads first for a fresh locate (RouteSet). AIRoutePlanner.cs:
+  a rival's remaining distance along its OWN planned road; VARIETY (PSX_CP_AI_VARIETY, OPT-IN =1: its gate is not met, 0 varied
+  legs in 5 races with it on - no leg has a second route inside the 8 % band with 500-770 m legs and the 60 m turn penalty, as the
+  freedom table foretold); RE-ROUTE (PSX_CP_REROUTE, ON: 20 m off its road for 1.5 s, or 10 s without progress while not giving way).
+- AIDriver.cs, LANE USE (PSX_AI_PASS_ONCOMING, ON; =0 the lane discipline as before): a rival this car is held behind is a car to
+  PASS (its pass planned over its whole length, against oncoming cars for its whole time, only where the road is straight enough),
+  the better line (right-handers under 60 m from the other lane, left-handers' apexes clipped) with nothing coming; pass counters;
+  DebugTwoWayHere / DebugRoadLat. Shared by every race type on two-way roads (city sanctioned and street, mountain stages).
+- Lake Lure (Editor/PSXRacingBuilder.StageTown.cs): NO barricade at the side-road mouths or the park road; each mouth laid up its
+  24 m notch, narrowing and sinking into the ground over its last 5 m. PSX_LURE_BARRICADES=1 builds the 11-16 closures.
+- Closures gone: Scripts/CityRaceClosures.cs, Editor/CityClosuresCheck.cs, tools/city/tracks/closures.mjs (+metas) deleted;
+  RacePlayCheck asserts no object named Barricade / Closure / TrafficCone in ANY race's scene (city or stage).
+- Data: Resources/CityCheckpoints for uptown, tryon (fwd), independence, c7, x1 (fwd + rev), c1, c2, h6, h7 (+ i485west as
+  before); Resources/CityTracks c1 (lane A), h6, h7 (lane D), c2 (re-emitted at 1 lap, lane B's own instruction).
+  checkpoints.mjs: --rev, the span-shortcut test (C2 gate 7). TryonSprintRev stays a FIXED-LINE race: reversed, 22 one-way
+  carriageway edges of North Tryon run against their flow and its grid stands on one (needs a re-authored reverse route).
+- Tools: Editor/CheckpointProbe.cs (the check's probe, kept: PSX_CPPROBE=dir, PSX_CPPROBE_DETOUR=1), Editor/LaneUseWatch.cs,
+  CheckpointRaceWatch (camcorder course, route-choice steps, the variety gate), CheckpointSelfTest (crash and off-route walks,
+  ruler = route metres), cp-job.ps1 (-Matrix, -Release, lock name cpfix), race-play-check.ps1 (PSX_HIDDEN_GFX=1).
+
+## Proof, stage 1 (all HIDDEN: the owner's PSXRacing.exe ran the whole session; PSXCity, 8-car fields, morning)
+Reports in `scratchpad\cpfix\out\` (race_*.txt, matrix_*.txt, cp_selftest*.txt; probe_*\ = the check's probe logs and frames).
+- Self-test (CheckpointSelfTest, all 10 files): ALL PASS after the fixes - for every chain: loads, hash, reachability, node parity,
+  "the ruler's metres are the route's" on every leg, the ruler falls along the suggested route, CRASH WALKS (out to 30 m either side
+  and back: the remaining never moves more than the car, 0 jumps; i485west 126 walks / 4,032 steps), OFF-ROUTE GPS WALKS from
+  streets off the route (i485west 60 walks / 36,790 steps: the ruler reads the route's own metres at all but 0.5 %, fresh locates at
+  ramp gores), routed paths. FINAL CODE (06:16, -releaseCodeOptimization, out\cp_selftest_release.txt): ALL PASS; field build
+  i485west 15 gates in 117 ms, worst gate 10.2 ms, 7.8 ms a gate on average (the check: 18.2 / 229 ms for two fields; the design
+  budget 9 / 150 ms); the other files 38-97 ms in all, worst gates 7.2-10.9 ms. Routed path builds 0.2-0.9 ms (budget 3).
+- H2 (I485West) NONE, wrong-way test, probe (02:15, before the gore fix): all 8 home, every gate in order, WRONG WAY after 6.9 s and
+  cleared; FAILs: the gore misread (fixed since) + the two known global lines.
+- H2 NONE with the check's FORCED DETOUR (02:27, before the travel-direction fix): the player put on Todd Rd 440 m off route
+  re-planned and passed every gate; 7 home + 1 planned-mistake DNF; FAILs: the gore misread, one 1,245 m flip on Todd Rd (both fixed
+  since), MetersDriven (18.0 km for 9.2 km: the detour's own 8.3 km loop, as in the check) + the known lines.
+- H2 NONE (02:50, final ruler): 7 home + the FD's planned-mistake DNF (allowed), every finisher every gate in order, the autopilot
+  no MISSED / no WRONG WAY, 0 progress falls, 0 flicker, positions = remaining distance, no barricade; camcorder course = the 15
+  gates. FAILs: only the known global pumping 2.17 and UNDRAWN RAILS 6.
+- H2 LIGHT (02:55): 6 home + the Charger (31.6 m/s into a slow traffic sedan at 45 s, retired: allowed), every gate in order,
+  0 falls, 0 MISSED; FAILs: only the known pumping and UNDRAWN RAILS.
+- H2 NONE with the check's FORCED DETOUR on the final ruler (06:00, `out\race_h2final.txt`, probe `out\probe_h2final\`): ALL 8
+  HOME, every gate in order; the player was put on Todd Rd 441 m off route at 61 s, re-planned (the GPS line rebuilt) and passed
+  every gate: no MISSED, no WRONG WAY, NO progress fall (the check's blockers 2 and 3 do not recur); the probe checked 144 plans:
+  0 waypoints against a one-way, 0 illegal turns. FAILs: flicker 2 (two rivals), MetersDriven 18.0 km for 9.2 km (the detour's own
+  8.3 km loop, induced as in the check) + the known lines.
+
+## Proof, lane use (owner 11-17): LaneUseWatch counts, hidden, seed 0 (passes begun = 1.2 m out toward the chosen side)
+Same race, PSX_AI_PASS_ONCOMING ON vs OFF (A1 vs B1, the 02:40 / 03:30 code):
+- GillespieGap NONE (mountain stage, 4 cars): ON passes 5 (all 5 into the oncoming lane) / done 2 / aborted 2, 0 near misses,
+  0 head-ons, 134 s over the centreline in 71 stays (longest 14.0 s), better line 136 s | OFF 8 (7) / 2 / 4, 0, 0, 36 s
+  (7.5 s), 5 s. One rival retired in each (its planned mistake). The rivals did pass in the oncoming lane and came back.
+- TryonSprint MEDIUM (street, checkpoint, traffic): ON 58 (39 oncoming lane) / 31 / 24, 0 near misses, 0 head-ons, traffic hits
+  1 (0 hard), held behind traffic 7 s avg / 18 s max | OFF 78 (49) / 41 / 36, 1 near miss, 1 HEAD-ON (Supra into a taxi,
+  12.2 m/s), traffic hits 2 (2 hard: the Skyline retired into a pickup at 27 m/s), held 10 / 26 s.
+Later code, street races ON: CltX1 MEDIUM (B5): 28 (19) / 14 / 13, 0 near misses, 0 head-ons, 0 traffic hits, all home.
+TryonSprint MEDIUM again (B5): 56 (27) / 37 / 17, 0 near misses, 1 head-on (the Viper at 8.3 m/s into a van), traffic hits 3
+(1 hard). Earlier code (B2): CltC1 MEDIUM 1 head-on (6.2 m/s), 3 near misses, a 30 s stay over the line; CltX1 MEDIUM the FD
+head-on at 37.4 m/s 20 s in (two abreast after the start, a pass with the oncoming limit on), 2 near misses. Since then: the wide
+better line is off in traffic, a held pass is given up the moment an oncoming car is near (c31b4521, not re-raced), held passes
+need 2.5 m/s / 30 m / 6 s. So: 0 head-ons is NOT proven in traffic: 3 head-ons in 5 street races with it ON (2 at walking
+pace, one at 37.4 m/s): more than the 0.13 a race the 11-02 traffic round measured on the fixed lines; in the one paired race
+OFF had one too (12.2 m/s). The head-ons themselves come from the traffic give-way (pass lines vs the oncoming limit) that both
+modes share; the two fixes after them are not raced yet. A paired 8-race matrix per level is what proves it.
+On one-way freeways held passes are off (they swung a pack about at 180 km/h); the racers' own rule as before.
+
+## What the coordinator must do at merge
+- Merge city-checkpoints after mountain-nm 749e05de (already merged in; only CityRaceClosures.cs and HANDOFF.md conflicted).
+  `git diff 749e05de -- Assets/PSXRacing/Scripts/City Assets/PSXRacing/Scripts/RoadsideRules.cs "Assets/PSXRacing/Resources/charlotte_*"`
+  is EMPTY: no city re-bake.
+- SCENE PASS: LakeLure (its sprint variants race in its scene) for the barricade removal; no other scene.
+- _order.txt NOT edited (the integrator's file): after merging run `node tools/city/tracks/order.mjs --write` and commit (CltC1,
+  CltC2, CltH6, CltH7 append; their files come from lanes A/D and lane B's own re-emit instruction).
+- Race cards of the four new venues: `tools\citymap-bake.ps1 -Project <sandbox>` before the player build (as batch 1 did).
+- Shared files touched this round: AIDriver.cs (lane use; held passes on two-way roads only), RacePlayCheck.cs (the barricade scan,
+  LaneUseWatch hooks), PSXRacingBuilder.StageTown.cs (Lake Lure), race-play-check.ps1 (PSX_HIDDEN_GFX), plus stage 1's list.
+- Deleted (with metas): Scripts/CityRaceClosures.cs, Editor/CityClosuresCheck.cs, tools/city/tracks/closures.mjs. Lanes A/B/D still
+  carry closures code on their branches: take this branch's side.
+- New with metas: Editor/CheckpointProbe.cs, Editor/LaneUseWatch.cs, Resources/CityCheckpoints/*.json, CityTracks c1/c2/h6/h7.
+
+
+## Proof, stage 2: every converted venue (hidden, 8-car field, morning, course preload as on PC: PSX_CITY_COURSE=1)
+Per-venue table from the LAST run of each (B5 = the code of 05:08; B2 = the code of 03:55, before the continuity, fresh-locate,
+towing and one-way fixes). "Known" = the global pumping / UNDRAWN RAILS lines every race shows. Every finisher passed every gate in
+order in every race below; the camcorder's course was the venue's gates in every one.
+| venue (gates) | run | home | not home | FAILs beyond the known lines |
+| I485West H2 (15, 1 lap) | A1 02:50 | 7/7 + player | FD planned mistake | none |
+| I485West LIGHT | A1 02:55 | 6/7 + player | Charger into a traffic sedan 31.6 m/s | none |
+| IndependenceSprint (10) | B2 | 7/7 + player | - | none |
+| TryonSprint (9) | B5 | 7/7 + player | - | flicker 2 |
+| TryonSprint MEDIUM street | B5 | 7/7 (player autopilot stuck at a bend after a contact at 225 s, 5 of 8 gates) | - | 1 head-on (Viper 8.3 m/s into a van), flicker 1, a 32 m start fall |
+| CltC7 (8, 3 laps) | B5 | 6/7 + player | 180SX planned mistake | flicker 2 |
+| CltX1 (5) | B2 | 7/7 + player | - | flicker 3 |
+| CltX1Rev (5, the rev chain) | B2 | 7/7 + player | - | flicker 5, a 20 s stay over the line (wide better line, before it was cut in traffic) |
+| CltX1 MEDIUM street | B5 | 7/7 + player | - | flicker 5; 0 head-ons, 0 near misses, 0 traffic hits |
+| CltC1 (6, 4 laps) | A1 | 5/7 + player | 180SX (3 planned mistakes), Viper (scrape damage 124) | 2 retired, flicker 1, one 259 m fall (a varied leg: own-plan ruler since) |
+| CltC1 MEDIUM street | B2 | 6/7 + player | - | 1 head-on (Civic 6.2 m/s), 3 near misses, a 30 s stay over the line |
+| CltC2 (8) | B5 | 7/7 + player | - | flicker 2 |
+| CltH6 (9) | B5 | 7/7 + player | - | one 3.8 km player fall at a ramp pair 10 m apart (fixed after: one-way-against penalty, not re-run) |
+| CltH7 (10) | B2 | 6/7 + player | FD planned mistake | none |
+| UptownLoop (13) | B5 | 1/7 + player | 6 hit the ground at wp 1282 | HELD BACK to its fixed line (uptown.json held: 1) |
+UptownLoop as a checkpoint race lost 5-6 rivals in 4 of 4 runs at wp 1282 (I-277 edge 1832, a 74 m level-0 piece between two
+bridge decks), always at 39-51 m/s on the line ("into Ground"). THE FIXED LINE DOES THE SAME: the UptownLoop fixed-line regression
+(06:08, out\race_uptownfixed.txt, the held file, course preload) lost the Charger, FD and Supra into the ground at wp 1282 at
+43-51 m/s and two more in the pile-up behind (5 retired; the autopilot, 180SX and Viper home; no barricade). So it is the venue
+(the I-277 profile between the two decks, or the AI's crest speed there), not the checkpoints, and it is in PC50's code too as far
+as this sandbox shows: worth its own look before UptownLoop is raced in an exe. Uptown stays fixed-line (held) = unchanged.
+
+## Switches and defaults
+- PSX_CP_RACES ON (=0 every city race fixed-line). Converted and ON: I485West, IndependenceSprint, TryonSprint, CltC7, CltX1,
+  CltX1Rev, CltC1, CltC2, CltH6, CltH7. Fixed-line: UptownLoop (held), TryonSprintRev (no rev chain: one-way carriageways),
+  drags (CltD1, CltD3: a drag stays a straight strip) and every mountain stage (one road: the camcorder already plants its
+  split points). PSX_CP_VENUES (dev list), PSX_CP_HELD=1 (race held files too).
+- Stage-1 sub-switches as before (PSX_CP_AI_ROUTE, _GPS, _RESPAWN, _ODOMETER ON; PSX_CP_MARKERS opt-in, Q5).
+- New: PSX_CP_REROUTE ON; PSX_CP_TOW_WRECKS ON; PSX_CP_AI_VARIETY OPT-IN (gate not met); PSX_AI_PASS_ONCOMING ON;
+  PSX_LURE_BARRICADES OFF (=1 the 11-16 closures). PSX_TRACK_CLOSURES is gone with its file.
+- Tools only: PSX_HIDDEN_GFX=1 (race-play-check), PSX_CPPROBE / PSX_CPPROBE_DETOUR (probe), cp-job -Matrix / -Release.
+
+## Not done / not verified
+- STREET RACES WITH CITY-WIDE TRAFFIC (design stage 2 item 2: CityTraffic in races): NOT built. It needs a Scripts/City edit
+  (CityTraffic.RaceOptIn, racers as obstacles), the 40-minute city re-bake and a scene pass, and new head-on risk on every side
+  street. Street checkpoint races today use the TrafficSystem strip along the suggested route (where the field drives: no leg has a
+  real alternative, freeLegs 0 on 8 of 10 files). Q6 stays open.
+- AI variety: built, opt-in; its gate is not met on any venue (see above). Wider gate spacing on the grid circuits would be needed.
+- Race cards' map tiles for C1/C2/H6/H7 (citymap-bake) and _order.txt: the coordinator's (above).
+- Position FLICKER (a swap reversed within 0.5 s): 1-5 per city race remain after the continuity fixes, most with the autopilot
+  beside a rival; H2 shows 0. The tie band is 4 m / 0.4 s.
+- Lake Lure: code only. PSXCity has no LakeLure scene; the builder's log line ("closed by barricades: none") and a frame of an open
+  mouth come with the coordinator's scene pass.
+- The 3.8 km H6 ramp misread fix (one-way-against penalty, 38e438bb) and the held-pass abort (c31b4521) were not re-raced.
+- No watched race this round (the owner's game was running until ~05:20; afterwards only hidden runs were left).
+- Field time in a player build (IL2CPP/Mono release): measured only in the editor (debug) and with -releaseCodeOptimization (below).
+
+## Open questions for the owner (design.json; defaults kept, NOT asked)
+Q1 Lake Lure mouths - DECIDED by the owner 11-17: no barricades (done, code; needs the scene pass). Q2 the tow during a race:
+default, CALL TOW TRUCK ends the race. Q3 a missed checkpoint: default, turn back for it. Q4 lane use - DECIDED 11-17: prefer the
+right lane, pass and take a better line in the oncoming lane where clear (done; head-ons in traffic not yet at 0, above). Q5 the
+marker look: default yes once he has seen the day/night/rain sheet (still opt-in, PSX_CP_MARKERS=1). Q6 city-wide traffic in
+street races (a Scripts/City edit + the 40-minute re-bake): still open, not built.
+
+## What the owner will notice
+Ten Charlotte races are checkpoint races with no barricades: any road between the gates, a GPS line and CHECKPOINT k/N, the rivals
+planning their own roads, the camcorder's cameras at the start, every checkpoint and the finish. On two-way roads the rivals pass
+slower cars in the oncoming lane and take hairpins wide when nothing is coming. Lake Lure's side roads are open (after its scene
+pass). UptownLoop and TryonSprint II stay as they were.
+
+# CHECKPOINT RACES, STAGE 1: no barricades; any road between ordered gates; proven on I-485 WEST (agent "checkpoints", branch `city-checkpoints`, 2026-11-16 22:30 - 11-17 00:45; NOT pushed, NOT merged)
+
+The owner, 2026-11-16 ~21:00: "After seeing them in action, I'm not a fan of the road construction barriers for
+races. Drivers can just go around them. I guess the Midnight Club approach is the way with checkpoints and allow
+players to pathfind". Design: scratchpad `checkpoints\DESIGN_v2.md` (Midnight Club = the race FORMAT only: no art,
+names, UI or cities). Progress log and every report: scratchpad `checkpoints\stage1\` (PROGRESS.md, out\).
+
+Base: `charlotte-tracks-b1` 21e7dec8 (X1, D3, C7) + lane C's f839431b (the hosted-laps fix, cherry-picked as 4539a3ec).
+`git diff charlotte-tracks-b1 -- Assets/PSXRacing/Scripts/City Assets/PSXRacing/Scripts/RoadsideRules.cs
+"Assets/PSXRacing/Resources/charlotte_*"` is EMPTY: no re-bake, no scene pass. Everything is made at runtime.
+
+## What changed
+1. CLOSURES OUT (its own commit f9277794: merge it first, beside batch-1). CityTracksRegistrar keeps only the hosted
+   route swap and the venue's laps; `CityRaceClosures.ForThisRace` returns false (PSX_TRACK_CLOSURES ignored, no
+   switch back); RacePlayCheck asserts "no road closure built"; track-job.ps1 lost its closures mode; Events.cs
+   (ROOKIE CUP, US CUP) and the event page's sanctioned lines no longer promise closed roads, and say nothing about
+   checkpoints (the event venues stay fixed-line until they get files). Delete CityRaceClosures.cs,
+   Editor/CityClosuresCheck.cs and tools/city/tracks/closures.mjs (+metas) once batch-1 has merged.
+2. DATA. `tools/city/tracks/checkpoints.mjs <route> [--write] [--dump f]`, `checkpoints.mjs all --table f`:
+   mandatory lap line / start + finish; every TURNAROUND (a non-freeway road between two ramp runs); every plan
+   APEX (route points 150 m+ apart along, within min(100 m, 0.4 x along) across: an infield or a lot could cut it);
+   then the fewest evenly spaced gates whose legs pass (a) legal metre-shortest >= 0.88 x suggested, (b) suggested
+   cost <= 1.06 x the cost optimum, (c) <= 800 m (1,500 m only with a real alternative), (e) cost optimum's metres
+   <= 1.04 x metre optimum; clean-spot snap +-60 m; wide-gate spans; reachability; freedom report. Shipped ONLY
+   `Resources/CityCheckpoints/i485west.json` (+meta): 15 gates (lap line, 10 splits, the Wilkinson Blvd and Moores
+   Chapel Rd turnarounds, 2 apex gates on the Wilkinson loop ramps; one wide gate over a parallel carriageway),
+   legs 215-770 m, 0 failing legs, freeLegs 0. Plan sheet: scratchpad `checkpoints\stage1\h2_gates_plan.png`.
+3. RUNTIME, `Scripts/Checkpoints/` (outside Scripts/City):
+   - CheckpointFile (load, graph hash, PSX_CP_RACES / PSX_CP_VENUES, card facts);
+   - CityRouter (directed-edge CSR with lib.mjs's legality and cost model; per gate a METRIC field = the ranking
+     ruler and a COST field = GPS and AI, seeded at every span; node potential; Locate with a 4 m height test, 4 m /
+     0.3 s hysteresis, immediate hand-over across a node, off-graph fallback; per-frame slide; Descend);
+   - CheckpointRace (TryBegin after the handoff, before the traffic; the countdown held while the fields build,
+     several gates a frame in a 40 ms budget; static restart cache; the swept, order-only gate test with spans (5 m
+     past each kerb) and a 5 m level test, plus the ARC PASS on the car's own road; the circuit's start crossing;
+     laps by gate 0; finish by the last gate; progress = total - remaining on one ruler; 4 m / 0.4 s tie band; a
+     car held on its own road from 15 m to 25 m off it; RaceFraction / RemainingToFinishM; MISSED (a later gate
+     crossed, or 150 m further than a closest approach within 60 m; clears on the pass or coming back within 50 m);
+     teleports pass nothing; odometer; respawn (an AI on its own road; the player on the graph's better direction,
+     walking BACK up to 30 m, else 10 m past the last gate passed); WRONG WAY = remaining rising against the
+     U-turn-aware direction; the lost-AI watchdog; GPS line; generated chime and buzz; the pass gap);
+   - RoutedPath (BuildPath copy: partial edges, per-waypoint halfL/halfR/oneWayAt/ownLaneOff/edgeAt/sAt/dirAt/
+     junction; BuildPath's corners), AIRoutePlanner (cost optimum to the next gate and >= 900 m on, rebuilt at each
+     gate, respawn, MISSED and the 450 m guard; double buffer on an INACTIVE holder; one rebuild a frame; run-out
+     max(900 m, v^2/4.4 + 150 m)), CheckpointMarkers (warm searchlight beam over the next gate, dim amber over the one
+     after, a glow band across each span, kerb glow posts; PSX/Glow, out of its fog fade by a property block).
+4. HUD / MAP / CARD: lap slot `CHECKPOINT k/15` (circuits of 2+ laps `LAP 1/2  CP k/15`, `FINISH`, `FINISHED`); the
+   cue in the BEST slot `^  CHECKPOINT 4  640 M`; centre banner `CHECKPOINT 3   +1.4` / `LEAD` and `MISSED CHECKPOINT
+   4 - TURN BACK`; minimap GPS line (0.5 s / on leaving it), gates (next = big diamond held on the rim), remaining
+   to the flag; race card gate dots and "15 CHECKPOINTS · ANY ROUTE" (arcade and CITY cards).
+
+## Switches (environment; =0 is the old behaviour)
+PSX_CP_RACES default ON (only venues with a file convert: stage 1 = I485West; =0 every city race fixed-line) ·
+PSX_CP_VENUES (dev list) · PSX_CP_AI_ROUTE, PSX_CP_GPS, PSX_CP_RESPAWN, PSX_CP_ODOMETER ON with the master ·
+PSX_CP_MARKERS default OFF until the owner has seen the beam sheets (=1 shows the beams, bands and posts) ·
+PSX_RACEFRACTION_FIX default OFF (=1: fixed-line loops' fraction without the extra lap; no watched loop race yet).
+
+## Proof (PSXCity, watched editor, real frames; reports in scratchpad `checkpoints\stage1\out\`)
+- CheckpointSelfTest (00:13): ALL PASS. Loads, hash; every leg reachable in metres and cost; C# = node within 1 m on
+  all 15 legs; the ruler falls along the suggested route (924 steps); 15 routed legs, 0 pavement halves under
+  1.5 m. Timings (editor, batch): fields worst 31.9 ms a gate, 343 ms all (design budget 9 / 150 ms: NOT met in the
+  editor; the countdown hold covers it and RESTART uses the cache); routed path build worst 16.5 ms (budget 3 ms;
+  in races the worst rebuild was 8.8 ms).
+- day1 (23:05, 8 cars, NONE): every car through all 15 gates in order, 7 home + 1 planned-mistake DNF, autopilot P2
+  4:11.3, positions = remaining 0 of 668 samples, honest metres 9,269 m. FAILs found and fixed after: a false MISSED
+  + 12 flickers (a corner tangent read a one-way backwards: dirAt), the Charger past the Wilkinson apex span (arc
+  pass, 5 m capture; it went round for 7 min first).
+- night1 (23:36, night rain, 8 cars, NONE): 8 home, every gate in order, 0 MISSED, 0 wrong way, positions ok.
+  FAILs: flicker 69 / falls 42 from one knocked car swapping road/graph every frame (fixed: 15/25 m hysteresis); the
+  beam vanished beyond ~600 m (the glow shader's fog fade; fixed by a property block).
+- light1 (23:50, night rain, LIGHT traffic, 8 cars, forced reset): 6 home, every checkpoint assert OK (0 flicker, 0
+  falls, 0 MISSED, reset 5,994 m before = 5,994 m after: no gain). FAIL "at most one rival retires": 2 (the planned
+  mistake + a pack crash at 27.7 s, the Supra at 133 km/h into the autopilot slowed in traffic).
+- laps2 (00:03, 2 laps via -Laps, 4 cars, NONE, wrong-way test): 30 of 30 gates in order across lap 2, lap times
+  line to line, WRONG WAY shown after 5.6 s driving back, cleared 1.1 s after turning round, 0 flicker, 0 falls,
+  positions ok, odometer 19,027 m for 18,469 m. (The harness's 15 s countdown wait expired - fields took 29 s on
+  a busy machine - so its test ran at the start: fixed, the wait is 60 s and the fields build in a budget.)
+- final (00:25, 8 cars, NONE, markers on): all 8 home, 0 retired, every car through all 15 gates in order, autopilot no
+  MISSED / no WRONG WAY, positions = remaining 0 of 255, odometer 9,268 m. FAIL: the Charger again went past the
+  Wilkinson apex arc without a crossing (MISSED at 82 s, routed back, home 247 s), behind it 1 progress fall + 2
+  flickers. Cause found after: across a join a routed waypoint read the next edge at its first vertex (40 m on);
+  fixed (a59725b2: the join segment lies on the next edge from its node end; the arc pass also counts a car that
+  came onto the gate state over a node). Those two fixes are checked by the batch self-test only (01:05, ALL PASS,
+  with a new check that the routed roads' (edge, s) back-map is continuous across every join on all 15 legs; routed
+  build worst 5.3 ms), not by a watched race.
+- UptownLoop fixed-line regression (no checkpoint file, PSX_CP_RACES on): NOT RUN TO THE END - started 00:32, then
+  a PSXRacing.exe window took the focus (00:43, the owner's or the coordinator's game) and the watched editor sat
+  at frame 289; I did not launch more watched editors over a running game.
+- LifeSimSelfTest (PSXCity, defaults + PSX_CP_RACES): 92 FAIL lines = the batch-1 base's 92 in PSXCity, none naming
+  a checkpoint, a closure or a city track.
+- Race card: scratchpad `out\cards_cp\citymap_I485West.png` (14 gate dots + the lap line).
+- Sheets (scratchpad `checkpoints\stage1\`): `sheet_h2_day.png`, `sheet_h2_night.png`, `sheet_h2_light_laps.png`,
+  `sheet_h2_final.png`, plan `h2_gates_plan.png`. Honest about the look: the beam reads well at night and in rain
+  out to the fog, by day only as a thin streak at 300 m; beyond ~500 m it was cut by the camera's far plane in every
+  run (fixed after the last run: drawn inside the far plane, NOT yet seen); the ground band and posts never showed
+  in a frame (lifted 0.3 m after, not yet seen). Hence PSX_CP_MARKERS stays opt-in.
+- Known lines in every H2 run, as in the tracks round's base: exposure pumping 1.9-2.1, UNDRAWN RAILS 2-30.
+
+## Not done in stage 1 (honest)
+- C1 (DESIGN_v2's second venue, M8): not in charlotte-tracks-b1 when this started; no c1.json shipped.
+- The racing-radius fillets (M7): RoutedPath keeps BuildPath's corners (H2's AI route IS the suggested route, so
+  the AI drive the fixed line's geometry). PSX_CP_FILLET_R not built.
+- -cpDetour and -cpMiss harness modes (H2 has no legal alternative and its gates span the only carriageway); the C#
+  apex settle (checkpoint_apex.json): the plan candidates are taken as gates (conservative).
+- Field and rebuild time budgets are not met in the editor (above). Android unmeasured.
+- The freedom table for the owner (Q7) is offline (node), first pass: C1 0.33, C3 0.29, C4 0.17, C2 0.13, every
+  other candidate and the 3 export routes 0.00 (freeway laps and single-arterial courses: honest, little choice).
+  Scratchpad `checkpoints\stage1\freedom_table.txt`.
+
+## At merge (coordinator)
+- Merge order: f9277794 (closures out) any time; the rest after charlotte-tracks-b1. Shared files touched:
+  RaceManager (Start line, Update branch, FinishCar, RespawnOn refactor + RaiseRespawned, MetersDriven, RaceFraction,
+  RemainingToFinishM, StabilizeOrder hook, repeat respawns by position on routed roads); TrackPath (NonSerialized
+  arrays); AIDriver (TwoWayHere / LaneCentreHere / RoadHalfHere replace every race-wide read, LineOffset per
+  waypoint, AheadOnRoad, no mistakes in junction zones, SetPath); StuckRecovery (wrong way, off track off, fell-below
+  on the graph, floorY); CareerDrive; RaceHUD; HudMinimap; TrafficSystem (PlayerS); RaceReplay (PauseList);
+  RouteMap; ArcadeFrontEnd / CityFrontEnd; RacePlayCheck; Events.cs; LifeHomeScreen.Events.cs; track-job.ps1.
+- New: Scripts/Checkpoints/* (+metas), Editor/CheckpointSelfTest.cs, Editor/CheckpointRaceWatch.cs (+metas),
+  Resources/CityCheckpoints/i485west.json (+meta, folder meta), tools/city/tracks/checkpoints.mjs, cp-job.ps1.
+- No re-bake, no scene pass. A PC build carries it as is (Resources/CityCheckpoints is a Resources folder).
+# HANDOFF - TREE SEASON: a tree looks the same at every distance (agent "treeseason": Fable 11-16 night, then Opus 5.5 11-17; branch `tree-season` off mountain-nm 742315cd + merge of 1527e2b1; NOT pushed, NOT merged)
 
 Owner, 11-16 ~22:00, after PC47/PC48: "Tree pop-in is egregious. It is very distracting to see trees full of leaves (or
 different color trees in Fall) pop-in as you approach and then the tree is leafless (or different colors trees overtake

@@ -1,0 +1,264 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "c1",
+ "candidate": "C1",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
+ "cost": "city",
+ "loop": 1,
+ "lengthM": 3090.1,
+ "startM": 370,
+ "finishM": 0,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 1,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 370,
+     "e": 6258,
+     "s": 113.05,
+     "d": 1,
+     "x": -2327.39,
+     "y": 0,
+     "z": 4724.48,
+     "hx": 0.7619,
+     "hz": 0.6477,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 6258,
+       "d": 1,
+       "s": 113.05,
+       "l": 0
+      }
+     ],
+     "legM": 485,
+     "optM": 485,
+     "metM": 485,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 880,
+     "e": 16456,
+     "s": 91.72,
+     "d": 1,
+     "x": -1939.8,
+     "y": 0,
+     "z": 5055.97,
+     "hx": 0.7578,
+     "hz": 0.6525,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16456,
+       "d": 1,
+       "s": 91.72,
+       "l": 0
+      }
+     ],
+     "legM": 510,
+     "optM": 510,
+     "metM": 510,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1400,
+     "e": 537,
+     "s": 98.6,
+     "d": 1,
+     "x": -1568.22,
+     "y": 0,
+     "z": 4906.42,
+     "hx": 0.6775,
+     "hz": -0.7355,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 537,
+       "d": 1,
+       "s": 98.6,
+       "l": 0
+      }
+     ],
+     "legM": 520,
+     "optM": 520,
+     "metM": 520,
+     "name": "East 9th Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1865,
+     "e": 9424,
+     "s": 34.23,
+     "d": 1,
+     "x": -1851.87,
+     "y": 0,
+     "z": 4599.48,
+     "hx": -0.751,
+     "hz": -0.6603,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 9424,
+       "d": 1,
+       "s": 34.23,
+       "l": 0
+      }
+     ],
+     "legM": 465,
+     "optM": 465,
+     "metM": 465,
+     "name": "North Brevard Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2455,
+     "e": 950,
+     "s": 30.03,
+     "d": 1,
+     "x": -2157.96,
+     "y": 0,
+     "z": 4340.34,
+     "hx": -0.7741,
+     "hz": -0.633,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 950,
+       "d": 1,
+       "s": 30.03,
+       "l": 0
+      }
+     ],
+     "legM": 590,
+     "optM": 590,
+     "metM": 576.1,
+     "name": "South Brevard Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2975.1,
+     "e": 764,
+     "s": 30.39,
+     "d": 1,
+     "x": -2529.84,
+     "y": 0,
+     "z": 4403.17,
+     "hx": -0.6969,
+     "hz": 0.7172,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 764,
+       "d": 1,
+       "s": 30.39,
+       "l": 0
+      }
+     ],
+     "legM": 520,
+     "optM": 520,
+     "metM": 520,
+     "name": "East Martin Luther King Jr Boulevard",
+     "pen": 0
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 510,
+    "optM": 510,
+    "metM": 510,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 520,
+    "optM": 520,
+    "metM": 520,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 2,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 465,
+    "optM": 465,
+    "metM": 465,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 590,
+    "optM": 590,
+    "metM": 576.1,
+    "metRatio": 0.976,
+    "sugCostRatio": 1,
+    "optOverMet": 1.024,
+    "alts": 1,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 4,
+    "to": 5,
+    "sugM": 520,
+    "optM": 520,
+    "metM": 520,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 5,
+    "to": 0,
+    "sugM": 485,
+    "optM": 485,
+    "metM": 485,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 465,
+  "maxLegM": 590,
+  "freeLegs": 0.33,
+  "apex": 0,
+  "turnarounds": 0,
+  "failing": 0
+ }
+}

@@ -1,0 +1,426 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "h7",
+ "candidate": "H7",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
+ "cost": "fwy",
+ "loop": 1,
+ "lengthM": 6047.8,
+ "startM": 440,
+ "finishM": 0,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 1,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 440,
+     "e": 3102,
+     "s": 440,
+     "d": 1,
+     "x": 4920.02,
+     "y": 0,
+     "z": 12668.35,
+     "hx": 0.3348,
+     "hz": 0.9423,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 3102,
+       "d": 1,
+       "s": 440,
+       "l": 0
+      }
+     ],
+     "legM": 609,
+     "optM": 609,
+     "metM": 609,
+     "name": "I-85",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1031,
+     "e": 3102,
+     "s": 1030.98,
+     "d": 1,
+     "x": 5090.13,
+     "y": 0,
+     "z": 13234.29,
+     "hx": 0.2839,
+     "hz": 0.9588,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 3102,
+       "d": 1,
+       "s": 1030.98,
+       "l": 0
+      }
+     ],
+     "legM": 591,
+     "optM": 591,
+     "metM": 591,
+     "name": "I-85",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1622,
+     "e": 9948,
+     "s": 165.14,
+     "d": 1,
+     "x": 5257.98,
+     "y": 0,
+     "z": 13800.93,
+     "hx": 0.2815,
+     "hz": 0.9596,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 9948,
+       "d": 1,
+       "s": 165.14,
+       "l": 0
+      }
+     ],
+     "legM": 591,
+     "optM": 591,
+     "metM": 591,
+     "name": "I-85",
+     "pen": 0
+    },
+    {
+     "kind": "apex",
+     "routeM": 2203,
+     "e": 345,
+     "s": 195,
+     "d": 1,
+     "x": 5540.17,
+     "y": 0,
+     "z": 14188.54,
+     "hx": 0.295,
+     "hz": -0.9555,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 345,
+       "d": 1,
+       "s": 195,
+       "l": 0
+      }
+     ],
+     "legM": 581,
+     "optM": 581,
+     "metM": 581,
+     "name": "",
+     "pen": 50.8
+    },
+    {
+     "kind": "turn",
+     "routeM": 2523,
+     "e": 3149,
+     "s": 47.42,
+     "d": 1,
+     "x": 5301.26,
+     "y": 0,
+     "z": 14210.6,
+     "hx": -0.8611,
+     "hz": 0.5084,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 3149,
+       "d": 1,
+       "s": 47.42,
+       "l": 0
+      }
+     ],
+     "legM": 320,
+     "optM": 320,
+     "metM": 320,
+     "name": "West W T Harris Boulevard",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 3214.5,
+     "e": 9887,
+     "s": 150.2,
+     "d": 1,
+     "x": 5181.76,
+     "y": 0,
+     "z": 13628.65,
+     "hx": -0.2873,
+     "hz": -0.9578,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 9887,
+       "d": 1,
+       "s": 150.2,
+       "l": 0
+      }
+     ],
+     "legM": 691.6,
+     "optM": 691.6,
+     "metM": 691.6,
+     "name": "I-85",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 3929.6,
+     "e": 3093,
+     "s": 589.48,
+     "d": 1,
+     "x": 4978.23,
+     "y": 0,
+     "z": 12943.15,
+     "hx": -0.2844,
+     "hz": -0.9587,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 3093,
+       "d": 1,
+       "s": 589.48,
+       "l": 0
+      }
+     ],
+     "legM": 715.1,
+     "optM": 715.1,
+     "metM": 715.1,
+     "name": "I-85",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 4624.7,
+     "e": 3093,
+     "s": 1284.56,
+     "d": 1,
+     "x": 4714.96,
+     "y": 0,
+     "z": 12303.29,
+     "hx": -0.5418,
+     "hz": -0.8405,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 3093,
+       "d": 1,
+       "s": 1284.56,
+       "l": 0
+      }
+     ],
+     "legM": 695.1,
+     "optM": 695.1,
+     "metM": 695.1,
+     "name": "I-85",
+     "pen": 0
+    },
+    {
+     "kind": "turn",
+     "routeM": 5299.6,
+     "e": 6793,
+     "s": 55,
+     "d": 1,
+     "x": 4324.2,
+     "y": 0,
+     "z": 11867.91,
+     "hx": 0.9307,
+     "hz": -0.3658,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 6793,
+       "d": 1,
+       "s": 55,
+       "l": 0
+      }
+     ],
+     "legM": 675,
+     "optM": 675,
+     "metM": 675,
+     "name": "University City Boulevard",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 5878.8,
+     "e": 4076,
+     "s": 26.94,
+     "d": 1,
+     "x": 4645.48,
+     "y": 0,
+     "z": 12126.41,
+     "hx": 0.4531,
+     "hz": 0.8914,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 4076,
+       "d": 1,
+       "s": 26.94,
+       "l": 0
+      },
+      {
+       "e": 3060,
+       "d": 1,
+       "s": 807.07,
+       "l": -15.6
+      }
+     ],
+     "legM": 579.1,
+     "optM": 579.1,
+     "metM": 579.1,
+     "name": "",
+     "pen": 0
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 591,
+    "optM": 591,
+    "metM": 591,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 591,
+    "optM": 591,
+    "metM": 591,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 581,
+    "optM": 581,
+    "metM": 581,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 320,
+    "optM": 320,
+    "metM": 320,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 4,
+    "to": 5,
+    "sugM": 691.6,
+    "optM": 691.6,
+    "metM": 691.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 5,
+    "to": 6,
+    "sugM": 715.1,
+    "optM": 715.1,
+    "metM": 715.1,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 6,
+    "to": 7,
+    "sugM": 695.1,
+    "optM": 695.1,
+    "metM": 695.1,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 7,
+    "to": 8,
+    "sugM": 675,
+    "optM": 675,
+    "metM": 675,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 8,
+    "to": 9,
+    "sugM": 579.1,
+    "optM": 579.1,
+    "metM": 579.1,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 9,
+    "to": 0,
+    "sugM": 609,
+    "optM": 609,
+    "metM": 609,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 320,
+  "maxLegM": 715,
+  "freeLegs": 0,
+  "apex": 1,
+  "turnarounds": 2,
+  "failing": 0
+ }
+}

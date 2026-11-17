@@ -1,0 +1,410 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "x1",
+ "candidate": "X1",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
+ "cost": "city",
+ "loop": 0,
+ "lengthM": 3057.6,
+ "startM": 60,
+ "finishM": 2750,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 0,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 60,
+     "e": 15295,
+     "s": 26.18,
+     "d": -1,
+     "x": -3463.74,
+     "y": 0,
+     "z": 3550.3,
+     "hx": 0.6447,
+     "hz": 0.7645,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 15295,
+       "d": -1,
+       "s": 26.18,
+       "l": 0
+      }
+     ],
+     "legM": 0,
+     "optM": 0,
+     "metM": 0,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 737.5,
+     "e": 1114,
+     "s": 35.36,
+     "d": -1,
+     "x": -3027.16,
+     "y": 0,
+     "z": 4068.34,
+     "hx": 0.6394,
+     "hz": 0.7689,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1114,
+       "d": -1,
+       "s": 35.36,
+       "l": 0
+      }
+     ],
+     "legM": 677.5,
+     "optM": 677.5,
+     "metM": 677.5,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1405,
+     "e": 14180,
+     "s": 54.06,
+     "d": -1,
+     "x": -2552.42,
+     "y": 0,
+     "z": 4533.76,
+     "hx": 0.7673,
+     "hz": 0.6412,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 14180,
+       "d": -1,
+       "s": 54.06,
+       "l": 0
+      }
+     ],
+     "legM": 667.5,
+     "optM": 667.5,
+     "metM": 667.5,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2077.5,
+     "e": 5906,
+     "s": 85.61,
+     "d": 1,
+     "x": -2040.25,
+     "y": 0,
+     "z": 4969.58,
+     "hx": 0.7591,
+     "hz": 0.651,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 5906,
+       "d": 1,
+       "s": 85.61,
+       "l": 0
+      }
+     ],
+     "legM": 672.5,
+     "optM": 672.5,
+     "metM": 672.5,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "finish",
+     "routeM": 2750,
+     "e": 14645,
+     "s": 120.23,
+     "d": 1,
+     "x": -1533.33,
+     "y": 0,
+     "z": 5411.47,
+     "hx": 0.7318,
+     "hz": 0.6815,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 14645,
+       "d": 1,
+       "s": 120.23,
+       "l": 0
+      }
+     ],
+     "legM": 672.5,
+     "optM": 672.5,
+     "metM": 672.5,
+     "name": "North Tryon Street",
+     "pen": 0
+    }
+   ]
+  },
+  {
+   "dir": "rev",
+   "loop": 0,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 307.6,
+     "e": 14645,
+     "s": 120.23,
+     "d": -1,
+     "x": -1533.33,
+     "y": 0,
+     "z": 5411.47,
+     "hx": -0.7318,
+     "hz": -0.6815,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 14645,
+       "d": -1,
+       "s": 120.23,
+       "l": 0
+      }
+     ],
+     "legM": 0,
+     "optM": 0,
+     "metM": 0,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 980.1,
+     "e": 5906,
+     "s": 85.61,
+     "d": -1,
+     "x": -2040.25,
+     "y": 0,
+     "z": 4969.58,
+     "hx": -0.7591,
+     "hz": -0.651,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 5906,
+       "d": -1,
+       "s": 85.61,
+       "l": 0
+      }
+     ],
+     "legM": 672.5,
+     "optM": 672.5,
+     "metM": 672.5,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1652.6,
+     "e": 14180,
+     "s": 54.06,
+     "d": 1,
+     "x": -2552.42,
+     "y": 0,
+     "z": 4533.76,
+     "hx": -0.7673,
+     "hz": -0.6412,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 14180,
+       "d": 1,
+       "s": 54.06,
+       "l": 0
+      }
+     ],
+     "legM": 672.5,
+     "optM": 672.5,
+     "metM": 672.5,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2320.1,
+     "e": 1114,
+     "s": 35.36,
+     "d": 1,
+     "x": -3027.16,
+     "y": 0,
+     "z": 4068.34,
+     "hx": -0.6394,
+     "hz": -0.7689,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1114,
+       "d": 1,
+       "s": 35.36,
+       "l": 0
+      }
+     ],
+     "legM": 667.5,
+     "optM": 667.5,
+     "metM": 667.5,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "finish",
+     "routeM": 2997.6,
+     "e": 15295,
+     "s": 26.18,
+     "d": 1,
+     "x": -3463.74,
+     "y": 0,
+     "z": 3550.3,
+     "hx": -0.6447,
+     "hz": -0.7645,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 15295,
+       "d": 1,
+       "s": 26.18,
+       "l": 0
+      }
+     ],
+     "legM": 677.5,
+     "optM": 677.5,
+     "metM": 677.5,
+     "name": "South Tryon Street",
+     "pen": 0
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 677.5,
+    "optM": 677.5,
+    "metM": 677.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 667.5,
+    "optM": 667.5,
+    "metM": 667.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 672.5,
+    "optM": 672.5,
+    "metM": 672.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 672.5,
+    "optM": 672.5,
+    "metM": 672.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 668,
+  "maxLegM": 677,
+  "freeLegs": 0,
+  "apex": 0,
+  "turnarounds": 0,
+  "failing": 0
+ },
+ "auditRev": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 672.5,
+    "optM": 672.5,
+    "metM": 672.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 672.5,
+    "optM": 672.5,
+    "metM": 672.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 667.5,
+    "optM": 667.5,
+    "metM": 667.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 677.5,
+    "optM": 677.5,
+    "metM": 677.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 668,
+  "maxLegM": 678,
+  "freeLegs": 0,
+  "apex": 0,
+  "turnarounds": 0,
+  "failing": 0
+ }
+}

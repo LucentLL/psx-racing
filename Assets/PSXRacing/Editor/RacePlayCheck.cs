@@ -231,6 +231,23 @@ namespace PSXRacing.EditorTools
 
         internal static void Note(string what) => log.AppendLine("  " + what);
 
+        /// <summary>Objects in the scene named a barricade, a closure or a traffic cone (inactive ones too), and the
+        /// first few names.</summary>
+        internal static int RaceBarricades(out string what)
+        {
+            int n = 0; var names = new System.Text.StringBuilder();
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include))
+            {
+                string nm = t.name;
+                if (nm.IndexOf("Barricade", System.StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nm.IndexOf("Closure", System.StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nm.IndexOf("TrafficCone", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (n++ < 4) names.Append(nm).Append(' ');
+            }
+            what = n == 0 ? "none" : n + ": " + names.ToString().Trim();
+            return n;
+        }
+
         internal static void Finish()
         {
             // Under a forced SPEED BLUR: MOTION, say whether it ran: frames
@@ -301,15 +318,10 @@ namespace PSXRacing.EditorTools
             var car = rm != null ? rm.playerCar : null;
             RacePlayCheck.Check(rm != null && car != null && rm.path != null, "the scene has a race, a player and a path");
             if (rm == null || car == null) { Done(); yield break; }
-            // A SANCTIONED event's closures (CityRaceClosures; PSX_TRACK_CLOSURES=1 builds them for a check):
-            // not one may stand on the race line - walked over every waypoint the race drives.
-            if (!string.IsNullOrEmpty(CityRaceClosures.LastRoute))
-            {
-                var cmap = PSXRacing.City.CityMap.Get();
-                int onLine = CityRaceClosures.Audit(rm.path, cmap, cmap != null ? cmap.RouteById(CityRaceClosures.LastRoute) : null, out string worstClosure);
-                RacePlayCheck.Check(onLine == 0, "no closure stands on the race line (" + CityRaceClosures.LastClosed + " roads closed, " +
-                                    CityRaceClosures.LastLeftOpen + " left open beside the course; nearest: " + worstClosure + ")", onLine);
-            }
+            // NO BARRICADES in ANY race (owner 2026-11-16 ~21:00 and 11-17: "I asked for all road construction
+            // barricades to be removed from races"): nothing named a barricade, closure or cone in the scene, city or
+            // stage (Lake Lure's mouths were the last; CityRaceClosures is gone)
+            RacePlayCheck.Check(RacePlayCheck.RaceBarricades(out string bwhat) == 0, "no barricade, closure or cone in this race's scene", bwhat);
 
             var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (deckVenue.IsDeckRun) StartCoroutine(DeckWatch(car));
@@ -343,7 +355,8 @@ namespace PSXRacing.EditorTools
                 Application.targetFrameRate = Mathf.RoundToInt(60f * Time.timeScale);
                 StartCoroutine(CamerasOff());
             }
-            float until = Time.realtimeSinceStartup + 15f;
+            // a checkpoint race holds the countdown while its fields build: give it a minute on a busy machine
+            float until = Time.realtimeSinceStartup + (rm.Checkpoints != null ? 60f : 15f);
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
             RacePlayCheck.Note($"  road grip x{Seasons.RoadGripMult:0.00}, road {rm.path.roadWidth:0.0} m, two-way {(TrafficSystem.Instance != null && TrafficSystem.Instance.TwoWay)}");
@@ -373,6 +386,16 @@ namespace PSXRacing.EditorTools
             // backwards down Chimney Rock at 15 km/h ("WRONG WAY RX-7 Player").
             // The builder sets this false on every AI car for the same reason.
             car.allowReverse = false;
+            // A CHECKPOINT RACE (PSX_CP_RACES): the autopilot routes like the rivals, and the gates are watched
+            // PSX_RACE_LAPS=n (race-play-check -Laps): a circuit's laps for this run (Editor only)
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_LAPS") ?? "", out int lapsN) && lapsN > 0 && !rm.path.HasEnds)
+            {
+                rm.totalLaps = lapsN;
+                if (rm.Checkpoints != null) rm.Checkpoints.SetLaps(lapsN);
+                RacePlayCheck.Note("  laps forced to " + lapsN);
+            }
+            if (rm.Checkpoints != null) CheckpointRaceWatch.Begin(rm, car);
+            LaneUseWatch.Begin(rm);   // cpfix 11-17: passes in the oncoming lane, near misses, the line back
 
             // PSX_RACE_MISTAKE=0.3: hand every rival a driver error at that
             // fraction of the race (AIDriver.PlanMistake), to see what one does.
@@ -437,6 +460,8 @@ namespace PSXRacing.EditorTools
                         RacePlayCheck.Note($"FINISHED {c.name}{(c == car ? " (player, autopilot)" : "")} at {Time.time - t0:0}s");
                     }
                     if (p.finished || p.retired) continue;
+                    // a checkpoint race judges wrong way on each car's own road (CheckpointRaceWatch)
+                    if (rm.Checkpoints != null) continue;
                     // Wrong way: moving, nose against the road's direction.
                     Vector3 vel = c.Body != null ? Vector3.ProjectOnPlane(c.Body.linearVelocity, Vector3.up) : Vector3.zero;
                     if (vel.sqrMagnitude < 9f) continue;
@@ -491,6 +516,8 @@ namespace PSXRacing.EditorTools
             RaceManager.Respawned -= OnRespawn;
             // The eye's adaptation is a picture's: with no device and the
             // cameras off there is nothing to adapt to.
+            CheckpointRaceWatch.End(toFinish);
+            LaneUseWatch.End();
             if (headless) RacePlayCheck.Note("THE EYE (C10): not traced (no graphics device; cameras off)");
             else ReportEye();
             float raced = Time.time - t0;
@@ -1016,6 +1043,7 @@ namespace PSXRacing.EditorTools
         {
             aiStats?.Tick();
             if (rm == null || rm.path == null || t0 <= 0f) return;
+            LaneUseWatch.Step(Time.fixedDeltaTime);
             if (Time.fixedTime - lastPassSample >= 0.1f) SamplePasses();
             if (Time.fixedTime - lastTrail < 0.25f) return;
             lastTrail = Time.fixedTime;

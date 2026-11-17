@@ -391,7 +391,7 @@ namespace PSXRacing.LifeSim
                 float best = PSXRacing.City.DeckRun.Best(t.deckWay, t.deckLeg);
                 return km + (best > 0f ? "  ·  BEST " + PSXRacing.City.DeckRun.Clock(best) : "  ·  NO BEST YET");
             }
-            return km + "  ·  " + (t.loop ? t.laps + (t.laps == 1 ? " LAP" : " LAPS") : "POINT TO POINT");
+            return km + "  ·  " + (t.loop ? t.laps + (t.laps == 1 ? " LAP" : " LAPS") : "POINT TO POINT") + CheckpointFile.CardFacts(t);
         }
 
         /// <summary>The gold of a button that starts a race, as MAIN's START

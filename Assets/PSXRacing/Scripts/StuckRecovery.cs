@@ -76,6 +76,10 @@ namespace PSXRacing
         void UpdateWrongWay(float dt)
         {
             var mgr = RaceManager.Instance;
+            // A CHECKPOINT RACE: "moving away from the next gate" (remaining distance rising against the U-turn-aware
+            // direction, no node crossed), never "off the suggested route" - every street is legal
+            if (mgr != null && mgr.Checkpoints != null && car == mgr.playerCar)
+            { WrongWay = mgr.Checkpoints.PlayerWrongWay; return; }
             var path = mgr != null ? mgr.path : null;
             if (path == null || path.Count < 2 || car == null || car.Body == null)
             { wrongWayTimer = 0f; WrongWay = false; pathHint = -1; return; }
@@ -220,6 +224,10 @@ namespace PSXRacing
             {
                 float lowest = float.MaxValue;
                 foreach (var w in rm.path.waypoints) if (w.y < lowest) lowest = w.y;
+                // a checkpoint race may leave the suggested route's valley: the city's lowest road is the floor
+                var cmap = CheckpointFile.RacesOn ? City.CityMap.Get() : null;
+                if (cmap != null && cmap.nodeY != null && TrackCatalog.At(RaceHandoff.TrackIndex).IsCityRace)
+                    foreach (float y in cmap.nodeY) if (y < lowest) lowest = y;
                 // 60 m under the lowest point of the road. Deeper than any
                 // gorge floor, any seabed and any legitimate excursion, so
                 // nothing that is still in the world can reach it.
@@ -512,6 +520,17 @@ namespace PSXRacing
 
             Vector3 pos = transform.position;
             var mgr = RaceManager.Instance;
+            if (mgr != null && mgr.Checkpoints != null)
+            {
+                // a checkpoint race: against the graph under the car, at that street's solved height
+                var cmap = City.CityMap.Get();
+                if (cmap == null || !cmap.NearestRoadPoint(new Vector2(pos.x, pos.z), CityFellSearchM, skipLinks: false,
+                                                           out int cei, out float cat, out float cdist))
+                    return false;
+                var ce = cmap.edges[cei];
+                if (ce.stS == null || ce.stS.Length == 0) return false;
+                return cdist < ce.HalfMax + FellLateralMarginM && pos.y < ce.YAt(cat) - FellBelowRoadM;
+            }
             if (mgr != null)
             {
                 var path = mgr.path;
@@ -577,6 +596,8 @@ namespace PSXRacing
             var path = mgr != null ? mgr.path : null;
             if (path == null || path.Count < 2 || car == null)
             { offTrackTimer = 0f; return false; }
+            // a checkpoint race: every street is legal and lots are drivable; stuck, pinned and rolled still apply
+            if (mgr.Checkpoints != null) { offTrackTimer = 0f; return false; }
 
             float limit = path.roadWidth * 0.5f + OffTrackMarginM;
             pathHint = path.NearestIndex(transform.position, pathHint);

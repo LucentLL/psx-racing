@@ -63,10 +63,11 @@ if ($MaxMinutes -le 0) { $MaxMinutes = [Math]::Max(20, [int]($races * ($Seconds 
 # Watched by default: a visible editor plays the test in front of you.
 # -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
 # budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.
-Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\raceplay.log" -MaxMinutes $MaxMinutes -UnityArgs @(
-    "-batchmode","-nographics","-projectPath",$proj,
+[string[]]$gfxArgs = if ($env:PSX_HIDDEN_GFX -eq '1') { @("-batchmode") } else { @("-batchmode","-nographics") }
+Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\raceplay.log" -MaxMinutes $MaxMinutes -UnityArgs ($gfxArgs + @(
+    "-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.RacePlayCheck.Run",
-    "-logFile","$proj\raceplay.log","-accept-apiupdate") | Out-Null
+    "-logFile","$proj\raceplay.log","-accept-apiupdate")) | Out-Null
 Select-String -Path "$proj\raceplay.log" -Pattern "error CS" | Select-Object -First 10 | ForEach-Object { $_.Line }
 if (Test-Path "$proj\PSXRacing_race_matrix.txt") { "=== MATRIX ==="; Get-Content "$proj\PSXRacing_race_matrix.txt" }
 if (Test-Path "$proj\PSXRacing_race_play_check.txt") { if (-not $Matrix) { Get-Content "$proj\PSXRacing_race_play_check.txt" }; exit 0 }

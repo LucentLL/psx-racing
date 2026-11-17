@@ -290,6 +290,7 @@ namespace PSXRacing
 
         float foodNext;
         string foodLine = "";
+        string lastCpLine, lastCpCue;
 
         string FoodCue()
         {
@@ -777,6 +778,13 @@ namespace PSXRacing
                     // allowed anywhere near Text.text.
                     UpdateDropRange(p, rm);
                 }
+                else if (rm.Checkpoints != null)
+                {
+                    // A CHECKPOINT RACE: CHECKPOINT k/N (with the lap on a circuit of more than one), FINISH for the
+                    // last gate. Change-gated: the string only moves at a gate or a lap.
+                    string cpLine = rm.Checkpoints.LapLine(car);
+                    if (cpLine != lastCpLine) { lastCpLine = cpLine; Set(lapText, cpLine); }
+                }
                 else
                 {
                     // A sprint round part of a loop is ONE run too: its
@@ -809,6 +817,13 @@ namespace PSXRacing
                 if (attribution != lastAttribution) { lastAttribution = attribution; lastBest = -1f; }
                 if (attribution)
                     Set(lastLapText, OsmAttribution);
+                else if (rm.Checkpoints != null && rm.Checkpoints.Ready && !p.finished)
+                {
+                    // the next gate: an arrow relative to the car and the road distance (refreshed 4 times a second)
+                    string cue = rm.Checkpoints.Cue(car);
+                    if (cue != lastCpCue) { lastCpCue = cue; Set(lastLapText, cue); }
+                    lastBest = -1f;
+                }
                 else if (!Mathf.Approximately(p.bestLapTime, lastBest))
                 {
                     lastBest = p.bestLapTime;
@@ -879,6 +894,7 @@ namespace PSXRacing
                              ?? SeizedPrompt()
                              ?? HotPrompt()
                              ?? DryTankPrompt()
+                             ?? rm.Checkpoints?.Banner(car)
                              ?? "";
                     break;
                 case RaceManager.RaceState.Finished:

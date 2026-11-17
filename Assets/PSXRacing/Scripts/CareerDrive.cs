@@ -143,6 +143,8 @@ namespace PSXRacing
             if (rm == null || car == null || rm.path == null) return 0f;
             var p = rm.GetProgress(car);
             if (p == null) return 0f;
+            // a checkpoint race: what was actually driven (PSX_CP_ODOMETER)
+            if (rm.Checkpoints != null && CheckpointFile.On("PSX_CP_ODOMETER")) return rm.Checkpoints.Odometer(car);
             if (rm.path.HasEnds) return Mathf.Max(0f, p.progress);
             if (!p.crossedStartOnce) return 0f;
             return Mathf.Max(0f, (p.lap - 1) * rm.path.TotalLength + p.nearestIdx * rm.path.spacing);

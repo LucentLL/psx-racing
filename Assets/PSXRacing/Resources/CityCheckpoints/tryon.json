@@ -1,0 +1,368 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "tryon",
+ "candidate": "tryon",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
+ "cost": "city",
+ "loop": 0,
+ "lengthM": 6020.5,
+ "startM": 60,
+ "finishM": 5770.4765625,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 0,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 60,
+     "e": 15295,
+     "s": 26.18,
+     "d": -1,
+     "x": -3463.74,
+     "y": 0,
+     "z": 3550.3,
+     "hx": 0.6447,
+     "hz": 0.7645,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 15295,
+       "d": -1,
+       "s": 26.18,
+       "l": 0
+      }
+     ],
+     "legM": 0,
+     "optM": 0,
+     "metM": 0,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 788.8,
+     "e": 1115,
+     "s": 86.07,
+     "d": -1,
+     "x": -2994.69,
+     "y": 0,
+     "z": 4108.07,
+     "hx": 0.6176,
+     "hz": 0.7865,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1115,
+       "d": -1,
+       "s": 86.07,
+       "l": 0
+      }
+     ],
+     "legM": 728.8,
+     "optM": 728.8,
+     "metM": 728.8,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1492.6,
+     "e": 11472,
+     "s": 94.31,
+     "d": -1,
+     "x": -2485.47,
+     "y": 0,
+     "z": 4590.29,
+     "hx": 0.763,
+     "hz": 0.6464,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 11472,
+       "d": -1,
+       "s": 94.31,
+       "l": 0
+      }
+     ],
+     "legM": 703.8,
+     "optM": 703.8,
+     "metM": 703.8,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2201.4,
+     "e": 16456,
+     "s": 83.16,
+     "d": 1,
+     "x": -1946.29,
+     "y": 0,
+     "z": 5050.38,
+     "hx": 0.7578,
+     "hz": 0.6525,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16456,
+       "d": 1,
+       "s": 83.16,
+       "l": 0
+      }
+     ],
+     "legM": 708.8,
+     "optM": 708.8,
+     "metM": 708.8,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2860.2,
+     "e": 14645,
+     "s": 230.46,
+     "d": 1,
+     "x": -1456.84,
+     "y": 0,
+     "z": 5490.83,
+     "hx": 0.6925,
+     "hz": 0.7214,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 14645,
+       "d": 1,
+       "s": 230.46,
+       "l": 0
+      }
+     ],
+     "legM": 658.8,
+     "optM": 658.8,
+     "metM": 658.8,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 3629,
+     "e": 7404,
+     "s": 229.01,
+     "d": 1,
+     "x": -902.24,
+     "y": 0,
+     "z": 6022.84,
+     "hx": 0.7301,
+     "hz": 0.6833,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 7404,
+       "d": 1,
+       "s": 229.01,
+       "l": 0
+      }
+     ],
+     "legM": 768.8,
+     "optM": 768.8,
+     "metM": 768.8,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 4342.9,
+     "e": 16412,
+     "s": 89.12,
+     "d": 1,
+     "x": -404.72,
+     "y": 0,
+     "z": 6526.56,
+     "hx": 0.6671,
+     "hz": 0.745,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16412,
+       "d": 1,
+       "s": 89.12,
+       "l": 0
+      }
+     ],
+     "legM": 713.8,
+     "optM": 713.8,
+     "metM": 713.8,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 5056.7,
+     "e": 15470,
+     "s": 48.83,
+     "d": 1,
+     "x": 81.85,
+     "y": 0,
+     "z": 7048.09,
+     "hx": 0.7628,
+     "hz": 0.6467,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 15470,
+       "d": 1,
+       "s": 48.83,
+       "l": 0
+      }
+     ],
+     "legM": 713.8,
+     "optM": 713.8,
+     "metM": 713.8,
+     "name": "North Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "finish",
+     "routeM": 5770.5,
+     "e": 11715,
+     "s": 48.32,
+     "d": 1,
+     "x": 652.04,
+     "y": 0,
+     "z": 7463.63,
+     "hx": 0.8826,
+     "hz": 0.4702,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 11715,
+       "d": 1,
+       "s": 48.32,
+       "l": 0
+      }
+     ],
+     "legM": 713.8,
+     "optM": 713.8,
+     "metM": 713.8,
+     "name": "North Tryon Street",
+     "pen": 0
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 728.8,
+    "optM": 728.8,
+    "metM": 728.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 703.8,
+    "optM": 703.8,
+    "metM": 703.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 708.8,
+    "optM": 708.8,
+    "metM": 708.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 658.8,
+    "optM": 658.8,
+    "metM": 658.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 4,
+    "to": 5,
+    "sugM": 768.8,
+    "optM": 768.8,
+    "metM": 768.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 5,
+    "to": 6,
+    "sugM": 713.8,
+    "optM": 713.8,
+    "metM": 713.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 6,
+    "to": 7,
+    "sugM": 713.8,
+    "optM": 713.8,
+    "metM": 713.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 7,
+    "to": 8,
+    "sugM": 713.8,
+    "optM": 713.8,
+    "metM": 713.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 659,
+  "maxLegM": 769,
+  "freeLegs": 0,
+  "apex": 0,
+  "turnarounds": 0,
+  "failing": 0
+ }
+}

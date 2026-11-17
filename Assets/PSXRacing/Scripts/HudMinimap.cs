@@ -85,6 +85,7 @@ namespace PSXRacing
         static readonly Color32 ColRival = new Color32(255, 112, 64, 255);
         static readonly Color32 ColDotEdge = new Color32(12, 8, 6, 230);
         static readonly Color32 ColGate = new Color32(255, 214, 90, 255);
+        static readonly Color32 ColGateDim = new Color32(255, 214, 90, 150);
         static readonly Color32 ColNorth = new Color32(255, 255, 255, 200);
         static readonly Color32 ColDest = new Color32(64, 196, 255, 255);
         static readonly Color ColFade = new Color(0f, 0.015f, 0.05f, 0.30f);
@@ -353,10 +354,22 @@ namespace PSXRacing
             Tick(0f);
         }
 
+        /// <summary>A CHECKPOINT RACE's map (DESIGN_v2 3.2): the live GPS line to the next two gates instead of the
+        /// suggested route, the gates as marks, the next one held on the rim. Null on every other race.</summary>
+        CheckpointRace Cp => race != null && !freeRoam && race.Checkpoints != null && race.Checkpoints.Ready &&
+                             CheckpointFile.On("PSX_CP_GPS") ? race.Checkpoints : null;
+        int cpGpsVersion = -1, cpNextGate = -2;
+
         void Tick(float dt)
         {
             var c = new Vector2(car.position.x, car.position.z);
             float yaw = car.eulerAngles.y;
+            var cpr = Cp;
+            if (cpr != null)
+            {
+                int ng = cpr.NextGateOf(CarCtl());
+                if (cpr.GpsVersion != cpGpsVersion || ng != cpNextGate) { cpGpsVersion = cpr.GpsVersion; cpNextGate = ng; dataVersion++; }
+            }
             TickGps(c);
 
             // zoom with speed, eased
@@ -462,6 +475,7 @@ namespace PSXRacing
             if (freeRoam) return GpsRemaining(out float g) ? g : -1f;
             if (path == null || path.Count < 2) return -1f;
             var cc = CarCtl();
+            if (Cp != null && cc != null) return Cp.RemainingToFinish(cc);
             var p = race != null && cc != null ? race.GetProgress(cc) : null;
             if (p != null)
             {
@@ -553,8 +567,31 @@ namespace PSXRacing
                     }
             }
 
-            if (path != null && path.Count >= 2) DrawRace(vh, centreW, reach);
+            if (Cp != null) DrawCheckpointGps(vh, centreW, reach);
+            else if (path != null && path.Count >= 2) DrawRace(vh, centreW, reach);
             else if (freeRoam && gps.Valid) DrawGps(vh);
+        }
+
+        /// <summary>The checkpoint race's GPS line: the cost-optimum from the player's spot through the next two gates,
+        /// re-planned every 0.5 s and at once when he leaves it (CheckpointRace.UpdateGps). No allocation.</summary>
+        void DrawCheckpointGps(VertexHelper vh, Vector2 centreW, float reach)
+        {
+            var pts = Cp.GpsPts;
+            if (pts.Count < 2) return;
+            float reach2 = (reach + 20f) * (reach + 20f);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int i = 0; i + 1 < pts.Count; i++)
+                {
+                    Vector2 a = pts[i], b = pts[i + 1];
+                    if ((a - centreW).sqrMagnitude > reach2 && (b - centreW).sqrMagnitude > reach2) continue;
+                    var la = Local(a); var lb = Local(b);
+                    if (i == 0) la = ArrowPoint;
+                    if (pass == 0) FadedLine(vh, la, lb, 5.8f * pxu, ColRouteEdge, 0f);
+                    else FadedLine(vh, la, lb, 3.4f * pxu, ColRoute, 0.25f);
+                    if (vh.currentVertCount > MaxVerts) return;
+                }
+            }
         }
 
         // ------------------------------------------------------------------
@@ -856,7 +893,47 @@ namespace PSXRacing
                 Dot(vh, at, 4.0f * px, ColDest);
                 Dot(vh, at, 1.6f * px, ColArrow);
             }
-            if (FinishPoint(out var fw))
+            var cpr = Cp;
+            if (cpr != null)
+            {
+                // the gates: later ones small and dim, the one after next a medium dot, the NEXT a big bright diamond
+                // held on the rim when it is off the map; the finish a chequer
+                var cc = CarCtl();
+                var cp = cpr.Of(cc);
+                var pfin = cc != null ? race.GetProgress(cc) : null;
+                int next = cp != null && (pfin == null || !pfin.finished) ? cp.next : -1;
+                int after = next >= 0 && !cpr.IsFinishGate(cp, next) ? cpr.NextAfter(next) : -1;
+                for (int k = 0; k < cpr.GateCount && next >= 0; k++)
+                {
+                    if (k == next || k == after) continue;
+                    var at = LiveLocal(cpr.GatePlan(k));
+                    if (at.magnitude > edge) continue;
+                    Dot(vh, at, 2.4f * px, ColDotEdge);
+                    Dot(vh, at, 1.5f * px, ColGateDim);
+                }
+                if (after >= 0)
+                {
+                    var at = LiveLocal(cpr.GatePlan(after));
+                    if (at.magnitude <= edge)
+                    {
+                        if (cp != null && cpr.IsFinishGate(cp, after)) Chequer(vh, at, 3.8f * px);
+                        else { Dot(vh, at, 3.6f * px, ColDotEdge); Dot(vh, at, 2.6f * px, ColGateDim); }
+                    }
+                }
+                if (next >= 0)
+                {
+                    var at = LiveLocal(cpr.GatePlan(next));
+                    bool far = at.magnitude > edge;
+                    if (far) at *= edge / at.magnitude;
+                    if (cp != null && cpr.IsFinishGate(cp, next)) Chequer(vh, at, 5f * px);
+                    else
+                    {
+                        Diamond(vh, at, (far ? 6.0f : 7.0f) * px, ColDotEdge);
+                        Diamond(vh, at, (far ? 4.4f : 5.2f) * px, ColGate);
+                    }
+                }
+            }
+            else if (FinishPoint(out var fw))
             {
                 var at = LiveLocal(fw);
                 if (at.magnitude > edge) at *= edge / at.magnitude;

@@ -1,0 +1,381 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "h6",
+ "candidate": "H6",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
+ "cost": "fwy",
+ "loop": 1,
+ "lengthM": 4182.7,
+ "startM": 1840,
+ "finishM": 0,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 1,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 1840,
+     "e": 13586,
+     "s": 86.61,
+     "d": 1,
+     "x": 3780.93,
+     "y": 0,
+     "z": 1834.8,
+     "hx": -0.9921,
+     "hz": 0.1256,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 13586,
+       "d": 1,
+       "s": 86.61,
+       "l": 0
+      }
+     ],
+     "legM": 548.9,
+     "optM": 548.9,
+     "metM": 548.9,
+     "name": "East Independence Expressway",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2470.4,
+     "e": 13584,
+     "s": 46.49,
+     "d": 1,
+     "x": 3154.44,
+     "y": 0,
+     "z": 1904.61,
+     "hx": -0.9933,
+     "hz": 0.116,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 13584,
+       "d": 1,
+       "s": 46.49,
+       "l": 0
+      }
+     ],
+     "legM": 630.4,
+     "optM": 630.4,
+     "metM": 630.4,
+     "name": "East Independence Expressway",
+     "pen": 0
+    },
+    {
+     "kind": "apex",
+     "routeM": 3100.8,
+     "e": 277,
+     "s": 265,
+     "d": 1,
+     "x": 2862.76,
+     "y": 0,
+     "z": 2080.38,
+     "hx": 0.9105,
+     "hz": -0.4134,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 277,
+       "d": 1,
+       "s": 265,
+       "l": 0
+      }
+     ],
+     "legM": 630.4,
+     "optM": 630.4,
+     "metM": 630.4,
+     "name": "",
+     "pen": 113.3
+    },
+    {
+     "kind": "turn",
+     "routeM": 3263.7,
+     "e": 2307,
+     "s": 35.94,
+     "d": 1,
+     "x": 2848.22,
+     "y": 0,
+     "z": 1932.13,
+     "hx": -0.3697,
+     "hz": -0.9292,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2307,
+       "d": 1,
+       "s": 35.94,
+       "l": 0
+      }
+     ],
+     "legM": 162.9,
+     "optM": 162.9,
+     "metM": 162.9,
+     "name": "Eastway Drive",
+     "pen": 777.3
+    },
+    {
+     "kind": "apex",
+     "routeM": 3418.2,
+     "e": 2864,
+     "s": 80,
+     "d": 1,
+     "x": 2766.87,
+     "y": 0,
+     "z": 1808.83,
+     "hx": -0.9998,
+     "hz": -0.0184,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2864,
+       "d": 1,
+       "s": 80,
+       "l": 0
+      }
+     ],
+     "legM": 154.5,
+     "optM": 154.5,
+     "metM": 154.5,
+     "name": "",
+     "pen": 107.2
+    },
+    {
+     "kind": "split",
+     "routeM": 4000.1,
+     "e": 13591,
+     "s": 112.63,
+     "d": 1,
+     "x": 3123.95,
+     "y": 0,
+     "z": 1884.93,
+     "hx": 0.9917,
+     "hz": -0.1284,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 13591,
+       "d": 1,
+       "s": 112.63,
+       "l": 0
+      }
+     ],
+     "legM": 581.9,
+     "optM": 581.9,
+     "metM": 581.9,
+     "name": "East Independence Expressway",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 409.3,
+     "e": 13594,
+     "s": 19.8,
+     "d": 1,
+     "x": 3711.8,
+     "y": 0,
+     "z": 1815.73,
+     "hx": 0.994,
+     "hz": -0.1098,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 13594,
+       "d": 1,
+       "s": 19.8,
+       "l": 0
+      }
+     ],
+     "legM": 591.9,
+     "optM": 591.9,
+     "metM": 591.9,
+     "name": "East Independence Expressway",
+     "pen": 0
+    },
+    {
+     "kind": "apex",
+     "routeM": 1001.3,
+     "e": 2863,
+     "s": 140,
+     "d": 1,
+     "x": 4130.18,
+     "y": 0,
+     "z": 1581.81,
+     "hx": -0.7107,
+     "hz": 0.7035,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2863,
+       "d": 1,
+       "s": 140,
+       "l": 0
+      }
+     ],
+     "legM": 591.9,
+     "optM": 591.9,
+     "metM": 591.9,
+     "name": "",
+     "pen": 108.5
+    },
+    {
+     "kind": "apex",
+     "routeM": 1291.1,
+     "e": 17259,
+     "s": 20,
+     "d": -1,
+     "x": 4196.07,
+     "y": 0,
+     "z": 1748.57,
+     "hx": 0.9349,
+     "hz": 0.3549,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 17259,
+       "d": -1,
+       "s": 20,
+       "l": 0
+      }
+     ],
+     "legM": 289.8,
+     "optM": 289.8,
+     "metM": 289.8,
+     "name": "Pierson Drive",
+     "pen": 1052.1
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 630.4,
+    "optM": 630.4,
+    "metM": 630.4,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 630.4,
+    "optM": 630.4,
+    "metM": 630.4,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 162.9,
+    "optM": 162.9,
+    "metM": 162.9,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 154.5,
+    "optM": 154.5,
+    "metM": 154.5,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 4,
+    "to": 5,
+    "sugM": 581.9,
+    "optM": 581.9,
+    "metM": 581.9,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 5,
+    "to": 6,
+    "sugM": 591.9,
+    "optM": 591.9,
+    "metM": 591.9,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 6,
+    "to": 7,
+    "sugM": 591.9,
+    "optM": 591.9,
+    "metM": 591.9,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 7,
+    "to": 8,
+    "sugM": 289.8,
+    "optM": 289.8,
+    "metM": 289.8,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 8,
+    "to": 0,
+    "sugM": 548.9,
+    "optM": 548.9,
+    "metM": 548.9,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 154,
+  "maxLegM": 630,
+  "freeLegs": 0,
+  "apex": 4,
+  "turnarounds": 1,
+  "failing": 0
+ }
+}

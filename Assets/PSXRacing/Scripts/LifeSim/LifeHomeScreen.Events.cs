@@ -224,7 +224,7 @@ namespace PSXRacing.LifeSim
                 ? "Public roads at night, Friday to Sunday, with the night's traffic on them. The pot is the buy-ins. " +
                   "Damage is yours. Street rep " + Events.StreetListRep + " gets you on the lists; car meets and your " +
                   "clubs pass the rest on."
-                : "Closed roads, no traffic: Saturday and Sunday, MORNING or NOON. Pay the entry to sign up and the " +
+                : "No traffic: Saturday and Sunday, MORNING or NOON. Pay the entry to sign up and the " +
                   "races go in your calendar. Every race pays places 1-6; win them all for the bonus.", ref y);
 
             int shown = 0, hidden = 0;
@@ -385,7 +385,7 @@ namespace PSXRacing.LifeSim
             float bx = ColL + 88f, bw = ColW - 88f;
             MenuKit.FitOneLine(MenuKit.Label(body, ev.street
                     ? "STREET  ·  PUBLIC ROADS AT NIGHT  ·  TRAFFIC  ·  DAMAGE IS YOURS"
-                    : "SANCTIONED  ·  CLOSED ROADS  ·  NO TRAFFIC", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                    : "SANCTIONED  ·  NO TRAFFIC  ·  MARSHALS ON THE COURSE", MenuKit.Tiny, new Vector2(0.5f, 1f),
                 new Vector2(bx, y - 4f), TextAnchor.MiddleLeft, ev.street ? MeetInk : MenuKit.Good, bw, height: 24f,
                 bold: true), bw);
             BadgeRow(body, ev, new Vector2(0.5f, 1f), bx, y - 40f, bw);
@@ -561,7 +561,7 @@ namespace PSXRacing.LifeSim
             Line(t.name, MenuKit.Accent, 22);
             Line(VenueNumbers(t), Color.white);
             Line(ev.name + "  ·  " + LifeRules.SlotNames[S.slotIndex] + " " + TimeOfDay.At(hour).clock + "  ·  " +
-                 (traffic == TrafficLevels.None ? "CLOSED ROAD, NO TRAFFIC" : TrafficLevels.Name(traffic) + " TRAFFIC"),
+                 (traffic == TrafficLevels.None ? "NO TRAFFIC" : TrafficLevels.Name(traffic) + " TRAFFIC"),
                  ev.street ? MeetInk : MenuKit.Good);
             Line("FIELD ~" + field.roughHp + " HP  ·  " + (field.cars.Count + 1) + " CARS", Color.white);
             Line("1ST " + MenuKit.Money(ev.prizes[0]) + "  ·  2ND " + MenuKit.Money(ev.prizes[1]) + "  ·  3RD " +

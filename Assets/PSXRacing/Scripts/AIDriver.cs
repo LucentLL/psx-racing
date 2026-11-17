@@ -60,6 +60,52 @@ namespace PSXRacing
 
         /// <summary>Take the car off the race and roll it to a stop down the
         /// road. Called by <see cref="RaceManager"/> when this car finishes.</summary>
+        // ---------------------------------------------------------------- CHECKPOINT RACES (DESIGN_v2 4.2)
+        // A routed per-car road (Checkpoints/RoutedPath) carries its lane facts PER WAYPOINT. Every read of the
+        // race-wide TrafficSystem.TwoWay / RaceLanesCentre / path.roadWidth goes through these three, which give the
+        // race-wide answer exactly as before on any other path (fixed-line races are unchanged).
+        bool TwoWayHere(TrafficSystem ts) => path != null && path.Routed ? !path.oneWayAt[path.Wrap(nearestIdx)] : ts != null && ts.TwoWay;
+        float LaneCentreHere(TrafficSystem ts) => path != null && path.Routed ? path.ownLaneOff[path.Wrap(nearestIdx)] : ts != null ? ts.RaceLanesCentre : 0f;
+        /// <summary>The pavement either side of the line (side +1 right), symmetric (the narrower) when asked with 0.</summary>
+        float RoadHalfHere(int side = 0)
+        {
+            if (path == null) return 6f;
+            if (!path.Routed) return path.roadWidth * 0.5f;
+            int i = path.Wrap(nearestIdx);
+            return side > 0 ? path.halfR[i] : side < 0 ? path.halfL[i] : Mathf.Min(path.halfL[i], path.halfR[i]);
+        }
+        bool InJunctionZone => path != null && path.Routed && path.junction[path.Wrap(nearestIdx)];
+        /// <summary>A traffic obstacle's metres along THIS car's road: on a routed road, projected onto it (a local
+        /// search round the car), with a lateral and a height gate so a car on a parallel street or a deck is not on
+        /// it (1e6 = not on this road); on any other path the traffic's own path metres, as before.</summary>
+        float AheadOnRoad(TrafficSystem ts, int i, float myS)
+        {
+            if (path != null && path.Routed)
+            {
+                var rb = ts.Obstacles[i];
+                if (rb == null) return 1e6f;
+                Vector3 pos = rb.position;
+                int oi = path.NearestIndex(pos, nearestIdx, 60);
+                Vector3 wp = path.GetPoint(oi), tan = path.GetTangent(oi), d = pos - wp;
+                if (Mathf.Abs(d.y) > 4f) return 1e6f;
+                float lat = Vector3.Dot(d, Vector3.Cross(Vector3.up, tan).normalized);
+                if (lat > path.halfR[oi] + 2f || lat < -path.halfL[oi] - 2f) return 1e6f;
+                return oi * path.spacing + Vector3.Dot(d, tan) - myS;
+            }
+            return ts.ObstacleS[i] - myS;
+        }
+        /// <summary>A checkpoint race swaps this car onto a fresh routed road (AIRoutePlanner): the index and the
+        /// index-keyed state start again on it.</summary>
+        public void SetPath(TrackPath p)
+        {
+            if (p == null) return;
+            path = p;
+            ReseedPath();
+            crawlIdx = nearestIdx; crawlTimer = 0f;
+            laneInt = 0f;
+            openLine = 0f;
+        }
+
         public void ShutDown()
         {
             driving = false;
@@ -95,7 +141,7 @@ namespace PSXRacing
             // deck) straightens a tight corner, and a nearer point dragged
             // the deck racers onto the inside kerb of its tightest turn.
             var tsLook = TrafficSystem.Instance;
-            if (tsLook != null && tsLook.TwoWay && path.curvatures != null && path.curvatures.Length == path.Count)
+            if (tsLook != null && TwoWayHere(tsLook) && path.curvatures != null && path.curvatures.Length == path.Count)
             {
                 float kNear = path.MaxCurvatureAhead(nearestIdx, Mathf.CeilToInt(lookDist / path.spacing) + 1);
                 if (kNear > 1e-4f) lookDist = Mathf.Min(lookDist, Mathf.Max(LookMinM, LookPerRadius / kNear));
@@ -111,7 +157,7 @@ namespace PSXRacing
             // inside is the shoulder, which the edge already holds).
             float cutBack = 0f;
             var ts = TrafficSystem.Instance;
-            if (ts != null && ts.TwoWay)
+            if (ts != null && TwoWayHere(ts))
             {
                 float turn = Vector3.SignedAngle(path.GetTangent(nearestIdx), path.GetTangent(lookIdx), Vector3.up) * Mathf.Deg2Rad;
                 // Only for the circuits' steering law below: pure pursuit, which
@@ -129,7 +175,7 @@ namespace PSXRacing
             // near the mark, so a pass's own swing across the lane never winds
             // it up.
             float trim = 0f, laneErr = 0f;
-            if (ts != null && ts.TwoWay)
+            if (ts != null && TwoWayHere(ts))
             {
                 Vector3 pr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float err = laneErr = lineOffset + avoidBias - Vector3.Dot(transform.position - path.GetPoint(nearestIdx), pr);
@@ -150,7 +196,7 @@ namespace PSXRacing
 
             Vector3 local = transform.InverseTransformPoint(target);
             float steerCmd;
-            if (ts != null && ts.TwoWay && PurePursuit)
+            if (ts != null && TwoWayHere(ts) && PurePursuit)
             {
                 // PURE PURSUIT: the wheel angle that arcs the car through the
                 // aim point, atan(2 wb sin(a) / L), in units of the lock this
@@ -175,7 +221,7 @@ namespace PSXRacing
             // line at 150-170 km/h on a gentle bend, onto the median (Uptown
             // Loop: three spins a race). Damping the drift and the yaw does not
             // move the line; it holds the car on it.
-            bool twoWayRoad = ts != null && ts.TwoWay;
+            bool twoWayRoad = ts != null && TwoWayHere(ts);
             if ((twoWayRoad && speed > 5f) || speed > FastDampMps)
             {
                 var rb = car.Body;
@@ -407,7 +453,8 @@ namespace PSXRacing
                 float ahead;
                 if (alongRoad)
                 {
-                    ahead = ts.ObstacleS[i] - myS;
+                    ahead = AheadOnRoad(ts, i, myS);
+                    if (ahead > 1e5f) continue;
                     if (!path.HasEnds)
                     {
                         if (ahead > total * 0.5f) ahead -= total;
@@ -463,7 +510,7 @@ namespace PSXRacing
                 if (rb == null || rb.useGravity || i >= ts.ObstacleDir.Count || ts.ObstacleDir[i] >= 0) continue;
                 float theirs = new Vector2(rb.linearVelocity.x, rb.linearVelocity.z).magnitude;
                 if (theirs < 1f) continue;
-                float ahead = ts.ObstacleS[i] - myS;
+                float ahead = AheadOnRoad(ts, i, myS);
                 if (!path.HasEnds) { if (ahead > total * 0.5f) ahead -= total; else if (ahead < -total * 0.5f) ahead += total; }
                 if (ahead > -3f && ahead < (mine + theirs) * seconds) return true;
             }
@@ -554,7 +601,7 @@ namespace PSXRacing
                 // is out of the race whether it hits a tree or not.
                 Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float offLat = Mathf.Abs(Vector3.Dot(transform.position - path.GetPoint(nearestIdx), rr));
-                bool offRoad = offLat > path.roadWidth * 0.5f + MistakeOffRoadM && speed > 15f;
+                bool offRoad = offLat > RoadHalfHere() + MistakeOffRoadM && speed > 15f;
                 if ((responder.DamageScore - mistakeDamage0 >= MistakeRetireDamage || offRoad) && !Retired)
                 {
                     mistakeAt = -1f;
@@ -564,6 +611,8 @@ namespace PSXRacing
                 return MakingMistake;
             }
             if (mistakeAt < 0f || rm.RaceFraction(car) < mistakeAt) return false;
+            // never into a city junction's 90-degree corner (a routed road's junction zone): that is a wall
+            if (InJunctionZone) return false;
             if (speed - cornerSafeSpeed < MistakeMinShedMps || speed < 15f) return false;
             // Until the car is AT the corner and a little past: from the start of a
             // 200 m braking zone at 140 km/h, 3.5 s ran out before the bend
@@ -603,6 +652,16 @@ namespace PSXRacing
         float LineOffset()
         {
             var ts = TrafficSystem.Instance;
+            if (path != null && path.Routed)
+            {
+                // a routed road: per waypoint. One-way: the grid's offset as on the fixed line, clamped to the
+                // pavement; two-way: its own side (keep right, as the race traffic's lanes). Nothing in a junction.
+                int i = path.Wrap(nearestIdx);
+                float fade = path.junction[i] ? 0f : 1f;
+                if (path.oneWayAt[i])
+                    return Mathf.Clamp(lateralOffset * fade, -path.halfL[i] + 1.6f, path.halfR[i] - 1.6f);
+                return path.ownLaneOff[i] + (Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f) + openLine) * fade;
+            }
             if (ts == null || !ts.TwoWay) return lateralOffset;
             return ts.RaceLanesCentre + Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f) + openLine;
         }
@@ -620,12 +679,18 @@ namespace PSXRacing
         /// </summary>
         float openLine;
         const float OpenLookM = 50f, OpenMaxRadiusM = 25f, OpenFullRadiusM = 12f, OpenSlewMps = 2.5f;
+        /// <summary>THE BETTER LINE (PSX_AI_PASS_ONCOMING, owner 2026-11-17): with nothing coming, a right-hander
+        /// under OpenWideRadiusM is taken from the other lane (all of it under OpenWideFullM), and a left-hander's
+        /// apex (within OpenApexM ahead) is clipped from it; the right lane again on the way out.</summary>
+        const float OpenWideRadiusM = 60f, OpenWideFullM = 25f, OpenApexM = 25f;
+        /// <summary>For the harness: seconds this car's line has been in the other lane for the better line.</summary>
+        public float OpenLineSeconds { get; private set; }
         void UpdateOpenLine(float dt)
         {
             float want = 0f;
             var ts = TrafficSystem.Instance;
             var curv = path.curvatures;
-            if (ts != null && ts.TwoWay && curv != null && curv.Length == path.Count && !OncomingAhead(ts, OncomingGuardM))
+            if (ts != null && TwoWayHere(ts) && curv != null && curv.Length == path.Count && !OncomingAhead(ts, OncomingGuardM))
             {
                 int n = Mathf.CeilToInt(OpenLookM / path.spacing);
                 float kMax = 0f; int at = 0;
@@ -634,11 +699,25 @@ namespace PSXRacing
                     float k = curv[path.Wrap(nearestIdx + j)];
                     if (k > kMax) { kMax = k; at = nearestIdx + j; }
                 }
-                if (kMax > 1f / OpenMaxRadiusM &&
-                    Vector3.SignedAngle(path.GetTangent(at - 2), path.GetTangent(at + 2), Vector3.up) > 0f)
-                    want = -2f * ts.RaceLanesCentre * Mathf.InverseLerp(1f / OpenMaxRadiusM, 1f / OpenFullRadiusM, kMax);
+                bool rightHand = Vector3.SignedAngle(path.GetTangent(at - 2), path.GetTangent(at + 2), Vector3.up) > 0f;
+                // the wide better line only with NO traffic on the road (a sanctioned race, a stage): in street races
+                // the hairpin rule as before (C1 at MEDIUM, 11-17: 790 s of better line, 314 s over the centreline,
+                // a stay of 30 s, 3 near misses - not "prefer the right lane")
+                if (!PassOncoming || ts.Level != TrafficLevels.None)
+                {
+                    if (kMax > 1f / OpenMaxRadiusM && rightHand)
+                        want = -2f * LaneCentreHere(ts) * Mathf.InverseLerp(1f / OpenMaxRadiusM, 1f / OpenFullRadiusM, kMax);
+                }
+                else if (kMax > 1f / OpenWideRadiusM)
+                {
+                    float share = Mathf.InverseLerp(1f / OpenWideRadiusM, 1f / OpenWideFullM, kMax);
+                    // a right-hander from the other lane the whole way round; a left-hander only at its apex
+                    if (rightHand || (at - nearestIdx) * path.spacing <= OpenApexM)
+                        want = -2f * LaneCentreHere(ts) * share;
+                }
             }
             openLine = Mathf.MoveTowards(openLine, want, OpenSlewMps * dt);
+            if (Mathf.Abs(openLine) > 0.5f) OpenLineSeconds += dt;
         }
         /// <summary>Where a recovery should put this car across the road: its
         /// own lane on a two-way road, the centreline otherwise.</summary>
@@ -647,7 +726,7 @@ namespace PSXRacing
             get
             {
                 var ts = TrafficSystem.Instance;
-                return ts != null && ts.TwoWay ? LineOffset() : 0f;
+                return ts != null && TwoWayHere(ts) ? LineOffset() : 0f;
             }
         }
 
@@ -809,7 +888,7 @@ namespace PSXRacing
             {
                 var rb = ts.Obstacles[i];
                 if (rb == null) continue;
-                float ahead = ts.ObstacleS[i] - myS;
+                float ahead = AheadOnRoad(ts, i, myS);
                 if (!path.HasEnds)
                 {
                     if (ahead > total * 0.5f) ahead -= total;
@@ -889,7 +968,7 @@ namespace PSXRacing
             // the car straightens a tight corner: deck runs went round theirs
             // at 1.5-2x it, clean, and held to it they crawled.
             var tsYaw = TrafficSystem.Instance;
-            float yawShare = limitShare * (tsYaw != null && tsYaw.TwoWay ? 1f : FreeLineYawMult);
+            float yawShare = limitShare * (tsYaw != null && TwoWayHere(tsYaw) ? 1f : FreeLineYawMult);
             yawShareNow = yawShare;
             float along0 = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), t0);
             float latNow = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), Vector3.Cross(Vector3.up, t0).normalized);
@@ -1072,6 +1151,13 @@ namespace PSXRacing
             nearestIdx = path.NearestIndex(transform.position, nearestIdx);
             if (driving) UpdateOpenLine(dt);
             lineOffset = LineOffset();
+            {
+                // for the harness (LaneUseWatch): a two-way road here, and metres right of this car's line
+                var tsd = TrafficSystem.Instance;
+                DebugTwoWayHere = tsd != null && TwoWayHere(tsd);
+                Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
+                DebugRoadLat = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), rr);
+            }
 
             if (!driving)
             {
@@ -1089,7 +1175,7 @@ namespace PSXRacing
                 // in its lane past the flag (Gillespie Gap's last bend).
                 if (Retired || ShuttingDown)
                     avoidBias = Mathf.MoveTowards(avoidBias,
-                        path.roadWidth * 0.5f + RetiredVergeM - lineOffset, 2.5f * dt);
+                        RoadHalfHere(1) + RetiredVergeM - lineOffset, 2.5f * dt);
                 car.steerInput = coasting ? SteerToLine(rolling) : 0f;
                 car.throttleInput = 0f;
                 // Never into reverse on the brake it is held on.
@@ -1150,6 +1236,7 @@ namespace PSXRacing
             float planned = PlanSpeed(speed, out bool zone, out float planDecel, out float bendSpeed, out float bendAtM);
             float freeSpeed = Mathf.Min(Mathf.Min(planned, TargetSpeedCap(skill, playerVmax)), speedCapMps);
             float targetSpeed = Mathf.Min(freeSpeed, TrafficCap());
+            lastFreeSpeed = freeSpeed;
             DebugCapBinds = targetSpeed < freeSpeed - 0.5f && speed > targetSpeed - 1f;
             DebugTarget = targetSpeed;
 
@@ -1186,7 +1273,7 @@ namespace PSXRacing
             // of centimetres a second), hence the speed floor - the ease once
             // held a rival pulling away up Chimney Rock's 8% switchbacks.
             var tsNow = TrafficSystem.Instance;
-            bool oncomingNear = tsNow != null && tsNow.TwoWay && OncomingAhead(tsNow, SlideOncomingM);
+            bool oncomingNear = tsNow != null && TwoWayHere(tsNow) && OncomingAhead(tsNow, SlideOncomingM);
             float tol = oncomingNear ? Mathf.Min(slideTol, GripSlideTolRad) : slideTol;
             // ...and the faster, the tidier: a slide is for a hairpin's exit,
             // not for 120 km/h between city walls (UptownLoop, the first runs:
@@ -1271,7 +1358,7 @@ namespace PSXRacing
         /// and pretending otherwise would have it dive for gaps it cannot make.
         /// The goal is only that a car ahead stops being furniture.
         /// </summary>
-        struct Obs { public float z, lat, closing, half; public bool oncoming; public Rigidbody rb; }
+        struct Obs { public float z, lat, closing, half, want; public bool oncoming, held; public Rigidbody rb; }
         /// <summary>The car this racer is passing and the side it chose (-1
         /// left, +1 right): kept while that side stays clear. Chosen afresh
         /// every tick, the side flipped when the NEXT car's lines moved - at
@@ -1286,6 +1373,71 @@ namespace PSXRacing
         const float LateralRateMps = 2.5f;
         readonly System.Collections.Generic.List<Rigidbody> stopped = new System.Collections.Generic.List<Rigidbody>(4);
         readonly System.Collections.Generic.List<float> stoppedHalf = new System.Collections.Generic.List<float>(4);
+        /// <summary>Per stopped-list rival: how much faster this car would go than it (0 unless it is a rival this
+        /// car is HELD behind, PSX_AI_PASS_ONCOMING).</summary>
+        readonly System.Collections.Generic.List<float> stoppedWant = new System.Collections.Generic.List<float>(4);
+
+        // ---- LANE USE (owner 2026-11-17, verbatim: "I don't like racers being forced to stay in a particular lane.
+        // They should prefer staying in the 'right' lane, but passing around cars in the oncoming lane is an iconic
+        // part of street racing"). PSX_AI_PASS_ONCOMING=0: the lane discipline as before.
+        // - HELD BEHIND A RIVAL: a rival in this car's lane that it would go faster than (its free speed last tick)
+        //   by HeldMarginMps is a car to PASS, not only one to follow: it joins the pass lines with the speed this car
+        //   would pass at and the pass's whole length (this car's metres until it is a car's length by), so the
+        //   oncoming cars are met within THAT. Only on a road straight enough to see the pass through
+        //   (HeldPassMaxCurv) and with nothing coming for the whole pass (HeldPassOk).
+        // - THE BETTER LINE where nothing is coming: the open line takes every right-hander under OpenWideRadiusM
+        //   from the other lane, and a left-hander's apex from it too; back to the right lane on the way out.
+        // - It returns to the right as soon as it is by (the pass lines end there); an oncoming car closing on the pass
+        //   aborts it (leftLimit, as before); no head-on is ever traded for a place.
+        static int passOncomingSwitch = -1;
+        public static bool PassOncoming
+        {
+            get
+            {
+                if (passOncomingSwitch < 0) passOncomingSwitch = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_ONCOMING") == "0" ? 0 : 1;
+                return passOncomingSwitch == 1;
+            }
+        }
+        // (11-17 races: at 1.5 m/s / 40 m / 8 s three in four held passes were given up - a swing out and back in;
+        // only a clearly faster car close behind commits now)
+        const float HeldMarginMps = 2.5f, HeldLookM = 30f, HeldLaneM = 2.4f, HeldPassMaxS = 6f, HeldPassMaxCurv = 1f / 70f;
+        /// <summary>The oncoming speed a pass is planned against (m/s, ~100 km/h): a car out of sight now may be
+        /// there before the pass is done.</summary>
+        const float HeldOncomingMps = 28f;
+        float lastFreeSpeed;
+        /// <summary>For the harness: passes this car began (a side chosen round a car in its way), finished (that car
+        /// behind it) and gave up (the side dropped with the car still ahead).</summary>
+        public int PassesBegun { get; private set; }
+        public int PassesDone { get; private set; }
+        public int PassesAborted { get; private set; }
+        public bool DebugTwoWayHere { get; private set; }
+        public float DebugRoadLat { get; private set; }
+        /// <summary>...of which begun into the oncoming lane (left, two-way road), and begun on a rival it was held
+        /// behind.</summary>
+        public int PassesOncoming { get; private set; }
+        public int PassesHeld { get; private set; }
+        Rigidbody countedPass;
+
+
+        /// <summary>May a pass of a rival <paramref name="gap"/> m ahead, at <paramref name="want"/> m/s faster, be
+        /// started: done within HeldPassMaxS, the road over that run straight enough to see through, and on a two-way
+        /// road nothing coming for the whole of it (the oncoming guard stretched to the pass's own time).</summary>
+        bool HeldPassOk(float gap, float want)
+        {
+            float t = (gap + 10.5f) / Mathf.Max(want, 0.5f);
+            if (t > HeldPassMaxS) return false;
+            float mine = Mathf.Max(car.forwardSpeed, 5f);
+            float run = mine * t;
+            var curv = path.curvatures;
+            if (curv != null && curv.Length == path.Count)
+            {
+                int n = Mathf.CeilToInt(Mathf.Min(run, 200f) / path.spacing);
+                for (int j = 0; j <= n; j++) if (curv[path.Wrap(nearestIdx + j)] > HeldPassMaxCurv) return false;
+            }
+            var ts = TrafficSystem.Instance;
+            if (ts != null && TwoWayHere(ts) && OncomingAhead(ts, (mine + HeldOncomingMps) * (t + 1.5f))) return false;
+            return true;
+        }
         /// <summary>Half this car's own width (its collision box), measured once.</summary>
         float myHalfW = -1f;
         float MyHalfW
@@ -1410,7 +1562,7 @@ namespace PSXRacing
             // head-on at 38.6 m/s.
             float leftLimit = float.NegativeInfinity;
             var twoWay = TrafficSystem.Instance;
-            if (twoWay != null && twoWay.TwoWay && OncomingAhead(twoWay, OncomingGuardM))
+            if (twoWay != null && TwoWayHere(twoWay) && OncomingAhead(twoWay, OncomingGuardM))
                 // ...and with one about to be MET, well into its own lane: held
                 // at 1.0 m the racer still lagged its mark by half a metre and
                 // met cars with 2.0-2.2 m between centres - every head-on in
@@ -1424,7 +1576,7 @@ namespace PSXRacing
                 for (int i = 0; i < others.Count; i++)
                 {
                     var other = others[i];
-                    if (other == null || other == car) continue;
+                    if (other == null || other == car || !other.gameObject.activeInHierarchy) continue;   // a towed wreck is gone
 
                     Vector3 local = transform.InverseTransformPoint(other.transform.position);
                     if (OtherFloor(local)) continue;
@@ -1480,11 +1632,13 @@ namespace PSXRacing
             // the look distance, the pass lines and the stopping distance.
             stopped.Clear();
             stoppedHalf.Clear();
+            stoppedWant.Clear();
+            bool heldTwoWay = twoWay != null && TwoWayHere(twoWay);
             if (rm != null)
                 for (int i = 0; i < rm.allCars.Count; i++)
                 {
                     var o = rm.allCars[i];
-                    if (o == null || o == car || o.Body == null) continue;
+                    if (o == null || o == car || o.Body == null || !o.gameObject.activeInHierarchy) continue;
                     Vector3 lo0 = transform.InverseTransformPoint(o.transform.position);
                     if (OtherFloor(lo0)) continue;
                     // In a deck only a car IN THIS LANE, ahead, is in the way:
@@ -1505,10 +1659,23 @@ namespace PSXRacing
                         Vector3 lo = transform.InverseTransformPoint(o.transform.position);
                         closingOnIt = lo.z > 1.5f && lo.z < LookFor(car.forwardSpeed - o.forwardSpeed) && Mathf.Abs(lo.x) < 6f;
                     }
-                    if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < (OnDeck ? DeckStoppedMps : StoppedRacerMps) || closingOnIt)
+                    // HELD BEHIND IT (PSX_AI_PASS_ONCOMING): in this lane, near, slower than this car would go
+                    float heldWant = 0f;
+                    // ...on a TWO-WAY road only (the owner's ask is the oncoming lane); a multi-lane one-way freeway keeps
+                    // its racers' rule (held passes there at 180 km/h swung a pack about: UptownLoop, 11-17)
+                    if (PassOncoming && heldTwoWay && !OnDeck && !closingOnIt && op != null && !op.retired && !op.finished)
+                    {
+                        Vector3 lh = transform.InverseTransformPoint(o.transform.position);
+                        float want = lastFreeSpeed - o.forwardSpeed;
+                        if (lh.z > 3f && lh.z < HeldLookM && Mathf.Abs(lh.x) < HeldLaneM && want > HeldMarginMps &&
+                            ((countedPass == o.Body && float.IsNegativeInfinity(leftLimit)) || HeldPassOk(lh.z, want)))   // oncoming near: the pass is given up (back to the lane)
+                            heldWant = want;
+                    }
+                    if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < (OnDeck ? DeckStoppedMps : StoppedRacerMps) || closingOnIt || heldWant > 0f)
                     {
                         stopped.Add(o.Body);
                         stoppedHalf.Add(HalfAcrossOf(o));
+                        stoppedWant.Add(heldWant);
                     }
                 }
             DebugPassSide = 0;
@@ -1517,7 +1684,7 @@ namespace PSXRacing
             // to the edge on an ordinary line; onto the paved verge only on
             // the right and only to pass (usedVerge, the clamp at the end).
             float myHalf = MyHalfW;
-            float roadHalfW = path.roadWidth * 0.5f;
+            float roadHalfW = RoadHalfHere();
             float tarmacEdge = Mathf.Max(0.5f, roadHalfW - myHalf - EdgeAirM);
             float vergeEdge = HasVerge ? Mathf.Max(tarmacEdge, roadHalfW + VergeSideM - myHalf) : tarmacEdge;
             bool usedVerge = false;
@@ -1527,7 +1694,7 @@ namespace PSXRacing
             {
                 Vector3 myRight = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
                 float myLat = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), myRight);
-                float edge = Mathf.Max(0.5f, path.roadWidth * 0.5f - EdgeMarginM);
+                float edge = Mathf.Max(0.5f, RoadHalfHere() - EdgeMarginM);
                 float mySpeed = car.forwardSpeed;
                 obs.Clear();
                 bool roadS = traffic != null && traffic.ObstacleS.Count == nTraffic;
@@ -1542,7 +1709,7 @@ namespace PSXRacing
                     // far side of a switchback stood "in the pass line" here.
                     if (i < nTraffic && roadS)
                     {
-                        float ds = traffic.ObstacleS[i] - myS;
+                        float ds = AheadOnRoad(traffic, i, myS);
                         if (!path.HasEnds)
                         {
                             float tot = path.TotalLength;
@@ -1567,7 +1734,9 @@ namespace PSXRacing
                         : stoppedHalf[i - nTraffic];
                     // The oncoming STREAM, moving or queued (OncomingAhead).
                     bool otherStream = i < nTraffic && i < traffic.ObstacleDir.Count && traffic.ObstacleDir[i] < 0;
-                    obs.Add(new Obs { z = local.z, lat = lat, closing = closing, half = oh, oncoming = along < -1f || otherStream, rb = rb });
+                    float wantPass = i >= nTraffic ? stoppedWant[i - nTraffic] : 0f;
+                    obs.Add(new Obs { z = local.z, lat = lat, closing = closing, half = oh, oncoming = along < -1f || otherStream, rb = rb,
+                                      want = wantPass, held = wantPass > 0f });
                 }
 
                 // The one to deal with: the nearest ahead, in this corridor.
@@ -1592,7 +1761,7 @@ namespace PSXRacing
                     // put it back (owner, 2026-11-02: "cars just stop and never
                     // reverse to make room to drive around").
                     bool bothStand = mySpeed < StandBlockMps && o.rb != null && o.rb.linearVelocity.sqrMagnitude < 1f;
-                    if (o.closing <= 0.3f && !bothStand) continue;
+                    if (o.closing <= 0.3f && !bothStand && !o.held) continue;
                     if (block < 0 || o.z < obs[block].z) block = i;
                 }
                 if (block >= 0)
@@ -1603,6 +1772,9 @@ namespace PSXRacing
                     // How far the pass runs: to the car, and a car's length
                     // and a second past it at the speed we pass it at.
                     float passEnd = bo.z + 6f + Mathf.Max(bo.closing, 3f) * 1f;
+                    // A HELD pass runs as long as it takes at the speed this car would pass at: its own metres until
+                    // it is a car's length by (oncoming cars are met within THAT, not within the gap)
+                    if (bo.held) passEnd = Mathf.Max(passEnd, Mathf.Min(HeldPassMaxS, (bo.z + 10.5f) / Mathf.Max(Mathf.Max(bo.closing, bo.want), 1f)) * Mathf.Max(mySpeed, 5f));
                     int bendTo = nearestIdx + Mathf.Max(2, Mathf.RoundToInt(Mathf.Max(passEnd, 20f) / path.spacing));
                     if (path.HasEnds) bendTo = Mathf.Min(bendTo, path.Count - 1);
                     float bendDeg = Mathf.Abs(Vector3.SignedAngle(path.GetTangent(nearestIdx), path.GetTangent(bendTo), Vector3.up));
@@ -1671,6 +1843,9 @@ namespace PSXRacing
                     if (!float.IsNaN(pick))
                     {
                         DebugPassSide = pick < bo.lat ? -1 : 1;
+                        // the harness's pass: a candidate until the car has really moved out for it (end of tick)
+                        candPass = bo.rb; candSide = DebugPassSide; candHeld = bo.held;
+                        candOncoming = DebugPassSide < 0 && twoWay != null && TwoWayHere(twoWay);
                         passRb = bo.rb;
                         passSide = DebugPassSide;
                         if (pick > tarmacEdge) { usedVerge = true; DebugOnVerge = true; }
@@ -1734,6 +1909,12 @@ namespace PSXRacing
                                 Why("pass-close", throttleLift, trafficBrake);
                             }
                         }
+                    }
+                    else if (bo.held)
+                    {
+                        // A rival it is only HELD behind (not closing): no line round it now, so it stays where it is
+                        // and keeps the racers' own rule (the lift by closing above). The follow rule's full lift at a
+                        // freeway pace braked the pack and the car behind ran into it (UptownLoop, 11-17: 31 m/s).
                     }
                     else
                     {
@@ -1820,7 +2001,7 @@ namespace PSXRacing
             // 132 km/h came back across onto it). Level with a car, the line
             // may not come nearer to it than the clearance.
             bool alongsideHold = false;
-            float roadHalf = path.roadWidth * 0.5f;
+            float roadHalf = RoadHalfHere();
             if (obs.Count > 0)
             {
                 Vector3 rr = Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized;
@@ -1899,7 +2080,7 @@ namespace PSXRacing
                     if (rm != null)
                         foreach (var other in rm.allCars)
                         {
-                            if (other == null || other == car) continue;
+                            if (other == null || other == car || !other.gameObject.activeInHierarchy) continue;
                             Vector3 lo = transform.InverseTransformPoint(other.transform.position);
                             if (lo.x > 0.5f && lo.x < 4f && lo.z > -5f && lo.z < 6f &&
                                 car.forwardSpeed > DropBehindMinMps)
@@ -1926,7 +2107,36 @@ namespace PSXRacing
                 slew = Mathf.Min(slew, LeftSlewOncomingMps);
             avoidBias = Mathf.MoveTowards(avoidBias, wanted, slew * dt);
             DebugGiveWhy = giveWhy;
+            // ---- the pass counters (harness): done once that car is behind, given up when its side has been
+            // dropped for 1.5 s with the car still ahead
+            // A PASS BEGINS when the car has moved 1.2 m off its line toward the side it chose round a car ahead (a side
+            // merely chosen for a tick is not a pass); it is DONE once that car is behind, GIVEN UP when the side has
+            // been dropped and the car is back on its line for a second with that car still ahead.
+            if (countedPass == null && candPass != null && candPass != lastDone && avoidBias * candSide >= 1.2f)
+            {
+                Vector3 cl0 = transform.InverseTransformPoint(candPass.position);
+                if (cl0.z > 0f)
+                {
+                    countedPass = candPass; passLostT = 0f; PassesBegun++;
+                    if (candOncoming) PassesOncoming++;
+                    if (candHeld) PassesHeld++;
+                }
+            }
+            if (countedPass != null)
+            {
+                Vector3 cl = transform.InverseTransformPoint(countedPass.position);
+                if (cl.z < -2f) { PassesDone++; lastDone = countedPass; countedPass = null; passLostT = 0f; }
+                else if (passRb != countedPass && Mathf.Abs(avoidBias) < 0.5f)
+                {
+                    passLostT += dt;
+                    if (passLostT > 1f || cl.z > 80f) { PassesAborted++; countedPass = null; passLostT = 0f; }
+                }
+                else passLostT = 0f;
+            }
+            candPass = null;
         }
+        float passLostT;
+        Rigidbody candPass, lastDone; int candSide; bool candHeld, candOncoming;
 
         /// <summary>
         /// Put the car back on the road when it can no longer get there itself.

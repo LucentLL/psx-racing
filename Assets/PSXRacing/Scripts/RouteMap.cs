@@ -572,6 +572,20 @@ namespace PSXRacing
 
             // The ends: white start (red-ringed on a loop, where it is the
             // finish too), red finish.
+            // A CHECKPOINT RACE (its route has a checkpoint file and PSX_CP_RACES is on): the gates as white dots with
+            // a dark halo on the suggested line (the file's plan points: no city parse in the menu). A loop's lap line
+            // is the start disc below.
+            if (def.IsCityRace && !def.IsDeckRun && CheckpointFile.RacesOn && CheckpointFile.VenueAllowed(def.id))
+            {
+                var cpf = CheckpointFile.Load(def.cityRoute);
+                var ch = CheckpointFile.ChainFor(cpf, def.Reversed);
+                if (ch != null)
+                    for (int g = 1; g < ch.cps.Length; g++)
+                    {
+                        var gp = L(new Vector3(ch.cps[g].x, 0f, ch.cps[g].z));
+                        Disc(vh, gp, 5.2f * k, Halo); Disc(vh, gp, 3.4f * k, StartCol);
+                    }
+            }
             var s0 = raced[0];
             if (e.loop) { Disc(vh, s0, 9.5f * k, Halo); Disc(vh, s0, 8f * k, FinishCol); Disc(vh, s0, 5f * k, StartCol); }
             else

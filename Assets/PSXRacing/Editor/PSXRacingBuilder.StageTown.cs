@@ -17,8 +17,11 @@ namespace PSXRacing.EditorTools
     ///     balconies on the village's street fronts, metal / shingle / clay
     ///     roofs. Signs are generic words, never a real business's name.
     ///   * SIDE ROADS: every road that meets the route, its real mouth and
-    ///     width, laid on the ground for 14 m and closed for the race there by a
-    ///     Type III barricade. The edge line is covered across the mouth.
+    ///     width, laid on the ground up its own notch (24 m) and narrowing away
+    ///     into the trees. NO BARRICADE (owner 2026-11-17: "I asked for all road
+    ///     construction barricades to be removed from races"; PSX_LURE_BARRICADES=1
+    ///     builds the 11-16 Type III closures again). The edge line is covered
+    ///     across the mouth.
     ///   * THE PARK ROAD from Main Street over its river bridge to where the
     ///     Chimney Rock stage starts, on that stage's own line and heights.
     ///   * The Flowering Bridge, the lakeside boardwalk, sidewalks and
@@ -26,7 +29,9 @@ namespace PSXRacing.EditorTools
     ///     their wires, lantern street lamps, and the signs.
     ///
     /// Switches: PSX_LURE_TOWN=0 (no buildings, furniture or signs),
-    /// PSX_LURE_MOUTHS=0 (no side-road mouths, park road or barricades).
+    /// PSX_LURE_MOUTHS=0 (no side-road mouths, park road or barricades),
+    /// PSX_LURE_BARRICADES=1 (the mouths and the park road closed by Type III
+    /// barricades, as built 11-16; default OFF: no barricade in any race).
     /// </summary>
     public static partial class PSXRacingBuilder
     {
@@ -567,6 +572,11 @@ namespace PSXRacing.EditorTools
         /// tarmac edge (covering the edge line across it), laid on the ground
         /// for <see cref="MouthLenM"/> and closed there by a Type III barricade.</summary>
         const float MouthLenM = 24f, MouthClosedOutM = 13.5f;
+        /// <summary>The 11-16 closures (PSX_LURE_BARRICADES=1); default none.</summary>
+        static bool LureBarricades => Environment.GetEnvironmentVariable("PSX_LURE_BARRICADES") == "1";
+        /// <summary>An open mouth narrows over its last metres to this share of its width and sinks into the
+        /// ground: the side road goes on out of sight up its notch, nothing stands across it.</summary>
+        const float MouthFadeM = 5f, MouthFadeWidth = 0.55f, MouthFadeSinkM = 0.03f;
 
         static void BuildWorldMouths(List<Vector3> pts, Transform parent)
         {
@@ -620,13 +630,21 @@ namespace PSXRacing.EditorTools
                     StageCorridor(rows[ri].c.x, rows[ri].c.z, 80f, out RoadFoot fr);
                     if (fr.d >= halfW + MouthClosedOutM) { closeRow = ri; break; }
                 }
-                if (closeRow > 0) rows.RemoveRange(closeRow + 2, Mathf.Max(0, rows.Count - closeRow - 2));
-                else if (rows.Count > 16) rows.RemoveRange(16, rows.Count - 16);
+                bool closeIt = LureBarricades;
+                if (closeIt)
+                {
+                    if (closeRow > 0) rows.RemoveRange(closeRow + 2, Mathf.Max(0, rows.Count - closeRow - 2));
+                    else if (rows.Count > 16) rows.RemoveRange(16, rows.Count - 16);
+                }
+                float dEnd = rows.Count > 0 ? rows[rows.Count - 1].d : 0f;
                 for (int ri = 0; ri < rows.Count; ri++)
                 {
                     var (c, n, d) = rows[ri];
                     float flare = d < 5f ? 3.5f * (1f - d / 5f) * (1f - d / 5f) : 0f;
                     float hw = r.w * 0.5f + flare;
+                    // an open mouth narrows away and sinks into the ground over its last metres
+                    float fade = closeIt ? 0f : Mathf.Clamp01((d - (dEnd - MouthFadeM)) / MouthFadeM);
+                    hw *= Mathf.Lerp(1f, MouthFadeWidth, fade);
                     for (int k = 0; k <= across; k++)
                     {
                         float u = -1f + 2f * k / across;
@@ -639,7 +657,7 @@ namespace PSXRacing.EditorTools
                             Vector3 away = new Vector3(p.x - fp.x, 0, p.z - fp.z); if (away.sqrMagnitude < 1e-6f) away = n; away.Normalize();
                             p = new Vector3(fp.x, 0, fp.z) + away * (halfW - 0.45f);
                         }
-                        float y = DrapeY(p.x, p.z) + (f.d < halfW ? 0.012f : 0.02f);
+                        float y = DrapeY(p.x, p.z) + (f.d < halfW ? 0.012f : 0.02f) - fade * MouthFadeSinkM;
                         p.y = y;
                         surf.v.Add(p); surf.uv.Add(new Vector2(p.x / 6f, p.z / 6f));
                         colV.Add(p);
@@ -674,7 +692,7 @@ namespace PSXRacing.EditorTools
                     continue;
                 }
                 // the closure, if the stub reached it (no collider under the stub: it is laid on the ground a wheel meets)
-                if (closeRow > 0)
+                if (closeIt && closeRow > 0)
                 {
                     var (c, n, _) = rows[closeRow];
                     float y = DrapeY(c.x, c.z);
@@ -686,7 +704,7 @@ namespace PSXRacing.EditorTools
             }
             TownEmit(surf, "Mouths", parent);
             TownEmit(furn, "MouthClosures", parent);
-            Log($"Stage world side roads: {built} mouths laid ({closures} closed by barricades {MouthClosedOutM:0.0} m past the tarmac edge), {walled} left out where the road's own barrier runs across the mouth, " +
+            Log($"Stage world side roads: {built} mouths laid ({closures} closed by barricades{(LureBarricades ? $" {MouthClosedOutM:0.0} m past the tarmac edge" : ": none, PSX_LURE_BARRICADES off, each open up its notch")}), {walled} left out where the road's own barrier runs across the mouth, " +
                 $"{facedOut} where a cut bank or a ditch lip runs across it, {shortOnes} too short to lay.");
         }
 
@@ -806,7 +824,12 @@ namespace PSXRacing.EditorTools
                 if (top - g > 0.5f) bridge.Box("trim", new Vector3(c.x, (g + top) * 0.5f, c.z), n, Vector3.up, t, w * 0.5f, (top - g) * 0.5f, 0.45f, 0.5f);
             }
             TownEmit(bridge, "ParkBridge", parent);
-            // closed for the race at the mouth, before the bridge
+            // closed for the race at the mouth, before the bridge - only with the 11-16 closures (PSX_LURE_BARRICADES=1)
+            if (!LureBarricades)
+            {
+                Log($"Stage world park road: {S[S.Count - 1]:0} m from Main Street on the Park Road stage's own line, its river bridge {pr.deckFrom:0}-{pr.deckTo:0} m ({pr.deckTo - pr.deckFrom:0} m), open (no barricade).");
+                return;
+            }
             var furn = new TownBuf();
             int ci = 1;
             while (ci < S.Count - 1) { StageCorridor(line[ci].x, line[ci].z, 120f, out RoadFoot fc); if (S[ci] >= 13f && fc.d >= halfW + MouthClosedOutM) break; ci++; }

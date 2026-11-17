@@ -4,9 +4,9 @@
 #   $j = "<worktree>\tools\city\tracks\track-job.ps1"
 #   powershell -ExecutionPolicy Bypass -File $j -Agent lane2 -Sandbox C:\Users\mcgee\PSXPerf -Mode scenes
 #        rebuild the four city scenes with this branch's code (CityTracksRegistrar on each); once per sandbox
-#   ... -Mode closures                       batch: every city route, sanctioned closures, 0 on the race line
 #   ... -Mode race -Venue CltD1 [-Seconds 420] [-MaxMinutes 0]
-#        WATCHED race-play-check: sanctioned (closures built), -Traffic NONE, -Finish (every rival home)
+#        WATCHED race-play-check: sanctioned, -Traffic NONE, -Finish (every rival home); no closures exist
+#        (owner 2026-11-16 ~21:00: no barricades in any race; PSX_TRACK_CLOSURES is ignored)
 #   ... -Mode cards                          the whole-city map tiles (citymap-bake) + every city race card
 #   ... -Mode eye -Spots "a,lat,lon,road,hdg;b,lat,lon,road,hdg"   driver-eye frames, day and night
 #        (node tools/city/tracks/spots.mjs <route id> prints -Spots for the grid line and the middle)
@@ -22,7 +22,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Agent,
     [Parameter(Mandatory = $true)][string]$Sandbox,
-    [Parameter(Mandatory = $true)][ValidateSet("closures", "race", "cards", "eye", "scenes", "selftest")][string]$Mode,
+    [Parameter(Mandatory = $true)][ValidateSet("race", "cards", "eye", "scenes", "selftest")][string]$Mode,
     [string]$Venue = "", [int]$Seconds = 420, [int]$MaxMinutes = 0, [string]$Spots = "", [string]$Label = "track",
     [string]$Out = "",
     # ONLY to re-run a race whose watched editor stopped on Unity's "Revert All Window Layouts" dialog
@@ -44,7 +44,8 @@ $env:PSX_BUILD_TARGET = $targets[$leaf]
 $env:PSX_SANDBOX = $Sandbox
 $env:PSX_CITY_TRACKS = "1"
 # the self-test runs on the code's own defaults (no switch set), as the game ships
-if ($Mode -eq "selftest") { Remove-Item Env:PSX_CITY_TRACKS, Env:PSX_TRACK_CLOSURES -ErrorAction SilentlyContinue }
+if ($Mode -eq "selftest") { Remove-Item Env:PSX_CITY_TRACKS -ErrorAction SilentlyContinue }
+Remove-Item Env:PSX_TRACK_CLOSURES -ErrorAction SilentlyContinue
 
 # ---- the lock, taken atomically
 $lock = Join-Path $Sandbox "AGENT_LOCK.txt"
@@ -110,21 +111,8 @@ try {
         }
         else { Write-Host "NO REPORT"; Get-Content $log -Tail 20; $code = 1 }
     }
-    elseif ($Mode -eq "closures") {
-        $rep = "$Sandbox\PSXRacing_closures_check.txt"
-        Remove-Item $rep -ErrorAction SilentlyContinue
-        $log = "$Sandbox\closurescheck.log"
-        $ok = Invoke-UnityJob -Log $log -MaxMinutes $mm -UnityArgs @("-quit", "-batchmode", "-nographics", "-projectPath", $Sandbox,
-            "-executeMethod", "PSXRacing.EditorTools.CityClosuresCheck.Run", "-logFile", $log, "-accept-apiupdate")
-        Select-String -Path $log -Pattern "error CS" -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { $_.Line }
-        if (Test-Path $rep) { Copy-Item $rep "$Out\closures_check.txt" -Force; Get-Content $rep }
-        else { Write-Host "NO REPORT"; Get-Content $log -Tail 20; $code = 1 }
-        if ((Test-Path $rep) -and -not (Select-String -Path $rep -Pattern "ALL CLEAR" -Quiet)) { $code = 1 }
-    }
     elseif ($Mode -eq "race") {
         if (-not $Venue) { Write-Host "race: -Venue <id> (CltD1, I485WestRev ...)"; $code = 2; return }
-        # a SANCTIONED event: its closures stand (a play check carries no event, =1 builds them for every city race)
-        $env:PSX_TRACK_CLOSURES = "1"
         $env:PSX_WATCH = if ($NoWatch) { "0" } else { "1" }
         $a = @("-ExecutionPolicy", "Bypass", "-File", "$wt\tools\race-play-check.ps1", "-Venue", $Venue, "-Seconds", "$Seconds", "-Finish", "-Traffic", "NONE")
         if ($NoWatch) { $a += "-NoWatch" }
@@ -136,7 +124,7 @@ try {
         $rep = "$Sandbox\PSXRacing_race_play_check.txt"
         if (Test-Path $rep) {
             Copy-Item $rep "$Out\race_$Venue.txt" -Force
-            Select-String -Path $rep -Pattern "FAIL|FAILURE|ALL PASS|SUMMARY $Venue|wrong way|closure|stuck|retired" | Select-Object -First 30 | ForEach-Object { $_.Line }
+            Select-String -Path $rep -Pattern "FAIL|FAILURE|ALL PASS|SUMMARY $Venue|wrong way|closure|checkpoint|stuck|retired" | Select-Object -First 30 | ForEach-Object { $_.Line }
         }
         else { Write-Host "NO REPORT"; Get-Content "$Sandbox\raceplay.log" -Tail 25 -ErrorAction SilentlyContinue; $code = 1 }
     }

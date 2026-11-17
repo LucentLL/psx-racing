@@ -63,6 +63,24 @@ namespace PSXRacing
         /// See RaceManager.HoldAtGate.</summary>
         [System.NonSerialized] public int[] gates;
 
+        /// <summary>CHECKPOINT RACES (Checkpoints/RoutedPath): an AI's own routed road carries its facts PER WAYPOINT,
+        /// which AIDriver reads instead of the race-wide lane switches (TrafficSystem.TwoWay / RaceLanesCentre and
+        /// <see cref="roadWidth"/>). Null on every other path, so fixed-line races are unchanged. Never serialized:
+        /// built at runtime, never in a scene.</summary>
+        [System.NonSerialized] public int[] edgeAt;
+        /// <summary>+1: the plan drives edgeAt[i] a->b, -1 b->a.</summary>
+        [System.NonSerialized] public sbyte[] dirAt;
+        [System.NonSerialized] public float[] sAt;
+        /// <summary>Metres from the waypoint to the pavement edge, left and right of the travel direction.</summary>
+        [System.NonSerialized] public float[] halfL, halfR;
+        [System.NonSerialized] public bool[] oneWayAt;
+        /// <summary>The middle of the travel direction's lanes, metres right of the waypoint (0 on a one-way).</summary>
+        [System.NonSerialized] public float[] ownLaneOff;
+        /// <summary>Within 25 m of a junction turn: no offsets, no planned mistakes.</summary>
+        [System.NonSerialized] public bool[] junction;
+        /// <summary>The per-waypoint facts exist for this path.</summary>
+        public bool Routed => oneWayAt != null && waypoints != null && oneWayAt.Length == waypoints.Length;
+
         /// <summary>
         /// Make waypoint <paramref name="start"/> the first one, on a loop:
         /// a sprint that starts part-way round the circuit gets the lap line,
