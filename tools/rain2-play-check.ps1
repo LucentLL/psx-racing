@@ -8,7 +8,9 @@
 #   tools\rain2-play-check.ps1 -Off       # the rain as it was
 #   tools\rain2-play-check.ps1 -Hour Afternoon
 #
-# WATCHED by default (a visible editor); -NoWatch or PSX_WATCH=0 runs it hidden
+# WATCHED by default (a visible editor); -NoWatch or PSX_WATCH=0 runs it hidden. Owner rule
+# 2026-11-16: a play test is shown watched ONCE - run every repeat (the -Off partner, re-runs) with -NoWatch,
+# and always hidden while his game is running.
 # (batch mode WITH graphics: the frames are render requests). Run it hidden
 # while the owner's game is running. Set PSX_SANDBOX to your sandbox.
 param(
