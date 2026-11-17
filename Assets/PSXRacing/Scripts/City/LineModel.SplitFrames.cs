@@ -154,7 +154,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinPruned = 0; TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
+            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinPruned = 0; TwinCoarsePruned = 0; TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
             SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -1081,8 +1081,11 @@ namespace PSXRacing.City
             return true;
         }
 
-        public static int TwinPruned;
+        public static int TwinPruned, TwinCoarsePruned;
         const float TwinDs = 1f;
+        /// <summary>(11-17 roads3) PSX_CITY_TWINCOARSE=0: every split's pair sampled every metre to find the twins.</summary>
+        public static bool TwinCoarseOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINCOARSE") != "0";
+        const float TwinCoarseDs = 5f, TwinCoarseSlackM = 1f;
         /// <summary>True when at every 20 m past the fan at either end (40 m) along A the mapped lane bands (the export's offset in) stand
         /// more than TwinPruneM apart.</summary>
         const float TwinPruneM = 4.5f;
@@ -1146,9 +1149,26 @@ namespace PSXRacing.City
                 // (the cost) a pair whose mapped lane bands stand well clear past the fan is no twin: skip it before the
                 // sampled lines (the eases made so far move a carriageway a lane at most)
                 if (TwinClear(map, chA, chB, sp.node, Mathf.Min(lenA, lenB))) { TwinPruned++; continue; }
-                var LA = TwinLine(map, add, chA, sp.node, 1f); var LB = TwinLine(map, add, chB, sp.node, 1f);
                 // tight past the mapped fan: the shortfall's run from TightPastFanM on (half the pair on a short one)
                 float past = Mathf.Min(TightPastFanM, 0.5f * Mathf.Min(lenA, lenB)), run = 0f, worst = 0f, runAll = 0f;
+                // (11-17 roads3, the cost) a coarse look first: both lines every TwinCoarseDs. A twin's run (15 m or more
+                // of the bands under the divider's gap past the fan) holds three coarse samples at least, so a pair whose
+                // coarse gap past the fan never comes within TwinCoarseSlackM of that gap is no twin - only the others are
+                // sampled every metre (~870 of ~1,000 splits sampled fine before; 137 are twins)
+                if (TwinCoarseOn)
+                {
+                    var CA = TwinLine(map, add, chA, sp.node, TwinCoarseDs); var CB = TwinLine(map, add, chB, sp.node, TwinCoarseDs);
+                    float minGap = float.MaxValue; int hc = 0;
+                    for (int i = 1; i < CA.Count; i++)
+                    {
+                        if (CA[i].d < past - TwinCoarseDs) continue;
+                        float d = TwinNearest(CB, CA[i].p, ref hc, out float hb, out _, out bool end);
+                        if (end) break;
+                        minGap = Mathf.Min(minGap, d - CA[i].half - hb);
+                    }
+                    if (minGap > TightGapM + TwinCoarseSlackM) { TwinCoarsePruned++; continue; }
+                }
+                var LA = TwinLine(map, add, chA, sp.node, 1f); var LB = TwinLine(map, add, chB, sp.node, 1f);
                 int hintD = 0;
                 for (int i = 1; i < LA.Count; i++)
                 {
