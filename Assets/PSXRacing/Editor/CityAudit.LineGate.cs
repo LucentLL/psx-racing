@@ -1015,7 +1015,72 @@ namespace PSXRacing.EditorTools
         // ================================================================
         //  Shape: KINK, SJOG (the world frame), SHIFT (the road's frame)
         // ================================================================
-        struct LgR { public double x, z; public float lat, s; public int e; }
+        struct LgR { public double x, z; public float lat, s; public int e; public float mid; }
+
+        // THE TIGHT TWIN'S FRAME (11-17 roads3). SHIFT reads a line's sideways move in its road's frame, the
+        // mapped line. A tight twin (LineModel.TightTwinEdge: a road OSM maps as two one-way carriageways closer than
+        // their own lanes, which the game draws as ONE cross-section with a narrow island - PSX_CITY_TWINS / scope
+        // city) has two mapped lines that fan apart from the split node (North Tryon's leave one node and stand 12 m
+        // apart 20 m on) and wander 10.6-12.6 m apart past the fan, while the road they make is one: its frame is the
+        // middle of the pair, the island's line, the line both carriageways are drawn about. In each carriageway's
+        // own mapped frame the straight drawn lines read the fan as a move ("the yellow edge line moves 11.11 m
+        // sideways in 13 m"; the lines run straight in the world - SJOG / KINK judge them there). So on a tight
+        // twin's edges SHIFT measures from the middle of the two MAPPED lines (the map's, not the model's push): a
+        // push that holds the pair symmetric reads still, one that moves a carriageway against its partner reads
+        // as the shift it is. Off a twin, and with no partner within 30 m, the frame is the edge's own.
+        // PSX_LG_TWINFRAME=0: every edge in its own frame (the gate before).
+        static Dictionary<int, float[]> lgTwinMid;
+        static int lgTwinFrameEdges;
+        static bool lgTwinFrameOff;
+        static readonly List<LgFail> lgTwinOwnFrame = new List<LgFail>(256);
+        static readonly HashSet<int> lgTwinSegs = new HashSet<int>();
+        static void LgTwinFrames(CityMap map)
+        {
+            lgTwinMid = new Dictionary<int, float[]>(); lgTwinFrameEdges = 0;
+            if (Environment.GetEnvironmentVariable("PSX_LG_TWINFRAME") == "0") return;
+            for (int ei = 0; ei < map.edges.Length; ei++)
+            {
+                if (!LineModel.TightTwinEdge(ei)) continue;
+                var e = map.edges[ei];
+                if (!e.oneway || e.a == e.b) continue;
+                int n = Mathf.Max(2, Mathf.CeilToInt(e.length) + 1);
+                var m = new float[n]; int got = 0;
+                for (int k = 0; k < n; k++)
+                {
+                    float s = Mathf.Min(e.length, k);
+                    var c = e.PointAt(s); var t = e.TangentAt(s); var nl = new Vector2(-t.y, t.x);
+                    float best = 30f * 30f; Vector2 q = default; bool found = false;
+                    lgTwinSegs.Clear(); map.EdgeSegsInRect(c - Vector2.one * 30f, c + Vector2.one * 30f, lgTwinSegs);
+                    foreach (int packed in lgTwinSegs)
+                    {
+                        int oi = packed >> 12, si = packed & 0xFFF;
+                        if (oi == ei || !LineModel.TightTwinEdge(oi)) continue;
+                        var o = map.edges[oi];
+                        if (!o.oneway || si + 1 >= o.pts.Length) continue;
+                        Vector2 a = o.pts[si], d = o.pts[si + 1] - a; float L2 = d.sqrMagnitude;
+                        if (L2 < 1e-6f || Vector2.Dot(d, t) > -0.5f * Mathf.Sqrt(L2)) continue;   // the partner runs the other way
+                        var f = a + d * Mathf.Clamp01(Vector2.Dot(c - a, d) / L2);
+                        float dd = (f - c).sqrMagnitude;
+                        if (dd < best) { best = dd; q = f; found = true; }
+                    }
+                    m[k] = found ? 0.5f * Vector2.Dot(q - c, nl) : float.NaN;
+                    if (found) got++;
+                }
+                if (got == 0) continue;
+                // where no partner is beside it (past the pair's end), the nearest reading holds
+                float last = float.NaN;
+                for (int k = 0; k < n; k++) if (float.IsNaN(m[k])) m[k] = last; else last = m[k];
+                last = float.NaN;
+                for (int k = n - 1; k >= 0; k--) if (float.IsNaN(m[k])) m[k] = last; else last = m[k];
+                lgTwinMid[ei] = m; lgTwinFrameEdges++;
+            }
+        }
+        static float LgTwinMidAt(float[] m, float s)
+        {
+            float f = Mathf.Clamp(s, 0f, m.Length - 1);
+            int i = Mathf.Min(m.Length - 2, (int)f);
+            return Mathf.Lerp(m[i], m[i + 1], f - i);
+        }
 
         static void LgResample(List<LgP> pts, List<LgR> into)
         {
@@ -1119,6 +1184,10 @@ namespace PSXRacing.EditorTools
         static void LgShape(CityMap map, List<LgP> pts, List<LgStrand> members, List<LgR> r)
         {
             LgResample(pts, r);
+            // a tight twin's lines in the pair's frame (LgTwinFrames)
+            if (lgTwinMid != null && lgTwinMid.Count > 0 && !lgTwinFrameOff)
+                for (int i = 0; i < r.Count; i++)
+                    if (lgTwinMid.TryGetValue(r[i].e, out var tm)) { var q = r[i]; q.mid = LgTwinMidAt(tm, q.s); q.lat -= q.mid; r[i] = q; }
             int n = r.Count;
             if (n < 12) return;
             var st0 = members[0];
@@ -1334,7 +1403,7 @@ namespace PSXRacing.EditorTools
             }
             else if (!boundary) { through = true; return "shift"; }
             float W = r[jb].lat - r[ja].lat;                         // chain frame
-            bool left = 0.5f * (r[ja].lat + r[jb].lat) > 0f;
+            bool left = 0.5f * (r[ja].lat + r[ja].mid + r[jb].lat + r[jb].mid) > 0f;   // (the side of its OWN mapped line)
             bool outward = left ? W > 0f : W < 0f;                    // along the chain
             bool forward = b > a ? r[b].s > r[a].s : true;            // the chain runs a->b on this edge
             bool travelWith = e.oneway ? forward : !left;             // a two-way's right side travels with the chain
@@ -1546,7 +1615,7 @@ namespace PSXRacing.EditorTools
             string tag = Environment.GetEnvironmentVariable("PSX_LG_TAG") ?? "run";
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
-            lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear(); lgHandOverAt.Clear();
+            lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear(); lgHandOverAt.Clear(); lgTwinOwnFrame.Clear();
             lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgTwltlHandOvers = lgGradeFacets = lgSharpJoins = lgEndsAtJunction = lgKinkGore = lgUnderOther = lgOverlapReadings = lgHairpins = 0; lgOverlapSeen.Clear(); lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
@@ -1617,6 +1686,7 @@ namespace PSXRacing.EditorTools
             LgChainEdges(map);
             LgClassify(map);
             LgLinkJoints(map, t);
+            LgTwinFrames(map);
             int chains = 0; double chainKm = 0;
             var members = new List<LgStrand>(64); var rs = new List<LgR>(1024);
             foreach (var st in lgStrands)
@@ -1629,6 +1699,22 @@ namespace PSXRacing.EditorTools
                 // follows its turning roadway, not the road it is painted on: its shape is not judged in that road's frame
                 if (st.role == 2 && st.channel) { lgChannelChains++; continue; }
                 LgShape(map, pts, members, rs);
+                // (the tight twin's frame) what SHIFT says of the same chain in its OWN frame, kept apart - the readings
+                // the pair's frame passes are listed (city_linegate_twinframe.tsv), never counted
+                if (lgTwinMid != null && lgTwinMid.Count > 0)
+                {
+                    bool twinChain = false;
+                    foreach (var q in pts) if (lgTwinMid.ContainsKey(q.e)) { twinChain = true; break; }
+                    if (twinChain)
+                    {
+                        int before = lgFails.Count;
+                        lgTwinFrameOff = true;
+                        try { LgShape(map, pts, members, rs); }
+                        finally { lgTwinFrameOff = false; }
+                        for (int i = before; i < lgFails.Count; i++) if (lgFails[i].cls == "SHIFT") lgTwinOwnFrame.Add(lgFails[i]);
+                        lgFails.RemoveRange(before, lgFails.Count - before);
+                    }
+                }
                 LgGradeBreaks(map, pts, members[0]);
                 chainKm += rs.Count / 1000.0;
             }
@@ -1893,6 +1979,28 @@ namespace PSXRacing.EditorTools
                     ho.Append("HO").Append(i).Append('\t').Append(h.x.ToString("0.00", LgInv)).Append('\t').Append(h.z.ToString("0.00", LgInv)).Append('\t').Append(h.edge).Append('\t').Append(h.s.ToString("0.0", LgInv)).Append('\t').Append(h.other).Append('\n');
                 }
                 File.WriteAllText(Path.Combine(root, "city_linegate_handovers.tsv"), ho.ToString());
+                // the tight twins this load built (PSX_CITY_TWINS / scope city): each pair's node, far nodes, edges
+                var tw = new StringBuilder("node\tx\tz\tfarA\tfarB\tedges\tfar_xz\n");
+                string Xz(int n) => n >= 0 && n < map.nodes.Length ? map.nodes[n].x.ToString("0.0", LgInv) + "," + map.nodes[n].y.ToString("0.0", LgInv) : "";
+                foreach (var p in LineModel.TwinPairList)
+                {
+                    var c = map.nodes[p.node];
+                    tw.Append(p.node).Append('\t').Append(c.x.ToString("0.0", LgInv)).Append('\t').Append(c.y.ToString("0.0", LgInv)).Append('\t').Append(p.farA).Append('\t').Append(p.farB).Append('\t').Append(string.Join(",", p.edges)).Append('\t').Append(Xz(p.farA)).Append(';').Append(Xz(p.farB)).Append('\n');
+                }
+                File.WriteAllText(Path.Combine(root, "city_linegate_twins.tsv"), tw.ToString());
+                // the SHIFT readings a tight twin's OWN frame gives that its pair's frame does not (no SHIFT within 12 m
+                // on that edge): the places the frame rule passes, for the frames that prove it
+                var tf = new StringBuilder("id\tx\tz\tedge\ts\twhat\n");
+                int nTf = 0;
+                foreach (var f in lgTwinOwnFrame)
+                {
+                    bool kept = false;
+                    foreach (var g in lgFails) if (g.cls == "SHIFT" && g.edge == f.edge && (g.x - f.x) * (g.x - f.x) + (g.z - f.z) * (g.z - f.z) < 144.0) { kept = true; break; }
+                    if (kept) continue;
+                    tf.Append("TF").Append(nTf++).Append('\t').Append(f.x.ToString("0.00", LgInv)).Append('\t').Append(f.z.ToString("0.00", LgInv)).Append('\t').Append(f.edge).Append('\t').Append(f.s.ToString("0.0", LgInv)).Append('\t').Append((f.what ?? "").Replace('\t', ' ')).Append('\n');
+                }
+                File.WriteAllText(Path.Combine(root, "city_linegate_twinframe.tsv"), tf.ToString());
+                Line($"  the tight twins' frame: {lgTwinFrameEdges} edges; {nTf} SHIFT readings of their own frame not failing in the pair's (city_linegate_twinframe.tsv)");
             }
             // ---- JSON: the totals the baseline compares ----
             var js = new StringBuilder();
@@ -1987,7 +2095,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column; {lgSharpJoins} candidate joins refused for meeting at more than 45 deg (a gore's V tip)");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
-            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgUnderOther} sharp kinks, S-jogs or line shifts (10 deg, 45 deg, steeper than 1:1.5) within 60 m of a ramp's diverge / merge (its gore's V read through hidden paint); {lgOverlapReadings} more over another road's pavement (recorded as SURFACE: two roads' pavement drawn over each other); {lgHairpins} S-jogs swinging 75 deg and back within 12 m (a gore's V read as a hairpin); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgTwltlHandOvers} TWLTL boundary lines ending at a joint where the solid white line of one direction's left-turn lane takes over (MUTCD 2009 3B.03 P03, 3B.04 P25, Figure 3B-7); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgUnderOther} sharp kinks, S-jogs or line shifts (10 deg, 45 deg, steeper than 1:1.5) within 60 m of a ramp's diverge / merge (its gore's V read through hidden paint); {lgOverlapReadings} more over another road's pavement (recorded as SURFACE: two roads' pavement drawn over each other); {lgHairpins} S-jogs swinging 75 deg and back within 12 m (a gore's V read as a hairpin); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgTwltlHandOvers} TWLTL boundary lines ending at a joint where the solid white line of one direction's left-turn lane takes over (MUTCD 2009 3B.03 P03, 3B.04 P25, Figure 3B-7); {lgTwinFrameEdges} tight-twin edges whose SHIFT is read in the pair's middle frame; {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }

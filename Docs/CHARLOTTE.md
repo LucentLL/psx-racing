@@ -9516,6 +9516,17 @@ tooling fix, never to make a branch's number pass):
   centre yellow turning white anywhere else still fails. Counted in the census; every passed place listed in
   `city_linegate_handovers.tsv`. Proven on 12 random places of 428 (PSX_CITY_LINEFIX=1), every one the Figure 3B-7
   pattern (roads3 scratch `linegate_twltl_handover_proof.jpg`).
+- (roads3) THE TIGHT TWIN'S FRAME (SHIFT). On the edges of a tight twin (LineModel.TightTwinEdge: a road OSM maps as two
+  one-way carriageways closer than their own lanes, drawn as ONE cross-section with a narrow island; only with
+  PSX_CITY_TWINS or scope city - no edge of the default drawing) a line's sideways move is read from the middle of the
+  pair's two MAPPED carriageway lines (the map's, not the model's push), not from the edge's own mapped line: the two
+  mapped lines fan apart from the split node (North Tryon: 12 m apart 20 m on) while the drawn lines run straight, and
+  the own frame read the fan as "the solid yellow line moves 9.68 m sideways in 21 m". A push that holds the pair
+  symmetric reads still; one that moves a carriageway against its partner reads as the shift it is. KINK and SJOG judge
+  the same lines in the world frame as before. The readings the own frame gives and the pair's frame does not are
+  listed in `city_linegate_twinframe.tsv` (never counted; 486 in run r3twB, every twin built); PSX_LG_TWINFRAME=0: the
+  old frame. Its sample frames: roads3 scratch `linegate_twinframe_proof.jpg` (job s3) - see the hand-back for whether
+  that job finished before the 11-17 stop.
 
 **Tools.**
 - `tools\city-linegate.ps1` - the gate (`-Box` / `-Name` for one place, `-Shots n` for editor frames of the worst
