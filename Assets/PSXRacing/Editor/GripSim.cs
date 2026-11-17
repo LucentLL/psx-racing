@@ -193,8 +193,21 @@ namespace PSXRacing.EditorTools
             try
             {
                 Vector3 p0 = car.transform.position;
+                bool touched = false;
                 int n = Mathf.RoundToInt(Settle / Dt);
-                for (int i = 0; i < n; i++) { Apply(car, c); Step(car); }
+                for (int i = 0; i < n; i++)
+                {
+                    Apply(car, c); Step(car);
+                    // The settle counts from the first tick all four tyres
+                    // touch: before that the car is falling, and a straight
+                    // drop onto a slope moves it along the slope's plane.
+                    if (!touched)
+                    {
+                        bool all = true;
+                        for (int w = 0; w < 4; w++) all &= car.wheelContacts[w].grounded;
+                        if (all) { touched = true; p0 = car.transform.position; }
+                    }
+                }
                 Vector3 p1 = car.transform.position;
                 r.settleM = Vector3.ProjectOnPlane(p1 - p0, rot * Vector3.up).magnitude;
                 Vector3 right = rot * Vector3.right, fwd = rot * Vector3.forward, up = rot * Vector3.up;

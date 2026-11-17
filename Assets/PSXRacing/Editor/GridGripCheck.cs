@@ -161,6 +161,12 @@ namespace PSXRacing.EditorTools
             public CarController car;
             public string role;
             public Vector3 p0, p1;
+            /// <summary>Where it was the first tick all four tyres touched:
+            /// the settle is measured from there, so a car dropped straight
+            /// down onto a slope is not charged with the slope's share of the
+            /// fall.</summary>
+            public Vector3 touch;
+            public bool touched;
             public Quaternion r1;
             public float peak;
             public int parked, ticks;
@@ -205,6 +211,13 @@ namespace PSXRacing.EditorTools
                     c.allowReverse = false;
                     if (c.currentGear < 1) c.currentGear = 1;
                 }
+            foreach (var r in recs)
+            {
+                if (r.touched || r.car == null || r.car.Body == null) continue;
+                bool all = true;
+                for (int i = 0; i < 4; i++) all &= r.car.wheelContacts[i].grounded;
+                if (all) { r.touched = true; r.touch = r.car.Body.position; }
+            }
             if (sampling)
                 foreach (var r in recs)
                 {
@@ -266,14 +279,23 @@ namespace PSXRacing.EditorTools
             var stuck = rm.playerCar.GetComponent<StuckRecovery>();
             if (stuck != null) stuck.enabled = false;
 
+            // PSX_GRIP_SHOTS=1 (a run WITH graphics): a frame strip of the
+            // game's own hold, from overhead, at four moments of the watch.
+            shots = System.Environment.GetEnvironmentVariable("PSX_GRIP_SHOTS") == "1" && !headless;
+            // PSX_GRIP_ONLYHOLD=1: the game's own hold only (the strip run).
+            bool onlyHold = System.Environment.GetEnvironmentVariable("PSX_GRIP_ONLYHOLD") == "1";
+
             // 1. THE GAME'S OWN HOLD, from the game's own spawn.
             yield return Case("grid", "hold", cars, restand: false, settleSeconds: 1f);
-            // 2-4. Inputs taken over.
-            yield return Scripted("grid", "no pedals", cars, 0f, 0f, false);
-            yield return Scripted("grid", "brake", cars, 0f, 1f, false);
-            yield return Scripted("grid", "lever", cars, 0f, 0f, true);
-            // The player alone: a field launched together runs into itself.
-            yield return Launch("grid", new List<CarController> { rm.playerCar }, cars, 0.35f);
+            if (!onlyHold)
+            {
+                // 2-4. Inputs taken over.
+                yield return Scripted("grid", "no pedals", cars, 0f, 0f, false);
+                yield return Scripted("grid", "brake", cars, 0f, 1f, false);
+                yield return Scripted("grid", "lever", cars, 0f, 0f, true);
+                // The player alone: a field launched together runs into itself.
+                yield return Launch("grid", new List<CarController> { rm.playerCar }, cars, 0.35f);
+            }
 
             // 5. THE MOST BANKED SPOT, the player alone.
             if (System.Environment.GetEnvironmentVariable("PSX_GRIP_SPOT") != "0" &&
@@ -287,11 +309,14 @@ namespace PSXRacing.EditorTools
                 spawnPos[rm.playerCar] = rm.playerCar.Body.position;
                 spawnRot[rm.playerCar] = rm.playerCar.Body.rotation;
                 yield return Case("spot", "hold", me, restand: true, settleSeconds: 1f);
-                yield return Scripted("spot", "no pedals", me, 0f, 0f, false);
-                yield return Scripted("spot", "brake", me, 0f, 1f, false);
-                yield return Scripted("spot", "lever", me, 0f, 0f, true);
-                yield return Launch("spot", me, me, 0.35f);
-                yield return Launch("spot", me, me, 1.0f);
+                if (!onlyHold)
+                {
+                    yield return Scripted("spot", "no pedals", me, 0f, 0f, false);
+                    yield return Scripted("spot", "brake", me, 0f, 1f, false);
+                    yield return Scripted("spot", "lever", me, 0f, 0f, true);
+                    yield return Launch("spot", me, me, 0.35f);
+                    yield return Launch("spot", me, me, 1.0f);
+                }
             }
 
             // 6. AT SPEED (PSX_GRIP_LAP seconds after the green).
@@ -355,7 +380,13 @@ namespace PSXRacing.EditorTools
             foreach (var r in recs) { r.p1 = r.car.Body.position; r.r1 = r.car.Body.rotation; }
             midTick = tick + Ticks(watchSeconds * 0.5f);
             sampling = true;
-            yield return WaitTicks(Ticks(watchSeconds));
+            bool shoot = shots && name == "hold";
+            if (shoot) yield return Shot(where, cars, 0f);
+            for (int q = 1; q <= 4; q++)
+            {
+                yield return WaitTicks(Ticks(watchSeconds * 0.25f));
+                if (shoot) yield return Shot(where, cars, watchSeconds * 0.25f * q);
+            }
             sampling = false;
             foreach (var r in recs)
             {
@@ -363,7 +394,7 @@ namespace PSXRacing.EditorTools
                 Vector3 right = r.r1 * Vector3.right, fwd = r.r1 * Vector3.forward;
                 Vector3 d = p2 - r.p1;
                 float side = Vector3.Dot(d, right), fore = Vector3.Dot(d, fwd);
-                float settle = Vector3.ProjectOnPlane(r.p1 - r.p0, r.r1 * Vector3.up).magnitude;
+                float settle = Vector3.ProjectOnPlane(r.p1 - (r.touched ? r.touch : r.p0), r.r1 * Vector3.up).magnitude;
                 float bank = right.y / Mathf.Max(0.2f, Mathf.Sqrt(1f - right.y * right.y));
                 float grade = fwd.y / Mathf.Max(0.2f, Mathf.Sqrt(1f - fwd.y * fwd.y));
                 float held = r.ticks > 0 ? r.parked / (float)r.ticks : 0f;
@@ -386,6 +417,54 @@ namespace PSXRacing.EditorTools
                     GridGripCheck.venue, where, name, r.car.name.Replace(",", " "), r.role, bank * 100f, grade * 100f,
                     side * 1000f, fore * 1000f, settle * 1000f, r.peak, held * 100f, yaw, corner * 1000f));
             }
+        }
+
+        bool shots;
+        Camera stripCam;
+
+        /// <summary>One overhead frame of these cars, rendered on request (a
+        /// hidden run draws no frames of its own): straight down from above
+        /// their middle, the image's up along the first car's heading, high
+        /// enough for the whole group. Screenshots/GripStrip/.</summary>
+        IEnumerator Shot(string where, List<CarController> cars, float t)
+        {
+            yield return null;
+            if (stripCam == null)
+            {
+                var go = new GameObject("GripStripCam");
+                DontDestroyOnLoad(go);
+                stripCam = go.AddComponent<Camera>();
+                stripCam.enabled = false;
+                stripCam.fieldOfView = 40f;
+                stripCam.nearClipPlane = 0.3f;
+                stripCam.farClipPlane = 400f;
+            }
+            Vector3 mid = Vector3.zero; float span = 0f;
+            foreach (var c in cars) mid += spawnPos[c];
+            mid /= Mathf.Max(1, cars.Count);
+            foreach (var c in cars) span = Mathf.Max(span, Vector3.Distance(spawnPos[c], mid));
+            Vector3 head = spawnRot[cars[0]] * Vector3.forward; head.y = 0f; head.Normalize();
+            float h = Mathf.Max(9f, (span + 4f) / Mathf.Tan(20f * Mathf.Deg2Rad));
+            stripCam.transform.SetPositionAndRotation(mid + Vector3.up * h, Quaternion.LookRotation(Vector3.down, head));
+            var rt = new RenderTexture(960, 720, 24);
+            rt.Create();
+            var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(stripCam, request))
+                for (int i = 0; i < 2; i++) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(stripCam, request);
+            else { stripCam.targetTexture = rt; stripCam.Render(); stripCam.targetTexture = null; }
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            string dir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots", "GripStrip");
+            Directory.CreateDirectory(dir);
+            string tag = GridGripCheck.Tag.Length > 0 ? GridGripCheck.Tag : "x";
+            File.WriteAllBytes(Path.Combine(dir, string.Format(Inv, "{0}_{1}_{2}_t{3:00}.png", GridGripCheck.venue, where, tag, t)), tex.EncodeToPNG());
+            Object.Destroy(tex);
+            rt.Release();
+            Object.Destroy(rt);
         }
 
         static string Wheels(CarController car)
