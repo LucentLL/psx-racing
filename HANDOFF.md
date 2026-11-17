@@ -29,29 +29,29 @@ Sheets (every pair: LEFT round 2 = PSX_DMG_CABIN=0 PSX_DMG_NOWAVY=0 PSX_DMG_THIN
 - Fit: `cabin BUILT, fit3 True` on every shell, the same fit as the cockpit view's (self-test: eye and scales to 1e-4).
 - PLAY MODE: round 2's Charlotte curb drive, re-run HIDDEN on this code (PSXRec, real PhysX): "the cockpit through a hole: drawn (1 live, 1 built)" at both picture sets; frames `out\drive_cab_drive_cab3\`; ALL HOLD.
 - Self-test (PSXRec, the full LifeSim suite): base 457beadd 63 FAIL lines / 4,871 ok; this branch 63 FAIL lines / 4,898 ok (27 new checks hold). The same 63 failure lines (sandbox data: deck scenes, lamp maps, release budget). `RunDamage3` alone: 27/27 ok.
-- COST (`Damage3Shots` part D; the seller's lot, eight holed cars on screen; 1920 x 1080 HD tier, PC profile = all eight get a cabin; editor wall clock per frame with read-back, medians of 150 interleaved frames; other agents' editors were running on the same machine, so differences under ~1 ms are noise):
+- COST (`Damage3Shots` part D, run twice; the seller's lot, eight holed cars on screen from above, and beside one hole; 1920 x 1080 HD tier, PC profile = all eight get a cabin; editor wall clock per frame with read-back, medians of 150 interleaved frames; other agents' editors were running on the same machine). RESULT: no path is measurable at this resolution - the medians of the five states (cockpits drawn / dark cabin / round 2's boxes / wheel rash only / mint) lie within 1 ms of each other down the aisle and swing +-2-5 ms beside a hole, both ways. The second run (PSXRec, 03:33, final code):
   - COST, aisle (8 holed cars, 8 cabins at most, the lot, 1920x1080, editor wall clock per frame incl. read-back, median of 150):
-  - cabin  37.07 ms (p10 33.11, p90 53.67)
-  - dark   36.32 ms (p10 32.15, p90 63.44)
-  - boxes  36.11 ms (p10 31.74, p90 53.54)
-  - rash   35.79 ms (p10 30.86, p90 64.77)
-  - mint   34.80 ms (p10 30.74, p90 51.47)
-  - cabin - dark  = +0.75 ms (the cockpit models)
-  - dark  - mint  = +1.52 ms (the glass path, holes dark)
-  - boxes - mint  = +1.31 ms (round 2's glass path, the boxes)
-  - rash  - mint  = +0.99 ms (wheel rash at stage 3 on all 32 wheels)
+  - cabin  26.86 ms (p10 23.96, p90 39.53)
+  - dark   26.97 ms (p10 23.98, p90 41.40)
+  - boxes  26.88 ms (p10 24.10, p90 47.90)
+  - rash   27.87 ms (p10 24.47, p90 47.48)
+  - mint   27.85 ms (p10 23.98, p90 41.73)
+  - cabin - dark  = -0.11 ms (the cockpit models)
+  - dark  - mint  = -0.88 ms (the glass path, holes dark)
+  - boxes - mint  = -0.97 ms (round 2's glass path, the boxes)
+  - rash  - mint  = +0.02 ms (wheel rash at stage 3 on all 32 wheels)
   - COST, close (8 holed cars, 8 cabins at most, the lot, 1920x1080, editor wall clock per frame incl. read-back, median of 150):
-  - cabin  34.11 ms (p10 29.97, p90 52.58)
-  - dark   34.61 ms (p10 29.73, p90 50.77)
-  - boxes  35.53 ms (p10 31.09, p90 63.85)
-  - rash   34.54 ms (p10 28.02, p90 60.06)
-  - mint   33.35 ms (p10 29.05, p90 45.77)
-  - cabin - dark  = -0.50 ms (the cockpit models)
-  - dark  - mint  = +1.25 ms (the glass path, holes dark)
-  - boxes - mint  = +2.17 ms (round 2's glass path, the boxes)
-  - rash  - mint  = +1.18 ms (wheel rash at stage 3 on all 32 wheels)
-  - CPU: DamageCabin.ForCamera with 8 holed cars: 2.3 us a camera
-- Geometry: a cabin is 55,169 + 7,402 triangles near (within 8 m), 25,900 + 1,093 reduced, plus two draws of the body for the mark and the depth; draw calls per holed car 6 (cabin) + 2 (wheel) + 1 (faces) + 2 = 11. CPU: `DamageCabin.ForCamera` 2.3 us a camera for eight holed cars; nothing at all for a car without a hole (the component disables itself).
+  - cabin  39.35 ms (p10 28.94, p90 54.34)
+  - dark   41.42 ms (p10 28.19, p90 57.35)
+  - boxes  39.96 ms (p10 29.67, p90 57.29)
+  - rash   38.17 ms (p10 27.81, p90 54.79)
+  - mint   43.85 ms (p10 28.29, p90 64.63)
+  - cabin - dark  = -2.07 ms (the cockpit models)
+  - dark  - mint  = -2.44 ms (the glass path, holes dark)
+  - boxes - mint  = -3.89 ms (round 2's glass path, the boxes)
+  - rash  - mint  = -5.68 ms (wheel rash at stage 3 on all 32 wheels)
+  - CPU: DamageCabin.ForCamera with 8 holed cars: 1.4 us a camera
+- Geometry: a cabin is 55,169 + 7,402 triangles near (within 8 m), 25,900 + 1,093 reduced, plus two draws of the body for the mark and the depth; draw calls per holed car 6 (cabin) + 2 (wheel) + 1 (faces) + 2 = 11. CPU: `DamageCabin.ForCamera` 1.4-2.3 us a camera for eight holed cars; nothing at all for a car without a hole (the component disables itself).
 
 ## Not done / not verified
 - No device check on Android; no build. The Classic-tier frames are from the PSXRec editor (Android target), its PlatformProfile = Android: reach 20 m, full mesh within 5 m, at most 4 cabins.
