@@ -57,7 +57,9 @@ namespace PSXRacing.EditorTools
             // the nine HD bodies, and every shell whose export now has clear covers
             var keys = new HashSet<string> { "rx7_fd_93", "rx7_fd_99", "rx7_fd_nowing", "viper_gts", "flatsix_coupe", "flatsix_coupe_87", "rally_sedan_99", "civic_eg", "roadster_99",
                 // cars2 (11-11 afternoon): the baker's roof-fixture rule re-measures their cowl
-                "fullsize_police", "fullsize_taxi", "fullsize_trooper" };
+                "fullsize_police", "fullsize_taxi", "fullsize_trooper",
+                // cars-1116 (11-16): the NSX v31, Type X v13 and the five new shells (S13, FC, Z30, A70, 67 pony coupe)
+                "midship_coupe", "fastback_96", "coupe_88", "rotary_coupe_87", "lux_coupe_97", "gt_liftback_88", "pony_coupe_67" };
             foreach (var m in CarModelLibrary.Models)
                 if (File.Exists("Assets/PSXRacing/Art/Car/Models/" + m.key + "/" + m.key + "_covers.obj")) keys.Add(m.key);
             sb.AppendLine("baking: " + string.Join(" ", keys));

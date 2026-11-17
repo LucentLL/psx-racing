@@ -10030,11 +10030,40 @@ namespace PSXRacing.EditorTools
                     if (isEvo) evo6++; if (isEvo && k == "rally_sedan_99") evo6Ok++;
                     if (isFb) s13++; if (isFb && k == "fastback_96") s13Ok++;
                     if ((k == "longnose_71" && !isZ) || (k == "rally_sedan_99" && !isEvo) || (k == "fastback_96" && !isFb)) { z30Ok = -99; }
-                    if ((c.name.Contains("(S13)") || c.name.StartsWith("SILEIGHTY")) && k != "nissan_180sx") s13Ok = -99;
+                    if (c.name.StartsWith("SILEIGHTY") && k != "nissan_180sx") s13Ok = -99;
+                    if (c.name.Contains("(S13)") && k != "coupe_88") s13Ok = -99;   // cars-1116: the owner's S13 notchback
                 }
                 Check(z30 == 1 && z30Ok == 1, "the S30 240ZG wears the owner's Long-nose Coupe 71 (and nothing else does)", z30Ok + " of " + z30);
                 Check(evo6 == 3 && evo6Ok == 3, "the three `99 Evolution VIs wear the owner's Rally Sedan 99", evo6Ok + " of " + evo6);
-                Check(s13 == 1 && s13Ok == 1, "the 240SX `96 wears the owner's Fastback 96; the S13 Silvias and SILEIGHTY keep the 180SX shell", s13Ok + " of " + s13);
+                Check(s13 == 1 && s13Ok == 1, "the 240SX `96 wears the owner's Fastback 96; the S13 Silvias wear the Coupe 88, SILEIGHTY keeps the 180SX shell", s13Ok + " of " + s13);
+                // cars-1116 (2026-11-16): the owner's five new shells, each on its exact rows only.
+                {
+                    var want = new System.Collections.Generic.Dictionary<string, string>
+                    {
+                        { "coupe_88", @"^Nissan SILVIA (K|Q)'s \(S13\) `(88|91)$" },
+                        { "rotary_coupe_87", @"^Mazda RX-7 .*\(FC, J\) `\d\d$" },
+                        { "lux_coupe_97", @"^Lexus SC300 `97$" },
+                        { "gt_liftback_88", @"^Toyota SUPRA (3\.0GT Turbo A `88|2\.5GT Twin Turbo R `90)$" },
+                        { "pony_coupe_67", @"^Chevrolet Camaro SS 350 `67$" },
+                    };
+                    var rows = new System.Collections.Generic.Dictionary<string, int>();
+                    int stray = 0;
+                    foreach (var c in CarCatalog.All)
+                    {
+                        string k = CarModelLibrary.KeyFor(c);
+                        foreach (var kv in want)
+                        {
+                            bool named = System.Text.RegularExpressions.Regex.IsMatch(c.name, kv.Value);
+                            if (named && k == kv.Key) rows[kv.Key] = (rows.TryGetValue(kv.Key, out int n) ? n : 0) + 1;
+                            else if (named != (k == kv.Key)) stray++;
+                        }
+                    }
+                    int Rows(string k) => rows.TryGetValue(k, out int n) ? n : 0;
+                    Check(stray == 0 && Rows("coupe_88") == 4 && Rows("rotary_coupe_87") == 3 && Rows("lux_coupe_97") == 1 &&
+                          Rows("gt_liftback_88") == 2 && Rows("pony_coupe_67") == 1,
+                          "cars-1116: the S13 notchback, FC, Z30, A70 and `67 pony coupe dress exactly their rows",
+                          $"S13 {Rows("coupe_88")}/4 FC {Rows("rotary_coupe_87")}/3 Z30 {Rows("lux_coupe_97")}/1 A70 {Rows("gt_liftback_88")}/2 67 {Rows("pony_coupe_67")}/1, stray {stray}");
+                }
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
                 foreach (var c in CarCatalog.All)
