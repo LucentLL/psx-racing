@@ -98,7 +98,7 @@ namespace PSXRacing
             /// gate's line while still closing on its own (a legal re-route) has not missed it.</summary>
             public float towardAcc;
             public float missedRg;
-            public float flipT;
+            public float flipT, restT;
             public AIDriver ai;
             /// <summary>A two-way street where turning round is clearly the better way (WRONG WAY's two-way rule).</summary>
             public bool turnBack; public float turnBackT;
@@ -352,7 +352,29 @@ namespace PSXRacing
         {
             if (RaceReplay.Playing) return;
             PumpQueue();
-            if (Ready && rm != null) UpdateGps();
+            if (Ready && rm != null) { UpdateGps(); TowWrecks(); }
+        }
+
+        /// <summary>
+        /// A RETIRED RIVAL IS TOWED (PSX_CP_TOW_WRECKS, default ON; =0 it stays where it stopped, as before). A rival's
+        /// routed road is the real pavement, so a wreck stopped on a one-lane ramp leaves no line round it: on CltH6 a
+        /// retired Civic held five cars on the US 74 ramp for the rest of the race (stuck recoveries found 0 clear
+        /// stations). After 6 s at rest the wreck leaves the race (the race's DNF stands; the replay shows it until then).
+        /// </summary>
+        void TowWrecks()
+        {
+            if (!CheckpointFile.On("PSX_CP_TOW_WRECKS") || rm.State != RaceManager.RaceState.Racing) return;
+            foreach (var c in cars.Values)
+            {
+                if (c.isPlayer || c.car == null || !c.car.gameObject.activeSelf) continue;
+                var p = rm.GetProgress(c.car);
+                if (p == null || !p.retired) continue;
+                if (Mathf.Abs(c.car.forwardSpeed) > 1f) { c.restT = 0f; continue; }
+                c.restT += Time.deltaTime;
+                if (c.restT < 6f) continue;
+                Debug.Log($"[Checkpoints] {c.car.name}: retired and stopped 6 s - towed off the course");
+                c.car.gameObject.SetActive(false);
+            }
         }
 
         void OnDestroy()

@@ -1573,7 +1573,7 @@ namespace PSXRacing
                 for (int i = 0; i < others.Count; i++)
                 {
                     var other = others[i];
-                    if (other == null || other == car) continue;
+                    if (other == null || other == car || !other.gameObject.activeInHierarchy) continue;   // a towed wreck is gone
 
                     Vector3 local = transform.InverseTransformPoint(other.transform.position);
                     if (OtherFloor(local)) continue;
@@ -1635,7 +1635,7 @@ namespace PSXRacing
                 for (int i = 0; i < rm.allCars.Count; i++)
                 {
                     var o = rm.allCars[i];
-                    if (o == null || o == car || o.Body == null) continue;
+                    if (o == null || o == car || o.Body == null || !o.gameObject.activeInHierarchy) continue;
                     Vector3 lo0 = transform.InverseTransformPoint(o.transform.position);
                     if (OtherFloor(lo0)) continue;
                     // In a deck only a car IN THIS LANE, ahead, is in the way:
@@ -2077,7 +2077,7 @@ namespace PSXRacing
                     if (rm != null)
                         foreach (var other in rm.allCars)
                         {
-                            if (other == null || other == car) continue;
+                            if (other == null || other == car || !other.gameObject.activeInHierarchy) continue;
                             Vector3 lo = transform.InverseTransformPoint(other.transform.position);
                             if (lo.x > 0.5f && lo.x < 4f && lo.z > -5f && lo.z < 6f &&
                                 car.forwardSpeed > DropBehindMinMps)
