@@ -439,13 +439,24 @@ namespace PSXRacing.EditorTools
         const int TMAtlasCell = 128;
 
         /// <summary>THE STAGES' cells 0-11 (the broadleaf cells; 12-15 are the conifers and the bare tree,
-        /// which stay cards in the A chunks): the stage kit's canopy trees in turn.</summary>
+        /// which stay cards in the A chunks), each the kit tree whose FALL dress is that cell's colour (the
+        /// planting clusters its cells by colour: PSXRacingBuilder.Stage's Fall / Red / Green groups): the
+        /// tulip poplar's gold; the beeches' orange (autumn: 01, 07), red (02, 08), gold (03) and late green (06).</summary>
         static readonly string[][] TMStageCellTrees =
         {
-            new[] { "beech_tree_01_LOD0" }, new[] { "beech_tree_02_LOD0" }, new[] { "beech_tree_03_LOD0" }, new[] { "beech_tree_06_LOD0" },
-            new[] { "beech_tree_07_LOD0" }, new[] { "beech_tree_08_LOD0" }, new[] { "PoplarTree001_LOD1", "beech_tree_03_LOD0" }, new[] { "beech_tree_02_LOD0" },
-            new[] { "beech_tree_03_LOD0" }, new[] { "beech_tree_06_LOD0" }, new[] { "beech_tree_08_LOD0" }, new[] { "beech_tree_01_LOD0" },
-            null, null, null, null,
+            new[] { "PoplarTree001_LOD1", "beech_tree_03_LOD0" },   // 0  tulip poplar gold
+            new[] { "beech_tree_01_LOD0" },                          // 1  orange maple
+            new[] { "beech_tree_02_LOD0" },                          // 2  big orange-red (red group)
+            new[] { "beech_tree_07_LOD0" },                          // 3  orange
+            new[] { "beech_tree_03_LOD0" },                          // 4  gold
+            new[] { "beech_tree_08_LOD0" },                          // 5  red over green (red group)
+            new[] { "beech_tree_01_LOD0" },                          // 6  russet oak
+            new[] { "beech_tree_02_LOD0" },                          // 7  scarlet maple (red group)
+            new[] { "beech_tree_03_LOD0" },                          // 8  brown oak
+            new[] { "beech_tree_06_LOD0" },                          // 9  yellow-green (green group)
+            new[] { "beech_tree_06_LOD0" },                          // 10 green hardwood (green group)
+            new[] { "beech_tree_06_LOD0" },                          // 11 green hardwood (green group)
+            null, null, null, null,                                  // 12-15 conifers, the bare tree: as they are
         };
 
         /// <summary>The city's card atlas per dress (5), cut from the match sheets just made; null entries
