@@ -122,6 +122,17 @@ namespace PSXRacing
             return d;
         }
 
+        /// <summary>The race card's facts for a venue that races as a checkpoint race ("  ·  15 CHECKPOINTS  ·  ANY
+        /// ROUTE"), "" otherwise. The menu's own test, the same as TryBegin's file test (no city parse).</summary>
+        public static string CardFacts(TrackCatalog.TrackDef t)
+        {
+            if (t == null || !t.IsCityRace || t.IsDeckRun || t.IsDragEvent || !RacesOn || !VenueAllowed(t.id)) return "";
+            var ch = ChainFor(Load(t.cityRoute), t.Reversed);
+            if (ch == null) return "";
+            int n = ch.loop != 0 ? ch.cps.Length : ch.cps.Length - 1;
+            return "  \u00b7  " + n + " CHECKPOINTS  \u00b7  ANY ROUTE";
+        }
+
         /// <summary>Is there a usable file for this route (no city parse: the menu may ask)?</summary>
         public static bool Has(string routeId) => Load(routeId) != null;
 

@@ -339,7 +339,8 @@ namespace PSXRacing.LifeSim
             Section(ref ry, rx, w, RouteGeo.KindOf(t) + "  ·  " + KindName(kind));
             float climb = ClimbM(venue);
             string facts = Km(t) + (climb >= 0f ? "  ·  CLIMB " + Mathf.RoundToInt(climb) + " M" : "") +
-                           "  ·  " + (t.loop ? (t.laps == 1 ? "1 LAP" : t.laps + " LAPS") : "POINT TO POINT");
+                           "  ·  " + (t.loop ? (t.laps == 1 ? "1 LAP" : t.laps + " LAPS") : "POINT TO POINT") +
+                           CheckpointFile.CardFacts(t);
             var f = MenuKit.Label(body, facts, MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(rx, ry),
                 TextAnchor.MiddleLeft, Color.white, w, height: 28f, bold: true);
             MenuKit.FitOneLine(f, w);
