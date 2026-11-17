@@ -35,7 +35,7 @@ namespace PSXRacing.EditorTools
     ///     the two grids' overlap on five stages: 5 % at 30-35 degrees, 16 % at
     ///     35-40, 40 % at 40-45), laid as 12 m cells in clumps;
     ///   * past the far forest: PSX/Lit paints the same share on the far land
-    ///     (_FarRock, Horizon.cs), fading in from 1.5 km so the two never
+    ///     (_FarRock, Horizon.cs), fading in from 2.0 to 2.8 km so the two never
     ///     switch.
     /// A stage whose world file carries the lidar's cliff cells (Lake Lure,
     /// Chimney Rock) keeps those as its rock near the road: they are the better
@@ -266,8 +266,8 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The far land's own rock (PSX/Lit _FarRock): past the far
         /// forest the land is painted with the same share of rock the cells
-        /// above follow, in the stage's rock, fading in from 1.5 km (where the
-        /// skin's cells carry it) to 2.4 km.</summary>
+        /// above follow, in the stage's rock, fading in from 2.0 km (where the
+        /// skin's cells carry it) to 2.8 km.</summary>
         static void SetFarRock(Material m)
         {
             if (m == null || !m.HasProperty("_FarRock")) return;
@@ -277,7 +277,7 @@ namespace PSXRacing.EditorTools
             var mean = FarRockAlbedoMean;
             m.SetColor("_FarRockCol", new Color(mean.r * tint.r, mean.g * tint.g, mean.b * tint.b, 1f));
             m.SetVector("_FarRockShare", new Vector4(Mathf.Cos(FarRockShareLo * Mathf.Deg2Rad), Mathf.Cos(FarRockShareHi * Mathf.Deg2Rad), FarRockShareMax, FarRockClumpM));
-            m.SetVector("_FarRockFade", new Vector4(1500f, 2400f, 0f, 0f));
+            m.SetVector("_FarRockFade", new Vector4(2000f, 2800f, 0f, 0f));
             m.SetFloat("_FarRock", 1f);
         }
 

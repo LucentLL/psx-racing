@@ -603,21 +603,10 @@ Shader "PSX/Lit"
             float4 _FarRockShare;       // x normal y where rock starts, y where its share is whole, z the share there, w clump m
             float4 _FarRockFade;        // x m from the eye where it starts, y where it is whole
             float _PSXFarMtnOff;        // GLOBAL (FarMtnSwitch): 1 = PSX_FARMTN_TEMPLATE=0, the land as it was
-            // the builder's own clump noise (PSXRacingBuilder.FarRockClump): the same integer hash
-            float PSXFarRockHash(int a, int b)
-            {
-                uint h = ((uint)a * 73856093u) ^ ((uint)b * 19349663u);
-                h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
-                return (float)(h & 0xffffu) / 65535.0;
-            }
+            // the rock's clumps: the rock noise (float only: every target), its middle spread back toward uniform
             float PSXFarRockClump(float2 w, float cell)
             {
-                float2 f = w / cell, fi = floor(f), t = f - fi;
-                t = t * t * (3.0 - 2.0 * t);
-                int ix = (int)fi.x, iz = (int)fi.y;
-                float v = lerp(lerp(PSXFarRockHash(ix, iz), PSXFarRockHash(ix + 1, iz), t.x),
-                               lerp(PSXFarRockHash(ix, iz + 1), PSXFarRockHash(ix + 1, iz + 1), t.x), t.y);
-                return saturate(0.5 + (v - 0.5) * 1.6);
+                return saturate(0.5 + (PSXRockNoise(w / cell + 23.7) - 0.5) * 1.6);
             }
             // ==== THE BLUE DISTANCE, v2 (LookChoices.AerialDepth): the air between
             // the eye and a far ridge, 1 - exp(-d / L) past x m - layered ridges, each

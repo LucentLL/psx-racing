@@ -241,6 +241,49 @@ namespace PSXRacing.EditorTools
             rot = Quaternion.Euler(-p.pitch, Quaternion.LookRotation(f).eulerAngles.y + p.yaw, 0f);
         }
 
+        /// <summary>The template's runtime switch forced on and off at a pose,
+        /// the frame drawn N times a side at the owner's resolution, ABAB, each
+        /// draw waited on with a one-pixel read (editor timing; the switch
+        /// shows the rock's skin and the far land's rock - the trees the
+        /// template clears stay cleared in both).</summary>
+        static void Perf(Scene s, string id, Vector3 eye, Quaternion rot)
+        {
+            var force = typeof(LookChoices).GetField("FarMtnTemplateForce", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (force == null) { log.AppendLine("  PERF: no template in this code"); return; }
+            var res = Env("PSX_FM_PERFRES", "3832x2054").Split('x');
+            int W = int.Parse(res[0]), Hh = int.Parse(res[1]), N = int.Parse(Env("PSX_FM_PERFN", "24"));
+            Condition(s, (int)Season.Fall, Env("PSX_FM_HOUR", "NOON"), eye);
+            s.cam.transform.SetPositionAndRotation(eye, rot);
+            var rt = new RenderTexture(W, Hh, 32, RenderTextureFormat.ARGB32);
+            rt.Create();
+            var one = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            double Time(bool on)
+            {
+                force.SetValue(null, (bool?)on);
+                ApplySwitches();
+                if (s.sc != null) s.sc.Configure(s.cam);
+                var req = new RenderPipeline.StandardRequest { destination = rt };
+                for (int k = 0; k < 4; k++) { if (s.forest != null) s.forest.DrawNow(s.cam); RenderPipeline.SubmitRenderRequest(s.cam, req); }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                for (int k = 0; k < N; k++)
+                {
+                    if (s.forest != null) s.forest.DrawNow(s.cam);
+                    RenderPipeline.SubmitRenderRequest(s.cam, req);
+                    var prev = RenderTexture.active; RenderTexture.active = rt;
+                    one.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); one.Apply();
+                    RenderTexture.active = prev;
+                }
+                return sw.Elapsed.TotalMilliseconds / N;
+            }
+            double on1 = Time(true), off1 = Time(false), on2 = Time(true), off2 = Time(false), on3 = Time(true), off3 = Time(false);
+            force.SetValue(null, null);
+            ApplySwitches();
+            log.AppendLine($"  PERF {id} {W}x{Hh}, ms a frame (editor: render + 1 px read, {N} a side): template ON {on1:0.00} / {on2:0.00} / {on3:0.00}, " +
+                           $"OFF {off1:0.00} / {off2:0.00} / {off3:0.00}; difference {(on1 + on2 + on3 - off1 - off2 - off3) / 3:0.00} ms");
+            Object.DestroyImmediate(one);
+            rt.Release(); Object.DestroyImmediate(rt);
+        }
+
         public static void Capture()
         {
             int code = CaptureCore();
@@ -305,6 +348,12 @@ namespace PSXRacing.EditorTools
                             FarCanopySwitch.ApplyAll();
                             log.AppendLine($"    parts: {hidden.Count} granite / rock roots hidden for the norock frame");
                         }
+                    }
+                    if (Env("PSX_FM_PERF", "0") == "1" && v.poses.Length > 0)
+                    {
+                        PoseOf(s, v.poses[0], out var pe, out var pr);
+                        s.cam.fieldOfView = v.poses[0].fov > 0f ? v.poses[0].fov : fov0;
+                        Perf(s, v.id, pe, pr);
                     }
                     s.cam.fieldOfView = fov0;
                 }
