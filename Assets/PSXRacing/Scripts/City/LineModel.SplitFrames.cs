@@ -485,7 +485,7 @@ namespace PSXRacing.City
                 // parallel, never a junction crossed off the own line (PhaseCLength)
                 // (Beatties Ford's 19 nodes keep J1's lengths under city: the owner has those pictures - spot 37's
                 // nose was tuned on them; a longer NB blend there moved the SB carriageway's outer edge 1.6 m)
-                bool ownBlend = TwinOwnBlendOn && CityPhaseC && tightTwinNodes.Contains(sp.node);
+                bool ownBlend = TwinOwnBlendOn && TwinRules(sp.node);
                 if (ownBlend)
                 {
                     // (11-17) a tight twin: the move is the start offset off the own line (the push already holds
@@ -611,14 +611,14 @@ namespace PSXRacing.City
                 float u0 = Mathf.Max(fa.uStart, fb.uStart), u1 = Mathf.Min(fa.ownU[fa.ownU.Length - 1], fb.ownU[fb.ownU.Length - 1]) - 2f;
                 // (11-17) where a twin's centre lane becomes its island the street paints the centre lane's hatching on
                 // past the fork before the kerb begins (North Tryon: some 30 m): the tip TwinHatchM in, flush before it
-                bool hatchFirst = CityPhaseC && TwinOuterLaneOn && (twinOuterEdges.Contains(fa.edge) || twinOuterEdges.Contains(fb.edge));
+                bool hatchFirst = TwinRules(sp.node) && TwinOuterLaneOn && (twinOuterEdges.Contains(fa.edge) || twinOuterEdges.Contains(fb.edge));
                 if (GapLanes(u0) >= SplitIslandGapM) uTip = u0 + (hatchFirst ? TwinHatchM : RefugeTipM);
                 else for (float uu = u0; uu <= u1; uu += 0.25f) if (GapLanes(uu) >= SplitIslandGapM) { uTip = uu; break; }
                 // the bands part only far past the blends (n9152: 196.6 m, a flush stretch that long is a
                 // painted median nobody asked for) or never: no profile here, the old taper (listed)
                 float uLim = Mathf.Max(fa.uEnd, fb.uEnd) + SplitNoseLateM;
                 // (a tight twin has no island: its pavements stay flush all along, or to a tip however late)
-                if ((float.IsNaN(uTip) || uTip > uLim) && !(CityPhaseC && tightTwinNodes.Contains(sp.node)))
+                if ((float.IsNaN(uTip) || uTip > uLim) && !TwinRules(sp.node))
                 {
                     foreach (var f in frames) Skip(f.edge, float.IsNaN(uTip) ? "the lane bands never part 2.4 m (no nose)" : $"the lane bands part 2.4 m only at u {uTip:0.0}, past the blends (+{SplitNoseLateM:0} m: {uLim:0.0})");
                     return done;
@@ -662,7 +662,7 @@ namespace PSXRacing.City
                 int from = sp.node; float d0 = 0f; int hint = 0;
                 float uLast = Mathf.Max(f.uEnd, float.IsNaN(uTip) ? 0f : noseEnd) + 1f;
                 // a tight twin with no tip: the shoulders stay trimmed to the divider all along the pair
-                if (float.IsNaN(uTip) && noseOn && CityPhaseC && tightTwinNodes.Contains(sp.node)) uLast = 1e6f;
+                if (float.IsNaN(uTip) && noseOn && TwinRules(sp.node)) uLast = 1e6f;
                 var fo = fa == f ? fb : fa;
                 foreach (int ei in f.chain)
                 {
@@ -930,6 +930,15 @@ namespace PSXRacing.City
         public static bool TwinOwnBlendOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINBLEND") != "0";
         /// <summary>PSX_CITY_TWINOUTER=0: a twin carriageway's added lane is its inner lane (the centre lane) as before.</summary>
         public static bool TwinOuterLaneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINOUTER") != "0";
+        /// <summary>(11-17) PSX_CITY_TWINS=1: the tight twins (and only their split nodes' profiles) under ANY scope - the
+        /// owner's North Tryon fork fixed with the default scope (bfr), without the rest of Phase C. Under city they are
+        /// on anyway. Default OFF until the gates have judged it.</summary>
+        public static bool TwinsEverywhere = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINS") == "1";
+        /// <summary>The tight-twin rules apply at this node (city scope, or PSX_CITY_TWINS=1 at a twin's node).</summary>
+        static bool TwinRules(int node) => (CityPhaseC || TwinsEverywhere) && tightTwinNodes.Contains(node);
+        /// <summary>BuildEases' split loop frames this node too: a tight twin's under PSX_CITY_TWINS=1 (known once BuildTightTwins
+        /// has run; InSplitScope itself is not widened - ComputeTrims asks it for the mitres before the twins are known).</summary>
+        public static bool TwinScopeNode(int node) => TwinsEverywhere && !CityPhaseC && tightTwinNodes.Contains(node);
         public const float TwinHatchM = 25f;
         public static int TwinOwnBlends;
         static readonly HashSet<int> tightTwinEdges = new HashSet<int>();
@@ -1077,7 +1086,7 @@ namespace PSXRacing.City
             var chA = new List<int>(16); var chB = new List<int>(16);
             foreach (var sp in splitAt.Values)
             {
-                if (!InSplitScope(map, sp.node) || BfrNode(map, sp.node)) continue;
+                if (!(CityPhaseC ? InSplitScope(map, sp.node) : TwinsEverywhere && SplitAxis != "0") || BfrNode(map, sp.node)) continue;
                 if (sp.a < 0 || sp.b < 0 || sp.a >= map.edges.Length || sp.b >= map.edges.Length) continue;
                 if (refugeEnds.Contains(RefugeKey(sp.node, sp.a)) || refugeEnds.Contains(RefugeKey(sp.node, sp.b))) continue;
                 var A = map.edges[sp.a]; var B = map.edges[sp.b];

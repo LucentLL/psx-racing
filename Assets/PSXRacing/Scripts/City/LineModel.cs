@@ -629,13 +629,13 @@ namespace PSXRacing.City
             }
             // Phase C: the tight twins (two carriageways mapped closer than their own lanes) pushed apart, before
             // any split's profile reads their lines
-            if (SplitsOn && CityPhaseC && PhaseCTightOn) BuildTightTwins(map, add, partner, splitAt, splitNodeSet, refugeEndSet);
+            if (SplitsOn && (CityPhaseC || TwinsEverywhere) && PhaseCTightOn) BuildTightTwins(map, add, partner, splitAt, splitNodeSet, refugeEndSet);
             PartTwinsMs = Lap();
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
                 var U = map.edges[sp.u];
-                var framed = SplitsOn && InSplitScope(map, sp.node) ? BuildSplitNode(map, add, partner, sp, splitNodeSet, refugeEndSet) : null;
+                var framed = SplitsOn && (InSplitScope(map, sp.node) || TwinScopeNode(sp.node)) ? BuildSplitNode(map, add, partner, sp, splitNodeSet, refugeEndSet) : null;
                 var tu = U.a == sp.node ? -U.TangentAt(0f) : U.TangentAt(U.length);   // into the node
                 var leftU = new Vector2(-tu.y, tu.x);
                 for (int c = 0; c < 2; c++)
