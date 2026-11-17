@@ -413,8 +413,8 @@ namespace PSXRacing.EditorTools
                 if (steepI >= 0)
                     poses.Add(new Drive { name = "lure_lake_steep", road = path.GetPoint(steepI) + Vector3.up * 7f, fwd = steepTo, pitch = -35f, staged = true, waterY = float.NaN,
                                           what = $"wp {steepI}: 7 m above the road, 35 deg down into the lake ({steepSh * 100f:0}% water)" });
-                SavePoses("lure", poses);
             }
+            SavePoses("lure", poses);   // (read or found: the next runs read them from this run's folder)
             foreach (var p in poses) Debug.Log($"[WaterShot] LakeLure pose {p.name}: {p.what}, road {p.road}");
 
             // the owner's screenshot first: Bat Cave, chase, the game's rain, then a downpour
@@ -507,8 +507,8 @@ namespace PSXRacing.EditorTools
                     best.name = onBridge ? "wylie_bridge_seat" : "wylie_lane";
                     poses.Add(best);
                 }
-                SavePoses("drive", poses);
             }
+            SavePoses("drive", poses);   // (read or found: the next runs read them from this run's folder)
             foreach (var p in poses) Debug.Log($"[WaterShot] Charlotte pose {p.name}: {p.what}, road {p.road}");
             foreach (var p in poses)
             {
