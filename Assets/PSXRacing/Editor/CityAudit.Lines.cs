@@ -198,6 +198,17 @@ namespace PSXRacing.EditorTools
                 if (e.lmEase != null)
                     foreach (var z in e.lmEase)
                         Line($"    ease {(z.relay ? "RELAY" : z.shift ? "SHIFT" : z.widen ? "WIDEN" : z.aux ? "AUX" : "TAPER")} side {z.side} from {(z.fromA ? "a" : "b")} dw {z.dw:0.00} len {z.len:0.0} d0 {z.d0:0.0} span {z.span:0.00} dwOther {z.dwOther:0.00} two {z.twoRole} tag {z.tag}{(z.prof != null ? $" prof[{z.prof.Length}]" : "")}{(z.partner != null ? " partner " + string.Join(",", System.Array.ConvertAll(z.partner, v => float.IsNaN(v) ? "-" : v.ToString("0.00", inv))) : "")}");
+                {
+                    var sbS = new StringBuilder();
+                    for (float s = 0f; s <= e.length + 1e-3f; s += 10f)
+                    {
+                        float ss = Mathf.Min(s, e.length);
+                        LineModel.CentreAt(e, ss, out float cc, out float hh);
+                        LineModel.Extents(e, ss, out float eM2, out float eP2);
+                        sbS.Append($" s{ss:0}:c{cc:+0.00;-0.00}/h{hh:0.00}/+{eP2:0.00}-{eM2:0.00}");
+                    }
+                    Line($"    band (s: centre/half/+ext-ext, a->b frame + left):{sbS}");
+                }
                 // the drawn edges and lines, each metre, in the point's frame (u along the travel, v right)
                 float sA = t.TrimAt(e, e.a), sB = e.length - t.TrimAt(e, e.b);
                 int seq = 0; float worst = 0f; string worstAt = "";
@@ -271,7 +282,24 @@ namespace PSXRacing.EditorTools
                         }
                     }
                     for (int k = 0; k < e.pts.Length; k++) PL("osm", e.index, k, e.pts[k]);
-                    Line($"(also in the plan) e{e.index} {(e.oneway ? "ONE-WAY" : "two-way")} {e.length:0.0} m lanes {e.lsNF}+{e.lsNB} width {e.width:0.00}{(LineModel.TightTwinEdge(e.index) ? " [tight twin]" : "")}{(LineModel.SplitFrameOf(e.index) != null ? " [axis-frame]" : "")}");
+                    Line($"(also in the plan) e{e.index} {(e.oneway ? "ONE-WAY" : "two-way")} {e.length:0.0} m lanes {e.lsNF}+{e.lsNB} width {e.width:0.00}{(LineModel.TightTwinEdge(e.index) ? " [tight twin]" : "")}{(LineModel.SplitFrameOf(e.index) != null ? " [axis-frame]" : "")} n{e.a} -> n{e.b}");
+                    if (taprBy.TryGetValue(e.index, out var tl2))
+                        foreach (int i in tl2) { var r = map.tapr[i]; Line($"    TAPR end {(r.end == 0 ? "a" : "b")} side {(r.side == 0 ? "+" : "-")} src {r.src} flags {r.flags:x} dw {r.dw:0.00} len {r.len:0.0} room {r.room:0.0} off {r.off:0.00}"); }
+                    if (e.lmEase != null)
+                        foreach (var z in e.lmEase)
+                            Line($"    ease {(z.relay ? "RELAY" : z.shift ? "SHIFT" : z.widen ? "WIDEN" : z.aux ? "AUX" : "TAPER")} side {z.side} from {(z.fromA ? "a" : "b")} dw {z.dw:0.00} len {z.len:0.0} d0 {z.d0:0.0} tag {z.tag}{(z.prof != null ? $" prof[{z.prof.Length}]" : "")}");
+                    // the lane band's centre off the edge's own line (a->b frame, + left) and the pavement's extents, every 10 m
+                    {
+                        var sbS = new StringBuilder();
+                        for (float s = 0f; s <= e.length + 1e-3f; s += 10f)
+                        {
+                            float ss = Mathf.Min(s, e.length);
+                            LineModel.CentreAt(e, ss, out float cc, out float hh);
+                            LineModel.Extents(e, ss, out float eM2, out float eP2);
+                            sbS.Append($" s{ss:0}:c{cc:+0.00;-0.00}/h{hh:0.00}/+{eP2:0.00}-{eM2:0.00}");
+                        }
+                        Line($"    band (s: centre/half/+ext-ext):{sbS}");
+                    }
                 }
             }
             Line($"  TIGHT TWINS: {LineModel.TightTwinPairs} pairs city-wide; split frames {LineModel.SplitFrames.Count}; skipped {LineModel.SplitSkipped.Count}");
