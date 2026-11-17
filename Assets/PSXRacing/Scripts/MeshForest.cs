@@ -128,6 +128,11 @@ namespace PSXRacing
         /// the slope.</summary>
         public Vector2[] instTilt;
         public Material[] leafByDress = new Material[5];
+        /// <summary>TREE MATCH (stages): the "B" cards' and crowns' atlas per dress (5), cut from the kit's
+        /// own match sheets - the cells of the broadleaf trees the meshes stand for; the conifers' cells as
+        /// they were. Null (a scene built before it, or PSX_TREE_MATCH=0 / PSX_TREE_MATCH_CARDS=0): the
+        /// retro billboards, as before.</summary>
+        public Texture2D[] matchCardAtlas;
 
         // The MEDIUM distances (ForestDetailPrefs scales them): the 100/200/320
         // of the pop-in round dropped the owner under 20 FPS with leaves on.
@@ -478,6 +483,9 @@ namespace PSXRacing
         void OnDestroy()
         {
             ReleaseGpu();
+            // (the B cards' tree-match copies are this forest's own: gone with it)
+            foreach (var m in bCardCopy.Values) if (m != null) { if (Application.isPlaying) Destroy(m); else DestroyImmediate(m); }
+            bCardCopy.Clear();
             if (chunks != null)
                 foreach (var c in chunks)
                     if (c.cards != null)
@@ -551,9 +559,58 @@ namespace PSXRacing
             foreach (var r in c.cards) if (r != null && r.enabled != on) r.enabled = on;
         }
 
+        // ---- TREE MATCH: THE B CARDS IN THE KIT'S OWN TREES (2026-11-17) ----
+        // Where the mesh forest does not draw - out of the view's cone (the mirrors' trees behind the car,
+        // the reflection faces) and past the far range - a stage's broadleaf trees are the chunks' "B"
+        // cards and crowns: the retro billboard pack's photographs in the dress (other trees, other
+        // colours). Here they wear matchCardAtlas, the same cells cut from the kit's own trees in the
+        // dress, through copies of whatever material SeasonDress gives them (it does not know the copies,
+        // so this re-dresses them when the dress changes). PSX_TREE_MATCH_CARDS=0: the billboards.
+        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        /// <summary>The B cards' light normal (PSX/Lit _PSXCrownCard), as Charlotte's tile cards take it.</summary>
+        static readonly Vector2 BCardLight = new Vector2(0.32f, 0.4f);
+        Renderer[] bCardR; Material[] bCardBase;
+        readonly System.Collections.Generic.Dictionary<Material, Material> bCardCopy = new System.Collections.Generic.Dictionary<Material, Material>();
+        int bCardDress = -1;
+        public bool BCardsMatched => bCardDress >= 0;
+
+        void MatchBCards(int di)
+        {
+            if (di == bCardDress || pooled || !TreeMatch || !MatchCardsOn || chunks == null || matchCardAtlas == null || matchCardAtlas.Length < 5) return;
+            if (bCardR == null)
+            {
+                var rs = new System.Collections.Generic.List<Renderer>();
+                foreach (var c in chunks)
+                    if (c != null && c.cards != null)
+                        foreach (var r in c.cards) if (r != null && r.sharedMaterial != null) rs.Add(r);
+                bCardR = rs.ToArray();
+                bCardBase = new Material[bCardR.Length];
+                for (int i = 0; i < bCardR.Length; i++) bCardBase[i] = bCardR[i].sharedMaterial;
+            }
+            var atlas = matchCardAtlas[di];
+            for (int i = 0; i < bCardR.Length; i++)
+            {
+                var r = bCardR[i];
+                if (r == null) continue;
+                var want = SeasonDress.Substitute(bCardBase[i]);
+                if (atlas == null || want == null || !want.HasProperty("_MainTex")) { r.sharedMaterial = want; continue; }
+                if (!bCardCopy.TryGetValue(want, out var copy) || copy == null)
+                {
+                    copy = new Material(want) { name = want.name + " (tree match)", hideFlags = HideFlags.DontSave };
+                    copy.SetVector("_PSXCrownCard", new Vector4(BCardLight.x, BCardLight.y, 0f, 0f));
+                    bCardCopy[want] = copy;
+                }
+                // (the texel decode is read off the texture the slot holds: stamped after the swap)
+                if (copy.mainTexture != atlas) { copy.mainTexture = atlas; PSXTexDecode.Stamp(copy); }
+                if (r.sharedMaterial != copy) r.sharedMaterial = copy;
+            }
+            bCardDress = di;
+        }
+
         void DressMaterials(int dress)
         {
             int di = dress >= 0 && dress < 5 ? dress : 2;
+            MatchBCards(di);
             for (int v = 0; v < variants.Length; v++)
             {
                 var vr = variants[v];

@@ -438,9 +438,27 @@ namespace PSXRacing.EditorTools
         };
         const int TMAtlasCell = 128;
 
+        /// <summary>THE STAGES' cells 0-11 (the broadleaf cells; 12-15 are the conifers and the bare tree,
+        /// which stay cards in the A chunks): the stage kit's canopy trees in turn.</summary>
+        static readonly string[][] TMStageCellTrees =
+        {
+            new[] { "beech_tree_01_LOD0" }, new[] { "beech_tree_02_LOD0" }, new[] { "beech_tree_03_LOD0" }, new[] { "beech_tree_06_LOD0" },
+            new[] { "beech_tree_07_LOD0" }, new[] { "beech_tree_08_LOD0" }, new[] { "PoplarTree001_LOD1", "beech_tree_03_LOD0" }, new[] { "beech_tree_02_LOD0" },
+            new[] { "beech_tree_03_LOD0" }, new[] { "beech_tree_06_LOD0" }, new[] { "beech_tree_08_LOD0" }, new[] { "beech_tree_01_LOD0" },
+            null, null, null, null,
+        };
+
         /// <summary>The city's card atlas per dress (5), cut from the match sheets just made; null entries
         /// where there were none. Dresses that look alike (winter and snow; spring and summer) share a file.</summary>
-        internal static Texture2D[] TMCityCardAtlas()
+        internal static Texture2D[] TMCityCardAtlas() => TMCardAtlas("cityatlas_", TMCellTrees, null);
+
+        /// <summary>A STAGE's card atlas per dress (5): the broadleaf cells cut from the stage kit's match sheets
+        /// just made, the rest (conifers, the bare tree) as the dress's own atlas has them. Worn by the B chunks'
+        /// cards and crowns (MeshForest.matchCardAtlas): what the mirrors show behind the car and the forest past
+        /// the far range are then the kit's own trees in the dress, as the meshes and far cards are.</summary>
+        internal static Texture2D[] TMStageCardAtlas() => TMCardAtlas("stageatlas_", TMStageCellTrees, DressAtlasPath);
+
+        static Texture2D[] TMCardAtlas(string stem, string[][] cellTrees, System.Func<int, string> baseOfDress)
         {
             var outTex = new Texture2D[5];
             if (!TreeMatchBuildOn || tmPlanOf.Count == 0) return outTex;
@@ -449,16 +467,29 @@ namespace PSXRacing.EditorTools
             for (int d = 0; d < 5; d++)
             {
                 var plans = new TMPlan[16];
-                string sig = "";
+                string basePath = baseOfDress != null ? baseOfDress(d) : null;
+                string sig = (basePath ?? "") + "|";
                 for (int c = 0; c < 16; c++)
                 {
-                    foreach (var nm in TMCellTrees[c]) if (tmPlanOf.TryGetValue(nm, out plans[c])) break;
+                    if (cellTrees[c] != null) foreach (var nm in cellTrees[c]) if (tmPlanOf.TryGetValue(nm, out plans[c])) break;
                     sig += (plans[c] != null ? plans[c].sheetKey[d] : "-") + "|";
                 }
                 if (!pathOf.TryGetValue(sig, out string path))
                 {
                     int A = TMAtlasCell * 4;
                     var px = new Color32[A * A];
+                    // (a stage's: the dress's own atlas under it - the cells without a match keep their pictures)
+                    if (basePath != null)
+                    {
+                        string bf = Path.Combine(Directory.GetParent(Application.dataPath).FullName, basePath);
+                        if (File.Exists(bf))
+                        {
+                            var bt = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                            bt.LoadImage(File.ReadAllBytes(bf));
+                            if (bt.width == A && bt.height == A) px = bt.GetPixels32();
+                            Object.DestroyImmediate(bt);
+                        }
+                    }
                     int cells = 0;
                     for (int c = 0; c < 16; c++)
                     {
@@ -480,10 +511,17 @@ namespace PSXRacing.EditorTools
                         if (src == null) continue;
                         int TMCellW = pl.cw, TMCellH = pl.ch;
                         cells++;
+                        {
+                            // (the cell cleared first: a stage's base picture must not show round the kit's tree)
+                            int cc = c % 4, cr = c / 4;
+                            for (int y = 0; y < TMAtlasCell; y++)
+                                for (int x = 0; x < TMAtlasCell; x++)
+                                    px[(cr * TMAtlasCell + y) * A + cc * TMAtlasCell + x] = new Color32(0, 0, 0, 0);
+                        }
                         // the tree stood in its cell: its foot on the cell's foot, its top just under the cell's,
                         // its trunk on the cell's middle; a conifer's cell is drawn onto a card 0.62 as wide as
                         // it is tall (CityTrees.CardWidth), so its picture is that much wider here
-                        bool conifer = c >= 12 && c <= 14;
+                        bool conifer = cellTrees == TMCellTrees && c >= 12 && c <= 14;
                         float treeH = pl.yHi - Mathf.Max(0f, pl.yLo), treeW = 2f * pl.halfW;
                         float mPerPxY = treeH / (TMAtlasCell * 0.98f);
                         float mPerPxX = mPerPxY * (conifer ? 0.62f : 1f);
@@ -506,21 +544,21 @@ namespace PSXRacing.EditorTools
                     TMDilate(px, A, A, TMAtlasCell);
                     var tex = new Texture2D(A, A, TextureFormat.RGBA32, false);
                     tex.SetPixels32(px); tex.Apply();
-                    path = TMDir + "/cityatlas_" + pathOf.Count + ".png";
+                    path = TMDir + "/" + stem + pathOf.Count + ".png";
                     File.WriteAllBytes(Path.Combine(Directory.GetParent(Application.dataPath).FullName, path), tex.EncodeToPNG());
                     Object.DestroyImmediate(tex);
                     pathOf[sig] = path;
-                    Log($"Tree match: city card atlas {path} for dress {Seasons.DressNames[d]}: {cells} of 16 cells from the kit's own trees");
+                    Log($"Tree match: card atlas {path} for dress {Seasons.DressNames[d]}: {cells} of 16 cells from the kit's own trees");
                 }
             }
             AssetDatabase.Refresh();
             for (int d = 0; d < 5; d++)
             {
-                string sig = "";
+                string sig = (baseOfDress != null ? baseOfDress(d) : "") + "|";
                 for (int c = 0; c < 16; c++)
                 {
                     TMPlan pl = null;
-                    foreach (var nm in TMCellTrees[c]) if (tmPlanOf.TryGetValue(nm, out pl)) break;
+                    if (cellTrees[c] != null) foreach (var nm in cellTrees[c]) if (tmPlanOf.TryGetValue(nm, out pl)) break;
                     sig += (pl != null ? pl.sheetKey[d] : "-") + "|";
                 }
                 if (pathOf.TryGetValue(sig, out string path) && path != null) outTex[d] = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -660,10 +698,12 @@ namespace PSXRacing.EditorTools
                     var names = new List<string>();
                     foreach (var v in f.variants) names.Add(v != null && v.lods != null && v.lods.Length > 0 && v.lods[0] != null ? v.lods[0].name : "variant");
                     int n = PSXRacingBuilder.TreeMatchKit(f.variants, names, "stage", f.leafByDress, false);
+                    f.matchCardAtlas = PSXRacingBuilder.TMStageCardAtlas();
                     EditorUtility.SetDirty(f);
                     UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
                     bool ok = UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
-                    log.Append($"  {def.id}: {n} of {f.variants.Length} species with match cards, saved {ok}\n");
+                    int na = 0; if (f.matchCardAtlas != null) foreach (var t in f.matchCardAtlas) if (t != null) na++;
+                    log.Append($"  {def.id}: {n} of {f.variants.Length} species with match cards, the old cards' atlas in {na} dresses, saved {ok}\n");
                     if (!ok) code = 1;
                 }
             }
