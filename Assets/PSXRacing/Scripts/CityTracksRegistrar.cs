@@ -45,6 +45,14 @@ namespace PSXRacing
                     path.finishIndex = venue.FinishIndex;
                     path.dragLabel = venue.dragLabel ?? "";
                 }
+                // THE VENUE'S LAPS, not the host's: the scene was built with its own venue's lap count
+                // (UptownLoop's 1), so a hosted 2-lap circuit raced one lap under a "2 LAPS" menu line.
+                // PSX_CITY_TRACK_LAPS=0: the host scene's count, as before.
+                if (venue.loop && System.Environment.GetEnvironmentVariable("PSX_CITY_TRACK_LAPS") != "0")
+                {
+                    var rm = Object.FindAnyObjectByType<RaceManager>(FindObjectsInactive.Include);
+                    if (rm != null) rm.totalLaps = Mathf.Max(1, venue.laps);
+                }
             }
             // A SANCTIONED event's course is closed like a parade route (owner, 15:10): every road that
             // meets it shut clear of the race line. Not in a street race, not in free roam.
