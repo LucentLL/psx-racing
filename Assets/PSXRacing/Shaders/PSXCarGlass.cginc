@@ -370,9 +370,9 @@ void PSXWheelRash(inout float3 albedo, float3 bpos, float3 bnrm, float2 uv, floa
     float rho = length(bpos.yz);
     if (rho < R * 0.45) return;
     float ang = atan2(bpos.z, bpos.y);
-    float half = amt < 0.5 ? 0.5 : (amt < 0.84 ? 1.3 : 3.3);
+    float arcHalf = amt < 0.5 ? 0.5 : (amt < 0.84 ? 1.3 : 3.3);
     float da = abs(atan2(sin(ang - _PSXWheelRash.y), cos(ang - _PSXWheelRash.y)));
-    float arc = 1.0 - smoothstep(half * 0.75, half, da + (GlsN1(ang * 9.0 + seed * 5.0) - 0.5) * 0.25);
+    float arc = 1.0 - smoothstep(arcHalf * 0.75, arcHalf, da + (GlsN1(ang * 9.0 + seed * 5.0) - 0.5) * 0.25);
     if (arc < 0.01) return;
     float isTyre = step(0.25, GlsIsGlass(albedo));
     float st = GlsN2(float2(ang * 46.0 + seed * 3.0, rho * 260.0));
