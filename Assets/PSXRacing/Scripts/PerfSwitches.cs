@@ -131,9 +131,9 @@ namespace PSXRacing
 
         /// <summary>See the class comment; PSX_..=0 = as PC48. Players only: in the editor the
         /// pipeline asset is a file, and a flag changed in play mode could be saved into it.</summary>
-        public static bool LeanOutput = Env("PSX_LEAN_OUTPUT", false);
-        public static bool AODriverOnly = Env("PSX_AO_DRIVER_ONLY", false);
-        public static bool CopiesOnDemand = Env("PSX_COPIES_ON_DEMAND", false);
+        public static bool LeanOutput = Env("PSX_LEAN_OUTPUT", true);
+        public static bool AODriverOnly = Env("PSX_AO_DRIVER_ONLY", true);
+        public static bool CopiesOnDemand = Env("PSX_COPIES_ON_DEMAND", true);
         /// <summary>Measuring only (the perf tour's probe): no ambient occlusion at all.</summary>
         public static bool AOOff;
 

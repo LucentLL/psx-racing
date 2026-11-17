@@ -87,10 +87,12 @@ namespace PSXRacing
         /// No shader change: PSX/Lit already carries the per-material ZTest /
         /// ZWrite / ColorMask and the early return (the city skyline's draws).
         /// Same picture; the forest's cutout triangles are drawn twice.
-        /// PSX_FOREST_PREPASS=1 turns it on (default OFF until measured);
-        /// a perf tour's probe flips it inside one run (set:MeshForest.DepthPre:1).
+        /// ON by default (measured 2026-11-16: -5.5 ms of a 24.7 ms frame at Lake
+        /// Lure, the pair of lossless frames identical); PSX_FOREST_PREPASS=0 = the
+        /// single draw as before. A perf tour's probe flips it inside one run
+        /// (set:MeshForest.DepthPre:0).
         /// </summary>
-        public static bool DepthPre = System.Environment.GetEnvironmentVariable("PSX_FOREST_PREPASS") == "1";
+        public static bool DepthPre = System.Environment.GetEnvironmentVariable("PSX_FOREST_PREPASS") != "0";
         /// <summary>The pre-pass's queue, relative to the cutout's own.</summary>
         const int PreQueueStep = -1;
         RenderParams[] cmdRpDepth, cmdRpEq;     // a cutout draw's depth-only twin, and its colour draw against that depth
