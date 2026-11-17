@@ -121,6 +121,8 @@ sampler2D _CameraOpaqueTexture;        // URP's copy of the frame after the sky 
 #define HD_SSR_EDGE        0.06
 #define HD_SSR_SMOOTH      0.30     // the march reads the ripples at this share (a steadier mirror)...
 #define HD_SSR_WOBBLE      0.035    //   ...and they wobble what it found by this much of the frame
+#define HD_ENV_GAIN        0.85     // the world round the car (CarReflections' panorama) where the mirror finds nothing
+#define HD_ENV_LOD         0.5      //   on screen, this much softer than the sky would be
 #define HD_SSR_BLUR        0.022    // rough water mirrors its banks BLURRED (this share of the frame at rough 1),
                                     //   never the sky instead: the march's rough cut-off showed the Bat Cave river in
                                     //   rain as a pale sheet (the bright overcast horizon) - the owner's complaint
@@ -616,6 +618,13 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     float3 skyRefl = PSXSkyIn(R, skyLod) * (REFLECT_GAIN * adapt);
     float3 reflToned = PSXTone(skyRefl);
     float3 skyToned = reflToned;
+    // THE WORLD ROUND THE CAR where the mirror finds nothing on screen (part
+    // B): the panorama CarReflections draws from the car's roof (_PSXEnvPano,
+    // already toned, as the car paint reads it) instead of the bare sky - a
+    // river in a wooded gorge mirrors its dark banks and the ridges above it
+    // (off the top of the frame), not the bright overcast horizon: the Bat
+    // Cave river in rain was a pale sheet. The sky without it (REFLECTIONS off).
+    [branch] if (_PSXEnvOn > 0.5) reflToned = PSXEnvIn(R, skyLod + HD_ENV_LOD) * HD_ENV_GAIN;
     float reflEmit = 0.0;
     float dbgConf = 0.0;
     // THE WORLD IN IT, except looking steeply down into the water (item 14:

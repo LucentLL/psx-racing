@@ -131,6 +131,9 @@ namespace PSXRacing.EditorTools
             int hour = HourIndex(hourName);
             PlaceCar(car, d.road, d.fwd);
             CarLightsFor(car, hour);
+            // the world round the car, as the game keeps it (REFLECTIONS on):
+            // the paint and the HD water's misses read it
+            if (car != null) CarReflections.CaptureNow(car.transform, cam);
             string cond = (rain ? (hourName.ToUpperInvariant() == "NIGHT" ? "night_rain" : "rain") : hourName.ToLowerInvariant());
             Vector3 right = Vector3.Cross(Vector3.up, d.fwd).normalized;
             string over = float.IsNaN(d.waterY) ? "" : $", {d.road.y + DriverEyeM - d.waterY:0.0} m over the water";
