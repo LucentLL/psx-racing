@@ -498,12 +498,117 @@ namespace PSXRacing
             return b;
         }
 
+        /// <summary>
+        /// THE CENSUS (&amp;census=1): what stands inside a view, counted from the
+        /// scene itself - every enabled MeshRenderer and SkinnedMeshRenderer
+        /// whose bounds touch the view's frustum, with its mesh's triangles -
+        /// by layer and by top-level object, and the heaviest renderers. For
+        /// the driver's camera (its own far plane and per-layer distances) and
+        /// for the car-reflection probe's six 90-degree views (220 m), whose
+        /// cost no counter splits. It does not see what is drawn without a
+        /// renderer (the mesh forest's and the city trees' indirect lists).
+        /// </summary>
+        string Census(Camera cam)
+        {
+            var sb = new StringBuilder();
+            var meshTris = new Dictionary<Mesh, int>();
+            int Tris(Mesh m)
+            {
+                if (m == null) return 0;
+                if (meshTris.TryGetValue(m, out int t)) return t;
+                long n = 0;
+                for (int s = 0; s < m.subMeshCount; s++) n += m.GetIndexCount(s) / 3;
+                meshTris[m] = (int)n;
+                return (int)n;
+            }
+            var rends = new List<(Renderer r, int tris, int mats)>();
+            foreach (var r in FindObjectsByType<Renderer>(FindObjectsSortMode.None))
+            {
+                if (r == null || !r.enabled || r.forceRenderingOff || !r.gameObject.activeInHierarchy) continue;
+                Mesh m = null;
+                if (r is MeshRenderer) { var mf = r.GetComponent<MeshFilter>(); m = mf != null ? mf.sharedMesh : null; }
+                else if (r is SkinnedMeshRenderer smr) m = smr.sharedMesh;
+                else continue;
+                int t = Tris(m);
+                if (t > 0) rends.Add((r, t, r.sharedMaterials.Length));
+            }
+            string Root(Transform t)
+            {
+                // the top-level object, and one level under a streamed or generated parent
+                var chain = new List<string>();
+                for (var x = t; x != null; x = x.parent) chain.Add(x.name);
+                chain.Reverse();
+                return chain.Count > 1 ? chain[0] + "/" + chain[1] : chain[0];
+            }
+            void View(string title, Matrix4x4[] vps, Vector3 eye, float[] layerFar, int mask, int views)
+            {
+                var byLayer = new long[32]; var byLayerN = new int[32]; var byLayerMats = new int[32];
+                var byRoot = new Dictionary<string, long>();
+                var top = new List<(long tris, string name, float dist, int layer)>();
+                var planes = new Plane[6];
+                long all = 0; int allN = 0, allMats = 0;
+                foreach (var vp in vps)
+                {
+                    GeometryUtility.CalculateFrustumPlanes(vp, planes);
+                    foreach (var e in rends)
+                    {
+                        int layer = e.r.gameObject.layer;
+                        if ((mask & (1 << layer)) == 0) continue;
+                        var b = e.r.bounds;
+                        if (!GeometryUtility.TestPlanesAABB(planes, b)) continue;
+                        float dist = Mathf.Sqrt(b.SqrDistance(eye));
+                        if (layerFar != null && layerFar[layer] > 0f && dist > layerFar[layer]) continue;
+                        all += e.tris; allN++; allMats += e.mats;
+                        byLayer[layer] += e.tris; byLayerN[layer]++; byLayerMats[layer] += e.mats;
+                        string root = Root(e.r.transform);
+                        byRoot.TryGetValue(root, out long was); byRoot[root] = was + e.tris;
+                        top.Add((e.tris, e.r.name + " <" + root + ">", dist, layer));
+                    }
+                }
+                sb.AppendLine($"{title}: {all / (float)views / 1e6f:0.00} M triangles, {allN / (float)views:0} renderers, {allMats / (float)views:0} material slots a view ({views} view(s))");
+                for (int l = 0; l < 32; l++)
+                    if (byLayerN[l] > 0) sb.AppendLine($"   layer {l,2} {LayerMask.LayerToName(l),-14} {byLayer[l] / (float)views / 1e6f,6:0.000} M tris  {byLayerN[l] / (float)views,6:0} renderers  {byLayerMats[l] / (float)views,6:0} slots");
+                var roots = new List<KeyValuePair<string, long>>(byRoot);
+                roots.Sort((a, b) => b.Value.CompareTo(a.Value));
+                for (int i = 0; i < roots.Count && i < 14; i++) sb.AppendLine($"   under {roots[i].Key,-44} {roots[i].Value / (float)views / 1e6f,6:0.000} M tris a view");
+                top.Sort((a, b) => b.tris.CompareTo(a.tris));
+                for (int i = 0; i < top.Count && i < 12; i++) sb.AppendLine($"   heavy {top[i].tris / 1e3f,7:0.0} k  {top[i].dist,5:0} m  layer {top[i].layer,2}  {top[i].name}");
+            }
+            // the driver's view
+            View("DRIVER'S VIEW (far " + cam.farClipPlane.ToString("0") + " m)", new[] { cam.projectionMatrix * cam.worldToCameraMatrix },
+                 cam.transform.position, cam.layerCullDistances, cam.cullingMask, 1);
+            // the reflection probe's six views from the car's roof
+            if (car != null)
+            {
+                Vector3 eye = car.transform.position + car.transform.up * 1.15f;
+                var proj = Matrix4x4.Perspective(90f, 1f, 0.3f, 220f);
+                var dirs = new[] { Vector3.right, Vector3.left, Vector3.up, Vector3.down, Vector3.forward, Vector3.back };
+                var ups = new[] { Vector3.up, Vector3.up, Vector3.back, Vector3.forward, Vector3.up, Vector3.up };
+                var vps = new Matrix4x4[6];
+                for (int i = 0; i < 6; i++)
+                {
+                    var view = Matrix4x4.TRS(eye, Quaternion.LookRotation(dirs[i], ups[i]), Vector3.one).inverse;
+                    view.SetRow(2, -view.GetRow(2));   // a view matrix looks down -z
+                    vps[i] = proj * view;
+                }
+                View("REFLECTION PROBE (six views, 220 m), average of the six", vps, eye, null, cam.cullingMask & ~((1 << 5) | (1 << 1)), 6);
+            }
+            return sb.ToString();
+        }
+
         /// <summary>The probe at the place the car is (parked, or driven by
         /// the AI the caller attached). <paramref name="id"/> names the files.</summary>
         IEnumerator Probe(string id)
         {
             var cam = Camera.main;
             if (cam == null) { Say("PROBE " + id + ": no main camera"); yield break; }
+            if ((Request() ?? "").Contains("census=1"))
+            {
+                string cs = "";
+                try { cs = Census(cam); } catch (System.Exception e) { cs = "census failed: " + e.Message; }
+                Post(id + "_census.txt", cs);
+                Say("CENSUS " + id + " written");
+            }
             // &onscreen=1: the frame as the window draws it (every camera, the display's blit, the present),
             // measured by its own time and Unity's GPU time - no texture, no wait. A switch then shows on
             // whichever of the main thread and the GPU bounds the frame.
