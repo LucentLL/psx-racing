@@ -550,6 +550,13 @@ Shader "PSX/CarPaint"
             #include "PSXSkyReflect.cginc"
             #include "PSXCarDrops.cginc"
             #include "PSXCarDamage.cginc"   // R1a part 2a: the hit on the body (DamageLook)
+            // DAMAGE ROUND 2: the panes and the lenses that read as broken, the wheels' rash (PSXCarGlass.cginc)
+            #ifdef PSX_CAR_HD
+            #define PSX_CAR_TAP(uvq, dx, dy) (tex2Dgrad(_MainTex, uvq, dx, dy).rgb * _Color.rgb)
+            #else
+            #define PSX_CAR_TAP(uvq, dx, dy) (PSXTexDecode(tex2Dgrad(_MainTex, uvq, dx, dy).rgb, _MainTexRaw) * _Color.rgb)
+            #endif
+            #include "PSXCarGlass.cginc"
             // The sun's shadow map and the sun in the haze (the DAY PASS,
             // 2026-09-21: PSXSunShadow.cginc). A car under an avenue is
             // dappled with the road it is on, and one in a tunnel is lit by
@@ -708,11 +715,25 @@ Shader "PSX/CarPaint"
             #endif
                 // R1a PART 2a: THE HIT ON THE BODY (PSXCarDamage.cginc; 0 on a car never hit)
                 float dmgAlive = 1.0, dmgMatte = 0.0;
+                // DAMAGE ROUND 2: glsFlat = the mirror a break took, glsCave = the cabin through a hole
+                float glsFlat = 0.0, glsCave = 0.0;
+                float2 uvD = i.uvw.xy / i.uvw.z;
+                float3 dbx = ddx(i.bpos), dby = ddy(i.bpos);
+                float2 uvDx = ddx(uvD), uvDy = ddy(uvD);
                 if (_PSXDmgOn > 0.5)
                 {
                     float3 dmgCol = tex.rgb;
                     dmgAlive = PSXCarDamage(dmgCol, N, dmgMatte, i.bpos, i.bnrm, i.uvw.xy / i.uvw.z, _Dull);
+                    if (_PSXGlsOn > 0.5)
+                        PSXCarGlass2(dmgCol, N, glsFlat, glsCave, i.bpos, i.bnrm, uvD, dbx, dby, uvDx, uvDy,
+                                     i.wpos - _WorldSpaceCameraPos);
                     tex.rgb = dmgCol;
+                }
+                if (_PSXWheelRash.x > 0.001)
+                {
+                    float3 rashCol = tex.rgb;
+                    PSXWheelRash(rashCol, i.bpos, i.bnrm, uvD, dbx, dby, uvDx, uvDy);
+                    tex.rgb = rashCol;
                 }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wpos);
                 float3 L = normalize(_PSXLightDir.xyz);
@@ -733,6 +754,7 @@ Shader "PSX/CarPaint"
                 // texels in this band (32), on a wheel that is dulled anyway.
                 float matte = step(abs(tex.a - 0.5), 0.1);
                 glass *= 1.0 - matte;
+                glass *= 1.0 - glsFlat;   // a crack, crazed glass, a hole: no mirror
                 float dull = _Dull;
 
                 // THE ONE LIGHT. A hemisphere ambient — the sky's colour from
@@ -805,6 +827,9 @@ Shader "PSX/CarPaint"
                 // the sun is full on it.
                 float3 light = SUN_KNEE * (1.0 - exp(-rawLight / SUN_KNEE));
                 float3 lit = tex.rgb * lerp(light, float3(1, 1, 1), _Emission);
+                // the cabin through a hole: its own dim light, never the sun on the pane
+                if (glsCave > 0.0)
+                    lit = lerp(lit, tex.rgb * min(light, (amb * 1.6 + (headD + lampD * LAMP_PAINT) * 0.4) * expo), glsCave);
 
                 // THE WORLD IN THE LACQUER: four percent face-on, half at the
                 // silhouette (Schlick), more on the glass, a tenth of it on a
@@ -945,6 +970,9 @@ Shader "PSX/CarPaint"
                 lampGlint = lerp(lampGlint, imgTop.xxx, IMG_WHITE * smoothstep(1.0, 4.0, imgTop));
                 hi += lampGlint;
 
+                k *= 1.0 - glsFlat;
+                refl *= 1.0 - glsFlat;
+                hi *= 1.0 - glsFlat * 0.6;
                 float3 col = lit * (1.0 - k) + refl + hi;
 
                 // THE RAIN AND SNOW ON THE BODY (PSXCarDrops.cginc). Water is

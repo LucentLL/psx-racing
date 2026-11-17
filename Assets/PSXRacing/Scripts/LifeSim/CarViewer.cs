@@ -590,6 +590,8 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The turntable's body (tests and the picture tools).</summary>
         public Renderer BodyRenderer => bodyRenderer;
+        /// <summary>The turntable's wheels, FL FR RL RR (tests and the picture tools).</summary>
+        public Renderer WheelRenderer(int i) => wheelRenderers[Mathf.Clamp(i, 0, 3)];
         /// <summary>The turntable's own 320 x 200 frame (the picture tools).</summary>
         public RenderTexture Picture => rt;
         /// <summary>Where the shown car's own origin (between its axles, on the
@@ -605,7 +607,7 @@ namespace PSXRacing.LifeSim
         public void Dress(OwnedCar car)
         {
             if (Shown == null || rig == null || bodyRenderer == null) return;
-            DamageView.Dress(rig, bodyRenderer, Shown, shownFit, shownSlide, car);
+            DamageView.Dress(rig, bodyRenderer, Shown, shownFit, shownSlide, car, wheelRenderers);
         }
 
         void PlaceCamera()

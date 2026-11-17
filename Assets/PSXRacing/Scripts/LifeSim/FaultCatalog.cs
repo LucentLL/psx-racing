@@ -103,6 +103,9 @@ namespace PSXRacing.LifeSim
                 hitRows.Add(new PoolEntry { origin = fam, id = "lamp_out", name = "Lamp Broken", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 90, days = 1, add = 0 });
                 hitRows.Add(new PoolEntry { origin = fam, id = "radiator_leak", name = "Radiator Leaking", stat = "engine", type = "mechanic", minTier = "new", sources = "impact", cost = 260, days = 1, add = 0 });
                 hitRows.Add(new PoolEntry { origin = fam, id = "exhaust_damage", name = "Exhaust Damaged", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 130, days = 1, add = 5 });
+                // damage round 2: a wheel's curb rash, one row per wheel (WheelScuff: a refinish, or a wheel at stage 3)
+                foreach (var wid in WheelScuff.Ids)
+                    hitRows.Add(new PoolEntry { origin = fam, id = wid, name = "Wheel Curb Rash", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 110, days = 1, add = 0 });
                 hitRows.Add(new PoolEntry { origin = fam, id = "roof_glass", name = "Roof / Glass Damage", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 480, days = 2, add = 15 });
                 // R1a part 2a: the bags a frontal hit fired (SrsBag) - bag, module and clock spring, Delmar's set price (design §8)
                 hitRows.Add(new PoolEntry { origin = fam, id = "srs_deployed", name = "Airbag Deployed", stat = "hp", type = "mechanic", minTier = "new", sources = "impact", cost = 1320, days = 2, add = 0 });
@@ -121,6 +124,9 @@ namespace PSXRacing.LifeSim
             foreach (var hid in DamageModel.RowIds)
                 if (!effectById.ContainsKey(hid))
                     effectById[hid] = new EffectEntry { id = hid, desc = DamageHomes.EffectText(hid) ?? "" };
+            foreach (var wid in WheelScuff.Ids)   // damage round 2
+                if (!effectById.ContainsKey(wid))
+                    effectById[wid] = new EffectEntry { id = wid, desc = DamageHomes.EffectText(wid) ?? "" };
         }
 
         static List<PoolEntry> hitRows = new List<PoolEntry>();
