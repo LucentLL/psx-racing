@@ -570,6 +570,16 @@ namespace PSXRacing
             return Mathf.Clamp01(1f - c.remaining / TotalM);
         }
         public float Odometer(CarController car) { var c = Of(car); return c != null ? c.odometer : 0f; }
+        /// <summary>The play check's -Laps (Editor only): the circuit's laps, and the ruler with them.</summary>
+        public void SetLaps(int laps) { rm.totalLaps = Mathf.Max(1, laps); TotalM = Loop ? LapM * rm.totalLaps : LapM; }
+        /// <summary>The remaining distance measured NOW (a fresh locate): the harness's reset test.</summary>
+        public float MeasureNow(CarController car)
+        {
+            var c = Of(car); if (c == null) return -1f;
+            c.loc.valid = false; c.nextLocate = 0f; c.pathHint = -1;
+            float rg = RemainingToGate(c, car.transform.position);
+            return rg + LegsAfter(c);
+        }
         public bool PlayerWrongWay { get { var c = Of(rm != null ? rm.playerCar : null); return c != null && c.wrongWay; } }
 
         /// <summary>The gate number the HUD shows for gate index k (circuits: 1..N with the lap line last).</summary>
@@ -691,6 +701,13 @@ namespace PSXRacing
         {
             var c = Of(car);
             if (c == null) return;
+            // the player first (even on the harness's autopilot): the graph under him, never forward
+            if (c.isPlayer && RespawnPlayer(c))
+            {
+                c.sweptFrom = car.transform.position; c.loc.valid = false; c.pathHint = -1;
+                if (c.planner != null) c.planner.OnRespawned();
+                return;
+            }
             if (c.planner != null && c.planner.Path != null && c.planner.Path.Routed)
             {
                 // an AI: back on its own road, then a fresh plan from there
@@ -701,7 +718,6 @@ namespace PSXRacing
                 c.planner.OnRespawned();
                 return;
             }
-            if (c.isPlayer && RespawnPlayer(c)) { c.sweptFrom = car.transform.position; c.loc.valid = false; return; }
             int idx = rm.path.NearestIndex(car.transform.position, rm.GetProgress(car)?.nearestIdx ?? -1);
             rm.RespawnOn(car, rm.path, idx);
             c.sweptFrom = car.transform.position; c.loc.valid = false;

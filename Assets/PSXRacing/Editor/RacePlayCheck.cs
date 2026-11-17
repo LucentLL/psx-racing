@@ -366,6 +366,15 @@ namespace PSXRacing.EditorTools
             // backwards down Chimney Rock at 15 km/h ("WRONG WAY RX-7 Player").
             // The builder sets this false on every AI car for the same reason.
             car.allowReverse = false;
+            // A CHECKPOINT RACE (PSX_CP_RACES): the autopilot routes like the rivals, and the gates are watched
+            // PSX_RACE_LAPS=n (race-play-check -Laps): a circuit's laps for this run (Editor only)
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_LAPS") ?? "", out int lapsN) && lapsN > 0 && !rm.path.HasEnds)
+            {
+                rm.totalLaps = lapsN;
+                if (rm.Checkpoints != null) rm.Checkpoints.SetLaps(lapsN);
+                RacePlayCheck.Note("  laps forced to " + lapsN);
+            }
+            if (rm.Checkpoints != null) CheckpointRaceWatch.Begin(rm, car);
 
             // PSX_RACE_MISTAKE=0.3: hand every rival a driver error at that
             // fraction of the race (AIDriver.PlanMistake), to see what one does.
@@ -430,6 +439,8 @@ namespace PSXRacing.EditorTools
                         RacePlayCheck.Note($"FINISHED {c.name}{(c == car ? " (player, autopilot)" : "")} at {Time.time - t0:0}s");
                     }
                     if (p.finished || p.retired) continue;
+                    // a checkpoint race judges wrong way on each car's own road (CheckpointRaceWatch)
+                    if (rm.Checkpoints != null) continue;
                     // Wrong way: moving, nose against the road's direction.
                     Vector3 vel = c.Body != null ? Vector3.ProjectOnPlane(c.Body.linearVelocity, Vector3.up) : Vector3.zero;
                     if (vel.sqrMagnitude < 9f) continue;
@@ -484,6 +495,7 @@ namespace PSXRacing.EditorTools
             RaceManager.Respawned -= OnRespawn;
             // The eye's adaptation is a picture's: with no device and the
             // cameras off there is nothing to adapt to.
+            CheckpointRaceWatch.End(toFinish);
             if (headless) RacePlayCheck.Note("THE EYE (C10): not traced (no graphics device; cameras off)");
             else ReportEye();
             float raced = Time.time - t0;

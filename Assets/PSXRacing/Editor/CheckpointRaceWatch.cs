@@ -1,0 +1,255 @@
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+
+namespace PSXRacing.EditorTools
+{
+    /// <summary>
+    /// RacePlayCheck's CHECKPOINT MODE (DESIGN_v2 9.3, stage 1). Started by the play check when the race is a
+    /// checkpoint race: the player's autopilot gets the same AIRoutePlanner the rivals have, and this watches every
+    /// frame:
+    /// - every gate pass, per car, in order (a gate log with times); MISSED raised; the player's WRONG WAY;
+    /// - positions against remaining distance (outside the 4 m tie band) and position FLICKER (a swap that reverses
+    ///   within 0.5 s);
+    /// - each car's progress: a fall of 30 m or more with no cause (respawn, MISSED) is logged and fails;
+    /// - AI wrong way against its OWN road; the finishers' run-out past the flag;
+    /// then asserts at the end. PSX_CP_TEST=reset: a forced reset of the player mid-leg (no gain allowed).
+    /// PSX_RACE_LAPS=n: the circuit's laps (Editor only).
+    /// </summary>
+    public static class CheckpointRaceWatch
+    {
+        static RaceManager rm;
+        static CheckpointRace cp;
+        static CarController player;
+        static float t0;
+        static readonly Dictionary<CarController, List<string>> gateLog = new Dictionary<CarController, List<string>>();
+        static readonly Dictionary<CarController, List<int>> gateSeq = new Dictionary<CarController, List<int>>();
+        static readonly Dictionary<CarController, int> misses = new Dictionary<CarController, int>();
+        static readonly Dictionary<CarController, float> lastProgress = new Dictionary<CarController, float>();
+        static readonly Dictionary<CarController, float> lastCause = new Dictionary<CarController, float>();
+        static readonly Dictionary<CarController, float> aiWrong = new Dictionary<CarController, float>();
+        static readonly Dictionary<CarController, int> lastPos = new Dictionary<CarController, int>();
+        static readonly Dictionary<(CarController, CarController), float> swapAt = new Dictionary<(CarController, CarController), float>();
+        static int flicker, disagree, unexplainedFalls, samples;
+        static float playerWrongS, worstAiWrong; static string worstAiWrongWho = "";
+        static readonly StringBuilder notes = new StringBuilder();
+        static bool resetDone; static string resetResult = "";
+        static float sampleNext;
+        public static bool Active => cp != null;
+
+        public static void Begin(RaceManager race, CarController autopilotCar)
+        {
+            rm = race; cp = race != null ? race.Checkpoints : null; player = autopilotCar;
+            gateLog.Clear(); gateSeq.Clear(); misses.Clear(); lastProgress.Clear(); lastCause.Clear(); aiWrong.Clear();
+            lastPos.Clear(); swapAt.Clear();
+            flicker = disagree = unexplainedFalls = samples = 0; playerWrongS = 0f; worstAiWrong = 0f; worstAiWrongWho = "";
+            notes.Clear(); resetDone = false; resetResult = ""; sampleNext = 0f;
+            if (cp == null) return;
+            t0 = Time.time;
+            cp.EnsurePlanner(autopilotCar);
+            CheckpointRace.GatePassed += OnGate;
+            CheckpointRace.Missed += OnMissed;
+            RaceManager.Respawned += OnRespawn;
+            var go = new GameObject("CheckpointRaceWatch");
+            Object.DontDestroyOnLoad(go);
+            go.AddComponent<CheckpointRaceWatchTick>();
+            RacePlayCheck.Note($"CHECKPOINT RACE: {cp.GateCount} gates, {(cp.Loop ? rm.totalLaps + " lap(s), lap " + cp.LapM.ToString("0") + " m" : "sprint")}, " +
+                               $"ruler {cp.TotalM:0} m, fields {cp.FieldBuildMs:0} ms; the autopilot routes like the rivals");
+        }
+
+        static void OnGate(CarController c, int gate, int n, float t)
+        {
+            if (!gateLog.TryGetValue(c, out var l)) gateLog[c] = l = new List<string>();
+            if (!gateSeq.TryGetValue(c, out var q)) gateSeq[c] = q = new List<int>();
+            l.Add(gate + "@" + t.ToString("0.0"));
+            q.Add(gate);
+        }
+        static void OnMissed(CarController c, int gate)
+        {
+            misses.TryGetValue(c, out int m); misses[c] = m + 1;
+            lastCause[c] = Time.time;
+            RacePlayCheck.Note($"MISSED CHECKPOINT {c.name}{(c == player ? " (player)" : "")} gate {gate} at {Time.time - t0:0}s");
+        }
+        static void OnRespawn(CarController c, int step, float lat) { lastCause[c] = Time.time; }
+
+        /// <summary>Every frame (CheckpointRaceWatchTick).</summary>
+        public static void Frame()
+        {
+            if (cp == null || rm == null || RaceReplay.Playing) return;
+            if (rm.State == RaceManager.RaceState.Countdown) return;
+            float now = Time.time;
+            // ---- flicker: two cars that swap places and swap back within 0.5 s
+            foreach (var c in rm.allCars)
+            {
+                if (c == null) continue;
+                var p = rm.GetProgress(c);
+                if (p == null || p.finished || p.retired) continue;
+                int pos = rm.GetPosition(c);
+                foreach (var o in rm.allCars)
+                {
+                    if (o == null || o == c) continue;
+                    var po = rm.GetProgress(o);
+                    if (po == null || po.finished || po.retired) continue;
+                    if (!lastPos.TryGetValue(c, out int lc) || !lastPos.TryGetValue(o, out int lo)) continue;
+                    int opos = rm.GetPosition(o);
+                    // c just went ahead of o
+                    if (lc > lo && pos < opos)
+                    {
+                        if (swapAt.TryGetValue((o, c), out float back) && now - back < 0.5f)
+                        { flicker++; if (flicker <= 5) RacePlayCheck.Note($"FLICKER {c.name} / {o.name} at {now - t0:0.0}s"); }
+                        swapAt[(c, o)] = now;
+                    }
+                }
+            }
+            foreach (var c in rm.allCars) if (c != null) lastPos[c] = rm.GetPosition(c);
+            // ---- progress falls
+            foreach (var c in rm.allCars)
+            {
+                if (c == null) continue;
+                var p = rm.GetProgress(c);
+                if (p == null || p.finished || p.retired) continue;
+                if (lastProgress.TryGetValue(c, out float lp) && lp - p.progress >= 30f)
+                {
+                    bool cause = lastCause.TryGetValue(c, out float tc) && now - tc < 1.5f;
+                    if (!cause)
+                    {
+                        unexplainedFalls++;
+                        RacePlayCheck.Note($"PROGRESS FELL {c.name} by {lp - p.progress:0} m at {now - t0:0.0}s (no respawn or miss)");
+                    }
+                }
+                lastProgress[c] = p.progress;
+            }
+            if (cp.PlayerWrongWay) playerWrongS += Time.deltaTime;
+            // ---- 1 Hz: positions vs remaining, AI wrong way on its own road, the reset test
+            if (now < sampleNext) return;
+            sampleNext = now + 1f;
+            samples++;
+            var running = new List<CarController>();
+            foreach (var c in rm.allCars)
+            {
+                var p = c != null ? rm.GetProgress(c) : null;
+                if (p != null && !p.finished && !p.retired) running.Add(c);
+            }
+            foreach (var a in running)
+                foreach (var b in running)
+                {
+                    if (a == b) continue;
+                    float ra = cp.RemainingToFinish(a), rb2 = cp.RemainingToFinish(b);
+                    if (rm.GetPosition(a) < rm.GetPosition(b) && ra > rb2 + 4f)
+                    {
+                        disagree++;
+                        if (disagree <= 5) RacePlayCheck.Note($"POSITION vs REMAINING: {a.name} P{rm.GetPosition(a)} {ra:0} m, {b.name} P{rm.GetPosition(b)} {rb2:0} m");
+                    }
+                }
+            foreach (var c in running)
+            {
+                if (c == player) continue;
+                var ai = c.GetComponent<AIDriver>();
+                if (ai == null || ai.path == null) continue;
+                Vector3 vel = c.Body != null ? Vector3.ProjectOnPlane(c.Body.linearVelocity, Vector3.up) : Vector3.zero;
+                if (vel.sqrMagnitude < 9f) { aiWrong[c] = 0f; continue; }
+                int i = ai.path.NearestIndex(c.transform.position);
+                if (Vector3.Angle(vel, Vector3.ProjectOnPlane(ai.path.GetTangent(i), Vector3.up)) > 110f)
+                {
+                    aiWrong.TryGetValue(c, out float w); aiWrong[c] = w + 1f;
+                    if (w + 1f > worstAiWrong) { worstAiWrong = w + 1f; worstAiWrongWho = c.name; }
+                }
+                else aiWrong[c] = 0f;
+            }
+            if (!resetDone && System.Environment.GetEnvironmentVariable("PSX_CP_TEST") == "reset" && cp.RaceFraction(player) > 0.35f)
+            {
+                resetDone = true;
+                float before = cp.MeasureNow(player);
+                rm.RespawnCar(player);
+                Physics.SyncTransforms();
+                float after = cp.MeasureNow(player);
+                resetResult = $"{before:0} m before, {after:0} m after";
+                RacePlayCheck.Note("CP RESET TEST: the player reset mid-leg: " + resetResult);
+                RacePlayCheck.Check(after >= before - 5f, "a reset never gains (remaining after >= before - 5 m)", resetResult);
+            }
+        }
+
+
+        /// <summary>The asserts, at the end of the run.</summary>
+        public static void End(bool toFinish)
+        {
+            if (cp == null) return;
+            CheckpointRace.GatePassed -= OnGate;
+            CheckpointRace.Missed -= OnMissed;
+            RaceManager.Respawned -= OnRespawn;
+            int N = cp.GateCount;
+            int expect = cp.Loop ? N * rm.totalLaps : N - 1;
+            var finishOrder = new List<RaceManager.CarProgress>();
+            foreach (var c in rm.allCars)
+            {
+                if (c == null) continue;
+                var p = rm.GetProgress(c);
+                gateSeq.TryGetValue(c, out var q);
+                misses.TryGetValue(c, out int m);
+                var pl = cp.Of(c) != null ? cp.Of(c).planner : null;
+                RacePlayCheck.Note($"CP {c.name}{(c == player ? " (player, autopilot)" : "")}: {(q != null ? q.Count : 0)} of {expect} gates" +
+                                   $"{(p != null && p.finished ? ", FINISHED " + p.finishTime.ToString("0.0") + " s" : p != null && p.retired ? ", RETIRED" : "")}, " +
+                                   $"missed {m}, odometer {cp.Odometer(c):0} m" +
+                                   (pl != null ? $", {pl.Rebuilds} plans (worst {pl.WorstBuildMs:0.0} ms), first leg edges {pl.LastSignature}" : "") +
+                                   $"; gates {(gateLog.TryGetValue(c, out var gl) ? string.Join(" ", gl) : "-")}");
+                if (p != null && p.finished) finishOrder.Add(p);
+                if (p != null && p.finished)
+                {
+                    bool inOrder = q != null && q.Count == expect;
+                    if (inOrder)
+                        for (int i = 0; i < q.Count; i++)
+                        {
+                            int want = cp.Loop ? (i + 1) % N : i + 1;
+                            if (q[i] != want) { inOrder = false; break; }
+                        }
+                    RacePlayCheck.Check(inOrder, $"{c.name} passed every gate in order", q != null ? string.Join(",", q) : "none");
+                }
+            }
+            misses.TryGetValue(player, out int pm);
+            RacePlayCheck.Check(pm == 0, "the autopilot player gets no MISSED CHECKPOINT", pm);
+            RacePlayCheck.Check(playerWrongS <= 0.01f, "the autopilot player gets no WRONG WAY", playerWrongS.ToString("0.0") + " s");
+            RacePlayCheck.Check(worstAiWrong <= 2f, "no rival drives against its own road for more than 2 s",
+                                worstAiWrong > 0f ? worstAiWrongWho + " " + worstAiWrong.ToString("0") + " s" : "none");
+            RacePlayCheck.Check(flicker == 0, "no position flicker (a swap reversed within 0.5 s)", flicker);
+            RacePlayCheck.Check(disagree == 0, "positions agree with remaining distance (outside the 4 m band, 1 Hz)", disagree + " in " + samples + " samples");
+            RacePlayCheck.Check(unexplainedFalls == 0, "no progress fall of 30 m or more without a respawn or a miss", unexplainedFalls);
+            // finish order = finish time order
+            bool ordered = true;
+            for (int i = 0; i < finishOrder.Count; i++)
+                for (int j = 0; j < finishOrder.Count; j++)
+                    if (finishOrder[i].finishTime < finishOrder[j].finishTime && rm.GetPosition(finishOrder[i].car) > rm.GetPosition(finishOrder[j].car))
+                        ordered = false;
+            RacePlayCheck.Check(ordered, "the finish order is the finish-time order", finishOrder.Count + " finishers");
+            var pp = rm.GetProgress(player);
+            if (toFinish && pp != null && pp.finished)
+            {
+                float metres = RaceHandoff.MetersDriven, route = cp.TotalM;
+                RacePlayCheck.Check(metres >= 0.9f * route && metres <= 1.4f * route,
+                                    "MetersDriven is the honest odometer (0.9-1.4 x the route)", $"{metres:0} m for a {route:0} m race");
+            }
+            // no closure, no barricade, no cone anywhere in the race
+            int props = 0;
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Include))
+            {
+                string n = t.name;
+                if (n.IndexOf("Barricade", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("Closure", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("TrafficCone", System.StringComparison.OrdinalIgnoreCase) >= 0) props++;
+            }
+            RacePlayCheck.Check(props == 0 && string.IsNullOrEmpty(CityRaceClosures.LastRoute), "no barricade, closure or cone in the race", props);
+            if (System.Environment.GetEnvironmentVariable("PSX_CP_TEST") == "reset")
+                RacePlayCheck.Check(resetDone, "the reset test ran", resetResult);
+            cp = null;
+        }
+    }
+
+    /// <summary>Drives <see cref="CheckpointRaceWatch.Frame"/> every frame (not the file's first class).</summary>
+    public class CheckpointRaceWatchTick : MonoBehaviour
+    {
+        void Update()
+        {
+            CheckpointRaceWatch.Frame();
+            if (!CheckpointRaceWatch.Active) Destroy(gameObject);
+        }
+    }
+}
