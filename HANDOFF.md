@@ -1,3 +1,102 @@
+# HANDOFF - ROAD LINES, ROUND 3 (agent "roads3", branch `charlotte-splits2`, 2026-11-17 04:50-08:10; NOT pushed, NOT merged; stopped at the owner's 08:30 stop)
+
+The owner (PC48, North Tryon): "I still see a lot of areas around Charlotte where the road and/or road lines do not make
+sense, are not accurate, and would never pass DOT requirements ... these issues cannot get through the quality gate audits."
+Sandbox PSXRoadA (WebGL), released. Scratch `scratchpad\roads3\` (PROGRESS.md the log, `NEXT.md` the note for the next
+agent, every run's outputs in `out\<tag>_*`).
+
+## THE GATE STATE (tools\city-linegate.ps1, whole city, graph b2aa3453)
+- Baseline baee68f8 (run r3base2 = mountain-nm ba49c506 drawing + the committed gate incl. b272bd4f):
+  `LINE GATE r3base2: SHIFT 2764 SJOG 2774 KINK 3231 WIDTH 630 CONT 1726 SURFACE 261 JUNCTION 657 MEDIAN 76 STEP 9671 BARRIER 1630 BRIDGE 12 | ALL 23432`
+- This branch, defaults (FANLIP on; LINEFIX, TWINS, RAILSHY, SHIFTRUN off), run r3def2 on b272bd4f: LINE GATE OK -
+  `SHIFT 2764 SJOG 2774 KINK 3231 WIDTH 630 CONT 1726 SURFACE 261 JUNCTION 657 MEDIAN 76 STEP 3951 BARRIER 1630 BRIDGE 12 | ALL 17712`
+  (every class equal but STEP -5,720: the fan lip). Commits after b272bd4f change no default drawing (all behind OFF
+  switches) and two gate rules that only pass more (the TWLTL hand-over; the twin frame, which touches no default edge).
+- LINEFIX everywhere (r3lfA): `SHIFT 2678 SJOG 2753 KINK 3236 WIDTH 503 CONT 1566 SURFACE 261 JUNCTION 658 MEDIAN 77 STEP 3950 BARRIER 1627 BRIDGE 13 | ALL 17322`
+  - raises KINK +5, JUNCTION +1, MEDIAN +1, BRIDGE +1 -> LineFixSkipEdges (35 edges) made from it, NOT yet verified.
+- LINEFIX + every tight twin (r3twB, smoothing + twin frame): `SHIFT 2963 SJOG 2779 KINK 3262 WIDTH 507 CONT 1614 SURFACE 297 JUNCTION 653 MEDIAN 86 STEP 3953 BARRIER 1630 BRIDGE 13 | ALL 17757`
+  - per pair: 6 of 143 twins raise no class in their region; North Tryon's fork n3158 does (SHIFT 3 -> 5, SJOG 1 -> 2).
+
+## What I found
+1. The baseline was stale for the committed gate: linegate recorded full4 (gate 416dd3b7), then committed b7f92df4 (an
+   S-jog of 75 deg+ and back within 12 m is a gore's hairpin: passed). Those SJOGs had absorbed 128 SHIFT rows at the same
+   places (LgFinish: "a SHIFT inside an SJOG of the same line is the jog's own leg") - they count again: SHIFT +61 on any
+   code. Row by row full4 -> r3base differ ONLY in those rows.
+2. The place count was not deterministic: LgFinish clustered places after an unstable List.Sort by visibility, so ties
+   fell in an order set by OTHER classes' rows (the branch removed only STEP rows; JUNCTION 656 -> 657 with every
+   JUNCTION row identical). Fixed b272bd4f.
+3. LINEFIX + TWINS vs the defaults (r3lt2): every class away from the tight twins went DOWN (SHIFT 2720 -> 2526, SJOG
+   2762 -> 2589, KINK 3228 -> 3146, CONT 1725 -> 1542, WIDTH 630 -> 491, JUNCTION 657 -> 630); every rise sat at a twin
+   (cause "refuge-shift"). The 143 tight twins are not all North Tryon's kind: roundabout legs (Old Dowd Rd), short
+   splits at junctions, curved pairs (`sheet_tw.jpg`); the push was tuned at one. Smoothing the drawn line did not save
+   them: 137 of 143 still raise a class in their own region (SHIFT 117, CONT 54, SJOG 53, KINK 46, STEP 35, SURFACE 34...).
+4. North Tryon's fork with every fix (r3twB): places 14 -> 11 in its region, but at the fork e15583 the WB outer
+   right-turn lane opens 2.1-3.2 m in 9 m (the bay taper from the fork, CityMeshes / LineModel.TwinOuterLane, steeper
+   than its 15:1) and the far end n3168 (e9593 s157, e9597 s0-10) shifts 4-6 m in 9-18 m. Those are the faults left.
+5. CONT "line ends at a joint" (+177 with LINEFIX) was the gate's error: at a TWLTL -> exclusive left-turn lane hand-over
+   the TWLTL's near-side solid + broken yellow end and a solid WHITE line takes over (MUTCD 2009 3B.03 P03, 3B.04 P25,
+   Figure 3B-7); the gate joined a line only to its own colour (CityAudit.LineGate.cs LgLinkJoints Nearest). 428 such
+   joints with LINEFIX; 12 random ones on frames, all the Figure 3B-7 pattern.
+6. A tight twin's SHIFT in its OWN mapped frame read the mapped fan as a move ("the solid yellow line moves 9.68 m in 21 m"
+   where the drawn lines run straight): now read from the middle of the pair's mapped lines (486 readings passed in r3twB).
+7. LINEFIX's own rises (r3lfA): Mallard Creek Rd e3120, a 48 m BRIDGE piece the lane fit made five lanes (tagged centre
+   turn lane) between four-lane approaches; new solid bay / hand-over white lines that now sample map vertices the
+   broken lines skipped (Mount Holly-Huntersville, Bellhaven); three junction deflections (E Morehead, E 7th, Oakdale);
+   two curbs (Poplar Crossing Dr NW, Parkwood Ave).
+8. e14081 (North Tryon east of Dorton St, behind his pose): OSM WB 3 -> 3 + a left bay into Dorton St (not in the game
+   graph) on a 28.7 m piece between a 5-lane and the 7-lane piece; with LINEFIX the 7 -> 6 change at Dorton shifts e14081's
+   lines 1.83 m in 28.7 m (SJOG 17 deg). PSX_CITY_SHIFTRUN (the shift runs on through the next joint) made it 11.5 deg
+   and put a 5.49 m SHIFT on e14079: not a fix, left OFF. Needs the real cross-section east of Dorton (aerial) first.
+9. H4 / Uptown Loop (rivals "HARD into Ground" at 39-51 m/s on I-277 e1832 between two decks): the ground probe (gp1:
+   game colliders, rays down every 1 m x 0.5 m across e9697 / e1832 / e2421) finds NO Ground face over or within 1 cm of the
+   road anywhere; the top face is the road everywhere but the parapet at the edges. The wall test (rays along the lanes
+   at bumper heights across each deck end, gp2): <see the hand-back / NEXT.md>.
+10. BARRIER (1,630): every street bridge parapet / retaining-wall rail / W-beam on a marked street stands with its face
+    RailW (0.3 m) inside the drawn edge (CityMeshes.EmitRail) - on the edge line's outer paint (6 cm from its centre) on a
+    0.3 m street shoulder. A Jersey barrier's face is at the edge.
+
+## What changed (commits)
+- d73f6f8a merge mountain-nm ba49c506.
+- b272bd4f gate: deterministic place order. 05cda1f8, baee68f8: the baseline re-recorded ALONE (cherry-pick b272bd4f, then
+  05cda1f8 + baee68f8 or baee68f8's file whole).
+- 241cff9c gate rule: the TWLTL hands over to a turn lane (MUTCD cites, proof `linegate_twltl_handover_proof.jpg`).
+- 9eff375f gate rule: the tight twin's frame (no default edge; proof job s3).
+- 529da05d, 47110185 tight twins: coarse look (cost), the drawn line smoothed in the world (PSX_CITY_TWINSMOOTH), the TWIN
+  LIST (PSX_CITY_TWINS builds only listed pairs; PSX_CITY_TWINLIST=0 all) and the LINEFIX SKIP LIST
+  (PSX_CITY_LINEFIXLIST=0 all) in LineModel.TwinList.cs (+ .meta), keyed by graph b2aa3453.
+- d86d2f0f PSX_CITY_RAILSHY (OFF): a rail whose side's nearest line is under 0.36 m from the drawn edge steps out up to
+  RailW so its face stands at the edge; the overpass sign fascia follows. Frames rs0 / rs1; NOT gated whole-city.
+- faa3a0e1 PSX_CITY_SHIFTRUN (OFF; not a fix, item 8).
+- 6a99150a, ad6f2e83 ground probe (CityAudit.RunGroundProbe, PSX_GP_EDGES) + the wall test.
+- Defaults unchanged except what the base already had: FANLIP ON (previous round). LINEFIX, TWINS, RAILSHY, SHIFTRUN OFF.
+
+## Cost (editor, '[city] line model eases built in ...' per city load)
+- Defaults 55-58 ms (r3def). LINEFIX 64-127 ms (r3lfA). LINEFIX + every twin 1.2-1.7 s, of it the twins 1.0-1.3 s
+  (r3twB, 143 pairs, 366 + 122 pruned before sampling). With the list only listed nodes are judged (not measured).
+  No per-frame cost: every change is in static road meshes.
+
+## Not done / not verified
+- The whole-city run of LINEFIX WITH its skip list (+ the 6 listed twins + RAILSHY) - cancelled at the 08:30 stop. Until
+  it passes, LINEFIX / TWINS / RAILSHY stay OFF.
+- North Tryon's fork: rejected by its own region (item 4); the unhatched 25 m past the fork; the 3.2 deg WB yellow kink at
+  e15583 s20 (r3lt2); e14081; the far end n3168.
+- The worklist beyond the fan lip: BARRIER (RAILSHY written, not gated), grade breaks (3,882: the VerticalCurves solve -
+  not touched), map kinks (not touched), H3 / H5 / C9 / X3 (not touched), H4 (probe only).
+- The medians gate / refuge list under LINEFIX + TWINS (the previous round's g7: 5 more pairs would be accepted).
+
+## For the merge
+- With the defaults as they are: nothing new beyond the previous round's notes (FANLIP on: the city re-bake). The branch
+  passes the line gate against baee68f8.
+- If LINEFIX / TWINS / RAILSHY are switched on later: rebuild the city kit (106 slots), re-bake city tiles, re-make lot
+  entrances, regenerate the refuge list under them, and the lists in LineModel.TwinList.cs are graph-keyed (re-make them
+  after any export: twinaccept.py / lfskip.py / mklists.py in scratch roads3).
+
+## What the owner will notice
+- With this branch as it is: no 12 mm bump into every junction (the fan lip, previous round). Nothing else changes until
+  LINEFIX / TWINS pass their gate run.
+
+---
+
 # HANDOFF - ROAD LINES ROUND, OPUS CONTINUATION (splits2, branch `charlotte-splits2`, 2026-11-17 01:00-04:30)
 
 Not pushed, not merged. mountain-nm 749e05de merged in (8365dfac; the HANDOFF conflict kept both top sections).
