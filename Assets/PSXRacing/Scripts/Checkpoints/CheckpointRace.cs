@@ -98,6 +98,10 @@ namespace PSXRacing
             /// gate's line while still closing on its own (a legal re-route) has not missed it.</summary>
             public float towardAcc;
             public float missedRg;
+            /// <summary>The road the GPS route takes next, preferred by the locate where two overlap (a ramp's gore);
+            /// held for 80 m after the car was located elsewhere (it is usually still on the ramp: the H2 race of
+            /// 02:15 read the main line for the I-485 exit ramp, +19 km, until the ramp was 10 m off the main line).</summary>
+            public CityRouter.PreferState prefer = CityRouter.PreferState.None;
         }
         readonly Dictionary<CarController, CarCP> cars = new Dictionary<CarController, CarCP>();
         public CarCP Of(CarController c) => c != null && cars.TryGetValue(c, out var v) ? v : null;
@@ -491,6 +495,10 @@ namespace PSXRacing
             UpdateNearestIdx(p, pos);
         }
 
+        /// <summary>The edge the locate should favour: the route's next one from the last road the car was on the
+        /// route, held 80 m past a node where the car was read on another road.</summary>
+        int PreferEdge(CarCP c, CityRouter.Field F, Vector3 pos) => R.Prefer(ref c.prefer, F, c.next, c.loc, c.rDir, pos);
+
         float LegsAfter(CarCP c)
         {
             float sum = 0f;
@@ -550,7 +558,7 @@ namespace PSXRacing
             if (Time.time >= c.nextLocate || !c.loc.valid)
             {
                 // where two roads overlap (a ramp split), the one the route takes next
-                R.Locate(pos, vel, car.transform.forward, ref c.loc, Time.time, R.RouteNextEdge(F, c.loc, c.rDir));
+                R.Locate(pos, vel, car.transform.forward, ref c.loc, Time.time, PreferEdge(c, F, pos));
                 c.nextLocate = Time.time + 0.1f + Random.Range(0f, 0.02f);
             }
             else R.Slide(pos, vel, car.transform.forward, ref c.loc);

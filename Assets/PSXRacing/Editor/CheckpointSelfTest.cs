@@ -354,6 +354,7 @@ namespace PSXRacing.EditorTools
                     if (!R.Descend(F[k], st, tStart, states, out float lastT)) continue;
                     picked++; walks++;
                     var loc = new CityRouter.Loc();
+                    var pref = CityRouter.PreferState.None;
                     int dir = 0, rEdge = -1, walkStep = 0;
                     for (int i = 0; i < states.Count && i < 200; i++)
                     {
@@ -366,7 +367,7 @@ namespace PSXRacing.EditorTools
                             // the lane, not the OSM line: 2 m to the right of the travel direction
                             pos += new Vector3(tan.y, 0f, -tan.x) * 2f;
                             now += 0.5f;
-                            R.Locate(pos, fwd * 20f, fwd, ref loc, now, R.RouteNextEdge(F[k], loc, dir));
+                            R.Locate(pos, fwd * 20f, fwd, ref loc, now, R.Prefer(ref pref, F[k], k, loc, dir, pos));
                             if (loc.edge != rEdge) { rEdge = loc.edge; dir = 0; }
                             float v = R.Remaining(F[k], pos, ref loc, ref dir);
                             float want = R.RouteFrom(F[k], s, t);

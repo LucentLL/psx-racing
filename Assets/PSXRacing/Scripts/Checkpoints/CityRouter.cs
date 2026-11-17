@@ -513,6 +513,31 @@ namespace PSXRacing
             loc.dir = DirOf(e, s, vel, nose);
         }
 
+        /// <summary>The locate's route preference, per car: the road the route takes next from the last road the car
+        /// was read on the route, HELD for 80 m after a node where it was read on another road (it is usually still on
+        /// the ramp: the H2 race of 11-17 02:15 read the I-485 main line for its exit ramp, +19 km, until the ramp lay
+        /// 10 m off the main line's centre).</summary>
+        public struct PreferState
+        {
+            public int edge, from, field; public Vector3 devAt; public bool dev;
+            public static PreferState None => new PreferState { edge = -1, from = -1, field = -1 };
+        }
+
+        public int Prefer(ref PreferState ps, Field F, int fieldId, in Loc loc, int dir, Vector3 pos)
+        {
+            int cur = loc.valid && !loc.offGraph ? loc.edge : -1;
+            if (cur < 0) return ps.edge;
+            if (ps.field != fieldId) { ps.field = fieldId; ps.edge = RouteNextEdge(F, loc, dir); ps.from = cur; ps.dev = false; return ps.edge; }
+            if (cur != ps.from)
+            {
+                if (cur == ps.edge || ps.edge < 0) { ps.edge = RouteNextEdge(F, loc, dir); ps.dev = false; }
+                else if (!ps.dev) { ps.dev = true; ps.devAt = pos; }
+                ps.from = cur;
+            }
+            if (ps.dev && (pos - ps.devAt).sqrMagnitude > 80f * 80f) { ps.dev = false; ps.edge = RouteNextEdge(F, loc, dir); }
+            return ps.edge;
+        }
+
         /// <summary>The edge the field's route takes after the car's located edge (in the ruler's direction
         /// <paramref name="dir"/>), for <see cref="Locate"/>'s preference; -1 when none.</summary>
         public int RouteNextEdge(Field F, in Loc loc, int dir)
