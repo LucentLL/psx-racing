@@ -91,6 +91,38 @@ namespace PSXRacing.EditorTools
                 }
                 Line($"  e{ei} '{e.name}' {e.length:0.0} m bridge {e.bridge}: {samples} rays; top face not the road at {topNotRoad}; Ground within 1 cm of the road or over it at {above}; the highest Ground over the road {(worst > float.MinValue ? worst.ToString("+0.000;-0.000", inv) : "-")} m at s {worstS:0.0} lat {worstLat:0.0}");
             }
+            // the wall test: rays ALONG each lane at bumper heights, 12 m before each end of each edge to 12 m past it -
+            // anything they meet inside the pavement that is not the road is what a car at speed runs into
+            float[] heights = { 0.12f, 0.3f, 0.6f, 1.0f };
+            int walls = 0;
+            foreach (int ei in edges)
+            {
+                var e = map.edges[ei];
+                for (int end = 0; end < 2; end++)
+                {
+                    float sEnd = end == 0 ? 0f : e.length;
+                    float sFrom = end == 0 ? Mathf.Min(e.length, 12f) : Mathf.Max(0f, e.length - 12f);   // inside the edge, running toward its end
+                    var pa = e.PointAt(sFrom); var pb = e.PointAt(sEnd);
+                    var dir2 = (pb - pa); float run = dir2.magnitude; if (run < 1f) continue; dir2 /= run;
+                    LineModel.Extents(e, sFrom, out float eM, out float eP);
+                    var tg = e.TangentAt(sFrom); var nl = new Vector2(-tg.y, tg.x);
+                    for (float lat = -eM + 0.6f; lat <= eP - 0.6f + 1e-3f; lat += 0.75f)
+                        foreach (float hgt in heights)
+                        {
+                            var o2 = pa + nl * lat;
+                            var o = new Vector3(o2.x, e.YAt(sFrom) + hgt, o2.y);
+                            int n = Physics.RaycastNonAlloc(o, new Vector3(dir2.x, 0f, dir2.y), hitsBuf, run + 12f, ~0, QueryTriggerInteraction.Ignore);
+                            for (int h = 0; h < n; h++)
+                            {
+                                var hit = hitsBuf[h]; string nm = hit.collider.gameObject.name;
+                                if (nm.StartsWith("Road")) continue;   // the road ahead rising (a grade) is the road
+                                walls++;
+                                if (walls <= 60) Line($"    WALL e{ei} {(end == 0 ? "start" : "end")} lane lat {lat:+0.0;-0.0} at {hgt:0.00} m: {nm} {hit.distance:0.0} m along (x {hit.point.x:0.0} z {hit.point.z:0.0} y {hit.point.y - e.YAt(sFrom):+0.00} over the road), normal {hit.normal.x:0.00},{hit.normal.y:0.00},{hit.normal.z:0.00}");
+                            }
+                        }
+                }
+            }
+            Line($"  the wall test: {walls} hits on something not the road along the lanes at {string.Join(" / ", heights)} m over the road, 12 m each side of every end");
             File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_groundprobe.tsv"), tsv.ToString());
             Object.DestroyImmediate(root);
             FinishTo("city_groundprobe.txt");
