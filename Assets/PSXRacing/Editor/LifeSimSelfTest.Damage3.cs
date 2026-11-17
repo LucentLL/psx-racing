@@ -200,16 +200,9 @@ namespace PSXRacing.EditorTools
 
         static void TestGlassTrimAndLines()
         {
-            Line("damage round 3 - the glass test by the mirrors; no wavy lines on the body (owner 11-17):");
+            Line("damage round 3 - thin dark trim is not glass; no wavy lines on the body (owner 11-17):");
             var def = CarModelLibrary.Load("civic_eg");
             if (def == null) { Check(false, "the EG shell"); return; }
-            // the body box's frame as the identity: the mirrors' mounts in metres off the box's centre
-            var mirrors = DamageGlass.Mirrors(def, Matrix4x4.identity, Vector3.zero, Vector3.right, Vector3.up, Vector3.forward);
-            bool both = DoorMirrors.TryGet("civic_eg", out var e) && e.glass.Length >= 2;
-            Check(!both || (mirrors.x < 50f && mirrors.z < 50f && mirrors.y > mirrors.x - 10f),
-                  "both door mirrors' mounts known (no pane ahead of their backs and under their tops)", mirrors);
-            Check(DamageGlass.Mirrors(null, Matrix4x4.identity, Vector3.zero, Vector3.right, Vector3.up, Vector3.forward) == new Vector4(99f, 0f, 99f, 0f),
-                  "a shell with no mirror row: no exclusion");
             var sh = Shader.Find("PSX/CarPaint");
             var m = sh != null ? new Material(sh) : null;
             Check(m != null && m.GetFloat("_PSXHoleMode") == 0f && m.GetFloat("_PSXStComp") == 8f && m.GetFloat("_PSXZWrite") == 1f
@@ -226,9 +219,8 @@ namespace PSXRacing.EditorTools
                                       Vector3.forward, Vector3.right, Vector3.up, 0.5f, default, def);
                 Check(DamageGlass.NoWavyOn && Shader.GetGlobalFloat("_PSXDmgLines") == 0f,
                       "no wavy contour lines on the body (the cracked-cover and crease lines: PSX_DMG_NOWAVY)");
-                var b = new MaterialPropertyBlock();
-                r.GetPropertyBlock(b);
-                Check(b.GetVector("_PSXGlsM").x < 50f || !both, "the body's block carries the mirrors' mounts", b.GetVector("_PSXGlsM"));
+                Check(DamageGlass.ThinTrimOn && Shader.GetGlobalFloat("_PSXGlsThin") == 1f,
+                      "a thin dark strip with paint on both sides (a mirror sail's outline, a trim line) is not a pane (PSX_DMG_THINTRIM)");
                 Check(Shader.GetGlobalFloat("_PSXGlsDark") == 1f, "a hole shows the dark cabin (the cockpit model drawn into it), not boxes");
             }
             finally { Object.DestroyImmediate(go); }

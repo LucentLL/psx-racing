@@ -346,8 +346,7 @@ namespace PSXRacing
             block.SetVector(CId, new Vector4(cB.x, cB.y, cB.z, 0f));
             int lo = now.lampOut;
             block.SetVector(LampOutId, new Vector4(lo & 1, (lo >> 1) & 1, (lo >> 2) & 1, (lo >> 3) & 1));
-            DamageGlass.Write(block, now, on, half, cabin == default ? DamageGlass.Cabin(null, 1f, half) : cabin,   // round 2: the panes
-                              DamageGlass.Mirrors(def, lw, cW, rightW, upW, fwdW));                          // round 3: the mirrors' sails
+            DamageGlass.Write(block, now, on, half, cabin == default ? DamageGlass.Cabin(null, 1f, half) : cabin);   // round 2: the panes
             r.SetPropertyBlock(block);
         }
 

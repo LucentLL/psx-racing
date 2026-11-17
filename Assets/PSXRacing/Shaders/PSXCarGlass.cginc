@@ -37,11 +37,10 @@ float4 _PSXGlsS, _PSXGlsW, _PSXGlsX, _PSXGlsL, _PSXGlsT, _PSXGlsF, _PSXWheelRash
 // DAMAGE ROUND 3 (DamageCabin.cs, DamageGlass.cs; owner 11-17: "If shown, the cockpit model should be used"):
 //   _PSXGlsDark  global, 1 = a hole shows a DARK cabin here (the lining, the floor, the far glass; no seat
 //                boxes) and the cockpit model is drawn into it by DamageCabin within reach; 0 = round 2's boxes
-//   _PSXGlsM     the door mirrors' mounts in the body box's frame: x the left mirror's rearmost z, y its top,
-//                z / w the right one's (no pane ahead of a mirror's back and under its top: its sail and the
-//                dark trim round it are not glass). x > 50 = no mirror known.
+//   _PSXGlsThin  global, 1 = a THIN dark strip with paint on both sides (a door mirror's sail outline, a pillar's
+//                trim line: under 7 cm across) is not a pane, whatever its colour (round 2 crazed it white)
 float _PSXGlsDark;
-float4 _PSXGlsM;
+float _PSXGlsThin;
 
 // The same, repeating every per cells along x (round a wheel: no seam where the angle wraps).
 float GlsN2P(float2 p, float per)
@@ -221,9 +220,6 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
     float kRake = 1.0;
     if (abs(n.x) > 0.55)
     {
-        // round 3: a door mirror's sail and the dark trim round its foot are not glass
-        float2 mir = m.x < 0.0 ? _PSXGlsM.xy : _PSXGlsM.zw;
-        if (mir.x < 50.0 && m.z > mir.x - 0.02 && m.y < mir.y + 0.01) return;
         state = n.x < 0.0 ? _PSXGlsS.z : _PSXGlsS.w;
         imp = n.x < 0.0 ? _PSXGlsL : _PSXGlsT;
         a1 = _PSXDmgF.xyz;
@@ -252,14 +248,19 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
     {
         float2 ix = float2(dqy.y, -dqy.x) / det, iy = float2(-dqx.y, dqx.x) / det;
         float out1 = 0.0, out2 = 0.0;
+        float near[6];
         for (int k = 0; k < 6; k++)
         {
             float a = k * 1.0471976 + imp.z * 3.0;
             float2 e = float2(cos(a), sin(a));
             float2 d1 = e * 0.035, d2 = float2(e.x * 0.866 - e.y * 0.5, e.x * 0.5 + e.y * 0.866) * 0.09;
-            out1 += 1.0 - step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d1) + uvy * dot(iy, d1), uvx, uvy)));
+            near[k] = 1.0 - step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d1) + uvy * dot(iy, d1), uvx, uvy)));
+            out1 += near[k];
             out2 += 1.0 - step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d2) + uvy * dot(iy, d2), uvx, uvy)));
         }
+        // round 3: paint 3.5 cm away on two OPPOSITE sides - a thin dark strip (a mirror sail's outline, a trim
+        // line), not a pane (a pane's edge has paint on one side only)
+        if (_PSXGlsThin > 0.5 && max(near[0] * near[3], max(near[1] * near[4], near[2] * near[5])) > 0.5) return;
         out1 /= 6.0;
         out2 /= 6.0;
         dEst = out1 > 0.0 ? 0.035 * cos(3.14159 * min(out1, 0.5)) : (out2 > 0.0 ? 0.09 * cos(3.14159 * min(out2, 0.5)) : 0.12);
