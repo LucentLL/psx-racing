@@ -146,7 +146,7 @@ namespace PSXRacing
                 PerfClock.Add(PerfClock.Slot.OffscreenGpu, t0);
             }
 
-            public byte[] Snap(int maxW)
+            public byte[] Snap(int maxW, bool png = false)
             {
                 int w = Mathf.Min(maxW, rt.width), h = Mathf.Max(16, Mathf.RoundToInt(rt.height * (w / (float)rt.width)));
                 var small = RenderTexture.GetTemporary(w, h, 0, rt.format);
@@ -158,10 +158,20 @@ namespace PSXRacing
                 tex.Apply();
                 RenderTexture.active = prev;
                 RenderTexture.ReleaseTemporary(small);
-                var jpg = tex.EncodeToJPG(90);
+                var jpg = png ? tex.EncodeToPNG() : tex.EncodeToJPG(90);
                 Destroy(tex);
                 return jpg;
             }
+        }
+
+        /// <summary>The window's own picture (an on-screen probe's snap), as a PNG.</summary>
+        IEnumerator ScreenSnap(string name)
+        {
+            yield return new WaitForEndOfFrame();
+            var tex = ScreenCapture.CaptureScreenshotAsTexture();
+            var png = tex.EncodeToPNG();
+            Destroy(tex);
+            PSXPerfTour_Post(name, png, png.Length);
         }
 
         class ProbeOp { public System.Action on, off; public string what; }
@@ -556,6 +566,11 @@ namespace PSXRacing
             Application.targetFrameRate = -1;
             // warm: the first maps, the clouds' history, the reflection set
             for (int i = 0; i < 90; i++) yield return null;
+            // &freeze=1: the clock stopped (wind, water, traffic, the clouds' drift) so that a picture
+            // drawn twice is the same picture - the snaps (lossless, full size) then differ only by the switch
+            bool freeze = (Request() ?? "").Contains("freeze=1");
+            float wasScale = Time.timeScale; bool wasPaused = VolumetricClouds.Paused;
+            if (freeze) { Time.timeScale = 0f; VolumetricClouds.Paused = true; for (int i = 0; i < 12; i++) yield return null; }
             PerfClock.FrameDone = ProbeFrame;
 
             // the baseline alone first: its level and its own noise
@@ -567,8 +582,21 @@ namespace PSXRacing
             probeInto = null;
             if (!onscreen)
             {
-                var basePng = view.Snap(1916);
-                PSXPerfTour_Post(tag + "_" + id + "_probe_base.jpg", basePng, basePng.Length);
+                var basePng = view.Snap(freeze ? 8192 : 1916, freeze);
+                PSXPerfTour_Post(tag + "_" + id + "_probe_base." + (freeze ? "png" : "jpg"), basePng, basePng.Length);
+                if (freeze)
+                {
+                    // the same picture again: what two draws of one thing differ by (the noise floor)
+                    for (int i = 0; i < 6; i++) yield return null;
+                    var again = view.Snap(8192, true);
+                    PSXPerfTour_Post(tag + "_" + id + "_probe_base2.png", again, again.Length);
+                }
+            }
+            else if (freeze)
+            {
+                yield return ScreenSnap(tag + "_" + id + "_probe_base.png");
+                for (int i = 0; i < 6; i++) yield return null;
+                yield return ScreenSnap(tag + "_" + id + "_probe_base2.png");
             }
 
             var ci = CultureInfo.InvariantCulture;
@@ -598,7 +626,8 @@ namespace PSXRacing
                     probeInto = onB;
                     for (int i = 0; i < frames; i++) yield return null;
                     probeInto = null;
-                    if (pv.snap && r == 0 && !onscreen) snap = view.Snap(1916);
+                    if (pv.snap && r == 0 && !onscreen) snap = view.Snap(freeze ? 8192 : 1916, freeze);
+                    if (pv.snap && r == 0 && onscreen) yield return ScreenSnap(tag + "_" + id + "_probe_" + pv.name + ".png");
                     // back to the baseline
                     for (int k = pv.ops.Count - 1; k >= 0; k--) { try { pv.ops[k].off(); } catch (System.Exception e) { Say("probe: " + pv.name + " off: " + e.Message); } }
                     var offB = NewBlock();
@@ -612,7 +641,7 @@ namespace PSXRacing
                     dLate.Add(Median(onB[PM_LATE]) - Median(offB[PM_LATE]));
                     for (int m = 0; m < PM_N; m++) { onAll[m].AddRange(onB[m]); offAll[m].AddRange(offB[m]); }
                 }
-                if (snap != null) PSXPerfTour_Post(tag + "_" + id + "_probe_" + pv.name + ".jpg", snap, snap.Length);
+                if (snap != null) PSXPerfTour_Post(tag + "_" + id + "_probe_" + pv.name + (freeze ? ".png" : ".jpg"), snap, snap.Length);
                 float Mean(List<float> v) { float s = 0f; foreach (var x in v) s += x; return v.Count > 0 ? s / v.Count : 0f; }
                 float Sd(List<float> v) { if (v.Count < 2) return 0f; float mu = Mean(v), s = 0f; foreach (var x in v) s += (x - mu) * (x - mu); return Mathf.Sqrt(s / (v.Count - 1)); }
                 var what = new StringBuilder();
@@ -641,6 +670,7 @@ namespace PSXRacing
             table.AppendLine("d = variant minus baseline, mean of the reps' medians (sd across reps); negative = what switching it off saves. gpu wait = render thread + GPU for everything drawn this frame.");
 
             PerfClock.FrameDone = null;
+            if (freeze) { Time.timeScale = wasScale; VolumetricClouds.Paused = wasPaused; }
             probeCounters.tris.Dispose(); probeCounters.setPass.Dispose();
             Post(id + "_probe.txt", table.ToString());
             Post(id + "_probe.csv", csv.ToString());
