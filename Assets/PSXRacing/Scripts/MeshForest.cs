@@ -601,12 +601,25 @@ namespace PSXRacing
         /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
         /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
         /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.
-        /// TREE-COST ROUND (2026-11-17): PSX_TREE_MATCH_CARDS now means THE FAR RING AND THE MIRRORS IN THE TREES'
-        /// OWN FAR CARDS (<see cref="RingOn"/>): where the cards stood in for the trees - past the far range and out
-        /// of the view's cone - the forest draws each tree's own far card instead (its own size, picture, dress,
-        /// colour and far growth: the same draw as inside the range), so no card needs re-sizing, re-baking or a
-        /// scene pass. The cards that are left (past <see cref="StageRingM"/>, a mirror's view past
-        /// <see cref="OtherRangeM"/>, F8) wear the kit's atlas as above. "0": the retro billboards as before.</summary>
+        /// TREE-COST ROUND (2026-11-17): DEFAULT ON. Where are the cards seen? NOT in the view past the far range:
+        /// on the PC profile a stage camera ends every layer but the land at the far ground's edge (StageCulling,
+        /// 2240 m on NC 226A, the detail fade from 1980 m) and the city camera's far plane is the live ring's edge
+        /// (CityWorld.RingFarM, 1012 m) - so no B card past 2.2 km and no tile card past 1.2 km is ever drawn there.
+        /// They are seen OUT OF THE VIEW'S CONE: the mirrors and the paint's reflection faces (and, in Charlotte,
+        /// CityFar's far woods past the plane wear the same city atlas). So with the switch on:
+        ///   1. a chunk out of the cone within <see cref="OtherRangeM"/> (1200 m) puts ITS TREES' OWN FAR CARDS in the
+        ///      other cameras' list and hides its cards (<see cref="RingOn"/>, cull flag 3): the mirrors show the very
+        ///      trees, the same size, picture, dress and per-tree colour as the view's far level - no card to size,
+        ///      no tile re-bake, no scene pass;
+        ///   2. the cards left (a mirror's view past that, F8, a city tile before its fit, CityFar's woods) wear the
+        ///      kit's atlas as above (stage: here; city: CityMeshTrees.CardAtlas).
+        /// MEASURED (RunStageRing / RunCityRing, a rear camera at the driver's eye drawn as an other camera, NC 226A
+        /// 7900 m and Charlotte arterial): the mirror's tree cover, cards / the trees' own far cards - retro 1.00 /
+        /// 0.97 but leafy in winter (226A: hue 61 v 51), kit atlas 0.87 / 0.98 (stage winter / fall), 0.94 / 0.97
+        /// (city); with 1 they are the far cards (1.00). The other cameras' list grows 11.9 k -> 50.9 k far cards
+        /// (226A), 2.1 k -> 11.5 k (Charlotte); the mirror's own render at 256 x 64, 192 x 64 and a 512 x 512
+        /// reflection face, A/B in one process: -0.04 .. +0.18 ms (stage), -0.57 .. +0.39 ms (city), inside the
+        /// editor's noise. "0": the retro billboards and the old cards in the mirrors, as before.</summary>
         public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
         /// <summary>THE FAR RING on a stage: its far cards drawn to this distance (m) when <see cref="RingOn"/>, in
         /// place of the B cards past the far range. 0 (the default): the far range as it is - on the PC profile the
@@ -621,15 +634,17 @@ namespace PSXRacing
         public static float CityRingM = EnvM("PSX_TM_CITYRING_M", 0f);
         /// <summary>THE MIRRORS: a chunk out of the view's cone this near (m, its nearest point) puts its trees'
         /// far cards in the other cameras' list (the mirrors, the paint's reflection faces) and hides its cards;
-        /// past it the cards stand, as before. PSX_TM_OTHER_M.</summary>
+        /// past it the cards stand (in the kit's atlas). 1200 m: the whole live city ring (its far plane is 1012 m),
+        /// a stage's forest out to where a tree in a 256 x 64 mirror is a pixel or two. PSX_TM_OTHER_M (0: none).</summary>
         public static float OtherRangeM = EnvM("PSX_TM_OTHER_M", 1200f);
         static float EnvM(string k, float d)
         {
             var s = System.Environment.GetEnvironmentVariable(k);
             return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f >= 0f ? f : d;
         }
-        /// <summary>This forest draws the far ring and the mirrors in its trees' own far cards (Init: the tree
-        /// match on, <see cref="MatchCardsOn"/>, and at least one species with a match card).</summary>
+        /// <summary>This forest draws the mirrors' trees (and the far ring, where a ring range is set) in its trees' own
+        /// far cards (Init: the tree match on, <see cref="MatchCardsOn"/>, at least one species with a match card,
+        /// the GPU path).</summary>
         public bool RingOn { get; private set; }
         float otherRange;
         bool atlasOn;

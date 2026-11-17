@@ -257,7 +257,13 @@ namespace PSXRacing.City
         /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
         /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
         /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
-        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
+        // TREE-COST ROUND (2026-11-17): DEFAULT ON with MeshForest.MatchCardsOn (the same switch). The tiles' cards
+        // are seen only out of the view's cone (the city camera's far plane is the ring's edge, 1012 m), where the
+        // pool's trees within 1.2 km now draw their own far cards for the mirrors (MeshForest.OtherRangeM); what is
+        // left in cards - CityFar's far woods past the plane, a tile before its fit - wears the kit's own trees, so
+        // the far woods are bare in winter. MEASURED in the mirror (Charlotte arterial, cards / the trees' own far
+        // cards): cover 0.94 winter, 0.97 fall.
+        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
         /// <summary>Tools: the cards' kit atlas on or off now (CardAtlas for this component's life).</summary>
         public void SetCardAtlas(bool on)
         {
