@@ -295,6 +295,153 @@ namespace PSXRacing.EditorTools
             if (Application.isBatchMode) EditorApplication.Exit(code);
         }
 
+        /// <summary>
+        /// THE TREE MATCH'S COST in one process: the same forest with the packs' far sheets (mode 0,
+        /// PSX_TREE_MATCH=0) and with the match cards (mode 1) at one eye, <paramref name="rounds"/> rounds
+        /// each in ABBA order (the editor's noise shows in the spread); 1920 x 1080, every frame waited for
+        /// with a one-pixel read-back; the forest's own counts (plants, triangles, draws) per mode.
+        /// <paramref name="setMode"/> makes the forest of a mode current and returns it.
+        /// </summary>
+        internal static string CostAB(Camera cam, System.Func<int, MeshForest> setMode, int rounds, string what)
+        {
+            var rt = new RenderTexture(1920, 1080, 24, RenderTextureFormat.ARGB32);
+            var old = cam.targetTexture;
+            cam.targetTexture = rt;
+            var px = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            var ms = new[] { new List<double>(), new List<double>() };
+            var tris = new double[2]; var draws = new double[2]; var plants = new double[2]; var far = new double[2];
+            try
+            {
+                for (int k = 0; k < rounds * 2; k++)
+                {
+                    int m = (k + k / 2) & 1;   // off, on, on, off, off, on, on, off
+                    var f = setMode(m);
+                    MeshForest.MeshTreesOn = true; MeshForest.LodEyeOn = false;
+                    for (int i = 0; i < 4; i++) { f.DrawNow(cam, true); cam.Render(); }
+                    const int N = 24;
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    for (int i = 0; i < N; i++)
+                    {
+                        f.DrawNow(cam, true); cam.Render();
+                        RenderTexture.active = rt; px.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); px.Apply(); RenderTexture.active = null;
+                    }
+                    sw.Stop();
+                    ms[m].Add(sw.Elapsed.TotalMilliseconds / N);
+                    MeshForest.StatsOn = true; MeshForest.StatsReset();
+                    for (int i = 0; i < 6; i++) { f.DrawNow(cam, true); cam.Render(); }
+                    UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests();
+                    int sf = Mathf.Max(1, MeshForest.StatFrames);
+                    tris[m] = MeshForest.SumTris / sf; draws[m] = MeshForest.SumDraws / sf; plants[m] = MeshForest.SumPlants / sf;
+                    far[m] = MeshForest.SumTrisLod[3] / sf;
+                    MeshForest.StatsOn = false;
+                }
+            }
+            finally
+            {
+                MeshForest.StatsOn = false;
+                cam.targetTexture = old;
+                Object.DestroyImmediate(rt); Object.DestroyImmediate(px);
+            }
+            double Med(List<double> l)
+            {
+                var c = new List<double>(l); c.Sort();
+                return c.Count == 0 ? 0 : c.Count % 2 == 1 ? c[c.Count / 2] : 0.5 * (c[c.Count / 2 - 1] + c[c.Count / 2]);
+            }
+            string All(List<double> l) => string.Join(" ", l.ConvertAll(x => x.ToString("0.00", CultureInfo.InvariantCulture)));
+            double d = Med(ms[1]) - Med(ms[0]);
+            return $"  COST A/B {what}: frame (1920x1080, editor, render + read-back, {rounds} rounds each, ABBA): packs' far sheets {Med(ms[0]):0.00} ms [{All(ms[0])}], " +
+                   $"tree match {Med(ms[1]):0.00} ms [{All(ms[1])}], {(d >= 0 ? "+" : "")}{d:0.00} ms; drawn {plants[0]:0} -> {plants[1]:0} plants, " +
+                   $"{tris[0] / 1e6:0.00} -> {tris[1] / 1e6:0.00} M tris (far level {far[0] / 1e6:0.000} -> {far[1] / 1e6:0.000} M), {draws[0]:0} -> {draws[1]:0} draws\n";
+        }
+
+        /// <summary>
+        /// THE TREE MATCH'S COST ON A STAGE: the scene's forest twice (a copy made before either is set up),
+        /// one with the packs' far sheets and one with the match cards, measured ABBA from the driver's eye
+        /// down the road at PSX_TM_M and from a vista 25 m over it.
+        ///   -executeMethod PSXRacing.EditorTools.TreeMatchAudit.RunStageMatchCost   PSX_TM_VENUE  PSX_TM_M  PSX_TM_DRESSES (one)  PSX_TM_TAG
+        /// Output: Screenshots/treeseason/treeseason_&lt;tag&gt;_&lt;venue&gt;_cost.txt
+        /// </summary>
+        public static void RunStageMatchCost()
+        {
+            string tag = Env("PSX_TM_TAG", "cost");
+            string id = Env("PSX_TM_VENUE", "SwissNC226A");
+            string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treeseason");
+            Directory.CreateDirectory(root);
+            var log = new StringBuilder($"TREE MATCH COST {id} ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}\n");
+            int code = 0;
+            int keepDay = RaceHandoff.CalendarDay, keepWeather = RaceHandoff.WeatherOverride;
+            bool keepDyn = SkyModePrefs.Dynamic, keepMatch = MeshForest.TreeMatch;
+            GameObject copy = null;
+            try
+            {
+                int ti = TrackCatalog.IndexOf(id);
+                if (ti < 0 || !PSXScreenshotTool.Open(TrackCatalog.At(ti), out var cam, out var player)) throw new System.Exception("no venue / scene " + id);
+                var path = Object.FindFirstObjectByType<TrackPath>();
+                var sun = NightLookShots.FindSun();
+                var globals = Object.FindAnyObjectByType<PSXGlobals>();
+                var dressing = Object.FindAnyObjectByType<SeasonDress>();
+                var forest = Object.FindFirstObjectByType<MeshForest>();
+                if (path == null || forest == null) throw new System.Exception("no path or no mesh forest");
+                var sc = cam.GetComponent<StageCulling>();
+                if (sc != null) sc.Configure(cam);
+                if (player != null) player.SetActive(false);
+                SkyModePrefs.Dynamic = false;
+                RaceHandoff.WeatherOverride = -1; RaceHandoff.CalendarDay = 0;
+                Seasons.Forced = null; Seasons.Invalidate();
+                var w = Seasons.Now;
+                w.fog = false; w.precip = PrecipKind.None; w.precipRate = 0f; w.sky = SkyKind.Clear; w.scenery = SceneryKind.Dry;
+                Seasons.Forced = w;
+                if (sun != null) TimeOfDay.Apply(TimeOfDay.Noon, sun);
+                if (globals != null) globals.Apply();
+                NightGlow.PreviewAll(false);
+                if (dressing != null)
+                    typeof(SeasonDress).GetMethod("Register", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.Invoke(dressing, null);
+                int dress = int.Parse(Env("PSX_TM_DRESSES", "3").Split(',')[0], CultureInfo.InvariantCulture);
+                if (dressing != null) dressing.Apply(dress);
+                // the copy BEFORE either is set up: both hold the scene's own list of species
+                copy = Object.Instantiate(forest.gameObject, forest.transform.parent);
+                copy.name = forest.gameObject.name + " (tree match cost copy)";
+                var forestB = copy.GetComponent<MeshForest>();
+                MeshForest.TreeMatch = false; forest.DrawNow(cam, true);
+                MeshForest.TreeMatch = true; forestB.DrawNow(cam, true);
+                MeshForest.TreeMatch = keepMatch;
+                log.Append($"forest A (packs' far sheets): {forest.MatchCount} match species; forest B (tree match): {forestB.MatchCount} match species; dress {Seasons.DressNames[dress]}\n");
+                MeshForest Mode(int m)
+                {
+                    copy.SetActive(m == 1);
+                    forest.gameObject.SetActive(m == 0);
+                    return m == 1 ? forestB : forest;
+                }
+                int rounds = int.Parse(Env("PSX_TM_ROUNDS", "4"), CultureInfo.InvariantCulture);
+                foreach (var ms in Env("PSX_TM_M", "7900").Split(','))
+                {
+                    if (!float.TryParse(ms.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float mm)) continue;
+                    Vector3 p = At(path, mm, out Vector3 fwd);
+                    // the driver's eye down the road, then a vista over it
+                    cam.transform.SetPositionAndRotation(p + Vector3.up * 1.15f, Quaternion.LookRotation((fwd + Vector3.down * 0.02f).normalized));
+                    cam.aspect = 16f / 9f;
+                    log.Append(CostAB(cam, Mode, rounds, $"{id} {ms.Trim()} m, driver's eye"));
+                    cam.transform.SetPositionAndRotation(p + Vector3.up * 25f, Quaternion.LookRotation((fwd + Vector3.down * 0.12f).normalized));
+                    log.Append(CostAB(cam, Mode, rounds, $"{id} {ms.Trim()} m, vista 25 m up"));
+                }
+                Mode(0);
+                log.Append("TREE MATCH COST OK\n");
+            }
+            catch (System.Exception ex) { log.Append("TREE MATCH COST FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
+            finally
+            {
+                if (copy != null) Object.DestroyImmediate(copy);
+                MeshForest.TreeMatch = keepMatch;
+                MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
+                Seasons.Forced = null; Seasons.Invalidate();
+                RaceHandoff.WeatherOverride = keepWeather; RaceHandoff.CalendarDay = keepDay;
+                SkyModePrefs.Dynamic = keepDyn;
+                File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_{id}_cost.txt"), log.ToString());
+                Debug.Log("[TreeMatchCost]\n" + log);
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
         /// <summary>The road's centre at <paramref name="m"/> metres along the path, and its heading.</summary>
         static Vector3 At(TrackPath path, float m, out Vector3 fwd)
         {

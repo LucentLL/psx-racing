@@ -130,6 +130,77 @@ namespace PSXRacing.EditorTools
         ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunTreeCards   PSX_TM_TAG  PSX_TM_PLACES  PSX_TM_DRESSES
         /// Output: Screenshots/treeseason/&lt;tag&gt;/cards_Charlotte_&lt;place&gt;_&lt;DRESS&gt;_mesh|cards.png, treeseason_&lt;tag&gt;_Charlotte_cards.txt
         /// </summary>
+        /// <summary>
+        /// THE TREE MATCH'S COST IN CHARLOTTE: the city forest rebuilt with the packs' far sheets and with
+        /// the match cards in turn (MeshForest.TreeMatch, CityMeshTrees.Rebuild), ABBA, from the driver's eye
+        /// 150 m short of a place looking down the road and from 60 m over it (TreeMatchAudit.CostAB).
+        ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunTreeMatchCost   PSX_TM_TAG  PSX_TM_PLACES  PSX_TM_DRESSES (one)
+        /// Output: Screenshots/treeseason/treeseason_&lt;tag&gt;_Charlotte_cost.txt
+        /// </summary>
+        public static void RunTreeMatchCost()
+        {
+            string tag = TsEnv("PSX_TM_TAG", "cost");
+            string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treeseason");
+            Directory.CreateDirectory(root);
+            var log = new StringBuilder($"TREE MATCH COST Charlotte ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}\n");
+            int code = 0;
+            bool keepMatch = MeshForest.TreeMatch;
+            try
+            {
+                System.Environment.SetEnvironmentVariable("PSX_PC_CONTENT", "1");
+                var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
+                if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
+                var world = Object.FindAnyObjectByType<CityWorld>();
+                var map = CityMap.Get();
+                if (world == null || map == null) throw new System.Exception("no CityWorld / city data");
+                var sun = NightLookShots.FindSun();
+                var dressing = Object.FindAnyObjectByType<SeasonDress>();
+                if (player != null) player.SetActive(false);
+                CityMeshTrees.ResetCounts();
+                ForestDetailPrefs.Override = 1;
+                var mt = CityMeshTrees.EnsureFor(world);
+                if (mt == null) throw new System.Exception("CityMeshTrees did not start (kit / GPU)");
+                int dress = int.Parse(TsEnv("PSX_TM_DRESSES", "3").Split(',')[0], CultureInfo.InvariantCulture);
+                int rounds = int.Parse(TsEnv("PSX_TM_ROUNDS", "4"), CultureInfo.InvariantCulture);
+                MeshForest Mode(int m) { MeshForest.TreeMatch = m == 1; mt.Rebuild(); return mt.Forest; }
+                foreach (var pid in TsEnv("PSX_TM_PLACES", "arterial").Split(','))
+                {
+                    int pi = System.Array.FindIndex(T3Places, q => q.id == pid);
+                    if (pi < 0) { log.Append(pid + ": no such place\n"); continue; }
+                    var pl = T3Places[pi];
+                    CityMap.Edge e; float s; bool named = true;
+                    if (pl.onewayOnly) { if (!T3SnapOneway(map, LL(pl.lat, pl.lon), pl.roads[0], pl.hdg, out e, out s)) { log.Append(pid + ": no divided piece\n"); continue; } }
+                    else if (!CtSnap(map, LL(pl.lat, pl.lon), pl.roads, out e, out s, out named)) { log.Append(pid + ": no road near\n"); continue; }
+                    var p0 = e.PointAt(s);
+                    var anchor = new Vector3(p0.x, e.YAt(s), p0.y);
+                    world.DropAll(); mt.Flush();
+                    world.EnsureRing(anchor, 2); mt.Flush();
+                    var cp = new CtPlace { id = pl.id, lat = pl.lat, lon = pl.lon, roads = pl.roads, hdg = pl.hdg, kind = pl.kind, what = pl.what };
+                    if (!CtPose(cp, map, mt, e, s, out var eye, out var fwd, out _, out string how)) { log.Append($"{pid}: no pose ({how})\n"); continue; }
+                    var f = new Vector3(fwd.x, 0f, fwd.z).normalized;
+                    world.EnsureRing(eye, 4); mt.Flush();
+                    mt.Rebuild();
+                    FeetLight(sun, dressing, world);
+                    SetDress(dressing, world, dress);
+                    cam.transform.SetPositionAndRotation(eye - f * 150f, Quaternion.LookRotation(f + Vector3.down * 0.03f));
+                    log.Append(TreeMatchAudit.CostAB(cam, Mode, rounds, $"Charlotte {pid} {Seasons.DressNames[dress]}, driver's eye 150 m short"));
+                    cam.transform.SetPositionAndRotation(eye + Vector3.up * 60f, Quaternion.LookRotation((f + Vector3.down * 0.16f).normalized));
+                    log.Append(TreeMatchAudit.CostAB(cam, Mode, rounds, $"Charlotte {pid} {Seasons.DressNames[dress]}, 60 m over the road"));
+                }
+                log.Append("TREE MATCH COST OK\n");
+            }
+            catch (System.Exception ex) { log.Append("TREE MATCH COST FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
+            finally
+            {
+                MeshForest.TreeMatch = keepMatch;
+                ForestDetailPrefs.Override = -1;
+                MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
+                File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_cost.txt"), log.ToString());
+                Debug.Log("[TreeMatchCost]\n" + log);
+            }
+            if (Application.isBatchMode) EditorApplication.Exit(code);
+        }
+
         public static void RunTreeCards()
         {
             string tag = TsEnv("PSX_TM_TAG", "cards");
