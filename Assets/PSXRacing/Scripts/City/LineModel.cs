@@ -483,7 +483,7 @@ namespace PSXRacing.City
                         bool eWide = dLt > 0f;
                         var W = eWide ? E : O; var N = eWide ? O : E;
                         // travel frame (+1 left): which side is held
-                        int fixT;
+                        int fixT; bool outerTurn = false;
                         bool nForward = N == E ? eIn : oOut;     // N's a->b runs the travel way
                         bool wForward = W == E ? eIn : oOut;
                         if (N.oneway != W.oneway)
@@ -507,7 +507,7 @@ namespace PSXRacing.City
                             int mW = taprMap.tapr[tiW].side == 0 ? 1 : -1;       // the moving side, W's frame
                             fixT = -(wForward ? mW : -mW);
                         }
-                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, dLt + dRt, out int outerT)) { fixT = -outerT; OuterLaneEnds++; }
+                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, dLt + dRt, out int outerT)) { fixT = -outerT; OuterLaneEnds++; outerTurn = true; }
                         else fixT = Mathf.Abs(dRt) <= Mathf.Abs(dLt) ? -1 : 1;   // the smaller step is held: the fewest lanes move
                         if (fixT == 0)
                         {
@@ -547,6 +547,10 @@ namespace PSXRacing.City
                         // (wedlane 11-06) the lane leaves on the branch: W holds its width to the node
                         if (BranchDropAt(map, add, partner, W, N, n, wSide, shiftN)) { HeldJoins++; continue; }
                         float len = LengthFor(W, n, wSide, dMove, out bool fromTapr);
+                        // an outer TURN lane that ends: its traffic turns off, nobody merges - the bay's taper (8:1 to
+                        // 15:1, AASHTO's deceleration-lane taper) at the node, not the merging taper W S that ran it out
+                        // over 165 m (North Tryon at Dorton St: over the whole seven-lane piece the owner stood on)
+                        if (outerTurn && !fromTapr) len = Mathf.Max(BayCrossMinM, dMove * BayTaperRate(Mathf.Max(SpeedMph(W), SpeedMph(N))));
                         EasedJoins++; HeldJoins++; if (!fromTapr) EasedDefault++;
                         Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0);
                         continue;
