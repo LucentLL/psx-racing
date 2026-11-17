@@ -247,6 +247,11 @@ namespace PSXRacing
         /// instead of the platform's; 0 = the platform's.</summary>
         public static int FaceResOverride;
 
+        /// <summary>Measuring only (the perf tour's probe): layers left out of
+        /// the six views (a mask), and their far plane (0 = <see cref="FarM"/>).</summary>
+        public static int MaskOut;
+        public static float FarOverride;
+
         bool Ensure()
         {
             int res = FaceResOverride > 0 ? FaceResOverride
@@ -369,8 +374,9 @@ namespace PSXRacing
                 probe.clearFlags = view.clearFlags == CameraClearFlags.Depth || view.clearFlags == CameraClearFlags.Nothing
                     ? CameraClearFlags.Skybox : view.clearFlags;
                 probe.backgroundColor = view.backgroundColor;
-                probe.cullingMask = view.cullingMask & ~((1 << 5) | (1 << NoReflectLayer));   // no UI, no weather
+                probe.cullingMask = view.cullingMask & ~((1 << 5) | (1 << NoReflectLayer)) & ~MaskOut;   // no UI, no weather
             }
+            if (FarOverride > 0f || probe.farClipPlane != FarM) probe.farClipPlane = FarOverride > 0f ? FarOverride : FarM;
 
             // The watched car is not in its own reflection - all of it as it
             // is NOW: the cockpit, its arms and door mirrors, the lamps and a

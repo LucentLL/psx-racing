@@ -1,4 +1,124 @@
-﻿# HANDOFF - THE CAMCORDER, ROUND 2: a camera at every race point, flex scoring (agent "camcorder", branch `replay-camcorder2` off mountain-nm 742315cd, 2026-11-16 night; NOT pushed, NOT merged)
+﻿# HANDOFF - THE PERF ROUND (agent "perf", branch `perf-1116` off mountain-nm 742315cd, 2026-11-16 22:10 to 11-17; NOT pushed, NOT merged)
+
+Owner, 11-16 ~22:00: "we need to start focusing HEAVILY on performance." His PC: i7-10700K, RTX 3070, 3832x2054 at 144 Hz;
+PC48's mountain stages ran 40-49 fps. Target 60 minimum, 144 the goal. Scratch: `scratchpad\perf\` (OWNER_TABLE.md = the one-page
+table, PROGRESS.md, FOR_TREES.md, sheets\, runs\ = every tour's files).
+
+## What I found (all at 3840x2066, summer, noon, the owner's own saved settings; other Unity jobs running throughout)
+1. **Before the fixes the mountains were GPU-bound**: Lake Lure 24.7 ms parked (in-run), 21-35 ms driven. The main thread was busy
+   10.6-16.5 ms and waited the rest (`TimeUpdate.WaitForLastPresentationAndUpdateTime`).
+2. **The mesh forest's leaves ran PSX/Lit's whole pixel program before the alpha clip** (PSXLit.shader:2250), with no pre-pass.
+   The forest cost at least 7 ms of the frame; sun shadows cost 4.5 ms, most of it shadow look-ups on leaf fragments that the
+   clip then threw away (0.7 ms once the pre-pass is on).
+3. **URP's SSAO is a renderer feature with no camera test** (URP ScreenSpaceAmbientOcclusion.cs AddRenderPasses): it ran for
+   every camera - each car-reflection face, each mirror, the HUD overlay and the scene's OutputCamera - with a depth copy each.
+   All AO cost 3.4-4.3 ms; 1.6 ms of it was those cameras. The render thread fell from 12 ms to 3-4 ms when they stopped.
+4. **The scene's OutputCamera draws nothing** (PSXRacingBuilder.cs:8358, culling mask 0, there to clear the back buffer) but is a
+   plain HDR camera on the PC renderer: depth copy, colour copy, SSAO and a float-to-screen blit at 4K, every frame: 0.9 ms.
+5. **The pipeline's opaque-colour copy has one reader, the opt-in HD water** (PSXWaterHD.cginc:46): under 0.4 ms.
+6. **The owner's own settings** (registry, shared by every build and by the tours): CAR REFLECT 60, all three mirrors 60,
+   FRAME RATE 60. CAR REFLECT 60 = all SIX probe faces every frame (ViewRatePrefs.ProbeFaces; AUTO = one): 3.6-4.8 ms of main
+   thread, 2.7 ms of frame at Lake Lure, 6.2 ms of an 18.9 ms frame at Trade and Tryon (965 of 1,539 set-pass calls).
+   Each face is 55 (stage) to 128 (Uptown) draws: about 0.4 ms of fixed per-camera cost; nothing to cull without removing things.
+7. **The city is main-thread bound**: 20 ms a frame at Trade and Tryon with 69 cars = traffic's fixed step 5.0 (LeaderGap 2.0 of
+   it, CityTraffic.cs:1512 / 1967), reflection faces 4.4-5.7, main view submit 3.2, sun shadow maps 1.7 (SunShadows.RenderFor).
+8. **A 60 fps limit sits on the tour's window** whatever the frame costs (a frame with no forest, no reflections, half size:
+   16.7 ms). Game code sets none in a tour. So every "after" median of 16.6-16.9 ms means "reached 60".
+9. Unity's `FrameTimingManager.gpuFrameTime` is NOT GPU load here (0.5 ms with the reflections off): never quote it.
+10. Daytime garbage: one collection every ~25 frames by day, 1 in 2,000 at dusk; +1.7 ms inside render submit on those frames.
+    Source not found (needs a development build's allocation profile).
+
+## What I changed (every switch: `PSX_<NAME>=0` = the frame as PC48 drew it)
+| Switch | Default | File | Measured (in-run, Lake Lure chase, frame 24.7 ms) | Same picture (lossless frames, clock stopped) |
+|---|---|---|---|---|
+| `PSX_FOREST_PREPASS` | ON | Scripts/MeshForest.Gpu.cs (DepthPre, BuildPre, the main-view loop of GpuFrame) | -5.5 ms (0.5); cockpit -1.6 | 13 of 7.9 M pixels, at most 2 of 255 |
+| `PSX_AO_DRIVER_ONLY` | ON | Scripts/PerfSwitches.cs (SecondaryView) | -1.6 ms (0.25); main thread -0.75 | world seen directly 0 pixels; mirror images 0.14, the car's own paint 0.67 levels on average |
+| `PSX_LEAN_OUTPUT` | ON | Scripts/PerfSwitches.cs | -0.9 ms (0.65) | 0 pixels |
+| `PSX_COPIES_ON_DEMAND` | ON | Scripts/PerfSwitches.cs | under 0.4 ms | 0 pixels |
+| RENDER SCALE row (`PSX_RENDER_SCALE`, tour `scale=`) | 100 % | PSXQuality.cs (RenderScalePrefs), PSXCameraOutput.cs, Shaders/PSXBlit.shader (_Sharpen), SettingsCatalog.cs | 85 % -3.7 ms (0.6), 75 % -7.0, 67 % -10.0, 50 % -11.9 of 25.8 | softer; the owner's choice |
+| AMBIENT SHADE row (FULL / HALF / OFF) | FULL | PerfSwitches.cs (AOQualityPrefs) | HALF -2.0 to -3.3 (cockpit -4.2); OFF -3.4 to -4.3 | HALF: not visible to me in the crops; OFF: flatter undergrowth |
+| GRAPHICS row (QUALITY / BALANCED / PERFORMANCE; CUSTOM) | QUALITY = the defaults | PerfSwitches.cs (GraphicsPresetPrefs), ViewRatePrefs.cs (Set) | sets RENDER SCALE, AMBIENT SHADE, FOREST DETAIL, CAR REFLECT, mirrors | per preset |
+
+The three rows show in the PC picture only (PlatformProfile.PCPicture), so the editor's self-test and the web / phone menus do not have them.
+Measuring only (no game change): Scripts/Dev/PerfTour.Probe.cs (new: the in-run probe, the census, frozen lossless snaps, frame-cap
+and window-size lines), PerfTour.cs / PerfTour.Stage.cs (probe hooks, `from=` and `at~` routes in the city, `scale=`), PerfClock.cs
+(per-camera main-thread time, a sun-shadow slot), SunShadows.cs (ForceOff, ResOverride, the slot), CarReflections.cs (MaskOut,
+FarOverride), Editor/PSXBuildWin64.cs (`PSX_FRAME_TIMING=1`: Frame Timing Stats in that player only, the project's setting restored).
+
+## Proof
+Driven on screen at 3840x2066, 35 s each, fresh processes, back to back; "off" = the four switches at 0 (PC48's frame), "on" =
+the four switches on (player 1, 83803b5f, switches by environment; the same code paths as today's defaults). Other Unity jobs
+were running in every run (5-11 editors); the "on" medians of 16.6-16.9 ms are AT the test window's 60 fps limit.
+
+| Place, view | | fps | median ms | 95 % | 99 % | main thread ms | render thread ms | set-pass | triangles M |
+|---|---|---|---|---|---|---|---|---|---|
+| Lake Lure, cockpit | off | 42.9 | 21.3 | 34.0 | 67.5 | 16.5 | 12.2 | 986 | 3.33 |
+| | on | 58.8 | 16.9 | 20.3 | 22.1 | 10.9 | 2.9 | 1023 | 3.34 |
+| Lake Lure, chase | off | 29.7 | 35.0 | 47.4 | 63.0 | 13.1 | 11.7 | 808 | 2.33 |
+| | on | 50.0 | 16.7 | 44.7 | 74.7 | 10.3 | 4.3 | 857 | 2.36 |
+| NC 226A lower, chase | off | 36.0 | 22.2 | 59.0 | 111.9 | 13.1 | 12.1 | 694 | 2.42 |
+| | on | 36.0 | 19.4 | 61.5 | 101.3 | 14.6 | 5.0 | 746 | 2.46 |
+| Blue Ridge at Linn Cove, chase | off | 27.0 | 34.1 | 73.1 | 107.9 | 17.8 | 15.4 | 751 | 1.77 |
+| | on | 57.7 | 16.6 | 20.8 | 41.0 | 8.4 | 3.1 | 792 | 1.71 |
+| Uptown, Trade St at Tryon, chase | off | 40.4 | 23.9 | 34.5 | 42.0 | 20.8 | 8.2 | 1539 (probe) | 9.6 (probe) |
+| | on | 43.4 | 21.4 | 32.8 | 71.4 | 18.0 | 3.2 | | |
+| Myers Park, Queens Rd, chase | off | 37.4 | 23.9 | 47.7 | 86.3 | 18.2 | 9.4 | | |
+| | on | 34.0 | 24.3 | 60.8 | 125.9 | 25.4 | 3.8 | | |
+
+- Triangles are Unity's counter (it does not see the forest's indirect instances: add 4-6 M on the stages, twice for cutouts with the
+  pre-pass). Set-pass rises by about 100 on the stages with the pre-pass (one more draw a cutout).
+- NC 226A and Myers Park "on" runs were hit by other jobs (see their 95 % and main-thread columns); the city is main-thread bound.
+- In-run switching (4-5 repeats each way) is the reliable size of each gain: see the table under "What I changed".
+- NOT DONE: the same table from player 3 (defaults ON, C:\Users\mcgee\PSXRelease\_perf, built 00:52 from 41390a94) and the night /
+  rain pair. The owner started PC49 at 00:43 and no tour may run beside his game. Ready to run: `scratchpad\perf\matrix.ps1 -Sets fin1`
+  then `python -I scratchpad\perf\fintable.py f`. Night rain was measured in-run only (Lake Lure cockpit, frame 20.1 ms:
+  AO rule -1.9 ms (2.0), pre-pass -0.2 (0.8), reflections -2.7 (0.6)).
+- Same-picture pairs (player 2, on screen, clock stopped, lossless): `scratchpad\perf\sheets\perf_same_picture_lakelure.png`,
+  `perf_same_picture_uptown.png`, `perf_ao_driver_only_cockpit.png`; the options that DO change the picture:
+  `perf_options_that_change_the_picture.png`. What still looks wrong in my own sheets: nothing in the pairs; in the options sheet
+  RENDER SCALE 67 % is visibly softer in the leaves, and AMBIENT SHADE OFF flattens the undergrowth.
+- Menus: the game's own settings capture with the PC rows (`DebugBenchPreview.Capture`, PSX_PROFILE=PC), VISUALS page at six sizes
+  (owner 2000x1077, 16:9, 4:3, three phones): every caption fits its button, every control is on the canvas, all 23 controls
+  reachable by pad; pictures `scratchpad\perf\menu\pc_settings_visuals_*.png`. The rows are plain `Step` rows (click / tap / pad
+  confirm), so touch reaches them as it reaches PICTURE. The tool's two failing lines are the CREDITS page's BACK off the canvas
+  at phone and 4:3 sizes (not a row of mine; not checked against the base). At phone 640x360 the tool reports every VISUALS row's
+  name cut 18-19 px on the left by its panel, the old rows (PICTURE, REFLECTIONS, FOREST DETAIL) as much as the new ones.
+- Self-test in PSXLab with this branch: 66 FAIL. Against the base report made in PSXPerf at 742315cd (68 FAIL): 5 gone, 3 new,
+  all three content checks of PSXLab's own state (a car lamp-map check that also fails in the cars agent's report; the tower's
+  night-window check, which only runs where Charlotte.unity is newer than the builder - PC49's scene pass made it run here). A base
+  run in PSXLab itself was NOT made, so "no new failures" is argued, not shown: run the merged self-test before the build.
+
+## How it was measured (use it again)
+- `-perftour "stage=LakeLure&from=2400&hour=Noon&weather=Clear&day=200&view=chase&probe=park&onscreen=1&pcfg=4,10,24&pv=name=op,op;..."`
+  in a window: each variant switched on and off in alternating blocks inside ONE run; the table gives the frame delta and its
+  spread. Ops: `set:Class.Member:v`, `fs:Feature:Field:v`, `layer:`, `comp:`, `rend:`, `g:`, `q:`, `feat:`, `urp:`, `res:` / `add:`
+  (offscreen only). `&freeze=1` stops the clock and writes lossless full-size snaps (+ a second base = the noise floor).
+  `&census=1` counts what stands in the driver's view and in the six probe views.
+- The headless (`-batchmode`, `offscreen=`) probe is useless while another job loads the CPU (spreads of 10-130 ms).
+- Scratch `perf\run.ps1`, `matrix.ps1` (the run sets), `perf_build.ps1` (the measuring player), `sheets.py`, `outside.py`, `where.py`.
+
+## Not done
+- City traffic's fixed step (5.0 ms at 69 cars). Needs a per-function profile first; it must drive exactly the same
+  (CityTrafficCheck, the census), and every City edit costs a measuring build its 40-minute bake.
+- Sun shadows: the maps are recorded every frame (1.0-1.6 ms main thread, about 100 DrawRenderer calls plus the cars' map).
+- The forest's remaining ~5 ms (leaf pixels, once each now): with the tree round, see `scratchpad\perf\FOR_TREES.md`.
+- SRP-batcher compatibility of PSX/Lit (the city's main view is 792 draws at ~4 microseconds each): a shader port, not attempted.
+- BaseFromArgs (MeshForest): -248 set-pass calls, no frame gain measured; left off.
+- The 60 fps limit's source; the daytime garbage's source.
+
+## For the merge / the PC build
+- No Scripts/City file is touched: the city bake is reused.
+- New files with metas: Scripts/PerfSwitches.cs, Scripts/Dev/PerfTour.Probe.cs.
+- Shared files: MeshForest.Gpu.cs (tree-season touches BakeGpu only; mine is the block after BaseFromArgs, the last line of
+  GpuDressChanged and the main-view loop of GpuFrame), SettingsCatalog.cs (three rows after PICTURE), PSXQuality.cs, PSXBlit.shader
+  (one property, one block after the FXAA call), SunShadows.cs, CarReflections.cs, ViewRatePrefs.cs, PSXCameraOutput.cs,
+  PSXBuildWin64.cs, PerfTour*.cs, PerfClock.cs.
+- PSX/Lit: nothing changed, but the pre-pass RELIES on every clip standing before `if (_SkylinePass > 1.5) return` (line 2333).
+- Consider building the shipped player with Frame Timing Stats off (as now): its GPU figure misleads.
+- The tours share the owner's registry (window size, view rates, frame cap): after any on-screen tour check that
+  `Screenmanager Resolution Width / Height` still read 3840 x 2066 (0xf00 x 0x812).
+
+# HANDOFF - THE CAMCORDER, ROUND 2: a camera at every race point, flex scoring (agent "camcorder", branch `replay-camcorder2` off mountain-nm 742315cd, 2026-11-16 night; NOT pushed, NOT merged)
 
 Owner, 21:50, after playing PC48: "As for the camcorder replays, I don't like the follow cams. Now that checkpoints are
 being added, at least one camera can should record at each checkpoint. Logically, it proves the cars started at the
