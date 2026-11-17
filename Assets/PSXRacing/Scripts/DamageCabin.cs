@@ -409,6 +409,7 @@ namespace PSXRacing
             m.SetFloat("_PSXStRead", StencilBit);
             m.SetFloat("_PSXStComp", (float)CompareFunction.Equal);
             m.SetFloat("_PSXCabOut", 1f);
+            m.SetFloat("_PSXCabCull", 0f);   // both faces: the back of a door card where the shell's window is the larger
             m.renderQueue = QueueCabin;
             holeMats[key] = m;
             return m;

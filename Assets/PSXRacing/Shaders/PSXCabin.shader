@@ -43,13 +43,17 @@ Shader "PSX/Cabin"
         [HideInInspector] _PSXStRead ("Stencil read mask", Float) = 255
         [HideInInspector] _PSXStComp ("Stencil compare (8 always)", Float) = 8
         [HideInInspector] _PSXCabOut ("Seen from outside the car 0/1", Float) = 0
+        // Seen from outside, both faces: a shell's window can be larger than the
+        // cabin's own, and the back of its door card or pillar trim is what
+        // shows there (culled, it was a hole onto the dark cabin behind).
+        [HideInInspector] _PSXCabCull ("Cull (2 back, 0 off)", Float) = 2
     }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass
         {
-            Cull Back
+            Cull [_PSXCabCull]
             Stencil
             {
                 Ref [_PSXStRef]
@@ -143,6 +147,8 @@ Shader "PSX/Cabin"
                 float3 toEye = _WorldSpaceCameraPos - i.wpos;
                 float eyeDist = length(toEye);
                 float3 V = toEye / max(eyeDist, 1e-4);
+                // seen from outside, a face's back is lit as its front (Cull Off there)
+                if (_PSXCabOut > 0.5 && dot(Ng, V) < 0.0) { Ng = -Ng; i.wtan.w = -i.wtan.w; }
                 float3 N = Ng;
                 float3 base;
                 float rough;

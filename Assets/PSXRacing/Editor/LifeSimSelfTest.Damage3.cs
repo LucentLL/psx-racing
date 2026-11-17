@@ -116,7 +116,7 @@ namespace PSXRacing.EditorTools
                 bool cabOk = cr != null && cr.sharedMaterials.Length > 0;
                 if (cabOk) foreach (var m in cr.sharedMaterials)
                         cabOk &= m != null && m.shader.name == "PSX/Cabin" && m.GetFloat("_PSXStComp") == (float)CompareFunction.Equal
-                                 && m.GetFloat("_PSXCabOut") == 1f && m.renderQueue == DamageCabin.QueueCabin && m.GetFloat("_PSXStRef") == DamageCabin.StencilBit;
+                                 && m.GetFloat("_PSXCabOut") == 1f && m.GetFloat("_PSXCabCull") == 0f && m.renderQueue == DamageCabin.QueueCabin && m.GetFloat("_PSXStRef") == DamageCabin.StencilBit;
                 Check(cabOk, "the cockpit's own materials, drawn only on the mark, lit and fogged as seen from outside",
                       cr != null ? cr.sharedMaterials.Length + " materials" : "none");
                 var bb = new MaterialPropertyBlock(); var mb = new MaterialPropertyBlock();
