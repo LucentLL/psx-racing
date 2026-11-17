@@ -60,6 +60,12 @@ namespace PSXRacing
             l.beam = MeshObj(l.root, "Beam", beamMesh, l.beamMat);
             l.core = MeshObj(l.root, "BeamCore", beamMesh, l.coreMat);
             l.core.localScale = new Vector3(0.45f, 1f, 1f);
+            // ...and per renderer too: the fog band is a GLOBAL (PSXGlobals sets it every frame) that the shader does
+            // not declare, so a material value may not win over it; a property block always does
+            var mpb = new MaterialPropertyBlock();
+            mpb.SetFloat("_PSXFogNear", 1e5f); mpb.SetFloat("_PSXFogFar", 2e5f);
+            l.beam.GetComponent<MeshRenderer>().SetPropertyBlock(mpb);
+            l.core.GetComponent<MeshRenderer>().SetPropertyBlock(mpb);
             l.bands = new Transform[4]; l.posts = new Transform[8];
             for (int i = 0; i < l.bands.Length; i++) l.bands[i] = Quad(l.root, "Band", l.bandMat);
             for (int i = 0; i < l.posts.Length; i++) l.posts[i] = Quad(l.root, "Post", l.postMat);
