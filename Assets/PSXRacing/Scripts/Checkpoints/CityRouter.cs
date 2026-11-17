@@ -498,8 +498,11 @@ namespace PSXRacing
                     // back from 22 m off was handed to a ramp sharing the node, 125 m further from the gate)
                     // A node's next edge (the route's: 0.5 m better; another: 2 m better, or the car off the kept
                     // pavement), so two roads leaving one node side by side do not swap on a lane's width
+                    // ...and a road the route does not take only once the car is off the kept one's pavement: on the
+                    // I-485 exit ramp the car drives right over the MAIN LINE's OSM line (0.3 m) for 100 m while the
+                    // ramp's own line is 2.5 m away (the 02:15 and 02:27 H2 races: +19 km for a second)
                     if (onNew && SharesNode(e, keep))
-                    { take = score + (e == prefer ? 0.5f : 2f) < kScore || (!onKeep && score < kScore); loc.pending = -1; }
+                    { take = e == prefer ? score + 0.5f < kScore : (!onKeep && score < kScore); loc.pending = -1; }
                     else if (onNew && (!onKeep || score + 4f < kScore))
                     {
                         if (loc.pending != e) { loc.pending = e; loc.since = now; }
@@ -680,7 +683,8 @@ namespace PSXRacing
             {
                 // on (or kept by) an edge: the ruler at the car's projection, plus how far it is off the pavement
                 var e = map.edges[loc.edge];
-                return RouteRemaining(F, loc.edge, loc.s, ref dir, UTurnHyst, loc.dir) + Mathf.Max(0f, loc.dist - (e.HalfMax + 2f));
+                // a two-way street: the way the car is going (dir, held by the caller; a fresh one from its travel)
+                return RouteRemaining(F, loc.edge, loc.s, ref dir, float.PositiveInfinity, loc.dir) + Mathf.Max(0f, loc.dist - (e.HalfMax + 2f));
             }
             if (Nearest(pos, 60f, 8f, -1, 0f, out int ne, out float ns, out float nd))
             {

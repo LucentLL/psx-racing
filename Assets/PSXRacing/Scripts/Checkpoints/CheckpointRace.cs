@@ -98,6 +98,9 @@ namespace PSXRacing
             /// gate's line while still closing on its own (a legal re-route) has not missed it.</summary>
             public float towardAcc;
             public float missedRg;
+            public float flipT;
+            /// <summary>A two-way street where turning round is clearly the better way (WRONG WAY's two-way rule).</summary>
+            public bool turnBack; public float turnBackT;
             /// <summary>The road the GPS route takes next, preferred by the locate where two overlap (a ramp's gore);
             /// held for 80 m after the car was located elsewhere (it is usually still on the ramp: the H2 race of
             /// 02:15 read the main line for the I-485 exit ramp, +19 km, until the ramp was 10 m off the main line).</summary>
@@ -563,7 +566,22 @@ namespace PSXRacing
             }
             else R.Slide(pos, vel, car.transform.forward, ref c.loc);
             // the held direction belongs to an edge: a new edge chooses afresh (by the cost, as the GPS does)
-            if (c.loc.valid && !c.loc.offGraph && c.loc.edge != c.rEdge) { c.rEdge = c.loc.edge; c.rDir = 0; }
+            // THE RULER'S DIRECTION ON A TWO-WAY STREET is the way the car is going (cpfix 11-17, after the detour
+            // race of 02:27: chosen by the cost it flipped back and forth on Todd Rd, where the freeway profile prices a
+            // local street at x4, and the remaining jumped 1,245 m and back). A new edge starts the way the car travels;
+            // a flip needs 1 s of travel the other way at 4 m/s or more (a spinning car's nose means nothing). Turning
+            // round when that is clearly better is WRONG WAY's business (UpdateWrongWay), and the GPS line then points
+            // back; following the line, the remaining falls metre for metre.
+            if (c.loc.valid && !c.loc.offGraph)
+            {
+                if (c.loc.edge != c.rEdge) { c.rEdge = c.loc.edge; c.rDir = c.loc.dir == -1 ? -1 : 1; c.flipT = 0f; }
+                else if (!map.edges[c.loc.edge].oneway && c.loc.dir != c.rDir && new Vector2(vel.x, vel.z).magnitude > 4f)
+                {
+                    c.flipT += Time.deltaTime;
+                    if (c.flipT >= 1f) { c.rDir = c.loc.dir; c.flipT = 0f; }
+                }
+                else c.flipT = 0f;
+            }
             float r = R.Remaining(F, pos, ref c.loc, ref c.rDir);
             c.bestDir = c.rDir == -1 ? -1 : 1;
             return r;
@@ -708,13 +726,31 @@ namespace PSXRacing
             c.lastRemGate = rem; c.lastEdge = c.loc.edge;
             bool against = false;
             Vector3 v = car.Body != null ? car.Body.linearVelocity : Vector3.zero; v.y = 0f;
+            bool twoWayBack = false;
             if (c.loc.valid && !c.loc.offGraph && v.magnitude > 6f)
             {
                 var ed = map.edges[c.loc.edge];
-                var t = ed.TangentAt(c.loc.s) * (ed.oneway ? 1f : c.bestDir);
-                against = Vector2.Dot(new Vector2(v.x, v.z).normalized, t) < -0.3f;
+                if (ed.oneway)
+                {
+                    // a one-way driven against its flow: the remaining rises (no backwards credit)
+                    against = Vector2.Dot(new Vector2(v.x, v.z).normalized, ed.TangentAt(c.loc.s)) < -0.3f;
+                }
+                else
+                {
+                    // a two-way street: TURNING ROUND is clearly better than going on (by a U-turn's 240 cost-m and
+                    // 15 %; out again under 120 and 8 %)
+                    var F = fields[c.next];
+                    float L = ed.length;
+                    float go = c.rDir == -1 ? R.CostFrom(F, c.loc.edge * 2 + 1, L - c.loc.s) : R.CostFrom(F, c.loc.edge * 2, c.loc.s);
+                    float back = c.rDir == -1 ? R.CostFrom(F, c.loc.edge * 2, c.loc.s) : R.CostFrom(F, c.loc.edge * 2 + 1, L - c.loc.s);
+                    bool clearly = !float.IsInfinity(back) && (float.IsInfinity(go) || (back + 240f < go && back < 0.85f * go));
+                    bool still = !float.IsInfinity(back) && (float.IsInfinity(go) || (back + 120f < go && back < 0.92f * go));
+                    c.turnBack = c.turnBack ? still : clearly;
+                    twoWayBack = c.turnBack;
+                }
             }
-            if (against && c.wrongRise >= 25f) c.wrongTimer += dt; else c.wrongTimer = 0f;
+            else if (!c.loc.valid || c.loc.offGraph) c.turnBack = false;
+            if ((against && c.wrongRise >= 25f) || twoWayBack) c.wrongTimer += dt; else c.wrongTimer = 0f;
             c.wrongWay = c.wrongTimer >= 2f;
         }
 
@@ -812,7 +848,7 @@ namespace PSXRacing
             if (gpsStamp == null) gpsStamp = new int[map.edges.Length];
             bool offChain = c.loc.edge != gpsEdge && gpsStamp[c.loc.edge] != gpsStampNow;
             // the ruler turned round on this street (the cost now prefers the other way): the line turns with it
-            bool turned = c.loc.edge == c.rEdge && c.rDir != 0 && c.rDir != gpsDir;
+            bool turned = c.loc.edge == c.rEdge && c.rDir != 0 && (c.turnBack ? -c.rDir : c.rDir) != gpsDir;
             if (Time.unscaledTime < gpsNext && !offChain && !turned) return;
             gpsNext = Time.unscaledTime + 0.5f;
             gpsEdge = c.loc.edge;
@@ -831,7 +867,7 @@ namespace PSXRacing
             int dir = 1;
             if (!ed.oneway)
             {
-                if (c.rEdge == c.loc.edge && c.rDir != 0) dir = c.rDir;
+                if (c.rEdge == c.loc.edge && c.rDir != 0) dir = c.turnBack ? -c.rDir : c.rDir;
                 else R.ValueAt(fields[k], c.loc.edge, c.loc.s, false, out dir);
             }
             gpsDir = dir;
