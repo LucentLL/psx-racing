@@ -625,7 +625,7 @@ namespace PSXRacing.City
             }
             // Phase C: the tight twins (two carriageways mapped closer than their own lanes) pushed apart, before
             // any split's profile reads their lines
-            if (SplitsOn && CityPhaseC && PhaseCTightOn) BuildTightTwins(map, add, splitAt, splitNodeSet, refugeEndSet);
+            if (SplitsOn && CityPhaseC && PhaseCTightOn) BuildTightTwins(map, add, partner, splitAt, splitNodeSet, refugeEndSet);
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
@@ -2114,7 +2114,7 @@ namespace PSXRacing.City
 
         static void Propagate(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                               CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth,
-                              float dwOther = 0f, byte twoRole = 0, long tag = 0, bool coin = false)
+                              float dwOther = 0f, byte twoRole = 0, long tag = 0, bool coin = false, int narrowProf = -1)
         {
             // the join's tag (roads pass L5): set at the join, carried on through
             if (depth == 0) tag = EaseTag(fromNode, e.index, side);
@@ -2122,7 +2122,7 @@ namespace PSXRacing.City
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlongFloor(map, partner, e, fromNode, side, false, len)));
-            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag, coin = coin };
+            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrowProf >= 0 ? narrowProf : narrow.profile, narrowLay = narrowProf >= 0 ? LayoutOf(narrowProf) : LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag, coin = coin };
             if (taggedEdges != null) { if (!taggedEdges.TryGetValue(tag, out var tl)) taggedEdges[tag] = tl = new List<int>(2); tl.Add(e.index); }
             var lay = LayoutOf(e);
             z.partner = new float[lay.m.Length];
@@ -2141,7 +2141,7 @@ namespace PSXRacing.City
             float extE = side > 0 ? e.lmPlus : e.lmMinus, extP = pSide > 0 ? p.lmPlus : p.lmMinus;
             if (Mathf.Abs(extE - extP) > 0.05f) return;
             bool pFlip = flip ^ ((e.a == fromNode) != (p.a == far));
-            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag, coin);
+            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag, coin, narrowProf);
         }
 
         /// <summary>A taper's length: TAPR's MUTCD length where the exporter

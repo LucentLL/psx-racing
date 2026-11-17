@@ -91,7 +91,7 @@ namespace PSXRacing.City
             {
                 if (uu <= uStart) return lambda0;
                 if (uu >= uEnd) return OwnQAt(uu);
-                if (ownBlend) { float x = Mathf.Clamp01((uu - uStart) / Mathf.Max(1e-3f, L)); return OwnQAt(uu) + offStart * (1f - x * x * (3f - 2f * x)); }
+                if (ownBlend) { float x = Mathf.Clamp01((uu - uStart) / Mathf.Max(1e-3f, L)); float S = x * x * (3f - 2f * x); return lambda0 * (1f - S) + OwnQAt(uu) * S; }
                 float t = (uu - uStart) / Mathf.Max(1e-3f, L), t2 = t * t, t3 = t2 * t;
                 return lambda0 * (2f * t3 - 3f * t2 + 1f) + qEnd * (-2f * t3 + 3f * t2) + L * slopeEnd * (t3 - t2);
             }
@@ -154,7 +154,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinOwnBlends = 0;
+            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
             SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -412,6 +412,16 @@ namespace PSXRacing.City
                 bool outIsLeftU = out1 * sign > 0f;
                 float uOut = DrawnToward(add, U, sp.node, outIsLeftU ? leftU : -leftU);
                 float cOutRel = out1 > 0f ? C.lmPlus - C.lmOff : C.lmMinus + C.lmOff;
+                if (twinOuterEdges.Contains(ci))
+                {
+                    // (11-17) its outer lane opens from the fork: the start is where the drawn (tapered) outer edge is
+                    float sN = C.a == sp.node ? 0f : C.length;
+                    var keepE = C.lmEase; C.lmEase = PreEases(add, C);
+                    Ext(C, sN, true, out float eMn, out float ePn);
+                    float cN = LanesPre(C, sN, out _);
+                    C.lmEase = keepE;
+                    cOutRel = out1 > 0f ? ePn - cN : eMn + cN;
+                }
                 float dirU = outIsLeftU ? 1f : -1f;                   // the outer side, axis frame
                 var f = new SplitFrame { node = sp.node, u = sp.u, edge = ci, chain = chain.ToArray(), chainLen = clen, p0 = P0, tU = tU, leftU = leftU,
                                          lambda0 = dirU * (uOut - cOutRel), rate = rate, mph = mph, rmin = rmin,
@@ -480,9 +490,11 @@ namespace PSXRacing.City
                 {
                     // (11-17) a tight twin: the move is the start offset off the own line (the push already holds
                     // the island all along the run); the length is MUTCD's for that move alone
-                    f.ownBlend = true; f.offStart = f.lambda0 - f.OwnQAt(f.uStart);
+                    float uRef = f.uStart + Mathf.Min(TightPastFanM, Mathf.Max(5f, uMax - f.uStart - 2f));
+                    f.ownBlend = true; f.offStart = f.lambda0 - f.OwnQAt(uRef);
                     float dq = Mathf.Abs(f.offStart);
-                    L = Mathf.Min(200f, Mathf.Max(SplitFloorM, Mathf.Max(1.2f * rate * dq, Mathf.Sqrt(6f * dq * rmin))));
+                    L = Mathf.Min(120f, Mathf.Max(SplitFloorM, Mathf.Max(1.2f * rate * dq, Mathf.Sqrt(6f * dq * rmin))));
+                    if (twinOuterEdges.Contains(ci)) L = Mathf.Max(L, RoadProfiles.LaneM * BayTaperRate(mph));
                     f.note = $"tight twin: own-frame blend of {f.offStart:+0.00;-0.00} m" + (f.note.Length > 0 ? "; " + f.note : "");
                     TwinOwnBlends++;
                 }
@@ -900,6 +912,8 @@ namespace PSXRacing.City
         static float TwinGapM => TwinIslandOn ? SplitIslandGapM : TightGapM;
         /// <summary>PSX_CITY_TWINBLEND=0: a tight twin's split blends in the straight axis frame as every other split.</summary>
         public static bool TwinOwnBlendOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINBLEND") != "0";
+        /// <summary>PSX_CITY_TWINOUTER=0: a twin carriageway's added lane is its inner lane (the centre lane) as before.</summary>
+        public static bool TwinOuterLaneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINOUTER") != "0";
         public static int TwinOwnBlends;
         static readonly HashSet<int> tightTwinEdges = new HashSet<int>();
         static readonly HashSet<int> tightTwinNodes = new HashSet<int>();
@@ -954,7 +968,55 @@ namespace PSXRacing.City
             return Mathf.Sqrt(best);
         }
 
-        static void BuildTightTwins(CityMap map, List<Ease>[] add, Dictionary<int, Split> splitAt, HashSet<int> splitNodes, HashSet<long> refugeEnds)
+        // THE CENTRE LANE BECOMES THE ISLAND (11-17, the owner's N Tryon fork). Where the undivided road has a centre
+        // lane (a TWLTL) and its two carriageways carry its lanes plus ONE more on one side - an outer turn lane
+        // (North Tryon westbound: none|none|none|right, four lanes from the fork against three) - the line model
+        // gave that carriageway the centre lane as its inner lane and then had to shift all its through lanes out to
+        // open the island (3.3 m at 45 mph: 150 m of taper, the island never opening before the junction). On the
+        // street the through lanes stay put, the centre lane becomes the hatching and the kerbed median, and the
+        // added lane opens on the OUTSIDE. So that carriageway gets a lane-add taper on its outer side from the
+        // fork (the bay taper, AASHTO 8:1 to 15:1; lines paired by place), and its profile starts with its other
+        // lanes where they were (the frame's start reads the tapered extent). PSX_CITY_TWINOUTER=0: off.
+        static readonly HashSet<int> twinOuterEdges = new HashSet<int>();
+        public static int TwinOuterLanes;
+        static bool TwinOuterLane(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Split sp, List<int> chA, List<int> chB)
+        {
+            if (!TwinOuterLaneOn || sp.u < 0 || sp.u >= map.edges.Length || chA.Count == 0 || chB.Count == 0) return false;
+            var U = map.edges[sp.u];
+            if (U.oneway || !U.hasLset || (U.lsFlags & 1) == 0) return false;
+            if (!(U.lsCentre == 2 || RoadProfiles.All[U.profile].turnLane)) return false;
+            int toNode = U.b == sp.node ? U.lsNF : U.lsNB, fromNode = U.b == sp.node ? U.lsNB : U.lsNF;
+            var A = map.edges[chA[0]]; var B = map.edges[chB[0]];
+            // the lanes the carriageway's direction had in the undivided road
+            int UOf(CityMap.Edge c) => c.a == sp.node ? toNode : fromNode;
+            int nA = RoadProfiles.All[A.profile].lanes, nB = RoadProfiles.All[B.profile].lanes;
+            CityMap.Edge X = null, Y = null;
+            if (nA == UOf(A) + 1 && nB == UOf(B)) { X = A; Y = B; }
+            else if (nB == UOf(B) + 1 && nA == UOf(A)) { X = B; Y = A; }
+            if (X == null) return false;
+            int nX = RoadProfiles.All[X.profile].lanes;
+            CityMeshes.TurnOnly(X, out int fw, out _, out _, out _, out _);
+            if (nX < 2 || (fw & (1 << (nX - 1))) == 0) return false;               // the added lane is the outer turn lane
+            // the narrow profile: the same kind of carriageway with one lane fewer
+            int nar = -1;
+            var px = RoadProfiles.All[X.profile];
+            for (int i = 0; i < RoadProfiles.All.Length; i++) { var q = RoadProfiles.All[i]; if (q.kind == px.kind && q.oneway && q.lanes == nX - 1) { nar = i; break; } }
+            if (nar < 0) return false;
+            // its outer side, in X's frame: away from the other carriageway 30 m on
+            float sx = Mathf.Min(30f, 0.5f * X.length), sy = Mathf.Min(30f, 0.5f * Y.length);
+            var px30 = X.PointAt(X.a == sp.node ? sx : X.length - sx); var py30 = Y.PointAt(Y.a == sp.node ? sy : Y.length - sy);
+            var tx = X.TangentAt(X.a == sp.node ? sx : X.length - sx); var lx = new Vector2(-tx.y, tx.x);
+            int side = Vector2.Dot(lx, px30 - py30) >= 0f ? 1 : -1;
+            float mph = Mathf.Max(SpeedMph(U), SpeedMph(X));
+            float len = RoadProfiles.LaneM * BayTaperRate(mph);
+            Propagate(map, add, partner, X, sp.node, side, RoadProfiles.LaneM, len, 0f, X, false, 0, coin: true, narrowProf: nar);
+            twinOuterEdges.Add(X.index);
+            TwinOuterLanes++;
+            if (TightTwinLog.Count < 400) TightTwinLog.Add($"n{sp.node} e{X.index} '{U.name}': {nX} lanes from the fork against {nX - 1} in the undivided road, the added lane its outer turn lane: it opens outside over {len:0} m; the centre lane is the island");
+            return true;
+        }
+
+        static void BuildTightTwins(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner, Dictionary<int, Split> splitAt, HashSet<int> splitNodes, HashSet<long> refugeEnds)
         {
             var chA = new List<int>(16); var chB = new List<int>(16);
             foreach (var sp in splitAt.Values)
@@ -984,6 +1046,9 @@ namespace PSXRacing.City
                 TightTwinPairs++; TightTwinM += runAll;
                 tightTwinNodes.Add(sp.node);
                 if (TightTwinLog.Count < 400) TightTwinLog.Add($"n{sp.node} e{sp.a}/e{sp.b} '{A.name}': the two carriageways' lane bands {worst:+0.00;-0.00} m apart at their closest past the fan, short of the divider's {TightGapM:0.00} m over {run:0} m: pushed apart (chains {lenA:0} / {lenB:0} m)");
+                // the centre lane becomes the island; a carriageway with one lane more than its direction had gets
+                // that lane on its OUTSIDE (TwinOuterLane) - then the two lines the needs are read against again
+                if (TwinOuterLane(map, add, partner, sp, chA, chB)) { LA = TwinLine(map, add, chA, sp.node, 1f); LB = TwinLine(map, add, chB, sp.node, 1f); }
                 // the far ends: a pair that closes at one split node keeps its push to that node (its own
                 // profile starts there); any other end eases the push out before it
                 bool closes = farA == farB && farA >= 0 && splitNodes.Contains(farA);
