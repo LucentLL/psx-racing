@@ -143,8 +143,8 @@ try {
     # ---- the metas Unity minted for new files, back to the worktree (commit them)
     foreach ($d in @("Assets\PSXRacing\Scripts\Checkpoints", "Assets\PSXRacing\Editor") + $dataDirs) {
         # only this round's own Editor files (a meta Unity minted here for some other branch's file must not travel)
-        $flt = if ($d -like "*ditor") { "*.cs.meta" } else { "*.meta" }
-        foreach ($m in @(Get-ChildItem "$Sandbox$d" -Filter $flt -ErrorAction SilentlyContinue | Where-Object { $d -notlike "*ditor" -or $_.Name -like "Checkpoint*" -or $_.Name -like "LaneUseWatch*" })) {
+        $flt = if ($d -like "*\Editor") { "*.cs.meta" } else { "*.meta" }
+        foreach ($m in @(Get-ChildItem "$Sandbox\$d" -Filter $flt -ErrorAction SilentlyContinue | Where-Object { $d -notlike "*\Editor" -or $_.Name -like "Checkpoint*" -or $_.Name -like "LaneUseWatch*" })) {
             if (-not (Test-Path "$wt\$d\$($m.Name)") -and (Test-Path ("$wt\$d\" + $m.Name.Substring(0, $m.Name.Length - 5)))) {
                 Copy-Item $m.FullName "$wt\$d\$($m.Name)"; Write-Host "meta back: $d\$($m.Name)"
             }
