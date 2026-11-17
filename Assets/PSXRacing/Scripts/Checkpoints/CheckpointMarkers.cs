@@ -134,9 +134,9 @@ namespace PSXRacing
             // brightness: the floor by day, near full at night and in rain or fog where a real beam shows best;
             // faded inside 40 m of the camera (fill rate) and beyond 3 km
             float dist = to.magnitude;
-            float a = Mathf.Lerp(0.25f, 0.9f, night) * (1f + 0.3f * rain) * level;
+            float a = Mathf.Lerp(0.5f, 0.9f, night) * (1f + 0.3f * rain) * level;   // by day: 0.25 read only as a hairline against the sky (watched H2 race)
             float near = Mathf.InverseLerp(15f, 60f, dist), far = 1f - Mathf.InverseLerp(2500f, 3000f, dist);
-            l.beamMat.SetFloat("_Strength", 0.55f * a * near * far);
+            l.beamMat.SetFloat("_Strength", 0.7f * a * near * far);
             l.coreMat.SetFloat("_Strength", 0.9f * a * near * far);
             float breathe = 0.8f + 0.2f * Mathf.Sin(Time.time * 2f * Mathf.PI);
             l.bandMat.SetFloat("_Strength", Mathf.Lerp(0.55f, 1.1f, night) * level * breathe);

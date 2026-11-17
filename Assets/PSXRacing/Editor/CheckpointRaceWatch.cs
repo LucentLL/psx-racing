@@ -297,7 +297,7 @@ namespace PSXRacing.EditorTools
             var g = cp.gates[c.next];
             Vector3 to = g.centre - rm.playerCar.transform.position; to.y = 0f;
             bool ahead = to.sqrMagnitude > 1f && Vector3.Dot(rm.playerCar.transform.forward, to.normalized) > 0.85f;
-            if (!p.finished && c.passedTotal >= 1 && ahead && c.remainingGate > 640f && c.remainingGate < 720f) Take("3_beam_" + Mathf.RoundToInt(c.remainingGate / 10f) * 10 + "m");
+            if (!p.finished && c.passedTotal >= 1 && ahead && c.remainingGate > 640f && c.remainingGate < 720f) Take("3_beam_700m");
             if (!p.finished && c.passedTotal >= 1 && ahead && c.remainingGate > 260f && c.remainingGate < 330f) Take("4_beam_300m");
             if (!p.finished && g.kind == "turn" && c.remainingGate < 140f && c.remainingGate > 60f && turnShots < 2)
             { int before = taken.Count; Take("5_turn_" + (g.name ?? "").Replace(' ', '_')); if (taken.Count > before) turnShots++; }

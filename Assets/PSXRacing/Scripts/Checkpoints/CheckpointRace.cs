@@ -347,6 +347,15 @@ namespace PSXRacing
             c.remaining = rg + LegsAfter(c);
             p.progress = TotalM - c.remaining;
             if (c.remaining < 1e8f && rg < c.lastRemGateSample - 25f) { c.lastRemGateSample = rg; c.lastAdvanceTime = Time.time; }
+            // THE LOST-AI WATCHDOG (DESIGN_v2 2.6): a rival whose remaining distance has not fallen 50 m in 20 s
+            // (its own stuck detection has not fired) goes back on its road
+            if (!c.isPlayer && Time.time - c.lastAdvanceTime > 20f && CheckpointFile.On("PSX_CP_RESPAWN"))
+            {
+                c.lastAdvanceTime = Time.time; c.lastRemGateSample = float.PositiveInfinity;
+                Debug.Log($"[Checkpoints] {car.name}: no progress to gate {c.next} in 20 s - back on its road");
+                rm.RespawnCar(car);
+                return;
+            }
 
             // ---- MISSED by distance: the closest approach came within 60 m, and the gate is 150 m further now
             float d3 = Vector3.Distance(pos, gates[c.next].centre);

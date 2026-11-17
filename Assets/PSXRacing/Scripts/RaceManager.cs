@@ -713,6 +713,7 @@ namespace PSXRacing
         /// walked forward before a clear one (-1: none was, seated on the
         /// centreline anyway) and the lane offset asked for.</summary>
         public static event System.Action<CarController, int, float> Respawned;
+        readonly Dictionary<CarController, Vector3> lastRespawnAt = new Dictionary<CarController, Vector3>();
         readonly Dictionary<CarController, (int idx, float time, int repeats)> lastRespawn =
             new Dictionary<CarController, (int idx, float time, int repeats)>();
 
@@ -762,10 +763,14 @@ namespace PSXRacing
             // on the same waypoint nineteen times, every four seconds, to the
             // end of the race). Each repeat starts the walk three stations on.
             int skip = 0;
-            if (ai != null && lastRespawn.TryGetValue(car, out var last) &&
-                Time.time - last.time < 20f && Mathf.Abs(path.Wrap(start - last.idx + n / 2) - n / 2) <= 6)
-                skip = Mathf.Min(last.repeats + 1, 8) * 3;
+            // (a checkpoint race swaps an AI's routed road, so there the same spot is judged by position: 24 m)
+            bool samePlace = false;
+            if (ai != null && lastRespawn.TryGetValue(car, out var last) && Time.time - last.time < 20f)
+                samePlace = own ? Mathf.Abs(path.Wrap(start - last.idx + n / 2) - n / 2) <= 6
+                                : lastRespawnAt.TryGetValue(car, out var lp) && (lp - path.GetPoint(start)).sqrMagnitude < 24f * 24f;
+            if (samePlace) skip = Mathf.Min(last.repeats + 1, 8) * 3;
             lastRespawn[car] = (start, Time.time, skip / 3);
+            lastRespawnAt[car] = path.GetPoint(start);
             for (int step = skip; step <= Search + skip; step++)
             {
                 int raw = start + step;
