@@ -112,7 +112,7 @@ namespace PSXRacing
                 Vector3 r3 = new Vector3(sp.r.x, 0f, sp.r.y), h3 = new Vector3(sp.h.x, 0f, sp.h.y);
                 var band = l.bands[bi++];
                 band.gameObject.SetActive(true);
-                band.position = c0 + r3 * mid + Vector3.up * 0.09f;
+                band.position = c0 + r3 * mid + Vector3.up * 0.3f;   // over the drawn tarmac (it sits a little above Edge.YAt)
                 band.rotation = Quaternion.LookRotation(Vector3.down, h3);     // lying flat, across the road
                 band.localScale = new Vector3(Mathf.Max(3f, width), 1.2f, 1f);
                 for (int side = -1; side <= 1; side += 2)
