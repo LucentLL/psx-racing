@@ -5,6 +5,8 @@
  "candidate": "uptown",
  "generator": "checkpoints.mjs 2026-11-17 97f54be4",
  "cost": "city",
+ "held": 1,
+ "heldWhy": "cpfix 11-17: rivals on their routed road hit the ground at 39-51 m/s at wp 1282 (I-277 edge 1832, a 74 m piece between two bridge decks) in 4 of 4 runs; fixed line until that is solved",
  "loop": 1,
  "lengthM": 9191,
  "startM": 9191.0283203125,
