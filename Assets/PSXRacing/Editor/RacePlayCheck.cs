@@ -376,6 +376,7 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Note("  laps forced to " + lapsN);
             }
             if (rm.Checkpoints != null) CheckpointRaceWatch.Begin(rm, car);
+            LaneUseWatch.Begin(rm);   // cpfix 11-17: passes in the oncoming lane, near misses, the line back
 
             // PSX_RACE_MISTAKE=0.3: hand every rival a driver error at that
             // fraction of the race (AIDriver.PlanMistake), to see what one does.
@@ -497,6 +498,7 @@ namespace PSXRacing.EditorTools
             // The eye's adaptation is a picture's: with no device and the
             // cameras off there is nothing to adapt to.
             CheckpointRaceWatch.End(toFinish);
+            LaneUseWatch.End();
             if (headless) RacePlayCheck.Note("THE EYE (C10): not traced (no graphics device; cameras off)");
             else ReportEye();
             float raced = Time.time - t0;
@@ -1022,6 +1024,7 @@ namespace PSXRacing.EditorTools
         {
             aiStats?.Tick();
             if (rm == null || rm.path == null || t0 <= 0f) return;
+            LaneUseWatch.Step(Time.fixedDeltaTime);
             if (Time.fixedTime - lastPassSample >= 0.1f) SamplePasses();
             if (Time.fixedTime - lastTrail < 0.25f) return;
             lastTrail = Time.fixedTime;
