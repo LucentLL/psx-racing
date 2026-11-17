@@ -10873,8 +10873,8 @@ namespace PSXRacing.City
         // lift, so the slab still stands clear of whatever it does overlap inside, rising 12 mm over its first
         // metres - a slope of a few hundredths of a percent. The crack along the seated mouth is the road slab's
         // JOIN (two faces looking at each other, RoadSlab), as at any ribbon-to-ribbon joint. Verges, kerbs and
-        // fills that read the corners read the seated height. PSX_CITY_FANLIP=1 (default OFF until proven): seated.
-        public static bool FanLipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANLIP") == "1";
+        // fills that read the corners read the seated height. Default ON (11-17: the line gate box at Providence Rd / Ardsley Rd STEP 23 -> 0 with no other class changed; whole city fan lips 5,785 -> 64); PSX_CITY_FANLIP=0: the 12 mm lip as before.
+        public static bool FanLipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANLIP") != "0";
         const float FanMouthProudM = 0f;
         public static int FanMouthsSeated;
         static void SeatMouths(List<FanCorner> corners)
