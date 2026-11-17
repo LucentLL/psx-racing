@@ -282,6 +282,7 @@ namespace PSXRacing
                         // clear few metres toward the point, toward the road beside
                         // the lens, and toward the far end of its view.
                         if (Crowded(eye, seeGate) || Crowded(eye, c + Vector3.up * 1.1f) || Crowded(eye, seeAlso)) continue;
+                        if (ClearViewOn && Fanned(eye, seeGate)) continue;
                         lens = new Lens { pos = eye, back = back, crouch = crouch };
                         side = sd;
                         return true;
@@ -352,6 +353,34 @@ namespace PSXRacing
             float len = d.magnitude;
             if (len < 1.5f) return false;
             return Physics.SphereCast(from, 0.35f, d / len, out _, Mathf.Min(7f, len - 1.5f), SolidMask, QueryTriggerInteraction.Ignore);
+        }
+
+        static int clearView = -1;
+        /// <summary>PSX_CAM_CLEARVIEW=1 (default OFF: written after the last
+        /// allowed test run, never played): a wider look for things standing
+        /// in the lens's foreground. Uptown Loop's CHECKPOINT 3 front camera
+        /// has a utility pole 15 degrees off its line to the point, which the
+        /// three fat rays above pass beside.</summary>
+        public static bool ClearViewOn
+        {
+            get
+            {
+                if (clearView < 0) clearView = System.Environment.GetEnvironmentVariable("PSX_CAM_CLEARVIEW") == "1" ? 1 : 0;
+                return clearView == 1;
+            }
+        }
+
+        /// <summary>Anything solid within 6 m of the lens, level with it, in a
+        /// 60 degree fan round the line to a point.</summary>
+        static bool Fanned(Vector3 from, Vector3 to)
+        {
+            Vector3 d = to - from;
+            d.y = 0f;
+            if (d.sqrMagnitude < 4f) return false;
+            d.Normalize();
+            foreach (float a in new[] { -30f, -20f, -10f, 10f, 20f, 30f })
+                if (Physics.SphereCast(from, 0.2f, Quaternion.Euler(0f, a, 0f) * d, out _, 6f, SolidMask, QueryTriggerInteraction.Ignore)) return true;
+            return false;
         }
 
         /// <summary>Is the ground under a spot road (for the checks)?</summary>
