@@ -39,6 +39,87 @@ namespace PSXRacing
     /// Nothing here changes a pixel of the driver's view with the switches'
     /// features on as they ship (the HD water still gets its copies).
     /// </summary>
+    /// <summary>
+    /// AMBIENT SHADE (VISUALS, the PC picture): how the ambient occlusion is
+    /// drawn in the driver's view. FULL is the picture as it was (every
+    /// pixel, a three-pass blur: measured 2.0 ms of a 24.7 ms frame in the
+    /// chase view at 3840x2066, 4.2 ms in the cockpit before the mirrors
+    /// stopped running it); HALF draws it at half the lines each way and
+    /// scales it up (the same shade, a touch softer at its edges); OFF is no
+    /// occlusion at all. The default is FULL: the choice is the player's.
+    /// </summary>
+    public static class AOQualityPrefs
+    {
+        const string PrefKey = "psx.aoquality";
+        static readonly string[] Names = { "FULL", "HALF", "OFF" };
+        static int cached = -1;
+        public static int Level
+        {
+            get { if (cached < 0) cached = Mathf.Clamp(PlayerPrefs.GetInt(PrefKey, 0), 0, 2); return cached; }
+            set { int v = Mathf.Clamp(value, 0, 2); if (v == cached) return; cached = v; PlayerPrefs.SetInt(PrefKey, v); PlayerPrefs.Save(); }
+        }
+        public static string Label => Names[Level];
+        public static void Cycle() => Level = (Level + 1) % 3;
+    }
+
+    /// <summary>
+    /// GRAPHICS (VISUALS, the PC picture): one row that sets the rows that
+    /// trade picture for frame rate, together. QUALITY is the game's own
+    /// defaults; a player who has set any of those rows by hand reads CUSTOM
+    /// until the row is pressed. What each sets (measured, perf round
+    /// 2026-11-16: the report's table):
+    ///                 RENDER SCALE  AMBIENT SHADE  FOREST DETAIL  CAR REFLECT  MIRRORS
+    ///   QUALITY       100 %         FULL           MEDIUM         AUTO         30
+    ///   BALANCED      85 %          HALF           MEDIUM         AUTO         30
+    ///   PERFORMANCE   67 %          HALF           LOW            AUTO         20
+    /// </summary>
+    public static class GraphicsPresetPrefs
+    {
+        public static readonly string[] Names = { "QUALITY", "BALANCED", "PERFORMANCE" };
+        struct Set { public int scale, ao, forest, refl, mirror; }
+        static readonly Set[] Sets =
+        {
+            new Set { scale = 100, ao = 0, forest = 1, refl = 0, mirror = 30 },
+            new Set { scale = 85, ao = 1, forest = 1, refl = 0, mirror = 30 },
+            new Set { scale = 67, ao = 1, forest = 0, refl = 0, mirror = 20 },
+        };
+
+        /// <summary>The preset the rows stand at now; -1 = none (CUSTOM).</summary>
+        public static int Current
+        {
+            get
+            {
+                for (int i = 0; i < Sets.Length; i++)
+                {
+                    var s = Sets[i];
+                    if (RenderScalePrefs.Percent == s.scale && AOQualityPrefs.Level == s.ao && ForestDetailPrefs.Level == s.forest &&
+                        ViewRatePrefs.Rate(ViewRatePrefs.View.CarReflections) == s.refl &&
+                        ViewRatePrefs.Rate(ViewRatePrefs.View.RearMirror) == s.mirror &&
+                        ViewRatePrefs.Rate(ViewRatePrefs.View.DriverMirror) == s.mirror &&
+                        ViewRatePrefs.Rate(ViewRatePrefs.View.PassengerMirror) == s.mirror) return i;
+                }
+                return -1;
+            }
+        }
+
+        public static string Label => Current < 0 ? "CUSTOM" : Names[Current];
+
+        public static void Apply(int i)
+        {
+            var s = Sets[Mathf.Clamp(i, 0, Sets.Length - 1)];
+            RenderScalePrefs.Percent = s.scale;
+            AOQualityPrefs.Level = s.ao;
+            ForestDetailPrefs.Level = s.forest;
+            ViewRatePrefs.Set(ViewRatePrefs.View.CarReflections, s.refl);
+            ViewRatePrefs.Set(ViewRatePrefs.View.RearMirror, s.mirror);
+            ViewRatePrefs.Set(ViewRatePrefs.View.DriverMirror, s.mirror);
+            ViewRatePrefs.Set(ViewRatePrefs.View.PassengerMirror, s.mirror);
+        }
+
+        /// <summary>The row's press: QUALITY, BALANCED, PERFORMANCE, round again (from CUSTOM: QUALITY).</summary>
+        public static void Cycle() { int c = Current; Apply(c < 0 ? 0 : (c + 1) % Sets.Length); }
+    }
+
     public static class PerfSwitches
     {
         static bool Env(string name, bool fallback)
@@ -58,6 +139,9 @@ namespace PSXRacing
 
         static bool hooked;
         static List<ScriptableRendererFeature> ao;
+        static readonly List<object> aoSettings = new List<object>();
+        static System.Reflection.FieldInfo aoDownsample;
+        static int aoHalfSet = -1;
         static bool aoForced, copiesForced, copiesWasOpaque, copiesWasDepth;
         static readonly List<UniversalAdditionalCameraData> leaned = new List<UniversalAdditionalCameraData>();
         static readonly List<Camera> leanedHdr = new List<Camera>();
@@ -84,7 +168,17 @@ namespace PSXRacing
                 foreach (var data in list)
                     if (data != null)
                         foreach (var f in data.rendererFeatures)
-                            if (f != null && f.GetType().Name == "ScreenSpaceAmbientOcclusion") ao.Add(f);
+                            if (f != null && f.GetType().Name == "ScreenSpaceAmbientOcclusion")
+                            {
+                                ao.Add(f);
+                                // (its settings object, for AMBIENT SHADE's half size)
+                                var st = f.GetType().GetField("m_Settings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(f);
+                                if (st != null)
+                                {
+                                    aoSettings.Add(st);
+                                    if (aoDownsample == null) aoDownsample = st.GetType().GetField("Downsample", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                                }
+                            }
             }
             catch (System.Exception e) { Debug.LogWarning("[PerfSwitches] SSAO features not found: " + e.Message); }
         }
@@ -124,10 +218,19 @@ namespace PSXRacing
             if (ao == null) FindAO();
             if (ao.Count > 0)
             {
-                bool rule = AODriverOnly || AOOff || (LeanOutput && empty);
+                // AMBIENT SHADE: HALF = the occlusion at half size (the feature's own Downsample), OFF = none
+                int level = AOQualityPrefs.Level;
+                int half = level == 1 ? 1 : 0;
+                if (half != aoHalfSet && aoDownsample != null && (aoHalfSet >= 0 || half == 1))
+                {
+                    foreach (var st in aoSettings) aoDownsample.SetValue(st, half == 1);
+                    aoHalfSet = half;
+                }
+                bool off = AOOff || level == 2;
+                bool rule = AODriverOnly || off || (LeanOutput && empty);
                 if (rule)
                 {
-                    bool want = !AOOff && !(LeanOutput && empty) && (!AODriverOnly || StreetLights.IsDriver(cam));
+                    bool want = !off && !(LeanOutput && empty) && (!AODriverOnly || StreetLights.IsDriver(cam));
                     for (int i = 0; i < ao.Count; i++) if (ao[i].isActive != want) ao[i].SetActive(want);
                     aoForced = true;
                 }
