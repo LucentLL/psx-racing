@@ -15,6 +15,8 @@
 #                         checkout whose Scripts / Editor / Shaders are mirrored into it (default: this one)
 #   -NoSync               run on the sandbox's code as it stands
 #   -NoLock               the caller already holds <sandbox>\AGENT_LOCK.txt
+#   -FromJson file          no Unity: compare an earlier run's city_linegate.json with the baseline (or, with
+#                         -WriteBaseline, record it)
 #
 # THE RULE (Docs\CHARLOTTE.md, "Line gate"): a branch may not raise any class; every build note quotes
 # the totals line this prints; a class is closed only at 0.
@@ -30,6 +32,7 @@ param(
     [string]$Tag = "",
     [switch]$NoSync,
     [switch]$NoLock,
+    [string]$FromJson = "",
     [int]$MaxMinutes = 170
 )
 $ErrorActionPreference = "Stop"
@@ -47,6 +50,7 @@ function Read-Lock { if (Test-Path $lock) { $t = (Get-Content $lock -Raw -ErrorA
 
 $token = "city-linegate " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " pid " + $PID + " " + ([guid]::NewGuid().ToString("N").Substring(0, 8))
 $mine = $false
+if ($FromJson) { $NoLock = $true; $NoSync = $true }
 if (-not $NoLock) {
     # the atomic lock: a random wait; go only with no live lock and no Unity on the sandbox; write, wait 3 s, read back
     $t0 = Get-Date
@@ -80,6 +84,7 @@ try {
             if ($LASTEXITCODE -ge 8) { throw "robocopy $d failed: $LASTEXITCODE" }
         }
     }
+    if (-not $FromJson) {
     foreach ($n in @("city_linegate.txt", "city_linegate.csv", "city_linegate.json", "city_linegate_worst.tsv", "city_linegate_shots.tsv")) {
         $p = Join-Path $Sandbox $n; if (Test-Path $p) { Remove-Item $p -Force }
     }
@@ -100,6 +105,8 @@ try {
         $ok2 = Invoke-UnityJob -Log $log2 -MaxMinutes 90 -UnityArgs @("-quit", "-batchmode", "-projectPath", $Sandbox, "-executeMethod", "PSXRacing.EditorTools.CityAudit.RunLineGateShots", "-logFile", $log2, "-accept-apiupdate")
         if (-not $ok2) { Write-Host "the shots job did not finish" }
     }
+    }
+    else { $json = $FromJson; if (-not (Test-Path $json)) { Write-Host "no such file: $json"; exit 2 } }
     $run = Get-Content $json -Raw | ConvertFrom-Json
     $classes = @("SHIFT", "SJOG", "KINK", "WIDTH", "CONT", "SURFACE", "JUNCTION", "MEDIAN", "STEP", "BARRIER", "BRIDGE")
     $line = "LINE GATE " + $run.tag + " graph " + $run.graph + ":"

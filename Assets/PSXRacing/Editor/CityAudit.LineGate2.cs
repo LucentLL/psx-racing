@@ -38,11 +38,13 @@ namespace PSXRacing.EditorTools
         public static float GradeBreakPct(float mph) => Mathf.Clamp(mph <= 40f ? 1.2f - 0.02f * (mph - 20f) : mph <= 50f ? 0.8f - 0.02f * (mph - 40f) : 0.6f - 0.02f * (mph - 50f), 0.2f, 1.2f);
 
         /// <summary>A barrier's face on or inside the edge line (no offset at
-        /// all) fails. AASHTO Roadside Design Guide 5.6.1 asks for the shy
-        /// line (1.1 m at 30 mph to 2.8 m at 70) and the Green Book for at
-        /// least 2 ft (0.6 m) between a travelled way and a rail: the gate
-        /// takes only the case no table allows.</summary>
-        public const float BarrierInsideM = 0.0f;
+        /// all) fails: closer than 0.10 m to the line's centre (the paint's own
+        /// edge is 0.06 - 0.09 m out), or, on a side with no line, more than
+        /// 0.3 m inside the pavement edge. AASHTO Roadside Design Guide 5.6.1
+        /// asks for the shy line (1.1 m at 30 mph to 2.8 m at 70) and the Green
+        /// Book for at least 2 ft (0.6 m) between a travelled way and a rail:
+        /// the gate takes only the case no table allows.</summary>
+        public const float BarrierOnLineM = 0.10f;
         /// <summary>A raised curb's face this far inside a marked lane fails
         /// (AASHTO Green Book 4.7.3: curbs are offset from the travelled way;
         /// MUTCD 3B.10: an obstruction in the roadway takes approach markings).</summary>
@@ -67,7 +69,10 @@ namespace PSXRacing.EditorTools
 
     public static partial class CityAudit
     {
-        static readonly List<Vector3> lgBarV = new List<Vector3>(1 << 16);
+        /// <summary>A plan point of the tile's concrete and the heights the faces through it span
+        /// (a tall wall has vertices only at its foot and its top: the span says it stands at road level).</summary>
+        struct LgBar { public float x, z, y0, y1; }
+        static readonly List<LgBar> lgBarV = new List<LgBar>(1 << 16);
         static readonly List<Vector3> lgCurbV = new List<Vector3>(1 << 16);
 
         /// <summary>The tile's concrete (barriers, walls, rails) and its curbs, as points.</summary>
@@ -76,13 +81,24 @@ namespace PSXRacing.EditorTools
             var o = tm.origin;
             if (tm.barriers != null)
             {
-                var v = tm.barriers.vertices;
-                // a mesh's vertices repeat per face: one point per 0.25 m cell and 0.25 m of height is enough
-                var seen = new HashSet<long>();
-                for (int i = 0; i < v.Length; i++)
+                var v = tm.barriers.vertices; var tr = tm.barriers.triangles;
+                // one point per 0.2 m plan cell, with the height span of every face through it
+                var at = new Dictionary<long, int>();
+                for (int i = 0; i + 2 < tr.Length; i += 3)
                 {
-                    long k = ((long)Mathf.RoundToInt(v[i].x * 4f) << 40) ^ ((long)(Mathf.RoundToInt(v[i].z * 4f) & 0xFFFFF) << 20) ^ (uint)(Mathf.RoundToInt(v[i].y * 4f) & 0xFFFFF);
-                    if (seen.Add(k)) lgBarV.Add(new Vector3(o.x + v[i].x, o.y + v[i].y, o.z + v[i].z));
+                    float y0 = Mathf.Min(v[tr[i]].y, Mathf.Min(v[tr[i + 1]].y, v[tr[i + 2]].y)), y1 = Mathf.Max(v[tr[i]].y, Mathf.Max(v[tr[i + 1]].y, v[tr[i + 2]].y));
+                    for (int q = 0; q < 3; q++)
+                    {
+                        var w = v[tr[i + q]];
+                        long k = ((long)Mathf.RoundToInt(w.x * 5f) << 32) ^ (uint)Mathf.RoundToInt(w.z * 5f);
+                        if (at.TryGetValue(k, out int idx))
+                        {
+                            var b = lgBarV[idx];
+                            b.y0 = Mathf.Min(b.y0, o.y + y0); b.y1 = Mathf.Max(b.y1, o.y + y1);
+                            lgBarV[idx] = b;
+                        }
+                        else { at[k] = lgBarV.Count; lgBarV.Add(new LgBar { x = o.x + w.x, z = o.z + w.z, y0 = o.y + y0, y1 = o.y + y1 }); }
+                    }
                 }
             }
             if (tm.ground != null && tm.groundSlots != null)
@@ -100,7 +116,11 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The ribbon polygon under a plan point whose surface lies dyLo..dyHi below y.</summary>
-        static bool LgRibbonAt(double x, double z, float y, float dyLo, float dyHi, out LgPoly poly)
+        static bool LgRibbonAt(double x, double z, float y, float dyLo, float dyHi, out LgPoly poly) => LgRibbonAt(x, z, y, y, dyLo, dyHi, out poly);
+
+        /// <summary>The ribbon polygon under a plan point whose surface a solid spanning y0..y1 stands
+        /// on: its foot no more than dyHi over the surface, its top at least dyLo over it.</summary>
+        static bool LgRibbonAt(double x, double z, float y0, float y1, float dyLo, float dyHi, out LgPoly poly)
         {
             poly = default;
             long k = ((long)(int)Math.Floor(x / LgPolyCell) << 32) ^ (uint)(int)Math.Floor(z / LgPolyCell);
@@ -109,7 +129,7 @@ namespace PSXRacing.EditorTools
             foreach (int id in l)
             {
                 var q = lgPolys[id];
-                if (q.edge < 0 || y - q.y < dyLo || y - q.y > dyHi) continue;
+                if (q.edge < 0 || y1 - q.y < dyLo || y0 - q.y > dyHi) continue;
                 if (LgInTri(px, pz, q.x0, q.z0, q.x1, q.z1, q.x2, q.z2) || LgInTri(px, pz, q.x0, q.z0, q.x2, q.z2, q.x3, q.z3)) { poly = q; return true; }
             }
             return false;
@@ -249,7 +269,7 @@ namespace PSXRacing.EditorTools
                 while (acc + d >= next)
                 {
                     float f = (float)((next - acc) / d);
-                    ys.Add(Mathf.Lerp(a.y, b.y, f));
+                    ys.Add(Mathf.Lerp(a.yc, b.yc, f));
                     at.Add(new LgP { x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f, s = f < 0.5f ? a.s : b.s, e = f < 0.5f ? a.e : b.e });
                     next += 1;
                 }
@@ -285,17 +305,20 @@ namespace PSXRacing.EditorTools
         {
             // one failure per edge and 10 m of arc, the deepest point
             var worst = new Dictionary<long, (float d, Vector3 at, float s)>();
-            foreach (var v in lgBarV)
+            foreach (var bv in lgBarV)
             {
-                // the barrier's foot: on or within 1.2 m over a ribbon's surface
-                if (!LgRibbonAt(v.x, v.z, v.y, -0.15f, 1.2f, out var q)) continue;
+                // it stands at this road's level: its top 0.2 m or more over the surface, its foot no more than 1.2 m over it
+                if (!LgRibbonAt(bv.x, bv.z, bv.y0, bv.y1, 0.2f, 1.2f, out var q)) continue;
+                var v = new Vector3(bv.x, q.y, bv.z);
                 var e = map.edges[q.edge];
                 float s = LgArcOn(e, q, v.x, v.z);
                 if (!LgTravelled(e, s, out float lo, out float hi, out bool loLine, out bool hiLine)) continue;
                 float lat = LgLat(e, s, v.x, v.z);
                 // inside the edge line (its near side), or, with no line, more than 0.3 m inside the pavement edge
-                float din = Mathf.Min(lat - (lo - (loLine ? 0.06f : -0.3f)), (hi + (hiLine ? 0.06f : -0.3f)) - lat);
-                if (din <= LineGateRules2.BarrierInsideM) continue;
+                // how far inside the line's centre (negative: outside it); with no line, inside the pavement edge less 0.3 m
+                float dLo = lat - (loLine ? lo : lo + 0.3f + LineGateRules2.BarrierOnLineM), dHi = (hiLine ? hi : hi - 0.3f - LineGateRules2.BarrierOnLineM) - lat;
+                float din = Mathf.Min(dLo, dHi);
+                if (din <= -LineGateRules2.BarrierOnLineM) continue;
                 long k = ((long)q.edge << 20) ^ (uint)Mathf.FloorToInt(s / 10f);
                 if (!worst.TryGetValue(k, out var w) || din > w.d) worst[k] = (din, v, s);
             }
@@ -303,8 +326,9 @@ namespace PSXRacing.EditorTools
             {
                 int edge = (int)(kv.Key >> 20);
                 var w = kv.Value;
-                lgFails.Add(new LgFail { cls = "BARRIER", sub = "wall or barrier inside the edge line", edge = edge, s = w.s, s1 = w.s, x = w.at.x, z = w.at.z, measure = w.d, limit = 0f, unit = "m",
-                                         what = $"a wall, barrier or rail stands {w.d:0.00} m inside the edge line of e{edge} at s {w.s:0}" });
+                lgFails.Add(new LgFail { cls = "BARRIER", sub = w.d > 0.1f ? "wall or barrier inside the edge line" : "wall or barrier against the edge line", edge = edge, s = w.s, s1 = w.s, x = w.at.x, z = w.at.z, measure = w.d, limit = -LineGateRules2.BarrierOnLineM, unit = "m",
+                                         what = w.d > 0.1f ? $"a wall, barrier or rail stands {w.d:0.00} m inside the edge line of e{edge} at s {w.s:0}"
+                                                           : $"a wall, barrier or rail stands against the edge line of e{edge} at s {w.s:0} ({Mathf.Abs(w.d) * 100f:0} cm from the line's centre: no offset at all)" });
             }
             worst.Clear();
             foreach (var v in lgCurbV)

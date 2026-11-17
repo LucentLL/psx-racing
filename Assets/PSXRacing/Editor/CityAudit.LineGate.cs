@@ -125,9 +125,10 @@ namespace PSXRacing.EditorTools
         /// Table 3-27, Case I, to 18 ft). A two-way left-turn lane: 3.0 to
         /// 4.9 m (10 - 16 ft, Green Book 4.4 / MUTCD 3B.03).</summary>
         public const float LaneMinM = 2.7f, LaneMaxM = 4.6f, RampLaneMaxM = 5.5f, TwltlMinM = 3.0f, TwltlMaxM = 4.9f;
-        /// <summary>A paved shoulder wider than 3.7 m (12 ft, Green Book 4.4.2
-        /// the widest) is unexplained width.</summary>
-        public const float ShoulderMaxM = 3.7f;
+        /// <summary>A paved shoulder wider than 4.0 m is unexplained width
+        /// (Green Book 4.4.2: 12 ft, 3.7 m, the widest usable shoulder; 0.3 m
+        /// more for the line and the offset to a rail).</summary>
+        public const float ShoulderMaxM = 4.0f;
         /// <summary>A curb lane (no edge line: the lane runs to the gutter)
         /// may carry a 0.6 m gutter pan (NCDOT 2'-6" curb and gutter).</summary>
         public const float GutterM = 0.6f;
@@ -214,7 +215,9 @@ namespace PSXRacing.EditorTools
         }
         sealed class LgFan { public int node; public double cx, cz; public float cy; public double[] x, z; public float[] y; public ulong mouths; }
 
-        struct LgP { public double x, z; public float y, s, lat; public int e; }
+        /// <summary>A strand's point: plan x, z; its own height y; yc, a pavement edge's section-middle
+        /// height (the road's profile, free of crossfall and of the edge's own move); arc, lateral, edge.</summary>
+        struct LgP { public double x, z; public float y, yc, s, lat; public int e; }
         sealed class LgStrand
         {
             public int id, edge; public byte role;   // 0 pavement edge on the minus side (right of a->b), 1 on the plus side, 2 paint
@@ -222,9 +225,12 @@ namespace PSXRacing.EditorTools
             public readonly List<LgP> p = new List<LgP>(16);
             public int linkA = -1, linkB = -1;      // the strand joined at this one's start / end
             public bool used;
+            /// <summary>A channelizing line: solid white, standing where the edge's own layout has no
+            /// line (a gore's side, a turning roadway's edge through a median).</summary>
+            public bool channel;
             public float S0 => p[0].s; public float S1 => p[p.Count - 1].s;
             public string Kind => role == 0 ? "pavement edge (right)" : role == 1 ? "pavement edge (left)" : role == 3 ? "mark" :
-                tk == LgSolidWhite ? (pw >= 0.18f ? "wide solid white line" : "solid white lane line") : tk == LgSolidYellow ? "solid yellow line" :
+                tk == LgSolidWhite ? (channel ? "channelizing line" : "solid white lane line") : tk == LgSolidYellow ? "solid yellow line" :
                 tk == LineModel.KEdgeM ? "edge line (right)" : tk == LineModel.KEdgeP ? (yellow ? "yellow edge line (left)" : "edge line (left)") :
                 tk == LineModel.KYellow ? "centre yellow" : tk == LineModel.KYellowDash ? "broken yellow" : "lane line";
             public bool EdgeLine => role == 2 && (tk == LineModel.KEdgeM || tk == LineModel.KEdgeP);
@@ -232,6 +238,7 @@ namespace PSXRacing.EditorTools
         }
 
         const byte LgSolidWhite = 20, LgSolidYellow = 21;
+        static readonly List<LineModel.LineAt> lgLinesAt = new List<LineModel.LineAt>(16);
 
         /// <summary>After an edge's pieces are chained: a solid line drawn from the texture's edge-line
         /// column but standing further inside the pavement than a shoulder is a lane or channelizing line
@@ -253,7 +260,18 @@ namespace PSXRacing.EditorTools
                 LineModel.Extents(e, sm, out float eM, out float eP);
                 float pl = LgPaveLat(st.edge, sm, 0), pr = LgPaveLat(st.edge, sm, 1);
                 float toEdge = st.tk == LineModel.KEdgeM ? lat - (float.IsNaN(pl) ? -eM : pl) : (float.IsNaN(pr) ? eP : pr) - lat;
-                if (toEdge > Mathf.Max(e.shl, e.shr) + 0.5f) { st.tk = st.yellow ? LgSolidYellow : LgSolidWhite; lgSolidLane++; }
+                if (toEdge > Mathf.Max(e.shl, e.shr) + 0.5f)
+                {
+                    st.tk = st.yellow ? LgSolidYellow : LgSolidWhite; lgSolidLane++;
+                    if (!st.yellow)
+                    {
+                        // is it one of the layout's own lines made solid (a turn lane's line), or an extra line?
+                        LineModel.LinesAt(e, sm, lgLinesAt);
+                        float best = float.MaxValue;
+                        foreach (var ln in lgLinesAt) best = Mathf.Min(best, Mathf.Abs(ln.lat - lat));
+                        st.channel = best > 0.3f;
+                    }
+                }
             }
         }
 
@@ -579,8 +597,10 @@ namespace PSXRacing.EditorTools
                                     st = null;
                                 }
                             }
-                            if (st == null) { st = LgNew(ei, (byte)side, 0, false, 0f); st.p.Add(new LgP { x = ax, z = az, y = ya, s = sp.sA, lat = la, e = ei }); }
-                            st.p.Add(new LgP { x = bx, z = bz, y = yb, s = sp.sB, lat = lb, e = ei });
+                            // (the height kept is the section's MIDDLE: the road's profile, free of crossfall and of the edge's own move)
+                            float ymA = 0.5f * (sp.yAL + sp.yAR), ymB = 0.5f * (sp.yBL + sp.yBR);
+                            if (st == null) { st = LgNew(ei, (byte)side, 0, false, 0f); st.p.Add(new LgP { x = ax, z = az, y = ya, yc = ymA, s = sp.sA, lat = la, e = ei }); }
+                            st.p.Add(new LgP { x = bx, z = bz, y = yb, yc = ymB, s = sp.sB, lat = lb, e = ei });
                         }
                     }
                 }
@@ -664,7 +684,7 @@ namespace PSXRacing.EditorTools
                             var o = lgStrands[id];
                             if (o.edge == st.edge || (onlyEdge >= 0 && o.edge != onlyEdge)) continue;
                             if (o.role == 3 || (o.role == 2) != (st.role == 2)) continue;
-                            if (o.role == 2 && o.yellow != st.yellow) continue;
+                            if (o.role == 2 && (o.yellow != st.yellow || o.channel != st.channel)) continue;
                             if ((oe ? o.linkB : o.linkA) >= 0) continue;
                             var eb = map.edges[o.edge];
                             if (LgEndNode(eb, oe ? o.S1 : o.S0, Slack(o)) != na) continue;
@@ -728,7 +748,7 @@ namespace PSXRacing.EditorTools
                             lgFails.Add(new LgFail { cls = "CONT", sub = st.role == 2 ? "line steps at a joint" : "pavement edge steps at a joint", edge = st.edge, node = node, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = (float)d, limit = dash ? 0.15f : LineGateRules.JoinM, unit = "m", line = st.Kind,
                                                      what = $"the {st.Kind} steps {d:0.00} m sideways where e{st.edge} meets e{other}" });
                     }
-                    else if (st.role == 2 && !st.EdgeLine && !LgWidthChanging(st.edge, p.s) && !LgWidthChanging(other, map.edges[other].a == node ? 1f : map.edges[other].length - 1f))
+                    else if (st.role == 2 && !st.EdgeLine && !st.channel && !LgWidthChanging(st.edge, p.s) && !LgWidthChanging(other, map.edges[other].a == node ? 1f : map.edges[other].length - 1f))
                     {
                         // (an edge line may end where a curb takes over; a lane's line may end where its lane tapers)
                         lgFails.Add(new LgFail { cls = "CONT", sub = "line ends at a joint", edge = st.edge, node = node, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = 0f, limit = 0f, unit = "", line = st.Kind,
@@ -1095,20 +1115,20 @@ namespace PSXRacing.EditorTools
                             // a curb lane: the lane runs to the pavement edge (gutter; parking on a local or collector street)
                             float max = LineGateRules.LaneMaxM + LineGateRules.GutterM + (e.cls <= 1 ? LineGateRules.ParkingM : 0f);
                             if (clear > max) { k = "curb lane too wide"; lm = max; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge with no line (limit {max:0.0} m)"; }
-                            else if (clear < LineGateRules.LaneMinM && clear > 0.6f && !L.yellow && L.pw < 0.18f) { k = "curb lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge"; }
+                            else if (clear < LineGateRules.LaneMinM && clear > 0.6f && !L.yellow && !L.channel && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "curb lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge"; }
                         }
                         else if (A.yellow && B.yellow)
                         {
                             // between two yellows: a two-way left-turn lane or a painted median; a double line is one line
                             if (clear > 0.6f && clear < LineGateRules.TwltlMinM && (A.broken || B.broken)) { k = "two-way left-turn lane too narrow"; lm = LineGateRules.TwltlMinM; wh = $"{clear:0.0} m between the yellow lines of a two-way left-turn lane"; }
                         }
-                        else if (A.pw >= 0.18f && B.pw >= 0.18f) { }                     // between two channelizing lines: a gore
+                        else if (A.channel || B.channel) { }                             // beside a channelizing line: a gore, a turning roadway
                         else if (e.lsBike != 0 && clear >= 1.0f && clear <= 2.5f && (i == 0 || i + 2 == at.Count || at[i - 1].st.role != 2 || at[i + 2].st.role != 2)) { }   // a bike lane (AASHTO: 4 ft or more)
                         else
                         {
                             float max = e.link && e.lanes <= 1 ? LineGateRules.RampLaneMaxM : LineGateRules.LaneMaxM;
                             if (clear > max) { k = "lane too wide"; lm = max; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at most {max:0.0} m)"; }
-                            else if (clear < LineGateRules.LaneMinM && clear > 0.6f) { k = "lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at least {lm:0.0} m)"; }
+                            else if (clear < LineGateRules.LaneMinM && clear > 0.6f && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at least {lm:0.0} m)"; }
                         }
                         if (k == null) continue;
                         if (clear > lm && !LgHolds(A, B, s, w)) continue;               // widening or narrowing here: a taper (SHIFT judges it)
@@ -1126,14 +1146,14 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>Does the width between two strands hold (within 0.3 m) 15 m back and 15 m on?</summary>
-        static bool LgHolds(LgStrand A, LgStrand B, float s, float w)
+        static bool LgHolds(LgStrand A, LgStrand B, float s, float w, float reach = 15f, float tol = 0.3f)
         {
             for (int q = -1; q <= 1; q += 2)
             {
-                float s2 = s + 15f * q;
+                float s2 = s + reach * q;
                 float sa = A.role == 2 && A.broken ? 9.6f : 0.01f, sb = B.role == 2 && B.broken ? 9.6f : 0.01f;
                 if (A.S0 > s2 + sa || A.S1 < s2 - sa || B.S0 > s2 + sb || B.S1 < s2 - sb) continue;   // one of them ends: the next edge's
-                if (Mathf.Abs(LgLatAt(B, s2) - LgLatAt(A, s2) - w) > 0.3f) return false;
+                if (Mathf.Abs(LgLatAt(B, s2) - LgLatAt(A, s2) - w) > tol) return false;
             }
             return true;
         }
@@ -1145,7 +1165,7 @@ namespace PSXRacing.EditorTools
         {
             foreach (var st in lgStrands)
             {
-                if (st.role != 2) continue;
+                if (st.role != 2 || st.channel) continue;
                 var e = map.edges[st.edge];
                 for (int q = 0; q < 2; q++)
                 {
@@ -1282,8 +1302,7 @@ namespace PSXRacing.EditorTools
                 chains++;
                 // a channelizing line (wide solid white: a gore's two sides, a turning roadway's edge through a median)
                 // follows its turning roadway, not the road it is painted on: its shape is not judged in that road's frame
-                bool channel = st.role == 2 && st.tk == LgSolidWhite && st.pw >= 0.18f;
-                if (channel) { lgChannelChains++; continue; }
+                if (st.role == 2 && st.channel) { lgChannelChains++; continue; }
                 LgShape(map, pts, members, rs);
                 LgGradeBreaks(map, pts, members[0]);
                 chainKm += rs.Count / 1000.0;
@@ -1469,22 +1488,40 @@ namespace PSXRacing.EditorTools
                 return sp.top.vis * (1f + 0.15f * (cls.Count - 1));
             }
             spots.Sort((x, y) => Score(y).CompareTo(Score(x)));
-            Line($"THE WORST 60 SPOTS of {spots.Count} (a spot = every failure within 40 m; by what a driver sees: speed x how far past the limit x size):");
-            var wt = new StringBuilder("rank\tid\tx\tz\tedge\ts\troad\tmph\tscore\tlatlon\tclasses\ttext1\ttext2\ttext3\n");
-            var shotList = new StringBuilder("id\tx\tz\tedge\ts\tdir\n");
+            // THE SHOWN LIST: the spots in order, at most 5 of one road and 12 led by one kind of failure, so one
+            // road's repeated fault does not fill the sheets (every spot, in order, is in city_linegate_worst.tsv)
             int nWorst = 80;
             if (int.TryParse(Environment.GetEnvironmentVariable("PSX_LG_PLANS"), out int nw)) nWorst = nw;
+            var shown = new List<int>(nWorst);
+            {
+                var perRoad = new Dictionary<string, int>(); var perKind = new Dictionary<string, int>();
+                for (int i = 0; i < spots.Count && shown.Count < nWorst; i++)
+                {
+                    var f = spots[i].top; string kk = f.cls + "/" + f.sub;
+                    perRoad.TryGetValue(f.road, out int nr); perKind.TryGetValue(kk, out int nk);
+                    if (nr >= 5 || nk >= 12) continue;
+                    perRoad[f.road] = nr + 1; perKind[kk] = nk + 1;
+                    shown.Add(i);
+                }
+            }
+            Line($"THE WORST SPOTS of {spots.Count} (a spot = every failure within 40 m; by what a driver sees: speed x how far past the limit x size; shown: the first {Math.Min(60, shown.Count)} with at most 5 a road and 12 a kind):");
+            var wt = new StringBuilder("rank\tid\tx\tz\tedge\ts\troad\tmph\tscore\tlatlon\tclasses\ttext1\ttext2\ttext3\tshown\n");
+            var shotList = new StringBuilder("id\tx\tz\tedge\ts\tdir\n");
+            var shownAt = new Dictionary<int, int>();
+            for (int k = 0; k < shown.Count; k++) shownAt[shown[k]] = k + 1;
             for (int i = 0; i < spots.Count; i++)
             {
                 var sp = spots[i]; var f = sp.top;
+                bool isShown = shownAt.TryGetValue(i, out int sk);
+                if (i >= 400 && !isShown) continue;
                 var cls = new List<string>(); foreach (var q in sp.all) if (!cls.Contains(q.cls)) cls.Add(q.cls);
-                if (i < 60) Line($"  {i + 1,2}. [{string.Join(" + ", cls)}] {f.road} e{f.edge} s {f.s:0}-{f.s1:0} ({LatLon((float)f.x, (float)f.z)}; x {f.x:0.0} z {f.z:0.0}) {f.mph:0} mph: {f.what}");
-                if (i >= Math.Max(nWorst, 60) && i >= 400) break;
+                if (isShown && sk <= 60) Line($"  {sk,2}. (rank {i + 1}) [{string.Join(" + ", cls)}] {f.road} e{f.edge} s {f.s:0}-{f.s1:0} ({LatLon((float)f.x, (float)f.z)}; x {f.x:0.0} z {f.z:0.0}) {f.mph:0} mph: {f.what}");
                 string T(int k) => k < sp.all.Count ? (sp.all[k].cls + ": " + sp.all[k].what).Replace('\t', ' ') : "";
-                wt.Append(i + 1).Append('\t').Append("w" + (i + 1).ToString("000")).Append('\t').Append(f.x.ToString("0.0", LgInv)).Append('\t').Append(f.z.ToString("0.0", LgInv)).Append('\t').Append(f.edge).Append('\t').Append((0.5f * (f.s + f.s1)).ToString("0.0", LgInv)).Append('\t')
+                string id = isShown ? "w" + sk.ToString("000") : "r" + (i + 1).ToString("0000");
+                wt.Append(i + 1).Append('\t').Append(id).Append('\t').Append(f.x.ToString("0.0", LgInv)).Append('\t').Append(f.z.ToString("0.0", LgInv)).Append('\t').Append(f.edge).Append('\t').Append((0.5f * (f.s + f.s1)).ToString("0.0", LgInv)).Append('\t')
                   .Append(f.road).Append('\t').Append(f.mph.ToString("0", LgInv)).Append('\t').Append(Score(sp).ToString("0.0", LgInv)).Append('\t').Append(LatLon((float)f.x, (float)f.z)).Append('\t').Append(string.Join("+", cls)).Append('\t')
-                  .Append(T(0)).Append('\t').Append(T(1)).Append('\t').Append(T(2)).Append('\n');
-                if (i < nWorst) shotList.Append("w" + (i + 1).ToString("000")).Append('\t').Append(f.x.ToString("0.0", LgInv)).Append('\t').Append(f.z.ToString("0.0", LgInv)).Append('\t').Append(f.edge).Append('\t').Append((0.5f * (f.s + f.s1)).ToString("0.0", LgInv)).Append("\t0\n");
+                  .Append(T(0)).Append('\t').Append(T(1)).Append('\t').Append(T(2)).Append('\t').Append(isShown ? sk : 0).Append('\n');
+                if (isShown) shotList.Append(id).Append('\t').Append(f.x.ToString("0.0", LgInv)).Append('\t').Append(f.z.ToString("0.0", LgInv)).Append('\t').Append(f.edge).Append('\t').Append((0.5f * (f.s + f.s1)).ToString("0.0", LgInv)).Append("\t0\n");
             }
             File.WriteAllText(Path.Combine(root, "city_linegate_worst.tsv"), wt.ToString());
             File.WriteAllText(Path.Combine(root, "city_linegate_shots.tsv"), shotList.ToString());
@@ -1519,7 +1556,7 @@ namespace PSXRacing.EditorTools
             if (int.TryParse(Environment.GetEnvironmentVariable("PSX_LG_PLANS"), out int np)) nPlans = np;
             var want = new List<(double x, double z, string id)>();
             if (spotDump != null) want.Add((spot.x, spot.y, "spot"));
-            for (int i = 0; i < Math.Min(nPlans, spots.Count); i++) want.Add((spots[i].top.x, spots[i].top.z, "w" + (i + 1).ToString("000")));
+            for (int i = 0; i < Math.Min(nPlans, shown.Count); i++) want.Add((spots[shown[i]].top.x, spots[shown[i]].top.z, "w" + (i + 1).ToString("000")));
             string extra = Environment.GetEnvironmentVariable("PSX_LG_PLAN_AT");   // "x,z,id;x,z,id"
             if (!string.IsNullOrWhiteSpace(extra))
                 foreach (var q in extra.Split(';')) { var c = q.Split(','); if (c.Length >= 3) want.Add((double.Parse(c[0], LgInv), double.Parse(c[1], LgInv), c[2])); }
@@ -1591,7 +1628,7 @@ namespace PSXRacing.EditorTools
                         if (CityProps.IsFood(b.kind)) fd.Append(b.kind).Append('\t').Append(CityProps.FoodName(b.kind)).Append('\t').Append(b.pos.x.ToString("0.0", LgInv)).Append('\t').Append(b.pos.y.ToString("0.0", LgInv)).Append('\n');
                 File.WriteAllText(Path.Combine(root, "city_linegate_food.tsv"), fd.ToString());
             }
-            Line($"  not judged for shape: {lgChannelChains} channelizing lines (wide solid white; they follow a turning roadway)");
+            Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
         }
