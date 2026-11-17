@@ -133,6 +133,8 @@ namespace PSXRacing
             for (int i = Mathf.Max(0, from); i < n - 1; i++)
             {
                 Vector3 a = f[i].pos - p.pos, b = f[i + 1].pos - p.pos;
+                // A respawn or a tow is a jump, not a crossing (teleports pass nothing).
+                if ((b - a).sqrMagnitude > 15f * 15f) continue;
                 float d0 = Vector3.Dot(a, h), d1 = Vector3.Dot(b, h);
                 if ((d0 < 0f) == (d1 < 0f)) continue;
                 float u = Mathf.Abs(d0) / Mathf.Max(1e-4f, Mathf.Abs(d0) + Mathf.Abs(d1));

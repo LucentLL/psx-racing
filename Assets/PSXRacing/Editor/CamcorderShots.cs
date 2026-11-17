@@ -79,7 +79,8 @@ namespace PSXRacing.EditorTools
                 if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { Line("  FAIL scene not built: " + parts[0]); failures++; continue; }
                 plan.Add((v, hour, parts[0].Trim() + "_" + parts[1].Trim().ToLowerInvariant() + (slide > 0 ? "_slide" + slide : ""), slide));
             }
-            Line("camcorder shots, tag " + tag + ", switch " + (Camcorder.Enabled ? "ON" : "OFF") + ", " + plan.Count + " item(s)");
+            Line("camcorder shots, tag " + tag + ", switch " + (Camcorder.Enabled ? "ON" : "OFF") + ", " + plan.Count + " item(s)" +
+                 (Application.isBatchMode ? ", HIDDEN (frames rendered on request)" : ", watched"));
             if (plan.Count == 0) { Finish(); EditorApplication.Exit(1); return; }
             try { if (Directory.Exists(TapeDir)) Directory.Delete(TapeDir, true); } catch (System.Exception) { }
             Tapes.DirOverride = TapeDir;
@@ -469,10 +470,32 @@ namespace PSXRacing.EditorTools
                 if (!quiet) CamcorderShots.Line("    shot " + name + " not taken (no framebuffer / no graphics)");
                 yield break;
             }
-            var prev = RenderTexture.active;
-            RenderTexture.active = fb;
             var tex = new Texture2D(fb.width, fb.height, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, fb.width, fb.height), 0, 0);
+            var prev = RenderTexture.active;
+            if (!Application.isBatchMode)
+            {
+                // A watched editor: the frame as the game drew it, OSD and all.
+                RenderTexture.active = fb;
+                tex.ReadPixels(new Rect(0, 0, fb.width, fb.height), 0, 0);
+            }
+            else
+            {
+                // A HIDDEN run draws no frames (the owner is playing: no window
+                // in front of his game): the camera rendered on request, three
+                // times so the camcorder's eye settles. The picture and the
+                // look are the game's; text the HUD camera draws may be absent.
+                var rt = new RenderTexture(fb.width, fb.height, 24, fb.graphicsFormat);
+                rt.Create();
+                var request = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = rt };
+                if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request))
+                    for (int i = 0; i < 3; i++) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+                RenderTexture.active = rt;
+                tex.ReadPixels(new Rect(0, 0, fb.width, fb.height), 0, 0);
+                RenderTexture.active = prev == rt ? null : prev;
+                cam.targetTexture = fb;
+                rt.Release();
+                Object.DestroyImmediate(rt);
+            }
             tex.Apply();
             RenderTexture.active = prev;
             File.WriteAllBytes(Path.Combine(dir, CamcorderShots.tag + "_" + name + ".png"), tex.EncodeToPNG());

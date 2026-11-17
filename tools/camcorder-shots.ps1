@@ -30,6 +30,11 @@ if (-not $env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET = "Android" }
 
 $stamp = Enter-SandboxLock -Project $proj -Me $Me
 $code = 1
+# The owner's game is running: no editor in front of it. The test runs HIDDEN,
+# with a graphics device (it photographs), and says so.
+if (Get-Process PSXRacing -ErrorAction SilentlyContinue) { "PSXRacing.exe is running: this play test runs HIDDEN"; $NoWatch = $true }
+$watch = Test-PSXWatch -NoWatch:$NoWatch
+$mode = if ($watch) { @("-batchmode","-nographics") } else { @("-batchmode") }
 try {
     foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
         robocopy "$from\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
@@ -52,10 +57,10 @@ try {
     $env:PSX_CAMSHOT_TRAFFIC = $Traffic
     $env:PSX_EDITION = "ALL"
     $log = "$proj\camcordershots_$Tag.log"
-    Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log $log -MaxMinutes $MaxMinutes -Project $proj -UnityArgs @(
-        "-batchmode","-nographics","-projectPath",$proj,
+    Invoke-UnityJob -Watch:$watch -Log $log -MaxMinutes $MaxMinutes -Project $proj -UnityArgs ($mode + @(
+        "-projectPath",$proj,
         "-executeMethod","PSXRacing.EditorTools.CamcorderShots.Run",
-        "-logFile",$log,"-accept-apiupdate") | Out-Null
+        "-logFile",$log,"-accept-apiupdate")) | Out-Null
     Select-String -Path $log -Pattern "error CS" | Select-Object -First 15 | ForEach-Object { $_.Line }
     if (Test-Path $report) {
         Get-Content $report

@@ -257,20 +257,23 @@ namespace PSXRacing
             bool pad = UnityEngine.InputSystem.Gamepad.current != null;
             if (Camcorder.Vcr)
                 return pad ? "A PLAY/PAUSE   D-PAD REW / FF   B EJECT" : "SPACE PLAY/PAUSE   ARROWS REW / FF   ESC EJECT";
-            return pad ? "A PAUSE   D-PAD SKIP / CAR   Y CAMERA   B EXIT" : "SPACE PAUSE   ARROWS SKIP / CAR   C CAMERA   ESC EXIT";
+            return pad ? "A PAUSE   D-PAD CLIP / CAR   Y CAMERA   B EXIT" : "SPACE PAUSE   ARROWS CLIP / CAR   C CAMERA   ESC EXIT";
         }
 
         /// <summary>The touch replay bar's skip buttons scan on the deck: say so
         /// (TouchControls' own labels, put back for a race's replay).</summary>
         static int relabelled = -1;
-        static void RelabelTouch()
+        static void RelabelTouch() => RelabelTouch(Camcorder.Vcr ? 1 : 2);
+
+        /// <summary>0 = the replay's own (skip 10 s), 1 = the deck (REW / FF),
+        /// 2 = the camcorder's tape (the skips land on the clip before / after).</summary>
+        static void RelabelTouch(int want)
         {
-            int want = Camcorder.Vcr ? 1 : 0;
             if (relabelled == want) return;
             var bar = GameObject.Find("ReplayBar");
             if (bar == null) return;
-            SetLabel(bar.transform, "Replay0", want == 1 ? "<< REW" : "<< 10s");
-            SetLabel(bar.transform, "Replay2", want == 1 ? "FF >>" : "10s >>");
+            SetLabel(bar.transform, "Replay0", want == 1 ? "<< REW" : want == 2 ? "<< CLIP" : "<< 10s");
+            SetLabel(bar.transform, "Replay2", want == 1 ? "FF >>" : want == 2 ? "CLIP >>" : "10s >>");
             relabelled = want;
         }
 
@@ -287,6 +290,8 @@ namespace PSXRacing
             if (visible == on) return;
             visible = on;
             foreach (Transform c in root) c.gameObject.SetActive(on);
+            // Another view of the replay: its skip buttons are 10 s again.
+            if (!on) RelabelTouch(0);
         }
     }
 }
