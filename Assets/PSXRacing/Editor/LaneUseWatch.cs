@@ -28,6 +28,14 @@ namespace PSXRacing.EditorTools
         static readonly Dictionary<(Object, Object), float> missAt = new Dictionary<(Object, Object), float>();
         static int nearMisses;
         static readonly List<string> missLines = new List<string>();
+        // aipass 11-17: oncoming-stream traffic met on a road the rival's own map calls ONE-WAY (the race strip lays
+        // oncoming lanes along the whole route), every head-on's context, and the last respawn of each car
+        static int owMeets; static float owSeconds;
+        static readonly Dictionary<(Object, Object), float> owAt = new Dictionary<(Object, Object), float>();
+        static readonly List<string> owLines = new List<string>();
+        static readonly Dictionary<CarController, float> respawnAt = new Dictionary<CarController, float>();
+        static readonly List<string> headLines = new List<string>();
+        static int headOnsRival, headOnsPlayer, headOnsSlow, headOnsAfterRespawn, headOnsOneWay, headOnsPassing;
         public static bool Active => rm != null;
 
         public static void Begin(RaceManager race)
@@ -35,8 +43,42 @@ namespace PSXRacing.EditorTools
             rm = race; t0 = Time.time;
             overS.Clear(); stayS.Clear(); longest.Clear(); stays.Clear(); missAt.Clear(); missLines.Clear();
             nearMisses = 0;
+            owMeets = 0; owSeconds = 0f; owAt.Clear(); owLines.Clear(); respawnAt.Clear(); headLines.Clear();
+            headOnsRival = headOnsPlayer = headOnsSlow = headOnsAfterRespawn = headOnsOneWay = headOnsPassing = 0;
+            RaceManager.Respawned -= OnRespawned;
             if (rm == null) return;
+            RaceManager.Respawned += OnRespawned;
             RacePlayCheck.Note($"LANE USE: PSX_AI_PASS_ONCOMING {(AIDriver.PassOncoming ? "ON (pass in the oncoming lane, the better line where clear)" : "OFF (the lane discipline as before)")}");
+        }
+
+        static void OnRespawned(CarController c, int step, float lat) { if (c != null) respawnAt[c] = Time.time; }
+
+        /// <summary>RacePlayCheck's head-on (a traffic car coming at the car, hit): what the car's AI was doing.</summary>
+        public static void HeadOn(CarController who, Rigidbody other, float speed)
+        {
+            if (rm == null || who == null) return;
+            bool player = who == rm.playerCar;
+            if (player) headOnsPlayer++; else headOnsRival++;
+            var ai = who.GetComponent<AIDriver>();
+            float since = respawnAt.TryGetValue(who, out float ra) ? Time.time - ra : 1e9f;
+            bool afterRespawn = since < 8f;
+            bool oneWay = ai != null && ai.path != null && ai.path.Routed && ai.path.oneWayAt[ai.path.Wrap(ai.PathIndex)];
+            bool passing = ai != null && ai.DebugPassSide != 0;
+            if (Mathf.Abs(who.forwardSpeed) < 5f) headOnsSlow++;
+            if (afterRespawn) headOnsAfterRespawn++;
+            if (oneWay) headOnsOneWay++;
+            if (passing) headOnsPassing++;
+            string o = "";
+            if (other != null)
+            {
+                Vector3 lo = who.transform.InverseTransformPoint(other.position);
+                o = $"traffic {lo.z:+0.0;-0.0} m ahead {lo.x:+0.0;-0.0} right at {Vector3.Dot(other.linearVelocity, who.transform.forward) * 3.6f:+0;-0} km/h along";
+            }
+            headLines.Add($"HEAD-ON DETAIL {who.name}{(player ? " (player autopilot)" : "")} at {Time.time - t0:0.0}s, {speed:0.0} m/s: car {Mathf.Abs(who.forwardSpeed) * 3.6f:0} km/h" +
+                          (ai != null ? $", road {(oneWay ? "ONE-WAY (own map)" : ai.DebugTwoWayHere ? "two-way" : "one-way")}, lat {ai.DebugRoadLat:+0.0;-0.0} line {ai.DebugLine:+0.0;-0.0} bias {ai.DebugBias:+0.0;-0.0}" +
+                                        (float.IsNegativeInfinity(ai.DebugLeftLimit) ? ", no oncoming guard" : $", guard LIM {ai.DebugLeftLimit:+0.0;-0.0}") +
+                                        $", pass side {ai.DebugPassSide}, give {ai.DebugGiveWhy ?? "-"}" : "") +
+                          $", {(since < 1e8f ? "respawned " + since.ToString("0.0") + " s before" : "no respawn")}; {o}");
         }
 
         /// <summary>Every physics step while racing.</summary>
@@ -69,6 +111,27 @@ namespace PSXRacing.EditorTools
                 // near misses with oncoming traffic
                 if (ts == null) continue;
                 Vector3 fwd = c.transform.forward;
+                // ONCOMING TRAFFIC ON A ROAD THIS RIVAL'S MAP CALLS ONE-WAY: an oncoming-stream car within 60 m ahead in
+                // its corridor (the strip lays oncoming lanes along the whole route; the routed AI holds no guard there)
+                if (ai.path.Routed && ai.path.oneWayAt[ai.path.Wrap(ai.PathIndex)] && ts.ObstacleDir.Count == ts.Obstacles.Count)
+                {
+                    bool any = false;
+                    for (int i = 0; i < ts.Obstacles.Count; i++)
+                    {
+                        var rb = ts.Obstacles[i];
+                        if (rb == null || ts.ObstacleDir[i] >= 0) continue;
+                        Vector3 lo = c.transform.InverseTransformPoint(rb.position);
+                        if (lo.z < 0f || lo.z > 60f || Mathf.Abs(lo.x) > 3.5f || Mathf.Abs(lo.y) > 4f) continue;
+                        any = true;
+                        var key = ((Object)c, (Object)rb);
+                        if (owAt.TryGetValue(key, out float at0) && Time.time - at0 < 5f) continue;
+                        owAt[key] = Time.time;
+                        owMeets++;
+                        if (owLines.Count < 6)
+                            owLines.Add($"ONE-WAY MEET {c.name} at {Time.time - t0:0.0}s: oncoming-stream {rb.name} {lo.z:0} m ahead {lo.x:+0.0;-0.0} right, racer {Mathf.Abs(c.forwardSpeed) * 3.6f:0} km/h, wp {ai.PathIndex}");
+                    }
+                    if (any) owSeconds += dt;
+                }
                 foreach (var rb in ts.Obstacles)
                 {
                     if (rb == null || rb.useGravity) continue;
@@ -114,8 +177,13 @@ namespace PSXRacing.EditorTools
                                $"near misses {nearMisses}; over the centreline {over:0} s in {stayN} stays, longest {lg:0.0} s ({lgWho}); better-line seconds {open:0}");
             foreach (var s in per) RacePlayCheck.Note("  " + s);
             foreach (var s in missLines) RacePlayCheck.Note("  " + s);
-            RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s");
+            RacePlayCheck.Note($"ONE-WAY MEETS (oncoming-stream traffic within 60 m ahead on a road the rival's map calls one-way): {owMeets}, {owSeconds:0} s");
+            foreach (var s in owLines) RacePlayCheck.Note("  " + s);
+            foreach (var s in headLines) RacePlayCheck.Note("  " + s);
+            RacePlayCheck.Summary($"LANE USE {(AIDriver.PassOncoming ? "ON" : "OFF")} | passes {begun} oncoming-lane {oncoming} held {held} done {done} aborted {aborted} | near misses {nearMisses} | over-line {over:0}s longest {lg:0.0}s | better-line {open:0}s" +
+                                  $" | head-ons rival {headOnsRival} player {headOnsPlayer} (slow {headOnsSlow}, after respawn {headOnsAfterRespawn}, one-way {headOnsOneWay}, passing {headOnsPassing}) | one-way meets {owMeets} {owSeconds:0}s");
             RacePlayCheck.Check(lg <= 20f, "every rival comes back to the right lane (no stay over the centreline past 20 s)", $"{lg:0.0} s ({lgWho})");
+            RaceManager.Respawned -= OnRespawned;
             rm = null;
         }
     }

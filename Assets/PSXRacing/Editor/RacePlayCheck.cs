@@ -1150,6 +1150,10 @@ namespace PSXRacing.EditorTools
                 {
                     headOns++;
                     headOnLines.Add($"HEAD-ON {who.name} at {Time.time - t0:0}s, {speed:0.0} m/s into {what}");
+                    // aipass 11-17: every head-on's context, whatever its speed (the trail below is only for 15 m/s+)
+                    LaneUseWatch.HeadOn(who.GetComponentInParent<CarController>(), orb, speed);
+                    if (speed < 15f && trail.TryGetValue(who.name, out var trh))
+                        RacePlayCheck.Note($"    before {who.name}'s head-on: " + string.Join(" | ", trh));
                 }
             }
             if (speed < 10f) return;
