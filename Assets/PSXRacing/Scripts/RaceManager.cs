@@ -765,10 +765,14 @@ namespace PSXRacing
             int skip = 0;
             // (a checkpoint race swaps an AI's routed road, so there the same spot is judged by position: 24 m)
             bool samePlace = false;
+            int repeats = 0;
             if (ai != null && lastRespawn.TryGetValue(car, out var last) && Time.time - last.time < 20f)
+            {
+                repeats = last.repeats;
                 samePlace = own ? Mathf.Abs(path.Wrap(start - last.idx + n / 2) - n / 2) <= 6
                                 : lastRespawnAt.TryGetValue(car, out var lp) && (lp - path.GetPoint(start)).sqrMagnitude < 24f * 24f;
-            if (samePlace) skip = Mathf.Min(last.repeats + 1, 8) * 3;
+            }
+            if (samePlace) skip = Mathf.Min(repeats + 1, 8) * 3;
             lastRespawn[car] = (start, Time.time, skip / 3);
             lastRespawnAt[car] = path.GetPoint(start);
             for (int step = skip; step <= Search + skip; step++)
