@@ -303,6 +303,15 @@ namespace PSXRacing.EditorTools
                 }
             }
             Line($"  TIGHT TWINS: {LineModel.TightTwinPairs} pairs city-wide; split frames {LineModel.SplitFrames.Count}; skipped {LineModel.SplitSkipped.Count}");
+            // the split frames drawn on this road (each carriageway's profile: its blend and where it ends)
+            foreach (var f in LineModel.SplitFrames)
+            {
+                if (f.edge < 0 || f.edge >= map.edges.Length || map.edges[f.edge].name != E0.name) continue;
+                var pn = map.nodes[f.node];
+                float um = Vector2.Dot(pn - P0, fwd);
+                if (um < -back - 40f || um > ahead + 40f) continue;
+                Line($"    frame n{f.node} e{f.edge} (chain {string.Join(",", f.chain)}, {f.chainLen:0} m): lambda0 {f.lambda0:+0.00;-0.00} uStart {f.uStart:0.0} L {f.L:0.0} uEnd {f.uEnd:0.0} qEnd {f.qEnd:+0.00;-0.00} slopeEnd {f.slopeEnd:+0.000;-0.000} delta {f.delta:+0.00;-0.00} room {f.room:0} capped {f.capped} tip {f.uTip:0.0} devMax {f.devMax:0.00} {f.note}");
+            }
             foreach (var l in LineModel.TightTwinLog) if (l.Contains("'" + E0.name + "'")) Line("    " + l);
             foreach (var l in LineModel.SplitSkipped) if (l.Contains("'" + E0.name + "'")) Line("    skipped " + l);
             string root = Directory.GetParent(Application.dataPath).FullName;
