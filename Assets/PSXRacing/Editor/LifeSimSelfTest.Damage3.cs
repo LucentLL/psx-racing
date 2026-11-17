@@ -17,6 +17,17 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static partial class LifeSimSelfTest
     {
+        /// <summary>Only damage round 3's pins: seconds, no scene build.
+        /// Writes PSXRacing_selftest_damage3.txt.</summary>
+        public static void RunDamage3()
+        {
+            log = new System.Text.StringBuilder();
+            failures = 0;
+            RunDamage3Tests();
+            Line(failures == 0 ? "DAMAGE3 SELF-TEST OK" : "DAMAGE3 SELF-TEST FAILED (" + failures + ")");
+            System.IO.File.WriteAllText(System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_damage3.txt"), log.ToString());
+        }
+
         static void RunDamage3Tests()
         {
             bool view = DamageView.On, look = DamageLook.On, body = DamageLook.BodyOn, glass = DamageGlass.On, cab = DamageCabin.On;
