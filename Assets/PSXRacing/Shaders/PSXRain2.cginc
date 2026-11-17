@@ -45,7 +45,7 @@ float4 _PSXRain2Cover;          // x: world metres -> mask uv; z: 1 = the mask i
 sampler2D _PSXRain2CoverTex;    // R: 1 open sky .. 0 under a deck or a roof
 float4 _PoolBand;               // per renderer: (v from, v to, 1 = on) - the gutter pan's atlas band
 
-#define R2_FILM          0.60   // a film's mirror, as a share of standing water's
+#define R2_FILM          0.76   // a film's mirror, as a share of standing water's (the old soft puddles averaged 0.72: the road keeps its mirror)
 #define R2_SLOPE_LO      0.008  // tilt (rise over run) where a surface starts to shed its pools..
 #define R2_SLOPE_HI      0.070  //   ..and where it holds none
 #define R2_SHED          0.40   // how far a shedding surface lifts the water line (noise units)
