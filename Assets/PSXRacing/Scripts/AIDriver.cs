@@ -1668,7 +1668,7 @@ namespace PSXRacing
                         Vector3 lh = transform.InverseTransformPoint(o.transform.position);
                         float want = lastFreeSpeed - o.forwardSpeed;
                         if (lh.z > 3f && lh.z < HeldLookM && Mathf.Abs(lh.x) < HeldLaneM && want > HeldMarginMps &&
-                            (countedPass == o.Body || HeldPassOk(lh.z, want)))
+                            ((countedPass == o.Body && float.IsNegativeInfinity(leftLimit)) || HeldPassOk(lh.z, want)))   // oncoming near: the pass is given up (back to the lane)
                             heldWant = want;
                     }
                     if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < (OnDeck ? DeckStoppedMps : StoppedRacerMps) || closingOnIt || heldWant > 0f)
