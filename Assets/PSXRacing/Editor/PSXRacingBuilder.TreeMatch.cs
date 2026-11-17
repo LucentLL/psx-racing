@@ -60,8 +60,11 @@ namespace PSXRacing.EditorTools
         /// <summary>The card's light normal: this share of the direction to the eye, and this much straight up
         /// (in leaf: the mean normal of a crown's eye-side half; bare: of limbs turned round their own axes, their
         /// upper sides to the sky).</summary>
-        internal static float TMLeafN = EnvF("PSX_TM_LEAFN", 0.5f), TMLeafUp = EnvF("PSX_TM_LEAFUP", 0f),
-                              TMBareN = EnvF("PSX_TM_BAREN", 0.55f), TMBareUp = EnvF("PSX_TM_BAREUP", 0.2f);
+        /// (Measured at noon from three bearings, audit m2: the beeches' meshes answer the sun's bearing as a
+        /// card at 0.5 does, the Meadow poplars' hardly at all (0.2): 0.4 serves both within a tenth. Bare, a
+        /// card at 0.55 + 0.2 up swung 1.7 times as far as its mesh between bearings: 0.30 + 0.11.)
+        internal static float TMLeafN = EnvF("PSX_TM_LEAFN", 0.4f), TMLeafUp = EnvF("PSX_TM_LEAFUP", 0f),
+                              TMBareN = EnvF("PSX_TM_BAREN", 0.30f), TMBareUp = EnvF("PSX_TM_BAREUP", 0.11f);
 
         static float EnvF(string k, float d)
         {
