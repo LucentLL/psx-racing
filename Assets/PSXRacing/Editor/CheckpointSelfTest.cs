@@ -107,7 +107,10 @@ namespace PSXRacing.EditorTools
                 float m = R.CostFrom(met[k], st, t), c = R.CostFrom(cost[k], st, t);
                 bool reach = !float.IsInfinity(m) && !float.IsInfinity(c);
                 float node = cps[k].metM;
-                bool parity = node <= 0f || Mathf.Abs(m - node) <= 0.01f * node + 1f;
+                // node measures to the ANCHOR; the race seeds every span (a parallel same-way carriageway): a nearer
+                // span is fine while the leg still cannot be cut (test a: >= 0.88 x the suggested metres)
+                bool spanNearer = m < node && cps[k].spans != null && cps[k].spans.Length > 1 && m >= 0.88f * Mathf.Max(cps[k].legM, 1f) - 1f;
+                bool parity = node <= 0f || Mathf.Abs(m - node) <= 0.01f * node + 1f || spanNearer;
                 // the cost optimum's metres
                 float optM = -1f;
                 if (R.Descend(cost[k], st, t, states, out float lastT))
@@ -167,8 +170,9 @@ namespace PSXRacing.EditorTools
                         {
                             var ed = map.edges[tp.edgeAt[i]];
                             float entry = tp.dirAt[i] > 0 ? tp.sAt[i] : ed.length - tp.sAt[i];
-                            bool bad2 = tp.edgeAt[i] == tp.edgeAt[i - 1] ? Mathf.Abs(tp.sAt[i] - tp.sAt[i - 1]) > tp.spacing * 1.6f
-                                                                          : entry > tp.spacing * 1.6f;
+                            // (a tight junction corner's lane runs inside the OSM arc: up to 2 pitches of arc a step)
+                            bool bad2 = tp.edgeAt[i] == tp.edgeAt[i - 1] ? Mathf.Abs(tp.sAt[i] - tp.sAt[i - 1]) > tp.spacing * 2f
+                                                                          : entry > tp.spacing * 2f;
                             if (bad2) { bad++; sbBad.Append($" leg {from}->{k} wp {i} edge {tp.edgeAt[i]} s {tp.sAt[i]:0.0} (was {tp.edgeAt[i - 1]} s {tp.sAt[i - 1]:0.0});"); break; }
                         }
                     }
@@ -297,7 +301,9 @@ namespace PSXRacing.EditorTools
                             steps++;
                             float moved = (pos - last).magnitude;
                             float jump = Mathf.Abs(v - prev);
-                            if (jump > 2.5f * moved + 3f)   // a curve's inside moves the projection faster than the car
+                            // a curve's inside moves the projection faster than the car (x2.5); 30 m is the race's own
+                            // progress-fall line (the blocker's jump was 190 m)
+                            if (jump > Mathf.Max(2.5f * moved + 3f, 30f))
                             {
                                 bool switched = loc.edge != before && loc.valid && !loc.offGraph && loc.dist <= map.edges[loc.edge].HalfMax + 1.5f;
                                 if (switched) switches++;

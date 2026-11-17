@@ -27,6 +27,10 @@ namespace PSXRacing.EditorTools
         static readonly Dictionary<CarController, int> misses = new Dictionary<CarController, int>();
         static readonly Dictionary<CarController, float> lastProgress = new Dictionary<CarController, float>();
         static readonly Dictionary<CarController, float> lastCause = new Dictionary<CarController, float>();
+        static readonly Dictionary<CarController, float> lastChoice = new Dictionary<CarController, float>();
+        static int choiceSteps;
+        /// <summary>A route choice explains a step in the ruler up to this many metres (the leg's extra).</summary>
+        const float ChoiceStepMaxM = 400f;
         static readonly Dictionary<CarController, float> aiWrong = new Dictionary<CarController, float>();
         static readonly Dictionary<CarController, int> lastPos = new Dictionary<CarController, int>();
         static readonly Dictionary<(CarController, CarController), float> swapAt = new Dictionary<(CarController, CarController), float>();
@@ -41,6 +45,7 @@ namespace PSXRacing.EditorTools
         {
             rm = race; cp = race != null ? race.Checkpoints : null; player = autopilotCar;
             gateLog.Clear(); gateSeq.Clear(); misses.Clear(); lastProgress.Clear(); lastCause.Clear(); aiWrong.Clear();
+            lastChoice.Clear(); choiceSteps = 0;
             lastPos.Clear(); swapAt.Clear();
             flicker = disagree = unexplainedFalls = samples = 0; playerWrongS = 0f; worstAiWrong = 0f; worstAiWrongWho = "";
             notes.Clear(); resetDone = false; resetResult = ""; sampleNext = 0f;
@@ -53,6 +58,7 @@ namespace PSXRacing.EditorTools
             cp.EnsurePlanner(autopilotCar);
             CheckpointRace.GatePassed += OnGate;
             CheckpointRace.Missed += OnMissed;
+            CheckpointRace.RouteChoice += OnChoice;
             RaceManager.Respawned += OnRespawn;
             var go = new GameObject("CheckpointRaceWatch");
             Object.DontDestroyOnLoad(go);
@@ -75,6 +81,7 @@ namespace PSXRacing.EditorTools
             RacePlayCheck.Note($"MISSED CHECKPOINT {c.name}{(c == player ? " (player)" : "")} gate {gate} at {Time.time - t0:0}s");
         }
         static void OnRespawn(CarController c, int step, float lat) { lastCause[c] = Time.time; }
+        static void OnChoice(CarController c) { lastChoice[c] = Time.time; }
 
         /// <summary>Every frame (CheckpointRaceWatchTick).</summary>
         public static void Frame()
@@ -115,6 +122,9 @@ namespace PSXRacing.EditorTools
                 if (lastProgress.TryGetValue(c, out float lp) && lp - p.progress >= 30f)
                 {
                     bool cause = lastCause.TryGetValue(c, out float tc) && now - tc < 1.5f;
+                    // a route choice at a node steps the ruler by its extra metres (bounded)
+                    if (!cause && lastChoice.TryGetValue(c, out float tch) && now - tch < 1.0f && lp - p.progress <= ChoiceStepMaxM)
+                    { cause = true; choiceSteps++; if (choiceSteps <= 5) RacePlayCheck.Note($"ROUTE-CHOICE STEP {c.name} {lp - p.progress:0} m at {now - t0:0.0}s"); }
                     if (!cause)
                     {
                         unexplainedFalls++;
@@ -233,8 +243,34 @@ namespace PSXRacing.EditorTools
             if (cp == null) return;
             CheckpointRace.GatePassed -= OnGate;
             CheckpointRace.Missed -= OnMissed;
+            CheckpointRace.RouteChoice -= OnChoice;
             RaceManager.Respawned -= OnRespawn;
             int N = cp.GateCount;
+            // ---- STAGE 2: the variety gate (distinct rival routes per leg) and the re-routes
+            {
+                var perGate = new Dictionary<string, HashSet<string>>();
+                int varied = 0, reroutes = 0;
+                foreach (var c in rm.allCars)
+                {
+                    if (c == null || c == player) continue;
+                    var pl = cp.Of(c) != null ? cp.Of(c).planner : null;
+                    if (pl == null) continue;
+                    varied += pl.VariedLegs; reroutes += pl.Reroutes;
+                    foreach (var leg in pl.LegLog)
+                    {
+                        int colon = leg.IndexOf(':');
+                        if (colon <= 0) continue;
+                        string g = leg.Substring(0, colon);
+                        if (!perGate.TryGetValue(g, out var set)) perGate[g] = set = new HashSet<string>();
+                        set.Add(leg);
+                    }
+                }
+                int legs = perGate.Count, multi = 0;
+                foreach (var kv in perGate) if (kv.Value.Count >= 2) multi++;
+                RacePlayCheck.Note($"AI ROUTES: PSX_CP_AI_VARIETY {(AIRoutePlanner.VarietyOn ? "ON" : "OFF")}, PSX_CP_REROUTE {(AIRoutePlanner.RerouteOn ? "ON" : "OFF")}: " +
+                                   $"{multi} of {legs} legs driven by 2+ distinct rival routes ({(legs > 0 ? 100f * multi / legs : 0f):0} %), {varied} varied legs planned, {reroutes} re-routes; " +
+                                   $"{choiceSteps} ruler steps at route choices (allowed to {ChoiceStepMaxM:0} m)");
+            }
             int expect = cp.Loop ? N * rm.totalLaps : N - 1;
             var finishOrder = new List<RaceManager.CarProgress>();
             foreach (var c in rm.allCars)

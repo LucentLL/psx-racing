@@ -15,6 +15,15 @@ namespace PSXRacing
     /// allows one rebuild per frame (CheckpointRace's queue). Stage 1: optimum routes only (no persona variety).
     /// The paths live on an INACTIVE holder created after the race started, so no FindObjectOfType&lt;TrackPath&gt;
     /// (tools, dev probes, the replay's fallback) ever picks one up.
+    /// STAGE 2 (cpfix 11-17):
+    /// - VARIETY (PSX_CP_AI_VARIETY): each rival has a persona (from its name): a share of legs (0-35 %) it takes
+    ///   off the optimum, and a band (2-6 % of the cost still to go) inside which any successor at a node is fair
+    ///   game. Such a leg walks the field down choosing in that band (seeded per car, gate and lap: the same race
+    ///   twice is the same race), never uphill, and is kept only if it costs at most 8 % over the optimum; else the
+    ///   optimum. The player's autopilot always takes the optimum (it stands in for a player on the GPS line).
+    /// - RE-ROUTE (PSX_CP_REROUTE): a rival more than 20 m off its own road for 1.5 s plans again from where it is
+    ///   (at most every 3 s); a rival whose remaining distance has not fallen 50 m in 10 s plans again too (the
+    ///   20 s watchdog in CheckpointRace still puts it back on its road after that).
     /// </summary>
     public class AIRoutePlanner : MonoBehaviour
     {
@@ -30,6 +39,33 @@ namespace PSXRacing
         public float WorstBuildMs { get; private set; }
         /// <summary>The leg signature of the last plan, for the play check: the edges it drives.</summary>
         public string LastSignature { get; private set; } = "";
+        /// <summary>For the play check: legs planned off the optimum (variety), and re-plans for being off its road.</summary>
+        public int VariedLegs { get; private set; }
+        public int Reroutes { get; private set; }
+        /// <summary>Every leg this car planned: "gate:edge,edge,..." of the leg's first 40 edges (the variety gate
+        /// counts distinct routes per leg across the field).</summary>
+        public readonly List<string> LegLog = new List<string>(64);
+
+        // ---- persona (stage 2)
+        public static bool VarietyOn => CheckpointFile.On("PSX_CP_AI_VARIETY");
+        public static bool RerouteOn => CheckpointFile.On("PSX_CP_REROUTE");
+        float altChance = -1f, eps;
+        uint seed;
+        void Persona()
+        {
+            if (altChance >= 0f) return;
+            uint h = 2166136261u;
+            foreach (char ch in cp.car.name) { h ^= ch; h *= 16777619u; }
+            seed = h == 0u ? 1u : h;
+            float a = Hash01(seed, 11), b = Hash01(seed, 23);
+            altChance = cp.isPlayer ? 0f : 0.35f * a;
+            eps = 0.02f + 0.04f * b;
+        }
+        static float Hash01(uint h, uint salt)
+        {
+            h ^= salt * 0x9E3779B9u; h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+            return (h & 0xFFFFFFu) / 16777216f;
+        }
 
         readonly List<RoutedPath.Piece> pieces = new List<RoutedPath.Piece>(512);
         readonly List<int> states = new List<int>(512);
@@ -50,9 +86,29 @@ namespace PSXRacing
         public void OnRespawned() { race.Request(this); }
         public void OnMissed() { race.Request(this); }
 
+        float offSince = -1f, lastReroute = -99f, staleAt = -1f;
         void Update()
         {
             if (race == null || RaceReplay.Playing) return;
+            // RE-ROUTE (stage 2): off its own road for 1.5 s, or no progress for 10 s: plan again from here
+            if (RerouteOn && !cp.isPlayer && Path != null && !queued && ai != null && ai.path == Path && Time.time - lastReroute > 3f)
+            {
+                var pr = RaceManager.Instance != null ? RaceManager.Instance.GetProgress(cp.car) : null;
+                if (pr != null && !pr.finished && !pr.retired && RaceManager.Instance.State == RaceManager.RaceState.Racing)
+                {
+                    bool off = cp.loc.valid && cp.loc.dist > 20f;
+                    if (off) { if (offSince < 0f) offSince = Time.time; } else offSince = -1f;
+                    bool stale = Time.time - cp.lastAdvanceTime > 10f && staleAt != cp.lastAdvanceTime;
+                    if ((off && Time.time - offSince > 1.5f) || stale)
+                    {
+                        if (stale) staleAt = cp.lastAdvanceTime;
+                        lastReroute = Time.time; offSince = -1f; Reroutes++;
+                        Debug.Log($"[Checkpoints] {cp.car.name}: re-route ({(stale ? "no progress for 10 s" : "20 m off its road")})");
+                        race.Request(this);
+                        return;
+                    }
+                }
+            }
             if (Path == null || queued || fullRunOut || ai == null || ai.path != Path) return;
             // the guard: less than 450 m of road left ahead of the car
             int idx = Path.NearestIndex(cp.car.transform.position, cp.pathHint >= 0 ? Mathf.Min(cp.pathHint, Path.Count - 1) : -1, 25);
@@ -91,13 +147,34 @@ namespace PSXRacing
                 ExtendStraight(R, st, t, need + 300f);
                 runOut = true;
             }
+            Persona();
             for (int leg = 0; leg < 64 && !(finished && !race.Loop); leg++)
             {
                 bool finishGate = !finished && race.IsFinishGate(cp, k) && lapsPlanned == 0;
-                if (!R.Descend(race.Cost(k), st, t, states, out float lastT))
+                // VARIETY: this leg off the optimum, by the persona's share (decided per gate and lap, so a re-plan
+                // mid-leg keeps the same choice)
+                bool varied = false;
+                if (leg == 0 && VarietyOn && altChance > 0f && !finished)
+                {
+                    int lapNow = p != null ? p.lap : 1;
+                    uint legSeed = seed ^ ((uint)k * 2654435761u) ^ ((uint)lapNow * 40503u);
+                    if (Hash01(legSeed, 7) < altChance && DescendVaried(R, race.Cost(k), st, t, legSeed, states, out float vT))
+                    { varied = true; variedLastT = vT; }
+                }
+                float lastT;
+                if (varied) lastT = variedLastT;
+                else if (!R.Descend(race.Cost(k), st, t, states, out lastT))
                 {
                     Debug.LogWarning($"[Checkpoints] {car.name}: gate {k} unreachable from state {st}");
                     break;
+                }
+                if (leg == 0)
+                {
+                    if (varied) VariedLegs++;
+                    var ls = new System.Text.StringBuilder(64);
+                    ls.Append(k).Append(':');
+                    for (int i = 0; i < states.Count && i < 40; i++) ls.Append(states[i] >> 1).Append(',');
+                    if (LegLog.Count < 256) LegLog.Add(ls.ToString());
                 }
                 for (int i = 0; i < states.Count; i++)
                 {
@@ -134,6 +211,74 @@ namespace PSXRacing
             LastSignature = sig.ToString();
             LastBuildMs = (float)sw.Elapsed.TotalMilliseconds;
             WorstBuildMs = Mathf.Max(WorstBuildMs, LastBuildMs);
+        }
+
+        float variedLastT;
+        readonly List<int> vStates = new List<int>(512);
+
+        /// <summary>
+        /// A VARIED DESCENT: down the field from (st, t), at each node any successor whose cost to the gate is
+        /// within the persona's band (eps x the cost still to go) of the best, chosen by the leg's seed; never one
+        /// whose cost-to-go is not below the state's own (no loop). Kept only at <= 1.08 x the optimum's cost and
+        /// only when it differs from the optimum; false otherwise (the caller takes the optimum).
+        /// </summary>
+        bool DescendVaried(CityRouter R, CityRouter.Field F, int st, float t, uint legSeed, List<int> outStates, out float lastT)
+        {
+            lastT = 0f;
+            if (F == null || st < 0 || !R.legal[st]) return false;
+            float opt = R.CostFrom(F, st, t);
+            if (float.IsInfinity(opt) || opt < 150f) return false;
+            vStates.Clear();
+            vStates.Add(st);
+            float g = F.seedG[st];
+            if (g >= 0f && g >= t - 0.01f) return false;        // the gate is on this very road: nothing to vary
+            float cost = Mathf.Max(0f, R.len[st] - t) * F.Mul(st);
+            int x = st; bool differs = false;
+            for (int guard = 0; guard < 2000; guard++)
+            {
+                float best = float.PositiveInfinity;
+                int k0 = R.succStart[x], k1 = R.succStart[x + 1];
+                for (int k = k0; k < k1; k++)
+                {
+                    float c = (F.cost ? CityRouter.TurnCost(R.succTurn[k]) : 0f) + F.D[R.succ[k]];
+                    if (c < best) best = c;
+                }
+                if (float.IsInfinity(best)) return false;
+                float band = eps * best;
+                // the candidates in the band, cheaper-to-go than here; one picked by the seed
+                int n = 0, pick = -1; float pickTurn = 0f;
+                float roll = Hash01(legSeed ^ (uint)x, 31);
+                for (int k = k0; k < k1; k++)
+                {
+                    int y = R.succ[k];
+                    float c = (F.cost ? CityRouter.TurnCost(R.succTurn[k]) : 0f) + F.D[y];
+                    if (c > best + band || F.D[y] >= F.D[x] - 1f && F.seedG[y] < 0f) continue;
+                    n++;
+                }
+                if (n == 0) return false;
+                int want = Mathf.Min(n - 1, (int)(roll * n)), i = 0;
+                for (int k = k0; k < k1; k++)
+                {
+                    int y = R.succ[k];
+                    float c = (F.cost ? CityRouter.TurnCost(R.succTurn[k]) : 0f) + F.D[y];
+                    if (c > best + band || F.D[y] >= F.D[x] - 1f && F.seedG[y] < 0f) continue;
+                    if (i++ == want) { pick = y; pickTurn = F.cost ? CityRouter.TurnCost(R.succTurn[k]) : 0f; break; }
+                }
+                if (pick < 0) return false;
+                if (pick != F.nxt[x]) differs = true;
+                vStates.Add(pick);
+                cost += pickTurn;
+                float pg = F.seedG[pick];
+                if (pg >= 0f) { cost += pg * F.Mul(pick); lastT = pg; break; }
+                cost += R.len[pick] * F.Mul(pick);
+                if (cost > opt * 1.08f + 1f) return false;
+                x = pick;
+                if (guard == 1999) return false;
+            }
+            if (!differs || cost > opt * 1.08f + 1f) return false;
+            outStates.Clear();
+            outStates.AddRange(vStates);
+            return true;
         }
 
         void AddPiece(int s, float t0, float t1)

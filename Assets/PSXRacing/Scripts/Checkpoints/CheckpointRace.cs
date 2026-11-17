@@ -106,6 +106,9 @@ namespace PSXRacing
         /// <summary>For the harness: every gate pass, (car, gate index, passedTotal, time).</summary>
         public static event System.Action<CarController, int, int, float> GatePassed;
         public static event System.Action<CarController, int> Missed;
+        /// <summary>For the harness: a car went over a node onto a road its gate's route does not take (a route
+        /// choice: the ruler steps there by the choice's extra metres, DESIGN_v2 2.3).</summary>
+        public static event System.Action<CarController> RouteChoice;
 
         // ------------------------------------------------------------------ bootstrap
         /// <summary>
@@ -408,6 +411,11 @@ namespace PSXRacing
                 if (anchorOnly && curSt != gates[k].anchorSt) return false;
                 return pT < g - 0.01f && curT >= g;
             }
+
+            // a route choice: over a node onto a road the gate's route does not take
+            if (curSt >= 0 && c.prevSt >= 0 && curSt != c.prevSt && R.eNode[c.prevSt] == R.sNode[curSt] &&
+                fields[c.next].nxt[c.prevSt] != curSt)
+                RouteChoice?.Invoke(car);
 
             // ---- the gates crossed this frame
             Vector3 a = c.sweptFrom, b = pos;
