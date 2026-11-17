@@ -153,6 +153,16 @@ namespace PSXRacing.EditorTools
                         if (i > 0 && i < tp.Count - 1 && (chord > tp.spacing + 0.05f || chord < 0.5f * tp.spacing))
                         { bad++; sbBad.Append($" leg {from}->{k} wp {i} chord {chord:0.00} m;"); break; }
                         if (tp.halfL[i] < 1.5f || tp.halfR[i] < 1.5f) narrow++;
+                        // the (edge, s) back-map runs on continuously: on one edge it moves about a pitch a step, and
+                        // onto a new edge it starts near that edge's entry end (the gates' arc pass reads it)
+                        if (i > 0 && i < tp.Count - 1)
+                        {
+                            var ed = map.edges[tp.edgeAt[i]];
+                            float entry = tp.dirAt[i] > 0 ? tp.sAt[i] : ed.length - tp.sAt[i];
+                            bool bad2 = tp.edgeAt[i] == tp.edgeAt[i - 1] ? Mathf.Abs(tp.sAt[i] - tp.sAt[i - 1]) > tp.spacing * 1.6f
+                                                                          : entry > tp.spacing * 1.6f;
+                            if (bad2) { bad++; sbBad.Append($" leg {from}->{k} wp {i} edge {tp.edgeAt[i]} s {tp.sAt[i]:0.0} (was {tp.edgeAt[i - 1]} s {tp.sAt[i - 1]:0.0});"); break; }
+                        }
                     }
                 }
                 if (bad > 0) { sb.AppendLine($"FAIL  routed paths: {bad} bad of {built}:{sbBad}"); fails++; }
