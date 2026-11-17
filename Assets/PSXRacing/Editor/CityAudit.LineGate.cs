@@ -1686,7 +1686,21 @@ namespace PSXRacing.EditorTools
             var cells = new Dictionary<(string, long), int>();
             int places = 0;
             var order = new List<LgFail>(lgFails);
-            order.Sort((a, b) => b.vis.CompareTo(a.vis));
+            // (11-17 roads3) a DETERMINISTIC order: List.Sort is unstable, so failures of equal visibility fell in an
+            // order that depended on where OTHER classes' rows stood in the list - a branch that only removed STEP rows
+            // (the fan lip) counted JUNCTION 656 -> 657 places with every JUNCTION row identical. Ties: class, edge,
+            // position, arc, text.
+            order.Sort((a, b) =>
+            {
+                int c = b.vis.CompareTo(a.vis); if (c != 0) return c;
+                c = string.CompareOrdinal(a.cls, b.cls); if (c != 0) return c;
+                c = a.edge.CompareTo(b.edge); if (c != 0) return c;
+                c = a.x.CompareTo(b.x); if (c != 0) return c;
+                c = a.z.CompareTo(b.z); if (c != 0) return c;
+                c = a.s.CompareTo(b.s); if (c != 0) return c;
+                c = a.s1.CompareTo(b.s1); if (c != 0) return c;
+                return string.CompareOrdinal(a.what ?? "", b.what ?? "");
+            });
             var placeRep = new List<LgFail>();
             foreach (var f in order)
             {
