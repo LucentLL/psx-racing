@@ -112,6 +112,7 @@ namespace PSXRacing
             {
                 var mc = Camera.main;
                 var tt = mc != null ? mc.targetTexture : null;
+                sb.AppendLine($"frame cap at the end: Unity's targetFrameRate {Application.targetFrameRate}, vSyncCount {QualitySettings.vSyncCount}, window focused {Application.isFocused}");
                 sb.AppendLine($"screen at the end {Screen.width}x{Screen.height}, framebuffer {(tt != null ? tt.width + "x" + tt.height : "none")}, render scale {RenderScalePrefs.Label}; " +
                               $"switches: forest pre-pass {(MeshForest.DepthPre ? "on" : "off")}, AO driver only {(PerfSwitches.AODriverOnly ? "on" : "off")}, lean output {(PerfSwitches.LeanOutput ? "on" : "off")}, copies on demand {(PerfSwitches.CopiesOnDemand ? "on" : "off")}, ambient shade {AOQualityPrefs.Label}; " +
                               $"view rates: car reflect {ViewRatePrefs.Label(ViewRatePrefs.View.CarReflections)}, mirrors {ViewRatePrefs.Label(ViewRatePrefs.View.RearMirror)} / {ViewRatePrefs.Label(ViewRatePrefs.View.DriverMirror)} / {ViewRatePrefs.Label(ViewRatePrefs.View.PassengerMirror)}");
@@ -473,8 +474,16 @@ namespace PSXRacing
             public Unity.Profiling.ProfilerRecorder tris, setPass;
         }
 
+        int capResets;
+
         void ProbeFrame(double frameMs, double outsideMs)
         {
+            if (Application.targetFrameRate != -1 || QualitySettings.vSyncCount != 0)
+            {
+                capResets++;
+                Application.targetFrameRate = -1;
+                QualitySettings.vSyncCount = 0;
+            }
             var into = probeInto;
             if (into == null) return;
             into[PM_FRAME].Add((float)frameMs);
@@ -781,6 +790,7 @@ namespace PSXRacing
             table.AppendLine($"BASE again: frame {Median(baseEnd[PM_FRAME]):0.00} view call {Median(baseEnd[PM_CALL]):0.00} gpu wait {Median(baseEnd[PM_WAIT]):0.00} (drift {Median(baseEnd[PM_FRAME]) - b0[PM_FRAME]:0.00} ms)");
             table.AppendLine("d = variant minus baseline, mean of the reps' medians (sd across reps); negative = what switching it off saves. gpu wait = render thread + GPU for everything drawn this frame.");
             if (onscreen) table.AppendLine($"screen at the end {Screen.width}x{Screen.height}" + (Screen.width != ow || Screen.height != oh ? "  *** THE WINDOW CHANGED SIZE DURING THE RUN: discard ***" : ""));
+            table.AppendLine($"frame cap: Unity's targetFrameRate {Application.targetFrameRate}, vSyncCount {QualitySettings.vSyncCount}; put back by the game {capResets} time(s) during the probe; window focused {Application.isFocused}; display {Screen.currentResolution.refreshRateRatio.value:0.0} Hz");
 
             PerfClock.FrameDone = null;
             if (freeze) { Time.timeScale = wasScale; VolumetricClouds.Paused = wasPaused; }
