@@ -9447,3 +9447,84 @@ Commits on city-fuel-r1 after aab9c7fc: 2197f1cd (b, c), 4ed0a9fc (1, 3), b8479e
    FILL UP raises the tank, STOP stops it, GO INSIDE at its door) - as the main edition, and with PSX_EDITION=CITY
    (free fuel, no door prompt).
 6. The frame cost at Carowinds Boulevard and East Independence Boulevard (CityBudgetProbe, FPS overlay CITY line).
+
+## The line gate (2026-11-16): what is drawn, judged by DOT rules, city-wide
+
+The owner, on North Tryon Street in PC48 (the double yellow S-jogs, a lane 8 m wide, dark stripes across the lanes):
+"I still see a lot of areas around Charlotte where the road and/or road lines do not make sense, are not accurate, and
+would never pass DOT requirements ... these issues cannot get through the quality gate audits."
+
+**THE RULE.** `tools\city-linegate.ps1` is part of every merge and every build of Charlotte.
+- A branch may not raise any class above `tools\city\baseline\linegate_baseline.json`. The tool exits 1 when one does.
+- Every build note quotes the tool's totals line.
+- A class is closed only when it reaches 0. There is no "known, ignore" list: a leftover is fixed, or it is shown
+  against the real road with the proof written beside it.
+- No Charlotte race track ships on a road that fails (`tools\city\linegate_tracks.py` lists the courses on failing places).
+- The baseline is re-recorded (`-WriteBaseline`) only when a class went DOWN, in the commit that brought it down.
+
+**Why it exists.** The smoothness gate (`Editor/CitySmooth.cs`, `tools/city/linecheck.mjs`) was written on 2026-09-29
+with `SmoothRules.ReportOnly = true` "for the first cycle" and was never flipped: `RunFull` exits 0 on any number of
+failures, and its offline replica still models the builder as it was before the line model (368,982 runs on today's
+data, none on the owner's five edges). It also judges a line against the builder's OWN plan: a jog the line model
+designs passes. The city audit's line reports (PAINT, LINE MODEL, TWIN, MERGE, COVERAGE) run in a 3.0 x 3.3 km box of
+Uptown unless told otherwise, and judge a line's colour and meaning, not how fast it moves. The splits, medians,
+control, concrete, drive and launch audits each measure their own fault class on their own places.
+
+**What it reads** (`Editor/CityAudit.LineGate.cs`, `.LineGate2.cs`; `-executeMethod PSXRacing.EditorTools.CityAudit.RunLineGate`).
+Every road tile is built with the road tap on, and every ribbon quad of every edge is read back out of `tm.roads`:
+its corners and its U. A painted line is found where a quad's U covers a line column of the slot's texture (a narrow
+quad in the column is that line; a wide quad carries it at U = m / W, bending on the quad's diagonal as the GPU draws
+it). The pavement's edges are the outermost quads' corners; an edge with other pavement 0.35 m outside it (a ramp's
+ribbon, a pocket, a twin deck) is a seam, not an edge. Pieces are chained along each edge and through every joint
+where two ends meet within 3 cm. Barriers, curbs, fans and CitySignals' junction list are read beside them.
+
+**What it judges** (limits and sources: `LineGateRules`, `LineGateRules2`):
+
+| class | fails when |
+|---|---|
+| SHIFT | a line or pavement edge moves sideways, in its road's frame, over less than the taper its kind needs at the posted speed (MUTCD L = W S / W S^2 / 60; AASHTO 8:1-15:1 where a turn lane opens; AASHTO 25:1 for a freeway ramp terminal's pavement edge and edge line) |
+| SJOG | the heading swings one way and back and the sideways move comes faster than L = W S (world frame; "model" = the line moved in its road's frame, "map" = the road's own line); a swing of 45 deg and more at a ramp's gore (60 m of its diverge / merge) is the gore's V read through hidden paint: counted |
+| KINK | an angle point of the alignment over 2 deg (40 mph and under) / 0.75 deg (45 and over) that no taper explains, holding over 4, 8 and 16 m chords (a curve's polyline facets do not; nor does a facet within 2.5 cm of its curve); not within 15 m of a junction or dead end, 3 m of a gore's paint, or (10 deg and more) 60 m of a ramp's diverge / merge |
+| WIDTH | a marked lane under 2.7 m (two lines under 1.8 m apart are a buffer, not a lane) (nor is the strip beside a solid line near the curb, or between two edge lines) or over 4.6 m where the width holds (not a taper); a shoulder over 4.0 m |
+| CONT | a line or pavement edge steps sideways at a joint; a lane or centre line ends with the pavement unchanged (a change of pattern is no end; edge lines may stop: MUTCD 3B.06 / 3B.07); lines stopping at a junction's stop line / crosswalk (25 m) pass; two roads' lines crossing, or running together parallel for 20 m |
+| SURFACE | two roads' pavement drawn over each other at one level where a line seems to jump (a ramp ribbon over the mainline), or a span drawn twice (z-fight). Stretched pavement texture is counted, not failed: the HD road base has no seam or band to show it (PSX_LG_STRETCHFAIL=1 fails it) |
+| JUNCTION | the nearest solid line across a road mouth (within 3 m past it; not a centre line, which a left turn may cross); the centre line not meeting itself across a junction (FDOT through-lane deflection); (stop-line placement: not judged until read from the mesh, PSX_LG_STOPLINE=1); a lesser named road meeting a greater one with no signal, STOP or yield |
+| MEDIAN | a raised curb or island more than 0.15 m inside the travelled way |
+| STEP | a step over 3.2 mm in the driven surface (a fan standing proud at its mouth, two spans or edges at different heights); a grade break with no vertical curve (FDOT PPM Table 2.6.2), holding over 10 / 20 and 20 / 40 m chords |
+| BARRIER | a wall, barrier or rail on or inside an edge line (closer than 0.10 m to its centre: no offset at all) |
+| BRIDGE | a structure with a lane count its road has on neither side, or narrower than its lanes need between rails (a one-way twin deck counts half the road's lanes) |
+
+Not judged yet: turn-lane storage, median nose shape, crosswalk / arrow placement, channelizing lines' shape, the
+real road (the gate proves the game against the standard; map-caused failures need a look at the place).
+
+**Every rule that lets something pass was proven on sampled frames** (`CityAudit.RunLineGateShots`, 30 random places a
+class): the census line `passed by rule:` in `city_linegate.txt` counts each one, so a pass is never silent.
+
+**Tools.**
+- `tools\city-linegate.ps1` - the gate (`-Box` / `-Name` for one place, `-Shots n` for editor frames of the worst
+  spots, `-Heat out.png`, `-WriteBaseline`).
+- `tools\city\linegate_report.py` (heat map, plan drawings, contact sheets), `linegate_tracks.py` (courses on failing
+  places), `linegate_worklist.py` (failures by cause), `linegate_samples.py` (N random places per class with plan
+  frames, for the false-positive check; `--uv CLASS` adds the texture-coordinate grid frame).
+- `CityAudit.RunLineGateShots` - real editor frames (plan + driver's eye) of a list of places.
+
+**The baseline** (drawing code mountain-nm 742315cd, gate 416dd3b7, graph b2aa3453, 10,626 road tiles, 2026-11-17):
+
+| class | failing places | T1 freeways + primary | T2 minor | T3 neighbourhood |
+|---|---:|---:|---:|---:|
+| SHIFT | 2,703 | 1,326 | 1,361 | 16 |
+| SJOG | 2,851 | 1,408 | 1,429 | 14 |
+| KINK | 3,231 | 1,662 | 968 | 601 |
+| WIDTH | 630 | 313 | 316 | 1 |
+| CONT | 1,725 | 793 | 922 | 10 |
+| SURFACE | 261 | 260 | 1 | 0 |
+| JUNCTION | 657 | 102 | 407 | 148 |
+| MEDIAN | 76 | 9 | 45 | 22 |
+| STEP | 9,684 | 2,240 | 4,162 | 3,282 |
+| BARRIER | 1,622 | 379 | 1,193 | 50 |
+| BRIDGE | 12 | 9 | 3 | 0 |
+| **ALL** | **23,452** | | | |
+
+The totals line the tool prints (quote it in every build note):
+
+    LINE GATE full4 graph b2aa3453: SHIFT 2703 SJOG 2851 KINK 3231 WIDTH 630 CONT 1725 SURFACE 261 JUNCTION 657 MEDIAN 76 STEP 9684 BARRIER 1622 BRIDGE 12 | ALL 23452 failing places
