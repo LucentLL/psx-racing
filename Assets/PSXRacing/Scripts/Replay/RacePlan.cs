@@ -50,6 +50,13 @@ namespace PSXRacing
         public Station[] stations;
         TrackPath path;
         System.Func<int, bool> avoid;
+        /// <summary>A city: a bystander may stand well back (a sidewalk past a
+        /// parking lane, a plaza). On a mountain stage the woods start a few
+        /// metres off the road and their leaves have no colliders to test a
+        /// view against (round 2's first finish camera stood 23 m into the
+        /// trees and filmed leaves): there, the cleared verge only, and a
+        /// long lens from further along it when the point has none.</summary>
+        bool city;
 
         public const float EyeM = 1.6f, CrouchM = 1.05f;
 
@@ -93,7 +100,12 @@ namespace PSXRacing
 
         static RacePlan Make(RaceCourse course, TrackPath path, System.Func<int, bool> avoid)
         {
-            var plan = new RacePlan { course = course, path = path, avoid = avoid, stations = new Station[course.points.Count] };
+            var venue = RaceHUD.VenueDef();
+            var plan = new RacePlan
+            {
+                course = course, path = path, avoid = avoid, stations = new Station[course.points.Count],
+                city = venue != null && venue.city,
+            };
             for (int i = 0; i < plan.stations.Length; i++) plan.stations[i] = new Station();
             for (int i = 0; i < plan.stations.Length; i++) plan.Ensure(i);
             // A circuit's finish is its start line: the same bystanders.
@@ -118,7 +130,7 @@ namespace PSXRacing
                 }
             if (!GroundThere(p.pos)) return false;
             bool tunnel = avoid != null && p.pathIdx >= 0 && avoid(p.pathIdx);
-            if (!tunnel) Place(p, path, st.lenses);
+            if (!tunnel) Place(p, path, st.lenses, city);
             if (st.lenses.Count == 0 && p.soft && p.pathIdx >= 0 && path != null)
             {
                 // Slide the point along the road to where somebody can stand.
@@ -133,7 +145,7 @@ namespace PSXRacing
                     Vector3 t = path.GetTangent(idx); t.y = 0f;
                     q.heading = t.sqrMagnitude > 1e-6f ? t.normalized : p.heading;
                     if (!GroundThere(q.pos)) continue;
-                    Place(q, path, st.lenses);
+                    Place(q, path, st.lenses, city);
                     if (st.lenses.Count == 0) continue;
                     course.points[i] = q;
                     st.slidM = s;
@@ -212,15 +224,17 @@ namespace PSXRacing
             heading = p.heading;
         }
 
-        static readonly float[] Laterals = { 2.5f, 4.5f, 7.5f, 11f, 16f, 24f };
+        static readonly float[] CityLaterals = { 2.5f, 4.5f, 7.5f, 11f, 16f, 24f };
+        static readonly float[] VergeLaterals = { 2.5f, 3.5f, 4.5f, 6f, 8f };
         static readonly float[] FrontAlong = { 24f, 34f, 15f, 46f };
         static readonly float[] BackAlong = { -22f, -32f, -14f, -44f };
         static readonly float[] FarAlong = { 62f, -60f, 90f, -88f, 125f, -120f, 160f };
 
         /// <summary>The bystanders for one point, best first: FRONT, then BACK.</summary>
-        public static void Place(RacePoint p, TrackPath path, List<Lens> into)
+        public static void Place(RacePoint p, TrackPath path, List<Lens> into, bool city = true)
         {
             into.Clear();
+            var laterals = city ? CityLaterals : VergeLaterals;
             // The outside of the bend the road makes through the point.
             Along(p, path, -30f, out _, out var hIn);
             Along(p, path, 30f, out _, out var hOut);
@@ -231,14 +245,14 @@ namespace PSXRacing
             Along(p, path, -45f, out var before, out _);
             Along(p, path, 45f, out var after, out _);
             int frontSide = 0;
-            if (Find(p, path, FrontAlong, outside, false, before, crouch, out var front, out frontSide)) into.Add(front);
+            if (Find(p, path, FrontAlong, laterals, outside, false, before, crouch, out var front, out frontSide)) into.Add(front);
             // The other side for the second angle when it can be; else the same.
             int backFirst = frontSide != 0 ? -frontSide : outside;
-            if (Find(p, path, BackAlong, backFirst, true, after, !crouch && (p.index % 2) == 1, out var back, out _)) into.Add(back);
+            if (Find(p, path, BackAlong, laterals, backFirst, true, after, !crouch && (p.index % 2) == 1, out var back, out _)) into.Add(back);
             if (into.Count == 0)
             {
                 // A long lens from further along: the point alone in sight.
-                if (Find(p, path, FarAlong, outside, false, p.pos, false, out var far, out _))
+                if (Find(p, path, FarAlong, laterals, outside, false, p.pos, false, out var far, out _))
                 {
                     far.far = true;
                     far.back = Vector3.Dot(far.pos - p.pos, p.heading) < 0f;
@@ -247,8 +261,8 @@ namespace PSXRacing
             }
         }
 
-        static bool Find(RacePoint p, TrackPath path, float[] alongs, int firstSide, bool back, Vector3 alsoSee, bool crouch,
-                         out Lens lens, out int side)
+        static bool Find(RacePoint p, TrackPath path, float[] alongs, float[] laterals, int firstSide, bool back, Vector3 alsoSee,
+                         bool crouch, out Lens lens, out int side)
         {
             lens = default; side = 0;
             Vector3 seeGate = p.pos + Vector3.up * 1.1f, seeAlso = alsoSee + Vector3.up * 1.1f;
@@ -256,7 +270,7 @@ namespace PSXRacing
             {
                 Along(p, path, s, out var c, out var h);
                 Vector3 r = Vector3.Cross(Vector3.up, h);
-                foreach (float lat in Laterals)
+                foreach (float lat in laterals)
                     for (int k = 0; k < 2; k++)
                     {
                         int sd = k == 0 ? firstSide : -firstSide;

@@ -247,6 +247,13 @@ Shader "PSX/Camcorder"
                 float exposure = transient * gain;
                 Y *= exposure;
                 yiq.yz *= exposure;
+                // GAIN UP opens the shadows too (a camcorder's low-light mode):
+                // a gamma lift by how hard the gain is working, so a car in the
+                // dark is a shape and not two lamps.
+                float lift = saturate((gain - 1.0) / 2.2);
+                float Yl = pow(max(Y, 0.0), lerp(1.0, 0.66, lift));
+                yiq.yz *= clamp(Yl / max(Y, 1e-3), 1.0, 2.2);
+                Y = Yl;
 
                 // Highlights knee over and wash out; the blacks sit a little up.
                 float knee = 0.72;
