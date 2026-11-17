@@ -1152,7 +1152,13 @@ namespace PSXRacing
             float dt = Time.fixedDeltaTime;
             nearestIdx = path.NearestIndex(transform.position, nearestIdx);
             if (driving) UpdateOpenLine(dt);
-            lineOffset = LineOffset();
+            // THE LINE GLIDES (PASS WINDOW, aipass): on a routed road the line is per waypoint - the grid's offset on a
+            // one-way, its own lanes' middle on a two-way - and at the join it stepped up to 4.8 m in one tick, with the
+            // give-way offset unchanged: a Skyline at 175 km/h swung 5 m/s sideways and over the centreline into a car
+            // (Tryon, MEDIUM). Stepped from where it was at LineSlewMps (the first tick snaps).
+            float lineNow = LineOffset();
+            lineOffset = PassWindowOn && lineSeeded && driving ? Mathf.MoveTowards(lineOffset, lineNow, LineSlewMps * dt) : lineNow;
+            lineSeeded = true;
             {
                 // for the harness (LaneUseWatch): a two-way road here, and metres right of this car's line
                 var tsd = TrafficSystem.Instance;
@@ -1483,6 +1489,12 @@ namespace PSXRacing
         /// <summary>A dodge round a rival with traffic on the road keeps the car's centre this far inside its own
         /// lane's inner limit (UpdateAvoidance's racer loop).</summary>
         const float DodgeLaneAirM = 0.5f;
+        /// <summary>How fast the line moves across the road where the road's lane facts change (m/s).</summary>
+        const float LineSlewMps = 2.5f;
+        /// <summary>A car turning in from a side street at the route's turn comes at this speed (m/s): the pass
+        /// window's sight at a junction.</summary>
+        const float JunctionInMps = 8f;
+        bool lineSeeded;
         /// <summary>The car being passed stays the block while no more than this further than the nearest one.</summary>
         const float PassKeepBlockM = 6f;
         /// <summary>STEER BEFORE BRAKE beside oncoming traffic (FixedUpdate): drifting toward the line within this many
@@ -1558,7 +1570,7 @@ namespace PSXRacing
                     Vector3 q = Vector3.Lerp(eye, tk, j / (float)k);
                     Vector3 pj = path.GetPoint(ij);
                     if (Mathf.Abs(Vector3.Dot(q - pj, RightAt(ij))) > side) lost = "bend";
-                    else if (q.y < pj.y + 0.15f) lost = "crest";
+                    else if (q.y < pj.y - 0.1f) lost = "crest";
                 }
                 if (lost != null) { s = (k - 1) * stepM; why = lost; break; }
             }
@@ -1672,7 +1684,9 @@ namespace PSXRacing
                 float s = SightAhead(out string lim);
                 float w = DesignOncomingMps;
                 float mg = lim == "clear" ? (s - runM - w * tOcc) / (vAvg + w) : lim == "end" ? (s - runM) / Mathf.Max(vAvg, 1f)
-                         : lim == "junction" ? Mathf.Min((s - runM) / Mathf.Max(vAvg, 1f), (s - runM - w * tOcc) / (vAvg + w))
+                         // at the route's turn: done before it, and a car turning in from the side street at a turn's
+                         // speed met no sooner (at the street's speed from there it held most passes on CltC2)
+                         : lim == "junction" ? Mathf.Min((s - runM) / Mathf.Max(vAvg, 1f), (s - runM - JunctionInMps * tOcc) / (vAvg + JunctionInMps))
                          : (s - runM - w * tOcc) / (vAvg + w);
                 if (mg < margin) { margin = mg; why = lim; }
             }
