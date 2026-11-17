@@ -471,6 +471,8 @@ namespace PSXRacing
             c.remaining = rg + LegsAfter(c);
             p.progress = TotalM - c.remaining;
             if (c.remaining < 1e8f && rg < c.lastRemGateSample - 25f) { c.lastRemGateSample = rg; c.lastAdvanceTime = Time.time; }
+            // a step UP (a route choice at a node, a re-plan) is not progress, but progress counts from there on
+            else if (c.remaining < 1e8f && rg > c.lastRemGateSample + 25f) c.lastRemGateSample = rg;
             // a rival GIVING WAY (held behind traffic, following, backing out of a jam) is not lost: its clock waits
             // (the Tryon street race at MEDIUM: 18 re-routes and two cars put back on their road while queued)
             if (!c.isPlayer)
@@ -569,8 +571,12 @@ namespace PSXRacing
                     c.loc.valid = true; c.loc.offGraph = false; c.loc.edge = e; c.loc.s = s; c.loc.dir = dir; c.loc.dist = off;
                     c.rDir = dir; c.rEdge = e;
                     c.bestDir = dir;
-                    // its own road's direction: the plan IS the field's descent (stage 1), so these are its own metres
-                    return R.RouteFrom(F, st, dir == 1 ? s : ed.length - s) + Mathf.Max(0f, off - OffRoadFreeM);
+                    // ITS OWN ROAD'S METRES to the gate (a varied leg is ranked by what it drives); off its plan, the
+                    // field's route from where it is
+                    float tt = dir == 1 ? s : ed.length - s;
+                    float own = pl.RemainingOnPlan(st, tt, c.next);
+                    if (float.IsInfinity(own)) own = R.RouteFrom(F, st, tt);
+                    return own + Mathf.Max(0f, off - OffRoadFreeM);
                 }
             }
             // the player (and a rival far off its road): the sticky locate at 10 Hz (staggered), a slide in between

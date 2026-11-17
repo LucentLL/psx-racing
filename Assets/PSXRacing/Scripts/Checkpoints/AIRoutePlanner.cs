@@ -68,6 +68,37 @@ namespace PSXRacing
         }
 
         readonly List<RoutedPath.Piece> pieces = new List<RoutedPath.Piece>(512);
+        // THE PLAN'S OWN METRES (cpfix 11-17): the pieces of the road the car is on now, their running metres, and where
+        // each leg ends (its gate): a rival's remaining distance is measured along its OWN road, so a varied leg is
+        // ranked by what it really drives (on the field's descent a varied rival jumped 259 m at a node on C1)
+        readonly List<RoutedPath.Piece> planPieces = new List<RoutedPath.Piece>(512), nextPieces = new List<RoutedPath.Piece>(512);
+        readonly List<float> planCum = new List<float>(512), nextCum = new List<float>(512);
+        readonly List<int> planLegGate = new List<int>(16), nextLegGate = new List<int>(16);
+        readonly List<float> planLegEnd = new List<float>(16), nextLegEnd = new List<float>(16);
+        int planHint;
+
+        /// <summary>Metres from (state, t) to gate <paramref name="k"/> along this car's own planned road; +Infinity
+        /// when the car is not on its plan (a crash) or the plan does not reach that gate.</summary>
+        public float RemainingOnPlan(int st, float t, int k)
+        {
+            int n = planPieces.Count;
+            if (n == 0) return float.PositiveInfinity;
+            int at = -1;
+            int h = Mathf.Clamp(planHint, 0, n - 1);
+            for (int d = 0; d < n && d < 40; d++)
+            {
+                int i = h + d;
+                if (i < n) { var q = planPieces[i]; if (q.st == st && t >= q.t0 - 0.5f && t <= q.t1 + 0.5f) { at = i; break; } }
+                int j = h - d - 1;
+                if (d < 4 && j >= 0) { var q = planPieces[j]; if (q.st == st && t >= q.t0 - 0.5f && t <= q.t1 + 0.5f) { at = j; break; } }
+            }
+            if (at < 0) return float.PositiveInfinity;
+            planHint = at;
+            float cum = planCum[at] + Mathf.Clamp(t - planPieces[at].t0, 0f, planPieces[at].t1 - planPieces[at].t0);
+            for (int g = 0; g < planLegGate.Count; g++)
+                if (planLegGate[g] == k && planLegEnd[g] >= cum - 1f) return Mathf.Max(0f, planLegEnd[g] - cum);
+            return float.PositiveInfinity;
+        }
         readonly List<int> states = new List<int>(512);
 
         public static AIRoutePlanner Create(CheckpointRace race, CheckpointRace.CarCP cp, AIDriver ai, Transform parent)
@@ -132,6 +163,7 @@ namespace PSXRacing
             // start 20 m behind the car on the same state, so the car is not at index 0
             t = Mathf.Max(0f, t - 20f);
             pieces.Clear();
+            nextLegGate.Clear(); nextLegEnd.Clear();
             var p = RaceManager.Instance != null ? RaceManager.Instance.GetProgress(car) : null;
             bool finished = p != null && p.finished;
             int k = cp.next;
@@ -194,6 +226,7 @@ namespace PSXRacing
                     if (leg == 0 && sigEdges++ < 40) sig.Append(s >> 1).Append(',');
                 }
                 st = states[states.Count - 1]; t = lastT;
+                nextLegGate.Add(k); nextLegEnd.Add(have);
                 if (finishGate || (finished && leg == 0)) runOut = true;
                 if (runOut)
                 {
@@ -213,6 +246,13 @@ namespace PSXRacing
             var into = Path == a ? b : a;
             float rw = RaceManager.Instance != null && RaceManager.Instance.path != null ? RaceManager.Instance.path.roadWidth : 12f;
             if (!RoutedPath.Build(map, pieces, into, rw)) return;
+            // the plan's own metres go live with its road
+            planPieces.Clear(); planCum.Clear();
+            float run = 0f;
+            for (int i = 0; i < pieces.Count; i++) { planPieces.Add(pieces[i]); planCum.Add(run); run += pieces[i].t1 - pieces[i].t0; }
+            planLegGate.Clear(); planLegGate.AddRange(nextLegGate);
+            planLegEnd.Clear(); planLegEnd.AddRange(nextLegEnd);
+            planHint = 0;
             Path = into;
             ai.SetPath(into);
             cp.pathHint = -1;
