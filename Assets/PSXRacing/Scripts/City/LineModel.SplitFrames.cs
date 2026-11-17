@@ -833,8 +833,9 @@ namespace PSXRacing.City
         // after sheet: "this cannot be how the real roads are" - the road forks into two carriageways that
         // swing apart at 26 degrees round a wide grass wedge within 30 m. The real road (aerial and street
         // level, viewed only): seven lanes side by side, dead straight - three eastbound, the centre lane
-        // (hatched paint, then the westbound left-turn lane) and three westbound; no grass, a painted
-        // divider and, at the junction, a kerb a metre wide. OSM maps it from that point as two one-way
+        // (hatched paint from some 70 m before the fork to some 30 m past it) and three westbound; then a
+        // NARROW RAISED MEDIAN (about 1.3 m) to the junction, the westbound left-turn lane beside it (the 11-17
+        // look at a wider aerial; the first reading, "a painted divider", was wrong). OSM maps it from that point as two one-way
         // ways 12.0-12.3 m apart - CLOSER than their own lanes need (3 + 4 lanes of 3.66 m: 12.8 m): a
         // divided road only on paper. The line model drew each carriageway on its way plus the SPLT
         // taper's outward shift (7 m of grass at 20 m), and further on, where the shift had eased out,
@@ -846,7 +847,8 @@ namespace PSXRacing.City
         // edge, made once whichever end's split finds the pair) - so they run parallel, band to band, the
         // two yellow edge lines a double yellow between them. The split's profile then starts each
         // carriageway where its lanes are in the undivided road and blends onto that pushed line: no
-        // fan, no wedge, no island (the bands never part 2.4 m: the pavements stay flush all along).
+        // fan, no wedge. 11-17: the push holds the NARROW ISLAND (TwinIslandOn, below) - the bands part
+        // to SplitIslandGapM and the split's nose draws the 1.2 m kerb from there to the far end.
         public const float TightGapM = 0.12f, TightPastFanM = 40f, TightMinRunM = 15f;
         public static bool PhaseCTightOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TIGHTTWINS") != "0";
         // THE NARROW ISLAND (11-17, the Opus continuation). OSM maps a road as two one-way carriageways only where
