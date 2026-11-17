@@ -453,7 +453,7 @@ namespace PSXRacing.EditorTools
         static readonly List<LgStrand> lgStrands = new List<LgStrand>();
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
-        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped, lgGradeFacets, lgSharpJoins, lgEndsAtJunction, lgKinkGore, lgUnderOther, lgOverlapReadings, lgHairpins;
+        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped, lgGradeFacets, lgSharpJoins, lgEndsAtJunction, lgKinkGore, lgUnderOther, lgOverlapReadings, lgHairpins, lgTwltlHandOvers;
         static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
@@ -794,7 +794,7 @@ namespace PSXRacing.EditorTools
                 }
             float Slack(LgStrand st) => st.role == 2 && st.broken ? 9.6f : 0.75f;
             // the nearest open end of another edge's strand at the same node; dash: measured off this end's own straight
-            (int id, bool end, double d) Nearest(LgStrand st, bool end, double reach, int onlyEdge, bool dash)
+            (int id, bool end, double d) Nearest(LgStrand st, bool end, double reach, int onlyEdge, bool dash, bool anyColour = false)
             {
                 var p = end ? st.p[st.p.Count - 1] : st.p[0];
                 int bi = -1; bool be = false; double bd = reach;
@@ -816,7 +816,7 @@ namespace PSXRacing.EditorTools
                             var o = lgStrands[id];
                             if (o.edge == st.edge || (onlyEdge >= 0 && o.edge != onlyEdge)) continue;
                             if (o.role == 3 || (o.role == 2) != (st.role == 2)) continue;
-                            if (o.role == 2 && (o.yellow != st.yellow || o.channel != st.channel)) continue;
+                            if (o.role == 2 && ((!anyColour && o.yellow != st.yellow) || o.channel != st.channel)) continue;
                             if ((oe ? o.linkB : o.linkA) >= 0) continue;
                             var eb = map.edges[o.edge];
                             if (LgEndNode(eb, oe ? o.S1 : o.S0, Slack(o)) != na) continue;
@@ -901,11 +901,54 @@ namespace PSXRacing.EditorTools
                         // a dash cycle (10.5 m) on this end's straight, 0.3 m - MUTCD 2009 3B.04, 3A.06
                         var (cid, _, _) = Nearest(st, end, 0.3, other, true);
                         if (cid >= 0) { lgJointRetyped++; continue; }
+                        // THE TWLTL HANDS OVER TO A TURN LANE (11-17 roads3): where a two-way left-turn lane becomes one
+                        // direction's exclusive left-turn lane, the TWLTL's boundary on that direction's side - its solid and
+                        // its broken yellow - ends, and a solid white lane line begins in its place between the turn lane and
+                        // the through lane; the far side's pair goes on as the double yellow (MUTCD 2009 3B.03 P03: a TWLTL is
+                        // a broken and a solid yellow line each side; 3B.04 P25: a solid white lane line separates a through
+                        // lane from an added mandatory turn lane; Figure 3B-7: past the TWLTL "a solid white line is shown
+                        // separating the center and the innermost ... through lane"). And the reverse, where a TWLTL starts.
+                        // Passes only where the other colour's line goes on within 0.3 m on this end's straight AND the TWLTL's
+                        // broken yellow ends at this very joint on the yellow side: a centre yellow turning white anywhere
+                        // else (two directions parted by a white line) still fails.
+                        {
+                            var (wid, _, _) = Nearest(st, end, 0.3, other, true, anyColour: true);
+                            if (wid >= 0)
+                            {
+                                var w = lgStrands[wid];
+                                var yl = st.yellow ? st : w; var wl = st.yellow ? w : st;
+                                if (yl.yellow && !wl.yellow && wl.tk == LgSolidWhite && !wl.channel
+                                    && (yl.tk == LineModel.KYellow || yl.tk == LineModel.KYellowDash) && LgTwltlEndsAt(map, yl.edge, node))
+                                {
+                                    if (st.yellow) { lgTwltlHandOvers++; if (lgHandOverAt.Count < 4000) lgHandOverAt.Add((p.x, p.z, st.edge, p.s, other)); }
+                                    continue;
+                                }
+                            }
+                        }
                         // (an edge line may end where a curb takes over; a lane's line may end where its lane tapers)
                         lgFails.Add(new LgFail { cls = "CONT", sub = "line ends at a joint", edge = st.edge, node = node, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = 0f, limit = 0f, unit = "", line = st.Kind,
                                                  what = $"the {st.Kind} of e{st.edge} ends at the joint with e{other} (lanes {e.lanes} / {map.edges[other].lanes}) with the pavement's width unchanged; nothing continues it within {LineGateRules.JumpMaxM:0.0} m" });
                     }
                 }
+        }
+
+        /// <summary>Where the TWLTL hand-over rule passed a line end (city_linegate_handovers.tsv: the sample frames).</summary>
+        static readonly List<(double x, double z, int edge, float s, int other)> lgHandOverAt = new List<(double, double, int, float, int)>(512);
+
+        /// <summary>Does a two-way left-turn lane end (or start) on this edge at this node: a broken yellow line (the
+        /// TWLTL's inner boundary line - the line model paints a broken yellow nowhere else) with an end there?</summary>
+        static bool LgTwltlEndsAt(CityMap map, int edge, int node)
+        {
+            var ids = lgByEdge[edge];
+            if (ids == null) return false;
+            var e = map.edges[edge];
+            foreach (int id in ids)
+            {
+                var o = lgStrands[id];
+                if (o.role != 2 || o.tk != LineModel.KYellowDash) continue;
+                if (LgEndNode(e, o.S0, 10.5f) == node || LgEndNode(e, o.S1, 10.5f) == node) return true;
+            }
+            return false;
         }
 
         /// <summary>Is the pavement's width changing (0.9 m or more) within 25 m of an arc?</summary>
@@ -1503,8 +1546,8 @@ namespace PSXRacing.EditorTools
             string tag = Environment.GetEnvironmentVariable("PSX_LG_TAG") ?? "run";
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
-            lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgGradeFacets = lgSharpJoins = lgEndsAtJunction = lgKinkGore = lgUnderOther = lgOverlapReadings = lgHairpins = 0; lgOverlapSeen.Clear(); lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear(); lgHandOverAt.Clear();
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgTwltlHandOvers = lgGradeFacets = lgSharpJoins = lgEndsAtJunction = lgKinkGore = lgUnderOther = lgOverlapReadings = lgHairpins = 0; lgOverlapSeen.Clear(); lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
@@ -1841,6 +1884,16 @@ namespace PSXRacing.EditorTools
                    .Append('"').Append((f.what ?? "").Replace('"', '\'')).Append('"').Append('\n');
             }
             File.WriteAllText(Path.Combine(root, "city_linegate.csv"), csv.ToString());
+            // ---- the TWLTL hand-overs the rule passed (for the sample frames that prove it) ----
+            {
+                var ho = new StringBuilder("id\tx\tz\tedge\ts\tother\n");
+                for (int i = 0; i < lgHandOverAt.Count; i++)
+                {
+                    var h = lgHandOverAt[i];
+                    ho.Append("HO").Append(i).Append('\t').Append(h.x.ToString("0.00", LgInv)).Append('\t').Append(h.z.ToString("0.00", LgInv)).Append('\t').Append(h.edge).Append('\t').Append(h.s.ToString("0.0", LgInv)).Append('\t').Append(h.other).Append('\n');
+                }
+                File.WriteAllText(Path.Combine(root, "city_linegate_handovers.tsv"), ho.ToString());
+            }
             // ---- JSON: the totals the baseline compares ----
             var js = new StringBuilder();
             js.Append("{\n  \"tag\": \"").Append(tag).Append("\",\n  \"graph\": \"").Append(map.graphHash.ToString("x8")).Append("\",\n  \"whole\": ").Append(whole ? "true" : "false").Append(",\n  \"tiles\": ").Append(lgTiles).Append(",\n  \"classes\": {\n");
@@ -1934,7 +1987,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column; {lgSharpJoins} candidate joins refused for meeting at more than 45 deg (a gore's V tip)");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
-            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgUnderOther} sharp kinks, S-jogs or line shifts (10 deg, 45 deg, steeper than 1:1.5) within 60 m of a ramp's diverge / merge (its gore's V read through hidden paint); {lgOverlapReadings} more over another road's pavement (recorded as SURFACE: two roads' pavement drawn over each other); {lgHairpins} S-jogs swinging 75 deg and back within 12 m (a gore's V read as a hairpin); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgUnderOther} sharp kinks, S-jogs or line shifts (10 deg, 45 deg, steeper than 1:1.5) within 60 m of a ramp's diverge / merge (its gore's V read through hidden paint); {lgOverlapReadings} more over another road's pavement (recorded as SURFACE: two roads' pavement drawn over each other); {lgHairpins} S-jogs swinging 75 deg and back within 12 m (a gore's V read as a hairpin); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks ({lgKinkGore} more at a gore's nose) and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgTwltlHandOvers} TWLTL boundary lines ending at a joint where the solid white line of one direction's left-turn lane takes over (MUTCD 2009 3B.03 P03, 3B.04 P25, Figure 3B-7); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }
