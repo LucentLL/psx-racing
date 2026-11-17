@@ -206,7 +206,8 @@ namespace PSXRacing.EditorTools
                 Check(brow != null && brow.stage == 3f && brow.corner1 == 2 && brow.causeNote == row.causeNote && brow.hitId == row.hitId,
                       "it persists in the save (the rows' own fields: no new save version)");
 
-                // every view shows it; a mint car and the switch do not
+                // the drive is over (its ledger gone with its scene): every view shows the banked rows; a mint car and the switch do not
+                resp.Damage = null;
                 var viewer = go.AddComponent<CarViewer>();
                 viewer.ShowOwned(owned, spec);
                 var b = new MaterialPropertyBlock();
@@ -231,7 +232,8 @@ namespace PSXRacing.EditorTools
                 var watch = viewer.BodyRenderer.transform.parent.GetComponent<DamageViewWatch>();
                 bool redressed = watch != null && watch.CheckNow();
                 Check(redressed && Rash(viewer.WheelRenderer(1)).x == 0f && Mathf.Approximately(Rash(viewer.WheelRenderer(2)).x, 1f / 3f),
-                      "the job done: that wheel is clean in the open view at once, the other keeps its own");
+                      "the job done: that wheel is clean in the open view at once, the other keeps its own",
+                      redressed + " " + Rash(viewer.WheelRenderer(1)).x + " " + Rash(viewer.WheelRenderer(2)).x);
                 WheelScuff.On = false;   // PSX_DMG_WHEELS=0
                 viewer.Dress(owned);
                 Check(Rash(viewer.WheelRenderer(2)).x == 0f && DamageLook.Read(owned.faults, null).rash == Vector4.zero, "PSX_DMG_WHEELS=0: no rash shown");
