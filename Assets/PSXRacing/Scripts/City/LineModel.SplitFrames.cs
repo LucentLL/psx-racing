@@ -609,7 +609,10 @@ namespace PSXRacing.City
                 // (searched along both own lines: a tip past the blends is late, never missing - a flush
                 // widening that stopped where the profile does would leave a step)
                 float u0 = Mathf.Max(fa.uStart, fb.uStart), u1 = Mathf.Min(fa.ownU[fa.ownU.Length - 1], fb.ownU[fb.ownU.Length - 1]) - 2f;
-                if (GapLanes(u0) >= SplitIslandGapM) uTip = u0 + RefugeTipM;
+                // (11-17) where a twin's centre lane becomes its island the street paints the centre lane's hatching on
+                // past the fork before the kerb begins (North Tryon: some 30 m): the tip TwinHatchM in, flush before it
+                bool hatchFirst = CityPhaseC && TwinOuterLaneOn && (twinOuterEdges.Contains(fa.edge) || twinOuterEdges.Contains(fb.edge));
+                if (GapLanes(u0) >= SplitIslandGapM) uTip = u0 + (hatchFirst ? TwinHatchM : RefugeTipM);
                 else for (float uu = u0; uu <= u1; uu += 0.25f) if (GapLanes(uu) >= SplitIslandGapM) { uTip = uu; break; }
                 // the bands part only far past the blends (n9152: 196.6 m, a flush stretch that long is a
                 // painted median nobody asked for) or never: no profile here, the old taper (listed)
@@ -927,6 +930,7 @@ namespace PSXRacing.City
         public static bool TwinOwnBlendOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINBLEND") != "0";
         /// <summary>PSX_CITY_TWINOUTER=0: a twin carriageway's added lane is its inner lane (the centre lane) as before.</summary>
         public static bool TwinOuterLaneOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINOUTER") != "0";
+        public const float TwinHatchM = 25f;
         public static int TwinOwnBlends;
         static readonly HashSet<int> tightTwinEdges = new HashSet<int>();
         static readonly HashSet<int> tightTwinNodes = new HashSet<int>();
