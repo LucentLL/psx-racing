@@ -163,7 +163,7 @@ try {
         Select-String -Path $log -Pattern "error CS|Exception|\[CityRefSpots\]" -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line }
         New-Item -ItemType Directory -Force "$Out\eye" | Out-Null
         foreach ($n in $env:PSX_POLE_SPOTS.Split(',')) {
-            Get-ChildItem "$Sandbox\Screenshots\City\poles" -Filter ("sv_" + $n + "_" + $Label + "_*.png") -ErrorAction SilentlyContinue | Copy-Item -Destination "$Out\eye" -Force
+            Get-ChildItem "$Sandbox\Screenshots\City\poles" -Filter ($n + "_" + $Label + "_*.png") -ErrorAction SilentlyContinue | Copy-Item -Destination "$Out\eye" -Force
         }
         Write-Host ("eye: " + (Get-ChildItem "$Out\eye" -Filter "*.png").Count + " pictures in $Out\eye")
     }
