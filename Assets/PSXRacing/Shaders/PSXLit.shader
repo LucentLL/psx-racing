@@ -2502,6 +2502,11 @@ Shader "PSX/Lit"
                 // pixel of a draw, so the spec branch inside is uniform and a
                 // dry surface (every one in daylight) never pays for it.
                 float wetMat = _Wet * _PSXWetness;
+                // RAIN 2 (PSXRain2.cginc): where the water stands here and the
+                // rings the rain throws on it - found once, before the lamp
+                // tables (their glints read the water's tilt) and PSXWetAmount.
+                // A uniform branch: off, nothing below it is evaluated.
+                if (_PSXRain2.x > 0.5) PSXRain2At(wetMat, i.wpos, N, eyeDist, uv);
                 float specOn = (wetMat > WET_MIN || _Shore > 0.5) ? 1.0 : 0.0;
                 float3 headD, headS, lampD, lampS;
                 PSXHeadlightsBoth(i.wpos, N, V, WET_HEAD_POW, specOn, headD, headS);
@@ -2772,7 +2777,10 @@ Shader "PSX/Lit"
                 // the second fog lerp.
                 if (w > 0.0)
                 {
-                    float3 R = reflect(-V, N);
+                    // (RAIN 2: the sky in the water bends with the rings)
+                    float3 Nw = N;
+                    if (_PSXRain2.x > 0.5) Nw = PSXRain2Normal(N);
+                    float3 R = reflect(-V, Nw);
                     float fres = PSXWetFresnel(N, V);
                     // The sky in the water is the sky (adapted, not exposed);
                     // the lamps' and beams' streaks are their light (exposed).

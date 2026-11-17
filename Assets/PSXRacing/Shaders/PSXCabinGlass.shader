@@ -23,6 +23,25 @@
 // eased in, 0 under cover), drying off slowly; _PaneRain how much of it
 // each pane catches. A drop is a little lens: the sky (and at night a street
 // lamp) in its dome, a bright spec where it faces up, a dark rim.
+//
+// RAIN 2 (2026-11-16; the owner's three rain clips: a windscreen covered in
+// beads when parked, wipers sweeping arcs clear when driving, the drops
+// building up again). All of it on uniforms that are zero without it
+// (PSX_RAIN2=0, Rain2.Wipers / Rain2.Glass off): the pane is then the one
+// above, to the bit.
+//   THE WIPERS (_Wiper on the windscreen's material, _CabinWipe the clock):
+//     two blades on the pane, drawn here - a dark blade and its arm - on a
+//     stroke CockpitInterior times by the rain. Each pixel of the swept arcs
+//     knows how long ago a blade last passed it (the stroke is a triangle
+//     wave, so that is arithmetic, not a texture), and the water on it is
+//     what has landed SINCE: clear behind the blade, beading up again over
+//     _CabinWipe2.x seconds. The rest of the pane is as wet as ever.
+//   THE WATER LOOKS THROUGH (_CabinRain2.x, PC with REFLECTIONS on): a drop
+//     is a lens. Where water covers the pane the frame behind it
+//     (_PSXSSRColour, the wet road's own copy of the opaque frame - no new
+//     pass) is read through the water's slope, so every bead holds a small
+//     bent picture of the street and its lamps, and a sheet of water wobbles
+//     what is seen through it. Plus a third, finer size of bead while parked.
 Shader "PSX/CabinGlass"
 {
     Properties
@@ -54,6 +73,18 @@ Shader "PSX/CabinGlass"
             float4 _Metres, _Down, _Wind, _Out;
             float _PaneRain;
             float _CabinRain, _CabinWind, _CabinRun, _CabinBlow;
+            // RAIN 2 (all zero without it)
+            float4 _Wiper;        // this pane's wipers, metres frame: pivot 1 x, pivot 2 x, pivots' y, blade reach (0 = none)
+            float4 _WiperArc;     // parked angle, sweep (radians), the blade's inner end as a share of its reach, blade width (m)
+            float4 _CabinWipe;    // seconds into this stroke, a stroke's seconds, the last cycle's seconds, 1 = wipers fitted
+            float4 _CabinWipe2;   // x: seconds for a wiped pane to bead up again
+            float4 _CabinRain2;   // x: 1 = the water looks through (needs _PSXSSRLive); y: 1 = the third bead size
+            sampler2D _PSXSSRColour;
+            float _PSXSSRLive;    // 1 while this camera's frame copy is bound (SpeedBlurFeature.WetPass)
+            #define R2G_LENS    0.000016   // a drop's bend of what is behind it: metres squared (see the note at its use)
+            #define R2G_MAXPX   46.0       // ...never further than this many pixels
+            #define R2G_SHEET   0.85       // how much of the pane a downpour's sheet covers while parked
+            #define R2G_WOBBLE  7.0        // the sheet's wobble of what is seen through it, pixels
             fixed4 _PSXSkyAmbient;
             fixed4 _PSXAmbient;
             fixed4 _PSXFogColor;
@@ -143,23 +174,67 @@ Shader "PSX/CabinGlass"
 
                 // The rain.
                 float rain = _CabinRain * _PaneRain;
+                float3 through = float3(0.0, 0.0, 0.0);     // (RAIN 2) the frame seen through the water, already toned
+                float blade = 0.0;
+                float2 q = i.uv * _Metres.xy;
+                // (derivatives of the pane's own frame, before any branch)
+                float2 qdx = ddx(q), qdy = ddy(q);
+
+                // RAIN 2, THE WIPERS: where the blades are, and how long ago
+                // one last passed this point.
+                float fill = 1.0;
+                if (_CabinWipe.w > 0.5 && _Wiper.w > 0.0)
+                {
+                    float tc = _CabinWipe.x, D = max(_CabinWipe.y, 0.05);
+                    float ph = saturate(tc / D);
+                    float sw = 1.0 - abs(ph * 2.0 - 1.0);            // 0 parked .. 1 at the top .. 0 parked
+                    float th = _WiperArc.x + sw * _WiperArc.y;
+                    float2 bd = float2(cos(th), sin(th));
+                    float r1 = _Wiper.w, r0 = _Wiper.w * _WiperArc.z;
+                    float since = 1000.0;
+                    float aa = max(length(qdx), length(qdy));         // a pixel, in the pane's metres
+                    for (int k = 0; k < 2; k++)
+                    {
+                        float2 v = q - float2(k == 0 ? _Wiper.x : _Wiper.y, _Wiper.z);
+                        float r = length(v);
+                        float sp = (atan2(v.y, v.x) - _WiperArc.x) / _WiperArc.y;
+                        if (sp > 0.0 && sp < 1.0 && r > r0 && r < r1)
+                        {
+                            // the stroke passes this angle going up at tUp and coming back at tDn
+                            float tUp = 0.5 * sp * D, tDn = (1.0 - 0.5 * sp) * D;
+                            since = min(since, tc >= tDn ? tc - tDn : tc >= tUp ? tc - tUp : tc + _CabinWipe.z - tDn);
+                        }
+                        float al = dot(v, bd);
+                        float dB = length(v - bd * clamp(al, r0, r1));
+                        float dA = length(v - bd * clamp(al, 0.0, (r0 + r1) * 0.5));
+                        blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.5, _WiperArc.w * 0.5 + aa * 1.5, dB));
+                        blade = max(blade, 1.0 - smoothstep(_WiperArc.w * 0.22, _WiperArc.w * 0.22 + aa * 1.5, dA));
+                    }
+                    fill = saturate(since / max(_CabinWipe2.x, 0.05));
+                    fill *= fill;
+                }
+
                 if (rain > 0.002)
                 {
-                    float2 q = i.uv * _Metres.xy;
                     float wind = _CabinWind;
+                    // (RAIN 2) what has landed since the blade passed
+                    float rainW = rain * fill;
                     // The windscreen's streaks bend outward from its middle.
                     float2 wdir = normalize(_Wind.xy + _Out.xy * (dot(q, _Out.xy) - _Wind.w) * _Wind.z * wind);
-                    float hB = max(Beads(q, 0.016, rain * lerp(0.55, 0.25, wind), 1.7),
-                                   Beads(q, 0.028, rain * lerp(0.35, 0.15, wind), 9.3));
-                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rain * 0.45, 4.1, 0.0) * (1.0 - wind);
-                    float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rain * 0.75, 7.7, 0.85) * wind;
+                    float hB = max(Beads(q, 0.016, rainW * lerp(0.55, 0.25, wind), 1.7),
+                                   Beads(q, 0.028, rainW * lerp(0.35, 0.15, wind), 9.3));
+                    // (RAIN 2) a third, finer size while parked: the pane is COVERED
+                    if (_CabinRain2.y > 0.5) hB = max(hB, Beads(q, 0.0085, rainW * 0.62 * (1.0 - wind), 5.9) * 0.8);
+                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * 0.45, 4.1, 0.0) * (1.0 - wind);
+                    float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
                     // WATER, not paint: a drop is clear in the middle (a
                     // little of the sky it bends in), dark at its rim where it
                     // bends the scene away, with one small bright glint where
                     // its dome faces the sky. (Derivatives taken before any
                     // branch.)
-                    float2 grad = float2(ddx(hgt), ddy(hgt)) / max(fwidth(hgt), 1e-3);
+                    float2 gpx = float2(ddx(hgt), ddy(hgt));
+                    float2 grad = gpx / max(fwidth(hgt), 1e-3);
                     float cover = smoothstep(0.0, 0.12, hgt);
                     float edge = 1.0 - smoothstep(0.05, 0.55, hgt);
                     float glint = pow(saturate(-grad.y * 0.7 + grad.x * 0.3), 6.0) * smoothstep(0.25, 0.6, hgt);
@@ -167,10 +242,39 @@ Shader "PSX/CabinGlass"
                     float dropA = cover * (0.10 + 0.50 * edge);
                     float3 dropC = cover * (sky * 0.10 + ambient * 0.06) * (1.0 - edge)
                                  + glint * (sky * 0.5 + _PSXLightColor.rgb * 0.35 * day + lamp * 1.5);
+                    if (_CabinRain2.x > 0.5 && _PSXSSRLive > 0.5)
+                    {
+                        // RAIN 2, THE WATER LOOKS THROUGH. A dome of radius r
+                        // bends its picture by about its own slope x r x r / 2
+                        // (metres on the pane); the slope per PIXEL over the
+                        // pane's metres-per-pixel squared is that in pixels,
+                        // so R2G_LENS is r x r / 2 for a typical bead (5-6 mm).
+                        // Between the beads a parked pane in a downpour wears
+                        // a sheet that wobbles what is seen through it.
+                        float m2 = max(abs(qdx.x * qdy.y - qdx.y * qdy.x), 1e-12);
+                        float2 dpx = clamp(gpx * (R2G_LENS / m2), -R2G_MAXPX, R2G_MAXPX);
+                        float sheet = rainW * R2G_SHEET * (1.0 - wind) * (1.0 - cover);
+                        float2 wob = float2(sin(q.y * 190.0 + sin(q.x * 71.0 + _CabinRun * 9.0) * 2.1),
+                                            sin(q.x * 163.0 + sin(q.y * 83.0 - _CabinRun * 12.0) * 2.3));
+                        dpx += wob * (R2G_WOBBLE * sheet);
+                        float wetA = saturate(max(cover, sheet));
+                        float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
+                        through = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb * (wetA * (1.0 - 0.45 * edge * cover));
+                        dropA = wetA;
+                        dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
+                              + glint * (sky * 0.5 + _PSXLightColor.rgb * 0.35 * day + lamp * 1.5);
+                    }
                     rgb = rgb * (1.0 - dropA) + dropC;
                     a = a + dropA * (1.0 - a);
                 }
-                rgb = PSXTone(rgb);
+                if (blade > 0.0)
+                {
+                    // the blade and its arm: black rubber and painted steel, on the glass's far side
+                    rgb = rgb * (1.0 - blade) + ambient * (0.035 * blade);
+                    through *= 1.0 - blade;
+                    a = a + blade * (1.0 - a);
+                }
+                rgb = PSXTone(rgb) + through;
                 return fixed4(rgb, a);
             }
             ENDCG

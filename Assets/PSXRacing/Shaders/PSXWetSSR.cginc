@@ -61,6 +61,7 @@ struct appdata_ssr
 {
     float4 vertex : POSITION;
     float3 normal : NORMAL;
+    float2 uv : TEXCOORD0;      // RAIN 2: the gutter pan's atlas band
 };
 
 struct v2f_ssr
@@ -69,6 +70,7 @@ struct v2f_ssr
     float3 wpos : TEXCOORD0;
     float3 wnrm : TEXCOORD1;
     float fog : TEXCOORD2;
+    float2 uv : TEXCOORD3;
 };
 
 v2f_ssr vertSSR(appdata_ssr v)
@@ -83,6 +85,7 @@ v2f_ssr vertSSR(appdata_ssr v)
     if (_Cull < 0.5 && dot(n, _WorldSpaceCameraPos - wpos) < 0.0) n = -n;
     o.wpos = wpos;
     o.wnrm = n;
+    o.uv = v.uv;
     // the first pass's fog, by view distance
     float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
     float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
@@ -191,12 +194,16 @@ fixed4 fragSSR(v2f_ssr i) : SV_Target
     float3 toEye = _WorldSpaceCameraPos - i.wpos;
     float eyeDist = length(toEye);
     float3 V = toEye / max(eyeDist, 1e-4);
+    // (RAIN 2: the first pass's pools and rings, found the same way)
+    if (_PSXRain2.x > 0.5) PSXRain2At(_Wet * _PSXWetness, i.wpos, N, eyeDist, i.uv);
     float w = PSXWetAmount(_Wet * _PSXWetness, N, i.wpos, eyeDist) * PSXWetGloss(i.wpos);
     float k =PSXWetFresnel(N, V) * w * (1.0 - i.fog) * _PSXSSRParams.x;
     if (k < SSR_MIN_K) discard;
 
     // 3 - what the mirrored ray meets
-    float3 R = reflect(-V, N);
+    float3 Nw = N;
+    if (_PSXRain2.x > 0.5) Nw = PSXRain2Normal(N);
+    float3 R = reflect(-V, Nw);
     float2 hitUV;
     float conf = SSRMarch(i.wpos, R, i.pos.xy, hitUV);
     if (conf <= 0.0) discard;

@@ -378,6 +378,78 @@ namespace PSXRacing
         RenderTexture mirrorRT;
         DoorMirrorRig doors;
         static float rainWet, runClock, blowClock;
+
+        // RAIN 2, THE WIPERS (2026-11-16; the owner's driving clips: "the
+        // wipers sweep arcs clear and the drops build up again"). No cockpit
+        // had one. The blades are drawn by the windscreen's own shader; this
+        // is their clock: a stroke (up and back) of WiperStroke seconds, one
+        // every period, the period set by how hard it rains - intermittent in
+        // light rain, continuous in steady rain, fast in a downpour. They run
+        // while rain lands on the glass and the car is being driven, finish
+        // the stroke they are on, and park WiperParkAfter seconds after the
+        // car stops - so a parked car's screen beads over, as his parked clip
+        // shows. Rain2.Wipers off (or PSX_RAIN2=0): no blades, no clock.
+        public const float WiperParkDeg = 4f, WiperSweepDeg = 98f;
+        public const float WiperParkAfter = 5f;
+        /// <summary>Seconds into the stroke, the stroke's length, the cycle before it.</summary>
+        static float wipeTc = 1000f, wipeStroke = 1.3f, wipePrev = 1000f, wipePeriod = 3.6f, wipeStill;
+        static readonly int WipeId = Shader.PropertyToID("_CabinWipe"), Wipe2Id = Shader.PropertyToID("_CabinWipe2"),
+                            Rain2GlassId = Shader.PropertyToID("_CabinRain2");
+        /// <summary>For the checks: strokes started since the scene loaded.</summary>
+        public static int WiperStrokes { get; private set; }
+
+        /// <summary>A stroke's seconds and the cycle's, by how hard it rains
+        /// (Rain2.RainNow: 0.55 light .. 1 a downpour).</summary>
+        public static void WiperTiming(float rain, out float stroke, out float period)
+        {
+            if (rain > 0.86f) { stroke = 0.9f; period = 0.9f; }
+            else if (rain > 0.68f) { stroke = 1.3f; period = 1.4f; }
+            else { stroke = 1.3f; period = 3.6f; }
+        }
+
+        /// <summary>Seconds for a wiped pane to bead up again: the harder it
+        /// rains and the faster the car, the sooner.</summary>
+        public static float WiperFill(float rain, float wind) =>
+            Mathf.Lerp(3.2f, 1.0f, Mathf.InverseLerp(0.55f, 1f, rain)) * (1f - 0.3f * wind);
+
+        void TickWipers(float dt, float wind)
+        {
+            bool glass = Rain2.On && Rain2.Glass;
+            Shader.SetGlobalVector(Rain2GlassId, new Vector4(glass && Rain2.CurrentTier == Rain2.Tier.High ? 1f : 0f,
+                                                             glass && Rain2.CurrentTier != Rain2.Tier.Mobile ? 1f : 0f, 0f, 0f));
+            if (!Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); return; }
+            float rain = Rain2.RainNow;
+            float v = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
+            wipeStill = v > 1.5f ? 0f : wipeStill + dt;
+            bool want = rain > 0.01f && WeatherFx.LensRain > 0.3f && wipeStill < WiperParkAfter;
+            wipeTc += dt;
+            if (want && wipeTc >= wipePeriod)
+            {
+                wipePrev = Mathf.Min(wipeTc, 1000f);
+                wipeTc = 0f;
+                WiperTiming(rain, out wipeStroke, out wipePeriod);
+                WiperStrokes++;
+            }
+            if (wipeTc > 2000f) wipeTc = 1000f;
+            Shader.SetGlobalVector(WipeId, new Vector4(wipeTc, wipeStroke, wipePrev, 1f));
+            Shader.SetGlobalVector(Wipe2Id, new Vector4(WiperFill(Mathf.Max(rain, 0.55f), wind), 0f, 0f, 0f));
+        }
+
+        /// <summary>For the shot tool: the wipers <paramref name="into"/>
+        /// seconds into a stroke in rain <paramref name="rain"/> (0.55..1) at
+        /// <paramref name="speedMps"/>, as if they had been running; into
+        /// below zero = parked, the screen beaded over. fitted false = none.</summary>
+        public static void PreviewWipers(bool fitted, float rain, float speedMps, float into)
+        {
+            bool glass = Rain2.On && Rain2.Glass;
+            Shader.SetGlobalVector(Rain2GlassId, new Vector4(glass && Rain2.CurrentTier == Rain2.Tier.High ? 1f : 0f,
+                                                             glass && Rain2.CurrentTier != Rain2.Tier.Mobile ? 1f : 0f, 0f, 0f));
+            if (!fitted || !Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); return; }
+            float wind = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5f, 28f, speedMps));
+            WiperTiming(rain, out float stroke, out float period);
+            Shader.SetGlobalVector(WipeId, into < 0f ? new Vector4(1000f, stroke, 1000f, 1f) : new Vector4(into, stroke, period, 1f));
+            Shader.SetGlobalVector(Wipe2Id, new Vector4(WiperFill(Mathf.Max(rain, 0.55f), wind), 0f, 0f, 0f));
+        }
         static bool warned;
 
         public Fit Current { get; private set; }
@@ -566,6 +638,18 @@ namespace PSXRacing
             m.SetVector("_Wind", new Vector4(wind.x, wind.y, screen ? 1.6f : 0f, centre));
             m.SetVector("_Out", right);
             m.SetFloat("_PaneRain", screen ? 1f : side ? 0.55f : 0.45f);
+            if (screen)
+            {
+                // RAIN 2, THE WIPERS (PSX/CabinGlass draws them; nothing shows
+                // until CockpitInterior's clock says they are fitted). Two
+                // blades in tandem, in the pane's own metres: pivots just
+                // under its lower edge at 10 % and 52 % of its width, a reach
+                // that clears the top edge when a blade stands upright, parked
+                // lying along the base and sweeping WiperSweepDeg from there.
+                float reach = Mathf.Min(0.46f * mu, 1.02f * mv);
+                m.SetVector("_Wiper", new Vector4(0.10f * mu, 0.52f * mu, -0.04f * mv, reach));
+                m.SetVector("_WiperArc", new Vector4(WiperParkDeg * Mathf.Deg2Rad, WiperSweepDeg * Mathf.Deg2Rad, 0.20f, 0.011f * Mathf.Max(mu, 0.5f)));
+            }
             return m;
         }
 
@@ -992,6 +1076,7 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_CabinWind", wind);
             Shader.SetGlobalFloat("_CabinRun", runClock);
             Shader.SetGlobalFloat("_CabinBlow", blowClock);
+            TickWipers(dt, wind);
         }
 
         /// <summary>For the shot tool: the rain as if it had been raining
