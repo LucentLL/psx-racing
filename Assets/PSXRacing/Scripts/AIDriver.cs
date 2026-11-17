@@ -39,7 +39,7 @@ namespace PSXRacing
         /// Past its own flag, rolling to a stop. Distinct from plain
         /// `!driving`, which is the GRID: a car waiting on the line wants no
         /// steering and a firm brake, and a car that has just crossed at speed
-        /// wants the opposite â€” the road it is on, and enough brake to be
+        /// wants the opposite — the road it is on, and enough brake to be
         /// stopped soon without standing the field on its nose.
         /// </summary>
         public bool ShuttingDown { get; private set; }
@@ -47,7 +47,7 @@ namespace PSXRacing
         /// <summary>Brake a finisher carries until it is nearly stopped. Under
         /// the grid's 0.4 on purpose: this is a slowing-down lap, not a panic
         /// stop, and a car that hauls up in its own length is a car the player
-        /// â€” who still has their own throttle past the flag â€” drives into.</summary>
+        /// — who still has their own throttle past the flag — drives into.</summary>
         const float ShutdownBrake = 0.22f;
         /// <summary>A retired car's brake: out of the race, it stops.</summary>
         const float RetiredBrake = 0.6f;
@@ -128,7 +128,7 @@ namespace PSXRacing
         /// lookahead point on the path, offset onto this car's own line.
         ///
         /// Its own method so the shutdown steers exactly as the race does
-        /// rather than with a second, nearly-identical copy of it â€” the thing
+        /// rather than with a second, nearly-identical copy of it — the thing
         /// that eventually disagrees.
         /// </summary>
         float SteerToLine(float speed)
@@ -740,12 +740,12 @@ namespace PSXRacing
         }
 
         // ---- recovery (P2) ----
-        /// <summary>Stuck in clear air â€” probably facing a kerb or in the scenery.
+        /// <summary>Stuck in clear air — probably facing a kerb or in the scenery.
         /// The long timer is deliberate: a car crawling out of a hairpin is not
         /// stuck, and teleporting it would look worse than the crawl.</summary>
         const float StuckSeconds = 4f;
         /// <summary>Stuck WHILE grinding a barrier. A pinned car never recovers on
-        /// its own â€” the wall takes the speed as fast as the engine makes it â€” so
+        /// its own — the wall takes the speed as fast as the engine makes it — so
         /// waiting the full four seconds just leaves a car parked on the racing
         /// line for four seconds.</summary>
         const float PinnedSeconds = 1.5f;
@@ -773,7 +773,7 @@ namespace PSXRacing
         /// And never more than this much over the PLAYER'S car. The field is
         /// drawn from a price band up to 1.65x the player's car, so a 204 km/h
         /// Miata could line up against an S15 the AI would run to 245 on the
-        /// straight â€” and a car that walks past you on a straight is the one
+        /// straight — and a car that walks past you on a straight is the one
         /// thing that kills the sense of speed stone dead (NWR's MW review
         /// names exactly that failure). 5% over lets a faster car still get a
         /// pass done off a bad shift without ever simply driving away.
@@ -1133,7 +1133,7 @@ namespace PSXRacing
         /// Take the path index again from scratch.
         ///
         /// FixedUpdate only ever REFINES the cached index, searching a window
-        /// around it â€” which is right while a car is driving and wrong the
+        /// around it — which is right while a car is driving and wrong the
         /// moment something moves it a long way, or turns the list it is an
         /// index into round underneath it. Both happen on a reverse venue:
         /// RaceHandoffApplier flips the waypoints and restages the grid, and
@@ -1339,6 +1339,16 @@ namespace PSXRacing
                 throttle = 0f;
                 brake = Mathf.Max(brake, trafficBrake);
             }
+            // STEER BEFORE BRAKE beside oncoming traffic (PASS WINDOW, aipass): drifting toward the centreline, near it
+            // or over it, with an oncoming car up the road, the brake is held where the fronts still turn the car back
+            // (a rear-end at a few m/s is the lesser crash than a head-on - and the follow brake's full pedal had a
+            // 180SX at 99 km/h going straight on, 2 m past its mark, into a taxi)
+            if (PassWindowOn && oncomingNear && brake > SteerBrakeCap && speed > 5f && car.Body != null)
+            {
+                Vector3 pr = RightAt(nearestIdx);
+                float vLat = Vector3.Dot(car.Body.linearVelocity, pr);
+                if (DebugRoadLat < SteerBrakeLineM && vLat < -SteerBrakeDriftMps) brake = SteerBrakeCap;
+            }
             // THE HAIRPIN FLICK (drifters only): a pull of the handbrake at the
             // turn-in of a tight bend, the throttle then holding the slide.
             bool hb = UpdateFlick(dt, speed, steer, oncomingNear,
@@ -1364,7 +1374,7 @@ namespace PSXRacing
 
         /// <summary>
         /// Nudge off the line of any car this one is closing on, and lift when the
-        /// gap is shutting. Not overtaking logic â€” the AI has no notion of a pass,
+        /// gap is shutting. Not overtaking logic — the AI has no notion of a pass,
         /// and pretending otherwise would have it dive for gaps it cannot make.
         /// The goal is only that a car ahead stops being furniture.
         /// </summary>
@@ -1468,6 +1478,15 @@ namespace PSXRacing
         /// <summary>Rear slip (rad) past which the throttle eases, and body slip past which it is cut, with an oncoming
         /// car up the road (FixedUpdate).</summary>
         const float OncomingSlipTolRad = 0.12f, OncomingBodySlipRad = 0.2f;
+        /// <summary>A dodge round a rival with traffic on the road keeps the car's centre this far inside its own
+        /// lane's inner limit (UpdateAvoidance's racer loop).</summary>
+        const float DodgeLaneAirM = 0.5f;
+        /// <summary>The car being passed stays the block while no more than this further than the nearest one.</summary>
+        const float PassKeepBlockM = 6f;
+        /// <summary>STEER BEFORE BRAKE beside oncoming traffic (FixedUpdate): drifting toward the line within this many
+        /// metres of it (or over it) at this lateral speed, the give-way brake is held to this share so the front
+        /// tyres can still turn the car back (no ABS: a locked front goes where it points).</summary>
+        const float SteerBrakeLineM = 1.4f, SteerBrakeDriftMps = 0.4f, SteerBrakeCap = 0.55f;
         /// <summary>A pass line whose car side comes within this of the centreline (or over it) is over the line.</summary>
         const float OverLineM = 0.2f;
         /// <summary>The line of sight (SightAhead): sampled every SightStepM to SightMaxM, from an eye this high over the
@@ -1865,10 +1884,15 @@ namespace PSXRacing
 
                     float closeness = 1f - local.z / AvoidLookM;      // 0 far, 1 touching
                     // Push away from the side they are on. Dead ahead resolves
-                    // left, arbitrarily but consistently â€” a car that dithered
+                    // left, arbitrarily but consistently — a car that dithered
                     // between the two would weave.
                     float dir = local.x >= 0f ? -1f : 1f;
+                    // With traffic on a two-way road (PASS WINDOW): a rival dead ahead resolves RIGHT, and the dodge
+                    // stays in this car's own lane (the left was a dodge toward the oncoming lane: a 180SX dodging a
+                    // rival at 99 km/h under full braking slid 2 m past its mark over the line, into a taxi, Tryon)
+                    if (windowRoad && Mathf.Abs(local.x) < 0.3f) dir = 1f;
                     float pull = dir * AvoidMaxM * closeness;
+                    if (windowRoad && pull < 0f) pull = Mathf.Max(pull, OwnLaneInnerM + DodgeLaneAirM - lineOffset);
                     // Held on this side of the centreline with something coming:
                     // what it cannot steer round, it slows for.
                     bool held = pull < leftLimit;
@@ -2030,7 +2054,7 @@ namespace PSXRacing
                 }
 
                 // The one to deal with: the nearest ahead, in this corridor.
-                int block = -1;
+                int block = -1, passBlock = -1;
                 for (int i = 0; i < obs.Count; i++)
                 {
                     var o = obs[i];
@@ -2053,7 +2077,14 @@ namespace PSXRacing
                     bool bothStand = mySpeed < StandBlockMps && o.rb != null && o.rb.linearVelocity.sqrMagnitude < 1f;
                     if (o.closing <= 0.3f && !bothStand && !o.held) continue;
                     if (block < 0 || o.z < obs[block].z) block = i;
+                    if (o.rb != null && o.rb == passRb) passBlock = i;
                 }
+                // THE CAR IT IS PASSING stays the one to deal with while it is in the way and no more than
+                // PassKeepBlockM further than the nearest (PASS WINDOW): two cars side by side in the lanes either side
+                // of this car's line swapped as the nearest every few ticks, and the racer swapped between a pass and
+                // the follow brake with them (Tryon, MEDIUM)
+                if (PassWindowOn && passBlock >= 0 && block >= 0 && passBlock != block && obs[passBlock].z < obs[block].z + PassKeepBlockM)
+                    block = passBlock;
                 if (block >= 0)
                 {
                     var bo = obs[block];
