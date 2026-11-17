@@ -10,10 +10,12 @@ namespace PSXRacing
     /// - The graph as directed-edge STATES (state = edge*2 + (travel b->a ? 1 : 0)), successors with their turn angle,
     ///   one-ways respected, a U-turn sharper than 2.6 rad refused (the same edge straight back only at a dead end):
     ///   exactly tools/city/tracks/lib.mjs route()'s legality, so the runtime GPS and the authored routes agree.
-    /// - Per gate, two REVERSE FIELDS: D[state] = what it takes from the START of that state to the gate. METRIC =
-    ///   plain metres (the ranking ruler: remaining distance, positions); COST = lib.mjs's model (classMul: arterials
-    ///   1, residential 1.25, local 2.5, ramps x4; the "fwy" profile counts freeways and ramps 1 and the rest 4; plus
-    ///   60 m x (turn / 90 deg)^2), walked downhill for the player's GPS line and every AI's route.
+    /// - Per gate, ONE REVERSE FIELD (cpfix 11-17; stage 1 built a second, plain-metre one): D[state] = what it
+    ///   takes from the START of that state to the gate in lib.mjs's COST model (classMul: arterials 1, residential
+    ///   1.25, local 2.5, ramps x4; the "fwy" profile counts freeways and ramps 1 and the rest 4; plus 60 m x
+    ///   (turn / 90 deg)^2), walked downhill for the player's GPS line and every AI's route; and RM[state] = the
+    ///   METRES along that same route (the ranking ruler: remaining distance, positions). One route for the line, the
+    ///   AI and the ruler: following the GPS the remaining falls metre for metre.
     /// - Every gate SPAN (the route's carriageway and any parallel same-direction one the gate line crosses) seeds
     ///   the field at its own arc, so a car on a collector road is measured to its own span, not round the block.
     /// - A node POTENTIAL per field (the off-graph fallback and a one-way driven backwards).
@@ -135,9 +137,20 @@ namespace PSXRacing
             public bool fwy;
             public float[] mul;        // per state (null = 1: metres)
             public float Mul(int st) => mul != null ? mul[st] : 1f;
+            /// <summary>THE RULER (cpfix 11-17): per state, the METRES from its start to the gate ALONG THIS FIELD'S
+            /// OWN DESCENT (for a cost field: the route the GPS line draws and the AI drive). Following that route the
+            /// remaining falls metre for metre and no node steps it (the 01:23 check race: a player on the GPS line
+            /// over Todd Rd saw the plain-metre field rise 8,319 -> 8,434 m and jump +602 m at a node).</summary>
+            public float[] RM;
+            /// <summary>Per state, the successor the descent takes at its end (-1: none). Descend walks it, so the GPS
+            /// line, the AI's road and <see cref="RM"/> are one route.</summary>
+            public int[] nxt;
+            /// <summary>Per node: <see cref="RM"/> of the cost-best state leaving it (the off-graph bound).</summary>
+            public float[] potM;
         }
 
         readonly float[] heapK; readonly int[] heapV; int hn;
+        int[] popOrder; int popN;
         void Push(float k, int v)
         {
             int i = hn++;
@@ -177,10 +190,13 @@ namespace PSXRacing
         /// <summary>A reverse field to one gate (seeded at every span). costMode = the cost model, else metres.</summary>
         public Field Build(List<Seed> seeds, bool costMode, bool fwy)
         {
-            var F = new Field { D = new float[NS], seedG = new float[NS], pot = new float[map.nodes.Length], cost = costMode, fwy = fwy };
+            int NN = map.nodes.Length;
+            var F = new Field { D = new float[NS], seedG = new float[NS], pot = new float[NN], cost = costMode, fwy = fwy,
+                                RM = new float[NS], nxt = new int[NS], potM = new float[NN] };
             F.mul = costMode ? MulTable(fwy) : null;
-            for (int i = 0; i < NS; i++) { F.D[i] = float.PositiveInfinity; F.seedG[i] = -1f; }
-            hn = 0;
+            for (int i = 0; i < NS; i++) { F.D[i] = float.PositiveInfinity; F.seedG[i] = -1f; F.RM[i] = float.PositiveInfinity; F.nxt[i] = -1; }
+            if (popOrder == null) popOrder = new int[NS];
+            hn = 0; popN = 0;
             foreach (var s in seeds)
             {
                 if (s.st < 0 || s.st >= NS || !legal[s.st]) continue;
@@ -192,6 +208,7 @@ namespace PSXRacing
             {
                 Pop(out float d, out int y);
                 if (d > D[y]) continue;
+                popOrder[popN++] = y;
                 int k1 = predStart[y + 1];
                 for (int k = predStart[y]; k < k1; k++)
                 {
@@ -201,12 +218,29 @@ namespace PSXRacing
                     if (c < D[x]) { D[x] = c; Push(c, x); }
                 }
             }
-            for (int n = 0; n < F.pot.Length; n++) F.pot[n] = float.PositiveInfinity;
+            // THE DESCENT AND ITS METRES, in the order the states settled: a non-gate state's best successor has the
+            // smaller D, so it settled first and its metres are already known
+            var RM = F.RM; var nx = F.nxt; bool cm = F.cost;
+            for (int i = 0; i < popN; i++)
+            {
+                int x = popOrder[i];
+                float best = float.PositiveInfinity; int by = -1;
+                int k1 = succStart[x + 1];
+                for (int k = succStart[x]; k < k1; k++)
+                {
+                    float c = (cm ? TurnCost(succTurn[k]) : 0f) + D[succ[k]];
+                    if (c < best) { best = c; by = succ[k]; }
+                }
+                nx[x] = float.IsInfinity(best) ? -1 : by;
+                if (sg[x] >= 0f) RM[x] = sg[x];
+                else if (nx[x] >= 0) RM[x] = len[x] + RM[nx[x]];
+            }
+            for (int n = 0; n < NN; n++) { F.pot[n] = float.PositiveInfinity; F.potM[n] = float.PositiveInfinity; }
             for (int st = 0; st < NS; st++)
             {
                 if (!legal[st]) continue;
                 int n = sNode[st];
-                if (F.D[st] < F.pot[n]) F.pot[n] = F.D[st];
+                if (F.D[st] < F.pot[n]) { F.pot[n] = F.D[st]; F.potM[n] = F.RM[st]; }
             }
             return F;
         }
@@ -230,6 +264,42 @@ namespace PSXRacing
             float g = F.seedG[st];
             if (g >= 0f && g >= t - 0.01f) return (g - t) * F.Mul(st);
             return Mathf.Max(0f, len[st] - t) * F.Mul(st) + EndCost(F, st);
+        }
+
+        /// <summary>THE RULER from a position on a state (t metres along its travel direction): metres to the gate
+        /// along the field's own descent (<see cref="Field.RM"/>).</summary>
+        public float RouteFrom(Field F, int st, float t)
+        {
+            if (st < 0 || st >= NS || !legal[st]) return float.PositiveInfinity;
+            float g = F.seedG[st];
+            if (g >= 0f && g >= t - 0.01f) return g - t;
+            int y = F.nxt[st];
+            return y < 0 ? float.PositiveInfinity : Mathf.Max(0f, len[st] - t) + F.RM[y];
+        }
+
+        /// <summary>
+        /// THE RULER at a spot on an edge (cpfix 11-17): metres to the gate along the cost-optimal route, the one the
+        /// GPS line draws. A TWO-WAY edge: the direction the cost prefers (the GPS's own choice, so a car following
+        /// the line sees its remaining fall metre for metre); <paramref name="dir"/> (+1 a->b, -1 b->a, 0 none yet) is
+        /// held unless the other way is cheaper by more than <paramref name="hyst"/>. A ONE-WAY edge: its legal
+        /// direction only. No backwards credit: a car driven against it sees its remaining rise (WRONG WAY), and the
+        /// value never flips with a spinning car's heading (the 01:23 check race's crashed Supra: +-44-68 m swings).
+        /// </summary>
+        public float RouteRemaining(Field F, int e, float s, ref int dir, float hyst)
+        {
+            var ed = map.edges[e];
+            float L = ed.length;
+            s = Mathf.Clamp(s, 0f, L);
+            if (ed.oneway) { dir = 1; return RouteFrom(F, e * 2, s); }
+            float cf = CostFrom(F, e * 2, s), cr = CostFrom(F, e * 2 + 1, L - s);
+            int want = cr < cf ? -1 : 1;
+            if ((dir == 1 || dir == -1) && dir != want)
+            {
+                float held = dir == 1 ? cf : cr, other = dir == 1 ? cr : cf;
+                if (!float.IsInfinity(held) && other >= held - hyst) want = dir;
+            }
+            dir = want;
+            return want == 1 ? RouteFrom(F, e * 2, s) : RouteFrom(F, e * 2 + 1, L - s);
         }
 
         /// <summary>
@@ -270,13 +340,9 @@ namespace PSXRacing
             int x = st;
             for (int guard = 0; guard < maxSteps; guard++)
             {
-                float best = float.PositiveInfinity; int by = -1;
-                for (int k = succStart[x]; k < succStart[x + 1]; k++)
-                {
-                    float c = (F.cost ? TurnCost(succTurn[k]) : 0f) + F.D[succ[k]];
-                    if (c < best) { best = c; by = succ[k]; }
-                }
-                if (by < 0 || float.IsInfinity(best)) return false;
+                // the field's own successor (Build): the same route its RM metres were summed along
+                int by = F.nxt[x];
+                if (by < 0) return false;
                 states.Add(by);
                 if (F.seedG[by] >= 0f) { lastT = F.seedG[by]; return true; }
                 x = by;
@@ -343,21 +409,58 @@ namespace PSXRacing
             return edge >= 0;
         }
 
-        /// <summary>Full locate (10 Hz for the player): 25 m, height within 4 m, hysteresis 4 m / 0.3 s.</summary>
-        public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc)
+        /// <summary>How far a located car may stray from its kept edge (a crash, a lawn) before it is let go.</summary>
+        public const float KeepMaxM = 80f;
+
+        /// <summary>
+        /// Full locate (10 Hz), STICKY (cpfix 11-17). The 01:23 check race: a Supra knocked 23.5 m off the Wilkinson
+        /// loop ramp was taken by whatever edge happened to be 4 m nearer, 190 m behind its own station, and its
+        /// remaining jumped 99 -> 289 m. Now:
+        /// - the KEPT edge holds while the car is within 80 m of it and on its level (8 m), measured at the car's own
+        ///   projection onto it (a car off the road keeps its place along the road it left);
+        /// - across a NODE (an edge sharing one with the kept edge, the car within 30 m of that node or on its
+        ///   pavement): at once, by a heading-aware score, so a turn never leaves a stale remaining;
+        /// - any OTHER edge only when the car is ON its pavement (half width + 1.5 m) and either off the kept edge's
+        ///   pavement or 4 m nearer by the score, for 0.3 s;
+        /// - a car with no kept edge takes the best candidate within 25 m and 4 m of height; none: off the graph.
+        /// <paramref name="now"/> is the clock the hysteresis counts in (Time.time in play; the self-test's own).
+        /// </summary>
+        public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc) => Locate(pos, vel, nose, ref loc, Time.time);
+
+        public void Locate(Vector3 pos, Vector3 vel, Vector3 nose, ref Loc loc, float now)
         {
             int keep = loc.valid && !loc.offGraph ? loc.edge : -1;
-            // keep the current edge unless another is 4 m closer, and for 0.3 s
-            bool found = Nearest(pos, 25f, 4f, keep, 4f, out int e, out float s, out float d);
-            // the next edge across a node the car is driving over: at once (no stale remaining at a node)
-            bool adjacent = found && keep >= 0 && e != keep && SharesNode(e, keep);
-            if (found && keep >= 0 && e != keep && !adjacent)
+            bool found = NearestScored(pos, vel, 25f, 4f, out int e, out float s, out float d, out float score);
+            // the kept edge is followed along its own arc from where the car was (a window that grows with the
+            // distance moved): inside a loop ramp the edge's far side never steals the projection
+            float win = 30f + 1.5f * new Vector2(pos.x - loc.at.x, pos.z - loc.at.z).magnitude;
+            if (keep >= 0 && Project(keep, pos, loc.s, win, out float ks, out float kd) && kd <= KeepMaxM &&
+                Mathf.Abs(pos.y - map.edges[keep].YAt(ks)) <= 8f)
             {
-                if (loc.pending != e) { loc.pending = e; loc.since = Time.time; }
-                if (Time.time - loc.since < 0.3f && Nearest(pos, 25f, 4f, keep, 1e6f, out int ke, out float ks, out float kd) && ke == keep)
-                { e = ke; s = ks; d = kd; }
+                var ke = map.edges[keep];
+                bool onKeep = kd <= ke.HalfMax + 2.5f;
+                bool take = false;
+                if (found && e != keep)
+                {
+                    var ne = map.edges[e];
+                    bool onNew = d <= ne.HalfMax + 1.5f;
+                    float kScore = kd + HeadPen(keep, ks, vel);
+                    if (SharesNode(e, keep) && (onNew || NearSharedNode(e, keep, pos, 30f)))
+                    { take = score + 0.5f < kScore; loc.pending = -1; }
+                    else if (onNew && (!onKeep || score + 4f < kScore))
+                    {
+                        if (loc.pending != e) { loc.pending = e; loc.since = now; }
+                        take = now - loc.since >= 0.3f;
+                    }
+                    else loc.pending = -1;
+                }
+                else loc.pending = -1;
+                if (!take) { e = keep; s = ks; d = kd; }
+                loc.valid = true; loc.offGraph = false; loc.edge = e; loc.s = s; loc.dist = d; loc.at = pos;
+                loc.dir = DirOf(e, s, vel, nose);
+                return;
             }
-            else loc.pending = -1;
+            loc.pending = -1;
             if (!found)
             {
                 loc.offGraph = true;
@@ -367,6 +470,75 @@ namespace PSXRacing
             }
             loc.valid = true; loc.offGraph = false; loc.edge = e; loc.s = s; loc.dist = d; loc.at = pos;
             loc.dir = DirOf(e, s, vel, nose);
+        }
+
+        /// <summary>A heading-aware distance: an edge across the car's travel scores up to 6 m worse (only while it
+        /// moves at 3 m/s or more: a spinning car's heading means nothing).</summary>
+        float HeadPen(int e, float s, Vector3 vel)
+        {
+            var v = new Vector2(vel.x, vel.z);
+            float sp = v.magnitude;
+            if (sp < 3f) return 0f;
+            var t = map.edges[e].TangentAt(s);
+            return 6f * (1f - Mathf.Abs(Vector2.Dot(v / sp, t)));
+        }
+
+        bool NearestScored(Vector3 pos, Vector3 vel, float r, float dy, out int edge, out float s, out float dist, out float score)
+        {
+            edge = -1; s = 0f; dist = float.PositiveInfinity; score = float.PositiveInfinity;
+            var p = new Vector2(pos.x, pos.z);
+            var v = new Vector2(vel.x, vel.z);
+            float sp = v.magnitude;
+            if (sp >= 3f) v /= sp; else v = Vector2.zero;
+            segs.Clear();
+            map.EdgeSegsNear(p - new Vector2(r, r), p + new Vector2(r, r), segs);
+            foreach (int packed in segs)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var e = map.edges[ei];
+                if (e.pts == null || si + 1 >= e.pts.Length) continue;
+                Vector2 a = e.pts[si], b = e.pts[si + 1], ab = b - a;
+                float L2 = ab.sqrMagnitude;
+                float u = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / L2) : 0f;
+                float d = Vector2.Distance(p, a + ab * u);
+                if (d > r) continue;
+                float sAt = e.s[si] + u * (e.s[si + 1] - e.s[si]);
+                if (dy > 0f && Mathf.Abs(pos.y - e.YAt(sAt)) > dy) continue;
+                float sc = d;
+                if (v != Vector2.zero && L2 > 1e-8f) sc += 6f * (1f - Mathf.Abs(Vector2.Dot(v, ab / Mathf.Sqrt(L2))));
+                if (sc < score) { score = sc; dist = d; edge = ei; s = sAt; }
+            }
+            return edge >= 0;
+        }
+
+        /// <summary>The car's projection onto one edge: arc and plan distance, over the segments within
+        /// <paramref name="window"/> metres of arc <paramref name="s0"/> (window &lt;= 0: every segment).</summary>
+        public bool Project(int ei, Vector3 pos, float s0, float window, out float s, out float dist)
+        {
+            s = 0f; dist = float.PositiveInfinity;
+            var e = map.edges[ei];
+            if (e.pts == null || e.pts.Length < 2) return false;
+            var p = new Vector2(pos.x, pos.z);
+            for (int k = 0; k + 1 < e.pts.Length; k++)
+            {
+                if (window > 0f && (e.s[k + 1] < s0 - window || e.s[k] > s0 + window)) continue;
+                Vector2 a = e.pts[k], b = e.pts[k + 1], ab = b - a;
+                float L2 = ab.sqrMagnitude;
+                float u = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / L2) : 0f;
+                float d = Vector2.Distance(p, a + ab * u);
+                if (d < dist) { dist = d; s = e.s[k] + u * (e.s[k + 1] - e.s[k]); }
+            }
+            return true;
+        }
+
+        bool NearSharedNode(int e1, int e2, Vector3 pos, float r)
+        {
+            var a = map.edges[e1]; var b = map.edges[e2];
+            var p = new Vector2(pos.x, pos.z);
+            float r2 = r * r;
+            if ((a.a == b.a || a.a == b.b) && (map.nodes[a.a] - p).sqrMagnitude <= r2) return true;
+            if ((a.b == b.a || a.b == b.b) && (map.nodes[a.b] - p).sqrMagnitude <= r2) return true;
+            return false;
         }
 
         /// <summary>Per frame between full searches: slide along the located edge (two segment projections).</summary>
@@ -410,17 +582,21 @@ namespace PSXRacing
         /// (straight line to a node within 300 m + that node's potential): a bound that falls as he closes on the road
         /// and the gate, never "moving away" for cutting across a lot toward it.
         /// </summary>
-        public float Remaining(Field F, Vector3 pos, ref Loc loc, out int bestDir)
+        public float Remaining(Field F, Vector3 pos, ref Loc loc, ref int dir)
         {
-            bestDir = 1;
             if (loc.valid && !loc.offGraph)
             {
+                // on (or kept by) an edge: the ruler at the car's projection, plus how far it is off the pavement
                 var e = map.edges[loc.edge];
-                bool backwards = e.oneway && loc.dir < 0;
-                return ValueAt(F, loc.edge, loc.s, backwards, out bestDir);
+                return RouteRemaining(F, loc.edge, loc.s, ref dir, 6f) + Mathf.Max(0f, loc.dist - (e.HalfMax + 2f));
             }
             if (Nearest(pos, 60f, 8f, -1, 0f, out int ne, out float ns, out float nd))
-                return nd + ValueAt(F, ne, ns, false, out bestDir);
+            {
+                int d0 = 0;
+                float v = RouteRemaining(F, ne, ns, ref d0, 0f);
+                dir = d0;
+                return v + Mathf.Max(0f, nd - (map.edges[ne].HalfMax + 2f));
+            }
             var p = new Vector2(pos.x, pos.z);
             float best = float.PositiveInfinity;
             segs.Clear();
@@ -428,8 +604,8 @@ namespace PSXRacing
             foreach (int packed in segs)
             {
                 var ed = map.edges[packed >> 12];
-                float da = Vector2.Distance(p, map.nodes[ed.a]) + F.pot[ed.a];
-                float db = Vector2.Distance(p, map.nodes[ed.b]) + F.pot[ed.b];
+                float da = Vector2.Distance(p, map.nodes[ed.a]) + F.potM[ed.a];
+                float db = Vector2.Distance(p, map.nodes[ed.b]) + F.potM[ed.b];
                 if (da < best) best = da;
                 if (db < best) best = db;
             }

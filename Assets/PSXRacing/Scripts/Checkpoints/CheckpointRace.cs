@@ -53,7 +53,11 @@ namespace PSXRacing
         /// <summary>Metres past each kerb a span still captures a car (design: 3; a car running wide on a loop ramp
         /// went past a 3 m span in the first watched race).</summary>
         const float CaptureM = 5f;
-        CityRouter.Field[] met, cost;
+        /// <summary>Per gate, ONE field (cpfix 11-17): the cost model for the route (the GPS line, every AI's road)
+        /// and, summed along that same route, the ruler's metres (<see cref="CityRouter.Field.RM"/>). The plain-metre
+        /// field of stage 1 is gone: it disagreed with the route off the suggested line (the check's blocker 3) and
+        /// took half the build time.</summary>
+        CityRouter.Field[] fields;
         float[] legM;
         public float LapM { get; private set; }
         public float TotalM { get; private set; }
@@ -87,6 +91,13 @@ namespace PSXRacing
             public int prevSt = -1; public float prevT;
             public bool onPath;
             public float lastRg = -1f; public int jumps;
+            /// <summary>The ruler's held direction on a two-way edge (+1 a->b, -1 b->a, 0 none) and the edge it is
+            /// for: the GPS line starts the same way.</summary>
+            public int rDir; public int rEdge = -1;
+            /// <summary>Metres the car has closed on its next gate lately (decays over 1.5 s): a car crossing a later
+            /// gate's line while still closing on its own (a legal re-route) has not missed it.</summary>
+            public float towardAcc;
+            public float missedRg;
         }
         readonly Dictionary<CarController, CarCP> cars = new Dictionary<CarController, CarCP>();
         public CarCP Of(CarController c) => c != null && cars.TryGetValue(c, out var v) ? v : null;
@@ -130,8 +141,49 @@ namespace PSXRacing
             cp.Loop = ch.loop != 0;
             cp.Setup();
             Active = cp;
+            // THE CAMCORDER (owner 11-16 ~21:50: "at least one camera ... at each checkpoint ... it proves the cars
+            // started at the starting line, reached each checkpoint, then reached the finish line"): the tape's
+            // bystanders stand at THESE gates, not at the fallback's evenly spaced points. Cleared when the race goes
+            // (OnDestroy), not at the flag: the replay and SAVE TO TAPE come after it.
+            cp.provider = r => r != null && r == cp.rm && Active == cp ? cp.Course() : null;
+            RacePoints.Provider = cp.provider;
             Debug.Log($"[Checkpoints] {venue.id}: CHECKPOINT RACE on {venue.cityRoute} ({cp.GateCount} gates, {(cp.Loop ? rm.totalLaps + " lap(s)" : "sprint")}, {d.cost} cost)");
             return cp;
+        }
+
+        System.Func<RaceManager, RaceCourse> provider;
+        RaceCourse course;
+
+        /// <summary>The camcorder's course: one <see cref="RacePoints.Gate"/> per gate (its centre, heading and the
+        /// lateral range its spans cover, less the capture margin). A circuit's gate 0 is its lap line; a sprint's
+        /// gate 0 is its start line, so the camcorder's START stands there and its checkpoints are gates 1..N-2.</summary>
+        public RaceCourse Course()
+        {
+            if (course != null) return course;
+            if (gates == null || gates.Length < 2) return null;
+            var list = new List<RacePoints.Gate>(gates.Length);
+            for (int i = Loop ? 0 : 1; i < gates.Length; i++)
+            {
+                var g = gates[i];
+                float l0 = float.MaxValue, l1 = float.MinValue;
+                var c2 = new Vector2(g.centre.x, g.centre.z);
+                foreach (var sp in g.spans)
+                {
+                    float off = Vector2.Dot(sp.p - c2, g.right);
+                    l0 = Mathf.Min(l0, off + sp.l0 + CaptureM);
+                    l1 = Mathf.Max(l1, off + sp.l1 - CaptureM);
+                }
+                if (l0 > l1) { l0 = -6f; l1 = 6f; }
+                list.Add(new RacePoints.Gate
+                {
+                    kind = Loop && i == 0 ? "line" : (!Loop && i == gates.Length - 1 ? "finish" : g.kind),
+                    x = g.centre.x, y = g.centre.y, z = g.centre.z, hx = g.h.x, hz = g.h.y, l0 = l0, l1 = l1,
+                });
+            }
+            var g0 = gates[0];
+            course = RacePoints.FromGates(list, Loop, Mathf.Max(1, rm.totalLaps), g0.centre, new Vector3(g0.h.x, 0f, g0.h.y));
+            if (course != null) course.source = "checkpoints " + data.route + " " + chain.dir;
+            return course;
         }
 
         void Setup()
@@ -187,21 +239,24 @@ namespace PSXRacing
 
         // the static restart cache: RESTART (a scene reload) starts at once
         static string cacheKey;
-        static CityRouter.Field[] cacheMet, cacheCost;
+        static CityRouter.Field[] cacheFields;
+        /// <summary>The fields' own build time (the sum of the per-gate builds, no frame yields) and the worst gate.</summary>
+        public float FieldComputeMs { get; private set; }
+        public float FieldWorstMs { get; private set; }
 
         IEnumerator BuildFields()
         {
             string key = data.route + "|" + chain.dir + "|" + map.graphHash.ToString("x8") + "|" + GateCount;
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            if (cacheKey == key && cacheMet != null && cacheCost != null)
+            if (cacheKey == key && cacheFields != null)
             {
-                met = cacheMet; cost = cacheCost;
+                fields = cacheFields;
             }
             else
             {
-                met = new CityRouter.Field[GateCount]; cost = new CityRouter.Field[GateCount];
+                fields = new CityRouter.Field[GateCount];
                 var seeds = new List<CityRouter.Seed>(8);
-                float worst = 0f;
+                float worst = 0f, sum = 0f;
                 var frame = System.Diagnostics.Stopwatch.StartNew();
                 for (int k = 0; k < GateCount; k++)
                 {
@@ -213,23 +268,24 @@ namespace PSXRacing
                         if (!map.edges[sp.st >> 1].oneway) seeds.Add(new CityRouter.Seed { st = sp.st ^ 1, g = R.len[sp.st] - sp.g });
                     }
                     var t0 = System.Diagnostics.Stopwatch.StartNew();
-                    met[k] = R.Build(seeds, false, fwy);
-                    cost[k] = R.Build(seeds, true, fwy);
-                    worst = Mathf.Max(worst, (float)t0.Elapsed.TotalMilliseconds);
+                    fields[k] = R.Build(seeds, true, fwy);
+                    float ms = (float)t0.Elapsed.TotalMilliseconds;
+                    worst = Mathf.Max(worst, ms); sum += ms;
                     // several gates a frame inside a 40 ms budget (the countdown is held: loading, not racing); one
                     // a frame stretched the build to 29 s under a slow loading frame rate
                     if (frame.Elapsed.TotalMilliseconds > 40.0) { yield return null; frame.Restart(); }
                 }
-                cacheKey = key; cacheMet = met; cacheCost = cost;
-                Debug.Log($"[Checkpoints] fields: {GateCount} gates x 2, worst gate {worst:0.0} ms");
+                cacheKey = key; cacheFields = fields;
+                FieldComputeMs = sum; FieldWorstMs = worst;
+                Debug.Log($"[Checkpoints] fields: {GateCount} gates, worst gate {worst:0.0} ms, all {sum:0} ms");
             }
-            // one race-wide ruler: each leg's metres from the previous gate's anchor, by the leg's own field
+            // one race-wide ruler: each leg's metres from the previous gate's anchor ALONG ITS ROUTE (the field's RM)
             legM = new float[GateCount];
             for (int k = 0; k < GateCount; k++)
             {
                 int from = k == 0 ? GateCount - 1 : k - 1;
                 if (!Loop && k == 0) { legM[0] = 0f; continue; }
-                legM[k] = R.CostFrom(met[k], gates[from].anchorSt, gates[from].anchorT);
+                legM[k] = R.RouteFrom(fields[k], gates[from].anchorSt, gates[from].anchorT);
                 if (float.IsInfinity(legM[k])) Debug.LogError($"[Checkpoints] gate {k} cannot be reached from gate {from}");
             }
             float lap = 0f;
@@ -281,12 +337,17 @@ namespace PSXRacing
             if (Ready && rm != null) UpdateGps();
         }
 
-        void OnDestroy() { if (Active == this) Active = null; }
+        void OnDestroy()
+        {
+            if (Active == this) Active = null;
+            // the camcorder's feed goes with the race (a later race in another scene must not film these gates)
+            if (provider != null && RacePoints.Provider == provider) RacePoints.Provider = null;
+        }
 
         // ------------------------------------------------------------------ fields, for the planners and the self-test
         public CityRouter Router => R;
-        public CityRouter.Field Metric(int k) => met != null ? met[k] : null;
-        public CityRouter.Field Cost(int k) => cost != null ? cost[k] : null;
+        /// <summary>Gate k's field: its cost (the route) and its ruler metres (RM).</summary>
+        public CityRouter.Field Cost(int k) => fields != null ? fields[k] : null;
         public int NextAfter(int k)
         {
             if (Loop) return (k + 1) % GateCount;
@@ -318,8 +379,15 @@ namespace PSXRacing
             }
             c.odometer += Mathf.Abs(car.forwardSpeed) * Time.deltaTime;
 
-            // a teleport (a respawn, TeleportTo, a reset) passes nothing
-            if ((pos - c.sweptFrom).sqrMagnitude > 30f * 30f) { c.sweptFrom = pos; c.prevSt = -1; }
+            // a teleport (a respawn, TeleportTo, a reset) passes nothing, and the car's approach to its gate starts
+            // again from where it now stands (the check race's forced detour: a car put down within 60 m of gate 5 on
+            // a road with no way to it but an 8.3 km loop showed MISSED for 15 s)
+            if ((pos - c.sweptFrom).sqrMagnitude > 30f * 30f)
+            {
+                c.sweptFrom = pos; c.prevSt = -1;
+                c.closestRem = float.PositiveInfinity; c.closestD3 = float.PositiveInfinity;
+                c.lastRg = -1f; c.towardAcc = 0f; c.lastRemGateSample = float.PositiveInfinity;
+            }
 
             // ---- where the car is on the graph (its state and arc along it), for the ruler and the arc pass
             float rg = RemainingToGate(c, pos);
@@ -335,7 +403,7 @@ namespace PSXRacing
                 // just over a node onto the gate's state: it came in at the state's start
                 if (curSt != c.prevSt) { if (R.eNode[c.prevSt] != R.sNode[curSt]) return false; pT = 0f; }
                 if (curT - pT > 30f) return false;
-                float g = met[k].seedG[curSt];
+                float g = fields[k].seedG[curSt];
                 if (g < 0f) return false;
                 if (anchorOnly && curSt != gates[k].anchorSt) return false;
                 return pT < g - 0.01f && curT >= g;
@@ -357,16 +425,14 @@ namespace PSXRacing
                 Pass(p, c);
                 if (!p.finished) rg = RemainingToGate(c, pos);
             }
-            else if (moved)
+            else if (moved && c.towardAcc <= 2f)
             {
-                // a later gate crossed while this one is pending: MISSED
-                for (int g = 0; g < GateCount; g++)
-                {
-                    if (g == c.next || (Loop && g == 0 && c.passedTotal == 0)) continue;
-                    int last = c.next == 0 ? GateCount - 1 : c.next - 1;
-                    if (g == last) continue;
-                    if (Crosses(gates[g], a, b, out bool fw) && fw) { RaiseMissed(c); break; }
-                }
+                // A LATER gate of this lap crossed forward while this one is pending, and the car is not closing on
+                // its own gate: MISSED. Only gates AFTER the pending one in this lap's order count (cpfix 11-17: the
+                // check race's player re-crossed gate 3 on I-485 SB on its legal way back to gate 5 and got a false
+                // MISSED); a car still closing on its gate is on a legal route that runs through that line.
+                for (int g = LaterInLap(c.next); g >= 0; g = LaterInLap(g))
+                    if (Crosses(gates[g], a, b, out bool fw) && fw) { RaiseMissed(c, rg); break; }
             }
             c.sweptFrom = pos;
             c.prevSt = curSt; c.prevT = curT;
@@ -379,8 +445,11 @@ namespace PSXRacing
                 return;
             }
             // a diagnostic for the harness: a jump of 30 m or more in one frame with no gate passed
-            if (c.lastRg >= 0f && Mathf.Abs(rg - c.lastRg) > 30f && c.prevSt == curSt && c.jumps++ < 6)
-                Debug.Log($"[Checkpoints] {car.name}: remaining to gate {c.next} {c.lastRg:0} -> {rg:0} m ({(c.onPath ? "own road" : "graph locate")}, edge {c.loc.edge} s {c.loc.s:0} dir {c.loc.dir}{(c.loc.offGraph ? ", OFF GRAPH" : "")})");
+            if (c.lastRg >= 0f && Mathf.Abs(rg - c.lastRg) > 30f && c.jumps++ < 6)
+                Debug.Log($"[Checkpoints] {car.name}: remaining to gate {c.next} {c.lastRg:0} -> {rg:0} m ({(c.onPath ? "own road" : "graph locate")}, edge {c.loc.edge} s {c.loc.s:0} dir {c.loc.dir} rdir {c.rDir} off {c.loc.dist:0} m{(c.loc.offGraph ? ", OFF GRAPH" : "")}{(c.prevSt != curSt ? ", over a node" : "")})");
+            // closing on the gate lately (a later gate's line on a legal re-route is not a miss)
+            if (c.lastRg >= 0f && Mathf.Abs(rg - c.lastRg) < 30f) c.towardAcc += c.lastRg - rg;
+            c.towardAcc *= Mathf.Exp(-Time.deltaTime / 1.5f);
             c.lastRg = rg;
             c.remainingGate = rg;
             c.remaining = rg + LegsAfter(c);
@@ -396,12 +465,16 @@ namespace PSXRacing
                 return;
             }
 
-            // ---- MISSED by distance: the closest approach came within 60 m, and the gate is 150 m further now
+            // ---- MISSED by distance: the car came within 120 m of the gate BY THE ROAD (and 60 m as the crow flies),
+            // and the road to it is 150 m longer now: it went past without crossing. Near by the road, not just in
+            // the air: a street under a gate whose only way up is a long loop is not a miss.
             float d3 = Vector3.Distance(pos, gates[c.next].centre);
-            if (rg < c.closestRem) { c.closestRem = rg; c.closestD3 = Mathf.Min(c.closestD3, d3); }
+            if (rg < c.closestRem) c.closestRem = rg;
             if (d3 < c.closestD3) c.closestD3 = d3;
-            if (!c.missed && c.closestD3 <= 60f && rg - c.closestRem >= 150f) RaiseMissed(c);
-            if (c.missed && Time.time - c.missedSince > 2f && rg <= c.closestRem + 50f && c.missedGate == c.next) c.missed = false;
+            if (!c.missed && c.closestRem <= 120f && c.closestD3 <= 60f && rg - c.closestRem >= 150f) RaiseMissed(c, rg);
+            // it clears once the car is back near its closest approach, or has made 60 m back toward the gate
+            if (c.missed && c.missedGate == c.next && Time.time - c.missedSince > 2f && (rg <= c.closestRem + 50f || rg <= c.missedRg - 60f))
+            { c.missed = false; c.closestRem = rg; c.closestD3 = d3; }   // a new approach starts here
 
             // ---- WRONG WAY (the player): remaining rising against the U-turn-aware reference, no node crossed
             if (c.isPlayer) UpdateWrongWay(c, car, pos);
@@ -424,23 +497,30 @@ namespace PSXRacing
         }
 
         /// <summary>Metres from the car to its next gate on the ruler.</summary>
+        /// <summary>Metres a car may stand off its road (its waypoint line or a located edge's pavement) before the
+        /// ruler counts the way back.</summary>
+        const float OffRoadFreeM = 10f;
+
         float RemainingToGate(CarCP c, Vector3 pos)
         {
-            var F = met[c.next];
+            var F = fields[c.next];
             var car = c.car;
             Vector3 vel = car.Body != null ? car.Body.linearVelocity : Vector3.zero;
-            // an AI on its own routed road: exact and free, off its own waypoints
+            // A RIVAL on its own routed road: exact and free, off its own waypoints. It is HELD on that road while it
+            // stays within 80 m of it on its level (cpfix 11-17: the check race's Supra, knocked 23.5 m off the
+            // Wilkinson loop ramp into a tree, was handed to the graph locate at 25 m and measured 190 m behind its
+            // own station). Off it, the ruler adds the metres beyond 10 m: it falls back as the car strays, never jumps.
+            // The PLAYER never reads a road of his own, even on the play check's autopilot: he is measured as the
+            // real player is, by the graph locate (the check: the autopilot never exercised the player's code path).
             var pl = c.planner;
-            if (pl != null && pl.Path != null && pl.Path.Routed)
+            if (!c.isPlayer && pl != null && pl.Path != null && pl.Path.Routed)
             {
                 var path = pl.Path;
                 c.pathHint = path.NearestIndex(pos, c.pathHint < 0 ? -1 : Mathf.Min(c.pathHint, path.Count - 1), 25);
                 int i = c.pathHint;
                 Vector3 wp = path.GetPoint(i);
-                // on its road within 15 m, and held on it to 25 m (a car knocked about at the edge of 15 m swapped
-                // between this and the graph locate every frame in the night race: 74 m jumps, 42 "falls")
                 float off = new Vector2(pos.x - wp.x, pos.z - wp.z).magnitude;
-                c.onPath = off < (c.onPath ? 25f : 15f) && Mathf.Abs(pos.y - wp.y) < 5f;
+                c.onPath = off < (c.onPath ? CityRouter.KeepMaxM : 25f) && Mathf.Abs(pos.y - wp.y) < (c.onPath ? 8f : 5f);
                 if (c.onPath)
                 {
                     int e = path.edgeAt[i];
@@ -451,22 +531,24 @@ namespace PSXRacing
                     int dir = path.dirAt != null ? path.dirAt[i] : 1;
                     float s = Mathf.Clamp(path.sAt[i] + dir * Vector3.Dot(pos - wp, tan), 0f, ed.length);
                     int st = e * 2 + (dir == 1 ? 0 : 1);
-                    c.loc.valid = true; c.loc.offGraph = false; c.loc.edge = e; c.loc.s = s; c.loc.dir = dir;
-                    float v = R.CostFrom(F, st, dir == 1 ? s : ed.length - s);
-                    if (!ed.oneway) v = Mathf.Min(v, R.CostFrom(F, st ^ 1, dir == 1 ? ed.length - s : s));
+                    c.loc.valid = true; c.loc.offGraph = false; c.loc.edge = e; c.loc.s = s; c.loc.dir = dir; c.loc.dist = off;
+                    c.rDir = dir; c.rEdge = e;
                     c.bestDir = dir;
-                    return v;
+                    // its own road's direction: the plan IS the field's descent (stage 1), so these are its own metres
+                    return R.RouteFrom(F, st, dir == 1 ? s : ed.length - s) + Mathf.Max(0f, off - OffRoadFreeM);
                 }
             }
-            // anyone else: a full locate at 10 Hz (staggered), a slide along the located edge in between
+            // the player (and a rival far off its road): the sticky locate at 10 Hz (staggered), a slide in between
             if (Time.time >= c.nextLocate || !c.loc.valid)
             {
                 R.Locate(pos, vel, car.transform.forward, ref c.loc);
                 c.nextLocate = Time.time + 0.1f + Random.Range(0f, 0.02f);
             }
             else R.Slide(pos, vel, car.transform.forward, ref c.loc);
-            float r = R.Remaining(F, pos, ref c.loc, out int bd);
-            c.bestDir = bd;
+            // the held direction belongs to an edge: a new edge chooses afresh (by the cost, as the GPS does)
+            if (c.loc.valid && !c.loc.offGraph && c.loc.edge != c.rEdge) { c.rEdge = c.loc.edge; c.rDir = 0; }
+            float r = R.Remaining(F, pos, ref c.loc, ref c.rDir);
+            c.bestDir = c.rDir == -1 ? -1 : 1;
             return r;
         }
 
@@ -547,7 +629,7 @@ namespace PSXRacing
             }
             c.closestRem = float.PositiveInfinity; c.closestD3 = float.PositiveInfinity;
             c.lastRemGateSample = float.PositiveInfinity;
-            c.lastRg = -1f;
+            c.lastRg = -1f; c.towardAcc = 0f; c.rDir = 0;
             if (c.isPlayer && !finish)
             {
                 c.flash = FlashText(c, k);
@@ -579,10 +661,18 @@ namespace PSXRacing
             return label + "   +" + (mine - best).ToString("0.0");
         }
 
-        void RaiseMissed(CarCP c)
+        /// <summary>The gate after <paramref name="k"/> in this lap's order, or -1 at the lap's end (a circuit's lap
+        /// line, gate 0, is the last gate of every lap; a sprint ends at its last gate).</summary>
+        int LaterInLap(int k)
+        {
+            if (Loop) return k == 0 ? -1 : (k + 1) % GateCount;
+            return k + 1 < GateCount ? k + 1 : -1;
+        }
+
+        void RaiseMissed(CarCP c, float rg)
         {
             if (c.missed && c.missedGate == c.next) return;
-            c.missed = true; c.missedSince = Time.time; c.missedGate = c.next; c.missedCount++;
+            c.missed = true; c.missedSince = Time.time; c.missedGate = c.next; c.missedCount++; c.missedRg = rg;
             if (c.isPlayer) Play(buzz, 0.6f);
             Missed?.Invoke(c.car, c.next);
             if (c.planner != null) c.planner.OnMissed();
@@ -704,11 +794,14 @@ namespace PSXRacing
             if (pp != null && pp.finished) { if (GpsPts.Count > 0) { GpsPts.Clear(); GpsVersion++; } return; }
             if (gpsStamp == null) gpsStamp = new int[map.edges.Length];
             bool offChain = c.loc.edge != gpsEdge && gpsStamp[c.loc.edge] != gpsStampNow;
-            if (Time.unscaledTime < gpsNext && !offChain) return;
+            // the ruler turned round on this street (the cost now prefers the other way): the line turns with it
+            bool turned = c.loc.edge == c.rEdge && c.rDir != 0 && c.rDir != gpsDir;
+            if (Time.unscaledTime < gpsNext && !offChain && !turned) return;
             gpsNext = Time.unscaledTime + 0.5f;
             gpsEdge = c.loc.edge;
             BuildGps(c);
         }
+        int gpsDir;
 
         void BuildGps(CarCP c)
         {
@@ -716,8 +809,15 @@ namespace PSXRacing
             gpsStampNow++;
             var ed = map.edges[c.loc.edge];
             int k = c.next;
-            // from the car, the better way on a two-way street (it may be behind him)
-            R.ValueAt(cost[k], c.loc.edge, c.loc.s, ed.oneway && c.loc.dir < 0, out int dir);
+            // from the car, the way the RULER measures (cpfix 11-17: one route for the line and the remaining
+            // distance): a two-way street's held direction (it may be behind him), a one-way's legal direction
+            int dir = 1;
+            if (!ed.oneway)
+            {
+                if (c.rEdge == c.loc.edge && c.rDir != 0) dir = c.rDir;
+                else R.ValueAt(fields[k], c.loc.edge, c.loc.s, false, out dir);
+            }
+            gpsDir = dir;
             int st = c.loc.edge * 2 + (dir == 1 ? 0 : 1);
             if (!R.legal[st]) st ^= 1;
             float t = (st & 1) == 0 ? c.loc.s : ed.length - c.loc.s;
@@ -725,7 +825,7 @@ namespace PSXRacing
             GpsPts.Add(new Vector2(car.x, car.z));
             for (int leg = 0; leg < 2 && k >= 0; leg++)
             {
-                if (!R.Descend(cost[k], st, t, legStates, out float lastT)) break;
+                if (!R.Descend(fields[k], st, t, legStates, out float lastT)) break;
                 for (int i = 0; i < legStates.Count; i++)
                 {
                     int s = legStates[i];
@@ -794,7 +894,7 @@ namespace PSXRacing
             if (R.Nearest(pos, 120f, 8f, -1, 0f, out int e, out float s, out _))
             {
                 var ed = map.edges[e];
-                R.ValueAt(met[c.next], e, s, false, out int dir);
+                R.ValueAt(fields[c.next], e, s, false, out int dir);
                 int st = e * 2 + (dir == 1 ? 0 : 1);
                 if (!R.legal[st]) { st ^= 1; dir = -dir; }
                 float t = (st & 1) == 0 ? s : ed.length - s;

@@ -24,7 +24,7 @@ param(
     [switch]$NoWatch
 )
 $ErrorActionPreference = "Stop"
-$Agent = "checkpoints"
+$Agent = "cpfix"
 $wt = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $Sandbox = $Sandbox.TrimEnd('\')
 if (-not $Out) { $Out = Join-Path $Sandbox "CpJob" }
