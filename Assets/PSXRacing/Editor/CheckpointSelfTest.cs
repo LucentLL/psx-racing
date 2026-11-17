@@ -129,6 +129,7 @@ namespace PSXRacing.EditorTools
                 var tp = go.AddComponent<TrackPath>();
                 var pieces = new List<RoutedPath.Piece>();
                 float worstBuild = 0f; int bad = 0, built = 0, narrow = 0;
+                var sbBad = new StringBuilder();
                 for (int k = loop ? 0 : 1; k < N; k++)
                 {
                     int from = k == 0 ? N - 1 : k - 1;
@@ -146,11 +147,15 @@ namespace PSXRacing.EditorTools
                     {
                         var w = tp.waypoints[i];
                         if (float.IsNaN(w.x) || float.IsNaN(w.y) || float.IsNaN(w.z)) { bad++; break; }
-                        if (i > 0 && Mathf.Abs(Vector3.Distance(new Vector3(w.x, 0, w.z), new Vector3(tp.waypoints[i - 1].x, 0, tp.waypoints[i - 1].z)) - tp.spacing) > 0.6f) { bad++; break; }
+                        // 4 m along the line: the chord between two waypoints is at most the pitch, and at least half of
+                        // it across a junction corner (the corner is BuildPath's, PSX_CP_FILLET_R=0)
+                        float chord = i > 0 ? Vector2.Distance(new Vector2(w.x, w.z), new Vector2(tp.waypoints[i - 1].x, tp.waypoints[i - 1].z)) : tp.spacing;
+                        if (i > 0 && i < tp.Count - 1 && (chord > tp.spacing + 0.05f || chord < 0.5f * tp.spacing))
+                        { bad++; sbBad.Append($" leg {from}->{k} wp {i} chord {chord:0.00} m;"); break; }
                         if (tp.halfL[i] < 1.5f || tp.halfR[i] < 1.5f) narrow++;
                     }
                 }
-                if (bad > 0) { sb.AppendLine($"FAIL  routed paths: {bad} bad of {built + bad}"); fails++; }
+                if (bad > 0) { sb.AppendLine($"FAIL  routed paths: {bad} bad of {built}:{sbBad}"); fails++; }
                 else sb.AppendLine($"ok    routed paths: {built} legs built, worst build {worstBuild:0.0} ms (budget 3 ms), {narrow} waypoints with a pavement half under 1.5 m");
             }
             finally { Object.DestroyImmediate(go); }

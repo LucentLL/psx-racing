@@ -243,13 +243,67 @@ namespace PSXRacing.EditorTools
         }
     }
 
-    /// <summary>Drives <see cref="CheckpointRaceWatch.Frame"/> every frame (not the file's first class).</summary>
+    /// <summary>Drives <see cref="CheckpointRaceWatch.Frame"/> every frame (not the file's first class), and with
+    /// PSX_RACE_SHOTS=dir takes the race's frames from the Game view: the start, the first gate pass with the HUD,
+    /// the next gate's beam at about 700 m and 300 m, the turnaround gates, the minimap past half distance and the
+    /// finish sheet.</summary>
     public class CheckpointRaceWatchTick : MonoBehaviour
     {
+        string dir, tag;
+        readonly HashSet<string> taken = new HashSet<string>();
+        float finishedAt = -1f;
+        int turnShots;
+        void Start()
+        {
+            dir = System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTS");
+            tag = (System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTTAG") ?? "cp");
+            if (string.IsNullOrEmpty(dir) || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) dir = null;
+            else System.IO.Directory.CreateDirectory(dir);
+        }
         void Update()
         {
             CheckpointRaceWatch.Frame();
-            if (!CheckpointRaceWatch.Active) Destroy(gameObject);
+            if (dir != null) Shots();
+            if (!CheckpointRaceWatch.Active && pending == 0) Destroy(gameObject);
+        }
+        int pending;
+        void Take(string name)
+        {
+            if (taken.Contains(name)) return;
+            taken.Add(name);
+            pending++;
+            StartCoroutine(ShotNow(name));
+        }
+        System.Collections.IEnumerator ShotNow(string name)
+        {
+            yield return new WaitForEndOfFrame();
+            var tex = ScreenCapture.CaptureScreenshotAsTexture();
+            string file = System.IO.Path.Combine(dir, tag + "_" + name + ".jpg");
+            System.IO.File.WriteAllBytes(file, tex.EncodeToJPG(90));
+            RacePlayCheck.Note($"shot {file} ({tex.width}x{tex.height})");
+            Destroy(tex);
+            pending--;
+        }
+        void Shots()
+        {
+            var rm = RaceManager.Instance;
+            var cp = rm != null ? rm.Checkpoints : null;
+            if (cp == null || rm.playerCar == null) return;
+            var c = cp.Of(rm.playerCar);
+            var p = rm.GetProgress(rm.playerCar);
+            if (c == null || p == null) return;
+            if (rm.State == RaceManager.RaceState.Racing && !taken.Contains("1_start")) Take("1_start");
+            if (c.passedTotal >= 1 && Time.unscaledTime < c.flashUntil - 1.1f) Take("2_gate_pass");
+            var g = cp.gates[c.next];
+            Vector3 to = g.centre - rm.playerCar.transform.position; to.y = 0f;
+            bool ahead = to.sqrMagnitude > 1f && Vector3.Dot(rm.playerCar.transform.forward, to.normalized) > 0.85f;
+            if (!p.finished && c.passedTotal >= 1 && ahead && c.remainingGate > 640f && c.remainingGate < 720f) Take("3_beam_" + Mathf.RoundToInt(c.remainingGate / 10f) * 10 + "m");
+            if (!p.finished && c.passedTotal >= 1 && ahead && c.remainingGate > 260f && c.remainingGate < 330f) Take("4_beam_300m");
+            if (!p.finished && g.kind == "turn" && c.remainingGate < 140f && c.remainingGate > 60f && turnShots < 2)
+            { int before = taken.Count; Take("5_turn_" + (g.name ?? "").Replace(' ', '_')); if (taken.Count > before) turnShots++; }
+            if (!p.finished && cp.RaceFraction(rm.playerCar) > 0.5f) Take("6_minimap_half");
+            if (p.finished && finishedAt < 0f) finishedAt = Time.time;
+            if (finishedAt > 0f && Time.time - finishedAt > 2.5f) Take("7_finish");
         }
     }
 }

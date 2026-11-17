@@ -269,7 +269,7 @@ namespace PSXRacing
         {
             if (RaceReplay.Playing) return;
             PumpQueue();
-            if (Ready && rm != null && rm.State != RaceManager.RaceState.Countdown) UpdateGps();
+            if (Ready && rm != null) UpdateGps();
         }
 
         void OnDestroy() { if (Active == this) Active = null; }
@@ -638,7 +638,14 @@ namespace PSXRacing
         {
             if (!CheckpointFile.On("PSX_CP_GPS")) return;
             var c = Of(rm.playerCar);
-            if (c == null || !c.loc.valid) return;
+            if (c == null) return;
+            if (!c.loc.valid)
+            {
+                // on the grid (no Step yet): locate him so the line is there before the green
+                var car = rm.playerCar;
+                R.Locate(car.transform.position, Vector3.zero, car.transform.forward, ref c.loc);
+                if (!c.loc.valid) return;
+            }
             var pp = rm.GetProgress(rm.playerCar);
             if (pp != null && pp.finished) { if (GpsPts.Count > 0) { GpsPts.Clear(); GpsVersion++; } return; }
             if (gpsStamp == null) gpsStamp = new int[map.edges.Length];
