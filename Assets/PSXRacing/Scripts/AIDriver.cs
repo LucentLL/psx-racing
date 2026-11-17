@@ -1395,7 +1395,9 @@ namespace PSXRacing
                 return passOncomingSwitch == 1;
             }
         }
-        const float HeldMarginMps = 1.5f, HeldLookM = 40f, HeldLaneM = 2.4f, HeldPassMaxS = 8f, HeldPassMaxCurv = 1f / 70f;
+        // (11-17 races: at 1.5 m/s / 40 m / 8 s three in four held passes were given up - a swing out and back in;
+        // only a clearly faster car close behind commits now)
+        const float HeldMarginMps = 2.5f, HeldLookM = 30f, HeldLaneM = 2.4f, HeldPassMaxS = 6f, HeldPassMaxCurv = 1f / 70f;
         /// <summary>The oncoming speed a pass is planned against (m/s, ~100 km/h): a car out of sight now may be
         /// there before the pass is done.</summary>
         const float HeldOncomingMps = 28f;
