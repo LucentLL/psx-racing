@@ -608,6 +608,9 @@ namespace PSXRacing.City
                 splitNodeSet = new HashSet<int>(splitAt.Keys);
                 refugeEndSet = refuge != null ? new HashSet<long>(refuge.Keys) : new HashSet<long>();
             }
+            // Phase C: the tight twins (two carriageways mapped closer than their own lanes) pushed apart, before
+            // any split's profile reads their lines
+            if (SplitsOn && CityPhaseC && PhaseCTightOn) BuildTightTwins(map, add, splitAt, splitNodeSet, refugeEndSet);
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;

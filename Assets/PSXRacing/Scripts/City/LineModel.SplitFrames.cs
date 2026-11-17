@@ -148,6 +148,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
+            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f;
             SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -565,7 +566,8 @@ namespace PSXRacing.City
                 // the bands part only far past the blends (n9152: 196.6 m, a flush stretch that long is a
                 // painted median nobody asked for) or never: no profile here, the old taper (listed)
                 float uLim = Mathf.Max(fa.uEnd, fb.uEnd) + SplitNoseLateM;
-                if (float.IsNaN(uTip) || uTip > uLim)
+                // (a tight twin has no island: its pavements stay flush all along, or to a tip however late)
+                if ((float.IsNaN(uTip) || uTip > uLim) && !(CityPhaseC && tightTwinNodes.Contains(sp.node)))
                 {
                     foreach (var f in frames) Skip(f.edge, float.IsNaN(uTip) ? "the lane bands never part 2.4 m (no nose)" : $"the lane bands part 2.4 m only at u {uTip:0.0}, past the blends (+{SplitNoseLateM:0} m: {uLim:0.0})");
                     return done;
@@ -608,6 +610,8 @@ namespace PSXRacing.City
             {
                 int from = sp.node; float d0 = 0f; int hint = 0;
                 float uLast = Mathf.Max(f.uEnd, float.IsNaN(uTip) ? 0f : noseEnd) + 1f;
+                // a tight twin with no tip: the shoulders stay trimmed to the divider all along the pair
+                if (float.IsNaN(uTip) && noseOn && CityPhaseC && tightTwinNodes.Contains(sp.node)) uLast = 1e6f;
                 var fo = fa == f ? fb : fa;
                 foreach (int ei in f.chain)
                 {
@@ -820,6 +824,158 @@ namespace PSXRacing.City
                 from = far;
             }
             return float.NaN;
+        }
+
+        // ================================================================
+        //  PHASE C: THE TIGHT TWINS (the owner's N Tryon wishbone, 2026-11-17)
+        // ================================================================
+        // The owner on the split past his North Tryon Street spot (n3158), in both columns of the before /
+        // after sheet: "this cannot be how the real roads are" - the road forks into two carriageways that
+        // swing apart at 26 degrees round a wide grass wedge within 30 m. The real road (aerial and street
+        // level, viewed only): seven lanes side by side, dead straight - three eastbound, the centre lane
+        // (hatched paint, then the westbound left-turn lane) and three westbound; no grass, a painted
+        // divider and, at the junction, a kerb a metre wide. OSM maps it from that point as two one-way
+        // ways 12.0-12.3 m apart - CLOSER than their own lanes need (3 + 4 lanes of 3.66 m: 12.8 m): a
+        // divided road only on paper. The line model drew each carriageway on its way plus the SPLT
+        // taper's outward shift (7 m of grass at 20 m), and further on, where the shift had eased out,
+        // the two pavements over each other.
+        // THE RULE (scope city; PSX_CITY_TIGHTTWINS=0 off): where the two carriageways of a split run
+        // alongside with their lane bands closer than TightGapM (the double yellow's gap: each roadway's
+        // yellow left edge line 6 cm inside its band) once past the mapped fan, the pair is a TIGHT TWIN:
+        // both are pushed apart by half the shortfall each, all along the run (one sampled shift ease an
+        // edge, made once whichever end's split finds the pair) - so they run parallel, band to band, the
+        // two yellow edge lines a double yellow between them. The split's profile then starts each
+        // carriageway where its lanes are in the undivided road and blends onto that pushed line: no
+        // fan, no wedge, no island (the bands never part 2.4 m: the pavements stay flush all along).
+        public const float TightGapM = 0.12f, TightPastFanM = 40f, TightMinRunM = 15f;
+        public static bool PhaseCTightOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TIGHTTWINS") != "0";
+        static readonly HashSet<int> tightTwinEdges = new HashSet<int>();
+        static readonly HashSet<int> tightTwinNodes = new HashSet<int>();
+        public static int TightTwinPairs, TightTwinEdgeCount;
+        public static float TightTwinM;
+        public static readonly List<string> TightTwinLog = new List<string>();
+        public static bool TightTwinNode(int node) => tightTwinNodes.Contains(node);
+        public static bool TightTwinEdge(int edge) => tightTwinEdges.Contains(edge);
+
+        struct TwinSample { public Vector2 p; public float half, d; }
+
+        static List<TwinSample> TwinLine(CityMap map, List<Ease>[] add, List<int> chain, int node, float step)
+        {
+            var pts = new List<TwinSample>(256);
+            int from = node; float d0 = 0f;
+            foreach (int ei in chain)
+            {
+                var e = map.edges[ei];
+                bool fwd = e.a == from;
+                var keep = e.lmEase; e.lmEase = PreEases(add, e);
+                int n = Mathf.Max(2, Mathf.CeilToInt(e.length / step) + 1);
+                float ds = e.length / (n - 1);
+                for (int k = pts.Count == 0 ? 0 : 1; k < n; k++)
+                {
+                    float s = fwd ? k * ds : e.length - k * ds;
+                    var t = e.TangentAt(s); var nl = new Vector2(-t.y, t.x);
+                    float c = LanesPre(e, s, out float hh);
+                    pts.Add(new TwinSample { p = e.PointAt(s) + nl * c, half = hh, d = d0 + k * ds });
+                }
+                e.lmEase = keep;
+                d0 += e.length; from = fwd ? e.b : e.a;
+            }
+            return pts;
+        }
+
+        /// <summary>The nearest point of a twin line to p: its distance, the lane band's half width there,
+        /// and whether the foot is past the line's end (no twin beside p any more).</summary>
+        static float TwinNearest(List<TwinSample> L, Vector2 p, out float half, out Vector2 at, out bool pastEnd)
+        {
+            float best = float.MaxValue; half = 0f; at = L[0].p; pastEnd = false;
+            for (int i = 1; i < L.Count; i++)
+            {
+                Vector2 a = L[i - 1].p, ab = L[i].p - a;
+                float l2 = ab.sqrMagnitude;
+                float t = l2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+                var q = a + ab * t;
+                float d = (p - q).sqrMagnitude;
+                if (d < best) { best = d; at = q; half = Mathf.Lerp(L[i - 1].half, L[i].half, t); pastEnd = i == L.Count - 1 && t >= 0.999f; }
+            }
+            return Mathf.Sqrt(best);
+        }
+
+        static void BuildTightTwins(CityMap map, List<Ease>[] add, Dictionary<int, Split> splitAt, HashSet<int> splitNodes, HashSet<long> refugeEnds)
+        {
+            var chA = new List<int>(16); var chB = new List<int>(16);
+            foreach (var sp in splitAt.Values)
+            {
+                if (!InSplitScope(map, sp.node) || BfrNode(map, sp.node)) continue;
+                if (sp.a < 0 || sp.b < 0 || sp.a >= map.edges.Length || sp.b >= map.edges.Length) continue;
+                if (refugeEnds.Contains(RefugeKey(sp.node, sp.a)) || refugeEnds.Contains(RefugeKey(sp.node, sp.b))) continue;
+                var A = map.edges[sp.a]; var B = map.edges[sp.b];
+                if (!A.oneway || !B.oneway || A.a == A.b || B.a == B.b) continue;
+                CarriagewayChain(map, splitNodes, sp.a, sp.node, 420f, chA, out _, out float lenA);
+                CarriagewayChain(map, splitNodes, sp.b, sp.node, 420f, chB, out _, out float lenB);
+                if (chA.Count == 0 || chB.Count == 0 || Mathf.Min(lenA, lenB) < 25f) continue;
+                // the pair made already from its other end: this node's split is a tight twin's too
+                if (tightTwinEdges.Contains(sp.a) && tightTwinEdges.Contains(sp.b)) { tightTwinNodes.Add(sp.node); continue; }
+                if (tightTwinEdges.Contains(sp.a) || tightTwinEdges.Contains(sp.b)) continue;
+                var LA = TwinLine(map, add, chA, sp.node, 1f); var LB = TwinLine(map, add, chB, sp.node, 1f);
+                // tight past the mapped fan: the shortfall's run from TightPastFanM on (half the pair on a short one)
+                float past = Mathf.Min(TightPastFanM, 0.5f * Mathf.Min(lenA, lenB)), run = 0f, worst = 0f, runAll = 0f;
+                for (int i = 1; i < LA.Count; i++)
+                {
+                    float d = TwinNearest(LB, LA[i].p, out float hb, out _, out bool end);
+                    if (end) break;
+                    float gap = d - LA[i].half - hb;
+                    if (gap < TightGapM - 0.05f) { runAll += LA[i].d - LA[i - 1].d; if (LA[i].d >= past) { run += LA[i].d - LA[i - 1].d; worst = Mathf.Min(worst, gap); } }
+                }
+                if (run < TightMinRunM) continue;
+                TightTwinPairs++; TightTwinM += runAll;
+                tightTwinNodes.Add(sp.node);
+                if (TightTwinLog.Count < 400) TightTwinLog.Add($"n{sp.node} e{sp.a}/e{sp.b} '{A.name}': the two carriageways' lane bands {worst:+0.00;-0.00} m apart at their closest past the fan, short of the divider's {TightGapM:0.00} m over {run:0} m: pushed apart (chains {lenA:0} / {lenB:0} m)");
+                for (int c = 0; c < 2; c++)
+                {
+                    var chain = c == 0 ? chA : chB; var other = c == 0 ? LB : LA; var own = c == 0 ? LA : LB;
+                    // the side this carriageway lies on of the other (where they are well apart): its push's way at the fan
+                    int from = sp.node; float d0 = 0f;
+                    foreach (int ei in chain)
+                    {
+                        var e = map.edges[ei];
+                        bool fwd = e.a == from;
+                        var keep = e.lmEase; e.lmEase = PreEases(add, e);
+                        int n = Mathf.Max(2, Mathf.CeilToInt(e.length / RefugeDs) + 1);
+                        float ds = e.length / (n - 1);
+                        var sh = new float[n]; bool any = false;
+                        for (int k = 0; k < n; k++)
+                        {
+                            float s = fwd ? k * ds : e.length - k * ds;
+                            var t = e.TangentAt(s); var el = new Vector2(-t.y, t.x);
+                            float cc = LanesPre(e, s, out float hh);
+                            var p = e.PointAt(s) + el * cc;
+                            float d = TwinNearest(other, p, out float ho, out var at, out bool end);
+                            if (end) continue;
+                            float need = 0.5f * (TightGapM - (d - hh - ho));
+                            if (need <= 0f) continue;
+                            // away from the other carriageway (at the fan, where the two lines cross: its side further on)
+                            Vector2 nrm;
+                            if (d > 0.5f) nrm = (p - at) / d;
+                            else
+                            {
+                                var far = own[Mathf.Min(own.Count - 1, 30)].p;
+                                TwinNearest(other, far, out _, out var atF, out _);
+                                nrm = (far - atF).sqrMagnitude > 1e-4f ? (far - atF).normalized : el;
+                            }
+                            sh[k] = need * (Vector2.Dot(nrm, el) >= 0f ? 1f : -1f);
+                            any = true;
+                        }
+                        e.lmEase = keep;
+                        if (any)
+                        {
+                            (add[e.index] ??= new List<Ease>(3)).Add(new Ease { shift = true, fromA = fwd, dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = ds, tag = -(3000000 + sp.node * 2 + c) });
+                            TightTwinEdgeCount++;
+                        }
+                        tightTwinEdges.Add(ei);
+                        d0 += e.length; from = fwd ? e.b : e.a;
+                    }
+                }
+            }
         }
 
         /// <summary>The undivided road's last up-to-30 m eased onto the axis

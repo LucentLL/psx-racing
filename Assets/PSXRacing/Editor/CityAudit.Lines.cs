@@ -241,6 +241,39 @@ namespace PSXRacing.EditorTools
                 }
                 Line($"    steepest drawn line on this edge: {worst:0.000} m/m ({(worst > 1e-4f ? (1f / worst).ToString("0.0", inv) + ":1" : "-")}) {worstAt}");
             }
+            // the plan also carries every other edge of the road inside the frame's box (the other carriageway past a split)
+            {
+                var inChain = new HashSet<int>(); foreach (var c in chain) inChain.Add(c.e);
+                foreach (var e in map.edges)
+                {
+                    if (inChain.Contains(e.index) || e.a == e.b || e.tunnel || e.name != E0.name) continue;
+                    var mid = e.PointAt(0.5f * e.length);
+                    float um = Vector2.Dot(mid - P0, fwd), vm = Vector2.Dot(mid - P0, right);
+                    if (um < -back - 40f || um > ahead + 40f || Mathf.Abs(vm) > 60f) continue;
+                    var lay = LineModel.LayoutOf(e);
+                    float sA = t.TrimAt(e, e.a), sB = e.length - t.TrimAt(e, e.b);
+                    int seq = 0;
+                    for (float s = sA; s <= sB + 1e-3f; s += 1f, seq++)
+                    {
+                        float ss = Mathf.Min(s, sB);
+                        LineModel.Extents(e, ss, out float eM, out float eP);
+                        var lf = LineModel.SectionLeft(e, ss); var p = e.PointAt(ss);
+                        PL("edgeP", e.index, seq, p + lf * eP); PL("edgeM", e.index, seq, p - lf * eM);
+                        LineModel.LinesAt(e, ss, la);
+                        foreach (var l in la)
+                        {
+                            byte kd = lay.kind[l.k];
+                            string kn = kd == LineModel.KYellow || kd == LineModel.KYellowDash ? "lineY" : kd == LineModel.KWhiteDash ? "lineW" : "lineE";
+                            PL(kn + l.k, e.index, seq, p + lf * l.lat);
+                        }
+                    }
+                    for (int k = 0; k < e.pts.Length; k++) PL("osm", e.index, k, e.pts[k]);
+                    Line($"(also in the plan) e{e.index} {(e.oneway ? "ONE-WAY" : "two-way")} {e.length:0.0} m lanes {e.lsNF}+{e.lsNB} width {e.width:0.00}{(LineModel.TightTwinEdge(e.index) ? " [tight twin]" : "")}{(LineModel.SplitFrameOf(e.index) != null ? " [axis-frame]" : "")}");
+                }
+            }
+            Line($"  TIGHT TWINS: {LineModel.TightTwinPairs} pairs city-wide; split frames {LineModel.SplitFrames.Count}; skipped {LineModel.SplitSkipped.Count}");
+            foreach (var l in LineModel.TightTwinLog) if (l.Contains("'" + E0.name + "'")) Line("    " + l);
+            foreach (var l in LineModel.SplitSkipped) if (l.Contains("'" + E0.name + "'")) Line("    skipped " + l);
             string root = Directory.GetParent(Application.dataPath).FullName;
             File.WriteAllText(Path.Combine(root, "city_linespot_plan.tsv"), plan.ToString());
             FinishTo("city_linespot.txt");
