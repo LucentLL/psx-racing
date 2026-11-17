@@ -909,6 +909,19 @@ namespace PSXRacing.City
         // (the first rule): the split's nose then draws the island's tip where the bands have parted that far.
         // PSX_CITY_TWINISLAND=0: flush as before.
         public static bool TwinIslandOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINISLAND") != "0";
+        /// <summary>(11-17, nf10: the North Tryon pair drawn 3.7-4.4 m apart past the fork - the export's own carriageway
+        /// lines stand wider than its lanes plus the island, so a push-only rule never moved them) Each side's move toward
+        /// the island's lane gap: apart where the bands are closer, TOGETHER where they are up to TwinPullSpanM wider,
+        /// fading to nothing by twice that (a median that really widens - a turn bay, a pier - stays as mapped).</summary>
+        public const float TwinPullSpanM = 3f;
+        static float TwinNeed(float gap)
+        {
+            float v = 0.5f * (TwinGapM - gap);
+            if (v >= 0f || !TwinIslandOn) return Mathf.Max(0f, v);
+            float over = gap - TwinGapM;                               // > 0: wider than the island
+            float k = over <= TwinPullSpanM ? 1f : Mathf.Clamp01(2f - over / TwinPullSpanM);
+            return v * k;
+        }
         static float TwinGapM => TwinIslandOn ? SplitIslandGapM : TightGapM;
         /// <summary>PSX_CITY_TWINBLEND=0: a tight twin's split blends in the straight axis frame as every other split.</summary>
         public static bool TwinOwnBlendOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINBLEND") != "0";
@@ -1087,7 +1100,7 @@ namespace PSXRacing.City
                                 nrm = (far - atF).sqrMagnitude > 1e-4f ? (far - atF).normalized : el;
                             }
                             sd[k] = Vector2.Dot(nrm, el) >= 0f ? 1f : -1f;
-                            nd[k] = Mathf.Max(0f, 0.5f * (TwinGapM - (d - hh - ho)));
+                            nd[k] = TwinNeed(d - hh - ho);
                         }
                         e.lmEase = keep;
                         needs.Add(nd); sides.Add(sd); dsOf.Add(ds); fwdOf.Add(fwd);
@@ -1119,7 +1132,7 @@ namespace PSXRacing.City
                             while (flatD[lo] < flatD[i] - win) { sum -= flatV[lo]; lo++; }
                             bool fan = flatD[i] < TightPastFanM || (closes && chainLen - flatD[i] < TightPastFanM);
                             float v = fan ? flatV[i] : sum / Mathf.Max(1, hi - lo);
-                            if (!closes) v = Mathf.Min(v, Mathf.Max(0f, chainLen - flatD[i]) * slope);
+                            if (!closes) { float cap = Mathf.Max(0f, chainLen - flatD[i]) * slope; v = Mathf.Clamp(v, -cap, cap); }
                             sm[i] = v;
                             if (sp.node == TwinDebugNode && (i == 0 || Mathf.Floor(flatD[i] / 5f) != Mathf.Floor(flatD[i - 1] / 5f)))
                                 TightTwinLog.Add($"twin-debug n{sp.node} '{A.name}' c{c} d {flatD[i]:0.0} need {flatV[i]:0.00} push {v:0.00}");
@@ -1145,7 +1158,7 @@ namespace PSXRacing.City
                     {
                         var e = map.edges[chain[j]];
                         var sh = new float[needs[j].Length]; bool any = false;
-                        for (int k = 0; k < sh.Length; k++) { sh[k] = needs[j][k] * (sides[j][k] == 0f ? 1f : sides[j][k]); any |= needs[j][k] > 1e-3f; }
+                        for (int k = 0; k < sh.Length; k++) { sh[k] = needs[j][k] * (sides[j][k] == 0f ? 1f : sides[j][k]); any |= Mathf.Abs(needs[j][k]) > 1e-3f; }
                         if (any)
                         {
                             (add[e.index] ??= new List<Ease>(3)).Add(new Ease { shift = true, fromA = fwdOf[j], dw = 1f, len = d0 + e.length + 1f, d0 = d0, prof = sh, profD0 = d0, profDs = dsOf[j], tag = -(3000000 + sp.node * 2 + c) });
