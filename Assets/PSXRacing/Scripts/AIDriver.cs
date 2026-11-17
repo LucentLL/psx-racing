@@ -1476,6 +1476,7 @@ namespace PSXRacing
         /// <summary>The longest pass (s), the slowest a car pulls out at (m/s) past a car that is moving, and the closing
         /// a pass gains on the car being passed (m/s2).</summary>
         const float PassMaxS = 6.5f, PassMinMps = 7f, PassAccel = 2.0f, PassAccelRival = 0.4f;
+        static readonly bool RivalPullOn = System.Environment.GetEnvironmentVariable("PSX_AI_PASS_RIVALPULL") == "1";
         /// <summary>The pass ends with this car's centre a length plus air (m, + s of its speed) past the car's centre,
         /// then the swing back takes PassSwingS. A car within PassQueueGapM (+ s of speed) beyond the one passed is in its
         /// queue: the pass takes that one too, or is not made.</summary>
@@ -1634,11 +1635,16 @@ namespace PSXRacing
             float v0 = Mathf.Max(mine - headSpeed, 0f);
             float vMax = Mathf.Max(wantRel, v0);
             if (vMax < 0.5f) { why = "nothing to gain"; return float.NaN; }
-            // what it gains: a traffic car holds its speed, so this car's own pull (less the faster it goes); a RIVAL
-            // pulls too, so little - a rival pass is made on the closing there is (planned on 2 m/s2 at 150 km/h, held
-            // passes of rivals ran long and were given up side by side: the weave)
-            bool rivalTarget = target != null && target.GetComponent<CarController>() != null;
-            float accel = rivalTarget ? PassAccelRival : PassAccel * Mathf.Clamp(1f - mine / 50f, 0.3f, 1f);
+            // what it gains: PassAccel of closing. (Not raced, PSX_AI_PASS_RIVALPULL=1: a rival pass planned on the
+            // closing there is - 0.4 m/s2, the rival pulls too - and a traffic pass on the car's own pull less the faster
+            // it goes; aimed at the given-up rival passes, the weave. Held back: the coordinator's 08:30 wrap-up left no
+            // matrix for it.)
+            float accel = PassAccel;
+            if (RivalPullOn)
+            {
+                bool rivalTarget = target != null && target.GetComponent<CarController>() != null;
+                accel = rivalTarget ? PassAccelRival : PassAccel * Mathf.Clamp(1f - mine / 50f, 0.3f, 1f);
+            }
             float t;
             float t1 = (vMax - v0) / accel, d1 = v0 * t1 + 0.5f * accel * t1 * t1;
             if (d1 >= relDist) t = (-v0 + Mathf.Sqrt(v0 * v0 + 2f * accel * relDist)) / accel;
