@@ -663,6 +663,44 @@ namespace PSXRacing
             return m;
         }
 
+        static readonly int BreakId = Shader.PropertyToID("_PSXBreak");
+
+        /// <summary>
+        /// Damage round 3: the cabin's own side and rear glass broken as the
+        /// shell's is (DamageLook.CockpitPanes; PSX/CabinGlass _PSXBreak, from
+        /// DamageGlass.CockpitPane): <paramref name="left"/> / <paramref name="right"/>
+        /// are the CAR's sides - an RHD cabin is the LHD one mirrored, so its
+        /// "door_l" pane stands on the car's right. The windscreen keeps round
+        /// 2's chip, crack or web (DamageLook.PlaceBreak).
+        /// </summary>
+        public void SetPaneBreaks(Vector4 left, Vector4 right, Vector4 rear)
+        {
+            var lay = L;
+            if (lay == null || glassMats == null) return;
+            for (int i = 0; i < lay.glass.Length && i < glassMats.Length; i++)
+            {
+                var m = glassMats[i];
+                if (m == null) continue;
+                string k = lay.glass[i].key;
+                if (k == "rear") m.SetVector(BreakId, rear);
+                else if (k.StartsWith("door"))
+                {
+                    bool modelLeft = k == "door_l";
+                    m.SetVector(BreakId, modelLeft != Current.rhd ? left : right);
+                }
+            }
+        }
+
+        /// <summary>A pane's break as set (the self-test).</summary>
+        public Vector4 PaneBreak(string key)
+        {
+            var lay = L;
+            if (lay == null || glassMats == null) return Vector4.zero;
+            for (int i = 0; i < lay.glass.Length && i < glassMats.Length; i++)
+                if (lay.glass[i].key == key && glassMats[i] != null) return glassMats[i].GetVector(BreakId);
+            return Vector4.zero;
+        }
+
         /// <summary>Every renderer this cabin draws, cargo copies included.</summary>
         internal void CollectRenderers()
         {

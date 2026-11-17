@@ -31,24 +31,16 @@
 #ifndef PSX_CAR_GLASS_INCLUDED
 #define PSX_CAR_GLASS_INCLUDED
 
+#include "PSXGlassBreak.cginc"
+
 float4 _PSXGlsS, _PSXGlsW, _PSXGlsX, _PSXGlsL, _PSXGlsT, _PSXGlsF, _PSXWheelRash;
-
-float GlsH1(float n) { return frac(sin(n * 91.3458) * 47453.5453); }
-float GlsH2(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
-
-float GlsN1(float x)
-{
-    float i = floor(x), f = frac(x);
-    f = f * f * (3.0 - 2.0 * f);
-    return lerp(GlsH1(i), GlsH1(i + 1.0), f);
-}
-
-float GlsN2(float2 p)
-{
-    float2 i = floor(p), f = frac(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return lerp(lerp(GlsH2(i), GlsH2(i + float2(1, 0)), f.x), lerp(GlsH2(i + float2(0, 1)), GlsH2(i + float2(1, 1)), f.x), f.y);
-}
+// DAMAGE ROUND 3 (DamageCabin.cs, DamageGlass.cs; owner 11-17: "If shown, the cockpit model should be used"):
+//   _PSXGlsDark  global, 1 = a hole shows a DARK cabin here (the lining, the floor, the far glass; no seat
+//                boxes) and the cockpit model is drawn into it by DamageCabin within reach; 0 = round 2's boxes
+//   _PSXGlsThin  global, 1 = a THIN dark strip with paint on both sides (a door mirror's sail outline, a pillar's
+//                trim line: under 7 cm across) is not a pane, whatever its colour (round 2 crazed it white)
+float _PSXGlsDark;
+float _PSXGlsThin;
 
 // The same, repeating every per cells along x (round a wheel: no seam where the angle wraps).
 float GlsN2P(float2 p, float per)
@@ -68,23 +60,7 @@ float GlsIsGlass(float3 c)
     return saturate((0.22 - lum) / 0.22) * (1.0 - saturate((hi3 - lo3) / max(hi3, 0.08) * 2.5 - 0.75));
 }
 
-// A crack d metres off, w metres wide, drawn with px metres to the pixel: never thinner than a pixel
-// (it would shimmer and vanish at the chase camera), fainter instead.
-float GlsLine(float d, float w, float px)
-{
-    float hw = max(w, px * 1.1) * 0.5;
-    return (1.0 - smoothstep(hw, hw + px * 0.75, abs(d))) * saturate(0.45 + 0.55 * w / max(px, 1e-5));
-}
 
-// The one ray of the sector (of n round the strike) that angle a falls in: the angle off it; kh = the sector.
-float GlsRay(float a, float n, float seed, out float kh)
-{
-    float D = 6.2831853 / n;
-    float k = floor(a / D);
-    kh = k - n * floor(k / n);
-    float j = GlsH1(kh * 7.31 + seed * 53.0);
-    return a - (k + 0.5 + (j - 0.5) * 0.55) * D;
-}
 
 // A STONE CHIP: the pit, a broken cone ring, five short legs (6 cm across).
 float GlsChip(float2 q, float seed, float px)
@@ -133,42 +109,7 @@ float GlsWeb(float2 q, float seed, float px, float R, out float2 cell)
     return m;
 }
 
-// The nearest piece of a broken sheet: x = how far its edge is (0 on a crack, in cells), y = which piece.
-float2 GlsCells(float2 p)
-{
-    float2 ip = floor(p), fp = frac(p);
-    float f1 = 8.0, f2 = 8.0, id = 0.0;
-    for (int y = -1; y <= 1; y++)
-        for (int x = -1; x <= 1; x++)
-        {
-            float2 g = float2(x, y);
-            float2 o = float2(GlsH2(ip + g), GlsH2(ip + g + 17.3));
-            float2 d = g + o - fp;
-            float dd = dot(d, d);
-            if (dd < f1) { f2 = f1; f1 = dd; id = GlsH2(ip + g + 5.1); }
-            else if (dd < f2) f2 = dd;
-        }
-    return float2(sqrt(f2) - sqrt(f1), id);
-}
 
-// A CRAZED TEMPERED PANE: white cubes (resolved close up, their mean at a distance), the coarser
-// cracks between the pieces, the runs out of the strike, powder and a small hole where it was struck.
-float3 GlsCrazed(float2 q, float seed, float px)
-{
-    float r = length(q);
-    float2 c1 = GlsCells(q * 95.0 + seed * 7.0);
-    float2 c2 = GlsCells(q * 30.0 + seed * 3.0);
-    float fine = 1.0 - smoothstep(0.0025, 0.007, px);
-    float v = lerp(0.70, lerp(0.58, 0.88, c1.y) * smoothstep(0.0, 0.14, c1.x) + 0.10, fine);
-    v *= lerp(1.0, 0.66, GlsLine(c2.x / 60.0, 0.003, px));
-    v *= lerp(0.92, 1.06, c2.y);
-    float kh;
-    float da = GlsRay(atan2(q.y, q.x) + seed * 6.2831853, 19.0, seed, kh);
-    v *= lerp(1.0, 0.55, GlsLine(r * da, 0.0036, px) * step(0.03, r) * step(r, 0.22 + 0.5 * GlsH1(kh + seed)));
-    v = lerp(v, 0.93, 1.0 - smoothstep(0.02, 0.075, r));
-    v = lerp(v, 0.04, 1.0 - smoothstep(0.008, 0.02 + px, r));
-    return float3(0.93, 1.0, 0.975) * v;
-}
 
 void GlsBox(float3 o, float3 d, float3 inv, float3 c, float3 h, float shade, inout float tBest, inout float3 col)
 {
@@ -217,6 +158,8 @@ float3 GlsCabin(float3 o, float3 d)
         t = tz;
         col = lerp(trim, glassC, smoothstep(belt + 0.04, belt + 0.12, o.y + d.y * tz));
     }
+    // round 3: the dark cabin (the cockpit model is drawn over it within reach, DamageCabin)
+    if (_PSXGlsDark > 0.5) return col * lerp(1.0, 0.6, saturate(t / 1.6));
     for (int s = -1; s <= 1; s += 2)
     {
         float x = s * hx * 0.42;
@@ -305,14 +248,19 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
     {
         float2 ix = float2(dqy.y, -dqy.x) / det, iy = float2(-dqx.y, dqx.x) / det;
         float out1 = 0.0, out2 = 0.0;
+        float near[6];
         for (int k = 0; k < 6; k++)
         {
             float a = k * 1.0471976 + imp.z * 3.0;
             float2 e = float2(cos(a), sin(a));
             float2 d1 = e * 0.035, d2 = float2(e.x * 0.866 - e.y * 0.5, e.x * 0.5 + e.y * 0.866) * 0.09;
-            out1 += 1.0 - step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d1) + uvy * dot(iy, d1), uvx, uvy)));
+            near[k] = 1.0 - step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d1) + uvy * dot(iy, d1), uvx, uvy)));
+            out1 += near[k];
             out2 += 1.0 - step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d2) + uvy * dot(iy, d2), uvx, uvy)));
         }
+        // round 3: paint 3.5 cm away on two OPPOSITE sides - a thin dark strip (a mirror sail's outline, a trim
+        // line), not a pane (a pane's edge has paint on one side only)
+        if (_PSXGlsThin > 0.5 && max(near[0] * near[3], max(near[1] * near[4], near[2] * near[5])) > 0.5) return;
         out1 /= 6.0;
         out2 /= 6.0;
         dEst = out1 > 0.0 ? 0.035 * cos(3.14159 * min(out1, 0.5)) : (out2 > 0.0 ? 0.09 * cos(3.14159 * min(out2, 0.5)) : 0.12);

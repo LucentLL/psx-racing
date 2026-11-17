@@ -78,7 +78,7 @@ namespace PSXRacing
                 if (!any && gloss >= 1f && !r.HasPropertyBlock()) continue;
                 var t = r.transform;
                 DamageLook.WriteBlock(r, look, any, t.localToWorldMatrix, t.rotation, cW, half,
-                                      frame.forward, frame.right, frame.up, seed, cabin);
+                                      frame.forward, frame.right, frame.up, seed, cabin, def);
                 r.GetPropertyBlock(block);
                 block.SetFloat(PaintGloss.GlossId, gloss);
                 // a broken lamp: its lens is found in the model's lamp map, as the drive's CarLights binds it
@@ -94,6 +94,8 @@ namespace PSXRacing
                 for (int i = 0; i < wheels.Length && i < 4; i++)
                     WheelScuff.Write(wheels[i], look.rash[i], look.rashSeed[i], radii != null && i < radii.Length ? radii[i] : 0.3f);
             Dresses++;
+            // round 3: the cockpit model through a shattered pane (DamageCabin)
+            DamageCabin.ForView(frame, body, boxCentre, boxSize, def, stretchZ, look, car != null ? car.specId : null);
             Watch(frame, body, boxCentre, boxSize, car, def, stretchZ, wheels, radii);
             return any || look.rash != Vector4.zero;
         }
