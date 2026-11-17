@@ -286,6 +286,14 @@ namespace PSXRacing.EditorTools
                 var e = map.edges[at[i].e];
                 float mph = LineGateRules.Mph(e), lim = LineGateRules2.GradeBreakPct(mph);
                 if (k <= lim || i - last < 12) continue;
+                // a break keeps its whole grade change over 20 / 40 m chords too; a vertical curve drawn in
+                // facets (the profile's knots) reads as the curve it is there (the same test as KINK's)
+                if (i >= 40 && i <= n - 41)
+                {
+                    float g20b = (ys[i + 20] - ys[i]) / 20f - (ys[i] - ys[i - 20]) / 20f, g40 = (ys[i + 40] - ys[i]) / 40f - (ys[i] - ys[i - 40]) / 40f;
+                    float k2 = Mathf.Abs(2f * g20b - g40) * 100f;
+                    if (k2 <= lim) { lgGradeFacets++; continue; }
+                }
                 // the local maximum
                 bool peak = true;
                 for (int q = Math.Max(20, i - 6); q <= Math.Min(n - 21, i + 6) && peak; q++)
