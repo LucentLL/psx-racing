@@ -61,6 +61,9 @@ namespace PSXRacing
             public string candidate;
             public string generator;
             public string cost;          // fwy | city
+            /// <summary>1 = HELD BACK (cpfix 11-17): the file ships but its venue races its fixed line until its own
+            /// proof passes (PSX_CP_HELD=1 races it as a checkpoint race anyway, for the checks).</summary>
+            public int held;
             public int loop;
             public float lengthM, startM, finishM;
             public Chain[] chains;
@@ -139,9 +142,12 @@ namespace PSXRacing
         public static bool Has(string routeId) => Load(routeId) != null;
 
         /// <summary>The chain for the raced direction ("rev" for a reverse twin), or null.</summary>
+        /// <summary>A held-back file (Data.held) is not raced as a checkpoint race unless PSX_CP_HELD=1.</summary>
+        public static bool IsHeld(Data d) => d != null && d.held != 0 && System.Environment.GetEnvironmentVariable("PSX_CP_HELD") != "1";
+
         public static Chain ChainFor(Data d, bool reversed)
         {
-            if (d == null || d.chains == null) return null;
+            if (d == null || d.chains == null || IsHeld(d)) return null;
             string want = reversed ? "rev" : "fwd";
             foreach (var c in d.chains) if (c != null && c.dir == want) return c;
             return null;

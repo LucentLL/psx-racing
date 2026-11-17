@@ -136,6 +136,11 @@ namespace PSXRacing
             if (!CheckpointFile.VenueAllowed(venue.id)) return null;
             var d = CheckpointFile.Load(venue.cityRoute);
             if (d == null) return null;
+            if (CheckpointFile.IsHeld(d))
+            {
+                Debug.Log("[Checkpoints] " + venue.cityRoute + ".json is held back: " + venue.id + " races its fixed line (PSX_CP_HELD=1 races it)");
+                return null;
+            }
             var map = CityMap.Get();
             if (!CheckpointFile.Matches(d, map, out string why))
             {
