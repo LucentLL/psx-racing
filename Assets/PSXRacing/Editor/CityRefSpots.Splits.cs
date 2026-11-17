@@ -36,6 +36,16 @@ namespace PSXRacing.EditorTools
                 // the city kit as THIS code's slot table has it (a shared sandbox's kit may be another branch's:
                 // a road profile whose slots it lacks would draw with a fallback texture)
                 PSXRacingBuilder.EnsureCityTextures();
+                // (the road-lines round, 11-17) THE PC LOOK: PSX_HD=1 draws the HD road base as the PC build does
+                // (TextureHD; the base tiled through the ribbon's uv); PSX_SPLITS_HDIMPORT=1 first re-imports the HD
+                // sets and writes the road table as PSXBuildWin64 does, so a new road texture (tw7t) has its paint mask
+                if (System.Environment.GetEnvironmentVariable("PSX_HD") == "1" && System.Environment.GetEnvironmentVariable("PSX_SPLITS_HDIMPORT") == "1")
+                {
+                    string herr = TextureHDTool.Import(out int hsets);
+                    TextureHD.ResetMap();
+                    log.Append($"HD import: {(herr ?? hsets + " sets")}\n");
+                }
+                log.Append($"PSX_HD {System.Environment.GetEnvironmentVariable("PSX_HD") ?? "-"}\n");
                 var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
                 if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
                 camK = cam; fovWas = cam.fieldOfView;
