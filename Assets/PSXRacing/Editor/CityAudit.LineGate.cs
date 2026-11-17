@@ -86,11 +86,14 @@ namespace PSXRacing.EditorTools
         public const float ShiftMinM = 0.30f;
 
         /// <summary>The deflection a line may take at a point with no curve.
-        /// AASHTO Green Book 3.3.13: a deflection without a curve only where
-        /// it is too small to show (it gives curve LENGTHS for 5 degrees and
-        /// under so that no kink appears). State practice puts numbers on it;
-        /// the one used here is FDOT Design Manual 210.8.1: 2 deg 00' at 40 mph
-        /// or less, 0 deg 45' at 45 mph or more.</summary>
+        /// AASHTO Green Book 3.3.13 gives curve LENGTHS for deflections of 5
+        /// degrees and under so that no kink shows (500 ft at 5 degrees, 100 ft
+        /// more for each degree less); the states put a number on the angle
+        /// that needs no curve at all. Read on 2026-11-16: FDOT Plans
+        /// Preparation Manual vol. 1 Table 2.8.1a (arterials and collectors
+        /// 2 deg 00' at 40 mph or less, 0 deg 45' at 45 mph or more; freeways
+        /// 0 deg 45'); TxDOT Roadway Design Manual 4.7.2 (1 degree low speed,
+        /// 30 minutes high speed). The gate uses FDOT's, the looser.</summary>
         public static float KinkDeg(float mph) => mph >= 42.5f ? 0.75f : 2f;
 
         /// <summary>AASHTO Green Book (2018) Table 3-7, the minimum radius by
@@ -163,16 +166,16 @@ namespace PSXRacing.EditorTools
         /// <summary>One piece of drawn pavement in plan (a ribbon span's outer quad, a gore quad, a fan
         /// triangle, any other triangle of the roads mesh): what lies beside a ribbon's edge.
         /// edge: the ribbon's, -1 another emitter's, -2 a gore, -3 a fan.</summary>
-        struct LgPoly { public float x0, z0, x1, z1, x2, z2, x3, z3, y; public int edge; }
+        struct LgPoly { public float x0, z0, x1, z1, x2, z2, x3, z3, y, sA, sB; public int edge; }
         static readonly List<LgPoly> lgPolys = new List<LgPoly>(1 << 18);
         static readonly Dictionary<long, List<int>> lgPolyGrid = new Dictionary<long, List<int>>(1 << 16);
         const float LgPolyCell = 16f;
         static int lgUntappedTris;
 
-        static void LgAddPoly(int edge, double x0, double z0, double x1, double z1, double x2, double z2, double x3, double z3, float y)
+        static void LgAddPoly(int edge, double x0, double z0, double x1, double z1, double x2, double z2, double x3, double z3, float y, float sA = 0f, float sB = 0f)
         {
             int id = lgPolys.Count;
-            lgPolys.Add(new LgPoly { edge = edge, x0 = (float)x0, z0 = (float)z0, x1 = (float)x1, z1 = (float)z1, x2 = (float)x2, z2 = (float)z2, x3 = (float)x3, z3 = (float)z3, y = y });
+            lgPolys.Add(new LgPoly { edge = edge, sA = sA, sB = sB, x0 = (float)x0, z0 = (float)z0, x1 = (float)x1, z1 = (float)z1, x2 = (float)x2, z2 = (float)z2, x3 = (float)x3, z3 = (float)z3, y = y });
             double mnx = Math.Min(Math.Min(x0, x1), Math.Min(x2, x3)), mxx = Math.Max(Math.Max(x0, x1), Math.Max(x2, x3));
             double mnz = Math.Min(Math.Min(z0, z1), Math.Min(z2, z3)), mxz = Math.Max(Math.Max(z0, z1), Math.Max(z2, z3));
             int cx0 = (int)Math.Floor(mnx / LgPolyCell), cx1 = (int)Math.Floor(mxx / LgPolyCell), cz0 = (int)Math.Floor(mnz / LgPolyCell), cz1 = (int)Math.Floor(mxz / LgPolyCell);
@@ -283,7 +286,7 @@ namespace PSXRacing.EditorTools
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
         static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane;
-        static double lgStretchedM;
+        static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
 
@@ -333,7 +336,7 @@ namespace PSXRacing.EditorTools
                     int i = b + sp.bucketV, il = i + 4 * (nq - 1);
                     LgAddPoly(sp.edge, (double)o.x + verts[i].x, (double)o.z + verts[i].z, (double)o.x + verts[i + 1].x, (double)o.z + verts[i + 1].z,
                               (double)o.x + verts[il + 2].x, (double)o.z + verts[il + 2].z, (double)o.x + verts[il + 3].x, (double)o.z + verts[il + 3].z,
-                              o.y + 0.5f * (verts[i].y + verts[il + 2].y));
+                              o.y + 0.5f * (verts[i].y + verts[il + 2].y), sp.sA, sp.sB);
                     continue;
                 }
                 var e = map.edges[sp.edge];
@@ -408,9 +411,9 @@ namespace PSXRacing.EditorTools
                     float squeeze = texW > 1e-4f ? wq / texW : 1f;
                     if (!painted && wq > 0.03f && sB - sA > 0.05f)
                     {
-                        if (wq < 0.5f && squeeze < 0.34f)
+                        if (wq < 0.5f && squeeze < 0.34f) { lgStripeQuads++; lgStripeM += sB - sA; }
+                        else if (wq >= 1.5f && (squeeze > 1.25f || squeeze < 0.8f))
                             lgGhosts.Add(new LgGhost { edge = sp.edge, s0 = sA, s1 = sB, w = wq, squeeze = squeeze, x = 0.25 * (alx + arx + blx + brx), z = 0.25 * (alz + arz + blz + brz) });
-                        else if (wq >= 1f && (squeeze > 2f || squeeze < 0.5f)) lgStretchedM += sB - sA;
                     }
                     if (dump)
                         spotDump.AppendLine(string.Format(LgInv, "quad\t{0}\t{1:0.00}\t{2:0.00}\t{3}\t{4:0.000}\t{5:0.000}\t{6:0.0000}\t{7:0.0000}\t{8}\t{9:0.00}\t{10:0.00}\t{11:0.00}\t{12:0.00}\t{13:x}\t{14:x}",
@@ -419,14 +422,14 @@ namespace PSXRacing.EditorTools
                 if (any)
                 {
                     (lgSpans[sp.edge] ??= new List<LgSpan>(16)).Add(span);
-                    LgAddPoly(sp.edge, span.alx, span.alz, span.blx, span.blz, span.brx, span.brz, span.arx, span.arz, 0.25f * (span.yAL + span.yBL + span.yBR + span.yAR));
+                    LgAddPoly(sp.edge, span.alx, span.alz, span.blx, span.blz, span.brx, span.brz, span.arx, span.arz, 0.25f * (span.yAL + span.yBL + span.yBR + span.yAR), sp.sA, sp.sB);
                 }
                 else
                 {
                     int i = b + sp.bucketV, il = i + 4 * (nq - 1);
                     LgAddPoly(sp.edge, (double)o.x + verts[i].x, (double)o.z + verts[i].z, (double)o.x + verts[i + 1].x, (double)o.z + verts[i + 1].z,
                               (double)o.x + verts[il + 2].x, (double)o.z + verts[il + 2].z, (double)o.x + verts[il + 3].x, (double)o.z + verts[il + 3].z,
-                              o.y + 0.5f * (verts[i].y + verts[il + 2].y));
+                              o.y + 0.5f * (verts[i].y + verts[il + 2].y), sp.sA, sp.sB);
                 }
             }
             foreach (var fa in tap.fans)
@@ -441,16 +444,26 @@ namespace PSXRacing.EditorTools
                 lgFans.Add(f);
             }
             // every triangle the tap does not name (fans' own triangles, pockets, merge patches, anything else in the roads mesh)
-            var tris = tm.roads.triangles;
-            for (int q = 0; q + 2 < tris.Length; q += 3)
+            for (int sm = 0; sm < tm.roadSlots.Length; sm++)
             {
-                int a = tris[q], b2 = tris[q + 1], c = tris[q + 2];
-                bool fan = tapped[a] && tapped[b2] && tapped[c];
-                // a tapped quad's own two triangles are its span's polygon already; a fan's are added here
-                if (fan && !LgIsFanVert(tap, tm, a)) continue;
-                if (!fan) lgUntappedTris++;
-                LgAddPoly(fan ? -3 : -1, (double)o.x + verts[a].x, (double)o.z + verts[a].z, (double)o.x + verts[b2].x, (double)o.z + verts[b2].z,
-                          (double)o.x + verts[c].x, (double)o.z + verts[c].z, (double)o.x + verts[c].x, (double)o.z + verts[c].z, o.y + (verts[a].y + verts[b2].y + verts[c].y) / 3f);
+                // the driving surfaces only: the roads mesh also carries the structures' concrete (parapets, fascias)
+                int slot = (int)tm.roadSlots[sm];
+                if (slot < (int)CityMeshes.Slot.RoadFirst || slot >= (int)CityMeshes.Slot.Sidewalk) continue;
+                var tris = tm.roads.GetTriangles(sm);
+                for (int q = 0; q + 2 < tris.Length; q += 3)
+                {
+                    int a = tris[q], b2 = tris[q + 1], c = tris[q + 2];
+                    bool fan = tapped[a] && tapped[b2] && tapped[c];
+                    // a tapped quad's own two triangles are its span's polygon already; a fan's are added here
+                    if (fan && !LgIsFanVert(tap, tm, a)) continue;
+                    // a level triangle only: a face standing up (a slab's side) is not pavement
+                    float ux = verts[b2].x - verts[a].x, uy = verts[b2].y - verts[a].y, uz = verts[b2].z - verts[a].z, vx = verts[c].x - verts[a].x, vy = verts[c].y - verts[a].y, vz = verts[c].z - verts[a].z;
+                    float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+                    if (ny * ny < 0.5f * (nx * nx + ny * ny + nz * nz)) continue;
+                    if (!fan) lgUntappedTris++;
+                    LgAddPoly(fan ? -3 : -1, (double)o.x + verts[a].x, (double)o.z + verts[a].z, (double)o.x + verts[b2].x, (double)o.z + verts[b2].z,
+                              (double)o.x + verts[c].x, (double)o.z + verts[c].z, (double)o.x + verts[c].x, (double)o.z + verts[c].z, o.y + (verts[a].y + verts[b2].y + verts[c].y) / 3f);
+                }
             }
         }
 
@@ -1154,8 +1167,8 @@ namespace PSXRacing.EditorTools
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
             lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = 0; lgStretchedM = 0;
-            lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null;
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
             var noBld = new Dictionary<long, List<CityBuildings.B>>();
@@ -1210,6 +1223,7 @@ namespace PSXRacing.EditorTools
                     if (tm == null) continue;
                     lgTiles++;
                     LgCollect(map, tx, tz, tm, spotDump, spot, spotR);
+                    LgCollect2(tm);
                     foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.banks, tm.buildings, tm.buildingCollider, tm.lampPosts })
                         if (m != null) UnityEngine.Object.DestroyImmediate(m);
                     if (lgTiles % 500 == 0) Debug.Log($"[LineGate] {lgTiles} of {tiles.Count} tiles, {clock.Elapsed.TotalSeconds:0} s");
@@ -1231,12 +1245,21 @@ namespace PSXRacing.EditorTools
                 var pts = LgChainOf(st, members, out _);
                 if (pts.Count < 2) continue;
                 chains++;
+                // a channelizing line (wide solid white: a gore's two sides, a turning roadway's edge through a median)
+                // follows its turning roadway, not the road it is painted on: its shape is not judged in that road's frame
+                bool channel = st.role == 2 && st.tk == LgSolidWhite && st.pw >= 0.18f;
+                if (channel) { lgChannelChains++; continue; }
                 LgShape(map, pts, members, rs);
+                LgGradeBreaks(map, pts, members[0]);
                 chainKm += rs.Count / 1000.0;
             }
             LgWidths(map);
             LgEnds(map);
             LgSurface(map);
+            LgSteps(map, t);
+            LgSolids(map);
+            LgJunctions(map, t, scope);
+            LgBridges(map, t, scope);
             Line($"  {lgStrands.Count} strands in {chains} chains ({chainKm:0} km of painted line and pavement edge walked); {clock.Elapsed.TotalSeconds - buildS:0} s to judge");
 
             // out-of-scope edges (a box run reads neighbours only in part): keep what lies on a road in scope
@@ -1247,21 +1270,31 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(root, "city_linegate.txt"), outLog.ToString());
         }
 
-        /// <summary>SURFACE: pavement texels squeezed into a thin stripe (a
-        /// line's column drawn with a whole lane band's texels: it shows as a
-        /// streak along the lanes), by run.</summary>
+        /// <summary>SURFACE: the pavement between the lines drawn with its texture stretched or squeezed
+        /// (a strip 1.5 m wide or more whose texels cover more than 1.25x or less than 0.8x their own
+        /// width). The PC build lays its HD road base through these same UVs (TextureHDMap.Road), so the
+        /// base's seams and cracks run stretched and, where the strip tapers, diagonally across the lanes:
+        /// the dark stripes of the owner's North Tryon picture. By run along each edge.</summary>
         static void LgSurface(CityMap map)
         {
-            lgGhosts.Sort((a, b) => a.edge != b.edge ? a.edge.CompareTo(b.edge) : a.s0.CompareTo(b.s0));
+            lgGhosts.Sort((a, b) => a.edge != b.edge ? a.edge.CompareTo(b.edge) : a.s0 != b.s0 ? a.s0.CompareTo(b.s0) : a.x.CompareTo(b.x));
             int i = 0;
             while (i < lgGhosts.Count)
             {
-                int j = i; float len = 0f; var g0 = lgGhosts[i];
-                while (j < lgGhosts.Count && lgGhosts[j].edge == g0.edge && lgGhosts[j].s0 - lgGhosts[Math.Max(i, j - 1)].s1 < 15f) { len += lgGhosts[j].s1 - lgGhosts[j].s0; j++; }
-                var gm = lgGhosts[(i + j - 1) / 2];
-                if (len >= 3f)
-                    lgFails.Add(new LgFail { cls = "SURFACE", sub = "pavement texels squeezed into a stripe", edge = g0.edge, s = g0.s0, s1 = lgGhosts[j - 1].s1, x = gm.x, z = gm.z, measure = len, limit = 0f, unit = "m",
-                                             what = $"{len:0} m of {g0.w * 100f:0} cm strips drawn from a band {g0.w / Mathf.Max(1e-3f, g0.squeeze):0.0} m wide (squeezed {1f / Mathf.Max(1e-3f, g0.squeeze):0}x): a streak along the lanes" });
+                int j = i; var g0 = lgGhosts[i]; float sMax = g0.s1, worst = 1f, wAt = 0f; LgGhost gw = g0;
+                while (j < lgGhosts.Count && lgGhosts[j].edge == g0.edge && lgGhosts[j].s0 <= sMax + 10f)
+                {
+                    var g = lgGhosts[j];
+                    sMax = Mathf.Max(sMax, g.s1);
+                    float off = g.squeeze > 1f ? g.squeeze : 1f / Mathf.Max(1e-3f, g.squeeze);
+                    if (off > worst) { worst = off; wAt = g.w; gw = g; }
+                    j++;
+                }
+                float len = sMax - g0.s0;
+                lgStretchedM += len;
+                if (len >= 5f)
+                    lgFails.Add(new LgFail { cls = "SURFACE", sub = "pavement texture stretched", edge = g0.edge, s = g0.s0, s1 = sMax, x = gw.x, z = gw.z, measure = worst, limit = 1.25f, unit = "x",
+                                             what = $"{len:0} m where a {wAt:0.0} m strip of pavement is drawn with its texture {(gw.squeeze > 1f ? "stretched" : "squeezed")} {worst:0.0}x (the HD road base's seams run off the lanes there)" });
                 i = j;
             }
         }
@@ -1282,8 +1315,14 @@ namespace PSXRacing.EditorTools
                 {
                     case "SJOG": case "SHIFT": f.vis = sp * Mathf.Clamp(f.limit / Mathf.Max(1f, f.measure), 1f, 20f) * Mathf.Clamp(f.limit / LineGateRules.TaperRate(f.mph), 0.05f, 8f); break;
                     case "KINK": f.vis = sp * Mathf.Clamp(f.measure / Mathf.Max(0.1f, f.limit), 1f, 20f) * 0.25f; break;
+                    case "SURFACE": f.vis = sp * Mathf.Clamp(f.measure, 1f, 4f) * 0.6f; break;
                     case "WIDTH": f.vis = sp * Mathf.Abs(f.measure - f.limit) * 0.5f; break;
                     case "CONT": f.vis = sp * (f.measure > 0f ? 2f + 4f * f.measure : 1.5f); break;
+                    case "STEP": f.vis = sp * sp * (f.unit == "mm" ? Mathf.Clamp(f.measure / 12f, 0.2f, 6f) : Mathf.Clamp(f.measure / Mathf.Max(0.1f, f.limit), 1f, 10f)); break;
+                    case "BARRIER": f.vis = sp * (3f + 4f * f.measure); break;
+                    case "MEDIAN": f.vis = sp * (2f + 3f * f.measure); break;
+                    case "JUNCTION": f.vis = sp * (f.sub.StartsWith("solid") ? 2.5f : f.sub.StartsWith("stop") ? 1.5f + f.measure : 1.2f); break;
+                    case "BRIDGE": f.vis = sp * 3f; break;
                     default: f.vis = sp * 0.5f; break;
                 }
                 if (f.tier == CityTier.T3) f.vis *= 0.5f;
@@ -1359,14 +1398,55 @@ namespace PSXRacing.EditorTools
                 rt.Append('\n');
             }
             File.WriteAllText(Path.Combine(root, "city_linegate_roads_totals.tsv"), rt.ToString());
-            // the worst
+            // the worst: SPOTS (the failures of every class within 40 m are one spot; its score the most
+            // visible of them, a little more for each further class there)
             placeRep.Sort((a, b) => b.vis.CompareTo(a.vis));
-            Line("THE WORST 60 PLACES (by what a driver sees: speed x how far past the limit x size):");
-            for (int i = 0; i < Math.Min(60, placeRep.Count); i++)
+            var spots = new List<(LgFail top, List<LgFail> all)>();
             {
-                var f = placeRep[i];
-                Line($"  {i + 1,2}. {f.cls} / {f.sub} - {f.road} e{f.edge} s {f.s:0}-{f.s1:0} ({LatLon((float)f.x, (float)f.z)}; x {f.x:0.0} z {f.z:0.0}) {f.mph:0} mph: {f.what} [{f.lines} line(s)]");
+                var sg = new Dictionary<long, List<int>>();
+                foreach (var f in placeRep)
+                {
+                    int cx = (int)Math.Floor(f.x / 40.0), cz = (int)Math.Floor(f.z / 40.0);
+                    int found = -1;
+                    for (int dx = -1; dx <= 1 && found < 0; dx++)
+                        for (int dz = -1; dz <= 1 && found < 0; dz++)
+                            if (sg.TryGetValue(((long)(cx + dx) << 32) ^ (uint)(cz + dz), out var l))
+                                foreach (int si in l) { var q = spots[si].top; if ((q.x - f.x) * (q.x - f.x) + (q.z - f.z) * (q.z - f.z) <= 40.0 * 40.0) { found = si; break; } }
+                    if (found < 0)
+                    {
+                        found = spots.Count; spots.Add((f, new List<LgFail> { f }));
+                        long k = ((long)cx << 32) ^ (uint)cz;
+                        if (!sg.TryGetValue(k, out var l2)) sg[k] = l2 = new List<int>(2);
+                        l2.Add(found);
+                    }
+                    else spots[found].all.Add(f);
+                }
             }
+            float Score((LgFail top, List<LgFail> all) sp)
+            {
+                var cls = new HashSet<string>(); foreach (var f in sp.all) cls.Add(f.cls);
+                return sp.top.vis * (1f + 0.15f * (cls.Count - 1));
+            }
+            spots.Sort((x, y) => Score(y).CompareTo(Score(x)));
+            Line($"THE WORST 60 SPOTS of {spots.Count} (a spot = every failure within 40 m; by what a driver sees: speed x how far past the limit x size):");
+            var wt = new StringBuilder("rank\tid\tx\tz\tedge\ts\troad\tmph\tscore\tlatlon\tclasses\ttext1\ttext2\ttext3\n");
+            var shotList = new StringBuilder("id\tx\tz\tedge\ts\tdir\n");
+            int nWorst = 80;
+            if (int.TryParse(Environment.GetEnvironmentVariable("PSX_LG_PLANS"), out int nw)) nWorst = nw;
+            for (int i = 0; i < spots.Count; i++)
+            {
+                var sp = spots[i]; var f = sp.top;
+                var cls = new List<string>(); foreach (var q in sp.all) if (!cls.Contains(q.cls)) cls.Add(q.cls);
+                if (i < 60) Line($"  {i + 1,2}. [{string.Join(" + ", cls)}] {f.road} e{f.edge} s {f.s:0}-{f.s1:0} ({LatLon((float)f.x, (float)f.z)}; x {f.x:0.0} z {f.z:0.0}) {f.mph:0} mph: {f.what}");
+                if (i >= Math.Max(nWorst, 60) && i >= 400) break;
+                string T(int k) => k < sp.all.Count ? (sp.all[k].cls + ": " + sp.all[k].what).Replace('\t', ' ') : "";
+                wt.Append(i + 1).Append('\t').Append("w" + (i + 1).ToString("000")).Append('\t').Append(f.x.ToString("0.0", LgInv)).Append('\t').Append(f.z.ToString("0.0", LgInv)).Append('\t').Append(f.edge).Append('\t').Append((0.5f * (f.s + f.s1)).ToString("0.0", LgInv)).Append('\t')
+                  .Append(f.road).Append('\t').Append(f.mph.ToString("0", LgInv)).Append('\t').Append(Score(sp).ToString("0.0", LgInv)).Append('\t').Append(LatLon((float)f.x, (float)f.z)).Append('\t').Append(string.Join("+", cls)).Append('\t')
+                  .Append(T(0)).Append('\t').Append(T(1)).Append('\t').Append(T(2)).Append('\n');
+                if (i < nWorst) shotList.Append("w" + (i + 1).ToString("000")).Append('\t').Append(f.x.ToString("0.0", LgInv)).Append('\t').Append(f.z.ToString("0.0", LgInv)).Append('\t').Append(f.edge).Append('\t').Append((0.5f * (f.s + f.s1)).ToString("0.0", LgInv)).Append("\t0\n");
+            }
+            File.WriteAllText(Path.Combine(root, "city_linegate_worst.tsv"), wt.ToString());
+            File.WriteAllText(Path.Combine(root, "city_linegate_shots.tsv"), shotList.ToString());
             // ---- CSV: every failure ----
             var csv = new StringBuilder("class,kind,place,road,tier,edge,node,s0,s1,x,z,lat,lon,mph,measure,limit,unit,visibility,cause,line,absorbed,what\n");
             foreach (var f in order)
@@ -1398,7 +1478,7 @@ namespace PSXRacing.EditorTools
             if (int.TryParse(Environment.GetEnvironmentVariable("PSX_LG_PLANS"), out int np)) nPlans = np;
             var want = new List<(double x, double z, string id)>();
             if (spotDump != null) want.Add((spot.x, spot.y, "spot"));
-            for (int i = 0; i < Math.Min(nPlans, placeRep.Count); i++) want.Add((placeRep[i].x, placeRep[i].z, "w" + (i + 1)));
+            for (int i = 0; i < Math.Min(nPlans, spots.Count); i++) want.Add((spots[i].top.x, spots[i].top.z, "w" + (i + 1).ToString("000")));
             string extra = Environment.GetEnvironmentVariable("PSX_LG_PLAN_AT");   // "x,z,id;x,z,id"
             if (!string.IsNullOrWhiteSpace(extra))
                 foreach (var q in extra.Split(';')) { var c = q.Split(','); if (c.Length >= 3) want.Add((double.Parse(c[0], LgInv), double.Parse(c[1], LgInv), c[2])); }
@@ -1470,8 +1550,9 @@ namespace PSXRacing.EditorTools
                         if (CityProps.IsFood(b.kind)) fd.Append(b.kind).Append('\t').Append(CityProps.FoodName(b.kind)).Append('\t').Append(b.pos.x.ToString("0.0", LgInv)).Append('\t').Append(b.pos.y.ToString("0.0", LgInv)).Append('\n');
                 File.WriteAllText(Path.Combine(root, "city_linegate_food.tsv"), fd.ToString());
             }
+            Line($"  not judged for shape: {lgChannelChains} channelizing lines (wide solid white; they follow a turning roadway)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column");
-            Line($"  SURFACE census: {lgGhosts.Count} squeezed stripe quads, {lgStretchedM:0} m of pavement strips stretched or squeezed more than 2x, {lgDoubleSpans} spans drawn twice");
+            Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
         }
     }
 }
