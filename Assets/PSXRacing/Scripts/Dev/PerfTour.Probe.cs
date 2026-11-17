@@ -47,6 +47,8 @@ namespace PSXRacing
     ///   kw:NAME | nkw:NAME   a global shader keyword on | off
     ///   q:aniso:0 q:mip:1 q:lod:0.5   QualitySettings
     ///   add:blit | add:halation   the display blit (PSX/Blit, FXAA) / the halation's glow, drawn too
+    /// &amp;onscreen=1 (a windowed run, no offscreen=): the frame as the window draws it - every camera,
+    /// the display's blit and the present - by its own time and Unity's GPU time; res: and add: are skipped.
     /// Output: &lt;tag&gt;_&lt;id&gt;_probe.txt (a table) and _probe.csv.
     /// </summary>
     public partial class PerfTour
@@ -166,8 +168,10 @@ namespace PSXRacing
         class ProbeVariant { public string name; public List<ProbeOp> ops = new List<ProbeOp>(); public bool snap; }
 
         // what a block's frames record
-        const int PM_FRAME = 0, PM_CALL = 1, PM_WAIT = 2, PM_LATE = 3, PM_REFL = 4, PM_TRIS = 5, PM_SETPASS = 6, PM_UPD = 7, PM_FIX = 8, PM_SHADOW = 9, PM_N = 10;
-        static readonly string[] PmNames = { "frame", "viewcall", "gpuwait", "late", "carrefl", "trisM", "setpass", "upd", "fixed", "shadowcpu" };
+        const int PM_FRAME = 0, PM_CALL = 1, PM_WAIT = 2, PM_LATE = 3, PM_REFL = 4, PM_TRIS = 5, PM_SETPASS = 6, PM_UPD = 7, PM_FIX = 8, PM_SHADOW = 9,
+                  PM_GPU = 10, PM_RT = 11, PM_REND = 12, PM_N = 13;
+        static readonly string[] PmNames = { "frame", "viewcall", "gpuwait", "late", "carrefl", "trisM", "setpass", "upd", "fixed", "shadowcpu", "gpuFT", "renderthreadFT", "rendersubmit" };
+        readonly FrameTiming[] probeFt = new FrameTiming[1];
 
         /// <summary>The default variants: every feature of the frame once.</summary>
         const string DefaultProbe =
@@ -467,6 +471,14 @@ namespace PSXRacing
             float fix = 0f; foreach (int k in iFix) fix += Sys(k);
             into[PM_FIX].Add(fix);
             into[PM_SHADOW].Add((float)PerfClock.Slots[(int)PerfClock.Slot.SunShadowMaps]);
+            // Unity's own timing (a few frames late; none without Frame Timing Stats in the player)
+            FrameTimingManager.CaptureFrameTimings();
+            if (FrameTimingManager.GetLatestTimings(1, probeFt) > 0 && probeFt[0].gpuFrameTime > 0.0)
+            {
+                into[PM_GPU].Add((float)probeFt[0].gpuFrameTime);
+                into[PM_RT].Add((float)probeFt[0].cpuRenderThreadFrameTime);
+            }
+            into[PM_REND].Add(Sys(iRend));
         }
 
         static List<float>[] NewBlock()
@@ -482,7 +494,11 @@ namespace PSXRacing
         {
             var cam = Camera.main;
             if (cam == null) { Say("PROBE " + id + ": no main camera"); yield break; }
-            int reps = 4, settle = 3, frames = 8;
+            // &onscreen=1: the frame as the window draws it (every camera, the display's blit, the present),
+            // measured by its own time and Unity's GPU time - no texture, no wait. A switch then shows on
+            // whichever of the main thread and the GPU bounds the frame.
+            bool onscreen = (Request() ?? "").Contains("onscreen=1");
+            int reps = 4, settle = onscreen ? 10 : 3, frames = onscreen ? 24 : 8;
             if (!string.IsNullOrEmpty(probeCfg))
             {
                 var c = probeCfg.Split(',');
@@ -510,7 +526,8 @@ namespace PSXRacing
             view.cam = cam; view.rt = full; view.screen = screen;
             var outp = cam.GetComponent<PSXCameraOutput>();
             if (outp != null && outp.display != null) view.blitMat = outp.display.material;
-            view.Hold();
+            if (onscreen) { view.enabled = false; ow = Screen.width; oh = Screen.height; full.Release(); screen.Release(); }
+            else view.Hold();
             holder.SetActive(true);
 
             // the variants
@@ -525,6 +542,7 @@ namespace PSXRacing
                 foreach (var os in s.Substring(eq + 1).Split(','))
                 {
                     if (os.Trim() == "snap") { pv.snap = true; continue; }
+                    if (onscreen && (os.Trim().StartsWith("res:") || os.Trim().StartsWith("add:"))) continue;   // (they need the offscreen view)
                     var op = MakeOp(os.Trim(), view, made);
                     if (op != null) pv.ops.Add(op);
                 }
@@ -547,19 +565,23 @@ namespace PSXRacing
             probeInto = baseAll;
             for (int i = 0; i < frames * 6; i++) yield return null;
             probeInto = null;
-            var basePng = view.Snap(1916);
-            PSXPerfTour_Post(tag + "_" + id + "_probe_base.jpg", basePng, basePng.Length);
+            if (!onscreen)
+            {
+                var basePng = view.Snap(1916);
+                PSXPerfTour_Post(tag + "_" + id + "_probe_base.jpg", basePng, basePng.Length);
+            }
 
             var ci = CultureInfo.InvariantCulture;
             var table = new StringBuilder();
             var csv = new StringBuilder("variant,what,metric,base,variant_value,delta,delta_sd,reps\n");
             var p = car != null ? car.transform.position : cam.transform.position;
-            table.AppendLine($"PROBE {id} mode {probeArg} view {ow}x{oh} {ChaseCamera.Current} at {p.x:0},{p.z:0}; {reps} x ({settle} settle + {frames} frames) each way; hour {(RaceHandoff.TimeOfDayIndex >= 0 && RaceHandoff.TimeOfDayIndex < TimeOfDay.All.Length ? TimeOfDay.All[RaceHandoff.TimeOfDayIndex].name : "?")} weather {Seasons.CurrentWeather}");
+            table.AppendLine($"PROBE {id} mode {probeArg}{(onscreen ? " ON SCREEN" : " offscreen")} view {ow}x{oh} {ChaseCamera.Current} at {p.x:0},{p.z:0}; {reps} x ({settle} settle + {frames} frames) each way; hour {(RaceHandoff.TimeOfDayIndex >= 0 && RaceHandoff.TimeOfDayIndex < TimeOfDay.All.Length ? TimeOfDay.All[RaceHandoff.TimeOfDayIndex].name : "?")} weather {Seasons.CurrentWeather}");
             float[] b0 = new float[PM_N];
             for (int m = 0; m < PM_N; m++) b0[m] = Median(baseAll[m]);
             var fm = baseAll[PM_FRAME]; fm.Sort();
             table.AppendLine($"BASE  frame {b0[PM_FRAME]:0.00} ms (p10 {fm[fm.Count / 10]:0.00} p90 {fm[fm.Count * 9 / 10]:0.00}) = view call {b0[PM_CALL]:0.00} + gpu wait {b0[PM_WAIT]:0.00} + rest {b0[PM_FRAME] - b0[PM_CALL] - b0[PM_WAIT]:0.00} (late scripts {b0[PM_LATE]:0.00} incl. car reflections {b0[PM_REFL]:0.00} and the view; update {b0[PM_UPD]:0.00}; fixed {b0[PM_FIX]:0.00}; shadow maps cpu {b0[PM_SHADOW]:0.00}); triangles {b0[PM_TRIS]:0.00} M set-pass {b0[PM_SETPASS]:0}");
-            table.AppendLine("variant              | d frame ms (sd) | d view call | d gpu wait (sd) | d late | tris M      | set-pass    | what");
+            table.AppendLine($"      Unity timing: GPU {b0[PM_GPU]:0.00} ms, render thread {b0[PM_RT]:0.00} ms, render submit (main thread) {b0[PM_REND]:0.00} ms");
+            table.AppendLine("variant              | d frame ms (sd) | d view call | d gpu wait (sd) | d late | d GPU(Unity) | d submit | tris M      | set-pass    | what");
 
             foreach (var pv in vars)
             {
@@ -576,7 +598,7 @@ namespace PSXRacing
                     probeInto = onB;
                     for (int i = 0; i < frames; i++) yield return null;
                     probeInto = null;
-                    if (pv.snap && r == 0) snap = view.Snap(1916);
+                    if (pv.snap && r == 0 && !onscreen) snap = view.Snap(1916);
                     // back to the baseline
                     for (int k = pv.ops.Count - 1; k >= 0; k--) { try { pv.ops[k].off(); } catch (System.Exception e) { Say("probe: " + pv.name + " off: " + e.Message); } }
                     var offB = NewBlock();
@@ -596,7 +618,8 @@ namespace PSXRacing
                 var what = new StringBuilder();
                 foreach (var op in pv.ops) { if (what.Length > 0) what.Append(" + "); what.Append(op.what); }
                 float tOn = Median(onAll[PM_TRIS]), tOff = Median(offAll[PM_TRIS]), sOn = Median(onAll[PM_SETPASS]), sOff = Median(offAll[PM_SETPASS]);
-                table.AppendLine($"{pv.name,-20} | {Mean(dFrame),7:0.00} ({Sd(dFrame):0.00}) | {Mean(dCall),11:0.00} | {Mean(dWait),7:0.00} ({Sd(dWait):0.00}) | {Mean(dLate),6:0.00} | {tOff:0.00}>{tOn:0.00} | {sOff:0}>{sOn:0} | {what}");
+                float gOn = Median(onAll[PM_GPU]), gOff = Median(offAll[PM_GPU]), rOn = Median(onAll[PM_REND]), rOff = Median(offAll[PM_REND]);
+                table.AppendLine($"{pv.name,-20} | {Mean(dFrame),7:0.00} ({Sd(dFrame):0.00}) | {Mean(dCall),11:0.00} | {Mean(dWait),7:0.00} ({Sd(dWait):0.00}) | {Mean(dLate),6:0.00} | {gOn - gOff,12:0.00} | {rOn - rOff,8:0.00} | {tOff:0.00}>{tOn:0.00} | {sOff:0}>{sOn:0} | {what}");
                 for (int m = 0; m < PM_N; m++)
                 {
                     float on = Median(onAll[m]), off = Median(offAll[m]);
