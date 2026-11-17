@@ -1108,7 +1108,11 @@ namespace PSXRacing.City
                 if (TwinOuterLane(map, add, partner, sp, chA, chB)) { LA = TwinLine(map, add, chA, sp.node, 1f); LB = TwinLine(map, add, chB, sp.node, 1f); }
                 // the far ends: a pair that closes at one split node keeps its push to that node (its own
                 // profile starts there); any other end eases the push out before it
-                bool closes = farA == farB && farA >= 0 && splitNodes.Contains(farA);
+                // (11-17, lgB) the closing node's own split is often left on the old taper (a lane-add split: N Tryon's
+                // n3168, Dewitt Ln) - a push held to it stood the island's kerb 1.5-4 m inside the undivided road there
+                // (gate MEDIAN). With the narrow island the push eases out before EVERY far end; a framed closing split
+                // then blends from the mapped line as at any other node
+                bool closes = !TwinIslandOn && farA == farB && farA >= 0 && splitNodes.Contains(farA);
                 for (int c = 0; c < 2; c++)
                 {
                     var chain = c == 0 ? chA : chB; var other = c == 0 ? LB : LA; var own = c == 0 ? LA : LB;
