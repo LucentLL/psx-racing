@@ -116,10 +116,10 @@ void PSXRain2At(float wetMat, float3 wpos, float3 N, float eyeDist, float2 uv)
         float slope = length(N.xz) / max(N.y, 0.25);
         float shed = smoothstep(R2_SLOPE_LO, R2_SLOPE_HI, slope);
         float n = PSXLitNoise(p * R2_DIP_A + 31.7) * 0.62 + PSXLitNoise(p * R2_DIP_B + 7.3) * 0.38;
-        float line = lerp(R2_LINE_DRY, R2_LINE_FULL, level) + shed * R2_SHED;
-        pool = smoothstep(line, line + R2_EDGE, n);
-        float far = saturate((eyeDist - R2_POOL_FADE_M) / R2_POOL_FADE_SPAN);
-        pool = lerp(pool, saturate(0.5 + (0.5 - line) * 2.4), far);
+        float waterLine = lerp(R2_LINE_DRY, R2_LINE_FULL, level) + shed * R2_SHED;
+        pool = smoothstep(waterLine, waterLine + R2_EDGE, n);
+        float farT = saturate((eyeDist - R2_POOL_FADE_M) / R2_POOL_FADE_SPAN);
+        pool = lerp(pool, saturate(0.5 + (0.5 - waterLine) * 2.4), farT);
         // the gutter pan runs full, and its water is moving
         if (_PoolBand.z > 0.5 && uv.y > _PoolBand.x && uv.y < _PoolBand.y)
         {
