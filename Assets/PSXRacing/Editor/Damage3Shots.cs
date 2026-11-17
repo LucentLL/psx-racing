@@ -497,29 +497,36 @@ namespace PSXRacing.EditorTools
                     DamageCabin.Step(true);
                     if (m == "boxes") Shader.SetGlobalFloat("_PSXGlsDark", 0f);
                 }
-                // the glass shader's own branch: holes on screen, but an eye a step back so all eight fill the frame
+                double Med(List<double> v) { var a = v.OrderBy(x => x).ToList(); return a.Count == 0 ? 0 : a[a.Count / 2]; }
+                // two eyes: down the aisle (all eight in frame), and 2.6 m off the first car's holed side (its hole large)
                 Vector3 ceye = c0 + spot.right * 4.2f + f0 * 1.0f + Vector3.up * 1.5f;
                 var crot = Quaternion.LookRotation(c0 + f0 * 11f + Vector3.up * 0.8f - ceye);
-                for (int round = 0; round < 3; round++)
-                    foreach (var m in modes)
-                    {
-                        Mode(m);
-                        for (int k = 0; k < 3; k++) Object.DestroyImmediate(Render(cam, ceye, crot, W, H));
-                        for (int k = 0; k < 25; k++)
+                var at0 = specs.Count > 0 ? specs[0].at : spot;
+                Vector3 neye = at0.position - at0.right * 2.6f + Vector3.up * 1.3f;
+                var nrot = Quaternion.LookRotation(at0.position + Vector3.up * 1.0f - neye);
+                foreach (var (pose, pe, pr) in new[] { ("aisle", ceye, crot), ("close", neye, nrot) })
+                {
+                    foreach (var m in modes) times[m].Clear();
+                    for (int round = 0; round < 5; round++)
+                        foreach (var m in modes)
                         {
-                            var sw = System.Diagnostics.Stopwatch.StartNew();
-                            Object.DestroyImmediate(Render(cam, ceye, crot, W, H));
-                            times[m].Add(sw.Elapsed.TotalMilliseconds);
+                            Mode(m);
+                            for (int k = 0; k < 3; k++) Object.DestroyImmediate(Render(cam, pe, pr, W, H));
+                            for (int k = 0; k < 30; k++)
+                            {
+                                var sw = System.Diagnostics.Stopwatch.StartNew();
+                                Object.DestroyImmediate(Render(cam, pe, pr, W, H));
+                                times[m].Add(sw.Elapsed.TotalMilliseconds);
+                            }
+                            if (round == 0) Save(Render(cam, pe, pr, 1280, 720), "cost_" + pose + "_" + m);
                         }
-                        if (round == 0) Save(Render(cam, ceye, crot, 1280, 720), "cost_" + m);
-                    }
-                double Med(List<double> v) { var a = v.OrderBy(x => x).ToList(); return a.Count == 0 ? 0 : a[a.Count / 2]; }
-                L($"  COST (8 cars, the lot, {W}x{H}, editor wall clock per frame incl. read-back, median of {times["cabin"].Count}):");
-                foreach (var m in modes) L($"    {m,-6} {Med(times[m]):0.00} ms (p10 {Pct(times[m], 0.1):0.00}, p90 {Pct(times[m], 0.9):0.00})");
-                L($"    cabin - dark  = {Med(times["cabin"]) - Med(times["dark"]):+0.00;-0.00} ms (the eight cockpit models)");
-                L($"    dark  - mint  = {Med(times["dark"]) - Med(times["mint"]):+0.00;-0.00} ms (the glass path, holes dark)");
-                L($"    boxes - mint  = {Med(times["boxes"]) - Med(times["mint"]):+0.00;-0.00} ms (round 2's glass path, the boxes)");
-                L($"    rash  - mint  = {Med(times["rash"]) - Med(times["mint"]):+0.00;-0.00} ms (wheel rash on 32 wheels)");
+                    L($"  COST, {pose} ({specs.Count} holed cars, {DamageCabin.MaxCabins} cabins at most, the lot, {W}x{H}, editor wall clock per frame incl. read-back, median of {times["cabin"].Count}):");
+                    foreach (var m in modes) L($"    {m,-6} {Med(times[m]):0.00} ms (p10 {Pct(times[m], 0.1):0.00}, p90 {Pct(times[m], 0.9):0.00})");
+                    L($"    cabin - dark  = {Med(times["cabin"]) - Med(times["dark"]):+0.00;-0.00} ms (the cockpit models)");
+                    L($"    dark  - mint  = {Med(times["dark"]) - Med(times["mint"]):+0.00;-0.00} ms (the glass path, holes dark)");
+                    L($"    boxes - mint  = {Med(times["boxes"]) - Med(times["mint"]):+0.00;-0.00} ms (round 2's glass path, the boxes)");
+                    L($"    rash  - mint  = {Med(times["rash"]) - Med(times["mint"]):+0.00;-0.00} ms (wheel rash at stage 3 on all 32 wheels)");
+                }
                 // the CPU side: the per-camera pass over the holed cars, and a frame's step
                 Mode("cabin");
                 var sw2 = System.Diagnostics.Stopwatch.StartNew();
@@ -527,6 +534,8 @@ namespace PSXRacing.EditorTools
                 double camUs = sw2.Elapsed.TotalMilliseconds * 1000.0 / 2000.0;
                 L($"    CPU: DamageCabin.ForCamera with {DamageCabin.All.Count} holed cars: {camUs:0.0} us a camera");
                 Save(Render(cam, ceye, crot, 1280, 720), "cost_cabin_after");
+                foreach (var m in modes) { Mode(m); Save(Render(cam, ceye, crot, 1280, 720), "cost_" + m); }
+                Mode("cabin");
                 DamageCabin.Suspend = false;
             }
             catch (System.Exception e) { L("FAIL lot: " + e); }
