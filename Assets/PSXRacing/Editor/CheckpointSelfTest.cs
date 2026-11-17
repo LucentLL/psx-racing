@@ -327,6 +327,7 @@ namespace PSXRacing.EditorTools
             int N = cps.Length, walks = 0, steps = 0, bad = 0;
             float worst = 0f; string worstAt = "";
             var states = new List<int>();
+            var badKinds = new Dictionary<string, int>();
             float now = 5000f;
             for (int k = loop ? 0 : 1; k < N; k++)
             {
@@ -338,16 +339,20 @@ namespace PSXRacing.EditorTools
                     if (e.length < 60f || e.pts == null) continue;
                     float dist = Vector2.Distance(e.PointAt(e.length * 0.5f), gc);
                     if (dist < 300f || dist > 900f) continue;
-                    int st = ei * 2;
+                    // the way the GPS points from there (a two-way street: the player turns round to follow it)
+                    int d0 = 1;
+                    if (!e.oneway) R.ValueAt(F[k], ei, 10f, false, out d0);
+                    int st = ei * 2 + (d0 == 1 ? 0 : 1);
                     if (!R.legal[st] || float.IsInfinity(F[k].D[st]) || float.IsInfinity(F[k].RM[st])) continue;
-                    if (!R.Descend(F[k], st, 10f, states, out float lastT)) continue;
+                    float tStart = d0 == 1 ? 10f : e.length - 10f;
+                    if (!R.Descend(F[k], st, tStart, states, out float lastT)) continue;
                     picked++; walks++;
                     var loc = new CityRouter.Loc();
-                    int dir = 0, rEdge = -1;
+                    int dir = 0, rEdge = -1, walkStep = 0;
                     for (int i = 0; i < states.Count && i < 200; i++)
                     {
                         int s = states[i];
-                        float a = i == 0 ? 10f : 0f, b = i == states.Count - 1 ? lastT : R.len[s];
+                        float a = i == 0 ? tStart : 0f, b = i == states.Count - 1 ? lastT : R.len[s];
                         for (float t = a + 2f; t < b - 2f; t += 10f)
                         {
                             var pos = At(map, R, s, t, out Vector2 tan);
@@ -359,10 +364,14 @@ namespace PSXRacing.EditorTools
                             if (loc.edge != rEdge) { rEdge = loc.edge; dir = 0; }
                             float v = R.Remaining(F[k], pos, ref loc, ref dir);
                             float want = R.RouteFrom(F[k], s, t);
+                            if (walkStep++ < 2) continue;   // settling on the road it starts from
                             steps++;
                             if (Mathf.Abs(v - want) > 3f)
                             {
                                 bad++;
+                                string why = loc.edge != (s >> 1) ? "another road" : "the other direction";
+                                string key = $"{why}: edge {s >> 1} read as {loc.edge}";
+                                badKinds.TryGetValue(key, out int nk); badKinds[key] = nk + 1;
                                 if (Mathf.Abs(v - want) > worst) { worst = Mathf.Abs(v - want); worstAt = $"gate {k} from edge {ei}: on edge {s >> 1} at {t:0} m the ruler read {v:0} m, the route {want:0} m (located edge {loc.edge}, dir {dir})"; }
                             }
                         }
@@ -370,6 +379,12 @@ namespace PSXRacing.EditorTools
                 }
             }
             float share = steps > 0 ? bad / (float)steps : 0f;
+            if (bad > 0)
+            {
+                var top = new List<KeyValuePair<string, int>>(badKinds);
+                top.Sort((x, y) => y.Value.CompareTo(x.Value));
+                for (int i = 0; i < top.Count && i < 6; i++) sb.AppendLine($"      off-route misreads: {top[i].Value} x {top[i].Key}");
+            }
             if (share > 0.01f) { sb.AppendLine($"FAIL  off the route: the ruler left the GPS route's metres at {bad} of {steps} steps on {walks} walks; worst {worst:0} m at {worstAt}"); fails++; }
             else sb.AppendLine($"ok    off the route: {walks} GPS walks from off-route streets, {steps} steps of 10 m: the ruler read the route's own metres at all but {bad} (worst {worst:0} m{(bad > 0 ? ", " + worstAt : "")})");
         }

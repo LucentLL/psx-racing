@@ -187,15 +187,42 @@ namespace PSXRacing
         /// <summary>A gate's seed: the state it stands on and its arc along that state's travel direction.</summary>
         public struct Seed { public int st; public float g; }
 
-        /// <summary>A reverse field to one gate (seeded at every span). costMode = the cost model, else metres.</summary>
+        /// <summary>Per move into a state (pred order): the weight of the predecessor state plus the turn, per mode
+        /// (0 metres, 1 city cost, 2 freeway cost), so a relaxation is one add.</summary>
+        readonly float[][] predW = new float[3][];
+        float[] PredW(bool costMode, bool fwy)
+        {
+            int m = !costMode ? 0 : fwy ? 2 : 1;
+            if (predW[m] != null) return predW[m];
+            var w = new float[pred.Length];
+            var mul = costMode ? MulTable(fwy) : null;
+            for (int k = 0; k < pred.Length; k++)
+            {
+                int x = pred[k];
+                w[k] = mul != null ? len[x] * mul[x] + predTurnCost[k] : len[x];
+            }
+            predW[m] = w;
+            return w;
+        }
+
+        /// <summary>A reverse field to one gate (seeded at every span). costMode = the cost model, else metres.
+        /// One search: each state's successor on the descent is the move that last improved it (its parent toward
+        /// the gate), and the metres along the descent are summed in the order the states settled (cpfix 11-17:
+        /// one field, not two, and no second pass over the moves: 19.8 ms a gate in the editor before).</summary>
         public Field Build(List<Seed> seeds, bool costMode, bool fwy)
         {
             int NN = map.nodes.Length;
             var F = new Field { D = new float[NS], seedG = new float[NS], pot = new float[NN], cost = costMode, fwy = fwy,
                                 RM = new float[NS], nxt = new int[NS], potM = new float[NN] };
             F.mul = costMode ? MulTable(fwy) : null;
-            for (int i = 0; i < NS; i++) { F.D[i] = float.PositiveInfinity; F.seedG[i] = -1f; F.RM[i] = float.PositiveInfinity; F.nxt[i] = -1; }
+            System.Array.Fill(F.D, float.PositiveInfinity);
+            System.Array.Fill(F.seedG, -1f);
+            System.Array.Fill(F.RM, float.PositiveInfinity);
+            System.Array.Fill(F.nxt, -1);
+            System.Array.Fill(F.pot, float.PositiveInfinity);
+            System.Array.Fill(F.potM, float.PositiveInfinity);
             if (popOrder == null) popOrder = new int[NS];
+            var W = PredW(costMode, fwy);
             hn = 0; popN = 0;
             foreach (var s in seeds)
             {
@@ -203,44 +230,45 @@ namespace PSXRacing
                 float v = s.g * F.Mul(s.st);
                 if (v < F.D[s.st]) { F.D[s.st] = v; F.seedG[s.st] = s.g; Push(v, s.st); }
             }
-            var D = F.D; var sg = F.seedG; var mul = F.mul;
+            var D = F.D; var sg = F.seedG; var nx = F.nxt;
+            int[] pr = pred, ps = predStart;
             while (hn > 0)
             {
                 Pop(out float d, out int y);
                 if (d > D[y]) continue;
                 popOrder[popN++] = y;
-                int k1 = predStart[y + 1];
-                for (int k = predStart[y]; k < k1; k++)
+                int k1 = ps[y + 1];
+                for (int k = ps[y]; k < k1; k++)
                 {
-                    int x = pred[k];
-                    if (sg[x] >= 0f) continue;
-                    float c = mul != null ? len[x] * mul[x] + predTurnCost[k] + d : len[x] + d;
-                    if (c < D[x]) { D[x] = c; Push(c, x); }
+                    int x = pr[k];
+                    float c = W[k] + d;
+                    if (c < D[x] && sg[x] < 0f) { D[x] = c; nx[x] = y; Push(c, x); }
                 }
             }
-            // THE DESCENT AND ITS METRES, in the order the states settled: a non-gate state's best successor has the
-            // smaller D, so it settled first and its metres are already known
-            var RM = F.RM; var nx = F.nxt; bool cm = F.cost;
-            for (int i = 0; i < popN; i++)
+            // a gate's own states: past the gate line the car goes on by the best successor
+            bool cm = F.cost;
+            foreach (var s in seeds)
             {
-                int x = popOrder[i];
+                int x = s.st;
+                if (x < 0 || x >= NS || sg[x] < 0f || nx[x] >= 0) continue;
                 float best = float.PositiveInfinity; int by = -1;
-                int k1 = succStart[x + 1];
-                for (int k = succStart[x]; k < k1; k++)
+                for (int k = succStart[x]; k < succStart[x + 1]; k++)
                 {
                     float c = (cm ? TurnCost(succTurn[k]) : 0f) + D[succ[k]];
                     if (c < best) { best = c; by = succ[k]; }
                 }
                 nx[x] = float.IsInfinity(best) ? -1 : by;
-                if (sg[x] >= 0f) RM[x] = sg[x];
-                else if (nx[x] >= 0) RM[x] = len[x] + RM[nx[x]];
             }
-            for (int n = 0; n < NN; n++) { F.pot[n] = float.PositiveInfinity; F.potM[n] = float.PositiveInfinity; }
-            for (int st = 0; st < NS; st++)
+            // THE METRES ALONG THE DESCENT, in the order the states settled (a parent settles before its child), and
+            // each node's potential: the first state to settle leaving it is its cheapest
+            var RM = F.RM; var pot = F.pot; var potM = F.potM; var sn = sNode;
+            for (int i = 0; i < popN; i++)
             {
-                if (!legal[st]) continue;
-                int n = sNode[st];
-                if (F.D[st] < F.pot[n]) { F.pot[n] = F.D[st]; F.potM[n] = F.RM[st]; }
+                int x = popOrder[i];
+                if (sg[x] >= 0f) RM[x] = sg[x];
+                else { int y = nx[x]; if (y >= 0) RM[x] = len[x] + RM[y]; }
+                int n = sn[x];
+                if (float.IsInfinity(pot[n])) { pot[n] = D[x]; potM[n] = RM[x]; }
             }
             return F;
         }
@@ -418,8 +446,8 @@ namespace PSXRacing
         /// remaining jumped 99 -> 289 m. Now:
         /// - the KEPT edge holds while the car is within 80 m of it and on its level (8 m), measured at the car's own
         ///   projection onto it (a car off the road keeps its place along the road it left);
-        /// - across a NODE (an edge sharing one with the kept edge, the car within 30 m of that node or on its
-        ///   pavement): at once, by a heading-aware score, so a turn never leaves a stale remaining;
+        /// - across a NODE (an edge sharing one with the kept edge, the car on its pavement: half width + 1.5 m):
+        ///   at once, by a heading-aware score, so a turn never leaves a stale remaining;
         /// - any OTHER edge only when the car is ON its pavement (half width + 1.5 m) and either off the kept edge's
         ///   pavement or 4 m nearer by the score, for 0.3 s;
         /// - a car with no kept edge takes the best candidate within 25 m and 4 m of height; none: off the graph.
@@ -445,7 +473,9 @@ namespace PSXRacing
                     var ne = map.edges[e];
                     bool onNew = d <= ne.HalfMax + 1.5f;
                     float kScore = kd + HeadPen(keep, ks, vel);
-                    if (SharesNode(e, keep) && (onNew || NearSharedNode(e, keep, pos, 30f)))
+                    // across a node only onto the new edge's pavement (the self-test's crash walk: a car coming
+                    // back from 22 m off was handed to a ramp sharing the node, 125 m further from the gate)
+                    if (onNew && SharesNode(e, keep))
                     { take = score + 0.5f < kScore; loc.pending = -1; }
                     else if (onNew && (!onKeep || score + 4f < kScore))
                     {
