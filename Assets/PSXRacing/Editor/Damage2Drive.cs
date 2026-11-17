@@ -35,6 +35,67 @@ namespace PSXRacing.EditorTools
         internal static int failures;
         internal static string tag = "after", outDir = "", ownedId = "";
         const string Street = "West Trade Street";
+        const string DriveSave = "damage2drive";
+
+        /// <summary>
+        /// THE SAME CAR IN THE MENUS, from the save the drive wrote (a batch
+        /// picture job, no play): the drive's scratch save is read as it is,
+        /// its car (the rows the drive folded onto it) is put into a fresh
+        /// career under another scratch key, and MY CARS, the car menu's stage
+        /// and SPECS are shot. For a drive whose own trip to the menus did not
+        /// open them. PSX_D2_TAG names the folder (drive_&lt;tag&gt;).
+        /// </summary>
+        public static void Menus()
+        {
+            log = new StringBuilder();
+            failures = 0;
+            tag = System.Environment.GetEnvironmentVariable("PSX_D2_TAG");
+            if (string.IsNullOrEmpty(tag)) tag = DamageGlass.On ? "after" : "before";
+            outDir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "damage2", "menus_" + tag);
+            if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
+            Directory.CreateDirectory(outDir);
+            log.AppendLine("damage2 menus: the drive's save, PSX_DMG_GLASS2 " + (DamageGlass.On ? "ON" : "0") + ", PSX_DMG_WHEELS " + (WheelScuff.On ? "ON" : "0"));
+            try
+            {
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static;
+                var keyField = typeof(LifeSimManager).GetField("saveKey", flags);
+                var stateField = typeof(LifeSimManager).GetField("state", flags);
+                LifeSimManager.UseCareerSave();
+                string careerKey = LifeSimManager.SaveKey;
+                keyField.SetValue(null, careerKey + "." + DriveSave);   // the drive's key, read only
+                stateField.SetValue(null, null);
+                bool has = LifeSimManager.HasSave;
+                var drove = has ? LifeSimManager.State : null;
+                var car = drove != null ? drove.FindCar("d2#drive") : null;
+                Check(car != null, "the drive's save holds its car", has ? (drove != null ? drove.cars.Count + " cars" : "no state") : "no save under " + DriveSave);
+                if (car != null)
+                {
+                    Note("its rows: " + string.Join(", ", car.faults.ConvertAll(f => f.id + " s" + f.stage + " '" + f.causeNote + "'")));
+                    LifeSimManager.UseScratchSave("damage2menus");
+                    TitleScreen.Skip = true;
+                    UnityEngine.Random.InitState(1999);
+                    LifeSimManager.StartNewGame("WRECK", 25, LifeRules.DefaultJobIndex);
+                    var st = LifeSimManager.State;
+                    LifeRules.SeedFallbackCar(st);
+                    st.cars.Add(car);
+                    st.activeCar = car.id;
+                    LifeSimManager.Save();
+                    var look = DamageLook.Read(car.faults, null);
+                    Note("the menus read: panes " + look.panes + ", rash " + look.rash + ", zones " + look.zones + ", lamps " + look.lampOut);
+                    var size = new[] { ("landscape_16x9", 1280, 720) };
+                    LifeHomePreview.Shoot(outDir, "mycars", "garage", sizes: size, fields: new[] { ("garageShowId", (object)car.id) });
+                    LifeHomePreview.Shoot(outDir, "carmenu", "carmenu", garageCar: car.id, sizes: size);
+                    LifeHomePreview.Shoot(outDir, "specs", "specs", garageCar: car.id, sizes: size);
+                    LifeHomePreview.Shoot(outDir, "inspect", "inspect", sizes: size, fields: new[] { ("inspectCarId", (object)car.id) });
+                }
+            }
+            catch (System.Exception e) { Check(false, "the menus THREW: " + e.Message); Debug.LogException(e); }
+            log.AppendLine(failures == 0 ? "DAMAGE2 MENUS: ALL HOLD." : failures + " FAILURE(S).");
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_damage2_menus_" + tag + ".txt"), log.ToString());
+            Debug.Log(log.ToString());
+            LifeSimManager.UseCareerSave();
+            TitleScreen.Skip = false;
+        }
 
         internal static void Check(bool ok, string what, object got = null)
         {
@@ -68,8 +129,13 @@ namespace PSXRacing.EditorTools
             var scenes = EditorBuildSettings.scenes;
             int s = roam >= 0 ? TrackCatalog.SceneIndex(roam) : -1;
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { Check(false, "the Charlotte scene is built"); Finish(1); return; }
-            LifeSimManager.UseScratchSave("damage2drive");
+            LifeSimManager.UseScratchSave(DriveSave);
             TitleScreen.Skip = true;   // (a watched editor would boot the title on the trip to the menus)
+            // a real career in the scratch save (a name, a first car): the menus open on it after the drive
+            UnityEngine.Random.InitState(1999);
+            LifeSimManager.StartNewGame("WRECK", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(LifeSimManager.State);
+            LifeSimManager.Save();
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
