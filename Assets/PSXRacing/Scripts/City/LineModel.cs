@@ -68,6 +68,10 @@ namespace PSXRacing.City
             /// the pavement ignores this ease while the lanes' centre (traffic,
             /// the AI, the race line) still eases over it as before.</summary>
             public long tag; public bool centreOnly;
+            /// <summary>(the road-lines round, 11-17) lines pair by PLACE, not by kind: a line of the wide edge goes to
+            /// the narrow edge's line within 0.3 m of it and stays; with none there it ends (an outer turn lane that
+            /// ends beside a centre lane changing hands: the TWLTL's near yellows end where the bay's white begins).</summary>
+            public bool coin;
             /// <summary>Roads pass L5, THE AUX LANE: a merge zone WIDENS the
             /// host on <see cref="side"/> (never a reduction). x = the host-chain
             /// distance from the zone's node, + into the zone arm (auxArm +1),
@@ -552,7 +556,7 @@ namespace PSXRacing.City
                         // over 165 m (North Tryon at Dorton St: over the whole seven-lane piece the owner stood on)
                         if (outerTurn && !fromTapr) len = Mathf.Max(BayCrossMinM, dMove * BayTaperRate(Mathf.Max(SpeedMph(W), SpeedMph(N))));
                         EasedJoins++; HeldJoins++; if (!fromTapr) EasedDefault++;
-                        Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0);
+                        Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0, coin: outerTurn);
                         continue;
                     }
                     // CROSSED: each arm sticks out on a different side - the two
@@ -2110,7 +2114,7 @@ namespace PSXRacing.City
 
         static void Propagate(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                               CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth,
-                              float dwOther = 0f, byte twoRole = 0, long tag = 0)
+                              float dwOther = 0f, byte twoRole = 0, long tag = 0, bool coin = false)
         {
             // the join's tag (roads pass L5): set at the join, carried on through
             if (depth == 0) tag = EaseTag(fromNode, e.index, side);
@@ -2118,7 +2122,7 @@ namespace PSXRacing.City
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlongFloor(map, partner, e, fromNode, side, false, len)));
-            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag };
+            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag, coin = coin };
             if (taggedEdges != null) { if (!taggedEdges.TryGetValue(tag, out var tl)) taggedEdges[tag] = tl = new List<int>(2); tl.Add(e.index); }
             var lay = LayoutOf(e);
             z.partner = new float[lay.m.Length];
@@ -2137,7 +2141,7 @@ namespace PSXRacing.City
             float extE = side > 0 ? e.lmPlus : e.lmMinus, extP = pSide > 0 ? p.lmPlus : p.lmMinus;
             if (Mathf.Abs(extE - extP) > 0.05f) return;
             bool pFlip = flip ^ ((e.a == fromNode) != (p.a == far));
-            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag);
+            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag, coin);
         }
 
         /// <summary>A taper's length: TAPR's MUTCD length where the exporter
@@ -2755,6 +2759,17 @@ namespace PSXRacing.City
             if (kind == KEdgeM && z.side < 0) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : -(minus - z.dw) + (nar.W - nar.m[j]); }
             if (kind == KEdgeP) { int j = Find(nar, KEdgeP, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
             if (kind == KEdgeM) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
+            if (z.coin)
+            {
+                float own = plus - lay.m[k], best = 0.3f, at = float.NaN;
+                for (int i = 0; i < nar.m.Length; i++)
+                {
+                    if (nar.kind[i] == KEdgeP || nar.kind[i] == KEdgeM) continue;
+                    float d = Mathf.Abs(nLat(nar.m[i]) - own);
+                    if (d <= best) { best = d; at = nLat(nar.m[i]); }
+                }
+                return at;
+            }
             if (z.twoRole != 0)
             {
                 // BOTH EDGES (Q4): the narrow layout sits in by each side's dw,
