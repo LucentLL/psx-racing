@@ -2773,12 +2773,35 @@ namespace PSXRacing.City
             if (kind == KEdgeM) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
             if (z.coin)
             {
+                // a line the narrow piece has too (within 0.3 m) stays; one that it has not but that lies on the narrow
+                // piece's MOVING edge line - the line of the lane that opens or ends - rides with that edge (MUTCD: a
+                // lane line starts / ends where its lane's taper does, not at the full-width section); else it ends
                 float own = plus - lay.m[k], best = 0.3f, at = float.NaN;
                 for (int i = 0; i < nar.m.Length; i++)
                 {
                     if (nar.kind[i] == KEdgeP || nar.kind[i] == KEdgeM) continue;
                     float d = Mathf.Abs(nLat(nar.m[i]) - own);
                     if (d <= best) { best = d; at = nLat(nar.m[i]); }
+                }
+                if (float.IsNaN(at))
+                {
+                    int j = Find(nar, z.side > 0 ? KEdgeP : KEdgeM, 0);
+                    if (j >= 0)
+                    {
+                        float edgeAt = z.side > 0 ? (plus - z.dw) - nar.m[j] : -(minus - z.dw) + (nar.W - nar.m[j]);
+                        if (Mathf.Abs(edgeAt - own) <= 0.3f) at = own;           // it IS the line at the edge: it stays put
+                        else if (Mathf.Abs(edgeAt - own) <= RoadProfiles.LaneM + 0.3f)
+                        {
+                            // the lane line next to the moving edge: is it the nearest line of the wide layout to that edge?
+                            float nearest = float.MaxValue;
+                            for (int i = 0; i < lay.m.Length; i++)
+                            {
+                                if (lay.kind[i] == KEdgeP || lay.kind[i] == KEdgeM) continue;
+                                nearest = Mathf.Min(nearest, Mathf.Abs(edgeAt - (plus - lay.m[i])));
+                            }
+                            if (Mathf.Abs(Mathf.Abs(edgeAt - own) - nearest) < 0.01f) at = edgeAt;
+                        }
+                    }
                 }
                 return at;
             }
