@@ -392,7 +392,7 @@ namespace PSXRacing
         public const float WiperParkDeg = 4f, WiperSweepDeg = 98f;
         public const float WiperParkAfter = 5f;
         /// <summary>Seconds into the stroke, the stroke's length, the cycle before it.</summary>
-        static float wipeTc = 1000f, wipeStroke = 1.3f, wipePrev = 1000f, wipePeriod = 3.6f, wipeStill;
+        static float wipeTc = 1000f, wipeStroke = 1.3f, wipePrev = 1000f, wipePeriod = 3.6f, wipeStill, wipeLastTick = -1f;
         static readonly int WipeId = Shader.PropertyToID("_CabinWipe"), Wipe2Id = Shader.PropertyToID("_CabinWipe2"),
                             Rain2GlassId = Shader.PropertyToID("_CabinRain2");
         /// <summary>For the checks: strokes started since the scene loaded.</summary>
@@ -420,6 +420,14 @@ namespace PSXRacing
             if (!Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); return; }
             float rain = Rain2.RainNow;
             float v = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
+            // The cabin ticks only while the cockpit shows: time spent in
+            // another view counts too (a car that stood in the chase view for
+            // a minute has parked its wipers when the driver looks out again;
+            // the 11-17 play check caught strokes starting there). A stroke
+            // under way when the view changed has finished meanwhile.
+            float now = Time.time, gap = wipeLastTick >= 0f ? now - wipeLastTick - dt : 0f;
+            wipeLastTick = now;
+            if (gap > 0.25f) { wipeTc += gap; if (v <= 1.5f) wipeStill += gap; }
             wipeStill = v > 1.5f ? 0f : wipeStill + dt;
             bool want = rain > 0.01f && WeatherFx.LensRain > 0.3f && wipeStill < WiperParkAfter;
             wipeTc += dt;

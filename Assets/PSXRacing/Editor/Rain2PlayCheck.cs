@@ -344,8 +344,13 @@ namespace PSXRacing.EditorTools
                 Rain2PlayCheck.Check(gains.z > 0.01f, "the tyres hiss on the wet road at speed", gains.z);
                 Rain2PlayCheck.Check(laid > 20, "the tyres leave a damp trail", laid);
                 Rain2PlayCheck.Check(hits > 0, "a wheel ran through standing water (and threw its burst)", hits);
-                Rain2PlayCheck.Check(Rain2.DriverAlloc == 0 && Rain2.AudioAlloc <= 4_000_000, "the driver allocates nothing per frame; the audio only its clips, once",
-                                     Rain2.DriverAlloc + " / " + Rain2.AudioAlloc);
+                // (in the editor the meter is the WHOLE heap - Mono keeps no count per thread - so an
+                // allocation on another thread that lands inside the driver's window reads as the
+                // driver's: one 4 KB page in a 1288-frame drive did, 11-17 01:13. A per-frame
+                // allocation would read as kilobytes a frame: at most 8 KB in the whole drive passes.)
+                Rain2PlayCheck.Check(Rain2.DriverAlloc <= 8192 && Rain2.AudioAlloc <= 4_000_000,
+                                     "the driver allocates nothing per frame (at most 8 KB of the shared heap in the whole drive); the audio only its clips, once",
+                                     Rain2.DriverAlloc + " B in " + frames + " frames / " + Rain2.AudioAlloc);
                 // (its two particle systems are built once, on the first rainy frame: that frame and a
                 // pre-empted one or two are allowed; a spike every few seconds is not)
                 Rain2PlayCheck.Check(Rain2.DriverOver1ms <= 4 && Rain2.DriverTicks * toMs / frames < 0.35,
