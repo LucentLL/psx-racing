@@ -85,6 +85,8 @@ namespace PSXRacing
             public float lastRemGateSample; public float lastAdvanceTime;
             public int missedCount, slot;
             public int prevSt = -1; public float prevT;
+            public bool onPath;
+            public float lastRg = -1f; public int jumps;
         }
         readonly Dictionary<CarController, CarCP> cars = new Dictionary<CarController, CarCP>();
         public CarCP Of(CarController c) => c != null && cars.TryGetValue(c, out var v) ? v : null;
@@ -369,6 +371,10 @@ namespace PSXRacing
                 UpdateNearestIdx(p, pos);
                 return;
             }
+            // a diagnostic for the harness: a jump of 30 m or more in one frame with no gate passed
+            if (c.lastRg >= 0f && Mathf.Abs(rg - c.lastRg) > 30f && c.prevSt == curSt && c.jumps++ < 6)
+                Debug.Log($"[Checkpoints] {car.name}: remaining to gate {c.next} {c.lastRg:0} -> {rg:0} m ({(c.onPath ? "own road" : "graph locate")}, edge {c.loc.edge} s {c.loc.s:0} dir {c.loc.dir}{(c.loc.offGraph ? ", OFF GRAPH" : "")})");
+            c.lastRg = rg;
             c.remainingGate = rg;
             c.remaining = rg + LegsAfter(c);
             p.progress = TotalM - c.remaining;
@@ -424,7 +430,11 @@ namespace PSXRacing
                 c.pathHint = path.NearestIndex(pos, c.pathHint < 0 ? -1 : Mathf.Min(c.pathHint, path.Count - 1), 25);
                 int i = c.pathHint;
                 Vector3 wp = path.GetPoint(i);
-                if (new Vector2(pos.x - wp.x, pos.z - wp.z).sqrMagnitude < 15f * 15f)
+                // on its road within 15 m, and held on it to 25 m (a car knocked about at the edge of 15 m swapped
+                // between this and the graph locate every frame in the night race: 74 m jumps, 42 "falls")
+                float off = new Vector2(pos.x - wp.x, pos.z - wp.z).magnitude;
+                c.onPath = off < (c.onPath ? 25f : 15f) && Mathf.Abs(pos.y - wp.y) < 5f;
+                if (c.onPath)
                 {
                     int e = path.edgeAt[i];
                     var ed = map.edges[e];
@@ -530,6 +540,7 @@ namespace PSXRacing
             }
             c.closestRem = float.PositiveInfinity; c.closestD3 = float.PositiveInfinity;
             c.lastRemGateSample = float.PositiveInfinity;
+            c.lastRg = -1f;
             if (c.isPlayer && !finish)
             {
                 c.flash = FlashText(c, k);
