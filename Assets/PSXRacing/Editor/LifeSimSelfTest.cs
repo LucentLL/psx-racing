@@ -523,7 +523,9 @@ namespace PSXRacing.EditorTools
             var todayIds = TrackCatalog.All.Select(t => t.id).ToList();
             // v30 appended Lake Lure, its twin and its four sections: the v21 survivors are today's list without them
             string[] v30Added = { "LakeLure", "LakeLureRev", "LakeLureShore", "LakeLureShoreRev", "LakeLureGorge", "LakeLureGorgeRev" };
-            var beforeV30 = todayIds.Where(id => System.Array.IndexOf(v30Added, id) < 0).ToList();
+            // and the Charlotte tracks (CityTracks: hostScene), appended after everything from their own files
+            var beforeV30 = TrackCatalog.All.Where(t => System.Array.IndexOf(v30Added, t.id) < 0 && string.IsNullOrEmpty(t.hostScene))
+                                            .Select(t => t.id).ToList();
             Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(beforeV30) && v30Added.All(id => TrackCatalog.TryIndexOf(id, out _)),
                   "the frozen v21 list less the retired ids is today's list less the v30 additions, in order",
                   TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + beforeV30.Count + " today before v30");
@@ -2760,7 +2762,9 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                string wantId = t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : t.id;
+                // a Charlotte track (and its twin) races in its host's scene (CityTracks, TrackDef.hostScene)
+                string wantId = !string.IsNullOrEmpty(t.hostScene) ? t.hostScene
+                              : t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : t.id;
                 int got = TrackCatalog.SceneIndex(i);
                 Check(got > 0 && got < scenes.Length &&
                       scenes[got].path == TrackCatalog.ScenePathOf(wantId),
@@ -5145,7 +5149,8 @@ namespace PSXRacing.EditorTools
                 // ROAD — and the eighth mile, which is cheaper than any of
                 // them, must not be what a dry tank always gets.
                 for (int i = 0; i < TrackCatalog.Count; i++)
-                    if (!TrackCatalog.At(i).IsRoam && !TrackCatalog.At(i).drag)
+                    // (a noDelivery road is out of that pool too: the 402 m CltD1 is cheaper than any road in it)
+                    if (!TrackCatalog.At(i).IsRoam && !TrackCatalog.At(i).drag && !TrackCatalog.At(i).noDelivery)
                         cheapest = Mathf.Min(cheapest,
                                    LifeRules.RequiredFuelPct(TrackCatalog.At(i), s.ActiveCar));
                 Check(cheapest > 0f, "an empty tank really does fit nowhere",

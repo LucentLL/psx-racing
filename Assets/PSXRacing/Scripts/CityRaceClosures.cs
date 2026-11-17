@@ -142,7 +142,7 @@ namespace PSXRacing
             }
             var root = new GameObject("Closures").transform;
             if (parent != null) root.SetParent(parent, false);
-            EnsureMaterials();
+            if (!EnsureMaterials()) return 0;
             var shut = new HashSet<int>();
             var mesh = new MeshAcc();
             int n = 0;
@@ -302,11 +302,12 @@ namespace PSXRacing
 
         static float Cross(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
 
-        static void EnsureMaterials()
+        static bool EnsureMaterials()
         {
-            if (boardMat != null) return;
+            if (boardMat != null) return true;
+            // PSX/Lit only (always included); no other shader by name: a player strips what it does not list
             var lit = Shader.Find("PSX/Lit");
-            if (lit == null) { Debug.LogWarning("[CityTracks] PSX/Lit missing: closures drawn with the default shader"); lit = Shader.Find("Standard"); }
+            if (lit == null) { Debug.LogError("[CityTracks] PSX/Lit missing: the closures are not drawn"); return false; }
             // orange and white bands, the retroreflective sheeting of a Type III board
             var tex = new Texture2D(32, 8, TextureFormat.RGB24, false) { name = "BarricadeStripes", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Point };
             var orange = new Color32(236, 104, 24, 255); var white = new Color32(236, 236, 230, 255);
@@ -317,6 +318,7 @@ namespace PSXRacing
             boardMat.color = Color.white;
             legMat = new Material(lit) { name = "BarricadeLeg", hideFlags = HideFlags.DontSave };
             legMat.color = new Color(0.82f, 0.82f, 0.80f);
+            return true;
         }
 
         /// <summary>Boxes gathered into two submeshes (boards, legs), so a closure is one draw.</summary>
