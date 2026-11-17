@@ -261,12 +261,14 @@ namespace PSXRacing.City
             var ck = CityKit.Get();
             if (!on)
             {
+                bool had = cardMine != null;
                 if (cardWas != null && ck != null && ck.trees != null)
                     for (int d = 0; d < cardWas.Length && d < ck.trees.Length; d++)
                         if (cardMine != null && ck.trees[d] == cardMine[d]) ck.trees[d] = cardWas[d];
                 if (cardMine != null)
                     foreach (var m in cardMine) if (m != null) { if (Application.isPlaying) Destroy(m); else DestroyImmediate(m); }
                 cardWas = cardMine = null;
+                if (had && world != null) world.Redress();
                 return;
             }
             if (!MeshForest.TreeMatch || !CardAtlas || forest == null || ck == null || ck.trees == null || kit.cardAtlas == null) return;
@@ -286,6 +288,10 @@ namespace PSXRacing.City
                 n++;
             }
             if (n == 0) { cardWas = cardMine = null; return; }
+            // (the tiles stood up before this component started - the first ring, whose StandTreesNow
+            // brought it to life - took the kit's material as it was then: put the copies on them too.
+            // The pooled forest holds each tile's cards hidden or shown every frame, as before.)
+            if (world != null) world.Redress();
             Debug.Log($"[CityMeshTrees] tree match: the city's tree cards wear the kit's own trees in {n} dresses (PSX_TREE_MATCH_CARDS=0: the retro atlas)");
         }
 
