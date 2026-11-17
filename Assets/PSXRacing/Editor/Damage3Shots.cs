@@ -46,6 +46,9 @@ namespace PSXRacing.EditorTools
 
         static void L(string s) { log.AppendLine(s); }
 
+        /// <summary>Shells no catalog car drives (traffic): venue and lot only.</summary>
+        static readonly HashSet<string> traffic = new HashSet<string>();
+
         public static void Capture()
         {
             log = new StringBuilder();
@@ -71,25 +74,40 @@ namespace PSXRacing.EditorTools
                 string shells = System.Environment.GetEnvironmentVariable("PSX_D3_SHELLS");
                 if (string.IsNullOrEmpty(shells)) shells = DefaultShells;
                 int hit = 93100;
+                traffic.Clear();
                 foreach (var k0 in shells.Split(','))
                 {
                     string key = k0.Trim();
+                    var def = CarModelLibrary.Load(key);
+                    if ((def == null || def.key != key) && key == "pony_coupe_67")
+                    {
+                        // the cars-1116 shell is not in every sandbox: the '69 Camaro's then
+                        var c69 = CarCatalog.All.FirstOrDefault(x => x.name != null && x.name.Contains("Camaro") && x.name.Contains("`69"));
+                        if (c69 != null) { key = CarModelLibrary.KeyFor(c69); def = CarModelLibrary.Load(key); L("  (no pony_coupe_67 shell in this sandbox: the '69 Camaro's " + key + " instead)"); }
+                    }
+                    if (def == null || def.key != key) { L("FAIL no shell " + key); continue; }
                     var spec = SpecFor(key);
-                    if (spec == null) { L("FAIL no catalog row drives " + key); continue; }
+                    if (spec == null)
+                    {
+                        // a traffic shell (the sedan, the pickup): no catalog car drives it, so no showroom
+                        // or turntable; it still stands in the venue and on the lot as itself
+                        traffic.Add(key);
+                        spec = CarCatalog.All.FirstOrDefault(x => x.name != null && x.name.Contains("Camaro")) ?? CarCatalog.All[0];
+                    }
                     var car = CarMarket.MakeOwnedCar(st, spec, 90, 60000f, spec.price);
                     car.id = "d3_" + key;
                     st.cars.Add(car);
                     Wreck(st, car, ref hit);
                     var look = DamageLook.Read(car.faults, null);
-                    L($"{key}: {spec.name} ({spec.id}, {(DriveSide.IsRHD(spec.id) ? "RHD" : "LHD")}): rows " +
+                    L($"{key}: {(traffic.Contains(key) ? "a traffic shell (rows on a stand-in " + spec.name + ")" : spec.name)} ({spec.id}, {(DriveSide.IsRHD(spec.id) ? "RHD" : "LHD")}): rows " +
                       string.Join(", ", car.faults.ConvertAll(f => f.id + " s" + f.stage)) + $" -> panes {look.panes}");
                     cars.Add((key, car, spec));
                 }
                 if (cars.Count > 0) st.activeCar = cars[0].car.id;
                 LifeSimManager.Save();
 
-                if (parts.Contains("A")) foreach (var c in cars) Stage(c.key, c.car);
-                if (parts.Contains("B")) foreach (var c in cars) Rig(c.key, c.car, c.spec);
+                if (parts.Contains("A")) foreach (var c in cars) if (!traffic.Contains(c.key)) Stage(c.key, c.car); else L("  A " + c.key + ": a traffic shell, no showroom");
+                if (parts.Contains("B")) foreach (var c in cars) if (!traffic.Contains(c.key)) Rig(c.key, c.car, c.spec);
                 if (parts.Contains("W")) Severities(st, cars);
                 if (parts.Contains("C")) Venue(cars, parts.Contains("W") ? st : null);
                 if (parts.Contains("D")) Lot(st, cars);
@@ -168,6 +186,7 @@ namespace PSXRacing.EditorTools
         {
             foreach (var (key, car, spec) in cars)
             {
+                if (traffic.Contains(key)) continue;
                 bool eg = key == "civic_eg";
                 foreach (var c in Sev)
                 {
@@ -271,6 +290,11 @@ namespace PSXRacing.EditorTools
             float keepNear = cam.nearClipPlane, keepFov = cam.fieldOfView;
             var keepView = ChaseCamera.Current;
             string sub = "damage3/" + Path.GetFileName(outDir) + "/";
+            // the grid's other cars stand in the way of the cameras beside this one
+            int hidden = 0;
+            foreach (var other in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
+                if (other != null && other.gameObject != player && (other.transform.position - t.position).magnitude < 12f) { other.gameObject.SetActive(false); hidden++; }
+            L($"  C venue {only}: {hidden} grid cars within 12 m set aside for the cameras beside");
             try
             {
                 foreach (var (key, owned, spec) in cars)
@@ -304,12 +328,12 @@ namespace PSXRacing.EditorTools
                         cam.fieldOfView = fov;
                         cam.nearClipPlane = 0.05f;
                         PSXScreenshotTool.ShotAs(cam, sub + key + "_chase_" + h, eye, rot);
-                        Vector3 sideEye = t.TransformPoint(new Vector3(-3.4f, 1.35f, -0.4f));
+                        Vector3 sideEye = t.TransformPoint(new Vector3(-2.6f, 1.45f, -0.4f));
                         cam.fieldOfView = 34f;
                         PSXScreenshotTool.ShotAs(cam, sub + key + "_beside_" + h, sideEye,
                                                  Quaternion.LookRotation(t.TransformPoint(new Vector3(-0.5f, 1.0f, -0.2f)) - sideEye, t.up));
                         // a replay's trackside camera: low at the rear-left quarter, looking at the car
-                        Vector3 tv = t.TransformPoint(new Vector3(-4.5f, 1.2f, -6.5f));
+                        Vector3 tv = t.TransformPoint(new Vector3(3.0f, 1.3f, -7.0f));
                         cam.fieldOfView = 30f;
                         PSXScreenshotTool.ShotAs(cam, sub + key + "_replay_" + h, tv, Quaternion.LookRotation(t.TransformPoint(new Vector3(0f, 0.9f, 0f)) - tv, t.up));
                         // inside: the seat, looking at the left glass
@@ -360,7 +384,7 @@ namespace PSXRacing.EditorTools
                                 ChaseCamera.SteadyPose(ChaseCamera.View.Chase, 16f / 9f, 0f, 40f, t, frame, ChaseCamera.LiveDials(), out var eye, out var rot, out var fov, out _);
                                 cam.fieldOfView = fov;
                                 PSXScreenshotTool.ShotAs(cam, sub + key + "_" + c.name + "_chase_" + h, eye, rot);
-                                Vector3 se = t.TransformPoint(new Vector3(-3.4f, 1.1f, 0.4f));
+                                Vector3 se = t.TransformPoint(new Vector3(-2.8f, 1.2f, 0.4f));
                                 cam.fieldOfView = 40f;
                                 PSXScreenshotTool.ShotAs(cam, sub + key + "_" + c.name + "_beside_" + h, se,
                                                          Quaternion.LookRotation(t.TransformPoint(new Vector3(-0.6f, 0.75f, 0.4f)) - se, t.up));
@@ -435,8 +459,9 @@ namespace PSXRacing.EditorTools
                     a.position = spot.position + spot.right * ((i % 2) * 3.4f - 1.7f) + spot.forward * (4.5f + (i / 2) * 6.2f);
                     a.rotation = spot.rotation * Quaternion.Euler(0f, (i % 2) == 0 ? 90f : -90f, 0f);   // the holed left side toward the aisle on one row
                     var def = CarModelLibrary.Load(c.key);
-                    var sh = CarShell.Spawn(a, def, 0, out _, solid: false, spec: c.spec, owned: c.car);
-                    if (sh != null) { PSXTexDecode.StampTree(sh.gameObject); shells.Add(sh); specs.Add((sh, def, c.spec, c.car)); }
+                    var lotSpec = traffic.Contains(c.key) ? null : c.spec;   // a traffic shell as itself
+                    var sh = CarShell.Spawn(a, def, 0, out _, solid: false, spec: lotSpec, owned: c.car);
+                    if (sh != null) { PSXTexDecode.StampTree(sh.gameObject); shells.Add(sh); specs.Add((sh, def, lotSpec, c.car)); }
                 }
                 DamageCabin.Step(true);
                 Vector3 c0 = spot.position, f0 = spot.forward;

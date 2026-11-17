@@ -101,6 +101,11 @@ namespace PSXRacing
         public bool HasCabin => inst != null;
         public CockpitInterior.Fit CabinFit => fit;
         public Transform CabinRoot => inst != null ? inst.root.transform : null;
+        /// <summary>The hole's two companions and the full cabin (the self-test).</summary>
+        public Renderer MarkRenderer => inst != null ? inst.mark : null;
+        public Renderer DepthRenderer => inst != null ? inst.depth : null;
+        public Renderer CabinRenderer => inst != null ? inst.cabinFull : null;
+        public Renderer CabinLowRenderer => inst != null ? inst.cabinLow : null;
 
         static readonly Unity.Profiling.ProfilerMarker StepMarker = new Unity.Profiling.ProfilerMarker("DamageCabin.Step"),
             CamMarker = new Unity.Profiling.ProfilerMarker("DamageCabin.Camera");

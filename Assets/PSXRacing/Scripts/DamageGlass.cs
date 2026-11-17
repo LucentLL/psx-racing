@@ -180,6 +180,9 @@ namespace PSXRacing
             return r;
         }
 
+        /// <summary>PSX_DMG_SEATGLASS=0: round 2's cockpit, where only the windscreen breaks.</summary>
+        public static bool SeatGlassOn = System.Environment.GetEnvironmentVariable("PSX_DMG_SEATGLASS") != "0";
+
         /// <summary>PSX_DMG_MIRRORTRIM=0: round 2's glass test by the mirrors.</summary>
         public static bool MirrorRuleOn = System.Environment.GetEnvironmentVariable("PSX_DMG_MIRRORTRIM") != "0";
 
@@ -191,7 +194,7 @@ namespace PSXRacing
         /// </summary>
         public static Vector4 CockpitPane(float state, Vector4 hit, bool rear)
         {
-            if (!On || state < 0.1f) return Vector4.zero;
+            if (!On || !SeatGlassOn || state < 0.1f) return Vector4.zero;
             float u = rear ? 0.5f - hit.x * 0.3f : 0.5f - hit.x * 0.33f;
             return new Vector4(state >= 0.75f ? Shattered : Crazed, hit.z, Mathf.Clamp(u, 0.15f, 0.85f), Mathf.Clamp(hit.y, 0.15f, 0.85f));
         }
