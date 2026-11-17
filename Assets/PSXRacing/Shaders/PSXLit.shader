@@ -1448,7 +1448,7 @@ Shader "PSX/Lit"
             #ifdef PSX_LODFADE
                 // the INSTANCE's distance (its origin), not the pixel's: a level
                 // hands over for the whole tree at once (MeshForest buckets by it)
-                float2 lodD : TEXCOORD10;   // x: the instance's distance, y: its own 0..1
+                float4 lodD : TEXCOORD10;   // x: the instance's distance, y: its own 0..1; z, w: a far card's other view's u and its share
             #endif
             };
 
@@ -1461,7 +1461,7 @@ Shader "PSX/Lit"
                     float3 it = float3(unity_ObjectToWorld._m03, unity_ObjectToWorld._m13, unity_ObjectToWorld._m23);
                     float3 p3 = frac(it * 0.1031);
                     p3 += dot(p3, p3.yzx + 33.33);
-                    o.lodD = float2(length(it - (_PSXLodEye.w > 0.5 ? _PSXLodEye.xyz : _WorldSpaceCameraPos)), frac((p3.x + p3.y) * p3.z));
+                    o.lodD = float4(length(it - (_PSXLodEye.w > 0.5 ? _PSXLodEye.xyz : _WorldSpaceCameraPos)), frac((p3.x + p3.y) * p3.z), 0.0, 0.0);
                     // TREE MATCH: a tree's FAR CARD TURNS TO THE EYE about the tree's
                     // own upright (_PSXCrownCard.z = n > 0), wearing the nearest of the
                     // 2n pictures taken round its mesh (n over the half turn, in a row
@@ -1475,15 +1475,29 @@ Shader "PSX/Lit"
                         float3 ccEye = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0)).xyz - ccFoot;
                         float ccTh = atan2(-ccEye.x, -ccEye.z);
                         float ccN = _PSXCrownCard.z;
-                        float ccK = floor(ccTh / (3.14159265 / ccN) + 0.5);
+                        float ccF = ccTh / (3.14159265 / ccN);
+                        float ccK = floor(ccF + 0.5);
+                        // (VIEW FADE, _PSXCrownCard.w = b > 0: within b of a view step of the
+                        // half-way bearing between two views, the next view takes over a 2 x 2
+                        // pixel screen-door share of the card - half at the half-way bearing -
+                        // instead of the whole picture switching there: an eye passing a far
+                        // tree saw its leaves and outline jump every 45 degrees of bearing)
+                        float ccD = ccF - ccK;
+                        float ccK2 = ccK + (ccD >= 0.0 ? 1.0 : -1.0);
+                        float ccW = _PSXCrownCard.w > 0.0 ? saturate((abs(ccD) - (0.5 - _PSXCrownCard.w)) / _PSXCrownCard.w) * 0.5 : 0.0;
                         ccK -= 2.0 * ccN * floor(ccK / (2.0 * ccN));
                         bool ccMir = ccK > ccN - 0.5;
                         if (ccMir) ccK -= ccN;
+                        ccK2 -= 2.0 * ccN * floor(ccK2 / (2.0 * ccN));
+                        bool ccMir2 = ccK2 > ccN - 0.5;
+                        if (ccMir2) ccK2 -= ccN;
                         float3 ccP = v.vertex.xyz - ccFoot;
                         float ccS, ccC;
                         sincos(ccTh, ccS, ccC);
                         v.vertex.xyz = ccFoot + float3(ccC * ccP.x, ccP.y, -ccS * ccP.x);
-                        v.uv.x = (ccMir ? 1.0 / ccN - v.uv.x : v.uv.x) + ccK / ccN;
+                        float ccU = v.uv.x;
+                        v.uv.x = (ccMir ? 1.0 / ccN - ccU : ccU) + ccK / ccN;
+                        o.lodD.zw = float2((ccMir2 ? 1.0 / ccN - ccU : ccU) + ccK2 / ccN, ccW);
                     }
                     // A THINNED plant at its draw limit SHRINKS to nothing about
                     // its own origin rather than dissolving in a screen-door
@@ -1810,6 +1824,17 @@ Shader "PSX/Lit"
                 float2 uv = i.uvw.xy / i.uvw.z;
             #ifdef PSX_ATLAS
                 uv = i.atlas.xy + frac(uv) * i.atlas.zw;
+            #endif
+            #ifdef PSX_LODFADE
+                // TREE MATCH VIEW FADE: near the half-way bearing a 2 x 2 pixel
+                // screen-door share of the far card wears its next view (whole
+                // pixel quads, so the texture's mip is taken within one view)
+                if (i.lodD.w > 0.0)
+                {
+                    float2 vpx = floor(i.pos.xy * 0.5);
+                    float vdith = frac(52.9829189 * frac(dot(vpx, float2(0.06711056, 0.00583715)) + 0.37));
+                    if (vdith < i.lodD.w) uv.x = i.lodD.z * _MainTex_ST.x + _MainTex_ST.z;
+                }
             #endif
                 // Where the facade texture repeats, for the lit windows below.
                 // Taken HERE, before the clip and outside every branch: a

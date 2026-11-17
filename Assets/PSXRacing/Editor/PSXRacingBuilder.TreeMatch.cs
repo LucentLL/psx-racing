@@ -65,6 +65,10 @@ namespace PSXRacing.EditorTools
         /// card at 0.55 + 0.2 up swung 1.7 times as far as its mesh between bearings: 0.30 + 0.11.)
         internal static float TMLeafN = EnvF("PSX_TM_LEAFN", 0.4f), TMLeafUp = EnvF("PSX_TM_LEAFUP", 0f),
                               TMBareN = EnvF("PSX_TM_BAREN", 0.30f), TMBareUp = EnvF("PSX_TM_BAREUP", 0.11f);
+        /// <summary>VIEW FADE (PSX/Lit _PSXCrownCard.w): within this share of a view step (45 degrees) of the
+        /// half-way bearing between two of a card's views, the next view dithers in (2 x 2 pixel quads; half
+        /// at the half-way bearing) instead of the whole picture switching there. 0 = the switch.</summary>
+        internal static float TMViewFade = Mathf.Clamp(EnvF("PSX_TM_VIEWFADE", 0.16f), 0f, 0.5f);
 
         static float EnvF(string k, float d)
         {
@@ -175,7 +179,7 @@ namespace PSXRacing.EditorTools
                         mat.SetColor("_LeafTulip", leafy && leaf.HasProperty("_LeafTulip") ? leaf.GetColor("_LeafTulip") : new Color(0f, 0f, 0f, 0f));
                         mat.SetVector("_PSXGrowFoot", new Vector4(-pl.t.x, -pl.t.y, -pl.t.z, 0f));
                         // lit as a crown, not as a board (PSX/Lit _PSXCrownCard)
-                        mat.SetVector("_PSXCrownCard", leafy ? new Vector4(TMLeafN, TMLeafUp, TMViews, 0f) : new Vector4(TMBareN, TMBareUp, TMViews, 0f));
+                        mat.SetVector("_PSXCrownCard", leafy ? new Vector4(TMLeafN, TMLeafUp, TMViews, TMViewFade) : new Vector4(TMBareN, TMBareUp, TMViews, TMViewFade));
                         // (PSX/Lit turns the card to the eye in its PSX_LODFADE path: on for the mirrors' draws too, which wear this material as it is)
                         mat.EnableKeyword("PSX_LODFADE");
                         mat.DisableKeyword("PSX_HD");

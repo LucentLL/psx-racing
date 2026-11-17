@@ -60,7 +60,11 @@ namespace PSXRacing.EditorTools
         {
             public string kit, name, group, dress, pair; public int variant, inst;
             public Stat a, b; public string why; public Tile ta, tb; public string farMat; public float farGain;
+            /// <summary>THE CONTROL: side A again, the eye half a pixel aside (the mesh against itself a frame
+            /// later), and the reasons the pair fails BEYOND that control's own difference (why2).</summary>
+            public Stat c; public string why2 = "";
             public bool Fail => why.Length > 0;
+            public bool Fail2 => why2.Length > 0;
         }
 
         static string Env(string k, string d) { var v = System.Environment.GetEnvironmentVariable(k); return string.IsNullOrEmpty(v) ? d : v; }
@@ -256,14 +260,15 @@ namespace PSXRacing.EditorTools
                             float g = leafy ? PSXRacingBuilder.TMLeafGain : PSXRacingBuilder.TMBareGain;
                             m.color = new Color(g, g, g);
                             var cc = m.GetVector("_PSXCrownCard");
-                            m.SetVector("_PSXCrownCard", leafy ? new Vector4(PSXRacingBuilder.TMLeafN, PSXRacingBuilder.TMLeafUp, cc.z, 0f)
-                                                               : new Vector4(PSXRacingBuilder.TMBareN, PSXRacingBuilder.TMBareUp, cc.z, 0f));
+                            m.SetVector("_PSXCrownCard", leafy ? new Vector4(PSXRacingBuilder.TMLeafN, PSXRacingBuilder.TMLeafUp, cc.z, PSXRacingBuilder.TMViewFade)
+                                                               : new Vector4(PSXRacingBuilder.TMBareN, PSXRacingBuilder.TMBareUp, cc.z, PSXRacingBuilder.TMViewFade));
                             tuned++;
                         }
                     }
                     log.Append($"  TUNED in memory: leaf gain {F(PSXRacingBuilder.TMLeafGain)}, normal {F(PSXRacingBuilder.TMLeafN)} + up {F(PSXRacingBuilder.TMLeafUp)}; bare gain {F(PSXRacingBuilder.TMBareGain)}, normal {F(PSXRacingBuilder.TMBareN)} + up {F(PSXRacingBuilder.TMBareUp)} ({tuned} material slots)\n");
                 }
                 string pairsWanted = Env("PSX_TM_PAIRS", "0,1,2");
+                bool control = Env("PSX_TM_CONTROL", "1") == "1";
                 foreach (int d in dresses)
                 {
                     dressNow = d;
@@ -288,6 +293,15 @@ namespace PSXRacing.EditorTools
                                 var tb = Shoot(cam, forest, p, h, span, D, eyeOf[pr + 1], gameFov, az);
                                 var row = new PairRow { kit = id, name = names[v], group = groups[v], dress = dn, pair = PairNames[pr], variant = v, inst = k, a = ta.st, b = tb.st, ta = ta, tb = tb };
                                 row.why = noFar ? "NOFAR" : Verdict(ta.st, tb.st, ta.mpp);
+                                if (control)
+                                {
+                                    // (the eye turned about the plant by half a pixel's angle: the same level, a raster's own change)
+                                    float half = Mathf.Atan(0.5f * ta.mpp / D) * Mathf.Rad2Deg;
+                                    var tc = Shoot(cam, forest, p, h, span, D, eyeOf[pr], gameFov, az + half);
+                                    row.c = tc.st;
+                                    row.why2 = noFar ? "NOFAR" : VerdictBeyond(ta.st, tb.st, tc.st, ta.mpp);
+                                }
+                                else row.why2 = row.why;
                                 if (pr == 2 && !noFar && vr.impostorDress != null && d < vr.impostorDress.Length && vr.impostorDress[d] != null)
                                 {
                                     row.farMat = vr.impostorDress[d].name;
@@ -299,6 +313,12 @@ namespace PSXRacing.EditorTools
                         }
                     }
                 }
+                // PSX_TM_SWEEP=1: THE CARD AS THE EYE GOES ROUND THE TREE (the first dress, the first plant of each
+                // species): its LOW mesh and its far card at the far hand-over's distance, from bearings 1.5 degrees
+                // apart over 90 degrees, and how much of the tree's picture changes from one bearing to the next.
+                // The turning card shows the nearest of its views: where it switches, the whole picture changed at
+                // once (PSX_TM_VIEWFADE: the next view dithers in over a band instead).
+                if (Env("PSX_TM_SWEEP", "0") == "1" && dresses.Count > 0) Sweep(id, root, cam, forest, variants, names, pick, plants, inst, dresses[0], at[2], eyeOf, gameFov, v => dressNow = v, log);
             }
             finally
             {
@@ -309,6 +329,64 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(forest.gameObject);
             }
             return rows;
+        }
+
+        static void Sweep(string id, string root, Camera cam, MeshForest forest, MeshForest.Variant[] variants, string[] names, List<int> pick, List<MeshForest.PoolPlant> plants,
+                          int inst, int dress, float D, float[] eyeOf, float gameFov, System.Action<int> setDress, StringBuilder log)
+        {
+            setDress(dress);
+            const float Step = 1.5f; const int Steps = 61;
+            var csv = new StringBuilder("kit,variant,name,level,maxStep,meanStep,p95Step\n");
+            var maxMesh = new List<float>(); var maxCard = new List<float>();
+            for (int i = 0; i < pick.Count; i++)
+            {
+                int v = pick[i];
+                var vr = variants[v];
+                if (vr.lods.Length < 4 || vr.lods[3] == null) continue;
+                float h = Mathf.Max(0.5f, vr.height);
+                float span = Mathf.Max(h, 2f * RadiusOf(vr)) * 1.3f;
+                var p = plants[i * inst].pos;
+                for (int lev = 2; lev <= 3; lev++)
+                {
+                    Tile prev = null; var steps = new List<float>();
+                    for (int k = 0; k < Steps; k++)
+                    {
+                        var t = Shoot(cam, forest, p, h, span, D, eyeOf[lev], gameFov, -45f + k * Step);   // (-45..45: never along the row of plants)
+                        if (prev != null && prev.size == t.size) steps.Add(Change(prev, t));
+                        prev = t;
+                    }
+                    if (steps.Count == 0) continue;
+                    float mx = 0f, sum = 0f; foreach (var x in steps) { mx = Mathf.Max(mx, x); sum += x; }
+                    steps.Sort();
+                    float p95 = steps[Mathf.Min(steps.Count - 1, Mathf.RoundToInt(steps.Count * 0.95f))];
+                    (lev == 2 ? maxMesh : maxCard).Add(mx);
+                    csv.Append($"{id},{v},{names[v]},{(lev == 2 ? "LOD2" : "FAR")},{F(mx, "0.000")},{F(sum / steps.Count, "0.000")},{F(p95, "0.000")}\n");
+                }
+            }
+            File.WriteAllText(Path.Combine(root, "sweep_" + id + ".csv"), csv.ToString());
+            float Med(List<float> l) { if (l.Count == 0) return 0f; l.Sort(); return l[l.Count / 2]; }
+            float Max(List<float> l) { float m = 0f; foreach (var x in l) m = Mathf.Max(m, x); return m; }
+            log.Append($"  SWEEP ({Seasons.DressNames[dress]}, {maxCard.Count} species, bearings {Step} deg apart over {Step * (Steps - 1)} deg, view fade {F(PSXRacingBuilder.TMViewFade)} as built or tuned): the largest change of the tree's picture from one bearing to the next, " +
+                       $"median over species: LOW mesh {F(Med(maxMesh) * 100f, "0")} %, far card {F(Med(maxCard) * 100f, "0")} % (worst species: mesh {F(Max(maxMesh) * 100f, "0")} %, card {F(Max(maxCard) * 100f, "0")} %)\n");
+        }
+
+        /// <summary>The share of a tree's picture that changes between two frames: pixels drawn in one and not
+        /// the other, or drawn in both a colour step apart (a quarter of the range in any channel), over the
+        /// drawn pixels of the larger.</summary>
+        static float Change(Tile a, Tile b)
+        {
+            int na = 0, nb = 0, ch = 0;
+            for (int i = 0; i < a.px.Length; i++)
+            {
+                var x = a.px[i]; var y = b.px[i];
+                bool ia = !(Mathf.Abs(x.r - Bg.r) <= 10 && x.g <= 10 && Mathf.Abs(x.b - Bg.b) <= 10);
+                bool ib = !(Mathf.Abs(y.r - Bg.r) <= 10 && y.g <= 10 && Mathf.Abs(y.b - Bg.b) <= 10);
+                if (ia) na++;
+                if (ib) nb++;
+                if (ia != ib) ch++;
+                else if (ia && (Mathf.Abs(x.r - y.r) > 64 || Mathf.Abs(x.g - y.g) > 64 || Mathf.Abs(x.b - y.b) > 64)) ch++;
+            }
+            return ch / (float)Mathf.Max(1, Mathf.Max(na, nb));
         }
 
         /// <summary>The lines of the frame whose pixel scale the pictures are drawn at (the owner's display: 3832 x 2054).</summary>
@@ -431,6 +509,32 @@ namespace PSXRacing.EditorTools
             return string.Join("+", why);
         }
 
+        /// <summary>The pair's reasons BEYOND the mesh's own raster noise: each limit widened by what the
+        /// control (side A with the eye half a pixel aside) differs from side A itself. A sapling a few pixels
+        /// wide changes its outline by pixels from one frame to the next: that is not the far card's doing.</summary>
+        static string VerdictBeyond(Stat a, Stat b, Stat c, float mpp)
+        {
+            if (!a.Any && !b.Any) return "";
+            if (!a.Any || !b.Any) return c.Any == a.Any ? "GONE" : "";
+            var why = new List<string>();
+            float ar = Mathf.Min(a.areaM2, b.areaM2) / Mathf.Max(a.areaM2, b.areaM2);
+            float arC = c.Any ? Mathf.Min(a.areaM2, c.areaM2) / Mathf.Max(a.areaM2, c.areaM2) : 1f;
+            if (ar < AreaRatioMin * arC) why.Add("LEAF");
+            bool Off(float x, float y, float xc)
+            {
+                float dn = Mathf.Abs(x - xc);
+                return Mathf.Abs(x - y) / Mathf.Max(x, y) > SizeTol + dn / Mathf.Max(x, xc) && Mathf.Abs(x - y) > 3f * mpp + dn;
+            }
+            if (Off(a.hM, b.hM, c.Any ? c.hM : a.hM) || Off(a.wM, b.wM, c.Any ? c.wM : a.wM)) why.Add("SIZE");
+            float smin = Mathf.Min(a.sat, b.sat), smax = Mathf.Max(a.sat, b.sat);
+            float hueC = c.Any ? Mathf.Abs(Mathf.DeltaAngle(a.hue, c.hue)) : 0f, satC = c.Any ? Mathf.Abs(a.sat - c.sat) : 0f;
+            if (smin > SatFloor && Mathf.Abs(Mathf.DeltaAngle(a.hue, b.hue)) > HueTolDeg + hueC) why.Add("HUE");
+            if (smax - smin > SatTol + satC) why.Add("SAT");
+            float lumC = c.Any ? Mathf.Abs(a.luma - c.luma) / Mathf.Max(0.02f, Mathf.Max(a.luma, c.luma)) : 0f;
+            if (Mathf.Abs(a.luma - b.luma) / Mathf.Max(0.02f, Mathf.Max(a.luma, b.luma)) > LumaTol + lumC) why.Add("VALUE");
+            return string.Join("+", why);
+        }
+
         /// <summary>PSX_TM_CALIB=1: THE CARDS' GAINS, MEASURED. For each match card material (a species in a
         /// look), the gain at which its mean light over the plants and bearings just drawn equals its mesh's:
         /// its present gain x mesh / card. Written to Assets/PSXRacing/Editor/TreeMatchGains.txt (kept with
@@ -471,11 +575,12 @@ namespace PSXRacing.EditorTools
 
         static void WriteCsv(string path, List<PairRow> rows)
         {
-            var sb = new StringBuilder("kit,variant,name,group,dress,pair,inst,verdict,areaA,areaB,hA,hB,wA,wB,hueA,hueB,satA,satB,valA,valB,lumaA,lumaB,rgbA,rgbB\n");
+            var sb = new StringBuilder("kit,variant,name,group,dress,pair,inst,verdict,areaA,areaB,hA,hB,wA,wB,hueA,hueB,satA,satB,valA,valB,lumaA,lumaB,rgbA,rgbB,verdict2,areaC,hC,wC,lumaC\n");
             foreach (var r in rows)
                 sb.Append($"{r.kit},{r.variant},{r.name},{r.group},{r.dress},{r.pair},{r.inst},{(r.Fail ? r.why : "ok")},{F(r.a.areaM2, "0.0")},{F(r.b.areaM2, "0.0")},{F(r.a.hM, "0.0")},{F(r.b.hM, "0.0")},{F(r.a.wM, "0.0")},{F(r.b.wM, "0.0")}," +
                           $"{F(r.a.hue, "0")},{F(r.b.hue, "0")},{F(r.a.sat)},{F(r.b.sat)},{F(r.a.val)},{F(r.b.val)},{F(r.a.luma, "0.000")},{F(r.b.luma, "0.000")}," +
-                          $"{(int)(r.a.r * 255)}/{(int)(r.a.g * 255)}/{(int)(r.a.b * 255)},{(int)(r.b.r * 255)}/{(int)(r.b.g * 255)}/{(int)(r.b.b * 255)}\n");
+                          $"{(int)(r.a.r * 255)}/{(int)(r.a.g * 255)}/{(int)(r.a.b * 255)},{(int)(r.b.r * 255)}/{(int)(r.b.g * 255)}/{(int)(r.b.b * 255)}," +
+                          $"{(r.Fail2 ? r.why2 : "ok")},{F(r.c.areaM2, "0.0")},{F(r.c.hM, "0.0")},{F(r.c.wM, "0.0")},{F(r.c.luma, "0.000")}\n");
             File.WriteAllText(path, sb.ToString());
         }
 
@@ -485,32 +590,40 @@ namespace PSXRacing.EditorTools
         {
             // species-pair -> the union of its plants' reasons
             var sp = new Dictionary<string, (string group, string name, string dress, string pair, HashSet<string> why, PairRow worst)>();
+            var sp2 = new Dictionary<string, HashSet<string>>();
             foreach (var r in rows)
             {
                 string key = r.variant + "|" + r.dress + "|" + r.pair;
                 if (!sp.TryGetValue(key, out var e)) e = (r.group, r.name, r.dress, r.pair, new HashSet<string>(), r);
                 if (r.Fail) { foreach (var w in r.why.Split('+')) e.why.Add(w); if (!e.worst.Fail) e.worst = r; }
                 sp[key] = e;
+                if (!sp2.TryGetValue(key, out var e2)) sp2[key] = e2 = new HashSet<string>();
+                if (r.Fail2) foreach (var w in r.why2.Split('+')) e2.Add(w);
             }
-            int total = sp.Count, failed = 0;
-            log.Append($"  {"dress",-7} {"hand-over",-10} {"species",8} {"fail",5}   by reason\n");
+            int total = sp.Count, failed = 0, failed2 = 0;
+            log.Append($"  {"dress",-7} {"hand-over",-10} {"species",8} {"fail",5}   {"by reason",-34}||  beyond the mesh's own frame-to-frame noise (the control): fail, by reason\n");
             foreach (int d in dresses)
                 foreach (var pn in PairNames)
                 {
-                    int n = 0, f = 0; var by = new SortedDictionary<string, int>();
-                    foreach (var e in sp.Values)
+                    int n = 0, f = 0, f2 = 0; var by = new SortedDictionary<string, int>(); var by2 = new SortedDictionary<string, int>();
+                    foreach (var kv0 in sp)
                     {
+                        var e = kv0.Value;
                         if (e.dress != Seasons.DressNames[d] || e.pair != pn) continue;
                         n++;
+                        var e2 = sp2[kv0.Key];
+                        if (e2.Count > 0) { f2++; foreach (var w in e2) { by2.TryGetValue(w, out int c2); by2[w] = c2 + 1; } }
                         if (e.why.Count == 0) continue;
                         f++;
                         foreach (var w in e.why) { by.TryGetValue(w, out int c); by[w] = c + 1; }
                     }
                     if (n == 0) continue;
-                    failed += f;
+                    failed += f; failed2 += f2;
                     var bs = new StringBuilder();
                     foreach (var kv in by) bs.Append($"{kv.Key} {kv.Value}  ");
-                    log.Append($"  {Seasons.DressNames[d],-7} {pn,-10} {n,8} {f,5}   {bs}\n");
+                    var bs2 = new StringBuilder();
+                    foreach (var kv in by2) bs2.Append($"{kv.Key} {kv.Value}  ");
+                    log.Append($"  {Seasons.DressNames[d],-7} {pn,-10} {n,8} {f,5}   {bs.ToString(),-34}||  {f2,4}   {bs2}\n");
                 }
             // the classes
             var cls = new SortedDictionary<string, (int n, string eg, PairRow worst)>();
@@ -533,7 +646,7 @@ namespace PSXRacing.EditorTools
                 log.Append($"    {kv.Key}: {kv.Value.n} of {clsAll[all]} species (e.g. {kv.Value.eg}: area {F(w.a.areaM2, "0")} v {F(w.b.areaM2, "0")} m2, " +
                            $"h {F(w.a.hM, "0.0")} v {F(w.b.hM, "0.0")} m, w {F(w.a.wM, "0.0")} v {F(w.b.wM, "0.0")} m, hue {F(w.a.hue, "0")} v {F(w.b.hue, "0")}, sat {F(w.a.sat)} v {F(w.b.sat)}, luma {F(w.a.luma)} v {F(w.b.luma)})\n");
             }
-            return $"{id}: {failed} / {total}";
+            return $"{id}: {failed} / {total} (beyond the control's noise: {failed2})";
         }
 
         /// <summary>The failing pairs of one dress, side by side (near level | far level), one species a row
