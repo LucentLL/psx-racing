@@ -6808,20 +6808,22 @@ namespace PSXRacing.City
                 return;
             }
 
+            // (11-17 roads3) PSX_CITY_RAILSHY: the face clear of the edge line (RailShyOut)
+            float shyA = RailShyOut(e, A, side, tm.origin), shyB = RailShyOut(e, B, side, tm.origin);
             if (sf.rail && WBeamRunAt(side, i))
             {
                 // the bridges pass: a warranted drop on the ground is guarded
                 // by W-beam on posts, as a real fill is - not by a parapet
-                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
-                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin) + shyA),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin) + shyB);
                 EmitWBeamRun(tm, e, i, side, outAm, outBm);
                 ConNote(ConKind.WBeam, "w-beam-run", eA, eB, 0.15f, WBeamTopM, WBeamTopM);
                 tm.railMetres += len;
             }
             else if (sf.rail)
             {
-                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
-                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin) + shyA),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin) + shyB);
                 float drop = f.elev ? CityElevation.DeckThick : RailBuryM + 0.5f * Mathf.Max(outAm, outBm);
                 // A flared or eased rail stands over the verge, which falls at
                 // most 1V:6H past a 4% shoulder: half its offset buries its
@@ -7373,6 +7375,44 @@ namespace PSXRacing.City
         }
 
         const float RailVertexOutMaxM = RailW * 0.5f;
+
+        // THE RAIL'S SHY OFFSET (11-17 roads3; the line gate's BARRIER class, 1,622 places of the baseline). A rail's
+        // traffic face stands RailW inside the drawn edge (EmitRail), and a street's shoulder is 0.3 m (RoadProfiles.TW /
+        // OW): the face stood ON the edge line's outer paint, 6 cm from its centre - every city street bridge parapet,
+        // retaining-wall rail and W-beam on a marked street. A barrier's face is AT the edge already (the flush
+        // transition above eases a rail out RailW to meet it). Now a rail whose side's nearest painted line is closer
+        // than RailShyLineM to the drawn edge steps out until its face stands at the edge at least (no more than RailW):
+        // the edge line keeps its shoulder in front of the face; a freeway's or ramp's wide shoulder moves nothing.
+        // Not on a squeezed side (the strip and its rail are the neighbour's too), nor on an unmarked road.
+        // PSX_CITY_RAILSHY=1: on (default OFF until the gates have judged it).
+        public static bool RailShyOn = System.Environment.GetEnvironmentVariable("PSX_CITY_RAILSHY") == "1";
+        const float RailShyLineM = 0.36f;
+        static readonly List<LineModel.LineAt> railShyLines = new List<LineModel.LineAt>(16);
+
+        /// <summary>How far a rail on this section's side steps out for its face to clear the edge line (0..RailW).</summary>
+        static float RailShyOut(CityMap.Edge e, Section sec, int side, Vector3 origin)
+        {
+            if (!RailShyOn || sec.Strip(side) >= 0f || sec.collapsed) return 0f;
+            var ed = sec.Edge(side);
+            return RailShyOutAt(e, sec.s, new Vector2(ed.x + origin.x, ed.z + origin.z));
+        }
+
+        /// <summary>The same for a drawn edge point (world plan) of edge <paramref name="e"/> at arc <paramref name="s"/>.</summary>
+        public static float RailShyOutAt(CityMap.Edge e, float s, Vector2 edgeW)
+        {
+            if (!RailShyOn) return 0f;
+            var c = e.PointAt(s); var t = e.TangentAt(s);
+            float edgeLat = Vector2.Dot(edgeW - c, new Vector2(-t.y, t.x));
+            LineModel.LinesAt(e, s, railShyLines);
+            float best = float.MaxValue;
+            foreach (var l in railShyLines)
+            {
+                float d = edgeLat >= 0f ? edgeLat - l.lat : l.lat - edgeLat;   // the line's distance in from the edge
+                if (d >= -0.05f && d < best) best = d;
+            }
+            if (best == float.MaxValue) return 0f;
+            return Mathf.Clamp(RailW - (best - RailShyLineM), 0f, RailW);
+        }
 
         /// <summary>Does span <paramref name="i"/>'s side on a span drawn as
         /// deck get a verge (EmitSide)? Only the grounded end of one: one
