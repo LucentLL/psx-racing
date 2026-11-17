@@ -477,7 +477,19 @@ namespace PSXRacing
                 var ke = map.edges[keep];
                 bool onKeep = kd <= ke.HalfMax + 2.5f;
                 bool take = false;
-                if (found && e != keep)
+                // AT A NODE, THE ROUTE'S ROAD: the car has run off the end of its kept edge and the road the route
+                // takes from there is under it (its pavement + 3 m): that one, whatever is a metre nearer (a gore
+                // where a ramp leaves a 4-lane main line: both OSM lines lie under the car for 100 m)
+                if (prefer >= 0 && prefer != keep && (ks <= 0.5f || ks >= ke.length - 0.5f) && SharesNode(prefer, keep))
+                {
+                    var pe = map.edges[prefer];
+                    bool atA = pe.a == ke.a || pe.a == ke.b;
+                    if (Project(prefer, pos, atA ? 0f : pe.length, 60f, out float ps, out float pd) &&
+                        pd <= pe.HalfMax + 3f && Mathf.Abs(pos.y - pe.YAt(ps)) <= 4f)
+                    { e = prefer; s = ps; d = pd; take = true; loc.pending = -1; }
+                }
+                if (take) { }
+                else if (found && e != keep)
                 {
                     var ne = map.edges[e];
                     bool onNew = d <= ne.HalfMax + 1.5f;
