@@ -320,6 +320,16 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(metres >= 0.9f * route && metres <= 1.4f * route,
                                     "MetersDriven is the honest odometer (0.9-1.4 x the route)", $"{metres:0} m for a {route:0} m race");
             }
+            // THE CAMCORDER (owner 11-16: a camera at the start, at each checkpoint and at the finish): its course is
+            // this race's gates, through RacePoints.Provider (CheckpointRace.TryBegin)
+            {
+                var course = RacePoints.For(rm);
+                string src = course != null ? course.source : "none";
+                RacePlayCheck.Note($"CAMCORDER COURSE: {src}, {(course != null ? course.points.Count : 0)} points ({(course != null ? course.Checkpoints : 0)} checkpoints{(course != null && course.loop ? ", " + course.laps + " lap(s)" : "")})");
+                int wantCps = cp.Loop ? cp.GateCount - 1 : cp.GateCount - 2;
+                RacePlayCheck.Check(course != null && src.StartsWith("checkpoints") && course.Checkpoints == wantCps,
+                                    "the camcorder films this race's gates (start, every checkpoint, finish)", src + " / " + (course != null ? course.Checkpoints : 0) + " of " + wantCps);
+            }
             // no closure, no barricade, no cone anywhere in the race
             int props = RacePlayCheck.RaceBarricades(out string what);
             RacePlayCheck.Check(props == 0, "no barricade, closure or cone in the race", what);
