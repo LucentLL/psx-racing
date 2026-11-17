@@ -1819,6 +1819,11 @@ namespace PSXRacing
                 // met cars with 2.0-2.2 m between centres - every head-on in
                 // sixteen measured races (2026-11-02).
                 leftLimit = (OncomingNear(twoWay, OncomingNearS) ? OncomingNearInnerM : OwnLaneInnerM) - lineOffset;
+            // A ROAD ITS OWN MAP CALLS ONE-WAY, with the race strip's oncoming stream on it all the same (the strip lays
+            // oncoming lanes along the whole route: CltC2 at MEDIUM, 12 such meets in a race): those cars are met as
+            // oncoming cars, right of the line (aipass, PASS WINDOW)
+            else if (PassWindowOn && twoWay != null && twoWay.TwoWay && path.Routed && !TwoWayHere(twoWay) && OncomingAhead(twoWay, OncomingGuardM))
+                leftLimit = (OncomingNear(twoWay, OncomingNearS) ? OncomingNearInnerM : OwnLaneInnerM) - lineOffset;
             // THE PASS WINDOW's lane (aipass): with traffic on a two-way road, not over the line without a pass that
             // holds - where it cannot see far enough to be there (a car at the street's speed would meet it within
             // PassStartGapS and the swing back), or a pass was just given up
