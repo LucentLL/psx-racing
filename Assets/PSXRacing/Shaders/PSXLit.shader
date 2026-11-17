@@ -137,6 +137,13 @@ Shader "PSX/Lit"
         // narrow tree card under a pixel wide vanishes in its own alpha test,
         // and the far slopes read bare (owner 2026-11-09)
         [HideInInspector] _PSXFarGrow ("Far grow", Vector) = (0,0,1,0)
+        // ... about this point of the card (object space): the tree's FOOT, where
+        // the card's own origin is the mesh's (TREE MATCH: a far card shares its
+        // mesh's origin, so both draw the same per-tree colour). 0 = the origin.
+        [HideInInspector] _PSXGrowFoot ("Grow foot", Vector) = (0,0,0,0)
+        // x > 0: a tree's far card, lit as its crown (the vertex light's normal is
+        // x times the direction to the eye from the tree, plus y straight up)
+        [HideInInspector] _PSXCrownCard ("Crown card", Vector) = (0,0,0,0)
         // The mountain forest's leaves (MeshForest): saturation and brightness
         // of the texel before the light - 1, 1 everywhere else.
         [HideInInspector] _LeafVivid ("Leaf vivid", Vector) = (1,1,0,0)
@@ -458,6 +465,8 @@ Shader "PSX/Lit"
             float4 _PSXLodFade;
             float4 _PSXLodThin;
             float4 _PSXFarGrow;
+            float4 _PSXGrowFoot;
+            float4 _PSXCrownCard;
             // the pop measure's LOD eye (MeshForest.LodEyeOn, a global): w > 0.5 =
             // the forest's levels and rings as seen from xyz, not from the camera
             float4 _PSXLodEye;
@@ -1456,7 +1465,7 @@ Shader "PSX/Lit"
                     // its own origin rather than dissolving in a screen-door
                     // dither (owner: "a speckled dotted effect" in game).
                     if (_PSXFarGrow.z > 1.0 && _PSXFarGrow.y > _PSXFarGrow.x)
-                        v.vertex.xyz *= lerp(1.0, _PSXFarGrow.z, saturate((o.lodD.x - _PSXFarGrow.x) / (_PSXFarGrow.y - _PSXFarGrow.x)));
+                        v.vertex.xyz = _PSXGrowFoot.xyz + (v.vertex.xyz - _PSXGrowFoot.xyz) * lerp(1.0, _PSXFarGrow.z, saturate((o.lodD.x - _PSXFarGrow.x) / (_PSXFarGrow.y - _PSXFarGrow.x)));
                     if (_PSXLodThin.x > 0.0 && _PSXLodFade.w > _PSXLodFade.z)
                     {
                         float lv = o.lodD.x / lerp(_PSXLodThin.x, 1.0, o.lodD.y);
@@ -1605,6 +1614,18 @@ Shader "PSX/Lit"
                 // four corners agree. Only when culling is off; a closed mesh
                 // never shows its back.
                 if (_Cull < 0.5 && dot(n, _WorldSpaceCameraPos - wpos) < 0.0) n = -n;
+                // TREE MATCH: a tree's far CARD is lit as its CROWN is, not as a flat
+                // board. A crown shows the eye leaves facing every way in the half
+                // of space turned toward it: the mean of those normals is half the
+                // direction to the eye (0.64 of it for a bare tree's limbs, turned
+                // round their own axes). Both cards of the cross, at every vertex,
+                // take that - so the card answers the sun as its mesh does from
+                // any side at any hour (a flat board with its own normal measured
+                // 1.6 to 1.8 times its mesh at noon, and darker than it at dusk).
+                // (from the vertex itself: a far card is small in the view, so its
+                // corners agree - and a tile's merged card mesh has no origin of its own)
+                if (_PSXCrownCard.x > 0.0)
+                    n = normalize(_WorldSpaceCameraPos - wpos) * _PSXCrownCard.x + float3(0.0, _PSXCrownCard.y, 0.0);
                 float ndl = saturate(dot(n, normalize(_PSXLightDir.xyz)));
                 // Hemispheric: the sky's colour from above, the plain ambient
                 // from the side and below. A cheap per-vertex lerp, and the
@@ -2328,7 +2349,10 @@ Shader "PSX/Lit"
                     if (outF > 0.001) clip(outF > 0.999 ? -1.0 : dith - outF);
                 }
                 // THE FLICKER FINDER: the draw's ID, alpha its distance (2 km = 1)
-                if (_PSXIdOn > 0.5) return fixed4(_PSXIdCol.rgb, saturate(length(i.wpos - _WorldSpaceCameraPos) / 2000.0));
+                // (_PSXIdOn 2: THE TREE MATCH BAKE - Editor/PSXRacingBuilder.TreeMatch.cs - reads a tree's own
+                // surface colour off its mesh for its far card: the albedo as worked out above, halved to
+                // keep a leaf brightened past 1 inside the 8 bits; never set in the game)
+                if (_PSXIdOn > 0.5) return _PSXIdOn > 1.5 ? fixed4(tex.rgb * 0.5, 1.0) : fixed4(_PSXIdCol.rgb, saturate(length(i.wpos - _WorldSpaceCameraPos) / 2000.0));
                 // the skyline's depth-only draws (2, 3): nothing to shade
                 if (_SkylinePass > 1.5) return fixed4(0, 0, 0, 0);
 

@@ -276,6 +276,8 @@ namespace PSXRacing.EditorTools
             CTRound3(list, names, roles, groups3);
             // ---- every level standing on the ground (the packs' coarser levels have no roots: PSX_CT5_FOOT=0 = as they were) ----
             CTFeet(list, names);
+            // ---- TREE MATCH: every tree's far card made from its own LOW mesh, in each dress (PSX_TREE_MATCH=0: none) ----
+            TreeMatchKit(list, names, "city", null, true);
             // ---- the crowns ----
             var crown = new float[list.Count * CityTreeKit.Bands];
             var cbase = new float[list.Count];

@@ -601,6 +601,12 @@ namespace PSXRacing.EditorTools
             kit.smallBeech = small.ToArray();
             kit.bushes = bushes.ToArray();
             kit.variants = list.ToArray();
+            // TREE MATCH: the canopy's far cards made from their own LOW meshes, in each dress (PSX_TREE_MATCH=0: none)
+            {
+                var tmNames = new List<string>();
+                foreach (var tv in kit.variants) tmNames.Add(tv != null && tv.lods != null && tv.lods.Length > 0 && tv.lods[0] != null ? tv.lods[0].name : "variant");
+                TreeMatchKit(kit.variants, tmNames, "stage", kit.leafByDress, false);
+            }
             Log($"Mesh forest kit: {kit.treeCount} canopy beeches (+impostors), {small.Count} small beeches, {bushes.Count} cherry bushes, poplar {(kit.poplar >= 0 ? "yes" : "no")}, {cover.Count} ground-cover plants, debris " +
                 $"{debris[0].Count} litter / {debris[1].Count} branches / {debris[2].Count} stones / {debris[3].Count} logs / {debris[4].Count} stumps.");
             meshTreeKit = kit;

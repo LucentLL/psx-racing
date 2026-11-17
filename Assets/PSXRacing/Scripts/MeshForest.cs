@@ -82,6 +82,32 @@ namespace PSXRacing
             public float thin;
             /// <summary>Casts shadows at HIGH and MID (trees, not grass).</summary>
             public bool shadows = true;
+            /// <summary>TREE MATCH (2026-11-16; owner: "trees full of leaves (or
+            /// different color trees in Fall) pop-in as you approach and then
+            /// the tree is leafless"): the far level made FROM THIS TREE - a
+            /// cross of two cards wearing a picture of its own LOW mesh in
+            /// each dress (bare where the mesh is bare, the mesh's own leaf
+            /// colour where it is in leaf), in place of the pack's sheet of a
+            /// tree in summer leaf, darkened or recoloured. Null on a kit made
+            /// before it, and with PSX_TREE_MATCH=0 never used.</summary>
+            public Mesh matchLod;
+            /// <summary>The match card's material per dress (5).</summary>
+            public Material[] matchDress;
+            /// <summary>The match card's node transform (its origin the mesh's own).</summary>
+            public Matrix4x4 matchPre = Matrix4x4.identity;
+
+            /// <summary>This species with its match card as its far level.</summary>
+            public Variant WithMatch()
+            {
+                var v = (Variant)MemberwiseClone();
+                v.lods = new[] { lods.Length > 0 ? lods[0] : null, lods.Length > 1 ? lods[1] : null, lods.Length > 2 ? lods[2] : null, matchLod };
+                v.impostorDress = matchDress;
+                v.impostorPre = matchPre;
+                // (a tree that had no far level - it thinned out and ended at the mesh range - now stands to the far range like the rest)
+                if (lods.Length < 4 || lods[3] == null) v.thin = 0f;
+                return v;
+            }
+            public bool HasMatch => matchLod != null && matchDress != null && matchDress.Length == 5;
         }
 
         [System.Serializable]
@@ -183,10 +209,37 @@ namespace PSXRacing
 
         void Awake() => Init();
 
+        /// <summary>TREE MATCH: every tree's far level is a picture of its own
+        /// mesh in today's dress (Variant.matchLod), standing on the mesh's own
+        /// origin so both draw the same per-tree colour. PSX_TREE_MATCH=0 (or a
+        /// perf tour's ab=MeshForest.TreeMatch:0 before the stage loads): the
+        /// pack's sheets as before.</summary>
+        public static bool TreeMatch = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH") != "0";
+        /// <summary>Per species: its far card stands on its mesh's origin (the
+        /// card's matrix takes the mesh's translation bit for bit).</summary>
+        bool[] sameOrigin;
+        public int MatchCount { get; private set; }
+
         void Init()
         {
             instance = this;
             inited = true;
+            // (a copy: the kit's own list - a scene's, the city kit asset's - stays as it was built)
+            sameOrigin = new bool[variants.Length];
+            MatchCount = 0;
+            if (TreeMatch)
+            {
+                Variant[] mine = null;
+                for (int v = 0; v < variants.Length; v++)
+                {
+                    if (variants[v] == null || !variants[v].HasMatch) continue;
+                    mine ??= (Variant[])variants.Clone();
+                    mine[v] = variants[v].WithMatch();
+                    sameOrigin[v] = true;
+                    MatchCount++;
+                }
+                if (mine != null) variants = mine;
+            }
             float q = ForestDetailPrefs.Scale;
             lod0To *= q; lod1To *= q; meshRange *= q;
             band0 *= q; band1 *= q; band2 *= q;
@@ -258,7 +311,8 @@ namespace PSXRacing
             if (!gpu && !pooled) EnsureLegacy();
             Debug.Log($"[MeshForest] {inst.Length} plants in {chunks.Length} chunks, {variants.Length} variants; " +
                       $"LOD {lod0To}/{lod1To}/{meshRange} m (hand-over bands {band0:0}/{band1:0}/{band2:0} m), impostors to {farRange} m; F8 = A/B; " +
-                      (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") + ".");
+                      (gpu ? GpuDescribe() : "CPU lists (RenderMeshInstanced)") +
+                      (TreeMatch ? $"; tree match: {MatchCount} species' far cards made from their own meshes" : "; tree match OFF (PSX_TREE_MATCH=0)") + ".");
         }
 
         /// <summary>A plant's matrix under the forest's root, as the builder placed it.</summary>
@@ -270,6 +324,18 @@ namespace PSXRacing
             return Matrix4x4.TRS(new Vector3(p.x, p.y, p.z),
                 Quaternion.Euler(tl.x, 0f, tl.y) * Quaternion.Euler(0f, p.w, 0f), new Vector3(s, s, s))
                 * variants[(int)instScaleVar[i].y].pre;
+        }
+
+        /// <summary>A plant's far card matrix from its mesh matrix. A match
+        /// card stands on the mesh's own origin, and PSX/Lit works each tree's
+        /// shade, hue and fall colour out of that origin - so it is the mesh's
+        /// to the last bit, not to the rounding of two matrix products (a
+        /// millimetre's difference is another number altogether).</summary>
+        Matrix4x4 FarMatrix(Matrix4x4 m, int v)
+        {
+            var mi = m * impFix[v];
+            if (sameOrigin != null && sameOrigin[v]) { mi.m03 = m.m03; mi.m13 = m.m13; mi.m23 = m.m23; }
+            return mi;
         }
 
         /// <summary>The CPU path's tables (a matrix a plant, twice): made the
@@ -313,7 +379,7 @@ namespace PSXRacing
                     int vi = (int)instScaleVar[i].y;
                     var vr = variants[vi];
                     if (vr.lods.Length < L || vr.lods[3] == null || vr.maxDist > 0f) continue;
-                    tmp[vi].Add(worldM[i] * impFix[vi]);
+                    tmp[vi].Add(FarMatrix(worldM[i], vi));
                 }
                 farLists[ci] = new Matrix4x4[variants.Length][];
                 for (int v = 0; v < variants.Length; v++)
@@ -534,14 +600,14 @@ namespace PSXRacing
             int b = vi * L + lod;
             if (bucketN[b] == bucket[b].Length)
                 System.Array.Resize(ref bucket[b], bucket[b].Length * 2);
-            var m = lod == 3 ? worldM[i] * impFix[vi] : worldM[i];
+            var m = lod == 3 ? FarMatrix(worldM[i], vi) : worldM[i];
             bucket[b][bucketN[b]++] = m;
             // the other cameras: a canopy tree once, as its impostor
             var vr = variants[vi];
             if (vr.lods.Length > 3 && vr.lods[3] != null && vr.maxDist <= 0f && lastPut[vi] != i)
             {
                 if (mirrorN[vi] == mirrorM[vi].Length) System.Array.Resize(ref mirrorM[vi], mirrorM[vi].Length * 2);
-                mirrorM[vi][mirrorN[vi]++] = lod == 3 ? m : m * impFix[vi];
+                mirrorM[vi][mirrorN[vi]++] = lod == 3 ? m : FarMatrix(m, vi);
                 lastPut[vi] = i;
             }
         }
