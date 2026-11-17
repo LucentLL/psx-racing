@@ -974,48 +974,47 @@ namespace PSXRacing.City
                         needs.Add(nd); sides.Add(sd); dsOf.Add(ds); fwdOf.Add(fwd);
                         from = fwd ? e.b : e.a;
                     }
-                    // pass 2: no step in the push. Inside the mapped fan (the first TightPastFanM from the fork,
-                    // and before the closing fork) the need is steep by nature - it only undoes the fan - and
-                    // stands as it is. Past the fan the push is the need's upper envelope under the shifting
-                    // taper's slope (the lanes move sideways no faster than the speed allows), eased to nothing
-                    // before an open end. (The envelope is built from the needs PAST the fan only: built from
-                    // all of them it carried the fan's 6 m along the whole pair - an island again.)
+                    // pass 2: no step in the push, and the two pavements stay FLUSH. Inside the mapped fan (the
+                    // first TightPastFanM from the fork, and before the closing fork) the need is steep by nature -
+                    // it only undoes the fan - and stands as it is. Past the fan each side's push is its need
+                    // averaged over 30 m: the mapped spacing changes slowly, so the two averages still add up to
+                    // the shortfall (flush to a few centimetres) and a step in the need (0.36 m in one sample at a
+                    // junction) is spread over the window. An upper envelope of the need was tried on both sides
+                    // and over-pushed both wherever the mapped spacing varied: a sliver of island 1-2.5 m wide.
+                    // Before an end that is not the pair's closing fork the push eases out at the shifting taper.
                     float slope = 1f / Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
                     {
-                        var env = new List<float[]>(needs.Count);
+                        var flatV = new List<float>(256); var flatD = new List<float>(256);
                         float dAt = 0f;
                         for (int j = 0; j < needs.Count; j++)
                         {
-                            var ev = new float[needs[j].Length];
-                            for (int k = 0; k < ev.Length; k++)
-                            {
-                                float dd = dAt + k * dsOf[j];
-                                bool fan = dd < TightPastFanM || (closes && chainLen - dd < TightPastFanM);
-                                ev[k] = fan ? 0f : needs[j][k];
-                            }
-                            env.Add(ev); dAt += dsOf[j] * (ev.Length - 1);
+                            for (int k = j == 0 ? 0 : 1; k < needs[j].Length; k++) { flatV.Add(needs[j][k]); flatD.Add(dAt + k * dsOf[j]); }
+                            dAt += dsOf[j] * (needs[j].Length - 1);
                         }
-                        float prev = 0f, lastSide = 0f;
-                        for (int j = 0; j < env.Count; j++)
-                            for (int k = 0; k < env[j].Length; k++)
+                        const float win = 15f;
+                        var sm = new float[flatV.Count];
+                        int lo = 0, hi = 0; float sum = 0f;
+                        for (int i = 0; i < sm.Length; i++)
+                        {
+                            while (hi < sm.Length && flatD[hi] <= flatD[i] + win) { sum += flatV[hi]; hi++; }
+                            while (flatD[lo] < flatD[i] - win) { sum -= flatV[lo]; lo++; }
+                            bool fan = flatD[i] < TightPastFanM || (closes && chainLen - flatD[i] < TightPastFanM);
+                            float v = fan ? flatV[i] : sum / Mathf.Max(1, hi - lo);
+                            if (!closes) v = Mathf.Min(v, Mathf.Max(0f, chainLen - flatD[i]) * slope);
+                            sm[i] = v;
+                        }
+                        int q = 0; float lastSide = 0f;
+                        for (int j = 0; j < needs.Count; j++)
+                            for (int k = 0; k < needs[j].Length; k++)
                             {
-                                env[j][k] = Mathf.Max(env[j][k], prev - (k == 0 ? 0f : slope * dsOf[j]));
-                                prev = env[j][k];
+                                if (j > 0 && k == 0) { needs[j][0] = sm[q - 1]; }
+                                else needs[j][k] = sm[q++];
                                 if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
                             }
-                        prev = 0f; lastSide = 0f;
-                        float dEnd = 0f;
-                        for (int j = env.Count - 1; j >= 0; j--)
-                            for (int k = env[j].Length - 1; k >= 0; k--)
-                            {
-                                float v = Mathf.Max(env[j][k], prev - (k == env[j].Length - 1 ? 0f : slope * dsOf[j]));
-                                env[j][k] = v; prev = v;
-                                float want = Mathf.Max(needs[j][k], v);
-                                if (!closes) want = Mathf.Min(want, dEnd * slope);
-                                needs[j][k] = want;
+                        lastSide = 0f;
+                        for (int j = needs.Count - 1; j >= 0; j--)
+                            for (int k = needs[j].Length - 1; k >= 0; k--)
                                 if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
-                                if (k > 0) dEnd += dsOf[j];
-                            }
                     }
                     // pass 3: one sampled shift ease an edge
                     float d0 = 0f;

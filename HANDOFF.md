@@ -1,3 +1,15 @@
+# HANDOFF - ROAD LINES ROUND (splits2, 2026-11-17 01:00): state + pointer
+
+The full note is `scratchpad\splits2\HANDOVER.md` (session scratch). The section below this one is the 11-16 afternoon state and is OLDER.
+
+- Defaults unchanged: `PSX_CITY_SPLITAXIS=bfr`, `PSX_CITY_LINEFIX` off. Everything new is behind those two switches. No gate has run with LINEFIX on.
+- The owner's N Tryon spot (2487, 8201, hdg 273): the S-jog and the 8 m lane are one cause - OSM tags seven lanes, the widest profile had six, the exporter's fitted row took an opposing through lane on the bay pieces and the relay moved the centre line a lane four times in 200 m.
+- `PSX_CITY_LINEFIX=1`: seven-lane profile `RoadProfiles.Tw7` (slots appended at the end, COUNT 102 -> 106), lane-fit list (25 OSM ways, `tools/city/lanefit.mjs`), TWLTL arrows, centre-lane hand-over rules, short centre-lane bays drawn as TWLTL. Seen with eyes: ONE frame pair at his pose. The hand-over rules have been looked at nowhere.
+- The fork he circled (n3158): the two one-way ways are mapped closer than their own lanes (a tight twin). `BuildTightTwins` (scope city) is written; its result was NOT confirmed in a frame when this was written - see the note's section 6.
+- The dark stripes are NOT settled (not proven to be skid marks; they run along the road, which fits a stretched HD road base).
+- The build, if LINEFIX ships: flip the two defaults in code, rebuild the city kit (any city scene pass), give the committed tw7t textures the release texture pass + HD road-base entries, re-bake tiles, re-run the medians gate with LINEFIX on.
+- Phase C gates still not run on the current code: `chain8a.sh`, `chain8b.sh` in the scratch folder (add LINEFIX to the city variants).
+
 ﻿# HANDOFF - SPLITS PHASE C + TAPER FLOORS (agent "splits2", branch `charlotte-splits2`, 2026-11-16 afternoon; NOT pushed, NOT merged; STOPPED at 16:00 for the usage cap)
 
 STATE + NEXT STEPS (10 lines)
