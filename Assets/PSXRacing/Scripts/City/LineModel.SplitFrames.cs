@@ -525,6 +525,25 @@ namespace PSXRacing.City
                 frames.Add(f);
             }
             if (frames.Count == 0) return done;
+            // (11-17) a tight twin's two carriageways open the island together: one length for both (the longer),
+            // so the lane gap grows evenly from the fork to the island's width
+            if (frames.Count == 2 && frames[0].ownBlend && frames[1].ownBlend && Mathf.Abs(frames[0].L - frames[1].L) > 0.5f)
+            {
+                float Lb = Mathf.Max(frames[0].L, frames[1].L);
+                foreach (var f in frames)
+                {
+                    f.L = Lb; f.uEnd = f.uStart + Lb; f.qEnd = f.OwnQAt(f.uEnd);
+                    f.slopeEnd = Mathf.Clamp((f.OwnQAt(f.uEnd + 2f) - f.OwnQAt(f.uEnd - 2f)) / 4f, -0.15f, 0.15f);
+                    f.delta = f.qEnd - f.lambda0;
+                    float uMaxF = f.ownU[f.ownU.Length - 1];
+                    var pts = new List<Vector2>(512);
+                    float uRun = Mathf.Min(uMaxF, f.uEnd + 8f);
+                    for (float uu = 0f; uu <= uRun + 1e-3f; uu += 0.5f) pts.Add(P0 + tU * uu + leftU * f.TAt(uu));
+                    f.ax = pts.ToArray(); f.axS = new float[f.ax.Length];
+                    for (int i = 1; i < f.ax.Length; i++) f.axS[i] = f.axS[i - 1] + Vector2.Distance(f.ax[i - 1], f.ax[i]);
+                    f.sEnd = f.axS[Mathf.Clamp(Mathf.RoundToInt(f.uEnd / 0.5f), 0, f.axS.Length - 1)];
+                }
+            }
             // a mitred node: U's mitre partner must be drawn this way too (else its cut and U's would wedge)
             bool mitred = pUC >= 0;
             if (mitred)
