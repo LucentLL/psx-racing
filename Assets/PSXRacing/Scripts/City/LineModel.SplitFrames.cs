@@ -974,28 +974,45 @@ namespace PSXRacing.City
                         needs.Add(nd); sides.Add(sd); dsOf.Add(ds); fwdOf.Add(fwd);
                         from = fwd ? e.b : e.a;
                     }
-                    // pass 2: no step in the push. Its upper envelope under the shifting taper's slope (the lanes
-                    // move sideways no faster than the speed allows; inside the mapped fan the need itself is
-                    // steeper and stands - there it only undoes the fan), eased to nothing before an open end.
+                    // pass 2: no step in the push. Inside the mapped fan (the first TightPastFanM from the fork,
+                    // and before the closing fork) the need is steep by nature - it only undoes the fan - and
+                    // stands as it is. Past the fan the push is the need's upper envelope under the shifting
+                    // taper's slope (the lanes move sideways no faster than the speed allows), eased to nothing
+                    // before an open end. (The envelope is built from the needs PAST the fan only: built from
+                    // all of them it carried the fan's 6 m along the whole pair - an island again.)
                     float slope = 1f / Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
                     {
-                        float prev = 0f, lastSide = 0f;
+                        var env = new List<float[]>(needs.Count);
+                        float dAt = 0f;
                         for (int j = 0; j < needs.Count; j++)
-                            for (int k = j == 0 ? 0 : 1; k < needs[j].Length; k++)
+                        {
+                            var ev = new float[needs[j].Length];
+                            for (int k = 0; k < ev.Length; k++)
                             {
-                                if (j > 0 && k == 1) needs[j][0] = Mathf.Max(needs[j][0], prev);
-                                needs[j][k] = Mathf.Max(needs[j][k], prev - slope * dsOf[j]);
-                                prev = needs[j][k];
+                                float dd = dAt + k * dsOf[j];
+                                bool fan = dd < TightPastFanM || (closes && chainLen - dd < TightPastFanM);
+                                ev[k] = fan ? 0f : needs[j][k];
+                            }
+                            env.Add(ev); dAt += dsOf[j] * (ev.Length - 1);
+                        }
+                        float prev = 0f, lastSide = 0f;
+                        for (int j = 0; j < env.Count; j++)
+                            for (int k = 0; k < env[j].Length; k++)
+                            {
+                                env[j][k] = Mathf.Max(env[j][k], prev - (k == 0 ? 0f : slope * dsOf[j]));
+                                prev = env[j][k];
                                 if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
                             }
                         prev = 0f; lastSide = 0f;
                         float dEnd = 0f;
-                        for (int j = needs.Count - 1; j >= 0; j--)
-                            for (int k = needs[j].Length - 1; k >= 0; k--)
+                        for (int j = env.Count - 1; j >= 0; j--)
+                            for (int k = env[j].Length - 1; k >= 0; k--)
                             {
-                                float v = Mathf.Max(needs[j][k], prev - slope * dsOf[j]);
-                                if (!closes) v = Mathf.Min(v, dEnd * slope);
-                                needs[j][k] = v; prev = v;
+                                float v = Mathf.Max(env[j][k], prev - (k == env[j].Length - 1 ? 0f : slope * dsOf[j]));
+                                env[j][k] = v; prev = v;
+                                float want = Mathf.Max(needs[j][k], v);
+                                if (!closes) want = Mathf.Min(want, dEnd * slope);
+                                needs[j][k] = want;
                                 if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
                                 if (k > 0) dEnd += dsOf[j];
                             }
