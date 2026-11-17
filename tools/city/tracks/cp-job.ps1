@@ -20,7 +20,7 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet("cpselftest", "race", "cards", "lifeselftest")][string]$Mode,
     [string]$Venue = "I485West", [int]$Seconds = 900, [int]$MaxMinutes = 0, [string]$Hour = "morning",
     [string]$Weather = "", [string]$Traffic = "NONE", [int]$Field = 8, [int]$Laps = 0, [string]$CpRaces = "1",
-    [string]$CpTest = "", [switch]$Shots, [string]$Label = "cp", [string]$Out = "", [string]$Extra = "",
+    [string]$CpTest = "", [switch]$Shots, [string]$Label = "cp", [string]$Out = "", [string]$Extra = "", [string]$Matrix = "",
     [switch]$NoWatch
 )
 $ErrorActionPreference = "Stop"
@@ -122,7 +122,11 @@ try {
                "-Finish", "-Traffic", $Traffic, "-Hour", $Hour)
         if ($NoWatch) { $a += "-NoWatch" }
         if ($MaxMinutes -gt 0) { $a += @("-MaxMinutes", "$MaxMinutes") }
+        # several races in ONE editor session ("Venue:TRAFFIC:seed;..."): each race's report appended, one SUMMARY
+        # line each in PSXRacing_race_matrix.txt (cpfix 11-17)
+        if ($Matrix) { $a += @("-Matrix", $Matrix); Remove-Item "$Sandbox\PSXRacing_race_matrix.txt" -ErrorAction SilentlyContinue }
         $said = @(& powershell @a 2>&1 | ForEach-Object { "$_" })
+        if ($Matrix -and (Test-Path "$Sandbox\PSXRacing_race_matrix.txt")) { Copy-Item "$Sandbox\PSXRacing_race_matrix.txt" "$Out\matrix_$Label.txt" -Force }
         $said | Out-File -FilePath "$Out\race_${Label}_console.txt" -Encoding ascii
         $said | Where-Object { $_ -match "^(WATCH|UNITY|TIMEOUT|NO REPORT)" } | Select-Object -Last 12 | ForEach-Object { $_ }
         $rep = "$Sandbox\PSXRacing_race_play_check.txt"
@@ -135,7 +139,7 @@ try {
 
     # ---- the metas Unity minted for new files, back to the worktree (commit them)
     foreach ($d in @("Assets\PSXRacing\Scripts\Checkpoints", "Assets\PSXRacing\Editor") + $dataDirs) {
-        $flt = if ($d -like "*\Editor") { "Checkpoint*.meta" } else { "*.meta" }
+        $flt = if ($d -like "*\Editor") { "*.cs.meta" } else { "*.meta" }
         foreach ($m in @(Get-ChildItem "$Sandbox\$d" -Filter $flt -ErrorAction SilentlyContinue)) {
             if (-not (Test-Path "$wt\$d\$($m.Name)") -and (Test-Path ("$wt\$d\" + $m.Name.Substring(0, $m.Name.Length - 5)))) {
                 Copy-Item $m.FullName "$wt\$d\$($m.Name)"; Write-Host "meta back: $d\$($m.Name)"
