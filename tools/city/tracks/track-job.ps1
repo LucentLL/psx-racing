@@ -10,6 +10,7 @@
 #   ... -Mode cards                          the whole-city map tiles (citymap-bake) + every city race card
 #   ... -Mode eye -Spots "a,lat,lon,road,hdg;b,lat,lon,road,hdg"   driver-eye frames, day and night
 #        (node tools/city/tracks/spots.mjs <route id> prints -Spots for the grid line and the middle)
+#   ... -Mode selftest                       the LifeSim self-test on the code's defaults (no switch set)
 #   -Out <folder>: where reports and pictures are copied (default <sandbox>\TrackJob)
 #
 # In order: the lock (a random 0.5-4 s pause; no lock under 90 minutes old that is not this agent's and
@@ -21,7 +22,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Agent,
     [Parameter(Mandatory = $true)][string]$Sandbox,
-    [Parameter(Mandatory = $true)][ValidateSet("closures", "race", "cards", "eye", "scenes")][string]$Mode,
+    [Parameter(Mandatory = $true)][ValidateSet("closures", "race", "cards", "eye", "scenes", "selftest")][string]$Mode,
     [string]$Venue = "", [int]$Seconds = 420, [int]$MaxMinutes = 0, [string]$Spots = "", [string]$Label = "track",
     [string]$Out = "",
     # ONLY to re-run a race whose watched editor stopped on Unity's "Revert All Window Layouts" dialog
@@ -42,6 +43,8 @@ if (-not $targets.ContainsKey($leaf)) { Write-Host "track-job: no build target k
 $env:PSX_BUILD_TARGET = $targets[$leaf]
 $env:PSX_SANDBOX = $Sandbox
 $env:PSX_CITY_TRACKS = "1"
+# the self-test runs on the code's own defaults (no switch set), as the game ships
+if ($Mode -eq "selftest") { Remove-Item Env:PSX_CITY_TRACKS, Env:PSX_TRACK_CLOSURES -ErrorAction SilentlyContinue }
 
 # ---- the lock, taken atomically
 $lock = Join-Path $Sandbox "AGENT_LOCK.txt"
@@ -89,6 +92,23 @@ try {
         $done = (Test-Path "$Sandbox\PSXRacing_city_build_log.txt") -and (Select-String -Path "$Sandbox\PSXRacing_city_build_log.txt" -Pattern "CITY BUILD OK" -Quiet)
         Write-Host ("scenes: " + $(if ($done) { "CITY BUILD OK" } else { "FAILED" }) + " in " + [int]((Get-Date) - $t0).TotalMinutes + " min")
         if (-not $done) { $code = 1 }
+    }
+    elseif ($Mode -eq "selftest") {
+        # the LifeSim self-test (batch, about 5 minutes), on the code's defaults; its FAIL lines are judged
+        # against the base's: a new one that names a track, CityTracks or a host scene is ours
+        $rep = "$Sandbox\PSXRacing_selftest_log.txt"
+        Remove-Item $rep -ErrorAction SilentlyContinue
+        $log = Join-Path $Sandbox "trackselftest.log"
+        $ok = Invoke-UnityJob -Log $log -MaxMinutes ([Math]::Max($mm, 30)) -UnityArgs @("-quit", "-batchmode", "-nographics", "-projectPath", $Sandbox,
+            "-executeMethod", "PSXRacing.EditorTools.LifeSimSelfTest.Run", "-logFile", $log, "-accept-apiupdate")
+        Select-String -Path $log -Pattern "error CS" -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { $_.Line }
+        if (Test-Path $rep) {
+            Copy-Item $rep "$Out\selftest.txt" -Force
+            $fails = @(Select-String -Path $rep -Pattern "^\s*FAIL" | ForEach-Object { $_.Line.Trim() })
+            Write-Host ("self-test: " + $fails.Count + " FAIL lines; " + ((Get-Content $rep -Tail 1) + ""))
+            $fails | Where-Object { $_ -match "Clt|I485|CityTrack|hostScene|host scene|charlotte_tracks|Rev " } | ForEach-Object { "  " + $_ }
+        }
+        else { Write-Host "NO REPORT"; Get-Content $log -Tail 20; $code = 1 }
     }
     elseif ($Mode -eq "closures") {
         $rep = "$Sandbox\PSXRacing_closures_check.txt"

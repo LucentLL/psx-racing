@@ -33,9 +33,11 @@ namespace PSXRacing
         public const string Folder = "CityTracks";
         public const string OrderName = "_order";
 
-        /// <summary>PSX_CITY_TRACKS=1 offers these races. Unset or 0: none of them is offered or
-        /// registered, the menu as it was (their venues stay in TrackCatalog.All for the saved indices).</summary>
-        public static bool Enabled => System.Environment.GetEnvironmentVariable("PSX_CITY_TRACKS") == "1";
+        /// <summary>DEFAULT ON (2026-11-16 evening: I485West and CltD1 raced to the finish, watched,
+        /// sanctioned, with 0 closures on any race line). PSX_CITY_TRACKS=0 hides these
+        /// races: none of them is offered or registered, the menu as it was (their venues stay in
+        /// TrackCatalog.All for the saved indices).</summary>
+        public static bool Enabled => System.Environment.GetEnvironmentVariable("PSX_CITY_TRACKS") != "0";
 
         [System.Serializable]
         public class RouteData

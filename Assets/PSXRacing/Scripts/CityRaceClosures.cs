@@ -14,8 +14,8 @@ namespace PSXRacing
     /// clear of the course's pavement; <see cref="Audit"/> checks the line a race drives), never in
     /// free roam, never in a street (illegal) race, never anywhere else: there is no other road
     /// closure or construction dressing in the city. Built by CityTracksRegistrar in a race scene.
-    /// PSX_TRACK_CLOSURES unset or 0: never (DEFAULT OFF until proven); =1: in every city race (the play
-    /// checks); =sanctioned: sanctioned events only (the intended rule).
+    /// PSX_TRACK_CLOSURES unset (DEFAULT, proven 2026-11-16 evening) or =sanctioned: sanctioned events
+    /// only (the owner's rule); =0: never; =1: in every city race (the play checks).
     /// </summary>
     public static class CityRaceClosures
     {
@@ -27,9 +27,9 @@ namespace PSXRacing
         {
             string sw = System.Environment.GetEnvironmentVariable("PSX_TRACK_CLOSURES");
             if (sw == "1") return true;
-            // DEFAULT OFF until the closures pass a watched race (coordinator 2026-11-16 16:00):
-            // PSX_TRACK_CLOSURES=sanctioned gives the intended rule, sanctioned events only
-            if (sw != "sanctioned") return false;
+            if (sw == "0") return false;
+            // DEFAULT: sanctioned events only (the owner's rule, 2026-11-16 15:10), proven in the
+            // watched sanctioned races of 2026-11-16 evening (0 closures on any race line)
             string key = RaceHandoff.EventKey;
             if (string.IsNullOrEmpty(key)) return false;
             int h = key.LastIndexOf('#');
