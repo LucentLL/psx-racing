@@ -1,3 +1,27 @@
+# RAIN 2 (branch rain-1116 from 742315cd; 2026-11-16/17; agent "rain") - PAUSED AT A HAND-OVER, NOT FINISHED
+
+The owner, 2026-11-16: "I'd like to see the rain effects be improved. This means while sitting idle, cruising, and racing.
+Splashing on the ground, how it pools on the road. I say this, meanwhile we need to start focusing HEAVILY on performance."
+
+State at the hand-over (full note: the session scratchpad's `rain\HANDOVER.md`, cost table `rain\COST.md`):
+- Everything is behind `PSX_RAIN2`, DEFAULT OFF (unset = PC48's rain; `=1` on). Sub-switches (`Rain2.Pools`, `Rings`,
+  `Splashes`, `Wipers`, `Glass`, `Spray`, `Trails`, `Audio`; env `PSX_RAIN2_POOLS` ... ) default on under it. Tiers
+  `PSX_RAIN2_TIER=high|low|mobile`; the editor needs `PSX_PROFILE=PC` to be HIGH.
+- Built: pools by the road's slope + the city's gutter pans, the rain's rings in the wet road's two passes
+  (`Shaders/PSXRain2.cginc`, `PSXSpecBend.cginc`), probed-ground splashes with a cover mask (`Scripts/Rain2Driver.cs`), wipers
+  and look-through drops on the cockpit glass (`PSXCabinGlass.shader`, `CockpitInterior.cs`, `SpeedBlurFeature.cs`), puddle
+  hits + rooster tail (`TireSpray.cs`), mist behind traffic (`Rain2Traffic.cs`), a damp trail (`WetTrail.cs`), procedural
+  rain audio (`Rain2Audio.cs`).
+- Proven: typecheck; the play check (`toolsain2-play-check.ps1`) passed ON (watched once) and OFF (hidden); driver and
+  audio allocate 0 B a frame.
+- NOT proven: the GPU budget. The one measurement (3832x2054, the owner's game running beside it, +-1 ms) read +1.3 ms for
+  the ground and +2.1..2.5 ms in the cockpit against a 1.0 ms target - hence default OFF. The full self-test and `TestRain2`
+  have not run in Unity. The sheets' AFTER frames predate the last film change (27fb3a9b).
+- Next: re-measure on a quiet GPU, re-shoot at head, run the self-tests, then the look (the parked windscreen is far
+  sparser than the owner's reference).
+- Merge: one `Guard(...)` line in `Editor/LifeSimSelfTest.cs` beside other branches' lines; no scene, bake, data or
+  ProjectSettings change; `Scripts/City/` untouched.
+
 ﻿# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
 1. STATE: replays look like 1999 camcorder tapes (PSX_CAMCORDER, default ON - proven in three WATCHED PSXRec runs, mountain + Charlotte, day + night, every check ok but one city countdown timeout); tapes save / shelf / VCR / VIDEO STORE sale work (PSX_TAPES, default ON); MONTAGE behind PSX_MONTAGE=1 (default OFF).
 2. Proof so far (scratchpad\camcorder\): camcorder_replay_sheet.png, camcorder_tapes_sheet.png, camcorder_replay_clip.mp4 (8 s, frames only), shots\, shots2\, tapes\ (frames + reports). camcorder_before_after.png is NOT valid yet (the base run died in a lock race).
