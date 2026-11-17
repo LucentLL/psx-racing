@@ -428,6 +428,8 @@ namespace PSXRacing.City
         {
             var add = new List<Ease>[map.edges.Length];
             foreach (var e in map.edges) e.lmEase = null;
+            var lap = System.Diagnostics.Stopwatch.StartNew(); float lapAt = 0f;
+            float Lap() { float now = (float)lap.Elapsed.TotalMilliseconds, d = now - lapAt; lapAt = now; return d; }
             // the splits round: the line sets for the current scope (the gate switches it in-process)
             if (bayEndMap != map || bayEndScope != SplitAxis) ApplyBayEnds(map);
             ClearSplitFrames();
@@ -614,8 +616,10 @@ namespace PSXRacing.City
             // starts where its lanes are in the undivided road and eases onto
             // its own line over the MUTCD shifting taper - two carriageways,
             // never one road that bulges into two
+            PartJoinsMs = Lap();
             var refuge = RefugeOn ? FindRefuges(map, add, partner, plan) : null;
             if (!RefugeOn) ClearRefuges();
+            PartRefugesMs = Lap();
             // the splits round (J1 Phase B, PSX_CITY_SPLITAXIS): the axis-frame profile at in-scope split nodes
             HashSet<int> splitNodeSet = null; HashSet<long> refugeEndSet = null;
             if (SplitsOn)
@@ -626,6 +630,7 @@ namespace PSXRacing.City
             // Phase C: the tight twins (two carriageways mapped closer than their own lanes) pushed apart, before
             // any split's profile reads their lines
             if (SplitsOn && CityPhaseC && PhaseCTightOn) BuildTightTwins(map, add, partner, splitAt, splitNodeSet, refugeEndSet);
+            PartTwinsMs = Lap();
             foreach (var sp in splitAt.Values)
             {
                 if (sp.u < 0 || sp.u >= map.edges.Length) continue;
@@ -668,9 +673,11 @@ namespace PSXRacing.City
             // the splits round (J1 Phase B): the same profile at same-name fan meetings (a two-way
             // road meeting its own carriageways at a junction, no SPLT record: n7868, n9152 on
             // Beatties Ford) - PSX_CITY_SPLITMEET=0 leaves them as live (no taper at a fan)
+            PartSplitsMs = Lap();
             if (SplitsOn && SplitMeetOn)
                 foreach (var ms in SameNameMeetings(map, splitAt))
                     BuildSplitNode(map, add, partner, ms, splitNodeSet, refugeEndSet);
+            PartMeetingsMs = Lap();
             // SHIFT records (roads pass L4, plan B6 FX3): a run re-anchored at
             // a junction starts where the lanes were and eases back onto its
             // line past it - never a jump across the junction
@@ -1934,6 +1941,9 @@ namespace PSXRacing.City
         public static int OuterLaneEnds;
         /// <summary>The last load's BuildEases time (ms): the line model's cost, logged by CityMeshes.</summary>
         public static float BuildEasesMs;
+        /// <summary>Its parts (ms): the joins (tapers, relays), the refuge pairs, the tight twins, the split nodes, the
+        /// same-name meetings (the rest = BuildEasesMs less these).</summary>
+        public static float PartJoinsMs, PartRefugesMs, PartTwinsMs, PartSplitsMs, PartMeetingsMs;
         static bool OuterTurnLaneEnds(CityMap.Edge W, CityMap.Edge N, bool wForward, bool nForward, float dW, out int outerT)
         {
             outerT = 0;
