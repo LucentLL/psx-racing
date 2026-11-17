@@ -44,7 +44,13 @@ namespace PSXRacing
         public static Vector3 Gains => instance == null ? Vector3.zero : new Vector3(instance.gRoad, instance.gRoof, instance.gHiss);
 
         void Awake() { instance = this; }
-        void OnDestroy() { if (instance == this) instance = null; }
+        void OnDestroy()
+        {
+            if (instance == this) instance = null;
+            // the clips were made here: they go with it
+            foreach (var s in new[] { road, roof, hiss, hit })
+                if (s != null && s.clip != null) Destroy(s.clip);
+        }
 
         /// <summary>A tyre of the player's car has hit standing water;
         /// <paramref name="strength"/> 0..1 by depth and speed.</summary>
@@ -146,7 +152,7 @@ namespace PSXRacing
             road = MakeLoop(RoadClip(), "rain_road");
             roof = MakeLoop(RoofClip(), "rain_roof");
             hiss = MakeLoop(HissClip(), "tyre_hiss");
-            var go = new GameObject("snd_puddle") { hideFlags = HideFlags.HideAndDontSave };
+            var go = new GameObject("snd_puddle");
             go.transform.SetParent(transform, false);
             hit = go.AddComponent<AudioSource>();
             hit.clip = HitClip();
@@ -159,7 +165,7 @@ namespace PSXRacing
 
         AudioSource MakeLoop(AudioClip clip, string label)
         {
-            var go = new GameObject("snd_" + label) { hideFlags = HideFlags.HideAndDontSave };
+            var go = new GameObject("snd_" + label);
             go.transform.SetParent(transform, false);
             var src = go.AddComponent<AudioSource>();
             src.clip = clip;

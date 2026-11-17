@@ -42,7 +42,8 @@ namespace PSXRacing
         static void Boot()
         {
             if (instance != null) return;
-            var go = new GameObject("Rain2") { hideFlags = HideFlags.HideAndDontSave };
+            // (no hide flags: a HideAndDontSave object outlives play mode in the editor)
+            var go = new GameObject("Rain2");
             DontDestroyOnLoad(go);
             instance = go.AddComponent<Rain2Driver>();
             if (Rain2.Audio) go.AddComponent<Rain2Audio>();
@@ -384,7 +385,7 @@ namespace PSXRacing
 
         ParticleSystem NewSystem(string name, int cap)
         {
-            var go = new GameObject(name) { layer = CarReflections.NoReflectLayer, hideFlags = HideFlags.HideAndDontSave };
+            var go = new GameObject(name) { layer = CarReflections.NoReflectLayer, hideFlags = Application.isPlaying ? HideFlags.None : HideFlags.HideAndDontSave };
             go.transform.SetParent(transform, false);
             go.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             var ps = go.AddComponent<ParticleSystem>();
