@@ -105,6 +105,7 @@ namespace PSXRacing
         /// should be a template for distant mountains on other maps" - Bat
         /// Cave's hill): bare rock where the land is really steep, on every
         /// stage, from the stage's own 3DEP heights (PSXRacingBuilder.FarMtn).
+        /// The scene build is OPT-IN for now (PSX_FARMTN_TEMPLATE=1; PSXRacingBuilder.FarMtnBuildDefault).
         /// PSX_FARMTN_TEMPLATE=0 = the land as it was: at the scene build no
         /// rock and no clearing for it; at load the rock's root off and the far
         /// land's rock unpainted (FarMtnSwitch, PSX/Lit _PSXFarMtnOff). Not a

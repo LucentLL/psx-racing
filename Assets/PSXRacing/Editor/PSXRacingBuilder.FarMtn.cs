@@ -49,13 +49,19 @@ namespace PSXRacing.EditorTools
     /// Hickory Nut Gorge's pale granite gneiss, the Blue Ridge's greyer gneiss
     /// and quartzite elsewhere.
     ///
-    /// PSX_FARMTN_TEMPLATE=0 at the scene build: nothing of this (the base
+    /// PSX_FARMTN_TEMPLATE=1 at the scene build builds it (OFF by default for
+    /// now: FarMtnBuildDefault); =0 or unset: nothing of this (the base
     /// exactly); at load: the rock's root off and the far land unpainted
     /// (FarMtnSwitch). The PC scene pass only (PCContent).
     /// </summary>
     public static partial class PSXRacingBuilder
     {
-        static bool FarMtnBuild => PCContent && Environment.GetEnvironmentVariable("PSX_FARMTN_TEMPLATE") != "0";
+        /// <summary>OPT-IN at the scene build for now (PSX_FARMTN_TEMPLATE=1): the
+        /// code with the roadside-band rule (FarRockBandM) has not been built yet -
+        /// the first builds (before it) changed the band's fill trees. Default ON
+        /// once a build with it shows the title postcard and the band unchanged.</summary>
+        const bool FarMtnBuildDefault = false;
+        static bool FarMtnBuild => PCContent && (Environment.GetEnvironmentVariable("PSX_FARMTN_TEMPLATE") is string fv && fv.Length > 0 ? fv == "1" : FarMtnBuildDefault);
 
         /// <summary>The rule on the 12 m grid (calibrated on Lake Lure).</summary>
         const float FarRockSlopeDeg = 45f, FarRockReliefM = 18f;
