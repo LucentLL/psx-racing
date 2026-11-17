@@ -364,8 +364,13 @@ namespace PSXRacing
         /// is built on the first frame a car actually sprays).</summary>
         static void AttachSpray()
         {
+            bool trails = Rain2.On && Rain2.Trails;
             foreach (var car in FindObjectsByType<CarController>(FindObjectsInactive.Exclude))
+            {
                 if (!car.TryGetComponent<TireSpray>(out _)) car.gameObject.AddComponent<TireSpray>();
+                // RAIN 2: and the damp strip behind each tyre
+                if (trails && !car.TryGetComponent<WetTrail>(out _)) car.gameObject.AddComponent<WetTrail>();
+            }
         }
 
         void Build()

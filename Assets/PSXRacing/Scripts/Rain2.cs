@@ -20,7 +20,8 @@ namespace PSXRacing
     /// <item>THE GLASS: wipers on the cockpit's windscreen, the beads building
     /// up again behind each sweep (PSX/CabinGlass, CockpitInterior).</item>
     /// <item>THE CARS: a tyre through a pool throws a sheet and a burst; the
-    /// spray grows into a rooster tail at racing speed (TireSpray).</item>
+    /// spray grows into a rooster tail at racing speed (TireSpray); each tyre
+    /// leaves a damp strip that closes over again (<see cref="WetTrail"/>).</item>
     /// <item>THE SOUND: rain on the road and on the roof, tyre hiss on wet
     /// tarmac, the hit of a puddle (<see cref="Rain2Audio"/>, all made in
     /// code: there is no rain recording in the game).</item>
@@ -49,6 +50,8 @@ namespace PSXRacing
         public static bool Glass = Env("PSX_RAIN2_GLASS", true);
         /// <summary>A tyre through a pool, and the rooster tail (PSX_RAIN2_SPRAY).</summary>
         public static bool Spray = Env("PSX_RAIN2_SPRAY", true);
+        /// <summary>The damp strip a tyre leaves behind it on a wet road (PSX_RAIN2_TRAILS).</summary>
+        public static bool Trails = Env("PSX_RAIN2_TRAILS", true);
         /// <summary>The rain's own sound (PSX_RAIN2_AUDIO).</summary>
         public static bool Audio = Env("PSX_RAIN2_AUDIO", true);
 

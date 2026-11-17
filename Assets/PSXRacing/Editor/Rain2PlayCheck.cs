@@ -274,9 +274,11 @@ namespace PSXRacing.EditorTools
             // ---- what it did, what it cost
             var spray = car.GetComponent<TireSpray>();
             int hits = spray != null ? spray.PoolHits : 0;
+            var trail = car.GetComponent<WetTrail>();
+            int laid = trail != null ? trail.Laid : 0;
             double toMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             int frames = Mathf.Max(1, Rain2.DriverFrames);
-            Rain2PlayCheck.Line($"COUNTS: puddle hits by the player's wheels {hits}; wiper strokes total {CockpitInterior.WiperStrokes - strokes0}; " +
+            Rain2PlayCheck.Line($"COUNTS: damp-trail pieces laid by the player's tyres {laid}; puddle hits by the player's wheels {hits}; wiper strokes total {CockpitInterior.WiperStrokes - strokes0}; " +
                                 $"audio gains max (road, roof, hiss) {gains.x:0.00} {gains.y:0.00} {gains.z:0.00}");
             Rain2PlayCheck.Line($"CPU (this run's own meter, {frames} frames): driver {Rain2.DriverTicks * toMs / frames:0.000} ms/frame avg, worst {Rain2.DriverMaxTicks * toMs:0.000} ms, " +
                                 $"alloc {Rain2.DriverAlloc} B; audio {Rain2.AudioTicks * toMs / frames:0.000} ms/frame, alloc {Rain2.AudioAlloc} B; " +
@@ -290,6 +292,8 @@ namespace PSXRacing.EditorTools
                 Rain2PlayCheck.Check(cruiseStrokes >= 3, "the wipers sweep while it is driven in the rain", cruiseStrokes);
                 Rain2PlayCheck.Check(gains.x > 0.01f || gains.y > 0.01f, "the rain is heard", gains);
                 Rain2PlayCheck.Check(gains.z > 0.01f, "the tyres hiss on the wet road at speed", gains.z);
+                Rain2PlayCheck.Check(laid > 20, "the tyres leave a damp trail", laid);
+                Rain2PlayCheck.Check(hits > 0, "a wheel ran through standing water (and threw its burst)", hits);
                 Rain2PlayCheck.Check(Rain2.DriverAlloc == 0 && Rain2.AudioAlloc <= 4_000_000, "the driver allocates nothing per frame; the audio only its clips, once",
                                      Rain2.DriverAlloc + " / " + Rain2.AudioAlloc);
                 Rain2PlayCheck.Check(Rain2.DriverMaxTicks * toMs < 2.0, "no CPU spike from the driver (worst frame under 2 ms)", (Rain2.DriverMaxTicks * toMs).ToString("0.000"));
