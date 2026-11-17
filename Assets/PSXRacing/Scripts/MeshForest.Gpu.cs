@@ -316,6 +316,35 @@ namespace PSXRacing
             }
             return sb.ToString();
         }
+        /// <summary>THE COST PROBE'S COUNT (tree-cost round, 2026-11-17): what the last cull listed for the main
+        /// view and its draws will draw, read back at once (a GPU wait - editor runners only): plants and
+        /// triangles by level, and plants per species and level ("v:l0,l1,l2,l3" lines). The same rule as
+        /// GpuStats (a draw with a material in this dress, of a species a drawn chunk can reach), without its
+        /// four-frame sampling and its late callbacks.</summary>
+        public string DebugTally(long[] plantsByLod, long[] trisByLod)
+        {
+            System.Array.Clear(plantsByLod, 0, plantsByLod.Length);
+            System.Array.Clear(trisByLod, 0, trisByLod.Length);
+            if (!UseGpu || cmds == null) return "";
+            var counts = new uint[bucketCount];
+            countBuf.GetData(counts);
+            var per = new long[variants.Length, L];
+            var sb = new System.Text.StringBuilder();
+            for (int c = 0; c < mainCmds; c++)
+            {
+                int v = cmds[c].variant, l = cmds[c].lod;
+                if (!cmdOn[c]) continue;
+                if (!reachAll && ((v < 64 ? reachLo[l] >> v : reachHi[l] >> (v - 64)) & 1UL) == 0) continue;
+                long n = System.Math.Min(counts[cmds[c].bucket], (uint)int.MaxValue);
+                trisByLod[l] += (long)(cmds[c].indexCount / 3) * n;
+                if (cmds[c].sub == 0) { plantsByLod[l] += n; per[v, l] = n; }
+            }
+            for (int v = 0; v < variants.Length; v++)
+                if (per[v, 0] + per[v, 1] + per[v, 2] + per[v, 3] > 0)
+                    sb.Append(v).Append(':').Append(per[v, 0]).Append(',').Append(per[v, 1]).Append(',').Append(per[v, 2]).Append(',').Append(per[v, 3]).Append('\n');
+            return sb.ToString();
+        }
+
         /// <summary>Which chunks show their cards: how many, and a hash of the set.</summary>
         public string DebugCards()
         {

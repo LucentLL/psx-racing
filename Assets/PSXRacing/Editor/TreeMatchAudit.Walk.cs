@@ -378,6 +378,12 @@ namespace PSXRacing.EditorTools
             var px = new Texture2D(1, 1, TextureFormat.RGBA32, false);
             var ms = new[] { new List<double>(), new List<double>() };
             var tris = new double[2]; var draws = new double[2]; var plants = new double[2]; var far = new double[2];
+            // (tree-cost round: the counts read back AT ONCE after a cull from this very eye - MeshForest.DebugTally -
+            // not GpuStats' sampled late callbacks, which gave mode A the same count from two different eyes)
+            var lodP = new long[2][] { new long[4], new long[4] }; var lodT = new long[2][] { new long[4], new long[4] };
+            var perV = new string[2];
+            var names = new List<string>[2];
+            int frames = int.Parse(Env("PSX_TM_FRAMES", "32"), CultureInfo.InvariantCulture);
             try
             {
                 for (int k = 0; k < rounds * 2; k++)
@@ -386,7 +392,7 @@ namespace PSXRacing.EditorTools
                     var f = setMode(m);
                     MeshForest.MeshTreesOn = true; MeshForest.LodEyeOn = false;
                     for (int i = 0; i < 4; i++) { f.DrawNow(cam, true); cam.Render(); }
-                    const int N = 24;
+                    int N = frames;
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     for (int i = 0; i < N; i++)
                     {
@@ -395,13 +401,14 @@ namespace PSXRacing.EditorTools
                     }
                     sw.Stop();
                     ms[m].Add(sw.Elapsed.TotalMilliseconds / N);
-                    MeshForest.StatsOn = true; MeshForest.StatsReset();
-                    for (int i = 0; i < 6; i++) { f.DrawNow(cam, true); cam.Render(); }
-                    UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests();
-                    int sf = Mathf.Max(1, MeshForest.StatFrames);
-                    tris[m] = MeshForest.SumTris / sf; draws[m] = MeshForest.SumDraws / sf; plants[m] = MeshForest.SumPlants / sf;
-                    far[m] = MeshForest.SumTrisLod[3] / sf;
-                    MeshForest.StatsOn = false;
+                    f.DrawNow(cam, true); cam.Render();
+                    perV[m] = f.DebugTally(lodP[m], lodT[m]);
+                    names[m] = new List<string>();
+                    foreach (var vr in f.variants) names[m].Add(vr != null && vr.lods != null && vr.lods.Length > 0 && vr.lods[0] != null ? vr.lods[0].name : "?");
+                    plants[m] = lodP[m][0] + lodP[m][1] + lodP[m][2] + lodP[m][3];
+                    tris[m] = lodT[m][0] + lodT[m][1] + lodT[m][2] + lodT[m][3];
+                    far[m] = lodT[m][3];
+                    draws[m] = 0;
                 }
             }
             finally
@@ -417,9 +424,56 @@ namespace PSXRacing.EditorTools
             }
             string All(List<double> l) => string.Join(" ", l.ConvertAll(x => x.ToString("0.00", CultureInfo.InvariantCulture)));
             double d = Med(ms[1]) - Med(ms[0]);
-            return $"  COST A/B {what}: frame (1920x1080, editor, render + read-back, {rounds} rounds each, ABBA): packs' far sheets {Med(ms[0]):0.00} ms [{All(ms[0])}], " +
-                   $"tree match {Med(ms[1]):0.00} ms [{All(ms[1])}], {(d >= 0 ? "+" : "")}{d:0.00} ms; drawn {plants[0]:0} -> {plants[1]:0} plants, " +
-                   $"{tris[0] / 1e6:0.00} -> {tris[1] / 1e6:0.00} M tris (far level {far[0] / 1e6:0.000} -> {far[1] / 1e6:0.000} M), {draws[0]:0} -> {draws[1]:0} draws\n";
+            // the PAIRED differences (each B round against the A round beside it: 1-0, 2-3, 5-4, 6-7): the editor's
+            // drift over a run cancels within a pair
+            var pd = new List<double>();
+            for (int p = 0; p < rounds && p < ms[0].Count && p < ms[1].Count; p++) pd.Add(ms[1][p] - ms[0][p]);
+            double pm = 0, ps = 0;
+            foreach (var x in pd) pm += x;
+            pm /= Mathf.Max(1, pd.Count);
+            foreach (var x in pd) ps += (x - pm) * (x - pm);
+            ps = pd.Count > 1 ? System.Math.Sqrt(ps / (pd.Count - 1) / pd.Count) : 0;   // (the standard error of the mean)
+            var sb = new StringBuilder();
+            sb.Append($"  COST A/B {what}: frame (1920x1080, editor, render + read-back, {rounds} rounds x {frames} frames each, ABBA): packs' far sheets {Med(ms[0]):0.00} ms [{All(ms[0])}], " +
+                   $"tree match {Med(ms[1]):0.00} ms [{All(ms[1])}], {(d >= 0 ? "+" : "")}{d:0.00} ms (paired {(pm >= 0 ? "+" : "")}{pm:0.00} +- {ps:0.00} ms [{All(pd)}]); drawn {plants[0]:0} -> {plants[1]:0} plants, " +
+                   $"{tris[0] / 1e6:0.000} -> {tris[1] / 1e6:0.000} M tris (far level {far[0] / 1e6:0.000} -> {far[1] / 1e6:0.000} M)\n");
+            sb.Append($"    by level, plants A/B: HIGH {lodP[0][0]}/{lodP[1][0]}, MID {lodP[0][1]}/{lodP[1][1]}, LOW {lodP[0][2]}/{lodP[1][2]}, FAR {lodP[0][3]}/{lodP[1][3]}; " +
+                      $"tris M A/B: HIGH {lodT[0][0] / 1e6:0.000}/{lodT[1][0] / 1e6:0.000}, MID {lodT[0][1] / 1e6:0.000}/{lodT[1][1] / 1e6:0.000}, LOW {lodT[0][2] / 1e6:0.000}/{lodT[1][2] / 1e6:0.000}, FAR {lodT[0][3] / 1e6:0.000}/{lodT[1][3] / 1e6:0.000}\n");
+            // the species whose lists differ most (A -> B by level)
+            var a = ParseTally(perV[0]); var b = ParseTally(perV[1]);
+            var diffs = new List<(long d, string line)>();
+            var keys = new HashSet<int>(a.Keys); keys.UnionWith(b.Keys);
+            foreach (int v in keys)
+            {
+                a.TryGetValue(v, out var ca); b.TryGetValue(v, out var cb);
+                ca ??= new long[4]; cb ??= new long[4];
+                long dd = 0;
+                for (int l = 0; l < 4; l++) dd += System.Math.Abs(cb[l] - ca[l]);
+                if (dd == 0) continue;
+                string nm = names[1] != null && v < names[1].Count ? names[1][v] : v.ToString();
+                diffs.Add((dd, $"      {nm}: HIGH {ca[0]}->{cb[0]}, MID {ca[1]}->{cb[1]}, LOW {ca[2]}->{cb[2]}, FAR {ca[3]}->{cb[3]}"));
+            }
+            diffs.Sort((x, y) => y.d.CompareTo(x.d));
+            sb.Append($"    species whose lists differ: {diffs.Count}\n");
+            for (int i = 0; i < Mathf.Min(12, diffs.Count); i++) sb.Append(diffs[i].line).Append('\n');
+            return sb.ToString();
+        }
+
+        static Dictionary<int, long[]> ParseTally(string s)
+        {
+            var o = new Dictionary<int, long[]>();
+            if (string.IsNullOrEmpty(s)) return o;
+            foreach (var line in s.Split('\n'))
+            {
+                int c = line.IndexOf(':');
+                if (c <= 0) continue;
+                var q = line.Substring(c + 1).Split(',');
+                if (q.Length < 4 || !int.TryParse(line.Substring(0, c), out int v)) continue;
+                var arr = new long[4];
+                for (int l = 0; l < 4; l++) long.TryParse(q[l], out arr[l]);
+                o[v] = arr;
+            }
+            return o;
         }
 
         /// <summary>
@@ -470,10 +524,19 @@ namespace PSXRacing.EditorTools
                 copy = Object.Instantiate(forest.gameObject, forest.transform.parent);
                 copy.name = forest.gameObject.name + " (tree match cost copy)";
                 var forestB = copy.GetComponent<MeshForest>();
+                // (PSX_TM_CONTROL=1: B is the copy WITHOUT the match - the method's own bias, A against A)
+                bool control = Env("PSX_TM_CONTROL", "0") == "1";
                 MeshForest.TreeMatch = false; forest.DrawNow(cam, true);
-                MeshForest.TreeMatch = true; forestB.DrawNow(cam, true);
+                MeshForest.TreeMatch = !control; forestB.DrawNow(cam, true);
                 MeshForest.TreeMatch = keepMatch;
-                log.Append($"forest A (packs' far sheets): {forest.MatchCount} match species; forest B (tree match): {forestB.MatchCount} match species; dress {Seasons.DressNames[dress]}\n");
+                log.Append($"forest A (packs' far sheets): {forest.MatchCount} match species; forest B ({(control ? "CONTROL: the copy, no match" : "tree match")}): {forestB.MatchCount} match species; dress {Seasons.DressNames[dress]}\n");
+                // (PSX_TM_NOFAR=1: neither forest draws its far level - the mesh levels' share of the difference alone)
+                if (Env("PSX_TM_NOFAR", "0") == "1")
+                {
+                    foreach (var ff in new[] { forest, forestB })
+                        foreach (var vr in ff.variants) if (vr != null) vr.impostorDress = null;
+                    log.Append("  NO FAR LEVEL in either forest (PSX_TM_NOFAR=1)\n");
+                }
                 MeshForest Mode(int m)
                 {
                     copy.SetActive(m == 1);
