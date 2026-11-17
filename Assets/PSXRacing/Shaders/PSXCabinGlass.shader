@@ -277,7 +277,8 @@ Shader "PSX/CabinGlass"
                     float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
                     // (RAIN 2) the bank a blade leaves, ragged
-                    if (ridge > 0.0) hgt = max(hgt, ridge * rain * (0.55 + 0.45 * H42(floor(q / 0.006)).x));
+                    // (a thin film packed with small beads, not a smooth line)
+                    if (ridge > 0.0) hgt = max(hgt, ridge * rain * (0.30 + 0.70 * Beads(q, 0.0075, 0.95, 13.1)));
                     bool beadTop = hB >= max(hR, hS) && hB > 0.0;
                     // WATER, not paint: a drop is clear in the middle (a
                     // little of the sky it bends in), dark at its rim where it
@@ -328,8 +329,11 @@ Shader "PSX/CabinGlass"
                         // (a bead gathers light: brighter in its middle, dark only at its very rim)
                         float rim = beadTop ? smoothstep(0.72, 0.98, length(bB.yz)) : edge;
                         float gather = beadTop ? 1.0 + 0.9 * park + 0.6 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.5 * smoothstep(0.45, 0.95, hgt);
-                        through = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb
-                                * (wetA * (1.0 - 0.6 * rim * cover) * gather);
+                        float3 seen = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb;
+                        // (a bead by the pillar would show the pillar - a black fleck on
+                        // the pane: it keeps most of what is straight behind it)
+                        if (beadTop) seen = max(seen, tex2Dlod(_PSXSSRColour, float4(i.pos.xy / _ScreenParams.xy, 0.0, 0.0)).rgb * 0.75);
+                        through = seen * (wetA * (1.0 - 0.6 * rim * cover) * gather);
                         // the glint: one bright point up and to the side of each bead's crown
                         float g2 = beadTop ? (1.0 - smoothstep(0.0, 0.32, length(bB.yz - float2(-0.30, 0.38)))) * cover : glint;
                         dropA = wetA;
