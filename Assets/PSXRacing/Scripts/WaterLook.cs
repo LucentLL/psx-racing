@@ -73,7 +73,17 @@ namespace PSXRacing
 
         /// <summary>The HD water, now: the environment's word, else the WATER
         /// row (whose default is HD on a PC, CLASSIC elsewhere).</summary>
-        public static bool On => EnvOverride ?? WaterPrefs.HD;
+        public static bool On => !forceClassic && (EnvOverride ?? WaterPrefs.HD);
+
+        static bool forceClassic;
+        /// <summary>The perf probe's in-process A/B (PerfTour "set:PSXRacing.WaterLook.ForceClassic:1"):
+        /// the old water now, without touching the player's saved row (the tours
+        /// share the owner's PlayerPrefs). Never set by the game.</summary>
+        public static bool ForceClassic
+        {
+            get => forceClassic;
+            set { if (forceClassic == value) return; forceClassic = value; Refresh(); }
+        }
 
         static int seaScene = int.MinValue;
         static bool seaHere, waterHere;
