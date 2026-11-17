@@ -109,6 +109,7 @@ sampler2D _CameraOpaqueTexture;        // URP's copy of the frame after the sky 
 #define HD_RAIN_ROUGH      0.25     // the rain's roughness, at every distance
 #define HD_RAIN_MIRROR     0.40     // the share of the mirror a downpour takes away (the rest is broken up: HD_RAIN_WOBBLE)
 #define HD_RAIN_WOBBLE     2.5      // a downpour breaks the mirror up this many times more (rings, rougher ripples)
+#define HD_RAIN_SPARK      0.55     // each drop's ring catches the sky: this share of it on the ring's crest
 #define HD_RAIN_GREY       0.10     // how far a downpour greys the water toward the sky (near; more with the pocks far out)
 #define HD_SSR_STEPS       24       // (half beyond HD_SSR_FAR_STEPS_M)
 #define HD_SSR_FAR_STEPS_M 300.0
@@ -307,7 +308,7 @@ float2 HDRainRings(float2 xz, float t, float rate)
         float2 ctr = 0.3 + 0.4 * float2(WaterHash(c + 7.1), WaterHash(c + 11.9));
         float2 dv = f - ctr;
         float r = length(dv);
-        float x = (r - age * 0.28) / 0.035;
+        float x = (r - age * 0.28) / 0.05;   // (part B: a ring wide enough to read from the car at 20 m)
         float dh = -2.0 * x * exp(-x * x) * (1.0 - age) * (1.0 - age);
         s += (dv / max(r, 1e-3)) * dh * drop;
     }
@@ -760,6 +761,9 @@ fixed4 fragHD(v2f_hd i) : SV_Target
     // there) the pale sheen of their pocks; never brighter than that sky
     float rainGrey = rainK * (HD_RAIN_GREY + HD_RAIN_POCK * saturate((eyeDist - 20.0) / 30.0)) * edge;
     col = lerp(col, lerp(skyToned, fogCol, fog), rainGrey);
+    // ...and near, each drop's ring catches the sky's light on its crest: the
+    // pocked look, readable from the car (the rings alone were under a pixel)
+    col += skyToned * (HD_RAIN_SPARK * rain * saturate(length(rings) * 5.0) * (1.0 - fog) * edge);
     emit *= 1.0 - rainGrey;
     // the distant haze, as PSX/Lit gathers it (0 by day and outside the lit city)
     if (_PSXDistHaze.x > 0.0)
