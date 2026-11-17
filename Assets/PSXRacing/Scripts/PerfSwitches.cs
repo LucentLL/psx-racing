@@ -20,7 +20,8 @@ namespace PSXRacing
     ///     renderer, so at the display's resolution it also copied its (empty)
     ///     depth, copied its (black) colour for the opaque texture, ran the
     ///     ambient occlusion and its blurs over nothing, and blitted the
-    ///     result to the screen. With this on it asks for none of that.
+    ///     result to the screen. With this on it asks for none of that, and
+    ///     is not an HDR camera (which URP cannot draw straight to the screen).
     ///   * AO IN THE DRIVER'S VIEW ONLY (PSX_AO_DRIVER_ONLY). URP's SSAO is a
     ///     renderer feature: it ran for every camera on the renderer - each
     ///     car-reflection face, each mirror, the HUD overlay and the output
@@ -59,6 +60,7 @@ namespace PSXRacing
         static List<ScriptableRendererFeature> ao;
         static bool aoForced, copiesForced, copiesWasOpaque, copiesWasDepth;
         static readonly List<UniversalAdditionalCameraData> leaned = new List<UniversalAdditionalCameraData>();
+        static readonly List<Camera> leanedHdr = new List<Camera>();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Hook()
@@ -103,6 +105,9 @@ namespace PSXRacing
                     d.renderPostProcessing = false;
                     d.renderShadows = false;
                     d.antialiasing = AntialiasingMode.None;
+                    // (an HDR camera cannot draw into the back buffer: URP gives it a float texture and a
+                    // full-screen blit at the end - for a camera that draws a clear)
+                    if (cam.allowHDR) { cam.allowHDR = false; leanedHdr.Add(cam); }
                     if (!leaned.Contains(d)) leaned.Add(d);
                 }
             }
@@ -111,6 +116,8 @@ namespace PSXRacing
                 foreach (var d in leaned)
                     if (d != null) { d.requiresColorOption = CameraOverrideOption.UsePipelineSettings; d.requiresDepthOption = CameraOverrideOption.UsePipelineSettings; }
                 leaned.Clear();
+                foreach (var c in leanedHdr) if (c != null) c.allowHDR = true;
+                leanedHdr.Clear();
             }
 
             // ---- the ambient occlusion: which cameras run it ----
