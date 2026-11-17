@@ -235,6 +235,10 @@ namespace PSXRacing.EditorTools
         void Awake() { bornAt = Time.realtimeSinceStartup; }
         void Update()
         {
+            // A HIDDEN run is silent too (the owner, 11-16: he hears and sees
+            // the same tests over and over): the listener paused, its volume
+            // (which the deck's mute is checked by) left alone.
+            if (Application.isBatchMode) AudioListener.pause = true;
             if (exited || Time.realtimeSinceStartup - bornAt < HangSeconds) return;
             exited = true;
             TapeCheck.Check(false, "the check HUNG (" + HangSeconds + " s) - exiting");

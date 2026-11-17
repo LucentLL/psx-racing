@@ -154,6 +154,8 @@ namespace PSXRacing.EditorTools
 
         void Update()
         {
+            // A HIDDEN run is silent too: no window, no sound.
+            if (Application.isBatchMode) AudioListener.pause = true;
             // The watchdog: a run that hangs exits with what it has.
             if (Time.realtimeSinceStartup - started > HardLimitS)
             {
