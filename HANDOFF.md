@@ -1,4 +1,88 @@
-﻿# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
+﻿# CHARLOTTE TRACKS, BATCH 1 INTEGRATED: 3 verified tracks, 4 venues (agent "integ", branch charlotte-tracks-b1 off ec1dd760, 2026-11-16 22:20-22:50; NOT pushed, NOT merged)
+
+The owner today: "start adding more Charlotte tracks". Four lanes built 13 candidates (A: H3 C1 X1; B: S1 X3 C2 H4;
+C: H5 C9 D3; D: H6 H7 C7), and each lane had an independent checker. Only the three that passed BOTH the lane and
+the checker are in. Owner sheet: art workspace `Charlotte_Tracks_Batch1_2026-11-16.png` + `.md`.
+
+## What is in (per-track files only, taken unchanged from the lane heads; no .cs change)
+- `Resources/CityTracks/x1.json` (+meta, GUID 230f153c...) from tracks-lane-A 4dd82b53 (commit 47efa34e).
+  It holds CltX1 "TRYON SPRINT — SOUTH END" and CltX1Rev "... SOUTH END II", a 2.69 km sprint run in both directions
+  in TryonSprint's scene.
+- `d3.json` (+meta, f002c278...) from tracks-lane-C d9023727 (7117456b): CltD3 "US 74 1/2 MILE: INDEPENDENCE". It is
+  an 804 m drag, one way (NW, inbound), in TryonSprint's scene, limit 89.
+- `c7.json` (+meta, 966e5050...) from tracks-lane-D 64542c96 (7e9b835a, 0dc91c56): CltC7 "UNIVERSITY CITY CIRCUIT".
+  It is a 4.22 km circuit raced for 1 lap, one way (clockwise), in UptownLoop's scene.
+- `_order.txt`: `order.mjs --write` appended CltC7, CltD3, CltX1 and CltX1Rev. The venues are now #53 I485West,
+  #54 CltD1, #55 CltC7, #56 CltD3, #57 CltX1 and #58 CltX1Rev. From now on, never reorder or remove these lines.
+
+## Left out (failed the lane or its checker)
+- C1 (A): the planned driver error sends a rival straight into the sanctioned closures. The lane lost one rival this
+  way at 46.0 m/s and one at 42.2 m/s. Six of its 8 corners have a row 14-18 m straight on.
+- H3 (A): the Remount Rd turnaround is a one-lane 4.3 m bridge carriageway. All 3 runs went wrong there: jams,
+  barrier hits and wrong way.
+- S1 (B): roll-overs at the Ardsley Rd and Fenton Pl fan mouths (12 mm FanProudM steps at 150-215 km/h). It needs a
+  Scripts/City fix.
+- X3 (B): the Skyline retired into the median Barriers in 3 of 4 runs with no planned mistake. The surface is smooth
+  there, so AI contact is likely.
+- C2 (B): a closure hit at 55.1 m/s at South Tryon -> Remount after the planned mistake.
+- H4 (B): 2 retired. One was a closure hit on C-D ramp e172. The other was a hard hit into Ground at the I-277 WB deck
+  end e9697->e1832 (city geometry).
+- C9 (C): a rival rolled and retired after the Ballantyne Corporate Pl bridge in both runs. No planned mistake.
+- H5 (C): a retaining wall on the Johnston Rd off-ramp's edge line (e159). A rival retired there in both runs. It
+  needs a city fix.
+- H6 (D): checker seed 1 had a closure hit at 69.4 m/s past the Eastway exit after the planned mistake. A no-event run
+  had a car 2.5 s wrong way after rolling at the e14413 deck end.
+- H7 (D): checker seed 1 had a closure hit at 55.0 m/s past the W.T. Harris exit after the planned mistake.
+
+## Not taken (shared code from the lanes; none of the three tracks needs it)
+- The registrar laps fix: tracks-lane-A 6e022f5e (final in 4dd82b53), or the identical code in tracks-lane-C f839431b.
+  It is CityTracksRegistrar.Awake, +8 lines in the hosted-venue block: a hosted loop sets
+  `RaceManager.totalLaps = venue.laps`, and `PSX_CITY_TRACK_LAPS=0` restores the old behaviour. Both checkers say it is
+  correct and minimal. With it, set c7.json laps to 3, fix "one lap" in its blurb and race CltC7 once in full
+  (12.7 km). Without it, every hosted circuit races 1 lap, so CltC7 is emitted at laps 1 to match.
+- track-job.ps1 -Seed (lane A 7b619c7b). It is tooling only.
+
+## Proof (PSXCity, WebGL, my own stamped atomic lock each job, released; typecheck OK first)
+Scratch: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\tracksb1\integ\out\`
+- -Mode scenes (22:28-22:31): CITY BUILD OK in 3 min. The four city scenes are now built from this branch's code; the
+  last build was at 14:57, before the PC48 merge.
+- -Mode closures (22:31): ALL CLEAR. That covers 8 routes and venues #53-#58, with 0 on the race line everywhere:
+  - uptown 8.3 m, tryon 9.2 m, independence 10.6 m;
+  - c7 6.8 m (lanes 5.8), d1 9.8 m, d3 10.2 m (9.0), i485west 10.4 m, x1 8.6 m (5.8).
+- WATCHED sanctioned race of CltC7, -Traffic NONE, -Finish, seed 0 (22:33-22:38; main told first; no layout dialog).
+  It ended RACE CHECK OK with 0 FAIL lines:
+  - Charger 133.6 s, Skyline 143.8 s, player 144.3 s, Supra 151.1 s;
+  - 0 retired, wrong way none, pumping 1.01 (ok), UNDRAWN RAILS 0, closures audit 0 on the line (nearest 6.8 m).
+- -Mode cards (22:38): citymap-bake 721 tiles, 11 cards (citymap_CltC7/CltD3/CltX1.png; no separate Rev card).
+- -Mode eye (22:41): grid frames for c7, d3, x1 and x1rev, plus middle frames, day and night. The lanes are clear.
+  x1_middle snapped onto the pavement behind a tree, so it was not used.
+- Earlier verdicts:
+  - X1: lane A forward and reverse all home; checker A ran CltX1Rev on seeds 2 and 0 (one planned-mistake off-road
+    retirement with no hit).
+  - D3: lane C, then checker C (and a no-event run with no closures built).
+  - C7: lane D seed 0; checker D seeds 0, 1 and 2 (seed 2: one planned-mistake off-road retirement, no hit).
+
+## Known and not fixed here
+- Owner, 21:00 tonight: no barricades in any race; checkpoint races instead (memory
+  psx-racing-barricades-legal-events-only). This branch keeps the old default, CityRaceClosures.cs:22-37
+  `ForThisRace`: closures in sanctioned events only. For the PC build, either set `PSX_TRACK_CLOSURES=0` as the
+  default, or let the checkpoint-race round replace it.
+- RaceManager.RaceFraction (RaceManager.cs:330 vs 631-638): on a loop the planned mistake fires at the first braking
+  zone. It is the root cause of the H6 and H7 closure hits. This is shared race code.
+- RouteMap.cs, arrow placement (about lines 553-567 and the Chevron at about 655): the drag cards' arrows (CltD3,
+  CltD1) point against the run.
+- Risk, not seen in any run: CltX1Rev has only 60 m of road past its flag. A full-width closure row stands about 75 m
+  past it, on S Tryon e12864. That matters only while closures exist.
+- CltC7 has oneWay 1 and every road is one-way. CltX1 is two-way. A street race on them with traffic is not checked.
+
+## For the PC build
+- Sync `Assets/PSXRacing/Resources/CityTracks/` (all files and metas).
+- Run the city scene pass if the build sandbox's city scenes predate CityTracksRegistrar.
+- Run `tools\citymap-bake.ps1 -Project <sandbox>` before the player build.
+- No city re-bake: no `charlotte_*.bytes` or Scripts/City change.
+- Switches: PSX_CITY_TRACKS defaults ON (=0 hides the new tracks); PSX_TRACK_CLOSURES (see above).
+
+# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
 
 Supersedes "STATE AT THE STOP" below (its NEXT steps a-d are done). The owner: "Now that Charlotte roads are more
 accurate, I'd like to start adding race tracks (circuits, sprints, drag [the current drag/sprints are veeery
