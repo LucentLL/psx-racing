@@ -50,6 +50,16 @@ float GlsN2(float2 p)
     return lerp(lerp(GlsH2(i), GlsH2(i + float2(1, 0)), f.x), lerp(GlsH2(i + float2(0, 1)), GlsH2(i + float2(1, 1)), f.x), f.y);
 }
 
+// The same, repeating every per cells along x (round a wheel: no seam where the angle wraps).
+float GlsN2P(float2 p, float per)
+{
+    float2 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float x0 = i.x - per * floor(i.x / per), x1 = (i.x + 1.0) - per * floor((i.x + 1.0) / per);
+    return lerp(lerp(GlsH2(float2(x0, i.y)), GlsH2(float2(x1, i.y)), f.x),
+                lerp(GlsH2(float2(x0, i.y + 1.0)), GlsH2(float2(x1, i.y + 1.0)), f.x), f.y);
+}
+
 // The paint's own glass rule: the sheet's dark, colourless texels.
 float GlsIsGlass(float3 c)
 {
@@ -147,11 +157,11 @@ float3 GlsCrazed(float2 q, float seed, float px)
 {
     float r = length(q);
     float2 c1 = GlsCells(q * 95.0 + seed * 7.0);
-    float2 c2 = GlsCells(q * 21.0 + seed * 3.0);
+    float2 c2 = GlsCells(q * 30.0 + seed * 3.0);
     float fine = 1.0 - smoothstep(0.0025, 0.007, px);
-    float v = lerp(0.64, lerp(0.50, 0.82, c1.y) * smoothstep(0.0, 0.14, c1.x) + 0.10, fine);
-    v *= lerp(1.0, 0.52, GlsLine(c2.x / 42.0, 0.0036, px));
-    v *= lerp(0.90, 1.06, c2.y);
+    float v = lerp(0.70, lerp(0.58, 0.88, c1.y) * smoothstep(0.0, 0.14, c1.x) + 0.10, fine);
+    v *= lerp(1.0, 0.66, GlsLine(c2.x / 60.0, 0.003, px));
+    v *= lerp(0.92, 1.06, c2.y);
     float kh;
     float da = GlsRay(atan2(q.y, q.x) + seed * 6.2831853, 19.0, seed, kh);
     v *= lerp(1.0, 0.55, GlsLine(r * da, 0.0036, px) * step(0.03, r) * step(r, 0.22 + 0.5 * GlsH1(kh + seed)));
@@ -168,8 +178,11 @@ void GlsBox(float3 o, float3 d, float3 inv, float3 c, float3 h, float shade, ino
     if (tn < tf && tn > 0.0 && tn < tBest)
     {
         tBest = tn;
-        float top = step(tn3.x, tn3.y) * step(tn3.z, tn3.y) * step(d.y, 0.0);   // the faces the windows' light falls on
-        col = shade * lerp(0.75, 1.5, top) * float3(1.0, 1.0, 1.06);
+        // the face it enters by, lit by the windows' light from above and ahead; darker toward the floor
+        float3 nrm = -sign(d) * step(tn3.yzx, tn3.xyz) * step(tn3.zxy, tn3.xyz);
+        float lit = 0.55 + 0.85 * saturate(dot(nrm, float3(0.12, 0.86, 0.49)));
+        float low = saturate((o.y + d.y * tn - (c.y - h.y)) / max(h.y * 2.0, 0.05));
+        col = shade * lit * lerp(0.6, 1.0, low) * float3(1.0, 1.0, 1.06);
     }
 }
 
@@ -207,9 +220,10 @@ float3 GlsCabin(float3 o, float3 d)
     for (int s = -1; s <= 1; s += 2)
     {
         float x = s * hx * 0.42;
-        GlsBox(o, d, inv, float3(x, belt + gh * 0.5 - 0.34, sz - 0.06), float3(0.24, 0.34, 0.07), 0.085, t, col);        // the back
-        GlsBox(o, d, inv, float3(x, belt + gh * 0.66, sz - 0.08), float3(0.12, gh * 0.16, 0.05), 0.10, t, col);          // the head restraint
-        GlsBox(o, d, inv, float3(x, belt - 0.36, sz + 0.22), float3(0.24, 0.07, 0.26), 0.08, t, col);                    // the cushion
+        GlsBox(o, d, inv, float3(x, belt + gh * 0.5 - 0.34, sz - 0.06), float3(0.23, 0.34, 0.06), 0.11, t, col);         // the back
+        GlsBox(o, d, inv, float3(x, belt + gh * 0.56, sz - 0.07), float3(0.02, gh * 0.08, 0.015), 0.05, t, col);         // the restraint's stalk
+        GlsBox(o, d, inv, float3(x, belt + gh * 0.70, sz - 0.08), float3(0.12, gh * 0.12, 0.045), 0.12, t, col);         // the head restraint
+        GlsBox(o, d, inv, float3(x, belt - 0.36, sz + 0.22), float3(0.24, 0.07, 0.26), 0.10, t, col);                    // the cushion
     }
     GlsBox(o, d, inv, float3(0.0, belt + gh * 0.4 - 0.32, sz - 0.92), float3(hx * 0.78, 0.32, 0.08), 0.075, t, col);     // the rear seat's back
     GlsBox(o, d, inv, float3(0.0, belt - 0.12, sz + 1.0), float3(hx * 0.9, 0.15, 0.14), 0.06, t, col);                   // the dash
@@ -251,7 +265,7 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
     }
     if (dot(_PSXGlsS, float4(1, 1, 1, 1)) < 0.01) return;
     if (GlsIsGlass(albedo) < 0.25) return;
-    if (m.y < _PSXGlsF.x - 0.10) return;                    // grilles, vents and trim under the belt: no pane
+    if (m.y < _PSXGlsF.x - 0.03) return;                    // grilles, vents, shut lines and trim under the belt: no pane
     if (abs(m.x) > _PSXGlsF.w * 0.99) return;               // a door mirror's housing
     float3 nB = normalize(bnrm);
     float3 n = float3(dot(nB, _PSXDmgR.xyz), dot(nB, _PSXDmgU.xyz), dot(nB, _PSXDmgF.xyz));
@@ -271,6 +285,9 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
     else
     {
         bool front = n.z > 0.0;
+        // the windscreen stands ahead of the seats and over the cowl, the rear glass behind them
+        // (the cowl's own dark panel, a wiper trough, a parcel shelf: no pane)
+        if (front ? (m.z < _PSXGlsF.y + 0.25 || m.y < _PSXGlsF.x + 0.02) : m.z > _PSXGlsF.y - 0.10) return;
         state = front ? _PSXGlsS.x : _PSXGlsS.y;
         imp = front ? _PSXGlsW : _PSXGlsX;
         lam = front ? 1.0 : 0.0;
@@ -299,6 +316,12 @@ void PSXCarGlass2(inout float3 albedo, inout float3 N, out float flat, out float
         out1 /= 6.0;
         out2 /= 6.0;
         dEst = out1 > 0.0 ? 0.035 * cos(3.14159 * min(out1, 0.5)) : (out2 > 0.0 ? 0.09 * cos(3.14159 * min(out2, 0.5)) : 0.12);
+    }
+    if (lam < 0.5)
+    {
+        // a tempered pane's sill and head, from the cabin (a sheet whose glass is its own island tells nothing)
+        float sill = abs(n.x) > 0.55 ? _PSXGlsF.x - 0.03 : _PSXGlsF.x;
+        dEst = min(dEst, min(max(m.y - sill, 0.0), max(_PSXGlsF.z - 0.10 - m.y, 0.0) + 0.02));
     }
     float inPane = smoothstep(0.010, 0.028, dEst);          // the seal and the frame's edge stay as they are
     if (inPane < 0.01) return;
@@ -375,33 +398,37 @@ void PSXWheelRash(inout float3 albedo, float3 bpos, float3 bnrm, float2 uv, floa
     float arc = 1.0 - smoothstep(arcHalf * 0.75, arcHalf, da + (GlsN1(ang * 9.0 + seed * 5.0) - 0.5) * 0.25);
     if (arc < 0.01) return;
     float isTyre = step(0.25, GlsIsGlass(albedo));
-    float st = GlsN2(float2(ang * 46.0 + seed * 3.0, rho * 260.0));
-    float st2 = GlsN2(float2(ang * 15.0 - seed * 9.0, rho * 70.0));
-    float t0 = 0.5 - 0.6 * amt;
-    float cover = arc * smoothstep(t0, t0 + 0.15, st2);
+    // streaks that run ROUND the wheel (long along the turn, thin across it), and where round the arc it bit
+    float a01 = ang / 6.2831853 + 0.5;
+    float streak = GlsN2P(float2(a01 * 32.0, rho * 420.0 + seed * 31.0), 32.0) * 0.65
+                 + GlsN2P(float2(a01 * 72.0, rho * 900.0 + seed * 17.0), 72.0) * 0.35;
+    float bite = GlsN2P(float2(a01 * 18.0, seed * 53.0), 18.0) * 0.6 + GlsN2P(float2(a01 * 40.0, seed * 29.0 + 7.0), 40.0) * 0.4;
+    float t0 = 0.62 - 0.75 * amt;
+    float cover = arc * smoothstep(t0, t0 + 0.18, bite);
     if (isTyre < 0.5)
     {
-        // the lip: rubber within 3 cm outside this rim texel
+        // the lip: rubber within 16 mm outside this rim texel
         float2 dqx = dbx.yz, dqy = dby.yz;
         float det = dqx.x * dqy.y - dqy.x * dqx.y;
         if (abs(det) < 1e-11) return;
         float2 ix = float2(dqy.y, -dqy.x) / det, iy = float2(-dqx.y, dqx.x) / det;
         float2 e = bpos.yz / rho;
-        float2 d1 = e * 0.012, d2 = e * 0.03;
+        float2 d1 = e * 0.007, d2 = e * 0.016;
         float t1 = step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d1) + uvy * dot(iy, d1), uvx, uvy)));
         float t2 = step(0.25, GlsIsGlass(PSX_CAR_TAP(uv + uvx * dot(ix, d2) + uvy * dot(iy, d2), uvx, uvy)));
-        float lip = max(t1, t2 * 0.85);
-        float3 metal = lerp(float3(0.15, 0.15, 0.16), float3(0.90, 0.90, 0.88), smoothstep(0.32, 0.62, st));
+        float lip = max(t1, t2 * lerp(0.35, 0.8, amt));
+        // scraped to bright metal, the gouges dark between
+        float3 metal = lerp(albedo * 0.5, float3(0.93, 0.93, 0.91), smoothstep(0.34, 0.56, streak));
         albedo = lerp(albedo, metal, lip * cover * 0.95);
     }
     else
     {
-        // the sidewall: scuffed pale where it rubbed, most on its shoulder
-        float wall = smoothstep(R * 0.70, R * 0.84, rho);
-        float rub = smoothstep(0.35, 0.7, GlsN2(float2(ang * 30.0 + seed, rho * 110.0)));
-        albedo = lerp(albedo, float3(0.25, 0.24, 0.22) * lerp(0.8, 1.15, st), wall * cover * rub * lerp(0.45, 0.85, amt));
-        // a gouged tyre: the cut
-        albedo *= 1.0 - step(0.84, amt) * arc * wall * GlsLine(rho - R * (0.86 + 0.05 * GlsN1(ang * 5.0 + seed)), 0.004, 0.002) * 0.7;
+        // the sidewall: rubbed dull and pale in a band on its shoulder
+        float wall = smoothstep(R * 0.72, R * 0.80, rho) * (1.0 - smoothstep(R * 0.93, R * 0.99, rho));
+        float rub = smoothstep(0.40, 0.66, streak) * cover * wall;
+        albedo = lerp(albedo, float3(0.24, 0.23, 0.21), rub * lerp(0.5, 0.9, amt));
+        // a gouged tyre: the cut round it
+        albedo *= 1.0 - step(0.84, amt) * arc * wall * GlsLine(rho - R * (0.86 + 0.04 * GlsN2P(float2(a01 * 12.0, seed), 12.0)), 0.004, 0.002) * 0.7;
     }
 }
 

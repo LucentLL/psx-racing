@@ -40,6 +40,7 @@ namespace PSXRacing
         public static bool On = System.Environment.GetEnvironmentVariable("PSX_VIEW_DAMAGE") != "0";
 
         static readonly List<Renderer> rends = new List<Renderer>();
+        static readonly int LightMaskId = Shader.PropertyToID("_LightMask");
         static MaterialPropertyBlock block;
 
         /// <summary>Dresses written since load (the self-test and the cost note).</summary>
@@ -80,6 +81,12 @@ namespace PSXRacing
                                       frame.forward, frame.right, frame.up, seed, cabin);
                 r.GetPropertyBlock(block);
                 block.SetFloat(PaintGloss.GlossId, gloss);
+                // a broken lamp: its lens is found in the model's lamp map, as the drive's CarLights binds it
+                if (look.lampOut != 0 && def != null)
+                {
+                    var map = CarLights.LampMapFor(def.key);
+                    if (map != null) block.SetTexture(LightMaskId, map);
+                }
                 r.SetPropertyBlock(block);
             }
             // round 2: each wheel's rash (0 clears what an earlier car left)

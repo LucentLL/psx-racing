@@ -94,6 +94,33 @@ namespace PSXRacing.EditorTools
                     }
                     catch (System.Exception e) { log.AppendLine("FAIL " + c.name + ": " + e); Debug.LogError("[Damage2] " + c.name + " THREW: " + e); }
                 }
+                // THE CLASSIC TIER (the same process: the texture tier is not this round's switch): three cases again
+                if (CarHD.Want && System.Environment.GetEnvironmentVariable("PSX_D2_CLASSIC") == "1")
+                {
+                    CarHD.ForceOff = true;
+                    PSXTexDecode.StampAll();
+                    string cdir = Path.Combine(outDir, "classic");
+                    Directory.CreateDirectory(cdir);
+                    foreach (var c in Cases)
+                    {
+                        if (c.name != "g3_web" && c.name != "s3_shattered" && c.name != "f_web" && c.name != "w2_rash") continue;
+                        try
+                        {
+                            eg.faults.Clear();
+                            if (eg.history != null) eg.history.Clear();
+                            eg.paint = 92f;
+                            eg.carHP = 92f;
+                            c.wreck(st, eg);
+                            LifeSimManager.Save();
+                            LifeHomePreview.Shoot(cdir, c.name, "carmenu", garageCar: eg.id, sizes: Size);
+                            Rig(cdir, c.name, c.frames, eg, spec, log);
+                        }
+                        catch (System.Exception e) { log.AppendLine("FAIL classic " + c.name + ": " + e); }
+                    }
+                    log.AppendLine("classic tier: HD wanted " + CarHD.Want + " after ForceOff");
+                    CarHD.ForceOff = false;
+                    PSXTexDecode.StampAll();
+                }
             }
             catch (System.Exception e) { log.AppendLine("FAIL " + e); Debug.LogError("[Damage2] " + e); }
             finally
