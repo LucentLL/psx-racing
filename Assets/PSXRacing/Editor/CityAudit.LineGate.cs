@@ -1028,7 +1028,9 @@ namespace PSXRacing.EditorTools
         // twin's edges SHIFT measures from the middle of the two MAPPED lines (the map's, not the model's push): a
         // push that holds the pair symmetric reads still, one that moves a carriageway against its partner reads
         // as the shift it is. Off a twin, and with no partner within 30 m, the frame is the edge's own.
-        // PSX_LG_TWINFRAME=0: every edge in its own frame (the gate before).
+        // OFF BY DEFAULT (PSX_LG_TWINFRAME=1 on): of 12 sample frames of readings it passed (run r3twB, roads3 scratch
+        // linegate_twinframe_proof.jpg) 10 show the lines running on, TF04 (a lane opening) and TF07 (a split whose median
+        // widens) look like real moves - not proven enough to judge with.
         static Dictionary<int, float[]> lgTwinMid;
         static int lgTwinFrameEdges;
         static bool lgTwinFrameOff;
@@ -1037,7 +1039,7 @@ namespace PSXRacing.EditorTools
         static void LgTwinFrames(CityMap map)
         {
             lgTwinMid = new Dictionary<int, float[]>(); lgTwinFrameEdges = 0;
-            if (Environment.GetEnvironmentVariable("PSX_LG_TWINFRAME") == "0") return;
+            if (Environment.GetEnvironmentVariable("PSX_LG_TWINFRAME") != "1") return;
             for (int ei = 0; ei < map.edges.Length; ei++)
             {
                 if (!LineModel.TightTwinEdge(ei)) continue;

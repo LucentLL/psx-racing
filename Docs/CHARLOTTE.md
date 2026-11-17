@@ -9524,9 +9524,10 @@ tooling fix, never to make a branch's number pass):
   the own frame read the fan as "the solid yellow line moves 9.68 m sideways in 21 m". A push that holds the pair
   symmetric reads still; one that moves a carriageway against its partner reads as the shift it is. KINK and SJOG judge
   the same lines in the world frame as before. The readings the own frame gives and the pair's frame does not are
-  listed in `city_linegate_twinframe.tsv` (never counted; 486 in run r3twB, every twin built); PSX_LG_TWINFRAME=0: the
-  old frame. Its sample frames: roads3 scratch `linegate_twinframe_proof.jpg` (job s3) - see the hand-back for whether
-  that job finished before the 11-17 stop.
+  listed in `city_linegate_twinframe.tsv` (never counted; 486 in run r3twB, every twin built). OFF BY DEFAULT
+  (PSX_LG_TWINFRAME=1 on): of 12 sample frames of passed readings (roads3 scratch `linegate_twinframe_proof.jpg`) 10
+  show the lines running on, TF04 (a lane opening) and TF07 (a split whose median widens) look like real moves - not
+  proven enough to judge with; the gate counts tight twins in their own frame until it is.
 
 **Tools.**
 - `tools\city-linegate.ps1` - the gate (`-Box` / `-Name` for one place, `-Shots n` for editor frames of the worst
