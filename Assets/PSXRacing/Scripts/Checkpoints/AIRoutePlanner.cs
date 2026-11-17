@@ -47,7 +47,10 @@ namespace PSXRacing
         public readonly List<string> LegLog = new List<string>(64);
 
         // ---- persona (stage 2)
-        public static bool VarietyOn => CheckpointFile.On("PSX_CP_AI_VARIETY");
+        /// <summary>OPT-IN (=1): its gate (2+ distinct rival routes on 30 % of a city circuit's legs) is not met - with
+        /// 500-770 m legs and a 60 m turn penalty no leg has a second route inside the 8 % band (0 varied legs on C1, H2,
+        /// Tryon), as the freedom table foretold (freeLegs 0 on 8 of 10 files).</summary>
+        public static bool VarietyOn => System.Environment.GetEnvironmentVariable("PSX_CP_AI_VARIETY") == "1";
         public static bool RerouteOn => CheckpointFile.On("PSX_CP_REROUTE");
         float altChance = -1f, eps;
         uint seed;
