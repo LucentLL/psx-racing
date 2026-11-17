@@ -82,7 +82,9 @@ namespace PSXRacing
             return p;
         }
 
-        public void OnGatePassed(bool finished) { race.Request(this); }
+        public void OnGatePassed(bool finished) { logLeg = true; race.Request(this); }
+        /// <summary>The next plan is a leg's own (from its gate, or the start): the variety gate logs it.</summary>
+        bool logLeg = true;
         public void OnRespawned() { race.Request(this); }
         public void OnMissed() { race.Request(this); }
 
@@ -171,10 +173,17 @@ namespace PSXRacing
                 if (leg == 0)
                 {
                     if (varied) VariedLegs++;
-                    var ls = new System.Text.StringBuilder(64);
-                    ls.Append(k).Append(':');
-                    for (int i = 0; i < states.Count && i < 40; i++) ls.Append(states[i] >> 1).Append(',');
-                    if (LegLog.Count < 256) LegLog.Add(ls.ToString());
+                    // the leg's route as planned at its gate (a mid-leg re-plan starts elsewhere: not a route of its own);
+                    // from its second road on (the first is where the car stood)
+                    if (logLeg)
+                    {
+                        logLeg = false;
+                        var ls = new System.Text.StringBuilder(64);
+                        int lapNow = p != null ? p.lap : 1;
+                        ls.Append(lapNow).Append('.').Append(k).Append(':');
+                        for (int i = 1; i < states.Count && i < 40; i++) ls.Append(states[i] >> 1).Append(',');
+                        if (LegLog.Count < 256) LegLog.Add(ls.ToString());
+                    }
                 }
                 for (int i = 0; i < states.Count; i++)
                 {

@@ -1413,14 +1413,6 @@ namespace PSXRacing
         public int PassesHeld { get; private set; }
         Rigidbody countedPass;
 
-        /// <summary>The pass round <see cref="countedPass"/> is over: done if that car is behind now, else given up.</summary>
-        void CountPassEnd()
-        {
-            if (countedPass == null) return;
-            Vector3 lo = transform.InverseTransformPoint(countedPass.position);
-            if (lo.z < -2f) PassesDone++; else PassesAborted++;
-            countedPass = null; passLostT = 0f;
-        }
 
         /// <summary>May a pass of a rival <paramref name="gap"/> m ahead, at <paramref name="want"/> m/s faster, be
         /// started: done within HeldPassMaxS, the road over that run straight enough to see through, and on a two-way
@@ -1843,13 +1835,9 @@ namespace PSXRacing
                     if (!float.IsNaN(pick))
                     {
                         DebugPassSide = pick < bo.lat ? -1 : 1;
-                        if (countedPass != bo.rb)
-                        {
-                            CountPassEnd(); countedPass = bo.rb; passLostT = 0f; PassesBegun++;
-                            // out into the other lane to do it: left of the car, on a two-way road
-                            if (DebugPassSide < 0 && twoWay != null && TwoWayHere(twoWay)) PassesOncoming++;
-                            if (bo.held) PassesHeld++;
-                        }
+                        // the harness's pass: a candidate until the car has really moved out for it (end of tick)
+                        candPass = bo.rb; candSide = DebugPassSide; candHeld = bo.held;
+                        candOncoming = DebugPassSide < 0 && twoWay != null && TwoWayHere(twoWay);
                         passRb = bo.rb;
                         passSide = DebugPassSide;
                         if (pick > tarmacEdge) { usedVerge = true; DebugOnVerge = true; }
@@ -2107,19 +2095,34 @@ namespace PSXRacing
             DebugGiveWhy = giveWhy;
             // ---- the pass counters (harness): done once that car is behind, given up when its side has been
             // dropped for 1.5 s with the car still ahead
+            // A PASS BEGINS when the car has moved 1.2 m off its line toward the side it chose round a car ahead (a side
+            // merely chosen for a tick is not a pass); it is DONE once that car is behind, GIVEN UP when the side has
+            // been dropped and the car is back on its line for a second with that car still ahead.
+            if (countedPass == null && candPass != null && candPass != lastDone && avoidBias * candSide >= 1.2f)
+            {
+                Vector3 cl0 = transform.InverseTransformPoint(candPass.position);
+                if (cl0.z > 0f)
+                {
+                    countedPass = candPass; passLostT = 0f; PassesBegun++;
+                    if (candOncoming) PassesOncoming++;
+                    if (candHeld) PassesHeld++;
+                }
+            }
             if (countedPass != null)
             {
                 Vector3 cl = transform.InverseTransformPoint(countedPass.position);
-                if (cl.z < -2f) { PassesDone++; countedPass = null; passLostT = 0f; }
-                else if (passRb != countedPass)
+                if (cl.z < -2f) { PassesDone++; lastDone = countedPass; countedPass = null; passLostT = 0f; }
+                else if (passRb != countedPass && Mathf.Abs(avoidBias) < 0.5f)
                 {
                     passLostT += dt;
-                    if (passLostT > 1.5f || cl.z > 80f) { PassesAborted++; countedPass = null; passLostT = 0f; }
+                    if (passLostT > 1f || cl.z > 80f) { PassesAborted++; countedPass = null; passLostT = 0f; }
                 }
                 else passLostT = 0f;
             }
+            candPass = null;
         }
         float passLostT;
+        Rigidbody candPass, lastDone; int candSide; bool candHeld, candOncoming;
 
         /// <summary>
         /// Put the car back on the road when it can no longer get there itself.
