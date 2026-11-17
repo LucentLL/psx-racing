@@ -322,7 +322,7 @@ namespace PSXRacing.EditorTools
                 ApplySwitches();
                 if (s.sc != null) s.sc.Configure(s.cam);
                 var req = new RenderPipeline.StandardRequest { destination = rt };
-                for (int k = 0; k < 4; k++) { if (s.forest != null) s.forest.DrawNow(s.cam); RenderPipeline.SubmitRenderRequest(s.cam, req); }
+                for (int k = 0; k < 8; k++) { if (s.forest != null) s.forest.DrawNow(s.cam); RenderPipeline.SubmitRenderRequest(s.cam, req); }
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 for (int k = 0; k < N; k++)
                 {
@@ -334,11 +334,16 @@ namespace PSXRacing.EditorTools
                 }
                 return sw.Elapsed.TotalMilliseconds / N;
             }
-            double on1 = Time(true), off1 = Time(false), on2 = Time(true), off2 = Time(false), on3 = Time(true), off3 = Time(false);
+            // a throw-away pair (the first draws pay for shader variants and uploads), then five pairs ABAB; the medians
+            Time(true); Time(false);
+            var on = new List<double>(); var off = new List<double>();
+            for (int k = 0; k < 5; k++) { on.Add(Time(true)); off.Add(Time(false)); }
             force.SetValue(null, null);
             ApplySwitches();
-            log.AppendLine($"  PERF {id} {W}x{Hh}, ms a frame (editor: render + 1 px read, {N} a side): template ON {on1:0.00} / {on2:0.00} / {on3:0.00}, " +
-                           $"OFF {off1:0.00} / {off2:0.00} / {off3:0.00}; difference {(on1 + on2 + on3 - off1 - off2 - off3) / 3:0.00} ms");
+            on.Sort(); off.Sort();
+            log.AppendLine($"  PERF {id} {W}x{Hh}, ms a frame (editor: render + 1 px read, {N} a side, 5 pairs ABAB after a throw-away pair): " +
+                           $"template ON {string.Join(" / ", on.ConvertAll(x => x.ToString("0.00")))}, OFF {string.Join(" / ", off.ConvertAll(x => x.ToString("0.00")))}; " +
+                           $"median ON {on[2]:0.00} OFF {off[2]:0.00}, difference {on[2] - off[2]:0.00} ms");
             Object.DestroyImmediate(one);
             rt.Release(); Object.DestroyImmediate(rt);
         }
