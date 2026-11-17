@@ -327,7 +327,7 @@ Shader "PSX/CabinGlass"
                         float wetA = saturate(max(cover, sheet));
                         float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
                         // (a bead gathers light: brighter in its middle, dark only at its very rim)
-                        float rim = beadTop ? smoothstep(0.72, 0.98, length(bB.yz)) : edge;
+                        float rim = beadTop ? smoothstep(0.72, 0.98, length(bB.yz)) : edge * 0.35;   // (a runner's trail is a bright thread of water, not a dark scratch)
                         float gather = beadTop ? 1.0 + 0.9 * park + 0.6 * smoothstep(0.3, 0.9, hgt) : 1.0 + 0.5 * smoothstep(0.45, 0.95, hgt);
                         float3 seen = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb;
                         // (a bead by the pillar would show the pillar - a black fleck on
