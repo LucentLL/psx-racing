@@ -142,8 +142,18 @@ namespace PSXRacing
             float sweep = 6f * Mathf.Sin(Time.time * 2f * Mathf.PI * 0.12f + l.gate * 1.7f);
             var face = Quaternion.LookRotation(-to.normalized, Vector3.up);
             var rot = face * Quaternion.AngleAxis(sweep, Vector3.forward);
-            l.beam.SetPositionAndRotation(basePos, rot);
-            l.core.SetPositionAndRotation(basePos, rot);
+            // INSIDE THE FAR PLANE: the city camera's far clip (the tile ring, about 500 m on PC) cut the beam off
+            // beyond it in every watched race (seen at 330 m, gone at 600 m). Beyond 80 % of it the beam is drawn on
+            // the same sight line, pulled in and scaled down by the same factor: the same picture on screen (only
+            // what stands between the two distances no longer hides it, which a searchlight in the sky barely needs)
+            Vector3 eye = cam.transform.position;
+            float farDraw = Mathf.Max(100f, cam.farClipPlane * 0.8f);
+            float d = Vector3.Distance(eye, basePos), k = d > farDraw ? farDraw / d : 1f;
+            Vector3 drawAt = eye + (basePos - eye) * k;
+            l.beam.SetPositionAndRotation(drawAt, rot);
+            l.core.SetPositionAndRotation(drawAt, rot);
+            l.beam.localScale = new Vector3(k, k, k);
+            l.core.localScale = new Vector3(0.45f * k, k, k);
             // brightness: the floor by day, near full at night and in rain or fog where a real beam shows best;
             // faded inside 40 m of the camera (fill rate) and beyond 3 km
             float dist = to.magnitude;
