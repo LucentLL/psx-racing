@@ -3,7 +3,7 @@
  "graph": "b2aa3453",
  "route": "c2",
  "candidate": "C2",
- "generator": "checkpoints.mjs 2026-11-17 061081d4",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
  "cost": "city",
  "loop": 1,
  "lengthM": 5340.4,
@@ -214,12 +214,6 @@
        "d": 1,
        "s": 17.54,
        "l": 0
-      },
-      {
-       "e": 22753,
-       "d": -1,
-       "s": 26.15,
-       "l": -36.25
       }
      ],
      "legM": 677.6,

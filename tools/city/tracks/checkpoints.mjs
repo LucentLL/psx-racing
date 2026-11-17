@@ -414,7 +414,10 @@ function cleanPenalty(R, m) {
 }
 
 // ---------------------------------------------------------------- spans (wide gates)
-function spansAt(R, ctx, m, nextM) {
+// a span must not be a shortcut from the gate before: reached in plain metres no sooner than 0.96 x the anchor
+// (cpfix 11-17: C2's gate 7 counted a parallel road 600 m from gate 6 where the route's anchor is 678 m)
+const MUL_MET = mulTable(null);
+function spansAt(R, ctx, m, nextM, prevM) {
   const A = at(R, m), p = pointOn(A.st, A.t);
   const rx = p.hz, rz = -p.hx;                      // right of the heading
   const ox = p.x - rx * 60, oz = p.z - rz * 60, ex = p.x + rx * 60, ez = p.z + rz * 60;
@@ -443,6 +446,14 @@ function spansAt(R, ctx, m, nextM) {
       const t = dir === 1 ? sAt : f.length - sAt;
       const via = costFrom(Fn, st, t);
       if (!isFinite(via) || Math.abs(via - ref) > 0.1 * Math.max(ref, 1)) continue;
+      if (prevM != null) {
+        const P = at(R, prevM);
+        const seedsS = [{ st, g: t }];
+        if (!f.oneway) seedsS.push({ st: st ^ 1, g: len[st] - t });
+        const toSpan = costFrom(field(seedsS, MUL_MET, false), P.st, P.t);
+        const toAnchor = costFrom(ctx.fieldsAt(m).met, P.st, P.t);
+        if (isFinite(toAnchor) && toSpan < 0.96 * toAnchor) continue;
+      }
       seen.add(ei);
       out.push({ e: ei, d: dir, s: sAt, l: (u - 0.5) * 120 });
     }
@@ -515,7 +526,8 @@ function generate(id, quiet = false, rev = false) {
   const cps = gates.map((g, i) => {
     const A = at(R, g.m), p = pointOn(A.st, A.t);
     const nm = i + 1 < gates.length ? gates[i + 1].m : (loop ? end : null);
-    const spans = spansAt(R, ctx, g.m, nm);
+    const pm = i > 0 ? gates[i - 1].m : (loop ? gates[gates.length - 1].m - R.L : null);
+    const spans = spansAt(R, ctx, g.m, nm, pm);
     const leg = legs.find(l => l.to === i && (i > 0 || loop));
     return {
       kind: g.kind === 'fill' ? 'split' : g.kind, routeM: +(((g.m % R.L) + R.L) % R.L).toFixed(1),

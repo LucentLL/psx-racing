@@ -3,7 +3,7 @@
  "graph": "b2aa3453",
  "route": "uptown",
  "candidate": "uptown",
- "generator": "checkpoints.mjs 2026-11-17 061081d4",
+ "generator": "checkpoints.mjs 2026-11-17 97f54be4",
  "cost": "city",
  "loop": 1,
  "lengthM": 9191,
