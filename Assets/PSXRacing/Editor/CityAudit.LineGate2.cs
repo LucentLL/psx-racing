@@ -65,6 +65,9 @@ namespace PSXRacing.EditorTools
         /// roadway is at least the travelled way plus 2 ft each side: one
         /// 12 ft lane gives 16 ft (4.9 m) between rails.</summary>
         public const float BridgeOneLaneM = 4.9f;
+        /// <summary>Past a side road's drawn end, a solid line is "across its mouth" only within this of
+        /// it: the entered road's near edge or lane line. Further in, a turning car crosses lines lawfully.</summary>
+        public const float MouthNearM = 3f;
     }
 
     public static partial class CityAudit
@@ -408,13 +411,15 @@ namespace PSXRacing.EditorTools
                     var p1 = e.PointAt(sEnd) + ln * mid;
                     var p2 = p1 + tan * (end == 1 ? 9f : -9f);
                     float y = e.YAt(sEnd);
-                    LgFail hit = null;
-                    for (int leg = 0; leg < 2 && hit == null; leg++)
+                    // the NEAREST solid line on the path (checked 2026-11-17 on 30 sampled places: the first one
+                    // found in grid order was often the far side's line, 7 m into the road being entered)
+                    LgFail hit = null; double hitD = double.MaxValue; bool hitFar = false, hitSplit = false, hitCentre = false;
+                    for (int leg = 0; leg < 2; leg++)
                     {
                         var A = leg == 0 ? p0 : p1; var B = leg == 0 ? p1 : p2;
                         int cx0 = (int)Math.Floor(Math.Min(A.x, B.x) / 16.0), cx1 = (int)Math.Floor(Math.Max(A.x, B.x) / 16.0), cz0 = (int)Math.Floor(Math.Min(A.y, B.y) / 16.0), cz1 = (int)Math.Floor(Math.Max(A.y, B.y) / 16.0);
-                        for (int cx = cx0; cx <= cx1 && hit == null; cx++)
-                            for (int cz = cz0; cz <= cz1 && hit == null; cz++)
+                        for (int cx = cx0; cx <= cx1; cx++)
+                            for (int cz = cz0; cz <= cz1; cz++)
                             {
                                 if (!grid.TryGetValue(((long)cx << 32) ^ (uint)cz, out var l)) continue;
                                 foreach (var (sid, i) in l)
@@ -424,13 +429,23 @@ namespace PSXRacing.EditorTools
                                     var a = st.p[i]; var b = st.p[i + 1];
                                     if (Mathf.Abs(a.y - y) > 1.5f) continue;
                                     if (!Cross(A.x, A.y, B.x, B.y, a.x, a.z, b.x, b.z, out double ix, out double iz)) continue;
-                                    // only the near side of the road being entered: the first line met
+                                    double dd = (leg == 0 ? 0.0 : 6.0) + Math.Sqrt((ix - A.x) * (ix - A.x) + (iz - A.y) * (iz - A.y));
+                                    if (dd >= hitD) continue;
+                                    var oe = map.edges[st.edge];
+                                    hitD = dd;
+                                    // past the mouth, only the entered road's NEAR line counts (its edge line at the
+                                    // mouth, within 3 m of the side road's drawn end): a car turning across the far
+                                    // lanes may cross a centre line (MUTCD 2009 3A.06 / 3B.01: a double yellow forbids passing, not a
+                                    // left turn at a junction); a split's own carriageway rejoins its road beside the yellow
+                                    hitFar = leg == 1 && dd - 6.0 > LineGateRules2.MouthNearM;
+                                    hitSplit = e.oneway && st.yellow && !string.IsNullOrEmpty(e.name) && oe.name == e.name;
+                                    hitCentre = leg == 1 && st.yellow && !st.EdgeLine;
                                     hit = new LgFail { cls = "JUNCTION", sub = "solid line across a road mouth", edge = st.edge, node = node, s = a.s, s1 = b.s, x = ix, z = iz, measure = 0f, limit = 0f, unit = "", line = st.Kind,
-                                                       what = $"the {st.Kind} of {LgRoad(map.edges[st.edge])} (e{st.edge}) runs solid across the mouth of {LgRoad(e)} (e{ei}) at n{node}" };
-                                    break;
+                                                       what = $"the {st.Kind} of {LgRoad(oe)} (e{st.edge}) runs solid across the mouth of {LgRoad(e)} (e{ei}) at n{node}" };
                                 }
                             }
                     }
+                    if (hit != null && (hitFar || hitSplit || hitCentre)) { lgMouthPassed++; hit = null; }
                     if (hit != null) lgFails.Add(hit);
                 }
             }
@@ -492,6 +507,10 @@ namespace PSXRacing.EditorTools
                     if (!scope[ei] || e.link || e.roundabout || string.IsNullOrEmpty(e.name) || e.name == main && mainN >= 2) continue;
                     if (e.oneway && e.a == n) continue;                    // it leaves
                     if (mainN < 2 && e.cls == top) continue;               // no through road here: equals meeting
+                    // MUTCD 2009 2B.04 asks for STOP / YIELD where a LESS IMPORTANT road meets a main road or a
+                    // street enters a through street; two streets of one class may meet under the basic
+                    // right-of-way rule (an uncontrolled neighbourhood T is lawful): those pass.
+                    if (e.cls >= top) { lgCtlEqual++; continue; }
                     if (controlled.Contains(((long)ei << 32) | (uint)n)) continue;
                     bool rb = false; foreach (int o in arms) rb |= map.edges[o].roundabout;
                     if (rb) continue;                                      // a roundabout entry: its own yield

@@ -40,7 +40,8 @@ namespace PSXRacing.EditorTools
             if (!File.Exists(list)) { Debug.LogError("[LineGate] no shots list " + list); return; }
             PSXRacingBuilder.EnsureCityTextures();
             var t = CityMeshes.ComputeTrims(map);
-            var buildings = CityBuildings.Precompute(map);
+            // PSX_LG_NOBLD=1: no buildings (the sample sheets' plan frames: several times faster a place)
+            var buildings = Environment.GetEnvironmentVariable("PSX_LG_NOBLD") == "1" ? new Dictionary<long, List<CityBuildings.B>>() : CityBuildings.Precompute(map);
             Shader.SetGlobalFloat("_PSXFogNear", 900f); Shader.SetGlobalFloat("_PSXFogFar", 2000f);
             Shader.SetGlobalColor("_PSXFogColor", new Color(0.72f, 0.78f, 0.86f)); Shader.SetGlobalFloat("_PSXSnap", 0f);
             Shader.SetGlobalColor("_PSXAmbient", new Color(0.55f, 0.55f, 0.6f));
@@ -62,7 +63,9 @@ namespace PSXRacing.EditorTools
                     int ei = int.Parse(c[3], inv); float s = float.Parse(c[4], inv);
                     int dirWant = c.Length > 5 ? int.Parse(c[5], inv) : 0;
                     float half = c.Length > 6 && float.TryParse(c[6], System.Globalization.NumberStyles.Float, inv, out float hv) && hv > 1f ? hv : 36f;
-                    bool planOnly = c.Length > 7 && c[7].Trim() == "plan";
+                    string views = c.Length > 7 ? c[7].Trim() : "";
+                    bool planOnly = views == "plan" || views == "plan+uv";
+                    bool uvView = views.EndsWith("uv");
                     if (ei < 0 || ei >= map.edges.Length) continue;
                     var e = map.edges[ei];
                     s = Mathf.Clamp(s, 0f, e.length);
@@ -131,6 +134,28 @@ namespace PSXRacing.EditorTools
                     if (!planOnly) LgShoot(dir, id + "_drive", eye, Quaternion.LookRotation(aim - eye), 0f, 1280, 720, 60f);
                     var upDir = new Vector3(tan.x * dirGo, 0f, tan.y * dirGo);
                     LgShoot(dir, id + "_plan", target + Vector3.up * 80f, Quaternion.LookRotation(Vector3.down, upDir), half, planOnly ? 640 : 1280, planOnly ? 360 : 720, 60f);
+                    if (uvView)
+                    {
+                        // the pavement's texture coordinates as the HD road base reads them: a 1 m grid across
+                        // (U), every quarter V along, on every driving-surface slot; then the materials back
+                        var keepMats = new List<KeyValuePair<MeshRenderer, Material[]>>();
+                        foreach (var mr in world.GetComponentsInChildren<MeshRenderer>())
+                        {
+                            var sm = mr.sharedMaterials; bool any = false;
+                            var gm = new Material[sm.Length];
+                            for (int q = 0; q < sm.Length; q++)
+                            {
+                                int slot = Array.IndexOf(mats, sm[q]);
+                                Material g = slot >= 0 ? LgGridMat(mats, slot) : null;
+                                gm[q] = g ?? sm[q]; any |= g != null;
+                            }
+                            if (!any) continue;
+                            keepMats.Add(new KeyValuePair<MeshRenderer, Material[]>(mr, sm));
+                            mr.sharedMaterials = gm;
+                        }
+                        LgShoot(dir, id + "_uv", target + Vector3.up * 80f, Quaternion.LookRotation(Vector3.down, upDir), half, planOnly ? 640 : 1280, planOnly ? 360 : 720, 60f);
+                        foreach (var kv in keepMats) kv.Key.sharedMaterials = kv.Value;
+                    }
                     said.AppendLine($"{id}\t{ei}\t{LgRoad(e)}\t{LatLon(x, z)}\t{eye.x.ToString("0.0", inv)},{eye.y.ToString("0.00", inv)},{eye.z.ToString("0.0", inv)}\t{(Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg).ToString("0", inv)}");
                     done++;
                     if (done % 10 == 0) Debug.Log($"[LineGate] {done} places shot");
@@ -144,6 +169,46 @@ namespace PSXRacing.EditorTools
             }
             File.WriteAllText(Path.Combine(dir, "linegate_shots.txt"), said.ToString());
             Debug.Log($"[LineGate] DONE {done} places shot to {dir}");
+        }
+
+        static readonly Dictionary<int, Material> lgGridMats = new Dictionary<int, Material>();
+        /// <summary>A driving-surface slot's material with its texture swapped for a grid in the slot's own
+        /// metres: grey bands 1 m wide across (U = m / W), a dark line at every metre, a blue line every
+        /// quarter of V, the paint columns white. Laid on the ribbon's UVs, a strip drawn with its texture
+        /// stretched shows wide bands, one that tapers shows the bands running diagonally: what the HD
+        /// road base (tiled through the same UVs) does there. Null for any other slot.</summary>
+        static Material LgGridMat(Material[] mats, int slot)
+        {
+            int rel = slot - (int)CityMeshes.Slot.RoadFirst;
+            if (rel < 0 || rel >= CityMeshes.RoadClassCount * CityMeshes.SurfaceCount || mats[slot] == null) return null;
+            if (lgGridMats.TryGetValue(slot, out var have)) return have;
+            int profile = rel / CityMeshes.SurfaceCount;
+            const int TW = 1024, TH = 256;
+            var px = new Color32[TW * TH];
+            float W = 12f; LineModel.Layout tex = null;
+            if (profile < RoadProfiles.ProfileCount) { tex = LineModel.LayoutOf(profile); W = Mathf.Max(1f, tex.W); }
+            for (int x = 0; x < TW; x++)
+            {
+                float m = x / (float)TW * W;
+                bool band = ((int)Mathf.Floor(m)) % 2 == 0, edge = m - Mathf.Floor(m) < W / TW * 2.5f;
+                bool paint = false;
+                if (tex != null)
+                    for (int j = 0; j < tex.m.Length; j++)
+                        if (x >= tex.x0[j] / (float)tex.texW * TW && x <= (tex.x1[j] + 1) / (float)tex.texW * TW) { paint = true; break; }
+                for (int y = 0; y < TH; y++)
+                {
+                    Color32 c = band ? new Color32(150, 150, 150, 255) : new Color32(105, 105, 105, 255);
+                    if (y % (TH / 4) < 3) c = new Color32(40, 70, 200, 255);
+                    if (edge) c = new Color32(25, 25, 25, 255);
+                    if (paint) c = new Color32(250, 250, 250, 255);
+                    px[y * TW + x] = c;
+                }
+            }
+            var t = new Texture2D(TW, TH, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Bilinear, anisoLevel = 8 };
+            t.SetPixels32(px); t.Apply(true);
+            var g = new Material(mats[slot]) { mainTexture = t, name = mats[slot].name + "_uvgrid" };
+            lgGridMats[slot] = g;
+            return g;
         }
 
         static void LgWrap(GameObject parent, Mesh mesh, Material[] mats, CityMeshes.Slot[] slots)

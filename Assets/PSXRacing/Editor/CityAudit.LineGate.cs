@@ -129,6 +129,10 @@ namespace PSXRacing.EditorTools
         /// (Green Book 4.4.2: 12 ft, 3.7 m, the widest usable shoulder; 0.3 m
         /// more for the line and the offset to a rail).</summary>
         public const float ShoulderMaxM = 4.0f;
+        /// <summary>Two lines closer than this hold no lane (the AASHTO P design vehicle is 7 ft, 2.13 m, wide):
+        /// they are a double line or a painted buffer between lanes (MUTCD 2009 3B.04 double white lines,
+        /// 3B.24 buffer and chevron areas), not judged as a narrow lane.</summary>
+        public const float BufferMaxM = 1.8f;
         /// <summary>A curb lane (no edge line: the lane runs to the gutter)
         /// may carry a 0.6 m gutter pan (NCDOT 2'-6" curb and gutter).</summary>
         public const float GutterM = 0.6f;
@@ -142,6 +146,12 @@ namespace PSXRacing.EditorTools
         /// <summary>A line that continues past a joint more than this to the
         /// side has jumped (MUTCD 3A.06: longitudinal lines are continuous).</summary>
         public const float JumpMaxM = 1.83f;
+        /// <summary>KINK reads an angle point again over chords up to this long (8 m, then 16 m): a
+        /// curve's polyline facets read as a curve there, an angle point keeps its deflection.</summary>
+        public const int KinkScaleMaxM = 16;
+        /// <summary>KINK leaves a junction's corners alone: this close to the drawn end at a node of 1 or 3+
+        /// arms (the curb return, the mouth's flare, a bulb). JUNCTION judges the through lines there.</summary>
+        public const float KinkCornerM = 15f;
     }
 
     public static partial class CityAudit
@@ -328,7 +338,7 @@ namespace PSXRacing.EditorTools
         static readonly List<LgStrand> lgStrands = new List<LgStrand>();
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
-        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane;
+        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed;
         static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
@@ -591,7 +601,12 @@ namespace PSXRacing.EditorTools
                                 double d = Math.Sqrt((t.x - ax) * (t.x - ax) + (t.z - az) * (t.z - az));
                                 if (Mathf.Abs(t.s - sp.sA) > 0.02f || d > LineGateRules.JoinM)
                                 {
-                                    if (Mathf.Abs(t.s - sp.sA) <= 0.02f && d <= LineGateRules.JumpMaxM)
+                                    // (the mouth strip at a junction meets its curb return there: the fan's pavement
+                                    // covers the step - seen on every sampled one; judged only away from junctions)
+                                    int jn = LgEndNode(e, sp.sA, LineGateRules.KinkCornerM);
+                                    bool corner = jn >= 0 && map.nodeEdges[jn].Count != 2;
+                                    if (corner && Mathf.Abs(t.s - sp.sA) <= 0.02f && d <= LineGateRules.JumpMaxM) lgStepCorners++;
+                                    else if (Mathf.Abs(t.s - sp.sA) <= 0.02f && d <= LineGateRules.JumpMaxM)
                                         lgFails.Add(new LgFail { cls = "CONT", sub = "pavement edge steps", edge = ei, s = sp.sA, s1 = sp.sA, x = ax, z = az, measure = (float)d, limit = LineGateRules.JoinM, unit = "m", line = st.Kind,
                                                                  what = $"the pavement edge steps {d:0.00} m sideways between two spans of one edge" });
                                     st = null;
@@ -744,7 +759,9 @@ namespace PSXRacing.EditorTools
                     var (id, oe, d) = Nearest(st, end, LineGateRules.JumpMaxM, other, dash);
                     if (id >= 0)
                     {
-                        if (st.id < id)
+                        // within the join distance but not joined: the other end is taken (a line forking
+                        // at the joint) or the pattern changes there (a broken line meeting a solid one) - no step
+                        if (st.id < id && d > (dash ? 0.15 : LineGateRules.JoinM))
                             lgFails.Add(new LgFail { cls = "CONT", sub = st.role == 2 ? "line steps at a joint" : "pavement edge steps at a joint", edge = st.edge, node = node, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = (float)d, limit = dash ? 0.15f : LineGateRules.JoinM, unit = "m", line = st.Kind,
                                                      what = $"the {st.Kind} steps {d:0.00} m sideways where e{st.edge} meets e{other}" });
                     }
@@ -855,6 +872,18 @@ namespace PSXRacing.EditorTools
         static double LgTurnLat(List<LgR> r, int i, int b) =>
             (Math.Atan2(r[i + b].lat - r[i].lat, b) - Math.Atan2(r[i].lat - r[i - b].lat, b)) * 180.0 / Math.PI;
 
+        /// <summary>The angle point at sample i over chords of b and 2b metres: |2 turn(b) - turn(2b)|, less
+        /// the same in the road's lateral frame (a taper's own break is SHIFT's); no lateral frame across a
+        /// change of edge direction.</summary>
+        static double LgKinkAt(List<LgR> r, int i, int b)
+        {
+            double kw = 2 * LgTurn(r, i, b) - LgTurn(r, i, 2 * b), kl = 0;
+            bool oneFrame = true;
+            for (int q = i - 2 * b; q < i + 2 * b; q++) if (r[q].e != r[q + 1].e && Mathf.Abs(r[q].lat - r[q + 1].lat) > 0.2f) { oneFrame = false; break; }
+            if (oneFrame) kl = 2 * LgTurnLat(r, i, b) - LgTurnLat(r, i, 2 * b);
+            return Math.Abs(kw - kl);
+        }
+
         static string LgRoad(CityMap.Edge e) => string.IsNullOrEmpty(e.name) ? (e.link ? "(ramp)" : "(unnamed)") : e.name;
 
         static void LgShape(CityMap map, List<LgP> pts, List<LgStrand> members, List<LgR> r)
@@ -872,16 +901,25 @@ namespace PSXRacing.EditorTools
             {
                 bool wide = i >= 8 && i < n - 8;
                 int b = wide ? 4 : 2;
-                // no lateral frame across a change of edge direction
                 double kw = 2 * LgTurn(r, i, b) - LgTurn(r, i, 2 * b);
-                double kl = 0;
-                bool oneFrame = true;
-                for (int q = i - 2 * b; q < i + 2 * b; q++) if (r[q].e != r[q + 1].e && Mathf.Abs(r[q].lat - r[q + 1].lat) > 0.2f) { oneFrame = false; break; }
-                if (oneFrame) kl = 2 * LgTurnLat(r, i, b) - LgTurnLat(r, i, 2 * b);
-                double k = Math.Abs(kw - kl);
+                double k = LgKinkAt(r, i, b);
                 var e = map.edges[r[i].e];
                 float mph = LineGateRules.Mph(e), lim = LineGateRules.KinkDeg(mph);
                 if (k <= lim) continue;
+                // An angle point keeps its whole deflection at every scale; the facets of a curve drawn as a
+                // polyline (the map's smoothed curves: a vertex every 8-9 m, 0.8 deg each, a 600 m radius drawn
+                // within 2 cm) vanish once the chords span more than one facet. Read again over 8 m and 16 m
+                // chords where the line runs that far: the smallest reading is the angle point.
+                for (int bb = 8; bb <= LineGateRules.KinkScaleMaxM && k > lim; bb *= 2)
+                    if (i - 2 * bb >= 0 && i + 2 * bb <= n - 1) k = Math.Min(k, LgKinkAt(r, i, bb));
+                if (k <= lim) { lgKinkFacets++; continue; }
+                // a junction's corner (the curb return, the mouth's flare, a cul-de-sac's bulb) is not an
+                // alignment: within 15 m of the drawn end at a node of 1 or 3+ arms (JUNCTION judges the
+                // through lines' deflection across it, FDOT PPM Table 2.8.1b)
+                {
+                    int jn = LgEndNode(e, r[i].s, LineGateRules.KinkCornerM);
+                    if (jn >= 0 && map.nodeEdges[jn].Count != 2) { lgKinkCorners++; continue; }
+                }
                 // the local maximum
                 bool peak = true;
                 for (int q = Math.Max(4, i - 3); q <= Math.Min(n - 5, i + 3) && peak; q++)
@@ -1115,7 +1153,7 @@ namespace PSXRacing.EditorTools
                             // a curb lane: the lane runs to the pavement edge (gutter; parking on a local or collector street)
                             float max = LineGateRules.LaneMaxM + LineGateRules.GutterM + (e.cls <= 1 ? LineGateRules.ParkingM : 0f);
                             if (clear > max) { k = "curb lane too wide"; lm = max; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge with no line (limit {max:0.0} m)"; }
-                            else if (clear < LineGateRules.LaneMinM && clear > 0.6f && !L.yellow && !L.channel && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "curb lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge"; }
+                            else if (clear < LineGateRules.LaneMinM && clear >= LineGateRules.BufferMaxM && !L.yellow && !L.channel && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "curb lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {L.Kind} and the pavement edge"; }
                         }
                         else if (A.yellow && B.yellow)
                         {
@@ -1128,7 +1166,7 @@ namespace PSXRacing.EditorTools
                         {
                             float max = e.link && e.lanes <= 1 ? LineGateRules.RampLaneMaxM : LineGateRules.LaneMaxM;
                             if (clear > max) { k = "lane too wide"; lm = max; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at most {max:0.0} m)"; }
-                            else if (clear < LineGateRules.LaneMinM && clear > 0.6f && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at least {lm:0.0} m)"; }
+                            else if (clear < LineGateRules.LaneMinM && clear >= LineGateRules.BufferMaxM && LgHolds(A, B, s, w, 5f, 0.4f)) { k = "lane too narrow"; lm = LineGateRules.LaneMinM; wh = $"{clear:0.0} m between the {A.Kind} and the {B.Kind} (a lane is at least {lm:0.0} m)"; }
                         }
                         if (k == null) continue;
                         if (clear > lm && !LgHolds(A, B, s, w)) continue;               // widening or narrowing here: a taper (SHIFT judges it)
@@ -1177,17 +1215,33 @@ namespace PSXRacing.EditorTools
                     // that is opening or closing starts where its lane has its width: MUTCD 3B.04 / 3B.12),
                     // and an edge line broken for a side road's mouth (it resumes within 40 m).
                     if (LgWidthChanging(st.edge, p.s)) continue;
-                    bool resumes = false;
+                    // An edge line may stop inside its edge: MUTCD 2009 3B.06 (not continued through
+                    // intersections or major driveways) and 3B.07 (may be omitted where curbs, parking or
+                    // other markings delineate the travelled way). The pavement edge itself is judged.
+                    if (st.EdgeLine) { lgEndsEdgeLine++; continue; }
+                    bool resumes = false, retyped = false;
                     var ids = lgByEdge[st.edge];
                     foreach (int id in ids)
                     {
                         var o = lgStrands[id];
-                        if (o == st || o.role != 2 || o.tk != st.tk) continue;
-                        float os = end ? o.S0 : o.S1;
-                        float gap = end ? os - p.s : p.s - os;
-                        if (gap > 0f && gap <= 40f && Mathf.Abs(LgLatAt(o, os) - p.lat) < 0.3f) { resumes = true; break; }
+                        if (o == st || o.role != 2) continue;
+                        if (o.tk == st.tk)
+                        {
+                            float os = end ? o.S0 : o.S1;
+                            float gap = end ? os - p.s : p.s - os;
+                            if (gap > 0f && gap <= 40f && Mathf.Abs(LgLatAt(o, os) - p.lat) < 0.3f) resumes = true;
+                        }
+                        else
+                        {
+                            // the same line in another pattern (broken to solid before a junction, a centre
+                            // line's no-passing pattern, a lane line becoming a drop line): MUTCD 2009 3B.04,
+                            // 3B.02, 3A.06. It takes over within a dash cycle (12.2 m) at the same lateral.
+                            float os = end ? o.S0 : o.S1;
+                            float gap = end ? os - p.s : p.s - os;
+                            if (gap > -2f && gap <= 12.5f && Mathf.Abs(LgLatAt(o, Mathf.Clamp(p.s, o.S0, o.S1)) - p.lat) < 0.3f) retyped = true;
+                        }
                     }
-                    if (resumes && st.EdgeLine) continue;
+                    if (retyped) { lgEndsTypeChange++; continue; }
                     lgFails.Add(new LgFail { cls = "CONT", sub = resumes ? "line interrupted" : "line ends inside its road", edge = st.edge, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = 0f, limit = 0f, unit = "", line = st.Kind,
                                              what = $"the {st.Kind} {(end ? "ends" : "starts")} at s {p.s:0} of {e.length:0} m with the pavement's width unchanged" + (resumes ? " and resumes within 40 m" : "") });
                 }
@@ -1222,7 +1276,7 @@ namespace PSXRacing.EditorTools
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
             lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
@@ -1330,7 +1384,14 @@ namespace PSXRacing.EditorTools
         /// (a strip 1.5 m wide or more whose texels cover more than 1.25x or less than 0.8x their own
         /// width). The PC build lays its HD road base through these same UVs (TextureHDMap.Road), so the
         /// base's seams and cracks run stretched and, where the strip tapers, diagonally across the lanes:
-        /// the dark stripes of the owner's North Tryon picture. By run along each edge.</summary>
+        /// the dark stripes of the owner's North Tryon picture. By run along each edge.
+        /// CHECKED 2026-11-17 and NOT FAILED any more (census only): the HD road base, its normal, AO and
+        /// roughness maps and the paint masks' grain channel (HDSrc/TexHD city_road_base_*, *_paint) carry
+        /// no seam, crack or band at all (column and row means flat within 1/255 over 64 bins), and the
+        /// Classic textures are flat grain too, so a stretched strip draws the same even asphalt: nothing
+        /// a driver or a plan reviewer sees. The sampled places (30, editor frames) showed nothing either.
+        /// PSX_LG_STRETCHFAIL=1 fails them again. The owner's dark stripes are not explained by the road's
+        /// textures (tyre marks, SkidMarks.cs, are the likely cause: a PC check, not this gate's).</summary>
         static void LgSurface(CityMap map)
         {
             lgGhosts.Sort((a, b) => a.edge != b.edge ? a.edge.CompareTo(b.edge) : a.s0 != b.s0 ? a.s0.CompareTo(b.s0) : a.x.CompareTo(b.x));
@@ -1348,7 +1409,7 @@ namespace PSXRacing.EditorTools
                 }
                 float len = sMax - g0.s0;
                 lgStretchedM += len;
-                if (len >= 5f)
+                if (len >= 5f && Environment.GetEnvironmentVariable("PSX_LG_STRETCHFAIL") == "1")
                     lgFails.Add(new LgFail { cls = "SURFACE", sub = "pavement texture stretched", edge = g0.edge, s = g0.s0, s1 = sMax, x = gw.x, z = gw.z, measure = worst, limit = 1.25f, unit = "x",
                                              what = $"{len:0} m where a {wAt:0.0} m strip of pavement is drawn with its texture {(gw.squeeze > 1f ? "stretched" : "squeezed")} {worst:0.0}x (the HD road base's seams run off the lanes there)" });
                 i = j;
@@ -1631,6 +1692,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline); {lgKinkCorners} kinks and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }
