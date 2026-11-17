@@ -346,7 +346,7 @@ namespace PSXRacing.EditorTools
         static readonly List<LgStrand> lgStrands = new List<LgStrand>();
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
-        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed;
+        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped;
         static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
@@ -769,12 +769,21 @@ namespace PSXRacing.EditorTools
                     {
                         // within the join distance but not joined: the other end is taken (a line forking
                         // at the joint) or the pattern changes there (a broken line meeting a solid one) - no step
-                        if (st.id < id && d > (dash ? 0.15 : LineGateRules.JoinM))
+                        // a double line meeting a single one (a centre double yellow going on as a split's yellow
+                        // edge line, one of its two lines): up to 0.25 m apart, different patterns - no step
+                        var ost = lgStrands[id];
+                        if (st.role == 2 && ost.tk != st.tk && d <= 0.25) { if (st.id < id) lgJointRetyped++; }
+                        else if (st.id < id && d > (dash ? 0.15 : LineGateRules.JoinM))
                             lgFails.Add(new LgFail { cls = "CONT", sub = st.role == 2 ? "line steps at a joint" : "pavement edge steps at a joint", edge = st.edge, node = node, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = (float)d, limit = dash ? 0.15f : LineGateRules.JoinM, unit = "m", line = st.Kind,
                                                      what = $"the {st.Kind} steps {d:0.00} m sideways where e{st.edge} meets e{other}" });
                     }
                     else if (st.role == 2 && !st.EdgeLine && !st.channel && !LgWidthChanging(st.edge, p.s) && !LgWidthChanging(other, map.edges[other].a == node ? 1f : map.edges[other].length - 1f))
                     {
+                        // the same line going on in another pattern on the next edge (a solid lane line broken again
+                        // past the joint, a gore's wide line becoming the dotted lane line): its first piece within
+                        // a dash cycle (10.5 m) on this end's straight, 0.3 m - MUTCD 2009 3B.04, 3A.06
+                        var (cid, _, _) = Nearest(st, end, 0.3, other, true);
+                        if (cid >= 0) { lgJointRetyped++; continue; }
                         // (an edge line may end where a curb takes over; a lane's line may end where its lane tapers)
                         lgFails.Add(new LgFail { cls = "CONT", sub = "line ends at a joint", edge = st.edge, node = node, s = p.s, s1 = p.s, x = p.x, z = p.z, measure = 0f, limit = 0f, unit = "", line = st.Kind,
                                                  what = $"the {st.Kind} of e{st.edge} ends at the joint with e{other} (lanes {e.lanes} / {map.edges[other].lanes}) with the pavement's width unchanged; nothing continues it within {LineGateRules.JumpMaxM:0.0} m" });
@@ -1321,7 +1330,7 @@ namespace PSXRacing.EditorTools
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
             lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
@@ -1737,7 +1746,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
-            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline); {lgKinkCorners} kinks and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline); {lgKinkCorners} kinks and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }
