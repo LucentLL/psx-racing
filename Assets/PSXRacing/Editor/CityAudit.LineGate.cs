@@ -166,6 +166,9 @@ namespace PSXRacing.EditorTools
         /// <summary>KINK leaves a junction's corners alone: this close to the drawn end at a node of 1 or 3+
         /// arms (the curb return, the mouth's flare, a bulb). JUNCTION judges the through lines there.</summary>
         public const float KinkCornerM = 15f;
+        /// <summary>A junction's mouth strip and its stop line / crosswalk lie within this of the junction, along
+        /// the road: a line ending there, or the pavement edge stepping to the curb return, is the junction's.</summary>
+        public const float MouthStripM = 25f;
     }
 
     public static partial class CityAudit
@@ -352,7 +355,7 @@ namespace PSXRacing.EditorTools
         static readonly List<LgStrand> lgStrands = new List<LgStrand>();
         static List<int>[] lgByEdge;
         static readonly List<LgFail> lgFails = new List<LgFail>();
-        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped, lgGradeFacets, lgSharpJoins;
+        static int lgTapNotes, lgQuads, lgPaintQuads, lgGlyphQuads, lgDoubleSpans, lgTiles, lgSeamSpans, lgMarks, lgSolidLane, lgKinkFacets, lgEndsTypeChange, lgEndsEdgeLine, lgCtlEqual, lgKinkCorners, lgStepCorners, lgMouthPassed, lgTerminalPassed, lgJointRetyped, lgGradeFacets, lgSharpJoins, lgEndsAtJunction;
         static double lgStretchedM, lgStripeM; static int lgStripeQuads, lgChannelChains;
         static CityMap lgMap; static CityMeshes.Trims lgTrims;
         static readonly CultureInfo LgInv = CultureInfo.InvariantCulture;
@@ -618,7 +621,9 @@ namespace PSXRacing.EditorTools
                                     // (the mouth strip at a junction meets its curb return there: the fan's pavement
                                     // covers the step - seen on every sampled one; judged only away from junctions)
                                     int jn = LgEndNode(e, sp.sA, LineGateRules.KinkCornerM);
-                                    bool corner = jn >= 0 && map.nodeEdges[jn].Count != 2;
+                                    // (and when the junction is a joint or two further on: the second sample set had
+                                    // its remaining steps all at crosswalks of a junction 15-25 m on)
+                                    bool corner = (jn >= 0 && map.nodeEdges[jn].Count != 2) || LgJunctionWithin(map, ei, sp.sA, LineGateRules.MouthStripM);
                                     if (corner && Mathf.Abs(t.s - sp.sA) <= 0.02f && d <= LineGateRules.JumpMaxM) lgStepCorners++;
                                     else if (Mathf.Abs(t.s - sp.sA) <= 0.02f && d <= LineGateRules.JumpMaxM)
                                         lgFails.Add(new LgFail { cls = "CONT", sub = "pavement edge steps", edge = ei, s = sp.sA, s1 = sp.sA, x = ax, z = az, measure = (float)d, limit = LineGateRules.JoinM, unit = "m", line = st.Kind,
@@ -922,6 +927,30 @@ namespace PSXRacing.EditorTools
                     foreach (int o in arms) { var oe = map.edges[o]; link |= oe.link; fwy |= !oe.link && oe.cls >= 4; }
                     if (link && fwy) return true;
                     if (arms.Count != 2) break;
+                    int next = arms[0] == e.index ? arms[1] : arms[0];
+                    if (next == e.index) break;
+                    e = map.edges[next];
+                    left -= e.length;
+                    node = e.a == node ? e.b : e.a;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Is there a junction or a dead end (a node of 1 or 3+ arms) within reach of arc s of edge ei,
+        /// along the road through its 2-arm joints? (a map piece often ends a few metres short of the junction
+        /// whose crosswalk and mouth strip are drawn on it)</summary>
+        static bool LgJunctionWithin(CityMap map, int ei, float s, float reach)
+        {
+            var e0 = map.edges[ei];
+            for (int side = 0; side < 2; side++)
+            {
+                var e = e0; float left = reach - (side == 0 ? s : e0.length - s);
+                int node = side == 0 ? e0.a : e0.b;
+                for (int hop = 0; hop < 6 && left >= 0f; hop++)
+                {
+                    var arms = map.nodeEdges[node];
+                    if (arms.Count != 2) return true;
                     int next = arms[0] == e.index ? arms[1] : arms[0];
                     if (next == e.index) break;
                     e = map.edges[next];
@@ -1300,6 +1329,9 @@ namespace PSXRacing.EditorTools
                     // intersections or major driveways) and 3B.07 (may be omitted where curbs, parking or
                     // other markings delineate the travelled way). The pavement edge itself is judged.
                     if (st.EdgeLine) { lgEndsEdgeLine++; continue; }
+                    // A line stops at the stop line or the crosswalk before a junction (MUTCD 2009 3B.16 / 3B.18),
+                    // which the map piece may carry several metres short of its node: within 25 m of a junction
+                    if (LgJunctionWithin(map, st.edge, p.s, LineGateRules.MouthStripM)) { lgEndsAtJunction++; continue; }
                     bool resumes = false, retyped = false;
                     var ids = lgByEdge[st.edge];
                     foreach (int id in ids)
@@ -1357,7 +1389,7 @@ namespace PSXRacing.EditorTools
             lgMap = map;
             lgPieces = new List<LgPiece>[map.edges.Length]; lgSpans = new List<LgSpan>[map.edges.Length]; lgByEdge = new List<int>[map.edges.Length];
             lgGhosts.Clear(); lgFans.Clear(); lgStrands.Clear(); lgFails.Clear();
-            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgGradeFacets = lgSharpJoins = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
+            lgTapNotes = lgQuads = lgPaintQuads = lgGlyphQuads = lgDoubleSpans = lgTiles = lgSeamSpans = lgMarks = lgSolidLane = lgUntappedTris = lgKinkFacets = lgEndsTypeChange = lgEndsEdgeLine = lgCtlEqual = lgKinkCorners = lgStepCorners = lgMouthPassed = lgTerminalPassed = lgJointRetyped = lgGradeFacets = lgSharpJoins = lgEndsAtJunction = 0; lgStretchedM = 0; lgStripeM = 0; lgStripeQuads = 0; lgChannelChains = 0;
             lgPolys.Clear(); lgPolyGrid.Clear(); lgFanTap = null; lgBarV.Clear(); lgCurbV.Clear();
             var t = CityMeshes.ComputeTrims(map);
             lgTrims = t;
@@ -1773,7 +1805,7 @@ namespace PSXRacing.EditorTools
             Line($"  not judged for shape: {lgChannelChains} channelizing lines (solid white where the road's own layout has no line: a gore's side, a turning roadway's edge)");
             Line($"  read: {lgPolys.Count} pavement polygons ({lgUntappedTris} triangles of other emitters), {lgSeamSpans} span sides are seams with other pavement, {lgMarks} short marks, {lgSolidLane} solid lane / channelizing lines cut from the edge-line column; {lgSharpJoins} candidate joins refused for meeting at more than 45 deg (a gore's V tip)");
             Line($"  SURFACE census: {lgStretchedM:0} m of ribbon with a pavement strip stretched or squeezed past 1.25x; {lgStripeQuads} thin strips ({lgStripeM:0} m: the gap inside a double line, the strip beside a curb) drawn from a whole lane band - not failed; {lgDoubleSpans} spans drawn twice");
-            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
+            Line($"  passed by rule: {lgKinkFacets} curve facets (a deflection over 4 m chords gone over 8 / 16 m chords: a curve drawn as a polyline, or a facet within 2.5 cm of its curve); {lgGradeFacets} grade breaks gone over 20 / 40 m chords (a vertical curve drawn in facets); {lgTerminalPassed} pavement-edge moves at freeway ramp terminals within the AASHTO terminal taper ({LineGateRules.TerminalRate:0}:1); {lgKinkCorners} kinks and {lgStepCorners} pavement-edge steps at junction corners (15 m from the drawn end at a node of 1 or 3+ arms: the mouth strip and its curb return); {lgEndsTypeChange} line ends inside an edge and {lgJointRetyped} at a joint where another line of another pattern continues it (MUTCD 2009 3B.04 / 3A.06: a pattern change); {lgEndsAtJunction} line ends within 25 m of a junction (the stop line or crosswalk: MUTCD 2009 3B.16 / 3B.18); {lgEndsEdgeLine} edge-line ends inside an edge (MUTCD 2009 3B.06 / 3B.07: edge lines may stop at curbs, driveways, openings); {lgCtlEqual} side roads with no control meeting a road of their own class (MUTCD 2009 2B.04: the basic right-of-way rule); {lgMouthPassed} road mouths whose nearest solid line is the far side's, a centre yellow (a left turn) or a split's own yellow");
         }
     }
 }
