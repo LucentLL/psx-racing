@@ -1875,7 +1875,7 @@ namespace PSXRacing
             // holds - where it cannot see far enough to be there (a car at the street's speed would meet it within
             // PassStartGapS and the swing back), or a pass was just given up
             bool windowRoad = PassWindowOn && twoWay != null && TwoWayHere(twoWay) && twoWay.Level != TrafficLevels.None && !OnDeck;
-            if (windowRoad && float.IsNegativeInfinity(leftLimit))
+            if (windowRoad && float.IsNegativeInfinity(leftLimit) && Mathf.Abs(openLine) < 0.1f)
             {
                 float needSee = (Mathf.Max(car.forwardSpeed, 0f) + DesignOncomingMps) * (PassStartGapS + PassSwingS);
                 if (Time.time < passRetryAt || SightAhead(out _) < needSee) leftLimit = OwnLaneInnerM - lineOffset;
