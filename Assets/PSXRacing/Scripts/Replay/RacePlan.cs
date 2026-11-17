@@ -277,6 +277,11 @@ namespace PSXRacing
                         Vector3 at = c + r * sd * (p.halfWidth + lat);
                         if (!Stand(at, c.y, r * sd, crouch, out var eye)) continue;
                         if (Blocked(eye, seeGate) || Blocked(eye, seeAlso)) continue;
+                        // Nothing standing in front of the lens either (run 2's city
+                        // tape had a utility pole across a third of one frame): a
+                        // clear few metres toward the point, toward the road beside
+                        // the lens, and toward the far end of its view.
+                        if (Crowded(eye, seeGate) || Crowded(eye, c + Vector3.up * 1.1f) || Crowded(eye, seeAlso)) continue;
                         lens = new Lens { pos = eye, back = back, crouch = crouch };
                         side = sd;
                         return true;
@@ -333,6 +338,20 @@ namespace PSXRacing
             int foliage = LayerMask.NameToLayer("Foliage");
             return foliage >= 0 && Physics.Raycast(from, d / len, Mathf.Min(7f, len - 2.5f), 1 << foliage,
                                                    QueryTriggerInteraction.Ignore);
+        }
+
+        /// <summary>Something solid (a pole, a sign, a rail's end) within a few
+        /// metres of the lens on the way to a point: a fat ray, so a thing
+        /// beside the sight line counts too.</summary>
+        static bool Crowded(Vector3 from, Vector3 to)
+        {
+            // Level with the lens: a pole or a sign post counts, the low wall
+            // or barrier it looks over does not.
+            Vector3 d = to - from;
+            d.y = 0f;
+            float len = d.magnitude;
+            if (len < 1.5f) return false;
+            return Physics.SphereCast(from, 0.35f, d / len, out _, Mathf.Min(7f, len - 1.5f), SolidMask, QueryTriggerInteraction.Ignore);
         }
 
         /// <summary>Is the ground under a spot road (for the checks)?</summary>
