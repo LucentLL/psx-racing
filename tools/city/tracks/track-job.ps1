@@ -109,7 +109,10 @@ try {
         $a = @("-ExecutionPolicy", "Bypass", "-File", "$wt\tools\race-play-check.ps1", "-Venue", $Venue, "-Seconds", "$Seconds", "-Finish", "-Traffic", "NONE")
         if ($NoWatch) { $a += "-NoWatch" }
         if ($MaxMinutes -gt 0) { $a += @("-MaxMinutes", "$MaxMinutes") }
-        & powershell @a 2>&1 | Out-Null
+        $said = @(& powershell @a 2>&1 | ForEach-Object { "$_" })
+        $said | Out-File -FilePath "$Out\race_${Venue}_console.txt" -Encoding ascii
+        # the watch helper's own lines (why an editor was closed, a dialog, a stall)
+        $said | Where-Object { $_ -match "^(WATCH|UNITY|TIMEOUT|NO REPORT)" } | Select-Object -Last 12 | ForEach-Object { $_ }
         $rep = "$Sandbox\PSXRacing_race_play_check.txt"
         if (Test-Path $rep) {
             Copy-Item $rep "$Out\race_$Venue.txt" -Force

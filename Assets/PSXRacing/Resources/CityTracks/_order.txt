@@ -3,5 +3,4 @@
 # lanes never edit it; after merging, run  node tools/city/tracks/order.mjs --write  and commit it.
 # Venues of track files not listed here follow, by file name (forward, then its Rev twin).
 I485West
-I485WestRev
 CltD1
