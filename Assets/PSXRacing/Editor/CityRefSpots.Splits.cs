@@ -104,6 +104,45 @@ namespace PSXRacing.EditorTools
                             log.Append($"{ps.id}\t{cond}\tcar ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) hdg {ps.hdg:0.0}\tcam ({cp.x:0.0},{cp.y:0.00},{cp.z:0.0}) vfov {vfov:0.0}\te{(ei)}\tlens rain {System.Environment.GetEnvironmentVariable("PSX_LENS_RAIN") ?? "off"}\n");
                         }
                     }
+                // (the road-lines round) PSX_SPLITS_POSETOPS = "ahead:height|ahead:height": for every pose, noon frames
+                // looking straight down from <height> m over the point <ahead> m in front of the car (its heading up),
+                // the car left where the pose stands it
+                {
+                    string pt = System.Environment.GetEnvironmentVariable("PSX_SPLITS_POSETOPS");
+                    if (!string.IsNullOrEmpty(pt) && want.Contains("poses"))
+                    {
+                        Light("noon");
+                        var inv3 = System.Globalization.CultureInfo.InvariantCulture;
+                        var canv2 = new List<Canvas>();
+                        foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) if (c.enabled) { c.enabled = false; canv2.Add(c); }
+                        try
+                        {
+                            foreach (var ps in poseList)
+                            {
+                                var fw = new Vector2(Mathf.Sin(ps.hdg * Mathf.Deg2Rad), Mathf.Cos(ps.hdg * Mathf.Deg2Rad));
+                                float y0 = 0f;
+                                if (map.NearestRoadPoint(new Vector2(ps.x, ps.z), 40f, false, out int e9, out float s9, out _)) y0 = map.edges[e9].YAt(s9);
+                                var carPos = new Vector3(ps.x, y0 + 0.35f, ps.z);
+                                int ti = 0;
+                                foreach (var one in pt.Split('|'))
+                                {
+                                    var q = one.Split(':');
+                                    if (q.Length < 2) continue;
+                                    float ah = float.Parse(q[0], inv3), hh = float.Parse(q[1], inv3);
+                                    var c2 = new Vector2(ps.x, ps.z) + fw * ah;
+                                    world.EnsureRing(new Vector3(c2.x, y0, c2.y), 1);
+                                    PSXTexDecode.StampAll();
+                                    if (car != null) car.TeleportTo(carPos, Quaternion.Euler(0f, ps.hdg, 0f)); else player.transform.SetPositionAndRotation(carPos, Quaternion.Euler(0f, ps.hdg, 0f));
+                                    cam.fieldOfView = 60f;
+                                    PSXScreenshotTool.ShotAs(cam, $"splits/{tag}_{ps.id}_top{ti}", new Vector3(c2.x, y0 + hh, c2.y), Quaternion.LookRotation(Vector3.down, new Vector3(fw.x, 0f, fw.y)));
+                                    shots++; ti++;
+                                    log.Append($"{ps.id}\ttop{ti - 1}\tcentre ({c2.x:0.0},{c2.y:0.0}) {hh:0} m up, {ah:0} m ahead\n");
+                                }
+                            }
+                        }
+                        finally { foreach (var c in canv2) c.enabled = true; }
+                    }
+                }
                 if (want.Contains("tops"))
                 {
                     Light("noon");

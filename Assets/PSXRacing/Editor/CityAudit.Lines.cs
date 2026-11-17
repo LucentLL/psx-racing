@@ -138,6 +138,8 @@ namespace PSXRacing.EditorTools
             if (!map.NearestRoadPoint(P0, 60f, false, out int e0, out float s0, out _)) { Fail("no road within 60 m of the point"); FinishTo("city_linespot.txt"); return; }
             var E0 = map.edges[e0];
             Line($"LINE SPOT '{tag}': ({P0.x:0.0},{P0.y:0.0}) hdg {hdg:0.0}; PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, taper floors {(LineModel.TaperFloorOn ? "on" : "off")}, PSX_CITY_LINEFIX {(LineModel.LineFixOn ? "on" : "off")}; graph {map.graphHash:x8}; on e{e0} '{E0.name}' s {s0:0.0}");
+            Line($"  BORROWED BAYS (lane coherence) city-wide: found {LineModel.CoherenceFound}, runs redrawn {LineModel.CoherenceRuns} ({LineModel.CoherenceEdges} edges)");
+            { int q = 0; foreach (var l in LineModel.CoherenceLog) if (q++ < 80) Line("    " + l); }
             var splitNodes = new HashSet<int>();
             if (map.splt != null) foreach (var sp in map.splt) splitNodes.Add(sp.node);
             // the chain: ahead and back along the same name (the straightest continuation at each node)
