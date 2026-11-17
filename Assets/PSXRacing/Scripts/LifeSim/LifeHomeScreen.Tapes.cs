@@ -61,7 +61,7 @@ namespace PSXRacing.LifeSim
             bool picked = h.id == tapeSel;
             // Round 2: the tape's best clip under its spine ("CP 3: 94 MPH ·
             // SLIDE · LED"); a tape with no clips (v1, a montage) keeps one line.
-            string best = Tapes.BestLine(h);
+            string best = Tapes.RowLine(h);
             bool two = best.Length > 0;
             float rowH = two ? 72f : 50f;
             var row = MenuKit.Button(body, "", new Vector2(0.5f, 1f),
@@ -83,7 +83,7 @@ namespace PSXRacing.LifeSim
             MenuKit.FitOneLine(label, ColW - rightW - 50f);
             if (two)
             {
-                var sub = MenuKit.Label(row.transform, "BEST  " + best, MenuKit.Tiny, new Vector2(0f, 0.5f), new Vector2(28f, -15f),
+                var sub = MenuKit.Label(row.transform, best, MenuKit.Tiny, new Vector2(0f, 0.5f), new Vector2(28f, -15f),
                     TextAnchor.MiddleLeft, MenuKit.Dim, ColW - rightW - 50f, height: 24f);
                 sub.raycastTarget = false;
                 MenuKit.FitOneLine(sub, ColW - rightW - 50f);

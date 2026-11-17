@@ -238,11 +238,25 @@ namespace PSXRacing
             return lines;
         }
 
-        /// <summary>The tape's best clip for its row: "CP 3: 94 MPH · SLIDE · LED".</summary>
+        /// <summary>The tape's best clip: "CP 3: 94 MPH · SLIDE · LED".</summary>
         public static string BestLine(Header h)
         {
             if (h == null || h.clips == null || h.clips.Count == 0) return "";
             return TapeClips.Line(h.clips[h.BestClip], h.Laps);
+        }
+
+        /// <summary>The line under a tape's spine on its row: its best clip
+        /// when a camera saw something worth money ("BEST  CP 3: 94 MPH ·
+        /// SLIDE · LED"), else what is on it ("START · 3 CHECKPOINTS · NO
+        /// FINISH"). Empty for a tape with no clips.</summary>
+        public static string RowLine(Header h)
+        {
+            if (h == null || h.clips == null || h.clips.Count == 0) return "";
+            var best = h.clips[h.BestClip];
+            if (best.value > 0 && best.kind != TapeClip.Kind.Start) return "BEST  " + TapeClips.Line(best, h.Laps);
+            int cps = 0; bool finish = false;
+            foreach (var c in h.clips) { if (c.kind == TapeClip.Kind.Checkpoint) cps++; if (c.kind == TapeClip.Kind.Finish) finish = true; }
+            return "START  ·  " + cps + (cps == 1 ? " CHECKPOINT" : " CHECKPOINTS") + "  ·  " + (finish ? "FINISH" : "NO FINISH");
         }
 
         /// <summary>What is on it, as the clerk would say it.</summary>

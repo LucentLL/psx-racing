@@ -11,7 +11,7 @@
 # Scripts / Editor / Shaders (from -Src, a snapshot, when given), releases the
 # lock even on failure. Exit code 0 = no FAIL in either report.
 param([switch]$NoWatch, [int]$MaxMinutes = 35, [switch]$SkipPages, [switch]$SkipRun,
-      [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "")
+      [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "", [string]$PagesDir = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
 $from = if ($Src) { $Src } else { Split-Path -Parent $PSScriptRoot }
@@ -52,6 +52,8 @@ try {
         Remove-Item $report -ErrorAction SilentlyContinue
         Get-ChildItem "$proj\Screenshots\tapes\menu_*.png" -ErrorAction SilentlyContinue | Remove-Item
         $log = "$proj\tapepages.log"
+        # -PagesDir: the pages with another tool's tapes (CamcorderShots' races).
+        $env:PSX_TAPE_PAGES_DIR = $PagesDir
         # A capture, not a play test: hidden, but WITH graphics (it renders UI).
         Invoke-UnityJob -Log $log -MaxMinutes 20 -Project $proj -UnityArgs @(
             "-batchmode","-quit","-projectPath",$proj,

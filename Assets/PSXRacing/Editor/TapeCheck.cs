@@ -132,7 +132,10 @@ namespace PSXRacing.EditorTools
             string report = Path.Combine(ProjectDir, "PSXRacing_tape_pages.txt");
             if (File.Exists(report)) File.Delete(report);
             Directory.CreateDirectory(ShotDir);
-            Tapes.DirOverride = TapeDir;
+            // PSX_TAPE_PAGES_DIR: photograph the pages with another tool's
+            // tapes (CamcorderShots' races, whose clips carry tags).
+            string pagesDir = System.Environment.GetEnvironmentVariable("PSX_TAPE_PAGES_DIR");
+            Tapes.DirOverride = !string.IsNullOrEmpty(pagesDir) && Directory.Exists(pagesDir) ? pagesDir : TapeDir;
             try
             {
                 LifeSimManager.UseScratchSave("tapepages");
@@ -144,7 +147,7 @@ namespace PSXRacing.EditorTools
 
                 var shelf = Tapes.Shelf();
                 Check(shelf.Count >= 1, "the check's tapes are on the shelf", shelf.Count);
-                Line("shelf: " + shelf.Count + " tape(s) in " + TapeDir);
+                Line("shelf: " + shelf.Count + " tape(s) in " + Tapes.Dir);
                 foreach (var h in shelf)
                     Line("  " + h.Spine + "  " + h.Length + "  $" + Tapes.Price(h) + "  " + new FileInfo(h.path).Length + " bytes");
 

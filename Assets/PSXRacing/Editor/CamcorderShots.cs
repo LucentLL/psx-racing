@@ -31,6 +31,7 @@ namespace PSXRacing.EditorTools
     /// proof: the same race clean and with a slide). PSX_CAMSHOT_UNTILCP=N cuts
     /// the race 120 m past checkpoint N; PSX_CAMSHOT_MAXRACE = game seconds
     /// (default 420); PSX_CAMSHOT_FAST = the race's time scale (default 3);
+    /// PSX_CAMSHOT_TRAFFIC = the race's traffic level (0 none; unset = the hour's);
     /// PSX_CAMSHOT_LAPS = laps for a circuit (default 1).
     /// PSX_CAMCORDER=0 photographs today's trackside replay at the same race
     /// moments (the honest before). PSX_CAMSHOT_TAG names the files.
@@ -100,6 +101,9 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CalendarDay = Day;
             RaceHandoff.WeatherOverride = 0;
             RaceHandoff.StartFuelPct = 100f;
+            // PSX_CAMSHOT_TRAFFIC=0..4: the race's traffic (the hour's own when unset).
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_CAMSHOT_TRAFFIC") ?? "", out int lvl) && lvl >= 0)
+                RaceHandoff.TrafficLevel = lvl;
             var cars = CarCatalog.All;
             if (cars.Count > 4)
             {
@@ -264,8 +268,14 @@ namespace PSXRacing.EditorTools
                         if (along > -35f && along < 0f && d.magnitude < 60f)
                         {
                             slid = true;
-                            slideUntil = Time.time + 0.9f;
-                            slideSign = (slidePoint & 1) == 0 ? 1f : -1f;
+                            slideUntil = Time.time + 0.8f;
+                            // Into the bend the road makes there (right = +).
+                            slideSign = 1f;
+                            if (p.pathIdx >= 0 && rm.path != null)
+                            {
+                                float turn = Vector3.SignedAngle(rm.path.GetTangent(p.pathIdx - 4), rm.path.GetTangent(p.pathIdx + 12), Vector3.up);
+                                if (Mathf.Abs(turn) > 2f) slideSign = Mathf.Sign(turn);
+                            }
                             if (auto != null) auto.enabled = false;
                             CamcorderShots.Line("  the autopilot throws it sideways into checkpoint " + slideCp + " at " +
                                                 Mathf.RoundToInt(car.speedKmh) + " km/h");
@@ -277,8 +287,8 @@ namespace PSXRacing.EditorTools
                         if (left > 0f)
                         {
                             car.throttleInput = 1f; car.brakeInput = 0f;
-                            car.steerInput = left > 0.4f ? slideSign : -slideSign * 0.5f;
-                            car.handbrakeInput = left > 0.45f;
+                            car.steerInput = left > 0.35f ? slideSign * 0.8f : -slideSign * 0.4f;
+                            car.handbrakeInput = left > 0.4f;
                         }
                         else
                         {

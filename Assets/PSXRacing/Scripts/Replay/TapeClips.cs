@@ -301,7 +301,7 @@ namespace PSXRacing
         {
             var s = new System.Text.StringBuilder();
             void Put(string w) { if (s.Length > 0) s.Append(" · "); s.Append(w); }
-            if (c.kind != TapeClip.Kind.Start || c.kmh > 20f)
+            if (c.kind != TapeClip.Kind.Start)
                 Put(Mathf.RoundToInt(SpeedUnits.FromKmh(c.kmh)) + SpeedUnits.Suffix.ToUpperInvariant());
             if (c.Has(TapeClip.Slide)) Put("SLIDE");
             if (c.Has(TapeClip.Air)) Put("AIR");

@@ -17,7 +17,7 @@
 # <sandbox>\Screenshots\camcorder and are copied to -Out.
 # Exit code 0 = the report has no FAIL.
 param([switch]$NoWatch, [int]$MaxMinutes = 45, [switch]$Base, [string]$Plan = "", [string]$Tag = "",
-      [int]$UntilCp = 0, [int]$MaxRace = 420, [string]$Fast = "3", [int]$Laps = 1,
+      [int]$UntilCp = 0, [int]$MaxRace = 420, [string]$Fast = "3", [int]$Laps = 1, [string]$Traffic = "",
       [string]$Me = "camcorder", [string]$Src = "", [string]$Out = "", [string]$Extra = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }
@@ -49,6 +49,7 @@ try {
     $env:PSX_CAMSHOT_MAXRACE = "$MaxRace"
     $env:PSX_CAMSHOT_FAST = $Fast
     $env:PSX_CAMSHOT_LAPS = "$Laps"
+    $env:PSX_CAMSHOT_TRAFFIC = $Traffic
     $env:PSX_EDITION = "ALL"
     $log = "$proj\camcordershots_$Tag.log"
     Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log $log -MaxMinutes $MaxMinutes -Project $proj -UnityArgs @(
