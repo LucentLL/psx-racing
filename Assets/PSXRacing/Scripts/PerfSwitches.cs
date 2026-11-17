@@ -22,12 +22,14 @@ namespace PSXRacing
     ///     ambient occlusion and its blurs over nothing, and blitted the
     ///     result to the screen. With this on it asks for none of that, and
     ///     is not an HDR camera (which URP cannot draw straight to the screen).
-    ///   * AO IN THE DRIVER'S VIEW ONLY (PSX_AO_DRIVER_ONLY). URP's SSAO is a
-    ///     renderer feature: it ran for every camera on the renderer - each
-    ///     car-reflection face, each mirror, the HUD overlay and the output
-    ///     camera - with a depth copy for each. Only the view the player
-    ///     looks through shows it: the ground's darkening under a tree is not
-    ///     readable in a 512-pixel reflection face or a door mirror.
+    ///   * AO ONLY IN THE VIEWS THAT SHOW IT (PSX_AO_DRIVER_ONLY). URP's SSAO
+    ///     is a renderer feature: it ran for every camera on the renderer -
+    ///     each car-reflection face, each mirror, the HUD overlay and the
+    ///     output camera - with a depth copy for each. Those four kinds no
+    ///     longer run it (SecondaryView): the ground's darkening under a tree
+    ///     is not readable in a 512-pixel reflection face or a door mirror
+    ///     (measured: 0.14 / 0.67 levels of 255 on average). The driver's
+    ///     view, a replay's, the garage's car viewer and the pizza cam keep it.
     ///   * COPIES ON DEMAND (PSX_COPIES_ON_DEMAND). The PC pipeline asset asks
     ///     every camera for the opaque-colour copy and the depth copy. The
     ///     only reader of the colour copy is the HD water (PSX_WATER_HD,
@@ -159,6 +161,28 @@ namespace PSXRacing
             Debug.Log($"[PerfSwitches] lean output {(LeanOutput ? "ON" : "off")}, AO driver only {(AODriverOnly ? "ON" : "off")}, copies on demand {(CopiesOnDemand ? "ON" : "off")}");
         }
 
+        /// <summary>
+        /// A view that never shows the occlusion (PSX_AO_DRIVER_ONLY): the
+        /// car-reflection probe's faces, the cabin's mirrors, a camera that
+        /// draws only the HUD's layer or nothing, and any overlay camera.
+        /// NAMED, not "everything but Camera.main": the garage's car viewer,
+        /// the pizza cam, a replay's lens or a tool's camera are views
+        /// somebody looks at, and keep theirs. (A camera's name is asked once:
+        /// the answer is kept by instance.)
+        /// </summary>
+        static bool SecondaryView(Camera cam)
+        {
+            if (secondary.TryGetValue(cam, out bool known)) return known;
+            if (secondary.Count > 256) secondary.Clear();
+            string n = cam.name;
+            bool s = n == "EnvProbe" || n == "CockpitMirrorCamera" || n == "MirrorCamera" || n.StartsWith("DoorMirrorCamera")
+                  || (cam.cullingMask & ~(1 << SpeedBlur.HudLayer)) == 0
+                  || (cam.TryGetComponent(out UniversalAdditionalCameraData d) && d.renderType == CameraRenderType.Overlay);
+            secondary[cam] = s;
+            return s;
+        }
+        static readonly Dictionary<Camera, bool> secondary = new Dictionary<Camera, bool>();
+
         static void FindAO()
         {
             ao = new List<ScriptableRendererFeature>();
@@ -234,7 +258,7 @@ namespace PSXRacing
                 bool rule = AODriverOnly || off || (LeanOutput && empty);
                 if (rule)
                 {
-                    bool want = !off && !(LeanOutput && empty) && (!AODriverOnly || StreetLights.IsDriver(cam));
+                    bool want = !off && !(LeanOutput && empty) && (!AODriverOnly || !SecondaryView(cam));
                     for (int i = 0; i < ao.Count; i++) if (ao[i].isActive != want) ao[i].SetActive(want);
                     aoForced = true;
                 }
