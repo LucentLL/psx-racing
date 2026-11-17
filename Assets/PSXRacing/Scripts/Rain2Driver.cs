@@ -37,6 +37,7 @@ namespace PSXRacing
     public class Rain2Driver : MonoBehaviour
     {
         static Rain2Driver instance;
+        Transform stoodOf;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -158,6 +159,17 @@ namespace PSXRacing
                 return;
             }
             wasOn = true;
+            // the player's car's standing clock (the wipers park by it, in every view)
+            var chaseCam = ChaseCamera.Active;
+            var target = chaseCam != null ? chaseCam.target : null;
+            if (target != stoodOf)
+            {
+                stoodOf = target;
+                Rain2.StoodCar = target != null ? target.GetComponent<CarController>() : null;
+                Rain2.StoodFor = 0f;
+            }
+            if (Rain2.StoodCar != null)
+                Rain2.StoodFor = Mathf.Abs(Rain2.StoodCar.forwardSpeed) > 1.5f ? 0f : Rain2.StoodFor + Time.deltaTime;
             float dt = Time.deltaTime;
 
             // 1 - the two numbers

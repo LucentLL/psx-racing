@@ -420,15 +420,17 @@ namespace PSXRacing
             if (!Rain2.On || !Rain2.Wipers) { Shader.SetGlobalVector(WipeId, Vector4.zero); return; }
             float rain = Rain2.RainNow;
             float v = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
-            // The cabin ticks only while the cockpit shows: time spent in
-            // another view counts too (a car that stood in the chase view for
-            // a minute has parked its wipers when the driver looks out again;
-            // the 11-17 play check caught strokes starting there). A stroke
-            // under way when the view changed has finished meanwhile.
+            // The cabin ticks only while the cockpit shows, so the car's
+            // standing time comes from Rain2Driver, which counts it in every
+            // view (a car that stood a minute in the chase view has parked its
+            // wipers when the driver looks out; the 11-17 play check caught
+            // strokes starting there). A stroke under way when the view
+            // changed has finished meanwhile.
             float now = Time.time, gap = wipeLastTick >= 0f ? now - wipeLastTick - dt : 0f;
             wipeLastTick = now;
-            if (gap > 0.25f) { wipeTc += gap; if (v <= 1.5f) wipeStill += gap; }
+            if (gap > 0.25f) wipeTc += gap;
             wipeStill = v > 1.5f ? 0f : wipeStill + dt;
+            if (car != null && Rain2.StoodCar == car) wipeStill = Rain2.StoodFor;
             bool want = rain > 0.01f && WeatherFx.LensRain > 0.3f && wipeStill < WiperParkAfter;
             wipeTc += dt;
             if (want && wipeTc >= wipePeriod)

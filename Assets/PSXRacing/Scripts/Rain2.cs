@@ -125,6 +125,11 @@ namespace PSXRacing
         /// (0 when nothing falls), and how much water stands on it, 0..1 - as
         /// last pushed.</summary>
         public static float RainNow { get; private set; }
+        /// <summary>The player's car (the chase camera's target) and how long it
+        /// has stood still (under 1.5 m/s), counted every frame by Rain2Driver
+        /// whatever the view - the wipers park by it.</summary>
+        public static CarController StoodCar;
+        public static float StoodFor;
         public static float PoolLevel { get; private set; }
 
         /// <summary>The standing water a road shows for what the weather says
