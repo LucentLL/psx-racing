@@ -322,6 +322,12 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "REFLECTIONS", () => ReflectionPrefs.Label,
                  "The world in car paint and glass, and in wet roads on PC. OFF saves a little speed.",
                  () => ReflectionPrefs.Toggle());
+            // THE WATER (part B, 2026-11-17): HD = the PS3-PS4 water, CLASSIC = as it was. A PC only
+            // (WaterPrefs.Offered): a phone's pipeline cannot draw the HD water.
+            if (WaterPrefs.Offered)
+                Step(SettingsTab.Visuals, "WATER", () => WaterPrefs.Label,
+                     "HD: lakes and rivers mirror their banks, run and take the rain. CLASSIC: the water as it was.",
+                     () => WaterPrefs.Toggle());
             Step(SettingsTab.Visuals, "FOREST DETAIL", () => ForestDetailPrefs.Label,
                  "How far the mountain forest keeps full detail. LOW for speed, HIGH for less pop-in. Next race.",
                  () => ForestDetailPrefs.Cycle());
