@@ -194,16 +194,19 @@ namespace PSXRacing.EditorTools
             // understory, ground cover and litter have one (maxDist) and thin out under the canopy plant by plant
             // as they near it - small details that fade in, the same material at every level: not audited.
             var pick = new List<int>();
-            int thinned = 0;
+            int thinned = 0, notTrees = 0;
             for (int v = 0; v < variants.Length; v++)
             {
                 var vr = variants[v];
                 if (vr == null || vr.lods == null || vr.lods.Length < 3 || vr.lods[0] == null) continue;
                 bool hasFar = vr.lods.Length > 3 && vr.lods[3] != null;
                 if (!hasFar && (vr.maxDist > 0f || vr.height < 2.5f)) { thinned++; continue; }
+                // (a stage kit's rock faces and fences are no trees: they have no season and no far card)
+                if (!hasFar && names[v] != null && (names[v].StartsWith("cliff_") || names[v].ToLowerInvariant().Contains("fence"))) { notTrees++; continue; }
                 pick.Add(v);
             }
-            log.Append($"\n=== {id}: {variants.Length} species; {pick.Count} trees audited; {thinned} plants with a draw limit of their own (understory, ground cover, litter, rock, fence) not audited\n");
+            log.Append($"\n=== {id}: {variants.Length} species; {pick.Count} trees audited; {thinned} plants with a draw limit of their own (understory, ground cover, litter, rock, fence) not audited" +
+                       (notTrees > 0 ? $"; {notTrees} rock faces / fences (no season, no far level) not audited" : "") + "\n");
             int per = pick.Count * inst;
             if (per == 0) { log.Append($"{id}: no species with two levels\n"); return new List<PairRow>(); }
             int dressNow = (int)Season.Summer;
