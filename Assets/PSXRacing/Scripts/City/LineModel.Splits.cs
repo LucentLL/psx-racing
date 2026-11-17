@@ -118,6 +118,16 @@ namespace PSXRacing.City
         public static readonly HashSet<int> BfrBayKeep = new HashSet<int> { 16705 };
         public static bool SplitsOn => SplitAxis != "0";
 
+        // ================================================================
+        //  THE ROAD-LINES ROUND (splits2, 2026-11-16 night; PSX_CITY_LINEFIX)
+        // ================================================================
+        // The owner on PC48, North Tryon Street: the double yellow S-jogs mid-road, a solid white line
+        // leaves a lane about 8 m wide, dark stripes run diagonally across the lanes. The classes behind
+        // each are fixed in the line model behind this one switch (PSX_CITY_LINEFIX=0: PC48's drawing).
+        static readonly string lineFixEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_LINEFIX");
+        /// <summary>PSX_CITY_LINEFIX=1 on, =0 off (unset: off until each class is proven).</summary>
+        public static bool LineFixOn = lineFixEnv == "1";
+
         /// <summary>Is this split node drawn by the splits round's rules?</summary>
         public static bool InSplitScope(CityMap map, int node)
         {

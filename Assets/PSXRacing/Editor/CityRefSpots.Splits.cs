@@ -62,11 +62,28 @@ namespace PSXRacing.EditorTools
                     if (globals != null) globals.Apply();
                     NightGlow.PreviewAll(TimeOfDay.At(hour).lightsOn);
                 }
+                // (the road-lines round) PSX_SPLITS_POSES = "id:x:z:hdg|id:x:z:hdg": these chase-camera poses instead of
+                // the four Beatties Ford ones; PSX_SPLITS_CONDS = "noon" / "night_rain,noon" (default both)
+                var poseList = new List<(string id, float x, float z, float hdg)>(poses);
+                {
+                    string pe = System.Environment.GetEnvironmentVariable("PSX_SPLITS_POSES");
+                    if (!string.IsNullOrEmpty(pe))
+                    {
+                        poseList.Clear();
+                        var inv2 = System.Globalization.CultureInfo.InvariantCulture;
+                        foreach (var one in pe.Split('|'))
+                        {
+                            var q = one.Split(':');
+                            if (q.Length >= 4) poseList.Add((q[0], float.Parse(q[1], inv2), float.Parse(q[2], inv2), float.Parse(q[3], inv2)));
+                        }
+                    }
+                }
+                var condList = (System.Environment.GetEnvironmentVariable("PSX_SPLITS_CONDS") ?? "night_rain,noon").Split(',');
                 if (want.Contains("poses"))
-                    foreach (var cond in new[] { "night_rain", "noon" })
+                    foreach (var cond in condList)
                     {
                         Light(cond);
-                        foreach (var ps in poses)
+                        foreach (var ps in poseList)
                         {
                             var at = new Vector2(ps.x, ps.z);
                             float y = 0f;
