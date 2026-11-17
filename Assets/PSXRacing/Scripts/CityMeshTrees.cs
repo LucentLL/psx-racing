@@ -282,7 +282,9 @@ namespace PSXRacing.City
                 if (ck.trees[d] == null || kit.cardAtlas[d] == null) continue;
                 var m = new Material(ck.trees[d]) { name = ck.trees[d].name + " (tree match)", hideFlags = HideFlags.DontSave };
                 m.mainTexture = kit.cardAtlas[d];
-                m.color = ck.trees[d].color * CardGain;
+                // (the gain on the colour only: the alpha is the cut's - a Color x float scaled it too and thinned the cards)
+                var c0 = ck.trees[d].color;
+                m.color = new Color(c0.r * CardGain, c0.g * CardGain, c0.b * CardGain, c0.a);
                 m.SetVector("_PSXCrownCard", new Vector4(CardLight.x, CardLight.y, 0f, 0f));
                 PSXTexDecode.Stamp(m);
                 cardMine[d] = m;
