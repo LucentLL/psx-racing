@@ -472,6 +472,7 @@ namespace PSXRacing.EditorTools
             // height beside the road is asked for.
             LoadStageBank(stageWp);
             StageWorldLoad();   // the stage's world file (lake, river, town): its river carve and street bench (PSXRacingBuilder.StageRiver.cs)
+            farRockKeep = null;   // the far mountain template's cells are this stage's (BuildFarMtn)
 
             EnsureStageArt();
             GenerateStageTextures();

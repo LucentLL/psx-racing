@@ -268,6 +268,15 @@ Shader "PSX/Lit"
         [HideInInspector] _CanopyConifer ("Canopy conifer", Color) = (0.03, 0.05, 0.03, 1)
         [HideInInspector] _CanopyGap ("Canopy gap", Color) = (0.02, 0.02, 0.015, 1)
         [HideInInspector] _CanopySpruce ("Canopy spruce band", Vector) = (99999, 100000, 0.1, 0.1)
+        // THE FAR MOUNTAIN TEMPLATE (farmtn, PSXRacingBuilder.FarMtn): on the far
+        // canopy's land, bare rock where the land is steep - the share of rock
+        // the stage's 12 m grid shows at that slope (.x/.y the normal's y where
+        // it starts / is whole, .z the most, .w the clumps' size m), in the
+        // stage's rock colour, faded in between _FarRockFade.x and .y metres.
+        [HideInInspector] _FarRock ("Far rock", Float) = 0
+        [HideInInspector] _FarRockCol ("Far rock colour", Color) = (0.22, 0.21, 0.2, 1)
+        [HideInInspector] _FarRockShare ("Far rock share", Vector) = (0.875, 0.669, 0.5, 36)
+        [HideInInspector] _FarRockFade ("Far rock fade", Vector) = (2000, 2800, 0, 0)
         // CITY POP-IN (city-popin, 2026-10-28; CityTileFade.cs): how this draw
         // takes part in Charlotte's tile fade. 0 on every material (the other
         // venues never read the table); set per renderer by a
@@ -585,6 +594,31 @@ Shader "PSX/Lit"
             float4 _CanopySpruce;       // the conifers' share: x world y where it starts rising, y where it is whole, z share below, w above
             float _PSXFarCanopyOff;     // GLOBAL (StageCulling): 1 = PSX_FARCANOPY=0, the land as it was
             float _PSXFringeOn;         // GLOBAL (StageCulling): 1 = PSX_RIDGEFRINGE=1, the ridge fringe drawn (default 0)
+            // ==== THE FAR MOUNTAIN TEMPLATE (farmtn, owner 2026-11-17: Bat Cave's
+            // hill - grey rock faces in the canopy - as every map's far mountain).
+            // PSXRacingBuilder.FarMtn: the rock cells' skin to the far forest's
+            // reach; past it this paints the same share of rock on the far land. ====
+            float _FarRock;             // 1 = this far land wears the template's rock
+            fixed4 _FarRockCol;         // the stage's rock, linear albedo
+            float4 _FarRockShare;       // x normal y where rock starts, y where its share is whole, z the share there, w clump m
+            float4 _FarRockFade;        // x m from the eye where it starts, y where it is whole
+            float _PSXFarMtnOff;        // GLOBAL (FarMtnSwitch): 1 = PSX_FARMTN_TEMPLATE=0, the land as it was
+            // the builder's own clump noise (PSXRacingBuilder.FarRockClump): the same integer hash
+            float PSXFarRockHash(int a, int b)
+            {
+                uint h = ((uint)a * 73856093u) ^ ((uint)b * 19349663u);
+                h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+                return (float)(h & 0xffffu) / 65535.0;
+            }
+            float PSXFarRockClump(float2 w, float cell)
+            {
+                float2 f = w / cell, fi = floor(f), t = f - fi;
+                t = t * t * (3.0 - 2.0 * t);
+                int ix = (int)fi.x, iz = (int)fi.y;
+                float v = lerp(lerp(PSXFarRockHash(ix, iz), PSXFarRockHash(ix + 1, iz), t.x),
+                               lerp(PSXFarRockHash(ix, iz + 1), PSXFarRockHash(ix + 1, iz + 1), t.x), t.y);
+                return saturate(0.5 + (v - 0.5) * 1.6);
+            }
             // ==== THE BLUE DISTANCE, v2 (LookChoices.AerialDepth): the air between
             // the eye and a far ridge, 1 - exp(-d / L) past x m - layered ridges, each
             // a step paler and bluer (the owner's Linn Cove photograph). GLOBAL, set
@@ -2201,8 +2235,29 @@ Shader "PSX/Lit"
                             float cnAoF = lerp(0.8, cnAoPix, cnVis);
                             // a cliff at the 60 m grid's own scale: grey rock between
                             // fewer crowns (Linville Gorge's walls, Grandfather's crest)
-                            float cnRk = smoothstep(0.80, 0.66, cnNg.y) * 0.65;
-                            cnCol = lerp(cnCol, float3(0.15, 0.15, 0.145), cnRk * (1.0 - cnOnC * cnVis * 0.5));
+                            if (_FarRock > 0.5 && _PSXFarMtnOff < 0.5)
+                            {
+                                // THE FAR MOUNTAIN TEMPLATE: the share of rock this slope
+                                // carries, in clumps; where a clump is under ~2 px, its mean
+                                float rkShare = _FarRockShare.z * smoothstep(_FarRockShare.x, _FarRockShare.y, cnNg.y);
+                                float rkN = PSXFarRockClump(cnW, _FarRockShare.w);
+                                float rkPatch = saturate((rkShare - rkN) / 0.05 + 0.5);
+                                float rkVis = saturate(1.0 - cnFp / (_FarRockShare.w * 0.5));
+                                float rkA = lerp(rkShare, rkPatch, rkVis)
+                                          * saturate((cnHd - _FarRockFade.x) / max(_FarRockFade.y - _FarRockFade.x, 1.0));
+                                // the face's own grain: ledges and stains a few metres across
+                                float rkG = PSXRockNoise(cnW / 7.0) * 0.6 + PSXRockNoise(cnW / 19.0 + 4.1) * 0.4;
+                                float3 rkCol = _FarRockCol.rgb * (0.78 + 0.44 * rkG);
+                                cnCol = lerp(cnCol, rkCol, rkA);
+                                // a face is lit as the land's own slope, not as crowns
+                                cnSunF = lerp(cnSunF, 1.0, rkA);
+                                cnAoF = lerp(cnAoF, 0.92, rkA);
+                            }
+                            else
+                            {
+                                float cnRk = smoothstep(0.80, 0.66, cnNg.y) * 0.65;
+                                cnCol = lerp(cnCol, float3(0.15, 0.15, 0.145), cnRk * (1.0 - cnOnC * cnVis * 0.5));
+                            }
                             // the fringe card: its own shading, the land's colour
                             if (_HorizonFringe > 0.5) { cnCol *= tex.rgb * 2.0; cnSunF = 1.0; cnAoF = 1.0; }
                             tex.rgb = lerp(tex.rgb, cnCol, cnHf);

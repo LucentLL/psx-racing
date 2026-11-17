@@ -457,6 +457,7 @@ namespace PSXRacing.EditorTools
                 m.SetColor("_HorizonCanopy", new Color(c.r, c.g, c.b, macro != null ? 1f : 0f));
                 m.SetVector("_HorizonFade", new Vector4(CanopyFromM, CanopyByM, 1f / HillMapM, HillMapLum));
                 if (FarCanopyBuild) SetFarCanopy(m, d);
+                SetFarRock(m);   // the far mountain template's rock past the far forest (PSXRacingBuilder.FarMtn)
                 bool floor = m.mainTexture != null && !PSXTextureCaps.IsFarLand(AssetDatabase.GetAssetPath(m.mainTexture));
                 if (floor && NMGroundOn)
                 {

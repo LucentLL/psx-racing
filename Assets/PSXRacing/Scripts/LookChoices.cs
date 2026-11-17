@@ -100,6 +100,20 @@ namespace PSXRacing
         public const bool LinnCoveRocksDefault = true;
         public static bool LinnCoveRocks => Env("PSX_LINNCOVE_ROCKS") ?? LinnCoveRocksDefault;
 
+        /// <summary>THE FAR MOUNTAIN TEMPLATE (farmtn, owner 2026-11-17: "I like
+        /// the rockface and distant tree textures on distant mountains. This
+        /// should be a template for distant mountains on other maps" - Bat
+        /// Cave's hill): bare rock where the land is really steep, on every
+        /// stage, from the stage's own 3DEP heights (PSXRacingBuilder.FarMtn).
+        /// PSX_FARMTN_TEMPLATE=0 = the land as it was: at the scene build no
+        /// rock and no clearing for it; at load the rock's root off and the far
+        /// land's rock unpainted (FarMtnSwitch, PSX/Lit _PSXFarMtnOff). Not a
+        /// const: the perf tour's in-process A/B sets it
+        /// (ab=LookChoices.FarMtnTemplateDefault:0).</summary>
+        public static bool FarMtnTemplateDefault = true;
+        public static bool? FarMtnTemplateForce;
+        public static bool FarMtnTemplate => FarMtnTemplateForce ?? Env("PSX_FARMTN_TEMPLATE") ?? FarMtnTemplateDefault;
+
         public const bool ClearDayDefault = false;
         public static bool? ClearDayForce;
         public static bool ClearDay => ClearDayForce ?? Env("PSX_CLEARDAY") ?? ClearDayDefault;
