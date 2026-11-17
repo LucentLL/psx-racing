@@ -457,7 +457,7 @@ namespace PSXRacing.EditorTools
                     var c = cars[i % cars.Count];
                     var a = new GameObject("D3Spot" + i).transform;
                     a.position = spot.position + spot.right * ((i % 2) * 3.4f - 1.7f) + spot.forward * (4.5f + (i / 2) * 6.2f);
-                    a.rotation = spot.rotation * Quaternion.Euler(0f, (i % 2) == 0 ? 90f : -90f, 0f);   // the holed left side toward the aisle on one row
+                    a.rotation = spot.rotation * Quaternion.Euler(0f, 180f, 0f);   // every holed left side toward the +right side, where the eyes stand
                     var def = CarModelLibrary.Load(c.key);
                     var lotSpec = traffic.Contains(c.key) ? null : c.spec;   // a traffic shell as itself
                     var sh = CarShell.Spawn(a, def, 0, out _, solid: false, spec: lotSpec, owned: c.car);
@@ -465,8 +465,8 @@ namespace PSXRacing.EditorTools
                 }
                 DamageCabin.Step(true);
                 Vector3 c0 = spot.position, f0 = spot.forward;
-                Vector3 eye = c0 + spot.right * 5.5f - f0 * 1.5f + Vector3.up * 1.65f;
-                var rot = Quaternion.LookRotation(c0 + f0 * 12f + Vector3.up * 0.9f - eye);
+                Vector3 eye = c0 + spot.right * 8f - f0 * 3f + Vector3.up * 5.5f;   // above the lot: all eight in frame
+                var rot = Quaternion.LookRotation(c0 + f0 * 13f + Vector3.up * 0.5f - eye);
                 int built = 0;
                 foreach (var d in DamageCabin.All) if (d != null && d.HasCabin) built++;
                 L($"  D lot: {shells.Count} holed cars spawned, cabins built {built}");
@@ -499,8 +499,8 @@ namespace PSXRacing.EditorTools
                 }
                 double Med(List<double> v) { var a = v.OrderBy(x => x).ToList(); return a.Count == 0 ? 0 : a[a.Count / 2]; }
                 // two eyes: down the aisle (all eight in frame), and 2.6 m off the first car's holed side (its hole large)
-                Vector3 ceye = c0 + spot.right * 4.2f + f0 * 1.0f + Vector3.up * 1.5f;
-                var crot = Quaternion.LookRotation(c0 + f0 * 11f + Vector3.up * 0.8f - ceye);
+                Vector3 ceye = eye;   // the eight holed cars on screen
+                var crot = rot;
                 var at0 = specs.Count > 0 ? specs[0].at : spot;
                 Vector3 neye = at0.position - at0.right * 2.6f + Vector3.up * 1.3f;
                 var nrot = Quaternion.LookRotation(at0.position + Vector3.up * 1.0f - neye);
