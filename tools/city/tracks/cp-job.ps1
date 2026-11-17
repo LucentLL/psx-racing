@@ -82,14 +82,14 @@ try {
     elseif ($Mode -eq "cards") {
         # the race cards (CityMapPreview: every city venue's card over the whole-city map), checkpoint mode on
         $env:PSX_CP_RACES = $CpRaces
-        $shots = "$Sandbox\Screenshots"
-        Get-ChildItem $shots -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
+        $shotDir = "$SandboxScreenshots"
+        Get-ChildItem $shotDir -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
         $log = "$Sandbox\cp_cards.log"
         $ok = Invoke-UnityJob -Log $log -MaxMinutes $mm -UnityArgs @("-quit", "-batchmode", "-projectPath", $Sandbox,
             "-executeMethod", "PSXRacing.EditorTools.CityMapPreview.Capture", "-logFile", $log, "-accept-apiupdate")
         Select-String -Path $log -Pattern "error CS|Exception" -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line }
         New-Item -ItemType Directory -Force "$Out\cards_$Label" | Out-Null
-        Get-ChildItem $shots -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Copy-Item -Destination "$Out\cards_$Label" -Force
+        Get-ChildItem $shotDir -Filter "citymap_*.png" -ErrorAction SilentlyContinue | Copy-Item -Destination "$Out\cards_$Label" -Force
         Write-Host ("cards: " + (Get-ChildItem "$Out\cards_$Label" -Filter "citymap_*.png").Count + " pictures in $Out\cards_$Label")
     }
     elseif ($Mode -eq "lifeselftest") {
