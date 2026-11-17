@@ -241,6 +241,11 @@ namespace PSXRacing.EditorTools
                 NightGlow.PreviewAll(false);
                 if (dressing != null)
                     typeof(SeasonDress).GetMethod("Register", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.Invoke(dressing, null);
+                // THE MEASURE'S LAYER: a stage forest's own object stands on Default with the terrain and every prop;
+                // its cards are on Foliage. Both drawn on Foliage here, so the foliage stat of either way is the trees.
+                const int FoliageL = 10;
+                forest.gameObject.layer = FoliageL;
+                log.Append($"  (the mesh forest drawn on the Foliage layer for the measure; old cards matched to the kit's trees: {(MeshForest.TreeMatch && MeshForest.MatchCardsOn && forest.matchCardAtlas != null ? "yes" : "no (PSX_TREE_MATCH_CARDS=0 or no atlas)")})\n");
                 foreach (var ds in Env("PSX_TM_DRESSES", "0,3").Split(','))
                 {
                     if (!int.TryParse(ds.Trim(), out int dress) || dress < 0 || dress >= Seasons.DressCount) continue;
@@ -272,10 +277,10 @@ namespace PSXRacing.EditorTools
                         }
                         log.Append($"  {id} {ms.Trim()} m {dn}: plants listed HIGH {l0}, MID {l1}, LOW {l2}, far cards {l3}{(l0 + l1 + l2 + l3 == 0 ? "  <-- THE FOREST DRAWS NOTHING" : "")}\n");
                         if (l0 + l1 + l2 + l3 == 0) code = 1;
-                        string a = FoliageStat(cam, forest.gameObject.layer, out float cA, out float hA, out float sA, out float lA);
+                        string a = FoliageStat(cam, FoliageL, out float cA, out float hA, out float sA, out float lA);
                         forest.CardsNow();
                         PSXScreenshotTool.ShotAs(cam, $"treeseason/{tag}/cards_{id}_{ms.Trim()}_{dn}_cards", eye, rot);
-                        string b = FoliageStat(cam, forest.gameObject.layer, out float cB, out float hB, out float sB, out float lB);
+                        string b = FoliageStat(cam, FoliageL, out float cB, out float hB, out float sB, out float lB);
                         log.Append($"  {id} {ms.Trim()} m {dn}: mesh forest {a} | cards {b} -> {TwoWays(cA, hA, sA, lA, cB, hB, sB, lB)}\n");
                     }
                 }
