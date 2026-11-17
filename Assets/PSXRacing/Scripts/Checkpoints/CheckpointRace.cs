@@ -202,6 +202,7 @@ namespace PSXRacing
                 met = new CityRouter.Field[GateCount]; cost = new CityRouter.Field[GateCount];
                 var seeds = new List<CityRouter.Seed>(8);
                 float worst = 0f;
+                var frame = System.Diagnostics.Stopwatch.StartNew();
                 for (int k = 0; k < GateCount; k++)
                 {
                     seeds.Clear();
@@ -215,7 +216,9 @@ namespace PSXRacing
                     met[k] = R.Build(seeds, false, fwy);
                     cost[k] = R.Build(seeds, true, fwy);
                     worst = Mathf.Max(worst, (float)t0.Elapsed.TotalMilliseconds);
-                    yield return null;
+                    // several gates a frame inside a 40 ms budget (the countdown is held: loading, not racing); one
+                    // a frame stretched the build to 29 s under a slow loading frame rate
+                    if (frame.Elapsed.TotalMilliseconds > 40.0) { yield return null; frame.Restart(); }
                 }
                 cacheKey = key; cacheMet = met; cacheCost = cost;
                 Debug.Log($"[Checkpoints] fields: {GateCount} gates x 2, worst gate {worst:0.0} ms");
@@ -612,6 +615,7 @@ namespace PSXRacing
             if (c == null || TotalM < 1f) return 0f;
             var p = rm.GetProgress(car);
             if (p != null && p.finished) return 1f;
+            if (!c.sweptInit) return 0f;   // before its first racing frame there is no measure yet
             return Mathf.Clamp01(1f - c.remaining / TotalM);
         }
         public float Odometer(CarController car) { var c = Of(car); return c != null ? c.odometer : 0f; }

@@ -359,7 +359,7 @@ namespace PSXRacing.EditorTools
             if (!p.finished && c.passedTotal >= 1 && ahead && c.remainingGate > 260f && c.remainingGate < 330f) Take("4_beam_300m");
             if (!p.finished && g.kind == "turn" && c.remainingGate < 140f && c.remainingGate > 60f && turnShots < 2)
             { int before = taken.Count; Take("5_turn_" + (g.name ?? "").Replace(' ', '_')); if (taken.Count > before) turnShots++; }
-            if (!p.finished && cp.RaceFraction(rm.playerCar) > 0.5f) Take("6_minimap_half");
+            if (!p.finished && rm.State == RaceManager.RaceState.Racing && cp.RaceFraction(rm.playerCar) > 0.5f) Take("6_minimap_half");
             if (p.finished && finishedAt < 0f) finishedAt = Time.time;
             if (finishedAt > 0f && Time.time - finishedAt > 2.5f) Take("7_finish");
         }

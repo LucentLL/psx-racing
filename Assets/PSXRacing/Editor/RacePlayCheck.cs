@@ -336,7 +336,8 @@ namespace PSXRacing.EditorTools
                 Application.targetFrameRate = Mathf.RoundToInt(60f * Time.timeScale);
                 StartCoroutine(CamerasOff());
             }
-            float until = Time.realtimeSinceStartup + 15f;
+            // a checkpoint race holds the countdown while its fields build: give it a minute on a busy machine
+            float until = Time.realtimeSinceStartup + (rm.Checkpoints != null ? 60f : 15f);
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
             RacePlayCheck.Note($"  road grip x{Seasons.RoadGripMult:0.00}, road {rm.path.roadWidth:0.0} m, two-way {(TrafficSystem.Instance != null && TrafficSystem.Instance.TwoWay)}");
