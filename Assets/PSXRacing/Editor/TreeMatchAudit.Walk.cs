@@ -90,7 +90,7 @@ namespace PSXRacing.EditorTools
             // (PSX_TM_WALKS = "venue:m[,m];venue:m...": several stages in one process; else PSX_TM_VENUE + PSX_TM_M)
             string walks = Env("PSX_TM_WALKS", Env("PSX_TM_VENUE", "SwissNC226A") + ":" + Env("PSX_TM_M", "7900"));
             int code = 0;
-            foreach (var spec in walks.Split(';'))
+            foreach (var spec in walks.Split(new[] { ';', '+' }))   // ('+' inside RunMany's PSX_TM_RUN, whose items ';' separates)
             {
                 var q = spec.Split(':');
                 if (q.Length != 2 || q[0].Trim().Length == 0) continue;
