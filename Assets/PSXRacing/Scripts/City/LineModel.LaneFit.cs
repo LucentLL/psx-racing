@@ -99,7 +99,114 @@ namespace PSXRacing.City
                 e.lsFlags = (byte)((e.lsFlags | 1) & ~(2 | 4));
                 LaneFitEdges++;
             }
-            if (LaneFitEdges > 0) Debug.Log($"[city] lane fit (PSX_CITY_LINEFIX): {LaneFitEdges} edges on the profile their tagged lanes need, with their own line set ({LaneFitWays} ways listed)");
+            ApplyCentreRuns(map);
+            if (LaneFitEdges > 0 || CentreRunsMade > 0) Debug.Log($"[city] lane fit (PSX_CITY_LINEFIX): {LaneFitEdges} edges on the profile their tagged lanes need, with their own line set ({LaneFitWays} ways listed); {CentreRunsMade} short centre-lane bays ({CentreRunEdges} edges, {CentreRunM:0} m) drawn as two-way left-turn lanes");
+        }
+
+        // ================================================================
+        //  THE CENTRE LANE'S SHORT RUNS (the road-lines round, 2026-11-17)
+        // ================================================================
+        // On a street with a centre lane (three, five or seven lanes) the exported rows give that lane, piece
+        // by piece, to one direction (its left bay: 2 + 1), to the other (1 + 2) or to both (a two-way
+        // left-turn lane). Where two pieces of opposite ownership meet mid-block the double yellow has to
+        // cross the centre lane (LineModel.Relay: over the bay taper). A bay that lies BETWEEN two mid-block
+        // joins - it ends at no junction of the graph: a driveway's or an unmapped street's - and is too
+        // short for its crossing tapers plus 30 m of storage made the double yellow cross over and straight
+        // back: the owner's S (East 7th Street 18 times, Gleneagles Road 12, Beam Road 8...). Such a run is
+        // drawn as what it is on the street: a two-way left-turn lane. No line moves at either end.
+        public static int CentreRunsMade, CentreRunEdges;
+        public static float CentreRunM;
+        public static readonly List<string> CentreRunLog = new List<string>();
+
+        /// <summary>Whose the centre lane of a marked two-way edge on an odd profile is, in the edge's own
+        /// frame: 1 the a-to-b direction's, 2 the other's, 3 both (TWLTL), 0 not such an edge.</summary>
+        static int CentreOwner(CityMap.Edge e)
+        {
+            if (e == null || e.oneway || e.link || e.a == e.b || !e.hasLset || (e.lsFlags & 1) == 0) return 0;
+            if (e.profile < 0 || e.profile >= RoadProfiles.All.Length) return 0;
+            var pr = RoadProfiles.All[e.profile];
+            if (!pr.turnLane || (pr.lanes & 1) == 0) return 0;
+            int k = (pr.lanes - 1) / 2;
+            if (e.lsCentre == 2) return e.lsNF == k && e.lsNB == k ? 3 : 0;
+            if (e.lsCentre != 1) return 0;
+            return e.lsNF == k + 1 && e.lsNB == k ? 1 : e.lsNF == k && e.lsNB == k + 1 ? 2 : 0;
+        }
+
+        /// <summary>The road's next piece through a two-arm node (same profile), or null.</summary>
+        static CityMap.Edge NextPiece(CityMap map, CityMap.Edge e, int node)
+        {
+            if (node < 0 || node >= map.nodeEdges.Length) return null;
+            var l = map.nodeEdges[node];
+            if (l == null || l.Count != 2) return null;
+            int oi = l[0] == e.index ? l[1] : l[0];
+            if (oi == e.index || oi < 0 || oi >= map.edges.Length) return null;
+            var o = map.edges[oi];
+            return o != null && o.profile == e.profile ? o : null;
+        }
+
+        /// <summary>The next piece's centre-lane owner seen in <paramref name="e"/>'s frame (0 none).</summary>
+        static int OwnerBeyond(CityMap map, CityMap.Edge e, int node, out CityMap.Edge o)
+        {
+            o = NextPiece(map, e, node);
+            if (o == null) return 0;
+            int own = CentreOwner(o);
+            bool same = (e.b == node) == (o.a == node);
+            return !same && (own == 1 || own == 2) ? 3 - own : own;
+        }
+
+        static void ApplyCentreRuns(CityMap map)
+        {
+            CentreRunsMade = 0; CentreRunEdges = 0; CentreRunM = 0f; CentreRunLog.Clear();
+            if (!LineFixOn || map.nodeEdges == null) return;
+            var seen = new HashSet<int>();
+            var runs = new List<(List<int> edges, float len, float mph, int endA, int nodeA, int endB, int nodeB)>();
+            foreach (var e0 in map.edges)
+            {
+                int own0 = CentreOwner(e0);
+                if ((own0 != 1 && own0 != 2) || !seen.Add(e0.index)) continue;
+                var list = new List<int> { e0.index };
+                float len = e0.length, mph = SpeedMph(e0);
+                int[] endE = { e0.index, e0.index }, endN = { e0.a, e0.b };
+                for (int side = 0; side < 2; side++)
+                {
+                    var cur = e0; int node = side == 0 ? e0.a : e0.b;
+                    for (int g = 0; g < 64; g++)
+                    {
+                        int own = OwnerBeyond(map, cur, node, out var o);
+                        if (o == null || own != CentreOwner(cur) || !seen.Add(o.index)) break;
+                        list.Add(o.index); len += o.length; mph = Mathf.Max(mph, SpeedMph(o));
+                        node = o.a == node ? o.b : o.a; cur = o;
+                    }
+                    endE[side] = cur.index; endN[side] = node;
+                }
+                runs.Add((list, len, mph, endE[0], endN[0], endE[1], endN[1]));
+            }
+            runs.Sort((x, y) => x.len.CompareTo(y.len));
+            foreach (var r in runs)
+            {
+                // the flanks as they are NOW (a shorter run beside this one may have become a two-way lane)
+                var eA = map.edges[r.endA]; var eB = map.edges[r.endB];
+                int fa = OwnerBeyond(map, eA, r.nodeA, out _), fb = OwnerBeyond(map, eB, r.nodeB, out _);
+                if (fa == 0 || fb == 0) continue;                       // ends at a junction (or another profile): a real bay
+                int nOpp = (fa != 3 && fa != CentreOwner(eA) ? 1 : 0) + (fb != 3 && fb != CentreOwner(eB) ? 1 : 0);
+                if (nOpp == 0) continue;                                // a bay inside a two-way lane: no line moves anyway
+                float need = 0.5f * RoadProfiles.LaneM * BayTaperRate(r.mph) * nOpp + BayStorageM;
+                if (r.len >= need) continue;
+                foreach (int ei in r.edges)
+                {
+                    var e = map.edges[ei];
+                    int own = CentreOwner(e);
+                    int k = (RoadProfiles.All[e.profile].lanes - 1) / 2;
+                    int tF = e.lsTurnOnly & 0xFF, tB = (e.lsTurnOnly >> 8) & 0xFF;
+                    if (own == 1) tF >>= 1; else if (own == 2) tB >>= 1; else continue;
+                    e.lsNF = (byte)k; e.lsNB = (byte)k; e.lsCentre = 2; e.turnLane = true;
+                    e.lsTurnOnly = (ushort)((tF & 0xFF) | ((tB & 0xFF) << 8));
+                    CentreRunEdges++;
+                }
+                CentreRunsMade++; CentreRunM += r.len;
+                if (CentreRunLog.Count < 300)
+                    CentreRunLog.Add($"e{r.edges[0]} '{map.edges[r.edges[0]].name}' {r.len:0} m ({r.edges.Count} pieces, {r.mph:0} mph): a centre-lane bay between {(nOpp == 2 ? "two opposing bays" : "an opposing bay and a two-way lane")}, short of {need:0} m: drawn as a two-way left-turn lane");
+            }
         }
     }
 }

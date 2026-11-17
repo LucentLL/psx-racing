@@ -140,7 +140,7 @@ namespace PSXRacing.EditorTools
             Line($"LINE SPOT '{tag}': ({P0.x:0.0},{P0.y:0.0}) hdg {hdg:0.0}; PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, taper floors {(LineModel.TaperFloorOn ? "on" : "off")}, PSX_CITY_LINEFIX {(LineModel.LineFixOn ? "on" : "off")}; graph {map.graphHash:x8}; on e{e0} '{E0.name}' s {s0:0.0}");
             Line($"  LANE FIT (the seven-lane street, PSX_CITY_LINEFIX): {LineModel.LaneFitWays} ways listed, {LineModel.LaneFitEdges} edges on the seven-lane profile with their tagged lanes");
             { int q = 0; foreach (var l in LineModel.LaneFitLog) if (q++ < 80) Line("    " + l); }
-            Line($"  RELAYS city-wide: {LineModel.RelayJoins} joins relayed ({LineModel.RelayShort} short); {LineModel.RelayHandOvers} centre-lane hand-overs (no line moves)");
+            Line($"  RELAYS city-wide: {LineModel.RelayJoins} joins relayed ({LineModel.RelayShort} short, {LineModel.RelayBayCross} bay crossings); {LineModel.RelayHandOvers} hand-overs with no line moved; {LineModel.CentreRunsMade} short centre-lane bays drawn as two-way lanes ({LineModel.CentreRunEdges} edges)");
             var splitNodes = new HashSet<int>();
             if (map.splt != null) foreach (var sp in map.splt) splitNodes.Add(sp.node);
             // the chain: ahead and back along the same name (the straightest continuation at each node)

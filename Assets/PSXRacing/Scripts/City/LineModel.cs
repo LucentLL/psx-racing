@@ -430,7 +430,7 @@ namespace PSXRacing.City
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear(); RelayHandOvers = 0;
+            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear(); RelayHandOvers = 0; RelayBayCross = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
@@ -1812,8 +1812,11 @@ namespace PSXRacing.City
             var lE = LayoutOf(E); var lO = LayoutOf(O);
             bool same = (E.a == n) != (O.a == n);              // one arrives, one leaves: one a->b frame
             var oInE = same ? lO : Flipped(lO);
-            // the road-lines round (PSX_CITY_LINEFIX): the centre lane changes hands - no line moves
-            if (LineFixOn && CentreHandOver(E, O, lE, oInE, same)) { RelayHandOvers++; return; }
+            // the road-lines round (PSX_CITY_LINEFIX): the centre lane changes hands. Against a two-way
+            // left-turn lane no line moves; between two opposing bays only the double yellow crosses the
+            // centre lane, over the bay taper (no through lane follows it)
+            bool handOver = LineFixOn && CentreHandOver(E, O, lE, oInE, same);
+            if (handOver && (E.lsCentre == 2 || O.lsCentre == 2)) { RelayHandOvers++; return; }
             var pE = RelayPairs(lE, oInE);                      // E line k -> O's m (E frame), or NaN
             var eInO = same ? lE : Flipped(lE);
             var pO = RelayPairs(lO, eInO);
@@ -1827,6 +1830,7 @@ namespace PSXRacing.City
             float half = TaperFloorOn && mph > 37.5f ? 1f : 0.5f;
             float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : half));
             if (TaperFloorOn && !ends) L = Mathf.Max(L, Mathf.Sqrt(6f * move * RminAt(mph)));
+            if (handOver) L = Mathf.Max(BayCrossMinM, move * BayTaperRate(mph));
             // Round 4 (review r3 #5): an arm whose far end is a carriageway
             // split's nose keeps the nose approach (RelayNoseKeepM) clear of the
             // relay - at n10229 a 46 m relay from the junction behind left the
@@ -1858,6 +1862,7 @@ namespace PSXRacing.City
             if (lenE + lenO < 0.5f) return;
             if (lenE + lenO < L - 0.5f) RelayShort++;
             RelayJoins++;
+            if (handOver) RelayBayCross++;
             float fE = lenE + lenO > 1e-3f ? lenE / (lenE + lenO) : 0.5f;
             AddRelay(add, E, n, lE, pE, fE, lenE);
             AddRelay(add, O, n, lO, pO, 1f - fE, lenO);
@@ -1877,9 +1882,20 @@ namespace PSXRacing.City
         // bay begins the two-way lane's broken yellow ends and a white line starts in its place. So:
         // where the two layouts' lines all sit within 0.3 m of a line of the other, and each direction's
         // THROUGH lanes are the same on both pieces (an inner turn-only lane, the centre lane of an odd
-        // profile, or a TWLTL is not a through lane), there is no relay: each piece draws its own lines
-        // to the join. A join where a through lane really ends keeps its relay (and its taper length).
-        public static int RelayHandOvers;
+        // profile, or a TWLTL is not a through lane), the join is a HAND-OVER:
+        //   - a two-way left-turn lane against a bay: no relay at all; each piece draws its own lines to
+        //     the join (the far pair becomes the double yellow where it is, the near pair ends, the bay's
+        //     line starts);
+        //   - one direction's bay against the other's (back-to-back bays): the double yellow does cross
+        //     the centre lane - the real reverse taper - but over the BAY taper (8:1 to 30 mph, 15:1 from
+        //     50: no through lane follows it), not the merging taper W S that swept it along whole pieces;
+        //     the bay lines end at the taper's ends and the through lanes' lines stay where they are.
+        // A bay too short to hold its tapers and 30 m of storage between two such joins is drawn as a
+        // two-way left-turn lane (LineModel.ApplyCentreRuns, at load). A join where a through lane really
+        // ends keeps its relay (and its taper length).
+        public static int RelayHandOvers, RelayBayCross;
+        public const float BayStorageM = 30f, BayCrossMinM = 12f;
+        public static float BayTaperRate(float mph) => Mathf.Lerp(8f, 15f, Mathf.InverseLerp(30f, 50f, mph));
         static void ThruOf(CityMap.Edge e, out int tf, out int tb)
         {
             CityMeshes.TurnOnly(e, out int fw, out int bw, out int nF, out int nB, out _);
