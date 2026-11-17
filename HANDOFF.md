@@ -1,4 +1,62 @@
-﻿# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
+﻿# CHARLOTTE TRACKS, LANE C: C9 + D3 added, H5 failed on a city wall, and the hosted-lap fix (agent "laneC", branch tracks-lane-C off charlotte-tracks ec1dd760, 2026-11-16 19:55-21:15; NOT pushed, NOT merged)
+
+The owner: "start adding more Charlotte tracks". Lane C's tracks, in order: H5, C9, D3. Sandbox PSXRec (Android).
+Builder guide: scratchpad `tracksb1\BUILDER_GUIDE.md`. Scratch: `tracksb1\laneC\` (PROGRESS.md, out\, laneC_sheet.png).
+
+## Results
+- **C9 = CltC9 "BALLANTYNE CIRCUIT"** (route c9, label BALLANTYNE): PASS. 5.4 km x 2 laps = 10.8 km, host UptownLoop,
+  oneWay 0, reverse 0 (the divided parkway's carriageways are one-way roads). Ballantyne Commons Parkway east,
+  North Community House Road north, Upper Avenue west, Ballantyne Corporate Place round. Closures ALL CLEAR (20 closed,
+  5 left open beside the course, nearest 5.1 m from the line, lanes 4.0 m a side). Watched race (-Traffic NONE, closures
+  built): 2 laps, home 379 / 392 / 396 s; the Charger slid off the long left sweeper of Ballantyne Corporate Place
+  (chain ~3460-3507 m, smooth line: under 1.2 deg per 4 m) at 80 km/h into a tree and retired (no planned mistake
+  was handed out); wrong way: none; FAIL only the known pumping line (1.20). Some one-way roads: in a STREET race
+  with traffic it gets two-way race traffic (known, TrafficSystem per venue).
+- **D3 = CltD3 "US 74 1/2 MILE: INDEPENDENCE"** (route d3, label INDEPENDENCE): PASS. 804 m from a standing start,
+  East Independence Expressway inbound, host TryonSprint, limit 89 km/h (55 mph, as IndependenceSprint; the data
+  has none there). Closures ALL CLEAR (3 closed, nearest 10.2 m, lanes 9.0 m). Watched race: RACE CHECK OK, all four
+  home in 25.7-27 s, pumping 1.00, UNDRAWN RAILS 0. Races as a short standing-start sprint (no tree, no trap: known).
+- **H5 (I-485 Ballantyne ramps, Johnston Rd to Rea Rd) = FAIL, NOT committed** (the file is parked in
+  `tracksb1\laneC\parked_h5\h5.json` + meta, emitted as CltH5 "I-485 BALLANTYNE - RAMPS", 2 x 7.0 km). The Johnston
+  Road off-ramp (e159, 35.06538,-80.8450, s ~240-300, where it runs under the Johnston Road bridge e1794) has a tall
+  concrete retaining wall standing ON its left edge line (eye frames h5_bar1/h5_bar2). The Skyline, on the ramp at
+  lat -1.6 m (its left side at -2.5 m), hit the wall's start at 34.8 m/s (125 km/h, steering straight, full
+  throttle) and retired, in BOTH watched runs (seed 0, deterministic); in the 2-lap run its wreck then blocked the
+  one-lane ramp: the player, the Charger and the Supra went wrong way there (max 2.0 s, the limit) and the Charger
+  needed a stuck recovery. Not fixable with track data: the chain is fixed, and the race has one road width
+  (18.8 m) for the whole lap, so the AI's lane offsets are freeway-sized on a 6.1 m ramp; narrowing roadWidth would
+  pull the closures into the freeway lanes. Fix needed in the city (Scripts/City: set that wall back to the ramp's
+  outer shoulder edge or taper its start) or a per-waypoint race width on ramps (shared AI). The invisible-solids
+  sweep of the H5 corridor also lists, at the Rea Road turnaround, the Rea Road bridge's left parapet (e4638 s ~60,
+  +0.94 m over a lane at -6.0 m, x10) and e305's rail end inside the car box at lane -2.5 m (s 7): drawn, city data.
+  No car hit those. Not replaced with another candidate (other lanes own them).
+
+## Shared code (one change, listed for the merge)
+- `Assets/PSXRacing/Scripts/CityTracksRegistrar.cs`, `Awake`, inside the route-swap block (+8 lines, commit f839431b):
+  a hosted LOOP venue sets `RaceManager.totalLaps = Mathf.Max(1, venue.laps)`. Before it, every hosted circuit raced
+  the host scene's baked lap count (UptownLoop's 1) under a "2 LAPS" menu line: CltH5's first run did 7.0 km in 198 s.
+  `PSX_CITY_TRACK_LAPS=0` = as before. Proven: CltC9 raced 2 laps (10.8 km, player home 379 s at 28.5 m/s, the same pace
+  as the retired rival's 4.2 km in 147 s); CltH5's second run raced 2 laps (395-421 s). Affects every lane's
+  multi-lap circuit the same way; one copy at merge is enough.
+
+## Proof (PSXRec, Android; scratchpad `tracksb1\laneC\out\`)
+- City scenes: `-Mode scenes` CITY BUILD OK in 6 min (PC content kept). Typecheck OK before every job.
+- Closures route check (20:12): ALL CLEAR, venues #55 CltC9, #56 CltD3, #57 CltH5 (H5 since removed).
+- Races: race_CltC9.txt, race_CltD3.txt, race_CltH5.txt (2-lap run) and race_CltH5_run1_1lap.txt (+ _console.txt).
+- Cards: cards\citymap_CltC9.png, citymap_CltD3.png (and citymap_CltH5.png for the record).
+- Eye frames (day + night): eye\c9_grid, c9_corner (the Corporate Place sweeper), d3_grid, d3_middle: clean lanes;
+  h5_grid, h5_ramp1/2, h5_bar1/2 (the wall). Sheet: `tracksb1\laneC\laneC_sheet.png`.
+- Self-test on the defaults: 62 FAIL lines before my tracks (out_before\selftest.txt) and 62 after, the same set; the
+  only line naming a lane venue is the known "CITY offers the four Charlotte races" (its list now ends CltC9, CltD3).
+  Every CltC9 / CltD3 check is ok (unique id, limit, loop/route, one-way not backwards, host scene).
+- Seen, not mine: the drag cards draw their arrows pointing ESE while the run goes NW (the foundation's CltD1 card
+  does the same); the night frames show very bright verges on Ballantyne's roads (city lighting).
+
+## Merge
+- Files: Resources/CityTracks/c9.json, d3.json (+ .meta), Scripts/CityTracksRegistrar.cs. No Scripts/City, no
+  charlotte_*.bytes: no city re-bake. Integrator: `node tools/city/tracks/order.mjs --write` after the lanes merge.
+
+# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
 
 Supersedes "STATE AT THE STOP" below (its NEXT steps a-d are done). The owner: "Now that Charlotte roads are more
 accurate, I'd like to start adding race tracks (circuits, sprints, drag [the current drag/sprints are veeery
