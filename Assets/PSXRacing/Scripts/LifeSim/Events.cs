@@ -34,7 +34,7 @@ namespace PSXRacing.LifeSim
         public Color color;
         public string blurb;
         /// <summary>STREET (underground: public roads, traffic, Fri-Sun NIGHT)
-        /// or SANCTIONED (closed roads, no traffic, Sat/Sun MORNING or NOON).</summary>
+        /// or SANCTIONED (no traffic, Sat/Sun MORNING or NOON).</summary>
         public bool street;
 
         // ---- the entry rule (shown as badges) ----
@@ -119,7 +119,7 @@ namespace PSXRacing.LifeSim
     /// street with traffic ... Doing well in events can increase your own and
     /// your car club's reputation"). Two kinds, both on a schedule fixed weeks
     /// ahead and shown before you SIGN UP:
-    ///   SANCTIONED - closed roads, NO traffic, Saturday/Sunday MORNING or NOON;
+    ///   SANCTIONED - NO traffic, Saturday/Sunday MORNING or NOON;
     ///                results build RACING REP.
     ///   STREET     - public roads at NIGHT, Friday to Sunday, with traffic;
     ///                results build STREET REP. A few are LISTED once street
@@ -188,7 +188,7 @@ namespace PSXRacing.LifeSim
             // ======================= SANCTIONED =======================
             new EventDef { id = "rookie", name = "ROOKIE CUP", shortName = "ROOKIE", mono = "RC",
                 color = new Color(0.20f, 0.42f, 0.70f), street = false, maxHp = 180, repNeed = 0,
-                blurb = "The open cup for new faces: closed roads, marshals on every bend, no traffic.",
+                blurb = "The open cup for new faces: no traffic, marshals on the course.",
                 fee = 100, prizes = Prizes(500), bonus = 600, period = 2, phase = 0,
                 fieldLo = 110, fieldHi = 180, skill = 0.86f,
                 races = new[] { new EventRace(0, Sat, Morning, "GillespieGap", "BlowingRock"),
@@ -232,7 +232,7 @@ namespace PSXRacing.LifeSim
                                 new EventRace(0, Sun, Noon, "BlowingRock", "LittleSwitzerland") } },
             new EventDef { id = "uscup", name = "AMERICAN STOCK CUP", shortName = "US CUP", mono = "US",
                 color = new Color(0.30f, 0.30f, 0.55f), origin = "usa", repNeed = 10,
-                blurb = "American-built. Uptown is closed off for it on Saturday morning.",
+                blurb = "American-built. Uptown on a Saturday morning with the traffic held off.",
                 fee = 300, prizes = Prizes(1300), bonus = 1600, period = 4, phase = 3,
                 fieldLo = 240, fieldHi = 420, skill = 0.89f,
                 races = new[] { new EventRace(0, Sat, Morning, "UptownLoop", "BlueRidge"),

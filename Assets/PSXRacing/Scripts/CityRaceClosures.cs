@@ -25,16 +25,11 @@ namespace PSXRacing
         /// (RaceHandoff.EventKey names an event that is not a street one), unless the switch says.</summary>
         public static bool ForThisRace()
         {
-            string sw = System.Environment.GetEnvironmentVariable("PSX_TRACK_CLOSURES");
-            if (sw == "1") return true;
-            if (sw == "0") return false;
-            // DEFAULT: sanctioned events only (the owner's rule, 2026-11-16 15:10), proven in the
-            // watched sanctioned races of 2026-11-16 evening (0 closures on any race line)
-            string key = RaceHandoff.EventKey;
-            if (string.IsNullOrEmpty(key)) return false;
-            int h = key.LastIndexOf('#');
-            var ev = PSXRacing.LifeSim.Events.ById(h > 0 ? key.Substring(0, h) : key);
-            return ev != null && !ev.street;
+            // RETIRED (owner 2026-11-16 ~21:00: "I'm not a fan of the road construction barriers for races.
+            // Drivers can just go around them."): no closure in any race, sanctioned or street, and none in
+            // free roam. PSX_TRACK_CLOSURES is ignored. City races become checkpoint races
+            // (Checkpoints/CheckpointRace). This file goes once the batch-1 tracks have merged.
+            return false;
         }
 
         /// <summary>How far up a closed road the barricades stand from the junction at least (metres):

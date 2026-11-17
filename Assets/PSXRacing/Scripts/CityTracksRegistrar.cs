@@ -16,19 +16,15 @@ namespace PSXRacing
     [DefaultExecutionOrder(-10000)]
     public class CityTracksRegistrar : MonoBehaviour
     {
-        /// <summary>The route a sanctioned event closes this race (set in Awake, built in Start).</summary>
-        string closeRoute;
-
         void Awake()
         {
-            CityRaceClosures.ClearLast();   // nothing from an earlier race stands in this one
             var map = CityMap.Get();
             if (map == null) return;
             CityTracks.Register(map);
 
             var mode = GetComponent<CityMode>();
             if (mode == null) mode = Object.FindAnyObjectByType<CityMode>(FindObjectsInactive.Include);
-            if (mode == null || string.IsNullOrEmpty(mode.routeId)) return;   // free roam: the routes, and no closures
+            if (mode == null || string.IsNullOrEmpty(mode.routeId)) return;   // free roam: the routes only
             var venue = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (venue == null || !venue.IsCityRace || venue.IsDeckRun) return;  // a deck run builds its own lap
             if (venue.cityRoute != mode.routeId && CityTracks.Has(venue.cityRoute) && map.RouteById(venue.cityRoute) != null)
@@ -54,20 +50,9 @@ namespace PSXRacing
                     if (rm != null) rm.totalLaps = Mathf.Max(1, venue.laps);
                 }
             }
-            // A SANCTIONED event's course is closed like a parade route (owner, 15:10): every road that
-            // meets it shut clear of the race line. Not in a street race, not in free roam.
-            if (CityRaceClosures.ForThisRace()) closeRoute = mode.routeId;
-        }
-
-        /// <summary>The closures, once CityMode.Awake has built the race line: every row keeps clear
-        /// of the lanes the race actually drives (the TrackPath), not only of the map's pavement.</summary>
-        void Start()
-        {
-            if (string.IsNullOrEmpty(closeRoute)) return;
-            var map = CityMap.Get();
-            if (map == null) return;
-            var path = Object.FindAnyObjectByType<TrackPath>(FindObjectsInactive.Include);
-            CityRaceClosures.Build(map, map.RouteById(closeRoute), transform, path);
+            // NO CLOSURES (owner 2026-11-16 ~21:00: "I'm not a fan of the road construction barriers for
+            // races. Drivers can just go around them."): no race and no free roam builds a barricade. A
+            // city venue with a checkpoint file races as a checkpoint race (Checkpoints/CheckpointRace).
         }
     }
 }
