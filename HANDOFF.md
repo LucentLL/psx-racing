@@ -1,4 +1,92 @@
-﻿# RAIN 2 (branch rain-1116 from 742315cd; 2026-11-16/17; agents "rain" and its successor) - code at 0b824e42; round 3 by the successor agent
+﻿# HANDOFF - THE GRIP ROUND (agent "grip", branch `tyre-grip` off mountain-nm 749e05de = PC50, 2026-11-17 01:30-03:40; NOT pushed, NOT merged)
+
+Owner, 11-17 ~01:30: "I noticed that cars slide on banked roads. Even when resting in place at the start of a race. This
+means tires don't actually grip the roads." Scratch: `scratchpad\grip\` (PROGRESS.md, drift_table.txt, sheet_*.png,
+grip_sheet_before_after.png, every run's report). Sandbox PSXRec (Android), all runs hidden batch.
+
+## What I found (base = PSX_STATIC_GRIP=0, which is the 749e05de code path exactly)
+1. **Parked cars TURNED on a bank.** The parking hold (CarController.TireForces, base lines 3683 / 3921-3925 / 3999-4003)
+   shares the car's weight EVENLY over the four tyres (`parkShareKg = massKg / groundedAll`) and anchors only the centre of
+   mass (`parkOff`, 3686-3692). On a bank that is a couple about the CG on any car that is not 50:50 front to rear (the RX-7
+   stands 65:35 on its springs), resisted only by the hold's velocity damper: a steady yaw of ~0.02 rad/s. In the game's own
+   pre-race hold every car on the Lake Lure grid (8-10% bank) turned 22 deg in 20 s, its corners moving 84 cm, with the centre
+   within 4 mm; Gillespie Gap grid 17.5 deg / 66 cm; NC 226A 3.5-6.6 deg; 40 deg / 1.5 m at Chimney Rock's 14% bend. This is
+   what the owner saw: the cars visibly swing round on the grid (sheets below). The CG-only measure the old ParkedCarSim
+   used could not see it.
+2. **No lateral force at rest.** The slip model (TireCurve 2229; slip = atan2(vLat, max(|vLong|, 0.3)) at 3745; then
+   `fLat *= Clamp01(|contactVel| / 0.6)` at 3975) goes as vLat^2 near zero: nothing holds a car that is not latched by the hold
+   (the hold needs |v| <= 0.3 AND a pedal/lever or 0.5 s still, 3644-3666). So a car dropped onto its grid slid 2-6 cm while it
+   settled (up to 18 cm on the steep spots).
+3. **The crawl band chattered.** The slip model's sideways stiffness per m/s is C / v, applied explicitly: 11 g dt / v of the
+   tyre's own mass per tick = 1.8 / v at 60 Hz, past the stability limit below ~0.9 m/s. Sideways speed flipped sign every
+   other tick: lateral jerk 1400-1575 m/s^3 pulling away from every grid, and a car rolling slowly down a banked grade walked
+   0.5-2.5 m sideways per 10 m (at the Lake Lure spot the four tyres gave 11.7 kN against the 1.6 kN gravity asked).
+4. Not the causes: the pre-race hold (PlayerCarInput.cs:280-284 brake 0.3 + lever; AIDriver.cs:1076-1099 brake 0.4) freezes
+   both axes through the hold; there are no WheelColliders (raycast wheels); the banked road is on the road layer (circle
+   1.27-1.37 x Fz at rest).
+5. Tyre numbers at rest, base, Lake Lure grid RX-7 parked: Fz 2030-4350 N, circle 2840-5470 N, lateral 242 / 373 N (equal
+   per axle: the even split) = 1230 N against gravity's 1232 N across the car, at slip -5.0 / +4.7 deg, contact 0.027-0.032 m/s
+   (the turning). After: each tyre carries its own load (221-442 N on the 60:40 sim car at 10%), slip 0.000, contact 0.0000.
+
+## What I changed (all behind PSX_STATIC_GRIP, default ON; =0 is the old code path bit for bit)
+- `Scripts/CarController.cs`: a contact-patch (brush) model per tyre at rest and at a crawl. `patchLat[i]` = the patch's
+  sideways deflection, integrated from the contact's sideways speed and relaxed over a 0.30 m relaxation length as the wheel
+  rolls; force = (C / 0.30) x deflection + a 0.9-critical damper on the deflection RATE, clamped to the friction circle (a
+  clamped patch slides). C is the slip model's own cornering stiffness, so in steady rolling the patch gives exactly
+  C x tan(slip): the slip model's linear branch. Blended into the slip model by contact speed 0.5 -> 2.0 m/s (smoothstep);
+  above 2 m/s nothing new runs (the patch only tracks the slip model's force so slowing down hands back seamlessly).
+  `patchLong[i]`: braked wheels (pedal quarter, lever on the rear) hold fore-aft through the same patch; PARKED = every wheel
+  held to its circle through the patches, so the hold's even-split overrides are skipped with the switch on. Patches cleared in
+  the air, on TeleportTo and while kinematic. New public statics: StaticGripOn, StaticGripWeight, PatchForce.
+- Tools: `Editor/GripSim.cs` (menu PSX Racing/Grip Sim: 60:40 car on planes 2-12% bank x 0/8/15% grade, 5 rest cases, launch,
+  crawl, 20 m/s crossfall straight, 40 m banked ring, cost timing), `Editor/GridGripCheck.cs` + `tools/grid-grip-check.ps1`
+  (real grids with the countdown held; yaw and body-corner drift; the route's most banked spot; launch; PSX_GRIP_SHOTS strip;
+  PSX_GRIP_LAPONLY solo rolling-start telemetry), `Editor/LifeSimSelfTest.Grip.cs` (TestStaticGrip, after TestParkedCarHolds).
+
+## Proof
+- Sheets (real editor frames, overhead, the game's own pre-race hold, switch off and on in fresh processes, t = 0/5/10/15/20 s):
+  `scratchpad\grip\grip_sheet_before_after.png` (all four), `sheet_LakeLure_grid.png`, `sheet_GillespieGap_grid.png`,
+  `sheet_LakeLure_spot.png`, `sheet_ChimneyRock_spot.png` (the spots are STAGED: the player stood in its lane at the route's
+  most banked place). Before: the cars swing round; after: they do not move.
+- Drift table (20 s at rest, worst car, body corner / yaw), `scratchpad\grip\drift_table.txt`:
+  game's hold, grids: Lake Lure 84 cm / 22.3 deg -> 1.2 mm / 0.00; Gillespie 66 cm / 17.6 -> 0.6 mm; NC 226A 24 cm / 6.3 ->
+  0.6 mm; Chimney 18 cm / 4.9 -> 0.2 mm; Blue Ridge 17 cm / 4.4 -> 0.7 mm; Uptown (flat) 1.4 -> 0.8 mm. Brake and lever:
+  the same, player and AI. Spots (3.7-14% bank): 35 cm-1.5 m / 9-40 deg -> <= 0.8 mm / 0.00. Settle from touchdown in the hold:
+  9-58 mm -> 0.3-5.7 mm. Every held case, every car: under 2 mm and 0.00 deg (target < 1 cm).
+  No pedals (neutral, no brake) on a GRADE still rolls ~10 m in 20 s, as a real car in neutral does (engine braking holds it
+  near 0.5 m/s); but it now rolls straight: sideways 0.5-2.5 m -> 3-127 mm (the true slip-angle creep), yaw 3-18 -> <= 0.23 deg.
+  On grids with no grade it holds (<= 3 mm; Uptown's 1.6% rolls 8-11 mm before the half-second latch, as before).
+- Hand-over (GridGripCheck launch at 0.35 throttle from the lever): lateral jerk 1420-1575 -> 0-3 m/s^3, sideways in 1.5 s
+  0.02-0.17 m -> 0.000-0.028 m; full throttle at the spots 1270-1360 -> 3-33 m/s^3. GripSim 10% bank: jerk 800-870 -> 0-14,
+  sideways-speed sign flips 46-114 -> 0, crawl across 0.35 m -> 0.03 m.
+- At speed (unchanged): solo rolling-start laps, 120 s each, Lake Lure / Gillespie / Chimney: distance 3220 / 4252 / 2568 m,
+  top 43.1 / 54.6 / 32.6 m/s, peak lateral 2.409 / 1.612 / 1.472 g and every slip-angle percentile IDENTICAL off and on (splits
+  within 0.02 s). HandlingPlayCheck A-H: same figures (brake 98.2 / 96.3 m; stops end 0.02 s sooner - the last crawl to rest;
+  lane change identical); the Viper "H keyboard corrections" FAIL is in both (pre-existing). GripSim: crossfall 2.5% / 8% at
+  20 m/s hands-off drifts -0.54 / -1.10 m per 120 m in both; the 8% banked ring holds 20.08 m/s vs 18.67 flat in both
+  (+7.6%: the bank helps, as it did). Full races with AI from a standing grid differ run to run (the launch and AI contact).
+- Self-test (LifeSimSelfTest.Run, PSXRec, fresh processes): 63 FAIL off and 63 on, the same set (fail_diff: 0 new, 0 gone);
+  the new "static grip" section passes 8/8 and the parked-car section still passes.
+- Cost: per-wheel arithmetic only (one exp, two square roots). Timed in the editor JIT: 125 ns per patch; worst case
+  (8 cars x 4 wheels x 2 patches, every tick) 8 us per 60 Hz tick. It runs only below 2 m/s of contact speed; above
+  that it is one divide and a clamp per wheel. No allocation, no new physics queries, no draw cost.
+
+## Not done / not verified
+- The crossfall pull at speed is unchanged and measurable: hands-off at 20 m/s a 2.5% crown takes the car 0.5 m downhill in
+  120 m (heading -0.3 deg). That is the slip model (the nose-heavy car's front needs more slip), as a real car does without
+  cross-caster; changing it would change the handling at speed, so it is left and reported.
+- Full-throttle launch on a 10% bank still kicks the tail down (yaw 1 rad/s in the sim): the driven rears' circle is spent on
+  wheelspin, which is physical and the same off and on.
+- Not run: ParkedPlayCheck (the town left-car walk test), the PC look turn on PSXPerf (no visual change), a watched showing.
+- The FFB self-aligning torque reads latForce: at a crawl on a bank it now carries the bank load (it already did while parked).
+
+## Merge notes
+- Code only: CarController.cs (fields block after ParkHoldSpin; TireForces: the in-air reset, the kinematic clear, the
+  fore-aft static block before the PARKED hold, the lateral static block after the 0.6 fade, both parkHold overrides now
+  `&& !StaticGripOn`; TeleportTo clears the patches), LifeSimSelfTest.cs (one call), new Editor files + metas, tools ps1.
+- No data, no scene passes, no re-bakes.
+
+# RAIN 2 (branch rain-1116 from 742315cd; 2026-11-16/17; agents "rain" and its successor) - code at 0b824e42; round 3 by the successor agent
 
 The owner, 2026-11-16: "I'd like to see the rain effects be improved. This means while sitting idle, cruising, and racing.
 Splashing on the ground, how it pools on the road. I say this, meanwhile we need to start focusing HEAVILY on performance."

@@ -2858,6 +2858,7 @@ namespace PSXRacing.EditorTools
             TestDeliverySlotCost();
             TestPizzaCargo();
             TestParkedCarHolds();
+            TestStaticGrip();
             TestVertexSnapOff();
             TestRoadsideRules();
             TestKerbBuild();
