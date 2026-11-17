@@ -224,9 +224,13 @@ Shader "PSX/CabinGlass"
                     // (RAIN 2: a parked pane is COVERED - more of the two sizes'
                     // cells hold a bead, and a third, finer size sits between them)
                     float dens = 1.0 + 0.65 * _CabinRain2.y * (1.0 - wind);
-                    float hB = max(Beads(q, 0.016, rainW * lerp(0.55, 0.25, wind) * dens, 1.7),
-                                   Beads(q, 0.028, rainW * lerp(0.35, 0.15, wind) * dens, 9.3));
-                    if (_CabinRain2.y > 0.5) hB = max(hB, Beads(q, 0.0085, rainW * 0.62 * (1.0 - wind), 5.9) * 0.8);
+                    // (and the WINDSCREEN's beads are drawn 1.6 x life size: it
+                    // stands a full arm from the eye, where a 4 mm bead is three
+                    // pixels of a 1080-line frame and the pane reads as grain)
+                    float bs = 1.0 + 0.6 * _CabinRain2.y * step(0.001, _Wiper.w);
+                    float hB = max(Beads(q, 0.016 * bs, rainW * lerp(0.55, 0.25, wind) * dens, 1.7),
+                                   Beads(q, 0.028 * bs, rainW * lerp(0.35, 0.15, wind) * dens, 9.3));
+                    if (_CabinRain2.y > 0.5) hB = max(hB, Beads(q, 0.0085 * bs, rainW * 0.62 * (1.0 - wind), 5.9) * 0.8);
                     float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rainW * 0.45 * dens, 4.1, 0.0) * (1.0 - wind);
                     float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rainW * 0.75, 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
@@ -262,7 +266,9 @@ Shader "PSX/CabinGlass"
                         dpx += wob * (R2G_WOBBLE * px1080 * sheet);
                         float wetA = saturate(max(cover, sheet));
                         float2 suv = (i.pos.xy + dpx) / _ScreenParams.xy;
-                        through = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb * (wetA * (1.0 - 0.45 * edge * cover));
+                        // (a bead gathers light: brighter in its middle, dark at its rim)
+                        through = tex2Dlod(_PSXSSRColour, float4(suv, 0.0, 0.0)).rgb
+                                * (wetA * (1.0 - 0.45 * edge * cover) * (1.0 + 0.5 * smoothstep(0.45, 0.95, hgt)));
                         dropA = wetA;
                         dropC = cover * (sky * 0.05 + ambient * 0.03) * (1.0 - edge)
                               + glint * (sky * 0.5 + _PSXLightColor.rgb * 0.35 * day + lamp * 1.5);

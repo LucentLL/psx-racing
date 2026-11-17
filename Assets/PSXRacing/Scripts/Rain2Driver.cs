@@ -8,7 +8,7 @@ namespace PSXRacing
     /// the shaders how hard it is raining and how much water stands, and while
     /// rain falls it keeps THE GROUND ROUND THE CAMERA:
     ///
-    /// PROBES. A few rays a frame (six on a PC, two on a phone) come straight
+    /// PROBES. A few rays a frame (four on a PC, two on a phone) come straight
     /// down on random points round where the camera is looking, and from each
     /// landing point one goes straight up. That gives, for nothing baked:
     /// <list type="bullet">
@@ -50,7 +50,7 @@ namespace PSXRacing
         }
 
         // ---- per tier -------------------------------------------------------
-        static int ProbesFor(Rain2.Tier t) => t == Rain2.Tier.High ? 6 : t == Rain2.Tier.Low ? 4 : 2;
+        static int ProbesFor(Rain2.Tier t) => t == Rain2.Tier.High ? 4 : t == Rain2.Tier.Low ? 3 : 2;
         static float CrownRateFor(Rain2.Tier t) => t == Rain2.Tier.High ? 700f : t == Rain2.Tier.Low ? 350f : 150f;
         static float RingRateFor(Rain2.Tier t) => t == Rain2.Tier.High ? 450f : t == Rain2.Tier.Low ? 220f : 0f;
         const int CrownCap = 256, RingCap = 256;
@@ -145,6 +145,7 @@ namespace PSXRacing
             long dt = System.Diagnostics.Stopwatch.GetTimestamp() - t0;
             Rain2.DriverTicks += dt;
             if (dt > Rain2.DriverMaxTicks) Rain2.DriverMaxTicks = dt;
+            if (dt * 1000 > System.Diagnostics.Stopwatch.Frequency) Rain2.DriverOver1ms++;
             Rain2.DriverAlloc += Rain2.AllocSince(a0);
             Rain2.DriverFrames++;
         }

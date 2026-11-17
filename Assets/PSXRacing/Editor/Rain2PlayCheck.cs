@@ -318,7 +318,7 @@ namespace PSXRacing.EditorTools
             Rain2PlayCheck.Line($"COUNTS: damp-trail pieces laid by the player's tyres {laid}; puddle hits by the player's wheels {hits}; wiper strokes total {CockpitInterior.WiperStrokes - strokes0}; " +
                                 $"audio gains max (road, roof, hiss) {gains.x:0.00} {gains.y:0.00} {gains.z:0.00}");
             Rain2PlayCheck.Line($"CPU (this run's own meter, {frames} frames): driver {Rain2.DriverTicks * toMs / frames:0.000} ms/frame avg, worst {Rain2.DriverMaxTicks * toMs:0.000} ms, " +
-                                $"alloc {Rain2.DriverAlloc} B; audio {Rain2.AudioTicks * toMs / frames:0.000} ms/frame, alloc {Rain2.AudioAlloc} B; " +
+                                $"{Rain2.DriverOver1ms} frames over 1 ms, alloc {Rain2.DriverAlloc} B; audio {Rain2.AudioTicks * toMs / frames:0.000} ms/frame, alloc {Rain2.AudioAlloc} B; " +
                                 $"tyre spray (all {(frames > 0 ? Rain2.SprayCalls / frames : 0)} cars) {Rain2.SprayTicks * toMs / frames:0.000} ms/frame, worst one car {Rain2.SprayMaxTicks * toMs:0.000} ms, alloc {Rain2.SprayAlloc} B; " +
                                 $"gen-0 collections in the run {System.GC.CollectionCount(0) - gc0}");
             if (Rain2.On)
@@ -333,7 +333,11 @@ namespace PSXRacing.EditorTools
                 Rain2PlayCheck.Check(hits > 0, "a wheel ran through standing water (and threw its burst)", hits);
                 Rain2PlayCheck.Check(Rain2.DriverAlloc == 0 && Rain2.AudioAlloc <= 4_000_000, "the driver allocates nothing per frame; the audio only its clips, once",
                                      Rain2.DriverAlloc + " / " + Rain2.AudioAlloc);
-                Rain2PlayCheck.Check(Rain2.DriverMaxTicks * toMs < 2.0, "no CPU spike from the driver (worst frame under 2 ms)", (Rain2.DriverMaxTicks * toMs).ToString("0.000"));
+                // (its two particle systems are built once, on the first rainy frame: that frame and a
+                // pre-empted one or two are allowed; a spike every few seconds is not)
+                Rain2PlayCheck.Check(Rain2.DriverOver1ms <= 4 && Rain2.DriverTicks * toMs / frames < 0.35,
+                                     "no CPU spikes from the driver (at most 4 frames over 1 ms in the whole drive; under 0.35 ms a frame on average)",
+                                     Rain2.DriverOver1ms + " frames over 1 ms, worst " + (Rain2.DriverMaxTicks * toMs).ToString("0.000") + " ms");
             }
             else
             {

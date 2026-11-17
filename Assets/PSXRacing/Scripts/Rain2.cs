@@ -93,7 +93,7 @@ namespace PSXRacing
         /// and managed allocation here. Off (the game): two branches a frame.</summary>
         public static bool Measure;
         public static long DriverTicks, DriverMaxTicks, DriverAlloc, AudioTicks, AudioAlloc, SprayTicks, SprayMaxTicks, SprayAlloc;
-        public static int DriverFrames, SprayCalls;
+        public static int DriverFrames, SprayCalls, DriverOver1ms;
         /// <summary>The managed allocation counter the meter reads: the thread's
         /// own count where the runtime keeps one, else the heap in use (the
         /// editor's Mono keeps none; a collection between two reads then shows
@@ -108,7 +108,7 @@ namespace PSXRacing
         public static void MeterReset()
         {
             DriverTicks = DriverMaxTicks = DriverAlloc = AudioTicks = AudioAlloc = SprayTicks = SprayMaxTicks = SprayAlloc = 0;
-            DriverFrames = SprayCalls = 0;
+            DriverFrames = SprayCalls = DriverOver1ms = 0;
         }
 
         // ---- what the shaders read ----------------------------------------
