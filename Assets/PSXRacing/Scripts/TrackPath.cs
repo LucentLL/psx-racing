@@ -68,6 +68,8 @@ namespace PSXRacing
         /// <see cref="roadWidth"/>). Null on every other path, so fixed-line races are unchanged. Never serialized:
         /// built at runtime, never in a scene.</summary>
         [System.NonSerialized] public int[] edgeAt;
+        /// <summary>+1: the plan drives edgeAt[i] a->b, -1 b->a.</summary>
+        [System.NonSerialized] public sbyte[] dirAt;
         [System.NonSerialized] public float[] sAt;
         /// <summary>Metres from the waypoint to the pavement edge, left and right of the travel direction.</summary>
         [System.NonSerialized] public float[] halfL, halfR;

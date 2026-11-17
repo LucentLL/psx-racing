@@ -23,7 +23,7 @@ namespace PSXRacing
 
         static readonly List<Vector2> pts = new List<Vector2>(8192);
         static readonly List<float> ys = new List<float>(8192), arcs = new List<float>(8192), rawS = new List<float>(8192);
-        static readonly List<int> rawE = new List<int>(8192), joinIdx = new List<int>(256);
+        static readonly List<int> rawE = new List<int>(8192), rawD = new List<int>(8192), joinIdx = new List<int>(256);
         static readonly List<float> joinTurn = new List<float>(256);
         static readonly List<float> marks = new List<float>(256);
 
@@ -36,7 +36,7 @@ namespace PSXRacing
         public static bool Build(CityMap map, List<Piece> pieces, TrackPath into, float roadWidthForCompat)
         {
             if (map == null || pieces == null || pieces.Count == 0 || into == null) return false;
-            pts.Clear(); ys.Clear(); arcs.Clear(); rawE.Clear(); rawS.Clear(); joinIdx.Clear(); joinTurn.Clear();
+            pts.Clear(); ys.Clear(); arcs.Clear(); rawE.Clear(); rawD.Clear(); rawS.Clear(); joinIdx.Clear(); joinTurn.Clear();
             float acc = 0f;
             Vector2 lastDir = Vector2.zero;
             for (int k = 0; k < pieces.Count; k++)
@@ -75,7 +75,7 @@ namespace PSXRacing
                     var p = LineModel.LanePoint(e, sAt);
                     if (pts.Count > 0) acc += Vector2.Distance(pts[pts.Count - 1], p);
                     pts.Add(p); ys.Add(e.YAt(sAt)); arcs.Add(acc);
-                    rawE.Add(e.index); rawS.Add(sAt);
+                    rawE.Add(e.index); rawS.Add(sAt); rawD.Add(fwd ? 1 : -1);
                 }
                 Vector2 d1 = e.TangentAt(fwd ? hi : lo); if (!fwd) d1 = -d1;
                 lastDir = d1;
@@ -85,7 +85,7 @@ namespace PSXRacing
             float spacing = TrackCatalog.Spacing;
             int count = Mathf.Max(2, Mathf.FloorToInt(acc / spacing) + 1);
             var wps = new Vector3[count];
-            var edgeAt = new int[count]; var sAtW = new float[count];
+            var edgeAt = new int[count]; var sAtW = new float[count]; var dirAtW = new sbyte[count];
             var halfL = new float[count]; var halfR = new float[count];
             var oneWay = new bool[count]; var own = new float[count]; var junction = new bool[count];
             int seg = 0;
@@ -100,7 +100,7 @@ namespace PSXRacing
                 int ea = rawE[seg], eb = rawE[seg + 1];
                 int ei = t < 0.5f || ea == eb ? ea : eb;
                 float es = ea == eb ? Mathf.LerpUnclamped(rawS[seg], rawS[seg + 1], t) : (ei == ea ? rawS[seg] : rawS[seg + 1]);
-                edgeAt[i] = ei; sAtW[i] = es;
+                edgeAt[i] = ei; sAtW[i] = es; dirAtW[i] = (sbyte)(ei == ea ? rawD[seg] : rawD[seg + 1]);
             }
             // the facts under each waypoint, in the travel direction
             for (int i = 0; i < count; i++)
@@ -160,7 +160,7 @@ namespace PSXRacing
             into.reversed = false;
             into.bankL = null; into.bankR = null;
             into.gates = null;
-            into.edgeAt = edgeAt; into.sAt = sAtW;
+            into.edgeAt = edgeAt; into.sAt = sAtW; into.dirAt = dirAtW;
             into.halfL = halfL; into.halfR = halfR;
             into.oneWayAt = oneWay; into.ownLaneOff = own; into.junction = junction;
             return true;

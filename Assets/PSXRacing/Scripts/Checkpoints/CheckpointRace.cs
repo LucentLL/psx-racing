@@ -50,6 +50,9 @@ namespace PSXRacing
             public float halfW;     // the anchor carriageway's half width + 3 m (markers)
         }
         public GateRT[] gates;
+        /// <summary>Metres past each kerb a span still captures a car (design: 3; a car running wide on a loop ramp
+        /// went past a 3 m span in the first watched race).</summary>
+        const float CaptureM = 5f;
         CityRouter.Field[] met, cost;
         float[] legM;
         public float LapM { get; private set; }
@@ -81,6 +84,7 @@ namespace PSXRacing
             public bool wrongWay;
             public float lastRemGateSample; public float lastAdvanceTime;
             public int missedCount, slot;
+            public int prevSt = -1; public float prevT;
         }
         readonly Dictionary<CarController, CarCP> cars = new Dictionary<CarController, CarCP>();
         public CarCP Of(CarController c) => c != null && cars.TryGetValue(c, out var v) ? v : null;
@@ -154,7 +158,7 @@ namespace PSXRacing
                     spans.Add(new SpanRT
                     {
                         p = se.PointAt(sp.s), h = t, r = new Vector2(t.y, -t.x), y = y,
-                        l0 = -Mathf.Abs(leftExt) - 3f, l1 = Mathf.Abs(rightExt) + 3f,
+                        l0 = -Mathf.Abs(leftExt) - CaptureM, l1 = Mathf.Abs(rightExt) + CaptureM,
                         st = sp.e * 2 + (sp.d == 1 ? 0 : 1), g = sp.d == 1 ? sp.s : se.length - sp.s,
                     });
                 }
@@ -310,39 +314,61 @@ namespace PSXRacing
             c.odometer += Mathf.Abs(car.forwardSpeed) * Time.deltaTime;
 
             // a teleport (a respawn, TeleportTo, a reset) passes nothing
-            if ((pos - c.sweptFrom).sqrMagnitude > 30f * 30f) c.sweptFrom = pos;
+            if ((pos - c.sweptFrom).sqrMagnitude > 30f * 30f) { c.sweptFrom = pos; c.prevSt = -1; }
+
+            // ---- where the car is on the graph (its state and arc along it), for the ruler and the arc pass
+            float rg = RemainingToGate(c, pos);
+            int curSt = c.loc.valid && !c.loc.offGraph ? c.loc.edge * 2 + (c.loc.dir == 1 ? 0 : 1) : -1;
+            float curT = curSt >= 0 ? R.TOn(curSt, c.loc.s) : 0f;
+            // THE ARC PASS: the car's own road carried it over the gate's arc on a span's state this frame (the
+            // swept line test can miss a car running wide on a loop ramp; the watched race of 23:07, the Charger
+            // at the Wilkinson apex). Any direction on a two-way span, as the line test.
+            bool ArcPassed(int k, bool anchorOnly)
+            {
+                if (curSt < 0 || curSt != c.prevSt || curT - c.prevT > 30f) return false;
+                float g = met[k].seedG[curSt];
+                if (g < 0f) return false;
+                if (anchorOnly && curSt != gates[k].anchorSt) return false;
+                return c.prevT < g - 0.01f && curT >= g;
+            }
 
             // ---- the gates crossed this frame
             Vector3 a = c.sweptFrom, b = pos;
-            if ((b - a).sqrMagnitude > 1e-6f)
+            bool moved = (b - a).sqrMagnitude > 1e-6f;
+            // the lap line at the start (circuits): the first forward crossing starts the clock
+            if (Loop && !c.started && c.passedTotal == 0 && c.next == 1)
             {
-                // the lap line at the start (circuits): the first forward crossing starts the clock
-                if (Loop && !c.started && c.passedTotal == 0 && c.next == 1)
+                if ((moved && Crosses(gates[0], a, b, out bool fwd0) && fwd0) || ArcPassed(0, true))
+                { c.started = true; p.crossedStartOnce = true; p.lapStartTime = Time.time; }
+            }
+            else if (moved && Loop && c.started && c.passedTotal == 0 && c.next == 1 && Crosses(gates[0], a, b, out bool fwdB) && !fwdB)
+            { c.started = false; p.crossedStartOnce = false; p.lapStartTime = Time.time; }   // turned round over the line on lap 1
+            else if ((moved && Crosses(gates[c.next], a, b, out _)) || ArcPassed(c.next, false))
+            {
+                Pass(p, c);
+                if (!p.finished) rg = RemainingToGate(c, pos);
+            }
+            else if (moved)
+            {
+                // a later gate crossed while this one is pending: MISSED
+                for (int g = 0; g < GateCount; g++)
                 {
-                    if (Crosses(gates[0], a, b, out bool fwd0) && fwd0)
-                    { c.started = true; p.crossedStartOnce = true; p.lapStartTime = Time.time; }
-                }
-                else if (Loop && c.started && c.passedTotal == 0 && c.next == 1 && Crosses(gates[0], a, b, out bool fwdB) && !fwdB)
-                { c.started = false; p.crossedStartOnce = false; p.lapStartTime = Time.time; }   // turned round over the line on lap 1
-                else if (Crosses(gates[c.next], a, b, out _))
-                    Pass(p, c);
-                else
-                {
-                    // a later gate crossed while this one is pending: MISSED
-                    for (int g = 0; g < GateCount; g++)
-                    {
-                        if (g == c.next || (Loop && g == 0 && c.passedTotal == 0)) continue;
-                        int last = c.next == 0 ? GateCount - 1 : c.next - 1;
-                        if (g == last) continue;
-                        if (Crosses(gates[g], a, b, out bool fw) && fw) { RaiseMissed(c); break; }
-                    }
+                    if (g == c.next || (Loop && g == 0 && c.passedTotal == 0)) continue;
+                    int last = c.next == 0 ? GateCount - 1 : c.next - 1;
+                    if (g == last) continue;
+                    if (Crosses(gates[g], a, b, out bool fw) && fw) { RaiseMissed(c); break; }
                 }
             }
             c.sweptFrom = pos;
+            c.prevSt = curSt; c.prevT = curT;
             if (p.finished) return;
 
-            // ---- the ruler
-            float rg = RemainingToGate(c, pos);
+            // ---- the ruler (a frame with no finite answer - a car between graph states - keeps the last one)
+            if (float.IsInfinity(rg) || float.IsNaN(rg))
+            {
+                UpdateNearestIdx(p, pos);
+                return;
+            }
             c.remainingGate = rg;
             c.remaining = rg + LegsAfter(c);
             p.progress = TotalM - c.remaining;
@@ -403,8 +429,9 @@ namespace PSXRacing
                     int e = path.edgeAt[i];
                     var ed = map.edges[e];
                     Vector3 tan = path.GetTangent(i);
-                    var osmT = ed.TangentAt(path.sAt[i]);
-                    int dir = Vector2.Dot(osmT, new Vector2(tan.x, tan.z)) >= 0f ? 1 : -1;
+                    // the direction the plan drives this edge (RoutedPath's own; a corner waypoint's tangent can
+                    // point anywhere, and a one-way read backwards was an unreachable gate: the Infinity frames)
+                    int dir = path.dirAt != null ? path.dirAt[i] : 1;
                     float s = Mathf.Clamp(path.sAt[i] + dir * Vector3.Dot(pos - wp, tan), 0f, ed.length);
                     int st = e * 2 + (dir == 1 ? 0 : 1);
                     c.loc.valid = true; c.loc.offGraph = false; c.loc.edge = e; c.loc.s = s; c.loc.dir = dir;

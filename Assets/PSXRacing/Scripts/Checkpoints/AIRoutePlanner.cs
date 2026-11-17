@@ -180,7 +180,7 @@ namespace PSXRacing
                     int e = path.edgeAt[i];
                     var ed = R.map.edges[e];
                     Vector3 tan = path.GetTangent(i);
-                    int dir = Vector2.Dot(ed.TangentAt(path.sAt[i]), new Vector2(tan.x, tan.z)) >= 0f ? 1 : -1;
+                    int dir = path.dirAt != null ? path.dirAt[i] : (Vector2.Dot(ed.TangentAt(path.sAt[i]), new Vector2(tan.x, tan.z)) >= 0f ? 1 : -1);
                     float s = Mathf.Clamp(path.sAt[i] + dir * Vector3.Dot(pos - wp, tan), 0f, ed.length);
                     st = e * 2 + (dir == 1 ? 0 : 1);
                     if (!R.legal[st]) { st ^= 1; dir = -dir; }
