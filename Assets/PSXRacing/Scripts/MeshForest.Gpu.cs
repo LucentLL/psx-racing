@@ -345,6 +345,21 @@ namespace PSXRacing
             return sb.ToString();
         }
 
+        /// <summary>The other cameras' lists (mirrors, reflection faces) as the last cull filled them: far cards in
+        /// all, and chunks by flag (0 cards, 1 near, 2 far, 3 out of the cone for the other cameras).</summary>
+        public string DebugOther(out long farCards)
+        {
+            farCards = 0;
+            if (!UseGpu || cmds == null) return "";
+            var counts = new uint[bucketCount];
+            countBuf.GetData(counts);
+            for (int c = mainCmds; c < cmds.Length; c++)
+                if (cmds[c].sub == 0) farCards += System.Math.Min(counts[cmds[c].bucket], (uint)int.MaxValue);
+            var nf = new int[4];
+            if (chunkFlag != null) for (int ci = 0; ci < chunks.Length; ci++) nf[System.Math.Min(3, (int)chunkFlag[ci])]++;
+            return $"chunks: cards {nf[0]}, near {nf[1]}, far {nf[2]}, out of the cone for the other cameras {nf[3]}";
+        }
+
         /// <summary>Which chunks show their cards: how many, and a hash of the set.</summary>
         public string DebugCards()
         {
@@ -737,7 +752,9 @@ namespace PSXRacing
                         var pn = planes[k].normal;
                         if (pn.x * wc.x + pn.y * wc.y + pn.z * wc.z + planes[k].distance < -rad * (Mathf.Abs(pn.x) + Mathf.Abs(pn.y) + Mathf.Abs(pn.z))) { draw = false; break; }
                     }
-                uint f = !draw ? 0u : dist - rad >= meshRange ? 2u : 1u;
+                // (3, RingOn: out of the cone but within otherRange - its trees' far cards for the other cameras
+                // alone, its cards hidden: the mirrors show the trees, not the old cards)
+                uint f = draw ? (dist - rad >= meshRange ? 2u : 1u) : RingOn && dist - rad < otherRange ? 3u : 0u;
                 // (a streamed forest's tiles may stand their cards up again on their own: held every frame)
                 if (pooled) SetCards(chunks[ci], f == 0);
                 if (!cardsKnown || f != chunkFlag[ci])
@@ -746,7 +763,7 @@ namespace PSXRacing
                     chunkFlag[ci] = f;
                     dirty = true;
                 }
-                if (f == 0) continue;
+                if (f == 0 || f == 3) continue;
                 ulong lo = chunkMaskLo[ci], hi = chunkMaskHi[ci];
                 if (f == 2) { reachLo[3] |= lo; reachHi[3] |= hi; continue; }
                 float dmin = dist - rad, dmax = dist + rad;

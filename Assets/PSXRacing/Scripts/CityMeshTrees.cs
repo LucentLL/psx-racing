@@ -564,6 +564,38 @@ namespace PSXRacing.City
         /// <summary>The forest made again (new distances or FOREST DETAIL),
         /// every fitted tile refilled.</summary>
         public void Rebuild() { MakeForest(forest != null ? forest.PoolSlots : FirstSlots); Flush(); }
+
+        /// <summary>COST TOOLS (tree-cost round, 2026-11-17): a SECOND pooled forest beside this one, made with
+        /// the switches as they stand now and filled with every fitted tile's plants and the same card renderers -
+        /// so an edit-mode A/B swaps two standing forests (SetActive) instead of rebuilding one each round (a
+        /// rebuild a round drifted the editor's frame by a millisecond a round). The caller owns it: destroy it,
+        /// and draw only one of the two at a time (they share the tiles' cards).</summary>
+        public MeshForest TwinForest()
+        {
+            if (forest == null || kit == null) return null;
+            float l0 = kit.lod0To, l1 = kit.lod1To, mr = kit.meshRange, fr = kit.farRange;
+            if (LodOverride.x > 0f) { l0 = LodOverride.x; l1 = LodOverride.y; mr = LodOverride.z; }
+            var twin = MeshForest.CreatePool(null, kit.variants, forest.PoolSlots, PerSlot, l0, l1, mr, fr, CityTrees.DressNow, kit.cull,
+                                             LodFade ? LodFadeShare : -1f);
+            if (twin == null) return null;
+            twin.gameObject.name = "CityMeshForest (twin)";
+            foreach (var kv in slotOf)
+            {
+                if (!plantsOf.TryGetValue(kv.Key, out var plants) || plants.Count == 0) continue;
+                int tx = (int)(kv.Key >> 24), tz = (int)((kv.Key << 40) >> 40);
+                var tile = world.transform.Find("Tile_" + tx + "_" + tz);
+                if (tile == null) continue;
+                var cardT = tile.Find("Trees");
+                var cards = cardT != null ? cardT.GetComponents<Renderer>() : null;
+                var c = new Vector3((tx + 0.5f) * CityMeshes.TileSize, 0f, (tz + 0.5f) * CityMeshes.TileSize);
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var p in plants) { lo = Mathf.Min(lo, p.pos.y); hi = Mathf.Max(hi, p.pos.y + kit.variants[p.variant].height * p.scale); }
+                c.y = (lo + hi) * 0.5f;
+                float rad = Mathf.Sqrt(2f) * CityMeshes.TileSize * 0.5f + 20f + (hi - lo) * 0.5f;
+                if (twin.PoolFill(c, rad, cards, plants, out _) < 0) break;
+            }
+            return twin;
+        }
         public MeshForest Forest => forest;
         public int LiveTiles => slotOf.Count;
 

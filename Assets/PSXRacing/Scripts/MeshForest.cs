@@ -220,6 +220,10 @@ namespace PSXRacing
         /// perf tour's ab=MeshForest.TreeMatch:0 before the stage loads): the
         /// pack's sheets as before.</summary>
         public static bool TreeMatch = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH") != "0";
+        /// <summary>The tree match's far levels for the species that had none (Charlotte's young trees and crape
+        /// myrtle stand-ins: they thinned out and ended at the mesh range). PSX_TM_NEWFAR=0 (the cost tools'
+        /// decomposition): they keep none.</summary>
+        public static bool NewFarLevels = System.Environment.GetEnvironmentVariable("PSX_TM_NEWFAR") != "0";
         /// <summary>THE STAGES' HAND-OVER BANDS as a share of each level's
         /// distance (the city's pool has its own: CityMeshTrees.LodFadeShare).
         /// The 11-11 lag-pair round found wider bands no help on a stage - with
@@ -264,6 +268,8 @@ namespace PSXRacing
                 for (int v = 0; v < variants.Length; v++)
                 {
                     if (variants[v] == null || !variants[v].HasMatch) continue;
+                    // (cost tools, PSX_TM_NEWFAR=0: a species that had no far level keeps none)
+                    if (!NewFarLevels && (variants[v].lods.Length < 4 || variants[v].lods[3] == null)) continue;
                     mine ??= (Variant[])variants.Clone();
                     mine[v] = variants[v].WithMatch();
                     sameOrigin[v] = true;
@@ -300,6 +306,16 @@ namespace PSXRacing
             band0 = Mathf.Min(band0, lod0To * 0.6f);
             band1 = Mathf.Min(band1, (lod1To - lod0To) * 0.9f);
             band2 = Mathf.Min(band2, (meshRange - lod1To) * 0.9f);
+            // THE FAR RING AND THE MIRRORS IN THE TREES' OWN FAR CARDS (MatchCardsOn): the far range - the chunk
+            // pass's, each canopy species' draw limit and the far cards' dissolve - moves out to the ring, and a
+            // chunk out of the view's cone within otherRange feeds the other cameras' list (GpuFrame, flag 3)
+            RingOn = TreeMatch && MatchCardsOn && MatchCount > 0 && GpuDriven;
+            atlasOn = TreeMatch && MatchCardsOn && MatchCount > 0;
+            if (RingOn)
+            {
+                farRange = Mathf.Max(farRange, pooled ? CityRingM : StageRingM);
+                otherRange = Mathf.Min(OtherRangeM, Mathf.Max(farRange, meshRange));
+            }
             matsNow = new Material[variants.Length][];
             impNow = new Material[variants.Length];
             maxD2 = new float[variants.Length];
@@ -439,6 +455,16 @@ namespace PSXRacing
             Draw(cam);
         }
 
+        /// <summary>Edit-mode shots (the tree-cost round's mirror check): what an OTHER camera - a mirror, a
+        /// reflection face - draws of this forest after the main view's cull (DrawNow), queued for
+        /// <paramref name="cam"/>'s next render. Edit mode has no camera hook (OnEnable's), so a tool asks.</summary>
+        public void DrawOtherNow(Camera cam)
+        {
+            if (cam == null || !MeshTreesOn) return;
+            if (UseGpu) GpuOtherCamera(cam);
+            else OtherCameraLegacy(cam);
+        }
+
         /// <summary>Edit-mode shots: the old cards everywhere.</summary>
         public void CardsNow()
         {
@@ -574,8 +600,37 @@ namespace PSXRacing
         /// cover fell to 0.3-0.4 of the mesh trees' in winter and 0.4-0.7 in fall (the retro cards: 0.9-1.1). A
         /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
         /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
-        /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
-        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
+        /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.
+        /// TREE-COST ROUND (2026-11-17): PSX_TREE_MATCH_CARDS now means THE FAR RING AND THE MIRRORS IN THE TREES'
+        /// OWN FAR CARDS (<see cref="RingOn"/>): where the cards stood in for the trees - past the far range and out
+        /// of the view's cone - the forest draws each tree's own far card instead (its own size, picture, dress,
+        /// colour and far growth: the same draw as inside the range), so no card needs re-sizing, re-baking or a
+        /// scene pass. The cards that are left (past <see cref="StageRingM"/>, a mirror's view past
+        /// <see cref="OtherRangeM"/>, F8) wear the kit's atlas as above. "0": the retro billboards as before.</summary>
+        public static bool MatchCardsOn = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        /// <summary>THE FAR RING on a stage: its far cards drawn to this distance (m) when <see cref="RingOn"/>, in
+        /// place of the B cards past the far range. 0 (the default): the far range as it is - on the PC profile the
+        /// stage camera ends every layer but the land at the far ground's edge (StageCulling: 2240 m on NC 226A, the
+        /// detail fade from 1980 m), so past the 2.2 km far range no B card is drawn in the view at all; the land's
+        /// far canopy is the forest there. PSX_TM_RING_M.</summary>
+        public static float StageRingM = EnvM("PSX_TM_RING_M", 0f);
+        /// <summary>...and a city pool's (the live tiles: 9 x 9 of 256 m, corners at 1.63 km; CityFar's own far
+        /// trees beyond). PSX_TM_CITYRING_M.</summary>
+        public static float CityRingM = EnvM("PSX_TM_CITYRING_M", 2000f);
+        /// <summary>THE MIRRORS: a chunk out of the view's cone this near (m, its nearest point) puts its trees'
+        /// far cards in the other cameras' list (the mirrors, the paint's reflection faces) and hides its cards;
+        /// past it the cards stand, as before. PSX_TM_OTHER_M.</summary>
+        public static float OtherRangeM = EnvM("PSX_TM_OTHER_M", 1200f);
+        static float EnvM(string k, float d)
+        {
+            var s = System.Environment.GetEnvironmentVariable(k);
+            return s != null && float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) && f >= 0f ? f : d;
+        }
+        /// <summary>This forest draws the far ring and the mirrors in its trees' own far cards (Init: the tree
+        /// match on, <see cref="MatchCardsOn"/>, and at least one species with a match card).</summary>
+        public bool RingOn { get; private set; }
+        float otherRange;
+        bool atlasOn;
         /// <summary>The B cards' light normal (PSX/Lit _PSXCrownCard), as Charlotte's tile cards take it.</summary>
         static readonly Vector2 BCardLight = new Vector2(0.32f, 0.4f);
         /// <summary>The B cards' albedo gain over the kit atlas: MEASURED (stcards226A / stcardsLSA, 2026-11-17: the
@@ -594,7 +649,8 @@ namespace PSXRacing
 
         void MatchBCards(int di)
         {
-            if (di == bCardDress || pooled || !TreeMatch || !MatchCardsOn || chunks == null || matchCardAtlas == null || matchCardAtlas.Length < 5) return;
+            // (this forest's own switch, taken at Init: two forests of one process - the cost tools' A/B - may differ)
+            if (di == bCardDress || pooled || !atlasOn || chunks == null || matchCardAtlas == null || matchCardAtlas.Length < 5) return;
             if (bCardR == null)
             {
                 var rs = new System.Collections.Generic.List<Renderer>();

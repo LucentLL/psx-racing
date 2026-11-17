@@ -42,7 +42,7 @@ struct DrawArgs
 StructuredBuffer<float4> _ForestMat;      // 3 rows a plant (object to world), then the impostors' own
 StructuredBuffer<uint2> _ForestMeta;      // x: species | chunk << 10, y: its impostor's matrix (entry index)
 StructuredBuffer<VarInfo> _ForestVar;
-StructuredBuffer<uint> _ForestChunk;      // per chunk: 0 not drawn, 1 near (by plant), 2 far (canopy impostors)
+StructuredBuffer<uint> _ForestChunk;      // per chunk: 0 not drawn, 1 near (by plant), 2 far (canopy impostors), 3 out of the cone (canopy for the other cameras only)
 StructuredBuffer<uint2> _ForestBucket;    // per list: first slot, slots
 StructuredBuffer<uint> _ForestCmdBucket;  // per draw command: its list
 RWStructuredBuffer<uint> _ForestCount;    // per list
@@ -107,12 +107,16 @@ void Cull(uint3 id : SV_DispatchThreadID)
     if (cf == 0) return;
     VarInfo vi = _ForestVar[meta.x & 1023];
     uint flags = (uint)vi.misc.y;
-    if (cf == 2 && (flags & 8) == 0) return;
+    if (cf >= 2 && (flags & 8) == 0) return;
 
     float4 r0 = _ForestMat[i * 3], r1 = _ForestMat[i * 3 + 1], r2 = _ForestMat[i * 3 + 2];
     float3 dv = float3(r0.w, r1.w, r2.w) - _ForestCam.xyz;
     float d2 = dot(dv, dv);
     if (d2 > vi.a.x) return;
+
+    // a chunk OUT OF THE VIEW'S CONE (MeshForest.RingOn, flag 3): its canopy for the other cameras alone -
+    // the mirrors' trees behind the car as their own far cards, not the old cards
+    if (cf == 3) { Emit(vi.misc.x, meta.y); return; }
 
     float sc = sqrt(max(dot(float3(r0.x, r1.x, r2.x), float3(r0.x, r1.x, r2.x)),
                     max(dot(float3(r0.y, r1.y, r2.y), float3(r0.y, r1.y, r2.y)),

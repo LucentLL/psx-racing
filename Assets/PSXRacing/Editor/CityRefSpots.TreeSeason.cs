@@ -145,6 +145,7 @@ namespace PSXRacing.EditorTools
             var log = new StringBuilder($"TREE MATCH COST Charlotte ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}\n");
             int code = 0;
             bool keepMatch = MeshForest.TreeMatch;
+            var restoreKnobs = TreeMatchAudit.RunKnobs();
             try
             {
                 System.Environment.SetEnvironmentVariable("PSX_PC_CONTENT", "1");
@@ -182,17 +183,48 @@ namespace PSXRacing.EditorTools
                     mt.Rebuild();
                     FeetLight(sun, dressing, world);
                     SetDress(dressing, world, dress);
-                    cam.transform.SetPositionAndRotation(eye - f * 150f, Quaternion.LookRotation(f + Vector3.down * 0.03f));
-                    log.Append(TreeMatchAudit.CostAB(cam, Mode, rounds, $"Charlotte {pid} {Seasons.DressNames[dress]}, driver's eye 150 m short"));
-                    cam.transform.SetPositionAndRotation(eye + Vector3.up * 60f, Quaternion.LookRotation((f + Vector3.down * 0.16f).normalized));
-                    log.Append(TreeMatchAudit.CostAB(cam, Mode, rounds, $"Charlotte {pid} {Seasons.DressNames[dress]}, 60 m over the road"));
+                    // (tree-cost round: TWO STANDING FORESTS swapped by SetActive - A with the packs' far sheets, B with
+                    // the switches under test - not one forest rebuilt every round, which drifted the editor's frame
+                    // by a millisecond a round. PSX_TM_TWIN=0: the rebuild as before. PSX_TM_CONTROL=1: B without the match.)
+                    System.Func<int, MeshForest> mode = Mode;
+                    MeshForest twinB = null, fA = null;
+                    if (TsEnv("PSX_TM_TWIN", "1") != "0")
+                    {
+                        bool control = TsEnv("PSX_TM_CONTROL", "0") == "1";
+                        // (PSX_TM_AB: match = packs v tree match without the ring; ring = tree match without v with the ring
+                        // and mirrors in the trees' own far cards; full = packs v tree match with the ring)
+                        string abMode = TsEnv("PSX_TM_AB", "match");
+                        bool ringAB = abMode == "ring", fullAB = abMode == "full";
+                        bool keepCards = MeshForest.MatchCardsOn;
+                        MeshForest.TreeMatch = ringAB; MeshForest.MatchCardsOn = false; mt.Rebuild(); fA = mt.Forest;
+                        MeshForest.TreeMatch = ringAB || !control; MeshForest.MatchCardsOn = (ringAB || fullAB) && !control; twinB = mt.TwinForest();
+                        MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards;
+                        if (fA != null && twinB != null)
+                        {
+                            log.Append($"  (two forests [{abMode}]: A {fA.MatchCount} match species, ring {fA.RingOn}, far {fA.farRange:0} m; B {twinB.MatchCount}, ring {twinB.RingOn}, far {twinB.farRange:0} m{(control ? " - CONTROL" : "")})\n");
+                            var a = fA; var b = twinB;
+                            mode = m => { a.gameObject.SetActive(m == 0); b.gameObject.SetActive(m == 1); return m == 0 ? a : b; };
+                        }
+                    }
+                    try
+                    {
+                        cam.transform.SetPositionAndRotation(eye - f * 150f, Quaternion.LookRotation(f + Vector3.down * 0.03f));
+                        log.Append(TreeMatchAudit.CostAB(cam, mode, rounds, $"Charlotte {pid} {Seasons.DressNames[dress]}, driver's eye 150 m short"));
+                        cam.transform.SetPositionAndRotation(eye + Vector3.up * 60f, Quaternion.LookRotation((f + Vector3.down * 0.16f).normalized));
+                        log.Append(TreeMatchAudit.CostAB(cam, mode, rounds, $"Charlotte {pid} {Seasons.DressNames[dress]}, 60 m over the road"));
+                    }
+                    finally
+                    {
+                        if (twinB != null) Object.DestroyImmediate(twinB.gameObject);
+                        if (fA != null) fA.gameObject.SetActive(true);
+                    }
                 }
                 log.Append("TREE MATCH COST OK\n");
             }
             catch (System.Exception ex) { log.Append("TREE MATCH COST FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
             finally
             {
-                MeshForest.TreeMatch = keepMatch;
+                MeshForest.TreeMatch = keepMatch; restoreKnobs();
                 ForestDetailPrefs.Override = -1;
                 MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_cost.txt"), log.ToString());
@@ -275,6 +307,192 @@ namespace PSXRacing.EditorTools
                 MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
                 File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_cards.txt"), log.ToString());
                 Debug.Log("[TreeCards]\n" + log);
+            }
+            if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
+        }
+
+        /// <summary>
+        /// CHARLOTTE'S FAR RING AND MIRRORS (tree-cost round, 2026-11-17): two standing pooled forests over the same
+        /// tiles, both with the tree match - A with the tiles' cards where the forest does not draw (PSX_TREE_MATCH_CARDS
+        /// off: past the 1.2 km far range, out of the view's cone), B with the trees' own far cards there
+        /// (MeshForest.RingOn: the far range out to the live ring, the out-of-cone tiles' trees in the other cameras'
+        /// list) - each dress:
+        ///   MIRROR: the driver's eye 150 m short of the place looking BACK, as an OTHER camera after the forward cull,
+        ///     against the TRUTH (the same camera as the main view);
+        ///   FAR RING: 60 m over the road with the near clip at 1.2 km (only what stands past the old far range), A
+        ///     against B; the full view shot too;
+        ///   the mirror camera's render time, A against B.
+        ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunCityRing   PSX_TM_TAG  PSX_TM_PLACES  PSX_TM_DRESSES
+        /// Output: Screenshots/treeseason/&lt;tag&gt;/ring_Charlotte_&lt;place&gt;_&lt;DRESS&gt;_*.png, treeseason_&lt;tag&gt;_Charlotte_ring.txt
+        /// </summary>
+        public static void RunCityRing()
+        {
+            string tag = TsEnv("PSX_TM_TAG", "ring");
+            string root = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "treeseason");
+            Directory.CreateDirectory(Path.Combine(root, tag));
+            var log = new StringBuilder($"TREE FAR RING AND MIRRORS Charlotte ({tag}) {System.DateTime.Now:yyyy-MM-dd HH:mm}\n");
+            int code = 0;
+            bool keepMatch = MeshForest.TreeMatch, keepCards = MeshForest.MatchCardsOn;
+            var restoreKnobs = TreeMatchAudit.RunKnobs();
+            GameObject rearGo = null;
+            RenderTexture fwdRt = null, rearRt = null;
+            MeshForest twinB = null, fA = null;
+            try
+            {
+                System.Environment.SetEnvironmentVariable("PSX_PC_CONTENT", "1");
+                var def = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
+                if (def.id != "Charlotte" || !PSXScreenshotTool.Open(def, out var cam, out var player)) throw new System.Exception("Charlotte did not open");
+                var world = Object.FindAnyObjectByType<CityWorld>();
+                var map = CityMap.Get();
+                if (world == null || map == null) throw new System.Exception("no CityWorld / city data");
+                var sun = NightLookShots.FindSun();
+                var dressing = Object.FindAnyObjectByType<SeasonDress>();
+                if (player != null) player.SetActive(false);
+                CityMeshTrees.ResetCounts();
+                ForestDetailPrefs.Override = 1;
+                var mt = CityMeshTrees.EnsureFor(world);
+                if (mt == null) throw new System.Exception("CityMeshTrees did not start (kit / GPU)");
+                cam.aspect = 16f / 9f;
+                rearGo = new GameObject("TreeCostMirror") { hideFlags = HideFlags.HideAndDontSave };
+                var rear = rearGo.AddComponent<Camera>();
+                rear.CopyFrom(cam);
+                rear.enabled = false;
+                rear.fieldOfView = float.Parse(TsEnv("PSX_TM_MIRRORFOV", "40"), CultureInfo.InvariantCulture);
+                rear.aspect = 16f / 9f;
+                fwdRt = new RenderTexture(320, 180, 24, RenderTextureFormat.ARGB32);
+                rearRt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32);
+                var px = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                var keepTarget = cam.targetTexture;
+                void Forward(MeshForest f) { f.DrawNow(cam, true); cam.targetTexture = fwdRt; cam.Render(); cam.targetTexture = keepTarget; }
+                int rounds = int.Parse(TsEnv("PSX_TM_ROUNDS", "4"), CultureInfo.InvariantCulture);
+                foreach (var pid in TsEnv("PSX_TM_PLACES", "arterial").Split(','))
+                {
+                    int pi = System.Array.FindIndex(T3Places, q => q.id == pid);
+                    if (pi < 0) { log.Append(pid + ": no such place\n"); continue; }
+                    var pl = T3Places[pi];
+                    CityMap.Edge e; float s; bool named = true;
+                    if (pl.onewayOnly) { if (!T3SnapOneway(map, LL(pl.lat, pl.lon), pl.roads[0], pl.hdg, out e, out s)) { log.Append(pid + ": no divided piece\n"); continue; } }
+                    else if (!CtSnap(map, LL(pl.lat, pl.lon), pl.roads, out e, out s, out named)) { log.Append(pid + ": no road near\n"); continue; }
+                    var p0 = e.PointAt(s);
+                    var anchor = new Vector3(p0.x, e.YAt(s), p0.y);
+                    world.DropAll(); mt.Flush();
+                    world.EnsureRing(anchor, 2); mt.Flush();
+                    var cp = new CtPlace { id = pl.id, lat = pl.lat, lon = pl.lon, roads = pl.roads, hdg = pl.hdg, kind = pl.kind, what = pl.what };
+                    if (!CtPose(cp, map, mt, e, s, out var eye, out var fwd, out _, out string how)) { log.Append($"{pid}: no pose ({how})\n"); continue; }
+                    var fdir = new Vector3(fwd.x, 0f, fwd.z).normalized;
+                    world.EnsureRing(eye, int.Parse(TsEnv("PSX_TM_RING", "4"), CultureInfo.InvariantCulture)); mt.Flush();
+                    MeshForest.TreeMatch = true; MeshForest.MatchCardsOn = false; mt.Rebuild(); fA = mt.Forest;
+                    MeshForest.MatchCardsOn = true; twinB = mt.TwinForest();
+                    MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards;
+                    if (fA == null || twinB == null) throw new System.Exception("no twin forest");
+                    log.Append($"  {pid}: A ring {fA.RingOn}, far {fA.farRange:0} m; B ring {twinB.RingOn}, far {twinB.farRange:0} m, other cameras' trees to {MeshForest.OtherRangeM:0} m; live tiles {mt.LiveTiles}\n");
+                    var a = fA; var b = twinB;
+                    MeshForest Mode(int m) { a.gameObject.SetActive(m == 0); b.gameObject.SetActive(m == 1); return m == 0 ? a : b; }
+                    var eyeD = eye - fdir * 150f;
+                    var rotF = Quaternion.LookRotation((fdir + Vector3.down * 0.03f).normalized);
+                    var rotR = Quaternion.LookRotation((-fdir + Vector3.down * 0.03f).normalized);
+                    var posV = eye + Vector3.up * 60f;
+                    var rotV = Quaternion.LookRotation((fdir + Vector3.down * 0.06f).normalized);
+                    foreach (var ds in TsEnv("PSX_TM_DRESSES", "0,3").Split(','))
+                    {
+                        if (!int.TryParse(ds.Trim(), out int dress) || dress < 0 || dress >= Seasons.DressCount) continue;
+                        string dn = Seasons.DressNames[dress];
+                        FeetLight(sun, dressing, world);
+                        SetDress(dressing, world, dress);
+                        MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
+                        // MIRROR
+                        cam.transform.SetPositionAndRotation(eyeD, rotF);
+                        rear.transform.SetPositionAndRotation(eyeD, rotR);
+                        var st = new (float c, float h, float s, float l, string txt)[3];
+                        for (int m = 0; m < 2; m++)
+                        {
+                            var f = Mode(m);
+                            Forward(f); f.DrawOtherNow(rear);
+                            PSXScreenshotTool.ShotAs(rear, $"treeseason/{tag}/ring_Charlotte_{pid}_{dn}_mirror_{(m == 0 ? "A" : "B")}", eyeD, rotR);
+                            Forward(f); f.DrawOtherNow(rear);
+                            st[m].txt = TreeMatchAudit.FoliageStat(rear, CityTrees.FoliageLayer, out st[m].c, out st[m].h, out st[m].s, out st[m].l);
+                            Forward(f);
+                            string fl = f.DebugOther(out long oc);
+                            log.Append($"  Charlotte {pid} {dn} mirror {(m == 0 ? "A (tile cards)" : "B (far cards)")}: {st[m].txt}; other cameras' list {oc} far cards; {fl}\n");
+                        }
+                        var fb = Mode(1);
+                        fb.DrawNow(rear, true);
+                        PSXScreenshotTool.ShotAs(rear, $"treeseason/{tag}/ring_Charlotte_{pid}_{dn}_mirror_truth", eyeD, rotR);
+                        fb.DrawNow(rear, true);
+                        st[2].txt = TreeMatchAudit.FoliageStat(rear, CityTrees.FoliageLayer, out st[2].c, out st[2].h, out st[2].s, out st[2].l);
+                        log.Append($"  Charlotte {pid} {dn} mirror TRUTH (the trees turned round): {st[2].txt}\n");
+                        for (int m = 0; m < 2; m++)
+                            log.Append($"    {(m == 0 ? "A" : "B")} against the truth: cover {st[m].c / Mathf.Max(1e-5f, st[2].c):0.00} x -> {TreeMatchAudit.TwoWays(st[m].c, st[m].h, st[m].s, st[m].l, st[2].c, st[2].h, st[2].s, st[2].l)}\n");
+                        // FAR RING: what stands past the old far range (1.2 km), and the whole view
+                        float keepNear = cam.nearClipPlane;
+                        var rs = new (float c, float h, float s, float l, string txt)[2];
+                        for (int m = 0; m < 2; m++)
+                        {
+                            var f = Mode(m);
+                            cam.transform.SetPositionAndRotation(posV, rotV);
+                            f.DrawNow(cam, true);
+                            PSXScreenshotTool.ShotAs(cam, $"treeseason/{tag}/ring_Charlotte_{pid}_{dn}_view_{(m == 0 ? "A" : "B")}", posV, rotV);
+                            cam.nearClipPlane = 1200f;
+                            try
+                            {
+                                f.DrawNow(cam, true);
+                                PSXScreenshotTool.ShotAs(cam, $"treeseason/{tag}/ring_Charlotte_{pid}_{dn}_past1200_{(m == 0 ? "A" : "B")}", posV, rotV);
+                                f.DrawNow(cam, true);
+                                rs[m].txt = TreeMatchAudit.FoliageStat(cam, CityTrees.FoliageLayer, out rs[m].c, out rs[m].h, out rs[m].s, out rs[m].l);
+                            }
+                            finally { cam.nearClipPlane = keepNear; }
+                            log.Append($"  Charlotte {pid} {dn} past 1.2 km {(m == 0 ? "A (tile cards + CityFar)" : "B (far cards + CityFar)")}: {rs[m].txt}\n");
+                        }
+                        log.Append($"    A against B past 1.2 km: cover {rs[0].c / Mathf.Max(1e-5f, rs[1].c):0.00} x -> {TreeMatchAudit.TwoWays(rs[0].c, rs[0].h, rs[0].s, rs[0].l, rs[1].c, rs[1].h, rs[1].s, rs[1].l)}\n");
+                        // THE MIRROR'S COST
+                        cam.transform.SetPositionAndRotation(eyeD, rotF);
+                        rear.transform.SetPositionAndRotation(eyeD, rotR);
+                        var msA = new List<double>(); var msB = new List<double>();
+                        rear.targetTexture = rearRt;
+                        try
+                        {
+                            for (int k = 0; k < rounds * 2; k++)
+                            {
+                                int m = (k + k / 2) & 1;
+                                var f = Mode(m);
+                                for (int i = 0; i < 3; i++) { Forward(f); f.DrawOtherNow(rear); rear.Render(); }
+                                double t = 0;
+                                const int N = 24;
+                                for (int i = 0; i < N; i++)
+                                {
+                                    Forward(f); f.DrawOtherNow(rear);
+                                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                                    rear.Render();
+                                    RenderTexture.active = rearRt; px.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); px.Apply(); RenderTexture.active = null;
+                                    t += sw.Elapsed.TotalMilliseconds;
+                                }
+                                (m == 0 ? msA : msB).Add(t / N);
+                            }
+                        }
+                        finally { rear.targetTexture = null; }
+                        msA.Sort(); msB.Sort();
+                        double medA = msA[msA.Count / 2], medB = msB[msB.Count / 2];
+                        log.Append($"    the mirror's render (1280 x 720, {rounds} rounds x 24, ABBA): A {medA:0.00} ms, B {medB:0.00} ms, {(medB - medA >= 0 ? "+" : "")}{medB - medA:0.00} ms\n");
+                    }
+                    Object.DestroyImmediate(twinB.gameObject); twinB = null;
+                    fA.gameObject.SetActive(true);
+                }
+                Object.DestroyImmediate(px);
+                log.Append("TREE FAR RING AND MIRRORS OK\n");
+            }
+            catch (System.Exception ex) { log.Append("TREE FAR RING AND MIRRORS FAILED: " + ex + "\n"); Debug.LogException(ex); code = 1; }
+            finally
+            {
+                if (twinB != null) Object.DestroyImmediate(twinB.gameObject);
+                if (fA != null) fA.gameObject.SetActive(true);
+                if (rearGo != null) Object.DestroyImmediate(rearGo);
+                if (fwdRt != null) Object.DestroyImmediate(fwdRt);
+                if (rearRt != null) Object.DestroyImmediate(rearRt);
+                MeshForest.TreeMatch = keepMatch; MeshForest.MatchCardsOn = keepCards; restoreKnobs();
+                ForestDetailPrefs.Override = -1;
+                MeshForest.LodEyeOn = false; MeshForest.MeshTreesOn = true;
+                File.WriteAllText(Path.Combine(root, $"treeseason_{tag}_Charlotte_ring.txt"), log.ToString());
+                Debug.Log("[TreeRing]\n" + log);
             }
             if (Application.isBatchMode && !TreeMatchAudit.NoExit) EditorApplication.Exit(code);
         }
