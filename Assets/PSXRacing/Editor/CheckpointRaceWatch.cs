@@ -44,6 +44,7 @@ namespace PSXRacing.EditorTools
             lastPos.Clear(); swapAt.Clear();
             flicker = disagree = unexplainedFalls = samples = 0; playerWrongS = 0f; worstAiWrong = 0f; worstAiWrongWho = "";
             notes.Clear(); resetDone = false; resetResult = ""; sampleNext = 0f;
+            wwPhase = 0; wwShownAt = -1f; wwClearedAt = -1f;
             if (cp == null) return;
             t0 = Time.time;
             cp.EnsurePlanner(autopilotCar);
@@ -119,7 +120,7 @@ namespace PSXRacing.EditorTools
                 }
                 lastProgress[c] = p.progress;
             }
-            if (cp.PlayerWrongWay) playerWrongS += Time.deltaTime;
+            if (cp.PlayerWrongWay && !WrongWayTestActive) playerWrongS += Time.deltaTime;
             // ---- 1 Hz: positions vs remaining, AI wrong way on its own road, the reset test
             if (now < sampleNext) return;
             sampleNext = now + 1f;
@@ -156,7 +157,9 @@ namespace PSXRacing.EditorTools
                 }
                 else aiWrong[c] = 0f;
             }
-            if (!resetDone && System.Environment.GetEnvironmentVariable("PSX_CP_TEST") == "reset" && cp.RaceFraction(player) > 0.35f)
+            string test = System.Environment.GetEnvironmentVariable("PSX_CP_TEST") ?? "";
+            WrongWayTest(test, now);
+            if (!resetDone && test.Contains("reset") && cp.RaceFraction(player) > 0.35f)
             {
                 resetDone = true;
                 float before = cp.MeasureNow(player);
@@ -169,6 +172,57 @@ namespace PSXRacing.EditorTools
             }
         }
 
+
+        // ---- PSX_CP_TEST=wrongway: at 55 % the autopilot is turned round and driven back down the suggested route
+        // (against the one-way carriageway) for 12 s: WRONG WAY must show within 5 s of moving away; turned back to
+        // its route, it must clear within 6 s.
+        static int wwPhase; static float wwAt, wwShownAt = -1f, wwClearedAt = -1f;
+        static void WrongWayTest(string test, float now)
+        {
+            if (!test.Contains("wrongway") || player == null) return;
+            var ai = player.GetComponent<AIDriver>();
+            if (ai == null) return;
+            if (wwPhase == 0 && cp.RaceFraction(player) > 0.55f)
+            {
+                var src = rm.path;
+                var go = new GameObject("CPTest_reversed"); go.SetActive(false);
+                var rev = go.AddComponent<TrackPath>();
+                int n = src.Count;
+                rev.waypoints = new Vector3[n]; rev.curvatures = new float[n];
+                for (int i = 0; i < n; i++) { rev.waypoints[i] = src.waypoints[n - 1 - i]; rev.curvatures[i] = src.curvatures[n - 1 - i]; }
+                rev.spacing = src.spacing; rev.roadWidth = src.roadWidth; rev.pointToPoint = src.pointToPoint; rev.finishIndex = -1;
+                var t = player.transform;
+                player.TeleportTo(t.position, Quaternion.LookRotation(-t.forward, Vector3.up));
+                ai.SetPath(rev);
+                wwPhase = 1; wwAt = now;
+                RacePlayCheck.Note($"CP WRONG-WAY TEST: the autopilot turned round at {now - t0:0}s and driven back down the route");
+            }
+            else if (wwPhase == 1)
+            {
+                if (cp.PlayerWrongWay && wwShownAt < 0f) wwShownAt = now;
+                if (now - wwAt > 12f)
+                {
+                    var t = player.transform;
+                    player.TeleportTo(t.position, Quaternion.LookRotation(-t.forward, Vector3.up));
+                    var pl = cp.Of(player) != null ? cp.Of(player).planner : null;
+                    if (pl != null) { pl.OnRespawned(); }
+                    wwPhase = 2; wwAt = now;
+                }
+            }
+            else if (wwPhase == 2)
+            {
+                if (!cp.PlayerWrongWay && wwClearedAt < 0f) wwClearedAt = now;
+                if (now - wwAt > 8f)
+                {
+                    wwPhase = 3;
+                    RacePlayCheck.Check(wwShownAt > 0f && wwShownAt - (wwAt - 12f) <= 7f, "WRONG WAY shows while driving away from the next gate (within 5 s of speed)",
+                                        wwShownAt > 0f ? $"after {wwShownAt - (wwAt - 12f):0.0} s" : "never");
+                    RacePlayCheck.Check(wwClearedAt > 0f && wwClearedAt - wwAt <= 6f, "and it clears once turned back",
+                                        wwClearedAt > 0f ? $"after {wwClearedAt - wwAt:0.0} s" : "never");
+                }
+            }
+        }
+        public static bool WrongWayTestActive => wwPhase == 1 || wwPhase == 2;
 
         /// <summary>The asserts, at the end of the run.</summary>
         public static void End(bool toFinish)
@@ -237,8 +291,9 @@ namespace PSXRacing.EditorTools
                     n.IndexOf("TrafficCone", System.StringComparison.OrdinalIgnoreCase) >= 0) props++;
             }
             RacePlayCheck.Check(props == 0 && string.IsNullOrEmpty(CityRaceClosures.LastRoute), "no barricade, closure or cone in the race", props);
-            if (System.Environment.GetEnvironmentVariable("PSX_CP_TEST") == "reset")
-                RacePlayCheck.Check(resetDone, "the reset test ran", resetResult);
+            string tst = System.Environment.GetEnvironmentVariable("PSX_CP_TEST") ?? "";
+            if (tst.Contains("reset")) RacePlayCheck.Check(resetDone, "the reset test ran", resetResult);
+            if (tst.Contains("wrongway")) RacePlayCheck.Check(wwPhase == 3, "the wrong-way test ran", wwPhase);
             cp = null;
         }
     }
