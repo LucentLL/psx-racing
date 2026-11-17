@@ -302,7 +302,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
             }
-            Line($"  TIGHT TWINS: {LineModel.TightTwinPairs} pairs city-wide; split frames {LineModel.SplitFrames.Count}; skipped {LineModel.SplitSkipped.Count}");
+            Line($"  TIGHT TWINS: {LineModel.TightTwinPairs} pairs city-wide ({LineModel.TwinOwnBlends} own-frame blends); split frames {LineModel.SplitFrames.Count}; skipped {LineModel.SplitSkipped.Count}");
             // the split frames drawn on this road (each carriageway's profile: its blend and where it ends)
             foreach (var f in LineModel.SplitFrames)
             {

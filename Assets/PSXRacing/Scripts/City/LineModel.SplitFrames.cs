@@ -71,6 +71,11 @@ namespace PSXRacing.City
             public float uTip = float.NaN, noseLn;
             /// <summary>Phase C: the drawn lanes' furthest distance off their own line over the blend.</summary>
             public float devMax;
+            /// <summary>A tight twin's blend in its OWN frame (TwinOwnBlendOn): the drawn lanes are the own line plus
+            /// the start offset (lambda0 off the own line at uStart) eased out over L - not a cubic in the straight
+            /// axis frame, which read the road's own bend as a move (the N Tryon pair bends 15 degrees by the
+            /// junction: a 141 m blend over the whole divided piece, the island growing to the end).</summary>
+            public bool ownBlend; public float offStart;
             public float HAt(float uu)
             {
                 var U = ownU; var H = ownH;
@@ -86,6 +91,7 @@ namespace PSXRacing.City
             {
                 if (uu <= uStart) return lambda0;
                 if (uu >= uEnd) return OwnQAt(uu);
+                if (ownBlend) { float x = Mathf.Clamp01((uu - uStart) / Mathf.Max(1e-3f, L)); return OwnQAt(uu) + offStart * (1f - x * x * (3f - 2f * x)); }
                 float t = (uu - uStart) / Mathf.Max(1e-3f, L), t2 = t * t, t3 = t2 * t;
                 return lambda0 * (2f * t3 - 3f * t2 + 1f) + qEnd * (-2f * t3 + 3f * t2) + L * slopeEnd * (t3 - t2);
             }
@@ -148,7 +154,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f;
+            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinOwnBlends = 0;
             SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -469,8 +475,19 @@ namespace PSXRacing.City
                 // parallel, never a junction crossed off the own line (PhaseCLength)
                 // (Beatties Ford's 19 nodes keep J1's lengths under city: the owner has those pictures - spot 37's
                 // nose was tuned on them; a longer NB blend there moved the SB carriageway's outer edge 1.6 m)
-                if (CityPhaseC && !BfrNode(map, sp.node)) L = PhaseCLength(map, f, rate, rmin, uMax, L);
-                if (CityPhaseC) f.devMax = BlendDev(f, Mathf.Min(L, Mathf.Max(10f, f.room)));
+                bool ownBlend = TwinOwnBlendOn && CityPhaseC && tightTwinNodes.Contains(sp.node);
+                if (ownBlend)
+                {
+                    // (11-17) a tight twin: the move is the start offset off the own line (the push already holds
+                    // the island all along the run); the length is MUTCD's for that move alone
+                    f.ownBlend = true; f.offStart = f.lambda0 - f.OwnQAt(f.uStart);
+                    float dq = Mathf.Abs(f.offStart);
+                    L = Mathf.Min(200f, Mathf.Max(SplitFloorM, Mathf.Max(1.2f * rate * dq, Mathf.Sqrt(6f * dq * rmin))));
+                    f.note = $"tight twin: own-frame blend of {f.offStart:+0.00;-0.00} m" + (f.note.Length > 0 ? "; " + f.note : "");
+                    TwinOwnBlends++;
+                }
+                else if (CityPhaseC && !BfrNode(map, sp.node)) L = PhaseCLength(map, f, rate, rmin, uMax, L);
+                if (CityPhaseC && !ownBlend) f.devMax = BlendDev(f, Mathf.Min(L, Mathf.Max(10f, f.room)));
                 if (L > f.room) { f.capped = true; f.note = $"room {f.room:0.0} m for L {L:0.0} m" + (f.note.Length > 0 ? "; " + f.note : ""); L = Mathf.Max(10f, f.room); }
                 // Phase C (the census, 15:45: 29 "corners in the line" mid-road on West Blvd, South Blvd, Eastway Dr,
                 // none under bfr): the cubic's end slope is clamped at 0.15, so a blend that ends where the own line
@@ -478,7 +495,7 @@ namespace PSXRacing.City
                 // in the middle of a wide divergence) joins it with a corner. Under city the end must sit where the
                 // own line runs at PhaseCEndSlopeMax or less: the longest such blend up to L, else no profile here
                 // (the old taper, listed). Beatties Ford's 19 nodes keep J1's drawing.
-                if (CityPhaseC && !BfrNode(map, sp.node))
+                if (CityPhaseC && !BfrNode(map, sp.node) && !ownBlend)
                 {
                     float SlopeRaw(float uu) => (f.OwnQAt(uu + 2f) - f.OwnQAt(uu - 2f)) / 4f;
                     if (Mathf.Abs(SlopeRaw(f.uStart + L)) > PhaseCEndSlopeMax)
@@ -862,6 +879,9 @@ namespace PSXRacing.City
         // PSX_CITY_TWINISLAND=0: flush as before.
         public static bool TwinIslandOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINISLAND") != "0";
         static float TwinGapM => TwinIslandOn ? SplitIslandGapM : TightGapM;
+        /// <summary>PSX_CITY_TWINBLEND=0: a tight twin's split blends in the straight axis frame as every other split.</summary>
+        public static bool TwinOwnBlendOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINBLEND") != "0";
+        public static int TwinOwnBlends;
         static readonly HashSet<int> tightTwinEdges = new HashSet<int>();
         static readonly HashSet<int> tightTwinNodes = new HashSet<int>();
         public static int TightTwinPairs, TightTwinEdgeCount;
