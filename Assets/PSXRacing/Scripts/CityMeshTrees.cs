@@ -257,7 +257,22 @@ namespace PSXRacing.City
         /// sparse far ring and sparse trees in the mirrors, where the owner has asked for full slopes. So OFF until
         /// the cards are baked at their mesh trees' size (a city tile re-bake; a stage scene pass with the B cards
         /// sized from their mesh variant): PSX_TREE_MATCH_CARDS=1 turns them on.</summary>
-        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") == "1";
+        // TREE-COST ROUND (2026-11-17): DEFAULT ON with MeshForest.MatchCardsOn (the same switch). The tiles' cards
+        // are seen only out of the view's cone (the city camera's far plane is the ring's edge, 1012 m), where the
+        // pool's trees within 1.2 km now draw their own far cards for the mirrors (MeshForest.OtherRangeM); what is
+        // left in cards - CityFar's far woods past the plane, a tile before its fit - wears the kit's own trees, so
+        // the far woods are bare in winter. MEASURED in the mirror (Charlotte arterial, cards / the trees' own far
+        // cards): cover 0.94 winter, 0.97 fall.
+        public static bool CardAtlas = System.Environment.GetEnvironmentVariable("PSX_TREE_MATCH_CARDS") != "0";
+        /// <summary>Tools: the cards' kit atlas on or off now (CardAtlas for this component's life).</summary>
+        public void SetCardAtlas(bool on)
+        {
+            MatchCards(false);
+            bool keep = CardAtlas;
+            CardAtlas = on;
+            if (on) MatchCards(true);
+            CardAtlas = keep;
+        }
         /// <summary>The cards' light normal (PSX/Lit _PSXCrownCard): a share of the direction to the eye, and up.</summary>
         public static Vector2 CardLight = new Vector2(ReadF("PSX_TM_CARDN", 0.32f), ReadF("PSX_TM_CARDUP", 0.4f));
         /// <summary>The tile cards' albedo gain over the kit atlas: MEASURED (cardsA, 2026-11-17: Charlotte arterial from
@@ -296,6 +311,8 @@ namespace PSXRacing.City
                 m.SetVector("_PSXCrownCard", new Vector4(CardLight.x, CardLight.y, 0f, 0f));
                 PSXTexDecode.Stamp(m);
                 cardMine[d] = m;
+                // (the view only: the tiles' cards are the canopy's shadow stand-ins - it stays the one it was)
+                SunShadows.CastLike(m, ck.trees[d]);
                 ck.trees[d] = m;
                 n++;
             }
@@ -564,6 +581,38 @@ namespace PSXRacing.City
         /// <summary>The forest made again (new distances or FOREST DETAIL),
         /// every fitted tile refilled.</summary>
         public void Rebuild() { MakeForest(forest != null ? forest.PoolSlots : FirstSlots); Flush(); }
+
+        /// <summary>COST TOOLS (tree-cost round, 2026-11-17): a SECOND pooled forest beside this one, made with
+        /// the switches as they stand now and filled with every fitted tile's plants and the same card renderers -
+        /// so an edit-mode A/B swaps two standing forests (SetActive) instead of rebuilding one each round (a
+        /// rebuild a round drifted the editor's frame by a millisecond a round). The caller owns it: destroy it,
+        /// and draw only one of the two at a time (they share the tiles' cards).</summary>
+        public MeshForest TwinForest()
+        {
+            if (forest == null || kit == null) return null;
+            float l0 = kit.lod0To, l1 = kit.lod1To, mr = kit.meshRange, fr = kit.farRange;
+            if (LodOverride.x > 0f) { l0 = LodOverride.x; l1 = LodOverride.y; mr = LodOverride.z; }
+            var twin = MeshForest.CreatePool(null, kit.variants, forest.PoolSlots, PerSlot, l0, l1, mr, fr, CityTrees.DressNow, kit.cull,
+                                             LodFade ? LodFadeShare : -1f);
+            if (twin == null) return null;
+            twin.gameObject.name = "CityMeshForest (twin)";
+            foreach (var kv in slotOf)
+            {
+                if (!plantsOf.TryGetValue(kv.Key, out var plants) || plants.Count == 0) continue;
+                int tx = (int)(kv.Key >> 24), tz = (int)((kv.Key << 40) >> 40);
+                var tile = world.transform.Find("Tile_" + tx + "_" + tz);
+                if (tile == null) continue;
+                var cardT = tile.Find("Trees");
+                var cards = cardT != null ? cardT.GetComponents<Renderer>() : null;
+                var c = new Vector3((tx + 0.5f) * CityMeshes.TileSize, 0f, (tz + 0.5f) * CityMeshes.TileSize);
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var p in plants) { lo = Mathf.Min(lo, p.pos.y); hi = Mathf.Max(hi, p.pos.y + kit.variants[p.variant].height * p.scale); }
+                c.y = (lo + hi) * 0.5f;
+                float rad = Mathf.Sqrt(2f) * CityMeshes.TileSize * 0.5f + 20f + (hi - lo) * 0.5f;
+                if (twin.PoolFill(c, rad, cards, plants, out _) < 0) break;
+            }
+            return twin;
+        }
         public MeshForest Forest => forest;
         public int LiveTiles => slotOf.Count;
 

@@ -1,4 +1,131 @@
-﻿# HANDOFF - ROAD LINES ROUND, OPUS CONTINUATION (splits2, branch `charlotte-splits2`, 2026-11-17 01:00-04:30)
+﻿# HANDOFF - TREE COST: what the tree match really costs, and the mirrors in the trees' own far cards (agent "treecost", Opus 5.5, 11-17; branch `tree-cost` off mountain-nm ba49c506; NOT pushed, NOT merged)
+
+Brief (coordinator, 11-17 after PC51): the tree-match round reported +0.8 ms (Charlotte), +1.8 / +4.0 ms (NC 226A) and
+"+20 % plants drawn, UNEXPLAINED"; find it and bring the cost under +0.3 ms with no visible change; size the far-ring and
+mirror cards like their mesh trees so PSX_TREE_MATCH_CARDS can default ON with cover 0.9-1.1.
+
+## What was found (file:line on ba49c506)
+1. THE "+20 % PLANTS" AND THE +1.8 / +4.0 ms WERE THE MEASUREMENT. The forest's GPU cull is ONE ComputeShader asset
+   shared by every MeshForest, and its buffers and counts were bound once, in InitGpu (MeshForest.Gpu.cs 540, BindCull
+   565-583). The round's stage cost (TreeMatchAudit.Walk.cs 470-475) makes a second forest (the copy B) in the same
+   editor: B's InitGpu took the bindings, and forest A's every cull after that filled B's lists while A drew the list of
+   its FIRST cull, at the scene's opening eye: 42777 plants from the driver's eye AND from the vista, to the plant. A
+   CONTROL (B = the copy WITHOUT the match) showed the same "+9 k plants, +0.4 / +1.3 ms". The round's suspect, the
+   turning card's cull sphere, is not it: the match cards' bounds are SMALLER than the pack crosses' (beech_06 |extent|
+   16.4 v 20.6 m). The round's city cost rebuilt its forest every round, and the editor's frame drifted ~1.3 ms a round.
+2. MEASURED RIGHT (each forest re-binds the cull; counts read back at once; two standing forests; ABBA; Foliage alone):
+   NC 226A 7900 m the tree match DRAWS LESS than the packs' sheets - plants 52235 -> 51935, far-level tris 0.187 ->
+   0.170 M, mesh levels identical - and costs nothing measurable (paired medians -1.8 .. +0.6 ms, at 1080p and 4K;
+   at 4K, where the stage frame is partly GPU-bound, -1.81 / -0.68 ms). Charlotte arterial: +690 far cards (the 8
+   species that had no far level and vanished at 240 m - young beeches, grey-willow vases - now stand to 1.2 km),
+   +0.005 M tris; +0.05 .. +0.67 ms (paired medians, SE 0.3-0.6), the SAME at 1080p and 4K (the city's editor frame
+   is not GPU-bound, so this is not fill), and -0.03 .. +0.47 ms with those 8 far levels off (PSX_TM_NEWFAR=0).
+3. NO CARD IS DRAWN PAST THE FAR RANGE IN THE VIEW. A stage camera (PC profile) ends every layer but the land at the far
+   ground's edge (StageCulling.cs 91-137: pcFarClip 2240 m on NC 226A, the detail fade 1980-2200 m), so no B card past
+   the 2.2 km far range is drawn; the city camera's far plane is the live ring's edge (CityWorld.cs 576/695, RingFarM
+   1012 m), so no tile card past 1.2 km is drawn. Cards are seen OUT OF THE VIEW'S CONE - the mirrors and the paint's
+   reflection face (MeshForest.cs 449-461, Gpu.cs GpuOtherCamera) - and in Charlotte as CityFar's woods past 1 km
+   (City/CityFar.cs 797: the city kit's card material). So there is no "far ring" to re-size, no tile re-bake to do.
+4. In the mirrors the old cards are the retro photographs: NC 226A in winter the hill behind the car is a dark-brown
+   mass of leafy crowns where the trees turned round are bare grey twigs.
+5. The cards are the canopy's SUN-SHADOW stand-ins (MeshForest.cs 333-337, MeshForest.Pool.cs 140), and SunShadows takes
+   a caster's material when it first counts the renderer (SunShadows.cs 676-700): with the round's atlas swap on, the kit
+   atlas became the shadow's alpha and the shade on trunks and verges moved (226A walk: the pop measure 89 -> 104 blocks
+   in winter, from the darker frame alone). Fixed here (SunShadows.CastLike).
+6. Not changed, noted: the far forest's crown quads (PSXRacingBuilder.Stage.cs 8528, 8546-8562, FarCrowns_) are always
+   drawn in the retro atlas (not hidden where the forest draws; not seen in the vista frames); every mirror draws the
+   near trees as far cards too (the mirrors' cheap design), so a mirror's near crowns are flatter than the meshes;
+   the canopy's shadow in winter is the retro cards' leafy one (the stand-ins' own dress).
+
+## What changed (branch tree-cost; switches, defaults)
+- MeshForest.Gpu.cs: BindCull records its forest; GpuFrame re-binds when another forest had the cull (one compare a
+  frame). A fix, no switch. Tools: DebugTally, DebugOther.
+- PSX_TREE_MATCH_CARDS: DEFAULT ON now ("0" = everything as ba49c506):
+  - THE MIRRORS IN THE TREES' OWN FAR CARDS: a chunk out of the view's cone within 1200 m (PSX_TM_OTHER_M; 0 = none) puts
+    its canopy's far cards in the other cameras' list and hides its cards (cull flag 3: Gpu.cs chunk pass,
+    PSXForestCull.compute Cull). The mirrors and the reflection face draw the very trees - size, picture, dress,
+    per-tree colour, far growth. Nothing to size: NO city tile re-bake, NO stage scene pass.
+  - The cards left (a mirror's view past 1.2 km, F8, a city tile before its fit, CityFar's far woods) wear the kit's own
+    trees: stage B cards (MeshForest.MatchBCards, now per forest) and the city kit's card material (CityMeshTrees.CardAtlas
+    follows the switch) - bare in winter, the kit's fall colours.
+  - SunShadows.CastLike: a card material worn for the view casts as the one it stands in for: the shadows stay.
+  - StageRingM / CityRingM (PSX_TM_RING_M / PSX_TM_CITYRING_M): a far range moved out for the view; default 0 = as it is.
+- Tools: the cost runner (counts read back at once, paired ABBA, PSX_TM_ONLYFOREST, PSX_TM_RES, PSX_TM_AB=match|full|
+  ring|atlas, PSX_TM_CONTROL, PSX_TM_NOFAR, PSX_TM_NEWFAR=0, the city's two standing forests), RunStageRing / RunCityRing
+  (the mirror A / B / truth, the other camera's own render at 256x64, 192x64, 512x512), CityMeshTrees.TwinForest /
+  SetCardAtlas, MeshForest.DrawOtherNow / RestoreBCards / NewFarLevels.
+
+## Proof (scratch `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\treecost\`)
+- ONE COST TABLE, ONE MEASURE: `cost_table.txt` (the round's numbers reproduced with a CONTROL, the tree match against
+  the packs, this branch's default against ba49c506, the other cameras; scratch `cost\`, `many\*.log`).
+- THE MIRRORS: `sheets\mirrors_before_after.png` - a camera at the driver's eye looking back, drawn as the mirrors draw
+  it (an other camera after the forward cull), BEFORE (PSX_TREE_MATCH_CARDS=0) | AFTER | TRUTH (the same camera as the
+  main view: the forest turned round); NC 226A 7900 m and Charlotte arterial, winter and fall, one process each.
+  Foliage cover / hue in the mirror: 226A winter before 41.5 % hue 44 | after 40.9 % hue 51 | truth 52.5 % hue 46 (the
+  truth's near trees are meshes, a mirror's are far cards in both), fall 45.8 | 46.3 | 55.9 %; Charlotte winter 20.3 |
+  21.5 | 23.0 %, fall 24.3 | 25.1 | 27.0 %. The cards in the kit's atlas alone (PSX_TM_OTHER_M=0) against the trees'
+  own far cards: 0.87 / 0.98 (226A winter / fall), 0.94 / 0.97 (Charlotte); within 1.2 km they ARE the far cards (1.00).
+  What still looks wrong in it: every mirror draws the near trees as flat far cards (before and after alike).
+- THE AUDIT (TreeMatchAudit, the far hand-over, city + Blue Ridge + NC 226A, winter and fall; `tm\tcafter\tm_summary.txt`):
+  city 30 / 13 fails, Blue Ridge 1 / 0, NC 226A 1 / 0, the same species and reasons as the round's after column
+  (treeseason `sheets\TM_TABLE_before_after.txt`): unchanged.
+- THE APPROACH 400 -> 20 m (the pop measure: 16 px blocks > 3 % per 10 m level step): pre-PC52 PSXLab, fresh processes, BEFORE | AFTER WITHOUT the shadow fix (8020bc26): Charlotte arterial winter 551 | 551, fall 493 | 494, W Trade 1 | 1, 34 | 34 (unchanged); stages 226A winter 89 | 104, fall 17 | 21, Little Switzerland 63 | 73, 16 | 19, Blue Ridge 32 | 44, 8 | 9, Lake Lure 27 | 36, 12 | 19 - the AFTER frames are darker where the canopy's shade moved (finding 5): the B cards' kit atlas had become the shadow casters' alpha. The fix (64a624c1, SunShadows.CastLike) was NOT re-walked (PSXLab went to PC52): UNPROVEN. The round's own 'after' pop numbers (104 / 21 / 73 / 19 / 44 / 9 / 36 / 19) were taken with the cards' atlas on by default, so they carried this too. Sheets: `sheets\strip_charlotte_before_after.png`, `sheets\strip_226a_before_after_preshadowfix.png`.
+- PLAY, HIDDEN (cockpit view: the rear-view and door mirrors), NC 226A and Charlotte (Independence) 15 Jan, before |
+  after: `sheets\drives_226a_before_after.png`, `sheets\drives_charlotte_before_after.png` (each mirror enlarged x3 under
+  its frame). Run on code 8020bc26 (before the shadow fix), pre-PC52. Charlotte: before, the streaming tiles' cards (shown until their mesh trees are fitted) and the rear-view mirror show dark-brown LEAFY crowns in January; after, bare. 226A: the mirrors are a few pixels a tree at this size; no error, mirrors render.
+- SELF-TEST (LifeSimSelfTest, PSXLab, hidden, fresh processes): ba49c506 64 FAIL, this branch 64 FAIL, NEW 0, GONE 0
+  (`selftest\`).
+
+## PROVEN / UNPROVEN (plainly)
+- PROVEN: the round's +20 % plants and +1.8 / +4.0 ms were the shared cull binding in a two-forest editor (a CONTROL
+  reproduces them with no tree match at all); the fix (each forest re-binds the cull) gives identical lists in the
+  control; the tree match draws FEWER plants and triangles on a stage; the audit is unchanged; the self-test has no new
+  fail; the mirrors show the trees' own far cards (sheet), and no card is drawn past the far range in the view.
+- NOT PROVEN: (1) that the cost is <= +0.3 ms everywhere - the editor resolves +-0.5 ms here; the stage shows <= 0, the
+  city +0.05 .. +0.67 ms (paired medians), likely the 8 species' new far cards, and the other cameras' renders are inside
+  the noise - it needs the player's perf tour; (2) that SunShadows.CastLike keeps the shadows exactly as before (written
+  after the walks showed the shift; not re-walked) - until it is, PSX_TREE_MATCH_CARDS on may still move the canopy's
+  shade on stages; (3) CityFar's far woods in the kit's atlas (seen only in drive frames).
+- Defaults: PSX_TREE_MATCH_CARDS is ON on this branch. If the coordinator wants only proven defaults for PC53, set
+  PSX_TREE_MATCH_CARDS=0 in the build (or flip MeshForest.MatchCardsOn / CityMeshTrees.CardAtlas to == "1") until item
+  (2) is walked; the cull fix stands on its own either way.
+
+## Not done / not verified
+- The cost in the PLAYER: the editor's floor here is +-0.5 ms (five other editors on the machine), and the city's editor
+  frame is CPU-bound (1080p = 4K), so a GPU share under it does not show. FOR_PERF.md lists what to A/B in the perf
+  tour: PSX_TREE_MATCH_CARDS=0, PSX_TM_OTHER_M=0, PSX_TM_NEWFAR=0, PSX_TREE_MATCH=0 (process switches: two runs).
+- Charlotte's +690 far cards (the 8 species' new far levels): kept - removing them brings back trees ending at 240 m.
+  If the tour shows them over budget, the knob is PSX_TM_NEWFAR=0.
+- Cards are still the old plantings' size (1/1.3 city tiles, 1/1.6 B cards). Where that shows: a city tile's cards
+  before its mesh trees are fitted (play: a second or so as the ring streams) and CityFar's far woods. Making them the
+  mesh trees' size is the 40-minute city tile re-bake: City/CityTrees.cs CardData (h and w of each card x the kit tree's
+  height / card height for its role; the trees' list in the bake is unchanged, but any Scripts/City change moves the
+  bake's fingerprint) and CityFar.cs's TreeStandScale. Not done: no mirror or far-ring card needs it now.
+- CityFar's far woods in the kit's atlas are not measured (CityFar is not built in edit mode); seen in the drives only.
+- Not touched: the far forest's always-drawn crown quads (FarCrowns_), the canopy's winter shadow (retro stand-ins), a
+  mirror's near trees as far cards, the stages' far canopy palette.
+
+## What the coordinator must do at merge / for a PC build
+- Merge `tree-cost` (head 64a624c1 + the HANDOFF commit); clean against mountain-nm 08420dfe (git merge-tree; nothing of mountain-nm since
+  ba49c506 touches these files but HANDOFF.md). NO new files (no metas). No data, no scene pass, NO city tile re-bake
+  (no file under Scripts/City changed: the bake's fingerprint stands).
+- Shared-file edits: `Scripts/MeshForest.Gpu.cs` - BindCull (records its forest), GpuFrame (one re-bind line before the
+  cull's SetVector; the chunk pass's flag line and `f == 0 || f == 3`), ReleaseGpu; new DebugTally / DebugOther. NOT
+  touched: GpuDressChanged, GpuFrame's draw loop, GpuOtherCamera, InitGpu. `Shaders/PSXForestCull.compute` Cull (cf >= 2,
+  the cf == 3 emit). `Scripts/MeshForest.cs` - statics MatchCardsOn (default ON), StageRingM, CityRingM, OtherRangeM,
+  NewFarLevels; Init (RingOn / otherRange / atlasOn, the NewFarLevels skip); MatchBCards (per forest, CastLike);
+  RestoreBCards, DrawOtherNow. `Scripts/CityMeshTrees.cs` - CardAtlas default ON, CastLike in MatchCards, SetCardAtlas,
+  TwinForest. `Scripts/SunShadows.cs` - CastLike only. Editor: TreeMatchAudit.Walk.cs, CityRefSpots.TreeSeason.cs.
+- A PC build needs this branch's code only. The cards' kit atlases are the tree-season bake's (the PC scene pass, or
+  CityMatchOnly + PatchStages as PC52 ran them); a kit without them keeps the retro cards (no error).
+- For perf: `FOR_PERF.md` (scratch) - the lines touched and the A/B switches.
+
+## What the owner will notice
+In winter the mirrors stop showing a dark leafy hillside behind the car: the trees there are the same bare (in fall,
+the same coloured) trees you just drove past, and in Charlotte the trees of a block that has just streamed in, and the
+far woods, are bare in winter too. Nothing else in the view changes, and the frame rate stays where it was.
+
+# HANDOFF - ROAD LINES ROUND, OPUS CONTINUATION (splits2, branch `charlotte-splits2`, 2026-11-17 01:00-04:30)
 
 Not pushed, not merged. mountain-nm 749e05de merged in (8365dfac; the HANDOFF conflict kept both top sections).
 Sandbox PSXRoadA (WebGL), shared with linegate. Scratch `scratchpad\splits2\` (PROGRESS.md = the hour-by-hour log).

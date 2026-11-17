@@ -316,6 +316,50 @@ namespace PSXRacing
             }
             return sb.ToString();
         }
+        /// <summary>THE COST PROBE'S COUNT (tree-cost round, 2026-11-17): what the last cull listed for the main
+        /// view and its draws will draw, read back at once (a GPU wait - editor runners only): plants and
+        /// triangles by level, and plants per species and level ("v:l0,l1,l2,l3" lines). The same rule as
+        /// GpuStats (a draw with a material in this dress, of a species a drawn chunk can reach), without its
+        /// four-frame sampling and its late callbacks.</summary>
+        public string DebugTally(long[] plantsByLod, long[] trisByLod)
+        {
+            System.Array.Clear(plantsByLod, 0, plantsByLod.Length);
+            System.Array.Clear(trisByLod, 0, trisByLod.Length);
+            if (!UseGpu || cmds == null) return "";
+            var counts = new uint[bucketCount];
+            countBuf.GetData(counts);
+            var per = new long[variants.Length, L];
+            var sb = new System.Text.StringBuilder();
+            for (int c = 0; c < mainCmds; c++)
+            {
+                int v = cmds[c].variant, l = cmds[c].lod;
+                if (!cmdOn[c]) continue;
+                if (!reachAll && ((v < 64 ? reachLo[l] >> v : reachHi[l] >> (v - 64)) & 1UL) == 0) continue;
+                long n = System.Math.Min(counts[cmds[c].bucket], (uint)int.MaxValue);
+                trisByLod[l] += (long)(cmds[c].indexCount / 3) * n;
+                if (cmds[c].sub == 0) { plantsByLod[l] += n; per[v, l] = n; }
+            }
+            for (int v = 0; v < variants.Length; v++)
+                if (per[v, 0] + per[v, 1] + per[v, 2] + per[v, 3] > 0)
+                    sb.Append(v).Append(':').Append(per[v, 0]).Append(',').Append(per[v, 1]).Append(',').Append(per[v, 2]).Append(',').Append(per[v, 3]).Append('\n');
+            return sb.ToString();
+        }
+
+        /// <summary>The other cameras' lists (mirrors, reflection faces) as the last cull filled them: far cards in
+        /// all, and chunks by flag (0 cards, 1 near, 2 far, 3 out of the cone for the other cameras).</summary>
+        public string DebugOther(out long farCards)
+        {
+            farCards = 0;
+            if (!UseGpu || cmds == null) return "";
+            var counts = new uint[bucketCount];
+            countBuf.GetData(counts);
+            for (int c = mainCmds; c < cmds.Length; c++)
+                if (cmds[c].sub == 0) farCards += System.Math.Min(counts[cmds[c].bucket], (uint)int.MaxValue);
+            var nf = new int[4];
+            if (chunkFlag != null) for (int ci = 0; ci < chunks.Length; ci++) nf[System.Math.Min(3, (int)chunkFlag[ci])]++;
+            return $"chunks: cards {nf[0]}, near {nf[1]}, far {nf[2]}, out of the cone for the other cameras {nf[3]}";
+        }
+
         /// <summary>Which chunks show their cards: how many, and a hash of the set.</summary>
         public string DebugCards()
         {
@@ -562,8 +606,19 @@ namespace PSXRacing
             return true;
         }
 
+        /// <summary>The forest whose buffers the cull shader holds now. The cull is ONE
+        /// ComputeShader asset shared by every MeshForest: its buffer bindings and counts
+        /// are the shader's, not a forest's, so a second forest's InitGpu took them over
+        /// and the first one's cull then filled the second one's lists while its own
+        /// draws kept the lists of its last cull (tree-cost round, 2026-11-17: the round's
+        /// stage cost A/B - two forests in one editor - drew its "A" from a list frozen at
+        /// the scene's opening eye, the "+20 % plants" was that). Re-bound by whichever
+        /// forest culls next (GpuFrame).</summary>
+        static MeshForest cullBoundTo;
+
         void BindCull()
         {
+            cullBoundTo = this;
             cullShader.SetBuffer(kClear, IdCount, countBuf);
             cullShader.SetBuffer(kCull, IdMat, matBuf);
             cullShader.SetBuffer(kCull, IdMeta, metaBuf);
@@ -621,6 +676,7 @@ namespace PSXRacing
         void ReleaseGpu()
         {
             gpuReady = false;
+            if (ReferenceEquals(cullBoundTo, this)) cullBoundTo = null;
             matBuf?.Release(); metaBuf?.Release(); varBuf?.Release(); chunkBuf?.Release(); bucketBuf?.Release();
             cmdBucketBuf?.Release(); countBuf?.Release(); visBuf?.Release(); argsBuf?.Release();
             matBuf = metaBuf = varBuf = chunkBuf = bucketBuf = cmdBucketBuf = countBuf = visBuf = argsBuf = null;
@@ -696,7 +752,9 @@ namespace PSXRacing
                         var pn = planes[k].normal;
                         if (pn.x * wc.x + pn.y * wc.y + pn.z * wc.z + planes[k].distance < -rad * (Mathf.Abs(pn.x) + Mathf.Abs(pn.y) + Mathf.Abs(pn.z))) { draw = false; break; }
                     }
-                uint f = !draw ? 0u : dist - rad >= meshRange ? 2u : 1u;
+                // (3, RingOn: out of the cone but within otherRange - its trees' far cards for the other cameras
+                // alone, its cards hidden: the mirrors show the trees, not the old cards)
+                uint f = draw ? (dist - rad >= meshRange ? 2u : 1u) : RingOn && dist - rad < otherRange ? 3u : 0u;
                 // (a streamed forest's tiles may stand their cards up again on their own: held every frame)
                 if (pooled) SetCards(chunks[ci], f == 0);
                 if (!cardsKnown || f != chunkFlag[ci])
@@ -705,7 +763,7 @@ namespace PSXRacing
                     chunkFlag[ci] = f;
                     dirty = true;
                 }
-                if (f == 0) continue;
+                if (f == 0 || f == 3) continue;
                 ulong lo = chunkMaskLo[ci], hi = chunkMaskHi[ci];
                 if (f == 2) { reachLo[3] |= lo; reachHi[3] |= hi; continue; }
                 float dmin = dist - rad, dmax = dist + rad;
@@ -732,6 +790,7 @@ namespace PSXRacing
                 planeVec[k] = new Vector4(pn.x, pn.y, pn.z, instPlanes[k].distance);
             }
             cullPos = camPos; cullFwd = cam.transform.forward; cullLens = cam.projectionMatrix.m11;
+            if (cullBoundTo != this) BindCull();   // (another forest's InitGpu or cull had the shader: its buffers back to this one's)
             cullShader.SetVector(IdCam, new Vector4(camPos.x, camPos.y, camPos.z, DebugExact ? 1f : 0f));
             cullShader.SetVector(IdLod, new Vector4(lod0To * lod0To, lod1To * lod1To, meshRange * meshRange, DebugExact ? Margin : GpuMargin));
             cullShader.SetVectorArray(IdPlanes, planeVec);
