@@ -681,6 +681,116 @@ namespace PSXRacing
         /// standstill, so it separates "settling on its springs" from "still
         /// coming round".</summary>
         const float ParkHoldSpin = 0.35f;
+
+        // ---- static grip: the contact patch at rest and at a crawl ----------
+        //
+        // Owner 2026-11-17: "I noticed that cars slide on banked roads. Even
+        // when resting in place at the start of a race. This means tires don't
+        // actually grip the roads."
+        //
+        // They did not, below a walk. The lateral force is a SLIP model:
+        // slip = atan2(vLat, max(|vLong|, slipEpsilon)), force = C x slip, and
+        // then faded by |contact speed| / 0.6 so the solver does not buzz at a
+        // standstill. Both halves are proportional to the sideways speed, so
+        // together the force goes as vLat squared and is ZERO at rest: a car
+        // on a bank creeps down it at whatever speed makes that force equal
+        // gravity's share - sqrt(0.18 x bank / 11), 4 cm/s on a 10% bank, 80
+        // cm in 20 s. Only a car the parking hold had latched (lever, a
+        // buried pedal, half a second dead still) was held, and the hold gave
+        // way the instant a pedal or a nudge moved it.
+        //
+        // A real tyre at rest is a spring, not a damper: the tread in the
+        // contact patch is stuck to the road and DEFLECTS (a few mm) until it
+        // carries the load, up to the friction circle. As the wheel rolls,
+        // fresh tread is laid down and the deflection relaxes over a rolling
+        // distance - the relaxation length - which is where a slip angle comes
+        // from at speed. So: per wheel, the patch's sideways deflection
+        // (patchLat), integrated from the contact's sideways speed and relaxed
+        // by its rolling speed over StaticRelaxLen; the force is the patch's
+        // stiffness C / StaticRelaxLen times the deflection, plus a critical
+        // damper on the deflection's RATE (zero in steady rolling), clamped to
+        // the grip the friction circle leaves. In steady rolling the
+        // deflection settles at StaticRelaxLen x vLat / |vLong| and the force
+        // is exactly C x tan(slip): the slip model's own linear branch. That is
+        // what makes the hand-over seamless: the two agree wherever they are
+        // blended, from StaticGripFull to StaticGripGone of contact speed, and
+        // above that the slip model is used alone, bit for bit as before - the
+        // handling at speed does not change.
+        //
+        // PSX_STATIC_GRIP=0 = the tyres as they were.
+
+        /// <summary>The switch. Off = the slip model alone at every speed, as
+        /// it was (with the parking hold still latching a car left still).</summary>
+        public static bool StaticGripOn =
+            System.Environment.GetEnvironmentVariable("PSX_STATIC_GRIP") != "0";
+        /// <summary>Relaxation length, m: how far a tyre rolls to forget a
+        /// sideways deflection. A road tyre's is about its radius.</summary>
+        const float StaticRelaxLen = 0.30f;
+        /// <summary>Contact speed (m/s, in the road's plane) up to which the
+        /// patch model is used alone, and the speed from which the slip model
+        /// is used alone. Between them a smoothstep blend; both give the same
+        /// force there in steady rolling. Above StaticGripGone nothing here
+        /// runs - the handling at speed is the slip model's, unchanged.
+        ///
+        /// 2 m/s and not lower because the slip model's sideways stiffness
+        /// per m/s is C / v, applied explicitly: at 60 Hz that is 11 g dt / v
+        /// = 1.8 / v of the tyre's own mass per tick, past the stability limit
+        /// (2) below 0.9 m/s and ringing (over 1) below 1.8. The blend keeps
+        /// the slip model's share times that under about 1 everywhere.</summary>
+        const float StaticGripFull = 0.5f, StaticGripGone = 2.0f;
+        /// <summary>Damping on the deflection's rate, as a fraction of
+        /// critical for the mass the tyre carries.</summary>
+        const float StaticDampRatio = 0.9f;
+        /// <summary>Each tyre's contact-patch deflection along its own right
+        /// (m). Zero off the ground and after a teleport.</summary>
+        readonly float[] patchLat = new float[4];
+        /// <summary>The same along the wheel's heading, for a BRAKED wheel
+        /// only (a free-rolling one carries no fore-and-aft load at rest: in
+        /// neutral on a grade a car rolls, as a real one does).</summary>
+        readonly float[] patchLong = new float[4];
+
+        /// <summary>The static-grip weight at a contact speed: 1 at rest, 0 from
+        /// <see cref="StaticGripGone"/>. Public for the self-test.</summary>
+        public static float StaticGripWeight(float contactSpeed)
+        {
+            float t = Mathf.Clamp01((contactSpeed - StaticGripFull) / (StaticGripGone - StaticGripFull));
+            return 1f - t * t * (3f - 2f * t);
+        }
+
+        /// <summary>One tyre's patch, one tick: integrate the deflection
+        /// <paramref name="s"/> (m) from the contact's sideways and rolling
+        /// speeds, and return the lateral force (N, along the wheel's right)
+        /// the stuck tread pushes back with, clamped to <paramref name="cap"/>
+        /// (a clamped patch is SLIDING: the deflection is held at the limit).
+        /// C is the slip model's cornering stiffness at this load (N/rad), so
+        /// steady rolling gives C x vLat / |vLong| - its linear branch. Public
+        /// and static for the self-test.</summary>
+        public static float PatchForce(ref float s, float vLat, float vLong, float C, float massShare,
+                                       float cap, float dt)
+        {
+            if (C < 1f || cap <= 0f) { s = 0f; return 0f; }
+            float roll = Mathf.Abs(vLong);
+            // Exact for constant speeds over the tick: a first-order lag whose
+            // distance constant is the relaxation length.
+            if (roll * dt > 1e-6f)
+            {
+                float e = Mathf.Exp(-roll * dt / StaticRelaxLen);
+                s = s * e + vLat * (StaticRelaxLen / roll) * (1f - e);
+            }
+            else s += vLat * dt;
+            float k = C / StaticRelaxLen;
+            float c = 2f * StaticDampRatio * Mathf.Sqrt(k * Mathf.Max(massShare, 1f));
+            float rate = vLat - roll * s / StaticRelaxLen;
+            float f = -k * s - c * rate;
+            if (f > cap || f < -cap)
+            {
+                f = Mathf.Clamp(f, -cap, cap);
+                float sMax = cap / k;
+                s = Mathf.Clamp(s, -sMax, sMax);
+            }
+            return f;
+        }
+
         /// <summary>Below this on BOTH controls the driver has let go entirely,
         /// which is the one case where the car should tidy itself up hardest.
         /// </summary>
@@ -3730,7 +3840,8 @@ namespace PSXRacing
 
             for (int i = 0; i < 4; i++)
             {
-                if (!wheelGrounded[i]) continue;
+                // A tyre in the air has no patch to deflect.
+                if (!wheelGrounded[i]) { patchLat[i] = 0f; continue; }
                 bool front = i < 2;
                 Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
                 Vector3 contact = mount - transform.up * (restLength + WheelRadiusOf(i) - suspensionCompression[i]);
@@ -3912,13 +4023,54 @@ namespace PSXRacing
                     if (braking && Mathf.Abs(fLong) > longCap * lockShare)
                         fLong = -Mathf.Sign(vLong) * longCap * lockShare;
                 }
+                // STATIC GRIP, FORE AND AFT (see StaticGripOn): a BRAKED wheel
+                // at a crawl is stuck to the road by its pads the way the tread
+                // is stuck by friction, up to what the brake can hold - the
+                // pedal's share (the same quarter of the pedal force the
+                // low-speed hold above used) and, on the rear, the lever. The
+                // velocity damper above settles at a creep on any grade by
+                // construction; this is a spring on how far the patch has
+                // moved since the brake caught it. Not with the throttle open
+                // (a brake-and-throttle launch is the driver's), not on a free
+                // wheel, and above StaticGripGone not at all.
+                //
+                // PARKED (the hold below) is every wheel held to its circle -
+                // the game's "in gear, lever on" - through the same patches.
+                // The hold's own arithmetic shared the car's weight EVENLY over
+                // the wheels and anchored only the centre of mass, so on a bank
+                // a car that is not 50:50 front to rear was pushed round by a
+                // couple the anchor cannot see: 2F x (a - b) about the CG, a
+                // few hundred N.m, balanced only by the hold's velocity damper
+                // at a steady yaw of 0.02-0.03 rad/s - the RX-7 on the Lake Lure
+                // grid turned about 25 degrees in 20 s while its centre stayed
+                // put. Four anchored patches cannot turn.
+                float vPlaneW = Mathf.Sqrt(vLong * vLong + vLat * vLat);
+                float staticW = StaticGripOn ? StaticGripWeight(vPlaneW) : 0f;
+                float C = corneringStiffness * FzGrip * (TyreLoadGainOnStiffness ? TyreLoadGain : 1f);
+                if (staticW > 0f && accelPedal < 0.02f)
+                {
+                    float brakeHold = brakeForceTotal > 0f ? brakeForceTotal * 0.25f : 0f;
+                    if (!front && handbrakeInput) brakeHold += circle * 0.9f;
+                    if (parkHold) brakeHold = longCap;
+                    brakeHold = Mathf.Min(brakeHold, longCap);
+                    if (brakeHold > 0f)
+                    {
+                        float pl = patchLong[i];
+                        float fHold = PatchForce(ref pl, vLong, 0f, C, Fz / 9.81f, brakeHold, dt);
+                        patchLong[i] = pl;
+                        fLong += (fHold - fLong) * staticW;
+                    }
+                    else patchLong[i] = 0f;
+                }
+                else patchLong[i] = 0f;
                 // PARKED: this tyre holds its share of the car, full stop. It
                 // REPLACES the demand rather than adding to it — a parked wheel
                 // is not braking against a drive torque, it is standing still,
                 // and at this speed with the throttle shut there is nothing in
                 // fLong to preserve anyway (tractive effort is zero below 0.02
                 // pedal and engine braking is gated at 0.5 m/s).
-                if (parkHold)
+                // (With static grip on, the patches above are the hold.)
+                if (parkHold && !StaticGripOn)
                     fLong = Mathf.Clamp(
                         -Vector3.Dot(Physics.gravity, wheelForward) * parkShareKg
                         - vLong * ParkHoldDamp * parkShareKg
@@ -3965,7 +4117,6 @@ namespace PSXRacing
                 wheelContacts[i].slide = Mathf.Sqrt(latSlide * latSlide + longSlide * longSlide);
                 wheelContacts[i].forward = wheelForward;
 
-                float C = corneringStiffness * FzGrip * (TyreLoadGainOnStiffness ? TyreLoadGain : 1f);
                 float fLat = TireCurve(slip, C);
                 float latCap = Mathf.Sqrt(Mathf.Max(circle * circle - fLong * fLong, 0f));
                 fLat = Mathf.Clamp(fLat, -latCap, latCap);
@@ -3973,6 +4124,27 @@ namespace PSXRacing
                 // jitter. Fading it out to 2 m/s made the tires let go at parking
                 // speeds, which is most of why the car felt unbound from the road.
                 fLat *= Mathf.Clamp01(contactVel.magnitude / 0.6f);
+                // STATIC GRIP, ACROSS (see StaticGripOn): at a crawl the patch
+                // model takes over from the slip model above, which is a
+                // damper there - no force at rest - and an UNSTABLE one: its
+                // sideways stiffness C / max(|vLong|, slipEpsilon) per m/s,
+                // applied explicitly at 60 Hz, is past the stability limit
+                // below about 0.9 m/s of rolling speed (11 g dt / 2v > 1), so a
+                // car crawling on a bank chattered sideways every other tick
+                // and walked downhill while it did. Above StaticGripGone this
+                // only keeps the patch in step with the slip model's force, so
+                // slowing into the blend starts from the force the car has.
+                if (StaticGripOn)
+                {
+                    float kPatch = C / StaticRelaxLen;
+                    if (staticW > 0f)
+                    {
+                        float fPatch = PatchForce(ref patchLat[i], vLat, vLong, C, Fz / 9.81f, latCap, dt);
+                        fLat += (fPatch - fLat) * staticW;
+                    }
+                    else
+                        patchLat[i] = kPatch > 1f ? Mathf.Clamp(-fLat / kPatch, -latCap / kPatch, latCap / kPatch) : 0f;
+                }
 
                 // A LOCKED WHEEL is a block of rubber sliding over the road: one
                 // force, LockedSlideMu of its circle, straight against its own
@@ -3996,7 +4168,9 @@ namespace PSXRacing
                 // of it. A parked tyre on a cambered street holds sideways for
                 // the same reason it holds fore-and-aft, and by the same
                 // arithmetic — the load, not the velocity.
-                if (parkHold)
+                // (With static grip on, the patch already holds it - see the
+                // fore-and-aft block for why the even split must not.)
+                if (parkHold && !StaticGripOn)
                     fLat = Mathf.Clamp(
                         -Vector3.Dot(Physics.gravity, wheelRight) * parkShareKg
                         - vLat * ParkHoldDamp * parkShareKg
@@ -4439,6 +4613,9 @@ namespace PSXRacing
         public void TeleportTo(Vector3 position, Quaternion rotation)
         {
             TeleportCount++;
+            // A tyre put down somewhere new has nothing stuck to that road yet.
+            System.Array.Clear(patchLat, 0, 4);
+            System.Array.Clear(patchLong, 0, 4);
             transform.SetPositionAndRotation(position, rotation);
             // BEFORE THIS CAR'S OWN AWAKE, Body is still null. A city race
             // stands its grid from CityMode.Awake, and Awake order between
