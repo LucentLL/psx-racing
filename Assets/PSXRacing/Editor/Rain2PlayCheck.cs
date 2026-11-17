@@ -96,8 +96,22 @@ namespace PSXRacing.EditorTools
         }
     }
 
+    // Last of all in LateUpdate: a frame is taken AFTER the chase camera has
+    // mounted its eye for this frame. (Taken from a coroutine it was the last
+    // frame's eye on this frame's car: at 45 mph the cockpit camera sat a
+    // metre behind its seat.)
+    [DefaultExecutionOrder(32000)]
     public class Rain2PlayCheckRunner : MonoBehaviour
     {
+        string pendingShot;
+        void LateUpdate()
+        {
+            if (pendingShot == null) return;
+            string name = pendingShot;
+            pendingShot = null;
+            TakeShot(name);
+        }
+
         const float HangSeconds = 420f;
         float bornAt;
         bool finished;
@@ -341,14 +355,19 @@ namespace PSXRacing.EditorTools
         /// render request (never WaitForEndOfFrame: a hidden run has no frame end).</summary>
         IEnumerator Shot(string name)
         {
-            yield return null;
+            pendingShot = name;
+            while (pendingShot != null) yield return null;
+        }
+
+        void TakeShot(string name)
+        {
             string path = System.IO.Path.Combine(outDir, "play_" + name + ".png");
             if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
             var cam = Camera.main;
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null || cam == null)
             {
                 Rain2PlayCheck.Line("  shot " + name + " not taken (" + (cam == null ? "no main camera" : "no graphics device") + ")");
-                yield break;
+                return;
             }
             var target = cam.targetTexture;
             var rt = new RenderTexture(W, H, 32, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
