@@ -184,6 +184,17 @@ namespace PSXRacing
             public int deckLeg;
             public bool IsDeckRun => deckWay != 0;
 
+            /// <summary>
+            /// The venue whose SCENE this one races in, for a Charlotte race
+            /// with no scene of its own (the races of charlotte_tracks.json,
+            /// CityTracks): a loop in UptownLoop's, a course with ends in
+            /// TryonSprint's. CityTracksRegistrar points that scene's CityMode
+            /// at this venue's route before it builds the path. Null for every
+            /// venue with its own scene. Appended after the deck runs, so no
+            /// saved index moves.
+            /// </summary>
+            public string hostScene;
+
             // Loaded lazily out of charlotte_routes.json by EnsureRoute: the
             // menu's copy of the route (length, line, finish, a 4 m polyline
             // for the map), so the front end never parses the 2.5 MB graph.
@@ -922,6 +933,8 @@ namespace PSXRacing
             minCornerR = f.minCornerR,
             // Not a drop going up, not one coming down either.
             noDelivery = f.noDelivery,
+            // A Charlotte track (CityTracks) races in its host's scene, and so does its twin.
+            hostScene = f.hostScene,
             reverseOf = f.id,
         };
 
@@ -950,7 +963,85 @@ namespace PSXRacing
             }
             // DECK RUNS after the sprints, for the same reason.
             foreach (var dv in DeckRuns) list.Add(DeckRunDef(dv));
+            // THE CHARLOTTE TRACKS (2026-11-16) after the deck runs: no scene
+            // of their own, appended so no saved index moves.
+            list.AddRange(CityTrackVenues(list));
             return list.ToArray();
+        }
+
+        /// <summary>
+        /// THE CHARLOTTE TRACKS (owner, 2026-11-16: circuits, sprints and drags
+        /// on Charlotte's streets; at 14:00, "more circuits use highway on/off
+        /// ramps like the example I drew in red"). DATA, not code: each is its
+        /// own file, Resources/CityTracks/&lt;route id&gt;.json (CityTracks, written
+        /// from the candidate sheet Charlotte_Track_Candidates_2026-11-16 by
+        /// tools/city/tracks/emit_track.mjs), raced in its host's scene
+        /// (hostScene: a loop in UptownLoop's, a course with ends in
+        /// TryonSprint's; CityTracksRegistrar points it at the route). A file
+        /// that asks for one (venue.reverse = 1) also makes its reverse twin,
+        /// "&lt;id&gt;Rev". A sprint cut from a course is its own file with its own
+        /// chain. Adding a track adds a file; this method never changes.
+        ///
+        /// The order is load-bearing (saved careers store the index): the venue
+        /// ids of Resources/CityTracks/_order.txt first, in its order (the
+        /// integrator appends to it, tools/city/tracks/order.mjs), then every
+        /// venue it does not list yet, by file name, forward before twin. The
+        /// list never depends on PSX_CITY_TRACKS (Offered does).
+        /// </summary>
+        static List<TrackDef> CityTrackVenues(List<TrackDef> before)
+        {
+            var taken = new HashSet<string>();
+            foreach (var d in before) taken.Add(d.id);
+            var made = new Dictionary<string, TrackDef>();
+            var natural = new List<string>();
+            foreach (var t in CityTracks.Files)
+            {
+                var v = t.venue;
+                var r = t.route;
+                if (taken.Contains(v.id) || made.ContainsKey(v.id))
+                {
+                    Debug.LogError("[CityTracks] " + t.file + ".json: venue id " + v.id + " is taken: left out");
+                    continue;
+                }
+                var f = new TrackDef
+                {
+                    id = v.id,
+                    name = v.name,
+                    blurb = v.blurb,
+                    roadWidth = v.roadWidth > 0f ? v.roadWidth : r.roadWidth,
+                    laps = Mathf.Max(1, v.laps),
+                    speedLimitKmh = v.speedLimitKmh > 0f ? v.speedLimitKmh : (r.speed > 0f ? r.speed : DefaultSpeedLimitKmh),
+                    city = true,
+                    cityRoute = r.id,
+                    loop = r.loop != 0,
+                    oneWay = v.oneWay != 0,
+                    noReverse = v.reverse == 0,
+                    noDelivery = v.noDelivery != 0,
+                    hostScene = !string.IsNullOrEmpty(v.host) ? v.host : r.loop != 0 ? "UptownLoop" : DeckScene,
+                    dragLabel = string.IsNullOrEmpty(v.label) ? null : v.label,
+                };
+                made[f.id] = f;
+                natural.Add(f.id);
+                if (!f.CanReverse) continue;
+                var tw = ReverseTwin(f);
+                if (!string.IsNullOrEmpty(v.reverseName)) tw.name = v.reverseName;
+                if (!string.IsNullOrEmpty(v.reverseBlurb)) tw.blurb = v.reverseBlurb;
+                if (!string.IsNullOrEmpty(v.reverseLabel)) tw.dragLabel = v.reverseLabel;
+                if (taken.Contains(tw.id) || made.ContainsKey(tw.id))
+                {
+                    Debug.LogError("[CityTracks] " + t.file + ".json: venue id " + tw.id + " is taken: no reverse");
+                    continue;
+                }
+                made[tw.id] = tw;
+                natural.Add(tw.id);
+            }
+            var list = new List<TrackDef>();
+            foreach (var id in CityTracks.Order)
+                if (made.TryGetValue(id, out var d)) { list.Add(d); made.Remove(id); }
+                else Debug.LogError("[CityTracks] _order.txt lists " + id + " and no track file makes it: every venue after it moved down one index");
+            foreach (var id in natural)
+                if (made.TryGetValue(id, out var d)) list.Add(d);
+            return list;
         }
 
         /// <summary>The cityRoute every deck run carries, and the venue whose
@@ -1243,7 +1334,8 @@ namespace PSXRacing
         /// diary and the pre-race page step through. In the editor and in a
         /// united build (ALL) this is exactly the old "not IsRoam" rule.
         /// </summary>
-        public static bool Offered(TrackDef def) => def != null && !def.IsRoam && Edition.Ships(def);
+        public static bool Offered(TrackDef def) => def != null && !def.IsRoam && Edition.Ships(def)
+            && (string.IsNullOrEmpty(def.hostScene) || CityTracks.Enabled);   // the new Charlotte tracks: PSX_CITY_TRACKS=0 hides them (default on)
 
         public static bool Offered(int index) => index >= 0 && index < All.Length && Offered(All[index]);
 
@@ -1644,6 +1736,8 @@ namespace PSXRacing
         public static string SceneIdOf(int trackIndex)
         {
             var def = All[Mathf.Clamp(trackIndex, 0, All.Length - 1)];
+            // a Charlotte track and its twin race in their host's scene (CityTracks)
+            if (!string.IsNullOrEmpty(def.hostScene)) return def.hostScene;
             if (def.Reversed) return def.reverseOf;
             if (def.IsSprintVariant) return def.sprintOf;
             if (def.IsDeckRun) return DeckScene;
@@ -1866,6 +1960,15 @@ namespace PSXRacing
             }
             RouteJson r = null;
             foreach (var cand in routesJson.routes) if (cand.id == def.cityRoute) { r = cand; break; }
+            string attribution = routesJson.attribution ?? "";
+            // the races added after the export's own (CityTracks): the same facts, from their own file
+            if (r == null && CityTracks.TryMenu(def.cityRoute, out var extra, out string extraAttribution))
+            {
+                r = new RouteJson { id = extra.id, name = extra.name, loop = extra.loop, oneway = extra.oneway,
+                                    roadWidth = extra.roadWidth, speed = extra.speed, lengthM = extra.lengthM,
+                                    startM = extra.startM, finishM = extra.finishM, pts = extra.pts };
+                attribution = extraAttribution;
+            }
             if (r == null)
             {
                 Debug.LogError("City route missing from charlotte_routes.json: " + def.cityRoute);
@@ -1879,7 +1982,7 @@ namespace PSXRacing
             // The reversed-finish remap reads the start line off this field
             // for stages; a city route with ends is the same shape.
             def.stageStartLineM = r.startM;
-            def.stageAttribution = routesJson.attribution ?? "";
+            def.stageAttribution = attribution;
             if (r.loop != 0 && !def.loop)
             {
                 Debug.LogError("City route " + r.id + " is a loop but TrackDef." + def.id + " is not");

@@ -1,4 +1,414 @@
-﻿# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
+﻿# HANDOFF - THE CAMCORDER, ROUND 2: a camera at every race point, flex scoring (agent "camcorder", branch `replay-camcorder2` off mountain-nm 742315cd, 2026-11-16 night; NOT pushed, NOT merged)
+
+Owner, 21:50, after playing PC48: "As for the camcorder replays, I don't like the follow cams. Now that checkpoints are
+being added, at least one camera can should record at each checkpoint. Logically, it proves the cars started at the
+starting line, reached each checkpoint, then reached the finish line. It also gives players a chance to 'flex' at
+checkpoints to improve their tape's value."
+
+## What I found (file:line on 742315cd)
+- Round 1's director planted an operator every ~130 m and, every third shot or wherever nobody stood ahead, rode a
+  "buddy's car" on the focus car's own line (CamcorderCam.cs:48 ChaseEvery, :293 BuddyEye, :384-409): the follow cam.
+  On Charlotte's Uptown Loop most of a tape was that car, because few operators could be planted.
+- The checkpoint design (scratchpad\checkpoints\DESIGN_v2.md 1.1, 1.3, 2.2): gates are `cps[]` with kind, x y z, hx hz,
+  spans (l0 l1); a circuit's gate 0 is its lap line, a sprint's last gate is its finish and its start is the grid;
+  the suggested route stays `rm.path`; cars may take any road between gates. Its stage 2 planned "trajectory lenses"
+  for CamcorderCam (7.1): that is what this round's clips already are.
+- Nothing times a split on a stage or a strip today (no split points exist in the game): the fallback plants them.
+- A city race on ANDROID streams its ground round the cars only (CityWorld.cs:153 CourseOn = PC profile; the course
+  preload that pins every tile of the route is PC-only): at replay time the ground at a far checkpoint is not there
+  to stand a bystander on. My first city run found cameras at 2 of 14 points for that reason.
+- Foliage has no colliders: a line-of-sight test cannot see leaves. A camera 23 m into the woods at Gillespie Gap's
+  finish filmed leaves (the first mountain run).
+- A batch (hidden) editor draws no frames; a camera rendered on request there shows the camcorder's picture but not
+  the HUD canvas (the OSD), and its framebuffer is 640x480.
+- PowerShell: `$x = if (..) { @("a") }` is a string, and string + array glues into one argument (my own bug, below).
+
+## What changed
+Switches: PSX_CAMCORDER=0 = the trackside replay as before the camcorder; PSX_TAPE_FLEX=0 = round 1's tape price (no
+clips scored); PSX_CAM_CPFILE=1 = read Resources/CityCheckpoints/<route>.json directly when no provider answers
+(default OFF: no real file has been filmed); PSX_CAM_MIC, PSX_TAPES, PSX_MONTAGE as before. Defaults: camcorder ON,
+flex ON, file reader OFF, montage OFF.
+
+- `Scripts/Replay/RacePoints.cs` (new): THE INTERFACE. `RacePoint` = kind (Start / Checkpoint / Finish), index, pos,
+  heading, halfWidth (+ pathIdx, soft). `RaceCourse` = points, loop, laps. `RacePoints.Provider` (a static
+  Func<RaceManager, RaceCourse>) is where the checkpoint system feeds it; `RacePoints.FromGates(gates, loop, laps,
+  gridPos, gridHeading)` takes its chain in the checkpoint file's own shape (`RacePoints.Gate`: kind, x, y, z, hx, hz,
+  l0, l1). Until then `FromPath`: the venue's start and finish plus EVENLY SPACED points every ~700 m on a city route,
+  SPLIT points every ~1 km on a stage or a circuit, a strip's half-way.
+- `Scripts/Replay/RacePlan.cs` (new): the bystanders. At every point a FRONT camera (past the point, looking back up
+  the road) and a BACK one (before it, the other side when it can be) - on ground that is not road, not water, not a
+  car, not a roof or a wall top, level enough to stand on, no road further out (a median), nothing solid within an
+  arm's length, the point and the road each side of it in sight. A city may stand them up to 24 m back; a stage keeps
+  them on the cleared verge (8 m). A LONG LENS from further along when nowhere near will do. A point the feed invented
+  slides up to 120 m along the road to where somebody can stand; a real gate never moves. Found DURING THE RACE as the
+  field reaches each point (`Scout`, called by the recorder twice a second): a streamed city has ground only there.
+- `Scripts/Replay/TapeClips.cs` (new): THE CLIPS. From a car's recorded trajectory (not the path: any road between
+  gates works): START (the grid 2.5 s before it moves, to 70 m past the line), each CHECKPOINT in order (150 m out to
+  70 m past), the lap line between laps, FINISH (to the end of the tape). A point never reached ends the tape there.
+  A respawn's jump is not a crossing. And THE FLEX: `Score` = what the clip's camera saw.
+- `Scripts/Replay/CamcorderCam.cs` (rewritten): plays the clips in order; FRONT until the car is at the point, BACK
+  after; a burst of static between two recordings (and the tape waits in it, up to 4 s, until a streamed place's
+  ground is there); skip keys land on the clip before / after; a deck stops at the tape's end. The hand, zoom, focus,
+  exposure kick as before. NOTHING TRAVELS: the buddy's car, its dash and pillar, PoseAt are gone.
+- `CamcorderOSD.cs`: the clip's name on the second line (START, CHECKPOINT 3/9, LAP 2/3, FINISH) over the tape clock;
+  the touch bar's skips read << CLIP / CLIP >>. `Camcorder.cs`: ClipLabel, Static, TapeCourse. `RaceReplay.cs`: Hold
+  (the cut's static is not a pause), Scout from the recorder, CamcorderCam.Setup(replay, camera).
+- FLEX SCORING (per clip, the player's car): speed through the point ((km/h - 60) x 0.12, to $25); SLIDE = the body
+  12-100 degrees off the way it is going for 0.4 s or more ($12 a second to $30, + up to $15 for the angle); AIR $20;
+  LED $10; PASS $20 (a place gained in view); DOOR TO DOOR $12; NEAR MISS $15 each (two counted); CRASH -$35; SPIN
+  -$20. The tape = the sum of its clips + the result (a race at all, a win or a podium, the field, a close finish).
+- `Tapes.cs`: tape v2 - the points and the clips (with their tags and dollars) ride in an EXT2 block; a v1 tape loads
+  and plays and keeps its old price; a tape from a newer build is refused by name. The VCR films a v2 tape at the
+  tape's own points. `LifeHomeScreen.Tapes.cs`: each row's second line is the tape's best clip ("BEST  CP 3: 77 MPH ·
+  SLIDE"); the shelf and the VIDEO STORE list WHAT THE CAMERAS SAW, the store with each clip's dollars.
+- `Shaders/PSXCamcorder.shader`: the static between recordings; GAIN UP to 3.2x in the dark with a shadow lift (night
+  mountain tapes were too black); the interior silhouette removed.
+- Tools: `tools/sandbox-lock.ps1` (the atomic lock: random pause, check, unique stamp, 3 s read-back),
+  `tools/camcorder-shots.ps1` + `Editor/CamcorderShots.cs` (full races fast-forwarded, a frame at every clip, the flex
+  proof; HIDDEN while PSXRacing.exe runs), `tools/tape-check.ps1`, `Editor/LifeSimSelfTest.Camcorder.cs`.
+
+## Proof (real editor frames, PSXRec, Android target, career day 320 = NOV 16 1999)
+Sheets in `scratchpad\camcorder\` (every cell labelled): `r2_owner_sheet.png` (the one for the owner),
+`r2_points_city_day.png` / `r2_points_city_night.png` (Uptown Loop, one lap: START, CHECKPOINT 1/12 .. 12/12, FINISH,
+each frame with its OSD), `r2_points_mountain_day.png` / `r2_points_mountain_night.png` (Gillespie Gap: START, 6
+checkpoints, FINISH, front and back camera), `r2_flex.png`, `r2_before_after.png`, `r2_tapes.png`.
+How they were shot: the mountain day and the flex runs WATCHED (854x480, pillarboxed); everything from 23:28 HIDDEN
+(-batchmode, no window, later silent) because the owner was playing - a hidden editor's framebuffer is 640x480, the
+4:3 picture whole, OSD drawn. The BEFORE frames are the trackside replay rendered on request in a hidden run: the
+world only, without the replay's own HUD text.
+- Mountain, Gillespie Gap (6.7 km stage): 8 race points (START, 6 split checkpoints, FINISH), 16 cameras (two at every
+  point), 0 on a road, 0 blind, the OSD names 8 of 8 clips, no camera travels (the lens within its sway of its
+  bystander's spot at every shot). Whole race day (watched) and night (hidden).
+- Charlotte, Uptown Loop (9.2 km circuit, one lap, the city STREAMED as on Android): 14 race points (START, 12
+  checkpoints, FINISH), 23 cameras, all 14 found during the race, 0 on a road, the OSD names 14 of 14 clips; noon
+  and night. Two points have one camera (CP 8, CP 11).
+- FLEX: the same race clean and with a slide at checkpoint 3 (the autopilot's handbrake): clean tape $56 (CP 3: 92
+  MPH +$11) against $98 (CP 3: 77 MPH · SLIDE +$53). The first try threw it sideways at 133 km/h into the trees:
+  CP 2: SLIDE · CRASH +$6 (a crash in view loses the value). City tapes of one lap: $174 .. $268 ("The start, 12
+  checkpoints and the finish, a win." $252, its last checkpoints LED).
+- TapeCheck on this round's code (hidden, once): 51 ok, 0 FAIL. Round 1's two failures pass: FF scans "with the
+  sound off", "EJECT lands at home ... on the tape shelf". The deck plays a v2 tape through its clips, REW, FF,
+  PAUSE, the end stops the deck; the montage still joins. Pages: the store lists every clip with its tags and
+  dollars; the sale pays ($1250 + $252 = $1502).
+- Self-test (LifeSimSelfTest, PSXRec, fresh processes): see the numbers at the foot of this section. TestCamcorder:
+  49 checks, all ok (the feeds, the clips of a synthetic two-lap drive, every flex tag, the v2 tape, a v1 tape
+  still loads at its old price, a newer tape refused).
+
+## What still looks wrong
+- Uptown Loop's CHECKPOINT 3 front camera has a UTILITY POLE across a third of its frame (day and night sheets). The
+  fix is written (PSX_CAM_CLEARVIEW=1, a 60 degree look for things in the foreground) but NOT RUN: default OFF.
+- City nights under street light come out BRIGHT AND WASHED: the gain-up that makes the unlit mountain readable
+  (3.2x) also lifts the lit city. PSX_CAM_GAIN sets the cap (round 1's was 1.7); only 3.2 has been looked at.
+- Mountain night: the road and the verge read, the cars are still lamps more than shapes.
+- The START's back camera stands 3 m from the grid: the cars fill the frame as they leave.
+- The fallback's checkpoints are evenly spaced points, not the checkpoint system's gates (not wired yet, see merge).
+- A tape is clips: between two the picture jumps (0.3 s of static). Whole laps are in TRACKSIDE / CHASE, one key away.
+
+## Unproven (say so to the owner)
+- REAL GATES: no race has fed `RacePoints.Provider`; `FromGates` and the file reader are covered by the self-test's
+  synthetic chain only (the reader stays behind PSX_CAM_CPFILE=1).
+- A circuit of several laps (the LAP 2/3 clips), a drag strip and a sprint variant: self-test only; the play runs
+  were one lap of Uptown Loop and the Gillespie Gap stage.
+- The VCR on a CITY tape (the deck's cut waiting for streamed ground): TapeCheck plays a mountain tape. No Android
+  device run at all.
+- PSX_CAM_CLEARVIEW=1 and any PSX_CAM_GAIN but 3.2: never run.
+- The honest BEFORE with its HUD text, and a watched city run: not shot (the owner asked for the tests to stop).
+- How the camcorder's sound is: nobody has listened to it.
+
+## What the coordinator must do at merge
+- Files (all the camcorder's own; no scene pass, no re-bake, no data, ProjectSettings untouched this round):
+  new `Scripts/Replay/RacePoints.cs`, `RacePlan.cs`, `TapeClips.cs` (+ .meta), `tools/sandbox-lock.ps1`; changed
+  `Scripts/Replay/Camcorder.cs`, `CamcorderCam.cs` (rewritten), `CamcorderOSD.cs`, `CamcorderPass.cs`,
+  `RaceReplay.cs` (Begin: CamcorderCam.Setup(this, cam); Hold; the recorder's Scout line; PoseAt removed),
+  `TapePlayback.cs`, `Tapes.cs`, `LifeSim/LifeHomeScreen.Tapes.cs`, `Shaders/PSXCamcorder.shader`,
+  `Editor/CamcorderShots.cs`, `Editor/TapeCheck.cs`, `Editor/LifeSimSelfTest.Camcorder.cs`,
+  `tools/camcorder-shots.ps1`, `tools/tape-check.ps1`.
+- THE CHECKPOINT WORKFLOW (city-checkpoints) must, in CheckpointRace.TryBegin: `RacePoints.Provider = rm => (rm == its
+  race) ? RacePoints.FromGates(gates, loop, rm.totalLaps, gridPos, gridHeading) : null;` with one `RacePoints.Gate`
+  per cps[] entry (kind, x, y, z, hx, hz, l0 = the spans' least l0, l1 = their greatest l1), and clear it when the
+  race goes. Its DESIGN_v2 7.1 / stage-2 item 5 ("trajectory lenses for CamcorderCam", `CamcorderCam.Setup/Plan`)
+  is DONE DIFFERENTLY here: those signatures are gone, the clips are already cut from the recorded trajectory.
+  Its own planned edits to RaceReplay.cs (PauseList, explicit rm.path) touch the file this branch changes near Begin.
+- `tools/sandbox-lock.ps1` is there for every agent's scripts (Enter-SandboxLock / Exit-SandboxLock).
+
+## What the owner will notice
+The camcorder replay no longer rides along: it is a tape of clips from people standing at the start line, at every
+checkpoint and at the finish line, each named on the picture (START, CHECKPOINT 3/12, FINISH). The shelf and the
+video store list what each camera saw, and a slide, a pass or a lead through a checkpoint is worth money.
+
+## Self-test and the runs, in numbers
+- LifeSimSelfTest in PSXRec, fresh processes: base 742315cd = 62 failures, this branch (70f0fe50) = 62 failures, the
+  SAME list (diff empty). The later commits only add two page shots to an editor tool (typechecked).
+- Play runs: 3 watched (22:27-22:55: first look, the flex pair, the mountain day), the rest hidden. The owner was
+  playing: he closed two of my watched editors, and a PowerShell bug of mine opened two ordinary visible editors at
+  23:00-23:03 (hidden mode's arguments glued into one string; fixed e5b02830). At 23:58 he asked for the tests to
+  stop; after that one hidden, silent TapeCheck, the two self-tests and one page capture ran, once each.
+- Head: see the hand-back. Nothing pushed, nothing merged.
+
+# HANDOFF - THE OWNER'S 11-14..11-16 CAR MODELS IN THE GAME (agent "cars-1116", branch `cars-1116` off mountain-nm 742315cd, 2026-11-16 21:40-23:50; NOT pushed, NOT merged)
+
+Owner, 2026-11-16 ~21:25: "Please add these updated car models to the game. Some of them are WIP, but they can be updated again later."
+Scratch: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\cars1116\` (INVENTORY.md, PROGRESS.md, sheets\, run.ps1, Cars1116Jobs.cs, the gate reports).
+
+## Per car (nothing skipped; catalog 320 cars across 47 of 57 shells)
+| Delivery taken | Shell | What | Rows |
+|---|---|---|---|
+| Silvia_S13_HD_v03 | `coupe_88` | NEW | the four S13 Silvias (K's / Q's `88, `91), off the 180SX hatch |
+| FC_1987_Bronze_HD_v03 (closed + raised) | `rotary_coupe_87` | NEW, pop-ups | the three FC rows (GT-Limited `85, GT-X `90, INFINI III `90), off the built-in FD |
+| Soarer_1998_HD_v03 | `lux_coupe_97` | NEW (WIP) | Lexus SC300 `97, off the pack's grand tourer |
+| MA70_TurboA_HD_v03 | `gt_liftback_88` | NEW (WIP: only a lamps-up pose exists) | Supra 3.0GT Turbo A `88 + 2.5GT Twin Turbo R `90, off the pack's grand tourer |
+| Camaro67_SS350_HD_v02 (v03 = textures only, no model) | `pony_coupe_67` | NEW + NEW catalog row | `chevrolet_camaro_ss_350__67` "Chevrolet Camaro SS 350 `67" |
+| NSX_Yellow_HD_v31 | `midship_coupe` | updated in place (was v15) | all 12 NSX rows |
+| TypeX_White_HD_v13 | `fastback_96` | updated in place (was v08) | Nissan 240SX `94 |
+| FD_Shared_Independent_v01/Textured_27 | `rx7_fd_93` / `_99` / `_nowing` | updated in place (was Textured_18) | the 9 FD rows + the `98 Type RS |
+
+## What I found
+- Every delivery is a 2048x1024 HD PBR set + an RGBA lamp map + GLB. The game sheet is the 4x box filter (512x256); the 2048 set goes through the HD car tier.
+- The S13 Silvia rows wore the 180SX HATCH and the FC rows the FD: both now wear their own body. The catalog had no '67 Camaro (GT4 has only the '69): new row.
+- Soarer v03 (no README: still being written) delivers see-through tinted glass over a modelled cabin; the game draws glass opaque off the sheet, and its backlight / sunroof UVs land on PAINT: pinned to the quarter glass's texel in the exporter (`uvPin`).
+- MA70 v01-v03 hold only `HeadlightsUp`: the lamps stand raised day and night until a closed pose comes.
+- NSX v31 is 75,716 / 76,776 triangles, seven times every other shell (the artist's own cap is 10,000). It runs; it is the first thing to ask Codex for.
+- `Scripts/CockpitFit.Table.cs`: the probe's calibration is the catalogue's MEDIAN, so adding five shells would have stretched every car's cabin 2.8 %. Kept at the 52-shell values (and with them the fit gate passes; with the new medians the three FDs failed its nose gate by one ray).
+- NOT MINE, found on the way: `Resources/ArchHubs.bytes` at 742315cd is stale for other shells - the fit code moved after 11-11, so 15 catalog cars sit on the blunt arch field instead of their exact rows (civic_eg x8, rally_sedan_99 x3, flatsix_coupe, viper_gts, and the two Ford RS200s that changed shell on 11-15). `Scripts/ChaseSilhouettes.Table.cs` differs from a fresh emit on 40 other shells by millimetres. I changed ONLY my ten shells' rows. A full fresh pair is in scratch (`ArchHubs_full_rebake.bytes`, `ChaseSilhouettes_full_emit.Table.cs`); the re-bake is `ArchProbe.Bake` + `BakeExact`, 3 minutes.
+- PSXPerf lacked a tracked file (`Generated/CarModels/flatsix_coupe_87_wheel.asset`): the Yellow Bird baked with no wheels there (base self-test "1 shell without a wheel mesh"). Copied in.
+- Classifier question for the owner: `lexus_sc300__97` is LHD by its name (DriveSide.csv), while car_facts treats it as the JDM car (1JZ-GTE, 280 PS) and his model is a right-hand-drive Soarer.
+
+## What I changed (switch PSX_CARS1116, default ON; 0 = the five new rows on their old shells; the in-place updates have no switch)
+- `tools/carmodels/export_models.mjs` (5 new models, 3 new sources, `cover`, `uvPin`), `tools/carmodels/stage_carhd.py` (new sets, `ormA`), `tools/carmodels/lamps/cars1116_fix.py`.
+- Per shell: `Art/Car/Models/<shell>/`, `tools/carmodels/converted/<shell>_vNN/`, `Resources/CarLights/<shell>_lightmask.png`, `Resources/CarModels/<shell>.prefab`, `Generated/CarModels/<shell>_wheel.asset`, `Materials/CarModels/<shell>_*.mat`.
+- `Scripts/CarModelLibrary.cs` (Models +5, HandRules, the switch), `Scripts/LifeSim/CarMarket.cs` (StarterBodies: `coupe_88`), `Scripts/LifeSim/CarViewer.cs` (PaintedBrakes +5), `Editor/CarHDShots.cs` (BakeImport's list +7), `Editor/LifeSimSelfTest.cs` (pins).
+- `Resources/rg2_cars.json` (+1 row: the '69 SS's L48 350 with the '67's own figures; 299 PS, 1380 kg, 2746 wb, $28,500, 256 km/h), `Resources/car_facts.json` (+1; the tool's re-bake also refreshes 15 older rows' origin after the 11-15 fix), `Resources/DriveSide.csv`, `Docs/drive_side.csv`, `tools/bake_car_facts.py`, `Docs/car_model_mapping.txt`.
+- Tables: `Resources/ArchCeilings.bytes`, `Resources/ArchHubs.bytes`, `Scripts/DoorMirrors.Table.cs`, `Scripts/CockpitFit.Table.cs`, `Scripts/ChaseSilhouettes.Table.cs` - my ten shells' rows only.
+- Lamp maps: the Soarer's parcel-shelf stop lamp zeroed (behind opaque glass), the Camaro's scatter channel derived (A = 0.35 x B).
+
+## Proof (PSXPerf, StandaloneWindows64, fresh process per job)
+Sheets, one per car, 18-19 labelled cells (GT showroom x2, seller's lot 3/4 front and rear, chase noon / noon braking / night / night braking, track front 3/4 noon and night, lot dusk lamps and brake, cockpit ahead and left, both left wheels in their arches, STAGED beside a known car from the front and from above, BEFORE for the five new rows):
+`...\scratchpad\cars1116\sheets\cars1116_<shell>.png` for coupe_88, rotary_coupe_87, lux_coupe_97, gt_liftback_88, pony_coupe_67, midship_coupe, fastback_96, rx7_fd_93, rx7_fd_99 (and rx7_fd_nowing: lot cells only, no catalog row wears it).
+- Bake: all ten shells; raised bodies coincide with the closed ones (0.0 mm); pop-up lamps found on the FC, NSX, Type X, FD; head lamps by the surface fallback on the S13 (optics behind covers), tail lamps by the fallback on the Soarer (the finder reads garnet paint as lamp red).
+- Cockpit fit gate 57 shells 0 FAIL; door mirrors 57 shells 0 FAIL (all five new shells have two live mirrors); arch sweep 320 rows, 0 tyre over its arch at rest, 15 on the field (the stale rows above, none mine).
+- Chase framing, my ten shells: 18 of 120 cases out of band = the standing 16:9 CHASE-at-200 horizon miss every shell has (10) + close-view tail clip 0.5-1.2 % past the allowed on the FDs, the Type X and the Soarer (6) + two rounding ties (FC, Camaro).
+- Self-test: base 68 FAIL (the sandbox's state), mine 70 on the first run = +3 lamp-map checks on new shells, -1 (the missing wheel asset). Two of the three corrected afterwards and confirmed by the lamp check alone; ONE stays: `lux_coupe_97: ...on faces that look forward (18)` = the Soarer's projector-barrel walls (normals exactly radial) share the lens rim's texels. The full self-test was not re-run after the corrections.
+- One WATCHED race (23:42, PSXPerf; the owner's game was not running at the check): Gillespie Gap, 90 s, the player on autopilot in the new `67 Camaro, the field handed over as Silvia K's, RX-7 GT-Limited (FC), SC300, Supra Turbo A (the scene starts three rivals; no picture was taken, so which three is by the hand-over order): the race goes live, 1,880 m for the player and 2,350-2,384 m for the rivals, 0 hard hits, 0 retirements. Its one FAILURE is the exposure gate ("no pumping on the open road", gain 1.24 against 1.10), which no car model touches; not compared with a base run.
+- What still looks wrong in my own sheets: the MA70's lamps are up at noon; ripples in the paint near the tail lamps on the S13, FC and NSX from the side; a dashed dark seam round the Soarer's tail-lamp covers at chase distance; at night every body is nearly black behind its lamps (the game's night, not these cars).
+- Two mistakes of mine, both fixed: the first track frames carried the first shell's lamp map on every later car (CarLights re-fits in LateUpdate, which does not run outside play; the tool re-fits now, frames re-shot); the cockpit-shots job ran without -quit and sat building Unity's search index (~6 GB of PSXPerf's Library) until I asked it to close.
+
+## For Codex (what is visibly unfinished)
+- MA70: a HeadlightsDown pose (closed lids), same frame and atlas, so the pop-ups can work like the FD's. Tyres 656 mm against the sheet's 631.
+- Soarer: opaque dark glass texels for EVERY pane (backlight and sunroof sit on paint; v02 had opaque glazing); the high stop lamp on the outside if it should show; projector-barrel walls off the lit lens texels; the dashed seam at the tail-lamp covers; tyres 622 mm against 654 (the rear needs a 33 mm arch flare); 9 % of the sheet has alpha 0. README / validation for v03.
+- NSX: a game mesh at the 10,000-triangle cap (v31 is 75,716); the lens-coat map is not read by the game.
+- Camaro: the model for v03 (the folder has textures only); a lens-scatter channel in the lamp map (A is empty; derived here); sheet alpha in two classes only (128 matte / 255 gloss; it uses sixteen values).
+- S13: README / validation / preview for v03; the rear-quarter ripple; tyres 602 mm against 615-627.
+- FC: the shoulder ripple toward the rear lamp (its own README names it); tyres 600 mm against 627-632.
+- Type X: sheet alpha is 255 everywhere (no matte class for rubber and trim).
+- FD: nothing new.
+
+## For the coordinator at merge
+1. Merge `cars-1116`. Shared files: `Scripts/CarModelLibrary.cs` (Models, HandRules, `HandKey`, `Cars1116On` / `Before1116`), `Scripts/LifeSim/CarMarket.cs` (`StarterBodies`), `Scripts/LifeSim/CarViewer.cs` (`PaintedBrakes`), `Editor/CarHDShots.cs` (`BakeImport` key list), `Editor/LifeSimSelfTest.cs` (the mapping block, two edits), the three `*.Table.cs` (rows), `Resources/rg2_cars.json` (one row appended), `Resources/car_facts.json`, `Resources/DriveSide.csv`.
+2. HD car files: copy everything in `C:\Users\mcgee\PSXHDStage\carhd_cars1116\` over `C:\Users\mcgee\PSXHDStage\carhd\` (68 files: 27 identical, the 12 FD files replaced, 28 new, the manifest), or build with `PSX_CAR_HD_SRC` pointing at it. 17 sets, 16 lamp maps.
+3. The car re-bake build (the pc27 / pc_carbuild flow): copy the changed asset files by path (`git diff --name-only 742315cd..cars-1116 -- Assets`, 208 files), then `CarHDShots.BakeImport` (its list now holds the seven new HD bodies; it re-bakes them in PSXLab and imports the HD sets), then the player. The new shells' prefabs, materials, wheel assets, cover materials and metas are committed; the updated shells' prefabs keep PSXLab's own cover-material GUIDs.
+4. Decide: the full arch / silhouette re-bake for the OTHER shells (above), the SC300's drive side, and whether the cockpit calibration should follow the 57-shell medians.
+5. PSXPerf: my baked car assets stay there; its Library is ~6 GB bigger (search index).
+
+## What the owner will notice
+The Silvias are now the S13 notchback and the old RX-7s the FC with working pop-ups, instead of borrowed 180SX and FD bodies; the SC300, the two A70 Supras and a new '67 Camaro SS 350 have their own cars; the NSX, the Type X and every FD wear his newest versions. On PC all of them carry his HD paint and panel lines. The Supra drives with its lamps up all day until a closed pose exists.
+
+# CHARLOTTE TRACKS, BATCH 1 INTEGRATED: 3 verified tracks, 4 venues (agent "integ", branch charlotte-tracks-b1 off ec1dd760, 2026-11-16 22:20-22:50; NOT pushed, NOT merged)
+
+The owner today: "start adding more Charlotte tracks". Four lanes built 13 candidates (A: H3 C1 X1; B: S1 X3 C2 H4;
+C: H5 C9 D3; D: H6 H7 C7), and each lane had an independent checker. Only the three that passed BOTH the lane and
+the checker are in. Owner sheet: art workspace `Charlotte_Tracks_Batch1_2026-11-16.png` + `.md`.
+
+## What is in (per-track files only, taken unchanged from the lane heads; no .cs change)
+- `Resources/CityTracks/x1.json` (+meta, GUID 230f153c...) from tracks-lane-A 4dd82b53 (commit 47efa34e).
+  It holds CltX1 "TRYON SPRINT — SOUTH END" and CltX1Rev "... SOUTH END II", a 2.69 km sprint run in both directions
+  in TryonSprint's scene.
+- `d3.json` (+meta, f002c278...) from tracks-lane-C d9023727 (7117456b): CltD3 "US 74 1/2 MILE: INDEPENDENCE". It is
+  an 804 m drag, one way (NW, inbound), in TryonSprint's scene, limit 89.
+- `c7.json` (+meta, 966e5050...) from tracks-lane-D 64542c96 (7e9b835a, 0dc91c56): CltC7 "UNIVERSITY CITY CIRCUIT".
+  It is a 4.22 km circuit raced for 1 lap, one way (clockwise), in UptownLoop's scene.
+- `_order.txt`: `order.mjs --write` appended CltC7, CltD3, CltX1 and CltX1Rev. The venues are now #53 I485West,
+  #54 CltD1, #55 CltC7, #56 CltD3, #57 CltX1 and #58 CltX1Rev. From now on, never reorder or remove these lines.
+
+## Left out (failed the lane or its checker)
+- C1 (A): the planned driver error sends a rival straight into the sanctioned closures. The lane lost one rival this
+  way at 46.0 m/s and one at 42.2 m/s. Six of its 8 corners have a row 14-18 m straight on.
+- H3 (A): the Remount Rd turnaround is a one-lane 4.3 m bridge carriageway. All 3 runs went wrong there: jams,
+  barrier hits and wrong way.
+- S1 (B): roll-overs at the Ardsley Rd and Fenton Pl fan mouths (12 mm FanProudM steps at 150-215 km/h). It needs a
+  Scripts/City fix.
+- X3 (B): the Skyline retired into the median Barriers in 3 of 4 runs with no planned mistake. The surface is smooth
+  there, so AI contact is likely.
+- C2 (B): a closure hit at 55.1 m/s at South Tryon -> Remount after the planned mistake.
+- H4 (B): 2 retired. One was a closure hit on C-D ramp e172. The other was a hard hit into Ground at the I-277 WB deck
+  end e9697->e1832 (city geometry).
+- C9 (C): a rival rolled and retired after the Ballantyne Corporate Pl bridge in both runs. No planned mistake.
+- H5 (C): a retaining wall on the Johnston Rd off-ramp's edge line (e159). A rival retired there in both runs. It
+  needs a city fix.
+- H6 (D): checker seed 1 had a closure hit at 69.4 m/s past the Eastway exit after the planned mistake. A no-event run
+  had a car 2.5 s wrong way after rolling at the e14413 deck end.
+- H7 (D): checker seed 1 had a closure hit at 55.0 m/s past the W.T. Harris exit after the planned mistake.
+
+## Not taken (shared code from the lanes; none of the three tracks needs it)
+- The registrar laps fix: tracks-lane-A 6e022f5e (final in 4dd82b53), or the identical code in tracks-lane-C f839431b.
+  It is CityTracksRegistrar.Awake, +8 lines in the hosted-venue block: a hosted loop sets
+  `RaceManager.totalLaps = venue.laps`, and `PSX_CITY_TRACK_LAPS=0` restores the old behaviour. Both checkers say it is
+  correct and minimal. With it, set c7.json laps to 3, fix "one lap" in its blurb and race CltC7 once in full
+  (12.7 km). Without it, every hosted circuit races 1 lap, so CltC7 is emitted at laps 1 to match.
+- track-job.ps1 -Seed (lane A 7b619c7b). It is tooling only.
+
+## Proof (PSXCity, WebGL, my own stamped atomic lock each job, released; typecheck OK first)
+Scratch: `C:\Users\mcgee\AppData\Local\Temp\claude\be91fcb74e64226b\40ca151a-c5be-4aaa-9ea2-b8dd0e7c98a9\scratchpad\tracksb1\integ\out\`
+- -Mode scenes (22:28-22:31): CITY BUILD OK in 3 min. The four city scenes are now built from this branch's code; the
+  last build was at 14:57, before the PC48 merge.
+- -Mode closures (22:31): ALL CLEAR. That covers 8 routes and venues #53-#58, with 0 on the race line everywhere:
+  - uptown 8.3 m, tryon 9.2 m, independence 10.6 m;
+  - c7 6.8 m (lanes 5.8), d1 9.8 m, d3 10.2 m (9.0), i485west 10.4 m, x1 8.6 m (5.8).
+- WATCHED sanctioned race of CltC7, -Traffic NONE, -Finish, seed 0 (22:33-22:38; main told first; no layout dialog).
+  It ended RACE CHECK OK with 0 FAIL lines:
+  - Charger 133.6 s, Skyline 143.8 s, player 144.3 s, Supra 151.1 s;
+  - 0 retired, wrong way none, pumping 1.01 (ok), UNDRAWN RAILS 0, closures audit 0 on the line (nearest 6.8 m).
+- -Mode cards (22:38): citymap-bake 721 tiles, 11 cards (citymap_CltC7/CltD3/CltX1.png; no separate Rev card).
+- -Mode eye (22:41): grid frames for c7, d3, x1 and x1rev, plus middle frames, day and night. The lanes are clear.
+  x1_middle snapped onto the pavement behind a tree, so it was not used.
+- Earlier verdicts:
+  - X1: lane A forward and reverse all home; checker A ran CltX1Rev on seeds 2 and 0 (one planned-mistake off-road
+    retirement with no hit).
+  - D3: lane C, then checker C (and a no-event run with no closures built).
+  - C7: lane D seed 0; checker D seeds 0, 1 and 2 (seed 2: one planned-mistake off-road retirement, no hit).
+
+## Known and not fixed here
+- Owner, 21:00 tonight: no barricades in any race; checkpoint races instead (memory
+  psx-racing-barricades-legal-events-only). This branch keeps the old default, CityRaceClosures.cs:22-37
+  `ForThisRace`: closures in sanctioned events only. For the PC build, either set `PSX_TRACK_CLOSURES=0` as the
+  default, or let the checkpoint-race round replace it.
+- RaceManager.RaceFraction (RaceManager.cs:330 vs 631-638): on a loop the planned mistake fires at the first braking
+  zone. It is the root cause of the H6 and H7 closure hits. This is shared race code.
+- RouteMap.cs, arrow placement (about lines 553-567 and the Chevron at about 655): the drag cards' arrows (CltD3,
+  CltD1) point against the run.
+- Risk, not seen in any run: CltX1Rev has only 60 m of road past its flag. A full-width closure row stands about 75 m
+  past it, on S Tryon e12864. That matters only while closures exist.
+- CltC7 has oneWay 1 and every road is one-way. CltX1 is two-way. A street race on them with traffic is not checked.
+
+## For the PC build
+- Sync `Assets/PSXRacing/Resources/CityTracks/` (all files and metas).
+- Run the city scene pass if the build sandbox's city scenes predate CityTracksRegistrar.
+- Run `tools\citymap-bake.ps1 -Project <sandbox>` before the player build.
+- No city re-bake: no `charlotte_*.bytes` or Scripts/City change.
+- Switches: PSX_CITY_TRACKS defaults ON (=0 hides the new tracks); PSX_TRACK_CLOSURES (see above).
+
+# CHARLOTTE TRACKS, THE FOUNDATION: the pipeline finished and made merge-safe for four lanes (agent "tracksb1", branch charlotte-tracks, 2026-11-16 18:48-20:00; NOT pushed, NOT merged)
+
+Supersedes "STATE AT THE STOP" below (its NEXT steps a-d are done). The owner: "Now that Charlotte roads are more
+accurate, I'd like to start adding race tracks (circuits, sprints, drag [the current drag/sprints are veeery
+long])"; "I would like to see more circuits use highway on/off ramps"; today: "start adding more Charlotte
+tracks". The lanes' builder guide: scratchpad `tracksb1\BUILDER_GUIDE.md` (commands, sandboxes and targets, the
+lock, PASS, known lines, what to do on a problem).
+
+## What changed
+1. Merged mountain-nm 742315cd (PC48 code) into charlotte-tracks: only HANDOFF.md conflicted (both tops kept).
+2. A TRACK IS DATA, ONE FILE EACH: `Assets/PSXRacing/Resources/CityTracks/<route id>.json` (+ .meta). It holds the
+   venue (name, blurb, HUD label, laps, limit, host scene, one-way, reverse 0/1 with the twin's name, label and
+   blurb) and the route (the shipped graph's edge chain, the 20 m menu line, start line, finish, graph hash).
+   - `Scripts/CityTracks.cs` (rewritten) reads every file at load (Resources.LoadAll). `Register` adds the routes to
+     the city map; it refuses a file routed on another graph and checks every chain.
+   - `TrackCatalog.CityTrackVenues(...)` makes the venues from the files: the forward venue, plus `<Id>Rev` when
+     reverse=1. A cut (X1-X4) is its own file. The hard-coded I485West def is gone.
+   - ORDER (saved careers store the index): `Resources/CityTracks/_order.txt` first (THE INTEGRATOR's file:
+     `node tools/city/tracks/order.mjs --write` after merging lanes), then unlisted venues by file name, forward
+     before twin. Today: #53 I485West, #54 CltD1, after the deck runs as before. The list never depends on a switch.
+   - Small shared edits: `TrackCatalog.ReverseTwin` copies hostScene; `SceneIdOf` checks hostScene before Reversed
+     (a hosted twin races in its host's scene); `BuildAll` calls `CityTrackVenues(list)`.
+   - Removed: `Resources/charlotte_tracks.json` (+meta) and `tools/city/tracks/emit_tracks.mjs`.
+3. Tools in tools/city/tracks/:
+   - `emit_track.mjs`: one candidate of candidates_2026-11-16.json into its own file. It re-checks the chain,
+     joins gaps under the sheet's 5 m sampling, places cut and drag starts, and sets defaults (laps under the
+     14.2 km tank line, limit, one-way, reverse 1 only when no road is one-way). A dry run passes on all 28.
+   - `order.mjs`, `trackfiles.mjs` and `spots.mjs` (driver-eye cameras).
+   - `track-job.ps1`: one locked Unity job per call (scenes, closures, race, cards, eye or selftest). It takes the
+     atomic lock, pins the build target per sandbox, /MIRs the code plus Resources/CityTracks and copies metas
+     back.
+   - `closures.mjs` and `../citymap_prep.mjs` now read the per-track files. `Editor/CityClosuresCheck.cs` also
+     lists every track venue (index, route, host scene) and WARNs on venues `_order.txt` does not list yet.
+4. Proof track CltD1 (D1, "UPTOWN 1/4 MILE: 4TH STREET"): one-way East 4th Street, 402 m, raced in TryonSprint's
+   scene as a short sprint. A city route has no drag presentation: CityMode sets path.drag false, and
+   Scripts/City is out of bounds.
+5. I485West's reverse twin was registered from the data, raced, and REMOVED (reverse 0). See the proof below.
+   Freeway laps stay forward-only, the old rule for UptownLoop and Independence.
+6. DEFAULTS FLIPPED (proven below): `PSX_CITY_TRACKS` default ON (=0 hides the new tracks). `PSX_TRACK_CLOSURES`
+   default = sanctioned events only (=0 never; =1 every city race, used by the checks).
+7. The self-test on the defaults found 5 FAIL lines that the appended tracks brought. All are fixed:
+   - `LifeSimSelfTest` "scene index N": a hosted venue's scene is its host's (I485West, CltD1).
+   - "and gets the shortest run there is": the cheapest-run loop skips noDelivery roads, like the delivery pool
+     it mirrors.
+   - "the frozen v21 list ... less the v30 additions": the appended tracks are left out like the v30 additions.
+   - "Standard is in GraphicsSettings' always-included shaders": `CityRaceClosures.EnsureMaterials` no longer falls
+     back to Shader.Find("Standard"). Without PSX/Lit it logs an error and draws nothing.
+
+## Proof (PSXCity, WebGL; scratchpad `tracksb1\out\`: closures_check.txt, race_*.txt, cards\, eye\, eye_sheet.png, selftest.txt)
+- Closures route check (batch, 19:11): ALL CLEAR. 0 rows on the race line on uptown, tryon, independence, d1 and
+  i485west (nearest 8.3-10.6 m from the line; i485west 10.4 m with the lanes 9.4 m a side).
+- I485West, WATCHED, sanctioned, -Traffic NONE, -Finish: all four home in 245-258 s, 0 retired, no closure hit,
+  wrong way max 0.5 s (ok). One AI went off on a bend into a tree at 16.9 m/s and recovered. FAIL only the known
+  lines: exposure pumping 1.96, UNDRAWN RAILS 2. The 15:45 run's closure FAIL and wrong-way FAIL are gone.
+- I485WestRev, WATCHED, the same way: the mechanism works (host scene, route swap, reversed lap, all to the flag,
+  0 closures on the line, no wrong way). But 5 s after its finish the Charger, pulling right at 134 km/h, ran on
+  along the closed I-485 mainline where the reversed lap climbs an on-ramp, and hit that closure 8.8 m outside
+  the lanes. Also, a rival's planned mistake fired at 6 % instead of 72 % and retired it. So the twin was dropped.
+  The first try ended with the editor closing 1 s into play mode and no report; the re-run was normal.
+- CltD1, WATCHED, the same way: RACE CHECK OK. All four home in 17.6-18 s, pumping 1.04 (ok), UNDRAWN RAILS 0.
+- Cards on the whole-city map: citymap_I485West.png and citymap_CltD1.png. Eye frames (day and night) on the grid
+  and mid-race for both: the lanes are clear.
+- Self-test on the code defaults (switches unset): 92 FAIL lines in PSXCity after the fixes (97 before them). The 5 gone are exactly the lines the appended tracks had brought (scene index 53/54, shortest run, frozen v21 list, the closures' Standard shader). No remaining FAIL line names a track; "CITY offers the four Charlotte races" was already failing on the deck runs. The sandbox's other FAILs (deck runs' scene exists, Lake Lure not built there, shaders missing from its ProjectSettings, car maps) are not this round's. No base run was made to compare the count.
+
+## Not done / known
+- The planned driver error fired at 6 % instead of 72 % on the reversed city loop (RaceManager.RaceFraction /
+  lap count on a loop; shared race code, not changed here). Check it on forward loops too.
+- A course with SOME one-way roads races with two-way race traffic (TrafficSystem lays lanes per venue). This
+  matters only in street races with traffic.
+- Only PSXCity's city scenes carry CityTracksRegistrar. PSXPerf, PSXLab and PSXRec need `-Mode scenes` once (the
+  job keeps PC content with PSX_PC_CONTENT=1 when the sandbox has CityTreeKit.asset). The time for that is not
+  measured there.
+- The sandbox still holds no charlotte_tracks.json (track-job deletes it). The owner's main checkout is untouched.
+
+## Merge
+- New: Resources/CityTracks/ (folder meta, _order.txt, i485west.json, d1.json + metas), tools/city/tracks/
+  {emit_track,order,trackfiles,spots}.mjs and track-job.ps1. Removed: Resources/charlotte_tracks.json (+meta),
+  tools/city/tracks/emit_tracks.mjs.
+- Shared: TrackCatalog (BuildAll, CityTrackVenues, ReverseTwin hostScene, SceneIdOf order, Offered comment),
+  CityTracks (rewritten), CityRaceClosures (ForThisRace default, EnsureMaterials), CityTracksRegistrar (comments),
+  Editor/CityClosuresCheck, Editor/LifeSimSelfTest (3 checks: scene index, shortest run, frozen v21 list),
+  tools/city/citymap_prep.mjs.
+- No Scripts/City and no charlotte_*.bytes change: no city re-bake. City scenes must carry CityTracksRegistrar: a
+  city scene pass in any sandbox whose city scenes predate it (PC47 and earlier). Run citymap-bake before the
+  player build.
+- After merging the lanes: `node tools/city/tracks/order.mjs --write`, commit _order.txt, then `-Mode closures`
+  once over the union.
+
+# STATE AT THE STOP: agent "tracks", branch charlotte-tracks, 2026-11-16 16:05 (resume after 19:00)
+1. Done: Phase 1 + 1b (31 candidates, H1-H7 freeway laps) and Phase 2 (the whole-city track preview, merged in mountain-nm 73e6434e, PC47).
+2. Phase 3 is WIP and DEFAULT OFF. H2 is I485West (charlotte_tracks.json; CityTracks, CityTracksRegistrar and CityRaceClosures; a hosted venue). `PSX_CITY_TRACKS=1` offers the new tracks. `PSX_TRACK_CLOSURES=1` closes the roads in every city race (for the checks); `=sanctioned` closes them in sanctioned events only (the owner's rule). With both unset the game is as before: no new venue, no closures anywhere.
+3. The watched sanctioned run (15:45-15:54, closures=1, with traffic) reached the finish with 4 FAILs:
+   - one closure row stood in the race lanes: the Supra hit it at 12.5 m/s, 2.5 km in (the I-485 mainline row at the C-D split, edge 1164);
+   - the Supra drove the wrong way for 4.5 s after that hit;
+   - exposure "pumping" reached gain 2.12 (not mine; no baseline run);
+   - UNDRAWN RAILS: 2 samples, nearest 37.8 m (city data).
+   Report: scratch `tracks\race_I485West.txt`.
+4. Fixed since, NOT yet proven in Unity:
+   - The closures are built in the registrar's Start against the real TrackPath. Each row stands 1 m outside +-roadWidth/2 (the cars use the whole 18.8 m road), the same measure as the RacePlayCheck audit (`CityRaceClosures.LineMargin`).
+   - Offline, `tools/city/tracks/closures.mjs` on all 4 routes: 0 rows on the line, nearest 1.01-1.3 m clear.
+5. NEW `Editor/CityClosuresCheck.cs`: a batch, hidden check of every city route (real TrackPath, closures and the audit; run with PSX_CITY_TRACKS=1). NOT run yet. Typecheck OK.
+6. NEXT, in order:
+   - (a) run CityClosuresCheck in PSXCity;
+   - (b) a watched sanctioned I485West with `-Traffic NONE` (scratch job_race.ps1 -Extra "-Traffic NONE"), sending main one line first;
+   - (c) the card shots (job_citymap.ps1 -NoBefore -RaceSelect);
+   - (d) if all is clean, both defaults ON;
+   - (e) the owner's picks, through emit_tracks.mjs.
+7. Merge:
+   - New: CityTracks, CityTracksRegistrar, CityRaceClosures, Editor/CityClosuresCheck and Resources/charlotte_tracks.json (+metas).
+   - Shared: TrackCatalog (hostScene, venues after DeckRuns, SceneIdOf, EnsureRoute, Offered); PSXRacingBuilder.City (the registrar on every city scene, so a city SCENE PASS is needed); LifeSimSelfTest; RacePlayCheck.
+   - No Scripts/City and no charlotte_*.bytes change, so no city re-bake.
+
+# HANDOFF - THE CAMCORDER, PAUSED AT THE 97 % STOP (agent "camcorder", branch `replay-camcorder` off mountain-nm c0a81147, 2026-11-16 ~16:00; NOT pushed, NOT merged; resumes after 19:00)
 1. STATE: replays look like 1999 camcorder tapes (PSX_CAMCORDER, default ON - proven in three WATCHED PSXRec runs, mountain + Charlotte, day + night, every check ok but one city countdown timeout); tapes save / shelf / VCR / VIDEO STORE sale work (PSX_TAPES, default ON); MONTAGE behind PSX_MONTAGE=1 (default OFF).
 2. Proof so far (scratchpad\camcorder\): camcorder_replay_sheet.png, camcorder_tapes_sheet.png, camcorder_replay_clip.mp4 (8 s, frames only), shots\, shots2\, tapes\ (frames + reports). camcorder_before_after.png is NOT valid yet (the base run died in a lock race).
 3. Self-test in PSXRec: base 65 FAIL vs mine 66; the one extra is "PSX/Camcorder in always-included shaders" because PSXRec's ProjectSettings are stale (my GraphicsSettings.asset adds it; the sandbox also lacks the water round's two lines). TestTapes + TestCamcorder all ok. Saves untouched (load both ways).
@@ -2597,7 +3007,7 @@ Worktree `C:\Users\mcgee\PSX Racing-events` off mountain-nm 9ced6b84. Sandbox PS
 - Racing rep is not in the header (header REP = street rep); it is on the EVENTS page. No rep decay for racing rep. Club standings never reset (no seasons). Not in the month view.
 - MAIN-edition fallbacks checked by the self-test only; no race sweep / city check run.
 
-﻿# HANDOFF - GT-STYLE SHOWROOM (agent "showroom", branch gt-showroom, 2026-11-15; NOT pushed, NOT merged)
+# HANDOFF - GT-STYLE SHOWROOM (agent "showroom", branch gt-showroom, 2026-11-15; NOT pushed, NOT merged)
 
 Worktree `C:\Users\mcgee\PSX Racing-showroom` off mountain-nm eb6fa63a (PC38 + one wizard pad link). Sandbox PSXCity. Owner 2026-11-15: "I want car viewing and car selection to look like the early Gran Turismo games, with the car rotating (or able to be rotated by player)" (reference: a GT2 garage screen). Same KIND of screen in the game's own MenuKit palette; no GT icons, logos, fonts or credit symbol; the drivetrain diagram is drawn from UI rects.
 

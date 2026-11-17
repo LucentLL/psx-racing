@@ -135,17 +135,22 @@ const MODELS = [
   // projection off the raised hatch, amber optics moved inboard, 6.5 mm pop-up
   // lid edges, optical mouth 18 mm lower; 9,787-9,991 tris; bounds, wheels and
   // mirrors unchanged, so the same scale), converted/rx7_fd_*_t18.
-  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t18/rx7_fd_93_t18.obj`,
-    lampsUp: `${here}/converted/rx7_fd_93_t18/rx7_fd_93_t18_up.obj`,
-    tex: `${here}/converted/rx7_fd_93_t18`, skins: /^fd_shared_512x256$/,
+// 2026-11-16 (owner: "Please add these updated car models to the game"):
+// Textured_27 (11-14: quarter panels on new sections beside the rear lamps,
+// lofted mirror shells seated on the doors, a formed rear underbody return,
+// the floor contoured round the exhaust; 9,782-9,996 tris; same frame and
+// 4.280 m), converted/rx7_fd_*_t27, each spoiler's DOWN sheet box-filtered.
+  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t27/rx7_fd_93_t27.obj`,
+    lampsUp: `${here}/converted/rx7_fd_93_t27/rx7_fd_93_t27_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t27`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
-  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t18/rx7_fd_99_t18.obj`,
-    lampsUp: `${here}/converted/rx7_fd_99_t18/rx7_fd_99_t18_up.obj`,
-    tex: `${here}/converted/rx7_fd_99_t18`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t27/rx7_fd_99_t27.obj`,
+    lampsUp: `${here}/converted/rx7_fd_99_t27/rx7_fd_99_t27_up.obj`,
+    tex: `${here}/converted/rx7_fd_99_t27`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
-  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t18/rx7_fd_nowing_t18.obj`,
-    lampsUp: `${here}/converted/rx7_fd_nowing_t18/rx7_fd_nowing_t18_up.obj`,
-    tex: `${here}/converted/rx7_fd_nowing_t18`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t27/rx7_fd_nowing_t27.obj`,
+    lampsUp: `${here}/converted/rx7_fd_nowing_t27/rx7_fd_nowing_t27_up.obj`,
+    tex: `${here}/converted/rx7_fd_nowing_t27`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
@@ -228,9 +233,13 @@ const MODELS = [
   // 2026-10-10: revision 09 (down 3,646 / up 3,702 tris), converted/midship_coupe_v09.
   // 2026-10-26: revision 15 (NSX_Independent_v15: down 8,588 / up 8,240 tris
   // with the wheels; Body + four wheels only), converted/midship_coupe_v15.
-  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v15/midship_coupe_v15.obj`,
-    lampsUp: `${here}/converted/midship_coupe_v15/midship_coupe_v15_up.obj`,
-    tex: `${here}/converted/midship_coupe_v15`, skins: /^midship_coupe_yellow_512x256$/,
+// 2026-11-16: NSX_Yellow_HD_v31 (the HD rebuild v23-v31: crowned raised-lamp
+// lenses, the v29 rear lighting; down 75,716 / up 76,776 tris - seven times
+// the other shells - Body + four wheels, mirrors in the Body), down/up GLBs ->
+// converted/midship_coupe_v31, the 2048 sheet box-filtered to 512x256.
+  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v31/midship_coupe_v31.obj`,
+    lampsUp: `${here}/converted/midship_coupe_v31/midship_coupe_v31_up.obj`,
+    tex: `${here}/converted/midship_coupe_v31`, skins: /^midship_coupe_yellow_512x256$/,
     gt4LengthM: 4.430 },
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
     tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
@@ -321,10 +330,60 @@ const MODELS = [
     gt4LengthM: 4.350, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
   // 2026-11-01: TypeX_Refined_v08_White headlights down/up, converted/fastback_96_v08;
   // the clear sealed-beam Lens_L/R faces are left off.
-  { key: 'fastback_96', obj: `${here}/converted/fastback_96_v08/fastback_96_v08.obj`,
-    lampsUp: `${here}/converted/fastback_96_v08/fastback_96_v08_up.obj`,
-    tex: `${here}/converted/fastback_96_v08`, skins: /^fastback_96_white_512x256$/,
+// 2026-11-16: TypeX_White_HD_v13 (11-15: both 10,000-tri poses on the v12
+// panel paths, soft recesses at the bumper steps and lamp joins; 2048 HD
+// PBR), converted/fastback_96_v13; the sealed-beam Lens_L/R are covers.
+  { key: 'fastback_96', obj: `${here}/converted/fastback_96_v13/fastback_96_v13.obj`,
+    lampsUp: `${here}/converted/fastback_96_v13/fastback_96_v13_up.obj`,
+    tex: `${here}/converted/fastback_96_v13`, skins: /^fastback_96_white_512x256$/,
     gt4LengthM: 4.520, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+
+  // THE OWNER'S 2026-11-16 SET ("Please add these updated car models to the
+  // game. Some of them are WIP, but they can be updated again later."), five
+  // new unbadged shells, each 2048x1024 HD PBR box-filtered to 512x256:
+  //   Coupe 88        Silvia_S13_HD_v03: the fixed-lamp S13 notchback (10,000
+  //                   tris), the four S13 Silvia rows (they wore the 180SX
+  //                   hatch). GT4 4470 mm. Its clear headlamp covers are
+  //                   "Fluted front glazing": a cover by `cover`, not by the
+  //                   default rule.
+  //   Rotary Coupe 87 FC_1987_Bronze_HD_v03 closed/raised (9,726 / 9,998), the
+  //                   three FC rows (they wore the built-in FD). GT4 4310 mm.
+  //   Lux Coupe 97    Soarer_1998_HD_v03 (garnet, 9,800): the SC300 `97 row (it
+  //                   wore the pack's grand tourer). GT4 4900 mm. v03 split the
+  //                   glass into tinted Window_* objects over a new Cabin; the
+  //                   game draws glass opaque off the sheet, so the windows stay
+  //                   in the body, and the backlight's and sunroof's UVs, which
+  //                   land on paint in this sheet, are pinned to the quarter
+  //                   glass's texels (`uvPin`). The Cabin carries the rear
+  //                   wheelhouse walls, so it stays.
+  //   GT Liftback 88  MA70_TurboA_HD_v03 (black Turbo A, 9,936): only a
+  //                   HEADLIGHTS-UP pose was delivered, so that is the body
+  //                   (lamps always up until a closed pose comes). The `88
+  //                   Turbo A and `90 2.5GT Twin Turbo R rows (both A70s; they
+  //                   wore the pack's A80-like grand tourer). GT4 4620 mm.
+  //   Pony Coupe 67   Camaro67_SS350_HD_v02 (blue, white nose band, 9,912;
+  //                   v03 is a texture set without a model): a NEW catalog
+  //                   row, the `67 SS 350 (no `67 in the GT4 sheet). Kept at
+  //                   its delivered 4.670 m (108 in wheelbase).
+  { key: 'coupe_88', obj: `${here}/converted/coupe_88_v03/coupe_88_v03.obj`,
+    tex: `${here}/converted/coupe_88_v03`, skins: /^coupe_88_green_512x256$/,
+    gt4LengthM: 4.470, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'], cover: /glazing/i },
+  { key: 'rotary_coupe_87', obj: `${here}/converted/rotary_coupe_87_v03/rotary_coupe_87_v03.obj`,
+    lampsUp: `${here}/converted/rotary_coupe_87_v03/rotary_coupe_87_v03_up.obj`,
+    tex: `${here}/converted/rotary_coupe_87_v03`, skins: /^rotary_coupe_87_bronze_512x256$/,
+    gt4LengthM: 4.310, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  { key: 'lux_coupe_97', obj: `${here}/converted/lux_coupe_97_v03/lux_coupe_97_v03.obj`,
+    tex: `${here}/converted/lux_coupe_97_v03`, skins: /^lux_coupe_97_garnet_512x256$/,
+    gt4LengthM: 4.900,
+    parts: ['Body', 'Cabin', 'MirrorGlass_L', 'MirrorGlass_R', 'Window_Backlight', 'Window_Door_L', 'Window_Door_R',
+            'Window_Quarter_L', 'Window_Quarter_R', 'Window_Sunroof', 'Window_Windscreen'],
+    uvPin: { objects: ['Window_Backlight', 'Window_Sunroof'], from: 'Window_Quarter_L' } },
+  { key: 'gt_liftback_88', obj: `${here}/converted/gt_liftback_88_v03/gt_liftback_88_v03_up.obj`,
+    tex: `${here}/converted/gt_liftback_88_v03`, skins: /^gt_liftback_88_black_512x256$/,
+    gt4LengthM: 4.620, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  { key: 'pony_coupe_67', obj: `${here}/converted/pony_coupe_67_v02/pony_coupe_67_v02.obj`,
+    tex: `${here}/converted/pony_coupe_67_v02`, skins: /^pony_coupe_67_blue_512x256$/,
+    parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
@@ -492,13 +551,16 @@ const keepFace = (m, f) => !m.dropMtl || !m.dropMtl.test(f.mtl || '');
 /// A cover material is named clear / cover / glass, and is not a coloured or
 /// opaque part or the body's own atlas material.
 const isCoverMtl = n => /clear|cover|glass/i.test(n || '') && !/opaque|colou?red|atlas|enamel|paint|mirror/i.test(n || '');
+/// A model's own cover materials (`cover`, 2026-11-16: the S13's clear headlamp
+/// covers are "Fluted front glazing"), on top of the rule above.
+const isCover = (m, n) => isCoverMtl(n) || (!!m.cover && m.cover.test(n || ''));
 function coverFaces(m, src) {
   const out = [];
   for (const o of src.objects) {
     if (wheelSlot(o.name)) continue;
     const kept = !m.parts || m.parts.includes(o.name);
     for (const f of o.faces) {
-      if (!isCoverMtl(f.mtl)) continue;
+      if (!isCover(m, f.mtl)) continue;
       if (!kept || !keepFace(m, f)) out.push(f);
     }
   }
@@ -574,6 +636,22 @@ for (const m of MODELS) {
   const dir = path.join(outRoot, m.key);
   fs.mkdirSync(path.join(dir, 'textures'), { recursive: true });
 
+  // `uvPin` (2026-11-16, the Soarer v03's backlight and sunroof): every corner
+  // of the named objects takes ONE texel, the mean UV of the `from` object's
+  // corners - their own UVs land on paint in the sheet, and the game draws
+  // glass opaque off the sheet.
+  if (m.uvPin) {
+    const from = src.objects.find(o => o.name === m.uvPin.from);
+    if (!from) throw new Error(`${m.key}: uvPin from ${m.uvPin.from} missing`);
+    let su = 0, sv = 0, sn = 0;
+    for (const f of from.faces) for (const c of f) if (c.vt) { su += src.vt[c.vt - 1][0]; sv += src.vt[c.vt - 1][1]; sn++; }
+    src.vt.push([su / sn, sv / sn]);
+    const pin = src.vt.length;
+    for (const o of src.objects)
+      if (m.uvPin.objects.includes(o.name)) for (const f of o.faces) for (const c of f) c.vt = pin;
+    report.push(`${m.key.padEnd(14)} uvPin ${m.uvPin.objects.join('+')} -> (${(su / sn).toFixed(4)}, ${(sv / sn).toFixed(4)}) of ${m.uvPin.from}`);
+  }
+
   const bodyFaces = [];
   const axle = { F: [], R: [] };
   const corners = new Set();
@@ -628,7 +706,7 @@ for (const m of MODELS) {
   };
   const nCovers = writeCovers(coverFaces(m, src), '_covers', src);
   coverReport.push(`${m.key.padEnd(17)} covers ${String(nCovers).padStart(4)}f` +
-    (nCovers ? '  [' + [...new Set(src.objects.filter(o => o.faces.some(f => isCoverMtl(f.mtl) && (!(!m.parts || m.parts.includes(o.name)) || !keepFace(m, f)))).map(o => o.name))].join(', ') + ']' : ''));
+    (nCovers ? '  [' + [...new Set(src.objects.filter(o => o.faces.some(f => isCover(m, f.mtl) && (!(!m.parts || m.parts.includes(o.name)) || !keepFace(m, f)))).map(o => o.name))].join(', ') + ']' : ''));
 
   // POP-UP LAMPS: the lamps-raised body, `${key}_lampsup.obj`. Scaled by the
   // DOWN body's factor, never its own: a raised lamp could stand proud of the

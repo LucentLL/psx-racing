@@ -40,8 +40,8 @@ Shader "PSX/Camcorder"
         // Eye pass: x: luma ease this frame; y: chroma ease; z: 1 = start
         // over; w: where it starts, as a factor on the measured luma.
         float4 _PSXCamEyeK;
-        // x: 1 = filmed from a car's passenger seat (the dash and the A-pillar
-        // in the bottom and left of the frame).
+        // x: the static between two recordings (a cut to another camera), 0..1;
+        // y: the most the gain-up multiplies a dark picture by (PSX_CAM_GAIN).
         float4 _PSXCam3;
 
         TEXTURE2D(_PSXCamEyePrev);
@@ -242,10 +242,19 @@ Shader "PSX/Camcorder"
                 float adapted = max(eye.r * eye.r, 0.002);
                 float nowL = max(eye.g * eye.g, 0.002);
                 float transient = clamp(pow(nowL / adapted, 0.65), 0.45, 2.3);
-                float gain = clamp(pow(0.16 / adapted, 0.22), 1.0, 1.7);
+                // GAIN UP in the dark (round 2: night mountain tapes were too
+                // black to enjoy): up to 3.2x, and the grain comes up with it.
+                float gain = clamp(pow(0.17 / adapted, 0.42), 1.0, max(1.0, _PSXCam3.y));
                 float exposure = transient * gain;
                 Y *= exposure;
                 yiq.yz *= exposure;
+                // GAIN UP opens the shadows too (a camcorder's low-light mode):
+                // a gamma lift by how hard the gain is working, so a car in the
+                // dark is a shape and not two lamps.
+                float lift = saturate((gain - 1.0) / 2.2);
+                float Yl = pow(max(Y, 0.0), lerp(1.0, 0.66, lift));
+                yiq.yz *= clamp(Yl / max(Y, 1e-3), 1.0, 2.2);
+                Y = Yl;
 
                 // Highlights knee over and wash out; the blacks sit a little up.
                 float knee = 0.72;
@@ -259,8 +268,8 @@ Shader "PSX/Camcorder"
                 float g = gain - 1.0;
                 float2 cn = float2(Hash12(float2(floor(wuv.x * 60.0), ln * 0.5 + field * 1.3)),
                                    Hash12(float2(floor(wuv.x * 60.0) + 17.0, ln * 0.5 + field * 1.7))) - 0.5;
-                yiq.yz = yiq.yz * 0.9 * wash + cn * (0.01 + 0.016 * g);
-                Y += (Hash12(uv * _PSXCam2.xy + frame * 1.37) - 0.5) * (0.024 + 0.026 * g);
+                yiq.yz = yiq.yz * 0.9 * wash + cn * (0.01 + 0.012 * min(g, 1.2));
+                Y += (Hash12(uv * _PSXCam2.xy + frame * 1.37) - 0.5) * (0.024 + 0.022 * min(g, 1.0));
 
                 float3 rgb = FromYIQ(float3(Y, yiq.yz));
 
@@ -271,18 +280,13 @@ Shader "PSX/Camcorder"
                 wb /= max(dot(wb, LumaW), 1e-3);
                 rgb *= wb;
 
-                // The buddy's car: the top of the dash across the foot of the
-                // frame and the A-pillar down the right, dark, a sheen on each.
-                if (_PSXCam3.x > 0.5)
+                // Between two recordings: snow, rolling, a ghost of the picture under it.
+                if (_PSXCam3.x > 0.001)
                 {
-                    float dashTop = 0.13 + 0.035 * sin(wuv.x * 3.14159) + 0.012 * sin(wuv.x * 9.0 + 1.0);
-                    float dash = smoothstep(dashTop + 0.006, dashTop - 0.006, wuv.y);
-                    float pillarX = 0.07 + (wuv.y - 0.45) * 0.22;
-                    // The near (right-hand) pillar from the passenger seat.
-                    float pillar = wuv.y > 0.45 ? smoothstep(pillarX + 0.008, pillarX - 0.008, 1.0 - wuv.x) : 0.0;
-                    float edgeSheen = exp(-abs(wuv.y - dashTop) * 160.0) * 0.12;
-                    float3 inside = float3(0.035, 0.034, 0.038) + edgeSheen;
-                    rgb = lerp(rgb, inside, saturate(max(dash, pillar)));
+                    float snow = Hash12(float2(floor(wuv.x * 180.0), ln) + field * 7.31);
+                    float roll = 0.5 + 0.5 * sin(wuv.y * 9.0 + t * 31.0);
+                    float3 st3 = float3(snow, snow, snow) * (0.35 + 0.5 * roll) + 0.05;
+                    rgb = lerp(rgb, st3, saturate(_PSXCam3.x) * 0.92);
                 }
 
                 // Static in the bars and the band.

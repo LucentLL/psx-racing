@@ -1,0 +1,10 @@
+# The Charlotte tracks' venues in TrackCatalog.All, after every authored venue (a saved career stores
+# the INDEX): append only, never reorder, never remove a line that shipped. THE INTEGRATOR'S FILE:
+# lanes never edit it; after merging, run  node tools/city/tracks/order.mjs --write  and commit it.
+# Venues of track files not listed here follow, by file name (forward, then its Rev twin).
+I485West
+CltD1
+CltC7
+CltD3
+CltX1
+CltX1Rev

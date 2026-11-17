@@ -35,7 +35,8 @@ namespace PSXRacing.EditorTools
                 var t = TrackCatalog.At(i);
                 if (!t.IsCityRace || t.Reversed) continue;
                 if (t.IsDeckRun) { if (deck) continue; deck = true; }
-                if (t.id == "UptownLoop" || t.id == "TryonSprint" || t.id == "IndependenceSprint" || t.IsDeckRun) shots.Add((t, null));
+                if (t.id == "UptownLoop" || t.id == "TryonSprint" || t.id == "IndependenceSprint" || t.IsDeckRun ||
+                    !string.IsNullOrEmpty(t.hostScene)) shots.Add((t, null));   // + the tracks of charlotte_tracks.json
             }
             string cands = System.Environment.GetEnvironmentVariable("PSX_CITYMAP_CANDS");
             if (!string.IsNullOrEmpty(cands) && File.Exists(cands))

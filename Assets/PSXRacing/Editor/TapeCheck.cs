@@ -132,7 +132,10 @@ namespace PSXRacing.EditorTools
             string report = Path.Combine(ProjectDir, "PSXRacing_tape_pages.txt");
             if (File.Exists(report)) File.Delete(report);
             Directory.CreateDirectory(ShotDir);
-            Tapes.DirOverride = TapeDir;
+            // PSX_TAPE_PAGES_DIR: photograph the pages with another tool's
+            // tapes (CamcorderShots' races, whose clips carry tags).
+            string pagesDir = System.Environment.GetEnvironmentVariable("PSX_TAPE_PAGES_DIR");
+            Tapes.DirOverride = !string.IsNullOrEmpty(pagesDir) && Directory.Exists(pagesDir) ? pagesDir : TapeDir;
             try
             {
                 LifeSimManager.UseScratchSave("tapepages");
@@ -144,7 +147,7 @@ namespace PSXRacing.EditorTools
 
                 var shelf = Tapes.Shelf();
                 Check(shelf.Count >= 1, "the check's tapes are on the shelf", shelf.Count);
-                Line("shelf: " + shelf.Count + " tape(s) in " + TapeDir);
+                Line("shelf: " + shelf.Count + " tape(s) in " + Tapes.Dir);
                 foreach (var h in shelf)
                     Line("  " + h.Spine + "  " + h.Length + "  $" + Tapes.Price(h) + "  " + new FileInfo(h.path).Length + " bytes");
 
@@ -159,6 +162,9 @@ namespace PSXRacing.EditorTools
                 LifeHomePreview.Shoot(ShotDir, "garage_tapedoor", "garage", scrollTo: 0f, sizes: sizes);
                 LifeHomePreview.Shoot(ShotDir, "tape_shelf", "tapes", sizes: sizes, fields: fields);
                 LifeHomePreview.Shoot(ShotDir, "video_store", "videostore", sizes: sizes, fields: fields);
+                // The foot of each page: the tapes' rows, each with its best clip under its spine.
+                LifeHomePreview.Shoot(ShotDir, "tape_shelf_rows", "tapes", scrollTo: 0f, sizes: sizes, fields: fields);
+                LifeHomePreview.Shoot(ShotDir, "video_store_rows", "videostore", scrollTo: 0f, sizes: sizes, fields: fields);
                 // Armed: the second press is the sale.
                 var armed = new (string name, object value)[] { ("tapeSel", pick), ("armKey", "selltape:" + pick) };
                 LifeHomePreview.Shoot(ShotDir, "video_store_armed", "videostore", sizes: sizes, fields: armed);
@@ -232,6 +238,10 @@ namespace PSXRacing.EditorTools
         void Awake() { bornAt = Time.realtimeSinceStartup; }
         void Update()
         {
+            // A HIDDEN run is silent too (the owner, 11-16: he hears and sees
+            // the same tests over and over): the listener paused, its volume
+            // (which the deck's mute is checked by) left alone.
+            if (Application.isBatchMode) AudioListener.pause = true;
             if (exited || Time.realtimeSinceStartup - bornAt < HangSeconds) return;
             exited = true;
             TapeCheck.Check(false, "the check HUNG (" + HangSeconds + " s) - exiting");

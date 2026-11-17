@@ -301,6 +301,15 @@ namespace PSXRacing.EditorTools
             var car = rm != null ? rm.playerCar : null;
             RacePlayCheck.Check(rm != null && car != null && rm.path != null, "the scene has a race, a player and a path");
             if (rm == null || car == null) { Done(); yield break; }
+            // A SANCTIONED event's closures (CityRaceClosures; PSX_TRACK_CLOSURES=1 builds them for a check):
+            // not one may stand on the race line - walked over every waypoint the race drives.
+            if (!string.IsNullOrEmpty(CityRaceClosures.LastRoute))
+            {
+                var cmap = PSXRacing.City.CityMap.Get();
+                int onLine = CityRaceClosures.Audit(rm.path, cmap, cmap != null ? cmap.RouteById(CityRaceClosures.LastRoute) : null, out string worstClosure);
+                RacePlayCheck.Check(onLine == 0, "no closure stands on the race line (" + CityRaceClosures.LastClosed + " roads closed, " +
+                                    CityRaceClosures.LastLeftOpen + " left open beside the course; nearest: " + worstClosure + ")", onLine);
+            }
 
             var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (deckVenue.IsDeckRun) StartCoroutine(DeckWatch(car));
