@@ -7,7 +7,7 @@ namespace PSXRacing.City
 {
     public static partial class LineModel
     {
-        /// <summary>25 ways, 1.72 km.</summary>
+        /// <summary>26 ways, 1.79 km.</summary>
         static readonly uint[] LaneFitData = {
             1173891313u, 1, 1, 1, 0, 0,   // East Boulevard 22 m [centre turn lane]
             1483334978u, 2, 5, 0, 0, 19,   // East Sugar Creek Road 81 m
@@ -24,6 +24,7 @@ namespace PSXRacing.City
             1346185919u, 3, 4, 0, 0, 1,   // North Tryon Street 43 m
             1346185920u, 3, 4, 0, 0, 1,   // North Tryon Street 27 m
             1346185921u, 3, 3, 1, 4, 0,   // North Tryon Street 28 m
+            1346185922u, 3, 3, 1, 4, 0,   // North Tryon Street 65 m [lent: the centre lane runs on into a bay]
             549803187u, 1, 1, 1, 0, 0,   // Parkwood Avenue 290 m [centre turn lane]
             1116753574u, 1, 1, 1, 0, 0,   // Parkwood Avenue 135 m [centre turn lane]
             1449680437u, 1, 1, 1, 0, 0,   // Parkwood Avenue 80 m [centre turn lane]

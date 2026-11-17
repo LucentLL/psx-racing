@@ -65,6 +65,21 @@ const sevenAt = (w, node) => {
   if (ow.length >= 2) { let s = 0; for (const o of ow) s += int(o.tags.lanes) || 0; if (s >= 7) return true; }
   return false;
 };
+// (B2, 11-17) ...or between a seven-lane neighbour and a six-lane piece whose centre lane is ONE direction's left
+// bay (2 + 4 with the four's inner lane left-only): the centre lane runs on through the six-lane piece (painted
+// hatching or a raised nose where nobody turns: North Tryon Street west of Dorton Street, viewed on the aerial -
+// seven lanes wide, the through lanes straight), and the mapper counted only the lanes that carry traffic. Drawn
+// on six lanes, the piece's centre line had to relay a whole lane sideways between its two neighbours (11:1 at
+// 45 mph, right behind the owner's pose).
+const centreBayAt = (w, node) => {
+  const others = (byNode.get(node) || []).filter(o => o !== w && (o.tags.name || o.tags.ref) === (w.tags.name || w.tags.ref) && twoWay(o.tags));
+  return others.some(o => {
+    const t = o.tags, f = int(t['lanes:forward']), b = int(t['lanes:backward']);
+    if (!(f >= 1 && b >= 1) || f + b !== 6 || Math.abs(f - b) !== 2) return false;
+    const big = f > b ? t['turn:lanes:forward'] : t['turn:lanes:backward'];
+    return (turnOnlyBits(big) & 1) !== 0 && /^(slight_)?left/.test((big || '').split('|')[0].trim());
+  });
+};
 for (let pass = 0; pass < 4; pass++) {
   let added = 0;
   for (const w of ways.values()) {
@@ -74,8 +89,14 @@ for (let pass = 0; pass < 4; pass++) {
     if ((Number.isFinite(lf) || Number.isFinite(lb)) && !(lf === 3 && lb === 3)) continue;
     const L = lenOf(w);
     if (L > LENT_MAX_M) continue;
-    if (!sevenAt(w, w.nodes[0]) || !sevenAt(w, w.nodes[w.nodes.length - 1])) continue;
-    rows.set(w.id, { lf: 3, lb: 3, both: 1, bf: turnOnlyBits(t['turn:lanes:forward']), bb: turnOnlyBits(t['turn:lanes:backward']), why: 'lent', name: t.name || t.ref || '', len: L });
+    const n0 = w.nodes[0], n1 = w.nodes[w.nodes.length - 1];
+    const s0 = sevenAt(w, n0), s1 = sevenAt(w, n1);
+    let why = 'lent';
+    if (!s0 || !s1) {
+      if (!((s0 && centreBayAt(w, n1)) || (s1 && centreBayAt(w, n0)))) continue;
+      why = 'lent-bay';
+    }
+    rows.set(w.id, { lf: 3, lb: 3, both: 1, bf: turnOnlyBits(t['turn:lanes:forward']), bb: turnOnlyBits(t['turn:lanes:backward']), why, name: t.name || t.ref || '', len: L });
     added++;
   }
   if (!added) break;
@@ -114,7 +135,7 @@ const list = [...rows.entries()].sort((a, b) => (a[1].name < b[1].name ? -1 : a[
 let km = 0; for (const [, r] of list) km += r.len / 1000;
 const byRoad = new Map();
 for (const [, r] of list) { const q = byRoad.get(r.name) || { n: 0, m: 0 }; q.n++; q.m += r.len; byRoad.set(r.name, q); }
-console.log(`lane fit: ${list.length} two-way ways (${km.toFixed(2)} km): ${list.filter(x => x[1].why === 'tags').length} tagged seven lanes or more, ${list.filter(x => x[1].why === 'lent').length} lent, ${list.filter(x => x[1].why === 'twltl').length} with a tagged centre turn lane drawn as a double yellow (three or five lanes)`);
+console.log(`lane fit: ${list.length} two-way ways (${km.toFixed(2)} km): ${list.filter(x => x[1].why === 'tags').length} tagged seven lanes or more, ${list.filter(x => x[1].why === 'lent').length} lent, ${list.filter(x => x[1].why === 'lent-bay').length} lent beside a centre bay, ${list.filter(x => x[1].why === 'twltl').length} with a tagged centre turn lane drawn as a double yellow (three or five lanes)`);
 if (noProfile.length) { console.log(`  no profile (four lanes with a centre turn lane, left as exported): ${noProfile.length}`); for (const s of noProfile) console.log('    ' + s); }
 for (const [k, v] of [...byRoad.entries()].sort((a, b) => b[1].m - a[1].m)) console.log(`  ${k}: ${v.n} ways, ${(v.m / 1000).toFixed(2)} km`);
 for (const [id, r] of list) console.log(`  way ${id} '${r.name}' ${r.len.toFixed(0)} m: ${r.lf} + ${r.both ? 'TWLTL + ' : ''}${r.lb} (turn-only f ${r.bf.toString(2)} b ${r.bb.toString(2)}) [${r.why}]`);
@@ -129,7 +150,7 @@ if (!process.argv.includes('--check')) {
   s += 'namespace PSXRacing.City\r\n{\r\n    public static partial class LineModel\r\n    {\r\n';
   s += `        /// <summary>${list.length} ways, ${km.toFixed(2)} km.</summary>\r\n`;
   s += '        static readonly uint[] LaneFitData = {\r\n';
-  for (const [id, r] of list) s += `            ${id}u, ${r.lf}, ${r.lb}, ${r.both}, ${r.bf}, ${r.bb},   // ${r.name.replace(/[\\\r\n]/g, ' ')} ${r.len.toFixed(0)} m${r.why === 'lent' ? ' [lent]' : r.why === 'twltl' ? ' [centre turn lane]' : ''}\r\n`;
+  for (const [id, r] of list) s += `            ${id}u, ${r.lf}, ${r.lb}, ${r.both}, ${r.bf}, ${r.bb},   // ${r.name.replace(/[\\\r\n]/g, ' ')} ${r.len.toFixed(0)} m${r.why === 'lent' ? ' [lent]' : r.why === 'lent-bay' ? ' [lent: the centre lane runs on into a bay]' : r.why === 'twltl' ? ' [centre turn lane]' : ''}\r\n`;
   s += '        };\r\n    }\r\n}\r\n';
   fs.writeFileSync(OUT, s);
   console.log('wrote ' + OUT);

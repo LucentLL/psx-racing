@@ -430,7 +430,7 @@ namespace PSXRacing.City
             taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             BranchDropHeld = 0; BranchDropFound = 0; BranchDropLog.Clear(); BranchDropHeldAt.Clear();
-            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear(); RelayHandOvers = 0; RelayBayCross = 0;
+            TwoSidedJoins = 0; OuterLaneEnds = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0; RelayNoseLive = 0; TaperFloorRaised = 0; TaperFloorShort = 0; TaperFloorShortLog.Clear(); RelayHandOvers = 0; RelayBayCross = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
             // the joins whose two arms agree in width but not in their lines
@@ -507,6 +507,7 @@ namespace PSXRacing.City
                             int mW = taprMap.tapr[tiW].side == 0 ? 1 : -1;       // the moving side, W's frame
                             fixT = -(wForward ? mW : -mW);
                         }
+                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, dLt + dRt, out int outerT)) { fixT = -outerT; OuterLaneEnds++; }
                         else fixT = Mathf.Abs(dRt) <= Mathf.Abs(dLt) ? -1 : 1;   // the smaller step is held: the fewest lanes move
                         if (fixT == 0)
                         {
@@ -1912,6 +1913,45 @@ namespace PSXRacing.City
                 else if (nB == k + 1 && nF == k) tb = Mathf.Min(tb, k);
             }
         }
+        // ================================================================
+        //  AN OUTER TURN LANE ENDS (the road-lines round, 2026-11-17)
+        // ================================================================
+        // Two two-way pieces one lane apart in width, both centred on the mapped line, where the wide piece's extra
+        // lane is ONE direction's OUTER turn-only lane (a right-turn lane) and every other lane - through lanes and
+        // the centre lane - is on both: on the street the right-turn lane ends at its corner and nothing else moves.
+        // The pavement narrows on THAT direction's outer side only. The old rule ("the smaller step is held") had
+        // equal steps here (half a lane each side) and always held the travel-right edge: half of these joins eased
+        // the wrong side, and the opposing through lanes shifted half a lane (North Tryon Street at Dorton Street,
+        // behind the owner's pose). outerT = the side (travel frame, +1 left) that eases.
+        public static int OuterLaneEnds;
+        static bool OuterTurnLaneEnds(CityMap.Edge W, CityMap.Edge N, bool wForward, bool nForward, float dW, out int outerT)
+        {
+            outerT = 0;
+            if (W.oneway || N.oneway || !W.hasLset || !N.hasLset || (W.lsFlags & 1) == 0 || (N.lsFlags & 1) == 0) return false;
+            if (Mathf.Abs(dW - RoadProfiles.LaneM) > 0.35f) return false;
+            CityMeshes.TurnOnly(W, out int wf, out int wb, out int wnF, out int wnB, out _);
+            CityMeshes.TurnOnly(N, out int nf, out int nb, out int nnF, out int nnB, out _);
+            // per direction in the TRAVEL frame: 0 = with travel (its outer side is travel-right), 1 = against
+            int[] wn = { wForward ? wnF : wnB, wForward ? wnB : wnF }, wbits = { wForward ? wf : wb, wForward ? wb : wf };
+            int[] nn = { nForward ? nnF : nnB, nForward ? nnB : nnF }, nbits = { nForward ? nf : nb, nForward ? nb : nf };
+            // each direction's lanes less an inner bay (the centre lane, where one direction has it): equal on both
+            // pieces but for ONE direction, whose wide piece has one more and that one is its outer turn lane - then
+            // the widths differ by that lane alone (dW) and every other line is on both
+            int Core(int n, int bits) => n - ((bits & 1) != 0 && n >= 2 ? 1 : 0);
+            int x = -1;
+            for (int d = 0; d < 2; d++)
+            {
+                int cw = Core(wn[d], wbits[d]), cn = Core(nn[d], nbits[d]);
+                if (cw == cn) continue;
+                bool outer = wn[d] >= 2 && (wbits[d] & (1 << (wn[d] - 1))) != 0;
+                if (cw - cn != 1 || !outer || x >= 0) return false;
+                x = d;
+            }
+            if (x < 0) return false;
+            outerT = x == 0 ? -1 : 1;
+            return true;
+        }
+
         static bool CentreHandOver(CityMap.Edge E, CityMap.Edge O, Layout a, Layout b, bool same)
         {
             if (E.profile != O.profile || a.m.Length == 0 || b.m.Length == 0) return false;

@@ -854,6 +854,8 @@ namespace PSXRacing.City
         public static int TightTwinPairs, TightTwinEdgeCount;
         public static float TightTwinM;
         public static readonly List<string> TightTwinLog = new List<string>();
+        /// <summary>PSX_TWIN_DEBUG=&lt;node&gt;: the tight twin built at that split node logs its need and push every 5 m.</summary>
+        static readonly int TwinDebugNode = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_TWIN_DEBUG"), out int tdn) ? tdn : -1;
         public static bool TightTwinNode(int node) => tightTwinNodes.Contains(node);
         public static bool TightTwinEdge(int edge) => tightTwinEdges.Contains(edge);
 
@@ -1002,7 +1004,11 @@ namespace PSXRacing.City
                             float v = fan ? flatV[i] : sum / Mathf.Max(1, hi - lo);
                             if (!closes) v = Mathf.Min(v, Mathf.Max(0f, chainLen - flatD[i]) * slope);
                             sm[i] = v;
+                            if (sp.node == TwinDebugNode && (i == 0 || Mathf.Floor(flatD[i] / 5f) != Mathf.Floor(flatD[i - 1] / 5f)))
+                                TightTwinLog.Add($"twin-debug n{sp.node} '{A.name}' c{c} d {flatD[i]:0.0} need {flatV[i]:0.00} push {v:0.00}");
                         }
+                        if (sp.node == TwinDebugNode)
+                            TightTwinLog.Add($"twin-debug n{sp.node} '{A.name}' c{c} chain {string.Join(",", chain)} len {chainLen:0} closes {closes} farA {farA} farB {farB} mph {mph:0}");
                         int q = 0; float lastSide = 0f;
                         for (int j = 0; j < needs.Count; j++)
                             for (int k = 0; k < needs[j].Length; k++)
