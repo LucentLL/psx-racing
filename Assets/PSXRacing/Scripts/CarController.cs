@@ -3809,6 +3809,13 @@ namespace PSXRacing
             rearCircleTotal = 0f;
             float frontSlipSum = 0f, rearSlipSum = 0f;
             int frontCount = 0, rearCount = 0;
+            // A body the replay (or anything else) is moving by hand has no
+            // tread on the road: nothing it does there is a deflection.
+            if (Body.isKinematic)
+            {
+                System.Array.Clear(patchLat, 0, 4);
+                System.Array.Clear(patchLong, 0, 4);
+            }
 
             // Count grounded wheels per axle BEFORE distributing force. The old
             // code split drive and brake force by a flat 0.5 per wheel, so with
@@ -3841,7 +3848,7 @@ namespace PSXRacing
             for (int i = 0; i < 4; i++)
             {
                 // A tyre in the air has no patch to deflect.
-                if (!wheelGrounded[i]) { patchLat[i] = 0f; continue; }
+                if (!wheelGrounded[i]) { patchLat[i] = 0f; patchLong[i] = 0f; continue; }
                 bool front = i < 2;
                 Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
                 Vector3 contact = mount - transform.up * (restLength + WheelRadiusOf(i) - suspensionCompression[i]);

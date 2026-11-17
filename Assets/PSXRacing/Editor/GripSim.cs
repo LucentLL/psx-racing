@@ -131,6 +131,29 @@ namespace PSXRacing.EditorTools
             Debug.Log(sb.ToString());
         }
 
+        /// <summary>The rest cases on one plane, in their own empty scene, for
+        /// the self-test (LifeSimSelfTest.TestStaticGrip), which owns the
+        /// thresholds.</summary>
+        public static Reading[] RestCases(float bank, float grade)
+        {
+            var prevMode = Physics.simulationMode;
+            float prevDt = Time.fixedDeltaTime;
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            try
+            {
+                Physics.simulationMode = SimulationMode.Script;
+                Time.fixedDeltaTime = Dt;
+                var r = new Reading[Cases.Length];
+                for (int i = 0; i < Cases.Length; i++) r[i] = RunCase(Cases[i], bank, grade, wantWheels: false);
+                return r;
+            }
+            finally
+            {
+                Physics.simulationMode = prevMode;
+                Time.fixedDeltaTime = prevDt;
+            }
+        }
+
         /// <summary>The plane: crossfall <paramref name="bank"/> (the car's
         /// RIGHT side up, so gravity pulls it left) and grade
         /// <paramref name="grade"/> (nose up). Returned with its rotation so
