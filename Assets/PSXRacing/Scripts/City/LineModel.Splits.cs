@@ -127,6 +127,18 @@ namespace PSXRacing.City
         static readonly string lineFixEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_LINEFIX");
         /// <summary>PSX_CITY_LINEFIX=1 on, =0 off (unset: off until each class is proven).</summary>
         public static bool LineFixOn = lineFixEnv == "1";
+        /// <summary>(11-17 roads3) LINEFIX where the line gate let it: off on LineFixSkipEdges (LineModel.TwinList.cs, judged
+        /// on this graph), and nowhere on another graph until the list is made again. PSX_CITY_LINEFIXLIST=0: everywhere.</summary>
+        public static bool LineFixListOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LINEFIXLIST") != "0";
+        public static int LineFixSkipped;
+        static bool LineFixAt(CityMap map, CityMap.Edge e)
+        {
+            if (!LineFixOn) return false;
+            if (!LineFixListOn) return true;
+            if (map == null || map.graphHash != TwinListGraph) return false;
+            if (e != null && System.Array.BinarySearch(LineFixSkipEdges, e.index) >= 0) { LineFixSkipped++; return false; }
+            return true;
+        }
 
         // (Faults 1 + 2 - the centre line relayed a lane sideways, a lane 8 m wide - are the LANE FIT:
         // LineModel.LaneFit.cs. A first rule that inferred "borrowed bays" from the neighbours' splits at run

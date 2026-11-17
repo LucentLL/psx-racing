@@ -154,7 +154,7 @@ namespace PSXRacing.City
         static void ClearSplitFrames()
         {
             splitFrameEdge.Clear(); splitFrameEdge2.Clear(); SplitFrames.Clear(); SplitSkipped.Clear(); splitNoseNodes.Clear(); splitNodeDir.Clear(); SplitNoseTable.Clear();
-            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinPruned = 0; TwinCoarsePruned = 0; TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
+            tightTwinEdges.Clear(); tightTwinNodes.Clear(); TightTwinLog.Clear(); TightTwinPairs = 0; TightTwinEdgeCount = 0; TightTwinM = 0f; TwinPruned = 0; TwinCoarsePruned = 0; TwinSmoothed = 0; TwinUnlisted = 0; TwinPairList.Clear(); TwinOwnBlends = 0; TwinOuterLanes = 0; twinOuterEdges.Clear();
             SplitProfiled = 0; SplitUEases = 0; PhaseCLonger = 0; PhaseCCurving = 0; PhaseCJunctionCap = 0; PhaseCDevCap = 0; PhaseCSteepEnd = 0; PhaseCEndShortened = 0;
         }
         public static SplitFrame SplitFrameOf(int edge) => splitFrameEdge.Count > 0 && splitFrameEdge.TryGetValue(edge, out var f) ? f : null;
@@ -1081,6 +1081,86 @@ namespace PSXRacing.City
             return true;
         }
 
+        // THE TWIN'S DRAWN LINE SMOOTHED (11-17 roads3; the line gate with PSX_CITY_TWINS=1: SJOG +180, KINK +100 at the
+        // twin pairs, "the edge line swings 69.9 deg and back, 5.58 m sideways in 11 m"). The push was the need sampled
+        // every metre - raw inside the mapped fan (it undoes the fan), averaged over 30 m past it - and so it copied
+        // every jump of the need into the drawn lines: where the partner's nearest point skips to another segment,
+        // where the fan's raw stretch meets the average 40 m on, where the pull toward the island fades in and out
+        // over a median of varying width. Now the push is read off the DRAWN inner lane edge (the mapped inner edge
+        // moved by the raw need, capped to ease out before the far end) smoothed in the world over +-TwinSmoothM (the
+        // window shrinking at the chain's ends, so the fork's start and the far end stay where they are): a straight
+        // fan undo stays straight, a step becomes a 30 m ramp, a jog a curve. PSX_CITY_TWINSMOOTH=0: the push as before.
+        public static bool TwinSmoothOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINSMOOTH") != "0";
+        const float TwinSmoothM = 15f;
+        static readonly List<Vector2> twQ = new List<Vector2>(512), twIn = new List<Vector2>(512), twEl = new List<Vector2>(512);
+        static readonly List<float> twD = new List<float>(512);
+        static void TwinSmoothWorld(List<float[]> needs, List<float[]> sides, List<float> dsOf, List<Vector2[]> centreOf, List<Vector2[]> elOf, List<float[]> halfOf)
+        {
+            twQ.Clear(); twIn.Clear(); twEl.Clear(); twD.Clear();
+            float dA = 0f;
+            for (int j = 0; j < needs.Count; j++)
+            {
+                for (int k = j == 0 ? 0 : 1; k < needs[j].Length; k++)
+                {
+                    float sgn = sides[j][k] == 0f ? 1f : sides[j][k];
+                    var el = elOf[j][k];
+                    var inner = centreOf[j][k] - el * (sgn * halfOf[j][k]);   // the lane band's edge toward the partner
+                    twIn.Add(inner); twEl.Add(el);
+                    twQ.Add(inner + el * (needs[j][k] * sgn));
+                    twD.Add(dA + k * dsOf[j]);
+                }
+                dA += dsOf[j] * (needs[j].Length - 1);
+            }
+            int N = twQ.Count;
+            if (N < 3) return;
+            var sx = new double[N + 1]; var sz = new double[N + 1];
+            for (int i = 0; i < N; i++) { sx[i + 1] = sx[i] + twQ[i].x; sz[i + 1] = sz[i] + twQ[i].y; }
+            var push = new float[N];
+            float dEnd = twD[N - 1];
+            for (int i = 0; i < N; i++)
+            {
+                float h = Mathf.Min(TwinSmoothM, Mathf.Min(twD[i], dEnd - twD[i]));
+                int lo = LowerBound(twD, twD[i] - h - 1e-3f), hi = LowerBound(twD, twD[i] + h + 1e-3f) - 1;
+                if (hi < lo) { lo = hi = i; }
+                int cnt = hi - lo + 1;
+                var m = new Vector2((float)((sx[hi + 1] - sx[lo]) / cnt), (float)((sz[hi + 1] - sz[lo]) / cnt));
+                push[i] = Vector2.Dot(m - twIn[i], twEl[i]);
+            }
+            int q = 0;
+            for (int j = 0; j < needs.Count; j++)
+                for (int k = 0; k < needs[j].Length; k++)
+                {
+                    float v = j > 0 && k == 0 ? push[q - 1] : push[q++];
+                    needs[j][k] = v; sides[j][k] = 1f;
+                }
+            TwinSmoothed++;
+        }
+        static int LowerBound(List<float> a, float v)
+        {
+            int lo = 0, hi = a.Count;
+            while (lo < hi) { int m = (lo + hi) >> 1; if (a[m] < v) lo = m + 1; else hi = m; }
+            return lo;
+        }
+        public static int TwinSmoothed;
+
+        // THE TWIN LIST (11-17 roads3). With PSX_CITY_TWINS=1 every tight twin city-wide was built - 143 pairs, tuned at
+        // one (the owner's North Tryon fork) - and the line gate rose in six classes around the others. Each pair is
+        // now judged on its own ground (tools: scratchpad roads3 twinaccept.py): the gate's failing places in its region
+        // (its edges, 40 m round its split and far nodes) with LINEFIX alone and with LINEFIX + TWINS, class by class;
+        // a pair is listed only where no class has more places with it built. Keyed by the graph hash: another export
+        // draws no twin until the list is made again. PSX_CITY_TWINLIST=0: every tight twin (the measuring run).
+        public static bool TwinListOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINLIST") != "0";
+        public static int TwinUnlisted;
+        static bool TwinListed(CityMap map, int node)
+        {
+            if (!TwinListOn) return true;
+            if (map.graphHash != TwinListGraph) return false;
+            return System.Array.BinarySearch(TwinListNodes, node) >= 0;
+        }
+        /// <summary>Every tight twin built this load: its split node, the two chains' far nodes, both chains' edges (the
+        /// line gate writes them out, city_linegate_twins.tsv, to judge each pair on its own ground).</summary>
+        public static readonly List<(int node, int farA, int farB, int[] edges)> TwinPairList = new List<(int, int, int, int[])>();
+
         public static int TwinPruned, TwinCoarsePruned;
         const float TwinDs = 1f;
         /// <summary>(11-17 roads3) PSX_CITY_TWINCOARSE=0: every split's pair sampled every metre to find the twins.</summary>
@@ -1146,27 +1226,33 @@ namespace PSXRacing.City
                 // the pair made already from its other end: this node's split is a tight twin's too
                 if (tightTwinEdges.Contains(sp.a) && tightTwinEdges.Contains(sp.b)) { tightTwinNodes.Add(sp.node); continue; }
                 if (tightTwinEdges.Contains(sp.a) || tightTwinEdges.Contains(sp.b)) continue;
+                // (11-17 roads3) THE TWIN LIST: under PSX_CITY_TWINS (the default scope) only the pairs the line gate
+                // accepted on their own ground are built (LineModel.TwinList.cs)
+                if (!CityPhaseC && !TwinListed(map, sp.node)) { TwinUnlisted++; continue; }
                 // (the cost) a pair whose mapped lane bands stand well clear past the fan is no twin: skip it before the
                 // sampled lines (the eases made so far move a carriageway a lane at most)
                 if (TwinClear(map, chA, chB, sp.node, Mathf.Min(lenA, lenB))) { TwinPruned++; continue; }
                 // tight past the mapped fan: the shortfall's run from TightPastFanM on (half the pair on a short one)
                 float past = Mathf.Min(TightPastFanM, 0.5f * Mathf.Min(lenA, lenB)), run = 0f, worst = 0f, runAll = 0f;
-                // (11-17 roads3, the cost) a coarse look first: both lines every TwinCoarseDs. A twin's run (15 m or more
-                // of the bands under the divider's gap past the fan) holds three coarse samples at least, so a pair whose
-                // coarse gap past the fan never comes within TwinCoarseSlackM of that gap is no twin - only the others are
-                // sampled every metre (~870 of ~1,000 splits sampled fine before; 137 are twins)
+                // (11-17 roads3, the cost) a coarse look first: both lines every TwinCoarseDs. Every metre of a twin's run
+                // (15 m or more of the bands under the divider's gap past the fan, not necessarily in one piece) lies
+                // within half a coarse step of a coarse sample whose gap is under the divider's gap + TwinCoarseSlackM
+                // (the two mapped lines part at under 1:2.5 past the fan), and one coarse sample answers for at most one
+                // coarse step of run - so a pair with fewer than TightMinRunM / TwinCoarseDs such samples is no twin
+                // (the closing fan at the far end gives one or two). Only the others are sampled every metre.
                 if (TwinCoarseOn)
                 {
                     var CA = TwinLine(map, add, chA, sp.node, TwinCoarseDs); var CB = TwinLine(map, add, chB, sp.node, TwinCoarseDs);
-                    float minGap = float.MaxValue; int hc = 0;
+                    int close = 0, hc = 0;
                     for (int i = 1; i < CA.Count; i++)
                     {
                         if (CA[i].d < past - TwinCoarseDs) continue;
                         float d = TwinNearest(CB, CA[i].p, ref hc, out float hb, out _, out bool end);
                         if (end) break;
-                        minGap = Mathf.Min(minGap, d - CA[i].half - hb);
+                        if (d - CA[i].half - hb < TightGapM + TwinCoarseSlackM) close++;
                     }
-                    if (minGap > TightGapM + TwinCoarseSlackM) { TwinCoarsePruned++; continue; }
+                    // (one sample less than that: the fine pass may run a few metres past the coarse one's last foot)
+                    if (close < Mathf.CeilToInt(TightMinRunM / TwinCoarseDs) - 1) { TwinCoarsePruned++; continue; }
                 }
                 var LA = TwinLine(map, add, chA, sp.node, 1f); var LB = TwinLine(map, add, chB, sp.node, 1f);
                 int hintD = 0;
@@ -1180,6 +1266,10 @@ namespace PSXRacing.City
                 if (run < TightMinRunM) continue;
                 TightTwinPairs++; TightTwinM += runAll;
                 tightTwinNodes.Add(sp.node);
+                {
+                    var pe = new int[chA.Count + chB.Count]; chA.CopyTo(pe, 0); chB.CopyTo(pe, chA.Count);
+                    TwinPairList.Add((sp.node, farA, farB, pe));
+                }
                 if (TightTwinLog.Count < 400) TightTwinLog.Add($"n{sp.node} e{sp.a}/e{sp.b} '{A.name}': the two carriageways' lane bands {worst:+0.00;-0.00} m apart at their closest past the fan, short of the divider's {TightGapM:0.00} m over {run:0} m: pushed apart (chains {lenA:0} / {lenB:0} m)");
                 // the centre lane becomes the island; a carriageway with one lane more than its direction had gets
                 // that lane on its OUTSIDE (TwinOuterLane) - then the two lines the needs are read against again
@@ -1198,6 +1288,8 @@ namespace PSXRacing.City
                     // pass 1: what each sample needs (m, unsigned) and which way (the edge's left = +1)
                     var needs = new List<float[]>(chain.Count); var sides = new List<float[]>(chain.Count);
                     var dsOf = new List<float>(chain.Count); var fwdOf = new List<bool>(chain.Count);
+                    // (11-17 roads3, TwinSmoothOn) each sample's inner lane edge (world) and the edge's left normal
+                    var innerOf = new List<Vector2[]>(chain.Count); var elOf = new List<Vector2[]>(chain.Count); var halfOf = new List<float[]>(chain.Count);
                     int from = sp.node; float mph = 0f; int hintN = 0;
                     foreach (int ei in chain)
                     {
@@ -1210,12 +1302,14 @@ namespace PSXRacing.City
                         int n = Mathf.Max(2, Mathf.CeilToInt(e.length / TwinDs) + 1);
                         float ds = e.length / (n - 1);
                         var nd = new float[n]; var sd = new float[n];
+                        var pin = new Vector2[n]; var pel = new Vector2[n]; var phh = new float[n];
                         for (int k = 0; k < n; k++)
                         {
                             float s = fwd ? k * ds : e.length - k * ds;
                             var t = e.TangentAt(s); var el = new Vector2(-t.y, t.x);
                             float cc = LanesPre(e, s, out float hh);
                             var p = e.PointAt(s) + el * cc;
+                            pin[k] = p; pel[k] = el; phh[k] = hh;
                             float d = TwinNearest(other, p, ref hintN, out float ho, out var at, out bool end);
                             if (end) continue;
                             // away from the other carriageway (at the fan, where the two lines cross: its side further on)
@@ -1232,6 +1326,7 @@ namespace PSXRacing.City
                         }
                         e.lmEase = keep;
                         needs.Add(nd); sides.Add(sd); dsOf.Add(ds); fwdOf.Add(fwd);
+                        innerOf.Add(pin); elOf.Add(pel); halfOf.Add(phh);
                         from = fwd ? e.b : e.a;
                     }
                     // pass 2: no step in the push, and the two pavements stay FLUSH. Inside the mapped fan (the
@@ -1259,7 +1354,7 @@ namespace PSXRacing.City
                             while (hi < sm.Length && flatD[hi] <= flatD[i] + win) { sum += flatV[hi]; hi++; }
                             while (flatD[lo] < flatD[i] - win) { sum -= flatV[lo]; lo++; }
                             bool fan = flatD[i] < TightPastFanM || (closes && chainLen - flatD[i] < TightPastFanM);
-                            float v = fan ? flatV[i] : sum / Mathf.Max(1, hi - lo);
+                            float v = fan || TwinSmoothOn ? flatV[i] : sum / Mathf.Max(1, hi - lo);
                             if (!closes) { float cap = Mathf.Max(0f, chainLen - flatD[i]) * slope; v = Mathf.Clamp(v, -cap, cap); }
                             sm[i] = v;
                             if (sp.node == TwinDebugNode && (i == 0 || Mathf.Floor(flatD[i] / 5f) != Mathf.Floor(flatD[i - 1] / 5f)))
@@ -1280,6 +1375,7 @@ namespace PSXRacing.City
                             for (int k = needs[j].Length - 1; k >= 0; k--)
                                 if (sides[j][k] != 0f) lastSide = sides[j][k]; else sides[j][k] = lastSide;
                     }
+                    if (TwinSmoothOn) TwinSmoothWorld(needs, sides, dsOf, innerOf, elOf, halfOf);
                     // pass 3: one sampled shift ease an edge
                     float d0 = 0f;
                     for (int j = 0; j < chain.Count; j++)

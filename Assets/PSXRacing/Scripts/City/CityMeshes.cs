@@ -1951,7 +1951,7 @@ namespace PSXRacing.City
             });
             // (the road-lines round, 11-17) the cost: the line model's eases, every load (scope and switches on the line)
             LineModel.BuildEasesMs = (float)lmClock.Elapsed.TotalMilliseconds;
-            Debug.Log($"[city] line model eases built in {LineModel.BuildEasesMs:0.0} ms (PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, LINEFIX {(LineModel.LineFixOn ? 1 : 0)}): joins {LineModel.PartJoinsMs:0}, refuges {LineModel.PartRefugesMs:0}, twins {LineModel.PartTwinsMs:0} ({LineModel.TightTwinPairs} pairs, {LineModel.TwinPruned} + {LineModel.TwinCoarsePruned} coarse pruned), splits {LineModel.PartSplitsMs:0}, meetings {LineModel.PartMeetingsMs:0} ms");
+            Debug.Log($"[city] line model eases built in {LineModel.BuildEasesMs:0.0} ms (PSX_CITY_SPLITAXIS {LineModel.SplitAxis}, LINEFIX {(LineModel.LineFixOn ? 1 : 0)}): joins {LineModel.PartJoinsMs:0}, refuges {LineModel.PartRefugesMs:0}, twins {LineModel.PartTwinsMs:0} ({LineModel.TightTwinPairs} pairs, {LineModel.TwinUnlisted} not listed, {LineModel.TwinPruned} + {LineModel.TwinCoarsePruned} coarse pruned, {LineModel.TwinSmoothed} smoothed), splits {LineModel.PartSplitsMs:0}, meetings {LineModel.PartMeetingsMs:0} ms");
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
             // Five Points round 2: a branch whose drawn end stands past its host's edge gets a paved apron

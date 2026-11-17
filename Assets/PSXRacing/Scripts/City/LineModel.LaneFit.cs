@@ -57,6 +57,7 @@ namespace PSXRacing.City
             foreach (var e in map.edges)
             {
                 if (e == null || e.oneway || e.link || e.a == e.b || e.wayId == 0 || !at.TryGetValue(e.wayId, out int r)) continue;
+                if (!LineFixAt(map, e)) continue;
                 int lf = (int)LaneFitData[r + 1], lb = (int)LaneFitData[r + 2], both = (int)LaneFitData[r + 3];
                 int bf = (int)LaneFitData[r + 4], bb = (int)LaneFitData[r + 5];
                 // the profile the tagged lanes need: seven or more -> the seven-lane street; a tagged centre
@@ -192,6 +193,9 @@ namespace PSXRacing.City
                 if (nOpp == 0) continue;                                // a bay inside a two-way lane: no line moves anyway
                 float need = 0.5f * RoadProfiles.LaneM * BayTaperRate(r.mph) * nOpp + BayStorageM;
                 if (r.len >= need) continue;
+                bool skip = false;
+                foreach (int ei in r.edges) if (!LineFixAt(map, map.edges[ei])) skip = true;
+                if (skip) continue;
                 foreach (int ei in r.edges)
                 {
                     var e = map.edges[ei];

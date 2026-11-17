@@ -504,7 +504,7 @@ namespace PSXRacing.City
                         // the road-lines round (PSX_CITY_LINEFIX): a CENTRE LANE opens - the wide arm carries the
                         // narrow arm's lanes each way and a two-way left-turn lane between them (six lanes into the
                         // seven-lane street): both directions move out half a lane, each on its own side
-                        else if (LineFixOn && !W.oneway && !N.oneway && W.hasLset && N.hasLset && W.lsCentre == 2 && N.lsCentre == 1
+                        else if (LineFixAt(map, W) && LineFixAt(map, N) && !W.oneway && !N.oneway && W.hasLset && N.hasLset && W.lsCentre == 2 && N.lsCentre == 1
                                  && (((W.a == n) != (N.a == n)) ? (W.lsNF == N.lsNF && W.lsNB == N.lsNB) : (W.lsNF == N.lsNB && W.lsNB == N.lsNF))
                                  && Mathf.Abs(Mathf.Abs(dLt) - Mathf.Abs(dRt)) < 0.05f) fixT = 0;
                         else if (taprAt != null && (taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 0), out int tiW)
@@ -513,7 +513,7 @@ namespace PSXRacing.City
                             int mW = taprMap.tapr[tiW].side == 0 ? 1 : -1;       // the moving side, W's frame
                             fixT = -(wForward ? mW : -mW);
                         }
-                        else if (LineFixOn && OuterTurnLaneEnds(W, N, wForward, nForward, Mathf.Abs(dLt) + Mathf.Abs(dRt), out int outerT)) { fixT = -outerT; OuterLaneEnds++; outerTurn = true; }
+                        else if (LineFixAt(map, W) && LineFixAt(map, N) && OuterTurnLaneEnds(W, N, wForward, nForward, Mathf.Abs(dLt) + Mathf.Abs(dRt), out int outerT)) { fixT = -outerT; OuterLaneEnds++; outerTurn = true; }
                         else fixT = Mathf.Abs(dRt) <= Mathf.Abs(dLt) ? -1 : 1;   // the smaller step is held: the fewest lanes move
                         if (fixT == 0)
                         {
@@ -1833,7 +1833,7 @@ namespace PSXRacing.City
             // the road-lines round (PSX_CITY_LINEFIX): the centre lane changes hands. Against a two-way
             // left-turn lane no line moves; between two opposing bays only the double yellow crosses the
             // centre lane, over the bay taper (no through lane follows it)
-            bool handOver = LineFixOn && CentreHandOver(E, O, lE, oInE, same);
+            bool handOver = LineFixAt(map, E) && LineFixAt(map, O) && CentreHandOver(E, O, lE, oInE, same);
             if (handOver && (E.lsCentre == 2 || O.lsCentre == 2)) { RelayHandOvers++; return; }
             var pE = RelayPairs(lE, oInE);                      // E line k -> O's m (E frame), or NaN
             var eInO = same ? lE : Flipped(lE);
