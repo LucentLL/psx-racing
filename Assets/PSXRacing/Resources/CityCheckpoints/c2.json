@@ -1,0 +1,348 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "c2",
+ "candidate": "C2",
+ "generator": "checkpoints.mjs 2026-11-17 061081d4",
+ "cost": "city",
+ "loop": 1,
+ "lengthM": 5340.4,
+ "startM": 200,
+ "finishM": 0,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 1,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 200,
+     "e": 12864,
+     "s": 113.82,
+     "d": 1,
+     "x": -3607.76,
+     "y": 0,
+     "z": 3459.05,
+     "hx": -0.9095,
+     "hz": -0.4156,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 12864,
+       "d": 1,
+       "s": 113.82,
+       "l": 0
+      }
+     ],
+     "legM": 657.6,
+     "optM": 657.6,
+     "metM": 657.6,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 867.6,
+     "e": 16554,
+     "s": 55.92,
+     "d": 1,
+     "x": -4211.59,
+     "y": 0,
+     "z": 3175.36,
+     "hx": -0.8119,
+     "hz": -0.5837,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16554,
+       "d": 1,
+       "s": 55.92,
+       "l": 0
+      }
+     ],
+     "legM": 667.6,
+     "optM": 667.6,
+     "metM": 667.6,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1535.1,
+     "e": 16559,
+     "s": 35.96,
+     "d": 1,
+     "x": -4520.84,
+     "y": 0,
+     "z": 2623.72,
+     "hx": -0.4876,
+     "hz": -0.873,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16559,
+       "d": 1,
+       "s": 35.96,
+       "l": 0
+      }
+     ],
+     "legM": 667.6,
+     "optM": 667.6,
+     "metM": 667.6,
+     "name": "South Tryon Street",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2227.7,
+     "e": 16649,
+     "s": 119.22,
+     "d": -1,
+     "x": -4461.52,
+     "y": 0,
+     "z": 2099.17,
+     "hx": 0.7153,
+     "hz": -0.6989,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16649,
+       "d": -1,
+       "s": 119.22,
+       "l": 0
+      }
+     ],
+     "legM": 692.6,
+     "optM": 692.6,
+     "metM": 692.6,
+     "name": "Remount Road",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2875.2,
+     "e": 12861,
+     "s": 34.29,
+     "d": 1,
+     "x": -4043.77,
+     "y": 0,
+     "z": 2353.3,
+     "hx": 0.6359,
+     "hz": 0.7718,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 12861,
+       "d": 1,
+       "s": 34.29,
+       "l": 0
+      }
+     ],
+     "legM": 647.6,
+     "optM": 647.6,
+     "metM": 647.6,
+     "name": "South Boulevard",
+     "pen": 6
+    },
+    {
+     "kind": "split",
+     "routeM": 3562.8,
+     "e": 5718,
+     "s": 30.27,
+     "d": 1,
+     "x": -3717.89,
+     "y": 0,
+     "z": 2935.71,
+     "hx": 0.6833,
+     "hz": 0.7301,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 5718,
+       "d": 1,
+       "s": 30.27,
+       "l": 0
+      }
+     ],
+     "legM": 687.6,
+     "optM": 687.6,
+     "metM": 687.6,
+     "name": "South Boulevard",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 4205.3,
+     "e": 3575,
+     "s": 88.94,
+     "d": -1,
+     "x": -3279.7,
+     "y": 0,
+     "z": 3405.11,
+     "hx": 0.7715,
+     "hz": 0.6362,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 3575,
+       "d": -1,
+       "s": 88.94,
+       "l": 0
+      }
+     ],
+     "legM": 642.6,
+     "optM": 642.6,
+     "metM": 642.6,
+     "name": "South Boulevard",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 4882.9,
+     "e": 16631,
+     "s": 17.54,
+     "d": 1,
+     "x": -3151.68,
+     "y": 0,
+     "z": 3870.14,
+     "hx": -0.6457,
+     "hz": 0.7636,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 16631,
+       "d": 1,
+       "s": 17.54,
+       "l": 0
+      },
+      {
+       "e": 22753,
+       "d": -1,
+       "s": 26.15,
+       "l": -36.25
+      }
+     ],
+     "legM": 677.6,
+     "optM": 677.6,
+     "metM": 677.6,
+     "name": "Carson Boulevard",
+     "pen": 0
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 667.6,
+    "optM": 667.6,
+    "metM": 667.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 667.6,
+    "optM": 667.6,
+    "metM": 667.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 692.6,
+    "optM": 692.6,
+    "metM": 692.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 647.6,
+    "optM": 647.6,
+    "metM": 647.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 4,
+    "to": 5,
+    "sugM": 687.6,
+    "optM": 687.6,
+    "metM": 687.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 5,
+    "to": 6,
+    "sugM": 642.6,
+    "optM": 642.6,
+    "metM": 642.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 6,
+    "to": 7,
+    "sugM": 677.6,
+    "optM": 677.6,
+    "metM": 677.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 2,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 7,
+    "to": 0,
+    "sugM": 657.6,
+    "optM": 657.6,
+    "metM": 657.6,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 643,
+  "maxLegM": 693,
+  "freeLegs": 0.13,
+  "apex": 0,
+  "turnarounds": 0,
+  "failing": 0
+ }
+}

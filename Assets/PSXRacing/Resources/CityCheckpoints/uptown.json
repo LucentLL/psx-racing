@@ -1,0 +1,579 @@
+{
+ "version": 1,
+ "graph": "b2aa3453",
+ "route": "uptown",
+ "candidate": "uptown",
+ "generator": "checkpoints.mjs 2026-11-17 061081d4",
+ "cost": "city",
+ "loop": 1,
+ "lengthM": 9191,
+ "startM": 9191.0283203125,
+ "finishM": 0,
+ "chains": [
+  {
+   "dir": "fwd",
+   "loop": 1,
+   "cps": [
+    {
+     "kind": "line",
+     "routeM": 9191,
+     "e": 1929,
+     "s": 349,
+     "d": 1,
+     "x": -2045.63,
+     "y": 0,
+     "z": 5804.67,
+     "hx": 0.5411,
+     "hz": -0.841,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1929,
+       "d": 1,
+       "s": 349,
+       "l": 0
+      }
+     ],
+     "legM": 707,
+     "optM": 707,
+     "metM": 707,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 707,
+     "e": 2330,
+     "s": 34.32,
+     "d": 1,
+     "x": -1526.87,
+     "y": 0,
+     "z": 5332.35,
+     "hx": 0.685,
+     "hz": -0.7285,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2330,
+       "d": 1,
+       "s": 34.32,
+       "l": 0
+      },
+      {
+       "e": 2394,
+       "d": 1,
+       "s": 38.18,
+       "l": 30.61
+      }
+     ],
+     "legM": 707,
+     "optM": 707,
+     "metM": 707,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 1414,
+     "e": 2325,
+     "s": 224.64,
+     "d": 1,
+     "x": -1043.51,
+     "y": 0,
+     "z": 4816.45,
+     "hx": 0.6469,
+     "hz": -0.7626,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2325,
+       "d": 1,
+       "s": 224.64,
+       "l": 0
+      },
+      {
+       "e": 371,
+       "d": 1,
+       "s": 101.44,
+       "l": 31.78
+      }
+     ],
+     "legM": 707,
+     "optM": 707,
+     "metM": 707,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2106,
+     "e": 2154,
+     "s": 243.95,
+     "d": 1,
+     "x": -1092.24,
+     "y": 0,
+     "z": 4163.02,
+     "hx": -0.3215,
+     "hz": -0.9469,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2154,
+       "d": 1,
+       "s": 243.95,
+       "l": 0
+      }
+     ],
+     "legM": 692,
+     "optM": 692,
+     "metM": 692,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 2828,
+     "e": 1400,
+     "s": 61.71,
+     "d": 1,
+     "x": -1586.38,
+     "y": 0,
+     "z": 3650.69,
+     "hx": -0.6223,
+     "hz": -0.7828,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1400,
+       "d": 1,
+       "s": 61.71,
+       "l": 0
+      }
+     ],
+     "legM": 722,
+     "optM": 722,
+     "metM": 722,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 3500,
+     "e": 1506,
+     "s": 205.38,
+     "d": 1,
+     "x": -2145.59,
+     "y": 0,
+     "z": 3434.09,
+     "hx": -0.8573,
+     "hz": 0.5148,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1506,
+       "d": 1,
+       "s": 205.38,
+       "l": 0
+      }
+     ],
+     "legM": 672,
+     "optM": 672,
+     "metM": 672,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 4242,
+     "e": 1489,
+     "s": 633.8,
+     "d": 1,
+     "x": -2697.32,
+     "y": 0,
+     "z": 3929.3,
+     "hx": -0.7374,
+     "hz": 0.6755,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1489,
+       "d": 1,
+       "s": 633.8,
+       "l": 0
+      },
+      {
+       "e": 3779,
+       "d": 1,
+       "s": 81.32,
+       "l": 53.75
+      }
+     ],
+     "legM": 742,
+     "optM": 742,
+     "metM": 742,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 4924,
+     "e": 1490,
+     "s": 197.57,
+     "d": 1,
+     "x": -3217.55,
+     "y": 0,
+     "z": 4366.82,
+     "hx": -0.8965,
+     "hz": 0.4431,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1490,
+       "d": 1,
+       "s": 197.57,
+       "l": 0
+      },
+      {
+       "e": 240,
+       "d": 1,
+       "s": 190.57,
+       "l": 16.7
+      }
+     ],
+     "legM": 682,
+     "optM": 682,
+     "metM": 682,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 5621,
+     "e": 2420,
+     "s": 326.17,
+     "d": 1,
+     "x": -3898.07,
+     "y": 0,
+     "z": 4461.86,
+     "hx": -0.9868,
+     "hz": 0.1619,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 2420,
+       "d": 1,
+       "s": 326.17,
+       "l": 0
+      }
+     ],
+     "legM": 697,
+     "optM": 697,
+     "metM": 697,
+     "name": "I-277",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 6363,
+     "e": 1893,
+     "s": 48.57,
+     "d": 1,
+     "x": -3857.91,
+     "y": 0,
+     "z": 5013.95,
+     "hx": 0.2903,
+     "hz": 0.9569,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1893,
+       "d": 1,
+       "s": 48.57,
+       "l": 0
+      },
+      {
+       "e": 253,
+       "d": 1,
+       "s": 84.84,
+       "l": 31.37
+      }
+     ],
+     "legM": 742,
+     "optM": 742,
+     "metM": 742,
+     "name": "I-77",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 7090,
+     "e": 1882,
+     "s": 146.53,
+     "d": 1,
+     "x": -3527.6,
+     "y": 0,
+     "z": 5640.76,
+     "hx": 0.7399,
+     "hz": 0.6727,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 1882,
+       "d": 1,
+       "s": 146.53,
+       "l": 0
+      },
+      {
+       "e": 227,
+       "d": 1,
+       "s": 151.36,
+       "l": 36.66
+      }
+     ],
+     "legM": 727,
+     "optM": 727,
+     "metM": 727,
+     "name": "I-77",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 7777,
+     "e": 8501,
+     "s": 85.64,
+     "d": 1,
+     "x": -3081.43,
+     "y": 0,
+     "z": 6160.67,
+     "hx": 0.6642,
+     "hz": 0.7476,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 8501,
+       "d": 1,
+       "s": 85.64,
+       "l": 0
+      }
+     ],
+     "legM": 687,
+     "optM": 687,
+     "metM": 687,
+     "name": "I-77",
+     "pen": 0
+    },
+    {
+     "kind": "split",
+     "routeM": 8484,
+     "e": 8503,
+     "s": 73.54,
+     "d": 1,
+     "x": -2471.6,
+     "y": 0,
+     "z": 6360.81,
+     "hx": 0.8736,
+     "hz": -0.4866,
+     "depth": 6,
+     "spans": [
+      {
+       "e": 8503,
+       "d": 1,
+       "s": 73.54,
+       "l": 0
+      },
+      {
+       "e": 2151,
+       "d": 1,
+       "s": 110.37,
+       "l": -32.68
+      }
+     ],
+     "legM": 707,
+     "optM": 707,
+     "metM": 707,
+     "name": "",
+     "pen": 0
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "legs": [
+   {
+    "from": 0,
+    "to": 1,
+    "sugM": 707,
+    "optM": 707,
+    "metM": 707,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 1,
+    "to": 2,
+    "sugM": 707,
+    "optM": 707,
+    "metM": 707,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 2,
+    "to": 3,
+    "sugM": 692,
+    "optM": 692,
+    "metM": 692,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 3,
+    "to": 4,
+    "sugM": 722,
+    "optM": 722,
+    "metM": 722,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 4,
+    "to": 5,
+    "sugM": 672,
+    "optM": 672,
+    "metM": 672,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 5,
+    "to": 6,
+    "sugM": 742,
+    "optM": 742,
+    "metM": 742,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 6,
+    "to": 7,
+    "sugM": 682,
+    "optM": 682,
+    "metM": 682,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 7,
+    "to": 8,
+    "sugM": 697,
+    "optM": 697,
+    "metM": 697,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 8,
+    "to": 9,
+    "sugM": 742,
+    "optM": 742,
+    "metM": 742,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 9,
+    "to": 10,
+    "sugM": 727,
+    "optM": 727,
+    "metM": 727,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 10,
+    "to": 11,
+    "sugM": 687,
+    "optM": 687,
+    "metM": 687,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 11,
+    "to": 12,
+    "sugM": 707,
+    "optM": 707,
+    "metM": 707,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   },
+   {
+    "from": 12,
+    "to": 0,
+    "sugM": 707,
+    "optM": 707,
+    "metM": 707,
+    "metRatio": 1,
+    "sugCostRatio": 1,
+    "optOverMet": 1,
+    "alts": 0,
+    "pass": true,
+    "tests": ""
+   }
+  ],
+  "minLegM": 672,
+  "maxLegM": 742,
+  "freeLegs": 0,
+  "apex": 0,
+  "turnarounds": 0,
+  "failing": 0
+ }
+}

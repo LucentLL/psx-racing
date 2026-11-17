@@ -3,7 +3,8 @@
 // dumps the ordered gate chain of one route, so the race can let every car take ANY road between gates while no leg
 // can be cut. Design: scratchpad checkpoints/DESIGN_v2.md section 1.2 (stage 1).
 //
-//   node tools/city/tracks/checkpoints.mjs <routeId|candId> [--write] [--dump <file.json>]
+//   node tools/city/tracks/checkpoints.mjs <routeId|candId> [--rev] [--write] [--dump <file.json>]
+//        --rev: the reverse twin's chain too ("rev", same file; cpfix 11-17)
 //        one route: the gates, a one-line-per-leg audit; --write puts Resources/CityCheckpoints/<routeId>.json
 //   node tools/city/tracks/checkpoints.mjs all [--table <file.txt>]
 //        every candidate (31) and the 3 export routes: the freedom table (offline, nothing written)
@@ -202,6 +203,24 @@ function loadRoute(id) {
   const st = r.edges.map((e, i) => e * 2 + (r.dirs[i] === 1 ? 0 : 1));
   const cum = [0]; for (const s of st) cum.push(cum[cum.length - 1] + len[s]);
   return { ...r, kind, fwy, cand: cand ? cand.id : r.id, st, cum, L: cum[cum.length - 1] };
+}
+/// THE REVERSE TWIN's route (cpfix 11-17: TryonSprintRev, CltX1Rev): the chain backwards. A sprint run backwards
+/// starts at the forward finish and ends on the forward START LINE (TrackCatalog: "Reversed, the race ends on the
+/// forward START LINE"); a loop keeps its lap line where it is.
+function reverseRoute(F) {
+  const n = F.edges.length;
+  const edges = [], dirs = [];
+  for (let i = n - 1; i >= 0; i--) { edges.push(F.edges[i]); dirs.push(F.dirs[i] === 1 ? -1 : 1); }
+  for (let i = 0; i < n; i++) {
+    const e = C.edges[edges[i]];
+    if (e.oneway && dirs[i] !== 1) throw new Error(`${F.id} has a one-way road (edge ${edges[i]}): no reverse chain`);
+  }
+  const st = edges.map((e, i) => e * 2 + (dirs[i] === 1 ? 0 : 1));
+  const cum = [0]; for (const s of st) cum.push(cum[cum.length - 1] + len[s]);
+  const L = cum[cum.length - 1];
+  const startM = F.loop ? ((L - F.startM) % L + L) % L : L - F.finishM;
+  const finishM = F.loop ? 0 : L - F.startM;
+  return { ...F, edges, dirs, st, cum, L, startM, finishM, rev: true };
 }
 /// a position on the chain at arc m (wrapped on a loop): {i, st, t, m}
 function at(R, m) {
@@ -432,8 +451,8 @@ function spansAt(R, ctx, m, nextM) {
 }
 
 // ---------------------------------------------------------------- generate one route
-function generate(id, quiet = false) {
-  const R = loadRoute(id), ctx = makeCtx(R);
+function generate(id, quiet = false, rev = false) {
+  const R0 = loadRoute(id), R = rev ? reverseRoute(R0) : R0, ctx = makeCtx(R);
   const loop = R.loop;
   const s0 = R.startM, s1 = loop ? R.startM + R.L : R.finishM;
   // unwrapped arcs from the start line
@@ -520,9 +539,9 @@ function generate(id, quiet = false) {
   try { git = execSync('git rev-parse --short HEAD', { cwd: WT }).toString().trim(); } catch { }
   const file = { version: 1, graph: GRAPH, route: R.id, candidate: R.cand, generator: `checkpoints.mjs ${new Date().toISOString().slice(0, 10)} ${git}`,
                  cost: R.fwy ? 'fwy' : 'city', loop: loop ? 1 : 0, lengthM: +R.L.toFixed(1), startM: R.startM, finishM: R.finishM,
-                 chains: [{ dir: 'fwd', loop: loop ? 1 : 0, cps }], audit };
+                 chains: [{ dir: rev ? 'rev' : 'fwd', loop: loop ? 1 : 0, cps }], audit };
   if (!quiet) {
-    console.log(`${R.id} (${R.cand}, ${R.kind}, ${R.fwy ? 'fwy' : 'city'} cost) L ${R.L.toFixed(0)} m, ${cps.length} gates, legs ${audit.minLegM}-${audit.maxLegM} m, freeLegs ${audit.freeLegs}, apex ${apex.length}, turnarounds ${audit.turnarounds}, failing legs ${audit.failing}`);
+    console.log(`${rev ? 'REVERSE ' : ''}${R.id} (${R.cand}, ${R.kind}, ${R.fwy ? 'fwy' : 'city'} cost) L ${R.L.toFixed(0)} m, ${cps.length} gates, legs ${audit.minLegM}-${audit.maxLegM} m, freeLegs ${audit.freeLegs}, apex ${apex.length}, turnarounds ${audit.turnarounds}, failing legs ${audit.failing}`);
     cps.forEach((c, i) => console.log(`  gate ${String(i).padStart(2)} ${c.kind.padEnd(6)} @ ${c.routeM.toFixed(0).padStart(6)} m  e${c.e}${c.d > 0 ? '+' : '-'} s ${c.s.toFixed(0).padStart(4)}  spans ${c.spans.length}  clean-pen ${c.pen}  ${c.name}`));
     auditLegs.forEach(l => console.log(`  leg ${String(l.from).padStart(2)}->${String(l.to).padStart(2)} sug ${l.sugM.toFixed(0).padStart(5)} met ${l.metM.toFixed(0).padStart(5)} (${l.metRatio.toFixed(2)}) costOpt ${l.optM.toFixed(0).padStart(5)} m (opt/met ${l.optOverMet.toFixed(2)}, sug/opt cost ${l.sugCostRatio.toFixed(2)}) alts ${l.alts} ${l.pass ? 'PASS' : 'FAIL ' + l.tests}`));
     for (const a of apex) console.log(`  apex at ${a.m.toFixed(0)} m: ${a.from.toFixed(0)} -> ${a.to.toFixed(0)} m (${a.along.toFixed(0)} m along, ${a.across.toFixed(0)} m across in plan)`);
@@ -558,9 +577,19 @@ if (args[0] === 'all') {
   if (opt('table')) writeFileSync(opt('table'), lines.join('\n') + '\n');
 } else if (args[0]) {
   const g = generate(args[0]);
-  const bad = reach(g);
+  let bad = reach(g);
   console.log(bad ? `REACH FAIL: ${bad} legs` : 'REACH OK: every gate reachable from the one before (metric and cost)');
+  // --rev: the reverse twin's chain too, in the same file (CheckpointFile.ChainFor picks "rev" for a Rev venue)
+  if (flag('rev')) {
+    const gr = generate(args[0], false, true);
+    const br = reach(gr);
+    console.log(br ? `REVERSE REACH FAIL: ${br} legs` : 'REVERSE REACH OK');
+    bad += br;
+    g.file.chains.push(gr.file.chains[0]);
+    g.file.auditRev = gr.file.audit;
+  }
   if (flag('write')) {
+    if (bad || g.file.audit.failing || (g.file.auditRev && g.file.auditRev.failing)) { console.log('NOT WRITTEN: failing legs or an unreachable gate'); process.exit(1); }
     const dir = `${WT}/Assets/PSXRacing/Resources/CityCheckpoints`;
     mkdirSync(dir, { recursive: true });
     writeFileSync(`${dir}/${g.R.id}.json`, JSON.stringify(g.file, null, 1) + '\n');
