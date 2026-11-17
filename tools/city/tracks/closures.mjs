@@ -14,13 +14,14 @@
 //   node tools/city/tracks/closures.mjs i485west     (or uptown, tryon, independence: the export's)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { city, WT, toLat, toLon, chainPoly } from './lib.mjs';
+import { readTracks } from './trackfiles.mjs';
 const C = city();
 const id = process.argv[2] || 'i485west';
-const file = JSON.parse(readFileSync(WT.replace(/[\\/]$/, '') + '/Assets/PSXRacing/Resources/charlotte_tracks.json', 'utf8'));
-// a track of charlotte_tracks.json, or one of the export's own routes (charlotte_city.bytes: uptown,
-// tryon, independence - a sanctioned event closes those too, e.g. the AMERICAN STOCK CUP's)
-const r = file.routes.find(x => x.id === id) || (C.routes || []).find(x => x.id === id);
-if (!r) throw new Error('no route ' + id + ' (tracks: ' + file.routes.map(x => x.id).join(', ') + '; export: ' + (C.routes || []).map(x => x.id).join(', ') + ')');
+// a track of Resources/CityTracks/ (one file each), or one of the export's own routes (charlotte_city.bytes:
+// uptown, tryon, independence - a sanctioned event closes those too, e.g. the AMERICAN STOCK CUP's)
+const trackRoutes = readTracks(WT).map(t => t.route);
+const r = trackRoutes.find(x => x.id === id) || (C.routes || []).find(x => x.id === id);
+if (!r) throw new Error('no route ' + id + ' (tracks: ' + trackRoutes.map(x => x.id).join(', ') + '; export: ' + (C.routes || []).map(x => x.id).join(', ') + ')');
 const SETBACK = 14, CLEAR = 1.5, PANEL = 2.4;
 const onRoute = new Set(r.edges);
 // the course's pavement

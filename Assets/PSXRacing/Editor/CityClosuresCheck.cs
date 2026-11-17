@@ -9,11 +9,13 @@ namespace PSXRacing.EditorTools
     /// <summary>
     /// THE CLOSURES' ROUTE CHECK WITHOUT A RACE (batch, hidden; owner 2026-11-16: closures only in a
     /// sanctioned event, like a parade, and never on the race line). For every Charlotte race route (the
-    /// export's own and Resources/charlotte_tracks.json's): the race line exactly as a race scene builds
+    /// export's own and those of Resources/CityTracks/*.json): the race line exactly as a race scene builds
     /// it (CityMode.BuildPath into a TrackPath), a sanctioned event's closures built against it
     /// (CityRaceClosures.Build, the registrar's call), and the race play check's own audit
     /// (CityRaceClosures.Audit). 0 rows on the driven lanes is the only pass. The first rule (the map's
-    /// pavement only, no race line) is audited beside it, for the record.
+    /// pavement only, no race line) is audited beside it, for the record. Also lists every Charlotte track
+    /// venue (TrackCatalog.All index, route, host scene) and any the integrator's _order.txt does not list
+    /// yet (WARN, not a failure: a lane's new track; tools/city/tracks/order.mjs --write at integration).
     ///   Unity -batchmode -quit -projectPath &lt;sandbox&gt; -executeMethod PSXRacing.EditorTools.CityClosuresCheck.Run
     /// Report: &lt;project&gt;/PSXRacing_closures_check.txt. Exit code 1 on any hit.
     /// </summary>
@@ -31,6 +33,18 @@ namespace PSXRacing.EditorTools
                 else
                 {
                     CityTracks.Register(map);
+                    var listed = new System.Collections.Generic.HashSet<string>(CityTracks.Order);
+                    for (int i = 0; i < TrackCatalog.All.Length; i++)
+                    {
+                        var t = TrackCatalog.All[i];
+                        if (string.IsNullOrEmpty(t.hostScene)) continue;
+                        bool known = map.RouteById(t.cityRoute) != null;
+                        if (!known) fails++;
+                        sb.AppendLine((known ? "venue " : "FAIL  ") + "#" + i + " " + t.id + (t.Reversed ? " (reverse)" : "") + ": route " + t.cityRoute +
+                                      (known ? "" : " NOT REGISTERED") + ", in " + TrackCatalog.SceneIdOf(i) + "'s scene, " +
+                                      (t.loop ? t.laps + " lap(s) of " : "") + (t.RaceMeters / 1000f).ToString("0.00") + " km raced" +
+                                      (listed.Contains(t.id) ? "" : "   WARN not in _order.txt yet (the integrator: node tools/city/tracks/order.mjs --write)"));
+                    }
                     foreach (var route in map.routes)
                     {
                         if (route == null || route.edges == null || route.edges.Length == 0) continue;

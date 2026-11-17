@@ -933,6 +933,8 @@ namespace PSXRacing
             minCornerR = f.minCornerR,
             // Not a drop going up, not one coming down either.
             noDelivery = f.noDelivery,
+            // A Charlotte track (CityTracks) races in its host's scene, and so does its twin.
+            hostScene = f.hostScene,
             reverseOf = f.id,
         };
 
@@ -963,47 +965,84 @@ namespace PSXRacing
             foreach (var dv in DeckRuns) list.Add(DeckRunDef(dv));
             // THE CHARLOTTE TRACKS (2026-11-16) after the deck runs: no scene
             // of their own, appended so no saved index moves.
-            foreach (var t in CityTrackVenues) list.Add(t);
+            list.AddRange(CityTrackVenues(list));
             return list.ToArray();
         }
 
         /// <summary>
         /// THE CHARLOTTE TRACKS (owner, 2026-11-16: circuits, sprints and drags
         /// on Charlotte's streets; at 14:00, "more circuits use highway on/off
-        /// ramps like the example I drew in red"). Each is a route of
-        /// Resources/charlotte_tracks.json (CityTracks, from the candidate
-        /// sheet Charlotte_Track_Candidates_2026-11-16 by
-        /// tools/city/tracks/emit_tracks.mjs) raced in its host's scene.
-        /// A PROPERTY for the reason <see cref="SprintVariants"/> is.
+        /// ramps like the example I drew in red"). DATA, not code: each is its
+        /// own file, Resources/CityTracks/&lt;route id&gt;.json (CityTracks, written
+        /// from the candidate sheet Charlotte_Track_Candidates_2026-11-16 by
+        /// tools/city/tracks/emit_track.mjs), raced in its host's scene
+        /// (hostScene: a loop in UptownLoop's, a course with ends in
+        /// TryonSprint's; CityTracksRegistrar points it at the route). A file
+        /// that asks for one (venue.reverse = 1) also makes its reverse twin,
+        /// "&lt;id&gt;Rev". A sprint cut from a course is its own file with its own
+        /// chain. Adding a track adds a file; this method never changes.
+        ///
+        /// The order is load-bearing (saved careers store the index): the venue
+        /// ids of Resources/CityTracks/_order.txt first, in its order (the
+        /// integrator appends to it, tools/city/tracks/order.mjs), then every
+        /// venue it does not list yet, by file name, forward before twin. The
+        /// list never depends on PSX_CITY_TRACKS (Offered does).
         /// </summary>
-        static TrackDef[] CityTrackVenues => new[]
+        static List<TrackDef> CityTrackVenues(List<TrackDef> before)
         {
-            // H2 on the sheet: the owner's own loop with its I-85 arm swapped for
-            // the Wilkinson Boulevard end (his Little Rock Road turn crosses the
-            // airport ramps, still on the keep-off list). A lap of I-485's two
-            // carriageways turned round on each interchange's own ramps: down
-            // from Moores Chapel through the I-85 cloverleaf's C-D road, round
-            // the Wilkinson cloverleaf, back up, round the Moores Chapel diamond.
-            new TrackDef
+            var taken = new HashSet<string>();
+            foreach (var d in before) taken.Add(d.id);
+            var made = new Dictionary<string, TrackDef>();
+            var natural = new List<string>();
+            foreach (var t in CityTracks.Files)
             {
-                id = "I485West",
-                name = "I-485 WEST - RAMPS",
-                blurb = "The outer belt west of the airport: down I-485 through the I-85 cloverleaf, round " +
-                        "on the Wilkinson Boulevard ramps, back up and round at Moores Chapel Road. 9.2 km, " +
-                        "one lap. Map (c) OpenStreetMap contributors.",
-                roadWidth = 18.8f,      // four 3.66 m lanes and the shoulders (the grid's carriageway)
-                laps = 1,               // 9.2 km: one lap under the 14.2 km tank line, as UptownLoop
-                speedLimitKmh = 105f,   // I-485 is posted 65 mph
-                city = true,
-                cityRoute = "i485west",
-                loop = true,
-                oneWay = true,
-                noReverse = true,       // a freeway backwards is the wrong way up every ramp
-                noDelivery = true,
-                hostScene = "UptownLoop",
-                dragLabel = "I-485",
-            },
-        };
+                var v = t.venue;
+                var r = t.route;
+                if (taken.Contains(v.id) || made.ContainsKey(v.id))
+                {
+                    Debug.LogError("[CityTracks] " + t.file + ".json: venue id " + v.id + " is taken: left out");
+                    continue;
+                }
+                var f = new TrackDef
+                {
+                    id = v.id,
+                    name = v.name,
+                    blurb = v.blurb,
+                    roadWidth = v.roadWidth > 0f ? v.roadWidth : r.roadWidth,
+                    laps = Mathf.Max(1, v.laps),
+                    speedLimitKmh = v.speedLimitKmh > 0f ? v.speedLimitKmh : (r.speed > 0f ? r.speed : DefaultSpeedLimitKmh),
+                    city = true,
+                    cityRoute = r.id,
+                    loop = r.loop != 0,
+                    oneWay = v.oneWay != 0,
+                    noReverse = v.reverse == 0,
+                    noDelivery = v.noDelivery != 0,
+                    hostScene = !string.IsNullOrEmpty(v.host) ? v.host : r.loop != 0 ? "UptownLoop" : DeckScene,
+                    dragLabel = string.IsNullOrEmpty(v.label) ? null : v.label,
+                };
+                made[f.id] = f;
+                natural.Add(f.id);
+                if (!f.CanReverse) continue;
+                var tw = ReverseTwin(f);
+                if (!string.IsNullOrEmpty(v.reverseName)) tw.name = v.reverseName;
+                if (!string.IsNullOrEmpty(v.reverseBlurb)) tw.blurb = v.reverseBlurb;
+                if (!string.IsNullOrEmpty(v.reverseLabel)) tw.dragLabel = v.reverseLabel;
+                if (taken.Contains(tw.id) || made.ContainsKey(tw.id))
+                {
+                    Debug.LogError("[CityTracks] " + t.file + ".json: venue id " + tw.id + " is taken: no reverse");
+                    continue;
+                }
+                made[tw.id] = tw;
+                natural.Add(tw.id);
+            }
+            var list = new List<TrackDef>();
+            foreach (var id in CityTracks.Order)
+                if (made.TryGetValue(id, out var d)) { list.Add(d); made.Remove(id); }
+                else Debug.LogError("[CityTracks] _order.txt lists " + id + " and no track file makes it: every venue after it moved down one index");
+            foreach (var id in natural)
+                if (made.TryGetValue(id, out var d)) list.Add(d);
+            return list;
+        }
 
         /// <summary>The cityRoute every deck run carries, and the venue whose
         /// scene it races in (a Charlotte race scene: the streamed city, three
@@ -1697,10 +1736,11 @@ namespace PSXRacing
         public static string SceneIdOf(int trackIndex)
         {
             var def = All[Mathf.Clamp(trackIndex, 0, All.Length - 1)];
+            // a Charlotte track and its twin race in their host's scene (CityTracks)
+            if (!string.IsNullOrEmpty(def.hostScene)) return def.hostScene;
             if (def.Reversed) return def.reverseOf;
             if (def.IsSprintVariant) return def.sprintOf;
             if (def.IsDeckRun) return DeckScene;
-            if (!string.IsNullOrEmpty(def.hostScene)) return def.hostScene;
             return def.id;
         }
 

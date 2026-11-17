@@ -5,9 +5,9 @@ namespace PSXRacing
 {
     /// <summary>
     /// On every Charlotte scene (PSXRacingBuilder.BuildCityScene adds it to the CityWorld object), before
-    /// anything else wakes: hands Resources/charlotte_tracks.json's races to the city map
+    /// anything else wakes: hands the races of Resources/CityTracks/*.json to the city map
     /// (<see cref="CityTracks.Register"/>), so the free-roam start gates and the race find them; and, in
-    /// a race scene raced as one of those venues, points the scene at it. A venue from that file has no
+    /// a race scene raced as one of those venues, points the scene at it. A venue from those files has no
     /// scene of its own: it races in its host's (TrackDef.hostScene, a loop in UptownLoop's, a course
     /// with ends in TryonSprint's), the way the deck runs race in TryonSprint's. CityMode reads its
     /// routeId in its own Awake (it builds the path and the grid there), so this runs first and swaps
