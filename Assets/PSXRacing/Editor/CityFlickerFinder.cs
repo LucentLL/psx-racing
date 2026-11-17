@@ -519,7 +519,9 @@ namespace PSXRacing.EditorTools
                             bool decal = m.shader.name == "PSX/Decal";
                             im.SetFloat("_IdOffF", decal ? -1f : 0f);
                             im.SetFloat("_IdOffU", decal ? -1f : 0f);
-                            im.SetFloat("_IdZWrite", decal || m.renderQueue >= 2500 ? 0f : 1f);
+                            // PSX/Water writes depth at the HD water's queue (2501) too: it is
+                            // opaque, only drawn after the frame's copies (part B, item 16, n4)
+                            im.SetFloat("_IdZWrite", decal || (m.renderQueue >= 2500 && m.shader.name != "PSX/Water") ? 0f : 1f);
                             im.SetFloat("_IdCull", m.HasProperty("_Cull") ? m.GetFloat("_Cull") : 2f);
                             im.renderQueue = m.renderQueue;
                             repl[i] = im;

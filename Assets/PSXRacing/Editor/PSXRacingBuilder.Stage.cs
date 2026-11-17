@@ -5080,22 +5080,22 @@ namespace PSXRacing.EditorTools
             {
                 this.absorb = absorb; this.scatter = scatter; this.look = look;
             }
+            WaterPreset(WaterPresets.Look l) : this(l.absorb, l.scatter, l.look) { }
+            // The numbers live in the runtime's WaterPresets (part B): the game
+            // applies them again to every water material the HD water takes, so
+            // a retune needs no scene pass.
             /// <summary>Bogue Sound and the Atlantic off Emerald Isle:
             /// green-grey, a few metres' visibility.</summary>
-            public static readonly WaterPreset Sea = new WaterPreset(
-                new Vector4(0.75f, 0.32f, 0.30f, 0f), new Vector4(0.026f, 0.078f, 0.108f, 0f), new Vector4(11f, 0.4f, 1f, 0.6f));
+            public static readonly WaterPreset Sea = new WaterPreset(WaterPresets.Sea);
             /// <summary>Lake Lure: a deep green-blue reservoir, calm between
             /// the gusts, mirroring its ridges.</summary>
-            public static readonly WaterPreset Lake = new WaterPreset(
-                new Vector4(0.55f, 0.22f, 0.26f, 0f), new Vector4(0.010f, 0.034f, 0.030f, 0f), new Vector4(7f, 0.8f, 0.6f, 0.6f));
+            public static readonly WaterPreset Lake = new WaterPreset(WaterPresets.Lake);
             /// <summary>The Rocky Broad River: shallow and clear over brown
             /// stones, white over the boulders (colour b), running (uv2).</summary>
-            public static readonly WaterPreset River = new WaterPreset(
-                new Vector4(0.38f, 0.17f, 0.22f, 0f), new Vector4(0.018f, 0.036f, 0.028f, 0f), new Vector4(4f, 1f, 1.2f, 0.7f));
+            public static readonly WaterPreset River = new WaterPreset(WaterPresets.River);
             /// <summary>Charlotte's Catawba, its lakes and creeks: green-brown,
-            /// turbid with red clay, slow.</summary>
-            public static readonly WaterPreset City = new WaterPreset(
-                new Vector4(1.5f, 1.2f, 1.45f, 0f), new Vector4(0.042f, 0.048f, 0.028f, 0f), new Vector4(8f, 0.7f, 0.5f, 0.6f));
+            /// turbid with red clay, slow; no shore foam (part B, item 7).</summary>
+            public static readonly WaterPreset City = new WaterPreset(WaterPresets.City);
 
             /// <summary>Onto a PSX/Water material, with the ripple sheet.</summary>
             public void Apply(Material m)

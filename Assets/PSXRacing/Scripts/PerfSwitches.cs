@@ -33,7 +33,7 @@ namespace PSXRacing
     ///   * COPIES ON DEMAND (PSX_COPIES_ON_DEMAND). The PC pipeline asset asks
     ///     every camera for the opaque-colour copy and the depth copy. The
     ///     only reader of the colour copy is the HD water (PSX_WATER_HD,
-    ///     opt-in, WaterLook), and the depth copy's only reader is the SSAO,
+    ///     ON on a PC since water part B, WaterLook; only for a camera with water in its view), and the depth copy's only reader is the SSAO,
     ///     which asks for its own. So the asset's two flags follow what is
     ///     on: the colour copy only where the HD water draws, the depth copy
     ///     only for a camera whose passes ask.
@@ -279,7 +279,11 @@ namespace PSXRacing
                     if (CopiesOnDemand)
                     {
                         if (!copiesForced) { copiesWasOpaque = urp.supportsCameraOpaqueTexture; copiesWasDepth = urp.supportsCameraDepthTexture; copiesForced = true; }
-                        bool water = copiesWasOpaque && WaterLook.ActiveHere();
+                        // the HD water is the colour copy's one reader: on for a camera
+                        // with HD water in its view (water part B: WaterLook.CopiesWanted,
+                        // which also tells the water the copy will be there)
+                        WaterLook.CopiesOnDemand = copiesWasOpaque;
+                        bool water = copiesWasOpaque && WaterLook.CopiesWanted(cam);
                         if (urp.supportsCameraOpaqueTexture != water) urp.supportsCameraOpaqueTexture = water;
                         bool depth = copiesWasDepth && water;
                         if (urp.supportsCameraDepthTexture != depth) urp.supportsCameraDepthTexture = depth;
@@ -289,6 +293,7 @@ namespace PSXRacing
                         urp.supportsCameraOpaqueTexture = copiesWasOpaque;
                         urp.supportsCameraDepthTexture = copiesWasDepth;
                         copiesForced = false;
+                        WaterLook.CopiesOnDemand = false;
                     }
                 }
             }

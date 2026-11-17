@@ -1,4 +1,117 @@
-﻿# HANDOFF - THE LINE GATE (agents "linegate" then its Opus 5.5 successor, branch `city-linegate` off mountain-nm 742315cd, 2026-11-16/17; NOT pushed, NOT merged)
+﻿# HANDOFF - WATER PART B: the HD water fixed and ON by default on PC (agent "water", branch `water-hd-b`, 2026-11-17 00:45-04:10; NOT pushed, NOT merged)
+
+The owner, 11-17 ~01:00: "Why hasn't the upgraded bodies of water been implemented? You showed me screenshots of it days ago"
+(PC49, Bat Cave in heavy rain, the old flat grey water). Then, after trying `PSXRacing_WaterHD.cmd` on Lake Lure: "it looked
+good. The main issue was the current/tide/waves were moving very fast for a lake. It looked like an ocean."
+Why it was off: the review (`scratchpad\water\REVIEW_SYN.json`) merged it dark (Part A) for F01 (static), F03 (city bank foam
+rim), F06 (no rain on it) and the rest of Part B; Part B was queued and never started. Branch off mountain-nm 1527e2b1, merged
+mountain-nm 749e05de (the perf round) in. Sandbox PSXLab (atomic lock, shared with treeseason). Scratch `scratchpad\water\`
+(PROGRESS_B.md, jobB.ps1, water_player.ps1, measure.py, sheets\, runs\).
+
+## What I found (file:line on 749e05de unless said)
+1. LAKE MOTION. Lake Lure's materials ARE the Lake preset, `_OceanWaves 0` (no sea leak). The speed was the shader: each ripple
+   octave slid rigidly downwind at the phase speed of its waves (PSXWaterHD.cginc HDOctave `uv.x -= drift*t`: 1.48 m/s on the
+   lake's 7 m tile), the gust patches crossed at half the wind (4.5 m/s wind: 2.3 m/s), and every lake carried the sea's 7.5 m
+   vertex ripple train at 3.4 m/s (vertHD's Gerstner). Measured: the PC49 HD lake changed 18.7 levels a second; its "river"
+   slid with the wind, not down the river.
+2. F01 static: the march's per-pixel jitter (cginc:251) plus a hard thickness cut; the wobble and the march normal read the
+   full-detail ripples (single-pixel variation sampled the mirrored world pixel by pixel); no roughness for what the mips average.
+3. F02 edge bars: tEnd from the frame's side planes (cginc:245-250) and a side fade toward the sky.
+4. Rain: a roughness cut-off on the march (Part A's early-out idea, kept by me at first) and summing roughness terms linearly
+   drove rough to 1 on a grazing river: its mirror became the bright overcast horizon - in the measuring player the Bat Cave
+   river in rain was exactly the owner's "flat grey sheet" with HD ON. The old water there is a white sheet with a foam rim.
+5. The HD variant of PSX/Water fails Vulkan compilation ("top-level params outside of cbuffers") - round 1 (749e05de) too, so
+   the next APK cut from mountain-nm would have logged a shader error. GLES3, D3D compile clean.
+6. `WaterLook.ActiveHere` was true in every scene without a sea (garage, home, dry stages): keyword on, depth copy every frame.
+   perf's copies-on-demand keyed the opaque copy on that same scene-level flag.
+7. From the driver's seat the water is mostly hidden: Lake Wylie behind Wilkinson Blvd's wall (0-1% of the view), the bridge
+   parapet (3% driver, 8% chase); Lake Lure is seen from US 64/74A mainly at the marina / downtown (8%); the Rocky Broad 1-3%.
+
+## What changed (all behind PSX_WATER_HD; =0 is the old water exactly; 21 commits, head = see the hand-back)
+- DEFAULT ON ON PC: `WaterLook.On` = `PSX_WATER_HD` if set, else VISUALS > WATER (HD / CLASSIC, `WaterPrefs`, PlayerPrefs
+  `psx.waterhd`, default HD when `PlatformProfile.PC`); phones and WebGL never (row not offered). Live switch, no restart.
+  `PSX_WATER_HD_SEA` (the coast stages' sea) unchanged, OFF. Classic/Retro picture modes keep whatever the row says (owner's call).
+- Lake motion: still water reads the sheet twice, +-0.45 rad off the wind, each creeping at 0.22 x phase speed (half that in a
+  light air), equal weight: the ripples work in place; gusts cross at 0.18 x wind; no vertex train on lakes/city. Rivers: flow
+  x1.5 (the bake's reach means 0.15-1.95 m/s -> surface speed; Manning gives 1.5-2.7 m/s in the gorge), a small wind creep. The
+  sea's motion is byte-for-byte the old formula (seaK). Lake shore foam only above 4 m/s wind.
+- F01: no jitter; crossings weighed by the gap in front of the ray (fade, not cut; a partial first hit blends with the next);
+  Toksvig roughness from the sheet's measured mip spectrum + capped screen-space normal variance, in quadrature; octave 3 drawn
+  to 40 m, gone by 60 m; the march normal and the wobble from octave A two mips softer (+2 fetches); spec power widens with it.
+- F02: march ends only at the top/bottom; x clamped to the edge column; no side fade.
+- Rain: roughness +0.25, 40% of the mirror taken and the rest broken up (wobble x3.5), rough water mirrors its banks BLURRED
+  (4 taps) instead of the sky, misses read the car's panorama (CarReflections' `_PSXEnvPano`, as the paint does) instead of the
+  bare sky, greying toward the sky's grey (10% near, +16% far), rain rings wider and pocked both ways (bright on dark water, dark
+  on sky-bright water), no sun/moon glint under overcast or rain (the sky's clear share in `_PSXWaterWind.w`).
+- City foam gain 0 (F03). Rivers: white water only above 0.35 of the mesh's b and none at the banks (in the vertex shader: no
+  scene pass); bank foam on running water capped at 0.35 and broken by the lace. River preset: flow roughness 0.25/m/s, less
+  absorption, amber-green scatter. Lake: vertex depth replaces the frame's bed where the lidar's drawdown floor is >1 m shallower.
+- Presets applied at runtime by material name (`WaterPresets`, *RiverWater / *LakeWater / CityWater; the builders use the
+  same numbers): a retune needs no scene pass. `PSX_WATER_PRESETS=0` = the materials as built (tools).
+- Cost/waste: copies only for a camera with HD water in its frustum (`WaterLook.WaterInView`, cached per camera per frame);
+  depth-copy RT per camera, released after 300 idle frames, old pass released on OnValidate; the HD variant warmed once
+  (`[WaterLook] warmed ...`); half the march steps beyond 300 m; no march looking steeply down (fresnel < 0.05).
+- `WaterVariantStrip` (Editor): the HD variant is left out of every non-Windows build (Vulkan error; phones never draw it).
+- Refraction and wobble offsets turned into screen axes (item 16); the weather memo keys on the weather itself (Forced, sky and
+  road overrides); `CopyReady` (no copy shader = no tier claim); CityFlickerFinder exempts PSX/Water from the 2500-queue rule;
+  `tools/water/make_ripples.py` committed. Gust field from three readings (190 / 442 / 1180 m) off the sea.
+- Self-test `TestWaterB` (6 checks), WaterShots part B sets (lure, drive, seastrip, rivertest, compile, strips, tiers, debug).
+
+## Proof (PSXLab, PC profile, fresh processes, same poses, frozen clock; scratch `scratchpad\water\`)
+Sheets: `sheets\B_lakelure.png` (Bat Cave chase in heavy rain first; old | PC49 HD | part B | 1:1; video frame where one
+exists), `sheets\B_charlotte_drive.png`, `sheets\B_motion.png`, `sheets\B_static.png`.
+- Motion (frames 1.0 s apart, water pixels): Lake Lure 18.7 -> 8.1 levels/s, no coherent slide (phase correlation peak at 0);
+  Lake Wylie 21.2 -> 10.5 per 0.5 s; the Bat Cave river now shifts 9 px/s DOWNSTREAM (PC49: 8 px/s the wrong way, with the
+  wind); the Bogue sea identical (12.6 = 12.6 levels/s; 214 px/s swell).
+- Static, reviewer's grain2.py at 1080: Lake Wylie water 81.7 (round 1) -> 41.5 (old water 3.5, rest of frame 11.3), and of
+  it only 4.2 is single-pixel (37.3 survives a 2x2 box: the mirrored dithered trees) against 34.4 in round 1; Sugar Creek
+  72.5 -> 24.0 (rest 21.2); test lake 8.2 -> 3.0; river mouth 28.5 -> 9.0; staged river 21.4 -> 12.7 (rest 12.7). At 1440 lines: Lake Wylie 42.4 (38.1 after the 2x2 box; rest 9.8), Sugar Creek 25.0 (rest 17.9), test lake 3.5, mouth 12.4 (rest 15.7).
+- Edge bars: staged lake noon edges 1.00 / 1.00 of the interior (round 1 1.58 / 1.46); sunset 1.10 / 1.01; calm 1.03 / 0.90.
+- Rain (staged lake): water mean 65 -> 94 (sky 94); brightest water 104 < brightest sky 126 (round 1: 131 > 126); the 8-px
+  block std RISES 1.4 -> 3.0 (the gate wanted a 30% fall): the dry lake is now a smooth mirror and rain adds pocks.
+- Night: Lake Wylie water peak / median 16.7x (old 5.1x); headlights on in every night cell.
+- Rim: no foam in the city (gain 0); the Catawba waterline band reads 1.26 x the open water (round 1 1.28) - it is the mirrored
+  sunlit grass bank, no pale line in the 1:1 crop; Sugar Creek 0.68.
+- Tiers 0 and 1, the rear-mirror view (tier 0): no magenta, murky water. GLES3 and D3D compile clean; Vulkan fails (stripped).
+- COST (measuring player PSXRelease\_water, 3832x2054 offscreen probe, in-process A/B HD vs `WaterLook.ForceClassic`, perf's
+  copies-on-demand ON, 7-10 other Unity editors running): main-view render-thread+GPU HD minus classic: Lake Lure marina noon
+  +0.15 (sd 0.25) / +0.40 (sd 0.49) ms; Lake Wylie bridge noon +1.03 (sd 0.38, an earlier build) / +0.11 (sd 0.29); Bat Cave
+  rain -0.11 / +0.31 (sd 0.44) / +0.48 (sd 0.66); Wylie night rain +0.06 (sd 0.77). Frame-time deltas are inside the noise
+  (sd 1.3-4 ms). Worst case, editor synthetic, 45% of a 3652x2054 frame water: tier 0 0.86, tier 1 0.99, tier 2 2.83 ms
+  (round 1 measured 1.26 ms at 1440p = ~2.6 ms at this size; the old water ~1.0). Watched drive (Lake Lure 9.0 km to Bat
+  Cave, rain, 2560x1440 window, 60 fps cap): 56 fps avg, p99 32.5 ms, GPU 12.8 ms.
+- Self-test (PSXLab, no PSX_WATER_HD, no PC profile): FAILED (64) twice, the same 64 checks each time, all of them also failing in perf's run of 749e05de-era code (66, a superset); the 6 new water checks ok.
+
+## What still looks wrong / not done
+- Bat Cave in rain from the chase camera: the river reads light-to-mid grey, now textured with pocks and darker than PC49 (white
+  sheet + foam rim), but still a grey strip: at that grazing angle it mirrors the overcast sky, and the banks it would mirror are
+  off the top of the frame (the car's panorama stands in, blurred). Lake Lure itself mirrors its ridge; the gorge river at noon
+  mirrors its banks.
+- From the driver's seat Lake Wylie is behind a wall / parapet; the city cells are mostly chase views. No lamp streak across the
+  water in the night cells: no street lamp stands across the water at these poses (the analytic streak code is unchanged).
+- Item 13 phone frame: not done (phones stay off; the variant is stripped from APKs). Item 15: the per-material split and the
+  Bogue sound vs ocean split not done (the coast scene gate stays). Item 17: CityFar's ring water (Scripts/City, a re-bake) not
+  touched or measured; gust grid checked from 30 m (wylie_gusts_high: no grid seen). Item 19 (the HD sea) not done. HitchProbe
+  drive not run (the warm-up is in). The review's rain block-std gate fails by design (above).
+- Cost numbers are noisy (shared machine); the in-process A/B is the honest number.
+
+## For the coordinator at merge
+- No scene pass, no city re-bake (nothing under Scripts/City), no data files. GraphicsSettings unchanged. CityWater.mat is
+  re-dressed by the next BuildCityScenesOnly (and the presets are applied at runtime anyway).
+- Shared files: `PerfSwitches.cs` (copies-on-demand now `WaterLook.CopiesWanted(cam)` + `WaterLook.CopiesOnDemand`; already in
+  this branch on top of 749e05de); `SpeedBlurFeature.cs` (Create, AddWaterDepth, WaterDepthPass only - rain-1116 edits
+  AddRenderPasses / WetPass: separate hunks); `SettingsCatalog.cs` (the WATER row after REFLECTIONS); `CityFlickerFinder.cs`
+  (one line); `LifeSimSelfTest.cs` (one Guard line).
+- New files with committed metas: `Editor/WaterShots.PartB.cs`, `Editor/WaterVariantStrip.cs`, `Editor/LifeSimSelfTest.WaterB.cs`.
+- `tools/PSXRacing_WaterHD.cmd` is no longer needed (HD is the default); `PSX_WATER_HD=0` gives the old water.
+- `PSXRelease\_water` (8.8 GB) is my measuring player: recycle it after the merge.
+
+## What the owner will notice
+Lake Lure and Charlotte's lakes and rivers mirror their ridges, trees and bridges in dark green-brown water instead of a
+blue-white sheet; the lake is calm, its ripples rise and fade in place, the river runs downstream. In rain the water goes grey,
+rougher and pocked, with no glints; the Bat Cave river in rain is still a lighter grey strip from the chase camera.
+
+# HANDOFF - THE LINE GATE (agents "linegate" then its Opus 5.5 successor, branch `city-linegate` off mountain-nm 742315cd, 2026-11-16/17; NOT pushed, NOT merged)
 
 The owner, PC48, North Tryon Street: "I still see a lot of areas around Charlotte where the road and/or road lines do not make
 sense, are not accurate, and would never pass DOT requirements ... these issues cannot get through the quality gate audits."
